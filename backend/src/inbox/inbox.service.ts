@@ -1555,6 +1555,28 @@ export class InboxService {
     return '';
   }
 
+  private collectConversationIdentityContacts(row: any) {
+    const metadata = this.parseConversationMetadata(row?.metadata);
+    return [
+      row?.contact,
+      metadata?.whatsappRemoteJidAlt,
+      metadata?.remoteJidAlt,
+      metadata?.customerPhone,
+      metadata?.whatsappPhone,
+      metadata?.phone,
+      metadata?.whatsappRemoteJid,
+      metadata?.remoteJid,
+    ];
+  }
+
+  private resolveConversationIdentityPhone(row: any) {
+    for (const candidate of this.collectConversationIdentityContacts(row)) {
+      const normalized = this.normalizeConversationPhone(String(candidate || ''));
+      if (normalized) return normalized;
+    }
+    return '';
+  }
+
   private normalizeManualConversationContact(value: unknown) {
     let digits = String(value || '').replace(/\D/g, '');
     if (!digits) return null;
@@ -3130,19 +3152,20 @@ export class InboxService {
       limit: take || 50,
     });
     const routingRules = await this.getRecoveryRoutingRules(companyId);
+    const identityContacts = liveChats.flatMap((row) => this.collectConversationIdentityContacts(row));
     const identityMap = await this.loadAtendimentoIdentityMap(
       companyId,
-      liveChats.map((row) => String(row.contact || '')),
+      identityContacts,
     );
     const sharedMap = await this.loadSharedProfileMap(
       companyId,
-      liveChats.map((row) => String(row.contact || '')),
+      identityContacts,
       identityMap,
     );
     const summaries: any[] = [];
     for (const row of liveChats) {
       const conversation = this.buildConversationReadModel(row);
-      const phoneNormalized = this.normalizeConversationPhone(String(conversation.contact || '')) || '';
+      const phoneNormalized = this.resolveConversationIdentityPhone(conversation);
       const identityRow = identityMap.get(phoneNormalized);
       const sharedProfile = identityRow?.customerProfileId
         ? sharedMap.byProfileId.get(String(identityRow.customerProfileId)) ?? null
@@ -3163,13 +3186,14 @@ export class InboxService {
     rows: any[],
     routingRules: RecoveryRoutingRules,
   ) {
+    const identityContacts = rows.flatMap((row) => this.collectConversationIdentityContacts(row));
     const identityMap = await this.loadAtendimentoIdentityMap(
       companyId,
-      rows.map((row) => String(row.contact || '')),
+      identityContacts,
     );
     const sharedMap = await this.loadSharedProfileMap(
       companyId,
-      rows.map((row) => String(row.contact || '')),
+      identityContacts,
       identityMap,
     );
 
@@ -3213,7 +3237,7 @@ export class InboxService {
         lastMessageAt: activityAt || null,
         messages: [...(row.messages || [])].reverse(),
       };
-      const phoneNormalized = this.normalizeConversationPhone(String(conversation.contact || '')) || '';
+      const phoneNormalized = this.resolveConversationIdentityPhone(conversation);
       const identityRow = identityMap.get(phoneNormalized);
       const sharedProfile = identityRow?.customerProfileId
         ? sharedMap.byProfileId.get(String(identityRow.customerProfileId)) ?? null
@@ -3551,10 +3575,11 @@ export class InboxService {
     }
 
     const routingRules = await this.getRecoveryRoutingRules(companyId);
-    const identityMap = await this.loadAtendimentoIdentityMap(companyId, [String(row.contact || '')]);
-    const phoneNormalized = this.normalizeConversationPhone(String(row.contact || '')) || '';
+    const identityContacts = this.collectConversationIdentityContacts(row);
+    const identityMap = await this.loadAtendimentoIdentityMap(companyId, identityContacts);
+    const phoneNormalized = this.resolveConversationIdentityPhone(row);
     const identityRow = identityMap.get(phoneNormalized);
-    const sharedMap = await this.loadSharedProfileMap(companyId, [String(row.contact || '')], identityMap);
+    const sharedMap = await this.loadSharedProfileMap(companyId, identityContacts, identityMap);
     const rowMetadata = this.parseConversationMetadata(row.metadata);
     const activityAt =
       this.resolveConversationActivityDate(row) ||
