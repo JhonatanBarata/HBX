@@ -407,7 +407,9 @@ function buildRemoteDeployScript(config, mode) {
     'if ! docker inspect -f "{{.State.Running}}" hbx-postgres 2>/dev/null | grep -q true; then echo "ERRO: container hbx-postgres nao esta running."; exit 1; fi',
     'POSTGRES_DB_VALUE="$(docker exec hbx-postgres sh -lc \'printf "%s" "$POSTGRES_DB"\')"',
     'if [ "$POSTGRES_DB_VALUE" != "hbx_prod" ]; then echo "ERRO: POSTGRES_DB inesperado: $POSTGRES_DB_VALUE"; exit 1; fi',
-    'predeploy_runtime_checks',
+    isForce
+      ? 'echo "Force mode: pulando checagem predeploy do hbx-backend existente; backend sera reconstruido neste deploy."'
+      : 'predeploy_runtime_checks',
     'ensure_frontend_compose_file() {',
     '  cat > docker-compose.frontend.yml <<\'YAML\'',
     'services:',
