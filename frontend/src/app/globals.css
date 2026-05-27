@@ -543,7 +543,7 @@ textarea {
 }
 
 .hbx-popup-layer[data-variant="notice"] {
-  place-items: start center;
+  place-items: center;
   padding-top: max(1rem, env(safe-area-inset-top));
 }
 

@@ -172,9 +172,18 @@ export function HbxPopup4({
   const [exiting, setExiting] = useState(false);
   const closeTimerRef = useRef<number | null>(null);
 
-  if (open && !shouldRender) {
-    setShouldRender(true);
-  }
+  useEffect(() => {
+    if (!open) return undefined;
+    if (closeTimerRef.current) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+    const timer = window.setTimeout(() => {
+      setShouldRender(true);
+      setExiting(false);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [open]);
 
   useEffect(() => {
     if (open || !shouldRender || exiting) return undefined;

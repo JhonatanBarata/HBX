@@ -167,6 +167,8 @@ type RadarSearchRunStatus =
   | "failed"
   | "canceled";
 
+type RadarOperationalState = "funcionando" | "pausado" | "parado";
+
 type RadarSearchRunResponse = RadarPullResponse & {
   id: string;
   runId: string;
@@ -180,6 +182,9 @@ type RadarSearchRunResponse = RadarPullResponse & {
     fetchedCount?: number;
     progress?: number;
     terminal?: boolean;
+    operationalState?: RadarOperationalState;
+    operationalReason?: string | null;
+    operationalMessage?: string | null;
     status?: RadarSearchRunStatus;
     runId?: string;
     nextRetryAt?: string | null;
@@ -1323,7 +1328,7 @@ function compactRadarMessage(message: string | null) {
   const text = String(message || "").trim();
   if (!text) return "";
   if (/buscando o restante em segundo plano/i.test(text)) {
-    return text.replace(/Buscando o restante em segundo plano\.?/i, "Radar trabalhando para completar a pesquisa.");
+    return text.replace(/Buscando o restante em segundo plano\.?/i, "Radar funcionando para completar a pesquisa.");
   }
   if (/request entity too large|payload too large|413/i.test(text)) {
     return "O pacote de cards ficou grande demais. Atualize a tela e use o fluxo automático do Radar.";
@@ -3569,21 +3574,42 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   const mobileVendasBlocked = dailyQuotaBlocked;
   const radarPausedByStock = vendasPendingCount != null && radarVendasStockMissing <= 0 && !radarStockPauseUnlocked;
   const currentRadarRunStatus = String(activeRun?.status || terminalRunSnapshot?.status || "").trim().toLowerCase();
+  const currentRadarBackendState = String(activeRun?.meta?.operationalState || terminalRunSnapshot?.meta?.operationalState || "").trim().toLowerCase();
   const radarPausedByRun = currentRadarRunStatus === "paused";
   const radarSleepingByRun = currentRadarRunStatus === "sleeping";
-  const radarPausedLocked = radarPausedByStock || radarPausedByRun || radarSleepingByRun;
-  const canCancelRadarRun = Boolean(activeRun || activeRunIdRef.current) && (searching || Boolean(activeRun) || radarCanceling || radarPausedByRun);
-  const mobileRadarProcessing = searching || Boolean(activeRun) || bulkSending || mobileAutoImportPending || radarCanceling;
-  const radarFiltersLocked = searching || Boolean(activeRun) || Boolean(activeRunIdRef.current) || mobileAutoImportPending || radarCanceling || radarPausedLocked;
+  const radarHasRunPointer = Boolean(activeRun || activeRunIdRef.current);
+  const radarPausedByQuota = dailyQuotaBlocked && radarHasRunPointer;
+  const radarPausedByBackend = currentRadarBackendState === "pausado";
+  const radarWorkingByBackend = currentRadarBackendState === "funcionando";
+  const radarOperationalState: RadarOperationalState =
+    radarSleepingByRun || radarPausedByRun || radarPausedByStock || radarPausedByQuota || radarPausedByBackend
+      ? "pausado"
+      : radarWorkingByBackend || searching || radarHasRunPointer || mobileAutoImportPending || bulkSending || radarCanceling
+        ? "funcionando"
+        : "parado";
+  const radarIsWorking = radarOperationalState === "funcionando";
+  const radarIsPaused = radarOperationalState === "pausado";
+  const radarIsStopped = radarOperationalState === "parado";
+  const radarPausedLocked = radarIsPaused;
+  const canCancelRadarRun = radarHasRunPointer && (radarIsWorking || radarCanceling || radarPausedByRun);
+  const mobileRadarProcessing = radarIsWorking || bulkSending || mobileAutoImportPending || radarCanceling;
+  const radarFiltersLocked = !radarIsStopped || mobileAutoImportPending || radarCanceling;
+  const radarOperationalLabel = radarIsWorking ? "Radar funcionando" : radarIsPaused ? "Radar pausado" : "Radar parado";
+  const radarBackendOperationalMessage = activeRun?.meta?.operationalMessage || terminalRunSnapshot?.meta?.operationalMessage || null;
+  const radarOperationalHelper = radarIsWorking
+    ? radarBackendOperationalMessage || "Filtros bloqueados enquanto a pesquisa roda. Aperte STOP para ajustar."
+    : radarIsPaused
+      ? radarBackendOperationalMessage || "Filtros bloqueados enquanto o Radar não estiver parado."
+      : "Filtros liberados para uma nova pesquisa.";
   const mobileCanResendToVendas = Boolean(visibleItems.length && hasSearched && !mobileRadarProcessing && !radarFiltersLocked);
-  const mobileDockCanSearch = !mobileVendasBlocked && !searching && !activeRun && !bulkSending && !radarFiltersLocked;
+  const mobileDockCanSearch = !mobileVendasBlocked && radarIsStopped && !bulkSending;
   const mobileDockPrimaryIcon: "stop" | "pause" | "play" = radarPausedLocked ? "stop" : canCancelRadarRun ? "stop" : "play";
   const mobileDockPrimaryTone: "default" | "danger" | "warning" = radarPausedLocked ? "warning" : canCancelRadarRun ? "danger" : "default";
   const mobileDockPrimaryLabel = radarPausedLocked
       ? "Parar e editar"
     : canCancelRadarRun
-      ? radarCanceling ? "Cancelando pesquisa atual" : "Cancelar pesquisa atual"
-      : "Ativar Radar";
+      ? radarCanceling ? "Cancelando..." : "STOP"
+      : "Buscar";
   const rawRadarMomentRun = activeRun || terminalRunSnapshot;
   const radarMomentRun = activeRun || (radarRunMatchesVisibleFilters(rawRadarMomentRun, filters) ? rawRadarMomentRun : null);
   const radarMomentIsActive = Boolean(radarMomentRun && activeRun && radarMomentRun === activeRun);
@@ -3604,6 +3630,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     Number(radarMomentRun?.meta?.rawFoundCount ?? radarMomentQuality?.found ?? 0),
     radarMomentDelivered + radarMomentDiscarded,
   );
+  const radarStoppedWithoutCards = radarIsStopped && hasSearched && !loading && !activeRun && visibleItems.length === 0 && radarMomentDelivered === 0;
   const radarMomentApprovedLine = `${Math.min(radarMomentDelivered, radarMomentTarget).toLocaleString("pt-BR")} de até ${radarMomentTarget.toLocaleString("pt-BR")} cards aprovados para o Vendas`;
   const radarMomentProgress = radarMomentIsActive
     ? activeRunProgress
@@ -3613,7 +3640,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   const activeRunPartial = activeRunStatus === "completed_insufficient_results" || activeRunStatus === "partial_error";
   const activeRunFailed = activeRunStatus === "failed";
   const activeRunRemaining = Math.max(0, radarMomentTarget - radarMomentDelivered);
-  const radarMomentState = activeRunFailed
+  const radarMomentState = activeRunFailed || radarStoppedWithoutCards
       ? "warning"
       : activeRunPartial
         ? "partial"
@@ -3624,23 +3651,12 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
         : hasSearched && visibleItems.length > 0
           ? "received"
           : "ready";
-  const radarMomentTitle =
-    radarMomentState === "warning"
-      ? "Radar precisa de ajuste"
-    : activeRunSleeping
-      ? "Radar em espera"
-    : radarMomentState === "partial"
-        ? `Radar entregou ${radarMomentDelivered.toLocaleString("pt-BR")} card(s)`
-        : radarMomentState === "receiving"
-          ? "Radar buscando agora"
-            : radarMomentState === "searching"
-              ? "Radar buscando agora"
-              : radarMomentState === "received"
-                ? "Radar abasteceu Vendas"
-                : "Pronto para abastecer Vendas";
+  const radarMomentTitle = radarOperationalLabel;
   const radarMotionActive = !radarCanceling && !activeRunSleeping && (radarMomentState === "searching" || radarMomentState === "receiving");
   const radarMomentDescription =
-    radarMomentState === "warning"
+    radarStoppedWithoutCards
+      ? "Radar parado sem cards para trabalhar. Ajuste cidade, segmento ou alcance e volte às pesquisas."
+    : radarMomentState === "warning"
       ? radarMomentRun?.errorMessage || radarMomentRun?.message || "Revise os filtros e rode uma nova busca."
       : activeRunSleeping
         ? radarMomentRun?.errorMessage || "A mesma pesquisa será retomada automaticamente."
@@ -3658,6 +3674,8 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   const radarMomentBadge =
     activeRunSleeping
       ? "Retoma automaticamente"
+      : radarStoppedWithoutCards
+        ? "Atenção: voltar às pesquisas"
       : radarMomentState === "searching"
       ? `${radarMomentProgress}% em andamento`
       : radarMomentState === "receiving" || radarMomentState === "partial"
@@ -3671,6 +3689,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
               : radarVendasStockMissing > 0
                 ? `Faltam ${radarVendasStockMissing.toLocaleString("pt-BR")} para o Radar descansar`
                 : `${currentVendasStock.toLocaleString("pt-BR")} de ${effectiveFilters.quantity.toLocaleString("pt-BR")} no Vendas`;
+  const radarHeaderEyebrow = radarStoppedWithoutCards ? "Atenção" : "Radar Digital";
   const runFilters = radarMomentRun?.meta?.filters;
   const scopeSegment = radarSegmentSummary(filters.segment || runFilters?.segment || "") || "";
   const scopeCity = filters.city || runFilters?.city || "";
@@ -4055,10 +4074,10 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
               onClick={() => setMobileQuotaPopupOpen((current) => !current)}
             />
             <div className={styles.mobileRadarHeroCopy}>
-              <span>Radar Digital</span>
+              <span>{radarHeaderEyebrow}</span>
               <strong>{radarMomentTitle}</strong>
               <p>{radarMomentDescription}</p>
-              <small>{searchScopeLine || radarMomentBadge}</small>
+              <small>{radarStoppedWithoutCards ? radarMomentBadge : searchScopeLine || radarMomentBadge}</small>
             </div>
           </section>
 
@@ -4159,8 +4178,8 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
 
             {radarFiltersLocked ? (
               <div className={styles.mobileRadarLockedNotice} role="status">
-                <strong>{radarPausedLocked ? radarSleepingByRun ? "Radar em espera" : "Radar pausado" : "Radar trabalhando"}</strong>
-                <span>{radarPausedLocked ? "Filtros bloqueados enquanto o Radar não estiver parado." : "Filtros bloqueados enquanto a pesquisa roda. Aperte STOP para ajustar."}</span>
+                <strong>{radarOperationalLabel}</strong>
+                <span>{radarOperationalHelper}</span>
                 {radarPausedLocked ? (
                   <button type="button" onClick={() => void stopRadarForEditing()} disabled={radarCanceling}>
                     {radarCanceling ? "Parando..." : "Parar e editar"}
@@ -4311,8 +4330,8 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
                 </div>
               ) : mobileRadarProcessing ? (
                 <div className={`${styles.mobileRadarState} hbx-mobile-empty`}>
-                  <strong>Radar buscando agora</strong>
-                  <span>Os filtros ficam travados enquanto o Radar trabalha. Aperte STOP para parar e ajustar a busca.</span>
+                  <strong>{radarOperationalLabel}</strong>
+                  <span>Os filtros ficam travados enquanto o Radar está funcionando. Aperte STOP para parar e ajustar a busca.</span>
                 </div>
               ) : !loading && !visibleItems.length ? (
                 <div className={`${styles.mobileRadarState} hbx-mobile-empty`}>
@@ -4338,13 +4357,20 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
 
         <header className={styles.header} data-state={radarMomentState}>
           <div>
-            <span>HBX</span>
+            <span>{radarHeaderEyebrow}</span>
             <h1>{radarMomentTitle}</h1>
             <p>{radarMomentDescription}</p>
           </div>
           <button
             type="button"
             onClick={() => {
+              if (radarStoppedWithoutCards) {
+                setFilterEditing(true);
+                if (typeof document !== "undefined") {
+                  document.querySelector(`.${styles.filters}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }
+                return;
+              }
               if (radarPausedLocked) {
                 void stopRadarForEditing();
                 return;
@@ -4360,10 +4386,10 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
               void sendFilteredToVendas();
             }}
             data-tone={radarPausedLocked ? "warning" : undefined}
-            disabled={(radarFiltersLocked && !radarPausedLocked) || (!radarPausedLocked && !activeRunPartial && !activeRunFailed && (bulkSending || !visibleItems.length))}
-            title={radarFiltersLocked ? "Pare o Radar para alterar filtros ou enviar para Vendas." : !visibleItems.length && !activeRunPartial && !activeRunFailed ? "Pesquise primeiro para escolher o que vai para Vendas." : undefined}
+            disabled={!radarStoppedWithoutCards && ((radarFiltersLocked && !radarPausedLocked) || (!radarPausedLocked && !activeRunPartial && !activeRunFailed && (bulkSending || !visibleItems.length)))}
+            title={radarStoppedWithoutCards ? "Voltar aos filtros para pesquisar novamente." : radarFiltersLocked ? "Pare o Radar para alterar filtros ou enviar para Vendas." : !visibleItems.length && !activeRunPartial && !activeRunFailed ? "Pesquise primeiro para escolher o que vai para Vendas." : undefined}
           >
-            {radarPausedLocked ? "Parar e editar" : activeRunPartial || activeRunFailed ? "Ajustar busca" : bulkSending ? "Enviando..." : distributionEnabled ? "Distribuir cards" : "Enviar para Vendas"}
+            {radarStoppedWithoutCards ? "Voltar às pesquisas" : radarPausedLocked ? "Parar e editar" : activeRunPartial || activeRunFailed ? "Ajustar busca" : bulkSending ? "Enviando..." : distributionEnabled ? "Distribuir cards" : "Enviar para Vendas"}
           </button>
         </header>
 
@@ -4498,7 +4524,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
           <div className={styles.filterActions}>
             <button type="button" data-variant="secondary" onClick={clearFilters} disabled={radarFiltersLocked}>Limpar filtros</button>
             <button type="submit" disabled={radarFiltersLocked || dailyQuotaBlocked}>
-              {radarFiltersLocked ? (radarPausedLocked ? "Radar pausado" : "Radar trabalhando") : "Pesquisar"}
+              {radarFiltersLocked ? radarOperationalLabel : "Pesquisar"}
             </button>
           </div>
         </form>
@@ -4507,7 +4533,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
           <section className={styles.runProgress} aria-live="polite">
             <div className={styles.runProgressHeader}>
               <div>
-                <span>Pesquisa em andamento</span>
+                <span>{radarOperationalLabel}</span>
                 <strong>{activeRunDelivered.toLocaleString("pt-BR")} de até {activeRunTarget.toLocaleString("pt-BR")} cards</strong>
               </div>
               <small>{socialLookupPendingCount > 0 ? "Enriquecendo contatos" : activeRun.status === "queued" ? "Na fila HBX" : "Verificando disponibilidade real"}</small>
