@@ -9,19 +9,20 @@ type GuardedModuleKey = "vendas" | "atendimento" | "webscraping" | "website";
 
 export function useRequireModule(moduleKey: GuardedModuleKey) {
   const hasToken = useRequireAuth();
-  const [allowed, setAllowed] = useState<boolean | null>(null);
+  const [moduleAccess, setModuleAccess] = useState<{
+    moduleKey: GuardedModuleKey;
+    allowed: boolean;
+  } | null>(null);
 
   useEffect(() => {
     let mounted = true;
 
     if (hasToken !== true) {
-      setAllowed(hasToken === false ? false : null);
       return () => {
         mounted = false;
       };
     }
 
-    setAllowed(null);
     apiFetch<UserModule[]>("/modules/me")
       .then((modules) => {
         if (!mounted) return;
@@ -29,11 +30,11 @@ export function useRequireModule(moduleKey: GuardedModuleKey) {
         const moduleItem = (Array.isArray(modules) ? modules : []).find(
           (item) => normalizeUserModuleKey(item.key) === normalizedKey,
         );
-        setAllowed(Boolean(moduleItem?.accessible));
+        setModuleAccess({ moduleKey, allowed: Boolean(moduleItem?.accessible) });
       })
       .catch(() => {
         if (!mounted) return;
-        setAllowed(false);
+        setModuleAccess({ moduleKey, allowed: false });
       });
 
     return () => {
@@ -41,6 +42,8 @@ export function useRequireModule(moduleKey: GuardedModuleKey) {
     };
   }, [hasToken, moduleKey]);
 
-  if (hasToken === null || (hasToken === true && allowed === null)) return null;
-  return hasToken === true && allowed === true;
+  if (hasToken === null) return null;
+  if (hasToken === false) return false;
+  if (moduleAccess?.moduleKey !== moduleKey) return null;
+  return moduleAccess.allowed === true;
 }

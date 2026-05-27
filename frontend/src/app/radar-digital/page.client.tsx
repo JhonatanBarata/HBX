@@ -418,15 +418,19 @@ function normalizeRadarTerritoryKey(city?: string | null, state?: string | null)
 function normalizeRadarAutoDistributionTerritories(value: unknown): RadarAutoDistributionTerritory[] {
   const source = Array.isArray(value) ? value : [];
   return source
-    .map((item: any) => {
-      const userId = Math.trunc(Number(item?.userId || 0));
+    .map((item) => {
+      const itemRecord = normalizeProfileObject(item);
+      const userId = Math.trunc(Number(itemRecord?.userId || 0));
       const cities = Array.from(
         new Map<string, RadarAutoDistributionTerritoryCity>(
-          (Array.isArray(item?.cities) ? item.cities : [])
-            .map((cityItem: any) => ({
-              city: String(cityItem?.city || "").trim(),
-              state: String(cityItem?.state || "").trim().toUpperCase(),
-            }))
+          (Array.isArray(itemRecord?.cities) ? itemRecord.cities : [])
+            .map((cityItem) => {
+              const cityRecord = normalizeProfileObject(cityItem);
+              return {
+                city: String(cityRecord?.city || "").trim(),
+                state: String(cityRecord?.state || "").trim().toUpperCase(),
+              };
+            })
             .filter((cityItem: RadarAutoDistributionTerritoryCity) => cityItem.city && cityItem.state)
             .map((cityItem: RadarAutoDistributionTerritoryCity) => [normalizeRadarTerritoryKey(cityItem.city, cityItem.state), cityItem]),
         ).values(),
@@ -1887,12 +1891,6 @@ function MobileSegmentSheet({
   const canUseTypedSegment = Boolean(query.trim()) && visibleSegments.length === 0;
 
   useEffect(() => {
-    setDraftValue(value);
-    setActiveGroupKey(inferRadarSegmentCategory(value));
-    setApplyError(null);
-  }, [value]);
-
-  useEffect(() => {
     if (!searchOpen || segmentStep !== "segments") return;
     inputRef.current?.focus();
   }, [searchOpen, segmentStep]);
@@ -1946,7 +1944,7 @@ function MobileSegmentSheet({
     setSearchOpen(true);
   }
 
-  function useTypedSegment() {
+  function applyTypedSegment() {
     const normalized = normalizeSegmentLabel(query);
     if (!normalized) return;
     setDraftValue(normalized);
@@ -1999,7 +1997,7 @@ function MobileSegmentSheet({
               if (event.key !== "Enter") return;
               event.preventDefault();
               if (canUseTypedSegment) {
-                useTypedSegment();
+                applyTypedSegment();
                 return;
               }
               if (visibleSegments[0]) toggleSegment(visibleSegments[0]);
@@ -2055,7 +2053,7 @@ function MobileSegmentSheet({
                 <span>{query.trim()}</span>
                 <button
                   type="button"
-                  onClick={useTypedSegment}
+                  onClick={applyTypedSegment}
                 >
                   Buscar
                 </button>
@@ -4294,6 +4292,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
           ) : null}
           {!radarFiltersLocked && mobilePicker === "segment" ? (
             <MobileSegmentSheet
+              key={filters.segment || "empty"}
               value={filters.segment}
               availableSegments={availableSegmentValues}
               onApply={applyMobileSegments}
