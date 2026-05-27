@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8" />
@@ -60,20 +60,20 @@
     <div class="loader-ring"></div>
     <div class="loader-text">Carregando...</div>
   </div>
-  <h1>ðŸ”§ Setup Inicial - Guincho Rio Claro</h1>
+  <h1>?? Setup Inicial - Guincho Rio Claro</h1>
   
   <div class="info">
-    <strong>âš ï¸ Importante:</strong><br>
+    <strong>?? Importante:</strong><br>
     1. Configure o Firebase primeiro (firebase-config.local.js)<br>
-    2. Crie usuÃ¡rio no Firebase Authentication<br>
-    3. FaÃ§a login abaixo<br>
+    2. Crie usuário no Firebase Authentication<br>
+    3. Faça login abaixo<br>
     4. Execute este script para popular dados iniciais<br>
-    5. Depois vocÃª pode deletar este arquivo
+    5. Depois você pode deletar este arquivo
   </div>
 
   <!-- Login Section -->
   <div id="loginSection" style="background: #1a1a1a; padding: 20px; border-radius: 8px; border-left: 3px solid #d4af37; margin: 20px 0;">
-    <h3>ðŸ”‘ Fazer Login</h3>
+    <h3>?? Fazer Login</h3>
     <input type="email" id="email" placeholder="Email" style="width: 100%; padding: 10px; margin: 10px 0; background: #0b0b0b; color: #e5e7eb; border: 1px solid #333; border-radius: 4px;">
     <input type="password" id="senha" placeholder="Senha" style="width: 100%; padding: 10px; margin: 10px 0; background: #0b0b0b; color: #e5e7eb; border: 1px solid #333; border-radius: 4px;">
     <button class="btn" onclick="fazerLogin()" id="btnLogin">Fazer Login</button>
@@ -100,8 +100,8 @@
   <script src="firebase-config.js"></script>
 
   <script>
-    // Firebase jÃ¡ foi carregado e inicializado em firebase-config.js
-    // firebaseDB estÃ¡ disponÃ­vel globalmente
+    // Firebase já foi carregado e inicializado em firebase-config.js
+    // firebaseDB está disponível globalmente
     
     function verificarFirebase() {
       if (typeof firebaseDB === 'undefined') {
@@ -110,10 +110,10 @@
       }
 
       if (typeof firebaseDB !== 'undefined') {
-        log('âœ“ Firebase conectado', 'success');
+        log('? Firebase conectado', 'success');
         return true;
       } else {
-        log('âŒ Firebase nÃ£o carregou! Verifique firebase-config.js', 'error');
+        log('? Firebase não carregou! Verifique firebase-config.js', 'error');
         return false;
       }
     }
@@ -140,15 +140,15 @@
       try {
         status.innerHTML = '<span style="color: #9ca3af;">Fazendo login...</span>';
         await firebaseAuth.signInWithEmailAndPassword(email, senha);
-        status.innerHTML = '<span style="color: #52c41a;">âœ“ Logado com sucesso!</span>';
+        status.innerHTML = '<span style="color: #52c41a;">? Logado com sucesso!</span>';
         
-        // Mostrar seÃ§Ã£o de setup
+        // Mostrar seção de setup
         document.getElementById('loginSection').style.display = 'none';
         document.getElementById('setupSection').style.display = 'block';
-        log('âœ“ UsuÃ¡rio autenticado com sucesso!', 'success');
+        log('? Usuário autenticado com sucesso!', 'success');
       } catch (error) {
         status.innerHTML = `<span style="color: #ff4d4f;">Erro: ${error.message}</span>`;
-        log(`âŒ Erro ao fazer login: ${error.message}`, 'error');
+        log(`? Erro ao fazer login: ${error.message}`, 'error');
       }
     }
 
@@ -159,10 +159,10 @@
       document.getElementById('email').value = '';
       document.getElementById('senha').value = '';
       document.getElementById('statusLogin').innerHTML = '';
-      log('âœ“ Deslogado com sucesso!', 'success');
+      log('? Deslogado com sucesso!', 'success');
     }
 
-    // Verificar se jÃ¡ estÃ¡ logado
+    // Verificar se já está logado
     window.addEventListener('load', () => {
       if (typeof firebase === 'undefined' || typeof firebaseDB === 'undefined') {
         log('Firebase not loaded! Check firebase-config.local.js and firebase-config.js', 'error');
@@ -173,7 +173,7 @@
         if (user) {
           document.getElementById('loginSection').style.display = 'none';
           document.getElementById('setupSection').style.display = 'block';
-          log(`âœ“ VocÃª jÃ¡ estÃ¡ logado como: ${user.email}`, 'success');
+          log(`? Você já está logado como: ${user.email}`, 'success');
         }
       });
     });
@@ -191,13 +191,13 @@
       
       const tipos = [
         { nome: 'Garapeira' },
-        { nome: 'PequiÃ¡' },
+        { nome: 'Pequiá' },
         { nome: 'Angelim de Pedra' },
         { nome: 'Madeira Nobre' }
       ];
       
       try {
-        log('ðŸ“ Iniciando inserÃ§Ã£o de tipos...');
+        log('?? Iniciando inserção de tipos...');
         
         for (const tipo of tipos) {
           log(`Adicionando tipo: ${tipo.nome}...`);
@@ -205,13 +205,13 @@
             ...tipo,
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
           });
-          log(`âœ“ Tipo "${tipo.nome}" criado (ID: ${docRef.id})`, 'success');
+          log(`? Tipo "${tipo.nome}" criado (ID: ${docRef.id})`, 'success');
         }
         
-        log('âœ… Todos os tipos criados com sucesso!', 'success');
+        log('? Todos os tipos criados com sucesso!', 'success');
         document.getElementById('btnMesas').disabled = false;
       } catch (error) {
-        log(`âŒ Erro ao criar tipos: ${error.message}`, 'error');
+        log(`? Erro ao criar tipos: ${error.message}`, 'error');
         console.error('Erro completo:', error);
         btn.disabled = false;
       }
@@ -232,23 +232,23 @@
         {
           tipo: 'Garapeira',
           nome: 'Mesa de Garapeira',
-          descricao: 'Escultura em madeira maciÃ§a, acabamento premium, peÃ§a exclusiva para ambientes sofisticados.',
+          descricao: 'Escultura em madeira maciça, acabamento premium, peça exclusiva para ambientes sofisticados.',
           especificacoes: [
             'Madeira: Garapeira nobre',
             'Acabamento: Verniz acetinado',
-            'Design: PeÃ§a Ãºnica'
+            'Design: Peça única'
           ],
           fotos: ['public/img/MESA 1 (1).jpeg'],
           paginaDetalhes: 'garapeira.html'
         },
         {
-          tipo: 'PequiÃ¡',
-          nome: 'Mesa de PequiÃ¡',
-          descricao: 'Design orgÃ¢nico em pequiÃ¡ maciÃ§o, resistÃªncia excepcional e beleza natural incomparÃ¡vel.',
+          tipo: 'Pequiá',
+          nome: 'Mesa de Pequiá',
+          descricao: 'Design orgânico em pequiá maciço, resistência excepcional e beleza natural incomparável.',
           especificacoes: [
-            'Madeira: PequiÃ¡ maciÃ§o',
+            'Madeira: Pequiá maciço',
             'Acabamento: Verniz premium',
-            'Estrutura: ReforÃ§ada'
+            'Estrutura: Reforçada'
           ],
           fotos: ['public/img/MESA 2.jpeg'],
           paginaDetalhes: 'pequia.html'
@@ -256,11 +256,11 @@
         {
           tipo: 'Angelim de Pedra',
           nome: 'Mesa de Angelim de Pedra',
-          descricao: 'Angelim de Pedra raro, formato Ãºnico, peÃ§a de destaque para escritÃ³rios executivos.',
+          descricao: 'Angelim de Pedra raro, formato único, peça de destaque para escritórios executivos.',
           especificacoes: [
             'Madeira: Angelim de Pedra',
-            'Acabamento: ImpermeabilizaÃ§Ã£o especial',
-            'CertificaÃ§Ã£o: Manejo sustentÃ¡vel'
+            'Acabamento: Impermeabilização especial',
+            'Certificação: Manejo sustentável'
           ],
           fotos: ['public/img/MESA 3.jpeg'],
           paginaDetalhes: 'pedra.html'
@@ -273,13 +273,13 @@
             ...mesa,
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
           });
-          log(`âœ“ Mesa "${mesa.nome}" criada`, 'success');
+          log(`? Mesa "${mesa.nome}" criada`, 'success');
         }
         
-        log('âœ… Todas as mesas criadas com sucesso!', 'success');
+        log('? Todas as mesas criadas com sucesso!', 'success');
         document.getElementById('btnCarrossel').disabled = false;
       } catch (error) {
-        log(`âŒ Erro: ${error.message}`, 'error');
+        log(`? Erro: ${error.message}`, 'error');
         btn.disabled = false;
       }
     }
@@ -312,25 +312,25 @@
           updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
         
-        log('âœ… Carrossel configurado com sucesso!', 'success');
+        log('? Carrossel configurado com sucesso!', 'success');
         log('', 'info');
-        log('ðŸŽ‰ SETUP COMPLETO! VocÃª pode:', 'success');
-        log('   â€¢ Acessar /admin.html para gerenciar', 'success');
-        log('   â€¢ Ver o site funcionando normalmente', 'success');
-        log('   â€¢ Deletar este arquivo (setup.html)', 'success');
+        log('?? SETUP COMPLETO! Você pode:', 'success');
+        log('   • Acessar /admin.html para gerenciar', 'success');
+        log('   • Ver o site funcionando normalmente', 'success');
+        log('   • Deletar este arquivo (setup.html)', 'success');
       } catch (error) {
-        log(`âŒ Erro: ${error.message}`, 'error');
+        log(`? Erro: ${error.message}`, 'error');
         btn.disabled = false;
       }
     }
 
-    // Verificar conexÃ£o Firebase
+    // Verificar conexão Firebase
     window.addEventListener('load', () => {
       if (typeof firebase === 'undefined') {
-        log('âŒ Firebase nÃ£o carregado! Verifique firebase-config.js', 'error');
+        log('? Firebase não carregado! Verifique firebase-config.js', 'error');
       } else {
-        log('âœ“ Firebase carregado', 'success');
-        log('Pronto para comeÃ§ar!', 'info');
+        log('? Firebase carregado', 'success');
+        log('Pronto para começar!', 'info');
       }
     });
   </script>

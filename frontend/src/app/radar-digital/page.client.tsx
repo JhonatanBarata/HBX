@@ -2187,6 +2187,8 @@ function RadarMotionBackground({ active }: { active: boolean }) {
 export default function RadarDigitalClientPage({ mobileRoute = false }: { mobileRoute?: boolean } = {}) {
   const hasToken = useRequireModule("webscraping");
   const searchParams = useSearchParams();
+  const embeddedPopupFrame = searchParams?.get("hbxPopup4") === "1";
+  const embeddedPopupTick = searchParams?.get("hbxPopupTick") || "";
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [appliedFilters, setAppliedFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [generalSearch, setGeneralSearch] = useState("");
@@ -2235,6 +2237,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   const [enrichmentSummary, setEnrichmentSummary] = useState<RadarEnrichmentSummary | null>(null);
   const activeRunIdRef = useRef<string | null>(null);
   const pendingFreshRunRef = useRef(false);
+  const mobileRadarRef = useRef<HTMLDivElement | null>(null);
   const mobileSearchNoticeRef = useRef<HTMLElement | null>(null);
   const filterEditingRef = useRef(false);
   const filterEditingReleaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2243,6 +2246,31 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     () => mobileRoute || isMobileRadarViewport(),
     [mobileRoute],
   );
+
+  useEffect(() => {
+    if (!embeddedPopupFrame) return undefined;
+
+    const previousRestoration = window.history.scrollRestoration;
+    window.history.scrollRestoration = "manual";
+
+    const resetPopupScroll = () => {
+      window.scrollTo(0, 0);
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+      mobileRadarRef.current?.scrollTo(0, 0);
+      const mobileViewport = mobileRadarRef.current?.closest<HTMLElement>("main");
+      mobileViewport?.scrollTo(0, 0);
+    };
+
+    resetPopupScroll();
+    window.requestAnimationFrame(resetPopupScroll);
+    const timers = [0, 160, 420, 800].map((delay) => window.setTimeout(resetPopupScroll, delay));
+
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer));
+      window.history.scrollRestoration = previousRestoration;
+    };
+  }, [embeddedPopupFrame, embeddedPopupTick]);
 
   const searchMatchedItems = useMemo(
     () => items.filter((item) => leadMatchesSearch(item, appliedGeneralSearch)),
@@ -4011,7 +4039,11 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     >
       <section className={styles.shell} data-mobile-route={mobileRoute ? "true" : "false"}>
         {renderAutoDistributionModal()}
-        <div className={`${styles.mobileRadar} hbx-mobile-page`}>
+        <div
+          ref={mobileRadarRef}
+          className={`${styles.mobileRadar} hbx-mobile-page`}
+          data-popup-frame={embeddedPopupFrame ? "true" : "false"}
+        >
           <section className={`${styles.mobileRadarHero} hbx-mobile-hero`} data-state={radarMomentState}>
             <RadarMotionBackground active={radarMotionActive} />
             <HeroPremiumCrown active={mobileHeroPremiumActive} />

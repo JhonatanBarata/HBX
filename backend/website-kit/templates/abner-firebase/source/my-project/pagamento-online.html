@@ -220,7 +220,7 @@
         <span></span>
       </button>
       <nav class="main-nav" data-mobile-menu>
-        <a href="index.html">Inicio</a>
+        <a href="index.html">Início</a>
         <a href="sobre.html">Sobre</a>
         <a class="is-active" href="pagamento-online.html">Pagamento Online</a>
         <a href="admin.html">Admin</a>
@@ -234,7 +234,7 @@
         <span class="eyebrow">Checkout oficial Mercado Pago</span>
         <h1>Pagamento Online</h1>
         <p class="payment-online-copy">
-          Preencha os dados do atendimento e o valor combinado. O site cria uma guia segura e envia voce para o checkout oficial do Mercado Pago.
+          Preencha os dados do atendimento e o valor combinado. O site cria uma guia segura e envia você para o checkout oficial do Mercado Pago.
         </p>
 
         <form id="publicPaymentForm">
@@ -267,10 +267,10 @@
               </select>
             </div>
             <div class="payment-form-field">
-              <label for="serviceType">Servico</label>
+              <label for="serviceType">Serviço</label>
               <select class="payment-select" id="serviceType" name="serviceType">
                 <option>Socorro urgente</option>
-                <option>Remocao de veiculo</option>
+                <option>Remoção de veículo</option>
                 <option>Transporte agendado</option>
                 <option>Guincho pesado</option>
               </select>
@@ -318,7 +318,7 @@
 
       <aside class="card payment-online-card">
         <span class="eyebrow">Como funciona</span>
-        <h2>Sem dados do cartao no site</h2>
+        <h2>Sem dados do cartão no site</h2>
         <div class="payment-summary">
           <div class="payment-summary-box">
             <span class="payment-summary-label">Total informado</span>
@@ -331,7 +331,7 @@
           <div class="payment-step">
             <span>1</span>
             <div>
-              <strong>Voce informa o valor</strong>
+              <strong>Você informa o valor</strong>
               <p>O valor combinado vira uma guia de pagamento vinculada ao atendimento.</p>
             </div>
           </div>
@@ -339,7 +339,7 @@
             <span>2</span>
             <div>
               <strong>Checkout Mercado Pago</strong>
-              <p>O cartao, Pix ou forma de pagamento sao tratados no ambiente oficial do Mercado Pago.</p>
+              <p>O cartão, Pix ou forma de pagamento são tratados no ambiente oficial do Mercado Pago.</p>
             </div>
           </div>
           <div class="payment-step">
@@ -430,7 +430,7 @@
         const data = await response.json();
 
         if (!response.ok || !data.ok) {
-          throw new Error(data.error || 'Nao foi possivel gerar a guia agora.');
+          throw new Error(data.error || 'Não foi possível gerar a guia agora.');
         }
 
         setState('Guia criada. Abrindo checkout seguro...', 'ok');
@@ -438,7 +438,7 @@
       } catch (error) {
         submitButton.disabled = false;
         submitButton.textContent = 'Gerar guia segura';
-        setState(error.message || 'Nao foi possivel gerar a guia agora.', 'error');
+        setState(error.message || 'Não foi possível gerar a guia agora.', 'error');
       }
     });
 

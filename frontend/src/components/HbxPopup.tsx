@@ -44,6 +44,19 @@ type HbxPopup3Props = {
   onConfirm: () => void;
 };
 
+type HbxPopup4Props = {
+  open: boolean;
+  children: ReactNode;
+  title?: string;
+  eyebrow?: string;
+  closeLabel?: string;
+  showCloseButton?: boolean;
+  className?: string;
+  onClose?: () => void;
+};
+
+const HBX_POPUP4_EXIT_MS = 280;
+
 function toneTitle(tone: HbxPopupTone) {
   if (tone === "danger") return "Atenção do sistema";
   if (tone === "success") return "Tudo certo";
@@ -145,17 +158,99 @@ export function HbxPopup3(props: HbxPopup3Props) {
   return createPortal(<HbxPopup3Dialog {...props} />, document.body);
 }
 
+export function HbxPopup4({
+  open,
+  children,
+  title,
+  eyebrow,
+  closeLabel = "Fechar painel",
+  showCloseButton = true,
+  className,
+  onClose,
+}: HbxPopup4Props) {
+  const [shouldRender, setShouldRender] = useState(open);
+
+  if (open && !shouldRender) {
+    setShouldRender(true);
+  }
+
+  useEffect(() => {
+    if (open || !shouldRender) return undefined;
+
+    const timer = window.setTimeout(() => setShouldRender(false), HBX_POPUP4_EXIT_MS);
+    return () => window.clearTimeout(timer);
+  }, [open, shouldRender]);
+
+  if (!shouldRender || typeof document === "undefined") return null;
+
+  const hasHeader = Boolean(title || eyebrow);
+  const popupClassName = className ? `hbx-popup4 ${className}` : "hbx-popup4";
+  const motionState = open ? "entered" : "exiting";
+
+  return createPortal(
+    <HbxPopupLayer variant="side-phone" state={motionState} onOutsideClick={onClose}>
+      <section
+        className={popupClassName}
+        data-has-header={hasHeader ? "true" : "false"}
+        data-state={motionState}
+        role="dialog"
+        aria-modal="false"
+        aria-label={title || eyebrow || "Painel HBX"}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="hbx-popup4__bezel" aria-hidden="true" />
+        {hasHeader ? (
+          <header className="hbx-popup4__header">
+            <div className="hbx-popup4__title">
+              {eyebrow ? <span>{eyebrow}</span> : null}
+              {title ? <strong>{title}</strong> : null}
+            </div>
+            {onClose && showCloseButton ? (
+              <button type="button" className="hbx-popup4__close" onClick={onClose} aria-label={closeLabel}>
+                ×
+              </button>
+            ) : null}
+          </header>
+        ) : null}
+        {!hasHeader && onClose && showCloseButton ? (
+          <button
+            type="button"
+            className="hbx-popup4__close hbx-popup4__close--floating"
+            onClick={onClose}
+            aria-label={closeLabel}
+          >
+            ×
+          </button>
+        ) : null}
+        <div className="hbx-popup4__screen">{children}</div>
+      </section>
+    </HbxPopupLayer>,
+    document.body,
+  );
+}
+
 function HbxPopupLayer({
   children,
   polite = false,
   variant = "modal",
+  state,
+  onOutsideClick,
 }: {
   children: ReactNode;
   polite?: boolean;
-  variant?: "modal" | "notice";
+  variant?: "modal" | "notice" | "side-phone";
+  state?: "entered" | "exiting";
+  onOutsideClick?: () => void;
 }) {
   return (
-    <div className="hbx-popup-layer" data-variant={variant} aria-live={polite ? "polite" : undefined}>
+    <div
+      className="hbx-popup-layer"
+      data-variant={variant}
+      data-state={state}
+      data-clickable={onOutsideClick ? "true" : "false"}
+      aria-live={polite ? "polite" : undefined}
+      onClick={onOutsideClick}
+    >
       {children}
     </div>
   );

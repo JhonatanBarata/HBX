@@ -344,6 +344,8 @@ type ProspectingPreviewVariables = {
   empresa: string;
 };
 
+type ProspectingPreviewScenario = "retorno" | "positivo" | "revisao" | "negativo";
+
 function renderProspectingPreview(
   template: string,
   config: ProspectingAutomationConfig,
@@ -360,6 +362,7 @@ function renderProspectingPreview(
     estado: config.state || "BR",
     segmento: config.segment || "seu segmento",
     retorno_label: "amanhã às 09:00",
+    horario_retorno: "amanhã às 09:00",
   };
   return String(template || "")
     .replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, token) => values[token] || `[${token}]`)
@@ -706,6 +709,7 @@ function ProspectingAutomationPanel({
     "messageTemplate" | "optOutMessage" | "firstContactVariants" | "positiveReplyVariants" | "whatIsItReplyVariants" | "scheduledReplyVariants" | "optOutVariants" | "neutralHandoffVariants"
   >("firstContactVariants");
   const [variablesOpen, setVariablesOpen] = useState(false);
+  const [previewScenario, setPreviewScenario] = useState<ProspectingPreviewScenario>("retorno");
   const messageTemplateRef = useRef<HTMLTextAreaElement | null>(null);
   const optOutMessageRef = useRef<HTMLTextAreaElement | null>(null);
   const firstContactVariantsRef = useRef<HTMLTextAreaElement | null>(null);
@@ -798,6 +802,88 @@ function ProspectingAutomationPanel({
       ref?.focus();
       ref?.setSelectionRange(start + insert.length, start + insert.length);
     }, 0);
+  };
+
+  const focusScheduledReplyEditor = () => {
+    setVariableTarget("scheduledReplyVariants");
+    scheduledReplyVariantsRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    window.setTimeout(() => scheduledReplyVariantsRef.current?.focus(), 120);
+  };
+
+  const renderProspectingPreviewScenario = () => {
+    const initialMessage = renderProspectingPreview(sanitizedMessagePreview, config, previewVariables);
+    const positiveMessage = renderProspectingPreview(config.positiveReplyVariants[0] || DEFAULT_POSITIVE_REPLY_VARIANTS[0], config, previewVariables);
+    const scheduledMessage = renderProspectingPreview(config.scheduledReplyVariants[0] || DEFAULT_SCHEDULED_REPLY_VARIANTS[0], config, previewVariables);
+    const optOutMessage = renderProspectingPreview(config.optOutVariants[0] || config.optOutMessage, config, previewVariables);
+
+    const baseMessages = (
+      <>
+        <span className={styles.prospectingPhoneDate}>Hoje</span>
+        <div className={styles.prospectingCustomerBubble}>Contato recebido na fila.</div>
+        <div className={styles.prospectingBotBubble} data-tone="typing">
+          <small>Digitando</small>
+          <p>typing por {config.typingSeconds}s, com variação humana de até {config.typingVarianceSeconds}s.</p>
+        </div>
+        <div className={styles.prospectingBotBubble}>
+          <small>Disparo inicial</small>
+          <p>{initialMessage}</p>
+        </div>
+      </>
+    );
+
+    if (previewScenario === "positivo") {
+      return (
+        <>
+          {baseMessages}
+          <div className={styles.prospectingCustomerBubble}>Pode ser, manda aí.</div>
+          <div className={styles.prospectingBotBubble}>
+            <small>Positiva</small>
+            <p>{positiveMessage}</p>
+          </div>
+          <div className={styles.prospectingSystemBubble}>Aguardando horário. Se o cliente pedir retorno, vira agenda no card.</div>
+        </>
+      );
+    }
+
+    if (previewScenario === "revisao") {
+      return (
+        <>
+          {baseMessages}
+          <div className={styles.prospectingCustomerBubble}>Pode ser, mas não entendi direito. Me chama depois?</div>
+          <div className={styles.prospectingSystemBubble}>Dúvida ou mistura de sinais: não responde, não encerra e chama revisão.</div>
+        </>
+      );
+    }
+
+    if (previewScenario === "negativo") {
+      return (
+        <>
+          {baseMessages}
+          <div className={styles.prospectingCustomerBubble}>Não tenho interesse, remova meu contato.</div>
+          {config.optOutReplyEnabled ? (
+            <div className={styles.prospectingBotBubble}>
+              <small>Encerramento negativo</small>
+              <p>{optOutMessage}</p>
+            </div>
+          ) : (
+            <div className={styles.prospectingSystemBubble}>Arquiva, marca opt-out e não envia resposta.</div>
+          )}
+        </>
+      );
+    }
+
+    return (
+      <>
+        {baseMessages}
+        <div className={styles.prospectingCustomerBubble}>Agora não consigo, amanhã umas 09?</div>
+        <div className={styles.prospectingSystemBubble}>Detectado: pedido de retorno com horário.</div>
+        <div className={styles.prospectingBotBubble}>
+          <small>Retorno agendado</small>
+          <p>{scheduledMessage}</p>
+        </div>
+        <div className={styles.prospectingSystemBubble}>Salva o retorno no card e para a automação.</div>
+      </>
+    );
   };
 
   return (
@@ -942,13 +1028,43 @@ function ProspectingAutomationPanel({
                 <span>WhatsApp</span>
                 <strong>Prévia ao vivo</strong>
               </div>
-              <button
-                type="button"
-                className={styles.previewHeaderButton}
-                onClick={() => setVariablesOpen(true)}
-              >
-                Variáveis
-              </button>
+              <div className={styles.prospectingPreviewHeaderActions}>
+                {previewScenario === "retorno" ? (
+                  <button
+                    type="button"
+                    className={styles.previewHeaderButton}
+                    onClick={focusScheduledReplyEditor}
+                  >
+                    Editar resposta
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className={styles.previewHeaderButton}
+                  onClick={() => setVariablesOpen(true)}
+                >
+                  Variáveis
+                </button>
+              </div>
+            </div>
+            <div className={styles.prospectingPreviewTabs} role="tablist" aria-label="Cenário da prévia">
+              {[
+                ["retorno", "Retorno"],
+                ["positivo", "Positivo"],
+                ["revisao", "Revisão"],
+                ["negativo", "Negativo"],
+              ].map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={previewScenario === id}
+                  data-active={previewScenario === id ? "true" : "false"}
+                  onClick={() => setPreviewScenario(id as ProspectingPreviewScenario)}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
             <div className={styles.prospectingPhoneFrame}>
               <div className={styles.prospectingPhoneTopbar}>
@@ -960,39 +1076,7 @@ function ProspectingAutomationPanel({
                 <i aria-hidden="true" />
               </div>
               <div className={styles.prospectingPhoneBody}>
-                <span className={styles.prospectingPhoneDate}>Hoje</span>
-                <div className={styles.prospectingCustomerBubble}>Contato recebido na fila.</div>
-                <div className={styles.prospectingBotBubble} data-tone="typing">
-                  <small>Digitando</small>
-                  <p>typing por {config.typingSeconds}s, com variação humana de até {config.typingVarianceSeconds}s.</p>
-                </div>
-                <div className={styles.prospectingBotBubble}>
-                  <small>Disparo inicial</small>
-                  <p>{renderProspectingPreview(sanitizedMessagePreview, config, previewVariables)}</p>
-                </div>
-                <div className={styles.prospectingCustomerBubble}>Pode ser, manda aí.</div>
-                <div className={styles.prospectingBotBubble}>
-                  <small>Positiva</small>
-                  <p>{renderProspectingPreview(config.positiveReplyVariants[0] || DEFAULT_POSITIVE_REPLY_VARIANTS[0], config, previewVariables)}</p>
-                </div>
-                <div className={styles.prospectingSystemBubble}>Aguardando horário. Se o cliente pedir retorno, vira agenda no card.</div>
-                <div className={styles.prospectingCustomerBubble}>Agora não consigo, amanhã umas 09?</div>
-                <div className={styles.prospectingBotBubble}>
-                  <small>Retorno agendado</small>
-                  <p>{renderProspectingPreview(config.scheduledReplyVariants[0] || DEFAULT_SCHEDULED_REPLY_VARIANTS[0], config, previewVariables)}</p>
-                </div>
-                <div className={styles.prospectingSystemBubble}>Salva o retorno no card e para a automação.</div>
-                <div className={styles.prospectingCustomerBubble}>Pode ser, mas não entendi direito. Me chama depois?</div>
-                <div className={styles.prospectingSystemBubble}>Dúvida ou mistura de sinais: não responde, não encerra e chama revisão.</div>
-                <div className={styles.prospectingCustomerBubble}>Não tenho interesse, remova meu contato.</div>
-                {config.optOutReplyEnabled ? (
-                  <div className={styles.prospectingBotBubble}>
-                    <small>Encerramento negativo</small>
-                    <p>{renderProspectingPreview(config.optOutVariants[0] || config.optOutMessage, config, previewVariables)}</p>
-                  </div>
-                ) : (
-                  <div className={styles.prospectingSystemBubble}>Arquiva, marca opt-out e não envia resposta.</div>
-                )}
+                {renderProspectingPreviewScenario()}
               </div>
               <div className={styles.prospectingPhoneComposer}>
                 <span>Mensagem</span>
