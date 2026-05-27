@@ -10076,8 +10076,10 @@ function InboxDesktopClientPage() {
     }, 5000);
   }
 
+  const selectedConversationScrollKey = selectedConversation?.id ?? null;
+
   useEffect(() => {
-    if (!selectedConversation || !chatTimelineRef.current) return;
+    if (!selectedConversationScrollKey || !chatTimelineRef.current) return;
     if (typeof window === "undefined") return;
     const timeline = chatTimelineRef.current;
     const scrollToBottom = () => {
@@ -10091,7 +10093,7 @@ function InboxDesktopClientPage() {
       window.clearTimeout(shortTimer);
       window.clearTimeout(mediaTimer);
     };
-  }, [latestVisibleMessageKey, selectedConversation?.id]);
+  }, [latestVisibleMessageKey, selectedConversationScrollKey]);
 
   // Clear composer state when switching conversations
   useEffect(() => {

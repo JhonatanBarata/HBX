@@ -11,6 +11,7 @@ const DASHBOARD_API_PROXY_PREFIX = "/hbx/api";
 const SHELL_GET_CACHE_TTL_MS = 30000;
 const TOKEN_EXPIRY_SKEW_MS = 15000;
 const AUTH_PROBE_CACHE_TTL_MS = 5000;
+const API_TRANSPORT_BACKOFF_MS = 5000;
 const SESSION_EXPIRED_MESSAGE = "Sessão expirada. Faça login novamente.";
 const SHELL_GET_CACHE_PATHS = new Set([
   "/profile/current-user",
@@ -60,6 +61,7 @@ type ApiFetchInit = RequestInit & {
 const apiGetCache = new Map<string, ApiCacheEntry>();
 let authProbeEntry: AuthProbeEntry | null = null;
 let authChangeQueued = false;
+let apiTransportBackoffUntil = 0;
 
 function normalizeApiBaseUrl(value: string) {
   return String(value || "").replace(/\/+$/, "");
@@ -224,6 +226,34 @@ function shouldProbeAuth(path: string, init?: ApiFetchInit) {
   return getApiPathname(path) !== "/profile/current-user";
 }
 
+function usesDashboardApiProxy(path: string, apiBaseUrl: string, direct?: boolean) {
+  if (direct || path.startsWith("http") || typeof window === "undefined") return false;
+  return normalizeApiBaseUrl(apiBaseUrl) === `${window.location.origin}${DASHBOARD_API_PROXY_PREFIX}`;
+}
+
+function buildApiTransportError(message = "API reconectando. Tente novamente em instantes.") {
+  const apiError = new Error(message) as ApiFetchError;
+  apiError.status = 503;
+  apiError.code = "API_RECONNECTING";
+  return apiError;
+}
+
+function getApiTransportBackoffError(path: string, apiBaseUrl: string, direct?: boolean) {
+  if (!usesDashboardApiProxy(path, apiBaseUrl, direct)) return null;
+  if (Date.now() >= apiTransportBackoffUntil) return null;
+  return buildApiTransportError();
+}
+
+function markApiTransportFailure(path: string, apiBaseUrl: string, direct?: boolean) {
+  if (!usesDashboardApiProxy(path, apiBaseUrl, direct)) return;
+  apiTransportBackoffUntil = Date.now() + API_TRANSPORT_BACKOFF_MS;
+}
+
+function clearApiTransportBackoff(path: string, apiBaseUrl: string, direct?: boolean) {
+  if (!usesDashboardApiProxy(path, apiBaseUrl, direct)) return;
+  apiTransportBackoffUntil = 0;
+}
+
 async function ensureValidSessionForProtectedPath(
   path: string,
   token: string | null,
@@ -295,6 +325,8 @@ export async function apiFetch<T>(
   const { skipAuth, requireAuth, timeoutMs, direct, ...fetchInit } = init || {};
   const apiBaseUrl = direct ? getDirectDashboardApiBaseUrl() : getDashboardApiBaseUrl();
   const url = path.startsWith("http") ? path : `${apiBaseUrl}${path}`;
+  const backoffError = getApiTransportBackoffError(path, apiBaseUrl, direct);
+  if (backoffError) throw backoffError;
   const token = getToken();
   if (!token && requiresAuth(path, { ...init, requireAuth, skipAuth })) {
     throw new Error(SESSION_EXPIRED_MESSAGE);
@@ -349,6 +381,9 @@ export async function apiFetch<T>(
     }
 
     if (!res.ok) {
+      if ([502, 503, 504].includes(res.status)) {
+        markApiTransportFailure(path, apiBaseUrl, direct);
+      }
       const message = sanitizeErrorMessage(typeof data === "string" ? data : parseErrorMessage(data), res.status);
       if (res.status === 401 && !skipAuth) {
         handleUnauthorized();
@@ -384,10 +419,15 @@ export async function apiFetch<T>(
       throw apiError;
     }
 
+    clearApiTransportBackoff(path, apiBaseUrl, direct);
     return data as T;
   }).catch((error) => {
     if (timedOut) {
+      markApiTransportFailure(path, apiBaseUrl, direct);
       throw new Error("Tempo esgotado ao consultar a API.");
+    }
+    if (error instanceof TypeError || (typeof DOMException !== "undefined" && error instanceof DOMException)) {
+      markApiTransportFailure(path, apiBaseUrl, direct);
     }
     throw error;
   }).finally(() => {
