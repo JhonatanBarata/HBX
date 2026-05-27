@@ -858,6 +858,10 @@
   gap: 0.45rem;
 }
 
+.whatsAppMessageBlockGrouped {
+  margin-top: -0.34rem;
+}
+
 .whatsAppDayDivider {
   display: flex;
   justify-content: center;
@@ -8358,6 +8362,19 @@
 .whatsAppBubbleOutbound::before {
   right: -0.45rem;
   clip-path: polygon(0 0, 100% 22%, 0 100%);
+}
+
+.whatsAppBubbleGrouped.whatsAppBubbleInbound {
+  border-top-left-radius: 8px;
+}
+
+.whatsAppBubbleGrouped.whatsAppBubbleOutbound {
+  border-top-right-radius: 8px;
+}
+
+.whatsAppBubbleGrouped.whatsAppBubbleInbound::before,
+.whatsAppBubbleGrouped.whatsAppBubbleOutbound::before {
+  display: none;
 }
 
 .whatsAppBubbleInbound {

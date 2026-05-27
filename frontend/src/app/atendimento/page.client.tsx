@@ -4556,6 +4556,53 @@ function mapInboxBubbleTone(message: InboxMessage) {
   return "inbound" as const;
 }
 
+function getInboxMessageVisualGroupKey(
+  message: InboxMessage,
+  conversation?: InboxConversation | null,
+) {
+  const tone = mapInboxBubbleTone(message);
+  if (tone === "system") return "system";
+  if (tone === "human" || tone === "outbound") return "outbound";
+
+  if (conversation && isInboxGroupRemoteJid(extractInboxRawContact(conversation))) {
+    const metadata = getInboxMessageMetadata(message);
+    const participant = String(
+      metadata?.senderPhone ||
+        metadata?.participantAlt ||
+        metadata?.participant ||
+        metadata?.senderName ||
+        "",
+    ).trim();
+    return `inbound:${participant || message.id}`;
+  }
+
+  return "inbound";
+}
+
+function shouldGroupInboxMessageWithPrevious(
+  message: InboxMessage,
+  previousMessage: InboxMessage | null,
+  conversation?: InboxConversation | null,
+) {
+  if (!previousMessage) return false;
+  const tone = mapInboxBubbleTone(message);
+  if (tone === "system" || mapInboxBubbleTone(previousMessage) === "system") return false;
+  if (!isInboxSameCalendarDay(previousMessage.createdAt, message.createdAt)) return false;
+
+  const currentTime = new Date(String(message.createdAt || "")).getTime();
+  const previousTime = new Date(String(previousMessage.createdAt || "")).getTime();
+  const minutesApart =
+    Number.isFinite(currentTime) && Number.isFinite(previousTime)
+      ? Math.abs(currentTime - previousTime) / 60_000
+      : Number.POSITIVE_INFINITY;
+  if (minutesApart > 6) return false;
+
+  return (
+    getInboxMessageVisualGroupKey(message, conversation) ===
+    getInboxMessageVisualGroupKey(previousMessage, conversation)
+  );
+}
+
 function formatInboxMessageTimeLabel(dateStr: string | null | undefined, mounted: boolean) {
   if (!dateStr) return "-";
   const parsed = new Date(dateStr);
@@ -8269,6 +8316,11 @@ function InboxDesktopClientPage() {
                       index > 0 ? conversationMessagesForView[index - 1] : null;
                     const showDayDivider = !previousMessage
                       || !isInboxSameCalendarDay(previousMessage.createdAt, message.createdAt);
+                    const groupedWithPrevious = shouldGroupInboxMessageWithPrevious(
+                      message,
+                      previousMessage,
+                      conversationForView,
+                    );
                     const isOutbound = tone === "human" || tone === "outbound";
                     const showGroupSender =
                       !isOutbound
@@ -8293,7 +8345,12 @@ function InboxDesktopClientPage() {
                         rendered.fileName,
                       );
                     return (
-                      <div key={message.id} className={styles.whatsAppMessageBlock}>
+                      <div
+                        key={message.id}
+                        className={`${styles.whatsAppMessageBlock} ${
+                          groupedWithPrevious ? styles.whatsAppMessageBlockGrouped : ""
+                        }`}
+                      >
                         {showDayDivider ? (
                           <div className={styles.whatsAppDayDivider}>
                             <span>{formatInboxMessageDayLabel(message.createdAt, mounted)}</span>
@@ -8366,6 +8423,8 @@ function InboxDesktopClientPage() {
                                 ["image", "video", "document", "audio", "sticker"].includes(String(rendered.kind || ""))
                                   ? styles.whatsAppBubbleWithAttachment
                                   : ""
+                              } ${
+                                groupedWithPrevious ? styles.whatsAppBubbleGrouped : ""
                               }`}
                             >
                               {rendered.quotedText ? (
