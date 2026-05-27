@@ -66,6 +66,7 @@ type WebwhatsConnectionSessionContext = {
   tenantKey: string;
   phoneNormalized: string | null;
   displayPhone: string | null;
+  metadataJson?: string | null;
 };
 
 export class WebwhatsProviderError extends Error {
@@ -157,6 +158,8 @@ export type WebwhatsLiveChatSnapshot = {
   remoteJidAlt: string | null;
   contact: string;
   displayName: string | null;
+  agendaDisplayName?: string | null;
+  profileDisplayName?: string | null;
   avatarUrl: string | null;
   unreadCount: number;
   archived: boolean | null;
@@ -176,6 +179,8 @@ export type WebwhatsConversationSyncResult = {
   remoteJids: string[];
   avatarUrl: string | null;
   displayName: string | null;
+  agendaDisplayName?: string | null;
+  profileDisplayName?: string | null;
 };
 
 export type WebwhatsWhatsappNumberCheckResult = {
@@ -229,9 +234,14 @@ export class WebwhatsBridgeService {
         this.getCachedContacts(companyId),
       ]);
       const contactsByJid = this.indexContactsByJid(contacts);
+      const inboxResetFloor = this.resolveSessionInboxResetFloor(session);
       let synced = 0;
       for (const chat of chats) {
         if (!this.isSyncableChat(chat?.remoteJid)) continue;
+        if (inboxResetFloor) {
+          const chatAt = this.resolveMessageDate(chat?.lastMessage?.messageTimestamp || chat?.updatedAt);
+          if (!chatAt || chatAt.getTime() < inboxResetFloor.getTime()) continue;
+        }
         const remoteJidAlt = this.getChatRemoteJidAlt(chat);
         const conversation = await this.upsertConversationFromChat(
           companyId,
@@ -389,11 +399,17 @@ export class WebwhatsBridgeService {
     try {
       const [messageGroups, profilePicture] = await Promise.all([
         Promise.all(
-          syncableRemoteJids.map((jid) =>
+          [
+            ...syncableRemoteJids.map((jid) => ({ jid, matchRemoteJidAlt: false })),
+            ...syncableRemoteJids
+              .filter((jid) => jid.endsWith('@s.whatsapp.net'))
+              .map((jid) => ({ jid, matchRemoteJidAlt: true })),
+          ].map(({ jid, matchRemoteJidAlt }) =>
             this.fetchMessagesWindow(companyId, jid, {
               limit: opts?.limit ?? 120,
               fullSync: opts?.fullSync,
               maxPages: opts?.maxPages,
+              matchRemoteJidAlt,
             }),
           ),
         ),
@@ -412,11 +428,25 @@ export class WebwhatsBridgeService {
         if (!key) continue;
         messageByKey.set(key, message);
       }
-      const orderedMessages = Array.from(messageByKey.values()).sort((left, right) => {
-        const leftTime = this.resolveMessageDate(left?.messageTimestamp)?.getTime() || 0;
-        const rightTime = this.resolveMessageDate(right?.messageTimestamp)?.getTime() || 0;
-        return leftTime - rightTime;
-      });
+      const syncFloor = this.resolveLatestSyncFloor([
+        this.resolveSessionInboxResetFloor(session),
+        this.resolveConversationInboxSyncFloor(metadata),
+        this.resolveProspectionSyncFloor(metadata),
+      ]);
+      if (syncFloor) {
+        await this.pruneWebwhatsMessagesBeforeSyncFloor(companyId, conversation.id, syncFloor);
+      }
+      const orderedMessages = Array.from(messageByKey.values())
+        .filter((message) => {
+          if (!syncFloor) return true;
+          const messageAt = this.resolveMessageDate(message?.messageTimestamp);
+          return Boolean(messageAt && messageAt.getTime() >= syncFloor.getTime());
+        })
+        .sort((left, right) => {
+          const leftTime = this.resolveMessageDate(left?.messageTimestamp)?.getTime() || 0;
+          const rightTime = this.resolveMessageDate(right?.messageTimestamp)?.getTime() || 0;
+          return leftTime - rightTime;
+        });
       for (const message of orderedMessages) {
         await this.upsertConversationMessage(
           companyId,
@@ -429,12 +459,12 @@ export class WebwhatsBridgeService {
         );
       }
 
-      const latestPushName =
-        this.getChatDisplayName(
-          matchingChat || ({ remoteJid } as WebwhatsChatSummary),
-          contactsByJid.get(remoteJid || '') || null,
-          remoteJidAlt ? contactsByJid.get(remoteJidAlt) || null : null,
-        ) || this.getPersistedDisplayName(metadata);
+      const latestDisplayNames = this.resolveChatDisplayNames(
+        matchingChat || ({ remoteJid } as WebwhatsChatSummary),
+        contactsByJid.get(remoteJid || '') || null,
+        remoteJidAlt ? contactsByJid.get(remoteJidAlt) || null : null,
+      );
+      const latestDisplayName = latestDisplayNames.displayName || this.getPersistedDisplayName(metadata);
       const avatarUrl = this.normalizeOptionalString(profilePicture?.profilePictureUrl);
       const mediaMessages = orderedMessages.reduce((count, message) => {
         return ['image', 'video', 'document', 'audio'].includes(this.normalizeMessageType(message))
@@ -442,15 +472,10 @@ export class WebwhatsBridgeService {
           : count;
       }, 0);
       const nextMetadata = {
-        ...metadata,
-        ...(latestPushName
-          ? {
-              whatsappName: latestPushName,
-              waNickname: latestPushName,
-              whatsappProfileName: latestPushName,
-              whatsappContactName: latestPushName,
-            }
-          : {}),
+        ...this.applyDisplayNamesToMetadata(metadata, {
+          ...latestDisplayNames,
+          displayName: latestDisplayName,
+        }),
         ...(avatarUrl ? { whatsappAvatarUrl: avatarUrl } : {}),
         whatsappRemoteJid: remoteJid,
         ...(remoteJidAlt ? { whatsappRemoteJidAlt: remoteJidAlt } : {}),
@@ -487,7 +512,9 @@ export class WebwhatsBridgeService {
         pagesFetched,
         remoteJids: syncableRemoteJids,
         avatarUrl: avatarUrl || this.normalizeOptionalString(metadata.whatsappAvatarUrl) || null,
-        displayName: latestPushName || null,
+        displayName: latestDisplayName || null,
+        agendaDisplayName: latestDisplayNames.agendaDisplayName,
+        profileDisplayName: latestDisplayNames.profileDisplayName,
       };
     } catch (error: any) {
       this.logger.warn(
@@ -519,10 +546,15 @@ export class WebwhatsBridgeService {
     ]);
     const contactsByJid = this.indexContactsByJid(contacts);
     const snapshots: WebwhatsLiveChatSnapshot[] = [];
+    const inboxResetFloor = this.resolveSessionInboxResetFloor(company.session);
 
     for (const chat of chats) {
       const remoteJid = this.normalizeOptionalString(chat?.remoteJid);
       if (!this.isSyncableChat(remoteJid)) continue;
+      if (inboxResetFloor) {
+        const chatAt = this.resolveMessageDate(chat?.lastMessage?.messageTimestamp || chat?.updatedAt);
+        if (!chatAt || chatAt.getTime() < inboxResetFloor.getTime()) continue;
+      }
       const remoteJidAlt = this.getChatRemoteJidAlt(chat);
       const state = await this.upsertConversationStateFromChat(
         company.id,
@@ -533,12 +565,11 @@ export class WebwhatsBridgeService {
       );
       if (!state) continue;
 
-      const displayName =
-        this.getChatDisplayName(
-          chat,
-          contactsByJid.get(remoteJid || '') || null,
-          remoteJidAlt ? contactsByJid.get(remoteJidAlt) || null : null,
-        ) || null;
+      const displayNames = this.resolveChatDisplayNames(
+        chat,
+        contactsByJid.get(remoteJid || '') || null,
+        remoteJidAlt ? contactsByJid.get(remoteJidAlt) || null : null,
+      );
       const lastMessageAt =
         this.resolveMessageDate(chat?.lastMessage?.messageTimestamp || chat?.updatedAt) || null;
 
@@ -547,7 +578,9 @@ export class WebwhatsBridgeService {
         remoteJid,
         remoteJidAlt,
         contact: state.contact,
-        displayName,
+        displayName: displayNames.displayName,
+        agendaDisplayName: displayNames.agendaDisplayName,
+        profileDisplayName: displayNames.profileDisplayName,
         avatarUrl:
           this.normalizeOptionalString(chat?.profilePicUrl)
           || this.normalizeOptionalString(contactsByJid.get(remoteJid || '')?.profilePicUrl)
@@ -643,9 +676,15 @@ export class WebwhatsBridgeService {
 
     const [messageGroups, profilePicture] = await Promise.all([
       Promise.all(
-        syncableRemoteJids.map((jid) =>
+        [
+          ...syncableRemoteJids.map((jid) => ({ jid, matchRemoteJidAlt: false })),
+          ...syncableRemoteJids
+            .filter((jid) => jid.endsWith('@s.whatsapp.net'))
+            .map((jid) => ({ jid, matchRemoteJidAlt: true })),
+        ].map(({ jid, matchRemoteJidAlt }) =>
           this.fetchMessagesWindow(company.id, jid, {
             limit: input.limit ?? 120,
+            matchRemoteJidAlt,
           }),
         ),
       ),
@@ -657,13 +696,23 @@ export class WebwhatsBridgeService {
       if (!key) continue;
       messagesByKey.set(key, message);
     }
-    const orderedMessages = Array.from(messagesByKey.values()).sort((left, right) => {
-      const leftTime = this.resolveMessageDate(left?.messageTimestamp)?.getTime() || 0;
-      const rightTime = this.resolveMessageDate(right?.messageTimestamp)?.getTime() || 0;
-      return leftTime - rightTime;
-    });
+    const inboxResetFloor = this.resolveSessionInboxResetFloor(company.session);
+    const orderedMessages = Array.from(messagesByKey.values())
+      .filter((message) => {
+        if (!inboxResetFloor) return true;
+        const messageAt = this.resolveMessageDate(message?.messageTimestamp);
+        return Boolean(messageAt && messageAt.getTime() >= inboxResetFloor.getTime());
+      })
+      .sort((left, right) => {
+        const leftTime = this.resolveMessageDate(left?.messageTimestamp)?.getTime() || 0;
+        const rightTime = this.resolveMessageDate(right?.messageTimestamp)?.getTime() || 0;
+        return leftTime - rightTime;
+      });
 
     if (!matchingChat && orderedMessages.length === 0) {
+      return null;
+    }
+    if (inboxResetFloor && orderedMessages.length === 0) {
       return null;
     }
 
@@ -682,13 +731,12 @@ export class WebwhatsBridgeService {
           remoteJidAlt,
           preferredContact: contact,
         });
-    const displayName =
-      this.getChatDisplayName(
-        matchingChat || ({ remoteJid } as WebwhatsChatSummary),
-        contactsByJid.get(remoteJid || '') || null,
-        remoteJidAlt ? contactsByJid.get(remoteJidAlt) || null : null,
-      ) || null;
-    const lastMessage = matchingChat?.lastMessage || orderedMessages[orderedMessages.length - 1] || null;
+    const displayNames = this.resolveChatDisplayNames(
+      matchingChat || ({ remoteJid } as WebwhatsChatSummary),
+      contactsByJid.get(remoteJid || '') || null,
+      remoteJidAlt ? contactsByJid.get(remoteJidAlt) || null : null,
+    );
+    const lastMessage = orderedMessages[orderedMessages.length - 1] || (!inboxResetFloor ? matchingChat?.lastMessage : null) || null;
     const lastMessageAt =
       this.resolveMessageDate(matchingChat?.lastMessage?.messageTimestamp || matchingChat?.updatedAt)
       || this.resolveMessageDate(lastMessage?.messageTimestamp)
@@ -711,7 +759,9 @@ export class WebwhatsBridgeService {
       remoteJid: remoteJid || syncableRemoteJids[0],
       remoteJidAlt,
       contact,
-      displayName,
+      displayName: displayNames.displayName,
+      agendaDisplayName: displayNames.agendaDisplayName,
+      profileDisplayName: displayNames.profileDisplayName,
       avatarUrl:
         this.normalizeOptionalString(matchingChat?.profilePicUrl)
         || this.normalizeOptionalString(profilePicture?.profilePictureUrl)
@@ -867,6 +917,7 @@ export class WebwhatsBridgeService {
             tenantKey: true,
             phoneNormalized: true,
             displayPhone: true,
+            metadataJson: true,
             status: true,
           },
         },
@@ -887,6 +938,7 @@ export class WebwhatsBridgeService {
         tenantKey: String(current.tenantKey || tenantKey),
         phoneNormalized: this.normalizeConnectionPhone(current.phoneNormalized),
         displayPhone: this.normalizeOptionalString(current.displayPhone),
+        metadataJson: this.normalizeOptionalString(current.metadataJson),
       };
     }
 
@@ -909,16 +961,19 @@ export class WebwhatsBridgeService {
         tenantKey: true,
         phoneNormalized: true,
         displayPhone: true,
+        metadataJson: true,
       },
     });
 
     if (session?.id) {
+      const sessionMetadata = this.parseMetadata(session.metadataJson);
       const data: any = {
         tenantKey,
         status: 'active',
         connectedAt,
         disconnectedAt: null,
         metadataJson: JSON.stringify({
+          ...sessionMetadata,
           source: 'webwhats_bridge_session_repair',
           recordedAt: now.toISOString(),
         }),
@@ -933,6 +988,7 @@ export class WebwhatsBridgeService {
           tenantKey: true,
           phoneNormalized: true,
           displayPhone: true,
+          metadataJson: true,
         },
       });
     } else {
@@ -955,6 +1011,7 @@ export class WebwhatsBridgeService {
           tenantKey: true,
           phoneNormalized: true,
           displayPhone: true,
+          metadataJson: true,
         },
       });
     }
@@ -984,6 +1041,7 @@ export class WebwhatsBridgeService {
       tenantKey: String(session.tenantKey || tenantKey),
       phoneNormalized: this.normalizeConnectionPhone(session.phoneNormalized),
       displayPhone: this.normalizeOptionalString(session.displayPhone),
+      metadataJson: this.normalizeOptionalString(session.metadataJson),
     };
   }
 
@@ -2248,6 +2306,7 @@ export class WebwhatsBridgeService {
     opts: {
       limit: number;
       page: number;
+      matchRemoteJidAlt?: boolean;
     },
   ) {
     const tenantKey = this.buildTenantKey(companyId);
@@ -2258,7 +2317,7 @@ export class WebwhatsBridgeService {
       data: {
         where: {
           key: {
-            remoteJid,
+            [opts.matchRemoteJidAlt ? 'remoteJidAlt' : 'remoteJid']: remoteJid,
           },
         },
         offset: this.clamp(opts.limit, 1, 120),
@@ -2294,6 +2353,7 @@ export class WebwhatsBridgeService {
       limit: number;
       fullSync?: boolean;
       maxPages?: number;
+      matchRemoteJidAlt?: boolean;
     },
   ) {
     const limit = this.clamp(Number(opts.limit || 120), 1, 120);
@@ -2306,6 +2366,7 @@ export class WebwhatsBridgeService {
       const pagePayload = await this.fetchMessagesPage(companyId, remoteJid, {
         limit,
         page,
+        matchRemoteJidAlt: opts.matchRemoteJidAlt,
       });
       pagesFetched += 1;
       if (Number.isFinite(Number(pagePayload.totalPages || 0)) && Number(pagePayload.totalPages || 0) > 0) {
@@ -2382,44 +2443,10 @@ export class WebwhatsBridgeService {
     primaryContact?: WebwhatsContactSummary | null,
     alternateContact?: WebwhatsContactSummary | null,
   ) {
-    const candidates = [
-      primaryContact?.name,
-      primaryContact?.displayName,
-      primaryContact?.formattedName,
-      primaryContact?.fullName,
-      primaryContact?.shortName,
-      primaryContact?.notifyName,
-      primaryContact?.verifiedName,
-      primaryContact?.businessName,
-      primaryContact?.pushName,
-      alternateContact?.name,
-      alternateContact?.displayName,
-      alternateContact?.formattedName,
-      alternateContact?.fullName,
-      alternateContact?.shortName,
-      alternateContact?.notifyName,
-      alternateContact?.verifiedName,
-      alternateContact?.businessName,
-      alternateContact?.pushName,
-      chat?.contact?.name,
-      chat?.contact?.formattedName,
-      chat?.contact?.displayName,
-      chat?.contact?.verifiedName,
-      chat?.contact?.businessName,
-      chat?.contact?.fullName,
-      chat?.displayName,
-      chat?.fullName,
-      chat?.name,
-      chat?.verifiedName,
-      chat?.businessName,
-      chat?.shortName,
-      chat?.contact?.shortName,
-      chat?.pushName,
-      chat?.contact?.pushName,
-      chat?.notifyName,
-      chat?.contact?.notifyName,
-    ];
+    return this.resolveChatDisplayNames(chat, primaryContact, alternateContact).displayName;
+  }
 
+  private firstDisplayNameCandidate(candidates: Array<unknown>) {
     for (const candidate of candidates) {
       const normalized = this.normalizeDisplayNameCandidate(candidate);
       if (normalized) return normalized;
@@ -2428,14 +2455,113 @@ export class WebwhatsBridgeService {
     return null;
   }
 
+  private getContactAgendaDisplayName(contact?: WebwhatsContactSummary | null) {
+    if (!contact || contact.isSaved === false) return null;
+    return this.firstDisplayNameCandidate([
+      contact.name,
+      contact.displayName,
+      contact.formattedName,
+      contact.fullName,
+      contact.shortName,
+    ]);
+  }
+
+  private getChatAgendaDisplayName(
+    chat: WebwhatsChatSummary,
+    primaryContact?: WebwhatsContactSummary | null,
+    alternateContact?: WebwhatsContactSummary | null,
+  ) {
+    void chat;
+    return this.firstDisplayNameCandidate([
+      this.getContactAgendaDisplayName(primaryContact),
+      this.getContactAgendaDisplayName(alternateContact),
+    ]);
+  }
+
+  private getChatProfileDisplayName(
+    chat: WebwhatsChatSummary,
+    primaryContact?: WebwhatsContactSummary | null,
+    alternateContact?: WebwhatsContactSummary | null,
+  ) {
+    return this.firstDisplayNameCandidate([
+      chat?.lastMessage?.pushName,
+      chat?.pushName,
+      chat?.contact?.pushName,
+      chat?.notifyName,
+      chat?.contact?.notifyName,
+      chat?.displayName,
+      chat?.contact?.displayName,
+      chat?.name,
+      chat?.contact?.name,
+      chat?.fullName,
+      chat?.contact?.fullName,
+      chat?.contact?.formattedName,
+      chat?.shortName,
+      chat?.contact?.shortName,
+      chat?.verifiedName,
+      chat?.contact?.verifiedName,
+      chat?.businessName,
+      chat?.contact?.businessName,
+      primaryContact?.pushName,
+      primaryContact?.notifyName,
+      primaryContact?.verifiedName,
+      primaryContact?.businessName,
+      alternateContact?.pushName,
+      alternateContact?.notifyName,
+      alternateContact?.verifiedName,
+      alternateContact?.businessName,
+    ]);
+  }
+
+  private resolveChatDisplayNames(
+    chat: WebwhatsChatSummary,
+    primaryContact?: WebwhatsContactSummary | null,
+    alternateContact?: WebwhatsContactSummary | null,
+  ) {
+    const agendaDisplayName = this.getChatAgendaDisplayName(chat, primaryContact, alternateContact);
+    const profileDisplayName = this.getChatProfileDisplayName(chat, primaryContact, alternateContact);
+    return {
+      agendaDisplayName,
+      profileDisplayName,
+      displayName: agendaDisplayName || profileDisplayName || null,
+    };
+  }
+
+  private applyDisplayNamesToMetadata(
+    metadata: Record<string, any>,
+    displayNames?: {
+      displayName?: string | null;
+      agendaDisplayName?: string | null;
+      profileDisplayName?: string | null;
+    } | null,
+  ) {
+    const nextMetadata = metadata || {};
+    const agendaDisplayName = this.normalizeDisplayNameCandidate(displayNames?.agendaDisplayName);
+    const profileDisplayName = this.normalizeDisplayNameCandidate(displayNames?.profileDisplayName);
+    const displayName = this.normalizeDisplayNameCandidate(displayNames?.displayName)
+      || agendaDisplayName
+      || profileDisplayName;
+    if (agendaDisplayName) {
+      nextMetadata.whatsappContactName = agendaDisplayName;
+    }
+    if (profileDisplayName) {
+      nextMetadata.whatsappProfileName = profileDisplayName;
+      nextMetadata.waNickname = profileDisplayName;
+    }
+    if (displayName) {
+      nextMetadata.whatsappName = displayName;
+    }
+    return nextMetadata;
+  }
+
   private getPersistedDisplayName(metadata: Record<string, any> | null | undefined) {
     if (!metadata || typeof metadata !== 'object') return null;
 
     const candidates = [
       metadata.whatsappContactName,
+      metadata.whatsappProfileName,
       metadata.waNickname,
       metadata.whatsappName,
-      metadata.whatsappProfileName,
     ];
 
     for (const candidate of candidates) {
@@ -2455,6 +2581,9 @@ export class WebwhatsBridgeService {
     if (lowered === 'você' || lowered === 'voce' || lowered === 'you' || lowered === 'eu') {
       return null;
     }
+    if (this.isGenericWhatsAppDisplayName(normalized)) {
+      return null;
+    }
     if (lowered.includes('@lid') || lowered.includes('@s.whatsapp.net')) {
       return null;
     }
@@ -2465,6 +2594,24 @@ export class WebwhatsBridgeService {
       return null;
     }
     return normalized;
+  }
+
+  private isGenericWhatsAppDisplayName(value: string) {
+    const normalized = String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return [
+      'whatsapp',
+      'whats app',
+      'contato whatsapp',
+      'contato whats app',
+      'whatsapp business',
+      'whats app business',
+    ].includes(normalized);
   }
 
   private resolvePreferredConversationContact(...candidates: Array<string | null | undefined>) {
@@ -2611,10 +2758,8 @@ export class WebwhatsBridgeService {
     }
     const existing = await this.findConversation(companyId, session.id, remoteJid, remoteJidAlt, preferredContact);
     const contact = this.resolveStateContact(preferredContact, existing?.contact, remoteJid, remoteJidAlt);
-    const displayName =
-      this.getChatDisplayName(chat, primaryContact || null, alternateContact || null)
-      || this.getPersistedDisplayName(this.parseMetadata(existing?.metadata))
-      || null;
+    const displayNames = this.resolveChatDisplayNames(chat, primaryContact || null, alternateContact || null);
+    const displayName = displayNames.displayName || this.getPersistedDisplayName(this.parseMetadata(existing?.metadata)) || null;
     const avatarUrl =
       this.normalizeOptionalString(chat?.profilePicUrl)
       || this.normalizeOptionalString(primaryContact?.profilePicUrl)
@@ -2629,6 +2774,8 @@ export class WebwhatsBridgeService {
       remoteJidAlt,
       {
         displayName,
+        agendaDisplayName: displayNames.agendaDisplayName,
+        profileDisplayName: displayNames.profileDisplayName,
         avatarUrl,
         unreadCount: Math.max(0, Number(chat?.unreadCount || 0)),
         archived: this.resolveChatArchivedFlag(chat),
@@ -2913,6 +3060,8 @@ export class WebwhatsBridgeService {
     remoteJidAlt: string | null,
     snapshot?: {
       displayName?: string | null;
+      agendaDisplayName?: string | null;
+      profileDisplayName?: string | null;
       avatarUrl?: string | null;
       unreadCount?: number | null;
       archived?: boolean | null;
@@ -2926,12 +3075,7 @@ export class WebwhatsBridgeService {
     if (remoteJidAlt) {
       nextMetadata.whatsappRemoteJidAlt = remoteJidAlt;
     }
-    if (snapshot?.displayName) {
-      nextMetadata.whatsappName = snapshot.displayName;
-      nextMetadata.waNickname = snapshot.displayName;
-      nextMetadata.whatsappProfileName = snapshot.displayName;
-      nextMetadata.whatsappContactName = snapshot.displayName;
-    }
+    this.applyDisplayNamesToMetadata(nextMetadata, snapshot || null);
     if (snapshot?.avatarUrl) {
       nextMetadata.whatsappAvatarUrl = snapshot.avatarUrl;
     }
@@ -2985,6 +3129,67 @@ export class WebwhatsBridgeService {
       data: {
         lastMessageAt: timestamp,
         lastInteractionAt: timestamp,
+      },
+    });
+  }
+
+  private readMetadataRecord(value: unknown) {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return value as Record<string, any>;
+    }
+    return this.parseMetadata(String(value || ''));
+  }
+
+  private resolveProspectionSyncFloor(metadata: Record<string, any>) {
+    const automation = this.readMetadataRecord(metadata?.vendasAutomation);
+    const prospeccao = this.readMetadataRecord(metadata?.vendasProspeccao);
+    const hasProspectionContext = Boolean(
+      automation?.jobId ||
+      automation?.campaignId ||
+      prospeccao?.firstOutboundAt ||
+      prospeccao?.stage,
+    );
+    if (!hasProspectionContext) return null;
+    const raw = prospeccao?.firstOutboundAt || automation?.firstOutboundAt;
+    const parsed = raw ? new Date(String(raw)) : null;
+    return parsed && Number.isFinite(parsed.getTime()) ? parsed : null;
+  }
+
+  private resolveSessionInboxResetFloor(session: WebwhatsConnectionSessionContext | null | undefined) {
+    const metadata = this.parseMetadata(session?.metadataJson);
+    const raw = metadata?.inboxResetAt || metadata?.inboxMirrorResetAt || metadata?.webwhatsResetAt;
+    const parsed = raw ? new Date(String(raw)) : null;
+    return parsed && Number.isFinite(parsed.getTime()) ? parsed : null;
+  }
+
+  private resolveConversationInboxSyncFloor(metadata: Record<string, any>) {
+    const raw =
+      metadata?.inboxHistoryResetAt ||
+      metadata?.inboxMirrorResetAt ||
+      metadata?.inboxResetAt ||
+      metadata?.webwhatsResetAt;
+    const parsed = raw ? new Date(String(raw)) : null;
+    return parsed && Number.isFinite(parsed.getTime()) ? parsed : null;
+  }
+
+  private resolveLatestSyncFloor(floors: Array<Date | null | undefined>) {
+    return floors
+      .filter((floor): floor is Date => Boolean(floor && Number.isFinite(floor.getTime())))
+      .sort((left, right) => right.getTime() - left.getTime())[0] || null;
+  }
+
+  private async pruneWebwhatsMessagesBeforeSyncFloor(
+    companyId: number,
+    conversationId: number,
+    floor: Date | null,
+  ) {
+    if (!floor) return;
+    await this.prisma.companyMessage.deleteMany({
+      where: {
+        companyId,
+        conversationId,
+        sourceModule: 'webwhats_sync',
+        timestamp: { lt: floor },
       },
     });
   }
@@ -3315,7 +3520,7 @@ export class WebwhatsBridgeService {
             body,
             timestamp,
           },
-          select: { id: true, providerMessageId: true, variablesJson: true },
+          select: { id: true, providerMessageId: true, variablesJson: true, sourceModule: true },
         });
     const existingVariables = this.parseMetadata(existingMessage?.variablesJson);
     const mediaAttachment = opts?.downloadMedia === false
@@ -3375,6 +3580,7 @@ export class WebwhatsBridgeService {
     let persistedMessageId = 0;
     let shouldRelayInbound = false;
 
+    const existingSourceModule = String(existingMessage?.sourceModule || '').trim();
     const updateData = {
       body,
       status,
@@ -3387,7 +3593,9 @@ export class WebwhatsBridgeService {
       sourceTenantKey: session.tenantKey,
       messageType,
       senderType: payload.senderType,
-      sourceModule: payload.sourceModule,
+      sourceModule: existingSourceModule && existingSourceModule !== 'webwhats_sync'
+        ? existingSourceModule
+        : payload.sourceModule,
       provider: payload.provider,
       ...(variablesJson ? { variablesJson } : {}),
     };
@@ -3705,7 +3913,7 @@ export class WebwhatsBridgeService {
   ) {
     const direct = await this.prisma.companyMessage.findUnique({
       where: { providerMessageId },
-      select: { id: true, providerMessageId: true, variablesJson: true },
+      select: { id: true, providerMessageId: true, variablesJson: true, sourceModule: true },
     });
     if (direct) return direct;
 
@@ -3719,7 +3927,7 @@ export class WebwhatsBridgeService {
           provider: 'WEBWHATS',
           providerMessageId: { endsWith: suffix },
         },
-        select: { id: true, providerMessageId: true, variablesJson: true },
+        select: { id: true, providerMessageId: true, variablesJson: true, sourceModule: true },
         orderBy: { timestamp: 'desc' },
       });
       if (legacy?.providerMessageId) legacyCandidates.add(String(legacy.providerMessageId));
@@ -3732,7 +3940,7 @@ export class WebwhatsBridgeService {
         provider: 'WEBWHATS',
         providerMessageId: { in: Array.from(legacyCandidates) },
       },
-      select: { id: true, providerMessageId: true, variablesJson: true },
+      select: { id: true, providerMessageId: true, variablesJson: true, sourceModule: true },
       orderBy: { timestamp: 'desc' },
     });
   }

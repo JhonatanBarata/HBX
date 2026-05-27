@@ -132,6 +132,50 @@ test('syncCompanyCustomers reaproveita nome da conversa ao sincronizar contatos 
   assert.equal(typeof webwhatsBridge.listContacts, 'function');
 });
 
+test('syncCompanyCustomers resolve conversa LID pelo telefone alternativo antes do nome', async () => {
+  const upsertCalls: Array<Record<string, unknown>> = [];
+  const { service } = createService({
+    operationalStatus: {
+      getOperationalStatusForCompany: async () => ({ metaActive: false, webWhatsActive: true }),
+    },
+    prisma: {
+      companyConversation: {
+        findMany: async () => [
+          {
+            id: 42,
+            contact: '224845883285598@lid',
+            metadata: JSON.stringify({
+              whatsappRemoteJid: '224845883285598@lid',
+              whatsappRemoteJidAlt: '5511991234567@s.whatsapp.net',
+              whatsappName: 'Rafael',
+              whatsappProfileName: '5511991234567',
+            }),
+            lastMessageAt: new Date('2026-04-12T08:40:00.000Z'),
+          },
+        ],
+      },
+    },
+    webwhatsBridge: {
+      syncRecentChats: async () => 1,
+      listContacts: async () => [],
+    },
+    cadastrosService: {
+      upsertCustomerRegistry: async (input: Record<string, unknown>) => {
+        upsertCalls.push(input);
+        return { id: 'registry-lid' };
+      },
+    },
+  });
+
+  const result = await service.syncCompanyCustomers(7);
+
+  assert.equal(result.syncedContacts, 1);
+  assert.equal(upsertCalls.length, 1);
+  assert.equal(upsertCalls[0].phone, '+5511991234567');
+  assert.equal(upsertCalls[0].name, 'Rafael');
+  assert.equal(upsertCalls[0].conversationId, 42);
+});
+
 test('syncCompanyCustomers corrige nome ruim salvo quando o WhatsApp traz um nome melhor', async () => {
   const upsertCalls: Array<Record<string, unknown>> = [];
   const { service } = createService({

@@ -1504,7 +1504,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     ).slice(0, 20);
   }
 
-  private renderVendasVariant(template: string, job: any) {
+  private renderVendasVariant(template: string, job: any, extraValues: Record<string, string> = {}) {
     const leadName = String(job?.lead?.name || 'sua empresa').trim();
     const values: Record<string, string> = {
       cliente: leadName,
@@ -1513,6 +1513,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       cidade: String(job?.lead?.city || job?.campaign?.city || '').trim(),
       estado: String(job?.campaign?.state || '').trim(),
       segmento: String(job?.lead?.segment || job?.campaign?.segment || '').trim(),
+      ...extraValues,
     };
     return sanitizeFirstContactMessage(
       String(template || '')
@@ -1527,11 +1528,131 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     return this.renderVendasVariant(variant, job);
   }
 
+  private pickVendasScheduledReplyVariant(job: any, label: string) {
+    const fallback = [
+      'Perfeito, {{retorno_label}} eu te chamo por aqui ou te ligo rapidinho.',
+      'Combinado, {{retorno_label}} eu retorno com você.',
+      'Fechado, deixei anotado para {{retorno_label}}.',
+    ];
+    const variants = this.readVendasVariantList(job?.campaign, 'scheduledReplyVariants', fallback);
+    const variant = variants[Math.floor(Math.random() * variants.length)] || fallback[0];
+    return this.renderVendasVariant(variant, job, {
+      retorno_label: label,
+      horario_retorno: label,
+    });
+  }
+
   private containsVendasAutomationKeyword(normalizedText: string, keywords: string[]) {
     return keywords.some((keyword) => {
       const normalizedKeyword = this.normalizeVendasAutomationIntentText(keyword);
       return Boolean(normalizedKeyword && normalizedText.includes(normalizedKeyword));
     });
+  }
+
+  private normalizeSelfAlertPhone(value: unknown) {
+    let digits = String(value || '').replace(/\D/g, '');
+    if (!digits) return null;
+    if (!digits.startsWith('55') && (digits.length === 10 || digits.length === 11)) {
+      digits = `55${digits}`;
+    }
+    if (digits.length < 10 || digits.length > 15) return null;
+    return `+${digits}`;
+  }
+
+  private async resolveWebwhatsSelfAlertTarget(companyId: number, conversationId?: number | null, metadata?: Record<string, any> | null) {
+    const metadataCandidates = [
+      metadata?.sourcePhoneNormalized,
+      metadata?.whatsappConnectionPhoneNormalized,
+      metadata?.whatsappModalPhone,
+      metadata?.whatsappTemporaryDisplayNumber,
+    ];
+    if (conversationId) {
+      const conversation = await this.prisma.companyConversation.findFirst({
+        where: { id: Number(conversationId), companyId },
+        select: {
+          sourcePhoneNormalized: true,
+          metadata: true,
+          whatsappConnectionSession: {
+            select: {
+              phoneNormalized: true,
+              displayPhone: true,
+            },
+          },
+        },
+      });
+      const conversationMetadata = this.readJsonRecord(conversation?.metadata);
+      metadataCandidates.push(
+        conversation?.whatsappConnectionSession?.phoneNormalized,
+        conversation?.whatsappConnectionSession?.displayPhone,
+        conversation?.sourcePhoneNormalized,
+        conversationMetadata.sourcePhoneNormalized,
+        conversationMetadata.whatsappConnectionPhoneNormalized,
+      );
+    }
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: {
+        whatsappModalPhone: true,
+        whatsappTemporaryDisplayNumber: true,
+        whatsappDisplayNumber: true,
+        whatsappNumber: true,
+        currentWhatsappConnectionSession: {
+          select: {
+            phoneNormalized: true,
+            displayPhone: true,
+          },
+        },
+      },
+    });
+    metadataCandidates.push(
+      company?.currentWhatsappConnectionSession?.phoneNormalized,
+      company?.currentWhatsappConnectionSession?.displayPhone,
+      company?.whatsappModalPhone,
+      company?.whatsappTemporaryDisplayNumber,
+      company?.whatsappDisplayNumber,
+      company?.whatsappNumber,
+    );
+    for (const candidate of metadataCandidates) {
+      const normalized = this.normalizeSelfAlertPhone(candidate);
+      if (normalized) return normalized;
+    }
+    return null;
+  }
+
+  private async notifyWebwhatsSelfAlert(input: {
+    companyId: number;
+    conversationId?: number | null;
+    metadata?: Record<string, any> | null;
+    title: string;
+    text: string;
+    reasons?: string[];
+    leadName?: string | null;
+    leadPhone?: string | null;
+  }) {
+    try {
+      const target = await this.resolveWebwhatsSelfAlertTarget(input.companyId, input.conversationId, input.metadata);
+      if (!target) {
+        this.logger.warn(`[hbot-alert] sem numero proprio conectado para alerta company=${input.companyId}`);
+        return;
+      }
+      const trimmedText = String(input.text || '').replace(/\s+/g, ' ').trim();
+      const preview = trimmedText.length > 280 ? `${trimmedText.slice(0, 277)}...` : trimmedText;
+      const lines = [
+        `HBX Alerta: ${input.title}`,
+        input.leadName ? `Cliente: ${input.leadName}` : null,
+        input.leadPhone ? `Telefone: ${input.leadPhone}` : null,
+        input.conversationId ? `Conversa: ${input.conversationId}` : null,
+        input.reasons?.length ? `Sinais: ${input.reasons.join(', ')}` : null,
+        `Mensagem: "${preview || '(sem texto)'}"`,
+        'Acao: bot pausado. Revisar em Prospecção.',
+      ].filter(Boolean);
+      await this.webwhatsBridge.sendText(input.companyId, {
+        to: target,
+        text: lines.join('\n'),
+      });
+    } catch (error) {
+      this.logger.warn(`[hbot-alert] falha ao enviar alerta para si mesmo: ${String((error as any)?.message || error)}`);
+    }
   }
 
   private vendasCampaignOptOutReplyEnabled(campaign: any) {
@@ -1577,7 +1698,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     const jobId = String(automation.jobId || queue.automationJobId || '').trim();
     if (jobId) {
       const job = await jobDelegate.findFirst({
-        where: { id: jobId, companyId: input.companyId, status: 'sent' },
+        where: { id: jobId, companyId: input.companyId, status: { in: ['sent', 'replied_positive'] } },
         include: { campaign: true, lead: true },
       });
       if (job) return job;
@@ -1593,7 +1714,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     return jobDelegate.findFirst({
       where: {
         companyId: input.companyId,
-        status: 'sent',
+        status: { in: ['sent', 'replied_positive'] },
         OR: [
           { conversationId: input.conversationId },
           ...(candidates.length ? [{ lead: { phoneNormalized: { in: candidates } } }] : []),
@@ -1602,6 +1723,253 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       include: { campaign: true, lead: true },
       orderBy: [{ sentAt: 'desc' }, { createdAt: 'desc' }],
     });
+  }
+
+  private getSaoPauloDateParts(date: Date) {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(date);
+    const get = (type: string) => Number(parts.find((part) => part.type === type)?.value || '0');
+    return {
+      year: get('year'),
+      month: get('month'),
+      day: get('day'),
+      hour: get('hour'),
+      minute: get('minute'),
+    };
+  }
+
+  private buildSaoPauloDate(parts: { year: number; month: number; day: number; hour: number; minute: number }) {
+    return new Date(Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour + 3, parts.minute, 0, 0));
+  }
+
+  private normalizeScheduleIntentText(value: string) {
+    return String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}:h\s]/gu, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  private parseProspectionScheduleRequest(text: string, baseDate: Date) {
+    const normalized = this.normalizeScheduleIntentText(text);
+    if (!normalized) return null;
+    const hasScheduleCue = /\b(amanha|hoje|depois de amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo|hora|horario|ligar|liga|chama|chamar|pode ser|as|umas|uns)\b/.test(normalized);
+    if (!hasScheduleCue) return null;
+
+    const period = /\b(manha|cedo)\b/.test(normalized)
+      ? 'morning'
+      : /\b(tarde)\b/.test(normalized)
+        ? 'afternoon'
+        : /\b(noite)\b/.test(normalized)
+          ? 'night'
+          : null;
+    const timeMatch = normalized.match(/\b(?:as|umas|uns|por volta das|la pelas|pelas)?\s*(\d{1,2})(?:[:h](\d{2}))?\b/);
+    let hour = timeMatch ? Number(timeMatch[1]) : NaN;
+    let minute = timeMatch?.[2] ? Number(timeMatch[2]) : 0;
+    if (!Number.isFinite(hour) || hour < 0 || hour > 23) {
+      if (period === 'morning') hour = 9;
+      else if (period === 'afternoon') hour = 14;
+      else if (period === 'night') hour = 18;
+    }
+    if (!Number.isFinite(hour) || hour < 0 || hour > 23 || !Number.isFinite(minute) || minute < 0 || minute > 59) {
+      return null;
+    }
+
+    const base = this.getSaoPauloDateParts(baseDate);
+    const baseLocal = this.buildSaoPauloDate({ ...base, hour: 0, minute: 0 });
+    let dayOffset: number | null = null;
+    if (/\bdepois de amanha\b/.test(normalized)) dayOffset = 2;
+    else if (/\bamanha\b/.test(normalized)) dayOffset = 1;
+    else if (/\bhoje\b/.test(normalized)) dayOffset = 0;
+
+    const weekdays: Record<string, number> = {
+      domingo: 0,
+      segunda: 1,
+      terca: 2,
+      quarta: 3,
+      quinta: 4,
+      sexta: 5,
+      sabado: 6,
+    };
+    const weekdayEntry = Object.entries(weekdays).find(([name]) => new RegExp(`\\b${name}\\b`).test(normalized));
+    if (dayOffset === null && weekdayEntry) {
+      const target = weekdayEntry[1];
+      const current = baseLocal.getUTCDay();
+      dayOffset = (target - current + 7) % 7;
+      if (dayOffset === 0) dayOffset = 7;
+    }
+    if (dayOffset === null) {
+      const candidateToday = this.buildSaoPauloDate({ ...base, hour, minute });
+      dayOffset = candidateToday.getTime() > baseDate.getTime() + 30 * 60 * 1000 ? 0 : 1;
+    }
+
+    const targetDay = new Date(baseLocal.getTime() + dayOffset * 24 * 60 * 60 * 1000);
+    const scheduledAt = this.buildSaoPauloDate({
+      year: targetDay.getUTCFullYear(),
+      month: targetDay.getUTCMonth() + 1,
+      day: targetDay.getUTCDate(),
+      hour,
+      minute,
+    });
+    if (scheduledAt.getTime() <= baseDate.getTime()) return null;
+    return {
+      scheduledAt,
+      dayOffset,
+      hour,
+      minute,
+    };
+  }
+
+  private formatProspectionScheduleLabel(parsed: { scheduledAt: Date; dayOffset: number; hour: number; minute: number }) {
+    const time = `${String(parsed.hour).padStart(2, '0')}:${String(parsed.minute).padStart(2, '0')}`;
+    if (parsed.dayOffset === 0) return `hoje às ${time}`;
+    if (parsed.dayOffset === 1) return `amanhã às ${time}`;
+    return new Intl.DateTimeFormat('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      weekday: 'long',
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(parsed.scheduledAt);
+  }
+
+  private async handleVendasProspectionScheduleReply(input: any, job: any) {
+    const parsed = this.parseProspectionScheduleRequest(input.text, input.timestamp instanceof Date ? input.timestamp : new Date());
+    if (!parsed) return null;
+    const label = this.formatProspectionScheduleLabel(parsed);
+    const now = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      await tx.vendasAutomationJob.update({
+        where: { id: job.id },
+        data: {
+          classification: 'call_scheduled',
+          conversationId: input.conversationId,
+        },
+      });
+      await tx.vendasLead.update({
+        where: { id: job.leadId },
+        data: {
+          status: 'retorno',
+          lastResult: 'Ligação agendada pelo WhatsApp',
+          nextAction: `Ligar/retornar ${label}`,
+          returnAt: parsed.scheduledAt,
+        },
+      });
+      await tx.vendasLeadTimelineEvent.create({
+        data: {
+          leadId: job.leadId,
+          eventType: 'return_scheduled',
+          title: 'Ligação agendada pelo WhatsApp',
+          description: `Cliente combinou retorno ${label}.`,
+          sourceType: 'vendas_prospeccao_bot',
+          statusTo: 'retorno',
+          resultLabel: 'Retorno agendado',
+          returnAt: parsed.scheduledAt,
+        },
+      });
+    });
+
+    const queue = this.readJsonRecord(input.metadata?.vendasAgendaQueue);
+    const automation = this.readJsonRecord(input.metadata?.vendasAutomation);
+    const prospeccao = this.readJsonRecord(input.metadata?.vendasProspeccao);
+    const nextMetadata = {
+      ...this.clearAtendimentoBlockedMetadata(input.metadata),
+      queueTarget: 'prospeccao',
+      routeTarget: 'prospeccao',
+      botActive: false,
+      humanAssigned: false,
+      prospectionAttentionRequired: true,
+      prospectionAttentionTone: 'green',
+      scheduledCallAt: parsed.scheduledAt.toISOString(),
+      scheduledCallLabel: label,
+      vendasAutomation: {
+        ...automation,
+        campaignId: job.campaignId,
+        jobId: job.id,
+        leadId: job.leadId,
+        status: 'call_scheduled',
+        scheduledCallAt: parsed.scheduledAt.toISOString(),
+        scheduledCallLabel: label,
+      },
+      vendasAgendaQueue: {
+        ...queue,
+        active: true,
+        leadId: job.leadId,
+        sourceModule: 'vendas',
+        sourceBlock: 'scheduled',
+        queueTarget: 'prospeccao',
+        routeTarget: 'prospeccao',
+        status: 'retorno_agendado',
+        nextAction: `Ligar/retornar ${label}`,
+        returnAt: parsed.scheduledAt.toISOString(),
+        draftMessage: null,
+        draftPending: false,
+        botEligible: false,
+        botEntryPending: false,
+        botActive: false,
+        humanAssigned: false,
+        attentionRequired: true,
+        attentionTone: 'green',
+        scheduledCallAt: parsed.scheduledAt.toISOString(),
+        scheduledCallLabel: label,
+        respondedAt: now.toISOString(),
+        syncedAt: now.toISOString(),
+      },
+      vendasProspeccao: {
+        ...prospeccao,
+        stage: 'reply_received',
+        lastInboundAt: input.timestamp instanceof Date ? input.timestamp.toISOString() : now.toISOString(),
+        scheduledCallAt: parsed.scheduledAt.toISOString(),
+      },
+    };
+    const scheduledReplyBody = this.pickVendasScheduledReplyVariant(job, label);
+    await input.setInboundMeta('vendas_prospeccao_retorno_agendado', false);
+    await this.conversations.queueOutboundForCompany(input.companyId, {
+      conversationId: input.conversationId,
+      to: input.from,
+      contactId: input.from,
+      body: scheduledReplyBody,
+      messageType: 'text',
+      sourceModule: 'vendas_prospeccao_bot',
+      senderType: 'bot',
+      variables: {
+        botType: 'prospeccao',
+        campaignId: job.campaignId,
+        jobId: job.id,
+        leadId: job.leadId,
+        scheduledCallAt: parsed.scheduledAt.toISOString(),
+        scheduledCallLabel: label,
+      },
+      flowState: {
+        currentFlow: ATENDIMENTO_FLOW_ID,
+        currentStep: ATENDIMENTO_STEP.HUMAN,
+        botActive: false,
+        humanAssigned: false,
+        flowResult: 'prospection_call_scheduled',
+        metadata: nextMetadata,
+      },
+    });
+    this.publishVendasAutomationEvent({
+      companyId: input.companyId,
+      campaignId: job.campaignId,
+      jobId: job.id,
+      leadId: job.leadId,
+      conversationId: input.conversationId,
+      status: 'aguardando',
+      text: `Retorno agendado ${label}.`,
+      type: 'call_scheduled',
+    });
+    return { handled: true, classification: 'call_scheduled', scheduledAt: parsed.scheduledAt.toISOString() };
   }
 
   private resolveHbxPresentationRecipientName(job: any, metadata: Record<string, any>) {
@@ -2036,6 +2404,9 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
   }) {
     const job = await this.findVendasAutomationJobForInbound(input);
     if (!job?.campaign || !job?.lead) return null;
+    if (String(job.status || '') === 'replied_positive') {
+      return this.handleVendasProspectionScheduleReply(input, job);
+    }
     if (String(job.status || '') !== 'sent') return null;
     const automation = this.readJsonRecord(input.metadata?.vendasAutomation);
     const queue = this.readJsonRecord(input.metadata?.vendasAgendaQueue);
@@ -2138,6 +2509,16 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     if (intent.kind === 'ambiguous_intent' || intent.confidence < 0.5) {
       await input.setInboundMeta('vendas_prospeccao_duvida', false);
       await this.markVendasAutomationNeutral({ ...input, intentReview: intent }, job);
+      await this.notifyWebwhatsSelfAlert({
+        companyId: input.companyId,
+        conversationId: input.conversationId,
+        metadata: input.metadata,
+        title: intent.kind === 'ambiguous_intent' ? 'Prospecção em dúvida' : 'Baixa confiança',
+        text: input.text,
+        reasons: intent.reasons,
+        leadName: job.lead?.name || null,
+        leadPhone: job.lead?.phoneNormalized || job.lead?.phone || input.from || null,
+      });
       return { handled: true, classification: intent.kind === 'ambiguous_intent' ? 'ambiguous_intent' : 'low_confidence' };
     }
 
@@ -2199,7 +2580,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     const queue = this.readJsonRecord(input.metadata?.vendasAgendaQueue);
     const automation = this.readJsonRecord(input.metadata?.vendasAutomation);
     const prospeccao = this.readJsonRecord(input.metadata?.vendasProspeccao);
-    const draftMessage = this.pickVendasVariant(
+    const followUpMessage = this.pickVendasVariant(
       job.campaign,
       job,
       input.replyKind === 'what_is_it' ? 'whatIsItReplyVariants' : 'positiveReplyVariants',
@@ -2219,68 +2600,108 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
             'Boa. A ideia é bem prática: entender o que hoje é manual, repetitivo ou bagunçado, e ver se vale implantar alguma automação, organização ou sistema simples para facilitar. Posso te ligar rapidinho?',
           ],
     );
-    await this.updateAtendimentoConversationState(
-      input.companyId,
-      input.conversationId,
-      {
-        currentFlow: ATENDIMENTO_FLOW_ID,
-        currentStep: ATENDIMENTO_STEP.MAIN_MENU,
-        botActive: false,
-        humanAssigned: false,
-        flowResult: 'prospection_interested',
+    const nextMetadata = {
+      ...this.clearAtendimentoBlockedMetadata(input.metadata),
+      botActive: false,
+      humanAssigned: false,
+      queueTarget: 'prospeccao',
+      routeTarget: 'prospeccao',
+      hbotBlockedReason: 'prospection_attention_required',
+      prospectionAttentionRequired: true,
+      prospectionAttentionTone: 'green',
+      vendasAutomation: {
+        ...automation,
+        campaignId: job.campaignId,
+        jobId: job.id,
+        leadId: job.leadId,
+        status: 'interested',
+        disposition: 'positive',
+        awaitingProspectionReview: true,
+        attentionRequired: true,
+        attentionTone: 'green',
+        interestedAt: now.toISOString(),
+        followUpSent: Boolean(followUpMessage),
       },
-      {
-        ...this.clearAtendimentoBlockedMetadata(input.metadata),
-        botActive: false,
-        humanAssigned: false,
+      vendasAgendaQueue: {
+        ...queue,
+        active: true,
+        leadId: job.leadId,
         queueTarget: 'prospeccao',
         routeTarget: 'prospeccao',
-        hbotBlockedReason: 'prospection_attention_required',
-        prospectionAttentionRequired: true,
-        prospectionAttentionTone: 'green',
-        vendasAutomation: {
-          ...automation,
-          campaignId: job.campaignId,
-          jobId: job.id,
-          leadId: job.leadId,
-          status: 'interested',
-          disposition: 'positive',
-          awaitingProspectionReview: true,
-          attentionRequired: true,
-          attentionTone: 'green',
-          interestedAt: now.toISOString(),
-        },
-        vendasAgendaQueue: {
-          ...queue,
-          active: true,
-          leadId: job.leadId,
-          queueTarget: 'prospeccao',
-          routeTarget: 'prospeccao',
-          status: 'qualificado',
-          nextAction: 'Prospecção: interessado aguardando operador',
-          draftMessage,
-          draftPending: Boolean(draftMessage),
-          botEligible: false,
-          botEntryPending: false,
-          botActive: false,
-          humanAssigned: false,
-          awaitingProspectionReview: true,
-          attentionRequired: true,
-          attentionTone: 'green',
-          respondedAt: now.toISOString(),
-          syncedAt: now.toISOString(),
-          interested: true,
-        },
-        vendasProspeccao: {
-          ...prospeccao,
-          stage: 'reply_received',
-          lastInboundAt: input.timestamp instanceof Date ? input.timestamp.toISOString() : now.toISOString(),
-          leadSegment: job.lead?.segment || prospeccao.leadSegment || null,
-          campaignSegment: job.campaign?.segment || prospeccao.campaignSegment || null,
-          mismatchReason: null,
-        },
+        status: 'qualificado',
+        nextAction: followUpMessage
+          ? 'Prospecção: resposta automática enviada, aguardando retorno'
+          : 'Prospecção: interessado aguardando operador',
+        draftMessage: null,
+        draftPending: false,
+        botEligible: false,
+        botEntryPending: false,
+        botActive: false,
+        humanAssigned: false,
+        awaitingProspectionReview: true,
+        attentionRequired: true,
+        attentionTone: 'green',
+        respondedAt: now.toISOString(),
+        syncedAt: now.toISOString(),
+        interested: true,
       },
-    );
+      vendasProspeccao: {
+        ...prospeccao,
+        stage: 'reply_received',
+        lastInboundAt: input.timestamp instanceof Date ? input.timestamp.toISOString() : now.toISOString(),
+        leadSegment: job.lead?.segment || prospeccao.leadSegment || null,
+        campaignSegment: job.campaign?.segment || prospeccao.campaignSegment || null,
+        mismatchReason: null,
+      },
+    };
+    const nextState = {
+      currentFlow: ATENDIMENTO_FLOW_ID,
+      currentStep: ATENDIMENTO_STEP.MAIN_MENU,
+      botActive: false,
+      humanAssigned: false,
+      flowResult: 'prospection_interested',
+    };
+    if (followUpMessage) {
+      try {
+        await this.conversations.queueOutboundForCompany(input.companyId, {
+          conversationId: input.conversationId,
+          to: input.from,
+          contactId: input.from,
+          body: followUpMessage,
+          messageType: 'text',
+          sourceModule: 'vendas_prospeccao_bot',
+          senderType: 'bot',
+          variables: {
+            botType: 'prospeccao',
+            campaignId: job.campaignId,
+            jobId: job.id,
+            leadId: job.leadId,
+            replyKind: input.replyKind || 'positive',
+            automaticFollowUp: true,
+          },
+          flowState: {
+            ...nextState,
+            metadata: nextMetadata,
+          },
+        });
+      } catch (error: any) {
+        this.logger.warn(`Falha ao enviar resposta positiva da prospeccao job=${job.id}: ${String(error?.message || error)}`);
+        await this.updateAtendimentoConversationState(input.companyId, input.conversationId, nextState, {
+          ...nextMetadata,
+          vendasAutomation: {
+            ...this.readJsonRecord(nextMetadata.vendasAutomation),
+            followUpSent: false,
+            followUpError: String(error?.message || error),
+          },
+          vendasAgendaQueue: {
+            ...this.readJsonRecord(nextMetadata.vendasAgendaQueue),
+            nextAction: 'Prospecção: falha ao enviar resposta automática',
+          },
+        });
+      }
+    } else {
+      await this.updateAtendimentoConversationState(input.companyId, input.conversationId, nextState, nextMetadata);
+    }
     this.logger.log(`[prospeccao] inbound detectado, mantendo em prospeccao conversation=${input.conversationId}`);
     this.publishVendasAutomationEvent({
       companyId: input.companyId,
@@ -2620,10 +3041,6 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     const queue = this.readJsonRecord(input.metadata?.vendasAgendaQueue);
     const automation = this.readJsonRecord(input.metadata?.vendasAutomation);
     const prospeccao = this.readJsonRecord(input.metadata?.vendasProspeccao);
-    const draftMessage = this.pickVendasVariant(job.campaign, job, 'neutralHandoffVariants', [
-      'Vou passar para uma pessoa do atendimento continuar com você.',
-      'Vou deixar isso com o atendimento humano para responder melhor.',
-    ]);
     await this.updateAtendimentoConversationState(
       input.companyId,
       input.conversationId,
@@ -2666,9 +3083,11 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           leadId: job.leadId,
           queueTarget: 'prospeccao',
           routeTarget: 'prospeccao',
-          nextAction: 'Prospecção: resposta neutra aguardando operador',
-          draftMessage,
-          draftPending: Boolean(draftMessage),
+          nextAction: jobClassification === 'ambiguous_intent'
+            ? 'Prospecção: resposta ambígua, bot pausado para revisão'
+            : 'Prospecção: resposta não encaixou no fluxo, bot pausado',
+          draftMessage: null,
+          draftPending: false,
           classification: jobClassification,
           reviewReason: intentReview?.reasons?.join(', ') || null,
           confidence: intentReview?.confidence ?? null,

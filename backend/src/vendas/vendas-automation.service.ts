@@ -46,6 +46,7 @@ type ProspectingSceneRules = {
   negativeIntentKeywords: string[];
   whatIsItIntentKeywords: string[];
   neutralIntentKeywords: string[];
+  scheduledReplyVariants: string[];
   optOutMessage: string;
   optOutReplyEnabled: boolean;
 };
@@ -144,6 +145,11 @@ const DEFAULT_WHAT_IS_IT_REPLY_VARIANTS = [
   'Basicamente eu ajudo a empresa a parar de depender tanto de planilha solta, memória, mensagem perdida e tarefa manual. Primeiro eu entendo o problema, depois implanto o que fizer sentido para aquela operação.',
   'É uma consultoria bem prática. Eu olho áreas como atendimento, vendas, administrativo, retornos, cadastros, controles e tarefas repetitivas, e vejo onde dá para simplificar ou automatizar.',
   'É sobre melhorar a operação da empresa. Não é uma solução única para todo mundo: eu entendo o gargalo, desenho uma forma mais organizada de trabalhar e implanto algo que ajude no dia a dia.',
+];
+const DEFAULT_SCHEDULED_REPLY_VARIANTS = [
+  'Perfeito, {{retorno_label}} eu te chamo por aqui ou te ligo rapidinho.',
+  'Combinado, {{retorno_label}} eu retorno com você.',
+  'Fechado, deixei anotado para {{retorno_label}}.',
 ];
 const DEFAULT_OPT_OUT_VARIANTS = [
   DEFAULT_OPT_OUT_MESSAGE,
@@ -1232,6 +1238,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       ),
       whatIsItIntentKeywords: normalizeTextList(metadata.whatIsItIntentKeywords, WHAT_IS_IT_INTENT_KEYWORDS),
       neutralIntentKeywords: normalizeTextList(metadata.neutralIntentKeywords, DEFAULT_NEUTRAL_KEYWORDS),
+      scheduledReplyVariants: normalizeVariantList(metadata.scheduledReplyVariants, DEFAULT_SCHEDULED_REPLY_VARIANTS),
       optOutMessage: trimOrNull(metadata.optOutMessage) || DEFAULT_OPT_OUT_MESSAGE,
       optOutReplyEnabled: metadata.optOutReplyEnabled === true,
     };
@@ -1269,6 +1276,10 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       whatIsItReplyVariants: normalizeVariantList(
         hasOwnValue(payload, 'whatIsItReplyVariants') ? payload?.whatIsItReplyVariants : filters.whatIsItReplyVariants,
         normalizeVariantList((parseJsonObject(existing?.filtersJson) as any).whatIsItReplyVariants, DEFAULT_WHAT_IS_IT_REPLY_VARIANTS),
+      ),
+      scheduledReplyVariants: normalizeVariantList(
+        hasOwnValue(payload, 'scheduledReplyVariants') ? (payload as any)?.scheduledReplyVariants : filters.scheduledReplyVariants,
+        normalizeVariantList((parseJsonObject(existing?.filtersJson) as any).scheduledReplyVariants, scene.scheduledReplyVariants),
       ),
       optOutVariants: normalizeVariantList(
         hasOwnValue(payload, 'optOutVariants') ? payload?.optOutVariants : filters.optOutVariants,
@@ -1636,6 +1647,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       firstContactVariants: normalizeVariantList(filtersJson.firstContactVariants, DEFAULT_FIRST_CONTACT_VARIANTS),
       positiveReplyVariants: normalizeVariantList(filtersJson.positiveReplyVariants, DEFAULT_POSITIVE_REPLY_VARIANTS),
       whatIsItReplyVariants: normalizeVariantList(filtersJson.whatIsItReplyVariants, DEFAULT_WHAT_IS_IT_REPLY_VARIANTS),
+      scheduledReplyVariants: normalizeVariantList(filtersJson.scheduledReplyVariants, DEFAULT_SCHEDULED_REPLY_VARIANTS),
       optOutVariants: normalizeVariantList(filtersJson.optOutVariants, DEFAULT_OPT_OUT_VARIANTS),
       neutralHandoffVariants: normalizeVariantList(filtersJson.neutralHandoffVariants, DEFAULT_NEUTRAL_HANDOFF_VARIANTS),
       optOutMessage: campaign.optOutMessage || DEFAULT_OPT_OUT_MESSAGE,
@@ -3974,68 +3986,113 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     const queue = parseJsonObject((metadata as any).vendasAgendaQueue);
     const prospeccao = parseJsonObject((metadata as any).vendasProspeccao);
     const runtimeUser = await this.buildAutomationUser(job.campaign);
-    const draftMessage = this.renderRandomCampaignVariant(
+    const followUpMessage = this.renderRandomCampaignVariant(
       job.campaign,
       job.lead,
       runtimeUser,
       input.replyKind === 'what_is_it' ? 'whatIsItReplyVariants' : 'positiveReplyVariants',
       input.replyKind === 'what_is_it' ? DEFAULT_WHAT_IS_IT_REPLY_VARIANTS : DEFAULT_POSITIVE_REPLY_VARIANTS,
     );
-    await this.conversations.updateConversationState(input.companyId, input.conversationId, {
+    const nextMetadata = {
+      ...metadata,
+      botActive: false,
+      humanAssigned: false,
+      queueTarget: 'prospeccao',
+      routeTarget: 'prospeccao',
+      hbotBlockedReason: 'prospection_attention_required',
+      prospectionAttentionRequired: true,
+      prospectionAttentionTone: 'green',
+      vendasAutomation: {
+        ...parseJsonObject((metadata as any).vendasAutomation),
+        campaignId: job.campaignId,
+        jobId: job.id,
+        leadId: job.leadId,
+        status: 'interested',
+        disposition: 'positive',
+        awaitingProspectionReview: true,
+        attentionRequired: true,
+        attentionTone: 'green',
+        interestedAt: now.toISOString(),
+        followUpSent: Boolean(followUpMessage),
+      },
+      vendasAgendaQueue: {
+        ...queue,
+        active: true,
+        leadId: job.leadId,
+        queueTarget: 'prospeccao',
+        routeTarget: 'prospeccao',
+        status: 'qualificado',
+        nextAction: followUpMessage
+          ? 'Prospecção: resposta automática enviada, aguardando retorno'
+          : 'Prospecção: interessado aguardando operador',
+        draftMessage: null,
+        draftPending: false,
+        botEligible: false,
+        botEntryPending: false,
+        botActive: false,
+        humanAssigned: false,
+        awaitingProspectionReview: true,
+        attentionRequired: true,
+        attentionTone: 'green',
+        respondedAt: now.toISOString(),
+        syncedAt: now.toISOString(),
+        interested: true,
+      },
+      vendasProspeccao: this.buildProspectionState('reply_received', {
+        current: prospeccao,
+        lead: job.lead,
+        campaign: job.campaign,
+        lastInboundAt: input.timestamp || now,
+        mismatchReason: null,
+      }),
+    };
+    const nextState = {
       botActive: false,
       humanAssigned: false,
       flowResult: 'prospection_interested',
-      metadata: {
-        ...metadata,
-        botActive: false,
-        humanAssigned: false,
-        queueTarget: 'prospeccao',
-        routeTarget: 'prospeccao',
-        hbotBlockedReason: 'prospection_attention_required',
-        prospectionAttentionRequired: true,
-        prospectionAttentionTone: 'green',
-        vendasAutomation: {
-          ...parseJsonObject((metadata as any).vendasAutomation),
-          campaignId: job.campaignId,
-          jobId: job.id,
-          leadId: job.leadId,
-          status: 'interested',
-          disposition: 'positive',
-          awaitingProspectionReview: true,
-          attentionRequired: true,
-          attentionTone: 'green',
-          interestedAt: now.toISOString(),
-        },
-        vendasAgendaQueue: {
-          ...queue,
-          active: true,
-          leadId: job.leadId,
-          queueTarget: 'prospeccao',
-          routeTarget: 'prospeccao',
-          status: 'qualificado',
-          nextAction: 'Prospecção: interessado aguardando operador',
-          draftMessage,
-          draftPending: Boolean(draftMessage),
-          botEligible: false,
-          botEntryPending: false,
-          botActive: false,
-          humanAssigned: false,
-          awaitingProspectionReview: true,
-          attentionRequired: true,
-          attentionTone: 'green',
-          respondedAt: now.toISOString(),
-          syncedAt: now.toISOString(),
-          interested: true,
-        },
-        vendasProspeccao: this.buildProspectionState('reply_received', {
-          current: prospeccao,
-          lead: job.lead,
-          campaign: job.campaign,
-          lastInboundAt: input.timestamp || now,
-          mismatchReason: null,
-        }),
-      },
-    });
+      metadata: nextMetadata,
+    };
+    if (followUpMessage) {
+      try {
+        await this.conversations.queueOutboundForCompany(input.companyId, {
+          conversationId: input.conversationId,
+          to: input.from,
+          contactId: input.from,
+          body: followUpMessage,
+          messageType: 'text',
+          sourceModule: 'vendas_prospeccao_bot',
+          senderType: 'bot',
+          variables: {
+            botType: 'prospeccao',
+            campaignId: job.campaignId,
+            jobId: job.id,
+            leadId: job.leadId,
+            replyKind: input.replyKind || 'positive',
+            automaticFollowUp: true,
+          },
+          flowState: nextState,
+        });
+      } catch (error: any) {
+        this.logger.warn(`Falha ao enviar resposta positiva da prospeccao job=${job.id}: ${String(error?.message || error)}`);
+        await this.conversations.updateConversationState(input.companyId, input.conversationId, {
+          ...nextState,
+          metadata: {
+            ...nextMetadata,
+            vendasAutomation: {
+              ...parseJsonObject((nextMetadata as any).vendasAutomation),
+              followUpSent: false,
+              followUpError: String(error?.message || error),
+            },
+            vendasAgendaQueue: {
+              ...parseJsonObject((nextMetadata as any).vendasAgendaQueue),
+              nextAction: 'Prospecção: falha ao enviar resposta automática',
+            },
+          },
+        });
+      }
+    } else {
+      await this.conversations.updateConversationState(input.companyId, input.conversationId, nextState);
+    }
     await this.markRadarDispositionForLead(job.campaign, job.lead, 'interested', 'positive');
     this.publishAutomationEvent({
       companyId: input.companyId,
@@ -4291,14 +4348,6 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     const metadata = parseJsonObject(input.metadata);
     const queue = parseJsonObject((metadata as any).vendasAgendaQueue);
     const prospeccao = parseJsonObject((metadata as any).vendasProspeccao);
-    const runtimeUser = await this.buildAutomationUser(job.campaign);
-    const draftMessage = this.renderRandomCampaignVariant(
-      job.campaign,
-      job.lead,
-      runtimeUser,
-      'neutralHandoffVariants',
-      DEFAULT_NEUTRAL_HANDOFF_VARIANTS,
-    );
     await this.conversations.updateConversationState(input.companyId, input.conversationId, {
       botActive: false,
       humanAssigned: false,
@@ -4335,9 +4384,11 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           leadId: job.leadId,
           queueTarget: 'prospeccao',
           routeTarget: 'prospeccao',
-          nextAction: 'Prospecção: resposta neutra aguardando operador',
-          draftMessage,
-          draftPending: Boolean(draftMessage),
+          nextAction: jobClassification === 'ambiguous_intent'
+            ? 'Prospecção: resposta ambígua, bot pausado para revisão'
+            : 'Prospecção: resposta não encaixou no fluxo, bot pausado',
+          draftMessage: null,
+          draftPending: false,
           classification: jobClassification,
           reviewReason: intentReview?.reasons?.join(', ') || null,
           confidence: intentReview?.confidence ?? null,
