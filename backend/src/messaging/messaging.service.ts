@@ -248,6 +248,7 @@ type VendasAgendaQueueMetadata = {
 export class MessagingService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MessagingService.name);
   private pollHandle: NodeJS.Timeout | null = null;
+  private readonly startedAtMs = Date.now();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -306,6 +307,132 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
 
   private get enabled(): boolean {
     return (process.env.WHATSAPP_ENABLED || 'true').toLowerCase() === 'true';
+  }
+
+  private get startupBotDispatchGuardMs(): number {
+    const configured = Number(process.env.WHATSAPP_BOT_STARTUP_DISPATCH_GUARD_MS || '120000');
+    if (!Number.isFinite(configured)) return 120000;
+    return Math.max(0, Math.trunc(configured));
+  }
+
+  private isInsideStartupBotGuard() {
+    const guardMs = this.startupBotDispatchGuardMs;
+    return guardMs > 0 && Date.now() - this.startedAtMs < guardMs;
+  }
+
+  private isBotManagedOutbound(sourceModule: string | null | undefined, senderType: string | null | undefined) {
+    const source = String(sourceModule || '').trim().toLowerCase();
+    const sender = String(senderType || '').trim().toLowerCase();
+    return sender === 'bot' || source.includes('_bot') || source.endsWith('bot') || source.includes('bot_');
+  }
+
+  private async resolveDispatchBotSuppression(input: {
+    companyId: number;
+    conversationId: number | null;
+    to: string;
+    sourceModule?: string | null;
+    senderType?: string | null;
+  }) {
+    if (!this.isBotManagedOutbound(input.sourceModule, input.senderType)) return null;
+    if (this.isInsideStartupBotGuard()) return 'backend_reiniciado_guard_publicacao';
+    const conversationId = Number(input.conversationId || 0);
+    if (!conversationId) return null;
+
+    const conversation = await this.prisma.companyConversation.findFirst({
+      where: { id: conversationId, companyId: input.companyId, channel: 'whatsapp' },
+      select: {
+        id: true,
+        contact: true,
+        botActive: true,
+        humanAssigned: true,
+        currentFlow: true,
+        currentStep: true,
+        flowResult: true,
+        metadata: true,
+      },
+    });
+    if (!conversation) return 'conversa_nao_encontrada';
+
+    const metadata = this.parseConversationMetadata(conversation.metadata);
+    const blockedAt = this.normalizeIsoDateTime(metadata?.atendimentoBlockedAt || metadata?.recoveryBlockedAt);
+    if (conversation.humanAssigned) return 'conversa_em_atendimento_humano';
+    if (conversation.botActive === false) return 'bot_desativado_na_conversa';
+    if (metadata?.botOff === true || metadata?.atendimentoBotOff === true) return 'bot_off_na_conversa';
+    if (this.isPersonalWhatsappContact(metadata)) return 'contato_pessoal';
+    if (blockedAt) return 'conversa_bloqueada';
+
+    const phoneNormalized = this.normalizeDigits(input.to || conversation.contact);
+    if (phoneNormalized) {
+      const profile = await this.prisma.customerProfile.findFirst({
+        where: { companyId: input.companyId, phoneNormalized },
+        select: { botOff: true },
+        orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+      });
+      if (profile?.botOff === true) return 'bot_off_no_perfil';
+    }
+
+    if (String(input.sourceModule || '').trim().toLowerCase() === 'atendimento_bot') {
+      const tenantContext = await this.resolveAtendimentoBotSanitizationContext(input.companyId);
+      const configuredBot = await this.getAtendimentoBotConfig(input.companyId, tenantContext);
+      const botAiEnabled = await this.hasCommercialBotAiEntitlementForCompany(input.companyId);
+      if (!botAiEnabled || !isAtendimentoBotSetupComplete(configuredBot) || !configuredBot.routingRules.globalBotEnabled) {
+        return 'bot_atendimento_global_desativado';
+      }
+    }
+
+    return null;
+  }
+
+  private async cancelOutboundBeforeDispatch(input: {
+    outboundMessageId: number;
+    attemptId: number;
+    companyId: number;
+    conversationId: number | null;
+    to: string;
+    messageType: string;
+    sourceModule?: string | null;
+    reason: string;
+  }) {
+    const now = new Date();
+    const error = `Envio automatico cancelado: ${input.reason}`;
+    await this.prisma.outboundAttempt.update({
+      where: { id: input.attemptId },
+      data: {
+        finishedAt: now,
+        success: false,
+        error,
+        responseBody: 'dispatch_suppressed',
+      },
+    });
+    await this.prisma.outboundMessage.update({
+      where: { id: input.outboundMessageId },
+      data: {
+        status: 'CANCELLED',
+        failedAt: now,
+        lastError: error,
+        deliveryStatus: 'failed',
+      },
+    });
+    await this.prisma.companyMessage.updateMany({
+      where: { outboundMessageId: input.outboundMessageId },
+      data: { status: 'CANCELLED', error },
+    });
+    await this.logWhatsAppEvent({
+      companyId: input.companyId,
+      scope: 'dispatch',
+      event: 'outbound_suppressed',
+      level: 'WARN',
+      message: `Envio automatico cancelado para ${input.to}`,
+      conversationId: input.conversationId,
+      phone: input.to,
+      messageType: input.messageType,
+      result: 'suppressed',
+      reason: input.reason,
+      extra: {
+        outboundMessageId: input.outboundMessageId,
+        sourceModule: input.sourceModule || null,
+      },
+    });
   }
 
   private async supportsWhatsAppEndpointTable() {
@@ -7494,6 +7621,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         message: {
           select: {
             conversationId: true,
+            senderType: true,
             variablesJson: true,
           },
         },
@@ -7515,6 +7643,27 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       let dispatchBody = String(msg.body || '');
       const conversationId = Number(msg.message?.conversationId || 0) || null;
       const dispatchVariables = this.parseJsonPayload<Record<string, any>>(msg.message?.variablesJson, {});
+      const suppressionReason = await this.resolveDispatchBotSuppression({
+        companyId: msg.companyId,
+        conversationId,
+        to: msg.to,
+        sourceModule: msg.sourceModule,
+        senderType: msg.message?.senderType,
+      });
+      if (suppressionReason) {
+        await this.cancelOutboundBeforeDispatch({
+          outboundMessageId: msg.id,
+          attemptId: attempt.id,
+          companyId: msg.companyId,
+          conversationId,
+          to: msg.to,
+          messageType,
+          sourceModule: msg.sourceModule,
+          reason: suppressionReason,
+        });
+        this.logger.warn(`WhatsApp automatic send suppressed messageId=${msg.id} reason=${suppressionReason}`);
+        return;
+      }
       const attachment = this.extractWebwhatsAttachment(dispatchVariables);
       const providerCapabilities = resolveProviderCapabilitiesFromCompany(company);
       const webwhatsAvailable =
@@ -8560,6 +8709,29 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         },
       });
       return { matched: false, source: 'webwhats_sync_historical', botSuppressed: true };
+    }
+
+    const isStartupWebwhatsSync =
+      String(input.scope || '').trim().toLowerCase() === 'webwhats_sync' &&
+      this.isInsideStartupBotGuard();
+    if (isStartupWebwhatsSync) {
+      await this.logWhatsAppEvent({
+        companyId,
+        scope: input.scope,
+        event: 'inbound_startup_sync_suppressed',
+        message: 'Mensagem do Webwhats sincronizada logo apos restart sem acionar bot automatico.',
+        conversationId: inboundConversationId || null,
+        phone: from,
+        messageType: input.inboundType,
+        result: 'bot_suppressed',
+        extra: {
+          provider: input.provider,
+          sourceModule: input.sourceModule,
+          providerMessageId: input.externalMessageId || null,
+          startupGuardMs: this.startupBotDispatchGuardMs,
+        },
+      });
+      return { matched: false, source: 'webwhats_sync_startup', botSuppressed: true };
     }
 
     const recoveryCustomer = await this.findRecoveryCustomerByPhone(companyId, from);
