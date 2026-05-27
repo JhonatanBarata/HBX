@@ -1,117 +1,60 @@
-.radarPopupBackdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 10050;
-  display: grid;
-  place-items: center;
-  padding: 18px;
-  background: rgba(5, 12, 24, 0.62);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-}
-
-.radarPopup {
-  width: min(430px, 100%);
-  height: min(860px, calc(100dvh - 36px));
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  overflow: hidden;
-  border: 1px solid rgba(184, 207, 238, 0.82);
-  border-radius: 8px;
-  background: #eef5ff;
-  box-shadow: 0 32px 80px -34px rgba(0, 0, 0, 0.66);
-}
-
-.radarPopupHeader {
-  min-height: 56px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px 10px 16px;
-  border-bottom: 1px solid rgba(184, 207, 238, 0.76);
-  background: rgba(255, 255, 255, 0.86);
-}
-
-.radarPopupHeader div {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-}
-
-.radarPopupHeader span {
-  color: #4b5f7c;
-  font-size: 0.66rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.radarPopupHeader strong {
-  min-width: 0;
-  overflow: hidden;
-  color: #07143a;
-  font-size: 0.94rem;
-  font-weight: 800;
-  line-height: 1.1;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.radarPopupHeader button {
-  display: grid;
-  width: 36px;
-  height: 36px;
-  flex: 0 0 auto;
-  place-items: center;
-  border: 1px solid rgba(153, 174, 211, 0.78);
-  border-radius: 999px;
-  background: #ffffff;
-  color: #1b2942;
-  font: inherit;
-  font-weight: 800;
-  cursor: pointer;
-}
-
-.radarPopupBody {
-  min-height: 0;
-  overflow: hidden;
+.radarPhonePopup {
+  --hbx-popup4-width: min(430px, 100vw);
+  --hbx-popup4-height: min(860px, calc(100dvh - 18px));
 }
 
 .radarPopupFrame {
+  position: relative;
+  z-index: 1;
   width: 100%;
   height: 100%;
   display: block;
   border: 0;
   background: #eef5ff;
+  opacity: 0;
+  transition: opacity 180ms ease;
 }
 
-:global(html[data-theme-mode="dark"]) .radarPopup {
-  border-color: rgba(255, 214, 102, 0.28);
+.radarPopupFrame[data-ready="true"] {
+  opacity: 1;
+}
+
+.radarPopupLoading {
+  position: absolute;
+  inset: 12px;
+  z-index: 2;
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at 50% 18%, rgba(47, 111, 255, 0.16), transparent 34%),
+    linear-gradient(180deg, #edf6ff 0%, #dfeeff 100%);
+  pointer-events: none;
+}
+
+.radarPopupLoading::after {
+  content: "";
+  position: absolute;
+  inset: 50% auto auto 50%;
+  width: 34px;
+  height: 34px;
+  border: 3px solid rgba(7, 87, 223, 0.16);
+  border-top-color: rgba(7, 87, 223, 0.72);
+  border-radius: 999px;
+  transform: translate(-50%, -50%);
+  animation: radarPopupLoadingSpin 760ms linear infinite;
+}
+
+:global(html[data-theme-mode="dark"]) .radarPopupFrame {
   background: #061426;
 }
 
-:global(html[data-theme-mode="dark"]) .radarPopupHeader {
-  border-bottom-color: rgba(255, 214, 102, 0.18);
-  background: rgba(5, 19, 40, 0.92);
+:global(html[data-theme-mode="dark"]) .radarPopupLoading {
+  background:
+    radial-gradient(circle at 50% 18%, rgba(68, 186, 255, 0.16), transparent 34%),
+    linear-gradient(180deg, #07172d 0%, #030815 100%);
 }
 
-:global(html[data-theme-mode="dark"]) .radarPopupHeader span {
-  color: rgba(226, 234, 248, 0.72);
-}
-
-:global(html[data-theme-mode="dark"]) .radarPopupHeader strong {
-  color: #ffffff;
-}
-
-:global(html[data-theme-mode="dark"]) .radarPopupHeader button {
-  border-color: rgba(255, 214, 102, 0.22);
-  background: rgba(7, 28, 58, 0.94);
-  color: #ffe8a3;
-}
-
-@media (max-width: 820px) {
-  .radarPopupBackdrop {
-    display: none;
+@keyframes radarPopupLoadingSpin {
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
   }
 }

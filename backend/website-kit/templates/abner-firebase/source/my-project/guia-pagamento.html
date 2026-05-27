@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
@@ -246,7 +246,7 @@
               <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v13a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 18.5Zm2.5-.7a.7.7 0 0 0-.7.7v1.2h12.4V5.5a.7.7 0 0 0-.7-.7Zm11.7 4H5.8v9.7c0 .38.32.7.7.7h11c.38 0 .7-.32.7-.7ZM7.1 14.1h3.4v1.6H7.1Zm5 0h4.8v1.6h-4.8Z"></path>
             </svg>
             <span>Aceitamos</span>
-            <span>CartÃ£o Online</span>
+            <span>Cartão Online</span>
           </div>
         </div>
         <div>
@@ -264,7 +264,7 @@
         </div>
       </div>
       <h1>Pagamento com checkout oficial do Mercado Pago</h1>
-      <p id="statusLead" style="margin-top: 12px;">Carregando sua cobranÃ§a segura...</p>
+      <p id="statusLead" style="margin-top: 12px;">Carregando sua cobrança segura...</p>
     </section>
 
     <section class="grid">
@@ -273,16 +273,16 @@
         <h2 id="quoteTitle">Aguardando dados</h2>
         <div id="quoteValues" class="value-grid"></div>
         <div class="security">
-          <div class="security-pill">O site nÃ£o armazena os dados do seu cartÃ£o.</div>
-          <div class="security-pill">O pagamento e concluÃ­do em ambiente oficial do Mercado Pago.</div>
-          <div class="security-pill">A saÃ­da do guincho sÃ³ Ã© liberada apÃ³s a confirmaÃ§Ã£o do pagamento.</div>
+          <div class="security-pill">O site não armazena os dados do seu cartão.</div>
+          <div class="security-pill">O pagamento é concluído em ambiente oficial do Mercado Pago.</div>
+          <div class="security-pill">A saída do guincho só é liberada após a confirmação do pagamento.</div>
         </div>
       </div>
 
       <div class="card">
         <span class="kicker">Pagamento online</span>
         <h2>Finalizar no checkout oficial</h2>
-        <p style="margin-top: 12px;">O Mercado Pago mostra as formas de pagamento e parcelas disponiveis direto no checkout oficial.</p>
+        <p style="margin-top: 12px;">O Mercado Pago mostra as formas de pagamento e parcelas disponíveis direto no checkout oficial.</p>
         <div id="quoteOptions" class="options">
           <div class="option active">
             <strong>Checkout oficial Mercado Pago</strong>
@@ -333,7 +333,7 @@
       document.getElementById('quoteTitle').textContent = `${data.customerName} | ${data.serviceType}`;
       document.getElementById('quoteValues').innerHTML = `
         <div class="value-box"><span class="label">Valor base</span><span class="value">${formatCurrency(data.amount)}</span></div>
-        <div class="value-box"><span class="label">Valor cartÃ£o</span><span class="value">${formatCurrency(data.cardTotalAmount)}</span></div>
+        <div class="value-box"><span class="label">Valor cartão</span><span class="value">${formatCurrency(data.cardTotalAmount)}</span></div>
         <div class="value-box"><span class="label">Taxas aplicadas</span><span class="value">${formatPercent(data.appliedFeePercent)}</span></div>
         <div class="value-box"><span class="label">Retirada</span><span class="value">${data.pickupAddress}</span></div>
         <div class="value-box"><span class="label">Destino</span><span class="value">${data.dropoffAddress || 'Confirmar no atendimento'}</span></div>
@@ -343,26 +343,26 @@
 
       if (data.isLocked) {
         document.getElementById('checkoutBtn').disabled = true;
-        setState('Este pagamento jÃ¡ foi confirmado. NÃ£o Ã© necessÃ¡rio gerar um novo checkout.', 'ok');
+        setState('Este pagamento já foi confirmado. Não é necessário gerar um novo checkout.', 'ok');
       } else if (data.status === 'failed') {
-        setState('Pagamento nÃ£o aprovado. Gere uma nova tentativa para seguir com o atendimento.', 'error');
+        setState('Pagamento não aprovado. Gere uma nova tentativa para seguir com o atendimento.', 'error');
       } else if (state === 'approved' || state === 'processing' || state === 'pending') {
-        setState('Pagamento retornou do checkout. Agora aguardamos a confirmaÃ§Ã£o oficial do webhook antes de liberar o atendimento.', 'pending');
+        setState('Pagamento retornou do checkout. Agora aguardamos a confirmação oficial do webhook antes de liberar o atendimento.', 'pending');
       } else if (state === 'failure') {
-        setState('O checkout nÃ£o foi concluÃ­do. Tente novamente quando quiser.', 'error');
+        setState('O checkout não foi concluído. Tente novamente quando quiser.', 'error');
       }
     }
 
     async function loadQuote() {
       if (!token) {
-        setState('Link invÃ¡lido. Solicite uma nova guia para o atendimento.', 'error');
+        setState('Link inválido. Solicite uma nova guia para o atendimento.', 'error');
         return;
       }
 
       try {
         const response = await fetch(`/api/mercadopago/quote?token=${encodeURIComponent(token)}`);
         const data = await response.json();
-        if (!response.ok || !data.ok) throw new Error(data.error || 'NÃ£o foi possÃ­vel carregar a cobranÃ§a.');
+        if (!response.ok || !data.ok) throw new Error(data.error || 'Não foi possível carregar a cobrança.');
         renderQuote(data.quote);
       } catch (error) {
         setState(error.message, 'error');
@@ -382,7 +382,7 @@
           body: JSON.stringify({ token })
         });
         const data = await response.json();
-        if (!response.ok || !data.ok) throw new Error(data.error || 'NÃ£o foi possÃ­vel gerar o checkout.');
+        if (!response.ok || !data.ok) throw new Error(data.error || 'Não foi possível gerar o checkout.');
         window.location.href = data.paymentUrl;
       } catch (error) {
         button.disabled = false;

@@ -1542,7 +1542,7 @@
 .prospectingWhatsAppPreview {
   min-width: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 0.72rem;
   padding: 0.85rem;
   border: 1px solid rgba(255, 255, 255, 0.16);
@@ -1559,6 +1559,14 @@
   justify-content: space-between;
   gap: 0.75rem;
   color: #ffffff;
+}
+
+.prospectingPreviewHeaderActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.42rem;
 }
 
 .prospectingPreviewHeader span,
@@ -1580,6 +1588,29 @@
 
 .prospectingPreviewHeader strong {
   font-size: 0.98rem;
+}
+
+.prospectingPreviewTabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.38rem;
+}
+
+.prospectingPreviewTabs button {
+  min-height: 34px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(235, 255, 247, 0.9);
+  font-size: 0.68rem;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.prospectingPreviewTabs button[data-active="true"] {
+  border-color: rgba(255, 255, 255, 0.7);
+  background: #ffffff;
+  color: #075e54;
 }
 
 .prospectingPhoneFrame {

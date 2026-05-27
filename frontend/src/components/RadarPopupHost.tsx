@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { HbxPopup4 } from "./HbxPopup";
 import styles from "./RadarPopupHost.module.css";
 
 type RadarPopupDetail = {
@@ -13,10 +13,16 @@ function isMobilePath(pathname: string | null) {
   return String(pathname || "").startsWith("/mobile");
 }
 
-function buildRadarFrameSrc(search: string, detail?: RadarPopupDetail | null) {
-  const params = new URLSearchParams(search);
-  params.delete("radar");
-  params.delete("radarTick");
+function buildRadarFrameSrc(search: string, detail?: RadarPopupDetail | null, popupNonce = 0) {
+  const currentParams = new URLSearchParams(search);
+  const params = new URLSearchParams();
+  ["state", "city", "segment", "radiusKm", "engine", "targetType"].forEach((key) => {
+    const value = currentParams.get(key);
+    if (value) params.set(key, value);
+  });
+  params.set("hbxPopup4", "1");
+  params.set("hbxMobileFrame", "1");
+  params.set("hbxPopupTick", String(popupNonce));
   if (detail?.query instanceof URLSearchParams) {
     detail.query.forEach((value, key) => params.set(key, value));
   } else if (typeof detail?.query === "string") {
@@ -36,13 +42,28 @@ export default function RadarPopupHost() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
-  const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
   const [detail, setDetail] = useState<RadarPopupDetail | null>(null);
+  const [popupNonce, setPopupNonce] = useState(0);
+  const [frameReady, setFrameReady] = useState(false);
+  const frameRef = useRef<HTMLIFrameElement | null>(null);
   const search = searchParams?.toString() || "";
+  const frameSrc = useMemo(() => buildRadarFrameSrc(search, detail, popupNonce), [detail, popupNonce, search]);
 
-  useEffect(() => {
-    setMounted(true);
+  const resetRadarFrameScroll = useCallback(() => {
+    const frame = frameRef.current;
+    const frameWindow = frame?.contentWindow;
+    const frameDocument = frame?.contentDocument;
+    if (!frameWindow || !frameDocument) return;
+
+    frameWindow.scrollTo(0, 0);
+    frameDocument.documentElement.scrollTop = 0;
+    if (frameDocument.body) frameDocument.body.scrollTop = 0;
+    frameDocument
+      .querySelectorAll<HTMLElement>(".hbx-mobile-page, main, [data-popup-frame='true']")
+      .forEach((element) => {
+        element.scrollTop = 0;
+      });
   }, []);
 
   useEffect(() => {
@@ -50,6 +71,8 @@ export default function RadarPopupHost() {
     const handleOpen = (event: Event) => {
       const payload = event instanceof CustomEvent ? (event.detail as RadarPopupDetail | undefined) : undefined;
       setDetail(payload || null);
+      setPopupNonce(Date.now());
+      setFrameReady(false);
       setOpen(true);
     };
     window.addEventListener("hbx:radar-popup", handleOpen);
@@ -61,16 +84,23 @@ export default function RadarPopupHost() {
   }, [pathname]);
 
   useEffect(() => {
-    if (isMobilePath(pathname)) return;
+    if (isMobilePath(pathname)) return undefined;
     const radarParam = String(searchParams?.get("radar") || "").trim().toLowerCase();
-    if (radarParam !== "1" && radarParam !== "open" && radarParam !== "true") return;
-    setDetail(null);
-    setOpen(true);
+    if (radarParam !== "1" && radarParam !== "open" && radarParam !== "true") return undefined;
     const next = new URLSearchParams(searchParams?.toString() || "");
     next.delete("radar");
     next.delete("radarTick");
     const nextUrl = `${pathname || "/"}${next.toString() ? `?${next.toString()}` : ""}`;
     router.replace(nextUrl, { scroll: false });
+
+    const timer = window.setTimeout(() => {
+      setDetail(null);
+      setPopupNonce(Date.now());
+      setFrameReady(false);
+      setOpen(true);
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, [pathname, router, searchParams]);
 
   useEffect(() => {
@@ -82,33 +112,37 @@ export default function RadarPopupHost() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [open]);
 
-  const frameSrc = useMemo(() => buildRadarFrameSrc(search, detail), [detail, search]);
+  useEffect(() => {
+    if (!open) return undefined;
+    const timers = [window.setTimeout(resetRadarFrameScroll, 0), window.setTimeout(resetRadarFrameScroll, 250)];
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [open, frameSrc, resetRadarFrameScroll]);
 
-  if (!mounted || !open || isMobilePath(pathname) || typeof document === "undefined") return null;
+  if (isMobilePath(pathname) || typeof document === "undefined") return null;
 
-  return createPortal(
-    <div className={styles.radarPopupBackdrop} role="presentation" onClick={() => setOpen(false)}>
-      <section
-        className={styles.radarPopup}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="global-radar-popup-title"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <header className={styles.radarPopupHeader}>
-          <div>
-            <span>Radar Digital</span>
-            <strong id="global-radar-popup-title">Buscar cards</strong>
-          </div>
-          <button type="button" onClick={() => setOpen(false)} aria-label="Fechar Radar Digital">
-            X
-          </button>
-        </header>
-        <div className={styles.radarPopupBody}>
-          <iframe src={frameSrc} title="Radar Digital" className={styles.radarPopupFrame} />
-        </div>
-      </section>
-    </div>,
-    document.body,
+  return (
+    <HbxPopup4
+      open={open}
+      className={styles.radarPhonePopup}
+      closeLabel="Fechar Radar Digital"
+      showCloseButton={false}
+      onClose={() => setOpen(false)}
+    >
+      {!frameReady ? <div className={styles.radarPopupLoading} aria-hidden="true" /> : null}
+      <iframe
+        ref={frameRef}
+        src={frameSrc}
+        title="Radar Digital"
+        className={styles.radarPopupFrame}
+        data-ready={frameReady ? "true" : "false"}
+        onLoad={() => {
+          resetRadarFrameScroll();
+          window.setTimeout(() => {
+            resetRadarFrameScroll();
+            setFrameReady(true);
+          }, 120);
+        }}
+      />
+    </HbxPopup4>
   );
 }

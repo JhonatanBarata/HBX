@@ -110,9 +110,9 @@
     <div class="badge" aria-hidden="true">V</div>
     <h1>Sucesso</h1>
     <p class="copy">O guincho Rio Claro agradece, em breve o responsavel chegara no ponto combinado.</p>
-    <img class="preview" src="/img/cartao-de-credito.png" alt="Cartao de credito">
-    <p id="status" class="status">Validando aprovacao do pagamento...</p>
-    <p class="redirect">Voltando para a pagina inicial em <strong id="countdown">5</strong> segundos.</p>
+    <img class="preview" src="/img/cartao-de-credito.png" alt="Cartão de crédito">
+    <p id="status" class="status">Validando aprovação do pagamento...</p>
+    <p class="redirect">Voltando para a página inicial em <strong id="countdown">5</strong> segundos.</p>
   </main>
 
   <script>
@@ -143,7 +143,7 @@
 
       if (!paymentId && !requestId) {
         if (providerStatus !== 'approved') {
-          statusEl.textContent = 'Retorno recebido. Confirmacao oficial em andamento.';
+          statusEl.textContent = 'Retorno recebido. Confirmação oficial em andamento.';
         }
         startCountdown();
         return;
@@ -165,9 +165,9 @@
           return;
         }
 
-        statusEl.textContent = 'Pagamento recebido. A confirmacao final sera atualizada no painel.';
+        statusEl.textContent = 'Pagamento recebido. A confirmação final será atualizada no painel.';
       } catch (error) {
-        statusEl.textContent = 'Nao foi possivel validar agora. O painel continua monitorando o webhook.';
+        statusEl.textContent = 'Não foi possível validar agora. O painel continua monitorando o webhook.';
       }
 
       startCountdown();

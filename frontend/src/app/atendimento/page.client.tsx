@@ -218,6 +218,7 @@ type ProspectingCampaignConfig = {
   firstContactVariants: string[];
   positiveReplyVariants: string[];
   whatIsItReplyVariants: string[];
+  scheduledReplyVariants: string[];
   optOutVariants: string[];
   neutralHandoffVariants: string[];
   optOutMessage: string;
@@ -296,6 +297,12 @@ const DEFAULT_WHAT_IS_IT_REPLY_VARIANTS = [
   "É sobre melhorar a operação da empresa. Não é uma solução única para todo mundo: eu entendo o gargalo, desenho uma forma mais organizada de trabalhar e implanto algo que ajude no dia a dia.",
 ];
 
+const DEFAULT_SCHEDULED_REPLY_VARIANTS = [
+  "Perfeito, {{retorno_label}} eu te chamo por aqui ou te ligo rapidinho.",
+  "Combinado, {{retorno_label}} eu retorno com você.",
+  "Fechado, deixei anotado para {{retorno_label}}.",
+];
+
 const LEGACY_FIRST_CONTACT_VARIANTS = [
   "{{cumprimentacao}}, tudo bem? Vi a {{empresaresumo}} em {{cidade}}. Posso te mandar uma ideia rápida?",
   "Oi, tudo bem? Vi a {{empresaresumo}} e pensei numa forma simples de organizar retornos pelo WhatsApp. Posso te explicar rapidinho?",
@@ -362,6 +369,7 @@ const DEFAULT_PROSPECTING_CAMPAIGN_CONFIG: ProspectingCampaignConfig = {
   firstContactVariants: DEFAULT_FIRST_CONTACT_VARIANTS,
   positiveReplyVariants: DEFAULT_POSITIVE_REPLY_VARIANTS,
   whatIsItReplyVariants: DEFAULT_WHAT_IS_IT_REPLY_VARIANTS,
+  scheduledReplyVariants: DEFAULT_SCHEDULED_REPLY_VARIANTS,
   optOutVariants: DEFAULT_OPT_OUT_VARIANTS,
   neutralHandoffVariants: DEFAULT_NEUTRAL_HANDOFF_VARIANTS,
   optOutMessage: DEFAULT_OPT_OUT_VARIANTS[0],
@@ -381,6 +389,7 @@ const PROSPECTING_VARIABLES = [
   { token: "cidade", label: "Cidade" },
   { token: "estado", label: "Estado" },
   { token: "segmento", label: "Segmento" },
+  { token: "retorno_label", label: "Retorno combinado" },
 ];
 
 const COMPANY_LEGAL_SUFFIXES = new Set(["ltda", "me", "mei", "eireli", "epp", "sa", "s/a", "ss"]);
@@ -1129,6 +1138,7 @@ function renderProspectingPreview(
   template: string,
   config: ProspectingCampaignConfig,
   variables: ProspectingPreviewVariables,
+  extraValues: Record<string, string> = {},
 ) {
   const values: Record<string, string> = {
     cumprimentacao: computeBrasiliaGreeting(),
@@ -1140,10 +1150,41 @@ function renderProspectingPreview(
     cidade: config.city || "sua região",
     estado: config.state || "BR",
     segmento: config.segment || "seu segmento",
+    retorno_label: "amanhã às 09:00",
+    horario_retorno: "amanhã às 09:00",
+    ...extraValues,
   };
   return String(template || "")
     .replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, token) => values[token] || `[${token}]`)
     .trim();
+}
+
+function resolveProspectingPreviewReturnLabel(text: string) {
+  const normalized = String(text || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  const timeMatch = normalized.match(/(?:as|apos|depois das|depois de|umas|por volta das)?\s*(\d{1,2})(?::?(\d{2}))?\s*h?\b/);
+  const timeLabel = timeMatch
+    ? `${String(Math.min(23, Math.max(0, Number(timeMatch[1] || 0)))).padStart(2, "0")}:${String(Math.min(59, Math.max(0, Number(timeMatch[2] || 0)))).padStart(2, "0")}`
+    : "";
+  const dayLabel =
+    normalized.includes("amanha") ? "amanhã"
+      : normalized.includes("segunda") ? "segunda-feira"
+        : normalized.includes("terca") ? "terça-feira"
+          : normalized.includes("quarta") ? "quarta-feira"
+            : normalized.includes("quinta") ? "quinta-feira"
+              : normalized.includes("sexta") ? "sexta-feira"
+                : normalized.includes("sabado") ? "sábado"
+                  : normalized.includes("domingo") ? "domingo"
+                    : normalized.includes("hoje") ? "hoje"
+                      : "";
+  if (dayLabel && timeLabel) return `${dayLabel} às ${timeLabel}`;
+  if (dayLabel) return dayLabel;
+  if (timeLabel) return `hoje às ${timeLabel}`;
+  if (normalized.includes("manha")) return "pela manhã";
+  if (normalized.includes("tarde")) return "à tarde";
+  return "no horário combinado";
 }
 
 function computeBrasiliaGreeting() {
@@ -1212,6 +1253,10 @@ function buildProspectingCampaignConfig(status: ProspectingAutomationLiveStatus 
       LEGACY_WHAT_IS_IT_REPLY_VARIANTS,
       DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.whatIsItReplyVariants,
     ),
+    scheduledReplyVariants: normalizeProspectingVariantList(
+      campaign?.scheduledReplyVariants || campaignFilters.scheduledReplyVariants,
+      DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.scheduledReplyVariants,
+    ),
     optOutVariants: normalizeProspectingVariantList(
       campaign?.optOutVariants || campaignFilters.optOutVariants || (campaignOptOutMessage ? [campaignOptOutMessage] : null),
       DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.optOutVariants,
@@ -1247,6 +1292,7 @@ function toProspectingCampaignPayload(config: ProspectingCampaignConfig): Record
     typingVarianceSeconds: Math.max(0, Math.trunc(Number(config.typingVarianceSeconds || 0))),
     positiveIntentKeywords: normalizeProspectingList(config.positiveIntentKeywords, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.positiveIntentKeywords),
     negativeIntentKeywords: normalizeProspectingList(config.negativeIntentKeywords, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.negativeIntentKeywords),
+    scheduledReplyVariants: normalizeProspectingVariantList(config.scheduledReplyVariants, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.scheduledReplyVariants),
     optOutMessage: optOutVariants[0] || config.optOutMessage || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.optOutMessage,
     optOutReplyEnabled: config.optOutReplyEnabled,
     websiteFallbackEnabled: false,
@@ -1256,6 +1302,7 @@ function toProspectingCampaignPayload(config: ProspectingCampaignConfig): Record
       firstContactVariants: firstContactVariants.length ? firstContactVariants : DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.firstContactVariants,
       positiveReplyVariants: normalizeProspectingVariantList(config.positiveReplyVariants, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.positiveReplyVariants),
       whatIsItReplyVariants: normalizeProspectingVariantList(config.whatIsItReplyVariants, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.whatIsItReplyVariants),
+      scheduledReplyVariants: normalizeProspectingVariantList(config.scheduledReplyVariants, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.scheduledReplyVariants),
       optOutVariants,
       neutralHandoffVariants: normalizeProspectingVariantList(config.neutralHandoffVariants, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.neutralHandoffVariants),
       whatIsItIntentKeywords: normalizeProspectingList(config.whatIsItIntentKeywords, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.whatIsItIntentKeywords),
@@ -1353,6 +1400,7 @@ type ProspectingVariantField =
   | "firstContactVariants"
   | "positiveReplyVariants"
   | "whatIsItReplyVariants"
+  | "scheduledReplyVariants"
   | "optOutVariants"
   | "neutralHandoffVariants";
 
@@ -1363,7 +1411,7 @@ type ProspectingKeywordField =
   | "neutralIntentKeywords";
 
 type ProspectingVariableTarget = "messageTemplate" | "optOutMessage" | ProspectingVariantField;
-type ProspectingIntentKind = "positive" | "whatIsIt" | "neutral" | "negative";
+type ProspectingIntentKind = "positive" | "whatIsIt" | "scheduled" | "neutral" | "negative";
 
 type ProspectingPreviewScenario = {
   kind: ProspectingIntentKind;
@@ -1511,13 +1559,14 @@ function ProspectingCampaignStudioModal({
   const [whatIsItDraft, setWhatIsItDraft] = useState("");
   const [neutralDraft, setNeutralDraft] = useState("");
   const [previewScenario, setPreviewScenario] = useState<ProspectingPreviewScenario>({
-    kind: "positive",
-    text: DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.positiveIntentKeywords[0],
+    kind: "scheduled",
+    text: "Agora não consigo, amanhã umas 09?",
   });
   const [variantIndexes, setVariantIndexes] = useState<Record<ProspectingVariantField, number>>({
     firstContactVariants: 0,
     positiveReplyVariants: 0,
     whatIsItReplyVariants: 0,
+    scheduledReplyVariants: 0,
     optOutVariants: 0,
     neutralHandoffVariants: 0,
   });
@@ -1526,6 +1575,7 @@ function ProspectingCampaignStudioModal({
   const firstContactVariantsRef = useRef<HTMLTextAreaElement | null>(null);
   const positiveReplyVariantsRef = useRef<HTMLTextAreaElement | null>(null);
   const whatIsItReplyVariantsRef = useRef<HTMLTextAreaElement | null>(null);
+  const scheduledReplyVariantsRef = useRef<HTMLTextAreaElement | null>(null);
   const optOutVariantsRef = useRef<HTMLTextAreaElement | null>(null);
   const neutralHandoffVariantsRef = useRef<HTMLTextAreaElement | null>(null);
   const campaignStudioWasOpenRef = useRef(false);
@@ -1541,10 +1591,10 @@ function ProspectingCampaignStudioModal({
     // Reset the guided flow whenever the campaign studio opens.
     setPage("mensagem");
     setPreviewScenario({
-      kind: "positive",
-      text: config.positiveIntentKeywords[0] || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.positiveIntentKeywords[0],
+      kind: "scheduled",
+      text: "Agora não consigo, amanhã umas 09?",
     });
-  }, [open, config.positiveIntentKeywords]);
+  }, [open]);
 
   useEffect(() => {
     // Clear the add-chip field after loading a saved campaign.
@@ -1702,6 +1752,7 @@ function ProspectingCampaignStudioModal({
       firstContactVariants: firstContactVariantsRef.current,
       positiveReplyVariants: positiveReplyVariantsRef.current,
       whatIsItReplyVariants: whatIsItReplyVariantsRef.current,
+      scheduledReplyVariants: scheduledReplyVariantsRef.current,
       optOutVariants: optOutVariantsRef.current,
       neutralHandoffVariants: neutralHandoffVariantsRef.current,
     };
@@ -1945,6 +1996,12 @@ function ProspectingCampaignStudioModal({
       confirmationText: "Entendi. Pode me ligar rapidinho.",
       final: "Final: fica piscando em Prospecção como verde. Só vai para Atendimento quando o operador assumir.",
     },
+    scheduled: {
+      label: "Retorno agendado",
+      field: "neutralIntentKeywords",
+      replyField: "scheduledReplyVariants",
+      final: "Final: salva o retorno no card, para a automação e respeita o horário combinado.",
+    },
     neutral: {
       label: "Neutra",
       field: "neutralIntentKeywords",
@@ -1963,10 +2020,17 @@ function ProspectingCampaignStudioModal({
     previewScenario.text ||
     config[selectedPreviewMeta.field]?.[0] ||
     DEFAULT_PROSPECTING_CAMPAIGN_CONFIG[selectedPreviewMeta.field][0];
+  const previewReturnLabel = previewScenario.kind === "scheduled"
+    ? resolveProspectingPreviewReturnLabel(selectedPreviewText)
+    : "amanhã às 09:00";
   const previewReplyText = renderProspectingPreview(
     config[selectedPreviewMeta.replyField]?.[0] || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG[selectedPreviewMeta.replyField][0],
     config,
     previewVariables,
+    {
+      retorno_label: previewReturnLabel,
+      horario_retorno: previewReturnLabel,
+    },
   );
   const shouldShowPreviewConfirmation = Boolean(selectedPreviewMeta.confirmationText && previewReplyText.includes("?"));
   const renderTriggerPanel = (
@@ -2007,6 +2071,21 @@ function ProspectingCampaignStudioModal({
         </button>
       </div>
       <small>{helper}</small>
+    </div>
+  );
+  const renderScheduledTriggerPanel = () => (
+    <div className={styles.campaignClassifierPanel}>
+      <strong>Pedido de retorno com horário</strong>
+      <div className={styles.campaignKeywordChips}>
+        {["Agora não consigo, amanhã umas 09?", "Me chama depois das 15h.", "Pode retornar na segunda de manhã?"].map((item) => (
+          <span key={`scheduled-${item}`} className={styles.campaignKeywordChip} data-active={previewScenario.kind === "scheduled" && selectedPreviewText === item ? "true" : "false"}>
+            <button type="button" onClick={() => setPreviewScenario({ kind: "scheduled", text: item })}>
+              {item}
+            </button>
+          </span>
+        ))}
+      </div>
+      <small>Quando o cliente pede retorno com data ou horário, o HBot responde, salva no card e para.</small>
     </div>
   );
   const renderVariantPager = (
@@ -2183,6 +2262,15 @@ function ProspectingCampaignStudioModal({
                           "Frases que identificam pergunta sobre o assunto.",
                           "whatIsIt",
                         ),
+                      },
+                    )}
+                    {renderVariantPager(
+                      "scheduledReplyVariants",
+                      "Pedido de retorno com horário",
+                      "Resposta enviada quando o cliente pede retorno em um horário específico. Use {{retorno_label}} para mostrar o horário detectado.",
+                      scheduledReplyVariantsRef,
+                      {
+                        triggerPanel: renderScheduledTriggerPanel(),
                       },
                     )}
                     {renderVariantPager(

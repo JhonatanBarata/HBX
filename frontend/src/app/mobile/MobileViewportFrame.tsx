@@ -11,6 +11,7 @@ type FrameState = {
   ready: boolean;
   isDesktop: boolean;
   isFramed: boolean;
+  isPopupFrame: boolean;
   frameSrc: string;
 };
 
@@ -20,12 +21,14 @@ function buildFrameState(): FrameState {
       ready: false,
       isDesktop: false,
       isFramed: false,
+      isPopupFrame: false,
       frameSrc: "",
     };
   }
 
   const url = new URL(window.location.href);
   const isFramed = url.searchParams.get(FRAME_PARAM) === "1";
+  const isPopupFrame = url.searchParams.get("hbxPopup4") === "1";
   const isDesktop = window.matchMedia(DESKTOP_QUERY).matches;
 
   url.searchParams.set(FRAME_PARAM, "1");
@@ -34,6 +37,7 @@ function buildFrameState(): FrameState {
     ready: true,
     isDesktop,
     isFramed,
+    isPopupFrame,
     frameSrc: `${url.pathname}${url.search}${url.hash}`,
   };
 }
@@ -43,6 +47,7 @@ export default function MobileViewportFrame({ children }: { children: ReactNode 
     ready: false,
     isDesktop: false,
     isFramed: false,
+    isPopupFrame: false,
     frameSrc: "",
   }));
 
@@ -71,6 +76,10 @@ export default function MobileViewportFrame({ children }: { children: ReactNode 
         </main>
       </div>
     );
+  }
+
+  if (frameState.isPopupFrame) {
+    return children;
   }
 
   if (frameState.isDesktop && !frameState.isFramed) {
