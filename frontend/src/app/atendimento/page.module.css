@@ -8286,6 +8286,7 @@
 }
 
 .whatsAppBubble {
+  position: relative;
   gap: 0.42rem;
   border-radius: 16px;
   padding: 0.56rem 0.7rem;
@@ -8295,7 +8296,29 @@
     0 14px 26px rgba(2, 6, 23, 0.24);
 }
 
+.whatsAppBubbleInbound::before,
+.whatsAppBubbleOutbound::before {
+  content: "";
+  position: absolute;
+  top: 0.42rem;
+  width: 0.72rem;
+  height: 0.9rem;
+  background: var(--whats-app-bubble-tail);
+  pointer-events: none;
+}
+
+.whatsAppBubbleInbound::before {
+  left: -0.45rem;
+  clip-path: polygon(100% 0, 100% 100%, 0 22%);
+}
+
+.whatsAppBubbleOutbound::before {
+  right: -0.45rem;
+  clip-path: polygon(0 0, 100% 22%, 0 100%);
+}
+
 .whatsAppBubbleInbound {
+  --whats-app-bubble-tail: rgba(19, 29, 58, 0.96);
   background:
     linear-gradient(180deg, rgba(19, 29, 58, 0.96), rgba(15, 23, 44, 0.96)),
     radial-gradient(circle at top left, rgba(91, 119, 255, 0.1), transparent 40%);
@@ -8303,6 +8326,7 @@
 }
 
 .whatsAppBubbleOutbound {
+  --whats-app-bubble-tail: rgba(5, 101, 83, 0.95);
   background:
     linear-gradient(180deg, rgba(5, 101, 83, 0.95), rgba(3, 74, 70, 0.95)),
     radial-gradient(circle at top right, rgba(76, 255, 216, 0.14), transparent 42%);
@@ -9273,6 +9297,7 @@
 }
 
 :global(html[data-theme-mode="light"]) .whatsAppBubbleInbound {
+  --whats-app-bubble-tail: color-mix(in srgb, var(--surface) 99%, var(--background));
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--surface) 99%, var(--background)), color-mix(in srgb, var(--surface-soft) 96%, var(--background))),
     radial-gradient(circle at top left, color-mix(in srgb, var(--brand) 8%, transparent), transparent 40%);
@@ -9280,6 +9305,7 @@
 }
 
 :global(html[data-theme-mode="light"]) .whatsAppBubbleOutbound {
+  --whats-app-bubble-tail: color-mix(in srgb, var(--chat-outbound) 98%, var(--background));
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--chat-outbound) 98%, var(--background)), color-mix(in srgb, var(--chat-outbound) 92%, var(--background))),
     radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 10%, transparent), transparent 42%);
