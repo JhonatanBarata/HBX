@@ -791,7 +791,13 @@ export class InboxService {
       manualQueue === 'archived' ||
       queueTarget === 'excluidos' ||
       queueTarget === 'excluded' ||
-      String(flowResult || '').trim().toLowerCase() === 'local_deleted' ||
+      [
+        'local_deleted',
+        'manual_closed',
+        'encerrado',
+        'encerrado_operador',
+        'bot_closed',
+      ].includes(String(flowResult || '').trim().toLowerCase()) ||
       [
         metadata?.inboxLocalDeleted,
         metadata?.localDeleted,
@@ -3304,7 +3310,19 @@ export class InboxService {
           { metadata: { contains: '"whatsappAvailabilityStatus":"unavailable"' } },
           { metadata: { contains: '"inboxManualQueueOverride":"archived"' } },
           { metadata: { contains: '"inboxLocalDeleted":true' } },
-          { flowResult: { in: ['local_deleted', 'no_response_archived'] } },
+          {
+            flowResult: {
+              in: [
+                'local_deleted',
+                'no_response_archived',
+                'manual_closed',
+                'encerrado',
+                'encerrado_operador',
+                'bot_closed',
+                'prospection_negative',
+              ],
+            },
+          },
         ],
       },
       orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
