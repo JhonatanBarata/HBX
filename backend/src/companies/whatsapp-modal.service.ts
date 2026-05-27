@@ -376,19 +376,16 @@ export class WhatsAppModalService {
     let actionFocus: WhatsAppLiveHealthResponse['actionFocus'] = 'qr';
     let reason = 'Status salvo não tem confirmação viva recente do provider.';
 
-    if (liveConfirmed && !inboundStale) {
+    if (liveConfirmed) {
       status = 'healthy';
       recommendedAction = 'none';
       actionLabel = 'Conexão confirmada';
       actionFocus = 'status';
-      reason = 'Provider confirmou sessão conectada recentemente.';
-    } else if (liveConfirmed && inboundStale) {
-      status = 'stale';
-      recommendedAction = 'refresh';
-      actionLabel = 'Revalidar agora';
-      reason = input.lastInboundMessageAt
-        ? 'Provider está vivo, mas não há mensagens recebidas recentes no Atendimento.'
-        : 'Provider está vivo, mas o Atendimento ainda não tem mensagens recebidas registradas.';
+      reason = inboundStale
+        ? input.lastInboundMessageAt
+          ? 'Provider confirmou sessão viva; o Atendimento está sem mensagens recebidas recentes.'
+          : 'Provider confirmou sessão viva; o Atendimento ainda não tem mensagens recebidas registradas.'
+        : 'Provider confirmou sessão conectada recentemente.';
     } else if (!input.providerReachable) {
       status = storedConnected ? 'reconnecting' : 'error';
       recommendedAction = storedConnected ? 'refresh' : 'check_provider';

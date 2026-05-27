@@ -466,14 +466,14 @@ export class CompanyOperationalStatusService {
             key: 'webwhats',
             label: 'WebWhats ativo',
             shortLabel: 'WebWhats',
-            tone: liveHealth.status === 'healthy' ? 'green' : 'yellow',
-            value: liveHealth.status === 'healthy' ? 'Vivo' : 'Sem msg',
-            detail: liveHealth.status === 'healthy'
+            tone: liveHealth.inboundStale ? 'yellow' : 'green',
+            value: liveHealth.inboundStale ? 'Sem msg' : 'Vivo',
+            detail: !liveHealth.inboundStale
               ? modalPhone
                 ? `Provider confirmou sessão viva para ${modalPhone}.`
                 : 'Provider confirmou sessão viva recentemente.'
               : liveHealth.reason || 'Provider confirmou a sessão, mas ainda não há mensagens recentes no Atendimento.',
-            hint: liveHealth.status === 'healthy'
+            hint: !liveHealth.inboundStale
               ? 'WebWhats vivo confirmado.'
               : 'WebWhats conectado, sem mensagens recentes.',
             href: '/dashboard/whatsapp?focus=qr',
