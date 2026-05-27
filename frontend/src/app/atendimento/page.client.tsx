@@ -5070,6 +5070,44 @@ function InboxDesktopClientPage() {
   }, [openedAsset]);
 
   useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || openedAsset) return;
+
+      let handled = false;
+      if (messageReactionTargetId) {
+        setMessageReactionTargetId(null);
+        handled = true;
+      }
+      if (emojiPickerOpen) {
+        setEmojiPickerOpen(false);
+        handled = true;
+      }
+      if (replyingTo) {
+        setReplyingTo(null);
+        handled = true;
+      }
+      if (imagePreview) {
+        URL.revokeObjectURL(imagePreview.url);
+        setImagePreview(null);
+        handled = true;
+      }
+      if (audioPreview) {
+        URL.revokeObjectURL(audioPreview.url);
+        setAudioPreview(null);
+        handled = true;
+      }
+
+      if (!handled) return;
+      event.preventDefault();
+      event.stopPropagation();
+      chatComposerInputRef.current?.focus();
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [audioPreview, emojiPickerOpen, imagePreview, messageReactionTargetId, openedAsset, replyingTo]);
+
+  useEffect(() => {
     const handle = (event: MouseEvent) => {
       if (
         queueActionMenuRef.current &&
