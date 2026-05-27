@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import HbxMobileDock from "@/components/mobile/HbxMobileDock";
-import MobileLeadScoreGauge from "@/components/mobile/MobileLeadScoreGauge";
 import {
   HbxStateCityPicker,
   HbxTargetTypeSelector,
@@ -1413,7 +1412,9 @@ function RadarLeadChannelIcons({ lead }: { lead: RadarLead }) {
         if (!asset) return null;
         return (
           <span key={channel} className={styles.radarLeadChannelIcon} data-channel={channel} title={asset.label}>
+            {/* eslint-disable-next-line @next/next/no-img-element -- Icones locais alternam por tema via CSS. */}
             <img src={asset.icon} alt="" aria-hidden="true" data-theme="light" />
+            {/* eslint-disable-next-line @next/next/no-img-element -- Icones locais alternam por tema via CSS. */}
             <img src={asset.darkIcon} alt="" aria-hidden="true" data-theme="dark" />
             <span>{asset.label}</span>
           </span>

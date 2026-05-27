@@ -39,13 +39,13 @@ function buildScopedKey(baseKey: string, userId?: string | number | null) {
   return normalizedUserId ? `${baseKey}:${normalizedUserId}` : baseKey;
 }
 
-function mapLegacyThemeId(value: string | null): HbxThemeId {
+function mapLegacyThemeId(): HbxThemeId {
   return DEFAULT_THEME_SELECTION.themeId;
 }
 
 function resolveStoredThemeId(value: string | null): HbxThemeId {
   const normalized = String(value || "").trim().toLowerCase();
-  return isHbxThemeId(normalized) ? normalized : mapLegacyThemeId(value);
+  return isHbxThemeId(normalized) ? normalized : mapLegacyThemeId();
 }
 
 function resolveStoredThemeMode(value: string | null): HbxThemeMode {

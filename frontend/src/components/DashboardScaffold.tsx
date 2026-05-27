@@ -8,7 +8,6 @@ import ModuleNav from "./ModuleNav";
 import { apiFetch, getToken } from "@/app/_lib/api";
 import { MASTER_CONTEXT_CHANGED_EVENT } from "../lib/masterContextEvents";
 import {
-  clearPresentationConfig,
   createDefaultPresentationConfig,
   readPresentationConfig,
   savePresentationConfig,
@@ -103,7 +102,7 @@ export default function DashboardScaffold({
   const authenticated = useSyncExternalStore(subscribeAuth, getAuthSnapshot, getAuthServerSnapshot);
   const [presentationProfile, setPresentationProfile] = useState<PresentationProfile | null>(null);
   const [presentationConfig, setPresentationConfig] = useState<PresentationConfig | null>(null);
-  const [presentationEditing, setPresentationEditing] = useState(false);
+  const [presentationEditing] = useState(false);
   const [navPeekOpen, setNavPeekOpen] = useState(false);
   const [navPeekPortalReady, setNavPeekPortalReady] = useState(false);
   const navPeekPanelRef = useRef<HTMLElement | null>(null);
@@ -422,22 +421,6 @@ export default function DashboardScaffold({
     ],
   );
 
-  const updatePageCopy = useCallback(
-    (patch: Partial<{ sectionLabel: string; title: string; description: string }>) => {
-      updatePresentationConfig((current) => ({
-        ...current,
-        pages: {
-          ...current.pages,
-          [pageKey]: {
-            ...current.pages[pageKey],
-            ...patch,
-          },
-        },
-      }));
-    },
-    [pageKey, updatePresentationConfig],
-  );
-
   const updateModulePresentation = useCallback(
     (href: string, patch: Partial<PresentationModuleOverride>) => {
       updatePresentationConfig((current) => ({
@@ -453,12 +436,6 @@ export default function DashboardScaffold({
     },
     [updatePresentationConfig],
   );
-
-  const restorePresentationDefaults = useCallback(() => {
-    if (!presentationProfile?.tenantId) return;
-    clearPresentationConfig(presentationProfile.tenantId);
-    setPresentationConfig(createDefaultPresentationConfig(presentationProfile.tenantId));
-  }, [presentationProfile]);
 
   return (
     <main

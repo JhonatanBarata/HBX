@@ -968,7 +968,9 @@ function MobileChannelIconAsset({ channel }: { channel: MobileChannelAsset }) {
   const asset = MOBILE_CHANNEL_ASSETS[channel];
   return (
     <>
+      {/* eslint-disable-next-line @next/next/no-img-element -- Icones locais webp alternam por tema via CSS; Next Image nao agrega aqui. */}
       <img className={styles.mobileVendasChannelAssetLight} src={asset.light} alt="" aria-hidden="true" loading="lazy" />
+      {/* eslint-disable-next-line @next/next/no-img-element -- Icones locais webp alternam por tema via CSS; Next Image nao agrega aqui. */}
       <img className={styles.mobileVendasChannelAssetDark} src={asset.dark} alt="" aria-hidden="true" loading="lazy" />
       <span className={styles.mobileVendasChannelSrOnly}>{asset.label}</span>
     </>
@@ -3859,6 +3861,14 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     }
   }
 
+  const loadConversionReportRef = useRef(loadConversionReport);
+  const loadSellerAuditRef = useRef(loadSellerAudit);
+
+  useEffect(() => {
+    loadConversionReportRef.current = loadConversionReport;
+    loadSellerAuditRef.current = loadSellerAudit;
+  });
+
   async function updateSellerGovernance(
     sellerId: number,
     input: { mode?: string; pausedDays?: number; pausedUntil?: string | null; dailyLimitOverride?: number | null; note?: string | null },
@@ -4232,7 +4242,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       ) {
         lastRadarBoardRefreshCountRef.current = deliveredCount;
         radarBoardRefreshInFlightRef.current = true;
-        void loadBoard().finally(() => {
+        void loadBoardRef.current().finally(() => {
           radarBoardRefreshInFlightRef.current = false;
         });
       }
@@ -4258,7 +4268,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       ) {
         lastRadarAutoImportRefreshKeyRef.current = autoImportKey;
         radarBoardRefreshInFlightRef.current = true;
-        void loadBoard({ forceVisualRefresh: true }).finally(() => {
+        void loadBoardRef.current({ forceVisualRefresh: true }).finally(() => {
           radarBoardRefreshInFlightRef.current = false;
         });
       }
@@ -4285,7 +4295,20 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       immediate: true,
       pauseWhenHidden: true,
     });
-  }, [hasToken, mobileRoute, storedRadarRun?.city, storedRadarRun?.deliveredCount, storedRadarRun?.runId, storedRadarRun?.segment, storedRadarRun?.state, storedRadarRun?.status, storedRadarRun?.targetQuantity]);
+  }, [
+    hasToken,
+    mobileRoute,
+    storedRadarRun?.city,
+    storedRadarRun?.deliveredCount,
+    storedRadarRun?.radiusKm,
+    storedRadarRun?.regionalCities,
+    storedRadarRun?.runId,
+    storedRadarRun?.segment,
+    storedRadarRun?.selectedSegments,
+    storedRadarRun?.state,
+    storedRadarRun?.status,
+    storedRadarRun?.targetQuantity,
+  ]);
 
   useEffect(() => {
     if (composerOpenRef.current || mobileSkipDraftHydrateRef.current) return;
@@ -4393,7 +4416,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
               ? `${mirroredLeadCount} card(s) foram preparados em Prospecção com roteiro pendente para envio manual.`
               : "Nao ha cards visíveis para preparar em Prospecção."),
         });
-        await loadBoard();
+        await loadBoardRef.current();
         if (options?.openAfter) openInboxAgenda(firstConversationId);
         return syncResult;
       } catch (syncError) {
@@ -4411,7 +4434,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
 
   useEffect(() => {
     if (hasToken !== true) return;
-    void loadBoard();
+    void loadBoardRef.current();
   }, [hasToken]);
 
   useEffect(() => {
@@ -4487,12 +4510,12 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
 
   useEffect(() => {
     if (hasToken !== true || mobileSection !== "report") return;
-    void loadConversionReport(conversionReportPeriod);
+    void loadConversionReportRef.current(conversionReportPeriod);
   }, [hasToken, mobileSection, conversionReportPeriod]);
 
   useEffect(() => {
     if (hasToken !== true) return;
-    void loadSellerAudit(sellerAuditPeriod);
+    void loadSellerAuditRef.current(sellerAuditPeriod);
   }, [hasToken, sellerAuditPeriod]);
 
   useEffect(() => {

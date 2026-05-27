@@ -9,13 +9,6 @@ interface UseLoginColdStartOptions {
   retryBackoffMs?: number; // backoff entre retries
 }
 
-interface LoginAttempt {
-  username: string;
-  password: string;
-  onSuccess: (token: string) => void;
-  onError: (message: string) => void;
-}
-
 interface ColdStartResponse {
   state: LoginState;
   message?: string;
@@ -89,8 +82,7 @@ export function useLoginColdStart(options: UseLoginColdStartOptions) {
     async (
       username: string,
       password: string,
-      forceSession: boolean,
-      getCurrentState: () => LoginState
+      forceSession: boolean
     ): Promise<ColdStartResponse> => {
       const startTime = Date.now();
       let timedOut = false;
@@ -235,7 +227,7 @@ export function useLoginColdStart(options: UseLoginColdStartOptions) {
       onPhaseUpdate?.({ state: "submitting" });
 
       while (retryCountRef.current < maxRetries) {
-        const response = await attemptLogin(username, password, forceSession, () => "submitting");
+        const response = await attemptLogin(username, password, forceSession);
 
         if (response.state === "success" || response.state === "error") {
           retryCountRef.current = 0;
