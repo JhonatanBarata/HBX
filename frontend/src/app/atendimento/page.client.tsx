@@ -4981,6 +4981,16 @@ function InboxDesktopClientPage() {
     setFailedInboxMediaUrls((current) => (Object.keys(current).length ? {} : current));
   }, [selectedId, selectedConversation?.updatedAt, selectedConversation?.messages?.length]);
 
+  useEffect(() => {
+    const textarea = chatComposerInputRef.current;
+    if (!textarea) return;
+
+    textarea.style.height = "auto";
+    const nextHeight = Math.max(42, Math.min(textarea.scrollHeight, 168));
+    textarea.style.height = `${nextHeight}px`;
+    textarea.style.overflowY = textarea.scrollHeight > 168 ? "auto" : "hidden";
+  }, [audioPreview?.url, imagePreview?.url, replyingTo?.id, selectedId, sendText]);
+
   // Close emoji picker when clicking outside
   useEffect(() => {
     if (!emojiPickerOpen) return;
