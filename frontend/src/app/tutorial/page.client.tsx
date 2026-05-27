@@ -1033,7 +1033,14 @@ export default function TutorialClientPage() {
     if (!state || !city || !segment) return false;
     const whatsappCheckMode = "off";
     const { body: rawSalesProfilePayload } = buildSalesProfilePayload(profile);
-    const { preferredCities: _preferredCities, preferredStates: _preferredStates, weeklyAutoUpdateEnabled: _weeklyAutoUpdateEnabled, ...salesProfilePayload } = rawSalesProfilePayload;
+    const salesProfilePayload = Object.fromEntries(
+      Object.entries(rawSalesProfilePayload).filter(
+        ([key]) =>
+          key !== "preferredCities" &&
+          key !== "preferredStates" &&
+          key !== "weeklyAutoUpdateEnabled",
+      ),
+    );
     const payload = await apiFetch<RadarSearchRunResponse>("/webscraping/radar/search-runs", {
       method: "POST",
       requireAuth: true,
@@ -1191,7 +1198,7 @@ export default function TutorialClientPage() {
     }
   }
 
-  const stepContent = useMemo(() => {
+  const stepContent = (() => {
     if (step === 0) {
       return (
         <>
@@ -1399,7 +1406,7 @@ export default function TutorialClientPage() {
         </div>
       </section>
     );
-  }, [planTier, profile, resolvedPlanLabel, router, step]);
+  })();
 
   if (hasToken === null || loading) {
     return (

@@ -214,6 +214,7 @@ export function ChatAvatar({
       )}
     >
       {showImage ? (
+        /* eslint-disable-next-line @next/next/no-img-element -- Avatar usa URL dinamica de WhatsApp/cliente com fallback por erro. */
         <img
           className={styles.avatarImage}
           src={resolvedImageUrl}

@@ -1,7 +1,7 @@
 "use client";
 
 /* eslint-disable @next/next/no-img-element */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import DashboardScaffold from "@/components/DashboardScaffold";
@@ -227,8 +227,14 @@ export function MasterEmailWorkspace({ embedded = false }: { embedded?: boolean 
     }
   }
 
+  const loadAllRef = useRef(loadAll);
+
   useEffect(() => {
-    if (hasToken === true) void loadAll();
+    loadAllRef.current = loadAll;
+  });
+
+  useEffect(() => {
+    if (hasToken === true) void loadAllRef.current();
   }, [hasToken]);
 
   useEffect(() => {

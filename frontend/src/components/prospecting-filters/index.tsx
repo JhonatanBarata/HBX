@@ -506,15 +506,9 @@ export function HbxQuantitySelector({
   );
 }
 
-function hasAdvancedFilterValue(value: unknown) {
-  if (typeof value === "boolean") return value;
-  return String(value ?? "").trim().length > 0;
-}
-
 export function HbxAdvancedFilters({
   filters,
   onChange,
-  mode,
   embedded = false,
   locked = false,
 }: {

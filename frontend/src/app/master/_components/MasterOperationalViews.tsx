@@ -629,7 +629,7 @@ export default function MasterOperationalView({ area }: { area: MasterArea }) {
     void loadMasterWhatsapp(false);
   }, [hasToken, area, user?.isSystemMaster]);
 
-  const companies = workspace?.companies || [];
+  const companies = useMemo(() => workspace?.companies || [], [workspace?.companies]);
   const filteredCompanies = useMemo(() => {
     return companies
       .filter((company) => companyMatchesFilter(company, filterId))
