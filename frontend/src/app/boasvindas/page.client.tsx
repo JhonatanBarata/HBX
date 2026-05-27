@@ -115,13 +115,6 @@ function mobilePrimaryAction(state: WelcomeState, tutorialCompleted: boolean) {
   return { label: "Abrir Vendas", path: "/vendas" };
 }
 
-function desktopRouteFromMobileDestination(path: string) {
-  return path
-    .replace(/^\/mobile\/boas-vindas/, "/boasvindas")
-    .replace(/^\/mobile\/radar-digital/, "/radar-digital")
-    .replace(/^\/mobile\/vendas/, "/vendas");
-}
-
 function MobileDashboard({
   state,
   primaryAction,
@@ -141,7 +134,7 @@ function MobileDashboard({
       label: "Radar",
       title: "Buscar cards",
       text: "Escolha cidade e segmento para montar sua fila comercial.",
-      path: "/radar-digital",
+      path: "/vendas",
     },
     {
       label: "Vendas",
@@ -191,7 +184,7 @@ function MobileDashboard({
             <button
               type="button"
               className={styles.desktopWelcomePrimary}
-              onClick={() => onNavigate?.("/radar-digital")}
+              onClick={() => onNavigate?.("/vendas")}
               disabled={disabled}
             >
               Buscar cards agora
@@ -323,14 +316,16 @@ export default function BoasVindasClientPage({ mobileRoute = false }: { mobileRo
         });
         setMasterCheckComplete(true);
         if (!fromLoginEntry) {
-          const destination = mobileDestinationFromVendasBoard(vendasBoard);
-          router.replace(mobileRoute ? destination : desktopRouteFromMobileDestination(destination));
+          if (mobileRoute) {
+            const destination = mobileDestinationFromVendasBoard(vendasBoard);
+            router.replace(destination);
+          }
         }
       } catch {
         if (mounted) {
           setMasterCheckComplete(true);
-          if (!fromLoginEntry) {
-            router.replace(mobileRoute ? toMobileRoute("/radar-digital") : "/radar-digital");
+          if (!fromLoginEntry && mobileRoute) {
+            router.replace(toMobileRoute("/radar-digital"));
           }
         }
       }

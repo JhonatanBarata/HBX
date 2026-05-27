@@ -460,6 +460,10 @@ type CurrentUserProfile = {
     id?: number | null;
     name?: string | null;
   } | null;
+  masterContext?: {
+    active?: boolean | null;
+    companyName?: string | null;
+  } | null;
 };
 
 type UserModule = {
@@ -661,7 +665,7 @@ function getInboxQueueLabel(queue: InboxQueue) {
     case "bot":
       return "Prospecção";
     case "archived":
-      return "Excluídos";
+      return "Encerrado";
     case "blocked":
       return "Bloqueados";
     default:
@@ -1584,6 +1588,7 @@ function ProspectingCampaignStudioModal({
   status,
   actionLoading,
   companyName,
+  attendantName,
   onClose,
   onChange,
   onSave,
@@ -1598,6 +1603,7 @@ function ProspectingCampaignStudioModal({
   status: ProspectingAutomationLiveStatus | null;
   actionLoading: string | null;
   companyName: string;
+  attendantName: string;
   canActivateProspecting: boolean;
   activationBlockedReason?: string;
   onClose: () => void;
@@ -1849,7 +1855,7 @@ function ProspectingCampaignStudioModal({
   const activationBusyLabel = canPause ? "Pausando..." : canResume ? "Ativando..." : "Ativando...";
   const previewVariables = {
     empresa: companyName || "HBX",
-    funcionario: "time comercial",
+    funcionario: attendantName || "time comercial",
   };
   const firstContactText = config.firstContactVariants[0] || config.messageTemplate;
   const sanitizedMessagePreview = sanitizeFirstContactPreview(firstContactText) || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.messageTemplate;
@@ -8171,6 +8177,8 @@ function InboxDesktopClientPage() {
             value={inboxQueue as ConversationQueueFilterValue}
             counts={queueCounts as Record<ConversationQueueFilterValue, number>}
             unreadCounts={queueUnreadCounts as Record<ConversationQueueFilterValue, number>}
+            showArchived
+            archivedLabel="Encerrado"
             botSignalCounts={prospectionSignalCounts}
             dropOverQueue={dropOverQueue as ConversationQueueFilterValue | null}
             allowQueueCardDrag
@@ -10471,7 +10479,12 @@ function InboxDesktopClientPage() {
         config={campaignConfig}
         status={prospectingAutomationStatus}
         actionLoading={prospectingAutomationAction}
-        companyName={currentUserProfile?.company?.name || "HBX"}
+        companyName={
+          currentUserProfile?.masterContext?.active
+            ? currentUserProfile.masterContext.companyName || currentUserProfile?.company?.name || "HBX"
+            : currentUserProfile?.company?.name || "HBX"
+        }
+        attendantName={currentUserProfile?.name || currentUserProfile?.username || "time comercial"}
         canActivateProspecting={globalBotEnabled}
         activationBlockedReason={
           botAiActive && botSetupComplete

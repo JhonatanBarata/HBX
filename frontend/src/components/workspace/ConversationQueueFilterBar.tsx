@@ -16,6 +16,8 @@ type ConversationQueueFilterBarProps = {
   onChange: (value: ConversationQueueFilterValue) => void;
   counts: Record<ConversationQueueFilterValue, number>;
   unreadCounts?: Partial<Record<ConversationQueueFilterValue, number>>;
+  showArchived?: boolean;
+  archivedLabel?: string;
   botSignalCounts?: {
     active: boolean;
     state?: "running" | "paused" | "error" | "idle" | "off";
@@ -48,6 +50,8 @@ export default function ConversationQueueFilterBar({
   onChange,
   counts,
   unreadCounts,
+  showArchived = false,
+  archivedLabel = "Encerrado",
   botSignalCounts,
   dropOverQueue,
   allowQueueCardDrag = false,
@@ -111,7 +115,7 @@ export default function ConversationQueueFilterBar({
         if (queue) onQueueDrop(queue);
       }}
     >
-      {OPTIONS.map((option) => {
+      {[...OPTIONS, ...(showArchived ? [{ value: "archived" as const, label: archivedLabel }] : [])].map((option) => {
         const active = value === option.value;
         const dropping = dropOverQueue === option.value;
         const unreadCount = Math.max(0, Math.trunc(Number(unreadCounts?.[option.value] || 0)));
