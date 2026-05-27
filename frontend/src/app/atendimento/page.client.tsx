@@ -3581,9 +3581,13 @@ function isInboxExcludedByOperationalState(conversation?: InboxConversation | nu
     prospeccao?.stage,
   ].map(getInboxMetadataText);
   return (
+    isInboxBotClosedConversation(conversation) ||
     statuses.some((status) =>
       [
         "encerrado",
+        "manual_closed",
+        "encerrado_operador",
+        "bot_closed",
         "negative",
         "opt_out",
         "replied_negative",
@@ -3605,6 +3609,55 @@ function isInboxExcludedByOperationalState(conversation?: InboxConversation | nu
       queueRecord?.blacklisted,
       queueRecord?.blacklist,
     ].some((value) => parseInboxBooleanFlag(value))
+  );
+}
+
+function isInboxBotClosedConversation(conversation?: InboxConversation | null) {
+  if (!conversation) return false;
+  const metadata = getInboxConversationMetadata(conversation);
+  const queue = getInboxVendasAgendaQueue(conversation);
+  const flowCandidates = [
+    conversation.flowResult,
+    metadata?.flowResult,
+    metadata?.currentStep,
+    metadata?.step,
+    metadata?.atendimentoStep,
+    queue?.status,
+  ].map(getInboxMetadataText);
+  const hasClosedFlow = flowCandidates.some(
+    (value) =>
+      [
+        "manual_closed",
+        "encerrado",
+        "encerrado_operador",
+        "bot_closed",
+        "closed",
+        "close_topic",
+        "topic_closed",
+      ].includes(value) ||
+      value.endsWith("_closed") ||
+      value.includes("encerrad"),
+  );
+  if (hasClosedFlow) return true;
+
+  const status = getInboxMetadataText(conversation.status);
+  if (status !== "closed" || conversation.humanAssigned === true) return false;
+  if (isInboxPersonalContact(conversation)) return false;
+
+  const sourceCandidates = [
+    conversation.latestSourceModule,
+    metadata?.latestSourceModule,
+    metadata?.sourceModule,
+    metadata?.originFlow,
+    conversation.currentFlow,
+    ...(conversation.messages || []).map((message) => `${message.sourceModule || ""} ${message.senderType || ""}`),
+  ].map(getInboxMetadataText);
+  return sourceCandidates.some(
+    (value) =>
+      value.includes("bot") ||
+      value.includes("hbot") ||
+      value.includes("atendimento_bot") ||
+      value.includes("recepcao"),
   );
 }
 
@@ -5737,19 +5790,29 @@ function InboxDesktopClientPage() {
         if (latestKey) {
           activeConversationLatestMessageKeyRef.current[detailedConversation.id] = latestKey;
         }
-        setConversations((current) =>
-          sortInboxConversationsByActivity(current.map((conversation) =>
-            conversation.id === detailedConversation.id
-              ? {
-                  ...conversation,
-                  lastRealMessageAt: detailedConversation.lastRealMessageAt || detailedConversation.lastMessageAt || null,
-                  lastMessageAt: detailedConversation.lastRealMessageAt || detailedConversation.lastMessageAt || null,
-                  updatedAt: latestMessage?.createdAt || detailedConversation.updatedAt || conversation.updatedAt,
-                  messages: detailedConversation.messages,
-                }
-              : conversation,
-          )),
-        );
+        setConversations((current) => {
+          const exists = current.some((conversation) => conversation.id === detailedConversation.id);
+          const nextSummary = {
+            ...detailedConversation,
+            lastRealMessageAt: detailedConversation.lastRealMessageAt || detailedConversation.lastMessageAt || null,
+            lastMessageAt: detailedConversation.lastRealMessageAt || detailedConversation.lastMessageAt || null,
+            updatedAt: latestMessage?.createdAt || detailedConversation.updatedAt,
+            messages: detailedConversation.messages,
+          };
+          return sortInboxConversationsByActivity(
+            exists
+              ? current.map((conversation) =>
+                  conversation.id === detailedConversation.id
+                    ? {
+                        ...conversation,
+                        ...nextSummary,
+                        updatedAt: nextSummary.updatedAt || conversation.updatedAt,
+                      }
+                    : conversation,
+                )
+              : [...current, nextSummary],
+          );
+        });
         setOlderMessagesBefore(getInboxOldestMessageDate(detailedConversation.messages));
         setOlderMessagesHasMore((detailedConversation.messages?.length || 0) >= INBOX_RECENT_MESSAGES_LIMIT);
       }
@@ -5908,11 +5971,13 @@ function InboxDesktopClientPage() {
   }, [loadConversation, rememberConversationDetail]);
 
   const loadConversations = useCallback(
-    async (options?: { preferredId?: string | null; silent?: boolean; append?: boolean }) => {
+    async (options?: { preferredId?: string | null; silent?: boolean; append?: boolean; queue?: InboxQueue; merge?: boolean }) => {
       const silent = options?.silent ?? false;
       const append = options?.append ?? false;
+      const explicitQueue = options?.queue && INBOX_QUEUE_ORDER.includes(options.queue) ? options.queue : null;
+      const mergePage = options?.merge ?? false;
       const currentList = conversationsRef.current;
-      const appendQueue = inboxQueueRef.current;
+      const appendQueue = explicitQueue || inboxQueueRef.current;
       const manualOverrides = manualQueueOverridesRef.current;
       const take = append
         ? INBOX_CONVERSATION_LIST_LIMIT
@@ -5941,7 +6006,7 @@ function InboxDesktopClientPage() {
           take: String(take),
           skip: String(skip),
         });
-        if (append || appendQueue === "blocked") {
+        if (append || appendQueue !== "all") {
           query.set("queue", appendQueue);
         }
         const response = await apiFetch<InboxConversation[]>(
@@ -5954,16 +6019,26 @@ function InboxDesktopClientPage() {
         const rawPage = normalizeInboxConversationList(Array.isArray(response) ? response : []).filter(
           (conversation) => !isInboxConversationHiddenByDelete(conversation, deletedConversationAliasesRef.current),
         );
-        const page = append || appendQueue === "blocked"
+        const page = append || appendQueue !== "all"
           ? rawPage.filter((conversation) =>
               isInboxConversationVisibleInQueue(conversation, appendQueue, manualOverrides),
             )
           : rawPage;
+        const currentWithoutPage = page.length
+          ? currentList.filter((conversation) => !page.some((nextConversation) => nextConversation.id === conversation.id))
+          : currentList;
         const data = append
           ? normalizeInboxConversationList([...currentList, ...page])
-          : page;
+          : mergePage
+            ? normalizeInboxConversationList([...currentWithoutPage, ...page])
+            : page;
         const nextHasMore = Array.isArray(response) && response.length >= take;
         if (append) {
+          setConversationListHasMoreByQueue((current) => ({
+            ...current,
+            [appendQueue]: nextHasMore,
+          }));
+        } else if (mergePage) {
           setConversationListHasMoreByQueue((current) => ({
             ...current,
             [appendQueue]: nextHasMore,
@@ -6074,6 +6149,13 @@ function InboxDesktopClientPage() {
   const loadMoreConversations = useCallback(() => {
     void loadConversations({ silent: true, append: true });
   }, [loadConversations]);
+
+  useEffect(() => {
+    if (!bootstrapReady) return;
+    if (activeTab !== "messages") return;
+    if (inboxQueue === "all") return;
+    void loadConversations({ silent: true, queue: inboxQueue, merge: true });
+  }, [activeTab, bootstrapReady, inboxQueue, loadConversations]);
 
   const startManualConversation = useCallback(async () => {
     const phone = newConversationPhone.replace(/\D/g, "");

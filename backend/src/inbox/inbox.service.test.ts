@@ -483,6 +483,61 @@ test('inbox classifier moves expired prospection without response to Excluídos'
   assert.equal(context.routeReason, 'Sem resposta em 24h.');
 });
 
+test('inbox classifier moves bot closed conversations to Encerrado', async () => {
+  const { service } = createService({
+    prisma: {
+      companyMessage: {
+        findFirst: async () => null,
+      },
+      hbxRecoveryCustomer: {
+        findFirst: async () => null,
+      },
+    },
+  });
+
+  const context = await (service as any).resolveRecoveryRoutingContext(
+    7,
+    {
+      id: 42,
+      contact: '+5519998877766',
+      metadata: JSON.stringify({
+        sourceModule: 'atendimento_bot',
+      }),
+      flowResult: 'manual_closed',
+      humanAssigned: false,
+      botActive: false,
+      messages: [],
+    },
+    { preferRecoveryForDebtors: true },
+  );
+
+  assert.equal(context.routeTarget, 'excluidos');
+  assert.match(context.routeReason, /arquivado|descartado|encerrado/i);
+});
+
+test('operational conversation lookup includes bot closed flow results', async () => {
+  let findManyInput: any = null;
+  const { service } = createService({
+    prisma: {
+      companyConversation: {
+        findMany: async (input: any) => {
+          findManyInput = input;
+          return [{ id: 42 }];
+        },
+      },
+    },
+  });
+
+  const ids = await (service as any).listOperationalConversationIdsByMetadata(7, 120);
+
+  assert.deepEqual(ids, [42]);
+  assert.ok(
+    findManyInput.where.OR.some(
+      (clause: any) => Array.isArray(clause.flowResult?.in) && clause.flowResult.in.includes('manual_closed'),
+    ),
+  );
+});
+
 test('inbox classifier keeps segment mismatch review in Prospecção', async () => {
   const { service } = createService({
     prisma: {
