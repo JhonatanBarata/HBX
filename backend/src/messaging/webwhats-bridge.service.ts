@@ -2427,11 +2427,19 @@ export class WebwhatsBridgeService {
   }
 
   private getChatRemoteJidAlt(chat: WebwhatsChatSummary) {
-    return this.normalizeOptionalString(
+    const remoteJid = this.normalizeOptionalString(chat?.remoteJid);
+    const remoteJidAlt = this.normalizeOptionalString(
       chat?.lastMessage?.key?.remoteJidAlt ||
       chat?.lastMessage?.remoteJidAlt ||
       (chat as any)?.remoteJidAlt,
     );
+    if (!remoteJidAlt || !this.isSyncableChat(remoteJidAlt)) return null;
+    if (this.isPhoneRemoteJid(remoteJid)) {
+      const remoteDigits = this.extractRemoteJidPhoneDigits(remoteJid);
+      const altDigits = this.extractRemoteJidPhoneDigits(remoteJidAlt);
+      if (remoteDigits && altDigits && remoteDigits !== altDigits) return null;
+    }
+    return remoteJidAlt;
   }
 
   private getMessageRemoteJidAlt(message: WebwhatsFetchedMessage) {
@@ -2471,7 +2479,14 @@ export class WebwhatsBridgeService {
     primaryContact?: WebwhatsContactSummary | null,
     alternateContact?: WebwhatsContactSummary | null,
   ) {
-    void chat;
+    if (this.isGroupRemoteJid(chat?.remoteJid)) {
+      return this.firstDisplayNameCandidate([
+        chat?.name,
+        chat?.displayName,
+        (chat as any)?.subject,
+        (chat as any)?.formattedName,
+      ]);
+    }
     return this.firstDisplayNameCandidate([
       this.getContactAgendaDisplayName(primaryContact),
       this.getContactAgendaDisplayName(alternateContact),
@@ -3104,9 +3119,9 @@ export class WebwhatsBridgeService {
     remoteJidAlt: string | null,
   ) {
     return this.resolvePreferredConversationContact(
-      remoteJidAlt,
       this.isPreferredPhoneContact(existingContact) ? existingContact : null,
       preferredContact,
+      remoteJidAlt,
       remoteJid,
     );
   }
@@ -3693,7 +3708,29 @@ export class WebwhatsBridgeService {
     if (!remoteJid) return false;
     if (remoteJid.includes('@broadcast')) return false;
     if (remoteJid === 'status@broadcast') return false;
-    return remoteJid.includes('@s.whatsapp.net') || remoteJid.includes('@lid') || remoteJid.includes('@g.us');
+    if (remoteJid.includes('@s.whatsapp.net')) return this.isPhoneRemoteJid(remoteJid);
+    if (remoteJid.includes('@lid')) {
+      const left = remoteJid.split('@')[0] || '';
+      return left.length >= 5 && !/^0+$/.test(left);
+    }
+    if (remoteJid.includes('@g.us')) {
+      const left = remoteJid.split('@')[0] || '';
+      return Boolean(left) && !/^0+$/.test(left);
+    }
+    return false;
+  }
+
+  private extractRemoteJidPhoneDigits(remoteJidRaw: string | null | undefined) {
+    const remoteJid = String(remoteJidRaw || '').trim().toLowerCase();
+    if (!remoteJid.includes('@s.whatsapp.net')) return '';
+    const digits = (remoteJid.split('@')[0] || '').replace(/\D/g, '');
+    if (digits.length < 10 || digits.length > 15) return '';
+    if (/^0+$/.test(digits)) return '';
+    return digits;
+  }
+
+  private isPhoneRemoteJid(remoteJidRaw: string | null | undefined) {
+    return Boolean(this.extractRemoteJidPhoneDigits(remoteJidRaw));
   }
 
   private buildSuppressionLookupTokens(...values: Array<string | null | undefined>) {

@@ -1540,10 +1540,10 @@ export class InboxService {
 
   private resolveConversationDisplayPhone(conversation: any, identityRow?: any, metadata?: Record<string, any> | null) {
     const candidates = [
+      conversation?.contact,
       identityRow?.phone,
       metadata?.whatsappRemoteJidAlt,
       metadata?.remoteJidAlt,
-      conversation?.contact,
       metadata?.whatsappRemoteJid,
       metadata?.remoteJid,
     ];
@@ -1575,6 +1575,16 @@ export class InboxService {
       if (normalized) return normalized;
     }
     return '';
+  }
+
+  private isConversationWhatsappIdentityConflicting(conversation: any, metadata?: Record<string, any> | null) {
+    const contactPhone = this.normalizeConversationPhone(conversation?.contact);
+    if (!contactPhone) return false;
+    const remotePhone = this.normalizeConversationPhone(metadata?.whatsappRemoteJid || metadata?.remoteJid);
+    const altPhone = this.normalizeConversationPhone(metadata?.whatsappRemoteJidAlt || metadata?.remoteJidAlt);
+    if (remotePhone && remotePhone !== contactPhone) return true;
+    if (altPhone && altPhone !== contactPhone && !remotePhone) return true;
+    return false;
   }
 
   private normalizeManualConversationContact(value: unknown) {
@@ -2535,6 +2545,7 @@ export class InboxService {
     const routeContext = await this.resolveRecoveryRoutingContext(companyId, conversation, routingRules);
     const blockedState = this.getAtendimentoBlockedState(conversation.metadata);
     const conversationMetadata = this.parseConversationMetadata(conversation.metadata);
+    const hasConflictingWhatsappIdentity = this.isConversationWhatsappIdentityConflicting(conversation, conversationMetadata);
     const profile = identityRow?.customerProfile || null;
     const manualLockedName =
       String(identityRow?.registrationOrigin || '').trim().toLowerCase() === 'manual' ||
@@ -2549,6 +2560,7 @@ export class InboxService {
       null;
     return {
       id: String(conversation.id),
+      contact: String(conversation.contact || '').trim() || null,
       status: this.toInboxStatus(conversation),
       assignedTo: conversation.humanAssigned ? 'humano' : null,
       botActive:
@@ -2593,12 +2605,14 @@ export class InboxService {
         phone: this.resolveConversationDisplayPhone(conversation, identityRow, conversationMetadata),
         name: customerName,
         avatarUrl:
-          String(
-            conversationMetadata.whatsappAvatarUrl ||
-            conversationMetadata.profilePicUrl ||
-            conversationMetadata.avatarUrl ||
-            '',
-          ).trim() || null,
+          hasConflictingWhatsappIdentity
+            ? null
+            : String(
+                conversationMetadata.whatsappAvatarUrl ||
+                conversationMetadata.profilePicUrl ||
+                conversationMetadata.avatarUrl ||
+                '',
+              ).trim() || null,
         customerProfileId: profile?.id ? String(profile.id) : identityRow?.customerProfileId ? String(identityRow.customerProfileId) : null,
         email: profile?.email ? String(profile.email) : null,
         document: profile?.document ? String(profile.document) : null,
@@ -6970,7 +6984,9 @@ export class InboxService {
       this.normalizeMessageMetadataText(this.parseConversationMetadata(liveConversation.conversation.metadata)?.whatsappRemoteJid) ||
       this.normalizeMessageMetadataText(liveConversation.remoteJid) ||
       String(liveConversation.contact || conversation.contact || '');
-    const providerKeyId = this.normalizeMessageMetadataText(rawPayload?.key?.id);
+    const providerKeyId =
+      this.normalizeMessageMetadataText(rawPayload?.key?.id) ||
+      this.extractWebwhatsRawMessageIdFromProviderMessageId(message.providerMessageId);
     if (!providerKeyId) {
       throw new BadRequestException('Mensagem ainda nao possui chave valida para reagir no WhatsApp.');
     }
@@ -7010,7 +7026,9 @@ export class InboxService {
       this.normalizeMessageMetadataText(this.parseConversationMetadata(liveConversation.conversation.metadata)?.whatsappRemoteJid) ||
       this.normalizeMessageMetadataText(liveConversation.remoteJid) ||
       String(liveConversation.contact || conversation.contact || '');
-    const providerKeyId = this.normalizeMessageMetadataText(rawPayload?.key?.id);
+    const providerKeyId =
+      this.normalizeMessageMetadataText(rawPayload?.key?.id) ||
+      this.extractWebwhatsRawMessageIdFromProviderMessageId(message.providerMessageId);
     if (!providerKeyId) {
       throw new BadRequestException('Mensagem ainda nao possui chave valida para exclusao no WhatsApp.');
     }

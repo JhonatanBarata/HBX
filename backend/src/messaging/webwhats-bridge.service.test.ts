@@ -45,6 +45,10 @@ function makeConversation(overrides?: Record<string, unknown>) {
   };
 }
 
+function createBareWebwhatsBridgeService() {
+  return Object.create(WebwhatsBridgeService.prototype) as any;
+}
+
 test('resolveCurrentWebwhatsSession repara Company CONNECTED sem sessao operacional', async () => {
   const previousUrl = process.env.WHATSAPP_MODAL_INTERNAL_URL;
   const previousKey = process.env.WHATSAPP_MODAL_API_KEY;
@@ -992,4 +996,45 @@ test('normalizeIncomingWhatsAppMessage keeps fallback for unknown interactive pa
   assert.equal(normalized.text, '[interacao recebida]');
   assert.equal(normalized.metadata.extracted.hasText, false);
   assert.ok(normalized.metadata.rawPayloadSanitized);
+});
+
+test('WebwhatsBridgeService rejects invalid WhatsApp phone JIDs', () => {
+  const service = createBareWebwhatsBridgeService();
+
+  assert.equal(service.isSyncableChat('0@s.whatsapp.net'), false);
+  assert.equal(service.isSyncableChat('0000000000@s.whatsapp.net'), false);
+  assert.equal(service.isSyncableChat('5519996197927@s.whatsapp.net'), true);
+});
+
+test('WebwhatsBridgeService ignores conflicting chat remoteJidAlt for phone chats', () => {
+  const service = createBareWebwhatsBridgeService();
+
+  assert.equal(
+    service.getChatRemoteJidAlt({
+      remoteJid: '5519996197927@s.whatsapp.net',
+      lastMessage: { key: { remoteJidAlt: '5519997493700@s.whatsapp.net' } },
+    }),
+    null,
+  );
+  assert.equal(
+    service.getChatRemoteJidAlt({
+      remoteJid: '123456789012345@lid',
+      lastMessage: { key: { remoteJidAlt: '5519997493700@s.whatsapp.net' } },
+    }),
+    '5519997493700@s.whatsapp.net',
+  );
+});
+
+test('WebwhatsBridgeService keeps existing phone contact before incoming alternate JID', () => {
+  const service = createBareWebwhatsBridgeService();
+
+  assert.equal(
+    service.resolveStateContact(
+      '+5519997493700',
+      '+5519996197927',
+      '0@s.whatsapp.net',
+      '5519997493700@s.whatsapp.net',
+    ),
+    '+5519996197927',
+  );
 });
