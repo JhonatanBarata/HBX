@@ -865,9 +865,9 @@ export class InboxService {
     return Boolean(
       this.normalizeDisplayNameCandidate(
         metadata?.whatsappContactName ||
+          metadata?.whatsappProfileName ||
           metadata?.waNickname ||
           metadata?.whatsappName ||
-          metadata?.whatsappProfileName ||
           null,
       ),
     );
@@ -1517,9 +1517,9 @@ export class InboxService {
     const metadata = this.parseConversationMetadata(metadataRaw);
     const metadataCandidates = [
       metadata?.whatsappContactName,
+      metadata?.whatsappProfileName,
       metadata?.waNickname,
       metadata?.whatsappName,
-      metadata?.whatsappProfileName,
     ];
     for (const candidate of metadataCandidates) {
       const normalized = this.normalizeDisplayNameCandidate(candidate, contact);
@@ -1536,6 +1536,23 @@ export class InboxService {
     const normalizedPhone = normalizeWhatsAppPhone(raw);
     if (!normalizedPhone) return null;
     return normalizedPhone.replace(/\D/g, '').slice(-13) || null;
+  }
+
+  private resolveConversationDisplayPhone(conversation: any, identityRow?: any, metadata?: Record<string, any> | null) {
+    const candidates = [
+      identityRow?.phone,
+      metadata?.whatsappRemoteJidAlt,
+      metadata?.remoteJidAlt,
+      conversation?.contact,
+      metadata?.whatsappRemoteJid,
+      metadata?.remoteJid,
+    ];
+    for (const candidate of candidates) {
+      const normalized = this.normalizeConversationPhone(String(candidate || ''));
+      if (!normalized) continue;
+      return normalized.startsWith('55') ? `+${normalized}` : normalized;
+    }
+    return '';
   }
 
   private normalizeManualConversationContact(value: unknown) {
@@ -1653,13 +1670,16 @@ export class InboxService {
 
   private normalizeConversationQueueFilter(value: string | null | undefined) {
     const normalized = String(value || '').trim().toLowerCase();
-    const allowedQueues = new Set(['all', 'groups', 'recovery', 'scheduled', 'bot', 'archived']);
+    const allowedQueues = new Set(['all', 'groups', 'recovery', 'scheduled', 'bot', 'archived', 'blocked']);
     return allowedQueues.has(normalized) ? normalized : null;
   }
 
   private resolveConversationQueueFromRouteTarget(conversation: any) {
     const contact = String(conversation?.customer?.phone || conversation?.contact || '').trim().toLowerCase();
     if (contact.includes('@g.us')) return 'groups';
+    if (conversation?.isBlocked === true || String(conversation?.status || '').trim().toLowerCase() === 'blocked') {
+      return 'blocked';
+    }
     switch (String(conversation?.routeTarget || '').trim().toLowerCase()) {
       case 'excluidos':
       case 'excluded':
@@ -1787,6 +1807,9 @@ export class InboxService {
     if (lowered === 'você' || lowered === 'voce' || lowered === 'you' || lowered === 'eu') {
       return null;
     }
+    if (this.isGenericWhatsAppDisplayName(normalized)) {
+      return null;
+    }
     if (lowered.includes('@lid') || lowered.includes('@s.whatsapp.net')) {
       return null;
     }
@@ -1799,6 +1822,24 @@ export class InboxService {
       return null;
     }
     return normalized;
+  }
+
+  private isGenericWhatsAppDisplayName(value: string) {
+    const normalized = String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return [
+      'whatsapp',
+      'whats app',
+      'contato whatsapp',
+      'contato whats app',
+      'whatsapp business',
+      'whats app business',
+    ].includes(normalized);
   }
 
   private async loadAtendimentoIdentityMap(companyId: number, contacts: Array<string | null | undefined>) {
@@ -2479,10 +2520,11 @@ export class InboxService {
         ? this.normalizeDisplayNameCandidate(identityRow?.name || null, conversation.contact)
         : null;
     const customerName =
-      this.normalizeDisplayNameCandidate(
-        manualLockedName || identityRow?.name || profile?.name || displayName || null,
-        conversation.contact,
-      ) || null;
+      manualLockedName ||
+      this.normalizeDisplayNameCandidate(displayName || null, conversation.contact) ||
+      this.normalizeDisplayNameCandidate(identityRow?.name || null, conversation.contact) ||
+      this.normalizeDisplayNameCandidate(profile?.name || null, conversation.contact) ||
+      null;
     return {
       id: String(conversation.id),
       status: this.toInboxStatus(conversation),
@@ -2526,7 +2568,7 @@ export class InboxService {
       metadata: conversationMetadata,
       customer: {
         id: String(identityRow?.id || conversation.id),
-        phone: String(identityRow?.phone || conversation.contact || ''),
+        phone: this.resolveConversationDisplayPhone(conversation, identityRow, conversationMetadata),
         name: customerName,
         avatarUrl:
           String(
@@ -2607,16 +2649,28 @@ export class InboxService {
     snapshot: WebwhatsLiveChatSnapshot | WebwhatsLiveConversationSnapshot,
   ) {
     const unreadCount = this.resolveLiveUnreadCount(stateMetadata, snapshot);
+    const agendaDisplayName = this.normalizeDisplayNameCandidate(
+      (snapshot as any)?.agendaDisplayName,
+      snapshot.contact || snapshot.conversation?.contact,
+    );
+    const profileDisplayName = this.normalizeDisplayNameCandidate(
+      (snapshot as any)?.profileDisplayName,
+      snapshot.contact || snapshot.conversation?.contact,
+    );
+    const displayName = this.normalizeDisplayNameCandidate(
+      snapshot.displayName,
+      snapshot.contact || snapshot.conversation?.contact,
+    ) || agendaDisplayName || profileDisplayName;
     const metadata: Record<string, any> = {
       ...stateMetadata,
       whatsappRemoteJid: snapshot.remoteJid,
       ...(snapshot.remoteJidAlt ? { whatsappRemoteJidAlt: snapshot.remoteJidAlt } : {}),
-      ...(snapshot.displayName
+      ...(displayName ? { whatsappName: displayName } : {}),
+      ...(agendaDisplayName ? { whatsappContactName: agendaDisplayName } : {}),
+      ...(profileDisplayName
         ? {
-            whatsappName: snapshot.displayName,
-            waNickname: snapshot.displayName,
-            whatsappProfileName: snapshot.displayName,
-            whatsappContactName: snapshot.displayName,
+            whatsappProfileName: profileDisplayName,
+            waNickname: profileDisplayName,
           }
         : {}),
       ...(snapshot.avatarUrl ? { whatsappAvatarUrl: snapshot.avatarUrl } : {}),
@@ -5129,15 +5183,28 @@ export class InboxService {
     const metadata = this.parseConversationMetadata(conversation.metadata);
     const currentQueue = this.getNestedMetadataRecord(metadata?.vendasAgendaQueue);
     const now = new Date().toISOString();
+    const keepManualQueueOverride =
+      !personal && metadata.inboxManualQueueOverride !== 'all'
+        ? metadata.inboxManualQueueOverride || null
+        : null;
+    const keepManualQueueOverriddenAt =
+      !personal && metadata.inboxManualQueueOverride !== 'all'
+        ? metadata.inboxManualQueueOverriddenAt || null
+        : null;
     const nextMetadata: Record<string, unknown> = {
       ...metadata,
       inboxPersonalContact: personal,
+      personalContact: personal,
+      whatsappPersonalContact: personal,
       inboxPersonalContactAt: personal ? now : null,
       inboxPersonalContactByUserId: personal ? Number(user?.id || 0) || null : null,
       queueTarget: personal ? 'conversas' : null,
       routeTarget: personal ? 'conversas' : null,
-      inboxManualQueueOverride: personal ? 'all' : metadata.inboxManualQueueOverride || null,
-      inboxManualQueueOverriddenAt: personal ? now : metadata.inboxManualQueueOverriddenAt || null,
+      inboxManualQueueOverride: personal ? 'all' : keepManualQueueOverride,
+      inboxManualQueueOverriddenAt: personal ? now : keepManualQueueOverriddenAt,
+      botOff: personal,
+      botOffReason: personal ? 'Contato marcado como pessoal no Atendimento.' : null,
+      botOffAt: personal ? now : null,
     };
 
     if (currentQueue) {
@@ -6117,14 +6184,23 @@ export class InboxService {
         lastInteractionAt: true,
       },
     });
+    const recoverableSessionIds = mode === 'merge' ? oldSessionIds.slice(0, 1) : [];
+    const discardSessionIds = mode === 'merge' ? oldSessionIds.slice(1) : oldSessionIds;
+    const recoverableConversations = oldConversations.filter((conversation) =>
+      recoverableSessionIds.includes(String(conversation.whatsappConnectionSessionId || '')),
+    );
+    const discardConversations = oldConversations.filter((conversation) =>
+      discardSessionIds.includes(String(conversation.whatsappConnectionSessionId || '')),
+    );
 
     let merged = 0;
     let deletedConversations = 0;
     let deletedMessages = 0;
+    const resetAt = new Date();
 
     await this.prisma.$transaction(async (tx) => {
       if (mode === 'merge') {
-        for (const stale of oldConversations) {
+        for (const stale of recoverableConversations) {
           const target = await this.findCurrentSessionConversationForMerge(tx, companyId, currentSessionId, stale);
           if (target?.id && Number(target.id) !== Number(stale.id)) {
             const messages = await tx.companyMessage.findMany({
@@ -6168,13 +6244,19 @@ export class InboxService {
           });
           merged += 1;
         }
-      } else {
+      }
+
+      const conversationsToDiscard = mode === 'merge' ? discardConversations : oldConversations;
+      const sessionIdsToDiscard = mode === 'merge' ? discardSessionIds : oldSessionIds;
+      if (sessionIdsToDiscard.length || conversationsToDiscard.length) {
         const messages = await tx.companyMessage.findMany({
           where: {
             companyId,
             OR: [
-              { whatsappConnectionSessionId: { in: oldSessionIds } },
-              { conversationId: { in: oldConversations.map((conversation) => Number(conversation.id)) } },
+              ...(sessionIdsToDiscard.length ? [{ whatsappConnectionSessionId: { in: sessionIdsToDiscard } }] : []),
+              ...(conversationsToDiscard.length
+                ? [{ conversationId: { in: conversationsToDiscard.map((conversation) => Number(conversation.id)) } }]
+                : []),
             ],
           },
           select: { id: true },
@@ -6185,10 +6267,10 @@ export class InboxService {
           deletedMessages += 1;
         }
         await tx.atendimentoAppointment.updateMany({
-          where: { companyId, conversationId: { in: oldConversations.map((conversation) => Number(conversation.id)) } },
+          where: { companyId, conversationId: { in: conversationsToDiscard.map((conversation) => Number(conversation.id)) } },
           data: { conversationId: null },
         });
-        for (const conversation of oldConversations) {
+        for (const conversation of conversationsToDiscard) {
           await tx.companyConversation.delete({ where: { id: conversation.id } });
           deletedConversations += 1;
         }
@@ -6204,6 +6286,22 @@ export class InboxService {
           id: { in: oldSessionIds },
         },
       });
+      const currentSession = await tx.whatsAppConnectionSession.findFirst({
+        where: { companyId, id: currentSessionId },
+        select: { metadataJson: true },
+      });
+      await tx.whatsAppConnectionSession.update({
+        where: { id: currentSessionId },
+        data: {
+          metadataJson: JSON.stringify({
+            ...this.parseConversationMetadata(currentSession?.metadataJson),
+            inboxResetAt: resetAt.toISOString(),
+            webwhatsResetAt: resetAt.toISOString(),
+            popup2CleanupMode: mode,
+            popup2CleanupAt: resetAt.toISOString(),
+          }),
+        },
+      });
     });
 
     await this.logInboxEvent({
@@ -6216,6 +6314,8 @@ export class InboxService {
       extra: {
         currentSessionId,
         oldSessionIds,
+        recoverableSessionIds,
+        discardSessionIds,
         merged,
         deletedConversations,
         deletedMessages,
@@ -6230,7 +6330,7 @@ export class InboxService {
       deletedMessages,
       deletedSessions: oldSessionIds.length,
       message: mode === 'merge'
-        ? 'Histórico antigo mesclado na sessão atual. Sessões antigas removidas.'
+        ? 'Última sessão antiga mesclada na sessão atual. Demais sessões antigas descartadas.'
         : 'Histórico de sessões antigas descartado do HBX.',
     };
   }
@@ -6963,6 +7063,45 @@ export class InboxService {
     if (attachment?.url || attachment?.kind) {
       variables.attachment = attachment;
     }
+    const conversationMetadata = this.parseConversationMetadata(conversation.metadata);
+    const vendasAgendaQueue =
+      conversationMetadata?.vendasAgendaQueue &&
+      typeof conversationMetadata.vendasAgendaQueue === 'object' &&
+      !Array.isArray(conversationMetadata.vendasAgendaQueue)
+        ? (conversationMetadata.vendasAgendaQueue as Record<string, unknown>)
+        : null;
+    const isPersonalConversation =
+      this.isConversationPersonalContact(conversationMetadata) ||
+      String(conversationMetadata?.queueTarget || conversationMetadata?.routeTarget || '').trim().toLowerCase() === 'conversas' ||
+      String((conversation as any)?.routeTarget || '').trim().toLowerCase() === 'conversas';
+    const personalMetadataPatch = isPersonalConversation
+      ? {
+          ...conversationMetadata,
+          inboxPersonalContact: true,
+          personalContact: true,
+          whatsappPersonalContact: true,
+          inboxManualQueueOverride: 'all',
+          queueTarget: 'conversas',
+          routeTarget: 'conversas',
+          botOff: true,
+          botOffReason: 'Contato marcado como pessoal em Pessoais.',
+          botOffAt: conversationMetadata?.botOffAt || new Date().toISOString(),
+          ...(vendasAgendaQueue
+            ? {
+                vendasAgendaQueue: {
+                  ...vendasAgendaQueue,
+                  manualQueueOverride: 'all',
+                  queueTarget: 'conversas',
+                  routeTarget: 'conversas',
+                  botActive: false,
+                  botEligible: false,
+                  botEntryPending: false,
+                  humanAssigned: true,
+                },
+              }
+            : {}),
+        }
+      : null;
 
     const outboundPayload: any = {
       conversationId,
@@ -6975,7 +7114,8 @@ export class InboxService {
       flowState: {
         humanAssigned: true,
         botActive: false,
-        flowResult: null,
+        flowResult: isPersonalConversation ? 'personal_contact' : null,
+        ...(personalMetadataPatch ? { metadata: personalMetadataPatch } : {}),
       },
     };
     if (Object.keys(variables).length) {
@@ -6984,14 +7124,7 @@ export class InboxService {
 
     await this.conversations.queueOutboundForCompany(companyId, outboundPayload);
 
-    const conversationMetadata = this.parseConversationMetadata(conversation.metadata);
-    const vendasAgendaQueue =
-      conversationMetadata?.vendasAgendaQueue &&
-      typeof conversationMetadata.vendasAgendaQueue === 'object' &&
-      !Array.isArray(conversationMetadata.vendasAgendaQueue)
-        ? (conversationMetadata.vendasAgendaQueue as Record<string, unknown>)
-        : null;
-    if (vendasAgendaQueue?.active) {
+    if (!isPersonalConversation && vendasAgendaQueue?.active) {
       const manualSentAt = new Date().toISOString();
       const currentProspeccao = this.getNestedMetadataRecord(conversationMetadata?.vendasProspeccao);
       const firstOutboundAt = String(currentProspeccao?.firstOutboundAt || manualSentAt);

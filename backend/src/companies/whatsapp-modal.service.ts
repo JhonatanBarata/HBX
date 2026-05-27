@@ -1043,6 +1043,16 @@ export class WhatsAppModalService {
     return Boolean(session?.id);
   }
 
+  private parseSessionMetadataJson(value: unknown) {
+    if (!value) return {};
+    try {
+      const parsed = JSON.parse(String(value));
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, any> : {};
+    } catch {
+      return {};
+    }
+  }
+
   private async reconcileWebwhatsConnectionSession(
     company: CompanyModalFields,
     snapshot: ModalSnapshot,
@@ -1063,16 +1073,18 @@ export class WhatsAppModalService {
           status: 'active',
         },
         orderBy: [{ connectedAt: 'desc' }, { createdAt: 'desc' }],
-        select: { id: true },
+        select: { id: true, metadataJson: true },
       });
 
       if (session?.id) {
+        const sessionMetadata = this.parseSessionMetadataJson(session.metadataJson);
         const data: any = {
           tenantKey,
           status: 'active',
           connectedAt,
           disconnectedAt: null,
           metadataJson: JSON.stringify({
+            ...sessionMetadata,
             source: reason,
             rawStatus: snapshot.rawStatus,
             recordedAt: now.toISOString(),
@@ -1083,7 +1095,7 @@ export class WhatsAppModalService {
         session = await this.prisma.whatsAppConnectionSession.update({
           where: { id: String(session.id) },
           data,
-          select: { id: true },
+          select: { id: true, metadataJson: true },
         });
       } else {
         session = await this.prisma.whatsAppConnectionSession.create({
@@ -1101,7 +1113,7 @@ export class WhatsAppModalService {
               recordedAt: now.toISOString(),
             }),
           },
-          select: { id: true },
+          select: { id: true, metadataJson: true },
         });
       }
 

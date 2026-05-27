@@ -715,6 +715,12 @@ export class UpdateVendasProspectingConfigDto {
   @IsArray()
   @ArrayMaxSize(20)
   @IsString({ each: true })
+  scheduledReplyVariants?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
   optOutVariants?: string[];
 
   @IsOptional()

@@ -74,6 +74,7 @@ type ProspectingAutomationConfig = {
   firstContactVariants: string[];
   positiveReplyVariants: string[];
   whatIsItReplyVariants: string[];
+  scheduledReplyVariants: string[];
   optOutVariants: string[];
   neutralHandoffVariants: string[];
   optOutMessage: string;
@@ -146,11 +147,11 @@ const DEFAULT_FIRST_CONTACT_VARIANTS = [
   "Oii, tudo bem? Trabalho com uma ferramenta para organizar contatos e retornos. Posso te explicar em 1 minuto?",
 ];
 const DEFAULT_POSITIVE_REPLY_VARIANTS = [
-  "Perfeito. Vou deixar um resumo curto aqui para o atendimento humano continuar com você.",
-  "Boa. Já vou separar uma explicação objetiva para o nosso atendimento te mostrar com calma.",
-  "Combinado. Vou te passar para uma pessoa do time continuar sem mensagem automática.",
-  "Legal. Vou preparar o próximo passo para um humano te atender por aqui.",
-  "Show. Vou marcar como interessado e deixar o atendimento humano seguir com você.",
+  "Boa! A ideia é entender como funciona a rotina de vocês hoje, onde tem retrabalho, tarefa manual ou informação perdida, e ver se dá para resolver com uma automação ou ajuste simples no processo. Posso te ligar rapidinho?",
+  "Perfeito. Primeiro eu entendo o cenário da empresa, porque cada operação tem um gargalo diferente. Pode ser atendimento, vendas, financeiro, planilhas, retornos, cadastros, tarefas internas… aí vejo o que faria sentido implantar. Posso te chamar numa ligação rápida?",
+  "Show. Meu trabalho não é empurrar uma ferramenta pronta. Eu entendo o processo, vejo onde a empresa está perdendo tempo e monto uma solução em cima da necessidade real. Posso te ligar 2 minutinhos para entender melhor?",
+  "Legal. Normalmente eu converso com o gestor ou responsável pela operação, faço algumas perguntas sobre a rotina e identifico onde uma melhoria simples já poderia economizar tempo. Pode ser uma ligação rápida?",
+  "Boa. A ideia é bem prática: entender o que hoje é manual, repetitivo ou bagunçado, e ver se vale implantar alguma automação, organização ou sistema simples para facilitar. Posso te ligar rapidinho?",
 ];
 const DEFAULT_WHAT_IS_IT_REPLY_VARIANTS = [
   "É uma forma de organizar contatos, orçamentos e retornos pelo WhatsApp. Vou deixar um resumo para o atendimento humano te explicar melhor.",
@@ -158,6 +159,11 @@ const DEFAULT_WHAT_IS_IT_REPLY_VARIANTS = [
   "É uma ferramenta para ajudar no controle de contatos e retornos. Vou deixar o atendimento humano continuar com você.",
   "É uma solução para acompanhar conversas, orçamentos e retornos. Vou preparar um resumo curto para o time humano.",
   "É para melhorar a rotina de atendimento pelo WhatsApp. Vou encaminhar para uma pessoa te explicar.",
+];
+const DEFAULT_SCHEDULED_REPLY_VARIANTS = [
+  "Perfeito, {{retorno_label}} eu te chamo por aqui ou te ligo rapidinho.",
+  "Combinado, {{retorno_label}} eu retorno com você.",
+  "Fechado, deixei anotado para {{retorno_label}}.",
 ];
 const DEFAULT_OPT_OUT_VARIANTS = [
   "Entendi. Vou arquivar este contato e não chamaremos novamente.",
@@ -202,6 +208,7 @@ const PROSPECTING_VARIABLES = [
   { token: "cidade", label: "Cidade" },
   { token: "estado", label: "Estado" },
   { token: "segmento", label: "Segmento" },
+  { token: "retorno_label", label: "Retorno combinado" },
 ];
 
 const COMPANY_LEGAL_SUFFIXES = new Set([
@@ -309,6 +316,7 @@ const DEFAULT_PROSPECTING_CONFIG: ProspectingAutomationConfig = {
   firstContactVariants: DEFAULT_FIRST_CONTACT_VARIANTS,
   positiveReplyVariants: DEFAULT_POSITIVE_REPLY_VARIANTS,
   whatIsItReplyVariants: DEFAULT_WHAT_IS_IT_REPLY_VARIANTS,
+  scheduledReplyVariants: DEFAULT_SCHEDULED_REPLY_VARIANTS,
   optOutVariants: DEFAULT_OPT_OUT_VARIANTS,
   neutralHandoffVariants: DEFAULT_NEUTRAL_HANDOFF_VARIANTS,
   optOutMessage: "Entendi. Vou arquivar este contato e não chamaremos novamente.",
@@ -351,6 +359,7 @@ function renderProspectingPreview(
     cidade: config.city || "sua região",
     estado: config.state || "BR",
     segmento: config.segment || "seu segmento",
+    retorno_label: "amanhã às 09:00",
   };
   return String(template || "")
     .replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, token) => values[token] || `[${token}]`)
@@ -512,6 +521,10 @@ function getProspectingRulesFromBot(config: AtendimentoBotConfig) {
       metadata.neutralIntentKeywords,
       DEFAULT_PROSPECTING_CONFIG.neutralIntentKeywords,
     ),
+    scheduledReplyVariants: normalizeTextList(
+      metadata.scheduledReplyVariants,
+      DEFAULT_PROSPECTING_CONFIG.scheduledReplyVariants,
+    ),
     optOutMessage: String(metadata.optOutMessage || DEFAULT_PROSPECTING_CONFIG.optOutMessage),
     optOutReplyEnabled: Boolean(metadata.optOutReplyEnabled),
   };
@@ -558,6 +571,7 @@ function mergeProspectingConfigFromStatus(
     ),
     positiveReplyVariants: normalizeTextList(campaign?.positiveReplyVariants || campaignFilters.positiveReplyVariants, DEFAULT_PROSPECTING_CONFIG.positiveReplyVariants),
     whatIsItReplyVariants: normalizeTextList(campaign?.whatIsItReplyVariants || campaignFilters.whatIsItReplyVariants, DEFAULT_PROSPECTING_CONFIG.whatIsItReplyVariants),
+    scheduledReplyVariants: normalizeTextList(campaign?.scheduledReplyVariants || campaignFilters.scheduledReplyVariants, rules.scheduledReplyVariants),
     optOutVariants: normalizeTextList(
       campaign?.optOutVariants || campaignFilters.optOutVariants || (campaignOptOutMessage ? [campaignOptOutMessage] : null),
       DEFAULT_PROSPECTING_CONFIG.optOutVariants,
@@ -595,6 +609,7 @@ function toProspectingRequestPayload(config: ProspectingAutomationConfig): Prosp
     firstContactVariants: config.firstContactVariants,
     positiveReplyVariants: config.positiveReplyVariants,
     whatIsItReplyVariants: config.whatIsItReplyVariants,
+    scheduledReplyVariants: config.scheduledReplyVariants,
     optOutVariants: config.optOutVariants,
     neutralHandoffVariants: config.neutralHandoffVariants,
     optOutMessage: config.optOutMessage,
@@ -633,6 +648,7 @@ function upsertProspectingRules(
       firstContactVariants: prospecting.firstContactVariants,
       positiveReplyVariants: prospecting.positiveReplyVariants,
       whatIsItReplyVariants: prospecting.whatIsItReplyVariants,
+      scheduledReplyVariants: prospecting.scheduledReplyVariants,
       optOutVariants: prospecting.optOutVariants,
       neutralHandoffVariants: prospecting.neutralHandoffVariants,
       optOutMessage: prospecting.optOutMessage,
@@ -687,7 +703,7 @@ function ProspectingAutomationPanel({
   const [positiveKeywordsDraft, setPositiveKeywordsDraft] = useState(config.positiveIntentKeywords.join(", "));
   const [negativeKeywordsDraft, setNegativeKeywordsDraft] = useState(config.negativeIntentKeywords.join(", "));
   const [variableTarget, setVariableTarget] = useState<
-    "messageTemplate" | "optOutMessage" | "firstContactVariants" | "positiveReplyVariants" | "whatIsItReplyVariants" | "optOutVariants" | "neutralHandoffVariants"
+    "messageTemplate" | "optOutMessage" | "firstContactVariants" | "positiveReplyVariants" | "whatIsItReplyVariants" | "scheduledReplyVariants" | "optOutVariants" | "neutralHandoffVariants"
   >("firstContactVariants");
   const [variablesOpen, setVariablesOpen] = useState(false);
   const messageTemplateRef = useRef<HTMLTextAreaElement | null>(null);
@@ -695,6 +711,7 @@ function ProspectingAutomationPanel({
   const firstContactVariantsRef = useRef<HTMLTextAreaElement | null>(null);
   const positiveReplyVariantsRef = useRef<HTMLTextAreaElement | null>(null);
   const whatIsItReplyVariantsRef = useRef<HTMLTextAreaElement | null>(null);
+  const scheduledReplyVariantsRef = useRef<HTMLTextAreaElement | null>(null);
   const optOutVariantsRef = useRef<HTMLTextAreaElement | null>(null);
   const neutralHandoffVariantsRef = useRef<HTMLTextAreaElement | null>(null);
   const firstContactPreviewText = config.firstContactVariants[0] || config.messageTemplate;
@@ -748,7 +765,7 @@ function ProspectingAutomationPanel({
     onChange((current) => ({ ...current, [field]: normalizeTextList(value, current[field]) }));
   };
   const setVariantField = (
-    field: "firstContactVariants" | "positiveReplyVariants" | "whatIsItReplyVariants" | "optOutVariants" | "neutralHandoffVariants",
+    field: "firstContactVariants" | "positiveReplyVariants" | "whatIsItReplyVariants" | "scheduledReplyVariants" | "optOutVariants" | "neutralHandoffVariants",
     value: string,
   ) => {
     onChange((current) => ({ ...current, [field]: normalizeTextList(value, current[field]) }));
@@ -761,6 +778,7 @@ function ProspectingAutomationPanel({
       firstContactVariants: firstContactVariantsRef.current,
       positiveReplyVariants: positiveReplyVariantsRef.current,
       whatIsItReplyVariants: whatIsItReplyVariantsRef.current,
+      scheduledReplyVariants: scheduledReplyVariantsRef.current,
       optOutVariants: optOutVariantsRef.current,
       neutralHandoffVariants: neutralHandoffVariantsRef.current,
     };
@@ -771,7 +789,7 @@ function ProspectingAutomationPanel({
     const insert = `{{${token}}}`;
     const nextValue = `${currentValue.slice(0, start)}${insert}${currentValue.slice(end)}`;
     if (Array.isArray(config[field])) {
-      setVariantField(field as "firstContactVariants" | "positiveReplyVariants" | "whatIsItReplyVariants" | "optOutVariants" | "neutralHandoffVariants", nextValue);
+      setVariantField(field as "firstContactVariants" | "positiveReplyVariants" | "whatIsItReplyVariants" | "scheduledReplyVariants" | "optOutVariants" | "neutralHandoffVariants", nextValue);
     } else {
       setField(field, nextValue as ProspectingAutomationConfig[typeof field]);
     }
@@ -889,6 +907,33 @@ function ProspectingAutomationPanel({
                 O link será removido no primeiro contato para proteger o número.
               </div>
             ) : null}
+            <div className={styles.prospectingMessageGrid}>
+              <label className={styles.prospectingWideField}>
+                <span>Resposta positiva</span>
+                <textarea
+                  className={styles.editorTextarea}
+                  ref={positiveReplyVariantsRef}
+                  value={joinTextList(config.positiveReplyVariants)}
+                  onFocus={() => setVariableTarget("positiveReplyVariants")}
+                  onChange={(event) => setVariantField("positiveReplyVariants", event.target.value)}
+                />
+                <small>Enviada quando o cliente demonstra interesse. Exemplo: “pode ser, manda aí”.</small>
+              </label>
+              <label className={styles.prospectingWideField}>
+                <span>Pedido de retorno com horário</span>
+                <textarea
+                  className={styles.editorTextarea}
+                  ref={scheduledReplyVariantsRef}
+                  value={joinTextList(config.scheduledReplyVariants)}
+                  onFocus={() => setVariableTarget("scheduledReplyVariants")}
+                  onChange={(event) => setVariantField("scheduledReplyVariants", event.target.value)}
+                />
+                <small>Usado quando o cliente responde com data/horário, como “amanhã às 09?”. Depois disso o HBot salva retorno no card e para.</small>
+              </label>
+            </div>
+            <div className={styles.riskNotice}>
+              Fluxo da automação: positivo envia a segunda mensagem; pedido de horário salva retorno no card; dúvida ou mistura de sinais pausa tudo para revisão.
+            </div>
           </div>
 
           <aside className={styles.prospectingWhatsAppPreview}>
@@ -925,6 +970,20 @@ function ProspectingAutomationPanel({
                   <small>Disparo inicial</small>
                   <p>{renderProspectingPreview(sanitizedMessagePreview, config, previewVariables)}</p>
                 </div>
+                <div className={styles.prospectingCustomerBubble}>Pode ser, manda aí.</div>
+                <div className={styles.prospectingBotBubble}>
+                  <small>Positiva</small>
+                  <p>{renderProspectingPreview(config.positiveReplyVariants[0] || DEFAULT_POSITIVE_REPLY_VARIANTS[0], config, previewVariables)}</p>
+                </div>
+                <div className={styles.prospectingSystemBubble}>Aguardando horário. Se o cliente pedir retorno, vira agenda no card.</div>
+                <div className={styles.prospectingCustomerBubble}>Agora não consigo, amanhã umas 09?</div>
+                <div className={styles.prospectingBotBubble}>
+                  <small>Retorno agendado</small>
+                  <p>{renderProspectingPreview(config.scheduledReplyVariants[0] || DEFAULT_SCHEDULED_REPLY_VARIANTS[0], config, previewVariables)}</p>
+                </div>
+                <div className={styles.prospectingSystemBubble}>Salva o retorno no card e para a automação.</div>
+                <div className={styles.prospectingCustomerBubble}>Pode ser, mas não entendi direito. Me chama depois?</div>
+                <div className={styles.prospectingSystemBubble}>Dúvida ou mistura de sinais: não responde, não encerra e chama revisão.</div>
                 <div className={styles.prospectingCustomerBubble}>Não tenho interesse, remova meu contato.</div>
                 {config.optOutReplyEnabled ? (
                   <div className={styles.prospectingBotBubble}>
@@ -992,16 +1051,6 @@ function ProspectingAutomationPanel({
               <input type="checkbox" checked={config.optOutReplyEnabled} onChange={(event) => setField("optOutReplyEnabled", event.target.checked)} />
             </label>
             <label className={styles.prospectingWideField}>
-              <span>Respostas positivas</span>
-              <textarea
-                className={styles.editorTextarea}
-                ref={positiveReplyVariantsRef}
-                value={joinTextList(config.positiveReplyVariants)}
-                onFocus={() => setVariableTarget("positiveReplyVariants")}
-                onChange={(event) => setVariantField("positiveReplyVariants", event.target.value)}
-              />
-            </label>
-            <label className={styles.prospectingWideField}>
               <span>Respostas para &quot;o que é?&quot;</span>
               <textarea
                 className={styles.editorTextarea}
@@ -1023,13 +1072,13 @@ function ProspectingAutomationPanel({
               />
             </label>
             <label className={styles.prospectingWideField}>
-              <span>Resposta neutra para humano</span>
+              <span>Trava de dúvida</span>
               <textarea
                 ref={neutralHandoffVariantsRef}
                 className={styles.editorTextarea}
-                value={joinTextList(config.neutralHandoffVariants)}
+                value={"Sem resposta automática: quando não encaixa no fluxo, o HBot pausa, marca revisão e avisa o número conectado."}
+                disabled
                 onFocus={() => setVariableTarget("neutralHandoffVariants")}
-                onChange={(event) => setVariantField("neutralHandoffVariants", event.target.value)}
               />
             </label>
           </div>

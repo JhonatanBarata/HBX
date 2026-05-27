@@ -103,7 +103,7 @@ import { renderSafeText } from "@/lib/renderSafeText";
 import styles from "./page.module.css";
 
 type InboxTab = "messages" | "automation";
-type InboxQueue = "all" | "groups" | "recovery" | "scheduled" | "bot" | "archived";
+type InboxQueue = "all" | "groups" | "recovery" | "scheduled" | "bot" | "archived" | "blocked";
 type ContextTab = "conversa" | "financeiro" | "agenda";
 type QueueActionMenuPosition = { top: number; left: number };
 type AtendimentoSection = "conversa" | "financeiro" | "agenda" | "automacao";
@@ -546,8 +546,8 @@ const INBOX_QUEUE_ORDER: InboxQueue[] = [
   "scheduled",
   "bot",
   "recovery",
-  "archived",
   "groups",
+  "blocked",
 ];
 
 function buildInboxQueueBooleanMap(value = false): Record<InboxQueue, boolean> {
@@ -644,6 +644,8 @@ function getInboxQueueLabel(queue: InboxQueue) {
       return "Prospecção";
     case "archived":
       return "Excluídos";
+    case "blocked":
+      return "Bloqueados";
     default:
       return "Pessoais";
   }
@@ -654,7 +656,7 @@ function getConversationNoteStorageKey(companyId: number | null | undefined, con
   return `hbx:inbox:note:${companyId}:${conversationId}`;
 }
 
-type DockGlyph = "note" | "wallet" | "clock" | "gear" | "spark" | "user";
+type DockGlyph = "note" | "wallet" | "clock" | "gear" | "spark" | "shield" | "user";
 
 function joinClassNames(...values: Array<string | false | null | undefined>) {
   return values.filter(Boolean).join(" ");
@@ -3088,6 +3090,9 @@ function normalizeConversationDisplayNameCandidate(
   if (lowered === "você" || lowered === "voce" || lowered === "you" || lowered === "eu") {
     return null;
   }
+  if (isGenericInboxWhatsAppDisplayName(normalized)) {
+    return null;
+  }
   if (lowered.includes("@lid") || lowered.includes("@s.whatsapp.net")) {
     return null;
   }
@@ -3102,6 +3107,24 @@ function normalizeConversationDisplayNameCandidate(
   }
 
   return normalized;
+}
+
+function isGenericInboxWhatsAppDisplayName(value: string) {
+  const normalized = String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return [
+    "whatsapp",
+    "whats app",
+    "contato whatsapp",
+    "contato whats app",
+    "whatsapp business",
+    "whats app business",
+  ].includes(normalized);
 }
 
 function getInboxConversationMetadata(
@@ -3214,10 +3237,12 @@ function isInboxWebscrapingToday(conversation?: InboxConversation | null) {
   return isSameInboxCalendarDay(activityAt, new Date());
 }
 
-type InboxBucket = "conversas" | "prospeccao" | "atendimento" | "excluidos" | "recovery" | "groups";
+type InboxBucket = "conversas" | "prospeccao" | "atendimento" | "excluidos" | "recovery" | "groups" | "blocked";
 
 function mapInboxBucketToQueue(bucket: InboxBucket): InboxQueue {
   switch (bucket) {
+    case "blocked":
+      return "blocked";
     case "excluidos":
       return "archived";
     case "recovery":
@@ -3339,6 +3364,53 @@ function hasInboxHbxProspectionOrigin(conversation?: InboxConversation | null) {
     sourceCandidates.some(isInboxProspectionSource) ||
     Boolean(String(queue?.leadId || automation?.leadId || "").trim()) ||
     hasInboxAutomaticProspectionOutbound(conversation)
+  );
+}
+
+function isInboxActiveProspectionConversation(conversation?: InboxConversation | null) {
+  if (!hasInboxHbxProspectionOrigin(conversation)) return false;
+  const metadata = getInboxConversationMetadata(conversation);
+  const queue = getInboxVendasAgendaQueue(conversation);
+  const automation = getInboxAutomationMetadata(conversation);
+  const prospeccao = getInboxVendasProspeccaoMetadata(conversation);
+  const routeTarget = getInboxMetadataText(
+    metadata?.queueTarget ||
+      metadata?.routeTarget ||
+      conversation?.routeTarget ||
+      queue?.queueTarget ||
+      queue?.routeTarget,
+  );
+  const statuses = [
+    conversation?.flowResult,
+    queue?.status,
+    automation?.status,
+    prospeccao?.stage,
+  ].map(getInboxMetadataText);
+  return (
+    routeTarget === "prospeccao" ||
+    routeTarget === "prospection" ||
+    parseInboxBooleanFlag(queue?.active) ||
+    Boolean(String(queue?.leadId || automation?.leadId || automation?.jobId || automation?.campaignId || "").trim()) ||
+    statuses.some((status) =>
+      [
+        "pending_send",
+        "scheduled_send",
+        "sent_waiting",
+        "reply_received",
+        "replied_positive",
+        "interested",
+        "qualificado",
+        "call_scheduled",
+        "retorno_agendado",
+        "prospection_call_scheduled",
+        "neutral",
+        "human_requested",
+        "auto_reply_detected",
+        "bot_menu_detected",
+        "out_of_hours_auto_reply",
+        "awaiting_human",
+      ].includes(status),
+    )
   );
 }
 
@@ -3604,6 +3676,9 @@ function resolveInboxBucket(
   if (isInboxGroupConversation(conversation)) {
     return "groups";
   }
+  if (conversation.isBlocked) {
+    return "blocked";
+  }
   if (manualQueue === "archived") {
     return "excluidos";
   }
@@ -3658,7 +3733,7 @@ function resolveInboxBucket(
     persistedRouteTarget === "atendimento" ||
     isInboxExplicitAtendimentoHandoff(conversation, manualQueue, persistedQueue)
   ) return "atendimento";
-  if (hasProspectionOrigin) {
+  if (isInboxActiveProspectionConversation(conversation) || hasProspectionOrigin) {
     return "prospeccao";
   }
 
@@ -3667,6 +3742,8 @@ function resolveInboxBucket(
 
 function mapInboxQueueToBucket(queue: InboxQueue): InboxBucket {
   switch (queue) {
+    case "blocked":
+      return "blocked";
     case "archived":
       return "excluidos";
     case "recovery":
@@ -3700,6 +3777,7 @@ function isInboxConversationVisibleInQueue(
 }
 
 function getInboxConversationUnreadCount(conversation?: InboxConversation | null) {
+  if (conversation?.isBlocked) return 0;
   const metadata = getInboxConversationMetadata(conversation);
   const unreadCount = Number(metadata?.whatsappUnreadCount || 0);
   if (!Number.isFinite(unreadCount) || unreadCount <= 0) return 0;
@@ -3742,6 +3820,7 @@ function getInboxVendasProspeccaoMetadata(conversation?: InboxConversation | nul
 }
 
 function getInboxVendasAgendaPendingDraft(conversation?: InboxConversation | null) {
+  if (hasInboxHbxProspectionOrigin(conversation)) return null;
   const queue = getInboxVendasAgendaQueue(conversation);
   if (!queue || !parseInboxBooleanFlag(queue.active)) return null;
   if (parseInboxBooleanFlag(queue.manualSent) || String(queue.manualSentAt || "").trim()) return null;
@@ -3791,11 +3870,11 @@ function resolveInboxConversationDisplayName(conversation?: InboxConversation | 
   const phone = String(conversation.customer?.phone || "").trim();
   const metadata = getInboxConversationMetadata(conversation);
   const candidates = [
-    conversation.customer?.name,
     metadata?.whatsappContactName,
+    conversation.customer?.name,
+    metadata?.whatsappProfileName,
     metadata?.waNickname,
     metadata?.whatsappName,
-    metadata?.whatsappProfileName,
     phone,
   ];
 
@@ -3807,6 +3886,7 @@ function resolveInboxConversationDisplayName(conversation?: InboxConversation | 
   return (
     formatInboxPhoneLabel(extractInboxRawContact(conversation)) ||
     formatInboxPhoneLabel(phone) ||
+    String(phone || "").trim() ||
     "Contato WhatsApp"
   );
 }
@@ -3834,17 +3914,27 @@ function getInboxConversationInitials(conversation?: InboxConversation | null) {
 function extractInboxRawContact(conversation?: InboxConversation | null) {
   const metadata = getInboxConversationMetadata(conversation);
   const candidates = [
-    metadata?.whatsappRemoteJid,
-    metadata?.remoteJid,
     metadata?.whatsappRemoteJidAlt,
     metadata?.remoteJidAlt,
     conversation?.customer?.phone,
+    metadata?.whatsappRemoteJid,
+    metadata?.remoteJid,
   ]
     .map((value) => String(value || "").trim())
     .filter(Boolean);
 
-  const nonLid = candidates.find((value) => !value.toLowerCase().includes("@lid"));
-  return nonLid || candidates[0] || "";
+  const phoneLike = candidates.find((value) => {
+    const lowered = value.toLowerCase();
+    if (lowered.includes("@lid") || lowered.includes("@g.us") || lowered.includes("@broadcast")) return false;
+    return Boolean(extractInboxContactDigits(value));
+  });
+  if (phoneLike) return phoneLike;
+
+  const nonLid = candidates.find((value) => {
+    const lowered = value.toLowerCase();
+    return !lowered.includes("@lid") && !lowered.includes("@g.us") && !lowered.includes("@broadcast");
+  });
+  return nonLid || "";
 }
 
 function extractInboxContactDigits(raw: string | null | undefined) {
@@ -4752,7 +4842,6 @@ function InboxDesktopClientPage() {
   const [queueActionMenuPosition, setQueueActionMenuPosition] = useState<QueueActionMenuPosition | null>(null);
   const [messageReactionTargetId, setMessageReactionTargetId] = useState<string | null>(null);
   const [blockDialog, setBlockDialog] = useState<{ conversationId: string; reason: string } | null>(null);
-  const [deleteConversationDialog, setDeleteConversationDialog] = useState<{ conversationId: string } | null>(null);
   const [deleteMessageDialog, setDeleteMessageDialog] = useState<{ messageId: string } | null>(null);
 
   useEffect(() => {
@@ -4830,6 +4919,7 @@ function InboxDesktopClientPage() {
   const skipNotePersistRef = useRef(false);
   const chatTimelineRef = useRef<HTMLDivElement | null>(null);
   const chatComposerInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const conversationListScrollRef = useRef<HTMLDivElement | null>(null);
   const emojiPickerRef = useRef<HTMLDivElement | null>(null);
   const queueActionMenuRef = useRef<HTMLDivElement | null>(null);
   const messageReactionPickerRef = useRef<HTMLDivElement | null>(null);
@@ -5360,6 +5450,13 @@ function InboxDesktopClientPage() {
         method: "POST",
         body: JSON.stringify({ mode }),
       });
+      conversationDetailCacheRef.current.clear();
+      setConversations([]);
+      setSelectedId(null);
+      setSelectedConversation(null);
+      setOlderMessagesBefore(null);
+      setOlderMessagesHasMore(false);
+      if (mode === "discard") setManualQueueOverrides({});
       setWhatsappSessionCleanup(null);
       setNotice({
         tone: "success",
@@ -5625,7 +5722,14 @@ function InboxDesktopClientPage() {
       if (latestKey) {
         activeConversationLatestMessageKeyRef.current[conversationId] = latestKey;
       }
-      if (previousKey && latestKey && previousKey !== latestKey && latestMessage && isInboxInboundMessage(latestMessage)) {
+      if (
+        previousKey &&
+        latestKey &&
+        previousKey !== latestKey &&
+        latestMessage &&
+        isInboxInboundMessage(latestMessage) &&
+        !nextConversation.isBlocked
+      ) {
         setNotice({ tone: "info", text: formatInboxIncomingNotice(nextConversation, latestMessage) });
       }
     } catch (refreshError) {
@@ -5669,7 +5773,7 @@ function InboxDesktopClientPage() {
           take: String(take),
           skip: String(skip),
         });
-        if (append) {
+        if (append || appendQueue === "blocked") {
           query.set("queue", appendQueue);
         }
         const response = await apiFetch<InboxConversation[]>(
@@ -5682,7 +5786,7 @@ function InboxDesktopClientPage() {
         const rawPage = normalizeInboxConversationList(Array.isArray(response) ? response : []).filter(
           (conversation) => !isInboxConversationHiddenByDelete(conversation, deletedConversationAliasesRef.current),
         );
-        const page = append
+        const page = append || appendQueue === "blocked"
           ? rawPage.filter((conversation) =>
               isInboxConversationVisibleInQueue(conversation, appendQueue, manualOverrides),
             )
@@ -6445,10 +6549,15 @@ function InboxDesktopClientPage() {
     return Object.fromEntries(entries) as Record<string, InboxQueue>;
   }, [conversations, manualQueueOverrides]);
 
+  useEffect(() => {
+    conversationListScrollRef.current?.scrollTo({ top: 0 });
+  }, [deferredConversationSearch, inboxQueue]);
+
   const queueCounts = useMemo(() => {
     const base: Record<InboxQueue, number> = {
       all: 0,
       archived: 0,
+      blocked: 0,
       groups: 0,
       recovery: 0,
       scheduled: 0,
@@ -6468,6 +6577,7 @@ function InboxDesktopClientPage() {
     const base: Record<InboxQueue, number> = {
       all: 0,
       archived: 0,
+      blocked: 0,
       groups: 0,
       recovery: 0,
       scheduled: 0,
@@ -6783,6 +6893,12 @@ function InboxDesktopClientPage() {
     conversationForView?.customer?.phone ||
     customerConversationCard?.customer?.phoneNormalized ||
     "";
+  const customerCardPhoneLabel =
+    customerCardPhone
+      ? formatInboxPhoneLabel(customerCardPhone) || customerCardPhone
+      : selectedConversationDisplayName && selectedConversationDisplayName !== "Contato WhatsApp"
+        ? selectedConversationDisplayName
+        : "WhatsApp";
   const customerCardPhoneDigits = getCustomerConversationCardPhoneDigits(
     customerConversationCard,
     conversationForView,
@@ -6856,15 +6972,26 @@ function InboxDesktopClientPage() {
       ),
     [currentUserProfile?.company?.id, selectedConversation?.id],
   );
-  const activeDockSection = templatesStudioOpen
-    ? "templates"
-    : campaignStudioOpen
-      ? "automacao"
-    : agendaStudioOpen || contextTab === "agenda"
-        ? "agenda"
-        : contextTab === "financeiro"
-          ? "financeiro"
-        : "conversa";
+  const activeDockSection = inboxQueue === "blocked"
+    ? "bloqueados"
+    : templatesStudioOpen
+      ? "templates"
+      : campaignStudioOpen
+        ? "automacao"
+        : agendaStudioOpen || contextTab === "agenda"
+          ? "agenda"
+          : contextTab === "financeiro"
+            ? "financeiro"
+            : "conversa";
+  const openBlockedConversations = useCallback(() => {
+    inboxQueueRef.current = "blocked";
+    setInboxQueue("blocked");
+    setContextTab("conversa");
+    setCampaignStudioOpen(false);
+    setAgendaStudioOpen(false);
+    setTemplatesStudioOpen(false);
+    void loadConversations({ silent: true });
+  }, [loadConversations]);
   const prospectingRobotTone = getProspectingRobotTone(
     prospectingAutomationStatus,
     globalBotEnabled,
@@ -7239,15 +7366,34 @@ function InboxDesktopClientPage() {
           method: "PATCH",
           body: JSON.stringify({ personal }),
         });
+        const normalizedData = normalizeInboxConversationPayload(data) || data;
+        if (personal) {
+          inboxQueueRef.current = "all";
+          setInboxQueue("all");
+        }
+        setManualQueueOverrides((current) => {
+          const next = { ...current };
+          if (personal) {
+            next[selectedId] = "all";
+          } else if (next[selectedId] === "all") {
+            delete next[selectedId];
+          }
+          return next;
+        });
         setSelectedConversation(data);
-        rememberConversationDetail(data);
+        rememberConversationDetail(normalizedData);
+        setConversations((current) =>
+          current.map((conversation) =>
+            conversation.id === normalizedData.id ? normalizedData : conversation,
+          ),
+        );
         setNotice({
           tone: "success",
           text: personal
             ? "Contato marcado como pessoal. Bot e cadastro ficam desativados para este número."
             : "Contato pessoal desativado.",
         });
-        await loadConversations({ preferredId: data.id, silent: true });
+        await loadConversations({ preferredId: normalizedData.id, silent: true });
       } catch (updateError) {
         const message =
           updateError instanceof Error ? updateError.message : "Falha ao atualizar contato pessoal.";
@@ -7476,6 +7622,11 @@ function InboxDesktopClientPage() {
         setSelectedConversation(data);
       }
       rememberConversationDetail(data);
+      inboxQueueRef.current = "blocked";
+      setInboxQueue("blocked");
+      setConversations((current) =>
+        current.map((conversation) => (conversation.id === data.id ? data : conversation)),
+      );
       setQueueActionConversationId(null);
       setQueueActionMenuPosition(null);
       setBlockDialog(null);
@@ -7499,8 +7650,15 @@ function InboxDesktopClientPage() {
       const data = await apiFetch<InboxConversation>(`/inbox/conversations/${selectedId}/unblock`, {
         method: "PATCH",
       });
+      if (inboxQueueRef.current === "blocked") {
+        inboxQueueRef.current = "all";
+        setInboxQueue("all");
+      }
       setSelectedConversation(data);
       rememberConversationDetail(data);
+      setConversations((current) =>
+        current.map((conversation) => (conversation.id === data.id ? data : conversation)),
+      );
       setNotice({ tone: "success", text: "Contato desbloqueado no Atendimento." });
       await loadConversations({ preferredId: data.id, silent: true });
     } catch (updateError) {
@@ -7509,81 +7667,6 @@ function InboxDesktopClientPage() {
       setError(message);
     }
   }, [loadConversations, rememberConversationDetail, selectedId]);
-
-  const deleteConversationById = useCallback(
-    async (conversationId: string) => {
-      if (!conversationId) return;
-      setDeleteConversationDialog({ conversationId });
-    },
-    [],
-  );
-
-  const confirmDeleteConversation = useCallback(
-    async () => {
-      const conversationId = deleteConversationDialog?.conversationId;
-      if (!conversationId) return;
-      setError(null);
-      try {
-        const response = await apiFetch<{ message?: string; deleted?: boolean }>(`/inbox/conversations/${conversationId}`, {
-          method: "DELETE",
-        });
-        setQueueActionConversationId(null);
-        setQueueActionMenuPosition(null);
-        setDeleteConversationDialog(null);
-        conversationDetailCacheRef.current.delete(conversationId);
-        customerConversationCardCacheRef.current.delete(conversationId);
-        if (response?.deleted) {
-          setConversations((current) => current.filter((conversation) => conversation.id !== conversationId));
-          if (selectedIdRef.current === conversationId) {
-            setSelectedId(null);
-            setSelectedConversation(null);
-            selectedIdRef.current = null;
-            selectedConversationRef.current = null;
-          }
-          setManualQueueOverrides((current) => {
-            const next = { ...current };
-            delete next[conversationId];
-            return next;
-          });
-        } else {
-          setManualQueueOverrides((current) => {
-            return { ...current, [conversationId]: "archived" };
-          });
-        }
-        setNotice({
-          tone: "success",
-          text:
-            String(response?.message || "").trim() ||
-            "Conversa removida do backend local do HBX.",
-        });
-        await loadConversations({ preferredId: response?.deleted ? null : conversationId, silent: true });
-      } catch (deleteError) {
-        const message = deleteError instanceof Error ? deleteError.message : "Falha ao excluir conversa.";
-        setError(message);
-      }
-    },
-    [deleteConversationDialog?.conversationId, loadConversations],
-  );
-
-  useEffect(() => {
-    if (!deleteConversationDialog) {
-      clearTopbarProgress("atendimento-delete");
-      return;
-    }
-    dispatchTopbarProgress({
-      source: "atendimento-delete",
-      phase: "warning",
-      title: "Excluir conversa do HBX",
-      status: "Remoção do backend local. Nenhum comando será enviado ao WhatsApp.",
-      progress: 82,
-      metrics: [
-        { label: "Destino", value: "Remover do HBX" },
-        { label: "WhatsApp", value: "0 comandos" },
-        { label: "Escopo", value: "HBX" },
-      ],
-    });
-    return () => clearTopbarProgress("atendimento-delete");
-  }, [deleteConversationDialog]);
 
   const reactToMessage = useCallback(
     async (messageId: string, reaction: string) => {
@@ -7979,6 +8062,8 @@ function InboxDesktopClientPage() {
             <ChatEmptyState title="Nenhuma conversa encontrada">Ajuste o filtro ou aguarde novas mensagens entrarem na fila.</ChatEmptyState>
           ) : (
             <ChatQueue
+              key={inboxQueue}
+              ref={conversationListScrollRef}
               className={styles.conversationList}
               onScroll={(event) => {
                 const target = event.currentTarget;
@@ -8214,7 +8299,6 @@ function InboxDesktopClientPage() {
                     className={styles.personalContactToggle}
                     data-active={selectedConversationIsPersonal ? "true" : "false"}
                     onClick={() => void togglePersonalContact()}
-                    disabled={sending}
                     aria-pressed={selectedConversationIsPersonal}
                   >
                     <span className={styles.personalContactSwitch} aria-hidden="true">
@@ -8914,7 +8998,7 @@ function InboxDesktopClientPage() {
                         <div className={styles.customerCardHeader}>
                           <div>
                             <strong className={glassCardStyles.title}>{customerCardName}</strong>
-                            <span className={glassCardStyles.subtitle}>{customerCardPhone ? formatInboxPhoneLabel(customerCardPhone) || customerCardPhone : "Sem telefone"}</span>
+                            <span className={glassCardStyles.subtitle}>{customerCardPhoneLabel}</span>
                           </div>
                           <div className={styles.customerCardHeaderActions}>
                             <button
@@ -9119,9 +9203,6 @@ function InboxDesktopClientPage() {
                             setAgendaStudioOpen(true);
                           },
                           updateStatus,
-                          closeConversation: () => {
-                            if (selectedId) void deleteConversationById(selectedId);
-                          },
                           blockConversation,
                           unblockConversation,
                         })}
@@ -9287,7 +9368,7 @@ function InboxDesktopClientPage() {
       customerCardHistory,
       customerCardLastContactAt,
       customerCardName,
-      customerCardPhone,
+      customerCardPhoneLabel,
       customerCardPhoneDigits,
       customerCardReturnAt,
       customerCardShortcutOpen,
@@ -9307,7 +9388,6 @@ function InboxDesktopClientPage() {
       inboxQueueDiagnostics,
       isConversationStageSwitching,
       isRecording,
-      deleteConversationById,
       deleteSentMessage,
       draggedQueueId,
       failedInboxMediaUrls,
@@ -10065,7 +10145,20 @@ function InboxDesktopClientPage() {
                     label="Conversas"
                     active={activeDockSection === "conversa"}
                     badge={newInboundConversations.length || null}
-                    onClick={() => handleSectionChange("conversa")}
+                    onClick={() => {
+                      if (inboxQueueRef.current === "blocked") {
+                        inboxQueueRef.current = "all";
+                        setInboxQueue("all");
+                      }
+                      handleSectionChange("conversa");
+                    }}
+                  />
+                  <DockButton
+                    icon="shield"
+                    label="Bloqueados"
+                    active={activeDockSection === "bloqueados"}
+                    badge={queueCounts.blocked || null}
+                    onClick={openBlockedConversations}
                   />
                   {hasRecoveryCapability ? (
                     <DockButton
@@ -10073,7 +10166,13 @@ function InboxDesktopClientPage() {
                       label="Financeiro"
                       active={activeDockSection === "financeiro"}
                       badge={queueCounts.recovery || null}
-                      onClick={() => handleSectionChange("financeiro")}
+                      onClick={() => {
+                        if (inboxQueueRef.current === "blocked") {
+                          inboxQueueRef.current = "all";
+                          setInboxQueue("all");
+                        }
+                        handleSectionChange("financeiro");
+                      }}
                     />
                   ) : null}
                   <DockButton
@@ -10081,7 +10180,13 @@ function InboxDesktopClientPage() {
                     label="Agenda"
                     active={activeDockSection === "agenda"}
                     badge={selectedConversationIsAgenda ? "!" : null}
-                    onClick={() => handleSectionChange("agenda")}
+                    onClick={() => {
+                      if (inboxQueueRef.current === "blocked") {
+                        inboxQueueRef.current = "all";
+                        setInboxQueue("all");
+                      }
+                      handleSectionChange("agenda");
+                    }}
                   />
                   <DockButton
                     icon="gear"
@@ -10106,7 +10211,13 @@ function InboxDesktopClientPage() {
                     label="Operador"
                     active={false}
                     badge={null}
-                    onClick={() => handleSectionChange("conversa")}
+                    onClick={() => {
+                      if (inboxQueueRef.current === "blocked") {
+                        inboxQueueRef.current = "all";
+                        setInboxQueue("all");
+                      }
+                      handleSectionChange("conversa");
+                    }}
                   />
                 </div>
               </aside>
@@ -10158,21 +10269,6 @@ function InboxDesktopClientPage() {
                 }}
               >
                 Bloquear
-              </button>
-              <button
-                type="button"
-                className={`${styles.conversationQueueMetaPopupAction} ${styles.conversationQueueMetaPopupActionDanger}`}
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                }}
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  void deleteConversationById(queueActionConversationId);
-                }}
-              >
-                Excluir
               </button>
             </div>,
             document.body,
@@ -10343,26 +10439,9 @@ function InboxDesktopClientPage() {
             </>
           }
         >
-          {`${whatsappSessionCleanup.oldSessionCount || 0} sessão(ões) antiga(s), ${whatsappSessionCleanup.oldConversationCount || 0} conversa(s) e ${whatsappSessionCleanup.oldMessageCount || 0} mensagem(ns) ficaram antes da queda. Mesclar com a sessão atual?`}
+          {`${whatsappSessionCleanup.oldSessionCount || 0} sessão(ões) antiga(s), ${whatsappSessionCleanup.oldConversationCount || 0} conversa(s) e ${whatsappSessionCleanup.oldMessageCount || 0} mensagem(ns) ficaram antes da queda. Recuperar só a última camada e limpar o restante?`}
         </HbxPopup2>
       ) : null}
-
-      <HbxConfirmDialog
-        open={deleteConversationDialog !== null}
-        title="Excluir conversa do HBX"
-        description="A conversa será removida do backend local do HBX. Nenhum comando será enviado ao WhatsApp."
-        confirmLabel="Excluir do HBX"
-        presentation="billboard"
-        eyebrow="Telão de segurança"
-        metrics={[
-          { label: "Destino", value: "Remover do HBX" },
-          { label: "WhatsApp", value: "0 comandos" },
-          { label: "Escopo", value: "HBX" },
-        ]}
-        destructive
-        onCancel={() => setDeleteConversationDialog(null)}
-        onConfirm={() => void confirmDeleteConversation()}
-      />
 
       <HbxConfirmDialog
         open={deleteMessageDialog !== null}

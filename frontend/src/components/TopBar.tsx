@@ -4132,11 +4132,6 @@ export default function TopBar() {
   }, []);
 
   async function handleLogout() {
-    if (user?.isSystemMaster && user.masterContext?.active) {
-      await exitMasterContext();
-      return;
-    }
-
     await runGlobalShutdown(async () => {
       try {
         await apiFetch("/auth/logout", {
@@ -5284,9 +5279,9 @@ export default function TopBar() {
                 onClick={() => {
                   void handleLogout();
                 }}
-                disabled={isShuttingDown || masterContextActionBusy}
-                title={user?.isSystemMaster && user.masterContext?.active ? "Sair da empresa" : "Sair do sistema"}
-                aria-label={user?.isSystemMaster && user.masterContext?.active ? "Sair da empresa" : "Sair do sistema"}
+                disabled={isShuttingDown}
+                title="Sair do sistema"
+                aria-label="Sair do sistema"
               >
                 <HbxHeaderIcon name="logout" />
               </button>
@@ -5504,20 +5499,14 @@ export default function TopBar() {
                   void handleLogout();
                 }}
                 className="hbx-control-logout"
-                disabled={isShuttingDown || masterContextActionBusy}
-                title={user?.isSystemMaster && user.masterContext?.active ? "Sair da empresa" : "Sair do sistema"}
-                aria-label={user?.isSystemMaster && user.masterContext?.active ? "Sair da empresa" : "Sair do sistema"}
+                disabled={isShuttingDown}
+                title="Sair do sistema"
+                aria-label="Sair do sistema"
                 style={{ flex: "0 0 56px", minWidth: 56, width: 56, height: 50, alignSelf: "center", position: "relative" }}
               >
                 <HbxHeaderIcon name="logout" />
                 <span className="hbx-control-logout__label">
-                  {masterContextActionBusy
-                    ? "Saindo da empresa..."
-                    : isShuttingDown
-                      ? "Saindo..."
-                      : user?.isSystemMaster && user.masterContext?.active
-                        ? "Sair da empresa"
-                        : "Sair do sistema"}
+                  {isShuttingDown ? "Saindo..." : "Sair do sistema"}
                 </span>
               </button>
             ) : authResolved ? (

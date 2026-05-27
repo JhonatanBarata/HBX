@@ -40,7 +40,6 @@ const OPTIONS: Array<{ value: ConversationQueueFilterValue; label: string }> = [
   { value: "scheduled", label: "Atendimento" },
   { value: "bot", label: "Prospecção" },
   { value: "recovery", label: "Recovery" },
-  { value: "archived", label: "Excluídos" },
   { value: "groups", label: "Grupos" },
 ];
 

@@ -116,6 +116,14 @@ export class CompanyWhatsAppCustomerSyncService {
     return null;
   }
 
+  private preferredNameForPhone(phone: string | null | undefined, ...candidates: Array<unknown>) {
+    for (const candidate of candidates) {
+      const normalized = this.normalizeNameCandidate(candidate, phone);
+      if (normalized) return normalized;
+    }
+    return null;
+  }
+
   private extractWebwhatsContactName(
     contact:
       | {
@@ -165,10 +173,17 @@ export class CompanyWhatsAppCustomerSyncService {
     metadata: string | null;
     lastMessageAt: Date | null;
   }): SyncCandidate | null {
-    const phone = this.normalizePhoneCandidate(row.contact);
-    if (!phone) return null;
     const metadata = this.parseMetadata(row.metadata);
-    const name = this.preferredName(
+    const phone = this.normalizePhoneCandidate(row.contact)
+      || this.normalizePhoneCandidate(metadata?.whatsappRemoteJidAlt)
+      || this.normalizePhoneCandidate(metadata?.remoteJidAlt)
+      || this.normalizePhoneCandidate(metadata?.customerPhone)
+      || this.normalizePhoneCandidate(metadata?.phone)
+      || this.normalizePhoneCandidate(metadata?.whatsappRemoteJid)
+      || this.normalizePhoneCandidate(metadata?.remoteJid);
+    if (!phone) return null;
+    const name = this.preferredNameForPhone(
+      phone,
       metadata?.whatsappContactName,
       metadata?.waNickname,
       metadata?.whatsappName,
