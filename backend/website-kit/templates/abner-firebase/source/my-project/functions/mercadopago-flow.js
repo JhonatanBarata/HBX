@@ -30,6 +30,12 @@ const DEFAULT_PUBLIC_SITE_URL = "https://guinchorioclarosp.web.app";
 const FIXED_SITE_SURCHARGE_PERCENT = 3;
 const PAYMENT_EXPIRATION_MINUTES = 20;
 const STALE_PAYMENT_STATUSES = ["quote_ready", "preparing", "pending", "backend_pending"];
+const DEFAULT_MASTER_NOTIFY_TO = "5519996513456";
+const PUBLIC_HTTP_OPTIONS = {
+  region: "southamerica-east1",
+  timeoutSeconds: 60,
+  invoker: "public"
+};
 
 function createHttpError(statusCode, message) {
   const error = new Error(message);
@@ -411,9 +417,13 @@ function buildPublicPaymentPayload(body = {}, notifyEmail = "") {
   };
 }
 
-function assertPaymentPayload(payload) {
+function assertPaymentPayload(payload, options = {}) {
   if (!payload.customerName || payload.amount <= 0) {
     throw createHttpError(400, "Preencha nome do cliente e valor antes de gerar a cobrança.");
+  }
+
+  if (options.requireRoute && (!payload.pickupAddress || !payload.dropoffAddress)) {
+    throw createHttpError(400, "Preencha local de retirada e destino antes de gerar a cobrança.");
   }
 }
 
@@ -425,7 +435,7 @@ async function createPaymentRequestRecord({
   createdByEmail = "",
   source = "admin"
 }) {
-  assertPaymentPayload(payload);
+  assertPaymentPayload(payload, { requireRoute: source === "public_site" });
 
   pricingProfile.maxInstallments = payload.installments;
   pricingProfile.installmentFees = buildInstallmentFeeTable(payload.installments, pricingProfile.installmentFees);
@@ -621,7 +631,7 @@ async function sendApprovedEmailIfPossible(record) {
 async function sendApprovedMasterNotificationIfPossible(record) {
   const webhookUrl = sanitizeText(process.env.MASTER_PAYMENT_NOTIFY_WEBHOOK_URL || "");
   const companyId = Number(process.env.MASTER_PAYMENT_NOTIFY_COMPANY_ID || "");
-  const to = sanitizePhone(process.env.MASTER_PAYMENT_NOTIFY_TO || "");
+  const to = sanitizePhone(process.env.MASTER_PAYMENT_NOTIFY_TO || DEFAULT_MASTER_NOTIFY_TO);
 
   if (!webhookUrl) {
     return { sent: false, reason: "webhook_not_configured" };
@@ -640,12 +650,14 @@ async function sendApprovedMasterNotificationIfPossible(record) {
   );
   const paymentId = sanitizeText(record.mercadoPago?.paymentId);
   const text = [
-    "Pagamento aprovado - Auto Socorro Rio Claro",
+    "COMPROVANTE AUTORIZADO - Auto Socorro Rio Claro",
+    "Status: pagamento aprovado no Mercado Pago",
     `Cliente: ${sanitizeText(record.customerName, "Cliente")}`,
     `Valor: R$ ${totalCharged.toFixed(2).replace(".", ",")}`,
     `Servico: ${sanitizeText(record.serviceType, "Atendimento com guincho")}`,
     `Retirada: ${sanitizeText(record.pickupAddress, "Nao informada")}`,
-    record.dropoffAddress ? `Destino: ${sanitizeText(record.dropoffAddress)}` : "",
+    `Destino: ${sanitizeText(record.dropoffAddress, "Nao informado")}`,
+    record.customerPhone ? `WhatsApp cliente: +${sanitizeText(record.customerPhone)}` : "",
     paymentId ? `Pagamento MP: ${paymentId}` : "",
     record.licensePlate ? `Placa: ${sanitizeText(record.licensePlate)}` : ""
   ].filter(Boolean).join("\n");
@@ -674,11 +686,67 @@ async function sendApprovedMasterNotificationIfPossible(record) {
   };
 }
 
+async function sendRefundMasterNotificationIfPossible(record, refundInfo = {}) {
+  const webhookUrl = sanitizeText(process.env.MASTER_PAYMENT_NOTIFY_WEBHOOK_URL || "");
+  const companyId = Number(process.env.MASTER_PAYMENT_NOTIFY_COMPANY_ID || "");
+  const to = sanitizePhone(process.env.MASTER_PAYMENT_NOTIFY_TO || DEFAULT_MASTER_NOTIFY_TO);
+
+  if (!webhookUrl) {
+    return { sent: false, reason: "webhook_not_configured" };
+  }
+  if (!Number.isInteger(companyId) || companyId <= 0) {
+    return { sent: false, reason: "company_id_not_configured" };
+  }
+  if (!to) {
+    return { sent: false, reason: "target_phone_not_configured" };
+  }
+
+  const refundedAt = refundInfo.refundedAt || new Date();
+  const refundedAtText = refundedAt instanceof Date && !Number.isNaN(refundedAt.getTime())
+    ? refundedAt.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })
+    : sanitizeText(refundInfo.refundedAt, "agora");
+  const refundAmount = sanitizeAmount(
+    refundInfo.amount ||
+    record.refund?.amount ||
+    record.mercadoPago?.transactionAmount ||
+    record.selection?.estimatedTotalChargeAmount ||
+    record.amount
+  );
+  const paymentId = sanitizeText(record.mercadoPago?.paymentId);
+  const text = [
+    "ESTORNO CONFIRMADO - Auto Socorro Rio Claro",
+    `Estorno confirmado: ${sanitizeText(record.customerName, "Cliente")}`,
+    `Estorno confirmado em ${refundedAtText}.`,
+    `Valor estornado: R$ ${refundAmount.toFixed(2).replace(".", ",")}.`,
+    paymentId ? `Pagamento MP: ${paymentId}` : ""
+  ].filter(Boolean).join("\n");
+  const headers = { "Content-Type": "application/json" };
+  const secret = sanitizeText(process.env.MASTER_PAYMENT_NOTIFY_SECRET || "");
+
+  if (secret) {
+    headers["x-master-payment-notify-secret"] = secret;
+  }
+
+  const response = await fetch(webhookUrl, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ companyId, to, text })
+  });
+  const responseText = await response.text().catch(() => "");
+
+  if (!response.ok) {
+    throw createHttpError(502, `Webhook de notificacao recusou o aviso de estorno (${response.status}).`);
+  }
+
+  return {
+    sent: true,
+    status: response.status,
+    response: sanitizeText(responseText).slice(0, 500)
+  };
+}
+
 const manageMercadoPagoToken = onRequest(
-  {
-    region: "southamerica-east1",
-    timeoutSeconds: 60
-  },
+  PUBLIC_HTTP_OPTIONS,
   async (req, res) => {
     if (handleOptions(req, res)) {
       return;
@@ -754,10 +822,7 @@ const manageMercadoPagoToken = onRequest(
 );
 
 const createMercadoPagoPreference = onRequest(
-  {
-    region: "southamerica-east1",
-    timeoutSeconds: 60
-  },
+  PUBLIC_HTTP_OPTIONS,
   async (req, res) => {
     if (handleOptions(req, res)) {
       return;
@@ -812,10 +877,7 @@ const createMercadoPagoPreference = onRequest(
 );
 
 const createPublicMercadoPagoPayment = onRequest(
-  {
-    region: "southamerica-east1",
-    timeoutSeconds: 60
-  },
+  PUBLIC_HTTP_OPTIONS,
   async (req, res) => {
     if (handleOptions(req, res)) {
       return;
@@ -860,10 +922,7 @@ const createPublicMercadoPagoPayment = onRequest(
 );
 
 const getMercadoPagoQuote = onRequest(
-  {
-    region: "southamerica-east1",
-    timeoutSeconds: 60
-  },
+  PUBLIC_HTTP_OPTIONS,
   async (req, res) => {
     if (handleOptions(req, res)) {
       return;
@@ -899,10 +958,7 @@ const getMercadoPagoQuote = onRequest(
 );
 
 const createMercadoPagoCheckout = onRequest(
-  {
-    region: "southamerica-east1",
-    timeoutSeconds: 60
-  },
+  PUBLIC_HTTP_OPTIONS,
   async (req, res) => {
     if (handleOptions(req, res)) {
       return;
@@ -1051,10 +1107,7 @@ const createMercadoPagoCheckout = onRequest(
 );
 
 const verifyMercadoPagoReturn = onRequest(
-  {
-    region: "southamerica-east1",
-    timeoutSeconds: 60
-  },
+  PUBLIC_HTTP_OPTIONS,
   async (req, res) => {
     if (handleOptions(req, res)) {
       return;
@@ -1144,10 +1197,7 @@ const verifyMercadoPagoReturn = onRequest(
 );
 
 const refundMercadoPagoPayment = onRequest(
-  {
-    region: "southamerica-east1",
-    timeoutSeconds: 60
-  },
+  PUBLIC_HTTP_OPTIONS,
   async (req, res) => {
     if (handleOptions(req, res)) {
       return;
@@ -1267,6 +1317,54 @@ const refundMercadoPagoPayment = onRequest(
         { merge: true }
       );
 
+      try {
+        const refundNotificationResult = await sendRefundMasterNotificationIfPossible(
+          {
+            ...currentData,
+            status: nextStatus,
+            refund: {
+              ...(currentData.refund || {}),
+              amount: refundAmount,
+              refundedTotalAmount: nextRefundedTotalAmount,
+              refundId: sanitizeText(String(refundData.id || ""))
+            },
+            mercadoPago: {
+              ...(currentData.mercadoPago || {}),
+              refundId: sanitizeText(String(refundData.id || ""))
+            }
+          },
+          {
+            amount: refundAmount,
+            refundedAt: new Date()
+          }
+        );
+        await docRef.set(
+          {
+            notifications: {
+              ...(currentData.notifications || {}),
+              lastRefundNotifyAttemptAt: admin.firestore.FieldValue.serverTimestamp(),
+              refundNotifySent: refundNotificationResult.sent,
+              refundNotifyReason: sanitizeText(refundNotificationResult.reason),
+              refundNotifyStatus: refundNotificationResult.status || null
+            }
+          },
+          { merge: true }
+        );
+      } catch (notifyError) {
+        logger.error("Falha ao enviar notificacao master de estorno.", notifyError);
+        await docRef.set(
+          {
+            notifications: {
+              ...(currentData.notifications || {}),
+              lastRefundNotifyAttemptAt: admin.firestore.FieldValue.serverTimestamp(),
+              refundNotifySent: false,
+              refundNotifyReason: sanitizeText(notifyError.message, "Falha ao enviar notificacao de estorno.")
+            }
+          },
+          { merge: true }
+        );
+      }
+
       res.status(200).json({
         ok: true,
         requestId,
@@ -1287,10 +1385,7 @@ const refundMercadoPagoPayment = onRequest(
 );
 
 const mercadoPagoWebhook = onRequest(
-  {
-    region: "southamerica-east1",
-    timeoutSeconds: 60
-  },
+  PUBLIC_HTTP_OPTIONS,
   async (req, res) => {
     setCorsHeaders(res);
 

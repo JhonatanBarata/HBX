@@ -55,7 +55,7 @@ type HbxPopup4Props = {
   onClose?: () => void;
 };
 
-const HBX_POPUP4_EXIT_MS = 280;
+const HBX_POPUP4_EXIT_MS = 460;
 
 function toneTitle(tone: HbxPopupTone) {
   if (tone === "danger") return "Atenção do sistema";
