@@ -604,6 +604,20 @@ export class UpdateVendasProspectingConfigDto {
   messageTemplate?: string;
 
   @IsOptional()
+  @Transform(({ value }) => {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
+    return value;
+  })
+  preMessageEnabled?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  preMessageVariants?: string[];
+
+  @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
@@ -616,6 +630,13 @@ export class UpdateVendasProspectingConfigDto {
   @Min(0)
   @Max(180)
   intervalVarianceMinutes?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  botReplyIntervalReductionPercent?: number;
 
   @IsOptional()
   @Type(() => Number)

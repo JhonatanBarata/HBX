@@ -107,6 +107,7 @@ const WHAT_IS_IT_INTENT_KEYWORDS = ['o que é', 'oque é', 'sobre o que', 'como 
 const DEFAULT_NEUTRAL_KEYWORDS = ['vou ver', 'mais tarde', 'depois', 'manda depois', 'me chama depois', 'entendi', 'ok'];
 const DEFAULT_INTERVAL_MINUTES = 15;
 const DEFAULT_INTERVAL_VARIANCE_MINUTES = 30;
+const DEFAULT_BOT_REPLY_INTERVAL_REDUCTION_PERCENT = 0;
 const DEFAULT_DAILY_LIMIT = 10;
 const ABSOLUTE_DAILY_SEND_CAP = 80;
 const MAX_DUE_JOBS_PER_CYCLE = 50;
@@ -150,6 +151,9 @@ const DEFAULT_SCHEDULED_REPLY_VARIANTS = [
   'Perfeito, {{retorno_label}} eu te chamo por aqui ou te ligo rapidinho.',
   'Combinado, {{retorno_label}} eu retorno com você.',
   'Fechado, deixei anotado para {{retorno_label}}.',
+];
+const DEFAULT_PRE_MESSAGE_VARIANTS = [
+  '{{cumprimentacao}}, tudo bem?',
 ];
 const DEFAULT_OPT_OUT_VARIANTS = [
   DEFAULT_OPT_OUT_MESSAGE,
@@ -1265,6 +1269,25 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       ...filters,
       optOutReplyEnabled,
       intervalVarianceMinutes,
+      preMessageEnabled:
+        payload?.preMessageEnabled === undefined
+          ? Boolean(filters.preMessageEnabled ?? false)
+          : payload.preMessageEnabled === true,
+      preMessageVariants: normalizeVariantList(
+        hasOwnValue(payload, 'preMessageVariants') ? (payload as any)?.preMessageVariants : filters.preMessageVariants,
+        normalizeVariantList((parseJsonObject(existing?.filtersJson) as any).preMessageVariants, DEFAULT_PRE_MESSAGE_VARIANTS),
+      ),
+      botReplyIntervalReductionPercent: clampInteger(
+        (payload as any)?.botReplyIntervalReductionPercent ?? filters.botReplyIntervalReductionPercent,
+        clampInteger(
+          (parseJsonObject(existing?.filtersJson) as any).botReplyIntervalReductionPercent,
+          DEFAULT_BOT_REPLY_INTERVAL_REDUCTION_PERCENT,
+          0,
+          100,
+        ),
+        0,
+        100,
+      ),
       firstContactVariants: normalizeVariantList(
         hasOwnValue(payload, 'firstContactVariants') ? payload?.firstContactVariants : filters.firstContactVariants,
         normalizeVariantList((parseJsonObject(existing?.filtersJson) as any).firstContactVariants, DEFAULT_FIRST_CONTACT_VARIANTS),
@@ -1630,8 +1653,16 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       filtersJson,
       searchSignature: campaign.searchSignature,
       messageTemplate: campaign.messageTemplate,
+      preMessageEnabled: filtersJson.preMessageEnabled === true,
+      preMessageVariants: normalizeVariantList(filtersJson.preMessageVariants, DEFAULT_PRE_MESSAGE_VARIANTS),
       intervalMinutes: campaign.intervalMinutes,
       intervalVarianceMinutes: clampInteger(filtersJson.intervalVarianceMinutes, DEFAULT_INTERVAL_VARIANCE_MINUTES, 0, 180),
+      botReplyIntervalReductionPercent: clampInteger(
+        filtersJson.botReplyIntervalReductionPercent,
+        DEFAULT_BOT_REPLY_INTERVAL_REDUCTION_PERCENT,
+        0,
+        100,
+      ),
       dailyLimit: this.getCampaignDailyCapacity(campaign),
       minLeadBuffer: campaign.minLeadBuffer,
       desiredLeadBuffer: campaign.desiredLeadBuffer,
@@ -1946,6 +1977,17 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
   private renderRandomCampaignVariant(campaign: any, lead: any, user: any, key: string, fallback: string[]) {
     const variant = pickRandomItem(this.getCampaignVariantList(campaign, key, fallback)) || fallback[0] || DEFAULT_MESSAGE_TEMPLATE;
     return sanitizeFirstContactMessage(this.renderMessageTemplate(variant, { lead, campaign, user }));
+  }
+
+  private isPreMessageEnabled(campaign: any) {
+    const filters = parseJsonObject(campaign?.filtersJson);
+    return filters.preMessageEnabled === true;
+  }
+
+  private renderPreMessage(campaign: any, lead: any, user: any) {
+    const variant = pickRandomItem(this.getCampaignVariantList(campaign, 'preMessageVariants', DEFAULT_PRE_MESSAGE_VARIANTS)) || DEFAULT_PRE_MESSAGE_VARIANTS[0];
+    const rendered = sanitizeFirstContactMessage(this.renderMessageTemplate(variant, { lead, campaign, user }));
+    return trimOrNull(rendered) || sanitizeFirstContactMessage(this.renderMessageTemplate(DEFAULT_PRE_MESSAGE_VARIANTS[0], { lead, campaign, user }));
   }
 
   private resolveOutboundTemplate(campaign: any, lead: any, metadata?: Record<string, unknown> | null) {
@@ -2477,6 +2519,8 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         const usesFallback = fallbackLeadIds.has(String(lead.id));
         const draftMessage = usesFallback
           ? sanitizeFirstContactMessage(this.renderMessageTemplate(DEFAULT_SEGMENT_MISMATCH_FALLBACK_MESSAGE, { lead, campaign, user: runtimeUser }))
+          : this.isPreMessageEnabled(campaign)
+            ? this.renderPreMessage(campaign, lead, runtimeUser)
           : this.renderOutboundMessage(campaign, lead, runtimeUser);
         const conversationId = await this.updateProspectionConversationStage({
           companyId: campaign.companyId,
@@ -2674,6 +2718,8 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           const usesFallback = fallbackLeadIds.has(String(lead.id));
           const draftMessage = usesFallback
             ? sanitizeFirstContactMessage(this.renderMessageTemplate(DEFAULT_SEGMENT_MISMATCH_FALLBACK_MESSAGE, { lead, campaign, user: runtimeUser }))
+            : this.isPreMessageEnabled(campaign)
+              ? this.renderPreMessage(campaign, lead, runtimeUser)
             : this.renderOutboundMessage(campaign, lead, runtimeUser);
           const conversationId = await this.updateProspectionConversationStage({
             companyId: campaign.companyId,
@@ -3647,14 +3693,17 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     }
 
     const runtimeUser = await this.buildAutomationUser(campaign);
-    const body = await this.getSafeFirstContactBody({
-      campaign,
-      lead,
-      user: runtimeUser,
-      metadata: prospectionMetadata,
-      bodyOverride,
-      now,
-    });
+    const preMessageEnabled = this.isPreMessageEnabled(campaign);
+    const body = preMessageEnabled
+      ? this.renderPreMessage(campaign, lead, runtimeUser)
+      : await this.getSafeFirstContactBody({
+          campaign,
+          lead,
+          user: runtimeUser,
+          metadata: prospectionMetadata,
+          bodyOverride,
+          now,
+        });
     if (!body) {
       const errorMessage = 'Mensagem inicial repetida demais hoje. Campanha pausada para revisão do texto.';
       await this.prisma.vendasAutomationJob.update({
@@ -3688,6 +3737,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           jobId: job.id,
           leadId: lead.id,
           firstContact: true,
+          preMessage: preMessageEnabled,
         },
         flowState: {
           botActive: true,
@@ -3713,15 +3763,17 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
             status: 'contato',
             lastContactAt: sentAt,
             attemptCount: { increment: 1 },
-            lastResult: 'Primeiro contato automático',
+            lastResult: preMessageEnabled ? 'Pré-mensagem automática' : 'Primeiro contato automático',
           },
         });
         await tx.vendasLeadTimelineEvent.create({
           data: {
             leadId: lead.id,
             eventType: 'contact_made',
-            title: 'Primeiro contato automático enviado',
-            description: 'Mensagem inicial da prospecção automática enfileirada pelo backend.',
+            title: preMessageEnabled ? 'Pré-mensagem automática enviada' : 'Primeiro contato automático enviado',
+            description: preMessageEnabled
+              ? 'Filtro inicial da prospecção automática enfileirado pelo backend.'
+              : 'Mensagem inicial da prospecção automática enfileirada pelo backend.',
             sourceType: 'vendas_prospeccao_bot',
             statusTo: 'contato',
             resultLabel: 'Automação',
@@ -3738,6 +3790,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         sentAt,
         draftMessage: body,
         mismatchReason,
+        preMessageSent: preMessageEnabled,
       });
       this.logger.log(`[prospeccao] outbound automatico enviado, mantendo em prospeccao conversation=${Number(queued.conversationId)} job=${job.id}`);
       const sentTodayAfter = sentToday + 1;
@@ -3752,7 +3805,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         leadId: lead.id,
         conversationId: Number(queued.conversationId),
         status: 'aguardando',
-        text: 'Contato enviado. Aguardando resposta.',
+        text: preMessageEnabled ? 'Pré-mensagem enviada. Aguardando resposta humana.' : 'Contato enviado. Aguardando resposta.',
         type: 'message_sent',
       });
       await this.scheduleJobsForCampaign(campaign.id).catch((error) => {
@@ -3786,6 +3839,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     sentAt: Date;
     draftMessage: string;
     mismatchReason?: string | null;
+    preMessageSent?: boolean;
   }) {
     const conversation = await this.prisma.companyConversation.findFirst({
       where: { id: input.conversationId, companyId: input.companyId },
@@ -3808,6 +3862,9 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           status: 'sent',
           sentAt: sentAtIso,
           mismatchReason: input.mismatchReason || null,
+          preMessageSent: input.preMessageSent === true,
+          preMessageAwaitingReply: input.preMessageSent === true,
+          preMessagePitchSent: false,
         },
         vendasAgendaQueue: {
           ...queue,
@@ -3828,6 +3885,9 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           botEligible: true,
           botEntryPending: true,
           mismatchReason: input.mismatchReason || null,
+          preMessageSent: input.preMessageSent === true,
+          preMessageAwaitingReply: input.preMessageSent === true,
+          preMessagePitchSent: false,
           syncedAt,
         },
         vendasProspeccao: this.buildProspectionState('sent_waiting', {
@@ -3841,6 +3901,130 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       },
       lastInteractionAt: input.sentAt,
     });
+  }
+
+  private isAwaitingPreMessageHumanReply(metadata: Record<string, any>) {
+    const automation = parseJsonObject(metadata?.vendasAutomation);
+    const queue = parseJsonObject(metadata?.vendasAgendaQueue);
+    return (
+      ((automation as any).preMessageAwaitingReply === true || (queue as any).preMessageAwaitingReply === true) &&
+      (automation as any).preMessagePitchSent !== true &&
+      (queue as any).preMessagePitchSent !== true
+    );
+  }
+
+  private getBotReplyIntervalReductionPercent(campaign: any) {
+    const filters = parseJsonObject(campaign?.filtersJson);
+    return clampInteger(
+      (filters as any).botReplyIntervalReductionPercent,
+      DEFAULT_BOT_REPLY_INTERVAL_REDUCTION_PERCENT,
+      0,
+      100,
+    );
+  }
+
+  private async accelerateNextJobAfterAutoReply(campaign: any, currentJobId: string, now: Date) {
+    const reductionPercent = this.getBotReplyIntervalReductionPercent(campaign);
+    if (reductionPercent <= 0) return null;
+    const nextJob = await this.prisma.vendasAutomationJob.findFirst({
+      where: {
+        campaignId: campaign.id,
+        companyId: campaign.companyId,
+        id: { not: currentJobId },
+        status: { in: [...BUFFER_JOB_STATUSES] as any },
+      },
+      orderBy: [{ scheduledAt: 'asc' }, { createdAt: 'asc' }],
+      select: { id: true, scheduledAt: true },
+    });
+    if (!nextJob?.id) return null;
+    const currentTarget = nextJob.scheduledAt instanceof Date && nextJob.scheduledAt.getTime() > now.getTime()
+      ? nextJob.scheduledAt
+      : new Date(now.getTime() + this.getCampaignIntervalMs(campaign));
+    const remainingMs = Math.max(0, currentTarget.getTime() - now.getTime());
+    const nextDelayMs = reductionPercent >= 100 ? 0 : Math.round(remainingMs * (1 - reductionPercent / 100));
+    const nextScheduledAt = this.moveToWorkingWindow(new Date(now.getTime() + nextDelayMs), campaign);
+    await this.prisma.vendasAutomationJob.update({
+      where: { id: nextJob.id },
+      data: { scheduledAt: nextScheduledAt },
+    });
+    return nextScheduledAt;
+  }
+
+  private async sendPitchAfterPreMessage(input: any, job: any) {
+    const now = new Date();
+    const runtimeUser = await this.buildAutomationUser(job.campaign);
+    const body = this.renderOutboundMessage(job.campaign, job.lead, runtimeUser, input.metadata);
+    if (!body) return null;
+    const metadata = parseJsonObject(input.metadata);
+    const queue = parseJsonObject((metadata as any).vendasAgendaQueue);
+    const automation = parseJsonObject((metadata as any).vendasAutomation);
+    const prospeccao = parseJsonObject((metadata as any).vendasProspeccao);
+    await this.conversations.queueOutboundForCompany(input.companyId, {
+      conversationId: input.conversationId,
+      to: input.from,
+      contactId: input.from,
+      body,
+      messageType: 'text',
+      sourceModule: 'vendas_prospeccao_bot',
+      senderType: 'bot',
+      variables: {
+        botType: 'prospeccao',
+        campaignId: job.campaignId,
+        jobId: job.id,
+        leadId: job.leadId,
+        firstContact: true,
+        preMessageFollowUp: true,
+      },
+      flowState: {
+        botActive: true,
+        humanAssigned: false,
+        flowResult: null,
+        metadata: {
+          ...metadata,
+          vendasAutomation: {
+            ...automation,
+            status: 'sent',
+            preMessageAwaitingReply: false,
+            preMessagePitchSent: true,
+            preMessageHumanReplyAt: input.timestamp instanceof Date ? input.timestamp.toISOString() : now.toISOString(),
+            pitchSentAt: now.toISOString(),
+          },
+          vendasAgendaQueue: {
+            ...queue,
+            status: 'contato',
+            nextAction: 'Aguardar resposta do pitch',
+            draftMessage: body,
+            draftPending: false,
+            botEligible: true,
+            botEntryPending: true,
+            preMessageAwaitingReply: false,
+            preMessagePitchSent: true,
+            preMessageHumanReplyAt: input.timestamp instanceof Date ? input.timestamp.toISOString() : now.toISOString(),
+            pitchSentAt: now.toISOString(),
+            syncedAt: now.toISOString(),
+          },
+          vendasProspeccao: this.buildProspectionState('sent_waiting', {
+            current: prospeccao,
+            lead: job.lead,
+            campaign: job.campaign,
+            firstOutboundAt: job.sentAt || now,
+            replyDeadlineAt: this.addHoursIso(now, 24),
+            mismatchReason: null,
+          }),
+        },
+      },
+    });
+    this.publishAutomationEvent({
+      companyId: input.companyId,
+      campaignId: job.campaignId,
+      jobId: job.id,
+      leadId: job.leadId,
+      conversationId: input.conversationId,
+      status: 'aguardando',
+      text: 'Resposta humana detectada. Pitch enviado.',
+      type: 'pre_message_human_reply',
+    });
+    return body;
   }
 
   async classifyProspectingInbound(input: {
@@ -3882,6 +4066,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     if (String(job.status || '') !== 'sent') return null;
     const automationStatus = normalizeKey((automation as any).status);
     const queueStatus = normalizeKey((queue as any).status);
+    const awaitingPreMessageHumanReply = this.isAwaitingPreMessageHumanReply(input.metadata);
     const positives = parseJsonList(job.campaign.positiveIntentKeywordsJson, DEFAULT_POSITIVE_KEYWORDS).map(normalizeKey);
     const negatives = parseJsonList(job.campaign.negativeIntentKeywordsJson, DEFAULT_NEGATIVE_KEYWORDS).map(normalizeKey);
     const filtersJson = parseJsonObject(job.campaign.filtersJson);
@@ -3929,6 +4114,12 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       await input.setInboundMeta('vendas_prospeccao_auto_reply', false);
       await this.markAutoReply({ ...input, job, classification: autoReplyClassification });
       return { handled: true, classification: autoReplyClassification };
+    }
+
+    if (awaitingPreMessageHumanReply) {
+      await input.setInboundMeta('vendas_prospeccao_pre_mensagem_humana', false);
+      await this.sendPitchAfterPreMessage(input, job);
+      return { handled: true, classification: 'pre_message_human_reply' };
     }
 
     if (intent.kind === 'ambiguous_intent' || intent.confidence < 0.5) {
@@ -4329,6 +4520,19 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       text: classification === 'out_of_hours_auto_reply' ? 'Fora de horário detectado. Não insistir agora.' : 'Autoatendimento detectado. Aguardando humano.',
       type: classification,
     });
+    const nextScheduledAt = await this.accelerateNextJobAfterAutoReply(job.campaign, job.id, now).catch(() => null);
+    if (nextScheduledAt) {
+      this.publishAutomationEvent({
+        companyId: input.companyId,
+        campaignId: job.campaignId,
+        jobId: job.id,
+        leadId: job.leadId,
+        conversationId: input.conversationId,
+        status: 'aguardando',
+        text: `Autoatendimento detectado. ${this.formatNextScheduledText(nextScheduledAt)}.`,
+        type: 'auto_reply_next_interval_reduced',
+      });
+    }
     await this.pauseCampaignIfAutoReplyStreakReached(job.campaign, now).catch(() => null);
   }
 

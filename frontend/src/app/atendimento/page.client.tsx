@@ -201,8 +201,11 @@ type ProspectingCampaignConfig = {
   engine: "hbx" | "google";
   targetType: "pj" | "pf" | "agenda_pf";
   messageTemplate: string;
+  preMessageEnabled: boolean;
+  preMessageVariants: string[];
   intervalMinutes: number;
   intervalVarianceMinutes: number;
+  botReplyIntervalReductionPercent: number;
   workingHoursStart: string;
   workingHoursEnd: string;
   dailyLimit: number;
@@ -302,6 +305,9 @@ const DEFAULT_SCHEDULED_REPLY_VARIANTS = [
   "Combinado, {{retorno_label}} eu retorno com você.",
   "Fechado, deixei anotado para {{retorno_label}}.",
 ];
+const DEFAULT_PRE_MESSAGE_VARIANTS = [
+  "{{cumprimentacao}}, tudo bem?",
+];
 
 const LEGACY_FIRST_CONTACT_VARIANTS = [
   "{{cumprimentacao}}, tudo bem? Vi a {{empresaresumo}} em {{cidade}}. Posso te mandar uma ideia rápida?",
@@ -352,8 +358,11 @@ const DEFAULT_PROSPECTING_CAMPAIGN_CONFIG: ProspectingCampaignConfig = {
   engine: "hbx",
   targetType: "pj",
   messageTemplate: DEFAULT_FIRST_CONTACT_VARIANTS[0],
+  preMessageEnabled: false,
+  preMessageVariants: DEFAULT_PRE_MESSAGE_VARIANTS,
   intervalMinutes: 15,
   intervalVarianceMinutes: 30,
+  botReplyIntervalReductionPercent: 0,
   workingHoursStart: "08:00",
   workingHoursEnd: "18:00",
   dailyLimit: 10,
@@ -1217,8 +1226,18 @@ function buildProspectingCampaignConfig(status: ProspectingAutomationLiveStatus 
         ? campaign.targetType
         : "pj",
     messageTemplate: String(campaign?.messageTemplate || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.messageTemplate),
+    preMessageEnabled: Boolean(campaign?.preMessageEnabled ?? campaignFilters.preMessageEnabled ?? DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.preMessageEnabled),
+    preMessageVariants: normalizeProspectingVariantList(
+      campaign?.preMessageVariants || campaignFilters.preMessageVariants,
+      DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.preMessageVariants,
+    ),
     intervalMinutes: Number(campaign?.intervalMinutes || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.intervalMinutes),
     intervalVarianceMinutes: Number(campaign?.intervalVarianceMinutes || campaignFilters.intervalVarianceMinutes || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.intervalVarianceMinutes),
+    botReplyIntervalReductionPercent: Number(
+      campaign?.botReplyIntervalReductionPercent ??
+        campaignFilters.botReplyIntervalReductionPercent ??
+        DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.botReplyIntervalReductionPercent,
+    ),
     workingHoursStart: String(campaign?.workingHoursStart || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.workingHoursStart),
     workingHoursEnd: String(campaign?.workingHoursEnd || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.workingHoursEnd),
     dailyLimit: Number(campaign?.dailyLimit || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.dailyLimit),
@@ -1270,6 +1289,9 @@ function buildProspectingCampaignConfig(status: ProspectingAutomationLiveStatus 
 }
 
 function toProspectingCampaignPayload(config: ProspectingCampaignConfig): Record<string, unknown> {
+  const preMessageVariants = normalizeProspectingVariantList(config.preMessageVariants, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.preMessageVariants)
+    .map((message) => sanitizeFirstContactPreview(message))
+    .filter(Boolean);
   const firstContactVariants = normalizeProspectingVariantList(config.firstContactVariants, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.firstContactVariants)
     .map((message) => sanitizeFirstContactPreview(message))
     .filter(Boolean);
@@ -1281,6 +1303,7 @@ function toProspectingCampaignPayload(config: ProspectingCampaignConfig): Record
   const whatIsItIntentKeywords = normalizeProspectingList(config.whatIsItIntentKeywords, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.whatIsItIntentKeywords);
   const neutralIntentKeywords = normalizeProspectingList(config.neutralIntentKeywords, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.neutralIntentKeywords);
   const intervalVarianceMinutes = Math.max(0, Math.trunc(Number(config.intervalVarianceMinutes || 0)));
+  const botReplyIntervalReductionPercent = Math.max(0, Math.min(100, Math.trunc(Number(config.botReplyIntervalReductionPercent || 0))));
   return {
     state: config.state.trim().toUpperCase(),
     city: config.city.trim(),
@@ -1288,9 +1311,12 @@ function toProspectingCampaignPayload(config: ProspectingCampaignConfig): Record
     engine: "hbx",
     targetType: "pj",
     messageTemplate: firstContactVariants[0] || sanitizeFirstContactPreview(config.messageTemplate) || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.messageTemplate,
+    preMessageEnabled: config.preMessageEnabled,
+    preMessageVariants: preMessageVariants.length ? preMessageVariants : DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.preMessageVariants,
     dailyLimit: calculateProspectingCapacity(config),
     intervalMinutes: Math.max(1, Math.trunc(Number(config.intervalMinutes || 1))),
     intervalVarianceMinutes,
+    botReplyIntervalReductionPercent,
     minLeadBuffer: Math.max(1, Math.trunc(Number(config.minLeadBuffer || 1))),
     desiredLeadBuffer: Math.max(1, Math.trunc(Number(config.desiredLeadBuffer || 1))),
     maxAttemptsPerLead: Math.max(1, Math.trunc(Number(config.maxAttemptsPerLead || 1))),
@@ -1313,7 +1339,10 @@ function toProspectingCampaignPayload(config: ProspectingCampaignConfig): Record
     websiteFallbackEnabled: false,
     filtersJson: {
       ...(config.filtersJson || {}),
+      preMessageEnabled: config.preMessageEnabled,
+      preMessageVariants: preMessageVariants.length ? preMessageVariants : DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.preMessageVariants,
       intervalVarianceMinutes,
+      botReplyIntervalReductionPercent,
       firstContactVariants: firstContactVariants.length ? firstContactVariants : DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.firstContactVariants,
       positiveReplyVariants,
       whatIsItReplyVariants,
@@ -1412,6 +1441,7 @@ function ProspectingAutomationStatus({
 }
 
 type ProspectingVariantField =
+  | "preMessageVariants"
   | "firstContactVariants"
   | "positiveReplyVariants"
   | "whatIsItReplyVariants"
@@ -1438,9 +1468,11 @@ const PROSPECTING_RISK_CONFIRMATION_KEY = "hbx:prospeccao:risk-confirmation:v1";
 type ProspectingValidationField =
   | "workingHoursStart"
   | "workingHoursEnd"
+  | "preMessageVariants"
   | "firstContactVariants"
   | "intervalMinutes"
   | "intervalVarianceMinutes"
+  | "botReplyIntervalReductionPercent"
   | "typingSeconds"
   | "typingVarianceSeconds"
   | "maxAttemptsPerLead";
@@ -1448,9 +1480,11 @@ type ProspectingValidationField =
 const PROSPECTING_VALIDATION_FIELD_LABELS: Record<ProspectingValidationField, string> = {
   workingHoursStart: "horário de início",
   workingHoursEnd: "horário de fim",
+  preMessageVariants: "pré-mensagem",
   firstContactVariants: "primeira mensagem",
   intervalMinutes: "intervalo",
   intervalVarianceMinutes: "variação do intervalo",
+  botReplyIntervalReductionPercent: "redução ao detectar bot",
   typingSeconds: "typing",
   typingVarianceSeconds: "variação do typing",
   maxAttemptsPerLead: "tentativas por contato",
@@ -1468,9 +1502,11 @@ function prospectingFieldFromBackendMessage(message: string): ProspectingValidat
   };
   if (normalized.includes("workinghoursstart")) add("workingHoursStart");
   if (normalized.includes("workinghoursend")) add("workingHoursEnd");
+  if (normalized.includes("premessagevariants")) add("preMessageVariants");
   if (normalized.includes("firstcontactvariants") || normalized.includes("messagetemplate")) add("firstContactVariants");
   if (normalized.includes("intervalminutes")) add("intervalMinutes");
   if (normalized.includes("intervalvarianceminutes")) add("intervalVarianceMinutes");
+  if (normalized.includes("botreplyintervalreductionpercent")) add("botReplyIntervalReductionPercent");
   if (normalized.includes("typingseconds")) add("typingSeconds");
   if (normalized.includes("typingvarianceseconds")) add("typingVarianceSeconds");
   if (normalized.includes("maxattemptsperlead")) add("maxAttemptsPerLead");
@@ -1505,6 +1541,10 @@ function validateProspectingCampaignConfig(config: ProspectingCampaignConfig) {
     fields.push("firstContactVariants");
     messages.push("Escreva pelo menos uma variação da primeira mensagem.");
   }
+  if (config.preMessageEnabled && !normalizeProspectingVariantList(config.preMessageVariants, []).some((item) => item.trim())) {
+    fields.push("preMessageVariants");
+    messages.push("Escreva pelo menos uma variação da pré-mensagem.");
+  }
   const intervalMinutes = prospectingInteger(config.intervalMinutes);
   if (intervalMinutes < 1 || intervalMinutes > 180) {
     fields.push("intervalMinutes");
@@ -1514,6 +1554,11 @@ function validateProspectingCampaignConfig(config: ProspectingCampaignConfig) {
   if (intervalVarianceMinutes < 0 || intervalVarianceMinutes > 180) {
     fields.push("intervalVarianceMinutes");
     messages.push("A variação do intervalo precisa ficar entre 0 e 180 minutos.");
+  }
+  const botReplyIntervalReductionPercent = prospectingInteger(config.botReplyIntervalReductionPercent);
+  if (botReplyIntervalReductionPercent < 0 || botReplyIntervalReductionPercent > 100) {
+    fields.push("botReplyIntervalReductionPercent");
+    messages.push("A redução ao detectar bot precisa ficar entre 0% e 100%.");
   }
   const typingSeconds = prospectingInteger(config.typingSeconds);
   if (typingSeconds < 0 || typingSeconds > 45) {
@@ -1577,6 +1622,7 @@ function ProspectingCampaignStudioModal({
     text: "Agora não consigo, amanhã umas 09?",
   });
   const [variantIndexes, setVariantIndexes] = useState<Record<ProspectingVariantField, number>>({
+    preMessageVariants: 0,
     firstContactVariants: 0,
     positiveReplyVariants: 0,
     whatIsItReplyVariants: 0,
@@ -1586,6 +1632,7 @@ function ProspectingCampaignStudioModal({
   });
   const messageTemplateRef = useRef<HTMLTextAreaElement | null>(null);
   const optOutMessageRef = useRef<HTMLTextAreaElement | null>(null);
+  const preMessageVariantsRef = useRef<HTMLTextAreaElement | null>(null);
   const firstContactVariantsRef = useRef<HTMLTextAreaElement | null>(null);
   const positiveReplyVariantsRef = useRef<HTMLTextAreaElement | null>(null);
   const whatIsItReplyVariantsRef = useRef<HTMLTextAreaElement | null>(null);
@@ -1663,13 +1710,15 @@ function ProspectingCampaignStudioModal({
     onChange((current) => ({ ...current, [field]: value }));
   };
   const setNumberField = (
-    field: "intervalMinutes" | "intervalVarianceMinutes" | "typingSeconds" | "typingVarianceSeconds",
+    field: "intervalMinutes" | "intervalVarianceMinutes" | "botReplyIntervalReductionPercent" | "typingSeconds" | "typingVarianceSeconds",
     value: string,
     min = 0,
+    max?: number,
   ) => {
     setSaveFeedback("idle");
     clearInvalidField(field);
-    onChange((current) => ({ ...current, [field]: Math.max(min, Math.trunc(Number(value) || 0)) }));
+    const normalized = Math.max(min, Math.trunc(Number(value) || 0));
+    onChange((current) => ({ ...current, [field]: max === undefined ? normalized : Math.min(max, normalized) }));
   };
   const setAdvancedNumberField = (
     field: "maxAttemptsPerLead",
@@ -1721,6 +1770,9 @@ function ProspectingCampaignStudioModal({
     if (field === "firstContactVariants" && cleanList.some((item) => item.trim())) {
       clearInvalidField("firstContactVariants");
     }
+    if (field === "preMessageVariants" && cleanList.some((item) => item.trim())) {
+      clearInvalidField("preMessageVariants");
+    }
     onChange((current) => ({ ...current, [field]: cleanList.length ? cleanList : [""] }));
   };
   const setVariantAt = (field: ProspectingVariantField, index: number, value: string) => {
@@ -1760,6 +1812,7 @@ function ProspectingCampaignStudioModal({
     const refs = {
       messageTemplate: messageTemplateRef.current,
       optOutMessage: optOutMessageRef.current,
+      preMessageVariants: preMessageVariantsRef.current,
       firstContactVariants: firstContactVariantsRef.current,
       positiveReplyVariants: positiveReplyVariantsRef.current,
       whatIsItReplyVariants: whatIsItReplyVariantsRef.current,
@@ -2110,7 +2163,9 @@ function ProspectingCampaignStudioModal({
     const list = getEditableVariantList(field);
     const index = clampVariantIndex(field, variantIndexes[field] || 0);
     const disabled = Boolean(options?.disabled);
-    const invalid = field === "firstContactVariants" && hasInvalidField("firstContactVariants");
+    const invalid =
+      (field === "firstContactVariants" && hasInvalidField("firstContactVariants")) ||
+      (field === "preMessageVariants" && hasInvalidField("preMessageVariants"));
     return (
       <div
         className={`${styles.campaignWideField} ${styles.campaignVariantPager}`}
@@ -2189,10 +2244,30 @@ function ProspectingCampaignStudioModal({
                 </div>
 
                 <div className={styles.campaignMessageCard}>
+                  <label className={styles.campaignInlineToggle}>
+                    <span>Usar pré-mensagem como filtro</span>
+                    <input
+                      type="checkbox"
+                      checked={config.preMessageEnabled}
+                      onChange={(event) => setField("preMessageEnabled", event.target.checked)}
+                    />
+                  </label>
+                  {config.preMessageEnabled ? (
+                    <>
+                      {renderVariantPager(
+                        "preMessageVariants",
+                        "Pré-mensagem",
+                        "Envia antes do pitch. Se responder bot, o HBot para esse contato e acelera o próximo disparo conforme o ajuste avançado.",
+                        preMessageVariantsRef,
+                      )}
+                    </>
+                  ) : null}
                   {renderVariantPager(
                     "firstContactVariants",
                     "Variações da primeira mensagem",
-                    "Primeiro contato não envia links automaticamente. Use as setas para navegar entre as variações.",
+                    config.preMessageEnabled
+                      ? "Só dispara depois de uma resposta humana à pré-mensagem. Links continuam sendo removidos automaticamente."
+                      : "Primeiro contato não envia links automaticamente. Use as setas para navegar entre as variações.",
                     firstContactVariantsRef,
                   )}
                   {messageTemplateHasLink ? (
@@ -2212,6 +2287,10 @@ function ProspectingCampaignStudioModal({
                     <label className={styles.campaignField} data-prospecting-field="intervalVarianceMinutes" data-invalid={hasInvalidField("intervalVarianceMinutes") ? "true" : "false"}>
                       <span>Variação do intervalo</span>
                       <input type="number" min={0} value={config.intervalVarianceMinutes} onChange={(event) => setNumberField("intervalVarianceMinutes", event.target.value, 0)} />
+                    </label>
+                    <label className={styles.campaignField} data-prospecting-field="botReplyIntervalReductionPercent" data-invalid={hasInvalidField("botReplyIntervalReductionPercent") ? "true" : "false"}>
+                      <span>Reduzir intervalo se detectar bot (%)</span>
+                      <input type="number" min={0} max={100} value={config.botReplyIntervalReductionPercent} onChange={(event) => setNumberField("botReplyIntervalReductionPercent", event.target.value, 0, 100)} />
                     </label>
                     <label className={styles.campaignField} data-prospecting-field="typingSeconds" data-invalid={hasInvalidField("typingSeconds") ? "true" : "false"}>
                       <span>Typing</span>
