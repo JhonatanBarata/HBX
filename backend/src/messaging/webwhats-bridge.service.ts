@@ -2172,7 +2172,26 @@ export class WebwhatsBridgeService {
     if (!(error instanceof WebwhatsProviderError)) return false;
     if (error.code === 'WEBWHATS_TIMEOUT' || error.code === 'WEBWHATS_UNAVAILABLE') return true;
     if (error.code !== 'WEBWHATS_HTTP_ERROR') return false;
-    return [408, 425, 429, 500, 502, 503, 504].includes(Number(error.statusCode || 0));
+    return this.isTransientHttpStatus(error.statusCode);
+  }
+
+  private isTransientHttpStatus(statusCode: number | null | undefined) {
+    return [
+      408,
+      425,
+      429,
+      500,
+      502,
+      503,
+      504,
+      520,
+      521,
+      522,
+      523,
+      524,
+      598,
+      599,
+    ].includes(Number(statusCode || 0));
   }
 
   private mapAxiosError(error: AxiosError<unknown>, purpose: string) {

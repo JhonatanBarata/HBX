@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { WebwhatsBridgeService } from './webwhats-bridge.service';
+import { WebwhatsBridgeService, WebwhatsProviderError } from './webwhats-bridge.service';
 
 const TEST_SESSION = {
   id: 'session-47',
@@ -1004,6 +1004,31 @@ test('WebwhatsBridgeService rejects invalid WhatsApp phone JIDs', () => {
   assert.equal(service.isSyncableChat('0@s.whatsapp.net'), false);
   assert.equal(service.isSyncableChat('0000000000@s.whatsapp.net'), false);
   assert.equal(service.isSyncableChat('5519996197927@s.whatsapp.net'), true);
+});
+
+test('WebwhatsBridgeService treats proxy timeout statuses as transient read errors', () => {
+  const service = createBareWebwhatsBridgeService();
+
+  for (const statusCode of [520, 521, 522, 523, 524, 598, 599]) {
+    assert.equal(
+      service.isTransientReadError(
+        new WebwhatsProviderError(
+          'WEBWHATS_HTTP_ERROR',
+          `HTTP ${statusCode}`,
+          statusCode,
+        ),
+      ),
+      true,
+      `status ${statusCode} should be transient`,
+    );
+  }
+
+  assert.equal(
+    service.isTransientReadError(
+      new WebwhatsProviderError('WEBWHATS_HTTP_ERROR', 'bad request', 400),
+    ),
+    false,
+  );
 });
 
 test('WebwhatsBridgeService ignores conflicting chat remoteJidAlt for phone chats', () => {
