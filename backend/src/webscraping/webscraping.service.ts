@@ -1399,6 +1399,11 @@ const RADAR_SOCIAL_CATEGORY_TOKENS = new Set([
   'estetica',
   'gastronomia',
   'hamburgueria',
+  'imob',
+  'imobiliaria',
+  'imobiliarias',
+  'imovel',
+  'imoveis',
   'lanches',
   'lancheria',
   'lancherias',
@@ -1524,12 +1529,32 @@ function socialCategoryTokenVariants(token: string) {
     variants.add('restaurante');
     variants.add('restaurantes');
   }
+  if (['imob', 'imobiliaria', 'imobiliarias', 'imovel', 'imoveis'].includes(token)) {
+    ['imob', 'imobiliaria', 'imobiliarias', 'imovel', 'imoveis'].forEach((variant) => variants.add(variant));
+  }
   return Array.from(variants);
+}
+
+function hasTrustedEngineSocialSignal(row: any) {
+  const sourceKey = normalizeLookupValue([
+    row?.source,
+    row?.sourceEngine,
+    ...(Array.isArray(row?.sourceEngines) ? row.sourceEngines : parseJsonArray(row?.sourceEngines)),
+  ].filter(Boolean).join(' '));
+  const socialStatus = normalizeLookupValue(row?.socialStatus || row?.signals?.socialStatus);
+  const socialConfidence = safeInteger(row?.socialConfidence ?? row?.signals?.socialConfidence);
+
+  return Boolean(
+    (sourceKey.includes('hbx') || sourceKey.includes('scraping'))
+    && ['found', 'confirmed'].includes(socialStatus)
+    && socialConfidence >= 70
+  );
 }
 
 function socialProfileLooksCompatibleWithLead(row: any, value: string | null | undefined) {
   const handle = socialHandleFromUrl(value);
   if (!handle) return false;
+  if (hasTrustedEngineSocialSignal(row)) return true;
   const name = normalizeLookupValue(row?.name || row?.companyName || '');
   const tokens = name.split(/\s+/).filter((token) => token.length >= 3 && !RADAR_SOCIAL_STOP_TOKENS.has(token));
   const categoryTokens = tokens.filter((token) => RADAR_SOCIAL_CATEGORY_TOKENS.has(token));
