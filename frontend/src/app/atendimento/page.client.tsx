@@ -31,8 +31,6 @@ import DashboardScaffold from "@/components/DashboardScaffold";
 import HbxConfirmDialog from "@/components/HbxConfirmDialog";
 import { HbxPopup2, HbxPopup3 } from "@/components/HbxPopup";
 import LiquidGlassCard, { liquidGlassCardStyles as glassCardStyles } from "@/components/LiquidGlassCard";
-import PremiumLaunchDialog from "@/components/PremiumLaunchDialog";
-import { useQuickLaunchNotice } from "@/components/useQuickLaunchNotice";
 import ConversationActionList from "@/components/workspace/ConversationActionList";
 import ConversationContextPanel from "@/components/workspace/ConversationContextPanel";
 import ConversationListPane from "@/components/workspace/ConversationListPane";
@@ -43,7 +41,6 @@ import WorkspaceSegmentedControl from "@/components/workspace/WorkspaceSegmented
 import ConversationWorkspaceStatus from "@/components/workspace/ConversationWorkspaceStatus";
 import {
   buildAtendimentoContextActions,
-  buildAtendimentoContextSummary,
   buildAtendimentoRecoveryPaymentHistory,
   buildAtendimentoRecoverySummary,
   formatAtendimentoRecoveryPaymentStatusLabel,
@@ -61,7 +58,6 @@ import {
 } from "@/lib/commercial-plans";
 import {
   getProviderCapabilitiesFromWhatsAppCenter,
-  getProviderLabel,
   type ProviderCapabilities,
 } from "@/lib/provider-capabilities";
 import {
@@ -83,7 +79,6 @@ import {
   DEFAULT_ATENDIMENTO_BOT_CONFIG,
   META_TEMPLATES_REQUIRED_MESSAGE,
   buildAgendaActionId,
-  fetchBrazilianHolidays,
   formatCurrency,
   getMessagePreview,
   isAtendimentoBotSetupComplete,
@@ -92,14 +87,10 @@ import {
   normalizeBotConfig,
   sanitizeAtendimentoBotConfigForTenant,
   type AtendimentoAgendaConfig,
-  type AtendimentoAgendaSimulationPayload,
-  type AtendimentoAgendaSimulationResult,
   type AtendimentoBotConfig,
   type InboxConversation,
-  type InboxFullBootstrapPayload,
   type InboxMessage,
 } from "./inbox-model";
-import { renderSafeText } from "@/lib/renderSafeText";
 import styles from "./page.module.css";
 
 type InboxTab = "messages" | "automation";
@@ -581,14 +572,6 @@ const INBOX_BOT_PLAN_HREF = "/planos?intent=bot_ia&from=inbox_bot";
 const INBOX_MANUAL_QUEUE_STORAGE_KEY = "hbx:inbox:manual-queue-overrides";
 const INBOX_DELETED_CONVERSATION_ALIASES_STORAGE_KEY = "hbx:inbox:deleted-conversation-aliases";
 const INBOX_GLOBAL_BOT_ENABLED_STORAGE_KEY = "hbx:inbox:global-bot-enabled";
-const INBOX_INITIAL_MIRROR_SESSION_KEY = "hbx:inbox:full-bootstrap:session";
-const INBOX_BOOTSTRAP_STAGE_SEQUENCE = [
-  { label: "Lendo motor", value: "01/04" },
-  { label: "Espelhando conversas", value: "02/04" },
-  { label: "Baixando historico", value: "03/04" },
-  { label: "Gravando nomes, fotos e midias", value: "04/04" },
-] as const;
-
 const ATENDIMENTO_PENDING_STORAGE_KEY = "atendimentoPendingHumanCount";
 const ATENDIMENTO_PROGRESS_STEPS = ["lendo banco", "filtrando negativos", "selecionando melhores cards", "alimentando Vendas/Prospecção"];
 const DEFAULT_META_TEMPLATES_PAYLOAD: RecoveryMetaTemplatesPayload = {
@@ -850,42 +833,6 @@ function DockButton({
   );
 }
 
-function formatAutomationStatusLabel(status: ProspectingAutomationStatusValue) {
-  switch (status) {
-    case "buscando":
-      return "Buscando";
-    case "importando":
-      return "Importando";
-    case "agendando":
-      return "Agendando";
-    case "enviando":
-      return "Enviando";
-    case "aguardando":
-      return "Aguardando";
-    case "dormindo":
-      return "Bot dormindo";
-    case "pausado":
-      return "Pausado";
-    case "erro":
-      return "Erro";
-    default:
-      return "Parado";
-  }
-}
-
-function formatAutomationScheduleLabel(value?: string | null) {
-  if (!value) return null;
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return null;
-  const now = new Date();
-  const startOf = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-  const diffDays = Math.round((startOf(parsed) - startOf(now)) / 86400000);
-  const time = parsed.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-  if (diffDays === 0) return `Próximo envio hoje às ${time}`;
-  if (diffDays === 1) return `Próximo envio amanhã às ${time}`;
-  return `Próximo envio em ${parsed.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} às ${time}`;
-}
-
 function resolveNextProspectionSendAt(status: ProspectingAutomationLiveStatus | null) {
   if (status?.campaign?.status !== "running") return null;
   const lastSuccessfulSendAt = new Date(String(status.lastSuccessfulSendAt || ""));
@@ -928,71 +875,6 @@ function ProspectionCountdownBadge({ targetAt }: { targetAt: string }) {
   const label = formatProspectionCountdownLabel(targetAt, now);
   if (!label) return null;
   return <span className={styles.commandDockRobotTimer}>{label}</span>;
-}
-
-function parseAutomationClock(value: string | null | undefined, fallback: string) {
-  const source = /^\d{2}:\d{2}$/.test(String(value || "")) ? String(value) : fallback;
-  const [hourRaw, minuteRaw] = source.split(":");
-  return {
-    hour: Math.min(23, Math.max(0, Number(hourRaw) || 0)),
-    minute: Math.min(59, Math.max(0, Number(minuteRaw) || 0)),
-  };
-}
-
-function getNextAutomationWorkingStart(
-  campaign: ProspectingAutomationLiveStatus["campaign"],
-  reference = new Date(),
-) {
-  const start = parseAutomationClock(campaign?.workingHoursStart, "09:00");
-  const end = parseAutomationClock(campaign?.workingHoursEnd, "17:30");
-  const target = new Date(reference);
-  target.setSeconds(0, 0);
-
-  const moveToNextBusinessDay = () => {
-    do {
-      target.setDate(target.getDate() + 1);
-    } while (target.getDay() === 0 || target.getDay() === 6);
-    target.setHours(start.hour, start.minute, 0, 0);
-  };
-
-  if (target.getDay() === 0 || target.getDay() === 6) {
-    moveToNextBusinessDay();
-    return target;
-  }
-
-  const startToday = new Date(reference);
-  startToday.setHours(start.hour, start.minute, 0, 0);
-  const endToday = new Date(reference);
-  endToday.setHours(end.hour, end.minute, 0, 0);
-
-  if (reference.getTime() < startToday.getTime()) return startToday;
-  if (reference.getTime() <= endToday.getTime()) return reference;
-
-  moveToNextBusinessDay();
-  return target;
-}
-
-function isAutomationInsideWorkingWindow(campaign: ProspectingAutomationLiveStatus["campaign"]) {
-  if (!campaign || campaign.status !== "running") return true;
-  const now = new Date();
-  if (now.getDay() === 0 || now.getDay() === 6) return false;
-  const start = parseAutomationClock(campaign.workingHoursStart, "09:00");
-  const end = parseAutomationClock(campaign.workingHoursEnd, "17:30");
-  const startToday = new Date(now);
-  startToday.setHours(start.hour, start.minute, 0, 0);
-  const endToday = new Date(now);
-  endToday.setHours(end.hour, end.minute, 0, 0);
-  return now.getTime() >= startToday.getTime() && now.getTime() <= endToday.getTime();
-}
-
-function formatAutomationSleepingText(campaign: ProspectingAutomationLiveStatus["campaign"]) {
-  const next = getNextAutomationWorkingStart(campaign);
-  const today = new Date();
-  const startOf = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-  const diffDays = Math.round((startOf(next) - startOf(today)) / 86400000);
-  const time = next.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-  const dayLabel = diffDays === 0 ? "hoje" : diffDays === 1 ? "amanhã" : `em ${next.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}`;
-  return `Bot em repouso. Fora do horário operacional; retomada ${dayLabel} às ${time}.`;
 }
 
 function getProspectingRobotTone(
@@ -1358,90 +1240,6 @@ function toProspectingCampaignPayload(config: ProspectingCampaignConfig): Record
       optOutReplyEnabled: config.optOutReplyEnabled,
     },
   };
-}
-
-function ProspectingAutomationStatus({
-  status,
-  loading,
-  actionLoading,
-  disabled = false,
-  onConfigure,
-  onPause,
-  onResume,
-}: {
-  status: ProspectingAutomationLiveStatus | null;
-  loading: boolean;
-  actionLoading: boolean;
-  disabled?: boolean;
-  onConfigure: () => void;
-  onPause: () => void;
-  onResume: () => void;
-}) {
-  const outsideWorkingHours = Boolean(
-    status?.campaign?.status === "running" && !isAutomationInsideWorkingWindow(status.campaign),
-  );
-  const currentStatus = outsideWorkingHours ? "dormindo" : status?.status || "parado";
-  const rawCounters = status?.counters || {};
-  const counters = {
-    pending: Number(rawCounters.pending ?? rawCounters.todayPending ?? 0) || 0,
-    sent: Number(rawCounters.sent ?? 0) || 0,
-    interested: Number(rawCounters.interested ?? rawCounters.positives ?? 0) || 0,
-    archived: Number(rawCounters.archived ?? 0) || 0,
-    failed: Number(rawCounters.failed ?? 0) || 0,
-  };
-  const nextLabel = formatAutomationScheduleLabel(status?.nextScheduledAt);
-  const busy =
-    !outsideWorkingHours &&
-    (
-      loading ||
-      currentStatus === "buscando" ||
-      currentStatus === "importando" ||
-      currentStatus === "agendando" ||
-      currentStatus === "enviando"
-    );
-  const canPause = Boolean(status?.campaign && status.campaign.status === "running" && currentStatus !== "dormindo");
-  const canResume = Boolean(status?.campaign && status.campaign.status === "paused");
-  const text =
-    disabled
-      ? "Hbot desativado. Ative o Hbot para controlar a prospecção."
-      : outsideWorkingHours
-        ? formatAutomationSleepingText(status?.campaign || null)
-        : status?.text ||
-          nextLabel ||
-          (counters.pending > 0 ? `${counters.pending} contatos na fila` : "Automação parada");
-
-  return (
-    <section className={styles.automationPulse} data-status={currentStatus} data-disabled={disabled ? "true" : "false"}>
-      <div className={styles.automationPulseMain}>
-        <span className={styles.automationPulseDot} data-busy={busy ? "true" : "false"} />
-        <div className={styles.automationPulseText}>
-          <strong>{formatAutomationStatusLabel(currentStatus)}</strong>
-          <span>{!disabled && nextLabel && currentStatus === "aguardando" ? nextLabel : text}</span>
-        </div>
-      </div>
-      <div className={styles.automationPulseCounters} aria-label="Resumo da prospecção automática">
-        <span>Pendentes <strong>{counters.pending}</strong></span>
-        <span>Enviados <strong>{counters.sent}</strong></span>
-        <span>Interessados <strong>{counters.interested}</strong></span>
-        <span title="Negativos, sem resposta, pulados ou encerrados pela automação">Encerrados <strong>{counters.archived}</strong></span>
-        <span>Falhas <strong>{counters.failed}</strong></span>
-      </div>
-      <div className={styles.automationPulseActions}>
-        <button type="button" onClick={onConfigure} disabled={disabled}>
-          Configurar
-        </button>
-        {canPause ? (
-          <button type="button" onClick={onPause} disabled={disabled || actionLoading}>
-            {actionLoading ? "..." : "Pausar"}
-          </button>
-        ) : canResume ? (
-          <button type="button" onClick={onResume} disabled={disabled || actionLoading}>
-            {actionLoading ? "..." : "Ativar"}
-          </button>
-        ) : null}
-      </div>
-    </section>
-  );
 }
 
 type ProspectingVariantField =
@@ -3343,53 +3141,6 @@ function isProspectingInterestedConversation(conversation?: InboxConversation | 
   );
 }
 
-function parseInboxDateOnlyKey(value: string) {
-  const normalized = String(value || "").trim();
-  if (!normalized) return null;
-  const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) return null;
-  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 0, 0, 0, 0);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
-function normalizeInboxComparableDate(value: unknown) {
-  const asDateOnly = parseInboxDateOnlyKey(String(value || ""));
-  if (asDateOnly) return asDateOnly;
-  const parsed = new Date(String(value || ""));
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
-function isSameInboxCalendarDay(left: Date, right: Date) {
-  return (
-    left.getFullYear() === right.getFullYear() &&
-    left.getMonth() === right.getMonth() &&
-    left.getDate() === right.getDate()
-  );
-}
-
-function isInboxWebscrapingToday(conversation?: InboxConversation | null) {
-  if (!conversation) return false;
-  const vendasAgendaQueue = getInboxVendasAgendaQueue(conversation);
-  if (parseInboxBooleanFlag(vendasAgendaQueue?.active)) return true;
-
-  const metadata = getInboxConversationMetadata(conversation);
-  const sourceCandidates = [
-    conversation.latestSourceModule,
-    metadata?.latestSourceModule,
-    metadata?.sourceModule,
-    metadata?.originFlow,
-  ]
-    .map((value) => String(value || "").trim().toLowerCase())
-    .filter(Boolean);
-
-  const fromWebscraping = sourceCandidates.some((value) => value.includes("webscraping"));
-  if (!fromWebscraping) return false;
-
-  const activityAt = normalizeInboxComparableDate(getInboxConversationActivityAt(conversation));
-  if (!activityAt) return false;
-  return isSameInboxCalendarDay(activityAt, new Date());
-}
-
 type InboxBucket = "conversas" | "prospeccao" | "atendimento" | "excluidos" | "recovery" | "groups" | "blocked";
 
 function mapInboxBucketToQueue(bucket: InboxBucket): InboxQueue {
@@ -4186,14 +3937,6 @@ function formatInboxPhoneLabel(raw: string | null | undefined) {
   return digits;
 }
 
-function getInboxConversationDisplayPhone(conversation?: InboxConversation | null) {
-  if (!conversation) return null;
-  return (
-    formatInboxPhoneLabel(conversation.customer?.phone) ||
-    formatInboxPhoneLabel(extractInboxRawContact(conversation))
-  );
-}
-
 function isInboxDisplayNameEquivalentToPhone(displayName: string, rawPhone?: string | null) {
   const nameDigits = displayName.replace(/\D/g, "");
   const phoneDigits = extractInboxContactDigits(rawPhone);
@@ -4840,11 +4583,6 @@ function formatInboxMessageDayLabel(dateStr: string | null | undefined, mounted:
   });
 }
 
-function isMobileAtendimentoViewport() {
-  if (typeof window === "undefined") return false;
-  return window.matchMedia("(max-width: 820px)").matches;
-}
-
 function isInboxSameCalendarDay(
   leftDate: string | null | undefined,
   rightDate: string | null | undefined,
@@ -5018,7 +4756,7 @@ function InboxDesktopClientPage() {
   const [conversations, setConversations] = useState<InboxConversation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedConversation, setSelectedConversation] = useState<InboxConversation | null>(null);
-  const [whatsappSession, setWhatsappSession] = useState<InboxBootstrapPayload["whatsappSession"]>(null);
+  const [, setWhatsappSession] = useState<InboxBootstrapPayload["whatsappSession"]>(null);
   const [whatsappSessionCleanup, setWhatsappSessionCleanup] =
     useState<InboxBootstrapPayload["whatsappSessionCleanup"]>(null);
   const [whatsappSessionCleanupBusy, setWhatsappSessionCleanupBusy] = useState<"merge" | "discard" | null>(null);
@@ -5035,7 +4773,7 @@ function InboxDesktopClientPage() {
   const [olderMessagesHasMore, setOlderMessagesHasMore] = useState(false);
   const [olderMessagesBefore, setOlderMessagesBefore] = useState<string | null>(null);
   const [loadingBot, setLoadingBot] = useState(false);
-  const [savingBot, setSavingBot] = useState(false);
+  const [, setSavingBot] = useState(false);
   const [loadingAgenda, setLoadingAgenda] = useState(false);
   const [savingAgenda, setSavingAgenda] = useState(false);
   const [atendimentoVisualCount, setAtendimentoVisualCount] = useState(0);
@@ -5121,12 +4859,12 @@ function InboxDesktopClientPage() {
   const [whatsappCenterPayload, setWhatsappCenterPayload] = useState<WhatsAppCenterPayload | null>(null);
   const [currentUserProfile, setCurrentUserProfile] = useState<CurrentUserProfile | null>(null);
   const [userModules, setUserModules] = useState<UserModule[]>([]);
-  const [expandedAlerts, setExpandedAlerts] = useState<Record<InboxAlertKind | "system_notice", boolean>>({
+  const [, setExpandedAlerts] = useState<Record<InboxAlertKind | "system_notice", boolean>>({
     human_queue: false,
     new_message: false,
     system_notice: false,
   });
-  const [dismissedAlerts, setDismissedAlerts] = useState<Record<InboxAlertKind, boolean>>({
+  const [, setDismissedAlerts] = useState<Record<InboxAlertKind, boolean>>({
     human_queue: false,
     new_message: false,
   });
@@ -5177,15 +4915,7 @@ function InboxDesktopClientPage() {
     at: 0,
   });
   const deferredConversationSearch = useDeferredValue(conversationSearch);
-  const inboxBootstrapLaunchNotice = useQuickLaunchNotice();
   const initialMirrorBootstrapStartedRef = useRef(false);
-  const [inboxBootstrapProgressLabel, setInboxBootstrapProgressLabel] = useState<string | null>(null);
-  const [inboxBootstrapProgressValueLabel, setInboxBootstrapProgressValueLabel] = useState<string | null>(null);
-  const [inboxBootstrapDetailRows, setInboxBootstrapDetailRows] = useState<
-    Array<{ label: string; value: string }>
-  >([]);
-  const [inboxBootstrapCelebrate, setInboxBootstrapCelebrate] = useState(false);
-  const inboxBootstrapStageTimerRef = useRef<number | null>(null);
   const botAiActive = hasBotAi(commercialPlans);
   const botSetupComplete = isAtendimentoBotSetupComplete(botConfig);
   const globalBotEnabled = botAiActive && botSetupComplete && botConfig.routingRules.globalBotEnabled !== false;
@@ -5478,111 +5208,6 @@ function InboxDesktopClientPage() {
     if (!conversation || isInboxConversationSummaryOnly(conversation)) return;
     conversationDetailCacheRef.current.set(conversation.id, clearInboxConversationSummaryOnly(conversation) || conversation);
   }, []);
-
-  const clearInboxBootstrapStageTimer = useCallback(() => {
-    if (inboxBootstrapStageTimerRef.current !== null && typeof window !== "undefined") {
-      window.clearInterval(inboxBootstrapStageTimerRef.current);
-    }
-    inboxBootstrapStageTimerRef.current = null;
-  }, []);
-
-  const closeInboxBootstrapLaunchDialog = useCallback(() => {
-    clearInboxBootstrapStageTimer();
-    setInboxBootstrapProgressLabel(null);
-    setInboxBootstrapProgressValueLabel(null);
-    setInboxBootstrapDetailRows([]);
-    setInboxBootstrapCelebrate(false);
-    inboxBootstrapLaunchNotice.clear();
-  }, [clearInboxBootstrapStageTimer, inboxBootstrapLaunchNotice]);
-
-  const buildInboxBootstrapDetailRows = useCallback(
-    (payload?: Partial<InboxFullBootstrapPayload> | null) => [
-      {
-        label: "Motor",
-        value: payload?.connected === false ? "Offline" : "Online",
-      },
-      {
-        label: "Contatos",
-        value: String(Math.max(0, Number(payload?.contactsSynced || 0))),
-      },
-      {
-        label: "Conversas",
-        value: `${Math.max(0, Number(payload?.conversationsMirrored || 0))}/${Math.max(
-          0,
-          Number(payload?.conversationsDiscovered || 0),
-        )}`,
-      },
-      {
-        label: "Mensagens",
-        value: String(Math.max(0, Number(payload?.messagesMirrored || 0))),
-      },
-    ],
-    [],
-  );
-
-  const runInitialInboxMirrorBootstrap = useCallback(async () => {
-    if (typeof window === "undefined") return null;
-    if (window.sessionStorage.getItem(INBOX_INITIAL_MIRROR_SESSION_KEY) === "done") {
-      return null;
-    }
-
-    clearInboxBootstrapStageTimer();
-    setInboxBootstrapCelebrate(false);
-    setInboxBootstrapDetailRows(buildInboxBootstrapDetailRows());
-    setInboxBootstrapProgressLabel(INBOX_BOOTSTRAP_STAGE_SEQUENCE[0].label);
-    setInboxBootstrapProgressValueLabel(INBOX_BOOTSTRAP_STAGE_SEQUENCE[0].value);
-    inboxBootstrapLaunchNotice.start({
-      loadingTitle: "Carregando WhatsApp",
-      loadingDescription:
-        "Baixando conversas, nomes, fotos e midias do motor para deixar a inbox pronta no backend.",
-      successTitle: "Inbox pronta",
-      successDescription: "Tudo espelhado no backend. Vamos abrir o Atendimento.",
-      ctaLabel: "Abrir inbox",
-      onOpen: closeInboxBootstrapLaunchDialog,
-    });
-
-    let stageIndex = 0;
-    inboxBootstrapStageTimerRef.current = window.setInterval(() => {
-      stageIndex = Math.min(stageIndex + 1, INBOX_BOOTSTRAP_STAGE_SEQUENCE.length - 1);
-      const stage = INBOX_BOOTSTRAP_STAGE_SEQUENCE[stageIndex];
-      setInboxBootstrapProgressLabel(stage.label);
-      setInboxBootstrapProgressValueLabel(stage.value);
-    }, 900);
-
-    try {
-      const payload = await apiFetch<InboxFullBootstrapPayload>("/inbox/bootstrap/full/background?take=120", {
-        method: "POST",
-      });
-      clearInboxBootstrapStageTimer();
-      setInboxBootstrapProgressLabel(
-        payload.heavySync ? "Espelhamento pesado concluido" : "Espelhamento concluido",
-      );
-      setInboxBootstrapProgressValueLabel(
-        payload.pagesFetched > 0 ? `${payload.pagesFetched} pag.` : "100%",
-      );
-      setInboxBootstrapDetailRows(buildInboxBootstrapDetailRows(payload));
-      setInboxBootstrapCelebrate(Boolean(payload.heavySync));
-      window.sessionStorage.setItem(INBOX_INITIAL_MIRROR_SESSION_KEY, "done");
-      if (payload.message) {
-        setNotice({ tone: "success", text: payload.message });
-      }
-      inboxBootstrapLaunchNotice.markSuccess({
-        successDescription:
-          payload.message ||
-          "Conversas, nomes, fotos e historico foram puxados do motor e gravados no backend.",
-      });
-      return payload;
-    } catch (bootstrapError) {
-      clearInboxBootstrapStageTimer();
-      closeInboxBootstrapLaunchDialog();
-      throw bootstrapError;
-    }
-  }, [
-    buildInboxBootstrapDetailRows,
-    clearInboxBootstrapStageTimer,
-    closeInboxBootstrapLaunchDialog,
-    inboxBootstrapLaunchNotice,
-  ]);
 
   const bootstrapInbox = useCallback(async (options?: { take?: number }) => {
     const take = Math.max(
@@ -6604,8 +6229,6 @@ function InboxDesktopClientPage() {
     }
   }, []);
 
-  useEffect(() => () => clearInboxBootstrapStageTimer(), [clearInboxBootstrapStageTimer]);
-
   useEffect(() => {
     if (hasToken !== true) return;
     if (initialMirrorBootstrapStartedRef.current) return;
@@ -6793,14 +6416,6 @@ function InboxDesktopClientPage() {
     if (!agendaStudioOpen) return;
     void loadAgendaConfig();
   }, [agendaStudioOpen, hasToken, loadAgendaConfig]);
-
-  const queueByConversationId = useMemo(() => {
-    const entries = conversations.map((conversation) => [
-      conversation.id,
-      getInboxConversationQueue(conversation, manualQueueOverrides),
-    ] as const);
-    return Object.fromEntries(entries) as Record<string, InboxQueue>;
-  }, [conversations, manualQueueOverrides]);
 
   useEffect(() => {
     conversationListScrollRef.current?.scrollTo({ top: 0 });
@@ -8751,6 +8366,7 @@ function InboxDesktopClientPage() {
                                   aria-label="Abrir imagem"
                                   title="Abrir imagem"
                                 >
+                                  {/* eslint-disable-next-line @next/next/no-img-element -- Midias do WhatsApp podem vir como blob/base64/provider URL. */}
                                   <img
                                     src={rendered.imageUrl}
                                     alt="Imagem enviada"
@@ -8936,7 +8552,10 @@ function InboxDesktopClientPage() {
                 {imagePreview ? (
                   <div className={styles.whatsAppImagePreviewBar}>
                     {imagePreview.kind === "image" || imagePreview.kind === "sticker" ? (
-                      <img src={imagePreview.url} alt="preview" className={styles.whatsAppImagePreviewThumb} />
+                      <>
+                        {/* eslint-disable-next-line @next/next/no-img-element -- Preview local usa object URL do arquivo anexado. */}
+                        <img src={imagePreview.url} alt="preview" className={styles.whatsAppImagePreviewThumb} />
+                      </>
                     ) : (
                       <div className={styles.whatsAppAttachmentPreviewIcon}>
                         {imagePreview.kind === "audio"
@@ -9199,11 +8818,14 @@ function InboxDesktopClientPage() {
                         />
                       </>
                     ) : (
-                      <img
-                        src={openedAsset.src}
-                        alt={openedAsset.alt}
-                        className={styles.whatsAppImageLightboxImage}
-                      />
+                      <>
+                        {/* eslint-disable-next-line @next/next/no-img-element -- Lightbox preserva URL original da midia recebida. */}
+                        <img
+                          src={openedAsset.src}
+                          alt={openedAsset.alt}
+                          className={styles.whatsAppImageLightboxImage}
+                        />
+                      </>
                     )}
                   </div>
                 </div>
@@ -9829,25 +9451,6 @@ function InboxDesktopClientPage() {
     [],
   );
 
-  const moveAgendaGroup = useCallback((groupId: string, direction: -1 | 1) => {
-    setAgendaDirty(true);
-    setAgendaConfig((current) => {
-      const index = current.groups.findIndex((group) => group.id === groupId);
-      const nextIndex = index + direction;
-      if (index < 0 || nextIndex < 0 || nextIndex >= current.groups.length) return current;
-      const groups = [...current.groups];
-      const [group] = groups.splice(index, 1);
-      groups.splice(nextIndex, 0, group);
-      return {
-        ...current,
-        groups: groups.map((item, itemIndex) => ({
-          ...item,
-          sortOrder: itemIndex,
-        })),
-      };
-    });
-  }, []);
-
   const linkAgendaToCurrentUser = useCallback(
     (groupId: string) => {
       const email = String(currentUserProfile?.email || "").trim().toLowerCase();
@@ -9932,68 +9535,6 @@ function InboxDesktopClientPage() {
     [],
   );
 
-  const updateAgendaHolidays = useCallback((holidays: string[]) => {
-    setAgendaConfig((current) => ({
-      ...current,
-      holidays: holidays.sort(),
-    }));
-  }, []);
-
-  const updateAgendaInitialMessage = useCallback(
-    (
-      field: keyof AtendimentoAgendaConfig["initialMessage"],
-      value: string,
-    ) => {
-      setAgendaDirty(true);
-      setAgendaConfig((current) => ({
-        ...current,
-        initialMessage: {
-          ...current.initialMessage,
-          [field]: value,
-        },
-      }));
-    },
-    [],
-  );
-
-  const updateAgendaFlowMessage = useCallback(
-    (
-      field: keyof AtendimentoAgendaConfig["flowMessages"],
-      value: string,
-    ) => {
-      setAgendaDirty(true);
-      setAgendaConfig((current) => ({
-        ...current,
-        flowMessages: {
-          ...current.flowMessages,
-          [field]: value,
-        },
-      }));
-    },
-    [],
-  );
-
-  const loadAgendaHolidaysFromAPI = useCallback(async () => {
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    try {
-      const holidays = await fetchBrazilianHolidays(currentYear);
-      if (holidays.length === 0) {
-        setError("Nenhum feriado encontrado para o ano atual.");
-        return;
-      }
-      setAgendaDirty(true);
-      setAgendaConfig((current) => ({
-        ...current,
-        holidays: Array.from(new Set([...current.holidays, ...holidays])).sort(),
-      }));
-      setNotice({ tone: "success", text: `${holidays.length} feriados carregados com sucesso.` });
-    } catch (loadError) {
-      const message = loadError instanceof Error ? loadError.message : "Falha ao carregar feriados.";
-      setError(message);
-    }
-  }, []);
-
   const saveAgenda = useCallback(async () => {
     setSavingAgenda(true);
     setError(null);
@@ -10025,43 +9566,6 @@ function InboxDesktopClientPage() {
       setSavingAgenda(false);
     }
   }, [agendaConfig, botConfig, botConfigDirtyFromAgendaReset, openBotPlansFromError, requireBotAi, sanitizeBotConfigForCurrentTenant]);
-
-  const simulateAgendaFlow = useCallback(
-    async (payload: AtendimentoAgendaSimulationPayload) => {
-      return apiFetch<AtendimentoAgendaSimulationResult>("/inbox/agenda/simulate", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
-    },
-    [],
-  );
-
-  const syncBotConfig = useCallback((nextConfig: AtendimentoBotConfig) => {
-    setBotConfig(sanitizeBotConfigForCurrentTenant(nextConfig));
-  }, [sanitizeBotConfigForCurrentTenant]);
-
-  const saveBot = useCallback(async (nextConfig: AtendimentoBotConfig = botConfig) => {
-    if (!requireBotAi()) return;
-    setSavingBot(true);
-    setError(null);
-    const sanitizedNextConfig = sanitizeBotConfigForCurrentTenant(nextConfig);
-    try {
-      const payload = await apiFetch<AtendimentoBotConfig>("/inbox/bot-config", {
-        method: "PATCH",
-        body: JSON.stringify(sanitizedNextConfig),
-      });
-      const normalized = sanitizeBotConfigForCurrentTenant(payload);
-      writeStoredGlobalBotEnabled(normalized.routingRules.globalBotEnabled !== false);
-      setBotConfig(normalized);
-      setNotice({ tone: "success", text: "Editor do bot salvo com sucesso." });
-    } catch (saveError) {
-      if (openBotPlansFromError(saveError)) return;
-      const message = saveError instanceof Error ? saveError.message : "Falha ao salvar editor.";
-      setError(message);
-    } finally {
-      setSavingBot(false);
-    }
-  }, [botConfig, openBotPlansFromError, requireBotAi, sanitizeBotConfigForCurrentTenant]);
 
   function scheduleAlertCollapse(
     key: InboxAlertKind | "system_notice",
@@ -10665,15 +10169,6 @@ function InboxDesktopClientPage() {
           }
         />
       </HbxConfirmDialog>
-
-      <PremiumLaunchDialog
-        notice={inboxBootstrapLaunchNotice.notice}
-        onOpen={closeInboxBootstrapLaunchDialog}
-        progressLabel={inboxBootstrapProgressLabel}
-        progressValueLabel={inboxBootstrapProgressValueLabel}
-        detailRows={inboxBootstrapDetailRows}
-        celebrate={inboxBootstrapCelebrate}
-      />
 
       {whatsappSessionCleanup?.required ? (
         <HbxPopup2
