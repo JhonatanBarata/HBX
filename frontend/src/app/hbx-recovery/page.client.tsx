@@ -71,7 +71,6 @@ import {
   type RecoveryBotConfig,
   type RecoveryBotVariableDefinition,
   type RecoveryCustomer,
-  type RecoveryFlowStage,
   type RecoveryInteractionConversation,
   type RecoveryInteractionDetail,
   type RecoveryInteractionMessage,
@@ -210,13 +209,6 @@ type RecoveryHumanAttentionPopup = {
 
 type RecoveryHumanAttentionFeedItem = RecoveryHumanAttentionPopup & {
   id: string;
-};
-
-type RecoveryNoticeHistoryItem = {
-  id: string;
-  message: string;
-  tone: "info" | "error";
-  createdAt: string;
 };
 
 function getLatestInboundPreview(messages: RecoveryInteractionMessage[]) {
@@ -448,24 +440,6 @@ function mapPaymentStatusLabel(statusRaw: string | null | undefined) {
     preparing: "Preparando",
   };
   return labels[status] || (status ? status : "-");
-}
-
-function getInteractionEventType(message: RecoveryInteractionMessage) {
-  const eventType = message.variables?.eventType;
-  return String(eventType || "").trim().toLowerCase();
-}
-
-function isLowSignalInteractionMessage(message: RecoveryInteractionMessage) {
-  const eventType = getInteractionEventType(message);
-  return (
-    String(message.messageType || "").trim().toLowerCase() === "system_event" &&
-    eventType === "template_start"
-  );
-}
-
-function shouldShowInteractionVariables(message: RecoveryInteractionMessage) {
-  const messageType = String(message.messageType || "").trim().toLowerCase();
-  return messageType !== "template" && messageType !== "system_event";
 }
 
 function isoDateToMaskedDigits(isoDate: string) {
@@ -1413,10 +1387,6 @@ const BOT_ACTION_LABELS: Record<RecoveryBotActionId, string> = {
   paid_claim: "Ja paguei",
 };
 
-const BOT_ACTION_OPTIONS: Array<{ value: RecoveryBotActionId; label: string }> = (
-  Object.keys(BOT_ACTION_LABELS) as RecoveryBotActionId[]
-).map((value) => ({ value, label: BOT_ACTION_LABELS[value] }));
-
 function getBotActionLabel(actionId: string) {
   return BOT_ACTION_LABELS[actionId as RecoveryBotActionId] || actionId;
 }
@@ -1655,10 +1625,6 @@ function getRecoveryStartTemplateIssues(template: RecoveryMetaTemplateItem | nul
   return issues;
 }
 
-function isRecoveryStartTemplateCompatible(template: RecoveryMetaTemplateItem | null | undefined) {
-  return getRecoveryStartTemplateIssues(template).length === 0;
-}
-
 function moveTemplateWindowOrder(
   currentOrder: TemplateWindowId[],
   id: TemplateWindowId,
@@ -1753,9 +1719,6 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
   const [botConfig, setBotConfig] = useState<RecoveryBotConfig>(ensureBotConfigShape(DEFAULT_BOT_CONFIG));
   const [loadingBotConfig, setLoadingBotConfig] = useState(true);
   const [savingBotConfig, setSavingBotConfig] = useState(false);
-  const [flowStages, setFlowStages] = useState<RecoveryFlowStage[]>([]);
-  const [loadingFlowStages, setLoadingFlowStages] = useState(false);
-  const [movingFlowStageId, setMovingFlowStageId] = useState<string | null>(null);
   const [metaTemplates, setMetaTemplates] = useState<RecoveryMetaTemplatesPayload>(
     DEFAULT_META_TEMPLATES_PAYLOAD,
   );
@@ -1770,9 +1733,6 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
   const [templateComposerPreviewVisible, setTemplateComposerPreviewVisible] = useState(false);
   const [templateVariablePickerOpen, setTemplateVariablePickerOpen] = useState(false);
   const [templatePreviewRendered, setTemplatePreviewRendered] = useState(false);
-  const [templatePreviewTransitionStage, setTemplatePreviewTransitionStage] = useState<
-    "idle" | "exit" | "enter"
-  >("idle");
   const [templateHeaderDropActive, setTemplateHeaderDropActive] = useState(false);
   const [recoveryLayout, setRecoveryLayout] = useState<RecoveryLayoutConfig>(
     DEFAULT_RECOVERY_LAYOUT_CONFIG,
@@ -1785,7 +1745,6 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
   const [drawerBusyAction, setDrawerBusyAction] = useState<DrawerActionId | null>(null);
   const [activeTab, setActiveTab] = useState<RecoveryTab>(requestedTab);
   const [renderedTab, setRenderedTab] = useState<RecoveryTab>(requestedTab);
-  const [tabTransitionStage, setTabTransitionStage] = useState<"idle" | "exit" | "enter">("idle");
   const [currentUserProfile, setCurrentUserProfile] = useState<RecoveryCurrentUserPayload | null>(
     null,
   );
@@ -1809,7 +1768,6 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
   });
   const [interactionsQueue, setInteractionsQueue] = useState<"all" | "closed" | "blocked">("all");
   const [loadingInteractions, setLoadingInteractions] = useState(false);
-  const [refreshingInteractions, setRefreshingInteractions] = useState(false);
   const [loadingInteractionDetailId, setLoadingInteractionDetailId] = useState<number | null>(null);
   const [interactionSummary, setInteractionSummary] = useState<RecoveryInteractionSummary>({
     queue: "all",
@@ -1842,7 +1800,6 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
   const [notice, setNotice] = useState<string | null>(
     "Carteira carregada com empresas cadastradas no Recovery. O envio de WhatsApp usa o motor oficial por empresa.",
   );
-  const [noticeHistory, setNoticeHistory] = useState<RecoveryNoticeHistoryItem[]>([]);
   const [noticeRendered, setNoticeRendered] = useState(Boolean(notice));
   const [noticeTransitionStage, setNoticeTransitionStage] = useState<"idle" | "enter" | "exit">(
     notice ? "enter" : "idle",
@@ -1855,9 +1812,6 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
   const [importPreviewIssues, setImportPreviewIssues] = useState<RecoveryImportIssue[]>([]);
   const [importPreviewError, setImportPreviewError] = useState<string | null>(null);
   const [importingRows, setImportingRows] = useState(false);
-  const [creatingFlowStage, setCreatingFlowStage] = useState(false);
-  const [savingFlowStageId, setSavingFlowStageId] = useState<string | null>(null);
-  const [deletingFlowStageId, setDeletingFlowStageId] = useState<string | null>(null);
   const [loadingCustomers, setLoadingCustomers] = useState(true);
   const [customerRegisterFilter, setCustomerRegisterFilter] =
     useState<RecoveryRegisterFilterId>("overdue");
@@ -1883,7 +1837,6 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
   const closeTimerRef = useRef<number | null>(null);
   const customerRefreshTimerRef = useRef<number | null>(null);
   const tabTransitionTimerRef = useRef<number | null>(null);
-  const templatePreviewTransitionTimerRef = useRef<number | null>(null);
   const noticeTransitionTimerRef = useRef<number | null>(null);
   const noticeAutoDismissTimerRef = useRef<number | null>(null);
   const noticeCloseLockTimerRef = useRef<number | null>(null);
@@ -1893,9 +1846,8 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
   const interactionDetailLastInboundRef = useRef<Map<number, string>>(new Map());
   const dismissedHumanAttentionRef = useRef<Map<number, string>>(new Map());
   const humanAttentionRequestRef = useRef(0);
-  const workspaceCanvasRef = useRef<HTMLDivElement | null>(null);
-  const composerCanvasRef = useRef<HTMLDivElement | null>(null);
-  const templatesWorkspaceRef = useRef<HTMLDivElement | null>(null);
+  const loadInteractionsRef = useRef<((options?: { silent?: boolean }) => Promise<void>) | null>(null);
+  const loadInteractionDetailRef = useRef<((conversationId: number) => Promise<void>) | null>(null);
   const templateComposerLayoutRef = useRef<HTMLDivElement | null>(null);
   const templateCatalogListRef = useRef<HTMLDivElement | null>(null);
   const templateComposerWindowRef = useRef<HTMLElement | null>(null);
@@ -1925,8 +1877,6 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
   const [draggingTemplateWindowId, setDraggingTemplateWindowId] = useState<TemplateWindowId | null>(
     null,
   );
-  const [draggingTemplateSection, setDraggingTemplateSection] = useState<"workspace" | "history" | null>(null);
-  const [draggingTemplatePane, setDraggingTemplatePane] = useState<"composer" | "catalog" | null>(null);
   const [templateWindowSizes, setTemplateWindowSizes] = useState<
     Record<TemplateWindowId, TemplateWindowSize>
   >(DEFAULT_TEMPLATE_WINDOW_SIZES);
@@ -1971,24 +1921,6 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
       })),
     [botConfig.actionCatalog],
   );
-  useEffect(() => {
-    if (!notice) return;
-    setNoticeHistory((current) => {
-      if (current[0]?.message === notice) return current;
-      const tone: RecoveryNoticeHistoryItem["tone"] = /^falha\b/i.test(notice)
-        ? "error"
-        : "info";
-      return [
-        {
-          id: `${Date.now()}-${current.length}`,
-          message: notice,
-          tone,
-          createdAt: new Date().toISOString(),
-        },
-        ...current,
-      ].slice(0, 8);
-    });
-  }, [notice]);
   const filteredCustomers = useMemo(
     () =>
       customers.filter((customer) => {
@@ -2172,8 +2104,7 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
     [composerOrderedVariables],
   );
   const missingRecoveryVars = useMemo(() => {
-    const required = ["empresa", "cliente", "data_servico"];
-    return required.filter((item) => !composerVariables.includes(item));
+    return RECOVERY_REQUIRED_TEMPLATE_VARIABLES.filter((item) => !composerVariables.includes(item));
   }, [composerVariables]);
   const composerVariableTokens = useMemo(
     () => composerOrderedVariables.map((key) => buildTemplateVariableToken(key)),
@@ -2327,6 +2258,7 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
     templateComposer.headerFormat,
     templateComposer.headerHandle,
     templateComposer.headerMediaUrl,
+    templateComposer.name,
     templateComposer.headerText,
     templateComposer.variableMode,
   ]);
@@ -2488,20 +2420,6 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
       JSON.stringify(normalizeRecoveryLayoutConfig(recoveryLayout)),
     [recoveryLayout, recoveryLayoutDraft],
   );
-  const templatesWorkspaceStyle = useMemo(
-    () =>
-      ({
-        "--templates-primary-width": `${activeRecoveryLayout.templates.workspacePrimaryPercent}%`,
-        "--templates-secondary-width": `${100 - activeRecoveryLayout.templates.workspacePrimaryPercent}%`,
-        "--template-catalog-height": `${activeRecoveryLayout.templates.catalogHeight}px`,
-        "--template-composer-height": `${activeRecoveryLayout.templates.composerHeight}px`,
-      }) as CSSProperties,
-    [
-      activeRecoveryLayout.templates.catalogHeight,
-      activeRecoveryLayout.templates.composerHeight,
-      activeRecoveryLayout.templates.workspacePrimaryPercent,
-    ],
-  );
   const templateComposerLayoutStyle = useMemo(
     () =>
       ({
@@ -2509,10 +2427,6 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
         "--composer-preview-width": `${activeRecoveryLayout.templates.composerPreviewPercent}%`,
       }) as CSSProperties,
     [activeRecoveryLayout.templates.composerPreviewPercent],
-  );
-  const templatesSectionFlowStyle = useMemo(
-    () => ({ "--templates-preview-reserve": "0px" } as CSSProperties),
-    [],
   );
   const templateWindowStyleById = useMemo<
     Record<TemplateWindowId, CSSProperties>
@@ -2561,9 +2475,6 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
     }),
     [templateWindowSizes],
   );
-  const isCatalogLeadPane = activeRecoveryLayout.templates.workspaceLeadPane === "catalog";
-  const composerPaneOrder = isCatalogLeadPane ? 3 : 1;
-  const catalogPaneOrder = isCatalogLeadPane ? 1 : 3;
 
   useEffect(() => {
     if (templateWindowOrganizerOpen) return;
@@ -2571,33 +2482,8 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
   }, [deckTemplateWindows, templateWindowOrganizerOpen]);
 
   useEffect(() => {
-    if (templatePreviewTransitionTimerRef.current !== null) {
-      window.clearTimeout(templatePreviewTransitionTimerRef.current);
-      templatePreviewTransitionTimerRef.current = null;
-    }
-
-    if (templateComposerPreviewVisible) {
-      setTemplatePreviewRendered(true);
-      setTemplatePreviewTransitionStage("enter");
-      templatePreviewTransitionTimerRef.current = window.setTimeout(() => {
-        setTemplatePreviewTransitionStage("idle");
-        templatePreviewTransitionTimerRef.current = null;
-      }, 240);
-      return;
-    }
-
-    if (!templatePreviewRendered) {
-      setTemplatePreviewTransitionStage("idle");
-      return;
-    }
-
-    setTemplatePreviewTransitionStage("exit");
-    templatePreviewTransitionTimerRef.current = window.setTimeout(() => {
-      setTemplatePreviewRendered(false);
-      setTemplatePreviewTransitionStage("idle");
-      templatePreviewTransitionTimerRef.current = null;
-    }, 170);
-  }, [templateComposerPreviewVisible, templatePreviewRendered]);
+    setTemplatePreviewRendered(templateComposerPreviewVisible);
+  }, [templateComposerPreviewVisible]);
 
   useEffect(() => {
     return () => {
@@ -2609,9 +2495,6 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
       }
       if (tabTransitionTimerRef.current !== null) {
         window.clearTimeout(tabTransitionTimerRef.current);
-      }
-      if (templatePreviewTransitionTimerRef.current !== null) {
-        window.clearTimeout(templatePreviewTransitionTimerRef.current);
       }
     };
   }, []);
@@ -2836,7 +2719,7 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
   useEffect(() => {
     if (hasToken === false) return;
     const timer = window.setInterval(() => {
-      void loadInteractions("all", { silent: true });
+      void loadInteractionsRef.current?.({ silent: true });
     }, 5000);
     return () => window.clearInterval(timer);
   }, [activeTab, hasToken, interactionDetail?.conversationId]);
@@ -3207,16 +3090,6 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
     );
   }
 
-  function setTemplateLeadPane(pane: "composer" | "catalog") {
-    updateRecoveryLayoutDraft((current) => ({
-      ...current,
-      templates: {
-        ...current.templates,
-        workspaceLeadPane: pane,
-      },
-    }));
-  }
-
   function updateTemplateComposer(
     updater: (current: RecoveryTemplateComposer) => RecoveryTemplateComposer,
   ) {
@@ -3231,76 +3104,6 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
       variableExamples: {
         ...current.variableExamples,
         [normalizedKey]: value,
-      },
-    }));
-  }
-
-  function setWorkspaceLayoutMode(mode: "row" | "column") {
-    updateRecoveryLayoutDraft((current) => {
-      return {
-        ...current,
-        templates: {
-          ...current.templates,
-          workspaceMode: mode,
-        },
-      };
-    });
-  }
-
-  function setComposerLayoutMode(mode: "row" | "column") {
-    updateRecoveryLayoutDraft((current) => ({
-      ...current,
-      templates: {
-        ...current.templates,
-        composerMode: mode,
-      },
-    }));
-  }
-
-  function focusWorkspacePanel(panel: "primary" | "secondary") {
-    updateRecoveryLayoutDraft((current) => {
-      const currentPercent = current.templates.workspacePrimaryPercent;
-      const nextPercent = clampLayoutPercent(
-        currentPercent + (panel === "primary" ? 6 : -6),
-        40,
-        72,
-      );
-      return {
-        ...current,
-        templates: {
-          ...current.templates,
-          workspaceMode: "row",
-          workspacePrimaryPercent: nextPercent,
-        },
-      };
-    });
-  }
-
-  function focusComposerPanel(panel: "form" | "preview") {
-    updateRecoveryLayoutDraft((current) => {
-      const currentPercent = current.templates.composerPreviewPercent;
-      const nextPercent = clampLayoutPercent(
-        currentPercent + (panel === "preview" ? 6 : -6),
-        34,
-        62,
-      );
-      return {
-        ...current,
-        templates: {
-          ...current.templates,
-          composerMode: "row",
-          composerPreviewPercent: nextPercent,
-        },
-      };
-    });
-  }
-
-  function setTemplateHistoryPosition(position: "before" | "after") {
-    updateRecoveryLayoutDraft((current) => ({
-      ...current,
-      templates: {
-        ...current.templates,
-        historyPosition: position,
       },
     }));
   }
@@ -3673,14 +3476,11 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
   }
 
   async function loadInteractions(
-    queue = interactionsQueue,
     options?: { silent?: boolean },
   ) {
     if (hasToken === false) return;
     const silent = options?.silent ?? false;
-    if (silent || interactionSummary.conversations.length > 0 || interactionDetail) {
-      setRefreshingInteractions(true);
-    } else {
+    if (!silent && interactionSummary.conversations.length === 0 && !interactionDetail) {
       setLoadingInteractions(true);
     }
     setInteractionsError(null);
@@ -3823,23 +3623,6 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
       }
     } finally {
       setLoadingInteractions(false);
-      setRefreshingInteractions(false);
-    }
-  }
-
-  async function loadFlowStages(options?: { silent?: boolean }) {
-    const silent = options?.silent ?? false;
-    if (!silent) setLoadingFlowStages(true);
-    try {
-      const payload = await apiFetch<RecoveryFlowStage[]>("/hbx-recovery/flows");
-      setFlowStages(Array.isArray(payload) ? payload : []);
-    } catch (error) {
-      if (!silent) {
-        const reason = error instanceof Error ? error.message : "Falha ao carregar etapas.";
-        setNotice(`Falha ao carregar etapas do fluxo: ${reason}`);
-      }
-    } finally {
-      if (!silent) setLoadingFlowStages(false);
     }
   }
 
@@ -3919,6 +3702,9 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
     }
   }
 
+  loadInteractionsRef.current = loadInteractions;
+  loadInteractionDetailRef.current = loadInteractionDetail;
+
   async function presentHumanAttentionPopup(
     item: RecoveryInteractionSummary["conversations"][number],
     kind: RecoveryHumanAttentionKind,
@@ -3984,7 +3770,7 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
   }
 
   async function refreshInteractionContext(conversationId: number) {
-    await Promise.all([loadInteractions("all"), loadInteractionDetail(conversationId), reloadCustomers()]);
+    await Promise.all([loadInteractions(), loadInteractionDetail(conversationId), reloadCustomers()]);
   }
 
   useEffect(() => {
@@ -4007,7 +3793,7 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
     }
 
     if (loadingInteractionDetailId === nextConversationId) return;
-    void loadInteractionDetail(nextConversationId);
+    void loadInteractionDetailRef.current?.(nextConversationId);
   }, [
     renderedTab,
     displayedInteractionConversations,
@@ -4165,7 +3951,7 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
       loadPaymentHistory(paymentMonth, paymentFilter);
     }
     if (activeTab === "messages") {
-      loadInteractions("all");
+      loadInteractions();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -4369,6 +4155,7 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
                     </button>
                     {templateComposer.headerMediaUrl ? (
                       <div className={styles.templateUploadPreview}>
+                        {/* eslint-disable-next-line @next/next/no-img-element -- URL de preview vem da Meta/upload do tenant e pode nao estar no loader do Next. */}
                         <img src={templateComposer.headerMediaUrl} alt="Preview do cabecalho" />
                         <div>
                           <strong>Preview</strong>
@@ -4538,7 +4325,7 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
                   </p>
                 </div>
                 <div className={styles.templateVariableGuideGrid}>
-                  {composerOrderedVariables.map((variable, index) => {
+                  {composerOrderedVariables.map((variable) => {
                     const normalizedKey = normalizeTemplateVariableKey(variable);
                     return (
                       <div key={`composer-variable-guide-${normalizedKey}`} className={styles.templateVariableGuideRow}>
@@ -4953,6 +4740,7 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
             <div className={styles.templateMessageBubble}>
               {previewComposer.headerFormat === "IMAGE" ? (
                 previewComposer.headerMediaUrl ? (
+                  /* eslint-disable-next-line @next/next/no-img-element -- Preview usa URL dinamica da Meta/upload do tenant. */
                   <img
                     className={styles.templateMessageMedia}
                     src={previewComposer.headerMediaUrl}
@@ -5051,9 +4839,10 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
   }, [interactionDetail?.messages, showSystemMessages]);
 
   const interactionMessageListRef = useRef<HTMLDivElement | null>(null);
+  const activeInteractionConversationId = interactionDetail?.conversationId ?? null;
 
   useEffect(() => {
-    if (!interactionDetail) return;
+    if (!activeInteractionConversationId) return;
     const container = interactionMessageListRef.current;
     if (!container) return;
 
@@ -5064,7 +4853,7 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
         try {
           // instant scroll to bottom to avoid large smooth-scroll delays on very long histories
           container.scrollTop = container.scrollHeight;
-        } catch (e) {
+        } catch {
           // best-effort: fall back to scrollIntoView of last child
           const last = container.lastElementChild as HTMLElement | null;
           if (last) last.scrollIntoView(false);
@@ -5076,22 +4865,18 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
         doScroll();
         window.setTimeout(doScroll, 100);
       });
-    } catch (err) {
+    } catch {
       // ignore
     }
-  }, [interactionDetail?.conversationId, visibleInteractionMessages.length]);
+  }, [activeInteractionConversationId, visibleInteractionMessages.length]);
 
   useEffect(() => {
     if (requestedTab === activeTab) return;
     setActiveTab(requestedTab);
     setRenderedTab(requestedTab);
-    setTabTransitionStage("idle");
 
     if (requestedTab === "templates") {
       loadMetaTemplates(false).catch(() => undefined);
-    }
-    if (requestedTab === "bot") {
-      loadFlowStages({ silent: false }).catch(() => undefined);
     }
     if (requestedTab !== "messages") {
       setInteractionDetail(null);
@@ -5365,111 +5150,6 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
     });
   }
 
-  async function moveFlowStage(stageId: string, direction: "up" | "down") {
-    const currentIndex = flowStages.findIndex((item) => item.id === stageId);
-    if (currentIndex < 0) return;
-    const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
-    if (targetIndex < 0 || targetIndex >= flowStages.length) return;
-    const target = flowStages[targetIndex];
-    setMovingFlowStageId(stageId);
-    try {
-      await apiFetch(`/hbx-recovery/flows/${stageId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ sortOrder: target.sortOrder }),
-      });
-      await loadFlowStages({ silent: true });
-      setNotice("Etapas do fluxo reordenadas.");
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : "Falha ao mover etapa.";
-      setNotice(`Falha ao mover etapa: ${reason}`);
-    } finally {
-      setMovingFlowStageId(null);
-    }
-  }
-
-  function updateFlowStageDraft(
-    stageId: string,
-    field: keyof RecoveryFlowStage,
-    value: string | number | boolean,
-  ) {
-    setFlowStages((current) =>
-      current.map((stage) =>
-        stage.id === stageId
-          ? {
-              ...stage,
-              [field]: value,
-            }
-          : stage,
-      ),
-    );
-  }
-
-  async function saveFlowStage(stageId: string) {
-    const stage = flowStages.find((item) => item.id === stageId);
-    if (!stage) return;
-    setSavingFlowStageId(stageId);
-    try {
-      await apiFetch(`/hbx-recovery/flows/${stageId}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          title: stage.title,
-          channel: stage.channel,
-          template: stage.template,
-          daysAfter: Number(stage.daysAfter || 0),
-          enabled: Boolean(stage.enabled),
-        }),
-      });
-      await loadFlowStages({ silent: true });
-      setNotice(`Etapa \"${stage.title}\" atualizada.`);
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : "Falha ao salvar etapa.";
-      setNotice(`Falha ao salvar etapa: ${reason}`);
-    } finally {
-      setSavingFlowStageId(null);
-    }
-  }
-
-  async function createFlowStage() {
-    setCreatingFlowStage(true);
-    try {
-      await apiFetch("/hbx-recovery/flows", {
-        method: "POST",
-        body: JSON.stringify({
-          title: `Nova etapa ${flowStages.length + 1}`,
-          channel: "whatsapp",
-          template: "Defina o template operacional desta etapa.",
-          daysAfter: flowStages.length + 1,
-          enabled: true,
-        }),
-      });
-      await loadFlowStages({ silent: true });
-      setNotice("Nova etapa operacional criada.");
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : "Falha ao criar etapa.";
-      setNotice(`Falha ao criar etapa: ${reason}`);
-    } finally {
-      setCreatingFlowStage(false);
-    }
-  }
-
-  async function deleteFlowStage(stageId: string) {
-    const stage = flowStages.find((item) => item.id === stageId);
-    if (!stage) return;
-    setDeletingFlowStageId(stageId);
-    try {
-      await apiFetch(`/hbx-recovery/flows/${stageId}`, {
-        method: "DELETE",
-      });
-      await loadFlowStages({ silent: true });
-      setNotice(`Etapa \"${stage.title}\" removida.`);
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : "Falha ao remover etapa.";
-      setNotice(`Falha ao remover etapa: ${reason}`);
-    } finally {
-      setDeletingFlowStageId(null);
-    }
-  }
-
   function handleRoutingRuleChange(
     field: keyof RecoveryBotConfig["routingRules"],
     checked: boolean,
@@ -5562,9 +5242,6 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
     if (nextTab === "templates") {
       loadMetaTemplates(false).catch(() => undefined);
     }
-    if (nextTab === "bot") {
-      loadFlowStages({ silent: false }).catch(() => undefined);
-    }
     if (nextTab !== "messages") {
       setInteractionDetail(null);
       setInteractionNoteDraft("");
@@ -5574,12 +5251,9 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
       window.clearTimeout(tabTransitionTimerRef.current);
     }
 
-    setTabTransitionStage("exit");
     tabTransitionTimerRef.current = window.setTimeout(() => {
       setRenderedTab(nextTab);
-      setTabTransitionStage("enter");
       tabTransitionTimerRef.current = window.setTimeout(() => {
-        setTabTransitionStage("idle");
         tabTransitionTimerRef.current = null;
       }, 240);
     }, 170);
@@ -6087,11 +5761,6 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
       });
   }
 
-  const selectedConversationSummary = interactionDetail
-    ? interactionSummary.conversations.find(
-        (item) => item.conversationId === interactionDetail.conversationId,
-      ) || null
-    : null;
   const latestPayment = interactionDetail?.latestPayment || null;
   const linkExpired = Boolean(
     latestPayment?.linkExpiresAt &&
@@ -6101,13 +5770,6 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
   const paymentIsPaid = ["approved", "released"].includes(
     String(latestPayment?.status || "").toLowerCase(),
   );
-  const awaitingResponse = [
-    "aguardando_resposta_template",
-    "cobranca_menu_principal",
-    "escolhendo_parcelamento",
-    "confirmando_parcelamento",
-    "aguardando_pagamento",
-  ].includes(String(interactionDetail?.currentStep || "").toLowerCase());
   const paymentAttemptCount = interactionDetail
     ? interactionDetail.messages.filter(
         (message) =>
@@ -6249,7 +5911,7 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
                 },
               ]}
               onRetry={() => {
-                void loadInteractions(interactionsQueue);
+                void loadInteractions();
               }}
               retryLabel="Recarregar fila"
             />
@@ -7377,6 +7039,22 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
                 >
                   Organizar janelas
                 </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={restoreRecoveryLayoutConfig}
+                  disabled={savingRecoveryLayout || !recoveryLayoutDirty}
+                >
+                  Restaurar layout
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={saveRecoveryLayoutConfig}
+                  disabled={savingRecoveryLayout || !recoveryLayoutDirty}
+                >
+                  {savingRecoveryLayout ? "Salvando..." : "Salvar layout"}
+                </button>
               </div>
             </div>
 
@@ -7392,1056 +7070,6 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
               ? createPortal(renderTemplatePreviewWindow(), document.body)
               : null}
 
-            {false ? (
-              <>
-            <div className={styles.templatesSectionFlow} style={templatesSectionFlowStyle}>
-              <div
-                className={`${styles.templateSectionShell} ${
-                  activeRecoveryLayout.templates.historyPosition === "before"
-                    ? styles.templateSectionShellAfter
-                    : ""
-                }`}
-                onDragOver={(event) => {
-                  event.preventDefault();
-                }}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  if (draggingTemplateSection === "history") {
-                    setTemplateHistoryPosition("before");
-                  }
-                  setDraggingTemplateSection(null);
-                }}
-              >
-                <div
-                  className={styles.templateSectionGrip}
-                  draggable
-                  onDragStart={(event) => {
-                    event.dataTransfer.effectAllowed = "move";
-                    event.dataTransfer.setData("text/plain", "workspace");
-                    setDraggingTemplateSection("workspace");
-                  }}
-                  onDragEnd={() => setDraggingTemplateSection(null)}
-                >
-                  <span />
-                  <span />
-                  <span />
-                </div>
-                <div
-              ref={templatesWorkspaceRef}
-              className={`${styles.templatesMetaGrid} ${
-                activeRecoveryLayout.templates.workspaceMode === "column"
-                  ? styles.templatesMetaGridStacked
-                  : ""
-              }`}
-              style={templatesWorkspaceStyle}
-            >
-              <article
-                ref={templateComposerWindowRef}
-                className={`${styles.botStepCard} ${styles.templateWorkspaceCard} ${styles.templateWindowResizable} ${
-                  draggingTemplatePane === "catalog" ? styles.templateWorkspaceCardDragTarget : ""
-                }`}
-                style={{
-                  ...templateWindowStyleById.composer,
-                  order: composerPaneOrder,
-                  ...(activeRecoveryLayout.templates.workspaceMode === "row"
-                    ? { gridColumn: isCatalogLeadPane ? "3" : "1" }
-                    : {}),
-                }}
-                onDragOver={(event) => {
-                  event.preventDefault();
-                }}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  if (draggingTemplatePane && draggingTemplatePane !== "composer") {
-                    setTemplateLeadPane("composer");
-                  }
-                  setDraggingTemplatePane(null);
-                }}
-              >
-                <div className={styles.botStepHeader}>
-                  <div>
-                    <h4>Criar template na Meta</h4>
-                    <p>Monte e envie.</p>
-                  </div>
-                  <div
-                    className={styles.templatePaneGrip}
-                    draggable
-                    onDragStart={(event) => {
-                      event.dataTransfer.effectAllowed = "move";
-                      event.dataTransfer.setData("text/plain", "composer");
-                      setDraggingTemplatePane("composer");
-                    }}
-                    onDragEnd={() => setDraggingTemplatePane(null)}
-                    title="Arraste para trocar este painel de lado"
-                  >
-                    <span />
-                    <span />
-                    <span />
-                  </div>
-                </div>
-
-                <div
-                  ref={templateComposerLayoutRef}
-                  className={`${styles.templateComposerLayout} ${
-                    activeRecoveryLayout.templates.composerMode === "column"
-                      ? styles.templateComposerLayoutStacked
-                      : ""
-                  }`}
-                  style={templateComposerLayoutStyle}
-                >
-                  <div className={styles.templateComposerForm}>
-                <div className={styles.templateMetaHeader}>
-                  <div>
-                    <p className={styles.sectionEyebrow}>Modo Meta</p>
-                    <h5>Conteudos do modelo</h5>
-                  </div>
-                  <div className={styles.templateMetaHeaderPills}>
-                    <span className={styles.templateMetaPill}>Idioma fixo: pt_BR</span>
-                    <span className={styles.templateMetaPill}>
-                      Variavel no editor: {templateComposer.variableMode === "NAME" ? "Nome" : "Numero"}
-                    </span>
-                  </div>
-                </div>
-
-                <div className={styles.templateMetaTopGrid}>
-                  <label className={styles.fieldBlock}>
-                    <span>Nome interno</span>
-                    <input
-                      className="field"
-                      placeholder="ex: cobranca_inicial_hbx_v2"
-                      value={templateComposer.name}
-                      onChange={(event) =>
-                        updateTemplateComposer((current) => ({ ...current, name: event.target.value }))
-                      }
-                    />
-                    <small className={styles.templateFieldMeta}>
-                      Vai para a Meta como <code>{normalizedComposerName || "nome_do_template"}</code>
-                    </small>
-                  </label>
-                  <label className={styles.fieldBlock}>
-                    <span>Categoria</span>
-                    <select
-                      className="field"
-                      value={templateComposer.category}
-                      onChange={(event) =>
-                        updateTemplateComposer((current) => ({
-                          ...current,
-                          category: event.target.value as RecoveryTemplateComposer["category"],
-                        }))
-                      }
-                    >
-                      <option value="UTILITY">UTILITY</option>
-                      <option value="MARKETING">MARKETING</option>
-                      <option value="AUTHENTICATION">AUTHENTICATION</option>
-                    </select>
-                  </label>
-                  <label className={styles.fieldBlock}>
-                    <span>Tipo de variavel</span>
-                    <select
-                      className="field"
-                      value={templateComposer.variableMode}
-                      onChange={(event) =>
-                        updateTemplateComposer((current) => ({
-                          ...current,
-                          variableMode: event.target.value as RecoveryTemplateComposer["variableMode"],
-                          enforceRecoveryVars:
-                            event.target.value === "NAME" ? current.enforceRecoveryVars : false,
-                        }))
-                      }
-                    >
-                      <option value="NAME">Nome</option>
-                      <option value="NUMBER">Numero</option>
-                    </select>
-                    <small className={styles.templateFieldMeta}>
-                      {templateComposer.variableMode === "NAME"
-                        ? "Use {{empresa}}, {{funcionario}} e {{cliente}}."
-                        : "Use {{1}}, {{2}} e {{3}}."}
-                    </small>
-                  </label>
-                  <label className={styles.fieldBlock}>
-                    <span>Logo / cabecalho</span>
-                    <select
-                      className="field"
-                      value={templateComposer.headerFormat}
-                      onChange={(event) =>
-                        updateTemplateComposer((current) => ({
-                          ...current,
-                          headerFormat: event.target.value as RecoveryTemplateComposer["headerFormat"],
-                        }))
-                      }
-                    >
-                      <option value="NONE">Sem cabecalho</option>
-                      <option value="TEXT">Texto</option>
-                      <option value="IMAGE">Imagem / logotipo</option>
-                      <option value="DOCUMENT">Documento</option>
-                      <option value="VIDEO">Video</option>
-                    </select>
-                  </label>
-                </div>
-
-                <div className={styles.templateMetaComplianceCard}>
-                  <div className={styles.templateMetaComplianceHeader}>
-                    <strong>Checklist Meta em tempo real</strong>
-                  </div>
-                  <div className={styles.templateMetaComplianceGrid}>
-                    {composerComplianceRows.map((item) => (
-                      <div
-                        key={item.label}
-                        className={`${styles.templateMetaComplianceItem} ${
-                          item.state === "ok"
-                            ? styles.templateMetaComplianceItemOk
-                            : styles.templateMetaComplianceItemError
-                        }`}
-                      >
-                        <strong>{item.label}</strong>
-                        <span>{item.detail}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {templateComposer.headerFormat === "TEXT" ? (
-                  <label className={styles.fieldBlock}>
-                    <span>Texto do cabecalho</span>
-                    <input
-                      className="field"
-                      placeholder="ex: Recovery"
-                      value={templateComposer.headerText}
-                      onChange={(event) =>
-                        updateTemplateComposer((current) => ({
-                          ...current,
-                          headerText: event.target.value,
-                        }))
-                      }
-                    />
-                    <small className={styles.templateFieldMeta}>
-                      Ate 60 caracteres e sem variaveis.
-                    </small>
-                  </label>
-                ) : null}
-
-                {templateComposer.headerFormat === "IMAGE" ||
-                templateComposer.headerFormat === "DOCUMENT" ||
-                templateComposer.headerFormat === "VIDEO" ? (
-                  <>
-                    {templateComposer.headerFormat === "IMAGE" ? (
-                      <>
-                        <input
-                          ref={templateHeaderFileInputRef}
-                          type="file"
-                          accept="image/png,image/jpeg,image/webp"
-                          className={styles.templateHiddenInput}
-                          onChange={onTemplateHeaderFileChange}
-                        />
-                        <button
-                          type="button"
-                          className={`${styles.templateUploadZone} ${
-                            templateHeaderDropActive ? styles.templateUploadZoneActive : ""
-                          }`}
-                          onClick={() => templateHeaderFileInputRef.current?.click()}
-                          onDragOver={(event) => {
-                            event.preventDefault();
-                            setTemplateHeaderDropActive(true);
-                          }}
-                          onDragLeave={() => setTemplateHeaderDropActive(false)}
-                          onDrop={onTemplateHeaderDrop}
-                          disabled={metaTemplateBusy === "upload-header"}
-                        >
-                          <strong>
-                            {metaTemplateBusy === "upload-header"
-                              ? "Enviando imagem..."
-                              : "Arraste a imagem aqui ou clique para enviar"}
-                          </strong>
-                          <span>
-                            JPG, PNG ou WEBP ate 25 MB. O HBX converte para JPG compativel, em
-                            1080x1080, com logo central de ate 500x500.
-                          </span>
-                        </button>
-                        {templateComposer.headerMediaUrl ? (
-                          <div className={styles.templateUploadPreview}>
-                            <img
-                              src={templateComposer.headerMediaUrl}
-                              alt="Preview do cabecalho"
-                            />
-                            <div>
-                              <strong>Preview</strong>
-                              <p>A mesma URL sera usada pelo HBX no envio do template.</p>
-                            </div>
-                          </div>
-                        ) : null}
-                      </>
-                    ) : null}
-                    <div className={styles.registerInlineFields}>
-                      <label className={styles.fieldBlock}>
-                        <span>Handle Meta</span>
-                        <input
-                          className="field"
-                          placeholder="ex: 4::YX..."
-                          value={templateComposer.headerHandle}
-                          onChange={(event) =>
-                            updateTemplateComposer((current) => ({
-                              ...current,
-                              headerHandle: event.target.value,
-                            }))
-                          }
-                        />
-                      </label>
-                      <label className={styles.fieldBlock}>
-                        <span>URL da imagem</span>
-                        <input
-                          className="field"
-                          placeholder="https://..."
-                          value={templateComposer.headerMediaUrl}
-                          onChange={(event) =>
-                            updateTemplateComposer((current) => ({
-                              ...current,
-                              headerMediaUrl: event.target.value,
-                            }))
-                          }
-                        />
-                      </label>
-                    </div>
-                    <div className={styles.templateHelperCard}>
-                      <strong>Como funciona agora</strong>
-                      {templateComposer.headerFormat === "IMAGE" ? (
-                        <>
-                          <p>1. Envie a imagem aqui pelo HBX.</p>
-                          <p>2. O sistema preenche o <code>header_handle</code> e a URL automaticamente.</p>
-                          <p>3. O logo sera centralizado em 1080x1080, com area segura menor para evitar corte.</p>
-                          <p>4. Prefira simbolo + nome. Textos pequenos no logo tendem a sumir no chat.</p>
-                        </>
-                      ) : (
-                        <>
-                          <p>1. Envie o arquivo correspondente na Meta.</p>
-                          <p>2. Cole aqui o <code>header_handle</code>.</p>
-                          <p>3. Informe a URL publica usada pelo HBX no envio.</p>
-                        </>
-                      )}
-                    </div>
-                  </>
-                ) : null}
-
-                <div className={styles.fieldBlock} ref={templateBodyFieldRef}>
-                  <div className={styles.templateBodyHeaderRow}>
-                    <span>Mensagem (BODY)</span>
-                    <button
-                      type="button"
-                      className={`btn btn-secondary btn-sm ${styles.templateVariablePickerTrigger}`}
-                      onClick={() => setTemplateVariablePickerOpen((current) => !current)}
-                    >
-                      Variaveis
-                    </button>
-                  </div>
-                  {templateVariablePickerOpen ? (
-                    <div className={styles.templateVariablePicker}>
-                      <div className={styles.templateVariablePickerSection}>
-                        <strong>Variaveis por nome</strong>
-                        <div className={styles.templateVariablePickerGrid}>
-                          {availableNamedTemplateVariables.map((item) => (
-                            <button
-                              key={`deck-named-variable-${item.key}`}
-                              type="button"
-                              className={styles.templateVariablePickerButton}
-                              onMouseDown={(event) => event.preventDefault()}
-                              onClick={() => insertTemplateVariableAtCursor(item.key)}
-                            >
-                              <span>{buildTemplateVariableToken(item.key)}</span>
-                              <small>{item.label}</small>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      <div className={styles.templateVariablePickerSection}>
-                        <strong>Variaveis por numero</strong>
-                        <div className={styles.templateVariablePickerGrid}>
-                          {availableNumericTemplateVariables.map((item) => (
-                            <button
-                              key={`deck-numeric-variable-${item}`}
-                              type="button"
-                              className={styles.templateVariablePickerButton}
-                              onMouseDown={(event) => event.preventDefault()}
-                              onClick={() => insertTemplateVariableAtCursor(item)}
-                            >
-                              <span>{buildTemplateVariableToken(item)}</span>
-                              <small>Parametro numerico</small>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  ) : null}
-                  <textarea
-                    ref={templateBodyTextareaRef}
-                    className="field"
-                    value={templateComposer.bodyText}
-                    onClick={syncTemplateBodySelection}
-                    onChange={(event) =>
-                      updateTemplateComposer((current) => ({ ...current, bodyText: event.target.value }))
-                    }
-                    onKeyUp={syncTemplateBodySelection}
-                    onSelect={syncTemplateBodySelection}
-                  />
-                </div>
-                <label className={styles.fieldBlock}>
-                  <span>Rodape (opcional)</span>
-                  <input
-                    className="field"
-                    value={templateComposer.footerText}
-                    onChange={(event) =>
-                      updateTemplateComposer((current) => ({ ...current, footerText: event.target.value }))
-                    }
-                  />
-                </label>
-                <label className={styles.fieldBlock}>
-                  <span>Botoes rapidos (1 por linha, max 3)</span>
-                  <textarea
-                    className="field"
-                    value={templateComposer.buttonsText}
-                    onChange={(event) =>
-                      updateTemplateComposer((current) => ({ ...current, buttonsText: event.target.value }))
-                    }
-                  />
-                </label>
-
-                <div className={styles.interactionBadgeRow}>
-                  {composerVariables.map((variable) => (
-                    <span key={`composer-var-${variable}`} className={`${styles.stateBadge} ${styles.stateWaiting}`}>
-                      {`{{${variable}}}`}
-                    </span>
-                  ))}
-                </div>
-
-                {composerOrderedVariables.length > 0 ? (
-                  <div className={styles.templateVariableGuide}>
-                    <div className={styles.templateVariableGuideHeader}>
-                      <div className={styles.templateVariableGuideHeaderRow}>
-                        <strong>
-                          {templateComposer.variableMode === "NUMBER"
-                            ? "Parametros numericos detectados no body"
-                            : "Variaveis detectadas no body"}
-                        </strong>
-                        <span className={`${styles.stateBadge} ${styles.stateBot}`}>
-                          {`${composerOrderedVariables.length} parametro${composerOrderedVariables.length > 1 ? "s" : ""}`}
-                        </span>
-                      </div>
-                      <p>
-                        {templateComposer.variableMode === "NUMBER"
-                          ? "Defina abaixo o valor manual de exemplo para cada parametro numerico."
-                          : "Os placeholders abaixo permanecem nomeados e sao preservados exatamente como escritos no HBX."}
-                      </p>
-                    </div>
-                    <div className={styles.templateVariableGuideGrid}>
-                      {composerOrderedVariables.map((variable) => {
-                        const normalizedKey = normalizeTemplateVariableKey(variable);
-                        return (
-                          <div key={`deck-composer-variable-guide-${normalizedKey}`} className={styles.templateVariableGuideRow}>
-                            <div className={styles.templateVariableGuideMeta}>
-                              <span className={`${styles.stateBadge} ${styles.stateWaiting}`}>
-                                {`{{${variable}}}`}
-                              </span>
-                              <span className={`${styles.stateBadge} ${styles.stateBot}`}>
-                                {isNumericTemplateVariableKey(variable)
-                                  ? "Variavel numerica"
-                                  : "Variavel nomeada"}
-                              </span>
-                            </div>
-                            <label className={styles.fieldBlock}>
-                              <span>
-                                {isNumericTemplateVariableKey(variable)
-                                  ? "Exemplo manual do parametro"
-                                  : "Exemplo da variavel"}
-                              </span>
-                              <input
-                                className="field"
-                                value={composerVariableExamples[normalizedKey] || ""}
-                                onChange={(event) =>
-                                  updateTemplateComposerVariableExample(variable, event.target.value)
-                                }
-                              />
-                              <small className={styles.templateFieldMeta}>
-                                {isNumericTemplateVariableKey(variable)
-                                  ? "Informe manualmente o valor de exemplo desse parametro numerico."
-                                  : "Esse valor e usado como exemplo do placeholder sem renomear a variavel."}
-                              </small>
-                            </label>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ) : null}
-
-                <div className={styles.interactionBadgeRow}>
-                  <label className={styles.inlineToggle}>
-                    <input
-                      type="checkbox"
-                      checked={templateComposer.activateInHbx}
-                      onChange={(event) =>
-                        updateTemplateComposer((current) => ({
-                          ...current,
-                          activateInHbx: event.target.checked,
-                        }))
-                      }
-                    />
-                    Ativar no HBX apos criar
-                  </label>
-                  <label className={styles.inlineToggle}>
-                    <input
-                      type="checkbox"
-                      checked={templateComposer.enforceRecoveryVars}
-                      disabled={templateComposer.variableMode !== "NAME"}
-                      onChange={(event) =>
-                        updateTemplateComposer((current) => ({
-                          ...current,
-                          enforceRecoveryVars: event.target.checked,
-                        }))
-                      }
-                    />
-                    Validar variaveis do Recovery
-                  </label>
-                </div>
-
-                {templateComposer.enforceRecoveryVars && missingRecoveryVars.length > 0 ? (
-                  <div className="alert alert-error">
-                    Variaveis faltando para template inicial:{" "}
-                    {missingRecoveryVars.map((item) => `{{${item}}}`).join(", ")}
-                  </div>
-                ) : null}
-                {composerBlockingIssues.length > 0 ? (
-                  <div className={styles.templateMetaIssueList}>
-                    {composerBlockingIssues.map((item) => (
-                      <span key={item}>{item}</span>
-                    ))}
-                  </div>
-                ) : null}
-                {templateComposerError ? (
-                  <div className="alert alert-error">{templateComposerError}</div>
-                ) : null}
-
-                <div className={styles.heroActions}>
-                  <button
-                    type="button"
-                    className="btn btn-primary btn-sm"
-                    onClick={createMetaTemplate}
-                    disabled={metaTemplateBusy === "create" || !normalizedComposerName || composerBlockingIssues.length > 0}
-                  >
-                    {metaTemplateBusy === "create" ? "Criando..." : "Criar template na Meta"}
-                  </button>
-                </div>
-                  </div>
-
-                  {activeRecoveryLayout.templates.composerMode === "row" ? (
-                    <div
-                      role="separator"
-                      aria-orientation="vertical"
-                      className={styles.templateComposerSplitter}
-                      onPointerDown={(event) =>
-                        beginLayoutResize(
-                          "composer",
-                          "row",
-                          templateComposerLayoutRef.current,
-                          event,
-                        )
-                      }
-                    />
-                  ) : null}
-
-                </div>
-                <div
-                  role="separator"
-                  aria-orientation="horizontal"
-                  className={styles.templateCatalogResizeHandle}
-                  onPointerDown={(event) =>
-                    beginLayoutResize("composerCard", "column", templateComposerLayoutRef.current, event)
-                  }
-                >
-                  <span />
-                </div>
-                {renderTemplateWindowResizeHandles("composer")}
-              </article>
-
-              {activeRecoveryLayout.templates.workspaceMode === "row" ? (
-                <div
-                  role="separator"
-                  aria-orientation="vertical"
-                  className={styles.templatesPaneSplitter}
-                  style={{
-                    order: 2,
-                    ...(activeRecoveryLayout.templates.workspaceMode === "row"
-                      ? { gridColumn: "2" }
-                      : {}),
-                  }}
-                  onPointerDown={(event) =>
-                    beginLayoutResize(
-                      "workspace",
-                      "row",
-                      templatesWorkspaceRef.current,
-                      event,
-                    )
-                  }
-                />
-              ) : null}
-
-              <article
-                ref={templateCatalogWindowRef}
-                className={`${styles.botStepCard} ${styles.templateWorkspaceCard} ${styles.templateWindowResizable} ${
-                  draggingTemplatePane === "composer" ? styles.templateWorkspaceCardDragTarget : ""
-                }`}
-                style={{
-                  ...templateWindowStyleById.catalog,
-                  order: catalogPaneOrder,
-                  ...(activeRecoveryLayout.templates.workspaceMode === "row"
-                    ? { gridColumn: isCatalogLeadPane ? "1" : "3" }
-                    : {}),
-                }}
-                onDragOver={(event) => {
-                  event.preventDefault();
-                }}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  if (draggingTemplatePane && draggingTemplatePane !== "catalog") {
-                    setTemplateLeadPane("catalog");
-                  }
-                  setDraggingTemplatePane(null);
-                }}
-              >
-                <div className={styles.botStepHeader}>
-                  <div>
-                    <h4>Catalogo PT-BR</h4>
-                    <p>Gerencie os templates ativos.</p>
-                  </div>
-                  <div
-                    className={styles.templatePaneGrip}
-                    draggable
-                    onDragStart={(event) => {
-                      event.dataTransfer.effectAllowed = "move";
-                      event.dataTransfer.setData("text/plain", "catalog");
-                      setDraggingTemplatePane("catalog");
-                    }}
-                    onDragEnd={() => setDraggingTemplatePane(null)}
-                    title="Arraste para trocar este painel de lado"
-                  >
-                    <span />
-                    <span />
-                    <span />
-                  </div>
-                </div>
-
-                {loadingMetaTemplates ? (
-                  <div className={styles.flowEmpty}>Carregando templates...</div>
-                ) : metaTemplates.templates.length === 0 ? (
-                  <div className={styles.flowEmpty}>
-                    Nenhum template encontrado. Clique em sincronizar para consultar a Meta.
-                  </div>
-                ) : (
-                  <>
-                    <div ref={templateCatalogListRef} className={styles.templateCatalogList}>
-                      {metaTemplates.templates.map((template) => {
-                        const view = getTemplateViewModel(template);
-                        return (
-                        <article
-                          key={`${template.name}-${template.language}`}
-                          className={`${styles.templateCatalogItem} ${styles.templateWindowResizable}`}
-                        >
-                        <div className={styles.templateCatalogHeader}>
-                          <div>
-                            <strong>{template.name}</strong>
-                            <p>
-                              {template.category} - {template.language}
-                            </p>
-                          </div>
-                          <div className={styles.interactionBadgeRow}>
-                            <span
-                              className={`${styles.stateBadge} ${getMetaStatusBadgeClass(template.status)}`}
-                            >
-                              Meta: {metaStatusLabel(template.status)}
-                            </span>
-                            <span
-                              className={`${styles.stateBadge} ${
-                                template.hbxActive ? styles.statePaid : styles.stateExpired
-                              }`}
-                            >
-                              HBX: {template.hbxActive ? "Ativo" : "Inativo"}
-                            </span>
-                            <span className={`${styles.stateBadge} ${styles.stateWaiting}`}>
-                              {headerFormatLabel(view.headerFormat)}
-                            </span>
-                          </div>
-                        </div>
-                        {view.headerText ? (
-                          <p className={styles.templateCatalogMeta}>Cabecalho: {view.headerText}</p>
-                        ) : null}
-                        {isMediaHeaderFormat(view.headerFormat) ? (
-                          <div className={styles.templateCatalogInlineField}>
-                            <label className={styles.fieldBlock}>
-                              <span>URL da imagem</span>
-                              <input
-                                className="field"
-                                placeholder="https://..."
-                                value={view.headerMediaUrl || ""}
-                                onChange={(event) =>
-                                  updateTemplateHeaderMediaUrl(
-                                    template.name,
-                                    template.language,
-                                    event.target.value,
-                                  )
-                                }
-                              />
-                            </label>
-                            <div className={styles.heroActions}>
-                              <button
-                                type="button"
-                                className="btn btn-secondary btn-sm"
-                                onClick={() =>
-                                  saveTemplateHeaderMediaUrl(template.name, template.language)
-                                }
-                                disabled={
-                                  metaTemplateBusy === `config:${template.name}:${template.language}`
-                                }
-                              >
-                                {metaTemplateBusy === `config:${template.name}:${template.language}`
-                                  ? "Salvando..."
-                                  : "Salvar URL"}
-                              </button>
-                            </div>
-                            {!String(view.headerMediaUrl || "").trim() ? (
-                              <div className="alert alert-error">
-                                Informe a URL publica da imagem para o HBX conseguir enviar.
-                              </div>
-                            ) : null}
-                          </div>
-                        ) : null}
-                        <p className={styles.templateCatalogText}>
-                          {view.bodyText || "Sem body retornado pela Meta."}
-                        </p>
-                        {view.footerText ? (
-                          <p className={styles.templateCatalogMeta}>Rodape: {view.footerText}</p>
-                        ) : null}
-                        {view.buttons.length > 0 ? (
-                          <div className={styles.interactionBadgeRow}>
-                            {view.buttons.map((button, index) => (
-                              <span
-                                key={`${template.name}-${template.language}-${button.type}-${index}`}
-                                className={`${styles.stateBadge} ${styles.stateBot}`}
-                              >
-                                {button.text || button.type}
-                              </span>
-                            ))}
-                          </div>
-                        ) : null}
-                        <div className={styles.interactionBadgeRow}>
-                          {view.variableOrder.map((variable) => (
-                            <span
-                              key={`${template.name}-${template.language}-var-${variable}`}
-                              className={`${styles.stateBadge} ${styles.stateWaiting}`}
-                            >
-                              {`{{${variable}}}`}
-                            </span>
-                          ))}
-                        </div>
-                        {Object.keys(view.variableExamples).length > 0 ? (
-                          <div className={styles.interactionBadgeRow}>
-                            {Object.entries(view.variableExamples).map(([variable, example]) => (
-                              <span
-                                key={`${template.name}-${template.language}-example-${variable}`}
-                                className={`${styles.stateBadge} ${styles.stateWaiting}`}
-                              >
-                                {`{{${variable}}}: ${example}`}
-                              </span>
-                            ))}
-                          </div>
-                        ) : null}
-                        {template.rejectedReason ? (
-                          <div className="alert alert-error">Motivo Meta: {template.rejectedReason}</div>
-                        ) : null}
-                        <div className={`${styles.heroActions} ${styles.templateActionRow}`}>
-                          <button
-                            type="button"
-                            className={`btn btn-sm ${
-                              template.hbxActive ? "btn-danger" : "btn-secondary"
-                            }`}
-                            onClick={() =>
-                              toggleTemplateHbxActivation(
-                                template.name,
-                                template.language,
-                                !template.hbxActive,
-                              )
-                            }
-                            disabled={
-                              metaTemplateBusy === `toggle:${template.name}:${template.language}`
-                            }
-                          >
-                            {template.hbxActive ? "Desativar no HBX" : "Ativar no HBX"}
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-ghost btn-sm"
-                            onClick={() =>
-                              {
-                                const variableMode = inferTemplateVariableMode(
-                                  view.variableOrder.length > 0
-                                    ? view.variableOrder
-                                    : extractTemplateVariablesInOrder(view.bodyText || ""),
-                                );
-                                setTemplateComposer({
-                                  ...DEFAULT_TEMPLATE_COMPOSER,
-                                  name: template.name,
-                                  category:
-                                    template.category === "MARKETING" ||
-                                    template.category === "AUTHENTICATION"
-                                      ? (template.category as RecoveryTemplateComposer["category"])
-                                      : "UTILITY",
-                                  language: template.language || "pt_BR",
-                                  variableMode,
-                                  headerFormat: view.headerFormat,
-                                  headerText: view.headerText || "",
-                                  headerHandle: view.headerHandle || "",
-                                  headerMediaUrl: view.headerMediaUrl || "",
-                                  bodyText: view.bodyText || DEFAULT_TEMPLATE_COMPOSER.bodyText,
-                                  footerText: view.footerText || "",
-                                  buttonsText: view.buttons
-                                    .map((button) => String(button.text || "").trim())
-                                    .filter((button) => button.length > 0)
-                                    .join("\n"),
-                                  activateInHbx: true,
-                                  enforceRecoveryVars: variableMode === "NAME",
-                                });
-                                setTemplateComposerPreviewVisible(true);
-                              }
-                            }
-                          >
-                            Editar
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-danger btn-sm"
-                            onClick={() => deleteMetaTemplate(template)}
-                            disabled={
-                              metaTemplateBusy === `delete:${template.name}:${template.language}`
-                            }
-                          >
-                            {metaTemplateBusy === `delete:${template.name}:${template.language}`
-                              ? "Excluindo..."
-                              : "Excluir"}
-                          </button>
-                        </div>
-                        </article>
-                      );})}
-                    </div>
-                    <div
-                      role="separator"
-                      aria-orientation="horizontal"
-                      className={styles.templateCatalogResizeHandle}
-                      onPointerDown={(event) =>
-                        beginLayoutResize("catalog", "column", templateCatalogListRef.current, event)
-                      }
-                    >
-                      <span />
-                    </div>
-                  </>
-                )}
-                {renderTemplateWindowResizeHandles("catalog")}
-              </article>
-                </div>
-              </div>
-
-              <div
-                className={`${styles.templateSectionShell} ${
-                  activeRecoveryLayout.templates.historyPosition === "before"
-                    ? styles.templateSectionShellBefore
-                    : ""
-                }`}
-                onDragOver={(event) => {
-                  event.preventDefault();
-                }}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  if (draggingTemplateSection === "workspace") {
-                    setTemplateHistoryPosition("after");
-                  }
-                  setDraggingTemplateSection(null);
-                }}
-              >
-                <div
-                  className={styles.templateSectionGrip}
-                  draggable
-                  onDragStart={(event) => {
-                    event.dataTransfer.effectAllowed = "move";
-                    event.dataTransfer.setData("text/plain", "history");
-                    setDraggingTemplateSection("history");
-                  }}
-                  onDragEnd={() => setDraggingTemplateSection(null)}
-                >
-                  <span />
-                  <span />
-                  <span />
-                </div>
-
-            <article
-              ref={templateHistoryWindowRef}
-              className={`${styles.botStepCard} ${styles.templateWindowResizable}`}
-              style={templateWindowStyleById.history}
-            >
-              <div className={styles.botStepHeader}>
-                <div>
-                  <h4>Historico de aprovacao/reprovacao</h4>
-                  <p>Auditoria das mudancas de status recebidas da Meta na sincronizacao.</p>
-                </div>
-              </div>
-              {metaTemplates.history.length === 0 ? (
-                <div className={styles.flowEmpty}>Sem mudancas de status registradas ate agora.</div>
-              ) : (
-                <div className={styles.templateHistoryList}>
-                  {metaTemplates.history.slice(0, 30).map((item) => (
-                    <div key={item.id} className={styles.templateHistoryRow}>
-                      <strong>
-                        {item.name} ({item.language})
-                      </strong>
-                      <span>
-                        {item.previousStatus || "Sem status anterior"} {"->"} {item.nextStatus}
-                      </span>
-                      <span>{formatDateTime(item.changedAt)}</span>
-                      {item.reason ? <span>Motivo: {item.reason}</span> : null}
-                    </div>
-                  ))}
-                </div>
-              )}
-              {renderTemplateWindowResizeHandles("history")}
-            </article>
-              </div>
-            </div>
-
-            <div className={styles.layoutSaveBar}>
-                <button
-                  type="button"
-                  className={styles.layoutResetButton}
-                  onClick={restoreRecoveryLayoutConfig}
-                  disabled={savingRecoveryLayout}
-                >
-                  Restaurar layout
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.layoutSaveButton} ${
-                    !savingRecoveryLayout ? styles.layoutSaveButtonDirty : ""
-                  }`}
-                  onClick={saveRecoveryLayoutConfig}
-                  disabled={savingRecoveryLayout}
-                >
-                  {savingRecoveryLayout ? "Salvando..." : "Salvar layout"}
-                </button>
-            </div>
-
-            {templateComposerPreviewVisible ? (
-              <aside
-                ref={templatePreviewWindowRef}
-                className={`${styles.templatePreviewPanel} ${styles.templatePreviewPopup} ${styles.templateWindowResizable}`}
-                style={templateWindowStyleById.preview}
-              >
-                <div className={`${styles.templatePreviewHeader} ${styles.templatePreviewWindowHeader}`}>
-                  <div>
-                    <span className={styles.templatePreviewEyebrow}>Preview ao vivo</span>
-                    <strong>Como a mensagem tende a aparecer</strong>
-                  </div>
-                  <div className={styles.templatePreviewHeaderActions}>
-                    <span className={`${styles.stateBadge} ${styles.stateWaiting}`}>
-                      {templateComposer.language || "pt_BR"}
-                    </span>
-                    <button
-                      type="button"
-                      className={styles.templatePreviewCloseButton}
-                      onClick={() => setTemplateComposerPreviewVisible(false)}
-                      aria-label="Fechar preview"
-                    >
-                      Fechar
-                    </button>
-                  </div>
-                </div>
-
-                <div className={styles.templatePhoneFrame}>
-                  <div className={styles.templatePhoneTopBar}>
-                    <span>WhatsApp</span>
-                    <strong>{templateComposer.name || "novo_template_meta"}</strong>
-                  </div>
-                  <div className={styles.templateChatCanvas}>
-                    <div className={styles.templateMessageBubble}>
-                      {templateComposer.headerFormat === "IMAGE" ? (
-                        templateComposer.headerMediaUrl ? (
-                          <img
-                            className={styles.templateMessageMedia}
-                            src={templateComposer.headerMediaUrl}
-                            alt="Cabecalho visual do template"
-                          />
-                        ) : (
-                          <div className={styles.templateMessageMediaPlaceholder}>
-                            <strong>Logotipo / imagem</strong>
-                            <span>Envie a arte para visualizar aqui</span>
-                          </div>
-                        )
-                      ) : null}
-                      {templateComposer.headerFormat === "DOCUMENT" ? (
-                        <div className={styles.templateAttachmentCard}>
-                          <strong>Documento do cabecalho</strong>
-                          <span>O cliente vera um anexo antes da mensagem.</span>
-                        </div>
-                      ) : null}
-                      {templateComposer.headerFormat === "VIDEO" ? (
-                        <div className={styles.templateAttachmentCard}>
-                          <strong>Video do cabecalho</strong>
-                          <span>O template exibira um video no topo.</span>
-                        </div>
-                      ) : null}
-                      {templateComposer.headerFormat === "TEXT" && previewHeaderText ? (
-                        <div className={styles.templateMessageHeaderText}>{previewHeaderText}</div>
-                      ) : null}
-
-                      <div className={styles.templateMessageBody}>{previewBodyText}</div>
-                      {previewFooterText ? (
-                        <div className={styles.templateMessageFooter}>{previewFooterText}</div>
-                      ) : null}
-
-                      {composerPreviewButtons.length > 0 ? (
-                        <div className={styles.templateMessageButtons}>
-                          {composerPreviewButtons.map((button) => (
-                            <button
-                              key={`preview-popup-button-${button}`}
-                              type="button"
-                              className={styles.templateMessageButton}
-                              disabled
-                            >
-                              {button}
-                            </button>
-                          ))}
-                        </div>
-                      ) : null}
-
-                      <span className={styles.templateMessageTime}>{previewTimeLabel}</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className={styles.templatePreviewLegend}>
-                  <strong>Variaveis usadas no preview</strong>
-                  <div className={styles.templatePreviewVariables}>
-                    {composerVariables.length > 0 ? (
-                      composerVariables.map((variable) => (
-                        <span key={`preview-popup-var-${variable}`} className={styles.templatePreviewVariable}>
-                          {`{{${variable}}}`} ={" "}
-                          {previewTemplateSamples[variable] || `[${variable.toUpperCase()}]`}
-                        </span>
-                      ))
-                    ) : (
-                      <span className={styles.templatePreviewVariable}>
-                        Sem variaveis detectadas no body.
-                      </span>
-                    )}
-                  </div>
-                </div>
-                {renderTemplateWindowResizeHandles("preview")}
-              </aside>
-            ) : null}
-              </>
-            ) : null}
 
             {typeof document !== "undefined" && templateWindowOrganizerOpen
               ? createPortal(
@@ -8766,733 +7394,6 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
           />
         ) : null}
 
-        {/*
-          <section className={`panel ${styles.sectionCard} ${styles.interactionsPanel}`}>
-            <div className={styles.sectionHeader}>
-              <div>
-                <p className={styles.sectionEyebrow}>Inbox de cobranca</p>
-                <h2 className={styles.sectionTitle}>Mensagens de inadimplentes</h2>
-                <p className={styles.sectionDescription}>
-                  Fluxo híbrido Bot + humano com ações rápidas, rastreabilidade completa e painel financeiro.
-                </p>
-              </div>
-              <div className={styles.interactionsHeaderStats}>
-                <span
-                  className={`${styles.humanQueueStat} ${
-                    interactionSummary.pendingHumanCount > 0 ? styles.humanQueueStatActive : ""
-                  }`}
-                >
-                  Pendencias humanas: {interactionSummary.pendingHumanCount}
-                </span>
-                {interactionDetail ? (
-                  <span className="badge">
-                    Etapa: {mapRecoveryFlowStepLabel(interactionDetail.currentStep)}
-                  </span>
-                ) : null}
-              </div>
-            </div>
-
-            <div className={styles.interactionsFilter}>
-              <button
-                type="button"
-                className={`btn btn-sm ${interactionsQueue === "all" ? "btn-primary" : "btn-secondary"}`}
-                onClick={() => setInteractionsQueue("all")}
-              >
-                Todas as conversas
-              </button>
-              <button
-                type="button"
-                className={`btn btn-sm ${interactionsQueue === "closed" ? "btn-primary" : "btn-secondary"}`}
-                onClick={() => setInteractionsQueue("closed")}
-              >
-                Conversas encerradas
-              </button>
-              <button
-                type="button"
-                className={`btn btn-sm ${interactionsQueue === "blocked" ? "btn-primary" : "btn-secondary"}`}
-                onClick={() => setInteractionsQueue("blocked")}
-              >
-                Clientes bloqueados
-              </button>
-              <div className={styles.interactionsRefreshStatus} aria-live="polite">
-                <span
-                  className={`${styles.interactionsRefreshSpinner} ${
-                    refreshingInteractions ? styles.interactionsRefreshSpinnerActive : ""
-                  }`}
-                  aria-hidden="true"
-                >
-                  <span />
-                  <span />
-                </span>
-                <span>
-                  {refreshingInteractions ? "Atualizando silenciosamente..." : "Atualizacao continua ativa"}
-                </span>
-              </div>
-            </div>
-
-            {humanAttentionFeed.length > 0 ? (
-              <div className={styles.humanAttentionFeed}>
-                {humanAttentionFeed.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className={styles.humanAttentionFeedItem}
-                    onClick={() => openHumanAttentionConversation(item.conversationId)}
-                  >
-                    <div>
-                      <p className={styles.humanAttentionFeedTitle}>
-                        {item.kind === "human_queue" ? "Aguardando humano" : "Nova mensagem"}
-                      </p>
-                      <p className={styles.humanAttentionFeedMeta}>{item.moduleLabel}</p>
-                      <strong>{item.customerName}</strong>
-                      <p className={styles.humanAttentionFeedMeta}>{item.phone}</p>
-                      <p className={styles.humanAttentionFeedPreview}>{item.preview}</p>
-                    </div>
-                    <span className={styles.humanAttentionFeedCount}>{item.attentionLabel}</span>
-                  </button>
-                ))}
-              </div>
-            ) : null}
-
-            <div className={styles.interactionsWorkspace}>
-              <div className={styles.interactionsList}>
-                {loadingInteractions ? (
-                  <div className={styles.paymentEmpty}>Carregando conversas...</div>
-                ) : interactionSummary.conversations.length === 0 ? (
-                  <div className={styles.paymentEmpty}>Nenhuma conversa encontrada para este filtro.</div>
-                ) : (
-                  interactionSummary.conversations.map((item) => {
-                    const active = interactionDetail?.conversationId === item.conversationId;
-                    const paymentStatus = String(item.paymentStatus || "").toLowerCase();
-                    const rowLinkExpired = Boolean(
-                      item.paymentLinkExpiresAt &&
-                        new Date(item.paymentLinkExpiresAt).getTime() < Date.now() &&
-                        !["approved", "released"].includes(paymentStatus),
-                    );
-                    const lastSenderType = String(item.lastSourceModule || "").includes("_human")
-                      ? "human"
-                      : String(item.lastSourceModule || "").includes("system") ||
-                          String(item.lastSourceModule || "").includes("internal")
-                        ? "system"
-                        : String(item.lastDirection || "").toUpperCase() === "INBOUND"
-                          ? "client"
-                          : "bot";
-                    const rowAwaitingResponse = [
-                      "aguardando_resposta_template",
-                      "cobranca_menu_principal",
-                      "aguardando_pagamento",
-                    ].includes(String(item.currentStep || "").toLowerCase());
-                    return (
-                      <article
-                        key={item.conversationId}
-                        className={`${styles.interactionRow} ${
-                          active ? styles.interactionRowActive : ""
-                        }`}
-                      >
-                        <button
-                          type="button"
-                          className={styles.interactionRowButton}
-                          onClick={() => loadInteractionDetail(item.conversationId)}
-                          disabled={loadingInteractionDetailId === item.conversationId}
-                        >
-                          <div className={styles.interactionRowTop}>
-                            <p className={styles.historyTitle}>{item.customerName}</p>
-                            <span className={styles.interactionRowTime}>
-                              {formatDateTime(item.lastAt)}
-                            </span>
-                          </div>
-                          <p className={styles.historyMeta}>
-                            {getLiveInteractionPhone({
-                              conversationWhatsapp: item.conversationWhatsapp,
-                              customerWhatsapp: item.customerWhatsapp,
-                            })}
-                          </p>
-                          <p className={styles.historyMeta}>
-                            {mapSenderLabel(lastSenderType, item.lastDirection)}:{" "}
-                            {item.lastMessage || "-"}
-                          </p>
-                          <div className={styles.interactionBadgeRow}>
-                            {item.botActive ? (
-                              <span className={`${styles.stateBadge} ${styles.stateBot}`}>
-                                Bot ativo
-                              </span>
-                            ) : null}
-                            {item.humanAssigned || item.humanQueue ? (
-                              <span className={`${styles.stateBadge} ${styles.stateHuman}`}>
-                                Atendimento humano
-                              </span>
-                            ) : null}
-                            {item.isClosed ? (
-                              <span className={`${styles.stateBadge} ${styles.stateWaiting}`}>
-                                Encerrada
-                              </span>
-                            ) : null}
-                            {item.isBlocked ? (
-                              <span className={`${styles.stateBadge} ${styles.stateExpired}`}>
-                                Bloqueado
-                              </span>
-                            ) : null}
-                            {item.paymentGenerated ? (
-                              <span className={`${styles.stateBadge} ${styles.stateGenerated}`}>
-                                Pagamento gerado
-                              </span>
-                            ) : null}
-                            {["approved", "released"].includes(paymentStatus) ? (
-                              <span className={`${styles.stateBadge} ${styles.statePaid}`}>Pago</span>
-                            ) : null}
-                            {rowLinkExpired ? (
-                              <span className={`${styles.stateBadge} ${styles.stateExpired}`}>
-                                Link expirado
-                              </span>
-                            ) : null}
-                            {rowAwaitingResponse ? (
-                              <span className={`${styles.stateBadge} ${styles.stateWaiting}`}>
-                                Aguardando resposta
-                              </span>
-                            ) : null}
-                          </div>
-                        </button>
-                      </article>
-                    );
-                  })
-                )}
-              </div>
-
-              <div className={styles.interactionDetail}>
-                {!interactionDetail ? (
-                  <div className={styles.paymentEmpty}>
-                    Selecione uma conversa para ver timeline, estado do fluxo e acoes do operador.
-                  </div>
-                ) : (
-                  <>
-                    <div className={styles.interactionDetailHeader}>
-                      <div className={styles.interactionDetailIdentity}>
-                        <strong>{interactionDetail.customer.name}</strong>
-                        <span>
-                          {getLiveInteractionPhone({
-                            conversationWhatsapp: interactionDetail.customer.conversationWhatsapp,
-                            customerWhatsapp: interactionDetail.customer.whatsappNumber,
-                          })}
-                        </span>
-                        <span>
-                          Fluxo: {interactionDetail.currentFlow || "cobranca_recovery_whatsapp_hibrido"} |{" "}
-                          Etapa: {mapRecoveryFlowStepLabel(interactionDetail.currentStep)}
-                        </span>
-                      </div>
-                      <div className={styles.interactionBadgeRow}>
-                        {interactionDetail.botActive ? (
-                          <span className={`${styles.stateBadge} ${styles.stateBot}`}>Bot ativo</span>
-                        ) : null}
-                        {interactionDetail.humanAssigned ? (
-                          <span className={`${styles.stateBadge} ${styles.stateHuman}`}>
-                            Atendimento humano
-                          </span>
-                        ) : null}
-                        {!interactionDetail.isBlocked &&
-                        (String(interactionDetail.currentStep || "").trim().toLowerCase() ===
-                          "encerrado" ||
-                          ["manual_closed", "encerrado_operador"].includes(
-                            String(interactionDetail.flowResult || "").trim().toLowerCase(),
-                          )) ? (
-                          <span className={`${styles.stateBadge} ${styles.stateWaiting}`}>
-                            Conversa encerrada
-                          </span>
-                        ) : null}
-                        {interactionDetail.isBlocked ? (
-                          <span className={`${styles.stateBadge} ${styles.stateExpired}`}>
-                            Cliente bloqueado
-                          </span>
-                        ) : null}
-                        {latestPayment?.paymentUrl ? (
-                          <span className={`${styles.stateBadge} ${styles.stateGenerated}`}>
-                            Pagamento gerado
-                          </span>
-                        ) : null}
-                        {paymentIsPaid ? (
-                          <span className={`${styles.stateBadge} ${styles.statePaid}`}>Pago</span>
-                        ) : null}
-                        {linkExpired ? (
-                          <span className={`${styles.stateBadge} ${styles.stateExpired}`}>
-                            Link expirado
-                          </span>
-                        ) : null}
-                        {awaitingResponse ? (
-                          <span className={`${styles.stateBadge} ${styles.stateWaiting}`}>
-                            Aguardando resposta
-                          </span>
-                        ) : null}
-                      </div>
-                    </div>
-
-                    <div className={styles.interactionActionBar}>
-                      {interactionDetail.isBlocked ? (
-                        <button
-                          type="button"
-                          className="btn btn-secondary btn-sm"
-                          onClick={() =>
-                            runInteractionAction(interactionDetail.conversationId, "unblock_interaction")
-                          }
-                          disabled={isInteractionBusy(
-                            interactionDetail.conversationId,
-                            "unblock_interaction",
-                          )}
-                        >
-                          {isInteractionBusy(interactionDetail.conversationId, "unblock_interaction")
-                            ? "Desbloqueando..."
-                            : "Desbloquear cliente"}
-                        </button>
-                      ) : String(interactionDetail.currentStep || "").trim().toLowerCase() === "encerrado" ||
-                        ["manual_closed", "encerrado_operador"].includes(
-                          String(interactionDetail.flowResult || "").trim().toLowerCase(),
-                        ) ? (
-                        <>
-                          <button
-                            type="button"
-                            className="btn btn-secondary btn-sm"
-                            onClick={() =>
-                              runInteractionAction(interactionDetail.conversationId, "reopen_interaction")
-                            }
-                            disabled={isInteractionBusy(
-                              interactionDetail.conversationId,
-                              "reopen_interaction",
-                            )}
-                          >
-                            {isInteractionBusy(interactionDetail.conversationId, "reopen_interaction")
-                              ? "Reabrindo..."
-                              : "Reabrir conversa"}
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-danger btn-sm"
-                            onClick={() =>
-                              runInteractionAction(interactionDetail.conversationId, "block_interaction")
-                            }
-                            disabled={isInteractionBusy(
-                              interactionDetail.conversationId,
-                              "block_interaction",
-                            )}
-                          >
-                            {isInteractionBusy(interactionDetail.conversationId, "block_interaction")
-                              ? "Bloqueando..."
-                              : "Bloquear cliente"}
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <button
-                            type="button"
-                            className="btn btn-secondary btn-sm"
-                            onClick={() =>
-                              runInteractionAction(interactionDetail.conversationId, "assign_human")
-                            }
-                            disabled={isInteractionBusy(
-                              interactionDetail.conversationId,
-                              "assign_human",
-                            )}
-                          >
-                            {isInteractionBusy(interactionDetail.conversationId, "assign_human")
-                              ? "Aplicando..."
-                              : "Assumir atendimento"}
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-secondary btn-sm"
-                            onClick={() =>
-                              runInteractionAction(interactionDetail.conversationId, "pause_bot")
-                            }
-                            disabled={isInteractionBusy(
-                              interactionDetail.conversationId,
-                              "pause_bot",
-                            )}
-                          >
-                            {isInteractionBusy(interactionDetail.conversationId, "pause_bot")
-                              ? "Pausando..."
-                              : "Pausar Bot"}
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-secondary btn-sm"
-                            onClick={() =>
-                              runInteractionAction(interactionDetail.conversationId, "resume_bot")
-                            }
-                            disabled={isInteractionBusy(
-                              interactionDetail.conversationId,
-                              "resume_bot",
-                            )}
-                          >
-                            {isInteractionBusy(interactionDetail.conversationId, "resume_bot")
-                              ? "Reativando..."
-                              : "Reativar Bot"}
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-primary btn-sm"
-                            onClick={() =>
-                              runInteractionAction(
-                                interactionDetail.conversationId,
-                                "generate_cash_link",
-                              )
-                            }
-                            disabled={isInteractionBusy(
-                              interactionDetail.conversationId,
-                              "generate_cash_link",
-                            )}
-                          >
-                            {isInteractionBusy(interactionDetail.conversationId, "generate_cash_link")
-                              ? "Gerando..."
-                              : "Gerar link avista"}
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-primary btn-sm"
-                            onClick={() =>
-                              runInteractionAction(
-                                interactionDetail.conversationId,
-                                "generate_credit_link",
-                              )
-                            }
-                            disabled={isInteractionBusy(
-                              interactionDetail.conversationId,
-                              "generate_credit_link",
-                            )}
-                          >
-                            {isInteractionBusy(interactionDetail.conversationId, "generate_credit_link")
-                              ? "Gerando..."
-                              : "Pagar no credito"}
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-secondary btn-sm"
-                            onClick={() =>
-                              runInteractionAction(interactionDetail.conversationId, "resend_link")
-                            }
-                            disabled={isInteractionBusy(
-                              interactionDetail.conversationId,
-                              "resend_link",
-                            )}
-                          >
-                            {isInteractionBusy(interactionDetail.conversationId, "resend_link")
-                              ? "Enviando..."
-                              : "Reenviar link"}
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-secondary btn-sm"
-                            onClick={() =>
-                              runInteractionAction(interactionDetail.conversationId, "request_proof")
-                            }
-                            disabled={isInteractionBusy(
-                              interactionDetail.conversationId,
-                              "request_proof",
-                            )}
-                          >
-                            Solicitar comprovante
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-secondary btn-sm"
-                            onClick={() =>
-                              runInteractionAction(interactionDetail.conversationId, "mark_paid")
-                            }
-                            disabled={isInteractionBusy(
-                              interactionDetail.conversationId,
-                              "mark_paid",
-                            )}
-                          >
-                            {isInteractionBusy(interactionDetail.conversationId, "mark_paid")
-                              ? "Atualizando..."
-                              : "Marcar pago manualmente"}
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-danger btn-sm"
-                            onClick={() =>
-                              runInteractionAction(interactionDetail.conversationId, "block_interaction")
-                            }
-                            disabled={isInteractionBusy(
-                              interactionDetail.conversationId,
-                              "block_interaction",
-                            )}
-                          >
-                            {isInteractionBusy(interactionDetail.conversationId, "block_interaction")
-                              ? "Bloqueando..."
-                              : "Bloquear cliente"}
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-danger btn-sm"
-                            onClick={() =>
-                              runInteractionAction(
-                                interactionDetail.conversationId,
-                                "close_interaction",
-                              )
-                            }
-                            disabled={isInteractionBusy(
-                              interactionDetail.conversationId,
-                              "close_interaction",
-                            )}
-                          >
-                            Encerrar conversa
-                          </button>
-                        </>
-                      )}
-                    </div>
-
-                    <div className={styles.interactionDetailGrid}>
-                      <div className={styles.interactionChatPanel}>
-                        <div className={styles.interactionListToolbar}>
-                          <div>
-                            <strong>Conversa</strong>
-                            <p className={styles.historyMeta}>
-                              Visualização mais próxima do WhatsApp. Eventos internos podem ser ocultados.
-                            </p>
-                          </div>
-                          <label className={styles.interactionInlineToggle}>
-                            <input
-                              type="checkbox"
-                              checked={showSystemMessages}
-                              onChange={(event) => setShowSystemMessages(event.target.checked)}
-                            />
-                            <span>Mostrar eventos do sistema</span>
-                          </label>
-                        </div>
-
-                        <div ref={interactionMessageListRef} className={styles.interactionMessageList}>
-                        {visibleInteractionMessages.length === 0 ? (
-                          <div className={styles.paymentEmpty}>
-                            Nenhuma mensagem visível com o filtro atual.
-                          </div>
-                        ) : (
-                          visibleInteractionMessages.map((message) => {
-                            const senderLabel = mapSenderLabel(
-                              message.senderType,
-                              message.direction,
-                            );
-                            const senderKey = String(
-                              message.senderType ||
-                                (String(message.direction).toUpperCase() === "INBOUND"
-                                  ? "client"
-                                  : "bot"),
-                            )
-                              .trim()
-                              .toLowerCase();
-                            const senderClass =
-                              senderKey === "human"
-                                ? styles.interactionHuman
-                                : senderKey === "client"
-                                  ? styles.interactionInbound
-                                  : senderKey === "system"
-                                    ? styles.interactionSystem
-                                    : styles.interactionOutbound;
-                            const variableEntries = Object.entries(message.variables || {}).filter(
-                              ([, value]) =>
-                                value !== null &&
-                                value !== undefined &&
-                                String(value).trim() !== "",
-                            );
-                            return (
-                              <div
-                                key={message.id}
-                                className={`${styles.interactionMessage} ${senderClass}`}
-                                data-message-id={String(message.id)}
-                                data-is-complaint={message.isComplaint ? "true" : "false"}
-                              >
-                                <div className={styles.messageHeader}>
-                                  <span className={styles.senderTag}>{senderLabel}</span>
-                                  <span className={styles.messageTypeTag}>
-                                    {String(message.messageType || "text").replace(/_/g, " ")}
-                                  </span>
-                                </div>
-                                <p>{message.body}</p>
-                                {shouldShowInteractionVariables(message) && variableEntries.length > 0 ? (
-                                  <div className={styles.messageVariables}>
-                                    {variableEntries.slice(0, 4).map(([key, value]) => (
-                                      <span key={`${message.id}-${key}`}>
-                                        {key}: {String(value)}
-                                      </span>
-                                    ))}
-                                  </div>
-                                ) : null}
-                                <span className={styles.messageMeta}>
-                                  {formatDateTime(message.timestamp)}
-                                  {message.isComplaint ? " | Tratativa humana" : ""}
-                                </span>
-                              </div>
-                            );
-                          })
-                        )}
-                        </div>
-
-                        <div className={styles.interactionComposer}>
-                          <div className={styles.interactionComposerHeader}>
-                            <strong>Responder ao cliente</strong>
-                            <span className={styles.historyMeta}>
-                              Envia uma mensagem humana para este WhatsApp.
-                            </span>
-                          </div>
-                          <textarea
-                            className="field"
-                            rows={4}
-                            value={interactionReplyDraft}
-                            placeholder="Digite a mensagem que deve ser enviada ao cliente..."
-                            onChange={(event) => setInteractionReplyDraft(event.target.value)}
-                            disabled={Boolean(interactionDetail.isBlocked) || String(interactionDetail.currentStep || "").trim().toLowerCase() === "encerrado" || ["manual_closed", "encerrado_operador"].includes(String(interactionDetail.flowResult || "").trim().toLowerCase())}
-                          />
-                          <div className={styles.interactionComposerActions}>
-                            <button
-                              type="button"
-                              className="btn btn-primary btn-sm"
-                              onClick={() => sendInteractionReply(interactionDetail.conversationId)}
-                              disabled={isInteractionBusy(
-                                interactionDetail.conversationId,
-                                "send_message",
-                                ) || Boolean(interactionDetail.isBlocked) || String(interactionDetail.currentStep || "").trim().toLowerCase() === "encerrado" || ["manual_closed", "encerrado_operador"].includes(String(interactionDetail.flowResult || "").trim().toLowerCase())}
-                            >
-                              {isInteractionBusy(interactionDetail.conversationId, "send_message")
-                                ? "Enviando..."
-                                : "Enviar mensagem"}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-
-                      <aside className={styles.interactionSidePanel}>
-                        <article className={styles.interactionInfoCard}>
-                          <h3>Resumo financeiro</h3>
-                          <p>
-                            <strong>Cliente:</strong>{" "}
-                            {String(
-                              interactionDetail.metadata?.cliente ||
-                                interactionDetail.customer.name ||
-                                "-",
-                            )}
-                          </p>
-                          <p>
-                            <strong>Empresa:</strong>{" "}
-                            {String(
-                              interactionDetail.metadata?.empresa ||
-                                selectedConversationSummary?.customerName ||
-                                "-",
-                            )}
-                          </p>
-                          <p>
-                            <strong>Documento:</strong>{" "}
-                            {String(interactionDetail.metadata?.documento || "-")}
-                          </p>
-                          <p>
-                            <strong>Servico:</strong>{" "}
-                            {String(
-                              latestPayment?.serviceDescription ||
-                                interactionDetail.metadata?.descricao_servico ||
-                                "Regularizacao financeira",
-                            )}
-                          </p>
-                          <p>
-                            <strong>Data do servico:</strong>{" "}
-                            {(() => {
-                              const rawDate =
-                                latestPayment?.serviceDate ||
-                                String(interactionDetail.metadata?.data_servico || "");
-                              const formatted = formatDateTime(rawDate);
-                              return formatted === "-" && rawDate ? rawDate : formatted;
-                            })()}
-                          </p>
-                          <p>
-                            <strong>Valor original:</strong>{" "}
-                            {formatCurrency(interactionDetail.customer.openAmount || 0)}
-                          </p>
-                          <p>
-                            <strong>Juros:</strong>{" "}
-                            {latestPayment?.chargeType === "parcelado" &&
-                            latestPayment.installmentCount > 1
-                              ? formatCurrency(
-                                  Math.max(
-                                    0,
-                                    latestPayment.amount -
-                                      interactionDetail.customer.openAmount,
-                                  ),
-                                )
-                              : formatCurrency(0)}
-                          </p>
-                          <p>
-                            <strong>Checkout em cartao:</strong> definido pelo Mercado Pago no link gerado
-                          </p>
-                          <p>
-                            <strong>Status da cobranca:</strong>{" "}
-                            {mapRecoveryFlowStepLabel(interactionDetail.currentStep)}
-                          </p>
-                          <p>
-                            <strong>Status pagamento:</strong>{" "}
-                            {mapPaymentStatusLabel(latestPayment?.status)}
-                          </p>
-                          <p>
-                            <strong>Origem link MP:</strong>{" "}
-                            {latestPayment?.externalReference || "-"}
-                          </p>
-                          <p>
-                            <strong>Ultimo link:</strong>{" "}
-                            {latestPayment?.paymentUrl ? (
-                              <a
-                                href={latestPayment.paymentUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                              >
-                                Abrir link
-                              </a>
-                            ) : (
-                              "-"
-                            )}
-                          </p>
-                          <p>
-                            <strong>Vencimento link:</strong>{" "}
-                            {formatDateTime(latestPayment?.linkExpiresAt)}
-                          </p>
-                          <p>
-                            <strong>Tentativas anteriores:</strong> {paymentAttemptCount}
-                          </p>
-                          <p>
-                            <strong>Ultima interacao:</strong>{" "}
-                            {formatDateTime(interactionDetail.lastInteractionAt)}
-                          </p>
-                        </article>
-
-                        <article className={styles.interactionInfoCard}>
-                          <h3>Nota interna</h3>
-                          <p className={styles.historyMeta}>
-                            Registro interno para equipe. Nao e enviado ao cliente.
-                          </p>
-                          <textarea
-                            className="field"
-                            rows={4}
-                            value={interactionNoteDraft}
-                            placeholder="Ex: Cliente pediu retorno sexta as 15h."
-                            onChange={(event) => setInteractionNoteDraft(event.target.value)}
-                            disabled={Boolean(interactionDetail.isBlocked) || String(interactionDetail.currentStep || "").trim().toLowerCase() === "encerrado" || ["manual_closed", "encerrado_operador"].includes(String(interactionDetail.flowResult || "").trim().toLowerCase())}
-                          />
-                          <button
-                            type="button"
-                            className="btn btn-secondary btn-sm"
-                            onClick={() =>
-                              saveInteractionInternalNote(interactionDetail.conversationId)
-                            }
-                            disabled={isInteractionBusy(
-                              interactionDetail.conversationId,
-                              "internal_note",
-                            ) || Boolean(interactionDetail.isBlocked) || String(interactionDetail.currentStep || "").trim().toLowerCase() === "encerrado" || ["manual_closed", "encerrado_operador"].includes(String(interactionDetail.flowResult || "").trim().toLowerCase())}
-                          >
-                            {isInteractionBusy(interactionDetail.conversationId, "internal_note")
-                              ? "Salvando..."
-                              : "Salvar nota"}
-                          </button>
-                        </article>
-                      </aside>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-          </section>
-        */}
         </div>
 
       </RecoveryShell>
