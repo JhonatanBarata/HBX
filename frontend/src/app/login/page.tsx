@@ -256,8 +256,34 @@ function getInternalLoginDestination(data: unknown) {
   return normalizeInternalRouteAlias(trimmed);
 }
 
-async function resolvePostLoginDestination(data: unknown) {
-  const explicitDestination = getInternalLoginDestination(data);
+function getInternalSearchDestination(searchParams?: { get(name: string): string | null } | null) {
+  const destination = searchParams?.get("next") ?? searchParams?.get("from");
+  if (typeof destination !== "string") return null;
+
+  const trimmed = destination.trim();
+  if (!trimmed || !trimmed.startsWith("/") || trimmed.startsWith("//")) return null;
+
+  const normalized = normalizeInternalRouteAlias(trimmed);
+  if (!normalized) return null;
+
+  const pathname = normalized.split(/[?#]/, 1)[0];
+  if (pathname === "/login" || pathname === "/mobile/login" || pathname === "/mobile-login") {
+    return null;
+  }
+
+  return normalized;
+}
+
+async function resolvePostLoginDestination(data: unknown, requestedDestination?: string | null) {
+  const backendDestination = getInternalLoginDestination(data);
+  const backendDestinationIsFallback =
+    !backendDestination ||
+    backendDestination === "/boasvindas" ||
+    backendDestination === "/master";
+  const explicitDestination =
+    requestedDestination && backendDestinationIsFallback
+      ? requestedDestination
+      : backendDestination || requestedDestination || null;
 
   try {
     const currentUser = await apiFetch<LoginCurrentUser>("/profile/current-user");
@@ -289,6 +315,7 @@ async function resolvePostLoginDestination(data: unknown) {
 
 export default function LoginPage({ mobileRoute = false }: { mobileRoute?: boolean } = {}) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { selection, activeTheme, setMode: setThemeMode } = useHbxTheme();
   const { executeLoginWithRetry, cancel: cancelLogin } = useLoginColdStart({
     apiUrl: API_URL,
@@ -469,7 +496,7 @@ export default function LoginPage({ mobileRoute = false }: { mobileRoute?: boole
     setLoginState("success");
 
     setPlayingWelcome(true);
-    const destinationPromise = resolvePostLoginDestination(data);
+    const destinationPromise = resolvePostLoginDestination(data, getInternalSearchDestination(searchParams));
     const successDelay = isMobileLoginSurface ? MOBILE_LOGIN_SUCCESS_DELAY_MS : LOGIN_SUCCESS_DELAY_MS;
     await new Promise((resolve) => window.setTimeout(resolve, successDelay));
     const destination = await destinationPromise;
@@ -730,7 +757,6 @@ export default function LoginPage({ mobileRoute = false }: { mobileRoute?: boole
   }, []);
 
   // Prefill username from `email` query param when provided (visual only).
-  const searchParams = useSearchParams();
   useEffect(() => {
     try {
       const emailParam = searchParams?.get("email") ?? "";
