@@ -29,6 +29,7 @@ import {
 import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
+import { HbxPopup2 } from "@/components/HbxPopup";
 import HbxGuide1 from "@/components/HbxGuide1";
 import HbxGuide4, { type HbxGuide4Item } from "@/components/HbxGuide4";
 import LiquidGlassCard, {
@@ -75,6 +76,11 @@ type MobileReturnScheduler = {
   dateText: string;
   timeValue: string;
   monthKey: string;
+};
+type BulkDeleteConfirmation = {
+  all: boolean;
+  leadIds: string[];
+  message: string;
 };
 type RadarSearchRunStatus =
   | "queued"
@@ -3526,6 +3532,8 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   );
   const [bulkSelectAllAccount, setBulkSelectAllAccount] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkDeleteConfirmation, setBulkDeleteConfirmation] =
+    useState<BulkDeleteConfirmation | null>(null);
   const [vendasVisualCount, setVendasVisualCount] = useState(0);
   const [storedRadarRun, setStoredRadarRun] = useState<StoredRadarRun | null>(null);
   const [liveRadarRun, setLiveRadarRun] = useState<RadarSearchRunResponse | null>(null);
@@ -7324,17 +7332,22 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     setSelectedBulkLeadIds(new Set(loadedLeadIds));
   }
 
-  async function deleteSelectedLeadsBulk() {
+  function deleteSelectedLeadsBulk() {
     const selectedIds = Array.from(selectedBulkLeadIds);
     if (!bulkSelectAllAccount && !selectedIds.length) return;
 
-    const targetLabel = bulkSelectAllAccount
-      ? "todos os cards da conta atual"
-      : `${selectedIds.length} card(s) selecionado(s)`;
-    const confirmed = window.confirm(
-      `Excluir ${targetLabel} do Vendas? Os cards somem da tela, mas a base do Radar Digital continua preservada.`,
-    );
-    if (!confirmed) return;
+    setBulkDeleteConfirmation({
+      all: bulkSelectAllAccount,
+      leadIds: selectedIds,
+      message: bulkSelectAllAccount
+        ? "Excluir todos os cards da conta atual do Vendas? Os cards somem da tela, mas a base do Radar Digital continua preservada."
+        : `Excluir ${selectedIds.length} card(s) selecionado(s) do Vendas? Os cards somem da tela, mas a base do Radar Digital continua preservada.`,
+    });
+  }
+
+  async function confirmBulkDeleteLeads() {
+    const confirmation = bulkDeleteConfirmation;
+    if (!confirmation || (!confirmation.all && !confirmation.leadIds.length)) return;
 
     setBulkDeleting(true);
     setError(null);
@@ -7344,7 +7357,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         {
           method: "POST",
           body: JSON.stringify(
-            bulkSelectAllAccount ? { all: true } : { leadIds: selectedIds },
+            confirmation.all ? { all: true } : { leadIds: confirmation.leadIds },
           ),
         },
       );
@@ -7366,6 +7379,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       );
     } finally {
       setBulkDeleting(false);
+      setBulkDeleteConfirmation(null);
     }
   }
 
@@ -9780,6 +9794,41 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
     );
   }
 
+  function renderBulkDeleteConfirmationPopup() {
+    if (!bulkDeleteConfirmation) return null;
+
+    return (
+      <HbxPopup2
+        open
+        tone="danger"
+        title="Excluir cards"
+        onClose={bulkDeleting ? undefined : () => setBulkDeleteConfirmation(null)}
+        action={
+          <>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={bulkDeleting}
+              onClick={() => setBulkDeleteConfirmation(null)}
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              disabled={bulkDeleting}
+              onClick={() => void confirmBulkDeleteLeads()}
+            >
+              {bulkDeleting ? "Excluindo..." : "Excluir"}
+            </button>
+          </>
+        }
+      >
+        {bulkDeleteConfirmation.message}
+      </HbxPopup2>
+    );
+  }
+
   if (mobileRoute) {
     return (
       <DashboardScaffold title="Vendas" hideHeader={true}>
@@ -9788,6 +9837,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
         {renderAssistedSignupPortal()}
         {renderCommissionReceiptPortal()}
         {renderMasterNoticeCenter(false)}
+        {renderBulkDeleteConfirmationPopup()}
       </DashboardScaffold>
     );
   }
@@ -9795,6 +9845,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
   return (
     <DashboardScaffold title="Vendas" hideHeader={true}>
       <style dangerouslySetInnerHTML={{ __html: vendasDragTopbarLockStyle }} />
+      {renderBulkDeleteConfirmationPopup()}
       <div className={styles.desktopVendasShell}>
         <DndContext
           sensors={sensors}

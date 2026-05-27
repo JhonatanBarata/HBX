@@ -1633,6 +1633,78 @@ test('persistRadarLeadPoolBatch preserva campos ricos ao sincronizar card primar
   assert.equal(enrichment.signals.whatsappStatus, 'missing');
 });
 
+test('persistRadarLeadPoolBatch preserva social confiavel ja aprovado pelo motor HBX', async () => {
+  const createdRows: any[] = [];
+  const service = new WebscrapingService(createPrisma({
+    radarLeadCompanyState: {},
+    radarLeadPool: {
+      findFirst: async () => null,
+      update: async ({ data }: any) => data,
+      create: async ({ data }: any) => {
+        createdRows.push(data);
+        return data;
+      },
+    },
+  })) as any;
+  const input = service.normalizeSearchInput({
+    city: 'Piracicaba',
+    state: 'SP',
+    segment: 'imobiliárias',
+    quantity: 6,
+    radiusKm: 100,
+    engine: 'hbx',
+    targetType: 'pj',
+    qualityMode: 'list',
+  });
+  const quality = {
+    status: 'approved',
+    billable: true,
+    segmentMatchScore: 90,
+    contactQualityScore: 80,
+    commercialScore: 85,
+    reasons: [],
+  };
+
+  await service.persistRadarLeadPoolBatch(input, [
+    ['Marth Consultoria Imobiliária Ltda', 'https://instagram.com/marthimoveis', 'https://facebook.com/imobiliariamarth'],
+    ['Imobiliária Junqueira', 'https://instagram.com/imobjunqueira', 'https://facebook.com/Imobiliaria.Junqueira'],
+    ['ALUGUE OU COMPRE Imóveis em Piracicaba e Região', 'https://instagram.com/pauloimobiliaria', 'https://facebook.com/pauloimobiliaria'],
+    ['Fly a Imobiliária do Campestre', 'https://instagram.com/imobiliariafly', 'https://facebook.com/imobiliariafly'],
+    ['AMD Imóveis Atendimento Humanizado e Personalizado para você!', 'https://instagram.com/amd_imoveis', 'https://facebook.com/profile.php'],
+    ['IMÓVEIS EM PIRACICABA', 'https://instagram.com/pedroso_imobiliaria', 'https://facebook.com/imobiliariapedrosopiracicaba'],
+  ].map(([name, instagramUrl, facebookUrl], index) => ({
+    placeId: `hbx:pj:1999999000${index}`,
+    name,
+    phone: `(19) 99999-000${index}`,
+    phoneDigits: `1999999000${index}`,
+    city: 'Piracicaba',
+    state: 'SP',
+    segment: 'imobiliárias',
+    website: `https://imobiliaria-${index}.com.br`,
+    instagramUrl,
+    facebookUrl,
+    socialStatus: 'found',
+    socialConfidence: 80,
+    source: 'hbx_scraping:free_pj',
+    sourceEngine: 'hbx',
+    quality,
+  })), 'hbx');
+
+  assert.equal(createdRows.length, 6);
+  assert.deepEqual(
+    createdRows.map((row) => row.instagramUrl),
+    [
+      'https://instagram.com/marthimoveis',
+      'https://instagram.com/imobjunqueira',
+      'https://instagram.com/pauloimobiliaria',
+      'https://instagram.com/imobiliariafly',
+      'https://instagram.com/amd_imoveis',
+      'https://instagram.com/pedroso_imobiliaria',
+    ],
+  );
+  assert.equal(createdRows.every((row) => row.socialStatus === 'found' && row.socialConfidence >= 80), true);
+});
+
 test('maskRadarSmartFieldsForList preserva contato natural e bloqueia inteligencia premium', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const item = service.maskRadarSmartFieldsForList({

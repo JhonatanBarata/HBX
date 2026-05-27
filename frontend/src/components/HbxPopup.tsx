@@ -169,26 +169,45 @@ export function HbxPopup4({
   onClose,
 }: HbxPopup4Props) {
   const [shouldRender, setShouldRender] = useState(open);
+  const [exiting, setExiting] = useState(false);
+  const closeTimerRef = useRef<number | null>(null);
 
   if (open && !shouldRender) {
     setShouldRender(true);
   }
 
   useEffect(() => {
-    if (open || !shouldRender) return undefined;
+    if (open || !shouldRender || exiting) return undefined;
 
     const timer = window.setTimeout(() => setShouldRender(false), HBX_POPUP4_EXIT_MS);
     return () => window.clearTimeout(timer);
-  }, [open, shouldRender]);
+  }, [exiting, open, shouldRender]);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+    };
+  }, []);
 
   if (!shouldRender || typeof document === "undefined") return null;
 
   const hasHeader = Boolean(title || eyebrow);
   const popupClassName = className ? `hbx-popup4 ${className}` : "hbx-popup4";
-  const motionState = open ? "entered" : "exiting";
+  const motionState = open && !exiting ? "entered" : "exiting";
+  const requestClose = () => {
+    if (!onClose || exiting) return;
+    setExiting(true);
+    if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = window.setTimeout(() => {
+      closeTimerRef.current = null;
+      onClose();
+      setShouldRender(false);
+      setExiting(false);
+    }, HBX_POPUP4_EXIT_MS);
+  };
 
   return createPortal(
-    <HbxPopupLayer variant="side-phone" state={motionState} onOutsideClick={onClose}>
+    <HbxPopupLayer variant="side-phone" state={motionState} onOutsideClick={onClose ? requestClose : undefined}>
       <section
         className={popupClassName}
         data-has-header={hasHeader ? "true" : "false"}
@@ -206,7 +225,7 @@ export function HbxPopup4({
               {title ? <strong>{title}</strong> : null}
             </div>
             {onClose && showCloseButton ? (
-              <button type="button" className="hbx-popup4__close" onClick={onClose} aria-label={closeLabel}>
+              <button type="button" className="hbx-popup4__close" onClick={requestClose} aria-label={closeLabel}>
                 ×
               </button>
             ) : null}
@@ -216,7 +235,7 @@ export function HbxPopup4({
           <button
             type="button"
             className="hbx-popup4__close hbx-popup4__close--floating"
-            onClick={onClose}
+            onClick={requestClose}
             aria-label={closeLabel}
           >
             ×
