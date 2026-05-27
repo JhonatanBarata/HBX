@@ -7690,6 +7690,8 @@ function InboxDesktopClientPage() {
         setSendText("");
         sendTextDirtyRef.current = false;
         setReplyingTo(null);
+        chatTimelineStickToBottomRef.current = true;
+        setShowScrollToBottom(false);
         setSelectedConversation(data);
         selectedConversationRef.current = data;
         rememberConversationDetail(data);
@@ -7852,6 +7854,8 @@ function InboxDesktopClientPage() {
       });
       URL.revokeObjectURL(audioPreview.url);
       setAudioPreview(null);
+      chatTimelineStickToBottomRef.current = true;
+      setShowScrollToBottom(false);
       setSelectedConversation(data);
       selectedConversationRef.current = data;
       rememberConversationDetail(data);
