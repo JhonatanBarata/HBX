@@ -14,186 +14,263 @@
   <link rel="stylesheet" href="site-theme.css">
   <style>
     .payment-page {
-      padding: 32px 0 56px;
+      padding: 30px 0 54px;
     }
 
-    .payment-online-grid {
+    .payment-shell {
       display: grid;
-      grid-template-columns: minmax(0, 1.08fr) minmax(320px, 0.92fr);
-      gap: 24px;
+      grid-template-columns: minmax(0, 0.92fr) minmax(320px, 0.78fr);
+      gap: 22px;
       align-items: start;
     }
 
-    .payment-online-card {
-      padding: 26px;
+    .payment-card {
+      padding: 24px;
     }
 
-    .payment-online-copy {
-      margin-top: 14px;
-      max-width: 680px;
+    .payment-card h1,
+    .payment-card h2 {
+      margin-top: 8px;
+    }
+
+    .payment-lead {
+      margin-top: 12px;
+      max-width: 620px;
       color: var(--muted);
-      line-height: 1.7;
+      line-height: 1.65;
     }
 
-    .payment-form-grid {
+    .payment-form {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 14px;
       margin-top: 22px;
     }
 
-    .payment-form-field {
+    .field {
       display: grid;
       gap: 8px;
     }
 
-    .payment-form-field.full {
-      grid-column: 1 / -1;
-    }
-
-    .payment-form-field label,
-    .payment-summary-label {
+    .field label {
       color: var(--muted);
-      font-size: 0.78rem;
+      font-size: 0.76rem;
       font-weight: 700;
       letter-spacing: 0.08em;
       text-transform: uppercase;
     }
 
-    .payment-input,
-    .payment-select,
-    .payment-textarea {
+    .payment-input {
       width: 100%;
       min-height: 52px;
       border: 1px solid var(--line);
-      border-radius: 16px;
-      background: rgba(255, 255, 255, 0.92);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.94);
       color: var(--text);
       padding: 0 15px;
       outline: none;
       transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
     }
 
-    .payment-textarea {
-      min-height: 104px;
-      padding: 14px 15px;
-      resize: vertical;
-    }
-
-    .payment-input:focus,
-    .payment-select:focus,
-    .payment-textarea:focus {
+    .payment-input:focus {
       border-color: var(--line-strong);
       box-shadow: 0 0 0 3px rgba(108, 228, 46, 0.2);
       transform: translateY(-1px);
     }
 
-    .payment-state {
-      display: none;
-      margin-top: 16px;
-      padding: 14px 16px;
-      border-radius: 16px;
-      border: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.86);
-      color: var(--muted);
-      line-height: 1.5;
-    }
-
-    .payment-state.is-visible {
-      display: block;
-    }
-
-    .payment-state[data-tone="error"] {
-      border-color: rgba(220, 38, 38, 0.24);
-      background: rgba(255, 240, 240, 0.92);
-      color: #991b1b;
-    }
-
-    .payment-state[data-tone="ok"] {
-      border-color: rgba(19, 155, 70, 0.25);
-      background: rgba(221, 255, 232, 0.92);
-      color: #0f5a2d;
-    }
-
-    .payment-summary {
+    .payment-row {
       display: grid;
-      gap: 14px;
-      margin-top: 20px;
-    }
-
-    .payment-summary-box,
-    .payment-step {
-      padding: 16px;
-      border: 1px solid var(--line);
-      border-radius: 18px;
-      background: rgba(255, 255, 255, 0.84);
-    }
-
-    .payment-summary-value {
-      display: block;
-      margin-top: 8px;
-      color: var(--text);
-      font-size: 1.05rem;
-      font-weight: 700;
-      word-break: break-word;
-    }
-
-    .payment-step {
-      display: grid;
-      grid-template-columns: 38px minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1fr) minmax(150px, 0.48fr);
       gap: 12px;
-      align-items: start;
     }
 
-    .payment-step span {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 38px;
-      height: 38px;
-      border-radius: 13px;
-      background: linear-gradient(135deg, rgba(108, 228, 46, 0.2), rgba(37, 95, 198, 0.18));
-      font-family: "Oswald", sans-serif;
-      font-weight: 700;
-    }
-
-    .payment-step strong {
-      display: block;
-      margin-bottom: 5px;
-      color: var(--text);
-    }
-
-    .payment-step p {
-      margin: 0;
-      color: var(--muted);
-      line-height: 1.55;
-    }
-
-    .payment-online-actions {
+    .payment-actions {
       display: flex;
+      align-items: center;
       gap: 12px;
       flex-wrap: wrap;
-      margin-top: 20px;
+      margin-top: 4px;
     }
 
-    .payment-online-actions .button {
+    .payment-actions .button {
       border: 0;
     }
 
-    .payment-online-actions .button:disabled {
+    .payment-actions .button:disabled {
       opacity: 0.56;
       cursor: not-allowed;
       transform: none;
       box-shadow: none;
     }
 
+    .state {
+      display: none;
+      margin-top: 2px;
+      padding: 13px 15px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.88);
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .state.is-visible {
+      display: block;
+    }
+
+    .state[data-tone="error"] {
+      border-color: rgba(220, 38, 38, 0.24);
+      background: rgba(255, 240, 240, 0.92);
+      color: #991b1b;
+    }
+
+    .state[data-tone="ok"] {
+      border-color: rgba(19, 155, 70, 0.25);
+      background: rgba(221, 255, 232, 0.92);
+      color: #0f5a2d;
+    }
+
+    .card-preview-wrap {
+      display: grid;
+      gap: 16px;
+    }
+
+    .credit-preview {
+      position: relative;
+      overflow: hidden;
+      min-height: 220px;
+      border-radius: 22px;
+      padding: 22px;
+      color: #f8fafc;
+      background:
+        radial-gradient(circle at 18% 12%, rgba(255, 255, 255, 0.3), transparent 28%),
+        radial-gradient(circle at 85% 18%, rgba(108, 228, 46, 0.24), transparent 26%),
+        linear-gradient(135deg, #172033 0%, #24514c 56%, #111827 100%);
+      box-shadow: 0 24px 54px rgba(13, 27, 42, 0.22);
+      isolation: isolate;
+    }
+
+    .credit-preview::before {
+      content: "";
+      position: absolute;
+      inset: -60px auto auto 42%;
+      width: 260px;
+      height: 260px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      z-index: -1;
+    }
+
+    .credit-top,
+    .credit-bottom {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: flex-start;
+    }
+
+    .chip {
+      width: 46px;
+      height: 34px;
+      border-radius: 10px;
+      background:
+        linear-gradient(90deg, rgba(17, 24, 39, 0.2) 1px, transparent 1px) 0 0 / 12px 100%,
+        linear-gradient(180deg, rgba(17, 24, 39, 0.18) 1px, transparent 1px) 0 0 / 100% 11px,
+        linear-gradient(135deg, #f8e7a2, #c99734);
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28);
+    }
+
+    .brand-stack {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+    }
+
+    .brand-pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 44px;
+      height: 26px;
+      padding: 0 9px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.14);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      color: rgba(255, 255, 255, 0.9);
+      font-size: 0.68rem;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+    }
+
+    .credit-number {
+      margin-top: 34px;
+      font-family: "IBM Plex Sans", system-ui, sans-serif;
+      font-size: clamp(1.25rem, 3.8vw, 1.7rem);
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      white-space: nowrap;
+    }
+
+    .credit-label {
+      display: block;
+      margin-bottom: 5px;
+      color: rgba(255, 255, 255, 0.62);
+      font-size: 0.66rem;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .credit-value {
+      display: block;
+      color: rgba(255, 255, 255, 0.94);
+      font-weight: 800;
+      line-height: 1.25;
+      word-break: break-word;
+    }
+
+    .credit-bottom {
+      margin-top: 26px;
+      align-items: end;
+    }
+
+    .preview-details {
+      display: grid;
+      gap: 10px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.82);
+    }
+
+    .preview-line {
+      display: grid;
+      grid-template-columns: 88px minmax(0, 1fr);
+      gap: 10px;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
+    .preview-line strong {
+      color: var(--text);
+      word-break: break-word;
+    }
+
+    .safe-note {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.92rem;
+      line-height: 1.55;
+    }
+
     @media (max-width: 900px) {
-      .payment-online-grid,
-      .payment-form-grid {
+      .payment-shell,
+      .payment-row {
         grid-template-columns: 1fr;
       }
 
-      .payment-online-card {
+      .payment-card {
         padding: 20px;
       }
     }
@@ -211,7 +288,7 @@
         <span class="brand-mark brand-mark--image"><img src="public/img/barata-logotipo.png" alt="Guincho do Barata"></span>
         <span>
           <strong>Auto Socorro Rio Claro</strong>
-          <small>Guincho e Remocoes</small>
+          <small>Guincho e Remoções</small>
         </span>
       </a>
       <button class="menu-toggle" type="button" data-menu-toggle aria-label="Abrir menu">
@@ -223,133 +300,96 @@
         <a href="index.html">Início</a>
         <a href="sobre.html">Sobre</a>
         <a class="is-active" href="pagamento-online.html">Pagamento Online</a>
-        <a href="admin.html">Admin</a>
       </nav>
     </div>
   </header>
 
   <main class="payment-page">
-    <section class="shell payment-online-grid">
-      <div class="card payment-online-card">
+    <section class="shell payment-shell">
+      <div class="card payment-card">
         <span class="eyebrow">Checkout oficial Mercado Pago</span>
         <h1>Pagamento Online</h1>
-        <p class="payment-online-copy">
-          Preencha os dados do atendimento e o valor combinado. O site cria uma guia segura e envia você para o checkout oficial do Mercado Pago.
+        <p class="payment-lead">
+          Informe os dados do atendimento. O cartão será preenchido no ambiente seguro do Mercado Pago.
         </p>
 
-        <form id="publicPaymentForm">
-          <div class="payment-form-grid">
-            <div class="payment-form-field">
-              <label for="customerName">Nome do cliente *</label>
-              <input class="payment-input" id="customerName" name="customerName" autocomplete="name" required>
+        <form id="publicPaymentForm" class="payment-form">
+          <div class="field">
+            <label for="customerName">Nome da pessoa *</label>
+            <input class="payment-input" id="customerName" name="customerName" autocomplete="name" required>
+          </div>
+
+          <div class="field">
+            <label for="pickupAddress">Local de retirada *</label>
+            <input class="payment-input" id="pickupAddress" name="pickupAddress" autocomplete="street-address" required>
+          </div>
+
+          <div class="field">
+            <label for="dropoffAddress">Destino *</label>
+            <input class="payment-input" id="dropoffAddress" name="dropoffAddress" autocomplete="street-address" required>
+          </div>
+
+          <div class="payment-row">
+            <div class="field">
+              <label for="customerPhone">WhatsApp do cliente</label>
+              <input class="payment-input" id="customerPhone" name="customerPhone" inputmode="tel" autocomplete="tel" placeholder="(19) 99999-9999">
             </div>
-            <div class="payment-form-field">
-              <label for="customerPhone">WhatsApp *</label>
-              <input class="payment-input" id="customerPhone" name="customerPhone" inputmode="tel" autocomplete="tel" placeholder="(19) 99999-9999" required>
-            </div>
-            <div class="payment-form-field">
-              <label for="customerEmail">Email</label>
-              <input class="payment-input" id="customerEmail" name="customerEmail" type="email" autocomplete="email">
-            </div>
-            <div class="payment-form-field">
-              <label for="licensePlate">Placa</label>
-              <input class="payment-input" id="licensePlate" name="licensePlate" maxlength="8" placeholder="ABC1D23">
-            </div>
-            <div class="payment-form-field">
-              <label for="vehicleType">Veiculo</label>
-              <select class="payment-select" id="vehicleType" name="vehicleType">
-                <option>Carro</option>
-                <option>Caminhonete</option>
-                <option>Moto</option>
-                <option>Caminhao leve</option>
-                <option>Caminhao pesado</option>
-                <option>Maquina ou trator</option>
-              </select>
-            </div>
-            <div class="payment-form-field">
-              <label for="serviceType">Serviço</label>
-              <select class="payment-select" id="serviceType" name="serviceType">
-                <option>Socorro urgente</option>
-                <option>Remoção de veículo</option>
-                <option>Transporte agendado</option>
-                <option>Guincho pesado</option>
-              </select>
-            </div>
-            <div class="payment-form-field full">
-              <label for="pickupAddress">Local de retirada *</label>
-              <input class="payment-input" id="pickupAddress" name="pickupAddress" autocomplete="street-address" required>
-            </div>
-            <div class="payment-form-field full">
-              <label for="dropoffAddress">Destino</label>
-              <input class="payment-input" id="dropoffAddress" name="dropoffAddress" autocomplete="street-address">
-            </div>
-            <div class="payment-form-field">
-              <label for="amount">Valor combinado (R$) *</label>
+            <div class="field">
+              <label for="amount">Valor (R$) *</label>
               <input class="payment-input" id="amount" name="amount" inputmode="decimal" placeholder="0,00" required>
-            </div>
-            <div class="payment-form-field">
-              <label for="installments">Parcelas maximas</label>
-              <select class="payment-select" id="installments" name="installments">
-                <option value="1">1x</option>
-                <option value="2">2x</option>
-                <option value="3">3x</option>
-                <option value="4">4x</option>
-                <option value="5">5x</option>
-                <option value="6">6x</option>
-                <option value="7">7x</option>
-                <option value="8">8x</option>
-                <option value="9">9x</option>
-                <option value="10" selected>10x</option>
-              </select>
-            </div>
-            <div class="payment-form-field full">
-              <label for="notes">Observacao</label>
-              <textarea class="payment-textarea" id="notes" name="notes" placeholder="Ex.: carro no acostamento, atendimento combinado pelo WhatsApp"></textarea>
             </div>
           </div>
 
-          <div class="payment-online-actions">
-            <button id="submitPaymentBtn" class="button" type="submit">Gerar guia segura</button>
-            <a class="button button-secondary" href="https://wa.me/5519996513456" target="_blank" rel="noopener noreferrer">Falar no WhatsApp</a>
+          <input type="hidden" name="serviceType" value="Atendimento com guincho">
+          <input type="hidden" name="vehicleType" value="Veículo">
+          <input type="hidden" name="installments" value="10">
+
+          <div class="payment-actions">
+            <button id="submitPaymentBtn" class="button" type="submit">Ir para pagamento seguro</button>
+            <a class="button button-secondary" href="https://wa.me/5519996513456" target="_blank" rel="noopener noreferrer">WhatsApp</a>
           </div>
-          <div id="paymentState" class="payment-state" aria-live="polite"></div>
+          <div id="paymentState" class="state" aria-live="polite"></div>
         </form>
       </div>
 
-      <aside class="card payment-online-card">
-        <span class="eyebrow">Como funciona</span>
-        <h2>Sem dados do cartão no site</h2>
-        <div class="payment-summary">
-          <div class="payment-summary-box">
-            <span class="payment-summary-label">Total informado</span>
-            <strong id="summaryAmount" class="payment-summary-value">R$ 0,00</strong>
+      <aside class="card payment-card card-preview-wrap">
+        <span class="eyebrow">Prévia do atendimento</span>
+        <div class="credit-preview" aria-label="Prévia visual do pagamento">
+          <div class="credit-top">
+            <span class="chip" aria-hidden="true"></span>
+            <span class="brand-stack" aria-label="Bandeiras aceitas">
+              <span class="brand-pill">VISA</span>
+              <span class="brand-pill">MASTER</span>
+              <span class="brand-pill">ELO</span>
+            </span>
           </div>
-          <div class="payment-summary-box">
-            <span class="payment-summary-label">Cliente</span>
-            <strong id="summaryCustomer" class="payment-summary-value">Aguardando preenchimento</strong>
-          </div>
-          <div class="payment-step">
-            <span>1</span>
-            <div>
-              <strong>Você informa o valor</strong>
-              <p>O valor combinado vira uma guia de pagamento vinculada ao atendimento.</p>
-            </div>
-          </div>
-          <div class="payment-step">
-            <span>2</span>
-            <div>
-              <strong>Checkout Mercado Pago</strong>
-              <p>O cartão, Pix ou forma de pagamento são tratados no ambiente oficial do Mercado Pago.</p>
-            </div>
-          </div>
-          <div class="payment-step">
-            <span>3</span>
-            <div>
-              <strong>Abner recebe o aviso</strong>
-              <p>Quando o webhook confirmar o pagamento, o painel registra o valor e o backend pode enviar o comprovante por email configurado.</p>
-            </div>
+          <div id="previewNumber" class="credit-number">•••• •••• •••• ••••</div>
+          <div class="credit-bottom">
+            <span>
+              <span class="credit-label">Nome</span>
+              <span id="previewName" class="credit-value">Cliente</span>
+            </span>
+            <span>
+              <span class="credit-label">Valor</span>
+              <span id="previewAmount" class="credit-value">R$ 0,00</span>
+            </span>
           </div>
         </div>
+
+        <div class="preview-details">
+          <div class="preview-line">
+            <span>Retirada</span>
+            <strong id="previewPickup">Aguardando</strong>
+          </div>
+          <div class="preview-line">
+            <span>Destino</span>
+            <strong id="previewDropoff">Aguardando</strong>
+          </div>
+        </div>
+
+        <p class="safe-note">
+          O comprovante só é enviado ao WhatsApp do atendimento depois que o Mercado Pago autorizar o pagamento.
+        </p>
       </aside>
     </section>
   </main>
@@ -358,7 +398,7 @@
     <div class="shell">
       <div class="footer-meta">
         <p>Auto Socorro Rio Claro - pagamento seguro para atendimentos combinados com Abner Barata.</p>
-        <a class="footer-link footer-meta-link" href="index.html">Voltar ao inicio</a>
+        <a class="footer-link footer-meta-link" href="index.html">Voltar ao início</a>
       </div>
     </div>
   </footer>
@@ -371,8 +411,14 @@
     const stateBox = document.getElementById('paymentState');
     const amountInput = document.getElementById('amount');
     const nameInput = document.getElementById('customerName');
-    const summaryAmount = document.getElementById('summaryAmount');
-    const summaryCustomer = document.getElementById('summaryCustomer');
+    const phoneInput = document.getElementById('customerPhone');
+    const pickupInput = document.getElementById('pickupAddress');
+    const dropoffInput = document.getElementById('dropoffAddress');
+    const previewName = document.getElementById('previewName');
+    const previewAmount = document.getElementById('previewAmount');
+    const previewNumber = document.getElementById('previewNumber');
+    const previewPickup = document.getElementById('previewPickup');
+    const previewDropoff = document.getElementById('previewDropoff');
 
     function parseCurrencyInput(value) {
       const normalized = String(value || '').replace(/\s/g, '').replace(/\./g, '').replace(',', '.');
@@ -390,17 +436,33 @@
       stateBox.classList.add('is-visible');
     }
 
-    function updateSummary() {
-      summaryAmount.textContent = formatCurrency(parseCurrencyInput(amountInput.value));
-      summaryCustomer.textContent = nameInput.value.trim() || 'Aguardando preenchimento';
+    function extractGuideToken(guideUrl) {
+      try {
+        return new URL(guideUrl, window.location.origin).searchParams.get('token') || '';
+      } catch (error) {
+        return '';
+      }
     }
 
-    amountInput.addEventListener('input', updateSummary);
-    nameInput.addEventListener('input', updateSummary);
+    function updatePreview() {
+      const phoneDigits = phoneInput.value.replace(/\D/g, '').slice(-4);
+      previewName.textContent = nameInput.value.trim() || 'Cliente';
+      previewAmount.textContent = formatCurrency(parseCurrencyInput(amountInput.value));
+      previewPickup.textContent = pickupInput.value.trim() || 'Aguardando';
+      previewDropoff.textContent = dropoffInput.value.trim() || 'Aguardando';
+      previewNumber.textContent = phoneDigits
+        ? `•••• •••• •••• ${phoneDigits.padStart(4, '•')}`
+        : '•••• •••• •••• ••••';
+    }
+
+    [amountInput, nameInput, phoneInput, pickupInput, dropoffInput].forEach((input) => {
+      input.addEventListener('input', updatePreview);
+    });
+
     amountInput.addEventListener('blur', function () {
       const parsed = parseCurrencyInput(amountInput.value);
       amountInput.value = parsed > 0 ? parsed.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
-      updateSummary();
+      updatePreview();
     });
 
     form.addEventListener('submit', async function (event) {
@@ -408,18 +470,18 @@
       const amount = parseCurrencyInput(amountInput.value);
 
       if (amount <= 0) {
-        setState('Informe um valor valido para gerar o pagamento.', 'error');
+        setState('Informe um valor válido para gerar o pagamento.', 'error');
         amountInput.focus();
         return;
       }
 
       const payload = Object.fromEntries(new FormData(form).entries());
       payload.amount = amount;
-      payload.installments = Number(payload.installments || 10);
+      payload.installments = 10;
 
       submitButton.disabled = true;
-      submitButton.textContent = 'Criando guia...';
-      setState('Criando guia segura. Aguarde um instante.', 'ok');
+      submitButton.textContent = 'Abrindo checkout...';
+      setState('Criando pagamento seguro. Aguarde um instante.', 'ok');
 
       try {
         const response = await fetch('/api/mercadopago/public-payment', {
@@ -430,19 +492,34 @@
         const data = await response.json();
 
         if (!response.ok || !data.ok) {
-          throw new Error(data.error || 'Não foi possível gerar a guia agora.');
+          throw new Error(data.error || 'Não foi possível gerar o pagamento agora.');
         }
 
-        setState('Guia criada. Abrindo checkout seguro...', 'ok');
-        window.location.href = data.guideUrl;
+        const token = extractGuideToken(data.guideUrl);
+        if (!token) {
+          throw new Error('Não foi possível abrir o checkout agora.');
+        }
+
+        const checkoutResponse = await fetch('/api/mercadopago/create-checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token })
+        });
+        const checkoutData = await checkoutResponse.json();
+
+        if (!checkoutResponse.ok || !checkoutData.ok) {
+          throw new Error(checkoutData.error || 'Não foi possível abrir o Mercado Pago agora.');
+        }
+
+        window.location.href = checkoutData.paymentUrl;
       } catch (error) {
         submitButton.disabled = false;
-        submitButton.textContent = 'Gerar guia segura';
-        setState(error.message || 'Não foi possível gerar a guia agora.', 'error');
+        submitButton.textContent = 'Ir para pagamento seguro';
+        setState(error.message || 'Não foi possível gerar o pagamento agora.', 'error');
       }
     });
 
-    updateSummary();
+    updatePreview();
   </script>
 </body>
 </html>
