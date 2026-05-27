@@ -2850,6 +2850,58 @@ function canRevealDeletedInboxMessage(message?: InboxMessage | null) {
   return !Number.isNaN(revealUntil.getTime()) && revealUntil.getTime() >= Date.now();
 }
 
+function normalizeWhatsAppMessageLinkHref(raw: string) {
+  const value = String(raw || "").trim();
+  if (!value) return null;
+  const href = value.toLowerCase().startsWith("www.") ? `https://${value}` : value;
+  try {
+    const url = new URL(href);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+function renderWhatsAppTextLinks(segment: string, keyPrefix: string) {
+  const text = String(segment || "");
+  if (!text) return [] as React.ReactNode[];
+
+  const nodes: React.ReactNode[] = [];
+  const urlRegex = /((?:https?:\/\/|www\.)[^\s<>"']+)/gi;
+  let last = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = urlRegex.exec(text)) !== null) {
+    if (match.index > last) nodes.push(text.slice(last, match.index));
+
+    const rawUrl = match[0];
+    const trailing = rawUrl.match(/[.,!?;:)\]]+$/)?.[0] || "";
+    const visibleUrl = trailing ? rawUrl.slice(0, -trailing.length) : rawUrl;
+    const href = normalizeWhatsAppMessageLinkHref(visibleUrl);
+
+    if (href) {
+      nodes.push(
+        <a
+          key={`${keyPrefix}-link-${match.index}`}
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={styles.whatsAppMessageLink}
+        >
+          {visibleUrl}
+        </a>,
+      );
+    } else {
+      nodes.push(rawUrl);
+    }
+    if (trailing) nodes.push(trailing);
+    last = match.index + rawUrl.length;
+  }
+
+  if (last < text.length) nodes.push(text.slice(last));
+  return nodes;
+}
+
 /** Renders WhatsApp-style inline formatting: *bold*, _italic_, ~strike~, `mono` */
 function formatWhatsAppText(raw: string): React.ReactNode {
   if (!raw) return null;
@@ -2864,21 +2916,25 @@ function formatWhatsAppText(raw: string): React.ReactNode {
     let match: RegExpExecArray | null;
     const parts: React.ReactNode[] = [];
     while ((match = regex.exec(line)) !== null) {
-      if (match.index > last) parts.push(line.slice(last, match.index));
+      if (match.index > last) {
+        parts.push(...renderWhatsAppTextLinks(line.slice(last, match.index), `${li}-${last}`));
+      }
       const token = match[0];
       const key = `${li}-${match.index}`;
       if (token.startsWith("*") && token.endsWith("*")) {
-        parts.push(<strong key={key}>{token.slice(1, -1)}</strong>);
+        parts.push(<strong key={key}>{renderWhatsAppTextLinks(token.slice(1, -1), key)}</strong>);
       } else if (token.startsWith("_") && token.endsWith("_")) {
-        parts.push(<em key={key}>{token.slice(1, -1)}</em>);
+        parts.push(<em key={key}>{renderWhatsAppTextLinks(token.slice(1, -1), key)}</em>);
       } else if (token.startsWith("~") && token.endsWith("~")) {
-        parts.push(<del key={key}>{token.slice(1, -1)}</del>);
+        parts.push(<del key={key}>{renderWhatsAppTextLinks(token.slice(1, -1), key)}</del>);
       } else if (token.startsWith("`") && token.endsWith("`")) {
-        parts.push(<code key={key} style={{ background: "rgba(0,0,0,0.18)", borderRadius: 3, padding: "0 3px", fontFamily: "monospace", fontSize: "0.9em" }}>{token.slice(1, -1)}</code>);
+        parts.push(<code key={key} className={styles.whatsAppInlineCode}>{token.slice(1, -1)}</code>);
       }
       last = match.index + token.length;
     }
-    if (last < line.length) parts.push(line.slice(last));
+    if (last < line.length) {
+      parts.push(...renderWhatsAppTextLinks(line.slice(last), `${li}-${last}`));
+    }
     result.push(...parts);
   });
   return result.length ? result : raw;
