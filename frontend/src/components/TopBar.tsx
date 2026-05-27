@@ -89,13 +89,6 @@ type MasterOverviewCompanyPayload = {
 };
 
 type UserModule = { key: string; accessible: boolean };
-type CommercialPlansTopbarPayload = {
-  current?: {
-    entitlements?: {
-      atendimento_chat?: boolean | null;
-    } | null;
-  } | null;
-};
 type OperationalTone = "green" | "yellow" | "red";
 type OperationalStatusChip = {
   key: "token" | "meta" | "webwhats" | "payment" | "access";
@@ -173,7 +166,6 @@ type ScrapingEngineStatusPayload = {
   };
   engines: ScrapingEngineStatus[];
 };
-type WhatsAppHealth = "green" | "yellow" | "red";
 type RecoveryAlertConversation = {
   conversationId: number;
   customerName: string;
@@ -296,7 +288,6 @@ const SUPPORT_MESSAGE = "Olá, preciso de ajuda com o HBX!";
 const hiddenRoutes = new Set(["/", "/login", "/register", "/reset-password", "/confirm-email", "/boasvindas", "/tutorial", "/pre-checkout", "/precheckout"]);
 const SCRAPING_ENGINE_POLL_MS = 5000;
 const TOPBAR_FALLBACK_HBX_ENGINE_COUNT = 4;
-const HBX_ENGINE_GROUP_SIZE = 20;
 const HBX_GAUGE_BOOT_MS = 1350;
 
 function buildFallbackScrapingEngine(index: number): ScrapingEngineStatus {
@@ -361,11 +352,6 @@ function getScrapingEngineState(engine: ScrapingEngineStatus) {
   return "standby";
 }
 
-function getScrapingEngineShortLabel(engine: ScrapingEngineStatus) {
-  if (engine.kind === "google") return "G";
-  return `M${Number(engine.index || 0) + 1}`;
-}
-
 function getEngineUsage(engine: ScrapingEngineStatus) {
   const usage = Number(engine.usagePercent);
   return Number.isFinite(usage) ? Math.max(0, Math.min(100, Math.round(usage))) : engine.active ? 82 : 8;
@@ -373,22 +359,6 @@ function getEngineUsage(engine: ScrapingEngineStatus) {
 
 function clampTopbarPercent(value: number) {
   return Number.isFinite(value) ? Math.max(0, Math.min(100, Math.round(value))) : 0;
-}
-
-function getEngineGaugeStyle(usage: number): React.CSSProperties {
-  const safeUsage = clampTopbarPercent(usage);
-  const ratio = safeUsage / 100;
-
-  return {
-    ["--engine-usage" as string]: `${safeUsage}%`,
-    ["--engine-angle" as string]: `${180 + safeUsage * 1.8}deg`,
-    ["--engine-arc" as string]: `${safeUsage * 1.8}deg`,
-    ["--engine-glow" as string]: Math.pow(ratio, 1.28).toFixed(3),
-    ["--engine-neon" as string]: Math.pow(ratio, 1.86).toFixed(3),
-    ["--engine-hot" as string]: Math.pow(ratio, 2.82).toFixed(3),
-    ["--engine-glow-size" as string]: `${20 + Math.pow(ratio, 1.5) * 86}px`,
-    ["--engine-neon-size" as string]: `${16 + Math.pow(ratio, 2.04) * 118}px`,
-  } as React.CSSProperties;
 }
 
 type HbxHeaderIconName = "memory" | "cpu" | "disk" | "logout" | "context" | "chevron" | "metric";
@@ -542,11 +512,6 @@ function TopbarCenterSummary({
     </div>
   );
 }
-
-type HbxEngineLoadTone = "green" | "yellow" | "red" | "muted";
-
-const HBX_ENGINE_SPARK_WIDTH = 236;
-const HBX_ENGINE_SPARK_HEIGHT = 58;
 
 const HBX_TOPBAR_POLISH_CSS = `
   .app-topbar,
@@ -2310,187 +2275,6 @@ const HBX_TOPBAR_POLISH_CSS = `
 `;
 
 
-function getEngineUsageTone(usage: number, state?: string | null): HbxEngineLoadTone {
-  const normalizedState = String(state || "").trim().toLowerCase();
-  if (normalizedState === "offline" || normalizedState === "missing" || normalizedState === "paused") return "muted";
-  if (normalizedState === "degraded" || normalizedState === "error") return "red";
-  if (normalizedState === "cooldown") return "yellow";
-
-  const safeUsage = clampTopbarPercent(usage);
-  if (safeUsage <= 33) return "green";
-  if (safeUsage <= 66) return "yellow";
-  return "red";
-}
-
-function getEngineToneColor(tone: HbxEngineLoadTone) {
-  if (tone === "green") return "var(--success, var(--brand, #059669))";
-  if (tone === "yellow") return "var(--button-secondary, var(--selection-accent, var(--brand, #059669)))";
-  if (tone === "red") return "var(--danger, var(--button-accent, #dc2626))";
-  return "var(--muted, #94a3b8)";
-}
-
-function getEngineToneSoftColor(tone: HbxEngineLoadTone) {
-  if (tone === "green") return "color-mix(in srgb, var(--success, var(--brand, #059669)) 16%, transparent)";
-  if (tone === "yellow") return "color-mix(in srgb, var(--button-secondary, var(--selection-accent, var(--brand, #059669))) 18%, transparent)";
-  if (tone === "red") return "color-mix(in srgb, var(--danger, var(--button-accent, #dc2626)) 16%, transparent)";
-  return "color-mix(in srgb, var(--muted, #94a3b8) 14%, transparent)";
-}
-
-function buildEngineSparkSamples(
-  engine: ScrapingEngineStatus,
-  usage: number,
-  active: boolean,
-  groupIndex: number,
-  engineIndex: number,
-) {
-  const state = getScrapingEngineState(engine);
-  const safeUsage = clampTopbarPercent(usage);
-  const processed = Math.max(0, Math.min(30, Math.trunc(Number(engine.processedLast10Min || 0))));
-  const queueShare = Math.max(0, Math.min(100, Number(engine.queueShare || 0)));
-  const heartbeatAge = Math.max(0, Math.min(180, Math.trunc(Number(engine.heartbeatAgeSeconds || 0))));
-  const errors = Math.max(0, Math.min(10, Math.trunc(Number(engine.errorCount || 0))));
-  const patterns = [
-    [0.14, 0.2, 0.36, 0.28, 0.46, 0.34, 0.52, 0.42],
-    [0.2, 0.44, 0.31, 0.68, 0.56, 0.72, 0.48, 0.64],
-    [0.34, 0.3, 0.58, 0.46, 0.82, 0.62, 0.74, 0.5],
-    [0.22, 0.62, 0.38, 0.48, 0.32, 0.7, 0.42, 0.58],
-    [0.18, 0.28, 0.5, 0.76, 0.45, 0.66, 0.54, 0.86],
-  ];
-  const pattern = patterns[(groupIndex + engineIndex) % patterns.length];
-  const floor = Math.max(4, Math.min(40, safeUsage * (active ? 0.34 : 0.22)));
-  const telemetryBoost = Math.min(28, processed * 1.4 + queueShare * 0.16 + (active ? 12 : 0));
-  const heartbeatPenalty = heartbeatAge > 45 ? Math.min(18, (heartbeatAge - 45) / 6) : 0;
-  const errorBoost = errors > 0 ? Math.min(22, errors * 5) : 0;
-  const ceiling = Math.max(floor + 8, Math.min(96, safeUsage + telemetryBoost + errorBoost - heartbeatPenalty));
-  const stateFactor = state === "cooldown" ? 0.72 : state === "paused" ? 0.34 : state === "offline" || state === "missing" ? 0.22 : 1;
-
-  return pattern.map((weight, sampleIndex) => {
-    const jitter = ((groupIndex + 1) * 5 + (engineIndex + 1) * 7 + sampleIndex * 3) % 13;
-    const shaped = floor + (ceiling - floor) * weight * stateFactor + jitter - 6;
-    return Math.max(4, Math.min(96, Math.round(shaped)));
-  });
-}
-
-function buildEngineSparkSegment(
-  engine: ScrapingEngineStatus,
-  engineIndex: number,
-  groupIndex: number,
-  active: boolean,
-  visibleState: string,
-  usage: number,
-  groupSize = 5,
-) {
-  const safeGroupSize = Math.max(1, Math.trunc(Number(groupSize || 1)));
-  const segmentGap = safeGroupSize > 10 ? 3 : 10;
-  const horizontalPadding = 10;
-  const segmentWidth = Math.max(
-    4,
-    (HBX_ENGINE_SPARK_WIDTH - horizontalPadding * 2 - segmentGap * Math.max(0, safeGroupSize - 1)) / safeGroupSize,
-  );
-  const xStart = horizontalPadding + engineIndex * (segmentWidth + segmentGap);
-  const yBase = 49;
-  const yTop = 11;
-  const samples = buildEngineSparkSamples(engine, usage, active, groupIndex, engineIndex);
-  const points = samples.map((sample, sampleIndex) => {
-    const x = xStart + (sampleIndex * segmentWidth) / Math.max(1, samples.length - 1);
-    const y = yBase - (sample / 100) * (yBase - yTop);
-    return `${Number(x.toFixed(1))},${Number(y.toFixed(1))}`;
-  });
-  const tone = getEngineUsageTone(usage, visibleState);
-  const color = getEngineToneColor(tone);
-  const softColor = getEngineToneSoftColor(tone);
-  const areaPoints = [
-    `${xStart},${yBase}`,
-    ...points,
-    `${xStart + segmentWidth},${yBase}`,
-  ].join(" ");
-
-  return {
-    id: engine.id || `${groupIndex}:${engineIndex}`,
-    label: getScrapingEngineShortLabel(engine),
-    shortLabel: String(groupIndex * safeGroupSize + engineIndex + 1).padStart(2, "0"),
-    usage: clampTopbarPercent(usage),
-    state: visibleState,
-    active,
-    tone,
-    color,
-    softColor,
-    points: points.join(" "),
-    areaPoints,
-    centerX: xStart + segmentWidth / 2,
-    separatorX: xStart + segmentWidth + segmentGap / 2,
-  };
-}
-
-
-function buildSyntheticGroupChildEngine(
-  engine: ScrapingEngineStatus,
-  groupIndex: number,
-  childIndex: number,
-): ScrapingEngineStatus {
-  const baseUsage = getEngineUsage(engine);
-  const pattern = [0.74, 1.18, 0.92, 1.36, 0.58][(groupIndex + childIndex) % 5];
-  const offsetPattern = [-10, 7, -2, 14, -6][(childIndex + groupIndex * 2) % 5];
-  const processed = Math.max(0, Math.trunc(Number(engine.processedLast10Min || 0)));
-  const queueShare = Math.max(0, Math.min(100, Number(engine.queueShare || 0)));
-  const pressureBoost = Math.min(18, processed * 0.7 + queueShare * 0.11);
-  const syntheticUsage = clampTopbarPercent(baseUsage * pattern + offsetPattern + pressureBoost);
-  const activeSlots = Math.max(1, Math.min(5, Math.ceil(Math.max(baseUsage, syntheticUsage) / 22)));
-  const sourceState = getScrapingEngineState(engine);
-  const childNumber = groupIndex * 5 + childIndex + 1;
-  const inheritedStatus =
-    sourceState === "offline" ||
-    sourceState === "missing" ||
-    sourceState === "paused" ||
-    sourceState === "cooldown" ||
-    sourceState === "degraded"
-      ? sourceState
-      : childIndex < activeSlots
-        ? "busy"
-        : "standby";
-
-  return {
-    ...engine,
-    id: `${engine.id || `hbx-main-${groupIndex + 1}`}:sub-${childIndex + 1}`,
-    label: `HBX Motor ${childNumber}`,
-    shortLabel: `HBX ${childNumber}`,
-    index: childNumber - 1,
-    active: Boolean(engine.active || engine.busy) && childIndex < activeSlots,
-    busy: Boolean(engine.busy || engine.active) && childIndex < activeSlots,
-    online: engine.online || engine.configured,
-    dimmed: childIndex >= activeSlots && !engine.active && !engine.busy,
-    status: inheritedStatus,
-    usagePercent: syntheticUsage,
-    processedLast10Min: Math.max(0, Math.round(processed * (0.1 + pattern * 0.18))),
-    queueShare: Math.max(0, Math.min(100, Math.round(queueShare * pattern))),
-    errorCount: childIndex === 0 ? engine.errorCount : Math.max(0, Math.floor(Number(engine.errorCount || 0) * 0.35)),
-    heartbeatAgeSeconds: Number.isFinite(Number(engine.heartbeatAgeSeconds))
-      ? Math.max(0, Math.trunc(Number(engine.heartbeatAgeSeconds || 0)) + childIndex * 3)
-      : engine.heartbeatAgeSeconds,
-    detail: `${engine.label || `M${groupIndex + 1}`} controla submotor ${childIndex + 1}/5`,
-  };
-}
-
-function resolveEngineGroupState(engines: ScrapingEngineStatus[], isLive: (engine: ScrapingEngineStatus) => boolean) {
-  if (engines.some((engine) => isLive(engine) || getScrapingEngineState(engine) === "busy" || engine.busy)) return "busy";
-  if (engines.some((engine) => getScrapingEngineState(engine) === "degraded")) return "degraded";
-  if (engines.some((engine) => getScrapingEngineState(engine) === "cooldown")) return "cooldown";
-  if (engines.length && engines.every((engine) => getScrapingEngineState(engine) === "paused")) return "paused";
-  if (engines.length && engines.every((engine) => getScrapingEngineState(engine) === "offline" || getScrapingEngineState(engine) === "missing")) {
-    return "offline";
-  }
-  return "standby";
-}
-
-function isTopbarTheaterSource(source: string | null | undefined) {
-  const normalized = String(source || "").trim().toLowerCase();
-  return normalized === "vendas" ||
-    normalized === "radar" ||
-    normalized === "radar-digital" ||
-    normalized === "atendimento" ||
-    normalized.startsWith("atendimento-");
-}
-
 function isEngineProgressSource(source: string | null | undefined) {
   const normalized = String(source || "").trim().toLowerCase();
   return normalized === "webscraping" ||
@@ -2643,7 +2427,6 @@ export default function TopBar() {
   const [whatsAppCenter, setWhatsAppCenter] = useState<WhatsAppCenterPayload | null>(null);
   const [whatsAppModal, setWhatsAppModal] = useState<WhatsAppModalPayload | null>(null);
   const [whatsAppQrRequested, setWhatsAppQrRequested] = useState(false);
-  const [supportHasInternalChat, setSupportHasInternalChat] = useState<boolean | null>(null);
   const recoveryLastSeenRef = useRef<Map<number, string>>(new Map());
   const recoveryHumanQueueRef = useRef<Map<number, boolean>>(new Map());
   const recoveryAlertReadyRef = useRef(false);
@@ -2825,23 +2608,19 @@ export default function TopBar() {
   );
 
   const refreshMasterAwareState = React.useCallback(async () => {
-    const [profile, myModules, supportPlans] = await Promise.all([
+    const [profile, myModules] = await Promise.all([
       apiFetch<User>("/profile/current-user"),
       apiFetch<UserModule[]>("/modules/me"),
-      isMasterWebscrapingRoute
-        ? Promise.resolve(null)
-        : apiFetch<CommercialPlansTopbarPayload>("/commercial-plans/me").catch(() => null),
     ]);
     setUser(profile);
     setModules(myModules || []);
-    setSupportHasInternalChat(Boolean(supportPlans?.current?.entitlements?.atendimento_chat));
     if (typeof window !== "undefined") {
       (window as HbxPrefetchWindow).__hbx_prefetch = {
         modules: myModules || [],
         profile,
       };
     }
-  }, [isMasterWebscrapingRoute]);
+  }, []);
 
   const refreshOperationalStatus = React.useCallback(async (refreshLive = false) => {
     try {
@@ -3127,44 +2906,17 @@ export default function TopBar() {
     if (!engines.length) return 0;
     return Math.round(engines.reduce((sum, engine) => sum + getEngineUsage(engine), 0) / engines.length);
   }, [scrapingEngineView.hbxEngines]);
-  const hbxProcessedLast10Min = useMemo(
-    () => scrapingEngineView.hbxEngines.reduce((sum, engine) => sum + Math.max(0, Math.trunc(Number(engine.processedLast10Min || 0))), 0),
-    [scrapingEngineView.hbxEngines],
-  );
-  const hbxRunningCount = scrapingEngineView.hbxEngines.filter((engine) => getScrapingEngineState(engine) === "busy" || engine.busy).length;
   const hbxEngineTotal = scrapingEngineView.hbxEngines.length;
   const hbxEngineOnlineCount = scrapingEngineView.hbxEngines.filter((engine) => engine.configured && engine.online).length;
   const hbxActiveEngineLimit = Math.max(
     0,
     Math.trunc(Number(scrapingEngines?.capacity?.activeEngineCount ?? (hbxEngineTotal || 0))),
   );
-  const hbxCooldownCount = scrapingEngineView.hbxEngines.filter((engine) => getScrapingEngineState(engine) === "cooldown").length;
-  const hbxPausedCount = scrapingEngineView.hbxEngines.filter((engine) => getScrapingEngineState(engine) === "paused").length;
   const hbxMainGaugeUsage = hbxGaugeBooting ? hbxGaugeBootUsage : hbxUsageAverage;
-  const hbxMainGaugeState = useMemo(
-    () => (hbxGaugeBooting ? "busy" : resolveEngineGroupState(scrapingEngineView.hbxEngines, isLiveScrapingEngine)),
-    [hbxGaugeBooting, isLiveScrapingEngine, scrapingEngineView.hbxEngines],
-  );
-  const hbxMainGaugeActive = hbxGaugeBooting || hasActiveScrapingEngine || hbxMainGaugeUsage > 0;
   const hbxMainGaugeDetail = hbxGaugeBooting
     ? "Partida dos motores em varrida de luz"
     : `${hbxEngineOnlineCount}/${hbxEngineTotal} online • ${hbxActiveEngineLimit}/${hbxEngineTotal} ativos agora`;
-  const hbxMainGaugeTitle = hbxGaugeBooting
-    ? `Motores HBX aquecendo: ${hbxMainGaugeUsage}%`
-    : `Motores HBX: ${hbxUsageAverage}% de uso geral. ${hbxMainGaugeDetail}.`;
   const hbxQueueCount = Math.max(0, Math.trunc(Number(scrapingEngines?.capacity?.queuedCount ?? 0)));
-  const hbxCapacityRunningCount = Math.max(
-    hbxRunningCount,
-    Math.max(0, Math.trunc(Number(scrapingEngines?.capacity?.runningCount ?? 0))),
-  );
-  const hbxTenMinuteCount = Math.max(
-    0,
-    Math.trunc(Number(scrapingEngines?.capacity?.completedLast10Min ?? hbxProcessedLast10Min)),
-  );
-  const hbxQueueGaugeUsage = clampTopbarPercent((hbxQueueCount / Math.max(1, hbxEngineTotal * 3)) * 100);
-  const hbxTenMinuteGaugeUsage = hbxGaugeBooting
-    ? hbxMainGaugeUsage
-    : clampTopbarPercent((hbxTenMinuteCount / Math.max(40, hbxEngineTotal * 5)) * 100);
   const hbxEngineIssueCount = scrapingEngineView.hbxEngines.filter((engine) => {
     const state = getVisibleScrapingEngineState(engine);
     return state === "degraded" || state === "offline" || state === "missing";
@@ -3174,70 +2926,6 @@ export default function TopBar() {
     0,
   );
   const hbxOperationalErrorCount = Math.max(hbxEngineIssueCount, hbxEngineReportedErrorCount);
-  const hbxGaugePanels = [
-    {
-      id: "usage",
-      label: "Uso geral",
-      value: hbxMainGaugeUsage,
-      metric: `${hbxEngineOnlineCount}/${visibleHbxEngineCount} online`,
-      detail: `${hbxActiveEngineLimit}/${visibleHbxEngineCount} ativos agora`,
-      state: hbxMainGaugeState,
-      active: hbxMainGaugeActive,
-      title: hbxMainGaugeTitle,
-    },
-    {
-      id: "queue",
-      label: "Pressão da fila",
-      value: hbxQueueGaugeUsage,
-      metric: String(hbxQueueCount),
-      detail: hbxQueueCount > 0 ? "aguardando motor" : "fila zerada",
-      state: hbxQueueGaugeUsage >= 82 ? "busy" : hbxQueueCount > 0 ? "cooldown" : "standby",
-      active: hbxQueueCount > 0,
-      title: `Fila HBX: ${hbxQueueCount} itens. Pressão operacional ${hbxQueueGaugeUsage}%.`,
-    },
-    {
-      id: "tempo",
-      label: "Ritmo 10 min",
-      value: hbxTenMinuteGaugeUsage,
-      metric: String(hbxTenMinuteCount),
-      detail: "cards processados",
-      state: hbxTenMinuteCount > 0 || liveWebscrapingProgress ? "busy" : hbxMainGaugeState,
-      active: hbxTenMinuteCount > 0 || liveWebscrapingProgress,
-      title: `Ritmo HBX: ${hbxTenMinuteCount} cards em 10 min. Força do velocímetro ${hbxTenMinuteGaugeUsage}%.`,
-    },
-  ];
-  const hbxCommandChips = [
-    {
-      label: "Online",
-      value: `${hbxEngineOnlineCount}/${visibleHbxEngineCount}`,
-      tone: hbxEngineOnlineCount >= hbxEngineTotal && hbxEngineTotal > 0 ? "success" : "warning",
-    },
-    {
-      label: "Ativos agora",
-      value: `${hbxActiveEngineLimit}/${visibleHbxEngineCount}`,
-      tone: hbxActiveEngineLimit > 0 ? "success" : "neutral",
-    },
-    {
-      label: "Rodando",
-      value: String(hbxCapacityRunningCount),
-      tone: hbxCapacityRunningCount > 0 ? "success" : "neutral",
-    },
-    {
-      label: "Cooldown",
-      value: String(hbxCooldownCount),
-      tone: hbxCooldownCount > 0 ? "warning" : "neutral",
-    },
-    {
-      label: "Pausados",
-      value: String(hbxPausedCount),
-      tone: hbxPausedCount > 0 ? "warning" : "neutral",
-    },
-    {
-      label: "Erros",
-      value: String(hbxOperationalErrorCount),
-      tone: hbxOperationalErrorCount > 0 ? "danger" : "neutral",
-    },
-  ];
   const operationalStatusReady = Boolean(
     authenticated &&
       !pendingCheckoutLocked &&
@@ -3251,29 +2939,6 @@ export default function TopBar() {
       user?.isSystemMaster &&
       !user.masterContext?.active,
   );
-
-  const whatsAppHealth = useMemo<WhatsAppHealth>(() => {
-    const liveStatus = whatsAppLiveHealth.health?.status;
-    if (whatsAppLiveHealth.health?.liveConfirmed && liveStatus === "healthy") return "green";
-    if (liveStatus === "disconnected" || liveStatus === "error") return "red";
-    if (liveStatus === "stale" || liveStatus === "reconnecting") return "yellow";
-    const candidates = [
-      operationalStatusMap.get("meta"),
-      operationalStatusMap.get("webwhats"),
-      operationalStatusMap.get("token"),
-    ].filter(Boolean) as OperationalStatusChip[];
-
-    if (candidates.some((chip) => chip.tone === "green")) {
-      return "green";
-    }
-    if (candidates.some((chip) => chip.tone === "yellow")) {
-      return "yellow";
-    }
-    if (candidates.length > 0) {
-      return "red";
-    }
-    return "yellow";
-  }, [operationalStatusMap, whatsAppLiveHealth.health?.liveConfirmed, whatsAppLiveHealth.health?.status]);
 
   const whatsAppHealthLabel = useMemo(() => {
     const live = whatsAppLiveHealth.health;
@@ -3459,7 +3124,6 @@ export default function TopBar() {
       setOperationalStatus(null);
       setRecoveryPendingHumanCount(0);
       setAtendimentoPendingHumanCount(0);
-      setSupportHasInternalChat(null);
       setStorageUserId(null);
       if (typeof window !== "undefined") {
         delete (window as HbxPrefetchWindow).__hbx_prefetch;
@@ -3471,19 +3135,15 @@ export default function TopBar() {
 
     async function loadUser() {
       try {
-        const [profile, myModules, nextOperationalStatus, supportPlans] = await Promise.all([
+        const [profile, myModules, nextOperationalStatus] = await Promise.all([
           apiFetch<User>("/profile/current-user"),
           apiFetch<UserModule[]>("/modules/me"),
           isMasterWebscrapingRoute ? Promise.resolve(null) : refreshOperationalStatus(false),
-          isMasterWebscrapingRoute
-            ? Promise.resolve(null)
-            : apiFetch<CommercialPlansTopbarPayload>("/commercial-plans/me").catch(() => null),
         ]);
         if (mounted) {
           setUser(profile);
           setModules(myModules || []);
           setOperationalStatus(nextOperationalStatus);
-          setSupportHasInternalChat(Boolean(supportPlans?.current?.entitlements?.atendimento_chat));
           if (typeof window !== "undefined") {
             (window as HbxPrefetchWindow).__hbx_prefetch = {
               modules: myModules || [],
@@ -3496,7 +3156,6 @@ export default function TopBar() {
           setUser(null);
           setModules([]);
           setOperationalStatus(null);
-          setSupportHasInternalChat(null);
         }
       }
     }
@@ -4193,22 +3852,6 @@ export default function TopBar() {
     router.push(moduleKey === "atendimento" ? "/atendimento" : "/atendimento/recovery");
   }
 
-  function handleSupportClick() {
-    if (supportHasInternalChat === true) {
-      const params = new URLSearchParams({
-        support: "1",
-        phone: SUPPORT_PHONE,
-        message: SUPPORT_MESSAGE,
-      });
-      router.push(`/atendimento?${params.toString()}`);
-      return;
-    }
-
-    if (typeof window === "undefined") return;
-    const url = `https://web.whatsapp.com/send?phone=${encodeURIComponent(SUPPORT_PHONE)}&text=${encodeURIComponent(SUPPORT_MESSAGE)}`;
-    window.open(url, "_blank", "noopener,noreferrer");
-  }
-
   function handleMobileSupportClick() {
     if (typeof window === "undefined") return;
     const phone = SUPPORT_PHONE.replace(/\D/g, "");
@@ -4310,46 +3953,6 @@ export default function TopBar() {
     }
 
     await toggleUnreadInboxPopup();
-  }
-
-  async function markUnreadConversationAsRead(conversationId: string) {
-    if (!conversationId) return;
-    try {
-      await apiFetch(`/inbox/conversations/${conversationId}/read`, {
-        method: "PATCH",
-      });
-      let removedUnread = 1;
-      setUnreadInboxEntries((current) => {
-        const fromConversation = current.filter((entry) => entry.conversationId === conversationId);
-        const first = fromConversation[0];
-        if (first) {
-          removedUnread = Math.max(1, Math.trunc(Number(first.unreadCount || 0)));
-        }
-        return current.filter((entry) => entry.conversationId !== conversationId);
-      });
-      setUnreadInboxCount((current) => Math.max(0, current - removedUnread));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Falha ao marcar conversa como lida.";
-      setUnreadInboxError(message);
-    }
-  }
-
-  async function deleteUnreadMessage(entry: TopBarUnreadEntry) {
-    try {
-      await apiFetch(
-        `/inbox/conversations/${entry.conversationId}/messages/${entry.messageId}/local`,
-        {
-          method: "DELETE",
-        },
-      );
-      setUnreadInboxEntries((current) =>
-        current.filter((row) => !(row.conversationId === entry.conversationId && row.messageId === entry.messageId)),
-      );
-      setUnreadInboxCount((current) => Math.max(0, current - 1));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Falha ao excluir mensagem.";
-      setUnreadInboxError(message);
-    }
   }
 
   useEffect(() => {
@@ -4622,37 +4225,6 @@ export default function TopBar() {
     }
   }
 
-  function handleCommandKpiAction(id: TopbarOperationalTile["id"]) {
-    if (pendingCheckoutLocked) {
-      router.push(pendingCheckoutHref);
-      return;
-    }
-
-    if (id === "qr") {
-      openWhatsAppOperationalDetail("qr");
-      return;
-    }
-
-    if (id === "messages") {
-      if (pendingHumanCount > 0) {
-        handleQueueShortcut(atendimentoPendingHumanCount > 0 ? "atendimento" : "recovery");
-      } else {
-        void toggleUnreadInboxPopup();
-      }
-      return;
-    }
-
-    if (id === "queue") {
-      if (user?.isSystemMaster) {
-        router.push("/master/webscraping");
-      } else if (typeof window !== "undefined") {
-        window.dispatchEvent(new CustomEvent("hbx:radar-popup", { detail: { source: "topbar" } }));
-      }
-      return;
-    }
-
-  }
-
   async function assumeMasterContext() {
     const companyId = Number(selectedMasterCompanyId || 0);
     const selectedCompany = masterCompanyOptions.find((company) => company.id === companyId) || null;
@@ -4804,13 +4376,6 @@ export default function TopBar() {
   const pendingHumanCount = recoveryPendingHumanCount + atendimentoPendingHumanCount;
   const headerNoticeCount = Math.max(0, pendingHumanCount + unreadInboxCount + (incomingPopup ? 1 : 0));
   const headerNoticeBadge = headerNoticeCount > 99 ? "99+" : headerNoticeCount > 0 ? String(headerNoticeCount) : "!";
-  const accountContext = authenticated === true
-    ? user?.isSystemMaster
-      ? user.masterContext?.active
-        ? `MASTER em ${user.masterContext.companyName || "Empresa"}`
-        : "MASTER GLOBAL"
-      : user?.company?.name || "Operacao sem empresa"
-    : "Plataforma operacional HBX";
   const operationalSummaryMessage = pendingCheckoutLocked
     ? "Finalize contratação"
     : showOperationalCompanyPicker
@@ -4828,14 +4393,6 @@ export default function TopBar() {
       : pendingHumanCount > 0
         ? `${pendingHumanCount} na fila`
         : "Status em leitura";
-  const visibleOperationalStatusChips = useMemo(() => {
-    if (pendingCheckoutLocked) return [];
-    return (operationalStatus?.statuses || []).filter((chip) => {
-      if (chip.key === "payment") return false;
-      if (chip.key === "token" && operationalStatusMap.get("webwhats")?.tone === "green") return false;
-      return true;
-    });
-  }, [operationalStatus?.statuses, operationalStatusMap, pendingCheckoutLocked]);
   const billboardSlides = useMemo<BillboardSlide[]>(() => {
     if (masterContextToast) {
       return [
