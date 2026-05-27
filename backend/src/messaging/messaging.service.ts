@@ -1504,12 +1504,26 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     ).slice(0, 20);
   }
 
+  private getVendasBrasiliaGreeting() {
+    const hour = Number(new Intl.DateTimeFormat('en-US', {
+      hour: '2-digit',
+      hour12: false,
+      timeZone: 'America/Sao_Paulo',
+    }).format(new Date()));
+    if (hour >= 18 || hour < 3) return 'Boa noite';
+    if (hour >= 12) return 'Boa tarde';
+    return 'Bom dia';
+  }
+
   private renderVendasVariant(template: string, job: any, extraValues: Record<string, string> = {}) {
     const leadName = String(job?.lead?.name || 'sua empresa').trim();
     const values: Record<string, string> = {
+      cumprimentacao: this.getVendasBrasiliaGreeting(),
       cliente: leadName,
       empresaresumo: leadName.replace(/\s+(ltda|me|mei|eireli|epp|s\/a|sa)$/i, '').trim(),
       clienteresumo: leadName.replace(/\s+(ltda|me|mei|eireli|epp|s\/a|sa)$/i, '').trim(),
+      empresa: String(job?.campaign?.company?.name || 'nossa empresa').trim(),
+      funcionario: 'time comercial',
       cidade: String(job?.lead?.city || job?.campaign?.city || '').trim(),
       estado: String(job?.campaign?.state || '').trim(),
       segmento: String(job?.lead?.segment || job?.campaign?.segment || '').trim(),
@@ -1540,6 +1554,136 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       retorno_label: label,
       horario_retorno: label,
     });
+  }
+
+  private isVendasPreMessageAwaitingHuman(metadata: Record<string, any>) {
+    const automation = this.readJsonRecord(metadata?.vendasAutomation);
+    const queue = this.readJsonRecord(metadata?.vendasAgendaQueue);
+    return (
+      (automation.preMessageAwaitingReply === true || queue.preMessageAwaitingReply === true) &&
+      automation.preMessagePitchSent !== true &&
+      queue.preMessagePitchSent !== true
+    );
+  }
+
+  private getVendasBotReplyIntervalReductionPercent(campaign: any) {
+    const filters = this.readJsonRecord(campaign?.filtersJson);
+    const value = Math.trunc(Number(filters.botReplyIntervalReductionPercent || 0));
+    if (!Number.isFinite(value)) return 0;
+    return Math.max(0, Math.min(100, value));
+  }
+
+  private async reduceNextVendasAutomationIntervalAfterBot(campaign: any, currentJobId: string, now: Date) {
+    const reductionPercent = this.getVendasBotReplyIntervalReductionPercent(campaign);
+    if (reductionPercent <= 0) return null;
+    const nextJob = await this.prisma.vendasAutomationJob.findFirst({
+      where: {
+        campaignId: campaign.id,
+        companyId: campaign.companyId,
+        id: { not: currentJobId },
+        status: { in: ['pending', 'scheduled'] as any },
+      },
+      orderBy: [{ scheduledAt: 'asc' }, { createdAt: 'asc' }],
+      select: { id: true, scheduledAt: true },
+    });
+    if (!nextJob?.id) return null;
+    const fallbackTarget = new Date(now.getTime() + Math.max(1, Number(campaign.intervalMinutes || 15)) * 60000);
+    const currentTarget = nextJob.scheduledAt instanceof Date && nextJob.scheduledAt.getTime() > now.getTime()
+      ? nextJob.scheduledAt
+      : fallbackTarget;
+    const remainingMs = Math.max(0, currentTarget.getTime() - now.getTime());
+    const nextDelayMs = reductionPercent >= 100 ? 0 : Math.round(remainingMs * (1 - reductionPercent / 100));
+    const scheduledAt = new Date(now.getTime() + nextDelayMs);
+    await this.prisma.vendasAutomationJob.update({ where: { id: nextJob.id }, data: { scheduledAt } });
+    return scheduledAt;
+  }
+
+  private async sendVendasPitchAfterPreMessage(input: any, job: any) {
+    const now = new Date();
+    const company = await this.prisma.company.findUnique({ where: { id: job.campaign.companyId } }).catch(() => null);
+    const variants = this.readVendasVariantList(job.campaign, 'firstContactVariants', [
+      '{{cumprimentacao}}, tudo bem? Me chamo Jhonatan. Trabalho ajudando empresas a melhorar processos e automatizar tarefas repetitivas do dia a dia. Teria interesse em saber um pouco mais?',
+    ]);
+    const variant = variants[Math.floor(Math.random() * variants.length)] || variants[0] || '';
+    const body = this.renderVendasVariant(variant, job, {
+      empresa: String(company?.name || 'nossa empresa').trim(),
+      funcionario: 'time comercial',
+    });
+    if (!body) return null;
+    const metadata = this.readJsonRecord(input.metadata);
+    const queue = this.readJsonRecord(metadata.vendasAgendaQueue);
+    const automation = this.readJsonRecord(metadata.vendasAutomation);
+    const prospeccao = this.readJsonRecord(metadata.vendasProspeccao);
+    const nextMetadata = {
+      ...metadata,
+      vendasAutomation: {
+        ...automation,
+        status: 'sent',
+        preMessageAwaitingReply: false,
+        preMessagePitchSent: true,
+        preMessageHumanReplyAt: input.timestamp instanceof Date ? input.timestamp.toISOString() : now.toISOString(),
+        pitchSentAt: now.toISOString(),
+      },
+      vendasAgendaQueue: {
+        ...queue,
+        status: 'contato',
+        nextAction: 'Aguardar resposta do pitch',
+        draftMessage: body,
+        draftPending: false,
+        botEligible: true,
+        botEntryPending: true,
+        preMessageAwaitingReply: false,
+        preMessagePitchSent: true,
+        preMessageHumanReplyAt: input.timestamp instanceof Date ? input.timestamp.toISOString() : now.toISOString(),
+        pitchSentAt: now.toISOString(),
+        syncedAt: now.toISOString(),
+      },
+      vendasProspeccao: {
+        ...prospeccao,
+        stage: 'sent_waiting',
+        lastInboundAt: input.timestamp instanceof Date ? input.timestamp.toISOString() : now.toISOString(),
+        replyDeadlineAt: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+        leadSegment: job.lead?.segment || prospeccao.leadSegment || null,
+        campaignSegment: job.campaign?.segment || prospeccao.campaignSegment || null,
+        mismatchReason: null,
+      },
+    };
+    await this.conversations.queueOutboundForCompany(input.companyId, {
+      conversationId: input.conversationId,
+      to: input.from,
+      contactId: input.from,
+      body,
+      messageType: 'text',
+      sourceModule: 'vendas_prospeccao_bot',
+      senderType: 'bot',
+      variables: {
+        botType: 'prospeccao',
+        campaignId: job.campaignId,
+        jobId: job.id,
+        leadId: job.leadId,
+        firstContact: true,
+        preMessageFollowUp: true,
+      },
+      flowState: {
+        currentFlow: ATENDIMENTO_FLOW_ID,
+        currentStep: ATENDIMENTO_STEP.MAIN_MENU,
+        botActive: true,
+        humanAssigned: false,
+        flowResult: null,
+        metadata: nextMetadata,
+      },
+    });
+    this.publishVendasAutomationEvent({
+      companyId: input.companyId,
+      campaignId: job.campaignId,
+      jobId: job.id,
+      leadId: job.leadId,
+      conversationId: input.conversationId,
+      status: 'aguardando',
+      text: 'Resposta humana detectada. Pitch enviado.',
+      type: 'pre_message_human_reply',
+    });
+    return body;
   }
 
   private containsVendasAutomationKeyword(normalizedText: string, keywords: string[]) {
@@ -2412,6 +2556,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     const queue = this.readJsonRecord(input.metadata?.vendasAgendaQueue);
     const automationStatus = this.normalizeVendasAutomationIntentText(automation.status);
     const queueStatus = this.normalizeVendasAutomationIntentText(queue.status);
+    const awaitingPreMessageHumanReply = this.isVendasPreMessageAwaitingHuman(input.metadata);
     const filters = this.readJsonRecord(job.campaign.filtersJson);
     const positiveKeywords = this.readJsonTextList(job.campaign.positiveIntentKeywordsJson, [
       'tenho interesse',
@@ -2504,6 +2649,12 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       await input.setInboundMeta('vendas_prospeccao_auto_reply', false);
       await this.markVendasAutomationAutoReply({ ...input, classification: autoReplyClassification }, job);
       return { handled: true, classification: autoReplyClassification };
+    }
+
+    if (awaitingPreMessageHumanReply) {
+      await input.setInboundMeta('vendas_prospeccao_pre_mensagem_humana', false);
+      await this.sendVendasPitchAfterPreMessage(input, job);
+      return { handled: true, classification: 'pre_message_human_reply' };
     }
 
     if (intent.kind === 'ambiguous_intent' || intent.confidence < 0.5) {
@@ -3019,6 +3170,19 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       text: classification === 'out_of_hours_auto_reply' ? 'Fora de horário detectado. Não insistir agora.' : 'Autoatendimento detectado. Aguardando humano.',
       type: classification,
     });
+    const nextScheduledAt = await this.reduceNextVendasAutomationIntervalAfterBot(job.campaign, job.id, now).catch(() => null);
+    if (nextScheduledAt) {
+      this.publishVendasAutomationEvent({
+        companyId: input.companyId,
+        campaignId: job.campaignId,
+        jobId: job.id,
+        leadId: job.leadId,
+        conversationId: input.conversationId,
+        status: 'aguardando',
+        text: 'Autoatendimento detectado. Próximo disparo adiantado.',
+        type: 'auto_reply_next_interval_reduced',
+      });
+    }
     await this.pauseVendasCampaignAfterAutoReplyStreak(job.campaign, now).catch(() => null);
   }
 
