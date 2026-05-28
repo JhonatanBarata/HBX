@@ -443,6 +443,45 @@ test('getBoardForUser hides complete intelligence for HBX List', async () => {
   assert.ok(lead.leadIntelligence.premiumTeaser);
 });
 
+test('buildLeadPayload exposes negative timeline conversation reference without raw JSON note', () => {
+  const { service } = createService();
+  const createdAt = new Date('2026-05-28T12:00:00.000Z');
+  const payload = (service as any).buildLeadPayload({
+    id: 'lead-1',
+    companyId: 7,
+    name: 'Lead Negativo',
+    phone: '+5511999990000',
+    phoneNormalized: '5511999990000',
+    status: 'encerrado',
+    timelineEvents: [
+      {
+        id: 'event-1',
+        eventType: 'lead_closed',
+        title: 'Resposta negativa',
+        description: JSON.stringify({
+          kind: 'lead_closure_conversation',
+          conversationId: 501,
+          anchorMessageId: 901,
+          inboundMessageId: 901,
+          detectedText: 'não tenho interesse',
+          sourceModule: 'vendas_prospeccao_bot',
+          createdAt: createdAt.toISOString(),
+          closureReason: 'negative',
+        }),
+        resultLabel: 'Negativo',
+        createdAt,
+      },
+    ],
+    createdAt,
+    updatedAt: createdAt,
+  });
+
+  assert.equal(payload.timeline[0].conversationReference.conversationId, 501);
+  assert.equal(payload.timeline[0].conversationReference.inboundMessageId, 901);
+  assert.equal(payload.timeline[0].description, 'Negativo registrado: "não tenho interesse"');
+  assert.equal(payload.timeline[0].description.startsWith('{'), false);
+});
+
 test('importWebscrapingLeadsForUser debits quota for new delivered card with WhatsApp available', async () => {
   const { prisma } = createImportPrismaHarness();
   let assertCanImportCalls = 0;
