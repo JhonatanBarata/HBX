@@ -1,0 +1,58 @@
+diff --git a/backend/src/messaging/messaging.service.test.ts b/backend/src/messaging/messaging.service.test.ts
+index d8b9034..70fc04d 100644
+--- a/backend/src/messaging/messaging.service.test.ts
++++ b/backend/src/messaging/messaging.service.test.ts
+@@ -409,7 +409,7 @@ test('handleVendasAutomationInbound routes to human when email provider fails',
+   assert.match(String((queueCalls[0].payload as any).body), /problema para enviar/);
+ });
+ 
+-test('handleVendasAutomationInbound archives explicit negative after neutral handoff', async () => {
++test('handleVendasAutomationInbound marks explicit negative on lead without moving queue', async () => {
+   const metadata = {
+     humanAssigned: true,
+     vendasAutomation: {
+@@ -496,10 +496,13 @@ test('handleVendasAutomationInbound archives explicit negative after neutral han
+   assert.equal(conversationStateCalls.length, 1);
+   const nextState = conversationStateCalls[0].payload as any;
+   assert.equal(nextState.flowResult, 'prospection_negative');
+-  assert.equal(nextState.metadata.queueTarget, 'excluidos');
+-  assert.equal(nextState.metadata.routeTarget, 'excluidos');
+-  assert.equal(nextState.metadata.inboxManualQueueOverride, 'archived');
+-  assert.equal(nextState.metadata.inboxLocalDeleted, true);
++  assert.equal(nextState.metadata.queueTarget, undefined);
++  assert.equal(nextState.metadata.routeTarget, undefined);
++  assert.equal(nextState.metadata.inboxManualQueueOverride, undefined);
++  assert.equal(nextState.metadata.inboxLocalDeleted, undefined);
++  assert.equal(nextState.metadata.doNotContact, true);
++  assert.equal(nextState.metadata.optOut, true);
++  assert.equal(nextState.metadata.blacklisted, true);
+   assert.equal(nextState.metadata.vendasProspeccao.stage, 'negative_reply');
+ });
+ 
+@@ -784,7 +787,7 @@ test('handleAtendimentoInbound enters the Vendas agenda bot gate and opens the m
+   assert.match(String((queueCalls[0].payload as any).body), /Sou o assistente da HBX Solutions/);
+   assert.match(String((queueCalls[0].payload as any).body), /1\. Agendar com Glauco/);
+   assert.match(String((queueCalls[0].payload as any).body), /2\. Suporte tecnico/);
+-  assert.match(String((queueCalls[0].payload as any).body), /5\. Assunto pessoal/);
++  assert.doesNotMatch(String((queueCalls[0].payload as any).body), /Assunto pessoal/);
+   assert.equal(conversationStateCalls.length, 1);
+   assert.equal((conversationStateCalls[0].payload as any).humanAssigned, false);
+   assert.equal((conversationStateCalls[0].payload as any).botActive, true);
+@@ -1052,7 +1055,7 @@ test('Recepcionista IA dynamic menu hides unavailable agenda, recovery and appoi
+ 
+   assert.deepEqual(
+     menu.map((option: any) => option.actionKey),
+-    ['technical_support', 'talk_owner', 'supplier_contact', 'personal_subject'],
++    ['technical_support', 'talk_owner', 'supplier_contact'],
+   );
+ });
+ 
+@@ -1072,7 +1075,7 @@ test('Recepcionista IA dynamic menu shows reschedule and cancel only with future
+ 
+   assert.deepEqual(
+     menu.map((option: any) => option.actionKey),
+-    ['reschedule_service', 'cancel_appointment', 'technical_support', 'talk_owner', 'personal_subject'],
++    ['reschedule_service', 'cancel_appointment', 'technical_support', 'talk_owner'],
+   );
+ });
+ 

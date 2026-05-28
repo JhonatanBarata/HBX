@@ -166,15 +166,6 @@ export class InboxController {
     return this.inboxService.updateConversationQueue(req.user, id, dto?.queue);
   }
 
-  @Patch('conversations/:id/personal')
-  updatePersonalContact(
-    @Req() req: any,
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: { personal?: boolean },
-  ) {
-    return this.inboxService.updateConversationPersonalContact(req.user, id, dto?.personal === true);
-  }
-
   @Patch('conversations/:id/block')
   blockConversation(
     @Req() req: any,

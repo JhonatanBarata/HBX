@@ -1,0 +1,948 @@
+diff --git a/backend/src/inbox/inbox.service.ts b/backend/src/inbox/inbox.service.ts
+index ac7c94f..734e213 100644
+--- a/backend/src/inbox/inbox.service.ts
++++ b/backend/src/inbox/inbox.service.ts
+@@ -843,17 +843,11 @@ export class InboxService {
+ 
+   private isConversationPersonalContact(metadata: Record<string, any>) {
+     const vendasAgendaQueue = this.getNestedMetadataRecord(metadata?.vendasAgendaQueue);
+-    const manualQueue = String(
+-      metadata?.inboxManualQueueOverride || vendasAgendaQueue?.manualQueueOverride || '',
+-    ).trim().toLowerCase();
+-    const routeTarget = String(
+-      metadata?.queueTarget || metadata?.routeTarget || vendasAgendaQueue?.queueTarget || vendasAgendaQueue?.routeTarget || '',
+-    ).trim().toLowerCase();
+     return [
+       metadata?.inboxPersonalContact,
+       metadata?.personalContact,
+       metadata?.whatsappPersonalContact,
+-    ].some((value) => this.parseBooleanMetadataFlag(value)) || manualQueue === 'all' || routeTarget === 'conversas';
++    ].some((value) => this.parseBooleanMetadataFlag(value));
+   }
+ 
+   private canTrashDeleteFallbackToLocal(error: unknown) {
+@@ -1727,7 +1721,7 @@ export class InboxService {
+ 
+   private normalizeConversationQueueFilter(value: string | null | undefined) {
+     const normalized = String(value || '').trim().toLowerCase();
+-    const allowedQueues = new Set(['all', 'groups', 'recovery', 'scheduled', 'bot', 'archived', 'blocked']);
++    const allowedQueues = new Set(['all', 'groups', 'recovery', 'scheduled', 'bot', 'blocked']);
+     return allowedQueues.has(normalized) ? normalized : null;
+   }
+ 
+@@ -1738,9 +1732,6 @@ export class InboxService {
+       return 'blocked';
+     }
+     switch (String(conversation?.routeTarget || '').trim().toLowerCase()) {
+-      case 'excluidos':
+-      case 'excluded':
+-        return 'archived';
+       case 'recovery':
+         return 'recovery';
+       case 'atendimento':
+@@ -1750,7 +1741,6 @@ export class InboxService {
+         return 'bot';
+       case 'groups':
+         return 'groups';
+-      case 'conversas':
+       default:
+         return 'all';
+     }
+@@ -2295,7 +2285,7 @@ export class InboxService {
+   private async resolveRecoveryRoutingContext(
+     companyId: number,
+     conversation: any,
+-    routingRules: RecoveryRoutingRules,
++    _routingRules: RecoveryRoutingRules,
+   ) {
+     const metadata = this.parseConversationMetadata(conversation?.metadata);
+     const metadataCustomerId = String(
+@@ -2305,8 +2295,6 @@ export class InboxService {
+     const latestSourceModule = String(metadata?.lastSourceModule || conversation?.messages?.[0]?.sourceModule || '')
+       .trim()
+       .toLowerCase();
+-    const latestDirection = String(conversation?.messages?.[0]?.direction || '').trim().toUpperCase();
+-    const hasLoadedInboundMessage = latestDirection === 'INBOUND' || this.hasLoadedInboundMessage(conversation);
+ 
+     const recoveryCustomer = metadataCustomerId
+         ? await this.prisma.hbxRecoveryCustomer.findFirst({
+@@ -2367,168 +2355,30 @@ export class InboxService {
+     const recoveryOpenAmount = Number(recoveryCustomer?.openAmount || metadata?.recoveryOpenAmount || 0);
+     const hasRecoveryDebt = recoveryOpenAmount > 0;
+ 
+-    let routeTarget: 'recovery' | 'atendimento' | 'prospeccao' | 'conversas' | 'excluidos' | 'groups' = 'conversas';
+-    let routeReason = 'Chat manual/pessoal do chip sem origem HBX.';
++    let routeTarget: 'recovery' | 'atendimento' | 'prospeccao' | 'conversas' | 'groups' = 'conversas';
++    let routeReason = 'Conversa neutra sem rota operacional manual.';
+     const vendasAgendaQueue = this.getNestedMetadataRecord(metadata?.vendasAgendaQueue);
+     const metadataRouteTarget = this.getConversationQueueTarget(metadata, vendasAgendaQueue);
+-    const manualQueue = String(
+-      metadata?.inboxManualQueueOverride || vendasAgendaQueue?.manualQueueOverride || '',
+-    ).trim().toLowerCase();
+-    const vendasProspeccao = this.getNestedMetadataRecord(metadata?.vendasProspeccao);
+-    const prospectionStage = this.normalizeClassifierText(vendasProspeccao?.stage || '');
+-    const automaticProspectionOutbound = this.getLatestAutomaticProspectionOutbound(conversation);
+-    const isProspectionCandidate = this.isProspectionMetadataCandidate(metadata, metadataRouteTarget, vendasAgendaQueue, conversation);
+-    const isExplicitHandoff = this.isExplicitAtendimentoHandoff(conversation, metadata, vendasAgendaQueue);
+-    const automationContext = isProspectionCandidate
+-      ? await this.findVendasAutomationContext(companyId, conversation, metadata, vendasAgendaQueue)
+-      : { job: null, lead: null, jobStatus: '', leadStatus: '', leadClosed: false };
+-    const prospectionSentAt = this.getProspectionSentAtCandidate(
+-      metadata,
+-      vendasAgendaQueue,
+-      automationContext.job,
+-      automaticProspectionOutbound,
+-    );
+-    if (isProspectionCandidate) {
+-      this.logger.log(`[prospeccao-classifier] conversa classificada como prospeccao conversation=${conversation?.id || '-'}`);
+-    }
+-    if (automaticProspectionOutbound) {
+-      this.logger.log(`[prospeccao] outbound automatico enviado, mantendo em prospeccao conversation=${conversation?.id || '-'}`);
+-    }
+-    const hasProspectionInbound = isProspectionCandidate
+-      ? await this.hasProspectionInboundAfterAutomaticSend(companyId, conversation, prospectionSentAt)
+-      : false;
+-    const automationStatus = this.normalizeClassifierText(
+-      this.getNestedMetadataRecord(metadata?.vendasAutomation)?.status || vendasAgendaQueue?.status || '',
+-    );
+-    const jobStatus = automationContext.jobStatus;
+-    const leadClosed = automationContext.leadClosed || automationContext.leadStatus === 'encerrado';
+-    const negativeOrArchivedProspection = [
+-      automationStatus,
+-      jobStatus,
+-      prospectionStage,
+-      String(conversation?.flowResult || '').trim().toLowerCase(),
+-    ].some((value) =>
+-      [
+-        'negative',
+-        'opt_out',
+-        'replied_negative',
+-        'no_response_archived',
+-        'expired_no_reply',
+-        'negative_reply',
+-        'no_whatsapp',
+-        'prospection_negative',
+-      ].includes(value),
+-    );
+-    const positiveOrHumanProspection = [
+-      automationStatus,
+-      jobStatus,
+-      prospectionStage,
+-      String(conversation?.flowResult || '').trim().toLowerCase(),
+-    ].some((value) =>
+-      [
+-        'replied_positive',
+-        'interested',
+-        'neutral',
+-        'human_assigned',
+-        'reply_received',
+-        'prospection_interested',
+-        'prospection_neutral',
+-      ].includes(value),
+-    );
+-    const optOut = [
+-      metadata?.optOut,
+-      metadata?.doNotContact,
+-      metadata?.blacklisted,
+-      metadata?.blacklist,
+-      vendasAgendaQueue?.optOut,
+-      vendasAgendaQueue?.doNotContact,
+-      vendasAgendaQueue?.blacklisted,
+-      vendasAgendaQueue?.blacklist,
+-    ].some((value) => this.parseBooleanMetadataFlag(value));
+-    const prospectionNoResponseExpired = Boolean(
+-      isProspectionCandidate &&
+-      (
+-        prospectionStage === 'expired_no_reply' ||
+-        (
+-          !hasProspectionInbound &&
+-          prospectionSentAt &&
+-          Date.now() - prospectionSentAt.getTime() >= 24 * 60 * 60 * 1000
+-        )
+-      )
+-    );
+-    const isProspectionWaitingJob =
+-      ['pending', 'scheduled', 'sending', 'sent'].includes(jobStatus) ||
+-      ['pending_send', 'scheduled_send', 'sent_waiting', 'needs_review'].includes(prospectionStage);
+-    const isAtendimentoTarget = metadataRouteTarget === 'atendimento' || metadataRouteTarget === 'scheduled';
+-    const isRecoveryTarget =
+-      metadataRouteTarget === 'recovery' ||
+-      latestSourceModule.includes('recovery') ||
+-      this.normalizeClassifierText(metadata?.sourceModule).includes('recovery');
+-
+-    if (isProspectionCandidate && !hasProspectionInbound) {
+-      this.logger.log(`[prospeccao-classifier] sem inbound do cliente, mantendo em prospeccao conversation=${conversation?.id || '-'}`);
+-    }
+-    if (isProspectionCandidate && hasProspectionInbound) {
+-      this.logger.log(`[prospeccao] inbound detectado, mantendo em prospeccao conversation=${conversation?.id || '-'}`);
+-    }
+-    if (prospectionNoResponseExpired) {
+-      this.logger.log(`[prospeccao] 24h sem resposta, movendo para excluidos conversation=${conversation?.id || '-'}`);
+-    }
+-    if (this.isConversationKnownWithoutWhatsapp(metadata)) {
+-      this.logger.log(`[prospeccao] whatsapp unavailable, movendo para excluidos conversation=${conversation?.id || '-'}`);
+-    }
++    const persistedRouteTarget = (['recovery', 'atendimento', 'prospeccao', 'prospection', 'conversas', 'groups'] as const)
++      .includes(metadataRouteTarget as any)
++      ? metadataRouteTarget
++      : '';
+ 
+     if (this.isConversationGroup(conversation, metadata)) {
+       routeTarget = 'groups';
+       routeReason = 'Grupo do WhatsApp classificado fora dos funis operacionais.';
+-    } else if (
+-      this.isConversationMetadataInTrash(metadata, conversation?.flowResult) ||
+-      this.isConversationKnownWithoutWhatsapp(metadata) ||
+-      leadClosed ||
+-      negativeOrArchivedProspection ||
+-      optOut ||
+-      prospectionNoResponseExpired
+-    ) {
+-      routeTarget = 'excluidos';
+-      routeReason = prospectionNoResponseExpired
+-        ? 'Sem resposta em 24h.'
+-        : this.isConversationKnownWithoutWhatsapp(metadata)
+-          ? 'Contato sem WhatsApp confirmado.'
+-          : negativeOrArchivedProspection || optOut
+-            ? 'Lead recusou, pediu opt-out ou foi arquivado pela prospecção.'
+-            : leadClosed
+-              ? 'Lead encerrado em Vendas.'
+-              : 'Contato descartado, bloqueado ou arquivado no HBX.';
+-    } else if ((hasRecoveryDebt && routingRules.preferRecoveryForDebtors) || isRecoveryTarget) {
++    } else if (persistedRouteTarget === 'recovery') {
+       routeTarget = 'recovery';
+-      routeReason = 'Cliente com debito em aberto e contexto ativo de cobranca.';
+-    } else if (this.isConversationPersonalContact(metadata)) {
+-      routeTarget = 'conversas';
+-      routeReason = 'Contato marcado como pessoal pelo operador.';
+-    } else if (
+-      manualQueue === 'scheduled' ||
+-      isAtendimentoTarget ||
+-      isExplicitHandoff ||
+-      conversation?.humanAssigned === true
+-    ) {
++      routeReason = 'Rota Recovery definida por ação manual/card.';
++    } else if (persistedRouteTarget === 'atendimento' || persistedRouteTarget === 'scheduled') {
+       routeTarget = 'atendimento';
+-      routeReason = 'Conversa assumida por humano ou encaminhada para Atendimento.';
+-    } else if (
+-      isProspectionCandidate &&
+-      (
+-        !hasProspectionInbound ||
+-        positiveOrHumanProspection ||
+-        hasProspectionInbound ||
+-        hasLoadedInboundMessage ||
+-        isProspectionWaitingJob ||
+-        Boolean(automaticProspectionOutbound) ||
+-        vendasAgendaQueue?.active === true
+-      )
+-    ) {
++      routeReason = 'Rota Atendimento definida por ação manual/card.';
++    } else if (persistedRouteTarget === 'prospeccao' || persistedRouteTarget === 'prospection') {
+       routeTarget = 'prospeccao';
+-      routeReason = hasProspectionInbound || positiveOrHumanProspection || hasLoadedInboundMessage
+-        ? 'Resposta do cliente aguardando operador em Prospecção.'
+-        : 'Lead de Vendas/Prospecção aguardando resposta do cliente.';
++      routeReason = 'Rota Prospecção definida por ação manual/card.';
++    } else if (persistedRouteTarget === 'conversas') {
++      routeTarget = 'conversas';
++      routeReason = 'Conversa neutra definida por ação manual/card.';
+     }
+ 
+     this.logger.log(`[inbox-classifier] conversationId=${conversation?.id || '-'} queue=${routeTarget}`);
+@@ -5098,7 +4948,7 @@ export class InboxService {
+     const companyId = this.requireCompanyIdFromUser(user);
+     const conversation = await this.ensureConversation(companyId, id);
+     const queue = String(queueRaw || '').trim().toLowerCase();
+-    const allowedQueues = new Set(['all', 'groups', 'recovery', 'scheduled', 'bot', 'archived']);
++    const allowedQueues = new Set(['all', 'groups', 'recovery', 'scheduled', 'bot']);
+     if (!allowedQueues.has(queue)) {
+       throw new BadRequestException('Fila invalida.');
+     }
+@@ -5111,12 +4961,8 @@ export class InboxService {
+         ? (metadata.vendasAgendaQueue as Record<string, unknown>)
+         : null;
+     const now = new Date().toISOString();
+-    const unavailable = this.isConversationKnownWithoutWhatsapp(metadata);
+-    const personalQueue = queue === 'all' && !unavailable;
+     const nextRouteTarget =
+-      unavailable || queue === 'archived'
+-        ? 'excluidos'
+-        : queue === 'bot'
++      queue === 'bot'
+           ? 'prospeccao'
+           : queue === 'scheduled'
+             ? 'atendimento'
+@@ -5130,60 +4976,18 @@ export class InboxService {
+       lastManualRouteChangeAt: now,
+       queueTarget: nextRouteTarget,
+       routeTarget: nextRouteTarget,
+-      ...(personalQueue
+-        ? {
+-            inboxPersonalContact: true,
+-            inboxPersonalContactAt: now,
+-            inboxPersonalContactByUserId: Number(user?.id || 0) || null,
+-            personalContact: true,
+-            whatsappPersonalContact: true,
+-            botOff: true,
+-            botOffReason: 'Contato marcado como pessoal em Pessoais.',
+-            botOffAt: now,
+-          }
+-        : {}),
+-      ...(queue !== 'all'
+-        ? {
+-            inboxPersonalContact: false,
+-            personalContact: false,
+-            whatsappPersonalContact: false,
+-            inboxPersonalContactClearedAt: now,
+-            botOff: queue === 'archived' || unavailable ? true : false,
+-            botOffReason: queue === 'archived' || unavailable ? metadata.botOffReason || null : null,
+-            botOffAt: queue === 'archived' || unavailable ? metadata.botOffAt || now : null,
+-          }
+-        : {}),
+-      ...(queue === 'archived' || unavailable
+-        ? {
+-            inboxLocalDeleted: true,
+-            inboxLocalDeletedAt: now,
+-            inboxLocalDeletedByUserId: Number(user?.id || 0) || null,
+-          }
+-        : {
+-            inboxLocalDeleted: false,
+-            inboxLocalDeletedAt: null,
+-            inboxLocalDeletedByUserId: null,
+-          }),
++      inboxPersonalContact: false,
++      personalContact: false,
++      whatsappPersonalContact: false,
++      inboxPersonalContactClearedAt: now,
++      inboxLocalDeleted: false,
++      inboxLocalDeletedAt: null,
++      inboxLocalDeletedByUserId: null,
+     };
+ 
+     if (currentQueue) {
+       nextMetadata.vendasAgendaQueue =
+-        personalQueue
+-          ? {
+-              ...currentQueue,
+-              active: false,
+-              draftPending: false,
+-              botEligible: false,
+-              botEntryPending: false,
+-              botOff: true,
+-              queueTarget: 'conversas',
+-              routeTarget: 'conversas',
+-              manualQueueOverride: 'all',
+-              manualQueueOverriddenAt: now,
+-              deactivatedAt: currentQueue.deactivatedAt || now,
+-              syncedAt: now,
+-            }
+-          : queue === 'bot' && !unavailable
++        queue === 'bot'
+           ? {
+               ...currentQueue,
+               active: true,
+@@ -5203,8 +5007,7 @@ export class InboxService {
+               botEntryPending: false,
+               queueTarget: nextRouteTarget,
+               routeTarget: nextRouteTarget,
+-              whatsappAvailabilityStatus:
+-                unavailable ? 'unavailable' : (currentQueue as any).whatsappAvailabilityStatus || null,
++              whatsappAvailabilityStatus: (currentQueue as any).whatsappAvailabilityStatus || null,
+               manualQueueOverride: queue,
+               manualQueueOverriddenAt: now,
+               deactivatedAt: currentQueue.deactivatedAt || now,
+@@ -5214,52 +5017,14 @@ export class InboxService {
+ 
+     await this.conversations.updateConversationState(companyId, id, {
+       metadata: nextMetadata,
+-      ...(queue === 'archived' || unavailable
++      ...(queue === 'scheduled'
+         ? {
+-            botActive: false,
+             humanAssigned: false,
+-            flowResult: 'local_deleted',
++            flowResult: null,
+           }
+-        : personalQueue
+-          ? {
+-              botActive: false,
+-              humanAssigned: true,
+-              flowResult: 'personal_contact',
+-            }
+-          : queue === 'scheduled'
+-            ? {
+-                humanAssigned: false,
+-                flowResult: null,
+-              }
+-          : {}),
++        : {}),
+     });
+ 
+-    if (queue === 'archived' || personalQueue) {
+-      try {
+-        await this.customerProfileService.upsertAtendimentoProfileState({
+-          companyId,
+-          phone: String(conversation.contact || '').trim(),
+-          botOff: true,
+-          botOffReason: personalQueue
+-            ? 'Contato marcado como pessoal em Pessoais.'
+-            : 'Conversa enviada para Excluídos no HBX.',
+-          botOffAt: new Date(),
+-        } as any);
+-      } catch (error) {
+-        await this.logInboxEvent({
+-          companyId,
+-          event: 'conversation_queue_profile_sync_failed',
+-          message: 'Falha ao persistir BOT_OFF no CustomerProfile durante movimentacao para Excluídos.',
+-          conversationId: id,
+-          phone: String(conversation.contact || '').trim(),
+-          result: 'warning',
+-          extra: {
+-            error: error instanceof Error ? error.message : 'unknown_error',
+-          },
+-        });
+-      }
+-    }
+-
+     await this.logInboxEvent({
+       companyId,
+       event: 'conversation_queue_updated',
+@@ -5271,104 +5036,6 @@ export class InboxService {
+     return this.getConversationByIdForCompany(companyId, id);
+   }
+ 
+-  async updateConversationPersonalContact(user: any, id: number, personalRaw?: boolean) {
+-    const companyId = this.requireCompanyIdFromUser(user);
+-    const conversation = await this.ensureConversation(companyId, id);
+-    const personal = personalRaw === true;
+-    const metadata = this.parseConversationMetadata(conversation.metadata);
+-    const currentQueue = this.getNestedMetadataRecord(metadata?.vendasAgendaQueue);
+-    const now = new Date().toISOString();
+-    const keepManualQueueOverride =
+-      !personal && metadata.inboxManualQueueOverride !== 'all'
+-        ? metadata.inboxManualQueueOverride || null
+-        : null;
+-    const keepManualQueueOverriddenAt =
+-      !personal && metadata.inboxManualQueueOverride !== 'all'
+-        ? metadata.inboxManualQueueOverriddenAt || null
+-        : null;
+-    const nextMetadata: Record<string, unknown> = {
+-      ...metadata,
+-      inboxPersonalContact: personal,
+-      personalContact: personal,
+-      whatsappPersonalContact: personal,
+-      inboxPersonalContactAt: personal ? now : null,
+-      inboxPersonalContactByUserId: personal ? Number(user?.id || 0) || null : null,
+-      queueTarget: personal ? 'conversas' : null,
+-      routeTarget: personal ? 'conversas' : null,
+-      inboxManualQueueOverride: personal ? 'all' : keepManualQueueOverride,
+-      inboxManualQueueOverriddenAt: personal ? now : keepManualQueueOverriddenAt,
+-      botOff: personal,
+-      botOffReason: personal ? 'Contato marcado como pessoal no Atendimento.' : null,
+-      botOffAt: personal ? now : null,
+-    };
+-
+-    if (currentQueue) {
+-      nextMetadata.vendasAgendaQueue = personal
+-        ? {
+-            ...currentQueue,
+-            active: false,
+-            draftPending: false,
+-            botEligible: false,
+-            botEntryPending: false,
+-            queueTarget: 'conversas',
+-            routeTarget: 'conversas',
+-            manualQueueOverride: 'all',
+-            manualQueueOverriddenAt: now,
+-            deactivatedAt: currentQueue.deactivatedAt || now,
+-            syncedAt: now,
+-          }
+-        : {
+-            ...currentQueue,
+-            queueTarget: currentQueue.whatsappAvailabilityStatus === 'unavailable' ? 'excluidos' : 'prospeccao',
+-            routeTarget: currentQueue.whatsappAvailabilityStatus === 'unavailable' ? 'excluidos' : 'prospeccao',
+-            manualQueueOverride: currentQueue.manualQueueOverride === 'all' ? null : currentQueue.manualQueueOverride || null,
+-            manualQueueOverriddenAt:
+-              currentQueue.manualQueueOverride === 'all' ? null : currentQueue.manualQueueOverriddenAt || null,
+-            syncedAt: now,
+-          };
+-    }
+-
+-    await this.conversations.updateConversationState(companyId, id, {
+-      botActive: personal ? false : conversation.botActive,
+-      humanAssigned: personal ? true : conversation.humanAssigned,
+-      flowResult: personal ? 'personal_contact' : conversation.flowResult,
+-      metadata: nextMetadata,
+-    });
+-
+-    try {
+-      await this.customerProfileService.upsertAtendimentoProfileState({
+-        companyId,
+-        phone: String(conversation.contact || '').trim(),
+-        botOff: personal,
+-        botOffReason: personal ? 'Contato marcado como pessoal no Atendimento.' : null,
+-        botOffAt: personal ? new Date() : null,
+-      } as any);
+-    } catch (error) {
+-      await this.logInboxEvent({
+-        companyId,
+-        event: 'conversation_personal_profile_sync_failed',
+-        message: 'Falha ao persistir estado de contato pessoal no CustomerProfile.',
+-        conversationId: id,
+-        phone: String(conversation.contact || '').trim(),
+-        result: 'warning',
+-        extra: {
+-          error: error instanceof Error ? error.message : 'unknown_error',
+-        },
+-      });
+-    }
+-
+-    await this.logInboxEvent({
+-      companyId,
+-      event: 'conversation_personal_contact_updated',
+-      message: personal ? 'Contato marcado como pessoal.' : 'Contato pessoal desativado.',
+-      conversationId: id,
+-      phone: String(conversation.contact || '').trim(),
+-      result: personal ? 'enabled' : 'disabled',
+-    });
+-
+-    return this.getConversationByIdForCompany(companyId, id);
+-  }
+-
+   async blockConversation(user: any, conversationId: number, reasonRaw?: string) {
+     const companyId = this.requireCompanyIdFromUser(user);
+     const conversation = await this.ensureConversation(companyId, conversationId);
+@@ -6093,120 +5760,10 @@ export class InboxService {
+ 
+   async deleteConversation(user: any, conversationId: number) {
+     this.assertAdministrativeAction(user);
+-    const companyId = this.requireCompanyIdFromUser(user);
+-    const conversation = await this.ensureConversation(companyId, conversationId);
+-    const metadata = this.parseConversationMetadata(conversation.metadata);
+-    const exchangedMessages = await this.prisma.companyMessage.count({
+-      where: {
+-        companyId,
+-        conversationId: conversation.id,
+-      },
+-    });
+-    const archivedLeadId = await this.archiveVendasLeadFromConversation({
+-      companyId,
+-      userId: Number(user?.id || 0) || null,
+-      conversation,
+-      metadata,
+-      reason:
+-        exchangedMessages > 0
+-          ? 'Conversa encerrada no Atendimento e enviada para Excluídos no HBX.'
+-          : 'Conversa sem mensagens encerrada no Atendimento; card comercial arquivado.',
+-    });
+-    const now = new Date();
+-    const nowIso = now.toISOString();
+-    const currentQueue =
+-      metadata?.vendasAgendaQueue &&
+-      typeof metadata.vendasAgendaQueue === 'object' &&
+-      !Array.isArray(metadata.vendasAgendaQueue)
+-        ? (metadata.vendasAgendaQueue as Record<string, unknown>)
+-        : null;
+-    const nextMetadata: Record<string, unknown> = {
+-      ...metadata,
+-      inboxManualQueueOverride: 'archived',
+-      inboxManualQueueOverriddenAt: nowIso,
+-      inboxLocalDeleted: true,
+-      inboxLocalDeletedAt: nowIso,
+-      inboxLocalDeletedByUserId: Number(user?.id || 0) || null,
+-      queueTarget: 'excluidos',
+-      routeTarget: 'excluidos',
+-      botOff: true,
+-      botOffReason: metadata.botOffReason || 'Conversa enviada para Excluídos no HBX.',
+-      botOffAt: metadata.botOffAt || nowIso,
+-      ...(currentQueue
+-        ? {
+-            vendasAgendaQueue: {
+-              ...currentQueue,
+-              active: false,
+-              draftPending: false,
+-              botEligible: false,
+-              botEntryPending: false,
+-              queueTarget: 'excluidos',
+-              routeTarget: 'excluidos',
+-              manualQueueOverride: 'archived',
+-              manualQueueOverriddenAt: nowIso,
+-              deactivatedAt: (currentQueue as any).deactivatedAt || nowIso,
+-              syncedAt: nowIso,
+-            },
+-          }
+-        : {}),
+-    };
+-
+-    await this.conversations.updateConversationState(companyId, conversation.id, {
+-      metadata: nextMetadata,
+-      botActive: false,
+-      humanAssigned: false,
+-      flowResult: 'local_deleted',
+-    });
+-
+-    try {
+-      await this.customerProfileService.upsertAtendimentoProfileState({
+-        companyId,
+-        phone: String(conversation.contact || '').trim(),
+-        botOff: true,
+-        botOffReason: 'Conversa enviada para Excluídos no HBX.',
+-        botOffAt: now,
+-      } as any);
+-    } catch (error) {
+-      await this.logInboxEvent({
+-        companyId,
+-        event: 'conversation_local_delete_profile_sync_failed',
+-        message: 'Falha ao persistir BOT_OFF no CustomerProfile durante envio para Excluídos.',
+-        conversationId,
+-        phone: String(conversation.contact || '').trim(),
+-        result: 'warning',
+-        extra: {
+-          error: error instanceof Error ? error.message : 'unknown_error',
+-        },
+-      });
+-    }
+-
+-    await this.logInboxEvent({
+-      companyId,
+-      event: 'conversation_sent_to_trash',
+-      message: 'Conversa enviada para Excluídos no HBX. Mensagens preservadas no banco.',
+-      conversationId,
+-      phone: String(conversation.contact || '').trim(),
+-      result: 'archived',
+-      extra: {
+-        localOnly: true,
+-        whatsappCommandSent: false,
+-        archivedLeadId,
+-        exchangedMessages,
+-      },
+-    });
+-    const archivedConversation = await this.getConversationByIdForCompany(companyId, conversation.id);
+-    return {
+-      success: true,
+-      id: String(archivedConversation?.id || conversation.id),
+-      conversation: archivedConversation,
+-      message: 'Conversa enviada para Excluídos. Mensagens preservadas.',
+-      deleted: false,
+-      archived: true,
+-      deletedIds: [],
+-      deletedCount: 0,
+-      archivedLeadId,
+-      localOnly: true,
+-    };
++    this.requireCompanyIdFromUser(user);
++    throw new BadRequestException(
++      'Excluídos foi removido do Atendimento. Use o card/status do cliente para encerrar ou bloquear contato.',
++    );
+   }
+ 
+   private async purgeInboxConversationLocally(companyId: number, conversationId: number) {
+@@ -6223,6 +5780,25 @@ export class InboxService {
+     );
+   }
+ 
++  private buildWhatsappResetPhoneVariants(...values: unknown[]) {
++    const variants = new Set<string>();
++    for (const value of values) {
++      const digits = this.normalizeConnectionPhone(value);
++      if (!digits) continue;
++      variants.add(digits);
++      variants.add(`+${digits}`);
++      if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) {
++        const withoutCountry = digits.slice(2);
++        variants.add(withoutCountry);
++        variants.add(`+${withoutCountry}`);
++      } else if (!digits.startsWith('55') && (digits.length === 10 || digits.length === 11)) {
++        variants.add(`55${digits}`);
++        variants.add(`+55${digits}`);
++      }
++    }
++    return Array.from(variants);
++  }
++
+   async cleanupOldWhatsappSessions(user: any, modeRaw?: string | null) {
+     this.assertAdministrativeAction(user);
+     const companyId = this.requireCompanyIdFromUser(user);
+@@ -6243,10 +5819,10 @@ export class InboxService {
+         NOT: { id: currentSessionId },
+       },
+       orderBy: [{ connectedAt: 'desc' }, { createdAt: 'desc' }],
+-      select: { id: true },
++      select: { id: true, phoneNormalized: true, displayPhone: true, metadataJson: true },
+     });
+     const oldSessionIds = oldSessions.map((session) => String(session.id));
+-    if (!oldSessionIds.length) {
++    if (!oldSessionIds.length && mode === 'merge') {
+       return {
+         success: true,
+         mode,
+@@ -6280,6 +5856,15 @@ export class InboxService {
+       mode === 'discard'
+         ? Array.from(new Set([...discardSessionIds, currentSessionId]))
+         : discardSessionIds;
++    const currentSession = sessionScope.currentSession || {};
++    const resetPhoneCandidates =
++      mode === 'discard'
++        ? this.buildWhatsappResetPhoneVariants(
++            currentSession.phoneNormalized,
++            currentSession.displayPhone,
++            ...(oldSessions.flatMap((session) => [session.phoneNormalized, session.displayPhone])),
++          )
++        : [];
+     const recoverableConversations = oldConversations.filter((conversation) =>
+       recoverableSessionIds.includes(String(conversation.whatsappConnectionSessionId || '')),
+     );
+@@ -6290,6 +5875,10 @@ export class InboxService {
+     let merged = 0;
+     let deletedConversations = 0;
+     let deletedMessages = 0;
++    let deletedAtendimentoCustomers = 0;
++    let deletedVendasLeads = 0;
++    let resetCustomerProfiles = 0;
++    let deletedCustomerProfiles = 0;
+     const resetAt = new Date();
+ 
+     await this.prisma.$transaction(async (tx) => {
+@@ -6347,12 +5936,22 @@ export class InboxService {
+               where: {
+                 companyId,
+                 channel: 'whatsapp',
+-                whatsappConnectionSessionId: { in: discardCacheSessionIds },
++                OR: [
++                  ...(discardCacheSessionIds.length
++                    ? [{ whatsappConnectionSessionId: { in: discardCacheSessionIds } }]
++                    : []),
++                  ...(resetPhoneCandidates.length
++                    ? [
++                        { contact: { in: resetPhoneCandidates } },
++                        { sourcePhoneNormalized: { in: resetPhoneCandidates } },
++                      ]
++                    : []),
++                ],
+               },
+-              select: { id: true, whatsappConnectionSessionId: true },
++              select: { id: true, whatsappConnectionSessionId: true, contact: true },
+             });
+       const sessionIdsToDiscard = discardCacheSessionIds;
+-      if (sessionIdsToDiscard.length || conversationsToDiscard.length) {
++      if (sessionIdsToDiscard.length || conversationsToDiscard.length || resetPhoneCandidates.length) {
+         const messages = await tx.companyMessage.findMany({
+           where: {
+             companyId,
+@@ -6361,6 +5960,12 @@ export class InboxService {
+               ...(conversationsToDiscard.length
+                 ? [{ conversationId: { in: conversationsToDiscard.map((conversation) => Number(conversation.id)) } }]
+                 : []),
++              ...(resetPhoneCandidates.length
++                ? [
++                    { contactId: { in: resetPhoneCandidates } },
++                    { sourcePhoneNormalized: { in: resetPhoneCandidates } },
++                  ]
++                : []),
+             ],
+           },
+           select: { id: true },
+@@ -6380,6 +5985,49 @@ export class InboxService {
+         }
+       }
+ 
++      if (mode === 'discard' && resetPhoneCandidates.length) {
++        const atendimentoDeleted = await tx.atendimentoCustomer.deleteMany({
++          where: { companyId, phoneNormalized: { in: resetPhoneCandidates } },
++        });
++        deletedAtendimentoCustomers = atendimentoDeleted.count;
++
++        const vendasDeleted = await tx.vendasLead.deleteMany({
++          where: {
++            companyId,
++            OR: [
++              { phoneNormalized: { in: resetPhoneCandidates } },
++              { phone: { in: resetPhoneCandidates } },
++            ],
++          },
++        });
++        deletedVendasLeads = vendasDeleted.count;
++
++        const profileReset = await tx.customerProfile.updateMany({
++          where: { companyId, phoneNormalized: { in: resetPhoneCandidates } },
++          data: {
++            botOff: false,
++            botOffReason: null,
++            botOffAt: null,
++            notes: null,
++            firstInboundAt: null,
++            lastInboundAt: null,
++          },
++        });
++        resetCustomerProfiles = profileReset.count;
++
++        const profileDeleted = await tx.customerProfile.deleteMany({
++          where: {
++            companyId,
++            phoneNormalized: { in: resetPhoneCandidates },
++            atendimentoCustomers: { none: {} },
++            hbxRecoveryCustomers: { none: {} },
++            debtCases: { none: {} },
++            vendasLeads: { none: {} },
++          },
++        });
++        deletedCustomerProfiles = profileDeleted.count;
++      }
++
+       await tx.companyMessage.updateMany({
+         where: { companyId, whatsappConnectionSessionId: { in: oldSessionIds } },
+         data: { whatsappConnectionSessionId: null },
+@@ -6396,8 +6044,9 @@ export class InboxService {
+       });
+       const currentSessionMetadata = this.parseConversationMetadata(currentSession?.metadataJson);
+       if (mode === 'discard') {
+-        delete currentSessionMetadata.inboxResetAt;
+-        delete currentSessionMetadata.webwhatsResetAt;
++        for (const key of Object.keys(currentSessionMetadata)) {
++          delete currentSessionMetadata[key];
++        }
+       }
+       await tx.whatsAppConnectionSession.update({
+         where: { id: currentSessionId },
+@@ -6430,9 +6079,14 @@ export class InboxService {
+         recoverableSessionIds,
+         discardSessionIds,
+         discardCacheSessionIds,
++        resetPhoneCandidates,
+         merged,
+         deletedConversations,
+         deletedMessages,
++        deletedAtendimentoCustomers,
++        deletedVendasLeads,
++        resetCustomerProfiles,
++        deletedCustomerProfiles,
+       },
+     });
+ 
+@@ -6443,15 +6097,19 @@ export class InboxService {
+       deletedConversations,
+       deletedMessages,
+       deletedSessions: oldSessionIds.length,
++      deletedAtendimentoCustomers,
++      deletedVendasLeads,
++      resetCustomerProfiles,
++      deletedCustomerProfiles,
+       message: mode === 'merge'
+         ? 'Última sessão antiga mesclada na sessão atual. Demais sessões antigas descartadas.'
+-        : 'Histórico de sessões antigas descartado do HBX.',
++        : 'Histórico e configurações do número descartados. A conta iniciou do zero para este WhatsApp.',
+     };
+   }
+ 
+   async purgeConversationFromTrash(user: any, conversationId: number) {
+     this.assertAdministrativeAction(user);
+-    throw new BadRequestException('Exclusao permanente removida do HBX. Use apenas Enviar para Excluidos.');
++    throw new BadRequestException('Exclusao permanente removida do HBX. Excluídos não existe mais como fila operacional.');
+   }
+ 
+   private serializeMeticulousTrashJob(job: any) {
+@@ -6648,7 +6306,7 @@ export class InboxService {
+           status: 'canceled',
+           nextRunAt: null,
+           finishedAt: new Date(),
+-          lastError: 'Exclusao permanente removida do HBX. Use apenas Enviar para Excluidos.',
++          lastError: 'Exclusao permanente removida do HBX. Excluídos não existe mais como fila operacional.',
+         },
+       });
+       return;
+@@ -6796,7 +6454,7 @@ export class InboxService {
+     const companyId = this.requireCompanyIdFromUser(user);
+     const options = this.normalizeMeticulousTrashOptions(dto);
+     if (!options.dryRun) {
+-      throw new BadRequestException('Exclusao permanente removida do HBX. Use apenas Enviar para Excluidos.');
++      throw new BadRequestException('Exclusao permanente removida do HBX. Excluídos não existe mais como fila operacional.');
+     }
+     const running = await this.prisma.inboxTrashMeticulousPurgeJob.findFirst({
+       where: {
+@@ -6910,7 +6568,7 @@ export class InboxService {
+     const job = await this.prisma.inboxTrashMeticulousPurgeJob.findFirst({ where: { id: jobId, companyId } });
+     if (!job) throw new NotFoundException('Job de limpeza nao encontrado.');
+     if (!job.dryRun) {
+-      throw new BadRequestException('Exclusao permanente removida do HBX. Use apenas Enviar para Excluidos.');
++      throw new BadRequestException('Exclusao permanente removida do HBX. Excluídos não existe mais como fila operacional.');
+     }
+     if (!['paused', 'paused_provider_unhealthy', 'paused_after_restart'].includes(String(job.status))) {
+       throw new BadRequestException('Apenas jobs pausados podem continuar.');
+@@ -6944,7 +6602,7 @@ export class InboxService {
+     await this.logInboxEvent({
+       companyId,
+       event: 'conversation_empty_trash_legacy_blocked',
+-      message: 'Limpeza antiga de Excluídos bloqueada. Exclusao permanente foi removida do HBX.',
++      message: 'Limpeza antiga bloqueada. Excluídos não existe mais como fila operacional.',
+       result: 'blocked',
+       extra: {
+         localOnly: true,
+@@ -6958,7 +6616,7 @@ export class InboxService {
+       deletedIds: [],
+       skipped: 0,
+       localOnly: true,
+-      message: 'Exclusao permanente foi removida do HBX. Use apenas Enviar para Excluidos.',
++      message: 'Exclusao permanente foi removida do HBX. Excluídos não existe mais como fila operacional.',
+     };
+   }
+ 
+@@ -7239,38 +6897,10 @@ export class InboxService {
+       !Array.isArray(conversationMetadata.vendasAgendaQueue)
+         ? (conversationMetadata.vendasAgendaQueue as Record<string, unknown>)
+         : null;
+-    const isPersonalConversation =
++    const isNeutralConversation =
+       this.isConversationPersonalContact(conversationMetadata) ||
+       String(conversationMetadata?.queueTarget || conversationMetadata?.routeTarget || '').trim().toLowerCase() === 'conversas' ||
+       String((conversation as any)?.routeTarget || '').trim().toLowerCase() === 'conversas';
+-    const personalMetadataPatch = isPersonalConversation
+-      ? {
+-          ...conversationMetadata,
+-          inboxPersonalContact: true,
+-          personalContact: true,
+-          whatsappPersonalContact: true,
+-          inboxManualQueueOverride: 'all',
+-          queueTarget: 'conversas',
+-          routeTarget: 'conversas',
+-          botOff: true,
+-          botOffReason: 'Contato marcado como pessoal em Pessoais.',
+-          botOffAt: conversationMetadata?.botOffAt || new Date().toISOString(),
+-          ...(vendasAgendaQueue
+-            ? {
+-                vendasAgendaQueue: {
+-                  ...vendasAgendaQueue,
+-                  manualQueueOverride: 'all',
+-                  queueTarget: 'conversas',
+-                  routeTarget: 'conversas',
+-                  botActive: false,
+-                  botEligible: false,
+-                  botEntryPending: false,
+-                  humanAssigned: true,
+-                },
+-              }
+-            : {}),
+-        }
+-      : null;
+ 
+     const outboundPayload: any = {
+       conversationId,
+@@ -7283,8 +6913,7 @@ export class InboxService {
+       flowState: {
+         humanAssigned: true,
+         botActive: false,
+-        flowResult: isPersonalConversation ? 'personal_contact' : null,
+-        ...(personalMetadataPatch ? { metadata: personalMetadataPatch } : {}),
++        flowResult: null,
+       },
+     };
+     if (Object.keys(variables).length) {
+@@ -7293,7 +6922,7 @@ export class InboxService {
+ 
+     await this.conversations.queueOutboundForCompany(companyId, outboundPayload);
+ 
+-    if (!isPersonalConversation && vendasAgendaQueue?.active) {
++    if (!isNeutralConversation && vendasAgendaQueue?.active) {
+       const manualSentAt = new Date().toISOString();
+       const currentProspeccao = this.getNestedMetadataRecord(conversationMetadata?.vendasProspeccao);
+       const firstOutboundAt = String(currentProspeccao?.firstOutboundAt || manualSentAt);

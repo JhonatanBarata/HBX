@@ -312,11 +312,6 @@ export function buildAtendimentoQueueBadges(
     allowRecoveryCapability && isAtendimentoRecoveryPrimary(conversation);
   const badges: WorkspaceBadgeDescriptor[] = [];
 
-  if (isAtendimentoPersonalContact(conversation)) {
-    badges.push({ label: "Contato pessoal", tone: "success" });
-    if (conversation.botActive === false) badges.push({ label: "Bot pausado nesta conversa", tone: "neutral" });
-  }
-
   if (isRecoveryPrimary) {
     badges.push({ label: "Recovery", tone: "warning" });
   } else if (hasRecoveryContext) {

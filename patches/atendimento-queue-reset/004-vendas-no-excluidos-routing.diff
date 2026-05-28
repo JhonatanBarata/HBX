@@ -1,0 +1,248 @@
+diff --git a/backend/src/vendas/vendas-automation.service.ts b/backend/src/vendas/vendas-automation.service.ts
+index 5f460af..c16c1ed 100644
+--- a/backend/src/vendas/vendas-automation.service.ts
++++ b/backend/src/vendas/vendas-automation.service.ts
+@@ -1031,8 +1031,8 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
+     lastInboundAt?: Date | string | null;
+     draftMessage?: string | null;
+     mismatchReason?: string | null;
+-    queueTarget?: 'prospeccao' | 'atendimento' | 'excluidos';
+-    routeTarget?: 'prospeccao' | 'atendimento' | 'excluidos';
++    queueTarget?: 'prospeccao' | 'atendimento';
++    routeTarget?: 'prospeccao' | 'atendimento';
+     active?: boolean;
+     botEligible?: boolean;
+     botEntryPending?: boolean;
+@@ -1051,7 +1051,6 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
+         ? input.firstOutboundAt.toISOString()
+         : trimOrNull(input.firstOutboundAt);
+     const scheduledAt = input.scheduledAt instanceof Date ? input.scheduledAt.toISOString() : trimOrNull(input.scheduledAt);
+-    const shouldArchive = queueTarget === 'excluidos';
+     const nextQueue = {
+       ...queue,
+       active: input.active ?? queueTarget === 'prospeccao',
+@@ -1088,10 +1087,9 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
+       botEntryPending: input.botEntryPending ?? (input.stage === 'sent_waiting'),
+       automationJobId: input.jobId || queue.automationJobId || null,
+       mismatchReason: input.mismatchReason || null,
+-      manualQueueOverride: shouldArchive ? 'archived' : queue.manualQueueOverride || null,
++      manualQueueOverride: queue.manualQueueOverride || null,
+       whatsappAvailabilityStatus: input.stage === 'no_whatsapp' ? 'unavailable' : queue.whatsappAvailabilityStatus || null,
+       syncedAt: now,
+-      ...(shouldArchive ? { deactivatedAt: now } : {}),
+     };
+     const nextProspeccao = this.buildProspectionState(input.stage, {
+       current: currentProspeccao,
+@@ -1120,13 +1118,6 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
+         vendasAgendaQueue: nextQueue,
+         vendasProspeccao: nextProspeccao,
+         ...(input.stage === 'no_whatsapp' ? { whatsappAvailabilityStatus: 'unavailable' } : {}),
+-        ...(shouldArchive
+-          ? {
+-              inboxManualQueueOverride: 'archived',
+-              inboxLocalDeleted: true,
+-              inboxLocalDeletedAt: now,
+-            }
+-          : {}),
+       },
+       lastInteractionAt: new Date(),
+     });
+@@ -2612,7 +2603,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
+         if (!leadId || !requestedLeadIdSet.has(leadId)) continue;
+         const queueTarget = String((queue as any).queueTarget || (queue as any).routeTarget || '').trim().toLowerCase();
+         const availability = String((queue as any).whatsappAvailabilityStatus || '').trim().toLowerCase();
+-        if ((queue as any).active === true && queueTarget !== 'excluidos' && availability !== 'unavailable') {
++        if ((queue as any).active === true && availability !== 'unavailable') {
+           activeProspectingLeadIds.add(leadId);
+         }
+       }
+@@ -2972,7 +2963,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
+ 
+   private async archiveNoResponseJob(job: any) {
+     const now = new Date();
+-    this.logger.log(`[prospeccao] 24h sem resposta, movendo para excluidos conversation=${job.conversationId || '-'} job=${job.id}`);
++    this.logger.log(`[prospeccao] 24h sem resposta, encerrando lead sem mover fila conversation=${job.conversationId || '-'} job=${job.id}`);
+     await this.prisma.$transaction(async (tx) => {
+       await tx.vendasAutomationJob.update({
+         where: { id: job.id },
+@@ -3007,11 +2998,6 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
+         flowResult: 'no_response_archived',
+         metadata: {
+           ...metadata,
+-          queueTarget: 'excluidos',
+-          routeTarget: 'excluidos',
+-          inboxManualQueueOverride: 'archived',
+-          inboxLocalDeleted: true,
+-          inboxLocalDeletedAt: now.toISOString(),
+           inboxLocalDeletedReason: 'Sem resposta em 24h',
+           vendasAgendaQueue: {
+             ...queue,
+@@ -3019,9 +3005,6 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
+             draftPending: false,
+             botEligible: false,
+             botEntryPending: false,
+-            queueTarget: 'excluidos',
+-            routeTarget: 'excluidos',
+-            manualQueueOverride: 'archived',
+             syncedAt: now.toISOString(),
+             deactivatedAt: now.toISOString(),
+           },
+@@ -3335,8 +3318,8 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
+         campaign,
+         jobId: job.id,
+         stage: 'no_whatsapp',
+-        queueTarget: 'excluidos',
+-        routeTarget: 'excluidos',
++        queueTarget: 'prospeccao',
++        routeTarget: 'prospeccao',
+         active: false,
+       }).catch(() => null);
+       await this.markRadarDispositionForLead(campaign, lead, 'invalid_whatsapp', errorMessage);
+@@ -3361,8 +3344,8 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
+         campaign,
+         jobId: job.id,
+         stage: 'no_whatsapp',
+-        queueTarget: 'excluidos',
+-        routeTarget: 'excluidos',
++        queueTarget: 'prospeccao',
++        routeTarget: 'prospeccao',
+         active: false,
+       }).catch(() => null);
+       this.logger.log(`[prospeccao] envio bloqueado: lead sem WhatsApp confirmado conversation=${noWhatsappState.conversationId || '-'} job=${job.id}`);
+@@ -3402,8 +3385,8 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
+         campaign,
+         jobId: job.id,
+         stage: 'negative_reply',
+-        queueTarget: 'excluidos',
+-        routeTarget: 'excluidos',
++        queueTarget: 'prospeccao',
++        routeTarget: 'prospeccao',
+         active: false,
+         botEligible: false,
+         botEntryPending: false,
+@@ -3479,8 +3462,8 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
+         campaign,
+         jobId: job.id,
+         stage: 'negative_reply',
+-        queueTarget: 'excluidos',
+-        routeTarget: 'excluidos',
++        queueTarget: 'prospeccao',
++        routeTarget: 'prospeccao',
+         active: false,
+         botEligible: false,
+         botEntryPending: false,
+@@ -4395,11 +4378,6 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
+       flowResult: 'prospection_negative',
+       metadata: {
+         ...metadata,
+-        queueTarget: 'excluidos',
+-        routeTarget: 'excluidos',
+-        inboxManualQueueOverride: 'archived',
+-        inboxLocalDeleted: true,
+-        inboxLocalDeletedAt: now.toISOString(),
+         optOut: true,
+         doNotContact: true,
+         blacklisted: true,
+@@ -4418,8 +4396,6 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
+           ...queue,
+           active: false,
+           leadId: job.leadId,
+-          queueTarget: 'excluidos',
+-          routeTarget: 'excluidos',
+           status: 'encerrado',
+           draftPending: false,
+           botEligible: false,
+@@ -4427,7 +4403,6 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
+           optOut: true,
+           doNotContact: true,
+           blacklisted: true,
+-          manualQueueOverride: 'archived',
+           syncedAt: now.toISOString(),
+           deactivatedAt: now.toISOString(),
+         },
+diff --git a/backend/src/vendas/vendas.service.ts b/backend/src/vendas/vendas.service.ts
+index ca44d7a..9011435 100644
+--- a/backend/src/vendas/vendas.service.ts
++++ b/backend/src/vendas/vendas.service.ts
+@@ -5062,8 +5062,8 @@ export class VendasService {
+       leadId: String(row?.id || '').trim() || currentQueue?.leadId || null,
+       sourceModule: 'vendas',
+       sourceBlock: this.classifyLeadBlock(row),
+-      queueTarget: 'excluidos',
+-      routeTarget: 'excluidos',
++      queueTarget: currentQueue?.queueTarget || 'prospeccao',
++      routeTarget: currentQueue?.routeTarget || 'prospeccao',
+       status,
+       nextAction,
+       returnAt,
+@@ -5076,8 +5076,8 @@ export class VendasService {
+       manualSentAt: currentQueue?.manualSentAt || null,
+       botEligible: false,
+       botEntryPending: false,
+-      manualQueueOverride: 'archived',
+-      manualQueueOverriddenAt: now,
++      manualQueueOverride: currentQueue?.manualQueueOverride || 'bot',
++      manualQueueOverriddenAt: currentQueue?.manualQueueOverriddenAt || now,
+       inheritedDraftMessage: this.normalizeText(
+         options?.draftMessageOverride || currentQueue?.inheritedDraftMessage || null,
+       ),
+@@ -5091,14 +5091,10 @@ export class VendasService {
+       metadata: {
+         ...metadata,
+         sourceModule: 'vendas',
+-        queueTarget: 'excluidos',
+-        routeTarget: 'excluidos',
++        queueTarget: metadata?.queueTarget || 'prospeccao',
++        routeTarget: metadata?.routeTarget || 'prospeccao',
+         whatsappAvailabilityStatus: 'unavailable',
+         whatsappAvailabilityCheckedAt: availability?.checkedAt || now,
+-        inboxManualQueueOverride: 'archived',
+-        inboxManualQueueOverriddenAt: now,
+-        inboxLocalDeleted: true,
+-        inboxLocalDeletedAt: now,
+         vendasAgendaQueue: nextQueue,
+         vendasProspeccao: this.buildVendasProspeccaoMetadata('no_whatsapp', row, currentProspeccao, nextQueue, {
+           leadSegment: this.normalizeText(row?.segment),
+@@ -5107,7 +5103,7 @@ export class VendasService {
+       },
+       lastInteractionAt: new Date(),
+     });
+-    this.logger.log(`[prospeccao] whatsapp unavailable, movendo para excluidos conversation=${conversation.id} lead=${String(row?.id || '-')}`);
++    this.logger.log(`[prospeccao] whatsapp unavailable marcado no card/lead conversation=${conversation.id} lead=${String(row?.id || '-')}`);
+ 
+     return { updated: 1, skippedWithoutPhone: 0, conversationId: conversation.id };
+   }
+@@ -5310,22 +5306,14 @@ export class VendasService {
+       await this.conversations.updateConversationState(context.companyId, conversation.id, {
+         metadata: {
+           ...metadata,
+-          ...(queue.whatsappAvailabilityStatus === 'unavailable'
+-            ? {
+-                queueTarget: 'excluidos',
+-                routeTarget: 'excluidos',
+-                inboxManualQueueOverride: 'archived',
+-                inboxLocalDeleted: true,
+-              }
+-            : {}),
+           vendasAgendaQueue: {
+             ...queue,
+             active: false,
+             draftPending: false,
+             botEligible: false,
+             botEntryPending: false,
+-            queueTarget: queue.whatsappAvailabilityStatus === 'unavailable' ? 'excluidos' : queue.queueTarget || 'prospeccao',
+-            routeTarget: queue.whatsappAvailabilityStatus === 'unavailable' ? 'excluidos' : queue.routeTarget || 'prospeccao',
++            queueTarget: queue.queueTarget || 'prospeccao',
++            routeTarget: queue.routeTarget || 'prospeccao',
+             syncedAt: new Date().toISOString(),
+             deactivatedAt: new Date().toISOString(),
+           },
+@@ -5386,7 +5374,7 @@ export class VendasService {
+ 
+     const message = todayLeadCount
+       ? skippedWithoutWhatsapp > 0
+-        ? `${mirroredLeadCount} card(s) preparados na Prospecção. ${skippedWithoutWhatsapp} numero(s) foram movidos para Excluídos porque o motor nao encontrou WhatsApp.`
++        ? `${mirroredLeadCount} card(s) preparados na Prospecção. ${skippedWithoutWhatsapp} numero(s) foram marcados no card porque o motor nao encontrou WhatsApp.`
+         : filteredSync
+           ? `${mirroredLeadCount} card(s) selecionados preparados na Prospecção com roteiro pendente para envio manual.`
+           : `${mirroredLeadCount} card(s) de hoje preparados na Prospecção com roteiro pendente para envio manual.`

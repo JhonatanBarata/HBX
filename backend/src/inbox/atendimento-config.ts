@@ -19,7 +19,6 @@ export const ATENDIMENTO_BOT_ACTION_IDS = [
   'technical_support',
   'talk_owner',
   'supplier_contact',
-  'personal_subject',
 ] as const;
 
 export type AtendimentoBotActionId = (typeof ATENDIMENTO_BOT_ACTION_IDS)[number];
@@ -449,14 +448,6 @@ const DEFAULT_ACTION_CATALOG: AtendimentoBotActionGuide[] = [
     kind: 'human_handoff',
     enabled: true,
   },
-  {
-    actionId: 'personal_subject',
-    title: 'Assunto pessoal',
-    description: 'Marca o contato como pessoal e protege a conversa contra respostas do bot.',
-    route: 'atendimento',
-    kind: 'human_handoff',
-    enabled: true,
-  },
 ];
 
 function normalizeButtonId(value: unknown, fallback: string) {
@@ -637,7 +628,6 @@ export const DEFAULT_ATENDIMENTO_BOT_CONFIG: AtendimentoBotConfig = {
     makeDefaultButton('main_menu', 'technical_support', 'Suporte tecnico', 1),
     makeDefaultButton('main_menu', 'talk_owner', 'Falar direto com Glauco', 2),
     makeDefaultButton('main_menu', 'supplier_contact', 'Fornecedor / parceria', 3),
-    makeDefaultButton('main_menu', 'personal_subject', 'Assunto pessoal', 4),
   ],
   recoveryDetectedMessage:
     'Encontrei um valor pendente de {{valor_formatado}}. Posso te mostrar pagamentos, seguir com uma acao financeira ou continuar no Atendimento sem perder o contexto.',
