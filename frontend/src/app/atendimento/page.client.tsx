@@ -3797,6 +3797,19 @@ function getInboxConversationUnreadCount(conversation?: InboxConversation | null
   return Math.floor(unreadCount);
 }
 
+function clearInboxConversationUnreadCount(conversation: InboxConversation): InboxConversation {
+  const metadata = getInboxConversationMetadata(conversation);
+  if (!metadata || Number(metadata.whatsappUnreadCount || 0) <= 0) return conversation;
+  return {
+    ...conversation,
+    metadata: {
+      ...metadata,
+      whatsappUnreadCount: 0,
+      whatsappMarkedReadAt: new Date().toISOString(),
+    },
+  };
+}
+
 function getInboxMergedConversationIds(conversation?: InboxConversation | null) {
   const metadata = getInboxConversationMetadata(conversation);
   const mergedIds = Array.isArray(metadata?.__mergedConversationIds)
@@ -5363,6 +5376,45 @@ function InboxDesktopClientPage() {
     conversationDetailCacheRef.current.set(conversation.id, clearInboxConversationSummaryOnly(conversation) || conversation);
   }, []);
 
+  const markConversationRead = useCallback((conversation?: InboxConversation | null) => {
+    if (!conversation || getInboxConversationUnreadCount(conversation) <= 0) return;
+    const clearedConversation = clearInboxConversationUnreadCount(conversation);
+
+    setConversations((current) =>
+      current.map((item) => (item.id === clearedConversation.id ? clearInboxConversationUnreadCount(item) : item)),
+    );
+
+    if (selectedConversationRef.current?.id === clearedConversation.id) {
+      setSelectedConversation(clearedConversation);
+      selectedConversationRef.current = clearedConversation;
+      rememberConversationDetail(clearedConversation);
+    }
+
+    void apiFetch<InboxConversation>(`/inbox/conversations/${clearedConversation.id}/read`, {
+      method: "PATCH",
+      requireAuth: true,
+      timeoutMs: 12000,
+    })
+      .then((payload) => {
+        const normalized = normalizeInboxConversationPayload(payload);
+        if (!normalized) return;
+        const readConversation = clearInboxConversationUnreadCount(normalized);
+        rememberConversationDetail(readConversation);
+        setConversations((current) =>
+          current.map((item) => (item.id === readConversation.id ? { ...item, ...readConversation } : item)),
+        );
+        if (selectedIdRef.current === readConversation.id) {
+          setSelectedConversation(readConversation);
+          selectedConversationRef.current = readConversation;
+        }
+      })
+      .catch((error) => {
+        if (process.env.NODE_ENV !== "production") {
+          console.warn("Falha ao marcar conversa como lida.", error);
+        }
+      });
+  }, [rememberConversationDetail]);
+
   const bootstrapInbox = useCallback(async (options?: { take?: number }) => {
     const take = Math.max(
       1,
@@ -5526,6 +5578,7 @@ function InboxDesktopClientPage() {
       setOlderMessagesHasMore((cachedDetail.messages?.length || 0) >= INBOX_RECENT_MESSAGES_LIMIT);
       setLoadingConversation(false);
       setBootstrapReady(true);
+      markConversationRead(cachedDetail);
       return;
     }
     if (!silent && !cachedDetail) setLoadingConversation(true);
@@ -5592,6 +5645,7 @@ function InboxDesktopClientPage() {
               : [...current, nextSummary],
           );
         });
+        markConversationRead(detailedConversation);
         setOlderMessagesBefore(getInboxOldestMessageDate(detailedConversation.messages));
         setOlderMessagesHasMore((detailedConversation.messages?.length || 0) >= INBOX_RECENT_MESSAGES_LIMIT);
       }
@@ -5616,7 +5670,7 @@ function InboxDesktopClientPage() {
         setLoadingConversation(false);
       }
     }
-  }, [rememberConversationDetail]);
+  }, [markConversationRead, rememberConversationDetail]);
 
   const loadOlderMessages = useCallback(async () => {
     const conversationId = normalizeInboxConversationId(selectedIdRef.current || selectedId);
