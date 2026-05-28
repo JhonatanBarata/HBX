@@ -1,0 +1,34 @@
+diff --git a/frontend/src/app/vendas/page.client.tsx b/frontend/src/app/vendas/page.client.tsx
+index 8c5caec..43de1c8 100644
+--- a/frontend/src/app/vendas/page.client.tsx
++++ b/frontend/src/app/vendas/page.client.tsx
+@@ -2593,6 +2593,8 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
+     shortNote: "",
+   });
+   const leadCardRefs = useRef<Record<string, HTMLElement | null>>({});
++  const leadStableOrderRef = useRef<Record<string, number>>({});
++  const leadStableOrderNextRef = useRef(1);
+   const boardRef = useRef<BoardResponse | null>(null);
+   const dateFilterRefs = useRef<Record<string, HTMLElement | null>>({});
+   const archiveRef = useRef<HTMLElement | null>(null);
+@@ -3264,13 +3266,16 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
+       scheduled: 2,
+       closed: 3,
+     };
++    for (const { lead } of items) {
++      if (!leadStableOrderRef.current[lead.id]) {
++        leadStableOrderRef.current[lead.id] = leadStableOrderNextRef.current;
++        leadStableOrderNextRef.current += 1;
++      }
++    }
+     return items.sort((left, right) => {
+       const blockDiff = orderWeight[left.block] - orderWeight[right.block];
+       if (blockDiff !== 0) return blockDiff;
+-      return (
+-        new Date(right.lead.updatedAt || 0).getTime() -
+-        new Date(left.lead.updatedAt || 0).getTime()
+-      );
++      return (leadStableOrderRef.current[left.lead.id] || 0) - (leadStableOrderRef.current[right.lead.id] || 0);
+     });
+   }, [board]);
+ 

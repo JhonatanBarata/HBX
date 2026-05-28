@@ -1,0 +1,143 @@
+diff --git a/frontend/src/app/page.module.css b/frontend/src/app/page.module.css
+--- a/frontend/src/app/page.module.css
++++ b/frontend/src/app/page.module.css
+@@ -725,3 +725,134 @@
+   .footerInner {
+     display: grid;
+   }
+ }
++
++/* HBX homepage premium layer 01: hero, glow and actions */
++.home {
++  --home-radius: 28px;
++  --home-ease: cubic-bezier(0.16, 1, 0.3, 1);
++}
++
++.shell::after {
++  content: "";
++  position: fixed;
++  inset: auto 8% 8% auto;
++  z-index: -1;
++  width: 34vw;
++  height: 34vw;
++  border-radius: 999px;
++  background: radial-gradient(circle, rgba(55, 213, 255, 0.15), transparent 62%);
++  filter: blur(8px);
++  animation: hbxAuroraFloat 9s var(--home-ease) infinite alternate;
++}
++
++.topbar {
++  animation: hbxTopbarDrop 720ms var(--home-ease) both;
++}
++
++.brandMark {
++  border-radius: 16px;
++  animation: hbxBrandPulse 3.8s ease-in-out infinite;
++  transition: transform 220ms var(--home-ease), box-shadow 220ms var(--home-ease);
++}
++
++.brand:hover .brandMark {
++  transform: rotate(-3deg) scale(1.05);
++}
++
++.hero {
++  overflow: hidden;
++}
++
++.heroMedia {
++  transform: scale(1.035);
++  animation: hbxHeroZoom 12s var(--home-ease) infinite alternate;
++}
++
++.hero::before,
++.hero::after {
++  content: "";
++  position: absolute;
++  z-index: -1;
++  pointer-events: none;
++}
++
++.hero::before {
++  inset: 10% 6% auto auto;
++  width: min(420px, 36vw);
++  height: min(420px, 36vw);
++  border: 1px solid rgba(55, 213, 255, 0.2);
++  border-radius: 999px;
++  background: radial-gradient(circle, rgba(55, 213, 255, 0.1), transparent 64%);
++  box-shadow: 0 0 80px rgba(55, 213, 255, 0.18);
++  animation: hbxOrbitGlow 8s linear infinite;
++}
++
++.hero::after {
++  inset: auto auto 12% 6%;
++  width: min(360px, 40vw);
++  height: min(360px, 40vw);
++  border-radius: 999px;
++  background: radial-gradient(circle, rgba(51, 227, 154, 0.16), transparent 70%);
++  filter: blur(8px);
++  animation: hbxAuroraFloat 7s var(--home-ease) infinite alternate-reverse;
++}
++
++.heroContent {
++  animation: hbxHeroRise 820ms var(--home-ease) both;
++}
++
++.eyebrow {
++  box-shadow: 0 0 0 1px rgba(55, 213, 255, 0.06), 0 18px 48px rgba(55, 213, 255, 0.1);
++  animation: hbxSoftGlow 3.4s ease-in-out infinite;
++}
++
++.heroTitle {
++  text-shadow: 0 22px 70px rgba(55, 213, 255, 0.24);
++}
++
++.primaryAction,
++.secondaryAction,
++.ghostAction,
++.planAction {
++  position: relative;
++  overflow: hidden;
++  transition: transform 210ms var(--home-ease), box-shadow 210ms var(--home-ease), border-color 210ms var(--home-ease), background 210ms var(--home-ease), filter 210ms var(--home-ease);
++}
++
++.primaryAction::before {
++  content: "";
++  position: absolute;
++  inset: 0;
++  background: linear-gradient(110deg, transparent 0%, rgba(255, 255, 255, 0.62) 45%, transparent 70%);
++  transform: translateX(-130%);
++  animation: hbxShine 3.2s ease-in-out infinite;
++}
++
++.ghostAction {
++  display: inline-flex;
++  align-items: center;
++  justify-content: center;
++  min-height: 50px;
++  padding: 0 1.12rem;
++  border: 1px solid rgba(255, 255, 255, 0.1);
++  border-radius: 999px;
++  color: rgba(248, 251, 255, 0.76);
++  background: rgba(255, 255, 255, 0.035);
++  font-size: 0.92rem;
++  font-weight: 780;
++  white-space: nowrap;
++}
++
++.primaryAction:hover,
++.secondaryAction:hover,
++.ghostAction:hover,
++.planAction:hover {
++  transform: translateY(-3px);
++}
++
++.primaryAction:hover {
++  box-shadow: 0 30px 72px rgba(55, 213, 255, 0.34), 0 0 0 1px rgba(255, 255, 255, 0.2) inset;
++}
++
++.secondaryAction:hover,
++.ghostAction:hover {
++  background: rgba(255, 255, 255, 0.11);
++}
++
++/* hbx-premium-layer-01-end */

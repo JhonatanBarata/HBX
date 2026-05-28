@@ -2937,7 +2937,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       Nome: result.name,
       Telefone: result.phone,
       Nota: result.rating ?? '',
-      AvaliaÃ§Ãµes: result.reviews,
+      Avaliacoes: result.reviews,
       Endereco: result.address,
       Website: result.website ? 'Abrir site' : '',
       'Roteiro pronto': this.buildScriptText(result, response.query.city, response.query.segment, user),
