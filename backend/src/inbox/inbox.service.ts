@@ -103,6 +103,7 @@ type InboxWhatsappSessionScope = {
   currentSessionId: string | null;
   currentSession: any | null;
   mode: 'current' | 'all';
+  providerHealth?: WhatsAppProviderHealth | null;
 };
 
 const METICULOUS_TRASH_DEFAULT_DELAY_MS = 120000;
@@ -613,6 +614,7 @@ export class InboxService {
       reason: scope.reason,
       mode: scope.mode,
       currentSessionId: scope.currentSessionId,
+      providerHealth: scope.providerHealth || null,
       currentSession: scope.currentSession
         ? {
             id: String(scope.currentSession.id),
@@ -3640,6 +3642,7 @@ export class InboxService {
   async getBootstrap(user: any, take?: string | number) {
     const companyId = this.requireCompanyIdFromUser(user);
     const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId);
+    sessionScope.providerHealth = await this.getWhatsAppProviderHealth(companyId);
     if (!sessionScope.accessible) {
       return {
         conversations: [],

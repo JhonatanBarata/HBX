@@ -4760,6 +4760,101 @@ function getInboxDeliveryStatusLabel(status: string | null | undefined) {
   return "Status desconhecido";
 }
 
+type WhatsAppConnectionDiagnosis = {
+  tone: "ok" | "warning" | "danger";
+  label: string;
+  detail: string;
+  providerLabel: string;
+  action: "connect" | "verify";
+};
+
+function buildWhatsAppConnectionDiagnosis(
+  session: InboxBootstrapPayload["whatsappSession"] | null | undefined,
+  providerWarning: InboxBootstrapPayload["providerWarning"] | null | undefined,
+): WhatsAppConnectionDiagnosis {
+  const health = session?.providerHealth || null;
+  const healthStatus = String(health?.status || "").trim().toLowerCase();
+  const reason = String(session?.reason || "").trim().toLowerCase();
+  const displayPhone = String(session?.currentSession?.displayPhone || session?.currentSession?.phoneNormalized || "").trim();
+  const provider = String(session?.currentSession?.provider || (reason === "meta_active" ? "meta" : "webwhats"))
+    .trim()
+    .toLowerCase();
+  const providerLabel = provider === "meta" ? "Meta" : provider === "webwhats" ? "WebWhats" : provider || "WhatsApp";
+  const healthReason = String(health?.reason || providerWarning?.message || "").trim();
+  const baseDetail = [providerLabel, displayPhone].filter(Boolean).join(" - ");
+
+  if (!session) {
+    return {
+      tone: "warning",
+      label: "Verificando WhatsApp",
+      detail: "Aguardando bootstrap do Atendimento.",
+      providerLabel,
+      action: "verify",
+    };
+  }
+  if (session?.accessible === false || providerWarning?.code === "WHATSAPP_REQUIRED") {
+    return {
+      tone: "danger",
+      label: "WhatsApp desconectado",
+      detail: healthReason || "Nenhum celular vinculado ao Atendimento.",
+      providerLabel,
+      action: "connect",
+    };
+  }
+  if (healthStatus === "qr_required") {
+    return {
+      tone: "danger",
+      label: "QR pendente",
+      detail: healthReason || "Pareamento requerido.",
+      providerLabel,
+      action: "connect",
+    };
+  }
+  if (healthStatus === "auth_failure" || healthStatus === "disconnected") {
+    return {
+      tone: "danger",
+      label: healthStatus === "auth_failure" ? "Sessão inválida" : "WhatsApp desconectado",
+      detail: healthReason || "Reconecte o WhatsApp para enviar e receber mensagens.",
+      providerLabel,
+      action: "connect",
+    };
+  }
+  if (healthStatus === "connecting" || reason === "webwhats_reconnecting") {
+    return {
+      tone: "warning",
+      label: "Reconectando WhatsApp",
+      detail: healthReason || baseDetail || "Aguardando o provider estabilizar.",
+      providerLabel,
+      action: "verify",
+    };
+  }
+  if (reason === "webwhats_status_only") {
+    return {
+      tone: "warning",
+      label: "Sessão sem vínculo atual",
+      detail: baseDetail || "Usando status conectado enquanto a sessão atual é reparada.",
+      providerLabel,
+      action: "verify",
+    };
+  }
+  if (healthStatus === "unknown") {
+    return {
+      tone: "warning",
+      label: "Status não confirmado",
+      detail: healthReason || baseDetail || "Verifique a conexão antes de reenviar mensagens críticas.",
+      providerLabel,
+      action: "verify",
+    };
+  }
+  return {
+    tone: "ok",
+    label: reason === "meta_active" ? "Meta conectada" : "WhatsApp conectado",
+    detail: baseDetail || healthReason || "Canal pronto para o Atendimento.",
+    providerLabel,
+    action: "verify",
+  };
+}
+
 function MessageStatusTick({ status }: { status: string }) {
   const s = normalizeInboxDeliveryStatus(status);
   if (s === "read") {
@@ -4897,10 +4992,11 @@ function InboxDesktopClientPage() {
   const [conversations, setConversations] = useState<InboxConversation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedConversation, setSelectedConversation] = useState<InboxConversation | null>(null);
-  const [, setWhatsappSession] = useState<InboxBootstrapPayload["whatsappSession"]>(null);
+  const [whatsappSession, setWhatsappSession] = useState<InboxBootstrapPayload["whatsappSession"]>(null);
   const [whatsappSessionCleanup, setWhatsappSessionCleanup] =
     useState<InboxBootstrapPayload["whatsappSessionCleanup"]>(null);
   const [whatsappSessionCleanupBusy, setWhatsappSessionCleanupBusy] = useState<"merge" | "discard" | null>(null);
+  const [providerWarning, setProviderWarning] = useState<InboxBootstrapPayload["providerWarning"]>(null);
   const [whatsappAccessBlocked, setWhatsappAccessBlocked] = useState(false);
   const [bootstrapReady, setBootstrapReady] = useState(false);
   const [loadingList, setLoadingList] = useState(true);
@@ -5463,6 +5559,7 @@ function InboxDesktopClientPage() {
       });
       setWhatsappSession(payload?.whatsappSession || null);
       setWhatsappSessionCleanup(payload?.whatsappSessionCleanup || null);
+      setProviderWarning(payload?.providerWarning || null);
       const blocked = payload?.whatsappSession?.accessible === false || payload?.providerWarning?.code === "WHATSAPP_REQUIRED";
       setWhatsappAccessBlocked(blocked);
       if (blocked) {
@@ -6946,6 +7043,11 @@ function InboxDesktopClientPage() {
   const providerCapabilities = useMemo<ProviderCapabilities>(
     () => getProviderCapabilitiesFromWhatsAppCenter(whatsappCenterPayload),
     [whatsappCenterPayload],
+  );
+
+  const whatsappConnectionDiagnosis = useMemo(
+    () => buildWhatsAppConnectionDiagnosis(whatsappSession, providerWarning),
+    [providerWarning, whatsappSession],
   );
 
   const sanitizeBotConfigForCurrentTenant = useCallback(
@@ -10218,6 +10320,33 @@ function InboxDesktopClientPage() {
           </section>
         ) : activeTab === "messages" ? (
           <section className={styles.premiumInboxShell} data-ui-no-reveal="true">
+            <div
+              className={styles.whatsAppConnectionBar}
+              data-tone={whatsappConnectionDiagnosis.tone}
+            >
+              <div className={styles.whatsAppConnectionMain}>
+                <span className={styles.whatsAppConnectionDot} aria-hidden="true" />
+                <strong>{whatsappConnectionDiagnosis.label}</strong>
+                <span>{whatsappConnectionDiagnosis.detail}</span>
+              </div>
+              <div className={styles.whatsAppConnectionActions}>
+                <span>{whatsappConnectionDiagnosis.providerLabel}</span>
+                {whatsappConnectionDiagnosis.action === "connect" ? (
+                  <button
+                    type="button"
+                    onClick={() => window.dispatchEvent(new CustomEvent("hbx:open-whatsapp-qr", { detail: { focus: "qr" } }))}
+                  >
+                    Conectar
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => void bootstrapInbox({ take: INBOX_CONVERSATION_LIST_LIMIT })}
+                >
+                  Verificar
+                </button>
+              </div>
+            </div>
             <section className={styles.inboxCanvas}>
               <div className="hbx-guide4-slot">
               <aside className={`${styles.commandDock} hbx-guide4`}>

@@ -7290,6 +7290,134 @@
     0 24px 64px rgba(2, 6, 23, 0.48);
 }
 
+.whatsAppConnectionBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  min-height: 38px;
+  padding: 0.28rem 0.46rem 0.28rem 0.58rem;
+  border-radius: 16px;
+  border: 1px solid rgba(34, 211, 184, 0.22);
+  background:
+    linear-gradient(135deg, rgba(8, 27, 29, 0.88), rgba(9, 18, 36, 0.78)),
+    radial-gradient(circle at left center, rgba(34, 211, 184, 0.14), transparent 40%);
+  color: #eafffb;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 12px 28px rgba(2, 6, 23, 0.2);
+}
+
+.whatsAppConnectionBar[data-tone="warning"] {
+  border-color: rgba(245, 158, 11, 0.32);
+  background:
+    linear-gradient(135deg, rgba(34, 24, 8, 0.9), rgba(31, 25, 13, 0.78)),
+    radial-gradient(circle at left center, rgba(245, 158, 11, 0.16), transparent 40%);
+  color: #fff7ed;
+}
+
+.whatsAppConnectionBar[data-tone="danger"] {
+  border-color: rgba(248, 113, 113, 0.36);
+  background:
+    linear-gradient(135deg, rgba(38, 12, 18, 0.92), rgba(39, 17, 22, 0.78)),
+    radial-gradient(circle at left center, rgba(248, 113, 113, 0.16), transparent 40%);
+  color: #fff1f2;
+}
+
+.whatsAppConnectionMain {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.44rem;
+}
+
+.whatsAppConnectionDot {
+  width: 0.58rem;
+  height: 0.58rem;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #22d3b8;
+  box-shadow: 0 0 0 5px rgba(34, 211, 184, 0.12);
+}
+
+.whatsAppConnectionBar[data-tone="warning"] .whatsAppConnectionDot {
+  background: #f59e0b;
+  box-shadow: 0 0 0 5px rgba(245, 158, 11, 0.13);
+}
+
+.whatsAppConnectionBar[data-tone="danger"] .whatsAppConnectionDot {
+  background: #f87171;
+  box-shadow: 0 0 0 5px rgba(248, 113, 113, 0.13);
+}
+
+.whatsAppConnectionMain strong {
+  flex: 0 0 auto;
+  font-size: 0.72rem;
+  line-height: 1.1;
+  font-weight: 850;
+  letter-spacing: 0;
+}
+
+.whatsAppConnectionMain span:last-child {
+  min-width: 0;
+  color: rgba(232, 241, 255, 0.74);
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.whatsAppConnectionActions {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.28rem;
+}
+
+.whatsAppConnectionActions span,
+.whatsAppConnectionActions button {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  font-size: 0.62rem;
+  font-weight: 850;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.whatsAppConnectionActions span {
+  padding: 0.18rem 0.46rem;
+  border: 1px solid rgba(150, 174, 235, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(237, 243, 255, 0.82);
+}
+
+.whatsAppConnectionActions button {
+  padding: 0.18rem 0.54rem;
+  border: 1px solid rgba(34, 211, 184, 0.36);
+  background: rgba(20, 184, 166, 0.18);
+  color: #f2fffb;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.whatsAppConnectionActions button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(34, 211, 184, 0.62);
+  background: rgba(20, 184, 166, 0.28);
+}
+
+.whatsAppConnectionBar[data-tone="danger"] .whatsAppConnectionActions button {
+  border-color: rgba(248, 113, 113, 0.46);
+  background: rgba(248, 113, 113, 0.14);
+  color: #fff1f2;
+}
+
 .commandDock,
 .workspaceDockPanel,
 .conversationQueueMetaPopup,
@@ -9153,6 +9281,55 @@
     0 24px 64px rgba(15, 23, 42, 0.12);
 }
 
+:global(html[data-theme-mode="light"]) .whatsAppConnectionBar {
+  border-color: color-mix(in srgb, var(--success) 28%, var(--line));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--surface) 94%, #ecfdf5), color-mix(in srgb, var(--surface-soft) 90%, #ecfeff)),
+    radial-gradient(circle at left center, color-mix(in srgb, var(--success) 12%, transparent), transparent 40%);
+  color: color-mix(in srgb, var(--foreground) 88%, var(--success));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    0 12px 28px rgba(15, 23, 42, 0.08);
+}
+
+:global(html[data-theme-mode="light"]) .whatsAppConnectionBar[data-tone="warning"] {
+  border-color: color-mix(in srgb, var(--warning) 38%, var(--line));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--surface) 90%, #fffbeb), color-mix(in srgb, var(--surface-soft) 88%, #fef3c7)),
+    radial-gradient(circle at left center, color-mix(in srgb, var(--warning) 14%, transparent), transparent 40%);
+  color: #78350f;
+}
+
+:global(html[data-theme-mode="light"]) .whatsAppConnectionBar[data-tone="danger"] {
+  border-color: color-mix(in srgb, var(--danger) 36%, var(--line));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--surface) 88%, #fff1f2), color-mix(in srgb, var(--surface-soft) 88%, #fee2e2)),
+    radial-gradient(circle at left center, color-mix(in srgb, var(--danger) 13%, transparent), transparent 40%);
+  color: #991b1b;
+}
+
+:global(html[data-theme-mode="light"]) .whatsAppConnectionMain span:last-child {
+  color: color-mix(in srgb, var(--foreground) 62%, var(--muted));
+}
+
+:global(html[data-theme-mode="light"]) .whatsAppConnectionActions span {
+  border-color: color-mix(in srgb, var(--line) 82%, var(--background));
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+  color: color-mix(in srgb, var(--foreground) 70%, var(--muted));
+}
+
+:global(html[data-theme-mode="light"]) .whatsAppConnectionActions button {
+  border-color: color-mix(in srgb, var(--success) 38%, var(--line));
+  background: color-mix(in srgb, var(--success) 12%, var(--surface));
+  color: color-mix(in srgb, var(--foreground) 82%, var(--success));
+}
+
+:global(html[data-theme-mode="light"]) .whatsAppConnectionBar[data-tone="danger"] .whatsAppConnectionActions button {
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--line));
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+  color: #991b1b;
+}
+
 :global(html[data-theme-mode="light"]) .commandDock,
 :global(html[data-theme-mode="light"]) .workspaceDockPanel,
 :global(html[data-theme-mode="light"]) .conversationQueueMetaPopup,
@@ -9804,6 +9981,16 @@
 }
 
 @media (max-width: 1180px) {
+  .whatsAppConnectionBar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .whatsAppConnectionActions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
   .automationPulse {
     grid-template-columns: 1fr;
     align-items: stretch;
