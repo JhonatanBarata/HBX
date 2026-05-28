@@ -65,7 +65,7 @@ Executado em 2026-05-27:
 - Backend build: `npm run build` em `backend` passou.
 - Backend inbox test: `node --test dist/inbox/inbox.service.test.js` passou com 27 testes.
 - Frontend local: `http://localhost:3001/atendimento` respondeu `200`.
-- Backend local: `http://localhost:3000` recusou conexao no momento da checagem HTTP.
+- Backend local: na primeira checagem `http://localhost:3000` recusou conexao; na revalidacao posterior respondeu `200`.
 
 ## Estado Final da Fase 1
 
@@ -88,6 +88,15 @@ Nao aplicado nesta auditoria para manter risco baixo:
 - criar medicao com React Profiler antes/depois para quantificar ganho real;
 - evoluir suporte a templates/midia conforme capacidades reais do provider conectado.
 
+## Revalidacao do Smoke Local
+
+Executado apos a conexao local voltar:
+
+- Backend local: `http://localhost:3000` respondeu `200`.
+- Frontend local: `http://localhost:3001/atendimento` respondeu `200`.
+- Rotas protegidas sem token, como `/inbox/bootstrap`, `/inbox/whatsapp-session` e `/inbox/conversations?take=5`, responderam `401`, confirmando que o servidor esta de pe e a guarda de autenticacao continua ativa.
+- `node --test dist/inbox/inbox.service.test.js` passou com 27 testes.
+
 ## Observacao Operacional
 
-O backend precisa estar aceitando conexao em `localhost:3000` para smoke HTTP completo. A validacao tecnica do backend foi feita por build e teste de inbox, mas a checagem via navegador/API local ficou bloqueada pela porta recusada.
+Nao foi feito login novo no smoke para nao substituir/revogar a sessao ativa do navegador. A validacao autenticada de comportamento ficou coberta pelos testes focados de Inbox.
