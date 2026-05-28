@@ -5617,6 +5617,31 @@ function InboxDesktopClientPage() {
     }
   }, [rememberConversationDetail]);
 
+  const refreshWhatsappSessionDiagnostics = useCallback(async (options?: { allowGate?: boolean }) => {
+    try {
+      const payload = await apiFetch<Pick<
+        InboxBootstrapPayload,
+        "providerWarning" | "whatsappSession" | "whatsappSessionCleanup"
+      >>("/inbox/whatsapp-session", {
+        requireAuth: true,
+        timeoutMs: 10000,
+      });
+      setWhatsappSession(payload?.whatsappSession || null);
+      setWhatsappSessionCleanup(payload?.whatsappSessionCleanup || null);
+      setProviderWarning(payload?.providerWarning || null);
+      const blocked =
+        payload?.whatsappSession?.accessible === false ||
+        payload?.providerWarning?.code === "WHATSAPP_REQUIRED";
+      if (!blocked) {
+        setWhatsappAccessBlocked(false);
+      } else if (options?.allowGate || !bootstrapReady) {
+        setWhatsappAccessBlocked(true);
+      }
+    } catch {
+      // Diagnostico auxiliar: falhas transitorias nao devem bloquear a inbox.
+    }
+  }, [bootstrapReady]);
+
   const resolveWhatsappSessionCleanup = useCallback(async (mode: "merge" | "discard") => {
     setWhatsappSessionCleanupBusy(mode);
     setError(null);
@@ -6586,11 +6611,27 @@ function InboxDesktopClientPage() {
     if (hasToken !== true) return;
     if (activeTab !== "messages") return;
 
+    const stopPolling = startSmartPolling(() => {
+      void refreshWhatsappSessionDiagnostics();
+    }, {
+      intervalMs: 15000,
+      immediate: false,
+    });
+
+    return () => stopPolling();
+  }, [activeTab, hasToken, refreshWhatsappSessionDiagnostics]);
+
+  useEffect(() => {
+    if (hasToken !== true) return;
+    if (activeTab !== "messages") return;
+
     const QUICK_STREAM_FAILURE_MS = 8000;
     const MAX_QUICK_STREAM_FAILURES = 2;
     const controller = new AbortController();
     let reconnectTimer: number | null = null;
     let scheduledRefresh: number | null = null;
+    let scheduledListRefresh: number | null = null;
+    let scheduledDiagnosticsRefresh: number | null = null;
     let consecutiveQuickFailures = 0;
 
     const scheduleRefresh = () => {
@@ -6599,6 +6640,22 @@ function InboxDesktopClientPage() {
         scheduledRefresh = null;
         void refreshSelectedConversationMessages();
       }, 180);
+    };
+
+    const scheduleListRefresh = () => {
+      if (scheduledListRefresh !== null) return;
+      scheduledListRefresh = window.setTimeout(() => {
+        scheduledListRefresh = null;
+        void loadConversations({ silent: true });
+      }, 350);
+    };
+
+    const scheduleDiagnosticsRefresh = () => {
+      if (scheduledDiagnosticsRefresh !== null) return;
+      scheduledDiagnosticsRefresh = window.setTimeout(() => {
+        scheduledDiagnosticsRefresh = null;
+        void refreshWhatsappSessionDiagnostics();
+      }, 500);
     };
 
     const waitBeforeReconnect = () =>
@@ -6631,11 +6688,16 @@ function InboxDesktopClientPage() {
           await readInboxRealtimeStream({
             signal: controller.signal,
             onEvent: (event) => {
+              setInboxRealtimeFallbackActive(false);
               if (event.kind === "automation") {
                 void loadProspectingAutomationStatus(true);
                 if (event.automation?.type === "lead_interested" || event.automation?.type === "lead_neutral") {
                   void loadConversations({ silent: true });
                 }
+              }
+              if (event.kind === "message" || event.kind === "status" || event.kind === "conversation") {
+                scheduleListRefresh();
+                scheduleDiagnosticsRefresh();
               }
               const selectedConversationId = normalizeInboxConversationId(selectedIdRef.current);
               const eventConversationId = normalizeInboxConversationId(event.conversationId);
@@ -6661,8 +6723,17 @@ function InboxDesktopClientPage() {
       controller.abort();
       if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
       if (scheduledRefresh !== null) window.clearTimeout(scheduledRefresh);
+      if (scheduledListRefresh !== null) window.clearTimeout(scheduledListRefresh);
+      if (scheduledDiagnosticsRefresh !== null) window.clearTimeout(scheduledDiagnosticsRefresh);
     };
-  }, [activeTab, hasToken, loadConversations, loadProspectingAutomationStatus, refreshSelectedConversationMessages]);
+  }, [
+    activeTab,
+    hasToken,
+    loadConversations,
+    loadProspectingAutomationStatus,
+    refreshSelectedConversationMessages,
+    refreshWhatsappSessionDiagnostics,
+  ]);
 
   useEffect(() => {
     if (hasToken !== true) return;

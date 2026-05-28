@@ -69,6 +69,11 @@ export class InboxController {
     return this.inboxService.cleanupOldWhatsappSessions(req.user, dto?.mode);
   }
 
+  @Get('whatsapp-session')
+  getWhatsappSession(@Req() req: any) {
+    return this.inboxService.getWhatsappSessionDiagnostics(req.user);
+  }
+
   @Get('bot-config')
   getBotConfig(@Req() req: any) {
     return this.inboxService.getBotConfig(req.user);

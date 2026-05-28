@@ -695,6 +695,23 @@ export class InboxService {
     };
   }
 
+  async getWhatsappSessionDiagnostics(user: any) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId);
+    sessionScope.providerHealth = await this.getWhatsAppProviderHealth(companyId);
+    const providerWarning = sessionScope.accessible
+      ? null
+      : {
+          code: 'WHATSAPP_REQUIRED',
+          message: 'Atendimento indisponível sem WhatsApp/celular vinculado.',
+        };
+    return {
+      providerWarning,
+      whatsappSession: this.buildWhatsappSessionMetadata(sessionScope),
+      whatsappSessionCleanup: await this.buildWhatsappSessionCleanupState(companyId, sessionScope),
+    };
+  }
+
   private buildWhatsappSessionConversationAliases(conversation: any) {
     const metadata = this.parseConversationMetadata(conversation?.metadata);
     const values = [
