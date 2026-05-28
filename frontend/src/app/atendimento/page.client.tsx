@@ -9772,9 +9772,8 @@ function InboxDesktopClientPage() {
     ],
   );
 
-  const inboxWorkspaceComponents = useMemo(
-    () => ({
-      context: () => (
+  const inboxContextPane = useMemo(
+    () => (
         <ConversationContextPanel
           eyebrow={undefined}
           title={undefined}
@@ -10172,7 +10171,6 @@ function InboxDesktopClientPage() {
           )}
         </ConversationContextPanel>
       ),
-    }),
     [
       agendaConfig.groups,
       blockConversation,
@@ -10936,7 +10934,7 @@ function InboxDesktopClientPage() {
                 {inboxMainPane}
               </div>
               <div className={styles.inboxStageContext}>
-                {inboxWorkspaceComponents.context()}
+                {inboxContextPane}
               </div>
             </section>
           </section>
