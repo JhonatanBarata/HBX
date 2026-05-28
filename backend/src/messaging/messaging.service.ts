@@ -3033,7 +3033,14 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           leadId: job.leadId,
           eventType: 'lead_closed',
           title: 'Resposta negativa',
-          description: 'Lead recusou contato. Recontato automático bloqueado.',
+          description: this.buildLeadClosureTimelineDescription({
+            conversationId: input.conversationId,
+            inboundMessageId: input.inboundMessageId,
+            detectedText: input.text,
+            sourceModule: 'vendas_prospeccao_bot',
+            closureReason: input.optOut ? 'opt_out' : 'negative',
+            createdAt: now,
+          }),
           sourceType: 'vendas_prospeccao_bot',
           statusTo: 'encerrado',
           resultLabel: 'Negativo',
@@ -3170,6 +3177,27 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       status: 'pausado',
       text,
       type: 'real_negative_safety_pause',
+    });
+  }
+
+  private buildLeadClosureTimelineDescription(input: {
+    conversationId?: number | string | null;
+    inboundMessageId?: number | string | null;
+    detectedText?: string | null;
+    sourceModule?: string | null;
+    closureReason?: string | null;
+    createdAt: Date;
+  }) {
+    const inboundMessageId = Number(input.inboundMessageId || 0) || null;
+    return JSON.stringify({
+      kind: 'lead_closure_conversation',
+      conversationId: Number(input.conversationId || 0) || null,
+      anchorMessageId: inboundMessageId,
+      inboundMessageId,
+      detectedText: String(input.detectedText || '').trim().slice(0, 1000) || null,
+      sourceModule: String(input.sourceModule || '').trim() || null,
+      createdAt: input.createdAt.toISOString(),
+      closureReason: String(input.closureReason || '').trim() || null,
     });
   }
 
@@ -4445,6 +4473,9 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     phone: string;
     reason: string;
     metadata?: Record<string, any> | null;
+    inboundMessageId?: number | null;
+    detectedText?: string | null;
+    sourceModule?: string | null;
   }) {
     const now = new Date();
     const metadata = input.metadata || {};
@@ -4476,6 +4507,41 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         botOffAt: now.toISOString(),
       },
     );
+    const phoneDigits = this.customerProfileService.normalizePhone(input.phone);
+    const phoneCandidates = phoneDigits
+      ? Array.from(new Set(
+          buildWhatsAppPhoneCandidates(phoneDigits)
+            .map((value) => this.customerProfileService.normalizePhone(value))
+            .filter(Boolean),
+        ))
+      : [];
+    const lead = phoneCandidates.length
+      ? await this.prisma.vendasLead.findFirst({
+          where: { companyId: input.companyId, phoneNormalized: { in: phoneCandidates } },
+          orderBy: [{ updatedAt: 'desc' }],
+          select: { id: true },
+        })
+      : null;
+    if (lead?.id) {
+      await this.prisma.vendasLeadTimelineEvent.create({
+        data: {
+          leadId: lead.id,
+          eventType: 'lead_closed',
+          title: 'Não ligar mais',
+          description: this.buildLeadClosureTimelineDescription({
+            conversationId: input.conversationId,
+            inboundMessageId: input.inboundMessageId || null,
+            detectedText: input.detectedText || input.reason,
+            sourceModule: input.sourceModule || 'atendimento_bot',
+            closureReason: 'do_not_call',
+            createdAt: now,
+          }),
+          sourceType: input.sourceModule || 'atendimento_bot',
+          statusTo: 'encerrado',
+          resultLabel: 'Não ligar mais',
+        },
+      });
+    }
   }
 
   private async markAtendimentoNegativeOptOut(input: {
@@ -4483,6 +4549,8 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     conversationId: number;
     from: string;
     metadata: Record<string, any>;
+    inboundMessageId?: number | null;
+    detectedText?: string | null;
   }) {
     await this.markConversationDoNotContactFromBot({
       companyId: input.companyId,
@@ -4490,6 +4558,9 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       phone: input.from,
       reason: 'Não ligar mais',
       metadata: input.metadata,
+      inboundMessageId: input.inboundMessageId || null,
+      detectedText: input.detectedText || null,
+      sourceModule: 'atendimento_bot',
     });
     await this.appendAtendimentoSystemEvent({
       companyId: input.companyId,
@@ -6728,6 +6799,8 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         conversationId: safeConversationId,
         from,
         metadata,
+        inboundMessageId,
+        detectedText: text,
       });
       return { handled: true, negativeOptOut: true };
     }

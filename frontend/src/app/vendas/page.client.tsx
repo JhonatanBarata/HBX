@@ -148,6 +148,52 @@ type LeadTimelineEvent = {
   resultLabel?: string | null;
   returnAt?: string | null;
   createdAt?: string | null;
+  conversationReference?: {
+    conversationId?: number | string | null;
+    anchorMessageId?: number | string | null;
+    inboundMessageId?: number | string | null;
+    detectedText?: string | null;
+    sourceModule?: string | null;
+    createdAt?: string | null;
+    closureReason?: string | null;
+  } | null;
+};
+
+type LeadConversationSnapshot = {
+  leadId: string;
+  event: {
+    id: string;
+    title: string;
+    resultLabel?: string | null;
+    createdAt?: string | null;
+    closureReason?: string | null;
+    detectedText?: string | null;
+    sourceModule?: string | null;
+    conversationId?: number | string | null;
+    anchorMessageId?: number | string | null;
+    inboundMessageId?: number | string | null;
+  };
+  conversation: {
+    id: string;
+    contact?: string | null;
+    channel?: string | null;
+    currentFlow?: string | null;
+    currentStep?: string | null;
+    flowResult?: string | null;
+    lastMessageAt?: string | null;
+    updatedAt?: string | null;
+  };
+  messages: Array<{
+    id: string;
+    direction: string;
+    senderType?: string | null;
+    body: string;
+    messageType?: string | null;
+    sourceModule?: string | null;
+    status?: string | null;
+    timestamp?: string | null;
+    isAnchor?: boolean;
+  }>;
 };
 
 type SharedProfileSummary = {
@@ -3562,6 +3608,9 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   const [commissionReceipt, setCommissionReceipt] = useState<CommissionPayoutDetail | null>(null);
   const [commissionReceiptLoadingId, setCommissionReceiptLoadingId] = useState<string | null>(null);
   const [commissionPayoutCancelingId, setCommissionPayoutCancelingId] = useState<string | null>(null);
+  const [conversationSnapshot, setConversationSnapshot] = useState<LeadConversationSnapshot | null>(null);
+  const [conversationSnapshotLoading, setConversationSnapshotLoading] = useState(false);
+  const [conversationSnapshotError, setConversationSnapshotError] = useState<string | null>(null);
   const [crmIntegrity, setCrmIntegrity] = useState<CrmIntegrityResponse | null>(null);
   const [crmIntegrityLoading, setCrmIntegrityLoading] = useState(false);
   const [hbxClosingPipeline, setHbxClosingPipeline] = useState<HbxClosingPipelineResponse | null>(null);
@@ -5139,6 +5188,26 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   const selectedLeadDraft = selectedLead
     ? drafts[selectedLead.id] || createDraft(selectedLead)
     : null;
+
+  const openConversationSnapshot = useCallback(async (lead: LeadItem, event: LeadTimelineEvent) => {
+    if (!lead?.id || !event?.conversationReference?.conversationId) return;
+    setConversationSnapshot(null);
+    setConversationSnapshotError(null);
+    setConversationSnapshotLoading(true);
+    try {
+      const query = event.id ? `?eventId=${encodeURIComponent(event.id)}` : "";
+      const payload = await apiFetch<LeadConversationSnapshot>(
+        `/vendas/lead/${encodeURIComponent(lead.id)}/conversation-snapshot${query}`,
+      );
+      setConversationSnapshot(payload);
+    } catch (error) {
+      setConversationSnapshotError(
+        error instanceof Error ? error.message : "Não foi possível abrir a conversa.",
+      );
+    } finally {
+      setConversationSnapshotLoading(false);
+    }
+  }, []);
   const closedLeads = board?.blocks.closed || [];
   const mobileLeadCount = Math.max(
     board?.summary.total || 0,
@@ -6663,6 +6732,18 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                     <p>
                       <strong>{timelineMeta(event)}</strong>
                       {event.title || event.description || "Atendimento atualizado."}
+                      {event.conversationReference?.conversationId ? (
+                        <button
+                          type="button"
+                          className={styles.timelineConversationLink}
+                          onClick={(clickEvent) => {
+                            clickEvent.stopPropagation();
+                            void openConversationSnapshot(lead, event);
+                          }}
+                        >
+                          Ver conversa
+                        </button>
+                      ) : null}
                     </p>
                   </div>
                 ))}
@@ -8300,6 +8381,18 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                           <span className={styles.timelineMeta}>
                             {timelineMeta(event)}
                           </span>
+                        ) : null}
+                        {event.conversationReference?.conversationId ? (
+                          <button
+                            type="button"
+                            className={styles.timelineConversationLink}
+                            onClick={(clickEvent) => {
+                              clickEvent.stopPropagation();
+                              void openConversationSnapshot(selectedLead, event);
+                            }}
+                          >
+                            Ver conversa
+                          </button>
                         ) : null}
                       </div>
                     </article>
@@ -10492,6 +10585,80 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      ) : null}
+      {conversationSnapshot || conversationSnapshotLoading || conversationSnapshotError ? (
+        <div
+          className="ui-popup-backdrop"
+          onClick={() => {
+            setConversationSnapshot(null);
+            setConversationSnapshotError(null);
+            setConversationSnapshotLoading(false);
+          }}
+        >
+          <div
+            className={styles.conversationSnapshotModal}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className={styles.sectionTopline}>
+              <div>
+                <span className={styles.panelEyebrow}>Conversa vinculada</span>
+                <strong>{conversationSnapshot?.event.title || "Resposta negativa"}</strong>
+              </div>
+              <button
+                type="button"
+                className={styles.secondaryAction}
+                onClick={() => {
+                  setConversationSnapshot(null);
+                  setConversationSnapshotError(null);
+                  setConversationSnapshotLoading(false);
+                }}
+              >
+                Fechar
+              </button>
+            </div>
+            {conversationSnapshotLoading ? (
+              <div className={styles.emptyPanel}>
+                <strong>Carregando conversa</strong>
+                <p>Buscando a janela da mensagem negativa.</p>
+              </div>
+            ) : conversationSnapshotError ? (
+              <div className={styles.emptyPanel}>
+                <strong>Não foi possível abrir</strong>
+                <p>{conversationSnapshotError}</p>
+              </div>
+            ) : conversationSnapshot ? (
+              <>
+                <div className={styles.conversationSnapshotSummary}>
+                  <span>{conversationSnapshot.conversation.contact || "Contato sem telefone"}</span>
+                  <span>{conversationSnapshot.event.detectedText || "Mensagem negativa registrada"}</span>
+                </div>
+                <div className={styles.conversationSnapshotMessages}>
+                  {conversationSnapshot.messages.length ? (
+                    conversationSnapshot.messages.map((message) => (
+                      <article
+                        key={message.id}
+                        className={styles.conversationSnapshotMessage}
+                        data-direction={String(message.direction || "").toUpperCase() === "OUTBOUND" ? "outbound" : "inbound"}
+                        data-anchor={message.isAnchor ? "true" : "false"}
+                      >
+                        <div>
+                          <strong>{String(message.direction || "").toUpperCase() === "OUTBOUND" ? "HBX" : "Cliente"}</strong>
+                          <span>{message.timestamp ? formatDateTime(message.timestamp) : ""}</span>
+                        </div>
+                        <p>{message.body || "Mensagem sem texto."}</p>
+                      </article>
+                    ))
+                  ) : (
+                    <div className={styles.emptyPanel}>
+                      <strong>Sem mensagens salvas</strong>
+                      <p>A referência existe, mas não há mensagens locais para exibir.</p>
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : null}
           </div>
         </div>
       ) : null}

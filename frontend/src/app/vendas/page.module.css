@@ -7692,6 +7692,93 @@
   color: var(--foreground);
 }
 
+.timelineConversationLink {
+  width: fit-content;
+  border: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--brand) 84%, var(--foreground));
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 800;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.conversationSnapshotModal {
+  width: min(720px, calc(100vw - 24px));
+  max-height: min(720px, calc(100dvh - 24px));
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+  color: var(--foreground);
+  box-shadow: 0 24px 70px color-mix(in srgb, #000 28%, transparent);
+  padding: 1rem;
+  overflow: hidden;
+}
+
+.conversationSnapshotSummary {
+  display: grid;
+  gap: 0.35rem;
+  border: 1px solid color-mix(in srgb, var(--warning) 24%, var(--line));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--warning) 9%, var(--surface-soft));
+  padding: 0.75rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.conversationSnapshotSummary span:first-child {
+  color: var(--foreground);
+  font-weight: 800;
+}
+
+.conversationSnapshotMessages {
+  min-height: 0;
+  display: grid;
+  gap: 0.62rem;
+  overflow: auto;
+  padding-right: 0.2rem;
+}
+
+.conversationSnapshotMessage {
+  max-width: min(86%, 560px);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface-soft);
+  padding: 0.72rem 0.82rem;
+}
+
+.conversationSnapshotMessage[data-direction="outbound"] {
+  justify-self: end;
+  background: color-mix(in srgb, var(--brand) 10%, var(--surface-soft));
+}
+
+.conversationSnapshotMessage[data-anchor="true"] {
+  border-color: color-mix(in srgb, var(--warning) 58%, var(--line));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--warning) 18%, transparent);
+}
+
+.conversationSnapshotMessage div {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.conversationSnapshotMessage p {
+  margin: 0.42rem 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.88rem;
+  color: var(--foreground);
+}
+
 .boardSubtitle {
   margin: 0.28rem 0 0;
   color: var(--muted);

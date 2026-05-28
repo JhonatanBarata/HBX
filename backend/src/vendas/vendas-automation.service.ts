@@ -4329,7 +4329,14 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           leadId: job.leadId,
           eventType: 'lead_closed',
           title: 'Resposta negativa',
-          description: 'Lead recusou contato. Recontato automático bloqueado.',
+          description: this.buildLeadClosureTimelineDescription({
+            conversationId: input.conversationId,
+            inboundMessageId: input.inboundMessageId,
+            detectedText: input.text,
+            sourceModule: 'vendas_prospeccao_bot',
+            closureReason: input.optOut ? 'opt_out' : 'negative',
+            createdAt: now,
+          }),
           sourceType: 'vendas_prospeccao_bot',
           statusTo: 'encerrado',
           resultLabel: 'Negativo',
@@ -4427,6 +4434,27 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     });
     await this.markRadarDispositionForLead(job.campaign, job.lead, input.optOut ? 'opt_out' : 'negative', input.optOut ? 'opt_out' : 'resposta_negativa');
     await this.pauseCampaignIfRealNegativeLimitReached(job.campaign, now).catch(() => null);
+  }
+
+  private buildLeadClosureTimelineDescription(input: {
+    conversationId?: number | string | null;
+    inboundMessageId?: number | string | null;
+    detectedText?: string | null;
+    sourceModule?: string | null;
+    closureReason?: string | null;
+    createdAt: Date;
+  }) {
+    const inboundMessageId = Number(input.inboundMessageId || 0) || null;
+    return JSON.stringify({
+      kind: 'lead_closure_conversation',
+      conversationId: Number(input.conversationId || 0) || null,
+      anchorMessageId: inboundMessageId,
+      inboundMessageId,
+      detectedText: String(input.detectedText || '').trim().slice(0, 1000) || null,
+      sourceModule: String(input.sourceModule || '').trim() || null,
+      createdAt: input.createdAt.toISOString(),
+      closureReason: String(input.closureReason || '').trim() || null,
+    });
   }
 
   private async markAutoReply(input: any) {

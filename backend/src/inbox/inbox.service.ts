@@ -4076,6 +4076,27 @@ export class InboxService {
     return 'Novo lead';
   }
 
+  private buildLeadClosureTimelineDescription(input: {
+    conversationId?: number | string | null;
+    inboundMessageId?: number | string | null;
+    detectedText?: string | null;
+    sourceModule?: string | null;
+    closureReason?: string | null;
+    createdAt: Date;
+  }) {
+    const inboundMessageId = Number(input.inboundMessageId || 0) || null;
+    return JSON.stringify({
+      kind: 'lead_closure_conversation',
+      conversationId: Number(input.conversationId || 0) || null,
+      anchorMessageId: inboundMessageId,
+      inboundMessageId,
+      detectedText: String(input.detectedText || '').trim().slice(0, 1000) || null,
+      sourceModule: String(input.sourceModule || '').trim() || null,
+      createdAt: input.createdAt.toISOString(),
+      closureReason: String(input.closureReason || '').trim() || null,
+    });
+  }
+
   private isMissingVendasLeadAddressColumnError(error: any) {
     const code = String(error?.code || '').trim().toUpperCase();
     if (code === 'P2022') return true;
@@ -4419,11 +4440,19 @@ export class InboxService {
       if (doNotCall !== undefined) {
         events.push({
           leadId: lead.id,
-          eventType: 'status_preference',
+          eventType: doNotCall ? 'lead_closed' : 'status_preference',
           title: doNotCall ? 'Não ligar mais' : 'Contato liberado',
           description: doNotCall
-            ? 'Cliente marcado para nao receber novas ligacoes ou automacoes.'
+            ? this.buildLeadClosureTimelineDescription({
+                conversationId,
+                detectedText: 'Não ligar mais',
+                sourceModule: 'atendimento_human',
+                closureReason: 'do_not_call',
+                createdAt: now,
+              })
             : 'Preferencia de nao ligar removida pelo Atendimento.',
+          sourceType: doNotCall ? 'atendimento_human' : undefined,
+          statusTo: doNotCall ? 'encerrado' : undefined,
           resultLabel: doNotCall ? 'Não ligar mais' : 'Liberado',
           createdByUserId: Number(user?.id || 0) || null,
         });

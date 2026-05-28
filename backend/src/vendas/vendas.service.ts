@@ -72,6 +72,17 @@ type TimelineEventRecord = {
   createdByUserId: number | null;
 };
 
+type LeadClosureConversationReference = {
+  kind: 'lead_closure_conversation';
+  conversationId: number | null;
+  anchorMessageId: number | null;
+  inboundMessageId: number | null;
+  detectedText: string | null;
+  sourceModule: string | null;
+  createdAt: string;
+  closureReason: string | null;
+};
+
 type VendasAgendaQueueMetadata = {
   active?: boolean;
   leadId?: string | null;
@@ -984,18 +995,26 @@ export class VendasService {
     const primarySource = String(row?.primarySource || row?.sourceType || 'manual');
     const signals = this.buildSignalState(row);
     const timeline = Array.isArray(row?.timelineEvents)
-      ? row.timelineEvents.map((event: any) => ({
-          id: String(event?.id || ''),
-          eventType: String(event?.eventType || 'generic'),
-          title: String(event?.title || 'Atualizacao comercial'),
-          description: event?.description ? String(event.description) : null,
-          sourceType: event?.sourceType ? String(event.sourceType) : null,
-          statusFrom: event?.statusFrom ? String(event.statusFrom) : null,
-          statusTo: event?.statusTo ? String(event.statusTo) : null,
-          resultLabel: event?.resultLabel ? String(event.resultLabel) : null,
-          returnAt: event?.returnAt instanceof Date ? event.returnAt.toISOString() : null,
-          createdAt: event?.createdAt instanceof Date ? event.createdAt.toISOString() : null,
-        }))
+      ? row.timelineEvents.map((event: any) => {
+          const conversationReference = this.extractLeadClosureConversationReference(event?.description);
+          return {
+            id: String(event?.id || ''),
+            eventType: String(event?.eventType || 'generic'),
+            title: String(event?.title || 'Atualizacao comercial'),
+            description: conversationReference
+              ? conversationReference.detectedText
+                ? `Negativo registrado: "${conversationReference.detectedText}"`
+                : 'Negativo registrado com referência à conversa.'
+              : event?.description ? String(event.description) : null,
+            sourceType: event?.sourceType ? String(event.sourceType) : null,
+            statusFrom: event?.statusFrom ? String(event.statusFrom) : null,
+            statusTo: event?.statusTo ? String(event.statusTo) : null,
+            resultLabel: event?.resultLabel ? String(event.resultLabel) : null,
+            returnAt: event?.returnAt instanceof Date ? event.returnAt.toISOString() : null,
+            createdAt: event?.createdAt instanceof Date ? event.createdAt.toISOString() : null,
+            conversationReference,
+          };
+        })
       : [];
     const rawIntelligence = buildVendasLeadIntelligence({
       lead: row,
@@ -1601,6 +1620,46 @@ export class VendasService {
     } catch {
       return {};
     }
+  }
+
+  private extractLeadClosureConversationReference(description: unknown): LeadClosureConversationReference | null {
+    const parsed = this.extractTimelineJson(description);
+    if (String((parsed as any)?.kind || '') !== 'lead_closure_conversation') return null;
+    const conversationId = Number((parsed as any).conversationId || 0) || null;
+    if (!conversationId) return null;
+    return {
+      kind: 'lead_closure_conversation',
+      conversationId,
+      anchorMessageId: Number((parsed as any).anchorMessageId || 0) || null,
+      inboundMessageId: Number((parsed as any).inboundMessageId || 0) || null,
+      detectedText: this.normalizeText((parsed as any).detectedText),
+      sourceModule: this.normalizeText((parsed as any).sourceModule),
+      createdAt: this.normalizeText((parsed as any).createdAt) || new Date().toISOString(),
+      closureReason: this.normalizeText((parsed as any).closureReason),
+    };
+  }
+
+  private buildLeadClosureTimelineDescription(input: {
+    conversationId?: number | string | null;
+    anchorMessageId?: number | string | null;
+    inboundMessageId?: number | string | null;
+    detectedText?: string | null;
+    sourceModule?: string | null;
+    closureReason?: string | null;
+    createdAt: Date;
+  }) {
+    const inboundMessageId = Number(input.inboundMessageId || input.anchorMessageId || 0) || null;
+    const payload: LeadClosureConversationReference = {
+      kind: 'lead_closure_conversation',
+      conversationId: Number(input.conversationId || 0) || null,
+      anchorMessageId: inboundMessageId,
+      inboundMessageId,
+      detectedText: this.normalizeText(input.detectedText)?.slice(0, 1000) || null,
+      sourceModule: this.normalizeText(input.sourceModule),
+      createdAt: input.createdAt.toISOString(),
+      closureReason: this.normalizeText(input.closureReason),
+    };
+    return JSON.stringify(payload);
   }
 
   async getConversionReportForUser(user: any, periodRaw?: string) {
@@ -5989,6 +6048,125 @@ export class VendasService {
       planTier: planAccess.planTier,
       capabilities: planAccess.capabilities,
       blocks,
+    };
+  }
+
+  async getLeadConversationSnapshotForUser(user: any, leadId: string, eventId?: string | null) {
+    const context = this.resolveUserContext(user);
+    const normalizedLeadId = String(leadId || '').trim();
+    if (!normalizedLeadId) throw new BadRequestException('Lead invalido.');
+
+    const lead = await this.prisma.vendasLead.findFirst({
+      where: this.buildLeadAccessWhere(context, { id: normalizedLeadId }),
+      include: {
+        timelineEvents: {
+          orderBy: [{ createdAt: 'desc' }],
+          take: 50,
+        },
+      },
+    });
+    if (!lead) throw new NotFoundException('Lead nao encontrado.');
+
+    const events = Array.isArray((lead as any).timelineEvents) ? (lead as any).timelineEvents : [];
+    const requestedEvent = eventId
+      ? events.find((event: any) => String(event?.id || '') === String(eventId))
+      : null;
+    const event =
+      requestedEvent ||
+      events.find((item: any) => this.extractLeadClosureConversationReference(item?.description));
+    if (!event) throw new NotFoundException('Evento de conversa nao encontrado para este lead.');
+
+    const reference = this.extractLeadClosureConversationReference(event.description);
+    if (!reference?.conversationId) throw new NotFoundException('Evento sem conversa vinculada.');
+
+    const conversation = await this.prisma.companyConversation.findFirst({
+      where: { id: reference.conversationId, companyId: context.companyId },
+      select: {
+        id: true,
+        contact: true,
+        channel: true,
+        currentFlow: true,
+        currentStep: true,
+        flowResult: true,
+        lastMessageAt: true,
+        updatedAt: true,
+      },
+    });
+    if (!conversation) throw new NotFoundException('Conversa nao encontrada nesta empresa.');
+
+    const anchor = reference.anchorMessageId
+      ? await this.prisma.companyMessage.findFirst({
+          where: { id: reference.anchorMessageId, companyId: context.companyId, conversationId: conversation.id },
+          select: { id: true, timestamp: true },
+        })
+      : null;
+    const messageSelect = {
+      id: true,
+      direction: true,
+      senderType: true,
+      body: true,
+      messageType: true,
+      sourceModule: true,
+      timestamp: true,
+      status: true,
+    } as const;
+    const messageRows = anchor?.timestamp
+      ? [
+          ...(await this.prisma.companyMessage.findMany({
+            where: { companyId: context.companyId, conversationId: conversation.id, timestamp: { lte: anchor.timestamp } },
+            select: messageSelect,
+            orderBy: [{ timestamp: 'desc' }, { id: 'desc' }],
+            take: 24,
+          })).reverse(),
+          ...(await this.prisma.companyMessage.findMany({
+            where: { companyId: context.companyId, conversationId: conversation.id, timestamp: { gt: anchor.timestamp } },
+            select: messageSelect,
+            orderBy: [{ timestamp: 'asc' }, { id: 'asc' }],
+            take: 24,
+          })),
+        ]
+      : await this.prisma.companyMessage.findMany({
+          where: { companyId: context.companyId, conversationId: conversation.id },
+          select: messageSelect,
+          orderBy: [{ timestamp: 'asc' }, { id: 'asc' }],
+          take: 80,
+        });
+
+    return {
+      leadId: String((lead as any).id),
+      event: {
+        id: String(event.id),
+        title: String(event.title || 'Resposta negativa'),
+        resultLabel: event.resultLabel || null,
+        createdAt: event.createdAt instanceof Date ? event.createdAt.toISOString() : null,
+        closureReason: reference.closureReason,
+        detectedText: reference.detectedText,
+        sourceModule: reference.sourceModule,
+        conversationId: reference.conversationId,
+        anchorMessageId: reference.anchorMessageId,
+        inboundMessageId: reference.inboundMessageId,
+      },
+      conversation: {
+        id: String(conversation.id),
+        contact: conversation.contact,
+        channel: conversation.channel,
+        currentFlow: conversation.currentFlow,
+        currentStep: conversation.currentStep,
+        flowResult: conversation.flowResult,
+        lastMessageAt: conversation.lastMessageAt instanceof Date ? conversation.lastMessageAt.toISOString() : null,
+        updatedAt: conversation.updatedAt instanceof Date ? conversation.updatedAt.toISOString() : null,
+      },
+      messages: messageRows.map((message: any) => ({
+        id: String(message.id),
+        direction: String(message.direction || ''),
+        senderType: String(message.senderType || ''),
+        body: String(message.body || ''),
+        messageType: String(message.messageType || 'text'),
+        sourceModule: message.sourceModule || null,
+        status: message.status || null,
+        timestamp: message.timestamp instanceof Date ? message.timestamp.toISOString() : null,
+        isAnchor: reference.anchorMessageId ? Number(message.id) === Number(reference.anchorMessageId) : false,
+      })),
     };
   }
 

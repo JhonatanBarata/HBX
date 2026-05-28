@@ -261,6 +261,11 @@ export class VendasController {
     });
   }
 
+  @Get('lead/:leadId/conversation-snapshot')
+  getLeadConversationSnapshot(@Req() req: any, @Param('leadId') leadId: string, @Query('eventId') eventId?: string) {
+    return this.vendasService.getLeadConversationSnapshotForUser(req.user, leadId, eventId || null);
+  }
+
   @Post('lead/:leadId/presentation-draft')
   buildPresentationDraft(@Req() req: any, @Param('leadId') leadId: string) {
     return this.vendasService.buildPresentationEmailDraftForUser(req.user, leadId);
