@@ -202,14 +202,10 @@ function formatCountdown(targetAt: string, now = Date.now()) {
   if (!Number.isFinite(target)) return null;
   const remainingMs = Math.max(0, target - now);
   const totalSeconds = Math.ceil(remainingMs / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
-  if (minutes >= 100) {
-    const hours = Math.floor(minutes / 60);
-    const restMinutes = minutes % 60;
-    return `${String(hours).padStart(2, "0")}:${String(restMinutes).padStart(2, "0")}`;
-  }
-  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
 function NextProspectionCountdown({ targetAt }: { targetAt: string }) {
