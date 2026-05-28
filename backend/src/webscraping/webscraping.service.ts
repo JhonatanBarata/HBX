@@ -47,60 +47,60 @@ const IBGE_CITIES_URL = 'https://servicodados.ibge.gov.br/api/v1/localidades/mun
 const CITY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const MASS_DATA_INTERNAL_SEGMENTS = [
   'empresas',
-  'comércio',
-  'serviços',
+  'comÃ©rcio',
+  'serviÃ§os',
   'lojas',
   'whatsapp',
   'telefone',
   'restaurantes',
   'mercados',
   'oficinas',
-  'auto peças',
-  'salões de beleza',
+  'auto peÃ§as',
+  'salÃµes de beleza',
   'barbearias',
-  'cosméticos',
+  'cosmÃ©ticos',
   'perfumarias',
-  'farmácias',
-  'clínicas',
+  'farmÃ¡cias',
+  'clÃ­nicas',
   'dentistas',
   'pet shops',
-  'materiais de construção',
+  'materiais de construÃ§Ã£o',
   'papelarias',
   'lojas de roupas',
-  'assistência técnica',
-  'hotéis',
+  'assistÃªncia tÃ©cnica',
+  'hotÃ©is',
   'pousadas',
   'distribuidoras',
   'contabilidades',
-  'imobiliárias',
+  'imobiliÃ¡rias',
   'academias',
   'supermercados',
   'padarias',
-  'açougues',
-  'postos de combustível',
-  'lava rápido',
+  'aÃ§ougues',
+  'postos de combustÃ­vel',
+  'lava rÃ¡pido',
   'funilarias',
   'borracharias',
   'auto centers',
-  'clínicas veterinárias',
-  'ótica',
+  'clÃ­nicas veterinÃ¡rias',
+  'Ã³tica',
   'joalherias',
   'floriculturas',
-  'gráficas',
+  'grÃ¡ficas',
   'marcenarias',
   'serralherias',
-  'vidraçarias',
+  'vidraÃ§arias',
   'transportadoras',
-  'depósitos de bebidas',
-  'lojas de móveis',
-  'lojas de eletrodomésticos',
-  'informática',
-  'assistência celular',
+  'depÃ³sitos de bebidas',
+  'lojas de mÃ³veis',
+  'lojas de eletrodomÃ©sticos',
+  'informÃ¡tica',
+  'assistÃªncia celular',
   'escolas',
   'cursos profissionalizantes',
-  'laboratórios',
+  'laboratÃ³rios',
   'fisioterapia',
-  'estética',
+  'estÃ©tica',
   'pilates',
   'buffets',
   'eventos',
@@ -110,8 +110,8 @@ const MASS_DATA_INTERNAL_SEGMENTS = [
   'cafeterias',
   'confeitarias',
   'lanchonetes',
-  'lojas de calçados',
-  'lojas de acessórios',
+  'lojas de calÃ§ados',
+  'lojas de acessÃ³rios',
   'lojas de bijuterias',
   'moda feminina',
   'moda masculina',
@@ -124,50 +124,50 @@ const MASS_DATA_INTERNAL_SEGMENTS = [
   'relojoarias',
   'papel de parede',
   'cortinas e persianas',
-  'tapeçarias',
+  'tapeÃ§arias',
   'decoradores',
   'arquitetos',
   'engenheiros',
   'construtoras',
   'empreiteiras',
-  'elétricas',
-  'hidráulicas',
+  'elÃ©tricas',
+  'hidrÃ¡ulicas',
   'ar condicionado',
-  'refrigeração',
+  'refrigeraÃ§Ã£o',
   'dedetizadoras',
   'limpeza comercial',
-  'segurança eletrônica',
+  'seguranÃ§a eletrÃ´nica',
   'monitoramento',
   'portarias',
-  'condomínios',
+  'condomÃ­nios',
   'seguros',
   'corretoras',
   'despachantes',
   'advogados',
-  'cartórios',
+  'cartÃ³rios',
   'consultorias',
-  'agências de marketing',
-  'produtoras de vídeo',
-  'fotógrafos',
-  'estúdios',
-  'mecânicas diesel',
+  'agÃªncias de marketing',
+  'produtoras de vÃ­deo',
+  'fotÃ³grafos',
+  'estÃºdios',
+  'mecÃ¢nicas diesel',
   'motos',
   'autoescolas',
   'guinchos',
-  'locadoras de veículos',
+  'locadoras de veÃ­culos',
   'turismo',
-  'agências de viagem',
-  'motéis',
+  'agÃªncias de viagem',
+  'motÃ©is',
   'hostels',
-  'casas de ração',
-  'agropecuárias',
+  'casas de raÃ§Ã£o',
+  'agropecuÃ¡rias',
   'jardinagem',
   'piscinas',
   'academias de luta',
   'nutricionistas',
-  'psicólogos',
-  'fonoaudiólogos',
-  'clínicas médicas',
+  'psicÃ³logos',
+  'fonoaudiÃ³logos',
+  'clÃ­nicas mÃ©dicas',
   'radiologia',
   'material hospitalar',
   'equipamentos industriais',
@@ -184,19 +184,19 @@ const MASS_DATA_INTERNAL_SEGMENTS = [
   'telhados',
 ];
 const ACRE_CITIES_FALLBACK = [
-  'Acrelândia',
+  'AcrelÃ¢ndia',
   'Assis Brasil',
-  'Brasiléia',
+  'BrasilÃ©ia',
   'Bujari',
   'Capixaba',
   'Cruzeiro do Sul',
-  'Epitaciolândia',
-  'Feijó',
-  'Jordão',
-  'Mâncio Lima',
+  'EpitaciolÃ¢ndia',
+  'FeijÃ³',
+  'JordÃ£o',
+  'MÃ¢ncio Lima',
   'Manoel Urbano',
   'Marechal Thaumaturgo',
-  'Plácido de Castro',
+  'PlÃ¡cido de Castro',
   'Porto Acre',
   'Porto Walter',
   'Rio Branco',
@@ -204,29 +204,29 @@ const ACRE_CITIES_FALLBACK = [
   'Santa Rosa do Purus',
   'Sena Madureira',
   'Senador Guiomard',
-  'Tarauacá',
+  'TarauacÃ¡',
   'Xapuri',
 ];
 const AUTONOMOUS_MASS_DATA_LOCATION_FALLBACK = [
-  { city: 'São Paulo', state: 'SP' },
+  { city: 'SÃ£o Paulo', state: 'SP' },
   { city: 'Rio de Janeiro', state: 'RJ' },
   { city: 'Belo Horizonte', state: 'MG' },
   { city: 'Curitiba', state: 'PR' },
   { city: 'Porto Alegre', state: 'RS' },
-  { city: 'Florianópolis', state: 'SC' },
+  { city: 'FlorianÃ³polis', state: 'SC' },
   { city: 'Salvador', state: 'BA' },
   { city: 'Recife', state: 'PE' },
   { city: 'Fortaleza', state: 'CE' },
-  { city: 'Goiânia', state: 'GO' },
-  { city: 'Brasília', state: 'DF' },
-  { city: 'Vitória', state: 'ES' },
-  { city: 'Cuiabá', state: 'MT' },
+  { city: 'GoiÃ¢nia', state: 'GO' },
+  { city: 'BrasÃ­lia', state: 'DF' },
+  { city: 'VitÃ³ria', state: 'ES' },
+  { city: 'CuiabÃ¡', state: 'MT' },
   { city: 'Campo Grande', state: 'MS' },
   { city: 'Manaus', state: 'AM' },
-  { city: 'Belém', state: 'PA' },
-  { city: 'São Luís', state: 'MA' },
-  { city: 'João Pessoa', state: 'PB' },
-  { city: 'Maceió', state: 'AL' },
+  { city: 'BelÃ©m', state: 'PA' },
+  { city: 'SÃ£o LuÃ­s', state: 'MA' },
+  { city: 'JoÃ£o Pessoa', state: 'PB' },
+  { city: 'MaceiÃ³', state: 'AL' },
   { city: 'Natal', state: 'RN' },
 ];
 const AUTONOMOUS_MASS_DATA_DEFAULT_TASKS = 300;
@@ -374,8 +374,8 @@ const SEGMENT_STOPWORDS = [
   'comercial',
   'servico',
   'servicos',
-  'serviço',
-  'serviços',
+  'serviÃ§o',
+  'serviÃ§os',
   'loja',
   'lojas',
   'profissional',
@@ -388,21 +388,21 @@ const SEGMENT_STOPWORDS = [
 ];
 
 const SEGMENT_ALIASES: Record<string, string[]> = {
-  dentista: ['dentista', 'odontologia', 'odontologico', 'odontológica', 'clinica odontologica', 'clínica odontológica'],
-  clinica: ['clinica', 'clínica', 'saude', 'saúde', 'medico', 'médico', 'fisioterapia', 'estetica', 'estética'],
-  oficina: ['oficina', 'mecanica', 'mecânica', 'auto center', 'funilaria', 'pneus', 'automotivo'],
-  restaurante: ['restaurante', 'pizzaria', 'pizza', 'pizzaiolo', 'lanchonete', 'lanchonetes', 'lanches', 'hamburgueria', 'delivery', 'bar', 'choperia', 'marmitaria', 'marmitex', 'gastronomia', 'espetinho', 'japones', 'japonês', 'sushi'],
-  imobiliaria: ['imobiliaria', 'imobiliária', 'imovel', 'imóvel', 'corretor', 'condominio', 'condomínio'],
-  advogado: ['advogado', 'advocacia', 'juridico', 'jurídico'],
-  academia: ['academia', 'fitness', 'musculacao', 'musculação', 'crossfit', 'pilates'],
-  petshop: ['pet shop', 'petshop', 'veterinaria', 'veterinária', 'banho e tosa', 'racao', 'ração'],
+  dentista: ['dentista', 'odontologia', 'odontologico', 'odontolÃ³gica', 'clinica odontologica', 'clÃ­nica odontolÃ³gica'],
+  clinica: ['clinica', 'clÃ­nica', 'saude', 'saÃºde', 'medico', 'mÃ©dico', 'fisioterapia', 'estetica', 'estÃ©tica'],
+  oficina: ['oficina', 'mecanica', 'mecÃ¢nica', 'auto center', 'funilaria', 'pneus', 'automotivo'],
+  restaurante: ['restaurante', 'pizzaria', 'pizza', 'pizzaiolo', 'lanchonete', 'lanchonetes', 'lanches', 'hamburgueria', 'delivery', 'bar', 'choperia', 'marmitaria', 'marmitex', 'gastronomia', 'espetinho', 'japones', 'japonÃªs', 'sushi'],
+  imobiliaria: ['imobiliaria', 'imobiliÃ¡ria', 'imovel', 'imÃ³vel', 'corretor', 'condominio', 'condomÃ­nio'],
+  advogado: ['advogado', 'advocacia', 'juridico', 'jurÃ­dico'],
+  academia: ['academia', 'fitness', 'musculacao', 'musculaÃ§Ã£o', 'crossfit', 'pilates'],
+  petshop: ['pet shop', 'petshop', 'veterinaria', 'veterinÃ¡ria', 'banho e tosa', 'racao', 'raÃ§Ã£o'],
   mercado: ['mercado', 'supermercado', 'mercearia', 'atacarejo'],
-  farmacia: ['farmacia', 'farmácia', 'drogaria'],
-  salao: ['salao', 'salão', 'beleza', 'cabeleireiro', 'barbearia'],
-  automotivo: ['automotivo', 'automotiva', 'auto center', 'oficina', 'mecanica', 'mecânica', 'pneus', 'borracharia', 'auto eletrica', 'auto elétrica'],
+  farmacia: ['farmacia', 'farmÃ¡cia', 'drogaria'],
+  salao: ['salao', 'salÃ£o', 'beleza', 'cabeleireiro', 'barbearia'],
+  automotivo: ['automotivo', 'automotiva', 'auto center', 'oficina', 'mecanica', 'mecÃ¢nica', 'pneus', 'borracharia', 'auto eletrica', 'auto elÃ©trica'],
   pneus: ['pneus', 'auto center', 'borracharia', 'automotivo', 'automotiva'],
-  alimentacao: ['alimentacao', 'alimentação', 'restaurante', 'pizzaria', 'pizza', 'lanchonete', 'bar', 'choperia', 'cafeteria', 'panificadora', 'padaria', 'mercado', 'supermercado', 'acougue', 'açougue', 'confeitaria', 'doceria', 'alimentos naturais'],
-  beleza: ['beleza', 'salao', 'salão', 'barbearia', 'estetica', 'estética', 'clinica de estetica', 'clínica de estética', 'cosmeticos', 'cosméticos', 'perfumaria'],
+  alimentacao: ['alimentacao', 'alimentaÃ§Ã£o', 'restaurante', 'pizzaria', 'pizza', 'lanchonete', 'bar', 'choperia', 'cafeteria', 'panificadora', 'padaria', 'mercado', 'supermercado', 'acougue', 'aÃ§ougue', 'confeitaria', 'doceria', 'alimentos naturais'],
+  beleza: ['beleza', 'salao', 'salÃ£o', 'barbearia', 'estetica', 'estÃ©tica', 'clinica de estetica', 'clÃ­nica de estÃ©tica', 'cosmeticos', 'cosmÃ©ticos', 'perfumaria'],
 };
 
 const HBX_CATEGORY_SEGMENTS: Record<string, string[]> = {
@@ -418,32 +418,32 @@ const HBX_CATEGORY_SEGMENTS: Record<string, string[]> = {
     'alimentos naturais',
     'mercados',
     'supermercados',
-    'açougues',
+    'aÃ§ougues',
   ],
   beleza: [
-    'salões de beleza',
+    'salÃµes de beleza',
     'barbearias',
-    'clínicas de estética',
-    'cosméticos',
+    'clÃ­nicas de estÃ©tica',
+    'cosmÃ©ticos',
     'perfumarias',
   ],
   automotivo: [
-    'acessórios automotivos',
+    'acessÃ³rios automotivos',
     'auto center',
     'centros automotivos',
-    'auto peças',
-    'oficinas mecânicas',
+    'auto peÃ§as',
+    'oficinas mecÃ¢nicas',
     'oficinas',
-    'mecânicas',
-    'auto elétricas',
+    'mecÃ¢nicas',
+    'auto elÃ©tricas',
     'auto escolas',
     'pneus',
     'borracharias',
-    'concessionárias',
+    'concessionÃ¡rias',
     'despachantes',
-    'lava rápidos',
-    'postos de combustível',
-    'revendas de veículos',
+    'lava rÃ¡pidos',
+    'postos de combustÃ­vel',
+    'revendas de veÃ­culos',
     'vistorias veiculares',
   ],
   pneus: [
@@ -455,57 +455,57 @@ const HBX_CATEGORY_SEGMENTS: Record<string, string[]> = {
     'pneus',
     'auto center',
     'borracharias',
-    'oficinas mecânicas',
-    'auto elétricas',
+    'oficinas mecÃ¢nicas',
+    'auto elÃ©tricas',
   ],
   'auto eletricas': [
-    'auto elétricas',
+    'auto elÃ©tricas',
     'auto center',
-    'oficinas mecânicas',
+    'oficinas mecÃ¢nicas',
   ],
   industria: [
     'caldeiraria',
-    'cerâmicas',
-    'componentes elétricos',
+    'cerÃ¢micas',
+    'componentes elÃ©tricos',
     'embalagens',
     'ferramentaria',
-    'indústrias de plásticos',
-    'indústrias alimentícias',
-    'indústrias metalúrgicas',
-    'máquinas industriais',
-    'metalúrgicas',
-    'químicas',
+    'indÃºstrias de plÃ¡sticos',
+    'indÃºstrias alimentÃ­cias',
+    'indÃºstrias metalÃºrgicas',
+    'mÃ¡quinas industriais',
+    'metalÃºrgicas',
+    'quÃ­micas',
     'usinagem',
   ],
   logistica: [
     'atacadistas',
-    'depósitos de bebidas',
+    'depÃ³sitos de bebidas',
     'distribuidoras',
     'fornecedoras industriais',
     'transportadoras',
   ],
   'atacado e logistica': [
     'atacadistas',
-    'depósitos de bebidas',
+    'depÃ³sitos de bebidas',
     'distribuidoras',
     'fornecedoras industriais',
     'transportadoras',
   ],
   agro: [
-    'agronegócios',
-    'agropecuárias',
-    'casas de ração',
-    'implementos agrícolas',
-    'nutrição animal',
-    'produtos agrícolas',
+    'agronegÃ³cios',
+    'agropecuÃ¡rias',
+    'casas de raÃ§Ã£o',
+    'implementos agrÃ­colas',
+    'nutriÃ§Ã£o animal',
+    'produtos agrÃ­colas',
   ],
   'agro e campo': [
-    'agronegócios',
-    'agropecuárias',
-    'casas de ração',
-    'implementos agrícolas',
-    'nutrição animal',
-    'produtos agrícolas',
+    'agronegÃ³cios',
+    'agropecuÃ¡rias',
+    'casas de raÃ§Ã£o',
+    'implementos agrÃ­colas',
+    'nutriÃ§Ã£o animal',
+    'produtos agrÃ­colas',
   ],
 };
 
@@ -515,7 +515,7 @@ const GENERIC_DIRECTORY_NAMES = [
   'sem nome',
   'contato',
   'home',
-  'ir para o conteúdo',
+  'ir para o conteÃºdo',
   'ir para o conteudo',
   'laa',
   'mmm',
@@ -523,7 +523,7 @@ const GENERIC_DIRECTORY_NAMES = [
   'whatsapp',
   'telefone',
   'lista telefonica',
-  'lista telefônica',
+  'lista telefÃ´nica',
   'comercial',
   'atendimento',
   'anuncie aqui',
@@ -593,7 +593,7 @@ const GENERIC_DIRECTORY_CONTAINS = [
   'locacao de aparelho',
   'telhado com',
   'estancia hidromineral',
-  'estância hidromineral',
+  'estÃ¢ncia hidromineral',
   'gastronomia completo',
 ];
 
@@ -638,7 +638,7 @@ const VERTICAL_TOKEN_GROUPS: Record<string, string[]> = {
   imobiliaria: ['imobiliaria', 'imobiliarias', 'imovel', 'imoveis', 'corretor'],
   moda: ['moda', 'roupas', 'malharia', 'calcados', 'bijuterias'],
   oficina: ['oficina', 'oficinas', 'mecanica', 'automotivo', 'automotiva', 'auto'],
-  restaurante: ['restaurante', 'restaurantes', 'bar', 'bares', 'lanchonete', 'pizzaria', 'pizza', 'pizzaiolo', 'choperia', 'marmitaria', 'marmitex', 'gastronomia', 'espetinho', 'japones', 'japonês', 'sushi'],
+  restaurante: ['restaurante', 'restaurantes', 'bar', 'bares', 'lanchonete', 'pizzaria', 'pizza', 'pizzaiolo', 'choperia', 'marmitaria', 'marmitex', 'gastronomia', 'espetinho', 'japones', 'japonÃªs', 'sushi'],
 };
 
 let cityCache: {
@@ -2937,7 +2937,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       Nome: result.name,
       Telefone: result.phone,
       Nota: result.rating ?? '',
-      Avaliações: result.reviews,
+      AvaliaÃ§Ãµes: result.reviews,
       Endereco: result.address,
       Website: result.website ? 'Abrir site' : '',
       'Roteiro pronto': this.buildScriptText(result, response.query.city, response.query.segment, user),
@@ -3243,9 +3243,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
   private expandHbxSegmentAliases(segments: string[]) {
     const aliases = new Map<string, string[]>([
-      ['acougue', ['açougue', 'açougues', 'casa de carnes', 'carnes', 'boutique de carnes', 'frigorífico varejo']],
-      ['acougues', ['açougue', 'açougues', 'casa de carnes', 'carnes', 'boutique de carnes', 'frigorífico varejo']],
-      ['casa de carnes', ['casa de carnes', 'açougue', 'açougues', 'carnes']],
+      ['acougue', ['aÃ§ougue', 'aÃ§ougues', 'casa de carnes', 'carnes', 'boutique de carnes', 'frigorÃ­fico varejo']],
+      ['acougues', ['aÃ§ougue', 'aÃ§ougues', 'casa de carnes', 'carnes', 'boutique de carnes', 'frigorÃ­fico varejo']],
+      ['casa de carnes', ['casa de carnes', 'aÃ§ougue', 'aÃ§ougues', 'carnes']],
     ]);
     const expanded: string[] = [];
     for (const segment of segments) {
@@ -3410,14 +3410,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     }
     if (this.isSeniorHealthCommercialIntent(input)) {
       for (const compatible of [
-        'clínicas geriátricas',
+        'clÃ­nicas geriÃ¡tricas',
         'cuidadores de idosos',
-        'farmácias',
-        'laboratórios',
+        'farmÃ¡cias',
+        'laboratÃ³rios',
         'fisioterapia',
-        'óticas',
+        'Ã³ticas',
         'casas de repouso',
-        'associações terceira idade',
+        'associaÃ§Ãµes terceira idade',
       ]) {
         channelQueries.push(this.compactQuery([compatible, city, state, 'contato']));
       }
@@ -5240,7 +5240,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       rejected: hardBlocked,
       discarded: hardBlocked,
       durationMs,
-      label: `${deliveredCount} cards salvos${hardBlocked > 0 ? ` • ${hardBlocked} bloqueados por regra dura` : ''}${review > 0 ? ` • ${review} em revisao` : ''}`,
+      label: `${deliveredCount} cards salvos${hardBlocked > 0 ? ` â€¢ ${hardBlocked} bloqueados por regra dura` : ''}${review > 0 ? ` â€¢ ${review} em revisao` : ''}`,
     };
   }
 
@@ -5427,7 +5427,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       );
       const incoming = Array.isArray(response.results) ? response.results : [];
       if (incoming.length > 0) {
-        await this.saveSearchRunResults(context, normalized, runId, incoming, 'google_emergency');
+        const savedCounts = await this.saveSearchRunResults(context, normalized, runId, incoming, 'google_emergency');
+        this.enqueueRadarSocialLookupForSavedLeads(context, runId, normalized, savedCounts.savedLeadIds);
         await this.recalculateSearchRunCounters(runId);
       }
       await this.prisma.webscrapingSearchRun.update({
@@ -6513,7 +6514,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
     const planKey = resolveCommercialPlanKeyForCapabilities(company);
     const message = planKey === COMMERCIAL_PLAN_KEYS.LITE
-      ? 'O HBX List não inclui buscas Google diárias. Os motores gratuitos continuam liberados. Para buscas Google, escolha o HBX Lead ou HBX Full — Bot e IA.'
+      ? 'O HBX List nÃ£o inclui buscas Google diÃ¡rias. Os motores gratuitos continuam liberados. Para buscas Google, escolha o HBX Lead ou HBX Full â€” Bot e IA.'
       : `${GOOGLE_DAILY_LIMIT_REACHED_MESSAGE} Seu plano permite ${dailyLimit} busca(s) Google por dia.`;
     await this.recordUsageLog(context, input, 'BLOCKED_DAILY_LIMIT', 0, message);
     throw new ForbiddenException({
@@ -7459,7 +7460,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     if (normalized === 'em_atendimento' || normalized === 'atendimento') return 'in_attendance';
     if (normalized === 'interessado' || normalized === 'interested') return 'interested';
     if (normalized === 'positivo' || normalized === 'positive') return 'positive';
-    if (normalized === 'disponivel' || normalized === 'disponível' || normalized === 'available') return 'clean';
+    if (normalized === 'disponivel' || normalized === 'disponÃ­vel' || normalized === 'available') return 'clean';
     if (normalized === 'won') return 'converted';
     if (normalized === 'optout' || normalized === 'do_not_contact') return 'opt_out';
     if (normalized === 'lost' || normalized === 'sem_interesse') return 'negative';
@@ -7559,7 +7560,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const opportunityLevel: RadarOpportunityLevel =
       highOpportunity || rawOpportunityLevel === 'high' || rawOpportunityLevel === 'alta'
         ? 'high'
-        : rawOpportunityLevel === 'medium' || rawOpportunityLevel === 'media' || rawOpportunityLevel === 'média'
+        : rawOpportunityLevel === 'medium' || rawOpportunityLevel === 'media' || rawOpportunityLevel === 'mÃ©dia'
           ? 'medium'
           : rawOpportunityLevel === 'low' || rawOpportunityLevel === 'baixa'
           ? 'low'
@@ -8606,7 +8607,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         meta: {
           ...baseMeta,
           effectiveMode: 'enrich' as RadarWhatsappCheckMode,
-          message: 'Validação WebWhats disponível nos planos superiores. Entreguei os cards sem bloquear a busca.',
+          message: 'ValidaÃ§Ã£o WebWhats disponÃ­vel nos planos superiores. Entreguei os cards sem bloquear a busca.',
         },
       };
     }
@@ -8667,7 +8668,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         meta: {
           ...baseMeta,
           effectiveMode: 'enrich' as RadarWhatsappCheckMode,
-          message: 'Não consegui validar WhatsApp agora. Entreguei os cards sem bloquear a busca.',
+          message: 'NÃ£o consegui validar WhatsApp agora. Entreguei os cards sem bloquear a busca.',
         },
       };
     }
@@ -8866,7 +8867,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       this.buildRadarFacet('clean', 'Limpos', (statusCounts.get('clean') || 0) + (statusCounts.get('new') || 0), 'info'),
       this.buildRadarFacet('delivered', 'Entregues', statusCounts.get('delivered') || 0, 'info'),
       this.buildRadarFacet('approved', 'Aprovados', statusCounts.get('approved') || 0, 'success'),
-      this.buildRadarFacet('sent_to_vendas', 'Já enviados para Vendas', statusCounts.get('sent_to_vendas') || 0, 'success'),
+      this.buildRadarFacet('sent_to_vendas', 'JÃ¡ enviados para Vendas', statusCounts.get('sent_to_vendas') || 0, 'success'),
       this.buildRadarFacet('in_attendance', 'Em atendimento', statusCounts.get('in_attendance') || 0, 'info'),
       this.buildRadarFacet('interested', 'Interessados', (statusCounts.get('interested') || 0) + (statusCounts.get('positive') || 0), 'success'),
       this.buildRadarFacet('converted', 'Convertidos', statusCounts.get('converted') || 0, 'success'),
@@ -8874,15 +8875,15 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       this.buildRadarFacet('blocked', 'Bloqueados', statusCounts.get('blocked') || 0, 'danger'),
       this.buildRadarFacet('opt_out', 'Opt-out', statusCounts.get('opt_out') || 0, 'danger'),
       this.buildRadarFacet('discarded', 'Descartados', (statusCounts.get('discarded') || 0) + (statusCounts.get('hidden') || 0), 'neutral'),
-      this.buildRadarFacet('complaint', 'Reclamação', statusCounts.get('complaint') || 0, 'danger'),
-      this.buildRadarFacet('no_answer', 'Não atenderam', statusCounts.get('no_answer') || 0, 'attention'),
-      this.buildRadarFacet('no_whatsapp', 'Contato inválido', (statusCounts.get('no_whatsapp') || 0) + (statusCounts.get('invalid_whatsapp') || 0), 'danger'),
+      this.buildRadarFacet('complaint', 'ReclamaÃ§Ã£o', statusCounts.get('complaint') || 0, 'danger'),
+      this.buildRadarFacet('no_answer', 'NÃ£o atenderam', statusCounts.get('no_answer') || 0, 'attention'),
+      this.buildRadarFacet('no_whatsapp', 'Contato invÃ¡lido', (statusCounts.get('no_whatsapp') || 0) + (statusCounts.get('invalid_whatsapp') || 0), 'danger'),
       this.buildRadarFacet('without_whatsapp', 'Sem WhatsApp', counters.withoutWhatsapp, 'neutral'),
-      this.buildRadarFacet('likely_whatsapp', 'Com WhatsApp provável', counters.likelyWhatsapp, 'success'),
+      this.buildRadarFacet('likely_whatsapp', 'Com WhatsApp provÃ¡vel', counters.likelyWhatsapp, 'success'),
       this.buildRadarFacet('ddd_local', 'DDD local', counters.dddLocal, 'success'),
       this.buildRadarFacet('ddd_mismatch', 'DDD divergente', counters.dddMismatch, 'alert'),
       this.buildRadarFacet('score_high', 'Score alto', counters.scoreHigh, 'success'),
-      this.buildRadarFacet('score_medium', 'Score médio', counters.scoreMedium, 'attention'),
+      this.buildRadarFacet('score_medium', 'Score mÃ©dio', counters.scoreMedium, 'attention'),
       this.buildRadarFacet('score_low', 'Score baixo', counters.scoreLow, 'neutral'),
       this.buildRadarFacet('no_website', 'Sem site', counters.noWebsite, 'info'),
       this.buildRadarFacet('weak_website', 'Site fraco', counters.weakWebsite, 'warning'),
@@ -9441,7 +9442,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     if (!access.canUsePremium) {
       throw new ForbiddenException({
         code: 'RADAR_PREMIUM_PLAN_REQUIRED',
-        message: 'Enriquecimento com Instagram, Facebook, site e email está disponível no HBX Lead ou superior.',
+        message: 'Enriquecimento com Instagram, Facebook, site e email estÃ¡ disponÃ­vel no HBX Lead ou superior.',
         redirectTo: '/planos?intent=radar_premium',
         requiredPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO,
         currentPlanKey: access.planKey,
@@ -9454,10 +9455,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       throw new ConflictException({
         code: 'RADAR_ENRICHMENT_QUOTA_REACHED',
         message: userBlocked
-          ? 'Limite mensal por usuário atingido para enriquecer cards.'
+          ? 'Limite mensal por usuÃ¡rio atingido para enriquecer cards.'
           : Number(cards.dailyRemaining || 0) <= 0
-            ? 'Trava diária de segurança atingida. Tente novamente após 00:00.'
-            : 'Limite mensal de cards atingido. O contador reinicia no próximo ciclo.',
+            ? 'Trava diÃ¡ria de seguranÃ§a atingida. Tente novamente apÃ³s 00:00.'
+            : 'Limite mensal de cards atingido. O contador reinicia no prÃ³ximo ciclo.',
         usage,
       });
     }
@@ -9612,7 +9613,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       return {
         ok: true,
         cached: true,
-        message: 'Card já enriquecido',
+        message: 'Card jÃ¡ enriquecido',
         item: this.buildRadarLeadPublic(row, { includeSmartFields: true }),
       };
     }
@@ -10278,10 +10279,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return code.includes('limit')
       || code.includes('quota')
       || message.includes('limite diario')
-      || message.includes('limite diário')
+      || message.includes('limite diÃ¡rio')
       || message.includes('limite mensal')
       || message.includes('trava diaria')
-      || message.includes('trava diária')
+      || message.includes('trava diÃ¡ria')
       || message.includes('contador reinicia')
       || message.includes('quota');
   }
@@ -10872,7 +10873,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       const now = new Date();
       const pauseReason = quotaBlocked ? 'vendas_card_limit_start' : 'vendas_stock_limit_start';
       const pauseMessage = quotaBlocked
-        ? 'Radar pausado. Limite diário de cards atingido; vou retomar esta mesma pesquisa quando houver cota.'
+        ? 'Radar pausado. Limite diÃ¡rio de cards atingido; vou retomar esta mesma pesquisa quando houver cota.'
         : `Radar pausado. Vendas ja esta com ${safeInteger(vendasGate.pendingCount)} de ${vendasStockTarget} card(s). Vou retomar esta mesma pesquisa quando houver espaco.`;
       const retryAt = new Date(Date.now() + this.getRadarLimitPauseRetryDelayMs(pauseReason));
       const run = await this.prisma.webscrapingSearchRun.create({
@@ -11053,13 +11054,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     this.radarWhatsappCheckModeByRunId.set(run.id, filters.whatsappCheckMode);
 
     if (claimedRows.length) {
-      await this.saveSearchRunResults(
+      const savedCounts = await this.saveSearchRunResults(
         context,
         normalized,
         run.id,
         this.restoreRadarPoolResults(claimedRows).slice(0, filters.quantity),
         'radar_database',
       );
+      this.enqueueRadarSocialLookupForSavedLeads(context, run.id, normalized, savedCounts.savedLeadIds);
       await this.recalculateSearchRunCounters(run.id);
       await this.updateSearchRunMetrics(run.id, {
         sourceEngine: 'radar_database',
@@ -12072,7 +12074,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       orderBy: { createdAt: 'desc' },
       select: { status: true },
     }).catch(() => null);
-    if (blocked) throw new BadRequestException('Este e-mail está marcado como não contactar.');
+    if (blocked) throw new BadRequestException('Este e-mail estÃ¡ marcado como nÃ£o contactar.');
     return email;
   }
 
@@ -12085,7 +12087,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     }).catch(() => null);
     if (!row) throw new NotFoundException('Card do Radar nao encontrado.');
     if (this.isRadarProtectedStatus(row?.companyStates?.[0]?.status || row?.status)) {
-      throw new BadRequestException('Este card está marcado como negativo/bloqueado e não pode receber sugestão ativa de envio.');
+      throw new BadRequestException('Este card estÃ¡ marcado como negativo/bloqueado e nÃ£o pode receber sugestÃ£o ativa de envio.');
     }
     const recipientEmail = String(body?.recipientEmail || this.inferCommercialEmailFromRadarLead(row) || '').trim().toLowerCase();
     const draft = buildHbxPresentationEmailDraft({
@@ -12146,7 +12148,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         status: 'blocked',
         reason: 'policy',
       });
-      throw new BadRequestException('Este card está marcado como negativo/bloqueado e não pode receber sugestão ativa de envio.');
+      throw new BadRequestException('Este card estÃ¡ marcado como negativo/bloqueado e nÃ£o pode receber sugestÃ£o ativa de envio.');
     }
     let recipientEmail = '';
     try {
@@ -12333,7 +12335,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         leadId: row.id,
         companyId: ownerCompanyId,
         eventType: 'ownership_released',
-        note: 'Reserva liberada automaticamente após 72h sem ação.',
+        note: 'Reserva liberada automaticamente apÃ³s 72h sem aÃ§Ã£o.',
         statusFrom: previousStatus,
         statusTo: 'clean',
       });
@@ -12367,7 +12369,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     if (ownershipEnabled) {
       const ownerCompanyId = Math.trunc(Number(row?.ownerCompanyId || 0)) || 0;
       if (ownerCompanyId && ownerCompanyId !== context.companyId) {
-        throw new ForbiddenException('Este card já está na carteira de outra empresa.');
+        throw new ForbiddenException('Este card jÃ¡ estÃ¡ na carteira de outra empresa.');
       }
       const claimed = await (this.prisma as any).radarLeadPool.updateMany({
         where: {
@@ -12460,7 +12462,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const ownershipEnabled = await this.supportsRadarOwnershipPersistence();
     const ownerCompanyId = Math.trunc(Number(row?.ownerCompanyId || 0)) || 0;
     if (ownershipEnabled && ownerCompanyId && ownerCompanyId !== context.companyId) {
-      throw new ForbiddenException('Este card já está na carteira de outra empresa.');
+      throw new ForbiddenException('Este card jÃ¡ estÃ¡ na carteira de outra empresa.');
     }
 
     const eventType = String(input.eventType || '').trim().toLowerCase() as RadarLeadEventType;
@@ -12604,8 +12606,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       companyStatus: 'in_attendance',
       eventType: 'ownership_reserved',
       note: assignedUserId
-        ? `Card reservado para envio ao módulo Vendas do vendedor ${assignedUserId}.`
-        : 'Card reservado para envio ao módulo Vendas.',
+        ? `Card reservado para envio ao mÃ³dulo Vendas do vendedor ${assignedUserId}.`
+        : 'Card reservado para envio ao mÃ³dulo Vendas.',
       assignedUserId,
       assignedByUserId,
       countUsage: false,
@@ -12721,7 +12723,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       statusTo: 'sent_to_vendas',
     });
     void this.enrichRadarLeadForUser(user, leadRow.id).catch((error: any) => {
-      this.logger.warn(`[radar-vendas] enriquecimento assíncrono ignorado lead=${leadRow?.id || '-'}: ${String(error?.message || error)}`);
+      this.logger.warn(`[radar-vendas] enriquecimento assÃ­ncrono ignorado lead=${leadRow?.id || '-'}: ${String(error?.message || error)}`);
     });
 
     return {
@@ -12820,7 +12822,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         failedCount += 1;
         failures.push({
           radarLeadId,
-          error: 'Todos os vendedores atingiram o limite diário não acumulativo.',
+          error: 'Todos os vendedores atingiram o limite diÃ¡rio nÃ£o acumulativo.',
         });
         continue;
       }
@@ -12831,7 +12833,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         await this.recordDailyDistributionSkip(context.companyId, Number(target.id), targetDailyLimit, 'limite_diario_atingido', dayKey);
         failures.push({
           radarLeadId,
-          error: 'Limite diário do vendedor atingido.',
+          error: 'Limite diÃ¡rio do vendedor atingido.',
         });
         continue;
       }
@@ -12865,7 +12867,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (!distributedCount && failures.length) {
-      throw new BadRequestException(`Nenhum card foi distribuído. Primeira falha: ${failures[0]?.error || 'erro desconhecido'}`);
+      throw new BadRequestException(`Nenhum card foi distribuÃ­do. Primeira falha: ${failures[0]?.error || 'erro desconhecido'}`);
     }
 
     return {
@@ -12876,8 +12878,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       failures,
       message:
         failedCount > 0
-          ? `${distributedCount} card(s) distribuídos. ${failedCount} falharam ou foram protegidos.`
-          : `${distributedCount} card(s) distribuídos entre ${targets.length} vendedor(es).`,
+          ? `${distributedCount} card(s) distribuÃ­dos. ${failedCount} falharam ou foram protegidos.`
+          : `${distributedCount} card(s) distribuÃ­dos entre ${targets.length} vendedor(es).`,
     };
   }
 
@@ -13163,7 +13165,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
   async getRadarAutoDistributionRuleForUser(user: any) {
     if (!this.canUseWebscrapingRole(user)) {
-      throw new ForbiddenException('Apenas ADMIN pode configurar distribuição automática do Radar.');
+      throw new ForbiddenException('Apenas ADMIN pode configurar distribuiÃ§Ã£o automÃ¡tica do Radar.');
     }
     const context = this.resolveContext(user);
     const [rule, activeSellers] = await Promise.all([
@@ -13203,7 +13205,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     territories?: Array<{ userId?: number; cities?: Array<{ city?: string; state?: string }> }>;
   } = {}) {
     if (!this.canUseWebscrapingRole(user)) {
-      throw new ForbiddenException('Apenas ADMIN pode configurar distribuição automática do Radar.');
+      throw new ForbiddenException('Apenas ADMIN pode configurar distribuiÃ§Ã£o automÃ¡tica do Radar.');
     }
     const context = this.resolveContext(user);
     const existing = await this.prisma.radarAutoDistributionRule.findUnique({
@@ -13258,13 +13260,13 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       this.listActiveDistributionSellers(context.companyId),
     ]);
     if (targetUserIds.length && selectedSellers.length !== targetUserIds.length) {
-      throw new BadRequestException('Um ou mais vendedores selecionados estão inativos ou não pertencem a esta empresa.');
+      throw new BadRequestException('Um ou mais vendedores selecionados estÃ£o inativos ou nÃ£o pertencem a esta empresa.');
     }
     if (status === 'active' && !includeAdmin && activeSellers.length === 0) {
       throw new BadRequestException('Cadastre pelo menos um vendedor ativo ou inclua o Admin no recebimento.');
     }
     if (status === 'active' && (!preferredState || !preferredCity || !segment)) {
-      throw new BadRequestException('Escolha estado, cidade e segmento antes de ativar a distribuição automática.');
+      throw new BadRequestException('Escolha estado, cidade e segmento antes de ativar a distribuiÃ§Ã£o automÃ¡tica.');
     }
     const activeSellerIds = new Set(activeSellers.map((seller) => Number(seller.id || 0)));
     const sourceTerritories = Array.isArray(input.territories)
@@ -13280,7 +13282,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         territory.cities.some((city) => `${normalizeLookupValue(city.city)}:${String(city.state || '').trim().toUpperCase()}` === selectedCityKey),
       );
       if (!hasSellerCoveringSelectedCity) {
-        throw new BadRequestException('Nenhum vendedor cobre a cidade escolhida. Ajuste o território ou inclua o Admin no recebimento.');
+        throw new BadRequestException('Nenhum vendedor cobre a cidade escolhida. Ajuste o territÃ³rio ou inclua o Admin no recebimento.');
       }
     }
 
@@ -13292,8 +13294,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       radiusKm,
       territoryMode: normalizedTerritories.length ? 'fixed_cities' : 'open',
       rule: normalizedTerritories.length
-        ? 'Vendedor só recebe se a cidade da regra estiver no território dele.'
-        : 'Sem território fixo: todos os vendedores ativos entram no rodízio.',
+        ? 'Vendedor sÃ³ recebe se a cidade da regra estiver no territÃ³rio dele.'
+        : 'Sem territÃ³rio fixo: todos os vendedores ativos entram no rodÃ­zio.',
       territories: normalizedTerritories,
     });
     const now = new Date();
@@ -13330,8 +13332,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return {
       ok: true,
       message: status === 'active'
-        ? 'Distribuição automática ativada. O robô vai manter os estoques configurados.'
-        : 'Configuração de distribuição automática salva.',
+        ? 'DistribuiÃ§Ã£o automÃ¡tica ativada. O robÃ´ vai manter os estoques configurados.'
+        : 'ConfiguraÃ§Ã£o de distribuiÃ§Ã£o automÃ¡tica salva.',
       activeSellerCount: activeSellers.length,
       rule: this.radarAutoDistributionPayload(rule, activeSellers),
     };
@@ -13429,12 +13431,12 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const context = this.resolveContext(user);
     const status = this.normalizeRadarAutoDistributionStatus(rule?.status);
     if (status !== 'active') {
-      throw new BadRequestException('Distribuição automática precisa estar ativa.');
+      throw new BadRequestException('DistribuiÃ§Ã£o automÃ¡tica precisa estar ativa.');
     }
     const filtersInput = this.buildRadarAutoDistributionFilterInput(rule, 1);
     const normalizedFilters = this.normalizeRadarFilters(filtersInput);
     if (!normalizedFilters.normalizedCity || !normalizedFilters.normalizedSegment) {
-      throw new BadRequestException('Distribuição automática sem cidade ou segmento configurado.');
+      throw new BadRequestException('DistribuiÃ§Ã£o automÃ¡tica sem cidade ou segmento configurado.');
     }
 
     const selectedTargetIds = this.parseRadarAutoDistributionTargetIds(rule?.targetUserIdsJson);
@@ -13498,9 +13500,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       ));
       const territoryReason = territoryModeFixed
         ? !territoryCities.length
-          ? 'Sem território configurado'
+          ? 'Sem territÃ³rio configurado'
           : !territoryMatches
-            ? 'Fora do território desta cidade'
+            ? 'Fora do territÃ³rio desta cidade'
             : null
         : null;
       recipients.push({
@@ -13520,7 +13522,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       });
     }
     if (!recipients.length) {
-      throw new BadRequestException('Nenhum destino ativo para distribuição automática.');
+      throw new BadRequestException('Nenhum destino ativo para distribuiÃ§Ã£o automÃ¡tica.');
     }
 
     const currentStocks = await Promise.all(
@@ -13538,7 +13540,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       const blockedByReason = Boolean(recipient.noDeliveryReason);
       recipient.needed = blockedByReason ? 0 : Math.min(stockNeed, recipient.dailyRemaining);
       if (!blockedByReason && stockNeed > 0 && recipient.dailyRemaining <= 0) {
-        recipient.noDeliveryReason = 'Limite diário atingido';
+        recipient.noDeliveryReason = 'Limite diÃ¡rio atingido';
         void this.recordDailyDistributionSkip(context.companyId, recipient.assignedUserId, recipient.dailyLimit, 'limite_diario_atingido', dayKey);
       }
     });
@@ -13641,17 +13643,17 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const dailyBlockedCount = recipients.filter((recipient) => recipient.noDeliveryReason).length;
     const message = deliveredCount > 0
       ? blockedByLimit
-        ? `${deliveredCount} card(s) distribuídos. Parei porque o limite do plano foi atingido.`
+        ? `${deliveredCount} card(s) distribuÃ­dos. Parei porque o limite do plano foi atingido.`
         : shortageCount > 0
-          ? `${deliveredCount} card(s) distribuídos. Ainda faltam ${shortageCount} para completar todos os estoques.`
-          : `${deliveredCount} card(s) distribuídos automaticamente.`
+          ? `${deliveredCount} card(s) distribuÃ­dos. Ainda faltam ${shortageCount} para completar todos os estoques.`
+          : `${deliveredCount} card(s) distribuÃ­dos automaticamente.`
       : totalNeeded <= 0
         ? dailyBlockedCount > 0
-          ? 'Distribuição sem entrega: vendedor(es) bloqueados por limite diário ou território.'
-          : 'Todos os vendedores já estão no estoque configurado.'
+          ? 'DistribuiÃ§Ã£o sem entrega: vendedor(es) bloqueados por limite diÃ¡rio ou territÃ³rio.'
+          : 'Todos os vendedores jÃ¡ estÃ£o no estoque configurado.'
         : blockedByLimit
-          ? 'Distribuição automática pausada pelo limite do plano.'
-          : 'Sem cards disponíveis agora para essa regra. O robô tentará novamente.';
+          ? 'DistribuiÃ§Ã£o automÃ¡tica pausada pelo limite do plano.'
+          : 'Sem cards disponÃ­veis agora para essa regra. O robÃ´ tentarÃ¡ novamente.';
 
     return {
       ok: true,
@@ -13686,13 +13688,13 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
   async runRadarAutoDistributionForUser(user: any, input: { limit?: number } = {}) {
     if (!this.canUseWebscrapingRole(user)) {
-      throw new ForbiddenException('Apenas ADMIN pode executar distribuição automática do Radar.');
+      throw new ForbiddenException('Apenas ADMIN pode executar distribuiÃ§Ã£o automÃ¡tica do Radar.');
     }
     const context = this.resolveContext(user);
     const rule = await this.prisma.radarAutoDistributionRule.findUnique({
       where: { companyId_scope: { companyId: context.companyId, scope: 'company' } },
     });
-    if (!rule) throw new BadRequestException('Configure a distribuição automática antes de executar.');
+    if (!rule) throw new BadRequestException('Configure a distribuiÃ§Ã£o automÃ¡tica antes de executar.');
     return this.executeRadarAutoDistributionRule(user, rule, {
       limit: input?.limit,
       triggeredBy: 'manual',
@@ -14095,11 +14097,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const context = this.resolveContext(user);
     const status = this.normalizeRadarAutoDistributionStatus(rule?.status);
     if (status !== 'active') {
-      throw new BadRequestException('Distribuição HBX Master precisa estar ativa.');
+      throw new BadRequestException('DistribuiÃ§Ã£o HBX Master precisa estar ativa.');
     }
     const territories = this.parseMasterRadarTerritories(rule?.filtersJson).filter((item) => item.cities.length > 0);
     if (!territories.length) {
-      throw new BadRequestException('Nenhum território HBX Master configurado.');
+      throw new BadRequestException('Nenhum territÃ³rio HBX Master configurado.');
     }
     const activeSellers = await this.listMasterRadarDistributionSellers(context.companyId);
     const sellerById = new Map(activeSellers.map((seller) => [Number(seller.id || 0), seller]));
@@ -14132,7 +14134,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       const stockRemaining = Math.max(0, targetStockPerSeller - currentStock);
       const dailyRemaining = Math.max(0, Math.trunc(Number(dailySnapshot.remainingToday || 0) || 0));
       const remaining = Math.min(stockRemaining, dailyRemaining);
-      const noDeliveryReason = stockRemaining > 0 && dailyRemaining <= 0 ? 'Limite diário atingido' : null;
+      const noDeliveryReason = stockRemaining > 0 && dailyRemaining <= 0 ? 'Limite diÃ¡rio atingido' : null;
       if (noDeliveryReason) {
         await this.recordDailyDistributionSkip(context.companyId, Number(seller.id || 0), sellerDailyLimit, 'limite_diario_atingido', dayKey);
       }
@@ -14155,7 +14157,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (!recipients.length) {
-      throw new BadRequestException('Nenhum vendedor HBX ativo encontrado para os territórios configurados.');
+      throw new BadRequestException('Nenhum vendedor HBX ativo encontrado para os territÃ³rios configurados.');
     }
 
     const totalNeeded = recipients.reduce((sum, recipient) => sum + recipient.remaining, 0);
@@ -14246,13 +14248,13 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const dailyBlockedCount = recipients.filter((recipient) => recipient.noDeliveryReason).length;
     const message = deliveredCount > 0
       ? shortageCount > 0
-        ? `${deliveredCount} card(s) HBX distribuídos. Ainda faltam ${shortageCount} para completar os estoques.`
-        : `${deliveredCount} card(s) HBX distribuídos por cidade fixa.`
+        ? `${deliveredCount} card(s) HBX distribuÃ­dos. Ainda faltam ${shortageCount} para completar os estoques.`
+        : `${deliveredCount} card(s) HBX distribuÃ­dos por cidade fixa.`
       : totalNeeded <= 0
         ? dailyBlockedCount > 0
-          ? 'Distribuição HBX não acumulativa: vendedor(es) já atingiram o limite diário.'
-          : 'Todos os vendedores HBX já estão no estoque configurado.'
-        : 'Sem cards disponíveis nas cidades fixas agora. A fábrica pode abastecer o banco e o robô tenta novamente.';
+          ? 'DistribuiÃ§Ã£o HBX nÃ£o acumulativa: vendedor(es) jÃ¡ atingiram o limite diÃ¡rio.'
+          : 'Todos os vendedores HBX jÃ¡ estÃ£o no estoque configurado.'
+        : 'Sem cards disponÃ­veis nas cidades fixas agora. A fÃ¡brica pode abastecer o banco e o robÃ´ tenta novamente.';
 
     return {
       ok: true,
@@ -14350,7 +14352,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         dailyLimit: sellerDailyLimit,
         deliveredToday,
         dailyRemaining,
-        noDeliveryReason: remainingStock > 0 && dailyRemaining <= 0 ? 'Limite diário atingido' : null,
+        noDeliveryReason: remainingStock > 0 && dailyRemaining <= 0 ? 'Limite diÃ¡rio atingido' : null,
         distributionStatus: !isMapped ? 'unmapped' : remainingStock > 0 ? 'needs_cards' : 'full',
       };
     });
@@ -14439,7 +14441,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       return { userId, cities };
     }).filter((item) => item.userId > 0 && sellerIds.has(item.userId));
     if (status === 'active' && !normalizedTerritories.some((item) => item.cities.length > 0)) {
-      throw new BadRequestException('Defina pelo menos uma cidade fixa antes de ativar a distribuição HBX Master.');
+      throw new BadRequestException('Defina pelo menos uma cidade fixa antes de ativar a distribuiÃ§Ã£o HBX Master.');
     }
     const targetUserIds = normalizedTerritories
       .filter((item) => item.cities.length > 0)
@@ -14485,8 +14487,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return {
       ...panel,
       message: status === 'active'
-        ? 'Territórios HBX Master ativados. As cidades ficam fixas por vendedor; os segmentos ficam livres no Vendas e o limite diário não acumula.'
-        : 'Territórios HBX Master salvos.',
+        ? 'TerritÃ³rios HBX Master ativados. As cidades ficam fixas por vendedor; os segmentos ficam livres no Vendas e o limite diÃ¡rio nÃ£o acumula.'
+        : 'TerritÃ³rios HBX Master salvos.',
     };
   }
 
@@ -14497,7 +14499,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const rule = await this.prisma.radarAutoDistributionRule.findUnique({
       where: { companyId_scope: { companyId, scope: 'hbx_master' } },
     }).catch(() => null);
-    if (!rule) throw new BadRequestException('Configure os territórios HBX Master antes de alimentar vendedores.');
+    if (!rule) throw new BadRequestException('Configure os territÃ³rios HBX Master antes de alimentar vendedores.');
     const runner = {
       id: Number(user?.id || 0),
       companyId,
@@ -14622,7 +14624,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           sourceEngine: 'vendas_automation',
           sourceEngines: JSON.stringify(['vendas_automation']),
           opportunityScore: 0,
-          opportunityReason: 'Criado para proteger histórico operacional de Vendas.',
+          opportunityReason: 'Criado para proteger histÃ³rico operacional de Vendas.',
           status: 'clean',
           firstSeenAt: now,
           lastSeenAt: now,
@@ -14634,13 +14636,13 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       return this.markRadarLeadPositiveDispositionForUser(user, row.id, {
         status: dispositionStatus,
         reason: input.reason || input.status,
-        privateNotes: input.source || 'Vendas Automação',
+        privateNotes: input.source || 'Vendas AutomaÃ§Ã£o',
       });
     }
     return this.markRadarLeadNegativeForUser(user, row.id, {
       status: input.status,
       reason: input.reason || input.status,
-      privateNotes: input.source || 'Vendas Automação',
+      privateNotes: input.source || 'Vendas AutomaÃ§Ã£o',
     });
   }
 
@@ -14733,7 +14735,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const ownershipEnabled = await this.supportsRadarOwnershipPersistence();
     const ownerCompanyId = Math.trunc(Number(row?.ownerCompanyId || 0)) || 0;
     if (ownershipEnabled && ownerCompanyId && ownerCompanyId !== context.companyId) {
-      throw new ForbiddenException('Este card já está na carteira de outra empresa.');
+      throw new ForbiddenException('Este card jÃ¡ estÃ¡ na carteira de outra empresa.');
     }
     const normalizedStatus = String(input.status || '').trim().toLowerCase();
     const status: RadarLeadStatus =
@@ -14747,7 +14749,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         ? 'discarded'
         : normalizedStatus === 'blocked' || normalizedStatus === 'bloqueado'
           ? 'blocked'
-          : normalizedStatus === 'opt_out' || normalizedStatus === 'optout' || normalizedStatus === 'do_not_contact' || normalizedStatus === 'nao_quer_contato' || normalizedStatus === 'não_quer_contato'
+          : normalizedStatus === 'opt_out' || normalizedStatus === 'optout' || normalizedStatus === 'do_not_contact' || normalizedStatus === 'nao_quer_contato' || normalizedStatus === 'nÃ£o_quer_contato'
             ? 'opt_out'
             : normalizedStatus === 'no_whatsapp'
               ? 'no_whatsapp'
@@ -15505,7 +15507,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   private normalizeOperationalConfigInput(input: WebscrapingOperationalConfigInput = {}, existingConfig?: any) {
     const existingMetadataJson = existingConfig?.metadataJson;
     const rawIntensity = String(input.intensity || existingConfig?.intensity || 'turbo').trim().toLowerCase();
-    const intensity = rawIntensity === 'economico' || rawIntensity === 'econômico'
+    const intensity = rawIntensity === 'economico' || rawIntensity === 'econÃ´mico'
       ? 'economico'
       : rawIntensity === 'normal'
         ? 'normal'
@@ -15783,7 +15785,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         .map((engine: any) => ({
           id: `engine-${engine.id}-${engine.lastActivityAt || engine.lastCheckedAt || input.now.toISOString()}`,
           type: engine.active ? 'motor_activated' : String(engine.status || '') === 'cooldown' ? 'cooldown' : String(engine.status || '') === 'offline' ? 'error' : 'motor_idle',
-          message: `${engine.shortLabel || engine.id} · ${engine.stateLabel || engine.status}`,
+          message: `${engine.shortLabel || engine.id} Â· ${engine.stateLabel || engine.status}`,
           detail: engine.detail || null,
           createdAt: engine.lastActivityAt || engine.lastCheckedAt || input.now.toISOString(),
         })),
@@ -15791,7 +15793,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         id: `lead-${lead.id}`,
         type: 'lead_saved',
         message: `Card salvo: ${lead.name || 'Lead'}`,
-        detail: [lead.city, lead.state, lead.segment, lead.phoneDigits].filter(Boolean).join(' • '),
+        detail: [lead.city, lead.state, lead.segment, lead.phoneDigits].filter(Boolean).join(' â€¢ '),
         createdAt: lead.lastSeenAt instanceof Date ? lead.lastSeenAt.toISOString() : null,
       })),
       ...input.campaigns.flatMap((campaign: any) => [
@@ -15799,7 +15801,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           id: `campaign-${campaign.id}`,
           type: String(campaign.status || '') === 'running' ? 'mass_data_started' : 'motor_idle',
           message: `Campanha ${campaign.status || 'ativa'}`,
-          detail: [campaign.state, campaign.currentCity || campaign.city, campaign.segment || 'segmentos internos'].filter(Boolean).join(' • '),
+          detail: [campaign.state, campaign.currentCity || campaign.city, campaign.segment || 'segmentos internos'].filter(Boolean).join(' â€¢ '),
           createdAt: campaign.updatedAt instanceof Date ? campaign.updatedAt.toISOString() : campaign.createdAt instanceof Date ? campaign.createdAt.toISOString() : null,
         },
         ...(campaign.tasks || []).slice(0, 12).map((task: any) => ({
@@ -15822,7 +15824,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
                 : String(task.status || '') === 'exhausted'
                   ? 'Tarefa esgotada'
                   : 'Tarefa aguardando lote',
-          detail: [task.city, task.state, task.segment, task.targetType].filter(Boolean).join(' • '),
+          detail: [task.city, task.state, task.segment, task.targetType].filter(Boolean).join(' â€¢ '),
           createdAt: task.updatedAt instanceof Date ? task.updatedAt.toISOString() : null,
         })),
         ...(campaign.batches || []).slice(0, 8).map((batch: any) => ({
@@ -15841,7 +15843,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
             safeInteger(batch.duplicateCount) ? `${safeInteger(batch.duplicateCount)} duplicados` : null,
             safeInteger(batch.rejectedCount) ? `${safeInteger(batch.rejectedCount)} rejeitados` : null,
             batch.errorMessage,
-          ].filter(Boolean).join(' • '),
+          ].filter(Boolean).join(' â€¢ '),
           createdAt: batch.finishedAt instanceof Date ? batch.finishedAt.toISOString() : batch.startedAt instanceof Date ? batch.startedAt.toISOString() : batch.createdAt instanceof Date ? batch.createdAt.toISOString() : null,
         })),
       ]),
@@ -15854,14 +15856,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
             : String(run.status || '') === 'failed'
               ? 'error'
               : 'task_completed',
-        message: run.assignedEngineId ? `${run.assignedEngineId} · busca ${run.status}` : `Busca ${run.status}`,
+        message: run.assignedEngineId ? `${run.assignedEngineId} Â· busca ${run.status}` : `Busca ${run.status}`,
         detail: [
           run.city,
           run.state,
           run.segment,
           safeInteger(run.foundCount) ? `${safeInteger(run.foundCount)} cards` : null,
           run.lastBatchError,
-        ].filter(Boolean).join(' • '),
+        ].filter(Boolean).join(' â€¢ '),
         createdAt: run.updatedAt instanceof Date ? run.updatedAt.toISOString() : null,
       })),
     ]
@@ -15875,7 +15877,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         id: `waiting-${input.now.toISOString()}`,
         type: 'motor_idle',
         message: 'Aguardando proximo lote',
-        detail: `Fila ${safeInteger(input.capacity?.queuedCount)} • rodando ${safeInteger(input.capacity?.runningCount)}`,
+        detail: `Fila ${safeInteger(input.capacity?.queuedCount)} â€¢ rodando ${safeInteger(input.capacity?.runningCount)}`,
         createdAt: input.now.toISOString(),
       }];
     }
@@ -16307,11 +16309,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           consecutiveFailureCount: nextFailureCount,
           lastError: failed ? (summary.lastError || campaign.lastErrorMessage || 'Campanha falhou.') : null,
           reasonStopped: failed
-            ? 'Última campanha falhou. A fábrica vai tentar novamente ou pular após o limite.'
+            ? 'Ãšltima campanha falhou. A fÃ¡brica vai tentar novamente ou pular apÃ³s o limite.'
             : duplicateRatio >= 0.65
-              ? 'Duplicidade alta. Próxima missão deve trocar o eixo.'
+              ? 'Duplicidade alta. PrÃ³xima missÃ£o deve trocar o eixo.'
               : empty
-                ? 'Sem cards novos. Próxima missão deve trocar cidade, segmento ou tipo.'
+                ? 'Sem cards novos. PrÃ³xima missÃ£o deve trocar cidade, segmento ou tipo.'
                 : null,
           lastWorkedAt: summary.latestAt || campaign.finishedAt || new Date(),
           nextRunAt: new Date(Date.now() + (failed && nextFailureCount < 2 ? 5 * 60_000 : 15_000)),
@@ -16355,7 +16357,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       if (!cursor.enabled) {
         await (this.prisma as any).radarFactoryCursor?.update?.({
           where: { key: 'main' },
-          data: { status: 'paused', reasonStopped: 'Fábrica pausada manualmente.' },
+          data: { status: 'paused', reasonStopped: 'FÃ¡brica pausada manualmente.' },
         }).catch(() => null);
         return { skipped: true, reason: 'factory_disabled' };
       }
@@ -16370,7 +16372,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           where: { key: 'main' },
           data: {
             status: 'idle',
-            reasonStopped: 'Fora da janela noturna. Das 08:00 às 20:00 o Radar Digital do cliente tem prioridade.',
+            reasonStopped: 'Fora da janela noturna. Das 08:00 Ã s 20:00 o Radar Digital do cliente tem prioridade.',
             nextRunAt,
           },
         }).catch(() => null);
@@ -16383,7 +16385,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           where: { key: 'main' },
           data: {
             status: 'idle',
-            reasonStopped: 'Sem motor disponível para a fábrica sem afetar o Radar Digital.',
+            reasonStopped: 'Sem motor disponÃ­vel para a fÃ¡brica sem afetar o Radar Digital.',
             nextRunAt: new Date(Date.now() + 60_000),
           },
         }).catch(() => null);
@@ -16416,7 +16418,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           created = safeInteger((refill as any)?.created);
         }
         if (automaticAllowed > 0 && safeInteger(queuedOrRunning) + created < automaticAllowed) {
-          this.logger.log(`[radar-factory] campanha ativa com pouca fila (${queuedOrRunning}+${created}/${automaticAllowed}); criando outra missão para ocupar motores.`);
+          this.logger.log(`[radar-factory] campanha ativa com pouca fila (${queuedOrRunning}+${created}/${automaticAllowed}); criando outra missÃ£o para ocupar motores.`);
         } else {
           await (this.prisma as any).radarFactoryCursor?.update?.({
             where: { key: 'main' },
@@ -16443,7 +16445,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           where: { key: 'main' },
           data: {
             status: 'error',
-            reasonStopped: 'Não foi possível escolher missão ou usuário/empresa para a fábrica.',
+            reasonStopped: 'NÃ£o foi possÃ­vel escolher missÃ£o ou usuÃ¡rio/empresa para a fÃ¡brica.',
             lastError: 'factory_context_unavailable',
             nextRunAt: new Date(Date.now() + 5 * 60_000),
           },
@@ -16510,7 +16512,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         data: {
           status: 'error',
           lastError: message,
-          reasonStopped: 'Erro ao criar a próxima missão da fábrica.',
+          reasonStopped: 'Erro ao criar a prÃ³xima missÃ£o da fÃ¡brica.',
           nextRunAt: new Date(Date.now() + 5 * 60_000),
         },
       }).catch(() => null);
@@ -16562,8 +16564,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     if (await this.supportsRadarFactoryPersistence()) {
       await (this.prisma as any).radarFactoryCursor.upsert({
         where: { key: 'main' },
-        create: { key: 'main', enabled: false, forcedOn: false, status: 'paused', reasonStopped: 'Fábrica pausada manualmente.' },
-        update: { enabled: false, forcedOn: false, status: 'paused', reasonStopped: 'Fábrica pausada manualmente.', nextRunAt: null },
+        create: { key: 'main', enabled: false, forcedOn: false, status: 'paused', reasonStopped: 'FÃ¡brica pausada manualmente.' },
+        update: { enabled: false, forcedOn: false, status: 'paused', reasonStopped: 'FÃ¡brica pausada manualmente.', nextRunAt: null },
       }).catch(() => null);
     }
     await this.saveOperationalConfig(Number(user?.id || 0), {
@@ -16573,7 +16575,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     }).catch(() => null);
     await (this.prisma as any).webscrapingCampaign.updateMany({
       where: { mode: 'mass_data', status: { in: ['queued', 'running', 'sleeping', 'partial_error'] } },
-      data: { status: 'paused', nextRunAt: null, lastErrorMessage: 'Fábrica desligada manualmente.' },
+      data: { status: 'paused', nextRunAt: null, lastErrorMessage: 'FÃ¡brica desligada manualmente.' },
     }).catch(() => null);
     return this.getRadarFactoryStatus(user);
   }
@@ -16585,7 +16587,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       await (this.prisma as any).radarFactoryCursor.upsert({
         where: { key: 'main' },
         create: { key: 'main', enabled: true, forcedOn: true, status: 'idle', ...nextIndexes, nextRunAt: new Date() },
-        update: { enabled: true, forcedOn: true, status: 'idle', ...nextIndexes, nextRunAt: new Date(), reasonStopped: 'Próxima missão forçada pelo MASTER.' },
+        update: { enabled: true, forcedOn: true, status: 'idle', ...nextIndexes, nextRunAt: new Date(), reasonStopped: 'PrÃ³xima missÃ£o forÃ§ada pelo MASTER.' },
       }).catch(() => null);
     }
     await this.ensureNightFactoryWork(user);
@@ -16691,7 +16693,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         maxEngines: scheduler?.factory?.maxEngines ?? null,
         memoryGuardEngines: scheduler?.factory?.memoryGuardEngines ?? null,
         message: safeInteger(scheduler?.manualReservedEngines) > 0
-          ? 'Radar Digital tem motores reservados; a fábrica usa apenas o excedente.'
+          ? 'Radar Digital tem motores reservados; a fÃ¡brica usa apenas o excedente.'
           : 'Radar Digital sem reserva configurada. Ajuste HBX_CLIENT_RESERVED_ENGINES.',
       },
       generatedAt: now.toISOString(),
@@ -16716,9 +16718,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       if (input.cardsLast10Min > 0) return 'Salvando no banco';
       return 'Procurando cards';
     }
-    if (input.engine?.lastError || status === 'degraded') return 'Erro no último lote';
+    if (input.engine?.lastError || status === 'degraded') return 'Erro no Ãºltimo lote';
     if (input.hasActiveMission) return 'Aguardando fila';
-    return 'Sem missão ativa';
+    return 'Sem missÃ£o ativa';
   }
 
   async getMasterDatabaseAudit(user?: any) {
@@ -16915,16 +16917,16 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     };
 
     const diagnostics: string[] = [];
-    if (totalCards === 0) diagnostics.push('Nenhum card salvo no banco. Motor ligado não significa card salvo.');
-    if (motoresOnline > 0 && cardsLast10Min === 0) diagnostics.push('Motores vivos, mas sem produção recente.');
-    if (campaignsQueued + campaignsRunning === 0) diagnostics.push('Motores acordados, mas sem missão ativa. A fábrica precisa criar a próxima campanha.');
+    if (totalCards === 0) diagnostics.push('Nenhum card salvo no banco. Motor ligado nÃ£o significa card salvo.');
+    if (motoresOnline > 0 && cardsLast10Min === 0) diagnostics.push('Motores vivos, mas sem produÃ§Ã£o recente.');
+    if (campaignsQueued + campaignsRunning === 0) diagnostics.push('Motores acordados, mas sem missÃ£o ativa. A fÃ¡brica precisa criar a prÃ³xima campanha.');
     if (campaignsQueued + campaignsRunning === 0 && campaignsCompletedToday > 0) diagnostics.push('Todas as campanhas terminaram. Falta continuar automaticamente de onde parou.');
     if (searchRunsFailedToday > Math.max(3, searchRunsCompletedToday)) diagnostics.push('Muitas buscas falharam. Verificar motor, fila, timeout ou origem de scraping.');
     if (duplicatedItemsToday > Math.max(10, foundItemsToday)) diagnostics.push('Muitos duplicados. Trocar cidade, segmento ou tipo.');
-    if (foundItemsToday > 0 && cardsToday === 0) diagnostics.push('Itens encontrados, mas persistência no RadarLeadPool pode estar falhando.');
+    if (foundItemsToday > 0 && cardsToday === 0) diagnostics.push('Itens encontrados, mas persistÃªncia no RadarLeadPool pode estar falhando.');
     if (safeInteger(scheduler?.manualReservedEngines) <= 0) diagnostics.push('Radar Digital do cliente sem reserva de motor. Risco de 500/timeout.');
-    if (scheduler?.factory?.reason) diagnostics.push(`Fábrica: ${scheduler.factory.reason}; permitidos=${safeInteger(scheduler.automaticAllowedEngines)}; janela=${scheduler.factory.windowStatus}; max=${scheduler.factory.maxEngines}; memória=${scheduler.factory.memoryPressurePercent}%.`);
-    if (!diagnostics.length) diagnostics.push('Sem bloqueio crítico detectado agora.');
+    if (scheduler?.factory?.reason) diagnostics.push(`FÃ¡brica: ${scheduler.factory.reason}; permitidos=${safeInteger(scheduler.automaticAllowedEngines)}; janela=${scheduler.factory.windowStatus}; max=${scheduler.factory.maxEngines}; memÃ³ria=${scheduler.factory.memoryPressurePercent}%.`);
+    if (!diagnostics.length) diagnostics.push('Sem bloqueio crÃ­tico detectado agora.');
 
     const factoryCursor = factoryStatus?.cursor || {};
     const factory = {
@@ -16964,7 +16966,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       factoryNextStopAt: scheduler?.factory?.nextStopAt || null,
       factoryEmergencyStop: Boolean(scheduler?.factory?.emergencyStop),
       message: safeInteger(scheduler?.manualReservedEngines) > 0
-        ? 'Radar Digital protegido: a fábrica não pode consumir os motores reservados do cliente.'
+        ? 'Radar Digital protegido: a fÃ¡brica nÃ£o pode consumir os motores reservados do cliente.'
         : 'Radar Digital sem reserva configurada. Configure HBX_CLIENT_RESERVED_ENGINES=2.',
     };
 
@@ -17480,16 +17482,16 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           : status === 400 ? 'RADAR_INVALID_FILTER'
             : 'RADAR_TEMPORARILY_UNAVAILABLE');
     const message = code === 'MODULE_ACCESS_DENIED'
-      ? 'Acesso ao Radar Digital indisponível para este usuário.'
+      ? 'Acesso ao Radar Digital indisponÃ­vel para este usuÃ¡rio.'
       : code === 'NO_ENGINE_AVAILABLE'
         ? 'Motores ocupados. O sistema manteve sua busca na fila.'
         : code === 'RADAR_RUN_NOT_FOUND'
           ? 'Busca anterior encerrada. Radar pronto para uma nova pesquisa.'
           : code === 'RADAR_STOCK_EMPTY'
-            ? 'Sem cards prontos para esse filtro. A reposição foi solicitada.'
+            ? 'Sem cards prontos para esse filtro. A reposiÃ§Ã£o foi solicitada.'
             : status === 400
               ? (error instanceof Error ? error.message : 'Revise os filtros do Radar Digital.')
-              : 'Radar temporariamente indisponível. Tente novamente em instantes.';
+              : 'Radar temporariamente indisponÃ­vel. Tente novamente em instantes.';
     const companyId = Number(user?.masterContext?.active ? user?.masterContext?.companyId : user?.companyId || 0) || null;
     const userId = Number(user?.id || 0) || null;
     const stack = error instanceof Error ? error.stack : undefined;
@@ -17582,7 +17584,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           }))
         : Promise.resolve([]),
       hasLeadPool
-        ? withDatabaseGuard('Produção', [], () => (this.prisma as any).radarLeadPool.findMany({
+        ? withDatabaseGuard('ProduÃ§Ã£o', [], () => (this.prisma as any).radarLeadPool.findMany({
             orderBy: [{ lastSeenAt: 'desc' }, { createdAt: 'desc' }],
             take: 24,
             select: {
@@ -17660,7 +17662,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
     if (!hasLeadPool || !hasBatch || !hasTask) {
       markDatabaseWarning();
-      databaseMessages.push('Algumas tabelas operacionais ainda não estão disponíveis para o painel completo.');
+      databaseMessages.push('Algumas tabelas operacionais ainda nÃ£o estÃ£o disponÃ­veis para o painel completo.');
     }
 
     const statsByEngine = new Map<string, {
@@ -17702,16 +17704,16 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       ? this.toIso(config.forcedUntil)
       : this.nextOperationalWindowEndAt(config, now).toISOString();
     const criticalReason = allOffline
-      ? 'Todos os motores HBX estão offline.'
+      ? 'Todos os motores HBX estÃ£o offline.'
       : String(capacity?.operationalStatus || '') === 'degraded'
         ? capacity?.message || 'Campanha travada sem progresso real.'
         : (databaseStatus as string) === 'error'
-          ? 'Banco indisponível para o dashboard operacional.'
+          ? 'Banco indisponÃ­vel para o dashboard operacional.'
           : null;
     const currentMode = criticalReason
-      ? 'CRÍTICO'
+      ? 'CRÃTICO'
       : forcedTurboActive
-        ? 'TURBO FORÇADO'
+        ? 'TURBO FORÃ‡ADO'
         : scheduledTurboActive
           ? 'TURBO NOTURNO'
           : activeQueue > 0
@@ -17728,9 +17730,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         ? 'warning'
         : 'ok';
     const diagnosticsMessages = [
-      activeQueue > 0 ? `Fila ativa com ${activeQueue} item(ns).` : 'Fila sem pendências.',
-      databaseStatus === 'ok' ? 'Gravações no banco acessíveis.' : null,
-      engineHealthStatus === 'ok' ? 'Motores com healthcheck saudável.' : null,
+      activeQueue > 0 ? `Fila ativa com ${activeQueue} item(ns).` : 'Fila sem pendÃªncias.',
+      databaseStatus === 'ok' ? 'GravaÃ§Ãµes no banco acessÃ­veis.' : null,
+      engineHealthStatus === 'ok' ? 'Motores com healthcheck saudÃ¡vel.' : null,
       pausedHbxEngines.length > 0 ? `${pausedHbxEngines.length} motor(es) pausado(s) pelo painel.` : null,
       ...databaseMessages,
       ...offlineHbxEngines.slice(0, getConfiguredHbxEngineCount()).map((engine: any) => `${engine.shortLabel || engine.id}: ${engine.lastError || engine.stateLabel || 'sem resposta'}`),
@@ -17745,7 +17747,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       .map((engine: any) => ({
         route: engine.id || 'hbx-engine',
         statusCode: 0,
-        message: 'Motor configurado com localhost em produção. Isso quebra o Docker. Corrigir URLs dos motores.',
+        message: 'Motor configurado com localhost em produÃ§Ã£o. Isso quebra o Docker. Corrigir URLs dos motores.',
         createdAt: now.toISOString(),
       }));
 
@@ -17820,7 +17822,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     ].slice(0, 8);
     const autonomousWork = hasTask
       ? await withDatabaseGuard<AutonomousMassDataWork | null>(
-          'Estratégia autônoma',
+          'EstratÃ©gia autÃ´noma',
           null,
           () => this.resolveAutonomousMassDataWork((campaigns as any[])[0] || {}, { now, limit: 40 }),
         )
@@ -17901,8 +17903,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         forcedUntil: config.forcedUntil || null,
         operationalMessage: criticalReason
           || (forcedTurboActive
-            ? `Turbo forçado ativo até ${this.formatTimeLabel(config.endHour, config.endMinute)}.`
-            : `Turbo pronto. Ative para manter os motores até ${this.formatTimeLabel(config.endHour, config.endMinute)}.`),
+            ? `Turbo forÃ§ado ativo atÃ© ${this.formatTimeLabel(config.endHour, config.endMinute)}.`
+            : `Turbo pronto. Ative para manter os motores atÃ© ${this.formatTimeLabel(config.endHour, config.endMinute)}.`),
       },
       config: {
         ...config,
@@ -17958,7 +17960,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
             { city: { not: saved.factoryCity } },
           ],
         },
-        data: { status: 'canceled', finishedAt: new Date(), nextRunAt: null, lastErrorMessage: 'Substituida pela cidade fixa da fábrica.' },
+        data: { status: 'canceled', finishedAt: new Date(), nextRunAt: null, lastErrorMessage: 'Substituida pela cidade fixa da fÃ¡brica.' },
       }).catch(() => null);
     }
     await (this.prisma as any).webscrapingCampaign.updateMany({
@@ -18022,7 +18024,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     }).catch(() => null);
     await (this.prisma as any).hbxEngineLock?.updateMany?.({
       where: { lockedRunId: { contains: ':mass:' } },
-      data: { lockedUntil: drainUntil, lastError: 'PARAR TUDO ativo; lock automático em drenagem curta.' },
+      data: { lockedUntil: drainUntil, lastError: 'PARAR TUDO ativo; lock automÃ¡tico em drenagem curta.' },
     }).catch(() => null);
     this.logger.warn('[factory-stop] emergency stop active; automaticAllowed=0');
     return {
@@ -18040,7 +18042,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     });
     await (this.prisma as any).webscrapingCampaign.updateMany({
       where: { mode: 'mass_data', status: 'paused' },
-      data: { status: 'queued', nextRunAt: new Date(), lastErrorMessage: 'Agenda da fábrica retomada pelo MASTER.' },
+      data: { status: 'queued', nextRunAt: new Date(), lastErrorMessage: 'Agenda da fÃ¡brica retomada pelo MASTER.' },
     }).catch(() => null);
     this.scheduleRadarCampaignPump(0);
     return {
@@ -18341,7 +18343,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           maxAttempts: normalized.maxAttemptsPerTask,
           lastErrorMessage: guidedByState
             ? `MASSA DE DADOS pronta: ${(taskStats as any).cityCount} cidade(s), ${(taskStats as any).segmentCount} isca(s), ${(taskStats as any).targetTypeCount} tipo(s), ${(taskStats as any).taskCount} tarefa(s).`
-            : `MASSA DE DADOS autônoma pronta: ${(taskStats as any).created} tarefa(s), ${(taskStats as any).checked} combinação(ões) avaliadas.`,
+            : `MASSA DE DADOS autÃ´noma pronta: ${(taskStats as any).created} tarefa(s), ${(taskStats as any).checked} combinaÃ§Ã£o(Ãµes) avaliadas.`,
         },
       }).catch(() => null);
       const reloaded = await (this.prisma as any).webscrapingCampaign.findUnique({
@@ -18487,7 +18489,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       this.logger.log(`[engine-scheduler] automatic production paused campaign=${campaign.id} reason=protected`);
       await (this.prisma as any).webscrapingCampaign.update({
         where: { id: campaign.id },
-        data: { status: 'running', nextRunAt: new Date(Date.now() + 15_000), lastErrorMessage: 'Produção protegida: aguardando capacidade sobrar.' },
+        data: { status: 'running', nextRunAt: new Date(Date.now() + 15_000), lastErrorMessage: 'ProduÃ§Ã£o protegida: aguardando capacidade sobrar.' },
       }).catch(() => null);
       return;
     }
@@ -18517,7 +18519,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           await (this.prisma as any).webscrapingCampaign.update({
             where: { id: campaign.id },
             data: {
-              lastErrorMessage: `Fila autônoma reabastecida: ${refill.created} nova(s) tarefa(s).`,
+              lastErrorMessage: `Fila autÃ´noma reabastecida: ${refill.created} nova(s) tarefa(s).`,
               nextRunAt: new Date(Date.now() + 500),
             },
           }).catch(() => null);
@@ -18758,7 +18760,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
             approvedCount,
             duplicateCount,
             rejectedCount,
-            lastErrorMessage: `Fila autônoma reabastecida: ${refill.created} nova(s) tarefa(s) sem dados puxados.`,
+            lastErrorMessage: `Fila autÃ´noma reabastecida: ${refill.created} nova(s) tarefa(s) sem dados puxados.`,
             nextRunAt: new Date(Date.now() + 1_000),
             finishedAt: null,
           },
@@ -18778,7 +18780,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         lastErrorMessage: latestTask
           ? `${latestTask.city}/${latestTask.state}: ${latestTask.segment} -> ${latestTask.status}`
           : done && autonomousEnabled
-            ? 'Fila autônoma não encontrou novas combinações sem dados puxados.'
+            ? 'Fila autÃ´noma nÃ£o encontrou novas combinaÃ§Ãµes sem dados puxados.'
             : null,
         nextRunAt: finalStatus === 'completed' ? null : new Date(Date.now() + 1_000),
         finishedAt: finalStatus === 'completed' ? new Date() : null,
@@ -19381,9 +19383,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     user: any,
   ) {
     return [
-      `Oi, tudo bem? Aqui é ${this.buildSpeakerName(user)} da ${this.buildCompanyName(user)}.`,
-      `Vi a ${result.name} em ${city} e trabalho com solução para ${segment.toLowerCase()}.`,
-      'Posso te explicar em 1 minuto e ver se faz sentido para vocês?',
+      `Oi, tudo bem? Aqui Ã© ${this.buildSpeakerName(user)} da ${this.buildCompanyName(user)}.`,
+      `Vi a ${result.name} em ${city} e trabalho com soluÃ§Ã£o para ${segment.toLowerCase()}.`,
+      'Posso te explicar em 1 minuto e ver se faz sentido para vocÃªs?',
     ].join(' ');
   }
 
