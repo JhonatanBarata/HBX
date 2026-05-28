@@ -1487,50 +1487,15 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
 
   private isPersonalWhatsappContact(metadata: Record<string, any>) {
     const queue = this.readVendasAgendaQueueMetadata(metadata);
-    const manualQueue = String(
-      metadata?.inboxManualQueueOverride || (queue as any)?.manualQueueOverride || '',
-    ).trim().toLowerCase();
-    const routeTarget = String(
-      metadata?.queueTarget || metadata?.routeTarget || queue?.queueTarget || queue?.routeTarget || '',
-    ).trim().toLowerCase();
     return Boolean(
       metadata?.inboxPersonalContact === true ||
       metadata?.personalContact === true ||
-      metadata?.whatsappPersonalContact === true ||
-      manualQueue === 'all' ||
-      routeTarget === 'conversas',
+      metadata?.whatsappPersonalContact === true,
     );
   }
 
   private promoteVendasProspectionMetadataToAtendimento(metadata: Record<string, any>) {
-    const queue = this.readVendasAgendaQueueMetadata(metadata);
-    if (!queue) return metadata;
-
-    const queueTarget = String(
-      queue.queueTarget || queue.routeTarget || metadata?.queueTarget || metadata?.routeTarget || '',
-    ).trim().toLowerCase();
-    const sourceModule = String(queue.sourceModule || metadata?.sourceModule || '').trim().toLowerCase();
-    const isVendasProspection =
-      queueTarget === 'prospeccao' ||
-      queueTarget === 'prospection' ||
-      sourceModule === 'vendas' ||
-      sourceModule === 'webscraping' ||
-      Boolean(String(queue.leadId || '').trim());
-    if (!isVendasProspection) return metadata;
-
-    const syncedAt = new Date().toISOString();
-    return {
-      ...metadata,
-      queueTarget: 'atendimento',
-      routeTarget: 'atendimento',
-      vendasAgendaQueue: {
-        ...queue,
-        queueTarget: 'atendimento',
-        routeTarget: 'atendimento',
-        respondedAt: syncedAt,
-        syncedAt,
-      },
-    };
+    return metadata;
   }
 
   private isAtendimentoBotOff(
@@ -3126,11 +3091,6 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       },
       {
         ...input.metadata,
-        queueTarget: 'excluidos',
-        routeTarget: 'excluidos',
-        inboxManualQueueOverride: 'archived',
-        inboxLocalDeleted: true,
-        inboxLocalDeletedAt: now.toISOString(),
         optOut: true,
         doNotContact: true,
         blacklisted: true,
@@ -3149,8 +3109,6 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           ...queue,
           active: false,
           leadId: job.leadId,
-          queueTarget: 'excluidos',
-          routeTarget: 'excluidos',
           status: 'encerrado',
           draftPending: false,
           botEligible: false,
@@ -3158,7 +3116,6 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           optOut: true,
           doNotContact: true,
           blacklisted: true,
-          manualQueueOverride: 'archived',
           syncedAt: now.toISOString(),
           deactivatedAt: now.toISOString(),
         },
@@ -3172,7 +3129,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         },
       },
     );
-    this.logger.log(`[prospeccao] inbound detectado, movendo para excluidos conversation=${input.conversationId}`);
+    this.logger.log(`[prospeccao] inbound negativo marcado no card/lead conversation=${input.conversationId}`);
     this.publishVendasAutomationEvent({
       companyId: input.companyId,
       campaignId: job.campaignId,
@@ -3577,8 +3534,8 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     const botOffActive = this.isAtendimentoBotOff(input.metadata, queue, identity.botOff);
     const nextQueue: VendasAgendaQueueMetadata = {
       ...queue,
-      queueTarget: 'atendimento',
-      routeTarget: 'atendimento',
+      queueTarget: queue.queueTarget || 'prospeccao',
+      routeTarget: queue.routeTarget || queue.queueTarget || 'prospeccao',
       manualSent: true,
       manualSentAt: manualSentAt || syncedAt,
       lastManualSendAt: this.normalizeIsoDateTime(queue.lastManualSendAt || manualSentAt) || syncedAt,
@@ -3601,8 +3558,6 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         },
         {
           ...this.clearAtendimentoBlockedMetadata(input.metadata),
-          queueTarget: 'atendimento',
-          routeTarget: 'atendimento',
           vendasAgendaQueue: nextQueue,
           vendasProspeccao: nextProspeccao,
         },
@@ -3612,8 +3567,6 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
 
     const metadataPatch: Record<string, unknown> = {
       ...this.clearAtendimentoBlockedMetadata(input.metadata),
-      queueTarget: 'atendimento',
-      routeTarget: 'atendimento',
       vendasAgendaQueue: nextQueue,
       vendasProspeccao: nextProspeccao,
       ...(identity.confirmedName ? { cliente: identity.confirmedName } : {}),
@@ -4422,7 +4375,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       canShowSupport: true,
       canShowTalkToOwner: true,
       canShowSupplier: true,
-      canShowPersonal: true,
+      canShowPersonal: false,
       provider: input.tenantContext.providerCapabilities.provider,
       agendaGroupId: group?.id || null,
       step: HBX_GATE_STEP,
@@ -4452,9 +4405,6 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     }
     if (context.canShowSupplier) {
       options.push({ label: 'Fornecedor / parceria', actionKey: 'supplier_contact', routeTarget: 'conversas', actionId: 'supplier_contact' });
-    }
-    if (context.canShowPersonal) {
-      options.push({ label: 'Assunto pessoal', actionKey: 'personal_subject', routeTarget: 'conversas', actionId: 'personal_subject' });
     }
     return options.map((option, index) => ({
       ...option,
@@ -4489,13 +4439,22 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     return /\b(nao quero|pare|parar|remover|me remove|nao tenho interesse|spam|nao chama mais|nao me chame|sair|stop)\b/.test(normalized);
   }
 
-  private async markAtendimentoNegativeOptOut(input: {
+  private async markConversationDoNotContactFromBot(input: {
     companyId: number;
     conversationId: number;
-    from: string;
-    metadata: Record<string, any>;
+    phone: string;
+    reason: string;
+    metadata?: Record<string, any> | null;
   }) {
-    const now = new Date().toISOString();
+    const now = new Date();
+    const metadata = input.metadata || {};
+    await this.customerProfileService.upsertAtendimentoProfileState({
+      companyId: input.companyId,
+      phone: input.phone,
+      botOff: true,
+      botOffReason: input.reason,
+      botOffAt: now,
+    } as any);
     await this.updateAtendimentoConversationState(
       input.companyId,
       input.conversationId,
@@ -4507,15 +4466,31 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         flowResult: 'negative_optout',
       },
       {
-        ...input.metadata,
+        ...metadata,
         hbxGateType: 'negative_optout',
         optOut: true,
         doNotContact: true,
-        queueTarget: 'excluidos',
-        routeTarget: 'excluidos',
-        negativeOptOutAt: now,
+        negativeOptOutAt: now.toISOString(),
+        botOff: true,
+        botOffReason: input.reason,
+        botOffAt: now.toISOString(),
       },
     );
+  }
+
+  private async markAtendimentoNegativeOptOut(input: {
+    companyId: number;
+    conversationId: number;
+    from: string;
+    metadata: Record<string, any>;
+  }) {
+    await this.markConversationDoNotContactFromBot({
+      companyId: input.companyId,
+      conversationId: input.conversationId,
+      phone: input.from,
+      reason: 'Não ligar mais',
+      metadata: input.metadata,
+    });
     await this.appendAtendimentoSystemEvent({
       companyId: input.companyId,
       conversationId: input.conversationId,
@@ -4586,8 +4561,6 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         hbxDynamicMenu: true,
         hbxDynamicMenuCreatedAt: new Date().toISOString(),
         hbxDynamicMenuOptions: options,
-        routeTarget: 'atendimento',
-        queueTarget: 'atendimento',
       },
     });
   }
@@ -4638,8 +4611,6 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
             ...input.metadata,
             hbxGateType: input.intent === 'reschedule' ? 'reschedule' : 'agenda',
             agendaIntent: true,
-            routeTarget: 'atendimento',
-            queueTarget: 'atendimento',
           },
         },
       });
@@ -4777,8 +4748,6 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           endsAt: data.endsAt.toISOString(),
         },
       ],
-      routeTarget: 'atendimento',
-      queueTarget: 'atendimento',
     };
     await this.conversations.queueOutboundForCompany(input.companyId, {
       to: input.from,
@@ -6966,14 +6935,6 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
             ...metadata,
             hbxGateType: 'talk_to_owner',
             talkToOwner: true,
-            inboxPersonalContact: true,
-            personalContact: true,
-            whatsappPersonalContact: true,
-            botOff: true,
-            botOffReason: 'Contato direcionado para Pessoais.',
-            botOffAt: new Date().toISOString(),
-            routeTarget: 'conversas',
-            queueTarget: 'conversas',
           },
         },
       });
@@ -6999,50 +6960,10 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
             ...metadata,
             hbxGateType: 'supplier',
             supplierContact: true,
-            inboxPersonalContact: true,
-            personalContact: true,
-            whatsappPersonalContact: true,
-            botOff: true,
-            botOffReason: 'Contato direcionado para Pessoais.',
-            botOffAt: new Date().toISOString(),
-            routeTarget: 'conversas',
-            queueTarget: 'conversas',
           },
         },
       });
       return { handled: true, supplierContact: true };
-    }
-
-    if (actionId === 'personal_subject') {
-      await setInboundMeta('whatsapp_personal', false);
-      await this.conversations.queueOutboundForCompany(companyId, {
-        to: from,
-        contactId: from,
-        body: 'Perfeito, vou deixar essa conversa para o Glauco responder diretamente.',
-        messageType: 'text',
-        sourceModule: 'whatsapp_personal',
-        senderType: 'bot',
-        flowState: {
-          currentFlow: ATENDIMENTO_FLOW_ID,
-          currentStep: ATENDIMENTO_STEP.HUMAN,
-          botActive: false,
-          humanAssigned: true,
-          flowResult: 'personal_contact',
-          metadata: {
-            ...metadata,
-            hbxGateType: 'personal',
-            inboxPersonalContact: true,
-            personalContact: true,
-            whatsappPersonalContact: true,
-            botOff: true,
-            botOffReason: 'Contato marcado como pessoal pelo menu do Atendimento.',
-            botOffAt: new Date().toISOString(),
-            routeTarget: 'conversas',
-            queueTarget: 'conversas',
-          },
-        },
-      });
-      return { handled: true, personalContact: true };
     }
 
     if (actionId === 'technical_support') {
@@ -7051,8 +6972,6 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         ...metadata,
         hbxGateType: 'technical_support',
         technicalSupport: true,
-        routeTarget: 'atendimento',
-        queueTarget: 'atendimento',
       };
       await this.conversations.queueOutboundForCompany(companyId, {
         to: from,

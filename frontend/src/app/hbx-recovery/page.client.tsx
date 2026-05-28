@@ -7380,11 +7380,11 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
                 value={interactionsQueue as ConversationQueueFilterValue}
                 onChange={(value) => {
                   const nextQueue = value as typeof interactionsQueue;
-                  if (nextQueue === "all" || nextQueue === "blocked" || nextQueue === "closed") {
+                  if (nextQueue === "all") {
                     setInteractionsQueue(nextQueue);
                   }
                 }}
-                counts={{ all: 0, archived: 0, groups: 0, recovery: 0, scheduled: 0, bot: 0 }}
+                counts={{ all: 0, groups: 0, recovery: 0, scheduled: 0, bot: 0 }}
                 dropOverQueue={null}
                 onQueueDragOver={() => {}}
                 onQueueDragLeave={() => {}}

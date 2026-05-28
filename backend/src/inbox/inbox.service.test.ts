@@ -257,7 +257,7 @@ test('InboxService can react using providerMessageId when raw payload key is mis
   );
 });
 
-test('inbox classifier keeps automatic prospection outbound in Prospecção without inbound response', async () => {
+test('inbox classifier keeps automatic prospection outbound neutral without manual route', async () => {
   const { service } = createService({
     prisma: {
       companyMessage: {
@@ -289,8 +289,8 @@ test('inbox classifier keeps automatic prospection outbound in Prospecção with
     { preferRecoveryForDebtors: true },
   );
 
-  assert.equal(context.routeTarget, 'prospeccao');
-  assert.match(context.routeReason, /aguardando resposta/i);
+  assert.equal(context.routeTarget, 'conversas');
+  assert.match(context.routeReason, /neutra/i);
 });
 
 test('listConversations repara Company CONNECTED sem sessao antes de listar Atendimento', async () => {
@@ -560,7 +560,7 @@ test('inbox classifier keeps auto-reply prospection in Prospecção despite aten
   assert.equal(context.routeTarget, 'prospeccao');
 });
 
-test('inbox classifier moves expired prospection without response to Excluídos', async () => {
+test('inbox classifier keeps expired prospection without response in Prospecção', async () => {
   const { service } = createService({
     prisma: {
       companyMessage: {
@@ -599,11 +599,11 @@ test('inbox classifier moves expired prospection without response to Excluídos'
     { preferRecoveryForDebtors: true },
   );
 
-  assert.equal(context.routeTarget, 'excluidos');
-  assert.equal(context.routeReason, 'Sem resposta em 24h.');
+  assert.equal(context.routeTarget, 'prospeccao');
+  assert.match(context.routeReason, /ação manual\/card/i);
 });
 
-test('inbox classifier moves bot closed conversations to Encerrado', async () => {
+test('inbox classifier keeps bot closed conversations neutral without excluded queue', async () => {
   const { service } = createService({
     prisma: {
       companyMessage: {
@@ -631,8 +631,8 @@ test('inbox classifier moves bot closed conversations to Encerrado', async () =>
     { preferRecoveryForDebtors: true },
   );
 
-  assert.equal(context.routeTarget, 'excluidos');
-  assert.match(context.routeReason, /arquivado|descartado|encerrado/i);
+  assert.equal(context.routeTarget, 'conversas');
+  assert.match(context.routeReason, /neutra/i);
 });
 
 test('operational conversation lookup includes bot closed flow results', async () => {
@@ -712,9 +712,8 @@ test('inbox classifier keeps WhatsApp groups outside operational funnels', async
       id: 42,
       contact: '5511999999999-123456@g.us',
       metadata: JSON.stringify({
-        queueTarget: 'excluidos',
-        routeTarget: 'excluidos',
-        inboxLocalDeleted: true,
+        queueTarget: 'groups',
+        routeTarget: 'groups',
       }),
       flowResult: 'local_deleted',
       humanAssigned: false,
@@ -1030,7 +1029,7 @@ test('unblockConversation clears BOT_OFF on CustomerProfile', async () => {
   assert.equal(profileStateCalls[0].botOff, false);
 });
 
-test('updateConversationQueue marks Pessoais as personal contact and disables bot', async () => {
+test('updateConversationQueue keeps all as neutral conversation without personal contact flags', async () => {
   const profileStateCalls: Array<Record<string, unknown>> = [];
   const { service, conversationStateCalls } = createService({
     customerProfileService: {
@@ -1046,25 +1045,20 @@ test('updateConversationQueue marks Pessoais as personal contact and disables bo
 
   assert.equal(conversationStateCalls.length, 1);
   const payload = conversationStateCalls[0].payload as any;
-  assert.equal(payload.botActive, false);
-  assert.equal(payload.humanAssigned, true);
-  assert.equal(payload.flowResult, 'personal_contact');
+  assert.equal(payload.botActive, undefined);
+  assert.equal(payload.humanAssigned, undefined);
+  assert.equal(payload.flowResult, undefined);
   assert.equal(payload.metadata.queueTarget, 'conversas');
   assert.equal(payload.metadata.routeTarget, 'conversas');
-  assert.equal(payload.metadata.inboxPersonalContact, true);
-  assert.equal(payload.metadata.personalContact, true);
-  assert.equal(payload.metadata.whatsappPersonalContact, true);
-  assert.equal(payload.metadata.botOff, true);
+  assert.equal(payload.metadata.inboxPersonalContact, false);
+  assert.equal(payload.metadata.personalContact, false);
+  assert.equal(payload.metadata.whatsappPersonalContact, false);
+  assert.equal(payload.metadata.inboxLocalDeleted, false);
 
-  assert.equal(profileStateCalls.length, 1);
-  assert.equal(profileStateCalls[0].companyId, 7);
-  assert.equal(profileStateCalls[0].phone, '+5519998877766');
-  assert.equal(profileStateCalls[0].botOff, true);
-  assert.equal(profileStateCalls[0].botOffReason, 'Contato marcado como pessoal em Pessoais.');
-  assert.ok(profileStateCalls[0].botOffAt instanceof Date);
+  assert.equal(profileStateCalls.length, 0);
 });
 
-test('deleteConversation sends conversations with history to Excluídos without deleting messages', async () => {
+test('deleteConversation rejects the removed excluded queue flow without deleting messages', async () => {
   const messageDeleteCalls: Array<Record<string, unknown>> = [];
   const conversationDeleteCalls: Array<Record<string, unknown>> = [];
   const { service, auditCalls, conversationStateCalls } = createService({
@@ -1109,21 +1103,14 @@ test('deleteConversation sends conversations with history to Excluídos without 
   });
   (service as any).getConversationByIdForCompany = async () => ({ id: '42', messages: [] });
 
-  const result = await service.deleteConversation({ companyId: 7, role: 'ADMIN' }, 42);
-
-  assert.equal(result.success, true);
-  assert.equal(result.message, 'Conversa enviada para Excluídos. Mensagens preservadas.');
-  assert.equal(result.deleted, false);
-  assert.equal(result.archived, true);
-  assert.equal(result.localOnly, true);
+  await assert.rejects(
+    () => service.deleteConversation({ companyId: 7, role: 'ADMIN' }, 42),
+    /Excluídos foi removido/,
+  );
   assert.equal(messageDeleteCalls.length, 0);
   assert.equal(conversationDeleteCalls.length, 0);
-  assert.equal(conversationStateCalls.length, 1);
-  assert.equal((conversationStateCalls[0].payload as any).flowResult, 'local_deleted');
-  assert.equal((conversationStateCalls[0].payload as any).metadata.inboxManualQueueOverride, 'archived');
-  assert.equal((conversationStateCalls[0].payload as any).metadata.queueTarget, 'excluidos');
-  assert.equal(auditCalls.length, 1);
-  assert.equal(auditCalls[0].event, 'conversation_sent_to_trash');
+  assert.equal(conversationStateCalls.length, 0);
+  assert.equal(auditCalls.length, 0);
 });
 
 test('deleteConversation preserves local backend row without WhatsApp command', async () => {
@@ -1171,18 +1158,14 @@ test('deleteConversation preserves local backend row without WhatsApp command', 
   });
   (service as any).getConversationByIdForCompany = async () => ({ id: '42', messages: [] });
 
-  const result = await service.deleteConversation({ companyId: 7, role: 'ADMIN' }, 42);
-
-  assert.equal(result.success, true);
-  assert.equal(result.message, 'Conversa enviada para Excluídos. Mensagens preservadas.');
-  assert.equal(result.deleted, false);
-  assert.equal(result.archived, true);
-  assert.equal(result.localOnly, true);
+  await assert.rejects(
+    () => service.deleteConversation({ companyId: 7, role: 'ADMIN' }, 42),
+    /Excluídos foi removido/,
+  );
   assert.equal(messageDeleteCalls.length, 0);
   assert.equal(conversationDeleteCalls.length, 0);
-  assert.equal(conversationStateCalls.length, 1);
-  assert.equal(auditCalls.length, 1);
-  assert.equal(auditCalls[0].event, 'conversation_sent_to_trash');
+  assert.equal(conversationStateCalls.length, 0);
+  assert.equal(auditCalls.length, 0);
 });
 
 test('deleteConversation ignores disconnected WhatsApp session and archives locally', async () => {
@@ -1230,17 +1213,140 @@ test('deleteConversation ignores disconnected WhatsApp session and archives loca
   });
   (service as any).getConversationByIdForCompany = async () => ({ id: '42', messages: [] });
 
-  const result = await service.deleteConversation({ companyId: 7, role: 'ADMIN' }, 42);
-
-  assert.equal(result.success, true);
-  assert.equal(result.deleted, false);
-  assert.equal(result.archived, true);
-  assert.equal(result.localOnly, true);
+  await assert.rejects(
+    () => service.deleteConversation({ companyId: 7, role: 'ADMIN' }, 42),
+    /Excluídos foi removido/,
+  );
   assert.equal(messageDeleteCalls.length, 0);
   assert.equal(conversationDeleteCalls.length, 0);
-  assert.equal(conversationStateCalls.length, 1);
-  assert.equal(auditCalls.length, 1);
-  assert.equal(auditCalls[0].event, 'conversation_sent_to_trash');
+  assert.equal(conversationStateCalls.length, 0);
+  assert.equal(auditCalls.length, 0);
+});
+
+test('cleanupOldWhatsappSessions discard resets history and preferences for the WhatsApp number', async () => {
+  const deletedMessages: number[] = [];
+  const deletedConversations: number[] = [];
+  const sessionUpdates: any[] = [];
+  const sessionDeletes: any[] = [];
+  const customerDeletes: any[] = [];
+  const leadDeletes: any[] = [];
+  const profileResets: any[] = [];
+  const profileDeletes: any[] = [];
+  const oldSession = {
+    id: 'old-session-7',
+    phoneNormalized: '5519998877766',
+    displayPhone: '+55 19 99887-7766',
+    metadataJson: JSON.stringify({ oldPreference: true }),
+  };
+  const currentSession = {
+    id: 'session-7',
+    companyId: 7,
+    provider: 'webwhats',
+    tenantKey: 'company-7',
+    phoneNormalized: '5519998877766',
+    displayPhone: '+5519998877766',
+    status: 'active',
+    connectedAt: new Date('2026-03-18T09:00:00.000Z'),
+    disconnectedAt: null,
+    createdAt: new Date('2026-03-18T09:00:00.000Z'),
+    updatedAt: new Date('2026-03-18T09:00:00.000Z'),
+    metadataJson: JSON.stringify({ oldPreference: true, botOff: true }),
+  };
+  const { service, auditCalls } = createService({
+    prisma: {
+      company: {
+        findUnique: async () => ({
+          id: 7,
+          whatsappModalStatus: 'CONNECTED',
+          whatsappModalPhone: '+5519998877766',
+          whatsappModalConnectedAt: new Date('2026-03-18T09:00:00.000Z'),
+          whatsappStatus: null,
+          currentWhatsappConnectionSessionId: 'session-7',
+          currentWhatsappConnectionSession: currentSession,
+        }),
+      },
+      whatsAppConnectionSession: {
+        updateMany: async () => ({ count: 0 }),
+        findMany: async () => [oldSession],
+        findFirst: async () => ({ metadataJson: currentSession.metadataJson }),
+        deleteMany: async (input: any) => {
+          sessionDeletes.push(input);
+          return { count: 1 };
+        },
+        update: async (input: any) => {
+          sessionUpdates.push(input);
+          return { id: input.where.id, ...input.data };
+        },
+      },
+      companyConversation: {
+        findMany: async () => [
+          { id: 42, contact: '+5519998877766', whatsappConnectionSessionId: 'old-session-7' },
+          { id: 43, contact: '+5519998877766', whatsappConnectionSessionId: 'session-7' },
+        ],
+        delete: async (input: any) => {
+          deletedConversations.push(Number(input.where.id));
+          return { id: input.where.id };
+        },
+      },
+      companyMessage: {
+        findMany: async () => [{ id: 901 }, { id: 902 }],
+        delete: async (input: any) => {
+          deletedMessages.push(Number(input.where.id));
+          return { id: input.where.id };
+        },
+        updateMany: async () => ({ count: 0 }),
+      },
+      atendimentoAppointment: {
+        updateMany: async () => ({ count: 0 }),
+      },
+      atendimentoCustomer: {
+        deleteMany: async (input: any) => {
+          customerDeletes.push(input);
+          return { count: 1 };
+        },
+      },
+      vendasLead: {
+        deleteMany: async (input: any) => {
+          leadDeletes.push(input);
+          return { count: 1 };
+        },
+      },
+      customerProfile: {
+        updateMany: async (input: any) => {
+          profileResets.push(input);
+          return { count: 1 };
+        },
+        deleteMany: async (input: any) => {
+          profileDeletes.push(input);
+          return { count: 1 };
+        },
+      },
+      $transaction: async (callback: (tx: any) => Promise<unknown>) => callback((service as any).prisma),
+    },
+  });
+
+  const result = await service.cleanupOldWhatsappSessions({ companyId: 7, role: 'ADMIN' }, 'discard');
+
+  assert.equal(result.mode, 'discard');
+  assert.equal(result.deletedMessages, 2);
+  assert.equal(result.deletedConversations, 2);
+  assert.equal(result.deletedAtendimentoCustomers, 1);
+  assert.equal(result.deletedVendasLeads, 1);
+  assert.equal(result.resetCustomerProfiles, 1);
+  assert.equal(result.deletedCustomerProfiles, 1);
+  assert.deepEqual(deletedMessages, [901, 902]);
+  assert.deepEqual(deletedConversations, [42, 43]);
+  assert.equal(sessionDeletes[0].where.id.in.includes('old-session-7'), true);
+  assert.equal(sessionDeletes[0].where.id.in.includes('session-7'), false);
+  const metadata = JSON.parse(sessionUpdates[0].data.metadataJson);
+  assert.equal(metadata.oldPreference, undefined);
+  assert.equal(metadata.botOff, undefined);
+  assert.equal(metadata.popup2CleanupMode, 'discard');
+  assert.equal(customerDeletes.length, 1);
+  assert.equal(leadDeletes.length, 1);
+  assert.equal(profileResets.length, 1);
+  assert.equal(profileDeletes.length, 1);
+  assert.equal(auditCalls[0].event, 'whatsapp_old_sessions_cleaned');
 });
 
 test('purgeConversationFromTrash is disabled', async () => {

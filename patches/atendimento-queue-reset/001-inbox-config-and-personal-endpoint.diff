@@ -1,0 +1,55 @@
+diff --git a/backend/src/inbox/atendimento-config.ts b/backend/src/inbox/atendimento-config.ts
+index 03941b2..a45a302 100644
+--- a/backend/src/inbox/atendimento-config.ts
++++ b/backend/src/inbox/atendimento-config.ts
+@@ -19,7 +19,6 @@ export const ATENDIMENTO_BOT_ACTION_IDS = [
+   'technical_support',
+   'talk_owner',
+   'supplier_contact',
+-  'personal_subject',
+ ] as const;
+ 
+ export type AtendimentoBotActionId = (typeof ATENDIMENTO_BOT_ACTION_IDS)[number];
+@@ -449,14 +448,6 @@ const DEFAULT_ACTION_CATALOG: AtendimentoBotActionGuide[] = [
+     kind: 'human_handoff',
+     enabled: true,
+   },
+-  {
+-    actionId: 'personal_subject',
+-    title: 'Assunto pessoal',
+-    description: 'Marca o contato como pessoal e protege a conversa contra respostas do bot.',
+-    route: 'atendimento',
+-    kind: 'human_handoff',
+-    enabled: true,
+-  },
+ ];
+ 
+ function normalizeButtonId(value: unknown, fallback: string) {
+@@ -637,7 +628,6 @@ export const DEFAULT_ATENDIMENTO_BOT_CONFIG: AtendimentoBotConfig = {
+     makeDefaultButton('main_menu', 'technical_support', 'Suporte tecnico', 1),
+     makeDefaultButton('main_menu', 'talk_owner', 'Falar direto com Glauco', 2),
+     makeDefaultButton('main_menu', 'supplier_contact', 'Fornecedor / parceria', 3),
+-    makeDefaultButton('main_menu', 'personal_subject', 'Assunto pessoal', 4),
+   ],
+   recoveryDetectedMessage:
+     'Encontrei um valor pendente de {{valor_formatado}}. Posso te mostrar pagamentos, seguir com uma acao financeira ou continuar no Atendimento sem perder o contexto.',
+diff --git a/backend/src/inbox/inbox.controller.ts b/backend/src/inbox/inbox.controller.ts
+index fb91a61..a908f40 100644
+--- a/backend/src/inbox/inbox.controller.ts
++++ b/backend/src/inbox/inbox.controller.ts
+@@ -166,15 +166,6 @@ export class InboxController {
+     return this.inboxService.updateConversationQueue(req.user, id, dto?.queue);
+   }
+ 
+-  @Patch('conversations/:id/personal')
+-  updatePersonalContact(
+-    @Req() req: any,
+-    @Param('id', ParseIntPipe) id: number,
+-    @Body() dto: { personal?: boolean },
+-  ) {
+-    return this.inboxService.updateConversationPersonalContact(req.user, id, dto?.personal === true);
+-  }
+-
+   @Patch('conversations/:id/block')
+   blockConversation(
+     @Req() req: any,

@@ -1,6 +1,6 @@
 import type { ChannelProvider, ProviderCapabilities } from "@/lib/provider-capabilities";
 
-export type InboxRouteTarget = "recovery" | "atendimento" | "prospeccao" | "conversas" | "excluidos" | "groups";
+export type InboxRouteTarget = "recovery" | "atendimento" | "prospeccao" | "conversas" | "groups";
 export type InboxStatus = "new" | "open" | "closed" | "blocked";
 
 export type VendasProspeccaoStage =
@@ -861,14 +861,6 @@ export const DEFAULT_ATENDIMENTO_BOT_CONFIG: AtendimentoBotConfig = {
       kind: "human_handoff",
       enabled: true,
     },
-    {
-      actionId: "personal_subject",
-      title: "Assunto pessoal",
-      description: "Marca contato pessoal, pausa o bot e protege a conversa.",
-      route: "atendimento",
-      kind: "human_handoff",
-      enabled: true,
-    },
   ],
   routingRules: {
     globalBotEnabled: false,
@@ -905,7 +897,6 @@ export const DEFAULT_ATENDIMENTO_BOT_CONFIG: AtendimentoBotConfig = {
     makeDefaultButton("main_menu", "technical_support", "Suporte tecnico", 2),
     makeDefaultButton("main_menu", "talk_owner", "Falar direto com Glauco", 3),
     makeDefaultButton("main_menu", "supplier_contact", "Fornecedor / parceria", 4),
-    makeDefaultButton("main_menu", "personal_subject", "Assunto pessoal", 5),
   ],
   returningCustomerMessage:
     "Que bom te ver de novo, {{cliente}}. Vou continuar daqui e te mostrar o melhor caminho no Atendimento.",

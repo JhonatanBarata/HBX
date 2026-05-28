@@ -94,7 +94,7 @@ import {
 import styles from "./page.module.css";
 
 type InboxTab = "messages" | "automation";
-type InboxQueue = "all" | "groups" | "recovery" | "scheduled" | "bot" | "archived" | "blocked";
+type InboxQueue = "all" | "groups" | "recovery" | "scheduled" | "bot" | "blocked";
 type ContextTab = "conversa" | "financeiro" | "agenda";
 type QueueActionMenuPosition = { top: number; left: number };
 type AtendimentoSection = "conversa" | "financeiro" | "agenda" | "automacao";
@@ -559,7 +559,6 @@ const INBOX_QUEUE_ORDER: InboxQueue[] = [
   "bot",
   "recovery",
   "groups",
-  "archived",
   "blocked",
 ];
 
@@ -647,12 +646,10 @@ function getInboxQueueLabel(queue: InboxQueue) {
       return "Atendimento";
     case "bot":
       return "Prospecção";
-    case "archived":
-      return "Excluídos";
     case "blocked":
       return "Bloqueados";
     default:
-      return "Pessoais";
+      return "Conversas";
   }
 }
 
@@ -3238,14 +3235,12 @@ function isProspectingInterestedConversation(conversation?: InboxConversation | 
   );
 }
 
-type InboxBucket = "conversas" | "prospeccao" | "atendimento" | "excluidos" | "recovery" | "groups" | "blocked";
+type InboxBucket = "conversas" | "prospeccao" | "atendimento" | "recovery" | "groups" | "blocked";
 
 function mapInboxBucketToQueue(bucket: InboxBucket): InboxQueue {
   switch (bucket) {
     case "blocked":
       return "blocked";
-    case "excluidos":
-      return "archived";
     case "recovery":
       return "recovery";
     case "atendimento":
@@ -3318,21 +3313,10 @@ function hasInboxRealMessage(conversation?: InboxConversation | null) {
 
 function isInboxPersonalContact(conversation?: InboxConversation | null) {
   const metadata = getInboxConversationMetadata(conversation);
-  const queue = getInboxVendasAgendaQueue(conversation);
-  const manualQueue = getInboxMetadataText(metadata?.inboxManualQueueOverride || queue?.manualQueueOverride);
-  const routeTarget = getInboxMetadataText(
-    metadata?.queueTarget ||
-      metadata?.routeTarget ||
-      conversation?.routeTarget ||
-      queue?.queueTarget ||
-      queue?.routeTarget,
-  );
   return (
     parseInboxBooleanFlag(metadata?.inboxPersonalContact) ||
     parseInboxBooleanFlag(metadata?.personalContact) ||
-    parseInboxBooleanFlag(metadata?.whatsappPersonalContact) ||
-    manualQueue === "all" ||
-    routeTarget === "conversas"
+    parseInboxBooleanFlag(metadata?.whatsappPersonalContact)
   );
 }
 
@@ -3733,9 +3717,6 @@ function resolveInboxBucket(
   if (conversation.isBlocked) {
     return "blocked";
   }
-  if (manualQueue === "archived") {
-    return "excluidos";
-  }
   const metadata = getInboxConversationMetadata(conversation);
   const vendasAgendaQueue = getInboxVendasAgendaQueue(conversation);
   const persistedRouteTarget = getInboxMetadataText(
@@ -3748,47 +3729,23 @@ function resolveInboxBucket(
   if (persistedRouteTarget === "groups") {
     return "groups";
   }
-  if (
-    parseInboxBooleanFlag(metadata?.inboxLocalDeleted) ||
-    parseInboxBooleanFlag(metadata?.localDeleted) ||
-    conversation.isBlocked ||
-    getInboxConversationWhatsappAvailabilityFromMetadata(conversation) === "unavailable" ||
-    persistedRouteTarget === "excluidos" ||
-    persistedRouteTarget === "excluded" ||
-    isInboxExcludedByOperationalState(conversation)
-  ) {
-    return "excluidos";
-  }
   const persistedQueue = String(
     metadata?.inboxManualQueueOverride || vendasAgendaQueue?.manualQueueOverride || "",
   )
     .trim()
     .toLowerCase();
-  if (persistedQueue === "archived") {
-    return "excluidos";
-  }
-  if (isInboxConversationArchived(conversation)) return "excluidos";
-  if (
-    Number(conversation.recoveryOpenAmount || 0) > 0 ||
-    persistedRouteTarget === "recovery" ||
-    getInboxMetadataText(conversation.latestSourceModule).includes("recovery")
-  ) return "recovery";
+  if (persistedRouteTarget === "recovery") return "recovery";
+  if (persistedRouteTarget === "atendimento") return "atendimento";
+  if (persistedRouteTarget === "prospeccao" || persistedRouteTarget === "prospection") return "prospeccao";
+  if (persistedRouteTarget === "conversas") return "conversas";
   if (manualQueue && INBOX_QUEUE_ORDER.includes(manualQueue)) {
     return mapInboxQueueToBucket(manualQueue);
   }
   if (INBOX_QUEUE_ORDER.includes(persistedQueue as InboxQueue)) {
     return mapInboxQueueToBucket(persistedQueue as InboxQueue);
   }
-  if (isInboxPersonalContact(conversation) || persistedRouteTarget === "conversas") {
+  if (isInboxPersonalContact(conversation)) {
     return "conversas";
-  }
-  const hasProspectionOrigin = hasInboxHbxProspectionOrigin(conversation);
-  if (
-    persistedRouteTarget === "atendimento" ||
-    isInboxExplicitAtendimentoHandoff(conversation, manualQueue, persistedQueue)
-  ) return "atendimento";
-  if (isInboxActiveProspectionConversation(conversation) || hasProspectionOrigin) {
-    return "prospeccao";
   }
 
   return "conversas";
@@ -3798,8 +3755,6 @@ function mapInboxQueueToBucket(queue: InboxQueue): InboxBucket {
   switch (queue) {
     case "blocked":
       return "blocked";
-    case "archived":
-      return "excluidos";
     case "recovery":
       return "recovery";
     case "scheduled":
@@ -6950,7 +6905,6 @@ function InboxDesktopClientPage() {
   const queueCounts = useMemo(() => {
     const base: Record<InboxQueue, number> = {
       all: 0,
-      archived: 0,
       blocked: 0,
       groups: 0,
       recovery: 0,
@@ -6970,7 +6924,6 @@ function InboxDesktopClientPage() {
   const queueUnreadCounts = useMemo(() => {
     const base: Record<InboxQueue, number> = {
       all: 0,
-      archived: 0,
       blocked: 0,
       groups: 0,
       recovery: 0,
@@ -7177,7 +7130,6 @@ function InboxDesktopClientPage() {
       [...conversations]
         .filter(
           (conversation) =>
-            getInboxConversationQueue(conversation, manualQueueOverrides) !== "archived" &&
             resolveInboxBucket(conversation, manualQueueOverrides) === "atendimento" &&
             (conversation.status === "new" || conversation.status === "open"),
         )
@@ -7280,7 +7232,6 @@ function InboxDesktopClientPage() {
 
   const selectedStatus = conversationForView?.status ?? "new";
   const selectedBlocked = Boolean(conversationForView?.isBlocked);
-  const selectedConversationIsPersonal = isInboxPersonalContact(conversationForView);
   const selectedConversationDisplayName = resolveInboxConversationDisplayName(conversationForView);
   const selectedConversationAvatarUrl = resolveInboxAvatarUrl(conversationForView);
   const selectedConversationPresenceMeta = useMemo(
@@ -7906,53 +7857,6 @@ function InboxDesktopClientPage() {
       }
     },
     [loadConversations, rememberConversationDetail, selectedId],
-  );
-
-  const togglePersonalContact = useCallback(
-    async () => {
-      if (!selectedId) return;
-      const personal = !isInboxPersonalContact(selectedConversationRef.current || conversationForView);
-      setError(null);
-      try {
-        const data = await apiFetch<InboxConversation>(`/inbox/conversations/${selectedId}/personal`, {
-          method: "PATCH",
-          body: JSON.stringify({ personal }),
-        });
-        const normalizedData = normalizeInboxConversationPayload(data) || data;
-        if (personal) {
-          inboxQueueRef.current = "all";
-          setInboxQueue("all");
-        }
-        setManualQueueOverrides((current) => {
-          const next = { ...current };
-          if (personal) {
-            next[selectedId] = "all";
-          } else if (next[selectedId] === "all") {
-            delete next[selectedId];
-          }
-          return next;
-        });
-        setSelectedConversation(data);
-        rememberConversationDetail(normalizedData);
-        setConversations((current) =>
-          current.map((conversation) =>
-            conversation.id === normalizedData.id ? normalizedData : conversation,
-          ),
-        );
-        setNotice({
-          tone: "success",
-          text: personal
-            ? "Contato marcado como pessoal. Bot e cadastro ficam desativados para este número."
-            : "Contato pessoal desativado.",
-        });
-        await loadConversations({ preferredId: normalizedData.id, silent: true });
-      } catch (updateError) {
-        const message =
-          updateError instanceof Error ? updateError.message : "Falha ao atualizar contato pessoal.";
-        setError(message);
-      }
-    },
-    [conversationForView, loadConversations, rememberConversationDetail, selectedId],
   );
 
   const toggleGlobalBot = useCallback(async () => {
@@ -8694,8 +8598,6 @@ function InboxDesktopClientPage() {
             value={inboxQueue as ConversationQueueFilterValue}
             counts={queueCounts as Record<ConversationQueueFilterValue, number>}
             unreadCounts={queueUnreadCounts as Record<ConversationQueueFilterValue, number>}
-            showArchived
-            archivedLabel="Excluídos"
             botSignalCounts={prospectionSignalCounts}
             dropOverQueue={dropOverQueue as ConversationQueueFilterValue | null}
             allowQueueCardDrag
@@ -8890,7 +8792,7 @@ function InboxDesktopClientPage() {
               key={conversationForView.id}
               className={`${styles.whatsAppConversationShell} hbx-page-mobile-enter ${
                 isConversationStageSwitching ? styles.whatsAppConversationShellLoading : ""
-              } ${selectedConversationIsPersonal ? styles.whatsAppConversationShellPersonal : ""}`}
+              }`}
             >
               {isConversationStageSwitching ? (
                 <div className={styles.whatsAppConversationLoadingMask} aria-hidden="true">
@@ -8960,14 +8862,6 @@ function InboxDesktopClientPage() {
                           Interessado
                         </span>
                       ) : null}
-                      {selectedConversationIsPersonal ? (
-                        <span
-                          className={styles.conversationContextBadge}
-                          data-tone="personal"
-                        >
-                          Contato pessoal
-                        </span>
-                      ) : null}
                       {getInboxConversationSubtitle(conversationForView) ? (
                         <span className={styles.conversationIdentitySubtitle}>
                           {getInboxConversationSubtitle(conversationForView)}
@@ -8999,18 +8893,6 @@ function InboxDesktopClientPage() {
                       aria-label="Abrir contexto de agenda"
                     />
                   ) : null}
-                  <button
-                    type="button"
-                    className={styles.personalContactToggle}
-                    data-active={selectedConversationIsPersonal ? "true" : "false"}
-                    onClick={() => void togglePersonalContact()}
-                    aria-pressed={selectedConversationIsPersonal}
-                  >
-                    <span className={styles.personalContactSwitch} aria-hidden="true">
-                      <span />
-                    </span>
-                    Contato Pessoal
-                  </button>
                 </div>
               </header>
 
@@ -9758,7 +9640,6 @@ function InboxDesktopClientPage() {
       selectedConversationInteractionBlocked,
       selectedConversationIsAgenda,
       selectedConversationIsInterested,
-      selectedConversationIsPersonal,
       selectedConversationPresenceMeta,
       selectedConversationStatusMeta,
       selectedConversationWithoutWhatsapp,
@@ -9772,7 +9653,6 @@ function InboxDesktopClientPage() {
       startRecording,
       stopRecording,
       timelineNewMessageCount,
-      togglePersonalContact,
     ],
   );
 
@@ -9805,7 +9685,7 @@ function InboxDesktopClientPage() {
           {!selectedConversation ? (
             <ChatEmptyState title="Sem contexto ativo">Abra uma conversa para liberar os atalhos operacionais.</ChatEmptyState>
           ) : (
-            <div className={`${styles.contextStack} ${selectedConversationIsPersonal ? styles.contextStackPersonal : ""}`}>
+            <div className={styles.contextStack}>
               {contextTab === "conversa" ? (
                 <div className={styles.contextGrid}>
                   <ChatInfoCard
@@ -10204,7 +10084,6 @@ function InboxDesktopClientPage() {
       selectedConversation,
       selectedConversationHasRecoveryContext,
       selectedConversationIsAgenda,
-      selectedConversationIsPersonal,
       selectedConversationWithoutWhatsapp,
       selectedStatus,
       saveCustomerConversationCard,

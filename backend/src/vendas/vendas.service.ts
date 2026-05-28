@@ -5062,8 +5062,8 @@ export class VendasService {
       leadId: String(row?.id || '').trim() || currentQueue?.leadId || null,
       sourceModule: 'vendas',
       sourceBlock: this.classifyLeadBlock(row),
-      queueTarget: 'excluidos',
-      routeTarget: 'excluidos',
+      queueTarget: currentQueue?.queueTarget || 'prospeccao',
+      routeTarget: currentQueue?.routeTarget || 'prospeccao',
       status,
       nextAction,
       returnAt,
@@ -5076,8 +5076,8 @@ export class VendasService {
       manualSentAt: currentQueue?.manualSentAt || null,
       botEligible: false,
       botEntryPending: false,
-      manualQueueOverride: 'archived',
-      manualQueueOverriddenAt: now,
+      manualQueueOverride: currentQueue?.manualQueueOverride || 'bot',
+      manualQueueOverriddenAt: currentQueue?.manualQueueOverriddenAt || now,
       inheritedDraftMessage: this.normalizeText(
         options?.draftMessageOverride || currentQueue?.inheritedDraftMessage || null,
       ),
@@ -5091,14 +5091,10 @@ export class VendasService {
       metadata: {
         ...metadata,
         sourceModule: 'vendas',
-        queueTarget: 'excluidos',
-        routeTarget: 'excluidos',
+        queueTarget: metadata?.queueTarget || 'prospeccao',
+        routeTarget: metadata?.routeTarget || 'prospeccao',
         whatsappAvailabilityStatus: 'unavailable',
         whatsappAvailabilityCheckedAt: availability?.checkedAt || now,
-        inboxManualQueueOverride: 'archived',
-        inboxManualQueueOverriddenAt: now,
-        inboxLocalDeleted: true,
-        inboxLocalDeletedAt: now,
         vendasAgendaQueue: nextQueue,
         vendasProspeccao: this.buildVendasProspeccaoMetadata('no_whatsapp', row, currentProspeccao, nextQueue, {
           leadSegment: this.normalizeText(row?.segment),
@@ -5107,7 +5103,7 @@ export class VendasService {
       },
       lastInteractionAt: new Date(),
     });
-    this.logger.log(`[prospeccao] whatsapp unavailable, movendo para excluidos conversation=${conversation.id} lead=${String(row?.id || '-')}`);
+    this.logger.log(`[prospeccao] whatsapp unavailable marcado no card/lead conversation=${conversation.id} lead=${String(row?.id || '-')}`);
 
     return { updated: 1, skippedWithoutPhone: 0, conversationId: conversation.id };
   }
@@ -5310,22 +5306,14 @@ export class VendasService {
       await this.conversations.updateConversationState(context.companyId, conversation.id, {
         metadata: {
           ...metadata,
-          ...(queue.whatsappAvailabilityStatus === 'unavailable'
-            ? {
-                queueTarget: 'excluidos',
-                routeTarget: 'excluidos',
-                inboxManualQueueOverride: 'archived',
-                inboxLocalDeleted: true,
-              }
-            : {}),
           vendasAgendaQueue: {
             ...queue,
             active: false,
             draftPending: false,
             botEligible: false,
             botEntryPending: false,
-            queueTarget: queue.whatsappAvailabilityStatus === 'unavailable' ? 'excluidos' : queue.queueTarget || 'prospeccao',
-            routeTarget: queue.whatsappAvailabilityStatus === 'unavailable' ? 'excluidos' : queue.routeTarget || 'prospeccao',
+            queueTarget: queue.queueTarget || 'prospeccao',
+            routeTarget: queue.routeTarget || 'prospeccao',
             syncedAt: new Date().toISOString(),
             deactivatedAt: new Date().toISOString(),
           },
@@ -5386,7 +5374,7 @@ export class VendasService {
 
     const message = todayLeadCount
       ? skippedWithoutWhatsapp > 0
-        ? `${mirroredLeadCount} card(s) preparados na Prospecção. ${skippedWithoutWhatsapp} numero(s) foram movidos para Excluídos porque o motor nao encontrou WhatsApp.`
+        ? `${mirroredLeadCount} card(s) preparados na Prospecção. ${skippedWithoutWhatsapp} numero(s) foram marcados no card porque o motor nao encontrou WhatsApp.`
         : filteredSync
           ? `${mirroredLeadCount} card(s) selecionados preparados na Prospecção com roteiro pendente para envio manual.`
           : `${mirroredLeadCount} card(s) de hoje preparados na Prospecção com roteiro pendente para envio manual.`

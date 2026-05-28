@@ -1,0 +1,507 @@
+diff --git a/frontend/src/app/atendimento/inbox-model.ts b/frontend/src/app/atendimento/inbox-model.ts
+index 7a25cd2..2655814 100644
+--- a/frontend/src/app/atendimento/inbox-model.ts
++++ b/frontend/src/app/atendimento/inbox-model.ts
+@@ -1,6 +1,6 @@
+ import type { ChannelProvider, ProviderCapabilities } from "@/lib/provider-capabilities";
+ 
+-export type InboxRouteTarget = "recovery" | "atendimento" | "prospeccao" | "conversas" | "excluidos" | "groups";
++export type InboxRouteTarget = "recovery" | "atendimento" | "prospeccao" | "conversas" | "groups";
+ export type InboxStatus = "new" | "open" | "closed" | "blocked";
+ 
+ export type VendasProspeccaoStage =
+@@ -861,14 +861,6 @@ export const DEFAULT_ATENDIMENTO_BOT_CONFIG: AtendimentoBotConfig = {
+       kind: "human_handoff",
+       enabled: true,
+     },
+-    {
+-      actionId: "personal_subject",
+-      title: "Assunto pessoal",
+-      description: "Marca contato pessoal, pausa o bot e protege a conversa.",
+-      route: "atendimento",
+-      kind: "human_handoff",
+-      enabled: true,
+-    },
+   ],
+   routingRules: {
+     globalBotEnabled: false,
+@@ -905,7 +897,6 @@ export const DEFAULT_ATENDIMENTO_BOT_CONFIG: AtendimentoBotConfig = {
+     makeDefaultButton("main_menu", "technical_support", "Suporte tecnico", 2),
+     makeDefaultButton("main_menu", "talk_owner", "Falar direto com Glauco", 3),
+     makeDefaultButton("main_menu", "supplier_contact", "Fornecedor / parceria", 4),
+-    makeDefaultButton("main_menu", "personal_subject", "Assunto pessoal", 5),
+   ],
+   returningCustomerMessage:
+     "Que bom te ver de novo, {{cliente}}. Vou continuar daqui e te mostrar o melhor caminho no Atendimento.",
+diff --git a/frontend/src/app/atendimento/page.client.tsx b/frontend/src/app/atendimento/page.client.tsx
+index f732640..cd791d4 100644
+--- a/frontend/src/app/atendimento/page.client.tsx
++++ b/frontend/src/app/atendimento/page.client.tsx
+@@ -94,7 +94,7 @@ import {
+ import styles from "./page.module.css";
+ 
+ type InboxTab = "messages" | "automation";
+-type InboxQueue = "all" | "groups" | "recovery" | "scheduled" | "bot" | "archived" | "blocked";
++type InboxQueue = "all" | "groups" | "recovery" | "scheduled" | "bot" | "blocked";
+ type ContextTab = "conversa" | "financeiro" | "agenda";
+ type QueueActionMenuPosition = { top: number; left: number };
+ type AtendimentoSection = "conversa" | "financeiro" | "agenda" | "automacao";
+@@ -559,7 +559,6 @@ const INBOX_QUEUE_ORDER: InboxQueue[] = [
+   "bot",
+   "recovery",
+   "groups",
+-  "archived",
+   "blocked",
+ ];
+ 
+@@ -647,12 +646,10 @@ function getInboxQueueLabel(queue: InboxQueue) {
+       return "Atendimento";
+     case "bot":
+       return "Prospecção";
+-    case "archived":
+-      return "Excluídos";
+     case "blocked":
+       return "Bloqueados";
+     default:
+-      return "Pessoais";
++      return "Conversas";
+   }
+ }
+ 
+@@ -3238,14 +3235,12 @@ function isProspectingInterestedConversation(conversation?: InboxConversation |
+   );
+ }
+ 
+-type InboxBucket = "conversas" | "prospeccao" | "atendimento" | "excluidos" | "recovery" | "groups" | "blocked";
++type InboxBucket = "conversas" | "prospeccao" | "atendimento" | "recovery" | "groups" | "blocked";
+ 
+ function mapInboxBucketToQueue(bucket: InboxBucket): InboxQueue {
+   switch (bucket) {
+     case "blocked":
+       return "blocked";
+-    case "excluidos":
+-      return "archived";
+     case "recovery":
+       return "recovery";
+     case "atendimento":
+@@ -3318,21 +3313,10 @@ function hasInboxRealMessage(conversation?: InboxConversation | null) {
+ 
+ function isInboxPersonalContact(conversation?: InboxConversation | null) {
+   const metadata = getInboxConversationMetadata(conversation);
+-  const queue = getInboxVendasAgendaQueue(conversation);
+-  const manualQueue = getInboxMetadataText(metadata?.inboxManualQueueOverride || queue?.manualQueueOverride);
+-  const routeTarget = getInboxMetadataText(
+-    metadata?.queueTarget ||
+-      metadata?.routeTarget ||
+-      conversation?.routeTarget ||
+-      queue?.queueTarget ||
+-      queue?.routeTarget,
+-  );
+   return (
+     parseInboxBooleanFlag(metadata?.inboxPersonalContact) ||
+     parseInboxBooleanFlag(metadata?.personalContact) ||
+-    parseInboxBooleanFlag(metadata?.whatsappPersonalContact) ||
+-    manualQueue === "all" ||
+-    routeTarget === "conversas"
++    parseInboxBooleanFlag(metadata?.whatsappPersonalContact)
+   );
+ }
+ 
+@@ -3733,9 +3717,6 @@ function resolveInboxBucket(
+   if (conversation.isBlocked) {
+     return "blocked";
+   }
+-  if (manualQueue === "archived") {
+-    return "excluidos";
+-  }
+   const metadata = getInboxConversationMetadata(conversation);
+   const vendasAgendaQueue = getInboxVendasAgendaQueue(conversation);
+   const persistedRouteTarget = getInboxMetadataText(
+@@ -3748,48 +3729,24 @@ function resolveInboxBucket(
+   if (persistedRouteTarget === "groups") {
+     return "groups";
+   }
+-  if (
+-    parseInboxBooleanFlag(metadata?.inboxLocalDeleted) ||
+-    parseInboxBooleanFlag(metadata?.localDeleted) ||
+-    conversation.isBlocked ||
+-    getInboxConversationWhatsappAvailabilityFromMetadata(conversation) === "unavailable" ||
+-    persistedRouteTarget === "excluidos" ||
+-    persistedRouteTarget === "excluded" ||
+-    isInboxExcludedByOperationalState(conversation)
+-  ) {
+-    return "excluidos";
+-  }
+   const persistedQueue = String(
+     metadata?.inboxManualQueueOverride || vendasAgendaQueue?.manualQueueOverride || "",
+   )
+     .trim()
+     .toLowerCase();
+-  if (persistedQueue === "archived") {
+-    return "excluidos";
+-  }
+-  if (isInboxConversationArchived(conversation)) return "excluidos";
+-  if (
+-    Number(conversation.recoveryOpenAmount || 0) > 0 ||
+-    persistedRouteTarget === "recovery" ||
+-    getInboxMetadataText(conversation.latestSourceModule).includes("recovery")
+-  ) return "recovery";
++  if (persistedRouteTarget === "recovery") return "recovery";
++  if (persistedRouteTarget === "atendimento") return "atendimento";
++  if (persistedRouteTarget === "prospeccao" || persistedRouteTarget === "prospection") return "prospeccao";
++  if (persistedRouteTarget === "conversas") return "conversas";
+   if (manualQueue && INBOX_QUEUE_ORDER.includes(manualQueue)) {
+     return mapInboxQueueToBucket(manualQueue);
+   }
+   if (INBOX_QUEUE_ORDER.includes(persistedQueue as InboxQueue)) {
+     return mapInboxQueueToBucket(persistedQueue as InboxQueue);
+   }
+-  if (isInboxPersonalContact(conversation) || persistedRouteTarget === "conversas") {
++  if (isInboxPersonalContact(conversation)) {
+     return "conversas";
+   }
+-  const hasProspectionOrigin = hasInboxHbxProspectionOrigin(conversation);
+-  if (
+-    persistedRouteTarget === "atendimento" ||
+-    isInboxExplicitAtendimentoHandoff(conversation, manualQueue, persistedQueue)
+-  ) return "atendimento";
+-  if (isInboxActiveProspectionConversation(conversation) || hasProspectionOrigin) {
+-    return "prospeccao";
+-  }
+ 
+   return "conversas";
+ }
+@@ -3798,8 +3755,6 @@ function mapInboxQueueToBucket(queue: InboxQueue): InboxBucket {
+   switch (queue) {
+     case "blocked":
+       return "blocked";
+-    case "archived":
+-      return "excluidos";
+     case "recovery":
+       return "recovery";
+     case "scheduled":
+@@ -6950,7 +6905,6 @@ function InboxDesktopClientPage() {
+   const queueCounts = useMemo(() => {
+     const base: Record<InboxQueue, number> = {
+       all: 0,
+-      archived: 0,
+       blocked: 0,
+       groups: 0,
+       recovery: 0,
+@@ -6970,7 +6924,6 @@ function InboxDesktopClientPage() {
+   const queueUnreadCounts = useMemo(() => {
+     const base: Record<InboxQueue, number> = {
+       all: 0,
+-      archived: 0,
+       blocked: 0,
+       groups: 0,
+       recovery: 0,
+@@ -7177,7 +7130,6 @@ function InboxDesktopClientPage() {
+       [...conversations]
+         .filter(
+           (conversation) =>
+-            getInboxConversationQueue(conversation, manualQueueOverrides) !== "archived" &&
+             resolveInboxBucket(conversation, manualQueueOverrides) === "atendimento" &&
+             (conversation.status === "new" || conversation.status === "open"),
+         )
+@@ -7280,7 +7232,6 @@ function InboxDesktopClientPage() {
+ 
+   const selectedStatus = conversationForView?.status ?? "new";
+   const selectedBlocked = Boolean(conversationForView?.isBlocked);
+-  const selectedConversationIsPersonal = isInboxPersonalContact(conversationForView);
+   const selectedConversationDisplayName = resolveInboxConversationDisplayName(conversationForView);
+   const selectedConversationAvatarUrl = resolveInboxAvatarUrl(conversationForView);
+   const selectedConversationPresenceMeta = useMemo(
+@@ -7908,53 +7859,6 @@ function InboxDesktopClientPage() {
+     [loadConversations, rememberConversationDetail, selectedId],
+   );
+ 
+-  const togglePersonalContact = useCallback(
+-    async () => {
+-      if (!selectedId) return;
+-      const personal = !isInboxPersonalContact(selectedConversationRef.current || conversationForView);
+-      setError(null);
+-      try {
+-        const data = await apiFetch<InboxConversation>(`/inbox/conversations/${selectedId}/personal`, {
+-          method: "PATCH",
+-          body: JSON.stringify({ personal }),
+-        });
+-        const normalizedData = normalizeInboxConversationPayload(data) || data;
+-        if (personal) {
+-          inboxQueueRef.current = "all";
+-          setInboxQueue("all");
+-        }
+-        setManualQueueOverrides((current) => {
+-          const next = { ...current };
+-          if (personal) {
+-            next[selectedId] = "all";
+-          } else if (next[selectedId] === "all") {
+-            delete next[selectedId];
+-          }
+-          return next;
+-        });
+-        setSelectedConversation(data);
+-        rememberConversationDetail(normalizedData);
+-        setConversations((current) =>
+-          current.map((conversation) =>
+-            conversation.id === normalizedData.id ? normalizedData : conversation,
+-          ),
+-        );
+-        setNotice({
+-          tone: "success",
+-          text: personal
+-            ? "Contato marcado como pessoal. Bot e cadastro ficam desativados para este número."
+-            : "Contato pessoal desativado.",
+-        });
+-        await loadConversations({ preferredId: normalizedData.id, silent: true });
+-      } catch (updateError) {
+-        const message =
+-          updateError instanceof Error ? updateError.message : "Falha ao atualizar contato pessoal.";
+-        setError(message);
+-      }
+-    },
+-    [conversationForView, loadConversations, rememberConversationDetail, selectedId],
+-  );
+-
+   const toggleGlobalBot = useCallback(async () => {
+     const enabled = !globalBotEnabled;
+     if (enabled) {
+@@ -8694,8 +8598,6 @@ function InboxDesktopClientPage() {
+             value={inboxQueue as ConversationQueueFilterValue}
+             counts={queueCounts as Record<ConversationQueueFilterValue, number>}
+             unreadCounts={queueUnreadCounts as Record<ConversationQueueFilterValue, number>}
+-            showArchived
+-            archivedLabel="Excluídos"
+             botSignalCounts={prospectionSignalCounts}
+             dropOverQueue={dropOverQueue as ConversationQueueFilterValue | null}
+             allowQueueCardDrag
+@@ -8890,7 +8792,7 @@ function InboxDesktopClientPage() {
+               key={conversationForView.id}
+               className={`${styles.whatsAppConversationShell} hbx-page-mobile-enter ${
+                 isConversationStageSwitching ? styles.whatsAppConversationShellLoading : ""
+-              } ${selectedConversationIsPersonal ? styles.whatsAppConversationShellPersonal : ""}`}
++              }`}
+             >
+               {isConversationStageSwitching ? (
+                 <div className={styles.whatsAppConversationLoadingMask} aria-hidden="true">
+@@ -8960,14 +8862,6 @@ function InboxDesktopClientPage() {
+                           Interessado
+                         </span>
+                       ) : null}
+-                      {selectedConversationIsPersonal ? (
+-                        <span
+-                          className={styles.conversationContextBadge}
+-                          data-tone="personal"
+-                        >
+-                          Contato pessoal
+-                        </span>
+-                      ) : null}
+                       {getInboxConversationSubtitle(conversationForView) ? (
+                         <span className={styles.conversationIdentitySubtitle}>
+                           {getInboxConversationSubtitle(conversationForView)}
+@@ -8999,18 +8893,6 @@ function InboxDesktopClientPage() {
+                       aria-label="Abrir contexto de agenda"
+                     />
+                   ) : null}
+-                  <button
+-                    type="button"
+-                    className={styles.personalContactToggle}
+-                    data-active={selectedConversationIsPersonal ? "true" : "false"}
+-                    onClick={() => void togglePersonalContact()}
+-                    aria-pressed={selectedConversationIsPersonal}
+-                  >
+-                    <span className={styles.personalContactSwitch} aria-hidden="true">
+-                      <span />
+-                    </span>
+-                    Contato Pessoal
+-                  </button>
+                 </div>
+               </header>
+ 
+@@ -9758,7 +9640,6 @@ function InboxDesktopClientPage() {
+       selectedConversationInteractionBlocked,
+       selectedConversationIsAgenda,
+       selectedConversationIsInterested,
+-      selectedConversationIsPersonal,
+       selectedConversationPresenceMeta,
+       selectedConversationStatusMeta,
+       selectedConversationWithoutWhatsapp,
+@@ -9772,7 +9653,6 @@ function InboxDesktopClientPage() {
+       startRecording,
+       stopRecording,
+       timelineNewMessageCount,
+-      togglePersonalContact,
+     ],
+   );
+ 
+@@ -9805,7 +9685,7 @@ function InboxDesktopClientPage() {
+           {!selectedConversation ? (
+             <ChatEmptyState title="Sem contexto ativo">Abra uma conversa para liberar os atalhos operacionais.</ChatEmptyState>
+           ) : (
+-            <div className={`${styles.contextStack} ${selectedConversationIsPersonal ? styles.contextStackPersonal : ""}`}>
++            <div className={styles.contextStack}>
+               {contextTab === "conversa" ? (
+                 <div className={styles.contextGrid}>
+                   <ChatInfoCard
+@@ -10204,7 +10084,6 @@ function InboxDesktopClientPage() {
+       selectedConversation,
+       selectedConversationHasRecoveryContext,
+       selectedConversationIsAgenda,
+-      selectedConversationIsPersonal,
+       selectedConversationWithoutWhatsapp,
+       selectedStatus,
+       saveCustomerConversationCard,
+diff --git a/frontend/src/app/atendimento/page.module.css b/frontend/src/app/atendimento/page.module.css
+index e650cd0..d0875c4 100644
+--- a/frontend/src/app/atendimento/page.module.css
++++ b/frontend/src/app/atendimento/page.module.css
+@@ -8518,85 +8518,6 @@
+   box-shadow: 0 14px 26px color-mix(in srgb, var(--button-primary) 24%, transparent);
+ }
+ 
+-.personalContactToggle {
+-  min-height: 38px;
+-  display: inline-flex;
+-  align-items: center;
+-  gap: 0.48rem;
+-  border: 1px solid color-mix(in srgb, var(--button-primary) 28%, var(--line));
+-  border-radius: 14px;
+-  background:
+-    linear-gradient(180deg, color-mix(in srgb, var(--surface) 92%, var(--button-primary)), var(--surface-soft));
+-  color: color-mix(in srgb, var(--foreground) 88%, var(--muted));
+-  padding: 0 0.9rem 0 0.58rem;
+-  font-size: 0.76rem;
+-  font-weight: 900;
+-  white-space: nowrap;
+-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--surface) 32%, transparent);
+-  transition:
+-    transform var(--motion-fast),
+-    border-color var(--motion-fast),
+-    background-color var(--motion-fast),
+-    color var(--motion-fast),
+-    opacity var(--motion-fast);
+-}
+-
+-.personalContactToggle:hover:not(:disabled) {
+-  transform: translateY(-1px);
+-  border-color: color-mix(in srgb, var(--button-accent) 36%, var(--button-primary));
+-}
+-
+-.personalContactToggle:disabled {
+-  opacity: 0.55;
+-  cursor: not-allowed;
+-}
+-
+-.personalContactToggle[data-active="true"] {
+-  border-color: color-mix(in srgb, #22c55e 44%, var(--line));
+-  background:
+-    linear-gradient(135deg, color-mix(in srgb, #22c55e 22%, var(--surface)), color-mix(in srgb, var(--surface-soft) 90%, #22c55e));
+-  color: color-mix(in srgb, #dcfce7 78%, var(--foreground));
+-}
+-
+-.personalContactSwitch {
+-  width: 32px;
+-  height: 18px;
+-  display: inline-flex;
+-  align-items: center;
+-  border-radius: 999px;
+-  background: color-mix(in srgb, var(--muted) 32%, var(--surface));
+-  padding: 2px;
+-  transition: background-color var(--motion-fast);
+-}
+-
+-.personalContactSwitch span {
+-  width: 14px;
+-  height: 14px;
+-  border-radius: 999px;
+-  background: #fff;
+-  box-shadow: 0 4px 10px color-mix(in srgb, var(--foreground) 22%, transparent);
+-  transition: transform var(--motion-fast);
+-}
+-
+-.personalContactToggle[data-active="true"] .personalContactSwitch {
+-  background: #22c55e;
+-}
+-
+-.personalContactToggle[data-active="true"] .personalContactSwitch span {
+-  transform: translateX(14px);
+-}
+-
+-.contextStackPersonal {
+-  position: relative;
+-}
+-
+-.contextStackPersonal > * {
+-  filter: blur(2.2px);
+-  opacity: 0.48;
+-  pointer-events: none;
+-  user-select: none;
+-}
+-
+ .conversationSecondaryAction {
+   border-color: color-mix(in srgb, var(--button-accent) 28%, var(--line));
+   background:
+diff --git a/frontend/src/components/workspace/ConversationQueueFilterBar.tsx b/frontend/src/components/workspace/ConversationQueueFilterBar.tsx
+index cde2434..531bc13 100644
+--- a/frontend/src/components/workspace/ConversationQueueFilterBar.tsx
++++ b/frontend/src/components/workspace/ConversationQueueFilterBar.tsx
+@@ -5,7 +5,6 @@ import styles from "./ConversationQueueFilterBar.module.css";
+ 
+ export type ConversationQueueFilterValue =
+   | "all"
+-  | "archived"
+   | "groups"
+   | "recovery"
+   | "scheduled"
+@@ -16,8 +15,6 @@ type ConversationQueueFilterBarProps = {
+   onChange: (value: ConversationQueueFilterValue) => void;
+   counts: Record<ConversationQueueFilterValue, number>;
+   unreadCounts?: Partial<Record<ConversationQueueFilterValue, number>>;
+-  showArchived?: boolean;
+-  archivedLabel?: string;
+   botSignalCounts?: {
+     active: boolean;
+     state?: "running" | "paused" | "error" | "idle" | "off";
+@@ -38,7 +35,7 @@ type ConversationQueueFilterBarProps = {
+ };
+ 
+ const OPTIONS: Array<{ value: ConversationQueueFilterValue; label: string }> = [
+-  { value: "all", label: "Pessoais" },
++  { value: "all", label: "Conversas" },
+   { value: "scheduled", label: "Atendimento" },
+   { value: "bot", label: "Prospecção" },
+   { value: "recovery", label: "Recovery" },
+@@ -50,8 +47,6 @@ export default function ConversationQueueFilterBar({
+   onChange,
+   counts,
+   unreadCounts,
+-  showArchived = false,
+-  archivedLabel = "Excluídos",
+   botSignalCounts,
+   dropOverQueue,
+   allowQueueCardDrag = false,
+@@ -115,7 +110,7 @@ export default function ConversationQueueFilterBar({
+         if (queue) onQueueDrop(queue);
+       }}
+     >
+-      {[...OPTIONS, ...(showArchived ? [{ value: "archived" as const, label: archivedLabel }] : [])].map((option) => {
++      {OPTIONS.map((option) => {
+         const active = value === option.value;
+         const dropping = dropOverQueue === option.value;
+         const unreadCount = Math.max(0, Math.trunc(Number(unreadCounts?.[option.value] || 0)));
+diff --git a/frontend/src/components/workspace/adapters/atendimento-data.ts b/frontend/src/components/workspace/adapters/atendimento-data.ts
+index a4a9d4a..7653a85 100644
+--- a/frontend/src/components/workspace/adapters/atendimento-data.ts
++++ b/frontend/src/components/workspace/adapters/atendimento-data.ts
+@@ -312,11 +312,6 @@ export function buildAtendimentoQueueBadges(
+     allowRecoveryCapability && isAtendimentoRecoveryPrimary(conversation);
+   const badges: WorkspaceBadgeDescriptor[] = [];
+ 
+-  if (isAtendimentoPersonalContact(conversation)) {
+-    badges.push({ label: "Contato pessoal", tone: "success" });
+-    if (conversation.botActive === false) badges.push({ label: "Bot pausado nesta conversa", tone: "neutral" });
+-  }
+-
+   if (isRecoveryPrimary) {
+     badges.push({ label: "Recovery", tone: "warning" });
+   } else if (hasRecoveryContext) {
