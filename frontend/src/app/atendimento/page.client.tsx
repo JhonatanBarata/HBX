@@ -8662,9 +8662,8 @@ function InboxDesktopClientPage() {
     [imagePreview, selectedBlocked, sending],
   );
 
-  const inboxWorkspaceComponents = useMemo(
-    () => ({
-      list: () => (
+  const inboxListPane = useMemo(
+    () => (
         <ConversationListPane
           eyebrow={undefined}
           title={undefined}
@@ -8863,6 +8862,31 @@ function InboxDesktopClientPage() {
           )}
         </ConversationListPane>
       ),
+    [
+      conversationListError,
+      conversationListHasMore,
+      conversationQueueItems,
+      conversationSearch,
+      draggedQueueId,
+      dropOverQueue,
+      handleQueueDrop,
+      inboxQueue,
+      inboxQueueDiagnostics,
+      loadConversation,
+      loadMoreConversations,
+      loadingList,
+      loadingMoreConversations,
+      prospectionSignalCounts,
+      queueActionConversationId,
+      queueCounts,
+      queueUnreadCounts,
+      retryConversationList,
+      toggleQueueConversationMenu,
+    ],
+  );
+
+  const inboxWorkspaceComponents = useMemo(
+    () => ({
       main: () => (
         <section className={`${styles.workspaceDockPanel} ${styles.inboxMainPanel} ${styles.chatStagePanel}`}>
           {conversationDetailError && selectedId && !conversationForView ? (
@@ -10098,8 +10122,6 @@ function InboxDesktopClientPage() {
       blockConversation,
       composerActivityLabel,
       conversationDetailError,
-      conversationListError,
-      conversationSearch,
       contextTab,
       customerCardAttempts,
       customerCardCanOpenWhatsapp,
@@ -10115,27 +10137,18 @@ function InboxDesktopClientPage() {
       customerConversationCard,
       customerConversationCardDraft,
       customerConversationCardError,
-      conversationListHasMore,
       hasRecoveryCapability,
-      conversationQueueItems,
       handleChatTimelineScroll,
       handleSectionChange,
       handleComposerPaste,
       handleCustomerReturnChange,
       inboxDetailDiagnostics,
-      inboxQueue,
-      inboxQueueDiagnostics,
       isConversationStageSwitching,
       isRecording,
       deleteSentMessage,
-      draggedQueueId,
-      loadConversation,
-      loadMoreConversations,
       loadOlderMessages,
       loadingConversation,
       loadingCustomerConversationCard,
-      loadingList,
-      loadingMoreConversations,
       loadingOlderMessages,
       markCustomerDoNotCall,
       markInboxMediaUrlFailed,
@@ -10143,14 +10156,9 @@ function InboxDesktopClientPage() {
       openCustomerReturnPicker,
       openedAsset,
       olderMessagesHasMore,
-      prospectionSignalCounts,
-      queueActionConversationId,
-      queueCounts,
-      queueUnreadCounts,
       reactToMessage,
       recordingSeconds,
       retryConversationDetail,
-      retryConversationList,
       retryFailedMessage,
       retryingMessageIds,
       revealedDeletedMessageIds,
@@ -10176,8 +10184,6 @@ function InboxDesktopClientPage() {
       saveComposerDraft,
       scheduleCustomerReturnTomorrow,
       scrollChatTimelineToBottom,
-      dropOverQueue,
-      handleQueueDrop,
       sendMessage,
       sendText,
       sending,
@@ -10194,7 +10200,6 @@ function InboxDesktopClientPage() {
       startRecording,
       stopRecording,
       togglePersonalContact,
-      toggleQueueConversationMenu,
       timelineNewMessageCount,
       unblockConversation,
       updateStatus,
@@ -10918,7 +10923,7 @@ function InboxDesktopClientPage() {
               </div>
 
               <div className={styles.inboxStageList}>
-                {inboxWorkspaceComponents.list()}
+                {inboxListPane}
               </div>
               <div className={styles.inboxStageMain}>
                 {inboxWorkspaceComponents.main()}
