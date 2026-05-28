@@ -2236,14 +2236,17 @@ export class InboxService {
         })
       : null);
 
+    const leadStatus = this.normalizeClassifierText(lead?.status || vendasAgendaQueue?.status);
+    const leadClosed =
+      ['encerrado', 'closed', 'discarded', 'descartado'].includes(leadStatus) ||
+      Boolean(lead?.closedAt);
+
     return {
       job,
       lead,
       jobStatus: this.normalizeClassifierText(job?.status || automation?.status || vendasAgendaQueue?.automationStatus),
-      leadStatus: this.normalizeClassifierText(lead?.status || vendasAgendaQueue?.status),
-      leadClosed:
-        this.normalizeClassifierText(lead?.status || vendasAgendaQueue?.status) === 'encerrado' ||
-        Boolean(lead?.closedAt || lead?.wasClosedBefore),
+      leadStatus,
+      leadClosed,
     };
   }
 
@@ -2256,6 +2259,17 @@ export class InboxService {
     if (manualQueue === 'scheduled') return true;
     if (conversation?.humanAssigned === true) return true;
     if (this.parseBooleanMetadataFlag(metadata?.humanAssigned || vendasAgendaQueue?.humanAssigned)) return true;
+
+    const routeTarget = this.getConversationQueueTarget(metadata, vendasAgendaQueue);
+    const vendasProspeccao = this.getNestedMetadataRecord(metadata?.vendasProspeccao);
+    const prospectionStage = this.normalizeClassifierText(vendasProspeccao?.stage || '');
+    const isActiveProspectionQueue =
+      manualQueue === 'bot' ||
+      routeTarget === 'prospeccao' ||
+      routeTarget === 'prospection' ||
+      vendasAgendaQueue?.active === true ||
+      ['reply_received', 'neutral', 'auto_reply_detected', 'bot_menu_detected', 'awaiting_human'].includes(prospectionStage);
+    if (isActiveProspectionQueue) return false;
 
     const flowCandidates = [
       conversation?.flowResult,

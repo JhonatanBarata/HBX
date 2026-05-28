@@ -440,6 +440,126 @@ test('inbox classifier keeps replied_positive job state in Prospecção summary 
   assert.equal(context.routeTarget, 'prospeccao');
 });
 
+test('inbox classifier keeps active prospection when lead was previously closed but reopened', async () => {
+  const { service } = createService({
+    prisma: {
+      companyMessage: {
+        findFirst: async () => ({ id: 901 }),
+      },
+      vendasAutomationJob: {
+        findFirst: async () => ({
+          id: 'job-1',
+          status: 'sent',
+          classification: 'low_confidence',
+          lead: { id: 'lead-1', status: 'retorno', wasClosedBefore: true, closedAt: null },
+          updatedAt: new Date('2026-05-27T20:24:00.000Z'),
+          createdAt: new Date('2026-05-27T20:20:00.000Z'),
+        }),
+      },
+      hbxRecoveryCustomer: {
+        findFirst: async () => null,
+      },
+    },
+  });
+
+  const context = await (service as any).resolveRecoveryRoutingContext(
+    7,
+    {
+      id: 42,
+      contact: '+551935229955',
+      metadata: JSON.stringify({
+        sourceModule: 'vendas',
+        queueTarget: 'prospeccao',
+        routeTarget: 'prospeccao',
+        inboxManualQueueOverride: 'bot',
+        vendasAutomation: {
+          jobId: 'job-1',
+          leadId: 'lead-1',
+          status: 'neutral',
+        },
+        vendasProspeccao: {
+          stage: 'reply_received',
+        },
+        vendasAgendaQueue: {
+          active: true,
+          sourceModule: 'vendas',
+          queueTarget: 'prospeccao',
+          routeTarget: 'prospeccao',
+          leadId: 'lead-1',
+        },
+      }),
+      flowResult: 'prospection_neutral',
+      currentStep: 'menu_principal',
+      humanAssigned: false,
+      messages: [],
+    },
+    { preferRecoveryForDebtors: true },
+  );
+
+  assert.equal(context.routeTarget, 'prospeccao');
+});
+
+test('inbox classifier keeps auto-reply prospection in Prospecção despite atendimento_humano step', async () => {
+  const { service } = createService({
+    prisma: {
+      companyMessage: {
+        findFirst: async () => ({ id: 901 }),
+      },
+      vendasAutomationJob: {
+        findFirst: async () => ({
+          id: 'job-1',
+          status: 'sent',
+          classification: 'bot_menu_detected',
+          lead: { id: 'lead-1', status: 'retorno', wasClosedBefore: false, closedAt: null },
+          updatedAt: new Date('2026-05-28T11:42:00.000Z'),
+          createdAt: new Date('2026-05-28T11:41:00.000Z'),
+        }),
+      },
+      hbxRecoveryCustomer: {
+        findFirst: async () => null,
+      },
+    },
+  });
+
+  const context = await (service as any).resolveRecoveryRoutingContext(
+    7,
+    {
+      id: 43,
+      contact: '+551935240328',
+      metadata: JSON.stringify({
+        sourceModule: 'vendas',
+        queueTarget: 'prospeccao',
+        routeTarget: 'prospeccao',
+        inboxManualQueueOverride: 'bot',
+        vendasAutomation: {
+          jobId: 'job-1',
+          leadId: 'lead-1',
+          status: 'bot_menu_detected',
+          awaitingHuman: true,
+        },
+        vendasProspeccao: {
+          stage: 'reply_received',
+        },
+        vendasAgendaQueue: {
+          active: true,
+          sourceModule: 'vendas',
+          queueTarget: 'prospeccao',
+          routeTarget: 'prospeccao',
+          status: 'awaiting_human',
+          leadId: 'lead-1',
+        },
+      }),
+      flowResult: 'prospection_auto_reply',
+      currentStep: 'atendimento_humano',
+      humanAssigned: false,
+      messages: [],
+    },
+    { preferRecoveryForDebtors: true },
+  );
+
+  assert.equal(context.routeTarget, 'prospeccao');
+});
+
 test('inbox classifier moves expired prospection without response to Excluídos', async () => {
   const { service } = createService({
     prisma: {
