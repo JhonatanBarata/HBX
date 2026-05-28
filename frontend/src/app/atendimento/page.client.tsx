@@ -8885,9 +8885,8 @@ function InboxDesktopClientPage() {
     ],
   );
 
-  const inboxWorkspaceComponents = useMemo(
-    () => ({
-      main: () => (
+  const inboxMainPane = useMemo(
+    () => (
         <section className={`${styles.workspaceDockPanel} ${styles.inboxMainPanel} ${styles.chatStagePanel}`}>
           {conversationDetailError && selectedId && !conversationForView ? (
             <ConversationWorkspaceStatus
@@ -9718,6 +9717,63 @@ function InboxDesktopClientPage() {
           )}
         </section>
       ),
+    [
+      audioPreview,
+      composerActivityLabel,
+      conversationDetailError,
+      conversationForView,
+      conversationMessagesForView.length,
+      conversationTimelineItems,
+      deleteSentMessage,
+      emojiPickerOpen,
+      handleChatTimelineScroll,
+      handleComposerPaste,
+      imagePreview,
+      inboxDetailDiagnostics,
+      isConversationStageSwitching,
+      isRecording,
+      loadOlderMessages,
+      loadingConversation,
+      loadingOlderMessages,
+      markInboxMediaUrlFailed,
+      messageReactionTargetId,
+      mounted,
+      olderMessagesHasMore,
+      openedAsset,
+      reactToMessage,
+      recordingSeconds,
+      retryConversationDetail,
+      retryFailedMessage,
+      retryingMessageIds,
+      revealedDeletedMessageIds,
+      replyingTo,
+      saveComposerDraft,
+      scrollChatTimelineToBottom,
+      selectedBlocked,
+      selectedConversationDisplayName,
+      selectedConversationHasRecoveryContext,
+      selectedConversationInteractionBlocked,
+      selectedConversationIsAgenda,
+      selectedConversationIsInterested,
+      selectedConversationIsPersonal,
+      selectedConversationStatusMeta,
+      selectedConversationWithoutWhatsapp,
+      selectedId,
+      selectedVendasAgendaDraftMessage,
+      sendAudioPreview,
+      sendMessage,
+      sendText,
+      sending,
+      showScrollToBottom,
+      startRecording,
+      stopRecording,
+      timelineNewMessageCount,
+      togglePersonalContact,
+    ],
+  );
+
+  const inboxWorkspaceComponents = useMemo(
+    () => ({
       context: () => (
         <ConversationContextPanel
           eyebrow={undefined}
@@ -10120,8 +10176,6 @@ function InboxDesktopClientPage() {
     [
       agendaConfig.groups,
       blockConversation,
-      composerActivityLabel,
-      conversationDetailError,
       contextTab,
       customerCardAttempts,
       customerCardCanOpenWhatsapp,
@@ -10138,69 +10192,22 @@ function InboxDesktopClientPage() {
       customerConversationCardDraft,
       customerConversationCardError,
       hasRecoveryCapability,
-      handleChatTimelineScroll,
       handleSectionChange,
-      handleComposerPaste,
       handleCustomerReturnChange,
-      inboxDetailDiagnostics,
-      isConversationStageSwitching,
-      isRecording,
-      deleteSentMessage,
-      loadOlderMessages,
-      loadingConversation,
       loadingCustomerConversationCard,
-      loadingOlderMessages,
       markCustomerDoNotCall,
-      markInboxMediaUrlFailed,
       mounted,
       openCustomerReturnPicker,
-      openedAsset,
-      olderMessagesHasMore,
-      reactToMessage,
-      recordingSeconds,
-      retryConversationDetail,
-      retryFailedMessage,
-      retryingMessageIds,
-      revealedDeletedMessageIds,
-      selectedConversationInteractionBlocked,
       selectedBlocked,
       selectedConversation,
-      conversationForView,
-      conversationMessagesForView,
-      conversationTimelineItems,
-      selectedConversationDisplayName,
       selectedConversationHasRecoveryContext,
-      selectedConversationIsInterested,
       selectedConversationIsAgenda,
       selectedConversationIsPersonal,
-      selectedConversationStatusMeta,
       selectedConversationWithoutWhatsapp,
-      selectedVendasAgendaDraftMessage,
-      showScrollToBottom,
-      selectedId,
       selectedStatus,
       saveCustomerConversationCard,
       savingCustomerConversationCard,
-      saveComposerDraft,
       scheduleCustomerReturnTomorrow,
-      scrollChatTimelineToBottom,
-      sendMessage,
-      sendText,
-      sending,
-      emojiPickerOpen,
-      setEmojiPickerOpen,
-      setOpenedAsset,
-      replyingTo,
-      setReplyingTo,
-      audioPreview,
-      imagePreview,
-      sendAudioPreview,
-      setImagePreview,
-      messageReactionTargetId,
-      startRecording,
-      stopRecording,
-      togglePersonalContact,
-      timelineNewMessageCount,
       unblockConversation,
       updateStatus,
     ],
@@ -10926,7 +10933,7 @@ function InboxDesktopClientPage() {
                 {inboxListPane}
               </div>
               <div className={styles.inboxStageMain}>
-                {inboxWorkspaceComponents.main()}
+                {inboxMainPane}
               </div>
               <div className={styles.inboxStageContext}>
                 {inboxWorkspaceComponents.context()}
