@@ -3399,7 +3399,62 @@ export class WebwhatsBridgeService {
       },
     });
 
-    if (!rows.length) return null;
+    if (!rows.length) {
+      const fallbackRows = await this.prisma.companyConversation.findMany({
+        where: {
+          companyId,
+          channel: 'whatsapp',
+          OR: [
+            { contact: preferredContact },
+            ...candidates.map((candidate) => ({ contact: candidate })),
+            ...(digits ? [{ contact: { endsWith: digits } }] : []),
+            ...(altDigits ? [{ contact: { endsWith: altDigits } }] : []),
+            ...metadataCandidates.map((candidate) => ({ metadata: { contains: candidate } })),
+          ],
+          AND: [
+            nonGroupConversationGuard,
+            {
+              OR: [
+                { metadata: { contains: '"vendasAgendaQueue"' } },
+                { metadata: { contains: '"queueTarget":"prospeccao"' } },
+                { metadata: { contains: '"routeTarget":"prospeccao"' } },
+              ],
+            },
+            {
+              NOT: [
+                { flowResult: { in: ['local_deleted', 'manual_closed', 'blocked_manual'] } },
+                { metadata: { contains: '"inboxLocalDeleted":true' } },
+                { metadata: { contains: '"routeTarget":"excluidos"' } },
+                { metadata: { contains: '"queueTarget":"excluidos"' } },
+              ],
+            },
+          ],
+        },
+        orderBy: { lastMessageAt: 'desc' },
+        select: {
+          id: true,
+          contact: true,
+          whatsappConnectionSessionId: true,
+          sourcePhoneNormalized: true,
+          sourceTenantKey: true,
+          metadata: true,
+          currentFlow: true,
+          currentStep: true,
+          flowResult: true,
+          botActive: true,
+          humanAssigned: true,
+          assignedUserId: true,
+          lastMessageAt: true,
+          lastInteractionAt: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+      if (!fallbackRows.length) return null;
+      const exactFallback = fallbackRows.find((row) => String(row.contact || '') === preferredContact);
+      const phoneFallback = fallbackRows.find((row) => this.isPreferredPhoneContact(row.contact));
+      return exactFallback || phoneFallback || fallbackRows[0] || null;
+    }
     const consolidated = await this.consolidateDuplicateConversations(
       companyId,
       rows,

@@ -1135,3 +1135,61 @@ test('WebwhatsBridgeService keeps existing phone contact before incoming alterna
     '+5519996197927',
   );
 });
+
+test('WebwhatsBridgeService reuses prospection stub without session before creating duplicate chat', async () => {
+  const prospectionStub = {
+    id: 2855,
+    contact: '+551935240328',
+    whatsappConnectionSessionId: null,
+    sourcePhoneNormalized: null,
+    sourceTenantKey: null,
+    metadata: JSON.stringify({
+      queueTarget: 'prospeccao',
+      routeTarget: 'prospeccao',
+      vendasAgendaQueue: {
+        active: true,
+        queueTarget: 'prospeccao',
+        routeTarget: 'prospeccao',
+      },
+    }),
+    currentFlow: 'cobranca_recovery',
+    currentStep: 'novo',
+    flowResult: null,
+    botActive: true,
+    humanAssigned: false,
+    assignedUserId: null,
+    lastMessageAt: new Date('2026-05-28T11:41:46.000Z'),
+    lastInteractionAt: new Date('2026-05-28T11:41:46.000Z'),
+    createdAt: new Date('2026-05-28T11:40:00.000Z'),
+    updatedAt: new Date('2026-05-28T11:41:46.000Z'),
+  };
+  const findManyCalls: any[] = [];
+  const prisma = {
+    companyConversation: {
+      findMany: async (input: any) => {
+        findManyCalls.push(input);
+        return findManyCalls.length === 1 ? [] : [prospectionStub];
+      },
+    },
+  };
+  const service = new WebwhatsBridgeService(prisma as any) as any;
+  service.consolidateDuplicateConversations = async () => null;
+
+  const found = await service.findConversation(
+    73,
+    'session-current',
+    '551935240328@s.whatsapp.net',
+    null,
+    '+551935240328',
+  );
+
+  assert.equal(found?.id, 2855);
+  assert.equal(findManyCalls.length, 2);
+  assert.deepEqual(findManyCalls[0].where.whatsappConnectionSessionId, 'session-current');
+  assert.equal(findManyCalls[1].where.whatsappConnectionSessionId, undefined);
+  assert.ok(
+    findManyCalls[1].where.AND.some((item: any) =>
+      item.OR?.some((condition: any) => condition.metadata?.contains === '"vendasAgendaQueue"'),
+    ),
+  );
+});
