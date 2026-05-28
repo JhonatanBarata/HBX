@@ -463,8 +463,6 @@ type UserModule = {
   accessible: boolean;
 };
 
-type DeletedConversationAliasMap = Record<string, string>;
-
 type VendasAgendaQueueMetadata = {
   active?: boolean;
   leadId?: string | null;
@@ -572,7 +570,6 @@ function buildInboxQueueBooleanMap(value = false): Record<InboxQueue, boolean> {
 const INBOX_BOT_PLAN_HREF = "/planos?intent=bot_ia&from=inbox_bot";
 
 const INBOX_MANUAL_QUEUE_STORAGE_KEY = "hbx:inbox:manual-queue-overrides";
-const INBOX_DELETED_CONVERSATION_ALIASES_STORAGE_KEY = "hbx:inbox:deleted-conversation-aliases";
 const INBOX_GLOBAL_BOT_ENABLED_STORAGE_KEY = "hbx:inbox:global-bot-enabled";
 const ATENDIMENTO_OPERATOR_STATUS_STORAGE_KEY = "hbx:atendimento:operator-status";
 const ATENDIMENTO_PENDING_STORAGE_KEY = "atendimentoPendingHumanCount";
@@ -681,28 +678,6 @@ function readStoredGlobalBotEnabled() {
 function writeStoredGlobalBotEnabled(enabled: boolean) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(INBOX_GLOBAL_BOT_ENABLED_STORAGE_KEY, enabled ? "true" : "false");
-}
-
-function normalizeDeletedConversationAliasMap(raw: unknown): DeletedConversationAliasMap {
-  if (Array.isArray(raw)) {
-    const fallbackDeletedAt = new Date().toISOString();
-    return Object.fromEntries(
-      raw
-        .map((value) => String(value || "").trim())
-        .filter(Boolean)
-        .map((alias) => [alias, fallbackDeletedAt]),
-    );
-  }
-
-  if (!raw || typeof raw !== "object") {
-    return {};
-  }
-
-  const entries = Object.entries(raw as Record<string, unknown>)
-    .map(([alias, deletedAt]) => [String(alias || "").trim(), String(deletedAt || "").trim()] as const)
-    .filter(([alias, deletedAt]) => alias && deletedAt);
-
-  return Object.fromEntries(entries);
 }
 
 function normalizeInboxConversationId(value: unknown) {
@@ -4092,13 +4067,6 @@ function getInboxConversationIdentityAliases(conversation?: InboxConversation | 
   return Array.from(aliases);
 }
 
-function isInboxConversationHiddenByDelete(
-  _conversation: InboxConversation | null | undefined,
-  _deletedAliases: DeletedConversationAliasMap,
-) {
-  return false;
-}
-
 function getInboxConversationQualityScore(conversation: InboxConversation) {
   const hasPhone = Boolean(extractInboxContactDigits(extractInboxRawContact(conversation)));
   const hasAvatar = Boolean(resolveInboxAvatarUrl(conversation));
@@ -4713,10 +4681,7 @@ function isInboxRealMessage(message?: InboxMessage | null) {
   if (direction !== "inbound" && direction !== "outbound") return false;
   const messageType = String(message.messageType || "").trim().toLowerCase();
   const senderType = String(message.senderType || "").trim().toLowerCase();
-  const metadata = message.metadata && typeof message.metadata === "object" && !Array.isArray(message.metadata)
-    ? message.metadata
-    : null;
-  return messageType !== "system_event" && senderType !== "system" && !metadata?.isLocalHidden && !metadata?.isDeleted;
+  return messageType !== "system_event" && senderType !== "system";
 }
 
 function getInboxLatestRealMessage(messages?: InboxMessage[] | null) {
@@ -5127,7 +5092,6 @@ function InboxDesktopClientPage() {
   const [newConversationName, setNewConversationName] = useState("");
   const [newConversationBusy, setNewConversationBusy] = useState(false);
   const [manualQueueOverrides, setManualQueueOverrides] = useState<Record<string, InboxQueue>>({});
-  const [deletedConversationAliases, setDeletedConversationAliases] = useState<DeletedConversationAliasMap>({});
   const [draggedConversationId, setDraggedConversationId] = useState<string | null>(null);
   const [draggedQueueId, setDraggedQueueId] = useState<InboxQueue | null>(null);
   const [dropOverQueue, setDropOverQueue] = useState<InboxQueue | null>(null);
@@ -5180,7 +5144,6 @@ function InboxDesktopClientPage() {
   const [queueActionMenuPosition, setQueueActionMenuPosition] = useState<QueueActionMenuPosition | null>(null);
   const [messageReactionTargetId, setMessageReactionTargetId] = useState<string | null>(null);
   const [blockDialog, setBlockDialog] = useState<{ conversationId: string; reason: string } | null>(null);
-  const [deleteMessageDialog, setDeleteMessageDialog] = useState<{ messageId: string } | null>(null);
   const [operatorStatusDialogOpen, setOperatorStatusDialogOpen] = useState(false);
   const [operatorPresencePreset, setOperatorPresencePreset] = useState<OperatorPresencePreset>("disponivel");
   const [operatorPresenceMessage, setOperatorPresenceMessage] = useState("Disponível");
@@ -5326,7 +5289,6 @@ function InboxDesktopClientPage() {
   const conversationDetailCacheRef = useRef<Map<string, InboxConversation>>(new Map());
   const customerConversationCardCacheRef = useRef<Map<string, CustomerConversationCardPayload>>(new Map());
   const manualQueueOverridesRef = useRef<Record<string, InboxQueue>>({});
-  const deletedConversationAliasesRef = useRef<DeletedConversationAliasMap>({});
   const selectedIdRef = useRef<string | null>(null);
   const selectedConversationRef = useRef<InboxConversation | null>(null);
   const activeConversationLatestMessageKeyRef = useRef<Record<string, string>>({});
@@ -5631,31 +5593,8 @@ function InboxDesktopClientPage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    try {
-      const raw = window.localStorage.getItem(INBOX_DELETED_CONVERSATION_ALIASES_STORAGE_KEY);
-      const parsed = raw ? JSON.parse(raw) : {};
-      const normalized = normalizeDeletedConversationAliasMap(parsed);
-      setDeletedConversationAliases(normalized);
-      deletedConversationAliasesRef.current = normalized;
-    } catch {
-      setDeletedConversationAliases({});
-      deletedConversationAliasesRef.current = {};
-    }
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
     window.localStorage.setItem(INBOX_MANUAL_QUEUE_STORAGE_KEY, JSON.stringify(manualQueueOverrides));
   }, [manualQueueOverrides]);
-
-  useEffect(() => {
-    deletedConversationAliasesRef.current = deletedConversationAliases;
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(
-      INBOX_DELETED_CONVERSATION_ALIASES_STORAGE_KEY,
-      JSON.stringify(deletedConversationAliases),
-    );
-  }, [deletedConversationAliases]);
 
   useEffect(() => {
     if (!agendaStudioOpen && !templatesStudioOpen) return;
@@ -5780,16 +5719,9 @@ function InboxDesktopClientPage() {
       }
       const nextList = normalizeInboxConversationList(
         Array.isArray(payload?.conversations) ? payload.conversations : [],
-      ).filter(
-        (conversation) =>
-          !isInboxConversationHiddenByDelete(conversation, deletedConversationAliasesRef.current),
       );
       const normalizedDetail = normalizeInboxConversationPayload(payload?.selectedConversation);
-      const detail =
-        normalizedDetail &&
-        !isInboxConversationHiddenByDelete(normalizedDetail, deletedConversationAliasesRef.current)
-          ? normalizedDetail
-          : null;
+      const detail = normalizedDetail || null;
       const preferredId = detail?.id || nextList[0]?.id || null;
       const summary = preferredId
         ? nextList.find((conversation) => conversation.id === preferredId) || null
@@ -5946,18 +5878,6 @@ function InboxDesktopClientPage() {
       }
 
       if (requestToken !== conversationLoadTokenRef.current) {
-        return;
-      }
-
-      if (isInboxConversationHiddenByDelete(data, deletedConversationAliasesRef.current)) {
-        if (selectedIdRef.current === conversationId) {
-          setSelectedId(null);
-          setSelectedConversation(null);
-          selectedIdRef.current = null;
-          selectedConversationRef.current = null;
-          setOlderMessagesBefore(null);
-          setOlderMessagesHasMore(false);
-        }
         return;
       }
 
@@ -6202,9 +6122,7 @@ function InboxDesktopClientPage() {
             timeoutMs: 15000,
           },
         );
-        const rawPage = normalizeInboxConversationList(Array.isArray(response) ? response : []).filter(
-          (conversation) => !isInboxConversationHiddenByDelete(conversation, deletedConversationAliasesRef.current),
-        );
+        const rawPage = normalizeInboxConversationList(Array.isArray(response) ? response : []);
         const page = append || appendQueue !== "all"
           ? rawPage.filter((conversation) =>
               isInboxConversationVisibleInQueue(conversation, appendQueue, manualOverrides),
@@ -8324,40 +8242,6 @@ function InboxDesktopClientPage() {
     [loadConversations, rememberConversationDetail, selectedId],
   );
 
-  const deleteSentMessage = useCallback(
-    async (messageId: string) => {
-      if (!selectedId || !messageId) return;
-      setDeleteMessageDialog({ messageId });
-    },
-    [selectedId],
-  );
-
-  const confirmDeleteSentMessage = useCallback(
-    async () => {
-      const messageId = deleteMessageDialog?.messageId;
-      if (!selectedId || !messageId) return;
-      setError(null);
-      try {
-        const data = await apiFetch<InboxConversation>(
-          `/inbox/conversations/${selectedId}/messages/${messageId}`,
-          {
-            method: "DELETE",
-          },
-        );
-        setSelectedConversation(data);
-        rememberConversationDetail(data);
-        setMessageReactionTargetId(null);
-        setDeleteMessageDialog(null);
-        setNotice({ tone: "success", text: "Mensagem apagada para todos." });
-        await loadConversations({ preferredId: data.id, silent: true });
-      } catch (deleteError) {
-        const message = deleteError instanceof Error ? deleteError.message : "Falha ao apagar mensagem.";
-        setError(message);
-      }
-    },
-    [deleteMessageDialog?.messageId, loadConversations, rememberConversationDetail, selectedId],
-  );
-
   const retryFailedMessage = useCallback(
     async (messageId: string) => {
       if (!selectedId || !messageId) return;
@@ -9182,10 +9066,6 @@ function InboxDesktopClientPage() {
                       reactionEmojis,
                       canPreviewDocument,
                     } = item;
-                    const canDeleteMessage =
-                      isOutbound &&
-                      !rendered.isDeleted &&
-                      Boolean(reactionKey);
                     const canRevealDeleted = rendered.isDeleted && canRevealDeletedInboxMessage(message);
                     const isDeletedRevealed = Boolean(revealedDeletedMessageIds[message.id]);
                     const isOptimisticMessage = isInboxOptimisticMessage(message);
@@ -9256,17 +9136,6 @@ function InboxDesktopClientPage() {
                               >
                                 <ChatGlyph name="smile" />
                               </button>
-                              {canDeleteMessage ? (
-                                <button
-                                  type="button"
-                                  className={styles.whatsAppReplyButtonHover}
-                                  title="Apagar para todos"
-                                  onMouseDown={(e) => e.preventDefault()}
-                                  onClick={() => void deleteSentMessage(message.id)}
-                                >
-                                  <ChatGlyph name="trash" />
-                                </button>
-                              ) : null}
                             </div>
                           ) : null}
                           <div className={styles.whatsAppBubbleWrap}>
@@ -9858,7 +9727,6 @@ function InboxDesktopClientPage() {
       conversationForView,
       conversationMessagesForView.length,
       conversationTimelineItems,
-      deleteSentMessage,
       emojiPickerOpen,
       handleChatTimelineScroll,
       handleComposerPaste,
@@ -11322,15 +11190,6 @@ function InboxDesktopClientPage() {
         </HbxPopup2>
       ) : null}
 
-      <HbxConfirmDialog
-        open={deleteMessageDialog !== null}
-        title="Apagar mensagem"
-        description="A mensagem será apagada para todos quando o provedor aceitar a operação."
-        confirmLabel="Apagar para todos"
-        destructive
-        onCancel={() => setDeleteMessageDialog(null)}
-        onConfirm={() => void confirmDeleteSentMessage()}
-      />
     </>
   );
 }
