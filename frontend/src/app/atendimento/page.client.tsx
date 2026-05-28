@@ -5218,6 +5218,11 @@ function InboxDesktopClientPage() {
   const customerReturnAutoSaveTimerRef = useRef<number | null>(null);
   const conversationSearchInputRef = useRef<HTMLInputElement | null>(null);
   const conversationsRef = useRef<InboxConversation[]>([]);
+  const previousTimelineLatestRef = useRef<{
+    conversationId: string | null;
+    latestKey: string | null;
+    messageCount: number;
+  }>({ conversationId: null, latestKey: null, messageCount: 0 });
   const loadingMoreConversationsRef = useRef(false);
   const conversationListHasMoreByQueueRef = useRef<Record<InboxQueue, boolean>>(buildInboxQueueBooleanMap(false));
   const conversationDetailCacheRef = useRef<Map<string, InboxConversation>>(new Map());
@@ -5242,6 +5247,7 @@ function InboxDesktopClientPage() {
   const deferredConversationSearch = useDeferredValue(conversationSearch);
   const initialMirrorBootstrapStartedRef = useRef(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [timelineNewMessageCount, setTimelineNewMessageCount] = useState(0);
   const botAiActive = hasBotAi(commercialPlans);
   const botSetupComplete = isAtendimentoBotSetupComplete(botConfig);
   const globalBotEnabled = botAiActive && botSetupComplete && botConfig.routingRules.globalBotEnabled !== false;
@@ -7343,6 +7349,9 @@ function InboxDesktopClientPage() {
     const distanceFromBottom = timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight;
     const isNearBottom = distanceFromBottom <= 96;
     chatTimelineStickToBottomRef.current = isNearBottom;
+    if (isNearBottom) {
+      setTimelineNewMessageCount(0);
+    }
     setShowScrollToBottom((current) => {
       const next = !isNearBottom;
       return current === next ? current : next;
@@ -7355,6 +7364,7 @@ function InboxDesktopClientPage() {
     timeline.scrollTop = timeline.scrollHeight;
     chatTimelineStickToBottomRef.current = true;
     setShowScrollToBottom(false);
+    setTimelineNewMessageCount(0);
   }, []);
   const conversationReactionIndex = useMemo(
     () => buildInboxReactionIndex(conversationForView?.messages),
@@ -9287,10 +9297,17 @@ function InboxDesktopClientPage() {
                     type="button"
                     className={styles.whatsAppScrollToBottomButton}
                     onClick={scrollChatTimelineToBottom}
-                    aria-label="Ir para a mensagem mais recente"
-                    title="Ir para o fim"
+                    aria-label={
+                      timelineNewMessageCount > 0
+                        ? `Ir para ${timelineNewMessageCount} ${timelineNewMessageCount === 1 ? "mensagem nova" : "mensagens novas"}`
+                        : "Ir para a mensagem mais recente"
+                    }
+                    title={timelineNewMessageCount > 0 ? "Novas mensagens" : "Ir para o fim"}
                   >
-                    ↓
+                    <span aria-hidden="true">↓</span>
+                    {timelineNewMessageCount > 0 ? (
+                      <b>{timelineNewMessageCount > 9 ? "9+" : timelineNewMessageCount}</b>
+                    ) : null}
                   </button>
                 ) : null}
               </div>
@@ -10117,6 +10134,7 @@ function InboxDesktopClientPage() {
       stopRecording,
       togglePersonalContact,
       toggleQueueConversationMenu,
+      timelineNewMessageCount,
       unblockConversation,
       updateStatus,
     ],
@@ -10396,6 +10414,32 @@ function InboxDesktopClientPage() {
       window.clearTimeout(mediaTimer);
     };
   }, [latestVisibleMessageKey, scrollChatTimelineToBottom, selectedConversationScrollKey]);
+
+  useEffect(() => {
+    const previous = previousTimelineLatestRef.current;
+    const next = {
+      conversationId: selectedConversationScrollKey,
+      latestKey: latestVisibleMessageKey,
+      messageCount: conversationMessagesForView.length,
+    };
+
+    if (previous.conversationId !== next.conversationId) {
+      previousTimelineLatestRef.current = next;
+      setTimelineNewMessageCount(0);
+      return;
+    }
+
+    const latestChanged = Boolean(previous.latestKey && next.latestKey && previous.latestKey !== next.latestKey);
+    if (latestChanged && !chatTimelineStickToBottomRef.current) {
+      const added = Math.max(1, next.messageCount - previous.messageCount);
+      setTimelineNewMessageCount((current) => Math.min(99, current + added));
+      setShowScrollToBottom(true);
+    } else if (chatTimelineStickToBottomRef.current) {
+      setTimelineNewMessageCount(0);
+    }
+
+    previousTimelineLatestRef.current = next;
+  }, [conversationMessagesForView.length, latestVisibleMessageKey, selectedConversationScrollKey]);
 
   // Clear composer state when switching conversations
   useEffect(() => {
