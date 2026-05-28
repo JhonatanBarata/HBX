@@ -636,6 +636,70 @@ test('sendMessage queues outbound on the real conversation with human flow state
   assert.equal(conversationStateCalls.length, 0);
 });
 
+test('retryConversationMessage reopens failed outbound in the dispatch queue', async () => {
+  const outboundUpdates: Array<Record<string, any>> = [];
+  const messageUpdates: Array<Record<string, any>> = [];
+  const { service, auditCalls } = createService({
+    prisma: {
+      outboundMessage: {
+        update: async (input: Record<string, any>) => {
+          outboundUpdates.push(input);
+          return { id: input.where.id, ...input.data };
+        },
+      },
+      companyMessage: {
+        findFirst: async () => ({
+          id: 901,
+          companyId: 7,
+          conversationId: 42,
+          direction: 'OUTBOUND',
+          status: 'FAILED',
+          error: 'Timeout no Webwhats',
+          outboundMessageId: 777,
+          messageType: 'text',
+          outboundMessage: {
+            id: 777,
+            status: 'FAILED',
+            deliveryStatus: 'failed',
+            failedAt: new Date('2026-05-27T12:00:00.000Z'),
+            to: '+5519998877766',
+            sourceModule: 'atendimento_human',
+          },
+        }),
+        update: async (input: Record<string, any>) => {
+          messageUpdates.push(input);
+          return { id: input.where.id, ...input.data };
+        },
+      },
+    },
+  });
+  (service as any).getConversationByIdForCompany = async () => ({ id: '42', messages: [{ id: '901', status: 'QUEUED' }] });
+
+  const result = await service.retryConversationMessage({ companyId: 7 }, 42, 901);
+
+  assert.equal(result.id, '42');
+  assert.equal(outboundUpdates.length, 1);
+  assert.equal(outboundUpdates[0].where.id, 777);
+  assert.equal(outboundUpdates[0].data.status, 'PENDING');
+  assert.equal(outboundUpdates[0].data.attemptCount, 0);
+  assert.equal(outboundUpdates[0].data.failedAt, null);
+  assert.equal(outboundUpdates[0].data.deliveryStatus, null);
+  assert.equal(outboundUpdates[0].data.lastError, null);
+  assert.equal(outboundUpdates[0].data.providerMessageId, null);
+  assert.equal(messageUpdates.length, 1);
+  assert.deepEqual(messageUpdates[0], {
+    where: { id: 901 },
+    data: {
+      status: 'QUEUED',
+      error: null,
+      providerMessageId: null,
+    },
+  });
+  assert.equal(auditCalls.length, 1);
+  assert.equal(auditCalls[0].event, 'manual_outbound_retry_queued');
+  assert.equal((auditCalls[0].metadata as any).outboundMessageId, 777);
+});
+
 test('sendMessage clears pending Vendas agenda draft after queueing manual outbound', async () => {
   const { service, conversationStateCalls } = createService({
     prisma: {

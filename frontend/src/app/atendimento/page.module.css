@@ -8447,6 +8447,9 @@
 
 .whatsAppDeliveryNotice {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
   max-width: 100%;
   margin-top: 0.36rem;
   padding: 0.32rem 0.48rem;
@@ -8460,10 +8463,50 @@
   overflow-wrap: anywhere;
 }
 
+.whatsAppDeliveryNotice > span {
+  min-width: 0;
+}
+
 .whatsAppDeliveryNotice[data-state="failed"] {
   border-color: rgba(248, 113, 113, 0.5);
   background: rgba(127, 29, 29, 0.22);
   color: #fecaca;
+}
+
+.whatsAppDeliveryRetryButton {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.24rem;
+  min-height: 24px;
+  padding: 0.24rem 0.44rem;
+  border-radius: 999px;
+  border: 1px solid rgba(254, 202, 202, 0.46);
+  background: rgba(254, 202, 202, 0.12);
+  color: #fee2e2;
+  font: inherit;
+  font-size: 0.66rem;
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.whatsAppDeliveryRetryButton svg {
+  width: 12px;
+  height: 12px;
+}
+
+.whatsAppDeliveryRetryButton:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: rgba(254, 202, 202, 0.74);
+  background: rgba(254, 202, 202, 0.2);
+}
+
+.whatsAppDeliveryRetryButton:disabled {
+  cursor: wait;
+  opacity: 0.68;
 }
 
 .whatsAppQuotedSnippet {
@@ -9452,6 +9495,17 @@
   border-color: color-mix(in srgb, #ef4444 38%, var(--line));
   background: color-mix(in srgb, #fee2e2 78%, var(--surface));
   color: #991b1b;
+}
+
+:global(html[data-theme-mode="light"]) .whatsAppDeliveryRetryButton {
+  border-color: color-mix(in srgb, #ef4444 42%, var(--line));
+  background: color-mix(in srgb, #fff 76%, #fee2e2);
+  color: #991b1b;
+}
+
+:global(html[data-theme-mode="light"]) .whatsAppDeliveryRetryButton:hover:not(:disabled) {
+  border-color: color-mix(in srgb, #ef4444 62%, var(--line));
+  background: color-mix(in srgb, #fee2e2 72%, #fff);
 }
 
 :global(html[data-theme-mode="light"]) .whatsAppQuotedSnippet,

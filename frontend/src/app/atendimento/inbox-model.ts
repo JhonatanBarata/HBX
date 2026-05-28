@@ -94,6 +94,7 @@ export type InboxMessage = {
   sourceModule?: string | null;
   status: string;
   error: string | null;
+  outboundMessageId?: number | null;
   metadata?: Record<string, unknown> | null;
 };
 
