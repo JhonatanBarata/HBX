@@ -157,6 +157,14 @@ export type InboxBootstrapPayload = {
     reason?: string | null;
     mode?: "current" | "all" | string;
     currentSessionId?: string | null;
+    providerHealth?: {
+      status?: string | null;
+      canSafelyDelete?: boolean | null;
+      reason?: string | null;
+      lastCheckedAt?: string | null;
+      rawStatus?: string | null;
+      rawError?: string | null;
+    } | null;
     currentSession?: {
       id: string;
       provider?: string | null;
