@@ -651,7 +651,7 @@ function getInboxQueueLabel(queue: InboxQueue) {
     case "bot":
       return "Prospecção";
     case "archived":
-      return "Encerrado";
+      return "Excluídos";
     case "blocked":
       return "Bloqueados";
     default:
@@ -8819,7 +8819,7 @@ function InboxDesktopClientPage() {
             counts={queueCounts as Record<ConversationQueueFilterValue, number>}
             unreadCounts={queueUnreadCounts as Record<ConversationQueueFilterValue, number>}
             showArchived
-            archivedLabel="Encerrado"
+            archivedLabel="Excluídos"
             botSignalCounts={prospectionSignalCounts}
             dropOverQueue={dropOverQueue as ConversationQueueFilterValue | null}
             allowQueueCardDrag

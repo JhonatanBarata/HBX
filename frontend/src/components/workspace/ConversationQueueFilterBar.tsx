@@ -51,7 +51,7 @@ export default function ConversationQueueFilterBar({
   counts,
   unreadCounts,
   showArchived = false,
-  archivedLabel = "Encerrado",
+  archivedLabel = "Excluídos",
   botSignalCounts,
   dropOverQueue,
   allowQueueCardDrag = false,
