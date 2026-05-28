@@ -7314,6 +7314,59 @@ function InboxDesktopClientPage() {
     () => getInboxVendasAgendaPendingDraft(conversationForView),
     [conversationForView],
   );
+  const conversationQueueItems = useMemo(
+    () =>
+      filteredConversations.map((conversation, idx) => {
+        const active = conversation.id === selectedId;
+        const unreadCount = getInboxConversationUnreadCount(conversation);
+        const statusMeta = getAtendimentoConversationStatusMeta(
+          conversation,
+          hasRecoveryCapability,
+        );
+        const conversationWithoutWhatsapp = hasConversationUnavailableWhatsapp(
+          conversation.id,
+          customerConversationCardCacheRef.current,
+          active ? customerConversationCard : null,
+          conversation,
+        );
+        const displayName = resolveInboxConversationDisplayName(conversation);
+        const previewLabel = renderInboxConversationPreview(conversation);
+        const prospectionStatusMeta = getInboxProspectionStatusMeta(conversation);
+        const interested = isProspectingInterestedConversation(conversation);
+        const activityAt = getInboxConversationActivityAt(conversation);
+        const activityAtLabel = activityAt ? formatTimeLabel(activityAt, mounted) : "Sem mensagens";
+        const itemStyle = {
+          "--reveal-index": idx,
+          ...(prospectionStatusMeta
+            ? {
+                "--conversation-prospeccao-accent": prospectionStatusMeta.accent,
+                "--conversation-prospeccao-surface": prospectionStatusMeta.surface,
+              }
+            : {}),
+        } as CSSProperties;
+
+        return {
+          conversation,
+          active,
+          unreadCount,
+          statusMeta,
+          conversationWithoutWhatsapp,
+          displayName,
+          previewLabel,
+          prospectionStatusMeta,
+          interested,
+          activityAtLabel,
+          itemStyle,
+        };
+      }),
+    [
+      customerConversationCard,
+      filteredConversations,
+      hasRecoveryCapability,
+      mounted,
+      selectedId,
+    ],
+  );
   const conversationMessagesForView = useMemo(
     () => sortInboxMessagesChronologically(
       (Array.isArray(conversationForView?.messages) ? conversationForView.messages : []).filter(
@@ -8677,7 +8730,7 @@ function InboxDesktopClientPage() {
           />
           {loadingList ? (
             <ChatEmptyState title="Carregando conversas">A fila sera montada assim que a leitura inicial terminar.</ChatEmptyState>
-          ) : conversationListError && filteredConversations.length === 0 ? (
+          ) : conversationListError && conversationQueueItems.length === 0 ? (
             <ConversationWorkspaceStatus
               title="Falha ao carregar conversas"
               description={conversationListError}
@@ -8686,7 +8739,7 @@ function InboxDesktopClientPage() {
               onRetry={retryConversationList}
               retryLabel="Recarregar fila"
             />
-          ) : filteredConversations.length === 0 ? (
+          ) : conversationQueueItems.length === 0 ? (
             <ChatEmptyState title="Nenhuma conversa encontrada">Ajuste o filtro ou aguarde novas mensagens entrarem na fila.</ChatEmptyState>
           ) : (
             <ChatQueue
@@ -8699,34 +8752,20 @@ function InboxDesktopClientPage() {
                 if (remaining < 96) loadMoreConversations();
               }}
             >
-              {filteredConversations.map((conversation, idx) => {
-                const active = conversation.id === selectedId;
-                const unreadCount = getInboxConversationUnreadCount(conversation);
-                const statusMeta = getAtendimentoConversationStatusMeta(
+              {conversationQueueItems.map((item) => {
+                const {
                   conversation,
-                  hasRecoveryCapability,
-                );
-                const conversationWithoutWhatsapp = hasConversationUnavailableWhatsapp(
-                  conversation.id,
-                  customerConversationCardCacheRef.current,
-                  conversation.id === selectedId ? customerConversationCard : null,
-                  conversation,
-                );
-                const displayName = resolveInboxConversationDisplayName(conversation);
-                const previewLabel = renderInboxConversationPreview(conversation);
-                const prospectionStatusMeta = getInboxProspectionStatusMeta(conversation);
-                const interested = isProspectingInterestedConversation(conversation);
-                const activityAt = getInboxConversationActivityAt(conversation);
-                const activityAtLabel = activityAt ? formatTimeLabel(activityAt, mounted) : "Sem mensagens";
-                const itemStyle = {
-                  "--reveal-index": idx,
-                  ...(prospectionStatusMeta
-                    ? {
-                        "--conversation-prospeccao-accent": prospectionStatusMeta.accent,
-                        "--conversation-prospeccao-surface": prospectionStatusMeta.surface,
-                      }
-                    : {}),
-                } as CSSProperties;
+                  active,
+                  unreadCount,
+                  statusMeta,
+                  conversationWithoutWhatsapp,
+                  displayName,
+                  previewLabel,
+                  prospectionStatusMeta,
+                  interested,
+                  activityAtLabel,
+                  itemStyle,
+                } = item;
                 return (
                   <ChatQueueItem
                     key={conversation.id}
@@ -10078,7 +10117,7 @@ function InboxDesktopClientPage() {
       customerConversationCardError,
       conversationListHasMore,
       hasRecoveryCapability,
-      filteredConversations,
+      conversationQueueItems,
       handleChatTimelineScroll,
       handleSectionChange,
       handleComposerPaste,
