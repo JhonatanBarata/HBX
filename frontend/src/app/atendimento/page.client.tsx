@@ -100,6 +100,7 @@ type QueueActionMenuPosition = { top: number; left: number };
 type AtendimentoSection = "conversa" | "financeiro" | "agenda" | "automacao";
 type AgendaMode = "sales" | "bot";
 type StatusFilter = "all" | "new" | "open" | "closed" | "blocked";
+type OperatorPresencePreset = "disponivel" | "ocupado" | "indisponivel";
 
 type NoticeState = {
   tone: "success" | "error" | "info";
@@ -560,6 +561,7 @@ const INBOX_QUEUE_ORDER: InboxQueue[] = [
   "bot",
   "recovery",
   "groups",
+  "archived",
   "blocked",
 ];
 
@@ -572,6 +574,7 @@ const INBOX_BOT_PLAN_HREF = "/planos?intent=bot_ia&from=inbox_bot";
 const INBOX_MANUAL_QUEUE_STORAGE_KEY = "hbx:inbox:manual-queue-overrides";
 const INBOX_DELETED_CONVERSATION_ALIASES_STORAGE_KEY = "hbx:inbox:deleted-conversation-aliases";
 const INBOX_GLOBAL_BOT_ENABLED_STORAGE_KEY = "hbx:inbox:global-bot-enabled";
+const ATENDIMENTO_OPERATOR_STATUS_STORAGE_KEY = "hbx:atendimento:operator-status";
 const ATENDIMENTO_PENDING_STORAGE_KEY = "atendimentoPendingHumanCount";
 const ATENDIMENTO_PROGRESS_STEPS = ["lendo banco", "filtrando negativos", "selecionando melhores cards", "alimentando Vendas/Prospecção"];
 const DEFAULT_META_TEMPLATES_PAYLOAD: RecoveryMetaTemplatesPayload = {
@@ -856,12 +859,32 @@ function formatProspectionCountdownLabel(targetAt: string, now = Date.now()) {
   if (!Number.isFinite(target)) return null;
   const remainingMs = Math.max(0, target - now);
   const totalSeconds = Math.ceil(remainingMs / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
-  if (minutes < 100) return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-  const hours = Math.floor(minutes / 60);
-  const restMinutes = minutes % 60;
-  return `${String(hours).padStart(2, "0")}:${String(restMinutes).padStart(2, "0")}`;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function normalizeOperatorPresencePreset(value: unknown): OperatorPresencePreset {
+  const normalized = String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+  if (normalized === "ocupado" || normalized === "busy") return "ocupado";
+  if (normalized === "indisponivel" || normalized === "offline" || normalized === "away") return "indisponivel";
+  return "disponivel";
+}
+
+function getOperatorPresenceLabel(preset: OperatorPresencePreset) {
+  switch (preset) {
+    case "ocupado":
+      return "Ocupado";
+    case "indisponivel":
+      return "Indisponível";
+    default:
+      return "Disponível";
+  }
 }
 
 function ProspectionCountdownBadge({ targetAt }: { targetAt: string }) {
@@ -2995,6 +3018,49 @@ function formatShortDateTimeLabel(dateStr: string | null | undefined, mounted: b
   });
 }
 
+function getInboxConversationPresenceMeta(conversation: InboxConversation | null | undefined, mounted: boolean) {
+  const metadata = getInboxConversationMetadata(conversation);
+  if (!conversation || !metadata) {
+    return { label: "presença indisponível", tone: "closed" as const };
+  }
+  const typing = [
+    metadata.whatsappTyping,
+    metadata.contactTyping,
+    metadata.isTyping,
+    metadata.presenceTyping,
+  ].some((value) => parseInboxBooleanFlag(value));
+  if (typing) return { label: "digitando...", tone: "success" as const };
+
+  const online = [
+    metadata.whatsappOnline,
+    metadata.contactOnline,
+    metadata.isOnline,
+    metadata.presenceOnline,
+  ].some((value) => parseInboxBooleanFlag(value));
+  if (online) return { label: "online agora", tone: "success" as const };
+
+  const statusText = String(
+    metadata.whatsappPresenceStatus ||
+      metadata.contactPresenceStatus ||
+      metadata.presenceStatus ||
+      metadata.whatsappAbout ||
+      "",
+  ).trim();
+  if (statusText) return { label: statusText.slice(0, 48), tone: "human" as const };
+
+  const lastSeenAt = [
+    metadata.whatsappLastSeenAt,
+    metadata.contactLastSeenAt,
+    metadata.lastSeenAt,
+    metadata.lastPresenceAt,
+  ]
+    .map((value) => String(value || "").trim())
+    .find((value) => value && !Number.isNaN(new Date(value).getTime()));
+  if (lastSeenAt) return { label: `visto ${formatShortDateTimeLabel(lastSeenAt, mounted)}`, tone: "closed" as const };
+
+  return { label: "presença não enviada pelo WebWhats", tone: "closed" as const };
+}
+
 function formatDateTimeLocalValue(dateStr: string | null | undefined) {
   if (!dateStr) return "";
   const parsed = new Date(dateStr);
@@ -5123,6 +5189,12 @@ function InboxDesktopClientPage() {
   const [messageReactionTargetId, setMessageReactionTargetId] = useState<string | null>(null);
   const [blockDialog, setBlockDialog] = useState<{ conversationId: string; reason: string } | null>(null);
   const [deleteMessageDialog, setDeleteMessageDialog] = useState<{ messageId: string } | null>(null);
+  const [operatorStatusDialogOpen, setOperatorStatusDialogOpen] = useState(false);
+  const [operatorPresencePreset, setOperatorPresencePreset] = useState<OperatorPresencePreset>("disponivel");
+  const [operatorPresenceMessage, setOperatorPresenceMessage] = useState("Disponível");
+  const [operatorPresenceDraftPreset, setOperatorPresenceDraftPreset] =
+    useState<OperatorPresencePreset>("disponivel");
+  const [operatorPresenceDraftMessage, setOperatorPresenceDraftMessage] = useState("Disponível");
 
   useEffect(() => {
     if (!requestedSupportPhone) return;
@@ -5138,6 +5210,40 @@ function InboxDesktopClientPage() {
       text: "Suporte HBX preparado no Inbox com a mensagem pronta.",
     });
   }, [requestedSupportMessage, requestedSupportPhone]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const parsed = JSON.parse(window.localStorage.getItem(ATENDIMENTO_OPERATOR_STATUS_STORAGE_KEY) || "{}") as {
+        preset?: string;
+        message?: string;
+      };
+      const preset = normalizeOperatorPresencePreset(parsed?.preset);
+      const message = String(parsed?.message || getOperatorPresenceLabel(preset)).trim().slice(0, 80);
+      setOperatorPresencePreset(preset);
+      setOperatorPresenceMessage(message || getOperatorPresenceLabel(preset));
+      setOperatorPresenceDraftPreset(preset);
+      setOperatorPresenceDraftMessage(message || getOperatorPresenceLabel(preset));
+    } catch {
+      // localStorage indisponivel: mantem status padrao da sessao.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(
+        ATENDIMENTO_OPERATOR_STATUS_STORAGE_KEY,
+        JSON.stringify({
+          preset: operatorPresencePreset,
+          message: operatorPresenceMessage,
+          updatedAt: new Date().toISOString(),
+        }),
+      );
+    } catch {
+      // ignore storage errors
+    }
+  }, [operatorPresenceMessage, operatorPresencePreset]);
   const [revealedDeletedMessageIds, setRevealedDeletedMessageIds] = useState<Record<string, boolean>>({});
   const [customerConversationCard, setCustomerConversationCard] =
     useState<CustomerConversationCardPayload | null>(null);
@@ -6115,9 +6221,10 @@ function InboxDesktopClientPage() {
         const currentWithoutPage = page.length
           ? currentList.filter((conversation) => !page.some((nextConversation) => nextConversation.id === conversation.id))
           : currentList;
+        const shouldPreserveCurrentList = mergePage || (!append && appendQueue !== "all");
         const data = append
           ? normalizeInboxConversationList([...currentList, ...page])
-          : mergePage
+          : shouldPreserveCurrentList
             ? normalizeInboxConversationList([...currentWithoutPage, ...page])
             : page;
         const nextHasMore = Array.isArray(response) && response.length >= take;
@@ -7265,6 +7372,11 @@ function InboxDesktopClientPage() {
   const selectedBlocked = Boolean(conversationForView?.isBlocked);
   const selectedConversationIsPersonal = isInboxPersonalContact(conversationForView);
   const selectedConversationDisplayName = resolveInboxConversationDisplayName(conversationForView);
+  const selectedConversationAvatarUrl = resolveInboxAvatarUrl(conversationForView);
+  const selectedConversationPresenceMeta = useMemo(
+    () => getInboxConversationPresenceMeta(conversationForView, mounted),
+    [conversationForView, mounted],
+  );
   const selectedConversationStatusMeta = conversationForView
     ? getAtendimentoConversationStatusMeta(conversationForView, hasRecoveryCapability)
     : null;
@@ -8152,8 +8264,6 @@ function InboxDesktopClientPage() {
         setSelectedConversation(data);
       }
       rememberConversationDetail(data);
-      inboxQueueRef.current = "blocked";
-      setInboxQueue("blocked");
       setConversations((current) =>
         current.map((conversation) => (conversation.id === data.id ? data : conversation)),
       );
@@ -8161,7 +8271,7 @@ function InboxDesktopClientPage() {
       setQueueActionMenuPosition(null);
       setBlockDialog(null);
       setNotice({ tone: "success", text: "Contato bloqueado no Atendimento." });
-      await loadConversations({ preferredId: data.id, silent: true });
+      await loadConversations({ preferredId: data.id, silent: true, queue: "blocked", merge: true });
     } catch (updateError) {
       const message = updateError instanceof Error ? updateError.message : "Falha ao bloquear contato.";
       setError(message);
@@ -8913,20 +9023,43 @@ function InboxDesktopClientPage() {
               ) : null}
               <header className={styles.whatsAppConversationHeader}>
                 <div className={styles.whatsAppConversationIdentity}>
-                  <ChatAvatar
-                    initials={getInboxConversationInitials(conversationForView)}
-                    imageUrl={resolveInboxAvatarUrl(conversationForView)}
-                    tone={
-                      selectedConversationWithoutWhatsapp
-                        ? "danger"
-                        : selectedConversationIsInterested
-                          ? "success"
-                          : mapAtendimentoConversationToneToQueueTone(selectedConversationStatusMeta?.tone || "bot")
-                    }
-                  />
+                  <button
+                    type="button"
+                    className={styles.whatsAppAvatarPreviewButton}
+                    disabled={!selectedConversationAvatarUrl}
+                    onClick={() => {
+                      if (!selectedConversationAvatarUrl) return;
+                      setOpenedAsset({
+                        kind: "image",
+                        src: selectedConversationAvatarUrl,
+                        alt: `Foto de ${selectedConversationDisplayName}`,
+                        title: selectedConversationDisplayName,
+                      });
+                    }}
+                    aria-label={selectedConversationAvatarUrl ? "Abrir foto do contato" : "Contato sem foto"}
+                    title={selectedConversationAvatarUrl ? "Abrir foto do contato" : "Contato sem foto"}
+                  >
+                    <ChatAvatar
+                      initials={getInboxConversationInitials(conversationForView)}
+                      imageUrl={selectedConversationAvatarUrl}
+                      tone={
+                        selectedConversationWithoutWhatsapp
+                          ? "danger"
+                          : selectedConversationIsInterested
+                            ? "success"
+                            : mapAtendimentoConversationToneToQueueTone(selectedConversationStatusMeta?.tone || "bot")
+                      }
+                    />
+                  </button>
                   <div className={styles.whatsAppConversationIdentityText}>
                     <strong>{selectedConversationDisplayName}</strong>
                     <div className={styles.conversationIdentityMeta}>
+                      <span
+                        className={styles.conversationContextBadge}
+                        data-tone={selectedConversationPresenceMeta.tone}
+                      >
+                        {selectedConversationPresenceMeta.label}
+                      </span>
                       {selectedConversationWithoutWhatsapp ? (
                         <span
                           className={styles.conversationContextBadge}
@@ -9012,7 +9145,16 @@ function InboxDesktopClientPage() {
                   onScroll={handleChatTimelineScroll}
                 >
                   {loadingConversation || isInboxConversationSummaryOnly(conversationForView) ? (
-                    <ChatEmptyState title="Carregando conversa">Preparando historico do cliente.</ChatEmptyState>
+                    <div className={styles.whatsAppChatLoadingState} aria-live="polite">
+                      <span className={styles.whatsAppChatLoadingPulse} />
+                      <strong>Carregando conversa</strong>
+                      <p>Preparando histórico do cliente.</p>
+                      <div className={styles.whatsAppChatLoadingBubbles} aria-hidden="true">
+                        <span />
+                        <span />
+                        <span />
+                      </div>
+                    </div>
                   ) : conversationMessagesForView.length === 0 ? (
                     selectedVendasAgendaDraftMessage ? (
                       <ChatEmptyState title="Roteiro carregado">
@@ -9750,12 +9892,14 @@ function InboxDesktopClientPage() {
       saveComposerDraft,
       scrollChatTimelineToBottom,
       selectedBlocked,
+      selectedConversationAvatarUrl,
       selectedConversationDisplayName,
       selectedConversationHasRecoveryContext,
       selectedConversationInteractionBlocked,
       selectedConversationIsAgenda,
       selectedConversationIsInterested,
       selectedConversationIsPersonal,
+      selectedConversationPresenceMeta,
       selectedConversationStatusMeta,
       selectedConversationWithoutWhatsapp,
       selectedId,
@@ -10912,15 +11056,13 @@ function InboxDesktopClientPage() {
                 <div className={styles.commandDockBottom}>
                   <DockButton
                     icon="user"
-                    label="Operador"
+                    label={`Operador: ${getOperatorPresenceLabel(operatorPresencePreset)}`}
                     active={false}
-                    badge={null}
+                    badge={operatorPresencePreset === "disponivel" ? null : "!"}
                     onClick={() => {
-                      if (inboxQueueRef.current === "blocked") {
-                        inboxQueueRef.current = "all";
-                        setInboxQueue("all");
-                      }
-                      handleSectionChange("conversa");
+                      setOperatorPresenceDraftPreset(operatorPresencePreset);
+                      setOperatorPresenceDraftMessage(operatorPresenceMessage);
+                      setOperatorStatusDialogOpen(true);
                     }}
                   />
                 </div>
@@ -11088,6 +11230,51 @@ function InboxDesktopClientPage() {
             value={newConversationName}
             onChange={(event) => setNewConversationName(event.target.value)}
             placeholder="Nome para aparecer no HBX"
+          />
+        </label>
+      </HbxConfirmDialog>
+
+      <HbxConfirmDialog
+        open={operatorStatusDialogOpen}
+        title="Meu status"
+        description="Esse status aparece nesta central. Presença real do WhatsApp depende do provedor enviar esse dado."
+        confirmLabel="Salvar status"
+        onCancel={() => setOperatorStatusDialogOpen(false)}
+        onConfirm={() => {
+          const preset = normalizeOperatorPresencePreset(operatorPresenceDraftPreset);
+          const message = operatorPresenceDraftMessage.trim().slice(0, 80) || getOperatorPresenceLabel(preset);
+          setOperatorPresencePreset(preset);
+          setOperatorPresenceMessage(message);
+          setOperatorStatusDialogOpen(false);
+          setNotice({ tone: "success", text: `Status do operador: ${message}.` });
+        }}
+      >
+        <label className={styles.manualConversationField}>
+          <span>Disponibilidade</span>
+          <select
+            value={operatorPresenceDraftPreset}
+            onChange={(event) => {
+              const preset = normalizeOperatorPresencePreset(event.target.value);
+              setOperatorPresenceDraftPreset(preset);
+              setOperatorPresenceDraftMessage((current) =>
+                current.trim() && ["Disponível", "Ocupado", "Indisponível"].includes(current.trim())
+                  ? getOperatorPresenceLabel(preset)
+                  : current,
+              );
+            }}
+          >
+            <option value="disponivel">Disponível</option>
+            <option value="ocupado">Ocupado</option>
+            <option value="indisponivel">Indisponível</option>
+          </select>
+        </label>
+        <label className={styles.manualConversationField}>
+          <span>Texto do status</span>
+          <input
+            value={operatorPresenceDraftMessage}
+            onChange={(event) => setOperatorPresenceDraftMessage(event.target.value)}
+            placeholder="Ex.: disponível para atendimento"
+            maxLength={80}
           />
         </label>
       </HbxConfirmDialog>

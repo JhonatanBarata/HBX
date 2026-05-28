@@ -3330,6 +3330,7 @@ export class InboxService {
           { metadata: { contains: '"whatsappAvailabilityStatus":"unavailable"' } },
           { metadata: { contains: '"inboxManualQueueOverride":"archived"' } },
           { metadata: { contains: '"inboxLocalDeleted":true' } },
+          { metadata: { contains: '"atendimentoBlockedAt"' } },
           {
             flowResult: {
               in: [
@@ -3339,6 +3340,7 @@ export class InboxService {
                 'encerrado',
                 'encerrado_operador',
                 'bot_closed',
+                'blocked_manual',
                 'prospection_negative',
               ],
             },

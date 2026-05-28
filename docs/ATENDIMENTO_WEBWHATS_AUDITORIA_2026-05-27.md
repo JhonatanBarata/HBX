@@ -100,3 +100,57 @@ Executado apos a conexao local voltar:
 ## Observacao Operacional
 
 Nao foi feito login novo no smoke para nao substituir/revogar a sessao ativa do navegador. A validacao autenticada de comportamento ficou coberta pelos testes focados de Inbox.
+
+
+## Checklist Complementar - 2026-05-28
+
+Regra operacional desta rodada: analisar e aplicar correcoes sem rodar testes, sem reiniciar servicos e sem Playwright ate o passo 8.
+
+- [x] 1. Mapear no Playwright, no passo 8, alteracoes de telas, bloqueios e encerrados.
+  - Preparado: fila `Encerrado` voltou para a ordem oficial do Atendimento e carregamentos filtrados preservam a lista ja carregada.
+- [x] 2. Corrigir abertura de fotos dos contatos.
+  - Aplicado: avatar do cabecalho abre o visualizador de imagem quando existe `avatarUrl`.
+- [x] 3. Corrigir clique no icone de bloqueio desaparecendo com mensagens/contatos.
+  - Aplicado: bloquear contato nao muda mais automaticamente para a fila `Bloqueados`; a lista carregada e a conversa atual sao preservadas.
+- [x] 4. Criar opcao de alterar meu status e exibir presenca possivel dos contatos.
+  - Aplicado: dock do operador abre `Meu status` com `Disponivel`, `Ocupado`, `Indisponivel` e texto livre.
+  - Aplicado: cabecalho da conversa mostra digitando/online/ultimo visto/status quando o provider enviar esses metadados; quando nao enviar, informa limite do WebWhats.
+- [x] 5. Analisar sumico intermitente de todos os contatos no VPS.
+  - Aplicado: carregamento de fila especifica (`Bloqueados`, `Encerrado`, etc.) agora mescla com a lista atual em vez de substituir tudo por uma pagina filtrada/vazia.
+  - Aplicado: backend inclui marcadores `atendimentoBlockedAt` e `blocked_manual` na consulta operacional para bloqueados nao dependerem de recencia.
+- [x] 6. Alterar relogio da Prospecção/robo para `HH:MM:SS`.
+  - Aplicado: contador do robo lateral e contador do card de Prospecção usam `HH:MM:SS`.
+- [x] 7. Corrigir cards encerrados invisiveis, incluindo validacao do caso `(19) 97815-4334` no VPS.
+  - Aplicado: `archived` foi reinserido no mapa/ordem real das filas, permitindo contagem, filtro e busca de encerrados.
+  - Validado local no passo 8: aba `Encerrado` aparece e a tela nao quebra ao alternar filtros.
+  - Baseline VPS no passo 8: numero `(19) 97815-4334` nao apareceu na busca do ambiente publicado antes de deploy das correcoes locais.
+
+## Passo 8 Executado - 2026-05-28
+
+- [x] Reiniciado somente o necessario: frontend local em `http://localhost:3001` e backend local via Docker Compose.
+- [x] Login Playwright local executado.
+- [x] Login Playwright VPS executado como baseline de producao antes de deploy.
+- [x] Smoke local `local4` em `tmp-playwright-step8-local4-report.json`.
+  - Atendimento carregou em `/atendimento`, sem redirecionar para login.
+  - Abas `Pessoais`, `Atendimento`, `Prospecção`, `Grupos` e `Encerrado` visiveis.
+  - Clique em `Bloqueados` nao derrubou a tela nem limpou a aplicacao.
+  - Abertura de foto do contato validada com lightbox.
+  - Modal `Meu status` abre e persiste `Ocupado em validacao Playwright`.
+  - Presenca/status do contato renderizada no cabecalho.
+  - Nenhum contador ativo de proxima prospeccao estava renderizado no momento do smoke; formatacao `HH:MM:SS` ficou validada por codigo.
+- [x] Smoke VPS baseline `vps-baseline` em `tmp-playwright-step8-vps-baseline-report.json`.
+  - Atendimento carregou em `/atendimento`, sem redirecionar para login.
+  - Abas principais visiveis.
+  - Producao ainda nao tinha as correcoes locais de `Meu status` e presenca.
+  - Numero `(19) 97815-4334` nao apareceu na busca de encerrados durante o baseline.
+- [x] Evidencias visuais geradas:
+  - `tmp-playwright-step8-local4-home.png`
+  - `tmp-playwright-step8-local4-blocked.png`
+  - `tmp-playwright-step8-local4-archived.png`
+  - `tmp-playwright-step8-local4-archived-phone.png`
+  - `tmp-playwright-step8-local4-final.png`
+  - `tmp-playwright-step8-vps-baseline-home.png`
+  - `tmp-playwright-step8-vps-baseline-blocked.png`
+  - `tmp-playwright-step8-vps-baseline-archived.png`
+  - `tmp-playwright-step8-vps-baseline-archived-phone.png`
+  - `tmp-playwright-step8-vps-baseline-final.png`
