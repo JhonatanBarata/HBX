@@ -7299,6 +7299,22 @@ function InboxDesktopClientPage() {
     ),
     [conversationForView],
   );
+  const composerActivityLabel = useMemo(() => {
+    if (selectedConversationInteractionBlocked) return "";
+    if (sending) return "enviando...";
+    if (isRecording) return "gravando áudio...";
+    if (sendText.trim()) return "digitando...";
+    if (audioPreview) return "áudio pronto";
+    if (imagePreview) return "anexo pronto";
+    return "";
+  }, [
+    audioPreview,
+    imagePreview,
+    isRecording,
+    selectedConversationInteractionBlocked,
+    sendText,
+    sending,
+  ]);
   const latestVisibleMessageKey = useMemo(
     () => getInboxMessageStableKey(getInboxLatestMessage(conversationMessagesForView)),
     [conversationMessagesForView],
@@ -8801,6 +8817,12 @@ function InboxDesktopClientPage() {
                           {getInboxConversationSubtitle(conversationForView)}
                         </span>
                       ) : null}
+                      {composerActivityLabel ? (
+                        <span className={styles.whatsAppTypingStatus} data-active="true">
+                          <span aria-hidden="true" />
+                          {composerActivityLabel}
+                        </span>
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -9473,6 +9495,16 @@ function InboxDesktopClientPage() {
                     {sending ? <span className={styles.whatsAppComposerButtonSpinner} aria-hidden="true" /> : "➤"}
                   </button>
                 </div>
+                {composerActivityLabel ? (
+                  <div className={styles.whatsAppComposerLiveStatus} data-state={isRecording ? "recording" : sending ? "sending" : "typing"}>
+                    <span className={styles.whatsAppComposerLiveDots} aria-hidden="true">
+                      <i />
+                      <i />
+                      <i />
+                    </span>
+                    <span>{composerActivityLabel}</span>
+                  </div>
+                ) : null}
                 {selectedBlocked ? (
                   <small className={styles.whatsAppComposerHint}>
                     Contato bloqueado. Desbloqueie para responder.
@@ -9958,6 +9990,7 @@ function InboxDesktopClientPage() {
     [
       agendaConfig.groups,
       blockConversation,
+      composerActivityLabel,
       conversationDetailError,
       conversationListError,
       conversationSearch,
