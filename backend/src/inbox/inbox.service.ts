@@ -2649,6 +2649,7 @@ export class InboxService {
             status: String(message.status || 'RECEIVED').trim().toUpperCase(),
             sourceModule: String(message.sourceModule || '').trim().toLowerCase() || null,
             error: message.error ? String(message.error) : null,
+            outboundMessageId: message.outboundMessageId ? Number(message.outboundMessageId) : null,
             metadata: messageMetadata,
           };
         })
@@ -3366,6 +3367,7 @@ export class InboxService {
             error: true,
             timestamp: true,
             sourceModule: true,
+            outboundMessageId: true,
             providerMessageId: true,
             rawPayload: true,
             variablesJson: true,
@@ -3588,6 +3590,7 @@ export class InboxService {
             error: true,
             timestamp: true,
             sourceModule: true,
+            outboundMessageId: true,
             providerMessageId: true,
             rawPayload: true,
             variablesJson: true,
@@ -4101,6 +4104,7 @@ export class InboxService {
         error: true,
         timestamp: true,
         sourceModule: true,
+        outboundMessageId: true,
         providerMessageId: true,
         rawPayload: true,
         variablesJson: true,
@@ -4135,6 +4139,7 @@ export class InboxService {
           status: String(message.status || 'RECEIVED').trim().toUpperCase(),
           sourceModule: String(message.sourceModule || '').trim().toLowerCase() || null,
           error: message.error ? String(message.error) : null,
+          outboundMessageId: message.outboundMessageId ? Number(message.outboundMessageId) : null,
           metadata: messageMetadata,
         };
       })
@@ -7073,6 +7078,103 @@ export class InboxService {
           : Boolean(rawPayload?.key?.fromMe),
       reaction,
     });
+    return this.getConversationByIdForCompany(companyId, conversation.id);
+  }
+
+  async retryConversationMessage(
+    user: any,
+    conversationId: number,
+    messageId: number,
+  ) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const conversation = await this.ensureConversation(companyId, conversationId);
+    const message = await this.prisma.companyMessage.findFirst({
+      where: { id: messageId, companyId, conversationId: conversation.id },
+      select: {
+        id: true,
+        direction: true,
+        status: true,
+        error: true,
+        outboundMessageId: true,
+        messageType: true,
+        outboundMessage: {
+          select: {
+            id: true,
+            status: true,
+            deliveryStatus: true,
+            failedAt: true,
+            to: true,
+            sourceModule: true,
+          },
+        },
+      },
+    });
+    if (!message) throw new NotFoundException('Message not found');
+    if (String(message.direction || '').trim().toUpperCase() !== 'OUTBOUND') {
+      throw new BadRequestException('Apenas mensagens enviadas podem ser reenviadas.');
+    }
+    const outboundMessageId = Number(message.outboundMessageId || message.outboundMessage?.id || 0);
+    if (!outboundMessageId || !message.outboundMessage) {
+      throw new BadRequestException('Mensagem sem registro de envio para reprocessar.');
+    }
+
+    const messageStatus = String(message.status || '').trim().toUpperCase();
+    const outboundStatus = String(message.outboundMessage.status || '').trim().toUpperCase();
+    const deliveryStatus = String(message.outboundMessage.deliveryStatus || '').trim().toLowerCase();
+    const isFailed =
+      messageStatus === 'FAILED' ||
+      outboundStatus === 'FAILED' ||
+      deliveryStatus === 'failed' ||
+      Boolean(message.outboundMessage.failedAt);
+    if (!isFailed) {
+      throw new BadRequestException('Apenas mensagens com falha podem ser reenviadas.');
+    }
+
+    const now = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      await tx.outboundMessage.update({
+        where: { id: outboundMessageId },
+        data: {
+          status: 'PENDING',
+          attemptCount: 0,
+          nextAttemptAt: now,
+          failedAt: null,
+          deliveredAt: null,
+          readAt: null,
+          sentAt: null,
+          deliveryStatus: null,
+          lastError: null,
+          providerMessageId: null,
+          lastWebhookAt: null,
+          lastWebhookPayload: null,
+        },
+      });
+      await tx.companyMessage.update({
+        where: { id: message.id },
+        data: {
+          status: 'QUEUED',
+          error: null,
+          providerMessageId: null,
+        },
+      });
+    });
+
+    await this.logInboxEvent({
+      companyId,
+      event: 'manual_outbound_retry_queued',
+      message: `Reenvio manual enfileirado para ${message.outboundMessage.to || conversation.contact || ''}`,
+      conversationId: conversation.id,
+      phone: String(message.outboundMessage.to || conversation.contact || ''),
+      messageType: String(message.messageType || 'text'),
+      result: 'queued',
+      extra: {
+        sourceModule: message.outboundMessage.sourceModule || null,
+        outboundMessageId,
+        previousStatus: messageStatus || null,
+        previousError: message.error || null,
+      },
+    });
+
     return this.getConversationByIdForCompany(companyId, conversation.id);
   }
 

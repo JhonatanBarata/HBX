@@ -4937,6 +4937,7 @@ function InboxDesktopClientPage() {
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [openedAsset, setOpenedAsset] = useState<OpenedInboxAsset | null>(null);
   const [failedInboxMediaUrls, setFailedInboxMediaUrls] = useState<Record<string, true>>({});
+  const [retryingMessageIds, setRetryingMessageIds] = useState<Record<string, true>>({});
   const [queueActionConversationId, setQueueActionConversationId] = useState<string | null>(null);
   const [queueActionMenuPosition, setQueueActionMenuPosition] = useState<QueueActionMenuPosition | null>(null);
   const [messageReactionTargetId, setMessageReactionTargetId] = useState<string | null>(null);
@@ -7847,6 +7848,35 @@ function InboxDesktopClientPage() {
     [deleteMessageDialog?.messageId, loadConversations, rememberConversationDetail, selectedId],
   );
 
+  const retryFailedMessage = useCallback(
+    async (messageId: string) => {
+      if (!selectedId || !messageId) return;
+      setRetryingMessageIds((current) => ({ ...current, [messageId]: true }));
+      setError(null);
+      try {
+        const data = await apiFetch<InboxConversation>(
+          `/inbox/conversations/${selectedId}/messages/${messageId}/retry`,
+          { method: "POST" },
+        );
+        setSelectedConversation(data);
+        selectedConversationRef.current = data;
+        rememberConversationDetail(data);
+        setNotice({ tone: "success", text: "Mensagem reenfileirada para envio." });
+        await loadConversations({ preferredId: data.id, silent: true });
+      } catch (retryError) {
+        const message = retryError instanceof Error ? retryError.message : "Falha ao reenviar mensagem.";
+        setError(message);
+      } finally {
+        setRetryingMessageIds((current) => {
+          const next = { ...current };
+          delete next[messageId];
+          return next;
+        });
+      }
+    },
+    [loadConversations, rememberConversationDetail, selectedId],
+  );
+
   const sendMessage = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
@@ -8521,6 +8551,7 @@ function InboxDesktopClientPage() {
                         : deliveryPending
                           ? getInboxDeliveryStatusLabel(message.status)
                           : null;
+                    const isRetryingMessage = Boolean(retryingMessageIds[message.id]);
                     const canPreviewDocument =
                       Boolean(rendered.documentUrl) &&
                       canPreviewDocumentInOverlay(
@@ -8772,13 +8803,26 @@ function InboxDesktopClientPage() {
                                 ) : null}
                               </span>
                               {deliveryNotice ? (
-                                <span
+                                <div
                                   className={styles.whatsAppDeliveryNotice}
                                   data-state={deliveryFailed ? "failed" : "pending"}
                                   title={deliveryNotice}
                                 >
-                                  {deliveryNotice}
-                                </span>
+                                  <span>{deliveryNotice}</span>
+                                  {deliveryFailed ? (
+                                    <button
+                                      type="button"
+                                      className={styles.whatsAppDeliveryRetryButton}
+                                      onMouseDown={(e) => e.preventDefault()}
+                                      onClick={() => void retryFailedMessage(message.id)}
+                                      disabled={isRetryingMessage}
+                                      title="Reenviar mensagem"
+                                    >
+                                      <ChatGlyph name="send" />
+                                      <span>{isRetryingMessage ? "Reenviando" : "Reenviar"}</span>
+                                    </button>
+                                  ) : null}
+                                </div>
                               ) : null}
                             </div>
                             {reactionEmojis.length ? (
@@ -9597,6 +9641,8 @@ function InboxDesktopClientPage() {
       recordingSeconds,
       retryConversationDetail,
       retryConversationList,
+      retryFailedMessage,
+      retryingMessageIds,
       revealedDeletedMessageIds,
       selectedConversationInteractionBlocked,
       selectedBlocked,

@@ -304,6 +304,15 @@ export class InboxController {
     );
   }
 
+  @Post('conversations/:conversationId/messages/:messageId/retry')
+  retryConversationMessage(
+    @Req() req: any,
+    @Param('conversationId', ParseIntPipe) conversationId: number,
+    @Param('messageId', ParseIntPipe) messageId: number,
+  ) {
+    return this.inboxService.retryConversationMessage(req.user, conversationId, messageId);
+  }
+
   @Delete('conversations/:conversationId/messages/:messageId')
   deleteMessageForEveryone(
     @Req() req: any,
