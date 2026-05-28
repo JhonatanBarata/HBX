@@ -4560,6 +4560,90 @@ function getInboxMessageStableKey(message?: InboxMessage | null) {
   );
 }
 
+function isInboxOptimisticMessage(message?: InboxMessage | null) {
+  const metadata = message?.metadata && typeof message.metadata === "object" && !Array.isArray(message.metadata)
+    ? message.metadata
+    : null;
+  return Boolean(metadata?.optimistic || String(message?.id || "").startsWith("optimistic-"));
+}
+
+function buildOptimisticInboxMessage(input: {
+  id: string;
+  content: string;
+  createdAt: string;
+  quotedPreview?: string | null;
+  attachment?: {
+    kind?: InboxAttachmentPreview["kind"] | "audio" | null;
+    url?: string | null;
+    previewUrl?: string | null;
+    mimeType?: string | null;
+    fileName?: string | null;
+    fileSize?: number | null;
+    durationSeconds?: number | null;
+    isVoiceNote?: boolean | null;
+  } | null;
+}): InboxMessage {
+  const attachment = input.attachment || null;
+  return {
+    id: input.id,
+    direction: "outbound",
+    content: input.content,
+    createdAt: input.createdAt,
+    messageType: String(attachment?.kind || "text").trim().toLowerCase() || "text",
+    senderType: "human",
+    sourceModule: "atendimento_human",
+    status: "SENDING",
+    error: null,
+    outboundMessageId: null,
+    metadata: {
+      optimistic: true,
+      quotedPreview: input.quotedPreview || null,
+      mediaUrl: attachment?.url || null,
+      previewUrl: attachment?.previewUrl || attachment?.url || null,
+      mimeType: attachment?.mimeType || null,
+      fileName: attachment?.fileName || null,
+      fileSize: attachment?.fileSize || null,
+      durationSeconds: attachment?.durationSeconds || null,
+      isVoiceNote: attachment?.isVoiceNote === true,
+      normalizedMessageType: attachment?.kind || "text",
+    },
+  };
+}
+
+function upsertInboxMessage(conversation: InboxConversation, message: InboxMessage) {
+  const messages = Array.isArray(conversation.messages) ? conversation.messages : [];
+  const nextMessages = [...messages.filter((item) => String(item.id) !== String(message.id)), message];
+  return {
+    ...conversation,
+    lastMessageAt: message.createdAt,
+    updatedAt: message.createdAt,
+    messages: sortInboxMessagesChronologically(nextMessages),
+  };
+}
+
+function patchInboxMessage(
+  conversation: InboxConversation,
+  messageId: string,
+  patch: Partial<InboxMessage>,
+) {
+  const messages = Array.isArray(conversation.messages) ? conversation.messages : [];
+  return {
+    ...conversation,
+    messages: messages.map((message) =>
+      String(message.id) === String(messageId)
+        ? {
+            ...message,
+            ...patch,
+            metadata: {
+              ...(message.metadata || {}),
+              ...(patch.metadata || {}),
+            },
+          }
+        : message,
+    ),
+  };
+}
+
 function getInboxLatestMessage(messages?: InboxMessage[] | null) {
   const sorted = sortInboxMessagesChronologically(Array.isArray(messages) ? messages : []);
   return sorted[sorted.length - 1] || null;
@@ -8050,6 +8134,50 @@ function InboxDesktopClientPage() {
     [loadConversations, rememberConversationDetail, selectedId],
   );
 
+  const upsertOptimisticMessage = useCallback((conversationId: string, message: InboxMessage) => {
+    setSelectedConversation((current) => {
+      const base =
+        current?.id === conversationId
+          ? current
+          : selectedConversationRef.current?.id === conversationId
+            ? selectedConversationRef.current
+            : conversationsRef.current.find((conversation) => conversation.id === conversationId) || null;
+      if (!base) return current;
+      const next = upsertInboxMessage(base, message);
+      selectedConversationRef.current = next;
+      return next;
+    });
+    setConversations((current) =>
+      current.map((conversation) =>
+        conversation.id === conversationId ? upsertInboxMessage(conversation, message) : conversation,
+      ),
+    );
+  }, []);
+
+  const patchOptimisticMessage = useCallback((
+    conversationId: string,
+    messageId: string,
+    patch: Partial<InboxMessage>,
+  ) => {
+    setSelectedConversation((current) => {
+      const base =
+        current?.id === conversationId
+          ? current
+          : selectedConversationRef.current?.id === conversationId
+            ? selectedConversationRef.current
+            : null;
+      if (!base) return current;
+      const next = patchInboxMessage(base, messageId, patch);
+      selectedConversationRef.current = next;
+      return next;
+    });
+    setConversations((current) =>
+      current.map((conversation) =>
+        conversation.id === conversationId ? patchInboxMessage(conversation, messageId, patch) : conversation,
+      ),
+    );
+  }, []);
+
   const sendMessage = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
@@ -8058,8 +8186,29 @@ function InboxDesktopClientPage() {
       restoreComposerFocusAfterSendRef.current = document.activeElement === chatComposerInputRef.current;
       setSending(true);
       setError(null);
+      let optimisticMessageId: string | null = null;
+      const optimisticCreatedAt = new Date().toISOString();
+      const initialText = sendText.trim();
+      const quotedMessageId = replyingTo?.id;
+      const quotedPreview = replyingTo ? getMessagePreview(replyingTo).slice(0, 200) : null;
+      const enqueueOptimisticMessage = (content: string, attachment?: Parameters<typeof buildOptimisticInboxMessage>[0]["attachment"]) => {
+        if (optimisticMessageId) return;
+        optimisticMessageId = `optimistic-${selectedId}-${Date.now()}`;
+        upsertOptimisticMessage(
+          selectedId,
+          buildOptimisticInboxMessage({
+            id: optimisticMessageId,
+            content,
+            createdAt: optimisticCreatedAt,
+            quotedPreview,
+            attachment,
+          }),
+        );
+        chatTimelineStickToBottomRef.current = true;
+        setShowScrollToBottom(false);
+      };
       try {
-        let content = sendText.trim();
+        let content = initialText;
         let uploadedAttachment:
           | {
               kind: InboxAttachmentPreview["kind"];
@@ -8070,6 +8219,12 @@ function InboxDesktopClientPage() {
               fileSize: number;
             }
           | null = null;
+        if (!imagePreview) {
+          enqueueOptimisticMessage(content);
+          setSendText("");
+          sendTextDirtyRef.current = false;
+          setReplyingTo(null);
+        }
         if (imagePreview) {
           const formData = new FormData();
           formData.append("file", imagePreview.file);
@@ -8091,13 +8246,19 @@ function InboxDesktopClientPage() {
             fileSize: mediaResult.size,
           };
           content = content ? `${mediaResult.url}\n${content}` : mediaResult.url;
+          enqueueOptimisticMessage(content, uploadedAttachment);
+          URL.revokeObjectURL(imagePreview.url);
+          setImagePreview(null);
+          setSendText("");
+          sendTextDirtyRef.current = false;
+          setReplyingTo(null);
         }
         const data = await apiFetch<InboxConversation>(`/inbox/conversations/${selectedId}/message`, {
           method: "POST",
           body: JSON.stringify({
             content,
-            quotedMessageId: replyingTo?.id,
-            quotedContent: replyingTo ? getMessagePreview(replyingTo).slice(0, 200) : undefined,
+            quotedMessageId,
+            quotedContent: quotedPreview || undefined,
             attachmentKind: uploadedAttachment?.kind,
             attachmentUrl: uploadedAttachment?.url,
             attachmentPreviewUrl: uploadedAttachment?.previewUrl,
@@ -8106,13 +8267,6 @@ function InboxDesktopClientPage() {
             attachmentFileSize: uploadedAttachment?.fileSize,
           }),
         });
-        if (imagePreview) {
-          URL.revokeObjectURL(imagePreview.url);
-          setImagePreview(null);
-        }
-        setSendText("");
-        sendTextDirtyRef.current = false;
-        setReplyingTo(null);
         chatTimelineStickToBottomRef.current = true;
         setShowScrollToBottom(false);
         setSelectedConversation(data);
@@ -8127,6 +8281,12 @@ function InboxDesktopClientPage() {
         void loadConversations({ preferredId: data.id, silent: true });
       } catch (sendError) {
         const message = sendError instanceof Error ? sendError.message : "Falha ao enviar mensagem.";
+        if (optimisticMessageId) {
+          patchOptimisticMessage(selectedId, optimisticMessageId, {
+            status: "FAILED",
+            error: message,
+          });
+        }
         setError(message);
       } finally {
         setSending(false);
@@ -8140,12 +8300,14 @@ function InboxDesktopClientPage() {
     },
     [
       loadConversations,
+      patchOptimisticMessage,
       rememberConversationDetail,
       selectedConversationInteractionBlocked,
       selectedId,
       sendText,
       replyingTo,
       imagePreview,
+      upsertOptimisticMessage,
     ],
   );
 
@@ -8253,6 +8415,7 @@ function InboxDesktopClientPage() {
     if (!selectedId || !audioPreview) return;
     setSending(true);
     setError(null);
+    let optimisticMessageId: string | null = null;
     try {
       const ext = audioPreview.mimeType.includes("ogg") ? ".ogg" : ".webm";
       const file = new File([audioPreview.blob], `voz_${Date.now()}${ext}`, { type: audioPreview.mimeType });
@@ -8262,6 +8425,27 @@ function InboxDesktopClientPage() {
         `/inbox/conversations/${selectedId}/media`,
         { method: "POST", body: formData },
       );
+      optimisticMessageId = `optimistic-${selectedId}-${Date.now()}`;
+      upsertOptimisticMessage(
+        selectedId,
+        buildOptimisticInboxMessage({
+          id: optimisticMessageId,
+          content: mediaResult.url,
+          createdAt: new Date().toISOString(),
+          attachment: {
+            kind: "audio",
+            url: mediaResult.url,
+            previewUrl: mediaResult.url,
+            mimeType: mediaResult.mimeType,
+            fileName: mediaResult.filename,
+            fileSize: mediaResult.size,
+            durationSeconds: audioPreview.seconds,
+            isVoiceNote: true,
+          },
+        }),
+      );
+      chatTimelineStickToBottomRef.current = true;
+      setShowScrollToBottom(false);
       const data = await apiFetch<InboxConversation>(`/inbox/conversations/${selectedId}/message`, {
         method: "POST",
         body: JSON.stringify({
@@ -8286,11 +8470,24 @@ function InboxDesktopClientPage() {
       void loadConversations({ preferredId: data.id, silent: true });
     } catch (sendError) {
       const message = sendError instanceof Error ? sendError.message : "Falha ao enviar áudio.";
+      if (optimisticMessageId) {
+        patchOptimisticMessage(selectedId, optimisticMessageId, {
+          status: "FAILED",
+          error: message,
+        });
+      }
       setError(message);
     } finally {
       setSending(false);
     }
-  }, [audioPreview, loadConversations, rememberConversationDetail, selectedId]);
+  }, [
+    audioPreview,
+    loadConversations,
+    patchOptimisticMessage,
+    rememberConversationDetail,
+    selectedId,
+    upsertOptimisticMessage,
+  ]);
 
   const handleComposerPaste = useCallback(
     (event: ReactClipboardEvent<HTMLTextAreaElement>) => {
@@ -8713,6 +8910,7 @@ function InboxDesktopClientPage() {
                       Boolean(reactionKey);
                     const canRevealDeleted = rendered.isDeleted && canRevealDeletedInboxMessage(message);
                     const isDeletedRevealed = Boolean(revealedDeletedMessageIds[message.id]);
+                    const isOptimisticMessage = isInboxOptimisticMessage(message);
                     const deliveryPending = isOutbound && isInboxDeliveryPending(message.status);
                     const deliveryFailed = isOutbound && isInboxDeliveryFailed(message.status);
                     const deliveryError = String(message.error || "").trim();
@@ -8725,6 +8923,7 @@ function InboxDesktopClientPage() {
                           ? getInboxDeliveryStatusLabel(message.status)
                           : null;
                     const isRetryingMessage = Boolean(retryingMessageIds[message.id]);
+                    const canRetryDelivery = deliveryFailed && !isOptimisticMessage;
                     const canPreviewDocument =
                       Boolean(rendered.documentUrl) &&
                       canPreviewDocumentInOverlay(
@@ -8982,7 +9181,7 @@ function InboxDesktopClientPage() {
                                   title={deliveryNotice}
                                 >
                                   <span>{deliveryNotice}</span>
-                                  {deliveryFailed ? (
+                                  {canRetryDelivery ? (
                                     <button
                                       type="button"
                                       className={styles.whatsAppDeliveryRetryButton}
