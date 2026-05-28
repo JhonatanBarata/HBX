@@ -6909,6 +6909,60 @@ export class InboxService {
     const companyId = this.requireCompanyIdFromUser(user);
     const conversation = await this.ensureConversation(companyId, conversationId);
     const metadata = this.parseConversationMetadata(conversation.metadata);
+    const recentInboundMessages = await this.prisma.companyMessage.findMany({
+      where: {
+        companyId,
+        conversationId: conversation.id,
+        direction: 'INBOUND',
+      },
+      orderBy: { timestamp: 'desc' },
+      take: 50,
+      select: {
+        id: true,
+        providerMessageId: true,
+        rawPayload: true,
+        variablesJson: true,
+      },
+    });
+    const webwhatsReadMessages = recentInboundMessages
+      .map((message) => {
+        const rawPayload = this.parseConversationMetadata(message.rawPayload);
+        const variables = this.parseConversationMetadata(message.variablesJson);
+        const id =
+          this.normalizeMessageMetadataText(rawPayload?.key?.id) ||
+          this.normalizeMessageMetadataText(variables?.providerKeyId) ||
+          this.extractWebwhatsRawMessageIdFromProviderMessageId(message.providerMessageId);
+        if (!id) return null;
+        return {
+          id,
+          fromMe: false,
+          remoteJid:
+            this.normalizeMessageMetadataText(rawPayload?.key?.remoteJid) ||
+            this.normalizeMessageMetadataText(metadata?.whatsappRemoteJid) ||
+            null,
+          participant:
+            this.normalizeMessageMetadataText(rawPayload?.key?.participant || rawPayload?.participant) ||
+            null,
+        };
+      })
+      .filter(Boolean);
+
+    if (webwhatsReadMessages.length > 0) {
+      this.webwhatsBridge.markMessagesAsRead(companyId, {
+        conversationId: conversation.id,
+        remoteJid: this.normalizeMessageMetadataText(metadata?.whatsappRemoteJid) || null,
+        messages: webwhatsReadMessages as Array<{
+          id: string;
+          fromMe: boolean;
+          remoteJid: string | null;
+          participant: string | null;
+        }>,
+      }).catch((error) => {
+        const message = String(error?.message || error || 'Falha ao marcar conversa como lida no Webwhats.');
+        this.logger.warn(`Inbox mark read via Webwhats falhou company=${companyId} conversation=${conversation.id}: ${message}`);
+      });
+    }
+
     const nextMetadata = {
       ...metadata,
       whatsappMarkedReadAt: new Date().toISOString(),

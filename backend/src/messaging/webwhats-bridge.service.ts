@@ -1363,6 +1363,65 @@ export class WebwhatsBridgeService {
     });
   }
 
+  async markMessagesAsRead(
+    companyId: number,
+    input: {
+      conversationId?: number | null;
+      remoteJid?: string | null;
+      messages: Array<{
+        id: string;
+        fromMe?: boolean | null;
+        remoteJid?: string | null;
+        participant?: string | null;
+      }>;
+    },
+  ) {
+    const company = await this.requireConnectedCompany(companyId);
+    const tenantKey = this.buildTenantKey(company.id);
+    const fallbackRemoteJid = this.normalizeRemoteJid(
+      String(
+        input.remoteJid ||
+          (await this.resolveSendTarget(companyId, {
+            to: '',
+            conversationId: input.conversationId ?? null,
+          })) ||
+          '',
+      ),
+    );
+    if (!fallbackRemoteJid) {
+      throw new Error('WEBWHATS_READ_REMOTE_JID_MISSING');
+    }
+
+    const readMessages = (Array.isArray(input.messages) ? input.messages : [])
+      .map((message) => {
+        const id = this.normalizeOptionalString(message?.id);
+        const remoteJid = this.normalizeRemoteJid(String(message?.remoteJid || fallbackRemoteJid || ''));
+        if (!id || !remoteJid) return null;
+        return {
+          id,
+          remoteJid,
+          fromMe: Boolean(message?.fromMe),
+          ...(this.normalizeOptionalString(message?.participant)
+            ? { participant: this.normalizeOptionalString(message?.participant) }
+            : {}),
+        };
+      })
+      .filter(Boolean);
+
+    if (!readMessages.length) {
+      return { skipped: true, readMessages: 0 };
+    }
+
+    return this.requestRead<any>({
+      method: 'POST',
+      path: `/chat/markMessageAsRead/${encodeURIComponent(tenantKey)}`,
+      purpose: 'marcacao de mensagens como lidas via Webwhats',
+      data: {
+        readMessages,
+      },
+    });
+  }
+
   async deleteMessageForEveryone(
     companyId: number,
     input: {
