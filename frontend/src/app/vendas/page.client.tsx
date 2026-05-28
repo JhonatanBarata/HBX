@@ -7781,6 +7781,9 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         nextAction: currentDraft.nextAction || "Lead encerrado",
         returnAt: "",
       });
+      if (mobileRoute && selectedMobileLeadId === lead.id) {
+        closeMobileLeadDetail();
+      }
       return;
     }
     if (action === "reabrir") {
@@ -9852,11 +9855,119 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
     );
   }
 
+  function renderMobileReturnSchedulerPortal() {
+    if (!mobileReturnScheduler || typeof document === "undefined") return null;
+
+    return createPortal(
+      <div className={styles.mobileReturnSchedulerBackdrop}>
+        <section
+          className={styles.mobileReturnSchedulerDialog}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="mobile-return-scheduler-title"
+        >
+          <div className={styles.mobileReturnSchedulerHeader}>
+            <div>
+              <small>Retorno</small>
+              <h2 id="mobile-return-scheduler-title">Agendar horário</h2>
+              <p>{mobileReturnScheduler.leadName}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setMobileReturnScheduler(null)}
+              aria-label="Fechar calendário de retorno"
+            >
+              ×
+            </button>
+          </div>
+
+          <div className={styles.mobileReturnSchedulerFields}>
+            <label>
+              <span>Data</span>
+              <input
+                inputMode="numeric"
+                value={mobileReturnScheduler.dateText}
+                onChange={(event) => updateMobileReturnDateText(event.target.value)}
+                placeholder="DD/MM/YY"
+                maxLength={10}
+              />
+            </label>
+            <label>
+              <span>Horário</span>
+              <input
+                type="time"
+                value={mobileReturnScheduler.timeValue}
+                onChange={(event) => {
+                  setMobileReturnScheduleError(null);
+                  setMobileReturnScheduler((current) =>
+                    current ? { ...current, timeValue: event.target.value } : current,
+                  );
+                }}
+              />
+            </label>
+          </div>
+
+          <div className={styles.mobileReturnCalendarCard}>
+            <div className={styles.mobileReturnCalendarHeader}>
+              <button type="button" onClick={() => shiftMobileReturnCalendarMonth(-1)} aria-label="Mês anterior">
+                ‹
+              </button>
+              <strong>{mobileReturnMonthLabel}</strong>
+              <button type="button" onClick={() => shiftMobileReturnCalendarMonth(1)} aria-label="Próximo mês">
+                ›
+              </button>
+            </div>
+            <div className={styles.mobileReturnWeekdays} aria-hidden="true">
+              {["D", "S", "T", "Q", "Q", "S", "S"].map((label, index) => (
+                <span key={`${label}-${index}`}>{label}</span>
+              ))}
+            </div>
+            <div className={styles.mobileReturnCalendarGrid}>
+              {mobileReturnCalendarDays.map((day) => (
+                day.day ? (
+                  <button
+                    type="button"
+                    key={day.key}
+                    data-selected={day.key === mobileReturnDateKey ? "true" : "false"}
+                    onClick={() => selectMobileReturnCalendarDay(day.key)}
+                  >
+                    {day.day}
+                  </button>
+                ) : (
+                  <span key={day.key} aria-hidden="true" />
+                )
+              ))}
+            </div>
+          </div>
+
+          {mobileReturnScheduleError ? (
+            <p className={styles.mobileReturnSchedulerError}>{mobileReturnScheduleError}</p>
+          ) : (
+            <p className={styles.mobileReturnSchedulerHint}>
+              O card entra na agenda exatamente na data e no horário escolhidos.
+            </p>
+          )}
+
+          <button
+            type="button"
+            className={styles.mobileReturnSchedulerSave}
+            onClick={() => void saveMobileReturnSchedule()}
+            disabled={savingLeadId === mobileReturnScheduler.leadId}
+          >
+            {savingLeadId === mobileReturnScheduler.leadId ? "Salvando..." : "Salvar retorno"}
+          </button>
+        </section>
+      </div>,
+      document.body,
+    );
+  }
+
   if (mobileRoute) {
     return (
       <DashboardScaffold title="Vendas" hideHeader={true}>
         <style dangerouslySetInnerHTML={{ __html: vendasDragTopbarLockStyle }} />
         {renderMobileVendas()}
+        {renderMobileReturnSchedulerPortal()}
         {renderAssistedSignupPortal()}
         {renderCommissionReceiptPortal()}
         {renderMasterNoticeCenter(false)}
@@ -10218,108 +10329,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
       {renderAssistedSignupPortal()}
       {renderCommissionReceiptPortal()}
 
-      {mobileReturnScheduler ? createPortal(
-        <div className={styles.mobileReturnSchedulerBackdrop}>
-          <section
-            className={styles.mobileReturnSchedulerDialog}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="mobile-return-scheduler-title"
-          >
-            <div className={styles.mobileReturnSchedulerHeader}>
-              <div>
-                <small>Retorno</small>
-                <h2 id="mobile-return-scheduler-title">Agendar horário</h2>
-                <p>{mobileReturnScheduler.leadName}</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setMobileReturnScheduler(null)}
-                aria-label="Fechar calendário de retorno"
-              >
-                ×
-              </button>
-            </div>
-
-            <div className={styles.mobileReturnSchedulerFields}>
-              <label>
-                <span>Data</span>
-                <input
-                  inputMode="numeric"
-                  value={mobileReturnScheduler.dateText}
-                  onChange={(event) => updateMobileReturnDateText(event.target.value)}
-                  placeholder="DD/MM/YY"
-                  maxLength={10}
-                />
-              </label>
-              <label>
-                <span>Horário</span>
-                <input
-                  type="time"
-                  value={mobileReturnScheduler.timeValue}
-                  onChange={(event) => {
-                    setMobileReturnScheduleError(null);
-                    setMobileReturnScheduler((current) =>
-                      current ? { ...current, timeValue: event.target.value } : current,
-                    );
-                  }}
-                />
-              </label>
-            </div>
-
-            <div className={styles.mobileReturnCalendarCard}>
-              <div className={styles.mobileReturnCalendarHeader}>
-                <button type="button" onClick={() => shiftMobileReturnCalendarMonth(-1)} aria-label="Mês anterior">
-                  ‹
-                </button>
-                <strong>{mobileReturnMonthLabel}</strong>
-                <button type="button" onClick={() => shiftMobileReturnCalendarMonth(1)} aria-label="Próximo mês">
-                  ›
-                </button>
-              </div>
-              <div className={styles.mobileReturnWeekdays} aria-hidden="true">
-                {["D", "S", "T", "Q", "Q", "S", "S"].map((label, index) => (
-                  <span key={`${label}-${index}`}>{label}</span>
-                ))}
-              </div>
-              <div className={styles.mobileReturnCalendarGrid}>
-                {mobileReturnCalendarDays.map((day) => (
-                  day.day ? (
-                    <button
-                      type="button"
-                      key={day.key}
-                      data-selected={day.key === mobileReturnDateKey ? "true" : "false"}
-                      onClick={() => selectMobileReturnCalendarDay(day.key)}
-                    >
-                      {day.day}
-                    </button>
-                  ) : (
-                    <span key={day.key} aria-hidden="true" />
-                  )
-                ))}
-              </div>
-            </div>
-
-            {mobileReturnScheduleError ? (
-              <p className={styles.mobileReturnSchedulerError}>{mobileReturnScheduleError}</p>
-            ) : (
-              <p className={styles.mobileReturnSchedulerHint}>
-                O card entra na agenda exatamente na data e no horário escolhidos.
-              </p>
-            )}
-
-            <button
-              type="button"
-              className={styles.mobileReturnSchedulerSave}
-              onClick={() => void saveMobileReturnSchedule()}
-              disabled={savingLeadId === mobileReturnScheduler.leadId}
-            >
-              {savingLeadId === mobileReturnScheduler.leadId ? "Salvando..." : "Salvar retorno"}
-            </button>
-          </section>
-        </div>,
-        document.body,
-      ) : null}
+      {renderMobileReturnSchedulerPortal()}
 
       {accountSheetOpen ? createPortal(
         <div
