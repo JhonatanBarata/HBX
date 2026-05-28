@@ -1479,7 +1479,7 @@ export class InboxService {
         String(conversationContact || ''),
         conversationMetadata,
       );
-      if (!metadata || metadata.isLocalHidden || metadata.isDeleted) return false;
+      if (!metadata) return false;
 
       const normalizedType = String(
         metadata.normalizedMessageType || message?.messageType || 'text',
@@ -1795,8 +1795,7 @@ export class InboxService {
     const messageType = String(message.messageType || '').trim().toLowerCase();
     const senderType = String(message.senderType || '').trim().toLowerCase();
     if (messageType === 'system_event' || senderType === 'system') return false;
-    const metadata = this.buildConversationMessageMetadata(message, '', {});
-    return !metadata?.isLocalHidden && !metadata?.isDeleted;
+    return true;
   }
 
   private realConversationMessageWhere() {
@@ -2669,7 +2668,6 @@ export class InboxService {
             String(conversation.contact || ''),
             conversationMetadata,
           );
-          if (messageMetadata?.isLocalHidden) return null;
           return {
             id: String(message.id),
             direction: String(message.direction || '').trim().toLowerCase(),
@@ -4162,7 +4160,6 @@ export class InboxService {
           String(conversation.contact || ''),
           conversationMetadata,
         );
-        if (messageMetadata?.isLocalHidden) return null;
         return {
           id: String(message.id),
           direction: String(message.direction || '').trim().toLowerCase(),
@@ -6115,42 +6112,65 @@ export class InboxService {
           ? 'Conversa encerrada no Atendimento e enviada para Excluídos no HBX.'
           : 'Conversa sem mensagens encerrada no Atendimento; card comercial arquivado.',
     });
-    const localDeleteIds = await this.findLocalDeleteConversationIds(companyId, conversation, metadata);
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const currentQueue =
+      metadata?.vendasAgendaQueue &&
+      typeof metadata.vendasAgendaQueue === 'object' &&
+      !Array.isArray(metadata.vendasAgendaQueue)
+        ? (metadata.vendasAgendaQueue as Record<string, unknown>)
+        : null;
+    const nextMetadata: Record<string, unknown> = {
+      ...metadata,
+      inboxManualQueueOverride: 'archived',
+      inboxManualQueueOverriddenAt: nowIso,
+      inboxLocalDeleted: true,
+      inboxLocalDeletedAt: nowIso,
+      inboxLocalDeletedByUserId: Number(user?.id || 0) || null,
+      queueTarget: 'excluidos',
+      routeTarget: 'excluidos',
+      botOff: true,
+      botOffReason: metadata.botOffReason || 'Conversa enviada para Excluídos no HBX.',
+      botOffAt: metadata.botOffAt || nowIso,
+      ...(currentQueue
+        ? {
+            vendasAgendaQueue: {
+              ...currentQueue,
+              active: false,
+              draftPending: false,
+              botEligible: false,
+              botEntryPending: false,
+              queueTarget: 'excluidos',
+              routeTarget: 'excluidos',
+              manualQueueOverride: 'archived',
+              manualQueueOverriddenAt: nowIso,
+              deactivatedAt: (currentQueue as any).deactivatedAt || nowIso,
+              syncedAt: nowIso,
+            },
+          }
+        : {}),
+    };
 
-    try {
-      await this.purgeInboxConversationsLocally(companyId, localDeleteIds);
-    } catch (error) {
-      await this.logInboxEvent({
-        companyId,
-        event: 'conversation_backend_delete_failed',
-        message: 'Falha ao excluir conversa do backend local.',
-        conversationId,
-        phone: String(conversation.contact || '').trim(),
-        result: 'delete_failed',
-        extra: {
-          localOnly: true,
-          whatsappCommandSent: false,
-          archivedLeadId,
-          localDeleteIds,
-          error: error instanceof Error ? error.message : 'unknown_error',
-        },
-      });
-      throw new BadRequestException('Falha ao excluir conversa do backend local. Tente novamente.');
-    }
+    await this.conversations.updateConversationState(companyId, conversation.id, {
+      metadata: nextMetadata,
+      botActive: false,
+      humanAssigned: false,
+      flowResult: 'local_deleted',
+    });
 
     try {
       await this.customerProfileService.upsertAtendimentoProfileState({
         companyId,
         phone: String(conversation.contact || '').trim(),
         botOff: true,
-        botOffReason: 'Conversa removida do backend local do HBX.',
-        botOffAt: new Date(),
+        botOffReason: 'Conversa enviada para Excluídos no HBX.',
+        botOffAt: now,
       } as any);
     } catch (error) {
       await this.logInboxEvent({
         companyId,
         event: 'conversation_local_delete_profile_sync_failed',
-        message: 'Falha ao persistir BOT_OFF no CustomerProfile durante exclusao local.',
+        message: 'Falha ao persistir BOT_OFF no CustomerProfile durante envio para Excluídos.',
         conversationId,
         phone: String(conversation.contact || '').trim(),
         result: 'warning',
@@ -6162,26 +6182,28 @@ export class InboxService {
 
     await this.logInboxEvent({
       companyId,
-      event: 'conversation_backend_deleted',
-      message: 'Conversa removida do backend local do HBX. Nenhum comando foi enviado ao WhatsApp.',
+      event: 'conversation_sent_to_trash',
+      message: 'Conversa enviada para Excluídos no HBX. Mensagens preservadas no banco.',
       conversationId,
       phone: String(conversation.contact || '').trim(),
-      result: 'backend_deleted',
+      result: 'archived',
       extra: {
         localOnly: true,
         whatsappCommandSent: false,
         archivedLeadId,
         exchangedMessages,
-        localDeleteIds,
       },
     });
+    const archivedConversation = await this.getConversationByIdForCompany(companyId, conversation.id);
     return {
       success: true,
-      id: String(conversation.id),
-      message: 'Conversa removida do backend local do HBX.',
-      deleted: true,
-      deletedIds: localDeleteIds.map((id) => String(id)),
-      deletedCount: localDeleteIds.length,
+      id: String(archivedConversation?.id || conversation.id),
+      conversation: archivedConversation,
+      message: 'Conversa enviada para Excluídos. Mensagens preservadas.',
+      deleted: false,
+      archived: true,
+      deletedIds: [],
+      deletedCount: 0,
       archivedLeadId,
       localOnly: true,
     };
@@ -6196,39 +6218,9 @@ export class InboxService {
       conversationIds.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0),
     ));
     if (!ids.length) return;
-    await this.prisma.$transaction(async (tx) => {
-      if (tx.atendimentoAppointment?.updateMany) {
-        await tx.atendimentoAppointment.updateMany({
-          where: {
-            companyId,
-            conversationId: { in: ids },
-          },
-          data: {
-            conversationId: null,
-          },
-        });
-      }
-      const messages = await tx.companyMessage.findMany({
-        where: {
-          companyId,
-          conversationId: { in: ids },
-        },
-        select: { id: true },
-        orderBy: [{ id: 'asc' }],
-      });
-      for (const message of messages) {
-        await tx.companyMessage.delete({
-          where: { id: message.id },
-        });
-      }
-      const conversations = await tx.companyConversation.findMany({
-        where: { id: { in: ids }, companyId, channel: 'whatsapp' },
-        select: { id: true },
-      });
-      for (const conversation of conversations) {
-        await tx.companyConversation.delete({ where: { id: conversation.id } });
-      }
-    });
+    this.logger.warn(
+      `Purge local de conversas bloqueado company=${companyId} ids=${ids.join(',')}. Mensagens preservadas.`,
+    );
   }
 
   async cleanupOldWhatsappSessions(user: any, modeRaw?: string | null) {
@@ -6284,6 +6276,10 @@ export class InboxService {
     });
     const recoverableSessionIds = mode === 'merge' ? oldSessionIds.slice(0, 1) : [];
     const discardSessionIds = mode === 'merge' ? oldSessionIds.slice(1) : oldSessionIds;
+    const discardCacheSessionIds =
+      mode === 'discard'
+        ? Array.from(new Set([...discardSessionIds, currentSessionId]))
+        : discardSessionIds;
     const recoverableConversations = oldConversations.filter((conversation) =>
       recoverableSessionIds.includes(String(conversation.whatsappConnectionSessionId || '')),
     );
@@ -6344,8 +6340,18 @@ export class InboxService {
         }
       }
 
-      const conversationsToDiscard = mode === 'merge' ? discardConversations : oldConversations;
-      const sessionIdsToDiscard = mode === 'merge' ? discardSessionIds : oldSessionIds;
+      const conversationsToDiscard =
+        mode === 'merge'
+          ? discardConversations
+          : await tx.companyConversation.findMany({
+              where: {
+                companyId,
+                channel: 'whatsapp',
+                whatsappConnectionSessionId: { in: discardCacheSessionIds },
+              },
+              select: { id: true, whatsappConnectionSessionId: true },
+            });
+      const sessionIdsToDiscard = discardCacheSessionIds;
       if (sessionIdsToDiscard.length || conversationsToDiscard.length) {
         const messages = await tx.companyMessage.findMany({
           where: {
@@ -6388,13 +6394,22 @@ export class InboxService {
         where: { companyId, id: currentSessionId },
         select: { metadataJson: true },
       });
+      const currentSessionMetadata = this.parseConversationMetadata(currentSession?.metadataJson);
+      if (mode === 'discard') {
+        delete currentSessionMetadata.inboxResetAt;
+        delete currentSessionMetadata.webwhatsResetAt;
+      }
       await tx.whatsAppConnectionSession.update({
         where: { id: currentSessionId },
         data: {
           metadataJson: JSON.stringify({
-            ...this.parseConversationMetadata(currentSession?.metadataJson),
-            inboxResetAt: resetAt.toISOString(),
-            webwhatsResetAt: resetAt.toISOString(),
+            ...currentSessionMetadata,
+            ...(mode === 'merge'
+              ? {
+                  inboxResetAt: resetAt.toISOString(),
+                  webwhatsResetAt: resetAt.toISOString(),
+                }
+              : {}),
             popup2CleanupMode: mode,
             popup2CleanupAt: resetAt.toISOString(),
           }),
@@ -6414,6 +6429,7 @@ export class InboxService {
         oldSessionIds,
         recoverableSessionIds,
         discardSessionIds,
+        discardCacheSessionIds,
         merged,
         deletedConversations,
         deletedMessages,
@@ -7020,64 +7036,6 @@ export class InboxService {
     return this.getConversationByIdForCompany(companyId, conversation.id);
   }
 
-  async deleteConversationMessageLocally(
-    user: any,
-    conversationId: number,
-    messageId: number,
-  ) {
-    this.assertAdministrativeAction(user);
-    const companyId = this.requireCompanyIdFromUser(user);
-    const conversation = await this.ensureConversation(companyId, conversationId);
-    const { liveConversation, target, rawPayload } = await this.resolveLiveConversationActionTarget(
-      companyId,
-      conversation.id,
-      messageId,
-    );
-    const currentMetadata = this.getStateConversationMetadata(liveConversation.conversation.metadata);
-    const deletedAtIso = new Date().toISOString();
-    const hiddenKey =
-      this.normalizeMessageMetadataText(target.providerMessageId) || `synthetic:${String(target.id)}`;
-    const currentHiddenEntries = Array.isArray(currentMetadata.whatsappLocalHiddenMessages)
-      ? currentMetadata.whatsappLocalHiddenMessages.filter(
-          (entry) => entry && typeof entry === 'object' && !Array.isArray(entry),
-        )
-      : [];
-    const nextHiddenEntries = [
-      ...currentHiddenEntries.filter(
-        (entry) => this.normalizeMessageMetadataText((entry as Record<string, any>).key) !== hiddenKey,
-      ),
-      {
-        key: hiddenKey,
-        hiddenAt: deletedAtIso,
-        hiddenByUserId: Number(user?.id || 0) || null,
-        originalText:
-          this.normalizeMessageMetadataText(this.parseConversationMetadata(target.variablesJson)?.localHiddenOriginalText) ||
-          this.normalizeMessageMetadataText(target.body) ||
-          this.extractMessageTextFromPayload(
-            this.unwrapMessagePayload(rawPayload?.message || rawPayload),
-            this.normalizeConversationMessageType(target.messageType, rawPayload, {}),
-          ) ||
-          null,
-        originalMessageType:
-          this.normalizeMessageMetadataText(
-            this.parseConversationMetadata(target.variablesJson)?.localHiddenOriginalMessageType,
-          ) || this.normalizeMessageMetadataText(target.messageType) || null,
-      },
-    ].slice(-500);
-
-    await this.prisma.companyConversation.update({
-      where: { id: conversation.id },
-      data: {
-        metadata: JSON.stringify({
-          ...currentMetadata,
-          whatsappLocalHiddenMessages: nextHiddenEntries,
-        }),
-      },
-    });
-
-    return this.getConversationByIdForCompany(companyId, conversation.id);
-  }
-
   async reactToConversationMessage(
     user: any,
     conversationId: number,
@@ -7211,48 +7169,6 @@ export class InboxService {
       },
     });
 
-    return this.getConversationByIdForCompany(companyId, conversation.id);
-  }
-
-  async deleteConversationMessageForEveryone(
-    user: any,
-    conversationId: number,
-    messageId: number,
-  ) {
-    this.assertAdministrativeAction(user);
-    const companyId = this.requireCompanyIdFromUser(user);
-    const conversation = await this.ensureConversation(companyId, conversationId);
-    const { liveConversation, target: message, rawPayload } = await this.resolveLiveConversationActionTarget(
-      companyId,
-      conversation.id,
-      messageId,
-    );
-    if (String(message.direction || '').trim().toUpperCase() !== 'OUTBOUND') {
-      throw new BadRequestException('Apenas mensagens enviadas podem ser apagadas para todos.');
-    }
-
-    const remoteJid =
-      this.normalizeMessageMetadataText(rawPayload?.key?.remoteJid) ||
-      this.normalizeMessageMetadataText(this.parseConversationMetadata(liveConversation.conversation.metadata)?.whatsappRemoteJid) ||
-      this.normalizeMessageMetadataText(liveConversation.remoteJid) ||
-      String(liveConversation.contact || conversation.contact || '');
-    const providerKeyId =
-      this.normalizeMessageMetadataText(rawPayload?.key?.id) ||
-      this.extractWebwhatsRawMessageIdFromProviderMessageId(message.providerMessageId);
-    if (!providerKeyId) {
-      throw new BadRequestException('Mensagem ainda nao possui chave valida para exclusao no WhatsApp.');
-    }
-
-    await this.webwhatsBridge.deleteMessageForEveryone(companyId, {
-      conversationId: conversation.id,
-      remoteJid,
-      messageId: providerKeyId,
-      fromMe:
-        rawPayload?.key?.fromMe === undefined || rawPayload?.key?.fromMe === null
-          ? true
-          : Boolean(rawPayload?.key?.fromMe),
-      participant: this.normalizeMessageMetadataText(rawPayload?.key?.participant),
-    });
     return this.getConversationByIdForCompany(companyId, conversation.id);
   }
 

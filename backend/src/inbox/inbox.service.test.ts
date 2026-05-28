@@ -1064,7 +1064,7 @@ test('updateConversationQueue marks Pessoais as personal contact and disables bo
   assert.ok(profileStateCalls[0].botOffAt instanceof Date);
 });
 
-test('deleteConversation removes conversations with history from local backend', async () => {
+test('deleteConversation sends conversations with history to Excluídos without deleting messages', async () => {
   const messageDeleteCalls: Array<Record<string, unknown>> = [];
   const conversationDeleteCalls: Array<Record<string, unknown>> = [];
   const { service, auditCalls, conversationStateCalls } = createService({
@@ -1107,21 +1107,26 @@ test('deleteConversation removes conversations with history from local backend',
       }),
     },
   });
+  (service as any).getConversationByIdForCompany = async () => ({ id: '42', messages: [] });
 
   const result = await service.deleteConversation({ companyId: 7, role: 'ADMIN' }, 42);
 
   assert.equal(result.success, true);
-  assert.equal(result.message, 'Conversa removida do backend local do HBX.');
-  assert.equal(result.deleted, true);
+  assert.equal(result.message, 'Conversa enviada para Excluídos. Mensagens preservadas.');
+  assert.equal(result.deleted, false);
+  assert.equal(result.archived, true);
   assert.equal(result.localOnly, true);
-  assert.equal(messageDeleteCalls.length, 3);
-  assert.equal(conversationDeleteCalls.length, 1);
-  assert.equal(conversationStateCalls.length, 0);
+  assert.equal(messageDeleteCalls.length, 0);
+  assert.equal(conversationDeleteCalls.length, 0);
+  assert.equal(conversationStateCalls.length, 1);
+  assert.equal((conversationStateCalls[0].payload as any).flowResult, 'local_deleted');
+  assert.equal((conversationStateCalls[0].payload as any).metadata.inboxManualQueueOverride, 'archived');
+  assert.equal((conversationStateCalls[0].payload as any).metadata.queueTarget, 'excluidos');
   assert.equal(auditCalls.length, 1);
-  assert.equal(auditCalls[0].event, 'conversation_backend_deleted');
+  assert.equal(auditCalls[0].event, 'conversation_sent_to_trash');
 });
 
-test('deleteConversation removes local backend row without WhatsApp command', async () => {
+test('deleteConversation preserves local backend row without WhatsApp command', async () => {
   const messageDeleteCalls: Array<Record<string, unknown>> = [];
   const conversationDeleteCalls: Array<Record<string, unknown>> = [];
   const { service, auditCalls, conversationStateCalls } = createService({
@@ -1164,21 +1169,23 @@ test('deleteConversation removes local backend row without WhatsApp command', as
       }),
     },
   });
+  (service as any).getConversationByIdForCompany = async () => ({ id: '42', messages: [] });
 
   const result = await service.deleteConversation({ companyId: 7, role: 'ADMIN' }, 42);
 
   assert.equal(result.success, true);
-  assert.equal(result.message, 'Conversa removida do backend local do HBX.');
-  assert.equal(result.deleted, true);
+  assert.equal(result.message, 'Conversa enviada para Excluídos. Mensagens preservadas.');
+  assert.equal(result.deleted, false);
+  assert.equal(result.archived, true);
   assert.equal(result.localOnly, true);
-  assert.equal(messageDeleteCalls.length, 2);
-  assert.equal(conversationDeleteCalls.length, 1);
-  assert.equal(conversationStateCalls.length, 0);
+  assert.equal(messageDeleteCalls.length, 0);
+  assert.equal(conversationDeleteCalls.length, 0);
+  assert.equal(conversationStateCalls.length, 1);
   assert.equal(auditCalls.length, 1);
-  assert.equal(auditCalls[0].event, 'conversation_backend_deleted');
+  assert.equal(auditCalls[0].event, 'conversation_sent_to_trash');
 });
 
-test('deleteConversation ignores disconnected WhatsApp session and deletes locally', async () => {
+test('deleteConversation ignores disconnected WhatsApp session and archives locally', async () => {
   const messageDeleteCalls: Array<Record<string, unknown>> = [];
   const conversationDeleteCalls: Array<Record<string, unknown>> = [];
   const { service, auditCalls, conversationStateCalls } = createService({
@@ -1221,17 +1228,19 @@ test('deleteConversation ignores disconnected WhatsApp session and deletes local
       },
     },
   });
+  (service as any).getConversationByIdForCompany = async () => ({ id: '42', messages: [] });
 
   const result = await service.deleteConversation({ companyId: 7, role: 'ADMIN' }, 42);
 
   assert.equal(result.success, true);
-  assert.equal(result.deleted, true);
+  assert.equal(result.deleted, false);
+  assert.equal(result.archived, true);
   assert.equal(result.localOnly, true);
-  assert.equal(messageDeleteCalls.length, 2);
-  assert.equal(conversationDeleteCalls.length, 1);
-  assert.equal(conversationStateCalls.length, 0);
+  assert.equal(messageDeleteCalls.length, 0);
+  assert.equal(conversationDeleteCalls.length, 0);
+  assert.equal(conversationStateCalls.length, 1);
   assert.equal(auditCalls.length, 1);
-  assert.equal(auditCalls[0].event, 'conversation_backend_deleted');
+  assert.equal(auditCalls[0].event, 'conversation_sent_to_trash');
 });
 
 test('purgeConversationFromTrash is disabled', async () => {
