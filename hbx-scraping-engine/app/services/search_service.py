@@ -101,22 +101,22 @@ SOCIAL_QUERY_BAD_NAME_HINTS = (
     "confira as melhores",
     "todos os estabelecimentos",
     "melhores opcoes",
-    "melhores opÃƒÂ§ÃƒÂµes",
+    "melhores opções",
     "diversos",
     "papai noel",
     "guia",
     "lista",
     "catalogo",
-    "catÃƒÂ¡logo",
+    "catálogo",
 )
 
 SOCIAL_QUERY_STOP_TOKENS = {
     "confira",
     "melhores",
     "opcoes",
-    "opÃƒÂ§ÃƒÂµes",
+    "opções",
     "opcao",
-    "opÃƒÂ§ÃƒÂ£o",
+    "opção",
     "todos",
     "estabelecimentos",
     "diversos",
@@ -326,7 +326,7 @@ class SearchService:
     def has_required_social_channels(self, contact: dict, required_channels: set[str]) -> bool:
         if not required_channels:
             return True
-        # Compatibilidade legada: isso ÃƒÂ© diagnÃƒÂ³stico/prioridade de busca, nÃƒÂ£o regra de descarte.
+        # Compatibilidade legada: isso é diagnóstico/prioridade de busca, não regra de descarte.
         return any(
             contact.get("instagramUrl" if channel == "instagram" else "facebookUrl")
             for channel in required_channels
@@ -602,6 +602,21 @@ class SearchService:
         name_tokens = self.social_name_tokens(name)
         compact_name = "".join(name_tokens)
         queries: list[str] = []
+        primary_brand_tokens = [
+            token
+            for token in self.distinctive_social_name_tokens(name)
+            if len(token) >= 5
+            and token not in WEAK_SOCIAL_DISTINCTIVE_TOKENS
+            and token not in WEBSITE_GENERIC_HOST_TOKENS
+        ]
+        for token in primary_brand_tokens[:1]:
+            q_token = self.quote_query_part(token)
+            if not q_token:
+                continue
+            for city_variant in self.text_variants(city_text):
+                q_city = self.quote_query_part(city_variant)
+                queries.append(f"{q_token} {q_city} {channel}".strip())
+                queries.append(f"site:{domain} {q_token} {q_city}".strip())
         top_handles = self.business_social_handle_candidates(name, city_text)[:10]
         for handle in top_handles:
             queries.append(f"{handle} {channel}")
@@ -658,7 +673,7 @@ class SearchService:
         if compact_name:
             queries.append(f"site:{domain} {compact_name}")
             queries.append(f"{compact_name} {channel}")
-        return list(dict.fromkeys(query.strip() for query in queries if query.strip()))[:14]
+        return list(dict.fromkeys(query.strip() for query in queries if query.strip()))[:24]
 
     def score_social_candidate(self, contact: dict, row: dict, url: str, channel: str, city: str, segment: str, query: str = "") -> int:
         score = 0
@@ -696,6 +711,7 @@ class SearchService:
             and token != "e"
         )
         city_key = text_key(city)
+        city_compact = self.compact_key(city)
         city_initials = self.city_initials_key(city)
         phone_digits = re.sub(r"\D", "", str(contact.get("phoneDigits") or contact.get("phone") or ""))
         phone_tail = phone_digits[-8:] if len(phone_digits) >= 8 else ""
@@ -773,7 +789,11 @@ class SearchService:
         )
         phone_match = bool(phone_tail and phone_tail in re.sub(r"\D", "", combined))
         domain_match = bool(domain_key and (domain_key in combined_key or website_domain in combined.lower()))
-        city_match = bool(city_key and city_key in combined_key)
+        city_match = bool(
+            city_key and city_key in combined_key
+            or city_compact and city_compact in combined_compact
+            or city_compact and city_compact in handle_key
+        )
         handle_has_business_identity = bool(
             handle_identity_match
             or handle_business_variant_match
@@ -850,7 +870,7 @@ class SearchService:
                             continue
                         for url_to_score in bridge_social_urls:
                             candidate_score = self.score_social_candidate(contact, row, url_to_score, channel, city, segment, query)
-                            if candidate_score < 48:
+                            if candidate_score < 55:
                                 continue
                             candidates.append(
                                 {
@@ -931,7 +951,7 @@ class SearchService:
                         or query_identity_match
                         or (query_handle_match and (handle_identity_match or handle_business_variant_match or business_handle_distinctive_match))
                     )
-                    if candidate_score >= 48 and has_identity_evidence:
+                    if candidate_score >= 55 and has_identity_evidence:
                         candidates.append({
                             "url": url,
                             "score": candidate_score,
@@ -1355,10 +1375,10 @@ class SearchService:
     def social_profile_name(self, profile: dict, city: str, segment: str) -> str:
         url = normalize_social_url(str(profile.get("url") or "")) or str(profile.get("url") or "")
         title = " ".join(str(profile.get("title") or "").split())
-        for marker in ("|", "Ã¢â‚¬Â¢", " - Instagram", " - Facebook", " Instagram", " Facebook"):
+        for marker in ("|", "•", " - Instagram", " - Facebook", " Instagram", " Facebook"):
             if marker in title:
                 title = title.split(marker, 1)[0].strip()
-        title = re.sub(r"\(@[^)]+\)", "", title).strip(" -:|Ã¢â‚¬Â¢")
+        title = re.sub(r"\(@[^)]+\)", "", title).strip(" -:|•")
         generic_title = text_key(title) in {"link to instagram com", "link to facebook com", "instagram", "facebook"}
         if title and not generic_title and not self.is_bad_social_candidate_name(title, city, segment):
             return title
@@ -1820,7 +1840,7 @@ class SearchService:
         text = " ".join(str(value or "").split())
         rating: float | None = None
         reviews: int | None = None
-        rating_match = re.search(r"\b([0-5](?:[,.]\d)?)\s*(?:Ã¢Ëœâ€¦|estrelas?|stars?)", text, flags=re.I)
+        rating_match = re.search(r"\b([0-5](?:[,.]\d)?)\s*(?:★|estrelas?|stars?)", text, flags=re.I)
         if not rating_match:
             rating_match = re.search(r"\bnota\s+([0-5](?:[,.]\d)?)\b", text, flags=re.I)
         if rating_match:
@@ -1828,7 +1848,7 @@ class SearchService:
                 rating = max(0.0, min(5.0, float(rating_match.group(1).replace(",", "."))))
             except Exception:
                 rating = None
-        reviews_match = re.search(r"\b(\d{1,6})\s+(?:avalia[cÃƒÂ§][oÃƒÂµ]es|reviews?|coment[aÃƒÂ¡]rios)\b", text, flags=re.I)
+        reviews_match = re.search(r"\b(\d{1,6})\s+(?:avalia[cç][oõ]es|reviews?|coment[aá]rios)\b", text, flags=re.I)
         if reviews_match:
             try:
                 reviews = max(0, int(reviews_match.group(1)))
@@ -1951,7 +1971,7 @@ class SearchService:
             if website_score < 35:
                 contact["website"] = None
                 input_website_accepted = False
-        identity = self.enrich_identity_lookup(contact, request.city, request.state, request.segment, min(deadline, time.monotonic() + 12))
+        identity = self.enrich_identity_lookup(contact, request.city, request.state, request.segment, min(deadline, time.monotonic() + 8))
         for key in ("website", "instagramUrl", "facebookUrl"):
             if identity.get(key) and not contact.get(key):
                 contact[key] = identity.get(key)
@@ -2132,7 +2152,7 @@ class SearchService:
                 contact["_legacyScore"] = legacy_score
                 contact["evidenceJson"] = evidence.model_dump()
                 contact["rejectReasons"] = evidence.penalties
-                commercial_reasons = [reason for reason in evidence.reasons if "pÃƒÂºblico-alvo" in reason or "segmentos-alvo" in reason]
+                commercial_reasons = [reason for reason in evidence.reasons if "público-alvo" in reason or "segmentos-alvo" in reason]
                 technical_reasons = [reason for reason in evidence.reasons if reason not in commercial_reasons]
                 visible_reasons = [*commercial_reasons, *technical_reasons][:3]
                 contact["qualityReason"] = "; ".join(visible_reasons) if visible_reasons else None
@@ -2276,7 +2296,7 @@ class SearchService:
                 item["score"] = evidence.finalScore
                 item["evidenceJson"] = evidence.model_dump()
                 item["rejectReasons"] = evidence.penalties
-                commercial_reasons = [reason for reason in evidence.reasons if "pÃƒÂºblico-alvo" in reason or "segmentos-alvo" in reason]
+                commercial_reasons = [reason for reason in evidence.reasons if "público-alvo" in reason or "segmentos-alvo" in reason]
                 technical_reasons = [reason for reason in evidence.reasons if reason not in commercial_reasons]
                 visible_reasons = [*commercial_reasons, *technical_reasons][:3]
                 item["qualityReason"] = "; ".join(visible_reasons) if visible_reasons else None

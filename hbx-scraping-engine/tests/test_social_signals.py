@@ -208,6 +208,36 @@ def test_social_candidate_rejects_clinic_profile_for_auto_shop() -> None:
     assert score == -100
 
 
+def test_social_candidate_accepts_brand_city_handle_for_legal_name() -> None:
+    service = SearchService()
+    contact = {
+        "name": "Alugtec Rental Pemt Ltda",
+        "phone": "(19) 3531-2615",
+        "phoneDigits": "1935312615",
+        "segment": "aluguel de equipamentos",
+        "score": 70,
+    }
+
+    queries = service.social_queries_for_contact(contact, "Rio Claro", "aluguel de equipamentos", "instagram")
+    assert '"alugtec" "Rio Claro" instagram' in queries[:4]
+
+    score = service.score_social_candidate(
+        contact,
+        {
+            "href": "https://instagram.com/alugtecrioclaro",
+            "title": "ALUGTEC (@alugtecrioclaro) - Rio Claro, SP - Instagram",
+            "body": "Alugtec locação de máquinas e equipamentos (19) 3524-6066 (19) 9.8138-0040",
+        },
+        "https://instagram.com/alugtecrioclaro",
+        "instagram",
+        "Rio Claro",
+        "aluguel de equipamentos",
+        "alugtec rio claro instagram",
+    )
+
+    assert score >= 55
+
+
 def test_discovery_recognizes_social_signal_but_does_not_use_as_primary_source(monkeypatch) -> None:
     queries: list[str] = []
 

@@ -2937,7 +2937,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       Nome: result.name,
       Telefone: result.phone,
       Nota: result.rating ?? '',
-      Avaliacoes: result.reviews,
+      'Avaliações': result.reviews,
       Endereco: result.address,
       Website: result.website ? 'Abrir site' : '',
       'Roteiro pronto': this.buildScriptText(result, response.query.city, response.query.segment, user),
@@ -4771,13 +4771,33 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private enqueueRadarSocialLookupForSavedLeads(
-    _context: SearchExecutionContext,
-    _runId: string,
-    _input: NormalizedSearchInput,
-    _leadIds: string[] = [],
-    _engineUrl?: string | null,
+    context: SearchExecutionContext,
+    runId: string,
+    input: NormalizedSearchInput,
+    leadIds: string[] = [],
+    engineUrl?: string | null,
   ) {
-    return;
+    if (!Array.isArray(leadIds) || !leadIds.length || input.targetType !== 'pj') return;
+    const max = this.getRadarSocialLookupMaxPerBatch();
+    let queued = 0;
+    for (const leadId of leadIds) {
+      const normalizedLeadId = String(leadId || '').trim();
+      if (!normalizedLeadId || this.radarSocialLookupQueuedIds.has(normalizedLeadId)) continue;
+      this.radarSocialLookupQueuedIds.add(normalizedLeadId);
+      this.radarSocialLookupQueue.push({
+        context,
+        leadId: normalizedLeadId,
+        input,
+        engineUrl: engineUrl || null,
+      });
+      queued += 1;
+      if (queued >= max) break;
+    }
+    if (!queued) return;
+    this.logger.log(`[radar-social] enfileirados=${queued} run=${runId}`);
+    setTimeout(() => {
+      void this.drainRadarSocialLookupQueue();
+    }, 0);
   }
 
   private async drainRadarSocialLookupQueue() {
@@ -4806,12 +4826,40 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const safeName = String(name || '').replace(/"/g, '').replace(/\s+/g, ' ').trim();
     const safeCity = String(city || '').replace(/"/g, '').replace(/\s+/g, ' ').trim();
     if (!safeName || !safeCity) return [];
-    return [
+    const tokens = normalizeLookupValue(safeName)
+      .split(/\s+/)
+      .filter((token) => (
+        token.length >= 5
+        && !RADAR_SOCIAL_STOP_TOKENS.has(token)
+        && !RADAR_SOCIAL_CATEGORY_TOKENS.has(token)
+        && !RADAR_SOCIAL_WEAK_TOKENS.has(token)
+        && !RADAR_WEBSITE_GENERIC_HOST_TOKENS.has(token)
+      ));
+    const brandToken = tokens[0] || '';
+    const brandName = brandToken
+      ? safeName.split(/\s+/).find((part) => normalizeLookupValue(part) === brandToken) || brandToken
+      : '';
+    const queries = [
+      ...(brandName
+        ? [
+            { network: 'instagram' as const, query: `site:instagram.com "${brandName}" "${safeCity}"` },
+            { network: 'instagram' as const, query: `"${brandName}" "${safeCity}" instagram` },
+            { network: 'facebook' as const, query: `site:facebook.com "${brandName}" "${safeCity}"` },
+            { network: 'facebook' as const, query: `"${brandName}" "${safeCity}" facebook` },
+          ]
+        : []),
       { network: 'instagram' as const, query: `site:instagram.com "${safeName}" "${safeCity}"` },
       { network: 'instagram' as const, query: `"${safeName}" "${safeCity}" instagram` },
       { network: 'facebook' as const, query: `site:facebook.com "${safeName}" "${safeCity}"` },
       { network: 'facebook' as const, query: `"${safeName}" "${safeCity}" facebook` },
     ];
+    const seen = new Set<string>();
+    return queries.filter((entry) => {
+      const key = `${entry.network}:${entry.query}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
   }
 
   private async loadRunItemForSocialLookup(context: SearchExecutionContext, leadId: string) {
@@ -4855,6 +4903,59 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     }).catch(() => null);
   }
 
+  private async syncRadarSocialLookupToVendasLead(
+    context: SearchExecutionContext,
+    lead: any,
+    nextRaw: Record<string, any>,
+  ) {
+    const instagramUrl = String(nextRaw.instagramUrl || '').trim();
+    const facebookUrl = String(nextRaw.facebookUrl || '').trim();
+    if (!instagramUrl && !facebookUrl) return;
+    const leadDelegate = (this.prisma as any).vendasLead;
+    const eventDelegate = (this.prisma as any).vendasLeadTimelineEvent;
+    if (!leadDelegate?.findFirst || !eventDelegate?.create) return;
+    const phoneDigits = normalizePhoneDigits(lead?.phoneDigits || lead?.phone);
+    const name = String(lead?.name || '').trim();
+    const city = String(lead?.city || '').trim();
+    const where = phoneDigits
+      ? {
+          companyId: context.companyId,
+          phoneNormalized: phoneDigits,
+          sourceType: 'webscraping',
+        }
+      : {
+          companyId: context.companyId,
+          sourceType: 'webscraping',
+          name,
+          city,
+        };
+    const vendasLead = await leadDelegate.findFirst({
+      where,
+      select: { id: true },
+    }).catch(() => null);
+    if (!vendasLead?.id) return;
+    await eventDelegate.create({
+      data: {
+        leadId: vendasLead.id,
+        eventType: 'radar_enrichment',
+        title: 'Redes sociais encontradas pelo Radar',
+        description: JSON.stringify({
+          instagramUrl: instagramUrl || null,
+          facebookUrl: facebookUrl || null,
+          socialStatus: nextRaw.socialStatus || 'found',
+          socialConfidence: safeInteger(nextRaw.socialConfidence),
+          recommendedChannel: nextRaw.recommendedChannel || null,
+          opportunityReason: nextRaw.opportunityReason || null,
+          enrichmentStatus: 'completed',
+          enrichment: nextRaw.enrichmentJson || null,
+        }),
+        sourceType: 'radar_enrichment',
+        resultLabel: nextRaw.recommendedChannel || 'social',
+        createdByUserId: context.userId || null,
+      },
+    }).catch(() => null);
+  }
+
   private extractRadarSocialLookupUrl(result: any, network: 'instagram' | 'facebook') {
     return this.pickRadarSocialUrl(result, network)
       || this.normalizeRadarSocialUrl(network === 'instagram' ? result?.instagramUrl : result?.facebookUrl, network)
@@ -4879,12 +4980,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const tokens = leadName.split(/\s+/).filter((token) => token && !RADAR_SOCIAL_STOP_TOKENS.has(token));
     const compactName = tokens.join('').replace(/[^a-z0-9]+/g, '');
     const strongTokens = tokens.filter((token) => token.length >= 3 && !RADAR_SOCIAL_CATEGORY_TOKENS.has(token));
+    const leadCityCompact = normalizeLookupValue(String(lead?.city || '')).replace(/[^a-z0-9]+/g, '');
     let score = 0;
     if (socialProfileLooksCompatibleWithLead(lead, url)) score = Math.max(score, 65);
     if (compactName.length >= 6 && (handle.includes(compactName) || compactName.includes(handle))) score = Math.max(score, 55);
     if (leadName.length >= 6 && resultText.includes(leadName)) score = Math.max(score, 48);
     const strongHits = strongTokens.filter((token) => socialTokenVariants(token).some((variant) => variant.length >= 3 && handle.includes(variant)));
     if (strongHits.length >= 2) score = Math.max(score, 55);
+    if (strongHits.length === 1 && leadCityCompact.length >= 5 && handle.includes(leadCityCompact)) score = Math.max(score, 58);
     if (strongHits.length === 1) score = Math.max(score, 38);
     const categoryHits = tokens.filter((token) => RADAR_SOCIAL_CATEGORY_TOKENS.has(token) && handle.includes(token));
     if (categoryHits.length && strongHits.length) score = Math.max(score, 58);
@@ -4933,7 +5036,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       return { accepted: false, confidence: nameScore, reason: 'nome_pouco_parecido', url: normalizedUrl };
     }
     let confidence = nameScore;
-    if (leadCity && evidenceText.includes(leadCity)) confidence += 20;
+    const leadCityCompact = leadCity.replace(/[^a-z0-9]+/g, '');
+    const evidenceCompact = evidenceText.replace(/[^a-z0-9]+/g, '');
+    if (leadCity && (evidenceText.includes(leadCity) || (leadCityCompact.length >= 5 && evidenceCompact.includes(leadCityCompact)))) confidence += 20;
     if (leadState && evidenceText.includes(normalizeLookupValue(leadState))) confidence += 5;
     if (String(result?.source || '').includes('social')) confidence += 5;
     confidence = Math.max(0, Math.min(100, confidence));
@@ -5074,6 +5179,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       },
     };
     await this.updateRunItemSocialRawJson(leadId, nextRaw);
+    await this.syncRadarSocialLookupToVendasLead(context, baseLead, nextRaw);
     this.logger.log(`[radar-social] lead=${leadId} status=${enrichment.socialStatus} confidence=${enrichment.socialConfidence} queries=${attemptedQueries.join(' | ')} reason=${reason}`);
     return {
       status: enrichment.socialStatus,
@@ -5885,6 +5991,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         'hbx',
         safeInteger(current.attemptCount) * batchLimit,
       );
+      this.enqueueRadarSocialLookupForSavedLeads(context, runId, batchInput, savedCounts.savedLeadIds, engineUrl);
       if (lease) {
         await this.getEnginePool().markEngineBatchSuccess(lease.engineId).catch(() => null);
       }
