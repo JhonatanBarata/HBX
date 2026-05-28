@@ -5232,6 +5232,7 @@ function InboxDesktopClientPage() {
   const customerConversationCardLoadTokenRef = useRef(0);
   const botConfigLoadedRef = useRef(false);
   const agendaConfigLoadedRef = useRef(false);
+  const composerDraftsRef = useRef<Record<string, string>>({});
   const sendTextDirtyRef = useRef(false);
   const restoreComposerFocusAfterSendRef = useRef(false);
   const lastSectionChangeRef = useRef<{ section: AtendimentoSection | null; at: number }>({
@@ -5244,6 +5245,22 @@ function InboxDesktopClientPage() {
   const botAiActive = hasBotAi(commercialPlans);
   const botSetupComplete = isAtendimentoBotSetupComplete(botConfig);
   const globalBotEnabled = botAiActive && botSetupComplete && botConfig.routingRules.globalBotEnabled !== false;
+
+  const saveComposerDraft = useCallback((conversationId: string | null | undefined, value: string) => {
+    const normalizedId = normalizeInboxConversationId(conversationId);
+    if (!normalizedId) return;
+    if (value) {
+      composerDraftsRef.current[normalizedId] = value;
+    } else {
+      delete composerDraftsRef.current[normalizedId];
+    }
+  }, []);
+
+  const clearComposerDraft = useCallback((conversationId: string | null | undefined) => {
+    const normalizedId = normalizeInboxConversationId(conversationId);
+    if (!normalizedId) return;
+    delete composerDraftsRef.current[normalizedId];
+  }, []);
 
   const openBotPlans = useCallback(() => {
     setNotice({
@@ -8238,6 +8255,7 @@ function InboxDesktopClientPage() {
         if (!imagePreview) {
           enqueueOptimisticMessage(content);
           setSendText("");
+          clearComposerDraft(selectedId);
           sendTextDirtyRef.current = false;
           setReplyingTo(null);
         }
@@ -8266,6 +8284,7 @@ function InboxDesktopClientPage() {
           URL.revokeObjectURL(imagePreview.url);
           setImagePreview(null);
           setSendText("");
+          clearComposerDraft(selectedId);
           sendTextDirtyRef.current = false;
           setReplyingTo(null);
         }
@@ -8318,6 +8337,7 @@ function InboxDesktopClientPage() {
       loadConversations,
       patchOptimisticMessage,
       rememberConversationDetail,
+      clearComposerDraft,
       selectedConversationInteractionBlocked,
       selectedId,
       sendText,
@@ -9383,7 +9403,11 @@ function InboxDesktopClientPage() {
                               const textarea = chatComposerInputRef.current;
                               if (!textarea) {
                                 sendTextDirtyRef.current = true;
-                                setSendText((prev) => prev + emoji);
+                                setSendText((prev) => {
+                                  const next = prev + emoji;
+                                  saveComposerDraft(selectedId, next);
+                                  return next;
+                                });
                                 setEmojiPickerOpen(false);
                                 return;
                               }
@@ -9391,6 +9415,7 @@ function InboxDesktopClientPage() {
                               const end = textarea.selectionEnd ?? textarea.value.length;
                               const next = textarea.value.substring(0, start) + emoji + textarea.value.substring(end);
                               sendTextDirtyRef.current = true;
+                              saveComposerDraft(selectedId, next);
                               setSendText(next);
                               setEmojiPickerOpen(false);
                               window.requestAnimationFrame(() => {
@@ -9451,8 +9476,10 @@ function InboxDesktopClientPage() {
                     lang="pt-BR"
                     value={sendText}
                     onChange={(event) => {
+                      const next = event.target.value;
                       sendTextDirtyRef.current = true;
-                      setSendText(event.target.value);
+                      saveComposerDraft(selectedId, next);
+                      setSendText(next);
                     }}
                     onPaste={handleComposerPaste}
                     onPointerDown={(event) => {
@@ -10068,6 +10095,7 @@ function InboxDesktopClientPage() {
       selectedStatus,
       saveCustomerConversationCard,
       savingCustomerConversationCard,
+      saveComposerDraft,
       scheduleCustomerReturnTomorrow,
       scrollChatTimelineToBottom,
       dropOverQueue,
@@ -10371,14 +10399,15 @@ function InboxDesktopClientPage() {
 
   // Clear composer state when switching conversations
   useEffect(() => {
+    const draft = selectedId ? composerDraftsRef.current[selectedId] || "" : "";
     setReplyingTo(null);
     setImagePreview((prev) => {
       if (prev) URL.revokeObjectURL(prev.url);
       return null;
     });
     setOpenedAsset(null);
-    setSendText("");
-    sendTextDirtyRef.current = false;
+    setSendText(draft);
+    sendTextDirtyRef.current = Boolean(draft.trim());
     setQueueActionConversationId(null);
     setMessageReactionTargetId(null);
   }, [selectedId]);
@@ -10389,10 +10418,11 @@ function InboxDesktopClientPage() {
     if (normalizedSearch !== requestedSupportPhone) return;
     setSendText((current) => {
       if (String(current || "").trim()) return current;
+      saveComposerDraft(selectedId, requestedSupportMessage);
       sendTextDirtyRef.current = true;
       return requestedSupportMessage;
     });
-  }, [conversationSearch, requestedSupportMessage, requestedSupportPhone, selectedId]);
+  }, [conversationSearch, requestedSupportMessage, requestedSupportPhone, saveComposerDraft, selectedId]);
 
   useEffect(() => {
     if (!selectedId || selectedBlocked || !selectedVendasAgendaDraftMessage) return;
@@ -10400,10 +10430,11 @@ function InboxDesktopClientPage() {
       const normalizedCurrent = String(current || "").trim();
       if (sendTextDirtyRef.current && normalizedCurrent) return current;
       if (normalizedCurrent && normalizedCurrent !== selectedVendasAgendaDraftMessage) return current;
+      saveComposerDraft(selectedId, selectedVendasAgendaDraftMessage);
       sendTextDirtyRef.current = false;
       return selectedVendasAgendaDraftMessage;
     });
-  }, [selectedBlocked, selectedId, selectedVendasAgendaDraftMessage]);
+  }, [saveComposerDraft, selectedBlocked, selectedId, selectedVendasAgendaDraftMessage]);
 
   useEffect(() => {
     if (humanAlertTimerRef.current !== null) {
