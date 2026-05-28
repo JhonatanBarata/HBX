@@ -875,6 +875,8 @@
 .whatsAppMessageBlock {
   display: grid;
   gap: 0.45rem;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 96px;
 }
 
 .whatsAppMessageBlockGrouped {
@@ -1703,6 +1705,8 @@
   height: 72px;
   min-height: 72px;
   max-height: 72px;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 72px;
 }
 
 .conversationQueueItem::after {
