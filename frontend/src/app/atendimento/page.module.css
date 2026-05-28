@@ -8445,6 +8445,27 @@
   background: rgba(4, 9, 20, 0.46);
 }
 
+.whatsAppDeliveryNotice {
+  display: flex;
+  max-width: 100%;
+  margin-top: 0.36rem;
+  padding: 0.32rem 0.48rem;
+  border-radius: 11px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.22);
+  color: rgba(232, 241, 255, 0.82);
+  font-size: 0.68rem;
+  font-weight: 750;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.whatsAppDeliveryNotice[data-state="failed"] {
+  border-color: rgba(248, 113, 113, 0.5);
+  background: rgba(127, 29, 29, 0.22);
+  color: #fecaca;
+}
+
 .whatsAppQuotedSnippet {
   padding: 0.54rem 0.62rem;
   border-radius: 14px;
@@ -9419,6 +9440,18 @@
 
 :global(html[data-theme-mode="light"]) .whatsAppBubbleMetaOnMedia {
   background: rgba(255, 255, 255, 0.72);
+}
+
+:global(html[data-theme-mode="light"]) .whatsAppDeliveryNotice {
+  border-color: color-mix(in srgb, var(--line) 82%, var(--background));
+  background: color-mix(in srgb, var(--surface-soft) 88%, transparent);
+  color: color-mix(in srgb, var(--foreground) 68%, var(--muted));
+}
+
+:global(html[data-theme-mode="light"]) .whatsAppDeliveryNotice[data-state="failed"] {
+  border-color: color-mix(in srgb, #ef4444 38%, var(--line));
+  background: color-mix(in srgb, #fee2e2 78%, var(--surface));
+  color: #991b1b;
 }
 
 :global(html[data-theme-mode="light"]) .whatsAppQuotedSnippet,

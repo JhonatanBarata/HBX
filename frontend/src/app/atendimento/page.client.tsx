@@ -4735,8 +4735,33 @@ const COMMON_EMOJIS = [
   "❤️", "🔥", "⭐", "✨", "🎉", "✅", "❌", "🚀", "💬", "😬",
 ];
 
+function normalizeInboxDeliveryStatus(status: string | null | undefined) {
+  return String(status || "").trim().toLowerCase();
+}
+
+function isInboxDeliveryPending(status: string | null | undefined) {
+  const s = normalizeInboxDeliveryStatus(status);
+  return s === "pending" || s === "queued" || s === "sending" || s === "processing";
+}
+
+function isInboxDeliveryFailed(status: string | null | undefined) {
+  const s = normalizeInboxDeliveryStatus(status);
+  return s === "failed" || s === "error";
+}
+
+function getInboxDeliveryStatusLabel(status: string | null | undefined) {
+  const s = normalizeInboxDeliveryStatus(status);
+  if (s === "read") return "Lida";
+  if (s === "delivered") return "Entregue";
+  if (s === "sent") return "Enviada";
+  if (s === "sending" || s === "processing") return "Enviando";
+  if (s === "queued" || s === "pending") return "Na fila";
+  if (isInboxDeliveryFailed(s)) return "Falha no envio";
+  return "Status desconhecido";
+}
+
 function MessageStatusTick({ status }: { status: string }) {
-  const s = String(status || "").toLowerCase();
+  const s = normalizeInboxDeliveryStatus(status);
   if (s === "read") {
     return (
       <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 3 }} title="Lido">
@@ -4771,9 +4796,9 @@ function MessageStatusTick({ status }: { status: string }) {
       <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 3, color: "#ff6b6b", fontWeight: 700, fontSize: "0.78rem" }} title="Falha no envio">!</span>
     );
   }
-  if (s === "pending" || s === "queued" || s === "processing") {
+  if (isInboxDeliveryPending(s)) {
     return (
-      <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 3 }} title="Enviando">
+      <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 3 }} title={getInboxDeliveryStatusLabel(s)}>
         <svg width={10} height={10} viewBox="0 0 10 10" fill="none" aria-hidden="true">
           <circle cx="5" cy="5" r="4" stroke="#8696a0" strokeWidth="1.5" />
           <path d="M5 2.5V5l2 1.5" stroke="#8696a0" strokeWidth="1.5" strokeLinecap="round" />
@@ -8485,6 +8510,17 @@ function InboxDesktopClientPage() {
                       Boolean(reactionKey);
                     const canRevealDeleted = rendered.isDeleted && canRevealDeletedInboxMessage(message);
                     const isDeletedRevealed = Boolean(revealedDeletedMessageIds[message.id]);
+                    const deliveryPending = isOutbound && isInboxDeliveryPending(message.status);
+                    const deliveryFailed = isOutbound && isInboxDeliveryFailed(message.status);
+                    const deliveryError = String(message.error || "").trim();
+                    const deliveryNotice =
+                      deliveryFailed
+                        ? deliveryError
+                          ? `Falha no envio: ${deliveryError}`
+                          : "Falha no envio. Verifique a conexão do WhatsApp."
+                        : deliveryPending
+                          ? getInboxDeliveryStatusLabel(message.status)
+                          : null;
                     const canPreviewDocument =
                       Boolean(rendered.documentUrl) &&
                       canPreviewDocumentInOverlay(
@@ -8735,6 +8771,15 @@ function InboxDesktopClientPage() {
                                   <MessageStatusTick status={message.status} />
                                 ) : null}
                               </span>
+                              {deliveryNotice ? (
+                                <span
+                                  className={styles.whatsAppDeliveryNotice}
+                                  data-state={deliveryFailed ? "failed" : "pending"}
+                                  title={deliveryNotice}
+                                >
+                                  {deliveryNotice}
+                                </span>
+                              ) : null}
                             </div>
                             {reactionEmojis.length ? (
                               <div className={styles.whatsAppReactionChipRow}>
