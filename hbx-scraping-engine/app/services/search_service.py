@@ -101,22 +101,22 @@ SOCIAL_QUERY_BAD_NAME_HINTS = (
     "confira as melhores",
     "todos os estabelecimentos",
     "melhores opcoes",
-    "melhores opções",
+    "melhores opÃ§Ãµes",
     "diversos",
     "papai noel",
     "guia",
     "lista",
     "catalogo",
-    "catálogo",
+    "catÃ¡logo",
 )
 
 SOCIAL_QUERY_STOP_TOKENS = {
     "confira",
     "melhores",
     "opcoes",
-    "opções",
+    "opÃ§Ãµes",
     "opcao",
-    "opção",
+    "opÃ§Ã£o",
     "todos",
     "estabelecimentos",
     "diversos",
@@ -326,7 +326,7 @@ class SearchService:
     def has_required_social_channels(self, contact: dict, required_channels: set[str]) -> bool:
         if not required_channels:
             return True
-        # Compatibilidade legada: isso é diagnóstico/prioridade de busca, não regra de descarte.
+        # Compatibilidade legada: isso Ã© diagnÃ³stico/prioridade de busca, nÃ£o regra de descarte.
         return any(
             contact.get("instagramUrl" if channel == "instagram" else "facebookUrl")
             for channel in required_channels
@@ -1355,10 +1355,10 @@ class SearchService:
     def social_profile_name(self, profile: dict, city: str, segment: str) -> str:
         url = normalize_social_url(str(profile.get("url") or "")) or str(profile.get("url") or "")
         title = " ".join(str(profile.get("title") or "").split())
-        for marker in ("|", "•", " - Instagram", " - Facebook", " Instagram", " Facebook"):
+        for marker in ("|", "â€¢", " - Instagram", " - Facebook", " Instagram", " Facebook"):
             if marker in title:
                 title = title.split(marker, 1)[0].strip()
-        title = re.sub(r"\(@[^)]+\)", "", title).strip(" -:|•")
+        title = re.sub(r"\(@[^)]+\)", "", title).strip(" -:|â€¢")
         generic_title = text_key(title) in {"link to instagram com", "link to facebook com", "instagram", "facebook"}
         if title and not generic_title and not self.is_bad_social_candidate_name(title, city, segment):
             return title
@@ -1820,7 +1820,7 @@ class SearchService:
         text = " ".join(str(value or "").split())
         rating: float | None = None
         reviews: int | None = None
-        rating_match = re.search(r"\b([0-5](?:[,.]\d)?)\s*(?:★|estrelas?|stars?)", text, flags=re.I)
+        rating_match = re.search(r"\b([0-5](?:[,.]\d)?)\s*(?:â˜…|estrelas?|stars?)", text, flags=re.I)
         if not rating_match:
             rating_match = re.search(r"\bnota\s+([0-5](?:[,.]\d)?)\b", text, flags=re.I)
         if rating_match:
@@ -1828,7 +1828,7 @@ class SearchService:
                 rating = max(0.0, min(5.0, float(rating_match.group(1).replace(",", "."))))
             except Exception:
                 rating = None
-        reviews_match = re.search(r"\b(\d{1,6})\s+(?:avalia[cç][oõ]es|reviews?|coment[aá]rios)\b", text, flags=re.I)
+        reviews_match = re.search(r"\b(\d{1,6})\s+(?:avalia[cÃ§][oÃµ]es|reviews?|coment[aÃ¡]rios)\b", text, flags=re.I)
         if reviews_match:
             try:
                 reviews = max(0, int(reviews_match.group(1)))
@@ -1951,7 +1951,7 @@ class SearchService:
             if website_score < 35:
                 contact["website"] = None
                 input_website_accepted = False
-        identity = self.enrich_identity_lookup(contact, request.city, request.state, request.segment, min(deadline, time.monotonic() + 8))
+        identity = self.enrich_identity_lookup(contact, request.city, request.state, request.segment, min(deadline, time.monotonic() + 12))
         for key in ("website", "instagramUrl", "facebookUrl"):
             if identity.get(key) and not contact.get(key):
                 contact[key] = identity.get(key)
@@ -2132,7 +2132,7 @@ class SearchService:
                 contact["_legacyScore"] = legacy_score
                 contact["evidenceJson"] = evidence.model_dump()
                 contact["rejectReasons"] = evidence.penalties
-                commercial_reasons = [reason for reason in evidence.reasons if "público-alvo" in reason or "segmentos-alvo" in reason]
+                commercial_reasons = [reason for reason in evidence.reasons if "pÃºblico-alvo" in reason or "segmentos-alvo" in reason]
                 technical_reasons = [reason for reason in evidence.reasons if reason not in commercial_reasons]
                 visible_reasons = [*commercial_reasons, *technical_reasons][:3]
                 contact["qualityReason"] = "; ".join(visible_reasons) if visible_reasons else None
@@ -2276,7 +2276,7 @@ class SearchService:
                 item["score"] = evidence.finalScore
                 item["evidenceJson"] = evidence.model_dump()
                 item["rejectReasons"] = evidence.penalties
-                commercial_reasons = [reason for reason in evidence.reasons if "público-alvo" in reason or "segmentos-alvo" in reason]
+                commercial_reasons = [reason for reason in evidence.reasons if "pÃºblico-alvo" in reason or "segmentos-alvo" in reason]
                 technical_reasons = [reason for reason in evidence.reasons if reason not in commercial_reasons]
                 visible_reasons = [*commercial_reasons, *technical_reasons][:3]
                 item["qualityReason"] = "; ".join(visible_reasons) if visible_reasons else None
