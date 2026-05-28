@@ -9962,12 +9962,97 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
     );
   }
 
+  function renderAccountSheetPortal() {
+    if (!accountSheetOpen || typeof document === "undefined") return null;
+
+    return createPortal(
+      <div
+        className={styles.mobileVendasSheetBackdrop}
+        onClick={() => setAccountSheetOpen(false)}
+      >
+        <section
+          className={`${styles.mobileVendasNoteSheet} ${styles.mobileVendasAccountSheet}`}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="mobile-vendas-account-title"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <span className={styles.mobileVendasSheetHandle} aria-hidden="true" />
+          <div className={styles.mobileVendasSheetHeader}>
+            <h2 id="mobile-vendas-account-title">Conta</h2>
+            <button type="button" onClick={() => setAccountSheetOpen(false)} aria-label="Fechar">
+              ×
+            </button>
+          </div>
+          <div className={styles.mobileVendasAccountAvatar} aria-hidden="true">
+            {(accountProfile?.email || "?").slice(0, 1).toUpperCase()}
+          </div>
+          <label className={styles.mobileVendasAccountField}>
+            <span>Como quer ser chamado</span>
+            <input
+              value={accountNameDraft}
+              onChange={(event) => setAccountNameDraft(event.target.value)}
+              placeholder="Ex.: Ana"
+              maxLength={80}
+            />
+          </label>
+          <button
+            type="button"
+            className={`${styles.mobileVendasAccountSave} hbx-mobile-primary-button`}
+            onClick={() => {
+              const trimmed = accountNameDraft.trim();
+              saveMobilePreferredCallerName(trimmed);
+              setMobilePreferredCallerName(trimmed);
+              setAccountSheetOpen(false);
+              if (trimmed) setFeedback("Preferência salva.");
+            }}
+          >
+            Salvar
+          </button>
+          <div className={styles.mobileVendasAccountBlock}>
+            <strong>Financeiro</strong>
+            <p>
+              {accountProfileLoading
+                ? "Carregando..."
+                : accountProfile?.company
+                  ? [
+                      accountProfile.company.subscriptionStatus &&
+                        `Plano: ${accountProfile.company.subscriptionStatus}`,
+                      accountProfile.company.paymentStatus &&
+                        `Pagamento: ${accountProfile.company.paymentStatus}`,
+                      accountProfile.company.premiumAccess ? "Premium ativo" : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ") || "Sem dados de cobrança nesta sessão."
+                  : "Não foi possível carregar agora."}
+            </p>
+          </div>
+          <div className={styles.mobileVendasAccountBlock}>
+            <strong>Configurações</strong>
+            <p>Ajuste seu perfil de venda, público ideal e filtros de qualidade.</p>
+          </div>
+          {renderAccountSalesProfileSettings()}
+          <div className={styles.mobileVendasAccountActions}>
+            <Link className="hbx-mobile-secondary-button" href={toMobileRoute("/boasvindas")} onClick={() => setAccountSheetOpen(false)}>
+              Upgrade
+            </Link>
+            <Link className="hbx-mobile-primary-button" href={toMobileRoute("/tutorial")} onClick={() => setAccountSheetOpen(false)}>
+              Tutorial
+            </Link>
+          </div>
+        </section>
+      </div>,
+      document.body,
+    );
+  }
+
   if (mobileRoute) {
     return (
       <DashboardScaffold title="Vendas" hideHeader={true}>
         <style dangerouslySetInnerHTML={{ __html: vendasDragTopbarLockStyle }} />
         {renderMobileVendas()}
         {renderMobileReturnSchedulerPortal()}
+        {renderAccountSheetPortal()}
         {renderAssistedSignupPortal()}
         {renderCommissionReceiptPortal()}
         {renderMasterNoticeCenter(false)}
@@ -10331,85 +10416,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
 
       {renderMobileReturnSchedulerPortal()}
 
-      {accountSheetOpen ? createPortal(
-        <div
-          className={styles.mobileVendasSheetBackdrop}
-          onClick={() => setAccountSheetOpen(false)}
-        >
-          <section
-            className={`${styles.mobileVendasNoteSheet} ${styles.mobileVendasAccountSheet}`}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="mobile-vendas-account-title"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <span className={styles.mobileVendasSheetHandle} aria-hidden="true" />
-            <div className={styles.mobileVendasSheetHeader}>
-              <h2 id="mobile-vendas-account-title">Conta</h2>
-              <button type="button" onClick={() => setAccountSheetOpen(false)} aria-label="Fechar">
-                ×
-              </button>
-            </div>
-            <div className={styles.mobileVendasAccountAvatar} aria-hidden="true">
-              {(accountProfile?.email || "?").slice(0, 1).toUpperCase()}
-            </div>
-            <label className={styles.mobileVendasAccountField}>
-              <span>Como quer ser chamado</span>
-              <input
-                value={accountNameDraft}
-                onChange={(event) => setAccountNameDraft(event.target.value)}
-                placeholder="Ex.: Ana"
-                maxLength={80}
-              />
-            </label>
-            <button
-              type="button"
-              className={`${styles.mobileVendasAccountSave} hbx-mobile-primary-button`}
-              onClick={() => {
-                const trimmed = accountNameDraft.trim();
-                saveMobilePreferredCallerName(trimmed);
-                setMobilePreferredCallerName(trimmed);
-                setAccountSheetOpen(false);
-                if (trimmed) setFeedback("Preferência salva.");
-              }}
-            >
-              Salvar
-            </button>
-            <div className={styles.mobileVendasAccountBlock}>
-              <strong>Financeiro</strong>
-              <p>
-                {accountProfileLoading
-                  ? "Carregando..."
-                  : accountProfile?.company
-                    ? [
-                        accountProfile.company.subscriptionStatus &&
-                          `Plano: ${accountProfile.company.subscriptionStatus}`,
-                        accountProfile.company.paymentStatus &&
-                          `Pagamento: ${accountProfile.company.paymentStatus}`,
-                        accountProfile.company.premiumAccess ? "Premium ativo" : null,
-                      ]
-                        .filter(Boolean)
-                        .join(" · ") || "Sem dados de cobrança nesta sessão."
-                    : "Não foi possível carregar agora."}
-                  </p>
-                </div>
-            <div className={styles.mobileVendasAccountBlock}>
-              <strong>Configurações</strong>
-              <p>Ajuste seu perfil de venda, público ideal e filtros de qualidade.</p>
-            </div>
-            {renderAccountSalesProfileSettings()}
-            <div className={styles.mobileVendasAccountActions}>
-              <Link className="hbx-mobile-secondary-button" href={toMobileRoute("/boasvindas")} onClick={() => setAccountSheetOpen(false)}>
-                Upgrade
-              </Link>
-              <Link className="hbx-mobile-primary-button" href={toMobileRoute("/tutorial")} onClick={() => setAccountSheetOpen(false)}>
-                Tutorial
-              </Link>
-            </div>
-          </section>
-        </div>,
-        document.body,
-      ) : null}
+      {renderAccountSheetPortal()}
 
       {commandOpen ? (
         <div
