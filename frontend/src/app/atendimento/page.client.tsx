@@ -4093,18 +4093,10 @@ function getInboxConversationIdentityAliases(conversation?: InboxConversation | 
 }
 
 function isInboxConversationHiddenByDelete(
-  conversation: InboxConversation | null | undefined,
-  deletedAliases: DeletedConversationAliasMap,
+  _conversation: InboxConversation | null | undefined,
+  _deletedAliases: DeletedConversationAliasMap,
 ) {
-  if (!conversation) return false;
-  const metadata = getInboxConversationMetadata(conversation);
-  if (
-    parseInboxBooleanFlag(metadata?.whatsappConversationDeleted) ||
-    parseInboxBooleanFlag(metadata?.inboxWhatsAppDeleted)
-  ) {
-    return true;
-  }
-  return getInboxConversationIdentityAliases(conversation).some((alias) => Boolean(deletedAliases[alias]));
+  return false;
 }
 
 function getInboxConversationQualityScore(conversation: InboxConversation) {
