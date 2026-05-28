@@ -672,6 +672,25 @@
     color 160ms ease;
 }
 
+.whatsAppScrollToBottomButton b {
+  position: absolute;
+  top: -0.38rem;
+  right: -0.38rem;
+  min-width: 1.15rem;
+  height: 1.15rem;
+  display: inline-grid;
+  place-items: center;
+  padding: 0 0.24rem;
+  border: 1px solid color-mix(in srgb, var(--surface) 68%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--success) 92%, var(--button-primary));
+  color: var(--brand-contrast);
+  box-shadow: 0 10px 18px -12px color-mix(in srgb, var(--success) 68%, transparent);
+  font-size: 0.62rem;
+  font-weight: 850;
+  line-height: 1;
+}
+
 .whatsAppScrollToBottomButton:hover {
   transform: translateY(-1px);
   border-color: color-mix(in srgb, var(--success) 56%, var(--line));
