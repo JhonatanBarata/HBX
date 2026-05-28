@@ -154,3 +154,38 @@ Regra operacional desta rodada: analisar e aplicar correcoes sem rodar testes, s
   - `tmp-playwright-step8-vps-baseline-archived.png`
   - `tmp-playwright-step8-vps-baseline-archived-phone.png`
   - `tmp-playwright-step8-vps-baseline-final.png`
+
+## Passo 2 Executado - 2026-05-28
+
+- [x] Validacao pre-deploy local.
+  - `git diff --check` passou nos arquivos da correcao.
+  - `npm run build` em `backend` passou.
+  - `npm run lint` em `frontend` passou.
+  - `npm run build` em `frontend` passou.
+- [x] Commit isolado da correcao criado e enviado.
+  - Commit: `d92ee73 fix: stabilize atendimento webwhats audit`.
+  - A alteracao pre-existente em `frontend/src/app/vendas/page.client.tsx` ficou fora do commit.
+  - Uploads/midias locais ficaram fora do commit.
+- [x] Deploy seletivo no VPS concluido.
+  - VPS atualizado de `11fca3d` para `d92ee73`.
+  - Backend Docker rebuildado e recriado como `hbx-backend`.
+  - Frontend Docker rebuildado e recriado como `hbx-frontend`.
+  - `https://www.hbxsystem.com.br/atendimento` respondeu apos deploy.
+  - `https://api.hbxsystem.com.br/health` respondeu apos deploy.
+- [x] Playwright no VPS publicado executado apos deploy.
+  - Relatorio final: `tmp-playwright-step8-vps-step2b-report.json`.
+  - Atendimento carregou em `/atendimento`, sem redirecionar para login.
+  - Abas `Pessoais`, `Atendimento`, `Prospecção`, `Grupos` e `Encerrado` visiveis.
+  - Clique em `Bloqueados` nao derrubou a tela nem limpou a aplicacao.
+  - Abertura de foto do contato validada com lightbox.
+  - Modal `Meu status` abre e persiste.
+  - Presenca/status do contato renderizada no cabecalho.
+  - Contador `HH:MM:SS` renderizado no VPS.
+  - Sem erros de console e sem `pageerror`.
+  - Numero `(19) 97815-4334` nao apareceu na busca de encerrados; a fila `Encerrado` apareceu com 3 cards no VPS publicado.
+- [x] Evidencias visuais pos-deploy:
+  - `tmp-playwright-step8-vps-step2b-home.png`
+  - `tmp-playwright-step8-vps-step2b-blocked.png`
+  - `tmp-playwright-step8-vps-step2b-archived.png`
+  - `tmp-playwright-step8-vps-step2b-archived-phone.png`
+  - `tmp-playwright-step8-vps-step2b-final.png`
