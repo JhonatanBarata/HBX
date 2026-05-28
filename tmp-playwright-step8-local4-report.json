@@ -1,0 +1,44 @@
+{
+  "label": "local4",
+  "frontendUrl": "http://localhost:3001",
+  "backendUrl": "http://localhost:3000",
+  "checks": {
+    "currentUrl": "http://localhost:3001/atendimento",
+    "loadedAtendimento": true,
+    "noLoginRedirect": true,
+    "queueTabs": {
+      "Pessoais": true,
+      "Atendimento": true,
+      "Prospecção": true,
+      "Grupos": true,
+      "Encerrado": true
+    },
+    "blockedClickDoesNotCrash": true,
+    "blockedQueueObserved": {
+      "beforeBlockedCount": 0,
+      "afterBlockedCount": 0
+    },
+    "archivedTabVisible": true,
+    "archivedPhone1978154334Visible": false,
+    "archivedPhoneSearchVisible": false,
+    "contactPhotoButtonPresent": true,
+    "contactPhotoLightboxOpens": true,
+    "operatorButtonPresent": true,
+    "operatorStatusDialogOpens": true,
+    "operatorStatusPersists": true,
+    "presenceBadgeRendered": true,
+    "hhmmssTimerRendered": false
+  },
+  "notes": [
+    "Nenhum contador de proxima prospeccao estava renderizado no momento do smoke."
+  ],
+  "console": [],
+  "pageErrors": [],
+  "screenshots": [
+    "tmp-playwright-step8-local4-home.png",
+    "tmp-playwright-step8-local4-blocked.png",
+    "tmp-playwright-step8-local4-archived.png",
+    "tmp-playwright-step8-local4-archived-phone.png",
+    "tmp-playwright-step8-local4-final.png"
+  ]
+}

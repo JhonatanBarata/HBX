@@ -1,0 +1,43 @@
+{
+  "label": "vps-step2b",
+  "frontendUrl": "https://www.hbxsystem.com.br",
+  "backendUrl": "https://api.hbxsystem.com.br",
+  "checks": {
+    "currentUrl": "https://www.hbxsystem.com.br/atendimento",
+    "loadedAtendimento": true,
+    "noLoginRedirect": true,
+    "queueTabs": {
+      "Pessoais": true,
+      "Atendimento": true,
+      "Prospecção": true,
+      "Grupos": true,
+      "Encerrado": true
+    },
+    "blockedClickDoesNotCrash": true,
+    "blockedQueueObserved": {
+      "beforeBlockedCount": 17,
+      "afterBlockedCount": 0
+    },
+    "archivedTabVisible": true,
+    "archivedPhone1978154334Visible": false,
+    "archivedPhoneSearchVisible": false,
+    "contactPhotoButtonPresent": true,
+    "contactPhotoLightboxOpens": true,
+    "operatorButtonPresent": true,
+    "operatorStatusDialogOpens": true,
+    "operatorStatusPersists": true,
+    "presenceBadgeRendered": true,
+    "hhmmssTimerRendered": true,
+    "finalUrlBeforeScreenshot": "https://www.hbxsystem.com.br/atendimento"
+  },
+  "notes": [],
+  "console": [],
+  "pageErrors": [],
+  "screenshots": [
+    "tmp-playwright-step8-vps-step2b-home.png",
+    "tmp-playwright-step8-vps-step2b-blocked.png",
+    "tmp-playwright-step8-vps-step2b-archived.png",
+    "tmp-playwright-step8-vps-step2b-archived-phone.png",
+    "tmp-playwright-step8-vps-step2b-final.png"
+  ]
+}
