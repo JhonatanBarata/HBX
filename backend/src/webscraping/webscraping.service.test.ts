@@ -2557,7 +2557,7 @@ test('mapHbxContactResult mapeia rede social vinda de sourceUrl generico', () =>
   assert.equal(String(mapped.placeId).startsWith('hbx:pj:social:'), true);
 });
 
-test('processSearchRun nao enfileira lookup social automatico para card aprovado sem Instagram', async () => {
+test('processSearchRun enfileira lookup social automatico para card aprovado sem Instagram', async () => {
   const previousFetch = global.fetch;
   global.fetch = (async () =>
     createResponse(200, {
@@ -2597,9 +2597,80 @@ test('processSearchRun nao enfileira lookup social automatico para card aprovado
 
     assert.equal(items.length, 1);
     assert.equal(items[0].status, 'found');
-    assert.equal(enqueued, false);
+    assert.equal(enqueued, true);
     assert.equal(JSON.parse(items[0].rawJson).socialStatus, 'pending');
     assert.notEqual(run.status, 'failed');
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test('runRadarSocialLookupForSavedLead acha Instagram por marca e cidade no handle', async () => {
+  const previousFetch = global.fetch;
+  const bodies: any[] = [];
+  global.fetch = (async (_url: any, init?: any) => {
+    const body = JSON.parse(String(init?.body || '{}'));
+    bodies.push(body);
+    return createResponse(200, {
+      results: body.query === 'site:instagram.com "Alugtec" "Rio Claro"'
+        ? [{
+            name: 'ALUGTEC (@alugtecrioclaro) - Rio Claro, SP',
+            title: 'ALUGTEC (@alugtecrioclaro) - Rio Claro, SP - Instagram',
+            instagramUrl: 'https://www.instagram.com/alugtecrioclaro/',
+            city: 'Rio Claro',
+            state: 'SP',
+            source: 'hbx_scraping:social_discovery',
+          }]
+        : [],
+    }) as any;
+  }) as any;
+
+  const { prisma, run, items } = createSearchRunPrisma({
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'aluguel de equipamentos',
+    targetQuantity: 1,
+  });
+  items.push({
+    id: 'item-1',
+    runId: run.id,
+    companyId: 7,
+    placeId: 'hbx:pj:1935312615',
+    name: 'Alugtec Rental Pemt Ltda',
+    phone: '(19) 3531-2615',
+    phoneDigits: '1935312615',
+    website: null,
+    websiteKey: null,
+    address: 'Rio Claro, SP',
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'aluguel de equipamentos',
+    source: 'hbx',
+    status: 'found',
+    duplicateReason: null,
+    rawJson: JSON.stringify({ name: 'Alugtec Rental Pemt Ltda', phone: '(19) 3531-2615', phoneDigits: '1935312615', socialStatus: 'pending' }),
+    createdAt: new Date(),
+  });
+  const service = new WebscrapingService(prisma) as any;
+  const normalized = service.normalizeSearchInput({
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'aluguel de equipamentos',
+    quantity: 1,
+    engine: 'hbx',
+    targetType: 'pj',
+  });
+
+  try {
+    const result = await service.runRadarSocialLookupForSavedLead({ companyId: 7, userId: 9, user: createUser() }, 'item-1', normalized);
+    const raw = JSON.parse(items[0].rawJson);
+
+    assert.equal(bodies[0]?.query, 'site:instagram.com "Alugtec" "Rio Claro"');
+    assert.equal(bodies.some((body) => body.query === 'site:instagram.com "Alugtec Rental Pemt Ltda" "Rio Claro"'), true);
+    assert.equal(result.status, 'found');
+    assert.equal(raw.instagramUrl, 'https://www.instagram.com/alugtecrioclaro');
+    assert.equal(raw.socialStatus, 'found');
+    assert.equal(raw.socialConfidence >= 80, true);
   } finally {
     global.fetch = previousFetch;
   }
