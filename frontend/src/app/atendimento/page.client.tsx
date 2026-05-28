@@ -7370,6 +7370,61 @@ function InboxDesktopClientPage() {
     () => buildInboxReactionIndex(conversationForView?.messages),
     [conversationForView],
   );
+  const conversationTimelineItems = useMemo(
+    () =>
+      conversationMessagesForView.map((message, index) => {
+        const tone = mapInboxBubbleTone(message);
+        let rendered = parseInboxMessageMedia(message, conversationForView);
+        const mediaFailedInBrowser = Boolean(
+          (rendered.imageUrl && failedInboxMediaUrls[rendered.imageUrl]) ||
+            (rendered.videoUrl && failedInboxMediaUrls[rendered.videoUrl]) ||
+            (rendered.audioUrl && failedInboxMediaUrls[rendered.audioUrl]) ||
+            (rendered.documentUrl && failedInboxMediaUrls[rendered.documentUrl]),
+        );
+        if (mediaFailedInBrowser) {
+          rendered = {
+            ...rendered,
+            imageUrl: null,
+            videoUrl: null,
+            audioUrl: null,
+            documentUrl: null,
+            mediaExpired: true,
+          };
+        }
+        const previousMessage = index > 0 ? conversationMessagesForView[index - 1] : null;
+        const isOutbound = tone === "human" || tone === "outbound";
+        const reactionKey = getInboxMessageProviderKeyId(message);
+
+        return {
+          message,
+          tone,
+          rendered,
+          showDayDivider:
+            !previousMessage || !isInboxSameCalendarDay(previousMessage.createdAt, message.createdAt),
+          groupedWithPrevious: shouldGroupInboxMessageWithPrevious(
+            message,
+            previousMessage,
+            conversationForView,
+          ),
+          isOutbound,
+          showGroupSender:
+            !isOutbound &&
+            tone !== "system" &&
+            isInboxGroupRemoteJid(extractInboxRawContact(conversationForView)) &&
+            Boolean(rendered.senderName),
+          reactionKey,
+          reactionEmojis: reactionKey ? conversationReactionIndex.get(reactionKey) || [] : [],
+          canPreviewDocument:
+            Boolean(rendered.documentUrl) &&
+            canPreviewDocumentInOverlay(
+              rendered.documentUrl || "",
+              rendered.mimeType,
+              rendered.fileName,
+            ),
+        };
+      }),
+    [conversationForView, conversationMessagesForView, conversationReactionIndex, failedInboxMediaUrls],
+  );
   const selectedConversationHasRecoveryContext =
     hasRecoveryCapability && conversationForView
       ? hasAtendimentoRecoveryContext(conversationForView)
@@ -8918,44 +8973,19 @@ function InboxDesktopClientPage() {
                           </button>
                         </div>
                       ) : null}
-                      {conversationMessagesForView.map((message, index) => {
-                    const tone = mapInboxBubbleTone(message);
-                    let rendered = parseInboxMessageMedia(message, conversationForView);
-                    const mediaFailedInBrowser = Boolean(
-                      (rendered.imageUrl && failedInboxMediaUrls[rendered.imageUrl]) ||
-                        (rendered.videoUrl && failedInboxMediaUrls[rendered.videoUrl]) ||
-                        (rendered.audioUrl && failedInboxMediaUrls[rendered.audioUrl]) ||
-                        (rendered.documentUrl && failedInboxMediaUrls[rendered.documentUrl]),
-                    );
-                    if (mediaFailedInBrowser) {
-                      rendered = {
-                        ...rendered,
-                        imageUrl: null,
-                        videoUrl: null,
-                        audioUrl: null,
-                        documentUrl: null,
-                        mediaExpired: true,
-                      };
-                    }
-                    const previousMessage =
-                      index > 0 ? conversationMessagesForView[index - 1] : null;
-                    const showDayDivider = !previousMessage
-                      || !isInboxSameCalendarDay(previousMessage.createdAt, message.createdAt);
-                    const groupedWithPrevious = shouldGroupInboxMessageWithPrevious(
+                      {conversationTimelineItems.map((item) => {
+                    const {
                       message,
-                      previousMessage,
-                      conversationForView,
-                    );
-                    const isOutbound = tone === "human" || tone === "outbound";
-                    const showGroupSender =
-                      !isOutbound
-                      && tone !== "system"
-                      && isInboxGroupRemoteJid(extractInboxRawContact(conversationForView))
-                      && Boolean(rendered.senderName);
-                    const reactionKey = getInboxMessageProviderKeyId(message);
-                    const reactionEmojis = reactionKey
-                      ? conversationReactionIndex.get(reactionKey) || []
-                      : [];
+                      tone,
+                      rendered,
+                      showDayDivider,
+                      groupedWithPrevious,
+                      isOutbound,
+                      showGroupSender,
+                      reactionKey,
+                      reactionEmojis,
+                      canPreviewDocument,
+                    } = item;
                     const canDeleteMessage =
                       isOutbound &&
                       !rendered.isDeleted &&
@@ -8976,13 +9006,6 @@ function InboxDesktopClientPage() {
                           : null;
                     const isRetryingMessage = Boolean(retryingMessageIds[message.id]);
                     const canRetryDelivery = deliveryFailed && !isOptimisticMessage;
-                    const canPreviewDocument =
-                      Boolean(rendered.documentUrl) &&
-                      canPreviewDocumentInOverlay(
-                        rendered.documentUrl || "",
-                        rendered.mimeType,
-                        rendered.fileName,
-                      );
                     return (
                       <div
                         key={message.id}
@@ -10067,7 +10090,6 @@ function InboxDesktopClientPage() {
       isRecording,
       deleteSentMessage,
       draggedQueueId,
-      failedInboxMediaUrls,
       loadConversation,
       loadMoreConversations,
       loadOlderMessages,
@@ -10098,7 +10120,7 @@ function InboxDesktopClientPage() {
       selectedConversation,
       conversationForView,
       conversationMessagesForView,
-      conversationReactionIndex,
+      conversationTimelineItems,
       selectedConversationDisplayName,
       selectedConversationHasRecoveryContext,
       selectedConversationIsInterested,
