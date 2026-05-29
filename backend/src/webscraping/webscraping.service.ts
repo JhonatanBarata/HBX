@@ -35,6 +35,7 @@ import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../companies/master-whatsap
 import { RadarRunRepositoryService } from './radar/radar-run-repository.service';
 import { RadarSocialLookupService, type RadarSocialLookupHost } from './radar/radar-social-lookup.service';
 import { RadarRunPresenterService, type RadarRunPresenterHost } from './radar/radar-run-presenter.service';
+import { RadarVendasSyncService, type RadarVendasSyncHost } from './radar/radar-vendas-sync.service';
 
 const PLACES_NEW_TEXT_SEARCH_URL = 'https://places.googleapis.com/v1/places:searchText';
 const PLACES_NEW_DETAILS_URL = 'https://places.googleapis.com/v1/places';
@@ -1845,6 +1846,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly radarRunRepository?: RadarRunRepositoryService,
     @Optional() private readonly radarSocialLookup?: RadarSocialLookupService,
     @Optional() private readonly radarRunPresenter?: RadarRunPresenterService,
+    @Optional() private readonly radarVendasSync?: RadarVendasSyncService,
   ) {}
 
   onModuleInit() {
@@ -1908,6 +1910,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return this.radarRunPresenter || new RadarRunPresenterService();
   }
 
+  private getRadarVendasSyncService() {
+    return this.radarVendasSync || new RadarVendasSyncService(this.prisma, this.vendasService);
+  }
+
   private buildRadarSocialLookupHost(): RadarSocialLookupHost {
     return {
       searchHbxEngine: (input, existing, engineUrl, options) => this.searchHbxEngine(input, existing, engineUrl, options),
@@ -1934,6 +1940,22 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       getHbxRunMaxAttempts: (targetQuantity, batchLimit) => this.getHbxRunMaxAttempts(targetQuantity, batchLimit),
       buildSearchRunInsufficientMessage: (foundCount, attempts) => this.buildSearchRunInsufficientMessage(foundCount, attempts),
       resolveRadarRunOperationalState: (run, status, message) => this.resolveRadarRunOperationalState(run, status, message),
+    };
+  }
+
+  private buildRadarVendasSyncHost(): RadarVendasSyncHost {
+    return {
+      getPendingCount: (companyId) => this.getVendasPendingCountForRadarContext(companyId),
+      resolveContext: (user) => this.resolveContext(user),
+      syncRadarSearchRunItemsToPool: (context, run) => this.syncRadarSearchRunItemsToPool(context, run),
+      buildRadarFiltersFromSearchRun: (run) => this.buildRadarFiltersFromSearchRun(run),
+      isRunItemPrimaryDeliverable: (item, filters) => this.isRunItemPrimaryDeliverable(item, filters),
+      findRadarPoolRowsForRunItems: (companyId, items, limit) => this.findRadarPoolRowsForRunItems(companyId, items, limit),
+      normalizeRadarLeadStatus: (value) => this.normalizeRadarLeadStatus(value),
+      isRadarProtectedStatus: (value) => this.isRadarProtectedStatus(value),
+      importRadarLeadToVendasForUser: (user, radarLeadId, input) => this.importRadarLeadToVendasForUser(user, radarLeadId, input),
+      stopSearchRunIfVendasStockLimitReached: (run, reason) => this.stopSearchRunIfVendasStockLimitReached(run, reason),
+      stopSearchRunAutoImportBlocked: (run, reason) => this.stopSearchRunAutoImportBlocked(run, reason),
     };
   }
 
@@ -9422,12 +9444,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private summarizeAutoImportFailures(failures: Array<{ reason: string }>) {
-    const counts = new Map<string, number>();
-    for (const failure of failures) {
-      const reason = String(failure.reason || 'erro_desconhecido');
-      counts.set(reason, (counts.get(reason) || 0) + 1);
-    }
-    return Array.from(counts.entries()).map(([reason, count]) => ({ reason, count })).slice(0, 6);
+    return this.getRadarVendasSyncService().summarizeAutoImportFailures(failures);
   }
 
   private async syncRadarSearchRunItemsToPool(context: SearchExecutionContext, run: any) {
@@ -9511,22 +9528,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async getVendasPendingCountForRadarContext(companyId: number) {
-    if (!this.vendasService) return 0;
-    return this.vendasService.getPendingVendasCardCountForCompany(companyId).catch((error: any) => {
-      this.logger.warn(`[radar-vendas] falha ao contar cards pendentes company=${companyId}: ${String(error?.message || error)}`);
-      return 0;
-    });
+    return this.getRadarVendasSyncService().getPendingCount(companyId);
   }
 
   private getRadarRunVendasStockTarget(run: any) {
-    const metrics = parseJsonObject(run?.metricsJson);
-    const explicitTarget = safeInteger(
-      metrics?.vendasStockTarget
-      || metrics?.desiredStock
-      || metrics?.stockTarget
-      || metrics?.targetStock,
-    );
-    return Math.max(0, explicitTarget || safeInteger(run?.targetQuantity));
+    return this.getRadarVendasSyncService().getRunStockTarget(run);
   }
 
   private getRadarLimitPauseRetryDelayMs(reason?: string | null) {
@@ -9683,17 +9689,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private isRadarAutoImportLimitError(error: any) {
-    const code = String(error?.response?.code || error?.code || '').toLowerCase();
-    const message = String(error?.response?.message || error?.message || error || '').toLowerCase();
-    return code.includes('limit')
-      || code.includes('quota')
-      || message.includes('limite diario')
-      || message.includes('limite diÃ¡rio')
-      || message.includes('limite mensal')
-      || message.includes('trava diaria')
-      || message.includes('trava diÃ¡ria')
-      || message.includes('contador reinicia')
-      || message.includes('quota');
+    return this.getRadarVendasSyncService().isAutoImportLimitError(error);
   }
 
   private async stopSearchRunAutoImportBlocked(run: any, reason = 'vendas_card_limit') {
@@ -9712,123 +9708,15 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async assertRadarCanFeedVendas(context: SearchExecutionContext) {
-    const pendingCount = await this.getVendasPendingCountForRadarContext(context.companyId);
-    return {
-      pendingCount,
-      remaining: null,
-    };
+    return this.getRadarVendasSyncService().assertCanFeed(context);
   }
 
   private async autoImportRadarSearchRunToVendas(user: any, runId: string) {
-    if (!this.vendasService) return { ran: false, importedCount: 0, pendingCount: 0, remaining: null };
-    const context = this.resolveContext(user);
-    let pendingCount = await this.getVendasPendingCountForRadarContext(context.companyId);
-    const remaining = null;
-
-    const run = await this.prisma.webscrapingSearchRun.findFirst({
-      where: {
-        id: String(runId || '').trim(),
-        companyId: context.companyId,
-      },
-      include: {
-        items: {
-          orderBy: { createdAt: 'asc' },
-        },
-      },
-    });
-    if (!run) return { ran: false, importedCount: 0, pendingCount, remaining };
-    const stockTarget = this.getRadarRunVendasStockTarget(run);
-    if (stockTarget > 0 && pendingCount >= stockTarget) {
-      await this.stopSearchRunIfVendasStockLimitReached(run, 'vendas_stock_limit_before_import');
-      return {
-        ran: true,
-        importedCount: 0,
-        processedCount: 0,
-        pendingCount,
-        remaining,
-        blocked: true,
-        failures: [{ reason: 'vendas_stock_limit' }],
-      };
-    }
-
-    await this.syncRadarSearchRunItemsToPool(context, run).catch((error: any) => {
-      this.logger.warn(`[radar-vendas] sync antes do auto-import falhou run=${run.id}: ${String(error?.message || error)}`);
-    });
-
-    const filters = this.buildRadarFiltersFromSearchRun(run);
-    const primaryFoundItems = (run.items || []).filter((item: any) => this.isRunItemPrimaryDeliverable(item, filters));
-    if (!primaryFoundItems.length) {
-      return { ran: true, importedCount: 0, pendingCount, remaining, failures: [] };
-    }
-    const requestedQuantity = Math.max(safeInteger(run.targetQuantity), 1);
-    const candidateLookupLimit = requestedQuantity;
-    let orderedRows = await this.findRadarPoolRowsForRunItems(
-      context.companyId,
-      primaryFoundItems,
-      candidateLookupLimit,
+    return this.getRadarVendasSyncService().autoImportSearchRunToVendas(
+      user,
+      runId,
+      this.buildRadarVendasSyncHost(),
     );
-    const failures: Array<{ reason: string }> = [];
-    if (orderedRows.length < primaryFoundItems.length) {
-      failures.push({ reason: 'card_nao_materializado_no_pool' });
-    }
-
-    let importedCount = 0;
-    let processedCount = 0;
-    let blockedByLimit = false;
-    for (const row of orderedRows.slice(0, requestedQuantity)) {
-      pendingCount = await this.getVendasPendingCountForRadarContext(context.companyId);
-      if (stockTarget > 0 && pendingCount >= stockTarget) {
-        await this.stopSearchRunIfVendasStockLimitReached(run, 'vendas_stock_limit_during_import');
-        failures.push({ reason: 'vendas_stock_limit' });
-        blockedByLimit = true;
-        break;
-      }
-      const state = Array.isArray(row?.companyStates) && row.companyStates.length ? row.companyStates[0] : null;
-      const status = this.normalizeRadarLeadStatus(state?.status || row?.status);
-      if (status === 'sent_to_vendas' || this.isRadarProtectedStatus(status)) {
-        failures.push({ reason: status === 'sent_to_vendas' ? 'ja_enviado_para_vendas' : 'estado_protegido' });
-        continue;
-      }
-      try {
-        const imported = await this.importRadarLeadToVendasForUser(user, row.id, { skipWhatsappValidation: true });
-        processedCount += 1;
-        pendingCount = await this.getVendasPendingCountForRadarContext(context.companyId);
-        importedCount += Math.max(0, safeInteger(imported?.import?.deliveredCount));
-      } catch (error: any) {
-        const reason = String(error?.response?.code || error?.code || 'falha_importacao_vendas');
-        failures.push({ reason });
-        this.logger.warn(`[radar-vendas] auto-import ignorou lead=${row?.id || '-'} run=${run.id}: ${String(error?.message || error)}`);
-        if (this.isRadarAutoImportLimitError(error)) {
-          await this.stopSearchRunAutoImportBlocked(run, reason || 'vendas_card_limit');
-          blockedByLimit = true;
-          break;
-        }
-      }
-    }
-
-    if (processedCount > 0) {
-      await this.prisma.webscrapingSearchRun.update({
-        where: { id: run.id },
-        data: {
-          importedCount: { increment: processedCount },
-        },
-      }).catch(() => null);
-    }
-    const finalPendingCount = await this.getVendasPendingCountForRadarContext(context.companyId);
-    if (!blockedByLimit && stockTarget > 0 && finalPendingCount >= stockTarget) {
-      await this.stopSearchRunIfVendasStockLimitReached(run, 'vendas_stock_limit_after_import');
-      failures.push({ reason: 'vendas_stock_limit' });
-      blockedByLimit = true;
-    }
-    return {
-      ran: true,
-      importedCount,
-      processedCount,
-      pendingCount: finalPendingCount,
-      remaining: null,
-      blocked: blockedByLimit,
-      failures: this.summarizeAutoImportFailures(failures),
-    };
   }
 
   private async buildPausedRadarSearchRunResponse(run: any) {
