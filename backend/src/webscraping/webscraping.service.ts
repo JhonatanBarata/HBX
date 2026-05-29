@@ -36,6 +36,7 @@ import { RadarSocialLookupService, type RadarSocialLookupHost } from './radar/04
 import { RadarVendasSyncService, type RadarVendasSyncHost } from './radar/05-delivery/radar-vendas-sync.service';
 import { RadarRunPresenterService, type RadarRunPresenterHost } from './radar/06-presentation/radar-run-presenter.service';
 import { RadarRunRepositoryService } from './radar/persistence/radar-run-repository.service';
+import { RadarSearchRunConfigService } from './radar/01-search/radar-search-run-config.service';
 import { RadarSharedNormalizerService } from './radar/shared/radar-shared-normalizer.service';
 
 const PLACES_NEW_TEXT_SEARCH_URL = 'https://places.googleapis.com/v1/places:searchText';
@@ -1849,6 +1850,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly radarRunPresenter?: RadarRunPresenterService,
     @Optional() private readonly radarVendasSync?: RadarVendasSyncService,
     @Optional() private readonly radarSharedNormalizer?: RadarSharedNormalizerService,
+    @Optional() private readonly radarSearchRunConfig?: RadarSearchRunConfigService,
   ) {}
 
   onModuleInit() {
@@ -1918,6 +1920,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
   private getRadarSharedNormalizer() {
     return this.radarSharedNormalizer || new RadarSharedNormalizerService();
+  }
+
+  private getRadarSearchRunConfig() {
+    return this.radarSearchRunConfig || new RadarSearchRunConfigService();
   }
 
   private buildRadarSocialLookupHost(): RadarSocialLookupHost {
@@ -3175,63 +3181,55 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private getHbxRunBatchLimit(targetQuantity: number) {
-    const configured = parsePositiveIntegerEnv('HBX_SEARCH_RUN_BATCH_LIMIT', 10);
-    const smallBatch = Math.min(20, Math.max(10, configured));
-    return Math.max(1, Math.min(smallBatch, Math.trunc(Number(targetQuantity || 1))));
+    return this.getRadarSearchRunConfig().getHbxRunBatchLimit(targetQuantity);
   }
 
   private getHbxRunMaxAttempts(targetQuantity: number, batchLimit: number) {
-    const fallback = Math.max(8, Math.ceil(Math.max(1, targetQuantity) / Math.max(1, batchLimit)) * 2);
-    return Math.max(1, parsePositiveIntegerEnv('HBX_SEARCH_RUN_MAX_ATTEMPTS', fallback));
+    return this.getRadarSearchRunConfig().getHbxRunMaxAttempts(targetQuantity, batchLimit);
   }
 
   private getHbxRunMaxEmptyBatches() {
-    return Math.max(1, parsePositiveIntegerEnv('HBX_SEARCH_RUN_MAX_EMPTY_BATCHES', 5));
+    return this.getRadarSearchRunConfig().getHbxRunMaxEmptyBatches();
   }
 
   private getHbxRunMaxFailedBatches() {
-    return Math.max(1, parsePositiveIntegerEnv('HBX_SEARCH_RUN_MAX_FAILED_BATCHES', 6));
+    return this.getRadarSearchRunConfig().getHbxRunMaxFailedBatches();
   }
 
   private getHbxSearchRunRestDelayMs() {
-    return Math.max(60_000, parsePositiveIntegerEnv('HBX_SEARCH_RUN_REST_DELAY_MS', 15 * 60_000));
+    return this.getRadarSearchRunConfig().getHbxSearchRunRestDelayMs();
   }
 
   private getHbxSearchRunMaxRestCycles() {
-    return Math.max(0, parsePositiveIntegerEnv('HBX_SEARCH_RUN_MAX_REST_CYCLES', 3));
+    return this.getRadarSearchRunConfig().getHbxSearchRunMaxRestCycles();
   }
 
   private getHbxSearchRunRestThresholdRatio() {
-    const raw = Number(process.env.HBX_SEARCH_RUN_REST_THRESHOLD_RATIO || 0.5);
-    if (!Number.isFinite(raw)) return 0.5;
-    return Math.max(0.1, Math.min(1, raw));
+    return this.getRadarSearchRunConfig().getHbxSearchRunRestThresholdRatio();
   }
 
   private getRadarCampaignMaxEmptyBatches() {
-    return Math.max(1, parsePositiveIntegerEnv('HBX_RADAR_MAX_EMPTY_BATCHES', 12));
+    return this.getRadarSearchRunConfig().getRadarCampaignMaxEmptyBatches();
   }
 
   private getRadarCampaignMaxErrorBatches() {
-    return Math.max(1, parsePositiveIntegerEnv('HBX_RADAR_MAX_ERROR_BATCHES', 8));
+    return this.getRadarSearchRunConfig().getRadarCampaignMaxErrorBatches();
   }
 
   private getHbxBatchTimeoutMs() {
-    return Math.max(5_000, parsePositiveIntegerEnv('HBX_SEARCH_BATCH_TIMEOUT_MS', 35_000));
+    return this.getRadarSearchRunConfig().getHbxBatchTimeoutMs();
   }
 
   private getHbxSocialBatchTimeoutMs() {
-    return Math.max(this.getHbxBatchTimeoutMs(), parsePositiveIntegerEnv('HBX_SEARCH_SOCIAL_BATCH_TIMEOUT_MS', 120_000));
+    return this.getRadarSearchRunConfig().getHbxSocialBatchTimeoutMs(this.getHbxBatchTimeoutMs());
   }
 
   private getRadarClientRequestTimeoutMs() {
-    return Math.max(60_000, parsePositiveIntegerEnv('HBX_RADAR_CLIENT_REQUEST_TIMEOUT_MS', 65_000));
+    return this.getRadarSearchRunConfig().getRadarClientRequestTimeoutMs();
   }
 
   private getRadarPullEngineAttempts() {
-    return Math.max(1, Math.min(
-      getConfiguredHbxEngineCount(),
-      parsePositiveIntegerEnv('HBX_RADAR_PULL_ENGINE_ATTEMPTS', 1),
-    ));
+    return this.getRadarSearchRunConfig().getRadarPullEngineAttempts(getConfiguredHbxEngineCount());
   }
 
   private shouldUseGoogleFallbackAfterHbx(input: NormalizedSearchInput, options: SearchExecutionOptions) {
@@ -3241,8 +3239,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private getHbxRetryDelayMs(consecutiveEngineErrors: number) {
-    const delays = [5_000, 15_000, 30_000, 60_000];
-    return delays[Math.min(Math.max(1, consecutiveEngineErrors) - 1, delays.length - 1)];
+    return this.getRadarSearchRunConfig().getHbxRetryDelayMs(consecutiveEngineErrors);
   }
 
   private scheduleSearchRunPump(delayMs = 0) {
@@ -3629,42 +3626,34 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private buildSearchRunProgressMessage(foundCount: number) {
-    if (foundCount > 0) {
-      return `Encontramos ${foundCount} contatos ate agora. Continuando busca em novos lotes...`;
-    }
-    return 'Lote processado sem cards aprovados. Continuando busca em novos lotes...';
+    return this.getRadarSearchRunConfig().buildSearchRunProgressMessage(foundCount);
   }
 
   private buildSearchRunRetryMessage(errorMessage: string, httpStatus: number | null, foundCount: number) {
-    const statusText = httpStatus ? `${httpStatus}` : errorMessage;
-    const suffix = foundCount > 0
-      ? ` Encontramos ${foundCount} contatos ate agora.`
-      : '';
-    return `Ultimo lote falhou com ${statusText}, tentando novamente...${suffix}`;
+    return this.getRadarSearchRunConfig().buildSearchRunRetryMessage(errorMessage, httpStatus, foundCount);
   }
 
   private buildSearchRunInsufficientMessage(foundCount: number, attempts: number) {
-    return `Busca parcial: ${foundCount} contatos encontrados. O motor tentou ${attempts} lotes, mas nao atingiu a meta.`;
+    return this.getRadarSearchRunConfig().buildSearchRunInsufficientMessage(foundCount, attempts);
   }
 
   private buildSearchRunNoCardsMessage(attempts: number, lastQuery: string | null | undefined) {
-    const query = String(lastQuery || '').trim();
-    return `Busca sem contatos aprovados apos ${attempts} lotes.${query ? ` Ultima query: ${query}.` : ''}`;
+    return this.getRadarSearchRunConfig().buildSearchRunNoCardsMessage(attempts, lastQuery);
   }
 
   private buildSearchRunRestMessage(foundCount: number, targetQuantity: number, nextRetryAt: Date) {
-    const minutes = Math.max(1, Math.ceil((nextRetryAt.getTime() - Date.now()) / 60_000));
-    return `Radar descansando. Encontrei ${foundCount} de ${targetQuantity} card(s); vou retomar esta mesma pesquisa em ${minutes} min.`;
+    return this.getRadarSearchRunConfig().buildSearchRunRestMessage(foundCount, targetQuantity, nextRetryAt);
   }
 
   private buildSearchRunFilterReviewMessage(foundCount: number, targetQuantity: number) {
-    return foundCount > 0
-      ? `Entreguei ${foundCount} de ${targetQuantity} card(s). Revise cidade, alcance ou segmento para completar a meta.`
-      : 'Nao achei cards suficientes para esse filtro. Tente segmento mais amplo, cidade proxima ou maior alcance.';
+    return this.getRadarSearchRunConfig().buildSearchRunFilterReviewMessage(foundCount, targetQuantity);
   }
 
   private getSearchRunRestCount(run: any) {
-    return safeInteger(this.parseMaybeJsonObject(run?.metricsJson)?.radarRestCount);
+    return this.getRadarSearchRunConfig().getSearchRunRestCount(
+      run?.metricsJson,
+      (value) => this.parseMaybeJsonObject(value),
+    );
   }
 
   private shouldRestSearchRun(run: any, foundCount: number, targetQuantity: number) {

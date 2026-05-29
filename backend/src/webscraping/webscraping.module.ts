@@ -9,6 +9,7 @@ import { HbxEnginePoolService } from './hbx-engine-pool.service';
 import { RadarSocialLookupService } from './radar/04-socials/radar-social-lookup.service';
 import { RadarVendasSyncService } from './radar/05-delivery/radar-vendas-sync.service';
 import { RadarRunPresenterService } from './radar/06-presentation/radar-run-presenter.service';
+import { RadarSearchRunConfigService } from './radar/01-search/radar-search-run-config.service';
 import { RadarRunRepositoryService } from './radar/persistence/radar-run-repository.service';
 import { RadarSharedNormalizerService } from './radar/shared/radar-shared-normalizer.service';
 import { MasterWebscrapingController, WebscrapingController } from './webscraping.controller';
@@ -20,6 +21,7 @@ const RADAR_SERVICES = [
   RadarSocialLookupService,
   RadarVendasSyncService,
   RadarSharedNormalizerService,
+  RadarSearchRunConfigService,
 ];
 
 @Module({
