@@ -17119,7 +17119,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     ].slice(0, 8);
     const autonomousWork = hasTask
       ? await withDatabaseGuard<AutonomousMassDataWork | null>(
-          'EstratÃ©gia autÃ´noma',
+          'Estrategia autonoma',
           null,
           () => this.resolveAutonomousMassDataWork((campaigns as any[])[0] || {}, { now, limit: 40 }),
         )
@@ -17640,7 +17640,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           maxAttempts: normalized.maxAttemptsPerTask,
           lastErrorMessage: guidedByState
             ? `MASSA DE DADOS pronta: ${(taskStats as any).cityCount} cidade(s), ${(taskStats as any).segmentCount} isca(s), ${(taskStats as any).targetTypeCount} tipo(s), ${(taskStats as any).taskCount} tarefa(s).`
-            : `MASSA DE DADOS autÃ´noma pronta: ${(taskStats as any).created} tarefa(s), ${(taskStats as any).checked} combinaÃ§Ã£o(Ãµes) avaliadas.`,
+            : `MASSA DE DADOS autonoma pronta: ${(taskStats as any).created} tarefa(s), ${(taskStats as any).checked} combinaÃ§Ã£o(Ãµes) avaliadas.`,
         },
       }).catch(() => null);
       const reloaded = await (this.prisma as any).webscrapingCampaign.findUnique({
@@ -17816,7 +17816,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           await (this.prisma as any).webscrapingCampaign.update({
             where: { id: campaign.id },
             data: {
-              lastErrorMessage: `Fila autÃ´noma reabastecida: ${refill.created} nova(s) tarefa(s).`,
+              lastErrorMessage: `Fila autonoma reabastecida: ${refill.created} nova(s) tarefa(s).`,
               nextRunAt: new Date(Date.now() + 500),
             },
           }).catch(() => null);
@@ -18057,7 +18057,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
             approvedCount,
             duplicateCount,
             rejectedCount,
-            lastErrorMessage: `Fila autÃ´noma reabastecida: ${refill.created} nova(s) tarefa(s) sem dados puxados.`,
+            lastErrorMessage: `Fila autonoma reabastecida: ${refill.created} nova(s) tarefa(s) sem dados puxados.`,
             nextRunAt: new Date(Date.now() + 1_000),
             finishedAt: null,
           },
@@ -18077,7 +18077,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         lastErrorMessage: latestTask
           ? `${latestTask.city}/${latestTask.state}: ${latestTask.segment} -> ${latestTask.status}`
           : done && autonomousEnabled
-            ? 'Fila autÃ´noma nÃ£o encontrou novas combinaÃ§Ãµes sem dados puxados.'
+            ? 'Fila autonoma nÃ£o encontrou novas combinaÃ§Ãµes sem dados puxados.'
             : null,
         nextRunAt: finalStatus === 'completed' ? null : new Date(Date.now() + 1_000),
         finishedAt: finalStatus === 'completed' ? new Date() : null,
