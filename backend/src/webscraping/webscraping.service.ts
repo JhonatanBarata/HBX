@@ -37,6 +37,7 @@ import { RadarVendasSyncService, type RadarVendasSyncHost } from './radar/05-del
 import { RadarRunPresenterService, type RadarRunPresenterHost } from './radar/06-presentation/radar-run-presenter.service';
 import { RadarRunRepositoryService } from './radar/persistence/radar-run-repository.service';
 import { RadarSearchRunConfigService } from './radar/01-search/radar-search-run-config.service';
+import { RadarDuplicateFilterService, type RadarDuplicateSortHost } from './radar/02-filter/radar-duplicate-filter.service';
 import { RadarSharedNormalizerService } from './radar/shared/radar-shared-normalizer.service';
 
 const PLACES_NEW_TEXT_SEARCH_URL = 'https://places.googleapis.com/v1/places:searchText';
@@ -1851,6 +1852,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly radarVendasSync?: RadarVendasSyncService,
     @Optional() private readonly radarSharedNormalizer?: RadarSharedNormalizerService,
     @Optional() private readonly radarSearchRunConfig?: RadarSearchRunConfigService,
+    @Optional() private readonly radarDuplicateFilter?: RadarDuplicateFilterService,
   ) {}
 
   onModuleInit() {
@@ -1924,6 +1926,17 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
   private getRadarSearchRunConfig() {
     return this.radarSearchRunConfig || new RadarSearchRunConfigService();
+  }
+
+  private getRadarDuplicateFilter() {
+    return this.radarDuplicateFilter || new RadarDuplicateFilterService();
+  }
+
+  private buildRadarDuplicateSortHost(): RadarDuplicateSortHost {
+    return {
+      extractLeadQualityV2FromObject: (value) => this.extractLeadQualityV2FromObject(value),
+      buildOpportunityScore: (result) => this.buildOpportunityScore(result),
+    };
   }
 
   private buildRadarSocialLookupHost(): RadarSocialLookupHost {
@@ -6683,24 +6696,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private buildContactDedupeKeys(result: WebscrapingContactResult) {
-    const name = normalizeLookupValue(result.name || '');
-    const phone = normalizePhoneDigits(result.phoneDigits || result.phone);
-    const website = normalizeWebsiteKey(result.website);
-    const instagram = String(result.instagramUrl || '').trim().replace(/\/+$/, '').toLowerCase();
-    const facebook = String(result.facebookUrl || '').trim().replace(/\/+$/, '').toLowerCase();
-    const cityOrAddress = normalizeLookupValue(String(result.address || ''));
-    return [
-      phone ? `phone:${phone}` : '',
-      name && phone ? `name_phone:${name}:${phone}` : '',
-      website ? `website:${website}` : '',
-      instagram ? `instagram:${instagram}` : '',
-      facebook ? `facebook:${facebook}` : '',
-      name && cityOrAddress ? `name_location:${name}:${cityOrAddress}` : '',
-    ].filter(Boolean);
+    return this.getRadarDuplicateFilter().buildContactDedupeKeys(result);
   }
 
   private contactMatchesSeenKeys(result: WebscrapingContactResult, seenKeys: Set<string>) {
-    return this.buildContactDedupeKeys(result).some((key) => seenKeys.has(key));
+    return this.getRadarDuplicateFilter().contactMatchesSeenKeys(result, seenKeys);
   }
 
   private shouldKeepNewContact(
@@ -6750,34 +6750,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private mergeDedupedContacts(results: WebscrapingContactResult[]) {
-    const seenKeys = new Set<string>();
-    const merged: WebscrapingContactResult[] = [];
-    for (const result of results) {
-      const keys = this.buildContactDedupeKeys(result);
-      if (!keys.length || keys.some((key) => seenKeys.has(key))) continue;
-      keys.forEach((key) => seenKeys.add(key));
-      merged.push(result);
-    }
-    return merged;
+    return this.getRadarDuplicateFilter().mergeDedupedContacts(results);
   }
 
   private sortContacts(results: WebscrapingContactResult[]) {
-    return [...results].sort((left, right) => {
-      const leftQualityV2 = this.extractLeadQualityV2FromObject(left as any);
-      const rightQualityV2 = this.extractLeadQualityV2FromObject(right as any);
-      const leftScore = leftQualityV2?.finalRankScore ?? left.opportunityScore ?? left.score ?? this.buildOpportunityScore(left);
-      const rightScore = rightQualityV2?.finalRankScore ?? right.opportunityScore ?? right.score ?? this.buildOpportunityScore(right);
-      const scoreDelta = rightScore - leftScore;
-      if (scoreDelta !== 0) return scoreDelta;
-      const ratingDelta = (right.rating || 0) - (left.rating || 0);
-      if (ratingDelta !== 0) return ratingDelta;
-      const reviewsDelta = (right.reviews || 0) - (left.reviews || 0);
-      if (reviewsDelta !== 0) return reviewsDelta;
-      if (Number(Boolean(right.website)) !== Number(Boolean(left.website))) {
-        return Number(Boolean(right.website)) - Number(Boolean(left.website));
-      }
-      return String(left.name || '').localeCompare(String(right.name || ''), 'pt-BR');
-    });
+    return this.getRadarDuplicateFilter().sortContacts(results, this.buildRadarDuplicateSortHost());
   }
 
   private buildCandidateSteps(quantity: number) {
