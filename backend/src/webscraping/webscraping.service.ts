@@ -37,6 +37,7 @@ import { RadarLeadPresenterService, type RadarLeadPresenterHost } from './radar/
 import { RadarRunPresenterService, type RadarRunPresenterHost } from './radar/06-presentation/radar-run-presenter.service';
 import { RadarRunRepositoryService } from './radar/persistence/radar-run-repository.service';
 import { RadarSearchGeoService, type RadarSearchGeoHost } from './radar/01-search/radar-search-geo.service';
+import { RadarSearchInputService, type RadarSearchInputHost } from './radar/01-search/radar-search-input.service';
 import { RadarSearchRunConfigService } from './radar/01-search/radar-search-run-config.service';
 import { RadarDuplicateFilterService, type RadarDuplicateSortHost } from './radar/02-filter/radar-duplicate-filter.service';
 import { RadarRunItemFilterService, type RadarRunItemFilterHost } from './radar/02-filter/radar-run-item-filter.service';
@@ -1857,6 +1858,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly radarVendasSync?: RadarVendasSyncService,
     @Optional() private readonly radarSharedNormalizer?: RadarSharedNormalizerService,
     @Optional() private readonly radarSearchGeo?: RadarSearchGeoService,
+    @Optional() private readonly radarSearchInput?: RadarSearchInputService,
     @Optional() private readonly radarSearchRunConfig?: RadarSearchRunConfigService,
     @Optional() private readonly radarDuplicateFilter?: RadarDuplicateFilterService,
     @Optional() private readonly radarRunItemFilter?: RadarRunItemFilterService,
@@ -1946,6 +1948,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return this.radarSearchGeo || new RadarSearchGeoService();
   }
 
+  private getRadarSearchInput() {
+    return this.radarSearchInput || new RadarSearchInputService();
+  }
+
   private getRadarDuplicateFilter() {
     return this.radarDuplicateFilter || new RadarDuplicateFilterService();
   }
@@ -1996,6 +2002,16 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return {
       normalizeCoordinate: (value) => this.normalizeCoordinate(value),
       normalizeRadiusKm: (value) => this.normalizeRadiusKm(value),
+    };
+  }
+
+  private buildRadarSearchInputHost(): RadarSearchInputHost {
+    return {
+      normalizeRadarFilters: (input) => this.normalizeRadarFilters(input),
+      normalizeSearchInput: (input) => this.normalizeSearchInput(input),
+      normalizeRadiusKm: (value) => this.normalizeRadiusKm(value),
+      normalizeCoordinate: (value) => this.normalizeCoordinate(value),
+      getRequiredChannelCandidateWindow: (targetQuantity) => this.getRequiredChannelCandidateWindow(targetQuantity),
     };
   }
 
@@ -5248,23 +5264,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private buildRadarFiltersFromNormalizedSearchInput(input: NormalizedSearchInput): NormalizedRadarFilters {
-    return this.normalizeRadarFilters({
-      city: input.city,
-      state: input.state,
-      segment: input.segment,
-      radiusKm: input.radiusKm,
-      originLat: input.originLat,
-      originLng: input.originLng,
-      quantity: input.quantity,
-      limit: this.getRequiredChannelCandidateWindow(input.quantity),
-      engine: 'hbx',
-      targetType: input.targetType,
-      preferredChannels: input.preferredChannels,
-      requiredChannels: input.requiredChannels,
-      channelMatchMode: input.channelMatchMode,
-      qualityMode: normalizeCardDiscoveryQualityMode(),
-      salesProfile: input.salesProfile,
-    });
+    return this.getRadarSearchInput().buildRadarFiltersFromNormalizedSearchInput(input, this.buildRadarSearchInputHost());
   }
 
   private async countExistingRequiredChannelMatchesForRun(
@@ -8968,25 +8968,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private buildNormalizedSearchInputFromRadarFilters(filters: NormalizedRadarFilters): NormalizedSearchInput {
-    return this.normalizeSearchInput({
-      city: filters.city,
-      state: filters.state,
-      segment: filters.segment,
-      radiusKm: filters.radiusKm,
-      originLat: filters.originLat,
-      originLng: filters.originLng,
-      quantity: filters.quantity,
-      engine: 'hbx',
-      targetType: filters.targetType,
-      minRating: filters.minRating,
-      minReviews: filters.minReviews,
-      salesProfile: filters.salesProfile,
-      preferredChannels: filters.preferredChannels,
-      requiredChannels: filters.requiredChannels,
-      channelMatchMode: filters.channelMatchMode,
-      qualityMode: filters.qualityMode,
-      freshness: filters.freshness,
-    });
+    return this.getRadarSearchInput().buildNormalizedSearchInputFromRadarFilters(filters, this.buildRadarSearchInputHost());
   }
 
   private isTerminalRadarSearchRunStatus(status: string | null | undefined) {
@@ -9011,27 +8993,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private buildRadarFiltersFromSearchRun(run: any) {
-    const metrics = parseJsonObject(run?.metricsJson);
-    const channelFilters = parseJsonObject(metrics?.channelFilters || {});
-    return this.normalizeRadarFilters({
-      city: run?.city,
-      state: run?.state,
-      segment: run?.segment,
-      radiusKm: this.normalizeRadiusKm(metrics?.radiusKm),
-      originLat: this.normalizeCoordinate(metrics?.originLat),
-      originLng: this.normalizeCoordinate(metrics?.originLng),
-      scoreRange: metrics?.scoreRange || null,
-      quantity: Math.max(1, safeInteger(run?.targetQuantity)),
-      limit: Math.max(100, safeInteger(run?.targetQuantity) * 4),
-      engine: 'hbx',
-      targetType: normalizeTargetType(run?.targetType),
-      validPhone: false,
-      preferredChannels: channelFilters.preferredChannels,
-      requiredChannels: channelFilters.requiredChannels,
-      channelMatchMode: channelFilters.channelMatchMode,
-      qualityMode: channelFilters.qualityMode,
-      salesProfile: metrics?.salesProfile || null,
-    });
+    return this.getRadarSearchInput().buildRadarFiltersFromSearchRun(run, this.buildRadarSearchInputHost());
   }
 
   private async findRadarPoolRowsForRunItems(companyId: number, items: any[], limit: number) {
