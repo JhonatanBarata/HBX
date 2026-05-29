@@ -32,10 +32,10 @@ import { buildRadarLeadEnrichment, RADAR_LEAD_ENRICHMENT_VERSION } from './radar
 import { calculateLeadQualityV2, resolveRadarVisibilityFromQualityV2, type LeadQualityV2, type LeadQualityV2SalesProfile } from './lead-quality-v2';
 import { BRAZIL_CITY_COORDINATES } from './brazil-city-coordinates';
 import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../companies/master-whatsapp-company.constants';
-import { RadarRunRepositoryService } from './radar/radar-run-repository.service';
-import { RadarSocialLookupService, type RadarSocialLookupHost } from './radar/radar-social-lookup.service';
-import { RadarRunPresenterService, type RadarRunPresenterHost } from './radar/radar-run-presenter.service';
-import { RadarVendasSyncService, type RadarVendasSyncHost } from './radar/radar-vendas-sync.service';
+import { RadarSocialLookupService, type RadarSocialLookupHost } from './radar/04-socials/radar-social-lookup.service';
+import { RadarVendasSyncService, type RadarVendasSyncHost } from './radar/05-delivery/radar-vendas-sync.service';
+import { RadarRunPresenterService, type RadarRunPresenterHost } from './radar/06-presentation/radar-run-presenter.service';
+import { RadarRunRepositoryService } from './radar/persistence/radar-run-repository.service';
 
 const PLACES_NEW_TEXT_SEARCH_URL = 'https://places.googleapis.com/v1/places:searchText';
 const PLACES_NEW_DETAILS_URL = 'https://places.googleapis.com/v1/places';
