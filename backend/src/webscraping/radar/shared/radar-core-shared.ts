@@ -1,0 +1,1787 @@
+import { ServiceUnavailableException } from '@nestjs/common';
+import type { WebscrapingRuntimeDiagnostic } from '../../../modules/webscraping-runtime.util';
+import { buildLocalHbxEngineUrls, type HbxEnginePurpose } from '../../hbx-engine-pool.service';
+import type { LeadQualityV2, LeadQualityV2SalesProfile } from '../../lead-quality-v2';
+
+export const PLACES_NEW_TEXT_SEARCH_URL = 'https://places.googleapis.com/v1/places:searchText';
+export const PLACES_NEW_DETAILS_URL = 'https://places.googleapis.com/v1/places';
+export const PLACES_TEXT_SEARCH_URL = 'https://maps.googleapis.com/maps/api/place/textsearch/json';
+export const PLACES_DETAILS_URL = 'https://maps.googleapis.com/maps/api/place/details/json';
+export const MAX_QUANTITY = 20;
+export const HBX_PJ_MAX_QUANTITY = 100;
+export const HBX_PEOPLE_MAX_QUANTITY = 100;
+export const DEFAULT_HBX_SCRAPING_ENGINE_URL = 'http://localhost:8001';
+export const GLOBAL_CACHE_TTL_HOURS = 24;
+export const RECENT_HISTORY_LIMIT = 20;
+export const IBGE_CITIES_URL = 'https://servicodados.ibge.gov.br/api/v1/localidades/municipios?orderBy=nome';
+export const CITY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+export const MASS_DATA_INTERNAL_SEGMENTS = [
+  'empresas',
+  'comÃ©rcio',
+  'serviÃ§os',
+  'lojas',
+  'whatsapp',
+  'telefone',
+  'restaurantes',
+  'mercados',
+  'oficinas',
+  'auto peÃ§as',
+  'salÃµes de beleza',
+  'barbearias',
+  'cosmÃ©ticos',
+  'perfumarias',
+  'farmÃ¡cias',
+  'clÃ­nicas',
+  'dentistas',
+  'pet shops',
+  'materiais de construÃ§Ã£o',
+  'papelarias',
+  'lojas de roupas',
+  'assistÃªncia tÃ©cnica',
+  'hotÃ©is',
+  'pousadas',
+  'distribuidoras',
+  'contabilidades',
+  'imobiliÃ¡rias',
+  'academias',
+  'supermercados',
+  'padarias',
+  'aÃ§ougues',
+  'postos de combustÃ­vel',
+  'lava rÃ¡pido',
+  'funilarias',
+  'borracharias',
+  'auto centers',
+  'clÃ­nicas veterinÃ¡rias',
+  'Ã³tica',
+  'joalherias',
+  'floriculturas',
+  'grÃ¡ficas',
+  'marcenarias',
+  'serralherias',
+  'vidraÃ§arias',
+  'transportadoras',
+  'depÃ³sitos de bebidas',
+  'lojas de mÃ³veis',
+  'lojas de eletrodomÃ©sticos',
+  'informÃ¡tica',
+  'assistÃªncia celular',
+  'escolas',
+  'cursos profissionalizantes',
+  'laboratÃ³rios',
+  'fisioterapia',
+  'estÃ©tica',
+  'pilates',
+  'buffets',
+  'eventos',
+  'pizzarias',
+  'hamburguerias',
+  'sorveterias',
+  'cafeterias',
+  'confeitarias',
+  'lanchonetes',
+  'lojas de calÃ§ados',
+  'lojas de acessÃ³rios',
+  'lojas de bijuterias',
+  'moda feminina',
+  'moda masculina',
+  'moda infantil',
+  'uniformes',
+  'malharias',
+  'costureiras',
+  'lavanderias',
+  'chaveiros',
+  'relojoarias',
+  'papel de parede',
+  'cortinas e persianas',
+  'tapeÃ§arias',
+  'decoradores',
+  'arquitetos',
+  'engenheiros',
+  'construtoras',
+  'empreiteiras',
+  'elÃ©tricas',
+  'hidrÃ¡ulicas',
+  'ar condicionado',
+  'refrigeraÃ§Ã£o',
+  'dedetizadoras',
+  'limpeza comercial',
+  'seguranÃ§a eletrÃ´nica',
+  'monitoramento',
+  'portarias',
+  'condomÃ­nios',
+  'seguros',
+  'corretoras',
+  'despachantes',
+  'advogados',
+  'cartÃ³rios',
+  'consultorias',
+  'agÃªncias de marketing',
+  'produtoras de vÃ­deo',
+  'fotÃ³grafos',
+  'estÃºdios',
+  'mecÃ¢nicas diesel',
+  'motos',
+  'autoescolas',
+  'guinchos',
+  'locadoras de veÃ­culos',
+  'turismo',
+  'agÃªncias de viagem',
+  'motÃ©is',
+  'hostels',
+  'casas de raÃ§Ã£o',
+  'agropecuÃ¡rias',
+  'jardinagem',
+  'piscinas',
+  'academias de luta',
+  'nutricionistas',
+  'psicÃ³logos',
+  'fonoaudiÃ³logos',
+  'clÃ­nicas mÃ©dicas',
+  'radiologia',
+  'material hospitalar',
+  'equipamentos industriais',
+  'ferramentas',
+  'parafusos',
+  'embalagens',
+  'brindes',
+  'copiadoras',
+  'lan houses',
+  'provedores de internet',
+  'energia solar',
+  'marmorarias',
+  'calhas',
+  'telhados',
+];
+export const ACRE_CITIES_FALLBACK = [
+  'AcrelÃ¢ndia',
+  'Assis Brasil',
+  'BrasilÃ©ia',
+  'Bujari',
+  'Capixaba',
+  'Cruzeiro do Sul',
+  'EpitaciolÃ¢ndia',
+  'FeijÃ³',
+  'JordÃ£o',
+  'MÃ¢ncio Lima',
+  'Manoel Urbano',
+  'Marechal Thaumaturgo',
+  'PlÃ¡cido de Castro',
+  'Porto Acre',
+  'Porto Walter',
+  'Rio Branco',
+  'Rodrigues Alves',
+  'Santa Rosa do Purus',
+  'Sena Madureira',
+  'Senador Guiomard',
+  'TarauacÃ¡',
+  'Xapuri',
+];
+export const AUTONOMOUS_MASS_DATA_LOCATION_FALLBACK = [
+  { city: 'SÃ£o Paulo', state: 'SP' },
+  { city: 'Rio de Janeiro', state: 'RJ' },
+  { city: 'Belo Horizonte', state: 'MG' },
+  { city: 'Curitiba', state: 'PR' },
+  { city: 'Porto Alegre', state: 'RS' },
+  { city: 'FlorianÃ³polis', state: 'SC' },
+  { city: 'Salvador', state: 'BA' },
+  { city: 'Recife', state: 'PE' },
+  { city: 'Fortaleza', state: 'CE' },
+  { city: 'GoiÃ¢nia', state: 'GO' },
+  { city: 'BrasÃ­lia', state: 'DF' },
+  { city: 'VitÃ³ria', state: 'ES' },
+  { city: 'CuiabÃ¡', state: 'MT' },
+  { city: 'Campo Grande', state: 'MS' },
+  { city: 'Manaus', state: 'AM' },
+  { city: 'BelÃ©m', state: 'PA' },
+  { city: 'SÃ£o LuÃ­s', state: 'MA' },
+  { city: 'JoÃ£o Pessoa', state: 'PB' },
+  { city: 'MaceiÃ³', state: 'AL' },
+  { city: 'Natal', state: 'RN' },
+];
+export const AUTONOMOUS_MASS_DATA_DEFAULT_TASKS = 300;
+export const AUTONOMOUS_MASS_DATA_MAX_TASKS = 1000;
+export const DEFAULT_MASS_DATA_ENGINE_URLS = buildLocalHbxEngineUrls();
+export const TURBO_OPERATIONAL_CONFIG_KEY = 'turbo_noturno';
+export const RADAR_RESERVATION_TTL_MS = 72 * 60 * 60 * 1000;
+export const RADAR_REGION_MAX_RADIUS_KM = 100;
+export const RADAR_PROTECTED_STATUSES = [
+  'negative',
+  'denied',
+  'blocked',
+  'opt_out',
+  'optout',
+  'do_not_contact',
+  'complaint',
+  'discarded',
+  'hidden',
+  'lost',
+  'no_answer',
+  'no_whatsapp',
+  'invalid_whatsapp',
+  'invalid_phone',
+] as const;
+
+export type RuntimeStatus = 'online' | 'degraded';
+export type ExternalRuntimeStatus = 'online' | 'offline';
+export type SearchSource = 'history' | 'google' | 'hbx' | 'hybrid' | 'global_cache' | 'radar_database';
+export type WebscrapingEngine = 'google' | 'hbx';
+export type HbxTargetType = 'pj' | 'pf' | 'agenda_pf';
+export type LeadQualityStatus =
+  | 'approved'
+  | 'segment_mismatch'
+  | 'weak_contact'
+  | 'generic_directory'
+  | 'invalid'
+  | 'duplicate';
+export type LeadQualityResult = {
+  status: LeadQualityStatus;
+  billable: boolean;
+  segmentMatchScore: number;
+  contactQualityScore: number;
+  commercialScore: number;
+  reasons: string[];
+};
+export type HbxVisibilityTier =
+  | 'candidate'
+  | 'list_basic'
+  | 'enrichment_pending'
+  | 'lead_plus_qualified'
+  | 'review_backup'
+  | 'blocked';
+export type HbxDeliveryProduct = 'list' | 'lead_plus';
+export type HbxDeliveryClassification = {
+  visibilityTier: HbxVisibilityTier;
+  billable: boolean;
+  debitEligible: boolean;
+  deliveryProduct: HbxDeliveryProduct;
+  qualityReason: string;
+};
+export type SearchRunStatus = 'completed' | 'partial_error' | 'completed_with_errors' | 'completed_insufficient_results';
+export type WebscrapingSearchRunStatus =
+  | 'queued'
+  | 'running'
+  | 'sleeping'
+  | 'completed'
+  | 'partial_error'
+  | 'completed_insufficient_results'
+  | 'failed'
+  | 'canceled';
+export type RadarOperationalState = 'funcionando' | 'pausado' | 'parado';
+export type WebscrapingSearchRunItemStatus = 'found' | 'duplicate' | 'skipped' | 'invalid';
+export type HbxBatchStatus =
+  | 'queued_wait'
+  | 'running_batch'
+  | 'batch_success'
+  | 'empty_batch'
+  | 'batch_error'
+  | 'engine_error'
+  | 'radar_resting'
+  | 'completed'
+  | 'completed_insufficient_results'
+  | 'failed'
+  | 'canceled';
+export type HbxEngineSearchOutput = {
+  results: WebscrapingContactResult[];
+  status: SearchRunStatus;
+  message: string | null;
+  httpStatus: number | null;
+  rawErrorMessage: string | null;
+  urlsDiscovered: number;
+  pagesFetched: number;
+  parsedContacts: number;
+  queriesGenerated?: string[];
+  sourceMetrics?: Array<Record<string, any>>;
+  missingRequiredChannel?: number;
+  approvedCount?: number;
+  rejectedCount: number;
+  duplicateCount: number;
+};
+
+export type RadarSearchRunMetrics = {
+  rawFoundCount: number;
+  hardBlockedCount: number;
+  negativeBlockedCount: number;
+  duplicateBlockedCount: number;
+  noChannelBlockedCount: number;
+  genericNameBlockedCount: number;
+  segmentHardMismatchBlockedCount: number;
+  savedListBasicCount: number;
+  savedReviewBackupCount: number;
+  leadPlusQualifiedCount: number;
+  downgradedByQualityCount: number;
+  urlsDiscovered: number;
+  pagesFetched: number;
+  parsedContacts: number;
+  approvedContacts: number;
+  reviewLowScore: number;
+  downgradedToReview: number;
+  rejectedLowScore?: number;
+  rejectedBlockedDomain: number;
+  rejectedInvalidPhone: number;
+  rejectedGenericName: number;
+  durationMs: number;
+  engineId: string | null;
+  engineIndex: number | null;
+  sourceEngine: string | null;
+  cacheHit: boolean;
+  status: string;
+};
+
+export type RadarSearchRunMetricsPatch = Partial<RadarSearchRunMetrics> & {
+  increment?: Partial<RadarSearchRunMetrics>;
+  [key: string]: any;
+};
+
+export const SEGMENT_STOPWORDS = [
+  'empresa',
+  'empresas',
+  'contato',
+  'telefone',
+  'whatsapp',
+  'celular',
+  'comercial',
+  'servico',
+  'servicos',
+  'serviÃ§o',
+  'serviÃ§os',
+  'loja',
+  'lojas',
+  'profissional',
+  'profissionais',
+  'cidade',
+  'ddd',
+  'perto',
+  'maps',
+  'site',
+];
+
+export const SEGMENT_ALIASES: Record<string, string[]> = {
+  dentista: ['dentista', 'odontologia', 'odontologico', 'odontolÃ³gica', 'clinica odontologica', 'clÃ­nica odontolÃ³gica'],
+  clinica: ['clinica', 'clÃ­nica', 'saude', 'saÃºde', 'medico', 'mÃ©dico', 'fisioterapia', 'estetica', 'estÃ©tica'],
+  oficina: ['oficina', 'mecanica', 'mecÃ¢nica', 'auto center', 'funilaria', 'pneus', 'automotivo'],
+  restaurante: ['restaurante', 'pizzaria', 'pizza', 'pizzaiolo', 'lanchonete', 'lanchonetes', 'lanches', 'hamburgueria', 'delivery', 'bar', 'choperia', 'marmitaria', 'marmitex', 'gastronomia', 'espetinho', 'japones', 'japonÃªs', 'sushi'],
+  imobiliaria: ['imobiliaria', 'imobiliÃ¡ria', 'imovel', 'imÃ³vel', 'corretor', 'condominio', 'condomÃ­nio'],
+  advogado: ['advogado', 'advocacia', 'juridico', 'jurÃ­dico'],
+  academia: ['academia', 'fitness', 'musculacao', 'musculaÃ§Ã£o', 'crossfit', 'pilates'],
+  petshop: ['pet shop', 'petshop', 'veterinaria', 'veterinÃ¡ria', 'banho e tosa', 'racao', 'raÃ§Ã£o'],
+  mercado: ['mercado', 'supermercado', 'mercearia', 'atacarejo'],
+  farmacia: ['farmacia', 'farmÃ¡cia', 'drogaria'],
+  salao: ['salao', 'salÃ£o', 'beleza', 'cabeleireiro', 'barbearia'],
+  automotivo: ['automotivo', 'automotiva', 'auto center', 'oficina', 'mecanica', 'mecÃ¢nica', 'pneus', 'borracharia', 'auto eletrica', 'auto elÃ©trica'],
+  pneus: ['pneus', 'auto center', 'borracharia', 'automotivo', 'automotiva'],
+  alimentacao: ['alimentacao', 'alimentaÃ§Ã£o', 'restaurante', 'pizzaria', 'pizza', 'lanchonete', 'bar', 'choperia', 'cafeteria', 'panificadora', 'padaria', 'mercado', 'supermercado', 'acougue', 'aÃ§ougue', 'confeitaria', 'doceria', 'alimentos naturais'],
+  beleza: ['beleza', 'salao', 'salÃ£o', 'barbearia', 'estetica', 'estÃ©tica', 'clinica de estetica', 'clÃ­nica de estÃ©tica', 'cosmeticos', 'cosmÃ©ticos', 'perfumaria'],
+};
+
+export const HBX_CATEGORY_SEGMENTS: Record<string, string[]> = {
+  alimentacao: [
+    'restaurantes',
+    'pizzarias',
+    'lanchonetes',
+    'bares',
+    'cafeterias',
+    'panificadoras',
+    'confeitarias',
+    'docerias',
+    'alimentos naturais',
+    'mercados',
+    'supermercados',
+    'aÃ§ougues',
+  ],
+  beleza: [
+    'salÃµes de beleza',
+    'barbearias',
+    'clÃ­nicas de estÃ©tica',
+    'cosmÃ©ticos',
+    'perfumarias',
+  ],
+  automotivo: [
+    'acessÃ³rios automotivos',
+    'auto center',
+    'centros automotivos',
+    'auto peÃ§as',
+    'oficinas mecÃ¢nicas',
+    'oficinas',
+    'mecÃ¢nicas',
+    'auto elÃ©tricas',
+    'auto escolas',
+    'pneus',
+    'borracharias',
+    'concessionÃ¡rias',
+    'despachantes',
+    'lava rÃ¡pidos',
+    'postos de combustÃ­vel',
+    'revendas de veÃ­culos',
+    'vistorias veiculares',
+  ],
+  pneus: [
+    'pneus',
+    'auto center',
+    'borracharias',
+  ],
+  'pneus automotivo auto center': [
+    'pneus',
+    'auto center',
+    'borracharias',
+    'oficinas mecÃ¢nicas',
+    'auto elÃ©tricas',
+  ],
+  'auto eletricas': [
+    'auto elÃ©tricas',
+    'auto center',
+    'oficinas mecÃ¢nicas',
+  ],
+  industria: [
+    'caldeiraria',
+    'cerÃ¢micas',
+    'componentes elÃ©tricos',
+    'embalagens',
+    'ferramentaria',
+    'indÃºstrias de plÃ¡sticos',
+    'indÃºstrias alimentÃ­cias',
+    'indÃºstrias metalÃºrgicas',
+    'mÃ¡quinas industriais',
+    'metalÃºrgicas',
+    'quÃ­micas',
+    'usinagem',
+  ],
+  logistica: [
+    'atacadistas',
+    'depÃ³sitos de bebidas',
+    'distribuidoras',
+    'fornecedoras industriais',
+    'transportadoras',
+  ],
+  'atacado e logistica': [
+    'atacadistas',
+    'depÃ³sitos de bebidas',
+    'distribuidoras',
+    'fornecedoras industriais',
+    'transportadoras',
+  ],
+  agro: [
+    'agronegÃ³cios',
+    'agropecuÃ¡rias',
+    'casas de raÃ§Ã£o',
+    'implementos agrÃ­colas',
+    'nutriÃ§Ã£o animal',
+    'produtos agrÃ­colas',
+  ],
+  'agro e campo': [
+    'agronegÃ³cios',
+    'agropecuÃ¡rias',
+    'casas de raÃ§Ã£o',
+    'implementos agrÃ­colas',
+    'nutriÃ§Ã£o animal',
+    'produtos agrÃ­colas',
+  ],
+};
+
+export const GENERIC_DIRECTORY_NAMES = [
+  'empresa',
+  'empresas',
+  'sem nome',
+  'contato',
+  'home',
+  'ir para o conteÃºdo',
+  'ir para o conteudo',
+  'laa',
+  'mmm',
+  'nnn',
+  'whatsapp',
+  'telefone',
+  'lista telefonica',
+  'lista telefÃ´nica',
+  'comercial',
+  'atendimento',
+  'anuncie aqui',
+  'guia comercial',
+  'guia telefone',
+  'lista de empresas',
+];
+
+export const GENERIC_DIRECTORY_PREFIXES = [
+  '10 melhores',
+  '20 melhores',
+  '30 melhores',
+  '40 melhores',
+  '50 melhores',
+  'melhores',
+  'as melhores',
+  'as melhores condicoes',
+  'todos os estabelecimentos',
+  'lista de empresas',
+  'confira as melhores',
+  'procurando',
+  'encontre aqui',
+  'conheca',
+  'portal',
+  'guia',
+  'blog',
+  'preco de',
+  'quanto custa',
+  'gastronomia na',
+  'gastronomia no',
+  'gastronomia em',
+  'sms para',
+  'otimizacao seo',
+  'whatsapp da',
+  'whatsapp do',
+  'whatsapp de',
+  'contato encontrado',
+];
+
+export const GENERIC_DIRECTORY_CONTAINS = [
+  'perto de mim',
+  'pesquise outros',
+  'pesquisar outros',
+  'busque outros',
+  'buscar outros',
+  'resultado de pesquisa',
+  'resultados de pesquisa',
+  'confira as melhores',
+  ' melhores ',
+  'todos os estabelecimentos',
+  'lista de empresas',
+  'conheca o rio',
+  'conheca santa',
+  'noticias',
+  'abre vagas',
+  'lanca campanha',
+  'reserve ja',
+  'reserva ja',
+  'quanto custa',
+  'preco de',
+  'orcamento',
+  'sms para',
+  'otimizacao seo',
+  'marketing digital para',
+  'terceirizacao',
+  'trocar tela iphone',
+  'locacao de aparelho',
+  'telhado com',
+  'estancia hidromineral',
+  'estÃ¢ncia hidromineral',
+  'gastronomia completo',
+];
+
+export const GENERIC_CATEGORY_HEADS = [
+  'academias',
+  'acessorios automotivos',
+  'assistencia tecnica',
+  'bares',
+  'bares e restaurantes',
+  'bijuterias',
+  'borracharias',
+  'calcados infantis',
+  'clinicas de estetica',
+  'clinicas medicas',
+  'contabilidades',
+  'dentistas',
+  'distribuidores de bebidas',
+  'farmacias',
+  'farmacias e drogarias',
+  'gesso',
+  'imobiliarias',
+  'loja de automotivo',
+  'lojas de celulares',
+  'malharias',
+  'materiais de construcao',
+  'moveis de escritorio',
+  'oficinas',
+  'oficinas mecanicas',
+  'perfumarias',
+  'perfumarias e cosmeticos',
+  'pizzarias',
+  'planos de saude',
+  'saloes de beleza',
+  'transporte',
+  'transportes',
+];
+
+export const VERTICAL_TOKEN_GROUPS: Record<string, string[]> = {
+  academia: ['academia', 'fitness', 'crossfit', 'pilates'],
+  barbearia: ['barbearia', 'barbearias', 'salao', 'saloes', 'beleza', 'cabeleireiro'],
+  farmacia: ['farmacia', 'farmacias', 'drogaria', 'drogarias'],
+  imobiliaria: ['imobiliaria', 'imobiliarias', 'imovel', 'imoveis', 'corretor'],
+  moda: ['moda', 'roupas', 'malharia', 'calcados', 'bijuterias'],
+  oficina: ['oficina', 'oficinas', 'mecanica', 'automotivo', 'automotiva', 'auto'],
+  restaurante: ['restaurante', 'restaurantes', 'bar', 'bares', 'lanchonete', 'pizzaria', 'pizza', 'pizzaiolo', 'choperia', 'marmitaria', 'marmitex', 'gastronomia', 'espetinho', 'japones', 'japonÃªs', 'sushi'],
+};
+
+export let cityCache: {
+  loadedAt: number;
+  items: string[];
+} | null = null;
+
+export type NativeRuntimeDiagnostic = {
+  status: RuntimeStatus;
+  code: string;
+  message: string;
+  googleApiKeyConfigured: boolean;
+};
+
+export type HbxRuntimeDiagnostic = {
+  status: ExternalRuntimeStatus;
+  code: string;
+  message: string;
+  healthUrl: string;
+  httpStatus: number | null;
+};
+
+export type WebscrapingRuntimeResponse = {
+  native: NativeRuntimeDiagnostic;
+  hbx: HbxRuntimeDiagnostic;
+  quota: {
+    remainingSearches: number | null;
+    dailyLimit: number | null;
+    isTrialLimited: boolean;
+    accessMode: 'plan' | 'blocked';
+  };
+  diagnostics?: {
+    checkedAt: string;
+    nativeTechnicalMessage: string;
+    hbxTechnicalMessage: string;
+    legacy: WebscrapingRuntimeDiagnostic | null;
+  };
+};
+
+export type WebscrapingSearchFilters = {
+  minRating: number | null;
+  minReviews: number | null;
+  onlyWithWebsite: boolean;
+  radiusKm?: number;
+  scoreRange?: string | null;
+};
+
+export type WebscrapingContactResult = {
+  [key: string]: any;
+  placeId: string;
+  name: string;
+  phone: string;
+  phoneDigits: string;
+  rating: number | null;
+  reviews: number | null;
+  address: string | null;
+  website: string | null;
+  instagramUrl?: string | null;
+  facebookUrl?: string | null;
+  email?: string | null;
+  emailStatus?: string | null;
+  socialStatus?: string | null;
+  socialConfidence?: number | null;
+  googleMapsUrl?: string | null;
+  whatsappStatus?: string | null;
+  whatsappCheckStatus?: string | null;
+  recommendedChannel?: string | null;
+  source?: string | null;
+  sourceEngine?: string | null;
+  sourceUrl?: string | null;
+  evidenceJson?: Record<string, any> | string | null;
+  rejectReasons?: string[] | string | null;
+  qualityReason?: string | null;
+  visibilityTier?: string | null;
+  deliveryProduct?: string | null;
+  score?: number | null;
+  opportunityScore?: number | null;
+  opportunityReason?: string | null;
+  enrichmentScore?: number | null;
+  enrichmentJson?: Record<string, any> | string | null;
+  qualityV2?: LeadQualityV2 | Record<string, any> | null;
+  quality?: LeadQualityResult | null;
+};
+
+export type WebscrapingSearchResponse = {
+  query: {
+    city: string;
+    state?: string | null;
+    segment: string;
+    quantity: number;
+    engine: WebscrapingEngine;
+    targetType: HbxTargetType;
+    filters: WebscrapingSearchFilters;
+  };
+  meta: {
+    historyId: string | null;
+    source: SearchSource;
+    sourceEngines?: string[];
+    reusedCount: number;
+    fetchedCount: number;
+    totalStoredCount?: number;
+    status?: SearchRunStatus;
+    message?: string | null;
+    technicalCacheUsed: boolean;
+    technicalCacheReusedCount: number;
+    technicalCacheValidUntil: string | null;
+    requestedCount?: number;
+    candidateCount?: number;
+    deliveredCount?: number;
+    filteredOutCount?: number;
+    attempts?: number;
+    requiredChannels?: RadarChannelFilter[];
+    channelMatchMode?: RadarChannelMatchMode;
+    requiredChannelRejectedCount?: number;
+    queryTaskCount?: number;
+    currentCity?: string | null;
+    currentSegment?: string | null;
+    currentQuery?: string | null;
+    approved?: number;
+    skipped?: number;
+    duplicate?: number;
+    urlsDiscovered?: number;
+    pagesFetched?: number;
+    parsedContacts?: number;
+    queriesGenerated?: string[];
+    sourceMetrics?: Array<Record<string, any>>;
+    missingRequiredChannel?: number;
+  };
+  results: Array<Omit<WebscrapingContactResult, 'placeId'>>;
+};
+
+export type WebscrapingSearchRunResponse = {
+  id: string;
+  runId: string;
+  status: WebscrapingSearchRunStatus;
+  city: string;
+  state: string | null;
+  segment: string;
+  engine: WebscrapingEngine;
+  targetType: HbxTargetType;
+  targetQuantity: number;
+  foundCount: number;
+  importedCount: number;
+  duplicateCount: number;
+  skippedCount: number;
+  errorMessage: string | null;
+  attemptCount: number;
+  failedBatchCount: number;
+  consecutiveEmptyBatchCount: number;
+  consecutiveEngineErrorCount: number;
+  lastBatchError: string | null;
+  lastBatchStatus: HbxBatchStatus | null;
+  nextRetryAt: string | null;
+  lastQueryUsed: string | null;
+  lastEngineUrl: string | null;
+  assignedEngineId: string | null;
+  assignedEngineIndex: number | null;
+  batchLimit: number;
+  maxAttempts: number;
+  operationalStatus?: 'healthy' | 'degraded';
+  operationalMessage?: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  query: WebscrapingSearchResponse['query'];
+  meta: WebscrapingSearchResponse['meta'] & {
+    runId: string;
+    duplicateCount: number;
+    skippedCount: number;
+    importedCount: number;
+    operationalState?: RadarOperationalState;
+    operationalReason?: string | null;
+    operationalMessage?: string | null;
+  };
+  items: Array<{
+    id: string;
+    placeId: string;
+    name: string;
+    phone: string;
+    phoneDigits: string;
+    rating?: number | null;
+    reviews?: number | null;
+    website: string | null;
+    instagramUrl?: string | null;
+    facebookUrl?: string | null;
+    email?: string | null;
+    emailStatus?: string | null;
+    socialStatus?: string | null;
+    socialConfidence?: number | null;
+    googleMapsUrl?: string | null;
+    whatsappStatus?: string | null;
+    whatsappCheckStatus?: string | null;
+    recommendedChannel?: string | null;
+    opportunityScore?: number | null;
+    opportunityReason?: string | null;
+    enrichmentScore?: number | null;
+    qualityV2?: LeadQualityV2 | Record<string, any> | null;
+    websiteKey: string | null;
+    address: string | null;
+    city: string | null;
+    state: string | null;
+    segment: string | null;
+    source: string | null;
+    status: WebscrapingSearchRunItemStatus;
+    duplicateReason: string | null;
+    createdAt: string;
+  }>;
+  results: Array<Omit<WebscrapingContactResult, 'placeId'>>;
+};
+
+export type WebscrapingHistorySummary = {
+  id: string;
+  city: string;
+  segment: string;
+  quantity: number;
+  resultCount: number;
+  filters: WebscrapingSearchFilters;
+  createdAt: string;
+  updatedAt: string;
+  lastUsedAt: string;
+  preview: string[];
+  scope: 'company' | 'global';
+  sourceLabel: string;
+  cacheValidUntil?: string | null;
+};
+
+export type SearchContactsInput = {
+  city?: string;
+  segment?: string;
+  quantity: number;
+  state?: string | null;
+  radiusKm?: number | null;
+  originLat?: number | null;
+  originLng?: number | null;
+  engine?: WebscrapingEngine;
+  targetType?: HbxTargetType;
+  minRating?: number | null;
+  minReviews?: number | null;
+  onlyWithWebsite?: boolean;
+  excludePhoneDigits?: string[];
+  preferredChannels?: string[];
+  requiredChannels?: string[];
+  channelMatchMode?: 'prefer' | 'any_required' | 'all_required' | string | null;
+  qualityMode?: 'list' | 'lead_plus' | string | null;
+  freshness?: 'live' | 'database_first' | 'hybrid' | string | null;
+  salesProfile?: Partial<LeadQualityV2SalesProfile> | null;
+  whatDoYouSell?: string | null;
+  offerCategory?: string | null;
+  targetAudience?: string[] | { labels?: string[]; notes?: string } | null;
+  targetSegments?: string[] | { labels?: string[]; weights?: Record<string, number> } | null;
+  avoidSegments?: string[] | { labels?: string[]; hardReject?: string[] } | null;
+  hardRejectSegments?: string[] | null;
+  leadPreferences?: Record<string, any> | null;
+  negativeRules?: Record<string, any> | null;
+};
+
+export type SearchPlacesCandidate = {
+  placeId: string;
+  name: string;
+};
+
+export type PlaceDetails = {
+  name: string;
+  internationalPhoneNumber: string;
+  formattedPhoneNumber: string;
+  website: string;
+  formattedAddress: string;
+  rating: number | null;
+  userRatingsTotal: number | null;
+};
+
+export type SearchExecutionContext = {
+  companyId: number;
+  userId: number;
+  user: any;
+};
+
+export type NormalizedSearchInput = {
+  city: string;
+  state: string;
+  segment: string;
+  radiusKm: number;
+  originLat: number | null;
+  originLng: number | null;
+  regionalCities: RegionalCity[];
+  quantity: number;
+  engine: WebscrapingEngine;
+  targetType: HbxTargetType;
+  filters: WebscrapingSearchFilters;
+  filtersJson: string;
+  searchSignature: string;
+  cacheSignature: string;
+  normalizedCity: string;
+  normalizedSegment: string;
+  excludePhoneDigits: string[];
+  qualityMode: 'list' | 'lead_plus';
+  salesProfile: LeadQualityV2SalesProfile | null;
+  preferredChannels: RadarChannelFilter[];
+  requiredChannels: RadarChannelFilter[];
+  channelMatchMode: RadarChannelMatchMode;
+  freshness: 'live' | 'database_first' | 'hybrid';
+};
+
+export type SearchExecutionOptions = {
+  historyIdHint?: string;
+  skipRadarLookup?: boolean;
+  skipRadarPersist?: boolean;
+  skipPrivateHistory?: boolean;
+  skipTechnicalCache?: boolean;
+  recordUsage?: boolean;
+  hbxEngineUrl?: string;
+  usageEventType?: UsageEventType;
+  purpose?: HbxEnginePurpose;
+};
+
+export type RegionalCity = {
+  city: string;
+  state: string;
+  normalizedCity: string;
+  distanceKm: number;
+};
+
+export type NormalizeSearchInputOptions = {
+  allowMissingHbxState?: boolean;
+};
+
+export type UsageEventType = 'EXECUTED' | 'GOOGLE_SEARCH_EXECUTED' | 'GOOGLE_EMERGENCY_EXECUTED' | 'BLOCKED_DAILY_LIMIT';
+
+export type UsageExecutionMeta = {
+  source?: SearchSource;
+  reusedCount?: number;
+  fetchedCount?: number;
+  technicalCacheUsed?: boolean;
+  technicalCacheReusedCount?: number;
+};
+
+export type RadarWebsiteStatus = 'none' | 'present' | 'social_only' | 'weak' | 'unreachable' | 'unknown';
+export type RadarOpportunityLevel = 'high' | 'medium' | 'low' | null;
+export type RadarWhatsappCheckMode = 'off' | 'enrich' | 'only_valid';
+export type RadarWhatsappCheckStatus = 'confirmed' | 'missing' | 'unverified';
+
+export type RadarFiltersInput = {
+  city?: string | null;
+  state?: string | null;
+  segment?: string | null;
+  radiusKm?: number | null;
+  originLat?: number | null;
+  originLng?: number | null;
+  quantity?: number | null;
+  limit?: number | null;
+  page?: number | null;
+  filterKey?: string | null;
+  status?: string | null;
+  ddd?: string | null;
+  scoreRange?: string | null;
+  source?: string | null;
+  minRating?: number | null;
+  minReviews?: number | null;
+  noWebsite?: boolean | string | null;
+  withWebsite?: boolean | string | null;
+  weakWebsite?: boolean | string | null;
+  validPhone?: boolean | string | null;
+  likelyWhatsapp?: boolean | string | null;
+  highOpportunity?: boolean | string | null;
+  opportunityLevel?: string | null;
+  includeHidden?: boolean | string | null;
+  engine?: WebscrapingEngine | string | null;
+  targetType?: HbxTargetType | string | null;
+  desiredStock?: number | null;
+  minimumStock?: number | null;
+  whatsappCheckMode?: RadarWhatsappCheckMode | string | null;
+  preferredChannels?: string[] | null;
+  requiredChannels?: string[] | null;
+  channelMatchMode?: 'prefer' | 'any_required' | 'all_required' | string | null;
+  qualityMode?: 'list' | 'lead_plus' | string | null;
+  freshness?: 'live' | 'database_first' | 'hybrid' | string | null;
+  salesProfile?: Partial<LeadQualityV2SalesProfile> | null;
+  whatDoYouSell?: string | null;
+  offerCategory?: string | null;
+  targetAudience?: string[] | { labels?: string[]; notes?: string } | null;
+  targetSegments?: string[] | { labels?: string[]; weights?: Record<string, number> } | null;
+  avoidSegments?: string[] | { labels?: string[]; hardReject?: string[] } | null;
+  hardRejectSegments?: string[] | null;
+  leadPreferences?: Record<string, any> | null;
+  negativeRules?: Record<string, any> | null;
+};
+
+export type RadarLeadEventType =
+  | 'found'
+  | 'imported_to_vendas'
+  | 'contacted'
+  | 'denied'
+  | 'negative'
+  | 'blocked'
+  | 'opt_out'
+  | 'discarded'
+  | 'complaint'
+  | 'no_answer'
+  | 'no_whatsapp'
+  | 'invalid_whatsapp'
+  | 'hidden'
+  | 'duplicate'
+  | 'ownership_reserved'
+  | 'ownership_released'
+  | 'presentation_email_previewed'
+  | 'presentation_email_sent'
+  | 'presentation_email_failed'
+  | 'enriched'
+  | 'whatsapp_checked'
+  | 'status_changed';
+
+export type RadarLeadStatus =
+  | 'clean'
+  | 'new'
+  | 'reserved'
+  | 'delivered'
+  | 'approved'
+  | 'sent_to_vendas'
+  | 'in_attendance'
+  | 'interested'
+  | 'positive'
+  | 'converted'
+  | 'denied'
+  | 'negative'
+  | 'blocked'
+  | 'opt_out'
+  | 'discarded'
+  | 'complaint'
+  | 'no_answer'
+  | 'no_whatsapp'
+  | 'invalid_whatsapp'
+  | 'duplicate'
+  | 'rejected'
+  | 'hidden';
+
+export type RadarCampaignInput = {
+  city?: string | null;
+  state?: string | null;
+  segment?: string | null;
+  mode?: string | null;
+  targetType?: HbxTargetType | 'both' | string | null;
+  targetTotal?: number | null;
+  batchSize?: number | null;
+  maxAttemptsPerTask?: number | null;
+  nightOnly?: boolean | string | null;
+  allowedStartHour?: number | null;
+  allowedEndHour?: number | null;
+  timezone?: string | null;
+};
+
+export type WebscrapingOperationalConfigInput = {
+  enabled?: boolean | string | null;
+  startHour?: number | null;
+  startMinute?: number | null;
+  endHour?: number | null;
+  endMinute?: number | null;
+  engineCount?: number | null;
+  intensity?: string | null;
+  memoryTargetGb?: number | null;
+  batchSize?: number | null;
+  maxAttemptsPerTask?: number | null;
+  autonomousFillEnabled?: boolean | string | null;
+  autonomousFillBatchSize?: number | null;
+  forceNow?: boolean | string | null;
+  forcedUntil?: string | null;
+  timezone?: string | null;
+  emergencyStop?: boolean | string | null;
+  stopOutsideWindow?: boolean | string | null;
+  weekdaysOnly?: boolean | string | null;
+  weekendAlwaysOn?: boolean | string | null;
+  factoryState?: string | null;
+  factoryCity?: string | null;
+  maxEngines?: number | null;
+  minEngines?: number | null;
+  drainTimeoutSeconds?: number | null;
+};
+
+export type MasterMassDataCampaignInput = RadarCampaignInput & WebscrapingOperationalConfigInput & {
+  companyId?: number | string | null;
+};
+
+export type AutonomousMassDataStrategyMode = 'guided' | 'automatic';
+export type AutonomousMassDataWorkReason = 'guided_filter' | 'low_stock' | 'low_duplicate_recent' | 'unexplored' | 'fallback_national';
+
+export type AutonomousMassDataWork = {
+  mode: AutonomousMassDataStrategyMode;
+  state: string;
+  city: string;
+  segment: string;
+  targetType: HbxTargetType;
+  desiredStock: number;
+  minimumStock: number;
+  reason: AutonomousMassDataWorkReason;
+  stockCount: number;
+};
+
+export type AutonomousMassDataCandidate = AutonomousMassDataWork & {
+  key: string;
+  taskExists: boolean;
+  duplicateRatio: number;
+  explored: boolean;
+  lastWorkedAt: Date | null;
+};
+
+export type NormalizedRadarFilters = {
+  city: string;
+  state: string;
+  segment: string;
+  radiusKm: number;
+  originLat: number | null;
+  originLng: number | null;
+  regionalCities: RegionalCity[];
+  normalizedCity: string;
+  normalizedSegment: string;
+  quantity: number;
+  limit: number;
+  page: number;
+  filterKey: string;
+  status: string;
+  ddd: string;
+  scoreRange: string;
+  source: string;
+  minRating: number | null;
+  minReviews: number | null;
+  noWebsite: boolean;
+  withWebsite: boolean;
+  weakWebsite: boolean;
+  validPhone: boolean;
+  likelyWhatsapp: boolean;
+  opportunityLevel: RadarOpportunityLevel;
+  includeHidden: boolean;
+  engine: WebscrapingEngine;
+  targetType: HbxTargetType;
+  desiredStock: number;
+  minimumStock: number;
+  stockOverride: boolean;
+  whatsappCheckMode: RadarWhatsappCheckMode;
+  preferredChannels: RadarChannelFilter[];
+  requiredChannels: RadarChannelFilter[];
+  channelMatchMode: RadarChannelMatchMode;
+  qualityMode: 'list' | 'lead_plus';
+  freshness: 'live' | 'database_first' | 'hybrid';
+  salesProfile: LeadQualityV2SalesProfile | null;
+};
+
+export type RadarChannelFilter = 'whatsapp' | 'instagram' | 'email' | 'website' | 'phone' | 'facebook';
+export type RadarChannelMatchMode = 'prefer' | 'any_required' | 'all_required';
+
+export type SearchHistoryRow = {
+  id: string;
+  userId: number;
+  city: string;
+  segment: string;
+  quantity: number;
+  filtersJson: string;
+  searchSignature: string;
+  resultCount: number;
+  createdAt: Date;
+  updatedAt: Date;
+  lastUsedAt: Date;
+  places: Array<{
+    id: string;
+    placeId: string;
+    rank: number;
+    name: string;
+    phone: string;
+    phoneDigits: string;
+    rating: number | null;
+    reviews: number;
+    address: string;
+    website: string;
+    source?: string | null;
+    score?: number | null;
+    opportunityReason?: string | null;
+  }>;
+};
+
+export type GlobalCacheRow = {
+  id: string;
+  cacheSignature: string;
+  normalizedCity: string;
+  normalizedSegment: string;
+  filtersJson: string;
+  resultCount: number;
+  cacheValidUntil: Date;
+  createdAt: Date;
+  updatedAt: Date;
+  lastFetchedAt: Date;
+  lastServedAt: Date;
+  places: Array<{
+    id: string;
+    placeId: string;
+    rank: number;
+    name: string;
+    phone: string;
+    phoneDigits: string;
+    rating: number | null;
+    reviews: number;
+    address: string;
+    website: string;
+  }>;
+};
+
+export type HistoryPlaceColumnSupport = {
+  source: boolean;
+  score: boolean;
+  opportunityReason: boolean;
+};
+
+export class GooglePlacesApiError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+export class HbxBatchError extends ServiceUnavailableException {
+  constructor(
+    readonly httpStatus: number | null,
+    readonly rawMessage: string,
+    readonly retryable: boolean,
+    readonly code = 'hbx_batch_error',
+  ) {
+    super({
+      code,
+      message: rawMessage || 'Falha no lote do Motor HBX.',
+      httpStatus,
+      retryable,
+    });
+  }
+}
+
+export function normalizePhoneDigits(raw: string | null | undefined) {
+  let digits = String(raw || '').replace(/\D/g, '');
+  if (digits.startsWith('55') && digits.length > 11) {
+    digits = digits.slice(2);
+  }
+  return digits;
+}
+
+export function isLikelyValidBrPhone(raw: string | null | undefined) {
+  const digits = normalizePhoneDigits(raw);
+  return digits.length === 10 || digits.length === 11;
+}
+
+export function isLikelyWhatsapp(raw: string | null | undefined) {
+  const digits = normalizePhoneDigits(raw);
+  if (digits.length !== 11) return false;
+  const mobilePrefix = Number(digits[2] || '0');
+  return Number.isFinite(mobilePrefix) && mobilePrefix >= 6;
+}
+
+export function toNumberOrNull(value: unknown) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+export function clampQuantity(value: number, maxQuantity = MAX_QUANTITY) {
+  const safeMax = Math.max(1, Math.trunc(maxQuantity || MAX_QUANTITY));
+  return Math.min(Math.max(Math.trunc(value || 0), 1), safeMax);
+}
+
+export function normalizeLookupValue(value: string) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function normalizeWebsiteKey(value: string | null | undefined) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return '';
+  try {
+    const parsed = new URL(raw.startsWith('http') ? raw : `https://${raw}`);
+    const host = parsed.hostname.replace(/^www\./, '');
+    const path = parsed.pathname.replace(/\/+$/, '');
+    return `${host}${path}`;
+  } catch {
+    return raw.replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/+$/, '');
+  }
+}
+
+export const RADAR_THIRD_PARTY_SOCIAL_PROFILE_HINTS = [
+  'editoramanole',
+  'fresha',
+  'guiatemdigital',
+  'oficialmanole',
+  'petdiretorio',
+  'qconcursos',
+  'setorenergetico',
+  'socorroauto',
+];
+
+export function normalizeSocialProfileKey(value: string | null | undefined) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  try {
+    const parsed = new URL(raw.startsWith('http') ? raw : `https://${raw}`);
+    return normalizeLookupValue(`${parsed.hostname} ${parsed.pathname}`).replace(/[^a-z0-9]+/g, ' ');
+  } catch {
+    return normalizeLookupValue(raw).replace(/[^a-z0-9]+/g, ' ');
+  }
+}
+
+export function looksLikeThirdPartySocialProfile(value: string | null | undefined) {
+  const key = normalizeSocialProfileKey(value);
+  if (!key) return false;
+  return RADAR_THIRD_PARTY_SOCIAL_PROFILE_HINTS.some((hint) => key.includes(normalizeLookupValue(hint)));
+}
+
+export const RADAR_SOCIAL_BLOCKED_PATH_PARTS = new Set([
+  'accounts',
+  'events',
+  'explore',
+  'hashtag',
+  'hashtags',
+  'login',
+  'pages',
+  'posts',
+  'photos',
+  'search',
+  'share',
+  'tag',
+  'tags',
+  'videos',
+  'groups',
+  'reel',
+  'reels',
+  'p',
+  'stories',
+]);
+
+export const RADAR_SOCIAL_CATEGORY_TOKENS = new Set([
+  'auto',
+  'bar',
+  'bares',
+  'barbearia',
+  'beleza',
+  'borracharia',
+  'calcado',
+  'calcados',
+  'center',
+  'choperia',
+  'clinica',
+  'confeccao',
+  'confeccoes',
+  'confeitaria',
+  'delivery',
+  'doceria',
+  'esmalteria',
+  'esfiharia',
+  'esfiharias',
+  'estetica',
+  'gastronomia',
+  'hamburgueria',
+  'imob',
+  'imobiliaria',
+  'imobiliarias',
+  'imovel',
+  'imoveis',
+  'lanches',
+  'lancheria',
+  'lancherias',
+  'lanchonete',
+  'lanchonetes',
+  'loja',
+  'marmitaria',
+  'mecanica',
+  'oficina',
+  'padaria',
+  'pneu',
+  'pneus',
+  'pizzaria',
+  'pizza',
+  'pizzas',
+  'restaurante',
+  'restaurantes',
+  'rotisserie',
+  'salao',
+  'sobrancelha',
+  'studio',
+  'trattoria',
+  'trattorias',
+]);
+
+export const RADAR_SOCIAL_STOP_TOKENS = new Set([
+  'cia',
+  'comercio',
+  'comercial',
+  'companhia',
+  'das',
+  'de',
+  'do',
+  'dos',
+  'eireli',
+  'ltda',
+  'moraes',
+]);
+
+export const RADAR_SOCIAL_WEAK_TOKENS = new Set([
+  'absolute',
+  'bella',
+  'belle',
+  'bello',
+  'bem',
+  'casa',
+  'casas',
+  'central',
+  'centro',
+  'class',
+  'clinic',
+  'estilo',
+  'express',
+  'ideal',
+  'mais',
+  'max',
+  'mega',
+  'nova',
+  'novo',
+  'oficial',
+  'popular',
+  'prime',
+  'real',
+  'top',
+  'vip',
+]);
+
+export const RADAR_WEBSITE_GENERIC_HOST_TOKENS = new Set([
+  ...Array.from(RADAR_SOCIAL_CATEGORY_TOKENS),
+  'animal',
+  'animais',
+  'medica',
+  'medicas',
+  'medico',
+  'medicos',
+  'odontologica',
+  'odontologicas',
+  'odontologico',
+  'odontologicos',
+  'pet',
+  'pets',
+  'vet',
+  'veterinaria',
+  'veterinarias',
+  'veterinario',
+  'veterinarios',
+]);
+
+export function socialHandleFromUrl(value: string | null | undefined) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  try {
+    const parsed = new URL(raw.startsWith('http') ? raw : `https://${raw}`);
+    const parts = parsed.pathname.split('/').filter(Boolean);
+    if (parts.some((part) => RADAR_SOCIAL_BLOCKED_PATH_PARTS.has(normalizeLookupValue(part)))) return '';
+    return normalizeLookupValue(parts[0] || '').replace(/[^a-z0-9]+/g, '');
+  } catch {
+    return normalizeLookupValue(raw).replace(/[^a-z0-9]+/g, '');
+  }
+}
+
+export function cityInitialsKey(value: string | null | undefined) {
+  const tokens = normalizeLookupValue(value).split(/\s+/).filter((token) => token.length >= 3);
+  return tokens.length >= 2 ? tokens.map((token) => token[0]).join('') : '';
+}
+
+export function socialTokenVariants(token: string) {
+  const normalized = normalizeLookupValue(token).replace(/[^a-z0-9]+/g, '');
+  if (!normalized) return [];
+  const variants = new Set([normalized]);
+  if (normalized.length >= 5 && normalized.endsWith('s')) variants.add(normalized.slice(0, -1));
+  return Array.from(variants);
+}
+
+export function socialCategoryTokenVariants(token: string) {
+  const variants = new Set(socialTokenVariants(token));
+  if (token === 'pizzaria' || token === 'pizzarias') {
+    variants.add('pizza');
+    variants.add('pizzas');
+  }
+  if (token === 'lanchonete' || token === 'lanchonetes') variants.add('lanches');
+  if (token === 'restaurante' || token === 'restaurantes') {
+    variants.add('restaurante');
+    variants.add('restaurantes');
+  }
+  if (['imob', 'imobiliaria', 'imobiliarias', 'imovel', 'imoveis'].includes(token)) {
+    ['imob', 'imobiliaria', 'imobiliarias', 'imovel', 'imoveis'].forEach((variant) => variants.add(variant));
+  }
+  return Array.from(variants);
+}
+
+export function hasTrustedEngineSocialSignal(row: any) {
+  const sourceKey = normalizeLookupValue([
+    row?.source,
+    row?.sourceEngine,
+    ...(Array.isArray(row?.sourceEngines) ? row.sourceEngines : parseJsonArray(row?.sourceEngines)),
+  ].filter(Boolean).join(' '));
+  const socialStatus = normalizeLookupValue(row?.socialStatus || row?.signals?.socialStatus);
+  const socialConfidence = safeInteger(row?.socialConfidence ?? row?.signals?.socialConfidence);
+
+  return Boolean(
+    (sourceKey.includes('hbx') || sourceKey.includes('scraping'))
+    && ['found', 'confirmed'].includes(socialStatus)
+    && socialConfidence >= 70
+  );
+}
+
+export function socialProfileLooksCompatibleWithLead(row: any, value: string | null | undefined) {
+  const handle = socialHandleFromUrl(value);
+  if (!handle) return false;
+  if (hasTrustedEngineSocialSignal(row)) return true;
+  const name = normalizeLookupValue(row?.name || row?.companyName || '');
+  const tokens = name.split(/\s+/).filter((token) => token.length >= 3 && !RADAR_SOCIAL_STOP_TOKENS.has(token));
+  const categoryTokens = tokens.filter((token) => RADAR_SOCIAL_CATEGORY_TOKENS.has(token));
+  const strongTokens = tokens.filter((token) => (
+    token.length >= 4
+    && !RADAR_SOCIAL_CATEGORY_TOKENS.has(token)
+    && !RADAR_SOCIAL_WEAK_TOKENS.has(token)
+  ));
+  if (!strongTokens.length) return false;
+  const compactName = tokens.join('');
+  if (compactName.length >= 8 && compactName.length <= 36 && (handle.includes(compactName) || compactName.includes(handle))) return true;
+  const strongVariants = Array.from(new Set(strongTokens.flatMap((token) => socialTokenVariants(token))));
+  const categoryVariants = Array.from(new Set(categoryTokens.flatMap((token) => socialCategoryTokenVariants(token))));
+  for (const category of categoryVariants) {
+    for (const token of strongVariants) {
+      const a = `${category}${token}`;
+      const b = `${token}${category}`;
+      if ((a.length >= 6 && handle.includes(a)) || (b.length >= 6 && handle.includes(b))) return true;
+      if (handle.includes(category) && handle.includes(token)) return true;
+    }
+  }
+  const strongHits = strongTokens.filter((token) => socialTokenVariants(token).some((variant) => variant.length >= 5 && handle.includes(variant)));
+  if (strongHits.length >= 2) return true;
+  const initials = cityInitialsKey(row?.city);
+  if (initials && strongHits.some((token) => token.length >= 6) && handle.endsWith(initials)) return true;
+  return false;
+}
+
+export function getWebsiteHost(value: string | null | undefined) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  try {
+    const parsed = new URL(raw.startsWith('http') ? raw : `https://${raw}`);
+    return parsed.hostname.replace(/^www\./, '').toLowerCase();
+  } catch {
+    return raw.replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0].toLowerCase();
+  }
+}
+
+export function websiteHostLooksCompatibleWithLead(row: any, value: string | null | undefined) {
+  const host = getWebsiteHost(value);
+  if (!host) return false;
+  const hostKey = normalizeLookupValue(host).replace(/[^a-z0-9]+/g, '');
+  if (!hostKey) return false;
+  if (host === 'visitmestre.com' || host.endsWith('.visitmestre.com')) return false;
+  const name = normalizeLookupValue(row?.name || row?.companyName || '');
+  const tokens = name.split(/\s+/).filter((token) => token.length >= 3 && !RADAR_SOCIAL_STOP_TOKENS.has(token));
+  const categoryTokens = tokens.filter((token) => RADAR_SOCIAL_CATEGORY_TOKENS.has(token));
+  const strongTokens = tokens.filter((token) => (
+    token.length >= 4
+    && !RADAR_SOCIAL_CATEGORY_TOKENS.has(token)
+    && !RADAR_SOCIAL_WEAK_TOKENS.has(token)
+  ));
+  const compactName = tokens.join('');
+  if (compactName.length >= 8 && hostKey.includes(compactName)) return true;
+  const strongVariants = Array.from(new Set(strongTokens.flatMap((token) => socialTokenVariants(token))));
+  const strongHits = strongTokens.filter((token) => socialTokenVariants(token).some((variant) => variant.length >= 4 && hostKey.includes(variant)));
+  const distinctiveHits = strongHits.filter((token) => !RADAR_WEBSITE_GENERIC_HOST_TOKENS.has(token));
+  if (!distinctiveHits.length) return false;
+  if (strongHits.length >= 2) return true;
+  if (strongHits.length === 1 && strongTokens.length === 1 && tokens.length <= 2) return true;
+  const categoryVariants = Array.from(new Set(categoryTokens.flatMap((token) => socialCategoryTokenVariants(token))));
+  for (const category of categoryVariants) {
+    for (const token of strongVariants) {
+      if (token.length < 4) continue;
+      if (RADAR_WEBSITE_GENERIC_HOST_TOKENS.has(token)) continue;
+      if (hostKey.includes(`${category}${token}`) || hostKey.includes(`${token}${category}`)) return true;
+    }
+  }
+  return false;
+}
+
+export function inferWebsiteStatus(value: string | null | undefined): RadarWebsiteStatus {
+  const website = String(value || '').trim();
+  if (!website) return 'none';
+  const host = getWebsiteHost(website);
+  if (!host) return 'unknown';
+  const socialHosts = [
+    'facebook.com',
+    'instagram.com',
+    'linkedin.com',
+    'tiktok.com',
+    'youtube.com',
+    'x.com',
+    'twitter.com',
+    'wa.me',
+    'whatsapp.com',
+  ];
+  if (socialHosts.some((domain) => host === domain || host.endsWith(`.${domain}`))) return 'social_only';
+  const weakHosts = [
+    'linktr.ee',
+    'bio.link',
+    'beacons.ai',
+    'wixsite.com',
+    'weebly.com',
+    'blogspot.com',
+    'wordpress.com',
+    'sites.google.com',
+    'business.site',
+    'google.com',
+    'google.com.br',
+  ];
+  if (weakHosts.some((domain) => host === domain || host.endsWith(`.${domain}`))) return 'weak';
+  return 'present';
+}
+
+export const RADAR_BAD_EMAIL_LOCAL_PARTS = new Set([
+  'asset',
+  'assets',
+  'email',
+  'example',
+  'favicon',
+  'icon',
+  'image',
+  'img',
+  'logo',
+  'sprite',
+  'test',
+  'teste',
+  'user',
+  'usuario',
+]);
+
+export const RADAR_BAD_EMAIL_DOMAINS = new Set([
+  'bit.ly',
+  'econodata.com.br',
+  'example.com',
+  'example.com.br',
+  'facebook.com',
+  'fb.com',
+  'google.com',
+  'instagram.com',
+  'linktr.ee',
+  'maps.app.goo.gl',
+  'restaurantguru.com',
+  'restaurantguru.com.br',
+  'solutudo.com.br',
+  'test.com',
+  'teste.com',
+  'wa.me',
+  'whatsapp.com',
+]);
+
+export const RADAR_BAD_EMAIL_TLDS = new Set(['css', 'gif', 'jpeg', 'jpg', 'js', 'png', 'svg', 'webp']);
+
+export function normalizeBusinessEmail(value: string | null | undefined) {
+  const raw = String(value || '').trim().toLowerCase();
+  const match = raw.match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i);
+  if (!match) return '';
+  const email = match[0].toLowerCase();
+  const [local, domain] = email.split('@');
+  const tld = String(domain || '').split('.').pop() || '';
+  if (!local || !domain) return '';
+  if (RADAR_BAD_EMAIL_LOCAL_PARTS.has(local)) return '';
+  if (RADAR_BAD_EMAIL_DOMAINS.has(domain)) return '';
+  if (RADAR_BAD_EMAIL_TLDS.has(tld)) return '';
+  return email;
+}
+
+export function parseJsonArray(raw: string | null | undefined): string[] {
+  try {
+    const parsed = JSON.parse(String(raw || '[]'));
+    return Array.isArray(parsed) ? parsed.map((item) => String(item || '').trim()).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function parseJsonObject(raw: unknown): Record<string, any> {
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    return raw as Record<string, any>;
+  }
+  try {
+    const parsed = JSON.parse(String(raw || '{}'));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export function isFallbackEligible(error: GooglePlacesApiError) {
+  return ['google_api_not_enabled', 'google_request_denied', 'google_upstream_error'].includes(error.code);
+}
+
+export function coerceBoolean(value: unknown) {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+  }
+  return false;
+}
+
+export function normalizeEngine(value: unknown): WebscrapingEngine {
+  return String(value || '').trim().toLowerCase() === 'hbx' ? 'hbx' : 'google';
+}
+
+export function normalizeEnginePurpose(value: unknown): HbxEnginePurpose {
+  const purpose = String(value || '').trim().toLowerCase();
+  if (purpose === 'radar_pull' || purpose === 'radar_digital' || purpose === 'lead_plus_enrichment' || purpose === 'vendas' || purpose === 'autonomous' || purpose === 'mass_data') {
+    return purpose;
+  }
+  return 'manual';
+}
+
+export function normalizeCardDiscoveryQualityMode(): 'list' {
+  return 'list';
+}
+
+export function isAutomaticEnginePurpose(purpose: HbxEnginePurpose) {
+  return purpose === 'autonomous' || purpose === 'mass_data';
+}
+
+export function normalizeTargetType(value: unknown): HbxTargetType {
+  const targetType = String(value || '').trim().toLowerCase();
+  if (targetType === 'pf' || targetType === 'agenda_pf') return targetType;
+  return 'pj';
+}
+
+export function parsePositiveInteger(value: unknown, fallback: number) {
+  const parsed = Number(String(value || '').trim());
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.trunc(parsed);
+}
+
+export function maxQuantityFor(engine: WebscrapingEngine, targetType: HbxTargetType) {
+  if (engine === 'google') return MAX_QUANTITY;
+  return targetType === 'pj' ? HBX_PJ_MAX_QUANTITY : HBX_PEOPLE_MAX_QUANTITY;
+}
+
+export function safeInteger(value: unknown, fallback = 0) {
+  const numeric = toNumberOrNull(value);
+  if (numeric == null) return fallback;
+  return Math.max(0, Math.trunc(numeric));
+}
+
+export function clampInteger(value: unknown, fallback: number, min: number, max: number) {
+  const numeric = toNumberOrNull(value);
+  const parsed = numeric == null ? fallback : Math.trunc(numeric);
+  return Math.min(Math.max(parsed, min), max);
+}
+
+export function parsePositiveIntegerEnv(name: string, fallback: number) {
+  return parsePositiveInteger(process.env[name], fallback);
+}
+
+export function minutesAgo(minutes: number) {
+  return new Date(Date.now() - Math.max(0, minutes) * 60_000);
+}
+
+export function formatCityWithState(city: string, state: string | null | undefined) {
+  const safeCity = String(city || '').trim();
+  const safeState = String(state || '').trim().toUpperCase();
+  if (!safeCity || !safeState) return safeCity;
+  if (new RegExp(`\\s-\\s${safeState}$`, 'i').test(safeCity)) return safeCity;
+  return `${safeCity} - ${safeState}`;
+}
