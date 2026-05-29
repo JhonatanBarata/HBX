@@ -66,6 +66,68 @@ function normalizeTargetType(value: unknown): HbxTargetType {
 
 @Injectable()
 export class RadarRunPresenterService {
+  resolveRadarRunOperationalState(run: any, status: WebscrapingSearchRunStatus, message: string | null): {
+    state: 'funcionando' | 'pausado' | 'parado';
+    reason: string | null;
+    message: string | null;
+  } {
+    const lastBatchStatus = String(run?.lastBatchStatus || '').trim();
+    if (status === 'sleeping') {
+      return {
+        state: 'pausado',
+        reason: lastBatchStatus || 'radar_paused',
+        message: message || 'Radar pausado. A mesma pesquisa sera retomada automaticamente.',
+      };
+    }
+    if (status === 'queued' && lastBatchStatus === 'queued_wait' && !run?.assignedEngineId) {
+      return {
+        state: 'pausado',
+        reason: 'engine_wait',
+        message: message || 'Radar pausado aguardando motor livre. A fila tecnica continua tentando automaticamente.',
+      };
+    }
+    if (status === 'queued' || status === 'running') {
+      return {
+        state: 'funcionando',
+        reason: lastBatchStatus || status,
+        message: message || (status === 'queued' ? 'Radar na fila HBX.' : 'Radar funcionando.'),
+      };
+    }
+    return {
+      state: 'parado',
+      reason: lastBatchStatus || status,
+      message: message || 'Radar parado. Rode uma nova pesquisa quando quiser abastecer Vendas.',
+    };
+  }
+
+  buildRadarSearchRunMessage(
+    run: any,
+    deliveredCount: number,
+    requestedQuantity: number,
+    normalizeSearchRunStatus: (status: unknown) => WebscrapingSearchRunStatus,
+  ) {
+    const status = normalizeSearchRunStatus(run?.status);
+    const rawMessage = String(run?.errorMessage || '').trim();
+    if (status === 'completed') {
+      return deliveredCount >= requestedQuantity
+        ? `${deliveredCount} card(s) entregues.`
+        : `Pesquisa concluida com ${deliveredCount} card(s) disponiveis.`;
+    }
+    if (status === 'completed_insufficient_results' || status === 'partial_error') {
+      return rawMessage || `Entreguei ${deliveredCount} de ${requestedQuantity} card(s).`;
+    }
+    if (status === 'failed') {
+      return rawMessage || 'Nao foi possivel concluir a busca agora.';
+    }
+    if (status === 'sleeping') {
+      return rawMessage || 'Radar descansando. A mesma pesquisa sera retomada automaticamente.';
+    }
+    if (deliveredCount > 0) {
+      return `Entreguei ${deliveredCount} de ${requestedQuantity} card(s). Radar trabalhando para completar a pesquisa.`;
+    }
+    return rawMessage || 'Busca criada. O Radar esta preparando os primeiros cards.';
+  }
+
   mapRunItemToContact(item: any, host: RadarRunPresenterHost): WebscrapingContactResult {
     const raw = host.parseMaybeJsonObject(item?.rawJson);
     const enrichmentJson = host.parseMaybeJsonObject(item?.enrichmentJson || raw.enrichmentJson);
