@@ -10,6 +10,7 @@ import { RadarSocialLookupService } from './radar/04-socials/radar-social-lookup
 import { RadarVendasSyncService } from './radar/05-delivery/radar-vendas-sync.service';
 import { RadarRunPresenterService } from './radar/06-presentation/radar-run-presenter.service';
 import { RadarRunRepositoryService } from './radar/persistence/radar-run-repository.service';
+import { RadarSharedNormalizerService } from './radar/shared/radar-shared-normalizer.service';
 import { MasterWebscrapingController, WebscrapingController } from './webscraping.controller';
 import { WebscrapingService } from './webscraping.service';
 
@@ -18,6 +19,7 @@ const RADAR_SERVICES = [
   RadarRunPresenterService,
   RadarSocialLookupService,
   RadarVendasSyncService,
+  RadarSharedNormalizerService,
 ];
 
 @Module({
