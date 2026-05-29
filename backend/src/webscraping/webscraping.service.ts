@@ -34,6 +34,7 @@ import { BRAZIL_CITY_COORDINATES } from './brazil-city-coordinates';
 import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../companies/master-whatsapp-company.constants';
 import { RadarRunRepositoryService } from './radar/radar-run-repository.service';
 import { RadarSocialLookupService, type RadarSocialLookupHost } from './radar/radar-social-lookup.service';
+import { RadarRunPresenterService, type RadarRunPresenterHost } from './radar/radar-run-presenter.service';
 
 const PLACES_NEW_TEXT_SEARCH_URL = 'https://places.googleapis.com/v1/places:searchText';
 const PLACES_NEW_DETAILS_URL = 'https://places.googleapis.com/v1/places';
@@ -1843,6 +1844,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly masterContextService?: MasterContextService,
     @Optional() private readonly radarRunRepository?: RadarRunRepositoryService,
     @Optional() private readonly radarSocialLookup?: RadarSocialLookupService,
+    @Optional() private readonly radarRunPresenter?: RadarRunPresenterService,
   ) {}
 
   onModuleInit() {
@@ -1902,11 +1904,36 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return this.radarSocialLookup || new RadarSocialLookupService(this.prisma, this.getRadarRunRepository());
   }
 
+  private getRadarRunPresenter() {
+    return this.radarRunPresenter || new RadarRunPresenterService();
+  }
+
   private buildRadarSocialLookupHost(): RadarSocialLookupHost {
     return {
       searchHbxEngine: (input, existing, engineUrl, options) => this.searchHbxEngine(input, existing, engineUrl, options),
       normalizeRadarSocialUrl: (value, network) => this.normalizeRadarSocialUrl(value, network),
       pickRadarSocialUrl: (item, network) => this.pickRadarSocialUrl(item, network),
+    };
+  }
+
+  private buildRadarRunPresenterHost(): RadarRunPresenterHost {
+    return {
+      parseMaybeJsonObject: (value) => this.parseMaybeJsonObject(value),
+      extractLeadQualityV2FromObject: (value) => this.extractLeadQualityV2FromObject(value),
+      extractLeadQualityFromObject: (value) => this.extractLeadQualityFromObject(value),
+      buildRunInputFromRow: (run) => this.buildRunInputFromRow(run),
+      normalizeSearchRunStatus: (status) => this.normalizeSearchRunStatus(status),
+      normalizeRunItemStatus: (status) => this.normalizeRunItemStatus(status),
+      normalizeRadarChannels: (value) => this.normalizeRadarChannels(value),
+      normalizeChannelMatchMode: (value) => this.normalizeChannelMatchMode(value),
+      isRunItemQualityDeliverable: (item, input) => this.isRunItemQualityDeliverable(item, input),
+      attachDeliveryClassification: (item, input, quality, qualityV2) => this.attachDeliveryClassification(item, input, quality, qualityV2),
+      stripListPremiumFields: (item, input) => this.stripListPremiumFields(item, input),
+      normalizeRadiusKm: (value) => this.normalizeRadiusKm(value),
+      getHbxRunBatchLimit: (targetQuantity) => this.getHbxRunBatchLimit(targetQuantity),
+      getHbxRunMaxAttempts: (targetQuantity, batchLimit) => this.getHbxRunMaxAttempts(targetQuantity, batchLimit),
+      buildSearchRunInsufficientMessage: (foundCount, attempts) => this.buildSearchRunInsufficientMessage(foundCount, attempts),
+      resolveRadarRunOperationalState: (run, status, message) => this.resolveRadarRunOperationalState(run, status, message),
     };
   }
 
@@ -5699,219 +5726,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private mapRunItemToContact(item: any): WebscrapingContactResult {
-    const raw = this.parseMaybeJsonObject(item?.rawJson);
-    const enrichmentJson = this.parseMaybeJsonObject(item?.enrichmentJson || raw.enrichmentJson);
-    return {
-      ...(raw as any),
-      placeId: String(item.placeId || raw.placeId || '').trim(),
-      name: String(item.name || raw.name || '').trim(),
-      phone: String(item.phone || raw.phone || '').trim(),
-      phoneDigits: normalizePhoneDigits(item.phoneDigits || raw.phoneDigits || item.phone || raw.phone),
-      rating: raw.rating == null ? null : Number(raw.rating),
-      reviews: raw.reviews == null ? null : safeInteger(raw.reviews),
-      address: String(item.address || raw.address || '').trim() || null,
-      city: String(item.city || raw.city || '').trim() || null,
-      state: String(item.state || raw.state || '').trim().toUpperCase() || null,
-      segment: String(item.segment || raw.segment || raw.businessCategory || raw.category || '').trim() || null,
-      businessCategory: String(raw.businessCategory || raw.category || item.segment || '').trim() || null,
-      website: String(item.website || raw.website || '').trim() || null,
-      instagramUrl: String(raw.instagramUrl || '').trim() || null,
-      facebookUrl: String(raw.facebookUrl || '').trim() || null,
-      email: String(raw.email || '').trim() || null,
-      emailStatus: raw.emailStatus || raw.signals?.emailStatus || null,
-      socialStatus: raw.socialStatus || raw.signals?.socialStatus || null,
-      socialConfidence: raw.socialConfidence == null ? null : safeInteger(raw.socialConfidence),
-      googleMapsUrl: String(raw.googleMapsUrl || raw.mapsUrl || raw.signals?.googleMapsUrl || '').trim() || null,
-      whatsappStatus: raw.whatsappStatus || raw.whatsappCheckStatus || raw.signals?.whatsappStatus || null,
-      whatsappCheckStatus: raw.whatsappCheckStatus || raw.whatsappStatus || raw.signals?.whatsappStatus || null,
-      recommendedChannel: raw.recommendedChannel || raw.signals?.recommendedChannel || null,
-      opportunityScore: raw.opportunityScore == null ? null : safeInteger(raw.opportunityScore),
-      opportunityReason: String(raw.opportunityReason || '').trim() || null,
-      enrichmentScore: raw.enrichmentScore == null ? null : safeInteger(raw.enrichmentScore),
-      enrichmentJson: Object.keys(enrichmentJson).length ? enrichmentJson : raw.enrichmentJson || null,
-      qualityV2: this.extractLeadQualityV2FromObject(raw) || this.extractLeadQualityV2FromObject(enrichmentJson) || raw.qualityV2 || enrichmentJson.qualityV2 || null,
-      source: String(item.source || raw.source || '').trim() || null,
-      quality: this.extractLeadQualityFromObject(raw),
-    };
+    return this.getRadarRunPresenter().mapRunItemToContact(item, this.buildRadarRunPresenterHost());
   }
 
   private buildSearchRunResponse(run: any, capacity?: { operationalStatus: 'healthy' | 'degraded'; message: string | null }): WebscrapingSearchRunResponse {
-    const engine = normalizeEngine(run.engine);
-    const targetType = normalizeTargetType(run.targetType);
-    const status = this.normalizeSearchRunStatus(run.status);
-    const metrics = parseJsonObject(run?.metricsJson);
-    const items = Array.isArray(run.items) ? run.items : [];
-    const foundItems = items.filter((item) => item.status === 'found');
-    const runInput = this.buildRunInputFromRow(run);
-    const requiredChannels: RadarChannelFilter[] = this.normalizeRadarChannels(runInput.requiredChannels);
-    const channelMatchMode: RadarChannelMatchMode = this.normalizeChannelMatchMode(runInput.channelMatchMode);
-    const qualityInput = {
-      city: String(run.city || ''),
-      state: String(run.state || ''),
-      segment: String(run.segment || ''),
-      targetType,
-      preferredChannels: runInput.preferredChannels || [],
-      requiredChannels,
-      channelMatchMode,
-      qualityMode: runInput.qualityMode || 'list',
-      salesProfile: runInput.salesProfile || null,
-    } as NormalizedRadarFilters;
-    const deliverableFoundItems = foundItems.filter((item) => this.isRunItemQualityDeliverable(item, qualityInput));
-    const requiredChannelRejectedCount = 0;
-    const results = deliverableFoundItems.map((item) => {
-      const contact = this.mapRunItemToContact(item);
-      const { placeId: _placeId, ...publicContact } = contact;
-      const qualityV2 = this.extractLeadQualityV2FromObject(contact) || null;
-      return this.stripListPremiumFields(
-        this.attachDeliveryClassification(publicContact, qualityInput, contact.quality || null, qualityV2),
-        qualityInput,
-      );
-    });
-    const query = {
-      city: String(run.city || ''),
-      state: run.state || null,
-      segment: String(run.segment || ''),
-      quantity: Math.max(1, Math.trunc(Number(run.targetQuantity || 1))),
-      engine,
-      targetType,
-      filters: {
-        minRating: null,
-        minReviews: null,
-        onlyWithWebsite: false,
-        radiusKm: this.normalizeRadiusKm(metrics?.radiusKm),
-      },
-    };
-    const foundSources = new Set(deliverableFoundItems.map((item) => String(item.source || '').trim()).filter(Boolean));
-    const source: SearchSource = foundSources.has('radar_database')
-      ? (foundSources.size === 1 ? 'radar_database' : 'hybrid')
-      : engine === 'hbx'
-        ? 'hbx'
-        : 'google';
-    const databaseFirst = source === 'radar_database';
-    const radarRunItemCount = deliverableFoundItems.filter((item) => String(item.source || '').trim() === 'radar_database').length;
-    const attemptCount = safeInteger(run.attemptCount);
-    const batchLimit = this.getHbxRunBatchLimit(query.quantity);
-    const maxAttempts = this.getHbxRunMaxAttempts(query.quantity, batchLimit);
-    const foundCount = safeInteger(run.foundCount);
-    const rawMessage = String(run.errorMessage || capacity?.message || '').trim();
-    const guardedMessage = foundCount > 0 && /nenhum card valido/i.test(rawMessage)
-        ? this.buildSearchRunInsufficientMessage(foundCount, attemptCount)
-        : rawMessage || null;
-    const operational = this.resolveRadarRunOperationalState(run, status, guardedMessage);
-    return {
-      id: run.id,
-      runId: run.id,
-      status,
-      city: query.city,
-      state: query.state,
-      segment: query.segment,
-      engine,
-      targetType,
-      targetQuantity: query.quantity,
-      foundCount: safeInteger(run.foundCount),
-      importedCount: safeInteger(run.importedCount),
-      duplicateCount: safeInteger(run.duplicateCount),
-      skippedCount: safeInteger(run.skippedCount),
-      errorMessage: guardedMessage,
-      attemptCount,
-      failedBatchCount: safeInteger(run.failedBatchCount),
-      consecutiveEmptyBatchCount: safeInteger(run.consecutiveEmptyBatchCount),
-      consecutiveEngineErrorCount: safeInteger(run.consecutiveEngineErrorCount),
-      lastBatchError: run.lastBatchError || null,
-      lastBatchStatus: run.lastBatchStatus || null,
-      nextRetryAt: run.nextRetryAt instanceof Date ? run.nextRetryAt.toISOString() : null,
-      lastQueryUsed: run.lastQueryUsed || null,
-      lastEngineUrl: run.lastEngineUrl || run.assignedEngineUrl || null,
-      assignedEngineId: run.assignedEngineId || null,
-      assignedEngineIndex: Number.isInteger(run.assignedEngineIndex) ? Number(run.assignedEngineIndex) : null,
-      batchLimit,
-      maxAttempts,
-      operationalStatus: capacity?.operationalStatus,
-      operationalMessage: capacity?.message || null,
-      startedAt: run.startedAt instanceof Date ? run.startedAt.toISOString() : null,
-      finishedAt: run.finishedAt instanceof Date ? run.finishedAt.toISOString() : null,
-      createdAt: run.createdAt instanceof Date ? run.createdAt.toISOString() : new Date().toISOString(),
-      updatedAt: run.updatedAt instanceof Date ? run.updatedAt.toISOString() : new Date().toISOString(),
-      query,
-      meta: {
-        runId: run.id,
-        historyId: run.id,
-        source,
-        reusedCount: databaseFirst || source === 'hybrid' ? radarRunItemCount : 0,
-        fetchedCount: Math.max(0, safeInteger(run.foundCount) - radarRunItemCount),
-        totalStoredCount: safeInteger(run.foundCount),
-        status:
-          status === 'partial_error' || status === 'completed_insufficient_results'
-            ? status
-            : status === 'completed'
-              ? 'completed'
-              : undefined,
-        message: guardedMessage,
-        technicalCacheUsed: false,
-        technicalCacheReusedCount: 0,
-        technicalCacheValidUntil: null,
-        duplicateCount: safeInteger(run.duplicateCount),
-        skippedCount: safeInteger(run.skippedCount),
-        importedCount: safeInteger(run.importedCount),
-        operationalState: operational.state,
-        operationalReason: operational.reason,
-        operationalMessage: operational.message,
-        attempts: attemptCount,
-        requiredChannels,
-        channelMatchMode,
-        requiredChannelRejectedCount,
-        queryTaskCount: safeInteger(metrics?.searchScope?.taskCount),
-        currentCity: metrics?.searchScope?.currentCity || null,
-        currentSegment: metrics?.searchScope?.currentSegment || null,
-        currentQuery: run.lastQueryUsed || null,
-        approved: safeInteger(run.foundCount),
-        skipped: safeInteger(run.skippedCount),
-        duplicate: safeInteger(run.duplicateCount),
-      },
-      items: items.map((item) => {
-        const raw = this.parseMaybeJsonObject(item?.rawJson);
-        const enrichmentJson = this.parseMaybeJsonObject(item?.enrichmentJson || raw.enrichmentJson);
-        const qualityV2 = this.extractLeadQualityV2FromObject(raw) || this.extractLeadQualityV2FromObject(enrichmentJson) || raw.qualityV2 || enrichmentJson.qualityV2 || null;
-        const publicItem = {
-          id: item.id,
-          placeId: String(item.placeId || raw.placeId || ''),
-          name: String(item.name || raw.name || ''),
-          phone: String(item.phone || raw.phone || ''),
-          phoneDigits: String(item.phoneDigits || raw.phoneDigits || ''),
-          rating: raw.rating == null ? null : Number(raw.rating),
-          reviews: raw.reviews == null ? null : safeInteger(raw.reviews),
-          website: item.website || raw.website || null,
-          instagramUrl: raw.instagramUrl || null,
-          facebookUrl: raw.facebookUrl || null,
-          email: raw.email || null,
-          emailStatus: raw.emailStatus || raw.signals?.emailStatus || null,
-          socialStatus: raw.socialStatus || raw.signals?.socialStatus || null,
-          socialConfidence: raw.socialConfidence == null ? null : safeInteger(raw.socialConfidence),
-          googleMapsUrl: raw.googleMapsUrl || raw.mapsUrl || raw.signals?.googleMapsUrl || null,
-          whatsappStatus: raw.whatsappStatus || raw.whatsappCheckStatus || raw.signals?.whatsappStatus || null,
-          whatsappCheckStatus: raw.whatsappCheckStatus || raw.whatsappStatus || raw.signals?.whatsappStatus || null,
-          recommendedChannel: raw.recommendedChannel || raw.signals?.recommendedChannel || null,
-          opportunityScore: raw.opportunityScore == null ? null : safeInteger(raw.opportunityScore),
-          opportunityReason: raw.opportunityReason || null,
-          enrichmentScore: raw.enrichmentScore == null ? null : safeInteger(raw.enrichmentScore),
-          qualityV2,
-          websiteKey: item.websiteKey || null,
-          address: item.address || raw.address || null,
-          city: item.city || raw.city || null,
-          state: item.state || raw.state || null,
-          segment: item.segment || raw.segment || null,
-          source: item.source || raw.source || null,
-          status: this.normalizeRunItemStatus(item.status),
-          duplicateReason: item.duplicateReason || null,
-          createdAt: item.createdAt instanceof Date ? item.createdAt.toISOString() : new Date().toISOString(),
-        };
-        return this.stripListPremiumFields(
-          this.attachDeliveryClassification(publicItem, qualityInput, raw.quality || null, qualityV2),
-          qualityInput,
-        );
-      }),
-      results,
-    };
+    return this.getRadarRunPresenter().buildSearchRunResponse(run, capacity, this.buildRadarRunPresenterHost());
   }
 
   private resolveContext(user: any): SearchExecutionContext {
