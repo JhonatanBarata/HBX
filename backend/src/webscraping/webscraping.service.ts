@@ -32,12 +32,8 @@ import { buildRadarLeadEnrichment, RADAR_LEAD_ENRICHMENT_VERSION } from './radar
 import { calculateLeadQualityV2, resolveRadarVisibilityFromQualityV2, type LeadQualityV2, type LeadQualityV2SalesProfile } from './lead-quality-v2';
 import { BRAZIL_CITY_COORDINATES } from './brazil-city-coordinates';
 import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../companies/master-whatsapp-company.constants';
-import { buildRadarSocialLookupQueries as buildRadarSocialLookupQueriesPure } from './radar/radar-social-queries';
-import {
-  evaluateRadarSocialLookupCandidate as evaluateRadarSocialLookupCandidatePure,
-  radarSocialLookupNameScore as radarSocialLookupNameScorePure,
-} from './radar/radar-social-matching';
 import { RadarRunRepositoryService } from './radar/radar-run-repository.service';
+import { RadarSocialLookupService, type RadarSocialLookupHost } from './radar/radar-social-lookup.service';
 
 const PLACES_NEW_TEXT_SEARCH_URL = 'https://places.googleapis.com/v1/places:searchText';
 const PLACES_NEW_DETAILS_URL = 'https://places.googleapis.com/v1/places';
@@ -1836,15 +1832,6 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   private radarWhatsappCheckModeByRunId = new Map<string, RadarWhatsappCheckMode>();
   private readonly leadPlusSignalEnrichmentInFlight = new Set<string>();
   private readonly requiredChannelEnrichmentInFlight = new Set<string>();
-  private readonly radarSocialLookupQueue: Array<{
-    context: SearchExecutionContext;
-    leadId: string;
-    input: NormalizedSearchInput;
-    engineUrl?: string | null;
-  }> = [];
-  private readonly radarSocialLookupQueuedIds = new Set<string>();
-  private radarSocialLookupActive = false;
-
   constructor(
     private readonly prisma: PrismaService,
     @Optional() private hbxEnginePool?: HbxEnginePoolService,
@@ -1855,6 +1842,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly commercialUsageLimits?: CommercialUsageLimitsService,
     @Optional() private readonly masterContextService?: MasterContextService,
     @Optional() private readonly radarRunRepository?: RadarRunRepositoryService,
+    @Optional() private readonly radarSocialLookup?: RadarSocialLookupService,
   ) {}
 
   onModuleInit() {
@@ -1908,6 +1896,18 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
   private getRadarRunRepository() {
     return this.radarRunRepository || new RadarRunRepositoryService(this.prisma);
+  }
+
+  private getRadarSocialLookupService() {
+    return this.radarSocialLookup || new RadarSocialLookupService(this.prisma, this.getRadarRunRepository());
+  }
+
+  private buildRadarSocialLookupHost(): RadarSocialLookupHost {
+    return {
+      searchHbxEngine: (input, existing, engineUrl, options) => this.searchHbxEngine(input, existing, engineUrl, options),
+      normalizeRadarSocialUrl: (value, network) => this.normalizeRadarSocialUrl(value, network),
+      pickRadarSocialUrl: (item, network) => this.pickRadarSocialUrl(item, network),
+    };
   }
 
   private async canAcquireHbxEngineFromPool() {
@@ -4773,14 +4773,6 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return counts;
   }
 
-  private getRadarSocialLookupMaxPerBatch() {
-    return parsePositiveIntegerEnv('HBX_RADAR_SOCIAL_LOOKUP_MAX_PER_BATCH', 100);
-  }
-
-  private getRadarSocialLookupTimeoutMs() {
-    return Math.max(5_000, parsePositiveIntegerEnv('HBX_RADAR_SOCIAL_LOOKUP_TIMEOUT_MS', 15_000));
-  }
-
   private enqueueRadarSocialLookupForSavedLeads(
     context: SearchExecutionContext,
     runId: string,
@@ -4788,155 +4780,18 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     leadIds: string[] = [],
     engineUrl?: string | null,
   ) {
-    if (!Array.isArray(leadIds) || !leadIds.length || input.targetType !== 'pj') return;
-    const max = this.getRadarSocialLookupMaxPerBatch();
-    let queued = 0;
-    for (const leadId of leadIds) {
-      const normalizedLeadId = String(leadId || '').trim();
-      if (!normalizedLeadId || this.radarSocialLookupQueuedIds.has(normalizedLeadId)) continue;
-      this.radarSocialLookupQueuedIds.add(normalizedLeadId);
-      this.radarSocialLookupQueue.push({
-        context,
-        leadId: normalizedLeadId,
-        input,
-        engineUrl: engineUrl || null,
-      });
-      queued += 1;
-      if (queued >= max) break;
-    }
-    if (!queued) return;
-    this.logger.log(`[radar-social] enfileirados=${queued} run=${runId}`);
-    setTimeout(() => {
-      void this.drainRadarSocialLookupQueue();
-    }, 0);
+    return this.getRadarSocialLookupService().enqueue(
+      context,
+      runId,
+      input,
+      leadIds,
+      engineUrl,
+      this.buildRadarSocialLookupHost(),
+    );
   }
 
   private async drainRadarSocialLookupQueue() {
-    if (this.radarSocialLookupActive) return;
-    this.radarSocialLookupActive = true;
-    try {
-      while (this.radarSocialLookupQueue.length) {
-        const job = this.radarSocialLookupQueue.shift();
-        if (!job) continue;
-        this.radarSocialLookupQueuedIds.delete(job.leadId);
-        await this.runRadarSocialLookupForSavedLead(job.context, job.leadId, job.input, job.engineUrl).catch((error: any) => {
-          this.logger.warn(`[radar-social] lookup ignorado lead=${job.leadId}: ${String(error?.message || error)}`);
-        });
-      }
-    } finally {
-      this.radarSocialLookupActive = false;
-      if (this.radarSocialLookupQueue.length) {
-        setTimeout(() => {
-          void this.drainRadarSocialLookupQueue();
-        }, 0);
-      }
-    }
-  }
-
-  private buildRadarSocialLookupQueries(name: string, city: string) {
-    return buildRadarSocialLookupQueriesPure(name, city);
-  }
-
-  private async loadRunItemForSocialLookup(context: SearchExecutionContext, leadId: string) {
-    return this.getRadarRunRepository().loadRunItem(context, leadId);
-  }
-
-  private buildRunItemSocialLookupBase(item: any) {
-    const raw = this.parseMaybeJsonObject(item?.rawJson);
-    return {
-      ...raw,
-      placeId: String(item?.placeId || raw.placeId || '').trim(),
-      name: String(item?.name || raw.name || '').trim(),
-      phone: String(item?.phone || raw.phone || '').trim(),
-      phoneDigits: normalizePhoneDigits(item?.phoneDigits || raw.phoneDigits || item?.phone || raw.phone),
-      website: String(item?.website || raw.website || '').trim() || null,
-      address: String(item?.address || raw.address || '').trim() || null,
-      city: String(item?.city || raw.city || '').trim() || null,
-      state: String(item?.state || raw.state || '').trim().toUpperCase() || null,
-      segment: String(item?.segment || raw.segment || raw.businessCategory || raw.category || '').trim() || null,
-    };
-  }
-
-  private async updateRunItemSocialRawJson(leadId: string, nextRaw: Record<string, any>) {
-    return this.getRadarRunRepository().updateRunItemRawJson(leadId, nextRaw);
-  }
-
-  private async syncRadarSocialLookupToVendasLead(
-    context: SearchExecutionContext,
-    lead: any,
-    nextRaw: Record<string, any>,
-  ) {
-    const instagramUrl = String(nextRaw.instagramUrl || '').trim();
-    const facebookUrl = String(nextRaw.facebookUrl || '').trim();
-    if (!instagramUrl && !facebookUrl) return;
-    const leadDelegate = (this.prisma as any).vendasLead;
-    const eventDelegate = (this.prisma as any).vendasLeadTimelineEvent;
-    if (!leadDelegate?.findFirst || !eventDelegate?.create) return;
-    const phoneDigits = normalizePhoneDigits(lead?.phoneDigits || lead?.phone);
-    const name = String(lead?.name || '').trim();
-    const city = String(lead?.city || '').trim();
-    const where = phoneDigits
-      ? {
-          companyId: context.companyId,
-          phoneNormalized: phoneDigits,
-          sourceType: 'webscraping',
-        }
-      : {
-          companyId: context.companyId,
-          sourceType: 'webscraping',
-          name,
-          city,
-        };
-    const vendasLead = await leadDelegate.findFirst({
-      where,
-      select: { id: true },
-    }).catch(() => null);
-    if (!vendasLead?.id) return;
-    await eventDelegate.create({
-      data: {
-        leadId: vendasLead.id,
-        eventType: 'radar_enrichment',
-        title: 'Redes sociais encontradas pelo Radar',
-        description: JSON.stringify({
-          instagramUrl: instagramUrl || null,
-          facebookUrl: facebookUrl || null,
-          socialStatus: nextRaw.socialStatus || 'found',
-          socialConfidence: safeInteger(nextRaw.socialConfidence),
-          recommendedChannel: nextRaw.recommendedChannel || null,
-          opportunityReason: nextRaw.opportunityReason || null,
-          enrichmentStatus: 'completed',
-          enrichment: nextRaw.enrichmentJson || null,
-        }),
-        sourceType: 'radar_enrichment',
-        resultLabel: nextRaw.recommendedChannel || 'social',
-        createdByUserId: context.userId || null,
-      },
-    }).catch(() => null);
-  }
-
-  private extractRadarSocialLookupUrl(result: any, network: 'instagram' | 'facebook') {
-    return this.pickRadarSocialUrl(result, network)
-      || this.normalizeRadarSocialUrl(network === 'instagram' ? result?.instagramUrl : result?.facebookUrl, network)
-      || null;
-  }
-
-  private radarSocialLookupNameScore(lead: any, result: any, url: string) {
-    return radarSocialLookupNameScorePure(lead, result, url);
-  }
-
-  private evaluateRadarSocialLookupCandidate(
-    lead: any,
-    result: any,
-    url: string | null,
-    network: 'instagram' | 'facebook',
-  ) {
-    return evaluateRadarSocialLookupCandidatePure(
-      lead,
-      result,
-      url,
-      network,
-      (value, currentNetwork) => this.normalizeRadarSocialUrl(value, currentNetwork),
-    );
+    return this.getRadarSocialLookupService().drain();
   }
 
   async runRadarSocialLookupForSavedLead(
@@ -4945,139 +4800,13 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     input: NormalizedSearchInput,
     engineUrl?: string | null,
   ) {
-    const item = await this.loadRunItemForSocialLookup(context, leadId);
-    if (!item || item.status !== 'found' || input.targetType !== 'pj') return { status: 'skipped', reason: 'item_indisponivel' };
-    const raw = this.parseMaybeJsonObject(item.rawJson);
-    const baseLead = this.buildRunItemSocialLookupBase(item);
-    const rawInstagramUrl = String(raw.instagramUrl || raw.signals?.instagramUrl || '').trim() || null;
-    const rawFacebookUrl = String(raw.facebookUrl || raw.signals?.facebookUrl || '').trim() || null;
-    const existingInstagram = this.normalizeRadarSocialUrl(rawInstagramUrl, 'instagram');
-    const existingFacebook = this.normalizeRadarSocialUrl(rawFacebookUrl, 'facebook');
-    if (existingInstagram && existingFacebook) return { status: 'skipped', reason: 'social_ja_presente' };
-
-    const queries = this.buildRadarSocialLookupQueries(baseLead.name, baseLead.city || input.city);
-    if (!queries.length) return { status: 'skipped', reason: 'identidade_incompleta' };
-
-    await this.updateRunItemSocialRawJson(leadId, {
-      ...raw,
-      socialStatus: 'searching',
-      socialConfidence: safeInteger(raw.socialConfidence),
-      socialLookup: {
-        status: 'searching',
-        queries: queries.map((entry) => entry.query),
-        startedAt: new Date().toISOString(),
-      },
-    });
-
-    const attemptedQueries: string[] = [];
-    const rejectedReasons: string[] = [];
-    let engineFailed = false;
-    let weakCandidate = false;
-    let bestInstagram = existingInstagram || null;
-    let bestFacebook = existingFacebook || null;
-    let bestConfidence = Math.max(0, safeInteger(raw.socialConfidence));
-
-    for (const entry of queries) {
-      attemptedQueries.push(entry.query);
-      try {
-        const lookupInput: NormalizedSearchInput = {
-          ...input,
-          city: baseLead.city || input.city,
-          state: baseLead.state || input.state,
-          segment: baseLead.segment || input.segment,
-          targetType: 'pj',
-          quantity: 5,
-          requiredChannels: [entry.network],
-          channelMatchMode: 'any_required',
-        };
-        const output = await this.searchHbxEngine(
-          lookupInput,
-          [],
-          engineUrl || undefined,
-          {
-            queryText: entry.query,
-            batchLimit: 5,
-            timeoutMs: this.getRadarSocialLookupTimeoutMs(),
-          },
-        );
-        for (const result of output.results || []) {
-          const url = this.extractRadarSocialLookupUrl(result, entry.network);
-          const evaluated = this.evaluateRadarSocialLookupCandidate(baseLead, result, url, entry.network);
-          if (evaluated.accepted && evaluated.url) {
-            if (entry.network === 'instagram') bestInstagram = evaluated.url;
-            else bestFacebook = evaluated.url;
-            bestConfidence = Math.max(bestConfidence, evaluated.confidence);
-            break;
-          }
-          if (evaluated.confidence > 0) weakCandidate = true;
-          rejectedReasons.push(`${entry.network}:${evaluated.reason}`);
-        }
-      } catch (error: any) {
-        engineFailed = true;
-        rejectedReasons.push(`${entry.network}:erro_motor:${String(error?.message || error).slice(0, 120)}`);
-      }
-    }
-
-    const finalStatus = bestInstagram || bestFacebook
-      ? 'found'
-      : weakCandidate || engineFailed
-        ? 'weak'
-        : 'missing';
-    const finalConfidence = finalStatus === 'found'
-      ? Math.max(80, bestConfidence)
-      : finalStatus === 'weak'
-        ? Math.max(35, Math.min(69, bestConfidence || 35))
-        : 0;
-    const reason = bestInstagram || bestFacebook
-      ? 'perfil_social_confiavel'
-      : rejectedReasons.slice(0, 4).join('; ') || 'sem_resultado_social_confiavel';
-    const enrichment = buildRadarLeadEnrichment({
-      ...baseLead,
-      ...raw,
-      instagramUrl: bestInstagram,
-      facebookUrl: bestFacebook,
-      socialStatus: finalStatus,
-      socialConfidence: finalConfidence,
-      now: new Date(),
-    });
-    const nextInstagramUrl = enrichment.instagramUrl || bestInstagram || rawInstagramUrl || null;
-    const nextFacebookUrl = enrichment.facebookUrl || bestFacebook || rawFacebookUrl || null;
-    const nextRaw = {
-      ...raw,
-      instagramUrl: nextInstagramUrl,
-      facebookUrl: nextFacebookUrl,
-      socialStatus: enrichment.socialStatus,
-      socialConfidence: enrichment.socialConfidence,
-      recommendedChannel: enrichment.recommendedChannel || raw.recommendedChannel || null,
-      opportunityReason: enrichment.opportunityReason || raw.opportunityReason || null,
-      enrichmentScore: enrichment.enrichmentScore,
-      enrichmentConfidence: enrichment.enrichmentConfidence,
-      enrichmentJson: enrichment.enrichmentJson,
-      signals: {
-        ...(raw.signals || {}),
-        socialStatus: enrichment.socialStatus,
-        instagramUrl: nextInstagramUrl,
-        facebookUrl: nextFacebookUrl,
-      },
-      socialLookup: {
-        status: enrichment.socialStatus,
-        confidence: enrichment.socialConfidence,
-        queries: attemptedQueries,
-        reason,
-        finishedAt: new Date().toISOString(),
-      },
-    };
-    await this.updateRunItemSocialRawJson(leadId, nextRaw);
-    await this.syncRadarSocialLookupToVendasLead(context, baseLead, nextRaw);
-    this.logger.log(`[radar-social] lead=${leadId} status=${enrichment.socialStatus} confidence=${enrichment.socialConfidence} queries=${attemptedQueries.join(' | ')} reason=${reason}`);
-    return {
-      status: enrichment.socialStatus,
-      instagramUrl: nextRaw.instagramUrl,
-      facebookUrl: nextRaw.facebookUrl,
-      confidence: enrichment.socialConfidence,
-      queries: attemptedQueries,
-      reason,
-    };
+    return this.getRadarSocialLookupService().runForSavedLead(
+      context,
+      leadId,
+      input,
+      engineUrl,
+      this.buildRadarSocialLookupHost(),
+    );
   }
 
   private async recalculateSearchRunCounters(runId: string) {
