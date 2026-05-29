@@ -34,6 +34,7 @@ import { BRAZIL_CITY_COORDINATES } from './brazil-city-coordinates';
 import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../companies/master-whatsapp-company.constants';
 import { RadarSocialLookupService, type RadarSocialLookupHost } from './radar/04-socials/radar-social-lookup.service';
 import { RadarVendasSyncService, type RadarVendasSyncHost } from './radar/05-delivery/radar-vendas-sync.service';
+import { RadarLeadPresenterService, type RadarLeadPresenterHost } from './radar/06-presentation/radar-lead-presenter.service';
 import { RadarRunPresenterService, type RadarRunPresenterHost } from './radar/06-presentation/radar-run-presenter.service';
 import { RadarRunRepositoryService } from './radar/persistence/radar-run-repository.service';
 import { RadarSearchRunConfigService } from './radar/01-search/radar-search-run-config.service';
@@ -1851,6 +1852,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly masterContextService?: MasterContextService,
     @Optional() private readonly radarRunRepository?: RadarRunRepositoryService,
     @Optional() private readonly radarSocialLookup?: RadarSocialLookupService,
+    @Optional() private readonly radarLeadPresenter?: RadarLeadPresenterService,
     @Optional() private readonly radarRunPresenter?: RadarRunPresenterService,
     @Optional() private readonly radarVendasSync?: RadarVendasSyncService,
     @Optional() private readonly radarSharedNormalizer?: RadarSharedNormalizerService,
@@ -1920,6 +1922,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
   private getRadarRunPresenter() {
     return this.radarRunPresenter || new RadarRunPresenterService();
+  }
+
+  private getRadarLeadPresenter() {
+    return this.radarLeadPresenter || new RadarLeadPresenterService();
   }
 
   private getRadarVendasSyncService() {
@@ -1992,6 +1998,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       getHbxRunMaxAttempts: (targetQuantity, batchLimit) => this.getHbxRunMaxAttempts(targetQuantity, batchLimit),
       buildSearchRunInsufficientMessage: (foundCount, attempts) => this.buildSearchRunInsufficientMessage(foundCount, attempts),
       resolveRadarRunOperationalState: (run, status, message) => this.resolveRadarRunOperationalState(run, status, message),
+    };
+  }
+
+  private buildRadarLeadPresenterHost(): RadarLeadPresenterHost {
+    return {
+      extractDdd: (value) => this.extractDdd(value),
+      resolveRadarLeadStatus: (row) => this.resolveRadarLeadStatus(row),
+      isRadarProtectedStatus: (value) => this.isRadarProtectedStatus(value),
     };
   }
 
@@ -8118,179 +8132,19 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private buildRadarFacet(key: string, label: string, count: number, tone = 'neutral') {
-    return count > 0 ? { key, label, count, tone } : null;
+    return this.getRadarLeadPresenter().buildRadarFacet(key, label, count, tone);
   }
 
   private buildRadarAvailableFilters(rows: any[]) {
-    const states = new Map<string, number>();
-    const citiesByState = new Map<string, Map<string, number>>();
-    const segments = new Map<string, number>();
-    const ddds = new Map<string, number>();
-    const statuses = new Map<string, number>();
-    const scoreRanges = new Map<string, number>();
-
-    for (const row of rows) {
-      const state = String(row?.state || '').trim().toUpperCase();
-      const city = String(row?.city || '').trim();
-      const segment = String(row?.segment || '').trim();
-      const phone = row?.phoneDigits || row?.phone;
-      const ddd = String(row?.ddd || this.extractDdd(phone) || '').replace(/\D/g, '').slice(0, 2);
-      const status = this.resolveRadarLeadStatus(row);
-      const score = safeInteger(row?.opportunityScore);
-      const scoreRange = score >= 70 ? 'high' : score >= 45 ? 'medium' : 'low';
-
-      if (state) states.set(state, (states.get(state) || 0) + 1);
-      if (state && city) {
-        const stateCities = citiesByState.get(state) || new Map<string, number>();
-        stateCities.set(city, (stateCities.get(city) || 0) + 1);
-        citiesByState.set(state, stateCities);
-      }
-      if (segment) segments.set(segment, (segments.get(segment) || 0) + 1);
-      if (ddd) ddds.set(ddd, (ddds.get(ddd) || 0) + 1);
-      if (status) statuses.set(status, (statuses.get(status) || 0) + 1);
-      scoreRanges.set(scoreRange, (scoreRanges.get(scoreRange) || 0) + 1);
-    }
-
-    const sortEntries = (left: [string, number], right: [string, number]) =>
-      right[1] - left[1] || left[0].localeCompare(right[0], 'pt-BR');
-    const toOptions = (entries: Iterable<[string, number]>) =>
-      Array.from(entries)
-        .sort(sortEntries)
-        .map(([value, count]) => ({ value, label: value, count }));
-    const cityOptionsByState: Record<string, Array<{ value: string; label: string; count: number }>> = {};
-    for (const [state, cityCounts] of citiesByState.entries()) {
-      cityOptionsByState[state] = toOptions(cityCounts.entries());
-    }
-
-    return {
-      states: toOptions(states.entries()),
-      citiesByState: cityOptionsByState,
-      segments: toOptions(segments.entries()),
-      ddds: toOptions(ddds.entries()),
-      statuses: toOptions(statuses.entries()),
-      scoreRanges: toOptions(scoreRanges.entries()),
-    };
+    return this.getRadarLeadPresenter().buildRadarAvailableFilters(rows, this.buildRadarLeadPresenterHost());
   }
 
   private buildRadarFacets(rows: any[]) {
-    const statusCounts = new Map<string, number>();
-    const cityCounts = new Map<string, number>();
-    const stateCounts = new Map<string, number>();
-    const segmentCounts = new Map<string, number>();
-    const sourceCounts = new Map<string, number>();
-    const counters = {
-      likelyWhatsapp: 0,
-      withoutWhatsapp: 0,
-      dddLocal: 0,
-      dddMismatch: 0,
-      scoreHigh: 0,
-      scoreMedium: 0,
-      scoreLow: 0,
-      noWebsite: 0,
-      weakWebsite: 0,
-      withWebsite: 0,
-    };
-
-    for (const row of rows) {
-      const status = this.resolveRadarLeadStatus(row);
-      statusCounts.set(status, (statusCounts.get(status) || 0) + 1);
-      const city = String(row?.city || '').trim();
-      const state = String(row?.state || '').trim().toUpperCase();
-      const segment = String(row?.segment || '').trim();
-      if (city) cityCounts.set(city, (cityCounts.get(city) || 0) + 1);
-      if (state) stateCounts.set(state, (stateCounts.get(state) || 0) + 1);
-      if (segment) segmentCounts.set(segment, (segmentCounts.get(segment) || 0) + 1);
-      for (const source of [row?.sourceEngine, row?.source, ...parseJsonArray(row?.sourceEngines)].filter(Boolean)) {
-        const normalizedSource = String(source || '').trim();
-        if (normalizedSource) sourceCounts.set(normalizedSource, (sourceCounts.get(normalizedSource) || 0) + 1);
-      }
-
-      const phone = row?.phoneDigits || row?.phone;
-      if (isLikelyWhatsapp(phone)) counters.likelyWhatsapp += 1;
-      else counters.withoutWhatsapp += 1;
-      const ddd = String(row?.ddd || this.extractDdd(phone));
-      const expectedDdds = parseJsonArray(row?.expectedDddsJson);
-      if (expectedDdds.length && expectedDdds.includes(ddd)) counters.dddLocal += 1;
-      if (this.resolveRadarLeadStatus(row) === 'rejected' && String(row?.rejectionReason || '') === 'ddd_mismatch') counters.dddMismatch += 1;
-      const score = safeInteger(row?.opportunityScore);
-      if (score >= 70) counters.scoreHigh += 1;
-      else if (score >= 45) counters.scoreMedium += 1;
-      else counters.scoreLow += 1;
-      const websiteStatus = String(row?.websiteStatus || inferWebsiteStatus(row?.website));
-      if (websiteStatus === 'none') counters.noWebsite += 1;
-      else counters.withWebsite += 1;
-      if (websiteStatus === 'weak' || websiteStatus === 'social_only') counters.weakWebsite += 1;
-    }
-
-    const fixed = [
-      this.buildRadarFacet('all', 'Todos', rows.length, 'neutral'),
-      this.buildRadarFacet('new', 'Novos', (statusCounts.get('new') || 0) + (statusCounts.get('clean') || 0), 'info'),
-      this.buildRadarFacet('clean', 'Limpos', (statusCounts.get('clean') || 0) + (statusCounts.get('new') || 0), 'info'),
-      this.buildRadarFacet('delivered', 'Entregues', statusCounts.get('delivered') || 0, 'info'),
-      this.buildRadarFacet('approved', 'Aprovados', statusCounts.get('approved') || 0, 'success'),
-      this.buildRadarFacet('sent_to_vendas', 'JÃ¡ enviados para Vendas', statusCounts.get('sent_to_vendas') || 0, 'success'),
-      this.buildRadarFacet('in_attendance', 'Em atendimento', statusCounts.get('in_attendance') || 0, 'info'),
-      this.buildRadarFacet('interested', 'Interessados', (statusCounts.get('interested') || 0) + (statusCounts.get('positive') || 0), 'success'),
-      this.buildRadarFacet('converted', 'Convertidos', statusCounts.get('converted') || 0, 'success'),
-      this.buildRadarFacet('negative', 'Negativos', (statusCounts.get('negative') || 0) + (statusCounts.get('denied') || 0), 'warning'),
-      this.buildRadarFacet('blocked', 'Bloqueados', statusCounts.get('blocked') || 0, 'danger'),
-      this.buildRadarFacet('opt_out', 'Opt-out', statusCounts.get('opt_out') || 0, 'danger'),
-      this.buildRadarFacet('discarded', 'Descartados', (statusCounts.get('discarded') || 0) + (statusCounts.get('hidden') || 0), 'neutral'),
-      this.buildRadarFacet('complaint', 'ReclamaÃ§Ã£o', statusCounts.get('complaint') || 0, 'danger'),
-      this.buildRadarFacet('no_answer', 'NÃ£o atenderam', statusCounts.get('no_answer') || 0, 'attention'),
-      this.buildRadarFacet('no_whatsapp', 'Contato invÃ¡lido', (statusCounts.get('no_whatsapp') || 0) + (statusCounts.get('invalid_whatsapp') || 0), 'danger'),
-      this.buildRadarFacet('without_whatsapp', 'Sem WhatsApp', counters.withoutWhatsapp, 'neutral'),
-      this.buildRadarFacet('likely_whatsapp', 'Com WhatsApp provÃ¡vel', counters.likelyWhatsapp, 'success'),
-      this.buildRadarFacet('ddd_local', 'DDD local', counters.dddLocal, 'success'),
-      this.buildRadarFacet('ddd_mismatch', 'DDD divergente', counters.dddMismatch, 'alert'),
-      this.buildRadarFacet('score_high', 'Score alto', counters.scoreHigh, 'success'),
-      this.buildRadarFacet('score_medium', 'Score mÃ©dio', counters.scoreMedium, 'attention'),
-      this.buildRadarFacet('score_low', 'Score baixo', counters.scoreLow, 'neutral'),
-      this.buildRadarFacet('no_website', 'Sem site', counters.noWebsite, 'info'),
-      this.buildRadarFacet('weak_website', 'Site fraco', counters.weakWebsite, 'warning'),
-      this.buildRadarFacet('with_website', 'Com site', counters.withWebsite, 'success'),
-    ].filter(Boolean);
-
-    const dynamic = [
-      ...Array.from(cityCounts.entries()).sort((a, b) => b[1] - a[1]).map(([label, count]) => this.buildRadarFacet(`city:${label}`, label, count, 'city')),
-      ...Array.from(stateCounts.entries()).sort((a, b) => b[1] - a[1]).map(([label, count]) => this.buildRadarFacet(`state:${label}`, label, count, 'state')),
-      ...Array.from(segmentCounts.entries()).sort((a, b) => b[1] - a[1]).map(([label, count]) => this.buildRadarFacet(`segment:${label}`, label, count, 'segment')),
-      ...Array.from(sourceCounts.entries()).sort((a, b) => b[1] - a[1]).map(([label, count]) => this.buildRadarFacet(`source:${label}`, label, count, 'source')),
-    ].filter(Boolean);
-
-    return [...fixed, ...dynamic];
+    return this.getRadarLeadPresenter().buildRadarFacets(rows, this.buildRadarLeadPresenterHost());
   }
 
   private buildRadarEnrichmentSummary(rows: any[]) {
-    const summary = {
-      cardsAnalyzed: rows.length,
-      whatsappVerified: 0,
-      emailConfirmedOrProbable: 0,
-      noWebsite: 0,
-      highPriority: 0,
-      discardedOrBlocked: 0,
-      readyToCall: 0,
-    };
-    for (const row of rows) {
-      const status = this.resolveRadarLeadStatus(row);
-      const enrichment = parseJsonObject(row?.enrichmentJson);
-      const whatsappEvent = Array.isArray(row?.events)
-        ? row.events.find((event: any) => String(event?.eventType || '').trim().toLowerCase() === 'whatsapp_checked')
-        : null;
-      const whatsappStatus = String((row as any)?.whatsappStatus || parseJsonObject(whatsappEvent?.note)?.whatsappStatus || enrichment?.whatsappStatus || '').toLowerCase();
-      const emailStatus = String(row?.emailStatus || enrichment?.signals?.emailStatus || '').toLowerCase();
-      const websiteStatus = String(row?.websiteStatus || inferWebsiteStatus(row?.website)).toLowerCase();
-      const recommendedChannel = this.isRadarProtectedStatus(status)
-        ? 'discard'
-        : String(row?.recommendedChannel || enrichment?.signals?.recommendedChannel || '').toLowerCase();
-      if (whatsappStatus === 'confirmed') summary.whatsappVerified += 1;
-      if (emailStatus === 'confirmed' || emailStatus === 'probable') summary.emailConfirmedOrProbable += 1;
-      if (websiteStatus === 'none') summary.noWebsite += 1;
-      if (safeInteger(row?.enrichmentScore || row?.opportunityScore) >= 70) summary.highPriority += 1;
-      if (recommendedChannel === 'discard' || this.isRadarProtectedStatus(status)) summary.discardedOrBlocked += 1;
-      if (['whatsapp', 'email', 'call'].includes(recommendedChannel) && !this.isRadarProtectedStatus(status)) summary.readyToCall += 1;
-    }
-    return summary;
+    return this.getRadarLeadPresenter().buildRadarEnrichmentSummary(rows, this.buildRadarLeadPresenterHost());
   }
 
   async listRadarLeadsForUser(user: any, input: RadarFiltersInput = {}) {
