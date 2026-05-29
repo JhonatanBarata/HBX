@@ -39,6 +39,8 @@ import { RadarRunRepositoryService } from './radar/persistence/radar-run-reposit
 import { RadarSearchRunConfigService } from './radar/01-search/radar-search-run-config.service';
 import { RadarDuplicateFilterService, type RadarDuplicateSortHost } from './radar/02-filter/radar-duplicate-filter.service';
 import { RadarScoreEnrichmentService, type RadarScoreEnrichmentHost } from './radar/03-enrichment/radar-score-enrichment.service';
+import { RadarGoogleResponseService } from './radar/providers/google-search/radar-google-response.service';
+import { RadarHbxEngineErrorsService } from './radar/providers/hbx-engine/radar-hbx-engine-errors.service';
 import { RadarSharedNormalizerService } from './radar/shared/radar-shared-normalizer.service';
 
 const PLACES_NEW_TEXT_SEARCH_URL = 'https://places.googleapis.com/v1/places:searchText';
@@ -1855,6 +1857,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly radarSearchRunConfig?: RadarSearchRunConfigService,
     @Optional() private readonly radarDuplicateFilter?: RadarDuplicateFilterService,
     @Optional() private readonly radarScoreEnrichment?: RadarScoreEnrichmentService,
+    @Optional() private readonly radarGoogleResponse?: RadarGoogleResponseService,
+    @Optional() private readonly radarHbxEngineErrors?: RadarHbxEngineErrorsService,
   ) {}
 
   onModuleInit() {
@@ -1936,6 +1940,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
   private getRadarScoreEnrichment() {
     return this.radarScoreEnrichment || new RadarScoreEnrichmentService();
+  }
+
+  private getRadarGoogleResponse() {
+    return this.radarGoogleResponse || new RadarGoogleResponseService();
+  }
+
+  private getRadarHbxEngineErrors() {
+    return this.radarHbxEngineErrors || new RadarHbxEngineErrorsService();
   }
 
   private buildRadarScoreEnrichmentHost(): RadarScoreEnrichmentHost {
@@ -3628,29 +3640,15 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private extractHbxHttpStatus(error: unknown) {
-    const direct = Number((error as any)?.httpStatus ?? (error as any)?.response?.httpStatus ?? 0);
-    return Number.isFinite(direct) && direct > 0 ? direct : null;
+    return this.getRadarHbxEngineErrors().extractHbxHttpStatus(error);
   }
 
   private extractHbxErrorMessage(error: unknown) {
-    const response = (error as any)?.response;
-    const message = response?.message || (error as any)?.rawMessage || (error as any)?.message || error || 'Falha no lote.';
-    return String(message || 'Falha no lote.').trim();
+    return this.getRadarHbxEngineErrors().extractHbxErrorMessage(error);
   }
 
   private isRetryableHbxError(error: unknown) {
-    const httpStatus = this.extractHbxHttpStatus(error);
-    if ([500, 502, 503, 504].includes(Number(httpStatus))) return true;
-    if ((error as any)?.retryable === true || (error as any)?.response?.retryable === true) return true;
-    const normalized = this.extractHbxErrorMessage(error).toLowerCase();
-    return [
-      'timeout',
-      'econnreset',
-      'fetch failed',
-      'socket hang up',
-      'etimedout',
-      'network',
-    ].some((part) => normalized.includes(part));
+    return this.getRadarHbxEngineErrors().isRetryableHbxError(error);
   }
 
   private buildSearchRunProgressMessage(foundCount: number) {
@@ -19045,12 +19043,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private parseLegacyGoogleResponse(httpStatus: number, data: any) {
-    const apiStatus = String(data?.status || 'OK').trim().toUpperCase();
-    if (apiStatus === 'OK' || apiStatus === 'ZERO_RESULTS') {
-      return data;
-    }
-
-    throw this.buildGoogleApiError(httpStatus, data);
+    return this.getRadarGoogleResponse().parseLegacyGoogleResponse(
+      httpStatus,
+      data,
+      (status, errorData) => this.buildGoogleApiError(status, errorData),
+    );
   }
 
   private buildGoogleApiError(httpStatus: number, data: { status?: string; error_message?: string }) {

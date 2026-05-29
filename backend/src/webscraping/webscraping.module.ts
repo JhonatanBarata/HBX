@@ -12,6 +12,8 @@ import { RadarRunPresenterService } from './radar/06-presentation/radar-run-pres
 import { RadarSearchRunConfigService } from './radar/01-search/radar-search-run-config.service';
 import { RadarDuplicateFilterService } from './radar/02-filter/radar-duplicate-filter.service';
 import { RadarScoreEnrichmentService } from './radar/03-enrichment/radar-score-enrichment.service';
+import { RadarGoogleResponseService } from './radar/providers/google-search/radar-google-response.service';
+import { RadarHbxEngineErrorsService } from './radar/providers/hbx-engine/radar-hbx-engine-errors.service';
 import { RadarRunRepositoryService } from './radar/persistence/radar-run-repository.service';
 import { RadarSharedNormalizerService } from './radar/shared/radar-shared-normalizer.service';
 import { MasterWebscrapingController, WebscrapingController } from './webscraping.controller';
@@ -26,6 +28,8 @@ const RADAR_SERVICES = [
   RadarSearchRunConfigService,
   RadarDuplicateFilterService,
   RadarScoreEnrichmentService,
+  RadarGoogleResponseService,
+  RadarHbxEngineErrorsService,
 ];
 
 @Module({
