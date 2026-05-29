@@ -30,13 +30,13 @@ import {
 import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
 import { buildRadarLeadEnrichment, RADAR_LEAD_ENRICHMENT_VERSION } from './radar-lead-enrichment';
 import { calculateLeadQualityV2, resolveRadarVisibilityFromQualityV2, type LeadQualityV2, type LeadQualityV2SalesProfile } from './lead-quality-v2';
-import { BRAZIL_CITY_COORDINATES } from './brazil-city-coordinates';
 import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../companies/master-whatsapp-company.constants';
 import { RadarSocialLookupService, type RadarSocialLookupHost } from './radar/04-socials/radar-social-lookup.service';
 import { RadarVendasSyncService, type RadarVendasSyncHost } from './radar/05-delivery/radar-vendas-sync.service';
 import { RadarLeadPresenterService, type RadarLeadPresenterHost } from './radar/06-presentation/radar-lead-presenter.service';
 import { RadarRunPresenterService, type RadarRunPresenterHost } from './radar/06-presentation/radar-run-presenter.service';
 import { RadarRunRepositoryService } from './radar/persistence/radar-run-repository.service';
+import { RadarSearchGeoService, type RadarSearchGeoHost } from './radar/01-search/radar-search-geo.service';
 import { RadarSearchRunConfigService } from './radar/01-search/radar-search-run-config.service';
 import { RadarDuplicateFilterService, type RadarDuplicateSortHost } from './radar/02-filter/radar-duplicate-filter.service';
 import { RadarRunItemFilterService, type RadarRunItemFilterHost } from './radar/02-filter/radar-run-item-filter.service';
@@ -247,7 +247,6 @@ const DEFAULT_MASS_DATA_ENGINE_URLS = buildLocalHbxEngineUrls();
 const TURBO_OPERATIONAL_CONFIG_KEY = 'turbo_noturno';
 const RADAR_RESERVATION_TTL_MS = 72 * 60 * 60 * 1000;
 const RADAR_REGION_MAX_RADIUS_KM = 100;
-const RADAR_REGION_MAX_CITIES = 30;
 const RADAR_PROTECTED_STATUSES = [
   'negative',
   'denied',
@@ -1857,6 +1856,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly radarRunPresenter?: RadarRunPresenterService,
     @Optional() private readonly radarVendasSync?: RadarVendasSyncService,
     @Optional() private readonly radarSharedNormalizer?: RadarSharedNormalizerService,
+    @Optional() private readonly radarSearchGeo?: RadarSearchGeoService,
     @Optional() private readonly radarSearchRunConfig?: RadarSearchRunConfigService,
     @Optional() private readonly radarDuplicateFilter?: RadarDuplicateFilterService,
     @Optional() private readonly radarRunItemFilter?: RadarRunItemFilterService,
@@ -1942,6 +1942,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return this.radarSearchRunConfig || new RadarSearchRunConfigService();
   }
 
+  private getRadarSearchGeo() {
+    return this.radarSearchGeo || new RadarSearchGeoService();
+  }
+
   private getRadarDuplicateFilter() {
     return this.radarDuplicateFilter || new RadarDuplicateFilterService();
   }
@@ -1985,6 +1989,13 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       hasUsablePublicContactChannel: (candidate) => this.hasUsablePublicContactChannel(candidate),
       buildSyntheticRunPlaceId: (runId, result, index) => this.buildSyntheticRunPlaceId(runId, result, index),
       buildRunCompositeKey: (input) => this.buildRunCompositeKey(input),
+    };
+  }
+
+  private buildRadarSearchGeoHost(): RadarSearchGeoHost {
+    return {
+      normalizeCoordinate: (value) => this.normalizeCoordinate(value),
+      normalizeRadiusKm: (value) => this.normalizeRadiusKm(value),
     };
   }
 
@@ -6079,24 +6090,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private haversineDistanceKm(lat1: number, lng1: number, lat2: number, lng2: number) {
-    const earthKm = 6371;
-    const toRad = (degrees: number) => degrees * Math.PI / 180;
-    const dLat = toRad(lat2 - lat1);
-    const dLng = toRad(lng2 - lng1);
-    const a = Math.sin(dLat / 2) ** 2
-      + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
-    return earthKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return this.getRadarSearchGeo().haversineDistanceKm(lat1, lng1, lat2, lng2);
   }
 
   private findBrazilCityCoordinate(city: string, state: string) {
-    const normalizedCity = normalizeLookupValue(city);
-    const normalizedState = String(state || '').trim().toUpperCase();
-    if (!normalizedCity || !normalizedState) return null;
-    const row = BRAZIL_CITY_COORDINATES.find(([rowState, rowCity]) => (
-      rowState === normalizedState && normalizeLookupValue(rowCity) === normalizedCity
-    ));
-    if (!row) return null;
-    return { state: row[0], city: row[1], lat: row[2], lng: row[3] };
+    return this.getRadarSearchGeo().findBrazilCityCoordinate(city, state);
   }
 
   private resolveSearchOrigin(input: {
@@ -6105,21 +6103,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     originLat?: number | null;
     originLng?: number | null;
   }) {
-    const cityOrigin = this.findBrazilCityCoordinate(input.city, input.state);
-    const suppliedLat = this.normalizeCoordinate(input.originLat);
-    const suppliedLng = this.normalizeCoordinate(input.originLng);
-    if (cityOrigin && suppliedLat != null && suppliedLng != null) {
-      const distanceFromSelectedCity = this.haversineDistanceKm(cityOrigin.lat, cityOrigin.lng, suppliedLat, suppliedLng);
-      if (distanceFromSelectedCity <= 20) {
-        return { city: input.city, state: input.state, lat: suppliedLat, lng: suppliedLng };
-      }
-      return cityOrigin;
-    }
-    if (cityOrigin) return cityOrigin;
-    if (suppliedLat != null && suppliedLng != null) {
-      return { city: input.city, state: input.state, lat: suppliedLat, lng: suppliedLng };
-    }
-    return null;
+    return this.getRadarSearchGeo().resolveSearchOrigin(input, this.buildRadarSearchGeoHost());
   }
 
   private resolveRegionalCities(input: {
@@ -6129,42 +6113,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     originLat?: number | null;
     originLng?: number | null;
   }): RegionalCity[] {
-    const city = String(input.city || '').trim();
-    const state = String(input.state || '').trim().toUpperCase();
-    const radiusKm = this.normalizeRadiusKm(input.radiusKm);
-    if (!city || !state || radiusKm <= 0) return [];
-
-    const normalizedCity = normalizeLookupValue(city);
-    const origin = this.resolveSearchOrigin({ city, state, originLat: input.originLat, originLng: input.originLng });
-    if (!origin) return [];
-
-    const maxCities = radiusKm <= 25 ? 10 : radiusKm <= 50 ? 18 : RADAR_REGION_MAX_CITIES;
-    const seen = new Set<string>();
-    const nearby = BRAZIL_CITY_COORDINATES
-      .map(([rowState, rowCity, lat, lng]) => {
-        const distanceKm = this.haversineDistanceKm(origin.lat, origin.lng, lat, lng);
-        return {
-          city: rowCity,
-          state: rowState,
-          normalizedCity: normalizeLookupValue(rowCity),
-          distanceKm: Number(distanceKm.toFixed(1)),
-        };
-      })
-      .filter((row) => row.distanceKm <= radiusKm && row.state === state)
-      .sort((left, right) => left.distanceKm - right.distanceKm || left.city.localeCompare(right.city, 'pt-BR'));
-
-    const ordered: RegionalCity[] = [{
-      city,
-      state,
-      normalizedCity,
-      distanceKm: 0,
-    }, ...nearby];
-    return ordered.filter((row) => {
-      const key = `${row.state}:${row.normalizedCity}`;
-      if (!row.normalizedCity || seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    }).slice(0, maxCities);
+    return this.getRadarSearchGeo().resolveRegionalCities(input, this.buildRadarSearchGeoHost());
   }
 
   private normalizeSearchInput(
