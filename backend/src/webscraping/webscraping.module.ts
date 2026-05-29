@@ -12,6 +12,7 @@ import { RadarLeadPresenterService } from './radar/06-presentation/radar-lead-pr
 import { RadarRunPresenterService } from './radar/06-presentation/radar-run-presenter.service';
 import { RadarSearchRunConfigService } from './radar/01-search/radar-search-run-config.service';
 import { RadarSearchGeoService } from './radar/01-search/radar-search-geo.service';
+import { RadarSearchInputService } from './radar/01-search/radar-search-input.service';
 import { RadarDuplicateFilterService } from './radar/02-filter/radar-duplicate-filter.service';
 import { RadarRunItemFilterService } from './radar/02-filter/radar-run-item-filter.service';
 import { RadarScoreEnrichmentService } from './radar/03-enrichment/radar-score-enrichment.service';
@@ -32,6 +33,7 @@ const RADAR_PERSISTENCE_SERVICES = [
 
 const RADAR_SEARCH_SERVICES = [
   RadarSearchGeoService,
+  RadarSearchInputService,
   RadarSearchRunConfigService,
 ];
 
