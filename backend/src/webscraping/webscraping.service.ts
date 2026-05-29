@@ -38,6 +38,7 @@ import { RadarRunPresenterService, type RadarRunPresenterHost } from './radar/06
 import { RadarRunRepositoryService } from './radar/persistence/radar-run-repository.service';
 import { RadarSearchRunConfigService } from './radar/01-search/radar-search-run-config.service';
 import { RadarDuplicateFilterService, type RadarDuplicateSortHost } from './radar/02-filter/radar-duplicate-filter.service';
+import { RadarScoreEnrichmentService, type RadarScoreEnrichmentHost } from './radar/03-enrichment/radar-score-enrichment.service';
 import { RadarSharedNormalizerService } from './radar/shared/radar-shared-normalizer.service';
 
 const PLACES_NEW_TEXT_SEARCH_URL = 'https://places.googleapis.com/v1/places:searchText';
@@ -1853,6 +1854,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly radarSharedNormalizer?: RadarSharedNormalizerService,
     @Optional() private readonly radarSearchRunConfig?: RadarSearchRunConfigService,
     @Optional() private readonly radarDuplicateFilter?: RadarDuplicateFilterService,
+    @Optional() private readonly radarScoreEnrichment?: RadarScoreEnrichmentService,
   ) {}
 
   onModuleInit() {
@@ -1930,6 +1932,19 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
   private getRadarDuplicateFilter() {
     return this.radarDuplicateFilter || new RadarDuplicateFilterService();
+  }
+
+  private getRadarScoreEnrichment() {
+    return this.radarScoreEnrichment || new RadarScoreEnrichmentService();
+  }
+
+  private buildRadarScoreEnrichmentHost(): RadarScoreEnrichmentHost {
+    return {
+      parseMaybeJsonObject: (value) => this.parseMaybeJsonObject(value),
+      inferWebsiteStatus: (value) => inferWebsiteStatus(value),
+      isLikelyValidBrPhone: (value) => isLikelyValidBrPhone(value),
+      isLikelyWhatsapp: (value) => isLikelyWhatsapp(value),
+    };
   }
 
   private buildRadarDuplicateSortHost(): RadarDuplicateSortHost {
@@ -6659,40 +6674,19 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private buildOpportunityScore(result: WebscrapingContactResult, quality?: LeadQualityResult | null) {
-    const evidence = this.parseMaybeJsonObject((result as any).evidenceJson);
-    const evidenceScore = safeInteger(evidence?.finalScore ?? evidence?.score);
-    if (evidenceScore > 0) return Math.max(0, Math.min(100, evidenceScore));
-    const websiteStatus = inferWebsiteStatus(result.website);
-    let score = 35;
-    if (websiteStatus === 'present') score += 20;
-    if (websiteStatus === 'social_only' || result.instagramUrl || result.facebookUrl) score += 18;
-    if (websiteStatus === 'weak') score += 8;
-    if ((result.reviews || 0) >= 50) score += 25;
-    if (result.rating != null && result.rating >= 4.2) score += 15;
-    if (isLikelyValidBrPhone(result.phoneDigits || result.phone)) score += 10;
-    if (isLikelyWhatsapp(result.phoneDigits || result.phone)) score += 10;
-    if (websiteStatus === 'none' && !result.instagramUrl && !result.facebookUrl) score -= 15;
-    const engineScore = Math.max(0, Math.min(10, Math.trunc(Number(result.score || 0) / 10) || 0));
-    score = Math.max(0, Math.min(100, score + engineScore));
-    if (quality?.status === 'generic_directory') return 0;
-    if (quality && quality.segmentMatchScore < 55) return Math.min(score, 25);
-    if (quality?.status !== undefined && quality.status !== 'approved' && quality.billable === false) return Math.min(score, 25);
-    return score;
+    return this.getRadarScoreEnrichment().buildOpportunityScore(
+      result,
+      quality,
+      this.buildRadarScoreEnrichmentHost(),
+    );
   }
 
   private buildOpportunityReason(result: WebscrapingContactResult, input: NormalizedSearchInput) {
-    const reasons: string[] = [];
-    const websiteStatus = inferWebsiteStatus(result.website);
-    if (result.rating != null && result.rating >= 4.2) reasons.push('boa reputacao no Google');
-    if ((result.reviews || 0) >= 50) reasons.push('muitas avaliacoes');
-    if (websiteStatus === 'none') reasons.push('nenhum website encontrado');
-    if (websiteStatus === 'social_only') reasons.push('presenca limitada a rede social');
-    if (websiteStatus === 'weak') reasons.push('website fraco ou pagina provisoria');
-    if (isLikelyWhatsapp(result.phoneDigits || result.phone)) reasons.push('telefone com alta chance de WhatsApp');
-    if (websiteStatus === 'present' && reasons.length < 2) reasons.push('site encontrado, mas ainda pode ser trabalhado pelo relacionamento');
-    if (!reasons.length) reasons.push(`contato publico aderente a ${input.segment || 'prospeccao'}`);
-    const sentence = reasons.slice(0, 3).join(', ');
-    return `${sentence.charAt(0).toUpperCase()}${sentence.slice(1)}.`;
+    return this.getRadarScoreEnrichment().buildOpportunityReason(
+      result,
+      input,
+      this.buildRadarScoreEnrichmentHost(),
+    );
   }
 
   private buildContactDedupeKeys(result: WebscrapingContactResult) {
