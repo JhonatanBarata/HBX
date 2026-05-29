@@ -1,7 +1,7 @@
 import { forwardRef, Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
-import { VendasService } from '../../vendas/vendas.service';
-import type { SearchExecutionContext } from './radar-types';
+import { PrismaService } from '../../../prisma/prisma.service';
+import { VendasService } from '../../../vendas/vendas.service';
+import type { SearchExecutionContext } from '../shared/radar-types';
 
 export type RadarVendasSyncHost = {
   getPendingCount: (companyId: number) => Promise<number>;

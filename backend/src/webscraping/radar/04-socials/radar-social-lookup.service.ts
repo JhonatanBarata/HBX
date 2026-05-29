@@ -1,10 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
-import { buildRadarLeadEnrichment } from '../radar-lead-enrichment';
+import { PrismaService } from '../../../prisma/prisma.service';
+import { buildRadarLeadEnrichment } from '../../radar-lead-enrichment';
 import { buildRadarSocialLookupQueries } from './radar-social-queries';
 import { evaluateRadarSocialLookupCandidate } from './radar-social-matching';
-import { RadarRunRepositoryService } from './radar-run-repository.service';
-import type { NormalizedSearchInput, SearchExecutionContext } from './radar-types';
+import { RadarRunRepositoryService } from '../persistence/radar-run-repository.service';
+import type { NormalizedSearchInput, SearchExecutionContext } from '../shared/radar-types';
 
 type RadarSocialNetwork = 'instagram' | 'facebook';
 

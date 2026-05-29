@@ -1,4 +1,4 @@
-import type { LeadQualityV2SalesProfile } from '../lead-quality-v2';
+import type { LeadQualityV2SalesProfile } from '../../lead-quality-v2';
 
 export type SearchSource = 'history' | 'google' | 'hbx' | 'hybrid' | 'global_cache' | 'radar_database';
 export type WebscrapingEngine = 'google' | 'hbx';

@@ -6,10 +6,10 @@ import { MailModule } from '../mail/mail.module';
 import { CommercialPlansModule } from '../commercial-plans/commercial-plans.module';
 import { MasterContextModule } from '../master-context/master-context.module';
 import { HbxEnginePoolService } from './hbx-engine-pool.service';
-import { RadarRunRepositoryService } from './radar/radar-run-repository.service';
-import { RadarRunPresenterService } from './radar/radar-run-presenter.service';
-import { RadarSocialLookupService } from './radar/radar-social-lookup.service';
-import { RadarVendasSyncService } from './radar/radar-vendas-sync.service';
+import { RadarSocialLookupService } from './radar/04-socials/radar-social-lookup.service';
+import { RadarVendasSyncService } from './radar/05-delivery/radar-vendas-sync.service';
+import { RadarRunPresenterService } from './radar/06-presentation/radar-run-presenter.service';
+import { RadarRunRepositoryService } from './radar/persistence/radar-run-repository.service';
 import { MasterWebscrapingController, WebscrapingController } from './webscraping.controller';
 import { WebscrapingService } from './webscraping.service';
 

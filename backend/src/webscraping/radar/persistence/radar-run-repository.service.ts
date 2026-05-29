@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
-import type { RadarSearchRunMetrics, RadarSearchRunMetricsPatch, SearchExecutionContext, WebscrapingSearchRunItemStatus } from './radar-types';
-import { normalizeLookupValue } from './radar-social-matching';
+import { PrismaService } from '../../../prisma/prisma.service';
+import type { RadarSearchRunMetrics, RadarSearchRunMetricsPatch, SearchExecutionContext, WebscrapingSearchRunItemStatus } from '../shared/radar-types';
+import { normalizeLookupValue } from '../04-socials/radar-social-matching';
 
 function safeInteger(value: unknown, fallback = 0) {
   const parsed = Number(value);

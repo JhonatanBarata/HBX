@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import type { LeadQualityV2 } from '../lead-quality-v2';
-import type { LeadQualityResult, WebscrapingContactResult, WebscrapingSearchRunResponse } from '../webscraping.service';
+import type { LeadQualityV2 } from '../../lead-quality-v2';
+import type { LeadQualityResult, WebscrapingContactResult, WebscrapingSearchRunResponse } from '../../webscraping.service';
 import type {
   HbxTargetType,
   NormalizedRadarFilters,
@@ -10,7 +10,7 @@ import type {
   WebscrapingEngine,
   WebscrapingSearchRunItemStatus,
   WebscrapingSearchRunStatus,
-} from './radar-types';
+} from '../shared/radar-types';
 
 export type RadarRunPresenterHost = {
   parseMaybeJsonObject: (value: unknown) => Record<string, any>;
