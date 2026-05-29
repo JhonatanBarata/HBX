@@ -19,17 +19,53 @@ import { RadarSharedNormalizerService } from './radar/shared/radar-shared-normal
 import { MasterWebscrapingController, WebscrapingController } from './webscraping.controller';
 import { WebscrapingService } from './webscraping.service';
 
-const RADAR_SERVICES = [
-  RadarRunRepositoryService,
-  RadarRunPresenterService,
-  RadarSocialLookupService,
-  RadarVendasSyncService,
+const RADAR_SHARED_SERVICES = [
   RadarSharedNormalizerService,
+];
+
+const RADAR_PERSISTENCE_SERVICES = [
+  RadarRunRepositoryService,
+];
+
+const RADAR_SEARCH_SERVICES = [
   RadarSearchRunConfigService,
+];
+
+const RADAR_FILTER_SERVICES = [
   RadarDuplicateFilterService,
+];
+
+const RADAR_ENRICHMENT_SERVICES = [
   RadarScoreEnrichmentService,
+];
+
+const RADAR_SOCIAL_SERVICES = [
+  RadarSocialLookupService,
+];
+
+const RADAR_DELIVERY_SERVICES = [
+  RadarVendasSyncService,
+];
+
+const RADAR_PRESENTATION_SERVICES = [
+  RadarRunPresenterService,
+];
+
+const RADAR_PROVIDER_SERVICES = [
   RadarGoogleResponseService,
   RadarHbxEngineErrorsService,
+];
+
+const RADAR_SERVICES = [
+  ...RADAR_SHARED_SERVICES,
+  ...RADAR_PERSISTENCE_SERVICES,
+  ...RADAR_SEARCH_SERVICES,
+  ...RADAR_FILTER_SERVICES,
+  ...RADAR_ENRICHMENT_SERVICES,
+  ...RADAR_SOCIAL_SERVICES,
+  ...RADAR_DELIVERY_SERVICES,
+  ...RADAR_PRESENTATION_SERVICES,
+  ...RADAR_PROVIDER_SERVICES,
 ];
 
 @Module({
