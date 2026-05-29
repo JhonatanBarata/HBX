@@ -32,6 +32,11 @@ import { buildRadarLeadEnrichment, RADAR_LEAD_ENRICHMENT_VERSION } from './radar
 import { calculateLeadQualityV2, resolveRadarVisibilityFromQualityV2, type LeadQualityV2, type LeadQualityV2SalesProfile } from './lead-quality-v2';
 import { BRAZIL_CITY_COORDINATES } from './brazil-city-coordinates';
 import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../companies/master-whatsapp-company.constants';
+import { buildRadarSocialLookupQueries as buildRadarSocialLookupQueriesPure } from './radar/radar-social-queries';
+import {
+  evaluateRadarSocialLookupCandidate as evaluateRadarSocialLookupCandidatePure,
+  radarSocialLookupNameScore as radarSocialLookupNameScorePure,
+} from './radar/radar-social-matching';
 
 const PLACES_NEW_TEXT_SEARCH_URL = 'https://places.googleapis.com/v1/places:searchText';
 const PLACES_NEW_DETAILS_URL = 'https://places.googleapis.com/v1/places';
@@ -4823,43 +4828,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private buildRadarSocialLookupQueries(name: string, city: string) {
-    const safeName = String(name || '').replace(/"/g, '').replace(/\s+/g, ' ').trim();
-    const safeCity = String(city || '').replace(/"/g, '').replace(/\s+/g, ' ').trim();
-    if (!safeName || !safeCity) return [];
-    const tokens = normalizeLookupValue(safeName)
-      .split(/\s+/)
-      .filter((token) => (
-        token.length >= 5
-        && !RADAR_SOCIAL_STOP_TOKENS.has(token)
-        && !RADAR_SOCIAL_CATEGORY_TOKENS.has(token)
-        && !RADAR_SOCIAL_WEAK_TOKENS.has(token)
-        && !RADAR_WEBSITE_GENERIC_HOST_TOKENS.has(token)
-      ));
-    const brandToken = tokens[0] || '';
-    const brandName = brandToken
-      ? safeName.split(/\s+/).find((part) => normalizeLookupValue(part) === brandToken) || brandToken
-      : '';
-    const queries = [
-      ...(brandName
-        ? [
-            { network: 'instagram' as const, query: `site:instagram.com "${brandName}" "${safeCity}"` },
-            { network: 'instagram' as const, query: `"${brandName}" "${safeCity}" instagram` },
-            { network: 'facebook' as const, query: `site:facebook.com "${brandName}" "${safeCity}"` },
-            { network: 'facebook' as const, query: `"${brandName}" "${safeCity}" facebook` },
-          ]
-        : []),
-      { network: 'instagram' as const, query: `site:instagram.com "${safeName}" "${safeCity}"` },
-      { network: 'instagram' as const, query: `"${safeName}" "${safeCity}" instagram` },
-      { network: 'facebook' as const, query: `site:facebook.com "${safeName}" "${safeCity}"` },
-      { network: 'facebook' as const, query: `"${safeName}" "${safeCity}" facebook` },
-    ];
-    const seen = new Set<string>();
-    return queries.filter((entry) => {
-      const key = `${entry.network}:${entry.query}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
+    return buildRadarSocialLookupQueriesPure(name, city);
   }
 
   private async loadRunItemForSocialLookup(context: SearchExecutionContext, leadId: string) {
@@ -4963,35 +4932,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private radarSocialLookupNameScore(lead: any, result: any, url: string) {
-    const handle = socialHandleFromUrl(url);
-    if (!handle) return 0;
-    const leadName = normalizeLookupValue(String(lead?.name || ''));
-    const resultText = normalizeLookupValue([
-      result?.name,
-      result?.title,
-      result?.description,
-      result?.snippet,
-      result?.address,
-      result?.city,
-      result?.state,
-      result?.sourceUrl,
-      result?.website,
-    ].filter(Boolean).join(' '));
-    const tokens = leadName.split(/\s+/).filter((token) => token && !RADAR_SOCIAL_STOP_TOKENS.has(token));
-    const compactName = tokens.join('').replace(/[^a-z0-9]+/g, '');
-    const strongTokens = tokens.filter((token) => token.length >= 3 && !RADAR_SOCIAL_CATEGORY_TOKENS.has(token));
-    const leadCityCompact = normalizeLookupValue(String(lead?.city || '')).replace(/[^a-z0-9]+/g, '');
-    let score = 0;
-    if (socialProfileLooksCompatibleWithLead(lead, url)) score = Math.max(score, 65);
-    if (compactName.length >= 6 && (handle.includes(compactName) || compactName.includes(handle))) score = Math.max(score, 55);
-    if (leadName.length >= 6 && resultText.includes(leadName)) score = Math.max(score, 48);
-    const strongHits = strongTokens.filter((token) => socialTokenVariants(token).some((variant) => variant.length >= 3 && handle.includes(variant)));
-    if (strongHits.length >= 2) score = Math.max(score, 55);
-    if (strongHits.length === 1 && leadCityCompact.length >= 5 && handle.includes(leadCityCompact)) score = Math.max(score, 58);
-    if (strongHits.length === 1) score = Math.max(score, 38);
-    const categoryHits = tokens.filter((token) => RADAR_SOCIAL_CATEGORY_TOKENS.has(token) && handle.includes(token));
-    if (categoryHits.length && strongHits.length) score = Math.max(score, 58);
-    return score;
+    return radarSocialLookupNameScorePure(lead, result, url);
   }
 
   private evaluateRadarSocialLookupCandidate(
@@ -5000,54 +4941,13 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     url: string | null,
     network: 'instagram' | 'facebook',
   ) {
-    const normalizedUrl = this.normalizeRadarSocialUrl(url, network);
-    if (!normalizedUrl) return { accepted: false, confidence: 0, reason: 'url_social_invalida', url: null as string | null };
-    if (looksLikeThirdPartySocialProfile(normalizedUrl)) {
-      return { accepted: false, confidence: 0, reason: 'perfil_terceiro', url: null as string | null };
-    }
-    const handle = socialHandleFromUrl(normalizedUrl);
-    if (!handle || ['instagram', 'facebook', 'login', 'accounts', 'explore', 'tags', 'search', 'pages'].includes(handle)) {
-      return { accepted: false, confidence: 0, reason: 'pagina_generica', url: null as string | null };
-    }
-    const leadCity = normalizeLookupValue(String(lead?.city || ''));
-    const leadState = String(lead?.state || '').trim().toUpperCase();
-    const resultCity = normalizeLookupValue(String(result?.city || ''));
-    const resultState = String(result?.state || '').trim().toUpperCase();
-    if (leadCity && resultCity && resultCity !== leadCity) {
-      return { accepted: false, confidence: 0, reason: 'cidade_incompativel', url: null as string | null };
-    }
-    if (leadState && resultState && resultState !== leadState) {
-      return { accepted: false, confidence: 0, reason: 'uf_incompativel', url: null as string | null };
-    }
-    const evidenceText = normalizeLookupValue([
-      result?.name,
-      result?.title,
-      result?.description,
-      result?.snippet,
-      result?.address,
-      result?.city,
-      result?.state,
-      result?.sourceUrl,
-      result?.website,
-      normalizedUrl,
-    ].filter(Boolean).join(' '));
-    const nameScore = this.radarSocialLookupNameScore(lead, result, normalizedUrl);
-    if (nameScore < 38) {
-      return { accepted: false, confidence: nameScore, reason: 'nome_pouco_parecido', url: normalizedUrl };
-    }
-    let confidence = nameScore;
-    const leadCityCompact = leadCity.replace(/[^a-z0-9]+/g, '');
-    const evidenceCompact = evidenceText.replace(/[^a-z0-9]+/g, '');
-    if (leadCity && (evidenceText.includes(leadCity) || (leadCityCompact.length >= 5 && evidenceCompact.includes(leadCityCompact)))) confidence += 20;
-    if (leadState && evidenceText.includes(normalizeLookupValue(leadState))) confidence += 5;
-    if (String(result?.source || '').includes('social')) confidence += 5;
-    confidence = Math.max(0, Math.min(100, confidence));
-    return {
-      accepted: confidence >= 70,
-      confidence,
-      reason: confidence >= 70 ? 'perfil_compativel' : 'confianca_baixa',
-      url: normalizedUrl,
-    };
+    return evaluateRadarSocialLookupCandidatePure(
+      lead,
+      result,
+      url,
+      network,
+      (value, currentNetwork) => this.normalizeRadarSocialUrl(value, currentNetwork),
+    );
   }
 
   async runRadarSocialLookupForSavedLead(
