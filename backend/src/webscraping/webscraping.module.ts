@@ -6,13 +6,14 @@ import { MailModule } from '../mail/mail.module';
 import { CommercialPlansModule } from '../commercial-plans/commercial-plans.module';
 import { MasterContextModule } from '../master-context/master-context.module';
 import { HbxEnginePoolService } from './hbx-engine-pool.service';
+import { RadarRunRepositoryService } from './radar/radar-run-repository.service';
 import { MasterWebscrapingController, WebscrapingController } from './webscraping.controller';
 import { WebscrapingService } from './webscraping.service';
 
 @Module({
   imports: [ModulesAccessModule, MessagingModule, MailModule, CommercialPlansModule, MasterContextModule, forwardRef(() => VendasModule)],
   controllers: [WebscrapingController, MasterWebscrapingController],
-  providers: [WebscrapingService, HbxEnginePoolService],
+  providers: [WebscrapingService, HbxEnginePoolService, RadarRunRepositoryService],
   exports: [WebscrapingService, HbxEnginePoolService],
 })
 export class WebscrapingModule {}

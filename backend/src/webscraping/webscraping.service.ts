@@ -37,6 +37,7 @@ import {
   evaluateRadarSocialLookupCandidate as evaluateRadarSocialLookupCandidatePure,
   radarSocialLookupNameScore as radarSocialLookupNameScorePure,
 } from './radar/radar-social-matching';
+import { RadarRunRepositoryService } from './radar/radar-run-repository.service';
 
 const PLACES_NEW_TEXT_SEARCH_URL = 'https://places.googleapis.com/v1/places:searchText';
 const PLACES_NEW_DETAILS_URL = 'https://places.googleapis.com/v1/places';
@@ -1853,6 +1854,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly hbxPresentationEmails?: HbxPresentationEmailService,
     @Optional() private readonly commercialUsageLimits?: CommercialUsageLimitsService,
     @Optional() private readonly masterContextService?: MasterContextService,
+    @Optional() private readonly radarRunRepository?: RadarRunRepositoryService,
   ) {}
 
   onModuleInit() {
@@ -1902,6 +1904,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       this.hbxEnginePool = new HbxEnginePoolService(this.prisma);
     }
     return this.hbxEnginePool;
+  }
+
+  private getRadarRunRepository() {
+    return this.radarRunRepository || new RadarRunRepositoryService(this.prisma);
   }
 
   private async canAcquireHbxEngineFromPool() {
@@ -4832,19 +4838,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async loadRunItemForSocialLookup(context: SearchExecutionContext, leadId: string) {
-    const delegate = (this.prisma as any).webscrapingSearchRunItem;
-    if (!delegate) return null;
-    const byUnique = typeof delegate.findUnique === 'function'
-      ? await delegate.findUnique({ where: { id: leadId } }).catch(() => null)
-      : null;
-    if (byUnique && Number(byUnique.companyId) === Number(context.companyId)) return byUnique;
-    const byFirst = typeof delegate.findFirst === 'function'
-      ? await delegate.findFirst({ where: { id: leadId, companyId: context.companyId } }).catch(() => null)
-      : null;
-    if (byFirst) return byFirst;
-    if (typeof delegate.findMany !== 'function') return null;
-    const rows = await delegate.findMany({ where: { id: leadId, companyId: context.companyId }, take: 1 }).catch(() => []);
-    return Array.isArray(rows) ? rows[0] || null : null;
+    return this.getRadarRunRepository().loadRunItem(context, leadId);
   }
 
   private buildRunItemSocialLookupBase(item: any) {
@@ -4864,12 +4858,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async updateRunItemSocialRawJson(leadId: string, nextRaw: Record<string, any>) {
-    const delegate = (this.prisma as any).webscrapingSearchRunItem;
-    if (!delegate?.update) return null;
-    return delegate.update({
-      where: { id: leadId },
-      data: { rawJson: JSON.stringify(nextRaw) },
-    }).catch(() => null);
+    return this.getRadarRunRepository().updateRunItemRawJson(leadId, nextRaw);
   }
 
   private async syncRadarSocialLookupToVendasLead(
@@ -5092,162 +5081,27 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async recalculateSearchRunCounters(runId: string) {
-    const [currentRun, rows] = await Promise.all([
-      this.prisma.webscrapingSearchRun.findUnique({
-        where: { id: runId },
-        select: { foundCount: true },
-      }),
-      this.prisma.webscrapingSearchRunItem.findMany({
-        where: { runId },
-        select: { status: true },
-      }),
-    ]);
-    const foundCount = rows.filter((row) => row.status === 'found').length;
-    const duplicateCount = rows.filter((row) => row.status === 'duplicate').length;
-    const skippedCount = rows.filter((row) => row.status === 'skipped' || row.status === 'invalid').length;
-    await this.prisma.webscrapingSearchRun.update({
-      where: { id: runId },
-      data: {
-        foundCount,
-        duplicateCount,
-        skippedCount,
-        ...(foundCount > safeInteger(currentRun?.foundCount) ? { lastFoundCountChangeAt: new Date() } : {}),
-      },
-    });
-    return { foundCount, duplicateCount, skippedCount };
+    return this.getRadarRunRepository().recalculateCounters(runId);
   }
 
   private emptySearchRunMetrics(status = 'queued'): RadarSearchRunMetrics {
-    return {
-      rawFoundCount: 0,
-      hardBlockedCount: 0,
-      negativeBlockedCount: 0,
-      duplicateBlockedCount: 0,
-      noChannelBlockedCount: 0,
-      genericNameBlockedCount: 0,
-      segmentHardMismatchBlockedCount: 0,
-      savedListBasicCount: 0,
-      savedReviewBackupCount: 0,
-      leadPlusQualifiedCount: 0,
-      downgradedByQualityCount: 0,
-      urlsDiscovered: 0,
-      pagesFetched: 0,
-      parsedContacts: 0,
-      approvedContacts: 0,
-      reviewLowScore: 0,
-      downgradedToReview: 0,
-      rejectedBlockedDomain: 0,
-      rejectedInvalidPhone: 0,
-      rejectedGenericName: 0,
-      durationMs: 0,
-      engineId: null,
-      engineIndex: null,
-      sourceEngine: null,
-      cacheHit: false,
-      status,
-    };
+    return this.getRadarRunRepository().emptyMetrics(status);
   }
 
   private parseSearchRunMetrics(value: unknown): RadarSearchRunMetrics {
-    const parsed = this.parseMaybeJsonObject(value);
-    const base = this.emptySearchRunMetrics(String(parsed?.status || 'queued'));
-    return {
-      ...base,
-      rawFoundCount: safeInteger(parsed?.rawFoundCount),
-      hardBlockedCount: safeInteger(parsed?.hardBlockedCount),
-      negativeBlockedCount: safeInteger(parsed?.negativeBlockedCount),
-      duplicateBlockedCount: safeInteger(parsed?.duplicateBlockedCount),
-      noChannelBlockedCount: safeInteger(parsed?.noChannelBlockedCount),
-      genericNameBlockedCount: safeInteger(parsed?.genericNameBlockedCount),
-      segmentHardMismatchBlockedCount: safeInteger(parsed?.segmentHardMismatchBlockedCount),
-      savedListBasicCount: safeInteger(parsed?.savedListBasicCount),
-      savedReviewBackupCount: safeInteger(parsed?.savedReviewBackupCount),
-      leadPlusQualifiedCount: safeInteger(parsed?.leadPlusQualifiedCount),
-      downgradedByQualityCount: safeInteger(parsed?.downgradedByQualityCount),
-      urlsDiscovered: safeInteger(parsed?.urlsDiscovered),
-      pagesFetched: safeInteger(parsed?.pagesFetched),
-      parsedContacts: safeInteger(parsed?.parsedContacts),
-      approvedContacts: safeInteger(parsed?.approvedContacts),
-      reviewLowScore: safeInteger(parsed?.reviewLowScore ?? parsed?.rejectedLowScore),
-      downgradedToReview: safeInteger(parsed?.downgradedToReview ?? parsed?.downgradedByQualityCount),
-      rejectedBlockedDomain: safeInteger(parsed?.rejectedBlockedDomain),
-      rejectedInvalidPhone: safeInteger(parsed?.rejectedInvalidPhone),
-      rejectedGenericName: safeInteger(parsed?.rejectedGenericName),
-      durationMs: safeInteger(parsed?.durationMs),
-      engineId: parsed?.engineId ? String(parsed.engineId) : null,
-      engineIndex: Number.isInteger(parsed?.engineIndex) ? Number(parsed.engineIndex) : null,
-      sourceEngine: parsed?.sourceEngine ? String(parsed.sourceEngine) : null,
-      cacheHit: Boolean(parsed?.cacheHit),
-      status: String(parsed?.status || base.status),
-    };
+    return this.getRadarRunRepository().parseMetrics(value);
   }
 
   private classifyRunRejectionMetric(status: WebscrapingSearchRunItemStatus, reason?: string | null) {
-    const normalized = normalizeLookupValue(String(reason || ''));
-    if (status === 'duplicate') return 'duplicateBlockedCount';
-    if (status === 'invalid' || normalized.includes('contato publico ausente') || normalized.includes('no_actionable_channel')) return 'noChannelBlockedCount';
-    if (normalized.includes('generico') || normalized.includes('generic') || normalized.includes('lista') || normalized.includes('diretorio')) return 'genericNameBlockedCount';
-    if (normalized.includes('segment_hard_mismatch')) return 'segmentHardMismatchBlockedCount';
-    if (normalized.includes('blocked') || normalized.includes('bloque') || normalized.includes('opt-out') || normalized.includes('negative')) return 'negativeBlockedCount';
-    return 'reviewLowScore';
+    return this.getRadarRunRepository().classifyRejectionMetric(status, reason);
   }
 
   private async updateSearchRunMetrics(runId: string, patch: RadarSearchRunMetricsPatch) {
-    try {
-      const delegate = (this.prisma as any).webscrapingSearchRun;
-      const current = await delegate.findUnique({
-        where: { id: runId },
-        select: { metricsJson: true, startedAt: true, finishedAt: true, status: true },
-      });
-      const rawMetrics = this.parseMaybeJsonObject(current?.metricsJson);
-      const metrics = this.parseSearchRunMetrics(rawMetrics);
-      for (const [key, value] of Object.entries(patch.increment || {})) {
-        if (typeof value === 'number') {
-          (metrics as any)[key] = safeInteger((metrics as any)[key]) + safeInteger(value);
-        }
-      }
-      const patchWithoutIncrement = Object.fromEntries(Object.entries(patch).filter(([key]) => key !== 'increment'));
-      const next = {
-        ...rawMetrics,
-        ...metrics,
-        ...patchWithoutIncrement,
-      } as Record<string, any>;
-      const startedAt = current?.startedAt instanceof Date ? current.startedAt.getTime() : 0;
-      const finishedAt = current?.finishedAt instanceof Date ? current.finishedAt.getTime() : Date.now();
-      if (!next.durationMs && startedAt) next.durationMs = Math.max(0, finishedAt - startedAt);
-      await delegate.update({
-        where: { id: runId },
-        data: { metricsJson: JSON.stringify(next) },
-      });
-      return next;
-    } catch (error: any) {
-      this.logger.warn(`[radar-metrics] falha ao atualizar metricas run=${runId}: ${String(error?.message || error)}`);
-      return null;
-    }
+    return this.getRadarRunRepository().updateMetrics(runId, patch);
   }
 
   private buildSearchRunQualitySummary(run: any, deliveredCount: number) {
-    const metrics = this.parseSearchRunMetrics(run?.metricsJson);
-    const hardBlocked = safeInteger(metrics.hardBlockedCount)
-      + safeInteger(metrics.negativeBlockedCount)
-      + safeInteger(metrics.duplicateBlockedCount)
-      + safeInteger(metrics.noChannelBlockedCount)
-      + safeInteger(metrics.genericNameBlockedCount)
-      + safeInteger(metrics.segmentHardMismatchBlockedCount);
-    const review = safeInteger(metrics.savedReviewBackupCount) + safeInteger(metrics.reviewLowScore) + safeInteger(metrics.downgradedByQualityCount);
-    const durationMs = metrics.durationMs || (
-      run?.startedAt instanceof Date
-        ? Math.max(0, (run?.finishedAt instanceof Date ? run.finishedAt.getTime() : Date.now()) - run.startedAt.getTime())
-        : 0
-    );
-    return {
-      found: Math.max(deliveredCount, safeInteger(run?.foundCount)),
-      approved: deliveredCount,
-      rejected: hardBlocked,
-      discarded: hardBlocked,
-      durationMs,
-      label: `${deliveredCount} cards salvos${hardBlocked > 0 ? ` â€¢ ${hardBlocked} bloqueados por regra dura` : ''}${review > 0 ? ` â€¢ ${review} em revisao` : ''}`,
-    };
+    return this.getRadarRunRepository().buildQualitySummary(run, deliveredCount);
   }
 
   private async recordSourceQualityFromRunItems(
