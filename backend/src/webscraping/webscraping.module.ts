@@ -13,10 +13,17 @@ import { RadarVendasSyncService } from './radar/radar-vendas-sync.service';
 import { MasterWebscrapingController, WebscrapingController } from './webscraping.controller';
 import { WebscrapingService } from './webscraping.service';
 
+const RADAR_SERVICES = [
+  RadarRunRepositoryService,
+  RadarRunPresenterService,
+  RadarSocialLookupService,
+  RadarVendasSyncService,
+];
+
 @Module({
   imports: [ModulesAccessModule, MessagingModule, MailModule, CommercialPlansModule, MasterContextModule, forwardRef(() => VendasModule)],
   controllers: [WebscrapingController, MasterWebscrapingController],
-  providers: [WebscrapingService, HbxEnginePoolService, RadarRunRepositoryService, RadarRunPresenterService, RadarSocialLookupService, RadarVendasSyncService],
+  providers: [WebscrapingService, HbxEnginePoolService, ...RADAR_SERVICES],
   exports: [WebscrapingService, HbxEnginePoolService],
 })
 export class WebscrapingModule {}
