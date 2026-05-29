@@ -12,6 +12,7 @@ import { RadarLeadPresenterService } from './radar/06-presentation/radar-lead-pr
 import { RadarRunPresenterService } from './radar/06-presentation/radar-run-presenter.service';
 import { RadarSearchRunConfigService } from './radar/01-search/radar-search-run-config.service';
 import { RadarDuplicateFilterService } from './radar/02-filter/radar-duplicate-filter.service';
+import { RadarRunItemFilterService } from './radar/02-filter/radar-run-item-filter.service';
 import { RadarScoreEnrichmentService } from './radar/03-enrichment/radar-score-enrichment.service';
 import { RadarGoogleResponseService } from './radar/providers/google-search/radar-google-response.service';
 import { RadarHbxEngineErrorsService } from './radar/providers/hbx-engine/radar-hbx-engine-errors.service';
@@ -34,6 +35,7 @@ const RADAR_SEARCH_SERVICES = [
 
 const RADAR_FILTER_SERVICES = [
   RadarDuplicateFilterService,
+  RadarRunItemFilterService,
 ];
 
 const RADAR_ENRICHMENT_SERVICES = [

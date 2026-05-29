@@ -39,6 +39,7 @@ import { RadarRunPresenterService, type RadarRunPresenterHost } from './radar/06
 import { RadarRunRepositoryService } from './radar/persistence/radar-run-repository.service';
 import { RadarSearchRunConfigService } from './radar/01-search/radar-search-run-config.service';
 import { RadarDuplicateFilterService, type RadarDuplicateSortHost } from './radar/02-filter/radar-duplicate-filter.service';
+import { RadarRunItemFilterService, type RadarRunItemFilterHost } from './radar/02-filter/radar-run-item-filter.service';
 import { RadarScoreEnrichmentService, type RadarScoreEnrichmentHost } from './radar/03-enrichment/radar-score-enrichment.service';
 import { RadarGoogleResponseService } from './radar/providers/google-search/radar-google-response.service';
 import { RadarHbxEngineErrorsService } from './radar/providers/hbx-engine/radar-hbx-engine-errors.service';
@@ -1858,6 +1859,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly radarSharedNormalizer?: RadarSharedNormalizerService,
     @Optional() private readonly radarSearchRunConfig?: RadarSearchRunConfigService,
     @Optional() private readonly radarDuplicateFilter?: RadarDuplicateFilterService,
+    @Optional() private readonly radarRunItemFilter?: RadarRunItemFilterService,
     @Optional() private readonly radarScoreEnrichment?: RadarScoreEnrichmentService,
     @Optional() private readonly radarGoogleResponse?: RadarGoogleResponseService,
     @Optional() private readonly radarHbxEngineErrors?: RadarHbxEngineErrorsService,
@@ -1944,6 +1946,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return this.radarDuplicateFilter || new RadarDuplicateFilterService();
   }
 
+  private getRadarRunItemFilter() {
+    return this.radarRunItemFilter || new RadarRunItemFilterService();
+  }
+
   private getRadarScoreEnrichment() {
     return this.radarScoreEnrichment || new RadarScoreEnrichmentService();
   }
@@ -1969,6 +1975,16 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return {
       extractLeadQualityV2FromObject: (value) => this.extractLeadQualityV2FromObject(value),
       buildOpportunityScore: (result) => this.buildOpportunityScore(result),
+    };
+  }
+
+  private buildRadarRunItemFilterHost(): RadarRunItemFilterHost {
+    return {
+      isBlockedLeadOfficialWebsite: (value) => this.isBlockedLeadOfficialWebsite(value),
+      requiredChannelsForInput: (input) => this.requiredChannelsForInput(input),
+      hasUsablePublicContactChannel: (candidate) => this.hasUsablePublicContactChannel(candidate),
+      buildSyntheticRunPlaceId: (runId, result, index) => this.buildSyntheticRunPlaceId(runId, result, index),
+      buildRunCompositeKey: (input) => this.buildRunCompositeKey(input),
     };
   }
 
@@ -4636,60 +4652,13 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     fallback: { runId: string; index: number; city: string; state: string; segment: string },
     input?: NormalizedSearchInput | NormalizedRadarFilters,
   ) {
-    const phoneDigits = normalizePhoneDigits(result.phoneDigits || result.phone);
-    const rawWebsite = String(result.website || '').trim();
-    const websiteKey = rawWebsite && !this.isBlockedLeadOfficialWebsite(rawWebsite)
-      ? normalizeWebsiteKey(rawWebsite)
-      : '';
-    const name = String(result.name || '').trim();
-    const requiredChannels = this.requiredChannelsForInput(input as any);
-    const hasRequiredSocial = Boolean(
-      (requiredChannels.includes('instagram') && (result as any).instagramUrl)
-      || (requiredChannels.includes('facebook') && (result as any).facebookUrl)
+    return this.getRadarRunItemFilter().classifyRunItem(
+      result,
+      dedup,
+      fallback,
+      input,
+      this.buildRadarRunItemFilterHost(),
     );
-    const hasUsablePublicContact = hasRequiredSocial || this.hasUsablePublicContactChannel(result as any);
-    const placeId = String(result.placeId || '').trim()
-      || this.buildSyntheticRunPlaceId(fallback.runId, result, fallback.index);
-    const compositeKey = this.buildRunCompositeKey({
-      name,
-      city: fallback.city,
-      state: fallback.state,
-      segment: fallback.segment,
-    });
-
-    if (!name || !hasUsablePublicContact) {
-      return {
-        placeId,
-        phoneDigits,
-        websiteKey,
-        status: 'invalid' as WebscrapingSearchRunItemStatus,
-        duplicateReason: !name ? 'Nome ausente.' : 'Contato publico ausente.',
-      };
-    }
-    if (placeId && dedup.placeIds.has(placeId)) {
-      return { placeId, phoneDigits, websiteKey, status: 'duplicate' as const, duplicateReason: 'placeId repetido.' };
-    }
-    if (phoneDigits && dedup.phoneDigits.has(phoneDigits)) {
-      return { placeId, phoneDigits, websiteKey, status: 'duplicate' as const, duplicateReason: 'Telefone repetido.' };
-    }
-    if (websiteKey && dedup.websiteKeys.has(websiteKey)) {
-      return { placeId, phoneDigits, websiteKey, status: 'duplicate' as const, duplicateReason: 'Website repetido.' };
-    }
-    if (compositeKey !== '|||' && dedup.compositeKeys.has(compositeKey)) {
-      return {
-        placeId,
-        phoneDigits,
-        websiteKey,
-        status: 'duplicate' as const,
-        duplicateReason: 'Nome, cidade, estado e segmento repetidos.',
-      };
-    }
-
-    dedup.placeIds.add(placeId);
-    if (phoneDigits) dedup.phoneDigits.add(phoneDigits);
-    if (websiteKey) dedup.websiteKeys.add(websiteKey);
-    if (compositeKey !== '|||') dedup.compositeKeys.add(compositeKey);
-    return { placeId, phoneDigits, websiteKey, status: 'found' as const, duplicateReason: null };
   }
 
   private async saveSearchRunResults(
