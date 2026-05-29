@@ -8,6 +8,7 @@ import { MasterContextModule } from '../master-context/master-context.module';
 import { HbxEnginePoolService } from './hbx-engine-pool.service';
 import { RadarSocialLookupService } from './radar/04-socials/radar-social-lookup.service';
 import { RadarVendasSyncService } from './radar/05-delivery/radar-vendas-sync.service';
+import { RadarLeadPresenterService } from './radar/06-presentation/radar-lead-presenter.service';
 import { RadarRunPresenterService } from './radar/06-presentation/radar-run-presenter.service';
 import { RadarSearchRunConfigService } from './radar/01-search/radar-search-run-config.service';
 import { RadarDuplicateFilterService } from './radar/02-filter/radar-duplicate-filter.service';
@@ -48,6 +49,7 @@ const RADAR_DELIVERY_SERVICES = [
 ];
 
 const RADAR_PRESENTATION_SERVICES = [
+  RadarLeadPresenterService,
   RadarRunPresenterService,
 ];
 
