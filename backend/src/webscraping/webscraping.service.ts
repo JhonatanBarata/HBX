@@ -36,6 +36,7 @@ import { RadarSocialLookupService, type RadarSocialLookupHost } from './radar/04
 import { RadarVendasSyncService, type RadarVendasSyncHost } from './radar/05-delivery/radar-vendas-sync.service';
 import { RadarRunPresenterService, type RadarRunPresenterHost } from './radar/06-presentation/radar-run-presenter.service';
 import { RadarRunRepositoryService } from './radar/persistence/radar-run-repository.service';
+import { RadarSharedNormalizerService } from './radar/shared/radar-shared-normalizer.service';
 
 const PLACES_NEW_TEXT_SEARCH_URL = 'https://places.googleapis.com/v1/places:searchText';
 const PLACES_NEW_DETAILS_URL = 'https://places.googleapis.com/v1/places';
@@ -1847,6 +1848,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly radarSocialLookup?: RadarSocialLookupService,
     @Optional() private readonly radarRunPresenter?: RadarRunPresenterService,
     @Optional() private readonly radarVendasSync?: RadarVendasSyncService,
+    @Optional() private readonly radarSharedNormalizer?: RadarSharedNormalizerService,
   ) {}
 
   onModuleInit() {
@@ -1912,6 +1914,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
   private getRadarVendasSyncService() {
     return this.radarVendasSync || new RadarVendasSyncService(this.prisma, this.vendasService);
+  }
+
+  private getRadarSharedNormalizer() {
+    return this.radarSharedNormalizer || new RadarSharedNormalizerService();
   }
 
   private buildRadarSocialLookupHost(): RadarSocialLookupHost {
@@ -3066,25 +3072,15 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private isTerminalSearchRunStatus(status: string | null | undefined) {
-    return ['completed', 'partial_error', 'completed_insufficient_results', 'failed', 'canceled'].includes(
-      String(status || '').trim(),
-    );
+    return this.getRadarSharedNormalizer().isTerminalSearchRunStatus(status);
   }
 
   private normalizeSearchRunStatus(status: unknown): WebscrapingSearchRunStatus {
-    const normalized = String(status || '').trim();
-    if (['queued', 'running', 'sleeping', 'completed', 'partial_error', 'completed_insufficient_results', 'failed', 'canceled'].includes(normalized)) {
-      return normalized as WebscrapingSearchRunStatus;
-    }
-    return 'queued';
+    return this.getRadarSharedNormalizer().normalizeSearchRunStatus(status);
   }
 
   private normalizeRunItemStatus(status: unknown): WebscrapingSearchRunItemStatus {
-    const normalized = String(status || '').trim();
-    if (['found', 'duplicate', 'skipped', 'invalid'].includes(normalized)) {
-      return normalized as WebscrapingSearchRunItemStatus;
-    }
-    return 'found';
+    return this.getRadarSharedNormalizer().normalizeRunItemStatus(status);
   }
 
   private buildRadarActiveSearchSignature(filters: Partial<NormalizedRadarFilters | NormalizedSearchInput>) {
@@ -3749,14 +3745,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private parseMaybeJsonObject(value: unknown): Record<string, any> {
-    if (!value) return {};
-    if (typeof value === 'object' && !Array.isArray(value)) return value as Record<string, any>;
-    try {
-      const parsed = JSON.parse(String(value || '{}'));
-      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, any> : {};
-    } catch {
-      return {};
-    }
+    return this.getRadarSharedNormalizer().parseMaybeJsonObject(value);
   }
 
   private normalizeLeadQuality(value: unknown): LeadQualityResult | null {
@@ -6084,14 +6073,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private normalizeRadiusKm(value: unknown) {
-    const numeric = Number(value);
-    if (!Number.isFinite(numeric)) return 0;
-    return Math.min(Math.max(Math.trunc(numeric), 0), RADAR_REGION_MAX_RADIUS_KM);
+    return this.getRadarSharedNormalizer().normalizeRadiusKm(value, RADAR_REGION_MAX_RADIUS_KM);
   }
 
   private normalizeCoordinate(value: unknown) {
-    const numeric = Number(value);
-    return Number.isFinite(numeric) ? numeric : null;
+    return this.getRadarSharedNormalizer().normalizeCoordinate(value);
   }
 
   private haversineDistanceKm(lat1: number, lng1: number, lat2: number, lng2: number) {
@@ -6426,33 +6412,19 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private normalizeRadarChannel(value: unknown): RadarChannelFilter | null {
-    const normalized = normalizeLookupValue(String(value || ''));
-    if (!normalized) return null;
-    if (['whatsapp', 'zap', 'wpp'].includes(normalized)) return 'whatsapp';
-    if (['instagram', 'insta'].includes(normalized)) return 'instagram';
-    if (['email', 'e-mail', 'mail'].includes(normalized)) return 'email';
-    if (['website', 'site', 'web', 'www'].includes(normalized)) return 'website';
-    if (['phone', 'telefone', 'ligacao', 'call', 'celular'].includes(normalized)) return 'phone';
-    if (['facebook', 'face', 'fb'].includes(normalized)) return 'facebook';
-    return null;
+    return this.getRadarSharedNormalizer().normalizeRadarChannel(value);
   }
 
   private normalizeRadarChannels(value: unknown): RadarChannelFilter[] {
-    if (!Array.isArray(value)) return [];
-    return Array.from(new Set(value.map((item) => this.normalizeRadarChannel(item)).filter(Boolean) as RadarChannelFilter[])).slice(0, 6);
+    return this.getRadarSharedNormalizer().normalizeRadarChannels(value);
   }
 
   private normalizeChannelMatchMode(value: unknown): RadarChannelMatchMode {
-    const normalized = String(value || '').trim();
-    if (normalized === 'any_required' || normalized === 'all_required') return normalized;
-    return 'prefer';
+    return this.getRadarSharedNormalizer().normalizeChannelMatchMode(value);
   }
 
   private normalizeFreshness(value: unknown): 'live' | 'database_first' | 'hybrid' {
-    const normalized = String(value || '').trim();
-    if (normalized === 'live') return 'live';
-    if (normalized === 'database_first' || normalized === 'hybrid') return normalized;
-    return 'hybrid';
+    return this.getRadarSharedNormalizer().normalizeFreshness(value);
   }
 
   private buildChannelFiltersJson(_input: {
