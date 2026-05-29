@@ -9468,23 +9468,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private getRadarLimitPauseRetryDelayMs(reason?: string | null) {
-    const normalized = String(reason || '').toLowerCase();
-    if (normalized.includes('quota') || normalized.includes('card_limit') || normalized.includes('limite')) {
-      return Math.max(60_000, parsePositiveIntegerEnv('HBX_RADAR_CARD_LIMIT_PAUSE_RETRY_MS', 5 * 60_000));
-    }
-    return Math.max(5_000, parsePositiveIntegerEnv('HBX_RADAR_VENDAS_PAUSE_RETRY_MS', 15_000));
+    return this.getRadarVendasSyncService().getLimitPauseRetryDelayMs(reason);
   }
 
   private isSearchRunPausedByLimit(run: any) {
-    const status = this.normalizeSearchRunStatus(run?.status);
-    if (status !== 'sleeping') return false;
-    const metrics = parseJsonObject(run?.metricsJson);
-    const reason = String(run?.lastBatchStatus || metrics?.radarPauseReason || metrics?.autoImportBlockedReason || '').toLowerCase();
-    return reason.includes('vendas_stock_limit')
-      || reason.includes('vendas_card_limit')
-      || reason.includes('card_limit')
-      || reason.includes('quota')
-      || reason.includes('limit');
+    return this.getRadarVendasSyncService().isSearchRunPausedByLimit(
+      run,
+      (status) => this.normalizeSearchRunStatus(status),
+    );
   }
 
   private async getRadarCardQuotaRemaining(companyId: number, userId: number) {

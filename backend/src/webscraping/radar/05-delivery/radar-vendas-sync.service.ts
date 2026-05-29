@@ -34,6 +34,11 @@ function parseJsonObject(raw: unknown): Record<string, any> {
   }
 }
 
+function parsePositiveIntegerEnv(name: string, fallback: number) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? Math.trunc(value) : fallback;
+}
+
 @Injectable()
 export class RadarVendasSyncService {
   private readonly logger = new Logger(RadarVendasSyncService.name);
@@ -61,6 +66,26 @@ export class RadarVendasSyncService {
       || metrics?.targetStock,
     );
     return Math.max(0, explicitTarget || safeInteger(run?.targetQuantity));
+  }
+
+  getLimitPauseRetryDelayMs(reason?: string | null) {
+    const normalized = String(reason || '').toLowerCase();
+    if (normalized.includes('quota') || normalized.includes('card_limit') || normalized.includes('limite')) {
+      return Math.max(60_000, parsePositiveIntegerEnv('HBX_RADAR_CARD_LIMIT_PAUSE_RETRY_MS', 5 * 60_000));
+    }
+    return Math.max(5_000, parsePositiveIntegerEnv('HBX_RADAR_VENDAS_PAUSE_RETRY_MS', 15_000));
+  }
+
+  isSearchRunPausedByLimit(run: any, normalizeSearchRunStatus: (status: unknown) => string) {
+    const status = normalizeSearchRunStatus(run?.status);
+    if (status !== 'sleeping') return false;
+    const metrics = parseJsonObject(run?.metricsJson);
+    const reason = String(run?.lastBatchStatus || metrics?.radarPauseReason || metrics?.autoImportBlockedReason || '').toLowerCase();
+    return reason.includes('vendas_stock_limit')
+      || reason.includes('vendas_card_limit')
+      || reason.includes('card_limit')
+      || reason.includes('quota')
+      || reason.includes('limit');
   }
 
   summarizeAutoImportFailures(failures: Array<{ reason: string }>) {
