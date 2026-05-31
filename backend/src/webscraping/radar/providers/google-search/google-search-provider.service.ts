@@ -32,6 +32,10 @@ export class GoogleSearchProviderService {
     return this.getQueryBuilder().buildLeadDiscoveryRequests(input, queries, options);
   }
 
+  buildLeadDiscoveryQueries(input: NormalizedSearchInput) {
+    return this.getQueryBuilder().buildLeadDiscoveryQueries(input);
+  }
+
   buildSocialRequests(
     lead: { city?: string | null; state?: string | null; segment?: string | null },
     queries: RadarSocialLookupQuery[],

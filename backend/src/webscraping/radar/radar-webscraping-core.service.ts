@@ -47,10 +47,12 @@ import { RadarSearchRunConfigService } from './01-search/radar-search-run-config
 import { RadarSourceExpansionService } from './01-search/radar-source-expansion.service';
 import { RadarSearchStrategyService } from './01-search/radar-search-strategy.service';
 import { RadarSourcePlannerService } from './01-search/radar-source-planner.service';
+import { RadarInternalReprocessSourceService } from './01-search/radar-internal-reprocess-source.service';
 import { RadarDuplicateFilterService, type RadarDuplicateSortHost } from './02-filter/radar-duplicate-filter.service';
 import { RadarQualityGateService, type RadarQualityGateHost } from './02-filter/radar-quality-gate.service';
 import { RadarRunItemFilterService, type RadarRunItemFilterHost } from './02-filter/radar-run-item-filter.service';
 import { RadarScoreEnrichmentService, type RadarScoreEnrichmentHost } from './03-enrichment/radar-score-enrichment.service';
+import { GoogleSearchProviderService } from './providers/google-search/google-search-provider.service';
 import { RadarGoogleResponseService } from './providers/google-search/radar-google-response.service';
 import { RadarHbxEngineErrorsService } from './providers/hbx-engine/radar-hbx-engine-errors.service';
 import { RadarSharedNormalizerService } from './shared/radar-shared-normalizer.service';
@@ -235,10 +237,12 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
     @Optional() private readonly radarResultMerger?: RadarResultMergerService,
     @Optional() private readonly radarSearchOrchestrator?: RadarSearchOrchestratorService,
     @Optional() private readonly radarSearchRunConfig?: RadarSearchRunConfigService,
+    @Optional() private readonly radarInternalReprocessSource?: RadarInternalReprocessSourceService,
     @Optional() private readonly radarDuplicateFilter?: RadarDuplicateFilterService,
     @Optional() private readonly radarQualityGate?: RadarQualityGateService,
     @Optional() private readonly radarRunItemFilter?: RadarRunItemFilterService,
     @Optional() private readonly radarScoreEnrichment?: RadarScoreEnrichmentService,
+    @Optional() private readonly googleSearchProvider?: GoogleSearchProviderService,
     @Optional() private readonly radarGoogleResponse?: RadarGoogleResponseService,
     @Optional() private readonly radarHbxEngineErrors?: RadarHbxEngineErrorsService,
   ) {}
@@ -328,6 +332,10 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
     return this.radarSearchRunConfig || new RadarSearchRunConfigService();
   }
 
+  private getRadarInternalReprocessSource() {
+    return this.radarInternalReprocessSource || new RadarInternalReprocessSourceService();
+  }
+
   private getRadarSearchGeo() {
     return this.radarSearchGeo || new RadarSearchGeoService();
   }
@@ -374,6 +382,10 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
 
   private getRadarScoreEnrichment() {
     return this.radarScoreEnrichment || new RadarScoreEnrichmentService();
+  }
+
+  private getGoogleSearchProvider() {
+    return this.googleSearchProvider || new GoogleSearchProviderService();
   }
 
   private getRadarGoogleResponse() {

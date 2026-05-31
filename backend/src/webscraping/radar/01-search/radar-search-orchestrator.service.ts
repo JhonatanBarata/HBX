@@ -1,8 +1,14 @@
 import { Injectable, Optional } from '@nestjs/common';
 import type { NormalizedSearchInput } from '../shared/radar-types';
+import type { WebscrapingContactResult } from '../shared/radar-core-shared';
+import { buildRadarStageIssue } from '../shared/radar-stage-policy';
 import { RadarSourceExpansionService, type RadarSourceExpansionPlan } from './radar-source-expansion.service';
 import { RadarSourcePlannerService, type RadarSearchSourcePlanItem } from './radar-source-planner.service';
 import { RadarSearchStrategyService, type RadarSearchStrategy } from './radar-search-strategy.service';
+import type {
+  RadarLeadSourceKind,
+  RadarLeadSourceResult,
+} from './radar-lead-source.types';
 
 export type RadarSearchOrchestration = {
   strategy: RadarSearchStrategy;
@@ -11,7 +17,18 @@ export type RadarSearchOrchestration = {
   activeSources: string[];
   implementedSources: string[];
   pendingSources: string[];
+  diagnostics: RadarLeadSourceResult[];
 };
+
+function publicStrategyMode(mode: string) {
+  const aliases: Record<string, string> = {
+    fast: 'rapido',
+    quality: 'qualidade',
+    deep: 'profundo',
+    night_factory: 'fabrica_noturna',
+  };
+  return aliases[mode] || mode;
+}
 
 @Injectable()
 export class RadarSearchOrchestratorService {
@@ -56,6 +73,69 @@ export class RadarSearchOrchestratorService {
       activeSources: active.map((source) => source.source),
       implementedSources: active.filter((source) => source.implemented).map((source) => source.source),
       pendingSources: active.filter((source) => !source.implemented).map((source) => source.source),
+      diagnostics: active
+        .filter((source) => !source.implemented)
+        .map((source) => this.buildSkippedSourceResult(source.source, source.reason)),
+    };
+  }
+
+  buildSkippedSourceResult(source: RadarLeadSourceKind, reason: string): RadarLeadSourceResult {
+    return {
+      source,
+      status: 'skipped',
+      retryable: false,
+      foundCount: 0,
+      acceptedCount: 0,
+      rejectedCount: 0,
+      reason,
+      results: [],
+    };
+  }
+
+  buildOptionalSourceFailure(input: {
+    source: RadarLeadSourceKind;
+    stage?: 'provider_google' | 'search';
+    error: unknown;
+    foundCount?: number;
+    acceptedCount?: number;
+  }): RadarLeadSourceResult {
+    const issue = buildRadarStageIssue({
+      stage: input.stage || (input.source === 'google_textual' ? 'provider_google' : 'search'),
+      code: input.source === 'google_textual' ? 'google_textual_failed' : `${input.source}_failed`,
+      message: String((input.error as any)?.message || input.error || 'Fonte opcional falhou.'),
+      retryable: true,
+      blocksDelivery: false,
+    });
+    return {
+      source: input.source,
+      status: 'partial_error',
+      retryable: true,
+      foundCount: input.foundCount || 0,
+      acceptedCount: input.acceptedCount || 0,
+      rejectedCount: 0,
+      reason: issue.message,
+      results: [],
+      issue,
+    };
+  }
+
+  buildCompletedSourceResult(input: {
+    source: RadarLeadSourceKind;
+    results: WebscrapingContactResult[];
+    foundCount?: number;
+    rejectedCount?: number;
+    reason?: string;
+  }): RadarLeadSourceResult {
+    const results = Array.isArray(input.results) ? input.results : [];
+    return {
+      source: input.source,
+      status: 'completed',
+      retryable: false,
+      foundCount: input.foundCount ?? results.length,
+      acceptedCount: results.length,
+      rejectedCount: input.rejectedCount || 0,
+      reason: input.reason || (results.length ? 'fonte_complementar_executada' : 'fonte_sem_resultado'),
+      results,
     };
   }
 
@@ -66,7 +146,7 @@ export class RadarSearchOrchestratorService {
     const orchestration = this.plan(input, context);
     return {
       searchStrategy: {
-        mode: orchestration.strategy.mode,
+        mode: publicStrategyMode(orchestration.strategy.mode),
         reason: orchestration.strategy.reason,
         targetCards: orchestration.strategy.targetCards,
         maxProviderRounds: orchestration.strategy.maxProviderRounds,
@@ -80,6 +160,16 @@ export class RadarSearchOrchestratorService {
       activeSources: orchestration.activeSources,
       pendingSources: orchestration.pendingSources,
       sourceExpansion: orchestration.expansion,
+      sourceDiagnostics: orchestration.diagnostics.map((diagnostic) => ({
+        source: diagnostic.source,
+        status: diagnostic.status,
+        retryable: diagnostic.retryable,
+        foundCount: diagnostic.foundCount,
+        acceptedCount: diagnostic.acceptedCount,
+        rejectedCount: diagnostic.rejectedCount,
+        reason: diagnostic.reason,
+        issue: diagnostic.issue || null,
+      })),
       ...(meta || {}),
     };
   }
