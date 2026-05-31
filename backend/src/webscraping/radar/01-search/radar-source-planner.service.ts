@@ -28,14 +28,17 @@ export class RadarSourcePlannerService {
       reprocess_missing_social: input.targetType === 'pj',
       reprocess_old_cards: input.targetType === 'pj',
       website_crawl_light: strategy.allowLightCrawl,
+      cnpj_public: input.targetType === 'pj' && (strategy.mode === 'deep' || strategy.mode === 'night_factory'),
+      local_directory: input.targetType === 'pj' && (strategy.mode === 'deep' || strategy.mode === 'night_factory'),
+      vertical_source: input.targetType === 'pj' && (strategy.mode === 'deep' || strategy.mode === 'night_factory'),
       local_directories_stub: strategy.mode === 'deep',
       cnpj_public_stub: strategy.mode === 'deep' || strategy.mode === 'night_factory',
     };
     const byStrategy: Record<string, RadarLeadSourceKind[]> = {
       fast: ['radar_database', 'company_history', 'global_cache', 'hbx_engine'],
       quality: ['radar_database', 'hbx_engine', 'google_textual', 'reprocess_missing_social'],
-      deep: ['hbx_engine', 'google_textual', 'website_crawl_light', 'local_directories_stub', 'cnpj_public_stub'],
-      night_factory: ['reprocess_old_cards', 'reprocess_missing_social', 'google_textual', 'website_crawl_light', 'cnpj_public_stub'],
+      deep: ['hbx_engine', 'google_textual', 'website_crawl_light', 'cnpj_public', 'local_directory', 'vertical_source'],
+      night_factory: ['reprocess_old_cards', 'reprocess_missing_social', 'google_textual', 'website_crawl_light', 'cnpj_public', 'local_directory', 'vertical_source'],
     };
     const implemented = new Set<RadarLeadSourceKind>([
       'radar_database',
@@ -46,6 +49,9 @@ export class RadarSourcePlannerService {
       'reprocess_missing_social',
       'reprocess_old_cards',
       'website_crawl_light',
+      'cnpj_public',
+      'local_directory',
+      'vertical_source',
     ]);
     return (byStrategy[strategy.mode] || byStrategy.fast).map((source, index) => ({
       source,
@@ -68,6 +74,9 @@ export class RadarSourcePlannerService {
       reprocess_missing_social: 'reprocessa_cards_sem_social_ou_com_status_fraco',
       reprocess_old_cards: 'reprocessa_cards_antigos_do_radar',
       website_crawl_light: 'crawl_leve_de_website_oficial_como_complemento_opcional',
+      cnpj_public: 'base_publica_cnpj_como_descoberta_opcional_sem_inventar_contato',
+      local_directory: 'diretorios_locais_como_descoberta_opcional_de_baixa_confianca',
+      vertical_source: 'fontes_verticais_por_segmento_como_descoberta_opcional_sem_confirmar_contato_sozinha',
       local_directories_stub: 'stub_explicito_diretorios_nao_sao_fonte_de_verdade',
       cnpj_public_stub: 'stub_explicito_base_cnpj_ainda_nao_executa',
     };

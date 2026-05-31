@@ -31,6 +31,14 @@ export type WebsiteCrawlExtractedFields = {
   cnpjs: string[];
   address: string | null;
   contactLinks: string[];
+  formLinks: string[];
+  budgetLinks: string[];
+  chatLinks: string[];
+  hasContactForm: boolean;
+  hasBudgetIntent: boolean;
+  hasChatWidget: boolean;
+  opportunitySignals: string[];
+  siteIssues: string[];
 };
 
 export type WebsiteCrawlEvidence = {

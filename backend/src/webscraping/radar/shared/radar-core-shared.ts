@@ -759,6 +759,9 @@ export type WebscrapingSearchResponse = {
     activeSources?: string[];
     pendingSources?: string[];
     sourceDiagnostics?: Array<Record<string, any>>;
+    radarStageIssues?: Array<Record<string, any>>;
+    nonBlockingIssues?: Array<Record<string, any>>;
+    deliveryBlockers?: Array<Record<string, any>>;
   };
   results: Array<Omit<WebscrapingContactResult, 'placeId'>>;
 };
@@ -820,6 +823,8 @@ export type WebscrapingSearchRunResponse = {
     facebookUrl?: string | null;
     email?: string | null;
     emailStatus?: string | null;
+    deliveryStatus?: string | null;
+    enrichmentStatus?: string | null;
     socialStatus?: string | null;
     socialConfidence?: number | null;
     googleMapsUrl?: string | null;
@@ -838,6 +843,9 @@ export type WebscrapingSearchRunResponse = {
     source: string | null;
     status: WebscrapingSearchRunItemStatus;
     duplicateReason: string | null;
+    sourceDiagnostics?: Array<Record<string, any>>;
+    nonBlockingIssues?: Array<Record<string, any>>;
+    deliveryBlockers?: Array<Record<string, any>>;
     createdAt: string;
   }>;
   results: Array<Omit<WebscrapingContactResult, 'placeId'>>;

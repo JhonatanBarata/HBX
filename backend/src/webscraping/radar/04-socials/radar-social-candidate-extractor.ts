@@ -30,6 +30,18 @@ function collectValues(value: unknown, output: unknown[] = [], depth = 0) {
   return output;
 }
 
+function socialUrlRegex(network: RadarSocialNetwork) {
+  return network === 'instagram'
+    ? /https?:\/\/(?:www\.)?instagram\.com\/[A-Za-z0-9._-]+\/?/gi
+    : /https?:\/\/(?:www\.)?(?:facebook|fb)\.com\/[A-Za-z0-9._-]+\/?/gi;
+}
+
+function collectTextUrls(value: unknown, network: RadarSocialNetwork) {
+  const text = String(value || '');
+  if (!text) return [];
+  return Array.from(text.matchAll(socialUrlRegex(network))).map((match) => match[0]);
+}
+
 function resultText(result: any) {
   return [
     result?.name,
@@ -54,6 +66,7 @@ export class RadarSocialCandidateExtractor {
       'sourceUrl',
       'url',
       'website',
+      'canonicalUrl',
       'socialUrl',
       'socialProfileUrl',
       'profileUrl',
@@ -65,15 +78,27 @@ export class RadarSocialCandidateExtractor {
       'snippet',
       'description',
       'rawJson',
+      'signals',
+      'sourceEvidence',
+      'fieldEvidence',
+      'evidenceJson',
+      'enrichmentJson',
+      'socialLinks',
+      'contactLinks',
     ];
     const values = [
       ...directKeys.map((key) => result?.[key]),
       ...genericKeys.map((key) => result?.[key]),
+      ...genericKeys.flatMap((key) => collectValues(result?.[key])),
       ...collectValues(rawPayload),
+    ];
+    const expandedValues = [
+      ...values,
+      ...values.flatMap((value) => collectTextUrls(value, network)),
     ];
     const candidates: RadarSocialCandidate[] = [];
     const seen = new Set<string>();
-    for (const value of values) {
+    for (const value of expandedValues) {
       const url = host.normalizeRadarSocialUrl(value, network) || host.pickRadarSocialUrl({ value }, network);
       if (!url || seen.has(url)) continue;
       seen.add(url);
@@ -83,6 +108,7 @@ export class RadarSocialCandidateExtractor {
         source: 'hbx_result',
         result,
         rawText: resultText(result),
+        sourceField: typeof value === 'string' ? 'text_or_url' : 'structured_value',
       });
     }
     const picked = host.pickRadarSocialUrl(result, network);
@@ -93,6 +119,7 @@ export class RadarSocialCandidateExtractor {
         source: 'picked',
         result,
         rawText: resultText(result),
+        sourceField: 'direct_pick',
       });
     }
     return candidates;

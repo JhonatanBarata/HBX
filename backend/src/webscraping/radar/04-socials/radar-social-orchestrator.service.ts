@@ -101,6 +101,8 @@ export class RadarSocialOrchestratorService {
     const attemptedQueries: string[] = [];
     const rejectedReasons: string[] = [];
     const reviewCandidates: RadarSocialCandidateScore[] = [];
+    const acceptedCandidates: RadarSocialCandidateScore[] = [];
+    const rejectedCandidates: RadarSocialCandidateScore[] = [];
     let engineFailed = false;
     let bestInstagram = existingInstagram || null;
     let bestFacebook = existingFacebook || null;
@@ -142,8 +144,14 @@ export class RadarSocialOrchestratorService {
             continue;
           }
           for (const candidate of candidates) {
-            const scored = this.scorer.score(baseLead, candidate);
+            const scored = {
+              ...this.scorer.score(baseLead, candidate),
+              query: entry.query,
+              layer: entry.layer,
+              source: candidate.source,
+            };
             if (scored.accepted && scored.url) {
+              acceptedCandidates.push(scored);
               if (entry.network === 'instagram') bestInstagram = scored.url;
               else bestFacebook = scored.url;
               bestConfidence = Math.max(bestConfidence, scored.confidence);
@@ -153,6 +161,7 @@ export class RadarSocialOrchestratorService {
               reviewCandidates.push(scored);
               bestConfidence = Math.max(bestConfidence, scored.confidence);
             } else {
+              rejectedCandidates.push(scored);
               rejectedReasons.push(`${entry.network}:${scored.reason}`);
             }
           }
@@ -196,6 +205,8 @@ export class RadarSocialOrchestratorService {
       queries: attemptedQueries,
       reason,
       candidates: reviewCandidates.sort((a, b) => b.confidence - a.confidence).slice(0, 5),
+      acceptedCandidates: acceptedCandidates.sort((a, b) => b.confidence - a.confidence).slice(0, 5),
+      rejectedCandidates: rejectedCandidates.sort((a, b) => b.confidence - a.confidence).slice(0, 10),
     };
     await input.writer.writeResult(input.context, input.leadId, item, baseLead, raw, result);
     this.logger.log(`[radar-social] lead=${input.leadId} status=${status} confidence=${confidence} queries=${attemptedQueries.join(' | ')} reason=${reason}`);

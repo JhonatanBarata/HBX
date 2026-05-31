@@ -2993,6 +2993,9 @@ test('Radar Quality Gate separa qualidade minima de enriquecimento social', () =
 
   assert.equal(gate.deliverable, true);
   assert.equal(gate.blocksDelivery, false);
+  assert.equal(gate.qualityDecision, 'deliver_with_pending_enrichment');
+  assert.equal(gate.weakSignals.includes('social_missing'), true);
+  assert.equal(gate.positiveSignals.includes('phone_valid'), true);
   assert.equal(gate.missing.includes('minimum_contact'), false);
   assert.equal(service.isListDeliverableCard(leadSemSocial, input), true);
 });
@@ -3030,7 +3033,123 @@ test('Radar Quality Gate permite telefone valido com social pendente ou erro', (
 
     assert.equal(gate.deliverable, true, socialStatus);
     assert.equal(gate.blocksDelivery, false, socialStatus);
+    assert.equal(gate.qualityDecision, 'deliver_with_pending_enrichment', socialStatus);
+    assert.equal(gate.hardBlockers.length, 0, socialStatus);
   }
+});
+
+test('Radar Quality Gate 2.0 entrega lead forte com sinais positivos', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const input = service.normalizeSearchInput({
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'pizzarias',
+    quantity: 1,
+    engine: 'hbx',
+    targetType: 'pj',
+    qualityMode: 'list',
+  });
+  const lead = {
+    name: 'Pizzaria Avenida',
+    phone: '(19) 99999-0001',
+    phoneDigits: '19999990001',
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'pizzarias',
+    website: 'https://pizzariaavenida.com.br',
+    instagramUrl: 'https://instagram.com/pizzariaavenida',
+    socialStatus: 'found',
+    email: 'contato@pizzariaavenida.com.br',
+    emailStatus: 'confirmed',
+    whatsappStatus: 'confirmed',
+    address: 'Rua Um, 123 - Rio Claro',
+    sourceEngines: ['hbx_engine', 'website_crawl_light'],
+    score: 88,
+  };
+  const gate = service.getRadarQualityGate().evaluate({
+    candidate: lead,
+    filters: input,
+    quality: service.getCandidateQuality(lead, input),
+    qualityV2: service.getCandidateQualityV2(lead, input),
+    host: service.buildRadarQualityGateHost(),
+  });
+
+  assert.equal(gate.deliverable, true);
+  assert.equal(gate.qualityDecision, 'deliver');
+  assert.equal(gate.positiveSignals.includes('whatsapp_confirmed'), true);
+  assert.equal(gate.positiveSignals.includes('social_confirmed'), true);
+  assert.equal(gate.positiveSignals.includes('multi_source_evidence'), true);
+  assert.equal(gate.hardBlockers.length, 0);
+});
+
+test('Radar Quality Gate 2.0 bloqueia telefone invalido quando canal principal exige telefone', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const input = service.normalizeSearchInput({
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'pizzarias',
+    quantity: 1,
+    engine: 'hbx',
+    targetType: 'pj',
+    qualityMode: 'list',
+  });
+  const filters = { ...input, requiredChannels: ['whatsapp'] };
+  const lead = {
+    name: 'Pizzaria Telefone Ruim',
+    phone: '123',
+    phoneDigits: '123',
+    website: 'https://pizzariatelefoneruim.com.br',
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'pizzarias',
+    score: 80,
+  };
+  const gate = service.getRadarQualityGate().evaluate({
+    candidate: lead,
+    filters,
+    quality: service.getCandidateQuality(lead, filters),
+    qualityV2: service.getCandidateQualityV2(lead, filters),
+    host: service.buildRadarQualityGateHost(),
+  });
+
+  assert.equal(gate.deliverable, false);
+  assert.equal(gate.blocksDelivery, true);
+  assert.equal(gate.qualityDecision, 'reject');
+  assert.equal(gate.hardBlockers.includes('invalid_primary_phone'), true);
+});
+
+test('Radar Quality Gate 2.0 sinaliza review quando revisao manual e explicita', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const input = service.normalizeSearchInput({
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'pizzarias',
+    quantity: 1,
+    engine: 'hbx',
+    targetType: 'pj',
+    qualityMode: 'list',
+  });
+  const lead = {
+    name: 'Pizzaria Revisao',
+    phone: '(19) 99999-0001',
+    phoneDigits: '19999990001',
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'pizzarias',
+    score: 80,
+    manualReviewRequired: true,
+  };
+  const gate = service.getRadarQualityGate().evaluate({
+    candidate: lead,
+    filters: input,
+    quality: service.getCandidateQuality(lead, input),
+    qualityV2: service.getCandidateQualityV2(lead, input),
+    host: service.buildRadarQualityGateHost(),
+  });
+
+  assert.equal(gate.deliverable, false);
+  assert.equal(gate.qualityDecision, 'review');
+  assert.equal(gate.hardBlockers.includes('manual_review_required'), true);
 });
 
 test('Radar Quality Gate bloqueia falta de contato minimo e diretorio generico', () => {

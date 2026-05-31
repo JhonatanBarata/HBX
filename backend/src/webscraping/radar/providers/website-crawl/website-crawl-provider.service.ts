@@ -29,6 +29,14 @@ function emptyFields(): WebsiteCrawlExtractedFields {
     cnpjs: [],
     address: null,
     contactLinks: [],
+    formLinks: [],
+    budgetLinks: [],
+    chatLinks: [],
+    hasContactForm: false,
+    hasBudgetIntent: false,
+    hasChatWidget: false,
+    opportunitySignals: [],
+    siteIssues: [],
   };
 }
 
@@ -43,7 +51,15 @@ function mergeFields(target: WebsiteCrawlExtractedFields, incoming: WebsiteCrawl
   target.emails = unique([...target.emails, ...incoming.emails]);
   target.cnpjs = unique([...target.cnpjs, ...incoming.cnpjs]);
   target.contactLinks = unique([...target.contactLinks, ...incoming.contactLinks]);
+  target.formLinks = unique([...target.formLinks, ...incoming.formLinks]);
+  target.budgetLinks = unique([...target.budgetLinks, ...incoming.budgetLinks]);
+  target.chatLinks = unique([...target.chatLinks, ...incoming.chatLinks]);
+  target.opportunitySignals = unique([...target.opportunitySignals, ...incoming.opportunitySignals]);
+  target.siteIssues = unique([...target.siteIssues, ...incoming.siteIssues]);
   target.address = target.address || incoming.address || null;
+  target.hasContactForm = target.hasContactForm || incoming.hasContactForm;
+  target.hasBudgetIntent = target.hasBudgetIntent || incoming.hasBudgetIntent;
+  target.hasChatWidget = target.hasChatWidget || incoming.hasChatWidget;
 }
 
 function countFields(fields: WebsiteCrawlExtractedFields) {
@@ -53,6 +69,9 @@ function countFields(fields: WebsiteCrawlExtractedFields) {
     + fields.facebookUrls.length
     + fields.emails.length
     + fields.cnpjs.length
+    + fields.formLinks.length
+    + fields.budgetLinks.length
+    + fields.chatLinks.length
     + (fields.address ? 1 : 0);
 }
 

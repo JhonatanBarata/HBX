@@ -19,6 +19,19 @@ function firstValue(values: string[]) {
   return values.find((value) => String(value || '').trim()) || null;
 }
 
+function mergeUnique(...groups: Array<string[] | undefined>) {
+  return Array.from(new Set(groups.flatMap((group) => group || []).map((value) => String(value || '').trim()).filter(Boolean)));
+}
+
+function buildOpportunityReason(signals: string[]) {
+  if (signals.includes('site_sem_whatsapp_claro')) return 'Site sem WhatsApp claro para atendimento.';
+  if (signals.includes('telefone_fixo_sem_canal_digital')) return 'Site prioriza telefone fixo e tem canal digital fraco.';
+  if (signals.includes('social_sem_link_atendimento')) return 'Site tem social, mas nao deixa atendimento claro.';
+  if (signals.includes('site_sem_formulario')) return 'Site sem formulario de contato detectado.';
+  if (signals.includes('site_com_link_orcamento')) return 'Site tem sinal de orcamento/agendamento.';
+  return null;
+}
+
 function sourceIssue(message: string) {
   return buildRadarStageIssue({
     stage: 'site',
@@ -123,6 +136,19 @@ export class RadarWebsiteCrawlSourceService {
     if (!crawl.fields || crawl.foundCount <= 0) return null;
     const phoneDigits = candidate.phoneDigits || firstValue(crawl.fields.phoneDigits) || '';
     const phone = candidate.phone || firstValue(crawl.fields.phones) || phoneDigits;
+    const opportunitySignals = mergeUnique((candidate as any).opportunitySignals, crawl.fields.opportunitySignals);
+    const websiteIntelligence = {
+      source: 'website_crawl_light',
+      hasContactForm: crawl.fields.hasContactForm,
+      hasBudgetIntent: crawl.fields.hasBudgetIntent,
+      hasChatWidget: crawl.fields.hasChatWidget,
+      formLinks: crawl.fields.formLinks,
+      budgetLinks: crawl.fields.budgetLinks,
+      chatLinks: crawl.fields.chatLinks,
+      siteIssues: crawl.fields.siteIssues,
+      opportunitySignals,
+    };
+    const opportunityReason = (candidate as any).opportunityReason || buildOpportunityReason(opportunitySignals);
     return {
       ...candidate,
       placeId: candidate.placeId || `website_crawl_light:${candidate.website}`,
@@ -136,12 +162,20 @@ export class RadarWebsiteCrawlSourceService {
       cnpj: (candidate as any).cnpj || firstValue(crawl.fields.cnpjs),
       whatsappStatus: (candidate as any).whatsappStatus || (crawl.fields.whatsappPhoneDigits.length || crawl.fields.whatsappUrls.length ? 'unverified' : undefined),
       whatsappUrl: (candidate as any).whatsappUrl || firstValue(crawl.fields.whatsappUrls),
+      opportunitySignals,
+      opportunityReason,
+      websiteIntelligence: {
+        ...((candidate as any).websiteIntelligence || {}),
+        ...websiteIntelligence,
+      },
+      recommendedChannel: (candidate as any).recommendedChannel || (crawl.fields.whatsappUrls.length ? 'whatsapp' : crawl.fields.emails.length ? 'email' : undefined),
       source: 'website_crawl_light',
       sourceEngine: 'website_crawl_light',
       evidenceJson: {
         ...((typeof candidate.evidenceJson === 'object' && candidate.evidenceJson) ? candidate.evidenceJson : {}),
         websiteCrawlLight: crawl.evidence,
         extractedFields: crawl.fields,
+        websiteIntelligence,
       },
     } as any;
   }

@@ -82,10 +82,17 @@ export function shouldRadarIssueBlockDelivery(input: {
 
 export function buildRadarStageIssue(input: {
   stage: RadarPipelineStage | string;
+  operation?: string | null;
+  source?: string | null;
+  status?: string | null;
   code: RadarErrorCode;
   message?: string | null;
+  reason?: string | null;
   retryable?: boolean | null;
   blocksDelivery?: boolean | null;
+  traceId?: string | null;
+  runId?: string | null;
+  leadId?: string | null;
   at?: Date | string | null;
 }): RadarStageIssue {
   const code = normalizeRadarErrorCode(input.code) || 'unknown';
@@ -101,10 +108,17 @@ export function buildRadarStageIssue(input: {
 
   return {
     stage: String(stage || 'delivery') as RadarPipelineStage,
+    operation: String(input.operation || '').trim() || null,
+    source: String(input.source || '').trim() || null,
+    status: String(input.status || '').trim() || null,
     code,
     message: String(input.message || code || 'Radar stage issue.').trim(),
+    reason: String(input.reason || input.message || code || '').trim() || null,
     blocksDelivery,
     retryable: input.retryable !== false && !blocksDelivery,
+    traceId: String(input.traceId || '').trim() || null,
+    runId: String(input.runId || '').trim() || null,
+    leadId: String(input.leadId || '').trim() || null,
     at,
   };
 }

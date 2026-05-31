@@ -1,22 +1,16 @@
 import { Injectable } from '@nestjs/common';
+import {
+  RadarEnrichmentJobPipelineService,
+  type RadarAsyncEnrichmentJob,
+  type RadarAsyncEnrichmentJobType,
+} from '../03-enrichment/radar-enrichment-job-pipeline.service';
 import { buildRadarStageIssue } from '../shared/radar-stage-policy';
 import { buildRadarStageSnapshot } from '../shared/radar-stage-result';
 import type { RadarPipelineStage, RadarStageIssue } from '../shared/radar-stage.types';
 
-export type RadarPostDeliveryJobType =
-  | 'social'
-  | 'email'
-  | 'whatsapp'
-  | 'site'
-  | 'score_update'
-  | 'post_delivery_update';
+export type RadarPostDeliveryJobType = RadarAsyncEnrichmentJobType;
 
-export type RadarPostDeliveryJob = {
-  type: RadarPostDeliveryJobType;
-  status: 'pending' | 'scheduled' | 'completed' | 'retryable' | 'skipped';
-  retryable: boolean;
-  scheduledAt: string;
-};
+export type RadarPostDeliveryJob = RadarAsyncEnrichmentJob;
 
 export type RadarPostDeliveryUpdateState = {
   status: 'scheduled' | 'completed' | 'retryable';
@@ -25,6 +19,7 @@ export type RadarPostDeliveryUpdateState = {
   completedAt?: string;
   updatedAt: string;
   jobs: RadarPostDeliveryJob[];
+  asyncEnrichmentJobs?: RadarPostDeliveryJob[];
   lastError?: {
     stage: string;
     message: string;
@@ -44,20 +39,16 @@ function normalizeObject(raw: unknown): Record<string, any> {
 
 @Injectable()
 export class RadarPostDeliveryUpdateService {
+  constructor(private readonly jobPipeline = new RadarEnrichmentJobPipelineService()) {}
+
   buildPendingJobs(input: {
     now?: Date | string | null;
     include?: RadarPostDeliveryJobType[];
   } = {}): RadarPostDeliveryJob[] {
-    const scheduledAt = toIsoString(input.now);
     const include: RadarPostDeliveryJobType[] = Array.isArray(input.include) && input.include.length
       ? input.include
-      : ['social', 'email', 'whatsapp', 'site', 'score_update', 'post_delivery_update'];
-    return include.map((type) => ({
-      type,
-      status: 'scheduled',
-      retryable: true,
-      scheduledAt,
-    }));
+      : this.jobPipeline.defaultPostDeliveryJobTypes();
+    return this.jobPipeline.buildJobs({ types: include, status: 'queued', now: input.now });
   }
 
   buildScheduledState(input: {
@@ -72,6 +63,7 @@ export class RadarPostDeliveryUpdateService {
       scheduledAt: now,
       updatedAt: now,
       jobs,
+      asyncEnrichmentJobs: jobs,
     };
   }
 
@@ -85,7 +77,8 @@ export class RadarPostDeliveryUpdateService {
       retryable: false,
       completedAt: updatedAt,
       updatedAt,
-      jobs: jobs.map((job: RadarPostDeliveryJob) => ({ ...job, status: 'completed', retryable: false })),
+      jobs: jobs.map((job: RadarPostDeliveryJob) => ({ ...job, status: 'completed', retryable: false, finishedAt: updatedAt, updatedAt })),
+      asyncEnrichmentJobs: jobs.map((job: RadarPostDeliveryJob) => ({ ...job, status: 'completed', retryable: false, finishedAt: updatedAt, updatedAt })),
     };
   }
 
@@ -99,16 +92,21 @@ export class RadarPostDeliveryUpdateService {
     const updatedAt = toIsoString(input.now);
     const jobs = Array.isArray(current.jobs) ? current.jobs : this.buildPendingJobs({ now: updatedAt });
     const stage = String(input.stage || 'post_delivery_update');
+    const failedType = this.jobPipeline.mapStageToJobType(stage);
+    const nextJobs = this.jobPipeline.markJob({
+      jobs,
+      type: failedType,
+      status: 'partial_error',
+      error: input.error,
+      now: updatedAt,
+    });
     return {
       ...current,
       status: 'retryable',
       retryable: true,
       updatedAt,
-      jobs: jobs.map((job: RadarPostDeliveryJob) => (
-        job.type === stage || (stage === 'enrichment' && job.type === 'post_delivery_update')
-          ? { ...job, status: 'retryable', retryable: true }
-          : job
-      )),
+      jobs: nextJobs,
+      asyncEnrichmentJobs: nextJobs,
       lastError: {
         stage,
         message: String((input.error as any)?.message || input.error || 'Falha pos-entrega.'),
@@ -125,8 +123,12 @@ export class RadarPostDeliveryUpdateService {
     const stage = String(input.stage || 'post_delivery_update');
     return buildRadarStageIssue({
       stage,
+      operation: 'post_delivery_update',
+      source: stage,
+      status: 'partial_error',
       code: stage === 'social' ? 'social_lookup_failed' : `${stage}_failed`,
       message: String((input.error as any)?.message || input.error || 'Falha pos-entrega.'),
+      reason: String((input.error as any)?.message || input.error || 'Falha pos-entrega.'),
       retryable: true,
       blocksDelivery: false,
       at: input.now || null,
@@ -150,6 +152,12 @@ export class RadarPostDeliveryUpdateService {
     });
     return {
       ...raw,
+      ...this.jobPipeline.withJobStatus(raw, {
+        type: this.jobPipeline.mapStageToJobType(input.stage),
+        status: 'partial_error',
+        error: input.error,
+        now: input.now,
+      }),
       ...buildRadarStageSnapshot({
         ...raw,
         leadStatus: raw.leadStatus || 'qualified',

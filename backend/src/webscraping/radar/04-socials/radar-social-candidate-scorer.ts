@@ -56,9 +56,13 @@ export class RadarSocialCandidateScorer {
     ].filter(Boolean).join(' '));
     const evidenceCompact = compact(evidence);
     const leadName = normalizeLookupValue(lead?.name || lead?.companyName || '');
+    const legalName = normalizeLookupValue(lead?.legalName || lead?.razaoSocial || lead?.companyLegalName || '');
+    const leadSegment = normalizeLookupValue(lead?.segment || lead?.businessCategory || lead?.category || '');
     const leadTokens = tokens(leadName);
+    const legalTokens = tokens(legalName);
+    const segmentTokens = tokens(leadSegment);
     const strongTokens = leadTokens.filter((token) => token.length >= 4 && !RADAR_SOCIAL_CATEGORY_TOKENS.has(token));
-    const categoryTokens = leadTokens.filter((token) => RADAR_SOCIAL_CATEGORY_TOKENS.has(token));
+    const categoryTokens = [...leadTokens, ...segmentTokens].filter((token) => RADAR_SOCIAL_CATEGORY_TOKENS.has(token));
     const leadCity = normalizeLookupValue(lead?.city || '');
     const leadState = String(lead?.state || '').trim().toUpperCase();
     const resultCity = normalizeLookupValue(candidate.result?.city || '');
@@ -92,13 +96,22 @@ export class RadarSocialCandidateScorer {
         score += 35;
         reasons.push('nome');
       } else if (hits.length === 1) {
-        score += 35;
+        score += 25;
         reasons.push('nome');
       }
+    }
+    const legalHits = legalTokens.filter((token) => token.length >= 5 && !RADAR_SOCIAL_CATEGORY_TOKENS.has(token) && (handle.includes(compact(token)) || evidence.includes(token)));
+    if (legalHits.length >= 1 && !reasons.includes('nome')) {
+      score += 25;
+      reasons.push('razao_social');
     }
     if (leadCity && (evidence.includes(leadCity) || handle.includes(compact(leadCity)))) {
       score += 25;
       reasons.push('cidade');
+    }
+    if (leadState && evidence.includes(normalizeLookupValue(leadState))) {
+      score += 5;
+      reasons.push('uf');
     }
     if (leadPhone.length >= 10 && evidence.replace(/\D/g, '').includes(leadPhone)) {
       score += 20;
@@ -127,10 +140,10 @@ export class RadarSocialCandidateScorer {
 
     const confidence = Math.max(0, Math.min(100, score));
     if (confidence >= 75) {
-      return { accepted: true, status: 'confirmed', confidence, reason: reasons.join('+') || 'perfil_confirmado', url, network: candidate.network };
+      return { accepted: true, status: 'confirmed', confidence, reason: reasons.join('+') || 'perfil_confirmado', url, network: candidate.network, source: candidate.source };
     }
     if (confidence >= 60) {
-      return { accepted: false, status: 'candidate_review', confidence, reason: reasons.join('+') || 'revisao_manual', url, network: candidate.network };
+      return { accepted: false, status: 'candidate_review', confidence, reason: reasons.join('+') || 'revisao_manual', url, network: candidate.network, source: candidate.source };
     }
     return this.rejected(candidate, confidence, reasons.join('+') || 'confianca_baixa');
   }
@@ -143,6 +156,7 @@ export class RadarSocialCandidateScorer {
       reason,
       url: candidate.url,
       network: candidate.network,
+      source: candidate.source,
     };
   }
 }

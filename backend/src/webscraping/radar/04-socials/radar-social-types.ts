@@ -23,14 +23,18 @@ export type RadarSocialLookupJob = {
 
 export type RadarSocialQueryLayer =
   | 'brand_city'
+  | 'brand_city_state'
+  | 'brand_city_segment'
   | 'legal_name_city'
   | 'phone_masked'
   | 'phone_digits'
   | 'domain'
+  | 'domain_site_operator'
   | 'site_operator'
   | 'whatsapp_intent'
   | 'address_city'
-  | 'probable_handle';
+  | 'probable_handle'
+  | 'simplified_name';
 
 export type RadarSocialLookupQuery = {
   network: RadarSocialNetwork;
@@ -44,6 +48,7 @@ export type RadarSocialCandidate = {
   source: string;
   result: any;
   rawText: string;
+  sourceField?: string | null;
 };
 
 export type RadarSocialCandidateScore = {
@@ -53,6 +58,9 @@ export type RadarSocialCandidateScore = {
   reason: string;
   url: string | null;
   network: RadarSocialNetwork;
+  source?: string | null;
+  query?: string | null;
+  layer?: RadarSocialQueryLayer | null;
 };
 
 export type RadarSocialLookupResult = {
@@ -63,4 +71,6 @@ export type RadarSocialLookupResult = {
   queries: string[];
   reason: string;
   candidates?: RadarSocialCandidateScore[];
+  acceptedCandidates?: RadarSocialCandidateScore[];
+  rejectedCandidates?: RadarSocialCandidateScore[];
 };

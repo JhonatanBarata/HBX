@@ -3,14 +3,20 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { RadarResultMergerService } from './radar/01-search/radar-result-merger.service';
+import { RadarCnpjPublicSourceService } from './radar/01-search/radar-cnpj-public-source.service';
 import { RadarInternalReprocessSourceService } from './radar/01-search/radar-internal-reprocess-source.service';
+import { RadarLocalDirectorySourceService } from './radar/01-search/radar-local-directory-source.service';
 import { RadarSourceExecutorService } from './radar/01-search/radar-source-executor.service';
+import { RadarVerticalSourceService } from './radar/01-search/radar-vertical-source.service';
 import { RadarWebsiteCrawlSourceService } from './radar/01-search/radar-website-crawl-source.service';
 import { RadarSearchOrchestratorService } from './radar/01-search/radar-search-orchestrator.service';
 import { RadarSourceExpansionService } from './radar/01-search/radar-source-expansion.service';
 import { RadarSearchStrategyService } from './radar/01-search/radar-search-strategy.service';
 import { RadarSourcePlannerService } from './radar/01-search/radar-source-planner.service';
 import { GoogleSearchProviderService } from './radar/providers/google-search/google-search-provider.service';
+import { CnpjPublicProviderService } from './radar/providers/cnpj-public/cnpj-public-provider.service';
+import { LocalDirectoryProviderService } from './radar/providers/local-directories/local-directory-provider.service';
+import { VerticalSourceProviderService } from './radar/providers/vertical-sources/vertical-source-provider.service';
 import { WebsiteCrawlProviderService } from './radar/providers/website-crawl/website-crawl-provider.service';
 import { isOfficialWebsiteUrl } from './radar/providers/website-crawl/website-crawl-link-extractor';
 
@@ -80,6 +86,9 @@ function createExecutorHost(overrides: Record<string, any> = {}) {
     getRadarSourceExpansion: () => new RadarSourceExpansionService(),
     getRadarSearchStrategy: () => new RadarSearchStrategyService(),
     getRadarSearchOrchestrator: () => orchestrator,
+    getRadarCnpjPublicSource: () => overrides.cnpjPublicSource || new RadarCnpjPublicSourceService(),
+    getRadarLocalDirectorySource: () => overrides.localDirectorySource || new RadarLocalDirectorySourceService(),
+    getRadarVerticalSource: () => overrides.verticalSource || new RadarVerticalSourceService(),
     getRadarWebsiteCrawlSource: () => overrides.websiteCrawlSource || new RadarWebsiteCrawlSourceService(),
     getRadarClientRequestTimeoutMs: () => 1_000,
   };
@@ -189,10 +198,12 @@ test('radar strategy deep inclui stubs como skipped explicito', () => {
 
   assert.equal(plan.strategy.mode, 'deep');
   assert.equal(plan.activeSources.includes('website_crawl_light'), true);
-  assert.equal(plan.activeSources.includes('local_directories_stub'), true);
-  assert.equal(plan.activeSources.includes('cnpj_public_stub'), true);
+  assert.equal(plan.activeSources.includes('cnpj_public'), true);
+  assert.equal(plan.activeSources.includes('local_directory'), true);
+  assert.equal(plan.activeSources.includes('vertical_source'), true);
   assert.equal(plan.diagnostics.every((item) => item.status === 'skipped'), true);
-  assert.equal(plan.diagnostics.some((item) => item.source === 'local_directories_stub' && item.reason.includes('stub')), true);
+  assert.equal(plan.implementedSources.includes('local_directory'), true);
+  assert.equal(plan.implementedSources.includes('vertical_source'), true);
 });
 
 test('google textual provider monta queries de intencao sem Places', () => {
@@ -608,6 +619,53 @@ test('website crawl provider extrai Instagram e Facebook de links', async () => 
   assert.equal(result.fields.facebookUrls[0], 'https://facebook.com/barbeariax');
 });
 
+test('website crawl provider detecta formulario orcamento chat e sinais de oportunidade', async () => {
+  const provider = new WebsiteCrawlProviderService();
+  const result = await provider.crawl('https://barbeariax.com.br', {
+    paths: ['/'],
+    fetcher: async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => 'text/html' },
+      text: async () => `
+        <html><body>
+          <form action="/contato"><input name="nome"><input name="telefone"><button>Enviar</button></form>
+          <a href="/orcamento">Solicite orçamento</a>
+          <script src="https://embed.tawk.to/chat.js"></script>
+        </body></html>
+      `,
+    }),
+  });
+
+  assert.equal(result.fields.hasContactForm, true);
+  assert.equal(result.fields.hasBudgetIntent, true);
+  assert.equal(result.fields.hasChatWidget, true);
+  assert.equal(result.fields.formLinks.includes('https://barbeariax.com.br/contato'), true);
+  assert.equal(result.fields.budgetLinks.includes('https://barbeariax.com.br/orcamento'), true);
+  assert.equal(result.fields.opportunitySignals.includes('site_com_formulario'), true);
+  assert.equal(result.fields.opportunitySignals.includes('site_com_link_orcamento'), true);
+  assert.equal(result.fields.opportunitySignals.includes('site_com_chat_atendimento'), true);
+});
+
+test('website crawl provider detecta site sem WhatsApp claro e sem formulario', async () => {
+  const provider = new WebsiteCrawlProviderService();
+  const result = await provider.crawl('https://barbeariax.com.br', {
+    paths: ['/'],
+    fetcher: async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => 'text/html' },
+      text: async () => '<html><body>Telefone (19) 3333-4444 <a href="https://instagram.com/barbeariax">Instagram</a></body></html>',
+    }),
+  });
+
+  assert.equal(result.fields.opportunitySignals.includes('site_sem_whatsapp_claro'), true);
+  assert.equal(result.fields.opportunitySignals.includes('site_sem_formulario'), true);
+  assert.equal(result.fields.opportunitySignals.includes('telefone_fixo_sem_canal_digital'), true);
+  assert.equal(result.fields.opportunitySignals.includes('social_sem_link_atendimento'), true);
+  assert.equal(result.fields.siteIssues.includes('whatsapp_nao_encontrado_no_site'), true);
+});
+
 test('website crawl provider respeita timeout e limite de HTML', async () => {
   const provider = new WebsiteCrawlProviderService();
   const limited = await provider.crawl('https://barbeariax.com.br', {
@@ -658,6 +716,367 @@ test('website crawl source retorna partial_error em erro de fetch', async () => 
   assert.equal(result.issue?.blocksDelivery, false);
 }));
 
+test('cnpj_public desativado retorna skipped sem sucesso fake', async () => withEnv({
+  HBX_RADAR_CNPJ_PUBLIC_ENABLED: 'false',
+}, async () => {
+  const source = new RadarCnpjPublicSourceService(new CnpjPublicProviderService());
+  const result = await source.run({
+    normalized: baseInput,
+    records: [{
+      cnpj: '12.345.678/0001-90',
+      nomeFantasia: 'Barbearia X',
+      city: 'Rio Claro',
+      state: 'SP',
+      situacao: 'ativa',
+    }],
+  });
+
+  assert.equal(result.status, 'skipped');
+  assert.equal(result.reason, 'flag_cnpj_public_desativada');
+  assert.equal(result.results.length, 0);
+}));
+
+test('cnpj_public ligado sem base configurada retorna skipped', async () => withEnv({
+  HBX_RADAR_CNPJ_PUBLIC_ENABLED: 'true',
+}, async () => {
+  const source = new RadarCnpjPublicSourceService(new CnpjPublicProviderService());
+  const result = await source.run({
+    normalized: baseInput,
+    records: [],
+  });
+
+  assert.equal(result.status, 'skipped');
+  assert.equal(result.reason, 'cnpj_public_provider_sem_base_configurada');
+  assert.equal(result.results.length, 0);
+}));
+
+test('cnpj_public normaliza empresa ativa sem inventar social ou telefone', async () => withEnv({
+  HBX_RADAR_CNPJ_PUBLIC_ENABLED: 'true',
+}, async () => {
+  const source = new RadarCnpjPublicSourceService(new CnpjPublicProviderService());
+  const result = await source.run({
+    normalized: baseInput,
+    records: [{
+      cnpj: '12.345.678/0001-90',
+      nomeFantasia: 'Barbearia X',
+      razaoSocial: 'Barbearia X Servicos Ltda',
+      city: 'Rio Claro',
+      state: 'SP',
+      cnae: '9602-5/01',
+      cnaeDescription: 'Cabeleireiros manicure e pedicure barbearia',
+      situacao: 'ativa',
+      porte: 'ME',
+      matrizFilial: 'matriz',
+    }],
+    limit: 5,
+  });
+
+  assert.equal(result.status, 'completed');
+  assert.equal(result.results[0].source, 'cnpj_public');
+  assert.equal((result.results[0] as any).cnpj, '12345678000190');
+  assert.equal(result.results[0].phone, '');
+  assert.equal(result.results[0].instagramUrl, undefined);
+  assert.equal(result.issue, null);
+}));
+
+test('cnpj_public provider filtra cidade UF segmento e situacao ativa', async () => {
+  const provider = new CnpjPublicProviderService();
+  const result = await provider.search({
+    normalized: baseInput,
+    records: [
+      { cnpj: '11111111000111', nomeFantasia: 'Barbearia Centro', city: 'Rio Claro', state: 'SP', cnaeDescription: 'barbearia', situacao: 'ativa' },
+      { cnpj: '22222222000122', nomeFantasia: 'Restaurante X', city: 'Rio Claro', state: 'SP', cnaeDescription: 'restaurante', situacao: 'ativa' },
+      { cnpj: '33333333000133', nomeFantasia: 'Barbearia Campinas', city: 'Campinas', state: 'SP', cnaeDescription: 'barbearia', situacao: 'ativa' },
+      { cnpj: '44444444000144', nomeFantasia: 'Barbearia Baixada', city: 'Rio Claro', state: 'SP', cnaeDescription: 'barbearia', situacao: 'baixada' },
+    ],
+  });
+
+  assert.equal(result.acceptedCount, 1);
+  assert.equal(result.results[0].name, 'Barbearia Centro');
+  assert.equal(result.rejectedCount, 3);
+});
+
+test('executor executa cnpj_public e preserva origem real', async () => withEnv({
+  HBX_RADAR_CNPJ_PUBLIC_ENABLED: 'true',
+}, async () => {
+  const executor = new RadarSourceExecutorService();
+  const result = await executor.execute({
+    context: { companyId: 7, userId: 9, user: {} },
+    normalized: { ...baseInput, freshness: 'hybrid', quantity: 100 },
+    currentResults: [],
+    seenPhones: [],
+    options: {},
+    sourcePlan: [{
+      source: 'cnpj_public',
+      priority: 10,
+      enabled: true,
+      implemented: true,
+      optional: true,
+      stopWhenEnough: false,
+      reason: 'test',
+    }],
+    remainingQuantity: 2,
+    host: createExecutorHost({
+      cnpjPublicSource: {
+        run: async () => ({
+          source: 'cnpj_public',
+          status: 'completed',
+          retryable: false,
+          foundCount: 1,
+          acceptedCount: 1,
+          rejectedCount: 0,
+          reason: 'ok',
+          results: [{ placeId: 'cnpj_public:1', name: 'Barbearia X', phone: '', phoneDigits: '', website: null, cnpj: '12345678000190', source: 'cnpj_public' }],
+        }),
+      },
+    }),
+  });
+
+  assert.equal(result.optionalSources[0].source, 'cnpj_public');
+  assert.equal(result.optionalResults[0].source, 'cnpj_public');
+  assert.equal(result.sourceDiagnostics[0].status, 'completed');
+}));
+
+test('local_directory desativado retorna skipped sem sucesso fake', async () => withEnv({
+  HBX_RADAR_LOCAL_DIRECTORIES_ENABLED: 'false',
+}, async () => {
+  const source = new RadarLocalDirectorySourceService(new LocalDirectoryProviderService());
+  const result = await source.run({
+    normalized: baseInput,
+    records: [{ name: 'Barbearia X', city: 'Rio Claro', state: 'SP', segment: 'barbearia' }],
+  });
+
+  assert.equal(result.status, 'skipped');
+  assert.equal(result.reason, 'flag_local_directories_desativada');
+  assert.equal(result.results.length, 0);
+}));
+
+test('local_directory ligado sem base configurada retorna skipped', async () => withEnv({
+  HBX_RADAR_LOCAL_DIRECTORIES_ENABLED: 'true',
+}, async () => {
+  const source = new RadarLocalDirectorySourceService(new LocalDirectoryProviderService());
+  const result = await source.run({ normalized: baseInput, records: [] });
+
+  assert.equal(result.status, 'skipped');
+  assert.equal(result.reason, 'local_directory_provider_sem_base_configurada');
+}));
+
+test('local_directory normaliza descoberta com baixa confianca e nao confirma social', async () => withEnv({
+  HBX_RADAR_LOCAL_DIRECTORIES_ENABLED: 'true',
+}, async () => {
+  const source = new RadarLocalDirectorySourceService(new LocalDirectoryProviderService());
+  const result = await source.run({
+    normalized: baseInput,
+    records: [{
+      name: 'Barbearia X',
+      phone: '(19) 3333-4444',
+      website: 'https://guiamais.com.br/barbearia-x',
+      directoryUrl: 'https://guia.local/barbearia-x',
+      sourceName: 'Guia Local',
+      city: 'Rio Claro',
+      state: 'SP',
+      segment: 'barbearia',
+      instagramUrl: 'https://instagram.com/barbeariax',
+    }],
+  });
+  const lead = result.results[0] as any;
+
+  assert.equal(result.status, 'completed');
+  assert.equal(lead.source, 'local_directory');
+  assert.equal(lead.website, null);
+  assert.equal(lead.directoryConfidence, 42);
+  assert.equal(lead.instagramUrl, undefined);
+  assert.equal(lead.socialStatus, 'candidate_review');
+  assert.equal(lead.evidenceJson.localDirectory.socialCandidates.instagramUrl, 'https://instagram.com/barbeariax');
+}));
+
+test('local_directory provider filtra cidade UF e segmento', async () => {
+  const provider = new LocalDirectoryProviderService();
+  const result = await provider.search({
+    normalized: baseInput,
+    records: [
+      { name: 'Barbearia Centro', city: 'Rio Claro', state: 'SP', segment: 'barbearia', phone: '(19) 3333-4444' },
+      { name: 'Restaurante Centro', city: 'Rio Claro', state: 'SP', segment: 'restaurante', phone: '(19) 3333-5555' },
+      { name: 'Barbearia Campinas', city: 'Campinas', state: 'SP', segment: 'barbearia', phone: '(19) 3333-6666' },
+    ],
+  });
+
+  assert.equal(result.acceptedCount, 1);
+  assert.equal(result.results[0].name, 'Barbearia Centro');
+  assert.equal(result.rejectedCount, 2);
+});
+
+test('executor executa local_directory e preserva origem real', async () => withEnv({
+  HBX_RADAR_LOCAL_DIRECTORIES_ENABLED: 'true',
+}, async () => {
+  const executor = new RadarSourceExecutorService();
+  const result = await executor.execute({
+    context: { companyId: 7, userId: 9, user: {} },
+    normalized: { ...baseInput, freshness: 'hybrid', quantity: 100 },
+    currentResults: [],
+    seenPhones: [],
+    options: {},
+    sourcePlan: [{
+      source: 'local_directory',
+      priority: 10,
+      enabled: true,
+      implemented: true,
+      optional: true,
+      stopWhenEnough: false,
+      reason: 'test',
+    }],
+    remainingQuantity: 2,
+    host: createExecutorHost({
+      localDirectorySource: {
+        run: async () => ({
+          source: 'local_directory',
+          status: 'completed',
+          retryable: false,
+          foundCount: 1,
+          acceptedCount: 1,
+          rejectedCount: 0,
+          reason: 'ok',
+          results: [{ placeId: 'local_directory:1', name: 'Barbearia X', phone: '(19) 3333-4444', phoneDigits: '1933334444', website: null, source: 'local_directory' }],
+        }),
+      },
+    }),
+  });
+
+  assert.equal(result.optionalSources[0].source, 'local_directory');
+  assert.equal(result.optionalResults[0].source, 'local_directory');
+  assert.equal(result.sourceDiagnostics[0].status, 'completed');
+}));
+
+test('vertical_source desativado retorna skipped sem sucesso fake', async () => withEnv({
+  HBX_RADAR_VERTICAL_SOURCES_ENABLED: 'false',
+}, async () => {
+  const source = new RadarVerticalSourceService(new VerticalSourceProviderService());
+  const result = await source.run({
+    normalized: baseInput,
+    records: [{ name: 'Studio Beleza X', vertical: 'beleza', city: 'Rio Claro', state: 'SP' }],
+  });
+
+  assert.equal(result.status, 'skipped');
+  assert.equal(result.reason, 'flag_vertical_sources_desativada');
+  assert.equal(result.results.length, 0);
+}));
+
+test('vertical_source ligado sem base configurada retorna skipped', async () => withEnv({
+  HBX_RADAR_VERTICAL_SOURCES_ENABLED: 'true',
+}, async () => {
+  const source = new RadarVerticalSourceService(new VerticalSourceProviderService());
+  const result = await source.run({ normalized: baseInput, records: [] });
+
+  assert.equal(result.status, 'skipped');
+  assert.equal(result.reason, 'vertical_source_provider_sem_base_configurada');
+}));
+
+test('vertical_source falha como partial_error nao bloqueante', async () => withEnv({
+  HBX_RADAR_VERTICAL_SOURCES_ENABLED: 'true',
+}, async () => {
+  const source = new RadarVerticalSourceService({
+    search: async () => {
+      throw new Error('timeout');
+    },
+  } as any);
+  const result = await source.run({ normalized: baseInput, records: [{ name: 'Barbearia X' }] });
+
+  assert.equal(result.status, 'partial_error');
+  assert.equal(result.retryable, true);
+  assert.equal(result.issue?.blocksDelivery, false);
+  assert.equal(result.results.length, 0);
+}));
+
+test('vertical_source normaliza evidencia por segmento sem confirmar social sozinho', async () => withEnv({
+  HBX_RADAR_VERTICAL_SOURCES_ENABLED: 'true',
+}, async () => {
+  const source = new RadarVerticalSourceService(new VerticalSourceProviderService());
+  const result = await source.run({
+    normalized: baseInput,
+    strategies: [{ vertical: 'beleza', sources: ['instagram', 'local_guides'], signal: 'atendimento_por_agenda' }],
+    records: [{
+      name: 'Studio Beleza X',
+      vertical: 'beleza',
+      sourceType: 'instagram',
+      sourceName: 'Instagram',
+      sourceUrl: 'https://instagram.com/studiobelezax',
+      website: 'https://instagram.com/studiobelezax',
+      city: 'Rio Claro',
+      state: 'SP',
+      segment: 'barbearia',
+      instagramUrl: 'https://instagram.com/studiobelezax',
+    }],
+  });
+  const lead = result.results[0] as any;
+
+  assert.equal(result.status, 'completed');
+  assert.equal(lead.source, 'vertical_source');
+  assert.equal(lead.website, null);
+  assert.equal(lead.instagramUrl, undefined);
+  assert.equal(lead.socialStatus, 'candidate_review');
+  assert.equal(lead.verticalSource, 'beleza');
+  assert.equal(lead.evidenceJson.verticalSource.socialCandidates.instagramUrl, 'https://instagram.com/studiobelezax');
+  assert.equal(lead.opportunitySignals.includes('vertical_beleza_agenda'), true);
+}));
+
+test('vertical_source provider filtra cidade UF segmento e vertical', async () => {
+  const provider = new VerticalSourceProviderService();
+  const result = await provider.search({
+    normalized: baseInput,
+    strategies: [{ vertical: 'beleza' }],
+    records: [
+      { name: 'Barbearia Centro', vertical: 'beleza', city: 'Rio Claro', state: 'SP', segment: 'barbearia' },
+      { name: 'Pizzaria Centro', vertical: 'alimentacao', city: 'Rio Claro', state: 'SP', segment: 'pizzaria' },
+      { name: 'Barbearia Campinas', vertical: 'beleza', city: 'Campinas', state: 'SP', segment: 'barbearia' },
+    ],
+  });
+
+  assert.equal(result.acceptedCount, 1);
+  assert.equal(result.results[0].name, 'Barbearia Centro');
+  assert.equal(result.rejectedCount, 2);
+});
+
+test('executor executa vertical_source e preserva origem real', async () => withEnv({
+  HBX_RADAR_VERTICAL_SOURCES_ENABLED: 'true',
+}, async () => {
+  const executor = new RadarSourceExecutorService();
+  const result = await executor.execute({
+    context: { companyId: 7, userId: 9, user: {} },
+    normalized: { ...baseInput, freshness: 'hybrid', quantity: 100 },
+    currentResults: [],
+    seenPhones: [],
+    options: {},
+    sourcePlan: [{
+      source: 'vertical_source',
+      priority: 10,
+      enabled: true,
+      implemented: true,
+      optional: true,
+      stopWhenEnough: false,
+      reason: 'test',
+    }],
+    remainingQuantity: 2,
+    host: createExecutorHost({
+      verticalSource: {
+        run: async () => ({
+          source: 'vertical_source',
+          status: 'completed',
+          retryable: false,
+          foundCount: 1,
+          acceptedCount: 1,
+          rejectedCount: 0,
+          reason: 'ok',
+          results: [{ placeId: 'vertical_source:1', name: 'Barbearia X', phone: '', phoneDigits: '', website: null, source: 'vertical_source', verticalSource: 'beleza' }],
+        }),
+      },
+    }),
+  });
+
+  assert.equal(result.optionalSources[0].source, 'vertical_source');
+  assert.equal(result.optionalResults[0].source, 'vertical_source');
+  assert.equal(result.sourceDiagnostics[0].status, 'completed');
+}));
+
 test('local_directories_stub e cnpj_public_stub continuam skipped, nunca completed', async () => {
   const executor = new RadarSourceExecutorService();
   const result = await executor.execute({
@@ -695,11 +1114,16 @@ test('radar result merger preserva sourceEvidence por fonte real', () => {
       source: 'reprocess_missing_social',
       results: [{ placeId: 'r:1', name: 'Barbearia X', phone: '', phoneDigits: '19999990001', city: 'Rio Claro', instagramUrl: 'https://instagram.com/barbeariax' } as any],
     },
+    {
+      source: 'vertical_source',
+      results: [{ placeId: 'v:1', name: 'Barbearia X', phone: '', phoneDigits: '19999990001', city: 'Rio Claro', verticalSource: 'beleza' } as any],
+    },
   ]);
 
   assert.equal(merged.results.length, 1);
   assert.equal(Boolean((merged.results[0] as any).sourceEvidence.google_textual), true);
   assert.equal(Boolean((merged.results[0] as any).sourceEvidence.reprocess_missing_social), true);
+  assert.equal(Boolean((merged.results[0] as any).sourceEvidence.vertical_source), true);
 });
 
 test('result merger preserva telefone social confirmado e adiciona dados do website crawl', () => {
@@ -762,6 +1186,191 @@ test('result merger adiciona sourceEvidence.website_crawl_light', () => {
   assert.equal((merged.results[0] as any).sourceEvidence.website_crawl_light.email, 'agenda@barbeariax.com.br');
 });
 
+test('result merger preserva websiteIntelligence e sinais comerciais do crawl', () => {
+  const merger = new RadarResultMergerService();
+  const merged = merger.mergeSources([
+    {
+      source: 'hbx_engine',
+      results: [{
+        placeId: 'hbx:1',
+        name: 'Barbearia X',
+        phone: '(19) 99999-0001',
+        phoneDigits: '19999990001',
+        website: 'https://barbeariax.com.br',
+      } as any],
+    },
+    {
+      source: 'website_crawl_light',
+      results: [{
+        placeId: 'crawl:1',
+        name: 'Barbearia X',
+        phone: '',
+        phoneDigits: '',
+        website: 'https://barbeariax.com.br',
+        opportunitySignals: ['site_sem_whatsapp_claro', 'site_sem_formulario'],
+        opportunityReason: 'Site sem WhatsApp claro para atendimento.',
+        recommendedChannel: 'email',
+        websiteIntelligence: {
+          source: 'website_crawl_light',
+          hasContactForm: false,
+          hasBudgetIntent: false,
+          hasChatWidget: false,
+          siteIssues: ['whatsapp_nao_encontrado_no_site'],
+          opportunitySignals: ['site_sem_whatsapp_claro'],
+        },
+      } as any],
+    },
+  ]);
+  const lead = merged.results[0] as any;
+
+  assert.equal(lead.opportunitySignals.includes('site_sem_whatsapp_claro'), true);
+  assert.equal(lead.websiteIntelligence.siteIssues.includes('whatsapp_nao_encontrado_no_site'), true);
+  assert.equal(lead.opportunityReason, 'Site sem WhatsApp claro para atendimento.');
+  assert.equal(lead.recommendedChannel, 'email');
+});
+
+test('result merger cria evidencia por campo com fonte e confianca', () => {
+  const merger = new RadarResultMergerService();
+  const merged = merger.mergeSources([
+    {
+      source: 'hbx_engine',
+      results: [{
+        placeId: 'hbx:1',
+        name: 'Barbearia X',
+        phone: '(19) 99999-0001',
+        phoneDigits: '19999990001',
+        website: 'https://barbeariax.com.br',
+        whatsappStatus: 'confirmed',
+      } as any],
+    },
+    {
+      source: 'website_crawl_light',
+      results: [{
+        placeId: 'crawl:1',
+        name: 'Barbearia X',
+        phone: '',
+        phoneDigits: '',
+        website: 'https://barbeariax.com.br',
+        email: 'agenda@barbeariax.com.br',
+        instagramUrl: 'https://instagram.com/barbeariax',
+        socialStatus: 'partial',
+      } as any],
+    },
+  ]);
+  const lead = merged.results[0] as any;
+
+  assert.equal(lead.phoneEvidence.source, 'hbx_engine');
+  assert.equal(lead.websiteEvidence.source, 'hbx_engine');
+  assert.equal(lead.emailEvidence.source, 'website_crawl_light');
+  assert.equal(lead.socialEvidence.source, 'website_crawl_light');
+  assert.equal(typeof lead.fieldEvidence.phone.confidence, 'number');
+  assert.equal(lead.sourceEvidence.website_crawl_light.email, 'agenda@barbeariax.com.br');
+});
+
+test('result merger nao sobrescreve WhatsApp confirmed por status fraco', () => {
+  const merger = new RadarResultMergerService();
+  const merged = merger.mergeSources([
+    {
+      source: 'radar_database',
+      results: [{
+        placeId: 'radar:1',
+        name: 'Barbearia X',
+        phone: '(19) 99999-0001',
+        phoneDigits: '19999990001',
+        website: 'https://barbeariax.com.br',
+        whatsappStatus: 'confirmed',
+      } as any],
+    },
+    {
+      source: 'google_textual',
+      results: [{
+        placeId: 'google:1',
+        name: 'Barbearia X',
+        phone: '(19) 99999-0001',
+        phoneDigits: '19999990001',
+        website: 'https://barbeariax.com.br',
+        whatsappStatus: 'error',
+      } as any],
+    },
+  ]);
+
+  assert.equal((merged.results[0] as any).whatsappStatus, 'confirmed');
+  assert.equal((merged.results[0] as any).whatsappEvidence.source, 'radar_database');
+});
+
+test('result merger nao troca email forte por vazio ou fonte fraca', () => {
+  const merger = new RadarResultMergerService();
+  const merged = merger.mergeSources([
+    {
+      source: 'radar_database',
+      results: [{
+        placeId: 'radar:1',
+        name: 'Barbearia X',
+        phone: '(19) 99999-0001',
+        phoneDigits: '19999990001',
+        website: 'https://barbeariax.com.br',
+        email: 'comercial@barbeariax.com.br',
+        emailStatus: 'confirmed',
+      } as any],
+    },
+    {
+      source: 'local_directories_stub',
+      results: [{
+        placeId: 'dir:1',
+        name: 'Barbearia X',
+        phone: '(19) 99999-0001',
+        phoneDigits: '19999990001',
+        website: 'https://barbeariax.com.br',
+        email: 'lista@diretorio.com.br',
+        emailStatus: 'unverified',
+      } as any],
+    },
+    {
+      source: 'website_crawl_light',
+      results: [{
+        placeId: 'crawl:1',
+        name: 'Barbearia X',
+        phone: '(19) 99999-0001',
+        phoneDigits: '19999990001',
+        website: 'https://barbeariax.com.br',
+        email: '',
+      } as any],
+    },
+  ]);
+
+  assert.equal(merged.results[0].email, 'comercial@barbeariax.com.br');
+  assert.equal((merged.results[0] as any).emailEvidence.source, 'radar_database');
+});
+
+test('result merger preserva website proprio contra diretorio', () => {
+  const merger = new RadarResultMergerService();
+  const merged = merger.mergeSources([
+    {
+      source: 'hbx_engine',
+      results: [{
+        placeId: 'hbx:1',
+        name: 'Barbearia X',
+        phone: '(19) 99999-0001',
+        phoneDigits: '19999990001',
+        website: 'https://barbeariax.com.br',
+      } as any],
+    },
+    {
+      source: 'local_directories_stub',
+      results: [{
+        placeId: 'dir:1',
+        name: 'Barbearia X',
+        phone: '(19) 99999-0001',
+        phoneDigits: '19999990001',
+        website: 'https://guiamais.com.br/barbeariax',
+      } as any],
+    },
+  ]);
+
+  assert.equal(merged.results[0].website, 'https://barbeariax.com.br');
+  assert.equal((merged.results[0] as any).websiteEvidence.source, 'hbx_engine');
+});
+
 test('public search mixin delega optional source para executor', () => {
   const source = readFileSync(join(process.cwd(), 'src/webscraping/radar/01-search/radar-core-public-search.mixin.ts'), 'utf8');
   const optionalBlock = source.slice(source.indexOf('HBX_RADAR_SEARCH_STRATEGY_ENGINE_ENABLED'), source.indexOf('const historyResults'));
@@ -774,9 +1383,21 @@ test('public search mixin delega optional source para executor', () => {
 test('optional source executor nao chama Vendas nem altera importedCount', () => {
   const source = readFileSync(join(process.cwd(), 'src/webscraping/radar/01-search/radar-source-executor.service.ts'), 'utf8');
   const websiteSource = readFileSync(join(process.cwd(), 'src/webscraping/radar/01-search/radar-website-crawl-source.service.ts'), 'utf8');
+  const cnpjSource = readFileSync(join(process.cwd(), 'src/webscraping/radar/01-search/radar-cnpj-public-source.service.ts'), 'utf8');
+  const localDirectorySource = readFileSync(join(process.cwd(), 'src/webscraping/radar/01-search/radar-local-directory-source.service.ts'), 'utf8');
+  const verticalSource = readFileSync(join(process.cwd(), 'src/webscraping/radar/01-search/radar-vertical-source.service.ts'), 'utf8');
+  const cnpjProvider = readFileSync(join(process.cwd(), 'src/webscraping/radar/providers/cnpj-public/cnpj-public-provider.service.ts'), 'utf8');
+  const localDirectoryProvider = readFileSync(join(process.cwd(), 'src/webscraping/radar/providers/local-directories/local-directory-provider.service.ts'), 'utf8');
+  const verticalProvider = readFileSync(join(process.cwd(), 'src/webscraping/radar/providers/vertical-sources/vertical-source-provider.service.ts'), 'utf8');
   const provider = readFileSync(join(process.cwd(), 'src/webscraping/radar/providers/website-crawl/website-crawl-provider.service.ts'), 'utf8');
 
   assert.equal(/vendasLead|vendasLeadTimelineEvent|VendasService|importedCount/.test(source), false);
   assert.equal(/vendasLead|vendasLeadTimelineEvent|VendasService|importedCount/.test(websiteSource), false);
+  assert.equal(/vendasLead|vendasLeadTimelineEvent|VendasService|importedCount/.test(cnpjSource), false);
+  assert.equal(/vendasLead|vendasLeadTimelineEvent|VendasService|importedCount/.test(localDirectorySource), false);
+  assert.equal(/vendasLead|vendasLeadTimelineEvent|VendasService|importedCount/.test(verticalSource), false);
+  assert.equal(/vendasLead|vendasLeadTimelineEvent|VendasService|importedCount/.test(cnpjProvider), false);
+  assert.equal(/vendasLead|vendasLeadTimelineEvent|VendasService|importedCount/.test(localDirectoryProvider), false);
+  assert.equal(/vendasLead|vendasLeadTimelineEvent|VendasService|importedCount/.test(verticalProvider), false);
   assert.equal(/vendasLead|vendasLeadTimelineEvent|VendasService|importedCount/.test(provider), false);
 });

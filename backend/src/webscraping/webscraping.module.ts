@@ -16,6 +16,9 @@ import { RadarRunPresenterService } from './radar/06-presentation/radar-run-pres
 import { RadarSearchRunConfigService } from './radar/01-search/radar-search-run-config.service';
 import { RadarInternalReprocessSourceService } from './radar/01-search/radar-internal-reprocess-source.service';
 import { RadarSourceExecutorService } from './radar/01-search/radar-source-executor.service';
+import { RadarCnpjPublicSourceService } from './radar/01-search/radar-cnpj-public-source.service';
+import { RadarLocalDirectorySourceService } from './radar/01-search/radar-local-directory-source.service';
+import { RadarVerticalSourceService } from './radar/01-search/radar-vertical-source.service';
 import { RadarWebsiteCrawlSourceService } from './radar/01-search/radar-website-crawl-source.service';
 import { RadarSearchGeoService } from './radar/01-search/radar-search-geo.service';
 import { RadarSearchInputService } from './radar/01-search/radar-search-input.service';
@@ -27,15 +30,21 @@ import { RadarSourcePlannerService } from './radar/01-search/radar-source-planne
 import { RadarDuplicateFilterService } from './radar/02-filter/radar-duplicate-filter.service';
 import { RadarQualityGateService } from './radar/02-filter/radar-quality-gate.service';
 import { RadarRunItemFilterService } from './radar/02-filter/radar-run-item-filter.service';
+import { RadarEnrichmentJobPipelineService } from './radar/03-enrichment/radar-enrichment-job-pipeline.service';
+import { RadarOpportunitySignalService } from './radar/03-enrichment/radar-opportunity-signal.service';
 import { RadarScoreEnrichmentService } from './radar/03-enrichment/radar-score-enrichment.service';
 import { GoogleSearchProviderService } from './radar/providers/google-search/google-search-provider.service';
 import { GoogleSearchQueryBuilder } from './radar/providers/google-search/google-search-query-builder';
 import { GoogleSearchResultNormalizer } from './radar/providers/google-search/google-search-result-normalizer';
 import { RadarGoogleResponseService } from './radar/providers/google-search/radar-google-response.service';
 import { RadarHbxEngineErrorsService } from './radar/providers/hbx-engine/radar-hbx-engine-errors.service';
+import { CnpjPublicProviderService } from './radar/providers/cnpj-public/cnpj-public-provider.service';
+import { LocalDirectoryProviderService } from './radar/providers/local-directories/local-directory-provider.service';
+import { VerticalSourceProviderService } from './radar/providers/vertical-sources/vertical-source-provider.service';
 import { WebsiteCrawlProviderService } from './radar/providers/website-crawl/website-crawl-provider.service';
 import { RadarDeliveryOrchestratorService } from './radar/05-delivery/radar-delivery-orchestrator.service';
 import { RadarPostDeliveryUpdateService } from './radar/05-delivery/radar-post-delivery-update.service';
+import { RadarPostDeliveryVendasUpdateService } from './radar/05-delivery/radar-post-delivery-vendas-update.service';
 import { RadarRunRepositoryService } from './radar/persistence/radar-run-repository.service';
 import { RadarDiagnosticService } from './radar/shared/radar-diagnostic.service';
 import { RadarSharedNormalizerService } from './radar/shared/radar-shared-normalizer.service';
@@ -62,6 +71,9 @@ const RADAR_SEARCH_SERVICES = [
   RadarSearchRunConfigService,
   RadarInternalReprocessSourceService,
   RadarSourceExecutorService,
+  RadarCnpjPublicSourceService,
+  RadarLocalDirectorySourceService,
+  RadarVerticalSourceService,
   RadarWebsiteCrawlSourceService,
 ];
 
@@ -72,6 +84,8 @@ const RADAR_FILTER_SERVICES = [
 ];
 
 const RADAR_ENRICHMENT_SERVICES = [
+  RadarEnrichmentJobPipelineService,
+  RadarOpportunitySignalService,
   RadarScoreEnrichmentService,
 ];
 
@@ -84,6 +98,7 @@ const RADAR_SOCIAL_SERVICES = [
 
 const RADAR_DELIVERY_SERVICES = [
   RadarPostDeliveryUpdateService,
+  RadarPostDeliveryVendasUpdateService,
   RadarDeliveryOrchestratorService,
   RadarVendasSyncService,
 ];
@@ -99,6 +114,9 @@ const RADAR_PROVIDER_SERVICES = [
   GoogleSearchProviderService,
   RadarGoogleResponseService,
   RadarHbxEngineErrorsService,
+  CnpjPublicProviderService,
+  LocalDirectoryProviderService,
+  VerticalSourceProviderService,
   WebsiteCrawlProviderService,
 ];
 

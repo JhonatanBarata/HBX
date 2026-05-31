@@ -18,6 +18,9 @@ import { RadarSearchOrchestratorService } from './radar/01-search/radar-search-o
 import { RadarSearchRunConfigService } from './radar/01-search/radar-search-run-config.service';
 import { RadarInternalReprocessSourceService } from './radar/01-search/radar-internal-reprocess-source.service';
 import { RadarSourceExecutorService } from './radar/01-search/radar-source-executor.service';
+import { RadarCnpjPublicSourceService } from './radar/01-search/radar-cnpj-public-source.service';
+import { RadarLocalDirectorySourceService } from './radar/01-search/radar-local-directory-source.service';
+import { RadarVerticalSourceService } from './radar/01-search/radar-vertical-source.service';
 import { RadarWebsiteCrawlSourceService } from './radar/01-search/radar-website-crawl-source.service';
 import { RadarSourceExpansionService } from './radar/01-search/radar-source-expansion.service';
 import { RadarSearchStrategyService } from './radar/01-search/radar-search-strategy.service';
@@ -29,6 +32,7 @@ import { RadarScoreEnrichmentService } from './radar/03-enrichment/radar-score-e
 import { RadarSocialLookupService } from './radar/04-socials/radar-social-lookup.service';
 import { RadarDeliveryOrchestratorService } from './radar/05-delivery/radar-delivery-orchestrator.service';
 import { RadarPostDeliveryUpdateService } from './radar/05-delivery/radar-post-delivery-update.service';
+import { RadarPostDeliveryVendasUpdateService } from './radar/05-delivery/radar-post-delivery-vendas-update.service';
 import { RadarVendasSyncService } from './radar/05-delivery/radar-vendas-sync.service';
 import { RadarLeadPresenterService } from './radar/06-presentation/radar-lead-presenter.service';
 import { RadarRunPresenterService } from './radar/06-presentation/radar-run-presenter.service';
@@ -57,6 +61,7 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
     @Optional() radarLeadPresenter?: RadarLeadPresenterService,
     @Optional() radarRunPresenter?: RadarRunPresenterService,
     @Optional() radarPostDeliveryUpdate?: RadarPostDeliveryUpdateService,
+    @Optional() radarPostDeliveryVendasUpdate?: RadarPostDeliveryVendasUpdateService,
     @Optional() radarDeliveryOrchestrator?: RadarDeliveryOrchestratorService,
     @Optional() radarVendasSync?: RadarVendasSyncService,
     @Optional() radarSharedNormalizer?: RadarSharedNormalizerService,
@@ -70,6 +75,9 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
     @Optional() radarSearchRunConfig?: RadarSearchRunConfigService,
     @Optional() radarInternalReprocessSource?: RadarInternalReprocessSourceService,
     @Optional() radarSourceExecutor?: RadarSourceExecutorService,
+    @Optional() radarCnpjPublicSource?: RadarCnpjPublicSourceService,
+    @Optional() radarLocalDirectorySource?: RadarLocalDirectorySourceService,
+    @Optional() radarVerticalSource?: RadarVerticalSourceService,
     @Optional() radarWebsiteCrawlSource?: RadarWebsiteCrawlSourceService,
     @Optional() radarDuplicateFilter?: RadarDuplicateFilterService,
     @Optional() radarQualityGate?: RadarQualityGateService,
@@ -92,6 +100,7 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
       radarLeadPresenter,
       radarRunPresenter,
       radarPostDeliveryUpdate,
+      radarPostDeliveryVendasUpdate,
       radarDeliveryOrchestrator,
       radarVendasSync,
       radarSharedNormalizer,
@@ -105,6 +114,9 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
       radarSearchRunConfig,
       radarInternalReprocessSource,
       radarSourceExecutor,
+      radarCnpjPublicSource,
+      radarLocalDirectorySource,
+      radarVerticalSource,
       radarWebsiteCrawlSource,
       radarDuplicateFilter,
       radarQualityGate,

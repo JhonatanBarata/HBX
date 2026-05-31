@@ -93,11 +93,35 @@ export type RadarStageSnapshot = {
 
 export type RadarStageIssue = {
   stage: RadarPipelineStage;
+  operation?: string | null;
+  source?: string | null;
+  status?: string | null;
   code: RadarErrorCode;
   message: string;
+  reason?: string | null;
   blocksDelivery: boolean;
   retryable: boolean;
+  traceId?: string | null;
+  runId?: string | null;
+  leadId?: string | null;
   at: string;
+};
+
+export type RadarSourceDiagnostic = {
+  stage: RadarPipelineStage | string;
+  operation: string;
+  source: string | null;
+  status: string;
+  retryable: boolean;
+  blocksDelivery: boolean;
+  reason: string;
+  traceId: string | null;
+  runId: string | null;
+  leadId: string | null;
+  foundCount?: number;
+  acceptedCount?: number;
+  rejectedCount?: number;
+  issue?: RadarStageIssue | null;
 };
 
 export type RadarStageDiagnostic = {

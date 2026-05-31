@@ -66,6 +66,16 @@ function probableHandles(name: string, city: string, state: string, segment: str
   ].filter(Boolean)));
 }
 
+function simplifiedNames(name: string, segment: string) {
+  const segmentTokens = new Set(normalizeLookupValue(segment).split(/\s+/).filter(Boolean));
+  const tokens = brandTokens(name).filter((token) => !segmentTokens.has(token));
+  const simplified = tokens.slice(0, 3).join(' ');
+  return Array.from(new Set([
+    simplified,
+    tokens.slice(0, 2).join(' '),
+  ].filter((value) => value.length >= 3)));
+}
+
 export class RadarSocialQueryPlanner {
   plan(lead: any): RadarSocialLookupQuery[] {
     const name = String(lead?.name || lead?.companyName || '').replace(/"/g, '').replace(/\s+/g, ' ').trim();
@@ -88,6 +98,8 @@ export class RadarSocialQueryPlanner {
     for (const safeName of baseNames) {
       for (const network of networks) {
         if (safeName && city) queries.push({ network, layer: 'brand_city', query: `${quote(safeName)} ${quote(city)} ${network}` });
+        if (safeName && city && state) queries.push({ network, layer: 'brand_city_state', query: `${quote(safeName)} ${quote(`${city}, ${state}`)} ${network}` });
+        if (safeName && city && segment) queries.push({ network, layer: 'brand_city_segment', query: `${quote(safeName)} ${quote(city)} ${quote(segment)} ${network}` });
       }
     }
     if (legalName && city && normalizeLookupValue(legalName) !== normalizeLookupValue(name)) {
@@ -101,6 +113,8 @@ export class RadarSocialQueryPlanner {
     }
     if (domain) {
       for (const network of networks) queries.push({ network, layer: 'domain', query: `${quote(domain)} ${network}` });
+      queries.push({ network: 'instagram', layer: 'domain_site_operator', query: `site:instagram.com ${quote(domain)}` });
+      queries.push({ network: 'facebook', layer: 'domain_site_operator', query: `site:facebook.com ${quote(domain)}` });
     }
     for (const safeName of baseNames) {
       if (!safeName || !city) continue;
@@ -116,6 +130,11 @@ export class RadarSocialQueryPlanner {
     }
     for (const handle of probableHandles(name, city, state, segment)) {
       for (const network of networks) queries.push({ network, layer: 'probable_handle', query: `${quote(handle)} ${network}` });
+    }
+    for (const simplifiedName of simplifiedNames(name, segment)) {
+      for (const network of networks) {
+        if (city) queries.push({ network, layer: 'simplified_name', query: `${quote(simplifiedName)} ${quote(city)} ${network}` });
+      }
     }
 
     const seen = new Set<string>();

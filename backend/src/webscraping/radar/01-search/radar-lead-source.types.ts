@@ -1,5 +1,5 @@
 import type { WebscrapingContactResult } from '../shared/radar-core-shared';
-import type { RadarStageIssue } from '../shared/radar-stage.types';
+import type { RadarPipelineStage, RadarStageIssue } from '../shared/radar-stage.types';
 
 export type RadarLeadSourceKind =
   | 'radar_database'
@@ -10,6 +10,9 @@ export type RadarLeadSourceKind =
   | 'reprocess_missing_social'
   | 'reprocess_old_cards'
   | 'website_crawl_light'
+  | 'cnpj_public'
+  | 'local_directory'
+  | 'vertical_source'
   | 'local_directories_stub'
   | 'cnpj_public_stub';
 
@@ -37,8 +40,14 @@ export type RadarLeadSourceStep = {
 
 export type RadarLeadSourceResult = {
   source: RadarLeadSourceKind;
+  stage?: RadarPipelineStage | string;
+  operation?: string;
   status: RadarLeadSourceStatus;
   retryable: boolean;
+  blocksDelivery?: boolean;
+  traceId?: string | null;
+  runId?: string | null;
+  leadId?: string | null;
   foundCount: number;
   acceptedCount: number;
   rejectedCount: number;

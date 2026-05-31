@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { LeadQualityResult, WebscrapingContactResult } from '../../webscraping.service';
 import type { NormalizedSearchInput, RadarWebsiteStatus } from '../shared/radar-types';
+import { RadarOpportunitySignalService, type RadarOpportunitySignalResult } from './radar-opportunity-signal.service';
 
 export type RadarScoreEnrichmentHost = {
   parseMaybeJsonObject: (value: unknown) => Record<string, any>;
@@ -16,7 +17,21 @@ function safeInteger(value: unknown, fallback = 0) {
 
 @Injectable()
 export class RadarScoreEnrichmentService {
+  constructor(private readonly opportunitySignalService = new RadarOpportunitySignalService()) {}
+
+  buildOpportunitySignal(
+    result: WebscrapingContactResult,
+    input: Pick<NormalizedSearchInput, 'segment' | 'city' | 'state'>,
+    host: RadarScoreEnrichmentHost,
+  ): RadarOpportunitySignalResult {
+    return this.opportunitySignalService.analyze(result, input, host);
+  }
+
   buildOpportunityScore(result: WebscrapingContactResult, quality: LeadQualityResult | null | undefined, host: RadarScoreEnrichmentHost) {
+    if (this.hasOpportunitySignalEvidence(result)) {
+      const analysis = this.opportunitySignalService.analyze(result, { segment: (result as any).segment, city: (result as any).city, state: (result as any).state }, host);
+      return analysis.opportunityScore;
+    }
     const evidence = host.parseMaybeJsonObject((result as any).evidenceJson);
     const evidenceScore = safeInteger(evidence?.finalScore ?? evidence?.score);
     if (evidenceScore > 0) return Math.max(0, Math.min(100, evidenceScore));
@@ -39,6 +54,9 @@ export class RadarScoreEnrichmentService {
   }
 
   buildOpportunityReason(result: WebscrapingContactResult, input: NormalizedSearchInput, host: RadarScoreEnrichmentHost) {
+    if (this.hasOpportunitySignalEvidence(result)) {
+      return this.opportunitySignalService.analyze(result, input, host).opportunityReason;
+    }
     const reasons: string[] = [];
     const websiteStatus = host.inferWebsiteStatus(result.website);
     if (result.rating != null && result.rating >= 4.2) reasons.push('boa reputacao no Google');
@@ -51,5 +69,17 @@ export class RadarScoreEnrichmentService {
     if (!reasons.length) reasons.push(`contato publico aderente a ${input.segment || 'prospeccao'}`);
     const sentence = reasons.slice(0, 3).join(', ');
     return `${sentence.charAt(0).toUpperCase()}${sentence.slice(1)}.`;
+  }
+
+  private hasOpportunitySignalEvidence(result: WebscrapingContactResult) {
+    const item = result as any;
+    return Boolean(
+      (Array.isArray(item.opportunitySignals) && item.opportunitySignals.length > 0)
+      || item.websiteIntelligence
+      || item.sourceEvidence
+      || item.fieldEvidence
+      || item.nextBestAction
+      || item.pitchHint
+    );
   }
 }

@@ -2741,19 +2741,11 @@ export class RadarCorePresentationMixin {
   }
 
   private async resolveVendasLeadIdForRadarRow(context: SearchExecutionContext, row: any) {
-    const state = Array.isArray(row?.companyStates) && row.companyStates.length ? row.companyStates[0] : null;
-    const direct = String(state?.vendasLeadId || '').trim();
-    if (direct) return direct;
-    const saved = await (this.prisma as any).radarLeadCompanyState.findUnique({
-      where: {
-        companyId_radarLeadId: {
-          companyId: context.companyId,
-          radarLeadId: String(row?.id || ''),
-        },
-      },
-      select: { vendasLeadId: true },
-    }).catch(() => null);
-    return String(saved?.vendasLeadId || '').trim() || null;
+    return this.getRadarPostDeliveryVendasUpdate().resolveVendasLeadId({
+      prisma: this.prisma,
+      context,
+      row,
+    });
   }
 
   private async recordVendasRadarEnrichmentStatus(
@@ -2762,27 +2754,16 @@ export class RadarCorePresentationMixin {
     status: 'queued' | 'processing' | 'completed' | 'failed',
     payload: Record<string, any> = {},
   ) {
-    const vendasLeadId = await this.resolveVendasLeadIdForRadarRow(context, row);
-    if (!vendasLeadId) return;
-    await this.prisma.vendasLeadTimelineEvent.create({
-      data: {
-        leadId: vendasLeadId,
-        eventType: 'radar_enrichment',
-        title: status === 'completed'
-          ? 'Enriquecimento do Radar concluido'
-          : status === 'failed'
-            ? 'Enriquecimento do Radar revisado'
-            : 'Enriquecimento do Radar em andamento',
-        description: JSON.stringify({
-          enrichmentStatus: status,
-          radarLeadId: row?.id || null,
-          ...payload,
-        }),
-        sourceType: 'radar_enrichment',
-        resultLabel: status,
-        createdByUserId: context.userId,
-      },
-    }).catch(() => null);
+    const result = await this.getRadarPostDeliveryVendasUpdate().recordEnrichmentStatus({
+      prisma: this.prisma,
+      context,
+      row,
+      status,
+      payload,
+    });
+    if (result.status === 'partial_error') {
+      await this.markRadarPostDeliveryUpdateRetryable(row?.id, result.error || 'Falha ao registrar status de enriquecimento.', 'post_delivery_update');
+    }
   }
 
   private async syncVendasLeadAfterRadarEnrichment(
@@ -2792,45 +2773,20 @@ export class RadarCorePresentationMixin {
     enrichment: any,
     leadPlus: any,
   ) {
-    const vendasLeadId = await this.resolveVendasLeadIdForRadarRow(context, row);
-    if (!vendasLeadId) return;
-    const updateData: Record<string, any> = {};
-    if (data.email) updateData.email = data.email;
-    if (data.website) updateData.website = data.website;
-    else if (data.websiteStatus === 'none') updateData.website = null;
-    if (data.address) updateData.address = data.address;
-    if (data.rating != null) updateData.rating = data.rating;
-    if (data.reviews != null) updateData.reviews = data.reviews;
-    if (Object.keys(updateData).length) {
-      await this.prisma.vendasLead.update({
-        where: { id: vendasLeadId },
-        data: updateData,
-      }).catch(() => null);
-    }
-    await this.recordVendasRadarEnrichmentStatus(context, row, 'completed', {
-      enrichedAt: new Date().toISOString(),
-      website: data.website || null,
-      websiteStatus: data.websiteStatus || null,
-      email: data.email || null,
-      emailStatus: data.emailStatus || null,
-      emailSource: data.emailSource || null,
-      emailConfidence: data.emailConfidence || null,
-      instagramUrl: data.instagramUrl || null,
-      facebookUrl: data.facebookUrl || null,
-      socialStatus: data.socialStatus || null,
-      socialConfidence: data.socialConfidence || null,
-      googleMapsUrl: data.googleMapsUrl || null,
-      cnpj: String(leadPlus?.cnpj || '').trim() || null,
-      rating: data.rating ?? null,
-      reviews: data.reviews ?? null,
-      recommendedChannel: data.recommendedChannel || null,
-      painType: data.painType || null,
-      painPitch: data.painPitch || null,
-      opportunityReason: data.opportunityReason || null,
-      visibilityTier: data.visibilityTier || null,
-      deliveryProduct: data.deliveryProduct || null,
-      enrichment: this.buildCompactVendasEnrichmentJson({ ...row, ...data, enrichmentJson: enrichment.enrichmentJson }, null, null, null),
+    const result = await this.getRadarPostDeliveryVendasUpdate().syncAfterRadarEnrichment({
+      prisma: this.prisma,
+      context,
+      row,
+      data,
+      enrichment,
+      leadPlus,
+      compactEnrichment: this.buildCompactVendasEnrichmentJson({ ...row, ...data, enrichmentJson: enrichment.enrichmentJson }, null, null, null),
     });
+    if (result.status === 'partial_error') {
+      await this.markRadarPostDeliveryUpdateRetryable(row?.id, result.error || 'Falha ao atualizar Vendas apos enriquecimento.', 'post_delivery_update');
+    } else if (result.status === 'completed') {
+      await this.markRadarPostDeliveryUpdateCompleted(row?.id);
+    }
   }
 
   private async applyLeadPlusEnrichmentToRadarRow(

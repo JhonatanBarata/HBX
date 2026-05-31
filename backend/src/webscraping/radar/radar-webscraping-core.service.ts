@@ -35,6 +35,7 @@ import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../../companies/master-what
 import { RadarSocialLookupService, type RadarSocialLookupHost } from './04-socials/radar-social-lookup.service';
 import { RadarDeliveryOrchestratorService } from './05-delivery/radar-delivery-orchestrator.service';
 import { RadarPostDeliveryUpdateService } from './05-delivery/radar-post-delivery-update.service';
+import { RadarPostDeliveryVendasUpdateService } from './05-delivery/radar-post-delivery-vendas-update.service';
 import { RadarVendasSyncService, type RadarVendasSyncHost } from './05-delivery/radar-vendas-sync.service';
 import { RadarLeadPresenterService, type RadarLeadPresenterHost } from './06-presentation/radar-lead-presenter.service';
 import { RadarRunPresenterService, type RadarRunPresenterHost } from './06-presentation/radar-run-presenter.service';
@@ -49,6 +50,9 @@ import { RadarSearchStrategyService } from './01-search/radar-search-strategy.se
 import { RadarSourcePlannerService } from './01-search/radar-source-planner.service';
 import { RadarInternalReprocessSourceService } from './01-search/radar-internal-reprocess-source.service';
 import { RadarSourceExecutorService } from './01-search/radar-source-executor.service';
+import { RadarCnpjPublicSourceService } from './01-search/radar-cnpj-public-source.service';
+import { RadarLocalDirectorySourceService } from './01-search/radar-local-directory-source.service';
+import { RadarVerticalSourceService } from './01-search/radar-vertical-source.service';
 import { RadarWebsiteCrawlSourceService } from './01-search/radar-website-crawl-source.service';
 import { RadarDuplicateFilterService, type RadarDuplicateSortHost } from './02-filter/radar-duplicate-filter.service';
 import { RadarQualityGateService, type RadarQualityGateHost } from './02-filter/radar-quality-gate.service';
@@ -228,6 +232,7 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
     @Optional() private readonly radarLeadPresenter?: RadarLeadPresenterService,
     @Optional() private readonly radarRunPresenter?: RadarRunPresenterService,
     @Optional() private readonly radarPostDeliveryUpdate?: RadarPostDeliveryUpdateService,
+    @Optional() private readonly radarPostDeliveryVendasUpdate?: RadarPostDeliveryVendasUpdateService,
     @Optional() private readonly radarDeliveryOrchestrator?: RadarDeliveryOrchestratorService,
     @Optional() private readonly radarVendasSync?: RadarVendasSyncService,
     @Optional() private readonly radarSharedNormalizer?: RadarSharedNormalizerService,
@@ -241,6 +246,9 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
     @Optional() private readonly radarSearchRunConfig?: RadarSearchRunConfigService,
     @Optional() private readonly radarInternalReprocessSource?: RadarInternalReprocessSourceService,
     @Optional() private readonly radarSourceExecutor?: RadarSourceExecutorService,
+    @Optional() private readonly radarCnpjPublicSource?: RadarCnpjPublicSourceService,
+    @Optional() private readonly radarLocalDirectorySource?: RadarLocalDirectorySourceService,
+    @Optional() private readonly radarVerticalSource?: RadarVerticalSourceService,
     @Optional() private readonly radarWebsiteCrawlSource?: RadarWebsiteCrawlSourceService,
     @Optional() private readonly radarDuplicateFilter?: RadarDuplicateFilterService,
     @Optional() private readonly radarQualityGate?: RadarQualityGateService,
@@ -324,6 +332,10 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
     return this.radarPostDeliveryUpdate || new RadarPostDeliveryUpdateService();
   }
 
+  private getRadarPostDeliveryVendasUpdate() {
+    return this.radarPostDeliveryVendasUpdate || new RadarPostDeliveryVendasUpdateService();
+  }
+
   private getRadarDeliveryOrchestrator() {
     return this.radarDeliveryOrchestrator || new RadarDeliveryOrchestratorService(this.getRadarPostDeliveryUpdate());
   }
@@ -346,6 +358,18 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
 
   private getRadarWebsiteCrawlSource() {
     return this.radarWebsiteCrawlSource || new RadarWebsiteCrawlSourceService();
+  }
+
+  private getRadarCnpjPublicSource() {
+    return this.radarCnpjPublicSource || new RadarCnpjPublicSourceService();
+  }
+
+  private getRadarLocalDirectorySource() {
+    return this.radarLocalDirectorySource || new RadarLocalDirectorySourceService();
+  }
+
+  private getRadarVerticalSource() {
+    return this.radarVerticalSource || new RadarVerticalSourceService();
   }
 
   private getRadarSearchGeo() {
