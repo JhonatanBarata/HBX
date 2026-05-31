@@ -18,6 +18,7 @@ import { RadarSearchOrchestratorService } from './radar/01-search/radar-search-o
 import { RadarSearchRunConfigService } from './radar/01-search/radar-search-run-config.service';
 import { RadarInternalReprocessSourceService } from './radar/01-search/radar-internal-reprocess-source.service';
 import { RadarSourceExecutorService } from './radar/01-search/radar-source-executor.service';
+import { RadarWebsiteCrawlSourceService } from './radar/01-search/radar-website-crawl-source.service';
 import { RadarSourceExpansionService } from './radar/01-search/radar-source-expansion.service';
 import { RadarSearchStrategyService } from './radar/01-search/radar-search-strategy.service';
 import { RadarSourcePlannerService } from './radar/01-search/radar-source-planner.service';
@@ -69,6 +70,7 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
     @Optional() radarSearchRunConfig?: RadarSearchRunConfigService,
     @Optional() radarInternalReprocessSource?: RadarInternalReprocessSourceService,
     @Optional() radarSourceExecutor?: RadarSourceExecutorService,
+    @Optional() radarWebsiteCrawlSource?: RadarWebsiteCrawlSourceService,
     @Optional() radarDuplicateFilter?: RadarDuplicateFilterService,
     @Optional() radarQualityGate?: RadarQualityGateService,
     @Optional() radarRunItemFilter?: RadarRunItemFilterService,
@@ -103,6 +105,7 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
       radarSearchRunConfig,
       radarInternalReprocessSource,
       radarSourceExecutor,
+      radarWebsiteCrawlSource,
       radarDuplicateFilter,
       radarQualityGate,
       radarRunItemFilter,

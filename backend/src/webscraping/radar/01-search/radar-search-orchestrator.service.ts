@@ -94,7 +94,7 @@ export class RadarSearchOrchestratorService {
 
   buildOptionalSourceFailure(input: {
     source: RadarLeadSourceKind;
-    stage?: 'provider_google' | 'search';
+    stage?: 'provider_google' | 'search' | 'site';
     error: unknown;
     foundCount?: number;
     acceptedCount?: number;

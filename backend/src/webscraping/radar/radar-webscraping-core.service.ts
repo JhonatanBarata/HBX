@@ -49,6 +49,7 @@ import { RadarSearchStrategyService } from './01-search/radar-search-strategy.se
 import { RadarSourcePlannerService } from './01-search/radar-source-planner.service';
 import { RadarInternalReprocessSourceService } from './01-search/radar-internal-reprocess-source.service';
 import { RadarSourceExecutorService } from './01-search/radar-source-executor.service';
+import { RadarWebsiteCrawlSourceService } from './01-search/radar-website-crawl-source.service';
 import { RadarDuplicateFilterService, type RadarDuplicateSortHost } from './02-filter/radar-duplicate-filter.service';
 import { RadarQualityGateService, type RadarQualityGateHost } from './02-filter/radar-quality-gate.service';
 import { RadarRunItemFilterService, type RadarRunItemFilterHost } from './02-filter/radar-run-item-filter.service';
@@ -240,6 +241,7 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
     @Optional() private readonly radarSearchRunConfig?: RadarSearchRunConfigService,
     @Optional() private readonly radarInternalReprocessSource?: RadarInternalReprocessSourceService,
     @Optional() private readonly radarSourceExecutor?: RadarSourceExecutorService,
+    @Optional() private readonly radarWebsiteCrawlSource?: RadarWebsiteCrawlSourceService,
     @Optional() private readonly radarDuplicateFilter?: RadarDuplicateFilterService,
     @Optional() private readonly radarQualityGate?: RadarQualityGateService,
     @Optional() private readonly radarRunItemFilter?: RadarRunItemFilterService,
@@ -340,6 +342,10 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
 
   private getRadarSourceExecutor() {
     return this.radarSourceExecutor || new RadarSourceExecutorService();
+  }
+
+  private getRadarWebsiteCrawlSource() {
+    return this.radarWebsiteCrawlSource || new RadarWebsiteCrawlSourceService();
   }
 
   private getRadarSearchGeo() {
