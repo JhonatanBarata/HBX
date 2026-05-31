@@ -2,6 +2,9 @@ export const RADAR_DELIVERY_BLOCKING_ERROR_CODES = [
   'permission_denied',
   'quota_exceeded',
   'invalid_input',
+  'protected_negative',
+  'duplicate_real',
+  'persistence_required',
   'duplicate_lead',
   'negative_or_protected_lead',
   'missing_minimum_contact',
@@ -10,15 +13,23 @@ export const RADAR_DELIVERY_BLOCKING_ERROR_CODES = [
 ] as const;
 
 export const RADAR_NON_BLOCKING_ERROR_CODES = [
+  'enrichment_failed',
   'social_lookup_failed',
+  'email_failed',
   'email_enrichment_failed',
+  'whatsapp_failed',
   'whatsapp_check_failed',
+  'site_failed',
   'site_enrichment_failed',
+  'post_delivery_update_failed',
   'presentation_failed',
   'vendas_sync_failed',
+  'optional_provider_failed',
   'secondary_provider_failed',
   'cache_failed',
   'history_failed',
+  'campaign_failed',
+  'factory_failed',
   'campaign_factory_failed',
 ] as const;
 

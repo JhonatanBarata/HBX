@@ -54,3 +54,27 @@ test('social failure after delivery stays delivered and becomes retryable', () =
   assert.equal(failed.metadata.radarStageIssues.at(-1).blocksDelivery, false);
   assert.equal(failed.enrichment.deliveryStatus, 'delivered');
 });
+
+test('post-delivery update failure never changes delivered status to failed', () => {
+  const postDelivery = new RadarPostDeliveryUpdateService();
+  const orchestrator = new RadarDeliveryOrchestratorService(postDelivery);
+  const delivered = orchestrator.buildDeliveredState({
+    lead: { id: 'radar-2', name: 'Empresa Real', socialStatus: 'partial' },
+    vendasLeadId: 84,
+    now: '2026-05-30T12:00:00.000Z',
+  });
+
+  const failed = orchestrator.markPostDeliveryFailure({
+    metadata: delivered.metadataPatch,
+    enrichment: delivered.enrichmentPatch,
+    stage: 'post_delivery_update',
+    error: new Error('Vendas indisponivel'),
+    now: '2026-05-30T12:10:00.000Z',
+  });
+
+  assert.equal(failed.metadata.deliveryStatus, 'delivered');
+  assert.equal(failed.enrichment.deliveryStatus, 'delivered');
+  assert.equal(failed.metadata.postDeliveryUpdate.status, 'retryable');
+  assert.equal(failed.metadata.radarStageIssues.at(-1).stage, 'post_delivery_update');
+  assert.equal(failed.metadata.radarStageIssues.at(-1).blocksDelivery, false);
+});

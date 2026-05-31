@@ -40,7 +40,7 @@ export type GoogleTextualSearchResult = GoogleTextualRawResult & {
   reviews: number | null;
   address: string | null;
   website: string | null;
-  source: 'google_textual';
+  source: string;
   sourceEngine: 'google_textual';
   sourceUrl: string | null;
   evidenceJson: Record<string, any>;

@@ -1,5 +1,6 @@
 import { buildRadarStageIssue } from './radar-stage-policy';
 import type {
+  RadarPipelineStage,
   RadarPipelineDeliveryStatus,
   RadarPipelineEmailStatus,
   RadarPipelineEnrichmentStatus,
@@ -11,11 +12,27 @@ import type {
   RadarStageIssue,
   RadarStageSnapshot,
 } from './radar-stage.types';
+import type { RadarErrorCode } from './radar-error-codes';
 
 export type RadarStageResult<T = unknown> = {
   ok: boolean;
+  stage?: RadarPipelineStage | string;
+  operation?: string;
+  code?: RadarErrorCode;
+  data?: T;
+  error?: unknown;
+  canContinue?: boolean;
   blocksDelivery: boolean;
   retryable: boolean;
+  publicMessage?: string;
+  technicalMessage?: string;
+  traceId?: string;
+  runId?: string;
+  leadId?: string;
+  companyId?: number | string;
+  userId?: number | string;
+  engineId?: string;
+  provider?: string;
   value?: T;
   issue?: RadarStageIssue;
 };
@@ -76,6 +93,8 @@ export function radarStageOk<T>(value: T, snapshot?: Partial<RadarStageSnapshot>
     ok: true,
     blocksDelivery: false,
     retryable: false,
+    canContinue: true,
+    data: value,
     value,
     ...(snapshot ? { snapshot: buildRadarStageSnapshot(snapshot) } : {}),
   };
@@ -85,6 +104,10 @@ export function radarStageError(input: Parameters<typeof buildRadarStageIssue>[0
   const issue = buildRadarStageIssue(input);
   return {
     ok: false,
+    stage: issue.stage,
+    code: issue.code,
+    error: issue,
+    canContinue: !issue.blocksDelivery,
     blocksDelivery: issue.blocksDelivery,
     retryable: issue.retryable,
     issue,
