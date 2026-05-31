@@ -97,6 +97,7 @@ import {
   parsePositiveIntegerEnv,
   minutesAgo,
   formatCityWithState,
+  buildRadarStageSnapshot,
 } from '../radar-core-method-imports';
 
 import type {
@@ -930,11 +931,18 @@ export class RadarCorePresentationMixin {
       duplicate?: number;
     },
   ): WebscrapingSearchResponse {
+    const orchestration = this.getRadarSearchOrchestrator().plan(input);
     const publicResults = this.buildDeliverableResultEntries(input, results)
       .map(({ result, quality, qualityV2 }) => {
         const { placeId: _placeId, ...publicResult } = result;
         const opportunityScore = this.buildOpportunityScore(result, quality);
         const classified = this.attachDeliveryClassification({
+          ...buildRadarStageSnapshot({
+            ...publicResult,
+            leadStatus: 'qualified',
+            deliveryStatus: 'deliverable',
+            enrichmentStatus: publicResult.enrichmentStatus || 'partial',
+          }),
           ...publicResult,
           quality,
           qualityV2,
@@ -955,6 +963,21 @@ export class RadarCorePresentationMixin {
         filters: input.filters,
       },
       meta: {
+        searchStrategy: {
+          mode: orchestration.strategy.mode,
+          reason: orchestration.strategy.reason,
+          targetCards: orchestration.strategy.targetCards,
+          maxProviderRounds: orchestration.strategy.maxProviderRounds,
+        },
+        sourcePlan: orchestration.sources.map((source: any) => ({
+          source: source.source,
+          enabled: source.enabled,
+          implemented: source.implemented,
+          stopWhenEnough: source.stopWhenEnough,
+        })),
+        activeSources: orchestration.activeSources,
+        pendingSources: orchestration.pendingSources,
+        sourceExpansion: orchestration.expansion,
         ...meta,
         requestedCount: input.quantity,
         candidateCount: results.length,

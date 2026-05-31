@@ -1,0 +1,66 @@
+import type { NormalizedSearchInput, SearchExecutionContext } from '../shared/radar-types';
+
+export type RadarSocialNetwork = 'instagram' | 'facebook';
+
+export type RadarSocialLookupHost = {
+  searchHbxEngine: (
+    input: NormalizedSearchInput,
+    existing: any[],
+    engineUrl: string | undefined,
+    options: { queryText: string; batchLimit: number; timeoutMs: number },
+  ) => Promise<{ results: any[] }>;
+  normalizeRadarSocialUrl: (value: unknown, network: RadarSocialNetwork) => string | null;
+  pickRadarSocialUrl: (item: any, network: RadarSocialNetwork) => string | null;
+};
+
+export type RadarSocialLookupJob = {
+  context: SearchExecutionContext;
+  leadId: string;
+  input: NormalizedSearchInput;
+  engineUrl?: string | null;
+  host: RadarSocialLookupHost;
+};
+
+export type RadarSocialQueryLayer =
+  | 'brand_city'
+  | 'legal_name_city'
+  | 'phone_masked'
+  | 'phone_digits'
+  | 'domain'
+  | 'site_operator'
+  | 'whatsapp_intent'
+  | 'address_city'
+  | 'probable_handle';
+
+export type RadarSocialLookupQuery = {
+  network: RadarSocialNetwork;
+  query: string;
+  layer: RadarSocialQueryLayer;
+};
+
+export type RadarSocialCandidate = {
+  network: RadarSocialNetwork;
+  url: string | null;
+  source: string;
+  result: any;
+  rawText: string;
+};
+
+export type RadarSocialCandidateScore = {
+  accepted: boolean;
+  status: 'confirmed' | 'candidate_review' | 'rejected';
+  confidence: number;
+  reason: string;
+  url: string | null;
+  network: RadarSocialNetwork;
+};
+
+export type RadarSocialLookupResult = {
+  status: 'found' | 'partial' | 'candidate_review' | 'missing' | 'error';
+  instagramUrl: string | null;
+  facebookUrl: string | null;
+  confidence: number;
+  queries: string[];
+  reason: string;
+  candidates?: RadarSocialCandidateScore[];
+};

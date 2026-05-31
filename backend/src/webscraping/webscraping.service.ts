@@ -11,13 +11,21 @@ import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { VendasService } from '../vendas/vendas.service';
 import { HbxEnginePoolService } from './hbx-engine-pool.service';
+import { RadarResultMergerService } from './radar/01-search/radar-result-merger.service';
 import { RadarSearchGeoService } from './radar/01-search/radar-search-geo.service';
 import { RadarSearchInputService } from './radar/01-search/radar-search-input.service';
+import { RadarSearchOrchestratorService } from './radar/01-search/radar-search-orchestrator.service';
 import { RadarSearchRunConfigService } from './radar/01-search/radar-search-run-config.service';
+import { RadarSourceExpansionService } from './radar/01-search/radar-source-expansion.service';
+import { RadarSearchStrategyService } from './radar/01-search/radar-search-strategy.service';
+import { RadarSourcePlannerService } from './radar/01-search/radar-source-planner.service';
 import { RadarDuplicateFilterService } from './radar/02-filter/radar-duplicate-filter.service';
+import { RadarQualityGateService } from './radar/02-filter/radar-quality-gate.service';
 import { RadarRunItemFilterService } from './radar/02-filter/radar-run-item-filter.service';
 import { RadarScoreEnrichmentService } from './radar/03-enrichment/radar-score-enrichment.service';
 import { RadarSocialLookupService } from './radar/04-socials/radar-social-lookup.service';
+import { RadarDeliveryOrchestratorService } from './radar/05-delivery/radar-delivery-orchestrator.service';
+import { RadarPostDeliveryUpdateService } from './radar/05-delivery/radar-post-delivery-update.service';
 import { RadarVendasSyncService } from './radar/05-delivery/radar-vendas-sync.service';
 import { RadarLeadPresenterService } from './radar/06-presentation/radar-lead-presenter.service';
 import { RadarRunPresenterService } from './radar/06-presentation/radar-run-presenter.service';
@@ -44,12 +52,20 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
     @Optional() radarSocialLookup?: RadarSocialLookupService,
     @Optional() radarLeadPresenter?: RadarLeadPresenterService,
     @Optional() radarRunPresenter?: RadarRunPresenterService,
+    @Optional() radarPostDeliveryUpdate?: RadarPostDeliveryUpdateService,
+    @Optional() radarDeliveryOrchestrator?: RadarDeliveryOrchestratorService,
     @Optional() radarVendasSync?: RadarVendasSyncService,
     @Optional() radarSharedNormalizer?: RadarSharedNormalizerService,
     @Optional() radarSearchGeo?: RadarSearchGeoService,
     @Optional() radarSearchInput?: RadarSearchInputService,
+    @Optional() radarSearchStrategy?: RadarSearchStrategyService,
+    @Optional() radarSourcePlanner?: RadarSourcePlannerService,
+    @Optional() radarSourceExpansion?: RadarSourceExpansionService,
+    @Optional() radarResultMerger?: RadarResultMergerService,
+    @Optional() radarSearchOrchestrator?: RadarSearchOrchestratorService,
     @Optional() radarSearchRunConfig?: RadarSearchRunConfigService,
     @Optional() radarDuplicateFilter?: RadarDuplicateFilterService,
+    @Optional() radarQualityGate?: RadarQualityGateService,
     @Optional() radarRunItemFilter?: RadarRunItemFilterService,
     @Optional() radarScoreEnrichment?: RadarScoreEnrichmentService,
     @Optional() radarGoogleResponse?: RadarGoogleResponseService,
@@ -67,12 +83,20 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
       radarSocialLookup,
       radarLeadPresenter,
       radarRunPresenter,
+      radarPostDeliveryUpdate,
+      radarDeliveryOrchestrator,
       radarVendasSync,
       radarSharedNormalizer,
       radarSearchGeo,
       radarSearchInput,
+      radarSearchStrategy,
+      radarSourcePlanner,
+      radarSourceExpansion,
+      radarResultMerger,
+      radarSearchOrchestrator,
       radarSearchRunConfig,
       radarDuplicateFilter,
+      radarQualityGate,
       radarRunItemFilter,
       radarScoreEnrichment,
       radarGoogleResponse,

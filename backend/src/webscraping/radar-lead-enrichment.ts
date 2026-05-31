@@ -2,7 +2,7 @@ import { calculateLeadQualityV2, type LeadQualityV2SalesProfile } from './lead-q
 
 export type RadarEmailStatus = 'confirmed' | 'probable' | 'missing' | 'invalid' | 'unverified';
 export type RadarEmailSource = 'website' | 'maps' | 'inferred' | 'manual' | 'none';
-export type RadarSocialStatus = 'found' | 'missing' | 'weak' | 'unknown';
+export type RadarSocialStatus = 'found' | 'partial' | 'candidate_review' | 'missing' | 'weak' | 'error' | 'unknown';
 export type RadarRecommendedChannel = 'whatsapp' | 'email' | 'call' | 'review' | 'discard';
 export type RadarPainType =
   | 'sem_site'
@@ -339,12 +339,27 @@ export function buildRadarLeadEnrichment(input: RadarLeadEnrichmentInput): Radar
   const instagramUrl = normalizeUrl(pickRaw(input, ['instagramUrl', 'instagram', 'instagram_url']));
   const facebookUrl = normalizeUrl(pickRaw(input, ['facebookUrl', 'facebook', 'facebook_url']));
   const website = normalizeUrl(input.website);
-  const socialStatus: RadarSocialStatus = instagramUrl || facebookUrl
+  const requestedSocialStatus = normalizeKey(input.socialStatus);
+  const socialStatus: RadarSocialStatus = instagramUrl && facebookUrl
     ? 'found'
-    : normalizeKey(input.socialStatus) === 'weak'
-      ? 'weak'
-      : 'missing';
-  const socialConfidence = socialStatus === 'found' ? Math.max(80, clampInt(input.socialConfidence)) : socialStatus === 'weak' ? Math.max(35, clampInt(input.socialConfidence)) : 0;
+    : instagramUrl || facebookUrl
+      ? requestedSocialStatus === 'found' ? 'found' : 'partial'
+      : requestedSocialStatus === 'candidate_review'
+        ? 'candidate_review'
+        : requestedSocialStatus === 'weak'
+          ? 'weak'
+          : requestedSocialStatus === 'error'
+            ? 'error'
+            : 'missing';
+  const socialConfidence = socialStatus === 'found'
+    ? Math.max(80, clampInt(input.socialConfidence))
+    : socialStatus === 'partial'
+      ? Math.max(75, clampInt(input.socialConfidence))
+      : socialStatus === 'candidate_review'
+        ? Math.max(60, Math.min(74, clampInt(input.socialConfidence || 60)))
+        : socialStatus === 'weak'
+          ? Math.max(35, clampInt(input.socialConfidence))
+          : 0;
   const googleMapsUrl = normalizeUrl(
     pickRaw(input, ['googleMapsUrl', 'mapsUrl', 'google_maps_url']) ||
     input.sourceUrl ||
@@ -370,6 +385,8 @@ export function buildRadarLeadEnrichment(input: RadarLeadEnrichmentInput): Radar
   else if (instagramUrl) score += 6;
   else if (facebookUrl) score += 4;
   if ((instagramUrl || facebookUrl) && (pain.type === 'sem_site' || pain.type === 'site_fraco')) score += 4;
+  if (socialStatus === 'partial') score += 5;
+  if (socialStatus === 'candidate_review') score += 3;
   if (socialStatus === 'weak') score += 2;
   if (Number(input.rating || 0) >= 4.2) score += 4;
   if (Number(input.reviews || 0) >= 20) score += 3;
@@ -380,7 +397,7 @@ export function buildRadarLeadEnrichment(input: RadarLeadEnrichmentInput): Radar
       (recommendedChannel === 'whatsapp' ? 25 : 0) +
       (emailStatus === 'confirmed' ? 20 : emailStatus === 'probable' ? 12 : 0) +
       (pain.type !== 'unknown' ? 12 : 0) +
-      (socialStatus === 'found' ? 6 : 0),
+      (socialStatus === 'found' ? 6 : socialStatus === 'partial' ? 4 : socialStatus === 'candidate_review' ? 2 : 0),
     0,
     100,
   );

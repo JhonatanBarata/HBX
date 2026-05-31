@@ -2651,6 +2651,70 @@ export class RadarCoreDeliveryMixin {
     return this.getRadarLeadForUser(user, row.id);
   }
 
+  private async markRadarPostDeliveryUpdateRetryable(
+    radarLeadId: string,
+    error: any,
+    stage: string = 'post_delivery_update',
+  ) {
+    if (!(await this.supportsRadarPersistence())) return;
+    const id = String(radarLeadId || '').trim();
+    if (!id) return;
+    const row = await (this.prisma as any).radarLeadPool.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        metadataJson: true,
+        enrichmentJson: true,
+      },
+    }).catch(() => null);
+    if (!row) return;
+    const retryable = this.getRadarDeliveryOrchestrator().markPostDeliveryFailure({
+      metadata: this.parseMaybeJsonObject(row.metadataJson),
+      enrichment: this.parseMaybeJsonObject(row.enrichmentJson),
+      stage,
+      error,
+      now: new Date(),
+    });
+    await (this.prisma as any).radarLeadPool.update({
+      where: { id: row.id },
+      data: {
+        metadataJson: JSON.stringify(retryable.metadata),
+        enrichmentJson: JSON.stringify(retryable.enrichment),
+      },
+    }).catch(() => null);
+  }
+
+  private async markRadarPostDeliveryUpdateCompleted(radarLeadId: string) {
+    if (!(await this.supportsRadarPersistence())) return;
+    const id = String(radarLeadId || '').trim();
+    if (!id) return;
+    const row = await (this.prisma as any).radarLeadPool.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        metadataJson: true,
+        enrichmentJson: true,
+      },
+    }).catch(() => null);
+    if (!row) return;
+    const metadata = this.parseMaybeJsonObject(row.metadataJson);
+    const enrichment = this.parseMaybeJsonObject(row.enrichmentJson);
+    const now = new Date();
+    await (this.prisma as any).radarLeadPool.update({
+      where: { id: row.id },
+      data: {
+        metadataJson: JSON.stringify({
+          ...metadata,
+          postDeliveryUpdate: this.getRadarPostDeliveryUpdate().buildCompletedState(metadata.postDeliveryUpdate, now),
+        }),
+        enrichmentJson: JSON.stringify({
+          ...enrichment,
+          postDeliveryUpdate: this.getRadarPostDeliveryUpdate().buildCompletedState(enrichment.postDeliveryUpdate || metadata.postDeliveryUpdate, now),
+        }),
+      },
+    }).catch(() => null);
+  }
+
   async importRadarLeadToVendasForUser(
     user: any,
     radarLeadId: string,
@@ -2673,8 +2737,15 @@ export class RadarCoreDeliveryMixin {
       include: { companyStates: { where: { companyId: context.companyId }, take: 1 } },
     });
     if (!row) throw new NotFoundException('Card do Radar nao encontrado.');
-    const [enrichedRow] = await this.ensureRadarRowsEnriched([row]);
-    let leadRow = enrichedRow || row;
+    let preDeliveryEnrichmentError: any = null;
+    let leadRow = row;
+    try {
+      const [enrichedRow] = await this.ensureRadarRowsEnriched([row]);
+      leadRow = enrichedRow || row;
+    } catch (error: any) {
+      preDeliveryEnrichmentError = error;
+      this.logger.warn(`[radar-vendas] pre-enriquecimento ignorado lead=${row?.id || '-'}: ${String(error?.message || error)}`);
+    }
     if (this.isRadarProtectedStatus(leadRow?.companyStates?.[0]?.status || leadRow?.status)) {
       throw new BadRequestException('Card protegido nao pode ser enviado para Vendas.');
     }
@@ -2787,6 +2858,35 @@ export class RadarCoreDeliveryMixin {
     } as any);
     const vendasLeadId = imported?.leads?.[0]?.id || null;
     const now = new Date();
+    const existingMetadata = this.parseMaybeJsonObject(leadRow?.metadataJson);
+    const existingEnrichment = this.parseMaybeJsonObject(leadRow?.enrichmentJson);
+    const deliveredState = this.getRadarDeliveryOrchestrator().buildDeliveredState({
+      lead: leadRow,
+      imported,
+      vendasLeadId,
+      metadata: existingMetadata,
+      enrichment: existingEnrichment,
+      now,
+    });
+    let nextDeliveryMetadata = {
+      ...existingMetadata,
+      ...deliveredState.metadataPatch,
+    };
+    let nextDeliveryEnrichment = {
+      ...existingEnrichment,
+      ...deliveredState.enrichmentPatch,
+    };
+    if (preDeliveryEnrichmentError) {
+      const retryable = this.getRadarDeliveryOrchestrator().markPostDeliveryFailure({
+        metadata: nextDeliveryMetadata,
+        enrichment: nextDeliveryEnrichment,
+        stage: 'enrichment',
+        error: preDeliveryEnrichmentError,
+        now,
+      });
+      nextDeliveryMetadata = retryable.metadata;
+      nextDeliveryEnrichment = retryable.enrichment;
+    }
     await (this.prisma as any).$transaction([
       (this.prisma as any).radarLeadCompanyState.upsert({
         where: {
@@ -2821,6 +2921,8 @@ export class RadarCoreDeliveryMixin {
           status: 'sent_to_vendas',
           globalImportedCount: { increment: 1 },
           lastSeenAt: now,
+          metadataJson: JSON.stringify(nextDeliveryMetadata),
+          enrichmentJson: JSON.stringify(nextDeliveryEnrichment),
         },
       }),
     ]).catch(() => null);
@@ -2832,9 +2934,12 @@ export class RadarCoreDeliveryMixin {
       statusFrom: this.normalizeRadarLeadStatus(leadRow.status),
       statusTo: 'sent_to_vendas',
     });
-    void this.enrichRadarLeadForUser(user, leadRow.id).catch((error: any) => {
-      this.logger.warn(`[radar-vendas] enriquecimento assÃ­ncrono ignorado lead=${leadRow?.id || '-'}: ${String(error?.message || error)}`);
-    });
+    void this.enrichRadarLeadForUser(user, leadRow.id)
+      .then(() => this.markRadarPostDeliveryUpdateCompleted(leadRow.id))
+      .catch((error: any) => {
+        this.logger.warn(`[radar-vendas] enriquecimento assÃ­ncrono ignorado lead=${leadRow?.id || '-'}: ${String(error?.message || error)}`);
+        void this.markRadarPostDeliveryUpdateRetryable(leadRow.id, error, 'post_delivery_update');
+      });
 
     return {
       ok: true,

@@ -735,6 +735,29 @@ export type WebscrapingSearchResponse = {
     queriesGenerated?: string[];
     sourceMetrics?: Array<Record<string, any>>;
     missingRequiredChannel?: number;
+    searchStrategy?: {
+      mode: string;
+      reason?: string;
+      targetCards?: number;
+      maxProviderRounds?: number;
+    };
+    sourcePlan?: Array<{
+      source: string;
+      enabled: boolean;
+      implemented: boolean;
+      stopWhenEnough?: boolean;
+    }>;
+    sourceExpansion?: {
+      googleTextualQueries?: string[];
+      siteCrawlPaths?: string[];
+      cnpjSeeds?: Array<Record<string, any>>;
+      directorySeeds?: string[];
+      verticalStrategies?: Array<Record<string, any>>;
+      opportunitySignals?: Array<Record<string, any>>;
+      reprocessRules?: Array<Record<string, any>>;
+    };
+    activeSources?: string[];
+    pendingSources?: string[];
   };
   results: Array<Omit<WebscrapingContactResult, 'placeId'>>;
 };
@@ -1785,3 +1808,8 @@ export function formatCityWithState(city: string, state: string | null | undefin
   if (new RegExp(`\\s-\\s${safeState}$`, 'i').test(safeCity)) return safeCity;
   return `${safeCity} - ${safeState}`;
 }
+
+export * from './radar-error-codes';
+export * from './radar-stage.types';
+export * from './radar-stage-policy';
+export * from './radar-stage-result';
