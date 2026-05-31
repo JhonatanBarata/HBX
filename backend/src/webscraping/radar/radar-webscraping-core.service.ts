@@ -58,6 +58,7 @@ import { RadarDuplicateFilterService, type RadarDuplicateSortHost } from './02-f
 import { RadarQualityGateService, type RadarQualityGateHost } from './02-filter/radar-quality-gate.service';
 import { RadarRunItemFilterService, type RadarRunItemFilterHost } from './02-filter/radar-run-item-filter.service';
 import { RadarScoreEnrichmentService, type RadarScoreEnrichmentHost } from './03-enrichment/radar-score-enrichment.service';
+import { RadarWebEnrichmentJobService, type RadarWebEnrichmentJobHost } from './03-enrichment/radar-web-enrichment-job.service';
 import { GoogleSearchProviderService } from './providers/google-search/google-search-provider.service';
 import { RadarGoogleResponseService } from './providers/google-search/radar-google-response.service';
 import { RadarHbxEngineErrorsService } from './providers/hbx-engine/radar-hbx-engine-errors.service';
@@ -254,6 +255,7 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
     @Optional() private readonly radarQualityGate?: RadarQualityGateService,
     @Optional() private readonly radarRunItemFilter?: RadarRunItemFilterService,
     @Optional() private readonly radarScoreEnrichment?: RadarScoreEnrichmentService,
+    @Optional() private readonly radarWebEnrichmentJob?: RadarWebEnrichmentJobService,
     @Optional() private readonly googleSearchProvider?: GoogleSearchProviderService,
     @Optional() private readonly radarGoogleResponse?: RadarGoogleResponseService,
     @Optional() private readonly radarHbxEngineErrors?: RadarHbxEngineErrorsService,
@@ -420,6 +422,10 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
     return this.radarScoreEnrichment || new RadarScoreEnrichmentService();
   }
 
+  private getRadarWebEnrichmentJobService() {
+    return this.radarWebEnrichmentJob || new RadarWebEnrichmentJobService(this.getRadarRunRepository());
+  }
+
   private getGoogleSearchProvider() {
     return this.googleSearchProvider || new GoogleSearchProviderService();
   }
@@ -489,6 +495,14 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
       searchHbxEngine: (input, existing, engineUrl, options) => this.searchHbxEngine(input, existing, engineUrl, options),
       normalizeRadarSocialUrl: (value, network) => this.normalizeRadarSocialUrl(value, network),
       pickRadarSocialUrl: (item, network) => this.pickRadarSocialUrl(item, network),
+    };
+  }
+
+  private buildRadarWebEnrichmentJobHost(): RadarWebEnrichmentJobHost {
+    return {
+      searchHbxEngine: (input, existing, engineUrl, options) => this.searchHbxEngine(input, existing, engineUrl, options),
+      getRadarWebsiteCrawlSource: () => this.getRadarWebsiteCrawlSource(),
+      logger: this.logger,
     };
   }
 

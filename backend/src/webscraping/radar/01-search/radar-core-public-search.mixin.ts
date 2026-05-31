@@ -332,13 +332,15 @@ export class RadarCorePublicSearchMixin {
         },
       });
 
-      await this.saveSearchRunResults(
+      const savedCounts = await this.saveSearchRunResults(
         context,
         normalized,
         run.id,
         databaseResults.slice(0, normalized.quantity),
         'radar_database',
       );
+      this.enqueueRadarWebEnrichmentForSavedLeads(context, run.id, normalized, savedCounts.savedWebEnrichmentLeadIds);
+      this.enqueueRadarSocialLookupForSavedLeads(context, run.id, normalized, savedCounts.savedLeadIds);
       await this.recalculateSearchRunCounters(run.id);
       await this.updateSearchRunMetrics(run.id, {
         sourceEngine: 'radar_database',
@@ -671,9 +673,17 @@ export class RadarCorePublicSearchMixin {
           this.logger.warn(`[radar] fallback Google falhou apos HBX: ${String((error as any)?.message || error)}`);
         }
       }
+      const deliverableCountBeforeOptional = this.countDeliverableResults(normalized, orderedResults);
+      const hasPoorCardsForOptionalEnrichment = orderedResults.some((result: any) => {
+        const phoneDigits = normalizePhoneDigits(result?.phoneDigits || result?.phone);
+        if (!phoneDigits || phoneDigits.length < 10) return false;
+        return !String(result?.website || '').trim()
+          || !String(result?.email || '').trim()
+          || !String(result?.instagramUrl || result?.facebookUrl || '').trim();
+      });
       if (
         String(process.env.HBX_RADAR_SEARCH_STRATEGY_ENGINE_ENABLED || '').trim().toLowerCase() === 'true'
-        && this.countDeliverableResults(normalized, orderedResults) < normalized.quantity
+        && (deliverableCountBeforeOptional < normalized.quantity || hasPoorCardsForOptionalEnrichment)
       ) {
         const orchestration = this.getRadarSearchOrchestrator().plan(normalized, { purpose });
         const optionalExecution = await this.getRadarSourceExecutor().execute({
@@ -683,7 +693,7 @@ export class RadarCorePublicSearchMixin {
           seenPhones,
           options,
           sourcePlan: orchestration.sources,
-          remainingQuantity: Math.max(1, normalized.quantity - this.countDeliverableResults(normalized, orderedResults)),
+          remainingQuantity: Math.max(0, normalized.quantity - deliverableCountBeforeOptional),
           purpose,
           host: {
             prisma: this.prisma,

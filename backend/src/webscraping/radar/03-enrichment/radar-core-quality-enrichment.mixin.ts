@@ -1,5 +1,9 @@
 // @ts-nocheck
 import {
+  hasPoorRadarWebEnrichmentFields,
+  scoreRadarWebEnrichmentCandidate,
+} from './radar-web-enrichment-priority';
+import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
@@ -1057,6 +1061,8 @@ export class RadarCoreQualityEnrichmentMixin {
       skipped: 0,
       invalid: 0,
       savedLeadIds: [] as string[],
+      savedWebEnrichmentLeadIds: [] as string[],
+      savedWebEnrichmentCandidates: [] as Array<{ id: string; score: number; reasons: string[]; index: number }>,
     };
     const metricIncrements: Partial<RadarSearchRunMetrics> = {
       rawFoundCount: 0,
@@ -1154,6 +1160,26 @@ export class RadarCoreQualityEnrichmentMixin {
       ) {
         counts.savedLeadIds.push(String(savedItem.id));
       }
+      if (finalStatus === 'found' && normalized.targetType === 'pj' && savedItem?.id) {
+        const webEnrichmentInput = {
+          id: String(savedItem.id),
+          name: result.name,
+          phone: result.phone,
+          phoneDigits: classified.phoneDigits || result.phoneDigits,
+          website: result.website,
+          email: (result as any).email,
+          instagramUrl: resultInstagramUrl,
+          facebookUrl: resultFacebookUrl,
+          socialStatus,
+          source: String(result.source || source || ''),
+          score: (result as any).score,
+          enrichmentScore: (result as any).enrichmentScore,
+          index: baseIndex + index,
+        };
+        if (hasPoorRadarWebEnrichmentFields(webEnrichmentInput)) {
+          counts.savedWebEnrichmentCandidates.push(scoreRadarWebEnrichmentCandidate(webEnrichmentInput));
+        }
+      }
       metricIncrements.parsedContacts = safeInteger(metricIncrements.parsedContacts) + 1;
       metricIncrements.rawFoundCount = safeInteger(metricIncrements.rawFoundCount) + 1;
       if (finalStatus === 'found') counts.found += 1;
@@ -1202,6 +1228,11 @@ export class RadarCoreQualityEnrichmentMixin {
     }
     await this.recordSourceQualityFromRunItems(results, sourceQualityRows);
     await this.updateSearchRunMetrics(runId, { increment: metricIncrements });
+    counts.savedWebEnrichmentLeadIds = counts.savedWebEnrichmentCandidates
+      .filter((candidate) => candidate.score > 0)
+      .sort((a, b) => b.score - a.score || a.index - b.index)
+      .map((candidate) => candidate.id);
+    delete (counts as any).savedWebEnrichmentCandidates;
     return counts;
   }
 }

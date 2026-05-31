@@ -2561,6 +2561,45 @@ test('mapHbxContactResult mapeia rede social vinda de sourceUrl generico', () =>
   assert.equal(String(mapped.placeId).startsWith('hbx:pj:social:'), true);
 });
 
+test('mapHbxContactResult preserva contrato de enriquecimento vindo do HBX engine', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const normalized = service.normalizeSearchInput({
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'barbearias',
+    quantity: 1,
+    engine: 'hbx',
+    targetType: 'pj',
+  });
+
+  const mapped = service.mapHbxContactResult({
+    name: 'Barbearia X',
+    phone: '(19) 99999-0001',
+    phoneDigits: '19999990001',
+    instagramUrl: 'https://instagram.com/barbeariaxrioclaro',
+    socialStatus: 'found',
+    socialConfidence: 78,
+    email: 'agenda@barbeariax.com.br',
+    emailStatus: 'confirmed',
+    enrichmentJson: {
+      social: {
+        instagramUrl: {
+          query: 'site:instagram.com "Barbearia X" "Rio Claro"',
+          score: 78,
+        },
+      },
+    },
+    source: 'hbx_scraping:free_pj',
+    score: 80,
+  }, normalized);
+
+  assert.ok(mapped);
+  assert.equal(mapped.socialStatus, 'found');
+  assert.equal(mapped.socialConfidence, 78);
+  assert.equal(mapped.emailStatus, 'confirmed');
+  assert.equal((mapped.enrichmentJson as any).social.instagramUrl.score, 78);
+});
+
 test('processSearchRun enfileira lookup social automatico para card aprovado sem Instagram', async () => {
   const previousFetch = global.fetch;
   global.fetch = (async () =>

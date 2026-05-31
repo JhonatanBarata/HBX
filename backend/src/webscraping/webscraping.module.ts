@@ -33,6 +33,8 @@ import { RadarRunItemFilterService } from './radar/02-filter/radar-run-item-filt
 import { RadarEnrichmentJobPipelineService } from './radar/03-enrichment/radar-enrichment-job-pipeline.service';
 import { RadarOpportunitySignalService } from './radar/03-enrichment/radar-opportunity-signal.service';
 import { RadarScoreEnrichmentService } from './radar/03-enrichment/radar-score-enrichment.service';
+import { RadarWebEnrichmentService } from './radar/03-enrichment/radar-web-enrichment.service';
+import { RadarWebEnrichmentJobService } from './radar/03-enrichment/radar-web-enrichment-job.service';
 import { GoogleSearchProviderService } from './radar/providers/google-search/google-search-provider.service';
 import { GoogleSearchQueryBuilder } from './radar/providers/google-search/google-search-query-builder';
 import { GoogleSearchResultNormalizer } from './radar/providers/google-search/google-search-result-normalizer';
@@ -87,6 +89,8 @@ const RADAR_ENRICHMENT_SERVICES = [
   RadarEnrichmentJobPipelineService,
   RadarOpportunitySignalService,
   RadarScoreEnrichmentService,
+  RadarWebEnrichmentService,
+  RadarWebEnrichmentJobService,
 ];
 
 const RADAR_SOCIAL_SERVICES = [

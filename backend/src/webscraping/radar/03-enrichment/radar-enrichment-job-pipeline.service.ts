@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { RadarPipelineStage } from '../shared/radar-stage.types';
 
 export type RadarAsyncEnrichmentJobType =
+  | 'radar_web_enrichment'
   | 'social_lookup'
   | 'website_crawl_light'
   | 'email_enrichment'
@@ -37,6 +38,7 @@ export type RadarAsyncEnrichmentJob = {
 };
 
 const DEFAULT_POST_DELIVERY_JOB_TYPES: RadarAsyncEnrichmentJobType[] = [
+  'radar_web_enrichment',
   'social_lookup',
   'email_enrichment',
   'whatsapp_check',
@@ -74,6 +76,8 @@ export class RadarEnrichmentJobPipelineService {
     const normalized = String(type || '').trim().toLowerCase();
     const aliases: Record<string, RadarAsyncEnrichmentJobType> = {
       social: 'social_lookup',
+      radar_web_enrichment: 'radar_web_enrichment',
+      web_enrichment: 'radar_web_enrichment',
       email: 'email_enrichment',
       whatsapp: 'whatsapp_check',
       site: 'website_crawl_light',
@@ -90,6 +94,7 @@ export class RadarEnrichmentJobPipelineService {
     const jobType = this.normalizeJobType(type);
     const stages: Record<RadarAsyncEnrichmentJobType, RadarPipelineStage> = {
       social_lookup: 'social',
+      radar_web_enrichment: 'enrichment',
       website_crawl_light: 'site',
       email_enrichment: 'email',
       whatsapp_check: 'whatsapp',
@@ -106,6 +111,7 @@ export class RadarEnrichmentJobPipelineService {
     const jobType = this.normalizeJobType(type);
     const sources: Record<RadarAsyncEnrichmentJobType, string> = {
       social_lookup: 'social_lookup',
+      radar_web_enrichment: 'radar_web_enrichment',
       website_crawl_light: 'website_crawl_light',
       email_enrichment: 'email_enrichment',
       whatsapp_check: 'whatsapp_check',
@@ -122,6 +128,7 @@ export class RadarEnrichmentJobPipelineService {
     const normalized = String(stage || '').trim().toLowerCase();
     const mapping: Record<string, RadarAsyncEnrichmentJobType> = {
       social: 'social_lookup',
+      radar_web_enrichment: 'radar_web_enrichment',
       email: 'email_enrichment',
       whatsapp: 'whatsapp_check',
       site: 'website_crawl_light',
@@ -277,6 +284,7 @@ export class RadarEnrichmentJobPipelineService {
   private isJobType(value: string): value is RadarAsyncEnrichmentJobType {
     return [
       'social_lookup',
+      'radar_web_enrichment',
       'website_crawl_light',
       'email_enrichment',
       'whatsapp_check',

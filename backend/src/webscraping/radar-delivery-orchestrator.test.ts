@@ -24,7 +24,7 @@ test('radar delivery schedules post-delivery jobs after Vendas import', () => {
   assert.equal(delivered.postDeliveryUpdate.status, 'scheduled');
   assert.deepEqual(
     delivered.jobs.map((job) => job.type),
-    ['social_lookup', 'email_enrichment', 'whatsapp_check', 'website_crawl_light', 'cnpj_enrichment', 'opportunity_signal', 'post_delivery_update'],
+    ['radar_web_enrichment', 'social_lookup', 'email_enrichment', 'whatsapp_check', 'website_crawl_light', 'cnpj_enrichment', 'opportunity_signal', 'post_delivery_update'],
   );
   assert.equal(delivered.jobs.every((job) => job.status === 'queued'), true);
   assert.equal(delivered.metadataPatch.vendasLeadId, 42);

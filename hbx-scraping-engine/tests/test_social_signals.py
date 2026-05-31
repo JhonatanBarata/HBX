@@ -238,6 +238,29 @@ def test_social_candidate_accepts_brand_city_handle_for_legal_name() -> None:
     assert score >= 55
 
 
+def test_public_enrichment_contract_preserves_social_status_and_evidence() -> None:
+    service = SearchService()
+    contact = {
+        "name": "Barbearia X",
+        "phone": "(19) 99999-0001",
+        "phoneDigits": "19999990001",
+        "instagramUrl": "https://instagram.com/barbeariaxrioclaro",
+        "_socialEnrichment": {
+            "instagramUrl": {
+                "score": 78,
+                "query": 'site:instagram.com "Barbearia X" "Rio Claro"',
+                "status": "confirmed",
+            },
+        },
+    }
+
+    enriched = service.apply_public_enrichment_contract(contact)
+
+    assert enriched["socialStatus"] == "found"
+    assert enriched["socialConfidence"] == 78
+    assert enriched["enrichmentJson"]["social"]["instagramUrl"]["query"] == 'site:instagram.com "Barbearia X" "Rio Claro"'
+
+
 def test_discovery_recognizes_social_signal_but_does_not_use_as_primary_source(monkeypatch) -> None:
     queries: list[str] = []
 

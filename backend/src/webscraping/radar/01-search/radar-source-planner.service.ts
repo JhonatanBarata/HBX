@@ -25,6 +25,7 @@ export class RadarSourcePlannerService {
       global_cache: allowStored && flags.skipTechnicalCache !== true && flags.globalCacheEnabled !== false,
       hbx_engine: input.engine === 'hbx',
       google_textual: strategy.allowSecondaryProviders && input.engine === 'hbx',
+      radar_web_enrichment: strategy.allowSecondaryProviders && input.engine === 'hbx' && input.targetType === 'pj',
       reprocess_missing_social: input.targetType === 'pj',
       reprocess_old_cards: input.targetType === 'pj',
       website_crawl_light: strategy.allowLightCrawl,
@@ -36,9 +37,9 @@ export class RadarSourcePlannerService {
     };
     const byStrategy: Record<string, RadarLeadSourceKind[]> = {
       fast: ['radar_database', 'company_history', 'global_cache', 'hbx_engine'],
-      quality: ['radar_database', 'hbx_engine', 'google_textual', 'reprocess_missing_social'],
-      deep: ['hbx_engine', 'google_textual', 'website_crawl_light', 'cnpj_public', 'local_directory', 'vertical_source'],
-      night_factory: ['reprocess_old_cards', 'reprocess_missing_social', 'google_textual', 'website_crawl_light', 'cnpj_public', 'local_directory', 'vertical_source'],
+      quality: ['radar_database', 'hbx_engine', 'radar_web_enrichment', 'google_textual', 'reprocess_missing_social'],
+      deep: ['hbx_engine', 'radar_web_enrichment', 'google_textual', 'website_crawl_light', 'cnpj_public', 'local_directory', 'vertical_source'],
+      night_factory: ['reprocess_old_cards', 'reprocess_missing_social', 'radar_web_enrichment', 'google_textual', 'website_crawl_light', 'cnpj_public', 'local_directory', 'vertical_source'],
     };
     const implemented = new Set<RadarLeadSourceKind>([
       'radar_database',
@@ -46,6 +47,7 @@ export class RadarSourcePlannerService {
       'global_cache',
       'hbx_engine',
       'google_textual',
+      'radar_web_enrichment',
       'reprocess_missing_social',
       'reprocess_old_cards',
       'website_crawl_light',
@@ -71,6 +73,7 @@ export class RadarSourcePlannerService {
       global_cache: 'cache_tecnico_reaproveita_busca_publica',
       hbx_engine: 'motor_hbx_e_fonte_primaria_de_captura',
       google_textual: 'busca_textual_por_intencao_como_complemento_opcional',
+      radar_web_enrichment: 'enriquece_card_pobre_com_radar_proprio_sem_bloquear_entrega',
       reprocess_missing_social: 'reprocessa_cards_sem_social_ou_com_status_fraco',
       reprocess_old_cards: 'reprocessa_cards_antigos_do_radar',
       website_crawl_light: 'crawl_leve_de_website_oficial_como_complemento_opcional',
