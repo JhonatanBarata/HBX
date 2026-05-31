@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { RadarResultMergerService } from './radar/01-search/radar-result-merger.service';
 import { RadarInternalReprocessSourceService } from './radar/01-search/radar-internal-reprocess-source.service';
+import { RadarSourceExecutorService } from './radar/01-search/radar-source-executor.service';
 import { RadarSearchOrchestratorService } from './radar/01-search/radar-search-orchestrator.service';
 import { RadarSourceExpansionService } from './radar/01-search/radar-source-expansion.service';
 import { RadarSearchStrategyService } from './radar/01-search/radar-search-strategy.service';
@@ -33,6 +36,50 @@ const baseInput: any = {
   channelMatchMode: 'prefer',
   freshness: 'database_first',
 };
+
+function withEnv(values: Record<string, string>, fn: () => Promise<void> | void) {
+  const previous: Record<string, string | undefined> = {};
+  for (const key of Object.keys(values)) {
+    previous[key] = process.env[key];
+    process.env[key] = values[key];
+  }
+  const restore = () => {
+    for (const key of Object.keys(values)) {
+      if (previous[key] == null) delete process.env[key];
+      else process.env[key] = previous[key];
+    }
+  };
+  try {
+    const result = fn();
+    if (result && typeof (result as Promise<void>).then === 'function') {
+      return (result as Promise<void>).finally(restore);
+    }
+    restore();
+    return result;
+  } catch (error) {
+    restore();
+    throw error;
+  }
+}
+
+function createExecutorHost(overrides: Record<string, any> = {}) {
+  const orchestrator = new RadarSearchOrchestratorService(
+    new RadarSearchStrategyService(),
+    new RadarSourcePlannerService(),
+    new RadarSourceExpansionService(),
+  );
+  return {
+    prisma: overrides.prisma || {},
+    logger: { warn: () => null },
+    searchHbxEngine: overrides.searchHbxEngine || (async () => ({ results: [] })),
+    getRadarInternalReprocessSource: () => overrides.reprocess || new RadarInternalReprocessSourceService(),
+    getGoogleSearchProvider: () => overrides.googleProvider || new GoogleSearchProviderService(),
+    getRadarSourceExpansion: () => new RadarSourceExpansionService(),
+    getRadarSearchStrategy: () => new RadarSearchStrategyService(),
+    getRadarSearchOrchestrator: () => orchestrator,
+    getRadarClientRequestTimeoutMs: () => 1_000,
+  };
+}
 
 test('radar search orchestrator planeja fontes por estrategia rapida', () => {
   const orchestrator = new RadarSearchOrchestratorService(
@@ -244,4 +291,205 @@ test('fonte opcional nao altera deliveryStatus para blocked ou error', () => {
 
   assert.equal(failure.issue?.blocksDelivery, false);
   assert.equal((failure as any).deliveryStatus, undefined);
+});
+
+test('executor executa google_textual e preserva origem real', async () => withEnv({
+  HBX_RADAR_GOOGLE_TEXTUAL_ENABLED: 'true',
+}, async () => {
+  const executor = new RadarSourceExecutorService();
+  const plan = new RadarSourcePlannerService().plan(
+    { ...baseInput, qualityMode: 'lead_plus' },
+    new RadarSearchStrategyService().resolve({ ...baseInput, qualityMode: 'lead_plus' }, { purpose: 'manual' }),
+  );
+  const result = await executor.execute({
+    context: { companyId: 7, userId: 9, user: {} },
+    normalized: { ...baseInput, qualityMode: 'lead_plus' },
+    currentResults: [],
+    seenPhones: new Set<string>(),
+    options: {},
+    sourcePlan: plan.filter((source) => source.source === 'google_textual'),
+    remainingQuantity: 3,
+    purpose: 'manual',
+    host: createExecutorHost({
+      searchHbxEngine: async () => ({
+        results: [{
+          name: 'Barbearia X',
+          phone: '(19) 99999-0001',
+          phoneDigits: '19999990001',
+          website: 'https://barbeariax.com.br',
+          city: 'Rio Claro',
+        }],
+      }),
+    }),
+  });
+
+  assert.equal(result.optionalSources[0].source, 'google_textual');
+  assert.equal(result.optionalResults[0].source, 'google_textual');
+  assert.equal(result.sourceDiagnostics[0].status, 'completed');
+  assert.equal(result.sourceEnginesUsed.includes('google_textual'), true);
+}));
+
+test('executor executa reprocess_missing_social e preserva origem real', async () => withEnv({
+  HBX_RADAR_INTERNAL_REPROCESS_ENABLED: 'true',
+}, async () => {
+  const executor = new RadarSourceExecutorService();
+  const result = await executor.execute({
+    context: { companyId: 7, userId: 9, user: {} },
+    normalized: baseInput,
+    currentResults: [],
+    seenPhones: [],
+    options: {},
+    sourcePlan: [{
+      source: 'reprocess_missing_social',
+      priority: 10,
+      enabled: true,
+      implemented: true,
+      optional: true,
+      stopWhenEnough: false,
+      reason: 'test',
+    }],
+    remainingQuantity: 3,
+    host: createExecutorHost({
+      reprocess: {
+        run: async () => ({
+          source: 'reprocess_missing_social',
+          status: 'completed',
+          retryable: false,
+          foundCount: 1,
+          acceptedCount: 1,
+          rejectedCount: 0,
+          reason: 'ok',
+          results: [{ placeId: 'radar:1', name: 'Barbearia X', phone: '(19) 99999-0001', phoneDigits: '19999990001', source: 'reprocess_missing_social' }],
+        }),
+      },
+    }),
+  });
+
+  assert.equal(result.optionalSources[0].source, 'reprocess_missing_social');
+  assert.equal(result.optionalResults[0].source, 'reprocess_missing_social');
+  assert.equal(result.sourceDiagnostics[0].status, 'completed');
+}));
+
+test('executor retorna partial_error quando google_textual falha', async () => withEnv({
+  HBX_RADAR_GOOGLE_TEXTUAL_ENABLED: 'true',
+}, async () => {
+  const executor = new RadarSourceExecutorService();
+  const result = await executor.execute({
+    context: { companyId: 7, userId: 9, user: {} },
+    normalized: { ...baseInput, qualityMode: 'lead_plus' },
+    currentResults: [],
+    seenPhones: [],
+    options: {},
+    sourcePlan: [{
+      source: 'google_textual',
+      priority: 10,
+      enabled: true,
+      implemented: true,
+      optional: true,
+      stopWhenEnough: false,
+      reason: 'test',
+    }],
+    remainingQuantity: 2,
+    host: createExecutorHost({
+      searchHbxEngine: async () => {
+        throw new Error('timeout google textual');
+      },
+    }),
+  });
+
+  assert.equal(result.sourceDiagnostics[0].status, 'partial_error');
+  assert.equal(result.sourceDiagnostics[0].retryable, true);
+  assert.equal(result.sourceDiagnostics[0].issue?.blocksDelivery, false);
+}));
+
+test('executor retorna partial_error quando internal reprocess falha', async () => withEnv({
+  HBX_RADAR_INTERNAL_REPROCESS_ENABLED: 'true',
+}, async () => {
+  const executor = new RadarSourceExecutorService();
+  const result = await executor.execute({
+    context: { companyId: 7, userId: 9, user: {} },
+    normalized: baseInput,
+    currentResults: [],
+    seenPhones: [],
+    options: {},
+    sourcePlan: [{
+      source: 'reprocess_old_cards',
+      priority: 10,
+      enabled: true,
+      implemented: true,
+      optional: true,
+      stopWhenEnough: false,
+      reason: 'test',
+    }],
+    remainingQuantity: 2,
+    host: createExecutorHost({
+      reprocess: {
+        run: async () => {
+          throw new Error('db indisponivel');
+        },
+      },
+    }),
+  });
+
+  assert.equal(result.sourceDiagnostics[0].status, 'partial_error');
+  assert.equal(result.sourceDiagnostics[0].issue?.blocksDelivery, false);
+}));
+
+test('executor retorna stubs como skipped, nunca completed', async () => {
+  const executor = new RadarSourceExecutorService();
+  const result = await executor.execute({
+    context: { companyId: 7, userId: 9, user: {} },
+    normalized: baseInput,
+    currentResults: [],
+    seenPhones: [],
+    options: {},
+    sourcePlan: ['website_crawl_light', 'local_directories_stub', 'cnpj_public_stub'].map((source, index) => ({
+      source: source as any,
+      priority: index + 1,
+      enabled: true,
+      implemented: false,
+      optional: true,
+      stopWhenEnough: false,
+      reason: 'stub explicito',
+    })),
+    remainingQuantity: 2,
+    host: createExecutorHost(),
+  });
+
+  assert.equal(result.sourceDiagnostics.length, 3);
+  assert.equal(result.sourceDiagnostics.every((item) => item.status === 'skipped'), true);
+  assert.equal(result.sourceDiagnostics.every((item) => item.reason.includes('stub')), true);
+});
+
+test('radar result merger preserva sourceEvidence por fonte real', () => {
+  const merger = new RadarResultMergerService();
+  const merged = merger.mergeSources([
+    {
+      source: 'google_textual',
+      results: [{ placeId: 'g:1', name: 'Barbearia X', phone: '(19) 99999-0001', phoneDigits: '19999990001', city: 'Rio Claro' } as any],
+    },
+    {
+      source: 'reprocess_missing_social',
+      results: [{ placeId: 'r:1', name: 'Barbearia X', phone: '', phoneDigits: '19999990001', city: 'Rio Claro', instagramUrl: 'https://instagram.com/barbeariax' } as any],
+    },
+  ]);
+
+  assert.equal(merged.results.length, 1);
+  assert.equal(Boolean((merged.results[0] as any).sourceEvidence.google_textual), true);
+  assert.equal(Boolean((merged.results[0] as any).sourceEvidence.reprocess_missing_social), true);
+});
+
+test('public search mixin delega optional source para executor', () => {
+  const source = readFileSync(join(process.cwd(), 'src/webscraping/radar/01-search/radar-core-public-search.mixin.ts'), 'utf8');
+  const optionalBlock = source.slice(source.indexOf('HBX_RADAR_SEARCH_STRATEGY_ENGINE_ENABLED'), source.indexOf('const historyResults'));
+
+  assert.match(optionalBlock, /getRadarSourceExecutor\(\)\.execute/);
+  assert.doesNotMatch(optionalBlock, /getRadarInternalReprocessSource\(\)\.run/);
+  assert.doesNotMatch(optionalBlock, /buildLeadDiscoveryRequests/);
+});
+
+test('optional source executor nao chama Vendas nem altera importedCount', () => {
+  const source = readFileSync(join(process.cwd(), 'src/webscraping/radar/01-search/radar-source-executor.service.ts'), 'utf8');
+
+  assert.equal(/vendasLead|vendasLeadTimelineEvent|VendasService|importedCount/.test(source), false);
 });
