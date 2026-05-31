@@ -633,6 +633,7 @@ export class RadarCorePublicSearchMixin {
 
       let orderedResults = this.sortContacts(results);
       const sourceEnginesUsed = new Set<string>(['hbx']);
+      const sourceDiagnostics: any[] = [];
       let googleFallbackCount = 0;
       if (this.countDeliverableResults(normalized, orderedResults) < normalized.quantity && this.shouldUseGoogleFallbackAfterHbx(normalized, options)) {
         try {
@@ -668,6 +669,70 @@ export class RadarCorePublicSearchMixin {
           orderedResults = this.sortContacts(results);
         } catch (error) {
           this.logger.warn(`[radar] fallback Google falhou apos HBX: ${String((error as any)?.message || error)}`);
+        }
+      }
+      if (
+        String(process.env.HBX_RADAR_SEARCH_STRATEGY_ENGINE_ENABLED || '').trim().toLowerCase() === 'true'
+        && this.countDeliverableResults(normalized, orderedResults) < normalized.quantity
+      ) {
+        const optionalResults: WebscrapingContactResult[] = [];
+        if (String(process.env.HBX_RADAR_INTERNAL_REPROCESS_ENABLED || '').trim().toLowerCase() === 'true') {
+          for (const source of ['reprocess_missing_social', 'reprocess_old_cards']) {
+            const diagnostic = await this.getRadarInternalReprocessSource().run({
+              prisma: this.prisma,
+              context,
+              normalized,
+              source,
+              limit: Math.max(1, normalized.quantity - this.countDeliverableResults(normalized, orderedResults)),
+            });
+            sourceDiagnostics.push(diagnostic);
+            optionalResults.push(...(diagnostic.results || []));
+          }
+        }
+        if (String(process.env.HBX_RADAR_GOOGLE_TEXTUAL_ENABLED || '').trim().toLowerCase() === 'true') {
+          const remaining = Math.max(1, normalized.quantity - this.countDeliverableResults(normalized, orderedResults));
+          const requests = this.getGoogleSearchProvider().buildLeadDiscoveryRequests(
+            normalized,
+            this.getRadarSourceExpansion().buildGoogleTextualQueries(normalized, this.getRadarSearchStrategy().resolve(normalized, { purpose })),
+            { limit: Math.min(5, remaining), timeoutMs: this.getRadarClientRequestTimeoutMs() },
+          ).slice(0, 3);
+          for (const request of requests) {
+            try {
+              const output = await this.searchHbxEngine(normalized, Array.from(seenPhones), options.hbxEngineUrl, {
+                queryText: request.queryText,
+                batchLimit: request.limit,
+                timeoutMs: request.timeoutMs || this.getRadarClientRequestTimeoutMs(),
+              });
+              const normalizedTextual = this.getGoogleSearchProvider().normalizeTextualResults(output.results || [], request);
+              sourceDiagnostics.push(this.getRadarSearchOrchestrator().buildCompletedSourceResult({
+                source: 'google_textual',
+                results: normalizedTextual as any,
+                foundCount: Array.isArray(output.results) ? output.results.length : 0,
+                reason: 'google_textual_executado_via_query_text',
+              }));
+              optionalResults.push(...(normalizedTextual as any));
+              sourceEnginesUsed.add('google_textual');
+            } catch (error) {
+              sourceDiagnostics.push(this.getRadarSearchOrchestrator().buildOptionalSourceFailure({
+                source: 'google_textual',
+                stage: 'provider_google',
+                error,
+              }));
+              this.logger.warn(`[radar-search-strategy] google_textual falhou sem bloquear delivery: ${String((error as any)?.message || error)}`);
+            }
+            if (this.countDeliverableResults(normalized, [...orderedResults, ...optionalResults]) >= normalized.quantity) break;
+          }
+        }
+        if (optionalResults.length > 0) {
+          const optionalMerge = this.getRadarResultMerger().mergeSources([
+            { source: 'current', results },
+            { source: 'optional_strategy', results: optionalResults },
+          ]);
+          results.splice(0, results.length, ...optionalMerge.results);
+          orderedResults = this.sortContacts(results);
+          for (const item of optionalResults) {
+            if (item.phoneDigits) seenPhones.add(item.phoneDigits);
+          }
         }
       }
       const historyResults = hasExplicitExclusions
@@ -713,6 +778,7 @@ export class RadarCorePublicSearchMixin {
         approved: hbxTelemetry.approvedCount,
         skipped: hbxTelemetry.rejectedCount,
         duplicate: hbxTelemetry.duplicateCount,
+        sourceDiagnostics,
       });
       if (options.recordUsage !== false) {
         await this.recordUsageLog(context, normalized, 'EXECUTED', response.results.length, null, response.meta);

@@ -53,6 +53,10 @@ export class RadarSourceExpansionService {
       `${segment} ${location} site`,
       `${segment} ${location} contato`,
       `${segment} ${location} orcamento`,
+      `site:instagram.com ${segment} ${city}`,
+      `site:facebook.com ${segment} ${city}`,
+      `${segment} ${location} CNPJ`,
+      `${segment} ${location} endereco`,
     ].map((query) => query.replace(/\s+/g, ' ').trim()).filter(Boolean)));
   }
 
@@ -62,7 +66,7 @@ export class RadarSourceExpansionService {
   }
 
   buildCnpjSeeds(input: NormalizedSearchInput, strategy: RadarSearchStrategy) {
-    if (strategy.mode !== 'fabrica_noturna' && strategy.mode !== 'profundo') return [];
+    if (strategy.mode !== 'night_factory' && strategy.mode !== 'deep') return [];
     return [{
       city: input.city,
       state: input.state || null,
@@ -75,7 +79,7 @@ export class RadarSourceExpansionService {
   }
 
   buildDirectorySeeds(input: NormalizedSearchInput, strategy: RadarSearchStrategy) {
-    if (strategy.mode !== 'profundo' && strategy.mode !== 'fabrica_noturna') return [];
+    if (strategy.mode !== 'deep' && strategy.mode !== 'night_factory') return [];
     const segment = quote(input.segment);
     const city = quote(input.city);
     return [
@@ -130,7 +134,7 @@ export class RadarSourceExpansionService {
   }
 
   buildReprocessRules(input: NormalizedSearchInput, strategy: RadarSearchStrategy) {
-    if (strategy.mode === 'rapido') return [];
+    if (strategy.mode === 'fast') return [];
     return [
       { rule: 'cards_sem_social', action: 'social_async' },
       { rule: 'cards_com_telefone_sem_whatsapp', action: 'whatsapp_check' },

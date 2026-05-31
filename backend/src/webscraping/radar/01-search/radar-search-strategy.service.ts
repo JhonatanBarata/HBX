@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { NormalizedSearchInput } from '../shared/radar-types';
-
-export type RadarSearchStrategyMode = 'rapido' | 'qualidade' | 'profundo' | 'fabrica_noturna';
+import type { RadarSearchStrategyMode } from './radar-lead-source.types';
 
 export type RadarSearchStrategy = {
   mode: RadarSearchStrategyMode;
@@ -19,7 +18,7 @@ export class RadarSearchStrategyService {
     const purpose = String(context.purpose || '').trim().toLowerCase();
     if (purpose.includes('factory') || purpose.includes('mass_data') || purpose.includes('campaign')) {
       return {
-        mode: 'fabrica_noturna',
+        mode: 'night_factory',
         targetCards: Math.max(input.quantity, 100),
         allowSecondaryProviders: true,
         allowAsyncSocial: true,
@@ -30,7 +29,7 @@ export class RadarSearchStrategyService {
     }
     if (input.qualityMode === 'lead_plus' || input.freshness === 'live') {
       return {
-        mode: 'qualidade',
+        mode: 'quality',
         targetCards: input.quantity,
         allowSecondaryProviders: true,
         allowAsyncSocial: true,
@@ -41,7 +40,7 @@ export class RadarSearchStrategyService {
     }
     if (input.quantity >= 80 || input.freshness === 'hybrid') {
       return {
-        mode: 'profundo',
+        mode: 'deep',
         targetCards: input.quantity,
         allowSecondaryProviders: true,
         allowAsyncSocial: true,
@@ -51,7 +50,7 @@ export class RadarSearchStrategyService {
       };
     }
     return {
-      mode: 'rapido',
+      mode: 'fast',
       targetCards: input.quantity,
       allowSecondaryProviders: input.engine === 'hbx',
       allowAsyncSocial: true,

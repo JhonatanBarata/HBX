@@ -925,6 +925,7 @@ export class RadarCorePresentationMixin {
       parsedContacts?: number;
       queriesGenerated?: string[];
       sourceMetrics?: Array<Record<string, any>>;
+      sourceDiagnostics?: Array<Record<string, any>>;
       missingRequiredChannel?: number;
       approved?: number;
       skipped?: number;
@@ -964,7 +965,12 @@ export class RadarCorePresentationMixin {
       },
       meta: {
         searchStrategy: {
-          mode: orchestration.strategy.mode,
+          mode: ({
+            fast: 'rapido',
+            quality: 'qualidade',
+            deep: 'profundo',
+            night_factory: 'fabrica_noturna',
+          } as any)[orchestration.strategy.mode] || orchestration.strategy.mode,
           reason: orchestration.strategy.reason,
           targetCards: orchestration.strategy.targetCards,
           maxProviderRounds: orchestration.strategy.maxProviderRounds,

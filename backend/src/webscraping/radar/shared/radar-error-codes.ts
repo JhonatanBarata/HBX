@@ -26,6 +26,8 @@ export const RADAR_NON_BLOCKING_ERROR_CODES = [
   'vendas_sync_failed',
   'optional_provider_failed',
   'secondary_provider_failed',
+  'google_textual_failed',
+  'internal_reprocess_failed',
   'cache_failed',
   'history_failed',
   'campaign_failed',

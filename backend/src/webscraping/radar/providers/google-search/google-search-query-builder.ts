@@ -13,6 +13,11 @@ function clampLimit(value: unknown, fallback = 5) {
   return Math.max(1, Math.min(100, Math.trunc(parsed)));
 }
 
+function quote(value: unknown) {
+  const safe = compactText(value).replace(/"/g, '');
+  return safe ? `"${safe}"` : '';
+}
+
 @Injectable()
 export class GoogleSearchQueryBuilder {
   buildRequest(input: {
@@ -46,7 +51,8 @@ export class GoogleSearchQueryBuilder {
     queries: string[],
     options: { limit?: number; timeoutMs?: number | null; intent?: GoogleTextualSearchIntent } = {},
   ) {
-    return this.uniqueRequests(queries.map((queryText) => this.buildRequest({
+    const sourceQueries = queries.length ? queries : this.buildLeadDiscoveryQueries(input);
+    return this.uniqueRequests(sourceQueries.map((queryText) => this.buildRequest({
       queryText,
       intent: options.intent || 'lead_discovery',
       city: input.city,
@@ -55,6 +61,25 @@ export class GoogleSearchQueryBuilder {
       limit: options.limit || input.quantity,
       timeoutMs: options.timeoutMs || null,
     })));
+  }
+
+  buildLeadDiscoveryQueries(input: NormalizedSearchInput) {
+    const segment = quote(input.segment);
+    const city = quote(input.city);
+    const state = compactText(input.state).toUpperCase();
+    const location = [city, state].filter(Boolean).join(' ');
+    return Array.from(new Set([
+      `${segment} ${location} whatsapp`,
+      `${segment} ${location} instagram`,
+      `${segment} ${location} telefone`,
+      `${segment} ${location} site`,
+      `${segment} ${location} contato`,
+      `${segment} ${location} orcamento`,
+      `site:instagram.com ${segment} ${city}`,
+      `site:facebook.com ${segment} ${city}`,
+      `${segment} ${location} CNPJ`,
+      `${segment} ${location} endereco`,
+    ].map((query) => compactText(query)).filter(Boolean)));
   }
 
   buildSocialRequests(

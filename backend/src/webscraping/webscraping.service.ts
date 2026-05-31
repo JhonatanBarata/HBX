@@ -16,6 +16,7 @@ import { RadarSearchGeoService } from './radar/01-search/radar-search-geo.servic
 import { RadarSearchInputService } from './radar/01-search/radar-search-input.service';
 import { RadarSearchOrchestratorService } from './radar/01-search/radar-search-orchestrator.service';
 import { RadarSearchRunConfigService } from './radar/01-search/radar-search-run-config.service';
+import { RadarInternalReprocessSourceService } from './radar/01-search/radar-internal-reprocess-source.service';
 import { RadarSourceExpansionService } from './radar/01-search/radar-source-expansion.service';
 import { RadarSearchStrategyService } from './radar/01-search/radar-search-strategy.service';
 import { RadarSourcePlannerService } from './radar/01-search/radar-source-planner.service';
@@ -30,6 +31,7 @@ import { RadarVendasSyncService } from './radar/05-delivery/radar-vendas-sync.se
 import { RadarLeadPresenterService } from './radar/06-presentation/radar-lead-presenter.service';
 import { RadarRunPresenterService } from './radar/06-presentation/radar-run-presenter.service';
 import { RadarRunRepositoryService } from './radar/persistence/radar-run-repository.service';
+import { GoogleSearchProviderService } from './radar/providers/google-search/google-search-provider.service';
 import { RadarGoogleResponseService } from './radar/providers/google-search/radar-google-response.service';
 import { RadarHbxEngineErrorsService } from './radar/providers/hbx-engine/radar-hbx-engine-errors.service';
 import { RadarSharedNormalizerService } from './radar/shared/radar-shared-normalizer.service';
@@ -64,10 +66,12 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
     @Optional() radarResultMerger?: RadarResultMergerService,
     @Optional() radarSearchOrchestrator?: RadarSearchOrchestratorService,
     @Optional() radarSearchRunConfig?: RadarSearchRunConfigService,
+    @Optional() radarInternalReprocessSource?: RadarInternalReprocessSourceService,
     @Optional() radarDuplicateFilter?: RadarDuplicateFilterService,
     @Optional() radarQualityGate?: RadarQualityGateService,
     @Optional() radarRunItemFilter?: RadarRunItemFilterService,
     @Optional() radarScoreEnrichment?: RadarScoreEnrichmentService,
+    @Optional() googleSearchProvider?: GoogleSearchProviderService,
     @Optional() radarGoogleResponse?: RadarGoogleResponseService,
     @Optional() radarHbxEngineErrors?: RadarHbxEngineErrorsService,
   ) {
@@ -95,10 +99,12 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
       radarResultMerger,
       radarSearchOrchestrator,
       radarSearchRunConfig,
+      radarInternalReprocessSource,
       radarDuplicateFilter,
       radarQualityGate,
       radarRunItemFilter,
       radarScoreEnrichment,
+      googleSearchProvider,
       radarGoogleResponse,
       radarHbxEngineErrors,
     );

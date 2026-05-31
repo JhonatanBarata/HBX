@@ -14,6 +14,7 @@ import { RadarVendasSyncService } from './radar/05-delivery/radar-vendas-sync.se
 import { RadarLeadPresenterService } from './radar/06-presentation/radar-lead-presenter.service';
 import { RadarRunPresenterService } from './radar/06-presentation/radar-run-presenter.service';
 import { RadarSearchRunConfigService } from './radar/01-search/radar-search-run-config.service';
+import { RadarInternalReprocessSourceService } from './radar/01-search/radar-internal-reprocess-source.service';
 import { RadarSearchGeoService } from './radar/01-search/radar-search-geo.service';
 import { RadarSearchInputService } from './radar/01-search/radar-search-input.service';
 import { RadarResultMergerService } from './radar/01-search/radar-result-merger.service';
@@ -56,6 +57,7 @@ const RADAR_SEARCH_SERVICES = [
   RadarResultMergerService,
   RadarSearchOrchestratorService,
   RadarSearchRunConfigService,
+  RadarInternalReprocessSourceService,
 ];
 
 const RADAR_FILTER_SERVICES = [

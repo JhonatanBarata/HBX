@@ -758,6 +758,7 @@ export type WebscrapingSearchResponse = {
     };
     activeSources?: string[];
     pendingSources?: string[];
+    sourceDiagnostics?: Array<Record<string, any>>;
   };
   results: Array<Omit<WebscrapingContactResult, 'placeId'>>;
 };
