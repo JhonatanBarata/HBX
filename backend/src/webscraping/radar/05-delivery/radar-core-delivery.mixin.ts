@@ -1171,6 +1171,7 @@ export class RadarCoreDeliveryMixin {
         this.restoreRadarPoolResults(claimedRows).slice(0, filters.quantity),
         'radar_database',
       );
+      this.enqueueRadarWebEnrichmentForSavedLeads(context, run.id, normalized, savedCounts.savedWebEnrichmentLeadIds);
       this.enqueueRadarSocialLookupForSavedLeads(context, run.id, normalized, savedCounts.savedLeadIds);
       await this.recalculateSearchRunCounters(run.id);
       await this.updateSearchRunMetrics(run.id, {

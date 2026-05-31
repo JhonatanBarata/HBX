@@ -85,6 +85,19 @@ function whatsappStatusRank(value: unknown) {
   return ranks[status] ?? 0;
 }
 
+function canConfirmWhatsappFromSource(source: string | null | undefined) {
+  const normalized = normalizeSource(source);
+  return ['webwhats', 'webwhats_check', 'whatsapp_check', 'radar_database', 'company_history'].includes(normalized);
+}
+
+function safeWhatsappStatusForSource(status: unknown, source: string | null | undefined, currentStatus?: unknown) {
+  const normalized = String(status || '').trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized !== 'confirmed') return normalized;
+  if (String(currentStatus || '').trim().toLowerCase() === 'confirmed') return 'confirmed';
+  return canConfirmWhatsappFromSource(source) ? 'confirmed' : 'unverified';
+}
+
 function emailStatusRank(value: unknown) {
   const status = String(value || '').trim().toLowerCase();
   const ranks: Record<string, number> = {
@@ -108,6 +121,7 @@ function sourceBaseConfidence(source: string) {
     hbx_engine: 74,
     global_cache: 68,
     website_crawl_light: 70,
+    radar_web_enrichment: 76,
     google_textual: 62,
     reprocess_missing_social: 64,
     reprocess_old_cards: 60,
@@ -212,41 +226,47 @@ export class RadarResultMergerService {
   }
 
   private withSource(result: WebscrapingContactResult, source: string): WebscrapingContactResult {
-    const fieldEvidence = this.buildFieldEvidence(result, source);
-    return {
+    const sourceName = normalizeSource(source || result.source || result.sourceEngine);
+    const whatsappStatus = safeWhatsappStatusForSource((result as any).whatsappStatus || (result as any).whatsappCheckStatus, sourceName);
+    const safeResult = {
       ...result,
-      source: result.source || source,
+      ...(whatsappStatus ? { whatsappStatus, whatsappCheckStatus: whatsappStatus } : {}),
+    } as WebscrapingContactResult;
+    const fieldEvidence = this.buildFieldEvidence(safeResult, sourceName);
+    return {
+      ...safeResult,
+      source: safeResult.source || source,
       sourceEngines: Array.from(new Set([
-        ...(Array.isArray((result as any).sourceEngines) ? (result as any).sourceEngines : []),
+        ...(Array.isArray((safeResult as any).sourceEngines) ? (safeResult as any).sourceEngines : []),
         source,
       ].filter(Boolean))),
       sourceEvidence: {
-        ...((result as any).sourceEvidence || {}),
+        ...((safeResult as any).sourceEvidence || {}),
         [source]: {
-          placeId: result.placeId || null,
-          phoneDigits: result.phoneDigits || null,
-          website: result.website || null,
-          instagramUrl: result.instagramUrl || null,
-          facebookUrl: result.facebookUrl || null,
-          email: result.email || null,
-          address: result.address || null,
-          cnpj: (result as any).cnpj || null,
-          whatsappUrl: (result as any).whatsappUrl || null,
-          whatsappStatus: (result as any).whatsappStatus || (result as any).whatsappCheckStatus || null,
-          evidenceJson: (result as any).evidenceJson || null,
+          placeId: safeResult.placeId || null,
+          phoneDigits: safeResult.phoneDigits || null,
+          website: safeResult.website || null,
+          instagramUrl: safeResult.instagramUrl || null,
+          facebookUrl: safeResult.facebookUrl || null,
+          email: safeResult.email || null,
+          address: safeResult.address || null,
+          cnpj: (safeResult as any).cnpj || null,
+          whatsappUrl: (safeResult as any).whatsappUrl || null,
+          whatsappStatus,
+          evidenceJson: (safeResult as any).evidenceJson || null,
         },
       },
       fieldEvidence: {
-        ...((result as any).fieldEvidence || {}),
+        ...((safeResult as any).fieldEvidence || {}),
         ...fieldEvidence,
       },
-      phoneEvidence: (result as any).phoneEvidence || fieldEvidence.phone || null,
-      websiteEvidence: (result as any).websiteEvidence || fieldEvidence.website || null,
-      socialEvidence: (result as any).socialEvidence || fieldEvidence.social || null,
-      emailEvidence: (result as any).emailEvidence || fieldEvidence.email || null,
-      whatsappEvidence: (result as any).whatsappEvidence || fieldEvidence.whatsapp || null,
-      cnpjEvidence: (result as any).cnpjEvidence || fieldEvidence.cnpj || null,
-      addressEvidence: (result as any).addressEvidence || fieldEvidence.address || null,
+      phoneEvidence: (safeResult as any).phoneEvidence || fieldEvidence.phone || null,
+      websiteEvidence: (safeResult as any).websiteEvidence || fieldEvidence.website || null,
+      socialEvidence: (safeResult as any).socialEvidence || fieldEvidence.social || null,
+      emailEvidence: (safeResult as any).emailEvidence || fieldEvidence.email || null,
+      whatsappEvidence: (safeResult as any).whatsappEvidence || fieldEvidence.whatsapp || null,
+      cnpjEvidence: (safeResult as any).cnpjEvidence || fieldEvidence.cnpj || null,
+      addressEvidence: (safeResult as any).addressEvidence || fieldEvidence.address || null,
     } as any;
   }
 
@@ -256,7 +276,7 @@ export class RadarResultMergerService {
     const evidenceJson = (result as any).evidenceJson || null;
     const phoneDigits = normalizePhoneDigits(result.phoneDigits || result.phone);
     const socialValue = firstPresent(result.instagramUrl, result.facebookUrl) as string | null;
-    const whatsappStatus = (result as any).whatsappStatus || (result as any).whatsappCheckStatus || null;
+    const whatsappStatus = safeWhatsappStatusForSource((result as any).whatsappStatus || (result as any).whatsappCheckStatus, sourceName);
     const emailStatus = (result as any).emailStatus || null;
     const output: Record<string, FieldEvidence> = {};
     if (phoneDigits.length >= 10) {
@@ -336,7 +356,7 @@ export class RadarResultMergerService {
     this.mergeWebsite(target, incoming, incomingEvidence.website);
     this.mergeSocial(target, incoming, incomingEvidence.social);
     this.mergeEmail(target, incoming, incomingEvidence.email);
-    this.mergeWhatsapp(target, incoming, incomingEvidence.whatsapp);
+    this.mergeWhatsapp(target, incoming, incomingEvidence.whatsapp, source);
     this.mergeSimpleField(target, incoming, 'cnpj', incomingEvidence.cnpj);
     this.mergeSimpleField(target, incoming, 'address', incomingEvidence.address);
     this.mergeWebsiteIntelligence(target, incoming);
@@ -406,15 +426,22 @@ export class RadarResultMergerService {
     }
   }
 
-  private mergeWhatsapp(target: WebscrapingContactResult, incoming: WebscrapingContactResult, incomingEvidence: FieldEvidence | null) {
+  private mergeWhatsapp(target: WebscrapingContactResult, incoming: WebscrapingContactResult, incomingEvidence: FieldEvidence | null, source: string) {
     const targetAny = target as any;
     const current = currentEvidence(targetAny, 'whatsapp', targetAny.whatsappUrl || targetAny.whatsappStatus || target.phoneDigits || target.phone);
+    const incomingStatus = safeWhatsappStatusForSource(
+      (incoming as any).whatsappStatus || (incoming as any).whatsappCheckStatus,
+      source || (incoming as any).source || (incoming as any).sourceEngine,
+      targetAny.whatsappStatus,
+    );
     if (isBetterEvidence(current, incomingEvidence || null)) {
       targetAny.whatsappUrl = (incoming as any).whatsappUrl || targetAny.whatsappUrl;
-      targetAny.whatsappStatus = (incoming as any).whatsappStatus || (incoming as any).whatsappCheckStatus || targetAny.whatsappStatus;
+      targetAny.whatsappStatus = incomingStatus || targetAny.whatsappStatus;
+      targetAny.whatsappCheckStatus = incomingStatus || targetAny.whatsappCheckStatus || targetAny.whatsappStatus;
       targetAny.fieldEvidence = { ...(targetAny.fieldEvidence || {}), whatsapp: incomingEvidence };
-    } else if (whatsappStatusRank((incoming as any).whatsappStatus || (incoming as any).whatsappCheckStatus) > whatsappStatusRank(targetAny.whatsappStatus)) {
-      targetAny.whatsappStatus = (incoming as any).whatsappStatus || (incoming as any).whatsappCheckStatus;
+    } else if (whatsappStatusRank(incomingStatus) > whatsappStatusRank(targetAny.whatsappStatus)) {
+      targetAny.whatsappStatus = incomingStatus;
+      targetAny.whatsappCheckStatus = incomingStatus || targetAny.whatsappCheckStatus;
     }
   }
 

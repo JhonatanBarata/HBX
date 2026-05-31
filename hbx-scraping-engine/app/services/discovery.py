@@ -184,6 +184,7 @@ def build_intent_discovery_queries(
 ) -> list[str]:
     intent_queries = [
         *build_commercial_fit_discovery_queries(segment, city, state, intent, sales_profile),
+        *build_channel_discovery_queries(segment, city, state, preferred_channels, required_channels),
     ]
     base_queries = build_queries(segment, city, state, target_type, query)
     return list(dict.fromkeys([*intent_queries, *base_queries]))
@@ -364,8 +365,8 @@ def discover_urls(
     intent: Any = None,
     sales_profile: dict | None = None,
 ) -> list[str]:
-    effective_preferred: list[str] = []
-    effective_required: list[str] = []
+    effective_preferred = [str(value or "").strip().lower() for value in (preferred_channels or []) if str(value or "").strip()]
+    effective_required = [str(value or "").strip().lower() for value in (required_channels or []) if str(value or "").strip()]
     queries = build_intent_discovery_queries(
         segment,
         city,
@@ -377,8 +378,8 @@ def discover_urls(
         intent,
         sales_profile,
     )
-    social_channels: set[str] = set()
-    required_channel_set: set[str] = set()
+    social_channels = requested_social_channels(effective_preferred, effective_required)
+    required_channel_set = set(effective_required)
     base_queries = build_queries(segment, city, state, target_type, query)
     intent_sensitive = bool(queries[: max(0, len(queries) - len(base_queries))] or required_channel_set)
     if target_type == "pj" and social_channels:
@@ -392,7 +393,7 @@ def discover_urls(
     seen: set[str] = {str(url or "").strip().rstrip("/") for url in (exclude_urls or []) if str(url or "").strip()}
     urls: list[str] = []
 
-    if target_type == "pj" and not social_channels:
+    if target_type == "pj" and not social_channels and not required_channel_set:
         for url in build_directory_seed_urls(segment, city, state):
             normalized = url.rstrip("/")
             if normalized in seen or not _is_allowed_url(normalized, effective_preferred, effective_required):

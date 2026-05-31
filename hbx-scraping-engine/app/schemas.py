@@ -44,9 +44,10 @@ def normalize_channel_list(values: list[str]) -> list[str]:
 
 
 def normalize_card_discovery_contract(model: BaseModel) -> BaseModel:
-    model.preferredChannels = []
-    model.requiredChannels = []
-    model.channelMatchMode = "prefer"
+    model.preferredChannels = normalize_channel_list(getattr(model, "preferredChannels", []) or [])
+    model.requiredChannels = normalize_channel_list(getattr(model, "requiredChannels", []) or [])
+    if getattr(model, "channelMatchMode", None) not in {"prefer", "any_required", "all_required"}:
+        model.channelMatchMode = "prefer"
     model.qualityMode = DISCOVERY_QUALITY_MODE
     if isinstance(getattr(model, "salesProfile", None), dict):
         model.salesProfile = {
@@ -247,13 +248,19 @@ class ContactResult(BaseModel):
     address: str | None = None
     website: str | None = None
     email: str | None = None
+    emailStatus: str | None = None
+    emailSource: str | None = None
+    emailConfidence: int | None = None
     instagramUrl: str | None = None
     facebookUrl: str | None = None
+    socialStatus: str | None = None
+    socialConfidence: int | None = None
     source: str = "hbx_scraping:web"
     sourceEngine: str | None = None
     sourceUrl: str | None = None
     score: int | None = None
     evidenceJson: dict | None = None
+    enrichmentJson: dict | None = None
     rejectReasons: list[str] | None = None
     qualityReason: str | None = None
     visibilityTier: str | None = None

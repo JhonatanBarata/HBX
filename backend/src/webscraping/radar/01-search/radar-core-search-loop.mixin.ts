@@ -182,8 +182,29 @@ export class RadarCoreSearchLoopMixin {
     );
   }
 
+  private enqueueRadarWebEnrichmentForSavedLeads(
+    context: SearchExecutionContext,
+    runId: string,
+    input: NormalizedSearchInput,
+    leadIds: string[] = [],
+    engineUrl?: string | null,
+  ) {
+    return this.getRadarWebEnrichmentJobService().enqueue(
+      context,
+      runId,
+      input,
+      leadIds,
+      engineUrl,
+      this.buildRadarWebEnrichmentJobHost(),
+    );
+  }
+
   private async drainRadarSocialLookupQueue() {
     return this.getRadarSocialLookupService().drain();
+  }
+
+  private async drainRadarWebEnrichmentQueue() {
+    return this.getRadarWebEnrichmentJobService().drain();
   }
 
   async runRadarSocialLookupForSavedLead(
@@ -198,6 +219,21 @@ export class RadarCoreSearchLoopMixin {
       input,
       engineUrl,
       this.buildRadarSocialLookupHost(),
+    );
+  }
+
+  async runRadarWebEnrichmentForSavedLead(
+    context: SearchExecutionContext,
+    leadId: string,
+    input: NormalizedSearchInput,
+    engineUrl?: string | null,
+  ) {
+    return this.getRadarWebEnrichmentJobService().runForSavedLead(
+      context,
+      leadId,
+      input,
+      engineUrl,
+      this.buildRadarWebEnrichmentJobHost(),
     );
   }
 
@@ -409,6 +445,7 @@ export class RadarCoreSearchLoopMixin {
       const incoming = Array.isArray(response.results) ? response.results : [];
       if (incoming.length > 0) {
         const savedCounts = await this.saveSearchRunResults(context, normalized, runId, incoming, 'google_emergency');
+        this.enqueueRadarWebEnrichmentForSavedLeads(context, runId, normalized, savedCounts.savedWebEnrichmentLeadIds);
         this.enqueueRadarSocialLookupForSavedLeads(context, runId, normalized, savedCounts.savedLeadIds);
         await this.recalculateSearchRunCounters(runId);
       }
@@ -850,6 +887,7 @@ export class RadarCoreSearchLoopMixin {
         'hbx',
         safeInteger(current.attemptCount) * batchLimit,
       );
+      this.enqueueRadarWebEnrichmentForSavedLeads(context, runId, batchInput, savedCounts.savedWebEnrichmentLeadIds, engineUrl);
       this.enqueueRadarSocialLookupForSavedLeads(context, runId, batchInput, savedCounts.savedLeadIds, engineUrl);
       if (lease) {
         await this.getEnginePool().markEngineBatchSuccess(lease.engineId).catch(() => null);

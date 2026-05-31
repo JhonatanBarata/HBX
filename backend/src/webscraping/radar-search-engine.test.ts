@@ -90,7 +90,9 @@ function createExecutorHost(overrides: Record<string, any> = {}) {
     getRadarLocalDirectorySource: () => overrides.localDirectorySource || new RadarLocalDirectorySourceService(),
     getRadarVerticalSource: () => overrides.verticalSource || new RadarVerticalSourceService(),
     getRadarWebsiteCrawlSource: () => overrides.websiteCrawlSource || new RadarWebsiteCrawlSourceService(),
+    getRadarWebEnrichmentSource: overrides.webEnrichmentSource ? () => overrides.webEnrichmentSource : undefined,
     getRadarClientRequestTimeoutMs: () => 1_000,
+    fetcher: overrides.fetcher,
   };
 }
 
@@ -175,7 +177,7 @@ test('radar result merger deduplica por telefone antes de misturar fontes', () =
   assert.equal(merged.counts.hbx_engine, 0);
 });
 
-test('radar strategy quality usa radar database, hbx engine e google textual', () => {
+test('radar strategy quality usa radar web enrichment antes de google textual', () => {
   const orchestrator = new RadarSearchOrchestratorService(
     new RadarSearchStrategyService(),
     new RadarSourcePlannerService(),
@@ -184,7 +186,8 @@ test('radar strategy quality usa radar database, hbx engine e google textual', (
   const plan = orchestrator.plan({ ...baseInput, qualityMode: 'lead_plus' }, { purpose: 'manual' });
 
   assert.equal(plan.strategy.mode, 'quality');
-  assert.deepEqual(plan.activeSources, ['radar_database', 'hbx_engine', 'google_textual', 'reprocess_missing_social']);
+  assert.deepEqual(plan.activeSources, ['radar_database', 'hbx_engine', 'radar_web_enrichment', 'google_textual', 'reprocess_missing_social']);
+  assert.equal(plan.implementedSources.includes('radar_web_enrichment'), true);
   assert.equal(plan.implementedSources.includes('google_textual'), true);
 });
 
@@ -342,6 +345,157 @@ test('executor executa google_textual e preserva origem real', async () => withE
   assert.equal(result.optionalResults[0].source, 'google_textual');
   assert.equal(result.sourceDiagnostics[0].status, 'completed');
   assert.equal(result.sourceEnginesUsed.includes('google_textual'), true);
+}));
+
+test('executor executa radar_web_enrichment mesmo com quantidade preenchida', async () => withEnv({
+  HBX_RADAR_WEB_ENRICHMENT_ENABLED: 'true',
+  HBX_RADAR_WEB_ENRICHMENT_MAX_CARDS: '1',
+  HBX_RADAR_WEBSITE_CRAWL_LIGHT_ENABLED: 'false',
+}, async () => {
+  const executor = new RadarSourceExecutorService();
+  const result = await executor.execute({
+    context: { companyId: 7, userId: 9, user: {} },
+    normalized: { ...baseInput, qualityMode: 'lead_plus' },
+    currentResults: [{
+      placeId: 'hbx:1',
+      name: 'Barbearia X',
+      phone: '(19) 99999-0001',
+      phoneDigits: '19999990001',
+      city: 'Rio Claro',
+      source: 'hbx',
+    } as any],
+    seenPhones: ['19999990001'],
+    options: {},
+    sourcePlan: [{
+      source: 'radar_web_enrichment',
+      priority: 10,
+      enabled: true,
+      implemented: true,
+      optional: true,
+      stopWhenEnough: false,
+      reason: 'test',
+    }],
+    remainingQuantity: 0,
+    host: createExecutorHost({
+      fetcher: async () => ({
+        ok: true,
+        text: async () => `
+          <a class="result__a" href="https://barbeariax.com.br">Barbearia X Rio Claro site oficial</a>
+          <a class="result__a" href="https://instagram.com/barbeariaxrioclaro">Barbearia X Rio Claro Instagram</a>
+        `,
+      }),
+    }),
+  });
+
+  assert.equal(result.optionalSources[0].source, 'radar_web_enrichment');
+  assert.equal(result.optionalResults[0].source, 'radar_web_enrichment');
+  assert.equal(String(result.optionalResults[0].website).replace(/\/+$/, ''), 'https://barbeariax.com.br');
+  assert.equal(result.optionalResults[0].instagramUrl, 'https://instagram.com/barbeariaxrioclaro');
+  assert.equal((result.sourceDiagnostics[0] as any).blocksDelivery, false);
+}));
+
+test('radar_web_enrichment usa HBX engine social antes do fallback web', async () => withEnv({
+  HBX_RADAR_WEB_ENRICHMENT_ENABLED: 'true',
+  HBX_RADAR_WEB_ENRICHMENT_MAX_CARDS: '1',
+  HBX_RADAR_WEBSITE_CRAWL_LIGHT_ENABLED: 'false',
+}, async () => {
+  const executor = new RadarSourceExecutorService();
+  const queries: string[] = [];
+  let fetched = false;
+  const result = await executor.execute({
+    context: { companyId: 7, userId: 9, user: {} },
+    normalized: { ...baseInput, qualityMode: 'lead_plus' },
+    currentResults: [{
+      placeId: 'hbx:1',
+      name: 'Barbearia X',
+      phone: '(19) 99999-0001',
+      phoneDigits: '19999990001',
+      city: 'Rio Claro',
+      source: 'hbx',
+    } as any],
+    seenPhones: ['19999990001'],
+    options: {},
+    sourcePlan: [{
+      source: 'radar_web_enrichment',
+      priority: 10,
+      enabled: true,
+      implemented: true,
+      optional: true,
+      stopWhenEnough: false,
+      reason: 'test',
+    }],
+    remainingQuantity: 0,
+    host: createExecutorHost({
+      searchHbxEngine: async (_input: any, _existing: string[], _engineUrl: string | undefined, options: any) => {
+        queries.push(String(options.queryText || ''));
+        return {
+          results: [{
+            name: 'Barbearia X Rio Claro',
+            phone: '',
+            phoneDigits: '',
+            website: 'https://barbeariax.com.br',
+            instagramUrl: 'https://instagram.com/barbeariaxrioclaro',
+            socialStatus: 'found',
+            socialConfidence: 82,
+            source: 'hbx_scraping:free_pj',
+          }],
+        };
+      },
+      fetcher: async () => {
+        fetched = true;
+        throw new Error('fallback nao deveria rodar');
+      },
+    }),
+  });
+
+  assert.equal(queries[0], 'site:instagram.com "Barbearia X" "Rio Claro"');
+  assert.equal(fetched, false);
+  assert.equal(result.optionalResults[0].source, 'radar_web_enrichment');
+  assert.equal(result.optionalResults[0].sourceEngine, 'radar_web_enrichment:hbx_engine');
+  assert.equal(result.optionalResults[0].instagramUrl, 'https://instagram.com/barbeariaxrioclaro');
+  assert.equal((result.optionalResults[0] as any).socialStatus, 'found');
+  assert.equal((result.optionalResults[0] as any).socialConfidence, 82);
+  assert.equal((result.sourceDiagnostics[0] as any).blocksDelivery, false);
+}));
+
+test('radar_web_enrichment falha sem bloquear delivery', async () => withEnv({
+  HBX_RADAR_WEB_ENRICHMENT_ENABLED: 'true',
+  HBX_RADAR_WEB_ENRICHMENT_MAX_CARDS: '1',
+}, async () => {
+  const executor = new RadarSourceExecutorService();
+  const result = await executor.execute({
+    context: { companyId: 7, userId: 9, user: {} },
+    normalized: { ...baseInput, qualityMode: 'lead_plus' },
+    currentResults: [{
+      placeId: 'hbx:1',
+      name: 'Barbearia X',
+      phone: '(19) 99999-0001',
+      phoneDigits: '19999990001',
+      city: 'Rio Claro',
+      source: 'hbx',
+    } as any],
+    seenPhones: ['19999990001'],
+    options: {},
+    sourcePlan: [{
+      source: 'radar_web_enrichment',
+      priority: 10,
+      enabled: true,
+      implemented: true,
+      optional: true,
+      stopWhenEnough: false,
+      reason: 'test',
+    }],
+    remainingQuantity: 0,
+    host: createExecutorHost({
+      fetcher: async () => {
+        throw new Error('web indisponivel');
+      },
+    }),
+  });
+
+  assert.equal(result.optionalResults.length, 0);
+  assert.equal(result.sourceDiagnostics[0].status, 'partial_error');
+  assert.equal(result.sourceDiagnostics[0].issue?.blocksDelivery, false);
 }));
 
 test('executor executa reprocess_missing_social e preserva origem real', async () => withEnv({

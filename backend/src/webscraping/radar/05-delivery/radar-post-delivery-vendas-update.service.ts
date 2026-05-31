@@ -159,9 +159,22 @@ export class RadarPostDeliveryVendasUpdateService {
           data: plan.updateData,
         });
       }
-      if (plan.timelineEvents.length) {
+      let timelineEvents = plan.timelineEvents;
+      if (timelineEvents.length && typeof input.prisma?.vendasLeadTimelineEvent?.findMany === 'function') {
+        const existing = await input.prisma.vendasLeadTimelineEvent.findMany({
+          where: {
+            leadId: vendasLeadId,
+            sourceType: 'radar_enrichment',
+            eventType: { in: timelineEvents.map((event) => event.eventType) },
+          },
+          select: { eventType: true },
+        }).catch(() => []);
+        const existingTypes = new Set((Array.isArray(existing) ? existing : []).map((event) => String(event?.eventType || '')).filter(Boolean));
+        timelineEvents = timelineEvents.filter((event) => !existingTypes.has(event.eventType));
+      }
+      if (timelineEvents.length) {
         await input.prisma.vendasLeadTimelineEvent.createMany({
-          data: plan.timelineEvents.map((event) => ({
+          data: timelineEvents.map((event) => ({
             leadId: vendasLeadId,
             eventType: event.eventType,
             title: event.title,
@@ -177,7 +190,7 @@ export class RadarPostDeliveryVendasUpdateService {
         retryable: false,
         vendasLeadId,
         updatedFields: plan.updatedFields,
-        timelineEvents: plan.timelineEvents.map((event) => ({ eventType: event.eventType, title: event.title })),
+        timelineEvents: timelineEvents.map((event) => ({ eventType: event.eventType, title: event.title })),
       };
     } catch (error) {
       return {

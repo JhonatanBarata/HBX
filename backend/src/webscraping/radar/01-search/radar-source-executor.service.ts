@@ -11,6 +11,7 @@ import { RadarCnpjPublicSourceService } from './radar-cnpj-public-source.service
 import { RadarLocalDirectorySourceService } from './radar-local-directory-source.service';
 import { RadarVerticalSourceService } from './radar-vertical-source.service';
 import { RadarWebsiteCrawlSourceService } from './radar-website-crawl-source.service';
+import { RadarWebEnrichmentService } from '../03-enrichment/radar-web-enrichment.service';
 import { RadarDiagnosticService } from '../shared/radar-diagnostic.service';
 
 export type RadarSourceExecutorHost = {
@@ -26,12 +27,14 @@ export type RadarSourceExecutorHost = {
   getRadarSearchStrategy: () => RadarSearchStrategyService;
   getRadarSearchOrchestrator: () => RadarSearchOrchestratorService;
   getRadarWebsiteCrawlSource?: () => RadarWebsiteCrawlSourceService;
+  getRadarWebEnrichmentSource?: () => RadarWebEnrichmentService;
   getRadarCnpjPublicSource?: () => RadarCnpjPublicSourceService;
   getRadarLocalDirectorySource?: () => RadarLocalDirectorySourceService;
   getRadarVerticalSource?: () => RadarVerticalSourceService;
   getRadarClientRequestTimeoutMs: () => number;
   logger?: { warn?: (message: string) => void };
   prisma?: any;
+  fetcher?: typeof fetch;
 };
 
 export type RadarSourceExecutorResult = {
@@ -66,6 +69,14 @@ function optionalStubFlag(source: RadarLeadSourceKind) {
   return flags[source] || '';
 }
 
+function isPoorCard(result: WebscrapingContactResult) {
+  const phoneDigits = normalizePhoneDigits(result.phoneDigits || result.phone);
+  if (phoneDigits.length < 10) return false;
+  return !String(result.website || '').trim()
+    || !String(result.email || '').trim()
+    || !String(result.instagramUrl || result.facebookUrl || '').trim();
+}
+
 @Injectable()
 export class RadarSourceExecutorService {
   private readonly diagnostics = new RadarDiagnosticService();
@@ -87,9 +98,20 @@ export class RadarSourceExecutorService {
     const sourceEnginesUsed = new Set<string>();
     const activeOptionalSources = (input.sourcePlan || [])
       .filter((step) => step.enabled && step.optional && !['radar_database', 'company_history', 'global_cache', 'hbx_engine'].includes(step.source));
+    const hasPoorCards = (input.currentResults || []).some(isPoorCard);
 
     for (const step of activeOptionalSources) {
-      if (input.remainingQuantity <= 0) break;
+      if (input.remainingQuantity <= 0 && step.source !== 'radar_web_enrichment') break;
+      if (step.source === 'radar_web_enrichment') {
+        if (!hasPoorCards) {
+          const skipped = input.host.getRadarSearchOrchestrator().buildSkippedSourceResult('radar_web_enrichment', 'sem_card_pobre_para_enriquecer');
+          this.pushSourceResult(step.source, skipped, optionalSources, sourceDiagnostics, sourceEnginesUsed, seenPhones);
+          continue;
+        }
+        const result = await this.executeRadarWebEnrichment({ ...input });
+        this.pushSourceResult(step.source, result, optionalSources, sourceDiagnostics, sourceEnginesUsed, seenPhones);
+        continue;
+      }
       if (step.source === 'google_textual') {
         const result = await this.executeGoogleTextual({ ...input, seenPhones });
         this.pushSourceResult(step.source, result, optionalSources, sourceDiagnostics, sourceEnginesUsed, seenPhones);
@@ -193,6 +215,36 @@ export class RadarSourceExecutorService {
       foundCount,
       reason: 'google_textual_executado_via_query_text',
     });
+  }
+
+  private async executeRadarWebEnrichment(input: {
+    normalized: NormalizedSearchInput;
+    currentResults: WebscrapingContactResult[];
+    options: SearchExecutionOptions;
+    host: RadarSourceExecutorHost;
+  }): Promise<RadarLeadSourceResult> {
+    const source = input.host.getRadarWebEnrichmentSource?.() || new RadarWebEnrichmentService();
+    try {
+      return await source.run({
+        normalized: input.normalized,
+        currentResults: input.currentResults,
+        host: {
+          logger: input.host.logger,
+          fetcher: input.host.fetcher,
+          searchHbxEngine: input.host.searchHbxEngine,
+          engineUrl: input.options.hbxEngineUrl,
+          timeoutMs: input.host.getRadarClientRequestTimeoutMs(),
+          getRadarWebsiteCrawlSource: input.host.getRadarWebsiteCrawlSource,
+        },
+      });
+    } catch (error) {
+      input.host.logger?.warn?.(`[radar-source-executor] radar_web_enrichment falhou sem bloquear delivery: ${String((error as any)?.message || error)}`);
+      return input.host.getRadarSearchOrchestrator().buildOptionalSourceFailure({
+        source: 'radar_web_enrichment',
+        stage: 'search',
+        error,
+      });
+    }
   }
 
   private async executeInternalReprocess(input: {

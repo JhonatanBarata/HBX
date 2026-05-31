@@ -315,10 +315,10 @@ class SearchService:
         return {channel for channel in channels if channel in {"instagram", "facebook"}}
 
     def effective_requested_social_channels(self, request: SearchRequest) -> set[str]:
-        return set()
+        return self.requested_social_channels(request.preferredChannels, request.requiredChannels)
 
     def effective_discovery_channels(self, request: SearchRequest) -> list[str]:
-        return []
+        return list(dict.fromkeys([*(request.requiredChannels or []), *(request.preferredChannels or [])]))
 
     def required_social_channels(self, required_channels: list[str] | None = None) -> set[str]:
         return {channel for channel in (required_channels or []) if channel in {"instagram", "facebook"}}
@@ -609,6 +609,14 @@ class SearchService:
             and token not in WEAK_SOCIAL_DISTINCTIVE_TOKENS
             and token not in WEBSITE_GENERIC_HOST_TOKENS
         ]
+        for name_variant in self.text_variants(name):
+            q_name = self.quote_query_part(name_variant)
+            if not q_name:
+                continue
+            for city_variant in self.text_variants(city_text):
+                q_city = self.quote_query_part(city_variant)
+                queries.append(f"site:{domain} {q_name} {q_city}".strip())
+                queries.append(f"{q_name} {q_city} {channel}".strip())
         for token in primary_brand_tokens[:1]:
             q_token = self.quote_query_part(token)
             if not q_token:
@@ -1482,10 +1490,11 @@ class SearchService:
         social_discovery_stats: dict,
     ) -> SearchResponse:
         allowed_fields = {
-            "name", "phone", "phoneDigits", "rating", "reviews", "address", "website", "email",
-            "instagramUrl", "facebookUrl", "source", "sourceEngine", "sourceUrl", "score",
-            "evidenceJson", "rejectReasons", "qualityReason", "visibilityTier", "deliveryProduct",
-            "recommendedChannel",
+            "name", "phone", "phoneDigits", "rating", "reviews", "address", "website",
+            "email", "emailStatus", "emailSource", "emailConfidence",
+            "instagramUrl", "facebookUrl", "socialStatus", "socialConfidence",
+            "source", "sourceEngine", "sourceUrl", "score", "evidenceJson", "enrichmentJson",
+            "rejectReasons", "qualityReason", "visibilityTier", "deliveryProduct", "recommendedChannel",
         }
         public_items = [{key: value for key, value in item.items() if key in allowed_fields} for item in candidates[: request.limit]]
         valid = [ContactResult.model_validate(item).model_dump(exclude_none=True) for item in public_items]
@@ -1609,31 +1618,6 @@ class SearchService:
                             "status": "confirmed" if score >= 70 else "probable",
                             "query": "validated_handle_guess",
                         })
-            if required_social:
-                for channel in ordered_channels:
-                    if channel not in required_social:
-                        continue
-                    if self.time_budget_expired(deadline):
-                        stats["timedOut"] = True
-                        break
-                    field = "instagramUrl" if channel == "instagram" else "facebookUrl"
-                    if contact.get(field):
-                        continue
-                    url, score = self.guessed_social_url_for_contact(contact, channel, city, deadline)
-                    if url:
-                        contact[field] = url
-                        contact.setdefault("_socialEnrichment", {})[field] = {
-                            "score": score,
-                            "query": "validated_handle_guess",
-                            "status": "confirmed" if score >= 70 else "probable",
-                        }
-                        stats["matches"].append({
-                            "field": field,
-                            "url": url,
-                            "score": score,
-                            "status": "confirmed" if score >= 70 else "probable",
-                            "query": "validated_handle_guess",
-                        })
             identity_channels = [
                 channel
                 for channel in ordered_channels
@@ -1663,22 +1647,23 @@ class SearchService:
                 field = "instagramUrl" if channel == "instagram" else "facebookUrl"
                 if contact.get(field):
                     continue
-                url, score = self.guessed_social_url_for_contact(contact, channel, city, deadline)
-                if url:
-                    contact[field] = url
-                    contact.setdefault("_socialEnrichment", {})[field] = {
-                        "score": score,
-                        "query": "validated_handle_guess",
-                        "status": "confirmed" if score >= 70 else "probable",
-                    }
-                    stats["matches"].append({
-                        "field": field,
-                        "url": url,
-                        "score": score,
-                        "status": "confirmed" if score >= 70 else "probable",
-                        "query": "validated_handle_guess",
-                    })
-                    continue
+                if not required_social:
+                    url, score = self.guessed_social_url_for_contact(contact, channel, city, deadline)
+                    if url:
+                        contact[field] = url
+                        contact.setdefault("_socialEnrichment", {})[field] = {
+                            "score": score,
+                            "query": "validated_handle_guess",
+                            "status": "confirmed" if score >= 70 else "probable",
+                        }
+                        stats["matches"].append({
+                            "field": field,
+                            "url": url,
+                            "score": score,
+                            "status": "confirmed" if score >= 70 else "probable",
+                            "query": "validated_handle_guess",
+                        })
+                        continue
                 queries = self.social_queries_for_contact(contact, city, segment, channel)[:SOCIAL_ENRICH_MAX_QUERIES_PER_CHANNEL]
                 candidates: list[dict] = []
                 for query in queries:
@@ -1723,6 +1708,49 @@ class SearchService:
                 f"missingRequired={stats['missingRequiredChannel']}"
             )
         return contacts, stats
+
+    def apply_public_enrichment_contract(self, item: dict) -> dict:
+        social_enrichment = item.get("_socialEnrichment") if isinstance(item.get("_socialEnrichment"), dict) else {}
+        social_scores: list[int] = []
+        for value in social_enrichment.values():
+            if isinstance(value, dict):
+                try:
+                    social_scores.append(int(value.get("score") or 0))
+                except Exception:
+                    pass
+        has_social = bool(item.get("instagramUrl") or item.get("facebookUrl"))
+        if has_social:
+            confidence = max(social_scores) if social_scores else int(item.get("socialConfidence") or 82)
+            item["socialConfidence"] = max(0, min(100, confidence))
+            item["socialStatus"] = item.get("socialStatus") or ("found" if confidence >= 70 else "candidate_review")
+        else:
+            item["socialConfidence"] = int(item.get("socialConfidence") or 0)
+            item["socialStatus"] = item.get("socialStatus") or "missing"
+
+        if item.get("email") and not item.get("emailStatus"):
+            status, confidence = self.email_status_for_candidate(str(item.get("email") or ""), item.get("website"), "website" if item.get("website") else "manual")
+            item["emailStatus"] = status
+            item["emailSource"] = item.get("emailSource") or ("website" if item.get("website") else "manual")
+            item["emailConfidence"] = confidence
+        elif not item.get("email"):
+            item["emailStatus"] = item.get("emailStatus") or "missing"
+            item["emailSource"] = item.get("emailSource") or "none"
+            item["emailConfidence"] = int(item.get("emailConfidence") or 0)
+
+        enrichment_json = item.get("enrichmentJson") if isinstance(item.get("enrichmentJson"), dict) else {}
+        if social_enrichment:
+            enrichment_json = {
+                **enrichment_json,
+                "social": social_enrichment,
+            }
+        if item.get("_websiteEnrichment"):
+            enrichment_json = {
+                **enrichment_json,
+                "website": item.get("_websiteEnrichment"),
+            }
+        if enrichment_json:
+            item["enrichmentJson"] = enrichment_json
+        return item
 
     def normalize_email_candidate(self, value: str | None) -> str | None:
         email = " ".join(str(value or "").strip().split()).lower()
@@ -1973,12 +2001,14 @@ class SearchService:
                 input_website_accepted = False
         identity = self.enrich_identity_lookup(contact, request.city, request.state, request.segment, min(deadline, time.monotonic() + 8))
         for key in ("website", "instagramUrl", "facebookUrl"):
+            if social_required and key in {"instagramUrl", "facebookUrl"}:
+                continue
             if identity.get(key) and not contact.get(key):
                 contact[key] = identity.get(key)
         should_find_website_before_social = (
             not contact.get("website")
             and not self.time_budget_expired(deadline)
-            and website_required
+            and (website_required or (not social_required and not phone_digits))
         )
         if should_find_website_before_social:
             website_deadline = min(deadline, time.monotonic() + (8 if website_required else 6))
@@ -1992,7 +2022,17 @@ class SearchService:
                     "score": website_score,
                     "query": website_query,
                 }
-        website_social_stats = await self.extract_social_links_from_website(contact, deadline, budget_seconds)
+        if social_required:
+            website_social_stats = {
+                "attempted": False,
+                "found": False,
+                "url": contact.get("website"),
+                "fields": [],
+                "error": None,
+                "skipped": "required_social_uses_focused_search",
+            }
+        else:
+            website_social_stats = await self.extract_social_links_from_website(contact, deadline, budget_seconds)
         missing_social_channels = [
             channel
             for channel in preferred_channels
@@ -2010,7 +2050,11 @@ class SearchService:
                 time_budget_seconds=self.remaining_budget_seconds(deadline, budget_seconds),
             )
         else:
-            contacts, social_stats = [contact], {"matches": [], "identity": identity.get("stats")}
+            contacts, social_stats = [contact], {
+                "matches": [],
+                "identity": identity.get("stats"),
+                "missingRequiredChannel": 1 if social_required and not self.has_required_social_channels(contact, social_required) else 0,
+            }
         social_stats["website"] = website_social_stats
         enriched = contacts[0] if contacts else contact
         if not enriched.get("website") and not self.time_budget_expired(deadline):
@@ -2022,7 +2066,7 @@ class SearchService:
                     "score": website_score,
                     "query": website_query,
                 }
-                if not (enriched.get("instagramUrl") or enriched.get("facebookUrl")):
+                if not social_required and not (enriched.get("instagramUrl") or enriched.get("facebookUrl")):
                     late_website_social_stats = await self.extract_social_links_from_website(enriched, deadline, budget_seconds)
                     if late_website_social_stats.get("attempted"):
                         social_stats["lateWebsite"] = late_website_social_stats
@@ -2228,6 +2272,14 @@ class SearchService:
             "missingRequiredChannel": 0,
             "discovery": social_discovery_stats,
         }
+        inline_social_count = sum(1 for item in deduped if item.get("instagramUrl") or item.get("facebookUrl"))
+        if inline_social_count and not requested_social_channels:
+            social_stats.update({
+                "enrichmentRan": True,
+                "mode": "inline",
+                "processed": inline_social_count,
+                "enrichedCount": inline_social_count,
+            })
         if request.targetType == "pj" and requested_social_channels:
             deduped, social_stats = await asyncio.to_thread(
                 self.enrich_social_links_for_contacts,
@@ -2241,9 +2293,11 @@ class SearchService:
             social_stats["discovery"] = social_discovery_stats
         allowed_fields = {
             "name", "phone", "phoneDigits", "rating", "reviews", "address", "website", "email",
+            "emailStatus", "emailSource", "emailConfidence",
             "instagramUrl", "facebookUrl", "source", "sourceEngine", "sourceUrl", "score",
+            "socialStatus", "socialConfidence",
             "evidenceJson", "rejectReasons", "qualityReason", "visibilityTier", "deliveryProduct",
-            "recommendedChannel",
+            "recommendedChannel", "enrichmentJson",
         }
         min_score = 0 if request.targetType == "pf" else 50
         public_items: list[dict] = []
@@ -2344,6 +2398,8 @@ class SearchService:
                 stats["rejected"] += 1
                 bump_source(item, "rejected")
                 continue
+            if request.targetType == "pj":
+                item = self.apply_public_enrichment_contract(item)
             public_item = {key: value for key, value in item.items() if key in allowed_fields}
             public_item["_technicalScore"] = int(item.get("score") or 0)
             if request.targetType == "pj":

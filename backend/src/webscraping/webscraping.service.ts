@@ -29,6 +29,7 @@ import { RadarDuplicateFilterService } from './radar/02-filter/radar-duplicate-f
 import { RadarQualityGateService } from './radar/02-filter/radar-quality-gate.service';
 import { RadarRunItemFilterService } from './radar/02-filter/radar-run-item-filter.service';
 import { RadarScoreEnrichmentService } from './radar/03-enrichment/radar-score-enrichment.service';
+import { RadarWebEnrichmentJobService } from './radar/03-enrichment/radar-web-enrichment-job.service';
 import { RadarSocialLookupService } from './radar/04-socials/radar-social-lookup.service';
 import { RadarDeliveryOrchestratorService } from './radar/05-delivery/radar-delivery-orchestrator.service';
 import { RadarPostDeliveryUpdateService } from './radar/05-delivery/radar-post-delivery-update.service';
@@ -83,6 +84,7 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
     @Optional() radarQualityGate?: RadarQualityGateService,
     @Optional() radarRunItemFilter?: RadarRunItemFilterService,
     @Optional() radarScoreEnrichment?: RadarScoreEnrichmentService,
+    @Optional() radarWebEnrichmentJob?: RadarWebEnrichmentJobService,
     @Optional() googleSearchProvider?: GoogleSearchProviderService,
     @Optional() radarGoogleResponse?: RadarGoogleResponseService,
     @Optional() radarHbxEngineErrors?: RadarHbxEngineErrorsService,
@@ -122,6 +124,7 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
       radarQualityGate,
       radarRunItemFilter,
       radarScoreEnrichment,
+      radarWebEnrichmentJob,
       googleSearchProvider,
       radarGoogleResponse,
       radarHbxEngineErrors,
