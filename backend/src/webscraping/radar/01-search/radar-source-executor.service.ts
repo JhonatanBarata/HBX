@@ -7,7 +7,11 @@ import type { RadarLeadSourceKind, RadarLeadSourceResult, RadarLeadSourceStep } 
 import type { RadarSearchOrchestratorService } from './radar-search-orchestrator.service';
 import type { RadarSearchStrategyService } from './radar-search-strategy.service';
 import type { RadarSourceExpansionService } from './radar-source-expansion.service';
+import { RadarCnpjPublicSourceService } from './radar-cnpj-public-source.service';
+import { RadarLocalDirectorySourceService } from './radar-local-directory-source.service';
+import { RadarVerticalSourceService } from './radar-vertical-source.service';
 import { RadarWebsiteCrawlSourceService } from './radar-website-crawl-source.service';
+import { RadarDiagnosticService } from '../shared/radar-diagnostic.service';
 
 export type RadarSourceExecutorHost = {
   searchHbxEngine: (
@@ -22,6 +26,9 @@ export type RadarSourceExecutorHost = {
   getRadarSearchStrategy: () => RadarSearchStrategyService;
   getRadarSearchOrchestrator: () => RadarSearchOrchestratorService;
   getRadarWebsiteCrawlSource?: () => RadarWebsiteCrawlSourceService;
+  getRadarCnpjPublicSource?: () => RadarCnpjPublicSourceService;
+  getRadarLocalDirectorySource?: () => RadarLocalDirectorySourceService;
+  getRadarVerticalSource?: () => RadarVerticalSourceService;
   getRadarClientRequestTimeoutMs: () => number;
   logger?: { warn?: (message: string) => void };
   prisma?: any;
@@ -61,6 +68,8 @@ function optionalStubFlag(source: RadarLeadSourceKind) {
 
 @Injectable()
 export class RadarSourceExecutorService {
+  private readonly diagnostics = new RadarDiagnosticService();
+
   async execute(input: {
     context: SearchExecutionContext;
     normalized: NormalizedSearchInput;
@@ -96,12 +105,27 @@ export class RadarSourceExecutorService {
         this.pushSourceResult(step.source, result, optionalSources, sourceDiagnostics, sourceEnginesUsed, seenPhones);
         continue;
       }
+      if (step.source === 'cnpj_public') {
+        const result = await this.executeCnpjPublic({ ...input });
+        this.pushSourceResult(step.source, result, optionalSources, sourceDiagnostics, sourceEnginesUsed, seenPhones);
+        continue;
+      }
+      if (step.source === 'local_directory') {
+        const result = await this.executeLocalDirectory({ ...input });
+        this.pushSourceResult(step.source, result, optionalSources, sourceDiagnostics, sourceEnginesUsed, seenPhones);
+        continue;
+      }
+      if (step.source === 'vertical_source') {
+        const result = await this.executeVerticalSource({ ...input });
+        this.pushSourceResult(step.source, result, optionalSources, sourceDiagnostics, sourceEnginesUsed, seenPhones);
+        continue;
+      }
       const flag = optionalStubFlag(step.source);
       const stub = input.host.getRadarSearchOrchestrator().buildSkippedSourceResult(
         step.source,
         `${step.reason || step.source}: stub explicito, ainda nao executa${flag ? `; ${flag}=${envEnabled(flag) ? 'true' : 'false'}` : ''}`,
       );
-      sourceDiagnostics.push(stub);
+      this.pushSourceResult(step.source, stub, optionalSources, sourceDiagnostics, sourceEnginesUsed, seenPhones);
     }
 
     return {
@@ -220,6 +244,76 @@ export class RadarSourceExecutorService {
     }
   }
 
+  private async executeCnpjPublic(input: {
+    normalized: NormalizedSearchInput;
+    remainingQuantity: number;
+    host: RadarSourceExecutorHost;
+  }): Promise<RadarLeadSourceResult> {
+    const source = input.host.getRadarCnpjPublicSource?.() || new RadarCnpjPublicSourceService();
+    try {
+      const orchestration = input.host.getRadarSearchOrchestrator().plan(input.normalized);
+      return await source.run({
+        normalized: input.normalized,
+        seeds: orchestration.expansion.cnpjSeeds,
+        limit: Math.max(1, input.remainingQuantity),
+      });
+    } catch (error) {
+      input.host.logger?.warn?.(`[radar-source-executor] cnpj_public falhou sem bloquear delivery: ${String((error as any)?.message || error)}`);
+      return input.host.getRadarSearchOrchestrator().buildOptionalSourceFailure({
+        source: 'cnpj_public',
+        stage: 'search',
+        error,
+      });
+    }
+  }
+
+  private async executeLocalDirectory(input: {
+    normalized: NormalizedSearchInput;
+    remainingQuantity: number;
+    host: RadarSourceExecutorHost;
+  }): Promise<RadarLeadSourceResult> {
+    const source = input.host.getRadarLocalDirectorySource?.() || new RadarLocalDirectorySourceService();
+    try {
+      const strategy = input.host.getRadarSearchStrategy().resolve(input.normalized);
+      const seeds = input.host.getRadarSourceExpansion().buildDirectorySeeds(input.normalized, strategy);
+      return await source.run({
+        normalized: input.normalized,
+        seeds,
+        limit: Math.max(1, input.remainingQuantity),
+      });
+    } catch (error) {
+      input.host.logger?.warn?.(`[radar-source-executor] local_directory falhou sem bloquear delivery: ${String((error as any)?.message || error)}`);
+      return input.host.getRadarSearchOrchestrator().buildOptionalSourceFailure({
+        source: 'local_directory',
+        stage: 'search',
+        error,
+      });
+    }
+  }
+
+  private async executeVerticalSource(input: {
+    normalized: NormalizedSearchInput;
+    remainingQuantity: number;
+    host: RadarSourceExecutorHost;
+  }): Promise<RadarLeadSourceResult> {
+    const source = input.host.getRadarVerticalSource?.() || new RadarVerticalSourceService();
+    try {
+      const strategies = input.host.getRadarSourceExpansion().buildVerticalStrategies(input.normalized);
+      return await source.run({
+        normalized: input.normalized,
+        strategies,
+        limit: Math.max(1, input.remainingQuantity),
+      });
+    } catch (error) {
+      input.host.logger?.warn?.(`[radar-source-executor] vertical_source falhou sem bloquear delivery: ${String((error as any)?.message || error)}`);
+      return input.host.getRadarSearchOrchestrator().buildOptionalSourceFailure({
+        source: 'vertical_source',
+        stage: 'search',
+        error,
+      });
+    }
+  }
+
   private pushSourceResult(
     source: RadarLeadSourceKind,
     result: RadarLeadSourceResult,
@@ -228,7 +322,38 @@ export class RadarSourceExecutorService {
     sourceEnginesUsed: Set<string>,
     seenPhones: Set<string>,
   ) {
-    sourceDiagnostics.push(result);
+    const diagnostic = this.diagnostics.sourceDiagnostic({
+      stage: result.stage || result.issue?.stage || 'search',
+      operation: result.operation || 'optional_source_execute',
+      source,
+      status: result.status,
+      retryable: result.retryable,
+      blocksDelivery: result.blocksDelivery ?? result.issue?.blocksDelivery ?? false,
+      reason: result.reason,
+      traceId: result.traceId || null,
+      runId: result.runId || null,
+      leadId: result.leadId || null,
+      foundCount: result.foundCount,
+      acceptedCount: result.acceptedCount,
+      rejectedCount: result.rejectedCount,
+      issue: result.issue || null,
+    });
+    sourceDiagnostics.push({
+      ...result,
+      stage: diagnostic.stage,
+      operation: diagnostic.operation,
+      status: diagnostic.status as any,
+      retryable: diagnostic.retryable,
+      blocksDelivery: diagnostic.blocksDelivery,
+      traceId: diagnostic.traceId,
+      runId: diagnostic.runId,
+      leadId: diagnostic.leadId,
+      foundCount: diagnostic.foundCount || 0,
+      acceptedCount: diagnostic.acceptedCount || 0,
+      rejectedCount: diagnostic.rejectedCount || 0,
+      reason: diagnostic.reason,
+      issue: diagnostic.issue || null,
+    });
     if (result.results.length > 0) {
       optionalSources.push({
         source,

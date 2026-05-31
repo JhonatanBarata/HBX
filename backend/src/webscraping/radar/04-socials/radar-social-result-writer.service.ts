@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { buildRadarLeadEnrichment } from '../../radar-lead-enrichment';
+import { RadarEnrichmentJobPipelineService } from '../03-enrichment/radar-enrichment-job-pipeline.service';
 import { buildRadarStageIssue } from '../shared/radar-stage-policy';
 import { buildRadarStageSnapshot } from '../shared/radar-stage-result';
 import { RadarRunRepositoryService } from '../persistence/radar-run-repository.service';
@@ -27,11 +28,20 @@ function parseMaybeJsonObject(value: unknown): Record<string, any> {
 export class RadarSocialResultWriterService {
   constructor(
     private readonly runs: RadarRunRepositoryService,
+    @Optional() private readonly jobPipeline?: RadarEnrichmentJobPipelineService,
   ) {}
+
+  private getJobPipeline() {
+    return this.jobPipeline || new RadarEnrichmentJobPipelineService();
+  }
 
   async markSearching(leadId: string, item: any, raw: Record<string, any>, queries: string[]) {
     await this.runs.updateRunItemRawJson(leadId, {
       ...raw,
+      ...this.getJobPipeline().withJobStatus(raw, {
+        type: 'social_lookup',
+        status: 'running',
+      }),
       ...buildRadarStageSnapshot({
         ...raw,
         leadStatus: 'qualified',
@@ -55,12 +65,22 @@ export class RadarSocialResultWriterService {
     const raw = parseMaybeJsonObject(item.rawJson);
     const issue = buildRadarStageIssue({
       stage: 'social',
+      operation: 'social_lookup',
+      source: 'social',
+      status: 'error',
       code: 'social_lookup_failed',
       message: String((error as any)?.message || error || 'Falha no enriquecimento social.'),
+      reason: String((error as any)?.message || error || 'Falha no enriquecimento social.'),
       retryable: true,
+      leadId,
     });
     await this.runs.updateRunItemRawJson(leadId, {
       ...raw,
+      ...this.getJobPipeline().withJobStatus(raw, {
+        type: 'social_lookup',
+        status: 'partial_error',
+        error,
+      }),
       ...buildRadarStageSnapshot({
         ...raw,
         leadStatus: item.status === 'found' ? 'qualified' : raw.leadStatus,
@@ -102,13 +122,24 @@ export class RadarSocialResultWriterService {
     const issue = socialStatus === 'error'
       ? buildRadarStageIssue({
           stage: 'social',
+          operation: 'social_lookup',
+          source: 'social',
+          status: 'error',
           code: 'social_lookup_failed',
           message: result.reason,
+          reason: result.reason,
           retryable: true,
+          leadId,
         })
       : null;
     const nextRaw = {
       ...raw,
+      ...this.getJobPipeline().withJobStatus(raw, {
+        type: 'social_lookup',
+        status: socialStatus === 'error' ? 'partial_error' : 'completed',
+        error: issue?.message || null,
+        reason: result.reason,
+      }),
       ...buildRadarStageSnapshot({
         ...raw,
         leadStatus: 'qualified',
@@ -137,6 +168,8 @@ export class RadarSocialResultWriterService {
         queries: result.queries,
         reason: result.reason,
         candidates: result.candidates || [],
+        acceptedCandidates: result.acceptedCandidates || [],
+        rejectedCandidates: result.rejectedCandidates || [],
         ...(issue ? { issue } : {}),
         finishedAt: new Date().toISOString(),
       },

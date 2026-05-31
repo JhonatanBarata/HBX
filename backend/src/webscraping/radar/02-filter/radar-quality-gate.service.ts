@@ -9,6 +9,10 @@ export type RadarQualityGateResult = {
   qualityScore: number;
   missing: string[];
   blocksDelivery: boolean;
+  qualityDecision: 'deliver' | 'deliver_with_pending_enrichment' | 'review' | 'reject';
+  hardBlockers: string[];
+  positiveSignals: string[];
+  weakSignals: string[];
 };
 
 export type RadarQualityGateHost = {
@@ -59,6 +63,10 @@ function isLikelyWhatsapp(raw: string | null | undefined) {
   return Number(digits[2] || '0') >= 6;
 }
 
+function isLikelyEmail(value: unknown) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
+}
+
 function getWebsiteHost(value: string | null | undefined) {
   const raw = String(value || '').trim();
   if (!raw) return '';
@@ -95,6 +103,60 @@ function qualityV2HardBlocks(qualityV2?: LeadQualityV2 | null) {
     && ['protected_status', 'duplicate', 'generic_name', 'no_actionable_channel', 'invalid_phone'].includes(String(qualityV2.discardReason || ''));
 }
 
+function arrayValues(value: unknown) {
+  return Array.isArray(value) ? value.map((item) => String(item || '').trim().toLowerCase()).filter(Boolean) : [];
+}
+
+function sourceEvidenceCount(candidate: Record<string, any>) {
+  const engines = Array.isArray(candidate.sourceEngines) ? candidate.sourceEngines : [];
+  const sourceEvidence = candidate.sourceEvidence && typeof candidate.sourceEvidence === 'object'
+    ? Object.keys(candidate.sourceEvidence)
+    : [];
+  return new Set([...engines, ...sourceEvidence, candidate.source, candidate.sourceEngine].filter(Boolean)).size;
+}
+
+function buildReject(input: {
+  reason: string;
+  qualityScore: number;
+  missing: string[];
+  hardBlockers: string[];
+  positiveSignals: string[];
+  weakSignals: string[];
+}): RadarQualityGateResult {
+  return {
+    deliverable: false,
+    reason: input.reason,
+    qualityScore: input.qualityScore,
+    missing: input.missing,
+    blocksDelivery: true,
+    qualityDecision: 'reject',
+    hardBlockers: input.hardBlockers,
+    positiveSignals: input.positiveSignals,
+    weakSignals: input.weakSignals,
+  };
+}
+
+function buildReview(input: {
+  reason: string;
+  qualityScore: number;
+  missing: string[];
+  hardBlockers: string[];
+  positiveSignals: string[];
+  weakSignals: string[];
+}): RadarQualityGateResult {
+  return {
+    deliverable: false,
+    reason: input.reason,
+    qualityScore: input.qualityScore,
+    missing: input.missing,
+    blocksDelivery: true,
+    qualityDecision: 'review',
+    hardBlockers: input.hardBlockers,
+    positiveSignals: input.positiveSignals,
+    weakSignals: input.weakSignals,
+  };
+}
+
 @Injectable()
 export class RadarQualityGateService {
   evaluate(input: {
@@ -116,9 +178,14 @@ export class RadarQualityGateService {
     const requestedSegment = normalizeText((filters as any).segment);
     const phoneDigits = normalizePhoneDigits(candidate.phoneDigits || candidate.phone || candidate.phoneNormalized);
     const whatsappStatus = normalizeKey(candidate.whatsappStatus || candidate.whatsappCheckStatus || candidate.signals?.whatsappStatus);
+    const emailStatus = normalizeKey(candidate.emailStatus);
+    const socialStatus = normalizeKey(candidate.socialStatus);
     const website = normalizeText(candidate.website);
     const websiteStatus = normalizeKey(candidate.websiteStatus) || inferWebsiteStatus(website);
     const host = getWebsiteHost(candidate.sourceUrl || website);
+    const hardBlockers: string[] = [];
+    const positiveSignals: string[] = [];
+    const weakSignals: string[] = [];
     const qualityScore = clampScore(
       input.qualityV2?.finalRankScore
       ?? input.quality?.commercialScore
@@ -133,20 +200,24 @@ export class RadarQualityGateService {
     if (!requestedState && !candidateState) missing.push('state');
 
     if (!name) {
-      return { deliverable: false, reason: 'Nome ausente.', qualityScore, missing, blocksDelivery: true };
+      hardBlockers.push('missing_name');
+      return buildReject({ reason: 'Nome ausente.', qualityScore, missing, hardBlockers, positiveSignals, weakSignals });
     }
     if (input.host.isGenericDirectoryName(name, { city: candidateCity || requestedCity, segment: requestedSegment })) {
-      return { deliverable: false, reason: 'Resultado generico ou diretorio.', qualityScore: 0, missing, blocksDelivery: true };
+      hardBlockers.push('generic_directory');
+      return buildReject({ reason: 'Resultado generico ou diretorio.', qualityScore: 0, missing, hardBlockers, positiveSignals, weakSignals });
     }
     if (requestedSegment && input.host.nameConflictsWithRequestedSegment(name, requestedSegment)) {
-      return { deliverable: false, reason: 'Nome indica outro segmento comercial.', qualityScore, missing, blocksDelivery: true };
+      hardBlockers.push('segment_mismatch');
+      return buildReject({ reason: 'Nome indica outro segmento comercial.', qualityScore, missing, hardBlockers, positiveSignals, weakSignals });
     }
     if (candidateState && requestedState && candidateState !== requestedState) {
       const regionalStates = Array.isArray((filters as any).regionalCities)
         ? new Set((filters as any).regionalCities.map((item: any) => normalizeText(item?.state).toUpperCase()).filter(Boolean))
         : new Set<string>();
       if (!regionalStates.has(candidateState)) {
-        return { deliverable: false, reason: 'UF fora do contexto da busca.', qualityScore, missing, blocksDelivery: true };
+        hardBlockers.push('state_conflict');
+        return buildReject({ reason: 'UF fora do contexto da busca.', qualityScore, missing, hardBlockers, positiveSignals, weakSignals });
       }
     }
 
@@ -157,50 +228,96 @@ export class RadarQualityGateService {
       && websiteStatus === 'present'
       && !input.host.isBlockedLeadOfficialWebsite(website)
     );
+    const hasPhoneButInvalid = Boolean(phoneDigits) && !phoneValid;
+    const requiredChannels = arrayValues((filters as any).requiredChannels || (filters as any).salesProfile?.requiredChannels);
+    const phoneIsPrimaryChannel = requiredChannels.some((channel) => ['phone', 'telefone', 'whatsapp'].includes(channel));
+    if (hasPhoneButInvalid && phoneIsPrimaryChannel) {
+      hardBlockers.push('invalid_primary_phone');
+      return buildReject({ reason: 'Telefone invalido para canal principal.', qualityScore, missing, hardBlockers, positiveSignals, weakSignals });
+    }
+
+    if (phoneValid) positiveSignals.push('phone_valid');
+    else if (hasPhoneButInvalid) weakSignals.push('phone_invalid');
+    if (whatsappValid) positiveSignals.push(whatsappStatus === 'confirmed' ? 'whatsapp_confirmed' : 'whatsapp_probable');
+    else if (whatsappStatus) weakSignals.push(`whatsapp_${whatsappStatus}`);
+    if (websiteValid) positiveSignals.push('website_own');
+    else if (websiteStatus === 'weak' || websiteStatus === 'social_only') weakSignals.push(`website_${websiteStatus}`);
+    else if (!website) weakSignals.push('website_missing');
+    if (['found', 'confirmed'].includes(socialStatus)) positiveSignals.push('social_confirmed');
+    else if (socialStatus === 'partial') positiveSignals.push('social_partial');
+    else if (socialStatus) weakSignals.push(`social_${socialStatus}`);
+    if (isLikelyEmail(candidate.email)) positiveSignals.push(emailStatus === 'confirmed' ? 'email_confirmed' : 'email_found');
+    else if (!candidate.email) weakSignals.push('email_missing');
+    if (candidate.address && String(candidate.address).trim().length >= 8) positiveSignals.push('address_present');
+    if (sourceEvidenceCount(candidate) >= 2) positiveSignals.push('multi_source_evidence');
+    else weakSignals.push('single_source_evidence');
+    if (Number(candidate.rating) > 0 || Number(candidate.reviews) > 0) positiveSignals.push('rating_reviews_present');
+    if (name && (candidateCity || requestedCity) && requestedSegment) positiveSignals.push('name_city_segment_coherent');
+
     const hasMinimumContact = phoneValid || whatsappValid || websiteValid || input.host.hasUsablePublicContactChannel(candidate);
     if (!hasMinimumContact) {
       missing.push('minimum_contact');
-      return { deliverable: false, reason: 'Contato minimo ausente.', qualityScore, missing, blocksDelivery: true };
+      hardBlockers.push('missing_minimum_contact');
+      return buildReject({ reason: 'Contato minimo ausente.', qualityScore, missing, hardBlockers, positiveSignals, weakSignals });
+    }
+
+    if (candidate.manualReviewRequired === true || normalizeKey(candidate.qualityDecision) === 'review') {
+      hardBlockers.push('manual_review_required');
+      return buildReview({ reason: 'Lead exige revisao manual.', qualityScore, missing, hardBlockers, positiveSignals, weakSignals });
     }
 
     if (host && MARKETPLACE_HOST_HINTS.some((hint) => host.includes(hint)) && !websiteValid && !phoneValid && !whatsappValid) {
-      return { deliverable: false, reason: 'Marketplace ou listagem de terceiro sem contato proprio.', qualityScore, missing, blocksDelivery: true };
+      hardBlockers.push('marketplace_without_own_contact');
+      return buildReject({ reason: 'Marketplace ou listagem de terceiro sem contato proprio.', qualityScore, missing, hardBlockers, positiveSignals, weakSignals });
     }
 
     if (input.quality?.status === 'invalid' || input.quality?.status === 'duplicate' || input.quality?.status === 'generic_directory') {
-      return {
-        deliverable: false,
+      hardBlockers.push(`quality_${input.quality.status}`);
+      return buildReject({
         reason: input.quality.reasons?.[0] || input.quality.status,
         qualityScore,
         missing,
-        blocksDelivery: true,
-      };
+        hardBlockers,
+        positiveSignals,
+        weakSignals,
+      });
     }
     if (qualityV2HardBlocks(input.qualityV2)) {
-      return {
-        deliverable: false,
+      hardBlockers.push(`quality_v2_${input.qualityV2?.discardReason || input.qualityV2?.decision || 'hard_block'}`);
+      return buildReject({
         reason: input.qualityV2?.protectionReason || input.qualityV2?.discardReason || input.qualityV2?.reasons?.[0] || 'Bloqueado por qualidade.',
         qualityScore,
         missing,
-        blocksDelivery: true,
-      };
+        hardBlockers,
+        positiveSignals,
+        weakSignals,
+      });
     }
     if (qualityScore < minQualityScore) {
-      return {
-        deliverable: false,
-        reason: 'Qualidade abaixo do minimo.',
-        qualityScore,
-        missing,
-        blocksDelivery: true,
-      };
+      hardBlockers.push('quality_below_minimum');
+      return buildReject({ reason: 'Qualidade abaixo do minimo.', qualityScore, missing, hardBlockers, positiveSignals, weakSignals });
     }
 
+    const hasPendingEnrichment = weakSignals.some((signal) => (
+      signal.startsWith('social_')
+      || signal.startsWith('website_')
+      || signal.startsWith('email_')
+      || signal.startsWith('whatsapp_')
+      || signal === 'single_source_evidence'
+    ));
+    const qualityDecision = hasPendingEnrichment ? 'deliver_with_pending_enrichment' : 'deliver';
     return {
       deliverable: true,
-      reason: 'Lead com qualidade minima para virar card.',
+      reason: qualityDecision === 'deliver_with_pending_enrichment'
+        ? 'Lead entregavel com enriquecimento pendente.'
+        : 'Lead com qualidade minima para virar card.',
       qualityScore,
       missing,
       blocksDelivery: false,
+      qualityDecision,
+      hardBlockers,
+      positiveSignals,
+      weakSignals,
     };
   }
 }

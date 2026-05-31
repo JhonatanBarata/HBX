@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import type { LeadQualityV2 } from '../../lead-quality-v2';
 import type { LeadQualityResult, WebscrapingContactResult, WebscrapingSearchRunResponse } from '../../webscraping.service';
+import { RadarDiagnosticService } from '../shared/radar-diagnostic.service';
 import type {
   HbxTargetType,
   NormalizedRadarFilters,
@@ -66,6 +67,12 @@ function normalizeTargetType(value: unknown): HbxTargetType {
 
 @Injectable()
 export class RadarRunPresenterService {
+  constructor(@Optional() private readonly diagnostics?: RadarDiagnosticService) {}
+
+  private getDiagnostics() {
+    return this.diagnostics || new RadarDiagnosticService();
+  }
+
   resolveRadarRunOperationalState(run: any, status: WebscrapingSearchRunStatus, message: string | null): {
     state: 'funcionando' | 'pausado' | 'parado';
     reason: string | null;
@@ -131,6 +138,7 @@ export class RadarRunPresenterService {
   mapRunItemToContact(item: any, host: RadarRunPresenterHost): WebscrapingContactResult {
     const raw = host.parseMaybeJsonObject(item?.rawJson);
     const enrichmentJson = host.parseMaybeJsonObject(item?.enrichmentJson || raw.enrichmentJson);
+    const issueSummary = this.getDiagnostics().splitIssues(raw.radarStageIssues);
     return {
       ...(raw as any),
       placeId: String(item.placeId || raw.placeId || '').trim(),
@@ -149,6 +157,8 @@ export class RadarRunPresenterService {
       facebookUrl: String(raw.facebookUrl || '').trim() || null,
       email: String(raw.email || '').trim() || null,
       emailStatus: raw.emailStatus || raw.signals?.emailStatus || null,
+      deliveryStatus: raw.deliveryStatus || null,
+      enrichmentStatus: raw.enrichmentStatus || null,
       socialStatus: raw.socialStatus || raw.signals?.socialStatus || null,
       socialConfidence: raw.socialConfidence == null ? null : safeInteger(raw.socialConfidence),
       googleMapsUrl: String(raw.googleMapsUrl || raw.mapsUrl || raw.signals?.googleMapsUrl || '').trim() || null,
@@ -160,6 +170,9 @@ export class RadarRunPresenterService {
       enrichmentScore: raw.enrichmentScore == null ? null : safeInteger(raw.enrichmentScore),
       enrichmentJson: Object.keys(enrichmentJson).length ? enrichmentJson : raw.enrichmentJson || null,
       qualityV2: host.extractLeadQualityV2FromObject(raw) || host.extractLeadQualityV2FromObject(enrichmentJson) || raw.qualityV2 || enrichmentJson.qualityV2 || null,
+      sourceDiagnostics: this.getDiagnostics().normalizeSourceDiagnostics(raw.sourceDiagnostics),
+      nonBlockingIssues: issueSummary.nonBlockingIssues,
+      deliveryBlockers: issueSummary.blockers,
       source: String(item.source || raw.source || '').trim() || null,
       quality: host.extractLeadQualityFromObject(raw),
     };
@@ -174,6 +187,7 @@ export class RadarRunPresenterService {
     const targetType = normalizeTargetType(run.targetType);
     const status = host.normalizeSearchRunStatus(run.status);
     const metrics = parseJsonObject(run?.metricsJson);
+    const runIssues = this.getDiagnostics().splitIssues(metrics.radarStageIssues);
     const items = Array.isArray(run.items) ? run.items : [];
     const foundItems = items.filter((item) => item.status === 'found');
     const runInput = host.buildRunInputFromRow(run);
@@ -301,10 +315,15 @@ export class RadarRunPresenterService {
         approved: safeInteger(run.foundCount),
         skipped: safeInteger(run.skippedCount),
         duplicate: safeInteger(run.duplicateCount),
+        sourceDiagnostics: this.getDiagnostics().normalizeSourceDiagnostics(metrics.sourceDiagnostics),
+        radarStageIssues: runIssues.issues,
+        nonBlockingIssues: runIssues.nonBlockingIssues,
+        deliveryBlockers: runIssues.blockers,
       },
       items: items.map((item) => {
         const raw = host.parseMaybeJsonObject(item?.rawJson);
         const enrichmentJson = host.parseMaybeJsonObject(item?.enrichmentJson || raw.enrichmentJson);
+        const issueSummary = this.getDiagnostics().splitIssues(raw.radarStageIssues);
         const qualityV2 = host.extractLeadQualityV2FromObject(raw) || host.extractLeadQualityV2FromObject(enrichmentJson) || raw.qualityV2 || enrichmentJson.qualityV2 || null;
         const publicItem = {
           id: item.id,
@@ -319,6 +338,8 @@ export class RadarRunPresenterService {
           facebookUrl: raw.facebookUrl || null,
           email: raw.email || null,
           emailStatus: raw.emailStatus || raw.signals?.emailStatus || null,
+          deliveryStatus: raw.deliveryStatus || null,
+          enrichmentStatus: raw.enrichmentStatus || null,
           socialStatus: raw.socialStatus || raw.signals?.socialStatus || null,
           socialConfidence: raw.socialConfidence == null ? null : safeInteger(raw.socialConfidence),
           googleMapsUrl: raw.googleMapsUrl || raw.mapsUrl || raw.signals?.googleMapsUrl || null,
@@ -337,6 +358,9 @@ export class RadarRunPresenterService {
           source: item.source || raw.source || null,
           status: host.normalizeRunItemStatus(item.status),
           duplicateReason: item.duplicateReason || null,
+          sourceDiagnostics: this.getDiagnostics().normalizeSourceDiagnostics(raw.sourceDiagnostics),
+          nonBlockingIssues: issueSummary.nonBlockingIssues,
+          deliveryBlockers: issueSummary.blockers,
           createdAt: item.createdAt instanceof Date ? item.createdAt.toISOString() : new Date().toISOString(),
         };
         return host.stripListPremiumFields(

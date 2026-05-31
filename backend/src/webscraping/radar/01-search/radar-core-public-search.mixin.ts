@@ -695,6 +695,9 @@ export class RadarCorePublicSearchMixin {
             getRadarSearchStrategy: () => this.getRadarSearchStrategy(),
             getRadarSearchOrchestrator: () => this.getRadarSearchOrchestrator(),
             getRadarWebsiteCrawlSource: () => this.getRadarWebsiteCrawlSource(),
+            getRadarCnpjPublicSource: () => this.getRadarCnpjPublicSource(),
+            getRadarLocalDirectorySource: () => this.getRadarLocalDirectorySource(),
+            getRadarVerticalSource: () => this.getRadarVerticalSource(),
             getRadarClientRequestTimeoutMs: () => this.getRadarClientRequestTimeoutMs(),
           },
         });

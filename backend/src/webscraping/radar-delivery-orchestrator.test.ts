@@ -24,8 +24,9 @@ test('radar delivery schedules post-delivery jobs after Vendas import', () => {
   assert.equal(delivered.postDeliveryUpdate.status, 'scheduled');
   assert.deepEqual(
     delivered.jobs.map((job) => job.type),
-    ['social', 'email', 'whatsapp', 'site', 'score_update', 'post_delivery_update'],
+    ['social_lookup', 'email_enrichment', 'whatsapp_check', 'website_crawl_light', 'cnpj_enrichment', 'opportunity_signal', 'post_delivery_update'],
   );
+  assert.equal(delivered.jobs.every((job) => job.status === 'queued'), true);
   assert.equal(delivered.metadataPatch.vendasLeadId, 42);
 });
 
@@ -51,6 +52,7 @@ test('social failure after delivery stays delivered and becomes retryable', () =
   assert.equal(failed.metadata.socialStatus, 'error');
   assert.equal(failed.metadata.postDeliveryUpdate.status, 'retryable');
   assert.equal(failed.metadata.postDeliveryUpdate.retryable, true);
+  assert.equal(failed.metadata.asyncEnrichmentJobs.find((job: any) => job.type === 'social_lookup').status, 'partial_error');
   assert.equal(failed.metadata.radarStageIssues.at(-1).blocksDelivery, false);
   assert.equal(failed.enrichment.deliveryStatus, 'delivered');
 });

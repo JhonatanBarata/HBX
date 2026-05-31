@@ -280,6 +280,8 @@ export class RadarCoreSearchRunnerMixin {
         channelMatchMode: normalized.channelMatchMode,
         qualityMode: normalized.qualityMode,
       },
+      sourceDiagnostics: [],
+      radarStageIssues: [],
       ...(normalized.salesProfile ? { salesProfile: normalized.salesProfile } : {}),
     });
   }
