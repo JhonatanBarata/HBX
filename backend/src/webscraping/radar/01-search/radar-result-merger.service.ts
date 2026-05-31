@@ -124,7 +124,11 @@ export class RadarResultMergerService {
           instagramUrl: result.instagramUrl || null,
           facebookUrl: result.facebookUrl || null,
           email: result.email || null,
+          address: result.address || null,
+          cnpj: (result as any).cnpj || null,
+          whatsappUrl: (result as any).whatsappUrl || null,
           whatsappStatus: (result as any).whatsappStatus || (result as any).whatsappCheckStatus || null,
+          evidenceJson: (result as any).evidenceJson || null,
         },
       },
     } as any;
@@ -141,6 +145,9 @@ export class RadarResultMergerService {
     target.instagramUrl = firstPresent(target.instagramUrl, incoming.instagramUrl) as any;
     target.facebookUrl = firstPresent(target.facebookUrl, incoming.facebookUrl) as any;
     target.email = firstPresent((target as any).email, (incoming as any).email) as any;
+    target.address = firstPresent(target.address, incoming.address) as any;
+    targetAny.cnpj = firstPresent(targetAny.cnpj, (incoming as any).cnpj) as any;
+    targetAny.whatsappUrl = firstPresent(targetAny.whatsappUrl, (incoming as any).whatsappUrl) as any;
     if ((!targetAny.whatsappStatus || targetAny.whatsappStatus !== 'confirmed') && (incoming as any).whatsappStatus) {
       targetAny.whatsappStatus = (incoming as any).whatsappStatus;
     }

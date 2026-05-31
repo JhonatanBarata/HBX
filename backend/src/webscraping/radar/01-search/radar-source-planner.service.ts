@@ -45,6 +45,7 @@ export class RadarSourcePlannerService {
       'google_textual',
       'reprocess_missing_social',
       'reprocess_old_cards',
+      'website_crawl_light',
     ]);
     return (byStrategy[strategy.mode] || byStrategy.fast).map((source, index) => ({
       source,
@@ -66,7 +67,7 @@ export class RadarSourcePlannerService {
       google_textual: 'busca_textual_por_intencao_como_complemento_opcional',
       reprocess_missing_social: 'reprocessa_cards_sem_social_ou_com_status_fraco',
       reprocess_old_cards: 'reprocessa_cards_antigos_do_radar',
-      website_crawl_light: 'stub_explicito_site_crawl_ainda_nao_executa',
+      website_crawl_light: 'crawl_leve_de_website_oficial_como_complemento_opcional',
       local_directories_stub: 'stub_explicito_diretorios_nao_sao_fonte_de_verdade',
       cnpj_public_stub: 'stub_explicito_base_cnpj_ainda_nao_executa',
     };

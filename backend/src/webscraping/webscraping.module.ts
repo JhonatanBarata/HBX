@@ -16,6 +16,7 @@ import { RadarRunPresenterService } from './radar/06-presentation/radar-run-pres
 import { RadarSearchRunConfigService } from './radar/01-search/radar-search-run-config.service';
 import { RadarInternalReprocessSourceService } from './radar/01-search/radar-internal-reprocess-source.service';
 import { RadarSourceExecutorService } from './radar/01-search/radar-source-executor.service';
+import { RadarWebsiteCrawlSourceService } from './radar/01-search/radar-website-crawl-source.service';
 import { RadarSearchGeoService } from './radar/01-search/radar-search-geo.service';
 import { RadarSearchInputService } from './radar/01-search/radar-search-input.service';
 import { RadarResultMergerService } from './radar/01-search/radar-result-merger.service';
@@ -32,6 +33,7 @@ import { GoogleSearchQueryBuilder } from './radar/providers/google-search/google
 import { GoogleSearchResultNormalizer } from './radar/providers/google-search/google-search-result-normalizer';
 import { RadarGoogleResponseService } from './radar/providers/google-search/radar-google-response.service';
 import { RadarHbxEngineErrorsService } from './radar/providers/hbx-engine/radar-hbx-engine-errors.service';
+import { WebsiteCrawlProviderService } from './radar/providers/website-crawl/website-crawl-provider.service';
 import { RadarDeliveryOrchestratorService } from './radar/05-delivery/radar-delivery-orchestrator.service';
 import { RadarPostDeliveryUpdateService } from './radar/05-delivery/radar-post-delivery-update.service';
 import { RadarRunRepositoryService } from './radar/persistence/radar-run-repository.service';
@@ -60,6 +62,7 @@ const RADAR_SEARCH_SERVICES = [
   RadarSearchRunConfigService,
   RadarInternalReprocessSourceService,
   RadarSourceExecutorService,
+  RadarWebsiteCrawlSourceService,
 ];
 
 const RADAR_FILTER_SERVICES = [
@@ -96,6 +99,7 @@ const RADAR_PROVIDER_SERVICES = [
   GoogleSearchProviderService,
   RadarGoogleResponseService,
   RadarHbxEngineErrorsService,
+  WebsiteCrawlProviderService,
 ];
 
 const RADAR_SERVICES = [

@@ -7,6 +7,7 @@ import type { RadarLeadSourceKind, RadarLeadSourceResult, RadarLeadSourceStep } 
 import type { RadarSearchOrchestratorService } from './radar-search-orchestrator.service';
 import type { RadarSearchStrategyService } from './radar-search-strategy.service';
 import type { RadarSourceExpansionService } from './radar-source-expansion.service';
+import { RadarWebsiteCrawlSourceService } from './radar-website-crawl-source.service';
 
 export type RadarSourceExecutorHost = {
   searchHbxEngine: (
@@ -20,6 +21,7 @@ export type RadarSourceExecutorHost = {
   getRadarSourceExpansion: () => RadarSourceExpansionService;
   getRadarSearchStrategy: () => RadarSearchStrategyService;
   getRadarSearchOrchestrator: () => RadarSearchOrchestratorService;
+  getRadarWebsiteCrawlSource?: () => RadarWebsiteCrawlSourceService;
   getRadarClientRequestTimeoutMs: () => number;
   logger?: { warn?: (message: string) => void };
   prisma?: any;
@@ -86,6 +88,11 @@ export class RadarSourceExecutorService {
       }
       if (step.source === 'reprocess_missing_social' || step.source === 'reprocess_old_cards') {
         const result = await this.executeInternalReprocess({ ...input, source: step.source });
+        this.pushSourceResult(step.source, result, optionalSources, sourceDiagnostics, sourceEnginesUsed, seenPhones);
+        continue;
+      }
+      if (step.source === 'website_crawl_light') {
+        const result = await this.executeWebsiteCrawl({ ...input });
         this.pushSourceResult(step.source, result, optionalSources, sourceDiagnostics, sourceEnginesUsed, seenPhones);
         continue;
       }
@@ -187,6 +194,27 @@ export class RadarSourceExecutorService {
       return input.host.getRadarSearchOrchestrator().buildOptionalSourceFailure({
         source: input.source,
         stage: 'search',
+        error,
+      });
+    }
+  }
+
+  private async executeWebsiteCrawl(input: {
+    currentResults: WebscrapingContactResult[];
+    remainingQuantity: number;
+    host: RadarSourceExecutorHost;
+  }): Promise<RadarLeadSourceResult> {
+    const source = input.host.getRadarWebsiteCrawlSource?.() || new RadarWebsiteCrawlSourceService();
+    try {
+      return await source.run({
+        currentResults: input.currentResults,
+        remainingQuantity: input.remainingQuantity,
+      });
+    } catch (error) {
+      input.host.logger?.warn?.(`[radar-source-executor] website_crawl_light falhou sem bloquear delivery: ${String((error as any)?.message || error)}`);
+      return input.host.getRadarSearchOrchestrator().buildOptionalSourceFailure({
+        source: 'website_crawl_light',
+        stage: 'site',
         error,
       });
     }
