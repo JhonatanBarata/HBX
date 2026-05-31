@@ -15,6 +15,7 @@ import { RadarLeadPresenterService } from './radar/06-presentation/radar-lead-pr
 import { RadarRunPresenterService } from './radar/06-presentation/radar-run-presenter.service';
 import { RadarSearchRunConfigService } from './radar/01-search/radar-search-run-config.service';
 import { RadarInternalReprocessSourceService } from './radar/01-search/radar-internal-reprocess-source.service';
+import { RadarSourceExecutorService } from './radar/01-search/radar-source-executor.service';
 import { RadarSearchGeoService } from './radar/01-search/radar-search-geo.service';
 import { RadarSearchInputService } from './radar/01-search/radar-search-input.service';
 import { RadarResultMergerService } from './radar/01-search/radar-result-merger.service';
@@ -58,6 +59,7 @@ const RADAR_SEARCH_SERVICES = [
   RadarSearchOrchestratorService,
   RadarSearchRunConfigService,
   RadarInternalReprocessSourceService,
+  RadarSourceExecutorService,
 ];
 
 const RADAR_FILTER_SERVICES = [
