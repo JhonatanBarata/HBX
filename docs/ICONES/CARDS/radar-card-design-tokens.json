@@ -1,0 +1,84 @@
+{
+  "name": "HBX Radar Cards",
+  "version": "1.0",
+  "assetPath": "docs/ICONES/CARDS/",
+  "files": {
+    "icons": "docs/ICONES/CARDS/radar-card-icons.svg",
+    "tokens": "docs/ICONES/CARDS/radar-card-design-tokens.json",
+    "spec": "docs/ICONES/CARDS/radar-card-frontend-spec.md"
+  },
+  "colors": {
+    "brandBlue": "#2563EB",
+    "cyan": "#0EA5E9",
+    "success": "#16A34A",
+    "warning": "#F59E0B",
+    "danger": "#EF4444",
+    "premiumPurple": "#7C3AED",
+    "slate": "#64748B",
+    "textDark": "#0F172A",
+    "textMuted": "#64748B",
+    "lightBg": "#F8FAFC",
+    "lightCard": "#FFFFFF",
+    "lightBorder": "#CBD5E1",
+    "darkBg": "#020617",
+    "darkPanel": "#0B1220",
+    "darkCard": "#111827",
+    "darkBorder": "#1E3A5F",
+    "coinGold": "#F59E0B"
+  },
+  "radius": {
+    "card": 24,
+    "innerCard": 18,
+    "pill": 999,
+    "button": 14,
+    "iconTile": 16
+  },
+  "shadow": {
+    "lightCard": "0 18px 45px rgba(15,23,42,0.08)",
+    "lightHover": "0 22px 55px rgba(37,99,235,0.14)",
+    "darkCard": "0 22px 60px rgba(0,0,0,0.35)",
+    "blueGlow": "0 0 0 1px rgba(37,99,235,0.55), 0 0 32px rgba(37,99,235,0.18)",
+    "greenGlow": "0 0 0 1px rgba(22,163,74,0.45), 0 0 22px rgba(22,163,74,0.12)",
+    "premiumGlow": "0 0 0 1px rgba(124,58,237,0.45), 0 0 22px rgba(124,58,237,0.14)"
+  },
+  "layout": {
+    "desktop": {
+      "collapsedMinHeight": 150,
+      "expandedMinHeight": 520,
+      "grid": "left data column + center insights + right quality/action column",
+      "iconRow": "six contact icons: instagram, facebook, whatsapp, site, email, map"
+    },
+    "mobile": {
+      "collapsedMinHeight": 260,
+      "expandedMinHeight": 820,
+      "grid": "stacked single column with two-column mini sections when >=390px",
+      "iconRow": "scrollable or 3x2 icon grid"
+    }
+  },
+  "statusPills": {
+    "delivered": { "label": "Entregue", "color": "success", "icon": "hbx-card-icon-check" },
+    "enriching": { "label": "Enriquecendo", "color": "brandBlue", "icon": "hbx-card-icon-loading" },
+    "socialPartial": { "label": "Social parcial", "color": "slate", "icon": "hbx-card-icon-users" },
+    "whatsappConfirmed": { "label": "WhatsApp confirmado", "color": "success", "icon": "hbx-card-icon-whatsapp" },
+    "leadPlus": { "label": "Lead+", "color": "brandBlue", "icon": "hbx-card-icon-lead-plus" },
+    "highConfidence": { "label": "Alta confiança", "color": "brandBlue", "icon": "hbx-card-icon-shield" },
+    "highPriority": { "label": "Alta prioridade", "color": "warning", "icon": "hbx-card-icon-lightning" }
+  },
+  "fieldPriority": [
+    "name",
+    "city",
+    "segment",
+    "phone",
+    "whatsappStatus",
+    "instagramUrl",
+    "facebookUrl",
+    "website",
+    "email",
+    "cnpj",
+    "address",
+    "qualityScore",
+    "opportunityReason",
+    "recommendedChannel",
+    "nextBestAction"
+  ]
+}
