@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as XLSX from 'xlsx';
 import { WebscrapingService } from './webscraping.service';
+import { shouldRadarIssueBlockDelivery } from './radar/shared/radar-stage-policy';
 
 type FetchResponseLike = {
   ok: boolean;
@@ -927,6 +928,7 @@ test('saveSearchRunResults nao corta candidato primario por social obrigatorio a
   assert.equal(counts.skipped, 0);
   assert.equal(items.length, 1);
   assert.equal(items[0].status, 'found');
+  assert.equal(JSON.parse(items[0].rawJson).qualityGate.deliverable, true);
 });
 
 test('persistRadarLeadPoolBatch no Lead+ materializa card List fraco no Radar', async () => {
@@ -2665,12 +2667,14 @@ test('runRadarSocialLookupForSavedLead acha Instagram por marca e cidade no hand
     const result = await service.runRadarSocialLookupForSavedLead({ companyId: 7, userId: 9, user: createUser() }, 'item-1', normalized);
     const raw = JSON.parse(items[0].rawJson);
 
-    assert.equal(bodies[0]?.query, 'site:instagram.com "Alugtec" "Rio Claro"');
+    assert.equal(bodies.some((body) => body.query === '"Alugtec" "Rio Claro" instagram'), true);
+    assert.equal(bodies.some((body) => body.query === '"1935312615" instagram'), true);
+    assert.equal(bodies.some((body) => body.query === 'site:instagram.com "Alugtec" "Rio Claro"'), true);
     assert.equal(bodies.some((body) => body.query === 'site:instagram.com "Alugtec Rental Pemt Ltda" "Rio Claro"'), true);
-    assert.equal(result.status, 'found');
+    assert.equal(result.status, 'partial');
     assert.equal(raw.instagramUrl, 'https://www.instagram.com/alugtecrioclaro');
-    assert.equal(raw.socialStatus, 'found');
-    assert.equal(raw.socialConfidence >= 80, true);
+    assert.equal(raw.socialStatus, 'partial');
+    assert.equal(raw.socialConfidence >= 75, true);
   } finally {
     global.fetch = previousFetch;
   }
@@ -2735,17 +2739,14 @@ test('runRadarSocialLookupForSavedLead usa nome e cidade e atualiza Instagram co
     const result = await service.runRadarSocialLookupForSavedLead({ companyId: 7, userId: 9, user: createUser() }, 'item-1', normalized);
     const raw = JSON.parse(items[0].rawJson);
 
-    assert.deepEqual(bodies.map((body) => body.query), [
-      'site:instagram.com "Barbearia X" "Rio Claro"',
-      '"Barbearia X" "Rio Claro" instagram',
-      'site:facebook.com "Barbearia X" "Rio Claro"',
-      '"Barbearia X" "Rio Claro" facebook',
-    ]);
+    assert.equal(bodies.some((body) => body.query === '"Barbearia X" "Rio Claro" instagram'), true);
+    assert.equal(bodies.some((body) => body.query === 'site:instagram.com "Barbearia X" "Rio Claro"'), true);
+    assert.equal(bodies.some((body) => body.query === '"19999990001" instagram'), true);
     assert.equal(bodies.some((body) => String(body.query || '').includes('barbearias')), false);
-    assert.equal(result.status, 'found');
+    assert.equal(result.status, 'partial');
     assert.equal(raw.instagramUrl, 'https://www.instagram.com/barbeariaxrioclaro');
-    assert.equal(raw.socialStatus, 'found');
-    assert.equal(raw.socialConfidence >= 80, true);
+    assert.equal(raw.socialStatus, 'partial');
+    assert.equal(raw.socialConfidence >= 75, true);
     assert.match(String(raw.enrichmentJson || ''), /instagramUrl/);
   } finally {
     global.fetch = previousFetch;
@@ -2866,8 +2867,9 @@ test('runRadarSocialLookupForSavedLead falha sem bloquear nem falhar o card', as
     const result = await service.runRadarSocialLookupForSavedLead({ companyId: 7, userId: 9, user: createUser() }, 'item-1', normalized);
     const raw = JSON.parse(items[0].rawJson);
 
-    assert.equal(result.status, 'weak');
-    assert.equal(raw.socialStatus, 'weak');
+    assert.equal(result.status, 'error');
+    assert.equal(raw.socialStatus, 'error');
+    assert.equal(raw.deliveryStatus, 'deliverable');
     assert.equal(raw.instagramUrl, 'instagram.com/accounts/login');
     assert.equal(items[0].status, 'found');
     assert.equal(run.status, 'running');
@@ -2901,6 +2903,124 @@ test('Radar ignora requiredChannels na decisao backend de entrega', () => {
   assert.equal(service.isListDeliverableCard(lead, base), true);
   assert.equal(service.isListDeliverableCard(lead, { ...base, requiredChannels: ['whatsapp'], channelMatchMode: 'prefer' }), true);
   assert.equal(service.isListDeliverableCard(lead, { ...base, requiredChannels: ['whatsapp'], channelMatchMode: 'any_required' }), true);
+});
+
+test('Radar stage policy deixa social falhar sem bloquear entrega', () => {
+  assert.equal(shouldRadarIssueBlockDelivery({ stage: 'social', code: 'social_lookup_failed' }), false);
+  assert.equal(shouldRadarIssueBlockDelivery({ stage: 'email', code: 'email_enrichment_failed' }), false);
+  assert.equal(shouldRadarIssueBlockDelivery({ stage: 'whatsapp', code: 'whatsapp_check_failed' }), false);
+  assert.equal(shouldRadarIssueBlockDelivery({ stage: 'quality', code: 'quality_below_minimum' }), true);
+  assert.equal(shouldRadarIssueBlockDelivery({ stage: 'persistence', code: 'persistence_failed' }), true);
+});
+
+test('Radar entrega card qualificado mesmo com socialStatus error', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const input = service.normalizeSearchInput({
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'pizzarias',
+    quantity: 1,
+    engine: 'hbx',
+    targetType: 'pj',
+    qualityMode: 'list',
+  });
+
+  const response = service.buildSearchResponse(input, [{
+    placeId: 'hbx:pj:19999990001',
+    name: 'Pizzaria Social Error',
+    phone: '(19) 99999-0001',
+    phoneDigits: '19999990001',
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'pizzarias',
+    socialStatus: 'error',
+    deliveryStatus: 'deliverable',
+    leadStatus: 'qualified',
+    source: 'hbx_scraping:free_pj',
+    score: 82,
+  }], {
+    historyId: null,
+    source: 'hbx',
+    reusedCount: 0,
+    fetchedCount: 1,
+    technicalCacheUsed: false,
+    technicalCacheReusedCount: 0,
+    technicalCacheValidUntil: null,
+  });
+
+  assert.equal(response.results.length, 1);
+  assert.equal(response.results[0].name, 'Pizzaria Social Error');
+  assert.equal(response.results[0].leadStatus, 'qualified');
+  assert.equal(response.results[0].deliveryStatus, 'deliverable');
+  assert.equal(response.results[0].socialStatus, 'error');
+  assert.equal(response.meta.deliveredCount, 1);
+});
+
+test('Radar Quality Gate separa qualidade minima de enriquecimento social', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const input = service.normalizeSearchInput({
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'pizzarias',
+    quantity: 1,
+    engine: 'hbx',
+    targetType: 'pj',
+    qualityMode: 'list',
+  });
+  const leadSemSocial = {
+    name: 'Pizzaria Avenida',
+    phone: '(19) 3333-4444',
+    phoneDigits: '1933334444',
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'pizzarias',
+    socialStatus: 'missing',
+    score: 60,
+  };
+  const gate = service.getRadarQualityGate().evaluate({
+    candidate: leadSemSocial,
+    filters: input,
+    quality: service.getCandidateQuality(leadSemSocial, input),
+    qualityV2: service.getCandidateQualityV2(leadSemSocial, input),
+    host: service.buildRadarQualityGateHost(),
+  });
+
+  assert.equal(gate.deliverable, true);
+  assert.equal(gate.blocksDelivery, false);
+  assert.equal(gate.missing.includes('minimum_contact'), false);
+  assert.equal(service.isListDeliverableCard(leadSemSocial, input), true);
+});
+
+test('Radar Quality Gate bloqueia falta de contato minimo e diretorio generico', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const input = service.normalizeSearchInput({
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'pizzarias',
+    quantity: 1,
+    engine: 'hbx',
+    targetType: 'pj',
+    qualityMode: 'list',
+  });
+
+  assert.equal(service.isListDeliverableCard({
+    name: 'Pizzaria Sem Canal',
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'pizzarias',
+    socialStatus: 'missing',
+    score: 80,
+  }, input), false);
+
+  assert.equal(service.isListDeliverableCard({
+    name: 'Pizzarias em Rio Claro',
+    phone: '(19) 99999-0001',
+    phoneDigits: '19999990001',
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'pizzarias',
+    score: 90,
+  }, input), false);
 });
 
 test('Radar nao bloqueia DDD diferente quando cidade esta dentro do raio', async () => {

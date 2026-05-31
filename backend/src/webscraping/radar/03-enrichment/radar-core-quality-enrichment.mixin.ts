@@ -97,6 +97,7 @@ import {
   parsePositiveIntegerEnv,
   minutesAgo,
   formatCityWithState,
+  buildRadarStageSnapshot,
 } from '../radar-core-method-imports';
 
 import type {
@@ -568,23 +569,16 @@ export class RadarCoreQualityEnrichmentMixin {
     quality?: LeadQualityResult | null,
     qualityV2?: LeadQualityV2 | null,
   ) {
-    if (this.isGenericDirectoryName(candidate?.name, { city: (input as any)?.city, segment: (input as any)?.segment })) return false;
-    if (normalizeTargetType((input as any)?.targetType) === 'pj' && this.nameConflictsWithRequestedSegment(candidate?.name, (input as any)?.segment)) return false;
     const effectiveQuality = quality ?? this.getCandidateQuality(candidate, input);
-    if (!this.isListLeadQualityDeliverable(effectiveQuality)) return false;
-
     const effectiveQualityV2 = qualityV2 ?? this.extractLeadQualityV2FromObject(candidate) ?? this.getCandidateQualityV2(candidate, input);
-    if (this.shouldApplyQualityV2Gate(input)) {
-      const visibility = resolveRadarVisibilityFromQualityV2({
-        lead: candidate,
-        quality: effectiveQualityV2,
-        qualityMode: (input as any)?.qualityMode,
-        requestedSegment: (input as any)?.segment,
-      });
-      if (visibility.hardBlocked) return false;
-    }
-    if (!this.candidateHasRequiredChannels(candidate, input, effectiveQualityV2)) return false;
-    return this.hasUsablePublicContactChannel(candidate);
+    const gate = this.getRadarQualityGate().evaluate({
+      candidate,
+      filters: input,
+      quality: effectiveQuality,
+      qualityV2: effectiveQualityV2,
+      host: this.buildRadarQualityGateHost(),
+    });
+    return gate.deliverable;
   }
 
   private isStrongLeadPlusReview(candidate: Record<string, any>, quality: LeadQualityResult | null | undefined, qualityV2: LeadQualityV2 | null | undefined) {
@@ -605,6 +599,13 @@ export class RadarCoreQualityEnrichmentMixin {
     const effectiveQuality = quality ?? this.getCandidateQuality(candidate, input);
     const effectiveQualityV2 = qualityV2 ?? this.extractLeadQualityV2FromObject(candidate) ?? this.getCandidateQualityV2(candidate, input);
     const qualityReason = (fallback: string) => this.buildQualityReason(effectiveQuality, effectiveQualityV2, fallback);
+    const qualityGate = this.getRadarQualityGate().evaluate({
+      candidate,
+      filters: input,
+      quality: effectiveQuality,
+      qualityV2: effectiveQualityV2,
+      host: this.buildRadarQualityGateHost(),
+    });
     const visibility = this.shouldApplyQualityV2Gate(input)
       ? resolveRadarVisibilityFromQualityV2({
           lead: candidate,
@@ -620,13 +621,13 @@ export class RadarCoreQualityEnrichmentMixin {
           debitEligible: true,
         };
 
-    if (visibility.hardBlocked || !this.isListLeadQualityDeliverable(effectiveQuality)) {
+    if (!qualityGate.deliverable || visibility.hardBlocked || !this.isListLeadQualityDeliverable(effectiveQuality)) {
       return {
         visibilityTier: 'blocked',
         billable: false,
         debitEligible: false,
         deliveryProduct,
-        qualityReason: visibility.blockReason || qualityReason('Bloqueado por qualidade, risco ou aderencia.'),
+        qualityReason: qualityGate.reason || visibility.blockReason || qualityReason('Bloqueado por qualidade, risco ou aderencia.'),
       };
     }
     if (!this.hasUsablePublicContactChannel(candidate)) {
@@ -1085,12 +1086,19 @@ export class RadarCoreQualityEnrichmentMixin {
       const qualityV2 = classified.status === 'found'
         ? this.getCandidateQualityV2(result as any, normalized)
         : this.extractLeadQualityV2FromObject(result as any);
-      const qualityDeliverable = this.isPrimarySearchRunQualityDeliverable(result as any, normalized, quality);
+      const qualityGate = this.getRadarQualityGate().evaluate({
+        candidate: result as any,
+        filters: normalized,
+        quality,
+        qualityV2,
+        host: this.buildRadarQualityGateHost(),
+      });
+      const qualityDeliverable = classified.status === 'found' && qualityGate.deliverable;
       const finalStatus: WebscrapingSearchRunItemStatus = classified.status === 'found' && !qualityDeliverable
         ? 'skipped'
         : classified.status;
       const duplicateReason = classified.status === 'found' && !qualityDeliverable
-        ? quality.reasons.join('; ') || quality.status
+        ? qualityGate.reason || quality.reasons.join('; ') || quality.status
         : classified.duplicateReason;
       const resultInstagramUrl = String((result as any).instagramUrl || '').trim();
       const resultFacebookUrl = String((result as any).facebookUrl || '').trim();
@@ -1102,9 +1110,17 @@ export class RadarCoreQualityEnrichmentMixin {
           : resultSocialStatus || null;
       const rawPayload = {
         ...result,
+        ...buildRadarStageSnapshot({
+          ...result,
+          leadStatus: finalStatus === 'found' ? 'qualified' : finalStatus === 'duplicate' ? 'duplicate' : 'rejected',
+          deliveryStatus: finalStatus === 'found' ? 'deliverable' : 'blocked',
+          enrichmentStatus: finalStatus === 'found' ? 'partial' : 'skipped',
+          socialStatus: socialStatus || undefined,
+          providerStatus: 'available',
+        }),
         ...(socialStatus ? { socialStatus } : {}),
         ...((resultInstagramUrl || resultFacebookUrl) && (result as any).socialConfidence == null ? { socialConfidence: 80 } : {}),
-        ...(quality ? { quality, qualityV2 } : {}),
+        ...(quality ? { quality, qualityV2, qualityGate } : {}),
       };
       const rawJson = JSON.stringify(rawPayload);
       const segment = finalStatus === 'found'

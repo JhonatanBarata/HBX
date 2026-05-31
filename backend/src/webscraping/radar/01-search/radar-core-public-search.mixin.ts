@@ -505,7 +505,11 @@ export class RadarCorePublicSearchMixin {
       ? []
       : this.sortContacts(this.restoreStoredResults(existingHistory))
         .filter((result) => this.matchesFilters(result, normalized.filters));
-    const storedResults = this.sortContacts(this.mergeDedupedContacts([...radarResults, ...companyStoredResults]))
+    const storedMerge = this.getRadarResultMerger().mergeSources([
+      { source: 'radar_database', results: radarResults },
+      { source: 'company_history', results: companyStoredResults },
+    ]);
+    const storedResults = this.sortContacts(storedMerge.results)
       .filter((result) => this.matchesFilters(result, normalized.filters));
     const globalCacheEnabled = allowStoredLeadLookup && !options.skipTechnicalCache && await this.supportsGlobalCachePersistence();
     const globalCacheEntry = globalCacheEnabled

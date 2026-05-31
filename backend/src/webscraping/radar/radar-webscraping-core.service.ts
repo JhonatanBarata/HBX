@@ -33,14 +33,22 @@ import { buildRadarLeadEnrichment, RADAR_LEAD_ENRICHMENT_VERSION } from '../rada
 import { calculateLeadQualityV2, resolveRadarVisibilityFromQualityV2, type LeadQualityV2, type LeadQualityV2SalesProfile } from '../lead-quality-v2';
 import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../../companies/master-whatsapp-company.constants';
 import { RadarSocialLookupService, type RadarSocialLookupHost } from './04-socials/radar-social-lookup.service';
+import { RadarDeliveryOrchestratorService } from './05-delivery/radar-delivery-orchestrator.service';
+import { RadarPostDeliveryUpdateService } from './05-delivery/radar-post-delivery-update.service';
 import { RadarVendasSyncService, type RadarVendasSyncHost } from './05-delivery/radar-vendas-sync.service';
 import { RadarLeadPresenterService, type RadarLeadPresenterHost } from './06-presentation/radar-lead-presenter.service';
 import { RadarRunPresenterService, type RadarRunPresenterHost } from './06-presentation/radar-run-presenter.service';
 import { RadarRunRepositoryService } from './persistence/radar-run-repository.service';
+import { RadarResultMergerService } from './01-search/radar-result-merger.service';
 import { RadarSearchGeoService, type RadarSearchGeoHost } from './01-search/radar-search-geo.service';
 import { RadarSearchInputService, type RadarSearchInputHost } from './01-search/radar-search-input.service';
+import { RadarSearchOrchestratorService } from './01-search/radar-search-orchestrator.service';
 import { RadarSearchRunConfigService } from './01-search/radar-search-run-config.service';
+import { RadarSourceExpansionService } from './01-search/radar-source-expansion.service';
+import { RadarSearchStrategyService } from './01-search/radar-search-strategy.service';
+import { RadarSourcePlannerService } from './01-search/radar-source-planner.service';
 import { RadarDuplicateFilterService, type RadarDuplicateSortHost } from './02-filter/radar-duplicate-filter.service';
+import { RadarQualityGateService, type RadarQualityGateHost } from './02-filter/radar-quality-gate.service';
 import { RadarRunItemFilterService, type RadarRunItemFilterHost } from './02-filter/radar-run-item-filter.service';
 import { RadarScoreEnrichmentService, type RadarScoreEnrichmentHost } from './03-enrichment/radar-score-enrichment.service';
 import { RadarGoogleResponseService } from './providers/google-search/radar-google-response.service';
@@ -215,12 +223,20 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
     @Optional() private readonly radarSocialLookup?: RadarSocialLookupService,
     @Optional() private readonly radarLeadPresenter?: RadarLeadPresenterService,
     @Optional() private readonly radarRunPresenter?: RadarRunPresenterService,
+    @Optional() private readonly radarPostDeliveryUpdate?: RadarPostDeliveryUpdateService,
+    @Optional() private readonly radarDeliveryOrchestrator?: RadarDeliveryOrchestratorService,
     @Optional() private readonly radarVendasSync?: RadarVendasSyncService,
     @Optional() private readonly radarSharedNormalizer?: RadarSharedNormalizerService,
     @Optional() private readonly radarSearchGeo?: RadarSearchGeoService,
     @Optional() private readonly radarSearchInput?: RadarSearchInputService,
+    @Optional() private readonly radarSearchStrategy?: RadarSearchStrategyService,
+    @Optional() private readonly radarSourcePlanner?: RadarSourcePlannerService,
+    @Optional() private readonly radarSourceExpansion?: RadarSourceExpansionService,
+    @Optional() private readonly radarResultMerger?: RadarResultMergerService,
+    @Optional() private readonly radarSearchOrchestrator?: RadarSearchOrchestratorService,
     @Optional() private readonly radarSearchRunConfig?: RadarSearchRunConfigService,
     @Optional() private readonly radarDuplicateFilter?: RadarDuplicateFilterService,
+    @Optional() private readonly radarQualityGate?: RadarQualityGateService,
     @Optional() private readonly radarRunItemFilter?: RadarRunItemFilterService,
     @Optional() private readonly radarScoreEnrichment?: RadarScoreEnrichmentService,
     @Optional() private readonly radarGoogleResponse?: RadarGoogleResponseService,
@@ -296,6 +312,14 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
     return this.radarVendasSync || new RadarVendasSyncService(this.prisma, this.vendasService);
   }
 
+  private getRadarPostDeliveryUpdate() {
+    return this.radarPostDeliveryUpdate || new RadarPostDeliveryUpdateService();
+  }
+
+  private getRadarDeliveryOrchestrator() {
+    return this.radarDeliveryOrchestrator || new RadarDeliveryOrchestratorService(this.getRadarPostDeliveryUpdate());
+  }
+
   private getRadarSharedNormalizer() {
     return this.radarSharedNormalizer || new RadarSharedNormalizerService();
   }
@@ -312,8 +336,36 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
     return this.radarSearchInput || new RadarSearchInputService();
   }
 
+  private getRadarSearchStrategy() {
+    return this.radarSearchStrategy || new RadarSearchStrategyService();
+  }
+
+  private getRadarSourcePlanner() {
+    return this.radarSourcePlanner || new RadarSourcePlannerService();
+  }
+
+  private getRadarSourceExpansion() {
+    return this.radarSourceExpansion || new RadarSourceExpansionService();
+  }
+
+  private getRadarResultMerger() {
+    return this.radarResultMerger || new RadarResultMergerService();
+  }
+
+  private getRadarSearchOrchestrator() {
+    return this.radarSearchOrchestrator || new RadarSearchOrchestratorService(
+      this.getRadarSearchStrategy(),
+      this.getRadarSourcePlanner(),
+      this.getRadarSourceExpansion(),
+    );
+  }
+
   private getRadarDuplicateFilter() {
     return this.radarDuplicateFilter || new RadarDuplicateFilterService();
+  }
+
+  private getRadarQualityGate() {
+    return this.radarQualityGate || new RadarQualityGateService();
   }
 
   private getRadarRunItemFilter() {
@@ -355,6 +407,15 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
       hasUsablePublicContactChannel: (candidate) => this.hasUsablePublicContactChannel(candidate),
       buildSyntheticRunPlaceId: (runId, result, index) => this.buildSyntheticRunPlaceId(runId, result, index),
       buildRunCompositeKey: (input) => this.buildRunCompositeKey(input),
+    };
+  }
+
+  private buildRadarQualityGateHost(): RadarQualityGateHost {
+    return {
+      isGenericDirectoryName: (name, context) => this.isGenericDirectoryName(name, context),
+      nameConflictsWithRequestedSegment: (name, segment) => this.nameConflictsWithRequestedSegment(name, segment),
+      hasUsablePublicContactChannel: (candidate) => this.hasUsablePublicContactChannel(candidate),
+      isBlockedLeadOfficialWebsite: (value) => this.isBlockedLeadOfficialWebsite(value),
     };
   }
 
