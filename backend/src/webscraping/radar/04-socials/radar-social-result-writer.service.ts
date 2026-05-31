@@ -1,15 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../../../prisma/prisma.service';
 import { buildRadarLeadEnrichment } from '../../radar-lead-enrichment';
 import { buildRadarStageIssue } from '../shared/radar-stage-policy';
 import { buildRadarStageSnapshot } from '../shared/radar-stage-result';
 import { RadarRunRepositoryService } from '../persistence/radar-run-repository.service';
 import type { SearchExecutionContext } from '../shared/radar-types';
 import type { RadarSocialLookupResult } from './radar-social-types';
-
-function normalizePhoneDigits(raw: string | null | undefined) {
-  return String(raw || '').replace(/\D/g, '');
-}
 
 function safeInteger(value: unknown, fallback = 0) {
   const parsed = Number(value);
@@ -31,7 +26,6 @@ function parseMaybeJsonObject(value: unknown): Record<string, any> {
 @Injectable()
 export class RadarSocialResultWriterService {
   constructor(
-    private readonly prisma: PrismaService,
     private readonly runs: RadarRunRepositoryService,
   ) {}
 
@@ -151,60 +145,6 @@ export class RadarSocialResultWriterService {
         : {}),
     };
     await this.runs.updateRunItemRawJson(leadId, nextRaw);
-    await this.syncToVendasLead(context, baseLead, nextRaw);
     return nextRaw;
-  }
-
-  private async syncToVendasLead(
-    context: SearchExecutionContext,
-    lead: any,
-    nextRaw: Record<string, any>,
-  ) {
-    const instagramUrl = String(nextRaw.instagramUrl || '').trim();
-    const facebookUrl = String(nextRaw.facebookUrl || '').trim();
-    if (!instagramUrl && !facebookUrl) return;
-    const leadDelegate = (this.prisma as any).vendasLead;
-    const eventDelegate = (this.prisma as any).vendasLeadTimelineEvent;
-    if (!leadDelegate?.findFirst || !eventDelegate?.create) return;
-    const phoneDigits = normalizePhoneDigits(lead?.phoneDigits || lead?.phone);
-    const name = String(lead?.name || '').trim();
-    const city = String(lead?.city || '').trim();
-    const where = phoneDigits
-      ? {
-          companyId: context.companyId,
-          phoneNormalized: phoneDigits,
-          sourceType: 'webscraping',
-        }
-      : {
-          companyId: context.companyId,
-          sourceType: 'webscraping',
-          name,
-          city,
-        };
-    const vendasLead = await leadDelegate.findFirst({
-      where,
-      select: { id: true },
-    }).catch(() => null);
-    if (!vendasLead?.id) return;
-    await eventDelegate.create({
-      data: {
-        leadId: vendasLead.id,
-        eventType: 'radar_enrichment',
-        title: 'Redes sociais encontradas pelo Radar',
-        description: JSON.stringify({
-          instagramUrl: instagramUrl || null,
-          facebookUrl: facebookUrl || null,
-          socialStatus: nextRaw.socialStatus || 'partial',
-          socialConfidence: safeInteger(nextRaw.socialConfidence),
-          recommendedChannel: nextRaw.recommendedChannel || null,
-          opportunityReason: nextRaw.opportunityReason || null,
-          enrichmentStatus: 'completed',
-          enrichment: nextRaw.enrichmentJson || null,
-        }),
-        sourceType: 'radar_enrichment',
-        resultLabel: nextRaw.recommendedChannel || 'social',
-        createdByUserId: context.userId || null,
-      },
-    }).catch(() => null);
   }
 }

@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import * as XLSX from 'xlsx';
 import { WebscrapingService } from './webscraping.service';
 import { shouldRadarIssueBlockDelivery } from './radar/shared/radar-stage-policy';
@@ -2907,13 +2909,18 @@ test('Radar ignora requiredChannels na decisao backend de entrega', () => {
 
 test('Radar stage policy deixa social falhar sem bloquear entrega', () => {
   assert.equal(shouldRadarIssueBlockDelivery({ stage: 'social', code: 'social_lookup_failed' }), false);
+  assert.equal(shouldRadarIssueBlockDelivery({ stage: 'post_delivery_update', code: 'post_delivery_update_failed' }), false);
+  assert.equal(shouldRadarIssueBlockDelivery({ stage: 'presentation', code: 'presentation_failed' }), false);
+  assert.equal(shouldRadarIssueBlockDelivery({ stage: 'enrichment', code: 'enrichment_failed' }), false);
   assert.equal(shouldRadarIssueBlockDelivery({ stage: 'email', code: 'email_enrichment_failed' }), false);
   assert.equal(shouldRadarIssueBlockDelivery({ stage: 'whatsapp', code: 'whatsapp_check_failed' }), false);
-  assert.equal(shouldRadarIssueBlockDelivery({ stage: 'quality', code: 'quality_below_minimum' }), true);
+  assert.equal(shouldRadarIssueBlockDelivery({ stage: 'site', code: 'site_enrichment_failed' }), false);
+  assert.equal(shouldRadarIssueBlockDelivery({ stage: 'provider_secondary', code: 'secondary_provider_failed', blocksDelivery: true }), false);
+  assert.equal(shouldRadarIssueBlockDelivery({ stage: 'quality_gate', code: 'quality_below_minimum' }), true);
   assert.equal(shouldRadarIssueBlockDelivery({ stage: 'persistence', code: 'persistence_failed' }), true);
 });
 
-test('Radar entrega card qualificado mesmo com socialStatus error', () => {
+test('Radar entrega card qualificado mesmo com socialStatus error, candidate_review ou partial', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const input = service.normalizeSearchInput({
     city: 'Rio Claro',
@@ -2925,35 +2932,34 @@ test('Radar entrega card qualificado mesmo com socialStatus error', () => {
     qualityMode: 'list',
   });
 
-  const response = service.buildSearchResponse(input, [{
-    placeId: 'hbx:pj:19999990001',
-    name: 'Pizzaria Social Error',
-    phone: '(19) 99999-0001',
-    phoneDigits: '19999990001',
-    city: 'Rio Claro',
-    state: 'SP',
-    segment: 'pizzarias',
-    socialStatus: 'error',
-    deliveryStatus: 'deliverable',
-    leadStatus: 'qualified',
-    source: 'hbx_scraping:free_pj',
-    score: 82,
-  }], {
+  const response = service.buildSearchResponse(input, ['error', 'candidate_review', 'partial'].map((socialStatus, index) => ({
+      placeId: `hbx:pj:1999999000${index}`,
+      name: `Pizzaria Social ${socialStatus}`,
+      phone: `(19) 99999-000${index}`,
+      phoneDigits: `1999999000${index}`,
+      city: 'Rio Claro',
+      state: 'SP',
+      segment: 'pizzarias',
+      socialStatus,
+      deliveryStatus: 'deliverable',
+      leadStatus: 'qualified',
+      source: 'hbx_scraping:free_pj',
+      score: 82,
+    })), {
     historyId: null,
     source: 'hbx',
     reusedCount: 0,
-    fetchedCount: 1,
+    fetchedCount: 3,
     technicalCacheUsed: false,
     technicalCacheReusedCount: 0,
     technicalCacheValidUntil: null,
   });
 
-  assert.equal(response.results.length, 1);
-  assert.equal(response.results[0].name, 'Pizzaria Social Error');
-  assert.equal(response.results[0].leadStatus, 'qualified');
-  assert.equal(response.results[0].deliveryStatus, 'deliverable');
-  assert.equal(response.results[0].socialStatus, 'error');
-  assert.equal(response.meta.deliveredCount, 1);
+  assert.equal(response.results.length, 3);
+  assert.deepEqual(response.results.map((item: any) => item.socialStatus), ['error', 'candidate_review', 'partial']);
+  assert.equal(response.results.every((item: any) => item.leadStatus === 'qualified'), true);
+  assert.equal(response.results.every((item: any) => item.deliveryStatus === 'deliverable'), true);
+  assert.equal(response.meta.deliveredCount, 3);
 });
 
 test('Radar Quality Gate separa qualidade minima de enriquecimento social', () => {
@@ -2991,6 +2997,42 @@ test('Radar Quality Gate separa qualidade minima de enriquecimento social', () =
   assert.equal(service.isListDeliverableCard(leadSemSocial, input), true);
 });
 
+test('Radar Quality Gate permite telefone valido com social pendente ou erro', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const input = service.normalizeSearchInput({
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'pizzarias',
+    quantity: 1,
+    engine: 'hbx',
+    targetType: 'pj',
+    qualityMode: 'list',
+  });
+
+  for (const socialStatus of ['pending', 'searching', 'missing', 'weak', 'candidate_review', 'error']) {
+    const lead = {
+      name: `Pizzaria Canal ${socialStatus}`,
+      phone: '(19) 3333-4444',
+      phoneDigits: '1933334444',
+      city: 'Rio Claro',
+      state: 'SP',
+      segment: 'pizzarias',
+      socialStatus,
+      score: 72,
+    };
+    const gate = service.getRadarQualityGate().evaluate({
+      candidate: lead,
+      filters: input,
+      quality: service.getCandidateQuality(lead, input),
+      qualityV2: service.getCandidateQualityV2(lead, input),
+      host: service.buildRadarQualityGateHost(),
+    });
+
+    assert.equal(gate.deliverable, true, socialStatus);
+    assert.equal(gate.blocksDelivery, false, socialStatus);
+  }
+});
+
 test('Radar Quality Gate bloqueia falta de contato minimo e diretorio generico', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const input = service.normalizeSearchInput({
@@ -3021,6 +3063,15 @@ test('Radar Quality Gate bloqueia falta de contato minimo e diretorio generico',
     segment: 'pizzarias',
     score: 90,
   }, input), false);
+});
+
+test('Radar social nao acessa Vendas diretamente', () => {
+  const socialDir = join(process.cwd(), 'src/webscraping/radar/04-socials');
+  const lookup = readFileSync(join(socialDir, 'radar-social-lookup.service.ts'), 'utf8');
+  const writer = readFileSync(join(socialDir, 'radar-social-result-writer.service.ts'), 'utf8');
+
+  assert.equal(/vendasLead|vendasLeadTimelineEvent|syncToVendasLead/.test(lookup), false);
+  assert.equal(/vendasLead|vendasLeadTimelineEvent|syncToVendasLead/.test(writer), false);
 });
 
 test('Radar nao bloqueia DDD diferente quando cidade esta dentro do raio', async () => {

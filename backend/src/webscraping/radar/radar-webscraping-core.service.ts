@@ -297,7 +297,7 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
   }
 
   private getRadarSocialLookupService() {
-    return this.radarSocialLookup || new RadarSocialLookupService(this.prisma, this.getRadarRunRepository());
+    return this.radarSocialLookup || new RadarSocialLookupService(this.getRadarRunRepository());
   }
 
   private getRadarRunPresenter() {

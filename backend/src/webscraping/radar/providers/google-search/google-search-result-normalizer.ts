@@ -68,7 +68,7 @@ export class GoogleSearchResultNormalizer {
         : null,
       address: firstText(result.address, result.formattedAddress) || null,
       website: firstText(result.website, result.site, sourceUrl) || null,
-      source: 'google_textual',
+      source: firstText(result.source, 'google_textual'),
       sourceEngine: 'google_textual',
       sourceUrl,
       title,

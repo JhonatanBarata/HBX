@@ -13,29 +13,60 @@ export const RADAR_NEVER_BLOCK_DELIVERY_STAGES = [
   'whatsapp',
   'site',
   'presentation',
-  'vendas_sync',
-  'provider_secondary',
-  'cache',
-  'history',
-  'campaign_factory',
+  'post_delivery_update',
+  'campaign',
+  'factory',
 ] as const satisfies readonly RadarPipelineStage[];
 
 export const RADAR_DELIVERY_GATE_STAGES = [
   'access',
-  'quota',
   'input',
-  'identity',
-  'quality',
+  'quota',
+  'filter',
+  'quality_gate',
   'persistence',
   'delivery',
 ] as const satisfies readonly RadarPipelineStage[];
 
+export const RADAR_NEVER_BLOCK_DELIVERY_STAGE_ALIASES = [
+  'provider_secondary',
+  'optional_provider',
+  'email_enrichment',
+  'whatsapp_check',
+  'website_enrichment',
+  'vendas_sync',
+  'cache',
+  'history',
+  'campaign_factory',
+] as const;
+
+const RADAR_STAGE_ALIASES: Record<string, RadarPipelineStage> = {
+  quality: 'quality_gate',
+  identity: 'filter',
+  email_enrichment: 'email',
+  whatsapp_check: 'whatsapp',
+  website_enrichment: 'site',
+  vendas_sync: 'post_delivery_update',
+  provider_secondary: 'search',
+  optional_provider: 'search',
+  cache: 'search',
+  history: 'search',
+  campaign_factory: 'factory',
+};
+
+export function normalizeRadarPipelineStage(stage: unknown): RadarPipelineStage | string {
+  const normalized = String(stage || '').trim().toLowerCase();
+  return RADAR_STAGE_ALIASES[normalized] || normalized;
+}
+
 export function isRadarNeverBlockDeliveryStage(stage: unknown): stage is typeof RADAR_NEVER_BLOCK_DELIVERY_STAGES[number] {
-  return (RADAR_NEVER_BLOCK_DELIVERY_STAGES as readonly string[]).includes(String(stage || '').trim());
+  const normalized = normalizeRadarPipelineStage(stage);
+  return (RADAR_NEVER_BLOCK_DELIVERY_STAGES as readonly string[]).includes(String(normalized))
+    || (RADAR_NEVER_BLOCK_DELIVERY_STAGE_ALIASES as readonly string[]).includes(String(stage || '').trim().toLowerCase());
 }
 
 export function isRadarDeliveryGateStage(stage: unknown): stage is typeof RADAR_DELIVERY_GATE_STAGES[number] {
-  return (RADAR_DELIVERY_GATE_STAGES as readonly string[]).includes(String(stage || '').trim());
+  return (RADAR_DELIVERY_GATE_STAGES as readonly string[]).includes(String(normalizeRadarPipelineStage(stage)));
 }
 
 export function shouldRadarIssueBlockDelivery(input: {
@@ -58,8 +89,9 @@ export function buildRadarStageIssue(input: {
   at?: Date | string | null;
 }): RadarStageIssue {
   const code = normalizeRadarErrorCode(input.code) || 'unknown';
+  const stage = normalizeRadarPipelineStage(input.stage);
   const blocksDelivery = shouldRadarIssueBlockDelivery({
-    stage: input.stage,
+    stage,
     code,
     blocksDelivery: input.blocksDelivery,
   });
@@ -68,7 +100,7 @@ export function buildRadarStageIssue(input: {
     : String(input.at || '').trim() || new Date().toISOString();
 
   return {
-    stage: String(input.stage || 'delivery') as RadarPipelineStage,
+    stage: String(stage || 'delivery') as RadarPipelineStage,
     code,
     message: String(input.message || code || 'Radar stage issue.').trim(),
     blocksDelivery,

@@ -2,23 +2,24 @@ import type { RadarErrorCode } from './radar-error-codes';
 
 export type RadarPipelineStage =
   | 'access'
-  | 'quota'
   | 'input'
-  | 'identity'
-  | 'quality'
+  | 'quota'
+  | 'search'
+  | 'provider_google'
+  | 'provider_hbx'
+  | 'filter'
+  | 'quality_gate'
   | 'persistence'
   | 'delivery'
+  | 'post_delivery_update'
   | 'enrichment'
   | 'social'
   | 'email'
   | 'whatsapp'
   | 'site'
   | 'presentation'
-  | 'vendas_sync'
-  | 'provider_secondary'
-  | 'cache'
-  | 'history'
-  | 'campaign_factory';
+  | 'campaign'
+  | 'factory';
 
 export type RadarPipelineLeadStatus =
   | 'candidate'
