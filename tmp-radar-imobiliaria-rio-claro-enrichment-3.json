@@ -1,0 +1,245 @@
+[
+  {
+    "index": 1,
+    "name": "Imobiliária Mega",
+    "phone": "(19) 3533-1418",
+    "phoneDigits": "1935331418",
+    "elapsedSeconds": 13,
+    "instagramUrl": null,
+    "facebookUrl": null,
+    "socialStatus": "missing",
+    "socialConfidence": 0,
+    "possibleSocialCandidates": [],
+    "nearbyResults": [],
+    "providerRuns": [
+      {
+        "provider": "LocalCacheProvider",
+        "status": "empty",
+        "reason": "cache miss",
+        "resultsCount": 0
+      },
+      {
+        "provider": "HbxDatabaseProvider",
+        "status": "empty",
+        "reason": "no compatible row in radarLeadPool",
+        "resultsCount": 0
+      },
+      {
+        "provider": "HbxEngineProvider",
+        "status": "success",
+        "reason": "",
+        "resultsCount": 0
+      },
+      {
+        "provider": "DuckDuckGoProvider",
+        "status": "empty",
+        "reason": "no usable candidate",
+        "resultsCount": 0
+      },
+      {
+        "provider": "BraveSearchProvider",
+        "status": "skipped",
+        "reason": "missing api key BRAVE_SEARCH_API_KEY",
+        "resultsCount": 0
+      },
+      {
+        "provider": "SerperProvider",
+        "status": "skipped",
+        "reason": "allowPaid=false",
+        "resultsCount": 0
+      },
+      {
+        "provider": "ScrapingDogProvider",
+        "status": "skipped",
+        "reason": "allowPaid=false",
+        "resultsCount": 0
+      },
+      {
+        "provider": "TavilyProvider",
+        "status": "skipped",
+        "reason": "allowPaid=false",
+        "resultsCount": 0
+      },
+      {
+        "provider": "ExaProvider",
+        "status": "skipped",
+        "reason": "allowPremium=false",
+        "resultsCount": 0
+      },
+      {
+        "provider": "FirecrawlExtractorProvider",
+        "status": "skipped",
+        "reason": "allowPremium=false",
+        "resultsCount": 0
+      },
+      {
+        "provider": "SerpApiProvider",
+        "status": "skipped",
+        "reason": "allowPremium=false",
+        "resultsCount": 0
+      }
+    ]
+  },
+  {
+    "index": 2,
+    "name": "Rodinei Cezar Oliveira Ltda",
+    "phone": "(19) 3533-1254",
+    "phoneDigits": "1935331254",
+    "elapsedSeconds": 15,
+    "instagramUrl": null,
+    "facebookUrl": null,
+    "socialStatus": "missing",
+    "socialConfidence": 0,
+    "possibleSocialCandidates": [],
+    "nearbyResults": [],
+    "providerRuns": [
+      {
+        "provider": "LocalCacheProvider",
+        "status": "empty",
+        "reason": "cache miss",
+        "resultsCount": 0
+      },
+      {
+        "provider": "HbxDatabaseProvider",
+        "status": "empty",
+        "reason": "no compatible row in radarLeadPool",
+        "resultsCount": 0
+      },
+      {
+        "provider": "HbxEngineProvider",
+        "status": "success",
+        "reason": "",
+        "resultsCount": 0
+      },
+      {
+        "provider": "DuckDuckGoProvider",
+        "status": "empty",
+        "reason": "no usable candidate",
+        "resultsCount": 0
+      },
+      {
+        "provider": "BraveSearchProvider",
+        "status": "skipped",
+        "reason": "missing api key BRAVE_SEARCH_API_KEY",
+        "resultsCount": 0
+      },
+      {
+        "provider": "SerperProvider",
+        "status": "skipped",
+        "reason": "allowPaid=false",
+        "resultsCount": 0
+      },
+      {
+        "provider": "ScrapingDogProvider",
+        "status": "skipped",
+        "reason": "allowPaid=false",
+        "resultsCount": 0
+      },
+      {
+        "provider": "TavilyProvider",
+        "status": "skipped",
+        "reason": "allowPaid=false",
+        "resultsCount": 0
+      },
+      {
+        "provider": "ExaProvider",
+        "status": "skipped",
+        "reason": "allowPremium=false",
+        "resultsCount": 0
+      },
+      {
+        "provider": "FirecrawlExtractorProvider",
+        "status": "skipped",
+        "reason": "allowPremium=false",
+        "resultsCount": 0
+      },
+      {
+        "provider": "SerpApiProvider",
+        "status": "skipped",
+        "reason": "allowPremium=false",
+        "resultsCount": 0
+      }
+    ]
+  },
+  {
+    "index": 3,
+    "name": "SIMONE FERNADES Negócios imobiliários",
+    "phone": "(19) 99636-7174",
+    "phoneDigits": "19996367174",
+    "elapsedSeconds": 27,
+    "instagramUrl": null,
+    "facebookUrl": null,
+    "socialStatus": "missing",
+    "socialConfidence": 0,
+    "possibleSocialCandidates": [],
+    "nearbyResults": [],
+    "providerRuns": [
+      {
+        "provider": "LocalCacheProvider",
+        "status": "empty",
+        "reason": "cache miss",
+        "resultsCount": 0
+      },
+      {
+        "provider": "HbxDatabaseProvider",
+        "status": "empty",
+        "reason": "no compatible row in radarLeadPool",
+        "resultsCount": 0
+      },
+      {
+        "provider": "HbxEngineProvider",
+        "status": "success",
+        "reason": "",
+        "resultsCount": 0
+      },
+      {
+        "provider": "DuckDuckGoProvider",
+        "status": "empty",
+        "reason": "no usable candidate",
+        "resultsCount": 0
+      },
+      {
+        "provider": "BraveSearchProvider",
+        "status": "skipped",
+        "reason": "missing api key BRAVE_SEARCH_API_KEY",
+        "resultsCount": 0
+      },
+      {
+        "provider": "SerperProvider",
+        "status": "skipped",
+        "reason": "allowPaid=false",
+        "resultsCount": 0
+      },
+      {
+        "provider": "ScrapingDogProvider",
+        "status": "skipped",
+        "reason": "allowPaid=false",
+        "resultsCount": 0
+      },
+      {
+        "provider": "TavilyProvider",
+        "status": "skipped",
+        "reason": "allowPaid=false",
+        "resultsCount": 0
+      },
+      {
+        "provider": "ExaProvider",
+        "status": "skipped",
+        "reason": "allowPremium=false",
+        "resultsCount": 0
+      },
+      {
+        "provider": "FirecrawlExtractorProvider",
+        "status": "skipped",
+        "reason": "allowPremium=false",
+        "resultsCount": 0
+      },
+      {
+        "provider": "SerpApiProvider",
+        "status": "skipped",
+        "reason": "allowPremium=false",
+        "resultsCount": 0
+      }
+    ]
+  }
+]

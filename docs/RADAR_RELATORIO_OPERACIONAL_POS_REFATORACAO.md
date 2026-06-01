@@ -1,471 +1,81 @@
-seguir commit como exemplo: ea46711, levar ele como macro
-
-todas as pesquisas q eu realizei, foram feitas assim:
-1 primeira pesquisa feita, pós filtro do primeiro score e resultado.
-2 segunda pesquisa (enriquecimento): motor pega o resultado da primeira: {estabelecimento} + {cidade}+{estado} e este é o enriquecimento. Regra: não usar a api paga da google por enquanto.
-
-## Teste operacional
-
-empresa: 11 localhost
-cidade: Rio Claro
-estado: São Paulo / SP
-segmento: alimentação
-distância: 0
-quantidade: 30 cards
-
-## Resultado atual - primeira pesquisa pós filtro/score
-
-Execução: primeira pesquisa HBX, sem enriquecimento social/site/e-mail.
-Status: concluído
-Quantidade solicitada: 30
-Cards aprovados no Radar: 30
-Cards filtrados/removidos: 1
-
-### Escopo usado na busca primária
-
-A busca literal por "alimentação Rio Claro SP" trouxe 2 cards. Para cumprir a busca primária do segmento alimentação, foi usada a expansão primária do próprio Radar:
-
-- restaurantes
-- pizzarias
-- lanchonetes
-- bares
-- cafeterias
-- panificadoras
-- confeitarias
-- docerias
-- alimentos naturais
-- mercados
-- supermercados
-- açougues
-
-Fontes executadas até completar 30 cards:
-
-- restaurantes: 29 resultados retornados
-- pizzarias: 30 resultados retornados
-
-Resultado removido antes da entrega:
-
-- 20 restaurantes no Rio de Janeiro que você precisa conhecer
-  motivo: resultado genérico/blog, sem empresa local e sem telefone próprio.
-
-### 30 cards encontrados
-
-empresa 1 - Mariana's
-telefone: (19) 3524-7406
-fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/mariana-s-3660461
-
-empresa 2 - Ananias Pizzaria
-telefone: (19) 3532-1182
-fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/ananias-pizzaria-3650465
-
-empresa 3 - Bar Do Baixinho
-telefone: (19) 3523-3098
-fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/bar-do-baixinho-3649873
-
-empresa 4 - Restaurante Barcelona
-telefone: (19) 3524-0264
-fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/restaurante-barcelona-3650227
-
-empresa 5 - Jaidete Santos De Almeida
-telefone: (19) 7104-4864
-fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/jaidete-santos-de-almeida-3658837
-
-empresa 6 - Pizza Express Rio Claro
-telefone: (19) 3536-3112
-fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/pizza-express-rio-claro-20819244
-
-empresa 7 - Marmitaria Da Sil
-telefone: (19) 97127-4118
-fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/marmitaria-da-sil-21881881
-
-empresa 8 - Ana Lidia Itri
-telefone: (19) 3524-4022
-fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/ana-lidia-itri-3651873
-
-empresa 9 - Jaja Rotisserie
-telefone: (19) 3533-4123
-fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/jaja-rotisserie-3652651
-
-empresa 10 - N Opcoes
-telefone: (19) 3523-2397
-fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/n-opcoes-18682362
-
-empresa 11 - Joaquim Restaurante
-telefone: (19) 3532-1763
-fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/joaquim-restaurante-21867931
-
-empresa 12 - Le Rotisserie
-telefone: (19) 97128-0298
-fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/le-rotisserie-21881886
-
-empresa 13 - Restaurante Universitário Unesp Rio Claro
-telefone: (19) 3526-4124
-fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/restaurante-universitario-unesp-rio-claro-21867979
-
-empresa 14 - Opção Natural Restaurante Vegetariano
-telefone: (19) 99637-6806
-fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/opcao-natural-restaurante-vegetariano-21867933
-
-empresa 15 - Neuzeli Da Silva Martins Trivelato
-telefone: (19) 3533-1396
-fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/neuzeli-da-silva-martins-trivelato-3652623
-
-empresa 16 - Restaurante, Lanchonete E Mercearia Crocantes Ltda
-telefone: (19) 7171-6999
-fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/restaurante-lanchonete-e-mercearia-crocantes-ltda-24664418
-
-empresa 17 - Barril 2000 Restaurante
-telefone: (19) 3524-6857
-fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/barril-2000-restaurante-21867920
-
-empresa 18 - La Bella Vegana Delivery
-telefone: (19) 99819-7726
-fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/la-bella-vegana-delivery-21867731
-
-empresa 19 - Mariana Carolina Marques
-telefone: (19) 3536-1198
-fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/mariana-carolina-marques-3655674
-
-empresa 20 - Espetinho da 26
-telefone: (19) 99957-2299
-fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/espetinho-da-26-21881438
-
-empresa 21 - Parmegiana Du Chef
-telefone: (19) 3557-8565
-fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/parmegiana-du-chef-21867745
-
-empresa 22 - Marmitaria Diva' S Delivery
-telefone: (19) 3523-7257
-fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/marmitaria-diva-s-delivery-3657585
-
-empresa 23 - RESTAURANTE PROSA MINEIRA
-telefone: (19) 3557-6621
-fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/restaurante-prosa-mineira-21867955
-
-empresa 24 - T-Maki Restaurante Japones
-telefone: (19) 3533-4777
-fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/t-maki-restaurante-japones-3659468
-
-empresa 25 - Restaurante Excelsior
-telefone: (19) 3524-9401
-fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/restaurante-excelsior-19686509
-
-empresa 26 - Madalupi Trattoria
-telefone: (19) 98870-4192
-fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/madalupi-trattoria-21874341
-
-empresa 27 - Massa Mania
-telefone: (19) 99890-5499
-fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/massa-mania-mania-de-fazer-delicias-21874337
-
-empresa 28 - O Rei Da Panela
-telefone: (19) 7149-6783
-fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/o-rei-da-panela-20001813
-
-empresa 29 - Espaço kevilin Gomes
-telefone: (19) 99798-3123
-fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/pizzarias/espaco-kevilin-gomes-21867732
-
-empresa 30 - Pizzaria edson
-telefone: (19) 3533-8980
-fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/pizzarias/pizzaria-edson-21871674
-
-## Resultado atual - enriquecimento via motor HBX
-
-Execução: `/enrich-lead` no motor HBX, usando os 30 cards já entregues na primeira pesquisa.
-Modo: enriquecimento pós-entrega, sem nova descoberta de cards.
-Entrada do motor por card: {nome da empresa} + Rio Claro + SP + segmento do card.
-Quantidade processada: 30 de 30
-Erros finais: 0
-
-Resumo do motor:
-
-- Cards com social encontrado: 15
-- Cards sem social confirmado pelo motor: 15
-- Instagram confirmado: 14
-- Facebook confirmado: 8
-- Site confirmado: 0
-- E-mail confirmado: 0
-- Possíveis sociais entregues pelo motor: 0
-- Matches confirmados pelo motor: 22
-
-Observação operacional:
-
-Rodada direta do motor em `tmp-radar-alimentacao-rio-claro-enrichment-v4.json`.
-O motor validou handles sociais por card e derrubou falsos positivos genéricos encontrados na rodada anterior, como `espaco`, `naturalrestaurante`, `restauranteuniversitario`, `marmitaria`, `mercearia` e `espetinho`.
-Quando o motor não encontrou social com confiança suficiente, o card permaneceu sem enriquecimento social.
-
-### Enriquecimento por card
-
-empresa 1 - Mariana's
-instagram: não
-facebook: não
-site: não
-email: não
-status do motor: missing
-
-empresa 2 - Ananias Pizzaria
-instagram: não
-facebook: não
-site: não
-email: não
-status do motor: missing
-
-empresa 3 - Bar Do Baixinho
-instagram: https://instagram.com/barbaixinho
-facebook: não
-site: não
-email: não
-status do motor: found
-confiança social: 100
-
-empresa 4 - Restaurante Barcelona
-instagram: https://instagram.com/restaurantebarcelona
-facebook: não
-site: não
-email: não
-status do motor: found
-confiança social: 100
-
-empresa 5 - Jaidete Santos De Almeida
-instagram: não
-facebook: não
-site: não
-email: não
-status do motor: missing
-
-empresa 6 - Pizza Express Rio Claro
-instagram: não
-facebook: não
-site: não
-email: não
-status do motor: missing
-
-empresa 7 - Marmitaria Da Sil
-instagram: não
-facebook: não
-site: não
-email: não
-status do motor: missing
-
-empresa 8 - Ana Lidia Itri
-instagram: https://instagram.com/analidiaitri
-facebook: não
-site: não
-email: não
-status do motor: found
-confiança social: 96
-
-empresa 9 - Jaja Rotisserie
-instagram: https://instagram.com/jajarotisserierc
-facebook: não
-site: não
-email: não
-status do motor: found
-confiança social: 100
-
-empresa 10 - N Opcoes
-instagram: não
-facebook: não
-site: não
-email: não
-status do motor: missing
-
-empresa 11 - Joaquim Restaurante
-instagram: https://instagram.com/joaquimrestaurante
-facebook: https://facebook.com/joaquimrestaurante
-site: não
-email: não
-status do motor: found
-confiança social: 100
-
-empresa 12 - Le Rotisserie
-instagram: https://instagram.com/lerotisserierc
-facebook: https://facebook.com/lerotisserie
-site: não
-email: não
-status do motor: found
-confiança social: 100
-
-empresa 13 - Restaurante Universitário Unesp Rio Claro
-instagram: não
-facebook: não
-site: não
-email: não
-status do motor: missing
-
-empresa 14 - Opção Natural Restaurante Vegetariano
-instagram: não
-facebook: não
-site: não
-email: não
-status do motor: missing
-
-empresa 15 - Neuzeli Da Silva Martins Trivelato
-instagram: não
-facebook: não
-site: não
-email: não
-status do motor: missing
-
-empresa 16 - Restaurante, Lanchonete E Mercearia Crocantes Ltda
-instagram: não
-facebook: não
-site: não
-email: não
-status do motor: missing
-
-empresa 17 - Barril 2000 Restaurante
-instagram: https://instagram.com/barril2000restaurante
-facebook: não
-site: não
-email: não
-status do motor: found
-confiança social: 100
-
-empresa 18 - La Bella Vegana Delivery
-instagram: não
-facebook: não
-site: não
-email: não
-status do motor: missing
-
-empresa 19 - Mariana Carolina Marques
-instagram: https://instagram.com/marianacarolinamarques
-facebook: https://facebook.com/marianacarolinamarques
-site: não
-email: não
-status do motor: found
-confiança social: 96
-
-empresa 20 - Espetinho da 26
-instagram: não
-facebook: não
-site: não
-email: não
-status do motor: missing
-
-empresa 21 - Parmegiana Du Chef
-instagram: https://instagram.com/parmegianaduchef
-facebook: https://facebook.com/parmegianaduchef
-site: não
-email: não
-status do motor: found
-confiança social: 96
-
-empresa 22 - Marmitaria Diva' S Delivery
-instagram: não
-facebook: não
-site: não
-email: não
-status do motor: missing
-
-empresa 23 - RESTAURANTE PROSA MINEIRA
-instagram: https://instagram.com/restauranteprosamineira
-facebook: https://facebook.com/restauranteprosamineira
-site: não
-email: não
-status do motor: found
-confiança social: 100
-
-empresa 24 - T-Maki Restaurante Japones
-instagram: https://instagram.com/tmakirestaurantejapones
-facebook: https://facebook.com/makirestaurante
-site: não
-email: não
-status do motor: found
-confiança social: 100
-
-empresa 25 - Restaurante Excelsior
-instagram: https://instagram.com/restauranteexcelsior
-facebook: https://facebook.com/restauranteexcelsior
-site: não
-email: não
-status do motor: found
-confiança social: 100
-
-empresa 26 - Madalupi Trattoria
-instagram: não
-facebook: não
-site: não
-email: não
-status do motor: missing
-
-empresa 27 - Massa Mania
-instagram: https://instagram.com/massamania
-facebook: não
-site: não
-email: não
-status do motor: found
-confiança social: 96
-
-empresa 28 - O Rei Da Panela
-instagram: não
-facebook: https://facebook.com/oreidapanela
-site: não
-email: não
-status do motor: found
-confiança social: 86
-
-empresa 29 - Espaço kevilin Gomes
-instagram: não
-facebook: não
-site: não
-email: não
-status do motor: missing
-
-empresa 30 - Pizzaria edson
-instagram: https://instagram.com/pizzariaedson
-facebook: não
-site: não
-email: não
-status do motor: found
-confiança social: 100
-
-## Rodada de correção do enriquecimento - fase 2
-
-Direção aplicada:
-
-- fixture esperada criada em `hbx-scraping-engine/tests/fixtures/radar_alimentacao_rio_claro_expected.json`;
-- o engine passou a expor `possibleSocialCandidates` no `/enrich-lead`;
-- handle parecido sozinho deixou de ser confirmação automática;
-- social abaixo de 70 de confiança não preenche mais `instagramUrl`/`facebookUrl`;
-- perfil pessoal sem sinal comercial/local deixou de virar possível;
-- site próprio sem evidência local deixou de ser confirmado.
-
-Arquivos de evidência:
-
-- rodada direta: `tmp-radar-alimentacao-rio-claro-enrichment-v6.json`
-- comparação com fixture: `tmp-radar-alimentacao-rio-claro-compare-v6.json`
-
-### Comparação contra o resultado esperado
-
-Resultado esperado pela fixture:
-
-- sinais oficiais esperados: 31
-- cards com social/site/email esperado: 21
-
-Resultado do motor gratuito/local após a correção:
-
-- sinais oficiais confirmados corretamente: 0
-- sinais oficiais perdidos: 31
-- falsos confirmados: 0
-- cards com candidato possível: 1
-- erros do endpoint: 0
-
-### O que melhorou
-
-- Os falsos confirmados da rodada anterior foram removidos do campo oficial.
-- Casos como Ana Lidia Itri, Mariana Carolina Marques, Parmegiana Du Chef, O Rei Da Panela, Pizzaria Edson e Massa Mania não entram mais como social confirmado só por handle parecido.
-- O site falso `marianausa.com` também deixou de ser confirmado.
-- O contrato agora separa confirmado de possível, preparando o front/Vendas para exibir certeza versus indício.
-
-### O que piorou
-
-- A cobertura caiu demais sem uma busca estruturada de qualidade.
-- O motor gratuito/local não recuperou os mesmos resultados do anexo para Instagram, Facebook, cardápio, site Unesp, Linktree, iFood ou email.
-- Na prática, sem SerpAPI/Google CSE, o motor ficou seguro contra lixo, mas não chegou no nível comercial desejado.
-
-Conclusão operacional:
-
-A fase 2 melhorou a precisão e eliminou falso confirmado, mas provou que a camada gratuita/local não é suficiente para bater o resultado esperado. O próximo passo arquitetural precisa ser ligar SerpAPI/Google CSE no enriquecimento pós-entrega, usando esta fixture como validação de regressão.
+# Radar - Relatorio operacional pos-refatoracao
+
+## Teste atual - Rio Claro/SP - imobiliaria
+
+- empresa: 11 localhost
+- cidade: Rio Claro
+- estado: Sao Paulo / SP
+- segmento: imobiliaria
+- distancia: 0
+- quantidade solicitada: 20 cards
+- fase atual: primeira pesquisa preenchida
+
+## Primeira pesquisa - cards entregues antes do enriquecimento
+
+Fonte usada para preencher esta etapa: motor HBX local `/search`, payload principal com `segment=imobiliarias`, `query=imobiliarias Rio Claro SP`, `targetType=pj`, `limit=20`, `fresh=true`.
+
+Observacao: a chamada literal com `segment=imobiliaria` retornou apenas 3 cards. Para cumprir os 20 cards da primeira etapa, a busca primária usada foi a variante sem acento/plural `imobiliarias`, ainda dentro do mesmo segmento solicitado.
+
+| # | Empresa | Telefone | Fonte | Score | Social inicial |
+|---|---|---|---|---:|---|
+| 1 | Imobiliária Mega | (19) 3533-1418 | Apontador | 54 | missing |
+| 2 | Rodinei Cezar Oliveira Ltda | (19) 3533-1254 | Solutudo | 54 | missing |
+| 3 | SIMONE FERNADES Negócios imobiliários | (19) 99636-7174 | Solutudo | 54 | missing |
+| 4 | Sanchez Corretores De Imoveis Ltda | (19) 3557-7945 | Solutudo | 54 | missing |
+| 5 | Gasparotto Administradora De Bens E Participacoes Ltda | (19) 3522-7550 | Solutudo | 54 | missing |
+| 6 | Prevent Participacoes Ltda | (19) 3522-5800 | Solutudo | 54 | missing |
+| 7 | Lrm Administradora De Bens Ltda | (19) 3524-1818 | Solutudo | 54 | missing |
+| 8 | Immobiltec Participacoes Imobiliarias Do Brasil Ltda. | (19) 98152-5115 | Solutudo | 54 | missing |
+| 9 | Faenza Empreendimento Imobiliario Spe Ltda | (19) 3597-5552 | Solutudo | 54 | missing |
+| 10 | Marcio Rogerio Scatolin | (19) 3534-9781 | Solutudo | 54 | missing |
+| 11 | Villa Gardone Empreendimento Imobiliario Spe Ltda | (19) 3531-5398 | Solutudo | 54 | missing |
+| 12 | Pirinei Empreendimentos Ltda | (19) 3024-1338 | Solutudo | 54 | missing |
+| 13 | Imoveis & Oportunidades | (19) 98405-3879 | Solutudo | 54 | missing |
+| 14 | Ayf Administradora De Imoveis Ltda | (19) 99719-5402 | Solutudo | 54 | missing |
+| 15 | Parf Participacoes Ltda | (19) 3534-3353 | Solutudo | 54 | missing |
+| 16 | Xavier Camargo Imobiliaria | (19) 3522-7777 | Solutudo | 54 | missing |
+| 17 | J C I Servicos Imobiliarios Ltda | (19) 3533-9616 | Solutudo | 54 | missing |
+| 18 | Morato & Ursaia Empreendimentos E Participacoes Ltda | (19) 3526-7141 | Solutudo | 54 | missing |
+| 19 | Schio Corretores De Imoveis Ltda | (19) 3534-5811 | Solutudo | 54 | missing |
+| 20 | Rsp Administradora De Bens E Participacoes Ltda | (19) 2511-2624 | Solutudo | 54 | missing |
+
+## Enriquecimento
+
+### Rodada social-only - 20 cards
+
+Payload usado: `/enrich-lead` com `preferredChannels=["instagram","facebook"]`, `requestedFields=["instagram","facebook"]`, `requiredChannels=[]`, `allowPaid=false`, `allowPremium=false`, `timeBudgetSeconds=10`.
+
+Escopo desta rodada: somente Instagram/Facebook. Site, email e LinkedIn ficam para camadas posteriores.
+
+Arquivo bruto: `tmp-radar-imobiliaria-rio-claro-socials-all.json`.
+
+| # | Empresa | Instagram encontrado | Facebook encontrado | Possiveis | Status | Tempo | Comparacao com anexo |
+|---|---|---|---|---:|---|---:|---|
+| 1 | Imobiliária Mega | nao | nao | 0 | missing | 21.4s | ok: anexo tambem nao tem social |
+| 2 | Rodinei Cezar Oliveira Ltda | nao | nao | 0 | missing | 60.6s | falhou: anexo encontrou Facebook Rodinei |
+| 3 | SIMONE FERNADES Negócios imobiliários | nao | nao | 2 | missing | 43.4s | nao bateu: anexo aponta Facebook proximo Idealize; motor sugeriu handles Simone |
+| 4 | Sanchez Corretores De Imoveis Ltda | timeout | timeout | 0 | timeout | 70.1s | inconclusivo: anexo nao confirmou social |
+| 5 | Gasparotto Administradora De Bens E Participacoes Ltda | timeout | timeout | 0 | timeout | 70.0s | inconclusivo: anexo nao tem social |
+| 6 | Prevent Participacoes Ltda | nao | nao | 0 | missing | 66.9s | ok: anexo nao tem social |
+| 7 | Lrm Administradora De Bens Ltda | timeout | timeout | 0 | timeout | 70.0s | inconclusivo: anexo nao tem social |
+| 8 | Immobiltec Participacoes Imobiliarias Do Brasil Ltda. | nao | nao | 0 | missing | 61.8s | ok: anexo nao tem social |
+| 9 | Faenza Empreendimento Imobiliario Spe Ltda | timeout | timeout | 0 | timeout | 70.0s | inconclusivo: anexo nao tem social |
+| 10 | Marcio Rogerio Scatolin | timeout | timeout | 0 | timeout | 70.0s | inconclusivo: anexo nao tem social |
+| 11 | Villa Gardone Empreendimento Imobiliario Spe Ltda | timeout | timeout | 0 | timeout | 70.0s | inconclusivo: anexo nao tem social |
+| 12 | Pirinei Empreendimentos Ltda | timeout | timeout | 0 | timeout | 70.0s | inconclusivo: anexo nao tem social |
+| 13 | Imoveis & Oportunidades | timeout | timeout | 0 | timeout | 70.0s | inconclusivo: anexo nao tem social |
+| 14 | Ayf Administradora De Imoveis Ltda | nao | nao | 0 | missing | 58.3s | ok: anexo nao tem social |
+| 15 | Parf Participacoes Ltda | timeout | timeout | 0 | timeout | 70.0s | inconclusivo: anexo nao tem social |
+| 16 | Xavier Camargo Imobiliaria | timeout | timeout | 0 | timeout | 70.0s | falhou/inconclusivo: anexo encontrou Facebook |
+| 17 | J C I Servicos Imobiliarios Ltda | timeout | timeout | 0 | timeout | 70.0s | inconclusivo: anexo nao tem social |
+| 18 | Morato & Ursaia Empreendimentos E Participacoes Ltda | timeout | timeout | 0 | timeout | 70.0s | inconclusivo: anexo nao tem social |
+| 19 | Schio Corretores De Imoveis Ltda | https://instagram.com/schioimoveis | nao | 0 | found | 51.7s | parcial: bateu Instagram; faltou Facebook ericas55 |
+| 20 | Rsp Administradora De Bens E Participacoes Ltda | timeout | timeout | 0 | timeout | 70.0s | inconclusivo: anexo nao tem social |
+
+Resumo da comparacao com a referencia manual:
+
+- Confirmado igual/parcial: empresa 19 encontrou Instagram `schioimoveis`.
+- Corretamente sem social: empresas 1, 6, 8 e 14 retornaram missing e o anexo tambem nao traz social.
+- Falhas claras: empresa 2 nao encontrou Facebook de Rodinei; empresa 16 nao chegou no Facebook da Xavier Camargo; empresa 19 nao confirmou Facebook `ericas55`.
+- Possivel ruim: empresa 3 gerou possiveis `simonefernades`, mas a referencia manual aponta outro Facebook proximo (`idealizeimoveisrc`), entao nao considero bom.
+- Problema operacional: muitos cards bateram timeout de 70s. O social-only ainda precisa cortar melhor a busca por handles quando a empresa tem nome juridico/cadastral e nao marca comercial forte.

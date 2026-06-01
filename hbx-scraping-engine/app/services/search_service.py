@@ -145,17 +145,34 @@ SOCIAL_QUERY_STOP_TOKENS = {
 }
 
 BUSINESS_NAME_STOP_TOKENS = {
+    "administradora",
+    "administradoras",
+    "bens",
     "cia",
     "comercio",
     "companhia",
+    "corretor",
+    "corretora",
+    "corretoras",
+    "corretores",
     "das",
     "de",
     "do",
     "dos",
     "eireli",
+    "empreendimento",
+    "empreendimentos",
+    "gestao",
+    "imobiliario",
+    "imobiliarios",
     "ltda",
     "me",
     "moraes",
+    "negocios",
+    "participacoes",
+    "servico",
+    "servicos",
+    "spe",
 }
 
 BUSINESS_CATEGORY_TOKENS = {
@@ -186,6 +203,10 @@ BUSINESS_CATEGORY_TOKENS = {
     "estetica",
     "gastronomia",
     "hamburgueria",
+    "imobiliaria",
+    "imobiliarias",
+    "imoveis",
+    "imovel",
     "japones",
     "kids",
     "lanches",
@@ -488,6 +509,7 @@ class SearchService:
         if not key:
             return []
         tokens = [token for token in key.split() if token not in BUSINESS_NAME_STOP_TOKENS]
+        all_tokens = key.split()
         category = next((token for token in tokens if token in BUSINESS_CATEGORY_TOKENS), "")
         commercial = next((token for token in tokens if token not in BUSINESS_CATEGORY_TOKENS and len(token) >= 4), "")
         variants = [text]
@@ -500,6 +522,14 @@ class SearchService:
         compact = "".join(token for token in [category, commercial] if token)
         if compact:
             variants.append(compact)
+        if commercial and any(token in {"imobiliaria", "imobiliarias", "imoveis", "imovel", "corretor", "corretores"} for token in all_tokens):
+            variants.extend([
+                f"{commercial} imoveis",
+                f"{commercial} imobiliaria",
+                f"{commercial} imovel",
+                f"{commercial}imoveis",
+                f"{commercial}imobiliaria",
+            ])
         return list(dict.fromkeys(variant for variant in variants if variant.strip()))
 
     def business_social_handle_candidates(self, value: str, city: str = "") -> list[str]:
@@ -560,6 +590,13 @@ class SearchService:
                     candidates.append(f"{token}{category}oficial")
                 if len(f"{category}{token}oficial") <= 32:
                     candidates.append(f"{category}{token}oficial")
+        if any(token in {"imobiliaria", "imobiliarias", "imoveis", "imovel", "corretor", "corretores"} for token in key.split()):
+            for token in distinctive[:2]:
+                if 3 <= len(token) <= 24:
+                    candidates.append(f"{token}imoveis")
+                    candidates.append(f"{token}imobiliaria")
+                    candidates.append(f"imobiliaria{token}")
+                    candidates.append(f"imoveis{token}")
         for token in distinctive[:2]:
             if 4 <= len(token) <= 24:
                 candidates.append(token)
@@ -1459,6 +1496,17 @@ class SearchService:
             )
             if not has_local_evidence:
                 score = min(score, 68)
+            exact_real_estate_alias = bool(
+                channel == "instagram"
+                and any(token in {"imobiliaria", "imobiliarias", "imoveis", "imovel"} for token in category_tokens)
+                and any(
+                    handle_key == self.compact_key(variant)
+                    for variant in self.business_name_variants(name)
+                    if any(real_estate in text_key(variant).split() or real_estate in self.compact_key(variant) for real_estate in ("imoveis", "imobiliaria"))
+                )
+            )
+            if exact_real_estate_alias and handle_has_distinctive and handle_has_category:
+                score = max(score, 72)
             if (
                 not category_tokens
                 and not has_local_evidence

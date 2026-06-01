@@ -1,0 +1,103 @@
+{
+  "index": 19,
+  "name": "Schio Corretores De Imoveis Ltda",
+  "elapsedSeconds": 33,
+  "instagramUrl": null,
+  "facebookUrl": null,
+  "socialStatus": "missing",
+  "socialConfidence": 0,
+  "possibleSocialCandidates": [
+    {
+      "field": "instagramUrl",
+      "channel": "instagram",
+      "url": "https://instagram.com/schioimoveis",
+      "score": 68,
+      "status": "possible",
+      "reason": "Handle parecido, mas sem evidencia local forte para confirmar.",
+      "query": "validated_handle_guess",
+      "method": "handle_guess",
+      "evidence": {}
+    }
+  ],
+  "nearbyResults": [],
+  "runs": [
+    {
+      "provider": "LocalCacheProvider",
+      "status": "empty",
+      "reason": "cache miss",
+      "results": []
+    },
+    {
+      "provider": "HbxDatabaseProvider",
+      "status": "empty",
+      "reason": "no compatible row in radarLeadPool",
+      "results": []
+    },
+    {
+      "provider": "HbxEngineProvider",
+      "status": "success",
+      "reason": "",
+      "results": [
+        {
+          "field": "instagramUrl",
+          "channel": "instagram",
+          "url": "https://instagram.com/schioimoveis",
+          "score": 68,
+          "status": "possible",
+          "reason": "Handle parecido, mas sem evidencia local forte para confirmar.",
+          "query": "validated_handle_guess",
+          "method": "handle_guess",
+          "evidence": {}
+        }
+      ]
+    },
+    {
+      "provider": "DuckDuckGoProvider",
+      "status": "empty",
+      "reason": "no usable candidate",
+      "results": []
+    },
+    {
+      "provider": "BraveSearchProvider",
+      "status": "skipped",
+      "reason": "missing api key BRAVE_SEARCH_API_KEY",
+      "results": []
+    },
+    {
+      "provider": "SerperProvider",
+      "status": "skipped",
+      "reason": "allowPaid=false",
+      "results": []
+    },
+    {
+      "provider": "ScrapingDogProvider",
+      "status": "skipped",
+      "reason": "allowPaid=false",
+      "results": []
+    },
+    {
+      "provider": "TavilyProvider",
+      "status": "skipped",
+      "reason": "allowPaid=false",
+      "results": []
+    },
+    {
+      "provider": "ExaProvider",
+      "status": "skipped",
+      "reason": "allowPremium=false",
+      "results": []
+    },
+    {
+      "provider": "FirecrawlExtractorProvider",
+      "status": "skipped",
+      "reason": "allowPremium=false",
+      "results": []
+    },
+    {
+      "provider": "SerpApiProvider",
+      "status": "skipped",
+      "reason": "allowPremium=false",
+      "results": []
+    }
+  ]
+}
