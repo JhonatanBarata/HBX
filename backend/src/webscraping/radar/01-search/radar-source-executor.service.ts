@@ -69,14 +69,6 @@ function optionalStubFlag(source: RadarLeadSourceKind) {
   return flags[source] || '';
 }
 
-function isPoorCard(result: WebscrapingContactResult) {
-  const phoneDigits = normalizePhoneDigits(result.phoneDigits || result.phone);
-  if (phoneDigits.length < 10) return false;
-  return !String(result.website || '').trim()
-    || !String(result.email || '').trim()
-    || !String(result.instagramUrl || result.facebookUrl || '').trim();
-}
-
 @Injectable()
 export class RadarSourceExecutorService {
   private readonly diagnostics = new RadarDiagnosticService();
@@ -97,21 +89,9 @@ export class RadarSourceExecutorService {
     const sourceDiagnostics: RadarLeadSourceResult[] = [];
     const sourceEnginesUsed = new Set<string>();
     const activeOptionalSources = (input.sourcePlan || [])
-      .filter((step) => step.enabled && step.optional && !['radar_database', 'company_history', 'global_cache', 'hbx_engine'].includes(step.source));
-    const hasPoorCards = (input.currentResults || []).some(isPoorCard);
-
+      .filter((step) => step.enabled && step.optional && !['radar_database', 'company_history', 'global_cache', 'hbx_engine', 'radar_web_enrichment'].includes(step.source));
     for (const step of activeOptionalSources) {
-      if (input.remainingQuantity <= 0 && step.source !== 'radar_web_enrichment') break;
-      if (step.source === 'radar_web_enrichment') {
-        if (!hasPoorCards) {
-          const skipped = input.host.getRadarSearchOrchestrator().buildSkippedSourceResult('radar_web_enrichment', 'sem_card_pobre_para_enriquecer');
-          this.pushSourceResult(step.source, skipped, optionalSources, sourceDiagnostics, sourceEnginesUsed, seenPhones);
-          continue;
-        }
-        const result = await this.executeRadarWebEnrichment({ ...input });
-        this.pushSourceResult(step.source, result, optionalSources, sourceDiagnostics, sourceEnginesUsed, seenPhones);
-        continue;
-      }
+      if (input.remainingQuantity <= 0) break;
       if (step.source === 'google_textual') {
         const result = await this.executeGoogleTextual({ ...input, seenPhones });
         this.pushSourceResult(step.source, result, optionalSources, sourceDiagnostics, sourceEnginesUsed, seenPhones);

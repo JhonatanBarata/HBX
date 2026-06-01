@@ -87,7 +87,6 @@ import {
   coerceBoolean,
   normalizeEngine,
   normalizeEnginePurpose,
-  normalizeCardDiscoveryQualityMode,
   isAutomaticEnginePurpose,
   normalizeTargetType,
   parsePositiveInteger,
@@ -229,7 +228,6 @@ export class RadarCoreProviderMixin {
         preferredChannels: input.preferredChannels,
         requiredChannels: input.requiredChannels,
         channelMatchMode: input.channelMatchMode,
-        qualityMode: normalizeCardDiscoveryQualityMode(),
         salesProfile: input.salesProfile || null,
         ...(input.salesProfile?.whatDoYouSell ? { whatDoYouSell: input.salesProfile.whatDoYouSell } : {}),
         ...(input.salesProfile?.offerCategory ? { offerCategory: input.salesProfile.offerCategory } : {}),
@@ -313,6 +311,9 @@ export class RadarCoreProviderMixin {
       results.push(mapped);
       if (results.length >= batchLimit) break;
     }
+    await this.enrichHbxSearchResultsInlineSocial(input, results, engineUrl).catch((error: any) => {
+      this.logger?.warn?.(`[radar-inline-social] falha optional: ${String(error?.message || error)}`);
+    });
 
     const payloadStatus = String(payload?.status || '').trim();
     const status: SearchRunStatus =
@@ -341,6 +342,93 @@ export class RadarCoreProviderMixin {
       rejectedCount,
       duplicateCount,
     };
+  }
+
+  private shouldRunInlineSocialEnrichment(input: NormalizedSearchInput, results: WebscrapingContactResult[]) {
+    if (String(process.env.HBX_RADAR_INLINE_SOCIAL_ENRICHMENT_ENABLED || 'false').trim().toLowerCase() !== 'true') return false;
+    if (input.targetType !== 'pj') return false;
+    if (!Array.isArray(results) || !results.length) return false;
+    return true;
+  }
+
+  private getInlineSocialEngineUrls(primaryEngineUrl: string, needed: number) {
+    const primary = String(primaryEngineUrl || this.getHbxScrapingEngineUrl()).trim().replace(/\/+$/, '');
+    const configured = Math.max(1, getConfiguredHbxEngineCount());
+    const maxEngines = Math.max(1, Math.min(configured, parsePositiveIntegerEnv('HBX_RADAR_INLINE_SOCIAL_MAX_ENGINES', 30), Math.max(1, needed)));
+    const urls: string[] = [];
+    const add = (url: string) => {
+      const normalized = String(url || '').trim().replace(/\/+$/, '');
+      if (normalized && !urls.includes(normalized)) urls.push(normalized);
+    };
+    add(primary);
+    if (/hbx-engine-\d+/i.test(primary) || /hbx-scraping-engine/i.test(primary) || /hbx-engine/i.test(primary)) {
+      for (let index = 1; index <= maxEngines; index += 1) add(`http://hbx-engine-${index}:8001`);
+    } else if (/localhost:\d+/i.test(primary)) {
+      for (const url of buildLocalHbxEngineUrls(maxEngines)) add(url);
+    }
+    return urls.slice(0, maxEngines);
+  }
+
+  private async enrichHbxSearchResultsInlineSocial(
+    input: NormalizedSearchInput,
+    results: WebscrapingContactResult[],
+    engineUrl: string,
+  ) {
+    if (!this.shouldRunInlineSocialEnrichment(input, results)) return;
+    const limit = Math.max(0, Math.min(results.length, parsePositiveIntegerEnv('HBX_RADAR_INLINE_SOCIAL_LIMIT', 30)));
+    if (!limit) return;
+    const candidates = results
+      .filter((result: any) => result?.name && (!result.instagramUrl || !result.facebookUrl))
+      .slice(0, limit);
+    if (!candidates.length) return;
+    const engineUrls = this.getInlineSocialEngineUrls(engineUrl, candidates.length);
+    const budgetSeconds = Math.max(8, Math.min(45, parsePositiveIntegerEnv('HBX_RADAR_INLINE_SOCIAL_TIME_BUDGET_SECONDS', 28)));
+    const timeoutMs = Math.max(12_000, Math.min(60_000, (budgetSeconds + 8) * 1_000));
+    await Promise.all(candidates.map(async (result: any, index: number) => {
+      const targetEngineUrl = engineUrls[index % engineUrls.length] || engineUrls[0] || engineUrl;
+      try {
+        const response = await fetch(`${String(targetEngineUrl).replace(/\/+$/, '')}/enrich-lead`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: result.name || '',
+            phone: result.phone || '',
+            phoneDigits: result.phoneDigits || '',
+            city: result.city || input.city || '',
+            state: result.state || input.state || '',
+            segment: result.segment || input.segment || '',
+            website: result.website || null,
+            email: result.email || null,
+            instagramUrl: result.instagramUrl || null,
+            facebookUrl: result.facebookUrl || null,
+            preferredChannels: ['instagram'],
+            requiredChannels: [],
+            timeBudgetSeconds: budgetSeconds,
+          }),
+          signal: AbortSignal.timeout(timeoutMs),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || !payload || typeof payload !== 'object') return;
+        const instagramUrl = String(payload.instagramUrl || '').trim();
+        const facebookUrl = String(payload.facebookUrl || '').trim();
+        if (instagramUrl && !result.instagramUrl) result.instagramUrl = instagramUrl;
+        if (facebookUrl && !result.facebookUrl) result.facebookUrl = facebookUrl;
+        if (instagramUrl || facebookUrl) {
+          result.socialStatus = String(payload.socialStatus || result.socialStatus || 'found').trim() || 'found';
+          result.socialConfidence = Math.max(safeInteger(result.socialConfidence), safeInteger(payload.socialConfidence, 80));
+          result.enrichmentJson = {
+            ...(typeof result.enrichmentJson === 'object' && result.enrichmentJson ? result.enrichmentJson : {}),
+            inlineSocial: {
+              status: result.socialStatus,
+              confidence: result.socialConfidence,
+              engine: targetEngineUrl,
+            },
+          } as any;
+        }
+      } catch (error: any) {
+        this.logger?.warn?.(`[radar-inline-social] optional falhou card=${result?.name || 'unknown'}: ${String(error?.message || error)}`);
+      }
+    }));
   }
 
   private normalizeRadarSocialUrl(value: unknown, network: 'instagram' | 'facebook') {

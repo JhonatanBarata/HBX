@@ -391,7 +391,6 @@ export const HBX_CATEGORY_SEGMENTS: Record<string, string[]> = {
   ],
   beleza: [
     'salÃµes de beleza',
-    'barbearias',
     'clÃ­nicas de estÃ©tica',
     'cosmÃ©ticos',
     'perfumarias',
@@ -884,7 +883,6 @@ export type SearchContactsInput = {
   preferredChannels?: string[];
   requiredChannels?: string[];
   channelMatchMode?: 'prefer' | 'any_required' | 'all_required' | string | null;
-  qualityMode?: 'list' | 'lead_plus' | string | null;
   freshness?: 'live' | 'database_first' | 'hybrid' | string | null;
   salesProfile?: Partial<LeadQualityV2SalesProfile> | null;
   whatDoYouSell?: string | null;
@@ -936,7 +934,6 @@ export type NormalizedSearchInput = {
   normalizedCity: string;
   normalizedSegment: string;
   excludePhoneDigits: string[];
-  qualityMode: 'list' | 'lead_plus';
   salesProfile: LeadQualityV2SalesProfile | null;
   preferredChannels: RadarChannelFilter[];
   requiredChannels: RadarChannelFilter[];
@@ -1015,7 +1012,6 @@ export type RadarFiltersInput = {
   preferredChannels?: string[] | null;
   requiredChannels?: string[] | null;
   channelMatchMode?: 'prefer' | 'any_required' | 'all_required' | string | null;
-  qualityMode?: 'list' | 'lead_plus' | string | null;
   freshness?: 'live' | 'database_first' | 'hybrid' | string | null;
   salesProfile?: Partial<LeadQualityV2SalesProfile> | null;
   whatDoYouSell?: string | null;
@@ -1181,7 +1177,6 @@ export type NormalizedRadarFilters = {
   preferredChannels: RadarChannelFilter[];
   requiredChannels: RadarChannelFilter[];
   channelMatchMode: RadarChannelMatchMode;
-  qualityMode: 'list' | 'lead_plus';
   freshness: 'live' | 'database_first' | 'hybrid';
   salesProfile: LeadQualityV2SalesProfile | null;
 };
@@ -1763,10 +1758,6 @@ export function normalizeEnginePurpose(value: unknown): HbxEnginePurpose {
     return purpose;
   }
   return 'manual';
-}
-
-export function normalizeCardDiscoveryQualityMode(): 'list' {
-  return 'list';
 }
 
 export function isAutomaticEnginePurpose(purpose: HbxEnginePurpose) {

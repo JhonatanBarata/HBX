@@ -5,7 +5,7 @@ from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
 
-from .filters import domain_from_url, is_blocked_domain, is_directory_domain, is_social_signal_domain
+from .filters import domain_from_url, is_blocked_domain, is_directory_domain, is_directory_listing_url, is_social_signal_domain
 from .normalizer import clean_name, extract_phone_from_url, fallback_name, format_phone, normalize_phone_digits
 from .social import extract_social_links_from_html, is_valid_social_profile_url, normalize_social_url, social_field_for_url
 
@@ -28,7 +28,10 @@ def _flatten_jsonld(value) -> Iterable[dict]:
         if isinstance(value.get("itemListElement"), list):
             for element in value["itemListElement"]:
                 if isinstance(element, dict) and isinstance(element.get("item"), (dict, list)):
-                    yield from _flatten_jsonld(element["item"])
+                    item = element["item"]
+                    if isinstance(item, dict) and element.get("url") and not item.get("url"):
+                        item = {**item, "url": element.get("url")}
+                    yield from _flatten_jsonld(item)
                 else:
                     yield from _flatten_jsonld(element)
         if isinstance(value.get("item"), (dict, list)):
@@ -74,6 +77,10 @@ def _jsonld_rating(item: dict) -> tuple[float | None, int | None]:
 
 def is_directory_url(url: str) -> bool:
     return is_directory_domain(url)
+
+
+def is_directory_listing_page(url: str) -> bool:
+    return is_directory_listing_url(url)
 
 
 def _apply_social_links(contact: dict, links: dict[str, str]) -> dict:
@@ -122,6 +129,7 @@ def _title_name(soup: BeautifulSoup, target_type: str = "pj") -> str | None:
 def parse_page(html: str, url: str, target_type: str = "pj", city: str | None = None) -> tuple[list[dict], str]:
     soup = BeautifulSoup(html, "lxml")
     directory = is_directory_url(url)
+    directory_listing = is_directory_listing_page(url)
     page_domain = domain_from_url(url)
     social_field = social_field_for_url(url)
     social_links = extract_social_links_from_html(html, url) if not directory else {}
@@ -145,6 +153,8 @@ def parse_page(html: str, url: str, target_type: str = "pj", city: str | None = 
             address = _jsonld_address(item.get("address"))
             rating, reviews = _jsonld_rating(item)
             website = _official_website(url, item.get("url"), directory)
+            item_url = str(item.get("url") or "").strip()
+            page_source_url = item_url if directory_listing and item_url.startswith(("http://", "https://")) else url
             for phone in _as_list(item.get("telephone")):
                 digits = normalize_phone_digits(str(phone))
                 if digits and name:
@@ -158,8 +168,11 @@ def parse_page(html: str, url: str, target_type: str = "pj", city: str | None = 
                         "website": website,
                         "source": "hbx_scraping:web",
                         "_domain": page_domain,
-                        "_pageUrl": url,
+                        "_pageUrl": page_source_url,
+                        "sourceUrl": page_source_url,
                     }
+                    if directory_listing and page_source_url == url:
+                        contact["_directoryListingSource"] = True
                     if social_field:
                         contact["website"] = website
                     contacts.append(_apply_social_links(contact, social_links))
@@ -193,6 +206,8 @@ def parse_page(html: str, url: str, target_type: str = "pj", city: str | None = 
                 "_domain": page_domain,
                 "_pageUrl": url,
             }
+            if directory_listing:
+                contact["_directoryListingSource"] = True
             if social_field:
                 contact[social_field] = normalize_social_url(url) or url.rstrip("/")
             contacts.append(_apply_social_links(contact, social_links))
@@ -211,6 +226,8 @@ def parse_page(html: str, url: str, target_type: str = "pj", city: str | None = 
             "_domain": page_domain,
             "_pageUrl": url,
         }
+        if directory_listing:
+            contact["_directoryListingSource"] = True
         if social_field:
             contact[social_field] = normalize_social_url(url) or url.rstrip("/")
         contacts.append(_apply_social_links(contact, social_links))

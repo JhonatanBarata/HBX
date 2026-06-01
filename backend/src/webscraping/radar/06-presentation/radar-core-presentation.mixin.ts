@@ -87,7 +87,6 @@ import {
   coerceBoolean,
   normalizeEngine,
   normalizeEnginePurpose,
-  normalizeCardDiscoveryQualityMode,
   isAutomaticEnginePurpose,
   normalizeTargetType,
   parsePositiveInteger,
@@ -595,9 +594,7 @@ export class RadarCorePresentationMixin {
       preferredChannels: input.preferredChannels || salesProfile?.preferredChannels,
       requiredChannels: input.requiredChannels || salesProfile?.requiredChannels,
       channelMatchMode: input.channelMatchMode,
-      qualityMode: normalizeCardDiscoveryQualityMode(),
       }),
-      qualityMode: normalizeCardDiscoveryQualityMode(),
     };
     const freshness = this.normalizeFreshness(input.freshness);
     const filtersJson = JSON.stringify({
@@ -664,7 +661,6 @@ export class RadarCorePresentationMixin {
       normalizedCity,
       normalizedSegment,
       excludePhoneDigits,
-      qualityMode: channelFilters.qualityMode,
       salesProfile,
       preferredChannels: channelFilters.preferredChannels,
       requiredChannels: channelFilters.requiredChannels,
@@ -716,7 +712,6 @@ export class RadarCorePresentationMixin {
         preferredChannels: parsed?.preferredChannels,
         requiredChannels: parsed?.requiredChannels,
         channelMatchMode: parsed?.channelMatchMode,
-        qualityMode: parsed?.qualityMode,
       });
       const salesProfile = this.normalizeLeadQualitySalesProfileInput(parsed || {});
       return {
@@ -731,7 +726,6 @@ export class RadarCorePresentationMixin {
         preferredChannels: channelFilters.preferredChannels,
         requiredChannels: channelFilters.requiredChannels,
         channelMatchMode: channelFilters.channelMatchMode,
-        qualityMode: channelFilters.qualityMode,
         freshness: this.normalizeFreshness(parsed?.freshness),
         salesProfile,
       };
@@ -748,7 +742,6 @@ export class RadarCorePresentationMixin {
         preferredChannels: [] as RadarChannelFilter[],
         requiredChannels: [] as RadarChannelFilter[],
         channelMatchMode: 'prefer' as RadarChannelMatchMode,
-        qualityMode: 'list' as const,
         freshness: 'hybrid' as const,
         salesProfile: null,
       };
@@ -804,18 +797,15 @@ export class RadarCorePresentationMixin {
     preferredChannels?: string[];
     requiredChannels?: string[];
     channelMatchMode?: string | null;
-    qualityMode?: string | null;
   }): {
     preferredChannels: RadarChannelFilter[];
     requiredChannels: RadarChannelFilter[];
     channelMatchMode: RadarChannelMatchMode;
-    qualityMode: 'list';
   } {
     return {
       preferredChannels: [],
       requiredChannels: [],
       channelMatchMode: 'prefer',
-      qualityMode: normalizeCardDiscoveryQualityMode(),
     };
   }
 
@@ -891,7 +881,6 @@ export class RadarCorePresentationMixin {
       preferredChannels: (input as any)?.preferredChannels || explicitProfile?.preferredChannels,
       requiredChannels: (input as any)?.requiredChannels || explicitProfile?.requiredChannels,
       channelMatchMode: (input as any)?.channelMatchMode,
-      qualityMode: (input as any)?.qualityMode,
     });
     const requestedTargetSegments = segment ? this.splitHbxBatchSegments(segment) : [];
     return {
@@ -1316,12 +1305,10 @@ export class RadarCorePresentationMixin {
       preferredChannels: input.preferredChannels || undefined,
       requiredChannels: input.requiredChannels || undefined,
       channelMatchMode: input.channelMatchMode,
-      qualityMode: normalizeCardDiscoveryQualityMode(),
     });
     const preferredChannels = channelFilters.preferredChannels;
     const requiredChannels = channelFilters.requiredChannels;
     const channelMatchMode = channelFilters.channelMatchMode;
-    const qualityMode = normalizeCardDiscoveryQualityMode();
     const freshness = this.normalizeFreshness(input.freshness);
     const salesProfile = this.normalizeLeadQualitySalesProfileInput(input);
 
@@ -1361,7 +1348,6 @@ export class RadarCorePresentationMixin {
       preferredChannels,
       requiredChannels,
       channelMatchMode,
-      qualityMode,
       freshness,
       salesProfile,
     };
@@ -1928,7 +1914,6 @@ export class RadarCorePresentationMixin {
       preferredChannels: input.preferredChannels,
       requiredChannels: input.requiredChannels,
       channelMatchMode: input.channelMatchMode,
-      qualityMode: normalizeCardDiscoveryQualityMode(),
     });
     const rows = await this.queryRadarRowsForCompany(context.companyId, filters, {
       limit: Math.max(input.quantity * 3, 20),
@@ -2059,6 +2044,16 @@ export class RadarCorePresentationMixin {
       : null;
     const safeSocialStatus = safeInstagramUrl || safeFacebookUrl ? row?.socialStatus || enrichmentParsed?.signals?.socialStatus || 'found' : 'missing';
     const safeSocialConfidence = safeInstagramUrl || safeFacebookUrl ? safeInteger(row?.socialConfidence) : 0;
+    const possibleSocialCandidates = Array.isArray(row?.possibleSocialCandidates)
+      ? row.possibleSocialCandidates
+      : Array.isArray(enrichmentParsed?.signals?.possibleSocialCandidates)
+        ? enrichmentParsed.signals.possibleSocialCandidates
+        : [];
+    const confirmedSocialCandidates = Array.isArray(row?.confirmedSocialCandidates)
+      ? row.confirmedSocialCandidates
+      : Array.isArray(enrichmentParsed?.signals?.confirmedSocialCandidates)
+        ? enrichmentParsed.signals.confirmedSocialCandidates
+        : [];
     const smartFields = includeSmartFields ? {
       email: safeEmail || null,
       emailStatus: safeEmail ? row?.emailStatus || enrichmentParsed?.signals?.emailStatus || 'probable' : 'missing',
@@ -2068,6 +2063,8 @@ export class RadarCorePresentationMixin {
       facebookUrl: safeFacebookUrl,
       socialStatus: safeSocialStatus,
       socialConfidence: safeSocialConfidence,
+      possibleSocialCandidates,
+      confirmedSocialCandidates,
       googleMapsUrl: row?.googleMapsUrl || null,
       businessCategory: row?.businessCategory || null,
       openingHoursStatus: row?.openingHoursStatus || null,
@@ -2093,6 +2090,8 @@ export class RadarCorePresentationMixin {
       facebookUrl: null,
       socialStatus: safeSocialStatus,
       socialConfidence: 0,
+      possibleSocialCandidates: [],
+      confirmedSocialCandidates: [],
       googleMapsUrl: null,
       businessCategory: null,
       openingHoursStatus: null,
@@ -2116,7 +2115,6 @@ export class RadarCorePresentationMixin {
       requiredChannels: [],
       preferredChannels: [],
       channelMatchMode: 'prefer',
-      qualityMode: normalizeCardDiscoveryQualityMode(),
       salesProfile: null,
     } as NormalizedRadarFilters;
     const publicLead = {
@@ -2206,7 +2204,6 @@ export class RadarCorePresentationMixin {
       websiteStatus: inferWebsiteStatus(result.website),
       opportunityScore,
       rawPayload: result as any,
-      qualityMode: normalizeCardDiscoveryQualityMode(),
       salesProfile: this.buildLeadQualitySalesProfileFromFilters(input),
     });
     const publicLead = {
@@ -2252,7 +2249,7 @@ export class RadarCorePresentationMixin {
       rejectReasons: Array.isArray((result as any).rejectReasons) ? (result as any).rejectReasons : parseJsonArray((result as any).rejectReasons),
       qualityReason: (result as any).qualityReason || null,
       visibilityTier: (result as any).visibilityTier || null,
-      deliveryProduct: normalizeCardDiscoveryQualityMode(),
+      deliveryProduct: (result as any).deliveryProduct || null,
       opportunityScore: safeInteger(opportunityScore),
       qualityV2: parseJsonObject(enrichment.enrichmentJson)?.qualityV2 || null,
       quality,
@@ -2278,7 +2275,6 @@ export class RadarCorePresentationMixin {
         normalizedCity: input.normalizedCity,
         normalizedSegment: input.normalizedSegment,
         excludePhoneDigits: [],
-        qualityMode: normalizeCardDiscoveryQualityMode(),
         salesProfile: input.salesProfile,
         preferredChannels: input.preferredChannels,
         requiredChannels: input.requiredChannels,
@@ -2436,7 +2432,6 @@ export class RadarCorePresentationMixin {
         preferredChannels: filters.preferredChannels,
         requiredChannels: filters.requiredChannels,
         channelMatchMode: filters.channelMatchMode,
-        qualityMode: filters.qualityMode,
       },
       {
         skipRadarLookup: true,
@@ -2487,7 +2482,6 @@ export class RadarCorePresentationMixin {
           preferredChannels: filters.preferredChannels,
           requiredChannels: filters.requiredChannels,
           channelMatchMode: filters.channelMatchMode,
-          qualityMode: filters.qualityMode,
         },
         direct: {
           ran: true,
@@ -2868,7 +2862,6 @@ export class RadarCorePresentationMixin {
         cnpj: String(leadPlus?.cnpj || '').trim() || metadata?.cnpj || null,
         requiredChannels,
       },
-      qualityMode: filters?.qualityMode || 'lead_plus',
       salesProfile: filters ? this.buildLeadQualitySalesProfileFromFilters(filters) : null,
       now,
     });
@@ -2930,10 +2923,10 @@ export class RadarCorePresentationMixin {
     return Boolean(key && attempt?.key === key && attemptedAt && Date.now() - attemptedAt < 10 * 60 * 1000);
   }
 
-  private leadPlusSignalEnrichmentKey(filters?: Pick<NormalizedRadarFilters, 'preferredChannels' | 'requiredChannels' | 'qualityMode'> | null) {
+  private leadPlusSignalEnrichmentKey(filters?: Pick<NormalizedRadarFilters, 'preferredChannels' | 'requiredChannels'> | null) {
     const preferred = this.normalizeRadarChannels(filters?.preferredChannels).sort().join('+') || 'default';
     const required = this.normalizeRadarChannels(filters?.requiredChannels).sort().join('+') || 'none';
-    return `${String(filters?.qualityMode || 'list')}:${preferred}:${required}`;
+    return `${preferred}:${required}`;
   }
 
   private recentLeadPlusSignalAttempt(row: any, filters?: NormalizedRadarFilters | null) {
@@ -3256,7 +3249,6 @@ export class RadarCorePresentationMixin {
         ...metadata,
         leadPlusEnrichment: this.compactLeadPlusEnrichmentPayload(leadPlus),
       },
-      qualityMode: 'lead_plus',
       now,
     });
     const data = {

@@ -32,6 +32,15 @@ function createPrismaMock(overrides: Record<string, any> = {}) {
       },
     },
     vendasLeadTimelineEvent: {
+      findMany: async (input: any) => timelineEvents
+        .filter((event) => event.leadId === input.where.leadId && event.sourceType === input.where.sourceType)
+        .filter((event) => {
+          if (input.where.eventType?.in) return input.where.eventType.in.includes(event.eventType);
+          if (input.where.eventType) return event.eventType === input.where.eventType;
+          return true;
+        })
+        .filter((event) => input.where.resultLabel ? event.resultLabel === input.where.resultLabel : true)
+        .map((event) => ({ id: event.id || event.eventType, eventType: event.eventType })),
       createMany: async (input: any) => {
         timelineEvents.push(...input.data);
         return { count: input.data.length };
@@ -133,6 +142,61 @@ test('post-delivery update sem Vendas vinculado fica skipped', async () => {
   assert.equal(result.status, 'skipped');
   assert.equal(result.retryable, false);
   assert.equal(result.reason, 'vendas_lead_nao_vinculado');
+});
+
+test('post-delivery update resolve Vendas por rawJson ou telefone do run item', async () => {
+  const service = new RadarPostDeliveryVendasUpdateService();
+  const direct = await service.resolveVendasLeadId({
+    prisma: createPrismaMock({
+      radarLeadCompanyState: { findUnique: async () => ({ vendasLeadId: null }) },
+    }),
+    context,
+    row: {
+      id: 'run-item-1',
+      rawJson: JSON.stringify({ vendasLeadId: 'vendas-direto' }),
+    },
+  });
+  const byPhone = await service.resolveVendasLeadId({
+    prisma: createPrismaMock({
+      radarLeadCompanyState: { findUnique: async () => ({ vendasLeadId: null }) },
+      vendasLead: {
+        findUnique: async (input: any) => (
+          input.where.companyId_phoneNormalized.phoneNormalized === '19999990001'
+            ? { id: 'vendas-telefone' }
+            : null
+        ),
+        update: async () => null,
+      },
+    }),
+    context,
+    row: {
+      id: 'run-item-2',
+      phone: '(19) 99999-0001',
+      rawJson: JSON.stringify({ deliveryStatus: 'delivered' }),
+    },
+  });
+
+  assert.equal(direct, 'vendas-direto');
+  assert.equal(byPhone, 'vendas-telefone');
+});
+
+test('post-delivery status de enriquecimento nao duplica evento', async () => {
+  const service = new RadarPostDeliveryVendasUpdateService();
+  const prisma = createPrismaMock();
+  const input = {
+    prisma,
+    context,
+    row: { id: 'radar-1', companyStates: [{ vendasLeadId: 'vendas-1' }] },
+    status: 'processing' as const,
+    payload: { reason: 'completando_redes_site_email' },
+  };
+
+  await service.recordEnrichmentStatus(input);
+  await service.recordEnrichmentStatus(input);
+
+  assert.equal(prisma.timelineEvents.length, 1);
+  assert.equal(prisma.timelineEvents[0].eventType, 'radar_enrichment');
+  assert.equal(prisma.timelineEvents[0].resultLabel, 'processing');
 });
 
 test('post-delivery Vendas update fica isolado em 05-delivery', () => {

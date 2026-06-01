@@ -38,7 +38,7 @@ import LiquidGlassCard, {
 import HbxMobileDock from "@/components/mobile/HbxMobileDock";
 import MobileLeadScoreGauge from "@/components/mobile/MobileLeadScoreGauge";
 import { useQuickLaunchNotice } from "@/components/useQuickLaunchNotice";
-import { apiFetch, getDashboardApiBaseUrl, getToken } from "@/app/_lib/api";
+import { apiFetch, getDashboardApiBaseUrl, getToken, type ApiFetchError } from "@/app/_lib/api";
 import { shouldUseMobileRoute, toMobileRoute } from "@/app/_lib/mobileRoutes";
 import { startSmartPolling } from "@/app/_lib/polling";
 import { useRequireModule } from "@/app/_lib/useRequireModule";
@@ -231,6 +231,16 @@ type LeadMessageTemplate = {
   text: string;
 };
 
+type LeadSocialCandidate = {
+  network?: "instagram" | "facebook" | string | null;
+  url?: string | null;
+  status?: string | null;
+  confidence?: number | null;
+  reason?: string | null;
+  source?: string | null;
+  checkedAt?: string | null;
+};
+
 type LeadIntelligence = {
   email?: string | null;
   emailStatus?: "confirmed" | "probable" | "missing" | "unverified" | string;
@@ -238,6 +248,8 @@ type LeadIntelligence = {
   facebookUrl?: string | null;
   socialStatus?: "found" | "missing" | "weak" | "unknown" | string;
   socialConfidence?: number | null;
+  possibleSocialCandidates?: LeadSocialCandidate[];
+  confirmedSocialCandidates?: LeadSocialCandidate[];
   primarySocial?: "instagram" | "facebook" | "both" | null;
   whatsappStatus?: "confirmed" | "missing" | "invalid" | "unverified" | string;
   contactQuality?: "ready" | "review" | "weak" | "blocked" | string;
@@ -1161,6 +1173,27 @@ const VENDAS_PROGRESS_STEPS = [
 const MOBILE_READY_MESSAGE_PREF_KEY = "hbx.vendas.mobile.readyMessagePreference.v1";
 const MOBILE_PREFERRED_CALLER_NAME_KEY = "hbx.vendas.mobile.preferredCallerName.v1";
 const MOBILE_OPEN_LEAD_KEY = "hbx.vendas.mobile.openLeadId.v1";
+
+function vendasClientMessage(value: unknown, fallback = "Não consegui atualizar Vendas agora. Tente novamente em instantes.") {
+  const apiError = value as ApiFetchError;
+  const text = String(value instanceof Error ? value.message : value || "").trim();
+  if (apiError?.status === 401 || /unauthorized|sess[aã]o expirada/i.test(text)) {
+    return "Sessão expirada. Entre novamente para continuar.";
+  }
+  if (apiError?.status === 403 || /forbidden|module_access_denied|acesso negado/i.test(text)) {
+    return "Vendas precisa de liberação da conta para continuar.";
+  }
+  if (/radar_stock_empty|sem cards|no results|insufficient/i.test(text)) {
+    return "Radar não encontrou cards suficientes agora. Amplie cidade ou segmento.";
+  }
+  if (/failed to fetch|networkerror|load failed|tempo esgotado|timeout|econn/i.test(text)) {
+    return "Conexão oscilou. Seus leads continuam salvos.";
+  }
+  if (/backend|http|status\s*\d{3}|erro\s*400|erro\s*401|erro\s*403|erro\s*404|erro\s*409|erro\s*422|erro\s*429|erro\s*500|bad request|internal server error|stack|exception/i.test(text)) {
+    return fallback;
+  }
+  return text || fallback;
+}
 const SALES_PROFILE_DEFAULT_DRAFT: SalesProfileDraft = {
   whatDoYouSell: "Sistema/Software",
   offerCategory: "serviço comercial",
@@ -1634,6 +1667,39 @@ function normalizeExternalUrl(value?: string | null) {
   return `https://${raw}`;
 }
 
+function normalizeSocialNetwork(value?: string | null): "instagram" | "facebook" | "" {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw.includes("instagram")) return "instagram";
+  if (raw.includes("facebook") || raw === "fb") return "facebook";
+  return "";
+}
+
+function leadPossibleSocialCandidates(lead: LeadItem): LeadSocialCandidate[] {
+  const candidates = Array.isArray(lead.leadIntelligence?.possibleSocialCandidates)
+    ? lead.leadIntelligence?.possibleSocialCandidates || []
+    : [];
+  const seen = new Set<string>();
+  return candidates.filter((candidate) => {
+    const href = normalizeExternalUrl(candidate?.url);
+    const network = normalizeSocialNetwork(candidate?.network || href);
+    if (!href || !network) return false;
+    const key = `${network}:${href.toLowerCase()}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function leadPossibleSocialCandidateByNetwork(lead: LeadItem, network: "instagram" | "facebook") {
+  return leadPossibleSocialCandidates(lead).find((candidate) =>
+    normalizeSocialNetwork(candidate.network || candidate.url) === network
+  ) || null;
+}
+
+function leadHasPossibleSocial(lead: LeadItem) {
+  return leadPossibleSocialCandidates(lead).length > 0;
+}
+
 function leadCapabilities(lead: LeadItem, board?: BoardResponse | null): VendasCapabilities {
   return lead.capabilities || board?.capabilities || {};
 }
@@ -1648,7 +1714,7 @@ function canSeeSocialLinks(lead: LeadItem, board?: BoardResponse | null) {
 
 function hasLockedSocialLinks(lead: LeadItem, board?: BoardResponse | null) {
   const capabilities = leadCapabilities(lead, board);
-  return capabilities.canSeeSocialLinks === "teaser_only" && Boolean(lead.leadIntelligence?.primarySocial);
+  return capabilities.canSeeSocialLinks === "teaser_only" && Boolean(lead.leadIntelligence?.primarySocial || leadHasPossibleSocial(lead));
 }
 
 function leadHasPremiumSignals(lead: LeadItem) {
@@ -1659,6 +1725,8 @@ function leadHasPremiumSignals(lead: LeadItem) {
     || intelligence.facebookUrl
     || intelligence.primarySocial
     || intelligence.socialStatus === "found"
+    || intelligence.socialStatus === "candidate_review"
+    || leadHasPossibleSocial(lead)
     || Number(intelligence.opportunityScore || 0) > 0
   );
 }
@@ -1666,30 +1734,32 @@ function leadHasPremiumSignals(lead: LeadItem) {
 function leadEnrichmentBadgeState(lead: LeadItem, board?: BoardResponse | null) {
   const intelligence = lead.leadIntelligence || {};
   const enrichmentStatus = String(intelligence.enrichmentStatus || "").trim().toLowerCase();
+  const socialStatus = String(intelligence.socialStatus || "").trim().toLowerCase();
   const tier = String(intelligence.visibilityTier || "").trim().toLowerCase();
   const fromRadar = lead.sourceType === "webscraping" || String(lead.primarySource || "").toLowerCase().includes("radar");
   const lockedPremium = hasLockedSocialLinks(lead, board) || Boolean(intelligence.premiumTeaser);
   const pendingTier = ["candidate", "list_basic", "enrichment_pending"].includes(tier);
   const readyTier = ["lead_plus_qualified", "review_backup"].includes(tier);
+  const possibleSocial = leadHasPossibleSocial(lead);
   const enrichmentChecked = Boolean(
     intelligence.lastVerifiedAt
     || intelligence.verifiedBy
-    || ["found", "missing", "weak"].includes(String(intelligence.socialStatus || "").toLowerCase())
+    || ["found", "missing", "weak", "candidate_review", "partial"].includes(socialStatus)
     || ["confirmed", "missing", "invalid", "unverified"].includes(String(intelligence.whatsappStatus || "").toLowerCase())
     || ["confirmed", "probable", "missing", "unverified"].includes(String(intelligence.emailStatus || "").toLowerCase())
   );
-  if (["queued", "processing"].includes(enrichmentStatus)) {
+  if (["pending", "queued", "processing"].includes(enrichmentStatus) && fromRadar) {
     return {
       state: "enriching" as const,
       label: "Enriquecendo",
-      title: "O Radar está buscando site, redes sociais, CNPJ e sinais comerciais deste card.",
+      title: "Card entregue. O Radar está completando redes sociais, site e sinais comerciais.",
     };
   }
   if ((pendingTier && !enrichmentChecked) || (fromRadar && !readyTier && !leadHasPremiumSignals(lead) && !enrichmentChecked)) {
     return {
       state: "enriching" as const,
       label: "Enriquecendo",
-      title: "O Radar está buscando site, redes sociais, CNPJ e sinais comerciais deste card.",
+      title: "Card entregue. O Radar está completando redes sociais, site e sinais comerciais.",
     };
   }
   if (enrichmentStatus === "failed") {
@@ -1709,8 +1779,72 @@ function leadEnrichmentBadgeState(lead: LeadItem, board?: BoardResponse | null) 
   if (readyTier || leadHasPremiumSignals(lead)) {
     return {
       state: "ready" as const,
-      label: "Pronto",
-      title: "Enriquecimento premium analisado.",
+      label: possibleSocial && !intelligence.instagramUrl && !intelligence.facebookUrl ? "Possível" : "Pronto",
+      title: possibleSocial && !intelligence.instagramUrl && !intelligence.facebookUrl
+        ? "O Radar achou uma rede provável para revisar antes da abordagem."
+        : "Enriquecimento premium analisado.",
+    };
+  }
+  if (fromRadar && enrichmentChecked) {
+    return {
+      state: "ready" as const,
+      label: "Revisado",
+      title: "O Radar revisou este card, mas não encontrou novos sinais agora.",
+    };
+  }
+  return null;
+}
+
+function leadEnrichmentDisplay(lead: LeadItem, board?: BoardResponse | null) {
+  const intelligence = lead.leadIntelligence || {};
+  const badge = leadEnrichmentBadgeState(lead, board);
+  const possibleSocial = leadPossibleSocialCandidates(lead);
+  const found: string[] = [];
+  if (String(intelligence.instagramUrl || "").trim()) found.push("Instagram");
+  if (String(intelligence.facebookUrl || "").trim()) found.push("Facebook");
+  if (leadWebsiteForDisplay(lead)) found.push("site");
+  if (leadEmailForDisplay(lead)) found.push("e-mail");
+  const foundText = found.length ? found.join(" · ") : "";
+
+  if (badge?.state === "enriching") {
+    return {
+      tone: "processing" as const,
+      label: found.length ? "Completando card" : "Enriquecendo agora",
+      detail: found.length
+        ? `${foundText} encontrado. Radar buscando o restante.`
+        : "Radar buscando redes sociais, site e e-mail.",
+    };
+  }
+  if (possibleSocial.length && !found.some((item) => item === "Instagram" || item === "Facebook")) {
+    const networks = Array.from(new Set(possibleSocial.map((candidate) => {
+      const network = normalizeSocialNetwork(candidate.network || candidate.url);
+      return network === "instagram" ? "Instagram" : network === "facebook" ? "Facebook" : "";
+    }).filter(Boolean))).join(" · ");
+    return {
+      tone: "possible" as const,
+      label: "Rede possível",
+      detail: `${networks || "Rede social"} encontrada para revisar.`,
+    };
+  }
+  if (badge?.state === "reviewed") {
+    return {
+      tone: "reviewed" as const,
+      label: "Radar revisou",
+      detail: found.length ? `${foundText} disponível.` : "Não encontrou novos sinais agora.",
+    };
+  }
+  if (badge?.label === "Revisado") {
+    return {
+      tone: "ready" as const,
+      label: "Radar revisou",
+      detail: "Busca concluída. Nenhuma rede confiável apareceu agora.",
+    };
+  }
+  if (found.length) {
+    return {
+      tone: "ready" as const,
+      label: found.some((item) => item === "Instagram" || item === "Facebook") ? "Redes encontradas" : "Dados encontrados",
+      detail: possibleSocial.length ? `${foundText} · há rede possível extra` : foundText,
     };
   }
   return null;
@@ -1964,6 +2098,7 @@ function buildSellerScoreBreakdown(lead: LeadItem) {
   const website = leadWebsiteForDisplay(lead);
   const instagram = normalizeExternalUrl(intelligence.instagramUrl);
   const facebook = normalizeExternalUrl(intelligence.facebookUrl);
+  const possibleSocial = leadPossibleSocialCandidates(lead);
   const rows = [
     { label: "Base do card", points: 44, active: true },
     { label: "WhatsApp confirmado", points: 24, active: whatsappReady },
@@ -1971,6 +2106,7 @@ function buildSellerScoreBreakdown(lead: LeadItem) {
     { label: "E-mail encontrado", points: String(intelligence.emailStatus || "").toLowerCase() === "probable" ? 8 : 14, active: Boolean(email) },
     { label: "Instagram", points: facebook ? 4 : 6, active: Boolean(instagram) },
     { label: "Facebook", points: instagram ? 4 : 4, active: Boolean(facebook) },
+    { label: "Rede social possível", points: 5, active: possibleSocial.length > 0 },
     { label: "Site fraco ou ausente", points: 7, active: !website || tags.has("sem_site") },
     { label: "Você selecionou cidade", points: 5, active: tags.has("cidade_alvo") || Boolean(lead.city) },
     { label: "Você selecionou segmento", points: 5, active: tags.has("segmento_alvo") || Boolean(lead.segment) },
@@ -1992,6 +2128,7 @@ function leadTagLabel(tag: string) {
     instagram_encontrado: "Instagram",
     facebook_encontrado: "Facebook",
     rede_social_confirmada: "Rede social",
+    rede_social_possivel: "Rede possível",
     rede_social_sem_site: "Social sem site",
   };
   return labels[tag] || tag.replace(/_/g, " ");
@@ -2753,6 +2890,7 @@ function LeadCardView({
   const inInbox = isLeadInInbox(lead);
   const webscrapingSummary = buildLeadWebscrapingSummary(lead);
   const channelAssets = buildLeadChannelAssets(lead);
+  const enrichmentDisplay = leadEnrichmentDisplay(lead);
   const selectedSalePlanKey = normalizeSalePlanKey(draft.salePlanKey || lead.salePlanKey);
   const closingSaleValue = parseCurrencyInput(draft.saleValue) || salePlanPrice(selectedSalePlanKey);
   const commissionPercent = leadCommissionPercent(lead);
@@ -2912,6 +3050,12 @@ function LeadCardView({
                   lead.city
                 ) : null}
               </span>
+              {enrichmentDisplay ? (
+                <span className={styles.mobileVendasEnrichmentLine} data-tone={enrichmentDisplay.tone}>
+                  <b>{enrichmentDisplay.label}</b>
+                  <em>{enrichmentDisplay.detail}</em>
+                </span>
+              ) : null}
               {channelAssets.length ? (
                 <div className={styles.leadCardChannelRow} aria-label="Canais disponíveis">
                   {channelAssets.map((asset) => {
@@ -5353,6 +5497,12 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     const facebookHref = socialLinksVisible
       ? normalizeExternalUrl(lead.leadIntelligence?.facebookUrl)
       : "";
+    const possibleInstagramHref = socialLinksVisible && !instagramHref
+      ? normalizeExternalUrl(leadPossibleSocialCandidateByNetwork(lead, "instagram")?.url)
+      : "";
+    const possibleFacebookHref = socialLinksVisible && !facebookHref
+      ? normalizeExternalUrl(leadPossibleSocialCandidateByNetwork(lead, "facebook")?.url)
+      : "";
     const email = leadEmailForDisplay(lead);
     const emailHref = email ? `mailto:${email}` : "";
     const websiteHref = normalizeExternalUrl(leadWebsiteForDisplay(lead));
@@ -5400,6 +5550,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
             rel="noreferrer"
             className={styles.mobileVendasChannelIcon}
             data-channel="instagram"
+            data-certainty="confirmed"
             data-compact={compact ? "true" : "false"}
             aria-label={`Abrir Instagram de ${lead.name || "lead"}`}
             onClick={(event) => event.stopPropagation()}
@@ -5414,8 +5565,41 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
             rel="noreferrer"
             className={styles.mobileVendasChannelIcon}
             data-channel="facebook"
+            data-certainty="confirmed"
             data-compact={compact ? "true" : "false"}
             aria-label={`Abrir Facebook de ${lead.name || "lead"}`}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <MobileChannelIconAsset channel="facebook" />
+          </a>
+        ) : null}
+        {possibleInstagramHref ? (
+          <a
+            href={possibleInstagramHref}
+            target="_blank"
+            rel="noreferrer"
+            className={styles.mobileVendasChannelIcon}
+            data-channel="instagram"
+            data-certainty="possible"
+            data-compact={compact ? "true" : "false"}
+            title="Instagram possível. Revise antes de abordar."
+            aria-label={`Abrir Instagram possível de ${lead.name || "lead"}`}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <MobileChannelIconAsset channel="instagram" />
+          </a>
+        ) : null}
+        {possibleFacebookHref ? (
+          <a
+            href={possibleFacebookHref}
+            target="_blank"
+            rel="noreferrer"
+            className={styles.mobileVendasChannelIcon}
+            data-channel="facebook"
+            data-certainty="possible"
+            data-compact={compact ? "true" : "false"}
+            title="Facebook possível. Revise antes de abordar."
+            aria-label={`Abrir Facebook possível de ${lead.name || "lead"}`}
             onClick={(event) => event.stopPropagation()}
           >
             <MobileChannelIconAsset channel="facebook" />
@@ -5470,6 +5654,12 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       leadWhatsappHref(lead),
       socialLinksVisible ? normalizeExternalUrl(lead.leadIntelligence?.instagramUrl) : "",
       socialLinksVisible ? normalizeExternalUrl(lead.leadIntelligence?.facebookUrl) : "",
+      socialLinksVisible && !normalizeExternalUrl(lead.leadIntelligence?.instagramUrl)
+        ? normalizeExternalUrl(leadPossibleSocialCandidateByNetwork(lead, "instagram")?.url)
+        : "",
+      socialLinksVisible && !normalizeExternalUrl(lead.leadIntelligence?.facebookUrl)
+        ? normalizeExternalUrl(leadPossibleSocialCandidateByNetwork(lead, "facebook")?.url)
+        : "",
       leadEmailForDisplay(lead) ? "email" : "",
       normalizeExternalUrl(leadWebsiteForDisplay(lead)),
       hasLockedSocialLinks(lead, board) ? "locked" : "",
@@ -5799,6 +5989,10 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     const radarVendasLabel = `${activeAgendaCount.toLocaleString("pt-BR")} no Vendas`;
     const radarReceivedVendasLabel = `${agendaReceivedCount.toLocaleString("pt-BR")} no Vendas`;
     const radarContextLabel = [radarCity, radarState].filter(Boolean).join(" / ") || radarSegment || "Radar Digital";
+    const activeVendasLeads = allLeads.filter(({ block }) => block !== "closed").map(({ lead }) => lead);
+    const enrichedVendasCount = activeVendasLeads.filter(leadHasPremiumSignals).length;
+    const possibleSocialVendasCount = activeVendasLeads.filter(leadHasPossibleSocial).length;
+    const reviewedVendasCount = activeVendasLeads.filter((lead) => leadEnrichmentBadgeState(lead, board)?.label === "Revisado").length;
     const mobileRadarState =
       !runActive && agendaReceivedCount > 0
         ? "received"
@@ -5830,26 +6024,32 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
             ? radarProgressLabel
             : mobileRadarState === "warning"
               ? "Radar precisa de ajuste"
-              : mobileRadarState === "received"
-                ? `${radarLocatedLabel}, ${radarReceivedVendasLabel}`
+      : mobileRadarState === "received"
+                ? enrichedVendasCount > 0
+                  ? `${radarReceivedVendasLabel}, ${enrichedVendasCount} ${enrichedVendasCount === 1 ? "com sinal" : "com sinais"}`
+                  : `${radarLocatedLabel}, ${radarReceivedVendasLabel}`
                 : "Motor pronto";
     const mobileRadarStatusText =
       runStatus === "sleeping"
         ? "Retoma sozinho"
       : mobileRadarState === "searching"
-        ? "Motores cruzando dados"
+        ? "Radar encontrando empresas"
         : mobileRadarState === "preparing"
-          ? "Preparando sua agenda"
+          ? "Separando cards aprovados"
         : mobileRadarState === "receiving"
-          ? "ABASTECENDO SUA AGENDA"
+          ? "ABASTECENDO VENDAS"
             : mobileRadarState === "partial"
             ? "Amplie cidade ou segmento"
             : mobileRadarState === "warning"
               ? "Abra o Radar para revisar"
               : mobileRadarState === "received"
-                ? agendaReceivedCount >= 40
+                ? possibleSocialVendasCount > 0
+                  ? `${possibleSocialVendasCount} ${possibleSocialVendasCount === 1 ? "rede possível" : "redes possíveis"} para revisar`
+                  : reviewedVendasCount > 0 && enrichedVendasCount <= 0
+                    ? "Cards revisados pelo Radar"
+                    : agendaReceivedCount >= 40
                   ? "Finalize ou delete para liberar"
-                  : "Radar alimentou o Vendas"
+                  : "Radar abasteceu Vendas"
                 : "Radar pronto para buscar";
     const salesHeaderState =
       !runActive && agendaReceivedCount > 0
@@ -5873,16 +6073,16 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       : mobileRadarState === "ready"
         ? "Receba cards do Radar e acompanhe retornos."
         : mobileRadarState === "searching"
-          ? `Buscando em ${radarContextLabel}.`
+          ? `Buscando empresas em ${radarContextLabel}.`
           : mobileRadarState === "preparing"
             ? `Radar encontrou cards em ${radarContextLabel}. Preparando Vendas.`
           : mobileRadarState === "receiving"
-            ? `Cards aprovados chegando de ${radarContextLabel}.`
+            ? `Cards aprovados chegando de ${radarContextLabel}. O enriquecimento continua depois.`
             : mobileRadarState === "partial"
               ? "O Radar entregou o que encontrou. Ajuste cidade ou segmento para completar."
               : mobileRadarState === "warning"
                 ? "Revise o Radar para destravar a busca."
-                : "Radar alimentou sua agenda comercial.";
+                : "Radar abasteceu sua agenda comercial.";
     const activeCapabilities = board?.capabilities || salesProfile?.capabilities || {};
     const mobileHeroPremiumActive = Boolean(
       board?.planTier === "lead" ||
@@ -6276,7 +6476,14 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       const websiteHref = normalizeExternalUrl(website);
       const instagramHref = socialLinksVisible ? normalizeExternalUrl(intelligence.instagramUrl) : "";
       const facebookHref = socialLinksVisible ? normalizeExternalUrl(intelligence.facebookUrl) : "";
-      const socialBadge = socialBadgeLabel(intelligence.primarySocial);
+      const possibleInstagramHref = socialLinksVisible && !instagramHref
+        ? normalizeExternalUrl(leadPossibleSocialCandidateByNetwork(lead, "instagram")?.url)
+        : "";
+      const possibleFacebookHref = socialLinksVisible && !facebookHref
+        ? normalizeExternalUrl(leadPossibleSocialCandidateByNetwork(lead, "facebook")?.url)
+        : "";
+      const possibleSocialVisible = Boolean(possibleInstagramHref || possibleFacebookHref);
+      const socialBadge = socialBadgeLabel(intelligence.primarySocial) || (possibleSocialVisible ? "Possível" : "");
       const socialTeaserVisible = capabilities.canSeeSocialLinks === "teaser_only" && Boolean(socialBadge);
       const whatsappStatus = intelligence.whatsappStatus || lead.whatsappAvailability?.status || null;
       const whatsappReady = whatsappStatus === "confirmed" || lead.whatsappAvailability?.status === "available";
@@ -6325,6 +6532,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         : !intelligenceVisible && intelligence.premiumTeaser
         ? { label: intelligence.premiumTeaser.label || "Disponível no HBX Lead", cta: intelligence.premiumTeaser.cta || "Ver card inteligente" }
         : null;
+      const enrichmentDisplay = leadEnrichmentDisplay(lead, board);
       const mobileLeadActionBar = (
         <nav
           className={`${styles.mobileLeadDetailActionBar} hbx-mobile-action-bar`}
@@ -6390,7 +6598,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
 
             <div className={styles.mobileLeadDetailBody}>
               {feedback ? <div className={`${styles.feedback} hbx-mobile-notice`}>{feedback}</div> : null}
-              {error ? <div className={`${styles.errorBanner} hbx-mobile-notice`} data-tone="error">{error}</div> : null}
+              {error ? <div className={`${styles.errorBanner} hbx-mobile-notice`} data-tone="error">{vendasClientMessage(error)}</div> : null}
 
               <section className={`${styles.mobileLeadHeroPremium} hbx-mobile-hero hbx-mobile-glass`}>
                 <span className={styles.mobileLeadHeroVisual} aria-hidden="true" />
@@ -6423,6 +6631,18 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                   <span>{mobileLeadSourceLabel(lead)}</span>
                 </div>
               </section>
+
+              {enrichmentDisplay ? (
+                <section className={`${styles.mobileLeadEnrichmentStatus} hbx-mobile-card`} data-tone={enrichmentDisplay.tone}>
+                  <span aria-hidden="true">
+                    <CrownGlyph />
+                  </span>
+                  <div>
+                    <strong>{enrichmentDisplay.label}</strong>
+                    <small>{enrichmentDisplay.detail}</small>
+                  </div>
+                </section>
+              ) : null}
 
               {mobileScoreLead?.id === lead.id ? (
                 <div className={styles.mobileScoreSheetBackdrop} role="presentation" onClick={() => setMobileScoreLead(null)}>
@@ -6514,7 +6734,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                     )}
                     <b data-tone={website ? "smart" : "muted"}>{website ? "Site encontrado" : "Sem site"}</b>
                   </div>
-                  {socialBadge && socialLinksVisible ? (
+                  {(instagramHref || facebookHref) && socialLinksVisible ? (
                     <div>
                       <span className={styles.mobileLeadRowIcon} aria-hidden="true">
                         {socialBadge}
@@ -6523,8 +6743,17 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                       <b data-tone="success">Links liberados</b>
                     </div>
                   ) : null}
+                  {possibleSocialVisible ? (
+                    <div data-certainty="possible">
+                      <span className={styles.mobileLeadRowIcon} aria-hidden="true">
+                        ?
+                      </span>
+                      <strong>Rede social possível</strong>
+                      <b data-tone="muted">Revisar perfil</b>
+                    </div>
+                  ) : null}
                 </div>
-                {(instagramHref || facebookHref) ? (
+                {(instagramHref || facebookHref || possibleInstagramHref || possibleFacebookHref) ? (
                   <div className={styles.mobileLeadSocialActions}>
                     {instagramHref ? (
                       <a href={instagramHref} target="_blank" rel="noreferrer">
@@ -6534,6 +6763,16 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                     {facebookHref ? (
                       <a href={facebookHref} target="_blank" rel="noreferrer">
                         Abrir Facebook
+                      </a>
+                    ) : null}
+                    {possibleInstagramHref ? (
+                      <a href={possibleInstagramHref} target="_blank" rel="noreferrer" data-certainty="possible">
+                        Revisar Instagram
+                      </a>
+                    ) : null}
+                    {possibleFacebookHref ? (
+                      <a href={possibleFacebookHref} target="_blank" rel="noreferrer" data-certainty="possible">
+                        Revisar Facebook
                       </a>
                     ) : null}
                   </div>
@@ -7091,6 +7330,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
             {mobileLeads.length ? (
               mobileLeads.map(({ lead }, index) => {
                 const status = lead.statusLabel || statusLabel(lead.status);
+                const enrichmentDisplay = leadEnrichmentDisplay(lead, board);
                 return (
                   <div
                     className={styles.mobileVendasSwipeShell}
@@ -7137,6 +7377,12 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                             Retorno <b>{mobileReturnLabel(lead)}</b>
                           </small>
                         </div>
+                        {enrichmentDisplay ? (
+                          <div className={styles.mobileVendasEnrichmentLine} data-tone={enrichmentDisplay.tone}>
+                            <b>{enrichmentDisplay.label}</b>
+                            <em>{enrichmentDisplay.detail}</em>
+                          </div>
+                        ) : null}
                         <div className={styles.mobileVendasChannelRow} aria-label="Canais disponíveis">
                         {renderMobileLeadChannels(lead)}
                       </div>

@@ -87,7 +87,6 @@ import {
   coerceBoolean,
   normalizeEngine,
   normalizeEnginePurpose,
-  normalizeCardDiscoveryQualityMode,
   isAutomaticEnginePurpose,
   normalizeTargetType,
   parsePositiveInteger,
@@ -382,7 +381,6 @@ export class RadarCoreSearchLoopMixin {
       preferredChannels: normalized.preferredChannels,
       requiredChannels: normalized.requiredChannels,
       channelMatchMode: normalized.channelMatchMode,
-      qualityMode: normalized.qualityMode,
       salesProfile: normalized.salesProfile,
     } as NormalizedRadarFilters;
     const results = rows
@@ -445,8 +443,6 @@ export class RadarCoreSearchLoopMixin {
       const incoming = Array.isArray(response.results) ? response.results : [];
       if (incoming.length > 0) {
         const savedCounts = await this.saveSearchRunResults(context, normalized, runId, incoming, 'google_emergency');
-        this.enqueueRadarWebEnrichmentForSavedLeads(context, runId, normalized, savedCounts.savedWebEnrichmentLeadIds);
-        this.enqueueRadarSocialLookupForSavedLeads(context, runId, normalized, savedCounts.savedLeadIds);
         await this.recalculateSearchRunCounters(runId);
       }
       await this.prisma.webscrapingSearchRun.update({
@@ -887,8 +883,6 @@ export class RadarCoreSearchLoopMixin {
         'hbx',
         safeInteger(current.attemptCount) * batchLimit,
       );
-      this.enqueueRadarWebEnrichmentForSavedLeads(context, runId, batchInput, savedCounts.savedWebEnrichmentLeadIds, engineUrl);
-      this.enqueueRadarSocialLookupForSavedLeads(context, runId, batchInput, savedCounts.savedLeadIds, engineUrl);
       if (lease) {
         await this.getEnginePool().markEngineBatchSuccess(lease.engineId).catch(() => null);
       }

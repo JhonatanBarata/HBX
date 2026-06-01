@@ -161,6 +161,20 @@ export class RadarRunPresenterService {
       enrichmentStatus: raw.enrichmentStatus || null,
       socialStatus: raw.socialStatus || raw.signals?.socialStatus || null,
       socialConfidence: raw.socialConfidence == null ? null : safeInteger(raw.socialConfidence),
+      possibleSocialCandidates: Array.isArray(raw.possibleSocialCandidates)
+        ? raw.possibleSocialCandidates
+        : Array.isArray(raw.signals?.possibleSocialCandidates)
+          ? raw.signals.possibleSocialCandidates
+          : Array.isArray(enrichmentJson?.signals?.possibleSocialCandidates)
+            ? enrichmentJson.signals.possibleSocialCandidates
+            : [],
+      confirmedSocialCandidates: Array.isArray(raw.confirmedSocialCandidates)
+        ? raw.confirmedSocialCandidates
+        : Array.isArray(raw.signals?.confirmedSocialCandidates)
+          ? raw.signals.confirmedSocialCandidates
+          : Array.isArray(enrichmentJson?.signals?.confirmedSocialCandidates)
+            ? enrichmentJson.signals.confirmedSocialCandidates
+            : [],
       googleMapsUrl: String(raw.googleMapsUrl || raw.mapsUrl || raw.signals?.googleMapsUrl || '').trim() || null,
       whatsappStatus: raw.whatsappStatus || raw.whatsappCheckStatus || raw.signals?.whatsappStatus || null,
       whatsappCheckStatus: raw.whatsappCheckStatus || raw.whatsappStatus || raw.signals?.whatsappStatus || null,
@@ -201,7 +215,6 @@ export class RadarRunPresenterService {
       preferredChannels: runInput.preferredChannels || [],
       requiredChannels,
       channelMatchMode,
-      qualityMode: runInput.qualityMode || 'list',
       salesProfile: runInput.salesProfile || null,
     } as NormalizedRadarFilters;
     const deliverableFoundItems = foundItems.filter((item) => host.isRunItemQualityDeliverable(item, qualityInput));
@@ -342,6 +355,20 @@ export class RadarRunPresenterService {
           enrichmentStatus: raw.enrichmentStatus || null,
           socialStatus: raw.socialStatus || raw.signals?.socialStatus || null,
           socialConfidence: raw.socialConfidence == null ? null : safeInteger(raw.socialConfidence),
+          possibleSocialCandidates: Array.isArray(raw.possibleSocialCandidates)
+            ? raw.possibleSocialCandidates
+            : Array.isArray(raw.signals?.possibleSocialCandidates)
+              ? raw.signals.possibleSocialCandidates
+              : Array.isArray(enrichmentJson?.signals?.possibleSocialCandidates)
+                ? enrichmentJson.signals.possibleSocialCandidates
+                : [],
+          confirmedSocialCandidates: Array.isArray(raw.confirmedSocialCandidates)
+            ? raw.confirmedSocialCandidates
+            : Array.isArray(raw.signals?.confirmedSocialCandidates)
+              ? raw.signals.confirmedSocialCandidates
+              : Array.isArray(enrichmentJson?.signals?.confirmedSocialCandidates)
+                ? enrichmentJson.signals.confirmedSocialCandidates
+                : [],
           googleMapsUrl: raw.googleMapsUrl || raw.mapsUrl || raw.signals?.googleMapsUrl || null,
           whatsappStatus: raw.whatsappStatus || raw.whatsappCheckStatus || raw.signals?.whatsappStatus || null,
           whatsappCheckStatus: raw.whatsappCheckStatus || raw.whatsappStatus || raw.signals?.whatsappStatus || null,

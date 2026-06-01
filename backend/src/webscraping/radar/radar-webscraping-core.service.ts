@@ -187,7 +187,6 @@ import {
   coerceBoolean,
   normalizeEngine,
   normalizeEnginePurpose,
-  normalizeCardDiscoveryQualityMode,
   isAutomaticEnginePurpose,
   normalizeTargetType,
   parsePositiveInteger,
@@ -502,6 +501,50 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
     return {
       searchHbxEngine: (input, existing, engineUrl, options) => this.searchHbxEngine(input, existing, engineUrl, options),
       getRadarWebsiteCrawlSource: () => this.getRadarWebsiteCrawlSource(),
+      recordVendasEnrichmentStatus: async (context, row, status, payload = {}) => {
+        const result = await this.getRadarPostDeliveryVendasUpdate().recordEnrichmentStatus({
+          prisma: this.prisma,
+          context,
+          row,
+          status,
+          payload,
+        });
+        if (result.status === 'partial_error') {
+          await this.markRadarPostDeliveryUpdateRetryable(row?.id, result.error || 'Falha ao registrar enriquecimento no Vendas.', 'post_delivery_update');
+        }
+      },
+      syncVendasAfterRadarEnrichment: async (context, row, data, reason) => {
+        const compactEnrichment = {
+          source: 'radar_web_enrichment',
+          reason: reason || null,
+          enrichmentStatus: 'completed',
+          website: data.website || null,
+          email: data.email || null,
+          instagramUrl: data.instagramUrl || null,
+          facebookUrl: data.facebookUrl || null,
+          possibleSocialCandidates: Array.isArray(data.possibleSocialCandidates) ? data.possibleSocialCandidates : [],
+          confirmedSocialCandidates: Array.isArray(data.confirmedSocialCandidates) ? data.confirmedSocialCandidates : [],
+          socialStatus: data.socialStatus || null,
+          socialConfidence: data.socialConfidence || null,
+          recommendedChannel: data.recommendedChannel || null,
+          opportunityReason: data.opportunityReason || null,
+        };
+        const result = await this.getRadarPostDeliveryVendasUpdate().syncAfterRadarEnrichment({
+          prisma: this.prisma,
+          context,
+          row,
+          data: {
+            ...data,
+            enrichmentStatus: 'completed',
+          },
+          compactEnrichment,
+        });
+        if (result.status === 'partial_error') {
+          await this.markRadarPostDeliveryUpdateRetryable(row?.id, result.error || 'Falha ao atualizar Vendas apos enriquecimento.', 'post_delivery_update');
+        } else if (result.status === 'completed') {
+          await this.markRadarPostDeliveryUpdateCompleted(row?.id);
+        }
+      },
       logger: this.logger,
     };
   }

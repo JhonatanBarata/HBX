@@ -1,9 +1,13 @@
 import unicodedata
+import base64
+import html
+import os
 import re
 import time
 from typing import Any
-from urllib.parse import quote, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
+import httpx
 from ddgs import DDGS
 
 from .filters import is_blocked_lead_source_domain
@@ -20,6 +24,7 @@ SOCIAL_DISCOVERY_FORCED_QUERY_LIMIT_PER_CHANNEL = 3
 DISCOVERY_QUERY_BACKEND = "bing"
 PJ_DISCOVERY_TIMEOUT_SECONDS = 8
 SOCIAL_DISCOVERY_TIMEOUT_SECONDS = 12
+DISCOVERY_SEARCH_TIMEOUT_SECONDS = 4
 SocialProfileCandidate = dict[str, str]
 HEALTH_SENIOR_DISCOVERY_SEGMENTS = (
     "clínicas geriátricas",
@@ -84,13 +89,17 @@ def build_queries(segment: str, city: str, state: str, target_type: str = "pj", 
             f"{segment} {city} {state} whatsapp",
         ]
     if location:
-        return [
-            f"{segment} {location} telefone",
-            f"{segment} {location} contato",
-            f"{segment} {location} whatsapp",
-            f"{segment} em {location}",
-            f"{segment} {location} site oficial",
-        ]
+        segment_variants = discovery_segment_variants(segment)
+        queries: list[str] = []
+        for variant in segment_variants:
+            queries.extend([
+                f"{variant} {location} telefone",
+                f"{variant} {location} contato",
+                f"{variant} {location} whatsapp",
+                f"{variant} em {location}",
+                f"{variant} {location} site oficial",
+            ])
+        return list(dict.fromkeys(queries))
     return [
         f"{segment} telefone",
         f"{segment} contato",
@@ -98,6 +107,25 @@ def build_queries(segment: str, city: str, state: str, target_type: str = "pj", 
         f"{segment} site oficial",
         f"{segment} empresas telefone",
     ]
+
+
+def discovery_segment_variants(segment: str) -> list[str]:
+    text = " ".join(str(segment or "").split())
+    key = slugify_path_part(text)
+    variants = [text] if text else []
+
+    def add(items: list[str]) -> None:
+        for item in items:
+            if item and item not in variants:
+                variants.append(item)
+
+    if re.search(r"beleza|salao|saloes|cabelo|cabeleireiro|estetica|sobrancelha|makeup|maquiagem", key):
+        add(["salao de beleza", "instituto de beleza", "estetica", "cabeleireiro", "sobrancelhas", "makeup"])
+    if re.search(r"barba|barbearia", key):
+        add(["barbearia", "barbeiro"])
+    if re.search(r"cosmetico|perfumaria", key):
+        add(["cosmeticos", "perfumaria"])
+    return variants[:8]
 
 
 def profile_labels(value: Any) -> list[str]:
@@ -229,6 +257,104 @@ def text_variants(value: str) -> list[str]:
     return list(dict.fromkeys([text, ascii_text]))
 
 
+def clean_search_result_text(value: str) -> str:
+    text = re.sub(r"<[^>]+>", " ", str(value or ""))
+    return " ".join(html.unescape(text).split())
+
+
+def decode_search_result_url(raw_url: str) -> str:
+    raw = html.unescape(str(raw_url or "").strip())
+    if raw.startswith("//"):
+        raw = f"https:{raw}"
+    parsed = urlparse(raw)
+    if "bing.com" in parsed.netloc.lower() and parsed.path.startswith("/ck/"):
+        encoded = parse_qs(parsed.query).get("u", [""])[0]
+        if encoded.startswith("a1"):
+            payload = encoded[2:]
+            payload += "=" * (-len(payload) % 4)
+            try:
+                decoded = base64.urlsafe_b64decode(payload.encode()).decode("utf-8", "ignore")
+                if decoded.startswith("http"):
+                    return decoded
+            except Exception:
+                pass
+    return raw
+
+
+def search_bing_rows(query: str, deadline: float, max_results: int = 8) -> list[dict[str, str]]:
+    if time.monotonic() >= deadline:
+        return []
+    timeout = min(DISCOVERY_SEARCH_TIMEOUT_SECONDS, max(0.2, deadline - time.monotonic()))
+    try:
+        response = httpx.get(
+            "https://www.bing.com/search",
+            params={"q": query, "setlang": "pt-BR", "cc": "BR"},
+            timeout=httpx.Timeout(timeout, connect=min(timeout, 2.0), read=timeout, write=min(timeout, 2.0), pool=min(timeout, 2.0)),
+            follow_redirects=True,
+            headers={"accept": "text/html,application/xhtml+xml", "user-agent": "Mozilla/5.0"},
+        )
+        if response.status_code >= 400:
+            return []
+        body = response.text
+    except Exception as error:
+        print(f"[discovery] bing falhou: {query} error={error}")
+        return []
+
+    rows: list[dict[str, str]] = []
+    for match in re.finditer(r'<li[^>]+class="[^"]*\bb_algo\b[^"]*"[\s\S]*?<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)</a>([\s\S]*?)(?=<li[^>]+class="[^"]*\bb_algo\b|</ol>|$)', body, flags=re.I):
+        url = decode_search_result_url(match.group(1))
+        title = clean_search_result_text(match.group(2))
+        snippet_match = re.search(r"<p[^>]*>([\s\S]*?)</p>", match.group(3), flags=re.I)
+        snippet = clean_search_result_text(snippet_match.group(1) if snippet_match else "")
+        if url and title:
+            rows.append({"href": url, "url": url, "title": title, "body": snippet, "snippet": snippet})
+        if len(rows) >= max_results:
+            return rows
+
+    for match in re.finditer(r'<a[^>]+href="([^"]+)"[^>]*>([\s\S]{0,300}?)</a>', body, flags=re.I):
+        url = decode_search_result_url(match.group(1))
+        title = clean_search_result_text(match.group(2))
+        if url and title:
+            rows.append({"href": url, "url": url, "title": title, "body": "", "snippet": ""})
+        if len(rows) >= max_results:
+            return rows
+    return rows
+
+
+def search_ddgs_rows(query: str, deadline: float, max_results: int = 8) -> list[dict[str, str]] | None:
+    if time.monotonic() >= deadline:
+        return []
+    timeout = min(1.2, max(0.2, deadline - time.monotonic()))
+    try:
+        try:
+            ddgs = DDGS(timeout=timeout)
+        except TypeError:
+            ddgs = DDGS()
+        with ddgs as client:
+            rows = list(client.text(query, region="br-pt", safesearch="off", max_results=max_results, backend=DISCOVERY_QUERY_BACKEND) or [])
+    except Exception as error:
+        print(f"[discovery] ddgs falhou: {query} error={error}")
+        return None
+
+    output: list[dict[str, str]] = []
+    for row in rows:
+        url = str(row.get("href") or row.get("url") or "").strip()
+        title = clean_search_result_text(str(row.get("title") or ""))
+        snippet = clean_search_result_text(str(row.get("body") or row.get("snippet") or row.get("description") or ""))
+        if url:
+            output.append({"href": url, "url": url, "title": title, "body": snippet, "snippet": snippet})
+        if len(output) >= max_results:
+            break
+    return output
+
+
+def search_discovery_rows(query: str, deadline: float, max_results: int = 8) -> list[dict[str, str]]:
+    rows = search_ddgs_rows(query, deadline, max_results)
+    if rows is not None and (rows or os.getenv("HBX_BING_FALLBACK_ON_EMPTY", "").lower() not in {"1", "true", "yes", "on"}):
+        return rows
+    return search_bing_rows(query, deadline, max_results)
+
+
 def build_social_queries(segment: str, city: str, state: str, channels: set[str]) -> list[str]:
     city_text = " ".join(str(city or "").split())
     state_text = " ".join(str(state or "").split())
@@ -282,60 +408,52 @@ def discover_social_profiles(
     preferred_channels: list[str] | None = None,
     required_channels: list[str] | None = None,
     target_override: int | None = None,
+    query: str = "",
 ) -> list[SocialProfileCandidate]:
     channels = requested_social_channels(preferred_channels, required_channels)
     if not channels:
         return []
 
-    queries = build_social_queries(segment, city, state, channels)
+    explicit_query = " ".join(str(query or "").split())
+    queries = [explicit_query] if explicit_query else build_social_queries(segment, city, state, channels)
     target = max(1, int(target_override)) if target_override is not None else max(SOCIAL_DISCOVERY_MIN_TARGET, limit * SOCIAL_DISCOVERY_LIMIT_MULTIPLIER)
     if target_override is not None:
         channels_count = max(1, len(channels))
         queries = queries[: max(1, channels_count * SOCIAL_DISCOVERY_FORCED_QUERY_LIMIT_PER_CHANNEL)]
     per_query_results = min(8, max(target * 2, 6)) if target_override is not None else SOCIAL_DISCOVERY_MAX_RESULTS_PER_QUERY
-    backend = "auto"
     seen: set[str] = set()
     profiles: list[SocialProfileCandidate] = []
 
     deadline = time.monotonic() + (6 if target_override is not None else SOCIAL_DISCOVERY_TIMEOUT_SECONDS)
 
-    try:
-        ddgs = DDGS(timeout=2 if target_override is not None else 3)
-    except TypeError:
-        ddgs = DDGS()
-    with ddgs:
-        for query in queries:
-            if time.monotonic() >= deadline:
-                print("[social_discovery] budget esgotado")
-                break
-            try:
-                rows = ddgs.text(query, region="br-pt", safesearch="off", max_results=per_query_results, backend=DISCOVERY_QUERY_BACKEND)
-            except Exception as error:
-                print(f"[social_discovery] query falhou: {query} error={error}")
+    for query in queries:
+        if time.monotonic() >= deadline:
+            print("[social_discovery] budget esgotado")
+            break
+        rows = search_discovery_rows(query, deadline, per_query_results)
+
+        for row in rows or []:
+            raw_url = str(row.get("href") or row.get("url") or "").strip()
+            url = normalize_social_url(raw_url)
+            channel = social_channel_for_url(url or "")
+            if not url or not channel or channel not in channels:
+                continue
+            if url in seen:
+                continue
+            if not is_valid_social_profile_url(url):
                 continue
 
-            for row in rows or []:
-                raw_url = str(row.get("href") or row.get("url") or "").strip()
-                url = normalize_social_url(raw_url)
-                channel = social_channel_for_url(url or "")
-                if not url or not channel or channel not in channels:
-                    continue
-                if url in seen:
-                    continue
-                if not is_valid_social_profile_url(url):
-                    continue
+            seen.add(url)
+            profiles.append({
+                "url": url,
+                "channel": channel,
+                "title": str(row.get("title") or ""),
+                "snippet": str(row.get("body") or row.get("snippet") or row.get("description") or ""),
+                "query": query,
+            })
 
-                seen.add(url)
-                profiles.append({
-                    "url": url,
-                    "channel": channel,
-                    "title": str(row.get("title") or ""),
-                    "snippet": str(row.get("body") or row.get("snippet") or row.get("description") or ""),
-                    "query": query,
-                })
-
-                if len(profiles) >= target:
-                    return profiles
+            if len(profiles) >= target:
+                return profiles
 
     return profiles
 
@@ -393,46 +511,29 @@ def discover_urls(
     seen: set[str] = {str(url or "").strip().rstrip("/") for url in (exclude_urls or []) if str(url or "").strip()}
     urls: list[str] = []
 
-    if target_type == "pj" and not social_channels and not required_channel_set:
-        for url in build_directory_seed_urls(segment, city, state):
-            normalized = url.rstrip("/")
-            if normalized in seen or not _is_allowed_url(normalized, effective_preferred, effective_required):
-                continue
-            seen.add(normalized)
-            urls.append(normalized)
-
     deadline = time.monotonic() + PJ_DISCOVERY_TIMEOUT_SECONDS
     query_budget = queries
     if target_type == "pj" and not social_channels:
         query_budget = queries[:4]
 
-    try:
-        ddgs = DDGS(timeout=3)
-    except TypeError:
-        ddgs = DDGS()
-    with ddgs:
-        for query in query_budget:
-            if time.monotonic() >= deadline:
-                print("[discovery] budget esgotado")
-                break
-            try:
-                results = ddgs.text(query, region="br-pt", safesearch="off", max_results=per_query, backend=DISCOVERY_QUERY_BACKEND)
-            except Exception as error:
-                print(f"[discovery] query falhou: {query} error={error}")
+    for query in query_budget:
+        if time.monotonic() >= deadline:
+            print("[discovery] budget esgotado")
+            break
+        results = search_discovery_rows(query, deadline, per_query)
+        for row in results or []:
+            url = str(row.get("href") or row.get("url") or "").strip()
+            normalized = url.rstrip("/")
+            if social_channel_for_url(normalized) and is_valid_social_profile_url(normalized):
                 continue
-            for row in results or []:
-                url = str(row.get("href") or row.get("url") or "").strip()
-                normalized = url.rstrip("/")
-                if social_channel_for_url(normalized) and is_valid_social_profile_url(normalized):
-                    continue
-                if normalized in seen or not _is_allowed_url(normalized, effective_preferred, effective_required):
-                    continue
-                seen.add(normalized)
-                urls.append(normalized)
-                if len(urls) >= target:
-                    return urls
+            if normalized in seen or not _is_allowed_url(normalized, effective_preferred, effective_required):
+                continue
+            seen.add(normalized)
+            urls.append(normalized)
+            if len(urls) >= target:
+                return urls
 
-    if target_type == "pj" and len(urls) < max(1, min(limit, 4)):
+    if target_type == "pj" and len(urls) < target:
         for url in build_directory_seed_urls(segment, city, state):
             normalized = url.rstrip("/")
             if normalized in seen or not _is_allowed_url(normalized, effective_preferred, effective_required):

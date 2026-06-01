@@ -30,7 +30,6 @@ const baseInput: any = {
   normalizedCity: 'curitiba',
   normalizedSegment: 'clinicas',
   excludePhoneDigits: [],
-  qualityMode: 'list',
   salesProfile: null,
   preferredChannels: [],
   requiredChannels: [],
@@ -116,7 +115,12 @@ function createPostDeliveryPrismaMock() {
     vendasLeadTimelineEvent: {
       findMany: async (input: any) => timelineEvents
         .filter((event) => event.leadId === input.where.leadId && event.sourceType === input.where.sourceType)
-        .filter((event) => input.where.eventType.in.includes(event.eventType))
+        .filter((event) => {
+          if (input.where.eventType?.in) return input.where.eventType.in.includes(event.eventType);
+          if (input.where.eventType) return event.eventType === input.where.eventType;
+          return true;
+        })
+        .filter((event) => input.where.resultLabel ? event.resultLabel === input.where.resultLabel : true)
         .map((event) => ({ eventType: event.eventType })),
       createMany: async (input: any) => {
         timelineEvents.push(...input.data);

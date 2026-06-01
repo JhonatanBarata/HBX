@@ -91,7 +91,6 @@ import {
   coerceBoolean,
   normalizeEngine,
   normalizeEnginePurpose,
-  normalizeCardDiscoveryQualityMode,
   isAutomaticEnginePurpose,
   normalizeTargetType,
   parsePositiveInteger,
@@ -585,21 +584,13 @@ export class RadarCoreQualityEnrichmentMixin {
     return gate.deliverable;
   }
 
-  private isStrongLeadPlusReview(candidate: Record<string, any>, quality: LeadQualityResult | null | undefined, qualityV2: LeadQualityV2 | null | undefined) {
-    if (!qualityV2 || qualityV2.decision !== 'review') return false;
-    if (!this.isApprovedLeadQuality(quality)) return false;
-    if (qualityV2.finalRankScore < 78 || qualityV2.contactabilityScore < 60 || qualityV2.riskScore >= 40) return false;
-    if (qualityV2.recommendedChannel === 'discard' || qualityV2.recommendedChannel === 'review') return false;
-    return this.hasUsablePublicContactChannel(candidate);
-  }
-
   private classifyCardDelivery(
     candidate: Record<string, any>,
     input: NormalizedSearchInput | NormalizedRadarFilters,
     quality?: LeadQualityResult | null,
     qualityV2?: LeadQualityV2 | null,
   ): HbxDeliveryClassification {
-    const deliveryProduct: HbxDeliveryProduct = this.resolveQualityMode(input) === 'lead_plus' ? 'lead_plus' : 'list';
+    const deliveryProduct: HbxDeliveryProduct = 'list';
     const effectiveQuality = quality ?? this.getCandidateQuality(candidate, input);
     const effectiveQualityV2 = qualityV2 ?? this.extractLeadQualityV2FromObject(candidate) ?? this.getCandidateQualityV2(candidate, input);
     const qualityReason = (fallback: string) => this.buildQualityReason(effectiveQuality, effectiveQualityV2, fallback);
@@ -614,7 +605,6 @@ export class RadarCoreQualityEnrichmentMixin {
       ? resolveRadarVisibilityFromQualityV2({
           lead: candidate,
           quality: effectiveQualityV2,
-          qualityMode: deliveryProduct,
           requestedSegment: (input as any)?.segment,
         })
       : {
@@ -644,39 +634,23 @@ export class RadarCoreQualityEnrichmentMixin {
       };
     }
 
-    const leadPlusQualified =
-      visibility.visibilityTier === 'lead_plus_qualified'
-      || (
-        this.isApprovedLeadQuality(effectiveQuality)
-        && this.isStrongLeadPlusReview(candidate, effectiveQuality, effectiveQualityV2)
-      );
-
-    if (deliveryProduct === 'lead_plus') {
-      if (leadPlusQualified) {
-        return {
-          visibilityTier: 'lead_plus_qualified',
-          billable: true,
-          debitEligible: true,
-          deliveryProduct,
-          qualityReason: qualityReason('Lead+ qualificado.'),
-        };
-      }
-      return {
-        visibilityTier: effectiveQualityV2 ? visibility.visibilityTier === 'list_basic' ? 'review_backup' : visibility.visibilityTier : 'enrichment_pending',
-        billable: false,
-        debitEligible: false,
-        deliveryProduct,
-        qualityReason: qualityReason('Card real, aguardando enriquecimento Lead+.'),
-      };
-    }
-
     return {
       visibilityTier: visibility.visibilityTier === 'review_backup' ? 'review_backup' : 'list_basic',
       billable: visibility.visibilityTier !== 'review_backup',
       debitEligible: visibility.visibilityTier !== 'review_backup',
       deliveryProduct,
-      qualityReason: qualityReason('Card basico valido para List.'),
+      qualityReason: qualityReason('Card valido para entrega.'),
     };
+  }
+
+  private isCardDeliveryEligibleForVendas(
+    delivery: HbxDeliveryClassification | null | undefined,
+    _candidate?: Record<string, any> | null,
+    _qualityV2?: LeadQualityV2 | null,
+  ) {
+    if (!delivery) return false;
+    if (!delivery.debitEligible || !delivery.billable) return false;
+    return delivery.visibilityTier === 'list_basic';
   }
 
   private attachDeliveryClassification<T extends Record<string, any>>(
@@ -804,18 +778,13 @@ export class RadarCoreQualityEnrichmentMixin {
     return targetType === 'pj';
   }
 
-  private resolveQualityMode(_input?: NormalizedSearchInput | NormalizedRadarFilters): 'list' | 'lead_plus' {
-    return normalizeCardDiscoveryQualityMode();
-  }
-
   private isQualityV2Deliverable(qualityV2: LeadQualityV2, input?: NormalizedSearchInput | NormalizedRadarFilters) {
     if (!this.shouldApplyQualityV2Gate(input)) return true;
     if (qualityV2.decision === 'protect' || qualityV2.decision === 'discard') return false;
-    return this.resolveQualityMode(input) === 'lead_plus' ? qualityV2.decision === 'deliver' : true;
+    return true;
   }
 
-  private stripListPremiumFields<T extends Record<string, any>>(contact: T, input?: NormalizedSearchInput | NormalizedRadarFilters): T {
-    if (this.resolveQualityMode(input) === 'lead_plus') return contact;
+  private stripListPremiumFields<T extends Record<string, any>>(contact: T, _input?: NormalizedSearchInput | NormalizedRadarFilters): T {
     const clean = { ...contact };
     const hadPremiumSignal = Boolean(
       clean.instagramUrl
@@ -953,7 +922,8 @@ export class RadarCoreQualityEnrichmentMixin {
     const candidate = { ...raw, ...item };
     const qualityV2 = this.extractLeadQualityV2FromObject(candidate) || this.getCandidateQualityV2(candidate, input);
     const quality = this.getCandidateQuality(candidate, input);
-    return this.isListDeliverableCard(candidate, input, quality, qualityV2);
+    if (!this.isListDeliverableCard(candidate, input, quality, qualityV2)) return false;
+    return this.isCardDeliveryEligibleForVendas(this.classifyCardDelivery(candidate, input, quality, qualityV2), candidate, qualityV2);
   }
 
   private isRunItemPrimaryDeliverable(item: any, input: NormalizedSearchInput | NormalizedRadarFilters) {
@@ -1086,14 +1056,20 @@ export class RadarCoreQualityEnrichmentMixin {
         state: resultState,
         segment: resultSegment,
       }, normalized);
+      const resultForQuality = {
+        ...(result as any),
+        city: resultCity || normalized.city,
+        state: resultState || normalized.state,
+        segment: resultSegment || normalized.segment,
+      };
       const quality = classified.status === 'found'
-        ? this.evaluateResultQualityForInput(result as any, normalized)
+        ? this.evaluateResultQualityForInput(resultForQuality, normalized)
         : this.extractLeadQualityFromObject(result as any);
       const qualityV2 = classified.status === 'found'
-        ? this.getCandidateQualityV2(result as any, normalized)
+        ? this.getCandidateQualityV2(resultForQuality, normalized)
         : this.extractLeadQualityV2FromObject(result as any);
       const qualityGate = this.getRadarQualityGate().evaluate({
-        candidate: result as any,
+        candidate: resultForQuality,
         filters: normalized,
         quality,
         qualityV2,
@@ -1108,22 +1084,43 @@ export class RadarCoreQualityEnrichmentMixin {
         : classified.duplicateReason;
       const resultInstagramUrl = String((result as any).instagramUrl || '').trim();
       const resultFacebookUrl = String((result as any).facebookUrl || '').trim();
+      const resultWebsite = String((result as any).website || '').trim();
+      const resultEmail = String((result as any).email || '').trim();
       const resultSocialStatus = String((result as any).socialStatus || '').trim();
+      const enrichmentMissingFields = finalStatus === 'found'
+        ? [
+            !resultInstagramUrl ? 'instagram' : null,
+            !resultFacebookUrl ? 'facebook' : null,
+            !resultWebsite ? 'site' : null,
+            !resultEmail ? 'email' : null,
+          ].filter(Boolean)
+        : [];
+      const enrichmentStatus = finalStatus === 'found'
+        ? enrichmentMissingFields.length > 0 ? 'pending' : 'completed'
+        : 'skipped';
       const socialStatus = finalStatus === 'found' && !resultInstagramUrl && !resultFacebookUrl
         ? 'pending'
         : resultInstagramUrl || resultFacebookUrl
           ? resultSocialStatus || 'found'
           : resultSocialStatus || null;
       const rawPayload = {
-        ...result,
+        ...resultForQuality,
         ...buildRadarStageSnapshot({
-          ...result,
+          ...resultForQuality,
           leadStatus: finalStatus === 'found' ? 'qualified' : finalStatus === 'duplicate' ? 'duplicate' : 'rejected',
           deliveryStatus: finalStatus === 'found' ? 'deliverable' : 'blocked',
-          enrichmentStatus: finalStatus === 'found' ? 'partial' : 'skipped',
+          enrichmentStatus,
           socialStatus: socialStatus || undefined,
           providerStatus: 'available',
         }),
+        ...(enrichmentMissingFields.length > 0
+          ? {
+              enrichmentQueued: true,
+              enrichmentMissingFields,
+              clientStatusLabel: 'Card entregue',
+              clientStatusMessage: 'Contato principal aprovado. O Radar vai completar redes sociais, site e e-mail em segundo plano.',
+            }
+          : {}),
         ...(socialStatus ? { socialStatus } : {}),
         ...((resultInstagramUrl || resultFacebookUrl) && (result as any).socialConfidence == null ? { socialConfidence: 80 } : {}),
         ...(quality ? { quality, qualityV2, qualityGate } : {}),
@@ -1192,7 +1189,6 @@ export class RadarCoreQualityEnrichmentMixin {
           ? resolveRadarVisibilityFromQualityV2({
               lead: result,
               quality: qualityV2,
-              qualityMode: normalized.qualityMode,
               requestedSegment: normalized.segment,
             })
           : {
@@ -1207,8 +1203,6 @@ export class RadarCoreQualityEnrichmentMixin {
         } else if (visibility.visibilityTier === 'review_backup') {
           metricIncrements.savedReviewBackupCount = safeInteger(metricIncrements.savedReviewBackupCount) + 1;
           metricIncrements.downgradedByQualityCount = safeInteger(metricIncrements.downgradedByQualityCount) + 1;
-        } else if (visibility.visibilityTier === 'lead_plus_qualified') {
-          metricIncrements.leadPlusQualifiedCount = safeInteger(metricIncrements.leadPlusQualifiedCount) + 1;
         }
       } else {
         const metricKey = this.classifyRunRejectionMetric(finalStatus, duplicateReason);

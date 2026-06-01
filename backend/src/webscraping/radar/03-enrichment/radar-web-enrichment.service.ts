@@ -4,6 +4,12 @@ import type { HbxEngineSearchOutput, WebscrapingContactResult } from '../shared/
 import { buildRadarStageIssue } from '../shared/radar-stage-policy';
 import type { RadarLeadSourceResult } from '../01-search/radar-lead-source.types';
 import { RadarWebsiteCrawlSourceService } from '../01-search/radar-website-crawl-source.service';
+import { buildRadarSocialLookupQueries } from '../04-socials/radar-social-query-planner';
+import {
+  RADAR_SOCIAL_CATEGORY_TOKENS,
+  RADAR_SOCIAL_STOP_TOKENS,
+  RADAR_SOCIAL_WEAK_TOKENS,
+} from '../04-socials/radar-social-matching';
 
 export type RadarWebEnrichmentHost = {
   getRadarWebsiteCrawlSource?: () => RadarWebsiteCrawlSourceService;
@@ -25,6 +31,16 @@ type WebCandidate = {
   snippet: string;
 };
 
+type WebEnrichmentAttempt = {
+  source: 'hbx_engine' | 'fallback_web';
+  status: 'accepted' | 'empty' | 'skipped';
+  foundCount: number;
+  acceptedCount: number;
+  rejectedCount: number;
+  reason: string;
+  fallbackRequired?: boolean;
+};
+
 function envDisabled(name: string) {
   return ['false', '0', 'off', 'no'].includes(String(process.env[name] || '').trim().toLowerCase());
 }
@@ -39,6 +55,27 @@ function compactText(value: unknown) {
   return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
+function collectUrlsFromUnknown(value: unknown, output: string[] = [], depth = 0): string[] {
+  if (depth > 4 || value == null) return output;
+  if (typeof value === 'string') {
+    const text = htmlDecode(value);
+    const urlRegex = /https?:\/\/[^\s"'<>),]+/gi;
+    let match: RegExpExecArray | null;
+    while ((match = urlRegex.exec(text))) {
+      output.push(match[0].replace(/[.,;:!?]+$/g, ''));
+    }
+    return output;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectUrlsFromUnknown(item, output, depth + 1));
+    return output;
+  }
+  if (typeof value === 'object') {
+    Object.values(value as Record<string, unknown>).forEach((item) => collectUrlsFromUnknown(item, output, depth + 1));
+  }
+  return output;
+}
+
 function normalizeLookupValue(value: unknown) {
   return String(value || '')
     .normalize('NFD')
@@ -47,6 +84,14 @@ function normalizeLookupValue(value: unknown) {
     .replace(/[^a-z0-9]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function compactLookupValue(value: unknown) {
+  return normalizeLookupValue(value).replace(/[^a-z0-9]+/g, '');
+}
+
+function slugLookupValue(value: unknown) {
+  return normalizeLookupValue(value).replace(/[^a-z0-9]+/g, '');
 }
 
 function normalizePhoneDigits(raw: unknown) {
@@ -72,7 +117,17 @@ function decodeResultUrl(raw: string) {
   try {
     const parsed = new URL(decoded.startsWith('//') ? `https:${decoded}` : decoded);
     const nested = parsed.searchParams.get('uddg') || parsed.searchParams.get('u');
-    if (nested) return decodeURIComponent(nested);
+    if (nested) {
+      const value = decodeURIComponent(nested);
+      if (/^a1[a-z0-9_-]+={0,2}$/i.test(value)) {
+        try {
+          return Buffer.from(value.slice(2).replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
+        } catch {
+          return value;
+        }
+      }
+      return value;
+    }
     return parsed.href;
   } catch {
     return decoded;
@@ -131,20 +186,137 @@ function leadTokens(lead: WebscrapingContactResult) {
     .filter((token) => token.length >= 3 && !stop.has(token));
 }
 
+function leadNameIdentityTokens(lead: WebscrapingContactResult) {
+  const tokens = normalizeLookupValue(lead.name)
+    .split(/\s+/)
+    .filter((token) => token.length >= 3);
+  return {
+    category: tokens.filter((token) => RADAR_SOCIAL_CATEGORY_TOKENS.has(token)),
+    weak: tokens.filter((token) => RADAR_SOCIAL_WEAK_TOKENS.has(token)),
+    distinctive: tokens.filter((token) => (
+      token.length >= 4
+      && !RADAR_SOCIAL_CATEGORY_TOKENS.has(token)
+      && !RADAR_SOCIAL_WEAK_TOKENS.has(token)
+    )),
+  };
+}
+
+function socialSlugTokens(lead: WebscrapingContactResult) {
+  const tokens = normalizeLookupValue(lead.name)
+    .split(/\s+/)
+    .filter((token) => token.length >= 2 && !['ltda', 'eireli', 'me'].includes(token));
+  const businessPrefixTokens = new Set(['atelie', 'atelier', 'espaco', 'salao', 'salao', 'studio', 'studiio']);
+  const serviceTokens = new Set([
+    ...Array.from(RADAR_SOCIAL_CATEGORY_TOKENS),
+    'beleza',
+    'cabelo',
+    'cabelos',
+    'cabeleireiro',
+    'cabeleireira',
+    'cabeleireiros',
+    'cabeleireiras',
+    'make',
+    'makeup',
+    'manicure',
+    'pedicure',
+    'unha',
+    'unhas',
+    'sobrancelha',
+    'sobrancelhas',
+    'unissex',
+  ]);
+  const withoutStops = tokens.filter((token) => !RADAR_SOCIAL_STOP_TOKENS.has(token));
+  const withoutPrefixes = withoutStops.filter((token) => !businessPrefixTokens.has(token));
+  const distinctive = withoutPrefixes.filter((token) => (
+    token.length >= 3
+    && !serviceTokens.has(token)
+    && !RADAR_SOCIAL_WEAK_TOKENS.has(token)
+  ));
+  const service = withoutPrefixes.filter((token) => serviceTokens.has(token));
+  return { tokens, withoutStops, withoutPrefixes, distinctive, service };
+}
+
+function buildDirectSocialSlugs(lead: WebscrapingContactResult, input: NormalizedSearchInput) {
+  const parts = socialSlugTokens(lead);
+  const city = slugLookupValue(input.city || (lead as any).city);
+  const state = slugLookupValue(input.state || (lead as any).state);
+  const bases = [
+    parts.tokens,
+    parts.withoutStops,
+    parts.withoutPrefixes,
+    [...parts.distinctive, ...parts.service.slice(0, 1)],
+    parts.distinctive,
+  ]
+    .map((tokens) => tokens.join(''))
+    .filter((value) => value.length >= 5);
+  const suffixes = [
+    '',
+    'rc',
+    city,
+    state,
+    'oficial',
+    'beleza',
+    'salao',
+    'cabelos',
+    'cabeleireiro',
+    'makeup',
+    'manicure',
+    'unhas',
+    'sobrancelhas',
+  ].filter(Boolean);
+  const candidates = new Set<string>();
+  for (const base of bases) {
+    candidates.add(base);
+    for (const suffix of suffixes) {
+      if (!suffix || base.endsWith(suffix)) continue;
+      candidates.add(`${base}${suffix}`);
+      candidates.add(`${base}_${suffix}`);
+    }
+  }
+  return Array.from(candidates)
+    .filter((slug) => slug.length >= 5 && slug.length <= 40)
+    .slice(0, 18);
+}
+
 function candidateEvidence(candidate: WebCandidate) {
   return normalizeLookupValue(`${candidate.url} ${candidate.title} ${candidate.snippet}`);
 }
 
+function hasCompactSocialIdentity(lead: WebscrapingContactResult, input: NormalizedSearchInput, candidate: WebCandidate) {
+  if (!isInstagram(candidate.url) && !isFacebook(candidate.url)) return false;
+  const evidenceCompact = compactLookupValue(`${candidate.url} ${candidate.title} ${candidate.snippet}`);
+  const cityCompact = compactLookupValue(input.city || (lead as any).city);
+  if (cityCompact.length < 5 || !evidenceCompact.includes(cityCompact)) return false;
+
+  const identity = leadNameIdentityTokens(lead);
+  const categoryHit = identity.category.some((token) => evidenceCompact.includes(compactLookupValue(token)));
+  const weakHit = identity.weak.some((token) => evidenceCompact.includes(compactLookupValue(token)));
+  const distinctiveHit = identity.distinctive.some((token) => evidenceCompact.includes(compactLookupValue(token)));
+  return distinctiveHit || (categoryHit && weakHit);
+}
+
 function matchesLead(lead: WebscrapingContactResult, input: NormalizedSearchInput, candidate: WebCandidate) {
   const evidence = candidateEvidence(candidate);
+  const evidenceCompact = compactLookupValue(`${candidate.url} ${candidate.title} ${candidate.snippet}`);
   const leadName = normalizeLookupValue(lead.name);
-  const hasCity = normalizeLookupValue(input.city) && evidence.includes(normalizeLookupValue(input.city));
+  const city = normalizeLookupValue(input.city || (lead as any).city);
+  const cityCompact = compactLookupValue(input.city || (lead as any).city);
+  const hasCity = Boolean(city && (evidence.includes(city) || (cityCompact.length >= 5 && evidenceCompact.includes(cityCompact))));
   if (leadName && evidence.includes(leadName) && hasCity) return true;
   const tokens = leadTokens(lead);
   const hits = tokens.filter((token) => evidence.includes(token)).length;
   const phone = normalizePhoneDigits(lead.phoneDigits || lead.phone);
   const hasPhone = phone.length >= 10 && evidence.replace(/\D/g, '').includes(phone);
-  return hasPhone || (hits >= Math.min(2, tokens.length || 2) && (hasCity || hits >= 3));
+  return hasPhone || hasCompactSocialIdentity(lead, input, candidate) || (hits >= Math.min(2, tokens.length || 2) && (hasCity || hits >= 3));
+}
+
+function socialTitleLooksCompatible(lead: WebscrapingContactResult, title: string, slug: string) {
+  const evidence = normalizeLookupValue(`${title} ${slug}`).replace(/[^a-z0-9]+/g, ' ');
+  const identity = leadNameIdentityTokens(lead);
+  const distinctiveHits = identity.distinctive.filter((token) => evidence.includes(token)).length;
+  const categoryHit = identity.category.some((token) => evidence.includes(token));
+  const weakHit = identity.weak.some((token) => evidence.includes(token));
+  return distinctiveHits >= Math.min(2, identity.distinctive.length || 2) || (distinctiveHits >= 1 && (categoryHit || weakHit));
 }
 
 function hasPoorFields(result: WebscrapingContactResult) {
@@ -155,13 +327,88 @@ function hasPoorFields(result: WebscrapingContactResult) {
     || !String(result.instagramUrl || result.facebookUrl || '').trim();
 }
 
+function needsWebDiscoveryFallback(result: WebscrapingContactResult) {
+  return !isOwnWebsite(result.website)
+    || !String(result.instagramUrl || result.facebookUrl || '').trim();
+}
+
+function summarizeChannels(result: WebscrapingContactResult) {
+  return {
+    website: isOwnWebsite(result.website),
+    email: Boolean(String((result as any).email || '').trim()),
+    social: Boolean(String(result.instagramUrl || result.facebookUrl || '').trim()),
+  };
+}
+
+function withWebEnrichmentPipeline(result: WebscrapingContactResult, attempts: WebEnrichmentAttempt[]) {
+  const evidenceJson = (typeof (result as any).evidenceJson === 'object' && (result as any).evidenceJson)
+    ? (result as any).evidenceJson
+    : {};
+  const existing = (typeof evidenceJson.radarWebEnrichment === 'object' && evidenceJson.radarWebEnrichment)
+    ? evidenceJson.radarWebEnrichment
+    : {};
+  return {
+    ...result,
+    evidenceJson: {
+      ...evidenceJson,
+      radarWebEnrichment: {
+        ...existing,
+        pipeline: attempts,
+        finalChannels: summarizeChannels(result),
+        blocksDelivery: false,
+      },
+    },
+  } as WebscrapingContactResult;
+}
+
 function buildSearchQuery(lead: WebscrapingContactResult, input: NormalizedSearchInput) {
+  const name = compactText(lead.name).replace(/"/g, '');
+  const city = compactText(input.city).replace(/"/g, '');
+  const segment = compactText((lead as any).segment || input.segment).replace(/"/g, '');
   return [
-    `"${compactText(lead.name).replace(/"/g, '')}"`,
-    `"${compactText(input.city).replace(/"/g, '')}"`,
+    `"${name}"`,
+    `"${city}"`,
     input.state ? input.state : '',
-    'site oficial instagram facebook email contato',
+    segment ? `"${segment}"` : '',
+    'site oficial instagram facebook email contato agenda whatsapp',
   ].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+}
+
+function buildWebsiteEmailQueries(lead: WebscrapingContactResult, input: NormalizedSearchInput) {
+  const name = compactText(lead.name).replace(/"/g, '');
+  const city = compactText(input.city || (lead as any).city).replace(/"/g, '');
+  const state = compactText(input.state || (lead as any).state).replace(/"/g, '');
+  const segment = compactText((lead as any).segment || input.segment).replace(/"/g, '');
+  const phone = normalizePhoneDigits(lead.phoneDigits || lead.phone);
+  return [
+    name && city ? `"${name}" "${city}" site oficial contato email` : '',
+    name && city ? `"${name}" "${city}" agenda whatsapp instagram facebook` : '',
+    name && city && segment ? `"${name}" "${city}" "${segment}" contato` : '',
+    name && city && state ? `"${name}" "${city}, ${state}" site oficial` : '',
+    phone ? `"${phone}" "${city}" contato` : '',
+  ].filter(Boolean);
+}
+
+function buildFallbackWebQueries(lead: WebscrapingContactResult, input: NormalizedSearchInput) {
+  const name = compactText(lead.name).replace(/"/g, '');
+  const city = compactText(input.city || (lead as any).city).replace(/"/g, '');
+  const state = compactText(input.state || (lead as any).state).replace(/"/g, '');
+  const segment = compactText((lead as any).segment || input.segment).replace(/"/g, '');
+  const phone = normalizePhoneDigits(lead.phoneDigits || lead.phone);
+  const domain = hostFromUrl(lead.website);
+  return [
+    name && city ? `"${name}" "${city}" instagram` : '',
+    name && city ? `"${name}" "${city}" facebook` : '',
+    name && city && segment ? `"${name}" "${city}" "${segment}" instagram` : '',
+    name && city && segment ? `"${name}" "${city}" "${segment}" facebook` : '',
+    name && city ? `site:instagram.com "${name}" "${city}"` : '',
+    name && city ? `site:facebook.com "${name}" "${city}"` : '',
+    name && city && state ? `"${name}" "${city}, ${state}" instagram facebook` : '',
+    phone ? `"${phone}" instagram facebook "${city}"` : '',
+    domain ? `site:instagram.com "${domain}"` : '',
+    domain ? `site:facebook.com "${domain}"` : '',
+    buildSearchQuery(lead, input),
+  ].filter(Boolean).filter((query, index, list) => list.indexOf(query) === index);
 }
 
 function buildHbxEnrichmentQueries(lead: WebscrapingContactResult, input: NormalizedSearchInput) {
@@ -170,27 +417,48 @@ function buildHbxEnrichmentQueries(lead: WebscrapingContactResult, input: Normal
   const state = compactText(input.state || (lead as any).state).replace(/"/g, '');
   const phone = normalizePhoneDigits(lead.phoneDigits || lead.phone);
   const domain = hostFromUrl(lead.website);
-  return [
+  const socialQueries = buildRadarSocialLookupQueries({
+    ...lead,
+    city,
+    state,
+    segment: (lead as any).segment || input.segment,
+  }).map((entry) => entry.query);
+  const directSocialOperators = [
     name && city ? `site:instagram.com "${name}" "${city}"` : '',
     name && city ? `site:facebook.com "${name}" "${city}"` : '',
+  ].filter(Boolean);
+  const directDiscoveryQueries = [
     name && city ? `"${name}" "${city}" instagram facebook email contato` : '',
     name && city && state ? `"${name}" "${city}, ${state}" instagram facebook` : '',
     phone ? `"${phone}" instagram facebook` : '',
     domain ? `site:instagram.com "${domain}"` : '',
     domain ? `site:facebook.com "${domain}"` : '',
-  ].filter(Boolean).filter((query, index, list) => list.indexOf(query) === index);
+  ].filter(Boolean);
+  return [
+    ...directSocialOperators,
+    ...socialQueries,
+    ...directDiscoveryQueries,
+    ...buildWebsiteEmailQueries(lead, input),
+  ].filter((query, index, list) => list.indexOf(query) === index);
 }
 
 function webCandidatesFromHbxResult(result: WebscrapingContactResult): WebCandidate[] {
   const title = compactText((result as any).title || result.name);
-  const snippet = compactText((result as any).snippet || (result as any).description || (result as any).address);
+  const snippet = compactText((result as any).snippet || (result as any).description || (result as any).rawText || (result as any).socialText || (result as any).address);
   const urls = [
     result.website,
     result.instagramUrl,
     result.facebookUrl,
     (result as any).sourceUrl,
-  ].filter(Boolean) as string[];
-  return urls.map((url) => ({ url, title, snippet }));
+    ...(Array.isArray((result as any).contactLinks) ? (result as any).contactLinks : []),
+    ...(Array.isArray((result as any).links) ? (result as any).links : []),
+    ...collectUrlsFromUnknown((result as any).socialLinks),
+    ...collectUrlsFromUnknown((result as any).evidenceJson),
+    ...collectUrlsFromUnknown((result as any).enrichmentJson),
+    ...collectUrlsFromUnknown((result as any).rawText),
+    ...collectUrlsFromUnknown((result as any).socialText),
+  ].filter(Boolean).map((url) => String(url || '').trim()).filter(Boolean);
+  return Array.from(new Set(urls)).map((url) => ({ url, title, snippet }));
 }
 
 function mergeHbxEnrichment(
@@ -323,6 +591,7 @@ export class RadarWebEnrichmentService {
     if (!fetcher && !input.host?.searchHbxEngine) return this.skipped('fonte_indisponivel_para_radar_web_enrichment');
 
     const timeoutMs = positiveIntegerEnv('HBX_RADAR_WEB_ENRICHMENT_TIMEOUT_MS', 4500, 15000);
+    const fallbackMaxQueries = positiveIntegerEnv('HBX_RADAR_WEB_ENRICHMENT_FALLBACK_MAX_QUERIES', 4, 10);
     const results: WebscrapingContactResult[] = [];
     let foundCount = 0;
     let rejectedCount = 0;
@@ -330,19 +599,91 @@ export class RadarWebEnrichmentService {
 
     for (const lead of poorCards) {
       try {
-        const hbx = await this.searchHbxForLead(input.host || {}, lead, input.normalized, timeoutMs);
+        const attempts: WebEnrichmentAttempt[] = [];
+        let hbx: { result: WebscrapingContactResult | null; foundCount: number; rejectedCount: number };
+        try {
+          hbx = await this.searchHbxForLead(input.host || {}, lead, input.normalized, timeoutMs);
+        } catch (error) {
+          retryable = true;
+          hbx = { result: null, foundCount: 0, rejectedCount: 0 };
+          attempts.push({
+            source: 'hbx_engine',
+            status: 'skipped',
+            foundCount: 0,
+            acceptedCount: 0,
+            rejectedCount: 0,
+            fallbackRequired: true,
+            reason: `hbx_enrichment_timeout_fallback_web: ${String((error as any)?.message || error)}`,
+          });
+          input.host?.logger?.warn?.(`[radar-web-enrichment] HBX falhou; tentando fallback web: ${String((error as any)?.message || error)}`);
+        }
+        let bestResult = hbx.result;
+        if (!attempts.some((attempt) => attempt.source === 'hbx_engine')) {
+          attempts.push({
+            source: 'hbx_engine',
+            status: hbx.result ? 'accepted' : 'empty',
+            foundCount: hbx.foundCount,
+            acceptedCount: hbx.result ? 1 : 0,
+            rejectedCount: hbx.rejectedCount,
+            fallbackRequired: Boolean(hbx.result && needsWebDiscoveryFallback(hbx.result)),
+            reason: hbx.result ? 'hbx_enrichment_retornou_dado_aceito' : 'hbx_enrichment_sem_match_aceito',
+          });
+        }
         if (hbx.result) {
           foundCount += hbx.foundCount;
           rejectedCount += hbx.rejectedCount;
-          results.push(hbx.result);
+          if (!needsWebDiscoveryFallback(hbx.result)) {
+            results.push(withWebEnrichmentPipeline(hbx.result, attempts));
+            continue;
+          }
+        }
+        if (!fetcher) {
+          attempts.push({
+            source: 'fallback_web',
+            status: 'skipped',
+            foundCount: 0,
+            acceptedCount: 0,
+            rejectedCount: 0,
+            reason: 'fetcher_indisponivel',
+          });
+          if (bestResult) results.push(withWebEnrichmentPipeline(bestResult, attempts));
           continue;
         }
-        if (!fetcher) continue;
-        const candidates = await this.searchWeb(fetcher, buildSearchQuery(lead, input.normalized), timeoutMs);
-        foundCount += candidates.length;
-        const merged = mergeEnrichment(lead, input.normalized, candidates);
-        rejectedCount += merged.rejected.length;
-        if (merged.result) results.push(merged.result);
+        const fallbackLead = bestResult || lead;
+        let merged = { result: null, accepted: [] as WebCandidate[], rejected: [] as WebCandidate[] };
+        let fallbackFoundCount = 0;
+        const directSocialCandidates = await this.probeDirectSocialProfiles(fetcher, fallbackLead, input.normalized, timeoutMs);
+        if (directSocialCandidates.length) {
+          fallbackFoundCount += directSocialCandidates.length;
+          merged = mergeEnrichment(fallbackLead, input.normalized, directSocialCandidates);
+          rejectedCount += merged.rejected.length;
+        }
+        for (const query of buildFallbackWebQueries(fallbackLead, input.normalized).slice(0, fallbackMaxQueries)) {
+          if (merged.result) break;
+          try {
+            const candidates = await this.searchWeb(fetcher, query, timeoutMs);
+            fallbackFoundCount += candidates.length;
+            merged = mergeEnrichment(fallbackLead, input.normalized, candidates);
+            rejectedCount += merged.rejected.length;
+            if (merged.result) break;
+          } catch (error) {
+            retryable = true;
+            input.host?.logger?.warn?.(`[radar-web-enrichment] fallback falhou sem descartar dado ja encontrado: ${String((error as any)?.message || error)}`);
+            if (bestResult) break;
+            continue;
+          }
+        }
+        foundCount += fallbackFoundCount;
+        attempts.push({
+          source: 'fallback_web',
+          status: merged.result ? 'accepted' : 'empty',
+          foundCount: fallbackFoundCount,
+          acceptedCount: merged.result ? 1 : 0,
+          rejectedCount: merged.rejected.length,
+          reason: merged.result ? 'fallback_web_completou_dados' : 'fallback_web_sem_match_aceito',
+        });
+        bestResult = merged.result || bestResult;
+        if (bestResult) results.push(withWebEnrichmentPipeline(bestResult, attempts));
       } catch (error) {
         retryable = true;
         rejectedCount += 1;
@@ -367,7 +708,8 @@ export class RadarWebEnrichmentService {
   ): Promise<{ result: WebscrapingContactResult | null; foundCount: number; rejectedCount: number }> {
     if (!host.searchHbxEngine) return { result: null, foundCount: 0, rejectedCount: 0 };
     const existing = [normalizePhoneDigits(lead.phoneDigits || lead.phone)].filter(Boolean);
-    for (const query of buildHbxEnrichmentQueries(lead, normalized).slice(0, 4)) {
+    const maxQueries = positiveIntegerEnv('HBX_RADAR_WEB_ENRICHMENT_HBX_MAX_QUERIES', 16, 40);
+    for (const query of buildHbxEnrichmentQueries(lead, normalized).slice(0, maxQueries)) {
       const output = await host.searchHbxEngine({
         ...normalized,
         targetType: 'pj',
@@ -390,6 +732,85 @@ export class RadarWebEnrichmentService {
       }
     }
     return { result: null, foundCount: 0, rejectedCount: 0 };
+  }
+
+  private async probeDirectSocialProfiles(
+    fetcher: typeof fetch,
+    lead: WebscrapingContactResult,
+    input: NormalizedSearchInput,
+    timeoutMs: number,
+  ): Promise<WebCandidate[]> {
+    const maxProfiles = positiveIntegerEnv('HBX_RADAR_WEB_ENRICHMENT_DIRECT_SOCIAL_MAX_PROFILES', 10, 18);
+    const slugs = buildDirectSocialSlugs(lead, input).slice(0, maxProfiles);
+    if (!slugs.length) return [];
+    const candidates: WebCandidate[] = [];
+    for (const slug of slugs) {
+      const instagram = await this.probeInstagramProfile(fetcher, lead, input, slug, timeoutMs).catch(() => null);
+      if (instagram) {
+        candidates.push(instagram);
+        break;
+      }
+    }
+    for (const slug of slugs.slice(0, Math.min(slugs.length, 8))) {
+      const facebook = await this.probeFacebookProfile(fetcher, lead, input, slug, timeoutMs).catch(() => null);
+      if (facebook) {
+        candidates.push(facebook);
+        break;
+      }
+    }
+    return candidates;
+  }
+
+  private async probeInstagramProfile(
+    fetcher: typeof fetch,
+    lead: WebscrapingContactResult,
+    input: NormalizedSearchInput,
+    slug: string,
+    timeoutMs: number,
+  ): Promise<WebCandidate | null> {
+    const url = `https://www.instagram.com/${slug}/`;
+    const response = await fetcher(url, {
+      headers: {
+        accept: 'text/html,application/xhtml+xml',
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125 Safari/537.36 HBX-Radar',
+      },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!response.ok) return null;
+    const html = await response.text();
+    if (!/ProfilePage|profilePage_/i.test(html)) return null;
+    const title = stripHtml(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || `${lead.name} Instagram`);
+    return {
+      url,
+      title: title || `${lead.name} Instagram`,
+      snippet: `${lead.name || ''} ${input.city || (lead as any).city || ''} ${(lead as any).segment || input.segment || ''} ${slug} instagram direct_probe`,
+    };
+  }
+
+  private async probeFacebookProfile(
+    fetcher: typeof fetch,
+    lead: WebscrapingContactResult,
+    input: NormalizedSearchInput,
+    slug: string,
+    timeoutMs: number,
+  ): Promise<WebCandidate | null> {
+    const url = `https://www.facebook.com/${slug}`;
+    const response = await fetcher(url, {
+      headers: {
+        accept: 'text/html,application/xhtml+xml',
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125 Safari/537.36 HBX-Radar',
+      },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!response.ok) return null;
+    const html = await response.text();
+    const title = stripHtml(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || '');
+    if (!title || /^facebook$/i.test(title) || !socialTitleLooksCompatible(lead, title, slug)) return null;
+    return {
+      url,
+      title,
+      snippet: `${lead.name || ''} ${input.city || (lead as any).city || ''} ${(lead as any).segment || input.segment || ''} ${slug} facebook direct_probe`,
+    };
   }
 
   private async searchWeb(fetcher: typeof fetch, query: string, timeoutMs: number): Promise<WebCandidate[]> {
@@ -441,6 +862,28 @@ export class RadarWebEnrichmentService {
         snippet: snippetMatch ? stripHtml(snippetMatch[1]) : '',
       });
     }
+    const seen = new Set(candidates.map((candidate) => candidate.url));
+    const blockRegex = /<li[^>]+class="[^"]*\bb_algo\b[^"]*"[\s\S]*?(?=<li[^>]+class="[^"]*\bb_algo\b|<\/ol>|$)/gi;
+    let blockMatch: RegExpExecArray | null;
+    while ((blockMatch = blockRegex.exec(html))) {
+      const block = blockMatch[0];
+      const title = stripHtml((
+        block.match(/<h2[^>]*>([\s\S]*?)<\/h2>/i)?.[1]
+        || block.match(/aria-label="([^"]+)"/i)?.[1]
+        || ''
+      ).trim());
+      const snippet = stripHtml(block.match(/<p[^>]*>([\s\S]*?)<\/p>/i)?.[1] || '');
+      const anchorRegex = /<a[^>]+href="([^"]+)"[^>]*>/gi;
+      let anchorMatch: RegExpExecArray | null;
+      while ((anchorMatch = anchorRegex.exec(block))) {
+        const url = decodeResultUrl(anchorMatch[1]);
+        if (!url || seen.has(url)) continue;
+        if (/\/\/(www\.)?(bing|microsoft|live)\./i.test(url) || /\/\/r\.bing\.com/i.test(url)) continue;
+        seen.add(url);
+        candidates.push({ url, title, snippet });
+        break;
+      }
+    }
     return candidates;
   }
 
@@ -464,6 +907,9 @@ export class RadarWebEnrichmentService {
   }
 
   private async crawlWebsites(host: RadarWebEnrichmentHost, results: WebscrapingContactResult[]) {
+    if (!['true', '1', 'yes', 'on'].includes(String(process.env.HBX_RADAR_WEB_ENRICHMENT_WEBSITE_CRAWL_ENABLED || '').trim().toLowerCase())) {
+      return results;
+    }
     const withWebsite = results.filter((result) => isOwnWebsite(result.website));
     if (!withWebsite.length) return results;
     const crawler = host.getRadarWebsiteCrawlSource?.() || this.websiteCrawl || new RadarWebsiteCrawlSourceService();

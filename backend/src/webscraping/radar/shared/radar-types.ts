@@ -59,7 +59,6 @@ export type NormalizedSearchInput = {
   normalizedCity: string;
   normalizedSegment: string;
   excludePhoneDigits: string[];
-  qualityMode: 'list' | 'lead_plus';
   salesProfile: LeadQualityV2SalesProfile | null;
   preferredChannels: RadarChannelFilter[];
   requiredChannels: RadarChannelFilter[];
@@ -103,7 +102,6 @@ export type NormalizedRadarFilters = {
   preferredChannels: RadarChannelFilter[];
   requiredChannels: RadarChannelFilter[];
   channelMatchMode: RadarChannelMatchMode;
-  qualityMode: 'list' | 'lead_plus';
   freshness: 'live' | 'database_first' | 'hybrid';
   salesProfile: LeadQualityV2SalesProfile | null;
 };

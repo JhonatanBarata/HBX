@@ -8017,6 +8017,93 @@
     text-shadow: none !important;
   }
 
+  .mobileRadarOperationalFlow {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+    width: min(100%, 430px) !important;
+    margin: 2px auto 0 !important;
+  }
+
+  .mobileRadarFlowCard {
+    position: relative !important;
+    display: grid !important;
+    min-width: 0 !important;
+    min-height: 86px !important;
+    align-content: start !important;
+    gap: 4px !important;
+    padding: 10px 9px !important;
+    overflow: hidden !important;
+    border: 1px solid rgba(160, 184, 224, 0.7) !important;
+    border-radius: 16px !important;
+    background: rgba(255, 255, 255, 0.84) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.96),
+      0 12px 28px -24px rgba(7, 87, 223, 0.32) !important;
+  }
+
+  .mobileRadarFlowCard::before {
+    content: "" !important;
+    position: absolute !important;
+    inset: 0 auto 0 0 !important;
+    width: 4px !important;
+    background: #9aa8bf !important;
+  }
+
+  .mobileRadarFlowCard[data-tone="active"] {
+    border-color: rgba(217, 119, 6, 0.32) !important;
+    background: #fff7e6 !important;
+  }
+
+  .mobileRadarFlowCard[data-tone="active"]::before {
+    background: #d97706 !important;
+  }
+
+  .mobileRadarFlowCard[data-tone="done"] {
+    border-color: rgba(16, 162, 69, 0.24) !important;
+    background: #eaf9ef !important;
+  }
+
+  .mobileRadarFlowCard[data-tone="done"]::before {
+    background: #10a245 !important;
+  }
+
+  .mobileRadarFlowCard span,
+  .mobileRadarFlowCard strong,
+  .mobileRadarFlowCard small {
+    min-width: 0 !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    letter-spacing: 0 !important;
+    text-shadow: none !important;
+  }
+
+  .mobileRadarFlowCard span {
+    font-size: 0.55rem !important;
+    font-weight: 760 !important;
+    line-height: 1 !important;
+    color: #64748b !important;
+    text-transform: uppercase !important;
+  }
+
+  .mobileRadarFlowCard strong {
+    font-size: 0.72rem !important;
+    font-weight: 820 !important;
+    line-height: 1.08 !important;
+    color: #132449 !important;
+    white-space: nowrap !important;
+  }
+
+  .mobileRadarFlowCard small {
+    display: -webkit-box !important;
+    font-size: 0.59rem !important;
+    font-weight: 610 !important;
+    line-height: 1.17 !important;
+    color: #5e6f8d !important;
+    -webkit-line-clamp: 2 !important;
+    -webkit-box-orient: vertical !important;
+  }
+
   .mobileRadarForm.hbx-mobile-card {
     gap: 12px !important;
     padding: 14px !important;

@@ -18,7 +18,7 @@ function presenterHost() {
     },
     extractLeadQualityV2FromObject: () => null,
     extractLeadQualityFromObject: () => null,
-    buildRunInputFromRow: () => ({ requiredChannels: [], channelMatchMode: 'prefer', qualityMode: 'list' }),
+    buildRunInputFromRow: () => ({ requiredChannels: [], channelMatchMode: 'prefer'}),
     normalizeSearchRunStatus: (status: unknown) => String(status || 'completed'),
     normalizeRunItemStatus: (status: unknown) => String(status || 'found'),
     normalizeRadarChannels: (value: unknown) => Array.isArray(value) ? value : [],

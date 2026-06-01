@@ -87,7 +87,6 @@ import {
   coerceBoolean,
   normalizeEngine,
   normalizeEnginePurpose,
-  normalizeCardDiscoveryQualityMode,
   isAutomaticEnginePurpose,
   normalizeTargetType,
   parsePositiveInteger,
@@ -293,7 +292,6 @@ export class RadarCoreDeliveryMixin {
       preferredChannels: normalized.preferredChannels,
       requiredChannels: normalized.requiredChannels,
       channelMatchMode: normalized.channelMatchMode,
-      qualityMode: normalized.qualityMode,
       salesProfile: normalized.salesProfile,
     } as NormalizedRadarFilters;
     const foundItems = (Array.isArray(run?.items) ? run.items : [])
@@ -330,7 +328,6 @@ export class RadarCoreDeliveryMixin {
           preferredChannels: normalized.preferredChannels,
           requiredChannels: normalized.requiredChannels,
           channelMatchMode: normalized.channelMatchMode,
-          qualityMode: normalized.qualityMode,
         });
         await this.persistRadarLeadPoolBatch(groupInput, groupContacts, 'hbx').catch((error: any) => {
           this.logger.warn(`[radar-run] falha ao sincronizar lote no RadarLeadPool run=${run?.id || '-'}: ${String(error?.message || error)}`);
@@ -1046,7 +1043,6 @@ export class RadarCoreDeliveryMixin {
               preferredChannels: filters.preferredChannels,
               requiredChannels: filters.requiredChannels,
               channelMatchMode: filters.channelMatchMode,
-              qualityMode: filters.qualityMode,
             }),
             ...(filters.salesProfile ? { salesProfile: filters.salesProfile } : {}),
           }),
@@ -1154,7 +1150,6 @@ export class RadarCoreDeliveryMixin {
             preferredChannels: filters.preferredChannels,
             requiredChannels: filters.requiredChannels,
             channelMatchMode: filters.channelMatchMode,
-            qualityMode: filters.qualityMode,
           }),
           relaxedStockLookup,
           ...(filters.salesProfile ? { salesProfile: filters.salesProfile } : {}),
@@ -1171,8 +1166,6 @@ export class RadarCoreDeliveryMixin {
         this.restoreRadarPoolResults(claimedRows).slice(0, filters.quantity),
         'radar_database',
       );
-      this.enqueueRadarWebEnrichmentForSavedLeads(context, run.id, normalized, savedCounts.savedWebEnrichmentLeadIds);
-      this.enqueueRadarSocialLookupForSavedLeads(context, run.id, normalized, savedCounts.savedLeadIds);
       await this.recalculateSearchRunCounters(run.id);
       await this.updateSearchRunMetrics(run.id, {
         sourceEngine: 'radar_database',
@@ -1725,7 +1718,6 @@ export class RadarCoreDeliveryMixin {
           preferredChannels: filters.preferredChannels,
           requiredChannels: filters.requiredChannels,
           channelMatchMode: filters.channelMatchMode,
-          qualityMode: filters.qualityMode,
         },
         {
           skipRadarLookup: true,
@@ -1771,7 +1763,6 @@ export class RadarCoreDeliveryMixin {
               preferredChannels: filters.preferredChannels,
               requiredChannels: filters.requiredChannels,
               channelMatchMode: filters.channelMatchMode,
-              qualityMode: filters.qualityMode,
             }),
             city: filters.city,
             state: filters.state,
@@ -2002,7 +1993,7 @@ export class RadarCoreDeliveryMixin {
         rejectReasons: rejectReasons.length ? JSON.stringify(rejectReasons) : existing?.rejectReasons || null,
         qualityReason: (result as any).qualityReason || delivery.qualityReason || existing?.qualityReason || null,
         visibilityTier: (result as any).visibilityTier || delivery.visibilityTier || existing?.visibilityTier || null,
-        deliveryProduct: delivery.deliveryProduct || normalizeCardDiscoveryQualityMode(),
+        deliveryProduct: delivery.deliveryProduct || existing?.deliveryProduct || null,
         opportunityScore,
         opportunityReason,
         status: nextStatus,
@@ -2031,7 +2022,6 @@ export class RadarCoreDeliveryMixin {
         status: nextStatus,
         sourceUrl: options.sourceUrl || existing?.sourceUrl || null,
         rawPayload: mergedResult as any,
-        qualityMode: normalizeCardDiscoveryQualityMode(),
         salesProfile: this.buildLeadQualitySalesProfileFromFilters(input),
         now,
       });
@@ -2768,7 +2758,6 @@ export class RadarCoreDeliveryMixin {
       requiredChannels: [],
       preferredChannels: [],
       channelMatchMode: 'prefer',
-      qualityMode: 'list',
       salesProfile: null,
     } as NormalizedRadarFilters;
     const qualityV2 = this.extractLeadQualityV2FromObject(leadRow)
@@ -2778,6 +2767,9 @@ export class RadarCoreDeliveryMixin {
       throw new BadRequestException('Card nao passou na qualidade minima para esse segmento. Descartados nao consomem limite.');
     }
     const deliveryClassification = this.classifyCardDelivery(leadRow, importQualityInput, quality, qualityV2);
+    if (!this.isCardDeliveryEligibleForVendas(deliveryClassification, leadRow, qualityV2)) {
+      throw new BadRequestException('Card nao esta elegivel para Vendas neste modo de qualidade.');
+    }
     const assignedUserId = Math.trunc(Number(options.assignedUserId || 0)) || null;
     const assignedByUserId = assignedUserId
       ? Math.trunc(Number(options.assignedByUserId || context.userId || 0)) || null
@@ -2801,7 +2793,6 @@ export class RadarCoreDeliveryMixin {
       assignedUserId: assignedUserId || undefined,
       skipWhatsappValidation: Boolean(options.skipWhatsappValidation),
       debitOnImport: Boolean(options.debitOnImport),
-      qualityMode: 'list',
       leads: [
         {
           sourceHistoryId: `radar:${leadRow.id}`,

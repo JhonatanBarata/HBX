@@ -5,7 +5,7 @@ import { buildRadarStageIssue } from '../shared/radar-stage-policy';
 import { buildRadarStageSnapshot } from '../shared/radar-stage-result';
 import { RadarRunRepositoryService } from '../persistence/radar-run-repository.service';
 import type { SearchExecutionContext } from '../shared/radar-types';
-import type { RadarSocialLookupResult } from './radar-social-types';
+import type { RadarSocialCandidateScore, RadarSocialLookupResult } from './radar-social-types';
 
 function safeInteger(value: unknown, fallback = 0) {
   const parsed = Number(value);
@@ -22,6 +22,30 @@ function parseMaybeJsonObject(value: unknown): Record<string, any> {
   } catch {
     return {};
   }
+}
+
+function normalizeSocialCandidates(candidates: RadarSocialCandidateScore[] | undefined, reviewStatus: 'confirmed' | 'possible') {
+  if (!Array.isArray(candidates)) return [];
+  const seen = new Set<string>();
+  return candidates
+    .map((candidate) => ({
+      network: candidate.network,
+      url: String(candidate.url || '').trim() || null,
+      status: reviewStatus,
+      confidence: safeInteger(candidate.confidence),
+      reason: String(candidate.reason || '').trim() || null,
+      source: String(candidate.source || '').trim() || null,
+      query: String(candidate.query || '').trim() || null,
+      layer: candidate.layer || null,
+    }))
+    .filter((candidate) => {
+      if (!candidate.network || !candidate.url) return false;
+      const key = `${candidate.network}:${candidate.url.toLowerCase().replace(/\/+$/, '')}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 8);
 }
 
 @Injectable()
@@ -105,6 +129,8 @@ export class RadarSocialResultWriterService {
   }
 
   async writeResult(context: SearchExecutionContext, leadId: string, item: any, baseLead: any, raw: Record<string, any>, result: RadarSocialLookupResult) {
+    const confirmedSocialCandidates = normalizeSocialCandidates(result.acceptedCandidates, 'confirmed');
+    const possibleSocialCandidates = normalizeSocialCandidates(result.candidates, 'possible');
     const enrichment = buildRadarLeadEnrichment({
       ...baseLead,
       ...raw,
@@ -113,6 +139,23 @@ export class RadarSocialResultWriterService {
       socialStatus: result.status,
       socialConfidence: result.confidence,
       now: new Date(),
+    });
+    const enrichmentPayload = parseMaybeJsonObject(enrichment.enrichmentJson);
+    const nextEnrichmentJson = JSON.stringify({
+      ...enrichmentPayload,
+      signals: {
+        ...(enrichmentPayload.signals || {}),
+        possibleSocialCandidates,
+        confirmedSocialCandidates,
+      },
+      socialLookup: {
+        status: result.status,
+        confidence: result.confidence,
+        reason: result.reason,
+        queries: result.queries,
+        possibleSocialCandidates,
+        confirmedSocialCandidates,
+      },
     });
     const nextInstagramUrl = enrichment.instagramUrl || result.instagramUrl || raw.instagramUrl || null;
     const nextFacebookUrl = enrichment.facebookUrl || result.facebookUrl || raw.facebookUrl || null;
@@ -155,12 +198,16 @@ export class RadarSocialResultWriterService {
       opportunityReason: enrichment.opportunityReason || raw.opportunityReason || null,
       enrichmentScore: enrichment.enrichmentScore,
       enrichmentConfidence: enrichment.enrichmentConfidence,
-      enrichmentJson: enrichment.enrichmentJson,
+      enrichmentJson: nextEnrichmentJson,
+      possibleSocialCandidates,
+      confirmedSocialCandidates,
       signals: {
         ...(raw.signals || {}),
         socialStatus,
         instagramUrl: nextInstagramUrl,
         facebookUrl: nextFacebookUrl,
+        possibleSocialCandidates,
+        confirmedSocialCandidates,
       },
       socialLookup: {
         status: socialStatus,
@@ -170,6 +217,8 @@ export class RadarSocialResultWriterService {
         candidates: result.candidates || [],
         acceptedCandidates: result.acceptedCandidates || [],
         rejectedCandidates: result.rejectedCandidates || [],
+        possibleSocialCandidates,
+        confirmedSocialCandidates,
         ...(issue ? { issue } : {}),
         finishedAt: new Date().toISOString(),
       },

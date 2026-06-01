@@ -27,7 +27,7 @@ export class RadarSearchStrategyService {
         reason: 'fabrica_precisa_repor_estoque_com_multiplas_fontes',
       };
     }
-    if (input.qualityMode === 'lead_plus' || input.freshness === 'live') {
+    if (input.freshness === 'live') {
       return {
         mode: 'quality',
         targetCards: input.quantity,
@@ -35,7 +35,7 @@ export class RadarSearchStrategyService {
         allowAsyncSocial: true,
         allowLightCrawl: false,
         maxProviderRounds: 3,
-        reason: 'lead_plus_ou_live_prioriza_qualidade_e_atualidade',
+        reason: 'live_prioriza_qualidade_e_atualidade',
       };
     }
     if (input.quantity >= 80 || input.freshness === 'hybrid') {

@@ -111,10 +111,6 @@ class WebscrapingSearchDto {
   channelMatchMode?: 'prefer' | 'any_required' | 'all_required';
 
   @IsOptional()
-  @IsIn(['list', 'lead_plus'])
-  qualityMode?: 'list' | 'lead_plus';
-
-  @IsOptional()
   @IsIn(['live', 'database_first', 'hybrid'])
   freshness?: 'live' | 'database_first' | 'hybrid';
 
@@ -292,10 +288,6 @@ class RadarDatabaseQueryDto {
   @IsOptional()
   @IsIn(['prefer', 'any_required', 'all_required'])
   channelMatchMode?: 'prefer' | 'any_required' | 'all_required';
-
-  @IsOptional()
-  @IsIn(['list', 'lead_plus'])
-  qualityMode?: 'list' | 'lead_plus';
 
   @IsOptional()
   @IsIn(['live', 'database_first', 'hybrid'])
@@ -629,10 +621,6 @@ class RadarPullDto extends RadarDatabaseQueryDto {
   @IsOptional()
   @IsIn(['prefer', 'any_required', 'all_required'])
   declare channelMatchMode?: 'prefer' | 'any_required' | 'all_required';
-
-  @IsOptional()
-  @IsIn(['list', 'lead_plus'])
-  declare qualityMode?: 'list' | 'lead_plus';
 
   @IsOptional()
   @IsIn(['live', 'database_first', 'hybrid'])

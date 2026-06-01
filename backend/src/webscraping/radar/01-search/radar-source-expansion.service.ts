@@ -128,9 +128,7 @@ export class RadarSourceExpansionService {
       { signal: 'avaliacoes_sem_resposta', pitch: 'reputacao pode estar sem acompanhamento' },
       { signal: 'sem_automacao_aparente', pitch: 'empresa vende mas nao demonstra esteira de atendimento' },
     ];
-    return input.qualityMode === 'lead_plus'
-      ? base
-      : base.slice(0, 4);
+    return base;
   }
 
   buildReprocessRules(input: NormalizedSearchInput, strategy: RadarSearchStrategy) {

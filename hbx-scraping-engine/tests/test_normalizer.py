@@ -1,6 +1,6 @@
 from app.schemas import ContactResult
 from app.services.discovery import _is_allowed_url
-from app.services.filters import is_generic_name, is_pf_technical_blocked_domain, name_conflicts_with_requested_segment
+from app.services.filters import expected_ddds, is_generic_name, is_pf_technical_blocked_domain, name_conflicts_with_requested_segment
 from app.services.normalizer import dedupe_contacts, fallback_name, format_phone, normalize_phone_digits
 
 
@@ -17,6 +17,10 @@ def test_blocks_national_generic_phone_numbers() -> None:
     assert normalize_phone_digits("(55) 4000-1179") is None
     assert normalize_phone_digits("(01) 93461-2811") is None
     assert normalize_phone_digits("(80) 0665-1515") is None
+
+
+def test_rio_claro_uses_local_ddd_19_override() -> None:
+    assert expected_ddds("Rio Claro", "SP") == {"19"}
 
 
 def test_format_phone() -> None:
@@ -67,6 +71,8 @@ def test_blocks_generic_names_and_bad_domains() -> None:
     assert is_generic_name("Preço de Locação de Aparelho Básico para Clínica de Estética Rio Claro", "Rio Claro", "pj", "clinica de estetica")
     assert is_generic_name("Contato encontrado - Santa Cruz do Rio Pardo", "Santa Cruz do Rio Pardo", "pj", "telefone")
     assert is_generic_name("Clínicas de Estética e Esteticistas em Altair, SP", "Altair", "pj", "Beleza")
+    assert is_generic_name("Clínicas de Saúde e Beleza Rio Claro SP", "Rio Claro", "pj", "beleza")
+    assert is_generic_name("Instituto da Beleza em Rio Claro", "Rio Claro", "pj", "beleza")
     assert is_generic_name("Assistência Técnica da Brastemp: Tudo o Que Você Precisa Saber para Contratar o Serviço Ideal", "Tejupá", "pj", "assistência técnica")
     assert is_generic_name("Ar-Condicionado Split HW Inverter Hitachi AirHome 600 12.000 BTUs Só Frio 220V", "Arealva", "pj", "ar condicionado")
     assert is_generic_name("Produtos em destaque", "Taquaritinga", "pj", "lojas")

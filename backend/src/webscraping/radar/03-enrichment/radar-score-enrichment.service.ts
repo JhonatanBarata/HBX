@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import type { LeadQualityResult, WebscrapingContactResult } from '../../webscraping.service';
 import type { NormalizedSearchInput, RadarWebsiteStatus } from '../shared/radar-types';
 import { RadarOpportunitySignalService, type RadarOpportunitySignalResult } from './radar-opportunity-signal.service';
@@ -17,7 +17,11 @@ function safeInteger(value: unknown, fallback = 0) {
 
 @Injectable()
 export class RadarScoreEnrichmentService {
-  constructor(private readonly opportunitySignalService = new RadarOpportunitySignalService()) {}
+  private readonly opportunitySignalService: RadarOpportunitySignalService;
+
+  constructor(@Optional() opportunitySignalService?: RadarOpportunitySignalService) {
+    this.opportunitySignalService = opportunitySignalService || new RadarOpportunitySignalService();
+  }
 
   buildOpportunitySignal(
     result: WebscrapingContactResult,

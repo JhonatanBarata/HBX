@@ -1,156 +1,423 @@
-# Radar - Relatorio operacional pos-refatoracao
+seguir commit como exemplo: ea46711, levar ele como macro
 
-Range auditado: `e42be56..c1f1e38`
+todas as pesquisas q eu realizei, foram feitas assim:
+1 primeira pesquisa feita, pós filtro do primeiro score e resultado.
+2 segunda pesquisa (enriquecimento): motor pega o resultado da primeira: {estabelecimento} + {cidade}+{estado} e este é o enriquecimento. Regra: não usar a api paga da google por enquanto.
 
-Data: 2026-05-31
+## Teste operacional
 
-## Smoke operacional
+empresa: 11 localhost
+cidade: Rio Claro
+estado: São Paulo / SP
+segmento: alimentação
+distância: 0
+quantidade: 30 cards
 
-Arquivo de smoke criado:
+## Resultado atual - primeira pesquisa pós filtro/score
 
-- `backend/src/webscraping/radar-operational-smoke.test.ts`
+Execução: primeira pesquisa HBX, sem enriquecimento social/site/e-mail.
+Status: concluído
+Quantidade solicitada: 30
+Cards aprovados no Radar: 30
+Cards filtrados/removidos: 1
 
-Comando executado:
+### Escopo usado na busca primária
 
-```bash
-node --test dist/webscraping/radar-operational-smoke.test.js
-```
+A busca literal por "alimentação Rio Claro SP" trouxe 2 cards. Para cumprir a busca primária do segmento alimentação, foi usada a expansão primária do próprio Radar:
 
-Resultado: 8/8 testes passaram.
+- restaurantes
+- pizzarias
+- lanchonetes
+- bares
+- cafeterias
+- panificadoras
+- confeitarias
+- docerias
+- alimentos naturais
+- mercados
+- supermercados
+- açougues
 
-## Confirmacoes
+Fontes executadas até completar 30 cards:
 
-### 20 cards PJ com HBX
+- restaurantes: 29 resultados retornados
+- pizzarias: 30 resultados retornados
 
-Validado por smoke sintetico com 20 cards `targetType=pj`, `source=hbx_engine`, todos qualificados pelo `RadarQualityGateService` e marcados como `deliveryStatus=delivered` pelo `RadarDeliveryOrchestratorService`.
+Resultado removido antes da entrega:
 
-Status: aprovado.
+- 20 restaurantes no Rio de Janeiro que você precisa conhecer
+  motivo: resultado genérico/blog, sem empresa local e sem telefone próprio.
 
-### Social pending/error nao bloqueia delivery
+### 30 cards encontrados
 
-Validado com `socialStatus=pending` no estado entregue e falha posterior em `stage=social`.
+empresa 1 - Mariana's
+telefone: (19) 3524-7406
+fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/mariana-s-3660461
 
-Resultado esperado confirmado:
+empresa 2 - Ananias Pizzaria
+telefone: (19) 3532-1182
+fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/ananias-pizzaria-3650465
 
-- `deliveryStatus` permanece `delivered`;
-- `leadStatus` permanece `qualified`;
-- issue social fica `blocksDelivery=false`;
-- post-delivery fica retryable.
+empresa 3 - Bar Do Baixinho
+telefone: (19) 3523-3098
+fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/bar-do-baixinho-3649873
 
-Status: aprovado.
+empresa 4 - Restaurante Barcelona
+telefone: (19) 3524-0264
+fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/restaurante-barcelona-3650227
 
-### Website crawl nao bloqueia delivery
+empresa 5 - Jaidete Santos De Almeida
+telefone: (19) 7104-4864
+fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/jaidete-santos-de-almeida-3658837
 
-Validado com `HBX_RADAR_WEBSITE_CRAWL_LIGHT_ENABLED=true` e provider falhando por exception.
+empresa 6 - Pizza Express Rio Claro
+telefone: (19) 3536-3112
+fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/pizza-express-rio-claro-20819244
 
-Resultado esperado confirmado:
+empresa 7 - Marmitaria Da Sil
+telefone: (19) 97127-4118
+fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/marmitaria-da-sil-21881881
 
-- source `website_crawl_light`;
-- `status=partial_error`;
-- `retryable=true`;
-- `issue.blocksDelivery=false`.
+empresa 8 - Ana Lidia Itri
+telefone: (19) 3524-4022
+fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/ana-lidia-itri-3651873
 
-Status: aprovado.
+empresa 9 - Jaja Rotisserie
+telefone: (19) 3533-4123
+fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/jaja-rotisserie-3652651
 
-### CNPJ/local/vertical falham como optional
+empresa 10 - N Opcoes
+telefone: (19) 3523-2397
+fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/n-opcoes-18682362
 
-Validado com as flags ligadas e providers de CNPJ, diretorio local e vertical falhando por exception.
+empresa 11 - Joaquim Restaurante
+telefone: (19) 3532-1763
+fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/joaquim-restaurante-21867931
 
-Resultado esperado confirmado:
+empresa 12 - Le Rotisserie
+telefone: (19) 97128-0298
+fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/le-rotisserie-21881886
 
-- `cnpj_public`, `local_directory` e `vertical_source` retornam `partial_error`;
-- todas ficam `retryable=true`;
-- todas ficam `blocksDelivery=false`.
+empresa 13 - Restaurante Universitário Unesp Rio Claro
+telefone: (19) 3526-4124
+fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/restaurante-universitario-unesp-rio-claro-21867979
 
-Status: aprovado.
+empresa 14 - Opção Natural Restaurante Vegetariano
+telefone: (19) 99637-6806
+fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/opcao-natural-restaurante-vegetariano-21867933
 
-### Vendas recebe card
+empresa 15 - Neuzeli Da Silva Martins Trivelato
+telefone: (19) 3533-1396
+fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/neuzeli-da-silva-martins-trivelato-3652623
 
-Validado pelo estado entregue do `RadarDeliveryOrchestratorService`.
+empresa 16 - Restaurante, Lanchonete E Mercearia Crocantes Ltda
+telefone: (19) 7171-6999
+fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/restaurante-lanchonete-e-mercearia-crocantes-ltda-24664418
 
-Resultado esperado confirmado:
+empresa 17 - Barril 2000 Restaurante
+telefone: (19) 3524-6857
+fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/barril-2000-restaurante-21867920
 
-- `vendasLeadId` persistido no patch;
-- `deliveryStatus=delivered`;
-- `postDeliveryUpdate.status=scheduled`.
+empresa 18 - La Bella Vegana Delivery
+telefone: (19) 99819-7726
+fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/la-bella-vegana-delivery-21867731
 
-Status: aprovado.
+empresa 19 - Mariana Carolina Marques
+telefone: (19) 3536-1198
+fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/mariana-carolina-marques-3655674
 
-### Post-delivery update nao duplica evento
+empresa 20 - Espetinho da 26
+telefone: (19) 99957-2299
+fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/espetinho-da-26-21881438
 
-Foi aplicada deduplicacao no `RadarPostDeliveryVendasUpdateService` antes de gravar timeline em Vendas.
+empresa 21 - Parmegiana Du Chef
+telefone: (19) 3557-8565
+fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/parmegiana-du-chef-21867745
 
-Regra:
+empresa 22 - Marmitaria Diva' S Delivery
+telefone: (19) 3523-7257
+fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/marmitaria-diva-s-delivery-3657585
 
-- antes de `createMany`, o service consulta eventos existentes do mesmo `leadId`, `sourceType=radar_enrichment` e `eventType`;
-- evento ja existente nao e criado novamente.
+empresa 23 - RESTAURANTE PROSA MINEIRA
+telefone: (19) 3557-6621
+fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/restaurante-prosa-mineira-21867955
 
-Smoke validou duas execucoes consecutivas do mesmo update sem crescimento duplicado de timeline.
+empresa 24 - T-Maki Restaurante Japones
+telefone: (19) 3533-4777
+fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/t-maki-restaurante-japones-3659468
 
-Status: aprovado.
+empresa 25 - Restaurante Excelsior
+telefone: (19) 3524-9401
+fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/restaurante-excelsior-19686509
 
-### WhatsApp confirmed continua vindo do WebWhats ou de status ja confirmado
+empresa 26 - Madalupi Trattoria
+telefone: (19) 98870-4192
+fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/madalupi-trattoria-21874341
 
-Foi aplicada trava no `RadarResultMergerService`.
+empresa 27 - Massa Mania
+telefone: (19) 99890-5499
+fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/massa-mania-mania-de-fazer-delicias-21874337
 
-Regra:
+empresa 28 - O Rei Da Panela
+telefone: (19) 7149-6783
+fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/o-rei-da-panela-20001813
 
-- `website_crawl_light` nao promove `whatsappStatus` para `confirmed`;
-- fonte nao confiavel que tentar enviar `confirmed` e rebaixada para `unverified`;
-- `webwhats_check`, `whatsapp_check`, `webwhats`, `radar_database` e `company_history` podem preservar/promover `confirmed`;
-- se o lead ja estava `confirmed`, fonte posterior nao remove a confirmacao.
+empresa 29 - Espaço kevilin Gomes
+telefone: (19) 99798-3123
+fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/pizzarias/espaco-kevilin-gomes-21867732
 
-Smoke validou:
+empresa 30 - Pizzaria edson
+telefone: (19) 3533-8980
+fonte: https://www.solutudo.com.br/empresas/sp/rio-claro/pizzarias/pizzaria-edson-21871674
 
-- `website_crawl_light` com `confirmed` vira `unverified`;
-- `webwhats_check` com `confirmed` permanece `confirmed`;
-- `radar_database` ja confirmado permanece `confirmed` mesmo com crawl posterior.
+## Resultado atual - enriquecimento via motor HBX
 
-Status: aprovado.
+Execução: `/enrich-lead` no motor HBX, usando os 30 cards já entregues na primeira pesquisa.
+Modo: enriquecimento pós-entrega, sem nova descoberta de cards.
+Entrada do motor por card: {nome da empresa} + Rio Claro + SP + segmento do card.
+Quantidade processada: 30 de 30
+Erros finais: 0
 
-### importedCount nao foi alterado por enriquecimento
+Resumo do motor:
 
-Validado por smoke estatico nos services de enriquecimento e post-delivery:
+- Cards com social encontrado: 15
+- Cards sem social confirmado pelo motor: 15
+- Instagram confirmado: 14
+- Facebook confirmado: 8
+- Site confirmado: 0
+- E-mail confirmado: 0
+- Possíveis sociais entregues pelo motor: 0
+- Matches confirmados pelo motor: 22
 
-- `radar-post-delivery-update.service.ts`;
-- `radar-post-delivery-vendas-update.service.ts`;
-- `radar-enrichment-job-pipeline.service.ts`.
+Observação operacional:
 
-Resultado esperado confirmado: enriquecimento/post-delivery nao alteram `importedCount`.
+Rodada direta do motor em `tmp-radar-alimentacao-rio-claro-enrichment-v4.json`.
+O motor validou handles sociais por card e derrubou falsos positivos genéricos encontrados na rodada anterior, como `espaco`, `naturalrestaurante`, `restauranteuniversitario`, `marmitaria`, `mercearia` e `espetinho`.
+Quando o motor não encontrou social com confiança suficiente, o card permaneceu sem enriquecimento social.
 
-Status: aprovado.
+### Enriquecimento por card
 
-## Regressao executada
+empresa 1 - Mariana's
+instagram: não
+facebook: não
+site: não
+email: não
+status do motor: missing
 
-Comandos executados no backend:
+empresa 2 - Ananias Pizzaria
+instagram: não
+facebook: não
+site: não
+email: não
+status do motor: missing
 
-```bash
-npm run build
-node --test dist/webscraping/radar-operational-smoke.test.js
-node --test dist/webscraping/radar-search-engine.test.js
-node --test dist/webscraping/radar-delivery-orchestrator.test.js dist/webscraping/radar-post-delivery-vendas-update.test.js dist/webscraping/radar-enrichment-job-pipeline.test.js
-node --test dist/webscraping/radar-diagnostics.test.js dist/webscraping/radar-social-engine.test.js dist/webscraping/radar-lead-enrichment.test.js dist/webscraping/radar-opportunity-signal.test.js
-```
+empresa 3 - Bar Do Baixinho
+instagram: https://instagram.com/barbaixinho
+facebook: não
+site: não
+email: não
+status do motor: found
+confiança social: 100
 
-Resultados:
+empresa 4 - Restaurante Barcelona
+instagram: https://instagram.com/restaurantebarcelona
+facebook: não
+site: não
+email: não
+status do motor: found
+confiança social: 100
 
-- build: aprovado;
-- smoke operacional: 8/8;
-- search engine: 52/52;
-- delivery/post-delivery/enrichment pipeline: 12/12;
-- diagnostics/social/enrichment/opportunity: 22/22.
+empresa 5 - Jaidete Santos De Almeida
+instagram: não
+facebook: não
+site: não
+email: não
+status do motor: missing
 
-## Conclusao operacional
+empresa 6 - Pizza Express Rio Claro
+instagram: não
+facebook: não
+site: não
+email: não
+status do motor: missing
 
-O Radar pos-refatoracao manteve a regra principal: lead qualificado continua entregavel mesmo com falhas opcionais.
+empresa 7 - Marmitaria Da Sil
+instagram: não
+facebook: não
+site: não
+email: não
+status do motor: missing
 
-Pontos consolidados:
+empresa 8 - Ana Lidia Itri
+instagram: https://instagram.com/analidiaitri
+facebook: não
+site: não
+email: não
+status do motor: found
+confiança social: 96
 
-- fonte opcional nao bloqueia delivery;
-- social pending/error nao bloqueia delivery;
-- website crawl nao bloqueia delivery;
-- CNPJ/local/vertical falham de forma retryable e nao bloqueante;
-- Vendas recebe card entregue;
-- post-delivery update nao duplica evento de timeline;
-- `whatsappStatus=confirmed` nao nasce de website crawl;
-- enriquecimento nao altera `importedCount`.
+empresa 9 - Jaja Rotisserie
+instagram: https://instagram.com/jajarotisserierc
+facebook: não
+site: não
+email: não
+status do motor: found
+confiança social: 100
+
+empresa 10 - N Opcoes
+instagram: não
+facebook: não
+site: não
+email: não
+status do motor: missing
+
+empresa 11 - Joaquim Restaurante
+instagram: https://instagram.com/joaquimrestaurante
+facebook: https://facebook.com/joaquimrestaurante
+site: não
+email: não
+status do motor: found
+confiança social: 100
+
+empresa 12 - Le Rotisserie
+instagram: https://instagram.com/lerotisserierc
+facebook: https://facebook.com/lerotisserie
+site: não
+email: não
+status do motor: found
+confiança social: 100
+
+empresa 13 - Restaurante Universitário Unesp Rio Claro
+instagram: não
+facebook: não
+site: não
+email: não
+status do motor: missing
+
+empresa 14 - Opção Natural Restaurante Vegetariano
+instagram: não
+facebook: não
+site: não
+email: não
+status do motor: missing
+
+empresa 15 - Neuzeli Da Silva Martins Trivelato
+instagram: não
+facebook: não
+site: não
+email: não
+status do motor: missing
+
+empresa 16 - Restaurante, Lanchonete E Mercearia Crocantes Ltda
+instagram: não
+facebook: não
+site: não
+email: não
+status do motor: missing
+
+empresa 17 - Barril 2000 Restaurante
+instagram: https://instagram.com/barril2000restaurante
+facebook: não
+site: não
+email: não
+status do motor: found
+confiança social: 100
+
+empresa 18 - La Bella Vegana Delivery
+instagram: não
+facebook: não
+site: não
+email: não
+status do motor: missing
+
+empresa 19 - Mariana Carolina Marques
+instagram: https://instagram.com/marianacarolinamarques
+facebook: https://facebook.com/marianacarolinamarques
+site: não
+email: não
+status do motor: found
+confiança social: 96
+
+empresa 20 - Espetinho da 26
+instagram: não
+facebook: não
+site: não
+email: não
+status do motor: missing
+
+empresa 21 - Parmegiana Du Chef
+instagram: https://instagram.com/parmegianaduchef
+facebook: https://facebook.com/parmegianaduchef
+site: não
+email: não
+status do motor: found
+confiança social: 96
+
+empresa 22 - Marmitaria Diva' S Delivery
+instagram: não
+facebook: não
+site: não
+email: não
+status do motor: missing
+
+empresa 23 - RESTAURANTE PROSA MINEIRA
+instagram: https://instagram.com/restauranteprosamineira
+facebook: https://facebook.com/restauranteprosamineira
+site: não
+email: não
+status do motor: found
+confiança social: 100
+
+empresa 24 - T-Maki Restaurante Japones
+instagram: https://instagram.com/tmakirestaurantejapones
+facebook: https://facebook.com/makirestaurante
+site: não
+email: não
+status do motor: found
+confiança social: 100
+
+empresa 25 - Restaurante Excelsior
+instagram: https://instagram.com/restauranteexcelsior
+facebook: https://facebook.com/restauranteexcelsior
+site: não
+email: não
+status do motor: found
+confiança social: 100
+
+empresa 26 - Madalupi Trattoria
+instagram: não
+facebook: não
+site: não
+email: não
+status do motor: missing
+
+empresa 27 - Massa Mania
+instagram: https://instagram.com/massamania
+facebook: não
+site: não
+email: não
+status do motor: found
+confiança social: 96
+
+empresa 28 - O Rei Da Panela
+instagram: não
+facebook: https://facebook.com/oreidapanela
+site: não
+email: não
+status do motor: found
+confiança social: 86
+
+empresa 29 - Espaço kevilin Gomes
+instagram: não
+facebook: não
+site: não
+email: não
+status do motor: missing
+
+empresa 30 - Pizzaria edson
+instagram: https://instagram.com/pizzariaedson
+facebook: não
+site: não
+email: não
+status do motor: found
+confiança social: 100

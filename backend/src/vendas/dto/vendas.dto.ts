@@ -552,10 +552,6 @@ export class ImportWebscrapingLeadsDto {
   skipWhatsappValidation?: boolean;
 
   @IsOptional()
-  @IsIn(['list', 'lead_plus'])
-  qualityMode?: 'list' | 'lead_plus';
-
-  @IsOptional()
   @Transform(({ value }) => {
     if (typeof value === 'boolean') return value;
     if (typeof value === 'string') return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());

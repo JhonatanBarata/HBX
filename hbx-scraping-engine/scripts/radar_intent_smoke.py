@@ -33,7 +33,6 @@ def request_payload(**overrides) -> SearchRequest:
         "targetType": "pj",
         "limit": 10,
         "fresh": True,
-        "qualityMode": "lead_plus",
         "freshness": "live",
     }
     base.update(overrides)
