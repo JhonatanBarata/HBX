@@ -125,6 +125,10 @@ function parseJsonObject(value: unknown): Record<string, any> {
   }
 }
 
+function arrayOrEmpty(value: unknown) {
+  return Array.isArray(value) ? value : [];
+}
+
 function hasRadarEnrichmentEvidence(input: Record<string, any>) {
   const signals = input?.signals && typeof input.signals === 'object' ? input.signals : {};
   const qualityV2 = input?.qualityV2 || signals?.qualityV2;
@@ -148,7 +152,13 @@ function hasRadarEnrichmentEvidence(input: Record<string, any>) {
 function extractRadarEnrichment(lead: any) {
   const direct = parseJsonObject(lead?.enrichmentJson || lead?.metadataJson);
   const timeline = Array.isArray(lead?.timelineEvents) ? lead.timelineEvents : [];
-  const event = timeline.find((item: any) => String(item?.sourceType || '').trim().toLowerCase() === 'radar_enrichment');
+  const event = [...timeline]
+    .sort((left: any, right: any) => {
+      const leftTime = left?.createdAt ? new Date(left.createdAt).getTime() : 0;
+      const rightTime = right?.createdAt ? new Date(right.createdAt).getTime() : 0;
+      return rightTime - leftTime;
+    })
+    .find((item: any) => String(item?.sourceType || '').trim().toLowerCase() === 'radar_enrichment');
   const fromEvent = parseJsonObject(event?.description);
   const nested = typeof fromEvent.enrichment === 'string'
     ? parseJsonObject(fromEvent.enrichment)
@@ -172,6 +182,16 @@ function extractRadarEnrichment(lead: any) {
     facebookUrl: normalizeUrl(lead?.facebookUrl || fromEvent.facebookUrl || nested?.facebookUrl || direct?.facebookUrl || nested?.signals?.facebookUrl || direct?.signals?.facebookUrl),
     socialStatus: normalizeText(lead?.socialStatus || fromEvent.socialStatus || nested?.socialStatus || direct?.socialStatus || nested?.signals?.socialStatus || direct?.signals?.socialStatus),
     socialConfidence: Number(lead?.socialConfidence || fromEvent.socialConfidence || nested?.socialConfidence || direct?.socialConfidence || nested?.sourceConfidence?.social || direct?.sourceConfidence?.social || 0) || null,
+    possibleSocialCandidates: arrayOrEmpty(fromEvent.possibleSocialCandidates)
+      .concat(arrayOrEmpty(nested?.possibleSocialCandidates))
+      .concat(arrayOrEmpty(direct?.possibleSocialCandidates))
+      .concat(arrayOrEmpty(nested?.signals?.possibleSocialCandidates))
+      .concat(arrayOrEmpty(direct?.signals?.possibleSocialCandidates)),
+    confirmedSocialCandidates: arrayOrEmpty(fromEvent.confirmedSocialCandidates)
+      .concat(arrayOrEmpty(nested?.confirmedSocialCandidates))
+      .concat(arrayOrEmpty(direct?.confirmedSocialCandidates))
+      .concat(arrayOrEmpty(nested?.signals?.confirmedSocialCandidates))
+      .concat(arrayOrEmpty(direct?.signals?.confirmedSocialCandidates)),
     enrichmentStatus,
     enrichedAt: normalizeText(fromEvent.enrichedAt || nested?.enrichedAt || direct?.enrichedAt),
     cnpj: normalizeText(fromEvent.cnpj || nested?.cnpj || direct?.cnpj),
@@ -262,6 +282,8 @@ export function buildVendasLeadIntelligence(input: VendasLeadIntelligenceInput) 
   const facebookUrl = normalizeUrl(radarEnrichment.facebookUrl || lead?.facebookUrl);
   const socialStatus = normalizeText(radarEnrichment.socialStatus) || (instagramUrl || facebookUrl ? 'found' : 'missing');
   const socialConfidence = Number(radarEnrichment.socialConfidence || 0) || null;
+  const possibleSocialCandidates = arrayOrEmpty(radarEnrichment.possibleSocialCandidates);
+  const confirmedSocialCandidates = arrayOrEmpty(radarEnrichment.confirmedSocialCandidates);
   const primarySocial = resolvePrimarySocial(instagramUrl, facebookUrl);
   const radarEmailStatus = normalizeKey(radarEnrichment.emailStatus);
   const emailStatus = radarEmailStatus && ['confirmed', 'probable', 'missing', 'invalid', 'unverified'].includes(radarEmailStatus)
@@ -284,6 +306,7 @@ export function buildVendasLeadIntelligence(input: VendasLeadIntelligenceInput) 
   if (instagramUrl) tags.add('instagram_encontrado');
   if (facebookUrl) tags.add('facebook_encontrado');
   if (instagramUrl || facebookUrl) tags.add('rede_social_confirmada');
+  if (possibleSocialCandidates.length) tags.add('rede_social_possivel');
   if ((instagramUrl || facebookUrl) && hasWeakOrMissingWebsite) tags.add('rede_social_sem_site');
 
   const blocked = Boolean(
@@ -308,8 +331,11 @@ export function buildVendasLeadIntelligence(input: VendasLeadIntelligenceInput) 
   if (instagramUrl && facebookUrl) score += 8;
   else if (instagramUrl) score += 6;
   else if (facebookUrl) score += 4;
+  if (possibleSocialCandidates.length) score += 5;
   if ((instagramUrl || facebookUrl) && hasWeakOrMissingWebsite) score += 4;
+  if (possibleSocialCandidates.length && hasWeakOrMissingWebsite) score += 2;
   if (normalizeKey(socialStatus) === 'weak') score += 2;
+  if (normalizeKey(socialStatus) === 'candidate_review') score += 2;
   if (blocked) score = Math.min(score, 20);
   score = Math.max(0, Math.min(99, Math.round(score)));
 
@@ -339,6 +365,7 @@ export function buildVendasLeadIntelligence(input: VendasLeadIntelligenceInput) 
     emailStatus === 'confirmed' ? 'e-mail confirmado' : emailStatus === 'probable' ? 'e-mail provável' : null,
     tags.has('sem_site') ? 'sem site' : normalizeText(lead?.website) ? 'site informado' : null,
     instagramUrl && facebookUrl ? 'Instagram e Facebook encontrados' : instagramUrl ? 'Instagram encontrado' : facebookUrl ? 'Facebook encontrado' : null,
+    possibleSocialCandidates.length ? 'rede social possível para revisão' : null,
     Number(lead?.rating || 0) >= 4.2 ? 'boa avaliação' : null,
     Number(lead?.reviews || 0) >= 20 ? 'reviews relevantes' : null,
     radarEnrichment.painType ? `dor ${radarEnrichment.painType}` : null,
@@ -363,6 +390,8 @@ export function buildVendasLeadIntelligence(input: VendasLeadIntelligenceInput) 
     facebookUrl,
     socialStatus,
     socialConfidence,
+    possibleSocialCandidates,
+    confirmedSocialCandidates,
     primarySocial,
     whatsappStatus,
     contactQuality,

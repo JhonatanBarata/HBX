@@ -217,6 +217,7 @@ GENERIC_CATEGORY_HEADS = {
     "clinicas de estetica",
     "clinicas de estetica e esteticistas",
     "clinicas medicas",
+    "clinicas de saude e beleza",
     "contabilidades",
     "dentistas",
     "distribuidores de bebidas",
@@ -324,6 +325,7 @@ VALID_DDDS = set().union(*STATE_DDDS.values())
 CITY_DDD_OVERRIDES = {
     ("americana", "SP"): {"19"},
     ("campinas", "SP"): {"19"},
+    ("rio claro", "SP"): {"19"},
     ("sumare", "SP"): {"19"},
     ("santa barbara d oeste", "SP"): {"19"},
 }
@@ -368,6 +370,27 @@ def is_directory_domain(url_or_host: str | None) -> bool:
     return any(hint in host for hint in DIRECTORY_HOST_HINTS)
 
 
+def is_directory_listing_url(url_or_host: str | None) -> bool:
+    value = str(url_or_host or "").strip().lower()
+    parsed = urlparse(value)
+    host = parsed.netloc.lower().removeprefix("www.")
+    path = parsed.path.lower().strip("/")
+    parts = [part for part in path.split("/") if part]
+    if not host:
+        return False
+    if "solutudo" in host and parts[:1] == ["empresas"]:
+        return len(parts) <= 4
+    if "listaamarela" in host:
+        return path.startswith("busca/")
+    if "guiamais" in host:
+        return path.startswith("busca/")
+    if "apontador" in host and parts[:1] == ["local"]:
+        return len(parts) <= 4
+    if any(marker in path for marker in ("/busca/", "/categoria/", "/categorias/", "/empresas/")):
+        return True
+    return False
+
+
 def is_pf_weak_domain(url_or_host: str | None) -> bool:
     value = str(url_or_host or "").lower()
     host = domain_from_url(value) or value
@@ -401,17 +424,28 @@ def _looks_like_category_location_title(key: str, city_key: str = "", segment: s
         if key.startswith(f"{head} no ") or key.startswith(f"{head} na "):
             return True
         if city_key and key.startswith(f"{head} ") and f" em {city_key}" in key:
-            return True
+            between = key[len(head):].split(f" em {city_key}", 1)[0].strip()
+            if not between:
+                return True
         if city_key and key.startswith(f"{head} ") and (f" no {city_key}" in key or f" na {city_key}" in key):
-            return True
+            marker = f" no {city_key}" if f" no {city_key}" in key else f" na {city_key}"
+            between = key[len(head):].split(marker, 1)[0].strip()
+            if not between:
+                return True
         if city_key and key == f"{head} em {city_key}":
             return True
         if city_key and key in {f"{head} no {city_key}", f"{head} na {city_key}"}:
             return True
         if city_key and head.endswith("s") and key == f"{head} {city_key}":
             return True
+        if city_key and key.startswith(f"{head} {city_key} "):
+            tail = key[len(f"{head} {city_key} "):].strip()
+            if tail.upper() in STATE_DDDS:
+                return True
         if city_key and key.startswith(f"{head} em {city_key} "):
             return True
+    if city_key and re.match(rf"^(instituto|clinicas?|saloes?)\s+d[aeo]?\s+beleza\s+em\s+{re.escape(city_key)}(?:\s|$)", key):
+        return True
     if re.match(r"^(10|20|30|40|50)\s+melhores\s+", key):
         return True
     return False

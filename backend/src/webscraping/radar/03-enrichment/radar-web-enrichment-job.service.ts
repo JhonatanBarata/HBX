@@ -17,6 +17,18 @@ export type RadarWebEnrichmentJobHost = {
     options: { queryText?: string; batchLimit?: number; timeoutMs?: number },
   ) => Promise<HbxEngineSearchOutput>;
   getRadarWebsiteCrawlSource?: RadarWebEnrichmentHost['getRadarWebsiteCrawlSource'];
+  recordVendasEnrichmentStatus?: (
+    context: SearchExecutionContext,
+    row: any,
+    status: 'queued' | 'processing' | 'completed' | 'failed',
+    payload?: Record<string, any>,
+  ) => Promise<void>;
+  syncVendasAfterRadarEnrichment?: (
+    context: SearchExecutionContext,
+    row: any,
+    data: Record<string, any>,
+    reason?: string | null,
+  ) => Promise<void>;
   logger?: { warn?: (message: string) => void };
   fetcher?: typeof fetch;
 };
@@ -88,6 +100,32 @@ export class RadarWebEnrichmentJobService {
     return Math.max(5_000, parsePositiveIntegerEnv('HBX_RADAR_WEB_ENRICHMENT_JOB_TIMEOUT_MS', 12_000));
   }
 
+  private async notifyVendasStatus(
+    host: RadarWebEnrichmentJobHost,
+    context: SearchExecutionContext,
+    row: any,
+    status: 'queued' | 'processing' | 'completed' | 'failed',
+    payload: Record<string, any> = {},
+  ) {
+    if (typeof host.recordVendasEnrichmentStatus !== 'function') return;
+    await host.recordVendasEnrichmentStatus(context, row, status, payload).catch((error: any) => {
+      this.logger.warn(`[radar-web-enrichment] aviso Vendas falhou lead=${row?.id || 'unknown'}: ${String(error?.message || error)}`);
+    });
+  }
+
+  private async syncVendasAfterEnrichment(
+    host: RadarWebEnrichmentJobHost,
+    context: SearchExecutionContext,
+    row: any,
+    data: Record<string, any>,
+    reason?: string | null,
+  ) {
+    if (typeof host.syncVendasAfterRadarEnrichment !== 'function') return;
+    await host.syncVendasAfterRadarEnrichment(context, row, data, reason).catch((error: any) => {
+      this.logger.warn(`[radar-web-enrichment] sync Vendas falhou lead=${row?.id || 'unknown'}: ${String(error?.message || error)}`);
+    });
+  }
+
   enqueue(
     context: SearchExecutionContext,
     runId: string,
@@ -156,6 +194,10 @@ export class RadarWebEnrichmentJobService {
     }
 
     await this.markRunning(leadId, raw);
+    await this.notifyVendasStatus(host, context, item, 'processing', {
+      radarLeadId: leadId,
+      reason: 'completando_redes_site_email',
+    });
     const result = await this.getWebEnrichment().run({
       normalized: input,
       currentResults: [baseLead],
@@ -172,11 +214,12 @@ export class RadarWebEnrichmentJobService {
     if (result.results?.length) {
       const nextRaw = this.mergeResultRaw(raw, baseLead, result.results[0], result.reason || null);
       await this.runs.updateRunItemRawJson(leadId, nextRaw);
+      await this.syncVendasAfterEnrichment(host, context, item, nextRaw, result.reason || null);
       return result;
     }
 
     const status = result.status === 'partial_error' ? 'partial_error' : 'skipped';
-    await this.runs.updateRunItemRawJson(leadId, {
+    const nextRaw = {
       ...raw,
       ...this.getJobPipeline().withJobStatus(raw, {
         type: 'radar_web_enrichment',
@@ -202,6 +245,12 @@ export class RadarWebEnrichmentJobService {
           result.issue,
         ],
       } : {}),
+    };
+    await this.runs.updateRunItemRawJson(leadId, nextRaw);
+    await this.notifyVendasStatus(host, context, item, status === 'partial_error' ? 'failed' : 'completed', {
+      radarLeadId: leadId,
+      reason: result.reason || 'sem_dados_novos',
+      blocksDelivery: false,
     });
     return result;
   }
@@ -255,6 +304,42 @@ export class RadarWebEnrichmentJobService {
     const socialStatus = (merged.instagramUrl || merged.facebookUrl
       ? compact(merged.socialStatus) || enrichment.socialStatus || 'partial'
       : compact(raw.socialStatus) || 'pending') as any;
+    const possibleSocialCandidates = socialStatus === 'candidate_review'
+      ? [
+          ...(merged.instagramUrl ? [{
+            network: 'instagram',
+            url: merged.instagramUrl,
+            status: 'possible',
+            confidence: Math.max(safeInteger(merged.socialConfidence), enrichment.socialConfidence),
+            reason: reason || 'perfil_social_para_revisao',
+            source: (result as any).sourceEngine || result.source || 'radar_web_enrichment',
+          }] : []),
+          ...(merged.facebookUrl ? [{
+            network: 'facebook',
+            url: merged.facebookUrl,
+            status: 'possible',
+            confidence: Math.max(safeInteger(merged.socialConfidence), enrichment.socialConfidence),
+            reason: reason || 'perfil_social_para_revisao',
+            source: (result as any).sourceEngine || result.source || 'radar_web_enrichment',
+          }] : []),
+        ]
+      : [];
+    const enrichmentPayload = parseMaybeJsonObject(enrichment.enrichmentJson);
+    const nextEnrichmentJson = JSON.stringify({
+      ...enrichmentPayload,
+      signals: {
+        ...(enrichmentPayload.signals || {}),
+        possibleSocialCandidates,
+      },
+      ...(possibleSocialCandidates.length ? {
+        socialLookup: {
+          status: socialStatus,
+          confidence: Math.max(safeInteger(merged.socialConfidence), enrichment.socialConfidence),
+          reason: reason || 'perfil_social_para_revisao',
+          possibleSocialCandidates,
+        },
+      } : {}),
+    });
     return {
       ...raw,
       ...this.getJobPipeline().withJobStatus(raw, {
@@ -282,7 +367,8 @@ export class RadarWebEnrichmentJobService {
       opportunityReason: enrichment.opportunityReason || raw.opportunityReason || null,
       enrichmentScore: enrichment.enrichmentScore,
       enrichmentConfidence: enrichment.enrichmentConfidence,
-      enrichmentJson: enrichment.enrichmentJson,
+      enrichmentJson: nextEnrichmentJson,
+      possibleSocialCandidates,
       evidenceJson: (result as any).evidenceJson || raw.evidenceJson || null,
       radarWebEnrichment: {
         status: 'completed',
@@ -295,6 +381,7 @@ export class RadarWebEnrichmentJobService {
         website: merged.website,
         instagramUrl: merged.instagramUrl,
         facebookUrl: merged.facebookUrl,
+        possibleSocialCandidates,
         emailCandidate: merged.email,
         socialStatus,
       },

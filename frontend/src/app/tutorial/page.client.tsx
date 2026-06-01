@@ -1058,7 +1058,6 @@ export default function TutorialClientPage() {
         quantity: 10,
         minimumStock: 10,
         desiredStock: 10,
-        qualityMode: "list",
         preferredChannels: ["whatsapp"],
         whatsappCheckMode,
       }),

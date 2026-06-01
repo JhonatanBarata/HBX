@@ -87,7 +87,6 @@ import {
   coerceBoolean,
   normalizeEngine,
   normalizeEnginePurpose,
-  normalizeCardDiscoveryQualityMode,
   isAutomaticEnginePurpose,
   normalizeTargetType,
   parsePositiveInteger,
@@ -218,7 +217,6 @@ export class RadarCoreSearchRunnerMixin {
       `preferred=${preferredChannels.join(',')}`,
       `required=${requiredChannels.join(',')}`,
       `match=${this.normalizeChannelMatchMode((filters as any)?.channelMatchMode)}`,
-      `quality=${normalizeCardDiscoveryQualityMode()}`,
     ].join('|');
   }
 
@@ -242,7 +240,6 @@ export class RadarCoreSearchRunnerMixin {
       ...(Array.isArray(metrics?.preferredChannels) ? { preferredChannels: metrics.preferredChannels } : {}),
       ...(Array.isArray(metrics?.requiredChannels) ? { requiredChannels: metrics.requiredChannels } : {}),
       ...(metrics?.channelMatchMode ? { channelMatchMode: metrics.channelMatchMode } : {}),
-      ...(metrics?.qualityMode ? { qualityMode: metrics.qualityMode } : {}),
     };
     const salesProfile = metrics?.salesProfile || channelFilters.salesProfile || storedFilters.salesProfile || null;
     return {
@@ -258,7 +255,6 @@ export class RadarCoreSearchRunnerMixin {
       preferredChannels: this.normalizeRadarChannels(channelFilters.preferredChannels),
       requiredChannels: this.normalizeRadarChannels(channelFilters.requiredChannels),
       channelMatchMode: this.normalizeChannelMatchMode(channelFilters.channelMatchMode),
-      qualityMode: normalizeCardDiscoveryQualityMode(),
       salesProfile,
     };
   }
@@ -278,7 +274,6 @@ export class RadarCoreSearchRunnerMixin {
         preferredChannels: normalized.preferredChannels,
         requiredChannels: normalized.requiredChannels,
         channelMatchMode: normalized.channelMatchMode,
-        qualityMode: normalized.qualityMode,
       },
       sourceDiagnostics: [],
       radarStageIssues: [],

@@ -44,13 +44,11 @@ export type LeadQualityV2SalesProfile = {
   preferredChannels?: string[];
   requiredChannels?: string[];
   channelMatchMode?: LeadQualityV2ChannelMatchMode | string | null;
-  qualityMode?: 'list' | 'lead_plus' | string | null;
   leadPreferences?: Record<string, any>;
   negativeRules?: Record<string, any>;
 };
 
-export type LeadQualityV2QualityMode = 'list' | 'lead_plus';
-export type RadarVisibilityTier = 'blocked' | 'list_basic' | 'review_backup' | 'lead_plus_qualified';
+export type RadarVisibilityTier = 'blocked' | 'list_basic' | 'review_backup';
 
 export type RadarVisibilityFromQualityV2 = {
   visibilityTier: RadarVisibilityTier;
@@ -246,9 +244,9 @@ const SEGMENT_INTENTS: SegmentIntentMap[] = [
   },
   {
     key: 'beleza',
-    aliases: ['salao', 'beleza', 'barbearia', 'estetica'],
-    core: ['salao', 'barbearia', 'estetica', 'manicure'],
-    adjacent_good: ['cosmeticos', 'depilacao'],
+    aliases: ['salao', 'beleza', 'estetica', 'cabeleireiro', 'cabelo'],
+    core: ['salao', 'estetica', 'manicure', 'cabeleireiro', 'cabeleireiros', 'cabelo', 'cabelos', 'hair', 'sobrancelha', 'sobrancelhas', 'cilios', 'depilacao'],
+    adjacent_good: ['cosmeticos', 'depilacao', 'maquiagem', 'makeup'],
     adjacent_review: ['loja de beleza'],
     reject: ['escola de beleza'],
   },
@@ -651,12 +649,10 @@ function isStrongSegmentMismatch(row: any, quality: LeadQualityV2, requestedSegm
 export function resolveRadarVisibilityFromQualityV2(input: {
   lead?: any;
   quality: LeadQualityV2 | null | undefined;
-  qualityMode?: LeadQualityV2QualityMode | string | null;
   requestedSegment?: string | null;
 }): RadarVisibilityFromQualityV2 {
   const quality = input.quality || null;
   const row = mergeLeadInput(input.lead || {}, {});
-  const qualityMode: LeadQualityV2QualityMode = normalizeKey(input.qualityMode) === 'lead_plus' ? 'lead_plus' : 'list';
   const rankScore = clampScore(quality?.finalRankScore);
   const hasChannel = hasActionablePublicChannel(row, quality);
   const genericName = looksLikeGenericRadarName(row, input.requestedSegment);
@@ -701,19 +697,17 @@ export function resolveRadarVisibilityFromQualityV2(input: {
         ? block('segment_hard_mismatch')
         : review('segment_mismatch_review');
     }
-    if (reason === 'weak_contactability') return review('weak_contactability_review');
+    if (reason === 'weak_contactability' || reason === 'required_channel_missing') {
+      return {
+        visibilityTier: 'list_basic',
+        hardBlocked: false,
+        blockReason: null,
+        rankScore,
+        debitEligible: true,
+      };
+    }
     if (reason === 'weak_identity') return review('weak_identity_review');
     return review(reason || 'quality_review');
-  }
-
-  if (qualityMode === 'lead_plus' && quality.decision === 'deliver') {
-    return {
-      visibilityTier: 'lead_plus_qualified',
-      hardBlocked: false,
-      blockReason: null,
-      rankScore,
-      debitEligible: true,
-    };
   }
 
   if (rankScore > 0 && rankScore < 45) return review('low_rank_score_review');
@@ -980,7 +974,6 @@ export function calculateLeadQualityV2(input: {
     requestedCity?: string | null;
     requestedState?: string | null;
     targetType?: string | null;
-    qualityMode?: LeadQualityV2QualityMode | string | null;
     now?: Date;
     salesProfile?: LeadQualityV2SalesProfile | null;
   };
@@ -1086,7 +1079,6 @@ export function calculateLeadQualityV2(input: {
   ]);
   const profileRequiredChannels = normalizeChannels(salesProfile?.requiredChannels);
   const channelMatchMode = normalizeChannelMatchMode(salesProfile?.channelMatchMode);
-  const qualityMode: LeadQualityV2QualityMode = normalizeKey(input.context?.qualityMode || salesProfile?.qualityMode) === 'lead_plus' ? 'lead_plus' : 'list';
   const preferredChannelMatches = profilePreferredChannels.filter((channel) => channelAvailability[channel]);
   const requiredChannelMatches = profileRequiredChannels.filter((channel) => channelAvailability[channel]);
   const missingRequiredChannels = channelMatchMode === 'all_required'
@@ -1107,7 +1099,7 @@ export function calculateLeadQualityV2(input: {
   const cityMatchesPreference = !profilePreferredCities.length || profilePreferredCityMatch;
   const stateMatchesPreference = !profilePreferredStates.length || profilePreferredStateMatch;
   const outOfPreferredLocation = hasLocationPreference && (!cityMatchesPreference || !stateMatchesPreference);
-  const shouldDiscardOutOfCity = outOfPreferredLocation && (qualityMode === 'lead_plus' || profileHasNegativeRule(salesProfile, 'avoidOutOfCity'));
+  const shouldDiscardOutOfCity = outOfPreferredLocation && profileHasNegativeRule(salesProfile, 'avoidOutOfCity');
   if (profileMatchesTargetSegment) {
     segmentFitScore = clampScore(segmentFitScore + 16);
     reasons.push('Segmento prioritario no seu perfil.');
@@ -1342,40 +1334,22 @@ export function calculateLeadQualityV2(input: {
     decision = 'discard';
     discardReason = 'weak_contactability';
   } else if (profileHasNegativeRule(salesProfile, 'avoidNoWhatsapp') && !whatsappConfirmed && !likelyMobile) {
-    decision = qualityMode === 'lead_plus' ? 'discard' : 'review';
-    discardReason = qualityMode === 'lead_plus' ? 'weak_contactability' : null;
-    finalRankScore = Math.min(finalRankScore, qualityMode === 'lead_plus' ? 35 : 45);
+    decision = 'review';
+    discardReason = null;
+    finalRankScore = Math.min(finalRankScore, 45);
   } else if (shouldDiscardOutOfCity) {
     decision = 'discard';
     discardReason = 'location_mismatch';
     reasons.push('Descartado: fora da cidade configurada.');
-  } else if (qualityMode === 'lead_plus' && profileTargetSegments.length && (!profileMatchesTargetSegment || !targetSegmentFit.strong)) {
-    decision = 'discard';
-    discardReason = 'segment_mismatch';
-    finalRankScore = Math.min(finalRankScore, 35);
   } else if (missingRequiredChannels.length) {
     decision = 'discard';
     discardReason = 'weak_contactability';
-  } else if (qualityMode === 'lead_plus' && profilePreferredChannels.includes('whatsapp') && !whatsappConfirmed && !likelyMobile) {
-    decision = 'review';
-    discardReason = null;
-    finalRankScore = Math.min(finalRankScore, 45);
   } else if (segmentFit.group === 'reject' || (normalizeKey(input.context?.requestedSegment) && segmentFitScore < 25)) {
     decision = 'discard';
     discardReason = 'segment_mismatch';
   } else if (!phoneValid && contactabilityScore < 25 && !emailConfirmed && !emailProbable && !hasSocial) {
     decision = 'discard';
     discardReason = 'weak_contactability';
-  } else if (qualityMode === 'lead_plus') {
-    decision =
-      identityScore >= 60 &&
-      segmentFitScore >= 65 &&
-      contactabilityScore >= 55 &&
-      riskScore < 40 &&
-      finalRankScore >= 68 &&
-      recommendedChannel !== 'discard'
-        ? 'deliver'
-        : 'review';
   } else if (identityScore >= 45 && contactabilityScore >= 25 && segmentFitScore >= 38 && riskScore < 60) {
     decision = 'deliver';
   } else {

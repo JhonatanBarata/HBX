@@ -19,6 +19,8 @@ test('radar social query planner gera camadas agressivas', () => {
   });
   const queryTexts = queries.map((entry) => entry.query);
 
+  assert.equal(queryTexts[0], '"Barbearia X" "Rio Claro" "SP" instagram');
+  assert.equal(queries[0]?.layer, 'full_name_city_state');
   assert.equal(queryTexts.includes('"Barbearia X" "Rio Claro" instagram'), true);
   assert.equal(queryTexts.includes('"Barbearia X" "Rio Claro, SP" instagram'), true);
   assert.equal(queryTexts.includes('"Barbearia X" "Rio Claro" "barbearias" instagram'), true);
@@ -27,6 +29,23 @@ test('radar social query planner gera camadas agressivas', () => {
   assert.equal(queryTexts.includes('site:instagram.com "barbeariax.com.br"'), true);
   assert.equal(queryTexts.includes('site:instagram.com "Barbearia X" "Rio Claro"'), true);
   assert.equal(queryTexts.includes('"Barbearia X" "Rio Claro" "whatsapp"'), true);
+});
+
+test('radar social query planner adiciona variantes de segmento para beleza', () => {
+  const queries = buildRadarSocialLookupQueries({
+    name: 'Studio Bella Hair',
+    city: 'Rio Claro',
+    state: 'SP',
+    phoneDigits: '19999990001',
+    segment: 'salão de beleza',
+  });
+  const queryTexts = queries.map((entry) => entry.query);
+
+  assert.equal(queryTexts[0], '"Studio Bella Hair" "Rio Claro" "SP" instagram');
+  assert.equal(queryTexts.includes('"Studio Bella Hair" "Rio Claro" "salão de beleza" instagram'), true);
+  assert.equal(queryTexts.includes('"Studio Bella Hair" "Rio Claro" "cabeleireiro" instagram'), true);
+  assert.equal(queryTexts.includes('site:instagram.com "Studio Bella Hair" "Rio Claro" "salão de beleza"'), true);
+  assert.equal(queryTexts.includes('"Studio Bella Hair" "Rio Claro" "agenda" instagram'), true);
 });
 
 test('radar social extractor le evidenceJson signals e texto com links sociais', () => {
@@ -130,6 +149,42 @@ test('radar social scorer rejeita cidade conflitante e pagina generica', () => {
   assert.equal(generic.reason, 'pagina_generica');
   assert.equal(conflict.accepted, false);
   assert.equal(conflict.reason.includes('cidade_conflitante'), true);
+});
+
+test('radar social scorer aceita handle compacto com marca e cidade sem aceitar generico', () => {
+  const scorer = new RadarSocialCandidateScorer();
+  const compactBrandCity = scorer.score({
+    name: 'Studio Bella Hair',
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'salão de beleza',
+  }, {
+    network: 'instagram',
+    url: 'https://instagram.com/studiobellarioclaro',
+    source: 'test',
+    result: {
+      title: '@studiobellarioclaro',
+    },
+    rawText: '@studiobellarioclaro',
+  });
+  const genericSegmentCity = scorer.score({
+    name: 'Salao Beleza',
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'salão de beleza',
+  }, {
+    network: 'instagram',
+    url: 'https://instagram.com/salaobelezarioclaro',
+    source: 'test',
+    result: {
+      title: '@salaobelezarioclaro',
+    },
+    rawText: '@salaobelezarioclaro',
+  });
+
+  assert.equal(compactBrandCity.status, 'confirmed');
+  assert.equal(compactBrandCity.accepted, true);
+  assert.equal(genericSegmentCity.accepted, false);
 });
 
 test('google textual provider prepara social sem usar Places', () => {

@@ -1,5 +1,6 @@
 import {
   RADAR_SOCIAL_CATEGORY_TOKENS,
+  RADAR_SOCIAL_WEAK_TOKENS,
   normalizeLookupValue,
   socialHandleFromUrl,
   looksLikeThirdPartySocialProfile,
@@ -62,6 +63,13 @@ export class RadarSocialCandidateScorer {
     const legalTokens = tokens(legalName);
     const segmentTokens = tokens(leadSegment);
     const strongTokens = leadTokens.filter((token) => token.length >= 4 && !RADAR_SOCIAL_CATEGORY_TOKENS.has(token));
+    const leadCategoryTokens = leadTokens.filter((token) => RADAR_SOCIAL_CATEGORY_TOKENS.has(token));
+    const weakTokens = leadTokens.filter((token) => RADAR_SOCIAL_WEAK_TOKENS.has(token));
+    const distinctiveTokens = leadTokens.filter((token) => (
+      token.length >= 4
+      && !RADAR_SOCIAL_CATEGORY_TOKENS.has(token)
+      && !RADAR_SOCIAL_WEAK_TOKENS.has(token)
+    ));
     const categoryTokens = [...leadTokens, ...segmentTokens].filter((token) => RADAR_SOCIAL_CATEGORY_TOKENS.has(token));
     const leadCity = normalizeLookupValue(lead?.city || '');
     const leadState = String(lead?.state || '').trim().toUpperCase();
@@ -108,6 +116,15 @@ export class RadarSocialCandidateScorer {
     if (leadCity && (evidence.includes(leadCity) || handle.includes(compact(leadCity)))) {
       score += 25;
       reasons.push('cidade');
+    }
+    const compactCity = compact(leadCity);
+    const handleHasCompactCity = compactCity.length >= 5 && handle.includes(compactCity);
+    const handleHasCategory = leadCategoryTokens.some((token) => handle.includes(compact(token)));
+    const handleHasWeakBrand = weakTokens.some((token) => handle.includes(compact(token)));
+    const handleHasDistinctiveBrand = distinctiveTokens.some((token) => handle.includes(compact(token)));
+    if (handleHasCompactCity && handleHasCategory && (handleHasWeakBrand || handleHasDistinctiveBrand)) {
+      score += reasons.includes('nome') ? 10 : 30;
+      reasons.push('nome_compacto_cidade');
     }
     if (leadState && evidence.includes(normalizeLookupValue(leadState))) {
       score += 5;

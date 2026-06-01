@@ -43,10 +43,6 @@ function normalizeTargetType(value: unknown): HbxTargetType {
   return 'pj';
 }
 
-function normalizeCardDiscoveryQualityMode(): 'list' {
-  return 'list';
-}
-
 @Injectable()
 export class RadarSearchInputService {
   buildRadarFiltersFromNormalizedSearchInput(input: NormalizedSearchInput, host: RadarSearchInputHost): NormalizedRadarFilters {
@@ -64,7 +60,6 @@ export class RadarSearchInputService {
       preferredChannels: input.preferredChannels,
       requiredChannels: input.requiredChannels,
       channelMatchMode: input.channelMatchMode,
-      qualityMode: normalizeCardDiscoveryQualityMode(),
       salesProfile: input.salesProfile,
     });
   }
@@ -86,7 +81,6 @@ export class RadarSearchInputService {
       preferredChannels: filters.preferredChannels,
       requiredChannels: filters.requiredChannels,
       channelMatchMode: filters.channelMatchMode,
-      qualityMode: filters.qualityMode,
       freshness: filters.freshness,
     });
   }
@@ -110,7 +104,6 @@ export class RadarSearchInputService {
       preferredChannels: channelFilters.preferredChannels,
       requiredChannels: channelFilters.requiredChannels,
       channelMatchMode: channelFilters.channelMatchMode,
-      qualityMode: channelFilters.qualityMode,
       salesProfile: metrics?.salesProfile || null,
     });
   }

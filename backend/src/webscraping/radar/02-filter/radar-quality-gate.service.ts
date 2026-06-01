@@ -99,8 +99,7 @@ function clampScore(value: unknown) {
 function qualityV2HardBlocks(qualityV2?: LeadQualityV2 | null) {
   if (!qualityV2) return false;
   if (qualityV2.decision === 'protect') return true;
-  return qualityV2.decision === 'discard'
-    && ['protected_status', 'duplicate', 'generic_name', 'no_actionable_channel', 'invalid_phone'].includes(String(qualityV2.discardReason || ''));
+  return qualityV2.decision === 'discard';
 }
 
 function arrayValues(value: unknown) {

@@ -77,7 +77,7 @@ function countFields(fields: WebsiteCrawlExtractedFields) {
 
 @Injectable()
 export class WebsiteCrawlProviderService {
-  constructor(private readonly extractor = new WebsiteCrawlContactExtractor()) {}
+  private readonly extractor = new WebsiteCrawlContactExtractor();
 
   async crawl(rawUrl: string, options: WebsiteCrawlOptions = {}): Promise<WebsiteCrawlResult> {
     const normalized = normalizeWebsiteUrl(rawUrl);

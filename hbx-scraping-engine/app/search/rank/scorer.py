@@ -1,7 +1,7 @@
 import re
 
 from app.schemas import SearchIntent
-from app.services.filters import domain_from_url, is_directory_domain, is_generic_name, text_key
+from app.services.filters import domain_from_url, is_directory_domain, is_directory_listing_url, is_generic_name, text_key
 from app.services.parser import is_directory_url
 from app.services.social import is_valid_social_profile_url
 
@@ -186,6 +186,7 @@ class EvidenceScorer:
             penalties.append("missing_actionable_channel")
 
         host = domain_from_url(contact.get("website") or page_url)
+        directory_listing = is_directory_listing_url(page_url)
         directory = bool(is_directory_url(page_url) or is_directory_domain(host))
         source_score = 55
         if contact.get("website") and not directory:
@@ -195,9 +196,12 @@ class EvidenceScorer:
             source_score += 12
         if required_social_present:
             source_score += 8
-        if directory:
+        if directory_listing or (directory and not _has_phone(contact) and not required_social_present):
             source_score -= 35
             penalties.append("generic_directory_source")
+        elif directory:
+            source_score -= 10
+            reasons.append("Diretorio com contato proprio aproveitado.")
 
         intent_score = 35
         lead_commercial_content = " ".join([

@@ -87,7 +87,6 @@ import {
   coerceBoolean,
   normalizeEngine,
   normalizeEnginePurpose,
-  normalizeCardDiscoveryQualityMode,
   isAutomaticEnginePurpose,
   normalizeTargetType,
   parsePositiveInteger,
@@ -654,7 +653,6 @@ export class RadarCoreDistributionMixin {
       engine: 'hbx',
       targetType: 'pj',
       whatsappCheckMode: 'off',
-      qualityMode: 'list',
     } as RadarFiltersInput;
   }
 

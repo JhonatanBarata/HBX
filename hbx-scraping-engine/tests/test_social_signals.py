@@ -28,20 +28,18 @@ def test_enrich_lead_request_preserves_required_website_and_email_channels() -> 
     assert request.requiredChannels == ["website", "email", "instagram", "facebook"]
 
 
-def test_pj_search_does_not_turn_lead_plus_into_social_discovery() -> None:
+def test_pj_search_does_not_turn_empty_channels_into_social_discovery() -> None:
     request = SearchRequest(
         city="Ubatuba",
         state="SP",
         segment="academias",
         preferredChannels=[],
         requiredChannels=[],
-        qualityMode="lead_plus",
     )
     service = SearchService()
 
     assert request.preferredChannels == []
     assert request.requiredChannels == []
-    assert request.qualityMode == "list"
     assert service.effective_requested_social_channels(request) == set()
     assert service.effective_discovery_channels(request) == []
 
@@ -53,7 +51,6 @@ def test_pj_search_keeps_site_email_out_of_channel_filters() -> None:
         segment="academias",
         preferredChannels=[],
         requiredChannels=[],
-        qualityMode="lead_plus",
     )
     service = SearchService()
     discovery_channels = service.effective_discovery_channels(request)
@@ -74,14 +71,13 @@ def test_pj_search_keeps_site_email_out_of_channel_filters() -> None:
     assert not any("contato email" in query.lower() for query in queries)
 
 
-def test_list_mode_uses_same_signal_discovery_without_channel_filters() -> None:
+def test_default_search_uses_same_signal_discovery_without_channel_filters() -> None:
     request = SearchRequest(
         city="Ubatuba",
         state="SP",
         segment="academias",
         preferredChannels=[],
         requiredChannels=[],
-        qualityMode="list",
     )
     service = SearchService()
 
@@ -219,6 +215,7 @@ def test_social_candidate_accepts_brand_city_handle_for_legal_name() -> None:
     }
 
     queries = service.social_queries_for_contact(contact, "Rio Claro", "aluguel de equipamentos", "instagram")
+    assert queries[0] == '"Alugtec Rental Pemt Ltda" "Rio Claro" instagram'
     assert '"alugtec" "Rio Claro" instagram' in queries[:4]
 
     score = service.score_social_candidate(
@@ -236,6 +233,24 @@ def test_social_candidate_accepts_brand_city_handle_for_legal_name() -> None:
     )
 
     assert score >= 55
+
+
+def test_social_queries_include_segment_variants_for_beauty() -> None:
+    service = SearchService()
+    contact = {
+        "name": "Studio Bella Hair",
+        "phone": "(19) 99999-0001",
+        "phoneDigits": "19999990001",
+        "state": "SP",
+        "segment": "salao de beleza",
+        "score": 80,
+    }
+
+    queries = service.social_queries_for_contact(contact, "Rio Claro", "salao de beleza", "instagram")
+
+    assert queries[0] == '"Studio Bella Hair" "Rio Claro" "SP" instagram'
+    assert '"Studio Bella Hair" "Rio Claro" "salao de beleza" instagram' in queries[:14]
+    assert '"Studio Bella Hair" "Rio Claro" "cabeleireiro" instagram' in queries[:14]
 
 
 def test_public_enrichment_contract_preserves_social_status_and_evidence() -> None:
@@ -1144,7 +1159,7 @@ def test_search_service_enriches_top_pj_contacts_when_social_is_preferred(monkey
     assert "socialProfilesUnmatched" in response.stats
 
 
-def test_required_instagram_does_not_discard_contact_missing_social(monkeypatch) -> None:
+def test_required_instagram_discards_contact_missing_instagram(monkeypatch) -> None:
     class FakeFetcher:
         def __init__(self, *args, **kwargs) -> None:
             pass
@@ -1205,11 +1220,9 @@ def test_required_instagram_does_not_discard_contact_missing_social(monkeypatch)
         )
     )
 
-    assert response.count == 1
-    assert response.results[0].name == "Barbearia Estilo"
-    assert response.results[0].facebookUrl == "https://facebook.com/barbeariaestilo"
-    assert response.stats["missingRequiredChannel"] == 0
-    assert response.social["missingRequiredChannel"] == 0
+    assert response.count == 0
+    assert response.stats["missingRequiredChannel"] == 1
+    assert response.social["missingRequiredChannel"] == 1
 
 
 def test_required_instagram_accepts_social_from_html(monkeypatch) -> None:

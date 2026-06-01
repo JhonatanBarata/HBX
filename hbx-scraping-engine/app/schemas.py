@@ -4,7 +4,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 TargetType = Literal["pj", "pf", "agenda_pf"]
 ChannelMatchMode = Literal["prefer", "any_required", "all_required"]
-QualityMode = Literal["list", "lead_plus"]
 FreshnessMode = Literal["live", "database_first", "hybrid"]
 
 CHANNEL_ALIASES = {
@@ -28,9 +27,6 @@ CHANNEL_ALIASES = {
 }
 
 
-DISCOVERY_QUALITY_MODE: QualityMode = "list"
-
-
 def normalize_channel_list(values: list[str]) -> list[str]:
     seen: set[str] = set()
     normalized: list[str] = []
@@ -48,12 +44,11 @@ def normalize_card_discovery_contract(model: BaseModel) -> BaseModel:
     model.requiredChannels = normalize_channel_list(getattr(model, "requiredChannels", []) or [])
     if getattr(model, "channelMatchMode", None) not in {"prefer", "any_required", "all_required"}:
         model.channelMatchMode = "prefer"
-    model.qualityMode = DISCOVERY_QUALITY_MODE
     if isinstance(getattr(model, "salesProfile", None), dict):
         model.salesProfile = {
             key: value
             for key, value in model.salesProfile.items()
-            if key not in {"preferredChannels", "requiredChannels", "channelMatchMode", "qualityMode"}
+            if key not in {"preferredChannels", "requiredChannels", "channelMatchMode"}
         }
     return model
 
@@ -77,7 +72,6 @@ class SearchRequest(BaseModel):
     preferredChannels: list[str] = Field(default_factory=list)
     requiredChannels: list[str] = Field(default_factory=list)
     channelMatchMode: ChannelMatchMode = "prefer"
-    qualityMode: QualityMode = "list"
     freshness: FreshnessMode = "live"
     whatDoYouSell: str | None = None
     offerCategory: str | None = None
@@ -175,7 +169,6 @@ class SearchIntent(BaseModel):
     preferredChannels: list[str] = Field(default_factory=list)
     requiredChannels: list[str] = Field(default_factory=list)
     channelMatchMode: ChannelMatchMode = "prefer"
-    qualityMode: QualityMode = "list"
     freshness: FreshnessMode = "live"
     salesProfile: dict = Field(default_factory=dict)
 
@@ -197,7 +190,6 @@ class SearchIntent(BaseModel):
             preferredChannels=request.preferredChannels,
             requiredChannels=request.requiredChannels,
             channelMatchMode=request.channelMatchMode,
-            qualityMode=request.qualityMode,
             freshness=request.freshness,
             salesProfile={
                 **(request.salesProfile or {}),
@@ -228,7 +220,6 @@ class QueryPayload(BaseModel):
     preferredChannels: list[str] = Field(default_factory=list)
     requiredChannels: list[str] = Field(default_factory=list)
     channelMatchMode: ChannelMatchMode = "prefer"
-    qualityMode: QualityMode = "list"
     freshness: FreshnessMode = "live"
     salesProfile: dict | None = None
 

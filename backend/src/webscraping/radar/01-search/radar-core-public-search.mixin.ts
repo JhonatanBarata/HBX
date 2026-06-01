@@ -87,7 +87,6 @@ import {
   coerceBoolean,
   normalizeEngine,
   normalizeEnginePurpose,
-  normalizeCardDiscoveryQualityMode,
   isAutomaticEnginePurpose,
   normalizeTargetType,
   parsePositiveInteger,
@@ -339,8 +338,6 @@ export class RadarCorePublicSearchMixin {
         databaseResults.slice(0, normalized.quantity),
         'radar_database',
       );
-      this.enqueueRadarWebEnrichmentForSavedLeads(context, run.id, normalized, savedCounts.savedWebEnrichmentLeadIds);
-      this.enqueueRadarSocialLookupForSavedLeads(context, run.id, normalized, savedCounts.savedLeadIds);
       await this.recalculateSearchRunCounters(run.id);
       await this.updateSearchRunMetrics(run.id, {
         sourceEngine: 'radar_database',
@@ -1083,7 +1080,6 @@ export class RadarCorePublicSearchMixin {
           preferredChannels: parsedOptions.preferredChannels,
           requiredChannels: parsedOptions.requiredChannels,
           channelMatchMode: parsedOptions.channelMatchMode,
-          qualityMode: parsedOptions.qualityMode,
           freshness: parsedOptions.freshness,
           salesProfile: parsedOptions.salesProfile,
         },
@@ -1134,7 +1130,6 @@ export class RadarCorePublicSearchMixin {
         preferredChannels: parsedOptions.preferredChannels,
         requiredChannels: parsedOptions.requiredChannels,
         channelMatchMode: parsedOptions.channelMatchMode,
-        qualityMode: parsedOptions.qualityMode,
         freshness: parsedOptions.freshness,
         salesProfile: parsedOptions.salesProfile,
       },
@@ -1191,7 +1186,6 @@ export class RadarCorePublicSearchMixin {
         preferredChannels: parsedOptions.preferredChannels,
         requiredChannels: parsedOptions.requiredChannels,
         channelMatchMode: parsedOptions.channelMatchMode,
-        qualityMode: parsedOptions.qualityMode,
         freshness: parsedOptions.freshness,
         salesProfile: parsedOptions.salesProfile,
       },

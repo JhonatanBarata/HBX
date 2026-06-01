@@ -1,0 +1,1262 @@
+{
+  "createdAt": "2026-06-01T17:58:49.296Z",
+  "city": "Rio Claro",
+  "state": "SP",
+  "segment": "alimentação",
+  "target": 30,
+  "count": 30,
+  "batches": [
+    {
+      "segment": "restaurantes",
+      "count": 29,
+      "status": "completed",
+      "errors": []
+    },
+    {
+      "segment": "pizzarias",
+      "count": 30,
+      "status": "completed",
+      "errors": []
+    }
+  ],
+  "rejected": [
+    {
+      "segment": "restaurantes",
+      "name": "20 restaurantes no Rio de Janeiro que você precisa conhecer",
+      "phone": "",
+      "sourceUrl": "https://www.penaestrada.blog.br/20-restaurantes-no-rio-de-janeiro/"
+    }
+  ],
+  "results": [
+    {
+      "name": "Mariana's",
+      "phone": "(19) 3524-7406",
+      "phoneDigits": "1935247406",
+      "address": "Rua 2, 1617, 13500-152",
+      "emailStatus": "missing",
+      "emailSource": "none",
+      "emailConfidence": 0,
+      "socialStatus": "missing",
+      "socialConfidence": 0,
+      "source": "hbx_scraping:free_pj",
+      "sourceEngine": "hbx_scraping",
+      "sourceUrl": "https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/mariana-s-3660461",
+      "score": 54,
+      "evidenceJson": {
+        "identityScore": 65,
+        "contactScore": 66,
+        "sourceScore": 45,
+        "intentScore": 95,
+        "commercialFitScore": 50,
+        "freshnessScore": 65,
+        "penalties": [],
+        "penaltyScore": 0,
+        "channels": [
+          "phone",
+          "whatsapp"
+        ],
+        "reasons": [
+          "Nome comercial identificado.",
+          "Canal publico acionavel encontrado.",
+          "Diretorio com contato proprio aproveitado.",
+          "Mantido para revisão por ter canal acionável e identidade comercial."
+        ],
+        "finalScore": 54
+      },
+      "rejectReasons": [],
+      "qualityReason": "Nome comercial identificado.; Canal publico acionavel encontrado.; Diretorio com contato proprio aproveitado.",
+      "visibilityTier": "list_basic",
+      "recommendedChannel": "whatsapp",
+      "requestedSegment": "restaurantes"
+    },
+    {
+      "name": "Ananias Pizzaria",
+      "phone": "(19) 3532-1182",
+      "phoneDigits": "1935321182",
+      "address": "Avenida 29, 2130, 13501-420",
+      "emailStatus": "missing",
+      "emailSource": "none",
+      "emailConfidence": 0,
+      "socialStatus": "missing",
+      "socialConfidence": 0,
+      "source": "hbx_scraping:free_pj",
+      "sourceEngine": "hbx_scraping",
+      "sourceUrl": "https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/ananias-pizzaria-3650465",
+      "score": 54,
+      "evidenceJson": {
+        "identityScore": 65,
+        "contactScore": 66,
+        "sourceScore": 45,
+        "intentScore": 95,
+        "commercialFitScore": 50,
+        "freshnessScore": 65,
+        "penalties": [],
+        "penaltyScore": 0,
+        "channels": [
+          "phone",
+          "whatsapp"
+        ],
+        "reasons": [
+          "Nome comercial identificado.",
+          "Canal publico acionavel encontrado.",
+          "Diretorio com contato proprio aproveitado.",
+          "Mantido para revisão por ter canal acionável e identidade comercial."
+        ],
+        "finalScore": 54
+      },
+      "rejectReasons": [],
+      "qualityReason": "Nome comercial identificado.; Canal publico acionavel encontrado.; Diretorio com contato proprio aproveitado.",
+      "visibilityTier": "list_basic",
+      "recommendedChannel": "whatsapp",
+      "requestedSegment": "restaurantes"
+    },
+    {
+      "name": "Bar Do Baixinho",
+      "phone": "(19) 3523-3098",
+      "phoneDigits": "1935233098",
+      "address": "Rua 10 Jp, 1260, 13502-150",
+      "emailStatus": "missing",
+      "emailSource": "none",
+      "emailConfidence": 0,
+      "socialStatus": "missing",
+      "socialConfidence": 0,
+      "source": "hbx_scraping:free_pj",
+      "sourceEngine": "hbx_scraping",
+      "sourceUrl": "https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/bar-do-baixinho-3649873",
+      "score": 54,
+      "evidenceJson": {
+        "identityScore": 65,
+        "contactScore": 66,
+        "sourceScore": 45,
+        "intentScore": 95,
+        "commercialFitScore": 50,
+        "freshnessScore": 65,
+        "penalties": [],
+        "penaltyScore": 0,
+        "channels": [
+          "phone",
+          "whatsapp"
+        ],
+        "reasons": [
+          "Nome comercial identificado.",
+          "Canal publico acionavel encontrado.",
+          "Diretorio com contato proprio aproveitado.",
+          "Mantido para revisão por ter canal acionável e identidade comercial."
+        ],
+        "finalScore": 54
+      },
+      "rejectReasons": [],
+      "qualityReason": "Nome comercial identificado.; Canal publico acionavel encontrado.; Diretorio com contato proprio aproveitado.",
+      "visibilityTier": "list_basic",
+      "recommendedChannel": "whatsapp",
+      "requestedSegment": "restaurantes"
+    },
+    {
+      "name": "Restaurante Barcelona",
+      "phone": "(19) 3524-0264",
+      "phoneDigits": "1935240264",
+      "address": "Avenida 15, 518, 13500-330",
+      "emailStatus": "missing",
+      "emailSource": "none",
+      "emailConfidence": 0,
+      "socialStatus": "missing",
+      "socialConfidence": 0,
+      "source": "hbx_scraping:free_pj",
+      "sourceEngine": "hbx_scraping",
+      "sourceUrl": "https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/restaurante-barcelona-3650227",
+      "score": 54,
+      "evidenceJson": {
+        "identityScore": 65,
+        "contactScore": 66,
+        "sourceScore": 45,
+        "intentScore": 95,
+        "commercialFitScore": 50,
+        "freshnessScore": 65,
+        "penalties": [],
+        "penaltyScore": 0,
+        "channels": [
+          "phone",
+          "whatsapp"
+        ],
+        "reasons": [
+          "Nome comercial identificado.",
+          "Canal publico acionavel encontrado.",
+          "Diretorio com contato proprio aproveitado.",
+          "Mantido para revisão por ter canal acionável e identidade comercial."
+        ],
+        "finalScore": 54
+      },
+      "rejectReasons": [],
+      "qualityReason": "Nome comercial identificado.; Canal publico acionavel encontrado.; Diretorio com contato proprio aproveitado.",
+      "visibilityTier": "list_basic",
+      "recommendedChannel": "whatsapp",
+      "requestedSegment": "restaurantes"
+    },
+    {
+      "name": "Jaidete Santos De Almeida",
+      "phone": "(19) 7104-4864",
+      "phoneDigits": "1971044864",
+      "address": "Rua 3, 748, 13500-313",
+      "emailStatus": "missing",
+      "emailSource": "none",
+      "emailConfidence": 0,
+      "socialStatus": "missing",
+      "socialConfidence": 0,
+      "source": "hbx_scraping:free_pj",
+      "sourceEngine": "hbx_scraping",
+      "sourceUrl": "https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/jaidete-santos-de-almeida-3658837",
+      "score": 54,
+      "evidenceJson": {
+        "identityScore": 65,
+        "contactScore": 66,
+        "sourceScore": 45,
+        "intentScore": 95,
+        "commercialFitScore": 50,
+        "freshnessScore": 65,
+        "penalties": [],
+        "penaltyScore": 0,
+        "channels": [
+          "phone",
+          "whatsapp"
+        ],
+        "reasons": [
+          "Nome comercial identificado.",
+          "Canal publico acionavel encontrado.",
+          "Diretorio com contato proprio aproveitado.",
+          "Mantido para revisão por ter canal acionável e identidade comercial."
+        ],
+        "finalScore": 54
+      },
+      "rejectReasons": [],
+      "qualityReason": "Nome comercial identificado.; Canal publico acionavel encontrado.; Diretorio com contato proprio aproveitado.",
+      "visibilityTier": "list_basic",
+      "recommendedChannel": "whatsapp",
+      "requestedSegment": "restaurantes"
+    },
+    {
+      "name": "Pizza Express Rio Claro",
+      "phone": "(19) 3536-3112",
+      "phoneDigits": "1935363112",
+      "address": "Avenida 8, 185, 13500-440",
+      "emailStatus": "missing",
+      "emailSource": "none",
+      "emailConfidence": 0,
+      "socialStatus": "missing",
+      "socialConfidence": 0,
+      "source": "hbx_scraping:free_pj",
+      "sourceEngine": "hbx_scraping",
+      "sourceUrl": "https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/pizza-express-rio-claro-20819244",
+      "score": 54,
+      "evidenceJson": {
+        "identityScore": 65,
+        "contactScore": 66,
+        "sourceScore": 45,
+        "intentScore": 95,
+        "commercialFitScore": 50,
+        "freshnessScore": 65,
+        "penalties": [],
+        "penaltyScore": 0,
+        "channels": [
+          "phone",
+          "whatsapp"
+        ],
+        "reasons": [
+          "Nome comercial identificado.",
+          "Canal publico acionavel encontrado.",
+          "Diretorio com contato proprio aproveitado.",
+          "Mantido para revisão por ter canal acionável e identidade comercial."
+        ],
+        "finalScore": 54
+      },
+      "rejectReasons": [],
+      "qualityReason": "Nome comercial identificado.; Canal publico acionavel encontrado.; Diretorio com contato proprio aproveitado.",
+      "visibilityTier": "list_basic",
+      "recommendedChannel": "whatsapp",
+      "requestedSegment": "restaurantes"
+    },
+    {
+      "name": "Marmitaria Da Sil",
+      "phone": "(19) 97127-4118",
+      "phoneDigits": "19971274118",
+      "address": "R. 5 Jn, 988, 13502-580",
+      "emailStatus": "missing",
+      "emailSource": "none",
+      "emailConfidence": 0,
+      "socialStatus": "missing",
+      "socialConfidence": 0,
+      "source": "hbx_scraping:free_pj",
+      "sourceEngine": "hbx_scraping",
+      "sourceUrl": "https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/marmitaria-da-sil-21881881",
+      "score": 54,
+      "evidenceJson": {
+        "identityScore": 65,
+        "contactScore": 66,
+        "sourceScore": 45,
+        "intentScore": 95,
+        "commercialFitScore": 50,
+        "freshnessScore": 65,
+        "penalties": [],
+        "penaltyScore": 0,
+        "channels": [
+          "phone",
+          "whatsapp"
+        ],
+        "reasons": [
+          "Nome comercial identificado.",
+          "Canal publico acionavel encontrado.",
+          "Diretorio com contato proprio aproveitado.",
+          "Mantido para revisão por ter canal acionável e identidade comercial."
+        ],
+        "finalScore": 54
+      },
+      "rejectReasons": [],
+      "qualityReason": "Nome comercial identificado.; Canal publico acionavel encontrado.; Diretorio com contato proprio aproveitado.",
+      "visibilityTier": "list_basic",
+      "recommendedChannel": "whatsapp",
+      "requestedSegment": "restaurantes"
+    },
+    {
+      "name": "Ana Lidia Itri",
+      "phone": "(19) 3524-4022",
+      "phoneDigits": "1935244022",
+      "address": "Avenida Conde Francisco Matarazzo Junior, 205, 13506-845",
+      "emailStatus": "missing",
+      "emailSource": "none",
+      "emailConfidence": 0,
+      "socialStatus": "missing",
+      "socialConfidence": 0,
+      "source": "hbx_scraping:free_pj",
+      "sourceEngine": "hbx_scraping",
+      "sourceUrl": "https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/ana-lidia-itri-3651873",
+      "score": 54,
+      "evidenceJson": {
+        "identityScore": 65,
+        "contactScore": 66,
+        "sourceScore": 45,
+        "intentScore": 95,
+        "commercialFitScore": 50,
+        "freshnessScore": 65,
+        "penalties": [],
+        "penaltyScore": 0,
+        "channels": [
+          "phone",
+          "whatsapp"
+        ],
+        "reasons": [
+          "Nome comercial identificado.",
+          "Canal publico acionavel encontrado.",
+          "Diretorio com contato proprio aproveitado.",
+          "Mantido para revisão por ter canal acionável e identidade comercial."
+        ],
+        "finalScore": 54
+      },
+      "rejectReasons": [],
+      "qualityReason": "Nome comercial identificado.; Canal publico acionavel encontrado.; Diretorio com contato proprio aproveitado.",
+      "visibilityTier": "list_basic",
+      "recommendedChannel": "whatsapp",
+      "requestedSegment": "restaurantes"
+    },
+    {
+      "name": "Jaja Rotisserie",
+      "phone": "(19) 3533-4123",
+      "phoneDigits": "1935334123",
+      "address": "Rua Aldo Calligaris, 252, 13504-176",
+      "emailStatus": "missing",
+      "emailSource": "none",
+      "emailConfidence": 0,
+      "socialStatus": "missing",
+      "socialConfidence": 0,
+      "source": "hbx_scraping:free_pj",
+      "sourceEngine": "hbx_scraping",
+      "sourceUrl": "https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/jaja-rotisserie-3652651",
+      "score": 54,
+      "evidenceJson": {
+        "identityScore": 65,
+        "contactScore": 66,
+        "sourceScore": 45,
+        "intentScore": 95,
+        "commercialFitScore": 50,
+        "freshnessScore": 65,
+        "penalties": [],
+        "penaltyScore": 0,
+        "channels": [
+          "phone",
+          "whatsapp"
+        ],
+        "reasons": [
+          "Nome comercial identificado.",
+          "Canal publico acionavel encontrado.",
+          "Diretorio com contato proprio aproveitado.",
+          "Mantido para revisão por ter canal acionável e identidade comercial."
+        ],
+        "finalScore": 54
+      },
+      "rejectReasons": [],
+      "qualityReason": "Nome comercial identificado.; Canal publico acionavel encontrado.; Diretorio com contato proprio aproveitado.",
+      "visibilityTier": "list_basic",
+      "recommendedChannel": "whatsapp",
+      "requestedSegment": "restaurantes"
+    },
+    {
+      "name": "N Opcoes",
+      "phone": "(19) 3523-2397",
+      "phoneDigits": "1935232397",
+      "address": "Rodovia Constantine Peruchi, 10, 13506-899",
+      "emailStatus": "missing",
+      "emailSource": "none",
+      "emailConfidence": 0,
+      "socialStatus": "missing",
+      "socialConfidence": 0,
+      "source": "hbx_scraping:free_pj",
+      "sourceEngine": "hbx_scraping",
+      "sourceUrl": "https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/n-opcoes-18682362",
+      "score": 54,
+      "evidenceJson": {
+        "identityScore": 65,
+        "contactScore": 66,
+        "sourceScore": 45,
+        "intentScore": 95,
+        "commercialFitScore": 50,
+        "freshnessScore": 65,
+        "penalties": [],
+        "penaltyScore": 0,
+        "channels": [
+          "phone",
+          "whatsapp"
+        ],
+        "reasons": [
+          "Nome comercial identificado.",
+          "Canal publico acionavel encontrado.",
+          "Diretorio com contato proprio aproveitado.",
+          "Mantido para revisão por ter canal acionável e identidade comercial."
+        ],
+        "finalScore": 54
+      },
+      "rejectReasons": [],
+      "qualityReason": "Nome comercial identificado.; Canal publico acionavel encontrado.; Diretorio com contato proprio aproveitado.",
+      "visibilityTier": "list_basic",
+      "recommendedChannel": "whatsapp",
+      "requestedSegment": "restaurantes"
+    },
+    {
+      "name": "Joaquim Restaurante",
+      "phone": "(19) 3532-1763",
+      "phoneDigits": "1935321763",
+      "address": "R. Quatorze, 2486, 13500-270",
+      "emailStatus": "missing",
+      "emailSource": "none",
+      "emailConfidence": 0,
+      "socialStatus": "missing",
+      "socialConfidence": 0,
+      "source": "hbx_scraping:free_pj",
+      "sourceEngine": "hbx_scraping",
+      "sourceUrl": "https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/joaquim-restaurante-21867931",
+      "score": 54,
+      "evidenceJson": {
+        "identityScore": 65,
+        "contactScore": 66,
+        "sourceScore": 45,
+        "intentScore": 95,
+        "commercialFitScore": 50,
+        "freshnessScore": 65,
+        "penalties": [],
+        "penaltyScore": 0,
+        "channels": [
+          "phone",
+          "whatsapp"
+        ],
+        "reasons": [
+          "Nome comercial identificado.",
+          "Canal publico acionavel encontrado.",
+          "Diretorio com contato proprio aproveitado.",
+          "Mantido para revisão por ter canal acionável e identidade comercial."
+        ],
+        "finalScore": 54
+      },
+      "rejectReasons": [],
+      "qualityReason": "Nome comercial identificado.; Canal publico acionavel encontrado.; Diretorio com contato proprio aproveitado.",
+      "visibilityTier": "list_basic",
+      "recommendedChannel": "whatsapp",
+      "requestedSegment": "restaurantes"
+    },
+    {
+      "name": "Le Rotisserie",
+      "phone": "(19) 97128-0298",
+      "phoneDigits": "19971280298",
+      "address": "Av. 25, 2340, 13501-400",
+      "emailStatus": "missing",
+      "emailSource": "none",
+      "emailConfidence": 0,
+      "socialStatus": "missing",
+      "socialConfidence": 0,
+      "source": "hbx_scraping:free_pj",
+      "sourceEngine": "hbx_scraping",
+      "sourceUrl": "https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/le-rotisserie-21881886",
+      "score": 54,
+      "evidenceJson": {
+        "identityScore": 65,
+        "contactScore": 66,
+        "sourceScore": 45,
+        "intentScore": 95,
+        "commercialFitScore": 50,
+        "freshnessScore": 65,
+        "penalties": [],
+        "penaltyScore": 0,
+        "channels": [
+          "phone",
+          "whatsapp"
+        ],
+        "reasons": [
+          "Nome comercial identificado.",
+          "Canal publico acionavel encontrado.",
+          "Diretorio com contato proprio aproveitado.",
+          "Mantido para revisão por ter canal acionável e identidade comercial."
+        ],
+        "finalScore": 54
+      },
+      "rejectReasons": [],
+      "qualityReason": "Nome comercial identificado.; Canal publico acionavel encontrado.; Diretorio com contato proprio aproveitado.",
+      "visibilityTier": "list_basic",
+      "recommendedChannel": "whatsapp",
+      "requestedSegment": "restaurantes"
+    },
+    {
+      "name": "Restaurante Universitário Unesp Rio Claro",
+      "phone": "(19) 3526-4124",
+      "phoneDigits": "1935264124",
+      "address": "AV 24A, 1515, 13506-900",
+      "emailStatus": "missing",
+      "emailSource": "none",
+      "emailConfidence": 0,
+      "socialStatus": "missing",
+      "socialConfidence": 0,
+      "source": "hbx_scraping:free_pj",
+      "sourceEngine": "hbx_scraping",
+      "sourceUrl": "https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/restaurante-universitario-unesp-rio-claro-21867979",
+      "score": 54,
+      "evidenceJson": {
+        "identityScore": 65,
+        "contactScore": 66,
+        "sourceScore": 45,
+        "intentScore": 95,
+        "commercialFitScore": 50,
+        "freshnessScore": 65,
+        "penalties": [],
+        "penaltyScore": 0,
+        "channels": [
+          "phone",
+          "whatsapp"
+        ],
+        "reasons": [
+          "Nome comercial identificado.",
+          "Canal publico acionavel encontrado.",
+          "Diretorio com contato proprio aproveitado.",
+          "Mantido para revisão por ter canal acionável e identidade comercial."
+        ],
+        "finalScore": 54
+      },
+      "rejectReasons": [],
+      "qualityReason": "Nome comercial identificado.; Canal publico acionavel encontrado.; Diretorio com contato proprio aproveitado.",
+      "visibilityTier": "list_basic",
+      "recommendedChannel": "whatsapp",
+      "requestedSegment": "restaurantes"
+    },
+    {
+      "name": "Opção Natural Restaurante Vegetariano",
+      "phone": "(19) 99637-6806",
+      "phoneDigits": "19996376806",
+      "address": "R. Quatro, 776, 13500-030",
+      "emailStatus": "missing",
+      "emailSource": "none",
+      "emailConfidence": 0,
+      "socialStatus": "missing",
+      "socialConfidence": 0,
+      "source": "hbx_scraping:free_pj",
+      "sourceEngine": "hbx_scraping",
+      "sourceUrl": "https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/opcao-natural-restaurante-vegetariano-21867933",
+      "score": 54,
+      "evidenceJson": {
+        "identityScore": 65,
+        "contactScore": 66,
+        "sourceScore": 45,
+        "intentScore": 95,
+        "commercialFitScore": 50,
+        "freshnessScore": 65,
+        "penalties": [],
+        "penaltyScore": 0,
+        "channels": [
+          "phone",
+          "whatsapp"
+        ],
+        "reasons": [
+          "Nome comercial identificado.",
+          "Canal publico acionavel encontrado.",
+          "Diretorio com contato proprio aproveitado.",
+          "Mantido para revisão por ter canal acionável e identidade comercial."
+        ],
+        "finalScore": 54
+      },
+      "rejectReasons": [],
+      "qualityReason": "Nome comercial identificado.; Canal publico acionavel encontrado.; Diretorio com contato proprio aproveitado.",
+      "visibilityTier": "list_basic",
+      "recommendedChannel": "whatsapp",
+      "requestedSegment": "restaurantes"
+    },
+    {
+      "name": "Neuzeli Da Silva Martins Trivelato",
+      "phone": "(19) 3533-1396",
+      "phoneDigits": "1935331396",
+      "address": "Avenida 7, 85, 13500-370",
+      "emailStatus": "missing",
+      "emailSource": "none",
+      "emailConfidence": 0,
+      "socialStatus": "missing",
+      "socialConfidence": 0,
+      "source": "hbx_scraping:free_pj",
+      "sourceEngine": "hbx_scraping",
+      "sourceUrl": "https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/neuzeli-da-silva-martins-trivelato-3652623",
+      "score": 54,
+      "evidenceJson": {
+        "identityScore": 65,
+        "contactScore": 66,
+        "sourceScore": 45,
+        "intentScore": 95,
+        "commercialFitScore": 50,
+        "freshnessScore": 65,
+        "penalties": [],
+        "penaltyScore": 0,
+        "channels": [
+          "phone",
+          "whatsapp"
+        ],
+        "reasons": [
+          "Nome comercial identificado.",
+          "Canal publico acionavel encontrado.",
+          "Diretorio com contato proprio aproveitado.",
+          "Mantido para revisão por ter canal acionável e identidade comercial."
+        ],
+        "finalScore": 54
+      },
+      "rejectReasons": [],
+      "qualityReason": "Nome comercial identificado.; Canal publico acionavel encontrado.; Diretorio com contato proprio aproveitado.",
+      "visibilityTier": "list_basic",
+      "recommendedChannel": "whatsapp",
+      "requestedSegment": "restaurantes"
+    },
+    {
+      "name": "Restaurante, Lanchonete E Mercearia Crocantes Ltda",
+      "phone": "(19) 7171-6999",
+      "phoneDigits": "1971716999",
+      "address": "Rua 3 A, 2836, 13506-000",
+      "emailStatus": "missing",
+      "emailSource": "none",
+      "emailConfidence": 0,
+      "socialStatus": "missing",
+      "socialConfidence": 0,
+      "source": "hbx_scraping:free_pj",
+      "sourceEngine": "hbx_scraping",
+      "sourceUrl": "https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/restaurante-lanchonete-e-mercearia-crocantes-ltda-24664418",
+      "score": 54,
+      "evidenceJson": {
+        "identityScore": 65,
+        "contactScore": 66,
+        "sourceScore": 45,
+        "intentScore": 95,
+        "commercialFitScore": 50,
+        "freshnessScore": 65,
+        "penalties": [],
+        "penaltyScore": 0,
+        "channels": [
+          "phone",
+          "whatsapp"
+        ],
+        "reasons": [
+          "Nome comercial identificado.",
+          "Canal publico acionavel encontrado.",
+          "Diretorio com contato proprio aproveitado.",
+          "Mantido para revisão por ter canal acionável e identidade comercial."
+        ],
+        "finalScore": 54
+      },
+      "rejectReasons": [],
+      "qualityReason": "Nome comercial identificado.; Canal publico acionavel encontrado.; Diretorio com contato proprio aproveitado.",
+      "visibilityTier": "list_basic",
+      "recommendedChannel": "whatsapp",
+      "requestedSegment": "restaurantes"
+    },
+    {
+      "name": "Barril 2000 Restaurante",
+      "phone": "(19) 3524-6857",
+      "phoneDigits": "1935246857",
+      "address": "R. 8, 273, 13501-090",
+      "emailStatus": "missing",
+      "emailSource": "none",
+      "emailConfidence": 0,
+      "socialStatus": "missing",
+      "socialConfidence": 0,
+      "source": "hbx_scraping:free_pj",
+      "sourceEngine": "hbx_scraping",
+      "sourceUrl": "https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/barril-2000-restaurante-21867920",
+      "score": 54,
+      "evidenceJson": {
+        "identityScore": 65,
+        "contactScore": 66,
+        "sourceScore": 45,
+        "intentScore": 95,
+        "commercialFitScore": 50,
+        "freshnessScore": 65,
+        "penalties": [],
+        "penaltyScore": 0,
+        "channels": [
+          "phone",
+          "whatsapp"
+        ],
+        "reasons": [
+          "Nome comercial identificado.",
+          "Canal publico acionavel encontrado.",
+          "Diretorio com contato proprio aproveitado.",
+          "Mantido para revisão por ter canal acionável e identidade comercial."
+        ],
+        "finalScore": 54
+      },
+      "rejectReasons": [],
+      "qualityReason": "Nome comercial identificado.; Canal publico acionavel encontrado.; Diretorio com contato proprio aproveitado.",
+      "visibilityTier": "list_basic",
+      "recommendedChannel": "whatsapp",
+      "requestedSegment": "restaurantes"
+    },
+    {
+      "name": "La Bella Vegana Delivery",
+      "phone": "(19) 99819-7726",
+      "phoneDigits": "19998197726",
+      "address": "Av. 1 A, 1259, 13506-785",
+      "emailStatus": "missing",
+      "emailSource": "none",
+      "emailConfidence": 0,
+      "socialStatus": "missing",
+      "socialConfidence": 0,
+      "source": "hbx_scraping:free_pj",
+      "sourceEngine": "hbx_scraping",
+      "sourceUrl": "https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/la-bella-vegana-delivery-21867731",
+      "score": 54,
+      "evidenceJson": {
+        "identityScore": 65,
+        "contactScore": 66,
+        "sourceScore": 45,
+        "intentScore": 95,
+        "commercialFitScore": 50,
+        "freshnessScore": 65,
+        "penalties": [],
+        "penaltyScore": 0,
+        "channels": [
+          "phone",
+          "whatsapp"
+        ],
+        "reasons": [
+          "Nome comercial identificado.",
+          "Canal publico acionavel encontrado.",
+          "Diretorio com contato proprio aproveitado.",
+          "Mantido para revisão por ter canal acionável e identidade comercial."
+        ],
+        "finalScore": 54
+      },
+      "rejectReasons": [],
+      "qualityReason": "Nome comercial identificado.; Canal publico acionavel encontrado.; Diretorio com contato proprio aproveitado.",
+      "visibilityTier": "list_basic",
+      "recommendedChannel": "whatsapp",
+      "requestedSegment": "restaurantes"
+    },
+    {
+      "name": "Mariana Carolina Marques",
+      "phone": "(19) 3536-1198",
+      "phoneDigits": "1935361198",
+      "address": "Avenida 76 Ac, 986, 13506-090",
+      "emailStatus": "missing",
+      "emailSource": "none",
+      "emailConfidence": 0,
+      "socialStatus": "missing",
+      "socialConfidence": 0,
+      "source": "hbx_scraping:free_pj",
+      "sourceEngine": "hbx_scraping",
+      "sourceUrl": "https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/mariana-carolina-marques-3655674",
+      "score": 54,
+      "evidenceJson": {
+        "identityScore": 65,
+        "contactScore": 66,
+        "sourceScore": 45,
+        "intentScore": 95,
+        "commercialFitScore": 50,
+        "freshnessScore": 65,
+        "penalties": [],
+        "penaltyScore": 0,
+        "channels": [
+          "phone",
+          "whatsapp"
+        ],
+        "reasons": [
+          "Nome comercial identificado.",
+          "Canal publico acionavel encontrado.",
+          "Diretorio com contato proprio aproveitado.",
+          "Mantido para revisão por ter canal acionável e identidade comercial."
+        ],
+        "finalScore": 54
+      },
+      "rejectReasons": [],
+      "qualityReason": "Nome comercial identificado.; Canal publico acionavel encontrado.; Diretorio com contato proprio aproveitado.",
+      "visibilityTier": "list_basic",
+      "recommendedChannel": "whatsapp",
+      "requestedSegment": "restaurantes"
+    },
+    {
+      "name": "Espetinho da 26",
+      "phone": "(19) 99957-2299",
+      "phoneDigits": "19999572299",
+      "address": "Rua 26 nº906 esquina com, 54, 13504-605",
+      "emailStatus": "missing",
+      "emailSource": "none",
+      "emailConfidence": 0,
+      "socialStatus": "missing",
+      "socialConfidence": 0,
+      "source": "hbx_scraping:free_pj",
+      "sourceEngine": "hbx_scraping",
+      "sourceUrl": "https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/espetinho-da-26-21881438",
+      "score": 54,
+      "evidenceJson": {
+        "identityScore": 65,
+        "contactScore": 66,
+        "sourceScore": 45,
+        "intentScore": 95,
+        "commercialFitScore": 50,
+        "freshnessScore": 65,
+        "penalties": [],
+        "penaltyScore": 0,
+        "channels": [
+          "phone",
+          "whatsapp"
+        ],
+        "reasons": [
+          "Nome comercial identificado.",
+          "Canal publico acionavel encontrado.",
+          "Diretorio com contato proprio aproveitado.",
+          "Mantido para revisão por ter canal acionável e identidade comercial."
+        ],
+        "finalScore": 54
+      },
+      "rejectReasons": [],
+      "qualityReason": "Nome comercial identificado.; Canal publico acionavel encontrado.; Diretorio com contato proprio aproveitado.",
+      "visibilityTier": "list_basic",
+      "recommendedChannel": "whatsapp",
+      "requestedSegment": "restaurantes"
+    },
+    {
+      "name": "Parmegiana Du Chef",
+      "phone": "(19) 3557-8565",
+      "phoneDigits": "1935578565",
+      "address": "R. Quatorze, 377, 13500-130",
+      "emailStatus": "missing",
+      "emailSource": "none",
+      "emailConfidence": 0,
+      "socialStatus": "missing",
+      "socialConfidence": 0,
+      "source": "hbx_scraping:free_pj",
+      "sourceEngine": "hbx_scraping",
+      "sourceUrl": "https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/parmegiana-du-chef-21867745",
+      "score": 54,
+      "evidenceJson": {
+        "identityScore": 65,
+        "contactScore": 66,
+        "sourceScore": 45,
+        "intentScore": 95,
+        "commercialFitScore": 50,
+        "freshnessScore": 65,
+        "penalties": [],
+        "penaltyScore": 0,
+        "channels": [
+          "phone",
+          "whatsapp"
+        ],
+        "reasons": [
+          "Nome comercial identificado.",
+          "Canal publico acionavel encontrado.",
+          "Diretorio com contato proprio aproveitado.",
+          "Mantido para revisão por ter canal acionável e identidade comercial."
+        ],
+        "finalScore": 54
+      },
+      "rejectReasons": [],
+      "qualityReason": "Nome comercial identificado.; Canal publico acionavel encontrado.; Diretorio com contato proprio aproveitado.",
+      "visibilityTier": "list_basic",
+      "recommendedChannel": "whatsapp",
+      "requestedSegment": "restaurantes"
+    },
+    {
+      "name": "Marmitaria Diva' S Delivery",
+      "phone": "(19) 3523-7257",
+      "phoneDigits": "1935237257",
+      "address": "Avenida M 23, 1216, 13505-370",
+      "emailStatus": "missing",
+      "emailSource": "none",
+      "emailConfidence": 0,
+      "socialStatus": "missing",
+      "socialConfidence": 0,
+      "source": "hbx_scraping:free_pj",
+      "sourceEngine": "hbx_scraping",
+      "sourceUrl": "https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/marmitaria-diva-s-delivery-3657585",
+      "score": 54,
+      "evidenceJson": {
+        "identityScore": 65,
+        "contactScore": 66,
+        "sourceScore": 45,
+        "intentScore": 95,
+        "commercialFitScore": 50,
+        "freshnessScore": 65,
+        "penalties": [],
+        "penaltyScore": 0,
+        "channels": [
+          "phone",
+          "whatsapp"
+        ],
+        "reasons": [
+          "Nome comercial identificado.",
+          "Canal publico acionavel encontrado.",
+          "Diretorio com contato proprio aproveitado.",
+          "Mantido para revisão por ter canal acionável e identidade comercial."
+        ],
+        "finalScore": 54
+      },
+      "rejectReasons": [],
+      "qualityReason": "Nome comercial identificado.; Canal publico acionavel encontrado.; Diretorio com contato proprio aproveitado.",
+      "visibilityTier": "list_basic",
+      "recommendedChannel": "whatsapp",
+      "requestedSegment": "restaurantes"
+    },
+    {
+      "name": "RESTAURANTE PROSA MINEIRA",
+      "phone": "(19) 3557-6621",
+      "phoneDigits": "1935576621",
+      "address": "R. Dezessete, 1022, 13503-185",
+      "emailStatus": "missing",
+      "emailSource": "none",
+      "emailConfidence": 0,
+      "socialStatus": "missing",
+      "socialConfidence": 0,
+      "source": "hbx_scraping:free_pj",
+      "sourceEngine": "hbx_scraping",
+      "sourceUrl": "https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/restaurante-prosa-mineira-21867955",
+      "score": 54,
+      "evidenceJson": {
+        "identityScore": 65,
+        "contactScore": 66,
+        "sourceScore": 45,
+        "intentScore": 95,
+        "commercialFitScore": 50,
+        "freshnessScore": 65,
+        "penalties": [],
+        "penaltyScore": 0,
+        "channels": [
+          "phone",
+          "whatsapp"
+        ],
+        "reasons": [
+          "Nome comercial identificado.",
+          "Canal publico acionavel encontrado.",
+          "Diretorio com contato proprio aproveitado.",
+          "Mantido para revisão por ter canal acionável e identidade comercial."
+        ],
+        "finalScore": 54
+      },
+      "rejectReasons": [],
+      "qualityReason": "Nome comercial identificado.; Canal publico acionavel encontrado.; Diretorio com contato proprio aproveitado.",
+      "visibilityTier": "list_basic",
+      "recommendedChannel": "whatsapp",
+      "requestedSegment": "restaurantes"
+    },
+    {
+      "name": "T-Maki Restaurante Japones",
+      "phone": "(19) 3533-4777",
+      "phoneDigits": "1935334777",
+      "address": "Avenida Conde Francisco Matarazzo Junior, 205, 13506-845",
+      "emailStatus": "missing",
+      "emailSource": "none",
+      "emailConfidence": 0,
+      "socialStatus": "missing",
+      "socialConfidence": 0,
+      "source": "hbx_scraping:free_pj",
+      "sourceEngine": "hbx_scraping",
+      "sourceUrl": "https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/t-maki-restaurante-japones-3659468",
+      "score": 54,
+      "evidenceJson": {
+        "identityScore": 65,
+        "contactScore": 66,
+        "sourceScore": 45,
+        "intentScore": 95,
+        "commercialFitScore": 50,
+        "freshnessScore": 65,
+        "penalties": [],
+        "penaltyScore": 0,
+        "channels": [
+          "phone",
+          "whatsapp"
+        ],
+        "reasons": [
+          "Nome comercial identificado.",
+          "Canal publico acionavel encontrado.",
+          "Diretorio com contato proprio aproveitado.",
+          "Mantido para revisão por ter canal acionável e identidade comercial."
+        ],
+        "finalScore": 54
+      },
+      "rejectReasons": [],
+      "qualityReason": "Nome comercial identificado.; Canal publico acionavel encontrado.; Diretorio com contato proprio aproveitado.",
+      "visibilityTier": "list_basic",
+      "recommendedChannel": "whatsapp",
+      "requestedSegment": "restaurantes"
+    },
+    {
+      "name": "Restaurante Excelsior",
+      "phone": "(19) 3524-9401",
+      "phoneDigits": "1935249401",
+      "address": "Rua 4, 1.129, 13500-170",
+      "emailStatus": "missing",
+      "emailSource": "none",
+      "emailConfidence": 0,
+      "socialStatus": "missing",
+      "socialConfidence": 0,
+      "source": "hbx_scraping:free_pj",
+      "sourceEngine": "hbx_scraping",
+      "sourceUrl": "https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/restaurante-excelsior-19686509",
+      "score": 54,
+      "evidenceJson": {
+        "identityScore": 65,
+        "contactScore": 66,
+        "sourceScore": 45,
+        "intentScore": 95,
+        "commercialFitScore": 50,
+        "freshnessScore": 65,
+        "penalties": [],
+        "penaltyScore": 0,
+        "channels": [
+          "phone",
+          "whatsapp"
+        ],
+        "reasons": [
+          "Nome comercial identificado.",
+          "Canal publico acionavel encontrado.",
+          "Diretorio com contato proprio aproveitado.",
+          "Mantido para revisão por ter canal acionável e identidade comercial."
+        ],
+        "finalScore": 54
+      },
+      "rejectReasons": [],
+      "qualityReason": "Nome comercial identificado.; Canal publico acionavel encontrado.; Diretorio com contato proprio aproveitado.",
+      "visibilityTier": "list_basic",
+      "recommendedChannel": "whatsapp",
+      "requestedSegment": "restaurantes"
+    },
+    {
+      "name": "Madalupi Trattoria",
+      "phone": "(19) 98870-4192",
+      "phoneDigits": "19988704192",
+      "address": "Avenida 01JF, 195, 13505-030",
+      "emailStatus": "missing",
+      "emailSource": "none",
+      "emailConfidence": 0,
+      "socialStatus": "missing",
+      "socialConfidence": 0,
+      "source": "hbx_scraping:free_pj",
+      "sourceEngine": "hbx_scraping",
+      "sourceUrl": "https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/madalupi-trattoria-21874341",
+      "score": 54,
+      "evidenceJson": {
+        "identityScore": 65,
+        "contactScore": 66,
+        "sourceScore": 45,
+        "intentScore": 95,
+        "commercialFitScore": 50,
+        "freshnessScore": 65,
+        "penalties": [],
+        "penaltyScore": 0,
+        "channels": [
+          "phone",
+          "whatsapp"
+        ],
+        "reasons": [
+          "Nome comercial identificado.",
+          "Canal publico acionavel encontrado.",
+          "Diretorio com contato proprio aproveitado.",
+          "Mantido para revisão por ter canal acionável e identidade comercial."
+        ],
+        "finalScore": 54
+      },
+      "rejectReasons": [],
+      "qualityReason": "Nome comercial identificado.; Canal publico acionavel encontrado.; Diretorio com contato proprio aproveitado.",
+      "visibilityTier": "list_basic",
+      "recommendedChannel": "whatsapp",
+      "requestedSegment": "restaurantes"
+    },
+    {
+      "name": "Massa Mania",
+      "phone": "(19) 99890-5499",
+      "phoneDigits": "19998905499",
+      "address": "Av. 24 A, 37, 13506-692",
+      "emailStatus": "missing",
+      "emailSource": "none",
+      "emailConfidence": 0,
+      "socialStatus": "missing",
+      "socialConfidence": 0,
+      "source": "hbx_scraping:free_pj",
+      "sourceEngine": "hbx_scraping",
+      "sourceUrl": "https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/massa-mania-mania-de-fazer-delicias-21874337",
+      "score": 54,
+      "evidenceJson": {
+        "identityScore": 65,
+        "contactScore": 66,
+        "sourceScore": 45,
+        "intentScore": 95,
+        "commercialFitScore": 50,
+        "freshnessScore": 65,
+        "penalties": [],
+        "penaltyScore": 0,
+        "channels": [
+          "phone",
+          "whatsapp"
+        ],
+        "reasons": [
+          "Nome comercial identificado.",
+          "Canal publico acionavel encontrado.",
+          "Diretorio com contato proprio aproveitado.",
+          "Mantido para revisão por ter canal acionável e identidade comercial."
+        ],
+        "finalScore": 54
+      },
+      "rejectReasons": [],
+      "qualityReason": "Nome comercial identificado.; Canal publico acionavel encontrado.; Diretorio com contato proprio aproveitado.",
+      "visibilityTier": "list_basic",
+      "recommendedChannel": "whatsapp",
+      "requestedSegment": "restaurantes"
+    },
+    {
+      "name": "O Rei Da Panela",
+      "phone": "(19) 7149-6783",
+      "phoneDigits": "1971496783",
+      "address": "Avenida 36 A, 600, 13506-650",
+      "emailStatus": "missing",
+      "emailSource": "none",
+      "emailConfidence": 0,
+      "socialStatus": "missing",
+      "socialConfidence": 0,
+      "source": "hbx_scraping:free_pj",
+      "sourceEngine": "hbx_scraping",
+      "sourceUrl": "https://www.solutudo.com.br/empresas/sp/rio-claro/restaurantes/o-rei-da-panela-20001813",
+      "score": 54,
+      "evidenceJson": {
+        "identityScore": 65,
+        "contactScore": 66,
+        "sourceScore": 45,
+        "intentScore": 95,
+        "commercialFitScore": 50,
+        "freshnessScore": 65,
+        "penalties": [],
+        "penaltyScore": 0,
+        "channels": [
+          "phone",
+          "whatsapp"
+        ],
+        "reasons": [
+          "Nome comercial identificado.",
+          "Canal publico acionavel encontrado.",
+          "Diretorio com contato proprio aproveitado.",
+          "Mantido para revisão por ter canal acionável e identidade comercial."
+        ],
+        "finalScore": 54
+      },
+      "rejectReasons": [],
+      "qualityReason": "Nome comercial identificado.; Canal publico acionavel encontrado.; Diretorio com contato proprio aproveitado.",
+      "visibilityTier": "list_basic",
+      "recommendedChannel": "whatsapp",
+      "requestedSegment": "restaurantes"
+    },
+    {
+      "name": "Espaço kevilin Gomes",
+      "phone": "(19) 99798-3123",
+      "phoneDigits": "19997983123",
+      "address": "R. Quatorze, 291, 13506-513",
+      "emailStatus": "missing",
+      "emailSource": "none",
+      "emailConfidence": 0,
+      "socialStatus": "missing",
+      "socialConfidence": 0,
+      "source": "hbx_scraping:free_pj",
+      "sourceEngine": "hbx_scraping",
+      "sourceUrl": "https://www.solutudo.com.br/empresas/sp/rio-claro/pizzarias/espaco-kevilin-gomes-21867732",
+      "score": 54,
+      "evidenceJson": {
+        "identityScore": 65,
+        "contactScore": 66,
+        "sourceScore": 45,
+        "intentScore": 95,
+        "commercialFitScore": 50,
+        "freshnessScore": 65,
+        "penalties": [],
+        "penaltyScore": 0,
+        "channels": [
+          "phone",
+          "whatsapp"
+        ],
+        "reasons": [
+          "Nome comercial identificado.",
+          "Canal publico acionavel encontrado.",
+          "Diretorio com contato proprio aproveitado.",
+          "Mantido para revisão por ter canal acionável e identidade comercial."
+        ],
+        "finalScore": 54
+      },
+      "rejectReasons": [],
+      "qualityReason": "Nome comercial identificado.; Canal publico acionavel encontrado.; Diretorio com contato proprio aproveitado.",
+      "visibilityTier": "list_basic",
+      "recommendedChannel": "whatsapp",
+      "requestedSegment": "pizzarias"
+    },
+    {
+      "name": "Pizzaria edson",
+      "phone": "(19) 3533-8980",
+      "phoneDigits": "1935338980",
+      "address": "Rua 11 Jn, 540",
+      "emailStatus": "missing",
+      "emailSource": "none",
+      "emailConfidence": 0,
+      "socialStatus": "missing",
+      "socialConfidence": 0,
+      "source": "hbx_scraping:free_pj",
+      "sourceEngine": "hbx_scraping",
+      "sourceUrl": "https://www.solutudo.com.br/empresas/sp/rio-claro/pizzarias/pizzaria-edson-21871674",
+      "score": 54,
+      "evidenceJson": {
+        "identityScore": 65,
+        "contactScore": 66,
+        "sourceScore": 45,
+        "intentScore": 95,
+        "commercialFitScore": 50,
+        "freshnessScore": 65,
+        "penalties": [],
+        "penaltyScore": 0,
+        "channels": [
+          "phone",
+          "whatsapp"
+        ],
+        "reasons": [
+          "Nome comercial identificado.",
+          "Canal publico acionavel encontrado.",
+          "Diretorio com contato proprio aproveitado.",
+          "Mantido para revisão por ter canal acionável e identidade comercial."
+        ],
+        "finalScore": 54
+      },
+      "rejectReasons": [],
+      "qualityReason": "Nome comercial identificado.; Canal publico acionavel encontrado.; Diretorio com contato proprio aproveitado.",
+      "visibilityTier": "list_basic",
+      "recommendedChannel": "whatsapp",
+      "requestedSegment": "pizzarias"
+    }
+  ]
+}

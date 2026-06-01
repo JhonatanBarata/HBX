@@ -129,7 +129,7 @@ test('LeadQualityV2 List entrega lead com telefone valido e WhatsApp nao confirm
       reviews: 32,
       whatsappStatus: 'unverified',
     },
-    context: { requestedSegment: 'padaria', qualityMode: 'list' },
+    context: { requestedSegment: 'padaria'},
   });
 
   assert.equal(quality.decision, 'deliver');
@@ -146,7 +146,7 @@ test('LeadQualityV2 List descarta diretorio ou lista generica', () => {
       segment: 'restaurante',
       source: 'diretorio',
     },
-    context: { requestedSegment: 'restaurante', qualityMode: 'list' },
+    context: { requestedSegment: 'restaurante'},
   });
 
   assert.equal(quality.decision, 'discard');
@@ -162,7 +162,7 @@ test('LeadQualityV2 List descarta titulo de categoria local sem bloquear empresa
       state: 'SP',
       segment: 'barbearias, clínicas de estética, cosméticos, perfumarias, salões de beleza',
     },
-    context: { requestedSegment: 'Beleza', qualityMode: 'list' },
+    context: { requestedSegment: 'Beleza'},
   });
   const real = calculateLeadQualityV2({
     lead: {
@@ -172,7 +172,7 @@ test('LeadQualityV2 List descarta titulo de categoria local sem bloquear empresa
       state: 'SP',
       segment: 'clínicas de estética',
     },
-    context: { requestedSegment: 'Beleza', qualityMode: 'list' },
+    context: { requestedSegment: 'Beleza'},
   });
 
   assert.equal(generic.decision, 'discard');
@@ -221,7 +221,7 @@ test('LeadQualityV2 List descarta materia ou produto com telefone capturado', ()
         state: 'SP',
         segment: 'beleza',
       },
-      context: { requestedSegment: 'Beleza', qualityMode: 'list' },
+      context: { requestedSegment: 'Beleza'},
     });
 
     assert.equal(quality.decision, 'discard', name);
@@ -246,8 +246,7 @@ test('LeadQualityV2 ignora canal obrigatorio e nao descarta por rede social ause
       },
       context: {
         requestedSegment: 'barbearia',
-        qualityMode: 'list',
-        salesProfile: { requiredChannels: ['instagram'], channelMatchMode: 'all_required', qualityMode: 'list' },
+        salesProfile: { requiredChannels: ['instagram'], channelMatchMode: 'all_required'},
       },
     });
 
@@ -264,7 +263,7 @@ test('LeadQualityV2 List protege opt_out', () => {
       status: 'opt_out',
       segment: 'mercado',
     },
-    context: { requestedSegment: 'mercado', qualityMode: 'list' },
+    context: { requestedSegment: 'mercado'},
   });
 
   assert.equal(quality.decision, 'protect');
@@ -285,8 +284,7 @@ test('LeadQualityV2 Lead+ nao entrega sem fit de segmento', () => {
     },
     context: {
       requestedSegment: 'oficina',
-      qualityMode: 'lead_plus',
-      salesProfile: { qualityMode: 'lead_plus', targetSegments: ['oficina'] },
+      salesProfile: { targetSegments: ['oficina'] },
     },
   });
 
@@ -309,9 +307,7 @@ test('LeadQualityV2 Lead+ descarta fora da cidade quando avoidOutOfCity=true', (
     },
     context: {
       requestedSegment: 'clinica',
-      qualityMode: 'lead_plus',
       salesProfile: {
-        qualityMode: 'lead_plus',
         targetSegments: ['clínicas médicas'],
         preferredCities: ['Campinas'],
         preferredStates: ['SP'],
@@ -325,7 +321,7 @@ test('LeadQualityV2 Lead+ descarta fora da cidade quando avoidOutOfCity=true', (
   assert.match(quality.reasons.join(' '), /fora da cidade configurada/i);
 });
 
-test('LeadQualityV2 Lead+ nao entrega sem WhatsApp quando avoidNoWhatsapp=true', () => {
+test('LeadQualityV2 evita entrega direta sem WhatsApp quando avoidNoWhatsapp=true', () => {
   const quality = calculateLeadQualityV2({
     lead: {
       name: 'Clínica Sem WhatsApp',
@@ -339,9 +335,7 @@ test('LeadQualityV2 Lead+ nao entrega sem WhatsApp quando avoidNoWhatsapp=true',
     },
     context: {
       requestedSegment: 'clinica',
-      qualityMode: 'lead_plus',
       salesProfile: {
-        qualityMode: 'lead_plus',
         targetSegments: ['clínicas médicas'],
         preferredCities: ['Campinas'],
         preferredStates: ['SP'],
@@ -351,7 +345,8 @@ test('LeadQualityV2 Lead+ nao entrega sem WhatsApp quando avoidNoWhatsapp=true',
   });
 
   assert.notEqual(quality.decision, 'deliver');
-  assert.equal(quality.discardReason, 'weak_contactability');
+  assert.equal(quality.decision, 'review');
+  assert.equal(quality.discardReason, null);
 });
 
 test('LeadQualityV2 Lead+ entrega clinica boa com WhatsApp confirmado e fit correto', () => {
@@ -371,9 +366,7 @@ test('LeadQualityV2 Lead+ entrega clinica boa com WhatsApp confirmado e fit corr
     },
     context: {
       requestedSegment: 'clinica',
-      qualityMode: 'lead_plus',
       salesProfile: {
-        qualityMode: 'lead_plus',
         targetSegments: ['clínicas médicas'],
         preferredCities: ['Campinas'],
         preferredStates: ['SP'],
@@ -404,9 +397,7 @@ test('LeadQualityV2 nao bloqueia card bom quando publico-alvo nao tem evidencia 
     },
     context: {
       requestedSegment: 'clinica',
-      qualityMode: 'lead_plus',
       salesProfile: {
-        qualityMode: 'lead_plus',
         whatDoYouSell: 'software para clínicas',
         targetAudience: ['restaurantes e bares'],
         targetSegments: ['clínicas médicas'],
@@ -438,9 +429,7 @@ test('LeadQualityV2 Lead+ manda para review quando email e provavel e WhatsApp a
     },
     context: {
       requestedSegment: 'clinica',
-      qualityMode: 'lead_plus',
       salesProfile: {
-        qualityMode: 'lead_plus',
         targetSegments: ['clínicas médicas'],
         preferredCities: ['Campinas'],
         preferredStates: ['SP'],
@@ -463,7 +452,7 @@ test('LeadQualityV2 segmento contabilidade bate com Escritorio Contabil', () => 
       segment: 'Escritório Contábil',
       whatsappStatus: 'confirmed',
     },
-    context: { requestedSegment: 'contabilidade', qualityMode: 'lead_plus', salesProfile: { qualityMode: 'lead_plus', targetSegments: ['contabilidade'] } },
+    context: { requestedSegment: 'contabilidade', salesProfile: { targetSegments: ['contabilidade'] } },
   });
 
   assert.ok(quality.segmentFitScore >= 65);
@@ -481,7 +470,7 @@ test('LeadQualityV2 segmento agencia de marketing bate com Marketing Digital', (
       segment: 'Marketing Digital',
       whatsappStatus: 'confirmed',
     },
-    context: { requestedSegment: 'agência de marketing', qualityMode: 'lead_plus', salesProfile: { qualityMode: 'lead_plus', targetSegments: ['agências de marketing'] } },
+    context: { requestedSegment: 'agência de marketing', salesProfile: { targetSegments: ['agências de marketing'] } },
   });
 
   assert.ok(quality.segmentFitScore >= 65);
@@ -498,7 +487,7 @@ test('LeadQualityV2 segmento oficina continua rejeitando auto escola', () => {
       segment: 'auto escola',
       whatsappStatus: 'confirmed',
     },
-    context: { requestedSegment: 'oficina', qualityMode: 'lead_plus', salesProfile: { qualityMode: 'lead_plus', targetSegments: ['oficina'] } },
+    context: { requestedSegment: 'oficina', salesProfile: { targetSegments: ['oficina'] } },
   });
 
   assert.equal(quality.decision, 'discard');
@@ -517,7 +506,6 @@ test('LeadQualityV2 Instagram preferido nao vira regra de bloqueio', () => {
     },
     context: {
       requestedSegment: 'salao',
-      qualityMode: 'list',
       salesProfile: { preferredChannels: ['instagram'] },
     },
   });
@@ -533,7 +521,6 @@ test('LeadQualityV2 Instagram preferido nao vira regra de bloqueio', () => {
     },
     context: {
       requestedSegment: 'salao',
-      qualityMode: 'list',
       salesProfile: { preferredChannels: ['instagram'] },
     },
   });
@@ -555,8 +542,7 @@ test('LeadQualityV2 canal Instagram obrigatorio em List nao descarta se ausente'
     },
     context: {
       requestedSegment: 'salao',
-      qualityMode: 'list',
-      salesProfile: { requiredChannels: ['instagram'], channelMatchMode: 'all_required', qualityMode: 'list' },
+      salesProfile: { requiredChannels: ['instagram'], channelMatchMode: 'all_required'},
     },
   });
 
@@ -576,8 +562,7 @@ test('LeadQualityV2 canal Facebook obrigatorio nao descarta se ausente', () => {
     },
     context: {
       requestedSegment: 'salao',
-      qualityMode: 'list',
-      salesProfile: { requiredChannels: ['facebook'], channelMatchMode: 'all_required', qualityMode: 'list' },
+      salesProfile: { requiredChannels: ['facebook'], channelMatchMode: 'all_required'},
     },
   });
 
@@ -598,8 +583,7 @@ test('LeadQualityV2 canal Instagram obrigatorio presente nao descarta por canal'
     },
     context: {
       requestedSegment: 'salao',
-      qualityMode: 'list',
-      salesProfile: { requiredChannels: ['instagram'], channelMatchMode: 'all_required', qualityMode: 'list' },
+      salesProfile: { requiredChannels: ['instagram'], channelMatchMode: 'all_required'},
     },
   });
 
@@ -620,8 +604,7 @@ test('LeadQualityV2 Instagram e Facebook obrigatorios aceita uma rede social pre
     },
     context: {
       requestedSegment: 'salao',
-      qualityMode: 'list',
-      salesProfile: { requiredChannels: ['instagram', 'facebook'], channelMatchMode: 'all_required', qualityMode: 'list' },
+      salesProfile: { requiredChannels: ['instagram', 'facebook'], channelMatchMode: 'all_required'},
     },
   });
 
@@ -641,8 +624,7 @@ test('LeadQualityV2 canal Instagram obrigatorio em Lead+ nao vira motivo de desc
     },
     context: {
       requestedSegment: 'salao',
-      qualityMode: 'lead_plus',
-      salesProfile: { requiredChannels: ['instagram'], channelMatchMode: 'all_required', qualityMode: 'lead_plus' },
+      salesProfile: { requiredChannels: ['instagram'], channelMatchMode: 'all_required'},
     },
   });
 
@@ -663,8 +645,7 @@ test('LeadQualityV2 canal WhatsApp obrigatorio nao vira regra de bloqueio Lead+'
     },
     context: {
       requestedSegment: 'clinica',
-      qualityMode: 'lead_plus',
-      salesProfile: { requiredChannels: ['whatsapp'], channelMatchMode: 'all_required', qualityMode: 'lead_plus', targetSegments: ['clínicas médicas'] },
+      salesProfile: { requiredChannels: ['whatsapp'], channelMatchMode: 'all_required', targetSegments: ['clínicas médicas'] },
     },
   });
 
@@ -681,12 +662,11 @@ test('RadarVisibility salva empresa real com segmento adjacente como card basico
   };
   const quality = calculateLeadQualityV2({
     lead,
-    context: { requestedSegment: 'pizzaria', qualityMode: 'list' },
+    context: { requestedSegment: 'pizzaria'},
   });
   const visibility = resolveRadarVisibilityFromQualityV2({
     lead,
     quality,
-    qualityMode: 'list',
     requestedSegment: 'pizzaria',
   });
 
@@ -706,11 +686,10 @@ test('RadarVisibility canal preferido WhatsApp ausente nao bloqueia card real', 
     lead,
     context: {
       requestedSegment: 'padaria',
-      qualityMode: 'list',
       salesProfile: { preferredChannels: ['whatsapp'], channelMatchMode: 'prefer' },
     },
   });
-  const visibility = resolveRadarVisibilityFromQualityV2({ lead, quality, qualityMode: 'list', requestedSegment: 'padaria' });
+  const visibility = resolveRadarVisibilityFromQualityV2({ lead, quality, requestedSegment: 'padaria' });
 
   assert.equal(visibility.hardBlocked, false);
   assert.notEqual(visibility.visibilityTier, 'blocked');
@@ -728,11 +707,10 @@ test('RadarVisibility Lead+ nao impede card basico quando nao qualifica destaque
     lead,
     context: {
       requestedSegment: 'clinica',
-      qualityMode: 'lead_plus',
-      salesProfile: { qualityMode: 'lead_plus', targetSegments: ['clinicas medicas'], preferredChannels: ['whatsapp'] },
+      salesProfile: { targetSegments: ['clinicas medicas'], preferredChannels: ['whatsapp'] },
     },
   });
-  const visibility = resolveRadarVisibilityFromQualityV2({ lead, quality, qualityMode: 'lead_plus', requestedSegment: 'clinica' });
+  const visibility = resolveRadarVisibilityFromQualityV2({ lead, quality, requestedSegment: 'clinica' });
 
   assert.equal(visibility.hardBlocked, false);
   assert.ok(['list_basic', 'review_backup'].includes(visibility.visibilityTier));
@@ -747,11 +725,11 @@ test('RadarVisibility score baixo vira review_backup, nao bloqueio', () => {
     segment: 'oficina',
   };
   const quality = {
-    ...calculateLeadQualityV2({ lead, context: { requestedSegment: 'oficina', qualityMode: 'list' } }),
+    ...calculateLeadQualityV2({ lead, context: { requestedSegment: 'oficina'} }),
     decision: 'review' as const,
     finalRankScore: 32,
   };
-  const visibility = resolveRadarVisibilityFromQualityV2({ lead, quality, qualityMode: 'list', requestedSegment: 'oficina' });
+  const visibility = resolveRadarVisibilityFromQualityV2({ lead, quality, requestedSegment: 'oficina' });
 
   assert.equal(visibility.hardBlocked, false);
   assert.equal(visibility.visibilityTier, 'review_backup');
@@ -766,8 +744,8 @@ test('RadarVisibility diretorio com empresa real e telefone vira revisao', () =>
     segment: 'pizzaria',
     source: 'diretorio',
   };
-  const quality = calculateLeadQualityV2({ lead, context: { requestedSegment: 'pizzaria', qualityMode: 'list' } });
-  const visibility = resolveRadarVisibilityFromQualityV2({ lead, quality, qualityMode: 'list', requestedSegment: 'pizzaria' });
+  const quality = calculateLeadQualityV2({ lead, context: { requestedSegment: 'pizzaria'} });
+  const visibility = resolveRadarVisibilityFromQualityV2({ lead, quality, requestedSegment: 'pizzaria' });
 
   assert.equal(quality.discardReason, 'generic_directory');
   assert.equal(visibility.hardBlocked, false);
@@ -777,8 +755,8 @@ test('RadarVisibility diretorio com empresa real e telefone vira revisao', () =>
 test('RadarVisibility nomes genericos bloqueiam como generic_name', () => {
   for (const name of ['Pizzarias em Rio Claro', '10 melhores clínicas', 'Contato', 'Home']) {
     const lead = { name, phoneDigits: '1933334444', city: 'Rio Claro', state: 'SP', segment: 'pizzaria' };
-    const quality = calculateLeadQualityV2({ lead, context: { requestedSegment: 'pizzaria', qualityMode: 'list' } });
-    const visibility = resolveRadarVisibilityFromQualityV2({ lead, quality, qualityMode: 'list', requestedSegment: 'pizzaria' });
+    const quality = calculateLeadQualityV2({ lead, context: { requestedSegment: 'pizzaria'} });
+    const visibility = resolveRadarVisibilityFromQualityV2({ lead, quality, requestedSegment: 'pizzaria' });
 
     assert.equal(visibility.hardBlocked, true, name);
     assert.equal(visibility.blockReason, 'generic_name', name);
@@ -793,8 +771,8 @@ test('RadarVisibility prefeitura contra segmento comercial bloqueia hard mismatc
     state: 'SP',
     segment: 'orgao publico',
   };
-  const quality = calculateLeadQualityV2({ lead, context: { requestedSegment: 'pizzaria', qualityMode: 'list' } });
-  const visibility = resolveRadarVisibilityFromQualityV2({ lead, quality, qualityMode: 'list', requestedSegment: 'pizzaria' });
+  const quality = calculateLeadQualityV2({ lead, context: { requestedSegment: 'pizzaria'} });
+  const visibility = resolveRadarVisibilityFromQualityV2({ lead, quality, requestedSegment: 'pizzaria' });
 
   assert.equal(visibility.hardBlocked, true);
   assert.equal(visibility.blockReason, 'segment_hard_mismatch');

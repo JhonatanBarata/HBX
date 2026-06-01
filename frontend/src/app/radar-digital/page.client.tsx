@@ -1183,7 +1183,7 @@ function buildSmartChips(lead: RadarLead, max = 3) {
     score >= 70 ? { label: "Alta oportunidade", tone: "success" } : null,
     lead.painLabel ? { label: lead.painLabel, tone: website.tone } : null,
     { label: website.label, tone: website.tone },
-    socialPending ? { label: "Enriquecendo contatos", tone: "warning" } : null,
+    socialPending ? { label: "Rede em análise", tone: "warning" } : null,
     socialFound ? { label: "Rede social", tone: "success" } : null,
     Number(lead.rating || 0) >= 4.2 ? { label: "Boa avaliação", tone: "success" } : null,
   ].filter(Boolean) as Array<{ label: string; tone: string }>).slice(0, max);
@@ -1330,6 +1330,15 @@ function buildLeadQuery(filters: FilterState, page: number) {
 function compactRadarMessage(message: string | null) {
   const text = String(message || "").trim();
   if (!text) return "";
+  if (/backend|http|status\s*\d{3}|erro\s*400|erro\s*401|erro\s*403|erro\s*404|erro\s*409|erro\s*422|erro\s*429|erro\s*500|bad request|internal server error|forbidden|unauthorized|failed to fetch|networkerror|econn|stack|exception/i.test(text)) {
+    if (/quota|limite|limit|429/i.test(text)) {
+      return "Limite de cards atingido agora. O Radar pausa para proteger sua operação.";
+    }
+    if (/access|forbidden|unauthorized|403|401|m[oó]dulo|module/i.test(text)) {
+      return "Radar precisa de liberação da conta para continuar.";
+    }
+    return "Não consegui concluir agora. Ajuste os filtros ou tente novamente em instantes.";
+  }
   if (/buscando o restante em segundo plano/i.test(text)) {
     return text.replace(/Buscando o restante em segundo plano\.?/i, "Radar funcionando para completar a pesquisa.");
   }
@@ -1375,7 +1384,7 @@ function radarFriendlyError(error: unknown) {
   if (/internal server error|forbidden|unauthorized/i.test(message)) {
     return "Radar temporariamente indisponível. Tente novamente em instantes.";
   }
-  return message || "Não foi possível concluir a operação agora.";
+  return compactRadarMessage(message) || "Não foi possível concluir a operação agora.";
 }
 
 function radarDigits(value?: string | null) {
@@ -2855,7 +2864,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
         phase: "loading",
         title: "Radar pesquisando agora",
         status: socialLookupPendingCount > 0
-          ? "Chegando cards e enriquecendo contatos."
+          ? "Chegando cards para Vendas."
           : canPullWithFilters(effectiveFilters)
           ? "Buscando contatos, filtrando negativos e preparando cards elegíveis."
           : "Listando histórico salvo do Radar.",
@@ -3309,7 +3318,6 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
           desiredStock: nextTargetFilters.quantity,
           freshness: "live",
           whatsappCheckMode,
-          qualityMode: "list",
         }),
       });
       activeRunIdRef.current = payload.runId || payload.id || null;
@@ -3593,13 +3601,13 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   const canCancelRadarRun = radarHasRunPointer && (radarIsWorking || radarCanceling || radarPausedByRun);
   const mobileRadarProcessing = radarIsWorking || bulkSending || mobileAutoImportPending || radarCanceling;
   const radarFiltersLocked = !radarIsStopped || mobileAutoImportPending || radarCanceling;
-  const radarOperationalLabel = radarIsWorking ? "Radar funcionando" : radarIsPaused ? "Radar pausado" : "Radar parado";
+  const radarOperationalLabel = radarIsWorking ? "Pesquisando empresas" : radarIsPaused ? "Radar pausado" : "Radar pronto";
   const radarBackendOperationalMessage = activeRun?.meta?.operationalMessage || terminalRunSnapshot?.meta?.operationalMessage || null;
   const radarOperationalHelper = radarIsWorking
-    ? radarBackendOperationalMessage || "Filtros bloqueados enquanto a pesquisa roda. Aperte STOP para ajustar."
+    ? radarBackendOperationalMessage || "Encontrando contatos reais e enviando os aprovados para Vendas."
     : radarIsPaused
-      ? radarBackendOperationalMessage || "Filtros bloqueados enquanto o Radar não estiver parado."
-      : "Filtros liberados para uma nova pesquisa.";
+      ? radarBackendOperationalMessage || "Busca pausada. Pare o Radar para ajustar cidade, segmento ou quantidade."
+      : "Escolha cidade, segmento e quantidade para abastecer Vendas.";
   const mobileCanResendToVendas = Boolean(visibleItems.length && hasSearched && !mobileRadarProcessing && !radarFiltersLocked);
   const mobileDockCanSearch = !mobileVendasBlocked && radarIsStopped && !bulkSending;
   const mobileDockPrimaryIcon: "stop" | "pause" | "play" = radarPausedLocked ? "stop" : canCancelRadarRun ? "stop" : "play";
@@ -3650,7 +3658,14 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
         : hasSearched && visibleItems.length > 0
           ? "received"
           : "ready";
-  const radarMomentTitle = radarOperationalLabel;
+  const radarMomentTitle =
+    radarMomentState === "receiving"
+      ? "Vendas sendo abastecido"
+      : radarMomentState === "received"
+        ? "Vendas abastecido"
+        : radarMomentState === "searching"
+          ? "Pesquisando empresas reais"
+          : radarOperationalLabel;
   const radarMotionActive = !radarCanceling && !activeRunSleeping && (radarMomentState === "searching" || radarMomentState === "receiving");
   const radarMomentDescription =
     radarStoppedWithoutCards
@@ -3666,9 +3681,9 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
         : radarMomentState === "receiving"
           ? `Localizado ${radarMomentLocated.toLocaleString("pt-BR")}, filtrado ${radarMomentApprovedLine}.`
           : radarMomentState === "searching"
-            ? "Consultando banco, filtrando negativos e validando contatos públicos."
+            ? "Encontrando empresas, cortando repetidos e separando cards que já podem ir para Vendas."
             : radarMomentState === "received"
-              ? "Os aprovados já foram enviados automaticamente para Vendas."
+              ? "Os aprovados já foram enviados para Vendas. O enriquecimento roda depois, em uma ação separada."
               : "Escolha cidade, segmento e alcance para buscar cards elegíveis.";
   const radarMomentBadge =
     activeRunSleeping
@@ -3695,6 +3710,66 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   const scopeState = filters.state || runFilters?.state || "";
   const scopePlace = scopeCity ? `${scopeCity}${scopeState ? `/${scopeState}` : ""}` : "";
   const searchScopeLine = [scopeSegment, scopePlace, radarRadiusLabel(filters.radiusKm ?? runFilters?.radiusKm)].filter(Boolean).join(" · ");
+  const mobileRadarSocialFound = visibleItems.filter((item) => String(item.instagramUrl || item.facebookUrl || "").trim()).length;
+  const mobileRadarWebsiteFound = visibleItems.filter((item) => String(item.website || "").trim() && String(item.websiteStatus || "").toLowerCase() !== "none").length;
+  const mobileRadarEmailFound = visibleItems.filter((item) => String(item.email || "").trim() && !["missing", "invalid"].includes(String(item.emailStatus || "").toLowerCase())).length;
+  const mobileRadarSignalTotal = mobileRadarSocialFound + mobileRadarWebsiteFound + mobileRadarEmailFound;
+  const mobileRadarHasDeliveredCards = radarMomentDelivered > 0 || visibleItems.length > 0;
+  const mobileRadarEnrichmentActive = Boolean(
+    mobileRadarHasDeliveredCards
+    && (
+      mobileRadarProcessing
+      || socialLookupPendingCount > 0
+      || mobileRadarSocialFound < visibleItems.length
+      || mobileRadarWebsiteFound < visibleItems.length
+      || mobileRadarEmailFound < visibleItems.length
+    ),
+  );
+  const mobileRadarFlow = [
+    {
+      key: "delivery",
+      label: "Entrega",
+      value: mobileRadarHasDeliveredCards
+        ? `${Math.min(radarMomentDelivered, radarMomentTarget).toLocaleString("pt-BR")}/${radarMomentTarget.toLocaleString("pt-BR")}`
+        : radarMomentIsLive
+          ? "em busca"
+          : "pronta",
+      detail: mobileRadarHasDeliveredCards
+        ? "Card aprovado vai para Vendas antes das redes."
+        : radarMomentIsLive
+          ? "Separando empresas reais para aprovar."
+          : "Configure a busca e aperte Buscar.",
+      tone: mobileRadarHasDeliveredCards ? "done" : radarMomentIsLive ? "active" : "idle",
+    },
+    {
+      key: "enrichment",
+      label: "Enriquecimento",
+      value: mobileRadarSignalTotal > 0
+        ? `${mobileRadarSignalTotal.toLocaleString("pt-BR")} sinal(is)`
+        : mobileRadarHasDeliveredCards
+          ? "próxima etapa"
+          : "após entrega",
+      detail: mobileRadarSocialFound > 0
+        ? `${mobileRadarSocialFound.toLocaleString("pt-BR")} com rede social encontrada.`
+        : mobileRadarHasDeliveredCards
+          ? "Disponível depois da entrega dos cards."
+          : "Roda depois que o card entra no Vendas.",
+      tone: mobileRadarSignalTotal > 0 ? "done" : mobileRadarEnrichmentActive ? "active" : "idle",
+    },
+    {
+      key: "sales",
+      label: "Vendas",
+      value: mobileRadarProcessing
+        ? "abastecendo"
+        : mobileRadarHasDeliveredCards
+          ? "abastecido"
+          : "aguardando",
+      detail: mobileRadarHasDeliveredCards
+        ? "Chame agora. O restante aparece no card."
+        : "Os aprovados aparecem no Vendas.",
+      tone: mobileRadarHasDeliveredCards ? "done" : mobileRadarProcessing ? "active" : "idle",
+    },
+  ];
   const autoImportFailureLine = (radarMomentRun?.meta?.autoImport?.failures || [])
     .map((failure) => `${failure.count || 0} ${String(failure.reason || "falha").replace(/_/g, " ")}`)
     .filter(Boolean)
@@ -4098,6 +4173,16 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
               <strong>{mobileRadarEngineLabel(filters.engine)}</strong>
             </div>
           </div>
+
+          <section className={styles.mobileRadarOperationalFlow} aria-label="Acompanhamento da entrega">
+            {mobileRadarFlow.map((step) => (
+              <div key={step.key} className={styles.mobileRadarFlowCard} data-tone={step.tone}>
+                <span>{step.label}</span>
+                <strong>{step.value}</strong>
+                <small>{step.detail}</small>
+              </div>
+            ))}
+          </section>
 
           <form
             className={`${styles.mobileRadarForm} hbx-mobile-card`}
@@ -4536,13 +4621,13 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
                 <span>{radarOperationalLabel}</span>
                 <strong>{activeRunDelivered.toLocaleString("pt-BR")} de até {activeRunTarget.toLocaleString("pt-BR")} cards</strong>
               </div>
-              <small>{socialLookupPendingCount > 0 ? "Enriquecendo contatos" : activeRun.status === "queued" ? "Na fila HBX" : "Verificando disponibilidade real"}</small>
+              <small>{socialLookupPendingCount > 0 ? "Entregando cards" : activeRun.status === "queued" ? "Na fila HBX" : "Verificando disponibilidade real"}</small>
             </div>
             <div className={styles.runProgressTrack} aria-hidden="true">
               <span style={{ ["--progress" as string]: `${activeRunProgress}%` }} />
             </div>
             {searchScopeLine ? <p>{searchScopeLine}</p> : null}
-            <p>{socialLookupPendingCount > 0 ? "Chegando cards. As redes sociais aparecem no próprio card quando o enriquecimento termina." : activeRun.message || "O Radar já entregou o que encontrou no banco e continua buscando novos cards válidos."}</p>
+            <p>{socialLookupPendingCount > 0 ? "Chegando cards para o Vendas. Redes sociais ficam para a etapa seguinte." : activeRun.message || "O Radar entrega primeiro os cards aprovados e encerra a busca primária."}</p>
           </section>
         ) : null}
 

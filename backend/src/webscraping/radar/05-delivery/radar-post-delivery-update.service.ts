@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import {
   RadarEnrichmentJobPipelineService,
   type RadarAsyncEnrichmentJob,
@@ -39,7 +39,11 @@ function normalizeObject(raw: unknown): Record<string, any> {
 
 @Injectable()
 export class RadarPostDeliveryUpdateService {
-  constructor(private readonly jobPipeline = new RadarEnrichmentJobPipelineService()) {}
+  private readonly jobPipeline: RadarEnrichmentJobPipelineService;
+
+  constructor(@Optional() jobPipeline?: RadarEnrichmentJobPipelineService) {
+    this.jobPipeline = jobPipeline || new RadarEnrichmentJobPipelineService();
+  }
 
   buildPendingJobs(input: {
     now?: Date | string | null;

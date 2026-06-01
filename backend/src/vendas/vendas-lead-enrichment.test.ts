@@ -55,6 +55,63 @@ test('vendas intelligence blocks protected Radar recommendation', () => {
   assert.equal(intelligence.contactQuality, 'blocked');
 });
 
+test('vendas intelligence exposes possible social candidates from Radar timeline', () => {
+  const intelligence = buildVendasLeadIntelligence({
+    lead: {
+      name: 'Studio Beleza',
+      phone: '(19) 99999-0001',
+      city: 'Rio Claro',
+      segment: 'beleza',
+      timelineEvents: [
+        {
+          sourceType: 'radar_enrichment',
+          description: JSON.stringify({
+            socialStatus: 'candidate_review',
+            possibleSocialCandidates: [{
+              network: 'instagram',
+              url: 'https://instagram.com/studiobelezaperto',
+              status: 'possible',
+              confidence: 68,
+            }],
+          }),
+        },
+      ],
+    },
+  });
+
+  assert.equal(intelligence.socialStatus, 'candidate_review');
+  assert.equal(intelligence.possibleSocialCandidates[0].status, 'possible');
+  assert.equal(intelligence.leadReasonTags.includes('rede_social_possivel'), true);
+  assert.ok((intelligence.opportunityScore || 0) >= 68);
+});
+
+test('vendas intelligence prioriza evento Radar mais recente', () => {
+  const intelligence = buildVendasLeadIntelligence({
+    lead: {
+      name: 'Studio Beleza',
+      phone: '(19) 99999-0001',
+      timelineEvents: [
+        {
+          sourceType: 'radar_enrichment',
+          createdAt: new Date('2026-06-01T10:00:00.000Z'),
+          description: JSON.stringify({ socialStatus: 'missing' }),
+        },
+        {
+          sourceType: 'radar_enrichment',
+          createdAt: new Date('2026-06-01T11:00:00.000Z'),
+          description: JSON.stringify({
+            instagramUrl: 'https://instagram.com/studiobeleza',
+            socialStatus: 'partial',
+          }),
+        },
+      ],
+    },
+  });
+
+  assert.equal(intelligence.instagramUrl, 'https://instagram.com/studiobeleza');
+  assert.equal(intelligence.socialStatus, 'partial');
+});
+
 test('vendas intelligence treats queued import with preserved enrichment as completed', () => {
   const intelligence = buildVendasLeadIntelligence({
     lead: {

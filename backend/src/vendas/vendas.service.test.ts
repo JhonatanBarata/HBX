@@ -557,7 +557,6 @@ test('importWebscrapingLeadsForUser no modo List importa weak_contact sem cortar
     { companyId: 7, id: 99 },
     {
       debitOnImport: true,
-      qualityMode: 'list',
       skipWhatsappValidation: true,
       leads: [
         {
@@ -613,7 +612,6 @@ test('importWebscrapingLeadsForUser no Lead+ importa card basico quando nao qual
   const result = await service.importWebscrapingLeadsForUser(
     { companyId: 7, id: 99 },
     {
-      qualityMode: 'lead_plus',
       skipWhatsappValidation: true,
       leads: [
         {

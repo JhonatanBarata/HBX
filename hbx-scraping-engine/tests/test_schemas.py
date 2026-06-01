@@ -31,15 +31,14 @@ def test_pj_allows_limit_up_to_100() -> None:
     assert request.state == ""
 
 
-def test_search_request_ignores_preferred_social_channel_for_card_discovery() -> None:
+def test_search_request_preserves_preferred_social_channel_for_discovery() -> None:
     request = SearchRequest(city="Campinas", state="SP", segment="oficina", preferredChannels=["instagram"])
 
-    assert request.preferredChannels == []
+    assert request.preferredChannels == ["instagram"]
     assert request.channelMatchMode == "prefer"
-    assert request.qualityMode == "list"
 
 
-def test_search_request_drops_channel_aliases_for_card_discovery() -> None:
+def test_search_request_normalizes_channel_aliases_for_discovery() -> None:
     request = SearchRequest(
         city="Campinas",
         state="SP",
@@ -47,7 +46,7 @@ def test_search_request_drops_channel_aliases_for_card_discovery() -> None:
         preferredChannels=["insta", "fb", "site", "wpp"],
     )
 
-    assert request.preferredChannels == []
+    assert request.preferredChannels == ["instagram", "facebook", "website", "whatsapp"]
 
 
 def test_contact_result_allows_business_email() -> None:

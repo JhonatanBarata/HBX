@@ -22,6 +22,8 @@ export type RadarSocialLookupJob = {
 };
 
 export type RadarSocialQueryLayer =
+  | 'full_name_city_state'
+  | 'full_name_city_state_site_operator'
   | 'brand_city'
   | 'brand_city_state'
   | 'brand_city_segment'
@@ -31,7 +33,9 @@ export type RadarSocialQueryLayer =
   | 'domain'
   | 'domain_site_operator'
   | 'site_operator'
+  | 'site_operator_segment'
   | 'whatsapp_intent'
+  | 'agenda_intent'
   | 'address_city'
   | 'probable_handle'
   | 'simplified_name';

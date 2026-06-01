@@ -20,6 +20,29 @@ function normalizePhoneDigits(raw: unknown) {
   return String(raw || '').replace(/\D/g, '');
 }
 
+function segmentQueryVariants(segment: string) {
+  const normalized = normalizeLookupValue(segment);
+  const variants = new Set<string>();
+  if (segment) variants.add(segment);
+  const add = (items: string[]) => items.forEach((item) => variants.add(item));
+  if (/salao|saloes|beleza|cabeleireiro|cabelo|estetica|manicure|pedicure|sobrancelha|esmalteria|barbearia/.test(normalized)) {
+    add(['salao de beleza', 'saloes de beleza', 'cabeleireiro', 'estetica', 'manicure', 'barbearia']);
+  }
+  if (/pet|veterin|banho|tosa/.test(normalized)) {
+    add(['pet shop', 'clinica veterinaria', 'banho e tosa']);
+  }
+  if (/restaurante|pizzaria|lanchonete|hamburguer|delivery|choperia|bar/.test(normalized)) {
+    add(['restaurante', 'delivery', 'cardapio', 'reservas']);
+  }
+  if (/oficina|auto|pneu|mecanica|funilaria|borracharia/.test(normalized)) {
+    add(['oficina mecanica', 'auto center', 'borracharia', 'pneus']);
+  }
+  if (/clinica|medic|odont|saude|fisioterapia|psicolog/.test(normalized)) {
+    add(['clinica', 'consultorio', 'agendamento']);
+  }
+  return Array.from(variants).filter(Boolean).slice(0, 8);
+}
+
 function formatPhoneDigits(digits: string) {
   if (digits.length === 11) return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
   if (digits.length === 10) return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
@@ -91,15 +114,25 @@ export class RadarSocialQueryPlanner {
     const brandName = brand
       ? name.split(/\s+/).find((part) => normalizeLookupValue(part) === brand) || brand
       : name;
-    const baseNames = Array.from(new Set([brandName, name].filter(Boolean)));
+    const baseNames = Array.from(new Set([name, brandName, ...simplifiedNames(name, segment)].filter(Boolean)));
+    const segmentVariants = segmentQueryVariants(segment);
     const networks: RadarSocialNetwork[] = ['instagram', 'facebook'];
     const queries: RadarSocialLookupQuery[] = [];
+
+    if (name && city && state) {
+      for (const network of networks) {
+        queries.push({ network, layer: 'full_name_city_state', query: `${quote(name)} ${quote(city)} ${quote(state)} ${network}` });
+        queries.push({ network, layer: 'full_name_city_state_site_operator', query: `site:${network}.com ${quote(name)} ${quote(city)} ${quote(state)}` });
+      }
+    }
 
     for (const safeName of baseNames) {
       for (const network of networks) {
         if (safeName && city) queries.push({ network, layer: 'brand_city', query: `${quote(safeName)} ${quote(city)} ${network}` });
         if (safeName && city && state) queries.push({ network, layer: 'brand_city_state', query: `${quote(safeName)} ${quote(`${city}, ${state}`)} ${network}` });
-        if (safeName && city && segment) queries.push({ network, layer: 'brand_city_segment', query: `${quote(safeName)} ${quote(city)} ${quote(segment)} ${network}` });
+        for (const segmentVariant of segmentVariants.slice(0, 4)) {
+          if (safeName && city && segmentVariant) queries.push({ network, layer: 'brand_city_segment', query: `${quote(safeName)} ${quote(city)} ${quote(segmentVariant)} ${network}` });
+        }
       }
     }
     if (legalName && city && normalizeLookupValue(legalName) !== normalizeLookupValue(name)) {
@@ -120,10 +153,16 @@ export class RadarSocialQueryPlanner {
       if (!safeName || !city) continue;
       queries.push({ network: 'instagram', layer: 'site_operator', query: `site:instagram.com ${quote(safeName)} ${quote(city)}` });
       queries.push({ network: 'facebook', layer: 'site_operator', query: `site:facebook.com ${quote(safeName)} ${quote(city)}` });
+      for (const segmentVariant of segmentVariants.slice(0, 3)) {
+        queries.push({ network: 'instagram', layer: 'site_operator_segment', query: `site:instagram.com ${quote(safeName)} ${quote(city)} ${quote(segmentVariant)}` });
+        queries.push({ network: 'facebook', layer: 'site_operator_segment', query: `site:facebook.com ${quote(safeName)} ${quote(city)} ${quote(segmentVariant)}` });
+      }
     }
     if (name && city) {
       queries.push({ network: 'instagram', layer: 'whatsapp_intent', query: `${quote(name)} ${quote(city)} "whatsapp"` });
       queries.push({ network: 'facebook', layer: 'whatsapp_intent', query: `${quote(name)} ${quote(city)} "whatsapp"` });
+      queries.push({ network: 'instagram', layer: 'agenda_intent', query: `${quote(name)} ${quote(city)} "agenda" instagram` });
+      queries.push({ network: 'facebook', layer: 'agenda_intent', query: `${quote(name)} ${quote(city)} "contato" facebook` });
     }
     if (name && address) {
       for (const network of networks) queries.push({ network, layer: 'address_city', query: `${quote(name)} ${quote(address)} ${network}` });
@@ -143,7 +182,7 @@ export class RadarSocialQueryPlanner {
       if (seen.has(key)) return false;
       seen.add(key);
       return Boolean(entry.query.trim());
-    }).slice(0, 40);
+    }).slice(0, 60);
   }
 }
 

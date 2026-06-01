@@ -8,6 +8,7 @@ import {
   hasPoorRadarWebEnrichmentFields,
   rankRadarWebEnrichmentCandidates,
 } from './radar/03-enrichment/radar-web-enrichment-priority';
+import { RadarPostDeliveryVendasUpdateService } from './radar/05-delivery/radar-post-delivery-vendas-update.service';
 import { RadarSocialResultWriterService } from './radar/04-socials/radar-social-result-writer.service';
 
 test('enrichment job pipeline cria jobs canonicos com stage source trace e status', () => {
@@ -95,6 +96,69 @@ test('social writer registra lifecycle do social_lookup no rawJson', async () =>
   assert.equal(writes[1].deliveryStatus, 'delivered');
 });
 
+test('social writer preserva candidato possivel sem promover para confirmado', async () => {
+  const writes: any[] = [];
+  const runs = {
+    updateRunItemRawJson: async (_leadId: string, raw: Record<string, any>) => {
+      writes.push(raw);
+      return raw;
+    },
+  } as any;
+  const writer = new RadarSocialResultWriterService(runs, new RadarEnrichmentJobPipelineService());
+
+  await writer.writeResult(
+    { companyId: 1, userId: 2, user: {} } as any,
+    'lead-1',
+    {},
+    { name: 'Studio Beleza', phone: '(19) 99999-0001', city: 'Rio Claro', state: 'SP' },
+    { deliveryStatus: 'delivered' },
+    {
+      status: 'candidate_review',
+      confidence: 68,
+      instagramUrl: null,
+      facebookUrl: null,
+      queries: ['"Studio Beleza" "Rio Claro" "SP" instagram'],
+      candidates: [{
+        network: 'instagram',
+        url: 'https://instagram.com/studiobelezaperto',
+        status: 'candidate_review',
+        accepted: false,
+        confidence: 68,
+        reason: 'nome+cidade',
+        layer: 'brand_city',
+        query: '"Studio Beleza" "Rio Claro" instagram',
+        source: 'hbx_scraping:social_discovery',
+      }],
+      acceptedCandidates: [],
+      rejectedCandidates: [],
+      reason: 'perfil_social_para_revisao',
+    } as any,
+  );
+
+  const updated = writes.at(-1);
+  assert.equal(updated.instagramUrl, null);
+  assert.equal(updated.socialStatus, 'candidate_review');
+  assert.equal(updated.possibleSocialCandidates[0].status, 'possible');
+  assert.equal(updated.signals.possibleSocialCandidates[0].url, 'https://instagram.com/studiobelezaperto');
+  assert.equal(JSON.parse(updated.enrichmentJson).signals.possibleSocialCandidates[0].status, 'possible');
+});
+
+test('post delivery cria evento separado para social possivel', () => {
+  const service = new RadarPostDeliveryVendasUpdateService();
+  const plan = service.buildUpdatePlan({
+    currentLead: {},
+    row: { id: 'radar-1' },
+    data: {
+      socialStatus: 'candidate_review',
+      possibleSocialCandidates: [{ network: 'instagram', url: 'https://instagram.com/proximo', status: 'possible' }],
+    },
+    compactEnrichment: null,
+    leadPlus: null,
+  });
+
+  assert.equal(plan.timelineEvents.some((event: any) => event.eventType === 'radar_social_possible'), true);
+});
+
 test('web enrichment priority foca card com telefone e sem social site email', () => {
   const ranked = rankRadarWebEnrichmentCandidates([
     {
@@ -134,6 +198,8 @@ test('web enrichment priority foca card com telefone e sem social site email', (
 
 test('web enrichment job enriquece run item entregue sem alterar delivery', async () => {
   const writes: any[] = [];
+  const vendasStatuses: any[] = [];
+  const vendasSyncs: any[] = [];
   const runs = {
     loadRunItem: async () => ({
       id: 'lead-1',
@@ -194,6 +260,12 @@ test('web enrichment job enriquece run item entregue sem alterar delivery', asyn
           sourceUrl: options.queryText,
         }],
       }),
+      recordVendasEnrichmentStatus: async (_context: any, row: any, status: string, payload: any) => {
+        vendasStatuses.push({ row, status, payload });
+      },
+      syncVendasAfterRadarEnrichment: async (_context: any, row: any, data: any, reason: string | null) => {
+        vendasSyncs.push({ row, data, reason });
+      },
     } as any,
   );
 
@@ -202,6 +274,10 @@ test('web enrichment job enriquece run item entregue sem alterar delivery', asyn
   assert.equal(updated.website, 'https://barbeariax.com.br');
   assert.equal(updated.instagramUrl, 'https://instagram.com/barbeariaxrioclaro');
   assert.equal(updated.socialStatus, 'found');
+  assert.equal(vendasStatuses.some((item) => item.status === 'processing'), true);
+  assert.equal(vendasSyncs.length, 1);
+  assert.equal(vendasSyncs[0].data.website, 'https://barbeariax.com.br');
+  assert.equal(vendasSyncs[0].data.instagramUrl, 'https://instagram.com/barbeariaxrioclaro');
   assert.equal(updated.asyncEnrichmentJobs.find((item: any) => item.type === 'radar_web_enrichment').status, 'completed');
   assert.equal('importedCount' in updated, false);
 });

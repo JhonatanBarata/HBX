@@ -15,9 +15,27 @@ function normalizeObject(raw: unknown): Record<string, any> {
   return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, any> : {};
 }
 
+function parseMaybeJsonObject(raw: unknown): Record<string, any> {
+  if (!raw) return {};
+  if (typeof raw === 'object' && !Array.isArray(raw)) return raw as Record<string, any>;
+  if (typeof raw !== 'string') return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, any> : {};
+  } catch {
+    return {};
+  }
+}
+
 function stringOrNull(value: unknown) {
   const text = String(value || '').trim();
   return text || null;
+}
+
+function normalizePhoneDigits(value: unknown) {
+  let digits = String(value || '').replace(/\D/g, '');
+  if (digits.startsWith('55') && digits.length > 11) digits = digits.slice(2);
+  return digits || null;
 }
 
 function numberOrNull(value: unknown) {
@@ -28,6 +46,10 @@ function numberOrNull(value: unknown) {
 function safeInteger(value: unknown) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : null;
+}
+
+function arrayOrEmpty(value: unknown) {
+  return Array.isArray(value) ? value : [];
 }
 
 function usefulWhatsappStatus(value: unknown) {
@@ -50,6 +72,11 @@ export class RadarPostDeliveryVendasUpdateService {
     context: SearchExecutionContext;
     row: any;
   }) {
+    const raw = parseMaybeJsonObject(input.row?.rawJson);
+    const metadata = parseMaybeJsonObject(input.row?.metadataJson);
+    const enrichment = parseMaybeJsonObject(input.row?.enrichmentJson);
+    const directFromRow = stringOrNull(input.row?.vendasLeadId || raw.vendasLeadId || metadata.vendasLeadId || enrichment.vendasLeadId);
+    if (directFromRow) return directFromRow;
     const state = Array.isArray(input.row?.companyStates) && input.row.companyStates.length ? input.row.companyStates[0] : null;
     const direct = stringOrNull(state?.vendasLeadId);
     if (direct) return direct;
@@ -62,7 +89,20 @@ export class RadarPostDeliveryVendasUpdateService {
       },
       select: { vendasLeadId: true },
     }).catch(() => null);
-    return stringOrNull(saved?.vendasLeadId);
+    const savedId = stringOrNull(saved?.vendasLeadId);
+    if (savedId) return savedId;
+    const phoneNormalized = normalizePhoneDigits(input.row?.phoneNormalized || input.row?.phoneDigits || input.row?.phone || raw.phoneNormalized || raw.phoneDigits || raw.phone);
+    if (!phoneNormalized) return null;
+    const lead = await input.prisma?.vendasLead?.findUnique?.({
+      where: {
+        companyId_phoneNormalized: {
+          companyId: input.context.companyId,
+          phoneNormalized,
+        },
+      },
+      select: { id: true },
+    }).catch(() => null);
+    return stringOrNull(lead?.id);
   }
 
   buildUpdatePlan(input: {
@@ -228,6 +268,28 @@ export class RadarPostDeliveryVendasUpdateService {
         : input.status === 'failed'
           ? 'Enriquecimento do Radar revisado'
           : 'Enriquecimento do Radar em andamento';
+      if (typeof input.prisma?.vendasLeadTimelineEvent?.findMany === 'function') {
+        const existing = await input.prisma.vendasLeadTimelineEvent.findMany({
+          where: {
+            leadId: vendasLeadId,
+            sourceType: 'radar_enrichment',
+            eventType: 'radar_enrichment',
+            resultLabel: input.status,
+          },
+          select: { id: true },
+          take: 1,
+        }).catch(() => []);
+        if (Array.isArray(existing) && existing.length) {
+          return {
+            status: 'completed',
+            retryable: false,
+            vendasLeadId,
+            updatedFields: [],
+            timelineEvents: [],
+            reason: 'status_ja_registrado',
+          };
+        }
+      }
       await input.prisma.vendasLeadTimelineEvent.create({
         data: {
           leadId: vendasLeadId,
@@ -278,10 +340,13 @@ export class RadarPostDeliveryVendasUpdateService {
       emailStatus: data.emailStatus || null,
       instagramUrl: data.instagramUrl || null,
       facebookUrl: data.facebookUrl || null,
+      possibleSocialCandidates: arrayOrEmpty(data.possibleSocialCandidates || input.compactEnrichment?.possibleSocialCandidates),
+      confirmedSocialCandidates: arrayOrEmpty(data.confirmedSocialCandidates || input.compactEnrichment?.confirmedSocialCandidates),
       socialStatus: data.socialStatus || null,
       whatsappStatus: data.whatsappStatus || null,
       recommendedChannel: data.recommendedChannel || null,
       opportunityReason: data.opportunityReason || null,
+      enrichmentStatus: data.enrichmentStatus || input.compactEnrichment?.enrichmentStatus || null,
       cnpj: stringOrNull(input.leadPlus?.cnpj),
       rating: data.rating ?? null,
       reviews: data.reviews ?? null,
@@ -298,6 +363,11 @@ export class RadarPostDeliveryVendasUpdateService {
       });
     };
     if (data.instagramUrl || data.facebookUrl) push('radar_social_found', 'Redes encontradas pelo Radar');
+    if (base.possibleSocialCandidates.length) {
+      push('radar_social_possible', 'Possiveis redes encontradas pelo Radar', {
+        socialStatus: data.socialStatus || 'candidate_review',
+      });
+    }
     if (data.email) push('radar_email_found', 'Email encontrado pelo Radar');
     if (usefulWhatsappStatus(data.whatsappStatus)) push('radar_whatsapp_probable', 'WhatsApp provavel identificado pelo Radar');
     if (data.opportunityReason || data.recommendedChannel || data.nextBestAction) push('radar_opportunity_detected', 'Oportunidade detectada pelo Radar');

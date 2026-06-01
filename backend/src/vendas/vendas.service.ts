@@ -6262,7 +6262,6 @@ export class VendasService {
         });
         continue;
       }
-      const listQualityMode = String(this.normalizeText((dto as any)?.qualityMode || (item as any)?.qualityMode) || '').toLowerCase() !== 'lead_plus';
       const explicitQuality = this.extractLeadQualityFromImportItem(item);
       const explicitQualityHardBlock = explicitQuality?.status
         ? ['invalid', 'duplicate'].includes(explicitQuality.status)
@@ -6295,7 +6294,6 @@ export class VendasService {
       const visibilityV2 = resolveRadarVisibilityFromQualityV2({
         lead: item,
         quality: qualityV2,
-        qualityMode: listQualityMode ? 'list' : 'lead_plus',
         requestedSegment: item?.segment || null,
       });
       const blockedByQualityV2 = qualityV2 && (

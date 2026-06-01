@@ -16,7 +16,6 @@ def test_search_intent_preserves_contract_and_sales_profile() -> None:
         preferredChannels=["instagram"],
         requiredChannels=["site"],
         channelMatchMode="any_required",
-        qualityMode="lead_plus",
         freshness="live",
         whatDoYouSell="plano de saúde",
         targetAudience={"labels": ["idosos", "60+"]},
@@ -26,15 +25,14 @@ def test_search_intent_preserves_contract_and_sales_profile() -> None:
 
     assert intent.quantity == 12
     assert intent.segments == ["pizzaria", "restaurante"]
-    assert intent.preferredChannels == []
-    assert intent.requiredChannels == []
-    assert intent.channelMatchMode == "prefer"
-    assert intent.qualityMode == "list"
+    assert intent.preferredChannels == ["instagram"]
+    assert intent.requiredChannels == ["website"]
+    assert intent.channelMatchMode == "any_required"
     assert intent.salesProfile["whatDoYouSell"] == "plano de saúde"
     assert intent.salesProfile["targetAudience"]["labels"] == ["idosos", "60+"]
 
 
-def test_required_channels_do_not_block_card_discovery() -> None:
+def test_required_channels_filter_card_delivery() -> None:
     request = SearchRequest(
         city="Campinas",
         state="SP",
@@ -47,7 +45,7 @@ def test_required_channels_do_not_block_card_discovery() -> None:
 
     service = SearchService()
     assert service.matches_channel_intent({"name": "Oficina A", "instagramUrl": "https://instagram.com/oficinaa"}, request)
-    assert service.matches_channel_intent({"name": "Oficina B", "website": "https://oficinab.com.br"}, request)
+    assert not service.matches_channel_intent({"name": "Oficina B", "website": "https://oficinab.com.br"}, request)
 
 
 def test_preferred_instagram_does_not_change_score_without_cutting() -> None:
@@ -65,7 +63,7 @@ def test_preferred_instagram_does_not_change_score_without_cutting() -> None:
     with_instagram = scorer.score({**base, "instagramUrl": "https://instagram.com/pizzariaroberto"}, prefer_instagram, "pizzaria Rio Claro")
     neutral = scorer.score(base, no_preference, "pizzaria Rio Claro")
 
-    assert prefer_instagram.preferredChannels == []
+    assert prefer_instagram.preferredChannels == ["instagram"]
     assert without_instagram.finalScore == neutral.finalScore
     assert with_instagram.finalScore > without_instagram.finalScore
 
