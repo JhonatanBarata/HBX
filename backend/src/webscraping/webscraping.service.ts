@@ -41,6 +41,7 @@ import { RadarRunRepositoryService } from './radar/persistence/radar-run-reposit
 import { GoogleSearchProviderService } from './radar/providers/google-search/google-search-provider.service';
 import { RadarGoogleResponseService } from './radar/providers/google-search/radar-google-response.service';
 import { RadarHbxEngineErrorsService } from './radar/providers/hbx-engine/radar-hbx-engine-errors.service';
+import { normalizeLookupValue, normalizePhoneDigits } from './radar/shared/radar-core-shared';
 import { RadarSharedNormalizerService } from './radar/shared/radar-shared-normalizer.service';
 import { RadarWebscrapingCoreService } from './radar/radar-webscraping-core.service';
 
@@ -49,7 +50,7 @@ export * from './radar/radar-webscraping-core.service';
 @Injectable()
 export class WebscrapingService extends RadarWebscrapingCoreService {
   constructor(
-    prisma: PrismaService,
+    private readonly internalPrisma: PrismaService,
     @Optional() hbxEnginePool?: HbxEnginePoolService,
     @Optional() webwhatsBridge?: WebwhatsBridgeService,
     @Optional() @Inject(forwardRef(() => VendasService))
@@ -90,7 +91,7 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
     @Optional() radarHbxEngineErrors?: RadarHbxEngineErrorsService,
   ) {
     super(
-      prisma,
+      internalPrisma,
       hbxEnginePool,
       webwhatsBridge,
       vendasService,
@@ -129,5 +130,228 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
       radarGoogleResponse,
       radarHbxEngineErrors,
     );
+  }
+
+  async lookupRadarLeadPoolInternal(input: {
+    name?: string | null;
+    phone?: string | null;
+    phoneDigits?: string | null;
+    city?: string | null;
+    state?: string | null;
+    segment?: string | null;
+    sourceUrl?: string | null;
+  }) {
+    const name = String(input?.name || '').trim();
+    const phoneDigits = normalizePhoneDigits(input?.phoneDigits || input?.phone || '');
+    const normalizedCity = normalizeLookupValue(String(input?.city || ''));
+    const state = String(input?.state || '').trim().toUpperCase();
+    const normalizedSegment = normalizeLookupValue(String(input?.segment || ''));
+    const sourceUrl = String(input?.sourceUrl || '').trim();
+    const delegate = (this.internalPrisma as any).radarLeadPool;
+
+    if (!delegate || (!phoneDigits && !name)) {
+      return { found: false, result: null, candidates: [] };
+    }
+
+    const rowsById = new Map<string, any>();
+    const phoneVariants = Array.from(new Set([
+      phoneDigits,
+      phoneDigits.startsWith('55') ? phoneDigits.slice(2) : phoneDigits ? `55${phoneDigits}` : '',
+    ].filter(Boolean)));
+
+    if (phoneVariants.length) {
+      const phoneRows = await delegate.findMany({
+        where: { OR: phoneVariants.map((digits) => ({ phoneDigits: digits })) },
+        take: 10,
+        orderBy: [{ updatedAt: 'desc' }],
+      });
+      phoneRows.forEach((row: any) => rowsById.set(row.id, row));
+    }
+
+    if (sourceUrl) {
+      const sourceRows = await delegate.findMany({
+        where: { sourceUrl },
+        take: 10,
+        orderBy: [{ updatedAt: 'desc' }],
+      });
+      sourceRows.forEach((row: any) => rowsById.set(row.id, row));
+    }
+
+    if (normalizedCity) {
+      const cityWhere: any = { normalizedCity };
+      if (state) cityWhere.state = state;
+      if (normalizedSegment) cityWhere.normalizedSegment = normalizedSegment;
+      const cityRows = await delegate.findMany({
+        where: cityWhere,
+        take: 80,
+        orderBy: [
+          { socialConfidence: 'desc' },
+          { enrichmentConfidence: 'desc' },
+          { updatedAt: 'desc' },
+        ],
+      });
+      cityRows.forEach((row: any) => rowsById.set(row.id, row));
+    }
+
+    const scored = Array.from(rowsById.values())
+      .map((row) => this.scoreRadarLeadPoolLookup(row, {
+        name,
+        phoneDigits,
+        normalizedCity,
+        state,
+        normalizedSegment,
+        sourceUrl,
+      }))
+      .filter((candidate) => candidate.score >= 35)
+      .sort((a, b) => b.score - a.score);
+
+    const best = scored[0];
+    if (!best || best.score < 60) {
+      return {
+        found: false,
+        result: null,
+        candidates: scored.slice(0, 5).map((candidate) => this.serializeRadarLeadPoolLookup(candidate.row, candidate.score, candidate.reason)),
+      };
+    }
+
+    return {
+      found: true,
+      result: this.serializeRadarLeadPoolLookup(best.row, best.score, best.reason),
+      candidates: scored.slice(1, 5).map((candidate) => this.serializeRadarLeadPoolLookup(candidate.row, candidate.score, candidate.reason)),
+    };
+  }
+
+  private scoreRadarLeadPoolLookup(row: any, input: {
+    name: string;
+    phoneDigits: string;
+    normalizedCity: string;
+    state: string;
+    normalizedSegment: string;
+    sourceUrl: string;
+  }) {
+    const rowPhone = normalizePhoneDigits(row?.phoneDigits || row?.phone || '');
+    const rowName = normalizeLookupValue(String(row?.name || ''));
+    const rowCity = normalizeLookupValue(String(row?.city || row?.normalizedCity || ''));
+    const rowSegment = normalizeLookupValue(String(row?.segment || row?.normalizedSegment || ''));
+    const inputName = normalizeLookupValue(input.name);
+    const inputTokens = inputName
+      .split(' ')
+      .filter((token) => token.length >= 3 && !['restaurante', 'pizzaria', 'lanchonete', 'delivery', 'bar', 'cafe'].includes(token));
+    const nameHits = inputTokens.filter((token) => rowName.includes(token)).length;
+    let score = 0;
+    let hasPhoneMatch = false;
+    let hasIdentityMatch = false;
+    const reason: string[] = [];
+
+    if (input.phoneDigits && rowPhone && rowPhone === input.phoneDigits) {
+      score += 70;
+      hasPhoneMatch = true;
+      reason.push('telefone exato no radarLeadPool');
+    } else if (input.phoneDigits && rowPhone && rowPhone.endsWith(input.phoneDigits.slice(-8))) {
+      score += 45;
+      hasPhoneMatch = true;
+      reason.push('telefone parcial no radarLeadPool');
+    }
+
+    if (inputName && rowName === inputName) {
+      score += 35;
+      hasIdentityMatch = true;
+      reason.push('nome exato');
+    } else if (inputName && inputName.length >= 4 && (rowName.includes(inputName) || inputName.includes(rowName))) {
+      score += 25;
+      hasIdentityMatch = true;
+      reason.push('nome compatível');
+    } else if (nameHits > 0) {
+      score += Math.min(24, nameHits * 12);
+      hasIdentityMatch = true;
+      reason.push('tokens do nome compatíveis');
+    }
+
+    if (input.normalizedCity && rowCity === input.normalizedCity) {
+      score += 20;
+      reason.push('cidade compatível');
+    }
+    if (input.state && String(row?.state || '').trim().toUpperCase() === input.state) {
+      score += 8;
+    }
+    if (input.normalizedSegment && rowSegment === input.normalizedSegment) {
+      score += 8;
+    }
+    if (input.sourceUrl && row?.sourceUrl === input.sourceUrl) {
+      score += 12;
+      hasIdentityMatch = true;
+      reason.push('fonte original compatível');
+    }
+    if (row?.instagramUrl || row?.facebookUrl || row?.website || row?.email) {
+      score += 8;
+    }
+
+    if (!hasPhoneMatch && !hasIdentityMatch) {
+      return { row, score: 0, reason: 'sem identidade suficiente no radarLeadPool' };
+    }
+
+    return { row, score: Math.min(100, score), reason: reason.join('; ') || 'registro próximo no radarLeadPool' };
+  }
+
+  private serializeRadarLeadPoolLookup(row: any, score: number, reason: string) {
+    const evidenceJson = this.parseInternalJsonObject(row?.evidenceJson);
+    const enrichmentJson = this.parseInternalJsonObject(row?.enrichmentJson);
+    const possibleSocialCandidates = this.extractInternalCandidates(enrichmentJson, evidenceJson);
+    return {
+      id: row?.id,
+      name: row?.name || '',
+      phone: row?.phone || '',
+      phoneDigits: row?.phoneDigits || normalizePhoneDigits(row?.phone || ''),
+      city: row?.city || '',
+      state: row?.state || '',
+      segment: row?.segment || '',
+      website: row?.website || null,
+      email: row?.email || null,
+      emailStatus: row?.emailStatus || 'missing',
+      emailSource: row?.emailSource || 'none',
+      emailConfidence: Number(row?.emailConfidence || 0) || 0,
+      instagramUrl: row?.instagramUrl || null,
+      facebookUrl: row?.facebookUrl || null,
+      linkedinUrl: enrichmentJson.linkedinUrl || evidenceJson.linkedinUrl || null,
+      googleMapsUrl: row?.googleMapsUrl || null,
+      sourceUrl: row?.sourceUrl || null,
+      sourceEngine: row?.sourceEngine || 'hbx_database',
+      socialStatus: row?.socialStatus || (row?.instagramUrl || row?.facebookUrl ? 'found' : 'missing'),
+      socialConfidence: row?.instagramUrl || row?.facebookUrl
+        ? Math.max(Number(row?.socialConfidence || 0) || 0, score)
+        : Number(row?.socialConfidence || 0) || 0,
+      possibleSocialCandidates,
+      nearbyResults: possibleSocialCandidates,
+      evidenceJson: {
+        ...evidenceJson,
+        provider: 'HbxDatabaseProvider',
+        matchReason: reason,
+        lookupScore: score,
+      },
+    };
+  }
+
+  private parseInternalJsonObject(value: unknown) {
+    if (!value) return {};
+    if (typeof value === 'object') return value as Record<string, any>;
+    try {
+      const parsed = JSON.parse(String(value));
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  private extractInternalCandidates(...objects: Array<Record<string, any>>) {
+    const candidates: any[] = [];
+    for (const object of objects) {
+      for (const key of ['possibleSocialCandidates', 'nearbyResults', 'socialCandidates']) {
+        const value = object?.[key];
+        if (Array.isArray(value)) {
+          value.filter((item) => item && typeof item === 'object').forEach((item) => candidates.push(item));
+        }
+      }
+    }
+    return candidates.slice(0, 10);
   }
 }

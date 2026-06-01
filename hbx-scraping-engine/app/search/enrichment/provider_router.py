@@ -18,6 +18,52 @@ from app.services.social import normalize_social_url, social_field_for_url
 CONFIDENCE_TARGET = 70
 PROVIDER_CACHE_TTL = timedelta(hours=24)
 PROVIDER_ROUTER_VERSION = "lead-link-enrichment-v1"
+ROUTER_LEGAL_STOP_TOKENS = {
+    "administradora",
+    "administradoras",
+    "bens",
+    "cia",
+    "comercio",
+    "companhia",
+    "corretor",
+    "corretora",
+    "corretoras",
+    "corretores",
+    "das",
+    "de",
+    "do",
+    "dos",
+    "eireli",
+    "empreendimento",
+    "empreendimentos",
+    "gestao",
+    "imobiliario",
+    "imobiliarios",
+    "ltda",
+    "me",
+    "negocios",
+    "participacoes",
+    "servico",
+    "servicos",
+    "spe",
+}
+ROUTER_REAL_ESTATE_TOKENS = {"imobiliaria", "imobiliarias", "imoveis", "imovel", "corretor", "corretores"}
+
+
+def normalize_channel_list_for_router(values: list[str] | None) -> list[str]:
+    aliases = {
+        "site": "website",
+        "web": "website",
+        "facebookUrl": "facebook",
+        "instagramUrl": "instagram",
+        "linkedinUrl": "linkedin",
+    }
+    output: list[str] = []
+    for value in values or []:
+        channel = aliases.get(str(value or "").strip(), str(value or "").strip().lower())
+        if channel and channel not in output:
+            output.append(channel)
+    return output
 
 
 @dataclass(frozen=True)
@@ -63,7 +109,7 @@ class LeadEnrichmentProviderRouter:
     def __init__(self) -> None:
         self.providers = [
             ProviderDefinition("LocalCacheProvider", True, 10, supportsSearch=False),
-            ProviderDefinition("HbxDatabaseProvider", True, 20, supportsSearch=False),
+            ProviderDefinition("HbxDatabaseProvider", bool(self.backend_internal_url()), 20, supportsSearch=False),
             ProviderDefinition("HbxEngineProvider", True, 30, supportsSearch=True),
             ProviderDefinition("DuckDuckGoProvider", True, 40, freeQuotaMonthly=10_000, supportsSearch=True, tier="free"),
             ProviderDefinition("BraveSearchProvider", bool(os.getenv("BRAVE_SEARCH_API_KEY")), 50, freeQuotaMonthly=2_000, costPerRequest=0.001, supportsSearch=True, requiresApiKey=True, tier="free", envKey="BRAVE_SEARCH_API_KEY"),
@@ -95,15 +141,20 @@ class LeadEnrichmentProviderRouter:
             reason="cache miss",
             missingChannels=self.missing_channels(None),
         ))
-        runs.append(ProviderRun(
-            provider="HbxDatabaseProvider",
-            status="skipped",
-            reason="local radarLeadPool adapter not wired in hbx engine process yet",
-            missingChannels=self.missing_channels(None),
-        ))
+        database_response, database_run = await self.run_hbx_database_provider(request)
+        runs.append(database_run)
+        response: EnrichLeadResponse | None = database_response
+        if response and self.is_sufficient(response, request):
+            self.cache_set(cache_key, response)
+            self.attach_router_stats(response, runs, started, cache_hit=False)
+            return response
 
-        confidence_before = 0
-        response = await hbx_engine_provider()
+        confidence_before = int(response.socialConfidence or 0) if response else 0
+        engine_response = await hbx_engine_provider()
+        if response:
+            self.merge_response(response, engine_response)
+        else:
+            response = engine_response
         runs.append(ProviderRun(
             provider="HbxEngineProvider",
             status="success",
@@ -113,7 +164,7 @@ class LeadEnrichmentProviderRouter:
             results=self.provider_results_from_response(response),
         ))
 
-        if not self.is_sufficient(response):
+        if not self.is_sufficient(response, request):
             for provider in sorted(self.providers, key=lambda item: item.priority):
                 if provider.name in {"LocalCacheProvider", "HbxDatabaseProvider", "HbxEngineProvider"}:
                     continue
@@ -139,7 +190,7 @@ class LeadEnrichmentProviderRouter:
                     self.record_usage(provider)
                 if provider_run.status == "success":
                     self.merge_provider_results(response, provider_run.results)
-                if self.is_sufficient(response):
+                if self.is_sufficient(response, request):
                     break
 
         self.cache_set(cache_key, response)
@@ -198,6 +249,14 @@ class LeadEnrichmentProviderRouter:
         usage["dailyUsed"] = int(usage.get("dailyUsed") or 0) + 1
         usage["monthlyUsed"] = int(usage.get("monthlyUsed") or 0) + 1
 
+    def backend_internal_url(self) -> str:
+        return str(
+            os.getenv("HBX_BACKEND_INTERNAL_URL")
+            or os.getenv("HBX_BACKEND_URL")
+            or os.getenv("BACKEND_INTERNAL_URL")
+            or ""
+        ).strip().rstrip("/")
+
     def cache_key(self, request: EnrichLeadRequest) -> str:
         phone = re.sub(r"\D", "", request.phoneDigits or request.phone or "")
         return "|".join([
@@ -206,6 +265,11 @@ class LeadEnrichmentProviderRouter:
             phone,
             text_key(request.city),
             text_key(request.state),
+            ",".join(normalize_channel_list_for_router(request.preferredChannels)),
+            ",".join(normalize_channel_list_for_router(request.requiredChannels)),
+            ",".join(normalize_channel_list_for_router(request.requestedFields)),
+            "paid" if request.allowPaid else "free",
+            "premium" if request.allowPremium else "standard",
         ])
 
     def get_cached(self, key: str) -> dict | None:
@@ -223,11 +287,30 @@ class LeadEnrichmentProviderRouter:
             response=response.model_dump(),
         )
 
-    def is_sufficient(self, response: EnrichLeadResponse | None) -> bool:
+    def is_sufficient(self, response: EnrichLeadResponse | None, request: EnrichLeadRequest | None = None) -> bool:
         if response is None:
             return False
+        required_channels = normalize_channel_list_for_router(request.requiredChannels if request else [])
+        preferred_channels = normalize_channel_list_for_router(request.preferredChannels if request else [])
+        requested_fields = normalize_channel_list_for_router(request.requestedFields if request else [])
+        wants_social = bool({"instagram", "facebook", "linkedin"} & set(required_channels + preferred_channels + requested_fields))
+        for channel in required_channels:
+            if channel == "instagram" and not response.instagramUrl:
+                return False
+            if channel == "facebook" and not response.facebookUrl:
+                return False
+            if channel == "linkedin" and not response.linkedinUrl:
+                return False
+            if channel == "site" and not response.website:
+                return False
+            if channel == "website" and not response.website:
+                return False
+            if channel == "email" and not response.email:
+                return False
         if int(response.socialConfidence or 0) >= CONFIDENCE_TARGET:
             return True
+        if wants_social and not (response.instagramUrl or response.facebookUrl or response.linkedinUrl):
+            return False
         return bool(response.instagramUrl or response.facebookUrl or response.linkedinUrl or response.website or response.email)
 
     def missing_channels(self, response: EnrichLeadResponse | None) -> list[str]:
@@ -271,6 +354,115 @@ class LeadEnrichmentProviderRouter:
             missingChannels=self.missing_channels(response),
         )
 
+    async def run_hbx_database_provider(self, request: EnrichLeadRequest) -> tuple[EnrichLeadResponse | None, ProviderRun]:
+        provider = next(item for item in self.providers if item.name == "HbxDatabaseProvider")
+        url = self.backend_internal_url()
+        if not url:
+            return None, ProviderRun(
+                provider=provider.name,
+                status="skipped",
+                reason="HBX_BACKEND_INTERNAL_URL not configured",
+                missingChannels=self.missing_channels(None),
+            )
+        token = str(
+            os.getenv("HBX_INTERNAL_API_TOKEN")
+            or os.getenv("HBX_ENGINE_INTERNAL_TOKEN")
+            or os.getenv("INTERNAL_API_TOKEN")
+            or ""
+        ).strip()
+        payload = {
+            "name": request.name,
+            "phone": request.phone,
+            "phoneDigits": request.phoneDigits,
+            "city": request.city,
+            "state": request.state,
+            "segment": request.segment,
+            "sourceUrl": request.sourceUrl,
+        }
+        try:
+            timeout = min(max(float(request.timeBudgetSeconds or 10), 2.0), 5.0)
+            headers = {"Accept": "application/json"}
+            if token:
+                headers["x-hbx-internal-token"] = token
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                http_response = await client.post(
+                    f"{url}/webscraping/radar/internal/lead-pool-lookup",
+                    json=payload,
+                    headers=headers,
+                )
+            if http_response.status_code == 404:
+                return None, ProviderRun(
+                    provider=provider.name,
+                    status="skipped",
+                    reason="backend internal lookup endpoint unavailable",
+                    missingChannels=self.missing_channels(None),
+                )
+            if http_response.status_code >= 400:
+                return None, ProviderRun(
+                    provider=provider.name,
+                    status="error",
+                    reason=f"backend returned {http_response.status_code}",
+                    missingChannels=self.missing_channels(None),
+                    error=http_response.text[:240],
+                )
+            data = http_response.json()
+            candidates = data.get("candidates") if isinstance(data, dict) else []
+            if not isinstance(data, dict) or not data.get("found") or not data.get("result"):
+                return None, ProviderRun(
+                    provider=provider.name,
+                    status="empty",
+                    reason="no compatible row in radarLeadPool",
+                    missingChannels=self.missing_channels(None),
+                    results=candidates if isinstance(candidates, list) else [],
+                )
+            response = self.response_from_hbx_database(request, data.get("result") or {})
+            return response, ProviderRun(
+                provider=provider.name,
+                status="success",
+                reason="radarLeadPool returned compatible lead",
+                confidenceBefore=0,
+                confidenceAfter=int(response.socialConfidence or 0),
+                missingChannels=self.missing_channels(response),
+                results=self.provider_results_from_response(response),
+            )
+        except Exception as error:
+            return None, ProviderRun(
+                provider=provider.name,
+                status="error",
+                reason="backend internal lookup failed",
+                missingChannels=self.missing_channels(None),
+                error=str(error)[:240],
+            )
+
+    def response_from_hbx_database(self, request: EnrichLeadRequest, result: dict) -> EnrichLeadResponse:
+        response = EnrichLeadResponse(
+            name=str(result.get("name") or request.name or ""),
+            phone=str(result.get("phone") or request.phone or ""),
+            phoneDigits=str(result.get("phoneDigits") or request.phoneDigits or ""),
+            address=result.get("address"),
+            website=result.get("website"),
+            email=result.get("email"),
+            emailStatus=str(result.get("emailStatus") or "missing"),
+            emailSource=str(result.get("emailSource") or "none"),
+            emailConfidence=int(result.get("emailConfidence") or 0),
+            instagramUrl=result.get("instagramUrl"),
+            facebookUrl=result.get("facebookUrl"),
+            linkedinUrl=result.get("linkedinUrl"),
+            googleMapsUrl=result.get("googleMapsUrl"),
+            socialStatus=str(result.get("socialStatus") or "missing"),
+            socialConfidence=int(result.get("socialConfidence") or 0),
+            evidenceJson=result.get("evidenceJson") if isinstance(result.get("evidenceJson"), dict) else {},
+        )
+        possible = result.get("possibleSocialCandidates")
+        nearby = result.get("nearbyResults")
+        response.possibleSocialCandidates = possible if isinstance(possible, list) else []
+        response.nearbyResults = nearby if isinstance(nearby, list) else []
+        response.stats = {
+            "sourceEngine": result.get("sourceEngine") or "hbx_database",
+            "sourceUrl": result.get("sourceUrl"),
+        }
+        return response
+
     async def run_provider(self, provider: ProviderDefinition, request: EnrichLeadRequest, response: EnrichLeadResponse) -> ProviderRun:
         confidence_before = int(response.socialConfidence or 0)
         try:
@@ -306,11 +498,26 @@ class LeadEnrichmentProviderRouter:
         from ddgs import DDGS
 
         queries = self.queries_for_request(request)
+        allowed_channels = self.allowed_channels_for_request(request)
+        if allowed_channels and allowed_channels <= {"instagram", "facebook", "linkedin"}:
+            social_markers = {
+                "instagram": "site:instagram.com",
+                "facebook": "site:facebook.com",
+                "linkedin": "site:linkedin.com",
+            }
+            queries = [
+                query
+                for query in queries
+                if any(marker in query for channel, marker in social_markers.items() if channel in allowed_channels)
+            ] or queries
         rows: list[dict] = []
         try:
-            with DDGS(timeout=min(float(request.timeBudgetSeconds or 10), 8.0)) as client:
-                for query in queries[:4]:
-                    for row in client.text(query, region="br-pt", safesearch="off", max_results=6) or []:
+            timeout = min(max(float(request.timeBudgetSeconds or 6), 2.0), 4.0)
+            max_queries = 2 if allowed_channels and allowed_channels <= {"instagram", "facebook", "linkedin"} else 4
+            max_results = 4 if max_queries == 2 else 6
+            with DDGS(timeout=timeout) as client:
+                for query in queries[:max_queries]:
+                    for row in client.text(query, region="br-pt", safesearch="off", max_results=max_results) or []:
                         rows.append(self.normalize_search_row(row, "DuckDuckGoProvider", query))
         except Exception:
             return []
@@ -357,7 +564,37 @@ class LeadEnrichmentProviderRouter:
             f"{name} {city} {segment}".strip(),
             f"{normalized_name} {city} {state}".strip(),
         ]
+        for alias in self.business_aliases_for_request(request):
+            queries.extend([
+                f"{alias} {city} {state}".strip(),
+                f"{alias} site:instagram.com",
+                f"{alias} site:facebook.com",
+                f'"{alias}" "{city}"'.strip(),
+            ])
         return list(dict.fromkeys(query for query in queries if query))
+
+    def business_aliases_for_request(self, request: EnrichLeadRequest) -> list[str]:
+        name_key = text_key(request.name)
+        if not name_key:
+            return []
+        tokens = [token for token in name_key.split() if token]
+        distinctive = [
+            token
+            for token in tokens
+            if len(token) >= 3 and token not in ROUTER_LEGAL_STOP_TOKENS and token not in ROUTER_REAL_ESTATE_TOKENS
+        ]
+        aliases: list[str] = []
+        if any(token in ROUTER_REAL_ESTATE_TOKENS for token in tokens):
+            for token in distinctive[:2]:
+                aliases.extend([
+                    f"{token} imoveis",
+                    f"{token} imobiliaria",
+                    f"{token}imoveis",
+                    f"{token}imobiliaria",
+                ])
+        if distinctive:
+            aliases.append(" ".join(distinctive[:2]))
+        return list(dict.fromkeys(alias for alias in aliases if alias.strip()))
 
     def normalize_search_row(self, row: dict, provider: str, query: str) -> dict:
         return {
@@ -371,6 +608,7 @@ class LeadEnrichmentProviderRouter:
     def classify_rows(self, request: EnrichLeadRequest, rows: list[dict]) -> list[dict]:
         output: list[dict] = []
         seen: set[str] = set()
+        allowed_channels = self.allowed_channels_for_request(request)
         for row in rows:
             url = row.get("url") or ""
             if not url or url in seen:
@@ -381,6 +619,8 @@ class LeadEnrichmentProviderRouter:
                 continue
             channel = self.channel_from_url(url)
             if not channel:
+                continue
+            if allowed_channels and channel not in allowed_channels:
                 continue
             output.append({
                 "channel": channel,
@@ -396,6 +636,20 @@ class LeadEnrichmentProviderRouter:
             })
         return output
 
+    def allowed_channels_for_request(self, request: EnrichLeadRequest) -> set[str]:
+        requested = normalize_channel_list_for_router([
+            *(request.preferredChannels or []),
+            *(request.requiredChannels or []),
+            *(request.requestedFields or []),
+        ])
+        if not requested:
+            return set()
+        allowed: set[str] = set()
+        for channel in requested:
+            if channel in {"instagram", "facebook", "linkedin", "website", "email"}:
+                allowed.add(channel)
+        return allowed
+
     def score_row(self, request: EnrichLeadRequest, row: dict) -> tuple[int, str]:
         text = text_key(" ".join(str(row.get(key) or "") for key in ("title", "snippet", "url")))
         name = text_key(request.name)
@@ -406,10 +660,17 @@ class LeadEnrichmentProviderRouter:
         score = 0
         reasons: list[str] = []
         name_tokens = [token for token in name.split() if len(token) >= 4 and token not in {"restaurante", "pizzaria", "lanchonete", "marmitaria", "delivery", "ltda"}]
+        alias_keys = [
+            re.sub(r"[^a-z0-9]+", "", text_key(alias))
+            for alias in self.business_aliases_for_request(request)
+        ]
         name_hits = sum(1 for token in name_tokens if token in text)
         if name and name in text:
             score += 40
             reasons.append("nome completo aparece no resultado")
+        elif any(alias and alias in re.sub(r"[^a-z0-9]+", "", text) for alias in alias_keys):
+            score += 38
+            reasons.append("alias comercial aparece no resultado")
         elif name_hits >= max(1, min(2, len(name_tokens))):
             score += 25
             reasons.append("tokens do nome aparecem no resultado")
@@ -468,8 +729,13 @@ class LeadEnrichmentProviderRouter:
                 continue
             if status == "confirmed" and score >= CONFIDENCE_TARGET and hasattr(response, field) and not getattr(response, field):
                 setattr(response, field, url)
-                response.socialConfidence = max(int(response.socialConfidence or 0), score)
-                response.socialStatus = "found"
+                if field in {"instagramUrl", "facebookUrl", "linkedinUrl"}:
+                    response.socialConfidence = max(int(response.socialConfidence or 0), score)
+                    response.socialStatus = "found"
+                elif field == "email":
+                    response.emailConfidence = max(int(response.emailConfidence or 0), score)
+                    response.emailStatus = "confirmed"
+                    response.emailSource = response.emailSource or "provider"
             elif status == "possible":
                 candidate = {
                     "field": field,
@@ -486,6 +752,44 @@ class LeadEnrichmentProviderRouter:
                 if field in {"instagramUrl", "facebookUrl", "linkedinUrl"}:
                     response.possibleSocialCandidates.append(candidate)
                 response.nearbyResults.append(candidate)
+
+    def merge_response(self, base: EnrichLeadResponse, other: EnrichLeadResponse) -> None:
+        for field_name in [
+            "phone",
+            "phoneDigits",
+            "rating",
+            "reviews",
+            "address",
+            "website",
+            "email",
+            "emailStatus",
+            "emailSource",
+            "emailConfidence",
+            "instagramUrl",
+            "facebookUrl",
+            "linkedinUrl",
+            "googleMapsUrl",
+            "cnpj",
+            "socialStatus",
+            "socialConfidence",
+        ]:
+            current = getattr(base, field_name, None)
+            incoming = getattr(other, field_name, None)
+            if field_name in {"emailConfidence", "socialConfidence"}:
+                setattr(base, field_name, max(int(current or 0), int(incoming or 0)))
+            elif field_name == "socialStatus":
+                if (base.instagramUrl or base.facebookUrl or base.linkedinUrl or other.instagramUrl or other.facebookUrl or other.linkedinUrl) and (current or "missing") in {"missing", "unknown"} and incoming:
+                    setattr(base, field_name, incoming)
+            elif field_name == "socialConfidence":
+                if base.instagramUrl or base.facebookUrl or base.linkedinUrl or other.instagramUrl or other.facebookUrl or other.linkedinUrl:
+                    setattr(base, field_name, max(int(current or 0), int(incoming or 0)))
+            elif not current and incoming:
+                setattr(base, field_name, incoming)
+        base.possibleSocialCandidates.extend(other.possibleSocialCandidates or [])
+        base.nearbyResults.extend(other.nearbyResults or [])
+        base.discardedResults.extend(other.discardedResults or [])
+        base.stats = {**(other.stats or {}), **(base.stats or {})}
+        base.evidenceJson = {**(other.evidenceJson or {}), **(base.evidenceJson or {})}
 
     def attach_router_stats(
         self,

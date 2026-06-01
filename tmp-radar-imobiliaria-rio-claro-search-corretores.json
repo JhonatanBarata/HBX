@@ -1,0 +1,276 @@
+{
+  "engine": "hbx_scraping",
+  "query": {
+    "city": "Rio Claro",
+    "state": "SP",
+    "radiusKm": 0,
+    "segment": "corretor de imóveis",
+    "segments": [
+      "corretor de imóveis"
+    ],
+    "query": "corretor de imóveis Rio Claro SP imobiliária",
+    "targetType": "pj",
+    "limit": 20,
+    "quantity": 20,
+    "preferredChannels": [],
+    "requiredChannels": [],
+    "channelMatchMode": "prefer",
+    "freshness": "live",
+    "salesProfile": {}
+  },
+  "count": 3,
+  "results": [
+    {
+      "name": "Pontecorboli Imobiliaria",
+      "phone": "(19) 3531-2615",
+      "phoneDigits": "1935312615",
+      "address": "AVENIDA, P 21, 220, Rio Claro, SP, 13506829",
+      "website": "https://mestregeo.com.br",
+      "emailStatus": "missing",
+      "emailSource": "none",
+      "emailConfidence": 0,
+      "socialStatus": "missing",
+      "socialConfidence": 0,
+      "source": "hbx_scraping:free_pj",
+      "sourceEngine": "hbx_scraping",
+      "sourceUrl": "https://mestregeo.com.br/cnpj/sp/rio-claro/pontecorboli-imobiliaria-66133959000103",
+      "score": 73,
+      "evidenceJson": {
+        "identityScore": 65,
+        "contactScore": 90,
+        "sourceScore": 75,
+        "intentScore": 95,
+        "commercialFitScore": 50,
+        "freshnessScore": 65,
+        "penalties": [],
+        "penaltyScore": 0,
+        "channels": [
+          "phone",
+          "whatsapp",
+          "website"
+        ],
+        "reasons": [
+          "Nome comercial identificado.",
+          "Canal publico acionavel encontrado.",
+          "Site proprio encontrado."
+        ],
+        "finalScore": 73
+      },
+      "rejectReasons": [],
+      "qualityReason": "Nome comercial identificado.; Canal publico acionavel encontrado.; Site proprio encontrado.",
+      "visibilityTier": "list_basic",
+      "recommendedChannel": "whatsapp"
+    },
+    {
+      "name": "Zap Imóveis",
+      "phone": "",
+      "phoneDigits": "",
+      "website": "https://www.zapimoveis.com.br",
+      "emailStatus": "missing",
+      "emailSource": "none",
+      "emailConfidence": 0,
+      "instagramUrl": "https://instagram.com/zapimoveis",
+      "facebookUrl": "https://facebook.com/zapimoveis",
+      "socialStatus": "found",
+      "socialConfidence": 82,
+      "source": "hbx_scraping:free_pj",
+      "sourceEngine": "hbx_scraping",
+      "sourceUrl": "https://www.zapimoveis.com.br",
+      "score": 66,
+      "evidenceJson": {
+        "identityScore": 65,
+        "contactScore": 72,
+        "sourceScore": 75,
+        "intentScore": 70,
+        "commercialFitScore": 50,
+        "freshnessScore": 65,
+        "penalties": [],
+        "penaltyScore": 0,
+        "channels": [
+          "website",
+          "instagram",
+          "facebook"
+        ],
+        "reasons": [
+          "Nome comercial identificado.",
+          "Canal publico acionavel encontrado.",
+          "Site proprio encontrado."
+        ],
+        "finalScore": 66
+      },
+      "rejectReasons": [],
+      "qualityReason": "Nome comercial identificado.; Canal publico acionavel encontrado.; Site proprio encontrado.",
+      "visibilityTier": "list_basic",
+      "recommendedChannel": "instagram"
+    },
+    {
+      "name": "Corretagem no aluguel de imóveis em RIO CLARO",
+      "phone": "",
+      "phoneDigits": "",
+      "website": "https://cnpj.today",
+      "emailStatus": "missing",
+      "emailSource": "none",
+      "emailConfidence": 0,
+      "socialStatus": "missing",
+      "socialConfidence": 0,
+      "source": "hbx_scraping:free_pj",
+      "sourceEngine": "hbx_scraping",
+      "sourceUrl": "https://cnpj.today/SP/rio-claro/cnae/6821802",
+      "score": 60,
+      "evidenceJson": {
+        "identityScore": 65,
+        "contactScore": 24,
+        "sourceScore": 75,
+        "intentScore": 95,
+        "commercialFitScore": 50,
+        "freshnessScore": 65,
+        "penalties": [],
+        "penaltyScore": 0,
+        "channels": [
+          "website"
+        ],
+        "reasons": [
+          "Nome comercial identificado.",
+          "Canal publico acionavel encontrado.",
+          "Site proprio encontrado."
+        ],
+        "finalScore": 60
+      },
+      "rejectReasons": [],
+      "qualityReason": "Nome comercial identificado.; Canal publico acionavel encontrado.; Site proprio encontrado.",
+      "visibilityTier": "list_basic",
+      "recommendedChannel": "website"
+    }
+  ],
+  "status": "completed",
+  "errors": [],
+  "stats": {
+    "urlsDiscovered": 9,
+    "pagesFetched": 6,
+    "queriesGenerated": [
+      "corretor de imóveis Rio Claro SP imobiliária"
+    ],
+    "parsed": 5,
+    "parsedContacts": 5,
+    "approved": 3,
+    "invalidPhone": 0,
+    "blockedDomain": 0,
+    "lowScore": 1,
+    "missingRequiredChannel": 0,
+    "rejected": 1,
+    "rawFound": 5,
+    "deduped": 4,
+    "sourceMetrics": [
+      {
+        "sourceEngine": "hbx_scraping",
+        "domain": "mestregeo.com.br",
+        "discovered": 1,
+        "fetched": 1,
+        "parsed": 1,
+        "approved": 1,
+        "rejected": 0,
+        "approvalRate": 1.0
+      },
+      {
+        "sourceEngine": "hbx_scraping",
+        "domain": "benditoguia.com.br",
+        "discovered": 1,
+        "fetched": 1,
+        "parsed": 0,
+        "approved": 0,
+        "rejected": 0,
+        "approvalRate": 0
+      },
+      {
+        "sourceEngine": "hbx_scraping",
+        "domain": "cnpj.today",
+        "discovered": 1,
+        "fetched": 1,
+        "parsed": 1,
+        "approved": 1,
+        "rejected": 0,
+        "approvalRate": 1.0
+      },
+      {
+        "sourceEngine": "hbx_scraping",
+        "domain": "vivareal.com.br",
+        "discovered": 1,
+        "fetched": 0,
+        "parsed": 0,
+        "approved": 0,
+        "rejected": 0,
+        "approvalRate": 0
+      },
+      {
+        "sourceEngine": "hbx_scraping",
+        "domain": "zapimoveis.com.br",
+        "discovered": 1,
+        "fetched": 1,
+        "parsed": 1,
+        "approved": 1,
+        "rejected": 0,
+        "approvalRate": 1.0
+      },
+      {
+        "sourceEngine": "hbx_scraping",
+        "domain": "solutudo.com.br",
+        "discovered": 1,
+        "fetched": 0,
+        "parsed": 0,
+        "approved": 0,
+        "rejected": 0,
+        "approvalRate": 0
+      },
+      {
+        "sourceEngine": "hbx_scraping",
+        "domain": "listaamarela.com.br",
+        "discovered": 1,
+        "fetched": 1,
+        "parsed": 0,
+        "approved": 0,
+        "rejected": 1,
+        "approvalRate": 0.0
+      },
+      {
+        "sourceEngine": "hbx_scraping",
+        "domain": "apontador.com.br",
+        "discovered": 1,
+        "fetched": 0,
+        "parsed": 0,
+        "approved": 0,
+        "rejected": 0,
+        "approvalRate": 0
+      },
+      {
+        "sourceEngine": "hbx_scraping",
+        "domain": "guiamais.com.br",
+        "discovered": 1,
+        "fetched": 1,
+        "parsed": 0,
+        "approved": 0,
+        "rejected": 0,
+        "approvalRate": 0
+      }
+    ],
+    "socialProfilesDiscovered": 0,
+    "socialProfilesAttached": 0,
+    "socialProfilesUnmatched": 0,
+    "socialProfilesPromoted": 0
+  },
+  "social": {
+    "requestedChannels": [],
+    "requiredChannels": [],
+    "enrichmentRan": true,
+    "mode": "inline",
+    "processed": 1,
+    "skippedBadCandidate": 0,
+    "enrichedCount": 1,
+    "missingRequiredChannel": 0,
+    "discovery": {
+      "profilesDiscovered": 0,
+      "profilesAttached": 0,
+      "profilesUnmatched": 0,
+      "profilesPromoted": 0
+    }
+  }
+}

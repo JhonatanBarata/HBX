@@ -1,0 +1,359 @@
+[
+  {
+    "index": 16,
+    "name": "Xavier Camargo Imobiliaria",
+    "phone": "(19) 3522-7777",
+    "phoneDigits": "1935227777",
+    "elapsedSeconds": 10,
+    "instagramUrl": "https://instagram.com/xaviercamargoimobiliaria",
+    "facebookUrl": "https://facebook.com/xaviercamargoimobiliaria",
+    "socialStatus": "found",
+    "socialConfidence": 100,
+    "possibleSocialCandidates": [],
+    "nearbyResults": [],
+    "providerRuns": [
+      {
+        "provider": "LocalCacheProvider",
+        "status": "empty",
+        "reason": "cache miss",
+        "resultsCount": 0
+      },
+      {
+        "provider": "HbxDatabaseProvider",
+        "status": "empty",
+        "reason": "no compatible row in radarLeadPool",
+        "resultsCount": 0
+      },
+      {
+        "provider": "HbxEngineProvider",
+        "status": "success",
+        "reason": "",
+        "resultsCount": 2
+      }
+    ]
+  },
+  {
+    "index": 17,
+    "name": "J C I Servicos Imobiliarios Ltda",
+    "phone": "(19) 3533-9616",
+    "phoneDigits": "1935339616",
+    "elapsedSeconds": 21,
+    "instagramUrl": null,
+    "facebookUrl": null,
+    "socialStatus": "missing",
+    "socialConfidence": 0,
+    "possibleSocialCandidates": [],
+    "nearbyResults": [],
+    "providerRuns": [
+      {
+        "provider": "LocalCacheProvider",
+        "status": "empty",
+        "reason": "cache miss",
+        "resultsCount": 0
+      },
+      {
+        "provider": "HbxDatabaseProvider",
+        "status": "empty",
+        "reason": "no compatible row in radarLeadPool",
+        "resultsCount": 0
+      },
+      {
+        "provider": "HbxEngineProvider",
+        "status": "success",
+        "reason": "",
+        "resultsCount": 0
+      },
+      {
+        "provider": "DuckDuckGoProvider",
+        "status": "empty",
+        "reason": "no usable candidate",
+        "resultsCount": 0
+      },
+      {
+        "provider": "BraveSearchProvider",
+        "status": "skipped",
+        "reason": "missing api key BRAVE_SEARCH_API_KEY",
+        "resultsCount": 0
+      },
+      {
+        "provider": "SerperProvider",
+        "status": "skipped",
+        "reason": "allowPaid=false",
+        "resultsCount": 0
+      },
+      {
+        "provider": "ScrapingDogProvider",
+        "status": "skipped",
+        "reason": "allowPaid=false",
+        "resultsCount": 0
+      },
+      {
+        "provider": "TavilyProvider",
+        "status": "skipped",
+        "reason": "allowPaid=false",
+        "resultsCount": 0
+      },
+      {
+        "provider": "ExaProvider",
+        "status": "skipped",
+        "reason": "allowPremium=false",
+        "resultsCount": 0
+      },
+      {
+        "provider": "FirecrawlExtractorProvider",
+        "status": "skipped",
+        "reason": "allowPremium=false",
+        "resultsCount": 0
+      },
+      {
+        "provider": "SerpApiProvider",
+        "status": "skipped",
+        "reason": "allowPremium=false",
+        "resultsCount": 0
+      }
+    ]
+  },
+  {
+    "index": 18,
+    "name": "Morato & Ursaia Empreendimentos E Participacoes Ltda",
+    "phone": "(19) 3526-7141",
+    "phoneDigits": "1935267141",
+    "elapsedSeconds": 23,
+    "instagramUrl": null,
+    "facebookUrl": null,
+    "socialStatus": "missing",
+    "socialConfidence": 0,
+    "possibleSocialCandidates": [],
+    "nearbyResults": [],
+    "providerRuns": [
+      {
+        "provider": "LocalCacheProvider",
+        "status": "empty",
+        "reason": "cache miss",
+        "resultsCount": 0
+      },
+      {
+        "provider": "HbxDatabaseProvider",
+        "status": "empty",
+        "reason": "no compatible row in radarLeadPool",
+        "resultsCount": 0
+      },
+      {
+        "provider": "HbxEngineProvider",
+        "status": "success",
+        "reason": "",
+        "resultsCount": 0
+      },
+      {
+        "provider": "DuckDuckGoProvider",
+        "status": "empty",
+        "reason": "no usable candidate",
+        "resultsCount": 0
+      },
+      {
+        "provider": "BraveSearchProvider",
+        "status": "skipped",
+        "reason": "missing api key BRAVE_SEARCH_API_KEY",
+        "resultsCount": 0
+      },
+      {
+        "provider": "SerperProvider",
+        "status": "skipped",
+        "reason": "allowPaid=false",
+        "resultsCount": 0
+      },
+      {
+        "provider": "ScrapingDogProvider",
+        "status": "skipped",
+        "reason": "allowPaid=false",
+        "resultsCount": 0
+      },
+      {
+        "provider": "TavilyProvider",
+        "status": "skipped",
+        "reason": "allowPaid=false",
+        "resultsCount": 0
+      },
+      {
+        "provider": "ExaProvider",
+        "status": "skipped",
+        "reason": "allowPremium=false",
+        "resultsCount": 0
+      },
+      {
+        "provider": "FirecrawlExtractorProvider",
+        "status": "skipped",
+        "reason": "allowPremium=false",
+        "resultsCount": 0
+      },
+      {
+        "provider": "SerpApiProvider",
+        "status": "skipped",
+        "reason": "allowPremium=false",
+        "resultsCount": 0
+      }
+    ]
+  },
+  {
+    "index": 19,
+    "name": "Schio Corretores De Imoveis Ltda",
+    "phone": "(19) 3534-5811",
+    "phoneDigits": "1935345811",
+    "elapsedSeconds": 12,
+    "instagramUrl": null,
+    "facebookUrl": null,
+    "socialStatus": "missing",
+    "socialConfidence": 0,
+    "possibleSocialCandidates": [],
+    "nearbyResults": [],
+    "providerRuns": [
+      {
+        "provider": "LocalCacheProvider",
+        "status": "empty",
+        "reason": "cache miss",
+        "resultsCount": 0
+      },
+      {
+        "provider": "HbxDatabaseProvider",
+        "status": "empty",
+        "reason": "no compatible row in radarLeadPool",
+        "resultsCount": 0
+      },
+      {
+        "provider": "HbxEngineProvider",
+        "status": "success",
+        "reason": "",
+        "resultsCount": 0
+      },
+      {
+        "provider": "DuckDuckGoProvider",
+        "status": "empty",
+        "reason": "no usable candidate",
+        "resultsCount": 0
+      },
+      {
+        "provider": "BraveSearchProvider",
+        "status": "skipped",
+        "reason": "missing api key BRAVE_SEARCH_API_KEY",
+        "resultsCount": 0
+      },
+      {
+        "provider": "SerperProvider",
+        "status": "skipped",
+        "reason": "allowPaid=false",
+        "resultsCount": 0
+      },
+      {
+        "provider": "ScrapingDogProvider",
+        "status": "skipped",
+        "reason": "allowPaid=false",
+        "resultsCount": 0
+      },
+      {
+        "provider": "TavilyProvider",
+        "status": "skipped",
+        "reason": "allowPaid=false",
+        "resultsCount": 0
+      },
+      {
+        "provider": "ExaProvider",
+        "status": "skipped",
+        "reason": "allowPremium=false",
+        "resultsCount": 0
+      },
+      {
+        "provider": "FirecrawlExtractorProvider",
+        "status": "skipped",
+        "reason": "allowPremium=false",
+        "resultsCount": 0
+      },
+      {
+        "provider": "SerpApiProvider",
+        "status": "skipped",
+        "reason": "allowPremium=false",
+        "resultsCount": 0
+      }
+    ]
+  },
+  {
+    "index": 20,
+    "name": "Rsp Administradora De Bens E Participacoes Ltda",
+    "phone": "(19) 2511-2624",
+    "phoneDigits": "1925112624",
+    "elapsedSeconds": 20,
+    "instagramUrl": null,
+    "facebookUrl": null,
+    "socialStatus": "missing",
+    "socialConfidence": 0,
+    "possibleSocialCandidates": [],
+    "nearbyResults": [],
+    "providerRuns": [
+      {
+        "provider": "LocalCacheProvider",
+        "status": "empty",
+        "reason": "cache miss",
+        "resultsCount": 0
+      },
+      {
+        "provider": "HbxDatabaseProvider",
+        "status": "empty",
+        "reason": "no compatible row in radarLeadPool",
+        "resultsCount": 0
+      },
+      {
+        "provider": "HbxEngineProvider",
+        "status": "success",
+        "reason": "",
+        "resultsCount": 0
+      },
+      {
+        "provider": "DuckDuckGoProvider",
+        "status": "empty",
+        "reason": "no usable candidate",
+        "resultsCount": 0
+      },
+      {
+        "provider": "BraveSearchProvider",
+        "status": "skipped",
+        "reason": "missing api key BRAVE_SEARCH_API_KEY",
+        "resultsCount": 0
+      },
+      {
+        "provider": "SerperProvider",
+        "status": "skipped",
+        "reason": "allowPaid=false",
+        "resultsCount": 0
+      },
+      {
+        "provider": "ScrapingDogProvider",
+        "status": "skipped",
+        "reason": "allowPaid=false",
+        "resultsCount": 0
+      },
+      {
+        "provider": "TavilyProvider",
+        "status": "skipped",
+        "reason": "allowPaid=false",
+        "resultsCount": 0
+      },
+      {
+        "provider": "ExaProvider",
+        "status": "skipped",
+        "reason": "allowPremium=false",
+        "resultsCount": 0
+      },
+      {
+        "provider": "FirecrawlExtractorProvider",
+        "status": "skipped",
+        "reason": "allowPremium=false",
+        "resultsCount": 0
+      },
+      {
+        "provider": "SerpApiProvider",
+        "status": "skipped",
+        "reason": "allowPremium=false",
+        "resultsCount": 0
+      }
+    ]
+  }
+]
