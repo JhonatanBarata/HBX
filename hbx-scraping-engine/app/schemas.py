@@ -270,16 +270,21 @@ class EnrichLeadRequest(BaseModel):
     email: str | None = None
     instagramUrl: str | None = None
     facebookUrl: str | None = None
+    sourceUrl: str | None = None
+    requestedFields: list[str] = Field(default_factory=list)
     preferredChannels: list[str] = Field(default_factory=list)
     requiredChannels: list[str] = Field(default_factory=list)
     timeBudgetSeconds: float | None = None
+    allowPaid: bool = False
+    allowPremium: bool = False
+    debug: bool = False
 
     @field_validator("name", "phone", "phoneDigits", "city", "state", "segment")
     @classmethod
     def normalize_optional_text(cls, value: str) -> str:
         return " ".join(str(value or "").split())
 
-    @field_validator("preferredChannels", "requiredChannels")
+    @field_validator("preferredChannels", "requiredChannels", "requestedFields")
     @classmethod
     def normalize_enrichment_channels(cls, values: list[str]) -> list[str]:
         # Enriquecimento deve respeitar hints de canal sem bloquear resultado.
@@ -300,6 +305,11 @@ class EnrichLeadResponse(BaseModel):
     emailConfidence: int = 0
     instagramUrl: str | None = None
     facebookUrl: str | None = None
+    linkedinUrl: str | None = None
+    possibleSocialCandidates: list[dict] = Field(default_factory=list)
+    nearbyResults: list[dict] = Field(default_factory=list)
+    discardedResults: list[dict] = Field(default_factory=list)
+    evidenceJson: dict | None = None
     googleMapsUrl: str | None = None
     cnpj: str | None = None
     socialStatus: str = "missing"

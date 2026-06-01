@@ -421,3 +421,51 @@ site: não
 email: não
 status do motor: found
 confiança social: 100
+
+## Rodada de correção do enriquecimento - fase 2
+
+Direção aplicada:
+
+- fixture esperada criada em `hbx-scraping-engine/tests/fixtures/radar_alimentacao_rio_claro_expected.json`;
+- o engine passou a expor `possibleSocialCandidates` no `/enrich-lead`;
+- handle parecido sozinho deixou de ser confirmação automática;
+- social abaixo de 70 de confiança não preenche mais `instagramUrl`/`facebookUrl`;
+- perfil pessoal sem sinal comercial/local deixou de virar possível;
+- site próprio sem evidência local deixou de ser confirmado.
+
+Arquivos de evidência:
+
+- rodada direta: `tmp-radar-alimentacao-rio-claro-enrichment-v6.json`
+- comparação com fixture: `tmp-radar-alimentacao-rio-claro-compare-v6.json`
+
+### Comparação contra o resultado esperado
+
+Resultado esperado pela fixture:
+
+- sinais oficiais esperados: 31
+- cards com social/site/email esperado: 21
+
+Resultado do motor gratuito/local após a correção:
+
+- sinais oficiais confirmados corretamente: 0
+- sinais oficiais perdidos: 31
+- falsos confirmados: 0
+- cards com candidato possível: 1
+- erros do endpoint: 0
+
+### O que melhorou
+
+- Os falsos confirmados da rodada anterior foram removidos do campo oficial.
+- Casos como Ana Lidia Itri, Mariana Carolina Marques, Parmegiana Du Chef, O Rei Da Panela, Pizzaria Edson e Massa Mania não entram mais como social confirmado só por handle parecido.
+- O site falso `marianausa.com` também deixou de ser confirmado.
+- O contrato agora separa confirmado de possível, preparando o front/Vendas para exibir certeza versus indício.
+
+### O que piorou
+
+- A cobertura caiu demais sem uma busca estruturada de qualidade.
+- O motor gratuito/local não recuperou os mesmos resultados do anexo para Instagram, Facebook, cardápio, site Unesp, Linktree, iFood ou email.
+- Na prática, sem SerpAPI/Google CSE, o motor ficou seguro contra lixo, mas não chegou no nível comercial desejado.
+
+Conclusão operacional:
+
+A fase 2 melhorou a precisão e eliminou falso confirmado, mas provou que a camada gratuita/local não é suficiente para bater o resultado esperado. O próximo passo arquitetural precisa ser ligar SerpAPI/Google CSE no enriquecimento pós-entrega, usando esta fixture como validação de regressão.
