@@ -1,0 +1,555 @@
+{
+  "summary": {
+    "expectedOfficial": 31,
+    "correctConfirmed": 0,
+    "falseConfirmed": 1,
+    "missedOfficial": 31,
+    "possibleHits": 1,
+    "actualConfirmedCards": 1,
+    "actualPossibleCards": 1
+  },
+  "rows": [
+    {
+      "index": 1,
+      "name": "Mariana's",
+      "expected": {
+        "instagram": "",
+        "facebook": "https://www.facebook.com/100057173421940",
+        "site": "",
+        "email": ""
+      },
+      "got": {
+        "instagram": "",
+        "facebook": "",
+        "site": "https://marianausa.com",
+        "email": "",
+        "possible": []
+      },
+      "status": "confirmado_parcial"
+    },
+    {
+      "index": 2,
+      "name": "Ananias Pizzaria",
+      "expected": {
+        "instagram": "",
+        "facebook": "",
+        "site": "https://cardapio.menu/restaurants/rio-claro/ananias-pizzaria",
+        "email": ""
+      },
+      "got": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": "",
+        "possible": []
+      },
+      "status": "missing"
+    },
+    {
+      "index": 3,
+      "name": "Bar Do Baixinho",
+      "expected": {
+        "instagram": "https://www.instagram.com/baixinhosbar.0/",
+        "facebook": "https://www.facebook.com/baixinhosbar.0/",
+        "site": "",
+        "email": ""
+      },
+      "got": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": "",
+        "possible": []
+      },
+      "status": "missing"
+    },
+    {
+      "index": 4,
+      "name": "Restaurante Barcelona",
+      "expected": {
+        "instagram": "",
+        "facebook": "https://www.facebook.com/100067468969075/",
+        "site": "",
+        "email": ""
+      },
+      "got": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": "",
+        "possible": []
+      },
+      "status": "missing"
+    },
+    {
+      "index": 5,
+      "name": "Jaidete Santos De Almeida",
+      "expected": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": "raimundaaraujodasilva608@gmail.com"
+      },
+      "got": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": "",
+        "possible": []
+      },
+      "status": "missing"
+    },
+    {
+      "index": 6,
+      "name": "Pizza Express Rio Claro",
+      "expected": {
+        "instagram": "",
+        "facebook": "https://www.facebook.com/pizzariaexpress/",
+        "site": "",
+        "email": ""
+      },
+      "got": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": "",
+        "possible": [
+          "https://facebook.com/torredapizzaexpress"
+        ]
+      },
+      "status": "possivel"
+    },
+    {
+      "index": 7,
+      "name": "Marmitaria Da Sil",
+      "expected": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": ""
+      },
+      "got": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": "",
+        "possible": []
+      },
+      "status": "missing"
+    },
+    {
+      "index": 8,
+      "name": "Ana Lidia Itri",
+      "expected": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": ""
+      },
+      "got": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": "",
+        "possible": []
+      },
+      "status": "missing"
+    },
+    {
+      "index": 9,
+      "name": "Jaja Rotisserie",
+      "expected": {
+        "instagram": "https://www.instagram.com/jajarotisserierc/",
+        "facebook": "",
+        "site": "",
+        "email": ""
+      },
+      "got": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": "",
+        "possible": []
+      },
+      "status": "missing"
+    },
+    {
+      "index": 10,
+      "name": "N Opcoes",
+      "expected": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": ""
+      },
+      "got": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": "",
+        "possible": []
+      },
+      "status": "missing"
+    },
+    {
+      "index": 11,
+      "name": "Joaquim Restaurante",
+      "expected": {
+        "instagram": "https://www.instagram.com/joaquimrestaurante/",
+        "facebook": "",
+        "site": "",
+        "email": ""
+      },
+      "got": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": "",
+        "possible": []
+      },
+      "status": "missing"
+    },
+    {
+      "index": 12,
+      "name": "Le Rotisserie",
+      "expected": {
+        "instagram": "https://www.instagram.com/lerotisserierc/",
+        "facebook": "",
+        "site": "",
+        "email": ""
+      },
+      "got": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": "",
+        "possible": []
+      },
+      "status": "missing"
+    },
+    {
+      "index": 13,
+      "name": "Restaurante Universitário Unesp Rio Claro",
+      "expected": {
+        "instagram": "",
+        "facebook": "",
+        "site": "https://ib.rc.unesp.br/",
+        "email": ""
+      },
+      "got": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": "",
+        "possible": []
+      },
+      "status": "missing"
+    },
+    {
+      "index": 14,
+      "name": "Opção Natural Restaurante Vegetariano",
+      "expected": {
+        "instagram": "https://www.instagram.com/opcao_natural_vegetariano/",
+        "facebook": "https://www.facebook.com/opcaonaturalrealoficial/",
+        "site": "",
+        "email": ""
+      },
+      "got": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": "",
+        "possible": []
+      },
+      "status": "missing"
+    },
+    {
+      "index": 15,
+      "name": "Neuzeli Da Silva Martins Trivelato",
+      "expected": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": ""
+      },
+      "got": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": "",
+        "possible": []
+      },
+      "status": "missing"
+    },
+    {
+      "index": 16,
+      "name": "Restaurante, Lanchonete E Mercearia Crocantes Ltda",
+      "expected": {
+        "instagram": "https://www.instagram.com/crocantes.grill/",
+        "facebook": "",
+        "site": "",
+        "email": ""
+      },
+      "got": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": "",
+        "possible": []
+      },
+      "status": "missing"
+    },
+    {
+      "index": 17,
+      "name": "Barril 2000 Restaurante",
+      "expected": {
+        "instagram": "https://www.instagram.com/barril2000restaurante/",
+        "facebook": "https://www.facebook.com/restauranteBarril2000/",
+        "site": "",
+        "email": ""
+      },
+      "got": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": "",
+        "possible": []
+      },
+      "status": "missing"
+    },
+    {
+      "index": 18,
+      "name": "La Bella Vegana Delivery",
+      "expected": {
+        "instagram": "https://www.instagram.com/labella.vegana/",
+        "facebook": "https://www.facebook.com/labellavegana/",
+        "site": "iFood - La Bella Vegana Rio Claro",
+        "email": ""
+      },
+      "got": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": "",
+        "possible": []
+      },
+      "status": "missing"
+    },
+    {
+      "index": 19,
+      "name": "Mariana Carolina Marques",
+      "expected": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": ""
+      },
+      "got": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": "",
+        "possible": []
+      },
+      "status": "missing"
+    },
+    {
+      "index": 20,
+      "name": "Espetinho da 26",
+      "expected": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": ""
+      },
+      "got": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": "",
+        "possible": []
+      },
+      "status": "missing"
+    },
+    {
+      "index": 21,
+      "name": "Parmegiana Du Chef",
+      "expected": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": ""
+      },
+      "got": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": "",
+        "possible": []
+      },
+      "status": "missing"
+    },
+    {
+      "index": 22,
+      "name": "Marmitaria Diva' S Delivery",
+      "expected": {
+        "instagram": "https://www.instagram.com/divasmarmitaria51/",
+        "facebook": "https://www.facebook.com/divasmarmitaria51/",
+        "site": "https://delivery.sistemapallas.com.br/divas",
+        "email": ""
+      },
+      "got": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": "",
+        "possible": []
+      },
+      "status": "missing"
+    },
+    {
+      "index": 23,
+      "name": "RESTAURANTE PROSA MINEIRA",
+      "expected": {
+        "instagram": "",
+        "facebook": "https://www.facebook.com/prosamineirarc/",
+        "site": "https://cardapio.menu/restaurants/rio-claro/prosa-mineira-1",
+        "email": ""
+      },
+      "got": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": "",
+        "possible": []
+      },
+      "status": "missing"
+    },
+    {
+      "index": 24,
+      "name": "T-Maki Restaurante Japones",
+      "expected": {
+        "instagram": "",
+        "facebook": "https://www.facebook.com/tmakirestaurante/",
+        "site": "https://linktr.ee/tmakidelivery",
+        "email": ""
+      },
+      "got": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": "",
+        "possible": []
+      },
+      "status": "missing"
+    },
+    {
+      "index": 25,
+      "name": "Restaurante Excelsior",
+      "expected": {
+        "instagram": "https://www.instagram.com/restauranteexcelsior/",
+        "facebook": "",
+        "site": "",
+        "email": ""
+      },
+      "got": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": "",
+        "possible": []
+      },
+      "status": "missing"
+    },
+    {
+      "index": 26,
+      "name": "Madalupi Trattoria",
+      "expected": {
+        "instagram": "https://www.instagram.com/madalupi.trattoria/",
+        "facebook": "",
+        "site": "",
+        "email": ""
+      },
+      "got": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": "",
+        "possible": []
+      },
+      "status": "missing"
+    },
+    {
+      "index": 27,
+      "name": "Massa Mania",
+      "expected": {
+        "instagram": "",
+        "facebook": "https://www.facebook.com/maniadefazerdelicias.com.br/",
+        "site": "",
+        "email": ""
+      },
+      "got": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": "",
+        "possible": []
+      },
+      "status": "missing"
+    },
+    {
+      "index": 28,
+      "name": "O Rei Da Panela",
+      "expected": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": ""
+      },
+      "got": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": "",
+        "possible": []
+      },
+      "status": "missing"
+    },
+    {
+      "index": 29,
+      "name": "Espaço kevilin Gomes",
+      "expected": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": ""
+      },
+      "got": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": "",
+        "possible": []
+      },
+      "status": "missing"
+    },
+    {
+      "index": 30,
+      "name": "Pizzaria edson",
+      "expected": {
+        "instagram": "https://www.instagram.com/pizzariadoedson/",
+        "facebook": "https://www.facebook.com/pizzariaedso/",
+        "site": "",
+        "email": ""
+      },
+      "got": {
+        "instagram": "",
+        "facebook": "",
+        "site": "",
+        "email": "",
+        "possible": []
+      },
+      "status": "missing"
+    }
+  ]
+}

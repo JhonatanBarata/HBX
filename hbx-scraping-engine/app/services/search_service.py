@@ -12,6 +12,7 @@ from ddgs import DDGS
 
 from app.config import DB_PATH, get_settings
 from app.schemas import ContactResult, EnrichLeadRequest, EnrichLeadResponse, QueryPayload, SearchIntent, SearchRequest, SearchResponse
+from app.search.enrichment.provider_router import LeadEnrichmentProviderRouter
 from app.search.rank import EvidenceScorer
 from app.search.sources import build_intent_discovery_queries, discover_social_profiles, discover_urls
 
@@ -321,6 +322,7 @@ class SearchService:
         self.settings = get_settings()
         self.storage = Storage(DB_PATH, self.settings.cache_ttl_hours)
         self.evidence_scorer = EvidenceScorer()
+        self.lead_provider_router = LeadEnrichmentProviderRouter()
 
     def requested_social_channels(
         self,
@@ -420,6 +422,44 @@ class SearchService:
             return default
         return max(0.1, min(default, deadline - time.monotonic()))
 
+    def record_possible_social_candidate(
+        self,
+        contact: dict,
+        stats: dict,
+        field: str,
+        url: str,
+        score: int,
+        reason: str,
+        query: str = "",
+        method: str = "",
+        evidence: dict | None = None,
+    ) -> None:
+        normalized = normalize_social_url(url) or str(url or "").strip()
+        if not normalized:
+            return
+        candidate = {
+            "field": field,
+            "channel": "instagram" if field == "instagramUrl" else "facebook",
+            "url": normalized,
+            "score": max(0, min(100, int(score or 0))),
+            "status": "possible",
+            "reason": reason,
+            "query": query,
+            "method": method,
+            "evidence": evidence or {},
+        }
+        contact.setdefault("possibleSocialCandidates", [])
+        stats.setdefault("possibleSocialCandidates", [])
+        seen = {
+            str(item.get("url") or "").rstrip("/").lower()
+            for item in contact.get("possibleSocialCandidates") or []
+            if isinstance(item, dict)
+        }
+        if normalized.rstrip("/").lower() in seen:
+            return
+        contact["possibleSocialCandidates"].append(candidate)
+        stats["possibleSocialCandidates"].append(candidate)
+
     def compact_key(self, value: str) -> str:
         return re.sub(r"[^a-z0-9]+", "", text_key(value))
 
@@ -510,7 +550,12 @@ class SearchService:
         if category and distinctive:
             for token in distinctive[:2]:
                 candidates.append(f"{category}{token}")
+                candidates.append(f"{category}do{token}")
+                candidates.append(f"{category}da{token}")
+                candidates.append(f"{category}de{token}")
                 candidates.append(f"{token}{category}")
+                if not token.endswith("s"):
+                    candidates.append(f"{token}s{category}")
                 if len(f"{token}{category}oficial") <= 32:
                     candidates.append(f"{token}{category}oficial")
                 if len(f"{category}{token}oficial") <= 32:
@@ -1287,6 +1332,7 @@ class SearchService:
         name_key = text_key(name)
         name_compact = self.compact_key(" ".join(token for token in name_key.split() if token not in BUSINESS_NAME_STOP_TOKENS))
         city_key = text_key(city or contact.get("city") or "")
+        city_initials = self.city_initials_key(city or contact.get("city") or "")
         category_tokens, distinctive_tokens = self.social_identity_tokens(contact)
         local_identity_tokens = set(city_key.split()) | {"rio", "claro", "sp", "sao", "paulo"}
         strong_distinctive = [
@@ -1362,6 +1408,7 @@ class SearchService:
             handle_has_category = any(token in handle_key for token in category_tokens) or handle_has_context_category
             handle_has_distinctive = any(token in handle_key for token in strong_distinctive)
             handle_has_city = bool(city_key and city_key.replace(" ", "") in handle_key)
+            handle_has_city_initials = bool(city_initials and (handle_key.endswith(city_initials) or f".{city_initials}" in handle or f"_{city_initials}" in handle))
             handle_exact_name = bool(name_compact and handle_key == name_compact)
             title_has_city = bool(city_key and city_key in title_key)
             phone_match = bool(phone_tail and phone_tail in re.sub(r"\D", "", body))
@@ -1403,10 +1450,28 @@ class SearchService:
             if phone_match:
                 score += 22
 
+            has_local_evidence = bool(
+                phone_match
+                or title_has_city
+                or handle_has_city
+                or handle_has_city_initials
+                or (city_key and city_key in body_key and any(token in body_key for token in category_tokens + strong_distinctive))
+            )
+            if not has_local_evidence:
+                score = min(score, 68)
+            if (
+                not category_tokens
+                and not has_local_evidence
+                and handle_exact_name
+                and not handle_has_context_category
+                and len(nonlocal_strong_distinctive) >= 2
+            ):
+                continue
+
             # Exact compact handles are useful even when Instagram hides most profile text.
-            if channel == "instagram" and handle_exact_name and matched_strong and (handle_has_category or handle_has_city or phone_match or len(strong_distinctive) >= 2):
+            if channel == "instagram" and handle_exact_name and matched_strong and has_local_evidence and (handle_has_category or handle_has_city or handle_has_city_initials or phone_match or len(strong_distinctive) >= 2):
                 score = max(score, 72)
-            if channel == "facebook" and handle_exact_name and matched_strong and (handle_has_category or handle_has_city or phone_match or len(strong_distinctive) >= 2):
+            if channel == "facebook" and handle_exact_name and matched_strong and has_local_evidence and (handle_has_category or handle_has_city or handle_has_city_initials or phone_match or len(strong_distinctive) >= 2):
                 score = max(score, 68)
 
             if score > best_score:
@@ -1484,6 +1549,8 @@ class SearchService:
         if city_key and city_key in text:
             score += 15
         if not host_identity_match:
+            return -100
+        if not phone_match and not (city_key and city_key in text) and len(strong_tokens) <= 1:
             return -100
         return score
 
@@ -1895,6 +1962,7 @@ class SearchService:
                 "missingRequiredChannel": 0,
                 "timedOut": False,
                 "matches": [],
+                "possibleSocialCandidates": [],
             }
         stats = {
             "requestedChannels": sorted(requested_channels),
@@ -1907,6 +1975,7 @@ class SearchService:
             "missingRequiredChannel": 0,
             "timedOut": False,
             "matches": [],
+            "possibleSocialCandidates": [],
         }
         eligible_contacts = [
             contact
@@ -1937,19 +2006,31 @@ class SearchService:
                         continue
                     url, score = self.guessed_social_url_for_contact(contact, channel, city, deadline)
                     if url:
-                        contact[field] = url
-                        contact.setdefault("_socialEnrichment", {})[field] = {
-                            "score": score,
-                            "query": "validated_handle_guess",
-                            "status": "confirmed" if score >= 70 else "probable",
-                        }
-                        stats["matches"].append({
-                            "field": field,
-                            "url": url,
-                            "score": score,
-                            "status": "confirmed" if score >= 70 else "probable",
-                            "query": "validated_handle_guess",
-                        })
+                        if score >= 70:
+                            contact[field] = url
+                            contact.setdefault("_socialEnrichment", {})[field] = {
+                                "score": score,
+                                "query": "validated_handle_guess",
+                                "status": "confirmed",
+                            }
+                            stats["matches"].append({
+                                "field": field,
+                                "url": url,
+                                "score": score,
+                                "status": "confirmed",
+                                "query": "validated_handle_guess",
+                            })
+                        else:
+                            self.record_possible_social_candidate(
+                                contact,
+                                stats,
+                                field,
+                                url,
+                                score,
+                                "Handle parecido, mas sem evidencia local forte para confirmar.",
+                                "validated_handle_guess",
+                                "handle_guess",
+                            )
             identity_channels = [
                 channel
                 for channel in ordered_channels
@@ -1958,20 +2039,33 @@ class SearchService:
             identity_matches = self.enrich_identity_search(contact, city, segment, identity_channels, deadline)
             for field, match in identity_matches.items():
                 if match.get("url"):
-                    contact[field] = str(match["url"])
-                    contact.setdefault("_socialEnrichment", {})[field] = {
-                        "score": match.get("score"),
-                        "query": match.get("query"),
-                        "status": match.get("status"),
-                        "method": "identity_search",
-                    }
-                    stats["matches"].append({
-                        "field": field,
-                        "url": contact[field],
-                        "score": match.get("score"),
-                        "status": match.get("status"),
-                        "query": match.get("query"),
-                    })
+                    score = int(match.get("score") or 0)
+                    if score >= 70:
+                        contact[field] = str(match["url"])
+                        contact.setdefault("_socialEnrichment", {})[field] = {
+                            "score": score,
+                            "query": match.get("query"),
+                            "status": "confirmed",
+                            "method": "identity_search",
+                        }
+                        stats["matches"].append({
+                            "field": field,
+                            "url": contact[field],
+                            "score": score,
+                            "status": "confirmed",
+                            "query": match.get("query"),
+                        })
+                    else:
+                        self.record_possible_social_candidate(
+                            contact,
+                            stats,
+                            field,
+                            str(match["url"]),
+                            score,
+                            "Resultado de busca parecido, mas sem evidencia suficiente para confirmar.",
+                            str(match.get("query") or ""),
+                            "identity_search",
+                        )
             for channel in ordered_channels:
                 if self.time_budget_expired(deadline):
                     stats["timedOut"] = True
@@ -1982,20 +2076,32 @@ class SearchService:
                 if not required_social:
                     url, score = self.guessed_social_url_for_contact(contact, channel, city, deadline)
                     if url:
-                        contact[field] = url
-                        contact.setdefault("_socialEnrichment", {})[field] = {
-                            "score": score,
-                            "query": "validated_handle_guess",
-                            "status": "confirmed" if score >= 70 else "probable",
-                        }
-                        stats["matches"].append({
-                            "field": field,
-                            "url": url,
-                            "score": score,
-                            "status": "confirmed" if score >= 70 else "probable",
-                            "query": "validated_handle_guess",
-                        })
-                        continue
+                        if score >= 70:
+                            contact[field] = url
+                            contact.setdefault("_socialEnrichment", {})[field] = {
+                                "score": score,
+                                "query": "validated_handle_guess",
+                                "status": "confirmed",
+                            }
+                            stats["matches"].append({
+                                "field": field,
+                                "url": url,
+                                "score": score,
+                                "status": "confirmed",
+                                "query": "validated_handle_guess",
+                            })
+                            continue
+                        else:
+                            self.record_possible_social_candidate(
+                                contact,
+                                stats,
+                                field,
+                                url,
+                                score,
+                                "Handle parecido, mas sem evidencia local forte para confirmar.",
+                                "validated_handle_guess",
+                                "handle_guess",
+                            )
                 queries = self.social_queries_for_contact(contact, city, segment, channel)[:SOCIAL_ENRICH_MAX_QUERIES_PER_CHANNEL]
                 candidates: list[dict] = []
                 for query in queries:
@@ -2009,19 +2115,33 @@ class SearchService:
                             break
                 if candidates:
                     best = max(candidates, key=lambda item: int(item.get("score") or 0))
-                    contact[field] = str(best["url"])
-                    contact.setdefault("_socialEnrichment", {})[field] = {
-                        "score": best.get("score"),
-                        "query": best.get("query"),
-                        "status": "confirmed" if int(best.get("score") or 0) >= 70 else "probable",
-                    }
-                    stats["matches"].append({
-                        "field": field,
-                        "url": contact[field],
-                        "score": best.get("score"),
-                        "status": "confirmed" if int(best.get("score") or 0) >= 70 else "probable",
-                        "query": best.get("query"),
-                    })
+                    best_score = int(best.get("score") or 0)
+                    if best_score >= 70:
+                        contact[field] = str(best["url"])
+                        contact.setdefault("_socialEnrichment", {})[field] = {
+                            "score": best_score,
+                            "query": best.get("query"),
+                            "status": "confirmed",
+                        }
+                        stats["matches"].append({
+                            "field": field,
+                            "url": contact[field],
+                            "score": best_score,
+                            "status": "confirmed",
+                            "query": best.get("query"),
+                        })
+                    else:
+                        self.record_possible_social_candidate(
+                            contact,
+                            stats,
+                            field,
+                            str(best["url"]),
+                            best_score,
+                            "Resultado de busca parecido, mas abaixo do corte de confirmacao.",
+                            str(best.get("query") or ""),
+                            "search_result",
+                            {"title": best.get("title") or "", "snippet": best.get("snippet") or ""},
+                        )
         for contact in contacts:
             has_social = any(contact.get("instagramUrl" if channel == "instagram" else "facebookUrl") for channel in requested_channels)
             if has_social:
@@ -2294,6 +2414,12 @@ class SearchService:
         return result
 
     async def enrich_lead(self, request: EnrichLeadRequest) -> EnrichLeadResponse:
+        return await self.lead_provider_router.run(
+            request,
+            lambda: self._enrich_lead_core(request),
+        )
+
+    async def _enrich_lead_core(self, request: EnrichLeadRequest) -> EnrichLeadResponse:
         requested_budget = float(request.timeBudgetSeconds or 18)
         budget_seconds = max(5.0, min(SOCIAL_ENRICH_TOTAL_BUDGET_SECONDS, requested_budget))
         deadline = time.monotonic() + budget_seconds
@@ -2353,25 +2479,38 @@ class SearchService:
             if social_required and key in {"instagramUrl", "facebookUrl"}:
                 continue
             if identity.get(key) and not contact.get(key):
-                contact[key] = identity.get(key)
                 if key in {"instagramUrl", "facebookUrl"}:
                     identity_score = int(((identity.get("stats") or {}).get(key) or {}).get("score") or 55)
                     identity_query = ((identity.get("stats") or {}).get(key) or {}).get("query") or "identity_search"
-                    identity_status = "confirmed" if identity_score >= 70 else "probable"
-                    contact.setdefault("_socialEnrichment", {})[key] = {
-                        "score": identity_score,
-                        "query": identity_query,
-                        "status": identity_status,
-                        "method": "identity_search",
-                    }
-                    identity_social_matches.append({
-                        "field": key,
-                        "url": contact[key],
-                        "score": identity_score,
-                        "status": identity_status,
-                        "query": identity_query,
-                        "method": "identity_search",
-                    })
+                    if identity_score >= 70:
+                        contact[key] = identity.get(key)
+                        contact.setdefault("_socialEnrichment", {})[key] = {
+                            "score": identity_score,
+                            "query": identity_query,
+                            "status": "confirmed",
+                            "method": "identity_search",
+                        }
+                        identity_social_matches.append({
+                            "field": key,
+                            "url": contact[key],
+                            "score": identity_score,
+                            "status": "confirmed",
+                            "query": identity_query,
+                            "method": "identity_search",
+                        })
+                    else:
+                        contact.setdefault("possibleSocialCandidates", []).append({
+                            "field": key,
+                            "channel": "instagram" if key == "instagramUrl" else "facebook",
+                            "url": identity.get(key),
+                            "score": identity_score,
+                            "status": "possible",
+                            "reason": "Resultado de identidade abaixo do corte de confirmacao.",
+                            "query": identity_query,
+                            "method": "identity_search",
+                        })
+                else:
+                    contact[key] = identity.get(key)
         should_find_website_before_social = (
             not contact.get("website")
             and not self.time_budget_expired(deadline)
@@ -2422,15 +2561,35 @@ class SearchService:
                     *(early_social_stats.get("matches") or []),
                     *(late_social_stats.get("matches") or []),
                 ]
+                social_stats["possibleSocialCandidates"] = [
+                    *(early_social_stats.get("possibleSocialCandidates") or []),
+                    *(late_social_stats.get("possibleSocialCandidates") or []),
+                ]
                 social_stats["processed"] = int(early_social_stats.get("processed") or 0) + int(late_social_stats.get("processed") or 0)
                 social_stats["enrichedCount"] = max(int(early_social_stats.get("enrichedCount") or 0), int(late_social_stats.get("enrichedCount") or 0))
                 social_stats["timedOut"] = bool(early_social_stats.get("timedOut") or late_social_stats.get("timedOut"))
         else:
             contacts, social_stats = [contact], early_social_stats or {
                 "matches": [],
+                "possibleSocialCandidates": [],
                 "identity": identity.get("stats"),
                 "missingRequiredChannel": 1 if social_required and not self.has_required_social_channels(contact, required_social_channels) else 0,
             }
+        if contact.get("possibleSocialCandidates"):
+            existing_possible_urls = {
+                str(item.get("url") or "").rstrip("/").lower()
+                for item in (social_stats.get("possibleSocialCandidates") or [])
+                if isinstance(item, dict)
+            }
+            social_stats["possibleSocialCandidates"] = [
+                *(social_stats.get("possibleSocialCandidates") or []),
+                *[
+                    item
+                    for item in (contact.get("possibleSocialCandidates") or [])
+                    if isinstance(item, dict)
+                    and str(item.get("url") or "").rstrip("/").lower() not in existing_possible_urls
+                ],
+            ]
         if identity_social_matches:
             existing_social_urls = {
                 str(match.get("url") or "")
@@ -2484,6 +2643,7 @@ class SearchService:
             emailConfidence=email_confidence,
             instagramUrl=enriched.get("instagramUrl"),
             facebookUrl=enriched.get("facebookUrl"),
+            possibleSocialCandidates=social_stats.get("possibleSocialCandidates") or enriched.get("possibleSocialCandidates") or [],
             googleMapsUrl=identity.get("googleMapsUrl"),
             cnpj=identity.get("cnpj"),
             socialStatus="found" if has_social else "missing",
