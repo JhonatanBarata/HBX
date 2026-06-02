@@ -34,6 +34,7 @@ export type CommercialPlanCapabilities = {
   canSeeOpportunityReason: boolean;
   canSeeSocialLinks: boolean | 'teaser_only';
   canSeeMessageTemplates: boolean;
+  canAutoEnrichLeads: boolean;
   canUseAdvancedFilters: boolean;
   canUseVerifiedWhatsapp: boolean | 'limited';
   canUseFilteredQuota: boolean;
@@ -55,6 +56,7 @@ export const COMMERCIAL_PLAN_QUOTAS: Record<ActiveCommercialPlanKey, {
   googleSearchesPerDay: number;
   cardsPerMonth: number;
   dailyCardSafetyLimit: number;
+  enrichmentsPerDay: number;
   cardsPerSearch?: number;
   searchesPerCycle?: number;
   totalCards?: number;
@@ -63,6 +65,7 @@ export const COMMERCIAL_PLAN_QUOTAS: Record<ActiveCommercialPlanKey, {
     googleSearchesPerDay: 0,
     cardsPerMonth: 880,
     dailyCardSafetyLimit: 50,
+    enrichmentsPerDay: 3,
     cardsPerSearch: 50,
     searchesPerCycle: 3,
     totalCards: 880,
@@ -71,11 +74,13 @@ export const COMMERCIAL_PLAN_QUOTAS: Record<ActiveCommercialPlanKey, {
     googleSearchesPerDay: 2,
     cardsPerMonth: 2200,
     dailyCardSafetyLimit: 100,
+    enrichmentsPerDay: 100,
   },
   [COMMERCIAL_PLAN_KEYS.MELHOR]: {
     googleSearchesPerDay: 6,
     cardsPerMonth: 5000,
     dailyCardSafetyLimit: 250,
+    enrichmentsPerDay: 250,
   },
 };
 
@@ -213,6 +218,7 @@ export function getCommercialPlanCapabilities(planKey: unknown): CommercialPlanC
       canSeeOpportunityReason: false,
       canSeeSocialLinks: true,
       canSeeMessageTemplates: false,
+      canAutoEnrichLeads: false,
       canUseAdvancedFilters: false,
       canUseVerifiedWhatsapp: 'limited',
       canUseFilteredQuota: false,
@@ -227,6 +233,7 @@ export function getCommercialPlanCapabilities(planKey: unknown): CommercialPlanC
     canSeeOpportunityReason: true,
     canSeeSocialLinks: true,
     canSeeMessageTemplates: true,
+    canAutoEnrichLeads: true,
     canUseAdvancedFilters: true,
     canUseVerifiedWhatsapp: true,
     canUseFilteredQuota: true,

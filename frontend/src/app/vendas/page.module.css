@@ -8,6 +8,518 @@
   --card-shadow: 0 28px 54px -38px rgba(15, 23, 42, 0.32);
 }
 
+/* HBX Radar/Vendas 2026 visual pass: high-density cards using the approved icon sprite. */
+.hbxRadarCardIcon {
+  width: 1em;
+  height: 1em;
+  display: block;
+  flex: 0 0 auto;
+  overflow: visible;
+  color: currentColor;
+  shape-rendering: geometricPrecision;
+}
+
+.hbxRadarPngIcon {
+  display: block;
+  width: 1em;
+  height: 1em;
+  object-fit: contain;
+  flex: 0 0 auto;
+  user-select: none;
+  pointer-events: none;
+}
+
+.vendasClosedBadges span::before,
+.mobileVendasClosedBadges span::before {
+  content: none !important;
+}
+
+.vendasClosedBadges .hbxRadarCardIcon,
+.vendasClosedBadges .hbxRadarPngIcon,
+.mobileVendasClosedBadges .hbxRadarCardIcon,
+.mobileVendasClosedBadges .hbxRadarPngIcon {
+  width: 14px;
+  height: 14px;
+}
+
+.vendasOpenChannels .hbxRadarCardIcon,
+.vendasOpenChannels .hbxRadarPngIcon,
+.mobileLeadExpandedChannels .hbxRadarCardIcon,
+.mobileLeadExpandedChannels .hbxRadarPngIcon {
+  width: 24px;
+  height: 24px;
+}
+
+.leadCard {
+  transition:
+    transform 420ms cubic-bezier(0.2, 0.82, 0.2, 1),
+    box-shadow 420ms cubic-bezier(0.2, 0.82, 0.2, 1),
+    border-color 420ms ease,
+    background 520ms ease,
+    opacity 320ms ease !important;
+}
+
+.leadCard:hover {
+  transform: translate3d(0, -2px, 0) scale(1.003);
+}
+
+.vendasClosedCardTop {
+  gap: 0.68rem !important;
+}
+
+.vendasClosedAvatar {
+  width: 46px !important;
+  height: 46px !important;
+  border-radius: 999px !important;
+}
+
+.vendasClosedAvatar span {
+  font-size: 0.82rem !important;
+}
+
+.vendasClosedBadges {
+  gap: 0.32rem !important;
+  margin-top: 0.34rem !important;
+}
+
+.vendasClosedBadges span {
+  min-height: 22px !important;
+  padding: 0 0.48rem !important;
+  font-size: 0.62rem !important;
+  font-weight: 850 !important;
+}
+
+.vendasClosedProduct {
+  min-height: 28px !important;
+  border-radius: 10px !important;
+  padding: 0 0.58rem !important;
+  font-size: 0.68rem !important;
+}
+
+.vendasClosedCredits {
+  font-size: 0.64rem !important;
+}
+
+.vendasClosedAside {
+  min-width: 92px !important;
+  gap: 0.32rem !important;
+}
+
+.leadCardChannelRow {
+  margin-top: 0.46rem;
+}
+
+.leadCardChannelRow .mobileVendasChannelIcon {
+  width: 26px !important;
+  height: 26px !important;
+  border-radius: 10px !important;
+}
+
+.vendasOpenCard,
+.mobileLeadHeroPremium,
+.mobileLeadEnrichmentStatus,
+.mobileLeadEnrichmentOperation,
+.mobileLeadExpandedChannels,
+.mobileLeadContactPanel {
+  transition:
+    transform 520ms cubic-bezier(0.2, 0.82, 0.2, 1),
+    opacity 420ms ease,
+    box-shadow 520ms ease,
+    border-color 420ms ease,
+    background 620ms ease !important;
+}
+
+.vendasOpenCard {
+  animation: hbxLeadPanelArrive 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.vendasOpenChannels a,
+.mobileLeadExpandedChannels a {
+  transition:
+    transform 360ms cubic-bezier(0.2, 0.82, 0.2, 1),
+    opacity 280ms ease,
+    filter 280ms ease !important;
+}
+
+.vendasOpenChannels a:hover,
+.mobileLeadExpandedChannels a:hover {
+  transform: translate3d(0, -2px, 0);
+}
+
+.vendasOpenChannels a > span,
+.mobileLeadExpandedChannels a > span {
+  transition:
+    transform 420ms cubic-bezier(0.2, 0.82, 0.2, 1),
+    box-shadow 420ms ease,
+    border-color 420ms ease,
+    background 420ms ease !important;
+}
+
+.mobileLeadEnrichmentStatus[data-tone="processing"],
+.mobileLeadEnrichmentOperation[data-tone="processing"],
+.vendasOpenEnrichmentOperation[data-tone="processing"] {
+  position: relative;
+  overflow: hidden;
+}
+
+.mobileLeadEnrichmentStatus[data-tone="processing"]::after,
+.mobileLeadEnrichmentOperation[data-tone="processing"]::after,
+.vendasOpenEnrichmentOperation[data-tone="processing"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(110deg, transparent 0 34%, rgba(255, 255, 255, 0.48) 46%, transparent 58% 100%);
+  transform: translateX(-120%);
+  animation: hbxLeadShimmer 1.55s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes hbxLeadPanelArrive {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes hbxLeadShimmer {
+  to {
+    transform: translateX(120%);
+  }
+}
+
+@media (max-width: 820px) {
+  .mobileVendasList {
+    gap: 10px !important;
+  }
+
+  .mobileVendasSwipeShell {
+    min-height: auto !important;
+  }
+
+  .mobileVendasCard {
+    min-height: 128px !important;
+    padding: 12px 13px 11px !important;
+    border-radius: 20px !important;
+    overflow: hidden !important;
+    contain: layout paint;
+    transform-origin: center top;
+    transition:
+      transform 420ms cubic-bezier(0.2, 0.82, 0.2, 1),
+      box-shadow 420ms ease,
+      border-color 360ms ease,
+      background 520ms ease !important;
+  }
+
+  .mobileVendasCard:active {
+    transform: scale(0.992) translateY(1px) !important;
+  }
+
+  .mobileVendasCardPremiumHeader {
+    grid-template-columns: 48px minmax(0, 1fr) minmax(68px, auto) !important;
+    gap: 9px !important;
+    align-items: center !important;
+  }
+
+  .mobileVendasAvatar {
+    width: 44px !important;
+    height: 44px !important;
+    border-radius: 16px !important;
+  }
+
+  .mobileVendasAvatar span {
+    font-size: 0.78rem !important;
+  }
+
+  .mobileVendasCardTitle {
+    gap: 6px !important;
+  }
+
+  .mobileVendasCardTitle strong {
+    font-size: 0.88rem !important;
+    line-height: 1.08 !important;
+    max-height: 2.16em;
+    -webkit-line-clamp: 2 !important;
+  }
+
+  .mobileVendasCardTitle span,
+  .mobileVendasCardTitle em {
+    margin-top: 2px !important;
+    font-size: 0.64rem !important;
+    line-height: 1.1 !important;
+  }
+
+  .mobileVendasProductStack {
+    gap: 5px !important;
+  }
+
+  .mobileVendasProductStack > span {
+    min-width: 54px !important;
+    min-height: 28px !important;
+    border-radius: 10px !important;
+    padding-inline: 0.52rem !important;
+    font-size: 0.66rem !important;
+  }
+
+  .mobileVendasProductStack small {
+    font-size: 0.58rem !important;
+  }
+
+  .mobileVendasCardTitle .mobileLeadEnrichmentCrown {
+    width: 34px !important;
+    height: 34px !important;
+  }
+
+  .mobileVendasClosedBadges {
+    margin-top: 9px !important;
+    padding-bottom: 8px !important;
+    gap: 5px !important;
+  }
+
+  .mobileVendasClosedBadges span {
+    min-height: 22px !important;
+    max-width: 118px;
+    padding-inline: 0.45rem !important;
+    font-size: 0.58rem !important;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .mobileVendasCardMeta {
+    margin-top: 7px !important;
+    gap: 8px !important;
+  }
+
+  .mobileVendasCardMeta > span,
+  .mobileVendasCardMeta small {
+    min-height: 24px !important;
+    font-size: 0.6rem !important;
+  }
+
+  .mobileVendasClosedFooter {
+    margin-top: 8px !important;
+    gap: 8px !important;
+  }
+
+  .mobileVendasClosedFooter > span {
+    font-size: 0.66rem !important;
+  }
+
+  .mobileVendasClosedFooter > span::before {
+    width: 22px !important;
+    height: 22px !important;
+  }
+
+  .mobileVendasClosedFooter > strong {
+    min-height: 32px !important;
+    padding: 0 0.8rem !important;
+    font-size: 0.68rem !important;
+  }
+
+  .mobileLeadDetailBody {
+    gap: 10px !important;
+    padding: 7px 12px calc(var(--hbx-mobile-dock-height) + 94px + env(safe-area-inset-bottom)) !important;
+  }
+
+  .mobileLeadHeroPremium {
+    grid-template-columns: minmax(0, 1fr) 82px !important;
+    gap: 10px !important;
+    padding: 14px !important;
+    border-radius: 20px !important;
+  }
+
+  .mobileLeadHeroIdentity {
+    grid-template-columns: 50px minmax(0, 1fr) !important;
+    gap: 10px !important;
+  }
+
+  .mobileLeadHeroIdentity .mobileLeadPlusAvatar {
+    width: 48px !important;
+    height: 48px !important;
+    font-size: 0.82rem !important;
+  }
+
+  .mobileLeadHeroIdentity strong {
+    font-size: 0.96rem !important;
+    line-height: 1.06 !important;
+  }
+
+  .mobileLeadHeroIdentity span,
+  .mobileLeadHeroIdentity em {
+    margin-top: 3px !important;
+    font-size: 0.66rem !important;
+  }
+
+  .mobileLeadHeroPremium .mobileLeadScoreBox {
+    min-height: 76px !important;
+    border-radius: 18px !important;
+  }
+
+  .mobileLeadHeroMeta {
+    gap: 6px !important;
+  }
+
+  .mobileLeadHeroMeta span {
+    min-height: 26px !important;
+    font-size: 0.58rem !important;
+    padding: 0 7px !important;
+  }
+
+  .mobileLeadEnrichmentStatus,
+  .mobileLeadEnrichmentOperation,
+  .mobileLeadExpandedChannels,
+  .mobileLeadContactPanel {
+    border-radius: 20px !important;
+  }
+
+  .mobileLeadEnrichmentStatus {
+    grid-template-columns: 32px minmax(0, 1fr) !important;
+    padding: 10px 12px !important;
+  }
+
+  .mobileLeadEnrichmentStatus > span {
+    width: 30px !important;
+    height: 30px !important;
+  }
+
+  .mobileLeadEnrichmentStatus strong {
+    font-size: 0.76rem !important;
+  }
+
+  .mobileLeadEnrichmentStatus small {
+    font-size: 0.62rem !important;
+  }
+
+  .mobileLeadEnrichmentOperation {
+    padding: 10px 12px !important;
+  }
+
+  .mobileLeadEnrichmentOperation strong {
+    font-size: 0.76rem !important;
+  }
+
+  .mobileLeadEnrichmentOperation small {
+    font-size: 0.62rem !important;
+  }
+
+  .mobileLeadEnrichmentOperation b {
+    min-height: 28px !important;
+    font-size: 0.66rem !important;
+    padding-inline: 0.58rem !important;
+  }
+
+  .mobileLeadExpandedChannels {
+    grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+    gap: 5px !important;
+    padding: 11px 8px !important;
+  }
+
+  .mobileLeadExpandedChannels a {
+    gap: 4px !important;
+  }
+
+  .mobileLeadExpandedChannels a > span {
+    width: 40px !important;
+    height: 40px !important;
+    border-radius: 15px !important;
+  }
+
+  .mobileLeadExpandedChannels .hbxRadarCardIcon {
+    width: 21px !important;
+    height: 21px !important;
+  }
+
+  .mobileLeadExpandedChannels b {
+    font-size: 0.54rem !important;
+    max-width: 48px !important;
+  }
+
+  .mobileLeadContactPanel {
+    padding: 8px 12px !important;
+  }
+
+  .mobileLeadContactRows > div {
+    min-height: 46px !important;
+    grid-template-columns: 30px minmax(0, 1fr) auto !important;
+  }
+
+  .mobileLeadContactRows strong,
+  .mobileLeadContactLink {
+    font-size: 0.74rem !important;
+  }
+}
+
+@media (min-width: 821px) {
+  .leadCard {
+    min-height: 0 !important;
+  }
+
+  .leadQuickReadStack {
+    display: none !important;
+  }
+
+  .leadCard :global([class*="metricGrid"]) {
+    display: none !important;
+  }
+
+  .leadCard :global([class*="cluster"]) {
+    gap: 0.36rem !important;
+  }
+
+  .leadActionRow {
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    gap: 0.38rem !important;
+    padding-top: 0.28rem !important;
+    overflow: hidden !important;
+  }
+
+  .leadActionRow a,
+  .leadActionRow button {
+    min-height: 30px !important;
+    min-width: 0 !important;
+    padding: 0 0.52rem !important;
+    border-radius: 999px !important;
+    font-size: 0.66rem !important;
+    flex: 1 1 0 !important;
+  }
+
+  .memoryChip {
+    min-height: 22px !important;
+    padding: 0 0.48rem !important;
+    font-size: 0.62rem !important;
+  }
+
+  .leadName {
+    font-size: 0.86rem !important;
+    line-height: 1.08 !important;
+    display: -webkit-box !important;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .leadSubline,
+  .leadEyebrow {
+    font-size: 0.62rem !important;
+  }
+
+  .cardsGrid {
+    grid-template-columns: repeat(auto-fill, minmax(286px, 1fr)) !important;
+    gap: 0.72rem !important;
+  }
+}
+
+@media (max-width: 380px) {
+  .mobileLeadExpandedChannels {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+}
+
 .mobileVendasRecommendedCard {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -6889,6 +7401,12 @@
   max-width: 320px;
 }
 
+.leadActionRow .callAction {
+  flex: 1 1 0;
+  min-width: 56px;
+  max-width: 320px;
+}
+
 .leadActionRow > :only-child {
   flex: 0 0 clamp(118px, 9vw, 144px);
   max-width: clamp(118px, 9vw, 144px);
@@ -6942,13 +7460,11 @@
 
 .whatsappUnavailable {
   background:
-    radial-gradient(circle at top left, rgba(255, 255, 255, 0.26), transparent 38%),
-    linear-gradient(135deg, color-mix(in srgb, #ef4444 62%, transparent), color-mix(in srgb, #b91c1c 86%, transparent)),
-    linear-gradient(160deg, color-mix(in srgb, rgba(255, 255, 255, 0.18) 54%, transparent), color-mix(in srgb, rgba(255, 255, 255, 0.04) 24%, transparent));
-  border-color: color-mix(in srgb, #b91c1c 34%, var(--background));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.22),
-    0 18px 40px -18px rgba(239, 68, 68, 0.26);
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.44), transparent 38%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 94%, var(--background)), color-mix(in srgb, var(--surface-soft) 94%, var(--background))) !important;
+  border-color: color-mix(in srgb, var(--muted) 28%, var(--line)) !important;
+  color: color-mix(in srgb, var(--muted) 78%, var(--foreground)) !important;
+  box-shadow: none !important;
 }
 
 .cardsGrid {
@@ -16622,5 +17138,4014 @@
   to {
     opacity: 1;
     transform: translate3d(-50%, -50%, 0) scale(1);
+  }
+}
+
+/* HBX Vendas closed cards: Radar/Lead premium presentation layer. */
+.vendasClosedCardTop {
+  align-items: flex-start;
+  gap: 0.82rem;
+}
+
+.vendasClosedAvatar {
+  flex: 0 0 auto;
+  display: grid;
+  width: 54px;
+  height: 54px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--brand) 18%, var(--line));
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 34% 22%, color-mix(in srgb, white 76%, transparent), transparent 42%),
+    linear-gradient(145deg, #eff6ff, #dbeafe);
+  color: #0757df;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    0 16px 32px -24px rgba(37, 99, 235, 0.58);
+}
+
+.vendasClosedAvatar[data-product="lead"] {
+  border-color: color-mix(in srgb, #7c3aed 26%, var(--line));
+  background:
+    radial-gradient(circle at 34% 22%, color-mix(in srgb, white 78%, transparent), transparent 42%),
+    linear-gradient(145deg, #f3e8ff, #d8b4fe);
+  color: #6d28d9;
+}
+
+.vendasClosedAvatar span {
+  font-size: 0.98rem;
+  font-weight: 950;
+  letter-spacing: 0;
+}
+
+.vendasClosedBadges,
+.mobileVendasClosedBadges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.42rem;
+}
+
+.vendasClosedBadges {
+  margin-top: 0.42rem;
+}
+
+.vendasClosedBadges span,
+.mobileVendasClosedBadges span {
+  display: inline-flex;
+  min-width: 0;
+  min-height: 25px;
+  align-items: center;
+  gap: 0.32rem;
+  padding: 0 0.58rem;
+  border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 92%, var(--background));
+  color: color-mix(in srgb, var(--foreground-soft) 84%, var(--foreground));
+  font-size: 0.7rem;
+  font-weight: 850;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.vendasClosedBadges span::before,
+.mobileVendasClosedBadges span::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.vendasClosedBadges span[data-tone="success"],
+.mobileVendasClosedBadges span[data-tone="success"] {
+  border-color: color-mix(in srgb, #16a34a 18%, var(--line));
+  background: color-mix(in srgb, #dcfce7 72%, var(--surface));
+  color: #15803d;
+}
+
+.vendasClosedBadges span[data-tone="primary"],
+.mobileVendasClosedBadges span[data-tone="primary"] {
+  border-color: color-mix(in srgb, #2563eb 18%, var(--line));
+  background: color-mix(in srgb, #eff6ff 78%, var(--surface));
+  color: #0757df;
+}
+
+.vendasClosedBadges span[data-tone="premium"],
+.mobileVendasClosedBadges span[data-tone="premium"] {
+  border-color: color-mix(in srgb, #7c3aed 20%, var(--line));
+  background: color-mix(in srgb, #f3e8ff 76%, var(--surface));
+  color: #6d28d9;
+}
+
+.vendasClosedBadges span[data-tone="warning"],
+.mobileVendasClosedBadges span[data-tone="warning"] {
+  border-color: color-mix(in srgb, #f59e0b 24%, var(--line));
+  background: color-mix(in srgb, #fef3c7 76%, var(--surface));
+  color: #b45309;
+}
+
+.vendasClosedAside {
+  display: grid;
+  min-width: 112px;
+  gap: 0.42rem;
+  justify-items: end;
+}
+
+.vendasClosedProduct,
+.mobileVendasProductStack > span {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, #2563eb 18%, var(--line));
+  border-radius: 13px;
+  background: color-mix(in srgb, #eff6ff 78%, var(--surface));
+  color: #0757df;
+  padding: 0 0.78rem;
+  font-size: 0.78rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.vendasClosedProduct[data-product="lead"],
+.mobileVendasProductStack > span[data-product="lead"] {
+  border-color: color-mix(in srgb, #7c3aed 22%, var(--line));
+  background: color-mix(in srgb, #f3e8ff 76%, var(--surface));
+  color: #6d28d9;
+}
+
+.vendasClosedCredits,
+.mobileVendasProductStack small {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.34rem;
+  color: #d97706;
+  font-size: 0.74rem;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.vendasClosedCredits b,
+.mobileVendasProductStack b {
+  color: #f59e0b;
+  font-size: 0.82rem;
+  line-height: 1;
+}
+
+:global(html[data-theme-mode="dark"]) .vendasClosedAvatar {
+  border-color: rgba(56, 189, 248, 0.32);
+  background:
+    radial-gradient(circle at 35% 20%, rgba(255, 255, 255, 0.14), transparent 42%),
+    linear-gradient(145deg, rgba(17, 71, 128, 0.92), rgba(8, 31, 66, 0.92));
+  color: #dff4ff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 18px 36px -28px rgba(56, 189, 248, 0.78);
+}
+
+:global(html[data-theme-mode="dark"]) .vendasClosedAvatar[data-product="lead"] {
+  border-color: rgba(168, 85, 247, 0.38);
+  background:
+    radial-gradient(circle at 35% 20%, rgba(255, 255, 255, 0.13), transparent 42%),
+    linear-gradient(145deg, rgba(80, 54, 150, 0.94), rgba(37, 28, 91, 0.92));
+  color: #f4edff;
+}
+
+:global(html[data-theme-mode="dark"]) .vendasClosedBadges span {
+  border-color: rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.68);
+  color: rgba(226, 234, 248, 0.86);
+}
+
+@media (max-width: 820px) {
+  .mobileVendasCard {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 0 !important;
+    padding: 18px 16px 14px !important;
+    border-radius: 24px !important;
+    border-color: rgba(191, 210, 242, 0.88) !important;
+    background:
+      radial-gradient(circle at 96% 0%, rgba(37, 99, 235, 0.07), transparent 34%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.94)) !important;
+    box-shadow:
+      0 22px 48px -34px rgba(15, 23, 42, 0.38),
+      inset 0 1px 0 rgba(255, 255, 255, 0.98) !important;
+  }
+
+  .mobileVendasCard[data-product="lead"] {
+    border-color: rgba(37, 99, 235, 0.36) !important;
+    box-shadow:
+      0 24px 52px -34px rgba(37, 99, 235, 0.34),
+      inset 0 1px 0 rgba(255, 255, 255, 0.98) !important;
+  }
+
+  .mobileVendasCardPremiumHeader {
+    display: grid;
+    grid-template-columns: 64px minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 13px;
+  }
+
+  .mobileVendasAvatar {
+    width: 58px !important;
+    height: 58px !important;
+    border-radius: 22px !important;
+    border: 1px solid rgba(37, 99, 235, 0.14) !important;
+    background:
+      radial-gradient(circle at 35% 20%, rgba(255, 255, 255, 0.98), transparent 44%),
+      linear-gradient(145deg, #eff6ff, #bfdbfe) !important;
+    color: #0757df !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.9),
+      0 16px 28px -22px rgba(37, 99, 235, 0.62) !important;
+  }
+
+  .mobileVendasAvatar[data-variant="violet"] {
+    border-color: rgba(124, 58, 237, 0.18) !important;
+    background:
+      radial-gradient(circle at 35% 20%, rgba(255, 255, 255, 0.98), transparent 44%),
+      linear-gradient(145deg, #f3e8ff, #c4b5fd) !important;
+    color: #6d28d9 !important;
+  }
+
+  .mobileVendasAvatar span {
+    font-size: 1.02rem;
+    font-weight: 950;
+    letter-spacing: 0;
+  }
+
+  .mobileVendasCardTitle strong {
+    color: #0f172a !important;
+    font-size: 1rem !important;
+    line-height: 1.12 !important;
+    white-space: normal !important;
+    line-clamp: 2;
+    -webkit-line-clamp: 2;
+    display: -webkit-box !important;
+    -webkit-box-orient: vertical;
+  }
+
+  .mobileVendasCardTitle span,
+  .mobileVendasCardTitle em {
+    display: block;
+    max-width: 100%;
+    margin-top: 4px;
+    overflow: hidden;
+    color: #64748b;
+    font-size: 0.74rem;
+    font-style: normal;
+    font-weight: 760;
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobileVendasCardTitle em {
+    color: #596986;
+  }
+
+  .mobileVendasProductStack {
+    display: grid;
+    gap: 8px;
+    justify-items: end;
+  }
+
+  .mobileVendasProductStack > span {
+    min-height: 36px;
+    min-width: 64px;
+    padding-inline: 0.72rem;
+    border-radius: 14px;
+    font-size: 0.8rem;
+  }
+
+  .mobileVendasProductStack small {
+    font-size: 0.7rem;
+  }
+
+  .mobileVendasClosedBadges {
+    margin-top: 16px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid rgba(226, 232, 240, 0.88);
+  }
+
+  .mobileVendasClosedBadges span {
+    min-height: 29px;
+    padding-inline: 0.62rem;
+    font-size: 0.7rem;
+  }
+
+  .mobileVendasCardMeta {
+    margin-top: 12px !important;
+    padding-bottom: 0 !important;
+    border-bottom: 0 !important;
+  }
+
+  .mobileVendasClosedFooter {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    margin-top: 13px;
+  }
+
+  .mobileVendasClosedFooter > span {
+    display: inline-flex;
+    min-width: 0;
+    align-items: center;
+    gap: 0.5rem;
+    color: #2563eb;
+    font-size: 0.78rem;
+    font-weight: 850;
+  }
+
+  .mobileVendasClosedFooter > span::before {
+    content: "";
+    width: 28px;
+    height: 28px;
+    flex: 0 0 auto;
+    border: 1px solid rgba(37, 99, 235, 0.18);
+    border-radius: 999px;
+    background:
+      radial-gradient(circle at 34% 24%, rgba(255, 255, 255, 0.98), transparent 42%),
+      linear-gradient(145deg, #eff6ff, #dbeafe);
+  }
+
+  .mobileVendasClosedFooter b {
+    min-width: 0;
+    overflow: hidden;
+    color: #1e3a8a;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobileVendasClosedFooter > strong {
+    display: inline-flex;
+    min-height: 42px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(37, 99, 235, 0.82);
+    border-radius: 999px;
+    background: #fff;
+    color: #0757df;
+    padding: 0 1.1rem;
+    font-size: 0.82rem;
+    font-weight: 900;
+    white-space: nowrap;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasCard {
+    border-color: rgba(56, 189, 248, 0.28) !important;
+    background:
+      radial-gradient(circle at 94% 0%, rgba(56, 189, 248, 0.12), transparent 36%),
+      linear-gradient(145deg, rgba(11, 18, 32, 0.98), rgba(4, 16, 34, 0.96)) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      0 22px 48px -34px rgba(56, 189, 248, 0.34) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasAvatar {
+    border-color: rgba(56, 189, 248, 0.32) !important;
+    background:
+      radial-gradient(circle at 35% 20%, rgba(255, 255, 255, 0.14), transparent 44%),
+      linear-gradient(145deg, rgba(23, 88, 148, 0.92), rgba(9, 38, 82, 0.94)) !important;
+    color: #dff4ff !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasAvatar[data-variant="violet"] {
+    border-color: rgba(168, 85, 247, 0.38) !important;
+    background:
+      radial-gradient(circle at 35% 20%, rgba(255, 255, 255, 0.13), transparent 44%),
+      linear-gradient(145deg, rgba(90, 63, 166, 0.94), rgba(38, 30, 92, 0.94)) !important;
+    color: #f4edff !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasCardTitle strong {
+    color: #f8fafc !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasCardTitle span,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasCardTitle em {
+    color: rgba(226, 234, 248, 0.76) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasClosedBadges {
+    border-bottom-color: rgba(148, 163, 184, 0.18);
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasClosedBadges span {
+    border-color: rgba(148, 163, 184, 0.2);
+    background: rgba(15, 23, 42, 0.72);
+    color: rgba(226, 234, 248, 0.86);
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasClosedFooter > span {
+    color: #93c5fd;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasClosedFooter b {
+    color: #f8fafc;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasClosedFooter > strong {
+    border-color: rgba(56, 189, 248, 0.42);
+    background: rgba(15, 23, 42, 0.74);
+    color: #7dd3fc;
+  }
+}
+
+.vendasOpenCard {
+  display: grid;
+  gap: 0.95rem;
+  padding: 1rem;
+  border: 1px solid color-mix(in srgb, var(--brand) 16%, var(--line));
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 96% 0%, color-mix(in srgb, var(--brand) 9%, transparent), transparent 38%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, white 2%), color-mix(in srgb, var(--surface-soft) 92%, var(--background)));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    0 22px 48px -34px color-mix(in srgb, var(--brand) 26%, transparent);
+}
+
+.vendasOpenHeader,
+.vendasOpenIdentity {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 0.82rem;
+}
+
+.vendasOpenHeader {
+  justify-content: space-between;
+}
+
+.vendasOpenIdentity > div:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 0.16rem;
+}
+
+.vendasOpenIdentity strong {
+  color: var(--foreground);
+  font-size: 1.18rem;
+  font-weight: 900;
+  line-height: 1.1;
+}
+
+.vendasOpenIdentity span,
+.vendasOpenIdentity small {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 740;
+}
+
+.vendasOpenProduct {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 0.35rem;
+  justify-items: end;
+}
+
+.vendasOpenProduct span {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, #2563eb 18%, var(--line));
+  border-radius: 13px;
+  background: color-mix(in srgb, #eff6ff 78%, var(--surface));
+  color: #0757df;
+  padding: 0 0.78rem;
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.vendasOpenProduct span[data-product="lead"] {
+  border-color: color-mix(in srgb, #7c3aed 22%, var(--line));
+  background: color-mix(in srgb, #f3e8ff 76%, var(--surface));
+  color: #6d28d9;
+}
+
+.vendasOpenProduct b {
+  color: #d97706;
+  font-size: 0.78rem;
+}
+
+.vendasOpenChannels,
+.mobileLeadExpandedChannels {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.vendasOpenChannels {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  padding-top: 0.2rem;
+}
+
+.vendasOpenChannels a,
+.mobileLeadExpandedChannels a {
+  display: grid;
+  min-width: 0;
+  justify-items: center;
+  gap: 0.38rem;
+  color: #0f172a;
+  text-align: center;
+  text-decoration: none;
+}
+
+.vendasOpenChannels a[aria-disabled="true"],
+.mobileLeadExpandedChannels a[aria-disabled="true"] {
+  opacity: 0.42;
+  cursor: default;
+  filter: grayscale(0.8);
+}
+
+.vendasOpenChannels a > span,
+.mobileLeadExpandedChannels a > span {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, #2563eb 18%, var(--line));
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 35% 20%, rgba(255, 255, 255, 0.98), transparent 42%),
+    linear-gradient(145deg, #eff6ff, #dbeafe);
+  color: #0757df;
+  font-size: 0.72rem;
+  font-weight: 950;
+  box-shadow: 0 14px 24px -18px rgba(37, 99, 235, 0.54);
+}
+
+.vendasOpenChannels a[data-status="available"] > span,
+.mobileLeadExpandedChannels a[data-status="available"] > span {
+  border-color: color-mix(in srgb, #16a34a 20%, var(--line));
+  background:
+    radial-gradient(circle at 35% 20%, rgba(255, 255, 255, 0.98), transparent 42%),
+    linear-gradient(145deg, #ecfdf5, #bbf7d0);
+  color: #15803d;
+}
+
+.vendasOpenChannels a[data-status="possible"] > span,
+.mobileLeadExpandedChannels a[data-status="possible"] > span {
+  border-color: color-mix(in srgb, #f59e0b 24%, var(--line));
+  background:
+    radial-gradient(circle at 35% 20%, rgba(255, 255, 255, 0.98), transparent 42%),
+    linear-gradient(145deg, #fffbeb, #fde68a);
+  color: #b45309;
+}
+
+.vendasOpenChannels b,
+.mobileLeadExpandedChannels b {
+  max-width: 100%;
+  overflow: hidden;
+  color: currentColor;
+  font-size: 0.68rem;
+  font-weight: 820;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vendasOpenGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.vendasOpenSection {
+  display: grid;
+  min-width: 0;
+  gap: 0.62rem;
+  padding: 0.88rem;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--surface) 86%, var(--background));
+}
+
+.vendasOpenSection h3 {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 0.86rem;
+  font-weight: 900;
+}
+
+.vendasOpenSection p {
+  margin: 0;
+  color: color-mix(in srgb, var(--foreground-soft) 82%, var(--muted));
+  font-size: 0.78rem;
+  font-weight: 680;
+  line-height: 1.45;
+}
+
+.vendasOpenSection > div {
+  display: grid;
+  gap: 0.28rem;
+}
+
+.vendasOpenSection > div > span,
+.vendasOpenOperation label span {
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.vendasOpenSection > div > strong,
+.vendasOpenSection > div > a {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: 0.78rem;
+  font-weight: 820;
+  text-overflow: ellipsis;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.vendasOpenGauge {
+  display: grid;
+  width: 88px;
+  height: 88px;
+  place-items: center;
+  justify-self: center;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at center, color-mix(in srgb, var(--surface) 98%, white 2%) 0 58%, transparent 59%),
+    conic-gradient(#2563eb var(--vendas-open-score, 0%), color-mix(in srgb, var(--line) 78%, transparent) 0);
+}
+
+.vendasOpenGauge strong {
+  color: var(--foreground);
+  font-size: 1.45rem;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.vendasOpenGauge span {
+  margin-top: -1.35rem;
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 800;
+}
+
+.vendasOpenEvidence {
+  display: flex !important;
+  flex-wrap: wrap;
+  gap: 0.42rem !important;
+}
+
+.vendasOpenEvidence span {
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-soft) 88%, var(--surface));
+  color: var(--muted);
+  padding: 0 0.55rem;
+  font-size: 0.68rem;
+  font-weight: 820;
+}
+
+.vendasOpenEvidence span[data-tone="success"] {
+  border-color: rgba(22, 163, 74, 0.2);
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.vendasOpenEvidence span[data-tone="primary"] {
+  border-color: rgba(37, 99, 235, 0.2);
+  background: #eff6ff;
+  color: #0757df;
+}
+
+.vendasOpenEvidence span[data-tone="warning"] {
+  border-color: rgba(245, 158, 11, 0.26);
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.vendasOpenRecommended strong {
+  color: #15803d;
+  font-size: 1rem;
+  font-weight: 950;
+}
+
+.vendasOpenEnrichmentOperation {
+  border-color: rgba(37, 99, 235, 0.18);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(37, 99, 235, 0.08), transparent 42%),
+    color-mix(in srgb, var(--surface) 88%, var(--background));
+}
+
+.vendasOpenEnrichmentOperation > strong {
+  color: #0757df;
+  font-size: 0.98rem;
+  font-weight: 950;
+}
+
+.vendasOpenEnrichmentOperation[data-tone="manual"] > strong {
+  color: #b45309;
+}
+
+.vendasOpenEnrichmentOperation[data-tone="blocked"] > strong {
+  color: #b91c1c;
+}
+
+.vendasOpenEnrichmentOperation[data-tone="ready"] > strong {
+  color: #15803d;
+}
+
+.vendasOpenEnrichmentOperation[data-tone="processing"] {
+  border-color: rgba(37, 99, 235, 0.24);
+}
+
+.vendasOpenMessage,
+.vendasOpenOperation {
+  grid-column: span 2;
+}
+
+.vendasOpenMessage button,
+.vendasOpenOperation button,
+.vendasOpenActions button,
+.vendasOpenActions a {
+  min-height: 40px;
+  border: 1px solid color-mix(in srgb, var(--brand) 26%, var(--line));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--brand) 8%, var(--surface));
+  color: color-mix(in srgb, var(--brand) 82%, var(--foreground));
+  padding: 0 0.86rem;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 850;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.vendasOpenOperation label {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.vendasOpenOperation textarea,
+.vendasOpenOperation input {
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--line) 80%, var(--background));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--field-surface) 96%, var(--background));
+  color: var(--foreground);
+  padding: 0.72rem 0.82rem;
+  font: inherit;
+  font-size: 0.78rem;
+}
+
+.vendasOpenOperation textarea {
+  min-height: 86px;
+  resize: vertical;
+}
+
+.vendasOpenActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.55rem;
+}
+
+.vendasOpenActions a {
+  border-color: color-mix(in srgb, #16a34a 24%, var(--line));
+  background: #16a34a;
+  color: #ffffff;
+}
+
+:global(html[data-theme-mode="dark"]) .vendasOpenCard,
+:global(html[data-theme-mode="dark"]) .vendasOpenSection {
+  border-color: rgba(148, 163, 184, 0.22);
+  background:
+    radial-gradient(circle at 96% 0%, rgba(56, 189, 248, 0.1), transparent 36%),
+    linear-gradient(145deg, rgba(11, 18, 32, 0.96), rgba(4, 16, 34, 0.92));
+}
+
+:global(html[data-theme-mode="dark"]) .vendasOpenChannels a,
+:global(html[data-theme-mode="dark"]) .vendasOpenSection p {
+  color: rgba(226, 234, 248, 0.82);
+}
+
+:global(html[data-theme-mode="dark"]) .vendasOpenIdentity strong,
+:global(html[data-theme-mode="dark"]) .vendasOpenSection h3,
+:global(html[data-theme-mode="dark"]) .vendasOpenSection > div > strong,
+:global(html[data-theme-mode="dark"]) .vendasOpenSection > div > a {
+  color: #f8fafc;
+}
+
+@media (max-width: 820px) {
+  .mobileLeadExpandedChannels {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    padding: 14px;
+    border-radius: 24px !important;
+    border-color: rgba(217, 225, 239, 0.88);
+    background:
+      radial-gradient(circle at 100% 0%, rgba(7, 87, 223, 0.06), transparent 36%),
+      rgba(255, 255, 255, 0.82);
+  }
+
+  .mobileLeadExpandedChannels a > span {
+    width: 48px;
+    height: 48px;
+  }
+
+  .mobileLeadExpandedChannels b {
+    font-size: 0.72rem;
+  }
+
+  .mobileLeadEnrichmentOperation {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 14px 16px;
+    border-radius: 22px !important;
+    border-color: rgba(191, 210, 242, 0.88);
+    background:
+      radial-gradient(circle at 100% 0%, rgba(37, 99, 235, 0.07), transparent 38%),
+      rgba(255, 255, 255, 0.86);
+  }
+
+  .mobileLeadEnrichmentOperation div {
+    display: grid;
+    min-width: 0;
+    gap: 3px;
+  }
+
+  .mobileLeadEnrichmentOperation strong {
+    color: #061743;
+    font-size: 0.9rem;
+    font-weight: 900;
+  }
+
+  .mobileLeadEnrichmentOperation small {
+    color: #59709c;
+    font-size: 0.74rem;
+    font-weight: 700;
+    line-height: 1.25;
+  }
+
+  .mobileLeadEnrichmentOperation b {
+    display: inline-flex;
+    min-height: 34px;
+    align-items: center;
+    border: 1px solid rgba(37, 99, 235, 0.18);
+    border-radius: 999px;
+    background: #eff6ff;
+    color: #0757df;
+    padding: 0 0.72rem;
+    font-size: 0.78rem;
+    font-weight: 900;
+    white-space: nowrap;
+  }
+
+  .mobileLeadEnrichmentOperation[data-tone="manual"] b {
+    border-color: rgba(245, 158, 11, 0.26);
+    background: #fffbeb;
+    color: #b45309;
+  }
+
+  .mobileLeadEnrichmentOperation[data-tone="blocked"] b {
+    border-color: rgba(239, 68, 68, 0.24);
+    background: #fef2f2;
+    color: #b91c1c;
+  }
+
+  .mobileLeadEnrichmentOperation[data-tone="ready"] b {
+    border-color: rgba(22, 163, 74, 0.22);
+    background: #ecfdf5;
+    color: #15803d;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadExpandedChannels {
+    border-color: rgba(255, 214, 102, 0.22) !important;
+    background:
+      radial-gradient(circle at 94% 0%, rgba(255, 214, 102, 0.06), transparent 36%),
+      linear-gradient(145deg, rgba(7, 19, 39, 0.94), rgba(4, 16, 34, 0.9)) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadExpandedChannels a {
+    color: rgba(226, 234, 248, 0.82);
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadExpandedChannels a > span {
+    border-color: rgba(56, 189, 248, 0.32);
+    background:
+      radial-gradient(circle at 35% 20%, rgba(255, 255, 255, 0.14), transparent 42%),
+      linear-gradient(145deg, rgba(17, 71, 128, 0.92), rgba(8, 31, 66, 0.92));
+    color: #dff4ff;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadEnrichmentOperation {
+    border-color: rgba(255, 214, 102, 0.2) !important;
+    background:
+      radial-gradient(circle at 94% 0%, rgba(255, 214, 102, 0.06), transparent 38%),
+      linear-gradient(145deg, rgba(7, 19, 39, 0.94), rgba(4, 16, 34, 0.9)) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadEnrichmentOperation strong {
+    color: #f8fafc;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadEnrichmentOperation small {
+    color: rgba(226, 234, 248, 0.76);
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadEnrichmentOperation b {
+    border-color: rgba(56, 189, 248, 0.3);
+    background: rgba(14, 116, 144, 0.16);
+    color: #7dd3fc;
+  }
+}
+
+/* Final priority layer for Vendas cards. Keep at EOF so it wins over older mobile blocks. */
+@media (max-width: 820px) {
+  .mobileVendasCard {
+    min-height: 128px !important;
+    padding: 12px 13px 11px !important;
+    border-radius: 20px !important;
+    overflow: hidden !important;
+    contain: layout paint;
+  }
+
+  .mobileVendasCardPremiumHeader {
+    grid-template-columns: 48px minmax(0, 1fr) minmax(68px, auto) !important;
+    gap: 9px !important;
+    align-items: center !important;
+  }
+
+  .mobileVendasAvatar {
+    width: 44px !important;
+    height: 44px !important;
+    border-radius: 16px !important;
+  }
+
+  .mobileVendasAvatar span {
+    font-size: 0.78rem !important;
+  }
+
+  .mobileVendasCardTitle strong {
+    font-size: 0.88rem !important;
+    line-height: 1.08 !important;
+    max-height: 2.16em;
+    -webkit-line-clamp: 2 !important;
+  }
+
+  .mobileVendasCardTitle span,
+  .mobileVendasCardTitle em {
+    margin-top: 2px !important;
+    font-size: 0.64rem !important;
+    line-height: 1.1 !important;
+  }
+
+  .mobileVendasProductStack {
+    gap: 5px !important;
+  }
+
+  .mobileVendasProductStack > span {
+    min-width: 54px !important;
+    min-height: 28px !important;
+    border-radius: 10px !important;
+    padding-inline: 0.52rem !important;
+    font-size: 0.66rem !important;
+  }
+
+  .mobileVendasProductStack small {
+    font-size: 0.58rem !important;
+  }
+
+  .mobileVendasCardTitle .mobileLeadEnrichmentCrown {
+    width: 34px !important;
+    height: 34px !important;
+  }
+
+  .mobileVendasClosedBadges {
+    margin-top: 9px !important;
+    padding-bottom: 8px !important;
+    gap: 5px !important;
+  }
+
+  .mobileVendasClosedBadges span {
+    min-height: 22px !important;
+    max-width: 118px;
+    padding-inline: 0.45rem !important;
+    font-size: 0.58rem !important;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .mobileVendasCardMeta {
+    margin-top: 7px !important;
+    gap: 8px !important;
+  }
+
+  .mobileVendasCardMeta > span,
+  .mobileVendasCardMeta small {
+    min-height: 24px !important;
+    font-size: 0.6rem !important;
+  }
+
+  .mobileVendasClosedFooter {
+    margin-top: 8px !important;
+    gap: 8px !important;
+  }
+
+  .mobileVendasClosedFooter > span {
+    font-size: 0.66rem !important;
+  }
+
+  .mobileVendasClosedFooter > span::before {
+    width: 22px !important;
+    height: 22px !important;
+  }
+
+  .mobileVendasClosedFooter > strong {
+    min-height: 32px !important;
+    padding: 0 0.8rem !important;
+    font-size: 0.68rem !important;
+  }
+
+  .mobileLeadHeroPremium {
+    grid-template-columns: minmax(0, 1fr) 82px !important;
+    gap: 10px !important;
+    padding: 14px !important;
+    border-radius: 20px !important;
+  }
+
+  .mobileLeadHeroIdentity {
+    grid-template-columns: 50px minmax(0, 1fr) !important;
+    gap: 10px !important;
+  }
+
+  .mobileLeadHeroIdentity .mobileLeadPlusAvatar {
+    width: 48px !important;
+    height: 48px !important;
+  }
+
+  .mobileLeadHeroIdentity strong {
+    font-size: 0.96rem !important;
+    line-height: 1.06 !important;
+  }
+
+  .mobileLeadHeroIdentity span,
+  .mobileLeadHeroIdentity em {
+    margin-top: 3px !important;
+    font-size: 0.66rem !important;
+  }
+
+  .mobileLeadHeroPremium .mobileLeadScoreBox {
+    min-height: 76px !important;
+    border-radius: 18px !important;
+  }
+
+  .mobileLeadExpandedChannels {
+    grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+    gap: 5px !important;
+    padding: 11px 8px !important;
+  }
+
+  .mobileLeadExpandedChannels a > span {
+    width: 40px !important;
+    height: 40px !important;
+    border-radius: 15px !important;
+  }
+
+  .mobileLeadExpandedChannels .hbxRadarCardIcon {
+    width: 21px !important;
+    height: 21px !important;
+  }
+
+  .mobileLeadExpandedChannels b {
+    font-size: 0.54rem !important;
+    max-width: 48px !important;
+  }
+
+  .mobileLeadContactRows > div {
+    min-height: 46px !important;
+    grid-template-columns: 30px minmax(0, 1fr) auto !important;
+  }
+}
+
+@media (min-width: 821px) {
+  .cardsGrid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 0.74rem !important;
+  }
+
+  .leadCard {
+    min-height: 112px !important;
+    border-radius: 18px !important;
+    cursor: pointer;
+  }
+
+  .leadCard :global([class*="inner"]) {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    align-items: center !important;
+    gap: 1rem !important;
+    padding: 0.86rem 1rem !important;
+  }
+
+  .leadCard :global([class*="header"]) {
+    min-width: 0 !important;
+  }
+
+  .leadCard :global([class*="actions"]) {
+    align-self: center !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .leadCard :global([class*="highlight"]),
+  .leadCard :global([class*="metrics"]),
+  .leadCard :global([class*="extra"]),
+  .leadQuickReadStack {
+    display: none !important;
+  }
+
+  .leadMainButton {
+    width: 100% !important;
+  }
+
+  .vendasClosedCardTop {
+    display: grid !important;
+    grid-template-columns: 58px minmax(260px, 1fr) minmax(250px, 0.9fr) minmax(150px, auto) !important;
+    align-items: center !important;
+    gap: 1rem !important;
+  }
+
+  .vendasClosedAvatar {
+    width: 54px !important;
+    height: 54px !important;
+    border-radius: 16px !important;
+  }
+
+  .leadIdentity {
+    display: grid !important;
+    min-width: 0 !important;
+    gap: 0.18rem !important;
+  }
+
+  .leadEyebrow {
+    font-size: 0.64rem !important;
+    letter-spacing: 0.16em !important;
+  }
+
+  .leadName {
+    max-width: 100% !important;
+    overflow: hidden !important;
+    color: #07153a !important;
+    font-size: 1.02rem !important;
+    font-weight: 850 !important;
+    line-height: 1.08 !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+
+  .leadSubline {
+    display: block !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+    color: #53647e !important;
+    font-size: 0.74rem !important;
+    font-weight: 650 !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+
+  .vendasClosedBadges {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, max-content)) !important;
+    align-content: center !important;
+    justify-content: start !important;
+    gap: 0.36rem !important;
+    margin: 0 !important;
+    overflow: hidden !important;
+  }
+
+  .vendasClosedBadges span {
+    min-height: 26px !important;
+    max-width: 168px !important;
+    padding: 0 0.62rem !important;
+    border-radius: 8px !important;
+    font-size: 0.72rem !important;
+    font-weight: 760 !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+
+  .leadCardChannelRow {
+    display: none !important;
+  }
+
+  .vendasClosedAside {
+    display: grid !important;
+    grid-template-columns: 84px 110px !important;
+    justify-content: end !important;
+    align-items: center !important;
+    gap: 0.46rem 0.72rem !important;
+    min-width: 0 !important;
+  }
+
+  .vendasClosedProduct {
+    min-height: 32px !important;
+    border-radius: 9px !important;
+    font-size: 0.76rem !important;
+  }
+
+  .vendasClosedCredits {
+    justify-content: end !important;
+    color: #d97706 !important;
+    font-size: 0.72rem !important;
+  }
+
+  .returnBadge {
+    grid-column: 1 / -1 !important;
+    justify-self: end !important;
+    min-height: 26px !important;
+    max-width: 190px !important;
+    padding: 0 0.62rem !important;
+    border-radius: 999px !important;
+    font-size: 0.68rem !important;
+  }
+
+  .vendasClosedAside button {
+    display: none !important;
+  }
+
+  .leadActionRow {
+    display: grid !important;
+    grid-template-columns: 110px 88px !important;
+    align-items: center !important;
+    gap: 0.66rem !important;
+    min-width: 210px !important;
+    padding: 0 !important;
+  }
+
+  .leadActionRow a,
+  .leadActionRow button {
+    display: none !important;
+  }
+
+  .leadActionRow .desktopLeadOpenButton,
+  .leadActionRow .whatsappAction {
+    display: inline-flex !important;
+    min-height: 42px !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border-radius: 10px !important;
+    padding: 0 1rem !important;
+    font-size: 0.88rem !important;
+    font-weight: 780 !important;
+    flex: none !important;
+  }
+
+  .leadActionRow .desktopLeadOpenButton {
+    background: #0b7cff !important;
+    color: #fff !important;
+  }
+
+  .leadActionRow .whatsappAction {
+    background: rgba(236, 253, 245, 0.88) !important;
+    color: #047857 !important;
+  }
+
+  .memoryChip {
+    min-height: 23px !important;
+    padding: 0 0.58rem !important;
+    font-size: 0.66rem !important;
+  }
+
+  :global(html[data-theme-mode="dark"]) .leadName,
+  :global(html[data-theme="dark"]) .leadName {
+    color: #f8fafc !important;
+  }
+
+  :global(html[data-theme-mode="dark"]) .leadSubline,
+  :global(html[data-theme="dark"]) .leadSubline {
+    color: rgba(226, 232, 240, 0.76) !important;
+  }
+}
+
+/* HBX Radar card final shape: desktop closed cards are dense operational rows. */
+.vendasClosedPhoneLine {
+  display: none;
+}
+
+@media (min-width: 821px) {
+  .cardsGrid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 0.82rem !important;
+    padding-top: 0.25rem !important;
+  }
+
+  .draggableWrap {
+    height: auto !important;
+  }
+
+  .leadCard {
+    min-height: 118px !important;
+    max-height: 132px !important;
+    height: auto !important;
+    overflow: hidden !important;
+    border-radius: 18px !important;
+    border-color: rgba(65, 91, 124, 0.62) !important;
+    background:
+      radial-gradient(circle at 2% 0%, rgba(12, 135, 255, 0.2), transparent 28%),
+      radial-gradient(circle at 88% 18%, rgba(37, 99, 235, 0.14), transparent 24%),
+      linear-gradient(145deg, rgba(4, 18, 33, 0.98), rgba(8, 23, 39, 0.96)) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      0 22px 44px -34px rgba(4, 18, 33, 0.66) !important;
+    color: #eaf3ff !important;
+    text-rendering: geometricPrecision;
+  }
+
+  .leadCard::before {
+    opacity: 0.52 !important;
+    background:
+      linear-gradient(105deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.04) 18%, transparent 34%),
+      linear-gradient(180deg, rgba(14, 165, 233, 0.1), transparent 46%) !important;
+  }
+
+  .leadCard::after {
+    opacity: 0.42 !important;
+  }
+
+  .leadCard:hover {
+    transform: translate3d(0, -2px, 0) !important;
+    border-color: rgba(0, 132, 255, 0.8) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.12),
+      0 24px 48px -32px rgba(0, 102, 255, 0.46) !important;
+  }
+
+  .leadCard :global([class*="accentRail"]) {
+    inset: 16px auto 16px 12px !important;
+    width: 3px !important;
+    opacity: 0.92 !important;
+  }
+
+  .leadCard :global([class*="glow"]) {
+    opacity: 0.26 !important;
+  }
+
+  .leadCard :global([class*="inner"]) {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) 126px !important;
+    align-items: center !important;
+    gap: 18px !important;
+    padding: 15px 18px 15px 28px !important;
+  }
+
+  .leadCard :global([class*="header"]) {
+    min-width: 0 !important;
+    width: 100% !important;
+  }
+
+  .leadCard :global([class*="actions"]) {
+    align-self: center !important;
+    justify-self: end !important;
+    width: 126px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .leadCard :global([class*="highlight"]),
+  .leadCard :global([class*="metrics"]),
+  .leadCard :global([class*="extra"]),
+  .leadCard :global([class*="cluster"]),
+  .leadQuickReadStack,
+  .leadCardChannelRow {
+    display: none !important;
+  }
+
+  .leadMainButton {
+    width: 100% !important;
+  }
+
+  .vendasClosedCardTop {
+    display: grid !important;
+    grid-template-columns: 72px minmax(250px, 1fr) minmax(240px, 0.82fr) minmax(190px, 0.58fr) !important;
+    align-items: center !important;
+    gap: 18px !important;
+    min-width: 0 !important;
+  }
+
+  .vendasClosedAvatar {
+    width: 62px !important;
+    height: 62px !important;
+    border-radius: 18px !important;
+    border: 1px solid rgba(255, 255, 255, 0.18) !important;
+    background:
+      radial-gradient(circle at 32% 20%, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.22) 42%, transparent 70%),
+      linear-gradient(145deg, rgba(219, 234, 254, 0.98), rgba(125, 151, 255, 0.86)) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.72),
+      0 18px 28px -22px rgba(0, 0, 0, 0.72) !important;
+  }
+
+  .vendasClosedAvatar span {
+    color: #0b42b4 !important;
+    font-size: 0.8rem !important;
+    font-weight: 850 !important;
+  }
+
+  .leadIdentity {
+    display: grid !important;
+    min-width: 0 !important;
+    gap: 3px !important;
+  }
+
+  .leadEyebrow {
+    max-width: max-content !important;
+    color: rgba(125, 211, 252, 0.82) !important;
+    font-size: 0.57rem !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.14em !important;
+  }
+
+  .leadName {
+    display: block !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+    color: #f8fbff !important;
+    font-size: 1.08rem !important;
+    font-weight: 800 !important;
+    line-height: 1.08 !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+
+  .leadSubline {
+    display: block !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+    color: rgba(218, 230, 245, 0.74) !important;
+    font-size: 0.78rem !important;
+    font-weight: 560 !important;
+    line-height: 1.22 !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+
+  .vendasClosedPhoneLine {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 7px !important;
+    width: max-content !important;
+    max-width: 100% !important;
+    margin-top: 4px !important;
+    color: rgba(235, 244, 255, 0.88) !important;
+    font-size: 0.8rem !important;
+    font-weight: 700 !important;
+    line-height: 1 !important;
+    white-space: nowrap !important;
+  }
+
+  .vendasClosedPhoneLine .hbxRadarCardIcon {
+    width: 15px !important;
+    height: 15px !important;
+    color: #9fc4ff !important;
+  }
+
+  .vendasClosedBadges {
+    display: grid !important;
+    grid-template-columns: repeat(1, minmax(0, max-content)) !important;
+    justify-content: start !important;
+    align-content: center !important;
+    gap: 6px !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+  }
+
+  .vendasClosedBadges span {
+    min-height: 28px !important;
+    max-width: 220px !important;
+    justify-content: flex-start !important;
+    gap: 7px !important;
+    padding: 0 10px !important;
+    border-radius: 8px !important;
+    border-color: rgba(35, 178, 91, 0.38) !important;
+    background: rgba(22, 163, 74, 0.13) !important;
+    color: #4ade80 !important;
+    font-size: 0.76rem !important;
+    font-weight: 760 !important;
+    line-height: 1 !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+  }
+
+  .vendasClosedBadges span[data-tone="primary"],
+  .vendasClosedBadges span[data-tone="warning"] {
+    border-color: rgba(34, 211, 238, 0.34) !important;
+    background: rgba(14, 165, 233, 0.12) !important;
+    color: #22d3ee !important;
+  }
+
+  .vendasClosedBadges span[data-tone="premium"] {
+    border-color: rgba(168, 85, 247, 0.42) !important;
+    background: rgba(88, 28, 135, 0.28) !important;
+    color: #e9d5ff !important;
+  }
+
+  .vendasClosedBadges .hbxRadarCardIcon {
+    width: 14px !important;
+    height: 14px !important;
+  }
+
+  .vendasClosedAside {
+    display: grid !important;
+    grid-template-columns: minmax(82px, auto) minmax(94px, auto) !important;
+    justify-content: end !important;
+    align-items: center !important;
+    gap: 8px 12px !important;
+    min-width: 0 !important;
+  }
+
+  .vendasClosedProduct {
+    min-height: 34px !important;
+    border-radius: 10px !important;
+    border: 1px solid rgba(168, 85, 247, 0.52) !important;
+    background:
+      radial-gradient(circle at 28% 12%, rgba(255, 255, 255, 0.18), transparent 42%),
+      rgba(76, 29, 149, 0.48) !important;
+    color: #f5edff !important;
+    padding: 0 13px !important;
+    font-size: 0.82rem !important;
+    font-weight: 820 !important;
+  }
+
+  .vendasClosedCredits {
+    justify-content: end !important;
+    color: #fbbf24 !important;
+    font-size: 0.78rem !important;
+    font-weight: 780 !important;
+    white-space: nowrap !important;
+  }
+
+  .vendasClosedCredits b {
+    color: #f59e0b !important;
+  }
+
+  .returnBadge {
+    grid-column: 1 / -1 !important;
+    justify-self: end !important;
+    min-height: 26px !important;
+    max-width: 190px !important;
+    padding: 0 10px !important;
+    border-radius: 999px !important;
+    border-color: rgba(20, 184, 166, 0.34) !important;
+    background: rgba(20, 184, 166, 0.12) !important;
+    color: #7dd3fc !important;
+    font-size: 0.68rem !important;
+    font-weight: 760 !important;
+  }
+
+  .vendasClosedAside button {
+    display: none !important;
+  }
+
+  .leadActionRow {
+    display: grid !important;
+    grid-template-columns: 126px !important;
+    align-items: center !important;
+    justify-items: stretch !important;
+    gap: 0 !important;
+    width: 126px !important;
+    min-width: 126px !important;
+    padding: 0 !important;
+  }
+
+  .leadActionRow > * {
+    display: none !important;
+  }
+
+  .leadActionRow .desktopLeadOpenButton {
+    display: inline-flex !important;
+    min-height: 42px !important;
+    width: 100% !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border-radius: 10px !important;
+    border-color: rgba(15, 140, 255, 0.78) !important;
+    background:
+      radial-gradient(circle at 30% 15%, rgba(255, 255, 255, 0.22), transparent 42%),
+      linear-gradient(145deg, #0f8cff, #0757df) !important;
+    color: #ffffff !important;
+    padding: 0 18px !important;
+    font-size: 0.92rem !important;
+    font-weight: 800 !important;
+    box-shadow: 0 18px 28px -18px rgba(7, 87, 223, 0.72) !important;
+  }
+
+  .leadActionRow .desktopLeadOpenButton:hover {
+    transform: translateY(-1px) !important;
+  }
+}
+
+@media (max-width: 1180px) and (min-width: 821px) {
+  .vendasClosedCardTop {
+    grid-template-columns: 64px minmax(210px, 1fr) minmax(180px, 0.7fr) minmax(150px, 0.54fr) !important;
+    gap: 14px !important;
+  }
+
+  .vendasClosedAvatar {
+    width: 56px !important;
+    height: 56px !important;
+  }
+
+  .leadName {
+    font-size: 0.98rem !important;
+  }
+
+  .vendasClosedBadges span {
+    max-width: 176px !important;
+    font-size: 0.69rem !important;
+  }
+
+  .vendasClosedAside {
+    grid-template-columns: minmax(72px, auto) !important;
+  }
+
+  .vendasClosedCredits {
+    justify-self: end !important;
+  }
+}
+
+@media (max-width: 820px) {
+  .mobileVendasCard {
+    min-height: 114px !important;
+    padding: 10px 11px 9px !important;
+    border-radius: 18px !important;
+  }
+
+  .mobileVendasCardPremiumHeader {
+    grid-template-columns: 42px minmax(0, 1fr) minmax(58px, auto) !important;
+    gap: 8px !important;
+  }
+
+  .mobileVendasAvatar {
+    width: 39px !important;
+    height: 39px !important;
+    border-radius: 14px !important;
+  }
+
+  .mobileVendasAvatar span {
+    font-size: 0.7rem !important;
+  }
+
+  .mobileVendasCardTitle strong {
+    font-size: 0.78rem !important;
+    line-height: 1.04 !important;
+    max-height: 2.08em !important;
+  }
+
+  .mobileVendasCardTitle span,
+  .mobileVendasCardTitle em {
+    margin-top: 1px !important;
+    font-size: 0.56rem !important;
+    line-height: 1.08 !important;
+  }
+
+  .mobileVendasProductStack > span {
+    min-height: 24px !important;
+    min-width: 50px !important;
+    border-radius: 9px !important;
+    padding-inline: 0.44rem !important;
+    font-size: 0.58rem !important;
+  }
+
+  .mobileVendasProductStack small {
+    font-size: 0.52rem !important;
+  }
+
+  .mobileVendasCardTitle .mobileLeadEnrichmentCrown {
+    width: 30px !important;
+    height: 30px !important;
+  }
+
+  .mobileVendasClosedBadges {
+    margin-top: 7px !important;
+    padding-bottom: 6px !important;
+    gap: 4px !important;
+  }
+
+  .mobileVendasClosedBadges span {
+    min-height: 20px !important;
+    max-width: 102px !important;
+    padding-inline: 0.38rem !important;
+    font-size: 0.52rem !important;
+  }
+
+  .mobileVendasCardMeta {
+    margin-top: 6px !important;
+    gap: 6px !important;
+  }
+
+  .mobileVendasCardMeta > span,
+  .mobileVendasCardMeta small {
+    min-height: 21px !important;
+    padding-inline: 0.42rem !important;
+    font-size: 0.54rem !important;
+  }
+
+  .mobileVendasClosedFooter {
+    margin-top: 7px !important;
+    gap: 7px !important;
+  }
+
+  .mobileVendasClosedFooter > span {
+    font-size: 0.58rem !important;
+  }
+
+  .mobileVendasClosedFooter > span::before {
+    width: 20px !important;
+    height: 20px !important;
+  }
+
+  .mobileVendasClosedFooter > strong {
+    min-height: 29px !important;
+    padding: 0 0.68rem !important;
+    font-size: 0.6rem !important;
+  }
+
+  .mobileLeadHeroPremium {
+    grid-template-columns: minmax(0, 1fr) 72px !important;
+    padding: 12px !important;
+  }
+
+  .mobileLeadHeroIdentity .mobileLeadPlusAvatar {
+    width: 42px !important;
+    height: 42px !important;
+  }
+
+  .mobileLeadHeroIdentity strong {
+    font-size: 0.84rem !important;
+  }
+
+  .mobileLeadHeroIdentity span,
+  .mobileLeadHeroIdentity em {
+    font-size: 0.58rem !important;
+  }
+
+  .mobileLeadHeroPremium .mobileLeadScoreBox {
+    min-height: 68px !important;
+  }
+
+  .mobileLeadExpandedChannels a > span {
+    width: 35px !important;
+    height: 35px !important;
+  }
+
+  .mobileLeadExpandedChannels .hbxRadarCardIcon {
+    width: 19px !important;
+    height: 19px !important;
+  }
+}
+
+/* Final correction: desktop listed card follows observacaolightdesktop/iconslight. */
+@media (min-width: 821px) {
+  .cardsGrid {
+    grid-template-columns: minmax(360px, 520px) !important;
+    align-content: start !important;
+    gap: 0.88rem !important;
+    padding-top: 0.18rem !important;
+  }
+
+  .draggableWrap {
+    height: auto !important;
+  }
+
+  .leadCard {
+    min-height: 164px !important;
+    max-height: 176px !important;
+    height: auto !important;
+    overflow: hidden !important;
+    border-radius: 16px !important;
+    border: 1px solid #d9e2f0 !important;
+    background:
+      radial-gradient(circle at 96% 0%, rgba(37, 99, 235, 0.055), transparent 32%),
+      linear-gradient(180deg, #ffffff 0%, #fbfdff 100%) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.98),
+      0 18px 34px -28px rgba(15, 23, 42, 0.22) !important;
+    color: #07133d !important;
+    cursor: pointer;
+    text-rendering: geometricPrecision;
+  }
+
+  .leadCard:hover {
+    transform: translate3d(0, -2px, 0) !important;
+    border-color: #b7cbef !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 1),
+      0 22px 42px -28px rgba(37, 99, 235, 0.24) !important;
+  }
+
+  .leadCard[data-selected="true"] {
+    border-color: #8db4ff !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 1),
+      0 24px 44px -28px rgba(37, 99, 235, 0.3) !important;
+  }
+
+  .leadCard::before {
+    opacity: 0.5 !important;
+    background:
+      linear-gradient(110deg, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.22) 16%, transparent 34%),
+      radial-gradient(circle at 18% 0%, rgba(37, 99, 235, 0.055), transparent 34%) !important;
+  }
+
+  .leadCard::after,
+  .leadCard :global([class*="accentRail"]),
+  .leadCard :global([class*="glow"]) {
+    display: none !important;
+  }
+
+  .leadCard :global([class*="inner"]) {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-areas:
+      "header"
+      "actions" !important;
+    align-items: stretch !important;
+    gap: 0 !important;
+    padding: 18px 20px 16px !important;
+  }
+
+  .leadCard :global([class*="header"]) {
+    grid-area: header !important;
+    min-width: 0 !important;
+    width: 100% !important;
+  }
+
+  .leadCard :global([class*="actions"]) {
+    grid-area: actions !important;
+    align-self: auto !important;
+    justify-self: stretch !important;
+    width: 100% !important;
+    margin: 14px 0 0 !important;
+    padding-top: 13px !important;
+    border-top: 1px solid #e6edf7 !important;
+  }
+
+  .leadCard :global([class*="highlight"]),
+  .leadCard :global([class*="metrics"]),
+  .leadCard :global([class*="extra"]),
+  .leadCard :global([class*="cluster"]),
+  .leadQuickReadStack,
+  .leadCardChannelRow,
+  .leadEyebrow,
+  .returnBadge {
+    display: none !important;
+  }
+
+  .leadMainButton {
+    width: 100% !important;
+  }
+
+  .vendasClosedCardTop {
+    display: grid !important;
+    grid-template-columns: 74px minmax(0, 1fr) 108px !important;
+    grid-template-areas:
+      "avatar identity aside"
+      "avatar phone aside" !important;
+    align-items: start !important;
+    gap: 8px 16px !important;
+    min-width: 0 !important;
+  }
+
+  .vendasClosedAvatar {
+    grid-area: avatar !important;
+    width: 66px !important;
+    height: 66px !important;
+    border: 1px solid #dbe6f5 !important;
+    border-radius: 10px !important;
+    background:
+      radial-gradient(circle at 34% 22%, rgba(255, 255, 255, 0.9), transparent 44%),
+      linear-gradient(145deg, #0d56bd, #082f8f) !important;
+    color: #ffffff !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.22),
+      0 16px 24px -20px rgba(8, 47, 143, 0.52) !important;
+  }
+
+  .vendasClosedAvatar[data-product="lead"] {
+    background:
+      radial-gradient(circle at 34% 22%, rgba(255, 255, 255, 0.26), transparent 44%),
+      linear-gradient(145deg, #0f4fb1, #082f8f) !important;
+    color: #ffffff !important;
+  }
+
+  .vendasClosedAvatar span {
+    color: inherit !important;
+    font-size: 0.78rem !important;
+    font-weight: 850 !important;
+  }
+
+  .leadIdentity {
+    grid-area: identity !important;
+    display: grid !important;
+    min-width: 0 !important;
+    gap: 5px !important;
+    align-content: start !important;
+  }
+
+  .leadName {
+    display: block !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+    color: #07133d !important;
+    font-size: 1.08rem !important;
+    font-weight: 800 !important;
+    line-height: 1.08 !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+
+  .leadSubline {
+    display: block !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+    color: #64748b !important;
+    font-size: 0.8rem !important;
+    font-weight: 560 !important;
+    line-height: 1.14 !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+
+  .vendasClosedPhoneLine {
+    grid-area: phone !important;
+    display: inline-flex !important;
+    width: max-content !important;
+    max-width: 100% !important;
+    align-items: center !important;
+    gap: 9px !important;
+    align-self: end !important;
+    margin-top: 12px !important;
+    color: #1d2946 !important;
+    font-size: 0.88rem !important;
+    font-weight: 760 !important;
+    line-height: 1 !important;
+    white-space: nowrap !important;
+  }
+
+  .vendasClosedPhoneLine .hbxRadarCardIcon {
+    width: 18px !important;
+    height: 18px !important;
+    color: #64748b !important;
+  }
+
+  .vendasClosedBadges {
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    gap: 8px !important;
+    min-width: 0 !important;
+    margin-top: 8px !important;
+    overflow: hidden !important;
+  }
+
+  .vendasClosedBadges span {
+    min-height: 28px !important;
+    max-width: 176px !important;
+    justify-content: center !important;
+    gap: 7px !important;
+    padding: 0 10px !important;
+    border-radius: 8px !important;
+    border: 1px solid #d9e4f2 !important;
+    background: #f5f8fd !important;
+    color: #536174 !important;
+    font-size: 0.72rem !important;
+    font-weight: 740 !important;
+    line-height: 1 !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+    box-shadow: none !important;
+  }
+
+  .vendasClosedBadges span[data-tone="success"] {
+    border-color: #c9ead8 !important;
+    background: #eafbf2 !important;
+    color: #10934b !important;
+  }
+
+  .vendasClosedBadges span[data-tone="primary"],
+  .vendasClosedBadges span[data-tone="warning"] {
+    border-color: #dce6f5 !important;
+    background: #f5f7fb !important;
+    color: #536174 !important;
+  }
+
+  .vendasClosedBadges span[data-tone="premium"] {
+    border-color: #d8e2ff !important;
+    background: #eef3ff !important;
+    color: #1454d6 !important;
+  }
+
+  .vendasClosedBadges .hbxRadarCardIcon {
+    width: 15px !important;
+    height: 15px !important;
+  }
+
+  .vendasClosedAside {
+    grid-area: aside !important;
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    align-content: start !important;
+    justify-items: stretch !important;
+    gap: 10px !important;
+    min-width: 0 !important;
+  }
+
+  .vendasClosedProduct {
+    min-height: 32px !important;
+    border-radius: 8px !important;
+    border: 1px solid #d8e2ff !important;
+    background: #eef3ff !important;
+    color: #1454d6 !important;
+    padding: 0 12px !important;
+    font-size: 0.82rem !important;
+    font-weight: 800 !important;
+  }
+
+  .vendasClosedProduct[data-product="lead"] {
+    border-color: #d8e2ff !important;
+    background: #eef3ff !important;
+    color: #1454d6 !important;
+  }
+
+  .vendasClosedCredits {
+    justify-content: end !important;
+    color: #e27b00 !important;
+    font-size: 0.82rem !important;
+    font-weight: 760 !important;
+    white-space: nowrap !important;
+  }
+
+  .vendasClosedCredits b {
+    color: #f59e0b !important;
+    font-size: 1rem !important;
+  }
+
+  .vendasClosedAside button {
+    display: none !important;
+  }
+
+  .leadActionRow {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 0.74fr) 102px !important;
+    align-items: center !important;
+    gap: 9px !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    padding: 0 !important;
+  }
+
+  .leadActionRow > * {
+    display: none !important;
+  }
+
+  .leadActionRow .desktopLeadOpenButton,
+  .leadActionRow .whatsappAction {
+    display: inline-flex !important;
+    min-height: 38px !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border-radius: 8px !important;
+    padding: 0 12px !important;
+    font-size: 0.82rem !important;
+    font-weight: 780 !important;
+    box-shadow: none !important;
+  }
+
+  .leadActionRow .whatsappAction {
+    grid-column: 1 !important;
+    justify-content: flex-start !important;
+    gap: 7px !important;
+    border-color: #c9ead8 !important;
+    background: #eafbf2 !important;
+    color: #10934b !important;
+  }
+
+  .leadActionRow .whatsappAction::before {
+    content: "";
+    width: 15px;
+    height: 15px;
+    border-radius: 999px;
+    background: currentColor;
+    -webkit-mask: url("/assets/hbx-radar-cards/hbx-radar-card-icons.svg#hbx-icon-whatsapp");
+    mask: url("/assets/hbx-radar-cards/hbx-radar-card-icons.svg#hbx-icon-whatsapp");
+  }
+
+  .leadActionRow .whatsappUnavailable {
+    border-color: #e5e7eb !important;
+    background: #f6f7f9 !important;
+    color: #64748b !important;
+  }
+
+  .leadActionRow .desktopLeadOpenButton {
+    grid-column: 3 !important;
+    border: 1px solid #9dbbfb !important;
+    background: #ffffff !important;
+    color: #0757df !important;
+  }
+
+  .leadActionRow .desktopLeadOpenButton::after {
+    content: "›";
+    margin-left: 8px;
+    font-size: 1.28rem;
+    line-height: 0;
+  }
+
+  :global(html[data-theme-mode="dark"]) .leadCard,
+  :global(html[data-theme="dark"]) .leadCard {
+    border-color: rgba(148, 163, 184, 0.26) !important;
+    background:
+      radial-gradient(circle at 96% 0%, rgba(37, 99, 235, 0.12), transparent 32%),
+      linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(10, 20, 36, 0.94)) !important;
+    color: #f8fafc !important;
+  }
+
+  :global(html[data-theme-mode="dark"]) .leadName,
+  :global(html[data-theme="dark"]) .leadName {
+    color: #f8fafc !important;
+  }
+
+  :global(html[data-theme-mode="dark"]) .leadSubline,
+  :global(html[data-theme="dark"]) .leadSubline,
+  :global(html[data-theme-mode="dark"]) .vendasClosedPhoneLine,
+  :global(html[data-theme="dark"]) .vendasClosedPhoneLine {
+    color: rgba(226, 234, 248, 0.78) !important;
+  }
+}
+
+/* Open desktop detail: large premium card, matching the clicked state reference. */
+@media (min-width: 821px) {
+  .detailPanel {
+    min-width: 0 !important;
+  }
+
+  .detailLayout {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 0.86rem !important;
+  }
+
+  .vendasOpenCard {
+    width: 100% !important;
+    border: 1px solid #dce5f2 !important;
+    border-radius: 16px !important;
+    background:
+      radial-gradient(circle at 96% 0%, rgba(37, 99, 235, 0.055), transparent 32%),
+      linear-gradient(180deg, #ffffff, #fbfdff) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.98),
+      0 22px 44px -30px rgba(15, 23, 42, 0.2) !important;
+    padding: 22px !important;
+  }
+
+  .vendasOpenHeader {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    align-items: start !important;
+    gap: 18px !important;
+    padding-bottom: 16px !important;
+    border-bottom: 1px solid #e5ebf4 !important;
+  }
+
+  .vendasOpenIdentity {
+    display: grid !important;
+    grid-template-columns: 82px minmax(0, 1fr) !important;
+    gap: 16px !important;
+    align-items: center !important;
+  }
+
+  .vendasOpenIdentity .vendasClosedAvatar {
+    width: 74px !important;
+    height: 74px !important;
+    border-radius: 10px !important;
+  }
+
+  .vendasOpenIdentity strong {
+    color: #07133d !important;
+    font-size: 1.5rem !important;
+    font-weight: 800 !important;
+    line-height: 1.06 !important;
+  }
+
+  .vendasOpenIdentity span {
+    color: #64748b !important;
+    font-size: 0.9rem !important;
+  }
+
+  .vendasOpenIdentity small {
+    color: #64748b !important;
+    font-size: 0.74rem !important;
+  }
+
+  .vendasOpenProduct {
+    display: grid !important;
+    justify-items: end !important;
+    gap: 8px !important;
+  }
+
+  .vendasOpenProduct span {
+    min-height: 36px !important;
+    border-radius: 8px !important;
+    border: 1px solid #d8e2ff !important;
+    background: #eef3ff !important;
+    color: #1454d6 !important;
+    padding: 0 16px !important;
+    font-size: 0.9rem !important;
+    font-weight: 800 !important;
+  }
+
+  .vendasOpenProduct b {
+    color: #e27b00 !important;
+    font-size: 0.86rem !important;
+  }
+
+  .vendasOpenCard > .vendasClosedBadges {
+    margin: 14px 0 18px !important;
+  }
+
+  .vendasOpenChannels {
+    display: grid !important;
+    grid-template-columns: repeat(6, minmax(74px, 1fr)) !important;
+    gap: 12px !important;
+    padding: 18px 0 20px !important;
+    border-bottom: 1px solid #e5ebf4 !important;
+  }
+
+  .vendasOpenChannels a {
+    display: grid !important;
+    justify-items: center !important;
+    gap: 8px !important;
+    color: #07133d !important;
+    text-decoration: none !important;
+  }
+
+  .vendasOpenChannels a > span {
+    width: 56px !important;
+    height: 56px !important;
+    border: 1px solid #dfe7f2 !important;
+    border-radius: 999px !important;
+    background: #ffffff !important;
+    box-shadow: 0 14px 26px -22px rgba(15, 23, 42, 0.22) !important;
+  }
+
+  .vendasOpenChannels .hbxRadarCardIcon {
+    width: 30px !important;
+    height: 30px !important;
+  }
+
+  .vendasOpenChannels b {
+    font-size: 0.78rem !important;
+    font-weight: 680 !important;
+  }
+
+  .vendasOpenGrid {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 12px !important;
+    margin-top: 16px !important;
+  }
+
+  .vendasOpenSection {
+    min-height: 0 !important;
+    border: 1px solid #dfe7f2 !important;
+    border-radius: 12px !important;
+    background:
+      radial-gradient(circle at 94% 0%, rgba(37, 99, 235, 0.035), transparent 34%),
+      #ffffff !important;
+    box-shadow: none !important;
+    padding: 16px !important;
+  }
+
+  .vendasOpenSection h3 {
+    color: #07133d !important;
+    font-size: 0.94rem !important;
+    font-weight: 780 !important;
+  }
+
+  .vendasOpenSection p,
+  .vendasOpenSection small {
+    color: #475569 !important;
+    font-size: 0.82rem !important;
+    line-height: 1.38 !important;
+  }
+
+  .vendasOpenInsight,
+  .vendasOpenRecommended,
+  .vendasOpenMessage,
+  .vendasOpenOperation {
+    grid-column: span 1 !important;
+  }
+
+  .vendasOpenActions {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto auto !important;
+    gap: 12px !important;
+    margin-top: 18px !important;
+    padding-top: 16px !important;
+    border-top: 1px solid #e5ebf4 !important;
+  }
+
+  .vendasOpenActions button,
+  .vendasOpenActions a {
+    min-height: 42px !important;
+    border-radius: 8px !important;
+    font-size: 0.84rem !important;
+    font-weight: 780 !important;
+  }
+
+  .vendasOpenActions a {
+    border-color: #1d6ff2 !important;
+    background: #1d6ff2 !important;
+    color: #ffffff !important;
+  }
+
+  .timelineSection {
+    width: 100% !important;
+    border-radius: 16px !important;
+    border-color: #dfe7f2 !important;
+    background: #ffffff !important;
+  }
+}
+
+/* Desktop interaction: centered list collapses left and reveals the rich card. */
+@media (min-width: 821px) {
+  .stageGrid {
+    display: grid !important;
+    grid-template-columns: 74px minmax(0, 1fr) minmax(0, 0fr) !important;
+    justify-content: stretch !important;
+    align-items: start !important;
+    gap: 0.9rem !important;
+    transition:
+      grid-template-columns 620ms cubic-bezier(0.16, 1, 0.3, 1),
+      gap 620ms cubic-bezier(0.16, 1, 0.3, 1) !important;
+  }
+
+  .stageGrid[data-detail-open="true"] {
+    grid-template-columns: 74px minmax(390px, 520px) minmax(560px, 1fr) !important;
+    justify-content: stretch !important;
+    gap: 1.05rem !important;
+  }
+
+  .stageMain {
+    min-width: 0 !important;
+    transform: translate3d(0, 0, 0) !important;
+    transition:
+      transform 620ms cubic-bezier(0.16, 1, 0.3, 1),
+      opacity 420ms ease !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .stageMain {
+    transform: translate3d(-2px, 0, 0) !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .boardShell {
+    width: 100% !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .cardsGrid {
+    width: 100% !important;
+    grid-template-columns: repeat(auto-fit, minmax(390px, 1fr)) !important;
+  }
+
+  .stageAside {
+    display: block !important;
+    min-width: 0 !important;
+    max-width: 0 !important;
+    overflow: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    transform: translate3d(30px, 0, 0) scale(0.985) !important;
+    transform-origin: left top !important;
+    transition:
+      opacity 420ms ease,
+      transform 620ms cubic-bezier(0.16, 1, 0.3, 1),
+      max-width 620ms cubic-bezier(0.16, 1, 0.3, 1) !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .stageAside {
+    max-width: 100% !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    transform: translate3d(0, 0, 0) scale(1) !important;
+  }
+
+  .boardShell {
+    width: min(520px, 100%) !important;
+    justify-self: stretch !important;
+    padding: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+    transition:
+      width 620ms cubic-bezier(0.16, 1, 0.3, 1),
+      transform 620ms cubic-bezier(0.16, 1, 0.3, 1) !important;
+  }
+
+  .detailPanel {
+    position: sticky !important;
+    top: calc(var(--topbar-total-height) + 12px) !important;
+    padding: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+  }
+
+  .cardsGrid {
+    width: 100% !important;
+    grid-template-columns: repeat(auto-fit, minmax(390px, 1fr)) !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .cardsGrid {
+    width: min(520px, 100%) !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .leadCard {
+    will-change: transform, border-color, box-shadow !important;
+  }
+
+  .leadCard[data-selected="true"] {
+    transform: translate3d(0, -2px, 0) scale(1.006) !important;
+  }
+
+  .vendasOpenCard {
+    animation: vendasDetailReveal 620ms cubic-bezier(0.16, 1, 0.3, 1) both !important;
+  }
+}
+
+@keyframes vendasDetailReveal {
+  from {
+    opacity: 0;
+    transform: translate3d(28px, 0, 0) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+/* Selector fixes after enabling the split layout. */
+@media (min-width: 821px) {
+  .leadCard {
+    min-height: 184px !important;
+    max-height: 196px !important;
+  }
+
+  .leadCard :global([class*="inner"]) {
+    position: relative !important;
+    min-height: 150px !important;
+    box-sizing: border-box !important;
+    height: 100% !important;
+    min-height: 158px !important;
+    padding: 18px 20px 58px !important;
+  }
+
+  .leadCard :global([class*="actions"]) {
+    position: absolute !important;
+    inset: auto 20px 16px 20px !important;
+    right: 20px !important;
+    bottom: 16px !important;
+    left: 20px !important;
+    width: auto !important;
+    margin: 0 !important;
+    padding-top: 12px !important;
+  }
+
+  .vendasClosedCardTop {
+    grid-template-areas: "avatar identity aside" !important;
+    grid-template-rows: auto !important;
+    align-items: center !important;
+    max-height: 78px !important;
+    overflow: visible !important;
+  }
+
+  .leadIdentity {
+    width: 100% !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    align-content: center !important;
+  }
+
+  .leadIdentity .leadName,
+  .leadIdentity .leadSubline {
+    width: 100% !important;
+    min-width: 0 !important;
+    justify-self: stretch !important;
+  }
+
+  .leadIdentity .leadName {
+    font-size: 1rem !important;
+  }
+
+  .leadIdentity .vendasClosedPhoneLine {
+    grid-area: auto !important;
+    margin-top: 12px !important;
+  }
+
+  .leadIdentity .vendasClosedBadges {
+    display: none !important;
+  }
+
+  .leadActionRow {
+    grid-template-columns: minmax(0, 1fr) 102px !important;
+    min-height: 38px !important;
+  }
+
+  .leadActionRow .desktopLeadOpenButton {
+    grid-column: 2 !important;
+  }
+
+  .leadActionRow .whatsappAction {
+    grid-column: 1 !important;
+  }
+
+  .vendasOpenIdentity .vendasClosedAvatar {
+    grid-area: auto !important;
+  }
+
+  .vendasOpenIdentity > div:last-child {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .vendasOpenIdentity strong,
+  .vendasOpenIdentity span,
+  .vendasOpenIdentity small {
+    display: block !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+
+  .vendasOpenIdentity strong {
+    white-space: nowrap !important;
+  }
+
+  .leadCard .vendasClosedAside {
+    grid-area: aside !important;
+    grid-column: aside !important;
+    grid-row: auto !important;
+    align-self: start !important;
+  }
+
+  .leadCard .leadIdentity {
+    grid-area: identity !important;
+    grid-column: identity !important;
+  }
+
+  .leadCard :global([class*="actions"]) {
+    top: auto !important;
+    bottom: 16px !important;
+  }
+
+  .leadCard :global([class*="actions"]) {
+    inset: 4px 20px auto 20px !important;
+    top: 4px !important;
+    bottom: auto !important;
+  }
+
+  .leadActionRow .whatsappUnavailable {
+    display: none !important;
+  }
+
+  .leadActionRow .whatsappUnavailable + a {
+    display: none !important;
+  }
+
+  .leadActionRow > :not(.desktopLeadOpenButton) {
+    display: none !important;
+  }
+
+  .leadActionRow {
+    grid-template-columns: minmax(0, 1fr) 102px !important;
+  }
+
+  .leadActionRow .desktopLeadOpenButton {
+    grid-column: 2 !important;
+  }
+}
+
+/* Desktop polish pass: compact list cards and richer open details. */
+@media (min-width: 821px) {
+  .stageGrid[data-detail-open="false"] .cardsGrid {
+    grid-template-columns: repeat(auto-fit, minmax(340px, 410px)) !important;
+    justify-content: start !important;
+    gap: 0.86rem !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .leadCard {
+    min-height: 166px !important;
+    max-height: 176px !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .leadCard :global([class*="inner"]) {
+    min-height: 144px !important;
+    padding: 16px 16px 52px !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .vendasClosedCardTop {
+    grid-template-columns: 68px minmax(0, 1fr) 92px !important;
+    gap: 8px 13px !important;
+    max-height: 70px !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .vendasClosedAvatar {
+    width: 58px !important;
+    height: 58px !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .leadIdentity .leadName {
+    font-size: 0.93rem !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .leadSubline {
+    font-size: 0.72rem !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .vendasClosedPhoneLine {
+    margin-top: 9px !important;
+    font-size: 0.8rem !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .vendasClosedProduct {
+    min-height: 30px !important;
+    padding: 0 10px !important;
+    font-size: 0.76rem !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .vendasClosedCredits {
+    font-size: 0.72rem !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .leadCard :global([class*="actions"]) {
+    inset: 2px 16px auto 16px !important;
+    top: 2px !important;
+    padding-top: 10px !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .leadActionRow {
+    grid-template-columns: minmax(0, 1fr) 92px !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .leadActionRow .desktopLeadOpenButton {
+    min-height: 34px !important;
+    font-size: 0.76rem !important;
+  }
+
+  .vendasOpenCard {
+    position: relative !important;
+    overflow: hidden !important;
+    padding: 18px !important;
+    border-color: #cfdcf0 !important;
+    background:
+      radial-gradient(circle at 92% 0%, rgba(37, 99, 235, 0.09), transparent 28%),
+      radial-gradient(circle at 0% 100%, rgba(20, 184, 166, 0.06), transparent 30%),
+      linear-gradient(180deg, #ffffff 0%, #f8fbff 100%) !important;
+  }
+
+  .vendasOpenCard::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      linear-gradient(110deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.12) 20%, transparent 38%),
+      radial-gradient(circle at 24% 12%, rgba(37, 99, 235, 0.06), transparent 22%);
+  }
+
+  .vendasOpenCard > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .vendasOpenHeader {
+    padding-bottom: 13px !important;
+  }
+
+  .vendasOpenIdentity {
+    grid-template-columns: 70px minmax(0, 1fr) !important;
+    gap: 14px !important;
+  }
+
+  .vendasOpenIdentity .vendasClosedAvatar {
+    width: 64px !important;
+    height: 64px !important;
+  }
+
+  .vendasOpenIdentity strong {
+    font-size: 1.28rem !important;
+  }
+
+  .vendasOpenProduct {
+    grid-template-columns: auto auto !important;
+    align-items: start !important;
+    justify-items: end !important;
+    gap: 6px 8px !important;
+  }
+
+  .vendasOpenProduct span {
+    min-height: 32px !important;
+    padding: 0 13px !important;
+    font-size: 0.82rem !important;
+  }
+
+  .vendasOpenProduct b {
+    grid-column: 1 / -1 !important;
+    font-size: 0.78rem !important;
+  }
+
+  .vendasOpenCloseButton {
+    display: inline-grid;
+    width: 32px;
+    height: 32px;
+    place-items: center;
+    border: 1px solid #d7e2f1;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.92);
+    color: #315174;
+    cursor: pointer;
+    box-shadow: 0 12px 24px -20px rgba(15, 23, 42, 0.26);
+    transition:
+      transform 220ms cubic-bezier(0.2, 0.82, 0.2, 1),
+      border-color 220ms ease,
+      background 220ms ease;
+  }
+
+  .vendasOpenCloseButton:hover {
+    transform: translateY(-1px);
+    border-color: #9dbbfb;
+    background: #ffffff;
+    color: #0757df;
+  }
+
+  .vendasOpenCloseButton span {
+    font-size: 1.15rem;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  .vendasOpenCard > .vendasClosedBadges {
+    margin: 12px 0 10px !important;
+  }
+
+  .vendasOpenChannels {
+    grid-template-columns: repeat(6, minmax(58px, 1fr)) !important;
+    gap: 8px !important;
+    padding: 12px 0 14px !important;
+  }
+
+  .vendasOpenChannels a > span {
+    width: 48px !important;
+    height: 48px !important;
+  }
+
+  .vendasOpenChannels .hbxRadarCardIcon {
+    width: 27px !important;
+    height: 27px !important;
+  }
+
+  .vendasOpenChannels b {
+    font-size: 0.72rem !important;
+  }
+
+  .vendasOpenGrid {
+    grid-template-columns: minmax(220px, 0.92fr) minmax(220px, 0.9fr) minmax(260px, 1.18fr) !important;
+    gap: 10px !important;
+    margin-top: 12px !important;
+  }
+
+  .vendasOpenSection {
+    position: relative;
+    align-content: start !important;
+    gap: 8px !important;
+    padding: 13px !important;
+    border-color: #d9e4f2 !important;
+    background:
+      radial-gradient(circle at 100% 0%, rgba(37, 99, 235, 0.055), transparent 32%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(249, 252, 255, 0.92)) !important;
+  }
+
+  .vendasOpenSection h3 {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    margin: 0 0 4px !important;
+    font-size: 0.86rem !important;
+  }
+
+  .vendasOpenSection h3 .hbxRadarCardIcon {
+    width: 18px !important;
+    height: 18px !important;
+    color: #0757df !important;
+  }
+
+  .vendasOpenSection > div {
+    min-height: 24px !important;
+    grid-template-columns: 74px minmax(0, 1fr) !important;
+    gap: 8px !important;
+    border-bottom: 1px dashed rgba(148, 163, 184, 0.28);
+    padding-bottom: 5px;
+  }
+
+  .vendasOpenSection > div:last-child {
+    border-bottom: 0;
+    padding-bottom: 0;
+  }
+
+  .vendasOpenSection > div > span {
+    color: #526987 !important;
+    font-size: 0.66rem !important;
+  }
+
+  .vendasOpenSection > div > strong,
+  .vendasOpenSection > div > a {
+    font-size: 0.74rem !important;
+  }
+
+  .vendasOpenQuality {
+    grid-template-columns: 120px minmax(0, 1fr) !important;
+    align-items: center !important;
+  }
+
+  .vendasOpenQuality h3 {
+    grid-column: 1 / -1;
+  }
+
+  .vendasOpenGauge {
+    width: 86px !important;
+    height: 86px !important;
+    justify-self: center !important;
+  }
+
+  .vendasOpenGauge strong {
+    font-size: 1rem !important;
+  }
+
+  .vendasOpenEvidence {
+    display: grid !important;
+    gap: 7px !important;
+  }
+
+  .vendasOpenEvidence span {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    color: #1f4d78 !important;
+    font-size: 0.78rem !important;
+  }
+
+  .vendasOpenEvidence span::before {
+    content: "";
+    width: 14px;
+    height: 14px;
+    border-radius: 999px;
+    background: #16a34a;
+    box-shadow: inset 0 0 0 3px #e9fbf1;
+  }
+
+  .vendasOpenInsight,
+  .vendasOpenRecommended,
+  .vendasOpenEnrichmentOperation {
+    min-height: 106px !important;
+  }
+
+  .vendasOpenRecommended strong,
+  .vendasOpenEnrichmentOperation strong {
+    color: #12813f !important;
+    font-size: 0.95rem !important;
+  }
+
+  .vendasOpenMessage,
+  .vendasOpenOperation {
+    grid-column: span 3 !important;
+  }
+
+  .vendasOpenOperation {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1.35fr) minmax(180px, 0.65fr) minmax(220px, 0.8fr) auto !important;
+    align-items: end !important;
+    gap: 10px !important;
+  }
+
+  .vendasOpenOperation h3 {
+    grid-column: 1 / -1 !important;
+  }
+
+  .vendasOpenOperation label {
+    display: grid;
+    gap: 5px;
+  }
+
+  .vendasOpenOperation label span {
+    color: #526987;
+    font-size: 0.68rem;
+    font-weight: 800;
+    text-transform: uppercase;
+  }
+
+  .vendasOpenOperation textarea,
+  .vendasOpenOperation input {
+    min-height: 38px;
+    border: 1px solid #d9e4f2;
+    border-radius: 10px;
+    background: #ffffff;
+    color: #07133d;
+    padding: 8px 10px;
+    font: inherit;
+    font-size: 0.78rem;
+    box-shadow: inset 0 1px 0 rgba(15, 23, 42, 0.03);
+  }
+
+  .vendasOpenOperation textarea {
+    min-height: 74px;
+    resize: vertical;
+  }
+
+  .vendasOpenOperation button {
+    min-height: 38px;
+    border: 1px solid #1d6ff2;
+    border-radius: 10px;
+    background: #1d6ff2;
+    color: #ffffff;
+    padding: 0 14px;
+    font-size: 0.78rem;
+    font-weight: 800;
+    cursor: pointer;
+  }
+
+  .vendasOpenActions {
+    margin-top: 12px !important;
+    padding-top: 12px !important;
+  }
+
+  :global(html[data-theme-mode="dark"]) .vendasOpenCard,
+  :global(html[data-theme="dark"]) .vendasOpenCard {
+    border-color: rgba(0, 132, 255, 0.48) !important;
+    background:
+      radial-gradient(circle at 92% 0%, rgba(14, 165, 233, 0.14), transparent 28%),
+      linear-gradient(180deg, rgba(8, 20, 36, 0.98), rgba(4, 13, 27, 0.96)) !important;
+  }
+
+  :global(html[data-theme-mode="dark"]) .vendasOpenSection,
+  :global(html[data-theme="dark"]) .vendasOpenSection {
+    border-color: rgba(148, 163, 184, 0.22) !important;
+    background:
+      radial-gradient(circle at 100% 0%, rgba(14, 165, 233, 0.08), transparent 32%),
+      rgba(10, 24, 42, 0.86) !important;
+  }
+
+  :global(html[data-theme-mode="dark"]) .vendasOpenCloseButton,
+  :global(html[data-theme="dark"]) .vendasOpenCloseButton {
+    border-color: rgba(148, 190, 255, 0.28);
+    background: rgba(15, 23, 42, 0.78);
+    color: #dbeafe;
+  }
+}
+
+/* Aggressive desktop cockpit mode: independent left/right panes, no shared height. */
+@media (min-width: 821px) {
+  .stageGrid[data-detail-open="true"] {
+    height: clamp(500px, calc(100vh - 354px), 680px) !important;
+    min-height: 0 !important;
+    align-items: stretch !important;
+    overflow: hidden !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .stageMain,
+  .stageGrid[data-detail-open="true"] .stageAside,
+  .stageGrid[data-detail-open="true"] .boardShell,
+  .stageGrid[data-detail-open="true"] .detailPanel,
+  .stageGrid[data-detail-open="true"] .detailLayout {
+    min-height: 0 !important;
+    height: 100% !important;
+    overflow: hidden !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .cardsGrid {
+    max-height: 100% !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    align-content: start !important;
+    gap: 0.64rem !important;
+    padding: 0 7px 18px 0 !important;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(37, 99, 235, 0.42) transparent;
+  }
+
+  .stageGrid[data-detail-open="true"] .cardsGrid::-webkit-scrollbar,
+  .stageGrid[data-detail-open="true"] .vendasOpenCard::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .stageGrid[data-detail-open="true"] .cardsGrid::-webkit-scrollbar-thumb,
+  .stageGrid[data-detail-open="true"] .vendasOpenCard::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: rgba(37, 99, 235, 0.32);
+  }
+
+  .stageGrid[data-detail-open="true"] .timelineSection {
+    display: none !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenCard {
+    height: 100% !important;
+    max-height: 100% !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    padding: 14px !important;
+    border-radius: 14px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .leadCard {
+    min-height: 126px !important;
+    max-height: 134px !important;
+    border-radius: 13px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .leadCard :global([class*="inner"]) {
+    min-height: 112px !important;
+    padding: 12px 14px 44px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasClosedCardTop {
+    grid-template-columns: 54px minmax(0, 1fr) 80px !important;
+    gap: 7px 10px !important;
+    max-height: 56px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasClosedAvatar {
+    width: 48px !important;
+    height: 48px !important;
+    border-radius: 12px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .leadIdentity .leadName {
+    font-size: 0.82rem !important;
+    line-height: 1.04 !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .leadSubline {
+    font-size: 0.62rem !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasClosedPhoneLine {
+    margin-top: 6px !important;
+    gap: 6px !important;
+    font-size: 0.68rem !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasClosedPhoneLine .hbxRadarCardIcon {
+    width: 13px !important;
+    height: 13px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasClosedProduct {
+    min-height: 25px !important;
+    padding: 0 8px !important;
+    font-size: 0.66rem !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasClosedCredits {
+    font-size: 0.61rem !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .leadCard :global([class*="actions"]) {
+    inset: -2px 14px auto 14px !important;
+    padding-top: 8px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .leadActionRow {
+    grid-template-columns: minmax(0, 1fr) 84px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .leadActionRow .desktopLeadOpenButton {
+    min-height: 30px !important;
+    border-radius: 8px !important;
+    font-size: 0.68rem !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenHeader {
+    padding-bottom: 10px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenIdentity {
+    grid-template-columns: 58px minmax(0, 1fr) !important;
+    gap: 11px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenIdentity .vendasClosedAvatar {
+    width: 52px !important;
+    height: 52px !important;
+    border-radius: 11px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenIdentity strong {
+    font-size: 1.06rem !important;
+    line-height: 1.02 !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenIdentity span {
+    font-size: 0.74rem !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenIdentity small {
+    font-size: 0.62rem !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenProduct span {
+    min-height: 28px !important;
+    padding: 0 10px !important;
+    font-size: 0.72rem !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenProduct b {
+    font-size: 0.66rem !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenCloseButton {
+    width: 28px !important;
+    height: 28px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenCard > .vendasClosedBadges {
+    margin: 8px 0 8px !important;
+    gap: 6px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenCard > .vendasClosedBadges span {
+    min-height: 24px !important;
+    padding: 0 8px !important;
+    font-size: 0.66rem !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenChannels {
+    grid-template-columns: repeat(6, minmax(50px, 1fr)) !important;
+    gap: 6px !important;
+    padding: 8px 0 10px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenChannels a {
+    gap: 5px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenChannels a > span {
+    width: 38px !important;
+    height: 38px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenChannels .hbxRadarCardIcon {
+    width: 22px !important;
+    height: 22px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenChannels b {
+    font-size: 0.62rem !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenGrid {
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 0.8fr) minmax(0, 1.05fr) !important;
+    gap: 8px !important;
+    margin-top: 8px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenSection {
+    min-height: 0 !important;
+    gap: 5px !important;
+    padding: 10px !important;
+    border-radius: 10px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenSection h3 {
+    gap: 6px !important;
+    margin-bottom: 2px !important;
+    font-size: 0.74rem !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenSection h3 .hbxRadarCardIcon {
+    width: 15px !important;
+    height: 15px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenSection > div {
+    min-height: 19px !important;
+    grid-template-columns: 58px minmax(0, 1fr) !important;
+    gap: 6px !important;
+    padding-bottom: 3px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenSection > div > span {
+    font-size: 0.56rem !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenSection > div > strong,
+  .stageGrid[data-detail-open="true"] .vendasOpenSection > div > a,
+  .stageGrid[data-detail-open="true"] .vendasOpenSection p,
+  .stageGrid[data-detail-open="true"] .vendasOpenSection small {
+    font-size: 0.64rem !important;
+    line-height: 1.22 !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenGauge {
+    width: 62px !important;
+    height: 62px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenGauge strong {
+    font-size: 0.78rem !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenGauge span {
+    font-size: 0.48rem !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenQuality {
+    grid-template-columns: 74px minmax(0, 1fr) !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenEvidence {
+    gap: 4px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenEvidence span {
+    gap: 5px !important;
+    font-size: 0.64rem !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenEvidence span::before {
+    width: 10px !important;
+    height: 10px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenInsight,
+  .stageGrid[data-detail-open="true"] .vendasOpenRecommended,
+  .stageGrid[data-detail-open="true"] .vendasOpenEnrichmentOperation {
+    min-height: 72px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenRecommended strong,
+  .stageGrid[data-detail-open="true"] .vendasOpenEnrichmentOperation strong {
+    font-size: 0.74rem !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenMessage {
+    display: none !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenOperation {
+    grid-column: span 3 !important;
+    grid-template-columns: minmax(0, 1.25fr) 160px minmax(180px, 0.8fr) 116px !important;
+    gap: 8px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenOperation label {
+    gap: 3px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenOperation label span {
+    font-size: 0.56rem !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenOperation textarea,
+  .stageGrid[data-detail-open="true"] .vendasOpenOperation input {
+    min-height: 32px !important;
+    border-radius: 8px !important;
+    padding: 6px 8px !important;
+    font-size: 0.66rem !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenOperation textarea {
+    min-height: 54px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenOperation button {
+    min-height: 32px !important;
+    border-radius: 8px !important;
+    padding: 0 10px !important;
+    font-size: 0.66rem !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenActions {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+    margin-top: 8px !important;
+    padding-top: 8px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenActions button,
+  .stageGrid[data-detail-open="true"] .vendasOpenActions a {
+    min-height: 34px !important;
+    border-radius: 8px !important;
+    font-size: 0.68rem !important;
+  }
+}
+
+/* Final aggressive density: fit the open card in the first viewport. */
+@media (min-width: 821px) {
+  .stageGrid[data-detail-open="true"] .vendasOpenCard {
+    gap: 6px !important;
+    padding: 12px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenHeader {
+    min-height: 58px !important;
+    height: 58px !important;
+    align-items: center !important;
+    padding-bottom: 6px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenIdentity {
+    grid-template-columns: 48px minmax(0, 1fr) !important;
+    gap: 9px !important;
+    align-items: center !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenIdentity .vendasClosedAvatar {
+    width: 44px !important;
+    height: 44px !important;
+    border-radius: 10px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenIdentity strong {
+    font-size: 0.98rem !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenProduct {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    gap: 6px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenProduct span {
+    min-height: 26px !important;
+    border-radius: 8px !important;
+    padding: 0 9px !important;
+    font-size: 0.68rem !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenProduct b {
+    display: inline-flex !important;
+    font-size: 0.62rem !important;
+    white-space: nowrap !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenCloseButton {
+    width: 26px !important;
+    height: 26px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenChannels {
+    height: 52px !important;
+    align-items: center !important;
+    padding: 4px 0 6px !important;
+    border-bottom-color: #e7edf6 !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenChannels a > span {
+    width: 30px !important;
+    height: 30px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenChannels .hbxRadarCardIcon {
+    width: 18px !important;
+    height: 18px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenChannels b {
+    font-size: 0.55rem !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenGrid {
+    gap: 6px !important;
+    margin-top: 4px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenSection {
+    padding: 8px !important;
+    gap: 4px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenSection h3 {
+    font-size: 0.68rem !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenSection h3 .hbxRadarCardIcon {
+    width: 13px !important;
+    height: 13px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenSection > div {
+    min-height: 17px !important;
+    padding-bottom: 2px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenSection > div > span {
+    font-size: 0.5rem !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenSection > div > strong,
+  .stageGrid[data-detail-open="true"] .vendasOpenSection > div > a,
+  .stageGrid[data-detail-open="true"] .vendasOpenSection p,
+  .stageGrid[data-detail-open="true"] .vendasOpenSection small {
+    font-size: 0.58rem !important;
+    line-height: 1.16 !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenGauge {
+    width: 50px !important;
+    height: 50px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenGauge strong {
+    font-size: 0.66rem !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenQuality {
+    grid-template-columns: 58px minmax(0, 1fr) !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenInsight,
+  .stageGrid[data-detail-open="true"] .vendasOpenRecommended,
+  .stageGrid[data-detail-open="true"] .vendasOpenEnrichmentOperation {
+    min-height: 58px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenOperation {
+    grid-template-columns: minmax(0, 1.15fr) 142px minmax(164px, 0.72fr) 104px !important;
+    padding: 8px !important;
+    gap: 6px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenOperation textarea,
+  .stageGrid[data-detail-open="true"] .vendasOpenOperation input {
+    min-height: 28px !important;
+    padding: 5px 7px !important;
+    font-size: 0.6rem !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenOperation textarea {
+    min-height: 38px !important;
+    max-height: 52px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenOperation button {
+    min-height: 29px !important;
+    padding: 0 8px !important;
+    font-size: 0.6rem !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenActions {
+    margin-top: 5px !important;
+    padding-top: 5px !important;
+  }
+}
+
+/* PNG icon pass from docs/ICONES/CARDS/iconslight.png. */
+@media (min-width: 821px) {
+  .vendasClosedBadges .hbxRadarPngIcon,
+  .vendasOpenCard > .vendasClosedBadges .hbxRadarPngIcon {
+    width: 15px !important;
+    height: 15px !important;
+  }
+
+  .vendasClosedPhoneLine .hbxRadarPngIcon {
+    width: 15px !important;
+    height: 15px !important;
+    opacity: 0.78;
+  }
+
+  .vendasOpenChannels a > span {
+    background:
+      radial-gradient(circle at 34% 24%, rgba(255, 255, 255, 0.9), transparent 44%),
+      linear-gradient(180deg, #ffffff, #f8fbff) !important;
+  }
+
+  .vendasOpenChannels .hbxRadarPngIcon {
+    width: 31px !important;
+    height: 31px !important;
+    filter: none !important;
+  }
+
+  .vendasOpenChannels a[aria-disabled="true"] .hbxRadarPngIcon {
+    opacity: 0.42;
+    filter: grayscale(1) saturate(0.2) !important;
+  }
+
+  .vendasOpenSection h3 .hbxRadarPngIcon {
+    width: 19px !important;
+    height: 19px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenSection h3 .hbxRadarPngIcon {
+    width: 15px !important;
+    height: 15px !important;
+  }
+
+  .leadActionRow {
+    grid-template-columns: minmax(0, 1fr) 96px !important;
+  }
+
+  .leadActionRow .whatsappAction:not(.whatsappUnavailable) {
+    display: inline-flex !important;
+    grid-column: 1 !important;
+    min-height: 34px !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border: 1px solid #bfead1 !important;
+    border-radius: 9px !important;
+    background:
+      radial-gradient(circle at 18% 18%, rgba(255, 255, 255, 0.7), transparent 46%),
+      #e9fbf1 !important;
+    color: #108a45 !important;
+    padding: 0 10px !important;
+    font-size: 0.72rem !important;
+    font-weight: 800 !important;
+    box-shadow: none !important;
+  }
+
+  .leadActionRow .desktopLeadOpenButton {
+    grid-column: 2 !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .leadActionRow {
+    grid-template-columns: minmax(0, 1fr) 78px !important;
+    gap: 7px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .leadActionRow .whatsappAction:not(.whatsappUnavailable) {
+    min-height: 29px !important;
+    border-radius: 8px !important;
+    padding: 0 8px !important;
+    font-size: 0.62rem !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .leadActionRow .desktopLeadOpenButton {
+    min-height: 29px !important;
+    font-size: 0.62rem !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenChannels .hbxRadarPngIcon {
+    width: 22px !important;
+    height: 22px !important;
+  }
+}
+
+/* Final desktop reference pass: clean listed cards + readable opened card. */
+@media (min-width: 821px) {
+  .stageGrid[data-detail-open="true"] {
+    height: clamp(610px, calc(100vh - 300px), 720px) !important;
+    grid-template-columns: 74px minmax(360px, 510px) minmax(660px, 1fr) !important;
+  }
+
+  .stageGrid .stageSideGuide,
+  .stageGrid[data-detail-open="true"] .stageSideGuide,
+  .stageGrid[data-detail-open="false"] .stageSideGuide {
+    position: sticky !important;
+    grid-column: 1 !important;
+    grid-row: 1 !important;
+    align-self: start !important;
+    justify-self: start !important;
+    width: 74px !important;
+    height: auto !important;
+    min-height: 0 !important;
+    transform: none !important;
+    z-index: 12 !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .stageSideGuide {
+    top: calc(var(--topbar-total-height, 0px) + 12px) !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .stageSideGuide {
+    top: 0 !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .cardsGrid {
+    grid-template-columns: repeat(auto-fit, minmax(330px, 398px)) !important;
+    gap: 0.95rem !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .leadCard {
+    min-height: 176px !important;
+    max-height: none !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .leadCard :global([class*="inner"]) {
+    display: grid !important;
+    grid-template-rows: auto auto !important;
+    align-content: start !important;
+    min-height: 154px !important;
+    height: auto !important;
+    padding: 16px !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .leadCard :global([class*="actions"]) {
+    position: static !important;
+    inset: auto !important;
+    top: auto !important;
+    bottom: auto !important;
+    left: auto !important;
+    right: auto !important;
+    width: 100% !important;
+    align-self: end !important;
+    margin: 12px 0 0 !important;
+    padding-top: 11px !important;
+    border-top: 1px solid #e5ebf4 !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .vendasClosedCardTop {
+    grid-template-columns: 60px minmax(0, 1fr) 86px !important;
+    gap: 10px 13px !important;
+    max-height: none !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .vendasClosedAvatar {
+    width: 56px !important;
+    height: 56px !important;
+    border-radius: 11px !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .leadIdentity .leadName {
+    max-width: 100% !important;
+    font-size: 0.94rem !important;
+    line-height: 1.08 !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .leadSubline {
+    max-width: 100% !important;
+    font-size: 0.68rem !important;
+    line-height: 1.16 !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .vendasClosedPhoneLine {
+    margin-top: 9px !important;
+    font-size: 0.75rem !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .vendasClosedProduct {
+    min-height: 29px !important;
+    padding: 0 10px !important;
+    border-radius: 8px !important;
+    font-size: 0.72rem !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .vendasClosedCredits {
+    margin-top: 8px !important;
+    font-size: 0.66rem !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .leadActionRow {
+    grid-template-columns: minmax(0, 0.86fr) minmax(0, 1fr) 82px !important;
+    gap: 8px !important;
+    min-height: 34px !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .leadActionRow .callAction,
+  .stageGrid[data-detail-open="false"] .leadActionRow .whatsappAction,
+  .stageGrid[data-detail-open="false"] .leadActionRow .whatsappAction.whatsappUnavailable,
+  .stageGrid[data-detail-open="false"] .leadActionRow .whatsappUnavailable + .callAction {
+    display: inline-flex !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .leadActionRow .callAction {
+    grid-column: 1 !important;
+    grid-row: 1 !important;
+    min-height: 34px !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border: 1px solid #c8d9f2 !important;
+    border-radius: 9px !important;
+    background: #ffffff !important;
+    color: #1f4d78 !important;
+    padding: 0 10px !important;
+    font-size: 0.72rem !important;
+    font-weight: 800 !important;
+    box-shadow: none !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .leadActionRow .callAction[aria-disabled="true"] {
+    border-color: #e5e7eb !important;
+    background: #f8fafc !important;
+    color: #94a3b8 !important;
+    pointer-events: none !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .leadActionRow .whatsappAction:not(.whatsappUnavailable),
+  .stageGrid[data-detail-open="false"] .leadActionRow .whatsappAction.whatsappUnavailable,
+  .stageGrid[data-detail-open="false"] .leadActionRow .desktopLeadOpenButton {
+    grid-row: 1 !important;
+    min-height: 34px !important;
+    border-radius: 9px !important;
+    font-size: 0.72rem !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .leadActionRow .whatsappAction,
+  .stageGrid[data-detail-open="false"] .leadActionRow .whatsappAction:not(.whatsappUnavailable),
+  .stageGrid[data-detail-open="false"] .leadActionRow .whatsappAction.whatsappUnavailable {
+    grid-column: 2 !important;
+    justify-content: center !important;
+    padding: 0 10px !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .leadActionRow .whatsappAction.whatsappUnavailable {
+    border-color: #d8e0ea !important;
+    background: #f3f6fa !important;
+    color: #7b8798 !important;
+    pointer-events: none !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .leadActionRow .desktopLeadOpenButton {
+    grid-column: 3 !important;
+    padding: 0 10px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .leadCard :global([class*="inner"]) {
+    height: 146px !important;
+    min-height: 146px !important;
+    padding: 14px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .leadCard :global([class*="actions"]) {
+    display: none !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .leadActionRow {
+    grid-template-columns: minmax(0, 1fr) 74px !important;
+    min-height: 28px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .leadActionRow .whatsappAction {
+    display: none !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .leadActionRow .whatsappAction:not(.whatsappUnavailable),
+  .stageGrid[data-detail-open="true"] .leadActionRow .desktopLeadOpenButton {
+    grid-row: 1 !important;
+    min-height: 28px !important;
+    font-size: 0.6rem !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenCard {
+    max-height: 100% !important;
+    padding: 18px !important;
+    overflow-y: auto !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenHeader {
+    padding-bottom: 14px !important;
+    border-bottom: 1px solid #e5ebf4 !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenIdentity {
+    grid-template-columns: 68px minmax(0, 1fr) !important;
+    gap: 14px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenIdentity .vendasClosedAvatar {
+    width: 62px !important;
+    height: 62px !important;
+    border-radius: 12px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenIdentity strong {
+    font-size: 1.12rem !important;
+    line-height: 1.12 !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenIdentity span,
+  .stageGrid[data-detail-open="true"] .vendasOpenIdentity small {
+    font-size: 0.76rem !important;
+    line-height: 1.22 !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenProduct span {
+    min-height: 30px !important;
+    padding: 0 12px !important;
+    font-size: 0.76rem !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenProduct b {
+    font-size: 0.7rem !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenCard > .vendasClosedBadges {
+    margin: 13px 0 10px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenCard > .vendasClosedBadges span {
+    min-height: 26px !important;
+    padding: 0 10px !important;
+    font-size: 0.7rem !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenChannels {
+    height: auto !important;
+    grid-template-columns: repeat(6, minmax(62px, 1fr)) !important;
+    gap: 10px !important;
+    padding: 14px 0 16px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenChannels a {
+    gap: 7px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenChannels a > span {
+    width: 48px !important;
+    height: 48px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenChannels .hbxRadarPngIcon {
+    width: 31px !important;
+    height: 31px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenChannels b {
+    font-size: 0.68rem !important;
+    line-height: 1 !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenGrid {
+    grid-template-columns: minmax(210px, 0.95fr) minmax(210px, 0.95fr) minmax(250px, 1.1fr) !important;
+    gap: 10px !important;
+    margin-top: 12px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenSection {
+    padding: 12px !important;
+    gap: 7px !important;
+    border-radius: 12px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenSection h3 {
+    font-size: 0.82rem !important;
+    line-height: 1.1 !important;
+    margin-bottom: 3px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenSection h3 .hbxRadarPngIcon {
+    width: 18px !important;
+    height: 18px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenSection > div {
+    min-height: 22px !important;
+    grid-template-columns: 70px minmax(0, 1fr) !important;
+    padding-bottom: 4px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenSection > div > span {
+    font-size: 0.6rem !important;
+    line-height: 1.1 !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenSection > div > strong,
+  .stageGrid[data-detail-open="true"] .vendasOpenSection > div > a,
+  .stageGrid[data-detail-open="true"] .vendasOpenSection p,
+  .stageGrid[data-detail-open="true"] .vendasOpenSection small {
+    font-size: 0.7rem !important;
+    line-height: 1.25 !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenQuality {
+    grid-template-columns: 92px minmax(0, 1fr) !important;
+    align-items: center !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenGauge {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    grid-template-rows: auto auto !important;
+    place-items: center !important;
+    align-content: center !important;
+    justify-content: center !important;
+    width: 78px !important;
+    height: 78px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenGauge strong {
+    font-size: 1.2rem !important;
+    line-height: 1 !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenGauge span {
+    font-size: 0.54rem !important;
+    line-height: 1 !important;
+    white-space: nowrap !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenEvidence span {
+    font-size: 0.72rem !important;
+    line-height: 1.15 !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenInsight,
+  .stageGrid[data-detail-open="true"] .vendasOpenRecommended,
+  .stageGrid[data-detail-open="true"] .vendasOpenEnrichmentOperation {
+    min-height: 92px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenMessage {
+    grid-column: span 3 !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenOperation {
+    grid-column: span 3 !important;
+    grid-template-columns: minmax(0, 1.15fr) 150px minmax(170px, 0.7fr) 118px !important;
+    gap: 8px !important;
+    padding: 11px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenOperation textarea,
+  .stageGrid[data-detail-open="true"] .vendasOpenOperation input {
+    min-height: 34px !important;
+    padding: 7px 9px !important;
+    font-size: 0.68rem !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenOperation textarea {
+    min-height: 50px !important;
+    max-height: 72px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenOperation button {
+    min-height: 34px !important;
+    font-size: 0.68rem !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenActions {
+    grid-template-columns: minmax(120px, 1fr) minmax(100px, 0.8fr) minmax(86px, 0.7fr) minmax(142px, 1.2fr) minmax(86px, 0.7fr) !important;
+    gap: 8px !important;
+    margin-top: 10px !important;
+    padding-top: 10px !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenActions button,
+  .stageGrid[data-detail-open="true"] .vendasOpenActions a {
+    min-height: 36px !important;
+    justify-content: center !important;
+    font-size: 0.72rem !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenActions a[aria-disabled="true"] {
+    border-color: #d8e0ea !important;
+    background: #f3f6fa !important;
+    color: #7b8798 !important;
+    pointer-events: none !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenActions button[data-tone="danger"] {
+    border-color: #fecaca !important;
+    background: #fff5f5 !important;
+    color: #b91c1c !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenSection .vendasOpenGauge {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 2px !important;
+    grid-template-columns: none !important;
+    grid-template-rows: none !important;
+    place-items: center !important;
+    align-content: center !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenSection .vendasOpenGauge strong,
+  .stageGrid[data-detail-open="true"] .vendasOpenSection .vendasOpenGauge span {
+    display: block !important;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    white-space: nowrap !important;
+    text-align: center !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .vendasOpenSection .vendasOpenGauge span {
+    display: none !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .leadActionRow .whatsappAction,
+  .stageGrid[data-detail-open="true"] .leadActionRow .whatsappAction:not(.whatsappUnavailable) {
+    display: none !important;
   }
 }

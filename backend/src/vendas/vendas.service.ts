@@ -1026,6 +1026,11 @@ export class VendasService {
           : null,
     });
     const access = planAccess || this.buildPlanAccess(COMMERCIAL_PLAN_KEYS.PADRAO);
+    const manualEnrichmentUnlock = this.hasManualLeadEnrichmentUnlock(row);
+    const leadCapabilities = manualEnrichmentUnlock && !access.capabilities.canSeeLeadIntelligence
+      ? { ...access.capabilities, canSeeLeadIntelligence: true }
+      : access.capabilities;
+    const leadIntelligence = this.decorateManualEnrichmentIntelligence(rawIntelligence, row);
     return {
       id: String(row?.id || ''),
       customerProfileId: row?.customerProfileId ? String(row.customerProfileId) : null,
@@ -1093,8 +1098,8 @@ export class VendasService {
       updatedAt: row?.updatedAt instanceof Date ? row.updatedAt.toISOString() : null,
       whatsappAvailability: whatsappAvailability || null,
       planTier: access.planTier,
-      capabilities: access.capabilities,
-      leadIntelligence: this.applyLeadIntelligenceCapabilities(rawIntelligence, access),
+      capabilities: leadCapabilities,
+      leadIntelligence: this.applyLeadIntelligenceCapabilities(leadIntelligence, access, row),
       isInInbox: Boolean(inboxPresence?.conversationId || sharedProfile?.presence?.atendimento?.present),
       inboxConversationId: inboxPresence?.conversationId ? String(inboxPresence.conversationId) : null,
       atendimentoConversationId: inboxPresence?.conversationId ? String(inboxPresence.conversationId) : null,
@@ -1238,8 +1243,32 @@ export class VendasService {
     return this.buildPlanAccess(resolveCommercialPlanKeyForCapabilities(company || {}));
   }
 
-  private applyLeadIntelligenceCapabilities(intelligence: any, access: VendasPlanAccess) {
-    if (access.capabilities.canSeeLeadIntelligence) {
+  private hasManualLeadEnrichmentUnlock(row: any) {
+    const timeline = Array.isArray(row?.timelineEvents) ? row.timelineEvents : [];
+    return timeline.some((event: any) => {
+      const eventType = String(event?.eventType || '').trim();
+      const sourceType = String(event?.sourceType || '').trim();
+      return eventType === 'lead_enrichment_used' || sourceType === 'lead_enrichment';
+    });
+  }
+
+  private decorateManualEnrichmentIntelligence(intelligence: any, row?: any) {
+    if (!this.hasManualLeadEnrichmentUnlock(row)) return intelligence;
+    const timeline = Array.isArray(row?.timelineEvents) ? row.timelineEvents : [];
+    const event = timeline.find((item: any) =>
+      String(item?.eventType || '').trim() === 'lead_enrichment_used'
+      || String(item?.sourceType || '').trim() === 'lead_enrichment'
+    );
+    return {
+      ...(intelligence || {}),
+      enrichmentStatus: intelligence?.enrichmentStatus || 'completed',
+      enrichedAt: intelligence?.enrichedAt || (event?.createdAt instanceof Date ? event.createdAt.toISOString() : new Date().toISOString()),
+      verifiedBy: intelligence?.verifiedBy || 'manual',
+    };
+  }
+
+  private applyLeadIntelligenceCapabilities(intelligence: any, access: VendasPlanAccess, row?: any, forceFull = false) {
+    if (forceFull || access.capabilities.canSeeLeadIntelligence || this.hasManualLeadEnrichmentUnlock(row)) {
       return intelligence;
     }
     return {
@@ -4185,6 +4214,27 @@ export class VendasService {
     });
     if (!lead) throw new NotFoundException('Lead nao encontrado.');
 
+    const usageResult = await this.commercialUsageLimits.recordLeadEnrichmentUseOnce(companyId, userId, {
+      source: 'vendas_manual_enrichment',
+      vendasLeadId: String(lead.id),
+      usageKey: `vendas:${lead.id}`,
+    });
+    if (usageResult?.debited) {
+      await this.prisma.vendasLeadTimelineEvent.create({
+        data: {
+          leadId: lead.id,
+          ...this.buildTimelineEvent({
+            eventType: 'lead_enrichment_used',
+            title: 'Enriquecimento usado',
+            description: 'Crédito diário usado para completar este card no Vendas.',
+            sourceType: 'lead_enrichment',
+            resultLabel: 'enriched',
+            createdByUserId: userId,
+          }),
+        },
+      }).catch(() => null);
+    }
+
     let availability =
       (await this.listWhatsappAvailabilityByLeadIds([String(lead.id)])).get(String(lead.id)) || null;
     let verifiedBy: 'hbx_master' | 'client_engine' | 'manual' | null = String(availability?.message || '').includes('HBX Master')
@@ -4239,20 +4289,40 @@ export class VendasService {
       }
     }
 
+    const enrichedIntelligence = this.decorateManualEnrichmentIntelligence(
+      buildVendasLeadIntelligence({
+        lead,
+        whatsappAvailability: availability,
+        verifiedBy,
+        templateOffset: opts?.templateOffset,
+      }),
+      {
+        ...lead,
+        timelineEvents: [
+          {
+            eventType: 'lead_enrichment_used',
+            sourceType: 'lead_enrichment',
+            createdAt: new Date(),
+          },
+          ...((lead as any).timelineEvents || []),
+        ],
+      },
+    );
+
     return {
       ok: true,
       leadId: String(lead.id),
       planTier: planAccess.planTier,
-      capabilities: planAccess.capabilities,
+      capabilities: planAccess.capabilities.canSeeLeadIntelligence
+        ? planAccess.capabilities
+        : { ...planAccess.capabilities, canSeeLeadIntelligence: true },
+      usage: usageResult?.usage || null,
       whatsappAvailability: availability,
       leadIntelligence: this.applyLeadIntelligenceCapabilities(
-        buildVendasLeadIntelligence({
-          lead,
-          whatsappAvailability: availability,
-          verifiedBy,
-          templateOffset: opts?.templateOffset,
-        }),
+        enrichedIntelligence,
         planAccess,
+        lead,
+        true,
       ),
     };
   }
@@ -5949,6 +6019,7 @@ export class VendasService {
   async getBoardForUser(user: any) {
     const context = this.resolveUserContext(user);
     const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
+    const usage = await this.commercialUsageLimits.getUsageSnapshot(context.companyId, context.userId);
     const leadWithTimelineSelectWithoutAddress: any = this.buildVendasLeadSelectWithoutAddress({
       timelineEvents: {
         orderBy: [{ createdAt: 'desc' }],
@@ -6047,6 +6118,7 @@ export class VendasService {
       },
       planTier: planAccess.planTier,
       capabilities: planAccess.capabilities,
+      usage,
       blocks,
     };
   }
