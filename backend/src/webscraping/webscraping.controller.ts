@@ -812,6 +812,23 @@ class MasterRadarAutoDistributionDto {
   }>;
 }
 
+class WebscrapingWebSearchDto {
+  @IsString()
+  query!: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(10)
+  limit?: number;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  fresh?: boolean;
+}
+
 @Controller('webscraping')
 @UseGuards(JwtAuthGuard, ModuleAccessGuard)
 @ModuleAccess('webscraping')
@@ -843,6 +860,11 @@ export class WebscrapingController {
   @Post('search')
   search(@Req() req: any, @Body() dto: WebscrapingSearchDto) {
     return this.webscrapingService.searchContactsForUser(req.user, dto);
+  }
+
+  @Post('web-search')
+  webSearch(@Body() dto: WebscrapingWebSearchDto) {
+    return this.webscrapingService.webSearch(dto);
   }
 
   @Post('search-runs')

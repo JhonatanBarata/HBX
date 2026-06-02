@@ -157,6 +157,38 @@ class SearchRequest(BaseModel):
         return normalize_card_discovery_contract(self)
 
 
+class WebSearchRequest(BaseModel):
+    query: str
+    limit: int = Field(5, ge=1, le=10)
+    fresh: bool = False
+
+    @field_validator("query")
+    @classmethod
+    def normalize_query(cls, value: str) -> str:
+        normalized = " ".join(str(value or "").split())
+        if not normalized:
+            raise ValueError("query é obrigatória")
+        return normalized
+
+
+class WebSearchResult(BaseModel):
+    title: str
+    url: str
+    snippet: str = ""
+    rank: int
+    source: str
+    fetchedAt: str
+
+
+class WebSearchResponse(BaseModel):
+    query: str
+    count: int
+    cached: bool = False
+    results: list[WebSearchResult] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+    stats: dict | None = None
+
+
 class SearchIntent(BaseModel):
     city: str = ""
     state: str = ""

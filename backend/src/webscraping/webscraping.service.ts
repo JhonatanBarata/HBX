@@ -1,7 +1,9 @@
 import {
+  BadRequestException,
   Inject,
   Injectable,
   Optional,
+  ServiceUnavailableException,
   forwardRef,
 } from '@nestjs/common';
 import { CommercialUsageLimitsService } from '../commercial-plans/commercial-usage-limits.service';
@@ -130,6 +132,46 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
       radarGoogleResponse,
       radarHbxEngineErrors,
     );
+  }
+
+  async webSearch(input: {
+    query?: string | null;
+    limit?: number | null;
+    fresh?: boolean | null;
+  }) {
+    const query = String(input?.query || '').trim().replace(/\s+/g, ' ');
+    if (!query) {
+      throw new BadRequestException('query é obrigatória.');
+    }
+
+    const configuredMax = this.readNumberEnv('HBX_WEB_SEARCH_MAX_RESULTS', 10, 1, 10);
+    const requestedLimit = Number(input?.limit || 5);
+    const limit = Math.max(1, Math.min(Number.isFinite(requestedLimit) ? requestedLimit : 5, configuredMax, 10));
+    const timeoutMs = this.readNumberEnv('HBX_WEB_SEARCH_TIMEOUT_SECONDS', 30, 3, 90) * 1000;
+    const engineUrl = this.resolveHbxEngineUrl();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(`${engineUrl}/web-search`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, limit, fresh: Boolean(input?.fresh) }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        throw new ServiceUnavailableException(`engine web-search retornou ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      if (error instanceof ServiceUnavailableException) throw error;
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new ServiceUnavailableException(`engine web-search indisponível: ${reason}`);
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   async lookupRadarLeadPoolInternal(input: {
@@ -353,5 +395,17 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
       }
     }
     return candidates.slice(0, 10);
+  }
+
+  private resolveHbxEngineUrl() {
+    const configured = String(process.env.HBX_SCRAPING_ENGINE_URL || 'http://hbx-scraping-engine:8001').trim();
+    const first = configured.split(',')[0]?.trim() || 'http://hbx-scraping-engine:8001';
+    return first.replace(/\/+$/, '');
+  }
+
+  private readNumberEnv(name: string, fallback: number, min: number, max: number) {
+    const parsed = Number(process.env[name]);
+    const value = Number.isFinite(parsed) ? parsed : fallback;
+    return Math.max(min, Math.min(max, value));
   }
 }

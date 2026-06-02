@@ -129,26 +129,6 @@ function arrayOrEmpty(value: unknown) {
   return Array.isArray(value) ? value : [];
 }
 
-function hasRadarEnrichmentEvidence(input: Record<string, any>) {
-  const signals = input?.signals && typeof input.signals === 'object' ? input.signals : {};
-  const qualityV2 = input?.qualityV2 || signals?.qualityV2;
-  return Boolean(
-    normalizeText(input?.enrichedAt) ||
-    normalizeText(input?.version) ||
-    normalizeText(input?.visibilityTier) ||
-    normalizeText(input?.deliveryProduct) ||
-    normalizeText(input?.recommendedChannel || signals?.recommendedChannel) ||
-    normalizeText(input?.painType || signals?.painType) ||
-    normalizeText(input?.opportunityReason || signals?.opportunityReason) ||
-    normalizeText(input?.emailStatus || signals?.emailStatus) ||
-    normalizeText(input?.socialStatus || signals?.socialStatus) ||
-    normalizeUrl(input?.instagramUrl || signals?.instagramUrl) ||
-    normalizeUrl(input?.facebookUrl || signals?.facebookUrl) ||
-    Number(input?.enrichmentScore || input?.opportunityScore || 0) > 0 ||
-    Boolean(qualityV2 && typeof qualityV2 === 'object')
-  );
-}
-
 function extractRadarEnrichment(lead: any) {
   const direct = parseJsonObject(lead?.enrichmentJson || lead?.metadataJson);
   const timeline = Array.isArray(lead?.timelineEvents) ? lead.timelineEvents : [];
@@ -167,9 +147,8 @@ function extractRadarEnrichment(lead: any) {
       : {};
   const mergedEvidence = { ...direct, ...nested, ...fromEvent };
   const rawStatus = normalizeText(fromEvent.enrichmentStatus || nested?.enrichmentStatus || direct?.enrichmentStatus);
-  const enrichmentStatus = ['queued', 'processing'].includes(normalizeKey(rawStatus)) && hasRadarEnrichmentEvidence(mergedEvidence)
-    ? 'completed'
-    : rawStatus;
+  const normalizedRawStatus = normalizeKey(rawStatus);
+  const enrichmentStatus = normalizedRawStatus === 'pending' ? 'queued' : rawStatus;
   return {
     ...direct,
     ...nested,
@@ -386,6 +365,7 @@ export function buildVendasLeadIntelligence(input: VendasLeadIntelligenceInput) 
   return {
     email: emailCandidate,
     emailStatus,
+    websiteStatus: websiteStatus || (normalizeText(lead?.website) ? 'present' : 'none'),
     instagramUrl,
     facebookUrl,
     socialStatus,

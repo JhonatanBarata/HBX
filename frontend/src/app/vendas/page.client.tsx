@@ -244,6 +244,7 @@ type LeadSocialCandidate = {
 type LeadIntelligence = {
   email?: string | null;
   emailStatus?: "confirmed" | "probable" | "missing" | "unverified" | string;
+  websiteStatus?: "present" | "none" | "weak" | "missing" | "unreachable" | string | null;
   instagramUrl?: string | null;
   facebookUrl?: string | null;
   socialStatus?: "found" | "missing" | "weak" | "unknown" | string;
@@ -1735,18 +1736,39 @@ function leadEnrichmentBadgeState(lead: LeadItem, board?: BoardResponse | null) 
   const intelligence = lead.leadIntelligence || {};
   const enrichmentStatus = String(intelligence.enrichmentStatus || "").trim().toLowerCase();
   const socialStatus = String(intelligence.socialStatus || "").trim().toLowerCase();
+  const emailStatus = String(intelligence.emailStatus || "").trim().toLowerCase();
+  const websiteStatus = String(intelligence.websiteStatus || "").trim().toLowerCase();
+  const whatsappStatus = String(intelligence.whatsappStatus || "").trim().toLowerCase();
   const tier = String(intelligence.visibilityTier || "").trim().toLowerCase();
   const fromRadar = lead.sourceType === "webscraping" || String(lead.primarySource || "").toLowerCase().includes("radar");
   const lockedPremium = hasLockedSocialLinks(lead, board) || Boolean(intelligence.premiumTeaser);
   const pendingTier = ["candidate", "list_basic", "enrichment_pending"].includes(tier);
   const readyTier = ["lead_plus_qualified", "review_backup"].includes(tier);
   const possibleSocial = leadHasPossibleSocial(lead);
+  const hasSite = Boolean(leadWebsiteForDisplay(lead));
+  const hasEmail = Boolean(leadEmailForDisplay(lead));
+  const hasPremiumSignals = leadHasPremiumSignals(lead);
+  const radarReviewedMissing = fromRadar
+    && !hasSite
+    && !hasEmail
+    && ["missing", "weak", "unknown", ""].includes(socialStatus)
+    && ["missing", "invalid", "none", ""].includes(emailStatus)
+    && ["none", "missing", "weak", "unreachable", ""].includes(websiteStatus)
+    && Boolean(intelligence.opportunityReason || intelligence.nextBestAction || intelligence.recommendedChannel || intelligence.contactQuality);
+  const completedByEnrichment = enrichmentStatus === "completed" && Boolean(
+    intelligence.enrichedAt
+    || readyTier
+    || hasSite
+    || hasEmail
+    || ["confirmed", "probable"].includes(emailStatus)
+    || radarReviewedMissing
+  );
   const enrichmentChecked = Boolean(
-    intelligence.lastVerifiedAt
-    || intelligence.verifiedBy
-    || ["found", "missing", "weak", "candidate_review", "partial"].includes(socialStatus)
-    || ["confirmed", "missing", "invalid", "unverified"].includes(String(intelligence.whatsappStatus || "").toLowerCase())
-    || ["confirmed", "probable", "missing", "unverified"].includes(String(intelligence.emailStatus || "").toLowerCase())
+    completedByEnrichment
+    || radarReviewedMissing
+    || ["confirmed", "unverified"].includes(whatsappStatus)
+    || ["confirmed", "probable", "unverified"].includes(emailStatus)
+    || (enrichmentStatus === "failed" && ["missing", "weak"].includes(socialStatus))
   );
   if (["pending", "queued", "processing"].includes(enrichmentStatus) && fromRadar) {
     return {
@@ -1755,7 +1777,7 @@ function leadEnrichmentBadgeState(lead: LeadItem, board?: BoardResponse | null) 
       title: "Card entregue. O Radar está completando redes sociais, site e sinais comerciais.",
     };
   }
-  if ((pendingTier && !enrichmentChecked) || (fromRadar && !readyTier && !leadHasPremiumSignals(lead) && !enrichmentChecked)) {
+  if ((pendingTier && !enrichmentChecked) || (fromRadar && !readyTier && !hasPremiumSignals && !enrichmentChecked)) {
     return {
       state: "enriching" as const,
       label: "Enriquecendo",
@@ -1776,7 +1798,14 @@ function leadEnrichmentBadgeState(lead: LeadItem, board?: BoardResponse | null) 
       title: "Sinais premium encontrados. Disponível no HBX Lead.",
     };
   }
-  if (readyTier || leadHasPremiumSignals(lead)) {
+  if (fromRadar && hasPremiumSignals && !readyTier && !completedByEnrichment) {
+    return {
+      state: "enriching" as const,
+      label: "Enriquecendo",
+      title: "Sinal encontrado. O Radar ainda está completando o card.",
+    };
+  }
+  if (readyTier || hasPremiumSignals) {
     return {
       state: "ready" as const,
       label: possibleSocial && !intelligence.instagramUrl && !intelligence.facebookUrl ? "Possível" : "Pronto",

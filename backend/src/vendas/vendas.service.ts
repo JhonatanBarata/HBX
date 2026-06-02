@@ -6433,6 +6433,19 @@ export class VendasService {
         continue;
       }
 
+      const explicitRadarEnrichmentStatus = this.normalizeText((item as any)?.enrichmentStatus)?.toLowerCase() || '';
+      const normalizedRadarEnrichmentStatus = explicitRadarEnrichmentStatus === 'pending' ? 'queued' : explicitRadarEnrichmentStatus;
+      const completedRadarStatusFromPayload = ['completed', 'failed', 'processing', 'queued'].includes(normalizedRadarEnrichmentStatus)
+        ? normalizedRadarEnrichmentStatus
+        : null;
+      const hasCompletedRadarEnrichmentPayload = Boolean(
+        (item as any)?.enrichmentJson ||
+        qualityV2 ||
+        ['lead_plus', 'lead_plus_qualified'].includes(this.normalizeText((item as any)?.deliveryProduct)?.toLowerCase() || '') ||
+        ['lead_plus_qualified', 'review_backup'].includes(this.normalizeText((item as any)?.visibilityTier)?.toLowerCase() || ''),
+      );
+      const radarEnrichmentStatus = completedRadarStatusFromPayload || (hasCompletedRadarEnrichmentPayload ? 'completed' : 'queued');
+
       const radarEnrichmentMetadata = {
         emailStatus: this.normalizeText((item as any)?.emailStatus),
         emailSource: this.normalizeText((item as any)?.emailSource),
@@ -6460,7 +6473,7 @@ export class VendasService {
         enrichment: (item as any)?.enrichmentJson || null,
         qualityV2,
         quality,
-        enrichmentStatus: (item as any)?.enrichmentJson || qualityV2 || (item as any)?.enrichmentVersion ? 'completed' : 'queued',
+        enrichmentStatus: radarEnrichmentStatus,
         visibilityTier: this.normalizeText((item as any)?.visibilityTier),
         billable: (item as any)?.billable === true ? true : (item as any)?.billable === false ? false : null,
         debitEligible: (item as any)?.debitEligible === true ? true : (item as any)?.debitEligible === false ? false : null,

@@ -988,10 +988,7 @@ function resolveRadarCategory(value?: string | null) {
   const normalized = raw.toLowerCase();
   const direct = RADAR_SEGMENT_GROUPS.find((group) => group.label.toLowerCase() === normalized);
   if (direct) return direct;
-  const selected = new Set(splitRadarSegments(raw).map((item) => item.toLowerCase()));
-  return RADAR_SEGMENT_GROUPS.find((group) =>
-    group.segments.length > 0 && group.segments.every((segment) => selected.has(segment.toLowerCase())),
-  ) || null;
+  return null;
 }
 
 function isRadarCategoryValue(value: string) {
@@ -1005,7 +1002,7 @@ function radarSegmentSummary(value?: string | null) {
   if (category) return category.label;
   const segments = splitRadarSegments(raw);
   if (segments.length <= 1) return segments[0] || raw;
-  return `${segments[0]} +${segments.length - 1}`;
+  return segments.join(", ");
 }
 
 function mergeRadarOptions(primary: string[], secondary: string[]) {
@@ -1924,15 +1921,15 @@ function MobileSegmentSheet({
   }
 
   async function applySelection() {
+    const normalized = normalizeSegmentLabel(draftValue);
     setApplying(true);
     setApplyError(null);
+    onClose();
     try {
-      await onApply(normalizeSegmentLabel(draftValue));
-      setApplying(false);
-      onClose();
+      await onApply(normalized);
     } catch (error) {
-      setApplyError(error instanceof Error ? error.message : "Não consegui salvar os segmentos.");
-      setApplying(false);
+      // O filtro ja foi aplicado localmente; falha de persistencia aparece no feedback da tela.
+      console.warn(error);
     }
   }
 
@@ -1947,6 +1944,12 @@ function MobileSegmentSheet({
     setSegmentStep("categories");
     setQuery("");
     setSearchOpen(false);
+  }
+
+  function clearDraftSelection() {
+    setDraftValue("");
+    setActiveGroupKey("");
+    setApplyError(null);
   }
 
   function openSearch() {
@@ -2093,8 +2096,7 @@ function MobileSegmentSheet({
             <button
               type="button"
               onClick={() => {
-                setDraftValue("");
-                setApplyError(null);
+                clearDraftSelection();
               }}
               disabled={applying || !draftValue}
             >
@@ -2250,6 +2252,8 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   const [enrichmentSummary, setEnrichmentSummary] = useState<RadarEnrichmentSummary | null>(null);
   const activeRunIdRef = useRef<string | null>(null);
   const pendingFreshRunRef = useRef(false);
+  const filtersRef = useRef(filters);
+  const ignoredRadarRunIdsRef = useRef<Set<string>>(new Set());
   const mobileRadarRef = useRef<HTMLDivElement | null>(null);
   const mobileSearchNoticeRef = useRef<HTMLElement | null>(null);
   const filterEditingRef = useRef(false);
@@ -2259,6 +2263,10 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     () => mobileRoute || isMobileRadarViewport(),
     [mobileRoute],
   );
+
+  useEffect(() => {
+    filtersRef.current = filters;
+  }, [filters]);
 
   useEffect(() => {
     if (!embeddedPopupFrame) return undefined;
@@ -3018,6 +3026,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
       return;
     }
     const runId = String(payload.runId || payload.id || "");
+    if (runId && ignoredRadarRunIdsRef.current.has(runId)) return;
     if (!runId || !payload.status) {
       activeRunIdRef.current = null;
       clearStoredRadarRun();
@@ -3033,8 +3042,17 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     const terminal = Boolean(payload.meta?.terminal) || isTerminalRadarRun(payload.status);
     const shouldReplaceCurrentItems = pendingFreshRunRef.current && (nextItems.length > 0 || terminal);
     const payloadFilters = payload.meta?.filters;
+    const payloadMatchesCurrentFilters = radarRunMatchesVisibleFilters(payload, filtersRef.current);
+    if (!payloadMatchesCurrentFilters && !pendingFreshRunRef.current) {
+      if (activeRunIdRef.current === runId) {
+        activeRunIdRef.current = null;
+        setActiveRun(null);
+        setSearching(false);
+      }
+      return;
+    }
     if (payloadFilters) {
-      if (!filterEditingRef.current) {
+      if (!filterEditingRef.current && pendingFreshRunRef.current) {
         setFilters((current) => {
           const next: FilterState = {
             ...current,
@@ -3141,12 +3159,13 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
       }
 
       try {
-        const payload = await apiFetch<RadarSearchRunResponse | null>("/webscraping/radar/search-runs/latest", {
-          requireAuth: true,
-          timeoutMs: 15000,
-        });
-        if (cancelled || !payload?.runId) return;
-        if (!radarRunMatchesVisibleFilters(payload, filters)) return;
+      const payload = await apiFetch<RadarSearchRunResponse | null>("/webscraping/radar/search-runs/latest", {
+        requireAuth: true,
+        timeoutMs: 15000,
+      });
+      if (cancelled || !payload?.runId) return;
+      if (isTerminalRadarRun(payload.status)) return;
+      if (!radarRunMatchesVisibleFilters(payload, filters)) return;
         activeRunIdRef.current = payload.runId || payload.id || null;
         setHasSearched(true);
         setSearching(!isTerminalRadarRun(payload.status));
@@ -3200,6 +3219,19 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   async function cancelActiveRadarRun(): Promise<boolean> {
     const runId = activeRun?.runId || activeRun?.id || activeRunIdRef.current;
     if (!runId || radarCanceling) return false;
+    ignoredRadarRunIdsRef.current.add(String(runId));
+    activeRunIdRef.current = null;
+    setActiveRun(null);
+    setTerminalRunSnapshot(null);
+    setSearching(false);
+    setMobileAutoImportPending(false);
+    pendingFreshRunRef.current = false;
+    setItems([]);
+    setTotal(0);
+    setPage(1);
+    setHasSearched(false);
+    setRadarStockPauseUnlocked(true);
+    clearStoredRadarRun(runId);
     setRadarCanceling(true);
     setError(null);
     setFeedback("Cancelando pesquisa atual...");
@@ -3210,18 +3242,6 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
         timeoutMs: 15000,
       });
       void payload;
-      activeRunIdRef.current = null;
-      setActiveRun(null);
-      setTerminalRunSnapshot(null);
-      setSearching(false);
-      setMobileAutoImportPending(false);
-      pendingFreshRunRef.current = false;
-      setItems([]);
-      setTotal(0);
-      setPage(1);
-      setHasSearched(false);
-      setRadarStockPauseUnlocked(true);
-      clearStoredRadarRun(runId);
       setFeedback("Pesquisa cancelada. Motor liberado.");
       return true;
     } catch (cancelError) {
@@ -3241,6 +3261,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     setActiveRun(null);
     setTerminalRunSnapshot(null);
     activeRunIdRef.current = null;
+    ignoredRadarRunIdsRef.current.clear();
     const nextTargetFilters = {
       ...effectiveFilters,
       targetType: isMobileRadarSurface() ? "pj" : effectiveFilters.targetType,
