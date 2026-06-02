@@ -29,7 +29,7 @@ import {
 import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
-import { HbxPopup2 } from "@/components/HbxPopup";
+import { HbxPopup1, HbxPopup2 } from "@/components/HbxPopup";
 import HbxGuide1 from "@/components/HbxGuide1";
 import HbxGuide4, { type HbxGuide4Item } from "@/components/HbxGuide4";
 import LiquidGlassCard, {
@@ -159,6 +159,8 @@ type LeadTimelineEvent = {
     closureReason?: string | null;
   } | null;
 };
+
+type LeadWhatsappMotorStatus = "available" | "unavailable" | "unknown";
 
 type LeadConversationSnapshot = {
   leadId: string;
@@ -1015,7 +1017,7 @@ type LeadDraft = {
   commissionNote: string;
 };
 
-type MobileChannelAsset = "phone" | "whatsapp" | "instagram" | "facebook" | "email" | "site";
+type MobileChannelAsset = "phone" | "whatsapp" | "instagram" | "facebook" | "email" | "site" | "map";
 
 const MOBILE_VISUAL_FILTERS: Array<{ value: MobileVisualChannelFilter; label: string; asset: MobileChannelAsset }> = [
   { value: "whatsapp", label: "WhatsApp", asset: "whatsapp" },
@@ -1028,34 +1030,39 @@ const MOBILE_VISUAL_FILTERS: Array<{ value: MobileVisualChannelFilter; label: st
 
 const MOBILE_CHANNEL_ASSETS: Record<MobileChannelAsset, { light: string; dark: string; label: string }> = {
   phone: {
-    light: "/icons/hbx-channels/telefone.webp",
-    dark: "/icons/hbx-channels/telefone_dark.webp",
+    light: "/icons/hbx-docs-channels/phone-light.png",
+    dark: "/icons/hbx-docs-channels/phone-dark.png",
     label: "Telefone",
   },
   whatsapp: {
-    light: "/icons/hbx-channels/whatsapp.webp",
-    dark: "/icons/hbx-channels/whatsapp_dark.webp",
+    light: "/icons/hbx-docs-channels/whatsapp-light.png",
+    dark: "/icons/hbx-docs-channels/whatsapp-dark.png",
     label: "WhatsApp",
   },
   instagram: {
-    light: "/icons/hbx-channels/instagram.webp",
-    dark: "/icons/hbx-channels/instagram_dark.webp",
+    light: "/icons/hbx-docs-channels/instagram-light.png",
+    dark: "/icons/hbx-docs-channels/instagram-dark.png",
     label: "Instagram",
   },
   facebook: {
-    light: "/icons/hbx-channels/facebook.webp",
-    dark: "/icons/hbx-channels/facebook_dark.webp",
+    light: "/icons/hbx-docs-channels/facebook-light.png",
+    dark: "/icons/hbx-docs-channels/facebook-dark.png",
     label: "Facebook",
   },
   email: {
-    light: "/icons/hbx-channels/email.webp",
-    dark: "/icons/hbx-channels/email_dark.webp",
+    light: "/icons/hbx-docs-channels/email-light.png",
+    dark: "/icons/hbx-docs-channels/email-dark.png",
     label: "E-mail",
   },
   site: {
-    light: "/icons/hbx-channels/site_globe.webp",
-    dark: "/icons/hbx-channels/site_globe_dark.webp",
+    light: "/icons/hbx-docs-channels/site-light.png",
+    dark: "/icons/hbx-docs-channels/site-dark.png",
     label: "Site",
+  },
+  map: {
+    light: "/icons/hbx-docs-channels/map-light.png",
+    dark: "/icons/hbx-docs-channels/map-dark.png",
+    label: "Mapa",
   },
 };
 
@@ -1126,6 +1133,61 @@ function channelRadarIconName(channel: LeadExpandedChannel["key"]): HbxRadarIcon
   return channel;
 }
 
+const DESKTOP_CHANNEL_DOC_ASSETS: Partial<Record<LeadExpandedChannel["key"], { light: string; dark: string }>> = {
+  instagram: {
+    light: "/icons/hbx-docs-channels/instagram-light.png",
+    dark: "/icons/hbx-docs-channels/instagram-dark.png",
+  },
+  facebook: {
+    light: "/icons/hbx-docs-channels/facebook-light.png",
+    dark: "/icons/hbx-docs-channels/facebook-dark.png",
+  },
+  whatsapp: {
+    light: "/icons/hbx-docs-channels/whatsapp-light.png",
+    dark: "/icons/hbx-docs-channels/whatsapp-dark.png",
+  },
+  site: {
+    light: "/icons/hbx-docs-channels/site-light.png",
+    dark: "/icons/hbx-docs-channels/site-dark.png",
+  },
+  email: {
+    light: "/icons/hbx-docs-channels/email-light.png",
+    dark: "/icons/hbx-docs-channels/email-dark.png",
+  },
+  phone: {
+    light: "/icons/hbx-docs-channels/phone-light.png",
+    dark: "/icons/hbx-docs-channels/phone-dark.png",
+  },
+  map: {
+    light: "/icons/hbx-docs-channels/map-light.png",
+    dark: "/icons/hbx-docs-channels/map-dark.png",
+  },
+};
+
+function DesktopChannelDocIcon({ channel }: { channel: LeadExpandedChannel["key"] }) {
+  const asset = DESKTOP_CHANNEL_DOC_ASSETS[channel];
+  if (!asset) return <HbxRadarPngIcon name={channelRadarIconName(channel)} />;
+  return (
+    <>
+      {/* eslint-disable-next-line @next/next/no-img-element -- Icones aprovados em docs/ICONES alternam por tema via CSS. */}
+      <img className={styles.vendasChannelDocIconLight} src={asset.light} alt="" aria-hidden="true" loading="lazy" draggable={false} />
+      {/* eslint-disable-next-line @next/next/no-img-element -- Icones aprovados em docs/ICONES alternam por tema via CSS. */}
+      <img className={styles.vendasChannelDocIconDark} src={asset.dark} alt="" aria-hidden="true" loading="lazy" draggable={false} />
+    </>
+  );
+}
+
+function PremiumDocIcon() {
+  return (
+    <>
+      {/* eslint-disable-next-line @next/next/no-img-element -- Icone aprovado em docs/ICONES alterna por tema via CSS. */}
+      <img className={styles.vendasChannelDocIconLight} src="/icons/hbx-docs-channels/premium-light.png" alt="" aria-hidden="true" loading="lazy" draggable={false} />
+      {/* eslint-disable-next-line @next/next/no-img-element -- Icone aprovado em docs/ICONES alterna por tema via CSS. */}
+      <img className={styles.vendasChannelDocIconDark} src="/icons/hbx-docs-channels/premium-dark.png" alt="" aria-hidden="true" loading="lazy" draggable={false} />
+    </>
+  );
+}
+
 function closedBadgeRadarIconName(key: string): HbxRadarIconName {
   if (key === "delivered") return "check";
   if (key === "lead-plus") return "lead-plus";
@@ -1168,6 +1230,7 @@ type DateFilterItem = {
 type LeadCardView = {
   lead: LeadItem;
   draft: LeadDraft;
+  board?: BoardResponse | null;
   blockKey: LeadBlockKey;
   selected: boolean;
   saving: boolean;
@@ -1272,6 +1335,7 @@ const VENDAS_PROGRESS_STEPS = [
 ];
 const MOBILE_READY_MESSAGE_PREF_KEY = "hbx.vendas.mobile.readyMessagePreference.v1";
 const MOBILE_PREFERRED_CALLER_NAME_KEY = "hbx.vendas.mobile.preferredCallerName.v1";
+const DESKTOP_READY_MESSAGE_LIBRARY_KEY = "hbx.vendas.desktop.readyMessageLibrary.v2";
 const MOBILE_OPEN_LEAD_KEY = "hbx.vendas.mobile.openLeadId.v1";
 
 function vendasClientMessage(value: unknown, fallback = "Não consegui atualizar Vendas agora. Tente novamente em instantes.") {
@@ -1904,7 +1968,7 @@ function leadEnrichmentOperationView(lead: LeadItem, board?: BoardResponse | nul
       detail: leadHasPremiumSignals(lead)
         ? "O enriquecimento deste card já foi aplicado."
         : "O HBX conferiu e não encontrou novos sinais agora.",
-      action: "Card completo",
+      action: "Revisado",
       canRequest: false,
     };
   }
@@ -2139,13 +2203,61 @@ function MobileEnrichmentCrown({ lead, board, compact = false }: { lead: LeadIte
   );
 }
 
+const WHATSAPP_AVAILABLE_STATUSES = new Set([
+  "available",
+  "confirmed",
+  "valid",
+  "exists",
+  "reachable",
+  "active",
+  "verified",
+  "ok",
+  "success",
+  "has_whatsapp",
+  "whatsapp",
+]);
+
+const WHATSAPP_UNAVAILABLE_STATUSES = new Set([
+  "unavailable",
+  "missing",
+  "invalid",
+  "not_found",
+  "notfound",
+  "no_whatsapp",
+  "without_whatsapp",
+  "none",
+  "false",
+]);
+
+function normalizeWhatsappMotorStatus(value?: string | null): LeadWhatsappMotorStatus {
+  const status = String(value || "").trim().toLowerCase();
+  if (!status || status === "unknown" || status === "pending") return "unknown";
+  if (WHATSAPP_UNAVAILABLE_STATUSES.has(status)) return "unavailable";
+  if (
+    status.includes("unavailable") ||
+    status.includes("not available") ||
+    status.includes("missing") ||
+    status.includes("invalid") ||
+    status.includes("not_found") ||
+    status.includes("not found") ||
+    status.includes("sem whatsapp") ||
+    status.includes("no whatsapp") ||
+    status.includes("without_whatsapp") ||
+    status.includes("no_whatsapp")
+  ) return "unavailable";
+  if (WHATSAPP_AVAILABLE_STATUSES.has(status)) return "available";
+  if (status.includes("available") || status.includes("confirm") || status.includes("valid") || status.includes("verified")) return "available";
+  return "unknown";
+}
+
+function leadWhatsappMotorStatus(lead: LeadItem): LeadWhatsappMotorStatus {
+  const availabilityStatus = normalizeWhatsappMotorStatus(lead.whatsappAvailability?.status);
+  if (availabilityStatus !== "unknown") return availabilityStatus;
+  return normalizeWhatsappMotorStatus(lead.leadIntelligence?.whatsappStatus);
+}
+
 function isLeadWhatsappConfirmed(lead: LeadItem) {
-  const intelligenceStatus = String(lead.leadIntelligence?.whatsappStatus || "").trim().toLowerCase();
-  const availabilityStatus = String(lead.whatsappAvailability?.status || "").trim().toLowerCase();
-  return (
-    ["confirmed", "available", "valid", "exists"].includes(intelligenceStatus) ||
-    availabilityStatus === "available"
-  );
+  return leadWhatsappMotorStatus(lead) === "available";
 }
 
 function leadWhatsappHref(lead: LeadItem) {
@@ -2157,6 +2269,7 @@ type LeadChannelAsset = {
   href: string;
   external?: boolean;
   locked?: boolean;
+  disabled?: boolean;
 };
 
 type LeadClosedCardBadge = {
@@ -2180,7 +2293,7 @@ type LeadClosedCardViewModel = {
 };
 
 type LeadExpandedChannel = {
-  key: "instagram" | "facebook" | "whatsapp" | "site" | "email" | "map" | "linkedin";
+  key: "phone" | "instagram" | "facebook" | "whatsapp" | "site" | "email" | "map" | "linkedin";
   label: string;
   href: string;
   status: "available" | "possible" | "missing" | "locked";
@@ -2219,14 +2332,28 @@ function buildLeadChannelAssets(lead: LeadItem): LeadChannelAsset[] {
   const facebookHref = normalizeExternalUrl(lead.leadIntelligence?.facebookUrl);
   const email = String(lead.email || lead.leadIntelligence?.email || "").trim();
   const websiteHref = normalizeExternalUrl(lead.website);
+  const mapHref = mapsHrefForLead(lead);
   return [
-    phoneHref ? { channel: "phone", href: phoneHref } : null,
-    whatsappHref ? { channel: "whatsapp", href: whatsappHref, external: true } : null,
-    instagramHref ? { channel: "instagram", href: socialLinksVisible ? instagramHref : "", external: true, locked: !socialLinksVisible } : null,
-    facebookHref ? { channel: "facebook", href: socialLinksVisible ? facebookHref : "", external: true, locked: !socialLinksVisible } : null,
-    email ? { channel: "email", href: `mailto:${email}` } : null,
-    websiteHref ? { channel: "site", href: websiteHref, external: true } : null,
-  ].filter(Boolean) as LeadChannelAsset[];
+    { channel: "phone", href: phoneHref, disabled: !phoneHref },
+    { channel: "whatsapp", href: whatsappHref, external: true, disabled: !whatsappHref },
+    {
+      channel: "instagram",
+      href: socialLinksVisible ? instagramHref : "",
+      external: true,
+      locked: Boolean(instagramHref && !socialLinksVisible),
+      disabled: !instagramHref,
+    },
+    {
+      channel: "facebook",
+      href: socialLinksVisible ? facebookHref : "",
+      external: true,
+      locked: Boolean(facebookHref && !socialLinksVisible),
+      disabled: !facebookHref,
+    },
+    { channel: "email", href: email ? `mailto:${email}` : "", disabled: !email },
+    { channel: "site", href: websiteHref, external: true, disabled: !websiteHref },
+    { channel: "map", href: mapHref, external: true, disabled: !mapHref },
+  ];
 }
 
 function leadAvatarText(value: unknown) {
@@ -2323,7 +2450,7 @@ function leadExpandedCardView(lead: LeadItem, board?: BoardResponse | null): Lea
   const website = leadWebsiteForDisplay(lead);
   const websiteHref = normalizeExternalUrl(website);
   const phoneHref = lead.phone ? buildCallUrl(lead.phone) : "";
-  const whatsappHref = leadWhatsappHref(lead) || (lead.phone ? buildWhatsAppUrl(lead.phone, lead.name) : "");
+  const whatsappHref = leadWhatsappHref(lead);
   const instagramHref = socialLinksVisible ? normalizeExternalUrl(intelligence.instagramUrl) : "";
   const facebookHref = socialLinksVisible ? normalizeExternalUrl(intelligence.facebookUrl) : "";
   const linkedinHref = socialLinksVisible ? normalizeExternalUrl(intelligence.linkedinUrl) : "";
@@ -2342,11 +2469,12 @@ function leadExpandedCardView(lead: LeadItem, board?: BoardResponse | null): Lea
     lead.address ? { key: "address", label: "Endereço", value: lead.address, href: mapHref || undefined, external: true, tone: "success" } : { key: "address", label: "Endereço", value: "Não informado", tone: "muted" },
   ];
   const channels: LeadExpandedChannel[] = [
+    { key: "phone", label: "Telefone", href: phoneHref, status: phoneHref ? "available" : "missing" },
+    { key: "whatsapp", label: "WhatsApp", href: whatsappHref, status: whatsappHref ? "available" : "missing", external: true },
     { key: "instagram", label: "Instagram", href: instagramHref || possibleInstagramHref, status: instagramHref ? "available" : possibleInstagramHref ? "possible" : "missing", external: true },
     { key: "facebook", label: "Facebook", href: facebookHref || possibleFacebookHref, status: facebookHref ? "available" : possibleFacebookHref ? "possible" : "missing", external: true },
-    { key: "whatsapp", label: "WhatsApp", href: whatsappHref, status: whatsappHref ? "available" : "missing", external: true },
-    { key: "site", label: "Site", href: websiteHref, status: websiteHref ? "available" : "missing", external: true },
     { key: "email", label: "E-mail", href: email ? `mailto:${email}` : "", status: email ? "available" : "missing" },
+    { key: "site", label: "Site", href: websiteHref, status: websiteHref ? "available" : "missing", external: true },
     { key: "map", label: "Mapa", href: mapHref, status: mapHref ? "available" : "missing", external: true },
     { key: "linkedin", label: "LinkedIn", href: linkedinHref, status: linkedinHref ? "available" : "missing", external: true },
   ];
@@ -2394,6 +2522,24 @@ function readMobileReadyMessagePreference() {
 function saveMobileReadyMessagePreference(index: number) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(MOBILE_READY_MESSAGE_PREF_KEY, String(Math.max(0, Math.floor(index))));
+}
+
+function readDesktopReadyMessageLibrary() {
+  if (typeof window === "undefined") return [] as string[];
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(DESKTOP_READY_MESSAGE_LIBRARY_KEY) || "[]");
+    return Array.isArray(parsed)
+      ? parsed.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 20)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveDesktopReadyMessageLibrary(messages: string[]) {
+  if (typeof window === "undefined") return;
+  const clean = messages.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 20);
+  window.localStorage.setItem(DESKTOP_READY_MESSAGE_LIBRARY_KEY, JSON.stringify(clean));
 }
 
 function readMobileOpenLeadId() {
@@ -2580,8 +2726,8 @@ function leadTagLabel(tag: string) {
 }
 
 function whatsappStatusLabel(status?: string | null) {
-  if (status === "confirmed") return "WhatsApp verificado";
-  if (status === "missing") return "Sem WhatsApp";
+  if (status === "available" || status === "confirmed") return "WhatsApp verificado";
+  if (status === "unavailable" || status === "missing") return "Sem WhatsApp";
   if (status === "invalid") return "Telefone inválido";
   return "WhatsApp pendente";
 }
@@ -2595,7 +2741,7 @@ function nextBestActionLabel(action?: string | null) {
 }
 
 function getLeadWhatsappStatus(lead: LeadItem) {
-  return lead.whatsappAvailability?.status || "unknown";
+  return leadWhatsappMotorStatus(lead);
 }
 
 function matchesWhatsappFilter(lead: LeadItem, filter: WhatsappFilter) {
@@ -3281,6 +3427,7 @@ function AnimatedCount({ value }: { value: number }) {
 function LeadCardView({
   lead,
   draft,
+  board,
   blockKey,
   selected,
   saving,
@@ -3317,7 +3464,7 @@ function LeadCardView({
     signals.cameFromWebscraping ? "Radar Digital" : null,
     signals.hadPreviousContact ? "Com histórico" : null,
     signals.wasClosedBefore ? "Já encerrado" : null,
-    lead.whatsappAvailability?.status === "unavailable" ? "Sem WhatsApp" : null,
+    getLeadWhatsappStatus(lead) === "unavailable" ? "Sem WhatsApp" : null,
     lead.owner?.name ? `Resp.: ${lead.owner.name}` : null,
     lead.commissionLinkedCompanyId ? "Cadastro HBX vinculado" : null,
     normalizeSaleStatus(lead.saleStatus) !== "none" ? (lead.saleStatusLabel || saleStatusLabel(lead.saleStatus)) : null,
@@ -3337,6 +3484,7 @@ function LeadCardView({
   const inInbox = isLeadInInbox(lead);
   const webscrapingSummary = buildLeadWebscrapingSummary(lead);
   const channelAssets = buildLeadChannelAssets(lead);
+  const premiumBadge = leadEnrichmentBadgeState(lead, board);
   const closedView = leadClosedCardView(lead);
   const selectedSalePlanKey = normalizeSalePlanKey(draft.salePlanKey || lead.salePlanKey);
   const closingSaleValue = parseCurrencyInput(draft.saleValue) || salePlanPrice(selectedSalePlanKey);
@@ -3514,47 +3662,6 @@ function LeadCardView({
                   </span>
                 ))}
               </div>
-              {channelAssets.length ? (
-                <div className={styles.leadCardChannelRow} aria-label="Canais disponíveis">
-                  {channelAssets.map((asset) => {
-                    const icon = (
-                      <span
-                        className={styles.mobileVendasChannelIcon}
-                        data-channel={asset.channel}
-                        data-compact="true"
-                        data-locked={asset.locked ? "true" : "false"}
-                        title={MOBILE_CHANNEL_ASSETS[asset.channel].label}
-                      >
-                        <MobileChannelIconAsset channel={asset.channel} />
-                      </span>
-                    );
-                    if (asset.locked) {
-                      return (
-                        <Link
-                          key={asset.channel}
-                          href={toMobileRoute("/planos?intent=lead")}
-                          aria-label={`${MOBILE_CHANNEL_ASSETS[asset.channel].label} disponível no HBX Lead`}
-                          onClick={(event) => event.stopPropagation()}
-                        >
-                          {icon}
-                        </Link>
-                      );
-                    }
-                    return (
-                      <a
-                        key={asset.channel}
-                        href={asset.href}
-                        target={asset.external ? "_blank" : undefined}
-                        rel={asset.external ? "noreferrer" : undefined}
-                        aria-label={MOBILE_CHANNEL_ASSETS[asset.channel].label}
-                        onClick={(event) => event.stopPropagation()}
-                      >
-                        {icon}
-                      </a>
-                    );
-                  })}
-                </div>
-              ) : null}
             </div>
             <div className={`${glassCardStyles.headerAside} ${styles.vendasClosedAside}`}>
               <span className={styles.vendasClosedProduct} data-product={closedView.productTone}>
@@ -3591,6 +3698,64 @@ function LeadCardView({
                 {inInbox ? "Inbox" : "Importar"}
               </button>
             </div>
+          </div>
+          <div className={styles.leadCardChannelRow} aria-label="Canais disponíveis">
+            {channelAssets.map((asset) => {
+              const label = MOBILE_CHANNEL_ASSETS[asset.channel].label;
+              const icon = (
+                <span
+                  className={styles.mobileVendasChannelIcon}
+                  data-channel={asset.channel}
+                  data-compact="true"
+                  data-locked={asset.locked ? "true" : "false"}
+                  data-disabled={asset.disabled ? "true" : "false"}
+                  title={label}
+                >
+                  <MobileChannelIconAsset channel={asset.channel} />
+                </span>
+              );
+              if (asset.locked) {
+                return (
+                  <Link
+                    key={asset.channel}
+                    href={toMobileRoute("/planos?intent=lead")}
+                    aria-label={`${label} disponível no HBX Lead`}
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    {icon}
+                  </Link>
+                );
+              }
+              if (asset.disabled) {
+                return (
+                  <span key={asset.channel} aria-label={`${label} indisponível`}>
+                    {icon}
+                  </span>
+                );
+              }
+              return (
+                <a
+                  key={asset.channel}
+                  href={asset.href}
+                  target={asset.external ? "_blank" : undefined}
+                  rel={asset.external ? "noreferrer" : undefined}
+                  aria-label={label}
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  {icon}
+                </a>
+              );
+            })}
+            <Link
+              href={toMobileRoute("/planos?intent=lead")}
+              className={styles.leadCardPremiumIcon}
+              data-state={premiumBadge?.state || "none"}
+              aria-label={premiumBadge?.title || "HBX Lead premium"}
+              title={premiumBadge?.title || "HBX Lead premium"}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <PremiumDocIcon />
+            </Link>
           </div>
           <div className={glassCardStyles.cluster}>
             {chips.slice(0, 5).map((chip) => (
@@ -3980,6 +4145,7 @@ function LeadCardView({
 function DraggableLeadCard({
   lead,
   draft,
+  board,
   blockKey,
   selected,
   saving,
@@ -4022,6 +4188,7 @@ function DraggableLeadCard({
       <LeadCardView
         lead={lead}
         draft={draft}
+        board={board}
         blockKey={blockKey}
         selected={selected}
         saving={saving}
@@ -4255,6 +4422,12 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     password: string;
   } | null>(null);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
+  const [desktopReturnMonthKey, setDesktopReturnMonthKey] = useState("");
+  const [desktopReturnDrafts, setDesktopReturnDrafts] = useState<Record<string, string>>({});
+  const [desktopObservationDrafts, setDesktopObservationDrafts] = useState<Record<string, string>>({});
+  const [desktopTemplateIndex, setDesktopTemplateIndex] = useState(0);
+  const [desktopTemplateEditorOpen, setDesktopTemplateEditorOpen] = useState(false);
+  const [desktopReadyTemplateTexts, setDesktopReadyTemplateTexts] = useState<string[]>(() => readDesktopReadyMessageLibrary());
   const [editingLeadId, setEditingLeadId] = useState<string | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
   const [accountSheetOpen, setAccountSheetOpen] = useState(false);
@@ -4271,9 +4444,15 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   const [accountProfileLoading, setAccountProfileLoading] = useState(false);
   const composerOpenRef = useRef(false);
   const mobileSkipDraftHydrateRef = useRef(false);
+  const desktopTemplateTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [expandedTimelineEventId, setExpandedTimelineEventId] = useState<
     string | null
   >(null);
+
+  useEffect(() => {
+    saveDesktopReadyMessageLibrary(desktopReadyTemplateTexts);
+  }, [desktopReadyTemplateTexts]);
+
   const [activeDragLeadId, setActiveDragLeadId] = useState<string | null>(null);
   const [activeDragDateKey, setActiveDragDateKey] = useState<string | null>(
     null,
@@ -4683,6 +4862,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     const normalizedLeadId = String(leadId || "").trim();
     if (!normalizedLeadId) return;
     setSelectedLeadId(normalizedLeadId);
+    primeDesktopReturnMonth(normalizedLeadId);
     if (mobileRoute) setMobileSection("today");
     setFeedback("Card aberto na agenda de Vendas.");
   }
@@ -7034,10 +7214,9 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       const readyMessage = capabilities.canSeeMessageTemplates
         ? template.text
         : `Olá, tudo bem? Encontrei a ${lead.name || "sua empresa"} e queria apresentar uma solução simples para organizar contatos e retornos.`;
-      const whatsappHref = buildWhatsAppUrlWithMessage(
-        lead.phone,
-        readyMessage,
-      );
+      const whatsappHref = isLeadWhatsappConfirmed(lead)
+        ? buildWhatsAppUrlWithMessage(lead.phone, readyMessage)
+        : "";
       const callHref = buildCallUrl(lead.phone);
       const email = leadEmailForDisplay(lead);
       const emailHref = email ? `mailto:${email}` : "";
@@ -7054,9 +7233,9 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       const possibleSocialVisible = Boolean(possibleInstagramHref || possibleFacebookHref);
       const socialBadge = socialBadgeLabel(intelligence.primarySocial) || (possibleSocialVisible ? "Possível" : "");
       const socialTeaserVisible = capabilities.canSeeSocialLinks === "teaser_only" && Boolean(socialBadge);
-      const whatsappStatus = intelligence.whatsappStatus || lead.whatsappAvailability?.status || null;
-      const whatsappReady = whatsappStatus === "confirmed" || lead.whatsappAvailability?.status === "available";
-      const whatsappUnavailable = whatsappStatus === "missing" || whatsappStatus === "invalid" || lead.whatsappAvailability?.status === "unavailable";
+      const whatsappStatus = getLeadWhatsappStatus(lead);
+      const whatsappReady = whatsappStatus === "available";
+      const whatsappUnavailable = whatsappStatus === "unavailable";
       const tags = intelligence.leadReasonTags || [];
       const reasonChipTonePriority: Record<string, number> = {
         smart: 5,
@@ -8792,6 +8971,18 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     }
   }
 
+  function primeDesktopReturnMonth(leadId: string) {
+    const record = leadById.get(leadId);
+    const lead = record?.lead;
+    if (!lead) {
+      setDesktopReturnMonthKey("");
+      return;
+    }
+    const draft = drafts[lead.id] || createDraft(lead);
+    const dateKey = String(draft.returnAt || "").slice(0, 10) || localDateKeyFromDate(getMobileReturnDefaultDate(lead));
+    setDesktopReturnMonthKey(monthKeyFromDateKey(dateKey));
+  }
+
   function focusLead(leadId: string) {
     const current = leadById.get(leadId);
     if (!current) return;
@@ -8805,6 +8996,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     }
     if (current.block === "closed") setShowClosed(true);
     setSelectedLeadId(leadId);
+    primeDesktopReturnMonth(leadId);
     setCommandOpen(false);
     // After changing selected block/lead, wait a tick for DOM to update
     // then scroll the actual card into view and move keyboard focus there.
@@ -8948,6 +9140,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     setBoard(optimisticBoard);
     setDrafts((prev) => ({ ...prev, [leadId]: nextDraft }));
     setSelectedLeadId(leadId);
+    setDesktopReturnMonthKey(monthKeyFromDateKey(String(nextDraft.returnAt || "").slice(0, 10)));
     setSavingLeadId(leadId);
 
     try {
@@ -9164,6 +9357,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     const commonProps = {
       lead,
       draft,
+      board,
       blockKey,
       selected: selectedLeadId === lead.id,
       saving: savingLeadId === lead.id,
@@ -9231,16 +9425,80 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
 
     const expandedView = leadExpandedCardView(selectedLead, board);
     const selectedCapabilities = leadCapabilities(selectedLead, board);
-    const selectedTemplate = activeMobileTemplate(selectedLead);
+    const defaultDesktopTemplates = [""];
+    const desktopTemplates = desktopReadyTemplateTexts.length ? desktopReadyTemplateTexts : defaultDesktopTemplates;
+    const activeDesktopTemplateIndex = Math.min(Math.max(0, desktopTemplateIndex), Math.max(0, desktopTemplates.length - 1));
+    const selectedReadyTemplateRaw = desktopTemplates[activeDesktopTemplateIndex] || "";
     const selectedReadyMessage = selectedCapabilities.canSeeMessageTemplates
-      ? selectedTemplate.text
-      : `Olá, tudo bem? Encontrei a ${selectedLead.name || "sua empresa"} e queria apresentar uma solução simples para organizar contatos e retornos.`;
-    const selectedWhatsappHref = buildWhatsAppUrlWithMessage(
-      selectedLead.phone,
-      selectedReadyMessage,
-    );
+      ? personalizeMobileReadyMessage(selectedReadyTemplateRaw, selectedLead, mobilePreferredCallerName)
+      : "";
+    const selectedWhatsappHref = isLeadWhatsappConfirmed(selectedLead)
+      ? buildWhatsAppUrlWithMessage(selectedLead.phone, selectedReadyMessage)
+      : "";
     const selectedEnrichmentLoading = mobileEnrichmentLoadingId === selectedLead.id;
     const selectedEnrichmentOperation = leadEnrichmentOperationView(selectedLead, board, selectedEnrichmentLoading);
+    const desktopReturnBase = getMobileReturnDefaultDate(selectedLead);
+    const desktopReturnDraftValue = desktopReturnDrafts[selectedLead.id] ?? selectedLeadDraft.returnAt ?? "";
+    const desktopReturnDateKey =
+      String(desktopReturnDraftValue || "").slice(0, 10) ||
+      localDateKeyFromDate(desktopReturnBase);
+    const desktopReturnHasSelection = Boolean(String(desktopReturnDraftValue || "").trim());
+    const desktopReturnTime =
+      normalizeReturnTime(String(desktopReturnDraftValue || "").slice(11, 16)) ||
+      `${padDatePart(desktopReturnBase.getHours())}:${padDatePart(desktopReturnBase.getMinutes())}`;
+    const activeDesktopReturnMonthKey = desktopReturnMonthKey || monthKeyFromDateKey(desktopReturnDateKey);
+    const desktopReturnCalendarDays = buildCalendarDays(activeDesktopReturnMonthKey);
+    const desktopReturnMonthLabel = new Date(`${activeDesktopReturnMonthKey}-01T12:00:00`).toLocaleDateString("pt-BR", {
+      month: "long",
+      year: "numeric",
+    });
+    const applyDesktopReturnDate = (dateKey: string) => {
+      const nextReturnAt = `${dateKey}T${desktopReturnTime}`;
+      setDesktopReturnMonthKey(monthKeyFromDateKey(dateKey));
+      setDesktopReturnDrafts((current) => ({ ...current, [selectedLead.id]: nextReturnAt }));
+      setLeadDraft(selectedLead.id, {
+        status: "retorno",
+        returnAt: nextReturnAt,
+      });
+    };
+    const desktopObservationDraft = desktopObservationDrafts[selectedLead.id] ?? "";
+    const setDesktopTemplates = (next: string[]) => {
+      const clean = next.length ? next : [""];
+      setDesktopReadyTemplateTexts(clean);
+      setDesktopTemplateIndex((current) => Math.min(Math.max(0, current), clean.length - 1));
+    };
+    const updateDesktopTemplate = (value: string) => {
+      const base = desktopTemplates.length ? [...desktopTemplates] : [""];
+      base[activeDesktopTemplateIndex] = value;
+      setDesktopTemplates(base);
+    };
+    const addDesktopTemplate = () => {
+      const base = desktopTemplates.length ? [...desktopTemplates] : [""];
+      const next = [...base, ""].slice(0, 20);
+      setDesktopTemplates(next);
+      setDesktopTemplateIndex(next.length - 1);
+    };
+    const removeDesktopTemplate = () => {
+      const base = desktopTemplates.length ? [...desktopTemplates] : [""];
+      const next = base.filter((_, index) => index !== activeDesktopTemplateIndex);
+      setDesktopTemplates(next.length ? next : [""]);
+      setDesktopTemplateIndex((current) => Math.max(0, current - 1));
+    };
+    const insertDesktopVariable = (token: string) => {
+      const textarea = desktopTemplateTextareaRef.current;
+      const current = selectedReadyTemplateRaw || "";
+      const start = textarea?.selectionStart ?? current.length;
+      const end = textarea?.selectionEnd ?? current.length;
+      const next = `${current.slice(0, start)}${token}${current.slice(end)}`;
+      updateDesktopTemplate(next);
+      requestAnimationFrame(() => {
+        const node = desktopTemplateTextareaRef.current;
+        if (!node) return;
+        const cursor = start + token.length;
+        node.focus();
+        node.setSelectionRange(cursor, cursor);
+      });
+    };
 
     return (
       <aside className={styles.detailPanel} data-detail-panel="true">
@@ -9252,7 +9510,29 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                   <span>{expandedView.closed.avatarText}</span>
                 </div>
                 <div>
-                  <strong>{expandedView.closed.title}</strong>
+                  <div className={styles.vendasOpenTitleRow}>
+                    <strong>{expandedView.closed.title}</strong>
+                    <div className={styles.vendasOpenHeaderChannels} aria-label="Canais do lead">
+                      {expandedView.channels.filter((channel) => channel.key !== "linkedin").slice(0, 7).map((channel) => (
+                        <a
+                          key={channel.key}
+                          href={channel.href || undefined}
+                          target={channel.external && channel.href ? "_blank" : undefined}
+                          rel={channel.external && channel.href ? "noreferrer" : undefined}
+                          aria-label={channel.label}
+                          aria-disabled={!channel.href || channel.status === "missing"}
+                          data-channel={channel.key}
+                          data-status={channel.status}
+                          title={channel.label}
+                          onClick={(event) => {
+                            if (!channel.href || channel.status === "missing") event.preventDefault();
+                          }}
+                        >
+                          <DesktopChannelDocIcon channel={channel.key} />
+                        </a>
+                      ))}
+                    </div>
+                  </div>
                   <span>{expandedView.closed.place} · {expandedView.closed.segment}</span>
                   <small>{expandedView.updatedLabel}</small>
                 </div>
@@ -9281,26 +9561,6 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                   <HbxRadarPngIcon name={closedBadgeRadarIconName(badge.key)} />
                   {badge.label}
                 </span>
-              ))}
-            </div>
-
-            <div className={styles.vendasOpenChannels} aria-label="Canais do lead">
-              {expandedView.channels.slice(0, 6).map((channel) => (
-                <a
-                  key={channel.key}
-                  href={channel.href || undefined}
-                  target={channel.external && channel.href ? "_blank" : undefined}
-                  rel={channel.external && channel.href ? "noreferrer" : undefined}
-                  aria-disabled={!channel.href || channel.status === "missing"}
-                  data-channel={channel.key}
-                  data-status={channel.status}
-                  onClick={(event) => {
-                    if (!channel.href || channel.status === "missing") event.preventDefault();
-                  }}
-                >
-                  <span><HbxRadarPngIcon name={channel.key} /></span>
-                  <b>{channel.label}</b>
-                </a>
               ))}
             </div>
 
@@ -9357,66 +9617,229 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 <p>{expandedView.nextAction}</p>
               </section>
 
-              <section className={`${styles.vendasOpenSection} ${styles.vendasOpenMessage}`}>
-                <h3><HbxRadarPngIcon name="message" /> Mensagem pronta</h3>
-                <p>{selectedReadyMessage}</p>
-                <button
-                  type="button"
-                  onClick={() => void copyMobileText(selectedReadyMessage, "Mensagem copiada.")}
-                  disabled={!selectedCapabilities.canSeeMessageTemplates}
-                >
-                  Copiar mensagem
-                </button>
-              </section>
-
               <section className={`${styles.vendasOpenSection} ${styles.vendasOpenOperation}`}>
                 <h3><HbxRadarPngIcon name="action" /> Observação e retorno</h3>
+                <div className={styles.desktopReadyMessages}>
+                  <header>
+                    <div>
+                      <span>Frases prontas</span>
+                      <strong>Mensagem WhatsApp</strong>
+                    </div>
+                    <div className={styles.desktopReadyMessageControls}>
+                      <b>{activeDesktopTemplateIndex + 1} de {desktopTemplates.length}</b>
+                      <button type="button" onClick={() => setDesktopTemplateEditorOpen((current) => !current)}>
+                        Editar frases
+                      </button>
+                    </div>
+                  </header>
+                  <p data-empty={selectedReadyMessage.trim() ? "false" : "true"}>
+                    {selectedReadyMessage.trim() || "Nenhuma frase pronta configurada."}
+                  </p>
+                  <div className={styles.desktopReadyMessageActions}>
+                    <button
+                      type="button"
+                      onClick={() => void copyMobileText(selectedReadyMessage, "Frase copiada.")}
+                      disabled={!selectedCapabilities.canSeeMessageTemplates || !selectedReadyMessage.trim()}
+                    >
+                      Copiar frase
+                    </button>
+                    <a
+                      href={selectedWhatsappHref || undefined}
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-disabled={!selectedWhatsappHref || !selectedCapabilities.canSeeMessageTemplates || !selectedReadyMessage.trim()}
+                      onClick={(event) => {
+                        if (!selectedWhatsappHref || !selectedCapabilities.canSeeMessageTemplates || !selectedReadyMessage.trim()) event.preventDefault();
+                        else void incrementAttempt(selectedLead.id);
+                      }}
+                    >
+                      Enviar WhatsApp
+                    </a>
+                  </div>
+                </div>
                 <label>
-                  <span>Observação</span>
+                  <span>Observação interna</span>
                   <textarea
-                    value={selectedLeadDraft.shortNote}
-                    onChange={(event) => setLeadDraft(selectedLead.id, { shortNote: event.target.value })}
+                    value={desktopObservationDraft}
+                    onChange={(event) => setDesktopObservationDrafts((current) => ({
+                      ...current,
+                      [selectedLead.id]: event.target.value,
+                    }))}
                     rows={4}
                     maxLength={280}
-                    placeholder="Contexto do cliente, objeção, próximo passo ou detalhe importante."
+                    placeholder="Digite uma observação interna para ficar salva no sistema."
                   />
                 </label>
-                <label>
-                  <span>Retorno</span>
-                  <input
-                    type="datetime-local"
-                    value={selectedLeadDraft.returnAt}
-                    onChange={(event) => setLeadDraft(selectedLead.id, { returnAt: event.target.value })}
-                  />
-                </label>
-                <label>
-                  <span>Próxima ação</span>
-                  <input
-                    value={selectedLeadDraft.nextAction}
-                    onChange={(event) => setLeadDraft(selectedLead.id, { nextAction: event.target.value })}
-                    placeholder="Ex.: chamar no WhatsApp hoje"
-                  />
-                </label>
+                <div className={styles.desktopReturnCompact}>
+                  <div className={styles.desktopReturnInlineHeader}>
+                    <div>
+                      <span>Agendar retorno</span>
+                      <strong>{desktopReturnHasSelection ? formatDateTime(desktopReturnDraftValue) : "Escolha data e horário"}</strong>
+                    </div>
+                  </div>
+                  <div className={styles.desktopReturnPlannerTop}>
+                    <label>
+                      <span>Próxima ação</span>
+                      <input
+                        value={selectedLeadDraft.nextAction}
+                        onChange={(event) => setLeadDraft(selectedLead.id, { nextAction: event.target.value })}
+                        placeholder="Ex.: chamar no WhatsApp hoje"
+                      />
+                    </label>
+                    <label>
+                      <span>Horário</span>
+                      <input
+                        type="time"
+                        value={desktopReturnTime}
+                        onChange={(event) => {
+                          const nextReturnAt = `${desktopReturnDateKey}T${event.target.value}`;
+                          setDesktopReturnDrafts((current) => ({ ...current, [selectedLead.id]: nextReturnAt }));
+                          setLeadDraft(selectedLead.id, {
+                            status: "retorno",
+                            returnAt: nextReturnAt,
+                          });
+                        }}
+                      />
+                    </label>
+                  </div>
+                  <div className={styles.desktopReturnCalendar}>
+                    <header>
+                      <button type="button" onClick={() => setDesktopReturnMonthKey((current) => shiftMonthKey(current || activeDesktopReturnMonthKey, -1))} aria-label="Mês anterior">‹</button>
+                      <strong>{desktopReturnMonthLabel}</strong>
+                      <button type="button" onClick={() => setDesktopReturnMonthKey((current) => shiftMonthKey(current || activeDesktopReturnMonthKey, 1))} aria-label="Próximo mês">›</button>
+                    </header>
+                    <div className={styles.desktopReturnWeekdays} aria-hidden="true">
+                      {["D", "S", "T", "Q", "Q", "S", "S"].map((label, index) => (
+                        <span key={`${label}-${index}`}>{label}</span>
+                      ))}
+                    </div>
+                    <div className={styles.desktopReturnCalendarGrid}>
+                      {desktopReturnCalendarDays.map((day) => (
+                        day.day ? (
+                          <button
+                            type="button"
+                            key={day.key}
+                            data-date-key={day.key}
+                            data-selected={desktopReturnHasSelection && day.key === desktopReturnDateKey ? "true" : "false"}
+                            onClick={() => applyDesktopReturnDate(day.key)}
+                          >
+                            {day.day}
+                          </button>
+                        ) : (
+                          <span key={day.key} aria-hidden="true" />
+                        )
+                      ))}
+                    </div>
+                  </div>
+                </div>
                 <button
                   type="button"
-                  onClick={() => void saveLead(selectedLead.id, undefined, "Observação e retorno atualizados.")}
+                  onClick={() => void saveLead(
+                    selectedLead.id,
+                    {
+                      shortNote: desktopObservationDraft,
+                      nextAction: selectedLeadDraft.nextAction,
+                      returnAt: desktopReturnDraftValue,
+                      status: desktopReturnDraftValue ? "retorno" : selectedLeadDraft.status,
+                    },
+                    "Observação e retorno salvos.",
+                  )}
                   disabled={savingLeadId === selectedLead.id}
                 >
                   {savingLeadId === selectedLead.id ? "Salvando" : "Salvar alterações"}
                 </button>
               </section>
+              <HbxPopup1
+                open={desktopTemplateEditorOpen}
+                title="Editor de frases prontas"
+                eyebrow="Vendas"
+                tone="info"
+                description="Crie mensagens para enviar no WhatsApp. Variáveis entram no texto e são preenchidas no envio."
+                onClose={() => setDesktopTemplateEditorOpen(false)}
+                primaryAction={(
+                  <button
+                    type="button"
+                    className="hbx-popup1__primary"
+                    onClick={() => {
+                      saveDesktopReadyMessageLibrary(desktopTemplates);
+                      setFeedback("Frases prontas salvas.");
+                      setDesktopTemplateEditorOpen(false);
+                    }}
+                  >
+                    Salvar frases
+                  </button>
+                )}
+                secondaryAction={(
+                  <button
+                    type="button"
+                    className="hbx-popup1__ghost"
+                    onClick={() => setDesktopTemplateEditorOpen(false)}
+                  >
+                    Fechar
+                  </button>
+                )}
+              >
+                <div className={`${styles.desktopTemplatePopupContent} vendasDesktopTemplatePopupRoot`}>
+                  <div className={styles.desktopTemplatePopupBar}>
+                    <span>{activeDesktopTemplateIndex + 1} de {desktopTemplates.length}</span>
+                    <div>
+                      <button type="button" onClick={addDesktopTemplate} disabled={desktopTemplates.length >= 20}>+</button>
+                      <button type="button" onClick={() => setDesktopTemplateIndex((current) => Math.min(current + 1, desktopTemplates.length - 1))} disabled={activeDesktopTemplateIndex >= desktopTemplates.length - 1}>&gt;</button>
+                      <button type="button" onClick={() => setDesktopTemplateIndex((current) => Math.max(0, current - 1))} disabled={activeDesktopTemplateIndex <= 0}>&lt;</button>
+                      <button type="button" onClick={removeDesktopTemplate} disabled={desktopTemplates.length <= 1}>Del</button>
+                    </div>
+                  </div>
+                  <textarea
+                    ref={desktopTemplateTextareaRef}
+                    value={selectedReadyTemplateRaw}
+                    onChange={(event) => updateDesktopTemplate(event.target.value)}
+                    disabled={!selectedCapabilities.canSeeMessageTemplates}
+                    placeholder="Escreva a frase pronta para enviar pelo WhatsApp."
+                  />
+                  <div className={styles.desktopTemplateVariablePanel}>
+                    <div>
+                      <strong>Variáveis</strong>
+                      <span>Insira no cursor do texto</span>
+                    </div>
+                    <div>
+                      {[
+                        ["{{company}}", "Empresa"],
+                        ["{{city}}", "Cidade"],
+                        ["{{segment}}", "Segmento"],
+                        ["{{phone}}", "Telefone"],
+                        ["{{seller}}", "Vendedor"],
+                      ].map(([token, label]) => (
+                        <button type="button" key={token} onClick={() => insertDesktopVariable(token)}>
+                          <b>{label}</b>
+                          <span>{token}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className={styles.desktopTemplateLivePreview}>
+                    <span>Prévia WhatsApp</span>
+                    <p>{selectedReadyMessage.trim() || "A prévia aparece quando uma frase for criada."}</p>
+                  </div>
+                </div>
+              </HbxPopup1>
             </div>
 
             <footer className={styles.vendasOpenActions}>
+              {selectedEnrichmentOperation.canRequest ? (
+                <button
+                  type="button"
+                  onClick={() => void loadMobileLeadEnrichment(selectedLead)}
+                >
+                  {selectedEnrichmentOperation.action}
+                </button>
+              ) : null}
               <button
                 type="button"
-                onClick={() => void loadMobileLeadEnrichment(selectedLead)}
-                disabled={!selectedEnrichmentOperation.canRequest}
+                data-tone="sale"
+                onClick={() => openAssistedSignup(selectedLead)}
+                disabled={assistedSignupSaving || savingLeadId === selectedLead.id}
               >
-                {selectedEnrichmentOperation.action}
-              </button>
-              <button type="button" onClick={() => setEditingLeadId(selectedLead.id)}>
-                Editar card
+                Fechou venda
               </button>
               <a
                 href={buildCallUrl(selectedLeadDraft.phone || selectedLead.phone) || undefined}
@@ -11348,7 +11771,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                         aria-label="+Agenda"
                         title="+Agenda"
                         onClick={() => {
-                          /* graphical placeholder - no action */
+                          router.push("/atendimento?atendimentoQueue=scheduled&atendimentoSection=agenda&agendaStudio=1&agendaMode=sales&returnTo=%2Fvendas");
                         }}
                       >
                         <span className={styles.dateFilterDay} />
@@ -11631,8 +12054,6 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
       {renderAssistedSignupPortal()}
       {renderCommissionReceiptPortal()}
 
-      {renderMobileReturnSchedulerPortal()}
-
       {renderAccountSheetPortal()}
 
       {commandOpen ? (
@@ -11666,42 +12087,47 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
             />
             <div className={styles.commandList}>
               {commandResults.length ? (
-                commandResults.map(({ lead, block }) => (
-                  <article
-                    key={`command-${lead.id}`}
-                    className={styles.commandRow}
-                  >
-                    <button
-                      type="button"
-                      className={styles.commandMain}
-                      onClick={() => focusLead(lead.id)}
+                commandResults.map(({ lead, block }) => {
+                  const whatsappHref = leadWhatsappHref(lead);
+                  return (
+                    <article
+                      key={`command-${lead.id}`}
+                      className={styles.commandRow}
                     >
-                      <strong>{lead.name || "Lead sem nome"}</strong>
-                      <span>
-                        {BLOCK_LABELS[block]} • {lead.statusLabel} •{" "}
-                        {lead.nextAction || "Sem próxima ação"}
-                      </span>
-                    </button>
-                    <div className={styles.commandActionRow}>
-                      <a
-                        className={styles.secondaryAction}
-                        href={buildCallUrl(lead.phone) || undefined}
+                      <button
+                        type="button"
+                        className={styles.commandMain}
+                        onClick={() => focusLead(lead.id)}
                       >
-                        Ligar
-                      </a>
-                      <a
-                        className={styles.secondaryAction}
-                        href={
-                          buildWhatsAppUrl(lead.phone, lead.name) || undefined
-                        }
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        WhatsApp
-                      </a>
-                    </div>
-                  </article>
-                ))
+                        <strong>{lead.name || "Lead sem nome"}</strong>
+                        <span>
+                          {BLOCK_LABELS[block]} • {lead.statusLabel} •{" "}
+                          {lead.nextAction || "Sem próxima ação"}
+                        </span>
+                      </button>
+                      <div className={styles.commandActionRow}>
+                        <a
+                          className={styles.secondaryAction}
+                          href={buildCallUrl(lead.phone) || undefined}
+                        >
+                          Ligar
+                        </a>
+                        <a
+                          className={styles.secondaryAction}
+                          href={whatsappHref || undefined}
+                          target="_blank"
+                          rel="noreferrer"
+                          aria-disabled={!whatsappHref}
+                          onClick={(event) => {
+                            if (!whatsappHref) event.preventDefault();
+                          }}
+                        >
+                          WhatsApp
+                        </a>
+                      </div>
+                    </article>
+                  );
+                })
               ) : (
                 <div className={styles.emptyPanel}>
                   <strong>Nenhum resultado</strong>
