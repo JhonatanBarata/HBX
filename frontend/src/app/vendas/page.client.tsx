@@ -132,6 +132,7 @@ type LeadTimelineEventType =
   | "hbx_signup_link_created"
   | "hbx_assisted_signup_created"
   | "card_usage_debited"
+  | "lead_enrichment_used"
   | "commission_updated"
   | "lead_closed"
   | "lead_reused"
@@ -247,6 +248,8 @@ type LeadIntelligence = {
   websiteStatus?: "present" | "none" | "weak" | "missing" | "unreachable" | string | null;
   instagramUrl?: string | null;
   facebookUrl?: string | null;
+  linkedinUrl?: string | null;
+  googleMapsUrl?: string | null;
   socialStatus?: "found" | "missing" | "weak" | "unknown" | string;
   socialConfidence?: number | null;
   possibleSocialCandidates?: LeadSocialCandidate[];
@@ -257,6 +260,7 @@ type LeadIntelligence = {
   opportunityScore?: number | null;
   opportunityReason?: string | null;
   leadReasonTags?: string[];
+  recommendedChannel?: "whatsapp" | "call" | "email" | "review" | "discard" | string | null;
   nextBestAction?: "whatsapp" | "call" | "email" | "review" | "discard" | string;
   lastVerifiedAt?: string | null;
   verifiedBy?: "hbx_master" | "client_engine" | "manual" | string | null;
@@ -267,6 +271,10 @@ type LeadIntelligence = {
   enrichmentStatus?: "queued" | "processing" | "completed" | "failed" | string | null;
   enrichedAt?: string | null;
   cnpj?: string | null;
+  confidence?: {
+    email?: number | null;
+    enrichment?: number | null;
+  } | null;
   messageTemplate?: LeadMessageTemplate | null;
   messageTemplates?: LeadMessageTemplate[];
   templateLibrarySize?: number;
@@ -276,11 +284,34 @@ type LeadIntelligence = {
   } | null;
 };
 
+type VendasEnrichmentUsage = {
+  used?: number;
+  limit?: number;
+  remaining?: number;
+  dailyUsed?: number;
+  dailyUserUsed?: number;
+  dailyLimit?: number;
+  dailyRemaining?: number;
+  canAutoEnrich?: boolean;
+  canManualEnrich?: boolean;
+  mode?: "auto" | "manual_only" | "blocked_until_reset" | string;
+  period?: "daily" | string;
+};
+
+type VendasUsageSnapshot = {
+  planKey?: string | null;
+  timezone?: string | null;
+  dailyResetAt?: string | null;
+  resetAt?: string | null;
+  enrichment?: VendasEnrichmentUsage | null;
+};
+
 type VendasCapabilities = {
   canSeeLeadIntelligence?: boolean;
   canSeeOpportunityReason?: boolean;
   canSeeSocialLinks?: boolean | "teaser_only";
   canSeeMessageTemplates?: boolean;
+  canAutoEnrichLeads?: boolean;
   canUseAdvancedFilters?: boolean;
   canUseVerifiedWhatsapp?: boolean | "limited";
   canUseFilteredQuota?: boolean;
@@ -767,9 +798,12 @@ type LeadItem = {
   timesSeen?: number;
   name?: string | null;
   phone?: string | null;
+  phoneNormalized?: string | null;
   email?: string | null;
   address?: string | null;
   website?: string | null;
+  googleMapsUrl?: string | null;
+  cnpj?: string | null;
   rating?: number | null;
   reviews?: number | null;
   city?: string | null;
@@ -885,6 +919,7 @@ type BoardResponse = {
   };
   planTier?: "list" | "lead" | "full" | string;
   capabilities?: VendasCapabilities;
+  usage?: VendasUsageSnapshot | null;
   blocks: Record<LeadBlockKey, LeadItem[]>;
 };
 
@@ -961,6 +996,7 @@ type LeadEnrichmentResponse = {
   leadId: string;
   planTier?: "list" | "lead" | "full" | string;
   capabilities?: VendasCapabilities;
+  usage?: VendasUsageSnapshot | null;
   whatsappAvailability?: LeadItem["whatsappAvailability"];
   leadIntelligence?: LeadIntelligence | null;
 };
@@ -1034,6 +1070,69 @@ function MobileChannelIconAsset({ channel }: { channel: MobileChannelAsset }) {
       <span className={styles.mobileVendasChannelSrOnly}>{asset.label}</span>
     </>
   );
+}
+
+type HbxRadarIconName =
+  | "instagram"
+  | "facebook"
+  | "whatsapp"
+  | "site"
+  | "email"
+  | "map"
+  | "phone"
+  | "cnpj"
+  | "quality"
+  | "confidence"
+  | "opportunity"
+  | "channel"
+  | "action"
+  | "check"
+  | "social-partial"
+  | "enriching"
+  | "copy"
+  | "external"
+  | "filter"
+  | "sort"
+  | "radar"
+  | "lead-plus"
+  | "coins";
+
+const HBX_RADAR_ICON_SPRITE = "/assets/hbx-radar-cards/hbx-radar-card-icons.svg";
+const HBX_RADAR_PNG_ICON_BASE = "/assets/hbx-radar-cards/png/generated-light";
+
+function HbxRadarCardIcon({ name, className }: { name: HbxRadarIconName; className?: string }) {
+  return (
+    <svg className={className || styles.hbxRadarCardIcon} focusable="false" aria-hidden="true">
+      <use href={`${HBX_RADAR_ICON_SPRITE}#hbx-icon-${name}`} />
+    </svg>
+  );
+}
+
+function HbxRadarPngIcon({ name, className }: { name: HbxRadarIconName | "linkedin" | "message"; className?: string }) {
+  const iconName = name === "linkedin" ? "social-partial" : name;
+  return (
+    <img
+      src={`${HBX_RADAR_PNG_ICON_BASE}/${iconName}.png`}
+      className={className || styles.hbxRadarPngIcon}
+      alt=""
+      aria-hidden="true"
+      draggable={false}
+    />
+  );
+}
+
+function channelRadarIconName(channel: LeadExpandedChannel["key"]): HbxRadarIconName {
+  if (channel === "linkedin") return "social-partial";
+  return channel;
+}
+
+function closedBadgeRadarIconName(key: string): HbxRadarIconName {
+  if (key === "delivered") return "check";
+  if (key === "lead-plus") return "lead-plus";
+  if (key === "whatsapp") return "whatsapp";
+  if (key === "enrichment") return "enriching";
+  if (key === "social-found" || key === "social-partial") return "social-partial";
+  return "check";
 }
 
 function HeroPremiumCrown({ active }: { active: boolean }) {
@@ -1713,6 +1812,122 @@ function canSeeSocialLinks(lead: LeadItem, board?: BoardResponse | null) {
   return leadCapabilities(lead, board).canSeeSocialLinks === true;
 }
 
+function vendasEnrichmentUsage(board?: BoardResponse | null): VendasEnrichmentUsage {
+  return board?.usage?.enrichment || {};
+}
+
+function vendasEnrichmentCreditsView(board?: BoardResponse | null) {
+  const usage = vendasEnrichmentUsage(board);
+  const limit = Math.max(0, Math.trunc(Number(usage.dailyLimit ?? usage.limit ?? 0) || 0));
+  const remaining = Math.max(0, Math.trunc(Number(usage.dailyRemaining ?? usage.remaining ?? 0) || 0));
+  const used = Math.max(0, Math.trunc(Number(usage.dailyUsed ?? usage.used ?? Math.max(0, limit - remaining)) || 0));
+  const mode = String(usage.mode || "").trim();
+  const hasUsage = limit > 0 || typeof usage.dailyRemaining !== "undefined" || typeof usage.remaining !== "undefined";
+  const isBlocked = hasUsage && remaining <= 0;
+  const canAuto = usage.canAutoEnrich === true && !isBlocked;
+  const canManual = usage.canManualEnrich === true && !isBlocked;
+  const unlimited = limit >= 999999 || remaining >= 999999;
+  const label = hasUsage ? unlimited ? "∞" : `${remaining}/${limit || remaining}` : "--";
+  const title = isBlocked
+    ? "Créditos de hoje acabaram"
+    : canAuto
+      ? "Enriquecimento automático ativo"
+      : "Enriquecimento manual";
+  const detail = isBlocked
+    ? "Cards novos seguem básicos até amanhã."
+    : canAuto
+      ? "Lead+ completa cards enquanto houver saldo."
+      : "Você escolhe quais cards completar.";
+  const usageLabel = hasUsage
+    ? unlimited
+      ? "ilimitado"
+      : `${used} usado${used === 1 ? "" : "s"}`
+    : "uso não carregado";
+  return {
+    used,
+    limit,
+    remaining,
+    label,
+    usageLabel,
+    title,
+    detail,
+    mode,
+    canAuto,
+    canManual,
+    isBlocked,
+    tone: isBlocked ? "blocked" : canAuto ? "auto" : "manual",
+  };
+}
+
+function shouldAutoEnrichLead(lead: LeadItem, board?: BoardResponse | null) {
+  if (!lead?.id) return false;
+  if (!leadNeedsEnrichment(lead)) return false;
+  const credits = vendasEnrichmentCreditsView(board);
+  const capabilities = leadCapabilities(lead, board);
+  return credits.canAuto && capabilities.canAutoEnrichLeads === true;
+}
+
+function leadEnrichmentStatusKey(lead: LeadItem) {
+  return String(lead.leadIntelligence?.enrichmentStatus || "").trim().toLowerCase();
+}
+
+function leadEnrichmentInProgress(lead: LeadItem) {
+  return ["pending", "queued", "processing"].includes(leadEnrichmentStatusKey(lead));
+}
+
+function leadEnrichmentReviewed(lead: LeadItem) {
+  const status = leadEnrichmentStatusKey(lead);
+  return ["completed", "failed"].includes(status) || Boolean(lead.leadIntelligence?.enrichedAt);
+}
+
+function leadNeedsEnrichment(lead: LeadItem) {
+  if (!lead?.id) return false;
+  if (leadEnrichmentInProgress(lead)) return false;
+  return !leadEnrichmentReviewed(lead);
+}
+
+function leadEnrichmentOperationView(lead: LeadItem, board?: BoardResponse | null, loading = false) {
+  const credits = vendasEnrichmentCreditsView(board);
+  if (loading || leadEnrichmentInProgress(lead)) {
+    return {
+      tone: "processing" as const,
+      title: "Completando card",
+      detail: "O HBX está conferindo canais e sinais disponíveis.",
+      action: "Completando",
+      canRequest: false,
+    };
+  }
+  if (leadEnrichmentReviewed(lead)) {
+    return {
+      tone: "ready" as const,
+      title: "Card revisado",
+      detail: leadHasPremiumSignals(lead)
+        ? "O enriquecimento deste card já foi aplicado."
+        : "O HBX conferiu e não encontrou novos sinais agora.",
+      action: "Card completo",
+      canRequest: false,
+    };
+  }
+  if (credits.isBlocked) {
+    return {
+      tone: "blocked" as const,
+      title: "Créditos esgotados",
+      detail: "Este card pode ser operado básico até o reset diário.",
+      action: "Créditos esgotados",
+      canRequest: false,
+    };
+  }
+  return {
+    tone: credits.canAuto ? "auto" as const : "manual" as const,
+    title: credits.canAuto ? "Na fila Lead+" : "Escolha manual",
+    detail: credits.canAuto
+      ? "O HBX completa automaticamente enquanto houver saldo."
+      : "Use um crédito para completar este card.",
+    action: `Completar card (${credits.label})`,
+    canRequest: credits.canManual,
+  };
+}
+
 function hasLockedSocialLinks(lead: LeadItem, board?: BoardResponse | null) {
   const capabilities = leadCapabilities(lead, board);
   return capabilities.canSeeSocialLinks === "teaser_only" && Boolean(lead.leadIntelligence?.primarySocial || leadHasPossibleSocial(lead));
@@ -1944,6 +2159,58 @@ type LeadChannelAsset = {
   locked?: boolean;
 };
 
+type LeadClosedCardBadge = {
+  key: string;
+  label: string;
+  tone: "success" | "primary" | "premium" | "warning" | "neutral";
+};
+
+type LeadClosedCardViewModel = {
+  title: string;
+  place: string;
+  segment: string;
+  phone: string;
+  avatarText: string;
+  productLabel: string;
+  productTone: "list" | "lead";
+  creditLabel: string;
+  ctaLabel: string;
+  badges: LeadClosedCardBadge[];
+  isLeadPlus: boolean;
+};
+
+type LeadExpandedChannel = {
+  key: "instagram" | "facebook" | "whatsapp" | "site" | "email" | "map" | "linkedin";
+  label: string;
+  href: string;
+  status: "available" | "possible" | "missing" | "locked";
+  external?: boolean;
+};
+
+type LeadExpandedField = {
+  key: string;
+  label: string;
+  value: string;
+  href?: string;
+  external?: boolean;
+  tone?: "success" | "warning" | "muted";
+};
+
+type LeadExpandedCardViewModel = {
+  closed: LeadClosedCardViewModel;
+  score: number;
+  scoreLabel: string;
+  confidence: number;
+  confidenceLabel: string;
+  fields: LeadExpandedField[];
+  channels: LeadExpandedChannel[];
+  evidence: Array<{ label: string; tone: "success" | "primary" | "warning" | "muted" }>;
+  opportunity: string;
+  recommendedChannel: string;
+  nextAction: string;
+  updatedLabel: string;
+};
+
 function buildLeadChannelAssets(lead: LeadItem): LeadChannelAsset[] {
   const socialLinksVisible = canSeeSocialLinks(lead);
   const phoneHref = lead.phone ? buildCallUrl(lead.phone) : "";
@@ -1960,6 +2227,155 @@ function buildLeadChannelAssets(lead: LeadItem): LeadChannelAsset[] {
     email ? { channel: "email", href: `mailto:${email}` } : null,
     websiteHref ? { channel: "site", href: websiteHref, external: true } : null,
   ].filter(Boolean) as LeadChannelAsset[];
+}
+
+function leadAvatarText(value: unknown) {
+  const cleaned = String(value || "")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
+  return cleaned || "HB";
+}
+
+function leadClosedCardView(lead: LeadItem, board?: BoardResponse | null): LeadClosedCardViewModel {
+  const intelligence = lead.leadIntelligence || {};
+  const canSeeIntelligence = canSeeLeadIntelligence(lead, board);
+  const deliveryProduct = String(intelligence.deliveryProduct || "").trim().toLowerCase();
+  const planTier = String(board?.planTier || lead.planTier || "").trim().toLowerCase();
+  const isLeadPlus = canSeeIntelligence || deliveryProduct === "lead_plus" || planTier === "lead" || planTier === "full";
+  const enrichmentDisplay = leadEnrichmentDisplay(lead, board);
+  const socialStatus = String(intelligence.socialStatus || "").trim().toLowerCase();
+  const badges: LeadClosedCardBadge[] = [
+    { key: "delivered", label: "Entregue", tone: "success" },
+    isLeadPlus
+      ? { key: "lead-plus", label: "Lead+", tone: "premium" }
+      : { key: "list", label: "List", tone: "primary" },
+  ];
+
+  if (enrichmentDisplay) {
+    badges.push({
+      key: "enrichment",
+      label: enrichmentDisplay.label,
+      tone: enrichmentDisplay.tone === "processing"
+        ? "primary"
+        : enrichmentDisplay.tone === "possible"
+          ? "warning"
+          : enrichmentDisplay.tone === "ready"
+            ? "success"
+            : "neutral",
+    });
+  } else if (socialStatus === "found" || socialStatus === "confirmed") {
+    badges.push({ key: "social-found", label: "Social encontrado", tone: "success" });
+  } else if (leadHasPossibleSocial(lead) || socialStatus === "candidate_review") {
+    badges.push({ key: "social-partial", label: "Social parcial", tone: "warning" });
+  }
+
+  if (isLeadWhatsappConfirmed(lead)) {
+    badges.push({ key: "whatsapp", label: "WhatsApp confirmado", tone: "success" });
+  }
+
+  const credits = vendasEnrichmentCreditsView(board);
+  const creditLabel = credits.label === "--" ? "créditos do dia" : `Hoje ${credits.label}`;
+  const productLabel = isLeadPlus ? "Lead+" : "List";
+  return {
+    title: String(lead.name || "Lead sem nome").trim(),
+    place: String(lead.city || "").trim() || "Local não informado",
+    segment: String(lead.segment || lead.primarySource || "Segmento não informado").trim(),
+    phone: String(lead.phone || lead.phoneNormalized || "").trim(),
+    avatarText: leadAvatarText(lead.name),
+    productLabel,
+    productTone: isLeadPlus ? "lead" : "list",
+    creditLabel,
+    ctaLabel: isLeadPlus ? "Ver detalhes" : "Abrir",
+    badges: badges.slice(0, 4),
+    isLeadPlus,
+  };
+}
+
+function formatCnpjLabel(value: unknown) {
+  const digits = String(value || "").replace(/\D/g, "");
+  if (digits.length !== 14) return String(value || "").trim();
+  return digits.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5");
+}
+
+function mapsHrefForLead(lead: LeadItem) {
+  const explicit = normalizeExternalUrl(lead.googleMapsUrl || lead.leadIntelligence?.googleMapsUrl);
+  if (explicit) return explicit;
+  const query = [lead.address, lead.city, lead.name].filter(Boolean).join(" ");
+  return query ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}` : "";
+}
+
+function leadExpandedCardView(lead: LeadItem, board?: BoardResponse | null): LeadExpandedCardViewModel {
+  const closed = leadClosedCardView(lead, board);
+  const intelligence = lead.leadIntelligence || {};
+  const socialLinksVisible = canSeeSocialLinks(lead, board);
+  const score = Math.max(0, Math.min(100, Math.round(Number(intelligence.opportunityScore || 0) || leadVisualScore(lead) || 0)));
+  const confidence = Math.max(
+    0,
+    Math.min(100, Math.round(Number(intelligence.socialConfidence || intelligence.confidence?.enrichment || intelligence.confidence?.email || 0) || 0)),
+  );
+  const cnpj = formatCnpjLabel(intelligence.cnpj || lead.cnpj);
+  const email = leadEmailForDisplay(lead);
+  const website = leadWebsiteForDisplay(lead);
+  const websiteHref = normalizeExternalUrl(website);
+  const phoneHref = lead.phone ? buildCallUrl(lead.phone) : "";
+  const whatsappHref = leadWhatsappHref(lead) || (lead.phone ? buildWhatsAppUrl(lead.phone, lead.name) : "");
+  const instagramHref = socialLinksVisible ? normalizeExternalUrl(intelligence.instagramUrl) : "";
+  const facebookHref = socialLinksVisible ? normalizeExternalUrl(intelligence.facebookUrl) : "";
+  const linkedinHref = socialLinksVisible ? normalizeExternalUrl(intelligence.linkedinUrl) : "";
+  const possibleInstagramHref = socialLinksVisible && !instagramHref
+    ? normalizeExternalUrl(leadPossibleSocialCandidateByNetwork(lead, "instagram")?.url)
+    : "";
+  const possibleFacebookHref = socialLinksVisible && !facebookHref
+    ? normalizeExternalUrl(leadPossibleSocialCandidateByNetwork(lead, "facebook")?.url)
+    : "";
+  const mapHref = mapsHrefForLead(lead);
+  const fields: LeadExpandedField[] = [
+    cnpj ? { key: "cnpj", label: "CNPJ", value: cnpj, tone: "success" } : { key: "cnpj", label: "CNPJ", value: "Não encontrado", tone: "muted" },
+    email ? { key: "email", label: "E-mail", value: email, href: `mailto:${email}`, tone: "success" } : { key: "email", label: "E-mail", value: "Não encontrado", tone: "muted" },
+    website ? { key: "site", label: "Site", value: website.replace(/^https?:\/\//i, "").replace(/\/$/, ""), href: websiteHref || undefined, external: true, tone: "success" } : { key: "site", label: "Site", value: "Não encontrado", tone: "muted" },
+    closed.phone ? { key: "phone", label: "Telefone", value: closed.phone, href: phoneHref || undefined, tone: "success" } : { key: "phone", label: "Telefone", value: "Não informado", tone: "muted" },
+    lead.address ? { key: "address", label: "Endereço", value: lead.address, href: mapHref || undefined, external: true, tone: "success" } : { key: "address", label: "Endereço", value: "Não informado", tone: "muted" },
+  ];
+  const channels: LeadExpandedChannel[] = [
+    { key: "instagram", label: "Instagram", href: instagramHref || possibleInstagramHref, status: instagramHref ? "available" : possibleInstagramHref ? "possible" : "missing", external: true },
+    { key: "facebook", label: "Facebook", href: facebookHref || possibleFacebookHref, status: facebookHref ? "available" : possibleFacebookHref ? "possible" : "missing", external: true },
+    { key: "whatsapp", label: "WhatsApp", href: whatsappHref, status: whatsappHref ? "available" : "missing", external: true },
+    { key: "site", label: "Site", href: websiteHref, status: websiteHref ? "available" : "missing", external: true },
+    { key: "email", label: "E-mail", href: email ? `mailto:${email}` : "", status: email ? "available" : "missing" },
+    { key: "map", label: "Mapa", href: mapHref, status: mapHref ? "available" : "missing", external: true },
+    { key: "linkedin", label: "LinkedIn", href: linkedinHref, status: linkedinHref ? "available" : "missing", external: true },
+  ];
+  const evidence = [
+    cnpj ? { label: "CNPJ localizado", tone: "success" as const } : null,
+    isLeadWhatsappConfirmed(lead) ? { label: "WhatsApp confirmado", tone: "success" as const } : null,
+    website ? { label: "Site encontrado", tone: "primary" as const } : null,
+    email ? { label: "E-mail encontrado", tone: "primary" as const } : null,
+    instagramHref || facebookHref ? { label: "Rede social encontrada", tone: "success" as const } : null,
+    possibleInstagramHref || possibleFacebookHref ? { label: "Rede social possível", tone: "warning" as const } : null,
+    lead.rating ? { label: `Avaliação ${Number(lead.rating).toFixed(1)}`, tone: "primary" as const } : null,
+  ].filter(Boolean) as LeadExpandedCardViewModel["evidence"];
+  const opportunity = String(intelligence.opportunityReason || lead.shortNote || "Revise os dados encontrados e escolha o melhor canal para a primeira abordagem.").trim();
+  const recommendedChannel = nextBestActionLabel(intelligence.recommendedChannel || intelligence.nextBestAction);
+  const nextAction = lead.nextAction || nextBestActionLabel(intelligence.nextBestAction) || "Iniciar conversa";
+  return {
+    closed,
+    score,
+    scoreLabel: score ? intelligenceScoreLabel(score) : "Aguardando dados",
+    confidence,
+    confidenceLabel: confidence ? `${confidence}%` : "Sem score",
+    fields,
+    channels,
+    evidence: evidence.length ? evidence : [{ label: "Dados básicos conferidos", tone: "muted" }],
+    opportunity,
+    recommendedChannel,
+    nextAction,
+    updatedLabel: intelligence.enrichedAt ? `Atualizado ${formatDateTime(intelligence.enrichedAt)}` : "Atualização sob demanda",
+  };
 }
 
 function socialBadgeLabel(primarySocial?: LeadIntelligence["primarySocial"]) {
@@ -2909,21 +3325,28 @@ function LeadCardView({
     lead.city || null,
   ].filter(Boolean);
 
-  const callUrl = buildCallUrl(draft.phone || lead.phone);
-  const whatsappBlocked = lead.whatsappAvailability?.status === "unavailable";
+  const contactPhone = draft.phone || lead.phone;
+  const callUrl = buildCallUrl(contactPhone);
+  const whatsappConfirmed = isLeadWhatsappConfirmed(lead);
+  const whatsappBlocked = !String(contactPhone || "").trim() || !whatsappConfirmed;
   const whatsappUrl = whatsappBlocked
     ? ""
-    : buildWhatsAppUrl(draft.phone || lead.phone, draft.name || lead.name);
+    : buildWhatsAppUrl(contactPhone, draft.name || lead.name);
   const leadWebsiteHref = normalizeExternalUrl(leadWebsiteForDisplay(lead));
   const leadSource = lead.primarySource || lead.sourceType;
   const inInbox = isLeadInInbox(lead);
   const webscrapingSummary = buildLeadWebscrapingSummary(lead);
   const channelAssets = buildLeadChannelAssets(lead);
-  const enrichmentDisplay = leadEnrichmentDisplay(lead);
+  const closedView = leadClosedCardView(lead);
   const selectedSalePlanKey = normalizeSalePlanKey(draft.salePlanKey || lead.salePlanKey);
   const closingSaleValue = parseCurrencyInput(draft.saleValue) || salePlanPrice(selectedSalePlanKey);
   const commissionPercent = leadCommissionPercent(lead);
   const commissionPreview = (closingSaleValue * commissionPercent) / 100;
+  const handleCardOpen = (event: { target: EventTarget | null }) => {
+    const target = event.target as HTMLElement | null;
+    if (target?.closest("button,a,input,textarea,select,label")) return;
+    onFocus();
+  };
 
   // inline editor mount/animation control — uses global motion timings
   const editorRef = useRef<HTMLDivElement | null>(null);
@@ -3017,6 +3440,7 @@ function LeadCardView({
       data-bulk-selected={bulkSelected ? "true" : "false"}
       data-tone={blockKey}
       data-whatsapp={getLeadWhatsappStatus(lead)}
+      onClick={handleCardOpen}
       header={
         <div
           className={styles.leadMainButton}
@@ -3030,7 +3454,7 @@ function LeadCardView({
             }
           }}
         >
-          <div className={styles.leadCardTop}>
+          <div className={`${styles.leadCardTop} ${styles.vendasClosedCardTop}`}>
             {bulkSelectionMode ? (
               <button
                 type="button"
@@ -3049,6 +3473,9 @@ function LeadCardView({
                 {bulkSelected ? "✓" : ""}
               </button>
             ) : null}
+            <div className={styles.vendasClosedAvatar} data-product={closedView.productTone} aria-hidden="true">
+              <span>{closedView.avatarText}</span>
+            </div>
             <div className={styles.leadIdentity}>
               {leadSource &&
                 String(leadSource).trim().toLowerCase() !== "manual" && (
@@ -3059,14 +3486,8 @@ function LeadCardView({
                   </span>
                 )}
               <strong className={`${styles.leadName} ${glassCardStyles.title}`}>
-                {draft.name || lead.name || "Lead sem nome"}
+                {draft.name || closedView.title}
               </strong>
-              <span
-                className={`${styles.returnBadge} ${glassCardStyles.pill} ${glassCardStyles.noBreak}`}
-                data-tone={meta.tone}
-              >
-                {meta.label}
-              </span>
               <span
                 className={`${styles.leadSubline} ${glassCardStyles.subtitle}`}
               >
@@ -3079,12 +3500,20 @@ function LeadCardView({
                   lead.city
                 ) : null}
               </span>
-              {enrichmentDisplay ? (
-                <span className={styles.mobileVendasEnrichmentLine} data-tone={enrichmentDisplay.tone}>
-                  <b>{enrichmentDisplay.label}</b>
-                  <em>{enrichmentDisplay.detail}</em>
+              {closedView.phone ? (
+                <span className={styles.vendasClosedPhoneLine}>
+                  <HbxRadarPngIcon name="phone" />
+                  {closedView.phone}
                 </span>
               ) : null}
+              <div className={styles.vendasClosedBadges} aria-label="Status do card">
+                {closedView.badges.map((badge) => (
+                  <span key={badge.key} data-tone={badge.tone}>
+                    <HbxRadarPngIcon name={closedBadgeRadarIconName(badge.key)} />
+                    {badge.label}
+                  </span>
+                ))}
+              </div>
               {channelAssets.length ? (
                 <div className={styles.leadCardChannelRow} aria-label="Canais disponíveis">
                   {channelAssets.map((asset) => {
@@ -3127,7 +3556,19 @@ function LeadCardView({
                 </div>
               ) : null}
             </div>
-            <div className={glassCardStyles.headerAside}>
+            <div className={`${glassCardStyles.headerAside} ${styles.vendasClosedAside}`}>
+              <span className={styles.vendasClosedProduct} data-product={closedView.productTone}>
+                {closedView.productLabel}
+              </span>
+              <span className={styles.vendasClosedCredits}>
+                <b>●</b> {closedView.creditLabel}
+              </span>
+              <span
+                className={`${styles.returnBadge} ${glassCardStyles.pill} ${glassCardStyles.noBreak}`}
+                data-tone={meta.tone}
+              >
+                {meta.label}
+              </span>
               <button
                 type="button"
                 className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`}
@@ -3386,6 +3827,13 @@ function LeadCardView({
       }
       actions={
         <div className={styles.leadActionRow}>
+          <button
+            type="button"
+            className={`${styles.desktopLeadOpenButton} ${glassCardStyles.actionButton} ${glassCardStyles.actionPrimary} ${glassCardStyles.noBreak}`}
+            onClick={onFocus}
+          >
+            Abrir
+          </button>
           <a
             className={`${glassCardStyles.actionButton} ${glassCardStyles.actionPrimary} ${styles.whatsappAction} ${glassCardStyles.noBreak} ${whatsappBlocked ? styles.whatsappUnavailable : ""}`}
             href={whatsappUrl || undefined}
@@ -3394,17 +3842,17 @@ function LeadCardView({
             aria-disabled={!whatsappUrl}
             title={
               whatsappBlocked
-                ? "Este numero nao possui WhatsApp."
+                ? "WhatsApp nao confirmado para este numero."
                 : "Abrir conversa no WhatsApp"
             }
             onClick={() => {
               if (whatsappUrl) onQuickAction("tentativa_whatsapp");
             }}
           >
-            {whatsappBlocked ? "Sem WhatsApp" : "WhatsApp"}
+            {whatsappBlocked ? "Sem WA" : "WhatsApp"}
           </a>
           <a
-            className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`}
+            className={`${glassCardStyles.actionButton} ${styles.callAction} ${glassCardStyles.noBreak}`}
             href={callUrl || undefined}
             aria-disabled={!callUrl}
             onClick={() => {
@@ -3854,6 +4302,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   const editingInputActiveRef = useRef(false);
   const pendingVisualBoardRef = useRef<BoardResponse | null>(null);
   const lastDragEndedAtRef = useRef(0);
+  const dragVisualCleanupTimerRef = useRef<number | null>(null);
   const filterScrollerRef = useRef<HTMLDivElement | null>(null);
   const mobileBulkHoldTimerRef = useRef<number | null>(null);
   const mobileBulkHoldCompletedRef = useRef(false);
@@ -3867,8 +4316,20 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   const latestRadarRunHydratedRef = useRef(false);
   const todayAgendaLaunchNotice = useQuickLaunchNotice();
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(PointerSensor, { activationConstraint: { distance: 18 } }),
   );
+
+  const clearVendasDragVisualState = useCallback(() => {
+    if (dragVisualCleanupTimerRef.current != null && typeof window !== "undefined") {
+      window.clearTimeout(dragVisualCleanupTimerRef.current);
+      dragVisualCleanupTimerRef.current = null;
+    }
+    setVendasCardDragLock(false);
+    setActiveDragLeadId(null);
+    setActiveDragDateKey(null);
+    setActiveDragRect(null);
+    lastDragEndedAtRef.current = performance.now();
+  }, []);
   const commissionDueDays = normalizeCommissionDueBusinessDays(commissionSummary?.settings?.dueBusinessDays);
   const desktopAdminMenusEnabled = Boolean(
     sellerAudit?.canManage ||
@@ -5315,7 +5776,45 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
 
   useEffect(() => () => clearTopbarProgress("vendas"), []);
 
-  useEffect(() => () => setVendasCardDragLock(false), []);
+  useEffect(() => () => clearVendasDragVisualState(), [clearVendasDragVisualState]);
+
+  useEffect(() => {
+    if (!activeDragLeadId && !activeDragDateKey) return undefined;
+    if (typeof window === "undefined" || typeof document === "undefined") return undefined;
+
+    const scheduleVisualCleanup = () => {
+      if (dragVisualCleanupTimerRef.current != null) {
+        window.clearTimeout(dragVisualCleanupTimerRef.current);
+      }
+      dragVisualCleanupTimerRef.current = window.setTimeout(() => {
+        clearVendasDragVisualState();
+      }, 90);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== "visible") scheduleVisualCleanup();
+    };
+
+    window.addEventListener("pointerup", scheduleVisualCleanup, true);
+    window.addEventListener("pointercancel", scheduleVisualCleanup, true);
+    window.addEventListener("mouseup", scheduleVisualCleanup, true);
+    window.addEventListener("touchend", scheduleVisualCleanup, true);
+    window.addEventListener("blur", scheduleVisualCleanup);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("pointerup", scheduleVisualCleanup, true);
+      window.removeEventListener("pointercancel", scheduleVisualCleanup, true);
+      window.removeEventListener("mouseup", scheduleVisualCleanup, true);
+      window.removeEventListener("touchend", scheduleVisualCleanup, true);
+      window.removeEventListener("blur", scheduleVisualCleanup);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      if (dragVisualCleanupTimerRef.current != null) {
+        window.clearTimeout(dragVisualCleanupTimerRef.current);
+        dragVisualCleanupTimerRef.current = null;
+      }
+    };
+  }, [activeDragDateKey, activeDragLeadId, clearVendasDragVisualState]);
 
   const handleActiveDateShortcut = useCallback(async () => {
     if (!selectedFilter) return;
@@ -5460,23 +5959,60 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   }
 
   async function loadMobileLeadEnrichment(lead: LeadItem) {
+    if (!leadNeedsEnrichment(lead) && !leadEnrichmentInProgress(lead)) return;
+    const previousIntelligence = lead.leadIntelligence || null;
+    const processingPatch: Partial<LeadItem> = {
+      leadIntelligence: {
+        ...(lead.leadIntelligence || {}),
+        enrichmentStatus: "processing",
+      },
+    };
+    mergeMobileLeadPatch(lead.id, processingPatch);
+    setMobileNoteLead((current) =>
+      current?.id === lead.id ? { ...current, ...processingPatch } : current,
+    );
     setMobileEnrichmentLoadingId(lead.id);
     try {
       const payload = await apiFetch<LeadEnrichmentResponse>(
         `/vendas/lead/${encodeURIComponent(lead.id)}/enrichment`,
         { method: "POST", body: JSON.stringify({ templateOffset: 0 }) },
       );
+      const nextIntelligence = payload.leadIntelligence || lead.leadIntelligence || null;
       const patch: Partial<LeadItem> = {
         whatsappAvailability: payload.whatsappAvailability || lead.whatsappAvailability || null,
-        leadIntelligence: payload.leadIntelligence || lead.leadIntelligence || null,
+        leadIntelligence: nextIntelligence
+          ? {
+              ...nextIntelligence,
+              enrichmentStatus: nextIntelligence.enrichmentStatus || "completed",
+              enrichedAt: nextIntelligence.enrichedAt || new Date().toISOString(),
+            }
+          : null,
         planTier: payload.planTier || lead.planTier,
         capabilities: payload.capabilities || lead.capabilities,
       };
+      if (payload.usage) {
+        setBoard((currentBoard) => currentBoard ? { ...currentBoard, usage: payload.usage || currentBoard.usage } : currentBoard);
+      }
       mergeMobileLeadPatch(lead.id, patch);
       setMobileNoteLead((current) =>
         current?.id === lead.id ? { ...current, ...patch } : current,
       );
     } catch (err) {
+      const apiError = err as ApiFetchError;
+      const payload = apiError?.payload as { usage?: VendasUsageSnapshot | null } | undefined;
+      if (payload?.usage) {
+        setBoard((currentBoard) => currentBoard ? { ...currentBoard, usage: payload.usage || currentBoard.usage } : currentBoard);
+      }
+      const failedPatch: Partial<LeadItem> = {
+        leadIntelligence: {
+          ...(previousIntelligence || {}),
+          enrichmentStatus: apiError?.status === 409 ? previousIntelligence?.enrichmentStatus || null : "failed",
+        },
+      };
+      mergeMobileLeadPatch(lead.id, failedPatch);
+      setMobileNoteLead((current) =>
+        current?.id === lead.id ? { ...current, ...failedPatch } : current,
+      );
       setFeedback(
         err instanceof Error
           ? err.message
@@ -5494,7 +6030,9 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     setSelectedMobileLeadId(lead.id);
     setMobileNoteLead(lead);
     setMobileNoteDraft("");
-    void loadMobileLeadEnrichment(lead);
+    if (shouldAutoEnrichLead(lead, boardRef.current || board)) {
+      void loadMobileLeadEnrichment(lead);
+    }
   }
 
   function executeMobileLead(lead: LeadItem) {
@@ -6113,6 +6651,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 ? "Revise o Radar para destravar a busca."
                 : "Radar abasteceu sua agenda comercial.";
     const activeCapabilities = board?.capabilities || salesProfile?.capabilities || {};
+    const enrichmentCredits = vendasEnrichmentCreditsView(board);
     const mobileHeroPremiumActive = Boolean(
       board?.planTier === "lead" ||
         board?.planTier === "full" ||
@@ -6481,6 +7020,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
 
     function renderMobileLeadDetail(lead: LeadItem) {
       const intelligence = lead.leadIntelligence || {};
+      const expandedView = leadExpandedCardView(lead, board);
       const capabilities = leadCapabilities(lead, board);
       const intelligenceVisible = canSeeLeadIntelligence(lead, board);
       const socialLinksVisible = canSeeSocialLinks(lead, board);
@@ -6551,6 +7091,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
           .values(),
       ).slice(0, 5);
       const loadingEnrichment = mobileEnrichmentLoadingId === lead.id;
+      const enrichmentOperation = leadEnrichmentOperationView(lead, board, loadingEnrichment);
       const timeline = (lead.timeline || []).slice(0, 4);
       const detailPlace = mobileLeadPlace(lead);
       const status = lead.statusLabel || statusLabel(lead.status);
@@ -6632,9 +7173,12 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
               <section className={`${styles.mobileLeadHeroPremium} hbx-mobile-hero hbx-mobile-glass`}>
                 <span className={styles.mobileLeadHeroVisual} aria-hidden="true" />
                 <div className={styles.mobileLeadHeroIdentity}>
+                  <div className={styles.mobileLeadPlusAvatar} aria-hidden="true">
+                    {expandedView.closed.avatarText}
+                  </div>
                   <div>
-                    <strong>{lead.name || "Lead sem nome"}</strong>
-                    <span>{lead.segment || "Segmento não informado"}</span>
+                    <strong>{expandedView.closed.title}</strong>
+                    <span>{expandedView.closed.segment}</span>
                     <em>{detailPlace}</em>
                   </div>
                 </div>
@@ -6673,6 +7217,34 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 </section>
               ) : null}
 
+              <section className={`${styles.mobileLeadEnrichmentOperation} hbx-mobile-card`} data-tone={enrichmentOperation.tone}>
+                <div>
+                  <strong>{enrichmentOperation.title}</strong>
+                  <small>{enrichmentOperation.detail}</small>
+                </div>
+                <b>{vendasEnrichmentCreditsView(board).label}</b>
+              </section>
+
+              <section className={`${styles.mobileLeadExpandedChannels} hbx-mobile-card`} aria-label="Canais encontrados">
+                {expandedView.channels.slice(0, 6).map((channel) => (
+                  <a
+                    key={channel.key}
+                    href={channel.href || undefined}
+                target={channel.external && channel.href ? "_blank" : undefined}
+                rel={channel.external && channel.href ? "noreferrer" : undefined}
+                    aria-disabled={!channel.href || channel.status === "missing"}
+                    data-channel={channel.key}
+                    data-status={channel.status}
+                    onClick={(event) => {
+                      if (!channel.href || channel.status === "missing") event.preventDefault();
+                    }}
+                  >
+                    <span><HbxRadarPngIcon name={channel.key} /></span>
+                    <b>{channel.label}</b>
+                  </a>
+                ))}
+              </section>
+
               {mobileScoreLead?.id === lead.id ? (
                 <div className={styles.mobileScoreSheetBackdrop} role="presentation" onClick={() => setMobileScoreLead(null)}>
                   <section
@@ -6708,6 +7280,15 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
 
               <section className={`${styles.mobileLeadContactPanel} hbx-mobile-card`} aria-label="Contato do lead">
                 <div className={styles.mobileLeadContactRows}>
+                  <div>
+                    <span className={styles.mobileLeadRowIcon} aria-hidden="true">
+                      ID
+                    </span>
+                    <strong>{expandedView.fields.find((field) => field.key === "cnpj")?.value || "Não encontrado"}</strong>
+                    <b data-tone={expandedView.fields.find((field) => field.key === "cnpj")?.tone === "success" ? "success" : "muted"}>
+                      CNPJ
+                    </b>
+                  </div>
                   <div>
                     <span className={styles.mobileLeadRowIcon} aria-hidden="true">
                       <svg viewBox="0 0 24 24">
@@ -6762,6 +7343,27 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                       <strong>Sem site</strong>
                     )}
                     <b data-tone={website ? "smart" : "muted"}>{website ? "Site encontrado" : "Sem site"}</b>
+                  </div>
+                  <div>
+                    <span className={styles.mobileLeadRowIcon} aria-hidden="true">
+                      <svg viewBox="0 0 24 24">
+                        <path d="M12 21s7-4.8 7-11a7 7 0 0 0-14 0c0 6.2 7 11 7 11Z" />
+                        <circle cx="12" cy="10" r="2.2" />
+                      </svg>
+                    </span>
+                    {expandedView.fields.find((field) => field.key === "address")?.href ? (
+                      <a
+                        className={styles.mobileLeadContactLink}
+                        href={expandedView.fields.find((field) => field.key === "address")?.href}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {expandedView.fields.find((field) => field.key === "address")?.value}
+                      </a>
+                    ) : (
+                      <strong>{expandedView.fields.find((field) => field.key === "address")?.value || "Não informado"}</strong>
+                    )}
+                    <b data-tone={lead.address ? "success" : "muted"}>Endereço</b>
                   </div>
                   {(instagramHref || facebookHref) && socialLinksVisible ? (
                     <div>
@@ -6972,6 +7574,14 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 >
                   Atualizar mensagem
                 </button>
+                <button
+                  type="button"
+                  className={`${styles.mobileLeadRefreshButton} hbx-mobile-secondary-button`}
+                  onClick={() => void loadMobileLeadEnrichment(lead)}
+                  disabled={!enrichmentOperation.canRequest}
+                >
+                  {enrichmentOperation.action}
+                </button>
               </section>
 
               <section className={`${styles.mobileLeadTimeline} hbx-mobile-card`}>
@@ -7092,6 +7702,15 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
           </header>
 
           <div className={styles.mobileVendasHeroStats} aria-label="Resumo de Vendas">
+            <button
+              type="button"
+              data-tone={enrichmentCredits.isBlocked ? "danger" : enrichmentCredits.canAuto ? "success" : "primary"}
+              data-active="false"
+              onClick={() => setFeedback(enrichmentCredits.detail)}
+            >
+              <b>{enrichmentCredits.usageLabel}</b>
+              <strong>{enrichmentCredits.label}</strong>
+            </button>
             <button
               type="button"
               data-tone="danger"
@@ -7359,7 +7978,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
             {mobileLeads.length ? (
               mobileLeads.map(({ lead }, index) => {
                 const status = lead.statusLabel || statusLabel(lead.status);
-                const enrichmentDisplay = leadEnrichmentDisplay(lead, board);
+                const closedView = leadClosedCardView(lead, board);
                 return (
                   <div
                     className={styles.mobileVendasSwipeShell}
@@ -7377,46 +7996,52 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                         }
                       }}
                       style={{ ["--mobile-card-index" as string]: index } as CSSProperties}
+                      data-product={closedView.productTone}
                     >
-                      <div
-                        className={styles.mobileVendasAvatar}
-                        data-variant={index % 2 === 0 ? "green" : "violet"}
-                        aria-hidden="true"
-                      >
-                        <svg viewBox="0 0 24 24">
-                          <path d="M5 21V5.8C5 4.8 5.8 4 6.8 4h10.4c1 0 1.8.8 1.8 1.8V21" />
-                          <path d="M8.5 8h2" />
-                          <path d="M13.5 8h2" />
-                          <path d="M8.5 12h2" />
-                          <path d="M13.5 12h2" />
-                          <path d="M10 21v-4h4v4" />
-                        </svg>
-                      </div>
-                      <div className={styles.mobileVendasCardMain}>
-                        <div className={styles.mobileVendasCardTitle}>
-                          <div>
-                            <strong>{lead.name || "Lead sem nome"}</strong>
-                            <span>{mobileLeadPlace(lead)}</span>
-                          </div>
-                          <MobileEnrichmentCrown lead={lead} board={board} compact />
+                      <div className={styles.mobileVendasCardPremiumHeader}>
+                        <div
+                          className={styles.mobileVendasAvatar}
+                          data-variant={closedView.productTone === "lead" ? "violet" : index % 2 === 0 ? "green" : "violet"}
+                          aria-hidden="true"
+                        >
+                          <span>{closedView.avatarText}</span>
                         </div>
-                        <div className={styles.mobileVendasCardMeta}>
-                          <span data-status={lead.status}>{status}</span>
-                          <small>
-                            Retorno <b>{mobileReturnLabel(lead)}</b>
-                          </small>
-                        </div>
-                        {enrichmentDisplay ? (
-                          <div className={styles.mobileVendasEnrichmentLine} data-tone={enrichmentDisplay.tone}>
-                            <b>{enrichmentDisplay.label}</b>
-                            <em>{enrichmentDisplay.detail}</em>
+                        <div className={styles.mobileVendasCardMain}>
+                          <div className={styles.mobileVendasCardTitle}>
+                            <div>
+                              <strong>{closedView.title}</strong>
+                              <span>{closedView.place}</span>
+                              <em>{closedView.segment}</em>
+                            </div>
+                            <MobileEnrichmentCrown lead={lead} board={board} compact />
                           </div>
-                        ) : null}
-                        <div className={styles.mobileVendasChannelRow} aria-label="Canais disponíveis">
-                        {renderMobileLeadChannels(lead)}
+                        </div>
+                        <div className={styles.mobileVendasProductStack}>
+                          <span data-product={closedView.productTone}>{closedView.productLabel}</span>
+                          <small><b>●</b> {closedView.creditLabel}</small>
+                        </div>
                       </div>
-                    </div>
-                  </article>
+                      <div className={styles.mobileVendasClosedBadges} aria-label="Status do card">
+                        {closedView.badges.map((badge) => (
+                          <span key={badge.key} data-tone={badge.tone}>
+                            <HbxRadarPngIcon name={closedBadgeRadarIconName(badge.key)} />
+                            {badge.label}
+                          </span>
+                        ))}
+                      </div>
+                      <div className={styles.mobileVendasCardMeta}>
+                        <span data-status={lead.status}>{status}</span>
+                        <small>
+                          Retorno <b>{mobileReturnLabel(lead)}</b>
+                        </small>
+                      </div>
+                      <div className={styles.mobileVendasClosedFooter}>
+                        <span>
+                          <b>{closedView.phone || mobilePhoneLabel(lead)}</b>
+                        </span>
+                        <strong>{closedView.ctaLabel}</strong>
+                      </div>
+                    </article>
                     <div className={styles.mobileVendasSwipeActions} aria-label={`Ações de ${lead.name || "lead"}`}>
                       <button
                         type="button"
@@ -8466,11 +9091,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   }
 
   function handleDragCancel() {
-    setVendasCardDragLock(false);
-    setActiveDragLeadId(null);
-    setActiveDragDateKey(null);
-    setActiveDragRect(null);
-    lastDragEndedAtRef.current = performance.now();
+    clearVendasDragVisualState();
   }
 
   async function handleDragEnd(event: DragEndEvent) {
@@ -8531,6 +9152,10 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     } finally {
       setVendasCardDragLock(false);
       setActiveDragRect(null);
+      if (dragVisualCleanupTimerRef.current != null && typeof window !== "undefined") {
+        window.clearTimeout(dragVisualCleanupTimerRef.current);
+        dragVisualCleanupTimerRef.current = null;
+      }
     }
   }
 
@@ -8604,9 +9229,230 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       );
     }
 
+    const expandedView = leadExpandedCardView(selectedLead, board);
+    const selectedCapabilities = leadCapabilities(selectedLead, board);
+    const selectedTemplate = activeMobileTemplate(selectedLead);
+    const selectedReadyMessage = selectedCapabilities.canSeeMessageTemplates
+      ? selectedTemplate.text
+      : `Olá, tudo bem? Encontrei a ${selectedLead.name || "sua empresa"} e queria apresentar uma solução simples para organizar contatos e retornos.`;
+    const selectedWhatsappHref = buildWhatsAppUrlWithMessage(
+      selectedLead.phone,
+      selectedReadyMessage,
+    );
+    const selectedEnrichmentLoading = mobileEnrichmentLoadingId === selectedLead.id;
+    const selectedEnrichmentOperation = leadEnrichmentOperationView(selectedLead, board, selectedEnrichmentLoading);
+
     return (
       <aside className={styles.detailPanel} data-detail-panel="true">
         <div className={styles.detailLayout}>
+          <section className={styles.vendasOpenCard} data-product={expandedView.closed.productTone}>
+            <header className={styles.vendasOpenHeader}>
+              <div className={styles.vendasOpenIdentity}>
+                <div className={styles.vendasClosedAvatar} data-product={expandedView.closed.productTone} aria-hidden="true">
+                  <span>{expandedView.closed.avatarText}</span>
+                </div>
+                <div>
+                  <strong>{expandedView.closed.title}</strong>
+                  <span>{expandedView.closed.place} · {expandedView.closed.segment}</span>
+                  <small>{expandedView.updatedLabel}</small>
+                </div>
+              </div>
+              <div className={styles.vendasOpenProduct}>
+                <span data-product={expandedView.closed.productTone}>{expandedView.closed.productLabel}</span>
+                <b>{expandedView.closed.creditLabel}</b>
+                <button
+                  type="button"
+                  className={styles.vendasOpenCloseButton}
+                  onClick={() => {
+                    setSelectedLeadId(null);
+                    setEditingLeadId(null);
+                  }}
+                  aria-label="Fechar detalhes e voltar para a lista"
+                  title="Fechar detalhes"
+                >
+                  <span aria-hidden="true">×</span>
+                </button>
+              </div>
+            </header>
+
+            <div className={styles.vendasClosedBadges} aria-label="Status do lead">
+              {expandedView.closed.badges.map((badge) => (
+                <span key={badge.key} data-tone={badge.tone}>
+                  <HbxRadarPngIcon name={closedBadgeRadarIconName(badge.key)} />
+                  {badge.label}
+                </span>
+              ))}
+            </div>
+
+            <div className={styles.vendasOpenChannels} aria-label="Canais do lead">
+              {expandedView.channels.slice(0, 6).map((channel) => (
+                <a
+                  key={channel.key}
+                  href={channel.href || undefined}
+                  target={channel.external && channel.href ? "_blank" : undefined}
+                  rel={channel.external && channel.href ? "noreferrer" : undefined}
+                  aria-disabled={!channel.href || channel.status === "missing"}
+                  data-channel={channel.key}
+                  data-status={channel.status}
+                  onClick={(event) => {
+                    if (!channel.href || channel.status === "missing") event.preventDefault();
+                  }}
+                >
+                  <span><HbxRadarPngIcon name={channel.key} /></span>
+                  <b>{channel.label}</b>
+                </a>
+              ))}
+            </div>
+
+            <div className={styles.vendasOpenGrid}>
+              <section className={styles.vendasOpenSection}>
+                <h3><HbxRadarPngIcon name="cnpj" /> Dados da empresa</h3>
+                {expandedView.fields.map((field) => (
+                  <div key={field.key} data-tone={field.tone || "muted"}>
+                    <span>{field.label}</span>
+                    {field.href ? (
+                      <a href={field.href} target={field.external ? "_blank" : undefined} rel={field.external ? "noreferrer" : undefined}>
+                        {field.value}
+                      </a>
+                    ) : (
+                      <strong>{field.value}</strong>
+                    )}
+                  </div>
+                ))}
+              </section>
+
+              <section className={`${styles.vendasOpenSection} ${styles.vendasOpenQuality}`}>
+                <h3><HbxRadarPngIcon name="quality" /> Qualidade do lead</h3>
+                <div className={styles.vendasOpenGauge} style={{ ["--vendas-open-score" as string]: `${expandedView.score}%` } as CSSProperties}>
+                  <strong>{expandedView.score || "--"}</strong>
+                  <span>de 100</span>
+                </div>
+                <p>{expandedView.scoreLabel}</p>
+                <small>Confiança: {expandedView.confidenceLabel}</small>
+              </section>
+
+              <section className={styles.vendasOpenSection}>
+                <h3><HbxRadarPngIcon name="confidence" /> Confiança / Evidências</h3>
+                <div className={styles.vendasOpenEvidence}>
+                  {expandedView.evidence.map((item) => (
+                    <span key={item.label} data-tone={item.tone}>{item.label}</span>
+                  ))}
+                </div>
+              </section>
+
+              <section className={`${styles.vendasOpenSection} ${styles.vendasOpenEnrichmentOperation}`} data-tone={selectedEnrichmentOperation.tone}>
+                <h3><HbxRadarPngIcon name="radar" /> Enriquecimento</h3>
+                <strong>{selectedEnrichmentOperation.title}</strong>
+                <p>{selectedEnrichmentOperation.detail}</p>
+              </section>
+
+              <section className={`${styles.vendasOpenSection} ${styles.vendasOpenInsight}`}>
+                <h3><HbxRadarPngIcon name="opportunity" /> Insight de oportunidade</h3>
+                <p>{expandedView.opportunity}</p>
+              </section>
+
+              <section className={`${styles.vendasOpenSection} ${styles.vendasOpenRecommended}`}>
+                <h3><HbxRadarPngIcon name="channel" /> Canal recomendado</h3>
+                <strong>{expandedView.recommendedChannel}</strong>
+                <p>{expandedView.nextAction}</p>
+              </section>
+
+              <section className={`${styles.vendasOpenSection} ${styles.vendasOpenMessage}`}>
+                <h3><HbxRadarPngIcon name="message" /> Mensagem pronta</h3>
+                <p>{selectedReadyMessage}</p>
+                <button
+                  type="button"
+                  onClick={() => void copyMobileText(selectedReadyMessage, "Mensagem copiada.")}
+                  disabled={!selectedCapabilities.canSeeMessageTemplates}
+                >
+                  Copiar mensagem
+                </button>
+              </section>
+
+              <section className={`${styles.vendasOpenSection} ${styles.vendasOpenOperation}`}>
+                <h3><HbxRadarPngIcon name="action" /> Observação e retorno</h3>
+                <label>
+                  <span>Observação</span>
+                  <textarea
+                    value={selectedLeadDraft.shortNote}
+                    onChange={(event) => setLeadDraft(selectedLead.id, { shortNote: event.target.value })}
+                    rows={4}
+                    maxLength={280}
+                    placeholder="Contexto do cliente, objeção, próximo passo ou detalhe importante."
+                  />
+                </label>
+                <label>
+                  <span>Retorno</span>
+                  <input
+                    type="datetime-local"
+                    value={selectedLeadDraft.returnAt}
+                    onChange={(event) => setLeadDraft(selectedLead.id, { returnAt: event.target.value })}
+                  />
+                </label>
+                <label>
+                  <span>Próxima ação</span>
+                  <input
+                    value={selectedLeadDraft.nextAction}
+                    onChange={(event) => setLeadDraft(selectedLead.id, { nextAction: event.target.value })}
+                    placeholder="Ex.: chamar no WhatsApp hoje"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => void saveLead(selectedLead.id, undefined, "Observação e retorno atualizados.")}
+                  disabled={savingLeadId === selectedLead.id}
+                >
+                  {savingLeadId === selectedLead.id ? "Salvando" : "Salvar alterações"}
+                </button>
+              </section>
+            </div>
+
+            <footer className={styles.vendasOpenActions}>
+              <button
+                type="button"
+                onClick={() => void loadMobileLeadEnrichment(selectedLead)}
+                disabled={!selectedEnrichmentOperation.canRequest}
+              >
+                {selectedEnrichmentOperation.action}
+              </button>
+              <button type="button" onClick={() => setEditingLeadId(selectedLead.id)}>
+                Editar card
+              </button>
+              <a
+                href={buildCallUrl(selectedLeadDraft.phone || selectedLead.phone) || undefined}
+                aria-disabled={!buildCallUrl(selectedLeadDraft.phone || selectedLead.phone)}
+                onClick={(event) => {
+                  const href = buildCallUrl(selectedLeadDraft.phone || selectedLead.phone);
+                  if (!href) event.preventDefault();
+                  else void runQuickAction(selectedLead, "tentativa_call");
+                }}
+              >
+                Ligar
+              </a>
+              <a
+                href={selectedWhatsappHref || undefined}
+                target="_blank"
+                rel="noreferrer"
+                aria-disabled={!selectedWhatsappHref}
+                onClick={(event) => {
+                  if (!selectedWhatsappHref) event.preventDefault();
+                  else void incrementAttempt(selectedLead.id);
+                }}
+              >
+                Iniciar no WhatsApp
+              </a>
+              {selectedLead.status !== "encerrado" ? (
+                <button
+                  type="button"
+                  data-tone="danger"
+                  onClick={() => void runQuickAction(selectedLead, "encerrar")}
+                >
+                  Encerrar
+                </button>
+              ) : null}
+            </footer>
+          </section>
+
           <section className={styles.timelineSection}>
             <div className={styles.sectionTopline}>
               <div>
@@ -10529,7 +11375,10 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                     <div className={styles.skeletonBoard} />
                   </section>
                 ) : (
-                  <div className={styles.stageGrid}>
+                  <div
+                    className={styles.stageGrid}
+                    data-detail-open={selectedLead ? "true" : "false"}
+                  >
                     <div className={`${styles.stageSideGuide} hbx-guide4-slot`}>
                       <HbxGuide4
                         ariaLabel="Ações de Vendas"

@@ -6,6 +6,7 @@ import { COMMERCIAL_PLAN_KEYS, COMMERCIAL_PLAN_QUOTAS, resolveCommercialPlanKeyF
 const FALLBACK_TIMEZONE = 'America/Sao_Paulo';
 const CARD_SUCCESS_EVENTS = ['card_import_success', 'vendas_card_imported', 'radar_card_claimed', 'card_commercial_used'];
 const CARD_REFUND_EVENTS = ['vendas_card_refunded'];
+const LEAD_ENRICHMENT_SUCCESS_EVENTS = ['lead_enrichment_used'];
 
 type UsageKind = 'cards' | 'emails';
 
@@ -169,6 +170,18 @@ export class CommercialUsageLimitsService {
         userSent: 0,
         userLimit: unlimited,
       },
+      enrichment: {
+        used: 0,
+        limit: unlimited,
+        remaining: unlimited,
+        dailyUsed: 0,
+        dailyLimit: unlimited,
+        dailyRemaining: unlimited,
+        canAutoEnrich: true,
+        canManualEnrich: true,
+        mode: 'auto',
+        period: 'daily',
+      },
       billableUsers: 0,
       resetAt: input.monthEnd.toISOString(),
       dailyResetAt: input.dayEnd.toISOString(),
@@ -202,6 +215,9 @@ export class CommercialUsageLimitsService {
       emails: planKey === COMMERCIAL_PLAN_KEYS.MELHOR
         ? { perUserLimit: 35, companyCap: 150, limit: Math.min(userCount * 35, 150) }
         : { perUserLimit: null as number | null, companyCap: 25, limit: 25 },
+      enrichment: {
+        dailyLimit: quotas.enrichmentsPerDay || (planKey === COMMERCIAL_PLAN_KEYS.LITE ? 3 : dailyCardSafetyLimit),
+      },
     };
   }
 
@@ -234,7 +250,7 @@ export class CommercialUsageLimitsService {
     const limits = this.computeLimits(company.planKey, billableUsers, company.quotaOverride);
     const normalizedUserId = Number(userId || 0) || null;
 
-    const [cardsGrossUsed, cardsUserGrossUsed, cardsDailyGrossUsed, cardsDailyUserGrossUsed, cardsRefunded, cardsUserRefunded, cardsDailyRefunded, cardsDailyUserRefunded, emailAttempted, emailSent, emailFailed, emailBlocked, emailUserSent] = await Promise.all([
+    const [cardsGrossUsed, cardsUserGrossUsed, cardsDailyGrossUsed, cardsDailyUserGrossUsed, cardsRefunded, cardsUserRefunded, cardsDailyRefunded, cardsDailyUserRefunded, emailAttempted, emailSent, emailFailed, emailBlocked, emailUserSent, enrichmentDailyUsed, enrichmentDailyUserUsed] = await Promise.all([
       this.countLogs(companyId, CARD_SUCCESS_EVENTS, monthStart, monthEnd),
       normalizedUserId ? this.countLogs(companyId, CARD_SUCCESS_EVENTS, monthStart, monthEnd, normalizedUserId) : Promise.resolve(0),
       this.countLogs(companyId, CARD_SUCCESS_EVENTS, dayStart, dayEnd),
@@ -248,11 +264,16 @@ export class CommercialUsageLimitsService {
       this.countLogs(companyId, ['presentation_email_failed'], dayStart, dayEnd),
       this.countLogs(companyId, ['presentation_email_blocked_limit', 'presentation_email_blocked_policy'], dayStart, dayEnd),
       normalizedUserId ? this.countLogs(companyId, ['presentation_email_sent'], dayStart, dayEnd, normalizedUserId) : Promise.resolve(0),
+      this.countLogs(companyId, LEAD_ENRICHMENT_SUCCESS_EVENTS, dayStart, dayEnd),
+      normalizedUserId ? this.countLogs(companyId, LEAD_ENRICHMENT_SUCCESS_EVENTS, dayStart, dayEnd, normalizedUserId) : Promise.resolve(0),
     ]);
     const cardsUsed = Math.max(0, cardsGrossUsed - cardsRefunded);
     const cardsUserUsed = Math.max(0, cardsUserGrossUsed - cardsUserRefunded);
     const cardsDailyUsed = Math.max(0, cardsDailyGrossUsed - cardsDailyRefunded);
     const cardsDailyUserUsed = Math.max(0, cardsDailyUserGrossUsed - cardsDailyUserRefunded);
+    const enrichmentDailyLimit = Math.max(0, Math.trunc(Number(limits.enrichment.dailyLimit || 0) || 0));
+    const enrichmentDailyRemaining = Math.max(0, enrichmentDailyLimit - Math.max(0, enrichmentDailyUsed));
+    const enrichmentAutoEnabled = company.planKey !== COMMERCIAL_PLAN_KEYS.LITE && enrichmentDailyRemaining > 0;
 
     return {
       planKey: company.planKey,
@@ -293,6 +314,23 @@ export class CommercialUsageLimitsService {
         companyCap: limits.emails.companyCap,
         userSent: emailUserSent,
         userLimit: limits.emails.perUserLimit || limits.emails.limit,
+      },
+      enrichment: {
+        used: Math.max(0, enrichmentDailyUsed),
+        limit: enrichmentDailyLimit,
+        remaining: enrichmentDailyRemaining,
+        dailyUsed: Math.max(0, enrichmentDailyUsed),
+        dailyUserUsed: Math.max(0, enrichmentDailyUserUsed),
+        dailyLimit: enrichmentDailyLimit,
+        dailyRemaining: enrichmentDailyRemaining,
+        canAutoEnrich: enrichmentAutoEnabled,
+        canManualEnrich: enrichmentDailyRemaining > 0,
+        mode: company.planKey === COMMERCIAL_PLAN_KEYS.LITE
+          ? 'manual_only'
+          : enrichmentDailyRemaining > 0
+            ? 'auto'
+            : 'blocked_until_reset',
+        period: 'daily',
       },
       billableUsers,
       resetAt: monthEnd.toISOString(),
@@ -375,6 +413,44 @@ export class CommercialUsageLimitsService {
       usageKey,
     });
     return { debited: true, alreadyDebited: false };
+  }
+
+  async recordLeadEnrichmentUseOnce(companyId: number, userId: number | null, metadata: Record<string, any> = {}) {
+    const usageKey = this.normalizeUsageKey(metadata.usageKey || metadata.vendasLeadId || metadata.leadId);
+    if (usageKey) {
+      const existing = await this.prisma.companyCommercialUsageLog.findFirst({
+        where: {
+          companyId,
+          eventType: { in: LEAD_ENRICHMENT_SUCCESS_EVENTS },
+          metadataJson: { contains: `"usageKey":"${usageKey}"` },
+        },
+        select: { id: true },
+      });
+      if (existing) {
+        return { debited: false, alreadyDebited: true, usage: await this.getUsageSnapshot(companyId, userId) };
+      }
+    }
+
+    const snapshot = await this.getUsageSnapshot(companyId, userId);
+    if (Number(snapshot.enrichment?.dailyRemaining || 0) <= 0) {
+      await this.log(companyId, Number(userId || 0) || null, 'lead_enrichment_blocked', 'lead_enrichment', {
+        reason: 'daily_enrichment_limit_reached',
+        ...metadata,
+        usageKey: usageKey || undefined,
+      });
+      throw new ConflictException({
+        code: 'DAILY_LEAD_ENRICHMENT_LIMIT_REACHED',
+        message: 'Créditos de enriquecimento de hoje acabaram. Cards novos seguem básicos até o reset diário.',
+        usage: snapshot,
+      });
+    }
+
+    await this.log(companyId, userId, 'lead_enrichment_used', String(metadata.source || 'lead_enrichment'), {
+      status: 'success',
+      ...metadata,
+      usageKey: usageKey || undefined,
+    });
+    return { debited: true, alreadyDebited: false, usage: await this.getUsageSnapshot(companyId, userId) };
   }
 
   async recordCardRefund(companyId: number, userId: number | null, metadata: Record<string, any> = {}) {
