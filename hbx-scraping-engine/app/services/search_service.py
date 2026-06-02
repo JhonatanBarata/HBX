@@ -5,6 +5,7 @@ import os
 import re
 import time
 import unicodedata
+from datetime import datetime, timezone
 from urllib.parse import parse_qs, unquote, urljoin, urlparse
 
 import httpx
@@ -15,6 +16,7 @@ from app.schemas import ContactResult, EnrichLeadRequest, EnrichLeadResponse, Qu
 from app.search.enrichment.provider_router import LeadEnrichmentProviderRouter
 from app.search.rank import EvidenceScorer
 from app.search.sources import build_intent_discovery_queries, discover_social_profiles, discover_urls
+from app.services.web_search_service import WebSearchService
 
 from .agenda_sources import dedupe_by_phone, search_abctelefonos
 from .fetcher import Fetcher
@@ -94,12 +96,22 @@ BAD_EMAIL_DOMAINS = {
 
 OFFICIAL_WEBSITE_BLOCKED_DOMAINS = {
     "aguasdesaopedro.com.br",
+    "acheiempresa.com.br",
+    "applocal.com.br",
     "benditoguia.com.br",
+    "brazilguide.net",
     "cardapio.menu",
+    "cylex.com.br",
+    "eguias.net",
     "econodata.com.br",
+    "guia.provik.com.br",
+    "listamais.com.br",
+    "misterwhat.com.br",
+    "paginaamarela.com.br",
     "polomap.com",
     "restaurantguru.com",
     "restaurantguru.com.br",
+    "sneps.com.br",
     "solutudo.com.br",
     "top-rated.online",
     "locaisdobrasil.com.br",
@@ -344,6 +356,7 @@ class SearchService:
         self.storage = Storage(DB_PATH, self.settings.cache_ttl_hours)
         self.evidence_scorer = EvidenceScorer()
         self.lead_provider_router = LeadEnrichmentProviderRouter()
+        self.web_search_service = WebSearchService()
 
     def requested_social_channels(
         self,
@@ -512,6 +525,22 @@ class SearchService:
         all_tokens = key.split()
         category = next((token for token in tokens if token in BUSINESS_CATEGORY_TOKENS), "")
         commercial = next((token for token in tokens if token not in BUSINESS_CATEGORY_TOKENS and len(token) >= 4), "")
+        structural_tokens = {
+            "construcao",
+            "construcoes",
+            "construtora",
+            "construtoras",
+            "engenharia",
+            "engenharias",
+            "empreendimento",
+            "empreendimentos",
+        }
+        distinctive_tokens = [
+            token for token in tokens
+            if token not in BUSINESS_CATEGORY_TOKENS
+            and token not in structural_tokens
+            and len(token) >= 4
+        ]
         variants = [text]
         if category and commercial:
             variants.extend([
@@ -519,6 +548,11 @@ class SearchService:
                 f"{category} do {commercial}",
                 f"{commercial} {category}",
             ])
+        if len(distinctive_tokens) >= 2:
+            variants.append(" ".join(distinctive_tokens[:3]))
+            variants.append("".join(distinctive_tokens[:3]))
+            variants.append(" ".join(distinctive_tokens[-2:]))
+            variants.append("".join(distinctive_tokens[-2:]))
         compact = "".join(token for token in [category, commercial] if token)
         if compact:
             variants.append(compact)
@@ -1614,33 +1648,33 @@ class SearchService:
             queries.append(f"{q_variant} {q_city} site oficial".strip())
             queries.append(f"{q_variant} {q_city}".strip())
         try:
-            try:
-                ddgs = DDGS(timeout=self.remaining_budget_seconds(deadline, 6))
-            except TypeError:
-                ddgs = DDGS()
             best_url: str | None = None
             best_score = -10_000
             best_query: str | None = None
-            with ddgs as client:
-                for query in list(dict.fromkeys(queries))[:SOCIAL_ENRICH_WEBSITE_MAX_QUERIES]:
+            fetched_at = datetime.now(timezone.utc).isoformat()
+            for query in list(dict.fromkeys(queries))[: max(SOCIAL_ENRICH_WEBSITE_MAX_QUERIES, 4)]:
+                if self.time_budget_expired(deadline):
+                    break
+                errors: list[str] = []
+                rows = self.web_search_service.collect_results(query, 10, fetched_at, errors)
+                for row in rows or []:
                     if self.time_budget_expired(deadline):
                         break
-                    try:
-                        rows = client.text(query, region="br-pt", safesearch="off", max_results=5)
-                    except Exception as error:
-                        print(f"[website_enrich] query falhou: {query} error={error}")
+                    raw_url = str(row.url or "").strip()
+                    if not raw_url:
                         continue
-                    for row in rows or []:
-                        if self.time_budget_expired(deadline):
-                            break
-                        raw_url = str(row.get("href") or row.get("url") or "").strip()
-                        if not raw_url:
-                            continue
-                        score = self.score_website_candidate(contact, row, raw_url, city)
-                        if score > best_score:
-                            best_url = raw_url
-                            best_score = score
-                            best_query = query
+                    normalized_row = {
+                        "title": row.title,
+                        "body": row.snippet,
+                        "snippet": row.snippet,
+                        "href": row.url,
+                        "url": row.url,
+                    }
+                    score = self.score_website_candidate(contact, normalized_row, raw_url, city)
+                    if score > best_score:
+                        best_url = raw_url
+                        best_score = score
+                        best_query = query
             if best_url and best_score >= 35:
                 parsed = urlparse(best_url)
                 return f"{parsed.scheme}://{parsed.netloc}".rstrip("/"), best_score, best_query
@@ -2404,50 +2438,51 @@ class SearchService:
         best_website: tuple[str | None, int, str | None] = (None, -10_000, None)
 
         try:
-            try:
-                ddgs = DDGS(timeout=self.remaining_budget_seconds(deadline, 5))
-            except TypeError:
-                ddgs = DDGS()
-            with ddgs as client:
-                for query in queries[:4]:
-                    if self.time_budget_expired(deadline):
-                        break
-                    result["stats"]["queries"].append(query)
-                    try:
-                        rows = list(client.text(query, region="br-pt", safesearch="off", max_results=8) or [])
-                    except Exception as error:
-                        print(f"[identity_enrich] query falhou: {query} error={error}")
-                        continue
-                    result["stats"]["rows"] += len(rows)
-                    for row in rows:
-                        raw_url = str(row.get("href") or row.get("url") or "").strip()
-                        row_text = " ".join(str(row.get(key) or "") for key in ("title", "body", "snippet", "description", "href", "url"))
-                        if not result.get("cnpj"):
-                            cnpj_match = CNPJ_RE.search(row_text)
-                            if cnpj_match:
-                                result["cnpj"] = cnpj_match.group(0)
-                        rating, reviews = self.parse_rating_reviews_from_identity_text(row_text)
-                        if rating is not None and result.get("rating") is None:
-                            result["rating"] = rating
-                        if reviews is not None and result.get("reviews") is None:
-                            result["reviews"] = reviews
-                        if raw_url and re.match(r"^https?://(?:www\.)?(?:google\.[^/]+/maps|maps\.app\.goo\.gl)/", raw_url, re.I):
-                            result.setdefault("googleMapsUrl", raw_url)
-                        for channel in ("instagram", "facebook"):
-                            field = "instagramUrl" if channel == "instagram" else "facebookUrl"
-                            if result.get(field):
-                                continue
-                            score = self.score_social_candidate(contact, row, raw_url, channel, city_text, segment, query)
-                            if score > best_social.get(field, ("", -10_000, ""))[1]:
-                                normalized = normalize_social_url(raw_url)
-                                if normalized:
-                                    best_social[field] = (normalized, score, query)
-                        if raw_url and not is_social_signal_domain(raw_url):
-                            website_score = self.score_website_candidate(contact, row, raw_url, city_text)
-                            if website_score > best_website[1]:
-                                best_website = (raw_url, website_score, query)
-                    if best_social.get("instagramUrl") and best_social.get("facebookUrl") and best_website[1] >= 35:
-                        break
+            fetched_at = datetime.now(timezone.utc).isoformat()
+            for query in queries[:4]:
+                if self.time_budget_expired(deadline):
+                    break
+                result["stats"]["queries"].append(query)
+                errors: list[str] = []
+                rows = self.web_search_service.collect_results(query, 10, fetched_at, errors)
+                result["stats"]["rows"] += len(rows)
+                for row in rows:
+                    raw_url = str(row.url or "").strip()
+                    row_dict = {
+                        "title": row.title,
+                        "body": row.snippet,
+                        "snippet": row.snippet,
+                        "description": row.snippet,
+                        "href": row.url,
+                        "url": row.url,
+                    }
+                    row_text = " ".join(str(row_dict.get(key) or "") for key in ("title", "body", "snippet", "description", "href", "url"))
+                    if not result.get("cnpj"):
+                        cnpj_match = CNPJ_RE.search(row_text)
+                        if cnpj_match:
+                            result["cnpj"] = cnpj_match.group(0)
+                    rating, reviews = self.parse_rating_reviews_from_identity_text(row_text)
+                    if rating is not None and result.get("rating") is None:
+                        result["rating"] = rating
+                    if reviews is not None and result.get("reviews") is None:
+                        result["reviews"] = reviews
+                    if raw_url and re.match(r"^https?://(?:www\.)?(?:google\.[^/]+/maps|maps\.app\.goo\.gl)/", raw_url, re.I):
+                        result.setdefault("googleMapsUrl", raw_url)
+                    for channel in ("instagram", "facebook"):
+                        field = "instagramUrl" if channel == "instagram" else "facebookUrl"
+                        if result.get(field):
+                            continue
+                        score = self.score_social_candidate(contact, row_dict, raw_url, channel, city_text, segment, query)
+                        if score > best_social.get(field, ("", -10_000, ""))[1]:
+                            normalized = normalize_social_url(raw_url)
+                            if normalized:
+                                best_social[field] = (normalized, score, query)
+                    if raw_url and not is_social_signal_domain(raw_url):
+                        website_score = self.score_website_candidate(contact, row_dict, raw_url, city_text)
+                        if website_score > best_website[1]:
+                            best_website = (raw_url, website_score, query)
+                if best_social.get("instagramUrl") and best_social.get("facebookUrl") and best_website[1] >= 35:
+                    break
         except Exception as error:
             print(f"[identity_enrich] falhou name={name} error={error}")
 
@@ -2475,6 +2510,7 @@ class SearchService:
         requested_preferred_channels = list(request.preferredChannels or [])
         if not requested_preferred_channels:
             requested_preferred_channels = ["instagram", "facebook"]
+        requested_website_channels = set(requested_preferred_channels) | set(request.requiredChannels or []) | set(request.requestedFields or [])
         preferred_channels = [
             channel
             for channel in dict.fromkeys(requested_preferred_channels)
@@ -2482,6 +2518,7 @@ class SearchService:
         ]
         required_channels = set(request.requiredChannels or [])
         required_social_channels = {"instagram", "facebook"} & required_channels
+        website_requested = bool({"website", "email"} & requested_website_channels)
         website_required = "website" in required_channels
         social_required = bool(required_social_channels)
         contact = {
@@ -2500,17 +2537,6 @@ class SearchService:
         }
         input_website_accepted = bool(contact.get("website"))
         early_social_stats = None
-        if preferred_channels and not self.time_budget_expired(deadline):
-            contacts, early_social_stats = self.enrich_social_links_for_contacts(
-                [contact],
-                request.city,
-                request.state,
-                request.segment,
-                preferred_channels,
-                list(required_channels),
-                time_budget_seconds=min(self.remaining_budget_seconds(deadline, budget_seconds), max(3.0, budget_seconds - 2.0)),
-            )
-            contact = contacts[0] if contacts else contact
         if contact.get("website"):
             website_score = self.score_website_candidate(
                 contact,
@@ -2562,10 +2588,10 @@ class SearchService:
         should_find_website_before_social = (
             not contact.get("website")
             and not self.time_budget_expired(deadline)
-            and (website_required or (not social_required and not phone_digits))
+            and (website_requested or website_required or (not social_required and not phone_digits))
         )
         if should_find_website_before_social:
-            website_deadline = min(deadline, time.monotonic() + (8 if website_required else 6))
+            website_deadline = min(deadline, time.monotonic() + (10 if (website_requested or website_required) else 6))
             direct_deadline = min(website_deadline, time.monotonic() + 4)
             website, website_score, website_query = self.probe_direct_website_for_contact(contact, request.city, direct_deadline)
             if not website and not self.time_budget_expired(website_deadline):

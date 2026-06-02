@@ -1194,6 +1194,7 @@ export class RadarCoreDeliveryMixin {
       where: {
         companyId: context.companyId,
         engine: 'hbx',
+        status: { in: ['queued', 'running', 'sleeping', 'paused'] as any },
       },
       orderBy: [
         { updatedAt: 'desc' },

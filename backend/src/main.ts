@@ -42,11 +42,13 @@ function isWebscrapingProxyPath(url: string | undefined) {
   const nativeApiPrefixes = [
     '/webscraping/runtime',
     '/webscraping/search',
+    '/webscraping/web-search',
     '/webscraping/history',
     '/webscraping/radar',
     '/webscraping/export',
     '/hbx/webscraping/runtime',
     '/hbx/webscraping/search',
+    '/hbx/webscraping/web-search',
     '/hbx/webscraping/history',
     '/hbx/webscraping/radar',
     '/hbx/webscraping/export',

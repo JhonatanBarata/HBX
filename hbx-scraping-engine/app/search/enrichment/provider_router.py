@@ -13,6 +13,7 @@ import httpx
 from app.schemas import EnrichLeadRequest, EnrichLeadResponse
 from app.services.filters import text_key
 from app.services.social import normalize_social_url, social_field_for_url
+from app.services.web_search_service import WebSearchService
 
 
 CONFIDENCE_TARGET = 70
@@ -48,6 +49,24 @@ ROUTER_LEGAL_STOP_TOKENS = {
     "spe",
 }
 ROUTER_REAL_ESTATE_TOKENS = {"imobiliaria", "imobiliarias", "imoveis", "imovel", "corretor", "corretores"}
+ROUTER_DIRECTORY_HOSTS = {
+    "acheiempresa.com.br",
+    "applocal.com.br",
+    "br.todosnegocios.com",
+    "brazilguide.net",
+    "cylex.com.br",
+    "eguias.net",
+    "econodata.com.br",
+    "guia.provik.com.br",
+    "listamais.com.br",
+    "misterwhat.com.br",
+    "paginaamarela.com.br",
+    "sneps.com.br",
+    "solutudo.com.br",
+    "serasaexperian.com.br",
+}
+ROUTER_EMAIL_RE = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.I)
+ROUTER_CNPJ_RE = re.compile(r"\b\d{2}\.?\d{3}\.?\d{3}/?\d{4}-?\d{2}\b")
 
 
 def normalize_channel_list_for_router(values: list[str] | None) -> list[str]:
@@ -107,6 +126,7 @@ class LeadEnrichmentProviderRouter:
     _usage: dict[str, dict[str, int | str]] = {}
 
     def __init__(self) -> None:
+        self.web_search_service = WebSearchService()
         self.providers = [
             ProviderDefinition("LocalCacheProvider", True, 10, supportsSearch=False),
             ProviderDefinition("HbxDatabaseProvider", bool(self.backend_internal_url()), 20, supportsSearch=False),
@@ -495,8 +515,6 @@ class LeadEnrichmentProviderRouter:
             )
 
     async def search_duckduckgo(self, request: EnrichLeadRequest) -> list[dict]:
-        from ddgs import DDGS
-
         queries = self.queries_for_request(request)
         allowed_channels = self.allowed_channels_for_request(request)
         if allowed_channels and allowed_channels <= {"instagram", "facebook", "linkedin"}:
@@ -511,16 +529,17 @@ class LeadEnrichmentProviderRouter:
                 if any(marker in query for channel, marker in social_markers.items() if channel in allowed_channels)
             ] or queries
         rows: list[dict] = []
-        try:
-            timeout = min(max(float(request.timeBudgetSeconds or 6), 2.0), 4.0)
-            max_queries = 2 if allowed_channels and allowed_channels <= {"instagram", "facebook", "linkedin"} else 4
-            max_results = 4 if max_queries == 2 else 6
-            with DDGS(timeout=timeout) as client:
-                for query in queries[:max_queries]:
-                    for row in client.text(query, region="br-pt", safesearch="off", max_results=max_results) or []:
-                        rows.append(self.normalize_search_row(row, "DuckDuckGoProvider", query))
-        except Exception:
-            return []
+        max_queries = 2 if allowed_channels and allowed_channels <= {"instagram", "facebook", "linkedin"} else 4
+        max_results = 4 if max_queries == 2 else 8
+        fetched_at = datetime.now(timezone.utc).isoformat()
+        for query in queries[:max_queries]:
+            errors: list[str] = []
+            for row in self.web_search_service.collect_results(query, max_results, fetched_at, errors):
+                rows.append(self.normalize_search_row({
+                    "href": row.url,
+                    "title": row.title,
+                    "body": row.snippet,
+                }, row.source or "DuckDuckGoProvider", query))
         return self.classify_rows(request, rows)
 
     async def search_brave(self, request: EnrichLeadRequest, provider: ProviderDefinition) -> list[dict]:
@@ -686,10 +705,27 @@ class LeadEnrichmentProviderRouter:
         if channel in {"instagram", "facebook", "linkedin"}:
             score += 10
             reasons.append(f"resultado de {channel}")
+        if channel == "website" and not self.is_directory_like_url(row.get("url") or ""):
+            host_key = re.sub(r"[^a-z0-9]+", "", urlparse(row.get("url") or "").netloc.lower().removeprefix("www."))
+            distinctive = [
+                token for token in name_tokens
+                if token not in {"construtora", "construtoras", "imobiliaria", "imobiliarias", "imoveis"}
+            ]
+            host_hits = [token for token in distinctive if token in host_key]
+            if len(host_hits) >= 2:
+                score += 24
+                reasons.append("dominio proprio bate com nome comercial")
+        elif channel == "website" and self.is_directory_like_url(row.get("url") or ""):
+            score = min(score, 64)
+            reasons.append("diretorio usado apenas como evidencia")
         if not city or city not in text:
             score -= 15
             reasons.append("sem cidade no snippet/titulo")
         return max(0, min(100, score)), "; ".join(reasons) or "resultado relacionado"
+
+    def is_directory_like_url(self, url: str) -> bool:
+        host = urlparse(str(url or "")).netloc.lower().removeprefix("www.")
+        return any(host == item or host.endswith(f".{item}") for item in ROUTER_DIRECTORY_HOSTS)
 
     def channel_from_url(self, url: str) -> str | None:
         host = urlparse(url).netloc.lower()
@@ -725,9 +761,15 @@ class LeadEnrichmentProviderRouter:
             url = result.get("url")
             score = int(result.get("score") or 0)
             status = result.get("status")
+            if not response.cnpj:
+                cnpj_match = ROUTER_CNPJ_RE.search(" ".join(str(result.get(key) or "") for key in ("title", "snippet", "url")))
+                if cnpj_match:
+                    response.cnpj = cnpj_match.group(0)
             if not field or not url:
                 continue
-            if status == "confirmed" and score >= CONFIDENCE_TARGET and hasattr(response, field) and not getattr(response, field):
+            current_value = getattr(response, field, None) if hasattr(response, field) else None
+            can_replace_directory_website = field == "website" and current_value and self.is_directory_like_url(str(current_value)) and not self.is_directory_like_url(str(url))
+            if status == "confirmed" and score >= CONFIDENCE_TARGET and hasattr(response, field) and (not current_value or can_replace_directory_website):
                 setattr(response, field, url)
                 if field in {"instagramUrl", "facebookUrl", "linkedinUrl"}:
                     response.socialConfidence = max(int(response.socialConfidence or 0), score)
@@ -736,6 +778,8 @@ class LeadEnrichmentProviderRouter:
                     response.emailConfidence = max(int(response.emailConfidence or 0), score)
                     response.emailStatus = "confirmed"
                     response.emailSource = response.emailSource or "provider"
+                elif field == "website":
+                    self.extract_fields_from_website(response, str(url))
             elif status == "possible":
                 candidate = {
                     "field": field,
@@ -752,6 +796,41 @@ class LeadEnrichmentProviderRouter:
                 if field in {"instagramUrl", "facebookUrl", "linkedinUrl"}:
                     response.possibleSocialCandidates.append(candidate)
                 response.nearbyResults.append(candidate)
+        if response.website and (not response.email or not response.facebookUrl or not response.instagramUrl):
+            self.extract_fields_from_website(response, str(response.website))
+
+    def extract_fields_from_website(self, response: EnrichLeadResponse, website: str) -> None:
+        if self.is_directory_like_url(website):
+            return
+        try:
+            page = httpx.get(
+                website,
+                timeout=8.0,
+                follow_redirects=True,
+                headers={"User-Agent": "Mozilla/5.0 HBXLeadEnrichment/1.0"},
+            )
+            if page.status_code >= 400:
+                return
+            html = (page.text or "").replace("\\/", "/").replace("&amp;", "&")
+            if not response.email:
+                for match in ROUTER_EMAIL_RE.findall(html):
+                    email = str(match or "").strip().lower()
+                    if email and not email.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".css", ".js")):
+                        response.email = email
+                        response.emailStatus = "confirmed"
+                        response.emailSource = "website"
+                        response.emailConfidence = max(int(response.emailConfidence or 0), 92)
+                        break
+            for raw in re.findall(r"https?://(?:www\.)?(?:instagram|facebook|linkedin)\.com/[A-Za-z0-9._%+\-/]+", html, flags=re.I):
+                normalized = normalize_social_url(raw.rstrip(".,;:)")) or raw.rstrip(".,;:)")
+                field = social_field_for_url(normalized)
+                if field in {"instagramUrl", "facebookUrl", "linkedinUrl"}:
+                    setattr(response, field, normalized)
+            if response.instagramUrl or response.facebookUrl or response.linkedinUrl:
+                response.socialStatus = "found"
+                response.socialConfidence = max(int(response.socialConfidence or 0), 86)
+        except Exception:
+            return
 
     def merge_response(self, base: EnrichLeadResponse, other: EnrichLeadResponse) -> None:
         for field_name in [
@@ -777,12 +856,22 @@ class LeadEnrichmentProviderRouter:
             incoming = getattr(other, field_name, None)
             if field_name in {"emailConfidence", "socialConfidence"}:
                 setattr(base, field_name, max(int(current or 0), int(incoming or 0)))
+            elif field_name == "emailStatus":
+                if incoming and (not current or str(current).lower() in {"missing", "none", "unknown"}):
+                    setattr(base, field_name, incoming)
+            elif field_name == "emailSource":
+                if incoming and (not current or str(current).lower() in {"none", "unknown"}):
+                    setattr(base, field_name, incoming)
             elif field_name == "socialStatus":
                 if (base.instagramUrl or base.facebookUrl or base.linkedinUrl or other.instagramUrl or other.facebookUrl or other.linkedinUrl) and (current or "missing") in {"missing", "unknown"} and incoming:
                     setattr(base, field_name, incoming)
             elif field_name == "socialConfidence":
                 if base.instagramUrl or base.facebookUrl or base.linkedinUrl or other.instagramUrl or other.facebookUrl or other.linkedinUrl:
                     setattr(base, field_name, max(int(current or 0), int(incoming or 0)))
+            elif field_name == "website" and incoming and self.is_directory_like_url(str(incoming)):
+                continue
+            elif field_name == "website" and current and incoming and self.is_directory_like_url(str(current)) and not self.is_directory_like_url(str(incoming)):
+                setattr(base, field_name, incoming)
             elif not current and incoming:
                 setattr(base, field_name, incoming)
         base.possibleSocialCandidates.extend(other.possibleSocialCandidates or [])

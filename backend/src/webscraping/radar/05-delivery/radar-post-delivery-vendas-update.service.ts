@@ -346,7 +346,7 @@ export class RadarPostDeliveryVendasUpdateService {
       whatsappStatus: data.whatsappStatus || null,
       recommendedChannel: data.recommendedChannel || null,
       opportunityReason: data.opportunityReason || null,
-      enrichmentStatus: data.enrichmentStatus || input.compactEnrichment?.enrichmentStatus || null,
+      enrichmentStatus: data.enrichmentStatus || input.compactEnrichment?.enrichmentStatus || 'completed',
       cnpj: stringOrNull(input.leadPlus?.cnpj),
       rating: data.rating ?? null,
       reviews: data.reviews ?? null,
