@@ -1,0 +1,670 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>HBX Radar Lead+ Preview</title>
+<style>
+:root{
+  --bg:#f5f8fc;
+  --card:#ffffff;
+  --line:#dfe7f3;
+  --line2:#cfdcf2;
+  --text:#101a33;
+  --muted:#65728a;
+  --blue:#135ee8;
+  --blue2:#0f7bff;
+  --green:#16a34a;
+  --green-bg:#e9f9ef;
+  --orange:#f97316;
+  --soft:#f6f9fe;
+  --shadow:0 16px 40px rgba(20,34,65,.08);
+  --radius:18px;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;
+  background:linear-gradient(180deg,#f8fbff 0%,#eef4fb 100%);
+  color:var(--text);
+  font-family:Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+}
+.page{
+  width:min(1880px, calc(100vw - 28px));
+  margin:14px auto;
+  min-height:calc(100vh - 28px);
+  background:rgba(255,255,255,.86);
+  border:1px solid rgba(210,220,235,.95);
+  border-radius:18px;
+  box-shadow:0 10px 30px rgba(16,24,40,.06);
+  padding:24px 32px 32px;
+}
+.topbar{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:24px;
+  margin-bottom:30px;
+}
+.title h1{
+  margin:0 0 4px;
+  font-size:28px;
+  letter-spacing:-.04em;
+  font-weight:900;
+}
+.title p{
+  margin:0;
+  color:#4d5b74;
+  font-size:15px;
+  font-weight:500;
+}
+.toolbar{
+  display:flex;
+  align-items:center;
+  gap:18px;
+}
+.sort, .filter, .iconBtn{
+  height:56px;
+  border:1px solid var(--line2);
+  border-radius:13px;
+  background:#fff;
+  box-shadow:0 8px 18px rgba(29,52,95,.05);
+  color:#17213b;
+  font-size:16px;
+  font-weight:650;
+}
+.sort{
+  min-width:300px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:10px;
+}
+.sort strong{font-weight:900}
+.filter{
+  min-width:178px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:12px;
+  color:#064fc4;
+}
+.iconBtn{
+  width:56px;
+  display:grid;
+  place-items:center;
+}
+.layout{
+  display:grid;
+  grid-template-columns:555px minmax(0,1fr);
+  gap:24px;
+}
+.listCard{
+  height:318px;
+  background:#fff;
+  border:1px solid var(--line);
+  border-radius:18px;
+  box-shadow:var(--shadow);
+  padding:27px;
+}
+.leadMini{
+  display:grid;
+  grid-template-columns:86px 1fr auto;
+  column-gap:24px;
+  align-items:start;
+}
+.logo{
+  width:86px;height:86px;
+  border-radius:12px;
+  display:grid;
+  place-items:center;
+  background:linear-gradient(135deg,#0a246f 0%,#075ac7 100%);
+  box-shadow:inset 0 0 18px rgba(255,255,255,.18), 0 8px 18px rgba(15,79,196,.22);
+}
+.logo span{
+  color:#fff;
+  font-size:61px;
+  line-height:1;
+  font-weight:900;
+  transform:skew(-8deg);
+}
+.miniTitle{
+  font-size:24px;
+  font-weight:900;
+  letter-spacing:-.04em;
+  margin:1px 0 8px;
+}
+.miniCity{
+  color:#69758c;
+  font-size:16px;
+  margin-bottom:18px;
+}
+.segment{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  height:26px;
+  padding:0 10px;
+  border-radius:8px;
+  background:#edf3fb;
+  color:#4b5a73;
+  font-size:13px;
+  font-weight:750;
+}
+.badgesMini{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-end;
+  gap:10px;
+}
+.badge{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  height:34px;
+  padding:0 14px;
+  border-radius:8px;
+  font-size:14px;
+  font-weight:850;
+  white-space:nowrap;
+}
+.badge.green{background:var(--green-bg); color:#12803c; border:1px solid #c5efd4}
+.badge.lead{background:#f1f5ff; color:#0b55d8; border:1px solid #d0dcff}
+.credit{
+  color:var(--orange);
+  font-size:15px;
+  font-weight:800;
+  white-space:nowrap;
+}
+.miniPhone{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  margin:27px 0 21px;
+  color:#1e293b;
+  font-weight:800;
+  font-size:17px;
+}
+.miniFoot{
+  border-top:1px solid var(--line);
+  padding-top:20px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+}
+.tagRow{display:flex;gap:10px;flex-wrap:wrap}
+.tag{
+  height:34px;
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding:0 12px;
+  border-radius:8px;
+  font-size:13px;
+  font-weight:800;
+}
+.tag.whats{background:#eaf9ef;color:#0f7a39}
+.tag.gray{background:#f0f2f6;color:#4a5568}
+.openBtn{
+  height:46px;
+  min-width:112px;
+  border-radius:10px;
+  border:1px solid #adc6f9;
+  background:#fff;
+  color:#0b5bdd;
+  font-weight:900;
+  font-size:16px;
+}
+.details{
+  background:#fff;
+  border:1px solid var(--line);
+  border-radius:18px;
+  box-shadow:var(--shadow);
+  padding:26px 28px 28px;
+}
+.detailHeader{
+  display:grid;
+  grid-template-columns:104px 1fr auto auto auto;
+  gap:18px;
+  align-items:start;
+}
+.bigLogo{width:104px;height:104px;border-radius:13px}
+.bigLogo span{font-size:74px}
+.companyName{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  margin-top:3px;
+  font-size:31px;
+  line-height:1;
+  letter-spacing:-.055em;
+  font-weight:950;
+}
+.verified{
+  width:24px;height:24px;
+  border-radius:999px;
+  display:grid;
+  place-items:center;
+  background:var(--blue);
+  color:white;
+  font-size:15px;
+  font-weight:950;
+}
+.meta{
+  margin-top:12px;
+  display:flex;
+  align-items:center;
+  gap:18px;
+  color:#61708a;
+  font-size:15px;
+  font-weight:700;
+}
+.statuses{
+  display:flex;
+  flex-wrap:wrap;
+  gap:12px;
+  margin-top:24px;
+}
+.statusPill{
+  height:34px;
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding:0 14px;
+  border-radius:8px;
+  font-size:14px;
+  font-weight:850;
+}
+.statusPill.green{background:#e6f8ed;color:#0d813a}
+.statusPill.blue{background:#edf5ff;color:#0757cc}
+.statusPill.gray{background:#f3f4f7;color:#596477}
+.statusPill.whats{background:#e6f8ed;color:#0d813a}
+.headerLead{
+  height:50px;
+  min-width:134px;
+  border-radius:10px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:10px;
+  border:1px solid #cad8ff;
+  background:#f4f7ff;
+  color:#0b55d8;
+  font-size:17px;
+  font-weight:900;
+}
+.costBox{
+  min-width:150px;
+  color:var(--orange);
+  text-align:center;
+  padding-top:10px;
+  font-size:18px;
+  font-weight:800;
+}
+.costBox small{
+  display:block;
+  color:#6b7488;
+  font-size:13px;
+  font-weight:650;
+  margin-top:7px;
+}
+.collapse{
+  width:48px;height:48px;
+  border:1px solid var(--line2);
+  border-radius:10px;
+  background:#fff;
+  color:#17213b;
+  font-size:18px;
+}
+.divider{height:1px;background:var(--line);margin:24px 0 18px}
+.channels{
+  display:grid;
+  grid-template-columns:repeat(6,1fr);
+  gap:20px;
+  padding:0 38px 24px;
+}
+.channel{
+  text-align:center;
+  font-size:14px;
+  font-weight:750;
+  color:#1d2942;
+}
+.channelIcon{
+  width:66px;height:66px;
+  margin:0 auto 10px;
+  border:1px solid var(--line);
+  border-radius:999px;
+  background:#fff;
+  display:grid;
+  place-items:center;
+  box-shadow:0 9px 18px rgba(16,24,40,.04), inset 0 0 18px rgba(20,95,235,.04);
+  font-size:34px;
+}
+.cardGrid{
+  display:grid;
+  grid-template-columns:1.05fr 1.05fr 1.22fr;
+  gap:16px;
+}
+.infoCard{
+  border:1px solid var(--line);
+  border-radius:13px;
+  background:#fff;
+  padding:22px 18px;
+  min-height:194px;
+}
+.cardTitle{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  margin-bottom:20px;
+  font-size:16px;
+  font-weight:900;
+  letter-spacing:-.02em;
+}
+.iconBlue{color:#0e65df;font-size:22px}
+.dataRows{
+  display:grid;
+  gap:22px;
+}
+.dataRow{
+  display:grid;
+  grid-template-columns:90px 1fr 24px;
+  align-items:center;
+  gap:10px;
+  font-size:15px;
+}
+.dataRow span:first-child{color:#43506a;font-weight:750}
+.dataRow strong{font-size:15px;font-weight:750}
+.copy{color:#69758c;text-align:center}
+.scoreCard{
+  display:flex;
+  align-items:center;
+  gap:24px;
+  padding-top:6px;
+}
+.gauge{
+  width:122px;height:122px;
+  border-radius:999px;
+  display:grid;
+  place-items:center;
+  background:
+    radial-gradient(circle at center,#fff 0 54%,transparent 55%),
+    conic-gradient(var(--blue) 0 82%,#e9eef6 82% 100%);
+}
+.gaugeInner{
+  width:92px;height:92px;
+  border-radius:999px;
+  background:#fff;
+  display:grid;
+  place-items:center;
+  box-shadow:inset 0 0 0 1px #edf2f7;
+}
+.gaugeInner strong{display:block;font-size:34px;line-height:.9;text-align:center;font-weight:950}
+.gaugeInner small{font-size:13px;color:#526078;font-weight:700}
+.scoreText h3{margin:0 0 10px;color:#0659e8;font-size:22px;letter-spacing:-.04em}
+.scoreText p{margin:0;line-height:1.45;color:#334155;font-size:15px}
+.evidence{margin-top:16px}
+.evidence ul{list-style:none;margin:0;padding:0;display:grid;gap:11px;font-size:14px;color:#243149}
+.evidence li::before{content:"✓";color:#16a34a;margin-right:12px;font-weight:900}
+.avatars{display:flex;align-items:center;gap:0;margin-top:17px;color:#65728a;font-size:13px}
+.avatar{
+  width:24px;height:24px;border-radius:999px;border:2px solid #fff;margin-right:-5px;
+  background:linear-gradient(135deg,#91a7c4,#1f2937);
+}
+.avatar:nth-child(2){background:linear-gradient(135deg,#0ea5e9,#172554)}
+.avatar:nth-child(3){background:linear-gradient(135deg,#f59e0b,#0f172a)}
+.avatar:nth-child(4){background:linear-gradient(135deg,#ef4444,#334155)}
+.avatar:nth-child(5){background:linear-gradient(135deg,#111827,#64748b)}
+.avatar:nth-child(6){background:linear-gradient(135deg,#78350f,#111827);margin-right:12px}
+.insightText{
+  color:#243149;
+  font-size:15px;
+  line-height:1.55;
+  margin:0 0 16px;
+}
+.potential{
+  display:flex;
+  align-items:center;
+  gap:18px;
+  border-radius:10px;
+  padding:17px 20px;
+  background:linear-gradient(90deg,#eef6ff,#e6f1ff);
+}
+.potentialIcon{font-size:28px;color:#0b63e5}
+.potential strong{display:block;color:#0b55d8;font-size:17px;margin-bottom:3px}
+.potential span{color:#59677f;font-size:14px}
+.channelBox{
+  display:flex;
+  align-items:center;
+  gap:18px;
+  background:linear-gradient(90deg,#dff8eb,#effcf5);
+  border-radius:10px;
+  padding:14px 18px;
+}
+.whatsBig{
+  width:54px;height:54px;
+  border-radius:999px;
+  display:grid;place-items:center;
+  background:#fff;
+  color:#16a34a;
+  font-size:33px;
+}
+.channelBox strong{font-size:18px}
+.scoreBadge{
+  display:inline-flex;
+  height:24px;
+  align-items:center;
+  padding:0 10px;
+  margin-left:10px;
+  border-radius:999px;
+  background:#e5fbef;
+  border:1px solid #9ae6b4;
+  color:#13883f;
+  font-size:12px;
+  font-weight:900;
+}
+.channelBox p{margin:4px 0 0;line-height:1.35;color:#243149;font-size:14px}
+.nextAction{
+  margin-top:18px;
+  border:1px solid var(--line);
+  border-radius:13px;
+  padding:24px 26px;
+  display:grid;
+  grid-template-columns:1fr auto auto;
+  gap:18px;
+  align-items:center;
+}
+.actionCopy{
+  display:flex;
+  align-items:center;
+  gap:18px;
+}
+.bolt{color:#f59e0b;font-size:26px}
+.actionCopy strong{display:block;font-size:17px;margin-bottom:6px}
+.actionCopy span{color:#243149;font-size:15px}
+.modelBtn,.whatsappBtn{
+  height:48px;border-radius:10px;font-size:15px;font-weight:900;
+}
+.modelBtn{
+  min-width:250px;border:1px solid #a9c3fa;background:#fff;color:#0b55d8;
+}
+.whatsappBtn{
+  min-width:240px;border:0;background:#1167e8;color:#fff;box-shadow:0 10px 20px rgba(17,103,232,.22);
+}
+svg{display:block}
+@media(max-width:1300px){
+  .layout{grid-template-columns:1fr}
+  .listCard{height:auto}
+}
+@media(max-width:980px){
+  .page{padding:18px}
+  .topbar,.toolbar{flex-direction:column;align-items:stretch}
+  .sort,.filter{min-width:auto}
+  .detailHeader{grid-template-columns:80px 1fr;gap:14px}
+  .bigLogo{width:80px;height:80px}
+  .bigLogo span{font-size:56px}
+  .headerLead,.costBox,.collapse{grid-column:auto}
+  .channels{grid-template-columns:repeat(3,1fr);padding:0 0 20px}
+  .cardGrid{grid-template-columns:1fr}
+  .nextAction{grid-template-columns:1fr}
+  .modelBtn,.whatsappBtn{width:100%;min-width:0}
+}
+</style>
+</head>
+<body>
+<main class="page">
+  <header class="topbar">
+    <div class="title">
+      <h1>HBX Radar</h1>
+      <p>Leads identificados com alto potencial de negócio.</p>
+    </div>
+    <div class="toolbar">
+      <button class="sort">Ordenar por: <strong>Mais relevantes</strong>⌄</button>
+      <button class="filter">
+        <svg width="25" height="25" viewBox="0 0 24 24" fill="none"><path d="M3 5h18l-7 8v5l-4 2v-7L3 5z" stroke="#0757cc" stroke-width="2" stroke-linejoin="round"/></svg>
+        Filtros (2)
+      </button>
+      <button class="iconBtn">
+        <svg width="25" height="25" viewBox="0 0 24 24" fill="none"><path d="M4 6h7M4 12h10M4 18h7M17 5v8m0 0-3-3m3 3 3-3M19 18h-5" stroke="#17213b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <section class="layout">
+    <aside class="listCard">
+      <div class="leadMini">
+        <div class="logo"><span>A</span></div>
+        <div>
+          <div class="miniTitle">Alugtec Rio Claro</div>
+          <div class="miniCity">Rio Claro - SP</div>
+          <span class="segment">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M20 10 12 2H5v7l8 8 7-7z" stroke="#526078" stroke-width="2"/><circle cx="8" cy="6" r="1.5" fill="#526078"/></svg>
+            Locação de Equipamentos
+          </span>
+        </div>
+        <div class="badgesMini">
+          <span class="badge green">● Entregue</span>
+          <span class="badge lead">♛ Lead+</span>
+        </div>
+      </div>
+      <div class="miniPhone">
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.3 1.7.6 2.5a2 2 0 0 1-.5 2.1L8 9.5a16 16 0 0 0 6.5 6.5l1.2-1.2a2 2 0 0 1 2.1-.5c.8.3 1.6.5 2.5.6A2 2 0 0 1 22 16.9z" stroke="#334155" stroke-width="2"/></svg>
+        (19) 3524-3850
+        <span style="flex:1"></span>
+        <span class="credit">🪙 - 2 créditos</span>
+      </div>
+      <div class="miniFoot">
+        <div class="tagRow">
+          <span class="tag whats">☘ WhatsApp confirmado</span>
+          <span class="tag gray">👥 Social parcial</span>
+        </div>
+        <button class="openBtn">Abrir ›</button>
+      </div>
+    </aside>
+
+    <article class="details">
+      <header class="detailHeader">
+        <div class="logo bigLogo"><span>A</span></div>
+        <div>
+          <div class="companyName">Alugtec Rio Claro <span class="verified">✓</span></div>
+          <div class="meta">
+            <span>📍 Rio Claro - SP</span>
+            <span>🏷 Locação de Equipamentos</span>
+          </div>
+          <div class="statuses">
+            <span class="statusPill green">● Entregue</span>
+            <span class="statusPill blue">◌ Enriquecendo</span>
+            <span class="statusPill gray">👥 Social parcial</span>
+            <span class="statusPill whats">☘ WhatsApp confirmado</span>
+          </div>
+        </div>
+        <button class="headerLead">♛ Lead+</button>
+        <div class="costBox">🪙 - 2 créditos <small>Custo por lead</small></div>
+        <button class="collapse">⌃</button>
+      </header>
+
+      <div class="divider"></div>
+
+      <nav class="channels">
+        <div class="channel"><div class="channelIcon">📷</div>Instagram</div>
+        <div class="channel"><div class="channelIcon">🔵</div>Facebook</div>
+        <div class="channel"><div class="channelIcon">🟢</div>WhatsApp</div>
+        <div class="channel"><div class="channelIcon">🌐</div>Site</div>
+        <div class="channel"><div class="channelIcon">✉️</div>E-mail</div>
+        <div class="channel"><div class="channelIcon">📍</div>Mapa</div>
+      </nav>
+
+      <section class="cardGrid">
+        <div class="infoCard" style="grid-row:span 2">
+          <div class="cardTitle"><span class="iconBlue">▦</span> Dados da empresa</div>
+          <div class="dataRows">
+            <div class="dataRow"><span>CNPJ</span><strong>18.597.642/0001-42</strong><span class="copy">▢</span></div>
+            <div class="dataRow"><span>E-mail</span><strong>contato@alugtecriocl...</strong><span class="copy">▢</span></div>
+            <div class="dataRow"><span>Site</span><strong>www.alugtecriocl...</strong><span class="copy">↗</span></div>
+            <div class="dataRow"><span>Telefone</span><strong>🟢 (19) 3524-3850</strong><span class="copy">▢</span></div>
+            <div class="dataRow"><span>Endereço</span><strong>Av. 38, 645 - Vila Operária<br>Rio Claro - SP, 13504-110</strong><span class="copy">▢</span></div>
+          </div>
+        </div>
+
+        <div class="infoCard">
+          <div class="cardTitle"><span class="iconBlue">🛡</span> Qualidade do lead</div>
+          <div class="scoreCard">
+            <div class="gauge"><div class="gaugeInner"><div><strong>82</strong><small>de 100</small></div></div></div>
+            <div class="scoreText">
+              <h3>Excelente</h3>
+              <p>Lead com alta qualidade<br>e dados consistentes.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="infoCard">
+          <div class="cardTitle"><span class="iconBlue">💡</span> Insight de oportunidade</div>
+          <p class="insightText">
+            Empresa do setor de locação de equipamentos em expansão na região de Rio Claro - SP.
+            Alta demanda por soluções de gestão, manutenção e controle de frota.
+          </p>
+          <div class="potential">
+            <div class="potentialIcon">↗</div>
+            <div><strong>Potencial: Alto</strong><span>Boa aderência ao seu produto/serviço.</span></div>
+          </div>
+        </div>
+
+        <div class="infoCard evidence">
+          <div class="cardTitle"><span class="iconBlue">🛡</span> Confiança / Evidências</div>
+          <ul>
+            <li>Empresa ativa e com CNPJ válido</li>
+            <li>Presença digital encontrada</li>
+            <li>WhatsApp comercial confirmado</li>
+            <li>Atividade recente nas redes sociais</li>
+          </ul>
+          <div class="avatars"><span class="avatar"></span><span class="avatar"></span><span class="avatar"></span><span class="avatar"></span><span class="avatar"></span><span class="avatar"></span>+18 evidências</div>
+        </div>
+
+        <div class="infoCard">
+          <div class="cardTitle"><span class="iconBlue">🎯</span> Canal recomendado</div>
+          <div class="channelBox">
+            <div class="whatsBig">☘</div>
+            <div>
+              <strong>WhatsApp <span class="scoreBadge">Score 92</span></strong>
+              <p>Canal com maior taxa de resposta e engajamento para este perfil.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="nextAction">
+        <div class="actionCopy">
+          <div class="bolt">ϟ</div>
+          <div>
+            <strong>Próxima melhor ação</strong>
+            <span>Iniciar conversa via WhatsApp com apresentação de solução para locadoras.</span>
+          </div>
+        </div>
+        <button class="modelBtn">💬 Ver modelo de mensagem</button>
+        <button class="whatsappBtn">☘ Iniciar no WhatsApp</button>
+      </section>
+    </article>
+  </section>
+</main>
+</body>
+</html>

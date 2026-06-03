@@ -185,13 +185,6 @@
     transform: translate3d(0, 0, 0) scale(1);
   }
 }
-
-@keyframes hbxLeadShimmer {
-  to {
-    transform: translateX(120%);
-  }
-}
-
 @media (max-width: 820px) {
   .mobileVendasList {
     gap: 10px !important;
@@ -19067,7 +19060,6 @@
   .leadCard :global([class*="extra"]),
   .leadCard :global([class*="cluster"]),
   .leadQuickReadStack,
-  .leadCardChannelRow,
   .leadEyebrow,
   .returnBadge {
     display: none !important;
@@ -19354,3094 +19346,1382 @@
     color: rgba(226, 234, 248, 0.78) !important;
   }
 }
-
-/* Open desktop detail: large premium card, matching the clicked state reference. */
-@media (min-width: 821px) {
-  .detailPanel {
-    min-width: 0 !important;
-  }
-
-  .detailLayout {
-    display: grid !important;
-    grid-template-columns: minmax(0, 1fr) !important;
-    gap: 0.86rem !important;
-  }
-
-  .vendasOpenCard {
-    width: 100% !important;
-    border: 1px solid #dce5f2 !important;
-    border-radius: 16px !important;
-    background:
-      radial-gradient(circle at 96% 0%, rgba(37, 99, 235, 0.055), transparent 32%),
-      linear-gradient(180deg, #ffffff, #fbfdff) !important;
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.98),
-      0 22px 44px -30px rgba(15, 23, 42, 0.2) !important;
-    padding: 22px !important;
-  }
-
-  .vendasOpenHeader {
-    display: grid !important;
-    grid-template-columns: minmax(0, 1fr) auto !important;
-    align-items: start !important;
-    gap: 18px !important;
-    padding-bottom: 16px !important;
-    border-bottom: 1px solid #e5ebf4 !important;
-  }
-
-  .vendasOpenIdentity {
-    display: grid !important;
-    grid-template-columns: 82px minmax(0, 1fr) !important;
-    gap: 16px !important;
-    align-items: center !important;
-  }
-
-  .vendasOpenIdentity .vendasClosedAvatar {
-    width: 74px !important;
-    height: 74px !important;
-    border-radius: 10px !important;
-  }
-
-  .vendasOpenIdentity strong {
-    color: #07133d !important;
-    font-size: 1.5rem !important;
-    font-weight: 800 !important;
-    line-height: 1.06 !important;
-  }
-
-  .vendasOpenIdentity span {
-    color: #64748b !important;
-    font-size: 0.9rem !important;
-  }
-
-  .vendasOpenIdentity small {
-    color: #64748b !important;
-    font-size: 0.74rem !important;
-  }
-
-  .vendasOpenProduct {
-    display: grid !important;
-    justify-items: end !important;
-    gap: 8px !important;
-  }
-
-  .vendasOpenProduct span {
-    min-height: 36px !important;
-    border-radius: 8px !important;
-    border: 1px solid #d8e2ff !important;
-    background: #eef3ff !important;
-    color: #1454d6 !important;
-    padding: 0 16px !important;
-    font-size: 0.9rem !important;
-    font-weight: 800 !important;
-  }
-
-  .vendasOpenProduct b {
-    color: #e27b00 !important;
-    font-size: 0.86rem !important;
-  }
-
-  .vendasOpenCard > .vendasClosedBadges {
-    margin: 14px 0 18px !important;
-  }
-
-  .vendasOpenChannels {
-    display: grid !important;
-    grid-template-columns: repeat(6, minmax(74px, 1fr)) !important;
-    gap: 12px !important;
-    padding: 18px 0 20px !important;
-    border-bottom: 1px solid #e5ebf4 !important;
-  }
-
-  .vendasOpenChannels a {
-    display: grid !important;
-    justify-items: center !important;
-    gap: 8px !important;
-    color: #07133d !important;
-    text-decoration: none !important;
-  }
-
-  .vendasOpenChannels a > span {
-    width: 56px !important;
-    height: 56px !important;
-    border: 1px solid #dfe7f2 !important;
-    border-radius: 999px !important;
-    background: #ffffff !important;
-    box-shadow: 0 14px 26px -22px rgba(15, 23, 42, 0.22) !important;
-  }
-
-  .vendasOpenChannels .hbxRadarCardIcon {
-    width: 30px !important;
-    height: 30px !important;
-  }
-
-  .vendasOpenChannels b {
-    font-size: 0.78rem !important;
-    font-weight: 680 !important;
-  }
-
-  .vendasOpenGrid {
-    display: grid !important;
-    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-    gap: 12px !important;
-    margin-top: 16px !important;
-  }
-
-  .vendasOpenSection {
-    min-height: 0 !important;
-    border: 1px solid #dfe7f2 !important;
-    border-radius: 12px !important;
-    background:
-      radial-gradient(circle at 94% 0%, rgba(37, 99, 235, 0.035), transparent 34%),
-      #ffffff !important;
-    box-shadow: none !important;
-    padding: 16px !important;
-  }
-
-  .vendasOpenSection h3 {
-    color: #07133d !important;
-    font-size: 0.94rem !important;
-    font-weight: 780 !important;
-  }
-
-  .vendasOpenSection p,
-  .vendasOpenSection small {
-    color: #475569 !important;
-    font-size: 0.82rem !important;
-    line-height: 1.38 !important;
-  }
-
-  .vendasOpenInsight,
-  .vendasOpenRecommended,
-  .vendasOpenMessage,
-  .vendasOpenOperation {
-    grid-column: span 1 !important;
-  }
-
-  .vendasOpenActions {
-    display: grid !important;
-    grid-template-columns: minmax(0, 1fr) auto auto !important;
-    gap: 12px !important;
-    margin-top: 18px !important;
-    padding-top: 16px !important;
-    border-top: 1px solid #e5ebf4 !important;
-  }
-
-  .vendasOpenActions button,
-  .vendasOpenActions a {
-    min-height: 42px !important;
-    border-radius: 8px !important;
-    font-size: 0.84rem !important;
-    font-weight: 780 !important;
-  }
-
-  .vendasOpenActions a {
-    border-color: #1d6ff2 !important;
-    background: #1d6ff2 !important;
-    color: #ffffff !important;
-  }
-
-  .timelineSection {
-    width: 100% !important;
-    border-radius: 16px !important;
-    border-color: #dfe7f2 !important;
-    background: #ffffff !important;
+/* Step 1: legacy desktop open-detail override stack removed.
+   The preview layout is rebuilt in the next pass. */
+@keyframes hbxLeadShimmer {
+  to {
+    transform: translateX(120%);
   }
 }
 
-/* Desktop interaction: centered list collapses left and reveals the rich card. */
+/* Step 2: desktop detail rebuilt from docs/ICONES/CARDS/OBSERVACAO/preview.html. */
 @media (min-width: 821px) {
-  .stageGrid {
-    display: grid !important;
-    grid-template-columns: 74px minmax(0, 1fr) minmax(0, 0fr) !important;
-    justify-content: stretch !important;
-    align-items: start !important;
-    gap: 0.9rem !important;
-    transition:
-      grid-template-columns 620ms cubic-bezier(0.16, 1, 0.3, 1),
-      gap 620ms cubic-bezier(0.16, 1, 0.3, 1) !important;
-  }
-
   .stageGrid[data-detail-open="true"] {
-    grid-template-columns: 74px 398px minmax(560px, 1fr) !important;
-    justify-content: stretch !important;
-    gap: 1.05rem !important;
-  }
-
-  .stageMain {
-    min-width: 0 !important;
-    transform: translate3d(0, 0, 0) !important;
-    transition:
-      transform 620ms cubic-bezier(0.16, 1, 0.3, 1),
-      opacity 420ms ease !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .stageMain {
-    transform: translate3d(-2px, 0, 0) !important;
-    width: 398px !important;
-    max-width: 398px !important;
-  }
-
-  .stageGrid[data-detail-open="false"] .boardShell {
-    width: 100% !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .boardShell {
-    width: 398px !important;
-    max-width: 398px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .cardsGrid {
-    width: 398px !important;
-    max-width: 398px !important;
-    grid-template-columns: 398px !important;
-  }
-
-  .stageGrid[data-detail-open="false"] .cardsGrid {
-    width: 100% !important;
-    grid-template-columns: repeat(auto-fit, minmax(390px, 1fr)) !important;
-  }
-
-  .stageAside {
-    display: block !important;
-    min-width: 0 !important;
-    max-width: 0 !important;
-    overflow: hidden !important;
-    opacity: 0 !important;
-    pointer-events: none !important;
-    transform: translate3d(30px, 0, 0) scale(0.985) !important;
-    transform-origin: left top !important;
-    transition:
-      opacity 420ms ease,
-      transform 620ms cubic-bezier(0.16, 1, 0.3, 1),
-      max-width 620ms cubic-bezier(0.16, 1, 0.3, 1) !important;
+    grid-template-columns: 74px minmax(308px, 390px) minmax(0, 1fr);
+    gap: 16px;
   }
 
   .stageGrid[data-detail-open="true"] .stageAside {
-    max-width: 100% !important;
-    opacity: 1 !important;
-    pointer-events: auto !important;
-    transform: translate3d(0, 0, 0) scale(1) !important;
+    display: block;
   }
 
-  .boardShell {
-    width: min(520px, 100%) !important;
-    justify-self: stretch !important;
-    padding: 0 !important;
-    border: 0 !important;
-    background: transparent !important;
-    box-shadow: none !important;
-    overflow: visible !important;
-    transition:
-      width 620ms cubic-bezier(0.16, 1, 0.3, 1),
-      transform 620ms cubic-bezier(0.16, 1, 0.3, 1) !important;
-  }
-
-  .detailPanel {
-    position: sticky !important;
-    top: calc(var(--topbar-total-height) + 12px) !important;
-    padding: 0 !important;
-    border: 0 !important;
-    background: transparent !important;
-    box-shadow: none !important;
-    overflow: visible !important;
-  }
-
-  .cardsGrid {
-    width: 100% !important;
-    grid-template-columns: repeat(auto-fit, minmax(390px, 1fr)) !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .cardsGrid {
-    width: min(520px, 100%) !important;
-    grid-template-columns: minmax(0, 1fr) !important;
-  }
-
-  .leadCard {
-    will-change: transform, border-color, box-shadow !important;
-  }
-
-  .leadCard[data-selected="true"] {
-    transform: translate3d(0, -2px, 0) scale(1.006) !important;
-  }
-
-  .vendasOpenCard {
-    animation: vendasDetailReveal 620ms cubic-bezier(0.16, 1, 0.3, 1) both !important;
-  }
-}
-
-@keyframes vendasDetailReveal {
-  from {
-    opacity: 0;
-    transform: translate3d(28px, 0, 0) scale(0.985);
-  }
-
-  to {
-    opacity: 1;
-    transform: translate3d(0, 0, 0) scale(1);
-  }
-}
-
-/* Selector fixes after enabling the split layout. */
-@media (min-width: 821px) {
-  .leadCard {
-    min-height: 184px !important;
-    max-height: 196px !important;
-  }
-
-  .leadCard :global([class*="inner"]) {
-    position: relative !important;
-    min-height: 150px !important;
-    box-sizing: border-box !important;
-    height: 100% !important;
-    min-height: 158px !important;
-    padding: 18px 20px 58px !important;
-  }
-
-  .leadCard :global([class*="actions"]) {
-    position: absolute !important;
-    inset: auto 20px 16px 20px !important;
-    right: 20px !important;
-    bottom: 16px !important;
-    left: 20px !important;
-    width: auto !important;
-    margin: 0 !important;
-    padding-top: 12px !important;
-  }
-
-  .vendasClosedCardTop {
-    grid-template-areas: "avatar identity aside" !important;
-    grid-template-rows: auto !important;
-    align-items: center !important;
-    max-height: 78px !important;
-    overflow: visible !important;
-  }
-
-  .leadIdentity {
-    width: 100% !important;
-    grid-template-columns: minmax(0, 1fr) !important;
-    align-content: center !important;
-  }
-
-  .leadIdentity .leadName,
-  .leadIdentity .leadSubline {
-    width: 100% !important;
-    min-width: 0 !important;
-    justify-self: stretch !important;
-  }
-
-  .leadIdentity .leadName {
-    font-size: 1rem !important;
-  }
-
-  .leadIdentity .vendasClosedPhoneLine {
-    grid-area: auto !important;
-    margin-top: 12px !important;
-  }
-
-  .leadIdentity .vendasClosedBadges {
-    display: none !important;
-  }
-
-  .leadActionRow {
-    grid-template-columns: minmax(0, 1fr) 102px !important;
-    min-height: 38px !important;
-  }
-
-  .leadActionRow .desktopLeadOpenButton {
-    grid-column: 2 !important;
-  }
-
-  .leadActionRow .whatsappAction {
-    grid-column: 1 !important;
-  }
-
-  .vendasOpenIdentity .vendasClosedAvatar {
-    grid-area: auto !important;
-  }
-
-  .vendasOpenIdentity > div:last-child {
-    width: 100% !important;
-    min-width: 0 !important;
-  }
-
-  .vendasOpenIdentity strong,
-  .vendasOpenIdentity span,
-  .vendasOpenIdentity small {
-    display: block !important;
-    width: 100% !important;
-    min-width: 0 !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
-  }
-
-  .vendasOpenIdentity strong {
-    white-space: nowrap !important;
-  }
-
-  .leadCard .vendasClosedAside {
-    grid-area: aside !important;
-    grid-column: aside !important;
-    grid-row: auto !important;
-    align-self: start !important;
-  }
-
-  .leadCard .leadIdentity {
-    grid-area: identity !important;
-    grid-column: identity !important;
-  }
-
-  .leadCard :global([class*="actions"]) {
-    top: auto !important;
-    bottom: 16px !important;
-  }
-
-  .leadCard :global([class*="actions"]) {
-    inset: 4px 20px auto 20px !important;
-    top: 4px !important;
-    bottom: auto !important;
-  }
-
-  .leadActionRow .whatsappUnavailable {
-    display: none !important;
-  }
-
-  .leadActionRow .whatsappUnavailable + a {
-    display: none !important;
-  }
-
-  .leadActionRow > :not(.desktopLeadOpenButton) {
-    display: none !important;
-  }
-
-  .leadActionRow {
-    grid-template-columns: minmax(0, 1fr) 102px !important;
-  }
-
-  .leadActionRow .desktopLeadOpenButton {
-    grid-column: 2 !important;
-  }
-}
-
-/* Desktop polish pass: compact list cards and richer open details. */
-@media (min-width: 821px) {
-  .stageGrid[data-detail-open="false"] .cardsGrid {
-    grid-template-columns: repeat(auto-fit, minmax(340px, 410px)) !important;
-    justify-content: start !important;
-    gap: 0.86rem !important;
-  }
-
-  .stageGrid[data-detail-open="false"] .leadCard {
-    min-height: 166px !important;
-    max-height: 176px !important;
-  }
-
-  .stageGrid[data-detail-open="false"] .leadCard :global([class*="inner"]) {
-    min-height: 144px !important;
-    padding: 16px 16px 52px !important;
-  }
-
-  .stageGrid[data-detail-open="false"] .vendasClosedCardTop {
-    grid-template-columns: 68px minmax(0, 1fr) 92px !important;
-    gap: 8px 13px !important;
-    max-height: 70px !important;
-  }
-
-  .stageGrid[data-detail-open="false"] .vendasClosedAvatar {
-    width: 58px !important;
-    height: 58px !important;
-  }
-
-  .stageGrid[data-detail-open="false"] .leadIdentity .leadName {
-    font-size: 0.93rem !important;
-  }
-
-  .stageGrid[data-detail-open="false"] .leadSubline {
-    font-size: 0.72rem !important;
-  }
-
-  .stageGrid[data-detail-open="false"] .vendasClosedPhoneLine {
-    margin-top: 9px !important;
-    font-size: 0.8rem !important;
-  }
-
-  .stageGrid[data-detail-open="false"] .vendasClosedProduct {
-    min-height: 30px !important;
-    padding: 0 10px !important;
-    font-size: 0.76rem !important;
-  }
-
-  .stageGrid[data-detail-open="false"] .vendasClosedCredits {
-    font-size: 0.72rem !important;
-  }
-
-  .stageGrid[data-detail-open="false"] .leadCard :global([class*="actions"]) {
-    inset: 2px 16px auto 16px !important;
-    top: 2px !important;
-    padding-top: 10px !important;
-  }
-
-  .stageGrid[data-detail-open="false"] .leadActionRow {
-    grid-template-columns: minmax(0, 1fr) 92px !important;
-  }
-
-  .stageGrid[data-detail-open="false"] .leadActionRow .desktopLeadOpenButton {
-    min-height: 34px !important;
-    font-size: 0.76rem !important;
-  }
-
-  .vendasOpenCard {
-    position: relative !important;
-    overflow: hidden !important;
-    padding: 18px !important;
-    border-color: #cfdcf0 !important;
-    background:
-      radial-gradient(circle at 92% 0%, rgba(37, 99, 235, 0.09), transparent 28%),
-      radial-gradient(circle at 0% 100%, rgba(20, 184, 166, 0.06), transparent 30%),
-      linear-gradient(180deg, #ffffff 0%, #f8fbff 100%) !important;
-  }
-
-  .vendasOpenCard::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    background:
-      linear-gradient(110deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.12) 20%, transparent 38%),
-      radial-gradient(circle at 24% 12%, rgba(37, 99, 235, 0.06), transparent 22%);
-  }
-
-  .vendasOpenCard > * {
-    position: relative;
-    z-index: 1;
-  }
-
-  .vendasOpenHeader {
-    padding-bottom: 13px !important;
-  }
-
-  .vendasOpenIdentity {
-    grid-template-columns: 70px minmax(0, 1fr) !important;
-    gap: 14px !important;
-  }
-
-  .vendasOpenIdentity .vendasClosedAvatar {
-    width: 64px !important;
-    height: 64px !important;
-  }
-
-  .vendasOpenIdentity strong {
-    font-size: 1.28rem !important;
-  }
-
-  .vendasOpenProduct {
-    grid-template-columns: auto auto !important;
-    align-items: start !important;
-    justify-items: end !important;
-    gap: 6px 8px !important;
-  }
-
-  .vendasOpenProduct span {
-    min-height: 32px !important;
-    padding: 0 13px !important;
-    font-size: 0.82rem !important;
-  }
-
-  .vendasOpenProduct b {
-    grid-column: 1 / -1 !important;
-    font-size: 0.78rem !important;
-  }
-
-  .vendasOpenCloseButton {
-    display: inline-grid;
-    width: 32px;
-    height: 32px;
-    place-items: center;
-    border: 1px solid #d7e2f1;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.92);
-    color: #315174;
-    cursor: pointer;
-    box-shadow: 0 12px 24px -20px rgba(15, 23, 42, 0.26);
-    transition:
-      transform 220ms cubic-bezier(0.2, 0.82, 0.2, 1),
-      border-color 220ms ease,
-      background 220ms ease;
-  }
-
-  .vendasOpenCloseButton:hover {
-    transform: translateY(-1px);
-    border-color: #9dbbfb;
-    background: #ffffff;
-    color: #0757df;
-  }
-
-  .vendasOpenCloseButton span {
-    font-size: 1.15rem;
-    font-weight: 700;
-    line-height: 1;
-  }
-
-  .vendasOpenCard > .vendasClosedBadges {
-    margin: 12px 0 10px !important;
-  }
-
-  .vendasOpenChannels {
-    grid-template-columns: repeat(6, minmax(58px, 1fr)) !important;
-    gap: 8px !important;
-    padding: 12px 0 14px !important;
-  }
-
-  .vendasOpenChannels a > span {
-    width: 48px !important;
-    height: 48px !important;
-  }
-
-  .vendasOpenChannels .hbxRadarCardIcon {
-    width: 27px !important;
-    height: 27px !important;
-  }
-
-  .vendasOpenChannels b {
-    font-size: 0.72rem !important;
-  }
-
-  .vendasOpenGrid {
-    grid-template-columns: minmax(220px, 0.92fr) minmax(220px, 0.9fr) minmax(260px, 1.18fr) !important;
-    gap: 10px !important;
-    margin-top: 12px !important;
-  }
-
-  .vendasOpenSection {
-    position: relative;
-    align-content: start !important;
-    gap: 8px !important;
-    padding: 13px !important;
-    border-color: #d9e4f2 !important;
-    background:
-      radial-gradient(circle at 100% 0%, rgba(37, 99, 235, 0.055), transparent 32%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(249, 252, 255, 0.92)) !important;
-  }
-
-  .vendasOpenSection h3 {
-    display: inline-flex !important;
-    align-items: center !important;
-    gap: 8px !important;
-    margin: 0 0 4px !important;
-    font-size: 0.86rem !important;
-  }
-
-  .vendasOpenSection h3 .hbxRadarCardIcon {
-    width: 18px !important;
-    height: 18px !important;
-    color: #0757df !important;
-  }
-
-  .vendasOpenSection > div {
-    min-height: 24px !important;
-    grid-template-columns: 74px minmax(0, 1fr) !important;
-    gap: 8px !important;
-    border-bottom: 1px dashed rgba(148, 163, 184, 0.28);
-    padding-bottom: 5px;
-  }
-
-  .vendasOpenSection > div:last-child {
-    border-bottom: 0;
-    padding-bottom: 0;
-  }
-
-  .vendasOpenSection > div > span {
-    color: #526987 !important;
-    font-size: 0.66rem !important;
-  }
-
-  .vendasOpenSection > div > strong,
-  .vendasOpenSection > div > a {
-    font-size: 0.74rem !important;
-  }
-
-  .vendasOpenQuality {
-    grid-template-columns: 120px minmax(0, 1fr) !important;
-    align-items: center !important;
-  }
-
-  .vendasOpenQuality h3 {
-    grid-column: 1 / -1;
-  }
-
-  .vendasOpenGauge {
-    width: 86px !important;
-    height: 86px !important;
-    justify-self: center !important;
-  }
-
-  .vendasOpenGauge strong {
-    font-size: 1rem !important;
-  }
-
-  .vendasOpenEvidence {
-    display: grid !important;
-    gap: 7px !important;
-  }
-
-  .vendasOpenEvidence span {
-    display: inline-flex !important;
-    align-items: center !important;
-    gap: 8px !important;
-    color: #1f4d78 !important;
-    font-size: 0.78rem !important;
-  }
-
-  .vendasOpenEvidence span::before {
-    content: "";
-    width: 14px;
-    height: 14px;
-    border-radius: 999px;
-    background: #16a34a;
-    box-shadow: inset 0 0 0 3px #e9fbf1;
-  }
-
-  .vendasOpenInsight,
-  .vendasOpenRecommended,
-  .vendasOpenEnrichmentOperation {
-    min-height: 106px !important;
-  }
-
-  .vendasOpenRecommended strong,
-  .vendasOpenEnrichmentOperation strong {
-    color: #12813f !important;
-    font-size: 0.95rem !important;
-  }
-
-  .vendasOpenMessage,
-  .vendasOpenOperation {
-    grid-column: span 3 !important;
-  }
-
-  .vendasOpenOperation {
-    display: grid !important;
-    grid-template-columns: minmax(0, 1.35fr) minmax(180px, 0.65fr) minmax(220px, 0.8fr) auto !important;
-    align-items: end !important;
-    gap: 10px !important;
-  }
-
-  .vendasOpenOperation h3 {
-    grid-column: 1 / -1 !important;
-  }
-
-  .vendasOpenOperation label {
-    display: grid;
-    gap: 5px;
-  }
-
-  .vendasOpenOperation label span {
-    color: #526987;
-    font-size: 0.68rem;
-    font-weight: 800;
-    text-transform: uppercase;
-  }
-
-  .vendasOpenOperation textarea,
-  .vendasOpenOperation input {
-    min-height: 38px;
-    border: 1px solid #d9e4f2;
-    border-radius: 10px;
-    background: #ffffff;
-    color: #07133d;
-    padding: 8px 10px;
-    font: inherit;
-    font-size: 0.78rem;
-    box-shadow: inset 0 1px 0 rgba(15, 23, 42, 0.03);
-  }
-
-  .vendasOpenOperation textarea {
-    min-height: 74px;
-    resize: vertical;
-  }
-
-  .vendasOpenOperation button {
-    min-height: 38px;
-    border: 1px solid #1d6ff2;
-    border-radius: 10px;
-    background: #1d6ff2;
-    color: #ffffff;
-    padding: 0 14px;
-    font-size: 0.78rem;
-    font-weight: 800;
-    cursor: pointer;
-  }
-
-  .vendasOpenActions {
-    margin-top: 12px !important;
-    padding-top: 12px !important;
-  }
-
-  :global(html[data-theme-mode="dark"]) .vendasOpenCard,
-  :global(html[data-theme="dark"]) .vendasOpenCard {
-    border-color: rgba(0, 132, 255, 0.48) !important;
-    background:
-      radial-gradient(circle at 92% 0%, rgba(14, 165, 233, 0.14), transparent 28%),
-      linear-gradient(180deg, rgba(8, 20, 36, 0.98), rgba(4, 13, 27, 0.96)) !important;
-  }
-
-  :global(html[data-theme-mode="dark"]) .vendasOpenSection,
-  :global(html[data-theme="dark"]) .vendasOpenSection {
-    border-color: rgba(148, 163, 184, 0.22) !important;
-    background:
-      radial-gradient(circle at 100% 0%, rgba(14, 165, 233, 0.08), transparent 32%),
-      rgba(10, 24, 42, 0.86) !important;
-  }
-
-  :global(html[data-theme-mode="dark"]) .vendasOpenCloseButton,
-  :global(html[data-theme="dark"]) .vendasOpenCloseButton {
-    border-color: rgba(148, 190, 255, 0.28);
-    background: rgba(15, 23, 42, 0.78);
-    color: #dbeafe;
-  }
-}
-
-/* Aggressive desktop cockpit mode: independent left/right panes, no shared height. */
-@media (min-width: 821px) {
-  .stageGrid[data-detail-open="true"] {
-    height: clamp(500px, calc(100vh - 354px), 680px) !important;
-    min-height: 0 !important;
-    align-items: stretch !important;
-    overflow: hidden !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .stageMain,
-  .stageGrid[data-detail-open="true"] .stageAside,
-  .stageGrid[data-detail-open="true"] .boardShell,
-  .stageGrid[data-detail-open="true"] .detailPanel,
-  .stageGrid[data-detail-open="true"] .detailLayout {
-    min-height: 0 !important;
-    height: 100% !important;
-    overflow: hidden !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .cardsGrid {
-    max-height: 100% !important;
-    overflow-y: auto !important;
-    overflow-x: hidden !important;
-    align-content: start !important;
-    gap: 0.64rem !important;
-    padding: 0 7px 18px 0 !important;
-    scrollbar-width: thin;
-    scrollbar-color: rgba(37, 99, 235, 0.42) transparent;
-  }
-
-  .stageGrid[data-detail-open="true"] .cardsGrid::-webkit-scrollbar,
-  .stageGrid[data-detail-open="true"] .vendasOpenCard::-webkit-scrollbar {
-    width: 8px;
-  }
-
-  .stageGrid[data-detail-open="true"] .cardsGrid::-webkit-scrollbar-thumb,
-  .stageGrid[data-detail-open="true"] .vendasOpenCard::-webkit-scrollbar-thumb {
-    border-radius: 999px;
-    background: rgba(37, 99, 235, 0.32);
-  }
-
-  .stageGrid[data-detail-open="true"] .timelineSection {
-    display: none !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenCard {
-    height: 100% !important;
-    max-height: 100% !important;
-    overflow-y: auto !important;
-    overflow-x: hidden !important;
-    padding: 14px !important;
-    border-radius: 14px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .leadCard {
-    min-height: 126px !important;
-    max-height: 134px !important;
-    border-radius: 13px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .leadCard :global([class*="inner"]) {
-    min-height: 112px !important;
-    padding: 12px 14px 44px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasClosedCardTop {
-    grid-template-columns: 54px minmax(0, 1fr) 80px !important;
-    gap: 7px 10px !important;
-    max-height: 56px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasClosedAvatar {
-    width: 48px !important;
-    height: 48px !important;
-    border-radius: 12px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .leadIdentity .leadName {
-    font-size: 0.82rem !important;
-    line-height: 1.04 !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .leadSubline {
-    font-size: 0.62rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasClosedPhoneLine {
-    margin-top: 6px !important;
-    gap: 6px !important;
-    font-size: 0.68rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasClosedPhoneLine .hbxRadarCardIcon {
-    width: 13px !important;
-    height: 13px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasClosedProduct {
-    min-height: 25px !important;
-    padding: 0 8px !important;
-    font-size: 0.66rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasClosedCredits {
-    font-size: 0.61rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .leadCard :global([class*="actions"]) {
-    inset: -2px 14px auto 14px !important;
-    padding-top: 8px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .leadActionRow {
-    grid-template-columns: minmax(0, 1fr) 84px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .leadActionRow .desktopLeadOpenButton {
-    min-height: 30px !important;
-    border-radius: 8px !important;
-    font-size: 0.68rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenHeader {
-    padding-bottom: 10px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenIdentity {
-    grid-template-columns: 58px minmax(0, 1fr) !important;
-    gap: 11px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenIdentity .vendasClosedAvatar {
-    width: 52px !important;
-    height: 52px !important;
-    border-radius: 11px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenIdentity strong {
-    font-size: 1.06rem !important;
-    line-height: 1.02 !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenIdentity span {
-    font-size: 0.74rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenIdentity small {
-    font-size: 0.62rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenProduct span {
-    min-height: 28px !important;
-    padding: 0 10px !important;
-    font-size: 0.72rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenProduct b {
-    font-size: 0.66rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenCloseButton {
-    width: 28px !important;
-    height: 28px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenCard > .vendasClosedBadges {
-    margin: 8px 0 8px !important;
-    gap: 6px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenCard > .vendasClosedBadges span {
-    min-height: 24px !important;
-    padding: 0 8px !important;
-    font-size: 0.66rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenChannels {
-    grid-template-columns: repeat(6, minmax(50px, 1fr)) !important;
-    gap: 6px !important;
-    padding: 8px 0 10px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenChannels a {
-    gap: 5px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenChannels a > span {
-    width: 38px !important;
-    height: 38px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenChannels .hbxRadarCardIcon {
-    width: 22px !important;
-    height: 22px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenChannels b {
-    font-size: 0.62rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenGrid {
-    grid-template-columns: minmax(0, 0.9fr) minmax(0, 0.8fr) minmax(0, 1.05fr) !important;
-    gap: 8px !important;
-    margin-top: 8px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenSection {
-    min-height: 0 !important;
-    gap: 5px !important;
-    padding: 10px !important;
-    border-radius: 10px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenSection h3 {
-    gap: 6px !important;
-    margin-bottom: 2px !important;
-    font-size: 0.74rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenSection h3 .hbxRadarCardIcon {
-    width: 15px !important;
-    height: 15px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenSection > div {
-    min-height: 19px !important;
-    grid-template-columns: 58px minmax(0, 1fr) !important;
-    gap: 6px !important;
-    padding-bottom: 3px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenSection > div > span {
-    font-size: 0.56rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenSection > div > strong,
-  .stageGrid[data-detail-open="true"] .vendasOpenSection > div > a,
-  .stageGrid[data-detail-open="true"] .vendasOpenSection p,
-  .stageGrid[data-detail-open="true"] .vendasOpenSection small {
-    font-size: 0.64rem !important;
-    line-height: 1.22 !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenGauge {
-    width: 62px !important;
-    height: 62px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenGauge strong {
-    font-size: 0.78rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenGauge span {
-    font-size: 0.48rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenQuality {
-    grid-template-columns: 74px minmax(0, 1fr) !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenEvidence {
-    gap: 4px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenEvidence span {
-    gap: 5px !important;
-    font-size: 0.64rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenEvidence span::before {
-    width: 10px !important;
-    height: 10px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenInsight,
-  .stageGrid[data-detail-open="true"] .vendasOpenRecommended,
-  .stageGrid[data-detail-open="true"] .vendasOpenEnrichmentOperation {
-    min-height: 72px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenRecommended strong,
-  .stageGrid[data-detail-open="true"] .vendasOpenEnrichmentOperation strong {
-    font-size: 0.74rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenMessage {
-    display: none !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation {
-    grid-column: span 3 !important;
-    grid-template-columns: minmax(0, 1.25fr) 160px minmax(180px, 0.8fr) 116px !important;
-    gap: 8px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation label {
-    gap: 3px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation label span {
-    font-size: 0.56rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation textarea,
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation input {
-    min-height: 32px !important;
-    border-radius: 8px !important;
-    padding: 6px 8px !important;
-    font-size: 0.66rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation textarea {
-    min-height: 54px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation button {
-    min-height: 32px !important;
-    border-radius: 8px !important;
-    padding: 0 10px !important;
-    font-size: 0.66rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenActions {
-    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-    gap: 8px !important;
-    margin-top: 8px !important;
-    padding-top: 8px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenActions button,
-  .stageGrid[data-detail-open="true"] .vendasOpenActions a {
-    min-height: 34px !important;
-    border-radius: 8px !important;
-    font-size: 0.68rem !important;
-  }
-}
-
-/* Final aggressive density: fit the open card in the first viewport. */
-@media (min-width: 821px) {
-  .stageGrid[data-detail-open="true"] .vendasOpenCard {
-    gap: 6px !important;
-    padding: 12px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenHeader {
-    min-height: 58px !important;
-    height: 58px !important;
-    align-items: center !important;
-    padding-bottom: 6px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenIdentity {
-    grid-template-columns: 48px minmax(0, 1fr) !important;
-    gap: 9px !important;
-    align-items: center !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenIdentity .vendasClosedAvatar {
-    width: 44px !important;
-    height: 44px !important;
-    border-radius: 10px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenIdentity strong {
-    font-size: 0.98rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenProduct {
-    display: flex !important;
-    align-items: center !important;
-    justify-content: flex-end !important;
-    gap: 6px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenProduct span {
-    min-height: 26px !important;
-    border-radius: 8px !important;
-    padding: 0 9px !important;
-    font-size: 0.68rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenProduct b {
-    display: inline-flex !important;
-    font-size: 0.62rem !important;
-    white-space: nowrap !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenCloseButton {
-    width: 26px !important;
-    height: 26px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenChannels {
-    height: 52px !important;
-    align-items: center !important;
-    padding: 4px 0 6px !important;
-    border-bottom-color: #e7edf6 !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenChannels a > span {
-    width: 30px !important;
-    height: 30px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenChannels .hbxRadarCardIcon {
-    width: 18px !important;
-    height: 18px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenChannels b {
-    font-size: 0.55rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenGrid {
-    gap: 6px !important;
-    margin-top: 4px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenSection {
-    padding: 8px !important;
-    gap: 4px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenSection h3 {
-    font-size: 0.68rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenSection h3 .hbxRadarCardIcon {
-    width: 13px !important;
-    height: 13px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenSection > div {
-    min-height: 17px !important;
-    padding-bottom: 2px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenSection > div > span {
-    font-size: 0.5rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenSection > div > strong,
-  .stageGrid[data-detail-open="true"] .vendasOpenSection > div > a,
-  .stageGrid[data-detail-open="true"] .vendasOpenSection p,
-  .stageGrid[data-detail-open="true"] .vendasOpenSection small {
-    font-size: 0.58rem !important;
-    line-height: 1.16 !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenGauge {
-    width: 50px !important;
-    height: 50px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenGauge strong {
-    font-size: 0.66rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenQuality {
-    grid-template-columns: 58px minmax(0, 1fr) !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenInsight,
-  .stageGrid[data-detail-open="true"] .vendasOpenRecommended,
-  .stageGrid[data-detail-open="true"] .vendasOpenEnrichmentOperation {
-    min-height: 58px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation {
-    grid-template-columns: minmax(0, 1.15fr) 142px minmax(164px, 0.72fr) 104px !important;
-    padding: 8px !important;
-    gap: 6px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation textarea,
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation input {
-    min-height: 28px !important;
-    padding: 5px 7px !important;
-    font-size: 0.6rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation textarea {
-    min-height: 38px !important;
-    max-height: 52px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation button {
-    min-height: 29px !important;
-    padding: 0 8px !important;
-    font-size: 0.6rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenActions {
-    margin-top: 5px !important;
-    padding-top: 5px !important;
-  }
-}
-
-/* PNG icon pass from docs/ICONES/CARDS/iconslight.png. */
-@media (min-width: 821px) {
-  .vendasClosedBadges .hbxRadarPngIcon,
-  .vendasOpenCard > .vendasClosedBadges .hbxRadarPngIcon {
-    width: 15px !important;
-    height: 15px !important;
-  }
-
-  .vendasClosedPhoneLine .hbxRadarPngIcon {
-    width: 15px !important;
-    height: 15px !important;
-    opacity: 0.78;
-  }
-
-  .vendasOpenChannels a > span {
-    background:
-      radial-gradient(circle at 34% 24%, rgba(255, 255, 255, 0.9), transparent 44%),
-      linear-gradient(180deg, #ffffff, #f8fbff) !important;
-  }
-
-  .vendasOpenChannels .hbxRadarPngIcon {
-    width: 31px !important;
-    height: 31px !important;
-    filter: none !important;
-  }
-
-  .vendasOpenChannels a[aria-disabled="true"] .hbxRadarPngIcon {
-    opacity: 0.42;
-    filter: grayscale(1) saturate(0.2) !important;
-  }
-
-  .vendasOpenSection h3 .hbxRadarPngIcon {
-    width: 19px !important;
-    height: 19px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenSection h3 .hbxRadarPngIcon {
-    width: 15px !important;
-    height: 15px !important;
-  }
-
-  .leadActionRow {
-    grid-template-columns: minmax(0, 1fr) 96px !important;
-  }
-
-  .leadActionRow .whatsappAction:not(.whatsappUnavailable) {
-    display: inline-flex !important;
-    grid-column: 1 !important;
-    min-height: 34px !important;
-    align-items: center !important;
-    justify-content: center !important;
-    border: 1px solid #bfead1 !important;
-    border-radius: 9px !important;
-    background:
-      radial-gradient(circle at 18% 18%, rgba(255, 255, 255, 0.7), transparent 46%),
-      #e9fbf1 !important;
-    color: #108a45 !important;
-    padding: 0 10px !important;
-    font-size: 0.72rem !important;
-    font-weight: 800 !important;
-    box-shadow: none !important;
-  }
-
-  .leadActionRow .desktopLeadOpenButton {
-    grid-column: 2 !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .leadActionRow {
-    grid-template-columns: minmax(0, 1fr) 78px !important;
-    gap: 7px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .leadActionRow .whatsappAction:not(.whatsappUnavailable) {
-    min-height: 29px !important;
-    border-radius: 8px !important;
-    padding: 0 8px !important;
-    font-size: 0.62rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .leadActionRow .desktopLeadOpenButton {
-    min-height: 29px !important;
-    font-size: 0.62rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenChannels .hbxRadarPngIcon {
-    width: 22px !important;
-    height: 22px !important;
-  }
-}
-
-/* Final desktop reference pass: clean listed cards + readable opened card. */
-@media (min-width: 821px) {
-  .stageGrid[data-detail-open="true"] {
-    height: clamp(610px, calc(100vh - 300px), 720px) !important;
-    grid-template-columns: 74px minmax(360px, 510px) minmax(660px, 1fr) !important;
-  }
-
-  .stageGrid .stageSideGuide,
-  .stageGrid[data-detail-open="true"] .stageSideGuide,
-  .stageGrid[data-detail-open="false"] .stageSideGuide {
-    position: sticky !important;
-    grid-column: 1 !important;
-    grid-row: 1 !important;
-    align-self: start !important;
-    justify-self: start !important;
-    width: 74px !important;
-    height: auto !important;
-    min-height: 0 !important;
-    transform: none !important;
-    z-index: 12 !important;
-  }
-
-  .stageGrid[data-detail-open="false"] .stageSideGuide {
-    top: calc(var(--topbar-total-height, 0px) + 12px) !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .stageSideGuide {
-    top: 0 !important;
-  }
-
-  .stageGrid[data-detail-open="false"] .cardsGrid {
-    grid-template-columns: repeat(auto-fit, minmax(330px, 398px)) !important;
-    gap: 0.95rem !important;
-  }
-
-  .stageGrid[data-detail-open="false"] .leadCard {
-    min-height: 176px !important;
-    max-height: none !important;
-  }
-
-  .stageGrid[data-detail-open="false"] .leadCard :global([class*="inner"]) {
-    display: grid !important;
-    grid-template-rows: auto auto !important;
-    align-content: start !important;
-    min-height: 154px !important;
-    height: auto !important;
-    padding: 16px !important;
-  }
-
-  .stageGrid[data-detail-open="false"] .leadCard :global([class*="actions"]) {
-    position: static !important;
-    inset: auto !important;
-    top: auto !important;
-    bottom: auto !important;
-    left: auto !important;
-    right: auto !important;
-    width: 100% !important;
-    align-self: end !important;
-    margin: 12px 0 0 !important;
-    padding-top: 11px !important;
-    border-top: 1px solid #e5ebf4 !important;
-  }
-
-  .stageGrid[data-detail-open="false"] .vendasClosedCardTop {
-    grid-template-columns: 60px minmax(0, 1fr) 86px !important;
-    gap: 10px 13px !important;
-    max-height: none !important;
-  }
-
-  .stageGrid[data-detail-open="false"] .vendasClosedAvatar {
-    width: 56px !important;
-    height: 56px !important;
-    border-radius: 11px !important;
-  }
-
-  .stageGrid[data-detail-open="false"] .leadIdentity .leadName {
-    max-width: 100% !important;
-    font-size: 0.94rem !important;
-    line-height: 1.08 !important;
-  }
-
-  .stageGrid[data-detail-open="false"] .leadSubline {
-    max-width: 100% !important;
-    font-size: 0.68rem !important;
-    line-height: 1.16 !important;
-  }
-
-  .stageGrid[data-detail-open="false"] .vendasClosedPhoneLine {
-    margin-top: 9px !important;
-    font-size: 0.75rem !important;
-  }
-
-  .stageGrid[data-detail-open="false"] .vendasClosedProduct {
-    min-height: 29px !important;
-    padding: 0 10px !important;
-    border-radius: 8px !important;
-    font-size: 0.72rem !important;
-  }
-
-  .stageGrid[data-detail-open="false"] .vendasClosedCredits {
-    margin-top: 8px !important;
-    font-size: 0.66rem !important;
-  }
-
-  .stageGrid[data-detail-open="false"] .leadActionRow {
-    grid-template-columns: minmax(0, 0.86fr) minmax(0, 1fr) 82px !important;
-    gap: 8px !important;
-    min-height: 34px !important;
-  }
-
-  .stageGrid[data-detail-open="false"] .leadActionRow .callAction,
-  .stageGrid[data-detail-open="false"] .leadActionRow .whatsappAction,
-  .stageGrid[data-detail-open="false"] .leadActionRow .whatsappAction.whatsappUnavailable,
-  .stageGrid[data-detail-open="false"] .leadActionRow .whatsappUnavailable + .callAction {
-    display: inline-flex !important;
-  }
-
-  .stageGrid[data-detail-open="false"] .leadActionRow .callAction {
-    grid-column: 1 !important;
-    grid-row: 1 !important;
-    min-height: 34px !important;
-    align-items: center !important;
-    justify-content: center !important;
-    border: 1px solid #c8d9f2 !important;
-    border-radius: 9px !important;
-    background: #ffffff !important;
-    color: #1f4d78 !important;
-    padding: 0 10px !important;
-    font-size: 0.72rem !important;
-    font-weight: 800 !important;
-    box-shadow: none !important;
-  }
-
-  .stageGrid[data-detail-open="false"] .leadActionRow .callAction[aria-disabled="true"] {
-    border-color: #e5e7eb !important;
-    background: #f8fafc !important;
-    color: #94a3b8 !important;
-    pointer-events: none !important;
-  }
-
-  .stageGrid[data-detail-open="false"] .leadActionRow .whatsappAction:not(.whatsappUnavailable),
-  .stageGrid[data-detail-open="false"] .leadActionRow .whatsappAction.whatsappUnavailable,
-  .stageGrid[data-detail-open="false"] .leadActionRow .desktopLeadOpenButton {
-    grid-row: 1 !important;
-    min-height: 34px !important;
-    border-radius: 9px !important;
-    font-size: 0.72rem !important;
-  }
-
-  .stageGrid[data-detail-open="false"] .leadActionRow .whatsappAction,
-  .stageGrid[data-detail-open="false"] .leadActionRow .whatsappAction:not(.whatsappUnavailable),
-  .stageGrid[data-detail-open="false"] .leadActionRow .whatsappAction.whatsappUnavailable {
-    grid-column: 2 !important;
-    justify-content: center !important;
-    padding: 0 10px !important;
-  }
-
-  .stageGrid[data-detail-open="false"] .leadActionRow .whatsappAction.whatsappUnavailable {
-    border-color: #d8e0ea !important;
-    background: #f3f6fa !important;
-    color: #7b8798 !important;
-    pointer-events: none !important;
-  }
-
-  .stageGrid[data-detail-open="false"] .leadActionRow .desktopLeadOpenButton {
-    grid-column: 3 !important;
-    padding: 0 10px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .leadCard :global([class*="inner"]) {
-    height: 146px !important;
-    min-height: 146px !important;
-    padding: 14px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .leadCard :global([class*="actions"]) {
-    display: none !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .leadActionRow {
-    grid-template-columns: minmax(0, 1fr) 74px !important;
-    min-height: 28px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .leadActionRow .whatsappAction {
-    display: none !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .leadActionRow .whatsappAction:not(.whatsappUnavailable),
-  .stageGrid[data-detail-open="true"] .leadActionRow .desktopLeadOpenButton {
-    grid-row: 1 !important;
-    min-height: 28px !important;
-    font-size: 0.6rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenCard {
-    max-height: 100% !important;
-    padding: 18px !important;
-    overflow-y: auto !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenHeader {
-    padding-bottom: 14px !important;
-    border-bottom: 1px solid #e5ebf4 !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenIdentity {
-    grid-template-columns: 68px minmax(0, 1fr) !important;
-    gap: 14px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenIdentity .vendasClosedAvatar {
-    width: 62px !important;
-    height: 62px !important;
-    border-radius: 12px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenIdentity strong {
-    font-size: 1.12rem !important;
-    line-height: 1.12 !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenIdentity span,
-  .stageGrid[data-detail-open="true"] .vendasOpenIdentity small {
-    font-size: 0.76rem !important;
-    line-height: 1.22 !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenProduct span {
-    min-height: 30px !important;
-    padding: 0 12px !important;
-    font-size: 0.76rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenProduct b {
-    font-size: 0.7rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenCard > .vendasClosedBadges {
-    margin: 13px 0 10px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenCard > .vendasClosedBadges span {
-    min-height: 26px !important;
-    padding: 0 10px !important;
-    font-size: 0.7rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenChannels {
-    height: auto !important;
-    grid-template-columns: repeat(6, minmax(62px, 1fr)) !important;
-    gap: 10px !important;
-    padding: 14px 0 16px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenChannels a {
-    gap: 7px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenChannels a > span {
-    width: 48px !important;
-    height: 48px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenChannels .hbxRadarPngIcon {
-    width: 31px !important;
-    height: 31px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenChannels b {
-    font-size: 0.68rem !important;
-    line-height: 1 !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenGrid {
-    grid-template-columns: minmax(210px, 0.95fr) minmax(210px, 0.95fr) minmax(250px, 1.1fr) !important;
-    gap: 10px !important;
-    margin-top: 12px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenSection {
-    padding: 12px !important;
-    gap: 7px !important;
-    border-radius: 12px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenSection h3 {
-    font-size: 0.82rem !important;
-    line-height: 1.1 !important;
-    margin-bottom: 3px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenSection h3 .hbxRadarPngIcon {
-    width: 18px !important;
-    height: 18px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenSection > div {
-    min-height: 22px !important;
-    grid-template-columns: 70px minmax(0, 1fr) !important;
-    padding-bottom: 4px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenSection > div > span {
-    font-size: 0.6rem !important;
-    line-height: 1.1 !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenSection > div > strong,
-  .stageGrid[data-detail-open="true"] .vendasOpenSection > div > a,
-  .stageGrid[data-detail-open="true"] .vendasOpenSection p,
-  .stageGrid[data-detail-open="true"] .vendasOpenSection small {
-    font-size: 0.7rem !important;
-    line-height: 1.25 !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenQuality {
-    grid-template-columns: 92px minmax(0, 1fr) !important;
-    align-items: center !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenGauge {
-    display: grid !important;
-    grid-template-columns: 1fr !important;
-    grid-template-rows: auto auto !important;
-    place-items: center !important;
-    align-content: center !important;
-    justify-content: center !important;
-    width: 78px !important;
-    height: 78px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenGauge strong {
-    font-size: 1.2rem !important;
-    line-height: 1 !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenGauge span {
-    font-size: 0.54rem !important;
-    line-height: 1 !important;
-    white-space: nowrap !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenEvidence span {
-    font-size: 0.72rem !important;
-    line-height: 1.15 !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenInsight,
-  .stageGrid[data-detail-open="true"] .vendasOpenRecommended,
-  .stageGrid[data-detail-open="true"] .vendasOpenEnrichmentOperation {
-    min-height: 92px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenMessage {
-    grid-column: span 3 !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation {
-    grid-column: span 3 !important;
-    grid-template-columns: minmax(0, 1.15fr) 150px minmax(170px, 0.7fr) 118px !important;
-    gap: 8px !important;
-    padding: 11px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation textarea,
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation input {
-    min-height: 34px !important;
-    padding: 7px 9px !important;
-    font-size: 0.68rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation textarea {
-    min-height: 50px !important;
-    max-height: 72px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation button {
-    min-height: 34px !important;
-    font-size: 0.68rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenActions {
-    grid-template-columns: minmax(120px, 1fr) minmax(100px, 0.8fr) minmax(86px, 0.7fr) minmax(142px, 1.2fr) minmax(86px, 0.7fr) !important;
-    gap: 8px !important;
-    margin-top: 10px !important;
-    padding-top: 10px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenActions button,
-  .stageGrid[data-detail-open="true"] .vendasOpenActions a {
-    min-height: 36px !important;
-    justify-content: center !important;
-    font-size: 0.72rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenActions a[aria-disabled="true"] {
-    border-color: #d8e0ea !important;
-    background: #f3f6fa !important;
-    color: #7b8798 !important;
-    pointer-events: none !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenActions button[data-tone="danger"] {
-    border-color: #fecaca !important;
-    background: #fff5f5 !important;
-    color: #b91c1c !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenSection .vendasOpenGauge {
-    display: flex !important;
-    flex-direction: column !important;
-    gap: 2px !important;
-    grid-template-columns: none !important;
-    grid-template-rows: none !important;
-    place-items: center !important;
-    align-content: center !important;
-    align-items: center !important;
-    justify-content: center !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenSection .vendasOpenGauge strong,
-  .stageGrid[data-detail-open="true"] .vendasOpenSection .vendasOpenGauge span {
-    display: block !important;
-    width: auto !important;
-    min-width: 0 !important;
-    max-width: 100% !important;
-    white-space: nowrap !important;
-    text-align: center !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenSection .vendasOpenGauge span {
-    display: none !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .leadActionRow .whatsappAction,
-  .stageGrid[data-detail-open="true"] .leadActionRow .whatsappAction:not(.whatsappUnavailable) {
-    display: none !important;
-  }
-}
-
-/* Vendas desktop open panel: premium card rhythm and larger observation text. */
-@media (min-width: 821px) {
-  .stageGrid[data-detail-open="true"] .vendasOpenCard {
-    border-color: rgba(155, 180, 220, 0.78) !important;
-    border-radius: 18px !important;
-    background:
-      radial-gradient(circle at 94% 0%, rgba(37, 99, 235, 0.11), transparent 30%),
-      radial-gradient(circle at 4% 100%, rgba(20, 184, 166, 0.075), transparent 32%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 251, 255, 0.96)) !important;
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.94),
-      0 26px 58px -38px rgba(15, 23, 42, 0.32) !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenSection {
-    border-color: rgba(203, 216, 235, 0.96) !important;
-    border-radius: 14px !important;
-    background:
-      radial-gradient(circle at 98% 0%, rgba(37, 99, 235, 0.06), transparent 34%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(250, 253, 255, 0.94)) !important;
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.82),
-      0 16px 30px -28px rgba(15, 23, 42, 0.22) !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenSection h3 {
-    color: #0b1b3d !important;
-    font-size: 0.9rem !important;
-    font-weight: 800 !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenSection > div > span {
-    font-size: 0.7rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenSection > div > strong,
-  .stageGrid[data-detail-open="true"] .vendasOpenSection > div > a,
-  .stageGrid[data-detail-open="true"] .vendasOpenSection p,
-  .stageGrid[data-detail-open="true"] .vendasOpenSection small {
-    color: #15223f !important;
-    font-size: 0.79rem !important;
-    line-height: 1.36 !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation {
-    grid-template-columns: minmax(0, 1.18fr) minmax(172px, 0.62fr) minmax(192px, 0.72fr) 132px !important;
-    gap: 10px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation label span {
-    font-size: 0.72rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation textarea,
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation input {
-    min-height: 40px !important;
-    border-color: rgba(176, 196, 226, 0.92) !important;
-    border-radius: 12px !important;
-    background: rgba(255, 255, 255, 0.94) !important;
-    color: #0b1b3d !important;
-    padding: 9px 11px !important;
-    font-size: 0.84rem !important;
-    line-height: 1.42 !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation textarea {
-    min-height: 64px !important;
-    max-height: 104px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation button {
-    min-height: 40px !important;
-    border-radius: 12px !important;
-    font-size: 0.76rem !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenActions {
-    display: grid !important;
-    grid-template-columns:
-      minmax(128px, 1fr)
-      minmax(108px, 0.82fr)
-      minmax(122px, 0.95fr)
-      minmax(136px, 1fr)
-      minmax(84px, 0.68fr)
-      minmax(148px, 1.08fr)
-      minmax(84px, 0.68fr) !important;
-    gap: 9px !important;
-    align-items: center !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenActions button,
-  .stageGrid[data-detail-open="true"] .vendasOpenActions a {
-    min-width: 0 !important;
-    min-height: 40px !important;
-    border-radius: 12px !important;
-    padding: 0 10px !important;
-    font-size: 0.76rem !important;
-    font-weight: 800 !important;
-    letter-spacing: 0 !important;
-    white-space: nowrap !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenActions button[data-tone="sale"] {
-    border-color: rgba(217, 159, 20, 0.52) !important;
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.7), rgba(255, 248, 221, 0.8)),
-      linear-gradient(135deg, #fff7d6, #f4c95f 62%, #d99a12) !important;
-    color: #754700 !important;
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.72),
-      0 16px 30px -24px rgba(217, 154, 18, 0.65) !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenActions button[data-tone="return"] {
-    border-color: rgba(37, 99, 235, 0.26) !important;
-    background: rgba(239, 246, 255, 0.94) !important;
-    color: #0757df !important;
-  }
-
-  :global(html[data-theme-mode="dark"]) .stageGrid[data-detail-open="true"] .vendasOpenCard,
-  :global(html[data-theme="dark"]) .stageGrid[data-detail-open="true"] .vendasOpenCard {
-    border-color: rgba(76, 149, 230, 0.42) !important;
-    background:
-      radial-gradient(circle at 94% 0%, rgba(14, 165, 233, 0.16), transparent 30%),
-      radial-gradient(circle at 4% 100%, rgba(20, 184, 166, 0.12), transparent 32%),
-      linear-gradient(180deg, rgba(8, 20, 36, 0.98), rgba(5, 15, 31, 0.96)) !important;
-  }
-
-  :global(html[data-theme-mode="dark"]) .stageGrid[data-detail-open="true"] .vendasOpenSection,
-  :global(html[data-theme="dark"]) .stageGrid[data-detail-open="true"] .vendasOpenSection {
-    border-color: rgba(148, 190, 255, 0.22) !important;
-    background:
-      radial-gradient(circle at 98% 0%, rgba(14, 165, 233, 0.09), transparent 34%),
-      rgba(10, 25, 47, 0.9) !important;
-  }
-
-  :global(html[data-theme-mode="dark"]) .stageGrid[data-detail-open="true"] .vendasOpenSection h3,
-  :global(html[data-theme="dark"]) .stageGrid[data-detail-open="true"] .vendasOpenSection h3,
-  :global(html[data-theme-mode="dark"]) .stageGrid[data-detail-open="true"] .vendasOpenSection > div > strong,
-  :global(html[data-theme="dark"]) .stageGrid[data-detail-open="true"] .vendasOpenSection > div > strong,
-  :global(html[data-theme-mode="dark"]) .stageGrid[data-detail-open="true"] .vendasOpenSection > div > a,
-  :global(html[data-theme="dark"]) .stageGrid[data-detail-open="true"] .vendasOpenSection > div > a,
-  :global(html[data-theme-mode="dark"]) .stageGrid[data-detail-open="true"] .vendasOpenSection p,
-  :global(html[data-theme="dark"]) .stageGrid[data-detail-open="true"] .vendasOpenSection p,
-  :global(html[data-theme-mode="dark"]) .stageGrid[data-detail-open="true"] .vendasOpenSection small,
-  :global(html[data-theme="dark"]) .stageGrid[data-detail-open="true"] .vendasOpenSection small {
-    color: #f4f8ff !important;
-  }
-
-  :global(html[data-theme-mode="dark"]) .stageGrid[data-detail-open="true"] .vendasOpenOperation textarea,
-  :global(html[data-theme="dark"]) .stageGrid[data-detail-open="true"] .vendasOpenOperation textarea,
-  :global(html[data-theme-mode="dark"]) .stageGrid[data-detail-open="true"] .vendasOpenOperation input,
-  :global(html[data-theme="dark"]) .stageGrid[data-detail-open="true"] .vendasOpenOperation input {
-    border-color: rgba(148, 190, 255, 0.24) !important;
-    background: rgba(7, 18, 38, 0.9) !important;
-    color: #f8fbff !important;
-  }
-
-  :global(html[data-theme-mode="dark"]) .stageGrid[data-detail-open="true"] .vendasOpenActions button[data-tone="sale"],
-  :global(html[data-theme="dark"]) .stageGrid[data-detail-open="true"] .vendasOpenActions button[data-tone="sale"] {
-    border-color: rgba(255, 216, 106, 0.38) !important;
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.16), transparent 46%),
-      linear-gradient(135deg, #8a5a00 0%, #d99a12 58%, #ffd86a 100%) !important;
-    color: #fff7d6 !important;
-  }
-
-  :global(html[data-theme-mode="dark"]) .stageGrid[data-detail-open="true"] .vendasOpenActions button[data-tone="return"],
-  :global(html[data-theme="dark"]) .stageGrid[data-detail-open="true"] .vendasOpenActions button[data-tone="return"] {
-    border-color: rgba(96, 165, 250, 0.28) !important;
-    background: rgba(14, 35, 67, 0.82) !important;
-    color: #bfdbfe !important;
-  }
-}
-
-/* Desktop RE-FA-TO-RE: operation block with ready phrases and inline calendar. */
-@media (min-width: 821px) {
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation {
-    grid-template-columns: minmax(0, 1.08fr) minmax(312px, 0.92fr) !important;
-    grid-template-areas:
-      "title title"
-      "messages messages"
-      "note planner"
-      "save planner" !important;
-    align-items: stretch !important;
-    gap: 12px !important;
-    padding: 15px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation h3 {
-    grid-area: title !important;
-    margin-bottom: 0 !important;
-  }
-
-  .desktopReadyMessages {
-    grid-area: messages;
-    display: grid !important;
-    grid-template-columns: auto minmax(0, 1fr) auto !important;
-    align-items: center !important;
-    gap: 10px !important;
-    min-height: 54px !important;
-    border: 1px solid rgba(176, 196, 226, 0.74) !important;
-    border-radius: 14px !important;
-    background:
-      radial-gradient(circle at 98% 0%, rgba(37, 99, 235, 0.065), transparent 34%),
-      rgba(248, 251, 255, 0.88) !important;
-    padding: 10px !important;
-  }
-
-  .desktopReadyMessages > span {
-    color: #526987 !important;
-    font-size: 0.72rem !important;
-    font-weight: 850 !important;
-    white-space: nowrap !important;
-    text-transform: uppercase !important;
-  }
-
-  .desktopReadyMessages > div {
-    display: flex !important;
-    min-width: 0 !important;
-    gap: 8px !important;
-    overflow-x: auto !important;
-    padding-bottom: 1px !important;
-    scrollbar-width: none;
-  }
-
-  .desktopReadyMessages > div::-webkit-scrollbar {
-    display: none;
-  }
-
-  .desktopReadyMessages button {
-    min-width: 0 !important;
-    min-height: 36px !important;
-    border: 1px solid rgba(157, 184, 224, 0.82) !important;
-    border-radius: 999px !important;
-    background: rgba(255, 255, 255, 0.92) !important;
-    color: #14315c !important;
-    padding: 0 12px !important;
-    font-size: 0.74rem !important;
-    font-weight: 780 !important;
-    letter-spacing: 0 !important;
-    white-space: nowrap !important;
-    cursor: pointer !important;
-  }
-
-  .desktopReadyMessages > div button {
-    max-width: 310px !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
-  }
-
-  .desktopReadyMessages > button {
-    border-color: rgba(37, 99, 235, 0.26) !important;
-    background: rgba(239, 246, 255, 0.94) !important;
-    color: #0757df !important;
-  }
-
-  .desktopReadyMessages button:disabled {
-    opacity: 0.52 !important;
-    cursor: not-allowed !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation > label:first-of-type {
-    grid-area: note !important;
-    min-height: 100% !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation > label:first-of-type textarea {
-    min-height: 176px !important;
-    max-height: 230px !important;
-    font-size: 0.9rem !important;
-    line-height: 1.5 !important;
-  }
-
-  .desktopReturnPlanner {
-    grid-area: planner;
-    display: grid !important;
-    gap: 10px !important;
-    min-width: 0 !important;
-    border: 1px solid rgba(176, 196, 226, 0.78) !important;
-    border-radius: 16px !important;
-    background:
-      radial-gradient(circle at 94% 0%, rgba(20, 184, 166, 0.1), transparent 34%),
-      rgba(255, 255, 255, 0.84) !important;
-    padding: 12px !important;
-  }
-
-  .desktopReturnPlannerTop {
-    display: grid !important;
-    grid-template-columns: 104px minmax(0, 1fr) !important;
-    gap: 9px !important;
-  }
-
-  .desktopReturnPlanner label {
-    display: grid !important;
-    gap: 5px !important;
-  }
-
-  .desktopReturnPlanner label span {
-    color: #526987 !important;
-    font-size: 0.68rem !important;
-    font-weight: 850 !important;
-    text-transform: uppercase !important;
-  }
-
-  .desktopReturnPlanner input {
-    min-height: 38px !important;
-    border: 1px solid rgba(176, 196, 226, 0.92) !important;
-    border-radius: 11px !important;
-    background: rgba(255, 255, 255, 0.94) !important;
-    color: #0b1b3d !important;
-    padding: 0 10px !important;
-    font-size: 0.78rem !important;
-    font-weight: 720 !important;
-  }
-
-  .desktopReturnCalendar {
-    display: grid !important;
-    gap: 8px !important;
-  }
-
-  .desktopReturnCalendar header {
-    display: grid !important;
-    grid-template-columns: 32px minmax(0, 1fr) 32px !important;
-    align-items: center !important;
-    gap: 8px !important;
-  }
-
-  .desktopReturnCalendar header strong {
-    color: #0b1b3d !important;
-    font-size: 0.86rem !important;
-    font-weight: 850 !important;
-    text-align: center !important;
-    text-transform: capitalize !important;
-  }
-
-  .desktopReturnCalendar header button,
-  .desktopReturnCalendarGrid button {
-    display: grid !important;
-    place-items: center !important;
-    border: 1px solid rgba(157, 184, 224, 0.72) !important;
-    background: rgba(255, 255, 255, 0.92) !important;
-    color: #0757df !important;
-    font: inherit !important;
-    cursor: pointer !important;
-  }
-
-  .desktopReturnCalendar header button {
-    width: 32px !important;
-    height: 32px !important;
-    border-radius: 999px !important;
-    font-size: 1rem !important;
-    font-weight: 850 !important;
-  }
-
-  .desktopReturnWeekdays,
-  .desktopReturnCalendarGrid {
-    display: grid !important;
-    grid-template-columns: repeat(7, minmax(0, 1fr)) !important;
-    gap: 5px !important;
-  }
-
-  .desktopReturnWeekdays span {
-    min-height: 18px !important;
-    color: #6b7c9d !important;
-    font-size: 0.62rem !important;
-    font-weight: 850 !important;
-    text-align: center !important;
-  }
-
-  .desktopReturnCalendarGrid button,
-  .desktopReturnCalendarGrid span {
-    min-width: 0 !important;
-    height: 30px !important;
-    border-radius: 10px !important;
-  }
-
-  .desktopReturnCalendarGrid button {
-    color: #17345c !important;
-    font-size: 0.72rem !important;
-    font-weight: 800 !important;
-  }
-
-  .desktopReturnCalendarGrid button[data-selected="true"] {
-    border-color: transparent !important;
-    background: linear-gradient(135deg, #0b66ff, #16c8f5) !important;
-    color: #ffffff !important;
-    box-shadow: 0 14px 26px -18px rgba(11, 102, 255, 0.68) !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation > button:last-child {
-    grid-area: save !important;
-    width: max-content !important;
-    min-width: 148px !important;
-    align-self: end !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenActions {
-    display: flex !important;
-    flex-wrap: wrap !important;
-    justify-content: flex-end !important;
-    gap: 9px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenActions button,
-  .stageGrid[data-detail-open="true"] .vendasOpenActions a {
-    flex: 0 0 auto !important;
-    min-width: 112px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .vendasOpenActions button[data-tone="sale"] {
-    min-width: 136px !important;
-  }
-
-  :global(html[data-theme-mode="dark"]) .desktopReadyMessages,
-  :global(html[data-theme="dark"]) .desktopReadyMessages,
-  :global(html[data-theme-mode="dark"]) .desktopReturnPlanner,
-  :global(html[data-theme="dark"]) .desktopReturnPlanner {
-    border-color: rgba(148, 190, 255, 0.2) !important;
-    background:
-      radial-gradient(circle at 98% 0%, rgba(14, 165, 233, 0.1), transparent 34%),
-      rgba(8, 20, 38, 0.82) !important;
-  }
-
-  :global(html[data-theme-mode="dark"]) .desktopReadyMessages > span,
-  :global(html[data-theme="dark"]) .desktopReadyMessages > span,
-  :global(html[data-theme-mode="dark"]) .desktopReturnPlanner label span,
-  :global(html[data-theme="dark"]) .desktopReturnPlanner label span,
-  :global(html[data-theme-mode="dark"]) .desktopReturnWeekdays span,
-  :global(html[data-theme="dark"]) .desktopReturnWeekdays span {
-    color: rgba(226, 234, 248, 0.7) !important;
-  }
-
-  :global(html[data-theme-mode="dark"]) .desktopReadyMessages button,
-  :global(html[data-theme="dark"]) .desktopReadyMessages button,
-  :global(html[data-theme-mode="dark"]) .desktopReturnPlanner input,
-  :global(html[data-theme="dark"]) .desktopReturnPlanner input,
-  :global(html[data-theme-mode="dark"]) .desktopReturnCalendar header button,
-  :global(html[data-theme="dark"]) .desktopReturnCalendar header button,
-  :global(html[data-theme-mode="dark"]) .desktopReturnCalendarGrid button,
-  :global(html[data-theme="dark"]) .desktopReturnCalendarGrid button {
-    border-color: rgba(148, 190, 255, 0.24) !important;
-    background: rgba(7, 18, 38, 0.9) !important;
-    color: #dbeafe !important;
-  }
-
-  :global(html[data-theme-mode="dark"]) .desktopReturnCalendar header strong,
-  :global(html[data-theme="dark"]) .desktopReturnCalendar header strong {
-    color: #f8fbff !important;
-  }
-}
-
-/* Desktop final correction: hidden return popup + separated WhatsApp editor/internal note. */
-@media (min-width: 821px) {
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation {
-    overflow: visible !important;
-    grid-template-columns: minmax(0, 1fr) minmax(280px, 0.74fr) !important;
-    grid-template-areas:
-      "title title"
-      "messages messages"
-      "note return"
-      "save return" !important;
-    gap: 12px !important;
-    hyphens: none !important;
-  }
-
-  .desktopReadyMessages {
-    grid-template-columns: 1fr !important;
-    align-items: stretch !important;
-    gap: 10px !important;
-    min-height: 0 !important;
-  }
-
-  .desktopReadyMessages header {
-    display: grid !important;
-    grid-template-columns: minmax(0, 1fr) auto !important;
-    align-items: center !important;
-    gap: 12px !important;
-  }
-
-  .desktopReadyMessages header div:first-child {
-    display: grid !important;
-    min-width: 0 !important;
-    gap: 2px !important;
-  }
-
-  .desktopReadyMessages header span {
-    color: #0757df !important;
-    font-size: 0.68rem !important;
-    font-weight: 850 !important;
-    text-transform: uppercase !important;
-    white-space: nowrap !important;
-  }
-
-  .desktopReadyMessages header strong {
-    overflow: hidden !important;
-    color: #0b1b3d !important;
-    font-size: 0.92rem !important;
-    font-weight: 850 !important;
-    line-height: 1.15 !important;
-    text-overflow: ellipsis !important;
-    white-space: nowrap !important;
-  }
-
-  .desktopReadyMessages p {
-    min-height: 52px !important;
-    margin: 0 !important;
-    border: 1px solid rgba(176, 196, 226, 0.72) !important;
-    border-radius: 14px !important;
-    background: rgba(255, 255, 255, 0.72) !important;
-    color: #17213d !important;
-    padding: 11px 12px !important;
-    font-size: 0.86rem !important;
-    line-height: 1.42 !important;
-    overflow-wrap: anywhere !important;
-    word-break: normal !important;
-    hyphens: none !important;
-  }
-
-  .desktopReadyMessageControls,
-  .desktopReadyMessageActions,
-  .desktopReadyMessagePager {
-    display: flex !important;
-    min-width: 0 !important;
-    align-items: center !important;
-    gap: 8px !important;
-    flex-wrap: wrap !important;
-    justify-content: flex-end !important;
-  }
-
-  .desktopReadyMessageControls b {
-    color: #0757df !important;
-    font-size: 0.72rem !important;
-    font-weight: 850 !important;
-    white-space: nowrap !important;
-  }
-
-  .desktopReadyMessageControls button,
-  .desktopReadyMessageActions button,
-  .desktopReadyMessageActions a,
-  .desktopReadyMessagePager button,
-  .desktopVariableTray button {
-    display: inline-flex !important;
-    min-width: 0 !important;
-    min-height: 34px !important;
-    align-items: center !important;
-    justify-content: center !important;
-    border: 1px solid rgba(157, 184, 224, 0.82) !important;
-    border-radius: 12px !important;
-    background: rgba(255, 255, 255, 0.92) !important;
-    color: #17345c !important;
-    padding: 0 11px !important;
-    font-size: 0.74rem !important;
-    font-weight: 780 !important;
-    line-height: 1 !important;
-    text-decoration: none !important;
-    white-space: nowrap !important;
-  }
-
-  .desktopReadyMessageActions a[aria-disabled="true"] {
-    opacity: 0.5 !important;
-    pointer-events: none !important;
-  }
-
-  .desktopReadyMessageEditor {
-    display: grid !important;
-    grid-template-columns: minmax(0, 1fr) 54px !important;
-    gap: 10px !important;
-    align-items: stretch !important;
-  }
-
-  .desktopReadyMessageEditor textarea {
-    width: 100% !important;
-    min-height: 104px !important;
-    max-height: 180px !important;
-    border: 1px solid rgba(126, 164, 230, 0.74) !important;
-    border-radius: 16px !important;
-    background: rgba(255, 255, 255, 0.92) !important;
-    color: #102047 !important;
-    padding: 12px 13px !important;
-    font: inherit !important;
-    font-size: 0.88rem !important;
-    line-height: 1.48 !important;
-    resize: vertical !important;
-    box-sizing: border-box !important;
-    overflow-wrap: anywhere !important;
-    hyphens: none !important;
-  }
-
-  .desktopReadyMessagePager {
-    flex-direction: column !important;
-    align-items: stretch !important;
-  }
-
-  .desktopReadyMessagePager button {
-    width: 42px !important;
-    min-height: 32px !important;
-    padding: 0 !important;
-    border-radius: 12px !important;
-  }
-
-  .desktopVariableTray {
-    grid-column: 1 / -1 !important;
-    display: grid !important;
-    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
-    gap: 8px !important;
-  }
-
-  .desktopVariableTray button {
-    display: grid !important;
-    justify-items: start !important;
-    min-height: 42px !important;
-    padding: 7px 9px !important;
-    border-radius: 13px !important;
-  }
-
-  .desktopVariableTray button b,
-  .desktopVariableTray button span {
-    max-width: 100% !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
-    white-space: nowrap !important;
-  }
-
-  .desktopVariableTray button span {
-    color: #64748b !important;
-    font-size: 0.66rem !important;
-  }
-
-  .desktopReturnCompact {
-    position: relative !important;
-    grid-area: return !important;
-    display: grid !important;
-    align-content: start !important;
-    gap: 10px !important;
-    min-width: 0 !important;
-    border: 1px solid rgba(176, 196, 226, 0.78) !important;
-    border-radius: 16px !important;
-    background:
-      radial-gradient(circle at 94% 0%, rgba(20, 184, 166, 0.1), transparent 34%),
-      rgba(255, 255, 255, 0.84) !important;
-    padding: 12px !important;
-  }
-
-  .desktopReturnCompact > label {
-    display: grid !important;
-    gap: 5px !important;
-  }
-
-  .desktopReturnCompact > button {
-    min-height: 40px !important;
-    border: 1px solid rgba(37, 99, 235, 0.28) !important;
-    border-radius: 12px !important;
-    background: rgba(239, 246, 255, 0.94) !important;
-    color: #0757df !important;
-    font-size: 0.78rem !important;
-    font-weight: 850 !important;
-  }
-
-  .desktopReturnCompact > button[data-active="true"] {
-    background: linear-gradient(135deg, #0b66ff, #16c8f5) !important;
-    color: #ffffff !important;
-  }
-
-  .desktopReturnPopup {
-    position: absolute !important;
-    right: 0 !important;
-    top: calc(100% + 10px) !important;
-    z-index: 24 !important;
-    width: min(352px, calc(100vw - 36px)) !important;
-    display: grid !important;
-    gap: 10px !important;
-    border: 1px solid rgba(126, 164, 230, 0.74) !important;
-    border-radius: 18px !important;
-    background:
-      radial-gradient(circle at 92% 0%, rgba(37, 99, 235, 0.1), transparent 34%),
-      linear-gradient(180deg, #ffffff, #f7fbff) !important;
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.86),
-      0 26px 58px -30px rgba(15, 23, 42, 0.42) !important;
-    padding: 12px !important;
-  }
-
-  .desktopReturnPopup .desktopReturnPlannerTop {
-    grid-template-columns: minmax(0, 1fr) 34px !important;
-  }
-
-  .desktopReturnPopup .desktopReturnPlannerTop > button {
-    min-height: 38px !important;
-    border: 1px solid rgba(157, 184, 224, 0.82) !important;
-    border-radius: 999px !important;
-    background: rgba(255, 255, 255, 0.92) !important;
-    color: #17345c !important;
-    font-size: 1rem !important;
-    font-weight: 850 !important;
-  }
-
-  :global(html[data-theme-mode="dark"]) .desktopReadyMessages header strong,
-  :global(html[data-theme="dark"]) .desktopReadyMessages header strong,
-  :global(html[data-theme-mode="dark"]) .desktopReadyMessages p,
-  :global(html[data-theme="dark"]) .desktopReadyMessages p {
-    color: #f8fbff !important;
-  }
-
-  :global(html[data-theme-mode="dark"]) .desktopReadyMessages p,
-  :global(html[data-theme="dark"]) .desktopReadyMessages p,
-  :global(html[data-theme-mode="dark"]) .desktopReadyMessageEditor textarea,
-  :global(html[data-theme="dark"]) .desktopReadyMessageEditor textarea,
-  :global(html[data-theme-mode="dark"]) .desktopReturnCompact,
-  :global(html[data-theme="dark"]) .desktopReturnCompact,
-  :global(html[data-theme-mode="dark"]) .desktopReturnPopup,
-  :global(html[data-theme="dark"]) .desktopReturnPopup {
-    border-color: rgba(148, 190, 255, 0.24) !important;
-    background:
-      radial-gradient(circle at 98% 0%, rgba(14, 165, 233, 0.1), transparent 34%),
-      rgba(8, 20, 38, 0.94) !important;
-    color: #f8fbff !important;
-  }
-}
-
-/* Desktop operation hardening: keep the WhatsApp editor readable after legacy direct-child rules. */
-@media (min-width: 821px) {
-  .stageGrid[data-detail-open="true"] .desktopReadyMessages > .desktopReadyMessageEditor {
-    display: grid !important;
-    grid-template-columns: minmax(520px, 1fr) 48px !important;
-    align-items: stretch !important;
-    gap: 10px !important;
-    overflow: visible !important;
-    padding: 0 !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .desktopReadyMessages > .desktopReadyMessageActions {
-    display: flex !important;
-    justify-content: flex-end !important;
-    flex-wrap: wrap !important;
-    gap: 8px !important;
-    overflow: visible !important;
-    padding: 0 !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .desktopReadyMessageControls {
-    display: flex !important;
-    flex-wrap: wrap !important;
-    justify-content: flex-end !important;
-    gap: 8px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .desktopReadyMessageControls button,
-  .stageGrid[data-detail-open="true"] .desktopReadyMessageActions button,
-  .stageGrid[data-detail-open="true"] .desktopReadyMessageActions a {
-    width: auto !important;
-    min-width: 112px !important;
-    max-width: none !important;
-    padding: 0 14px !important;
-    white-space: nowrap !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .desktopReadyMessageControls button {
-    min-width: 124px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .desktopReadyMessageEditor textarea {
-    min-width: 0 !important;
-    min-height: 116px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .desktopReadyMessagePager {
-    display: grid !important;
-    grid-template-columns: 1fr !important;
-    align-content: start !important;
-    gap: 6px !important;
-    min-width: 48px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .desktopReadyMessagePager button {
-    width: 48px !important;
-    min-width: 48px !important;
-    max-width: 48px !important;
-    min-height: 34px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .desktopReadyMessages .desktopVariableTray {
-    display: grid !important;
-    grid-column: 1 / -1 !important;
-    grid-template-columns: repeat(5, minmax(112px, 1fr)) !important;
-    gap: 8px !important;
-    overflow: visible !important;
-    padding: 0 !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .desktopVariableTray button {
-    width: 100% !important;
-    min-width: 0 !important;
-    max-width: none !important;
-    min-height: 48px !important;
-    justify-items: start !important;
-    padding: 8px 10px !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .desktopVariableTray button b,
-  .stageGrid[data-detail-open="true"] .desktopVariableTray button span {
-    width: 100% !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
-  }
-
-  .stageGrid[data-detail-open="true"] .desktopReturnCompact input {
-    min-width: 0 !important;
-    text-overflow: ellipsis !important;
-  }
-
-  :global(.hbx-popup1:has(.vendasDesktopTemplatePopupRoot)) {
-    width: min(94vw, 920px) !important;
-  }
-
-  :global(.hbx-popup1:has(.vendasDesktopTemplatePopupRoot) .hbx-popup1__body) {
-    align-items: start !important;
-  }
-
-  :global(.hbx-popup1:has(.vendasDesktopTemplatePopupRoot) .hbx-popup1__content) {
-    margin-top: 12px !important;
-  }
-
-  .desktopTemplatePopupContent {
-    display: grid;
-    gap: 12px;
+  .stageGrid[data-detail-open="true"] .stageMain {
     min-width: 0;
   }
 
-  .desktopTemplatePopupBar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    border: 1px solid rgba(157, 184, 224, 0.7);
-    border-radius: 16px;
-    background: rgba(255, 255, 255, 0.68);
-    padding: 10px;
+  .stageGrid[data-detail-open="true"] .stageMain .cardsGrid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
   }
 
-  .desktopTemplatePopupBar > span {
-    color: #0757df;
-    font-size: 0.78rem;
+  .stageGrid[data-detail-open="true"] .detailPanel {
+    position: sticky;
+    top: calc(var(--topbar-total-height) + 12px);
+    max-height: calc(100vh - var(--topbar-total-height) - 24px);
+    overflow: auto;
+    scrollbar-width: thin;
+  }
+
+  .detailLayout {
+    display: block;
+  }
+
+  .vendasOpenCard {
+    width: 100%;
+    gap: 0;
+    padding: 26px 28px 28px;
+    border: 1px solid #dfe7f3;
+    border-radius: 18px;
+    background:
+      radial-gradient(circle at 96% 0%, rgba(19, 94, 232, 0.05), transparent 34%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(251, 253, 255, 0.94));
+    box-shadow:
+      0 16px 40px rgba(20, 34, 65, 0.08),
+      inset 0 1px 0 rgba(255, 255, 255, 0.96);
+  }
+
+  .vendasOpenHeader {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 18px;
+    justify-content: initial;
+  }
+
+  .vendasOpenIdentity {
+    display: grid;
+    grid-template-columns: 104px minmax(0, 1fr);
+    gap: 18px;
+    align-items: start;
+  }
+
+  .vendasOpenIdentity .vendasClosedAvatar {
+    grid-area: auto !important;
+    grid-column: 1 !important;
+    width: 104px !important;
+    height: 104px !important;
+    border-radius: 13px !important;
+    background:
+      radial-gradient(circle at 28% 18%, rgba(255, 255, 255, 0.2), transparent 36%),
+      linear-gradient(135deg, #0a246f 0%, #075ac7 100%) !important;
+    color: #ffffff !important;
+    box-shadow:
+      inset 0 0 18px rgba(255, 255, 255, 0.18),
+      0 8px 18px rgba(15, 79, 196, 0.22) !important;
+  }
+
+  .vendasOpenIdentity .vendasClosedAvatar span {
+    font-size: 4.1rem !important;
+    font-weight: 950 !important;
+    line-height: 1 !important;
+    transform: skew(-8deg);
+  }
+
+  .vendasOpenIdentityText {
+    grid-column: 2;
+    gap: 0;
+    padding-top: 3px;
+  }
+
+  .vendasOpenTitleRow {
+    gap: 12px;
+    width: 100%;
+    align-items: center;
+  }
+
+  .vendasOpenTitleRow > strong {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 100%;
+    overflow: visible;
+    color: #101a33;
+    font-size: clamp(1.62rem, 2.2vw, 1.95rem);
+    font-weight: 850;
+    line-height: 1;
+    letter-spacing: 0;
+    text-overflow: clip;
+    white-space: normal;
+    word-break: normal;
+    overflow-wrap: normal;
+    hyphens: none;
+  }
+
+  .vendasOpenVerified {
+    display: grid;
+    width: 24px;
+    height: 24px;
+    flex: 0 0 auto;
+    place-items: center;
+    border-radius: 999px;
+    background: #135ee8;
+    color: #ffffff;
+    font-size: 0.95rem;
     font-weight: 900;
+  }
+
+  .vendasOpenHeaderMeta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px 18px;
+    margin-top: 12px;
+    color: #61708a;
+    font-size: 0.92rem;
+    font-weight: 720;
+  }
+
+  .vendasOpenHeaderMeta span {
+    color: inherit;
+    font-size: inherit;
+    font-weight: inherit;
+  }
+
+  .vendasOpenHeaderMeta span:first-child::before {
+    content: "";
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-right: 7px;
+    border-radius: 999px;
+    background: #ec4899;
+    box-shadow: 0 0 0 3px rgba(236, 72, 153, 0.11);
+  }
+
+  .vendasOpenHeaderMeta span:last-child::before {
+    content: "";
+    display: inline-block;
+    width: 12px;
+    height: 8px;
+    margin-right: 7px;
+    border: 1px solid #8da0bd;
+    border-radius: 3px;
+  }
+
+  .vendasOpenHeader .vendasClosedBadges {
+    margin-top: 24px;
+    gap: 12px;
+  }
+
+  .vendasOpenHeader .vendasClosedBadges span {
+    min-height: 34px;
+    border-radius: 8px;
+    padding: 0 14px;
+    font-size: 0.86rem;
+    font-weight: 850;
+  }
+
+  .vendasOpenHeader .vendasClosedBadges span::before {
+    display: none;
+  }
+
+  .vendasOpenHeader .vendasClosedBadges .hbxRadarPngIcon {
+    width: 16px;
+    height: 16px;
+  }
+
+  .vendasOpenProduct {
+    grid-template-columns: auto minmax(132px, auto) 48px;
+    grid-template-rows: auto auto;
+    column-gap: 16px;
+    row-gap: 4px;
+    align-items: start;
+    justify-items: stretch;
+  }
+
+  .vendasOpenProduct > span {
+    grid-row: 1 / span 2;
+    min-height: 50px;
+    justify-content: center;
+    gap: 8px;
+    border-color: #cad8ff;
+    border-radius: 10px;
+    background: #f4f7ff;
+    color: #0b55d8;
+    padding: 0 18px;
+    font-size: 1.03rem;
+    font-weight: 900;
+  }
+
+  .vendasOpenProduct > span .hbxRadarPngIcon {
+    width: 19px;
+    height: 19px;
+  }
+
+  .vendasOpenProduct b {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    color: #f97316;
+    font-size: 1rem;
+    font-weight: 850;
     white-space: nowrap;
   }
 
-  .desktopTemplatePopupBar > div {
+  .vendasOpenProduct b .hbxRadarPngIcon {
+    width: 17px;
+    height: 17px;
+  }
+
+  .vendasOpenProduct small {
+    color: #6b7488;
+    font-size: 0.74rem;
+    font-weight: 700;
+    text-align: center;
+  }
+
+  .vendasOpenCloseButton {
+    grid-row: 1 / span 2;
+    grid-column: 3;
+    width: 48px;
+    height: 48px;
+    border: 1px solid #cfdcf2;
+    border-radius: 10px;
+    background: #ffffff;
+    color: #17213b;
+    box-shadow: none;
+    font-size: 1rem;
+    font-weight: 850;
+  }
+
+  .vendasOpenDivider {
+    height: 1px;
+    margin: 24px 0 18px;
+    background: #dfe7f3;
+  }
+
+  .vendasOpenChannels {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 20px;
+    padding: 0 38px 24px;
+  }
+
+  .vendasOpenChannels a {
+    gap: 10px;
+    color: #1d2942;
+    font-size: 0.86rem;
+    font-weight: 760;
+  }
+
+  .vendasOpenChannels a > span {
+    width: 66px;
+    height: 66px;
+    border-color: #dfe7f3;
+    background: #ffffff;
+    box-shadow:
+      0 9px 18px rgba(16, 24, 40, 0.04),
+      inset 0 0 18px rgba(20, 95, 235, 0.04);
+  }
+
+  .vendasOpenChannels .vendasChannelDocIconLight,
+  .vendasOpenChannels .vendasChannelDocIconDark {
+    width: 42px;
+    height: 42px;
+  }
+
+  .vendasOpenChannels b {
+    color: #101a33;
+    font-size: 0.84rem;
+    font-weight: 760;
+  }
+
+  .vendasOpenGrid {
+    grid-template-columns: 1.05fr 1.05fr 1.22fr;
+    gap: 16px;
+  }
+
+  .vendasOpenSection {
+    gap: 0;
+    min-height: 194px;
+    align-content: start;
+    padding: 22px 18px;
+    border-color: #dfe7f3;
+    border-radius: 13px;
+    background: #ffffff;
+  }
+
+  .vendasOpenSection h3 {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 0 0 20px;
+    color: #061033;
+    font-size: 0.98rem;
+    font-weight: 850;
+    letter-spacing: 0;
+  }
+
+  .vendasOpenSection h3 .hbxRadarPngIcon {
+    width: 21px;
+    height: 21px;
+  }
+
+  .vendasOpenSection p {
+    color: #243149;
+    font-size: 0.9rem;
+    font-weight: 500;
+    line-height: 1.55;
+  }
+
+  .vendasOpenDataCard {
+    grid-row: span 2;
+  }
+
+  .vendasOpenDataRows {
+    display: grid;
+    gap: 22px;
+  }
+
+  .vendasOpenDataRow {
+    display: grid;
+    grid-template-columns: 90px minmax(0, 1fr) 24px;
+    align-items: center;
+    gap: 10px;
+    min-height: 22px;
+    color: #101a33;
+    font-size: 0.9rem;
+  }
+
+  .vendasOpenDataRow > span:first-child {
+    color: #43506a;
+    font-weight: 760;
+  }
+
+  .vendasOpenDataRow > strong,
+  .vendasOpenDataRow > a {
+    min-width: 0;
+    overflow: hidden;
+    color: #071133;
+    font-size: 0.91rem;
+    font-weight: 760;
+    line-height: 1.38;
+    text-overflow: ellipsis;
+    text-decoration: none;
+  }
+
+  .vendasOpenDataRow[data-field="phone"][data-tone="success"] > strong::before,
+  .vendasOpenDataRow[data-field="phone"][data-tone="success"] > a::before {
+    content: "";
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    margin-right: 8px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #7be495, #16a34a);
+    vertical-align: -1px;
+  }
+
+  .vendasOpenFieldAction {
+    color: #69758c;
+    text-align: center;
+    font-size: 0.8rem;
+    font-weight: 800;
+  }
+
+  .vendasOpenScoreCard {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    padding-top: 6px;
+  }
+
+  .vendasOpenGauge {
+    width: 122px;
+    height: 122px;
+    display: grid;
+    flex: 0 0 auto;
+    place-items: center;
+    border-radius: 999px;
+    background:
+      radial-gradient(circle at center, #ffffff 0 54%, transparent 55%),
+      conic-gradient(#135ee8 0 var(--vendas-open-score), #e9eef6 var(--vendas-open-score) 100%);
+  }
+
+  .vendasOpenGauge > div {
+    display: grid;
+    width: 92px;
+    height: 92px;
+    place-items: center;
+    border-radius: 999px;
+    background: #ffffff;
+    box-shadow: inset 0 0 0 1px #edf2f7;
+    text-align: center;
+  }
+
+  .vendasOpenGauge strong {
+    display: block;
+    color: #071133;
+    font-size: 2.08rem;
+    font-weight: 950;
+    line-height: 0.95;
+  }
+
+  .vendasOpenGauge span {
+    display: block;
+    color: #526078;
+    font-size: 0.78rem;
+    font-weight: 760;
+  }
+
+  .vendasOpenQualityText {
+    display: grid;
+    gap: 9px;
+  }
+
+  .vendasOpenQualityText strong {
+    color: #0659e8;
+    font-size: 1.34rem;
+    font-weight: 850;
+    line-height: 1.05;
+  }
+
+  .vendasOpenQualityText p {
+    color: #334155;
+    font-size: 0.9rem;
+    line-height: 1.45;
+  }
+
+  .vendasOpenInsight p {
+    margin-bottom: 16px;
+  }
+
+  .vendasOpenPotential {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    margin-top: auto;
+    border-radius: 10px;
+    padding: 17px 20px;
+    background: linear-gradient(90deg, #eef6ff, #e6f1ff);
+  }
+
+  .vendasOpenPotential > span {
+    color: #0b63e5;
+    font-size: 1.45rem;
+    font-weight: 850;
+  }
+
+  .vendasOpenPotential strong {
+    display: block;
+    margin-bottom: 3px;
+    color: #0b55d8;
+    font-size: 1.02rem;
+    font-weight: 850;
+  }
+
+  .vendasOpenPotential small {
+    color: #59677f;
+    font-size: 0.84rem;
+    font-weight: 560;
+  }
+
+  .vendasOpenEvidenceList {
+    display: grid;
+    gap: 11px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    color: #243149;
+    font-size: 0.86rem;
+  }
+
+  .vendasOpenEvidenceList li::before {
+    content: "✓";
+    margin-right: 12px;
+    color: #16a34a;
+    font-weight: 900;
+  }
+
+  .vendasOpenEvidenceAvatars {
+    display: flex;
+    align-items: center;
+    margin-top: 17px;
+    color: #65728a;
+    font-size: 0.8rem;
+  }
+
+  .vendasOpenEvidenceAvatars span {
+    width: 24px;
+    height: 24px;
+    margin-right: -5px;
+    border: 2px solid #ffffff;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #91a7c4, #1f2937);
+  }
+
+  .vendasOpenEvidenceAvatars span:nth-child(2) {
+    background: linear-gradient(135deg, #0ea5e9, #172554);
+  }
+
+  .vendasOpenEvidenceAvatars span:nth-child(3) {
+    background: linear-gradient(135deg, #f59e0b, #0f172a);
+  }
+
+  .vendasOpenEvidenceAvatars span:nth-child(4) {
+    background: linear-gradient(135deg, #ef4444, #334155);
+  }
+
+  .vendasOpenEvidenceAvatars span:nth-child(5) {
+    background: linear-gradient(135deg, #111827, #64748b);
+  }
+
+  .vendasOpenEvidenceAvatars span:nth-child(6) {
+    margin-right: 12px;
+    background: linear-gradient(135deg, #78350f, #111827);
+  }
+
+  .vendasOpenEvidenceAvatars b {
+    color: #65728a;
+    font-weight: 650;
+  }
+
+  .vendasOpenChannelBox {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    border-radius: 10px;
+    padding: 14px 18px;
+    background: linear-gradient(90deg, #dff8eb, #effcf5);
+  }
+
+  .vendasOpenChannelBox > span {
+    display: grid;
+    width: 54px;
+    height: 54px;
+    flex: 0 0 auto;
+    place-items: center;
+    border-radius: 999px;
+    background: #ffffff;
+  }
+
+  .vendasOpenChannelBox > span .hbxRadarPngIcon {
+    width: 34px;
+    height: 34px;
+  }
+
+  .vendasOpenChannelBox strong {
+    color: #071133;
+    font-size: 1.05rem;
+    font-weight: 850;
+  }
+
+  .vendasOpenChannelBox strong b {
+    display: inline-flex;
+    height: 24px;
+    align-items: center;
+    margin-left: 10px;
+    border: 1px solid #9ae6b4;
+    border-radius: 999px;
+    background: #e5fbef;
+    color: #13883f;
+    padding: 0 10px;
+    font-size: 0.72rem;
+    font-weight: 900;
+    vertical-align: 2px;
+  }
+
+  .vendasOpenChannelBox p {
+    margin-top: 4px;
+    color: #243149;
+    font-size: 0.84rem;
+    line-height: 1.35;
+  }
+
+  .vendasOpenNextAction {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 18px;
+    align-items: center;
+    margin-top: 18px;
+    border: 1px solid #dfe7f3;
+    border-radius: 13px;
+    padding: 24px 26px;
+  }
+
+  .vendasOpenNextAction > div {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 18px;
+  }
+
+  .vendasOpenNextAction > div > span {
+    color: #f59e0b;
+    font-size: 1.55rem;
+    font-weight: 700;
+  }
+
+  .vendasOpenNextAction strong {
+    display: block;
+    margin-bottom: 6px;
+    color: #071133;
+    font-size: 1rem;
+    font-weight: 850;
+  }
+
+  .vendasOpenNextAction p {
+    margin: 0;
+    color: #243149;
+    font-size: 0.9rem;
+    line-height: 1.35;
+  }
+
+  .vendasOpenMessageButton,
+  .vendasOpenWhatsappButton {
+    min-height: 48px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border-radius: 10px;
+    padding: 0 18px;
+    font-size: 0.92rem;
+    font-weight: 900;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+
+  .vendasOpenMessageButton {
+    min-width: 232px;
+    border: 1px solid #a9c3fa;
+    background: #ffffff;
+    color: #0b55d8;
+  }
+
+  .vendasOpenWhatsappButton {
+    min-width: 224px;
+    border: 0;
+    background: #1167e8;
+    color: #ffffff;
+    box-shadow: 0 10px 20px rgba(17, 103, 232, 0.22);
+  }
+
+  .vendasOpenMessageButton .hbxRadarPngIcon,
+  .vendasOpenWhatsappButton .hbxRadarPngIcon {
+    width: 18px;
+    height: 18px;
+  }
+
+  .vendasOpenMessageButton:disabled,
+  .vendasOpenWhatsappButton[aria-disabled="true"] {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  .vendasOpenObservationReturn {
+    width: 100%;
+    margin-top: 18px;
+    overflow: hidden;
+    border: 1px solid #bdd6ff;
+    border-radius: 22px;
+    background: rgba(255, 255, 255, 0.78);
+  }
+
+  .vendasOpenObservationHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    border-bottom: 1px solid #bdd6ff;
+    background:
+      radial-gradient(circle at 0 0, rgba(255, 180, 0, 0.18), transparent 34%),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.98), rgba(235, 245, 255, 0.92));
+    padding: 16px 18px;
+  }
+
+  .vendasOpenObservationHeader > div:first-child {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .vendasOpenObservationHeader > div:first-child > span {
+    display: grid;
+    width: 34px;
+    height: 34px;
+    flex: 0 0 auto;
+    place-items: center;
+    border-radius: 13px;
+    background: linear-gradient(135deg, #fff6d8, #ffb020);
+    color: #8a5b00;
+    box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.28);
+    font-size: 1.1rem;
+    font-weight: 850;
+  }
+
+  .vendasOpenObservationHeader h3,
+  .vendasOpenObservationHeader p {
+    margin: 0;
+  }
+
+  .vendasOpenObservationHeader h3 {
+    color: #071a46;
+    font-size: 0.92rem;
+    font-weight: 850;
+    line-height: 1;
+  }
+
+  .vendasOpenObservationHeader p {
+    margin-top: 4px;
+    color: #63779c;
+    font-size: 0.74rem;
+    font-weight: 720;
+  }
+
+  .vendasOpenObservationPills {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     justify-content: flex-end;
     gap: 8px;
   }
 
-  .desktopTemplatePopupBar button,
-  .desktopTemplateVariablePanel button {
+  .vendasOpenObservationPills span {
     display: inline-flex;
-    min-height: 38px;
+    min-height: 32px;
     align-items: center;
-    justify-content: center;
-    border: 1px solid rgba(157, 184, 224, 0.86);
-    border-radius: 12px;
-    background: rgba(255, 255, 255, 0.94);
-    color: #17345c;
-    padding: 0 14px;
-    font-size: 0.78rem;
+    gap: 7px;
+    border: 1px solid #cfe0ff;
+    border-radius: 999px;
+    background: #ffffff;
+    color: #28518d;
+    padding: 0 11px;
+    font-size: 0.72rem;
     font-weight: 850;
-    line-height: 1;
     white-space: nowrap;
   }
 
-  .desktopTemplatePopupBar button {
-    min-width: 44px;
+  .vendasOpenObservationPills strong {
+    color: #2168f3;
+    font-weight: 900;
   }
 
-  .desktopTemplatePopupContent textarea {
-    width: 100%;
-    min-height: 170px;
-    max-height: 280px;
-    border: 1px solid rgba(126, 164, 230, 0.76);
-    border-radius: 18px;
-    background: rgba(255, 255, 255, 0.94);
-    color: #102047;
-    padding: 15px;
-    font: inherit;
-    font-size: 0.95rem;
-    font-weight: 700;
-    line-height: 1.5;
-    resize: vertical;
-    box-sizing: border-box;
-    overflow-wrap: anywhere;
-    hyphens: none;
-  }
-
-  .desktopTemplateVariablePanel {
+  .vendasOpenObservationGrid {
     display: grid;
-    gap: 10px;
-    border: 1px solid rgba(176, 196, 226, 0.7);
-    border-radius: 18px;
-    background: rgba(247, 251, 255, 0.78);
+    grid-template-columns: minmax(0, 1.12fr) minmax(360px, 0.88fr);
+    gap: 14px;
+    align-items: stretch;
+    padding: 14px;
+  }
+
+  .vendasOpenObservationPanel {
+    overflow: hidden;
+    border: 1px solid #bdd6ff;
+    border-radius: 20px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 252, 255, 0.98));
+  }
+
+  .vendasOpenObservationPanel > header {
+    display: flex;
+    min-height: 52px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border-bottom: 1px solid #d8e6ff;
+    padding: 13px 14px;
+  }
+
+  .vendasOpenObservationPanel > header h4 {
+    margin: 0;
+    color: #071a46;
+    font-size: 0.82rem;
+    font-weight: 850;
+  }
+
+  .vendasOpenObservationPanel > header span {
+    color: #63779c;
+    font-size: 0.68rem;
+    font-weight: 850;
+    text-transform: lowercase;
+  }
+
+  .vendasOpenObservationReturn .desktopReadyMessages {
+    margin: 14px;
+    border: 1px solid #c8dbff;
+    border-radius: 16px;
+    background: linear-gradient(135deg, #ffffff, #f4f9ff);
     padding: 12px;
   }
 
-  .desktopTemplateVariablePanel > div:first-child {
+  .vendasOpenReadyTop {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     justify-content: space-between;
     gap: 10px;
+    margin-bottom: 8px;
   }
 
-  .desktopTemplateVariablePanel strong {
-    color: #0b1b3d;
-    font-size: 0.9rem;
+  .vendasOpenReadyTop strong {
+    color: #2168f3;
+    font-size: 0.68rem;
+    font-weight: 900;
+    text-transform: uppercase;
+  }
+
+  .vendasOpenReadyTop button {
+    min-height: 36px;
+    border: 1px solid #aecbff;
+    border-radius: 13px;
+    background: #ffffff;
+    color: #16418c;
+    padding: 0 14px;
+    font-size: 0.74rem;
     font-weight: 900;
   }
 
-  .desktopTemplateVariablePanel > div:first-child span {
-    color: #64748b;
-    font-size: 0.75rem;
-    font-weight: 800;
+  .vendasOpenObservationReturn .desktopReadyMessages h5 {
+    margin: 0 0 8px;
+    color: #071a46;
+    font-size: 0.86rem;
+    font-weight: 850;
   }
 
-  .desktopTemplateVariablePanel > div:last-child {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(112px, 1fr));
-    gap: 8px;
-  }
-
-  .desktopTemplateVariablePanel button {
-    display: grid;
-    min-width: 0;
+  .vendasOpenObservationReturn .desktopReadyMessages p {
+    display: flex;
     min-height: 52px;
-    justify-items: start;
-    padding: 9px 11px;
+    align-items: flex-start;
+    margin: 0;
+    border: 1px solid #c9daff;
+    border-radius: 14px;
+    background: #fbfdff;
+    color: #63779c;
+    padding: 13px 14px;
+    font-size: 0.82rem;
+    font-weight: 720;
+    line-height: 1.45;
   }
 
-  .desktopTemplateVariablePanel button b,
-  .desktopTemplateVariablePanel button span {
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .vendasOpenObservationReturn .desktopReadyMessages p[data-empty="true"] {
+    color: #8290b1;
   }
 
-  .desktopTemplateVariablePanel button span {
-    color: #64748b;
+  .vendasOpenObservationReturn .desktopReadyMessageActions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 10px;
+  }
+
+  .vendasOpenObservationReturn .desktopReadyMessageActions button,
+  .vendasOpenObservationReturn .desktopReadyMessageActions a {
+    min-height: 38px;
+    min-width: 128px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #c3d7ff;
+    border-radius: 13px;
+    background: #ffffff;
+    color: #16418c;
+    padding: 0 16px;
+    font-size: 0.74rem;
+    font-weight: 900;
+    text-decoration: none;
+  }
+
+  .vendasOpenObservationReturn .desktopReadyMessageActions button:disabled,
+  .vendasOpenObservationReturn .desktopReadyMessageActions a[aria-disabled="true"] {
+    color: #6e7f9f;
+    opacity: 0.58;
+    cursor: default;
+  }
+
+  .vendasOpenNoteField {
+    display: block;
+    padding: 0 14px 14px;
+  }
+
+  .vendasOpenNoteField > span {
+    display: block;
+    margin: 2px 0 8px;
+    color: #516991;
     font-size: 0.68rem;
-    font-weight: 800;
+    font-weight: 950;
+    text-transform: uppercase;
   }
 
-  .desktopTemplateLivePreview {
-    display: grid;
-    gap: 8px;
-    border: 1px solid rgba(22, 163, 74, 0.2);
+  .vendasOpenNoteField textarea {
+    width: 100%;
+    min-height: 192px;
+    resize: vertical;
+    outline: none;
+    border: 1px solid #a9c6ff;
     border-radius: 18px;
-    background:
-      radial-gradient(circle at 100% 0%, rgba(34, 197, 94, 0.14), transparent 34%),
-      rgba(240, 253, 244, 0.76);
+    background: #ffffff;
+    color: #071a46;
+    padding: 16px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+    font: 700 0.86rem/1.45 var(--font-body, "Plus Jakarta Sans", Inter, "Segoe UI", Roboto, Arial, sans-serif);
+  }
+
+  .vendasOpenNoteField textarea::placeholder {
+    color: #8c9abc;
+  }
+
+  .vendasOpenNoteField textarea:focus {
+    border-color: #2168f3;
+    box-shadow: 0 0 0 4px rgba(33, 104, 243, 0.12);
+  }
+
+  .vendasOpenObservationReturn .desktopReturnCompact {
+    display: flex;
+    height: 100%;
+    flex-direction: column;
+  }
+
+  .vendasOpenObservationReturn .desktopReturnInlineHeader {
+    display: block;
+    margin: 14px;
+    border: 1px solid #b9d3ff;
+    border-radius: 16px;
+    background: linear-gradient(135deg, #eff7ff, #dcefff);
+    padding: 13px 14px;
+  }
+
+  .vendasOpenObservationReturn .desktopReturnInlineHeader span {
+    display: block;
+    color: #2168f3;
+    font-size: 0.68rem;
+    font-weight: 950;
+    text-transform: uppercase;
+  }
+
+  .vendasOpenObservationReturn .desktopReturnInlineHeader strong {
+    display: block;
+    margin-top: 4px;
+    color: #071a46;
+    font-size: 1rem;
+    font-weight: 850;
+  }
+
+  .vendasOpenObservationReturn .desktopReturnPlannerTop {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 144px;
+    gap: 10px;
+    padding: 0 14px 12px;
+  }
+
+  .vendasOpenObservationReturn .desktopReturnPlannerTop label {
+    min-width: 0;
+  }
+
+  .vendasOpenObservationReturn .desktopReturnPlannerTop label > span {
+    display: block;
+    margin: 0 0 6px;
+    color: #516991;
+    font-size: 0.68rem;
+    font-weight: 950;
+    text-transform: uppercase;
+  }
+
+  .vendasOpenObservationReturn .desktopReturnPlannerTop input {
+    width: 100%;
+    min-height: 42px;
+    border: 1px solid #b8d0ff;
+    border-radius: 13px;
+    background: #ffffff;
+    color: #071a46;
+    padding: 0 12px;
+    font-size: 0.8rem;
+    font-weight: 780;
+  }
+
+  .vendasOpenObservationReturn .desktopReturnCalendar {
+    margin: 0 14px 14px;
+    border: 1px solid #c0d6ff;
+    border-radius: 18px;
+    background: #ffffff;
     padding: 12px;
   }
 
-  .desktopTemplateLivePreview span {
-    color: #15803d;
-    font-size: 0.74rem;
-    font-weight: 900;
-    text-transform: uppercase;
-    white-space: nowrap;
+  .vendasOpenObservationReturn .desktopReturnCalendar > header {
+    display: grid;
+    grid-template-columns: 38px 1fr 38px;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
   }
 
-  .desktopTemplateLivePreview p {
-    margin: 0;
-    color: #14213d;
+  .vendasOpenObservationReturn .desktopReturnCalendar > header strong {
+    color: #071a46;
     font-size: 0.86rem;
-    font-weight: 750;
-    line-height: 1.45;
-    overflow-wrap: anywhere;
-    hyphens: none;
+    font-weight: 950;
+    text-align: center;
+    text-transform: capitalize;
   }
 
-  :global(html[data-theme-mode="dark"]) .desktopTemplatePopupBar,
-  :global(html[data-theme="dark"]) .desktopTemplatePopupBar,
-  :global(html[data-theme-mode="dark"]) .desktopTemplateVariablePanel,
-  :global(html[data-theme="dark"]) .desktopTemplateVariablePanel,
-  :global(html[data-theme-mode="dark"]) .desktopTemplatePopupContent textarea,
-  :global(html[data-theme="dark"]) .desktopTemplatePopupContent textarea,
-  :global(html[data-theme-mode="dark"]) .desktopTemplateLivePreview,
-  :global(html[data-theme="dark"]) .desktopTemplateLivePreview {
-    border-color: rgba(148, 190, 255, 0.24);
-    background: rgba(8, 20, 38, 0.82);
-    color: #f8fbff;
+  .vendasOpenObservationReturn .desktopReturnCalendar > header button {
+    height: 38px;
+    border: 1px solid #b8d0ff;
+    border-radius: 13px;
+    background: #ffffff;
+    color: #2168f3;
+    font-weight: 950;
   }
 
-  :global(html[data-theme-mode="dark"]) .desktopTemplateVariablePanel strong,
-  :global(html[data-theme="dark"]) .desktopTemplateVariablePanel strong,
-  :global(html[data-theme-mode="dark"]) .desktopTemplateLivePreview p,
-  :global(html[data-theme="dark"]) .desktopTemplateLivePreview p {
-    color: #f8fbff;
+  .vendasOpenObservationReturn .desktopReturnWeekdays,
+  .vendasOpenObservationReturn .desktopReturnCalendarGrid {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 6px;
   }
 
-  .stageGrid[data-detail-open="true"] .desktopReadyMessages p[data-empty="true"] {
-    color: #7a8ca8 !important;
-    font-style: normal !important;
+  .vendasOpenObservationReturn .desktopReturnWeekdays span {
+    color: #6b7ea1;
+    font-size: 0.62rem;
+    font-weight: 950;
+    text-align: center;
+    text-transform: uppercase;
   }
 
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation > label:first-of-type textarea {
-    min-height: 254px !important;
-    max-height: 340px !important;
-    border-radius: 18px !important;
-    font-size: 0.94rem !important;
-    line-height: 1.52 !important;
+  .vendasOpenObservationReturn .desktopReturnCalendarGrid button,
+  .vendasOpenObservationReturn .desktopReturnCalendarGrid > span {
+    display: grid;
+    height: 36px;
+    place-items: center;
+    border: 1px solid #bfd4ff;
+    border-radius: 10px;
+    background: linear-gradient(180deg, #ffffff, #fbfdff);
+    color: #071a46;
+    font-size: 0.74rem;
+    font-weight: 950;
   }
 
-  .stageGrid[data-detail-open="true"] .desktopReturnCompact {
-    align-content: stretch !important;
-    gap: 11px !important;
-    min-height: 0 !important;
-    padding: 13px !important;
+  .vendasOpenObservationReturn .desktopReturnCalendarGrid button[data-selected="true"] {
+    border-color: #15a5ff;
+    background: linear-gradient(135deg, #2168f3, #16a7ff);
+    color: #ffffff;
+    box-shadow: 0 8px 16px rgba(33, 104, 243, 0.22);
   }
 
-  .desktopReturnInlineHeader {
-    display: flex !important;
-    align-items: center !important;
-    justify-content: space-between !important;
-    gap: 10px !important;
-    border: 1px solid rgba(37, 99, 235, 0.16) !important;
-    border-radius: 14px !important;
-    background:
-      radial-gradient(circle at 100% 0%, rgba(37, 99, 235, 0.12), transparent 36%),
-      rgba(239, 246, 255, 0.82) !important;
-    padding: 10px 11px !important;
+  .vendasOpenObservationReturn .desktopReturnCalendarGrid > span {
+    visibility: hidden;
   }
 
-  .desktopReturnInlineHeader > div {
-    display: grid !important;
-    min-width: 0 !important;
-    gap: 2px !important;
+  .vendasOpenObservationFooter {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    border-top: 1px solid #d6e4ff;
+    background: linear-gradient(90deg, rgba(249, 253, 255, 0.96), rgba(239, 247, 255, 0.96));
+    padding: 14px;
   }
 
-  .desktopReturnInlineHeader span {
-    color: #0757df !important;
-    font-size: 0.68rem !important;
-    font-weight: 900 !important;
-    text-transform: uppercase !important;
-    white-space: nowrap !important;
+  .vendasOpenSaveButton {
+    min-height: 44px;
+    border: 0;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #246bf4, #1262ea);
+    color: #ffffff;
+    box-shadow: 0 12px 24px rgba(33, 104, 243, 0.22);
+    padding: 0 24px;
+    font-size: 0.8rem;
+    font-weight: 950;
   }
 
-  .desktopReturnInlineHeader strong {
-    min-width: 0 !important;
-    overflow: hidden !important;
-    color: #0b1b3d !important;
-    font-size: 0.86rem !important;
-    font-weight: 900 !important;
-    line-height: 1.18 !important;
-    text-overflow: ellipsis !important;
-    white-space: nowrap !important;
+  .vendasOpenObservationFooter > div {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 10px;
   }
 
-  .stageGrid[data-detail-open="true"] .desktopReturnCompact .desktopReturnPlannerTop {
-    display: grid !important;
-    grid-template-columns: minmax(0, 1.35fr) minmax(92px, 0.65fr) !important;
-    gap: 9px !important;
+  .vendasOpenObservationFooter > div button,
+  .vendasOpenObservationFooter > div a {
+    min-height: 42px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid transparent;
+    border-radius: 13px;
+    padding: 0 18px;
+    font-size: 0.74rem;
+    font-weight: 950;
+    text-decoration: none;
   }
 
-  .stageGrid[data-detail-open="true"] .desktopReturnCompact .desktopReturnPlannerTop label {
-    display: grid !important;
-    min-width: 0 !important;
-    gap: 5px !important;
+  .vendasOpenObservationFooter > div button[data-tone="sale"] {
+    border-color: #f0bf54;
+    background: #fff2ca;
+    color: #8a5b00;
   }
 
-  .stageGrid[data-detail-open="true"] .desktopReturnCompact .desktopReturnPlannerTop label span {
-    overflow: hidden !important;
-    color: #526987 !important;
-    font-size: 0.66rem !important;
-    font-weight: 900 !important;
-    text-overflow: ellipsis !important;
-    text-transform: uppercase !important;
-    white-space: nowrap !important;
+  .vendasOpenObservationFooter > div a {
+    background: #2369f3;
+    color: #ffffff;
   }
 
-  .stageGrid[data-detail-open="true"] .desktopReturnCompact .desktopReturnCalendar {
-    border: 1px solid rgba(176, 196, 226, 0.66) !important;
-    border-radius: 16px !important;
-    background: rgba(255, 255, 255, 0.6) !important;
-    padding: 10px !important;
+  .vendasOpenObservationFooter > div button[data-tone="danger"] {
+    border-color: #ffc9c9;
+    background: #fff1f1;
+    color: #b52525;
   }
 
-  .stageGrid[data-detail-open="true"] .desktopReturnCompact .desktopReturnCalendarGrid button,
-  .stageGrid[data-detail-open="true"] .desktopReturnCompact .desktopReturnCalendarGrid span {
-    height: 28px !important;
-    border-radius: 9px !important;
+  .vendasOpenObservationFooter button:disabled,
+  .vendasOpenObservationFooter a[aria-disabled="true"] {
+    opacity: 0.55;
+    cursor: default;
+  }
+}
+
+@media (min-width: 821px) and (max-width: 1320px) {
+  .stageGrid[data-detail-open="true"] {
+    grid-template-columns: 62px minmax(260px, 320px) minmax(0, 1fr);
+    gap: 12px;
   }
 
-  .stageGrid[data-detail-open="true"] .desktopReturnCompact .desktopReturnCalendarGrid button {
-    font-size: 0.72rem !important;
+  .vendasOpenCard {
+    padding: 22px;
   }
 
-  :global(html[data-theme-mode="dark"]) .desktopReturnInlineHeader,
-  :global(html[data-theme="dark"]) .desktopReturnInlineHeader,
-  :global(html[data-theme-mode="dark"]) .stageGrid[data-detail-open="true"] .desktopReturnCompact .desktopReturnCalendar,
-  :global(html[data-theme="dark"]) .stageGrid[data-detail-open="true"] .desktopReturnCompact .desktopReturnCalendar {
-    border-color: rgba(148, 190, 255, 0.22) !important;
-    background: rgba(8, 20, 38, 0.78) !important;
+  .vendasOpenHeader {
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  :global(html[data-theme-mode="dark"]) .desktopReturnInlineHeader strong,
-  :global(html[data-theme="dark"]) .desktopReturnInlineHeader strong {
-    color: #f8fbff !important;
+  .vendasOpenProduct {
+    justify-content: start;
   }
 
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation {
-    grid-template-columns: minmax(0, 1fr) minmax(372px, 0.92fr) !important;
+  .vendasOpenChannels {
+    gap: 14px;
+    padding-inline: 12px;
   }
 
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation > .desktopReturnCompact,
-  .stageGrid[data-detail-open="true"] .desktopReturnCompact {
-    grid-template-columns: minmax(0, 1fr) !important;
-    width: 100% !important;
-    overflow: hidden !important;
+  .vendasOpenGrid {
+    grid-template-columns: 1fr 1fr;
   }
 
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation > .desktopReturnCompact .desktopReturnCalendar,
-  .stageGrid[data-detail-open="true"] .desktopReturnCompact .desktopReturnCalendar {
-    width: 100% !important;
-    min-width: 0 !important;
-    box-sizing: border-box !important;
+  .vendasOpenInsight {
+    grid-column: span 2;
   }
 
-  .stageGrid[data-detail-open="true"] .desktopReturnCompact .desktopReturnCalendar header {
-    width: 100% !important;
-    grid-template-columns: 34px minmax(0, 1fr) 34px !important;
+  .vendasOpenNextAction {
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .stageGrid[data-detail-open="true"] .desktopReturnCompact .desktopReturnCalendar header strong {
-    width: auto !important;
-    min-width: 0 !important;
-    white-space: nowrap !important;
+  .vendasOpenObservationHeader,
+  .vendasOpenObservationFooter {
+    align-items: stretch;
+    flex-direction: column;
   }
 
-  .stageGrid[data-detail-open="true"] .desktopReturnCompact .desktopReturnWeekdays,
-  .stageGrid[data-detail-open="true"] .desktopReturnCompact .desktopReturnCalendarGrid {
-    width: 100% !important;
-    grid-template-columns: repeat(7, minmax(30px, 1fr)) !important;
+  .vendasOpenObservationPills,
+  .vendasOpenObservationFooter > div {
+    justify-content: flex-start;
   }
 
-  .stageGrid[data-detail-open="true"] .vendasOpenTitleRow {
-    display: flex !important;
-    align-items: center !important;
-    gap: 10px !important;
-    min-width: 0 !important;
+  .vendasOpenObservationGrid {
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .stageGrid[data-detail-open="true"] .vendasOpenHeaderChannels {
-    display: inline-flex !important;
-    flex: 0 0 auto !important;
-    align-items: center !important;
-    gap: 6px !important;
+  .vendasOpenObservationReturn .desktopReturnPlannerTop {
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .stageGrid[data-detail-open="true"] .vendasOpenHeaderChannels a {
-    width: 34px !important;
-    height: 34px !important;
+  .vendasOpenMessageButton,
+  .vendasOpenWhatsappButton {
+    width: 100%;
   }
+}
 
-  .stageGrid[data-detail-open="true"] .vendasOpenHeaderChannels img {
-    width: 35px !important;
-    height: 35px !important;
-    object-fit: cover !important;
-  }
+:global(html[data-theme-mode="dark"]) .vendasOpenCard,
+:global(html[data-theme="dark"]) .vendasOpenCard {
+  border-color: rgba(148, 190, 255, 0.2);
+  background:
+    radial-gradient(circle at 96% 0%, rgba(56, 189, 248, 0.08), transparent 34%),
+    linear-gradient(180deg, rgba(9, 26, 52, 0.96), rgba(5, 18, 38, 0.94));
+  box-shadow:
+    0 20px 46px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
 
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation > .desktopReadyMessages {
-    display: grid !important;
-    grid-template-columns: minmax(0, 1fr) !important;
-    grid-template-areas:
-      "readyHeader"
-      "readyPreview"
-      "readyActions" !important;
-    width: 100% !important;
-    min-width: 0 !important;
-    overflow: hidden !important;
-  }
+:global(html[data-theme-mode="dark"]) .vendasOpenTitleRow > strong,
+:global(html[data-theme="dark"]) .vendasOpenTitleRow > strong,
+:global(html[data-theme-mode="dark"]) .vendasOpenSection h3,
+:global(html[data-theme="dark"]) .vendasOpenSection h3,
+:global(html[data-theme-mode="dark"]) .vendasOpenDataRow > strong,
+:global(html[data-theme="dark"]) .vendasOpenDataRow > strong,
+:global(html[data-theme-mode="dark"]) .vendasOpenDataRow > a,
+:global(html[data-theme="dark"]) .vendasOpenDataRow > a,
+:global(html[data-theme-mode="dark"]) .vendasOpenGauge strong,
+:global(html[data-theme="dark"]) .vendasOpenGauge strong,
+:global(html[data-theme-mode="dark"]) .vendasOpenChannelBox strong,
+:global(html[data-theme="dark"]) .vendasOpenChannelBox strong,
+:global(html[data-theme-mode="dark"]) .vendasOpenNextAction strong,
+:global(html[data-theme="dark"]) .vendasOpenNextAction strong {
+  color: #f8fbff;
+}
 
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation > .desktopReadyMessages > header {
-    grid-area: readyHeader !important;
-    display: grid !important;
-    grid-template-columns: minmax(0, 1fr) auto !important;
-    width: 100% !important;
-    min-width: 0 !important;
-    align-items: center !important;
-    gap: 12px !important;
-  }
+:global(html[data-theme-mode="dark"]) .vendasOpenHeaderMeta,
+:global(html[data-theme="dark"]) .vendasOpenHeaderMeta,
+:global(html[data-theme-mode="dark"]) .vendasOpenDataRow > span:first-child,
+:global(html[data-theme="dark"]) .vendasOpenDataRow > span:first-child,
+:global(html[data-theme-mode="dark"]) .vendasOpenFieldAction,
+:global(html[data-theme="dark"]) .vendasOpenFieldAction {
+  color: rgba(210, 223, 242, 0.72);
+}
 
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation > .desktopReadyMessages > p {
-    grid-area: readyPreview !important;
-    width: 100% !important;
-    min-width: 0 !important;
-    box-sizing: border-box !important;
-  }
+:global(html[data-theme-mode="dark"]) .vendasOpenSection,
+:global(html[data-theme="dark"]) .vendasOpenSection,
+:global(html[data-theme-mode="dark"]) .vendasOpenNextAction,
+:global(html[data-theme="dark"]) .vendasOpenNextAction {
+  border-color: rgba(148, 190, 255, 0.18);
+  background: rgba(9, 26, 52, 0.76);
+}
 
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation > .desktopReadyMessages > .desktopReadyMessageActions {
-    grid-area: readyActions !important;
-    display: flex !important;
-    width: 100% !important;
-    min-width: 0 !important;
-    justify-content: flex-start !important;
-    flex-wrap: wrap !important;
-    overflow: visible !important;
-    padding: 0 !important;
-  }
+:global(html[data-theme-mode="dark"]) .vendasOpenDivider,
+:global(html[data-theme="dark"]) .vendasOpenDivider {
+  background: rgba(148, 190, 255, 0.18);
+}
 
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation > .desktopReadyMessages > .desktopReadyMessageActions button,
-  .stageGrid[data-detail-open="true"] .vendasOpenOperation > .desktopReadyMessages > .desktopReadyMessageActions a {
-    min-width: 128px !important;
-  }
+:global(html[data-theme-mode="dark"]) .vendasOpenChannels a,
+:global(html[data-theme="dark"]) .vendasOpenChannels a,
+:global(html[data-theme-mode="dark"]) .vendasOpenChannels b,
+:global(html[data-theme="dark"]) .vendasOpenChannels b {
+  color: rgba(236, 245, 255, 0.88);
+}
+
+:global(html[data-theme-mode="dark"]) .vendasOpenChannels a > span,
+:global(html[data-theme="dark"]) .vendasOpenChannels a > span,
+:global(html[data-theme-mode="dark"]) .vendasOpenGauge > div,
+:global(html[data-theme="dark"]) .vendasOpenGauge > div,
+:global(html[data-theme-mode="dark"]) .vendasOpenChannelBox > span,
+:global(html[data-theme="dark"]) .vendasOpenChannelBox > span,
+:global(html[data-theme-mode="dark"]) .vendasOpenCloseButton,
+:global(html[data-theme="dark"]) .vendasOpenCloseButton,
+:global(html[data-theme-mode="dark"]) .vendasOpenMessageButton,
+:global(html[data-theme="dark"]) .vendasOpenMessageButton {
+  border-color: rgba(148, 190, 255, 0.24);
+  background: rgba(14, 35, 67, 0.94);
+}
+
+:global(html[data-theme-mode="dark"]) .vendasOpenGauge,
+:global(html[data-theme="dark"]) .vendasOpenGauge {
+  background:
+    radial-gradient(circle at center, rgba(14, 35, 67, 0.94) 0 54%, transparent 55%),
+    conic-gradient(#4f8cff 0 var(--vendas-open-score), rgba(148, 190, 255, 0.18) var(--vendas-open-score) 100%);
+}
+
+:global(html[data-theme-mode="dark"]) .vendasOpenSection p,
+:global(html[data-theme="dark"]) .vendasOpenSection p,
+:global(html[data-theme-mode="dark"]) .vendasOpenQualityText p,
+:global(html[data-theme="dark"]) .vendasOpenQualityText p,
+:global(html[data-theme-mode="dark"]) .vendasOpenEvidenceList,
+:global(html[data-theme="dark"]) .vendasOpenEvidenceList,
+:global(html[data-theme-mode="dark"]) .vendasOpenChannelBox p,
+:global(html[data-theme="dark"]) .vendasOpenChannelBox p,
+:global(html[data-theme-mode="dark"]) .vendasOpenNextAction p,
+:global(html[data-theme="dark"]) .vendasOpenNextAction p {
+  color: rgba(226, 234, 248, 0.84);
+}
+
+:global(html[data-theme-mode="dark"]) .vendasOpenPotential,
+:global(html[data-theme="dark"]) .vendasOpenPotential,
+:global(html[data-theme-mode="dark"]) .vendasOpenChannelBox,
+:global(html[data-theme="dark"]) .vendasOpenChannelBox {
+  background: linear-gradient(90deg, rgba(15, 58, 101, 0.78), rgba(8, 79, 65, 0.68));
+}
+
+:global(html[data-theme-mode="dark"]) .vendasOpenObservationReturn,
+:global(html[data-theme="dark"]) .vendasOpenObservationReturn,
+:global(html[data-theme-mode="dark"]) .vendasOpenObservationPanel,
+:global(html[data-theme="dark"]) .vendasOpenObservationPanel {
+  border-color: rgba(148, 190, 255, 0.22);
+  background: rgba(9, 26, 52, 0.72);
+}
+
+:global(html[data-theme-mode="dark"]) .vendasOpenObservationHeader,
+:global(html[data-theme="dark"]) .vendasOpenObservationHeader,
+:global(html[data-theme-mode="dark"]) .vendasOpenObservationFooter,
+:global(html[data-theme="dark"]) .vendasOpenObservationFooter {
+  border-color: rgba(148, 190, 255, 0.2);
+  background:
+    radial-gradient(circle at 0 0, rgba(245, 158, 11, 0.12), transparent 34%),
+    linear-gradient(90deg, rgba(9, 26, 52, 0.94), rgba(14, 35, 67, 0.92));
+}
+
+:global(html[data-theme-mode="dark"]) .vendasOpenObservationHeader h3,
+:global(html[data-theme="dark"]) .vendasOpenObservationHeader h3,
+:global(html[data-theme-mode="dark"]) .vendasOpenObservationPanel > header h4,
+:global(html[data-theme="dark"]) .vendasOpenObservationPanel > header h4,
+:global(html[data-theme-mode="dark"]) .vendasOpenObservationReturn .desktopReadyMessages h5,
+:global(html[data-theme="dark"]) .vendasOpenObservationReturn .desktopReadyMessages h5,
+:global(html[data-theme-mode="dark"]) .vendasOpenObservationReturn .desktopReturnInlineHeader strong,
+:global(html[data-theme="dark"]) .vendasOpenObservationReturn .desktopReturnInlineHeader strong,
+:global(html[data-theme-mode="dark"]) .vendasOpenObservationReturn .desktopReturnCalendar > header strong,
+:global(html[data-theme="dark"]) .vendasOpenObservationReturn .desktopReturnCalendar > header strong {
+  color: #f8fbff;
+}
+
+:global(html[data-theme-mode="dark"]) .vendasOpenObservationHeader p,
+:global(html[data-theme="dark"]) .vendasOpenObservationHeader p,
+:global(html[data-theme-mode="dark"]) .vendasOpenObservationPanel > header span,
+:global(html[data-theme="dark"]) .vendasOpenObservationPanel > header span,
+:global(html[data-theme-mode="dark"]) .vendasOpenNoteField > span,
+:global(html[data-theme="dark"]) .vendasOpenNoteField > span,
+:global(html[data-theme-mode="dark"]) .vendasOpenObservationReturn .desktopReturnPlannerTop label > span,
+:global(html[data-theme="dark"]) .vendasOpenObservationReturn .desktopReturnPlannerTop label > span,
+:global(html[data-theme-mode="dark"]) .vendasOpenObservationReturn .desktopReturnWeekdays span,
+:global(html[data-theme="dark"]) .vendasOpenObservationReturn .desktopReturnWeekdays span {
+  color: rgba(210, 223, 242, 0.72);
+}
+
+:global(html[data-theme-mode="dark"]) .vendasOpenObservationPills span,
+:global(html[data-theme="dark"]) .vendasOpenObservationPills span,
+:global(html[data-theme-mode="dark"]) .vendasOpenObservationReturn .desktopReadyMessages,
+:global(html[data-theme="dark"]) .vendasOpenObservationReturn .desktopReadyMessages,
+:global(html[data-theme-mode="dark"]) .vendasOpenObservationReturn .desktopReadyMessages p,
+:global(html[data-theme="dark"]) .vendasOpenObservationReturn .desktopReadyMessages p,
+:global(html[data-theme-mode="dark"]) .vendasOpenNoteField textarea,
+:global(html[data-theme="dark"]) .vendasOpenNoteField textarea,
+:global(html[data-theme-mode="dark"]) .vendasOpenObservationReturn .desktopReturnInlineHeader,
+:global(html[data-theme="dark"]) .vendasOpenObservationReturn .desktopReturnInlineHeader,
+:global(html[data-theme-mode="dark"]) .vendasOpenObservationReturn .desktopReturnPlannerTop input,
+:global(html[data-theme="dark"]) .vendasOpenObservationReturn .desktopReturnPlannerTop input,
+:global(html[data-theme-mode="dark"]) .vendasOpenObservationReturn .desktopReturnCalendar,
+:global(html[data-theme="dark"]) .vendasOpenObservationReturn .desktopReturnCalendar,
+:global(html[data-theme-mode="dark"]) .vendasOpenObservationReturn .desktopReturnCalendar > header button,
+:global(html[data-theme="dark"]) .vendasOpenObservationReturn .desktopReturnCalendar > header button,
+:global(html[data-theme-mode="dark"]) .vendasOpenObservationReturn .desktopReturnCalendarGrid button,
+:global(html[data-theme="dark"]) .vendasOpenObservationReturn .desktopReturnCalendarGrid button,
+:global(html[data-theme-mode="dark"]) .vendasOpenObservationReturn .desktopReadyMessageActions button,
+:global(html[data-theme="dark"]) .vendasOpenObservationReturn .desktopReadyMessageActions button,
+:global(html[data-theme-mode="dark"]) .vendasOpenObservationReturn .desktopReadyMessageActions a,
+:global(html[data-theme="dark"]) .vendasOpenObservationReturn .desktopReadyMessageActions a,
+:global(html[data-theme-mode="dark"]) .vendasOpenReadyTop button,
+:global(html[data-theme="dark"]) .vendasOpenReadyTop button {
+  border-color: rgba(148, 190, 255, 0.24);
+  background: rgba(14, 35, 67, 0.92);
+  color: rgba(236, 245, 255, 0.9);
+}
+
+:global(html[data-theme-mode="dark"]) .vendasOpenObservationReturn .desktopReturnCalendarGrid button[data-selected="true"],
+:global(html[data-theme="dark"]) .vendasOpenObservationReturn .desktopReturnCalendarGrid button[data-selected="true"] {
+  border-color: #5ab5ff;
+  background: linear-gradient(135deg, #246bf4, #16a7ff);
+  color: #ffffff;
 }
 
 /* Desktop channel icon pass: approved docs/ICONES assets, centered and larger. */
@@ -22763,27 +21043,299 @@
   .stageGrid[data-detail-open="true"] .bulkSelectCardButton + .vendasClosedAvatar {
     margin-left: 8px !important;
   }
+
+  .stageGrid[data-detail-open="false"] .vendasClosedAside,
+  .stageGrid[data-detail-open="true"] .vendasClosedAside {
+    align-self: start !important;
+    align-content: start !important;
+    grid-template-columns: minmax(0, 94px) !important;
+    grid-auto-rows: max-content !important;
+    transform: none !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .vendasClosedAside .returnBadge,
+  .stageGrid[data-detail-open="true"] .vendasClosedAside .returnBadge,
+  .stageGrid[data-detail-open="false"] .vendasClosedAside button,
+  .stageGrid[data-detail-open="true"] .vendasClosedAside button {
+    display: none !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .vendasClosedAside .vendasClosedProduct,
+  .stageGrid[data-detail-open="true"] .vendasClosedAside .vendasClosedProduct,
+  .stageGrid[data-detail-open="false"] .vendasClosedAside .vendasClosedCredits,
+  .stageGrid[data-detail-open="true"] .vendasClosedAside .vendasClosedCredits {
+    justify-self: end !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .leadCard,
+  .stageGrid[data-detail-open="true"] .leadCard {
+    min-height: 176px !important;
+    max-height: 176px !important;
+    height: 176px !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .leadCard :global([class*="inner"]),
+  .stageGrid[data-detail-open="true"] .leadCard :global([class*="inner"]) {
+    min-height: 176px !important;
+    height: 176px !important;
+    padding: 12px 18px !important;
+    position: relative !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .vendasClosedCardTop,
+  .stageGrid[data-detail-open="true"] .vendasClosedCardTop {
+    grid-template-columns: 52px minmax(0, 1fr) !important;
+    grid-template-areas:
+      "avatar identity"
+      "avatar phone" !important;
+    min-height: 88px !important;
+    max-height: 88px !important;
+    padding-right: 102px !important;
+    box-sizing: border-box !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .vendasClosedAside,
+  .stageGrid[data-detail-open="true"] .vendasClosedAside {
+    position: absolute !important;
+    top: 0 !important;
+    right: 0 !important;
+    width: 94px !important;
+    z-index: 2 !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .leadCardChannelRow,
+  .stageGrid[data-detail-open="true"] .leadCardChannelRow {
+    top: auto !important;
+    bottom: 12px !important;
+    left: 18px !important;
+    right: 18px !important;
+  }
 }
 
 /* Desktop closed board: tighter columns so wide screens fit five cards per row. */
 @media (min-width: 821px) {
   .stageGrid[data-detail-open="false"] .cardsGrid {
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)) !important;
+    grid-template-columns: repeat(auto-fit, minmax(390px, 1fr)) !important;
     gap: 0.72rem !important;
   }
 
   .stageGrid[data-detail-open="false"] .vendasClosedCardTop {
-    grid-template-columns: 50px minmax(0, 1fr) 84px !important;
-    gap: 7px 10px !important;
+    grid-template-columns: 52px minmax(0, 1fr) 94px !important;
+    grid-template-areas:
+      "avatar identity aside"
+      "avatar phone aside" !important;
+    gap: 7px 12px !important;
+    padding-right: 0 !important;
   }
 
   .stageGrid[data-detail-open="false"] .vendasClosedAside {
-    min-width: 84px !important;
+    position: static !important;
+    width: auto !important;
+    min-width: 94px !important;
+    grid-area: aside !important;
   }
 
   .stageGrid[data-detail-open="false"] .leadCardChannelRow {
-    left: 12px !important;
-    right: 12px !important;
-    gap: 4px !important;
+    left: 18px !important;
+    right: 18px !important;
+    bottom: 16px !important;
+    gap: 5px !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .leadIdentity,
+  .stageGrid[data-detail-open="true"] .leadIdentity {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-rows: repeat(3, max-content) !important;
+    grid-auto-flow: row !important;
+    justify-items: start !important;
+    min-width: 0 !important;
+    width: auto !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .leadIdentity > *,
+  .stageGrid[data-detail-open="true"] .leadIdentity > *,
+  .stageGrid[data-detail-open="false"] .leadIdentity > strong,
+  .stageGrid[data-detail-open="true"] .leadIdentity > strong {
+    grid-column: 1 / -1 !important;
+    justify-self: stretch !important;
+    min-width: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .leadIdentity :global([class*="leadName"]),
+  .stageGrid[data-detail-open="true"] .leadIdentity :global([class*="leadName"]),
+  .stageGrid[data-detail-open="false"] .leadIdentity :global([class*="leadSubline"]),
+  .stageGrid[data-detail-open="true"] .leadIdentity :global([class*="leadSubline"]) {
+    display: block !important;
+    min-width: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  .stageGrid[data-detail-open="false"] .vendasClosedBadges,
+  .stageGrid[data-detail-open="true"] .vendasClosedBadges {
+    display: none !important;
+  }
+}
+
+/* Popup2 HBX: observation opens above the board while the cards keep their committed layout. */
+@media (min-width: 821px) {
+  .stageGrid[data-detail-open="true"] {
+    grid-template-columns: 74px minmax(390px, 520px) minmax(0, 1fr) !important;
+    gap: 1.05rem !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .stageAside {
+    display: contents !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .stageMain {
+    min-width: 0 !important;
+    transform: translate3d(-2px, 0, 0) !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .boardShell {
+    width: min(520px, 100%) !important;
+  }
+
+  .stageGrid[data-detail-open="true"] .stageMain .cardsGrid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 0.88rem !important;
+  }
+}
+
+.vendasObservationPopupLayer {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(8, 20, 40, 0.34);
+  backdrop-filter: blur(8px);
+}
+
+.vendasObservationPopup {
+  width: min(1180px, calc(100vw - 40px)) !important;
+  max-height: min(900px, calc(100dvh - 40px)) !important;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  grid-template-rows: auto minmax(0, 1fr) !important;
+  align-items: stretch !important;
+  gap: 0 !important;
+  overflow: hidden !important;
+  border-color: color-mix(in srgb, var(--brand) 26%, var(--line)) !important;
+  border-radius: 24px !important;
+  background: color-mix(in srgb, var(--surface-raised) 96%, var(--background)) !important;
+  box-shadow:
+    0 30px 90px -38px rgba(8, 20, 40, 0.46),
+    0 0 0 1px rgba(255, 255, 255, 0.62) inset !important;
+  padding: 0 !important;
+}
+
+.vendasObservationPopupTop {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--brand) 18%, var(--line));
+  background:
+    radial-gradient(circle at 0 0, color-mix(in srgb, var(--brand) 13%, transparent), transparent 36%),
+    color-mix(in srgb, var(--surface-raised) 98%, var(--background));
+  padding: 14px 18px;
+}
+
+.vendasObservationPopupTop div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.vendasObservationPopupTop strong {
+  color: var(--foreground);
+  font-size: 0.96rem;
+  font-weight: 900;
+  line-height: 1.1;
+}
+
+.vendasObservationPopupTop span {
+  max-width: min(520px, 60vw);
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 720;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vendasObservationPopupTop button {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  border: 1px solid color-mix(in srgb, var(--brand) 22%, var(--line));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 94%, var(--background));
+  color: var(--foreground);
+  font-size: 1.2rem;
+  font-weight: 760;
+  line-height: 1;
+}
+
+.vendasObservationPopupBody {
+  min-height: 0;
+  overflow: auto;
+  padding: 14px;
+  scrollbar-width: thin;
+}
+
+.vendasObservationPopup .detailLayout {
+  display: block !important;
+}
+
+.vendasObservationPopup .vendasOpenCard {
+  width: 100% !important;
+  min-width: 0 !important;
+  margin: 0 !important;
+}
+
+:global(html[data-theme-mode="dark"]) .vendasObservationPopupLayer,
+:global(html[data-theme="dark"]) .vendasObservationPopupLayer {
+  background: rgba(0, 8, 20, 0.54);
+}
+
+:global(html[data-theme-mode="dark"]) .vendasObservationPopup,
+:global(html[data-theme="dark"]) .vendasObservationPopup {
+  border-color: rgba(148, 190, 255, 0.24) !important;
+  background: rgba(7, 18, 38, 0.98) !important;
+  box-shadow:
+    0 30px 90px -38px rgba(0, 0, 0, 0.82),
+    0 0 0 1px rgba(148, 190, 255, 0.12) inset !important;
+}
+
+:global(html[data-theme-mode="dark"]) .vendasObservationPopupTop,
+:global(html[data-theme="dark"]) .vendasObservationPopupTop {
+  border-color: rgba(148, 190, 255, 0.2);
+  background:
+    radial-gradient(circle at 0 0, rgba(56, 189, 248, 0.12), transparent 36%),
+    rgba(9, 26, 52, 0.98);
+}
+
+@media (max-width: 820px) {
+  .vendasObservationPopupLayer {
+    padding: 10px;
+  }
+
+  .vendasObservationPopup {
+    width: calc(100vw - 20px) !important;
+    max-height: calc(100dvh - 20px) !important;
+    border-radius: 18px !important;
+  }
+
+  .vendasObservationPopupBody {
+    padding: 10px;
   }
 }

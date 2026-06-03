@@ -4445,9 +4445,6 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   const composerOpenRef = useRef(false);
   const mobileSkipDraftHydrateRef = useRef(false);
   const desktopTemplateTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const [expandedTimelineEventId, setExpandedTimelineEventId] = useState<
-    string | null
-  >(null);
 
   useEffect(() => {
     saveDesktopReadyMessageLibrary(desktopReadyTemplateTexts);
@@ -9405,22 +9402,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
 
   function renderDetailPanel() {
     if (!selectedLead || !selectedLeadDraft) {
-      return (
-        <aside className={styles.detailPanel} data-detail-panel="true">
-          <div className={styles.detailRail}>
-            <span>Fluxo UX: selecione um cliente</span>
-            <span className={styles.miniPill}>Operação</span>
-          </div>
-          <div className={styles.detailEmpty}>
-            <span className={styles.panelEyebrow}>Cliente</span>
-            <strong>Escolha um card para abrir a lateral.</strong>
-            <p>
-              O detalhe fica mais estreito e mostra só o que precisa ser operado
-              agora.
-            </p>
-          </div>
-        </aside>
-      );
+      return null;
     }
 
     const expandedView = leadExpandedCardView(selectedLead, board);
@@ -9432,36 +9414,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     const selectedReadyMessage = selectedCapabilities.canSeeMessageTemplates
       ? personalizeMobileReadyMessage(selectedReadyTemplateRaw, selectedLead, mobilePreferredCallerName)
       : "";
-    const selectedWhatsappHref = isLeadWhatsappConfirmed(selectedLead)
-      ? buildWhatsAppUrlWithMessage(selectedLead.phone, selectedReadyMessage)
-      : "";
-    const selectedEnrichmentLoading = mobileEnrichmentLoadingId === selectedLead.id;
-    const selectedEnrichmentOperation = leadEnrichmentOperationView(selectedLead, board, selectedEnrichmentLoading);
-    const desktopReturnBase = getMobileReturnDefaultDate(selectedLead);
-    const desktopReturnDraftValue = desktopReturnDrafts[selectedLead.id] ?? selectedLeadDraft.returnAt ?? "";
-    const desktopReturnDateKey =
-      String(desktopReturnDraftValue || "").slice(0, 10) ||
-      localDateKeyFromDate(desktopReturnBase);
-    const desktopReturnHasSelection = Boolean(String(desktopReturnDraftValue || "").trim());
-    const desktopReturnTime =
-      normalizeReturnTime(String(desktopReturnDraftValue || "").slice(11, 16)) ||
-      `${padDatePart(desktopReturnBase.getHours())}:${padDatePart(desktopReturnBase.getMinutes())}`;
-    const activeDesktopReturnMonthKey = desktopReturnMonthKey || monthKeyFromDateKey(desktopReturnDateKey);
-    const desktopReturnCalendarDays = buildCalendarDays(activeDesktopReturnMonthKey);
-    const desktopReturnMonthLabel = new Date(`${activeDesktopReturnMonthKey}-01T12:00:00`).toLocaleDateString("pt-BR", {
-      month: "long",
-      year: "numeric",
-    });
-    const applyDesktopReturnDate = (dateKey: string) => {
-      const nextReturnAt = `${dateKey}T${desktopReturnTime}`;
-      setDesktopReturnMonthKey(monthKeyFromDateKey(dateKey));
-      setDesktopReturnDrafts((current) => ({ ...current, [selectedLead.id]: nextReturnAt }));
-      setLeadDraft(selectedLead.id, {
-        status: "retorno",
-        returnAt: nextReturnAt,
-      });
-    };
-    const desktopObservationDraft = desktopObservationDrafts[selectedLead.id] ?? "";
+
     const setDesktopTemplates = (next: string[]) => {
       const clean = next.length ? next : [""];
       setDesktopReadyTemplateTexts(clean);
@@ -9500,46 +9453,135 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       });
     };
 
-    return (
-      <aside className={styles.detailPanel} data-detail-panel="true">
-        <div className={styles.detailLayout}>
+    const previewChannelKeys: LeadExpandedChannel["key"][] = ["instagram", "facebook", "whatsapp", "site", "email", "map"];
+    const previewChannels = previewChannelKeys
+      .map((key) => expandedView.channels.find((channel) => channel.key === key))
+      .filter(Boolean) as LeadExpandedChannel[];
+    const fieldByKey = (key: string) => expandedView.fields.find((field) => field.key === key);
+    const companyFields = ["cnpj", "email", "site", "phone", "address"]
+      .map((key) => fieldByKey(key))
+      .filter(Boolean) as LeadExpandedField[];
+    const scoreValue = Math.max(0, Math.min(100, expandedView.score || 0));
+    const qualityCopy = scoreValue >= 75
+      ? "Lead com alta qualidade e dados consistentes."
+      : scoreValue >= 55
+        ? "Lead com dados úteis para abordagem assistida."
+        : "Revise os dados antes da primeira abordagem.";
+    const potentialLabel = scoreValue >= 70 ? "Alto" : scoreValue >= 45 ? "Médio" : "Revisar";
+    const recommendedLabel = expandedView.recommendedChannel || "WhatsApp";
+    const recommendedLower = recommendedLabel.toLowerCase();
+    const recommendedIcon: HbxRadarIconName = recommendedLower.includes("whats")
+      ? "whatsapp"
+      : recommendedLower.includes("email") || recommendedLower.includes("e-mail")
+        ? "email"
+        : recommendedLower.includes("site")
+          ? "site"
+          : recommendedLower.includes("liga") || recommendedLower.includes("telefone")
+            ? "phone"
+            : "channel";
+    const channelScore = Math.max(scoreValue, expandedView.confidence || 0);
+    const evidenceItems = expandedView.evidence.length
+      ? expandedView.evidence
+      : [{ label: "Dados básicos conferidos", tone: "muted" as const }];
+    const evidenceCounter = `+${Math.max(6, evidenceItems.length + Math.round((expandedView.confidence || scoreValue || 50) / 6))} evidências`;
+    const selectedWhatsappHref = leadWhatsappHref(selectedLead) || buildWhatsAppUrlWithMessage(selectedLead.phone, selectedReadyMessage);
+    const selectedCallHref = buildCallUrl(selectedLeadDraft.phone || selectedLead.phone);
+    const desktopReturnBase = getMobileReturnDefaultDate(selectedLead);
+    const desktopReturnDraftValue = desktopReturnDrafts[selectedLead.id] ?? selectedLeadDraft.returnAt ?? "";
+    const desktopReturnDateKey =
+      String(desktopReturnDraftValue || "").slice(0, 10) ||
+      localDateKeyFromDate(desktopReturnBase);
+    const desktopReturnHasSelection = Boolean(String(desktopReturnDraftValue || "").trim());
+    const desktopReturnTime =
+      normalizeReturnTime(String(desktopReturnDraftValue || "").slice(11, 16)) ||
+      `${padDatePart(desktopReturnBase.getHours())}:${padDatePart(desktopReturnBase.getMinutes())}`;
+    const activeDesktopReturnMonthKey = desktopReturnMonthKey || monthKeyFromDateKey(desktopReturnDateKey);
+    const desktopReturnCalendarDays = buildCalendarDays(activeDesktopReturnMonthKey);
+    const desktopReturnMonthLabel = new Date(`${activeDesktopReturnMonthKey}-01T12:00:00`).toLocaleDateString("pt-BR", {
+      month: "long",
+      year: "numeric",
+    });
+    const desktopReturnSummary = desktopReturnHasSelection ? formatDateTime(desktopReturnDraftValue) : "Escolha data e horário";
+    const desktopObservationDraft = desktopObservationDrafts[selectedLead.id] ?? selectedLeadDraft.shortNote ?? "";
+    const applyDesktopReturnDate = (dateKey: string) => {
+      const nextReturnAt = `${dateKey}T${desktopReturnTime}`;
+      setDesktopReturnMonthKey(monthKeyFromDateKey(dateKey));
+      setDesktopReturnDrafts((current) => ({ ...current, [selectedLead.id]: nextReturnAt }));
+      setLeadDraft(selectedLead.id, {
+        status: "retorno",
+        returnAt: nextReturnAt,
+      });
+    };
+
+    if (typeof document === "undefined") return null;
+
+    return createPortal(
+      <div
+        className={styles.vendasObservationPopupLayer}
+        role="presentation"
+        onMouseDown={() => {
+          setSelectedLeadId(null);
+          setEditingLeadId(null);
+        }}
+      >
+        <section
+          className={`hbx-popup2 ${styles.vendasObservationPopup}`}
+          data-tone="info"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Observação de ${expandedView.closed.title}`}
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <header className={styles.vendasObservationPopupTop}>
+            <div>
+              <strong>Observação e retorno</strong>
+              <span>{expandedView.closed.title}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedLeadId(null);
+                setEditingLeadId(null);
+              }}
+              aria-label="Fechar observação"
+            >
+              ×
+            </button>
+          </header>
+          <div className={styles.vendasObservationPopupBody}>
+            <div className={styles.detailLayout}>
           <section className={styles.vendasOpenCard} data-product={expandedView.closed.productTone}>
             <header className={styles.vendasOpenHeader}>
               <div className={styles.vendasOpenIdentity}>
                 <div className={styles.vendasClosedAvatar} data-product={expandedView.closed.productTone} aria-hidden="true">
                   <span>{expandedView.closed.avatarText}</span>
                 </div>
-                <div>
+                <div className={styles.vendasOpenIdentityText}>
                   <div className={styles.vendasOpenTitleRow}>
                     <strong>{expandedView.closed.title}</strong>
-                    <div className={styles.vendasOpenHeaderChannels} aria-label="Canais do lead">
-                      {expandedView.channels.filter((channel) => channel.key !== "linkedin").slice(0, 7).map((channel) => (
-                        <a
-                          key={channel.key}
-                          href={channel.href || undefined}
-                          target={channel.external && channel.href ? "_blank" : undefined}
-                          rel={channel.external && channel.href ? "noreferrer" : undefined}
-                          aria-label={channel.label}
-                          aria-disabled={!channel.href || channel.status === "missing"}
-                          data-channel={channel.key}
-                          data-status={channel.status}
-                          title={channel.label}
-                          onClick={(event) => {
-                            if (!channel.href || channel.status === "missing") event.preventDefault();
-                          }}
-                        >
-                          <DesktopChannelDocIcon channel={channel.key} />
-                        </a>
-                      ))}
-                    </div>
+                    <span className={styles.vendasOpenVerified} aria-label="Lead verificado">✓</span>
                   </div>
-                  <span>{expandedView.closed.place} · {expandedView.closed.segment}</span>
-                  <small>{expandedView.updatedLabel}</small>
+                  <div className={styles.vendasOpenHeaderMeta}>
+                    <span>{expandedView.closed.place}</span>
+                    <span>{expandedView.closed.segment}</span>
+                  </div>
+                  <div className={styles.vendasClosedBadges} aria-label="Status do lead">
+                    {expandedView.closed.badges.map((badge) => (
+                      <span key={badge.key} data-tone={badge.tone}>
+                        <HbxRadarPngIcon name={closedBadgeRadarIconName(badge.key)} />
+                        {badge.label}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               </div>
               <div className={styles.vendasOpenProduct}>
-                <span data-product={expandedView.closed.productTone}>{expandedView.closed.productLabel}</span>
-                <b>{expandedView.closed.creditLabel}</b>
+                <span data-product={expandedView.closed.productTone}>
+                  <HbxRadarPngIcon name="lead-plus" />
+                  {expandedView.closed.productLabel}
+                </span>
+                <b><HbxRadarPngIcon name="coins" /> {expandedView.closed.creditLabel}</b>
+                <small>Custo por lead</small>
                 <button
                   type="button"
                   className={styles.vendasOpenCloseButton}
@@ -9550,133 +9592,221 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                   aria-label="Fechar detalhes e voltar para a lista"
                   title="Fechar detalhes"
                 >
-                  <span aria-hidden="true">×</span>
+                  <span aria-hidden="true">^</span>
                 </button>
               </div>
             </header>
 
-            <div className={styles.vendasClosedBadges} aria-label="Status do lead">
-              {expandedView.closed.badges.map((badge) => (
-                <span key={badge.key} data-tone={badge.tone}>
-                  <HbxRadarPngIcon name={closedBadgeRadarIconName(badge.key)} />
-                  {badge.label}
-                </span>
+            <div className={styles.vendasOpenDivider} />
+
+            <nav className={styles.vendasOpenChannels} aria-label="Canais do lead">
+              {previewChannels.map((channel) => (
+                <a
+                  key={channel.key}
+                  href={channel.href || undefined}
+                  target={channel.external && channel.href ? "_blank" : undefined}
+                  rel={channel.external && channel.href ? "noreferrer" : undefined}
+                  aria-label={channel.label}
+                  aria-disabled={!channel.href || channel.status === "missing"}
+                  data-channel={channel.key}
+                  data-status={channel.status}
+                  onClick={(event) => {
+                    if (!channel.href || channel.status === "missing") event.preventDefault();
+                  }}
+                >
+                  <span><DesktopChannelDocIcon channel={channel.key} /></span>
+                  <b>{channel.label}</b>
+                </a>
               ))}
-            </div>
+            </nav>
 
-            <div className={styles.vendasOpenGrid}>
-              <section className={styles.vendasOpenSection}>
+            <section className={styles.vendasOpenGrid}>
+              <section className={`${styles.vendasOpenSection} ${styles.vendasOpenDataCard}`}>
                 <h3><HbxRadarPngIcon name="cnpj" /> Dados da empresa</h3>
-                {expandedView.fields.map((field) => (
-                  <div key={field.key} data-tone={field.tone || "muted"}>
-                    <span>{field.label}</span>
-                    {field.href ? (
-                      <a href={field.href} target={field.external ? "_blank" : undefined} rel={field.external ? "noreferrer" : undefined}>
-                        {field.value}
-                      </a>
-                    ) : (
-                      <strong>{field.value}</strong>
-                    )}
-                  </div>
-                ))}
-              </section>
-
-              <section className={`${styles.vendasOpenSection} ${styles.vendasOpenQuality}`}>
-                <h3><HbxRadarPngIcon name="quality" /> Qualidade do lead</h3>
-                <div className={styles.vendasOpenGauge} style={{ ["--vendas-open-score" as string]: `${expandedView.score}%` } as CSSProperties}>
-                  <strong>{expandedView.score || "--"}</strong>
-                  <span>de 100</span>
-                </div>
-                <p>{expandedView.scoreLabel}</p>
-                <small>Confiança: {expandedView.confidenceLabel}</small>
-              </section>
-
-              <section className={styles.vendasOpenSection}>
-                <h3><HbxRadarPngIcon name="confidence" /> Confiança / Evidências</h3>
-                <div className={styles.vendasOpenEvidence}>
-                  {expandedView.evidence.map((item) => (
-                    <span key={item.label} data-tone={item.tone}>{item.label}</span>
+                <div className={styles.vendasOpenDataRows}>
+                  {companyFields.map((field) => (
+                    <div key={field.key} className={styles.vendasOpenDataRow} data-field={field.key} data-tone={field.tone || "muted"}>
+                      <span>{field.label}</span>
+                      {field.href ? (
+                        <a href={field.href} target={field.external ? "_blank" : undefined} rel={field.external ? "noreferrer" : undefined}>
+                          {field.value}
+                        </a>
+                      ) : (
+                        <strong>{field.value}</strong>
+                      )}
+                      <span className={styles.vendasOpenFieldAction} aria-hidden="true">{field.href ? "↗" : "□"}</span>
+                    </div>
                   ))}
                 </div>
               </section>
 
-              <section className={`${styles.vendasOpenSection} ${styles.vendasOpenEnrichmentOperation}`} data-tone={selectedEnrichmentOperation.tone}>
-                <h3><HbxRadarPngIcon name="radar" /> Enriquecimento</h3>
-                <strong>{selectedEnrichmentOperation.title}</strong>
-                <p>{selectedEnrichmentOperation.detail}</p>
+              <section className={`${styles.vendasOpenSection} ${styles.vendasOpenQuality}`}>
+                <h3><HbxRadarPngIcon name="quality" /> Qualidade do lead</h3>
+                <div className={styles.vendasOpenScoreCard}>
+                  <div className={styles.vendasOpenGauge} style={{ ["--vendas-open-score" as string]: `${scoreValue}%` } as CSSProperties}>
+                    <div>
+                      <strong>{scoreValue || "--"}</strong>
+                      <span>de 100</span>
+                    </div>
+                  </div>
+                  <div className={styles.vendasOpenQualityText}>
+                    <strong>{expandedView.scoreLabel}</strong>
+                    <p>{qualityCopy}</p>
+                  </div>
+                </div>
               </section>
 
               <section className={`${styles.vendasOpenSection} ${styles.vendasOpenInsight}`}>
                 <h3><HbxRadarPngIcon name="opportunity" /> Insight de oportunidade</h3>
                 <p>{expandedView.opportunity}</p>
+                <div className={styles.vendasOpenPotential}>
+                  <span aria-hidden="true">↗</span>
+                  <div>
+                    <strong>Potencial: {potentialLabel}</strong>
+                    <small>Boa aderência ao seu produto/serviço.</small>
+                  </div>
+                </div>
+              </section>
+
+              <section className={`${styles.vendasOpenSection} ${styles.vendasOpenEvidence}`}>
+                <h3><HbxRadarPngIcon name="confidence" /> Confiança / Evidências</h3>
+                <ul className={styles.vendasOpenEvidenceList}>
+                  {evidenceItems.slice(0, 5).map((item) => (
+                    <li key={item.label}>{item.label}</li>
+                  ))}
+                </ul>
+                <div className={styles.vendasOpenEvidenceAvatars}>
+                  <span /><span /><span /><span /><span /><span />
+                  <b>{evidenceCounter}</b>
+                </div>
               </section>
 
               <section className={`${styles.vendasOpenSection} ${styles.vendasOpenRecommended}`}>
                 <h3><HbxRadarPngIcon name="channel" /> Canal recomendado</h3>
-                <strong>{expandedView.recommendedChannel}</strong>
-                <p>{expandedView.nextAction}</p>
+                <div className={styles.vendasOpenChannelBox}>
+                  <span aria-hidden="true"><HbxRadarPngIcon name={recommendedIcon} /></span>
+                  <div>
+                    <strong>{recommendedLabel} <b>Score {channelScore || "--"}</b></strong>
+                    <p>{expandedView.nextAction}</p>
+                  </div>
+                </div>
               </section>
+            </section>
 
-              <section className={`${styles.vendasOpenSection} ${styles.vendasOpenOperation}`}>
-                <h3><HbxRadarPngIcon name="action" /> Observação e retorno</h3>
-                <div className={styles.desktopReadyMessages}>
+            <section className={styles.vendasOpenNextAction}>
+              <div>
+                <span aria-hidden="true">ϟ</span>
+                <div>
+                  <strong>Próxima melhor ação</strong>
+                  <p>{expandedView.nextAction}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className={styles.vendasOpenMessageButton}
+                onClick={() => setDesktopTemplateEditorOpen(true)}
+                disabled={!selectedCapabilities.canSeeMessageTemplates}
+              >
+                <HbxRadarPngIcon name="message" /> Ver modelo de mensagem
+              </button>
+              <a
+                className={styles.vendasOpenWhatsappButton}
+                href={selectedWhatsappHref || undefined}
+                target="_blank"
+                rel="noreferrer"
+                aria-disabled={!selectedWhatsappHref}
+                onClick={(event) => {
+                  if (!selectedWhatsappHref) event.preventDefault();
+                  else void incrementAttempt(selectedLead.id);
+                }}
+              >
+                <HbxRadarPngIcon name="whatsapp" /> Iniciar no WhatsApp
+              </a>
+            </section>
+
+            <section className={styles.vendasOpenObservationReturn} aria-label="Observação e retorno">
+              <header className={styles.vendasOpenObservationHeader}>
+                <div>
+                  <span aria-hidden="true">⚡</span>
+                  <div>
+                    <h3>Observação e retorno</h3>
+                    <p>Registro comercial, frase pronta e próxima ação no mesmo bloco</p>
+                  </div>
+                </div>
+                <div className={styles.vendasOpenObservationPills}>
+                  <span>Frases <strong>{activeDesktopTemplateIndex + 1} de {desktopTemplates.length}</strong></span>
+                  <span>Retorno <strong>{desktopReturnSummary}</strong></span>
+                  <span>Canal <strong>{recommendedLabel}</strong></span>
+                </div>
+              </header>
+
+              <div className={styles.vendasOpenObservationGrid}>
+                <section className={styles.vendasOpenObservationPanel}>
                   <header>
-                    <div>
-                      <span>Frases prontas</span>
-                      <strong>Mensagem WhatsApp</strong>
-                    </div>
-                    <div className={styles.desktopReadyMessageControls}>
-                      <b>{activeDesktopTemplateIndex + 1} de {desktopTemplates.length}</b>
-                      <button type="button" onClick={() => setDesktopTemplateEditorOpen((current) => !current)}>
+                    <h4>Mensagem WhatsApp</h4>
+                    <span>frases prontas</span>
+                  </header>
+
+                  <div className={styles.desktopReadyMessages}>
+                    <div className={styles.vendasOpenReadyTop}>
+                      <strong>Frases prontas</strong>
+                      <button type="button" onClick={() => setDesktopTemplateEditorOpen(true)}>
                         Editar frases
                       </button>
                     </div>
-                  </header>
-                  <p data-empty={selectedReadyMessage.trim() ? "false" : "true"}>
-                    {selectedReadyMessage.trim() || "Nenhuma frase pronta configurada."}
-                  </p>
-                  <div className={styles.desktopReadyMessageActions}>
-                    <button
-                      type="button"
-                      onClick={() => void copyMobileText(selectedReadyMessage, "Frase copiada.")}
-                      disabled={!selectedCapabilities.canSeeMessageTemplates || !selectedReadyMessage.trim()}
-                    >
-                      Copiar frase
-                    </button>
-                    <a
-                      href={selectedWhatsappHref || undefined}
-                      target="_blank"
-                      rel="noreferrer"
-                      aria-disabled={!selectedWhatsappHref || !selectedCapabilities.canSeeMessageTemplates || !selectedReadyMessage.trim()}
-                      onClick={(event) => {
-                        if (!selectedWhatsappHref || !selectedCapabilities.canSeeMessageTemplates || !selectedReadyMessage.trim()) event.preventDefault();
-                        else void incrementAttempt(selectedLead.id);
-                      }}
-                    >
-                      Enviar WhatsApp
-                    </a>
-                  </div>
-                </div>
-                <label>
-                  <span>Observação interna</span>
-                  <textarea
-                    value={desktopObservationDraft}
-                    onChange={(event) => setDesktopObservationDrafts((current) => ({
-                      ...current,
-                      [selectedLead.id]: event.target.value,
-                    }))}
-                    rows={4}
-                    maxLength={280}
-                    placeholder="Digite uma observação interna para ficar salva no sistema."
-                  />
-                </label>
-                <div className={styles.desktopReturnCompact}>
-                  <div className={styles.desktopReturnInlineHeader}>
-                    <div>
-                      <span>Agendar retorno</span>
-                      <strong>{desktopReturnHasSelection ? formatDateTime(desktopReturnDraftValue) : "Escolha data e horário"}</strong>
+                    <h5>Mensagem WhatsApp</h5>
+                    <p data-empty={selectedReadyMessage.trim() ? "false" : "true"}>
+                      {selectedReadyMessage.trim() || "Nenhuma frase pronta configurada."}
+                    </p>
+                    <div className={styles.desktopReadyMessageActions}>
+                      <button
+                        type="button"
+                        onClick={() => void copyMobileText(selectedReadyMessage, "Frase copiada.")}
+                        disabled={!selectedCapabilities.canSeeMessageTemplates || !selectedReadyMessage.trim()}
+                      >
+                        Copiar frase
+                      </button>
+                      <a
+                        href={selectedWhatsappHref || undefined}
+                        target="_blank"
+                        rel="noreferrer"
+                        aria-disabled={!selectedWhatsappHref || !selectedCapabilities.canSeeMessageTemplates || !selectedReadyMessage.trim()}
+                        onClick={(event) => {
+                          if (!selectedWhatsappHref || !selectedCapabilities.canSeeMessageTemplates || !selectedReadyMessage.trim()) event.preventDefault();
+                          else void incrementAttempt(selectedLead.id);
+                        }}
+                      >
+                        Enviar WhatsApp
+                      </a>
                     </div>
                   </div>
+
+                  <label className={styles.vendasOpenNoteField}>
+                    <span>Observação interna</span>
+                    <textarea
+                      value={desktopObservationDraft}
+                      onChange={(event) => setDesktopObservationDrafts((current) => ({
+                        ...current,
+                        [selectedLead.id]: event.target.value,
+                      }))}
+                      rows={6}
+                      maxLength={280}
+                      placeholder="Digite uma observação interna para ficar salva no sistema."
+                    />
+                  </label>
+                </section>
+
+                <aside className={`${styles.vendasOpenObservationPanel} ${styles.desktopReturnCompact}`}>
+                  <header>
+                    <h4>Próximo retorno</h4>
+                    <span>agenda do lead</span>
+                  </header>
+
+                  <div className={styles.desktopReturnInlineHeader}>
+                    <span>Agendar retorno</span>
+                    <strong>{desktopReturnSummary}</strong>
+                  </div>
+
                   <div className={styles.desktopReturnPlannerTop}>
                     <label>
                       <span>Próxima ação</span>
@@ -9702,6 +9832,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                       />
                     </label>
                   </div>
+
                   <div className={styles.desktopReturnCalendar}>
                     <header>
                       <button type="button" onClick={() => setDesktopReturnMonthKey((current) => shiftMonthKey(current || activeDesktopReturnMonthKey, -1))} aria-label="Mês anterior">‹</button>
@@ -9720,7 +9851,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                             type="button"
                             key={day.key}
                             data-date-key={day.key}
-                            data-selected={desktopReturnHasSelection && day.key === desktopReturnDateKey ? "true" : "false"}
+                            data-selected={day.key === desktopReturnDateKey ? "true" : "false"}
                             onClick={() => applyDesktopReturnDate(day.key)}
                           >
                             {day.day}
@@ -9731,9 +9862,13 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                       ))}
                     </div>
                   </div>
-                </div>
+                </aside>
+              </div>
+
+              <footer className={styles.vendasOpenObservationFooter}>
                 <button
                   type="button"
+                  className={styles.vendasOpenSaveButton}
                   onClick={() => void saveLead(
                     selectedLead.id,
                     {
@@ -9748,213 +9883,131 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 >
                   {savingLeadId === selectedLead.id ? "Salvando" : "Salvar alterações"}
                 </button>
-              </section>
-              <HbxPopup1
-                open={desktopTemplateEditorOpen}
-                title="Editor de frases prontas"
-                eyebrow="Vendas"
-                tone="info"
-                description="Crie mensagens para enviar no WhatsApp. Variáveis entram no texto e são preenchidas no envio."
-                onClose={() => setDesktopTemplateEditorOpen(false)}
-                primaryAction={(
+                <div>
                   <button
                     type="button"
-                    className="hbx-popup1__primary"
-                    onClick={() => {
-                      saveDesktopReadyMessageLibrary(desktopTemplates);
-                      setFeedback("Frases prontas salvas.");
-                      setDesktopTemplateEditorOpen(false);
+                    data-tone="sale"
+                    onClick={() => openAssistedSignup(selectedLead)}
+                    disabled={assistedSignupSaving || savingLeadId === selectedLead.id}
+                  >
+                    Fechou venda
+                  </button>
+                  <a
+                    href={selectedCallHref || undefined}
+                    aria-disabled={!selectedCallHref}
+                    onClick={(event) => {
+                      if (!selectedCallHref) event.preventDefault();
+                      else void runQuickAction(selectedLead, "tentativa_call");
                     }}
                   >
-                    Salvar frases
-                  </button>
-                )}
-                secondaryAction={(
-                  <button
-                    type="button"
-                    className="hbx-popup1__ghost"
-                    onClick={() => setDesktopTemplateEditorOpen(false)}
+                    Ligar
+                  </a>
+                  <a
+                    href={selectedWhatsappHref || undefined}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-disabled={!selectedWhatsappHref}
+                    onClick={(event) => {
+                      if (!selectedWhatsappHref) event.preventDefault();
+                      else void incrementAttempt(selectedLead.id);
+                    }}
                   >
-                    Fechar
-                  </button>
-                )}
-              >
-                <div className={`${styles.desktopTemplatePopupContent} vendasDesktopTemplatePopupRoot`}>
-                  <div className={styles.desktopTemplatePopupBar}>
-                    <span>{activeDesktopTemplateIndex + 1} de {desktopTemplates.length}</span>
-                    <div>
-                      <button type="button" onClick={addDesktopTemplate} disabled={desktopTemplates.length >= 20}>+</button>
-                      <button type="button" onClick={() => setDesktopTemplateIndex((current) => Math.min(current + 1, desktopTemplates.length - 1))} disabled={activeDesktopTemplateIndex >= desktopTemplates.length - 1}>&gt;</button>
-                      <button type="button" onClick={() => setDesktopTemplateIndex((current) => Math.max(0, current - 1))} disabled={activeDesktopTemplateIndex <= 0}>&lt;</button>
-                      <button type="button" onClick={removeDesktopTemplate} disabled={desktopTemplates.length <= 1}>Del</button>
-                    </div>
-                  </div>
-                  <textarea
-                    ref={desktopTemplateTextareaRef}
-                    value={selectedReadyTemplateRaw}
-                    onChange={(event) => updateDesktopTemplate(event.target.value)}
-                    disabled={!selectedCapabilities.canSeeMessageTemplates}
-                    placeholder="Escreva a frase pronta para enviar pelo WhatsApp."
-                  />
-                  <div className={styles.desktopTemplateVariablePanel}>
-                    <div>
-                      <strong>Variáveis</strong>
-                      <span>Insira no cursor do texto</span>
-                    </div>
-                    <div>
-                      {[
-                        ["{{company}}", "Empresa"],
-                        ["{{city}}", "Cidade"],
-                        ["{{segment}}", "Segmento"],
-                        ["{{phone}}", "Telefone"],
-                        ["{{seller}}", "Vendedor"],
-                      ].map(([token, label]) => (
-                        <button type="button" key={token} onClick={() => insertDesktopVariable(token)}>
-                          <b>{label}</b>
-                          <span>{token}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className={styles.desktopTemplateLivePreview}>
-                    <span>Prévia WhatsApp</span>
-                    <p>{selectedReadyMessage.trim() || "A prévia aparece quando uma frase for criada."}</p>
-                  </div>
+                    Iniciar no WhatsApp
+                  </a>
+                  {selectedLead.status !== "encerrado" ? (
+                    <button
+                      type="button"
+                      data-tone="danger"
+                      onClick={() => void runQuickAction(selectedLead, "encerrar")}
+                    >
+                      Encerrar
+                    </button>
+                  ) : null}
                 </div>
-              </HbxPopup1>
-            </div>
+              </footer>
+            </section>
+          </section>
 
-            <footer className={styles.vendasOpenActions}>
-              {selectedEnrichmentOperation.canRequest ? (
-                <button
-                  type="button"
-                  onClick={() => void loadMobileLeadEnrichment(selectedLead)}
-                >
-                  {selectedEnrichmentOperation.action}
-                </button>
-              ) : null}
+          <HbxPopup1
+            open={desktopTemplateEditorOpen}
+            title="Editor de frases prontas"
+            eyebrow="Vendas"
+            tone="info"
+            description="Crie mensagens para enviar no WhatsApp. Variáveis entram no texto e são preenchidas no envio."
+            onClose={() => setDesktopTemplateEditorOpen(false)}
+            primaryAction={(
               <button
                 type="button"
-                data-tone="sale"
-                onClick={() => openAssistedSignup(selectedLead)}
-                disabled={assistedSignupSaving || savingLeadId === selectedLead.id}
+                className="hbx-popup1__primary"
+                onClick={() => {
+                  saveDesktopReadyMessageLibrary(desktopTemplates);
+                  setFeedback("Frases prontas salvas.");
+                  setDesktopTemplateEditorOpen(false);
+                }}
               >
-                Fechou venda
+                Salvar frases
               </button>
-              <a
-                href={buildCallUrl(selectedLeadDraft.phone || selectedLead.phone) || undefined}
-                aria-disabled={!buildCallUrl(selectedLeadDraft.phone || selectedLead.phone)}
-                onClick={(event) => {
-                  const href = buildCallUrl(selectedLeadDraft.phone || selectedLead.phone);
-                  if (!href) event.preventDefault();
-                  else void runQuickAction(selectedLead, "tentativa_call");
-                }}
-              >
-                Ligar
-              </a>
-              <a
-                href={selectedWhatsappHref || undefined}
-                target="_blank"
-                rel="noreferrer"
-                aria-disabled={!selectedWhatsappHref}
-                onClick={(event) => {
-                  if (!selectedWhatsappHref) event.preventDefault();
-                  else void incrementAttempt(selectedLead.id);
-                }}
-              >
-                Iniciar no WhatsApp
-              </a>
-              {selectedLead.status !== "encerrado" ? (
-                <button
-                  type="button"
-                  data-tone="danger"
-                  onClick={() => void runQuickAction(selectedLead, "encerrar")}
-                >
-                  Encerrar
-                </button>
-              ) : null}
-            </footer>
-          </section>
-
-          <section className={styles.timelineSection}>
-            <div className={styles.sectionTopline}>
-              <div>
-                <span className={styles.panelEyebrow}>Timeline</span>
-              </div>
-              <span className={styles.miniPill}>
-                {(selectedLead.timeline || []).length} evento(s)
-              </span>
-            </div>
-            {(selectedLead.timeline || []).length ? (
-              <div className={styles.timelineList}>
-                {(selectedLead.timeline || []).map((event) => {
-                  const isExpanded = expandedTimelineEventId === event.id;
-                  const titleText =
-                    event.eventType === "return_scheduled"
-                      ? "Retorno agendado"
-                      : event.title;
-                  return (
-                    <article
-                      key={event.id}
-                      className={styles.timelineItem}
-                      data-tone={timelineTone(event.eventType)}
-                      data-expanded={isExpanded ? "true" : "false"}
-                      onClick={() =>
-                        setExpandedTimelineEventId(isExpanded ? null : event.id)
-                      }
-                    >
-                      <div className={styles.timelineDot} />
-                      <div className={styles.timelineBody}>
-                        <div className={styles.timelineTopline}>
-                          <strong>{titleText}</strong>
-                          <span>
-                            {isExpanded
-                              ? event.createdAt
-                                ? formatDateTime(event.createdAt)
-                                : "Agora"
-                              : ""}
-                          </span>
-                        </div>
-                        {isExpanded ? (
-                          <p>
-                            {event.description ||
-                              "Movimento comercial registrado."}
-                          </p>
-                        ) : null}
-                        {isExpanded ? (
-                          <span className={styles.timelineMeta}>
-                            {timelineMeta(event)}
-                          </span>
-                        ) : null}
-                        {event.conversationReference?.conversationId ? (
-                          <button
-                            type="button"
-                            className={styles.timelineConversationLink}
-                            onClick={(clickEvent) => {
-                              clickEvent.stopPropagation();
-                              void openConversationSnapshot(selectedLead, event);
-                            }}
-                          >
-                            Ver conversa
-                          </button>
-                        ) : null}
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className={styles.emptyPanel}>
-                <strong>Nenhum evento registrado</strong>
-                <p>A timeline aparece conforme o lead é movimentado.</p>
-              </div>
             )}
-          </section>
-        </div>
-      </aside>
+            secondaryAction={(
+              <button
+                type="button"
+                className="hbx-popup1__ghost"
+                onClick={() => setDesktopTemplateEditorOpen(false)}
+              >
+                Fechar
+              </button>
+            )}
+          >
+            <div className={`${styles.desktopTemplatePopupContent} vendasDesktopTemplatePopupRoot`}>
+              <div className={styles.desktopTemplatePopupBar}>
+                <span>{activeDesktopTemplateIndex + 1} de {desktopTemplates.length}</span>
+                <div>
+                  <button type="button" onClick={addDesktopTemplate} disabled={desktopTemplates.length >= 20}>+</button>
+                  <button type="button" onClick={() => setDesktopTemplateIndex((current) => Math.min(current + 1, desktopTemplates.length - 1))} disabled={activeDesktopTemplateIndex >= desktopTemplates.length - 1}>&gt;</button>
+                  <button type="button" onClick={() => setDesktopTemplateIndex((current) => Math.max(0, current - 1))} disabled={activeDesktopTemplateIndex <= 0}>&lt;</button>
+                  <button type="button" onClick={removeDesktopTemplate} disabled={desktopTemplates.length <= 1}>Del</button>
+                </div>
+              </div>
+              <textarea
+                ref={desktopTemplateTextareaRef}
+                value={selectedReadyTemplateRaw}
+                onChange={(event) => updateDesktopTemplate(event.target.value)}
+                disabled={!selectedCapabilities.canSeeMessageTemplates}
+                placeholder="Escreva a frase pronta para enviar pelo WhatsApp."
+              />
+              <div className={styles.desktopTemplateVariablePanel}>
+                <div>
+                  <strong>Variáveis</strong>
+                  <span>Insira no cursor do texto</span>
+                </div>
+                <div>
+                  {[
+                    ["{{company}}", "Empresa"],
+                    ["{{city}}", "Cidade"],
+                    ["{{segment}}", "Segmento"],
+                    ["{{phone}}", "Telefone"],
+                    ["{{seller}}", "Vendedor"],
+                  ].map(([token, label]) => (
+                    <button type="button" key={token} onClick={() => insertDesktopVariable(token)}>
+                      <b>{label}</b>
+                      <span>{token}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className={styles.desktopTemplateLivePreview}>
+                <span>Prévia WhatsApp</span>
+                <p>{selectedReadyMessage.trim() || "A prévia aparece quando uma frase for criada."}</p>
+              </div>
+            </div>
+          </HbxPopup1>
+            </div>
+          </div>
+        </section>
+      </div>,
+      document.body,
     );
   }
-
   function renderPipelineBoard() {
     if (!selectedFilter) {
       return (
