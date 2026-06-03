@@ -1203,8 +1203,8 @@ function HeroPremiumCrown({ active }: { active: boolean }) {
       href={toMobileRoute("/planos?intent=lead")}
       className={styles.mobileHeroPremiumCrown}
       data-active={active ? "true" : "false"}
-      aria-label={active ? "Ver plano HBX Lead" : "Fazer upgrade para HBX Lead"}
-      title={active ? "Ver plano HBX Lead" : "Upgrade para HBX Lead"}
+      aria-label={active ? "Ver plano HBX Lead Plus" : "Fazer upgrade para HBX Lead Plus"}
+      title={active ? "Ver plano HBX Lead Plus" : "Upgrade para HBX Lead Plus"}
     >
       <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
         <path d="M4.2 18.5h15.6l.7-9.9-4.6 3.5L12 4.7 8.1 12.1 3.5 8.6l.7 9.9Z" />
@@ -1279,8 +1279,8 @@ const SALE_STATUS_OPTIONS: Array<{ value: SaleStatus; label: string }> = [
 ];
 
 const SALE_PLAN_OPTIONS = [
-  { value: "hbx_lite", label: "HBX List", shortLabel: "List", monthlyPrice: 39.9 },
-  { value: "hbx_padrao", label: "HBX Lead+", shortLabel: "Lead+", monthlyPrice: 99.9 },
+  { value: "hbx_lite", label: "HBX List", shortLabel: "List", monthlyPrice: 45 },
+  { value: "hbx_padrao", label: "HBX Lead Plus", shortLabel: "Lead Plus", monthlyPrice: 99 },
   { value: "hbx_melhor", label: "HBX Full", shortLabel: "Full", monthlyPrice: 149.9 },
 ] as const;
 
@@ -2074,7 +2074,7 @@ function leadEnrichmentBadgeState(lead: LeadItem, board?: BoardResponse | null) 
     return {
       state: "locked" as const,
       label: "Lead",
-      title: "Sinais premium encontrados. Disponível no HBX Lead.",
+      title: "Sinais premium encontrados. Disponível no HBX Lead Plus.",
     };
   }
   if (fromRadar && hasPremiumSignals && !readyTier && !completedByEnrichment) {
@@ -2824,12 +2824,12 @@ function normalizeSalePlanKey(value?: string | null) {
 
 function salePlanLabel(value?: string | null) {
   const normalized = normalizeSalePlanKey(value);
-  return SALE_PLAN_OPTIONS.find((item) => item.value === normalized)?.label || "HBX Lead+";
+  return SALE_PLAN_OPTIONS.find((item) => item.value === normalized)?.label || "HBX Lead Plus";
 }
 
 function salePlanPrice(value?: string | null) {
   const normalized = normalizeSalePlanKey(value);
-  return SALE_PLAN_OPTIONS.find((item) => item.value === normalized)?.monthlyPrice || 99.9;
+  return SALE_PLAN_OPTIONS.find((item) => item.value === normalized)?.monthlyPrice || 99;
 }
 
 function salePlanAmountInput(value?: string | null) {
@@ -3719,7 +3719,7 @@ function LeadCardView({
                   <Link
                     key={asset.channel}
                     href={toMobileRoute("/planos?intent=lead")}
-                    aria-label={`${label} disponível no HBX Lead`}
+                    aria-label={`${label} disponível no HBX Lead Plus`}
                     onClick={(event) => event.stopPropagation()}
                   >
                     {icon}
@@ -3750,8 +3750,8 @@ function LeadCardView({
               href={toMobileRoute("/planos?intent=lead")}
               className={styles.leadCardPremiumIcon}
               data-state={premiumBadge?.state || "none"}
-              aria-label={premiumBadge?.title || "HBX Lead premium"}
-              title={premiumBadge?.title || "HBX Lead premium"}
+              aria-label={premiumBadge?.title || "HBX Lead Plus premium"}
+              title={premiumBadge?.title || "HBX Lead Plus premium"}
               onClick={(event) => event.stopPropagation()}
             >
               <PremiumDocIcon />
@@ -6383,11 +6383,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
             href={toMobileRoute("/planos?intent=lead")}
             className={styles.mobileVendasPremiumChannels}
             data-compact={compact ? "true" : "false"}
-            aria-label="Redes encontradas no HBX Lead"
+            aria-label="Redes encontradas no HBX Lead Plus"
             onClick={(event) => event.stopPropagation()}
           >
             <CrownGlyph />
-            Redes encontradas no HBX Lead
+            Redes encontradas no HBX Lead Plus
           </Link>
         ) : null}
       </>
@@ -6872,7 +6872,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
             </div>
             {!activeCapabilities.canSeeConversionReport ? (
               <div className={styles.mobileVendasTeaser}>
-                Relatório inteligente disponível no HBX Lead
+                Relatório inteligente disponível no HBX Lead Plus
               </div>
             ) : null}
             <div className={styles.mobileVendasReportGrid}>
@@ -6905,7 +6905,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
               Exportar PDF
             </button>
             {!activeCapabilities.canExportConversionPdf ? (
-              <small className={styles.mobileVendasReportLock}>Exportação PDF disponível no HBX Lead</small>
+              <small className={styles.mobileVendasReportLock}>Exportação PDF disponível no HBX Lead Plus</small>
             ) : null}
           </section>
           {renderSellerAuditPanel("mobile")}
@@ -7277,9 +7277,9 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       const suggestedAction = lead.nextAction || nextBestActionLabel(intelligence.nextBestAction);
       const priorityLabel = score ? scoreLabel : "Aguardando dados";
       const premiumTeaser = socialTeaserVisible
-        ? { label: "Redes encontradas", cta: "Disponível no HBX Lead - Ver card inteligente" }
+        ? { label: "Redes encontradas", cta: "Disponível no HBX Lead Plus - Ver card inteligente" }
         : !intelligenceVisible && intelligence.premiumTeaser
-        ? { label: intelligence.premiumTeaser.label || "Disponível no HBX Lead", cta: intelligence.premiumTeaser.cta || "Ver card inteligente" }
+        ? { label: intelligence.premiumTeaser.label || "Disponível no HBX Lead Plus", cta: intelligence.premiumTeaser.cta || "Ver card inteligente" }
         : null;
       const enrichmentDisplay = leadEnrichmentDisplay(lead, board);
       const mobileLeadActionBar = (
@@ -7373,7 +7373,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                     locked={!intelligenceVisible}
                     value={visibleScore}
                     label={!intelligenceVisible ? "♕ Score" : "Score"}
-                    caption={intelligenceVisible ? priorityLabel : "HBX Lead"}
+                    caption={intelligenceVisible ? priorityLabel : "HBX Lead Plus"}
                   />
                 </button>
                 <div className={styles.mobileLeadHeroMeta} aria-label="Resumo do lead">
@@ -7619,7 +7619,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 <p>
                   {capabilities.canSeeOpportunityReason
                     ? intelligence.opportunityReason || "Revise os sinais comerciais antes da abordagem."
-                    : "Motivo da oportunidade disponível no HBX Lead."}
+                    : "Motivo da oportunidade disponível no HBX Lead Plus."}
                 </p>
               </section>
 
@@ -7661,7 +7661,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 </h3>
                 <p>
                   {!capabilities.canSeeMessageTemplates
-                    ? "Mensagem pronta por segmento disponível no HBX Lead."
+                    ? "Mensagem pronta por segmento disponível no HBX Lead Plus."
                     : loadingEnrichment
                       ? "Verificando WhatsApp..."
                       : readyMessage}
@@ -7974,7 +7974,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                     data-active={active ? "true" : "false"}
                     disabled={!mobileVisualFiltersUnlocked}
                     onClick={() => toggleMobileVisualFilter(filter.value)}
-                    title={mobileVisualFiltersUnlocked ? filter.label : "Disponível no HBX Lead"}
+                    title={mobileVisualFiltersUnlocked ? filter.label : "Disponível no HBX Lead Plus"}
                     aria-label={`${active ? "Remover filtro" : "Filtrar por"} ${filter.label}`}
                   >
                     <MobileChannelIconAsset channel={filter.asset} />
@@ -8066,7 +8066,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                     -
                   </button>
                   <label>
-                    <span>{mobileVisualFiltersUnlocked ? "Arraste para calibrar a régua" : "Disponível no HBX Lead"}</span>
+                    <span>{mobileVisualFiltersUnlocked ? "Arraste para calibrar a régua" : "Disponível no HBX Lead Plus"}</span>
                     <input
                       type="range"
                       min="0"

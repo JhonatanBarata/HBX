@@ -80,7 +80,7 @@ export const SEGMENT_PLAYBOOKS: SegmentPlaybook[] = [
     key: 'oficina',
     keywords: ['oficina', 'auto', 'mecanica', 'funilaria', 'pneus'],
     pain: 'orçamento e retorno de serviços',
-    offer: 'HBX Lead',
+    offer: 'HBX Lead Plus',
     approach: 'Vi que oficinas perdem muito orçamento quando o retorno não fica organizado.',
     questions: ['Vocês acompanham orçamento sem resposta?', 'O cliente recebe lembrete para aprovar serviço?'],
   },
@@ -88,7 +88,7 @@ export const SEGMENT_PLAYBOOKS: SegmentPlaybook[] = [
     key: 'restaurante',
     keywords: ['restaurante', 'pizzaria', 'lanchonete', 'delivery', 'hamburgueria', 'bar'],
     pain: 'pedido, cardápio e retorno de cliente',
-    offer: 'HBX Lead',
+    offer: 'HBX Lead Plus',
     approach: 'WhatsApp pode virar canal de pedido organizado quando cardápio e retorno ficam claros.',
     questions: ['O cardápio está fácil no WhatsApp?', 'Pedidos abandonados recebem retorno?'],
   },
@@ -277,7 +277,7 @@ export function calculateHbxOpportunityScore(lead: any, enrichment: any = {}, co
   }
   digitalPresenceScore = clampScore(digitalPresenceScore);
   const opportunityLevel = resolveLevel(opportunityScore);
-  const offer = playbook?.offer || (detectedProblems.some((item) => item.includes('site')) ? 'HBX Website + HBX Lead' : 'HBX Full — Bot e IA');
+  const offer = playbook?.offer || (detectedProblems.some((item) => item.includes('site')) ? 'HBX Website + HBX Lead Plus' : 'HBX Full — Bot e IA');
   const leadName = safeText(lead?.name, 90) || 'essa empresa';
   const segment = safeText(lead?.segment || lead?.normalizedSegment, 80) || 'seu segmento';
   const firstProblem = detectedProblems[0] || 'há espaço para melhorar a conversão digital';

@@ -104,7 +104,7 @@ export function commercialPlanByKey(payload: CommercialPlansPayload | null, key:
 export function getCommercialPlanTitle(key?: CommercialPlanKey | null) {
   if (key === "hbx_lite") return "HBX List";
   if (key === "hbx_melhor") return "HBX Full — Bot e IA";
-  if (key === "hbx_padrao") return "HBX Lead";
+  if (key === "hbx_padrao") return "HBX Lead Plus";
   return "Sem plano comercial";
 }
 

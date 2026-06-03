@@ -8,8 +8,8 @@ import {
 } from './commercial-plan-catalog';
 
 test('HBX commercial catalog exposes package prices and quotas', () => {
-  assert.equal(COMMERCIAL_PRICING.liteMonthly, 39.90);
-  assert.equal(COMMERCIAL_PRICING.padraoMonthly, 99.90);
+  assert.equal(COMMERCIAL_PRICING.liteMonthly, 45.00);
+  assert.equal(COMMERCIAL_PRICING.padraoMonthly, 99.00);
   assert.equal(COMMERCIAL_PRICING.melhorMonthly, 149.90);
   assert.equal(COMMERCIAL_PRICING.extraUserMonthly, 24.90);
   assert.equal(COMMERCIAL_PRICING.annualDiscountPercent, 20);
@@ -19,7 +19,7 @@ test('HBX commercial catalog exposes package prices and quotas', () => {
 
   const lite = catalog.find((plan) => plan.key === COMMERCIAL_PLAN_KEYS.LITE);
   assert.equal(lite?.title, 'HBX List');
-  assert.equal(lite?.monthlyPrice, 39.90);
+  assert.equal(lite?.monthlyPrice, 45.00);
   assert.equal(lite?.status, 'available');
   assert.equal(lite?.trialDays, 0);
   assert.equal(lite?.includedUsers, 1);
@@ -34,8 +34,8 @@ test('HBX commercial catalog exposes package prices and quotas', () => {
 
   const fullCatalog = buildCommercialPlansCatalog({ includeHidden: true });
   const padrao = fullCatalog.find((plan) => plan.key === COMMERCIAL_PLAN_KEYS.PADRAO);
-  assert.equal(padrao?.title, 'HBX Lead');
-  assert.equal(padrao?.monthlyPrice, 99.90);
+  assert.equal(padrao?.title, 'HBX Lead Plus');
+  assert.equal(padrao?.monthlyPrice, 99.00);
   assert.equal(padrao?.trialDays, 14);
   assert.equal(padrao?.hidden, false);
   assert.equal(padrao?.recommended, true);

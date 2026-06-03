@@ -368,7 +368,7 @@ export class RadarCorePresentationMixin {
 
     const planKey = resolveCommercialPlanKeyForCapabilities(company);
     const message = planKey === COMMERCIAL_PLAN_KEYS.LITE
-      ? 'O HBX List nÃ£o inclui buscas Google diÃ¡rias. Os motores gratuitos continuam liberados. Para buscas Google, escolha o HBX Lead ou HBX Full â€” Bot e IA.'
+      ? 'O HBX List nÃ£o inclui buscas Google diÃ¡rias. Os motores gratuitos continuam liberados. Para buscas Google, escolha o HBX Lead Plus ou HBX Full â€” Bot e IA.'
       : `${GOOGLE_DAILY_LIMIT_REACHED_MESSAGE} Seu plano permite ${dailyLimit} busca(s) Google por dia.`;
     await this.recordUsageLog(context, input, 'BLOCKED_DAILY_LIMIT', 0, message);
     throw new ForbiddenException({
@@ -2978,7 +2978,7 @@ export class RadarCorePresentationMixin {
     if (!access.canUsePremium) {
       throw new ForbiddenException({
         code: 'RADAR_PREMIUM_PLAN_REQUIRED',
-        message: 'Enriquecimento com Instagram, Facebook, site e email estÃ¡ disponÃ­vel no HBX Lead ou superior.',
+        message: 'Enriquecimento com Instagram, Facebook, site e email estÃ¡ disponÃ­vel no HBX Lead Plus ou superior.',
         redirectTo: '/planos?intent=radar_premium',
         requiredPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO,
         currentPlanKey: access.planKey,

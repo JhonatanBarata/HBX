@@ -2131,7 +2131,7 @@ test('buildRadarLeadPublic sanitiza email de asset e social incompativel', () =>
   assert.equal(item.deliveryProduct, 'list');
 });
 
-test('canUseRadarSmartLeadFields libera somente HBX Lead ou superior', async () => {
+test('canUseRadarSmartLeadFields libera somente HBX Lead Plus ou superior', async () => {
   const liteService = new WebscrapingService(createPrisma({
     company: {
       findUnique: async () => ({

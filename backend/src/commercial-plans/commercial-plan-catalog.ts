@@ -45,8 +45,8 @@ export type CommercialPlanCapabilities = {
 };
 
 export const COMMERCIAL_PRICING = {
-  liteMonthly: 39.90,
-  padraoMonthly: 99.90,
+  liteMonthly: 45.00,
+  padraoMonthly: 99.00,
   melhorMonthly: 149.90,
   extraUserMonthly: 24.90,
   annualDiscountPercent: 20,
@@ -200,7 +200,7 @@ export function getCommercialPlanTitle(planKey: unknown) {
   const normalized = normalizeCommercialPlanKey(planKey);
   if (normalized === COMMERCIAL_PLAN_KEYS.LITE) return 'HBX List';
   if (normalized === COMMERCIAL_PLAN_KEYS.MELHOR) return 'HBX Full — Bot e IA';
-  return 'HBX Lead';
+  return 'HBX Lead Plus';
 }
 
 export function getCommercialPlanTier(planKey: unknown): CommercialPlanTier {
@@ -288,7 +288,7 @@ export function buildCommercialPlansCatalog(options: { includeHidden?: boolean }
     },
     {
       key: COMMERCIAL_PLAN_KEYS.PADRAO,
-      title: 'HBX Lead',
+      title: 'HBX Lead Plus',
       status: 'available',
       monthlyPrice: COMMERCIAL_PRICING.padraoMonthly,
       trialDays: 14,

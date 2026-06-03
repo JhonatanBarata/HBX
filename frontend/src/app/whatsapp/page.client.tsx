@@ -694,7 +694,7 @@ export default function WhatsAppCenterClientPage() {
             pairingPhoneLocked={leadTrialPhoneLocked}
             lockedPhoneNotice={
               leadTrialPhoneLocked
-                ? "No trial HBX Lead, o WhatsApp deve ser vinculado ao telefone informado na ativação. Para trocar, acione o suporte."
+                ? "No trial HBX Lead Plus, o WhatsApp deve ser vinculado ao telefone informado na ativação. Para trocar, acione o suporte."
                 : "No mobile, o vínculo é feito por telefone. QR Code e Meta ficam disponíveis no desktop."
             }
             onQrLinkModeChange={handleQrLinkModeChange}

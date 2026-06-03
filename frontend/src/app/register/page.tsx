@@ -110,7 +110,7 @@ const SIGNUP_PLANS: SignupPlan[] = [
     key: "hbx_lite",
     name: "HBX List",
     badge: "List",
-    monthlyPrice: 49.9,
+    monthlyPrice: 45,
     detail: "Cards simples para começar barato.",
     cta: "Assinar agora",
     available: true,
@@ -119,11 +119,11 @@ const SIGNUP_PLANS: SignupPlan[] = [
   },
   {
     key: "hbx_padrao",
-    name: "HBX Lead",
+    name: "HBX Lead Plus",
     badge: "Mais escolhido",
-    monthlyPrice: 99.9,
+    monthlyPrice: 99,
     promoPrice: 0,
-    promoLabel: "Após 14 dias 99,90",
+    promoLabel: "Após 14 dias R$ 99,00/mês",
     detail: "Card inteligente: contato, canal, motivo e mensagem.",
     cta: "Começar grátis hoje",
     available: true,
@@ -140,7 +140,7 @@ const SIGNUP_PLANS: SignupPlan[] = [
     detail: "Automação completa com Bot IA e prospecção.",
     cta: "Escolher HBX Full",
     available: true,
-    features: ["Tudo do HBX Lead", "Bot IA liberado", "Automação completa", "Qualificação de interessados", "Encaminhamento para humano"],
+    features: ["Tudo do HBX Lead Plus", "Bot IA liberado", "Automação completa", "Qualificação de interessados", "Encaminhamento para humano"],
   },
 ];
 
@@ -177,7 +177,7 @@ function getSignupErrorMessage(status: number, data: unknown) {
 }
 
 function planName(planKey?: CommercialPlanKey | null) {
-  return SIGNUP_PLANS.find((plan) => plan.key === planKey)?.name || "HBX Lead";
+  return SIGNUP_PLANS.find((plan) => plan.key === planKey)?.name || "HBX Lead Plus";
 }
 
 function normalizeSignupPlanKey(value?: string | null): CommercialPlanKey | null {

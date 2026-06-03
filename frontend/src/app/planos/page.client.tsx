@@ -38,7 +38,7 @@ const FALLBACK_PLANS: Record<PlanKey, CommercialPlan> = {
     key: "hbx_lite",
     title: "HBX List",
     status: "available",
-    monthlyPrice: 39.9,
+    monthlyPrice: 45,
     headline: "Cards simples para começar barato.",
     description: "Leads/cards simples com telefone, site básico, mensagem básica e WhatsApp externo.",
     annualDiscountPercent: 20,
@@ -49,9 +49,9 @@ const FALLBACK_PLANS: Record<PlanKey, CommercialPlan> = {
   },
   hbx_padrao: {
     key: "hbx_padrao",
-    title: "HBX Lead",
+    title: "HBX Lead Plus",
     status: "available",
-    monthlyPrice: 99.9,
+    monthlyPrice: 99,
     headline: "Card inteligente: contato, canal, motivo e mensagem.",
     description: "Leads inteligentes com WhatsApp verificado pela HBX, e-mail confirmado/provável, prioridade, canal recomendado e mensagem pronta.",
     annualDiscountPercent: 20,
@@ -71,14 +71,14 @@ const FALLBACK_PLANS: Record<PlanKey, CommercialPlan> = {
     annualDiscountPercent: 20,
     trialDays: 0,
     quotas: { googleSearchesPerDay: 6, cardsPerMonth: 5000, dailyCardSafetyLimit: 250 },
-    features: ["Tudo do HBX Lead", "5.000 cards por mês", "Bot IA com configuração assistida", "Automação completa com limites de segurança", "Atendimento e encaminhamento humano", "Implantação feita com a HBX"],
+    features: ["Tudo do HBX Lead Plus", "5.000 cards por mês", "Bot IA com configuração assistida", "Automação completa com limites de segurança", "Atendimento e encaminhamento humano", "Implantação feita com a HBX"],
     legalCopy: "Bot, automação e atendimento completo exigem configuração com a HBX.",
   },
 };
 
 const PLAN_LABELS: Record<PlanKey, string> = {
   hbx_lite: "HBX List",
-  hbx_padrao: "HBX Lead",
+  hbx_padrao: "HBX Lead Plus",
   hbx_melhor: "HBX Full — implantação assistida",
 };
 
@@ -270,7 +270,7 @@ export default function PlanosClientPage({ mobileRoute = false }: { mobileRoute?
           badge: planBadge(key, selectedPlanKey, promotedPlanKey),
           monthlyPrice: plan.monthlyPrice,
           promoPrice: hasFreeTrial ? 0 : undefined,
-          promoLabel: hasFreeTrial ? "Após 14 dias 99,90" : undefined,
+          promoLabel: hasFreeTrial ? "Após 14 dias R$ 99,00/mês" : undefined,
           detail:
             key === "hbx_lite"
               ? "Para quem quer encontrar novos clientes e organizar a prospecção."
@@ -358,7 +358,7 @@ export default function PlanosClientPage({ mobileRoute = false }: { mobileRoute?
     setNotice({
       tone: "info",
       text: planKey === "hbx_padrao" && padraoTrialAvailable
-        ? "Ativando o trial interno do HBX Lead, sem cobrança agora."
+        ? "Ativando o trial interno do HBX Lead Plus, sem cobrança agora."
         : "Preparando a troca de plano.",
     });
     try {
@@ -372,7 +372,7 @@ export default function PlanosClientPage({ mobileRoute = false }: { mobileRoute?
       });
       setPayload(next);
       if (planKey === "hbx_padrao" && next.current.isTrial) {
-        setNotice({ tone: "success", text: "Trial do HBX Lead iniciado por 14 dias. Não haverá cobrança automática." });
+        setNotice({ tone: "success", text: "Trial do HBX Lead Plus iniciado por 14 dias. Não haverá cobrança automática." });
         window.setTimeout(() => {
           router.push(mobileRoute ? toMobileRoute("/boasvindas") : "/boasvindas");
         }, 500);
@@ -396,7 +396,7 @@ export default function PlanosClientPage({ mobileRoute = false }: { mobileRoute?
 
     setSavingPlan("hbx_padrao");
     setError(null);
-    setNotice({ tone: "info", text: "Validando telefone e ativando o trial do HBX Lead." });
+    setNotice({ tone: "info", text: "Validando telefone e ativando o trial do HBX Lead Plus." });
     try {
       const next = await apiFetch<CommercialPlansPayload>("/commercial-plans/select", {
         method: "POST",
@@ -410,7 +410,7 @@ export default function PlanosClientPage({ mobileRoute = false }: { mobileRoute?
       });
       setPayload(next);
       setTrialModalOpen(false);
-      setNotice({ tone: "success", text: "Trial do HBX Lead iniciado por 14 dias. Não haverá cobrança automática." });
+      setNotice({ tone: "success", text: "Trial do HBX Lead Plus iniciado por 14 dias. Não haverá cobrança automática." });
       window.setTimeout(() => {
         router.push(mobileRoute ? toMobileRoute("/boasvindas") : "/boasvindas");
       }, 500);
@@ -444,7 +444,7 @@ export default function PlanosClientPage({ mobileRoute = false }: { mobileRoute?
           <header className={styles.modalHeader}>
             <div className={styles.titleCluster}>
               <div>
-                <span className={styles.eyebrow}>{trialModalOpen ? "Trial HBX Lead" : "Planos HBX"}</span>
+                <span className={styles.eyebrow}>{trialModalOpen ? "Trial HBX Lead Plus" : "Planos HBX"}</span>
                 <h1 id="plans-title">{trialModalOpen ? "Liberar trial" : "Planos HBX"}</h1>
                 <p>
                   {trialModalOpen
@@ -456,7 +456,7 @@ export default function PlanosClientPage({ mobileRoute = false }: { mobileRoute?
 
             <div className={styles.headerActions}>
               <span className={styles.currentPill}>
-                {trialModalOpen ? "Plano:" : "Atual:"} <strong>{trialModalOpen ? "HBX Lead trial" : implementationAccess ? "Implantação HBX" : selectedPlanKey ? PLAN_LABELS[selectedPlanKey] : "nenhum"}</strong>
+                {trialModalOpen ? "Plano:" : "Atual:"} <strong>{trialModalOpen ? "HBX Lead Plus trial" : implementationAccess ? "Implantação HBX" : selectedPlanKey ? PLAN_LABELS[selectedPlanKey] : "nenhum"}</strong>
               </span>
               <button type="button" className={styles.closeButton} aria-label="Voltar" onClick={closePlansPage}>X</button>
             </div>
@@ -491,7 +491,7 @@ export default function PlanosClientPage({ mobileRoute = false }: { mobileRoute?
             <section className={styles.trialInline} aria-labelledby="trial-title">
               <aside className={styles.trialSummary}>
                 <span className={styles.trialSummaryBadge}>14 dias grátis</span>
-                <h2 id="trial-title">HBX Lead</h2>
+                <h2 id="trial-title">HBX Lead Plus</h2>
                 <p>14 dias sem cobrança automática. Pagamento só no checkout.</p>
                 <dl>
                   <div>
@@ -555,7 +555,7 @@ export default function PlanosClientPage({ mobileRoute = false }: { mobileRoute?
                     onChange={(event) => setTrialForm((current) => ({ ...current, acceptedTerms: event.target.checked }))}
                   />
                   <span>
-                    Aceito iniciar o trial gratuito de 14 dias do HBX Lead, sem cobrança automática agora, e autorizo o uso do CPF, Nome Completo e Telefone informado para contato, validação de elegibilidade e vínculo do WhatsApp do trial. Para trocar o telefone será necessário acionar o suporte.
+                    Aceito iniciar o trial gratuito de 14 dias do HBX Lead Plus, sem cobrança automática agora, e autorizo o uso do CPF, Nome Completo e Telefone informado para contato, validação de elegibilidade e vínculo do WhatsApp do trial. Para trocar o telefone será necessário acionar o suporte.
                   </span>
                 </label>
 
