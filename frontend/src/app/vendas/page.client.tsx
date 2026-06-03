@@ -2039,6 +2039,7 @@ function leadEnrichmentBadgeState(lead: LeadItem, board?: BoardResponse | null) 
     || readyTier
     || hasSite
     || hasEmail
+    || hasPremiumSignals
     || ["confirmed", "probable"].includes(emailStatus)
     || radarReviewedMissing
   );
