@@ -1,77 +1,93 @@
-export type SellerContractVariables = {
-  sellerName: string;
-  sellerCpf: string;
-  sellerEmail: string;
-  sellerPhone: string;
-  sellerAddress: string;
-  commissionPercent: string;
-  commissionDueBusinessDays: string;
-  contractDate: string;
+export type SellerPartnerContractInput = {
+  sellerName?: string | null;
+  sellerCpf?: string | null;
+  sellerEmail?: string | null;
+  sellerPhone?: string | null;
+  sellerAddress?: string | null;
+  commissionPercent?: string | number | null;
+  commissionDueBusinessDays?: string | number | null;
+  contractDate?: string | null;
+  canRegisterHbxSellers?: boolean | null;
+  sellerReferralCommissionPercent?: string | number | null;
+  referredByName?: string | null;
 };
 
 export const SELLER_CONTRACT_VERSION = 'hbx_partner_v1';
 
-export const SELLER_CONTRACT_TEMPLATE = `CONTRATO DE PARCERIA COMERCIAL AUTÔNOMA E INDICAÇÃO COMISSIONADA
+function text(value: unknown, fallback = 'não informado') {
+  const normalized = String(value ?? '').trim();
+  return normalized || fallback;
+}
 
-CONTRATANTE:
-HBX SYSTEM, doravante denominada HBX.
+function percent(value: unknown, fallback = 0) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return String(fallback);
+  return numeric.toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+}
 
-PARCEIRO COMERCIAL:
-Nome: {{sellerName}}
-CPF: {{sellerCpf}}
-E-mail: {{sellerEmail}}
-Telefone/WhatsApp: {{sellerPhone}}
-Endereço declarado: {{sellerAddress}}
+export function buildSellerPartnerContract(input: SellerPartnerContractInput) {
+  const canRegister = Boolean(input.canRegisterHbxSellers);
+  const referralPercent = Number(input.sellerReferralCommissionPercent || 0);
+  const referredByName = text(input.referredByName, '');
+  const networkClause = canRegister
+    ? 'O PARCEIRO está autorizado a indicar e cadastrar novos parceiros comerciais HBX pelo fluxo oficial da plataforma.'
+    : 'O PARCEIRO não está autorizado, neste momento, a cadastrar outros parceiros comerciais vinculados à sua rede.';
+  const inheritedCommissionClause = referralPercent > 0
+    ? `Comissão herdada configurada: ${percent(referralPercent)}% sobre vendas elegíveis de parceiros indicados, conforme regras do painel HBX.`
+    : '';
+  const referredByClause = referredByName
+    ? `O PARCEIRO foi cadastrado por indicação de ${referredByName}.`
+    : '';
 
-1. OBJETO
-O presente contrato regula a atuação do PARCEIRO como parceiro comercial autônomo para indicação e intermediação comercial dos planos HBX List e HBX Lead Plus.
-
-2. AUSÊNCIA DE VÍNCULO EMPREGATÍCIO
-As partes reconhecem que este contrato não cria vínculo empregatício, salário, jornada, subordinação, exclusividade, obrigação de comparecimento, meta obrigatória ou controle de horário. O PARCEIRO atua com autonomia, assumindo seus próprios meios de atuação.
-
-3. PLANOS COMERCIALIZADOS
-HBX List: R$ 45,00 por mês.
-HBX Lead Plus: R$ 99,00 por mês, com trial de 14 dias quando aplicável.
-Não há taxa de implantação nesses planos.
-
-4. COMISSÃO
-O PARCEIRO receberá comissão de {{commissionPercent}}% sobre mensalidades efetivamente pagas por clientes vinculados ao seu link rastreável ou cadastro assistido no HBX.
-
-5. RECORRÊNCIA
-A comissão será recorrente enquanto o cliente permanecer ativo, adimplente e vinculado ao PARCEIRO no sistema HBX, salvo fraude, chargeback, cancelamento, inadimplência, violação contratual ou uso indevido da plataforma.
-
-6. PRAZO DE PAGAMENTO
-As comissões elegíveis serão pagas em até {{commissionDueBusinessDays}} dias úteis após confirmação do pagamento do cliente e validação interna da venda.
-
-7. VENDA RASTREADA
-Somente geram comissão as vendas registradas por:
-a) link gerado dentro do card de Vendas do HBX;
-b) cadastro assistido registrado no card de Vendas do HBX.
-Vendas fora do fluxo rastreado não geram comissão.
-
-8. REGRAS DE CONDUTA
-O PARCEIRO não poderá prometer funcionalidades, descontos, garantias, resultados financeiros ou condições que não estejam autorizadas pela HBX. O PARCEIRO também deverá respeitar opt-out, privacidade, boas práticas de contato comercial e regras contra spam.
-
-9. USO DA PLATAFORMA
-O acesso ao HBX é pessoal e intransferível. O PARCEIRO não poderá compartilhar login, exportar dados sem autorização, revender base de leads ou usar dados do HBX fora da finalidade comercial autorizada.
-
-10. DADOS E DOCUMENTOS
-O PARCEIRO autoriza o tratamento dos dados e documentos fornecidos exclusivamente para cadastro, validação, contrato, auditoria comercial e pagamento de comissão. Os anexos temporários poderão ser enviados ao e-mail de arquivo da HBX e removidos do backend em até 7 dias após confirmação do envio.
-
-11. ENCERRAMENTO
-Qualquer parte poderá encerrar a parceria. Comissões futuras dependem de cliente ativo, adimplente, venda rastreada e ausência de violação contratual.
-
-12. ACEITE
-O PARCEIRO declara que leu, entendeu e aceitou os termos acima.
-
-Data: {{contractDate}}
-
-HBX SYSTEM
-
-{{sellerName}}`;
-
-export function renderSellerContractTemplate(variables: SellerContractVariables) {
-  return SELLER_CONTRACT_TEMPLATE.replace(/\{\{\s*(sellerName|sellerCpf|sellerEmail|sellerPhone|sellerAddress|commissionPercent|commissionDueBusinessDays|contractDate)\s*\}\}/g, (_, key: keyof SellerContractVariables) => {
-    return String(variables[key] || '');
-  });
+  return [
+    'CONTRATO DE PARCERIA COMERCIAL AUTÔNOMA E INDICAÇÃO COMISSIONADA',
+    '',
+    'CONTRATANTE:',
+    'HBX SYSTEM, doravante denominada HBX.',
+    '',
+    'PARCEIRO COMERCIAL:',
+    `Nome: ${text(input.sellerName, 'Parceiro HBX')}`,
+    `CPF: ${text(input.sellerCpf)}`,
+    `E-mail: ${text(input.sellerEmail)}`,
+    `Telefone/WhatsApp: ${text(input.sellerPhone)}`,
+    `Endereço declarado: ${text(input.sellerAddress)}`,
+    '',
+    '1. OBJETO',
+    'O presente contrato regula a atuação do PARCEIRO como parceiro comercial autônomo para indicação e intermediação comercial dos planos HBX.',
+    '',
+    '2. AUSÊNCIA DE VÍNCULO EMPREGATÍCIO',
+    'As partes reconhecem que este contrato opera sem vínculo empregatício, sem salário, sem jornada, sem subordinação, sem exclusividade, sem obrigação de comparecimento, sem controle de horário e sem meta obrigatória. O PARCEIRO atua com autonomia, assumindo seus próprios meios de atuação.',
+    '',
+    '3. COMISSÃO',
+    `O PARCEIRO receberá comissão de ${percent(input.commissionPercent, 20)}% sobre mensalidade efetivamente paga por clientes vinculados ao seu link rastreável ou cadastro assistido no HBX.`,
+    '',
+    '4. RECORRÊNCIA',
+    'A comissão será recorrente enquanto o cliente permanecer ativo, adimplente e vinculado ao PARCEIRO no sistema HBX, salvo fraude, chargeback, cancelamento, inadimplência, violação contratual ou uso indevido da plataforma.',
+    '',
+    '5. PRAZO DE PAGAMENTO',
+    `As comissões elegíveis serão pagas em até ${text(input.commissionDueBusinessDays, '3')} dias úteis após confirmação do pagamento do cliente e validação interna da venda.`,
+    '',
+    '6. VENDA RASTREADA',
+    'Somente geram comissão as vendas registradas por link gerado dentro do card de Vendas do HBX ou cadastro assistido registrado no card de Vendas do HBX. Vendas fora do fluxo rastreado não geram comissão.',
+    '',
+    '7. REDE DE PARCEIROS',
+    networkClause,
+    inheritedCommissionClause,
+    referredByClause,
+    '',
+    '8. REGRAS DE CONDUTA',
+    'O PARCEIRO não poderá prometer funcionalidades, descontos, garantias, resultados financeiros ou condições que não estejam autorizadas pela HBX. O PARCEIRO também deverá respeitar opt-out, privacidade, boas práticas de contato comercial e regras contra spam.',
+    '',
+    '9. USO DA PLATAFORMA',
+    'O acesso ao HBX é pessoal e intransferível. O PARCEIRO não poderá compartilhar login, exportar dados sem autorização, revender base de leads ou usar dados do HBX fora da finalidade comercial autorizada.',
+    '',
+    '10. ACEITE',
+    'O PARCEIRO declara que leu, entendeu e aceitou os termos acima.',
+    '',
+    `Data: ${text(input.contractDate, new Date().toLocaleDateString('pt-BR'))}`,
+    '',
+    'HBX SYSTEM',
+    '',
+    text(input.sellerName, 'Parceiro HBX'),
+  ].filter((line) => line !== '').join('\n');
 }

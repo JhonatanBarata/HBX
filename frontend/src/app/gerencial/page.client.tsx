@@ -256,52 +256,6 @@ type CreateCompanyUserResult = {
   temporaryPassword?: string | null;
 };
 
-type SellerOnboardingAttachment = {
-  id: string;
-  kind: string;
-  originalFilename: string;
-  contentType?: string | null;
-  byteSize: number;
-  status: string;
-  deleteAfter?: string | null;
-  deletedAt?: string | null;
-  createdAt?: string | null;
-};
-
-type SellerOnboarding = {
-  id: string;
-  userId: number;
-  status: string;
-  legalName?: string | null;
-  email?: string | null;
-  phone?: string | null;
-  cpf?: string | null;
-  declaredAddress?: string | null;
-  commissionPercent: number;
-  commissionRecurring?: boolean | null;
-  commissionDueBusinessDays: number;
-  contractVersion?: string | null;
-  contractTextSnapshot?: string | null;
-  contractSha256?: string | null;
-  emailStatus: string;
-  emailMessageId?: string | null;
-  emailSentAt?: string | null;
-  archiveEmail?: string | null;
-  attachmentsDeleteAfter?: string | null;
-  attachmentsDeletedAt?: string | null;
-  attachments?: SellerOnboardingAttachment[];
-};
-
-type SellerOnboardingDraft = {
-  legalName: string;
-  email: string;
-  phone: string;
-  cpf: string;
-  declaredAddress: string;
-  commissionPercent: string;
-  commissionDueBusinessDays: string;
-};
-
 type ModulePermission = { key: string; allowed: boolean };
 type CompanyModule = { key: string; name: string; companyEnabled: boolean };
 type CompanyUserAccess = { id: number; modules: ModulePermission[] };
@@ -329,22 +283,6 @@ type DesktopGerencialGuideTab = MobileGerencialTab | "atualizar";
 const CREATED_PASSWORD_STORAGE_KEY = "hbx.gerencial.created-password.v1";
 const INCLUDED_TEAM_USERS = 2;
 const EXTRA_USER_MONTHLY_PRICE = 24.9;
-const SELLER_ONBOARDING_ACCEPT = ".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png";
-const SELLER_ONBOARDING_MAX_FILE_BYTES = 5 * 1024 * 1024;
-const SELLER_ONBOARDING_STATUS_COPY: Record<string, string> = {
-  draft: "Rascunho",
-  documents_pending: "Documentos pendentes",
-  ready_to_send: "Pronto para enviar",
-  sent: "E-mail enviado",
-  active: "Ativo",
-  email_failed: "Falha no e-mail",
-};
-const SELLER_ONBOARDING_ATTACHMENT_KIND_COPY: Record<string, string> = {
-  photo_id: "Documento com foto",
-  curriculum: "Currículo",
-  contract_pdf: "Contrato",
-  other: "Outro",
-};
 const SELLER_LOCKED_MODULE_KEYS = new Set(["webscraping", "gerencial", "financeiro", "cadastro", "website", "master", "exclusoes"]);
 const SELLER_WORKSPACE_MODULE_KEYS = new Set(["vendas", "atendimento", "whatsapp"]);
 const SELLER_ROLE_COPY = {
@@ -401,36 +339,6 @@ function userInitial(user: Pick<UserItem, "id" | "name" | "username" | "email">)
 
 function userPhoneLabel(user: Pick<UserItem, "phone">) {
   return user.phone?.trim() || "Sem telefone";
-}
-
-function formatOnboardingFileSize(value?: number | null) {
-  const size = Number(value || 0);
-  if (!size) return "0 KB";
-  if (size >= 1024 * 1024) return `${(size / 1024 / 1024).toFixed(1)} MB`;
-  return `${Math.max(1, Math.round(size / 1024))} KB`;
-}
-
-function sellerOnboardingStatusLabel(onboarding?: Pick<SellerOnboarding, "status" | "emailStatus"> | null) {
-  if (!onboarding) return "Não carregado";
-  if (onboarding.emailStatus === "sent") return SELLER_ONBOARDING_STATUS_COPY.sent;
-  if (onboarding.emailStatus === "email_failed") return SELLER_ONBOARDING_STATUS_COPY.email_failed;
-  return SELLER_ONBOARDING_STATUS_COPY[onboarding.status] || onboarding.status || "Rascunho";
-}
-
-function buildSellerOnboardingDraft(user: UserItem, onboarding?: SellerOnboarding | null): SellerOnboardingDraft {
-  return {
-    legalName: onboarding?.legalName || userLabel(user),
-    email: onboarding?.email || user.email || "",
-    phone: onboarding?.phone || user.phone || "",
-    cpf: onboarding?.cpf || "",
-    declaredAddress: onboarding?.declaredAddress || "",
-    commissionPercent: percentInputValue(onboarding?.commissionPercent ?? user.commissionPercent ?? 20),
-    commissionDueBusinessDays: String(onboarding?.commissionDueBusinessDays || 3),
-  };
-}
-
-function isSellerOnboardingSent(onboarding?: SellerOnboarding | null) {
-  return onboarding?.emailStatus === "sent";
 }
 
 function referralUserLabel(user?: UserItem["referredByUser"]) {
@@ -729,11 +637,6 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   const [desktopGuideTab, setDesktopGuideTab] = useState<DesktopGerencialGuideTab>("status");
   const [editingUserId, setEditingUserId] = useState<number | null>(null);
   const [savingProfileUserId, setSavingProfileUserId] = useState<number | null>(null);
-  const [sellerOnboardingByUserId, setSellerOnboardingByUserId] = useState<Record<number, SellerOnboarding | undefined>>({});
-  const [sellerOnboardingDraftByUserId, setSellerOnboardingDraftByUserId] = useState<Record<number, SellerOnboardingDraft | undefined>>({});
-  const [sellerOnboardingBusyUserId, setSellerOnboardingBusyUserId] = useState<number | null>(null);
-  const [sellerOnboardingSendingUserId, setSellerOnboardingSendingUserId] = useState<number | null>(null);
-  const [sellerOnboardingUploadUserId, setSellerOnboardingUploadUserId] = useState<number | null>(null);
   const [profileDraft, setProfileDraft] = useState<UserProfileDraft>({
     name: "",
     phone: "",
@@ -943,145 +846,6 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     }
   }
 
-  function setSellerOnboardingLocal(user: UserItem, onboarding: SellerOnboarding) {
-    setSellerOnboardingByUserId((current) => ({ ...current, [user.id]: onboarding }));
-    setSellerOnboardingDraftByUserId((current) => ({
-      ...current,
-      [user.id]: buildSellerOnboardingDraft(user, onboarding),
-    }));
-  }
-
-  async function loadSellerOnboarding(user: UserItem) {
-    setSellerOnboardingBusyUserId(user.id);
-    setError(null);
-    try {
-      const onboarding = await apiFetch<SellerOnboarding>(`/gerencial/sellers/${user.id}/onboarding`, {
-        requireAuth: true,
-      });
-      setSellerOnboardingLocal(user, onboarding);
-    } catch (loadError) {
-      setError(friendlyGerencialError(loadError, "Falha ao carregar onboarding do vendedor."));
-    } finally {
-      setSellerOnboardingBusyUserId(null);
-    }
-  }
-
-  async function saveSellerOnboarding(user: UserItem) {
-    const draft = sellerOnboardingDraftByUserId[user.id] || buildSellerOnboardingDraft(user);
-    const commissionPercent = parsePercentInput(draft.commissionPercent);
-    const commissionDueBusinessDays = Number(draft.commissionDueBusinessDays || 3);
-    if (commissionPercent === null) {
-      setError("Informe uma comissão entre 0 e 100 no onboarding.");
-      return;
-    }
-    if (!Number.isInteger(commissionDueBusinessDays) || commissionDueBusinessDays < 1 || commissionDueBusinessDays > 30) {
-      setError("Informe um prazo de pagamento entre 1 e 30 dias úteis.");
-      return;
-    }
-    setSellerOnboardingBusyUserId(user.id);
-    setError(null);
-    try {
-      const onboarding = await apiFetch<SellerOnboarding>(`/gerencial/sellers/${user.id}/onboarding`, {
-        method: "PATCH",
-        requireAuth: true,
-        body: JSON.stringify({
-          legalName: draft.legalName.trim() || undefined,
-          email: draft.email.trim() || undefined,
-          phone: draft.phone.trim() || undefined,
-          cpf: draft.cpf.trim() || undefined,
-          declaredAddress: draft.declaredAddress.trim() || undefined,
-          commissionPercent,
-          commissionDueBusinessDays,
-        }),
-      });
-      setSellerOnboardingLocal(user, onboarding);
-      setActionInfo("Onboarding do vendedor salvo.");
-    } catch (saveError) {
-      setError(friendlyGerencialError(saveError, "Falha ao salvar onboarding do vendedor."));
-    } finally {
-      setSellerOnboardingBusyUserId(null);
-    }
-  }
-
-  async function uploadSellerOnboardingAttachment(user: UserItem, kind: "photo_id" | "curriculum", file?: File | null) {
-    if (!file) return;
-    if (file.size > SELLER_ONBOARDING_MAX_FILE_BYTES) {
-      setError("Cada anexo pode ter no máximo 5 MB.");
-      return;
-    }
-    const lowerName = file.name.toLowerCase();
-    if (!/\.(pdf|jpe?g|png)$/.test(lowerName)) {
-      setError("Use apenas PDF, JPG, JPEG ou PNG.");
-      return;
-    }
-    const form = new FormData();
-    form.append("kind", kind);
-    form.append("file", file, file.name);
-    setSellerOnboardingUploadUserId(user.id);
-    setError(null);
-    try {
-      const onboarding = await apiFetch<SellerOnboarding>(`/gerencial/sellers/${user.id}/onboarding/attachments`, {
-        method: "POST",
-        requireAuth: true,
-        body: form,
-        timeoutMs: 120000,
-      });
-      setSellerOnboardingLocal(user, onboarding);
-      setActionInfo(`${SELLER_ONBOARDING_ATTACHMENT_KIND_COPY[kind]} anexado.`);
-    } catch (uploadError) {
-      setError(friendlyGerencialError(uploadError, "Falha ao anexar documento."));
-    } finally {
-      setSellerOnboardingUploadUserId(null);
-    }
-  }
-
-  async function generateSellerContract(user: UserItem) {
-    setSellerOnboardingBusyUserId(user.id);
-    setError(null);
-    try {
-      const onboarding = await apiFetch<SellerOnboarding>(`/gerencial/sellers/${user.id}/onboarding/generate-contract`, {
-        method: "POST",
-        requireAuth: true,
-      });
-      setSellerOnboardingLocal(user, onboarding);
-      setActionInfo("Contrato gerado para o vendedor.");
-    } catch (generateError) {
-      setError(friendlyGerencialError(generateError, "Falha ao gerar contrato."));
-    } finally {
-      setSellerOnboardingBusyUserId(null);
-    }
-  }
-
-  async function sendSellerOnboardingEmail(user: UserItem) {
-    setSellerOnboardingSendingUserId(user.id);
-    setError(null);
-    try {
-      const result = await apiFetch<{ ok?: boolean; onboarding: SellerOnboarding }>(`/gerencial/sellers/${user.id}/onboarding/send-email`, {
-        method: "POST",
-        requireAuth: true,
-      });
-      const onboarding = result.onboarding;
-      setSellerOnboardingLocal(user, onboarding);
-      if (result.ok) {
-        setData((prev) =>
-          prev
-            ? {
-                ...prev,
-                users: prev.users.map((item) => (item.id === user.id ? { ...item, isActive: true } : item)),
-              }
-            : prev,
-        );
-        setActionInfo("Contrato enviado por e-mail. Vendedor liberado para trabalhar.");
-      } else {
-        setError("Falha ao enviar contrato por e-mail. Os anexos foram mantidos para nova tentativa.");
-      }
-    } catch (sendError) {
-      setError(friendlyGerencialError(sendError, "Falha ao enviar contrato por e-mail."));
-    } finally {
-      setSellerOnboardingSendingUserId(null);
-    }
-  }
-
   async function createCompanyUser(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
@@ -1179,9 +943,13 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         };
         setCreatedPasswordInfo(info);
         saveCreatedPasswordInfo(info);
-        setActionInfo(`${roleLabel(payload.user.role)} criado. Entregue a senha temporária com segurança.`);
+        setActionInfo(isHbxSellerNetwork && newUserRole === "USER"
+          ? "Parceiro HBX criado. Gere o contrato antes de liberar operação."
+          : `${roleLabel(payload.user.role)} criado. Entregue a senha temporária com segurança.`);
       } else {
-        setActionInfo(`${roleLabel(payload.user.role)} criado com senha definida manualmente.`);
+        setActionInfo(isHbxSellerNetwork && newUserRole === "USER"
+          ? "Parceiro HBX criado. Gere o contrato antes de liberar operação."
+          : `${roleLabel(payload.user.role)} criado com senha definida manualmente.`);
       }
 
       setNewUserEmail("");
@@ -1598,10 +1366,10 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
           <div className="flex items-center justify-between gap-2">
             <div>
               <span className="text-xs font-bold uppercase text-[var(--hbx-mobile-primary)]">Novo acesso</span>
-              <h2 className="text-lg font-semibold">{isHbxSellerNetwork ? "Cadastrar vendedor HBX" : "Cadastrar usuário"}</h2>
+              <h2 className="text-lg font-semibold">{isHbxSellerNetwork ? "Cadastrar Parceiro HBX" : "Cadastrar usuário"}</h2>
             </div>
             <span className="rounded-full border border-[var(--hbx-mobile-border)] px-3 py-1 text-xs font-bold">
-              {isHbxSellerNetwork ? "SellMaster" : newUserRole === "USER" ? "Vendedor" : "Admin"}
+              {isHbxSellerNetwork ? "Parceiro HBX" : newUserRole === "USER" ? "Vendedor" : "Admin"}
             </span>
           </div>
           {canCreateAdminUsers ? (
@@ -1619,7 +1387,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
             </div>
           ) : (
             <div className="rounded-[16px] border border-[var(--hbx-mobile-border)] bg-[var(--hbx-mobile-surface-soft)] p-3 text-sm text-[var(--hbx-mobile-muted)]">
-              USERMASTER cria SellMaster. Admin fica fora da rede de vendedores HBX.
+              USERMASTER cria Parceiro HBX. Admin fica fora da rede de parceiros HBX.
             </div>
           )}
           <input className="field" value={newUserName} onChange={(event) => setNewUserName(event.target.value)} placeholder="Nome" />
@@ -1652,11 +1420,11 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
             onChange={(event) => setNewUserPassword(event.target.value)}
             placeholder="Senha opcional"
           />
-          {newUserRole === "USER" ? (
+          {isHbxSellerNetwork && newUserRole === "USER" ? (
             <div className="grid gap-2 rounded-[16px] border border-[var(--hbx-mobile-border)] bg-[var(--hbx-mobile-surface-soft)] p-3 text-sm">
               <span>
-                <strong className="block">Onboarding de parceiro</strong>
-                <small className="text-[var(--hbx-mobile-muted)]">Contrato e anexos são finalizados no card do vendedor depois do cadastro.</small>
+                <strong className="block">Parceiro HBX</strong>
+                <small className="text-[var(--hbx-mobile-muted)]">Dados iniciais para gerar o contrato de parceria HBX.</small>
               </span>
               <input className="field" value={newUserCpf} onChange={(event) => setNewUserCpf(event.target.value)} placeholder="CPF" />
               <input className="field" value={newUserDeclaredAddress} onChange={(event) => setNewUserDeclaredAddress(event.target.value)} placeholder="Endereço declarado" />
@@ -1685,7 +1453,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                 className="mt-1"
               />
               <span>
-                <strong className="block">Pode cadastrar vendedores</strong>
+                <strong className="block">Pode cadastrar parceiros</strong>
                 <small className="text-[var(--hbx-mobile-muted)]">Libera indicação pelo celular.</small>
               </span>
             </label>
@@ -1736,7 +1504,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         ) : null}
 
         <button type="submit" disabled={creatingUser} className="hbx-mobile-primary-button">
-          {creatingUser ? "Criando..." : isHbxSellerNetwork ? "Criar SellMaster" : newUserRole === "USER" ? "Criar vendedor" : "Criar admin"}
+          {creatingUser ? "Criando..." : isHbxSellerNetwork ? "Criar Parceiro HBX" : newUserRole === "USER" ? "Criar vendedor" : "Criar admin"}
         </button>
       </form>
     );
@@ -1846,158 +1614,6 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     );
   }
 
-  function renderSellerOnboardingPanel(user: UserItem, variant: "mobile" | "desktop") {
-    const role = normalizeRole(user.role, user.isSystemMaster);
-    if (role !== "USER") return null;
-    const onboarding = sellerOnboardingByUserId[user.id];
-    const draft = sellerOnboardingDraftByUserId[user.id] || buildSellerOnboardingDraft(user, onboarding);
-    const busy = sellerOnboardingBusyUserId === user.id;
-    const uploading = sellerOnboardingUploadUserId === user.id;
-    const sending = sellerOnboardingSendingUserId === user.id;
-    const attachments = (onboarding?.attachments || []).filter((attachment) => attachment.status !== "deleted");
-    const hasPhotoId = attachments.some((attachment) => attachment.kind === "photo_id");
-    const hasCurriculum = attachments.some((attachment) => attachment.kind === "curriculum");
-    const panelClass =
-      variant === "mobile"
-        ? "rounded-[16px] border border-[var(--hbx-mobile-border)] bg-[var(--hbx-mobile-surface-soft)] p-3"
-        : "rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3";
-    const inputClass = variant === "mobile" ? "field" : "field";
-    const secondaryButtonClass = variant === "mobile" ? "hbx-mobile-secondary-button" : "btn btn-secondary btn-sm";
-    const primaryButtonClass = variant === "mobile" ? "hbx-mobile-primary-button" : "btn btn-primary btn-sm";
-
-    if (!onboarding) {
-      return (
-        <div className={panelClass}>
-          <div className={variant === "mobile" ? "grid gap-2 text-sm" : "flex flex-col gap-2 text-sm"}>
-            <div>
-              <span className={variant === "mobile" ? "text-xs font-bold uppercase text-[var(--hbx-mobile-primary)]" : "badge badge-brand"}>
-                Onboarding de parceiro
-              </span>
-              <p className={variant === "mobile" ? "mt-1 text-[var(--hbx-mobile-muted)]" : "mt-2 text-xs text-muted"}>
-                Carregue o rascunho documental antes de liberar o vendedor para trabalhar.
-              </p>
-            </div>
-            <button type="button" className={primaryButtonClass} onClick={() => void loadSellerOnboarding(user)} disabled={busy}>
-              {busy ? "Carregando..." : "Abrir onboarding"}
-            </button>
-          </div>
-        </div>
-      );
-    }
-
-    const updateDraft = (patch: Partial<SellerOnboardingDraft>) => {
-      setSellerOnboardingDraftByUserId((current) => ({
-        ...current,
-        [user.id]: {
-          ...draft,
-          ...patch,
-        },
-      }));
-    };
-
-    return (
-      <div className={panelClass}>
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <span className={variant === "mobile" ? "text-xs font-bold uppercase text-[var(--hbx-mobile-primary)]" : "badge badge-brand"}>
-                Onboarding de parceiro
-              </span>
-              <h3 className={variant === "mobile" ? "mt-1 text-base font-semibold" : "mt-2 text-sm font-semibold"}>
-                {sellerOnboardingStatusLabel(onboarding)}
-              </h3>
-              <p className={variant === "mobile" ? "text-xs text-[var(--hbx-mobile-muted)]" : "text-xs text-muted"}>
-                Contrato, documento com foto e currículo ficam temporários no backend e saem em até 7 dias após envio.
-              </p>
-            </div>
-            <span className={isSellerOnboardingSent(onboarding) ? "badge badge-success" : "badge"}>
-              {onboarding.emailStatus === "sent" ? "E-mail enviado" : onboarding.emailStatus === "email_failed" ? "Falha no e-mail" : "Não enviado"}
-            </span>
-          </div>
-
-          <div className={variant === "mobile" ? "grid gap-2" : "grid grid-cols-1 md:grid-cols-3 gap-2"}>
-            <input className={inputClass} value={draft.legalName} onChange={(event) => updateDraft({ legalName: event.target.value })} placeholder="Nome legal" />
-            <input className={inputClass} value={draft.email} onChange={(event) => updateDraft({ email: event.target.value })} placeholder="E-mail do vendedor" />
-            <input className={inputClass} value={draft.phone} onChange={(event) => updateDraft({ phone: event.target.value })} placeholder="WhatsApp" />
-            <input className={inputClass} value={draft.cpf} onChange={(event) => updateDraft({ cpf: event.target.value })} placeholder="CPF" />
-            <input className={inputClass} value={draft.declaredAddress} onChange={(event) => updateDraft({ declaredAddress: event.target.value })} placeholder="Endereço declarado" />
-            <input
-              className={inputClass}
-              inputMode="decimal"
-              value={draft.commissionPercent}
-              onChange={(event) => updateDraft({ commissionPercent: event.target.value })}
-              placeholder="Comissão %"
-            />
-            <input
-              className={inputClass}
-              inputMode="numeric"
-              value={draft.commissionDueBusinessDays}
-              onChange={(event) => updateDraft({ commissionDueBusinessDays: event.target.value })}
-              placeholder="Pagamento D+"
-            />
-          </div>
-
-          <div className={variant === "mobile" ? "grid gap-2" : "flex flex-wrap gap-2"}>
-            <button type="button" className={secondaryButtonClass} onClick={() => void saveSellerOnboarding(user)} disabled={busy || sending || uploading}>
-              {busy ? "Salvando..." : "Salvar dados"}
-            </button>
-            <label className={`${secondaryButtonClass} cursor-pointer`}>
-              {hasPhotoId ? "Trocar documento" : "Anexar documento"}
-              <input
-                type="file"
-                accept={SELLER_ONBOARDING_ACCEPT}
-                className="hidden"
-                disabled={busy || sending || uploading}
-                onChange={(event) => {
-                  const file = event.currentTarget.files?.[0];
-                  event.currentTarget.value = "";
-                  void uploadSellerOnboardingAttachment(user, "photo_id", file);
-                }}
-              />
-            </label>
-            <label className={`${secondaryButtonClass} cursor-pointer`}>
-              {hasCurriculum ? "Trocar currículo" : "Anexar currículo"}
-              <input
-                type="file"
-                accept={SELLER_ONBOARDING_ACCEPT}
-                className="hidden"
-                disabled={busy || sending || uploading}
-                onChange={(event) => {
-                  const file = event.currentTarget.files?.[0];
-                  event.currentTarget.value = "";
-                  void uploadSellerOnboardingAttachment(user, "curriculum", file);
-                }}
-              />
-            </label>
-            <button type="button" className={secondaryButtonClass} onClick={() => void generateSellerContract(user)} disabled={busy || sending || uploading}>
-              Gerar contrato
-            </button>
-            <button type="button" className={primaryButtonClass} onClick={() => void sendSellerOnboardingEmail(user)} disabled={busy || sending || uploading}>
-              {sending ? "Enviando..." : "Enviar contrato por e-mail"}
-            </button>
-          </div>
-
-          {attachments.length ? (
-            <div className={variant === "mobile" ? "grid gap-1 text-xs text-[var(--hbx-mobile-muted)]" : "grid grid-cols-1 md:grid-cols-2 gap-2 text-xs"}>
-              {attachments.map((attachment) => (
-                <div key={attachment.id} className={variant === "mobile" ? "" : "rounded-[10px] border border-[var(--line)] bg-[var(--surface)] p-2"}>
-                  <strong className="block truncate">{SELLER_ONBOARDING_ATTACHMENT_KIND_COPY[attachment.kind] || attachment.kind}</strong>
-                  <span className="truncate">
-                    {attachment.originalFilename} · {formatOnboardingFileSize(attachment.byteSize)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className={variant === "mobile" ? "text-xs text-[var(--hbx-mobile-muted)]" : "text-xs text-muted"}>
-              Nenhum anexo salvo ainda.
-            </p>
-          )}
-        </div>
-      </div>
-    );
-  }
-
   function renderMobileUserCard(user: UserItem, options: { modulesOnly?: boolean } = {}) {
     const role = normalizeRole(user.role, user.isSystemMaster);
     const isAdmin = role === "ADMIN";
@@ -2061,8 +1677,6 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         ) : null}
 
         {isEditingProfile && !options.modulesOnly ? renderMobileProfileForm(user) : null}
-        {!options.modulesOnly && isSeller ? renderSellerOnboardingPanel(user, "mobile") : null}
-
         {!options.modulesOnly ? (
           <div className="grid grid-cols-2 gap-2">
             <button type="button" disabled={deletingUserId === user.id || changingUserId === user.id || !user.isActive || role === "USER"} onClick={() => setRole(user.id, "USER")} className="hbx-mobile-secondary-button">
@@ -2074,11 +1688,9 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
             <button type="button" disabled={deletingUserId === user.id || savingProfileUserId === user.id} onClick={() => startEditingProfile(user)} className="hbx-mobile-secondary-button">
               Editar
             </button>
-            {user.isActive || !isSeller || isSellerOnboardingSent(sellerOnboardingByUserId[user.id]) ? (
-              <button type="button" disabled={deletingUserId === user.id || togglingActiveUserId === user.id} onClick={() => toggleActive(user.id, Boolean(user.isActive))} className={user.isActive ? "hbx-mobile-secondary-button" : "hbx-mobile-primary-button"}>
-                {user.isActive ? "Desativar" : "Liberar vendedor"}
-              </button>
-            ) : null}
+            <button type="button" disabled={deletingUserId === user.id || togglingActiveUserId === user.id} onClick={() => toggleActive(user.id, Boolean(user.isActive))} className={user.isActive ? "hbx-mobile-secondary-button" : "hbx-mobile-primary-button"}>
+              {user.isActive ? "Desativar" : isHbxSellerNetwork && isSeller ? "Liberar parceiro" : "Reativar"}
+            </button>
             <button type="button" disabled={deletingUserId === user.id} onClick={() => void deleteUser(user)} className="hbx-mobile-secondary-button col-span-2 text-red-700">
               {deletingUserId === user.id ? "Excluindo..." : "Excluir"}
             </button>
@@ -2610,10 +2222,10 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
           <section className="panel p-4 md:p-5 rounded-[20px]">
             <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
               <div>
-                <h2 className="text-lg font-semibold">{isHbxSellerNetwork ? "Cadastrar vendedor HBX" : "Cadastrar vendedor ou admin"}</h2>
+                <h2 className="text-lg font-semibold">{isHbxSellerNetwork ? "Cadastrar Parceiro HBX" : "Cadastrar vendedor ou admin"}</h2>
                 <p className="mt-1 text-sm text-muted">O login usa o e-mail. Se deixar senha vazia, o HBX gera uma senha temporária.</p>
               </div>
-              <span className="badge">{isHbxSellerNetwork ? "USERMASTER / SELLMASTER" : "ADMIN / MASTER"}</span>
+              <span className="badge">{isHbxSellerNetwork ? "USERMASTER / PARCEIRO HBX" : "ADMIN / MASTER"}</span>
             </div>
 
             <form onSubmit={createCompanyUser} autoComplete="off" className="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
@@ -2675,13 +2287,13 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                   className="field"
                 />
               </label>
-              {newUserRole === "USER" ? (
+              {isHbxSellerNetwork && newUserRole === "USER" ? (
                 <div className="md:col-span-2 xl:col-span-3 rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3">
                   <div className="flex flex-col gap-1">
-                    <span className="badge badge-brand">Onboarding de parceiro</span>
-                    <h3 className="text-sm font-semibold">Dados para contrato e liberação</h3>
+                    <span className="badge badge-brand">Parceiro HBX</span>
+                    <h3 className="text-sm font-semibold">Dados para contrato de parceria</h3>
                     <p className="text-xs text-muted">
-                      Documento com foto, currículo, geração de contrato e envio por e-mail ficam no card do vendedor depois do cadastro.
+                      Base documental do parceiro HBX. Gere o contrato antes de liberar operação.
                     </p>
                   </div>
                   <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -2731,9 +2343,9 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                 </div>
               ) : (
                 <div className="rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3 text-sm">
-                  <span className="badge badge-brand">SellMaster</span>
-                  <strong className="mt-2 block">Vendedor HBX</strong>
-                  <small className="mt-1 block text-xs text-muted">Nesta operação o USERMASTER cria apenas vendedores. Admin fica fora da rede de comissão.</small>
+                  <span className="badge badge-brand">Parceiro HBX</span>
+                  <strong className="mt-2 block">Rede HBX</strong>
+                  <small className="mt-1 block text-xs text-muted">Nesta operação o USERMASTER cria apenas parceiros. Admin fica fora da rede de comissão.</small>
                 </div>
               )}
               {isHbxSellerNetwork && newUserRole === "USER" ? (
@@ -2743,7 +2355,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                       <span className="badge badge-brand">Rede HBX</span>
                       <h3 className="mt-2 text-sm font-semibold">Indicação e comissão herdada</h3>
                       <p className="mt-1 text-xs text-muted">
-                        Use isto para vendedores HBX que podem formar equipe. O indicado mantém a comissão normal, e o indicador ganha a herança definida.
+                        Use isto para parceiros HBX que podem formar equipe. O indicado mantém a comissão normal, e o indicador ganha a herança definida.
                       </p>
                     </div>
                     <label className="flex w-full max-w-sm items-start gap-2 rounded-[12px] border border-[var(--line)] bg-[var(--surface)] p-3 text-sm">
@@ -2754,7 +2366,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                         className="mt-1"
                       />
                       <span>
-                        <strong className="block">Pode cadastrar vendedores</strong>
+                        <strong className="block">Pode cadastrar parceiros</strong>
                         <small className="text-muted">Libera cadastro por indicação no celular.</small>
                       </span>
                     </label>
@@ -2824,14 +2436,14 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                   <p className="text-sm font-semibold">{newUserRole === "USER" ? "Acesso de vendedor" : "Acesso administrativo"}</p>
                   <p className="mt-1 text-xs text-muted">
                     {isHbxSellerNetwork
-                      ? "SellMaster recebe cards, trabalha no CRM, chama no WhatsApp e pode ter rede de indicação conforme liberação."
+                      ? "Parceiro HBX recebe cards, trabalha no CRM, chama no WhatsApp e pode ter rede de indicação conforme liberação."
                       : newUserRole === "USER"
                       ? "Vendas e Atendimento/WhatsApp ficam liberados quando a empresa tiver esses módulos. Comissão e telefone ficam prontos no CRM."
                       : "Admin pode cadastrar equipe, controlar módulos, acessar Gerencial e operar Radar conforme o plano."}
                   </p>
                 </div>
                 <button type="submit" disabled={creatingUser} className="btn btn-primary btn-sm">
-                  {creatingUser ? "Criando..." : isHbxSellerNetwork ? "Criar SellMaster" : newUserRole === "USER" ? "Criar vendedor" : "Criar admin"}
+                  {creatingUser ? "Criando..." : isHbxSellerNetwork ? "Criar Parceiro HBX" : newUserRole === "USER" ? "Criar vendedor" : "Criar admin"}
                 </button>
               </div>
             </form>
@@ -3379,8 +2991,6 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                       </div>
                     ) : null}
 
-                    {isSeller ? renderSellerOnboardingPanel(user, "desktop") : null}
-
                     <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
@@ -3398,16 +3008,14 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                       >
                         Tornar admin
                       </button>
-                      {user.isActive || !isSeller || isSellerOnboardingSent(sellerOnboardingByUserId[user.id]) ? (
-                        <button
-                          type="button"
-                          disabled={deletingUserId === user.id || togglingActiveUserId === user.id}
-                          onClick={() => toggleActive(user.id, Boolean(user.isActive))}
-                          className={`btn btn-sm ${user.isActive ? "btn-secondary" : "btn-primary"}`}
-                        >
-                          {user.isActive ? "Desativar" : "Liberar vendedor"}
-                        </button>
-                      ) : null}
+                      <button
+                        type="button"
+                        disabled={deletingUserId === user.id || togglingActiveUserId === user.id}
+                        onClick={() => toggleActive(user.id, Boolean(user.isActive))}
+                        className={`btn btn-sm ${user.isActive ? "btn-secondary" : "btn-primary"}`}
+                      >
+                        {user.isActive ? "Desativar" : isHbxSellerNetwork && isSeller ? "Liberar parceiro" : "Reativar"}
+                      </button>
                       <button
                         type="button"
                         disabled={deletingUserId === user.id || savingProfileUserId === user.id}
