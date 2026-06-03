@@ -1290,7 +1290,7 @@ export default function DesktopTutorialClient() {
                     <span>telefone • cidade • segmento • site básico</span>
                   </article>
                   <article className={styles.mobileTutorialLeadCard} data-kind="lead">
-                    <small>HBX Lead</small>
+                    <small>HBX Lead Plus</small>
                     <b>Clínica Horizonte</b>
                     <span>score • motivo • canal • mensagem</span>
                   </article>

@@ -927,7 +927,7 @@ export class WhatsAppModalService {
     if (requestedPhone !== lockedPhone) {
       throw new BadRequestException({
         code: 'TRIAL_WHATSAPP_PHONE_LOCKED',
-        message: 'No trial HBX Lead, vincule o WhatsApp ao telefone informado na ativação. Para trocar o telefone, acione o suporte.',
+        message: 'No trial HBX Lead Plus, vincule o WhatsApp ao telefone informado na ativação. Para trocar o telefone, acione o suporte.',
       });
     }
   }

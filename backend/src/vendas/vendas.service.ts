@@ -701,7 +701,7 @@ export class VendasService {
     const normalized = normalizeCommercialPlanKey(planKey);
     if (normalized === COMMERCIAL_PLAN_KEYS.LITE) return 'HBX List';
     if (normalized === COMMERCIAL_PLAN_KEYS.MELHOR) return 'HBX Full';
-    return 'HBX Lead+';
+    return 'HBX Lead Plus';
   }
 
   private normalizePublicOrigin(value: unknown) {
@@ -1301,7 +1301,7 @@ export class VendasService {
       primarySocial: intelligence?.primarySocial || null,
       premiumTeaser: intelligence?.primarySocial || intelligence?.opportunityScore
         ? {
-            label: 'Disponível no HBX Lead',
+            label: 'Disponível no HBX Lead Plus',
             cta: 'Ver card inteligente',
           }
         : null,
@@ -1803,7 +1803,7 @@ export class VendasService {
       return {
         ...report,
         rankings: { segments: topSegments.slice(0, 1), cities: topCities.slice(0, 1), channels: [], discardReasons: [] },
-        recommendation: 'Relatório inteligente disponível no HBX Lead.',
+        recommendation: 'Relatório inteligente disponível no HBX Lead Plus.',
       };
     }
     return report;
@@ -4018,7 +4018,7 @@ export class VendasService {
     const context = this.resolveUserContext(user);
     const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
     if (!planAccess.capabilities.canExportConversionPdf) {
-      throw new ForbiddenException('Exportação PDF disponível no HBX Lead.');
+      throw new ForbiddenException('Exportação PDF disponível no HBX Lead Plus.');
     }
     const [report, company] = await Promise.all([
       this.getConversionReportForUser(user, periodRaw),
@@ -4073,7 +4073,7 @@ export class VendasService {
     const context = this.resolveUserContext(user);
     const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
     if (!planAccess.capabilities.canUseWeeklyProfileSuggestions) {
-      throw new ForbiddenException('Sugestão semanal disponível no HBX Lead.');
+      throw new ForbiddenException('Sugestão semanal disponível no HBX Lead Plus.');
     }
     const [profilePayload, report] = await Promise.all([
       this.getEffectiveSalesProfileForContext(context, planAccess),

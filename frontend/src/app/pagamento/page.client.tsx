@@ -237,12 +237,12 @@ const HBX_FULL_SUPPORT_MESSAGE = "Olá, quero falar com a HBX sobre implantaçã
 const PLAN_CATALOG: Record<PlanKey, { title: string; monthly: number; includes: string[] }> = {
   hbx_lite: {
     title: "HBX List",
-    monthly: 39.9,
+    monthly: 45,
     includes: ["Cards simples", "Telefone, cidade e segmento", "Site básico", "WhatsApp externo"],
   },
   hbx_padrao: {
-    title: "HBX Lead",
-    monthly: 99.9,
+    title: "HBX Lead Plus",
+    monthly: 99,
     includes: ["Cards inteligentes", "WhatsApp verificado", "Score, motivo, canal e mensagem"],
   },
   hbx_melhor: {
@@ -270,19 +270,19 @@ const MOCK_FRONT_OVERVIEW: FinanceiroOverview = {
     primaryContactName: "Cliente Preview",
     contactPhone: "19997024884",
     taxDocument: "39053344705",
-    plan: { id: 0, name: "HBX Lead", price: 99.9 },
+    plan: { id: 0, name: "HBX Lead Plus", price: 99 },
   },
   pricing: {
     billingCycle: "MONTHLY",
-    monthlyValue: 99.9,
+    monthlyValue: 99,
     annualPlanDiscountPercent: 10,
-    finalCycleAmount: 99.9,
+    finalCycleAmount: 99,
     commercialPlan: {
       planKey: "hbx_padrao",
-      title: "HBX Lead",
-      monthlyValue: 99.9,
+      title: "HBX Lead Plus",
+      monthlyValue: 99,
       referenceLabel: "mensal",
-      chargeDescription: "Assinatura HBX Lead",
+      chargeDescription: "Assinatura HBX Lead Plus",
     },
   },
   paymentOptions: {

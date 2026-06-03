@@ -440,7 +440,7 @@ export function buildRadarLeadEnrichment(input: RadarLeadEnrichmentInput): Radar
     enrichmentScore = Math.max(enrichmentScore, qualityV2.finalRankScore);
   }
   if (qualityV2.productFit.websiteFit >= 75 && (pain.type === 'sem_site' || pain.type === 'site_fraco')) {
-    opportunityReason = `${opportunityReason} Fit forte para Website/HBX Lead.`;
+    opportunityReason = `${opportunityReason} Fit forte para Website/HBX Lead Plus.`;
   }
   if ((instagramUrl || facebookUrl) && (pain.type === 'sem_site' || pain.type === 'site_fraco') && !/rede social|Instagram|Facebook/i.test(opportunityReason)) {
     opportunityReason = `${opportunityReason} Rede social encontrada, mas site ausente ou fraco.`;

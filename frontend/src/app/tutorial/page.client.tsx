@@ -782,7 +782,7 @@ function ChannelIcon({ type }: { type: "whatsapp" | "facebook" | "instagram" | "
 
 function PremiumChannelStrip() {
   return (
-    <div className={styles.premiumChannelStrip} aria-label="Canais do HBX Lead">
+    <div className={styles.premiumChannelStrip} aria-label="Canais do HBX Lead Plus">
       {(["whatsapp", "facebook", "instagram", "site", "phone", "email"] as const).map((channel) => (
         <ChannelIcon key={channel} type={channel} />
       ))}
@@ -1257,7 +1257,7 @@ export default function TutorialClientPage() {
                   <small>Acesse mais contatos e canais</small>
                   <p>score • motivo • mensagem</p>
                 </div>
-                <div className={styles.premiumMetricStrip} aria-label="Recursos HBX Lead">
+                <div className={styles.premiumMetricStrip} aria-label="Recursos HBX Lead Plus">
                   <span>Score</span>
                   <span>Motivo</span>
                   <span>Msg</span>

@@ -412,7 +412,7 @@ function salePlanLabel(planKey?: string | null) {
   const normalized = String(planKey || "").trim().toLowerCase();
   if (normalized === "hbx_lite") return "HBX List";
   if (normalized === "hbx_melhor") return "HBX Full";
-  if (normalized === "hbx_padrao") return "HBX Lead+";
+  if (normalized === "hbx_padrao") return "HBX Lead Plus";
   return "Plano HBX";
 }
 

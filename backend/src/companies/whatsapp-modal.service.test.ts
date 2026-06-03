@@ -196,7 +196,7 @@ test('pairing-code rejeita telefone invalido', async () => {
   );
 });
 
-test('pairing-code no trial HBX Lead exige o telefone informado na ativacao', async () => {
+test('pairing-code no trial HBX Lead Plus exige o telefone informado na ativacao', async () => {
   const service = createService(createCompany({
     paymentStatus: 'TRIAL',
     subscriptionStatus: 'trialing',

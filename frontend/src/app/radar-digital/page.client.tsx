@@ -606,8 +606,8 @@ function HeroPremiumCrown({ active }: { active: boolean }) {
       href={toMobileRoute("/planos?intent=lead")}
       className={styles.mobileHeroPremiumCrown}
       data-active={active ? "true" : "false"}
-      aria-label={active ? "Ver plano HBX Lead" : "Fazer upgrade para HBX Lead"}
-      title={active ? "Ver plano HBX Lead" : "Upgrade para HBX Lead"}
+      aria-label={active ? "Ver plano HBX Lead Plus" : "Fazer upgrade para HBX Lead Plus"}
+      title={active ? "Ver plano HBX Lead Plus" : "Upgrade para HBX Lead Plus"}
     >
       <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
         <path d="M4.2 18.5h15.6l.7-9.9-4.6 3.5L12 4.7 8.1 12.1 3.5 8.6l.7 9.9Z" />
@@ -4763,7 +4763,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
                     ) : (
                       <>
                         <p className={styles.reason} title={leadExplanation(lead)}><b>Por que apareceu</b>{leadExplanation(lead)}</p>
-                        <div className={styles.listUpsell}>Lead inteligente disponível no HBX Lead</div>
+                        <div className={styles.listUpsell}>Lead inteligente disponível no HBX Lead Plus</div>
                       </>
                     )}
 
