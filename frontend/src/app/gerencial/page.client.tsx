@@ -2135,6 +2135,13 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
 
   if (mobileRoute) return renderMobileGerencial();
 
+  const showDesktopStatus = desktopGuideTab === "status";
+  const showDesktopCreate = desktopGuideTab === "criar";
+  const showDesktopCommissions = desktopGuideTab === "comissoes";
+  const showDesktopTeam = desktopGuideTab === "equipe";
+  const showDesktopModules = desktopGuideTab === "modulos";
+  const showDesktopSignals = desktopGuideTab === "sinais";
+
   return (
     <DashboardScaffold
       title="Gerencial"
@@ -2152,7 +2159,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
             <HbxGuide1 tabs={desktopGuideTabs} activeKey={desktopGuideTab} ariaLabel="Gerencial" onChange={handleDesktopGuideChange} />
           </div>
 
-          {data.operationAudit ? (
+          {showDesktopStatus && data.operationAudit ? (
             <section className="panel p-4 md:p-5 rounded-[20px]">
               <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
                 <div className="min-w-0">
@@ -2219,6 +2226,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
             </section>
           ) : null}
 
+          {showDesktopCreate ? (
           <section className="panel p-4 md:p-5 rounded-[20px]">
             <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
               <div>
@@ -2448,8 +2456,9 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
               </div>
             </form>
           </section>
+          ) : null}
 
-          {createdPasswordInfo ? (
+          {showDesktopCreate && createdPasswordInfo ? (
             <section className="panel p-4 rounded-[20px] border-[var(--line)]">
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                 <div className="min-w-0">
@@ -2472,6 +2481,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
             </section>
           ) : null}
 
+          {showDesktopCommissions ? (
           <section className="panel p-4 md:p-5 rounded-[20px]">
             <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
               <div>
@@ -2848,19 +2858,29 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
               )}
             </div>
           </section>
+          ) : null}
 
+          {showDesktopTeam || showDesktopModules ? (
           <section className="panel p-4 md:p-5 rounded-[20px]">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
               <div>
-                <h2 className="text-lg font-semibold">Equipe da empresa #{data.companyId}</h2>
-                <p className="mt-1 text-sm text-muted">Altere perfil, status e módulos sem perder o histórico da operação.</p>
+                <h2 className="text-lg font-semibold">
+                  {showDesktopModules ? `Módulos da equipe #${data.companyId}` : `Equipe da empresa #${data.companyId}`}
+                </h2>
+                <p className="mt-1 text-sm text-muted">
+                  {showDesktopModules
+                    ? "Libere ou bloqueie módulos por vendedor sem misturar com edição de perfil."
+                    : "Altere perfil e status sem perder o histórico da operação."}
+                </p>
               </div>
-              <span className="badge badge-brand">{data.users.length} pessoas</span>
+              <span className="badge badge-brand">
+                {showDesktopModules ? `${enabledModules.length} módulos` : `${data.users.length} pessoas`}
+              </span>
             </div>
 
             <div className="mt-4 grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-3">
               <label className="grid gap-1 text-sm">
-                <span className="font-medium">Buscar na equipe</span>
+                  <span className="font-medium">{showDesktopModules ? "Buscar usuário" : "Buscar na equipe"}</span>
                 <input
                   type="search"
                   placeholder="Nome, e-mail ou login"
@@ -2945,6 +2965,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                       </div>
                     </div>
 
+                    {showDesktopTeam ? (
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <div className="min-w-0 rounded-[12px] border border-[var(--line)] bg-[var(--surface)] p-3">
                         <p className="text-xs text-muted">WhatsApp</p>
@@ -2959,8 +2980,9 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                         <strong className="mt-1 block text-sm">{isMaster ? "Master" : isAdmin ? "Admin" : seatRank || "-"}</strong>
                       </div>
                     </div>
+                    ) : null}
 
-                    {showHbxNetwork ? (
+                    {showDesktopTeam && showHbxNetwork ? (
                       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2">
                         <div className="min-w-0 rounded-[12px] border border-[var(--line)] bg-[var(--surface)] p-3">
                           <p className="text-xs text-muted">Rede HBX</p>
@@ -2985,12 +3007,13 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                       </div>
                     ) : null}
 
-                    {!user.isActive ? (
+                    {showDesktopTeam && !user.isActive ? (
                       <div className="rounded-[12px] border border-[var(--line)] bg-[var(--surface)] p-3 text-xs text-muted">
                         Histórico preservado por 730 dias. {retentionLabel(user.retentionUntil) || ""}
                       </div>
                     ) : null}
 
+                    {showDesktopTeam ? (
                     <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
@@ -3033,8 +3056,9 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                         {deletingUserId === user.id ? "Excluindo..." : "Excluir"}
                       </button>
                     </div>
+                    ) : null}
 
-                    {isEditingProfile ? (
+                    {showDesktopTeam && isEditingProfile ? (
                       <form
                         onSubmit={(event) => {
                           event.preventDefault();
@@ -3193,6 +3217,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                       </form>
                     ) : null}
 
+                    {showDesktopModules ? (
                     <div className="grid gap-2">
                       <p className="text-xs font-semibold uppercase text-muted">Módulos</p>
                       {isAdmin ? (
@@ -3235,12 +3260,15 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                         </div>
                       )}
                     </div>
+                    ) : null}
                   </article>
                 );
               })}
             </div>
           </section>
+          ) : null}
 
+          {showDesktopSignals ? (
           <section className="metrics-grid">
             <article className="stat-card">
               <p className="stat-card__label">Conversas</p>
@@ -3271,7 +3299,9 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
               <p className="stat-card__value">{data.totals.surveys}</p>
             </article>
           </section>
+          ) : null}
 
+          {showDesktopSignals ? (
           <section className="grid grid-cols-1 xl:grid-cols-2 gap-4">
             <article className="panel p-4">
               <h2 className="text-lg font-semibold">Mensagens recentes</h2>
@@ -3332,6 +3362,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
               </div>
             </article>
           </section>
+          ) : null}
         </>
       )}
     </DashboardScaffold>
