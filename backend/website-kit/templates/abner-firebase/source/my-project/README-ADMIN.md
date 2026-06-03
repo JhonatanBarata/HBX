@@ -193,12 +193,12 @@ Você precisa adicionar nos seus HTMLs:
 
 ## 📦 Deploy
 
-### Opção 1: Vercel (Recomendado - Grátis)
+### Opção 1: Hostinger (Recomendado - Grátis)
 
 1. Suba código no GitHub
-2. Conecte Vercel ao repositório
+2. Conecte Hostinger ao repositório
 3. Deploy automático
-4. Acesse: `seusite.vercel.app/admin.html`
+4. Acesse: `seusite.Hostinger.app/admin.html`
 
 ### Opção 2: Netlify (Alternativa)
 
@@ -219,7 +219,7 @@ Você precisa adicionar nos seus HTMLs:
 ✅ **Leitura pública** (visitantes veem o site)  
 ✅ **Escrita protegida** (só admin logado edita)  
 ✅ **Credenciais no Firebase** (não no código)  
-✅ **HTTPS automático** (Vercel/Netlify)  
+✅ **HTTPS automático** (Hostinger/Netlify)  
 
 ---
 

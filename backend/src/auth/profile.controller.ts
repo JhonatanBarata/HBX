@@ -37,6 +37,7 @@ function sanitizeUser(user: any, masterContext?: any) {
     name: user.name,
     role: user.role,
     isSystemMaster: Boolean(user.isSystemMaster),
+    mustChangePassword: Boolean(user.mustChangePassword),
     createdAt: user.createdAt,
     company: user.company
       ? {

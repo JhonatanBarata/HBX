@@ -1,5 +1,6 @@
-import { Controller, Get, Query, NotFoundException, UseGuards, Req, Patch, Param, ParseIntPipe, Body, BadRequestException, ForbiddenException, Post } from '@nestjs/common';
+import { Controller, Get, Query, NotFoundException, UseGuards, Req, Patch, Param, ParseIntPipe, Body, BadRequestException, ForbiddenException, Post, Logger, Delete } from '@nestjs/common';
 import { UsersService } from './users.service';
+import { SellerOnboardingService } from '../gerencial/seller-onboarding.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Admin } from '../auth/admin.decorator';
@@ -12,6 +13,12 @@ import { assertPasswordPolicy } from '../auth/password-policy';
 import { MasterContextService } from '../master-context/master-context.service';
 import { ModuleAccessGuard } from '../modules/module-access.guard';
 import { ModuleAccess } from '../modules/module-feature.decorator';
+import { EmailTemplateService } from '../mail/email-template.service';
+import {
+	BUSINESS_CARD_CID,
+	HbxPresentationEmailService,
+} from '../mail/hbx-presentation-email.service';
+import { MailService, type MailAttachment, type MailSendResult } from '../mail/mail.service';
 
 class UpdateRoleDto {
 	@IsString()
@@ -66,6 +73,21 @@ class CreateCompanyUserDto {
 	@IsString()
 	@MinLength(8)
 	password?: string;
+
+	@IsOptional()
+	@IsString()
+	cpf?: string;
+
+	@IsOptional()
+	@IsString()
+	declaredAddress?: string;
+
+	@IsOptional()
+	@Type(() => Number)
+	@IsInt()
+	@Min(0)
+	@Max(30)
+	commissionDueBusinessDays?: number;
 
 	@IsOptional()
 	@IsString()
@@ -176,6 +198,21 @@ class MasterCreateUserDto {
 	@IsString()
 	@MinLength(8)
 	password?: string;
+
+	@IsOptional()
+	@IsString()
+	cpf?: string;
+
+	@IsOptional()
+	@IsString()
+	declaredAddress?: string;
+
+	@IsOptional()
+	@Type(() => Number)
+	@IsInt()
+	@Min(0)
+	@Max(30)
+	commissionDueBusinessDays?: number;
 }
 
 class MasterEditUserDto {
@@ -283,10 +320,113 @@ function normalizeOptionalPositiveInt(value: unknown) {
 
 @Controller('users')
 export class UsersController {
+	private readonly logger = new Logger(UsersController.name);
+
 	constructor(
 		private readonly usersService: UsersService,
 		private readonly masterContextService: MasterContextService,
+		private readonly mailService: MailService,
+		private readonly emailTemplates: EmailTemplateService,
+		private readonly hbxPresentationEmails: HbxPresentationEmailService,
+		private readonly sellerOnboardingService: SellerOnboardingService,
 	) {}
+
+	private buildAppUrl() {
+		return String(process.env.APP_URL || process.env.FRONTEND_URL || 'https://hbxsystem.com.br').replace(/\/$/, '');
+	}
+
+	private roleWelcomeLabel(role: 'USER' | 'ADMIN') {
+		return role === 'ADMIN' ? 'admin' : 'vendedor';
+	}
+
+	private async sendWelcomeAccessEmail(input: {
+		email: string;
+		login: string;
+		password: string;
+		name?: string | null;
+		role: 'USER' | 'ADMIN';
+		source: string;
+		companyId?: number | null;
+		commissionPercent?: number | null;
+		sellerReferralCommissionPercent?: number | null;
+		referredByCommissionPercentSnapshot?: number | null;
+	}): Promise<Pick<MailSendResult, 'ok' | 'transport' | 'messageId' | 'errorCode' | 'errorMessage'> | null> {
+		const email = String(input.email || '').trim().toLowerCase();
+		const login = String(input.login || email).trim();
+		const password = String(input.password || '');
+		if (!email || !login || !password) return null;
+		const summary = this.mailService.getConfigurationSummary();
+		if (summary.mode === 'log') {
+			return {
+				ok: false,
+				transport: 'log',
+				messageId: null,
+				errorCode: 'WELCOME_EMAIL_PROVIDER_NOT_CONFIGURED',
+				errorMessage: 'Provedor transacional não configurado. E-mail de boas-vindas não enviado.',
+			};
+		}
+		const displayName = String(input.name || login).trim();
+		const appUrl = this.buildAppUrl();
+		const dueBusinessDays = await this.usersService.getCompanyCommissionDueBusinessDays(input.companyId);
+		const inheritancePercent = Number(input.referredByCommissionPercentSnapshot ?? input.sellerReferralCommissionPercent ?? 0) || 0;
+		const template = await this.emailTemplates.getTemplateSafe('seller_welcome');
+		const businessCardFile = await this.hbxPresentationEmails.readBusinessCardContent();
+		const businessCardMeta = businessCardFile?.meta || null;
+		const hasBusinessCard = Boolean(businessCardFile && businessCardMeta);
+		const rendered = this.emailTemplates.renderTemplate(template, {
+			nome: displayName,
+			email,
+			tipoAcesso: this.roleWelcomeLabel(input.role),
+			acesso: login,
+			senha: password,
+			linkAcesso: `${appUrl}/login`,
+			linkMobile: `${appUrl}/mobile/login`,
+			ano: new Date().getFullYear(),
+			vendedor: displayName,
+			emailvendedor: login,
+			senhavendedor: password,
+			comissao: Number(input.commissionPercent || 0) || 0,
+			comissaoheranca: inheritancePercent,
+			d3: `D+${dueBusinessDays} úteis`,
+			diascomissao: dueBusinessDays,
+		}, {
+			appendHtml: hasBusinessCard ? this.hbxPresentationEmails.buildBusinessCardHtml() : null,
+		});
+		const attachments: MailAttachment[] = [];
+		if (businessCardFile && businessCardMeta && hasBusinessCard) {
+			attachments.push({
+				filename: businessCardMeta.originalName || 'cartao-visitas.png',
+				content: businessCardFile.content,
+				contentType: businessCardFile.contentType || businessCardMeta.mimeType || 'image/png',
+				cid: BUSINESS_CARD_CID,
+			});
+		}
+		try {
+			const result = await this.mailService.sendMail({
+				to: email,
+				subject: rendered.subject,
+				text: rendered.text,
+				html: rendered.html,
+				attachments,
+			});
+			return {
+				ok: result.ok,
+				transport: result.transport,
+				messageId: result.messageId,
+				errorCode: result.errorCode,
+				errorMessage: result.errorMessage,
+			};
+		} catch (error) {
+			this.logger.warn(`Falha ao enviar boas-vindas HBX para user ${login} (${input.source}): ${error instanceof Error ? error.message : error}`);
+			return {
+				ok: false,
+				transport: this.mailService.getConfigurationSummary().mode,
+				messageId: null,
+				errorCode: 'WELCOME_EMAIL_FAILED',
+				errorMessage: error instanceof Error ? error.message : String(error),
+			};
+		}
+	}
 
 	private hasSellerNetworkInput(dto: any) {
 		return (
@@ -576,6 +716,22 @@ export class UsersController {
 		};
 	}
 
+	@Delete(':id/delete')
+	@UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
+	@Admin()
+	@ModuleAccess('gerencial')
+	async deleteCompanyUser(@Param('id', ParseIntPipe) id: number) {
+		const target = await this.usersService.findById(id);
+		if (!target) throw new NotFoundException('Usuário não encontrado');
+
+		await this.usersService.hardDeleteUser(id);
+		return {
+			ok: true,
+			id,
+			message: 'Usuário excluído definitivamente.',
+		};
+	}
+
 	@Post('company/create')
 	@UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
 	@Admin()
@@ -618,9 +774,10 @@ export class UsersController {
 			dto,
 			forCreate: true,
 		});
+		let selectedReferrer: Awaited<ReturnType<UsersService['getActiveSellerReferrer']>> | null = null;
 		if (role === 'USER' && sellerNetworkData.referredByUserId) {
-			const referrer = await this.usersService.getActiveSellerReferrer(companyId, sellerNetworkData.referredByUserId);
-			commissionPercent = normalizeCommissionPercent(referrer?.commissionPercent) ?? commissionPercent;
+			selectedReferrer = await this.usersService.getActiveSellerReferrer(companyId, sellerNetworkData.referredByUserId);
+			commissionPercent = normalizeCommissionPercent(selectedReferrer?.commissionPercent) ?? commissionPercent;
 		}
 		const created = await this.usersService.create({
 			email,
@@ -630,9 +787,37 @@ export class UsersController {
 			commissionPercent,
 			...sellerNetworkData,
 			password: hashed,
+			mustChangePassword: true,
 			companyId,
 			role,
+			...(role === 'USER' ? { isActive: false } : {}),
 		});
+		let welcomeEmail: Pick<MailSendResult, 'ok' | 'transport' | 'messageId' | 'errorCode' | 'errorMessage'> | null = null;
+		if (role === 'USER') {
+			await this.sellerOnboardingService.getOrCreateForUser(companyId, created.id, Number(req?.user?.id || 0) || null);
+			await this.sellerOnboardingService.updateDraft(req.user, created.id, {
+				legalName: attendantName || created.name || '',
+				email,
+				phone,
+				cpf: dto.cpf,
+				declaredAddress: dto.declaredAddress,
+				commissionPercent: created.commissionPercent,
+				commissionDueBusinessDays: dto.commissionDueBusinessDays ?? seatUsage.company.commissionDueBusinessDays,
+			});
+		} else {
+			welcomeEmail = await this.sendWelcomeAccessEmail({
+				email,
+				login: email,
+				password: tempPassword,
+				name: attendantName || created.name,
+				role,
+				source: 'company_create',
+				companyId,
+				commissionPercent: created.commissionPercent,
+				sellerReferralCommissionPercent: created.sellerReferralCommissionPercent,
+				referredByCommissionPercentSnapshot: created.referredByCommissionPercentSnapshot,
+			});
+		}
 
 		return {
 			user: {
@@ -648,6 +833,7 @@ export class UsersController {
 				...this.sellerNetworkPayload(created),
 			},
 			temporaryPassword: dto.password ? null : tempPassword,
+			welcomeEmail,
 		};
 	}
 
@@ -694,9 +880,20 @@ export class UsersController {
 			referredByUserId: requester.id,
 			referredByCommissionPercentSnapshot: inheritedSnapshot,
 			password: hashed,
+			mustChangePassword: true,
 			companyId,
 			role: 'USER',
+			isActive: false,
 		});
+		await this.sellerOnboardingService.getOrCreateForUser(companyId, created.id, requester.id);
+		await this.sellerOnboardingService.updateDraft({ ...req.user, companyId }, created.id, {
+			legalName: attendantName || created.name || '',
+			email,
+			phone,
+			commissionPercent: created.commissionPercent,
+			commissionDueBusinessDays: await this.usersService.getCompanyCommissionDueBusinessDays(companyId),
+		});
+		const welcomeEmail = null;
 
 		return {
 			user: {
@@ -712,6 +909,7 @@ export class UsersController {
 				...this.sellerNetworkPayload(created),
 			},
 			temporaryPassword: dto.password ? null : tempPassword,
+			welcomeEmail,
 		};
 	}
 
@@ -778,9 +976,10 @@ export class UsersController {
 			dto,
 			forCreate: true,
 		});
+		let selectedReferrer: Awaited<ReturnType<UsersService['getActiveSellerReferrer']>> | null = null;
 		if (role === 'USER' && sellerNetworkData.referredByUserId) {
-			const referrer = await this.usersService.getActiveSellerReferrer(companyId, sellerNetworkData.referredByUserId);
-			commissionPercent = normalizeCommissionPercent(referrer?.commissionPercent) ?? commissionPercent;
+			selectedReferrer = await this.usersService.getActiveSellerReferrer(companyId, sellerNetworkData.referredByUserId);
+			commissionPercent = normalizeCommissionPercent(selectedReferrer?.commissionPercent) ?? commissionPercent;
 		}
 
 		const created = await this.usersService.create({
@@ -791,9 +990,37 @@ export class UsersController {
 			commissionPercent,
 			...sellerNetworkData,
 			password: hashed,
+			mustChangePassword: true,
 			companyId,
 			role,
+			...(role === 'USER' ? { isActive: false } : {}),
 		});
+		let welcomeEmail: Pick<MailSendResult, 'ok' | 'transport' | 'messageId' | 'errorCode' | 'errorMessage'> | null = null;
+		if (role === 'USER') {
+			await this.sellerOnboardingService.getOrCreateForUser(companyId, created.id, Number(req?.user?.id || 0) || null);
+			await this.sellerOnboardingService.updateDraft({ ...req.user, companyId }, created.id, {
+				legalName: attendantName || created.name || '',
+				email,
+				phone,
+				cpf: dto.cpf,
+				declaredAddress: dto.declaredAddress,
+				commissionPercent: created.commissionPercent,
+				commissionDueBusinessDays: dto.commissionDueBusinessDays ?? seatUsage.company.commissionDueBusinessDays,
+			});
+		} else {
+			welcomeEmail = await this.sendWelcomeAccessEmail({
+				email,
+				login: loginUsername,
+				password: tempPassword,
+				name: attendantName || created.name,
+				role,
+				source: 'master_company_create',
+				companyId,
+				commissionPercent: created.commissionPercent,
+				sellerReferralCommissionPercent: created.sellerReferralCommissionPercent,
+				referredByCommissionPercentSnapshot: created.referredByCommissionPercentSnapshot,
+			});
+		}
 
 		await this.masterContextService.registerSupportAction({
 			masterUserId: Number(req.user?.id),
@@ -826,6 +1053,7 @@ export class UsersController {
 				...this.sellerNetworkPayload(created),
 			},
 			temporaryPassword: dto.password ? null : tempPassword,
+			welcomeEmail,
 		};
 	}
 
@@ -971,7 +1199,7 @@ export class UsersController {
 		const tempPassword = dto.password?.trim() || `Tmp@${Math.random().toString(36).slice(2, 10)}A1`;
 		assertPasswordPolicy(tempPassword);
 		const hashed = await bcrypt.hash(tempPassword, 10);
-		await this.usersService.setPassword(id, hashed);
+		await this.usersService.setPassword(id, hashed, { mustChangePassword: true });
 		await this.masterContextService.registerSupportAction({
 			masterUserId: Number(req.user?.id),
 			companyId: Number(target.companyId || 0) || null,

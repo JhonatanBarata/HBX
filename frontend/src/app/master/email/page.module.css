@@ -169,29 +169,66 @@
   padding: 0.8rem;
 }
 
-.variables > div {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-}
-
 .variables p {
   margin: 0;
   color: color-mix(in srgb, var(--warning) 75%, var(--foreground));
   font-size: 0.85rem;
 }
 
+.variables .variableNote {
+  border: 1px solid color-mix(in srgb, var(--info) 28%, var(--line));
+  border-radius: calc(var(--panel-radius) * 0.5);
+  background: color-mix(in srgb, var(--info) 8%, var(--surface-raised));
+  color: var(--muted);
+  padding: 0.62rem 0.7rem;
+  line-height: 1.45;
+}
+
+.variableGroups {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.variableGroup {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.variableGroup > strong {
+  color: var(--foreground);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.variableGroup > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
 .variableChip {
-  min-height: 30px;
-  padding: 0 0.55rem;
+  display: inline-grid;
+  gap: 0.08rem;
+  min-height: 42px;
+  padding: 0.38rem 0.58rem;
   border: 1px solid color-mix(in srgb, var(--brand) 28%, var(--line));
-  border-radius: 999px;
+  border-radius: calc(var(--panel-radius) * 0.48);
   background: color-mix(in srgb, var(--brand) 9%, var(--surface-raised));
   color: var(--foreground);
   font: inherit;
-  font-size: 0.78rem;
-  font-weight: 800;
   cursor: pointer;
+  text-align: left;
+}
+
+.variableChip span {
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.variableChip small {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 750;
 }
 
 .attachmentBox {
@@ -233,6 +270,31 @@
   font-weight: 850;
   cursor: pointer;
   white-space: nowrap;
+}
+
+.assetActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.assetRemoveButton {
+  min-height: 36px;
+  border: 1px solid color-mix(in srgb, var(--danger) 42%, var(--line));
+  border-radius: calc(var(--panel-radius) * 0.6);
+  background: color-mix(in srgb, var(--danger) 9%, var(--surface));
+  color: color-mix(in srgb, var(--danger) 78%, var(--foreground));
+  padding: 0 0.75rem;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.assetRemoveButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
 }
 
 .uploadButton input {
@@ -354,6 +416,39 @@
   text-transform: uppercase;
 }
 
+.previewAttachment {
+  display: grid;
+  gap: 0.2rem;
+  margin-top: 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--warning) 40%, var(--line));
+  border-radius: calc(var(--panel-radius) * 0.58);
+  background: color-mix(in srgb, var(--warning) 10%, var(--surface));
+  padding: 0.72rem;
+}
+
+.previewAttachment[data-ok="true"] {
+  border-color: color-mix(in srgb, var(--success) 36%, var(--line));
+  background: color-mix(in srgb, var(--success) 9%, var(--surface));
+}
+
+.previewAttachment span {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.previewAttachment strong {
+  color: var(--foreground);
+  font-size: 0.88rem;
+  overflow-wrap: anywhere;
+}
+
+.previewAttachment small {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
 .sideField {
   display: grid;
   gap: 0.35rem;
@@ -392,6 +487,14 @@
     grid-template-columns: 1fr;
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .assetActions {
+    justify-content: stretch;
+  }
+
+  .assetActions > * {
+    width: 100%;
   }
 }
 

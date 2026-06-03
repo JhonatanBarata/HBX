@@ -29,8 +29,9 @@ export class ModuleAccessGuard implements CanActivate {
       });
     }
 
+    const mobileRoute = this.isMobileRouteRequest(req);
     for (const moduleKey of requiredModules) {
-      const allowed = await this.modulesService.canUserAccessModule(user.id, moduleKey);
+      const allowed = await this.modulesService.canUserAccessModule(user.id, moduleKey, { mobileRoute });
       if (allowed) return true;
     }
 
@@ -40,5 +41,11 @@ export class ModuleAccessGuard implements CanActivate {
       modules: requiredModules,
       retryable: false,
     });
+  }
+
+  private isMobileRouteRequest(req: any) {
+    const surface = String(req?.headers?.['x-hbx-client-surface'] || '').trim().toLowerCase();
+    const mobileRoute = String(req?.headers?.['x-hbx-mobile-route'] || '').trim().toLowerCase();
+    return surface === 'mobile' || mobileRoute === 'true' || mobileRoute === '1';
   }
 }

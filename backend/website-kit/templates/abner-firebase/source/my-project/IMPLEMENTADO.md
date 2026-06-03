@@ -133,12 +133,12 @@ O site continua **IDÊNTICO** visualmente. A única diferença é que agora:
 
 ## 🚀 Deploy:
 
-### Vercel (Recomendado):
+### Hostinger (Recomendado):
 ```bash
 # 1. Suba código no GitHub
-# 2. Conecte Vercel
+# 2. Conecte Hostinger
 # 3. Deploy automático
-# URL: seusite.vercel.app
+# URL: seusite.Hostinger.app
 ```
 
 ### Netlify:

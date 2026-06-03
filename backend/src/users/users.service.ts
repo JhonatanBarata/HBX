@@ -27,6 +27,18 @@ export class UsersService {
     return isMasterOperationalCompanySlug(company?.slug);
   }
 
+  async getCompanyCommissionDueBusinessDays(companyId?: number | null) {
+    const normalizedCompanyId = Number(companyId || 0);
+    if (!normalizedCompanyId) return 3;
+    const company = await this.prisma.company.findUnique({
+      where: { id: normalizedCompanyId },
+      select: { commissionDueBusinessDays: true },
+    });
+    const numeric = Math.trunc(Number(company?.commissionDueBusinessDays));
+    if (!Number.isFinite(numeric)) return 3;
+    return Math.min(30, Math.max(0, numeric));
+  }
+
   async getActiveSellerReferrer(companyId: number, userId?: number | null) {
     const normalizedUserId = Number(userId || 0);
     if (!normalizedUserId) return null;
@@ -151,8 +163,10 @@ export class UsersService {
     sellerReferralCommissionPercent?: number;
     referredByUserId?: number | null;
     referredByCommissionPercentSnapshot?: number;
+    mustChangePassword?: boolean;
     companyId?: number | null;
     role?: string;
+    isActive?: boolean;
   }): Promise<User> {
     const created = await this.prisma.user.create({ data });
     if (isBillableUserSeatSnapshot(created)) {
@@ -185,6 +199,8 @@ export class UsersService {
         where: { id: companyId },
         select: {
           id: true,
+          name: true,
+          commissionDueBusinessDays: true,
           onboardingStatus: true,
           paymentStatus: true,
           subscriptionStatus: true,
@@ -265,8 +281,14 @@ export class UsersService {
     return this.prisma.user.update({ where: { id: userId }, data: { companyId } });
   }
 
-  async setPassword(userId: number, hashedPassword: string): Promise<User> {
-    return this.prisma.user.update({ where: { id: userId }, data: { password: hashedPassword } });
+  async setPassword(userId: number, hashedPassword: string, options?: { mustChangePassword?: boolean }): Promise<User> {
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        password: hashedPassword,
+        mustChangePassword: Boolean(options?.mustChangePassword),
+      },
+    });
   }
 
   async updateById(userId: number, data: any): Promise<User> {
@@ -471,8 +493,25 @@ export class UsersService {
     const hasMasterBillingLedgerEntry = await this.prisma.hasTable('MasterBillingLedgerEntry');
 
     await this.prisma.$transaction(async (tx) => {
+      const deletedAt = new Date();
+
+      await tx.user.updateMany({
+        where: { referredByUserId: userId },
+        data: {
+          referredByUserId: null,
+          referredByCommissionPercentSnapshot: 0,
+        },
+      });
+
+      await tx.user.update({
+        where: { id: userId },
+        data: { currentSessionId: null },
+      });
+
+      await tx.authSession.deleteMany({ where: { userId } });
       await tx.userModuleAccess.deleteMany({ where: { userId } });
       await tx.passwordReset.deleteMany({ where: { userId } });
+      await tx.masterNoticeAck.deleteMany({ where: { userId } });
 
       await tx.productVersion.updateMany({
         where: { authorId: userId },
@@ -489,9 +528,30 @@ export class UsersService {
         data: { endedByUserId: null },
       });
 
+      await tx.masterSupportAuditLog.deleteMany({ where: { masterUserId: userId } });
+      await tx.masterAssumedContextSession.deleteMany({ where: { masterUserId: userId } });
+      await tx.masterNotice.updateMany({
+        where: { createdByUserId: userId },
+        data: { createdByUserId: null },
+      });
+
       await tx.techAssistantInteraction.deleteMany({ where: { userId } });
       await tx.webscrapingSearchHistory.deleteMany({ where: { userId } });
+      await tx.webscrapingSearchRun.deleteMany({ where: { userId } });
+      await tx.webscrapingCampaign.deleteMany({ where: { userId } });
       await tx.webscrapingUsageLog.deleteMany({ where: { userId } });
+      await tx.nightFactoryRewardClaim.deleteMany({ where: { userId } });
+      await tx.salesProfile.deleteMany({ where: { userId } });
+      await tx.radarDistributionDailyUsage.deleteMany({ where: { userId } });
+
+      await tx.vendasCardComplaint.updateMany({
+        where: { userId },
+        data: { userId: null },
+      });
+      await tx.vendasCardComplaint.updateMany({
+        where: { resolvedByUserId: userId },
+        data: { resolvedByUserId: null },
+      });
 
       await tx.hbxRecoveryPayment.updateMany({
         where: { createdByUserId: userId },
@@ -508,12 +568,93 @@ export class UsersService {
         data: { triggeredByUserId: null },
       });
 
-      await tx.vendasLead.updateMany({
+      await tx.radarLeadEvent.updateMany({
         where: { createdByUserId: userId },
         data: { createdByUserId: null },
       });
 
+      await tx.radarLeadCompanyState.updateMany({
+        where: { assignedUserId: userId },
+        data: { assignedUserId: null },
+      });
+      await tx.radarLeadCompanyState.updateMany({
+        where: { assignedByUserId: userId },
+        data: { assignedByUserId: null },
+      });
+
+      await tx.radarAutoDistributionRule.updateMany({
+        where: { adminUserId: userId },
+        data: { adminUserId: null },
+      });
+      await tx.radarAutoDistributionRule.updateMany({
+        where: { createdByUserId: userId },
+        data: { createdByUserId: null },
+      });
+      await tx.radarAutoDistributionRule.updateMany({
+        where: { updatedByUserId: userId },
+        data: { updatedByUserId: null },
+      });
+      const distributionRules = await tx.radarAutoDistributionRule.findMany({
+        where: { targetUserIdsJson: { contains: String(userId) } },
+        select: { id: true, targetUserIdsJson: true },
+      });
+      for (const rule of distributionRules) {
+        try {
+          const targetUserIds = JSON.parse(rule.targetUserIdsJson || '[]');
+          if (!Array.isArray(targetUserIds)) continue;
+          const nextTargetUserIds = targetUserIds.filter((value) => Number(value) !== userId);
+          if (nextTargetUserIds.length === targetUserIds.length) continue;
+          await tx.radarAutoDistributionRule.update({
+            where: { id: rule.id },
+            data: { targetUserIdsJson: JSON.stringify(nextTargetUserIds) },
+          });
+        } catch {
+          await tx.radarAutoDistributionRule.update({
+            where: { id: rule.id },
+            data: { targetUserIdsJson: '[]' },
+          });
+        }
+      }
+
+      await tx.vendasLead.updateMany({
+        where: { createdByUserId: userId },
+        data: { createdByUserId: null },
+      });
+      await tx.vendasLead.updateMany({
+        where: { assignedUserId: userId },
+        data: {
+          assignedUserId: null,
+          assignedAt: null,
+          commissionPercentSnapshot: 0,
+        },
+      });
+      await tx.vendasLead.updateMany({
+        where: { assignedByUserId: userId },
+        data: { assignedByUserId: null },
+      });
+
       await tx.vendasLeadTimelineEvent.updateMany({
+        where: { createdByUserId: userId },
+        data: { createdByUserId: null },
+      });
+
+      await tx.vendasCommissionPayout.updateMany({
+        where: { sellerUserId: userId },
+        data: { sellerUserId: null },
+      });
+      await tx.vendasCommissionPayout.updateMany({
+        where: { createdByUserId: userId },
+        data: { createdByUserId: null },
+      });
+      await tx.vendasCommissionReceivable.updateMany({
+        where: { sellerUserId: userId },
+        data: { sellerUserId: null },
+      });
+      await tx.vendasCommissionReceivable.updateMany({
+        where: { createdByUserId: userId },
+        data: { createdByUserId: null },
+      });
+      await tx.vendasAutomationCampaign.updateMany({
         where: { createdByUserId: userId },
         data: { createdByUserId: null },
       });
@@ -531,9 +672,10 @@ export class UsersService {
       }
 
       await tx.companyBillableSeatUsage.updateMany({
-        where: { userId, endedAt: null },
+        where: { userId },
         data: {
-          endedAt: new Date(),
+          userId: null,
+          endedAt: deletedAt,
           endSource: 'user_delete',
         },
       });
@@ -546,13 +688,13 @@ export class UsersService {
     if (isBillableUserSeatSnapshot(target, company)) {
       await this.logBillableUserChange({
         companyId: target.companyId,
-        userId,
+        userId: null,
         eventType: 'user_billable_removed',
         source: 'user_delete',
       });
       await this.logBillableUserChange({
         companyId: target.companyId,
-        userId,
+        userId: null,
         eventType: 'billable_user_count_changed',
         source: 'user_delete',
       });

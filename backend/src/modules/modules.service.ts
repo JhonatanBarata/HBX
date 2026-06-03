@@ -78,6 +78,8 @@ const RETIRED_MODULE_KEYS = Array.isArray((structuralDefaults as any).retiredMod
   : [];
 const TRIAL_BUNDLED_MODULE_KEYS = ['atendimento', 'vendas', 'webscraping'];
 const EMPLOYEE_BLOCKED_MODULE_KEYS = new Set([
+  'atendimento',
+  'vendas',
   'webscraping',
   'cadastro',
   'financeiro',
@@ -86,6 +88,7 @@ const EMPLOYEE_BLOCKED_MODULE_KEYS = new Set([
   'master',
   'exclusoes',
 ]);
+const SELLER_MOBILE_OPERATIONAL_MODULE_KEYS = new Set(['vendas', 'webscraping']);
 const MODULE_DISPLAY_ORDER = [
   'atendimento',
   'vendas',
@@ -147,6 +150,9 @@ type UserConfirmationSummary = {
 };
 
 type WebscrapingUsageSummary = ReturnType<ModulesService['buildDefaultWebscrapingUsageSummary']>;
+type ModuleAccessContext = {
+  mobileRoute?: boolean;
+};
 
 @Injectable()
 export class ModulesService implements OnModuleInit {
@@ -1902,21 +1908,28 @@ export class ModulesService implements OnModuleInit {
     return this.normalizeRequestedModuleKey(moduleKey) === 'financeiro';
   }
 
-  private canUseAdminOnlyModule(user: any, moduleKey: string) {
+  private canUseSellerMobileOperationalModule(user: any, moduleKey: string, context?: ModuleAccessContext) {
+    const normalized = this.normalizeRequestedModuleKey(moduleKey);
+    const role = String(user?.role || '').trim().toUpperCase();
+    return role === 'USER' && Boolean(context?.mobileRoute) && SELLER_MOBILE_OPERATIONAL_MODULE_KEYS.has(normalized);
+  }
+
+  private canUseAdminOnlyModule(user: any, moduleKey: string, context?: ModuleAccessContext) {
     const normalized = this.normalizeRequestedModuleKey(moduleKey);
     const role = String(user?.role || '').trim().toUpperCase();
     if (Boolean(user?.isSystemMaster) || role === 'ADMIN') return true;
+    if (this.canUseSellerMobileOperationalModule(user, normalized, context)) return true;
     return !EMPLOYEE_BLOCKED_MODULE_KEYS.has(normalized);
   }
 
-  private defaultUserModuleAllowed(user: any, moduleKey: string) {
-    if (!this.canUseAdminOnlyModule(user, moduleKey)) {
+  private defaultUserModuleAllowed(user: any, moduleKey: string, context?: ModuleAccessContext) {
+    if (!this.canUseAdminOnlyModule(user, moduleKey, context)) {
       return false;
     }
     return true;
   }
 
-  async canUserAccessModule(userId: number, moduleKey: string) {
+  async canUserAccessModule(userId: number, moduleKey: string, context?: ModuleAccessContext) {
     await this.ensureDefaultSystemModules();
     const { user, companyId, isSystemMaster } = await this.resolveUserContext(userId);
 
@@ -1924,7 +1937,7 @@ export class ModulesService implements OnModuleInit {
     if (key === 'master' || key === 'exclusoes') return isSystemMaster;
     if (isSystemMaster) return true;
     if (!companyId) return false;
-    if (this.isFinanceModuleKey(key)) return this.canUseAdminOnlyModule(user, key);
+    if (this.isFinanceModuleKey(key)) return this.canUseAdminOnlyModule(user, key, context);
     if (this.isTrialBundledModuleKey(key)) {
       await this.ensureTrialBundleForCompany(companyId);
     }
@@ -1975,7 +1988,7 @@ export class ModulesService implements OnModuleInit {
       const availability = availabilityMap.get(normalizedModuleKey);
       if (availability?.blockedByEngine && !accessPolicy.moduleKeys.has(normalizedModuleKey)) continue;
       if (planManagedModuleKeys.has(normalizedModuleKey) && !accessPolicy.moduleKeys.has(normalizedModuleKey)) continue;
-      if (!this.canUseAdminOnlyModule(user, moduleItem.key)) continue;
+      if (!this.canUseAdminOnlyModule(user, moduleItem.key, context)) continue;
 
       const userAccess = isSystemMaster
         ? null
@@ -1987,11 +2000,14 @@ export class ModulesService implements OnModuleInit {
               },
             },
           });
+      const sellerMobileOperationalModule = this.canUseSellerMobileOperationalModule(user, moduleItem.key, context);
       const userAllowed = isSystemMaster
         ? true
+        : sellerMobileOperationalModule
+          ? true
         : userAccess
           ? Boolean(userAccess.allowed)
-          : this.defaultUserModuleAllowed(user, moduleItem.key);
+          : this.defaultUserModuleAllowed(user, moduleItem.key, context);
       if (!userAllowed) continue;
 
       if (accessPolicy.moduleKeys.has(normalizedModuleKey)) {

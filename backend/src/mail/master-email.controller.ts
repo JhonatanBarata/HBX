@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Post,
@@ -123,11 +124,13 @@ export class MasterEmailController {
   }
 
   private formatTemplate(template: EmailTemplate) {
+    const usesSignature = template.kind === 'normal' || template.kind === 'seller_welcome';
     return {
       ...template,
       variables: this.emailTemplates.getAvailableVariables(template.kind),
+      variableDefinitions: this.emailTemplates.getVariableDefinitions(template.kind),
       requiredVariable: this.emailTemplates.getRequiredVariable(template.kind),
-      usesSignature: template.kind === 'normal',
+      usesSignature,
       usesAttachment: template.kind === 'normal',
     };
   }
@@ -142,7 +145,35 @@ export class MasterEmailController {
       empresa: sampleCompany,
       linkRecuperacao: `${appUrl}/reset-password?token=exemplo`,
       linkConfirmacao: `${appUrl}/confirm-email?token=exemplo`,
+      acesso: String(dto?.to || 'vendedor@hbxsystem.com.br').trim().toLowerCase(),
+      senha: 'Tmp@ExemploA1',
+      linkAcesso: `${appUrl}/login`,
+      linkMobile: `${appUrl}/mobile/login`,
+      tipoAcesso: 'vendedor',
       ano: new Date().getFullYear(),
+      vendedor: sampleName,
+      emailvendedor: String(dto?.to || 'vendedor@hbxsystem.com.br').trim().toLowerCase(),
+      senhavendedor: 'Tmp@ExemploA1',
+      comissao: '20%',
+      comissaoheranca: '2%',
+      d3: 'D+3 úteis',
+      diascomissao: 3,
+      saudacao: 'Boa tarde',
+      nomecard: sampleCompany,
+      razaosocialcard: `${sampleCompany} LTDA`,
+      telefonecard: '(11) 99999-0000',
+      whatsappcard: '5511999990000',
+      emailcard: 'contato@empresaexemplo.com.br',
+      cidadecard: 'São Paulo',
+      estadocard: 'SP',
+      enderecocard: 'Av. Paulista, 1000',
+      bairrocard: 'Bela Vista',
+      segmentocard: 'serviços locais',
+      sitecard: 'https://empresaexemplo.com.br',
+      instagramcard: '@empresaexemplo',
+      facebookcard: 'facebook.com/empresaexemplo',
+      responsavelcard: sampleName,
+      observacaocard: 'Lead com bom potencial para apresentação HBX.',
     };
   }
 
@@ -183,7 +214,8 @@ export class MasterEmailController {
     const template = await this.emailTemplates.getTemplate(kind);
     this.emailTemplates.validateTemplateInput(kind, template.subject, template.text);
     const variables = this.buildSampleVariables(kind, dto);
-    const businessCardFile = kind === 'normal' ? await this.hbxPresentationEmails.readBusinessCardContent() : null;
+    const formatted = this.formatTemplate(template);
+    const businessCardFile = formatted.usesSignature ? await this.hbxPresentationEmails.readBusinessCardContent() : null;
     const businessCardMeta = businessCardFile?.meta || null;
     const hasBusinessCard = Boolean(businessCardFile);
     const rendered = this.emailTemplates.renderTemplate(template, variables, {
@@ -262,6 +294,12 @@ export class MasterEmailController {
     return { ok: true, attachment };
   }
 
+  @Delete('attachment')
+  async deleteAttachment() {
+    await this.hbxPresentationEmails.deletePresentationAttachment();
+    return { ok: true, attachment: null };
+  }
+
   @Post('business-card')
   @UseInterceptors(
     FileInterceptor('file', {
@@ -282,6 +320,12 @@ export class MasterEmailController {
     const originalName = this.hbxPresentationEmails.normalizeUploadedOriginalName(file.originalname, 'cartao-visitas.png');
     const businessCard = await this.hbxPresentationEmails.saveBusinessCard(Buffer.from(file.buffer), { originalName, mimeType });
     return { ok: true, businessCard };
+  }
+
+  @Delete('business-card')
+  async deleteBusinessCard() {
+    await this.hbxPresentationEmails.deleteBusinessCard();
+    return { ok: true, businessCard: null };
   }
 
   @Post('send')

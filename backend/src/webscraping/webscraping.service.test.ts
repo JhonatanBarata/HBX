@@ -209,7 +209,7 @@ test('buildSearchResponse usa score HBX como evidencia de segmento no List', () 
     phoneDigits: '1532632490',
     rating: null,
     reviews: 0,
-    address: 'Avenida Alexandrina Bertoldi Vercellino, 249, Boituva',
+    address: 'Avenida Alexandrina Bertoldi Hostingerlino, 249, Boituva',
     website: null,
     source: 'hbx_scraping:free_pj',
     score: 70,

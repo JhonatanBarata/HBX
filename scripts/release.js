@@ -15,12 +15,13 @@ const HBX_MAX_ENGINE_COUNT = 50;
 const rawArgs = process.argv.slice(2).map((arg) => String(arg || '').trim()).filter(Boolean);
 const isDryRun = rawArgs.some((arg) => ['d', 'dry-run', '--dry-run'].includes(arg.toLowerCase()));
 
-const serviceOrder = ['backend', 'webscraping', 'hbx-scraping-engine', 'frontend'];
+const serviceOrder = ['backend', 'webscraping', 'hbx-scraping-engine', 'frontend', 'webwhats'];
 const serviceLabels = {
   backend: 'backend',
   frontend: 'frontend (Docker)',
   webscraping: 'webscraping',
   'hbx-scraping-engine': 'hbx-scraping-engine',
+  webwhats: 'webwhats',
 };
 const composeManagedServices = new Set(['webscraping']);
 
@@ -131,7 +132,8 @@ function ensureRequiredEnv(env) {
     backendUrl: normalizeBaseUrl(env.PROD_BACKEND_URL || ''),
     hbxEngineCount,
     hbxEngineMaxCount,
-    webwhatsAppDir: String(env.WEBWHATS_APP_DIR || '/opt/Webwhats').trim(),
+    webwhatsAppDir: String(env.WEBWHATS_APP_DIR || `${env.HOSTINGER_APP_DIR}/Webwhats`).trim(),
+    webwhatsRunUser: String(env.WEBWHATS_RUN_USER || 'root').trim(),
     webwhatsSystemdService: String(env.WEBWHATS_SYSTEMD_SERVICE || 'webwhats').trim(),
   };
 }
@@ -243,6 +245,7 @@ function classifyChangedFiles(files) {
     if (lower.startsWith('backend/')) services.add('backend');
     if (lower.startsWith('webscraping/')) services.add('webscraping');
     if (lower.startsWith('hbx-scraping-engine/')) services.add('hbx-scraping-engine');
+    if (lower.startsWith('webwhats/')) services.add('webwhats');
   }
 
   if (structural.length) {
@@ -283,6 +286,7 @@ function buildRemoteReleaseScript(config, services) {
     `FRONTEND_URL=${shellSingleQuote(config.frontendUrl)}`,
     'BACKEND_VERIFY_ATTEMPTS=30',
     `WEBWHATS_APP_DIR=${shellSingleQuote(config.webwhatsAppDir)}`,
+    `WEBWHATS_RUN_USER=${shellSingleQuote(config.webwhatsRunUser)}`,
     `WEBWHATS_SYSTEMD_SERVICE=${shellSingleQuote(config.webwhatsSystemdService)}`,
     'export GIT_SSH_COMMAND="ssh -o BatchMode=yes"',
     'cd "$APP_DIR"',
@@ -440,6 +444,25 @@ function buildRemoteReleaseScript(config, services) {
     '  run_filtered $DC --env-file .env -f docker-compose.frontend.yml up -d frontend',
     '  echo "Frontend Docker preservado; verificacao HTTP pulada no release seletivo."',
     '}',
+    'deploy_webwhats_runtime() {',
+    '  echo "Publicando Webwhats integrado ao HBX..."',
+    '  if [ ! -f "$WEBWHATS_APP_DIR/package.json" ]; then echo "ERRO: package.json do Webwhats nao encontrado em $WEBWHATS_APP_DIR."; exit 1; fi',
+    '  if [ ! -f "$WEBWHATS_APP_DIR/.env" ] && [ "$WEBWHATS_APP_DIR" != "/opt/Webwhats" ] && [ -f /opt/Webwhats/.env ]; then cp /opt/Webwhats/.env "$WEBWHATS_APP_DIR/.env"; echo "Webwhats .env migrado de /opt/Webwhats para $WEBWHATS_APP_DIR."; fi',
+    '  if [ ! -f "$WEBWHATS_APP_DIR/.env" ]; then echo "ERRO: .env do Webwhats nao existe em $WEBWHATS_APP_DIR."; exit 1; fi',
+    '  run_as_service_user() { if [ -n "${WEBWHATS_RUN_USER:-root}" ] && [ "${WEBWHATS_RUN_USER:-root}" != "root" ] && id "${WEBWHATS_RUN_USER:-root}" >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1; then sudo -u "${WEBWHATS_RUN_USER:-root}" "$@"; else "$@"; fi; }',
+    '  run_systemctl() { if command -v sudo >/dev/null 2>&1; then sudo systemctl "$@"; else systemctl "$@"; fi; }',
+    '  ensure_systemd_targets_app_dir() { unit_text="$(systemctl cat "$WEBWHATS_SYSTEMD_SERVICE" 2>/dev/null || true)"; if ! printf "%s" "$unit_text" | grep -F "$WEBWHATS_APP_DIR" >/dev/null 2>&1; then echo "ERRO: $WEBWHATS_SYSTEMD_SERVICE.service nao aponta para $WEBWHATS_APP_DIR. Ajuste WEBWHATS_APP_DIR ou o systemd antes do deploy."; printf "%s\\n" "$unit_text" | grep -E "WorkingDirectory=|ExecStart=" || true; exit 1; fi; }',
+    '  restart_with_pm2() { pm2 restart webwhats --update-env; pm2 save >/dev/null 2>&1 || true; pm2 describe webwhats >/dev/null; echo "Webwhats PM2 ativo: webwhats"; }',
+    '  find_webwhats_pids() { for pid in $(pgrep -f "node .*dist/main.js|node dist/main.js" || true); do comm="$(cat "/proc/$pid/comm" 2>/dev/null || true)"; cwd="$(readlink "/proc/$pid/cwd" 2>/dev/null || true)"; cmd="$(tr "\\0" " " < "/proc/$pid/cmdline" 2>/dev/null || true)"; if [ "$cwd" = "$WEBWHATS_APP_DIR" ] && { [ "$comm" = "node" ] || [ "$comm" = "sh" ]; } && printf "%s" "$cmd" | grep -q "node dist/main.js"; then echo "$pid"; fi; done; }',
+    '  restart_without_systemd() { mkdir -p "$WEBWHATS_APP_DIR/logs"; old_pids="$(find_webwhats_pids | tr "\\n" " " | xargs || true)"; if [ -n "$old_pids" ]; then echo "Parando Webwhats antigo: $old_pids"; kill $old_pids 2>/dev/null || true; fi; for i in 1 2 3 4 5; do sleep 1; old_pids="$(find_webwhats_pids | tr "\\n" " " | xargs || true)"; [ -z "$old_pids" ] && break; done; old_pids="$(find_webwhats_pids | tr "\\n" " " | xargs || true)"; if [ -n "$old_pids" ]; then kill -9 $old_pids 2>/dev/null || true; fi; run_as_service_user sh -lc "cd \\"$WEBWHATS_APP_DIR\\" && nohup node dist/main.js > logs/webwhats.log 2>&1 &"; sleep 3; new_pids="$(find_webwhats_pids | tr "\\n" " " | xargs || true)"; if [ -z "$new_pids" ]; then echo "ERRO: Webwhats nao iniciou."; tail -80 "$WEBWHATS_APP_DIR/logs/webwhats.log" 2>/dev/null || true; exit 1; fi; echo "Webwhats process ativo: $new_pids"; }',
+    '  cd "$WEBWHATS_APP_DIR"',
+    '  run_as_service_user env HUSKY=0 NPM_CONFIG_AUDIT=false NPM_CONFIG_FUND=false NPM_CONFIG_LOGLEVEL=error NPM_CONFIG_UPDATE_NOTIFIER=false npm ci --no-audit --no-fund --loglevel=error',
+    '  run_as_service_user env NPM_CONFIG_AUDIT=false NPM_CONFIG_FUND=false NPM_CONFIG_LOGLEVEL=error NPM_CONFIG_UPDATE_NOTIFIER=false npm run build -- --silent',
+    '  run_as_service_user env PRISMA_HIDE_UPDATE_MESSAGE=true node runWithProvider.js "npx prisma generate --schema ./prisma/DATABASE_PROVIDER-schema.prisma --no-hints"',
+    '  run_as_service_user env PRISMA_HIDE_UPDATE_MESSAGE=true npm run db:deploy',
+    '  if [ -n "$WEBWHATS_SYSTEMD_SERVICE" ] && command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files --type=service | grep -q "^$WEBWHATS_SYSTEMD_SERVICE.service"; then ensure_systemd_targets_app_dir; run_systemctl restart "$WEBWHATS_SYSTEMD_SERVICE"; run_systemctl is-active --quiet "$WEBWHATS_SYSTEMD_SERVICE"; echo "Webwhats service ativo: $WEBWHATS_SYSTEMD_SERVICE"; elif command -v pm2 >/dev/null 2>&1 && pm2 describe webwhats >/dev/null 2>&1; then restart_with_pm2; else echo "Webwhats sem systemd/PM2 configurado; reiniciando processo node direto."; restart_without_systemd; fi',
+    '  cd "$APP_DIR"',
+    '}',
     'start_hbx_engines() {',
     '  echo "Buildando imagem dos motores HBX..."',
     '  run_filtered docker build -t hbx_hbx-scraping-engine:latest ./hbx-scraping-engine',
@@ -536,6 +559,7 @@ function buildRemoteReleaseScript(config, services) {
     `  run_filtered $DC --env-file .env -f docker-compose.hostinger.yml up -d --build --no-deps ${composeServiceArgs}`,
     'fi',
     'if has_service frontend; then deploy_frontend_docker; else ensure_frontend_docker_runtime; fi',
+    'if has_service webwhats; then deploy_webwhats_runtime; fi',
     'if has_service backend || has_service hbx-scraping-engine; then verify_hbx_engines; fi',
     'final_runtime_summary',
     'echo "Runtime ativo:"',
@@ -571,7 +595,7 @@ function printReleaseSummary({ commitCreated, commitLine, changedFiles, services
 
 function expandPublishedServices(services) {
   const selected = new Set(services);
-  const published = ['backend', 'frontend', 'webscraping']
+  const published = ['backend', 'frontend', 'webscraping', 'webwhats']
     .filter((service) => selected.has(service))
     .map((service) => serviceLabels[service] || service);
 
