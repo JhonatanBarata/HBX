@@ -4349,6 +4349,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   const [mobileScoreFilterOpen, setMobileScoreFilterOpen] = useState(false);
   const [mobileNoteLead, setMobileNoteLead] = useState<LeadItem | null>(null);
   const [mobileNoteDraft, setMobileNoteDraft] = useState("");
+  const [mobileHistoryOpen, setMobileHistoryOpen] = useState(false);
   const [mobileSavingNote, setMobileSavingNote] = useState(false);
   const [mobileEnrichmentLoadingId, setMobileEnrichmentLoadingId] = useState<string | null>(null);
   const [mobileTemplateIndex, setMobileTemplateIndex] = useState(() => readMobileReadyMessagePreference());
@@ -6208,6 +6209,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     setSelectedMobileLeadId(lead.id);
     setMobileNoteLead(lead);
     setMobileNoteDraft("");
+    setMobileHistoryOpen(false);
     if (shouldAutoEnrichLead(lead, boardRef.current || board)) {
       void loadMobileLeadEnrichment(lead);
     }
@@ -7270,6 +7272,18 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       const loadingEnrichment = mobileEnrichmentLoadingId === lead.id;
       const enrichmentOperation = leadEnrichmentOperationView(lead, board, loadingEnrichment);
       const timeline = (lead.timeline || []).slice(0, 4);
+      const timelineEntries = timeline.length
+        ? timeline
+        : [
+            {
+              id: "empty",
+              eventType: "generic",
+              title: "Lead validado pelo HBX",
+              description: intelligence.opportunityReason || "Aguardando primeira observação.",
+              createdAt: new Date().toISOString(),
+              sourceType: "hbx",
+            } as LeadTimelineEvent,
+          ];
       const detailPlace = mobileLeadPlace(lead);
       const status = lead.statusLabel || statusLabel(lead.status);
       const suggestedAction = lead.nextAction || nextBestActionLabel(intelligence.nextBestAction);
@@ -7327,6 +7341,36 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
             Negativo
           </button>
         </nav>
+      );
+      const mobileTimelineList = (
+        <div className={styles.mobileLeadHistoryList}>
+          {timelineEntries.map((event) => (
+            <div key={event.id} data-tone={timelineTone(event.eventType)}>
+              <span aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M12 8v4l3 2" />
+                  <circle cx="12" cy="12" r="8" />
+                </svg>
+              </span>
+              <p>
+                <strong>{timelineMeta(event)}</strong>
+                {event.title || event.description || "Atendimento atualizado."}
+                {event.conversationReference?.conversationId ? (
+                  <button
+                    type="button"
+                    className={styles.timelineConversationLink}
+                    onClick={(clickEvent) => {
+                      clickEvent.stopPropagation();
+                      void openConversationSnapshot(lead, event);
+                    }}
+                  >
+                    Ver conversa
+                  </button>
+                ) : null}
+              </p>
+            </div>
+          ))}
+        </div>
       );
 
       return (
@@ -7713,7 +7757,14 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                     </svg>
                     Observações
                   </h3>
-                  <span>{mobileNoteDraft.length}/280</span>
+                  <button
+                    type="button"
+                    className={styles.mobileLeadObservationHistoryButton}
+                    onClick={() => setMobileHistoryOpen(true)}
+                    aria-label="Abrir histórico de observações"
+                  >
+                    Obs
+                  </button>
                 </div>
                 {lead.shortNote ? (
                   <p className={styles.mobileLeadSavedNote}>{lead.shortNote}</p>
@@ -7761,49 +7812,46 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 </button>
               </section>
 
-              <section className={`${styles.mobileLeadTimeline} hbx-mobile-card`}>
-                <span className={styles.mobileTimelineVisual} aria-hidden="true" />
-                <h3>Histórico</h3>
-                {(timeline.length
-                  ? timeline
-                  : [
-                      {
-                        id: "empty",
-                        eventType: "generic",
-                        title: "Lead validado pelo HBX",
-                        description: intelligence.opportunityReason || "Aguardando primeira observação.",
-                        createdAt: new Date().toISOString(),
-                        sourceType: "hbx",
-                      } as LeadTimelineEvent,
-                    ]
-                ).map((event) => (
-                  <div key={event.id} data-tone={timelineTone(event.eventType)}>
-                    <span aria-hidden="true">
-                      <svg viewBox="0 0 24 24">
-                        <path d="M12 8v4l3 2" />
-                        <circle cx="12" cy="12" r="8" />
-                      </svg>
-                    </span>
-                    <p>
-                      <strong>{timelineMeta(event)}</strong>
-                      {event.title || event.description || "Atendimento atualizado."}
-                      {event.conversationReference?.conversationId ? (
+            </div>
+
+            {mobileHistoryOpen && typeof document !== "undefined"
+              ? createPortal(
+                  <div
+                    className={styles.mobileVendasSheetBackdrop}
+                    onClick={() => setMobileHistoryOpen(false)}
+                  >
+                    <section
+                      className={`${styles.mobileVendasNoteSheet} ${styles.mobileObservationDialog} ${styles.mobileLeadHistoryDialog}`}
+                      role="dialog"
+                      aria-modal="true"
+                      aria-labelledby="mobile-lead-history-title"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <span className={styles.mobileVendasSheetHandle} />
+                      <div className={styles.mobileVendasSheetHeader}>
+                        <div>
+                          <small>{lead.name || "Lead sem nome"}</small>
+                          <h2 id="mobile-lead-history-title">Histórico</h2>
+                        </div>
+                        <button type="button" onClick={() => setMobileHistoryOpen(false)} aria-label="Fechar histórico">
+                          ×
+                        </button>
+                      </div>
+                      {mobileTimelineList}
+                      <div className={styles.mobileVendasSheetFooter}>
                         <button
                           type="button"
-                          className={styles.timelineConversationLink}
-                          onClick={(clickEvent) => {
-                            clickEvent.stopPropagation();
-                            void openConversationSnapshot(lead, event);
-                          }}
+                          className={styles.mobileVendasDeleteButton}
+                          onClick={() => setMobileHistoryOpen(false)}
                         >
-                          Ver conversa
+                          Fechar
                         </button>
-                      ) : null}
-                    </p>
-                  </div>
-                ))}
-              </section>
-            </div>
+                      </div>
+                    </section>
+                  </div>,
+                  document.body,
+                )
+              : null}
 
             {typeof document !== "undefined"
               ? createPortal(mobileLeadActionBar, document.body)
