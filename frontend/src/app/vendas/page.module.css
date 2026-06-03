@@ -17134,6 +17134,229 @@
   }
 }
 
+/* HBX mobile lead detail: compact operational typography and observation history. */
+@media (max-width: 820px) {
+  .mobileLeadDetailScreen .mobileLeadReasonBlock,
+  .mobileLeadDetailScreen .mobileLeadReadyMessage,
+  .mobileLeadDetailScreen .mobileLeadObservationCard {
+    gap: 10px !important;
+  }
+
+  .mobileLeadDetailScreen .mobileLeadReasonBlock h3,
+  .mobileLeadDetailScreen .mobileLeadReadyMessage h3,
+  .mobileLeadDetailScreen .mobileLeadObservationHeader h3,
+  .mobileLeadHistoryDialog .mobileVendasSheetHeader h2 {
+    color: #17213d !important;
+    font-size: 0.9rem !important;
+    line-height: 1.15 !important;
+    font-weight: 760 !important;
+    letter-spacing: 0 !important;
+  }
+
+  .mobileLeadDetailScreen .mobileLeadReasonBlock p,
+  .mobileLeadDetailScreen .mobileLeadReadyMessage p,
+  .mobileLeadDetailScreen .mobileLeadSavedNote,
+  .mobileLeadDetailScreen .mobileLeadNoteEditor textarea,
+  .mobileLeadHistoryList p {
+    color: #26324d !important;
+    font-size: 0.84rem !important;
+    line-height: 1.45 !important;
+    font-weight: 500 !important;
+    letter-spacing: 0 !important;
+  }
+
+  .mobileLeadDetailScreen .mobileLeadReasonBlock p,
+  .mobileLeadDetailScreen .mobileLeadReasonBlock p *,
+  .mobileLeadDetailScreen .mobileLeadReadyMessage p,
+  .mobileLeadDetailScreen .mobileLeadReadyMessage p *,
+  .mobileLeadDetailScreen .mobileLeadSavedNote,
+  .mobileLeadDetailScreen .mobileLeadSavedNote * {
+    font-weight: 450 !important;
+  }
+
+  .mobileLeadDetailScreen .mobileLeadReasonBlock p strong,
+  .mobileLeadDetailScreen .mobileLeadReadyMessage p strong,
+  .mobileLeadDetailScreen .mobileLeadSavedNote strong,
+  .mobileLeadHistoryList p strong {
+    font-size: inherit !important;
+    line-height: inherit !important;
+  }
+
+  .mobileLeadDetailScreen .mobileLeadReasonBlock > div {
+    gap: 7px !important;
+  }
+
+  .mobileLeadDetailScreen .mobileLeadReasonBlock span {
+    min-height: 32px !important;
+    padding: 0 10px !important;
+    border-radius: 10px !important;
+    font-size: 0.73rem !important;
+    line-height: 1 !important;
+    font-weight: 650 !important;
+  }
+
+  .mobileLeadDetailScreen .mobileLeadQuickGrid {
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 7px !important;
+  }
+
+  .mobileLeadDetailScreen .mobileLeadQuickGrid a,
+  .mobileLeadDetailScreen .mobileLeadQuickGrid button {
+    min-width: 0 !important;
+    min-height: 38px !important;
+    padding: 0 5px !important;
+    border-radius: 11px !important;
+    font-size: 0.7rem !important;
+    line-height: 1.05 !important;
+    font-weight: 700 !important;
+    white-space: nowrap !important;
+  }
+
+  .mobileLeadDetailScreen .mobileLeadQuickGrid button svg {
+    width: 13px !important;
+    height: 13px !important;
+    flex: 0 0 13px !important;
+  }
+
+  .mobileLeadDetailScreen .mobileLeadObservationCard {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    padding: 13px !important;
+  }
+
+  .mobileLeadObservationVisual,
+  .mobileLeadObservationHeader,
+  .mobileLeadSavedNote,
+  .mobileLeadNoteEditor {
+    grid-column: 1 / -1 !important;
+  }
+
+  .mobileLeadObservationHeader {
+    align-items: center !important;
+    gap: 10px !important;
+  }
+
+  .mobileLeadObservationHistoryButton {
+    display: inline-flex !important;
+    width: 38px !important;
+    height: 30px !important;
+    min-width: 38px !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border: 1px solid rgba(37, 99, 235, 0.22) !important;
+    border-radius: 999px !important;
+    background: linear-gradient(135deg, #1678ff, #18b9ee) !important;
+    color: #ffffff !important;
+    font-size: 0.68rem !important;
+    line-height: 1 !important;
+    font-weight: 760 !important;
+    letter-spacing: 0 !important;
+    box-shadow: 0 12px 24px -18px rgba(37, 99, 235, 0.72) !important;
+  }
+
+  .mobileLeadDetailScreen .mobileLeadObservationCard .mobileLeadNoteEditor textarea {
+    min-height: 104px !important;
+    padding: 11px 12px !important;
+  }
+
+  .mobileLeadDetailScreen .mobileLeadSaveNoteButton,
+  .mobileLeadDetailScreen .mobileLeadRefreshButton {
+    min-width: 0 !important;
+    min-height: 38px !important;
+    padding: 0 6px !important;
+    border-radius: 12px !important;
+    font-size: 0.68rem !important;
+    line-height: 1.05 !important;
+    font-weight: 720 !important;
+    white-space: normal !important;
+  }
+
+  .mobileLeadHistoryDialog {
+    max-height: min(76vh, 620px) !important;
+  }
+
+  .mobileLeadHistoryList {
+    display: grid !important;
+    gap: 10px !important;
+    min-height: 0 !important;
+    max-height: 48vh !important;
+    overflow: auto !important;
+    padding: 2px 2px 4px !important;
+  }
+
+  .mobileLeadHistoryList > div {
+    display: grid !important;
+    grid-template-columns: 34px minmax(0, 1fr) !important;
+    gap: 10px !important;
+    align-items: flex-start !important;
+    padding: 10px !important;
+    border: 1px solid rgba(177, 199, 232, 0.68) !important;
+    border-radius: 16px !important;
+    background: rgba(255, 255, 255, 0.78) !important;
+  }
+
+  .mobileLeadHistoryList > div > span {
+    display: grid !important;
+    width: 30px !important;
+    height: 30px !important;
+    place-items: center !important;
+    border-radius: 999px !important;
+    background: rgba(37, 99, 235, 0.1) !important;
+    color: #0757df !important;
+  }
+
+  .mobileLeadHistoryList svg {
+    width: 15px !important;
+    height: 15px !important;
+    fill: none !important;
+    stroke: currentColor !important;
+    stroke-width: 2 !important;
+  }
+
+  .mobileLeadHistoryList p {
+    margin: 0 !important;
+  }
+
+  .mobileLeadHistoryList p strong {
+    display: block !important;
+    margin-bottom: 3px !important;
+    color: #17213d !important;
+    font-weight: 760 !important;
+  }
+}
+
+@media (max-width: 820px) {
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadDetailScreen .mobileLeadReasonBlock h3,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadDetailScreen .mobileLeadReadyMessage h3,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadDetailScreen .mobileLeadObservationHeader h3,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadHistoryDialog .mobileVendasSheetHeader h2 {
+    color: #f8fbff !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadDetailScreen .mobileLeadReasonBlock p,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadDetailScreen .mobileLeadReadyMessage p,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadDetailScreen .mobileLeadSavedNote,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadDetailScreen .mobileLeadNoteEditor textarea,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadHistoryList p {
+    color: rgba(248, 251, 255, 0.88) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadHistoryList > div {
+    border-color: rgba(148, 190, 255, 0.2) !important;
+    background: rgba(9, 26, 52, 0.78) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadHistoryList > div > span {
+    background: rgba(82, 163, 255, 0.16) !important;
+    color: #9ed1ff !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadHistoryList p strong {
+    color: #f8fbff !important;
+  }
+}
+
 /* HBX Vendas closed cards: Radar/Lead premium presentation layer. */
 .vendasClosedCardTop {
   align-items: flex-start;
