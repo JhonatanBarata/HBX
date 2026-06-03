@@ -777,15 +777,13 @@ type HbxClosingPipelineResponse = {
 };
 
 type ReferredSellerCreateResult = {
-  user?: {
-    id: number;
-    email?: string | null;
-    username?: string | null;
-    name?: string | null;
-    phone?: string | null;
-    commissionPercent?: number | null;
+  candidate?: {
+    id: string;
+    name: string;
+    phone: string;
+    status: string;
   };
-  temporaryPassword?: string | null;
+  message?: string | null;
 };
 
 type SalesProfileSuggestion = {
@@ -4415,14 +4413,9 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   const [masterNoticeSecondsLeft, setMasterNoticeSecondsLeft] = useState(0);
   const [activeForcedNoticeId, setActiveForcedNoticeId] = useState<string | null>(null);
   const [referredSellerName, setReferredSellerName] = useState("");
-  const [referredSellerEmail, setReferredSellerEmail] = useState("");
   const [referredSellerPhone, setReferredSellerPhone] = useState("");
-  const [referredSellerPassword, setReferredSellerPassword] = useState("");
+  const [referredSellerNote, setReferredSellerNote] = useState("");
   const [referredSellerCreating, setReferredSellerCreating] = useState(false);
-  const [referredSellerPasswordInfo, setReferredSellerPasswordInfo] = useState<{
-    label: string;
-    password: string;
-  } | null>(null);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [desktopReturnMonthKey, setDesktopReturnMonthKey] = useState("");
   const [desktopReturnDrafts, setDesktopReturnDrafts] = useState<Record<string, string>>({});
@@ -4938,9 +4931,10 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
 
   async function createReferredSeller(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const email = referredSellerEmail.trim().toLowerCase();
-    if (!email) {
-      setError("Informe o e-mail do vendedor indicado.");
+    const name = referredSellerName.trim();
+    const phone = referredSellerPhone.trim();
+    if (!name || !phone) {
+      setError("Informe nome e WhatsApp do contato indicado.");
       return;
     }
     setReferredSellerCreating(true);
@@ -4949,26 +4943,19 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       const payload = await apiFetch<ReferredSellerCreateResult>("/users/hbx/referred-seller", {
         method: "POST",
         body: JSON.stringify({
-          email,
-          name: referredSellerName.trim() || undefined,
-          phone: referredSellerPhone.trim() || undefined,
-          password: referredSellerPassword.trim() || undefined,
+          name,
+          phone,
+          note: referredSellerNote.trim() || undefined,
         }),
       });
-      const label = payload?.user?.name || payload?.user?.email || email;
-      if (payload?.temporaryPassword) {
-        setReferredSellerPasswordInfo({ label, password: payload.temporaryPassword });
-      } else {
-        setReferredSellerPasswordInfo(null);
-      }
-      setFeedback(`${label} entrou na sua rede HBX.`);
+      const label = payload?.candidate?.name || name;
+      setFeedback(payload?.message || `${label} foi enviado para aprovação do Master.`);
       setReferredSellerName("");
-      setReferredSellerEmail("");
       setReferredSellerPhone("");
-      setReferredSellerPassword("");
+      setReferredSellerNote("");
       await loadCommissionSummary();
     } catch (sellerError) {
-      setError(sellerError instanceof Error ? sellerError.message : "Falha ao cadastrar vendedor indicado.");
+      setError(sellerError instanceof Error ? sellerError.message : "Falha ao enviar indicação.");
     } finally {
       setReferredSellerCreating(false);
     }
@@ -6896,14 +6883,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                     className="field"
                     value={referredSellerName}
                     onChange={(event) => setReferredSellerName(event.target.value)}
-                    placeholder="Nome do vendedor"
-                  />
-                  <input
-                    className="field"
-                    type="email"
-                    value={referredSellerEmail}
-                    onChange={(event) => setReferredSellerEmail(event.target.value)}
-                    placeholder="E-mail do vendedor"
+                    placeholder="Nome do contato"
                     required
                   />
                   <input
@@ -6912,16 +6892,17 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                     value={referredSellerPhone}
                     onChange={(event) => setReferredSellerPhone(event.target.value)}
                     placeholder="WhatsApp"
+                    required
                   />
-                  <input
+                  <textarea
                     className="field"
-                    type="password"
-                    value={referredSellerPassword}
-                    onChange={(event) => setReferredSellerPassword(event.target.value)}
-                    placeholder="Senha opcional"
+                    value={referredSellerNote}
+                    onChange={(event) => setReferredSellerNote(event.target.value)}
+                    placeholder="Observação opcional"
+                    rows={3}
                   />
                   <button type="submit" className="hbx-mobile-primary-button" disabled={referredSellerCreating}>
-                    {referredSellerCreating ? "Cadastrando..." : "Cadastrar indicado"}
+                    {referredSellerCreating ? "Enviando..." : "Enviar indicação"}
                   </button>
                 </form>
               ) : (
@@ -6930,23 +6911,9 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 </p>
               )}
 
-              {referredSellerPasswordInfo ? (
-                <div className={styles.mobileVendasCommissionRows}>
-                  <article>
-                    <div>
-                      <strong>Senha de {referredSellerPasswordInfo.label}</strong>
-                      <span>{referredSellerPasswordInfo.password}</span>
-                    </div>
-                    <button
-                      type="button"
-                      className="hbx-mobile-secondary-button"
-                      onClick={() => void navigator.clipboard?.writeText(referredSellerPasswordInfo.password)}
-                    >
-                      Copiar
-                    </button>
-                  </article>
-                </div>
-              ) : null}
+              <p className={styles.mobileVendasCommissionEmpty}>
+                O indicado só vira usuário depois da aprovação do Master.
+              </p>
             </section>
           ) : null}
 
@@ -8017,9 +7984,6 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                   }}
                 >
                   Observação
-                </button>
-                <button type="button" onClick={() => executeMobileLead(nextRecommendedMobileLead)}>
-                  Chamar agora
                 </button>
               </div>
             </section>

@@ -1,6 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
+import { mkdir, readFile, unlink, writeFile } from 'fs/promises';
+import { extname, join } from 'path';
 import { isMasterOperationalCompanySlug } from '../commercial-plans/seat-billing.util';
+import { MailService, type MailAttachment } from '../mail/mail.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { buildSellerPartnerContract, SELLER_CONTRACT_VERSION } from './seller-contract-template';
 
@@ -45,13 +48,15 @@ function sha256Text(text: string) {
 
 function partnerTypeFor(user: any) {
   if (Number(user?.referredByUserId || 0) > 0) return 'hbx_heir';
-  if (Boolean(user?.canRegisterHbxSellers)) return 'hbx_partner_manager';
   return 'hbx_partner';
 }
 
 @Injectable()
 export class SellerOnboardingService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly mailService: MailService,
+  ) {}
 
   async getOrCreateForUser(companyId: number, userId: number, createdByUserId?: number | null) {
     await this.assertHbxSellerNetworkCompany(companyId);
@@ -94,11 +99,8 @@ export class SellerOnboardingService {
     const referredByNameSnapshot = referrerId
       ? await this.resolveReferredByNameSnapshot(companyId, referrerId)
       : null;
-    const canRegisterHbxSellers = typeof dto.canRegisterHbxSellers === 'boolean'
-      ? dto.canRegisterHbxSellers
-      : onboarding.canRegisterHbxSellers;
     const partnerType = normalizeText(dto.partnerType, 40)
-      || (referrerId ? 'hbx_heir' : canRegisterHbxSellers ? 'hbx_partner_manager' : 'hbx_partner');
+      || (referrerId ? 'hbx_heir' : 'hbx_partner');
 
     return this.prisma.sellerOnboarding.update({
       where: { id: onboarding.id },
@@ -112,7 +114,7 @@ export class SellerOnboardingService {
         commissionPercent: normalizePercent(dto.commissionPercent, onboarding.commissionPercent),
         commissionRecurring: typeof dto.commissionRecurring === 'boolean' ? dto.commissionRecurring : onboarding.commissionRecurring,
         commissionDueBusinessDays: normalizeDueDays(dto.commissionDueBusinessDays, onboarding.commissionDueBusinessDays),
-        canRegisterHbxSellers,
+        canRegisterHbxSellers: false,
         sellerReferralCommissionPercent: normalizePercent(dto.sellerReferralCommissionPercent, onboarding.sellerReferralCommissionPercent),
         referredByUserId: referrerId,
         referredByNameSnapshot,
@@ -152,6 +154,136 @@ export class SellerOnboardingService {
     });
   }
 
+  async listAttachments(companyId: number, userId: number) {
+    const onboarding = await this.getOrCreateForUser(companyId, userId, null);
+    return {
+      onboardingId: onboarding.id,
+      attachments: onboarding.attachments || [],
+    };
+  }
+
+  async uploadAttachment(companyId: number, userId: number, file: any, dto: { kind?: unknown; required?: unknown }) {
+    const onboarding = await this.getOrCreateForUser(companyId, userId, null);
+    if (!file?.buffer?.length) throw new BadRequestException('Envie um arquivo.');
+    const kind = this.normalizeAttachmentKind(dto.kind);
+    const originalFilename = normalizeText(file.originalname, 180) || `${kind}${extname(String(file.originalname || '')) || '.pdf'}`;
+    const extension = extname(originalFilename).toLowerCase();
+    if (!['.pdf', '.jpg', '.jpeg', '.png'].includes(extension)) {
+      throw new BadRequestException('Anexo precisa ser PDF, JPG ou PNG.');
+    }
+    if (Number(file.size || file.buffer.length || 0) > 5 * 1024 * 1024) {
+      throw new BadRequestException('Anexo deve ter no máximo 5MB.');
+    }
+
+    const uploadDir = process.env.SELLER_ONBOARDING_UPLOAD_DIR || join(process.cwd(), 'storage', 'seller-onboarding-temp');
+    await mkdir(uploadDir, { recursive: true });
+    const storedFilename = `${onboarding.id}-${kind}-${randomUUID()}${extension}`;
+    const storagePath = join(uploadDir, storedFilename);
+    const buffer = Buffer.from(file.buffer);
+    await writeFile(storagePath, buffer);
+
+    const attachment = await this.prisma.sellerOnboardingAttachment.create({
+      data: {
+        onboardingId: onboarding.id,
+        kind,
+        originalFilename,
+        storedFilename,
+        storagePath,
+        contentType: normalizeText(file.mimetype, 120),
+        byteSize: buffer.length,
+        sha256: createHash('sha256').update(buffer).digest('hex'),
+        required: this.normalizeBoolean(dto.required),
+        status: 'temporary',
+      },
+    });
+    return { ok: true, attachment };
+  }
+
+  async sendOnboardingEmail(companyId: number, userId: number, createdByUserId?: number | null) {
+    const onboarding = await this.getOrCreateForUser(companyId, userId, createdByUserId);
+    if (!onboarding.email) throw new BadRequestException('Informe o e-mail do parceiro antes de enviar.');
+    if (!onboarding.contractTextSnapshot) throw new BadRequestException('Gere o contrato antes de enviar.');
+
+    const activeAttachments = (onboarding.attachments || []).filter((item: any) => item.status !== 'deleted');
+    const hasPhotoId = activeAttachments.some((item: any) => item.kind === 'photo_id');
+    const hasContract = activeAttachments.some((item: any) => item.kind === 'contract_pdf');
+    const missing = [
+      !hasPhotoId ? 'Documento com foto' : '',
+      !hasContract ? 'Contrato' : '',
+    ].filter(Boolean);
+    const missingMarkedRequired = activeAttachments
+      .filter((item: any) => item.required && item.status !== 'deleted')
+      .filter((item: any) => !item.storagePath)
+      .map((item: any) => item.originalFilename || item.kind);
+    const allMissing = [...missing, ...missingMarkedRequired];
+    if (allMissing.length) throw new BadRequestException(`Anexos obrigatórios pendentes: ${allMissing.join(', ')}`);
+
+    const attachments: MailAttachment[] = [];
+    for (const attachment of activeAttachments as any[]) {
+      attachments.push({
+        filename: attachment.originalFilename,
+        content: await readFile(attachment.storagePath),
+        contentType: attachment.contentType || undefined,
+      });
+    }
+
+    const text = [
+      `Parceiro HBX: ${onboarding.legalName || onboarding.email}`,
+      `CPF: ${onboarding.cpf || '-'}`,
+      `Telefone: ${onboarding.phone || '-'}`,
+      '',
+      'Contrato:',
+      onboarding.contractTextSnapshot,
+    ].join('\n');
+    const result = await this.mailService.sendMail({
+      to: onboarding.email,
+      subject: `Contrato de parceria HBX - ${onboarding.legalName || onboarding.email}`,
+      text,
+      html: `<pre style="font-family:Arial,sans-serif;white-space:pre-wrap">${this.escapeHtml(text)}</pre>`,
+      attachments,
+    });
+
+    const deleteAfter = result.ok ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) : null;
+    const updated = await this.prisma.sellerOnboarding.update({
+      where: { id: onboarding.id },
+      data: {
+        emailStatus: result.ok ? 'sent' : 'email_failed',
+        emailMessageId: result.messageId,
+        emailSentAt: result.ok ? new Date() : null,
+        attachmentsDeleteAfter: deleteAfter,
+      },
+      include: { attachments: { orderBy: { createdAt: 'desc' } } },
+    });
+    if (deleteAfter) {
+      await this.prisma.sellerOnboardingAttachment.updateMany({
+        where: { onboardingId: onboarding.id, status: { not: 'deleted' } },
+        data: { deleteAfter },
+      });
+    }
+    return { ok: result.ok, delivery: result, onboarding: updated };
+  }
+
+  async purgeExpiredAttachments(companyId?: number | null) {
+    const now = new Date();
+    const attachments = await this.prisma.sellerOnboardingAttachment.findMany({
+      where: {
+        status: { not: 'deleted' },
+        deleteAfter: { lte: now },
+        onboarding: companyId ? { companyId: Number(companyId) } : undefined,
+      },
+    });
+    for (const attachment of attachments as any[]) {
+      try {
+        if (attachment.storagePath) await unlink(attachment.storagePath);
+      } catch {}
+      await this.prisma.sellerOnboardingAttachment.update({
+        where: { id: attachment.id },
+        data: { status: 'deleted', deletedAt: now },
+      });
+    }
+    return { ok: true, deletedCount: attachments.length };
+  }
+
   private async assertHbxSellerNetworkCompany(companyId: number) {
     const company = await this.prisma.company.findUnique({
       where: { id: Number(companyId) },
@@ -182,5 +314,25 @@ export class SellerOnboardingService {
       select: { name: true, email: true, username: true },
     });
     return referrer?.name || referrer?.email || referrer?.username || null;
+  }
+
+  private normalizeAttachmentKind(value: unknown) {
+    const kind = String(value || '').trim().toLowerCase();
+    if (['photo_id', 'curriculum', 'contract_pdf', 'other'].includes(kind)) return kind;
+    return 'other';
+  }
+
+  private normalizeBoolean(value: unknown) {
+    if (typeof value === 'boolean') return value;
+    return ['true', '1', 'yes', 'sim'].includes(String(value || '').trim().toLowerCase());
+  }
+
+  private escapeHtml(value: string) {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 }

@@ -33,6 +33,37 @@ type UserItem = {
   createdAt: string;
 };
 
+type HbxPartnerReferralCandidate = {
+  id: string;
+  companyId: number;
+  referrerUserId: number;
+  name: string;
+  phone: string;
+  note?: string | null;
+  preferredSegmentsJson?: string | null;
+  status: "pending" | "approved" | "rejected" | "converted" | string;
+  reviewedByUserId?: number | null;
+  reviewedAt?: string | null;
+  convertedUserId?: number | null;
+  createdAt: string;
+  updatedAt?: string | null;
+  referrerUser?: {
+    id: number;
+    username?: string | null;
+    name?: string | null;
+    email?: string | null;
+    commissionPercent?: number | null;
+    sellerReferralCommissionPercent?: number | null;
+  } | null;
+  convertedUser?: {
+    id: number;
+    username?: string | null;
+    name?: string | null;
+    email?: string | null;
+    isActive?: boolean | null;
+  } | null;
+};
+
 type MessageItem = {
   id: number;
   direction: string;
@@ -256,6 +287,30 @@ type CreateCompanyUserResult = {
   temporaryPassword?: string | null;
 };
 
+type SellerOnboardingAttachment = {
+  id: string;
+  kind: "photo_id" | "curriculum" | "contract_pdf" | "other" | string;
+  originalFilename: string;
+  required?: boolean | null;
+  status?: string | null;
+  createdAt?: string | null;
+};
+
+type HbxReferralCandidatesResult = {
+  candidates: HbxPartnerReferralCandidate[];
+};
+
+type HbxReferralCandidateReviewResult = {
+  candidate: HbxPartnerReferralCandidate;
+  user?: UserItem;
+};
+
+type HbxReferralCandidateLookupResult = {
+  found: boolean;
+  candidate?: HbxPartnerReferralCandidate | null;
+  referrer?: HbxPartnerReferralCandidate["referrerUser"] | null;
+};
+
 type ModulePermission = { key: string; allowed: boolean };
 type CompanyModule = { key: string; name: string; companyEnabled: boolean };
 type CompanyUserAccess = { id: number; modules: ModulePermission[] };
@@ -277,7 +332,7 @@ type UserProfileDraft = {
 };
 
 type GerencialRole = "USER" | "ADMIN" | "USERMASTER";
-type MobileGerencialTab = "status" | "equipe" | "criar" | "comissoes" | "modulos" | "sinais";
+type MobileGerencialTab = "status" | "equipe" | "comissoes" | "modulos" | "sinais";
 type DesktopGerencialGuideTab = MobileGerencialTab | "atualizar";
 
 const CREATED_PASSWORD_STORAGE_KEY = "hbx.gerencial.created-password.v1";
@@ -341,9 +396,26 @@ function userPhoneLabel(user: Pick<UserItem, "phone">) {
   return user.phone?.trim() || "Sem telefone";
 }
 
+function phoneDigits(value?: string | null) {
+  return String(value || "").replace(/\D/g, "");
+}
+
 function referralUserLabel(user?: UserItem["referredByUser"]) {
   if (!user) return "Direto HBX";
   return user.name || user.username || user.email || `Vendedor #${user.id}`;
+}
+
+function candidatePreferredSegmentsLabel(candidate: HbxPartnerReferralCandidate) {
+  const raw = String(candidate.preferredSegmentsJson || "").trim();
+  if (!raw) return "-";
+  try {
+    const parsed = JSON.parse(raw) as { segments?: string[]; cityRegion?: string | null };
+    const segments = Array.isArray(parsed.segments) ? parsed.segments.filter(Boolean) : [];
+    const parts = [...segments, parsed.cityRegion || ""].filter(Boolean);
+    return parts.length ? parts.join(" · ") : "-";
+  } catch {
+    return raw;
+  }
 }
 
 function buildProfileDraft(user: UserItem): UserProfileDraft {
@@ -480,6 +552,13 @@ function formatShortDate(value?: string | null) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "-";
   return parsed.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+}
+
+function onboardingAttachmentLabel(kind?: string | null) {
+  if (kind === "photo_id") return "Documento";
+  if (kind === "curriculum") return "Currículo";
+  if (kind === "contract_pdf") return "Contrato";
+  return "Outro";
 }
 
 function formatDateTime(value?: string | null) {
@@ -622,6 +701,17 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   const [actionInfo, setActionInfo] = useState<string | null>(null);
   const [togglingMessageId, setTogglingMessageId] = useState<number | null>(null);
   const [moduleAccess, setModuleAccess] = useState<CompanyAccessPayload | null>(null);
+  const [referralCandidates, setReferralCandidates] = useState<HbxPartnerReferralCandidate[]>([]);
+  const [reviewingCandidateId, setReviewingCandidateId] = useState<string | null>(null);
+  const [createAccessOpen, setCreateAccessOpen] = useState(false);
+  const [newUserReferralCandidateId, setNewUserReferralCandidateId] = useState("");
+  const [referralPhoneMatch, setReferralPhoneMatch] = useState<HbxPartnerReferralCandidate | null>(null);
+  const [ignoredReferralCandidateId, setIgnoredReferralCandidateId] = useState("");
+  const [onboardingUserId, setOnboardingUserId] = useState<number | null>(null);
+  const [onboardingAttachments, setOnboardingAttachments] = useState<SellerOnboardingAttachment[]>([]);
+  const [uploadingAttachmentKind, setUploadingAttachmentKind] = useState<string | null>(null);
+  const [generatingContract, setGeneratingContract] = useState(false);
+  const [sendingOnboardingEmail, setSendingOnboardingEmail] = useState(false);
   const [savingModuleUserId, setSavingModuleUserId] = useState<number | null>(null);
   const [togglingActiveUserId, setTogglingActiveUserId] = useState<number | null>(null);
   const [deletingUserId, setDeletingUserId] = useState<number | null>(null);
@@ -650,15 +740,17 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [payload, access] = await Promise.all([
+      const [payload, access, candidatesPayload] = await Promise.all([
         apiFetch<GerencialOverview>("/gerencial/overview"),
         apiFetch<CompanyAccessPayload>("/modules/company/access"),
+        apiFetch<HbxReferralCandidatesResult>("/gerencial/hbx-partner-referrals/pending"),
       ]);
       setData((prev) => ({
         ...payload,
         users: stableUserOrder(prev?.users, payload.users || []),
       }));
       setModuleAccess(access);
+      setReferralCandidates(candidatesPayload.candidates || []);
     } catch (loadError) {
       setError(friendlyGerencialError(loadError, "Falha ao carregar módulo gerencial."));
     } finally {
@@ -681,6 +773,34 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     if (savingCommissionSettings) return;
     setCommissionDueDaysDraft(String(commissionDueDays));
   }, [commissionDueDays, savingCommissionSettings]);
+
+  useEffect(() => {
+    if (!isHbxSellerNetwork || newUserRole !== "USER") {
+      setReferralPhoneMatch(null);
+      return;
+    }
+    const digits = phoneDigits(newUserPhone);
+    if (digits.length < 8 || newUserReferralCandidateId) {
+      setReferralPhoneMatch(null);
+      return;
+    }
+    const localMatch = referralCandidates.find((candidate) => {
+      return phoneDigits(candidate.phone) === digits && candidate.id !== ignoredReferralCandidateId;
+    });
+    if (localMatch) {
+      setReferralPhoneMatch(localMatch);
+      return;
+    }
+    const timeout = window.setTimeout(() => {
+      apiFetch<HbxReferralCandidateLookupResult>(`/gerencial/hbx-partner-referrals/lookup-phone?phone=${encodeURIComponent(newUserPhone)}`)
+        .then((payload) => {
+          const candidate = payload?.candidate || null;
+          setReferralPhoneMatch(candidate && candidate.id !== ignoredReferralCandidateId ? candidate : null);
+        })
+        .catch(() => setReferralPhoneMatch(null));
+    }, 450);
+    return () => window.clearTimeout(timeout);
+  }, [ignoredReferralCandidateId, isHbxSellerNetwork, newUserPhone, newUserReferralCandidateId, newUserRole, referralCandidates]);
 
   useEffect(() => {
     if (isHbxSellerNetwork && newUserRole !== "USER") {
@@ -830,6 +950,164 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     }
   }
 
+  async function reviewReferralCandidate(candidate: HbxPartnerReferralCandidate, action: "approve" | "reject") {
+    const label = candidate.name || candidate.phone || "indicação";
+    if (action === "reject" && !window.confirm(`Rejeitar indicação de ${label}?`)) return;
+    setReviewingCandidateId(candidate.id);
+    setError(null);
+    setActionInfo(null);
+    try {
+      await apiFetch<HbxReferralCandidateReviewResult>(`/gerencial/hbx-partner-referrals/${candidate.id}/${action}`, {
+        method: "POST",
+      });
+      setActionInfo(action === "approve"
+        ? `${label} foi aprovado. A indicação continua guardada para cadastro formal.`
+        : `${label} foi rejeitado.`);
+      await load();
+    } catch (reviewError) {
+      setError(friendlyGerencialError(reviewError, action === "approve" ? "Falha ao aprovar indicação." : "Falha ao rejeitar indicação."));
+    } finally {
+      setReviewingCandidateId(null);
+    }
+  }
+
+  function useReferralCandidate(candidate: HbxPartnerReferralCandidate) {
+    const referrer = candidate.referrerUser || hbxReferrers.find((item) => item.id === candidate.referrerUserId) || null;
+    setNewUserRole("USER");
+    setNewUserReferralCandidateId(candidate.id);
+    setReferralPhoneMatch(null);
+    setIgnoredReferralCandidateId("");
+    setNewUserName(candidate.name || "");
+    setNewUserPhone(candidate.phone || "");
+    setNewUserReferredByUserId(String(candidate.referrerUserId || ""));
+    if (referrer) {
+      setNewUserCommissionPercent(percentInputValue(referrer.commissionPercent));
+      setNewUserSellerReferralCommissionPercent(percentInputValue(referrer.sellerReferralCommissionPercent));
+      setNewUserReferredByCommissionPercent(percentInputValue(referrer.sellerReferralCommissionPercent));
+    }
+    setActionInfo(`Cadastro carregado pela indicação de ${referrer ? userLabel(referrer) : `#${candidate.referrerUserId}`}. Complete e-mail, CPF, documentos e contrato.`);
+    setCreateAccessOpen(true);
+    if (mobileRoute) setMobileTab("equipe");
+    setDesktopGuideTab("equipe");
+  }
+
+  async function loadOnboardingAttachments(userId: number) {
+    const payload = await apiFetch<{ attachments?: SellerOnboardingAttachment[] }>(`/gerencial/hbx-partners/${userId}/onboarding/attachments`);
+    setOnboardingAttachments(payload.attachments || []);
+  }
+
+  async function uploadOnboardingAttachment(kind: SellerOnboardingAttachment["kind"], file: File | null | undefined, required: boolean) {
+    if (!onboardingUserId || !file) return;
+    const form = new FormData();
+    form.append("file", file);
+    form.append("kind", String(kind));
+    form.append("required", String(required));
+    setUploadingAttachmentKind(String(kind));
+    setError(null);
+    try {
+      await apiFetch(`/gerencial/hbx-partners/${onboardingUserId}/onboarding/attachments`, {
+        method: "POST",
+        body: form,
+      });
+      await loadOnboardingAttachments(onboardingUserId);
+    } catch (uploadError) {
+      setError(friendlyGerencialError(uploadError, "Falha ao anexar documento."));
+    } finally {
+      setUploadingAttachmentKind(null);
+    }
+  }
+
+  async function generateOnboardingContract() {
+    if (!onboardingUserId) return;
+    setGeneratingContract(true);
+    setError(null);
+    try {
+      await apiFetch(`/gerencial/hbx-partners/${onboardingUserId}/onboarding/generate-contract`, { method: "POST" });
+      setActionInfo("Contrato gerado.");
+      await loadOnboardingAttachments(onboardingUserId);
+    } catch (contractError) {
+      setError(friendlyGerencialError(contractError, "Falha ao gerar contrato."));
+    } finally {
+      setGeneratingContract(false);
+    }
+  }
+
+  async function sendOnboardingEmail() {
+    if (!onboardingUserId) return;
+    setSendingOnboardingEmail(true);
+    setError(null);
+    try {
+      const payload = await apiFetch<{ ok?: boolean }>(`/gerencial/hbx-partners/${onboardingUserId}/onboarding/send-email`, { method: "POST" });
+      setActionInfo(payload.ok ? "E-mail enviado." : "E-mail não enviado.");
+      await load();
+    } catch (emailError) {
+      setError(friendlyGerencialError(emailError, "Falha ao enviar e-mail."));
+    } finally {
+      setSendingOnboardingEmail(false);
+    }
+  }
+
+  function resetCreateAccessPopup() {
+    setNewUserEmail("");
+    setNewUserName("");
+    setNewUserPhone("");
+    setNewUserCommissionPercent("");
+    setNewUserCanRegisterHbxSellers(false);
+    setNewUserSellerReferralCommissionPercent("");
+    setNewUserReferredByUserId("");
+    setNewUserReferredByCommissionPercent("");
+    setNewUserRole("USER");
+    setNewUserPassword("");
+    setNewUserCpf("");
+    setNewUserDeclaredAddress("");
+    setNewUserCommissionDueBusinessDays("3");
+    setNewUserReferralCandidateId("");
+    setReferralPhoneMatch(null);
+    setIgnoredReferralCandidateId("");
+    setOnboardingUserId(null);
+    setOnboardingAttachments([]);
+  }
+
+  function renderReferralMatchBox(surface: "mobile" | "desktop") {
+    const candidate = referralPhoneMatch;
+    if (!candidate) {
+      if (!newUserReferralCandidateId) return null;
+      const selected = referralCandidates.find((item) => item.id === newUserReferralCandidateId);
+      if (!selected) return null;
+      return (
+        <div className={surface === "mobile" ? "rounded-[16px] border border-[var(--hbx-mobile-border)] bg-[var(--hbx-mobile-surface-soft)] p-3 text-sm" : "rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3 text-sm"}>
+          <strong className="block">Cadastro puxado de indicação</strong>
+          <span className={surface === "mobile" ? "text-[var(--hbx-mobile-muted)]" : "text-muted"}>
+            Indicado por {selected.referrerUser ? userLabel(selected.referrerUser) : `#${selected.referrerUserId}`}. A conversão será feita ao cadastrar.
+          </span>
+        </div>
+      );
+    }
+    return (
+      <div className={surface === "mobile" ? "rounded-[16px] border border-[var(--hbx-mobile-border)] bg-[var(--hbx-mobile-surface-soft)] p-3 text-sm" : "rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3 text-sm"}>
+        <strong className="block">Telefone indicado por {candidate.referrerUser ? userLabel(candidate.referrerUser) : `#${candidate.referrerUserId}`}</strong>
+        <span className={surface === "mobile" ? "text-[var(--hbx-mobile-muted)]" : "text-muted"}>
+          Use a indicação para puxar nome, telefone, indicador e segmentos preferidos.
+        </span>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button type="button" onClick={() => useReferralCandidate(candidate)} className={surface === "mobile" ? "hbx-mobile-primary-button" : "btn btn-primary btn-sm"}>
+            Usar
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setIgnoredReferralCandidateId(candidate.id);
+              setReferralPhoneMatch(null);
+            }}
+            className={surface === "mobile" ? "hbx-mobile-secondary-button" : "btn btn-secondary btn-sm"}
+          >
+            Ignorar
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   async function toggleComplaint(messageId: number, currently: boolean | undefined) {
     setTogglingMessageId(messageId);
     setError(null);
@@ -867,7 +1145,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
       ? hbxReferrers.find((referrer) => referrer.id === referredByUserId)
       : null;
     if (referredByUserId && !selectedReferrer) {
-      setError("Indicador precisa ser vendedor ativo e autorizado.");
+      setError("Indicador precisa ser parceiro HBX ativo.");
       return;
     }
     const commissionPercent = parsePercentInput(
@@ -908,7 +1186,10 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         requestBody.commissionPercent = commissionPercent;
       }
       if (shouldUseHbxNetwork) {
-        requestBody.canRegisterHbxSellers = newUserCanRegisterHbxSellers;
+        requestBody.canRegisterHbxSellers = false;
+        if (newUserReferralCandidateId) {
+          requestBody.referralCandidateId = newUserReferralCandidateId;
+        }
         if (!referredByUserId) {
           requestBody.sellerReferralCommissionPercent = sellerReferralCommissionPercent ?? 0;
         }
@@ -952,19 +1233,13 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
           : `${roleLabel(payload.user.role)} criado com senha definida manualmente.`);
       }
 
-      setNewUserEmail("");
-      setNewUserName("");
-      setNewUserPhone("");
-      setNewUserCommissionPercent("");
-      setNewUserCanRegisterHbxSellers(false);
-      setNewUserSellerReferralCommissionPercent("");
-      setNewUserReferredByUserId("");
-      setNewUserReferredByCommissionPercent("");
-      setNewUserRole("USER");
-      setNewUserPassword("");
-      setNewUserCpf("");
-      setNewUserDeclaredAddress("");
-      setNewUserCommissionDueBusinessDays("3");
+      if (isHbxSellerNetwork && newUserRole === "USER" && payload?.user?.id) {
+        setOnboardingUserId(payload.user.id);
+        await loadOnboardingAttachments(payload.user.id);
+      } else {
+        resetCreateAccessPopup();
+        setCreateAccessOpen(false);
+      }
       await load();
     } catch (createError) {
       setError(friendlyGerencialError(createError, "Falha ao cadastrar usuário."));
@@ -1013,7 +1288,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         commissionPercent,
       };
       if (canEditHbxNetwork) {
-        requestBody.canRegisterHbxSellers = profileDraft.canRegisterHbxSellers;
+        requestBody.canRegisterHbxSellers = false;
         if (referredByUserId) {
           if (referredByUserId !== Number(user.referredByUserId || 0)) {
             requestBody.referredByUserId = referredByUserId;
@@ -1275,8 +1550,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         ? (data?.users || []).filter(
             (user) =>
               user.isActive &&
-              normalizeRole(user.role, user.isSystemMaster) === "USER" &&
-              Boolean(user.canRegisterHbxSellers),
+              normalizeRole(user.role, user.isSystemMaster) === "USER",
           )
         : [],
     [data?.users, isHbxSellerNetwork],
@@ -1288,7 +1562,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   const hbxNetworkStats = useMemo(() => {
     const sellers = (data?.users || []).filter((user) => normalizeRole(user.role, user.isSystemMaster) === "USER");
     return {
-      authorized: sellers.filter((user) => Boolean(user.canRegisterHbxSellers)).length,
+      authorized: sellers.filter((user) => Boolean(user.isActive)).length,
       referred: sellers.filter((user) => Number(user.referredByUserId || 0) > 0).length,
     };
   }, [data?.users]);
@@ -1335,7 +1609,6 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   const mobileTabs: Array<[MobileGerencialTab, string]> = [
     ["status", "Status"],
     ["equipe", "Equipe"],
-    ["criar", "Criar"],
     ["comissoes", "Comissões"],
     ["modulos", "Módulos"],
     ["sinais", "Sinais"],
@@ -1343,7 +1616,6 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   const desktopGuideTabs: Array<HbxGuide1Tab<DesktopGerencialGuideTab>> = [
     { key: "status", label: "Status", badge: data?.operationAudit?.readinessScore !== undefined ? `${data.operationAudit.readinessScore}%` : teamStats.active },
     { key: "equipe", label: "Equipe", badge: teamStats.active },
-    { key: "criar", label: "Criar acesso" },
     { key: "comissoes", label: "Comissões", badge: formatCurrency(data?.commission?.totals.duePayableAmount || 0) },
     { key: "modulos", label: "Módulos", badge: enabledModules.length },
     { key: "sinais", label: "Sinais", badge: topMessages.length + topSurveys.length },
@@ -1359,9 +1631,108 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     setDesktopGuideTab(tab);
   }
 
+  function renderReferralCandidatesPanel(surface: "mobile" | "desktop" = "desktop") {
+    if (!isHbxSellerNetwork) return null;
+    const isMobile = surface === "mobile";
+    const pendingCount = referralCandidates.length;
+    const containerClass = isMobile
+      ? "hbx-mobile-card grid gap-3"
+      : "mb-4 rounded-[16px] border border-[var(--line)] bg-[var(--surface-soft)] p-4";
+    const itemClass = isMobile
+      ? "rounded-[16px] border border-[var(--hbx-mobile-border)] bg-[var(--hbx-mobile-surface-soft)] p-3"
+      : "rounded-[14px] border border-[var(--line)] bg-[var(--surface)] p-3";
+
+    return (
+      <section className={containerClass}>
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+          <div>
+            <span className={isMobile ? "text-xs font-bold uppercase text-[var(--hbx-mobile-primary)]" : "badge badge-brand"}>Indicações ativas</span>
+            <h3 className={isMobile ? "text-base font-semibold" : "mt-2 font-semibold"}>Pedidos de indicação</h3>
+          </div>
+          <span className={isMobile ? "rounded-full border border-[var(--hbx-mobile-border)] px-3 py-1 text-xs font-bold" : "badge"}>
+            {pendingCount} ativa(s)
+          </span>
+        </div>
+
+        {pendingCount === 0 ? (
+          <p className={isMobile ? "text-sm text-[var(--hbx-mobile-muted)]" : "mt-3 text-sm text-muted"}>
+            Nenhuma indicação pendente ou aprovada.
+          </p>
+        ) : (
+          <div className={isMobile ? "grid gap-2" : "mt-3 grid grid-cols-1 xl:grid-cols-2 gap-2"}>
+            {referralCandidates.map((candidate) => {
+              const busy = reviewingCandidateId === candidate.id;
+              return (
+                <article key={candidate.id} className={itemClass}>
+                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                    <div className="min-w-0">
+                      <strong className="block truncate">{candidate.name}</strong>
+                      <span className={isMobile ? "text-xs text-[var(--hbx-mobile-muted)]" : "text-xs text-muted"}>
+                        {candidate.phone} · indicado por {candidate.referrerUser ? userLabel(candidate.referrerUser) : `#${candidate.referrerUserId}`}
+                      </span>
+                    </div>
+                    <span className={isMobile ? "text-xs font-bold uppercase text-[var(--hbx-mobile-primary)]" : "badge"}>
+                      {candidate.status === "approved" ? "Aprovada" : "Pendente"} · {formatShortDate(candidate.createdAt)}
+                    </span>
+                  </div>
+                  <div className={isMobile ? "mt-2 grid gap-1 text-sm" : "mt-3 grid grid-cols-1 md:grid-cols-2 gap-2 text-sm"}>
+                    <div>
+                      <p className={isMobile ? "text-xs text-[var(--hbx-mobile-muted)]" : "text-xs text-muted"}>Segmentos preferidos</p>
+                      <strong className="block truncate">{candidatePreferredSegmentsLabel(candidate)}</strong>
+                    </div>
+                    <div>
+                      <p className={isMobile ? "text-xs text-[var(--hbx-mobile-muted)]" : "text-xs text-muted"}>Herança configurada</p>
+                      <strong className="block">
+                        {formatPercent(candidate.referrerUser?.sellerReferralCommissionPercent || 0)}
+                      </strong>
+                    </div>
+                  </div>
+                  {candidate.note ? (
+                    <p className={isMobile ? "mt-2 text-sm text-[var(--hbx-mobile-muted)]" : "mt-2 text-xs text-muted"}>{candidate.note}</p>
+                  ) : null}
+                  <div className={isMobile ? "mt-3 grid grid-cols-2 gap-2" : "mt-3 flex flex-wrap gap-2"}>
+                    {candidate.status === "pending" ? (
+                      <button
+                        type="button"
+                        disabled={busy || reviewingCandidateId !== null}
+                        onClick={() => void reviewReferralCandidate(candidate, "approve")}
+                        className={isMobile ? "hbx-mobile-secondary-button" : "btn btn-secondary btn-sm"}
+                      >
+                        {busy ? "Processando..." : "Aprovar indicação"}
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      disabled={busy || reviewingCandidateId !== null}
+                      onClick={() => useReferralCandidate(candidate)}
+                      className={isMobile ? "hbx-mobile-primary-button" : "btn btn-primary btn-sm"}
+                    >
+                      Cadastrar agora
+                    </button>
+                    {candidate.status === "pending" ? (
+                      <button
+                        type="button"
+                        disabled={busy || reviewingCandidateId !== null}
+                        onClick={() => void reviewReferralCandidate(candidate, "reject")}
+                        className={isMobile ? "hbx-mobile-secondary-button" : "btn btn-secondary btn-sm"}
+                      >
+                        Rejeitar
+                      </button>
+                    ) : null}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
+    );
+  }
+
   function renderMobileCreateForm() {
     return (
       <form onSubmit={createCompanyUser} autoComplete="off" className="grid gap-3">
+        {renderReferralCandidatesPanel("mobile")}
         <section className="hbx-mobile-card grid gap-3">
           <div className="flex items-center justify-between gap-2">
             <div>
@@ -1403,6 +1774,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
             required
           />
           <input className="field" type="tel" value={newUserPhone} onChange={(event) => setNewUserPhone(event.target.value)} placeholder="WhatsApp" />
+          {isHbxSellerNetwork && newUserRole === "USER" ? renderReferralMatchBox("mobile") : null}
           <input
             className="field disabled:opacity-60"
             inputMode="decimal"
@@ -1445,18 +1817,6 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
               <span className="text-xs font-bold uppercase text-[var(--hbx-mobile-primary)]">Rede HBX</span>
               <h3 className="text-base font-semibold">Indicação e herança</h3>
             </div>
-            <label className="flex items-start gap-3 rounded-[16px] border border-[var(--hbx-mobile-border)] bg-[var(--hbx-mobile-surface-soft)] p-3 text-sm">
-              <input
-                type="checkbox"
-                checked={newUserCanRegisterHbxSellers}
-                onChange={(event) => setNewUserCanRegisterHbxSellers(event.target.checked)}
-                className="mt-1"
-              />
-              <span>
-                <strong className="block">Pode cadastrar parceiros</strong>
-                <small className="text-[var(--hbx-mobile-muted)]">Libera indicação pelo celular.</small>
-              </span>
-            </label>
             <input
               className="field disabled:opacity-60"
               inputMode="decimal"
@@ -1542,15 +1902,9 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         {showHbxNetwork ? (
           <>
             <label className="flex items-start gap-3 rounded-[14px] border border-[var(--hbx-mobile-border)] bg-[var(--hbx-mobile-surface)] p-3 text-sm">
-              <input
-                type="checkbox"
-                checked={profileDraft.canRegisterHbxSellers}
-                onChange={(event) => setProfileDraft((draft) => ({ ...draft, canRegisterHbxSellers: event.target.checked }))}
-                className="mt-1"
-              />
               <span>
-                <strong className="block">Pode cadastrar vendedores</strong>
-                <small className="text-[var(--hbx-mobile-muted)]">Ativa a rede de indicação HBX.</small>
+                <strong className="block">Indicação HBX</strong>
+                <small className="text-[var(--hbx-mobile-muted)]">Parceiro ativo indica; Master cadastra.</small>
               </span>
             </label>
             <input
@@ -1663,7 +2017,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
           <div className="grid grid-cols-2 gap-2 text-sm">
             <div className="rounded-[14px] border border-[var(--hbx-mobile-border)] bg-[var(--hbx-mobile-surface-soft)] p-2">
               <span className="block text-[0.66rem] text-[var(--hbx-mobile-muted)]">Rede HBX</span>
-              <strong>{user.canRegisterHbxSellers ? "Indica" : "Sem cadastro"}</strong>
+              <strong>{user.isActive ? "Indica" : "Inativo"}</strong>
             </div>
             <div className="rounded-[14px] border border-[var(--hbx-mobile-border)] bg-[var(--hbx-mobile-surface-soft)] p-2">
               <span className="block text-[0.66rem] text-[var(--hbx-mobile-muted)]">Herdada</span>
@@ -2014,6 +2368,174 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     );
   }
 
+  function renderCreateAccessPopup() {
+    if (!createAccessOpen) return null;
+    const canUseDocs = Boolean(isHbxSellerNetwork && onboardingUserId);
+    const documentSlots = [
+      { kind: "photo_id", label: "Documento", required: true },
+      { kind: "curriculum", label: "Currículo", required: false },
+      { kind: "contract_pdf", label: "Contrato", required: true },
+      { kind: "other", label: "Outro", required: false },
+    ] as const;
+
+    return (
+      <div className="hbx-popup-layer" data-clickable="true" role="presentation">
+        <section className="hbx-popup2 hbx-popup2--partner-access" data-tone="info" role="dialog" aria-modal="true" aria-label="Criar acesso">
+          <header className="hbx-partner-popup__header">
+            <div>
+              <strong>{isHbxSellerNetwork ? "Parceiro HBX" : "Novo acesso"}</strong>
+              <span>{onboardingUserId ? `#${onboardingUserId}` : "Cadastro"}</span>
+            </div>
+            <button
+              type="button"
+              className="hbx-popup2__close"
+              onClick={() => {
+                setCreateAccessOpen(false);
+                resetCreateAccessPopup();
+              }}
+              aria-label="Fechar"
+            >
+              ×
+            </button>
+          </header>
+
+          <form onSubmit={createCompanyUser} autoComplete="off" className="hbx-partner-popup__grid">
+            <div className="hbx-partner-popup__panel">
+              {canCreateAdminUsers ? (
+                <div className="hbx-partner-popup__segmented">
+                  {(["USER", "ADMIN"] as const).map((role) => (
+                    <button key={role} type="button" onClick={() => setNewUserRole(role)} data-active={newUserRole === role}>
+                      {roleLabel(role)}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              <label>
+                <span>Nome</span>
+                <input className="field" value={newUserName} onChange={(event) => setNewUserName(event.target.value)} />
+              </label>
+              <label>
+                <span>E-mail</span>
+                <input className="field" type="email" name="hbx-create-seller-login-popup" autoComplete="off" value={newUserEmail} onChange={(event) => setNewUserEmail(event.target.value)} required />
+              </label>
+              <label>
+                <span>WhatsApp</span>
+                <input className="field" type="tel" value={newUserPhone} onChange={(event) => setNewUserPhone(event.target.value)} />
+              </label>
+              {isHbxSellerNetwork && newUserRole === "USER" ? renderReferralMatchBox("desktop") : null}
+              <div className="hbx-partner-popup__twocol">
+                <label>
+                  <span>Comissão</span>
+                  <input
+                    className="field disabled:opacity-60"
+                    inputMode="decimal"
+                    disabled={Boolean(selectedNewUserReferrer)}
+                    value={selectedNewUserReferrer ? percentInputValue(selectedNewUserReferrer.commissionPercent) : newUserCommissionPercent}
+                    onChange={(event) => setNewUserCommissionPercent(event.target.value)}
+                  />
+                </label>
+                <label>
+                  <span>D+</span>
+                  <input className="field" inputMode="numeric" value={newUserCommissionDueBusinessDays} onChange={(event) => setNewUserCommissionDueBusinessDays(event.target.value)} />
+                </label>
+              </div>
+              {isHbxSellerNetwork && newUserRole === "USER" ? (
+                <>
+                  <div className="hbx-partner-popup__twocol">
+                    <label>
+                      <span>CPF</span>
+                      <input className="field" value={newUserCpf} onChange={(event) => setNewUserCpf(event.target.value)} />
+                    </label>
+                    <label>
+                      <span>Senha</span>
+                      <input className="field" type="password" name="hbx-create-seller-password-popup" autoComplete="new-password" value={newUserPassword} onChange={(event) => setNewUserPassword(event.target.value)} />
+                    </label>
+                  </div>
+                  <label>
+                    <span>Endereço</span>
+                    <input className="field" value={newUserDeclaredAddress} onChange={(event) => setNewUserDeclaredAddress(event.target.value)} />
+                  </label>
+                  <div className="hbx-partner-popup__twocol">
+                    <label>
+                      <span>Indicado por</span>
+                      <select
+                        className="field"
+                        value={newUserReferredByUserId}
+                        onChange={(event) => {
+                          const selectedReferrerId = event.target.value;
+                          const selectedReferrer = hbxReferrers.find((referrer) => String(referrer.id) === selectedReferrerId);
+                          setNewUserReferredByUserId(selectedReferrerId);
+                          if (selectedReferrer) {
+                            setNewUserCommissionPercent(percentInputValue(selectedReferrer.commissionPercent));
+                            setNewUserSellerReferralCommissionPercent(percentInputValue(selectedReferrer.sellerReferralCommissionPercent));
+                            setNewUserReferredByCommissionPercent(percentInputValue(selectedReferrer.sellerReferralCommissionPercent));
+                          }
+                          if (!selectedReferrerId) setNewUserReferredByCommissionPercent("");
+                        }}
+                      >
+                        <option value="">Direto HBX</option>
+                        {hbxReferrers.map((referrer) => (
+                          <option key={referrer.id} value={referrer.id}>{userLabel(referrer)}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      <span>Herança</span>
+                      <input className="field disabled:opacity-60" disabled value={selectedNewUserReferrer ? percentInputValue(selectedNewUserReferrer.sellerReferralCommissionPercent) : newUserReferredByCommissionPercent} />
+                    </label>
+                  </div>
+                </>
+              ) : null}
+              <button type="submit" disabled={creatingUser || Boolean(onboardingUserId)} className="btn btn-primary btn-sm">
+                {creatingUser ? "Criando..." : onboardingUserId ? "Criado" : isHbxSellerNetwork ? "Criar parceiro" : "Criar acesso"}
+              </button>
+            </div>
+
+            <div className="hbx-partner-popup__panel" data-disabled={!canUseDocs}>
+              <div className="hbx-partner-popup__docs">
+                {documentSlots.map((slot) => {
+                  const attachment = onboardingAttachments.find((item) => item.kind === slot.kind && item.status !== "deleted");
+                  return (
+                    <label key={slot.kind} className="hbx-partner-popup__upload">
+                      <span>
+                        <b>{slot.label}</b>
+                        <small>{attachment ? attachment.originalFilename : slot.required ? "Obrigatório" : "Opcional"}</small>
+                      </span>
+                      <input
+                        type="file"
+                        accept=".pdf,.jpg,.jpeg,.png"
+                        disabled={!canUseDocs || uploadingAttachmentKind === slot.kind}
+                        onChange={(event) => {
+                          void uploadOnboardingAttachment(slot.kind, event.target.files?.[0], slot.required);
+                          event.currentTarget.value = "";
+                        }}
+                      />
+                    </label>
+                  );
+                })}
+              </div>
+              <div className="hbx-partner-popup__actions">
+                <button type="button" disabled={!canUseDocs || generatingContract} onClick={() => void generateOnboardingContract()} className="btn btn-secondary btn-sm">
+                  {generatingContract ? "Gerando..." : "Gerar contrato"}
+                </button>
+                <button type="button" disabled={!canUseDocs || sendingOnboardingEmail} onClick={() => void sendOnboardingEmail()} className="btn btn-primary btn-sm">
+                  {sendingOnboardingEmail ? "Enviando..." : "Enviar e-mail"}
+                </button>
+              </div>
+              {onboardingAttachments.length ? (
+                <div className="hbx-partner-popup__chips">
+                  {onboardingAttachments.filter((item) => item.status !== "deleted").slice(0, 6).map((item) => (
+                    <span key={item.id}>{onboardingAttachmentLabel(item.kind)}</span>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </form>
+        </section>
+      </div>
+    );
+  }
+
   function renderMobileGerencial() {
     return (
       <section className="hbx-mobile-page" aria-label="Gerencial mobile">
@@ -2055,7 +2577,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
               </div>
               {isHbxSellerNetwork ? (
                 <p className="rounded-[16px] border border-[var(--hbx-mobile-border)] bg-[var(--hbx-mobile-surface-soft)] p-3 text-sm">
-                  Rede HBX: {hbxNetworkStats.authorized} vendedor(es) podem indicar, {hbxNetworkStats.referred} vieram por indicação.
+                  Rede HBX: {hbxNetworkStats.authorized} parceiro(s) indicam, {hbxNetworkStats.referred} vieram por indicação.
                 </p>
               ) : null}
             </section>
@@ -2078,6 +2600,10 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
             {mobileTab === "equipe" ? (
               <div className="grid gap-3">
                 <section className="hbx-mobile-card grid gap-2">
+                  <button type="button" onClick={() => setCreateAccessOpen(true)} className="hbx-mobile-primary-button">
+                    Criar acesso
+                  </button>
+                  {renderReferralCandidatesPanel("mobile")}
                   <input className="field" type="search" value={userSearch} onChange={(event) => setUserSearch(event.target.value)} placeholder="Buscar equipe" />
                   <div className="flex flex-wrap gap-2">
                     {([
@@ -2097,7 +2623,6 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
               </div>
             ) : null}
 
-            {mobileTab === "criar" ? renderMobileCreateForm() : null}
             {mobileTab === "comissoes" ? renderMobileCommissions() : null}
             {mobileTab === "modulos" ? (
               <div className="grid gap-3">
@@ -2108,10 +2633,11 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
           </>
         )}
 
+        {renderCreateAccessPopup()}
         <HbxMobileDock
           primaryLabel="Cadastrar"
           primaryIcon="plus"
-          onPrimaryAction={() => setMobileTab("criar")}
+          onPrimaryAction={() => setCreateAccessOpen(true)}
           onComissao={() => setMobileTab("comissoes")}
           onRelatorio={() => setMobileTab("sinais")}
         />
@@ -2136,7 +2662,6 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   if (mobileRoute) return renderMobileGerencial();
 
   const showDesktopStatus = desktopGuideTab === "status";
-  const showDesktopCreate = desktopGuideTab === "criar";
   const showDesktopCommissions = desktopGuideTab === "comissoes";
   const showDesktopTeam = desktopGuideTab === "equipe";
   const showDesktopModules = desktopGuideTab === "modulos";
@@ -2158,6 +2683,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
           <div className="hbx-guide1-slot">
             <HbxGuide1 tabs={desktopGuideTabs} activeKey={desktopGuideTab} ariaLabel="Gerencial" onChange={handleDesktopGuideChange} />
           </div>
+          {renderCreateAccessPopup()}
 
           {showDesktopStatus && data.operationAudit ? (
             <section className="panel p-4 md:p-5 rounded-[20px]">
@@ -2221,261 +2747,6 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                       ))}
                     </div>
                   )}
-                </div>
-              </div>
-            </section>
-          ) : null}
-
-          {showDesktopCreate ? (
-          <section className="panel p-4 md:p-5 rounded-[20px]">
-            <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold">{isHbxSellerNetwork ? "Cadastrar Parceiro HBX" : "Cadastrar vendedor ou admin"}</h2>
-                <p className="mt-1 text-sm text-muted">O login usa o e-mail. Se deixar senha vazia, o HBX gera uma senha temporária.</p>
-              </div>
-              <span className="badge">{isHbxSellerNetwork ? "USERMASTER / PARCEIRO HBX" : "ADMIN / MASTER"}</span>
-            </div>
-
-            <form onSubmit={createCompanyUser} autoComplete="off" className="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-              <label className="grid gap-1 text-sm">
-                <span className="font-medium">Nome do usuário</span>
-                <input
-                  type="text"
-                  placeholder="Ex.: João Silva"
-                  value={newUserName}
-                  onChange={(e) => setNewUserName(e.target.value)}
-                  className="field"
-                />
-              </label>
-              <label className="grid gap-1 text-sm">
-                <span className="font-medium">E-mail</span>
-                <input
-                  type="email"
-                  placeholder="email@empresa.com"
-                  name="hbx-create-seller-login"
-                  autoComplete="off"
-                  autoCapitalize="none"
-                  value={newUserEmail}
-                  onChange={(e) => setNewUserEmail(e.target.value)}
-                  className="field"
-                  required
-                />
-              </label>
-              <label className="grid gap-1 text-sm">
-                <span className="font-medium">WhatsApp do vendedor</span>
-                <input
-                  type="tel"
-                  placeholder="(11) 90000-0000"
-                  value={newUserPhone}
-                  onChange={(e) => setNewUserPhone(e.target.value)}
-                  className="field"
-                />
-              </label>
-              <label className="grid gap-1 text-sm">
-                <span className="font-medium">Comissão padrão</span>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  placeholder={selectedNewUserReferrer ? "Comissão herdada" : "Ex.: 10"}
-                  disabled={Boolean(selectedNewUserReferrer)}
-                  value={selectedNewUserReferrer ? percentInputValue(selectedNewUserReferrer.commissionPercent) : newUserCommissionPercent}
-                  onChange={(e) => setNewUserCommissionPercent(e.target.value)}
-                  className="field disabled:opacity-60"
-                />
-              </label>
-              <label className="grid gap-1 text-sm">
-                <span className="font-medium">Senha opcional</span>
-                <input
-                  type="password"
-                  placeholder="Gerar senha temporária"
-                  name="hbx-create-seller-password"
-                  autoComplete="new-password"
-                  value={newUserPassword}
-                  onChange={(e) => setNewUserPassword(e.target.value)}
-                  className="field"
-                />
-              </label>
-              {isHbxSellerNetwork && newUserRole === "USER" ? (
-                <div className="md:col-span-2 xl:col-span-3 rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3">
-                  <div className="flex flex-col gap-1">
-                    <span className="badge badge-brand">Parceiro HBX</span>
-                    <h3 className="text-sm font-semibold">Dados para contrato de parceria</h3>
-                    <p className="text-xs text-muted">
-                      Base documental do parceiro HBX. Gere o contrato antes de liberar operação.
-                    </p>
-                  </div>
-                  <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <label className="grid gap-1 text-sm">
-                      <span className="font-medium">CPF</span>
-                      <input value={newUserCpf} onChange={(event) => setNewUserCpf(event.target.value)} className="field" placeholder="CPF do parceiro" />
-                    </label>
-                    <label className="grid gap-1 text-sm md:col-span-1">
-                      <span className="font-medium">Endereço declarado</span>
-                      <input value={newUserDeclaredAddress} onChange={(event) => setNewUserDeclaredAddress(event.target.value)} className="field" placeholder="Endereço informado" />
-                    </label>
-                    <label className="grid gap-1 text-sm">
-                      <span className="font-medium">Prazo de pagamento</span>
-                      <input
-                        value={newUserCommissionDueBusinessDays}
-                        onChange={(event) => setNewUserCommissionDueBusinessDays(event.target.value)}
-                        inputMode="numeric"
-                        className="field"
-                        placeholder="D+3"
-                      />
-                    </label>
-                  </div>
-                </div>
-              ) : null}
-              {canCreateAdminUsers ? (
-                <div className="grid gap-1 text-sm">
-                  <span className="font-medium">Perfil inicial</span>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {(["USER", "ADMIN"] as const).map((role) => (
-                      <button
-                        key={role}
-                        type="button"
-                        aria-pressed={newUserRole === role}
-                        onClick={() => setNewUserRole(role)}
-                        className={`rounded-[14px] border p-3 text-left transition ${
-                          newUserRole === role
-                            ? "border-[var(--brand)] bg-[var(--brand-soft)]"
-                            : "border-[var(--line)] bg-[var(--surface-soft)]"
-                        }`}
-                      >
-                        <span className={role === "ADMIN" ? "badge badge-brand" : "badge"}>{roleLabel(role)}</span>
-                        <strong className="mt-2 block text-sm">{role === "USER" ? "Vender no CRM" : "Controlar equipe"}</strong>
-                        <small className="mt-1 block text-xs text-muted">{roleDescription(role)}</small>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div className="rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3 text-sm">
-                  <span className="badge badge-brand">Parceiro HBX</span>
-                  <strong className="mt-2 block">Rede HBX</strong>
-                  <small className="mt-1 block text-xs text-muted">Nesta operação o USERMASTER cria apenas parceiros. Admin fica fora da rede de comissão.</small>
-                </div>
-              )}
-              {isHbxSellerNetwork && newUserRole === "USER" ? (
-                <div className="md:col-span-2 xl:col-span-3 rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3">
-                  <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
-                    <div className="min-w-0">
-                      <span className="badge badge-brand">Rede HBX</span>
-                      <h3 className="mt-2 text-sm font-semibold">Indicação e comissão herdada</h3>
-                      <p className="mt-1 text-xs text-muted">
-                        Use isto para parceiros HBX que podem formar equipe. O indicado mantém a comissão normal, e o indicador ganha a herança definida.
-                      </p>
-                    </div>
-                    <label className="flex w-full max-w-sm items-start gap-2 rounded-[12px] border border-[var(--line)] bg-[var(--surface)] p-3 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={newUserCanRegisterHbxSellers}
-                        onChange={(event) => setNewUserCanRegisterHbxSellers(event.target.checked)}
-                        className="mt-1"
-                      />
-                      <span>
-                        <strong className="block">Pode cadastrar parceiros</strong>
-                        <small className="text-muted">Libera cadastro por indicação no celular.</small>
-                      </span>
-                    </label>
-                  </div>
-                  <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <label className="grid gap-1 text-sm">
-                      <span className="font-medium">Herança que ele recebe</span>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        placeholder={selectedNewUserReferrer ? "Herança herdada" : "Ex.: 3"}
-                        disabled={Boolean(selectedNewUserReferrer)}
-                        value={selectedNewUserReferrer ? percentInputValue(selectedNewUserReferrer.sellerReferralCommissionPercent) : newUserSellerReferralCommissionPercent}
-                        onChange={(event) => setNewUserSellerReferralCommissionPercent(event.target.value)}
-                        className="field disabled:opacity-60"
-                      />
-                    </label>
-                    <label className="grid gap-1 text-sm">
-                      <span className="font-medium">Indicado por</span>
-                      <select
-                        value={newUserReferredByUserId}
-                        onChange={(event) => {
-                          const selectedReferrerId = event.target.value;
-                          const selectedReferrer = hbxReferrers.find((referrer) => String(referrer.id) === selectedReferrerId);
-                          setNewUserReferredByUserId(selectedReferrerId);
-                          if (selectedReferrer) {
-                            setNewUserCommissionPercent(percentInputValue(selectedReferrer.commissionPercent));
-                            setNewUserSellerReferralCommissionPercent(percentInputValue(selectedReferrer.sellerReferralCommissionPercent));
-                            setNewUserReferredByCommissionPercent(percentInputValue(selectedReferrer.sellerReferralCommissionPercent));
-                          }
-                          if (!selectedReferrerId) setNewUserReferredByCommissionPercent("");
-                        }}
-                        className="field"
-                      >
-                        <option value="">Direto HBX</option>
-                        {hbxReferrers.map((referrer) => (
-                          <option key={referrer.id} value={referrer.id}>
-                            {userLabel(referrer)} · herança {formatPercent(referrer.sellerReferralCommissionPercent)}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="grid gap-1 text-sm">
-                      <span className="font-medium">Herança para o indicador</span>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        placeholder="Automático pelo indicador"
-                        value={selectedNewUserReferrer ? percentInputValue(selectedNewUserReferrer.sellerReferralCommissionPercent) : newUserReferredByCommissionPercent}
-                        onChange={(event) => setNewUserReferredByCommissionPercent(event.target.value)}
-                        disabled
-                        className="field disabled:opacity-60"
-                      />
-                    </label>
-                  </div>
-                  {selectedNewUserReferrer ? (
-                    <p className="mt-3 rounded-[12px] border border-[var(--line)] bg-[var(--surface)] p-3 text-xs text-muted">
-                      Comissão normal e herança ficaram travadas pelo indicador {userLabel(selectedNewUserReferrer)}. O backend também recalcula esses valores.
-                    </p>
-                  ) : null}
-                </div>
-              ) : null}
-              <div
-                className="md:col-span-2 xl:col-span-3 rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3"
-              >
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold">{newUserRole === "USER" ? "Acesso de vendedor" : "Acesso administrativo"}</p>
-                  <p className="mt-1 text-xs text-muted">
-                    {isHbxSellerNetwork
-                      ? "Parceiro HBX recebe cards, trabalha no CRM, chama no WhatsApp e pode ter rede de indicação conforme liberação."
-                      : newUserRole === "USER"
-                      ? "Vendas e Atendimento/WhatsApp ficam liberados quando a empresa tiver esses módulos. Comissão e telefone ficam prontos no CRM."
-                      : "Admin pode cadastrar equipe, controlar módulos, acessar Gerencial e operar Radar conforme o plano."}
-                  </p>
-                </div>
-                <button type="submit" disabled={creatingUser} className="btn btn-primary btn-sm">
-                  {creatingUser ? "Criando..." : isHbxSellerNetwork ? "Criar Parceiro HBX" : newUserRole === "USER" ? "Criar vendedor" : "Criar admin"}
-                </button>
-              </div>
-            </form>
-          </section>
-          ) : null}
-
-          {showDesktopCreate && createdPasswordInfo ? (
-            <section className="panel p-4 rounded-[20px] border-[var(--line)]">
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                <div className="min-w-0">
-                  <span className="badge badge-success">Usuário criado</span>
-                  <h2 className="mt-2 text-lg font-semibold">Senha temporária de {createdPasswordInfo.userLabel}</h2>
-                  <p className="mt-1 text-sm text-muted">Guarde esta senha antes de fechar este aviso.</p>
-                  <code className="mt-3 block w-fit max-w-full rounded-[12px] border border-[var(--line)] bg-[var(--surface-soft)] px-3 py-2 text-sm break-all">
-                    {createdPasswordInfo.password}
-                  </code>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <button type="button" className="btn btn-primary btn-sm" onClick={copyTemporaryPassword}>
-                    Copiar senha
-                  </button>
-                  <button type="button" className="btn btn-ghost btn-sm" onClick={dismissCreatedPasswordInfo}>
-                    Fechar
-                  </button>
                 </div>
               </div>
             </section>
@@ -2876,7 +3147,14 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
               <span className="badge badge-brand">
                 {showDesktopModules ? `${enabledModules.length} módulos` : `${data.users.length} pessoas`}
               </span>
+              {showDesktopTeam ? (
+                <button type="button" onClick={() => setCreateAccessOpen(true)} className="btn btn-primary btn-sm">
+                  Criar acesso
+                </button>
+              ) : null}
             </div>
+
+            {showDesktopTeam ? renderReferralCandidatesPanel("desktop") : null}
 
             <div className="mt-4 grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-3">
               <label className="grid gap-1 text-sm">
@@ -2987,7 +3265,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                         <div className="min-w-0 rounded-[12px] border border-[var(--line)] bg-[var(--surface)] p-3">
                           <p className="text-xs text-muted">Rede HBX</p>
                           <strong className="mt-1 block text-sm">
-                            {user.canRegisterHbxSellers ? "Pode indicar" : "Sem cadastro"}
+                            {user.isActive ? "Indica" : "Inativo"}
                           </strong>
                         </div>
                         <div className="min-w-0 rounded-[12px] border border-[var(--line)] bg-[var(--surface)] p-3">
@@ -3102,28 +3380,8 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                             <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
                               <div className="min-w-0">
                                 <span className="badge badge-brand">Rede HBX</span>
-                                <p className="mt-2 text-sm font-semibold">Cadastro por indicação e comissão herdada</p>
-                                <p className="mt-1 text-xs text-muted">
-                                  Autorize quem pode cadastrar novos vendedores e registre de quem cada vendedor veio.
-                                </p>
+                                <p className="mt-2 text-sm font-semibold">Indicação e comissão herdada</p>
                               </div>
-                              <label className="flex w-full max-w-sm items-start gap-2 rounded-[12px] border border-[var(--line)] bg-[var(--surface)] p-3 text-sm">
-                                <input
-                                  type="checkbox"
-                                  checked={profileDraft.canRegisterHbxSellers}
-                                  onChange={(event) =>
-                                    setProfileDraft((draft) => ({
-                                      ...draft,
-                                      canRegisterHbxSellers: event.target.checked,
-                                    }))
-                                  }
-                                  className="mt-1"
-                                />
-                                <span>
-                                  <strong className="block">Pode cadastrar vendedores</strong>
-                                  <small className="text-muted">Acesso para criar indicados HBX.</small>
-                                </span>
-                              </label>
                             </div>
                             <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
                               <label className="grid gap-1 text-sm">

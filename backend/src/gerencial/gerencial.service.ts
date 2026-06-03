@@ -455,7 +455,7 @@ export class GerencialService {
     const activeAdmins = users.filter((user) => roleOf(user) === 'ADMIN' && Boolean(user?.isActive));
     const masters = users.filter((user) => roleOf(user) === 'USERMASTER');
     const configuredSellers = activeSellers.filter((user) => money(user?.commissionPercent) > 0);
-    const referralEnabledSellers = activeSellers.filter((user) => Boolean(user?.canRegisterHbxSellers));
+    const referralEnabledSellers = activeSellers;
     const isHbxSellerNetwork = Boolean(options?.isHbxSellerNetwork);
     const now = new Date();
 
@@ -539,8 +539,8 @@ export class GerencialService {
             key: 'hbx_referral',
             title: 'Rede HBX',
             status: referralEnabledSellers.length || activeSellers.length === 0 ? 'ok' : 'warning',
-            value: `${referralEnabledSellers.length} vendedor(es) podem indicar`,
-            hint: referralEnabledSellers.length ? 'Indicação e comissão herdada disponíveis.' : 'Autorize quem pode cadastrar vendedores indicados.',
+            value: `${referralEnabledSellers.length} parceiro(s) indicam`,
+            hint: referralEnabledSellers.length ? 'Indicação e comissão herdada disponíveis.' : 'Cadastre parceiros ativos.',
           }]
         : []),
     ];
