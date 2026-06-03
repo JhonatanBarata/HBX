@@ -28,7 +28,6 @@ temp_*.json
 index 26-01 com auth.txt
 
 backups/
-/Webwhats/
 
 systeminfo.txt
 msinfo-completo.txt
@@ -46,5 +45,27 @@ __pycache__/
 *.sqlite3
 *.sql
 !backend/prisma/migrations/**/*.sql
+!Webwhats/prisma/mysql-migrations/**/*.sql
+!Webwhats/prisma/postgresql-migrations/**/*.sql
 *.dump
 *.tar.gz
+
+# Webwhats runtime and secrets. Source is versioned in this HBX repo.
+Webwhats/.git/
+Webwhats/.env
+Webwhats/.env.*
+!Webwhats/.env.example
+!Webwhats/.env.oracle.example
+!Webwhats/.env.render.example
+Webwhats/node_modules/
+Webwhats/dist/
+Webwhats/logs/
+Webwhats/docker-compose-data/
+Webwhats/docker-data/
+Webwhats/instances/*
+!Webwhats/instances/.gitkeep
+Webwhats/keys/*
+!Webwhats/keys/.gitkeep
+Webwhats/temp/
+Webwhats/store/
+Webwhats/src/env.yml

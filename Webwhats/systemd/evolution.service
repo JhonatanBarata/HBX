@@ -1,0 +1,22 @@
+[Unit]
+Description=Webwhats API
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=webwhats
+Group=webwhats
+WorkingDirectory=/opt/webwhats
+Environment=NODE_ENV=PROD
+EnvironmentFile=/opt/webwhats/.env
+ExecStart=/usr/bin/node /opt/webwhats/dist/main.js
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+LimitNOFILE=65536
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -94,6 +94,6 @@ Após configurar, você pode:
 - ✅ Adicionar quantas mesas quiser pelo painel
 - ✅ Trocar fotos do carrossel quando quiser
 - ✅ Criar novos tipos de mesa
-- ✅ Fazer deploy no Vercel/Netlify
+- ✅ Fazer deploy no Hostinger/Netlify
 
 **Tudo sem mexer em código! 🎉**

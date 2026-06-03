@@ -1,8 +1,8 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
-import { apiFetch } from "@/app/_lib/api";
+import { type FormEvent, useEffect, useState } from "react";
+import { apiFetch, clearApiCache } from "@/app/_lib/api";
 import { mobileDestinationFromVendasBoard } from "@/app/_lib/mobileOperationalDestination";
 import { toMobileRoute } from "@/app/_lib/mobileRoutes";
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
@@ -43,8 +43,19 @@ type VendasBoardPayload = {
   } | null;
 };
 
+type CurrentUserPayload = {
+  id?: number | null;
+  username?: string | null;
+  email?: string | null;
+  name?: string | null;
+  mustChangePassword?: boolean | null;
+};
+
 type WelcomeState = {
   loaded: boolean;
+  userName: string;
+  userEmail: string;
+  mustChangePassword: boolean;
   whatsappConnected: boolean;
   radarReady: boolean;
   atendimentoReady: boolean;
@@ -57,6 +68,9 @@ type WelcomeState = {
 
 const DEFAULT_WELCOME_STATE: WelcomeState = {
   loaded: false,
+  userName: "",
+  userEmail: "",
+  mustChangePassword: false,
   whatsappConnected: false,
   radarReady: false,
   atendimentoReady: false,
@@ -101,11 +115,15 @@ function hasOperationalHistory(state: WelcomeState) {
 }
 
 function mobileOperationStatus(state: WelcomeState) {
+  if (state.mustChangePassword) return "Primeiro acesso";
   if (!state.loaded || !hasOperationalHistory(state)) return "";
   return "Operação mobile";
 }
 
 function mobilePrimaryAction(state: WelcomeState, tutorialCompleted: boolean) {
+  if (state.mustChangePassword) {
+    return { label: "Troque a senha para continuar", path: "/boasvindas" };
+  }
   if (state.loaded && !tutorialCompleted && !hasOperationalHistory(state)) {
     return { label: "Abrir tutorial", path: "/tutorial" };
   }
@@ -115,20 +133,130 @@ function mobilePrimaryAction(state: WelcomeState, tutorialCompleted: boolean) {
   return { label: "Abrir Vendas", path: "/vendas" };
 }
 
+function PasswordChangePanel({
+  userName,
+  userEmail,
+  disabled = false,
+  onChanged,
+}: {
+  userName: string;
+  userEmail: string;
+  disabled?: boolean;
+  onChanged: () => void;
+}) {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  async function submitPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const next = newPassword.trim();
+    setMessage("");
+    setError("");
+
+    if (next.length < 8) {
+      setError("A nova senha precisa ter pelo menos 8 caracteres.");
+      return;
+    }
+    if (next !== confirmPassword.trim()) {
+      setError("A confirmação precisa ser igual à nova senha.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await apiFetch("/profile/password", {
+        method: "PATCH",
+        body: JSON.stringify({
+          currentPassword,
+          newPassword: next,
+        }),
+      });
+      clearApiCache("/profile/current-user");
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setMessage("Senha alterada. Seu acesso está pronto.");
+      onChanged();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Não foi possível alterar a senha.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form className={styles.passwordChangePanel} onSubmit={submitPassword} aria-label="Trocar senha do primeiro acesso">
+      <div className={styles.passwordChangeHeader}>
+        <span>Senha temporária</span>
+        <strong>{userName || "Seu acesso HBX"}</strong>
+        <small>{userEmail}</small>
+      </div>
+      <label>
+        <span>Senha atual</span>
+        <input
+          type="password"
+          value={currentPassword}
+          onChange={(event) => setCurrentPassword(event.target.value)}
+          autoComplete="current-password"
+          disabled={disabled || saving}
+          required
+        />
+      </label>
+      <label>
+        <span>Nova senha</span>
+        <input
+          type="password"
+          value={newPassword}
+          onChange={(event) => setNewPassword(event.target.value)}
+          autoComplete="new-password"
+          disabled={disabled || saving}
+          minLength={8}
+          required
+        />
+      </label>
+      <label>
+        <span>Confirmar senha</span>
+        <input
+          type="password"
+          value={confirmPassword}
+          onChange={(event) => setConfirmPassword(event.target.value)}
+          autoComplete="new-password"
+          disabled={disabled || saving}
+          minLength={8}
+          required
+        />
+      </label>
+      {error ? <p className={styles.passwordChangeError}>{error}</p> : null}
+      {message ? <p className={styles.passwordChangeSuccess}>{message}</p> : null}
+      <button type="submit" className={styles.primaryAction} disabled={disabled || saving}>
+        {saving ? "Alterando..." : "Alterar senha e continuar"}
+      </button>
+    </form>
+  );
+}
+
 function MobileDashboard({
   state,
   primaryAction,
   leaving = false,
   onNavigate,
+  onPasswordChanged,
 }: {
   state: WelcomeState;
   primaryAction: { label: string; path: string };
   leaving?: boolean;
   onNavigate?: (path: string) => void;
+  onPasswordChanged?: () => void;
 }) {
   const disabled = leaving || !onNavigate;
   const status = mobileOperationStatus(state);
-  const subtitle = "Busque cards no Radar, chame pelo WhatsApp e organize retornos.";
+  const subtitle = state.mustChangePassword
+    ? "Troque a senha temporária antes de abrir sua rotina comercial."
+    : "Busque cards no Radar, chame pelo WhatsApp e organize retornos.";
   const desktopCards = [
     {
       label: "Radar",
@@ -159,10 +287,19 @@ function MobileDashboard({
       <h1 id="welcome-title" className={styles.mobileTitle}>Sua operação começa aqui</h1>
       <p className={styles.mobileSubtitle}>{subtitle}</p>
       <p className={styles.loadingText}>
-        {state.loaded ? "Escolha por onde continuar." : "Preparando seu acesso."}
+        {state.loaded ? (state.mustChangePassword ? "Primeiro login protegido." : "Escolha por onde continuar.") : "Preparando seu acesso."}
       </p>
 
-      {state.loaded ? (
+      {state.loaded && state.mustChangePassword ? (
+        <PasswordChangePanel
+          userName={state.userName}
+          userEmail={state.userEmail}
+          disabled={disabled}
+          onChanged={() => onPasswordChanged?.()}
+        />
+      ) : null}
+
+      {state.loaded && !state.mustChangePassword ? (
         <nav className={styles.actions} aria-label="Começar">
           <button
             type="button"
@@ -180,7 +317,7 @@ function MobileDashboard({
           <span>HBX pronto</span>
           <strong>Comece pelo Radar.</strong>
           <p>Sem checkout agora. Primeiro entre, busque oportunidades e organize sua operação comercial.</p>
-          {state.loaded ? (
+          {state.loaded && !state.mustChangePassword ? (
             <button
               type="button"
               className={styles.desktopWelcomePrimary}
@@ -211,7 +348,7 @@ function MobileDashboard({
               type="button"
               key={card.label}
               onClick={() => onNavigate?.(card.path)}
-              disabled={disabled || !state.loaded}
+              disabled={disabled || !state.loaded || state.mustChangePassword}
             >
               <small>{card.label}</small>
               <strong>{card.title}</strong>
@@ -281,12 +418,13 @@ export default function BoasVindasClientPage({ mobileRoute = false }: { mobileRo
 
     async function loadWelcomeState() {
       try {
-        const [center, modal, operational, modules, vendasBoard] = await Promise.all([
+        const [center, modal, operational, modules, vendasBoard, currentUser] = await Promise.all([
           apiFetch<WhatsAppCenterPayload>("/companies/me/whatsapp-center").catch(() => null),
           apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/status").catch(() => null),
           apiFetch<OperationalStatusPayload>("/companies/me/operational-status?refresh=true").catch(() => null),
           apiFetch<UserModule[]>("/modules/me").catch(() => []),
           apiFetch<VendasBoardPayload>("/vendas/board", { timeoutMs: 12000 }).catch(() => null),
+          apiFetch<CurrentUserPayload>("/profile/current-user").catch(() => null),
         ]);
 
         if (!mounted) return;
@@ -305,6 +443,9 @@ export default function BoasVindasClientPage({ mobileRoute = false }: { mobileRo
 
         setWelcomeState({
           loaded: true,
+          userName: String(currentUser?.name || currentUser?.username || currentUser?.email || "").trim(),
+          userEmail: String(currentUser?.email || currentUser?.username || "").trim(),
+          mustChangePassword: Boolean(currentUser?.mustChangePassword),
           whatsappConnected: isWhatsAppConnected(center, modal, operational),
           radarReady: hasModule(safeModules, "webscraping") || leadsCount > 0,
           atendimentoReady: hasModule(safeModules, "atendimento") || conversationsCount > 0 || pendingCount > 0,
@@ -315,7 +456,7 @@ export default function BoasVindasClientPage({ mobileRoute = false }: { mobileRo
           vendasReady: leadsCount > 0 || vendasPending > 0,
         });
         setMasterCheckComplete(true);
-        if (!fromLoginEntry) {
+        if (!fromLoginEntry && !currentUser?.mustChangePassword) {
           if (mobileRoute) {
             const destination = mobileDestinationFromVendasBoard(vendasBoard);
             router.replace(destination);
@@ -346,6 +487,13 @@ export default function BoasVindasClientPage({ mobileRoute = false }: { mobileRo
 
   const mobilePrimary = mobilePrimaryAction(welcomeState, tutorialCompleted);
 
+  function handlePasswordChanged() {
+    setWelcomeState((current) => ({
+      ...current,
+      mustChangePassword: false,
+    }));
+  }
+
   if (hasToken === null || (hasToken === true && !masterCheckComplete && !clientReady)) {
     return (
       <main
@@ -355,7 +503,12 @@ export default function BoasVindasClientPage({ mobileRoute = false }: { mobileRo
         data-welcome-path="loading"
       >
         <section className={styles.shell} aria-live="polite">
-          <MobileDashboard state={welcomeState} primaryAction={mobilePrimary} onNavigate={navigateWithTransition} />
+          <MobileDashboard
+            state={welcomeState}
+            primaryAction={mobilePrimary}
+            onNavigate={navigateWithTransition}
+            onPasswordChanged={handlePasswordChanged}
+          />
         </section>
       </main>
     );
@@ -368,10 +521,16 @@ export default function BoasVindasClientPage({ mobileRoute = false }: { mobileRo
       className={`${styles.page} ${styles.fromLoginTransition}`}
       data-welcome-mode="single"
       data-welcome-phase={welcomePhase}
-      data-welcome-path={hasOperationalHistory(welcomeState) ? "operation" : "first-access"}
+      data-welcome-path={welcomeState.mustChangePassword ? "password" : hasOperationalHistory(welcomeState) ? "operation" : "first-access"}
     >
       <section className={`${styles.shell} ${leaving ? styles.shellLeaving : ""}`} aria-label="Boas-vindas HBX">
-        <MobileDashboard state={welcomeState} primaryAction={mobilePrimary} leaving={leaving} onNavigate={navigateWithTransition} />
+        <MobileDashboard
+          state={welcomeState}
+          primaryAction={mobilePrimary}
+          leaving={leaving}
+          onNavigate={navigateWithTransition}
+          onPasswordChanged={handlePasswordChanged}
+        />
       </section>
     </main>
   );

@@ -336,7 +336,9 @@ export class ModulesController {
   @Get('me')
   @UseGuards(JwtAuthGuard)
   listMyModules(@Req() req: any) {
-    return this.modulesService.listMyModules(Number(req.user?.id));
+    return this.modulesService.listMyModules(Number(req.user?.id), {
+      mobileRoute: this.isMobileRouteRequest(req),
+    });
   }
 
   @Get('webscraping/entry')
@@ -348,6 +350,12 @@ export class ModulesController {
       url: runtime.publicUrl,
       runtime,
     };
+  }
+
+  private isMobileRouteRequest(req: any) {
+    const surface = String(req?.headers?.['x-hbx-client-surface'] || '').trim().toLowerCase();
+    const mobileRoute = String(req?.headers?.['x-hbx-mobile-route'] || '').trim().toLowerCase();
+    return surface === 'mobile' || mobileRoute === 'true' || mobileRoute === '1';
   }
 
   @Get('company/access')

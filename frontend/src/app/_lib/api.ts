@@ -348,6 +348,10 @@ export async function apiFetch<T>(
   if (!headers.has("Content-Type") && fetchInit.body && !isFormData) {
     headers.set("Content-Type", "application/json");
   }
+  if (typeof window !== "undefined" && window.location.pathname.startsWith("/mobile")) {
+    headers.set("X-HBX-Client-Surface", "mobile");
+    headers.set("X-HBX-Mobile-Route", "true");
+  }
   if (!skipAuth && token) {
     headers.set("Authorization", `Bearer ${token}`);
   }

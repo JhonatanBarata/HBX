@@ -2242,7 +2242,7 @@ export class AuthService implements OnModuleInit {
 
     const hashed = await bcrypt.hash(password, 12);
     await this.prisma.$transaction([
-      this.prisma.user.update({ where: { id: pr.userId }, data: { password: hashed } }),
+      this.prisma.user.update({ where: { id: pr.userId }, data: { password: hashed, mustChangePassword: false } }),
       this.prisma.passwordReset.update({ where: { id: pr.id }, data: { used: true } }),
     ]);
 

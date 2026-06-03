@@ -110,6 +110,7 @@ model Company {
   createdAt               DateTime  @default(now())
   products                Product[]
   users                   User[]
+  sellerOnboardings       SellerOnboarding[]
   plan                    Plan?     @relation(fields: [planId], references: [id])
   planId                  Int?
 
@@ -855,6 +856,7 @@ model User {
   emailConfirmationSentAt DateTime?
   emailConfirmationExpiresAt DateTime?
   password        String
+  mustChangePassword Boolean     @default(false)
   name            String?
   phone           String?
   commissionPercent Float          @default(0)
@@ -902,9 +904,68 @@ model User {
   masterNoticeAcks MasterNoticeAck[]
   billableSeatUsages CompanyBillableSeatUsage[]
   radarDistributionDailyUsages RadarDistributionDailyUsage[]
+  sellerOnboardings SellerOnboarding[] @relation("SellerOnboardingUser")
+  createdSellerOnboardings SellerOnboarding[] @relation("SellerOnboardingCreatedBy")
 
   @@index([referredByUserId])
   @@index([canRegisterHbxSellers])
+}
+
+model SellerOnboarding {
+  id                         String   @id @default(cuid())
+  company                    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId                  Int
+  user                       User     @relation("SellerOnboardingUser", fields: [userId], references: [id], onDelete: Cascade)
+  userId                     Int
+  status                     String   @default("draft")
+  legalName                  String?
+  email                      String?
+  phone                      String?
+  cpf                        String?
+  declaredAddress            String?
+  commissionPercent          Float    @default(20)
+  commissionRecurring        Boolean  @default(true)
+  commissionDueBusinessDays  Int      @default(3)
+  contractVersion            String   @default("hbx_partner_v1")
+  contractTextSnapshot       String?
+  contractSha256             String?
+  emailStatus                String   @default("not_sent")
+  emailMessageId             String?
+  emailSentAt                DateTime?
+  archiveEmail               String?
+  attachmentsDeleteAfter     DateTime?
+  attachmentsDeletedAt       DateTime?
+  createdBy                  User?    @relation("SellerOnboardingCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdByUserId            Int?
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+  metadataJson               String?
+  attachments                SellerOnboardingAttachment[]
+
+  @@unique([companyId, userId])
+  @@index([companyId, status])
+  @@index([emailStatus, emailSentAt])
+  @@index([attachmentsDeleteAfter, attachmentsDeletedAt])
+}
+
+model SellerOnboardingAttachment {
+  id               String   @id @default(cuid())
+  onboarding       SellerOnboarding @relation(fields: [onboardingId], references: [id], onDelete: Cascade)
+  onboardingId     String
+  kind             String
+  originalFilename String
+  storedFilename   String
+  storagePath      String
+  contentType      String?
+  byteSize         Int
+  sha256           String
+  status           String   @default("temporary")
+  deleteAfter      DateTime?
+  deletedAt        DateTime?
+  createdAt        DateTime @default(now())
+
+  @@index([onboardingId, kind])
+  @@index([deleteAfter, status])
 }
 
 model CompanyBillableSeatUsage {

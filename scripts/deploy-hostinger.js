@@ -9,10 +9,10 @@ const {
   run,
 } = require('./lib/runtime');
 const {
+  isFalsey,
   isTruthy,
   isWebwhatsRepoAvailable,
   resolveWebwhatsRepoPath,
-  shouldUseWebwhats,
 } = require('./lib/webwhats-release');
 
 const remote = 'origin';
@@ -143,7 +143,7 @@ function ensureRequiredEnv(env) {
     forceReboot: isTruthy(env.FORCE_REBOOT_HOSTINGER),
     hbxEngineCount,
     hbxEngineMaxCount,
-    webwhatsAppDir: String(env.WEBWHATS_APP_DIR || '/opt/Webwhats').trim(),
+    webwhatsAppDir: String(env.WEBWHATS_APP_DIR || `${env.HOSTINGER_APP_DIR}/Webwhats`).trim(),
     webwhatsSystemdService: String(env.WEBWHATS_SYSTEMD_SERVICE || 'webwhats').trim(),
   };
 }
@@ -598,16 +598,15 @@ function buildRemoteDeployScript(config, mode) {
 }
 
 function resolveWebwhatsDeployConfig(env, hostingerConfig) {
-  const repoPath = resolveWebwhatsRepoPath(env);
-  const includeWebwhats = shouldUseWebwhats(env, 'WEBWHATS_DEPLOY_ENABLED', repoPath);
+  const sourcePath = resolveWebwhatsRepoPath(env);
 
-  if (!includeWebwhats) {
-    console.log(`Webwhats deploy skipped. Repository not found at ${repoPath} or WEBWHATS_DEPLOY_ENABLED=false.`);
+  if (isFalsey(env.WEBWHATS_DEPLOY_ENABLED)) {
+    console.log('Webwhats deploy skipped: WEBWHATS_DEPLOY_ENABLED=false.');
     return null;
   }
 
-  if (!isWebwhatsRepoAvailable(repoPath)) {
-    throw new Error(`WEBWHATS_DEPLOY_ENABLED is enabled, but no Webwhats git repository was found at: ${repoPath}`);
+  if (!isWebwhatsRepoAvailable(sourcePath)) {
+    throw new Error(`WEBWHATS_DEPLOY_ENABLED is enabled, but Webwhats source was not found at: ${sourcePath}`);
   }
 
   const sshHost = String(env.WEBWHATS_SSH_HOST || hostingerConfig.sshHost || '').trim();
@@ -617,13 +616,11 @@ function resolveWebwhatsDeployConfig(env, hostingerConfig) {
   }
 
   return {
-    repoPath,
-    gitRemote: String(env.WEBWHATS_GIT_REMOTE || remote).trim(),
-    gitBranch: String(env.WEBWHATS_GIT_BRANCH || branch).trim(),
+    sourcePath,
     sshHost,
     sshUser,
     sshPort: String(env.WEBWHATS_SSH_PORT || '').trim(),
-    appDir: String(env.WEBWHATS_APP_DIR || '/opt/Webwhats').trim(),
+    appDir: String(env.WEBWHATS_APP_DIR || `${hostingerConfig.appDir}/Webwhats`).trim(),
     runUser: String(env.WEBWHATS_RUN_USER || 'root').trim(),
     serviceName: String(env.WEBWHATS_SYSTEMD_SERVICE || 'webwhats').trim(),
   };
@@ -644,31 +641,27 @@ function buildWebwhatsRemoteDeployScript(config) {
     `APP_DIR=${shellSingleQuote(config.appDir)}`,
     `RUN_USER=${shellSingleQuote(config.runUser)}`,
     `SERVICE_NAME=${shellSingleQuote(config.serviceName)}`,
-    `GIT_REMOTE=${shellSingleQuote(config.gitRemote)}`,
-    `GIT_BRANCH=${shellSingleQuote(config.gitBranch)}`,
     'export HUSKY=0',
     'export NPM_CONFIG_AUDIT=false',
     'export NPM_CONFIG_FUND=false',
     'export NPM_CONFIG_LOGLEVEL=error',
     'export NPM_CONFIG_UPDATE_NOTIFIER=false',
     'export PRISMA_HIDE_UPDATE_MESSAGE=true',
-    'export GIT_SSH_COMMAND="ssh -o BatchMode=yes"',
     'cd "$APP_DIR"',
     'if [ ! -f package.json ]; then echo "ERRO: package.json do Webwhats nao encontrado em $APP_DIR."; exit 1; fi',
+    'if [ ! -f .env ] && [ "$APP_DIR" != "/opt/Webwhats" ] && [ -f /opt/Webwhats/.env ]; then cp /opt/Webwhats/.env .env; echo "Webwhats .env migrado de /opt/Webwhats para $APP_DIR."; fi',
     'if [ ! -f .env ]; then echo "ERRO: .env do Webwhats nao existe no servidor."; exit 1; fi',
     'run_as_service_user() { if [ -n "$RUN_USER" ] && [ "$RUN_USER" != "root" ] && id "$RUN_USER" >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1; then sudo -u "$RUN_USER" "$@"; else "$@"; fi; }',
     'run_systemctl() { if command -v sudo >/dev/null 2>&1; then sudo systemctl "$@"; else systemctl "$@"; fi; }',
+    'ensure_systemd_targets_app_dir() { unit_text="$(systemctl cat "$SERVICE_NAME" 2>/dev/null || true)"; if ! printf "%s" "$unit_text" | grep -F "$APP_DIR" >/dev/null 2>&1; then echo "ERRO: $SERVICE_NAME.service nao aponta para $APP_DIR. Ajuste WEBWHATS_APP_DIR ou o systemd antes do deploy."; printf "%s\\n" "$unit_text" | grep -E "WorkingDirectory=|ExecStart=" || true; exit 1; fi; }',
     'restart_with_pm2() { pm2 restart webwhats --update-env; pm2 save >/dev/null 2>&1 || true; pm2 describe webwhats >/dev/null; echo "Webwhats PM2 ativo: webwhats"; }',
     'find_webwhats_pids() { for pid in $(pgrep -f "node .*dist/main.js|node dist/main.js" || true); do comm="$(cat "/proc/$pid/comm" 2>/dev/null || true)"; cwd="$(readlink "/proc/$pid/cwd" 2>/dev/null || true)"; cmd="$(tr "\\0" " " < "/proc/$pid/cmdline" 2>/dev/null || true)"; if [ "$cwd" = "$APP_DIR" ] && { [ "$comm" = "node" ] || [ "$comm" = "sh" ]; } && printf "%s" "$cmd" | grep -q "node dist/main.js"; then echo "$pid"; fi; done; }',
     'restart_without_systemd() { mkdir -p logs; old_pids="$(find_webwhats_pids | tr "\\n" " " | xargs || true)"; if [ -n "$old_pids" ]; then echo "Parando Webwhats antigo: $old_pids"; kill $old_pids 2>/dev/null || true; fi; for i in 1 2 3 4 5; do sleep 1; old_pids="$(find_webwhats_pids | tr "\\n" " " | xargs || true)"; [ -z "$old_pids" ] && break; done; old_pids="$(find_webwhats_pids | tr "\\n" " " | xargs || true)"; if [ -n "$old_pids" ]; then kill -9 $old_pids 2>/dev/null || true; fi; run_as_service_user sh -lc "cd \\"$APP_DIR\\" && nohup node dist/main.js > logs/webwhats.log 2>&1 &"; sleep 3; new_pids="$(find_webwhats_pids | tr "\\n" " " | xargs || true)"; if [ -z "$new_pids" ]; then echo "ERRO: Webwhats nao iniciou."; tail -80 logs/webwhats.log 2>/dev/null || true; exit 1; fi; echo "Webwhats process ativo: $new_pids"; }',
-    'run_as_service_user git fetch "$GIT_REMOTE" "$GIT_BRANCH"',
-    'run_as_service_user git checkout "$GIT_BRANCH"',
-    'run_as_service_user git reset --hard "$GIT_REMOTE/$GIT_BRANCH"',
     'run_as_service_user env HUSKY=0 NPM_CONFIG_AUDIT=false NPM_CONFIG_FUND=false NPM_CONFIG_LOGLEVEL=error NPM_CONFIG_UPDATE_NOTIFIER=false npm ci --no-audit --no-fund --loglevel=error',
     'run_as_service_user env NPM_CONFIG_AUDIT=false NPM_CONFIG_FUND=false NPM_CONFIG_LOGLEVEL=error NPM_CONFIG_UPDATE_NOTIFIER=false npm run build -- --silent',
     'run_as_service_user env PRISMA_HIDE_UPDATE_MESSAGE=true node runWithProvider.js "npx prisma generate --schema ./prisma/DATABASE_PROVIDER-schema.prisma --no-hints"',
     'run_as_service_user env PRISMA_HIDE_UPDATE_MESSAGE=true npm run db:deploy',
-    'if [ -n "$SERVICE_NAME" ] && systemctl list-unit-files --type=service | grep -q "^$SERVICE_NAME.service"; then run_systemctl restart "$SERVICE_NAME"; run_systemctl is-active --quiet "$SERVICE_NAME"; echo "Webwhats service ativo: $SERVICE_NAME"; elif command -v pm2 >/dev/null 2>&1 && pm2 describe webwhats >/dev/null 2>&1; then restart_with_pm2; else echo "Webwhats sem systemd/PM2 configurado; reiniciando processo node direto."; restart_without_systemd; fi',
+    'if [ -n "$SERVICE_NAME" ] && command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files --type=service | grep -q "^$SERVICE_NAME.service"; then ensure_systemd_targets_app_dir; run_systemctl restart "$SERVICE_NAME"; run_systemctl is-active --quiet "$SERVICE_NAME"; echo "Webwhats service ativo: $SERVICE_NAME"; elif command -v pm2 >/dev/null 2>&1 && pm2 describe webwhats >/dev/null 2>&1; then restart_with_pm2; else echo "Webwhats sem systemd/PM2 configurado; reiniciando processo node direto."; restart_without_systemd; fi',
   ];
 
   return lines.join('\n');
@@ -677,9 +670,9 @@ function buildWebwhatsRemoteDeployScript(config) {
 function printWebwhatsDryRun(config) {
   if (!config) return;
 
-  console.log('[dry-run] Would run: git push ' + `${config.gitRemote} ${config.gitBranch} from ${config.repoPath}`);
-  console.log(`[dry-run] Would SSH into Webwhats: ${config.sshUser}@${config.sshHost}`);
-  console.log('[dry-run] Would run Webwhats remote deploy: fetch/reset, npm ci, build, db generate/deploy, restart.');
+  console.log(`[dry-run] Would validate local Webwhats source: ${config.sourcePath}`);
+  console.log(`[dry-run] Would SSH into Webwhats runtime: ${config.sshUser}@${config.sshHost}:${config.appDir}`);
+  console.log('[dry-run] Would run Webwhats remote deploy from HBX checkout: npm ci, build, db generate/deploy, restart.');
   if (isTruthy(process.env.PUBLISH_VERBOSE_DRY_RUN)) {
     console.log('--- webwhats remote script start ---');
     console.log(buildWebwhatsRemoteDeployScript(config));
@@ -693,25 +686,12 @@ function validateWebwhatsLocal(config, mode) {
   if (!config) return;
 
   logStage(`Webwhats Local Preflight (${mode})`);
-  console.log(`Webwhats repo: ${config.repoPath}`);
-  console.log(`Webwhats branch: ${config.gitBranch}`);
+  console.log(`Webwhats source: ${config.sourcePath}`);
   console.log(`Webwhats remoto: ${config.sshUser}@${config.sshHost}:${config.appDir}`);
-  runStep('git', ['rev-parse', '--is-inside-work-tree'], { cwd: config.repoPath });
-  ensureGitBranch(config.gitBranch, config.repoPath, 'Webwhats');
-  ensureCleanWorkingTree(mode, config.repoPath, 'Webwhats');
   const env = quietToolEnv();
-  runStep('npm', ['run', 'typecheck'], { cwd: config.repoPath, env });
-  runStep('npm', ['run', 'build', '--', '--silent'], { cwd: config.repoPath, env });
-  runStep('npm', ['run', 'lint:check'], { cwd: config.repoPath, env });
-}
-
-function pushWebwhats(config) {
-  if (!config) return;
-
-  runStep('git', ['push', config.gitRemote, config.gitBranch], {
-    cwd: config.repoPath,
-    env: quietToolEnv({ HUSKY: '0' }),
-  });
+  runStep('npm', ['run', 'typecheck'], { cwd: config.sourcePath, env });
+  runStep('npm', ['run', 'build', '--', '--silent'], { cwd: config.sourcePath, env });
+  runStep('npm', ['run', 'lint:check'], { cwd: config.sourcePath, env });
 }
 
 function deployWebwhats(config) {
@@ -787,13 +767,12 @@ async function main() {
 
   logStage('Git Push');
   runStep('git', ['push', remote, branch]);
-  pushWebwhats(webwhatsConfig);
-
-  logStage('Webwhats Deploy');
-  deployWebwhats(webwhatsConfig);
 
   logStage(`Hostinger Deploy (${mode})`);
   deployOnHostinger(config, mode);
+
+  logStage('Webwhats Deploy');
+  deployWebwhats(webwhatsConfig);
 
   if (mode === 'force') {
     logStage('Production Verify');

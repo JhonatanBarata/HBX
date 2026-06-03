@@ -1,6 +1,6 @@
 import { BadGatewayException, BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { existsSync } from 'fs';
-import { mkdir, readFile, stat, writeFile } from 'fs/promises';
+import { mkdir, readFile, stat, unlink, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { EmailTemplateService } from './email-template.service';
 import { MailAttachment, MailSendResult, MailService } from './mail.service';
@@ -235,6 +235,32 @@ export class HbxPresentationEmailService {
     await writeFile(BUSINESS_CARD_PATH, buffer);
     await writeFile(BUSINESS_CARD_META_PATH, JSON.stringify(meta, null, 2), 'utf8');
     return this.readBusinessCardMeta(true);
+  }
+
+  async deletePresentationAttachment() {
+    if (await this.canUseDatabaseAssetStorage()) {
+      await this.prisma.masterEmailAsset.deleteMany({ where: { key: PRESENTATION_ASSET_KEY } });
+      return null;
+    }
+
+    await Promise.all([
+      existsSync(ATTACHMENT_PATH) ? unlink(ATTACHMENT_PATH).catch(() => undefined) : Promise.resolve(),
+      existsSync(ATTACHMENT_META_PATH) ? unlink(ATTACHMENT_META_PATH).catch(() => undefined) : Promise.resolve(),
+    ]);
+    return null;
+  }
+
+  async deleteBusinessCard() {
+    if (await this.canUseDatabaseAssetStorage()) {
+      await this.prisma.masterEmailAsset.deleteMany({ where: { key: BUSINESS_CARD_ASSET_KEY } });
+      return null;
+    }
+
+    await Promise.all([
+      existsSync(BUSINESS_CARD_PATH) ? unlink(BUSINESS_CARD_PATH).catch(() => undefined) : Promise.resolve(),
+      existsSync(BUSINESS_CARD_META_PATH) ? unlink(BUSINESS_CARD_META_PATH).catch(() => undefined) : Promise.resolve(),
+    ]);
+    return null;
   }
 
   private async readLegacyAttachmentMeta() {

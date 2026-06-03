@@ -3,32 +3,13 @@
 const path = require('path');
 const {
   formatTimestamp,
-  loadEnvFromFiles,
   repoRoot,
   run,
 } = require('./lib/runtime');
-const {
-  isWebwhatsRepoAvailable,
-  resolveWebwhatsRepoPath,
-  shouldUseWebwhats,
-} = require('./lib/webwhats-release');
 
 const args = process.argv.slice(2);
 const isDryRun = args.includes('--dry-run');
 const defaultCommitMessage = () => `chore: backup local ${formatTimestamp()}`;
-
-function loadCommitEnv() {
-  const files = [
-    path.join(repoRoot, '.env.production.local'),
-    path.join(repoRoot, '.env.ops.local'),
-    path.join(repoRoot, '.env.operations.local'),
-  ];
-
-  return {
-    ...loadEnvFromFiles(files),
-    ...process.env,
-  };
-}
 
 function readArgValue(flagName) {
   const direct = args.find((arg) => arg.startsWith(`${flagName}=`));
@@ -279,32 +260,18 @@ function commitRepository(config) {
 
 function main() {
   const commitMessage = getCommitMessage();
-  const commitEnv = loadCommitEnv();
-  const webwhatsRepoPath = resolveWebwhatsRepoPath(commitEnv);
-  const includeWebwhats = shouldUseWebwhats(commitEnv, 'WEBWHATS_COMMIT_ENABLED', webwhatsRepoPath);
   const repositories = [
     {
       label: 'HBX',
       cwd: repoRoot,
       commitMessage,
-      allowedSqlPrefixes: ['backend/prisma/migrations/'],
+      allowedSqlPrefixes: [
+        'backend/prisma/migrations/',
+        'webwhats/prisma/mysql-migrations/',
+        'webwhats/prisma/postgresql-migrations/',
+      ],
     },
   ];
-
-  if (includeWebwhats) {
-    if (!isWebwhatsRepoAvailable(webwhatsRepoPath)) {
-      throw new Error(`WEBWHATS_COMMIT_ENABLED is enabled, but no Webwhats git repository was found at: ${webwhatsRepoPath}`);
-    }
-
-    repositories.push({
-      label: 'Webwhats',
-      cwd: webwhatsRepoPath,
-      commitMessage,
-      allowedSqlPrefixes: ['prisma/mysql-migrations/', 'prisma/postgresql-migrations/'],
-    });
-  } else {
-    console.log(`\nWebwhats commit skipped. Repository not found at ${webwhatsRepoPath} or WEBWHATS_COMMIT_ENABLED=false.`);
-  }
 
   const created = repositories.map(commitRepository).filter(Boolean);
 

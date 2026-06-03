@@ -256,6 +256,52 @@ type CreateCompanyUserResult = {
   temporaryPassword?: string | null;
 };
 
+type SellerOnboardingAttachment = {
+  id: string;
+  kind: string;
+  originalFilename: string;
+  contentType?: string | null;
+  byteSize: number;
+  status: string;
+  deleteAfter?: string | null;
+  deletedAt?: string | null;
+  createdAt?: string | null;
+};
+
+type SellerOnboarding = {
+  id: string;
+  userId: number;
+  status: string;
+  legalName?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  cpf?: string | null;
+  declaredAddress?: string | null;
+  commissionPercent: number;
+  commissionRecurring?: boolean | null;
+  commissionDueBusinessDays: number;
+  contractVersion?: string | null;
+  contractTextSnapshot?: string | null;
+  contractSha256?: string | null;
+  emailStatus: string;
+  emailMessageId?: string | null;
+  emailSentAt?: string | null;
+  archiveEmail?: string | null;
+  attachmentsDeleteAfter?: string | null;
+  attachmentsDeletedAt?: string | null;
+  attachments?: SellerOnboardingAttachment[];
+};
+
+type SellerOnboardingDraft = {
+  legalName: string;
+  email: string;
+  phone: string;
+  cpf: string;
+  declaredAddress: string;
+  commissionPercent: string;
+  commissionDueBusinessDays: string;
+};
+
 type ModulePermission = { key: string; allowed: boolean };
 type CompanyModule = { key: string; name: string; companyEnabled: boolean };
 type CompanyUserAccess = { id: number; modules: ModulePermission[] };
@@ -283,6 +329,22 @@ type DesktopGerencialGuideTab = MobileGerencialTab | "atualizar";
 const CREATED_PASSWORD_STORAGE_KEY = "hbx.gerencial.created-password.v1";
 const INCLUDED_TEAM_USERS = 2;
 const EXTRA_USER_MONTHLY_PRICE = 24.9;
+const SELLER_ONBOARDING_ACCEPT = ".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png";
+const SELLER_ONBOARDING_MAX_FILE_BYTES = 5 * 1024 * 1024;
+const SELLER_ONBOARDING_STATUS_COPY: Record<string, string> = {
+  draft: "Rascunho",
+  documents_pending: "Documentos pendentes",
+  ready_to_send: "Pronto para enviar",
+  sent: "E-mail enviado",
+  active: "Ativo",
+  email_failed: "Falha no e-mail",
+};
+const SELLER_ONBOARDING_ATTACHMENT_KIND_COPY: Record<string, string> = {
+  photo_id: "Documento com foto",
+  curriculum: "Currículo",
+  contract_pdf: "Contrato",
+  other: "Outro",
+};
 const SELLER_LOCKED_MODULE_KEYS = new Set(["webscraping", "gerencial", "financeiro", "cadastro", "website", "master", "exclusoes"]);
 const SELLER_WORKSPACE_MODULE_KEYS = new Set(["vendas", "atendimento", "whatsapp"]);
 const SELLER_ROLE_COPY = {
@@ -339,6 +401,36 @@ function userInitial(user: Pick<UserItem, "id" | "name" | "username" | "email">)
 
 function userPhoneLabel(user: Pick<UserItem, "phone">) {
   return user.phone?.trim() || "Sem telefone";
+}
+
+function formatOnboardingFileSize(value?: number | null) {
+  const size = Number(value || 0);
+  if (!size) return "0 KB";
+  if (size >= 1024 * 1024) return `${(size / 1024 / 1024).toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(size / 1024))} KB`;
+}
+
+function sellerOnboardingStatusLabel(onboarding?: Pick<SellerOnboarding, "status" | "emailStatus"> | null) {
+  if (!onboarding) return "Não carregado";
+  if (onboarding.emailStatus === "sent") return SELLER_ONBOARDING_STATUS_COPY.sent;
+  if (onboarding.emailStatus === "email_failed") return SELLER_ONBOARDING_STATUS_COPY.email_failed;
+  return SELLER_ONBOARDING_STATUS_COPY[onboarding.status] || onboarding.status || "Rascunho";
+}
+
+function buildSellerOnboardingDraft(user: UserItem, onboarding?: SellerOnboarding | null): SellerOnboardingDraft {
+  return {
+    legalName: onboarding?.legalName || userLabel(user),
+    email: onboarding?.email || user.email || "",
+    phone: onboarding?.phone || user.phone || "",
+    cpf: onboarding?.cpf || "",
+    declaredAddress: onboarding?.declaredAddress || "",
+    commissionPercent: percentInputValue(onboarding?.commissionPercent ?? user.commissionPercent ?? 20),
+    commissionDueBusinessDays: String(onboarding?.commissionDueBusinessDays || 3),
+  };
+}
+
+function isSellerOnboardingSent(onboarding?: SellerOnboarding | null) {
+  return onboarding?.emailStatus === "sent";
 }
 
 function referralUserLabel(user?: UserItem["referredByUser"]) {
@@ -613,6 +705,9 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   const [newUserReferredByCommissionPercent, setNewUserReferredByCommissionPercent] = useState("");
   const [newUserRole, setNewUserRole] = useState<"USER" | "ADMIN">("USER");
   const [newUserPassword, setNewUserPassword] = useState("");
+  const [newUserCpf, setNewUserCpf] = useState("");
+  const [newUserDeclaredAddress, setNewUserDeclaredAddress] = useState("");
+  const [newUserCommissionDueBusinessDays, setNewUserCommissionDueBusinessDays] = useState("3");
   const [createdPasswordInfo, setCreatedPasswordInfo] = useState<CreatedPasswordInfo | null>(() =>
     loadCreatedPasswordInfo(),
   );
@@ -621,6 +716,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   const [moduleAccess, setModuleAccess] = useState<CompanyAccessPayload | null>(null);
   const [savingModuleUserId, setSavingModuleUserId] = useState<number | null>(null);
   const [togglingActiveUserId, setTogglingActiveUserId] = useState<number | null>(null);
+  const [deletingUserId, setDeletingUserId] = useState<number | null>(null);
   const [markingCommissionLeadId, setMarkingCommissionLeadId] = useState<string | null>(null);
   const [updatingActivationLeadId, setUpdatingActivationLeadId] = useState<string | null>(null);
   const [syncingCommissions, setSyncingCommissions] = useState(false);
@@ -633,6 +729,11 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   const [desktopGuideTab, setDesktopGuideTab] = useState<DesktopGerencialGuideTab>("status");
   const [editingUserId, setEditingUserId] = useState<number | null>(null);
   const [savingProfileUserId, setSavingProfileUserId] = useState<number | null>(null);
+  const [sellerOnboardingByUserId, setSellerOnboardingByUserId] = useState<Record<number, SellerOnboarding | undefined>>({});
+  const [sellerOnboardingDraftByUserId, setSellerOnboardingDraftByUserId] = useState<Record<number, SellerOnboardingDraft | undefined>>({});
+  const [sellerOnboardingBusyUserId, setSellerOnboardingBusyUserId] = useState<number | null>(null);
+  const [sellerOnboardingSendingUserId, setSellerOnboardingSendingUserId] = useState<number | null>(null);
+  const [sellerOnboardingUploadUserId, setSellerOnboardingUploadUserId] = useState<number | null>(null);
   const [profileDraft, setProfileDraft] = useState<UserProfileDraft>({
     name: "",
     phone: "",
@@ -780,12 +881,49 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
 
       setActionInfo(
         payload?.message ||
-          "Funcionário desativado com sucesso, manteremos histórico por 730 Dias",
+          "Usuário desativado com sucesso, manteremos histórico por 730 dias.",
       );
     } catch (activeError) {
-      setError(friendlyGerencialError(activeError, "Falha ao atualizar status do funcionário."));
+      setError(friendlyGerencialError(activeError, "Falha ao atualizar status do usuário."));
     } finally {
       setTogglingActiveUserId(null);
+    }
+  }
+
+  async function deleteUser(user: UserItem) {
+    const label = userLabel(user);
+    if (!window.confirm(`Excluir definitivamente ${label}? Esta ação remove o usuário da equipe e limpa os vínculos dele.`)) {
+      return;
+    }
+
+    setDeletingUserId(user.id);
+    setError(null);
+    setActionInfo(null);
+    try {
+      const payload = await apiFetch<{ ok?: boolean; id?: number; message?: string }>(`/users/${user.id}/delete`, {
+        method: "DELETE",
+      });
+
+      setData((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          users: prev.users.filter((item) => item.id !== user.id),
+        };
+      });
+      setModuleAccess((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          users: prev.users.filter((item) => item.id !== user.id),
+        };
+      });
+      setEditingUserId((current) => (current === user.id ? null : current));
+      setActionInfo(payload?.message || "Usuário excluído definitivamente.");
+    } catch (deleteError) {
+      setError(friendlyGerencialError(deleteError, "Falha ao excluir usuário."));
+    } finally {
+      setDeletingUserId(null);
     }
   }
 
@@ -802,6 +940,145 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
       setError(friendlyGerencialError(toggleError, "Falha ao marcar reclamação."));
     } finally {
       setTogglingMessageId(null);
+    }
+  }
+
+  function setSellerOnboardingLocal(user: UserItem, onboarding: SellerOnboarding) {
+    setSellerOnboardingByUserId((current) => ({ ...current, [user.id]: onboarding }));
+    setSellerOnboardingDraftByUserId((current) => ({
+      ...current,
+      [user.id]: buildSellerOnboardingDraft(user, onboarding),
+    }));
+  }
+
+  async function loadSellerOnboarding(user: UserItem) {
+    setSellerOnboardingBusyUserId(user.id);
+    setError(null);
+    try {
+      const onboarding = await apiFetch<SellerOnboarding>(`/gerencial/sellers/${user.id}/onboarding`, {
+        requireAuth: true,
+      });
+      setSellerOnboardingLocal(user, onboarding);
+    } catch (loadError) {
+      setError(friendlyGerencialError(loadError, "Falha ao carregar onboarding do vendedor."));
+    } finally {
+      setSellerOnboardingBusyUserId(null);
+    }
+  }
+
+  async function saveSellerOnboarding(user: UserItem) {
+    const draft = sellerOnboardingDraftByUserId[user.id] || buildSellerOnboardingDraft(user);
+    const commissionPercent = parsePercentInput(draft.commissionPercent);
+    const commissionDueBusinessDays = Number(draft.commissionDueBusinessDays || 3);
+    if (commissionPercent === null) {
+      setError("Informe uma comissão entre 0 e 100 no onboarding.");
+      return;
+    }
+    if (!Number.isInteger(commissionDueBusinessDays) || commissionDueBusinessDays < 1 || commissionDueBusinessDays > 30) {
+      setError("Informe um prazo de pagamento entre 1 e 30 dias úteis.");
+      return;
+    }
+    setSellerOnboardingBusyUserId(user.id);
+    setError(null);
+    try {
+      const onboarding = await apiFetch<SellerOnboarding>(`/gerencial/sellers/${user.id}/onboarding`, {
+        method: "PATCH",
+        requireAuth: true,
+        body: JSON.stringify({
+          legalName: draft.legalName.trim() || undefined,
+          email: draft.email.trim() || undefined,
+          phone: draft.phone.trim() || undefined,
+          cpf: draft.cpf.trim() || undefined,
+          declaredAddress: draft.declaredAddress.trim() || undefined,
+          commissionPercent,
+          commissionDueBusinessDays,
+        }),
+      });
+      setSellerOnboardingLocal(user, onboarding);
+      setActionInfo("Onboarding do vendedor salvo.");
+    } catch (saveError) {
+      setError(friendlyGerencialError(saveError, "Falha ao salvar onboarding do vendedor."));
+    } finally {
+      setSellerOnboardingBusyUserId(null);
+    }
+  }
+
+  async function uploadSellerOnboardingAttachment(user: UserItem, kind: "photo_id" | "curriculum", file?: File | null) {
+    if (!file) return;
+    if (file.size > SELLER_ONBOARDING_MAX_FILE_BYTES) {
+      setError("Cada anexo pode ter no máximo 5 MB.");
+      return;
+    }
+    const lowerName = file.name.toLowerCase();
+    if (!/\.(pdf|jpe?g|png)$/.test(lowerName)) {
+      setError("Use apenas PDF, JPG, JPEG ou PNG.");
+      return;
+    }
+    const form = new FormData();
+    form.append("kind", kind);
+    form.append("file", file, file.name);
+    setSellerOnboardingUploadUserId(user.id);
+    setError(null);
+    try {
+      const onboarding = await apiFetch<SellerOnboarding>(`/gerencial/sellers/${user.id}/onboarding/attachments`, {
+        method: "POST",
+        requireAuth: true,
+        body: form,
+        timeoutMs: 120000,
+      });
+      setSellerOnboardingLocal(user, onboarding);
+      setActionInfo(`${SELLER_ONBOARDING_ATTACHMENT_KIND_COPY[kind]} anexado.`);
+    } catch (uploadError) {
+      setError(friendlyGerencialError(uploadError, "Falha ao anexar documento."));
+    } finally {
+      setSellerOnboardingUploadUserId(null);
+    }
+  }
+
+  async function generateSellerContract(user: UserItem) {
+    setSellerOnboardingBusyUserId(user.id);
+    setError(null);
+    try {
+      const onboarding = await apiFetch<SellerOnboarding>(`/gerencial/sellers/${user.id}/onboarding/generate-contract`, {
+        method: "POST",
+        requireAuth: true,
+      });
+      setSellerOnboardingLocal(user, onboarding);
+      setActionInfo("Contrato gerado para o vendedor.");
+    } catch (generateError) {
+      setError(friendlyGerencialError(generateError, "Falha ao gerar contrato."));
+    } finally {
+      setSellerOnboardingBusyUserId(null);
+    }
+  }
+
+  async function sendSellerOnboardingEmail(user: UserItem) {
+    setSellerOnboardingSendingUserId(user.id);
+    setError(null);
+    try {
+      const result = await apiFetch<{ ok?: boolean; onboarding: SellerOnboarding }>(`/gerencial/sellers/${user.id}/onboarding/send-email`, {
+        method: "POST",
+        requireAuth: true,
+      });
+      const onboarding = result.onboarding;
+      setSellerOnboardingLocal(user, onboarding);
+      if (result.ok) {
+        setData((prev) =>
+          prev
+            ? {
+                ...prev,
+                users: prev.users.map((item) => (item.id === user.id ? { ...item, isActive: true } : item)),
+              }
+            : prev,
+        );
+        setActionInfo("Contrato enviado por e-mail. Vendedor liberado para trabalhar.");
+      } else {
+        setError("Falha ao enviar contrato por e-mail. Os anexos foram mantidos para nova tentativa.");
+      }
+    } catch (sendError) {
+      setError(friendlyGerencialError(sendError, "Falha ao enviar contrato por e-mail."));
+    } finally {
+      setSellerOnboardingSendingUserId(null);
     }
   }
 
@@ -853,6 +1130,16 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         role: newUserRole,
         password: newUserPassword.trim() || undefined,
       };
+      if (newUserRole === "USER") {
+        requestBody.cpf = newUserCpf.trim() || undefined;
+        requestBody.declaredAddress = newUserDeclaredAddress.trim() || undefined;
+        const parsedDueDays = Number(newUserCommissionDueBusinessDays || 3);
+        if (!Number.isInteger(parsedDueDays) || parsedDueDays < 1 || parsedDueDays > 30) {
+          setError("Informe um prazo de pagamento entre 1 e 30 dias úteis.");
+          return;
+        }
+        requestBody.commissionDueBusinessDays = parsedDueDays;
+      }
       if (!(shouldUseHbxNetwork && referredByUserId)) {
         requestBody.commissionPercent = commissionPercent;
       }
@@ -907,6 +1194,9 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
       setNewUserReferredByCommissionPercent("");
       setNewUserRole("USER");
       setNewUserPassword("");
+      setNewUserCpf("");
+      setNewUserDeclaredAddress("");
+      setNewUserCommissionDueBusinessDays("3");
       await load();
     } catch (createError) {
       setError(friendlyGerencialError(createError, "Falha ao cadastrar usuário."));
@@ -1308,7 +1598,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
           <div className="flex items-center justify-between gap-2">
             <div>
               <span className="text-xs font-bold uppercase text-[var(--hbx-mobile-primary)]">Novo acesso</span>
-              <h2 className="text-lg font-semibold">{isHbxSellerNetwork ? "Cadastrar vendedor HBX" : "Cadastrar funcionário"}</h2>
+              <h2 className="text-lg font-semibold">{isHbxSellerNetwork ? "Cadastrar vendedor HBX" : "Cadastrar usuário"}</h2>
             </div>
             <span className="rounded-full border border-[var(--hbx-mobile-border)] px-3 py-1 text-xs font-bold">
               {isHbxSellerNetwork ? "SellMaster" : newUserRole === "USER" ? "Vendedor" : "Admin"}
@@ -1362,6 +1652,23 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
             onChange={(event) => setNewUserPassword(event.target.value)}
             placeholder="Senha opcional"
           />
+          {newUserRole === "USER" ? (
+            <div className="grid gap-2 rounded-[16px] border border-[var(--hbx-mobile-border)] bg-[var(--hbx-mobile-surface-soft)] p-3 text-sm">
+              <span>
+                <strong className="block">Onboarding de parceiro</strong>
+                <small className="text-[var(--hbx-mobile-muted)]">Contrato e anexos são finalizados no card do vendedor depois do cadastro.</small>
+              </span>
+              <input className="field" value={newUserCpf} onChange={(event) => setNewUserCpf(event.target.value)} placeholder="CPF" />
+              <input className="field" value={newUserDeclaredAddress} onChange={(event) => setNewUserDeclaredAddress(event.target.value)} placeholder="Endereço declarado" />
+              <input
+                className="field"
+                inputMode="numeric"
+                value={newUserCommissionDueBusinessDays}
+                onChange={(event) => setNewUserCommissionDueBusinessDays(event.target.value)}
+                placeholder="Prazo D+ em dias úteis"
+              />
+            </div>
+          ) : null}
         </section>
 
         {isHbxSellerNetwork && newUserRole === "USER" ? (
@@ -1539,6 +1846,158 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     );
   }
 
+  function renderSellerOnboardingPanel(user: UserItem, variant: "mobile" | "desktop") {
+    const role = normalizeRole(user.role, user.isSystemMaster);
+    if (role !== "USER") return null;
+    const onboarding = sellerOnboardingByUserId[user.id];
+    const draft = sellerOnboardingDraftByUserId[user.id] || buildSellerOnboardingDraft(user, onboarding);
+    const busy = sellerOnboardingBusyUserId === user.id;
+    const uploading = sellerOnboardingUploadUserId === user.id;
+    const sending = sellerOnboardingSendingUserId === user.id;
+    const attachments = (onboarding?.attachments || []).filter((attachment) => attachment.status !== "deleted");
+    const hasPhotoId = attachments.some((attachment) => attachment.kind === "photo_id");
+    const hasCurriculum = attachments.some((attachment) => attachment.kind === "curriculum");
+    const panelClass =
+      variant === "mobile"
+        ? "rounded-[16px] border border-[var(--hbx-mobile-border)] bg-[var(--hbx-mobile-surface-soft)] p-3"
+        : "rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3";
+    const inputClass = variant === "mobile" ? "field" : "field";
+    const secondaryButtonClass = variant === "mobile" ? "hbx-mobile-secondary-button" : "btn btn-secondary btn-sm";
+    const primaryButtonClass = variant === "mobile" ? "hbx-mobile-primary-button" : "btn btn-primary btn-sm";
+
+    if (!onboarding) {
+      return (
+        <div className={panelClass}>
+          <div className={variant === "mobile" ? "grid gap-2 text-sm" : "flex flex-col gap-2 text-sm"}>
+            <div>
+              <span className={variant === "mobile" ? "text-xs font-bold uppercase text-[var(--hbx-mobile-primary)]" : "badge badge-brand"}>
+                Onboarding de parceiro
+              </span>
+              <p className={variant === "mobile" ? "mt-1 text-[var(--hbx-mobile-muted)]" : "mt-2 text-xs text-muted"}>
+                Carregue o rascunho documental antes de liberar o vendedor para trabalhar.
+              </p>
+            </div>
+            <button type="button" className={primaryButtonClass} onClick={() => void loadSellerOnboarding(user)} disabled={busy}>
+              {busy ? "Carregando..." : "Abrir onboarding"}
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    const updateDraft = (patch: Partial<SellerOnboardingDraft>) => {
+      setSellerOnboardingDraftByUserId((current) => ({
+        ...current,
+        [user.id]: {
+          ...draft,
+          ...patch,
+        },
+      }));
+    };
+
+    return (
+      <div className={panelClass}>
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <span className={variant === "mobile" ? "text-xs font-bold uppercase text-[var(--hbx-mobile-primary)]" : "badge badge-brand"}>
+                Onboarding de parceiro
+              </span>
+              <h3 className={variant === "mobile" ? "mt-1 text-base font-semibold" : "mt-2 text-sm font-semibold"}>
+                {sellerOnboardingStatusLabel(onboarding)}
+              </h3>
+              <p className={variant === "mobile" ? "text-xs text-[var(--hbx-mobile-muted)]" : "text-xs text-muted"}>
+                Contrato, documento com foto e currículo ficam temporários no backend e saem em até 7 dias após envio.
+              </p>
+            </div>
+            <span className={isSellerOnboardingSent(onboarding) ? "badge badge-success" : "badge"}>
+              {onboarding.emailStatus === "sent" ? "E-mail enviado" : onboarding.emailStatus === "email_failed" ? "Falha no e-mail" : "Não enviado"}
+            </span>
+          </div>
+
+          <div className={variant === "mobile" ? "grid gap-2" : "grid grid-cols-1 md:grid-cols-3 gap-2"}>
+            <input className={inputClass} value={draft.legalName} onChange={(event) => updateDraft({ legalName: event.target.value })} placeholder="Nome legal" />
+            <input className={inputClass} value={draft.email} onChange={(event) => updateDraft({ email: event.target.value })} placeholder="E-mail do vendedor" />
+            <input className={inputClass} value={draft.phone} onChange={(event) => updateDraft({ phone: event.target.value })} placeholder="WhatsApp" />
+            <input className={inputClass} value={draft.cpf} onChange={(event) => updateDraft({ cpf: event.target.value })} placeholder="CPF" />
+            <input className={inputClass} value={draft.declaredAddress} onChange={(event) => updateDraft({ declaredAddress: event.target.value })} placeholder="Endereço declarado" />
+            <input
+              className={inputClass}
+              inputMode="decimal"
+              value={draft.commissionPercent}
+              onChange={(event) => updateDraft({ commissionPercent: event.target.value })}
+              placeholder="Comissão %"
+            />
+            <input
+              className={inputClass}
+              inputMode="numeric"
+              value={draft.commissionDueBusinessDays}
+              onChange={(event) => updateDraft({ commissionDueBusinessDays: event.target.value })}
+              placeholder="Pagamento D+"
+            />
+          </div>
+
+          <div className={variant === "mobile" ? "grid gap-2" : "flex flex-wrap gap-2"}>
+            <button type="button" className={secondaryButtonClass} onClick={() => void saveSellerOnboarding(user)} disabled={busy || sending || uploading}>
+              {busy ? "Salvando..." : "Salvar dados"}
+            </button>
+            <label className={`${secondaryButtonClass} cursor-pointer`}>
+              {hasPhotoId ? "Trocar documento" : "Anexar documento"}
+              <input
+                type="file"
+                accept={SELLER_ONBOARDING_ACCEPT}
+                className="hidden"
+                disabled={busy || sending || uploading}
+                onChange={(event) => {
+                  const file = event.currentTarget.files?.[0];
+                  event.currentTarget.value = "";
+                  void uploadSellerOnboardingAttachment(user, "photo_id", file);
+                }}
+              />
+            </label>
+            <label className={`${secondaryButtonClass} cursor-pointer`}>
+              {hasCurriculum ? "Trocar currículo" : "Anexar currículo"}
+              <input
+                type="file"
+                accept={SELLER_ONBOARDING_ACCEPT}
+                className="hidden"
+                disabled={busy || sending || uploading}
+                onChange={(event) => {
+                  const file = event.currentTarget.files?.[0];
+                  event.currentTarget.value = "";
+                  void uploadSellerOnboardingAttachment(user, "curriculum", file);
+                }}
+              />
+            </label>
+            <button type="button" className={secondaryButtonClass} onClick={() => void generateSellerContract(user)} disabled={busy || sending || uploading}>
+              Gerar contrato
+            </button>
+            <button type="button" className={primaryButtonClass} onClick={() => void sendSellerOnboardingEmail(user)} disabled={busy || sending || uploading}>
+              {sending ? "Enviando..." : "Enviar contrato por e-mail"}
+            </button>
+          </div>
+
+          {attachments.length ? (
+            <div className={variant === "mobile" ? "grid gap-1 text-xs text-[var(--hbx-mobile-muted)]" : "grid grid-cols-1 md:grid-cols-2 gap-2 text-xs"}>
+              {attachments.map((attachment) => (
+                <div key={attachment.id} className={variant === "mobile" ? "" : "rounded-[10px] border border-[var(--line)] bg-[var(--surface)] p-2"}>
+                  <strong className="block truncate">{SELLER_ONBOARDING_ATTACHMENT_KIND_COPY[attachment.kind] || attachment.kind}</strong>
+                  <span className="truncate">
+                    {attachment.originalFilename} · {formatOnboardingFileSize(attachment.byteSize)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className={variant === "mobile" ? "text-xs text-[var(--hbx-mobile-muted)]" : "text-xs text-muted"}>
+              Nenhum anexo salvo ainda.
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   function renderMobileUserCard(user: UserItem, options: { modulesOnly?: boolean } = {}) {
     const role = normalizeRole(user.role, user.isSystemMaster);
     const isAdmin = role === "ADMIN";
@@ -1602,20 +2061,26 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         ) : null}
 
         {isEditingProfile && !options.modulesOnly ? renderMobileProfileForm(user) : null}
+        {!options.modulesOnly && isSeller ? renderSellerOnboardingPanel(user, "mobile") : null}
 
         {!options.modulesOnly ? (
           <div className="grid grid-cols-2 gap-2">
-            <button type="button" disabled={changingUserId === user.id || !user.isActive || role === "USER"} onClick={() => setRole(user.id, "USER")} className="hbx-mobile-secondary-button">
+            <button type="button" disabled={deletingUserId === user.id || changingUserId === user.id || !user.isActive || role === "USER"} onClick={() => setRole(user.id, "USER")} className="hbx-mobile-secondary-button">
               Vendedor
             </button>
-            <button type="button" disabled={changingUserId === user.id || !user.isActive || role === "ADMIN"} onClick={() => setRole(user.id, "ADMIN")} className="hbx-mobile-secondary-button">
+            <button type="button" disabled={deletingUserId === user.id || changingUserId === user.id || !user.isActive || role === "ADMIN"} onClick={() => setRole(user.id, "ADMIN")} className="hbx-mobile-secondary-button">
               Admin
             </button>
-            <button type="button" disabled={savingProfileUserId === user.id} onClick={() => startEditingProfile(user)} className="hbx-mobile-secondary-button">
+            <button type="button" disabled={deletingUserId === user.id || savingProfileUserId === user.id} onClick={() => startEditingProfile(user)} className="hbx-mobile-secondary-button">
               Editar
             </button>
-            <button type="button" disabled={togglingActiveUserId === user.id} onClick={() => toggleActive(user.id, Boolean(user.isActive))} className={user.isActive ? "hbx-mobile-secondary-button" : "hbx-mobile-primary-button"}>
-              {user.isActive ? "Desativar" : "Reativar"}
+            {user.isActive || !isSeller || isSellerOnboardingSent(sellerOnboardingByUserId[user.id]) ? (
+              <button type="button" disabled={deletingUserId === user.id || togglingActiveUserId === user.id} onClick={() => toggleActive(user.id, Boolean(user.isActive))} className={user.isActive ? "hbx-mobile-secondary-button" : "hbx-mobile-primary-button"}>
+                {user.isActive ? "Desativar" : "Liberar vendedor"}
+              </button>
+            ) : null}
+            <button type="button" disabled={deletingUserId === user.id} onClick={() => void deleteUser(user)} className="hbx-mobile-secondary-button col-span-2 text-red-700">
+              {deletingUserId === user.id ? "Excluindo..." : "Excluir"}
             </button>
           </div>
         ) : null}
@@ -2016,7 +2481,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                     ))}
                   </div>
                 </section>
-                {filteredUsers.length ? filteredUsers.map((user) => renderMobileUserCard(user)) : <div className="hbx-mobile-empty">Nenhum funcionário encontrado.</div>}
+                {filteredUsers.length ? filteredUsers.map((user) => renderMobileUserCard(user)) : <div className="hbx-mobile-empty">Nenhum usuário encontrado.</div>}
               </div>
             ) : null}
 
@@ -2153,7 +2618,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
 
             <form onSubmit={createCompanyUser} autoComplete="off" className="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
               <label className="grid gap-1 text-sm">
-                <span className="font-medium">Nome do funcionário</span>
+                <span className="font-medium">Nome do usuário</span>
                 <input
                   type="text"
                   placeholder="Ex.: João Silva"
@@ -2210,6 +2675,37 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                   className="field"
                 />
               </label>
+              {newUserRole === "USER" ? (
+                <div className="md:col-span-2 xl:col-span-3 rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3">
+                  <div className="flex flex-col gap-1">
+                    <span className="badge badge-brand">Onboarding de parceiro</span>
+                    <h3 className="text-sm font-semibold">Dados para contrato e liberação</h3>
+                    <p className="text-xs text-muted">
+                      Documento com foto, currículo, geração de contrato e envio por e-mail ficam no card do vendedor depois do cadastro.
+                    </p>
+                  </div>
+                  <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <label className="grid gap-1 text-sm">
+                      <span className="font-medium">CPF</span>
+                      <input value={newUserCpf} onChange={(event) => setNewUserCpf(event.target.value)} className="field" placeholder="CPF do parceiro" />
+                    </label>
+                    <label className="grid gap-1 text-sm md:col-span-1">
+                      <span className="font-medium">Endereço declarado</span>
+                      <input value={newUserDeclaredAddress} onChange={(event) => setNewUserDeclaredAddress(event.target.value)} className="field" placeholder="Endereço informado" />
+                    </label>
+                    <label className="grid gap-1 text-sm">
+                      <span className="font-medium">Prazo de pagamento</span>
+                      <input
+                        value={newUserCommissionDueBusinessDays}
+                        onChange={(event) => setNewUserCommissionDueBusinessDays(event.target.value)}
+                        inputMode="numeric"
+                        className="field"
+                        placeholder="D+3"
+                      />
+                    </label>
+                  </div>
+                </div>
+              ) : null}
               {canCreateAdminUsers ? (
                 <div className="grid gap-1 text-sm">
                   <span className="font-medium">Perfil inicial</span>
@@ -2784,7 +3280,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 mt-4">
               {filteredUsers.length === 0 ? (
                 <div className="xl:col-span-2 rounded-[16px] border border-[var(--line)] bg-[var(--surface-soft)] p-4 text-sm text-muted">
-                  Nenhum funcionário encontrado com estes filtros.
+                  Nenhum usuário encontrado com estes filtros.
                 </div>
               ) : filteredUsers.map((user) => {
                 const role = normalizeRole(user.role, user.isSystemMaster);
@@ -2883,10 +3379,12 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                       </div>
                     ) : null}
 
+                    {isSeller ? renderSellerOnboardingPanel(user, "desktop") : null}
+
                     <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
-                        disabled={changingUserId === user.id || !user.isActive || role === "USER"}
+                        disabled={deletingUserId === user.id || changingUserId === user.id || !user.isActive || role === "USER"}
                         onClick={() => setRole(user.id, "USER")}
                         className="btn btn-secondary btn-sm"
                       >
@@ -2894,27 +3392,37 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                       </button>
                       <button
                         type="button"
-                        disabled={changingUserId === user.id || !user.isActive || role === "ADMIN"}
+                        disabled={deletingUserId === user.id || changingUserId === user.id || !user.isActive || role === "ADMIN"}
                         onClick={() => setRole(user.id, "ADMIN")}
                         className="btn btn-primary btn-sm"
                       >
                         Tornar admin
                       </button>
+                      {user.isActive || !isSeller || isSellerOnboardingSent(sellerOnboardingByUserId[user.id]) ? (
+                        <button
+                          type="button"
+                          disabled={deletingUserId === user.id || togglingActiveUserId === user.id}
+                          onClick={() => toggleActive(user.id, Boolean(user.isActive))}
+                          className={`btn btn-sm ${user.isActive ? "btn-secondary" : "btn-primary"}`}
+                        >
+                          {user.isActive ? "Desativar" : "Liberar vendedor"}
+                        </button>
+                      ) : null}
                       <button
                         type="button"
-                        disabled={togglingActiveUserId === user.id}
-                        onClick={() => toggleActive(user.id, Boolean(user.isActive))}
-                        className={`btn btn-sm ${user.isActive ? "btn-secondary" : "btn-primary"}`}
-                      >
-                        {user.isActive ? "Desativar" : "Reativar"}
-                      </button>
-                      <button
-                        type="button"
-                        disabled={savingProfileUserId === user.id}
+                        disabled={deletingUserId === user.id || savingProfileUserId === user.id}
                         onClick={() => startEditingProfile(user)}
                         className="btn btn-ghost btn-sm"
                       >
                         Editar dados
+                      </button>
+                      <button
+                        type="button"
+                        disabled={deletingUserId === user.id}
+                        onClick={() => void deleteUser(user)}
+                        className="btn btn-ghost btn-sm text-danger"
+                      >
+                        {deletingUserId === user.id ? "Excluindo..." : "Excluir"}
                       </button>
                     </div>
 

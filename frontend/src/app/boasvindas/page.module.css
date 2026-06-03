@@ -245,6 +245,195 @@
   }
 }
 
+.passwordChangePanel {
+  position: relative;
+  z-index: 4;
+  width: min(100%, 360px);
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgba(125, 211, 252, 0.26);
+  border-radius: 18px;
+  background: rgba(9, 29, 52, 0.72);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 26px 52px -34px rgba(0, 0, 0, 0.72);
+  color: #eff8ff;
+  padding: 14px;
+  text-align: left;
+  backdrop-filter: blur(18px) saturate(1.12);
+  -webkit-backdrop-filter: blur(18px) saturate(1.12);
+}
+
+.passwordChangeHeader {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.passwordChangeHeader span {
+  color: #8fe7ff;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.passwordChangeHeader strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #ffffff;
+  font-size: 1rem;
+  line-height: 1.18;
+  font-weight: 900;
+}
+
+.passwordChangeHeader small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: rgba(219, 235, 249, 0.72);
+  font-size: 0.78rem;
+  line-height: 1.25;
+  font-weight: 700;
+}
+
+.passwordChangePanel label {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  color: rgba(231, 246, 255, 0.9);
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.passwordChangePanel input {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid rgba(139, 208, 255, 0.25);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+  outline: none;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 0.94rem;
+  font-weight: 750;
+}
+
+.passwordChangePanel input:focus {
+  border-color: rgba(107, 231, 255, 0.68);
+  box-shadow: 0 0 0 3px rgba(38, 177, 218, 0.18);
+}
+
+.passwordChangePanel input:disabled {
+  opacity: 0.72;
+}
+
+.passwordChangeError,
+.passwordChangeSuccess {
+  margin: 0;
+  border-radius: 12px;
+  padding: 9px 10px;
+  font-size: 0.78rem;
+  line-height: 1.32;
+  font-weight: 800;
+}
+
+.passwordChangeError {
+  border: 1px solid rgba(248, 113, 113, 0.38);
+  background: rgba(127, 29, 29, 0.28);
+  color: #fecaca;
+}
+
+.passwordChangeSuccess {
+  border: 1px solid rgba(74, 222, 128, 0.36);
+  background: rgba(20, 83, 45, 0.24);
+  color: #bbf7d0;
+}
+
+@media (min-width: 561px) {
+  .page[data-welcome-mode="single"].fromLoginTransition .passwordChangePanel {
+    grid-column: 1;
+    width: min(100%, 360px);
+    border-color: rgba(15, 23, 42, 0.1);
+    background: rgba(255, 255, 255, 0.84);
+    color: #0f172a;
+    box-shadow: 0 22px 54px -42px rgba(15, 23, 42, 0.54);
+  }
+
+  .page[data-welcome-mode="single"].fromLoginTransition .passwordChangeHeader span {
+    color: #2563eb;
+  }
+
+  .page[data-welcome-mode="single"].fromLoginTransition .passwordChangeHeader strong {
+    color: #0f172a;
+  }
+
+  .page[data-welcome-mode="single"].fromLoginTransition .passwordChangeHeader small,
+  .page[data-welcome-mode="single"].fromLoginTransition .passwordChangePanel label {
+    color: #475569;
+  }
+
+  .page[data-welcome-mode="single"].fromLoginTransition .passwordChangePanel input {
+    border-color: rgba(148, 163, 184, 0.42);
+    background: rgba(248, 250, 252, 0.92);
+    color: #0f172a;
+  }
+
+  .page[data-welcome-mode="single"].fromLoginTransition .passwordChangeError {
+    background: #fef2f2;
+    color: #991b1b;
+  }
+
+  .page[data-welcome-mode="single"].fromLoginTransition .passwordChangeSuccess {
+    background: #ecfdf5;
+    color: #166534;
+  }
+}
+
+@media (max-width: 560px) {
+  .page[data-welcome-path="password"].fromLoginTransition {
+    overflow: auto;
+  }
+
+  .page[data-welcome-path="password"].fromLoginTransition .shell {
+    overflow-y: auto;
+  }
+
+  .page[data-welcome-path="password"].fromLoginTransition .mobileWelcomeExperience {
+    min-height: auto;
+    align-content: start !important;
+    padding-top: 8px;
+    padding-bottom: 18px;
+  }
+
+  .page[data-welcome-path="password"].fromLoginTransition .brandMark {
+    width: 72px;
+    height: 72px;
+    margin: 2px 0 0;
+  }
+
+  .page[data-welcome-path="password"].fromLoginTransition .mobileTitle {
+    font-size: clamp(1.78rem, 8.5vw, 2.32rem);
+  }
+
+  .page[data-welcome-path="password"].fromLoginTransition .passwordChangePanel {
+    width: min(100%, 348px);
+    animation: welcomeCopyAppearMobile 680ms ease 520ms both;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .passwordChangePanel {
+    border-color: var(--hbx-mobile-glass-border);
+    background: rgba(8, 24, 45, 0.86);
+    color: var(--hbx-mobile-text);
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .passwordChangePanel input {
+    border-color: var(--hbx-mobile-glass-border);
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--hbx-mobile-text);
+  }
+}
+
 @media (max-width: 560px) {
   .mobileHeroVisual {
     position: absolute;

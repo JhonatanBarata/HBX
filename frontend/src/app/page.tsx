@@ -3,304 +3,281 @@ import Link from "next/link";
 import styles from "./page.module.css";
 
 export const metadata: Metadata = {
-  title: "HBX System | Esteira de prospecção, vendas e WhatsApp",
+  title: "HBX System | Leads Mobile, Recovery e Atendimento",
   description:
-    "HBX System transforma Radar, Vendas, WhatsApp e Retorno em uma operação comercial rápida, rastreável e sem repetição de erro.",
+    "HBX System para vendedores e empresas: leads, esteira mobile, recovery, atendimento automatizado e implantação sob consulta.",
 };
 
-const navItems = [
-  { href: "#inicio", label: "Início" },
-  { href: "#esteira", label: "Esteira" },
-  { href: "#motores", label: "Motores" },
-  { href: "#memoria", label: "Memória" },
-  { href: "#planos", label: "Planos" },
-];
+const loginEntry = "/login";
 
-const metrics = [
-  { value: "4x", label: "mais foco entre descoberta, contato e retorno" },
-  { value: "24h", label: "para sair de lista fria e entrar em rotina comercial" },
-  { value: "1", label: "cockpit para Radar, Vendas, WhatsApp e histórico" },
-];
-
-const pipeline = [
+const audienceRoutes = [
   {
-    title: "Radar Digital",
-    copy: "Encontra empresas reais, organiza sinais de oportunidade e evita que sua equipe perca tempo com fonte genérica.",
-    tags: ["leads reais", "canais públicos", "negativos"],
+    eyebrow: "Entrada imediata",
+    title: "Sou vendedor",
+    label: "HBX Leads + Esteira Mobile",
+    description:
+      "Entre direto na esteira: lista, lead priorizado, abordagem por WhatsApp e próxima ação no celular.",
+    bullets: ["Leads locais", "Prioridade comercial", "Pipeline mobile"],
+    cta: "Abrir esteira de leads",
   },
   {
-    title: "Vendas",
-    copy: "Transforma lead em fila de ação com prioridade, contexto, status e próxima tentativa clara para cada vendedor.",
-    tags: ["pipeline", "score", "responsável"],
-  },
-  {
-    title: "WhatsApp",
-    copy: "Centraliza abordagens, respostas e automações para chamar rápido sem perder controle do atendimento humano.",
-    tags: ["conversa", "templates", "handoff"],
-  },
-  {
-    title: "Retorno",
-    copy: "Guarda memória comercial, motivo de perda, observação e retorno para a operação melhorar a cada ciclo.",
-    tags: ["follow-up", "histórico", "aprendizado"],
+    eyebrow: "Implantação sob consulta",
+    title: "Sou empresa",
+    label: "HBX Recovery + Atendimento automatizado",
+    description:
+      "Comece pela dor que sangra caixa: cliente sumido, parcela atrasada, orçamento parado e follow-up esquecido.",
+    bullets: ["Recovery via WhatsApp", "Atendimento organizado", "Onboarding assistido"],
+    cta: "Solicitar implantação",
+    warning: true,
   },
 ];
 
-const engineCards = [
+const pipelineSteps = [
   {
-    title: "Motores que trabalham enquanto a equipe vende",
-    copy: "O Radar varre oportunidades, os filtros limpam ruído e o funil mostra onde agir primeiro.",
+    label: "List",
+    title: "Mapa de oportunidades",
+    text: "Empresas, segmento, cidade e sinais de contato para abastecer a rotina de prospecção.",
   },
   {
-    title: "Controle comercial sem liberar recurso indevido",
-    copy: "Plano, acesso, pagamento e quota continuam sendo fonte de verdade para proteger a operação.",
+    label: "Leads",
+    title: "Lead pronto para ação",
+    text: "Prioridade, canal recomendado e próxima melhor abordagem para não depender de sorte.",
   },
   {
-    title: "Mobile simples, desktop poderoso",
-    copy: "No celular, ação direta. No desktop, visão de cockpit com filtros, painéis e leitura de performance.",
-  },
-];
-
-const proofs = [
-  {
-    metric: "Radar",
-    title: "Memória de oportunidade",
-    copy: "Lead bom, negativo, contato, canal e retorno ficam no lugar certo para a equipe não repetir erro.",
+    label: "Mobile",
+    title: "Esteira no bolso",
+    text: "O vendedor abre, filtra, chama e registra avanço sem precisar de CRM pesado.",
   },
   {
-    metric: "Venda",
-    title: "Ação evidente",
-    copy: "A próxima ação aparece com contexto, prioridade e canal, sem depender de planilha solta.",
-  },
-  {
-    metric: "Retorno",
-    title: "Ciclo fechado",
-    copy: "Cada resposta alimenta o histórico para melhorar abordagem, segmento e timing.",
+    label: "Recovery",
+    title: "Dinheiro parado volta para a fila",
+    text: "Empresas entram em uma régua de cobrança, reativação e atendimento automatizado.",
   },
 ];
 
 const plans = [
   {
-    badge: "Entrada",
-    title: "Plano List",
-    price: "R$ 147",
-    copy: "Para começar com listas organizadas, acesso guiado e rotina comercial limpa.",
-    features: ["Base inicial organizada", "Acesso ao fluxo essencial", "Suporte de implantação"],
+    name: "HBX List",
+    tag: "Entrada para volume",
+    description: "Para quem precisa transformar território frio em lista comercial utilizável.",
+    items: ["Listas por segmento e cidade", "Dados empresariais e canais disponíveis", "Fila simples para abordagem manual"],
   },
   {
-    badge: "Recomendado",
-    title: "Plano Lead",
-    price: "R$ 247",
-    copy: "Para operar Radar, Vendas e WhatsApp com ritmo de prospecção consistente.",
-    features: ["Radar Digital operacional", "Gestão de vendas e retorno", "Rotina de WhatsApp e histórico"],
+    name: "HBX Leads",
+    tag: "Plano foco",
+    description: "Para vendedor que precisa de lead qualificado, contexto e cadência mobile.",
+    items: ["Lead priorizado e enriquecido", "Esteira mobile de prospecção", "Canal recomendado e próxima ação"],
     featured: true,
   },
+];
+
+const recoveryBlocks = [
   {
-    badge: "Operação",
-    title: "Planos superiores",
-    price: "Sob medida",
-    copy: "Para equipes que precisam de mais volume, automação, controle e visão gerencial.",
-    features: ["Quota ampliada", "Automação comercial", "Camadas gerenciais e master"],
+    title: "Recovery",
+    text: "Régua para cobrar, lembrar, renegociar e reativar clientes pelo WhatsApp com visão de pendente, recuperado e follow-up.",
   },
+  {
+    title: "Atendimento automatizado",
+    text: "Entrada organizada para empresas que querem reduzir mensagens repetidas, perda de histórico e cliente sem retorno.",
+  },
+  {
+    title: "Implantação assistida",
+    text: "Configuração, importação e primeira régua entram sob consulta para encaixar no processo real da empresa.",
+  },
+];
+
+const proofSignals = [
+  "Foco no que vende primeiro: Recovery, Leads e Mobile",
+  "Entrada separada para vendedor e empresa",
+  "Oferta sem distração: planos HBX List e HBX Leads",
+  "Empresas entram por implantação sob consulta",
 ];
 
 export default function Home() {
   return (
-    <main className={styles.home}>
-      <div className={styles.shell}>
-        <header className={styles.topbar} aria-label="Página inicial HBX">
-          <Link className={styles.brand} href="#inicio" aria-label="Voltar ao início">
-            <span className={styles.brandMark}>HBX</span>
-            <span className={styles.brandText}>
-              <strong>HBXSYSTEM</strong>
-              <span>Esteira comercial</span>
-            </span>
-          </Link>
-          <nav className={styles.nav} aria-label="Navegação principal">
-            <Link className={styles.loginLink} href="/login" prefetch={false}>
-              Login / Entrar
-            </Link>
-            {navItems.map((item) => (
-              <a key={item.href} href={item.href}>
-                {item.label}
-              </a>
-            ))}
-          </nav>
-        </header>
+    <main className={styles.hbxSalesPage}>
+      <header className={styles.hbxSalesTopbar}>
+        <Link className={styles.hbxSalesBrand} href="/">
+          <span className={styles.hbxSalesBrandMark}>HBX</span>
+          <span>
+            <strong>HBX System</strong>
+            <small>Leads, esteira mobile e recovery</small>
+          </span>
+        </Link>
+        <nav className={styles.hbxSalesNav} aria-label="Navegação principal">
+          <a href="#entrada">Entrada</a>
+          <a href="#esteira">Esteira</a>
+          <a href="#planos">Planos</a>
+          <Link href={loginEntry} prefetch={false}>Entrar</Link>
+        </nav>
+      </header>
 
-        <section id="inicio" className={styles.hero} aria-labelledby="home-title">
-          <div className={styles.heroMedia} aria-hidden="true" />
-          <div className={styles.heroInner}>
-            <div className={styles.heroContent}>
-              <p className={styles.eyebrow}>Radar {">"} Vendas {">"} WhatsApp {">"} Retorno</p>
-              <h1 id="home-title" className={styles.heroTitle}>
-                Venda com uma <span>esteira viva.</span>
-              </h1>
-              <p className={styles.heroCopy}>
-                O HBX System junta prospecção, priorização, conversa e retorno em um fluxo único para sua equipe
-                achar oportunidades reais, chamar rápido, acompanhar cada resposta e vender melhor.
-              </p>
-              <div className={styles.heroActions}>
-                <Link className={styles.primaryAction} href="/login" prefetch={false}>
-                  Entrar no sistema
-                </Link>
-                <a className={styles.secondaryAction} href="#planos">
-                  Ver planos
-                </a>
-              </div>
-              <div className={styles.metrics} aria-label="Destaques HBX">
-                {metrics.map((metric) => (
-                  <div className={styles.metric} key={metric.value}>
-                    <strong>{metric.value}</strong>
-                    <span>{metric.label}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </section>
+      <section className={styles.hbxSalesHero} id="entrada">
+        <div className={styles.hbxHeroCopy}>
+          <span className={styles.statusPill}>HBX Mobile / Leads / Recovery</span>
+          <p className={styles.hbxHeroKicker}>O vazamento de receita está no WhatsApp.</p>
+          <h1>Escolha sua entrada antes que o lead esfrie.</h1>
+          <p className={styles.hbxHeroText}>
+            O HBX separa o caminho de quem vende do caminho de quem opera. Vendedor entra direto na
+            esteira de leads. Empresa entra em Recovery e atendimento automatizado com implantação sob
+            consulta.
+          </p>
 
-        <section id="esteira" className={styles.section} aria-labelledby="pipeline-title">
-          <div className={styles.sectionInner}>
-            <div className={styles.sectionHeader}>
-              <h2 id="pipeline-title">Quatro etapas para não deixar dinheiro parado.</h2>
-              <p>
-                A home mostra só o que importa: encontrar oportunidade, vender com contexto, conversar no WhatsApp e
-                registrar retorno para a próxima tentativa nascer mais inteligente.
-              </p>
-            </div>
-            <div className={styles.pipeline}>
-              {pipeline.map((item, index) => (
-                <article className={styles.pipelineCard} key={item.title}>
-                  <span className={styles.cardIndex}>{index + 1}</span>
-                  <div>
-                    <h3>{item.title}</h3>
-                    <p>{item.copy}</p>
-                  </div>
-                  <div className={styles.pipelineTags}>
-                    {item.tags.map((tag) => (
-                      <span key={tag}>{tag}</span>
-                    ))}
-                  </div>
-                </article>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section id="motores" className={styles.section} aria-labelledby="engines-title">
-          <div className={styles.sectionInner}>
-            <div className={styles.sectionHeader}>
-              <h2 id="engines-title">Cockpit de operação, não vitrine decorativa.</h2>
-              <p>
-                O HBX foi desenhado para rotina de venda real: menos tela solta, mais leitura de fila, status,
-                contexto e próxima ação.
-              </p>
-            </div>
-            <div className={styles.engineGrid}>
-              <div className={styles.engineBoard} aria-label="Visual operacional HBX">
-                <div className={styles.boardTop}>
-                  <strong>Mapa ativo de oportunidades</strong>
-                  <span>online</span>
-                </div>
-                <div className={styles.radarGrid} aria-hidden="true">
-                  {Array.from({ length: 20 }).map((_, index) => (
-                    <span className={styles.radarDot} key={index} />
+          <div className={styles.hbxAudienceGrid} aria-label="Escolha de perfil">
+            {audienceRoutes.map((route) => (
+              <article className={styles.hbxAudienceCard} key={route.title}>
+                <span className={styles.eyebrow}>{route.eyebrow}</span>
+                <h2>{route.title}</h2>
+                <strong>{route.label}</strong>
+                <p>{route.description}</p>
+                <div className={styles.hbxChipRow}>
+                  {route.bullets.map((bullet) => (
+                    <span className={styles.hbxChip} key={bullet}>{bullet}</span>
                   ))}
                 </div>
-                <div className={styles.queue}>
-                  {["Lead quente com canal público", "Retorno pendente para hoje", "Negativo salvo para não repetir"].map(
-                    (row) => (
-                      <div className={styles.queueRow} key={row}>
-                        <i aria-hidden="true" />
-                        <strong>{row}</strong>
-                        <span>prioridade</span>
-                      </div>
-                    ),
-                  )}
-                </div>
-              </div>
-              <div className={styles.engineCards}>
-                {engineCards.map((card) => (
-                  <article className={styles.engineCard} key={card.title}>
-                    <h3>{card.title}</h3>
-                    <p>{card.copy}</p>
-                  </article>
-                ))}
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section id="memoria" className={styles.section} aria-labelledby="proof-title">
-          <div className={styles.sectionInner}>
-            <div className={styles.sectionHeader}>
-              <h2 id="proof-title">O sistema lembra o que a equipe esquece.</h2>
-              <p>
-                A diferença aparece quando o vendedor abre a fila e sabe quem chamar, por qual motivo, com qual
-                contexto e o que não deve ser repetido.
-              </p>
-            </div>
-            <div className={styles.proofGrid}>
-              {proofs.map((proof) => (
-                <article className={styles.proofCard} key={proof.title}>
-                  <span className={styles.proofMetric}>{proof.metric}</span>
-                  <h3>{proof.title}</h3>
-                  <p>{proof.copy}</p>
-                </article>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section id="planos" className={styles.section} aria-labelledby="plans-title">
-          <div className={styles.sectionInner}>
-            <div className={styles.sectionHeader}>
-              <h2 id="plans-title">Comece pequeno, escale com controle.</h2>
-              <p>
-                Os planos existem para liberar capacidade sem bagunçar cobrança, acesso e quota. Quem usa recurso pago
-                precisa estar autorizado.
-              </p>
-            </div>
-            <div className={styles.plans}>
-              {plans.map((plan) => (
-                <article
-                  className={`${styles.planCard}${plan.featured ? ` ${styles.planCardFeatured}` : ""}`}
-                  key={plan.title}
+                <Link
+                  className={`${styles.button} ${styles.hbxChoiceButton} ${
+                    route.warning ? styles.hbxChoiceButtonWarning : styles.hbxChoiceButtonSuccess
+                  }`}
+                  href={loginEntry}
+                  prefetch={false}
                 >
-                  <div>
-                    <span className={styles.planBadge}>{plan.badge}</span>
-                    <h3>{plan.title}</h3>
-                    <p>{plan.copy}</p>
-                    <div className={styles.planPrice}>
-                      <strong>{plan.price}</strong>
-                      {plan.price.startsWith("R$") ? <span>/mês</span> : null}
-                    </div>
-                  </div>
-                  <ul className={styles.features}>
-                    {plan.features.map((feature) => (
-                      <li key={feature}>{feature}</li>
-                    ))}
-                  </ul>
-                  <Link className={styles.planAction} href="/login" prefetch={false}>
-                    Entrar pelo login
-                  </Link>
-                </article>
-              ))}
-            </div>
+                  {route.cta}
+                </Link>
+              </article>
+            ))}
           </div>
-        </section>
+        </div>
 
-        <footer className={styles.footer}>
-          <div className={styles.footerInner}>
-            <span>HBXSYSTEM - Prospecção, vendas, WhatsApp e retorno.</span>
-            <div className={styles.footerLinks}>
-              <Link href="/termos-de-uso">Termos</Link>
-              <Link href="/politica-de-privacidade">Privacidade</Link>
-              <Link href="/politica-de-reembolso">Reembolso</Link>
+        <aside className={styles.hbxHeroVisual} aria-label="Prévia visual da esteira HBX">
+          <div className={`${styles.hbxOrbit} ${styles.hbxOrbitOne}`} />
+          <div className={`${styles.hbxOrbit} ${styles.hbxOrbitTwo}`} />
+          <div className={styles.hbxMobileFrame}>
+            <div className={styles.hbxMobileTop}>
+              <span>HBX Esteira</span>
+              <strong>ao vivo</strong>
+            </div>
+            <div className={`${styles.hbxLeadCard} ${styles.hbxLeadCardHot}`}>
+              <span>Lead quente</span>
+              <strong>Assistência técnica local</strong>
+              <p>WhatsApp provável · 87% prioridade</p>
+            </div>
+            <div className={styles.hbxLeadCard}>
+              <span>Recovery</span>
+              <strong>Parcela atrasada</strong>
+              <p>Follow-up automático em andamento</p>
+            </div>
+            <div className={styles.hbxMobileAction}>Próxima melhor ação: chamar agora</div>
+          </div>
+          <div className={styles.hbxSignalPanel}>
+            <span className={styles.hbxSignalDot} />
+            <div>
+              <strong>Transição brutal</strong>
+              <p>De lista fria para esteira de ação.</p>
             </div>
           </div>
-        </footer>
-      </div>
+        </aside>
+      </section>
+
+      <section className={styles.hbxProofStrip} aria-label="Diretrizes comerciais da home">
+        {proofSignals.map((signal) => (
+          <span key={signal}>{signal}</span>
+        ))}
+      </section>
+
+      <section className={`${styles.hbxSection} ${styles.hbxSectionSplit}`} id="esteira">
+        <div>
+          <span className={styles.eyebrow}>Esteira comercial</span>
+          <h2>HBX não vende tela bonita. Vende movimento.</h2>
+          <p>
+            A home foi desenhada para assustar pelo diagnóstico e impressionar pela clareza: lead entra,
+            vendedor age, empresa recupera e a operação para de depender de memória manual.
+          </p>
+        </div>
+        <div className={styles.hbxPipeline}>
+          {pipelineSteps.map((step, index) => (
+            <article className={styles.hbxPipelineCard} key={step.label}>
+              <span>{String(index + 1).padStart(2, "0")} / {step.label}</span>
+              <h3>{step.title}</h3>
+              <p>{step.text}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className={styles.hbxSection} id="planos">
+        <div className={styles.hbxSectionHeading}>
+          <span className={styles.eyebrow}>Planos HBX</span>
+          <h2>Só List e Leads. Sem produto inflado.</h2>
+          <p>
+            A oferta pública fica limpa para vendedor. Empresa não compra no automático: entra por
+            diagnóstico, Recovery e implantação sob consulta.
+          </p>
+        </div>
+
+        <div className={styles.hbxPlanGrid}>
+          {plans.map((plan) => (
+            <article
+              className={`${styles.hbxPlanCard}${plan.featured ? ` ${styles.hbxPlanCardFeatured}` : ""}`}
+              key={plan.name}
+            >
+              <span className={styles.eyebrow}>{plan.tag}</span>
+              <h3>{plan.name}</h3>
+              <p>{plan.description}</p>
+              <ul>
+                {plan.items.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+              <Link className={`${styles.button} ${styles.hbxPlanButton}`} href={loginEntry} prefetch={false}>
+                Entrar no {plan.name.replace("HBX ", "")}
+              </Link>
+            </article>
+          ))}
+
+          <article className={styles.hbxCompanyCard}>
+            <span className={styles.eyebrow}>Empresas</span>
+            <h3>Recovery + atendimento automatizado</h3>
+            <p>
+              Para empresas, o HBX entra como implantação consultiva. A proposta depende do volume,
+              nicho, canal, base de clientes e maturidade do atendimento.
+            </p>
+            <Link className={`${styles.button} ${styles.buttonSecondary} ${styles.hbxPlanButton}`} href={loginEntry} prefetch={false}>
+              Consultar implantação
+            </Link>
+          </article>
+        </div>
+      </section>
+
+      <section className={`${styles.hbxSection} ${styles.hbxRecoverySection}`} id="recovery">
+        <div className={styles.hbxSectionHeading}>
+          <span className={styles.eyebrow}>HBX para empresas</span>
+          <h2>Cliente parado não é fim de funil. É fila de recuperação.</h2>
+        </div>
+        <div className={styles.hbxRecoveryGrid}>
+          {recoveryBlocks.map((block) => (
+            <article className={styles.hbxRecoveryCard} key={block.title}>
+              <h3>{block.title}</h3>
+              <p>{block.text}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className={styles.hbxFinalCta} aria-label="Chamada final">
+        <div>
+          <span className={styles.eyebrow}>Decisão inicial</span>
+          <h2>Vendedor entra na esteira. Empresa entra no Recovery.</h2>
+          <p>
+            Esse é o corte que deixa o site vender: cada visitante cai no fluxo certo antes de ver
+            qualquer excesso de produto.
+          </p>
+        </div>
+        <div className={styles.hbxFinalActions}>
+          <Link className={styles.button} href={loginEntry} prefetch={false}>Sou vendedor</Link>
+          <Link className={`${styles.button} ${styles.buttonSecondary}`} href={loginEntry} prefetch={false}>Sou empresa</Link>
+        </div>
+      </section>
     </main>
   );
 }
