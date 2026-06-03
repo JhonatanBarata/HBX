@@ -519,7 +519,7 @@ export class UsersController {
 			}
 			const referrer = await this.usersService.getActiveSellerReferrer(input.companyId, referredByUserId);
 			if (!referrer) {
-				throw new BadRequestException('Indicador precisa ser vendedor ativo e autorizado a cadastrar vendedores HBX.');
+				throw new BadRequestException('Indicador precisa ser parceiro ativo e autorizado a cadastrar parceiros HBX.');
 			}
 			data.referredByUserId = referrer.id;
 			data.sellerReferralCommissionPercent = normalizeCommissionPercent(referrer.sellerReferralCommissionPercent) ?? 0;
@@ -647,7 +647,7 @@ export class UsersController {
 		) {
 			if (changedReferrerId) {
 				const referrer = await this.usersService.getActiveSellerReferrer(companyId, lockedReferrerId);
-				if (!referrer) throw new BadRequestException('Indicador precisa ser vendedor ativo e autorizado a cadastrar vendedores HBX.');
+				if (!referrer) throw new BadRequestException('Indicador precisa ser parceiro ativo e autorizado a cadastrar parceiros HBX.');
 				data.commissionPercent = normalizeCommissionPercent(referrer.commissionPercent) ?? 0;
 				data.sellerReferralCommissionPercent = normalizeCommissionPercent(referrer.sellerReferralCommissionPercent) ?? 0;
 				data.referredByCommissionPercentSnapshot = normalizeCommissionPercent(referrer.sellerReferralCommissionPercent) ?? 0;
@@ -702,7 +702,7 @@ export class UsersController {
 				isActive: updated.isActive,
 				deactivatedAt: updated.deactivatedAt,
 				retentionUntil: updated.retentionUntil,
-				message: 'Funcionário Desativado com Sucesso, manteremos histórico por 730 Dias',
+				message: 'Usuário desativado com sucesso, manteremos histórico por 730 dias',
 			};
 		}
 
@@ -712,7 +712,7 @@ export class UsersController {
 			isActive: updated.isActive,
 			deactivatedAt: updated.deactivatedAt,
 			retentionUntil: updated.retentionUntil,
-			message: 'Funcionário reativado com sucesso',
+			message: 'Usuário reativado com sucesso',
 		};
 	}
 
@@ -742,6 +742,7 @@ export class UsersController {
 
 		const role = (dto.role === 'ADMIN' ? 'ADMIN' : 'USER') as 'USER' | 'ADMIN';
 		const seatUsage = await this.usersService.getCompanyTrialSeatUsage(companyId);
+		const isHbxSellerNetwork = await this.usersService.isHbxSellerNetworkCompany(companyId);
 		if (!seatUsage.company) throw new NotFoundException('Empresa não encontrada');
 		if (seatUsage.isTrial && role === 'ADMIN' && seatUsage.activeAdmins >= seatUsage.maxAdmins) {
 			throw new BadRequestException('O free trial permite 1 admin ativo por empresa.');
@@ -758,8 +759,8 @@ export class UsersController {
 		const existingUsername = await this.usersService.findByUsername(email);
 		if (existingUsername) throw new BadRequestException('Username já cadastrado');
 
-		if (role === 'ADMIN' && await this.usersService.isHbxSellerNetworkCompany(companyId)) {
-			throw new BadRequestException('Na operação HBX, o Gerencial cadastra apenas vendedores SellMaster.');
+		if (role === 'ADMIN' && isHbxSellerNetwork) {
+			throw new BadRequestException('Na operação HBX, o Gerencial cadastra apenas parceiros HBX.');
 		}
 		const tempPassword = dto.password?.trim() || `Tmp@${Math.random().toString(36).slice(2, 10)}A1`;
 		const hashed = await bcrypt.hash(tempPassword, 10);
@@ -790,12 +791,12 @@ export class UsersController {
 			mustChangePassword: true,
 			companyId,
 			role,
-			...(role === 'USER' ? { isActive: false } : {}),
+			...(role === 'USER' && isHbxSellerNetwork ? { isActive: false } : {}),
 		});
 		let welcomeEmail: Pick<MailSendResult, 'ok' | 'transport' | 'messageId' | 'errorCode' | 'errorMessage'> | null = null;
-		if (role === 'USER') {
+		if (role === 'USER' && isHbxSellerNetwork) {
 			await this.sellerOnboardingService.getOrCreateForUser(companyId, created.id, Number(req?.user?.id || 0) || null);
-			await this.sellerOnboardingService.updateDraft(req.user, created.id, {
+			await this.sellerOnboardingService.updateDraft(companyId, created.id, {
 				legalName: attendantName || created.name || '',
 				email,
 				phone,
@@ -803,6 +804,10 @@ export class UsersController {
 				declaredAddress: dto.declaredAddress,
 				commissionPercent: created.commissionPercent,
 				commissionDueBusinessDays: dto.commissionDueBusinessDays ?? seatUsage.company.commissionDueBusinessDays,
+				canRegisterHbxSellers: created.canRegisterHbxSellers,
+				sellerReferralCommissionPercent: created.sellerReferralCommissionPercent,
+				referredByUserId: created.referredByUserId,
+				referredByCommissionPercentSnapshot: created.referredByCommissionPercentSnapshot,
 			});
 		} else {
 			welcomeEmail = await this.sendWelcomeAccessEmail({
@@ -845,7 +850,7 @@ export class UsersController {
 		if (!requester) throw new ForbiddenException('Usuário não identificado');
 		const companyId = Number(requester.companyId || 0);
 		if (!companyId || !(await this.usersService.isHbxSellerNetworkCompany(companyId))) {
-			throw new ForbiddenException('Cadastro por indicação está disponível apenas para vendedores HBX.');
+			throw new ForbiddenException('Cadastro por indicação está disponível apenas para parceiros HBX.');
 		}
 		if (
 			String(requester.role || '').toUpperCase() !== 'USER' ||
@@ -854,7 +859,7 @@ export class UsersController {
 			requester.isSystemMaster ||
 			!requester.canRegisterHbxSellers
 		) {
-			throw new ForbiddenException('Seu usuário ainda não está autorizado a cadastrar vendedores HBX.');
+			throw new ForbiddenException('Seu usuário ainda não está autorizado a cadastrar parceiros HBX.');
 		}
 
 		const email = String(dto?.email || '').trim().toLowerCase();
@@ -886,12 +891,16 @@ export class UsersController {
 			isActive: false,
 		});
 		await this.sellerOnboardingService.getOrCreateForUser(companyId, created.id, requester.id);
-		await this.sellerOnboardingService.updateDraft({ ...req.user, companyId }, created.id, {
+		await this.sellerOnboardingService.updateDraft(companyId, created.id, {
 			legalName: attendantName || created.name || '',
 			email,
 			phone,
 			commissionPercent: created.commissionPercent,
 			commissionDueBusinessDays: await this.usersService.getCompanyCommissionDueBusinessDays(companyId),
+			canRegisterHbxSellers: created.canRegisterHbxSellers,
+			sellerReferralCommissionPercent: created.sellerReferralCommissionPercent,
+			referredByUserId: created.referredByUserId,
+			referredByCommissionPercentSnapshot: created.referredByCommissionPercentSnapshot,
 		});
 		const welcomeEmail = null;
 
@@ -945,6 +954,7 @@ export class UsersController {
 	) {
 		const role = (dto.role === 'ADMIN' ? 'ADMIN' : 'USER') as 'USER' | 'ADMIN';
 		const seatUsage = await this.usersService.getCompanyTrialSeatUsage(companyId);
+		const isHbxSellerNetwork = await this.usersService.isHbxSellerNetworkCompany(companyId);
 		if (!seatUsage.company) throw new NotFoundException('Empresa não encontrada');
 		if (seatUsage.isTrial && role === 'ADMIN' && seatUsage.activeAdmins >= seatUsage.maxAdmins) {
 			throw new BadRequestException('O free trial permite 1 admin ativo por empresa.');
@@ -993,12 +1003,12 @@ export class UsersController {
 			mustChangePassword: true,
 			companyId,
 			role,
-			...(role === 'USER' ? { isActive: false } : {}),
+			...(role === 'USER' && isHbxSellerNetwork ? { isActive: false } : {}),
 		});
 		let welcomeEmail: Pick<MailSendResult, 'ok' | 'transport' | 'messageId' | 'errorCode' | 'errorMessage'> | null = null;
-		if (role === 'USER') {
+		if (role === 'USER' && isHbxSellerNetwork) {
 			await this.sellerOnboardingService.getOrCreateForUser(companyId, created.id, Number(req?.user?.id || 0) || null);
-			await this.sellerOnboardingService.updateDraft({ ...req.user, companyId }, created.id, {
+			await this.sellerOnboardingService.updateDraft(companyId, created.id, {
 				legalName: attendantName || created.name || '',
 				email,
 				phone,
@@ -1006,6 +1016,10 @@ export class UsersController {
 				declaredAddress: dto.declaredAddress,
 				commissionPercent: created.commissionPercent,
 				commissionDueBusinessDays: dto.commissionDueBusinessDays ?? seatUsage.company.commissionDueBusinessDays,
+				canRegisterHbxSellers: created.canRegisterHbxSellers,
+				sellerReferralCommissionPercent: created.sellerReferralCommissionPercent,
+				referredByUserId: created.referredByUserId,
+				referredByCommissionPercentSnapshot: created.referredByCommissionPercentSnapshot,
 			});
 		} else {
 			welcomeEmail = await this.sendWelcomeAccessEmail({
@@ -1132,7 +1146,7 @@ export class UsersController {
 		) {
 			if (changedReferrerId) {
 				const referrer = await this.usersService.getActiveSellerReferrer(Number(target.companyId || 0), lockedReferrerId);
-				if (!referrer) throw new BadRequestException('Indicador precisa ser vendedor ativo e autorizado a cadastrar vendedores HBX.');
+				if (!referrer) throw new BadRequestException('Indicador precisa ser parceiro ativo e autorizado a cadastrar parceiros HBX.');
 				data.commissionPercent = normalizeCommissionPercent(referrer.commissionPercent) ?? 0;
 				data.sellerReferralCommissionPercent = normalizeCommissionPercent(referrer.sellerReferralCommissionPercent) ?? 0;
 				data.referredByCommissionPercentSnapshot = normalizeCommissionPercent(referrer.sellerReferralCommissionPercent) ?? 0;

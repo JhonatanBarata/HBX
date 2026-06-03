@@ -4,11 +4,10 @@ import { GerencialService } from './gerencial.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { ModulesAccessModule } from '../modules/modules.module';
 import { CommissionsModule } from '../commissions/commissions.module';
-import { MailModule } from '../mail/mail.module';
 import { SellerOnboardingService } from './seller-onboarding.service';
 
 @Module({
-  imports: [PrismaModule, ModulesAccessModule, CommissionsModule, MailModule],
+  imports: [PrismaModule, ModulesAccessModule, CommissionsModule],
   controllers: [GerencialController],
   providers: [GerencialService, SellerOnboardingService],
   exports: [SellerOnboardingService],

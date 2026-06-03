@@ -918,6 +918,7 @@ model SellerOnboarding {
   user                       User     @relation("SellerOnboardingUser", fields: [userId], references: [id], onDelete: Cascade)
   userId                     Int
   status                     String   @default("draft")
+  partnerType                String   @default("hbx_partner")
   legalName                  String?
   email                      String?
   phone                      String?
@@ -926,6 +927,11 @@ model SellerOnboarding {
   commissionPercent          Float    @default(20)
   commissionRecurring        Boolean  @default(true)
   commissionDueBusinessDays  Int      @default(3)
+  canRegisterHbxSellers      Boolean  @default(false)
+  sellerReferralCommissionPercent Float @default(0)
+  referredByUserId           Int?
+  referredByNameSnapshot     String?
+  referredByCommissionPercentSnapshot Float @default(0)
   contractVersion            String   @default("hbx_partner_v1")
   contractTextSnapshot       String?
   contractSha256             String?
@@ -944,6 +950,8 @@ model SellerOnboarding {
 
   @@unique([companyId, userId])
   @@index([companyId, status])
+  @@index([partnerType])
+  @@index([referredByUserId])
   @@index([emailStatus, emailSentAt])
   @@index([attachmentsDeleteAfter, attachmentsDeletedAt])
 }

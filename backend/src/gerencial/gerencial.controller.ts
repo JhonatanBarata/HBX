@@ -1,6 +1,4 @@
-import { Controller, Get, Post, Req, UseGuards, UploadedFile, UseInterceptors, ParseIntPipe } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
-import { memoryStorage } from 'multer';
+import { Controller, Get, Post, Req, UseGuards, ParseIntPipe } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Admin } from '../auth/admin.decorator';
@@ -100,60 +98,27 @@ export class GerencialController {
     return this.gerencialService.syncHbxClientCommissions(req.user);
   }
 
-  @Get('sellers/:userId/onboarding')
+  @Get('hbx-partners/:userId/onboarding')
   @UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
   @Admin()
   @ModuleAccess('gerencial')
   async getSellerOnboarding(@Req() req: any, @Param('userId', ParseIntPipe) userId: number) {
-    return this.sellerOnboardingService.getForUser(req.user, userId);
+    return this.sellerOnboardingService.getOrCreateForUser(Number(req.user?.companyId), userId, Number(req.user?.id || 0) || null);
   }
 
-  @Patch('sellers/:userId/onboarding')
+  @Patch('hbx-partners/:userId/onboarding')
   @UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
   @Admin()
   @ModuleAccess('gerencial')
   async updateSellerOnboarding(@Req() req: any, @Param('userId', ParseIntPipe) userId: number, @Body() dto: any) {
-    return this.sellerOnboardingService.updateDraft(req.user, userId, dto || {});
+    return this.sellerOnboardingService.updateDraft(Number(req.user?.companyId), userId, dto || {});
   }
 
-  @Post('sellers/:userId/onboarding/attachments')
-  @UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
-  @Admin()
-  @ModuleAccess('gerencial')
-  @UseInterceptors(FileInterceptor('file', {
-    storage: memoryStorage(),
-    limits: { fileSize: 5 * 1024 * 1024 },
-  }))
-  async uploadSellerOnboardingAttachment(
-    @Req() req: any,
-    @Param('userId', ParseIntPipe) userId: number,
-    @Body('kind') kind: string,
-    @UploadedFile() file: any,
-  ) {
-    return this.sellerOnboardingService.uploadAttachment(req.user, userId, kind, file);
-  }
-
-  @Post('sellers/:userId/onboarding/generate-contract')
+  @Post('hbx-partners/:userId/onboarding/generate-contract')
   @UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
   @Admin()
   @ModuleAccess('gerencial')
   async generateSellerOnboardingContract(@Req() req: any, @Param('userId', ParseIntPipe) userId: number) {
-    return this.sellerOnboardingService.generateContract(req.user, userId);
-  }
-
-  @Post('sellers/:userId/onboarding/send-email')
-  @UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
-  @Admin()
-  @ModuleAccess('gerencial')
-  async sendSellerOnboardingEmail(@Req() req: any, @Param('userId', ParseIntPipe) userId: number) {
-    return this.sellerOnboardingService.sendOnboardingEmail(req.user, userId);
-  }
-
-  @Post('sellers/onboarding/purge-expired')
-  @UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
-  @Admin()
-  @ModuleAccess('gerencial')
-  async purgeExpiredSellerOnboardingAttachments() {
-    return this.sellerOnboardingService.purgeExpiredAttachments();
+    return this.sellerOnboardingService.generateContract(Number(req.user?.companyId), userId, Number(req.user?.id || 0) || null);
   }
 }
