@@ -6234,185 +6234,6 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     setFeedback("Sem WhatsApp ou telefone disponível. Revise o card e registre a observação.");
   }
 
-  function renderMobileLeadChannels(lead: LeadItem, options?: { compact?: boolean }) {
-    const callHref = buildCallUrl(lead.phone);
-    const whatsappHref = leadWhatsappHref(lead);
-    const socialLinksVisible = canSeeSocialLinks(lead, board);
-    const instagramHref = socialLinksVisible
-      ? normalizeExternalUrl(lead.leadIntelligence?.instagramUrl)
-      : "";
-    const facebookHref = socialLinksVisible
-      ? normalizeExternalUrl(lead.leadIntelligence?.facebookUrl)
-      : "";
-    const possibleInstagramHref = socialLinksVisible && !instagramHref
-      ? normalizeExternalUrl(leadPossibleSocialCandidateByNetwork(lead, "instagram")?.url)
-      : "";
-    const possibleFacebookHref = socialLinksVisible && !facebookHref
-      ? normalizeExternalUrl(leadPossibleSocialCandidateByNetwork(lead, "facebook")?.url)
-      : "";
-    const email = leadEmailForDisplay(lead);
-    const emailHref = email ? `mailto:${email}` : "";
-    const websiteHref = normalizeExternalUrl(leadWebsiteForDisplay(lead));
-    const lockedSocialLinks = hasLockedSocialLinks(lead, board);
-    const compact = options?.compact === true;
-
-    return (
-      <>
-        {callHref ? (
-          <a
-            href={callHref}
-            className={styles.mobileVendasChannelIcon}
-            data-channel="phone"
-            data-compact={compact ? "true" : "false"}
-            aria-label={`Ligar para ${lead.name || "lead"}`}
-            onClick={(event) => {
-              event.stopPropagation();
-              void incrementAttempt(lead.id);
-            }}
-          >
-            <MobileChannelIconAsset channel="phone" />
-          </a>
-        ) : null}
-        {whatsappHref ? (
-          <a
-            href={whatsappHref}
-            target="_blank"
-            rel="noreferrer"
-            className={styles.mobileVendasChannelIcon}
-            data-channel="whatsapp"
-            data-compact={compact ? "true" : "false"}
-            aria-label={`Abrir WhatsApp de ${lead.name || "lead"}`}
-            onClick={(event) => {
-              event.stopPropagation();
-              void incrementAttempt(lead.id);
-            }}
-          >
-            <MobileChannelIconAsset channel="whatsapp" />
-          </a>
-        ) : null}
-        {instagramHref ? (
-          <a
-            href={instagramHref}
-            target="_blank"
-            rel="noreferrer"
-            className={styles.mobileVendasChannelIcon}
-            data-channel="instagram"
-            data-certainty="confirmed"
-            data-compact={compact ? "true" : "false"}
-            aria-label={`Abrir Instagram de ${lead.name || "lead"}`}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <MobileChannelIconAsset channel="instagram" />
-          </a>
-        ) : null}
-        {facebookHref ? (
-          <a
-            href={facebookHref}
-            target="_blank"
-            rel="noreferrer"
-            className={styles.mobileVendasChannelIcon}
-            data-channel="facebook"
-            data-certainty="confirmed"
-            data-compact={compact ? "true" : "false"}
-            aria-label={`Abrir Facebook de ${lead.name || "lead"}`}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <MobileChannelIconAsset channel="facebook" />
-          </a>
-        ) : null}
-        {possibleInstagramHref ? (
-          <a
-            href={possibleInstagramHref}
-            target="_blank"
-            rel="noreferrer"
-            className={styles.mobileVendasChannelIcon}
-            data-channel="instagram"
-            data-certainty="possible"
-            data-compact={compact ? "true" : "false"}
-            title="Instagram possível. Revise antes de abordar."
-            aria-label={`Abrir Instagram possível de ${lead.name || "lead"}`}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <MobileChannelIconAsset channel="instagram" />
-          </a>
-        ) : null}
-        {possibleFacebookHref ? (
-          <a
-            href={possibleFacebookHref}
-            target="_blank"
-            rel="noreferrer"
-            className={styles.mobileVendasChannelIcon}
-            data-channel="facebook"
-            data-certainty="possible"
-            data-compact={compact ? "true" : "false"}
-            title="Facebook possível. Revise antes de abordar."
-            aria-label={`Abrir Facebook possível de ${lead.name || "lead"}`}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <MobileChannelIconAsset channel="facebook" />
-          </a>
-        ) : null}
-        {emailHref ? (
-          <a
-            href={emailHref}
-            className={styles.mobileVendasChannelIcon}
-            data-channel="email"
-            data-compact={compact ? "true" : "false"}
-            aria-label={`Enviar e-mail para ${lead.name || "lead"}`}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <MobileChannelIconAsset channel="email" />
-          </a>
-        ) : null}
-        {websiteHref ? (
-          <a
-            href={websiteHref}
-            target="_blank"
-            rel="noreferrer"
-            className={styles.mobileVendasChannelIcon}
-            data-channel="site"
-            data-compact={compact ? "true" : "false"}
-            aria-label={`Abrir site de ${lead.name || "lead"}`}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <MobileChannelIconAsset channel="site" />
-          </a>
-        ) : null}
-        {lockedSocialLinks ? (
-          <Link
-            href={toMobileRoute("/planos?intent=lead")}
-            className={styles.mobileVendasPremiumChannels}
-            data-compact={compact ? "true" : "false"}
-            aria-label="Redes encontradas no HBX Lead Plus"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <CrownGlyph />
-            Redes encontradas no HBX Lead Plus
-          </Link>
-        ) : null}
-      </>
-    );
-  }
-
-  function countMobileLeadChannels(lead: LeadItem) {
-    const socialLinksVisible = canSeeSocialLinks(lead, board);
-    return [
-      buildCallUrl(lead.phone),
-      leadWhatsappHref(lead),
-      socialLinksVisible ? normalizeExternalUrl(lead.leadIntelligence?.instagramUrl) : "",
-      socialLinksVisible ? normalizeExternalUrl(lead.leadIntelligence?.facebookUrl) : "",
-      socialLinksVisible && !normalizeExternalUrl(lead.leadIntelligence?.instagramUrl)
-        ? normalizeExternalUrl(leadPossibleSocialCandidateByNetwork(lead, "instagram")?.url)
-        : "",
-      socialLinksVisible && !normalizeExternalUrl(lead.leadIntelligence?.facebookUrl)
-        ? normalizeExternalUrl(leadPossibleSocialCandidateByNetwork(lead, "facebook")?.url)
-        : "",
-      leadEmailForDisplay(lead) ? "email" : "",
-      normalizeExternalUrl(leadWebsiteForDisplay(lead)),
-      hasLockedSocialLinks(lead, board) ? "locked" : "",
-    ].filter(Boolean).length;
-  }
-
   function closeMobileLeadDetail() {
     saveMobileOpenLeadId(null);
     setSelectedMobileLeadId(null);
@@ -8167,13 +7988,26 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 </small>
               </button>
               <div className={styles.mobileVendasRecommendedFooter}>
-                <div
-                  className={styles.mobileVendasRecommendedChannels}
-                  data-channel-count={countMobileLeadChannels(nextRecommendedMobileLead)}
-                  aria-label="Canais disponíveis"
+                <a
+                  className={styles.mobileVendasRecommendedPhone}
+                  href={leadWhatsappHref(nextRecommendedMobileLead) || buildCallUrl(nextRecommendedMobileLead.phone) || undefined}
+                  aria-disabled={!leadWhatsappHref(nextRecommendedMobileLead) && !buildCallUrl(nextRecommendedMobileLead.phone)}
+                  aria-label={`Abrir telefone de ${nextRecommendedMobileLead.name || "lead"}`}
+                  onClick={(event) => {
+                    if (!leadWhatsappHref(nextRecommendedMobileLead) && !buildCallUrl(nextRecommendedMobileLead.phone)) {
+                      event.preventDefault();
+                    } else {
+                      void incrementAttempt(nextRecommendedMobileLead.id);
+                    }
+                  }}
                 >
-                  {renderMobileLeadChannels(nextRecommendedMobileLead, { compact: true })}
-                </div>
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M6.6 10.8c1.4 2.8 3.7 5.1 6.5 6.5l2.2-2.2c.3-.3.8-.4 1.2-.2 1.3.4 2.6.7 4 .7.7 0 1.2.5 1.2 1.2v3.5c0 .7-.5 1.2-1.2 1.2C10.3 22 2 13.7 2 3.2 2 2.5 2.5 2 3.2 2h3.6C7.5 2 8 2.5 8 3.2c0 1.4.2 2.8.7 4 .1.4 0 .8-.3 1.1l-2.2 2.5Z" />
+                  </svg>
+                </a>
+                <button type="button" onClick={() => executeMobileLead(nextRecommendedMobileLead)}>
+                  Chamar agora
+                </button>
                 <button
                   type="button"
                   aria-label={`Abrir observação de ${nextRecommendedMobileLead.name || "lead"}`}
