@@ -26,12 +26,9 @@ function percent(value: unknown, fallback = 0) {
 }
 
 export function buildSellerPartnerContract(input: SellerPartnerContractInput) {
-  const canRegister = Boolean(input.canRegisterHbxSellers);
   const referralPercent = Number(input.sellerReferralCommissionPercent || 0);
   const referredByName = text(input.referredByName, '');
-  const networkClause = canRegister
-    ? 'O PARCEIRO está autorizado a indicar e cadastrar novos parceiros comerciais HBX pelo fluxo oficial da plataforma.'
-    : 'O PARCEIRO não está autorizado, neste momento, a cadastrar outros parceiros comerciais vinculados à sua rede.';
+  const networkClause = 'O PARCEIRO pode indicar candidatos pelo fluxo oficial da plataforma. Cadastro formal, análise de documentos, contrato e liberação de acesso são atribuições exclusivas do Master HBX.';
   const inheritedCommissionClause = referralPercent > 0
     ? `Comissão herdada configurada: ${percent(referralPercent)}% sobre vendas elegíveis de parceiros indicados, conforme regras do painel HBX.`
     : '';

@@ -3731,66 +3731,6 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   const scopeState = filters.state || runFilters?.state || "";
   const scopePlace = scopeCity ? `${scopeCity}${scopeState ? `/${scopeState}` : ""}` : "";
   const searchScopeLine = [scopeSegment, scopePlace, radarRadiusLabel(filters.radiusKm ?? runFilters?.radiusKm)].filter(Boolean).join(" · ");
-  const mobileRadarSocialFound = visibleItems.filter((item) => String(item.instagramUrl || item.facebookUrl || "").trim()).length;
-  const mobileRadarWebsiteFound = visibleItems.filter((item) => String(item.website || "").trim() && String(item.websiteStatus || "").toLowerCase() !== "none").length;
-  const mobileRadarEmailFound = visibleItems.filter((item) => String(item.email || "").trim() && !["missing", "invalid"].includes(String(item.emailStatus || "").toLowerCase())).length;
-  const mobileRadarSignalTotal = mobileRadarSocialFound + mobileRadarWebsiteFound + mobileRadarEmailFound;
-  const mobileRadarHasDeliveredCards = radarMomentDelivered > 0 || visibleItems.length > 0;
-  const mobileRadarEnrichmentActive = Boolean(
-    mobileRadarHasDeliveredCards
-    && (
-      mobileRadarProcessing
-      || socialLookupPendingCount > 0
-      || mobileRadarSocialFound < visibleItems.length
-      || mobileRadarWebsiteFound < visibleItems.length
-      || mobileRadarEmailFound < visibleItems.length
-    ),
-  );
-  const mobileRadarFlow = [
-    {
-      key: "delivery",
-      label: "Entrega",
-      value: mobileRadarHasDeliveredCards
-        ? `${Math.min(radarMomentDelivered, radarMomentTarget).toLocaleString("pt-BR")}/${radarMomentTarget.toLocaleString("pt-BR")}`
-        : radarMomentIsLive
-          ? "em busca"
-          : "pronta",
-      detail: mobileRadarHasDeliveredCards
-        ? "Card aprovado vai para Vendas antes das redes."
-        : radarMomentIsLive
-          ? "Separando empresas reais para aprovar."
-          : "Configure a busca e aperte Buscar.",
-      tone: mobileRadarHasDeliveredCards ? "done" : radarMomentIsLive ? "active" : "idle",
-    },
-    {
-      key: "enrichment",
-      label: "Enriquecimento",
-      value: mobileRadarSignalTotal > 0
-        ? `${mobileRadarSignalTotal.toLocaleString("pt-BR")} sinal(is)`
-        : mobileRadarHasDeliveredCards
-          ? "próxima etapa"
-          : "após entrega",
-      detail: mobileRadarSocialFound > 0
-        ? `${mobileRadarSocialFound.toLocaleString("pt-BR")} com rede social encontrada.`
-        : mobileRadarHasDeliveredCards
-          ? "Disponível depois da entrega dos cards."
-          : "Roda depois que o card entra no Vendas.",
-      tone: mobileRadarSignalTotal > 0 ? "done" : mobileRadarEnrichmentActive ? "active" : "idle",
-    },
-    {
-      key: "sales",
-      label: "Vendas",
-      value: mobileRadarProcessing
-        ? "abastecendo"
-        : mobileRadarHasDeliveredCards
-          ? "abastecido"
-          : "aguardando",
-      detail: mobileRadarHasDeliveredCards
-        ? "Chame agora. O restante aparece no card."
-        : "Os aprovados aparecem no Vendas.",
-      tone: mobileRadarHasDeliveredCards ? "done" : mobileRadarProcessing ? "active" : "idle",
-    },
-  ];
   const autoImportFailureLine = (radarMomentRun?.meta?.autoImport?.failures || [])
     .map((failure) => `${failure.count || 0} ${String(failure.reason || "falha").replace(/_/g, " ")}`)
     .filter(Boolean)
@@ -4194,16 +4134,6 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
               <strong>{mobileRadarEngineLabel(filters.engine)}</strong>
             </div>
           </div>
-
-          <section className={styles.mobileRadarOperationalFlow} aria-label="Acompanhamento da entrega">
-            {mobileRadarFlow.map((step) => (
-              <div key={step.key} className={styles.mobileRadarFlowCard} data-tone={step.tone}>
-                <span>{step.label}</span>
-                <strong>{step.value}</strong>
-                <small>{step.detail}</small>
-              </div>
-            ))}
-          </section>
 
           <form
             className={`${styles.mobileRadarForm} hbx-mobile-card`}

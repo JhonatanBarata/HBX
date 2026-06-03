@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import type { User } from '@prisma/client';
 import { isBillableUserSeatSnapshot, isMasterOperationalCompanySlug } from '../commercial-plans/seat-billing.util';
@@ -50,7 +50,6 @@ export class UsersService {
         isActive: true,
         deactivatedAt: null,
         isSystemMaster: false,
-        canRegisterHbxSellers: true,
       },
       select: {
         id: true,
@@ -59,6 +58,245 @@ export class UsersService {
         username: true,
         commissionPercent: true,
         sellerReferralCommissionPercent: true,
+      },
+    });
+  }
+
+  private normalizeCandidateStatus(status?: string | null) {
+    const normalized = String(status || '').trim().toLowerCase();
+    if (['pending', 'approved', 'rejected', 'converted'].includes(normalized)) return normalized;
+    return 'pending';
+  }
+
+  private normalizePhoneDigits(phone?: string | null) {
+    const digits = String(phone || '').replace(/\D/g, '');
+    return digits || null;
+  }
+
+  async createHbxPartnerReferralCandidate(input: {
+    companyId: number;
+    referrerUserId: number;
+    name: string;
+    phone: string;
+    note?: string | null;
+    preferredSegmentsJson?: string | null;
+  }) {
+    const companyId = Math.trunc(Number(input.companyId || 0));
+    const referrerUserId = Math.trunc(Number(input.referrerUserId || 0));
+    const name = String(input.name || '').trim().replace(/\s+/g, ' ');
+    const phone = String(input.phone || '').trim().replace(/\s+/g, ' ');
+    const phoneNormalized = this.normalizePhoneDigits(phone);
+    if (!companyId || !referrerUserId) throw new BadRequestException('Indicador inválido');
+    if (!name) throw new BadRequestException('Informe o nome do contato indicado.');
+    if (!phone) throw new BadRequestException('Informe o WhatsApp do contato indicado.');
+
+    const existingPending = await this.prisma.hbxPartnerReferralCandidate.findFirst({
+      where: {
+        companyId,
+        ...(phoneNormalized ? { phoneNormalized } : { phone }),
+        status: { in: ['pending', 'approved'] },
+      },
+      select: { id: true },
+    });
+    if (existingPending) {
+      throw new BadRequestException('Já existe uma indicação pendente ou aprovada com este WhatsApp.');
+    }
+
+    return this.prisma.hbxPartnerReferralCandidate.create({
+      data: {
+        companyId,
+        referrerUserId,
+        name,
+        phone,
+        phoneNormalized,
+        note: input.note || null,
+        preferredSegmentsJson: input.preferredSegmentsJson || null,
+        status: 'pending',
+      },
+      include: {
+        referrerUser: { select: { id: true, name: true, username: true, email: true } },
+      },
+    });
+  }
+
+  async listHbxPartnerReferralCandidates(companyId: number, status?: string | null) {
+    const normalizedCompanyId = Math.trunc(Number(companyId || 0));
+    if (!normalizedCompanyId) return [];
+    const normalizedStatus = status && !['all', 'active'].includes(status) ? this.normalizeCandidateStatus(status) : null;
+    return this.prisma.hbxPartnerReferralCandidate.findMany({
+      where: {
+        companyId: normalizedCompanyId,
+        ...(status === 'active' ? { status: { in: ['pending', 'approved'] } } : {}),
+        ...(normalizedStatus ? { status: normalizedStatus } : {}),
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      include: {
+        referrerUser: { select: { id: true, name: true, username: true, email: true, sellerReferralCommissionPercent: true, commissionPercent: true } },
+        reviewedByUser: { select: { id: true, name: true, username: true, email: true } },
+        convertedUser: { select: { id: true, name: true, username: true, email: true, isActive: true } },
+      },
+    });
+  }
+
+  async rejectHbxPartnerReferralCandidate(input: {
+    companyId: number;
+    candidateId: string;
+    reviewedByUserId: number;
+  }) {
+    const companyId = Math.trunc(Number(input.companyId || 0));
+    const candidateId = String(input.candidateId || '').trim();
+    if (!companyId || !candidateId) throw new BadRequestException('Indicação inválida');
+    const candidate = await this.prisma.hbxPartnerReferralCandidate.findFirst({
+      where: { id: candidateId, companyId },
+      select: { id: true, status: true },
+    });
+    if (!candidate) throw new NotFoundException('Indicação não encontrada');
+    if (candidate.status !== 'pending') throw new BadRequestException('Esta indicação já foi revisada.');
+    return this.prisma.hbxPartnerReferralCandidate.update({
+      where: { id: candidateId },
+      data: {
+        status: 'rejected',
+        reviewedByUserId: Math.trunc(Number(input.reviewedByUserId || 0)) || null,
+        reviewedAt: new Date(),
+      },
+      include: {
+        referrerUser: { select: { id: true, name: true, username: true, email: true } },
+        reviewedByUser: { select: { id: true, name: true, username: true, email: true } },
+        convertedUser: { select: { id: true, name: true, username: true, email: true, isActive: true } },
+      },
+    });
+  }
+
+  async approveHbxPartnerReferralCandidate(input: {
+    companyId: number;
+    candidateId: string;
+    reviewedByUserId: number;
+  }) {
+    const companyId = Math.trunc(Number(input.companyId || 0));
+    const candidateId = String(input.candidateId || '').trim();
+    if (!companyId || !candidateId) throw new BadRequestException('Indicação inválida');
+
+    const candidate = await this.prisma.hbxPartnerReferralCandidate.findFirst({
+      where: { id: candidateId, companyId },
+      include: {
+        referrerUser: {
+          select: {
+            id: true,
+            companyId: true,
+            role: true,
+            isActive: true,
+            deactivatedAt: true,
+            isSystemMaster: true,
+            commissionPercent: true,
+            sellerReferralCommissionPercent: true,
+          },
+        },
+      },
+    });
+    if (!candidate) throw new NotFoundException('Indicação não encontrada');
+    if (candidate.status !== 'pending') throw new BadRequestException('Esta indicação já foi revisada.');
+
+    const referrer = candidate.referrerUser;
+    if (
+      !referrer ||
+      Number(referrer.companyId || 0) !== companyId ||
+      String(referrer.role || '').toUpperCase() !== 'USER' ||
+      !referrer.isActive ||
+      referrer.deactivatedAt ||
+      referrer.isSystemMaster
+    ) {
+      throw new BadRequestException('Indicador precisa ser parceiro ativo da operação HBX.');
+    }
+
+    return {
+      candidate: await this.prisma.hbxPartnerReferralCandidate.update({
+        where: { id: candidate.id },
+        data: {
+          status: 'approved',
+          reviewedByUserId: Math.trunc(Number(input.reviewedByUserId || 0)) || null,
+          reviewedAt: new Date(),
+        },
+        include: {
+          referrerUser: { select: { id: true, name: true, username: true, email: true, sellerReferralCommissionPercent: true, commissionPercent: true } },
+          reviewedByUser: { select: { id: true, name: true, username: true, email: true } },
+          convertedUser: { select: { id: true, name: true, username: true, email: true, isActive: true } },
+        },
+      }),
+    };
+  }
+
+  async findHbxPartnerReferralCandidateByPhone(companyId: number, phone?: string | null) {
+    const normalizedCompanyId = Math.trunc(Number(companyId || 0));
+    const phoneNormalized = this.normalizePhoneDigits(phone);
+    if (!normalizedCompanyId || !phoneNormalized) return null;
+    return this.prisma.hbxPartnerReferralCandidate.findFirst({
+      where: {
+        companyId: normalizedCompanyId,
+        phoneNormalized,
+        status: { in: ['pending', 'approved'] },
+      },
+      orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
+      include: {
+        referrerUser: { select: { id: true, name: true, username: true, email: true, sellerReferralCommissionPercent: true, commissionPercent: true } },
+        reviewedByUser: { select: { id: true, name: true, username: true, email: true } },
+        convertedUser: { select: { id: true, name: true, username: true, email: true, isActive: true } },
+      },
+    });
+  }
+
+  async getHbxPartnerReferralCandidateForConversion(companyId: number, candidateId?: string | null) {
+    const normalizedCompanyId = Math.trunc(Number(companyId || 0));
+    const normalizedCandidateId = String(candidateId || '').trim();
+    if (!normalizedCompanyId || !normalizedCandidateId) return null;
+    return this.prisma.hbxPartnerReferralCandidate.findFirst({
+      where: {
+        id: normalizedCandidateId,
+        companyId: normalizedCompanyId,
+        status: { in: ['pending', 'approved'] },
+      },
+      include: {
+        referrerUser: {
+          select: {
+            id: true,
+            companyId: true,
+            role: true,
+            isActive: true,
+            deactivatedAt: true,
+            isSystemMaster: true,
+            canRegisterHbxSellers: true,
+            commissionPercent: true,
+            sellerReferralCommissionPercent: true,
+            name: true,
+            username: true,
+            email: true,
+          },
+        },
+      },
+    });
+  }
+
+  async markHbxPartnerReferralCandidateConverted(input: {
+    companyId: number;
+    candidateId: string;
+    convertedUserId: number;
+    reviewedByUserId?: number | null;
+  }) {
+    const companyId = Math.trunc(Number(input.companyId || 0));
+    const candidateId = String(input.candidateId || '').trim();
+    const convertedUserId = Math.trunc(Number(input.convertedUserId || 0));
+    if (!companyId || !candidateId || !convertedUserId) throw new BadRequestException('Conversão de indicação inválida');
+    const candidate = await this.prisma.hbxPartnerReferralCandidate.findFirst({
+      where: { id: candidateId, companyId, status: { in: ['pending', 'approved'] } },
+      select: { id: true, reviewedAt: true, reviewedByUserId: true },
+    });
+    if (!candidate) throw new NotFoundException('Indicação não encontrada para conversão');
+    return this.prisma.hbxPartnerReferralCandidate.update({
+      where: { id: candidateId },
+      data: {
+        status: 'converted',
+        convertedUserId,
+        reviewedByUserId: candidate.reviewedByUserId || Math.trunc(Number(input.reviewedByUserId || 0)) || null,
+        reviewedAt: candidate.reviewedAt || new Date(),
       },
     });
   }

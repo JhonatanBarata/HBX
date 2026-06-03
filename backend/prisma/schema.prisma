@@ -111,6 +111,7 @@ model Company {
   products                Product[]
   users                   User[]
   sellerOnboardings       SellerOnboarding[]
+  hbxPartnerReferralCandidates HbxPartnerReferralCandidate[]
   plan                    Plan?     @relation(fields: [planId], references: [id])
   planId                  Int?
 
@@ -906,9 +907,39 @@ model User {
   radarDistributionDailyUsages RadarDistributionDailyUsage[]
   sellerOnboardings SellerOnboarding[] @relation("SellerOnboardingUser")
   createdSellerOnboardings SellerOnboarding[] @relation("SellerOnboardingCreatedBy")
+  hbxReferralCandidates HbxPartnerReferralCandidate[] @relation("HbxReferralCandidateReferrer")
+  reviewedHbxReferralCandidates HbxPartnerReferralCandidate[] @relation("HbxReferralCandidateReviewedBy")
+  convertedHbxReferralCandidates HbxPartnerReferralCandidate[] @relation("HbxReferralCandidateConvertedUser")
 
   @@index([referredByUserId])
   @@index([canRegisterHbxSellers])
+}
+
+model HbxPartnerReferralCandidate {
+  id                    String   @id @default(cuid())
+  company               Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId             Int
+  referrerUser          User     @relation("HbxReferralCandidateReferrer", fields: [referrerUserId], references: [id], onDelete: Cascade)
+  referrerUserId        Int
+  name                  String
+  phone                 String
+  phoneNormalized       String?
+  note                  String?
+  preferredSegmentsJson String?
+  status                String   @default("pending")
+  reviewedByUser        User?    @relation("HbxReferralCandidateReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  reviewedByUserId      Int?
+  reviewedAt            DateTime?
+  convertedUser         User?    @relation("HbxReferralCandidateConvertedUser", fields: [convertedUserId], references: [id], onDelete: SetNull)
+  convertedUserId       Int?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([companyId, status, createdAt])
+  @@index([referrerUserId, status])
+  @@index([companyId, phoneNormalized])
+  @@index([reviewedByUserId])
+  @@index([convertedUserId])
 }
 
 model SellerOnboarding {
@@ -967,6 +998,7 @@ model SellerOnboardingAttachment {
   contentType      String?
   byteSize         Int
   sha256           String
+  required         Boolean  @default(false)
   status           String   @default("temporary")
   deleteAfter      DateTime?
   deletedAt        DateTime?
