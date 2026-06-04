@@ -46,8 +46,9 @@ export class InboxController {
   getBootstrap(
     @Req() req: any,
     @Query('take') take?: string,
+    @Query('light') light?: string,
   ) {
-    return this.inboxService.getBootstrap(req.user, take);
+    return this.inboxService.getBootstrap(req.user, take, { light });
   }
 
   @Post('bootstrap/full')
