@@ -1,4 +1,4 @@
-import { Controller, Delete, Get, Post, Req, UseGuards, ParseIntPipe, Query, ForbiddenException, NotFoundException, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Controller, Delete, Get, Post, Req, UseGuards, ParseIntPipe, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -9,8 +9,7 @@ import { Patch, Param, Body, BadRequestException } from '@nestjs/common';
 import { ModuleAccessGuard } from '../modules/module-access.guard';
 import { ModuleAccess } from '../modules/module-feature.decorator';
 import { SellerOnboardingService } from './seller-onboarding.service';
-import { PrismaService } from '../prisma/prisma.service';
-import { isMasterOperationalCompanySlug } from '../commercial-plans/seat-billing.util';
+import { HbxPartnerReferralService } from './hbx-partner-referral.service';
 
 class MarkComplaintDto {
   isComplaint: boolean;
@@ -42,29 +41,8 @@ export class GerencialController {
   constructor(
     private readonly gerencialService: GerencialService,
     private readonly sellerOnboardingService: SellerOnboardingService,
-    private readonly prisma: PrismaService,
+    private readonly hbxPartnerReferrals: HbxPartnerReferralService,
   ) {}
-
-  private normalizePhoneDigits(phone?: string | null) {
-    const digits = String(phone || '').replace(/\D/g, '');
-    return digits || null;
-  }
-
-  private async assertHbxSellerNetwork(companyId: number) {
-    if (!companyId) throw new ForbiddenException('Company context required');
-    const company = await this.prisma.company.findUnique({ where: { id: companyId }, select: { slug: true } });
-    if (!isMasterOperationalCompanySlug(company?.slug)) {
-      throw new ForbiddenException('Indicações de parceiros estão disponíveis apenas na operação HBX.');
-    }
-  }
-
-  private hbxReferralCandidateInclude() {
-    return {
-      referrerUser: { select: { id: true, name: true, username: true, email: true, sellerReferralCommissionPercent: true, commissionPercent: true } },
-      reviewedByUser: { select: { id: true, name: true, username: true, email: true } },
-      convertedUser: { select: { id: true, name: true, username: true, email: true, isActive: true } },
-    };
-  }
 
   @Get('overview')
   @UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
@@ -220,13 +198,7 @@ export class GerencialController {
   @Admin()
   @ModuleAccess('gerencial')
   async listHbxPartnerReferrals(@Req() req: any) {
-    const companyId = Number(req.user?.companyId || 0);
-    await this.assertHbxSellerNetwork(companyId);
-    const candidates = await this.prisma.hbxPartnerReferralCandidate.findMany({
-      where: { companyId, status: { in: ['pending', 'approved'] } },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      include: this.hbxReferralCandidateInclude(),
-    });
+    const candidates = await this.hbxPartnerReferrals.listPendingForMaster(req.user);
     return { candidates };
   }
 
@@ -236,14 +208,7 @@ export class GerencialController {
   @ModuleAccess('gerencial')
   async lookupHbxPartnerReferralByPhone(@Req() req: any, @Query('phone') phone?: string) {
     const companyId = Number(req.user?.companyId || 0);
-    await this.assertHbxSellerNetwork(companyId);
-    const phoneNormalized = this.normalizePhoneDigits(phone);
-    if (!phoneNormalized) return { found: false, candidate: null, referrer: null };
-    const candidate = await this.prisma.hbxPartnerReferralCandidate.findFirst({
-      where: { companyId, phoneNormalized, status: { in: ['pending', 'approved'] } },
-      orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
-      include: this.hbxReferralCandidateInclude(),
-    });
+    const candidate = await this.hbxPartnerReferrals.findCandidateByPhone(companyId, phone);
     return { found: Boolean(candidate), candidate, referrer: candidate?.referrerUser || null };
   }
 
@@ -252,39 +217,8 @@ export class GerencialController {
   @Admin()
   @ModuleAccess('gerencial')
   async approveHbxPartnerReferral(@Req() req: any, @Param('id') id: string) {
-    const companyId = Number(req.user?.companyId || 0);
-    await this.assertHbxSellerNetwork(companyId);
-    const candidate = await this.prisma.hbxPartnerReferralCandidate.findFirst({
-      where: { id, companyId },
-      include: {
-        referrerUser: {
-          select: { id: true, companyId: true, role: true, isActive: true, deactivatedAt: true, isSystemMaster: true },
-        },
-      },
-    });
-    if (!candidate) throw new NotFoundException('Indicação não encontrada');
-    if (candidate.status !== 'pending') throw new BadRequestException('Esta indicação já foi revisada.');
-    const referrer = candidate.referrerUser;
-    if (
-      !referrer ||
-      Number(referrer.companyId || 0) !== companyId ||
-      String(referrer.role || '').toUpperCase() !== 'USER' ||
-      !referrer.isActive ||
-      referrer.deactivatedAt ||
-      referrer.isSystemMaster
-    ) {
-      throw new BadRequestException('Indicador precisa ser parceiro ativo da operação HBX.');
-    }
-    const updated = await this.prisma.hbxPartnerReferralCandidate.update({
-      where: { id: candidate.id },
-      data: {
-        status: 'approved',
-        reviewedByUserId: Number(req.user?.id || 0) || null,
-        reviewedAt: new Date(),
-      },
-      include: this.hbxReferralCandidateInclude(),
-    });
-    return { candidate: updated };
+    const candidate = await this.hbxPartnerReferrals.approveCandidate(req.user, id);
+    return { candidate };
   }
 
   @Post('hbx-partner-referrals/:id/reject')
@@ -292,23 +226,7 @@ export class GerencialController {
   @Admin()
   @ModuleAccess('gerencial')
   async rejectHbxPartnerReferral(@Req() req: any, @Param('id') id: string) {
-    const companyId = Number(req.user?.companyId || 0);
-    await this.assertHbxSellerNetwork(companyId);
-    const candidate = await this.prisma.hbxPartnerReferralCandidate.findFirst({
-      where: { id, companyId },
-      select: { id: true, status: true },
-    });
-    if (!candidate) throw new NotFoundException('Indicação não encontrada');
-    if (candidate.status !== 'pending') throw new BadRequestException('Esta indicação já foi revisada.');
-    const updated = await this.prisma.hbxPartnerReferralCandidate.update({
-      where: { id: candidate.id },
-      data: {
-        status: 'rejected',
-        reviewedByUserId: Number(req.user?.id || 0) || null,
-        reviewedAt: new Date(),
-      },
-      include: this.hbxReferralCandidateInclude(),
-    });
-    return { candidate: updated };
+    const candidate = await this.hbxPartnerReferrals.rejectCandidate(req.user, id);
+    return { candidate };
   }
 }
