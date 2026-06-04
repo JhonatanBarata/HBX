@@ -108,6 +108,31 @@ type WebwhatsChatSummary = {
   unreadCount?: number | null;
   windowActive?: boolean | null;
   lastMessage?: any;
+  lastMessageId?: string | null;
+  lastMessageTextPreview?: string | null;
+  lastMessageType?: string | null;
+  lastMessageTimestamp?: number | string | null;
+  fromMe?: boolean | null;
+  archived?: boolean | null;
+};
+
+type WebwhatsFastChatListResult = {
+  records: WebwhatsChatSummary[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  source: 'fast' | 'legacy';
+};
+
+type WebwhatsPresenceValue = 'online' | 'offline' | 'composing' | 'recording' | 'paused' | 'unknown';
+
+export type WebwhatsPresenceSnapshot = {
+  remoteJid: string;
+  presence: WebwhatsPresenceValue;
+  online: boolean;
+  typing: boolean;
+  recording: boolean;
+  lastSeenAt: string | null;
+  updatedAt: string | null;
 };
 
 type WebwhatsContactSummary = {
@@ -166,6 +191,7 @@ export type WebwhatsLiveChatSnapshot = {
   windowActive: boolean | null;
   lastMessageAt: Date | null;
   lastMessage: WebwhatsFetchedMessage | null;
+  presence?: WebwhatsPresenceSnapshot | null;
 };
 
 export type WebwhatsLiveConversationSnapshot = WebwhatsLiveChatSnapshot & {
@@ -211,6 +237,8 @@ export class WebwhatsBridgeService {
   private readonly detailSyncAt = new Map<string, number>();
   private readonly contactSyncAt = new Map<number, number>();
   private readonly contactCache = new Map<number, WebwhatsContactSummary[]>();
+  private readonly chatListCache = new Map<string, { expiresAt: number; value: WebwhatsFastChatListResult }>();
+  private readonly presenceCache = new Map<string, { expiresAt: number; value: WebwhatsPresenceSnapshot }>();
   private inboundRelay: ((input: WebwhatsInboundRelayInput) => Promise<void>) | null = null;
 
   constructor(private readonly prisma: PrismaService) {}
@@ -540,10 +568,11 @@ export class WebwhatsBridgeService {
 
   async listLiveChats(companyId: number, opts?: { limit?: number }) {
     const company = await this.requireConnectedCompany(companyId);
-    const [chats, contacts] = await Promise.all([
-      this.fetchChats(company.id, opts?.limit ?? 60),
+    const [chatList, contacts] = await Promise.all([
+      this.fetchChatsFast(company.id, { limit: opts?.limit ?? 60 }),
       this.getCachedContacts(company.id),
     ]);
+    const chats = chatList.records;
     const contactsByJid = this.indexContactsByJid(contacts);
     const snapshots: WebwhatsLiveChatSnapshot[] = [];
     const inboxResetFloor = this.resolveSessionInboxResetFloor(company.session);
@@ -596,11 +625,13 @@ export class WebwhatsBridgeService {
       });
     }
 
-    return snapshots.sort((left, right) => {
+    const sortedSnapshots = snapshots.sort((left, right) => {
       const leftTime = left.lastMessageAt?.getTime() || 0;
       const rightTime = right.lastMessageAt?.getTime() || 0;
       return rightTime - leftTime;
     });
+
+    return this.enrichLiveChatsWithPresence(company.id, sortedSnapshots);
   }
 
   async getLiveConversation(
@@ -742,7 +773,7 @@ export class WebwhatsBridgeService {
       || this.resolveMessageDate(lastMessage?.messageTimestamp)
       || null;
 
-    return {
+    const snapshot: WebwhatsLiveConversationSnapshot = {
       conversation: conversationState || {
         id: conversation.id,
         contact,
@@ -777,6 +808,8 @@ export class WebwhatsBridgeService {
       lastMessage,
       messages: orderedMessages,
     };
+
+    return this.enrichLiveChatWithPresence(company.id, snapshot);
   }
 
   async listContacts(companyId: number, opts?: { force?: boolean; failOnError?: boolean }) {
@@ -2335,6 +2368,48 @@ export class WebwhatsBridgeService {
     return error instanceof WebwhatsProviderError ? error : null;
   }
 
+  public async fetchChatsFast(
+    companyId: number,
+    opts?: { limit?: number; cursor?: string | null },
+  ): Promise<WebwhatsFastChatListResult> {
+    const limit = this.clamp(Number(opts?.limit || 60), 1, 120);
+    const cursor = this.normalizeOptionalString(opts?.cursor);
+    const cacheKey = `${companyId}:${limit}:${cursor || ''}`;
+    const cached = this.getCachedChatList(cacheKey);
+    if (cached) return cached;
+
+    const tenantKey = this.buildTenantKey(companyId);
+
+    try {
+      const response = await this.requestRead<any>({
+        method: 'POST',
+        path: `/chat/findChatsFast/${encodeURIComponent(tenantKey)}`,
+        purpose: 'listagem rapida de chats',
+        data: {
+          take: limit,
+          ...(cursor ? { cursor } : {}),
+        },
+      });
+      const result = this.normalizeFastChatListResponse(response, 'fast');
+      this.setCachedChatList(cacheKey, result);
+      return result;
+    } catch (error: any) {
+      const providerError = error instanceof WebwhatsProviderError ? error : null;
+      this.logger.warn(
+        `Webwhats chat list fast indisponivel company=${companyId}; fallback=legacy code=${providerError?.code || 'unknown'} status=${providerError?.statusCode ?? 'na'}`,
+      );
+      const records = await this.fetchChats(companyId, limit);
+      const result: WebwhatsFastChatListResult = {
+        records,
+        nextCursor: null,
+        hasMore: records.length >= limit,
+        source: 'legacy',
+      };
+      this.setCachedChatList(cacheKey, result);
+      return result;
+    }
+  }
+
   private async fetchChats(companyId: number, limit: number) {
     const tenantKey = this.buildTenantKey(companyId);
     const response = await this.requestRead<any>({
@@ -2344,6 +2419,260 @@ export class WebwhatsBridgeService {
       data: { take: this.clamp(limit, 1, 120) },
     });
     return Array.isArray(response) ? (response as WebwhatsChatSummary[]) : [];
+  }
+
+  public async fetchPresence(companyId: number, remoteJidRaw: string): Promise<WebwhatsPresenceSnapshot> {
+    const remoteJid = this.normalizeRemoteJid(String(remoteJidRaw || ''));
+    if (!remoteJid) return this.buildUnknownPresenceSnapshot('');
+
+    const cacheKey = `${companyId}:${remoteJid}`;
+    const cached = this.getCachedPresence(cacheKey);
+    if (cached) return cached;
+
+    try {
+      const tenantKey = this.buildTenantKey(companyId);
+      const response = await this.requestRead<any>({
+        method: 'GET',
+        path: `/chat/presence/${encodeURIComponent(tenantKey)}?remoteJid=${encodeURIComponent(remoteJid)}`,
+        purpose: 'consulta de presenca Webwhats',
+      });
+      const snapshot = this.normalizePresenceSnapshot(response, remoteJid);
+      this.setCachedPresence(cacheKey, snapshot);
+      return snapshot;
+    } catch (error: any) {
+      const providerError = error instanceof WebwhatsProviderError ? error : null;
+      this.logger.warn(
+        `Webwhats presence indisponivel company=${companyId} remoteJid=${remoteJid}; code=${providerError?.code || 'unknown'} status=${providerError?.statusCode ?? 'na'}`,
+      );
+      const snapshot = this.buildUnknownPresenceSnapshot(remoteJid);
+      this.setCachedPresence(cacheKey, snapshot);
+      return snapshot;
+    }
+  }
+
+  private getCachedChatList(cacheKey: string) {
+    const cached = this.chatListCache.get(cacheKey);
+    if (!cached) return null;
+    if (Date.now() > cached.expiresAt) {
+      this.chatListCache.delete(cacheKey);
+      return null;
+    }
+    return cached.value;
+  }
+
+  private setCachedChatList(cacheKey: string, value: WebwhatsFastChatListResult) {
+    this.chatListCache.set(cacheKey, {
+      expiresAt: Date.now() + 5000,
+      value,
+    });
+    if (this.chatListCache.size > 200) {
+      for (const [key, cached] of this.chatListCache) {
+        if (Date.now() > cached.expiresAt) this.chatListCache.delete(key);
+      }
+    }
+  }
+
+  private getCachedPresence(cacheKey: string) {
+    const cached = this.presenceCache.get(cacheKey);
+    if (!cached) return null;
+    if (Date.now() > cached.expiresAt) {
+      this.presenceCache.delete(cacheKey);
+      return null;
+    }
+    return cached.value;
+  }
+
+  private setCachedPresence(cacheKey: string, value: WebwhatsPresenceSnapshot) {
+    this.presenceCache.set(cacheKey, {
+      expiresAt: Date.now() + 10000,
+      value,
+    });
+    if (this.presenceCache.size > 2000) {
+      for (const [key, cached] of this.presenceCache) {
+        if (Date.now() > cached.expiresAt) this.presenceCache.delete(key);
+      }
+    }
+  }
+
+  private normalizeFastChatListResponse(response: any, source: 'fast' | 'legacy'): WebwhatsFastChatListResult {
+    const envelope = response && typeof response === 'object' && !Array.isArray(response) ? response : {};
+    const rows = Array.isArray(response)
+      ? response
+      : Array.isArray(envelope.records)
+        ? envelope.records
+        : [];
+    const records = rows
+      .map((row) => this.normalizeFastChatSummary(row))
+      .filter((row): row is WebwhatsChatSummary => Boolean(row?.remoteJid));
+
+    return {
+      records,
+      nextCursor: this.normalizeOptionalString(envelope.nextCursor),
+      hasMore:
+        typeof envelope.hasMore === 'boolean'
+          ? Boolean(envelope.hasMore)
+          : Boolean(this.normalizeOptionalString(envelope.nextCursor)),
+      source,
+    };
+  }
+
+  private normalizeFastChatSummary(row: any): WebwhatsChatSummary | null {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) return null;
+    const remoteJid = this.normalizeOptionalString(row.remoteJid);
+    if (!remoteJid) return null;
+
+    const lastMessageTimestamp = row.lastMessageTimestamp ?? row.lastMessage?.messageTimestamp ?? null;
+    const lastMessageId =
+      this.normalizeOptionalString(row.lastMessageId || row.lastMessage?.id || row.lastMessage?.key?.id)
+      || (lastMessageTimestamp ? `fast:${remoteJid}:${lastMessageTimestamp}` : null);
+    const lastMessageType =
+      this.normalizeOptionalString(row.lastMessageType || row.lastMessage?.messageType) || 'conversation';
+    const lastMessageTextPreview = this.normalizeOptionalString(
+      row.lastMessageTextPreview || row.lastMessagePreview || row.preview,
+    );
+    const hasSyntheticLastMessage = Boolean(lastMessageId || lastMessageTextPreview || lastMessageTimestamp);
+    const lastMessage =
+      row.lastMessage ||
+      (hasSyntheticLastMessage
+        ? {
+            id: lastMessageId,
+            key: {
+              id: lastMessageId,
+              remoteJid,
+              fromMe: Boolean(row.fromMe),
+            },
+            pushName: this.normalizeOptionalString(row.pushName || row.displayName),
+            messageType: lastMessageType,
+            message: lastMessageTextPreview ? { conversation: lastMessageTextPreview } : null,
+            messageTimestamp: lastMessageTimestamp,
+            status: null,
+          }
+        : null);
+
+    return {
+      ...row,
+      remoteJid,
+      lastMessageId,
+      lastMessageType,
+      lastMessageTextPreview,
+      lastMessageTimestamp,
+      lastMessage,
+    };
+  }
+
+  private normalizePresenceSnapshot(response: any, remoteJid: string): WebwhatsPresenceSnapshot {
+    const payload = response && typeof response === 'object' && !Array.isArray(response) ? response : {};
+    const presence = this.normalizePresenceValue(payload.presence);
+    return {
+      remoteJid: this.normalizeRemoteJid(String(payload.remoteJid || remoteJid || '')) || remoteJid,
+      presence,
+      online: this.normalizeOptionalBoolean(payload.online) ?? ['online', 'composing', 'recording', 'paused'].includes(presence),
+      typing: this.normalizeOptionalBoolean(payload.typing) ?? presence === 'composing',
+      recording: this.normalizeOptionalBoolean(payload.recording) ?? presence === 'recording',
+      lastSeenAt: this.normalizeIsoDateString(payload.lastSeenAt),
+      updatedAt: this.normalizeIsoDateString(payload.updatedAt),
+    };
+  }
+
+  private normalizePresenceValue(value: unknown): WebwhatsPresenceValue {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (normalized === 'online') return 'online';
+    if (normalized === 'offline') return 'offline';
+    if (normalized === 'composing') return 'composing';
+    if (normalized === 'recording') return 'recording';
+    if (normalized === 'paused') return 'paused';
+    return 'unknown';
+  }
+
+  private normalizeIsoDateString(value: unknown) {
+    if (!value) return null;
+    const date = value instanceof Date ? value : new Date(String(value));
+    return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  }
+
+  private buildUnknownPresenceSnapshot(remoteJid: string): WebwhatsPresenceSnapshot {
+    return {
+      remoteJid,
+      presence: 'unknown',
+      online: false,
+      typing: false,
+      recording: false,
+      lastSeenAt: null,
+      updatedAt: null,
+    };
+  }
+
+  private async enrichLiveChatsWithPresence<T extends WebwhatsLiveChatSnapshot>(companyId: number, snapshots: T[]) {
+    return Promise.all(snapshots.map((snapshot) => this.enrichLiveChatWithPresence(companyId, snapshot)));
+  }
+
+  private async enrichLiveChatWithPresence<T extends WebwhatsLiveChatSnapshot>(companyId: number, snapshot: T) {
+    if (!snapshot?.remoteJid) return snapshot;
+    const presence = await this.fetchPresence(companyId, snapshot.remoteJid);
+    return this.withPresenceMetadata({
+      ...snapshot,
+      presence,
+    });
+  }
+
+  private withPresenceMetadata<T extends WebwhatsLiveChatSnapshot>(snapshot: T): T {
+    if (!snapshot?.presence) return snapshot;
+    const metadata = this.parseMetadata(snapshot.conversation?.metadata);
+    const presenceMetadata = this.buildPresenceMetadata(snapshot.presence);
+    const mergedMetadata = JSON.stringify({
+      ...metadata,
+      ...presenceMetadata,
+    });
+
+    return {
+      ...snapshot,
+      conversation: {
+        ...snapshot.conversation,
+        metadata: mergedMetadata,
+      },
+    };
+  }
+
+  private buildPresenceMetadata(presence: WebwhatsPresenceSnapshot) {
+    const statusLabel =
+      presence.presence === 'recording'
+        ? 'gravando audio...'
+        : presence.presence === 'paused'
+          ? 'pausado'
+          : null;
+
+    return {
+      presenceOnline: Boolean(presence.online),
+      whatsappOnline: Boolean(presence.online),
+      presenceTyping: Boolean(presence.typing),
+      whatsappTyping: Boolean(presence.typing),
+      presenceRecording: Boolean(presence.recording),
+      whatsappRecording: Boolean(presence.recording),
+      presenceStatus: null,
+      whatsappPresenceStatus: null,
+      lastSeenAt: null,
+      whatsappLastSeenAt: null,
+      lastPresenceAt: null,
+      whatsappPresenceUpdatedAt: null,
+      ...(statusLabel
+        ? {
+            presenceStatus: statusLabel,
+            whatsappPresenceStatus: statusLabel,
+          }
+        : {}),
+      ...(presence.lastSeenAt
+        ? {
+            lastSeenAt: presence.lastSeenAt,
+            whatsappLastSeenAt: presence.lastSeenAt,
+          }
+        : {}),
+      ...(presence.updatedAt
+        ? {
+            lastPresenceAt: presence.updatedAt,
+            whatsappPresenceUpdatedAt: presence.updatedAt,
+          }
+        : {}),
+    };
   }
 
   private async fetchContacts(companyId: number) {
