@@ -4,6 +4,7 @@ import { FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } 
 import DashboardScaffold from "@/components/DashboardScaffold";
 import HbxGuide1, { type HbxGuide1Tab } from "@/components/HbxGuide1";
 import HbxMobileDock from "@/components/mobile/HbxMobileDock";
+import { HbxEmptyState, HbxSection, HbxStatusBadge } from "@/components/ui";
 import { apiFetch, getDashboardApiBaseUrl, getToken } from "@/app/_lib/api";
 import { startSmartPolling } from "@/app/_lib/polling";
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
@@ -449,6 +450,22 @@ function candidatePreferredSegmentsLabel(candidate: HbxPartnerReferralCandidate)
   } catch {
     return raw;
   }
+}
+
+function referralCandidateStatusLabel(status?: string | null) {
+  const normalized = String(status || "").toLowerCase();
+  if (normalized === "approved") return "Aprovada";
+  if (normalized === "converted") return "Convertida";
+  if (normalized === "rejected") return "Rejeitada";
+  return "Pendente";
+}
+
+function referralCandidateStatusTone(status?: string | null): "brand" | "success" | "warning" | "danger" {
+  const normalized = String(status || "").toLowerCase();
+  if (normalized === "approved") return "success";
+  if (normalized === "converted") return "brand";
+  if (normalized === "rejected") return "danger";
+  return "warning";
 }
 
 function buildProfileDraft(user: UserItem): UserProfileDraft {
@@ -2091,94 +2108,107 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     const pendingCount = referralCandidates.length;
     const containerClass = isMobile
       ? "hbx-mobile-card grid gap-3"
-      : "mb-4 rounded-[16px] border border-[var(--line)] bg-[var(--surface-soft)] p-4";
+      : "mb-4";
     const itemClass = isMobile
       ? "rounded-[16px] border border-[var(--hbx-mobile-border)] bg-[var(--hbx-mobile-surface-soft)] p-3"
       : "rounded-[14px] border border-[var(--line)] bg-[var(--surface)] p-3";
+
+    const panelBody = pendingCount === 0 ? (
+      <HbxEmptyState
+        title="Nenhuma indicação pendente ou aprovada."
+        description="Quando um parceiro HBX indicar nome e telefone, o pedido aparece aqui para aprovação do Master HBX."
+      />
+    ) : (
+      <div className={isMobile ? "grid gap-2" : "grid grid-cols-1 xl:grid-cols-2 gap-2"}>
+        {referralCandidates.map((candidate) => {
+          const busy = reviewingCandidateId === candidate.id;
+          return (
+            <article key={candidate.id} className={itemClass}>
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                <div className="min-w-0">
+                  <strong className="block truncate">{candidate.name}</strong>
+                  <span className={isMobile ? "text-xs text-[var(--hbx-mobile-muted)]" : "text-xs text-muted"}>
+                    {candidate.phone} · indicado por {candidate.referrerUser ? userLabel(candidate.referrerUser) : `#${candidate.referrerUserId}`}
+                  </span>
+                </div>
+                <HbxStatusBadge tone={referralCandidateStatusTone(candidate.status)}>
+                  {referralCandidateStatusLabel(candidate.status)} · {formatShortDate(candidate.createdAt)}
+                </HbxStatusBadge>
+              </div>
+              <div className={isMobile ? "mt-2 grid gap-1 text-sm" : "mt-3 grid grid-cols-1 md:grid-cols-2 gap-2 text-sm"}>
+                <div>
+                  <p className={isMobile ? "text-xs text-[var(--hbx-mobile-muted)]" : "text-xs text-muted"}>Segmentos preferidos</p>
+                  <strong className="block truncate">{candidatePreferredSegmentsLabel(candidate)}</strong>
+                </div>
+                <div>
+                  <p className={isMobile ? "text-xs text-[var(--hbx-mobile-muted)]" : "text-xs text-muted"}>Herança configurada</p>
+                  <strong className="block">
+                    {formatPercent(candidate.referrerUser?.sellerReferralCommissionPercent || 0)}
+                  </strong>
+                </div>
+              </div>
+              {candidate.note ? (
+                <p className={isMobile ? "mt-2 text-sm text-[var(--hbx-mobile-muted)]" : "mt-2 text-xs text-muted"}>{candidate.note}</p>
+              ) : null}
+              <div className={isMobile ? "mt-3 grid grid-cols-2 gap-2" : "mt-3 flex flex-wrap gap-2"}>
+                {candidate.status === "pending" ? (
+                  <button
+                    type="button"
+                    disabled={busy || reviewingCandidateId !== null}
+                    onClick={() => void reviewReferralCandidate(candidate, "approve")}
+                    className={isMobile ? "hbx-mobile-secondary-button" : "btn btn-secondary btn-sm"}
+                  >
+                    {busy ? "Processando..." : "Aprovar indicação"}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  disabled={busy || reviewingCandidateId !== null}
+                  onClick={() => applyReferralCandidate(candidate)}
+                  className={isMobile ? "hbx-mobile-primary-button" : "btn btn-primary btn-sm"}
+                >
+                  Cadastrar agora
+                </button>
+                {candidate.status === "pending" ? (
+                  <button
+                    type="button"
+                    disabled={busy || reviewingCandidateId !== null}
+                    onClick={() => void reviewReferralCandidate(candidate, "reject")}
+                    className={isMobile ? "hbx-mobile-secondary-button" : "btn btn-secondary btn-sm"}
+                  >
+                    Rejeitar
+                  </button>
+                ) : null}
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    );
+
+    if (!isMobile) {
+      return (
+        <HbxSection
+          className={containerClass}
+          eyebrow="Indicações ativas"
+          title="Pedidos de indicação"
+          aside={<HbxStatusBadge dot={false}>{pendingCount} ativa(s)</HbxStatusBadge>}
+        >
+          {panelBody}
+        </HbxSection>
+      );
+    }
 
     return (
       <section className={containerClass}>
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
           <div>
-            <span className={isMobile ? "text-xs font-bold uppercase text-[var(--hbx-mobile-primary)]" : "badge badge-brand"}>Indicações ativas</span>
-            <h3 className={isMobile ? "text-base font-semibold" : "mt-2 font-semibold"}>Pedidos de indicação</h3>
+            <HbxStatusBadge tone="brand" dot={false}>Indicações ativas</HbxStatusBadge>
+            <h3 className="text-base font-semibold">Pedidos de indicação</h3>
           </div>
-          <span className={isMobile ? "rounded-full border border-[var(--hbx-mobile-border)] px-3 py-1 text-xs font-bold" : "badge"}>
-            {pendingCount} ativa(s)
-          </span>
+          <HbxStatusBadge dot={false}>{pendingCount} ativa(s)</HbxStatusBadge>
         </div>
-
-        {pendingCount === 0 ? (
-          <p className={isMobile ? "text-sm text-[var(--hbx-mobile-muted)]" : "mt-3 text-sm text-muted"}>
-            Nenhuma indicação pendente ou aprovada.
-          </p>
-        ) : (
-          <div className={isMobile ? "grid gap-2" : "mt-3 grid grid-cols-1 xl:grid-cols-2 gap-2"}>
-            {referralCandidates.map((candidate) => {
-              const busy = reviewingCandidateId === candidate.id;
-              return (
-                <article key={candidate.id} className={itemClass}>
-                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
-                    <div className="min-w-0">
-                      <strong className="block truncate">{candidate.name}</strong>
-                      <span className={isMobile ? "text-xs text-[var(--hbx-mobile-muted)]" : "text-xs text-muted"}>
-                        {candidate.phone} · indicado por {candidate.referrerUser ? userLabel(candidate.referrerUser) : `#${candidate.referrerUserId}`}
-                      </span>
-                    </div>
-                    <span className={isMobile ? "text-xs font-bold uppercase text-[var(--hbx-mobile-primary)]" : "badge"}>
-                      {candidate.status === "approved" ? "Aprovada" : "Pendente"} · {formatShortDate(candidate.createdAt)}
-                    </span>
-                  </div>
-                  <div className={isMobile ? "mt-2 grid gap-1 text-sm" : "mt-3 grid grid-cols-1 md:grid-cols-2 gap-2 text-sm"}>
-                    <div>
-                      <p className={isMobile ? "text-xs text-[var(--hbx-mobile-muted)]" : "text-xs text-muted"}>Segmentos preferidos</p>
-                      <strong className="block truncate">{candidatePreferredSegmentsLabel(candidate)}</strong>
-                    </div>
-                    <div>
-                      <p className={isMobile ? "text-xs text-[var(--hbx-mobile-muted)]" : "text-xs text-muted"}>Herança configurada</p>
-                      <strong className="block">
-                        {formatPercent(candidate.referrerUser?.sellerReferralCommissionPercent || 0)}
-                      </strong>
-                    </div>
-                  </div>
-                  {candidate.note ? (
-                    <p className={isMobile ? "mt-2 text-sm text-[var(--hbx-mobile-muted)]" : "mt-2 text-xs text-muted"}>{candidate.note}</p>
-                  ) : null}
-                  <div className={isMobile ? "mt-3 grid grid-cols-2 gap-2" : "mt-3 flex flex-wrap gap-2"}>
-                    {candidate.status === "pending" ? (
-                      <button
-                        type="button"
-                        disabled={busy || reviewingCandidateId !== null}
-                        onClick={() => void reviewReferralCandidate(candidate, "approve")}
-                        className={isMobile ? "hbx-mobile-secondary-button" : "btn btn-secondary btn-sm"}
-                      >
-                        {busy ? "Processando..." : "Aprovar indicação"}
-                      </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      disabled={busy || reviewingCandidateId !== null}
-                      onClick={() => applyReferralCandidate(candidate)}
-                      className={isMobile ? "hbx-mobile-primary-button" : "btn btn-primary btn-sm"}
-                    >
-                      Cadastrar agora
-                    </button>
-                    {candidate.status === "pending" ? (
-                      <button
-                        type="button"
-                        disabled={busy || reviewingCandidateId !== null}
-                        onClick={() => void reviewReferralCandidate(candidate, "reject")}
-                        className={isMobile ? "hbx-mobile-secondary-button" : "btn btn-secondary btn-sm"}
-                      >
-                        Rejeitar
-                      </button>
-                    ) : null}
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        )}
+        {panelBody}
       </section>
     );
   }
@@ -3404,22 +3434,21 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
               </article>
             </div>
 
-            <div className="mt-4 rounded-[16px] border border-[var(--line)] bg-[var(--surface-soft)] p-4">
-              <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
-                <div>
-                  <span className="badge badge-brand">Implantação HBX</span>
-                  <h3 className="mt-2 font-semibold">Clientes aguardando ativação</h3>
-                  <p className="mt-1 text-xs text-muted">
-                    Quando o vendedor fecha um card, ele entra aqui. Avance para trial ou pagamento confirmado para liberar a comissão D+{commissionDueDays}.
-                  </p>
-                </div>
-                <span className="badge">{data.commission?.activationQueue?.length || 0} pendente(s)</span>
-              </div>
+            <HbxSection
+              className="mt-4"
+              eyebrow="Implantação HBX"
+              title="Clientes aguardando ativação"
+              description={`Quando o vendedor fecha um card, ele entra aqui. Avance para trial ou pagamento confirmado para liberar a comissão D+${commissionDueDays}.`}
+              aside={<HbxStatusBadge dot={false}>{data.commission?.activationQueue?.length || 0} pendente(s)</HbxStatusBadge>}
+            >
 
               {(data.commission?.activationQueue || []).length === 0 ? (
-                <p className="mt-3 text-sm text-muted">Nenhum cliente aguardando implantação agora.</p>
+                <HbxEmptyState
+                  title="Nenhum cliente aguardando implantação agora."
+                  description="Clientes fechados por vendedores aparecem aqui antes de liberar a comissão."
+                />
               ) : (
-                <div className="mt-3 grid grid-cols-1 xl:grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-2">
                   {(data.commission?.activationQueue || []).map((client) => {
                     const seller = data.users.find((user) => user.id === client.userId);
                     return (
@@ -3488,7 +3517,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                   })}
                 </div>
               )}
-            </div>
+            </HbxSection>
 
             <div className="mt-4 rounded-[16px] border border-[var(--line)] bg-[var(--surface-soft)] p-4">
               <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
