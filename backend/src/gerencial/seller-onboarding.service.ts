@@ -36,6 +36,7 @@ const ONBOARDING_DOCUMENT_SLOTS = [
 
 const GENERATED_CONTRACT_KIND = 'generated_contract';
 const CONTRACT_SIGNATURE_INSTRUCTION = 'Assine pelo gov.br ou por assinatura digital de sua preferência.';
+const ONBOARDING_ATTACHMENT_RETENTION_DAYS = 7;
 
 function normalizeText(value: unknown, max = 500) {
   const text = String(value || '').replace(/\s+/g, ' ').trim();
@@ -179,6 +180,10 @@ function parseMetadataJson(raw?: string | null): Record<string, any> {
 
 function stringifyMetadataJson(metadata: Record<string, any>) {
   return JSON.stringify(metadata).slice(0, 5000);
+}
+
+function addDays(date: Date, days: number) {
+  return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
 }
 
 function partnerTypeFor(user: any) {
@@ -686,12 +691,22 @@ export class SellerOnboardingService {
       activeAttachments = (onboarding.attachments || []).filter((item: any) => item.status !== 'deleted');
     }
     const readiness = this.buildReadiness(onboarding);
+    const missingRequiredAttachments = readiness.missingRequiredDocuments.map((item) => ({
+      kind: item.kind,
+      label: item.label,
+    }));
+    if (missingRequiredAttachments.length) {
+      const labels = missingRequiredAttachments.map((item) => item.label).join(', ');
+      throw new BadRequestException({
+        message: `Pendências obrigatórias antes do envio: ${labels}.`,
+        missingRequiredAttachments,
+      });
+    }
     const receivedLabels = readiness.receivedDocuments.map((item) => item.label);
     const missingLabels = readiness.missingRequiredDocuments.map((item) => item.label);
 
     const attachments: MailAttachment[] = [];
-    const generatedContractAttachments = (activeAttachments as any[]).filter((attachment) => attachment.kind === GENERATED_CONTRACT_KIND);
-    for (const attachment of generatedContractAttachments) {
+    for (const attachment of activeAttachments as any[]) {
       attachments.push({
         filename: attachment.originalFilename,
         content: await readFile(attachment.storagePath),
@@ -723,6 +738,7 @@ export class SellerOnboardingService {
     try {
       result = await this.mailService.sendMail({
         to: onboarding.email,
+        cc: normalizeText(onboarding.archiveEmail, 180) || undefined,
         subject: rendered.subject,
         text: rendered.text,
         html: rendered.html,
@@ -741,7 +757,24 @@ export class SellerOnboardingService {
     }
 
     const sentAt = result.ok ? new Date() : null;
-    if (sentAt) await this.markPartnerContractSent(userId, sentAt);
+    const attachmentsDeleteAfter = sentAt ? addDays(sentAt, ONBOARDING_ATTACHMENT_RETENTION_DAYS) : null;
+    let userActivated = false;
+    if (sentAt && attachmentsDeleteAfter) {
+      await this.markPartnerContractSent(userId, sentAt);
+      await this.prisma.sellerOnboardingAttachment.updateMany({
+        where: { onboardingId: onboarding.id, status: { not: 'deleted' } },
+        data: { deleteAfter: attachmentsDeleteAfter },
+      });
+      await this.prisma.user.update({
+        where: { id: Number(userId) },
+        data: {
+          isActive: true,
+          deactivatedAt: null,
+          retentionUntil: null,
+        },
+      });
+      userActivated = true;
+    }
 
     const updated = await this.prisma.sellerOnboarding.update({
       where: { id: onboarding.id },
@@ -749,12 +782,21 @@ export class SellerOnboardingService {
         emailStatus: result.ok ? 'sent' : 'email_failed',
         emailMessageId: result.messageId,
         emailSentAt: sentAt,
-        status: result.ok ? (readiness.complete ? 'ready_to_activate' : 'waiting_documents') : onboarding.status,
-        attachmentsDeleteAfter: null,
+        status: result.ok ? 'approved' : onboarding.status,
+        ...(attachmentsDeleteAfter ? { attachmentsDeleteAfter } : {}),
       },
       include: { attachments: { orderBy: { createdAt: 'desc' } } },
     });
-    return { ok: result.ok, delivery: result, onboarding: updated, readiness: this.buildReadiness(updated) };
+    return {
+      ok: result.ok,
+      emailStatus: updated.emailStatus,
+      userActivated,
+      missingRequiredAttachments,
+      messageId: result.messageId,
+      delivery: result,
+      onboarding: updated,
+      readiness: this.buildReadiness(updated),
+    };
   }
 
   async assertCanActivatePartner(companyId: number, userId: number, approvedByUserId?: number | null) {
@@ -837,10 +879,16 @@ export class SellerOnboardingService {
   }
 
   private isDocumentRequired(onboarding: any, kind: string) {
-    if (kind === 'contract_pdf') return true;
     const slot = ONBOARDING_DOCUMENT_SLOTS.find((item) => item.kind === kind);
     const metadata = parseMetadataJson(onboarding?.metadataJson);
     const override = metadata?.documentRequirements?.[kind];
+    if (kind === 'contract_pdf') {
+      const hasGeneratedContract = Boolean(
+        onboarding?.contractTextSnapshot
+        || (onboarding?.attachments || []).some((item: any) => item.status !== 'deleted' && item.kind === GENERATED_CONTRACT_KIND),
+      );
+      return override === true || hasGeneratedContract;
+    }
     if (typeof override === 'boolean') return override;
     return Boolean(slot?.defaultRequired);
   }
