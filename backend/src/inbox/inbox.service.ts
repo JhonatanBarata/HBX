@@ -925,9 +925,38 @@ export class InboxService {
     return localPath;
   }
 
+  private isInlineBase64MediaValue(value: string) {
+    const normalized = String(value || '').trim();
+    if (!normalized) return false;
+    if (/^data:[^,]+;base64,/i.test(normalized)) return true;
+    const compact = normalized.replace(/\s+/g, '');
+    return compact.length > 512 && /^[a-z0-9+/]+={0,2}$/i.test(compact) && !/[./\\:_-]/.test(compact);
+  }
+
+  private buildMediaPlaceholderForResponse(messageType: unknown) {
+    const normalizedType = String(messageType || '')
+      .trim()
+      .toLowerCase();
+    if (normalizedType.includes('image')) return '[Imagem recebida]';
+    if (normalizedType.includes('video')) return '[Video recebido]';
+    if (normalizedType.includes('audio')) return '[Audio recebido]';
+    if (normalizedType.includes('sticker')) return '[Figurinha recebida]';
+    if (normalizedType.includes('document')) return '[Documento recebido]';
+    return '[Midia recebida]';
+  }
+
+  private normalizeConversationMessageContentForResponse(value: unknown, messageType: unknown) {
+    const normalized = String(value || '').trim();
+    if (!normalized) return '';
+    return this.isInlineBase64MediaValue(normalized)
+      ? this.buildMediaPlaceholderForResponse(messageType)
+      : normalized;
+  }
+
   private normalizeStoredMediaAssetUrl(value: unknown) {
     const normalized = this.normalizeMessageMetadataText(value);
     if (!normalized) return null;
+    if (this.isInlineBase64MediaValue(normalized)) return null;
     if (/^https?:\/\//i.test(normalized)) {
       if (this.isTransientWhatsAppMediaUrl(normalized)) {
         return null;
@@ -2565,7 +2594,10 @@ export class InboxService {
           return {
             id: String(message.id),
             direction: String(message.direction || '').trim().toLowerCase(),
-            content: String(messageMetadata?.resolvedText || message.body || ''),
+            content: this.normalizeConversationMessageContentForResponse(
+              messageMetadata?.resolvedText || message.body || '',
+              messageMetadata?.normalizedMessageType || message.messageType,
+            ),
             createdAt: message.timestamp,
             messageType: String(messageMetadata?.normalizedMessageType || message.messageType || 'text')
               .trim()

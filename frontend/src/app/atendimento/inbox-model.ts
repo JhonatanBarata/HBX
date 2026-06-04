@@ -1714,10 +1714,17 @@ export function formatCurrency(value: number) {
   });
 }
 
+function isInlineBase64PreviewContent(value: string) {
+  const normalized = String(value || "").trim();
+  if (!normalized) return false;
+  if (/^data:[^,]+;base64,/i.test(normalized)) return true;
+  const compact = normalized.replace(/\s+/g, "");
+  return compact.length > 512 && /^[a-z0-9+/]+={0,2}$/i.test(compact) && !/[./\\:_-]/.test(compact);
+}
+
 export function getMessagePreview(message?: InboxMessage | null) {
   if (!message) return "Sem mensagens";
   const content = String(message.content || "").trim();
-  if (content) return content;
   const metadata =
     message.metadata && typeof message.metadata === "object" && !Array.isArray(message.metadata)
       ? (message.metadata as Record<string, unknown>)
@@ -1726,6 +1733,7 @@ export function getMessagePreview(message?: InboxMessage | null) {
     .trim()
     .toLowerCase();
   const fileName = String(metadata?.fileName || "").trim();
+  if (content && !isInlineBase64PreviewContent(content)) return content;
   if (type === "deleted" || metadata?.isDeleted) return "[Mensagem apagada]";
   if (type === "image") return "[Imagem recebida]";
   if (type === "audio") return fileName ? `[Audio] ${fileName}` : "[Audio recebido]";

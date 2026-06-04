@@ -117,7 +117,7 @@ type InboxAttachmentPreview = {
 };
 
 type OpenedInboxAsset = {
-  kind: "image" | "document";
+  kind: "image" | "document" | "video" | "audio";
   src: string;
   alt: string;
   title?: string | null;
@@ -2555,6 +2555,7 @@ function canPreviewDocumentInOverlay(url: string, mimeType?: string | null, file
 function toUploadedInboxAssetPath(raw: string) {
   const value = String(raw || "").trim();
   if (!value) return "";
+  if (isInlineBase64AssetValue(value)) return "";
   if (/^https?:\/\//i.test(value) || value.startsWith("/")) return value;
 
   const relative = value
@@ -2569,9 +2570,18 @@ function toUploadedInboxAssetPath(raw: string) {
   return "";
 }
 
+function isInlineBase64AssetValue(raw: string) {
+  const value = String(raw || "").trim();
+  if (!value) return false;
+  if (/^data:[^,]+;base64,/i.test(value)) return true;
+  const compact = value.replace(/\s+/g, "");
+  return compact.length > 512 && /^[a-z0-9+/]+={0,2}$/i.test(compact) && !/[./\\:_-]/.test(compact);
+}
+
 function toAbsoluteAssetUrl(raw: string) {
   const value = String(raw || "").trim();
   if (!value) return "";
+  if (isInlineBase64AssetValue(value)) return "";
   const assetPath = toUploadedInboxAssetPath(value);
   const apiBase = getInboxApiBaseUrl();
   const resolved = /^https?:\/\//i.test(value)
@@ -2728,6 +2738,7 @@ function parseInboxMessageMedia(message: InboxMessage, conversation?: InboxConve
   if (isDeleted) {
     return {
       kind: "deleted",
+      mediaUrl: null,
       imageUrl: null,
       videoUrl: null,
       audioUrl: null,
@@ -2747,11 +2758,19 @@ function parseInboxMessageMedia(message: InboxMessage, conversation?: InboxConve
       deletedRevealUntil: String(metadata?.deletedRevealUntil || "").trim() || null,
     };
   }
-  const explicitMediaUrlRaw = String(metadata?.mediaUrl || metadata?.previewUrl || "").trim();
+  const explicitMediaUrlRaw = String(metadata?.mediaUrl || "").trim();
+  const explicitPreviewUrlRaw = String(metadata?.previewUrl || "").trim();
   const explicitMediaUrl = toAbsoluteAssetUrl(explicitMediaUrlRaw);
-  const explicitMediaExpired = Boolean(explicitMediaUrlRaw && !explicitMediaUrl && isExpiredWhatsAppAssetUrl(explicitMediaUrlRaw));
+  const explicitPreviewUrl = toAbsoluteAssetUrl(explicitPreviewUrlRaw);
+  const explicitMediaExpired = Boolean(
+    (explicitMediaUrlRaw || explicitPreviewUrlRaw) &&
+      !explicitMediaUrl &&
+      !explicitPreviewUrl &&
+      (isExpiredWhatsAppAssetUrl(explicitMediaUrlRaw) || isExpiredWhatsAppAssetUrl(explicitPreviewUrlRaw)),
+  );
   const firstLine = String(text.split("\n")[0] || "").trim();
   const firstLineIsUrl = Boolean(toAbsoluteAssetUrl(firstLine));
+  const firstLineIsInlineBase64 = isInlineBase64AssetValue(firstLine);
   const fallbackMediaUrlRaw = firstLineIsUrl ? firstLine : "";
   const fallbackMediaUrl = fallbackMediaUrlRaw ? toAbsoluteAssetUrl(fallbackMediaUrlRaw) : "";
   const fallbackMediaExpired = Boolean(fallbackMediaUrlRaw && !fallbackMediaUrl && isExpiredWhatsAppAssetUrl(fallbackMediaUrlRaw));
@@ -2764,10 +2783,11 @@ function parseInboxMessageMedia(message: InboxMessage, conversation?: InboxConve
     else if (isLikelyDocumentUrl(fallbackMediaKindSource)) mediaKind = "document";
   }
 
-  const resolvedMediaUrl = explicitMediaUrl || fallbackMediaUrl;
+  const resolvedThumbnailUrl = explicitPreviewUrl || explicitMediaUrl || fallbackMediaUrl;
+  const resolvedMediaUrl = explicitMediaUrl || explicitPreviewUrl || fallbackMediaUrl;
   const mediaExpired = explicitMediaExpired || fallbackMediaExpired;
-  const imageUrl = mediaKind === "image" && resolvedMediaUrl ? resolvedMediaUrl : null;
-  const stickerUrl = mediaKind === "sticker" && resolvedMediaUrl ? resolvedMediaUrl : null;
+  const imageUrl = mediaKind === "image" && resolvedThumbnailUrl ? resolvedThumbnailUrl : null;
+  const stickerUrl = mediaKind === "sticker" && resolvedThumbnailUrl ? resolvedThumbnailUrl : null;
   const videoUrl = mediaKind === "video" && resolvedMediaUrl ? resolvedMediaUrl : null;
   const audioUrl = mediaKind === "audio" && resolvedMediaUrl ? resolvedMediaUrl : null;
   const documentUrl = mediaKind === "document" && resolvedMediaUrl ? resolvedMediaUrl : null;
@@ -2778,6 +2798,8 @@ function parseInboxMessageMedia(message: InboxMessage, conversation?: InboxConve
   } else if (resolvedMediaUrl && fallbackMediaUrl && firstLineIsUrl) {
     text = text.split("\n").slice(1).join("\n").trim();
   } else if (mediaExpired && fallbackMediaUrlRaw && firstLineIsUrl) {
+    text = text.split("\n").slice(1).join("\n").trim();
+  } else if (firstLineIsInlineBase64) {
     text = text.split("\n").slice(1).join("\n").trim();
   }
 
@@ -2795,6 +2817,7 @@ function parseInboxMessageMedia(message: InboxMessage, conversation?: InboxConve
 
   return {
     kind: mediaKind,
+    mediaUrl: resolvedMediaUrl || null,
     imageUrl: imageUrl || stickerUrl,
     videoUrl,
     audioUrl,
@@ -9517,7 +9540,7 @@ function InboxDesktopClientPage() {
                                   onClick={() =>
                                     setOpenedAsset({
                                       kind: "image",
-                                      src: rendered.imageUrl || "",
+                                      src: rendered.mediaUrl || rendered.imageUrl || "",
                                       alt: "Imagem da conversa",
                                     })
                                   }
@@ -9530,19 +9553,39 @@ function InboxDesktopClientPage() {
                                     alt="Imagem enviada"
                                     className={styles.whatsAppBubbleImage}
                                     loading="lazy"
+                                    decoding="async"
                                     onError={() => markInboxMediaUrlFailed(rendered.imageUrl)}
                                   />
                                 </button>
                               ) : null}
                               {rendered.videoUrl ? (
-                                <video
-                                  className={styles.whatsAppBubbleVideo}
-                                  controls
-                                  preload="metadata"
-                                  onError={() => markInboxMediaUrlFailed(rendered.videoUrl)}
+                                <button
+                                  type="button"
+                                  className={styles.whatsAppDocumentCard}
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() =>
+                                    setOpenedAsset({
+                                      kind: "video",
+                                      src: rendered.mediaUrl || rendered.videoUrl || "",
+                                      alt: rendered.fileName || "Video",
+                                      title: rendered.fileName || "Video recebido",
+                                      mimeType: rendered.mimeType,
+                                      fileName: rendered.fileName,
+                                    })
+                                  }
+                                  aria-label="Abrir video"
+                                  title="Abrir video"
                                 >
-                                  <source src={rendered.videoUrl} />
-                                </video>
+                                  <span className={styles.whatsAppDocumentIcon}>VID</span>
+                                  <span className={styles.whatsAppDocumentBody}>
+                                    <strong>{rendered.fileName || "Video recebido"}</strong>
+                                    <span>
+                                      {[rendered.mimeType, formatInboxFileSizeLabel(rendered.fileSize)]
+                                        .filter(Boolean)
+                                        .join(" • ") || "Abrir video"}
+                                    </span>
+                                  </span>
+                                </button>
                               ) : null}
                               {rendered.documentUrl || rendered.kind === "document" ? (
                                 rendered.documentUrl ? (
@@ -9596,14 +9639,24 @@ function InboxDesktopClientPage() {
                                   </span>
                                   <div className={styles.whatsAppAudioBody}>
                                     {rendered.audioUrl ? (
-                                      <audio
-                                        key={rendered.audioUrl}
-                                        className={styles.whatsAppAudioPlayer}
-                                        controls
-                                        preload="metadata"
-                                        src={rendered.audioUrl}
-                                        onError={() => markInboxMediaUrlFailed(rendered.audioUrl)}
-                                      />
+                                      <button
+                                        type="button"
+                                        className={styles.whatsAppAudioOpenButton}
+                                        onMouseDown={(e) => e.preventDefault()}
+                                        onClick={() =>
+                                          setOpenedAsset({
+                                            kind: "audio",
+                                            src: rendered.mediaUrl || rendered.audioUrl || "",
+                                            alt: rendered.fileName || "Audio",
+                                            title: rendered.fileName || (rendered.isVoiceNote ? "Mensagem de voz" : "Audio recebido"),
+                                            mimeType: rendered.mimeType,
+                                            fileName: rendered.fileName,
+                                          })
+                                        }
+                                      >
+                                        <span className={styles.whatsAppAudioWavePlaceholder} />
+                                        <span>Abrir audio</span>
+                                      </button>
                                     ) : (
                                       <div className={styles.whatsAppAudioWavePlaceholder} />
                                     )}
@@ -9990,7 +10043,11 @@ function InboxDesktopClientPage() {
                   aria-label={
                     openedAsset.kind === "document"
                       ? "Visualizador de documento"
-                      : "Visualizador de imagem"
+                      : openedAsset.kind === "video"
+                        ? "Visualizador de video"
+                        : openedAsset.kind === "audio"
+                          ? "Player de audio"
+                          : "Visualizador de imagem"
                   }
                   onClick={() => setOpenedAsset(null)}
                 >
@@ -10007,7 +10064,9 @@ function InboxDesktopClientPage() {
                     className={
                       openedAsset.kind === "document"
                         ? styles.whatsAppDocumentLightboxCard
-                        : styles.whatsAppImageLightboxCard
+                        : openedAsset.kind === "video" || openedAsset.kind === "audio"
+                          ? styles.whatsAppMediaLightboxCard
+                          : styles.whatsAppImageLightboxCard
                     }
                     onClick={(e) => e.stopPropagation()}
                   >
@@ -10031,6 +10090,55 @@ function InboxDesktopClientPage() {
                           src={openedAsset.src}
                           title={openedAsset.title || openedAsset.fileName || "Documento"}
                           className={styles.whatsAppDocumentLightboxFrame}
+                        />
+                      </>
+                    ) : openedAsset.kind === "video" ? (
+                      <>
+                        <div className={styles.whatsAppDocumentLightboxHeader}>
+                          <div className={styles.whatsAppDocumentLightboxTitle}>
+                            <strong>{openedAsset.title || openedAsset.fileName || "Video recebido"}</strong>
+                            {openedAsset.mimeType ? <span>{openedAsset.mimeType}</span> : null}
+                          </div>
+                          <a
+                            href={openedAsset.src}
+                            target="_blank"
+                            rel="noreferrer"
+                            className={`btn btn-secondary btn-sm ${styles.whatsAppDocumentLightboxLink}`}
+                          >
+                            Abrir em nova guia
+                          </a>
+                        </div>
+                        <video
+                          className={styles.whatsAppMediaLightboxPlayer}
+                          controls
+                          preload="metadata"
+                          onError={() => markInboxMediaUrlFailed(openedAsset.src)}
+                        >
+                          <source src={openedAsset.src} />
+                        </video>
+                      </>
+                    ) : openedAsset.kind === "audio" ? (
+                      <>
+                        <div className={styles.whatsAppDocumentLightboxHeader}>
+                          <div className={styles.whatsAppDocumentLightboxTitle}>
+                            <strong>{openedAsset.title || openedAsset.fileName || "Audio recebido"}</strong>
+                            {openedAsset.mimeType ? <span>{openedAsset.mimeType}</span> : null}
+                          </div>
+                          <a
+                            href={openedAsset.src}
+                            target="_blank"
+                            rel="noreferrer"
+                            className={`btn btn-secondary btn-sm ${styles.whatsAppDocumentLightboxLink}`}
+                          >
+                            Abrir em nova guia
+                          </a>
+                        </div>
+                        <audio
+                          className={styles.whatsAppAudioLightboxPlayer}
+                          controls
+                          preload="metadata"
+                          src={openedAsset.src}
+                          onError={() => markInboxMediaUrlFailed(openedAsset.src)}
                         />
                       </>
                     ) : (
