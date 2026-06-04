@@ -2195,6 +2195,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         runtimeUser,
       ),
       sourceHistoryId: (result as any).radarLeadId ? `radar:${(result as any).radarLeadId}` : search.meta.historyId || undefined,
+      placeId: result.placeId || undefined,
     }));
     if (leads.length) {
       await this.vendasService.importWebscrapingLeadsForUser(runtimeUser, {
