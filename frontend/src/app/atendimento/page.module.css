@@ -1744,11 +1744,12 @@
 
 .conversationQueueItem {
   isolation: isolate;
-  height: 72px;
-  min-height: 72px;
-  max-height: 72px;
+  height: 74px;
+  min-height: 74px;
+  max-height: 74px;
+  contain: layout paint style;
   content-visibility: auto;
-  contain-intrinsic-size: auto 72px;
+  contain-intrinsic-size: auto 74px;
 }
 
 .conversationQueueItem::after {
@@ -1811,10 +1812,12 @@
   font-weight: 850;
 }
 
-.conversationUnreadBadge {
+.conversationUnreadBadge,
+.conversationUnreadCountBadge {
   width: fit-content;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   min-height: 20px;
   padding: 0.08rem 0.48rem;
   border-radius: 999px;
@@ -1826,7 +1829,13 @@
   box-shadow: 0 8px 14px -10px rgba(37, 99, 235, 0.72);
 }
 
-.conversationQueueItemUnread .conversationUnreadBadge {
+.conversationUnreadCountBadge {
+  min-width: 20px;
+  padding-inline: 0.36rem;
+}
+
+.conversationQueueItemUnread .conversationUnreadBadge,
+.conversationQueueItemUnread .conversationUnreadCountBadge {
   color: #eff6ff;
 }
 
@@ -1926,7 +1935,9 @@
 }
 
 .conversationQueueItemProspection {
+  height: 74px;
   min-height: 74px;
+  max-height: 74px;
   gap: 0.62rem;
   align-items: center;
   padding: 0.5rem 0.68rem 0.5rem 0.78rem;
@@ -8253,11 +8264,77 @@
   gap: 0.46rem;
 }
 
+.conversationListSkeleton {
+  gap: 0.46rem;
+  padding-right: 0.15rem;
+}
+
+.conversationListSkeletonItem {
+  height: 74px;
+  min-height: 74px;
+  max-height: 74px;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  align-items: center;
+  gap: 0.72rem;
+  padding: 0.54rem 0.78rem;
+  border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--surface-raised) 82%, var(--background));
+  contain: layout paint style;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 74px;
+}
+
+.conversationListSkeletonAvatar,
+.conversationListSkeletonName,
+.conversationListSkeletonTime,
+.conversationListSkeletonPreview {
+  display: block;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted) 18%, var(--surface));
+}
+
+.conversationListSkeletonAvatar {
+  width: 48px;
+  height: 48px;
+}
+
+.conversationListSkeletonContent {
+  min-width: 0;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.conversationListSkeletonTop {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.conversationListSkeletonName {
+  width: min(150px, 72%);
+  height: 13px;
+}
+
+.conversationListSkeletonTime {
+  width: 44px;
+  height: 10px;
+}
+
+.conversationListSkeletonPreview {
+  width: min(220px, 88%);
+  height: 12px;
+}
+
 .conversationQueueMetaStack {
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
   gap: 0.16rem;
+  min-width: 58px;
 }
 
 .conversationQueueMetaTime {
@@ -9311,7 +9388,8 @@
   background: linear-gradient(180deg, #93c5fd, #2563eb);
 }
 
-:global(html[data-theme-mode="dark"]) .conversationUnreadBadge {
+:global(html[data-theme-mode="dark"]) .conversationUnreadBadge,
+:global(html[data-theme-mode="dark"]) .conversationUnreadCountBadge {
   background: #2563eb;
   color: #eff6ff;
 }
@@ -9653,7 +9731,8 @@
   font-weight: 850;
 }
 
-:global(html[data-theme-mode="light"]) .conversationQueueItemUnread .conversationUnreadBadge {
+:global(html[data-theme-mode="light"]) .conversationQueueItemUnread .conversationUnreadBadge,
+:global(html[data-theme-mode="light"]) .conversationQueueItemUnread .conversationUnreadCountBadge {
   background: #2563eb;
   color: #eff6ff;
 }
