@@ -186,6 +186,7 @@ const EMPTY_TERRITORY_CITIES: HbxTerritoryCity[] = [];
 const EMPTY_CITY_BALANCE: HbxTerritoryCityBalance[] = [];
 
 type TerritoryStatusFilter = "todos" | "sem_parceiro" | "precisa_cards" | "completo" | "pausada";
+type TerritoryViewMode = "table" | "config";
 
 type TerritoryFilters = {
   state: string;
@@ -217,7 +218,7 @@ const TABS: Array<{ id: TabId; label: string; description: string }> = [
   { id: "pesquisas", label: "Pesquisas", description: "Cards pesquisados e salvos no banco Radar." },
   { id: "excluidos", label: "Excluídos", description: "Cards removidos, bloqueados ou descartados." },
   { id: "reclamacoes", label: "Reclamações", description: "Cards contestados pelos clientes." },
-  { id: "distribuicao", label: "Distribuição HBX", description: "Master distribui cards por UF, cidade e parceiro." },
+  { id: "distribuicao", label: "Distribuição de Cards", description: "Modo tabela para UF, cidade, parceiro e limites de distribuição." },
 ];
 
 const TAB_GUIDE_ITEMS = TABS.map((tab) => ({
@@ -736,6 +737,7 @@ function HbxTerritoryPanelView({
     partnerId: "todos",
     status: "todos",
   });
+  const [territoryViewMode, setTerritoryViewMode] = useState<TerritoryViewMode>("table");
   const [selectedPartnerByRow, setSelectedPartnerByRow] = useState<Record<string, string>>({});
   const sellers = panel?.sellers || EMPTY_TERRITORY_SELLERS;
   const suggestions = panel?.citySuggestions || EMPTY_TERRITORY_CITIES;
@@ -833,13 +835,23 @@ function HbxTerritoryPanelView({
       <section className={styles.territoryHero}>
         <div>
           <span>HBX Master</span>
-          <strong>Master distribui cards</strong>
-          <p>Master distribui cards. Parceiro HBX trabalha cards. Parceiro não decide distribuição global.</p>
+          <strong>Distribuição de Cards</strong>
+          <p>Modo tabela para o Master distribuir cards por UF, cidade e parceiro. Parceiro HBX trabalha os cards no Vendas.</p>
         </div>
-        <div className={styles.territoryStatus}>
-          <span>Status</span>
-          <strong>{panel.status === "active" ? "Ativa" : panel.status === "paused" ? "Pausada" : "Rascunho"}</strong>
-          <small>{lastRunLabel}</small>
+        <div className={styles.territoryHeroAside}>
+          <div className={styles.territoryStatus}>
+            <span>Status</span>
+            <strong>{panel.status === "active" ? "Ativa" : panel.status === "paused" ? "Pausada" : "Rascunho"}</strong>
+            <small>{lastRunLabel}</small>
+          </div>
+          <div className={styles.territoryModeSwitch} role="tablist" aria-label="Modo da distribuição de cards">
+            <button type="button" role="tab" aria-selected={territoryViewMode === "table"} data-active={territoryViewMode === "table" ? "true" : "false"} onClick={() => setTerritoryViewMode("table")}>
+              Modo tabela
+            </button>
+            <button type="button" role="tab" aria-selected={territoryViewMode === "config"} data-active={territoryViewMode === "config" ? "true" : "false"} onClick={() => setTerritoryViewMode("config")}>
+              Configuração
+            </button>
+          </div>
         </div>
       </section>
 
@@ -906,14 +918,18 @@ function HbxTerritoryPanelView({
         </section>
       ) : null}
 
-      <section className={styles.territoryDistributionPanel} aria-label="Distribuição Master por UF, cidade e parceiro">
+      {territoryViewMode === "table" ? (
+      <section className={styles.territoryDistributionPanel} aria-label="Distribuição de Cards por UF, cidade e parceiro">
         <header className={styles.territoryTableHeader}>
           <div>
-            <span>Distribuição Master</span>
+            <span>Modo tabela</span>
             <strong>{metric(filteredDistributionRows.length)} linha(s)</strong>
-            <p>UF, cidade, parceiro e limite diário em uma visão operacional. Segmento fica livre para o Parceiro HBX trabalhar no Vendas.</p>
+            <p>UF, cidade, categoria, parceiro, preferências e limites em uma visão operacional. Segmento fica livre para o Parceiro HBX trabalhar no Vendas.</p>
           </div>
           <div className={styles.territoryTableActions}>
+            <button type="button" onClick={() => void onSave("draft")} disabled={saving}>
+              {saving ? "Salvando..." : "Salvar rascunho"}
+            </button>
             <button type="button" onClick={() => void onSave(panel.status === "active" ? "paused" : "active")} disabled={saving}>
               {panel.status === "active" ? "Pausar" : "Ativar"}
             </button>
@@ -967,6 +983,7 @@ function HbxTerritoryPanelView({
                 <th>Cidade/região</th>
                 <th>Segmento/categoria</th>
                 <th>Parceiro</th>
+                <th>Preferências do parceiro</th>
                 <th>Limite diário</th>
                 <th>Cards entregues hoje</th>
                 <th>Status</th>
@@ -990,7 +1007,11 @@ function HbxTerritoryPanelView({
                     </td>
                     <td data-label="Parceiro">
                       <strong>{row.seller?.name || "Sem parceiro"}</strong>
-                      <span>{row.preferredSegmentsLabel || "Sem preferência declarada"}</span>
+                      <span>{row.seller?.email || row.seller?.phone || "Sem contato salvo"}</span>
+                    </td>
+                    <td data-label="Preferências do parceiro">
+                      <strong>{row.preferredSegmentsLabel || "Sem preferência declarada"}</strong>
+                      <span>Usado para priorizar distribuição e abordagem.</span>
                     </td>
                     <td data-label="Limite diário">{row.seller ? metric(row.dailyLimit) : "-"}</td>
                     <td data-label="Cards entregues hoje">
@@ -1029,7 +1050,10 @@ function HbxTerritoryPanelView({
           {!filteredDistributionRows.length ? <div className={styles.emptyState}>Nenhuma distribuição encontrada com estes filtros.</div> : null}
         </div>
       </section>
+      ) : null}
 
+      {territoryViewMode === "config" ? (
+      <>
       <section className={styles.territoryControls}>
         <label>
           <span>Estoque alvo por vendedor</span>
@@ -1135,7 +1159,7 @@ function HbxTerritoryPanelView({
                   <button key={`${seller.id}-${city.city}-${city.state}`} type="button" onClick={() => onRemoveCity(seller.id, city)}>
                     {city.city}/{city.state} · {metric(city.availableCards)}
                   </button>
-                )) : <em>Nenhuma cidade fixa. Este vendedor ainda não entra no mapa HBX.</em>}
+                )) : <em>Nenhuma cidade fixa. Este vendedor ainda não entra na distribuição HBX.</em>}
               </div>
             </article>
           );
@@ -1153,6 +1177,8 @@ function HbxTerritoryPanelView({
           {running ? "Alimentando..." : "Alimentar agora"}
         </button>
       </footer>
+      </>
+      ) : null}
     </div>
   );
 }

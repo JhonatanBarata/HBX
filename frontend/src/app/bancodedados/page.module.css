@@ -335,6 +335,12 @@
   padding: 14px;
 }
 
+.territoryHeroAside {
+  display: grid;
+  gap: 8px;
+  min-width: min(100%, 280px);
+}
+
 .territoryHero span,
 .territoryStatus span,
 .territoryBalancePanel header span,
@@ -371,11 +377,39 @@
 }
 
 .territoryStatus {
-  min-width: 150px;
   border: 1px solid color-mix(in srgb, var(--bd-blue) 34%, var(--bd-border));
   border-radius: 8px;
   background: color-mix(in srgb, var(--bd-blue) 8%, var(--bd-surface));
   padding: 10px;
+}
+
+.territoryModeSwitch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  border: 1px solid var(--bd-border);
+  border-radius: 8px;
+  background: var(--bd-surface);
+  padding: 5px;
+}
+
+.territoryModeSwitch button {
+  min-height: 34px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--bd-muted);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 850;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+
+.territoryModeSwitch button[data-active="true"] {
+  border-color: color-mix(in srgb, var(--bd-blue) 30%, var(--bd-border));
+  background: color-mix(in srgb, var(--bd-blue) 10%, var(--bd-surface));
+  color: var(--bd-text);
 }
 
 .territoryInsightGrid {
@@ -491,7 +525,7 @@
 
 .territoryTable {
   width: 100%;
-  min-width: 1020px;
+  min-width: 1160px;
   border-collapse: separate;
   border-spacing: 0 8px;
   hyphens: none;
@@ -857,6 +891,7 @@
   .sectionTitle,
   .dataCard header,
   .territoryHero,
+  .territoryHeroAside,
   .territoryTableHeader,
   .territoryBalancePanel header,
   .territorySellerCard header,
