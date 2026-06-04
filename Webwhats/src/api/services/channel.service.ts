@@ -20,15 +20,12 @@ import EventEmitter2 from 'eventemitter2';
 import { v4 } from 'uuid';
 
 import { CacheService } from './cache.service';
-
-type PresenceSnapshotState = 'online' | 'offline' | 'composing' | 'recording' | 'paused' | 'unknown';
-
-type PresenceStoreEntry = {
-  remoteJid: string;
-  presence: PresenceSnapshotState;
-  lastSeenAt: Date | null;
-  updatedAt: Date;
-};
+import {
+  buildPresenceSnapshot,
+  normalizeChatPreviewText,
+  PresenceSnapshotState,
+  PresenceStoreEntry,
+} from './channel-lightweight.util';
 
 export class ChannelStartupService {
   constructor(
@@ -752,37 +749,6 @@ export class ChannelStartupService {
     return `${Math.floor(timestamp)}:${remoteJid}`;
   }
 
-  private isInlineBase64PreviewValue(value: string) {
-    const normalized = String(value || '').trim();
-    if (!normalized) return false;
-    if (/^data:[^,]+;base64,/i.test(normalized)) return true;
-    const compact = normalized.replace(/\s+/g, '');
-    return compact.length > 512 && /^[a-z0-9+/]+={0,2}$/i.test(compact) && !/[./\\:_-]/.test(compact);
-  }
-
-  private normalizeChatPreviewText(value: unknown, messageType: unknown) {
-    const text = String(value || '')
-      .replace(/\s+/g, ' ')
-      .trim();
-    if (text && !this.isInlineBase64PreviewValue(text)) {
-      return text.length > 160 ? `${text.slice(0, 157)}...` : text;
-    }
-
-    const normalizedType = String(messageType || '')
-      .trim()
-      .toLowerCase();
-    if (normalizedType.includes('image')) return '[image]';
-    if (normalizedType.includes('video')) return '[video]';
-    if (normalizedType.includes('audio')) return '[audio]';
-    if (normalizedType.includes('sticker')) return '[sticker]';
-    if (normalizedType.includes('document')) return '[document]';
-    if (normalizedType.includes('location')) return '[location]';
-    if (normalizedType.includes('contact')) return '[contact]';
-    if (normalizedType.includes('reaction')) return '[reaction]';
-    if (normalizedType.includes('poll')) return '[poll]';
-    return '';
-  }
-
   public async fetchChats(query: any) {
     const pagination = normalizePagination<Contact>(query, {
       take: 50,
@@ -1008,7 +974,7 @@ export class ChannelStartupService {
         unreadCount: Math.max(0, Number(contact.unreadCount || 0)),
         updatedAt: contact.updatedAt || null,
         lastMessageId: contact.lastMessageId || null,
-        lastMessageTextPreview: this.normalizeChatPreviewText(contact.lastMessageTextPreview, contact.lastMessageType),
+        lastMessageTextPreview: normalizeChatPreviewText(contact.lastMessageTextPreview, contact.lastMessageType),
         lastMessageType: contact.lastMessageType || null,
         lastMessageTimestamp: Number(contact.lastMessageTimestamp || 0) || null,
         fromMe: Boolean(contact.fromMe),
@@ -1077,18 +1043,7 @@ export class ChannelStartupService {
   }
 
   private buildPresenceSnapshot(remoteJid: string, record?: PresenceStoreEntry | null) {
-    const isExpired = record ? Date.now() - record.updatedAt.getTime() > this.presenceTtlMs : true;
-    const presence = record && !isExpired ? record.presence : 'unknown';
-
-    return {
-      remoteJid,
-      presence,
-      online: ['online', 'composing', 'recording', 'paused'].includes(presence),
-      typing: presence === 'composing',
-      recording: presence === 'recording',
-      lastSeenAt: record?.lastSeenAt ? record.lastSeenAt.toISOString() : null,
-      updatedAt: record?.updatedAt ? record.updatedAt.toISOString() : null,
-    };
+    return buildPresenceSnapshot(remoteJid, record, this.presenceTtlMs);
   }
 
   private cleanupPresenceStore() {

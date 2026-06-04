@@ -11,6 +11,7 @@
     "start:prod": "node dist/main.js",
     "dev:server": "tsx watch ./src/main.ts",
     "test": "tsx watch ./test/all.test.ts",
+    "test:ci": "tsx -r tsconfig-paths/register ./test/all.test.ts",
     "lint": "eslint --fix --ext .ts src",
     "lint:check": "eslint --ext .ts src",
     "commit": "cz",
