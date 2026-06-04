@@ -29,6 +29,15 @@ index 26-01 com auth.txt
 
 backups/
 
+# Runtime uploads and local storage
+backend/public/uploads/**
+!backend/public/uploads/.gitkeep
+storage/**
+!storage/.gitkeep
+backend/storage/**
+!backend/storage/.gitkeep
+logs/**
+
 systeminfo.txt
 msinfo-completo.txt
 processos-top.txt
@@ -36,6 +45,7 @@ windus.txt
 .venv/
 **/.venv/
 backend/tmp/
+backend/tmp/**
 tmp/
 __pycache__/
 *.pyc
