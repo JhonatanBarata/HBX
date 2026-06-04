@@ -143,6 +143,7 @@ model Company {
   debtCases            DebtCase[]
   integrationConnections IntegrationConnection[]
   integrationSyncRuns  IntegrationSyncRun[]
+  externalWebhookEvents ExternalWebhookEvent[]
   auvoExternalRecords  AuvoExternalRecord[]
   whatsappEndpoints    CompanyWhatsAppEndpoint[]
   techAssistantInteractions TechAssistantInteraction[]
@@ -754,6 +755,26 @@ model IntegrationSyncRun {
 
   @@index([companyId, status, startedAt])
   @@index([connectionId, startedAt])
+}
+
+model ExternalWebhookEvent {
+  id              String   @id @default(cuid())
+  company         Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  companyId       Int?
+  provider        String
+  eventId         String
+  eventType       String?
+  signatureStatus String   @default("unknown")
+  payloadHash     String
+  processedAt     DateTime?
+  status          String   @default("received")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([provider, eventId])
+  @@index([companyId, provider, createdAt])
+  @@index([provider, status, createdAt])
+  @@index([payloadHash])
 }
 
 model AuvoExternalRecord {
