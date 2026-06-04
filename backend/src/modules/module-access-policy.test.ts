@@ -6,6 +6,7 @@ import {
   COMMERCIAL_PLAN_KEYS,
   getCommercialPlanTitle,
 } from '../commercial-plans/commercial-plan-catalog';
+import { ModulesService } from './modules.service';
 import { resolveCompanyModuleAccessPolicy } from './module-access-policy';
 
 const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
@@ -139,4 +140,16 @@ test('expired/canceled blocks modules', () => {
   assert.equal(expired.pendingCheckout, false);
   assert.equal(expired.blockedCode, 'subscription_inactive');
   assert.deepEqual([...expired.moduleKeys], []);
+});
+
+test('USER seller role can use Vendas desktop and only Radar on mobile route', () => {
+  const service = new ModulesService({} as any, {} as any, {} as any, {} as any, {} as any, {} as any) as any;
+  const seller = { role: 'USER', isSystemMaster: false };
+
+  assert.equal(service.canUseAdminOnlyModule(seller, 'vendas', {}), true);
+  assert.equal(service.canUseAdminOnlyModule(seller, 'webscraping', {}), false);
+  assert.equal(service.canUseAdminOnlyModule(seller, 'webscraping', { mobileRoute: true }), true);
+  assert.equal(service.canUseAdminOnlyModule(seller, 'gerencial', { mobileRoute: true }), false);
+  assert.equal(service.canUseAdminOnlyModule(seller, 'financeiro', { mobileRoute: true }), false);
+  assert.equal(service.canUseAdminOnlyModule(seller, 'cadastro', { mobileRoute: true }), false);
 });

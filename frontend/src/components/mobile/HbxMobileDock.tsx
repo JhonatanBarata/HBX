@@ -22,8 +22,24 @@ type HbxMobileDockProps = {
   onComissao?: () => void;
 };
 
+type MobileUserModule = {
+  key?: string | null;
+  accessible?: boolean | null;
+  visible?: boolean | null;
+};
+
 function normalizeMobileTheme(value: unknown): MobileTheme {
   return value === "light" ? "light" : "dark";
+}
+
+function canShowMobileModule(modules: MobileUserModule[] | null, key: string) {
+  return Boolean(
+    (modules || []).some((moduleItem) => (
+      String(moduleItem.key || "").trim().toLowerCase() === key &&
+      moduleItem.visible !== false &&
+      moduleItem.accessible === true
+    )),
+  );
 }
 
 function applyMobileTheme(theme: MobileTheme) {
@@ -212,6 +228,8 @@ export default function HbxMobileDock({
   const [theme, setTheme] = useState<MobileTheme>("dark");
   const [menuOpen, setMenuOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [modules, setModules] = useState<MobileUserModule[] | null>(null);
+  const showGerencial = canShowMobileModule(modules, "gerencial");
 
   useEffect(() => {
     setMounted(true);
@@ -228,6 +246,20 @@ export default function HbxMobileDock({
   useEffect(() => {
     applyMobileTheme(theme);
   }, [theme]);
+
+  useEffect(() => {
+    let alive = true;
+    apiFetch<MobileUserModule[]>("/modules/me", { requireAuth: true })
+      .then((payload) => {
+        if (alive) setModules(Array.isArray(payload) ? payload : []);
+      })
+      .catch(() => {
+        if (alive) setModules([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!menuOpen) return undefined;
@@ -369,10 +401,12 @@ export default function HbxMobileDock({
               <DockIcon name="tutorial" />
               <span>Tutorial</span>
             </button>
-            <button type="button" className="hbx-mobile-sheet-item" onClick={() => navigate(toMobileRoute("/gerencial"))}>
-              <DockIcon name="settings" />
-              <span>Gerencial</span>
-            </button>
+            {showGerencial ? (
+              <button type="button" className="hbx-mobile-sheet-item" onClick={() => navigate(toMobileRoute("/gerencial"))}>
+                <DockIcon name="settings" />
+                <span>Gerencial</span>
+              </button>
+            ) : null}
             <button
               type="button"
               className="hbx-mobile-sheet-item"
