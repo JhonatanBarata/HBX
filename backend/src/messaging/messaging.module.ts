@@ -18,11 +18,12 @@ import { WebwhatsBridgeService } from './webwhats-bridge.service';
 import { InboxRealtimeService } from './inbox-realtime.service';
 import { MailModule } from '../mail/mail.module';
 import { MasterPaymentNotificationsController } from './master-payment-notifications.controller';
+import { WhatsappConsentLedgerService } from './whatsapp-consent-ledger.service';
 
 @Module({
   imports: [PrismaModule, forwardRef(() => ModulesAccessModule), PaymentsModule, CadastrosModule, CustomerProfileModule, MailModule],
-  providers: [MessagingService, ConversationSessionsService, MessageOrchestratorService, OrderDraftsService, ConversationsService, WhatsAppStatusService, WhatsAppAuditService, WebwhatsBridgeService, InboxRealtimeService],
+  providers: [MessagingService, ConversationSessionsService, MessageOrchestratorService, OrderDraftsService, ConversationsService, WhatsAppStatusService, WhatsAppAuditService, WebwhatsBridgeService, InboxRealtimeService, WhatsappConsentLedgerService],
   controllers: [MessagingController, ConversationsController, WhatsAppController, MasterPaymentNotificationsController],
-  exports: [WhatsAppStatusService, ConversationsService, WhatsAppAuditService, WebwhatsBridgeService, InboxRealtimeService],
+  exports: [WhatsAppStatusService, ConversationsService, WhatsAppAuditService, WebwhatsBridgeService, InboxRealtimeService, WhatsappConsentLedgerService],
 })
 export class MessagingModule {}
