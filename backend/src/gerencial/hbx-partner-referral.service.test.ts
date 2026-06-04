@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { UsersController } from '../users/users.controller';
+import { SellerOnboardingService } from './seller-onboarding.service';
 import { HbxPartnerReferralService } from './hbx-partner-referral.service';
 
 const hbxCompany = { slug: 'hbx-master-whatsapp-engine' };
@@ -178,14 +179,73 @@ test('approveCandidate muda status para approved', async () => {
   assert.ok(candidate.reviewedAt instanceof Date);
 });
 
+test('getCandidateForConversion aceita indicacao pending ou approved da empresa', async () => {
+  let lookupWhere: any = null;
+  const service = new HbxPartnerReferralService({
+    company: { findUnique: async () => hbxCompany },
+    hbxPartnerReferralCandidate: {
+      findFirst: async ({ where }: any) => {
+        lookupWhere = where;
+        return { id: where.id, companyId: where.companyId, status: 'pending', referrerUserId: 88 };
+      },
+    },
+  } as any);
+
+  const candidate = await service.getCandidateForConversion(1, 'cand_1');
+
+  assert.equal(candidate?.id, 'cand_1');
+  assert.equal(lookupWhere.companyId, 1);
+  assert.deepEqual(lookupWhere.status, { in: ['pending', 'approved'] });
+});
+
+test('markCandidateConverted converte indicacao pending ou approved', async () => {
+  let lookupWhere: any = null;
+  let updateData: any = null;
+  const service = new HbxPartnerReferralService({
+    company: { findUnique: async () => hbxCompany },
+    hbxPartnerReferralCandidate: {
+      findFirst: async ({ where }: any) => {
+        lookupWhere = where;
+        return { id: 'cand_1', reviewedAt: null, reviewedByUserId: null };
+      },
+      update: async ({ data }: any) => {
+        updateData = data;
+        return { id: 'cand_1', ...data };
+      },
+    },
+  } as any);
+
+  const candidate = await service.markCandidateConverted({
+    companyId: 1,
+    candidateId: 'cand_1',
+    convertedUserId: 200,
+    reviewedByUserId: 1,
+  });
+
+  assert.deepEqual(lookupWhere.status, { in: ['pending', 'approved'] });
+  assert.equal(updateData.status, 'converted');
+  assert.equal(updateData.convertedUserId, 200);
+  assert.equal(updateData.reviewedByUserId, 1);
+  assert.ok(updateData.reviewedAt instanceof Date);
+  assert.equal(candidate.status, 'converted');
+});
+
 test('/users/company/create com referralCandidateId cria User com referredByUserId certo', async () => {
   let createdData: any = null;
   let convertedInput: any = null;
+  let onboardingDraft: any = null;
   const controller = buildUsersController({
     usersService: {
       create: async (data: any) => {
         createdData = data;
         return { id: 200, email: data.email, username: data.username, role: data.role, isSystemMaster: false, isActive: data.isActive, ...data };
+      },
+    },
+    sellerOnboardingService: {
+      getOrCreateForUser: async () => ({}),
+      updateDraft: async (_companyId: number, _userId: number, dto: any) => {
+        onboardingDraft = dto;
+        return {};
       },
     },
     hbxPartnerReferrals: {
@@ -217,9 +277,61 @@ test('/users/company/create com referralCandidateId cria User com referredByUser
   assert.equal(createdData.referredByUserId, 88);
   assert.equal(createdData.name, 'Joao Convertido');
   assert.equal(createdData.phone, '(11) 98888-7777');
+  assert.equal(createdData.commissionPercent, 17);
+  assert.equal(createdData.sellerReferralCommissionPercent, 3);
+  assert.equal(createdData.referredByCommissionPercentSnapshot, 3);
   assert.equal(result.user.referredByUserId, 88);
+  assert.equal(onboardingDraft.referredByUserId, 88);
+  assert.equal(onboardingDraft.referredByCommissionPercentSnapshot, 3);
   assert.equal(convertedInput.candidateId, 'cand_1');
   assert.equal(convertedInput.convertedUserId, 200);
+});
+
+test('SellerOnboarding salva herdeiro com indicador e snapshot', async () => {
+  let updateData: any = null;
+  const service = new SellerOnboardingService({
+    company: { findUnique: async () => hbxCompany },
+    sellerOnboarding: {
+      findUnique: async () => ({
+        id: 'onb_1',
+        referredByUserId: null,
+        partnerType: 'hbx_partner',
+        legalName: null,
+        email: null,
+        phone: null,
+        cpf: null,
+        declaredAddress: null,
+        commissionPercent: 0,
+        commissionRecurring: true,
+        commissionDueBusinessDays: 3,
+        canRegisterHbxSellers: false,
+        sellerReferralCommissionPercent: 0,
+        referredByCommissionPercentSnapshot: 0,
+        archiveEmail: null,
+        metadataJson: null,
+      }),
+      update: async ({ data }: any) => {
+        updateData = data;
+        return { id: 'onb_1', ...data };
+      },
+    },
+    user: {
+      findFirst: async ({ where }: any) => {
+        if (Number(where?.id || 0) === 88) return { name: 'Indicador Ativo' };
+        return { id: 200, companyId: 1, role: 'USER', company: { id: 1, commissionDueBusinessDays: 3 } };
+      },
+    },
+  } as any, {} as any, {} as any);
+
+  await service.updateDraft(1, 200, {
+    referredByUserId: 88,
+    referredByCommissionPercentSnapshot: 3,
+  });
+
+  assert.equal(updateData.partnerType, 'hbx_heir');
+  assert.equal(updateData.referredByUserId, 88);
+  assert.equal(updateData.referredByNameSnapshot, 'Indicador Ativo');
+  assert.equal(updateData.referredByCommissionPercentSnapshot, 3);
 });
 
 test('lookup-phone encontra indicacao por telefone normalizado', async () => {

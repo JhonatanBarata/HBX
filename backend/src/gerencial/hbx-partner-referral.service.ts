@@ -202,7 +202,7 @@ export class HbxPartnerReferralService {
       where: {
         id: normalizedCandidateId,
         companyId: normalizedCompanyId,
-        status: 'approved',
+        status: { in: ['pending', 'approved'] },
       },
       include: {
         referrerUser: {
@@ -237,7 +237,7 @@ export class HbxPartnerReferralService {
     if (!candidateId || !convertedUserId) throw new BadRequestException('Conversão de indicação inválida');
 
     const candidate = await this.prisma.hbxPartnerReferralCandidate.findFirst({
-      where: { id: candidateId, companyId, status: 'approved' },
+      where: { id: candidateId, companyId, status: { in: ['pending', 'approved'] } },
       select: { id: true, reviewedAt: true, reviewedByUserId: true },
     });
     if (!candidate) throw new NotFoundException('Indicação não encontrada para conversão');
