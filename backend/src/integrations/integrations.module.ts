@@ -5,6 +5,7 @@ import { AuvoClient } from './auvo/auvo.client';
 import { AuvoIntegrationService } from './auvo/auvo.integration.service';
 import { AuvoMapper } from './auvo/auvo.mapper';
 import { AuvoSyncService } from './auvo/auvo.sync.service';
+import { CredentialResolverService } from './credential-resolver.service';
 import { IntegrationConnectionsController } from './integration-connections.controller';
 import { IntegrationConnectionsService } from './integration-connections.service';
 import { IntegrationHttpService } from './integration-http.service';
@@ -20,6 +21,7 @@ import { TagPlusSyncService } from './tagplus/tagplus.sync.service';
   controllers: [IntegrationConnectionsController],
   providers: [
     IntegrationConnectionsService,
+    CredentialResolverService,
     IntegrationHttpService,
     IntegrationProjectionService,
     IntegrationSecretsService,
@@ -32,6 +34,6 @@ import { TagPlusSyncService } from './tagplus/tagplus.sync.service';
     TagPlusSyncService,
     TagPlusIntegrationService,
   ],
-  exports: [IntegrationConnectionsService, IntegrationHttpService, IntegrationSecretsService],
+  exports: [CredentialResolverService, IntegrationConnectionsService, IntegrationHttpService, IntegrationSecretsService],
 })
 export class IntegrationsModule {}
