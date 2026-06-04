@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { basename, join, sep } from 'path';
 
 import { SellerOnboardingService } from './seller-onboarding.service';
 
@@ -288,5 +288,137 @@ test('sendOnboardingEmail respeita curriculum obrigatorio configurado', async ()
     assert.equal(state.userUpdateData, null);
   } finally {
     await rm(dir, { recursive: true, force: true });
+  }
+});
+
+function buildPurgeService(input: { attachments: any[] }) {
+  const state: Record<string, any> = {
+    updates: [],
+  };
+  const prisma = {
+    sellerOnboardingAttachment: {
+      findMany: async ({ where }: any) => {
+        state.findWhere = where;
+        return input.attachments;
+      },
+      update: async ({ where, data }: any) => {
+        state.updates.push({ where, data });
+        return { id: where.id, ...data };
+      },
+    },
+  };
+  return {
+    service: new SellerOnboardingService(prisma as any, {} as any, {} as any),
+    state,
+  };
+}
+
+test('purgeExpiredAttachments remove arquivo vencido e preserva metadata', async () => {
+  const previousUploadDir = process.env.SELLER_ONBOARDING_UPLOAD_DIR;
+  const dir = await mkdtemp(join(tmpdir(), 'hbx-onboarding-purge-'));
+  process.env.SELLER_ONBOARDING_UPLOAD_DIR = dir;
+  try {
+    const storagePath = join(dir, 'expired.pdf');
+    await writeFile(storagePath, Buffer.from('expirado'));
+    const { service, state } = buildPurgeService({
+      attachments: [{
+        id: 'att_1',
+        storagePath,
+        originalFilename: 'documento.pdf',
+        sha256: 'sha-original',
+        byteSize: 8,
+        status: 'temporary',
+      }],
+    });
+
+    const result = await service.purgeExpiredAttachments(1);
+
+    assert.equal(result.scannedCount, 1);
+    assert.equal(result.deletedCount, 1);
+    assert.equal(result.missingFileCount, 0);
+    await assert.rejects(() => readFile(storagePath), /ENOENT/);
+    assert.deepEqual(Object.keys(state.updates[0].data).sort(), ['deletedAt', 'status']);
+    assert.equal(state.updates[0].data.status, 'deleted');
+    assert.ok(state.updates[0].data.deletedAt instanceof Date);
+    assert.deepEqual(state.findWhere.status, { not: 'deleted' });
+    assert.deepEqual(state.findWhere.deleteAfter, { lte: state.updates[0].data.deletedAt });
+    assert.deepEqual(state.findWhere.onboarding, { companyId: 1 });
+  } finally {
+    if (previousUploadDir === undefined) delete process.env.SELLER_ONBOARDING_UPLOAD_DIR;
+    else process.env.SELLER_ONBOARDING_UPLOAD_DIR = previousUploadDir;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('purgeExpiredAttachments marca deleted quando arquivo ja nao existe', async () => {
+  const previousUploadDir = process.env.SELLER_ONBOARDING_UPLOAD_DIR;
+  const dir = await mkdtemp(join(tmpdir(), 'hbx-onboarding-purge-'));
+  process.env.SELLER_ONBOARDING_UPLOAD_DIR = dir;
+  try {
+    const { service, state } = buildPurgeService({
+      attachments: [{
+        id: 'att_missing',
+        storagePath: join(dir, 'missing.pdf'),
+        originalFilename: 'missing.pdf',
+        sha256: 'sha-missing',
+        byteSize: 0,
+        status: 'temporary',
+      }],
+    });
+
+    const result = await service.purgeExpiredAttachments(1);
+
+    assert.equal(result.deletedCount, 1);
+    assert.equal(result.missingFileCount, 1);
+    assert.equal(state.updates.length, 1);
+    assert.equal(state.updates[0].data.status, 'deleted');
+  } finally {
+    if (previousUploadDir === undefined) delete process.env.SELLER_ONBOARDING_UPLOAD_DIR;
+    else process.env.SELLER_ONBOARDING_UPLOAD_DIR = previousUploadDir;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('purgeExpiredAttachments bloqueia path fora do diretorio permitido', async () => {
+  const previousUploadDir = process.env.SELLER_ONBOARDING_UPLOAD_DIR;
+  const allowedDir = await mkdtemp(join(tmpdir(), 'hbx-onboarding-allowed-'));
+  const outsideDir = await mkdtemp(join(tmpdir(), 'hbx-onboarding-outside-'));
+  process.env.SELLER_ONBOARDING_UPLOAD_DIR = allowedDir;
+  try {
+    const outsidePath = join(outsideDir, 'outside.pdf');
+    const traversalPath = `${allowedDir}${sep}..${sep}${basename(outsideDir)}${sep}outside.pdf`;
+    await writeFile(outsidePath, Buffer.from('fora'));
+    const { service, state } = buildPurgeService({
+      attachments: [
+        {
+          id: 'att_outside',
+          storagePath: outsidePath,
+          originalFilename: 'outside.pdf',
+          sha256: 'sha-outside',
+          byteSize: 4,
+          status: 'temporary',
+        },
+        {
+          id: 'att_traversal',
+          storagePath: traversalPath,
+          originalFilename: 'traversal.pdf',
+          sha256: 'sha-traversal',
+          byteSize: 4,
+          status: 'temporary',
+        },
+      ],
+    });
+
+    const result = await service.purgeExpiredAttachments(1);
+
+    assert.equal(result.deletedCount, 0);
+    assert.equal(result.skippedUnsafePathCount, 2);
+    assert.equal(state.updates.length, 0);
+    assert.equal((await readFile(outsidePath)).toString(), 'fora');
+  } finally {
+    if (previousUploadDir === undefined) delete process.env.SELLER_ONBOARDING_UPLOAD_DIR;
+    else process.env.SELLER_ONBOARDING_UPLOAD_DIR = previousUploadDir;
+    await rm(allowedDir, { recursive: true, force: true });
+    await rm(outsideDir, { recursive: true, force: true });
   }
 });
