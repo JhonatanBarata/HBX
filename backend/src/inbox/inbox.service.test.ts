@@ -235,6 +235,150 @@ function createService(overrides?: Partial<Record<string, any>>) {
   return { service, prisma, conversations, auditCalls, queueCalls, conversationStateCalls, cadastrosService };
 }
 
+test('getBootstrap light returns summaries without loading selected conversation detail', async () => {
+  const { service } = createService();
+  const listCalls: Array<Record<string, any>> = [];
+  let selectedDetailCalls = 0;
+  let backgroundSyncCalls = 0;
+
+  (service as any).resolveInboxWhatsappSessionScope = async () => ({
+    accessible: true,
+    reason: 'webwhats_active',
+    currentSessionId: 'session-7',
+    currentSession: {
+      id: 'session-7',
+      provider: 'webwhats',
+      phoneNormalized: '5519998877766',
+      displayPhone: '+5519998877766',
+      connectedAt: new Date('2026-03-18T09:00:00.000Z'),
+    },
+    mode: 'current',
+  });
+  (service as any).getWhatsAppProviderHealth = async () => ({ connected: true, status: 'connected' });
+  (service as any).buildWhatsappSessionCleanupState = async () => ({
+    required: false,
+    currentSessionId: 'session-7',
+    oldSessionCount: 0,
+    oldConversationCount: 0,
+    oldMessageCount: 0,
+    latestOldSession: null,
+  });
+  (service as any).triggerBackgroundInboxIndexSync = () => {
+    backgroundSyncCalls += 1;
+  };
+  (service as any).getPersistedConversationByIdForCompany = async () => {
+    selectedDetailCalls += 1;
+    return { id: '11', messages: [{ id: 'm-1' }] };
+  };
+  (service as any).listPersistedConversationSummariesForCompany = async (
+    companyId: number,
+    options: Record<string, any>,
+  ) => {
+    listCalls.push({ companyId, options });
+    return [
+      { id: '11', messages: [{ id: 'summary-only' }] },
+      { id: '12', messages: [] },
+    ];
+  };
+
+  const payload = await service.getBootstrap({ companyId: 7 }, 1, { light: true });
+
+  assert.equal(payload.bootstrapMode, 'light');
+  assert.equal(payload.selectedConversation, null);
+  assert.equal(payload.selectedConversationId, '11');
+  assert.equal(payload.conversations.length, 1);
+  assert.equal(payload.hasMoreConversations, true);
+  assert.equal(payload.nextSkip, 1);
+  assert.equal(selectedDetailCalls, 0);
+  assert.equal(backgroundSyncCalls, 1);
+  assert.equal(listCalls.length, 1);
+  assert.equal(listCalls[0].companyId, 7);
+  assert.equal(listCalls[0].options.take, 2);
+  assert.equal(listCalls[0].options.sessionScope.currentSessionId, 'session-7');
+});
+
+test('getConversationPresence returns unknown when Webwhats presence fails', async () => {
+  const { service } = createService({
+    webwhatsBridge: {
+      fetchPresence: async () => {
+        throw new Error('Webwhats offline');
+      },
+    },
+  });
+
+  const presence = await service.getConversationPresence({ companyId: 7 }, 42);
+
+  assert.equal(presence.remoteJid, '5519998877766@s.whatsapp.net');
+  assert.equal(presence.presence, 'unknown');
+  assert.equal(presence.online, false);
+  assert.equal(presence.typing, false);
+  assert.equal(presence.recording, false);
+  assert.equal(presence.providerStatus, 'unknown');
+});
+
+test('listConversationMessages applies limit and before cursor to message page query', async () => {
+  const messageQueryCalls: Array<Record<string, any>> = [];
+  const rows = [
+    {
+      id: 902,
+      direction: 'INBOUND',
+      messageType: 'text',
+      body: 'Mensagem mais nova no recorte',
+      senderType: 'client',
+      status: 'RECEIVED',
+      error: null,
+      timestamp: new Date('2026-05-20T11:59:00.000Z'),
+      sourceModule: 'webwhats',
+      outboundMessageId: null,
+      providerMessageId: 'provider-902',
+      rawPayload: null,
+      variablesJson: null,
+    },
+    {
+      id: 901,
+      direction: 'INBOUND',
+      messageType: 'text',
+      body: 'Mensagem mais antiga no recorte',
+      senderType: 'client',
+      status: 'RECEIVED',
+      error: null,
+      timestamp: new Date('2026-05-20T11:58:00.000Z'),
+      sourceModule: 'webwhats',
+      outboundMessageId: null,
+      providerMessageId: 'provider-901',
+      rawPayload: null,
+      variablesJson: null,
+    },
+  ];
+  const { service } = createService({
+    prisma: {
+      companyMessage: {
+        findMany: async (input: Record<string, any>) => {
+          messageQueryCalls.push(input);
+          return rows;
+        },
+      },
+    },
+  });
+
+  const page = await service.listConversationMessages(
+    { companyId: 7 },
+    42,
+    { limit: 2, before: '2026-05-20T12:00:00.000Z' },
+  );
+
+  assert.equal(messageQueryCalls.length, 1);
+  assert.equal(messageQueryCalls[0].take, 2);
+  assert.deepEqual(messageQueryCalls[0].orderBy, [{ timestamp: 'desc' }, { id: 'desc' }]);
+  assert.equal(messageQueryCalls[0].where.companyId, 7);
+  assert.equal(messageQueryCalls[0].where.conversationId, 42);
+  assert.equal(messageQueryCalls[0].where.timestamp.lt.toISOString(), '2026-05-20T12:00:00.000Z');
+  assert.equal(page.messages.length, 2);
+  assert.deepEqual(page.messages.map((message: any) => message.id), ['901', '902']);
+  assert.equal(page.hasMore, true);
+  assert.equal(page.nextBefore.toISOString(), '2026-05-20T11:58:00.000Z');
+});
+
 test('InboxService prefers conversation contact over conflicting WhatsApp alternate JID', () => {
   const service = createBareService();
   const conversation = { contact: '+5519996197927' };
