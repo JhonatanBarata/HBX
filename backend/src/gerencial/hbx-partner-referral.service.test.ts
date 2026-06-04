@@ -5,6 +5,7 @@ import { UsersController } from '../users/users.controller';
 import { HbxPartnerReferralService } from './hbx-partner-referral.service';
 
 const hbxCompany = { slug: 'hbx-master-whatsapp-engine' };
+const activePartner = { id: 10, companyId: 1, role: 'USER', isActive: true, deactivatedAt: null, isSystemMaster: false };
 
 function buildUsersController(overrides: {
   usersService?: Record<string, any>;
@@ -99,6 +100,65 @@ test('/users/hbx/referred-seller cria candidate e nao cria User', async () => {
   assert.equal(createCandidateInput.requester.id, 10);
   assert.equal(createCandidateInput.dto.candidateName, 'Maria Indicada');
   assert.equal(createCandidateInput.dto.candidatePhone, '(11) 99999-0000');
+});
+
+test('createCandidate grava candidate pending com telefone normalizado', async () => {
+  let createdData: any = null;
+  const service = new HbxPartnerReferralService({
+    company: { findUnique: async () => hbxCompany },
+    hbxPartnerReferralCandidate: {
+      findFirst: async () => null,
+      create: async ({ data }: any) => {
+        createdData = data;
+        return { id: 'cand_1', ...data };
+      },
+    },
+  } as any);
+
+  const candidate = await service.createCandidate(activePartner as any, {
+    candidateName: '  Maria   Indicada  ',
+    candidatePhone: '(11) 99999-0000',
+    note: '  tem   carteira  ',
+    preferredSegmentsJson: '["saude"]',
+  });
+
+  assert.equal(createdData.companyId, 1);
+  assert.equal(createdData.referrerUserId, 10);
+  assert.equal(createdData.candidateName, 'Maria Indicada');
+  assert.equal(createdData.candidatePhone, '(11) 99999-0000');
+  assert.equal(createdData.candidatePhoneNormalized, '11999990000');
+  assert.equal(createdData.note, 'tem carteira');
+  assert.equal(createdData.preferredSegmentsJson, '["saude"]');
+  assert.equal(createdData.status, 'pending');
+  assert.equal(candidate.status, 'pending');
+});
+
+test('createCandidate bloqueia duplicado pending ou approved por telefone normalizado', async () => {
+  let lookupWhere: any = null;
+  let createCalled = false;
+  const service = new HbxPartnerReferralService({
+    company: { findUnique: async () => hbxCompany },
+    hbxPartnerReferralCandidate: {
+      findFirst: async ({ where }: any) => {
+        lookupWhere = where;
+        return { id: 'cand_existing', status: 'approved' };
+      },
+      create: async () => {
+        createCalled = true;
+        return {};
+      },
+    },
+  } as any);
+
+  await assert.rejects(
+    () => service.createCandidate(activePartner as any, { candidateName: 'Maria Indicada', candidatePhone: '(11) 99999-0000' }),
+    /Já existe uma indicação pendente ou aprovada com este WhatsApp\./,
+  );
+
+  assert.equal(createCalled, false);
+  assert.equal(lookupWhere.companyId, 1);
+  assert.equal(lookupWhere.candidatePhoneNormalized, '11999990000');
+  assert.deepEqual(lookupWhere.status, { in: ['pending', 'approved'] });
 });
 
 test('approveCandidate muda status para approved', async () => {
