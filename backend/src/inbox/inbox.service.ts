@@ -3520,34 +3520,44 @@ export class InboxService {
     );
   }
 
-  async getBootstrap(user: any, take?: string | number) {
+  async getBootstrap(user: any, take?: string | number, options?: { light?: string | boolean | number | null }) {
     const companyId = this.requireCompanyIdFromUser(user);
+    const lightMode = this.parseBooleanMetadataFlag(options?.light);
+    const requestedTake = this.normalizeConversationTakeLimit(take, 200) || 200;
+    const bootstrapMode = lightMode ? 'light' : 'full';
     const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId);
     sessionScope.providerHealth = await this.getWhatsAppProviderHealth(companyId);
     if (!sessionScope.accessible) {
       return {
         conversations: [],
         selectedConversation: null,
+        selectedConversationId: null,
         providerWarning: {
           code: 'WHATSAPP_REQUIRED',
           message: 'Atendimento indisponível sem WhatsApp/celular vinculado.',
         },
         whatsappSession: this.buildWhatsappSessionMetadata(sessionScope),
         whatsappSessionCleanup: await this.buildWhatsappSessionCleanupState(companyId, sessionScope),
+        bootstrapMode,
+        hasMoreConversations: false,
+        nextSkip: null,
       };
     }
     if (sessionScope.mode === 'current') {
       this.triggerBackgroundInboxIndexSync(companyId, { take });
     }
-    const conversations = await this.listPersistedConversationSummariesForCompany(companyId, {
-      take: this.normalizeConversationTakeLimit(take, 200),
+    const loadTake = Math.min(requestedTake + 1, 200);
+    const loadedConversations = await this.listPersistedConversationSummariesForCompany(companyId, {
+      take: loadTake,
       sessionScope,
     });
+    const hasMoreConversations = loadedConversations.length > requestedTake;
+    const conversations = loadedConversations.slice(0, requestedTake);
 
     const firstConversationId = conversations[0]?.id ? Number(conversations[0].id) : null;
     let selectedConversation: any = null;
 
-    if (firstConversationId) {
+    if (firstConversationId && !lightMode) {
       this.triggerBackgroundInboxConversationSync(companyId, firstConversationId);
       selectedConversation = await this.getPersistedConversationByIdForCompany(companyId, firstConversationId, {
         messagesLimit: 20,
@@ -3558,9 +3568,13 @@ export class InboxService {
     return {
       conversations,
       selectedConversation,
+      selectedConversationId: firstConversationId ? String(firstConversationId) : null,
       providerWarning: null,
       whatsappSession: this.buildWhatsappSessionMetadata(sessionScope),
       whatsappSessionCleanup: await this.buildWhatsappSessionCleanupState(companyId, sessionScope),
+      bootstrapMode,
+      hasMoreConversations,
+      nextSkip: hasMoreConversations ? conversations.length : null,
     };
   }
 
