@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Req, UseGuards, ParseIntPipe, Query, ForbiddenException, NotFoundException, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Controller, Delete, Get, Post, Req, UseGuards, ParseIntPipe, Query, ForbiddenException, NotFoundException, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -168,6 +168,35 @@ export class GerencialController {
     @Body() dto: any,
   ) {
     return this.sellerOnboardingService.uploadAttachment(Number(req.user?.companyId), userId, file, dto || {});
+  }
+
+  @Delete('hbx-partners/:userId/onboarding/attachments/:attachmentId')
+  @UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
+  @Admin()
+  @ModuleAccess('gerencial')
+  async deleteSellerOnboardingAttachment(
+    @Req() req: any,
+    @Param('userId', ParseIntPipe) userId: number,
+    @Param('attachmentId') attachmentId: string,
+  ) {
+    return this.sellerOnboardingService.deleteAttachment(Number(req.user?.companyId), userId, attachmentId);
+  }
+
+  @Patch('hbx-partners/:userId/onboarding/document-requirement')
+  @UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
+  @Admin()
+  @ModuleAccess('gerencial')
+  async updateSellerOnboardingDocumentRequirement(
+    @Req() req: any,
+    @Param('userId', ParseIntPipe) userId: number,
+    @Body() dto: any,
+  ) {
+    return this.sellerOnboardingService.updateDocumentRequirement(
+      Number(req.user?.companyId),
+      userId,
+      dto?.kind,
+      dto?.required,
+    );
   }
 
   @Post('hbx-partners/:userId/onboarding/send-email')

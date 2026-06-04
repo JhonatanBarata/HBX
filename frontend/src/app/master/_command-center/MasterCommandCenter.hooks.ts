@@ -17,7 +17,6 @@ import type {
   MasterMercadoPagoCredential,
   MasterWhatsAppCredential,
   ManualPaymentState,
-  ModuleCatalogDraft,
   ConfirmActionState,
   UserModalState,
   WorkspacePayload,
@@ -106,21 +105,6 @@ function buildWhatsAppMigrationWorkflowDraft(company: CompanyDetailPayload["comp
       ? toDatetimeLocalValue(company.whatsappCenter.migration.lastContactAt)
       : "",
   };
-}
-
-function buildModuleCatalogDrafts(workspace?: WorkspacePayload | null): Record<string, ModuleCatalogDraft> {
-  const entries = (workspace?.systemModules || []).map((moduleItem) => [
-    moduleItem.key,
-    {
-      key: moduleItem.key,
-      name: moduleItem.name,
-      description: moduleItem.description || "",
-      monthlyPrice: String(moduleItem.monthlyPrice || 0),
-      companyAssignable: Boolean(moduleItem.companyAssignable),
-      defaultEnabled: Boolean(moduleItem.defaultEnabled),
-    },
-  ]);
-  return Object.fromEntries(entries);
 }
 
 function buildMasterIntegrationsDraft(workspace?: WorkspacePayload | null): MasterIntegrationsDraft {
@@ -252,7 +236,6 @@ export function useMasterCommandCenterActions({
   const [createCompanyOpen, setCreateCompanyOpen] = useState(false);
   const [masterIntegrationsOpen, setMasterIntegrationsOpen] = useState(false);
   const [masterEmailOpen, setMasterEmailOpen] = useState(false);
-  const [moduleCatalogOpen, setModuleCatalogOpen] = useState(false);
   const [createCompanyName, setCreateCompanyName] = useState("");
   const [createCompanySlug, setCreateCompanySlug] = useState("");
   const [profileDraft, setProfileDraft] = useState<ReturnType<typeof buildProfileDraft> | null>(null);
@@ -263,7 +246,6 @@ export function useMasterCommandCenterActions({
   const [whatsAppMigrationWorkflowDraft, setWhatsAppMigrationWorkflowDraft] = useState<ReturnType<typeof buildWhatsAppMigrationWorkflowDraft> | null>(null);
   const [trialDateDraft, setTrialDateDraft] = useState("");
   const [trialDaysDraft, setTrialDaysDraft] = useState("14");
-  const [moduleCatalogDrafts, setModuleCatalogDrafts] = useState<Record<string, ModuleCatalogDraft>>({});
   const [masterIntegrationsDraft, setMasterIntegrationsDraft] = useState<MasterIntegrationsDraft>(buildMasterIntegrationsDraft(null));
   const [companyIntegrations, setCompanyIntegrations] = useState<CompanyIntegrationConnection[]>([]);
   const [integrationsLoading, setIntegrationsLoading] = useState(false);
@@ -280,7 +262,6 @@ export function useMasterCommandCenterActions({
   const activeCompanyInContext = Boolean(activeCompany && activeContextCompanyId === activeCompany.id);
 
   useEffect(() => {
-    setModuleCatalogDrafts(buildModuleCatalogDrafts(workspace));
     setMasterIntegrationsDraft(buildMasterIntegrationsDraft(workspace));
   }, [workspace]);
 
@@ -350,30 +331,6 @@ export function useMasterCommandCenterActions({
       await refreshAll(created.id);
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Falha ao criar empresa.");
-    } finally {
-      setBusyAction(null);
-    }
-  }
-
-  async function saveSystemModule(moduleKey: string) {
-    const draft = moduleCatalogDrafts[moduleKey];
-    if (!draft) return;
-    setBusyAction(`system-module-${moduleKey}`);
-    setError(null);
-    try {
-      await apiFetch(`/modules/master/system-modules/${moduleKey}`, {
-        method: "PUT",
-        body: JSON.stringify({
-          name: draft.name.trim(),
-          description: draft.description.trim(),
-          monthlyPrice: Number(draft.monthlyPrice || 0),
-          defaultEnabled: draft.defaultEnabled,
-        }),
-      });
-      setMessage(`Módulo ${draft.name} atualizado.`);
-      await refreshAll(activeCompany?.id);
-    } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "Falha ao salvar módulo.");
     } finally {
       setBusyAction(null);
     }
@@ -1291,7 +1248,6 @@ export function useMasterCommandCenterActions({
     submitCreateCompany,
     setMasterIntegrationsOpen,
     setMasterEmailOpen,
-    setModuleCatalogOpen,
     setProfileDraft,
     setWebsiteDraft,
     setMercadoPagoDraft,
@@ -1300,7 +1256,6 @@ export function useMasterCommandCenterActions({
     setWhatsAppMigrationWorkflowDraft,
     setTrialDateDraft,
     setTrialDaysDraft,
-    setModuleCatalogDrafts,
     setMasterIntegrationsDraft,
     setIntegrationVisibility,
     setIntegrationEditor,
@@ -1308,7 +1263,6 @@ export function useMasterCommandCenterActions({
     setManualPaymentModal,
     setConfirmAction,
     setConfirmActionInput,
-    saveSystemModule,
     saveMasterIntegrations,
     saveMasterBillingPolicy,
     addMasterMercadoPagoCredential,
@@ -1368,7 +1322,6 @@ export function useMasterCommandCenterActions({
       createCompanySlug,
       masterIntegrationsOpen,
       masterEmailOpen,
-      moduleCatalogOpen,
       profileDraft,
       websiteDraft,
       mercadoPagoDraft,
@@ -1377,7 +1330,6 @@ export function useMasterCommandCenterActions({
       whatsAppMigrationWorkflowDraft,
       trialDateDraft,
       trialDaysDraft,
-      moduleCatalogDrafts,
       masterIntegrationsDraft,
       companyIntegrations,
       integrationsLoading,

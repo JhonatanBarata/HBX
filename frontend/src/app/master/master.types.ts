@@ -552,15 +552,6 @@ export type MercadoPagoDraft = {
   accessTokenConfigured: boolean;
 };
 
-export type ModuleCatalogDraft = {
-  key: string;
-  name: string;
-  description: string;
-  monthlyPrice: string;
-  companyAssignable: boolean;
-  defaultEnabled: boolean;
-};
-
 export type MasterIntegrationsDraft = WorkspacePayload["masterIntegrations"];
 
 export type FinanceSettingsDraft = {

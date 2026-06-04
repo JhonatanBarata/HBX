@@ -296,6 +296,38 @@ type SellerOnboardingAttachment = {
   createdAt?: string | null;
 };
 
+type PendingOnboardingAttachment = {
+  kind: SellerOnboardingAttachment["kind"];
+  file: File;
+  required: boolean;
+};
+
+type SellerOnboardingDraftPayload = {
+  id?: string | number;
+  legalName?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  cpf?: string | null;
+  declaredAddress?: string | null;
+  commissionPercent?: number | null;
+  commissionDueBusinessDays?: number | null;
+  sellerReferralCommissionPercent?: number | null;
+  referredByUserId?: number | null;
+  referredByCommissionPercentSnapshot?: number | null;
+};
+
+type SellerOnboardingReadiness = {
+  complete: boolean;
+  documents: Array<{
+    kind: SellerOnboardingAttachment["kind"];
+    label: string;
+    required: boolean;
+    present: boolean;
+  }>;
+  receivedDocuments: Array<{ kind: SellerOnboardingAttachment["kind"]; label: string; required: boolean; present: boolean }>;
+  missingRequiredDocuments: Array<{ kind: SellerOnboardingAttachment["kind"]; label: string; required: boolean; present: boolean }>;
+};
+
 type HbxReferralCandidatesResult = {
   candidates: HbxPartnerReferralCandidate[];
 };
@@ -709,7 +741,12 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   const [ignoredReferralCandidateId, setIgnoredReferralCandidateId] = useState("");
   const [onboardingUserId, setOnboardingUserId] = useState<number | null>(null);
   const [onboardingAttachments, setOnboardingAttachments] = useState<SellerOnboardingAttachment[]>([]);
+  const [onboardingReadiness, setOnboardingReadiness] = useState<SellerOnboardingReadiness | null>(null);
+  const [pendingOnboardingAttachments, setPendingOnboardingAttachments] = useState<Record<string, PendingOnboardingAttachment>>({});
+  const [pendingDocumentRequirements, setPendingDocumentRequirements] = useState<Record<string, boolean>>({});
+  const [onboardingStatusMessage, setOnboardingStatusMessage] = useState<string | null>(null);
   const [uploadingAttachmentKind, setUploadingAttachmentKind] = useState<string | null>(null);
+  const [removingOnboardingAttachmentId, setRemovingOnboardingAttachmentId] = useState<string | null>(null);
   const [generatingContract, setGeneratingContract] = useState(false);
   const [sendingOnboardingEmail, setSendingOnboardingEmail] = useState(false);
   const [savingModuleUserId, setSavingModuleUserId] = useState<number | null>(null);
@@ -971,7 +1008,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     }
   }
 
-  function useReferralCandidate(candidate: HbxPartnerReferralCandidate) {
+  function applyReferralCandidate(candidate: HbxPartnerReferralCandidate) {
     const referrer = candidate.referrerUser || hbxReferrers.find((item) => item.id === candidate.referrerUserId) || null;
     setNewUserRole("USER");
     setNewUserReferralCandidateId(candidate.id);
@@ -992,23 +1029,87 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   }
 
   async function loadOnboardingAttachments(userId: number) {
-    const payload = await apiFetch<{ attachments?: SellerOnboardingAttachment[] }>(`/gerencial/hbx-partners/${userId}/onboarding/attachments`);
+    const payload = await apiFetch<{ attachments?: SellerOnboardingAttachment[]; readiness?: SellerOnboardingReadiness }>(`/gerencial/hbx-partners/${userId}/onboarding/attachments`);
     setOnboardingAttachments(payload.attachments || []);
+    setOnboardingReadiness(payload.readiness || null);
   }
 
-  async function uploadOnboardingAttachment(kind: SellerOnboardingAttachment["kind"], file: File | null | undefined, required: boolean) {
-    if (!onboardingUserId || !file) return;
+  async function openSellerCadastroPopup(user: UserItem) {
+    resetCreateAccessPopup();
+    setNewUserRole("USER");
+    setNewUserEmail((user.email || user.username || "").trim().toLowerCase());
+    setNewUserName(user.name || "");
+    setNewUserPhone(user.phone || "");
+    setNewUserCommissionPercent(percentInputValue(user.commissionPercent));
+    setNewUserSellerReferralCommissionPercent(percentInputValue(user.sellerReferralCommissionPercent));
+    setNewUserReferredByUserId(user.referredByUserId ? String(user.referredByUserId) : "");
+    setNewUserReferredByCommissionPercent(percentInputValue(user.referredByCommissionPercentSnapshot));
+    setNewUserPassword("");
+    setOnboardingUserId(user.id);
+    setCreateAccessOpen(true);
+    setError(null);
+    setActionInfo(null);
+    try {
+      const onboarding = await apiFetch<SellerOnboardingDraftPayload>(`/gerencial/hbx-partners/${user.id}/onboarding`);
+      setNewUserName(onboarding.legalName || user.name || "");
+      setNewUserPhone(onboarding.phone || user.phone || "");
+      setNewUserCpf(onboarding.cpf || "");
+      setNewUserDeclaredAddress(onboarding.declaredAddress || "");
+      setNewUserCommissionDueBusinessDays(String(onboarding.commissionDueBusinessDays || 3));
+      setNewUserCommissionPercent(percentInputValue(onboarding.commissionPercent ?? user.commissionPercent));
+      setNewUserSellerReferralCommissionPercent(percentInputValue(onboarding.sellerReferralCommissionPercent ?? user.sellerReferralCommissionPercent));
+      setNewUserReferredByUserId(onboarding.referredByUserId ? String(onboarding.referredByUserId) : user.referredByUserId ? String(user.referredByUserId) : "");
+      setNewUserReferredByCommissionPercent(percentInputValue(onboarding.referredByCommissionPercentSnapshot ?? user.referredByCommissionPercentSnapshot));
+      await loadOnboardingAttachments(user.id);
+    } catch (openError) {
+      setError(friendlyGerencialError(openError, "Falha ao abrir cadastro do vendedor."));
+      await loadOnboardingAttachments(user.id).catch(() => null);
+    }
+  }
+
+  function validateOnboardingFile(file: File) {
+    const extension = `.${(file.name.split(".").pop() || "").toLowerCase()}`;
+    if (![".pdf", ".jpg", ".jpeg", ".png"].includes(extension)) {
+      return "Anexo precisa ser PDF, JPG ou PNG.";
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      return "Anexo deve ter no máximo 5MB.";
+    }
+    return null;
+  }
+
+  async function uploadOnboardingAttachmentForUser(userId: number, kind: SellerOnboardingAttachment["kind"], file: File, required: boolean) {
     const form = new FormData();
     form.append("file", file);
     form.append("kind", String(kind));
     form.append("required", String(required));
+    const payload = await apiFetch<{ readiness?: SellerOnboardingReadiness }>(`/gerencial/hbx-partners/${userId}/onboarding/attachments`, {
+      method: "POST",
+      body: form,
+    });
+    if (payload.readiness) setOnboardingReadiness(payload.readiness);
+    return payload;
+  }
+
+  async function uploadOnboardingAttachment(kind: SellerOnboardingAttachment["kind"], file: File | null | undefined, required: boolean) {
+    if (!file) return;
+    const validationError = validateOnboardingFile(file);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+    if (!onboardingUserId) {
+      setPendingOnboardingAttachments((current) => ({
+        ...current,
+        [String(kind)]: { kind, file, required },
+      }));
+      setOnboardingStatusMessage(`${onboardingAttachmentLabel(kind)} separado. Ele será anexado automaticamente ao cadastrar o vendedor.`);
+      return;
+    }
     setUploadingAttachmentKind(String(kind));
     setError(null);
     try {
-      await apiFetch(`/gerencial/hbx-partners/${onboardingUserId}/onboarding/attachments`, {
-        method: "POST",
-        body: form,
-      });
+      await uploadOnboardingAttachmentForUser(onboardingUserId, kind, file, required);
       await loadOnboardingAttachments(onboardingUserId);
     } catch (uploadError) {
       setError(friendlyGerencialError(uploadError, "Falha ao anexar documento."));
@@ -1022,13 +1123,66 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     setGeneratingContract(true);
     setError(null);
     try {
-      await apiFetch(`/gerencial/hbx-partners/${onboardingUserId}/onboarding/generate-contract`, { method: "POST" });
-      setActionInfo("Contrato gerado.");
-      await loadOnboardingAttachments(onboardingUserId);
+      const payload = await apiFetch<{ attachments?: SellerOnboardingAttachment[]; readiness?: SellerOnboardingReadiness }>(`/gerencial/hbx-partners/${onboardingUserId}/onboarding/generate-contract`, { method: "POST" });
+      if (payload.attachments) setOnboardingAttachments(payload.attachments);
+      if (payload.readiness) setOnboardingReadiness(payload.readiness);
+      setOnboardingStatusMessage("Contrato gerado e salvo no cadastro.");
     } catch (contractError) {
       setError(friendlyGerencialError(contractError, "Falha ao gerar contrato."));
     } finally {
       setGeneratingContract(false);
+    }
+  }
+
+  async function updateOnboardingDocumentRequirement(kind: SellerOnboardingAttachment["kind"], required: boolean) {
+    if (!onboardingUserId) {
+      setPendingDocumentRequirements((current) => ({ ...current, [String(kind)]: required }));
+      setPendingOnboardingAttachments((current) => {
+        const pending = current[String(kind)];
+        if (!pending) return current;
+        return { ...current, [String(kind)]: { ...pending, required } };
+      });
+      return;
+    }
+    setError(null);
+    try {
+      const payload = await apiFetch<{ readiness?: SellerOnboardingReadiness }>(`/gerencial/hbx-partners/${onboardingUserId}/onboarding/document-requirement`, {
+        method: "PATCH",
+        body: JSON.stringify({ kind, required }),
+      });
+      if (payload.readiness) setOnboardingReadiness(payload.readiness);
+      await loadOnboardingAttachments(onboardingUserId);
+    } catch (requirementError) {
+      setError(friendlyGerencialError(requirementError, "Falha ao atualizar exigência do documento."));
+    }
+  }
+
+  async function removeOnboardingAttachment(kind: SellerOnboardingAttachment["kind"], attachment?: SellerOnboardingAttachment | null) {
+    const kindKey = String(kind);
+    if (!attachment?.id) {
+      setPendingOnboardingAttachments((current) => {
+        const next = { ...current };
+        delete next[kindKey];
+        return next;
+      });
+      setOnboardingStatusMessage(`${onboardingAttachmentLabel(kind)} removido da fila de anexos.`);
+      return;
+    }
+    if (!onboardingUserId) return;
+    setRemovingOnboardingAttachmentId(String(attachment.id));
+    setError(null);
+    try {
+      const payload = await apiFetch<{ attachments?: SellerOnboardingAttachment[]; readiness?: SellerOnboardingReadiness }>(`/gerencial/hbx-partners/${onboardingUserId}/onboarding/attachments/${attachment.id}`, {
+        method: "DELETE",
+      });
+      setOnboardingAttachments(payload.attachments || []);
+      if (payload.readiness) setOnboardingReadiness(payload.readiness);
+      await loadOnboardingAttachments(onboardingUserId);
+      setOnboardingStatusMessage(`${onboardingAttachmentLabel(kind)} removido.`);
+    } catch (removeError) {
+      setError(friendlyGerencialError(removeError, "Falha ao remover anexo."));
+    } finally {
+      setRemovingOnboardingAttachmentId(null);
     }
   }
 
@@ -1037,13 +1191,36 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     setSendingOnboardingEmail(true);
     setError(null);
     try {
-      const payload = await apiFetch<{ ok?: boolean }>(`/gerencial/hbx-partners/${onboardingUserId}/onboarding/send-email`, { method: "POST" });
-      setActionInfo(payload.ok ? "E-mail enviado." : "E-mail não enviado.");
+      const payload = await apiFetch<{ ok?: boolean; readiness?: SellerOnboardingReadiness }>(`/gerencial/hbx-partners/${onboardingUserId}/onboarding/send-email`, { method: "POST" });
+      if (payload.readiness) setOnboardingReadiness(payload.readiness);
+      setActionInfo(payload.ok ? "E-mail de solicitação enviado sem login e senha." : "E-mail não enviado.");
       await load();
     } catch (emailError) {
       setError(friendlyGerencialError(emailError, "Falha ao enviar e-mail."));
     } finally {
       setSendingOnboardingEmail(false);
+    }
+  }
+
+  async function activateOnboardingPartner() {
+    if (!onboardingUserId) return;
+    setTogglingActiveUserId(onboardingUserId);
+    setError(null);
+    setActionInfo(null);
+    try {
+      const payload = await apiFetch<{ message?: string; isActive: boolean }>(`/users/${onboardingUserId}/active`, {
+        method: "PATCH",
+        body: JSON.stringify({ active: true }),
+      });
+      setActionInfo(payload.message || "Parceiro criado e e-mail de boas-vindas enviado.");
+      await load();
+      resetCreateAccessPopup();
+      setCreateAccessOpen(false);
+    } catch (activateError) {
+      setError(friendlyGerencialError(activateError, "Falha ao criar parceiro."));
+      if (onboardingUserId) await loadOnboardingAttachments(onboardingUserId).catch(() => null);
+    } finally {
+      setTogglingActiveUserId(null);
     }
   }
 
@@ -1066,6 +1243,10 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     setIgnoredReferralCandidateId("");
     setOnboardingUserId(null);
     setOnboardingAttachments([]);
+    setOnboardingReadiness(null);
+    setOnboardingStatusMessage(null);
+    setPendingOnboardingAttachments({});
+    setPendingDocumentRequirements({});
   }
 
   function renderReferralMatchBox(surface: "mobile" | "desktop") {
@@ -1090,7 +1271,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
           Use a indicação para puxar nome, telefone, indicador e segmentos preferidos.
         </span>
         <div className="mt-3 flex flex-wrap gap-2">
-          <button type="button" onClick={() => useReferralCandidate(candidate)} className={surface === "mobile" ? "hbx-mobile-primary-button" : "btn btn-primary btn-sm"}>
+          <button type="button" onClick={() => applyReferralCandidate(candidate)} className={surface === "mobile" ? "hbx-mobile-primary-button" : "btn btn-primary btn-sm"}>
             Usar
           </button>
           <button
@@ -1124,9 +1305,106 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     }
   }
 
+  async function saveExistingSellerCadastro(userId: number) {
+    const existingUser = data?.users.find((user) => user.id === userId) || null;
+    const commissionPercent = parsePercentInput(
+      selectedNewUserReferrer ? percentInputValue(selectedNewUserReferrer.commissionPercent) : newUserCommissionPercent,
+    );
+    if (commissionPercent === null) {
+      setError("Informe uma comissão entre 0 e 100.");
+      return;
+    }
+    const sellerReferralCommissionPercent = parsePercentInput(
+      selectedNewUserReferrer ? percentInputValue(selectedNewUserReferrer.sellerReferralCommissionPercent) : newUserSellerReferralCommissionPercent,
+    );
+    if (sellerReferralCommissionPercent === null) {
+      setError("Informe uma comissão de indicação entre 0 e 100.");
+      return;
+    }
+    const referredByUserId = newUserReferredByUserId ? Number(newUserReferredByUserId) : undefined;
+    if (referredByUserId !== undefined && (!Number.isInteger(referredByUserId) || referredByUserId <= 0)) {
+      setError("Selecione um indicador válido.");
+      return;
+    }
+    const parsedDueDays = Number(newUserCommissionDueBusinessDays || 3);
+    if (!Number.isInteger(parsedDueDays) || parsedDueDays < 1 || parsedDueDays > 30) {
+      setError("Informe um prazo de pagamento entre 1 e 30 dias úteis.");
+      return;
+    }
+
+    setCreatingUser(true);
+    setError(null);
+    try {
+      const profileBody: Record<string, unknown> = {
+        name: newUserName.trim(),
+        phone: newUserPhone.trim(),
+        commissionPercent,
+        canRegisterHbxSellers: false,
+      };
+      if (referredByUserId) {
+        profileBody.referredByUserId = referredByUserId;
+      } else {
+        profileBody.referredByUserId = null;
+        profileBody.sellerReferralCommissionPercent = sellerReferralCommissionPercent;
+        profileBody.referredByCommissionPercentSnapshot = 0;
+      }
+      const updated = await apiFetch<UserItem>(`/users/${userId}/profile`, {
+        method: "PATCH",
+        body: JSON.stringify(profileBody),
+      });
+      await apiFetch(`/gerencial/hbx-partners/${userId}/onboarding`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          legalName: newUserName.trim(),
+          email: newUserEmail.trim().toLowerCase() || existingUser?.email || existingUser?.username,
+          phone: newUserPhone.trim(),
+          cpf: newUserCpf.trim(),
+          declaredAddress: newUserDeclaredAddress.trim(),
+          commissionPercent,
+          commissionDueBusinessDays: parsedDueDays,
+          sellerReferralCommissionPercent,
+          referredByUserId: referredByUserId || null,
+          referredByCommissionPercentSnapshot: referredByUserId ? newUserReferredByCommissionPercent : 0,
+        }),
+      });
+      setData((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          users: prev.users.map((item) =>
+            item.id === userId
+              ? {
+                  ...item,
+                  name: updated.name ?? newUserName.trim(),
+                  phone: updated.phone ?? newUserPhone.trim(),
+                  commissionPercent: updated.commissionPercent ?? commissionPercent,
+                  canRegisterHbxSellers: updated.canRegisterHbxSellers ?? false,
+                  sellerReferralCommissionPercent: updated.sellerReferralCommissionPercent ?? sellerReferralCommissionPercent,
+                  referredByUserId: updated.referredByUserId ?? referredByUserId ?? null,
+                  referredByCommissionPercentSnapshot: updated.referredByCommissionPercentSnapshot ?? 0,
+                  referredByUser: updated.referredByUser ?? existingUser?.referredByUser ?? null,
+                }
+              : item,
+          ),
+        };
+      });
+      await loadOnboardingAttachments(userId);
+      setActionInfo(`Cadastro de ${existingUser ? userLabel(existingUser) : newUserName.trim() || `#${userId}`} salvo.`);
+    } catch (saveError) {
+      setError(friendlyGerencialError(saveError, "Falha ao salvar cadastro do vendedor."));
+    } finally {
+      setCreatingUser(false);
+    }
+  }
+
   async function createCompanyUser(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
+
+    if (onboardingUserId) {
+      await saveExistingSellerCadastro(onboardingUserId);
+      return;
+    }
 
     const email = newUserEmail.trim().toLowerCase();
     if (!email) {
@@ -1235,6 +1513,31 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
 
       if (isHbxSellerNetwork && newUserRole === "USER" && payload?.user?.id) {
         setOnboardingUserId(payload.user.id);
+        const pendingRequirements = { ...pendingDocumentRequirements };
+        const pendingAttachments = Object.values(pendingOnboardingAttachments);
+        let uploadedCount = 0;
+        try {
+          for (const [kind, required] of Object.entries(pendingRequirements)) {
+            await apiFetch(`/gerencial/hbx-partners/${payload.user.id}/onboarding/document-requirement`, {
+              method: "PATCH",
+              body: JSON.stringify({ kind, required }),
+            });
+          }
+          for (const pending of pendingAttachments) {
+            setUploadingAttachmentKind(String(pending.kind));
+            await uploadOnboardingAttachmentForUser(payload.user.id, pending.kind, pending.file, pending.required);
+            uploadedCount += 1;
+          }
+          if (uploadedCount > 0) {
+            setPendingOnboardingAttachments({});
+            setPendingDocumentRequirements({});
+            setActionInfo(`Parceiro HBX cadastrado. ${uploadedCount} documento(s) anexado(s). Gere ou envie o contrato antes de liberar o acesso.`);
+          }
+        } catch (attachmentError) {
+          setError(friendlyGerencialError(attachmentError, "Cadastro criado, mas falhou ao anexar um documento."));
+        } finally {
+          setUploadingAttachmentKind(null);
+        }
         await loadOnboardingAttachments(payload.user.id);
       } else {
         resetCreateAccessPopup();
@@ -1704,7 +2007,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                     <button
                       type="button"
                       disabled={busy || reviewingCandidateId !== null}
-                      onClick={() => useReferralCandidate(candidate)}
+                      onClick={() => applyReferralCandidate(candidate)}
                       className={isMobile ? "hbx-mobile-primary-button" : "btn btn-primary btn-sm"}
                     >
                       Cadastrar agora
@@ -2030,7 +2333,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
           </div>
         ) : null}
 
-        {isEditingProfile && !options.modulesOnly ? renderMobileProfileForm(user) : null}
+        {isEditingProfile && !options.modulesOnly && !showHbxNetwork ? renderMobileProfileForm(user) : null}
         {!options.modulesOnly ? (
           <div className="grid grid-cols-2 gap-2">
             <button type="button" disabled={deletingUserId === user.id || changingUserId === user.id || !user.isActive || role === "USER"} onClick={() => setRole(user.id, "USER")} className="hbx-mobile-secondary-button">
@@ -2039,10 +2342,26 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
             <button type="button" disabled={deletingUserId === user.id || changingUserId === user.id || !user.isActive || role === "ADMIN"} onClick={() => setRole(user.id, "ADMIN")} className="hbx-mobile-secondary-button">
               Admin
             </button>
-            <button type="button" disabled={deletingUserId === user.id || savingProfileUserId === user.id} onClick={() => startEditingProfile(user)} className="hbx-mobile-secondary-button">
+            <button
+              type="button"
+              disabled={deletingUserId === user.id || savingProfileUserId === user.id}
+              onClick={() => {
+                if (showHbxNetwork) void openSellerCadastroPopup(user);
+                else startEditingProfile(user);
+              }}
+              className="hbx-mobile-secondary-button"
+            >
               Editar
             </button>
-            <button type="button" disabled={deletingUserId === user.id || togglingActiveUserId === user.id} onClick={() => toggleActive(user.id, Boolean(user.isActive))} className={user.isActive ? "hbx-mobile-secondary-button" : "hbx-mobile-primary-button"}>
+            <button
+              type="button"
+              disabled={deletingUserId === user.id || togglingActiveUserId === user.id}
+              onClick={() => {
+                if (!user.isActive && showHbxNetwork) void openSellerCadastroPopup(user);
+                else toggleActive(user.id, Boolean(user.isActive));
+              }}
+              className={user.isActive ? "hbx-mobile-secondary-button" : "hbx-mobile-primary-button"}
+            >
               {user.isActive ? "Desativar" : isHbxSellerNetwork && isSeller ? "Liberar parceiro" : "Reativar"}
             </button>
             <button type="button" disabled={deletingUserId === user.id} onClick={() => void deleteUser(user)} className="hbx-mobile-secondary-button col-span-2 text-red-700">
@@ -2370,20 +2689,25 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
 
   function renderCreateAccessPopup() {
     if (!createAccessOpen) return null;
-    const canUseDocs = Boolean(isHbxSellerNetwork && onboardingUserId);
+    const canUseDocs = Boolean(isHbxSellerNetwork && newUserRole === "USER");
+    const canPersistDocs = Boolean(canUseDocs && onboardingUserId);
     const documentSlots = [
       { kind: "photo_id", label: "Documento", required: true },
       { kind: "curriculum", label: "Currículo", required: false },
       { kind: "contract_pdf", label: "Contrato", required: true },
       { kind: "other", label: "Outro", required: false },
     ] as const;
+    const documentReadiness = new Map((onboardingReadiness?.documents || []).map((item) => [String(item.kind), item]));
+    const missingRequiredLabels = onboardingReadiness?.missingRequiredDocuments.map((item) => item.label) || [];
+    const canActivatePartner = Boolean(canPersistDocs && onboardingReadiness?.complete);
+    const pendingAttachmentCount = Object.keys(pendingOnboardingAttachments).length;
 
     return (
       <div className="hbx-popup-layer" data-clickable="true" role="presentation">
         <section className="hbx-popup2 hbx-popup2--partner-access" data-tone="info" role="dialog" aria-modal="true" aria-label="Criar acesso">
           <header className="hbx-partner-popup__header">
             <div>
-              <strong>{isHbxSellerNetwork ? "Parceiro HBX" : "Novo acesso"}</strong>
+              <strong>{onboardingUserId ? "Cadastro do vendedor" : isHbxSellerNetwork ? "Parceiro HBX" : "Novo acesso"}</strong>
               <span>{onboardingUserId ? `#${onboardingUserId}` : "Cadastro"}</span>
             </div>
             <button
@@ -2416,7 +2740,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
               </label>
               <label>
                 <span>E-mail</span>
-                <input className="field" type="email" name="hbx-create-seller-login-popup" autoComplete="off" value={newUserEmail} onChange={(event) => setNewUserEmail(event.target.value)} required />
+                <input className="field" type="email" name="hbx-create-seller-login-popup" autoComplete="off" value={newUserEmail} onChange={(event) => setNewUserEmail(event.target.value)} disabled={Boolean(onboardingUserId)} required />
               </label>
               <label>
                 <span>WhatsApp</span>
@@ -2448,7 +2772,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                     </label>
                     <label>
                       <span>Senha</span>
-                      <input className="field" type="password" name="hbx-create-seller-password-popup" autoComplete="new-password" value={newUserPassword} onChange={(event) => setNewUserPassword(event.target.value)} />
+                      <input className="field" type="password" name="hbx-create-seller-password-popup" autoComplete="new-password" value={newUserPassword} onChange={(event) => setNewUserPassword(event.target.value)} disabled={Boolean(onboardingUserId)} />
                     </label>
                   </div>
                   <label>
@@ -2486,46 +2810,105 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                   </div>
                 </>
               ) : null}
-              <button type="submit" disabled={creatingUser || Boolean(onboardingUserId)} className="btn btn-primary btn-sm">
-                {creatingUser ? "Criando..." : onboardingUserId ? "Criado" : isHbxSellerNetwork ? "Criar parceiro" : "Criar acesso"}
+              <button type="submit" disabled={creatingUser} className="btn btn-primary btn-sm">
+                {creatingUser ? (onboardingUserId ? "Salvando..." : "Cadastrando...") : onboardingUserId ? "Salvar cadastro" : isHbxSellerNetwork ? "Cadastrar vendedor" : "Criar acesso"}
               </button>
             </div>
 
             <div className="hbx-partner-popup__panel" data-disabled={!canUseDocs}>
+              <div className="hbx-partner-popup__status">
+                <strong>{canUseDocs ? "Documentação do parceiro" : "Documentação disponível para vendedor"}</strong>
+                <span>
+                  {canUseDocs
+                    ? canPersistDocs
+                      ? canActivatePartner
+                        ? "Tudo em ordem. Criar Parceiro envia login e senha por e-mail."
+                        : missingRequiredLabels.length
+                          ? `Pendências obrigatórias: ${missingRequiredLabels.join(", ")}.`
+                          : "Marque obrigatório/opcional. O e-mail só cobra o que faltar e estiver obrigatório."
+                      : pendingAttachmentCount
+                        ? `${pendingAttachmentCount} arquivo(s) pronto(s). Eles serão anexados ao cadastrar o vendedor.`
+                        : "Anexe o que você já recebeu e marque obrigatório/opcional antes de cadastrar."
+                    : "Troque o perfil para vendedor para anexar documentos."}
+                </span>
+                {onboardingStatusMessage ? <em>{onboardingStatusMessage}</em> : null}
+              </div>
               <div className="hbx-partner-popup__docs">
                 {documentSlots.map((slot) => {
                   const attachment = onboardingAttachments.find((item) => item.kind === slot.kind && item.status !== "deleted");
+                  const pendingAttachment = pendingOnboardingAttachments[slot.kind];
+                  const readiness = documentReadiness.get(slot.kind);
+                  const pendingRequirement = pendingDocumentRequirements[slot.kind];
+                  const required = readiness ? readiness.required : pendingRequirement ?? slot.required;
                   return (
-                    <label key={slot.kind} className="hbx-partner-popup__upload">
+                    <label key={slot.kind} className="hbx-partner-popup__upload" data-pending={Boolean(pendingAttachment)}>
                       <span>
                         <b>{slot.label}</b>
-                        <small>{attachment ? attachment.originalFilename : slot.required ? "Obrigatório" : "Opcional"}</small>
+                        <small>
+                          {attachment
+                            ? attachment.originalFilename
+                            : pendingAttachment
+                              ? `${pendingAttachment.file.name} pronto`
+                              : required
+                                ? "Obrigatório pendente"
+                                : "Opcional"}
+                        </small>
                       </span>
                       <input
                         type="file"
                         accept=".pdf,.jpg,.jpeg,.png"
                         disabled={!canUseDocs || uploadingAttachmentKind === slot.kind}
                         onChange={(event) => {
-                          void uploadOnboardingAttachment(slot.kind, event.target.files?.[0], slot.required);
+                          void uploadOnboardingAttachment(slot.kind, event.target.files?.[0], required);
                           event.currentTarget.value = "";
                         }}
                       />
+                      <button
+                        type="button"
+                        disabled={!canUseDocs}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          void updateOnboardingDocumentRequirement(slot.kind, !required);
+                        }}
+                      >
+                        {required ? "Obrigatório" : "Opcional"}
+                      </button>
+                      {attachment || pendingAttachment ? (
+                        <button
+                          type="button"
+                          disabled={removingOnboardingAttachmentId === attachment?.id}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            void removeOnboardingAttachment(slot.kind, attachment);
+                          }}
+                        >
+                          {removingOnboardingAttachmentId === attachment?.id ? "Removendo..." : "Remover"}
+                        </button>
+                      ) : null}
                     </label>
                   );
                 })}
               </div>
               <div className="hbx-partner-popup__actions">
-                <button type="button" disabled={!canUseDocs || generatingContract} onClick={() => void generateOnboardingContract()} className="btn btn-secondary btn-sm">
+                <button type="button" disabled={!canPersistDocs || generatingContract} onClick={() => void generateOnboardingContract()} className="btn btn-secondary btn-sm">
                   {generatingContract ? "Gerando..." : "Gerar contrato"}
                 </button>
-                <button type="button" disabled={!canUseDocs || sendingOnboardingEmail} onClick={() => void sendOnboardingEmail()} className="btn btn-primary btn-sm">
-                  {sendingOnboardingEmail ? "Enviando..." : "Enviar e-mail"}
+                <button type="button" disabled={!canPersistDocs || sendingOnboardingEmail} onClick={() => void sendOnboardingEmail()} className="btn btn-primary btn-sm">
+                  {sendingOnboardingEmail ? "Enviando..." : "Solicitar documentos"}
+                </button>
+                <button type="button" disabled={!canActivatePartner || togglingActiveUserId === onboardingUserId} onClick={() => void activateOnboardingPartner()} className="btn btn-success btn-sm">
+                  {togglingActiveUserId === onboardingUserId ? "Criando..." : "Criar parceiro"}
                 </button>
               </div>
-              {onboardingAttachments.length ? (
+              {onboardingAttachments.length || pendingAttachmentCount ? (
                 <div className="hbx-partner-popup__chips">
                   {onboardingAttachments.filter((item) => item.status !== "deleted").slice(0, 6).map((item) => (
                     <span key={item.id}>{onboardingAttachmentLabel(item.kind)}</span>
+                  ))}
+                  {Object.values(pendingOnboardingAttachments).map((item) => (
+                    <span key={String(item.kind)}>{onboardingAttachmentLabel(item.kind)} pronto</span>
                   ))}
                 </div>
               ) : null}
@@ -2600,7 +2983,14 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
             {mobileTab === "equipe" ? (
               <div className="grid gap-3">
                 <section className="hbx-mobile-card grid gap-2">
-                  <button type="button" onClick={() => setCreateAccessOpen(true)} className="hbx-mobile-primary-button">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      resetCreateAccessPopup();
+                      setCreateAccessOpen(true);
+                    }}
+                    className="hbx-mobile-primary-button"
+                  >
                     Criar acesso
                   </button>
                   {renderReferralCandidatesPanel("mobile")}
@@ -2637,7 +3027,10 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         <HbxMobileDock
           primaryLabel="Cadastrar"
           primaryIcon="plus"
-          onPrimaryAction={() => setCreateAccessOpen(true)}
+          onPrimaryAction={() => {
+            resetCreateAccessPopup();
+            setCreateAccessOpen(true);
+          }}
           onComissao={() => setMobileTab("comissoes")}
           onRelatorio={() => setMobileTab("sinais")}
         />
@@ -3148,7 +3541,14 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                 {showDesktopModules ? `${enabledModules.length} módulos` : `${data.users.length} pessoas`}
               </span>
               {showDesktopTeam ? (
-                <button type="button" onClick={() => setCreateAccessOpen(true)} className="btn btn-primary btn-sm">
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetCreateAccessPopup();
+                    setCreateAccessOpen(true);
+                  }}
+                  className="btn btn-primary btn-sm"
+                >
                   Criar acesso
                 </button>
               ) : null}
@@ -3312,7 +3712,10 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                       <button
                         type="button"
                         disabled={deletingUserId === user.id || togglingActiveUserId === user.id}
-                        onClick={() => toggleActive(user.id, Boolean(user.isActive))}
+                        onClick={() => {
+                          if (!user.isActive && showHbxNetwork) void openSellerCadastroPopup(user);
+                          else toggleActive(user.id, Boolean(user.isActive));
+                        }}
                         className={`btn btn-sm ${user.isActive ? "btn-secondary" : "btn-primary"}`}
                       >
                         {user.isActive ? "Desativar" : isHbxSellerNetwork && isSeller ? "Liberar parceiro" : "Reativar"}
@@ -3320,7 +3723,10 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                       <button
                         type="button"
                         disabled={deletingUserId === user.id || savingProfileUserId === user.id}
-                        onClick={() => startEditingProfile(user)}
+                        onClick={() => {
+                          if (showHbxNetwork) void openSellerCadastroPopup(user);
+                          else startEditingProfile(user);
+                        }}
                         className="btn btn-ghost btn-sm"
                       >
                         Editar dados
@@ -3336,7 +3742,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                     </div>
                     ) : null}
 
-                    {showDesktopTeam && isEditingProfile ? (
+                    {showDesktopTeam && isEditingProfile && !showHbxNetwork ? (
                       <form
                         onSubmit={(event) => {
                           event.preventDefault();

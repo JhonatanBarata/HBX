@@ -8,5 +8,5 @@ export default async function Page({
 }: {
   searchParams?: Promise<LegacySearchParams> | LegacySearchParams;
 }) {
-  redirect(withLegacySearchParams("/master?panel=modules", await searchParams));
+  redirect(withLegacySearchParams("/master", await searchParams));
 }

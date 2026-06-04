@@ -6639,7 +6639,6 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 ? "Revise o Radar para destravar a busca."
                 : "Radar abasteceu sua agenda comercial.";
     const activeCapabilities = board?.capabilities || salesProfile?.capabilities || {};
-    const enrichmentCredits = vendasEnrichmentCreditsView(board);
     const mobileHeroPremiumActive = Boolean(
       board?.planTier === "lead" ||
         board?.planTier === "full" ||
@@ -7641,9 +7640,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 )
               : null}
 
-            {typeof document !== "undefined"
-              ? createPortal(mobileLeadActionBar, document.body)
-              : mobileLeadActionBar}
+            {mobileLeadActionBar}
             <HbxMobileDock
               primaryLabel="Incluir lead manual"
               onPrimaryAction={() => setComposerOpen(true)}
@@ -7715,15 +7712,6 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
           </header>
 
           <div className={styles.mobileVendasHeroStats} aria-label="Resumo de Vendas">
-            <button
-              type="button"
-              data-tone={enrichmentCredits.isBlocked ? "danger" : enrichmentCredits.canAuto ? "success" : "primary"}
-              data-active="false"
-              onClick={() => setFeedback(enrichmentCredits.detail)}
-            >
-              <b>{enrichmentCredits.usageLabel}</b>
-              <strong>{enrichmentCredits.label}</strong>
-            </button>
             <button
               type="button"
               data-tone="danger"

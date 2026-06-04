@@ -44,7 +44,7 @@ import styles from "./MasterCommandCenter.module.css";
 type CommandActions = ReturnType<typeof useMasterCommandCenterActions>["actions"];
 type CommandState = ReturnType<typeof useMasterCommandCenterActions>["state"];
 type MasterInspectorTabId = "overview" | "access" | "billing" | "users" | "whatsapp" | "radar" | "integrations" | "audit" | "danger";
-type MasterPrimaryTabId = "empresas" | "nova" | "email" | "database" | "tokens" | "links" | "modules" | "refresh" | "exit";
+type MasterPrimaryTabId = "empresas" | "email" | "database" | "tokens" | "links" | "refresh" | "exit";
 
 const MASTER_INSPECTOR_TABS: Array<{ id: MasterInspectorTabId; label: string; meta: string }> = [
   { id: "overview", label: "Resumo", meta: "estado" },
@@ -60,12 +60,10 @@ const MASTER_INSPECTOR_TABS: Array<{ id: MasterInspectorTabId; label: string; me
 
 const MASTER_PRIMARY_TABS = [
   { key: "empresas", label: "Empresas" },
-  { key: "nova", label: "Nova empresa" },
   { key: "email", label: "Email" },
   { key: "database", label: "Banco de Dados" },
   { key: "tokens", label: "Tokens" },
   { key: "links", label: "Links" },
-  { key: "modules", label: "Módulos" },
   { key: "refresh", label: "Atualizar" },
 ] satisfies Array<{ key: MasterPrimaryTabId; label: string }>;
 
@@ -119,7 +117,6 @@ export default function MasterCommandCenter(props: MasterCommandCenterProps) {
     if (!normalized || initialPanelHandled.current === normalized) return;
     initialPanelHandled.current = normalized;
     if (normalized === "email") actions.setMasterEmailOpen(true);
-    if (normalized === "modules" || normalized === "planos") actions.setModuleCatalogOpen(true);
     if (normalized === "tokens") actions.setMasterIntegrationsOpen(true);
     if (["database", "banco", "bancodedados", "exclusoes", "excluidos", "reclamacoes", "reclamações", "complaints", "concluidos", "concluídos", "completed"].includes(normalized)) {
       window.location.href = "/bancodedados";
@@ -152,6 +149,7 @@ export default function MasterCommandCenter(props: MasterCommandCenterProps) {
             onOpenCompany={(company) => void actions.loadDetail(company.id)}
             onAssumeCompany={actions.assumeContext}
             companyHasContext={actions.companyHasActiveMasterContext}
+            onCreateCompany={() => actions.setCreateCompanyOpen(true)}
             busyAction={state.busyAction}
             workspace={workspace}
             state={state}
@@ -168,7 +166,6 @@ export default function MasterCommandCenter(props: MasterCommandCenterProps) {
       <CreateCompanyModal state={state} actions={actions} />
       <MasterIntegrationsModal state={state} actions={actions} />
       <MasterEmailModal state={state} actions={actions} />
-      <ModuleCatalogModal state={state} actions={actions} />
     </MasterShell>
   );
 }
@@ -183,6 +180,7 @@ function MasterOperationsLayout({
   onOpenCompany,
   onAssumeCompany,
   companyHasContext,
+  onCreateCompany,
   busyAction,
   workspace,
   state,
@@ -193,6 +191,7 @@ function MasterOperationsLayout({
   onOpenCompany: (company: CompanySummary) => void;
   onAssumeCompany: (company: CompanySummary) => void;
   companyHasContext: (companyId?: number | null) => boolean;
+  onCreateCompany: () => void;
   busyAction: string | null;
   workspace: MasterCommandCenterProps["workspace"];
   state: CommandState;
@@ -207,6 +206,7 @@ function MasterOperationsLayout({
           onOpen={onOpenCompany}
           onAssume={onAssumeCompany}
           companyHasContext={companyHasContext}
+          onCreate={onCreateCompany}
           busyAction={busyAction}
         />
         <MasterCompanyInspector
@@ -281,7 +281,6 @@ function MasterPrimaryWorkspace({
   state: CommandState;
   actions: CommandActions;
 }) {
-  if (tab === "nova") return <CreateCompanyPanel state={state} actions={actions} />;
   if (tab === "email") {
     return (
       <section className={`${styles.primaryWorkspace} hbx-page-mobile-enter`}>
@@ -290,7 +289,6 @@ function MasterPrimaryWorkspace({
     );
   }
   if (tab === "tokens") return <MasterIntegrationsPanelInline state={state} actions={actions} />;
-  if (tab === "modules") return <ModuleCatalogPanelInline state={state} actions={actions} />;
   if (tab === "database") {
     return (
       <section className={`${styles.primaryWorkspace} ${styles.primaryWorkspaceFlush} hbx-page-mobile-enter`}>
@@ -333,26 +331,13 @@ function MasterInlinePanel({ eyebrow, title, children }: { eyebrow: string; titl
   );
 }
 
-function CreateCompanyPanel({ state, actions }: { state: CommandState; actions: CommandActions }) {
-  return (
-    <MasterInlinePanel eyebrow="Master" title="Nova empresa">
-      <div className={styles.inlineForm}>
-        <input value={state.createCompanyName} onChange={(event) => actions.setCreateCompanyName(event.target.value)} placeholder="Nome da empresa" />
-        <input value={state.createCompanySlug} onChange={(event) => actions.setCreateCompanySlug(event.target.value)} placeholder="Slug opcional" />
-        <MasterActionButton onClick={actions.submitCreateCompany} disabled={state.busyAction === "create-company"}>
-          {state.busyAction === "create-company" ? "Criando..." : "Criar empresa"}
-        </MasterActionButton>
-      </div>
-    </MasterInlinePanel>
-  );
-}
-
 function MasterCompanyBoard({
   companies,
   activeCompanyId,
   onOpen,
   onAssume,
   companyHasContext,
+  onCreate,
   busyAction,
 }: {
   companies: CompanySummary[];
@@ -360,10 +345,14 @@ function MasterCompanyBoard({
   onOpen: (company: CompanySummary) => void;
   onAssume: (company: CompanySummary) => void;
   companyHasContext: (companyId?: number | null) => boolean;
+  onCreate: () => void;
   busyAction: string | null;
 }) {
   return (
     <section className={styles.companyBoard} aria-label="Empresas">
+      <div className={styles.companyBoardToolbar}>
+        <MasterActionButton onClick={onCreate}>Nova empresa</MasterActionButton>
+      </div>
       <div className={styles.companyRows}>
         {companies.map((company) => (
           <MasterCompanyRow
@@ -1781,38 +1770,5 @@ function WhatsAppCredentialLibrary({ state, actions }: { state: CommandState; ac
         </div>
       ))}
     </section>
-  );
-}
-
-function ModuleCatalogModal({ state, actions }: { state: CommandState; actions: CommandActions }) {
-  return (
-    <Modal open={state.moduleCatalogOpen} title="Catálogo de módulos" onClose={() => actions.setModuleCatalogOpen(false)} wide>
-      <ModuleCatalogContent state={state} actions={actions} />
-    </Modal>
-  );
-}
-
-function ModuleCatalogPanelInline({ state, actions }: { state: CommandState; actions: CommandActions }) {
-  return (
-    <MasterInlinePanel eyebrow="Master" title="Módulos">
-      <ModuleCatalogContent state={state} actions={actions} />
-    </MasterInlinePanel>
-  );
-}
-
-function ModuleCatalogContent({ state, actions }: { state: CommandState; actions: CommandActions }) {
-  const drafts = Object.values(state.moduleCatalogDrafts).filter((item) => item.companyAssignable);
-  return (
-    <div className={styles.modalStack}>
-      {drafts.map((draft) => (
-        <article key={draft.key} className={styles.catalogRow}>
-          <input value={draft.name} onChange={(event) => actions.setModuleCatalogDrafts((current) => ({ ...current, [draft.key]: { ...draft, name: event.target.value } }))} />
-          <input value={draft.description} onChange={(event) => actions.setModuleCatalogDrafts((current) => ({ ...current, [draft.key]: { ...draft, description: event.target.value } }))} />
-          <input type="number" min={0} step="0.01" value={draft.monthlyPrice} onChange={(event) => actions.setModuleCatalogDrafts((current) => ({ ...current, [draft.key]: { ...draft, monthlyPrice: event.target.value } }))} placeholder="Preço mensal" />
-          <label><input type="checkbox" checked={draft.defaultEnabled} onChange={(event) => actions.setModuleCatalogDrafts((current) => ({ ...current, [draft.key]: { ...draft, defaultEnabled: event.target.checked } }))} /> Padrão</label>
-          <MasterActionButton variant="secondary" onClick={() => actions.saveSystemModule(draft.key)}>Salvar</MasterActionButton>
-        </article>
-      ))}
-    </div>
   );
 }
