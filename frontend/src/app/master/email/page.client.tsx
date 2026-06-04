@@ -9,7 +9,7 @@ import { apiFetch, getDirectDashboardApiBaseUrl, type ApiFetchError } from "@/ap
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
 import styles from "./page.module.css";
 
-type TemplateKind = "normal" | "password_reset" | "email_confirmation" | "seller_welcome";
+type TemplateKind = "normal" | "password_reset" | "email_confirmation" | "seller_welcome" | "seller_onboarding_request";
 type TemplateVariableGroupKey = "contato" | "vendedor" | "card" | "links" | "sistema";
 
 type TemplateVariableDefinition = {
@@ -86,15 +86,16 @@ const TEMPLATE_LABELS: Record<TemplateKind, string> = {
   normal: "E-mail normal",
   password_reset: "Recuperação",
   email_confirmation: "Confirmação",
+  seller_onboarding_request: "Pré boas-vindas vendedor",
   seller_welcome: "Boas-vindas vendedor",
 };
 
-const TEMPLATE_ORDER: TemplateKind[] = ["normal", "seller_welcome", "password_reset", "email_confirmation"];
+const TEMPLATE_ORDER: TemplateKind[] = ["normal", "seller_onboarding_request", "seller_welcome", "password_reset", "email_confirmation"];
 const DEFAULT_NAME = "Amanda";
 const DEFAULT_COMPANY = "Empresa Teste";
 const MAX_PPTX_UPLOAD_BYTES = 50 * 1024 * 1024;
 const MAX_BUSINESS_CARD_UPLOAD_BYTES = 15 * 1024 * 1024;
-const TEMPLATE_VARIABLE_KEYS = "nome|primeironome|email|empresa|linkRecuperacao|linkConfirmacao|acesso|senha|linkAcesso|linkMobile|tipoAcesso|ano|vendedor|emailvendedor|senhavendedor|comissao|comissaoheranca|d3|diascomissao|sellerName|sellerCpf|sellerEmail|sellerPhone|sellerAddress|commissionPercent|commissionDueBusinessDays|contractDate|saudacao|nomecard|razaosocialcard|telefonecard|whatsappcard|emailcard|cidadecard|estadocard|enderecocard|bairrocard|segmentocard|sitecard|instagramcard|facebookcard|responsavelcard|observacaocard";
+const TEMPLATE_VARIABLE_KEYS = "nome|primeironome|email|empresa|linkRecuperacao|linkConfirmacao|acesso|senha|linkAcesso|linkMobile|tipoAcesso|ano|vendedor|emailvendedor|senhavendedor|comissao|comissaoheranca|d3|diascomissao|sellerName|sellerCpf|sellerEmail|sellerPhone|sellerAddress|commissionPercent|commissionDueBusinessDays|contractDate|documentosConfirmados|documentosRecebidos|documentosPendentes|documentosFaltantes|contrato|saudacao|nomecard|razaosocialcard|telefonecard|whatsappcard|emailcard|cidadecard|estadocard|enderecocard|bairrocard|segmentocard|sitecard|instagramcard|facebookcard|responsavelcard|observacaocard";
 const VARIABLE_GROUP_LABELS: Record<TemplateVariableGroupKey, string> = {
   contato: "Contato",
   vendedor: "Vendedor",
@@ -309,12 +310,14 @@ export function MasterEmailWorkspace({ embedded = false }: { embedded?: boolean 
   const [activeTemplate, setActiveTemplate] = useState<TemplateKind>("normal");
   const [templates, setTemplates] = useState<Record<TemplateKind, EmailTemplate | null>>({
     normal: null,
+    seller_onboarding_request: null,
     seller_welcome: null,
     password_reset: null,
     email_confirmation: null,
   });
   const [drafts, setDrafts] = useState<Record<TemplateKind, Draft>>({
     normal: emptyDraft(),
+    seller_onboarding_request: emptyDraft(),
     seller_welcome: emptyDraft(),
     password_reset: emptyDraft(),
     email_confirmation: emptyDraft(),
@@ -336,6 +339,7 @@ export function MasterEmailWorkspace({ embedded = false }: { embedded?: boolean 
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lastSent, setLastSent] = useState<MasterEmailSendResponse | null>(null);
+  const [variablesOpen, setVariablesOpen] = useState(false);
 
   async function loadAll() {
     setLoadingKind("all");
@@ -345,8 +349,20 @@ export function MasterEmailWorkspace({ embedded = false }: { embedded?: boolean 
         apiFetch<{ templates: EmailTemplate[] }>("/master/email/templates", { requireAuth: true }),
         apiFetch<MasterEmailState>("/master/email", { requireAuth: true }),
       ]);
-      const nextTemplates = { normal: null, seller_welcome: null, password_reset: null, email_confirmation: null } as Record<TemplateKind, EmailTemplate | null>;
-      const nextDrafts = { normal: emptyDraft(), seller_welcome: emptyDraft(), password_reset: emptyDraft(), email_confirmation: emptyDraft() };
+      const nextTemplates = {
+        normal: null,
+        seller_onboarding_request: null,
+        seller_welcome: null,
+        password_reset: null,
+        email_confirmation: null,
+      } as Record<TemplateKind, EmailTemplate | null>;
+      const nextDrafts = {
+        normal: emptyDraft(),
+        seller_onboarding_request: emptyDraft(),
+        seller_welcome: emptyDraft(),
+        password_reset: emptyDraft(),
+        email_confirmation: emptyDraft(),
+      };
       for (const template of templatePayload.templates) {
         nextTemplates[template.kind] = template;
         nextDrafts[template.kind] = templateToDraft(template);
@@ -393,6 +409,19 @@ export function MasterEmailWorkspace({ embedded = false }: { embedded?: boolean 
   const hasSavedSignature = Boolean(state?.businessCard?.previewDataUrl);
   const activeVariableDefinitions = useMemo(() => buildVariableDefinitions(activeTemplateData), [activeTemplateData]);
   const activeVariableGroups = useMemo(() => groupVariableDefinitions(activeVariableDefinitions), [activeVariableDefinitions]);
+
+  useEffect(() => {
+    if (!activeVariableDefinitions.length) setVariablesOpen(false);
+  }, [activeVariableDefinitions.length]);
+
+  useEffect(() => {
+    if (!variablesOpen) return undefined;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setVariablesOpen(false);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [variablesOpen]);
 
   const sampleVariables = useMemo(() => ({
     nome: sampleName.trim() || DEFAULT_NAME,
@@ -830,13 +859,11 @@ export function MasterEmailWorkspace({ embedded = false }: { embedded?: boolean 
           ))}
         </div>
 
-        {!isNormal ? (
+        {!isNormal && (activeTemplate === "password_reset" || activeTemplate === "email_confirmation") ? (
           <div className={styles.warning}>
             {activeTemplate === "password_reset"
               ? "Este modelo é usado automaticamente quando o usuário pede recuperação de senha."
-              : activeTemplate === "email_confirmation"
-                ? "Este modelo é usado automaticamente no cadastro e reenvio de confirmação."
-                : "Este modelo é enviado automaticamente quando um vendedor/admin é criado no Gerencial."}
+              : "Este modelo é usado automaticamente no cadastro e reenvio de confirmação."}
           </div>
         ) : null}
 
@@ -871,6 +898,11 @@ export function MasterEmailWorkspace({ embedded = false }: { embedded?: boolean 
                 Injetar boas-vindas
               </button>
             ) : null}
+            {activeVariableGroups.length ? (
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setVariablesOpen(true)} disabled={operationBusy}>
+                Variáveis
+              </button>
+            ) : null}
             <button type="button" className="btn btn-secondary btn-sm" onClick={() => updateDraft({ text: "", html: "" })} disabled={operationBusy}>
               Limpar mensagem
             </button>
@@ -897,39 +929,6 @@ export function MasterEmailWorkspace({ embedded = false }: { embedded?: boolean 
           spellCheck
           disabled={loadingKind === activeTemplate}
         />
-
-        {activeVariableGroups.length ? (
-          <div className={styles.variables}>
-            <span>Variáveis disponíveis</span>
-            <div className={styles.variableGroups}>
-              {activeVariableGroups.map((entry) => (
-                <section key={entry.group} className={styles.variableGroup}>
-                  <strong>{VARIABLE_GROUP_LABELS[entry.group]}</strong>
-                  <div>
-                    {entry.items.map((variable) => (
-                      <button
-                        key={variable.token}
-                        type="button"
-                        onClick={() => updateDraft({ text: `${activeDraft.text}${activeDraft.text ? "\n" : ""}${variable.token}`, html: "" })}
-                        className={styles.variableChip}
-                        title={variable.description}
-                      >
-                        <span>{variable.token}</span>
-                        <small>{variable.label}</small>
-                      </button>
-                    ))}
-                  </div>
-                </section>
-              ))}
-            </div>
-            {requiredVariable ? <p>Obrigatória: {requiredVariable}</p> : null}
-            {activeVariableDefinitions.some((variable) => variable.key === "d3") ? (
-              <p className={styles.variableNote}>
-                {`{comissao} é o percentual direto do vendedor. {comissaoheranca} é o percentual por herança/indicação. {d3} é o prazo D+N úteis de liberação da comissão; por padrão, D3 significa D+3 dias úteis.`}
-              </p>
-            ) : null}
-          </div>
-        ) : null}
 
         {usesAttachment ? (
           <div className={styles.attachmentBox}>
@@ -1077,6 +1076,47 @@ export function MasterEmailWorkspace({ embedded = false }: { embedded?: boolean 
     </div>
   );
 
+  const variableDrawer = typeof document !== "undefined" && variablesOpen && activeVariableGroups.length
+    ? createPortal(
+        <aside className={styles.variableDrawer} role="dialog" aria-modal="false" aria-labelledby="master-email-variable-title">
+          <header className={styles.variableDrawerHeader}>
+            <div>
+              <span>Biblioteca</span>
+              <strong id="master-email-variable-title">Variáveis disponíveis</strong>
+            </div>
+            <button type="button" onClick={() => setVariablesOpen(false)} aria-label="Fechar variáveis">
+              ×
+            </button>
+          </header>
+          <div className={styles.variableDrawerBody}>
+            {requiredVariable ? <p className={styles.variableRequired}>Obrigatória: {requiredVariable}</p> : null}
+            <div className={styles.variableGroups}>
+              {activeVariableGroups.map((entry) => (
+                <section key={entry.group} className={styles.variableGroup}>
+                  <strong>{VARIABLE_GROUP_LABELS[entry.group]}</strong>
+                  <div>
+                    {entry.items.map((variable) => (
+                      <button
+                        key={variable.token}
+                        type="button"
+                        onClick={() => updateDraft({ text: `${activeDraft.text}${activeDraft.text ? "\n" : ""}${variable.token}`, html: "" })}
+                        className={styles.variableChip}
+                        title={variable.description}
+                      >
+                        <span>{variable.token}</span>
+                        <small>{variable.label}</small>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+          </div>
+        </aside>,
+        document.body,
+      )
+    : null;
+
   const toast = typeof document !== "undefined" && (error || message)
     ? createPortal(
         <div className={styles.toastDock} aria-live="polite">
@@ -1096,6 +1136,7 @@ export function MasterEmailWorkspace({ embedded = false }: { embedded?: boolean 
     return (
       <>
         {content}
+        {variableDrawer}
         {toast}
       </>
     );
@@ -1110,6 +1151,7 @@ export function MasterEmailWorkspace({ embedded = false }: { embedded?: boolean 
       >
         {content}
       </DashboardScaffold>
+      {variableDrawer}
       {toast}
     </>
   );

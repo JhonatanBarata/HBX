@@ -749,13 +749,44 @@ export class UsersController {
 			};
 		}
 
+		let welcomeEmail: Pick<MailSendResult, 'ok' | 'transport' | 'messageId' | 'errorCode' | 'errorMessage'> | null = null;
+		const isHbxSellerNetwork = await this.usersService.isHbxSellerNetworkCompany(companyId);
+		const isHbxPartnerActivation =
+			isHbxSellerNetwork &&
+			String(target.role || '').toUpperCase() === 'USER' &&
+			target.isActive === false;
+		let finalTemporaryPassword: string | null = null;
+		if (isHbxPartnerActivation) {
+			await this.sellerOnboardingService.assertCanActivatePartner(companyId, id);
+			finalTemporaryPassword = `Hbx@${Math.random().toString(36).slice(2, 10)}A1`;
+			assertPasswordPolicy(finalTemporaryPassword);
+			await this.usersService.setPassword(id, await bcrypt.hash(finalTemporaryPassword, 10), { mustChangePassword: true });
+		}
+
 		const updated = await this.usersService.reactivateUser(id);
+		if (isHbxPartnerActivation && finalTemporaryPassword) {
+			welcomeEmail = await this.sendWelcomeAccessEmail({
+				email: updated.email || updated.username || '',
+				login: updated.username || updated.email || '',
+				password: finalTemporaryPassword,
+				name: updated.name,
+				role: 'USER',
+				source: 'hbx_partner_activation',
+				companyId,
+				commissionPercent: updated.commissionPercent,
+				sellerReferralCommissionPercent: updated.sellerReferralCommissionPercent,
+				referredByCommissionPercentSnapshot: updated.referredByCommissionPercentSnapshot,
+			});
+		}
 		return {
 			id: updated.id,
 			isActive: updated.isActive,
 			deactivatedAt: updated.deactivatedAt,
 			retentionUntil: updated.retentionUntil,
-			message: 'Usuário reativado com sucesso',
+			message: isHbxPartnerActivation
+				? 'Parceiro criado e e-mail de boas-vindas enviado com login e senha.'
+				: 'Usuário reativado com sucesso',
+			welcomeEmail,
 		};
 	}
 
@@ -901,7 +932,7 @@ export class UsersController {
 				isActive: created.isActive,
 				...this.sellerNetworkPayload(created),
 			},
-			temporaryPassword: dto.password ? null : tempPassword,
+			temporaryPassword: role === 'USER' && isHbxSellerNetwork ? null : dto.password ? null : tempPassword,
 			welcomeEmail,
 		};
 	}
@@ -1184,7 +1215,7 @@ export class UsersController {
 				isActive: created.isActive,
 				...this.sellerNetworkPayload(created),
 			},
-			temporaryPassword: dto.password ? null : tempPassword,
+			temporaryPassword: role === 'USER' && isHbxSellerNetwork ? null : dto.password ? null : tempPassword,
 			welcomeEmail,
 		};
 	}
@@ -1282,6 +1313,10 @@ export class UsersController {
 				data.deactivatedAt = new Date();
 				data.retentionUntil = new Date(Date.now() + 730 * 24 * 60 * 60 * 1000);
 			} else {
+				const isHbxSellerNetwork = await this.usersService.isHbxSellerNetworkCompany(Number(target.companyId || 0));
+				if (isHbxSellerNetwork && nextRole === 'USER' && target.isActive === false) {
+					await this.sellerOnboardingService.assertCanActivatePartner(Number(target.companyId || 0), id);
+				}
 				data.isActive = true;
 				data.deactivatedAt = null;
 				data.retentionUntil = null;

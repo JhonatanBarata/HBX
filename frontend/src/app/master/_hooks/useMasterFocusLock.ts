@@ -4,7 +4,6 @@ type MasterFocusLockOptions = {
   drawerOpen: boolean;
   createCompanyOpen: boolean;
   masterIntegrationsOpen: boolean;
-  moduleCatalogOpen: boolean;
   userModalOpen: boolean;
   manualPaymentModalOpen: boolean;
   confirmActionOpen: boolean;
@@ -25,7 +24,6 @@ export function useMasterFocusLock({
   drawerOpen,
   createCompanyOpen,
   masterIntegrationsOpen,
-  moduleCatalogOpen,
   userModalOpen,
   manualPaymentModalOpen,
   confirmActionOpen,
@@ -34,7 +32,6 @@ export function useMasterFocusLock({
     const anyModalOpen =
       createCompanyOpen ||
       masterIntegrationsOpen ||
-      moduleCatalogOpen ||
       userModalOpen ||
       manualPaymentModalOpen ||
       confirmActionOpen;
@@ -63,7 +60,6 @@ export function useMasterFocusLock({
     drawerOpen,
     createCompanyOpen,
     masterIntegrationsOpen,
-    moduleCatalogOpen,
     userModalOpen,
     manualPaymentModalOpen,
     confirmActionOpen,

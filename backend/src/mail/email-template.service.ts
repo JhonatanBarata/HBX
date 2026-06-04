@@ -4,7 +4,7 @@ import { mkdir, readFile, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 
-export type EmailTemplateKind = 'normal' | 'password_reset' | 'email_confirmation' | 'seller_welcome';
+export type EmailTemplateKind = 'normal' | 'password_reset' | 'email_confirmation' | 'seller_welcome' | 'seller_onboarding_request';
 
 export type EmailTemplate = {
   kind: EmailTemplateKind;
@@ -51,6 +51,11 @@ export type EmailTemplateVariables = {
   commissionPercent?: string | number | null;
   commissionDueBusinessDays?: string | number | null;
   contractDate?: string | null;
+  documentosConfirmados?: string | null;
+  documentosRecebidos?: string | null;
+  documentosPendentes?: string | null;
+  documentosFaltantes?: string | null;
+  contrato?: string | null;
   saudacao?: string | null;
   nomecard?: string | null;
   razaosocialcard?: string | null;
@@ -72,14 +77,14 @@ export type EmailTemplateVariables = {
 const TEMPLATE_DIR = join(process.cwd(), 'storage', 'master-email');
 const TEMPLATE_PATH = join(TEMPLATE_DIR, 'templates.json');
 
-export const EMAIL_TEMPLATE_KINDS: EmailTemplateKind[] = ['normal', 'password_reset', 'email_confirmation', 'seller_welcome'];
+export const EMAIL_TEMPLATE_KINDS: EmailTemplateKind[] = ['normal', 'password_reset', 'email_confirmation', 'seller_onboarding_request', 'seller_welcome'];
 
 const EMAIL_TEMPLATE_VARIABLES: EmailTemplateVariableDefinition[] = [
   { key: 'nome', token: '{nome}', label: 'Nome do contato', group: 'contato', description: 'Nome da pessoa que vai receber a mensagem.' },
   { key: 'primeironome', token: '{primeironome}', label: 'Primeiro nome', group: 'contato', description: 'Primeiro nome do contato para cumprimentos naturais.' },
   { key: 'email', token: '{email}', label: 'E-mail do contato', group: 'contato', description: 'E-mail principal do destinatário.' },
   { key: 'empresa', token: '{empresa}', label: 'Empresa', group: 'contato', description: 'Empresa ou conta relacionada ao contato.' },
-  { key: 'vendedor', token: '{vendedor}', label: 'Vendedor', group: 'vendedor', description: 'Nome do vendedor cadastrado.', kinds: ['seller_welcome'] },
+  { key: 'vendedor', token: '{vendedor}', label: 'Vendedor', group: 'vendedor', description: 'Nome do vendedor cadastrado.', kinds: ['seller_welcome', 'seller_onboarding_request'] },
   { key: 'acesso', token: '{acesso}', label: 'Acesso', group: 'vendedor', description: 'Login do vendedor ou usuário.', kinds: ['seller_welcome'] },
   { key: 'senha', token: '{senha}', label: 'Senha', group: 'vendedor', description: 'Senha temporária gerada no cadastro.', kinds: ['seller_welcome'] },
   { key: 'emailvendedor', token: '{emailvendedor}', label: 'E-mail vendedor', group: 'vendedor', description: 'Alias do login/e-mail do vendedor.', kinds: ['seller_welcome'] },
@@ -96,6 +101,11 @@ const EMAIL_TEMPLATE_VARIABLES: EmailTemplateVariableDefinition[] = [
   { key: 'commissionPercent', token: '{{commissionPercent}}', label: 'Comissão contrato', group: 'vendedor', description: 'Percentual de comissão usado no contrato, sem editar o texto base.' },
   { key: 'commissionDueBusinessDays', token: '{{commissionDueBusinessDays}}', label: 'Prazo contrato', group: 'vendedor', description: 'Prazo em dias úteis usado no contrato.' },
   { key: 'contractDate', token: '{{contractDate}}', label: 'Data contrato', group: 'sistema', description: 'Data de geração ou aceite do contrato.' },
+  { key: 'documentosConfirmados', token: '{documentosConfirmados}', label: 'Documentos confirmados', group: 'vendedor', description: 'Bloco exibido somente quando já houver documentos anexados.', kinds: ['seller_onboarding_request'] },
+  { key: 'documentosRecebidos', token: '{documentosRecebidos}', label: 'Documentos recebidos', group: 'vendedor', description: 'Lista dos documentos que já foram anexados.', kinds: ['seller_onboarding_request'] },
+  { key: 'documentosPendentes', token: '{documentosPendentes}', label: 'Documentos pendentes', group: 'vendedor', description: 'Lista dos documentos obrigatórios que ainda faltam.', kinds: ['seller_onboarding_request'] },
+  { key: 'documentosFaltantes', token: '{documentosFaltantes}', label: 'Documentos que faltam', group: 'vendedor', description: 'Lista dos documentos obrigatórios que ainda faltam.', kinds: ['seller_onboarding_request'] },
+  { key: 'contrato', token: '{contrato}', label: 'Contrato', group: 'vendedor', description: 'Texto do contrato gerado para assinatura.', kinds: ['seller_onboarding_request'] },
   { key: 'nomecard', token: '{nomecard}', label: 'Nome do card', group: 'card', description: 'Nome da empresa ou lead exibido no card comercial.' },
   { key: 'razaosocialcard', token: '{razaosocialcard}', label: 'Razão social', group: 'card', description: 'Razão social do card quando existir.' },
   { key: 'telefonecard', token: '{telefonecard}', label: 'Telefone', group: 'card', description: 'Telefone público do card.' },
@@ -214,6 +224,34 @@ const DEFAULT_TEMPLATES: Record<EmailTemplateKind, EmailTemplate> = {
     html: null,
     updatedAt: null,
   },
+  seller_onboarding_request: {
+    kind: 'seller_onboarding_request',
+    subject: 'Próximo passo da sua parceria HBX - documentos e contrato',
+    text: [
+      'Olá {vendedor}, tudo bem?',
+      '',
+      'Seu cadastro como parceiro HBX foi iniciado. Antes de liberar seu acesso ao sistema, precisamos concluir a conferência dos documentos e receber o contrato assinado.',
+      '',
+      '{documentosConfirmados}',
+      '',
+      'Documentos que faltam:',
+      '{documentosFaltantes}',
+      '',
+      'Você pode responder este e-mail anexando os arquivos pendentes em PDF, JPG ou PNG.',
+      'Se o contrato abaixo ainda não estiver assinado, assine e envie a versão assinada junto com os demais documentos.',
+      '',
+      'Importante: este e-mail ainda não libera acesso ao sistema. Seu login e senha serão enviados somente depois da aprovação final.',
+      '',
+      'Contrato:',
+      '{contrato}',
+      '',
+      'Qualquer dúvida, responda este e-mail que seguimos por aqui.',
+      '',
+      'Equipe HBX',
+    ].join('\n'),
+    html: null,
+    updatedAt: null,
+  },
 };
 
 @Injectable()
@@ -308,6 +346,11 @@ export class EmailTemplateService {
     const acesso = String(variables.acesso || variables.emailvendedor || variables.email || '');
     const senha = String(variables.senha || variables.senhavendedor || '');
     const empresa = String(variables.empresa || variables.nomecard || '');
+    const documentosRecebidos = String(variables.documentosRecebidos || '').trim();
+    const documentosFaltantes = String(variables.documentosFaltantes || variables.documentosPendentes || 'nenhuma pendência obrigatória').trim();
+    const documentosConfirmados = String(
+      variables.documentosConfirmados || (documentosRecebidos ? `Documentos confirmados:\n${documentosRecebidos}` : ''),
+    ).trim();
     const map: Record<string, string> = {
       nome,
       primeironome: primeiroNome,
@@ -336,6 +379,11 @@ export class EmailTemplateService {
       commissionPercent: this.formatPercentNumberOnly(variables.commissionPercent ?? variables.comissao),
       commissionDueBusinessDays: String(variables.commissionDueBusinessDays || variables.diascomissao || 3),
       contractDate: String(variables.contractDate || new Date().toLocaleDateString('pt-BR')),
+      documentosConfirmados,
+      documentosRecebidos,
+      documentosPendentes: documentosFaltantes,
+      documentosFaltantes,
+      contrato: String(variables.contrato || ''),
       saudacao: String(variables.saudacao || this.defaultGreeting()),
       nomecard: String(variables.nomecard || variables.empresa || ''),
       razaosocialcard: String(variables.razaosocialcard || ''),

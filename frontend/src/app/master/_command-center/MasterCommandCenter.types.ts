@@ -9,7 +9,6 @@ import type {
   ManualPaymentState,
   MasterIntegrationsDraft,
   MercadoPagoDraft,
-  ModuleCatalogDraft,
   ProfileDraft,
   UserModalState,
   WebsiteDraft,
@@ -98,7 +97,6 @@ export type MasterCommandActionState = {
   createCompanySlug: string;
   masterIntegrationsOpen: boolean;
   masterEmailOpen: boolean;
-  moduleCatalogOpen: boolean;
   profileDraft: ProfileDraft | null;
   websiteDraft: WebsiteDraft | null;
   mercadoPagoDraft: MercadoPagoDraft | null;
@@ -106,7 +104,6 @@ export type MasterCommandActionState = {
   whatsAppMigrationWorkflowDraft: WhatsAppMigrationWorkflowDraft | null;
   trialDateDraft: string;
   trialDaysDraft: string;
-  moduleCatalogDrafts: Record<string, ModuleCatalogDraft>;
   masterIntegrationsDraft: MasterIntegrationsDraft;
   companyIntegrations: CompanyIntegrationConnection[];
   integrationsLoading: boolean;

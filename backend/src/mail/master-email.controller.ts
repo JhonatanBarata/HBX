@@ -124,7 +124,7 @@ export class MasterEmailController {
   }
 
   private formatTemplate(template: EmailTemplate) {
-    const usesSignature = template.kind === 'normal' || template.kind === 'seller_welcome';
+    const usesSignature = template.kind === 'normal' || template.kind === 'seller_welcome' || template.kind === 'seller_onboarding_request';
     return {
       ...template,
       variables: this.emailTemplates.getAvailableVariables(template.kind),
@@ -158,6 +158,19 @@ export class MasterEmailController {
       comissaoheranca: '2%',
       d3: 'D+3 úteis',
       diascomissao: 3,
+      sellerName: sampleName,
+      sellerCpf: '123.456.789-00',
+      sellerEmail: String(dto?.to || 'vendedor@hbxsystem.com.br').trim().toLowerCase(),
+      sellerPhone: '(11) 99999-0000',
+      sellerAddress: 'Av. Paulista, 1000',
+      commissionPercent: '20',
+      commissionDueBusinessDays: 3,
+      contractDate: new Date().toLocaleDateString('pt-BR'),
+      documentosConfirmados: 'Documentos confirmados:\nDocumento com foto',
+      documentosRecebidos: 'Documento com foto',
+      documentosPendentes: 'Contrato assinado',
+      documentosFaltantes: 'Contrato assinado',
+      contrato: 'CONTRATO DE PARCERIA HBX\n\nTexto de exemplo do contrato para assinatura.',
       saudacao: 'Boa tarde',
       nomecard: sampleCompany,
       razaosocialcard: `${sampleCompany} LTDA`,

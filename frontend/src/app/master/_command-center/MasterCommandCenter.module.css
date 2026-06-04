@@ -4314,6 +4314,22 @@
   display: none !important;
 }
 
+.companyBoardToolbar {
+  display: flex !important;
+  width: 100% !important;
+  margin-bottom: 8px !important;
+}
+
+.companyBoardToolbar .actionButton {
+  width: 100% !important;
+  min-height: 38px !important;
+  padding: 0 10px !important;
+  border-radius: 16px !important;
+  font-size: 0.72rem !important;
+  line-height: 1 !important;
+  white-space: nowrap !important;
+}
+
 .companyRows {
   gap: 8px !important;
 }
