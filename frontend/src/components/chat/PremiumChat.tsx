@@ -219,7 +219,10 @@ export function ChatAvatar({
           className={styles.avatarImage}
           src={resolvedImageUrl}
           alt=""
+          width={48}
+          height={48}
           loading="lazy"
+          decoding="async"
           referrerPolicy="no-referrer"
           onError={() => setFailedImageUrl(resolvedImageUrl)}
         />

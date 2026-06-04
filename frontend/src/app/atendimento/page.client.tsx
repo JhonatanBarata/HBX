@@ -2384,6 +2384,8 @@ const INBOX_RECENT_MESSAGES_LIMIT = 20;
 const INBOX_CONVERSATION_LIST_LIMIT = 20;
 const INBOX_BOOTSTRAP_LIGHT_TAKE = 40;
 const INBOX_CONVERSATION_AUTOFILL_MAX = 120;
+const INBOX_CONVERSATION_PREVIEW_MAX_CHARS = 86;
+const INBOX_LIST_SKELETON_ITEMS = Array.from({ length: 10 }, (_, index) => index);
 const WHATSAPP_ASSET_EXPIRY_GRACE_MS = 5 * 60 * 1000;
 
 function getInboxApiBaseUrl() {
@@ -4314,6 +4316,34 @@ function renderInboxConversationPreview(conversation?: InboxConversation | null)
   if (!prospectionStatus) return preview;
   const subtitle = String(prospectionStatus.subtitle || "").trim();
   return subtitle ? `${preview} · ${prospectionStatus.badge} ${subtitle}` : preview;
+}
+
+function truncateInboxConversationPreview(value: string, maxLength = INBOX_CONVERSATION_PREVIEW_MAX_CHARS) {
+  const normalized = String(value || "").replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
+}
+
+function InboxConversationListSkeleton() {
+  return (
+    <ChatQueue
+      className={`${styles.conversationList} ${styles.conversationListSkeleton}`}
+      aria-label="Carregando conversas"
+    >
+      {INBOX_LIST_SKELETON_ITEMS.map((item) => (
+        <div key={item} className={styles.conversationListSkeletonItem} aria-hidden="true">
+          <span className={styles.conversationListSkeletonAvatar} />
+          <span className={styles.conversationListSkeletonContent}>
+            <span className={styles.conversationListSkeletonTop}>
+              <span className={styles.conversationListSkeletonName} />
+              <span className={styles.conversationListSkeletonTime} />
+            </span>
+            <span className={styles.conversationListSkeletonPreview} />
+          </span>
+        </div>
+      ))}
+    </ChatQueue>
+  );
 }
 
 function getInboxConversationSubtitle(conversation?: InboxConversation | null) {
@@ -7587,7 +7617,7 @@ function InboxDesktopClientPage() {
           conversation,
         );
         const displayName = resolveInboxConversationDisplayName(conversation);
-        const previewLabel = renderInboxConversationPreview(conversation);
+        const previewLabel = truncateInboxConversationPreview(renderInboxConversationPreview(conversation));
         const prospectionStatusMeta = getInboxProspectionStatusMeta(conversation);
         const interested = isProspectingInterestedConversation(conversation);
         const activityAt = getInboxConversationActivityAt(conversation);
@@ -8900,7 +8930,7 @@ function InboxDesktopClientPage() {
             onQueueDrop={(queue) => handleQueueDrop(queue as InboxQueue)}
           />
           {loadingList ? (
-            <ChatEmptyState title="Carregando conversas">A fila sera montada assim que a leitura inicial terminar.</ChatEmptyState>
+            <InboxConversationListSkeleton />
           ) : conversationListError && conversationQueueItems.length === 0 ? (
             <ConversationWorkspaceStatus
               title="Falha ao carregar conversas"
@@ -8969,22 +8999,20 @@ function InboxDesktopClientPage() {
                     subtitle={undefined}
                     preview={previewLabel}
                     badges={
-                      unreadCount > 0 || interested ? (
+                      interested ? (
                         <span className={styles.conversationBadgeStack}>
-                          {interested ? (
-                            <span className={styles.conversationInterestedBadge}>Interessado</span>
-                          ) : null}
-                          {unreadCount > 0 ? (
-                            <span className={styles.conversationUnreadBadge}>
-                              {unreadCount === 1 ? "1 não lida" : `${unreadCount} não lidas`}
-                            </span>
-                          ) : null}
+                          <span className={styles.conversationInterestedBadge}>Interessado</span>
                         </span>
                       ) : undefined
                     }
                     meta={
                       <div className={styles.conversationQueueMetaStack}>
                         <span className={styles.conversationQueueMetaTime}>{activityAtLabel}</span>
+                        {unreadCount > 0 ? (
+                          <span className={styles.conversationUnreadCountBadge}>
+                            {unreadCount > 99 ? "99+" : unreadCount}
+                          </span>
+                        ) : null}
                         <div className={styles.conversationQueueMetaMenuWrap}>
                           <button
                             type="button"
