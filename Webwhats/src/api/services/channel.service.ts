@@ -6,7 +6,7 @@ import { ChatwootService } from '@api/integrations/chatbot/chatwoot/services/cha
 import { DifyService } from '@api/integrations/chatbot/dify/services/dify.service';
 import { OpenaiService } from '@api/integrations/chatbot/openai/services/openai.service';
 import { TypebotService } from '@api/integrations/chatbot/typebot/services/typebot.service';
-import { PrismaRepository, Query } from '@api/repository/repository.service';
+import { normalizePagination, PrismaRepository, Query } from '@api/repository/repository.service';
 import { eventManager, waMonitor } from '@api/server.module';
 import { Events, wa } from '@api/types/wa.types';
 import { Auth, Chatwoot, ConfigService, HttpServer, Proxy } from '@config/env.config';
@@ -717,6 +717,11 @@ export class ChannelStartupService {
   }
 
   public async fetchChats(query: any) {
+    const pagination = normalizePagination<Contact>(query, {
+      take: 50,
+      maxTake: 100,
+      maxSkip: 5000,
+    });
     const remoteJid = query?.where?.remoteJid
       ? query?.where?.remoteJid.includes('@')
         ? query.where?.remoteJid
@@ -738,8 +743,8 @@ export class ChannelStartupService {
         AND "Message"."messageTimestamp" <= ${Math.floor(new Date(query.where.messageTimestamp.lte).getTime() / 1000)}`
         : Prisma.sql``;
 
-    const limit = query?.take ? Prisma.sql`LIMIT ${query.take}` : Prisma.sql``;
-    const offset = query?.skip ? Prisma.sql`OFFSET ${query.skip}` : Prisma.sql``;
+    const limit = Prisma.sql`LIMIT ${pagination.take}`;
+    const offset = pagination.skip > 0 ? Prisma.sql`OFFSET ${pagination.skip}` : Prisma.sql``;
 
     const results = await this.prismaRepository.$queryRaw`
       WITH rankedMessages AS (
