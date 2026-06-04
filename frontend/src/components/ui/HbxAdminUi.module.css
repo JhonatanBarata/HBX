@@ -1,0 +1,311 @@
+.pageShell {
+  display: grid;
+  gap: 16px;
+  width: 100%;
+}
+
+.pageHeader,
+.sectionHeader,
+.actionBar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pageTitle,
+.sectionTitle {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.eyebrow {
+  color: color-mix(in srgb, var(--brand, #2a77ff) 84%, var(--foreground, #0f172a));
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.pageTitle h1,
+.sectionTitle h2,
+.sectionTitle h3 {
+  margin: 0;
+  color: var(--foreground, #0f172a);
+  font-family: var(--font-display, var(--font-body, "Plus Jakarta Sans", Inter, "Segoe UI", Roboto, Arial, sans-serif));
+  font-weight: 760;
+  letter-spacing: 0;
+  line-height: 1.16;
+}
+
+.pageTitle h1 {
+  font-size: 1.5rem;
+}
+
+.sectionTitle h2,
+.sectionTitle h3 {
+  font-size: 1rem;
+}
+
+.pageDescription,
+.sectionDescription,
+.emptyDescription,
+.fieldHint {
+  margin: 0;
+  color: var(--muted, #64748b);
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.section {
+  display: grid;
+  gap: 14px;
+  border: 1px solid color-mix(in srgb, var(--line, rgba(38, 93, 132, 0.16)) 86%, var(--background, #f8fbff));
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface, #ffffff) 97%, var(--background, #f8fbff)), color-mix(in srgb, var(--surface-soft, #f3f7fb) 96%, var(--background, #f8fbff)));
+  box-shadow: 0 14px 34px color-mix(in srgb, var(--foreground, #0f172a) 7%, transparent);
+  padding: 16px;
+}
+
+.section[data-density="compact"] {
+  gap: 10px;
+  padding: 12px;
+}
+
+.section[data-tone="plain"] {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+.sectionBody {
+  min-width: 0;
+}
+
+.statCard {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--line, rgba(38, 93, 132, 0.16)) 86%, var(--background, #f8fbff));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface-soft, #f3f7fb) 94%, var(--background, #f8fbff));
+  padding: 12px;
+}
+
+.statCard[data-tone="success"] {
+  border-color: color-mix(in srgb, var(--success, #16a34a) 28%, var(--line, rgba(38, 93, 132, 0.16)));
+  background: color-mix(in srgb, var(--success, #16a34a) 9%, var(--surface, #ffffff));
+}
+
+.statCard[data-tone="warning"] {
+  border-color: color-mix(in srgb, #d97706 28%, var(--line, rgba(38, 93, 132, 0.16)));
+  background: color-mix(in srgb, #d97706 9%, var(--surface, #ffffff));
+}
+
+.statLabel {
+  color: var(--muted, #64748b);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.statValue {
+  color: var(--foreground, #0f172a);
+  font-size: 1.28rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1.08;
+}
+
+.statDescription {
+  color: var(--muted, #64748b);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.statusBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 28px;
+  border: 1px solid color-mix(in srgb, var(--line, rgba(38, 93, 132, 0.16)) 86%, var(--background, #f8fbff));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface, #ffffff) 94%, var(--background, #f8fbff));
+  color: var(--muted, #64748b);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1.1;
+  padding: 5px 10px;
+  text-transform: uppercase;
+}
+
+.statusBadge::before {
+  content: "";
+  display: block;
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.statusBadge[data-dot="false"]::before {
+  display: none;
+}
+
+.statusBadge[data-tone="brand"],
+.statusBadge[data-tone="info"] {
+  border-color: color-mix(in srgb, var(--brand, #2a77ff) 24%, var(--line, rgba(38, 93, 132, 0.16)));
+  background: color-mix(in srgb, var(--brand, #2a77ff) 10%, var(--surface, #ffffff));
+  color: color-mix(in srgb, var(--brand, #2a77ff) 84%, var(--foreground, #0f172a));
+}
+
+.statusBadge[data-tone="success"] {
+  border-color: color-mix(in srgb, var(--success, #16a34a) 30%, var(--line, rgba(38, 93, 132, 0.16)));
+  background: color-mix(in srgb, var(--success, #16a34a) 10%, var(--surface, #ffffff));
+  color: color-mix(in srgb, var(--success, #16a34a) 84%, var(--foreground, #0f172a));
+}
+
+.statusBadge[data-tone="warning"] {
+  border-color: color-mix(in srgb, #d97706 30%, var(--line, rgba(38, 93, 132, 0.16)));
+  background: color-mix(in srgb, #d97706 10%, var(--surface, #ffffff));
+  color: color-mix(in srgb, #b45309 84%, var(--foreground, #0f172a));
+}
+
+.statusBadge[data-tone="danger"] {
+  border-color: color-mix(in srgb, var(--danger, #dc2626) 30%, var(--line, rgba(38, 93, 132, 0.16)));
+  background: color-mix(in srgb, var(--danger, #dc2626) 10%, var(--surface, #ffffff));
+  color: color-mix(in srgb, var(--danger, #dc2626) 84%, var(--foreground, #0f172a));
+}
+
+.emptyState {
+  display: grid;
+  gap: 7px;
+  border: 1px dashed color-mix(in srgb, var(--line, rgba(38, 93, 132, 0.16)) 92%, var(--background, #f8fbff));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface, #ffffff) 72%, transparent);
+  color: var(--muted, #64748b);
+  padding: 14px;
+}
+
+.emptyState strong {
+  color: var(--foreground, #0f172a);
+  font-size: 0.92rem;
+  letter-spacing: 0;
+}
+
+.emptyActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.actionBar {
+  flex-wrap: wrap;
+}
+
+.actionBar[data-align="end"] {
+  justify-content: flex-end;
+}
+
+.actionBar[data-align="center"] {
+  justify-content: center;
+}
+
+.formField {
+  display: grid;
+  gap: 6px;
+}
+
+.formLabelRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--foreground, #0f172a);
+  font-size: 0.78rem;
+  font-weight: 760;
+}
+
+.fieldRequired {
+  color: color-mix(in srgb, var(--danger, #dc2626) 86%, var(--foreground, #0f172a));
+}
+
+.fieldError {
+  margin: 0;
+  color: color-mix(in srgb, var(--danger, #dc2626) 86%, var(--foreground, #0f172a));
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.dangerZone {
+  display: grid;
+  gap: 12px;
+  border: 1px solid color-mix(in srgb, var(--danger, #dc2626) 28%, var(--line, rgba(38, 93, 132, 0.16)));
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--danger, #dc2626) 7%, var(--surface, #ffffff));
+  padding: 16px;
+}
+
+.dangerZoneHeader {
+  display: grid;
+  gap: 4px;
+}
+
+.dangerZoneHeader strong {
+  color: color-mix(in srgb, var(--danger, #dc2626) 86%, var(--foreground, #0f172a));
+  letter-spacing: 0;
+}
+
+.dangerZoneHeader p {
+  margin: 0;
+  color: var(--muted, #64748b);
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+@media (max-width: 720px) {
+  .pageHeader,
+  .sectionHeader {
+    display: grid;
+  }
+
+  .actionBar {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .section {
+    border-radius: 14px;
+    padding: 14px;
+  }
+
+  .pageTitle h1 {
+    font-size: 1.32rem;
+  }
+}
+
+:global(html[data-theme-mode="dark"]) .section,
+:global(html[data-theme="dark"]) .section {
+  border-color: color-mix(in srgb, var(--line, rgba(148, 163, 184, 0.24)) 84%, var(--background, #020617));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface, #0f172a) 94%, var(--background, #020617)), color-mix(in srgb, var(--surface-soft, #111827) 92%, var(--background, #020617)));
+}
+
+:global(html[data-theme-mode="dark"]) .statCard,
+:global(html[data-theme="dark"]) .statCard,
+:global(html[data-theme-mode="dark"]) .emptyState,
+:global(html[data-theme="dark"]) .emptyState,
+:global(html[data-theme-mode="dark"]) .statusBadge,
+:global(html[data-theme="dark"]) .statusBadge {
+  border-color: color-mix(in srgb, var(--line, rgba(148, 163, 184, 0.24)) 82%, var(--background, #020617));
+  background: color-mix(in srgb, var(--surface, #0f172a) 88%, var(--background, #020617));
+}
