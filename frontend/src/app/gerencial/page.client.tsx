@@ -1,10 +1,10 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import HbxGuide1, { type HbxGuide1Tab } from "@/components/HbxGuide1";
 import HbxMobileDock from "@/components/mobile/HbxMobileDock";
-import { apiFetch } from "@/app/_lib/api";
+import { apiFetch, getDashboardApiBaseUrl, getToken } from "@/app/_lib/api";
 import { startSmartPolling } from "@/app/_lib/polling";
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
 
@@ -289,7 +289,7 @@ type CreateCompanyUserResult = {
 
 type SellerOnboardingAttachment = {
   id: string;
-  kind: "photo_id" | "curriculum" | "contract_pdf" | "other" | string;
+  kind: "photo_id" | "curriculum" | "contract_pdf" | "generated_contract" | "other" | string;
   originalFilename: string;
   required?: boolean | null;
   status?: string | null;
@@ -371,12 +371,13 @@ const CREATED_PASSWORD_STORAGE_KEY = "hbx.gerencial.created-password.v1";
 const INCLUDED_TEAM_USERS = 2;
 const EXTRA_USER_MONTHLY_PRICE = 24.9;
 const SELLER_LOCKED_MODULE_KEYS = new Set(["webscraping", "gerencial", "financeiro", "cadastro", "website", "master", "exclusoes"]);
+const HBX_SELLER_OPERATIONAL_MODULE_KEYS = new Set(["vendas", "webscraping"]);
 const SELLER_WORKSPACE_MODULE_KEYS = new Set(["vendas", "atendimento", "whatsapp"]);
 const SELLER_ROLE_COPY = {
   USER: {
     label: "Vendedor",
     badge: "CRM",
-    description: "Recebe oportunidades, trabalha no CRM e chama no WhatsApp. Sem Radar e sem gestão.",
+    description: "Recebe oportunidades, trabalha no CRM e chama no WhatsApp. Sem gestão.",
   },
   ADMIN: {
     label: "Admin",
@@ -589,7 +590,8 @@ function formatShortDate(value?: string | null) {
 function onboardingAttachmentLabel(kind?: string | null) {
   if (kind === "photo_id") return "Documento";
   if (kind === "curriculum") return "Currículo";
-  if (kind === "contract_pdf") return "Contrato";
+  if (kind === "contract_pdf") return "Contrato assinado";
+  if (kind === "generated_contract") return "Contrato PDF gerado";
   return "Outro";
 }
 
@@ -759,6 +761,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   const [onboardingStatusMessage, setOnboardingStatusMessage] = useState<string | null>(null);
   const [uploadingAttachmentKind, setUploadingAttachmentKind] = useState<string | null>(null);
   const [removingOnboardingAttachmentId, setRemovingOnboardingAttachmentId] = useState<string | null>(null);
+  const [downloadingOnboardingAttachmentId, setDownloadingOnboardingAttachmentId] = useState<string | null>(null);
   const [generatingContract, setGeneratingContract] = useState(false);
   const [sendingOnboardingEmail, setSendingOnboardingEmail] = useState(false);
   const [savingModuleUserId, setSavingModuleUserId] = useState<number | null>(null);
@@ -904,9 +907,12 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
             modules: u.modules.map((m) => {
               const companyMod = prev.modules.find((cm) => cm.key === m.key);
               const moduleKey = normalizeModuleKey(m.key);
+              const hbxSellerOperationalModule = isHbxSellerNetwork && HBX_SELLER_OPERATIONAL_MODULE_KEYS.has(moduleKey);
               return {
                 ...m,
-                allowed: SELLER_LOCKED_MODULE_KEYS.has(moduleKey)
+                allowed: hbxSellerOperationalModule
+                  ? true
+                  : SELLER_LOCKED_MODULE_KEYS.has(moduleKey)
                   ? false
                   : companyMod
                     ? Boolean(companyMod.companyEnabled)
@@ -1079,8 +1085,11 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     }
   }
 
-  function validateOnboardingFile(file: File) {
+  function validateOnboardingFile(file: File, kind?: SellerOnboardingAttachment["kind"]) {
     const extension = `.${(file.name.split(".").pop() || "").toLowerCase()}`;
+    if (kind === "contract_pdf" && extension !== ".pdf") {
+      return "Contrato assinado precisa ser PDF.";
+    }
     if (![".pdf", ".jpg", ".jpeg", ".png"].includes(extension)) {
       return "Anexo precisa ser PDF, JPG ou PNG.";
     }
@@ -1105,7 +1114,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
 
   async function uploadOnboardingAttachment(kind: SellerOnboardingAttachment["kind"], file: File | null | undefined, required: boolean) {
     if (!file) return;
-    const validationError = validateOnboardingFile(file);
+    const validationError = validateOnboardingFile(file, kind);
     if (validationError) {
       setError(validationError);
       return;
@@ -1138,11 +1147,46 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
       const payload = await apiFetch<{ attachments?: SellerOnboardingAttachment[]; readiness?: SellerOnboardingReadiness }>(`/gerencial/hbx-partners/${onboardingUserId}/onboarding/generate-contract`, { method: "POST" });
       if (payload.attachments) setOnboardingAttachments(payload.attachments);
       if (payload.readiness) setOnboardingReadiness(payload.readiness);
-      setOnboardingStatusMessage("Contrato gerado e salvo no cadastro.");
+      await loadOnboardingAttachments(onboardingUserId);
+      setOnboardingStatusMessage("Contrato PDF gerado e anexado ao cadastro.");
     } catch (contractError) {
       setError(friendlyGerencialError(contractError, "Falha ao gerar contrato."));
     } finally {
       setGeneratingContract(false);
+    }
+  }
+
+  async function downloadOnboardingAttachment(attachment: SellerOnboardingAttachment | null | undefined) {
+    if (!onboardingUserId || !attachment?.id) return;
+    const token = getToken();
+    if (!token) {
+      setError("Sessão expirada. Faça login novamente.");
+      return;
+    }
+    setDownloadingOnboardingAttachmentId(attachment.id);
+    setError(null);
+    try {
+      const response = await fetch(
+        `${getDashboardApiBaseUrl()}/gerencial/hbx-partners/${onboardingUserId}/onboarding/attachments/${attachment.id}/download`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!response.ok) {
+        const message = await response.text().catch(() => "");
+        throw new Error(message || "Falha ao baixar arquivo.");
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = attachment.originalFilename || "contrato-parceria-hbx.pdf";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (downloadError) {
+      setError(friendlyGerencialError(downloadError, "Falha ao baixar arquivo."));
+    } finally {
+      setDownloadingOnboardingAttachmentId(null);
     }
   }
 
@@ -1205,7 +1249,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     try {
       const payload = await apiFetch<{ ok?: boolean; readiness?: SellerOnboardingReadiness }>(`/gerencial/hbx-partners/${onboardingUserId}/onboarding/send-email`, { method: "POST" });
       if (payload.readiness) setOnboardingReadiness(payload.readiness);
-      setActionInfo(payload.ok ? "E-mail de solicitação enviado sem login e senha." : "E-mail não enviado.");
+      setActionInfo(payload.ok ? "E-mail enviado com o contrato PDF. Login e senha só saem depois da aprovação." : "E-mail não enviado.");
       await load();
     } catch (emailError) {
       setError(friendlyGerencialError(emailError, "Falha ao enviar e-mail."));
@@ -1650,6 +1694,15 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
 
   async function toggleUserModule(userId: number, moduleKey: string) {
     if (!moduleAccess) return;
+    const targetUser = data?.users.find((user) => user.id === userId);
+    const role = normalizeRole(targetUser?.role, targetUser?.isSystemMaster);
+    if (
+      isHbxSellerNetwork &&
+      role === "USER" &&
+      HBX_SELLER_OPERATIONAL_MODULE_KEYS.has(normalizeModuleKey(moduleKey))
+    ) {
+      return;
+    }
     const userAccess = moduleAccess.users.find((u) => u.id === userId);
     if (!userAccess) return;
 
@@ -1912,6 +1965,92 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   function dismissCreatedPasswordInfo() {
     setCreatedPasswordInfo(null);
     saveCreatedPasswordInfo(null);
+  }
+
+  function renderGerencialNoticePopups() {
+    const notices: Array<{
+      key: string;
+      tone: "info" | "success" | "warning" | "danger";
+      icon: string;
+      title: string;
+      message: string;
+      onClose: () => void;
+      action?: ReactNode;
+      content?: ReactNode;
+    }> = [];
+
+    if (error) {
+      notices.push({
+        key: "error",
+        tone: "danger",
+        icon: "!",
+        title: "Atenção",
+        message: error,
+        onClose: () => setError(null),
+      });
+    }
+
+    if (onboardingStatusMessage) {
+      notices.push({
+        key: "onboarding",
+        tone: "success",
+        icon: "OK",
+        title: "Documentação atualizada",
+        message: onboardingStatusMessage,
+        onClose: () => setOnboardingStatusMessage(null),
+      });
+    }
+
+    if (actionInfo) {
+      notices.push({
+        key: "action",
+        tone: "info",
+        icon: "i",
+        title: "Gerencial",
+        message: actionInfo,
+        onClose: () => setActionInfo(null),
+      });
+    }
+
+    if (createdPasswordInfo) {
+      notices.push({
+        key: "password",
+        tone: "warning",
+        icon: "••",
+        title: `Senha temporária de ${createdPasswordInfo.userLabel}`,
+        message: "Copie a senha antes de fechar este aviso.",
+        onClose: dismissCreatedPasswordInfo,
+        content: <code className="hbx-popup2__secret">{createdPasswordInfo.password}</code>,
+        action: (
+          <button type="button" className="hbx-popup2__action" onClick={copyTemporaryPassword}>
+            Copiar
+          </button>
+        ),
+      });
+    }
+
+    if (!notices.length) return null;
+
+    return (
+      <div className="hbx-popup-layer" data-clickable="true" data-variant="notice" role="presentation">
+        <div className="hbx-popup-stack" role="status" aria-live="polite">
+          {notices.map((notice) => (
+            <section key={notice.key} className="hbx-popup2 hbx-popup2--notice" data-tone={notice.tone} role="dialog" aria-modal="false" aria-label={notice.title}>
+              <div className="hbx-popup2__icon" aria-hidden="true">{notice.icon}</div>
+              <div className="hbx-popup2__content">
+                <strong>{notice.title}</strong>
+                <span>{notice.message}</span>
+                {notice.content}
+              </div>
+              {notice.action || null}
+              <button type="button" className="hbx-popup2__close" onClick={notice.onClose} aria-label="Fechar aviso">
+                ×
+              </button>
+            </section>
+          ))}
+        </div>
+      </div>
+    );
   }
 
   function retentionLabel(retentionUntil?: string | null) {
@@ -2393,17 +2532,19 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
               {enabledModules.map((mod) => {
                 const row = userModules.find((item) => item.key === mod.key);
                 const moduleKey = normalizeModuleKey(mod.key);
-                const lockedForSeller = SELLER_LOCKED_MODULE_KEYS.has(moduleKey);
-                const allowed = !lockedForSeller && (row ? row.allowed : Boolean(mod.companyEnabled));
+                const hbxSellerOperationalModule = showHbxNetwork && HBX_SELLER_OPERATIONAL_MODULE_KEYS.has(moduleKey);
+                const lockedForSeller = !hbxSellerOperationalModule && SELLER_LOCKED_MODULE_KEYS.has(moduleKey);
+                const allowed = hbxSellerOperationalModule || (!lockedForSeller && (row ? row.allowed : Boolean(mod.companyEnabled)));
                 return (
                   <button
                     key={`${user.id}-mobile-${mod.key}`}
                     type="button"
-                    disabled={lockedForSeller || savingModuleUserId === user.id || !user.isActive}
+                    disabled={hbxSellerOperationalModule || lockedForSeller || savingModuleUserId === user.id || !user.isActive}
                     onClick={() => toggleUserModule(user.id, mod.key)}
                     className={allowed && user.isActive ? "hbx-mobile-primary-button" : "hbx-mobile-secondary-button"}
+                    title={hbxSellerOperationalModule ? "Módulo padrão do parceiro HBX" : undefined}
                   >
-                    {moduleLabel(mod)} {lockedForSeller ? "bloqueado" : allowed ? "ON" : "OFF"}
+                    {moduleLabel(mod)} {hbxSellerOperationalModule ? "ON padrão" : lockedForSeller ? "bloqueado" : allowed ? "ON" : "OFF"}
                   </button>
                 );
               })}
@@ -2706,13 +2847,16 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     const documentSlots = [
       { kind: "photo_id", label: "Documento", required: true },
       { kind: "curriculum", label: "Currículo", required: false },
-      { kind: "contract_pdf", label: "Contrato", required: true },
+      { kind: "contract_pdf", label: "Contrato assinado", required: true },
       { kind: "other", label: "Outro", required: false },
     ] as const;
     const documentReadiness = new Map((onboardingReadiness?.documents || []).map((item) => [String(item.kind), item]));
     const missingRequiredLabels = onboardingReadiness?.missingRequiredDocuments.map((item) => item.label) || [];
     const canActivatePartner = Boolean(canPersistDocs && onboardingReadiness?.complete);
     const pendingAttachmentCount = Object.keys(pendingOnboardingAttachments).length;
+    const activeOnboardingAttachments = onboardingAttachments.filter((item) => item.status !== "deleted");
+    const generatedContractAttachment = activeOnboardingAttachments.find((item) => item.kind === "generated_contract") || null;
+    const visibleDocumentAttachments = activeOnboardingAttachments.filter((item) => item.kind !== "generated_contract");
 
     return (
       <div className="hbx-popup-layer" data-clickable="true" role="presentation">
@@ -2837,28 +2981,43 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                         ? "Tudo em ordem. Criar Parceiro envia login e senha por e-mail."
                         : missingRequiredLabels.length
                           ? `Pendências obrigatórias: ${missingRequiredLabels.join(", ")}.`
-                          : "Marque obrigatório/opcional. O e-mail só cobra o que faltar e estiver obrigatório."
+                          : "Gere o PDF, envie por e-mail e aguarde o PDF assinado voltar."
                       : pendingAttachmentCount
                         ? `${pendingAttachmentCount} arquivo(s) pronto(s). Eles serão anexados ao cadastrar o vendedor.`
                         : "Anexe o que você já recebeu e marque obrigatório/opcional antes de cadastrar."
                     : "Troque o perfil para vendedor para anexar documentos."}
                 </span>
-                {onboardingStatusMessage ? <em>{onboardingStatusMessage}</em> : null}
               </div>
+              {canUseDocs ? (
+                <div className="hbx-partner-popup__contract-note">
+                  <b>Assinatura</b>
+                  <span>Assine pelo gov.br ou por assinatura digital de sua preferência.</span>
+                </div>
+              ) : null}
               <div className="hbx-partner-popup__docs">
                 {documentSlots.map((slot) => {
                   const attachment = onboardingAttachments.find((item) => item.kind === slot.kind && item.status !== "deleted");
+                  const displayAttachment = slot.kind === "contract_pdf" && !attachment ? generatedContractAttachment : attachment;
+                  const displayGeneratedContract = slot.kind === "contract_pdf" && !attachment && Boolean(generatedContractAttachment);
                   const pendingAttachment = pendingOnboardingAttachments[slot.kind];
                   const readiness = documentReadiness.get(slot.kind);
                   const pendingRequirement = pendingDocumentRequirements[slot.kind];
                   const required = readiness ? readiness.required : pendingRequirement ?? slot.required;
                   return (
-                    <label key={slot.kind} className="hbx-partner-popup__upload" data-pending={Boolean(pendingAttachment)}>
+                    <label
+                      key={slot.kind}
+                      className="hbx-partner-popup__upload"
+                      data-pending={Boolean(pendingAttachment)}
+                      data-ready={Boolean(attachment)}
+                      data-generated={Boolean(displayGeneratedContract)}
+                    >
                       <span>
                         <b>{slot.label}</b>
                         <small>
-                          {attachment
-                            ? attachment.originalFilename
+                          {displayAttachment
+                            ? displayGeneratedContract
+                              ? `${displayAttachment.originalFilename || "contrato-parceria-hbx.pdf"} gerado`
+                              : displayAttachment.originalFilename
                             : pendingAttachment
                               ? `${pendingAttachment.file.name} pronto`
                               : required
@@ -2868,7 +3027,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                       </span>
                       <input
                         type="file"
-                        accept=".pdf,.jpg,.jpeg,.png"
+                        accept={slot.kind === "contract_pdf" ? ".pdf" : ".pdf,.jpg,.jpeg,.png"}
                         disabled={!canUseDocs || uploadingAttachmentKind === slot.kind}
                         onChange={(event) => {
                           void uploadOnboardingAttachment(slot.kind, event.target.files?.[0], required);
@@ -2877,15 +3036,28 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                       />
                       <button
                         type="button"
-                        disabled={!canUseDocs}
+                        disabled={!canUseDocs || slot.kind === "contract_pdf"}
                         onClick={(event) => {
                           event.preventDefault();
                           event.stopPropagation();
                           void updateOnboardingDocumentRequirement(slot.kind, !required);
                         }}
                       >
-                        {required ? "Obrigatório" : "Opcional"}
+                        {slot.kind === "contract_pdf" ? "Obrigatório" : required ? "Obrigatório" : "Opcional"}
                       </button>
+                      {displayAttachment ? (
+                        <button
+                          type="button"
+                          disabled={downloadingOnboardingAttachmentId === displayAttachment.id}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            void downloadOnboardingAttachment(displayAttachment);
+                          }}
+                        >
+                          {downloadingOnboardingAttachmentId === displayAttachment.id ? "Baixando..." : "Baixar"}
+                        </button>
+                      ) : null}
                       {attachment || pendingAttachment ? (
                         <button
                           type="button"
@@ -2905,7 +3077,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
               </div>
               <div className="hbx-partner-popup__actions">
                 <button type="button" disabled={!canPersistDocs || generatingContract} onClick={() => void generateOnboardingContract()} className="btn btn-secondary btn-sm">
-                  {generatingContract ? "Gerando..." : "Gerar contrato"}
+                  {generatingContract ? "Gerando..." : "Gerar contrato PDF"}
                 </button>
                 <button type="button" disabled={!canPersistDocs || sendingOnboardingEmail} onClick={() => void sendOnboardingEmail()} className="btn btn-primary btn-sm">
                   {sendingOnboardingEmail ? "Enviando..." : "Solicitar documentos"}
@@ -2914,9 +3086,9 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                   {togglingActiveUserId === onboardingUserId ? "Criando..." : "Criar parceiro"}
                 </button>
               </div>
-              {onboardingAttachments.length || pendingAttachmentCount ? (
+              {visibleDocumentAttachments.length || pendingAttachmentCount ? (
                 <div className="hbx-partner-popup__chips">
-                  {onboardingAttachments.filter((item) => item.status !== "deleted").slice(0, 6).map((item) => (
+                  {visibleDocumentAttachments.slice(0, 6).map((item) => (
                     <span key={item.id}>{onboardingAttachmentLabel(item.kind)}</span>
                   ))}
                   {Object.values(pendingOnboardingAttachments).map((item) => (
@@ -2943,21 +3115,6 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
             Atualizar
           </button>
         </header>
-
-        {error ? <div className="hbx-mobile-notice" data-tone="error">{error}</div> : null}
-        {actionInfo ? <div className="hbx-mobile-notice">{actionInfo}</div> : null}
-        {createdPasswordInfo ? (
-          <section className="hbx-mobile-card grid gap-2">
-            <strong>Senha temporária de {createdPasswordInfo.userLabel}</strong>
-            <code className="break-all rounded-[14px] border border-[var(--hbx-mobile-border)] bg-[var(--hbx-mobile-surface-soft)] p-3 text-sm">
-              {createdPasswordInfo.password}
-            </code>
-            <div className="grid grid-cols-2 gap-2">
-              <button type="button" onClick={copyTemporaryPassword} className="hbx-mobile-primary-button">Copiar</button>
-              <button type="button" onClick={dismissCreatedPasswordInfo} className="hbx-mobile-secondary-button">Fechar</button>
-            </div>
-          </section>
-        ) : null}
 
         {!data ? (
           <div className="hbx-mobile-empty">{loading ? "Carregando..." : "Sem dados."}</div>
@@ -3036,6 +3193,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         )}
 
         {renderCreateAccessPopup()}
+        {renderGerencialNoticePopups()}
         <HbxMobileDock
           primaryLabel="Cadastrar"
           primaryIcon="plus"
@@ -3078,9 +3236,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
       description="Cadastro de vendedores, permissões administrativas e controle de acesso por módulo."
       hideHeader
     >
-      {error ? <div className="alert alert-error">{error}</div> : null}
-      {actionInfo ? <div className="msg-info"><div className="text-sm">{actionInfo}</div></div> : null}
-
+      {renderGerencialNoticePopups()}
       {!data ? (
         <div className="panel p-4 text-sm text-muted">{loading ? "Carregando..." : "Sem dados."}</div>
       ) : (
@@ -3908,14 +4064,15 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                             enabledModules.map((mod) => {
                               const row = userModules.find((item) => item.key === mod.key);
                               const moduleKey = normalizeModuleKey(mod.key);
-                              const lockedForSeller = SELLER_LOCKED_MODULE_KEYS.has(moduleKey);
+                              const hbxSellerOperationalModule = showHbxNetwork && HBX_SELLER_OPERATIONAL_MODULE_KEYS.has(moduleKey);
+                              const lockedForSeller = !hbxSellerOperationalModule && SELLER_LOCKED_MODULE_KEYS.has(moduleKey);
                               const workspaceModule = SELLER_WORKSPACE_MODULE_KEYS.has(moduleKey);
-                              const allowed = !lockedForSeller && (row ? row.allowed : Boolean(mod.companyEnabled));
+                              const allowed = hbxSellerOperationalModule || (!lockedForSeller && (row ? row.allowed : Boolean(mod.companyEnabled)));
                               return (
                                 <button
                                   key={`${user.id}-${mod.key}`}
                                   type="button"
-                                  disabled={lockedForSeller || savingModuleUserId === user.id || !user.isActive}
+                                  disabled={hbxSellerOperationalModule || lockedForSeller || savingModuleUserId === user.id || !user.isActive}
                                   onClick={() => toggleUserModule(user.id, mod.key)}
                                   className={`btn btn-sm ${
                                     lockedForSeller
@@ -3926,9 +4083,15 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                                           ? "btn-secondary"
                                           : "btn-ghost"
                                   }`}
-                                  title={lockedForSeller ? "Perfil vendedor não acessa este módulo" : "Clique para alternar"}
+                                  title={
+                                    hbxSellerOperationalModule
+                                      ? "Módulo padrão do parceiro HBX"
+                                      : lockedForSeller
+                                        ? "Perfil vendedor não acessa este módulo"
+                                        : "Clique para alternar"
+                                  }
                                 >
-                                  {moduleLabel(mod)}: {lockedForSeller ? "bloqueado" : allowed && user.isActive ? "ON" : "OFF"}
+                                  {moduleLabel(mod)}: {hbxSellerOperationalModule ? "ON padrão" : lockedForSeller ? "bloqueado" : allowed && user.isActive ? "ON" : "OFF"}
                                 </button>
                               );
                             })

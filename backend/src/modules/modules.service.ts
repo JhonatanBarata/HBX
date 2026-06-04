@@ -89,6 +89,7 @@ const EMPLOYEE_BLOCKED_MODULE_KEYS = new Set([
   'exclusoes',
 ]);
 const SELLER_MOBILE_OPERATIONAL_MODULE_KEYS = new Set(['vendas', 'webscraping']);
+const HBX_SELLER_OPERATIONAL_MODULE_KEYS = new Set(['vendas', 'webscraping']);
 const MODULE_DISPLAY_ORDER = [
   'atendimento',
   'vendas',
@@ -1799,6 +1800,7 @@ export class ModulesService implements OnModuleInit {
     companyId: number,
     companySnapshot?: {
       id?: number | null;
+      slug?: string | null;
       isActive?: boolean | null;
       paymentStatus?: string | null;
       subscriptionStatus?: string | null;
@@ -1811,6 +1813,7 @@ export class ModulesService implements OnModuleInit {
     const company = normalizedSnapshotId === companyId
       ? {
           id: companyId,
+          slug: companySnapshot?.slug || null,
           isActive: Boolean(companySnapshot?.isActive),
           paymentStatus: companySnapshot?.paymentStatus || null,
           subscriptionStatus: companySnapshot?.subscriptionStatus || null,
@@ -1822,6 +1825,7 @@ export class ModulesService implements OnModuleInit {
           where: { id: companyId },
           select: {
             id: true,
+            slug: true,
             isActive: true,
             paymentStatus: true,
             subscriptionStatus: true,
@@ -1831,6 +1835,20 @@ export class ModulesService implements OnModuleInit {
           },
         });
     if (!company) return { exists: false, active: false };
+
+    if (String((company as any).slug || '').trim().toLowerCase() === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG) {
+      if (!company.isActive || !company.premiumAccess) {
+        await this.prisma.company.update({
+          where: { id: companyId },
+          data: {
+            isActive: true,
+            deactivatedAt: null,
+            premiumAccess: true,
+          },
+        });
+      }
+      return { exists: true, active: true };
+    }
 
     const now = Date.now();
     const paymentStatus = String(company.paymentStatus || '').trim().toUpperCase();
@@ -1914,6 +1932,14 @@ export class ModulesService implements OnModuleInit {
     return role === 'USER' && Boolean(context?.mobileRoute) && SELLER_MOBILE_OPERATIONAL_MODULE_KEYS.has(normalized);
   }
 
+  private isHbxSellerNetworkCompanySnapshot(company: any) {
+    return String(company?.slug || '').trim().toLowerCase() === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG;
+  }
+
+  private isHbxSellerOperationalModule(moduleKey: string) {
+    return HBX_SELLER_OPERATIONAL_MODULE_KEYS.has(this.normalizeRequestedModuleKey(moduleKey));
+  }
+
   private canUseAdminOnlyModule(user: any, moduleKey: string, context?: ModuleAccessContext) {
     const normalized = this.normalizeRequestedModuleKey(moduleKey);
     const role = String(user?.role || '').trim().toUpperCase();
@@ -1958,6 +1984,7 @@ export class ModulesService implements OnModuleInit {
     const companyAccessSnapshot = await this.prisma.company.findUnique({
       where: { id: companyId },
       select: {
+        slug: true,
         isActive: true,
         onboardingStatus: true,
         paymentStatus: true,
@@ -2029,7 +2056,7 @@ export class ModulesService implements OnModuleInit {
     return false;
   }
 
-  async listMyModules(userId: number) {
+  async listMyModules(userId: number, context?: ModuleAccessContext) {
     await this.ensureDefaultSystemModules();
     const { user, companyId, isSystemMaster } = await this.resolveUserContext(userId);
 
@@ -2083,6 +2110,7 @@ export class ModulesService implements OnModuleInit {
     const company = await this.prisma.company.findUnique({
       where: { id: companyId },
       select: {
+        slug: true,
         isActive: true,
         onboardingStatus: true,
         paymentStatus: true,
@@ -2163,12 +2191,15 @@ export class ModulesService implements OnModuleInit {
         const planManagedModule = planManagedModuleKeys.has(normalizedKey);
         const financeModule = this.isFinanceModuleKey(normalizedKey);
         const effectiveCompanyEnabled = Boolean(row?.enabled || (accessPolicy.active && planAllowsModule));
+        const sellerMobileOperationalModule = this.canUseSellerMobileOperationalModule(user, moduleItem.key, context);
         const userAllowed = isSystemMaster
           ? true
+          : sellerMobileOperationalModule
+            ? true
           : (row && userAccessMap.has(row.moduleId)
               ? Boolean(userAccessMap.get(row.moduleId))
-              : this.defaultUserModuleAllowed(user, moduleItem.key));
-        const roleEligible = this.canUseAdminOnlyModule(user, moduleItem.key);
+              : this.defaultUserModuleAllowed(user, moduleItem.key, context));
+        const roleEligible = this.canUseAdminOnlyModule(user, moduleItem.key, context);
         const visible =
           primaryCommercialModule ||
           (guardedCommercialModule && Boolean(row)) ||
@@ -2272,6 +2303,7 @@ export class ModulesService implements OnModuleInit {
       this.prisma.company.findUnique({
         where: { id: companyId },
         select: {
+          slug: true,
           isActive: true,
           onboardingStatus: true,
           paymentStatus: true,
@@ -2284,6 +2316,7 @@ export class ModulesService implements OnModuleInit {
       }),
     ]);
     const accessPolicy = resolveCompanyModuleAccessPolicy(company);
+    const hbxSellerNetworkCompany = this.isHbxSellerNetworkCompanySnapshot(company);
     const planManagedModuleKeys = new Set(
       Object.values(COMMERCIAL_PLAN_MODULE_KEYS)
         .flat()
@@ -2317,17 +2350,22 @@ export class ModulesService implements OnModuleInit {
       })),
       users: users.map((u) => {
         const userMap = accessByUser.get(u.id) || new Map<number, boolean>();
+        const hbxSeller = hbxSellerNetworkCompany && String(u.role || '').trim().toUpperCase() === 'USER';
         return {
           id: u.id,
           username: u.username,
           email: u.email,
           role: u.role,
-          modules: modules.map((m) => ({
-            key: m.key,
-            allowed:
-              this.canUseAdminOnlyModule(u, m.key) &&
-              (userMap.has(m.id) ? Boolean(userMap.get(m.id)) : this.defaultUserModuleAllowed(u, m.key)),
-          })),
+          modules: modules.map((m) => {
+            const hbxSellerOperationalModule = hbxSeller && this.isHbxSellerOperationalModule(m.key);
+            return {
+              key: m.key,
+              allowed: hbxSellerOperationalModule
+                ? true
+                : this.canUseAdminOnlyModule(u, m.key) &&
+                  (userMap.has(m.id) ? Boolean(userMap.get(m.id)) : this.defaultUserModuleAllowed(u, m.key)),
+            };
+          }),
         };
       }),
     };
@@ -2342,6 +2380,13 @@ export class ModulesService implements OnModuleInit {
     const target = await this.usersService.findById(targetUserId);
     if (!target) throw new BadRequestException('Usuario alvo nao encontrado');
     if (Number(target.companyId || 0) !== companyId) throw new ForbiddenException('Usuario fora da sua empresa');
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { slug: true },
+    });
+    const hbxSeller =
+      this.isHbxSellerNetworkCompanySnapshot(company) &&
+      String((target as any).role || '').trim().toUpperCase() === 'USER';
 
     const modules = await this.prisma.systemModule.findMany({
       where: { companyAssignable: true, key: { notIn: RETIRED_MODULE_KEYS } },
@@ -2350,8 +2395,12 @@ export class ModulesService implements OnModuleInit {
 
     await this.prisma.$transaction(async (tx) => {
       for (const permission of modulePermissions || []) {
-        const moduleItem = byKey.get(this.normalizeRequestedModuleKey(permission.key));
+        const normalizedKey = this.normalizeRequestedModuleKey(permission.key);
+        const moduleItem = byKey.get(normalizedKey);
         if (!moduleItem) continue;
+        const allowed = hbxSeller && this.isHbxSellerOperationalModule(normalizedKey)
+          ? true
+          : Boolean(permission.allowed);
 
         await tx.userModuleAccess.upsert({
           where: {
@@ -2360,13 +2409,34 @@ export class ModulesService implements OnModuleInit {
               moduleId: moduleItem.id,
             },
           },
-          update: { allowed: Boolean(permission.allowed) },
+          update: { allowed },
           create: {
             userId: targetUserId,
             moduleId: moduleItem.id,
-            allowed: Boolean(permission.allowed),
+            allowed,
           },
         });
+      }
+
+      if (hbxSeller) {
+        for (const moduleKey of HBX_SELLER_OPERATIONAL_MODULE_KEYS) {
+          const moduleItem = byKey.get(moduleKey);
+          if (!moduleItem) continue;
+          await tx.userModuleAccess.upsert({
+            where: {
+              userId_moduleId: {
+                userId: targetUserId,
+                moduleId: moduleItem.id,
+              },
+            },
+            update: { allowed: true },
+            create: {
+              userId: targetUserId,
+              moduleId: moduleItem.id,
+              allowed: true,
+            },
+          });
+        }
       }
     });
     await this.ensureTrialBundleForCompany(companyId);

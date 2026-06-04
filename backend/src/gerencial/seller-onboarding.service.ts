@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { createHash, randomUUID } from 'crypto';
 import { mkdir, readFile, unlink, writeFile } from 'fs/promises';
 import { extname, join } from 'path';
+import PDFDocument from 'pdfkit';
 import { isMasterOperationalCompanySlug } from '../commercial-plans/seat-billing.util';
 import { MailService, type MailAttachment } from '../mail/mail.service';
 import { EmailTemplateService } from '../mail/email-template.service';
@@ -29,9 +30,12 @@ type UpdateDraftInput = {
 const ONBOARDING_DOCUMENT_SLOTS = [
   { kind: 'photo_id', label: 'Documento com foto', defaultRequired: true },
   { kind: 'curriculum', label: 'Currículo', defaultRequired: false },
-  { kind: 'contract_pdf', label: 'Contrato assinado', defaultRequired: true },
+  { kind: 'contract_pdf', label: 'Contrato assinado', defaultRequired: false },
   { kind: 'other', label: 'Outro documento', defaultRequired: false },
 ] as const;
+
+const GENERATED_CONTRACT_KIND = 'generated_contract';
+const CONTRACT_SIGNATURE_INSTRUCTION = 'Assine pelo gov.br ou por assinatura digital de sua preferência.';
 
 function normalizeText(value: unknown, max = 500) {
   const text = String(value || '').replace(/\s+/g, ' ').trim();
@@ -52,6 +56,115 @@ function normalizeDueDays(value: unknown, fallback = 3) {
 
 function sha256Text(text: string) {
   return createHash('sha256').update(text, 'utf8').digest('hex');
+}
+
+function sha256Buffer(buffer: Buffer) {
+  return createHash('sha256').update(buffer).digest('hex');
+}
+
+function sellerOnboardingUploadDir() {
+  return process.env.SELLER_ONBOARDING_UPLOAD_DIR || join(process.cwd(), 'storage', 'seller-onboarding-temp');
+}
+
+function isContractSectionTitle(line: string) {
+  return /^(CONTRATANTE|PARCEIRO COMERCIAL):$/i.test(line) || /^\d+\.\s+/.test(line);
+}
+
+function addContractParagraph(doc: PDFKit.PDFDocument, line: string) {
+  if (isContractSectionTitle(line)) {
+    doc.moveDown(0.65);
+    doc.font('Helvetica-Bold').fontSize(11.5).fillColor('#064e3b').text(line, { align: 'left' });
+    doc.moveDown(0.25);
+    return;
+  }
+
+  const fieldMatch = line.match(/^([^:]{2,44}):\s*(.*)$/);
+  if (fieldMatch) {
+    doc.font('Helvetica-Bold').fontSize(10.6).fillColor('#111827').text(`${fieldMatch[1]}: `, { continued: true });
+    doc.font('Helvetica').fontSize(10.6).fillColor('#1f2937').text(fieldMatch[2] || '-', { align: 'left' });
+    doc.moveDown(0.24);
+    return;
+  }
+
+  doc.font('Helvetica').fontSize(10.6).fillColor('#1f2937').text(line, {
+    align: 'justify',
+    lineGap: 2,
+  });
+  doc.moveDown(0.36);
+}
+
+async function buildContractPdfBuffer(contractText: string) {
+  const lines = contractText
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const title = lines[0] || 'CONTRATO DE PARCERIA COMERCIAL AUTÔNOMA E INDICAÇÃO COMISSIONADA';
+  const signatureStart = lines.lastIndexOf('HBX SYSTEM');
+  const contentLines = signatureStart > 0 ? lines.slice(1, signatureStart) : lines.slice(1);
+  const partnerSignature = signatureStart >= 0 ? lines[signatureStart + 1] || 'Parceiro HBX' : 'Parceiro HBX';
+
+  return new Promise<Buffer>((resolve, reject) => {
+    const doc = new PDFDocument({
+      size: 'A4',
+      margins: { top: 56, right: 64, bottom: 56, left: 64 },
+      bufferPages: true,
+      info: {
+        Title: title,
+        Author: 'HBX SYSTEM',
+        Subject: 'Contrato de parceria comercial',
+      },
+    });
+    const chunks: Buffer[] = [];
+    doc.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+    doc.on('error', reject);
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+
+    doc.font('Helvetica-Bold').fontSize(15).fillColor('#0f172a').text(title, {
+      align: 'center',
+      lineGap: 2,
+    });
+    doc.moveDown(0.55);
+    doc.strokeColor('#0f766e').lineWidth(1).moveTo(64, doc.y).lineTo(doc.page.width - 64, doc.y).stroke();
+    doc.moveDown(1.05);
+
+    for (const line of contentLines) {
+      addContractParagraph(doc, line);
+    }
+
+    if (doc.y > doc.page.height - 170) doc.addPage();
+    doc.moveDown(2.1);
+    const startY = doc.y;
+    const gap = 34;
+    const columnWidth = (doc.page.width - doc.page.margins.left - doc.page.margins.right - gap) / 2;
+    const leftX = doc.page.margins.left;
+    const rightX = leftX + columnWidth + gap;
+    doc.strokeColor('#111827').lineWidth(0.8);
+    doc.moveTo(leftX, startY).lineTo(leftX + columnWidth, startY).stroke();
+    doc.moveTo(rightX, startY).lineTo(rightX + columnWidth, startY).stroke();
+    doc.font('Helvetica-Bold').fontSize(10.4).fillColor('#111827');
+    doc.text('HBX SYSTEM', leftX, startY + 8, { width: columnWidth, align: 'center' });
+    doc.text(partnerSignature, rightX, startY + 8, { width: columnWidth, align: 'center' });
+    doc.font('Helvetica').fontSize(9.4).fillColor('#4b5563');
+    doc.text('Contratante', leftX, startY + 23, { width: columnWidth, align: 'center' });
+    doc.text('Parceiro Comercial', rightX, startY + 23, { width: columnWidth, align: 'center' });
+
+    doc.end();
+  });
+}
+
+function friendlyMailDeliveryError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || '');
+  const normalized = message.toLowerCase();
+  if (normalized.includes('application-specific password required') || normalized.includes('invalidsecondfactor')) {
+    return 'Falha ao enviar e-mail: o Gmail exige uma senha de app no SMTP. Atualize SMTP_PASS com uma senha de app do Google.';
+  }
+  if (normalized.includes('invalid login') || normalized.includes('authentication')) {
+    return 'Falha ao enviar e-mail: login SMTP inválido. Verifique SMTP_USER e SMTP_PASS.';
+  }
+  if (normalized.includes('configuration incomplete') || normalized.includes('not configured')) {
+    return 'Falha ao enviar e-mail: provedor transacional não configurado. Verifique SMTP/Resend.';
+  }
+  return 'Falha ao enviar e-mail. Verifique a configuração SMTP/Resend e tente novamente.';
 }
 
 function parseMetadataJson(raw?: string | null): Record<string, any> {
@@ -80,6 +193,138 @@ export class SellerOnboardingService {
     private readonly mailService: MailService,
     private readonly emailTemplates: EmailTemplateService,
   ) {}
+
+  private contractDownloadPath(userId: number, attachmentId: string) {
+    return `/gerencial/hbx-partners/${Number(userId)}/onboarding/attachments/${attachmentId}/download`;
+  }
+
+  private async upsertGeneratedPartnerContract(userId: number, attachmentId: string) {
+    const partnerId = Number(userId);
+    const contractPdfUrl = this.contractDownloadPath(partnerId, attachmentId);
+    return this.prisma.partnerContract.upsert({
+      where: { partnerId },
+      create: {
+        partnerId,
+        contractPdfUrl,
+        signedPdfUrl: null,
+        status: 'generated',
+        sentAt: null,
+        uploadedAt: null,
+        approvedAt: null,
+        approvedBy: null,
+      },
+      update: {
+        contractPdfUrl,
+        signedPdfUrl: null,
+        status: 'generated',
+        sentAt: null,
+        uploadedAt: null,
+        approvedAt: null,
+        approvedBy: null,
+      },
+    });
+  }
+
+  private async ensurePartnerContractForGeneratedAttachment(userId: number, attachment: any, onboarding: any) {
+    if (!attachment?.id) return null;
+    const partnerId = Number(userId);
+    const contractPdfUrl = this.contractDownloadPath(partnerId, attachment.id);
+    const existing = await this.prisma.partnerContract.findUnique({ where: { partnerId } });
+    if (existing) {
+      if (existing.contractPdfUrl !== contractPdfUrl) {
+        return this.prisma.partnerContract.update({
+          where: { partnerId },
+          data: { contractPdfUrl },
+        });
+      }
+      return existing;
+    }
+    const sentAt = onboarding?.emailSentAt || null;
+    return this.prisma.partnerContract.create({
+      data: {
+        partnerId,
+        contractPdfUrl,
+        status: sentAt ? 'sent' : 'generated',
+        sentAt,
+      },
+    });
+  }
+
+  private async markPartnerContractSent(userId: number, sentAt: Date) {
+    const partnerId = Number(userId);
+    const existing = await this.prisma.partnerContract.findUnique({ where: { partnerId } });
+    if (!existing) {
+      return this.prisma.partnerContract.create({
+        data: { partnerId, status: 'sent', sentAt },
+      });
+    }
+    if (existing.status === 'uploaded' || existing.status === 'approved') {
+      return this.prisma.partnerContract.update({
+        where: { partnerId },
+        data: { sentAt },
+      });
+    }
+    return this.prisma.partnerContract.update({
+      where: { partnerId },
+      data: { status: 'sent', sentAt },
+    });
+  }
+
+  private async markPartnerContractUploaded(userId: number, attachmentId: string) {
+    const partnerId = Number(userId);
+    const signedPdfUrl = this.contractDownloadPath(partnerId, attachmentId);
+    return this.prisma.partnerContract.upsert({
+      where: { partnerId },
+      create: {
+        partnerId,
+        signedPdfUrl,
+        status: 'uploaded',
+        uploadedAt: new Date(),
+      },
+      update: {
+        signedPdfUrl,
+        status: 'uploaded',
+        uploadedAt: new Date(),
+        approvedAt: null,
+        approvedBy: null,
+      },
+    });
+  }
+
+  private async markPartnerContractSignedRemoved(userId: number) {
+    const partnerId = Number(userId);
+    const existing = await this.prisma.partnerContract.findUnique({ where: { partnerId } });
+    if (!existing) return null;
+    return this.prisma.partnerContract.update({
+      where: { partnerId },
+      data: {
+        signedPdfUrl: null,
+        uploadedAt: null,
+        approvedAt: null,
+        approvedBy: null,
+        status: existing.sentAt ? 'sent' : 'generated',
+      },
+    });
+  }
+
+  private async markPartnerContractApproved(userId: number, approvedByUserId?: number | null) {
+    const partnerId = Number(userId);
+    const approvedBy = Number(approvedByUserId || 0) || null;
+    return this.prisma.partnerContract.upsert({
+      where: { partnerId },
+      create: {
+        partnerId,
+        status: 'approved',
+        approvedAt: new Date(),
+        approvedBy,
+      },
+      update: {
+        status: 'approved',
+        approvedAt: new Date(),
+        approvedBy,
+      },
+    });
+  }
 
   async getOrCreateForUser(companyId: number, userId: number, createdByUserId?: number | null) {
     await this.assertHbxSellerNetworkCompany(companyId);
@@ -164,6 +409,26 @@ export class SellerOnboardingService {
       sellerReferralCommissionPercent: onboarding.sellerReferralCommissionPercent,
       referredByName: onboarding.referredByNameSnapshot,
     });
+    const buffer = await buildContractPdfBuffer(contractText);
+    const uploadDir = sellerOnboardingUploadDir();
+    await mkdir(uploadDir, { recursive: true });
+
+    const previousGenerated = (onboarding.attachments || []).filter((attachment: any) => {
+      return attachment.status !== 'deleted' && attachment.kind === GENERATED_CONTRACT_KIND;
+    });
+    for (const attachment of previousGenerated as any[]) {
+      try {
+        if (attachment.storagePath) await unlink(attachment.storagePath);
+      } catch {}
+      await this.prisma.sellerOnboardingAttachment.update({
+        where: { id: attachment.id },
+        data: { status: 'deleted', deletedAt: new Date() },
+      });
+    }
+
+    const storedFilename = `${onboarding.id}-${GENERATED_CONTRACT_KIND}-${randomUUID()}.pdf`;
+    const storagePath = join(uploadDir, storedFilename);
+    await writeFile(storagePath, buffer);
 
     const updated = await this.prisma.sellerOnboarding.update({
       where: { id: onboarding.id },
@@ -173,18 +438,97 @@ export class SellerOnboardingService {
         contractTextSnapshot: contractText,
         contractSha256: sha256Text(contractText),
       },
+    });
+    const attachment = await this.prisma.sellerOnboardingAttachment.create({
+      data: {
+        onboardingId: onboarding.id,
+        kind: GENERATED_CONTRACT_KIND,
+        originalFilename: 'contrato-parceria-hbx.pdf',
+        storedFilename,
+        storagePath,
+        contentType: 'application/pdf',
+        byteSize: buffer.length,
+        sha256: sha256Buffer(buffer),
+        required: false,
+        status: 'temporary',
+      },
+    });
+    await this.upsertGeneratedPartnerContract(userId, attachment.id);
+    const refreshed = await this.prisma.sellerOnboarding.findUnique({
+      where: { id: updated.id },
       include: { attachments: { orderBy: { createdAt: 'desc' } } },
     });
+    if (!refreshed) throw new NotFoundException('Cadastro do parceiro não encontrado após gerar contrato.');
     return {
       ok: true,
-      onboarding: updated,
-      attachments: updated.attachments || [],
-      readiness: this.buildReadiness(updated),
+      onboarding: refreshed,
+      attachment,
+      attachments: refreshed.attachments || [],
+      readiness: this.buildReadiness(refreshed),
     };
   }
 
   async listAttachments(companyId: number, userId: number) {
-    const onboarding = await this.getOrCreateForUser(companyId, userId, null);
+    let onboarding = await this.getOrCreateForUser(companyId, userId, null);
+    const activeGeneratedContracts = (onboarding.attachments || []).filter((attachment: any) => {
+      return attachment.status !== 'deleted' && attachment.kind === GENERATED_CONTRACT_KIND;
+    });
+    const outdatedGeneratedContracts = activeGeneratedContracts.filter((attachment: any) => {
+      return attachment.contentType !== 'application/pdf' || !String(attachment.originalFilename || '').toLowerCase().endsWith('.pdf');
+    });
+    for (const attachment of outdatedGeneratedContracts as any[]) {
+      try {
+        if (attachment.storagePath) await unlink(attachment.storagePath);
+      } catch {}
+      await this.prisma.sellerOnboardingAttachment.update({
+        where: { id: attachment.id },
+        data: { status: 'deleted', deletedAt: new Date() },
+      });
+    }
+    if (outdatedGeneratedContracts.length) {
+      const refreshed = await this.prisma.sellerOnboarding.findUnique({
+        where: { id: onboarding.id },
+        include: { attachments: { orderBy: { createdAt: 'desc' } } },
+      });
+      if (refreshed) onboarding = refreshed;
+    }
+    const hasGeneratedContract = (onboarding.attachments || []).some((attachment: any) => {
+      return attachment.status !== 'deleted' && attachment.kind === GENERATED_CONTRACT_KIND && attachment.contentType === 'application/pdf';
+    });
+    if (onboarding.contractTextSnapshot && !hasGeneratedContract) {
+      const buffer = await buildContractPdfBuffer(onboarding.contractTextSnapshot);
+      const uploadDir = sellerOnboardingUploadDir();
+      await mkdir(uploadDir, { recursive: true });
+      const storedFilename = `${onboarding.id}-${GENERATED_CONTRACT_KIND}-${randomUUID()}.pdf`;
+      const storagePath = join(uploadDir, storedFilename);
+      await writeFile(storagePath, buffer);
+      const attachment = await this.prisma.sellerOnboardingAttachment.create({
+        data: {
+          onboardingId: onboarding.id,
+          kind: GENERATED_CONTRACT_KIND,
+          originalFilename: 'contrato-parceria-hbx.pdf',
+          storedFilename,
+          storagePath,
+          contentType: 'application/pdf',
+          byteSize: buffer.length,
+          sha256: sha256Buffer(buffer),
+          required: false,
+          status: 'temporary',
+        },
+      });
+      await this.ensurePartnerContractForGeneratedAttachment(userId, attachment, onboarding);
+      const refreshed = await this.prisma.sellerOnboarding.findUnique({
+        where: { id: onboarding.id },
+        include: { attachments: { orderBy: { createdAt: 'desc' } } },
+      });
+      if (refreshed) onboarding = refreshed;
+    }
+    const generatedContract = (onboarding.attachments || []).find((attachment: any) => {
+      return attachment.status !== 'deleted' && attachment.kind === GENERATED_CONTRACT_KIND;
+    });
+    if (generatedContract) {
+      await this.ensurePartnerContractForGeneratedAttachment(userId, generatedContract, onboarding);
+    }
     return {
       onboardingId: onboarding.id,
       attachments: onboarding.attachments || [],
@@ -195,6 +539,9 @@ export class SellerOnboardingService {
   async updateDocumentRequirement(companyId: number, userId: number, kindValue: unknown, requiredValue: unknown) {
     const onboarding = await this.getOrCreateForUser(companyId, userId, null);
     const kind = this.normalizeAttachmentKind(kindValue);
+    if (kind === 'contract_pdf' && !this.normalizeBoolean(requiredValue)) {
+      throw new BadRequestException('Contrato assinado é obrigatório para aprovar o parceiro.');
+    }
     const metadata = parseMetadataJson(onboarding.metadataJson);
     const existingRequirements =
       metadata.documentRequirements && typeof metadata.documentRequirements === 'object'
@@ -227,6 +574,9 @@ export class SellerOnboardingService {
     const kind = this.normalizeAttachmentKind(dto.kind);
     const originalFilename = normalizeText(file.originalname, 180) || `${kind}${extname(String(file.originalname || '')) || '.pdf'}`;
     const extension = extname(originalFilename).toLowerCase();
+    if (kind === 'contract_pdf' && extension !== '.pdf') {
+      throw new BadRequestException('Contrato assinado precisa ser PDF.');
+    }
     if (!['.pdf', '.jpg', '.jpeg', '.png'].includes(extension)) {
       throw new BadRequestException('Anexo precisa ser PDF, JPG ou PNG.');
     }
@@ -255,6 +605,9 @@ export class SellerOnboardingService {
         status: 'temporary',
       },
     });
+    if (kind === 'contract_pdf') {
+      await this.markPartnerContractUploaded(userId, attachment.id);
+    }
     const updated = await this.prisma.sellerOnboarding.findUnique({
       where: { id: onboarding.id },
       include: { attachments: { orderBy: { createdAt: 'desc' } } },
@@ -272,6 +625,7 @@ export class SellerOnboardingService {
       },
     });
     if (!attachment) throw new NotFoundException('Anexo não encontrado.');
+    const removedKind = attachment.kind;
     try {
       if (attachment.storagePath) await unlink(attachment.storagePath);
     } catch {}
@@ -279,6 +633,9 @@ export class SellerOnboardingService {
       where: { id: attachment.id },
       data: { status: 'deleted', deletedAt: new Date() },
     });
+    if (removedKind === 'contract_pdf') {
+      await this.markPartnerContractSignedRemoved(userId);
+    }
     const updated = await this.prisma.sellerOnboarding.findUnique({
       where: { id: onboarding.id },
       include: { attachments: { orderBy: { createdAt: 'desc' } } },
@@ -290,6 +647,30 @@ export class SellerOnboardingService {
     };
   }
 
+  async getAttachmentFile(companyId: number, userId: number, attachmentId: string) {
+    const onboarding = await this.getOrCreateForUser(companyId, userId, null);
+    const attachment = await this.prisma.sellerOnboardingAttachment.findFirst({
+      where: {
+        id: String(attachmentId || ''),
+        onboardingId: onboarding.id,
+        status: { not: 'deleted' },
+      },
+    });
+    if (!attachment) throw new NotFoundException('Anexo não encontrado.');
+    let content: Buffer;
+    try {
+      content = await readFile(attachment.storagePath);
+    } catch {
+      throw new NotFoundException('Arquivo do anexo não encontrado.');
+    }
+    return {
+      content,
+      filename: attachment.originalFilename || attachment.storedFilename || 'anexo',
+      contentType: attachment.contentType || 'application/octet-stream',
+      byteSize: attachment.byteSize || content.length,
+    };
+  }
+
   async sendOnboardingEmail(companyId: number, userId: number, createdByUserId?: number | null) {
     let onboarding = await this.getOrCreateForUser(companyId, userId, createdByUserId);
     if (!onboarding.email) throw new BadRequestException('Informe o e-mail do parceiro antes de enviar.');
@@ -298,13 +679,19 @@ export class SellerOnboardingService {
       onboarding = generated.onboarding;
     }
 
-    const activeAttachments = (onboarding.attachments || []).filter((item: any) => item.status !== 'deleted');
+    let activeAttachments = (onboarding.attachments || []).filter((item: any) => item.status !== 'deleted');
+    if (!activeAttachments.some((item: any) => item.kind === GENERATED_CONTRACT_KIND)) {
+      const generated = await this.generateContract(companyId, userId, createdByUserId);
+      onboarding = generated.onboarding;
+      activeAttachments = (onboarding.attachments || []).filter((item: any) => item.status !== 'deleted');
+    }
     const readiness = this.buildReadiness(onboarding);
     const receivedLabels = readiness.receivedDocuments.map((item) => item.label);
     const missingLabels = readiness.missingRequiredDocuments.map((item) => item.label);
 
     const attachments: MailAttachment[] = [];
-    for (const attachment of activeAttachments as any[]) {
+    const generatedContractAttachments = (activeAttachments as any[]).filter((attachment) => attachment.kind === GENERATED_CONTRACT_KIND);
+    for (const attachment of generatedContractAttachments) {
       attachments.push({
         filename: attachment.originalFilename,
         content: await readFile(attachment.storagePath),
@@ -330,21 +717,38 @@ export class SellerOnboardingService {
       documentosPendentes: missingLabels.length ? missingLabels.join(', ') : 'nenhuma pendência obrigatória',
       documentosFaltantes: missingLabels.length ? missingLabels.join(', ') : 'nenhuma pendência obrigatória',
       contrato: onboarding.contractTextSnapshot || '',
+      instrucaoAssinatura: CONTRACT_SIGNATURE_INSTRUCTION,
     });
-    const result = await this.mailService.sendMail({
-      to: onboarding.email,
-      subject: rendered.subject,
-      text: rendered.text,
-      html: rendered.html,
-      attachments,
-    });
+    let result: Awaited<ReturnType<MailService['sendMail']>>;
+    try {
+      result = await this.mailService.sendMail({
+        to: onboarding.email,
+        subject: rendered.subject,
+        text: rendered.text,
+        html: rendered.html,
+        attachments,
+      });
+    } catch (mailError) {
+      await this.prisma.sellerOnboarding.update({
+        where: { id: onboarding.id },
+        data: {
+          emailStatus: 'email_failed',
+          emailMessageId: null,
+          emailSentAt: null,
+        },
+      });
+      throw new BadRequestException(friendlyMailDeliveryError(mailError));
+    }
+
+    const sentAt = result.ok ? new Date() : null;
+    if (sentAt) await this.markPartnerContractSent(userId, sentAt);
 
     const updated = await this.prisma.sellerOnboarding.update({
       where: { id: onboarding.id },
       data: {
         emailStatus: result.ok ? 'sent' : 'email_failed',
         emailMessageId: result.messageId,
-        emailSentAt: result.ok ? new Date() : null,
+        emailSentAt: sentAt,
         status: result.ok ? (readiness.complete ? 'ready_to_activate' : 'waiting_documents') : onboarding.status,
         attachmentsDeleteAfter: null,
       },
@@ -353,13 +757,14 @@ export class SellerOnboardingService {
     return { ok: result.ok, delivery: result, onboarding: updated, readiness: this.buildReadiness(updated) };
   }
 
-  async assertCanActivatePartner(companyId: number, userId: number) {
+  async assertCanActivatePartner(companyId: number, userId: number, approvedByUserId?: number | null) {
     const onboarding = await this.getOrCreateForUser(companyId, userId, null);
     const readiness = this.buildReadiness(onboarding);
     if (!readiness.complete) {
       const missing = readiness.missingRequiredDocuments.map((item) => item.label).join(', ');
       throw new BadRequestException(`Parceiro ainda não pode ser liberado. Pendências obrigatórias: ${missing || 'documentação'}.`);
     }
+    await this.markPartnerContractApproved(userId, approvedByUserId);
     await this.prisma.sellerOnboarding.update({
       where: { id: onboarding.id },
       data: { status: 'approved' },
@@ -422,7 +827,7 @@ export class SellerOnboardingService {
 
   private normalizeAttachmentKind(value: unknown) {
     const kind = String(value || '').trim().toLowerCase();
-    if (['photo_id', 'curriculum', 'contract_pdf', 'other'].includes(kind)) return kind;
+    if (['photo_id', 'curriculum', 'contract_pdf', GENERATED_CONTRACT_KIND, 'other'].includes(kind)) return kind;
     return 'other';
   }
 
@@ -432,6 +837,7 @@ export class SellerOnboardingService {
   }
 
   private isDocumentRequired(onboarding: any, kind: string) {
+    if (kind === 'contract_pdf') return true;
     const slot = ONBOARDING_DOCUMENT_SLOTS.find((item) => item.kind === kind);
     const metadata = parseMetadataJson(onboarding?.metadataJson);
     const override = metadata?.documentRequirements?.[kind];

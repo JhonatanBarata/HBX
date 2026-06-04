@@ -56,6 +56,7 @@ export type EmailTemplateVariables = {
   documentosPendentes?: string | null;
   documentosFaltantes?: string | null;
   contrato?: string | null;
+  instrucaoAssinatura?: string | null;
   saudacao?: string | null;
   nomecard?: string | null;
   razaosocialcard?: string | null;
@@ -106,6 +107,7 @@ const EMAIL_TEMPLATE_VARIABLES: EmailTemplateVariableDefinition[] = [
   { key: 'documentosPendentes', token: '{documentosPendentes}', label: 'Documentos pendentes', group: 'vendedor', description: 'Lista dos documentos obrigatórios que ainda faltam.', kinds: ['seller_onboarding_request'] },
   { key: 'documentosFaltantes', token: '{documentosFaltantes}', label: 'Documentos que faltam', group: 'vendedor', description: 'Lista dos documentos obrigatórios que ainda faltam.', kinds: ['seller_onboarding_request'] },
   { key: 'contrato', token: '{contrato}', label: 'Contrato', group: 'vendedor', description: 'Texto do contrato gerado para assinatura.', kinds: ['seller_onboarding_request'] },
+  { key: 'instrucaoAssinatura', token: '{instrucaoAssinatura}', label: 'Instrução assinatura', group: 'vendedor', description: 'Orientação para assinar o contrato por gov.br ou assinatura digital.', kinds: ['seller_onboarding_request'] },
   { key: 'nomecard', token: '{nomecard}', label: 'Nome do card', group: 'card', description: 'Nome da empresa ou lead exibido no card comercial.' },
   { key: 'razaosocialcard', token: '{razaosocialcard}', label: 'Razão social', group: 'card', description: 'Razão social do card quando existir.' },
   { key: 'telefonecard', token: '{telefonecard}', label: 'Telefone', group: 'card', description: 'Telefone público do card.' },
@@ -238,7 +240,8 @@ const DEFAULT_TEMPLATES: Record<EmailTemplateKind, EmailTemplate> = {
       '{documentosFaltantes}',
       '',
       'Você pode responder este e-mail anexando os arquivos pendentes em PDF, JPG ou PNG.',
-      'Se o contrato abaixo ainda não estiver assinado, assine e envie a versão assinada junto com os demais documentos.',
+      '{instrucaoAssinatura}',
+      'Envie o contrato assinado em PDF junto com os demais documentos.',
       '',
       'Importante: este e-mail ainda não libera acesso ao sistema. Seu login e senha serão enviados somente depois da aprovação final.',
       '',

@@ -21688,6 +21688,10 @@
     -webkit-overflow-scrolling: touch;
   }
 
+  .mobileVendasShell.mobileLeadDetailShell:global(.hbx-mobile-page) {
+    padding: 0 !important;
+  }
+
   .mobileLeadDetailScreen {
     min-height: 100dvh !important;
     height: auto !important;
@@ -21698,6 +21702,10 @@
     gap: 0 !important;
     margin: 0 !important;
     overflow: visible !important;
+    padding: 0 !important;
+  }
+
+  .mobileLeadDetailScreen:global(.hbx-mobile-page) {
     padding: 0 !important;
   }
 
@@ -21720,6 +21728,6 @@
     bottom: auto !important;
     width: auto !important;
     max-width: none !important;
-    margin: 0 12px calc(var(--hbx-mobile-dock-height, 102px) + 12px + env(safe-area-inset-bottom)) !important;
+    margin: 0 12px calc(12px + env(safe-area-inset-bottom)) !important;
   }
 }

@@ -121,6 +121,7 @@ type HbxTerritorySeller = {
   name: string;
   email?: string | null;
   phone?: string | null;
+  preferredSegmentsJson?: string | null;
   commissionPercent?: number | null;
   inheritedCommissionPercent?: number | null;
   canRegisterHbxSellers?: boolean;
@@ -180,11 +181,43 @@ type HbxTerritoryRunPayload = {
   shortageCount?: number;
 };
 
+const EMPTY_TERRITORY_SELLERS: HbxTerritorySeller[] = [];
+const EMPTY_TERRITORY_CITIES: HbxTerritoryCity[] = [];
+const EMPTY_CITY_BALANCE: HbxTerritoryCityBalance[] = [];
+
+type TerritoryStatusFilter = "todos" | "sem_parceiro" | "precisa_cards" | "completo" | "pausada";
+
+type TerritoryFilters = {
+  state: string;
+  city: string;
+  segment: string;
+  partnerId: string;
+  status: TerritoryStatusFilter;
+};
+
+type HbxTerritoryTableRow = {
+  id: string;
+  state: string;
+  city: string;
+  segmentLabel: string;
+  seller: HbxTerritorySeller | null;
+  cityRef: HbxTerritoryCity;
+  availableCards: number;
+  dailyLimit: number;
+  deliveredToday: number;
+  dailyRemaining: number;
+  currentStock: number;
+  targetStock: number;
+  statusKey: TerritoryStatusFilter;
+  statusLabel: string;
+  preferredSegmentsLabel: string;
+};
+
 const TABS: Array<{ id: TabId; label: string; description: string }> = [
   { id: "pesquisas", label: "Pesquisas", description: "Cards pesquisados e salvos no banco Radar." },
   { id: "excluidos", label: "Excluídos", description: "Cards removidos, bloqueados ou descartados." },
   { id: "reclamacoes", label: "Reclamações", description: "Cards contestados pelos clientes." },
-  { id: "distribuicao", label: "Distribuição HBX", description: "Cidades fixas dos vendedores USERMASTER." },
+  { id: "distribuicao", label: "Distribuição HBX", description: "Master distribui cards por UF, cidade e parceiro." },
 ];
 
 const TAB_GUIDE_ITEMS = TABS.map((tab) => ({
@@ -220,6 +253,22 @@ function metric(value?: number | null) {
 
 function normalizeText(value: unknown) {
   return String(value || "").trim().toLowerCase();
+}
+
+function preferredSegmentsLabel(value?: string | null) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  try {
+    const parsed = JSON.parse(raw) as { segments?: unknown; cityRegion?: unknown } | unknown[];
+    const parsedObject = !Array.isArray(parsed) && parsed && typeof parsed === "object" ? parsed : null;
+    const source = Array.isArray(parsed) ? parsed : Array.isArray(parsedObject?.segments) ? parsedObject.segments : [];
+    const segments = source.map((item) => String(item || "").trim()).filter(Boolean);
+    const cityRegion = parsedObject ? String(parsedObject.cityRegion || "").trim() : "";
+    const parts = [...segments, cityRegion].filter(Boolean);
+    return parts.length ? `Prefere: ${parts.join(", ")}` : raw;
+  } catch {
+    return `Prefere: ${raw}`;
+  }
 }
 
 export default function BancoDeDadosClientPage({ embedded = false }: { embedded?: boolean } = {}) {
@@ -423,7 +472,36 @@ export default function BancoDeDadosClientPage({ embedded = false }: { embedded?
     });
   }
 
-  async function saveTerritories(status: "draft" | "active" = "active") {
+  function moveTerritoryCity(fromUserId: number | null, toUserId: number, city: HbxTerritoryCity) {
+    const targetUserId = Math.trunc(Number(toUserId || 0));
+    const normalizedCity = String(city.city || "").trim();
+    const state = String(city.state || "").trim().toUpperCase();
+    if (!targetUserId || !normalizedCity || !state) {
+      setError("Escolha parceiro, UF e cidade para distribuir o card.");
+      return;
+    }
+    setTerritoryDraft((current) => {
+      const base = current || territoryPanel;
+      if (!base) return current;
+      return {
+        ...base,
+        sellers: (base.sellers || []).map((seller) => {
+          const withoutCity = seller.cities.filter((item) => !(normalizeText(item.city) === normalizeText(normalizedCity) && String(item.state || "").toUpperCase() === state));
+          if (seller.id !== targetUserId) {
+            return seller.id === fromUserId ? { ...seller, cities: withoutCity } : seller;
+          }
+          const exists = withoutCity.some((item) => normalizeText(item.city) === normalizeText(normalizedCity) && String(item.state || "").toUpperCase() === state);
+          return {
+            ...seller,
+            cities: exists ? withoutCity : [...withoutCity, { city: normalizedCity, state, availableCards: city.availableCards || 0 }],
+          };
+        }),
+      };
+    });
+    setFeedback(fromUserId ? "Parceiro trocado no rascunho. Salve para aplicar." : "Parceiro atribuído no rascunho. Salve para aplicar.");
+  }
+
+  async function saveTerritories(status: "draft" | "active" | "paused" = "active") {
     setTerritorySaving(true);
     setError(null);
     setFeedback(null);
@@ -606,6 +684,7 @@ export default function BancoDeDadosClientPage({ embedded = false }: { embedded?
               onRemoveCity={removeTerritoryCity}
               onTargetChange={(value) => setTerritoryDraft((current) => current ? { ...current, targetStockPerSeller: value } : current)}
               onDailyLimitChange={(value) => setTerritoryDraft((current) => current ? { ...current, dailyLimitPerSeller: value } : current)}
+              onMoveCity={moveTerritoryCity}
               onSave={saveTerritories}
               onRun={runTerritoriesNow}
             />
@@ -633,6 +712,7 @@ function HbxTerritoryPanelView({
   onRemoveCity,
   onTargetChange,
   onDailyLimitChange,
+  onMoveCity,
   onSave,
   onRun,
 }: {
@@ -645,15 +725,104 @@ function HbxTerritoryPanelView({
   onRemoveCity: (userId: number, city: HbxTerritoryCity) => void;
   onTargetChange: (value: number) => void;
   onDailyLimitChange: (value: number) => void;
-  onSave: (status?: "draft" | "active") => Promise<void>;
+  onMoveCity: (fromUserId: number | null, toUserId: number, city: HbxTerritoryCity) => void;
+  onSave: (status?: "draft" | "active" | "paused") => Promise<void>;
   onRun: () => Promise<void>;
 }) {
-  const sellers = panel?.sellers || [];
-  const suggestions = panel?.citySuggestions || [];
-  const cityBalance = panel?.cityBalance || [];
+  const [territoryFilters, setTerritoryFilters] = useState<TerritoryFilters>({
+    state: "todos",
+    city: "",
+    segment: "",
+    partnerId: "todos",
+    status: "todos",
+  });
+  const [selectedPartnerByRow, setSelectedPartnerByRow] = useState<Record<string, string>>({});
+  const sellers = panel?.sellers || EMPTY_TERRITORY_SELLERS;
+  const suggestions = panel?.citySuggestions || EMPTY_TERRITORY_CITIES;
+  const cityBalance = panel?.cityBalance || EMPTY_CITY_BALANCE;
   const selectedSeller = sellers.find((seller) => seller.id === input.userId) || sellers[0] || null;
   const summary = panel?.summary || {};
   const lastRunLabel = panel?.lastRunAt ? formatDateTime(panel.lastRunAt) : "Nunca executado";
+  const assignedCityKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const seller of sellers) {
+      for (const city of seller.cities || []) {
+        keys.add(`${normalizeText(city.city)}:${String(city.state || "").toUpperCase()}`);
+      }
+    }
+    return keys;
+  }, [sellers]);
+  const distributionRows = useMemo<HbxTerritoryTableRow[]>(() => {
+    const rows: HbxTerritoryTableRow[] = [];
+    for (const seller of sellers) {
+      const stock = Math.max(0, Number(seller.currentStock || 0));
+      const target = Math.max(1, Number(seller.targetStock || panel?.targetStockPerSeller || 30));
+      const missing = Math.max(0, Number(seller.remainingStock ?? target - stock));
+      const dailyLimit = Math.max(0, Number(seller.dailyLimit ?? panel?.dailyLimitPerSeller ?? 20));
+      const deliveredToday = Math.max(0, Number(seller.deliveredToday || 0));
+      const dailyRemaining = Math.max(0, Number(seller.dailyRemaining ?? Math.max(0, dailyLimit - deliveredToday)));
+      const status = panel?.status === "paused"
+        ? { key: "pausada" as TerritoryStatusFilter, label: "Pausada" }
+        : missing > 0
+          ? { key: "precisa_cards" as TerritoryStatusFilter, label: "Precisa cards" }
+          : { key: "completo" as TerritoryStatusFilter, label: "Completo" };
+      for (const city of seller.cities || []) {
+        rows.push({
+          id: `seller-${seller.id}-${normalizeText(city.city)}-${String(city.state || "").toUpperCase()}`,
+          state: String(city.state || "").toUpperCase() || "-",
+          city: city.city || "Sem cidade",
+          segmentLabel: "Livre no Vendas",
+          seller,
+          cityRef: city,
+          availableCards: Number(city.availableCards || 0),
+          dailyLimit,
+          deliveredToday,
+          dailyRemaining,
+          currentStock: stock,
+          targetStock: target,
+          statusKey: status.key,
+          statusLabel: status.label,
+          preferredSegmentsLabel: preferredSegmentsLabel(seller.preferredSegmentsJson),
+        });
+      }
+    }
+    for (const city of cityBalance.length ? cityBalance : suggestions) {
+      const state = String(city.state || "").toUpperCase();
+      const key = `${normalizeText(city.city)}:${state}`;
+      if (!city.city || !state || assignedCityKeys.has(key)) continue;
+      rows.push({
+        id: `unassigned-${normalizeText(city.city)}-${state}`,
+        state,
+        city: city.city,
+        segmentLabel: "Livre no Vendas",
+        seller: null,
+        cityRef: city,
+        availableCards: Number(city.availableCards || 0),
+        dailyLimit: Number(panel?.dailyLimitPerSeller ?? 20),
+        deliveredToday: 0,
+        dailyRemaining: Number(panel?.dailyLimitPerSeller ?? 20),
+        currentStock: 0,
+        targetStock: Number(panel?.targetStockPerSeller ?? 30),
+        statusKey: "sem_parceiro",
+        statusLabel: "Sem parceiro",
+        preferredSegmentsLabel: "",
+      });
+    }
+    return rows.sort((left, right) => left.state.localeCompare(right.state, "pt-BR") || left.city.localeCompare(right.city, "pt-BR") || (left.seller?.name || "").localeCompare(right.seller?.name || "", "pt-BR"));
+  }, [assignedCityKeys, cityBalance, panel?.dailyLimitPerSeller, panel?.status, panel?.targetStockPerSeller, sellers, suggestions]);
+  const stateOptions = useMemo(() => Array.from(new Set(distributionRows.map((row) => row.state).filter(Boolean))).sort(), [distributionRows]);
+  const filteredDistributionRows = useMemo(() => {
+    const cityTerm = normalizeText(territoryFilters.city);
+    const segmentTerm = normalizeText(territoryFilters.segment);
+    return distributionRows.filter((row) => {
+      if (territoryFilters.state !== "todos" && row.state !== territoryFilters.state) return false;
+      if (territoryFilters.partnerId !== "todos" && String(row.seller?.id || 0) !== territoryFilters.partnerId) return false;
+      if (territoryFilters.status !== "todos" && row.statusKey !== territoryFilters.status) return false;
+      if (cityTerm && !normalizeText(`${row.city} ${row.state}`).includes(cityTerm)) return false;
+      if (segmentTerm && !normalizeText(`${row.segmentLabel} ${row.preferredSegmentsLabel}`).includes(segmentTerm)) return false;
+      return true;
+    });
+  }, [distributionRows, territoryFilters]);
 
   if (!panel) {
     return <div className={styles.emptyState}>Carregando distribuição HBX Master...</div>;
@@ -664,8 +833,8 @@ function HbxTerritoryPanelView({
       <section className={styles.territoryHero}>
         <div>
           <span>HBX Master</span>
-          <strong>Cidades fixas, segmentos livres</strong>
-          <p>O USERMASTER fixa onde cada vendedor pode receber cards. Dentro do Vendas, o vendedor trabalha segmentos livres dentro da cidade liberada.</p>
+          <strong>Master distribui cards</strong>
+          <p>Master distribui cards. Parceiro HBX trabalha cards. Parceiro não decide distribuição global.</p>
         </div>
         <div className={styles.territoryStatus}>
           <span>Status</span>
@@ -711,7 +880,7 @@ function HbxTerritoryPanelView({
         <section className={styles.territoryBalancePanel}>
           <header>
             <div>
-              <span>Mapa de demanda</span>
+              <span>Demanda operacional</span>
               <strong>Regiões por pressão</strong>
             </div>
             <small>{metric(summary.overloadedCityCount)} região(ões) pedindo mais vendedores</small>
@@ -736,6 +905,130 @@ function HbxTerritoryPanelView({
           </div>
         </section>
       ) : null}
+
+      <section className={styles.territoryDistributionPanel} aria-label="Distribuição Master por UF, cidade e parceiro">
+        <header className={styles.territoryTableHeader}>
+          <div>
+            <span>Distribuição Master</span>
+            <strong>{metric(filteredDistributionRows.length)} linha(s)</strong>
+            <p>UF, cidade, parceiro e limite diário em uma visão operacional. Segmento fica livre para o Parceiro HBX trabalhar no Vendas.</p>
+          </div>
+          <div className={styles.territoryTableActions}>
+            <button type="button" onClick={() => void onSave(panel.status === "active" ? "paused" : "active")} disabled={saving}>
+              {panel.status === "active" ? "Pausar" : "Ativar"}
+            </button>
+            <button type="button" data-primary="true" onClick={() => void onRun()} disabled={saving || running || panel.status !== "active"}>
+              {running ? "Rodando..." : "Rodar distribuição"}
+            </button>
+          </div>
+        </header>
+
+        <div className={styles.territoryFilterGrid}>
+          <label>
+            <span>UF</span>
+            <select value={territoryFilters.state} onChange={(event) => setTerritoryFilters((current) => ({ ...current, state: event.target.value }))}>
+              <option value="todos">Todas</option>
+              {stateOptions.map((state) => <option key={state} value={state}>{state}</option>)}
+            </select>
+          </label>
+          <label>
+            <span>Cidade</span>
+            <input value={territoryFilters.city} onChange={(event) => setTerritoryFilters((current) => ({ ...current, city: event.target.value }))} placeholder="Filtrar cidade" />
+          </label>
+          <label>
+            <span>Segmento</span>
+            <input value={territoryFilters.segment} onChange={(event) => setTerritoryFilters((current) => ({ ...current, segment: event.target.value }))} placeholder="Livre ou preferência" />
+          </label>
+          <label>
+            <span>Parceiro</span>
+            <select value={territoryFilters.partnerId} onChange={(event) => setTerritoryFilters((current) => ({ ...current, partnerId: event.target.value }))}>
+              <option value="todos">Todos</option>
+              <option value="0">Sem parceiro</option>
+              {sellers.map((seller) => <option key={seller.id} value={seller.id}>{seller.name}</option>)}
+            </select>
+          </label>
+          <label>
+            <span>Status</span>
+            <select value={territoryFilters.status} onChange={(event) => setTerritoryFilters((current) => ({ ...current, status: event.target.value as TerritoryStatusFilter }))}>
+              <option value="todos">Todos</option>
+              <option value="sem_parceiro">Sem parceiro</option>
+              <option value="precisa_cards">Precisa cards</option>
+              <option value="completo">Completo</option>
+              <option value="pausada">Pausada</option>
+            </select>
+          </label>
+        </div>
+
+        <div className={styles.territoryTableWrap}>
+          <table className={styles.territoryTable}>
+            <thead>
+              <tr>
+                <th>UF</th>
+                <th>Cidade/região</th>
+                <th>Segmento/categoria</th>
+                <th>Parceiro</th>
+                <th>Limite diário</th>
+                <th>Cards entregues hoje</th>
+                <th>Status</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredDistributionRows.map((row) => {
+                const selectedPartnerId = selectedPartnerByRow[row.id] ?? String(row.seller?.id || "");
+                const canAssign = Number(selectedPartnerId || 0) > 0 && Number(selectedPartnerId) !== Number(row.seller?.id || 0);
+                return (
+                  <tr key={row.id} data-status={row.statusKey}>
+                    <td data-label="UF">{row.state}</td>
+                    <td data-label="Cidade/região">
+                      <strong>{row.city}</strong>
+                      <span>{metric(row.availableCards)} cards potenciais</span>
+                    </td>
+                    <td data-label="Segmento/categoria">
+                      <strong>{row.segmentLabel}</strong>
+                      <span>Parceiro escolhe a abordagem no trabalho dos cards.</span>
+                    </td>
+                    <td data-label="Parceiro">
+                      <strong>{row.seller?.name || "Sem parceiro"}</strong>
+                      <span>{row.preferredSegmentsLabel || "Sem preferência declarada"}</span>
+                    </td>
+                    <td data-label="Limite diário">{row.seller ? metric(row.dailyLimit) : "-"}</td>
+                    <td data-label="Cards entregues hoje">
+                      {row.seller ? `${metric(row.deliveredToday)}/${metric(row.dailyLimit)}` : "-"}
+                      {row.seller ? <span>{metric(row.dailyRemaining)} restantes</span> : null}
+                    </td>
+                    <td data-label="Status">
+                      <span className={styles.territoryStatusBadge} data-status={row.statusKey}>{row.statusLabel}</span>
+                    </td>
+                    <td data-label="Ações">
+                      <div className={styles.territoryRowActions}>
+                        <select
+                          value={selectedPartnerId}
+                          onChange={(event) => setSelectedPartnerByRow((current) => ({ ...current, [row.id]: event.target.value }))}
+                          aria-label={`Parceiro para ${row.city}/${row.state}`}
+                        >
+                          <option value="">Selecionar parceiro</option>
+                          {sellers.map((seller) => <option key={seller.id} value={seller.id}>{seller.name}</option>)}
+                        </select>
+                        <button type="button" onClick={() => onMoveCity(row.seller?.id || null, Number(selectedPartnerId), row.cityRef)} disabled={!canAssign}>
+                          {row.seller ? "Trocar parceiro" : "Atribuir parceiro"}
+                        </button>
+                        <button type="button" onClick={() => void onSave(panel.status === "active" ? "paused" : "active")} disabled={saving}>
+                          {panel.status === "active" ? "Pausar" : "Ativar"}
+                        </button>
+                        <button type="button" onClick={() => void onRun()} disabled={saving || running || panel.status !== "active"}>
+                          Rodar distribuição
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {!filteredDistributionRows.length ? <div className={styles.emptyState}>Nenhuma distribuição encontrada com estes filtros.</div> : null}
+        </div>
+      </section>
 
       <section className={styles.territoryControls}>
         <label>

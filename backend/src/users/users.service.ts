@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { unlink } from 'fs/promises';
 import { PrismaService } from '../prisma/prisma.service';
 import type { User } from '@prisma/client';
 import { isBillableUserSeatSnapshot, isMasterOperationalCompanySlug } from '../commercial-plans/seat-billing.util';
@@ -62,6 +63,42 @@ export class UsersService {
     });
   }
 
+  private async collectSellerOnboardingCleanup(userId: number) {
+    const onboardings = await this.prisma.sellerOnboarding.findMany({
+      where: { userId },
+      select: {
+        id: true,
+        attachments: {
+          select: {
+            storagePath: true,
+          },
+        },
+      },
+    });
+    const onboardingIds = onboardings.map((item) => item.id);
+    const attachmentPaths = Array.from(new Set(
+      onboardings
+        .flatMap((item) => item.attachments || [])
+        .map((attachment) => String(attachment.storagePath || '').trim())
+        .filter(Boolean),
+    ));
+    return { onboardingIds, attachmentPaths };
+  }
+
+  private async deleteSellerOnboardingFiles(paths: string[]) {
+    const failures: string[] = [];
+    for (const storagePath of paths) {
+      try {
+        await unlink(storagePath);
+      } catch (error: any) {
+        if (error?.code !== 'ENOENT') failures.push(storagePath);
+      }
+    }
+    if (failures.length) {
+      throw new BadRequestException('Não foi possível excluir todos os documentos do vendedor. Feche arquivos abertos e tente novamente.');
+    }
+  }
+
   private normalizeCandidateStatus(status?: string | null) {
     const normalized = String(status || '').trim().toLowerCase();
     if (['pending', 'approved', 'rejected', 'converted'].includes(normalized)) return normalized;
@@ -93,7 +130,7 @@ export class UsersService {
     const existingPending = await this.prisma.hbxPartnerReferralCandidate.findFirst({
       where: {
         companyId,
-        ...(phoneNormalized ? { phoneNormalized } : { phone }),
+        ...(phoneNormalized ? { candidatePhoneNormalized: phoneNormalized } : { candidatePhone: phone }),
         status: { in: ['pending', 'approved'] },
       },
       select: { id: true },
@@ -106,9 +143,9 @@ export class UsersService {
       data: {
         companyId,
         referrerUserId,
-        name,
-        phone,
-        phoneNormalized,
+        candidateName: name,
+        candidatePhone: phone,
+        candidatePhoneNormalized: phoneNormalized,
         note: input.note || null,
         preferredSegmentsJson: input.preferredSegmentsJson || null,
         status: 'pending',
@@ -232,7 +269,7 @@ export class UsersService {
     return this.prisma.hbxPartnerReferralCandidate.findFirst({
       where: {
         companyId: normalizedCompanyId,
-        phoneNormalized,
+        candidatePhoneNormalized: phoneNormalized,
         status: { in: ['pending', 'approved'] },
       },
       orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
@@ -252,7 +289,7 @@ export class UsersService {
       where: {
         id: normalizedCandidateId,
         companyId: normalizedCompanyId,
-        status: { in: ['pending', 'approved'] },
+        status: 'approved',
       },
       include: {
         referrerUser: {
@@ -286,7 +323,7 @@ export class UsersService {
     const convertedUserId = Math.trunc(Number(input.convertedUserId || 0));
     if (!companyId || !candidateId || !convertedUserId) throw new BadRequestException('Conversão de indicação inválida');
     const candidate = await this.prisma.hbxPartnerReferralCandidate.findFirst({
-      where: { id: candidateId, companyId, status: { in: ['pending', 'approved'] } },
+      where: { id: candidateId, companyId, status: 'approved' },
       select: { id: true, reviewedAt: true, reviewedByUserId: true },
     });
     if (!candidate) throw new NotFoundException('Indicação não encontrada para conversão');
@@ -727,6 +764,8 @@ export class UsersService {
       where: { id: userId },
       select: { companyId: true, role: true, isActive: true, isSystemMaster: true, deactivatedAt: true },
     });
+    const sellerOnboardingCleanup = await this.collectSellerOnboardingCleanup(userId);
+    await this.deleteSellerOnboardingFiles(sellerOnboardingCleanup.attachmentPaths);
     const hasWebsiteAdminEntryToken = await this.prisma.hasTable('WebsiteAdminEntryToken');
     const hasMasterBillingLedgerEntry = await this.prisma.hasTable('MasterBillingLedgerEntry');
 
@@ -781,6 +820,14 @@ export class UsersService {
       await tx.nightFactoryRewardClaim.deleteMany({ where: { userId } });
       await tx.salesProfile.deleteMany({ where: { userId } });
       await tx.radarDistributionDailyUsage.deleteMany({ where: { userId } });
+      if (sellerOnboardingCleanup.onboardingIds.length) {
+        await tx.sellerOnboardingAttachment.deleteMany({
+          where: { onboardingId: { in: sellerOnboardingCleanup.onboardingIds } },
+        });
+        await tx.sellerOnboarding.deleteMany({
+          where: { id: { in: sellerOnboardingCleanup.onboardingIds } },
+        });
+      }
 
       await tx.vendasCardComplaint.updateMany({
         where: { userId },

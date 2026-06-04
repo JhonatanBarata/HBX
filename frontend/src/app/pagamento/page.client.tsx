@@ -2,12 +2,13 @@
 
 import Script from "next/script";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import HbxGuide1, { type HbxGuide1Tab } from "@/components/HbxGuide1";
 import { apiFetch } from "@/app/_lib/api";
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
+import { isHbxOperationalCompany, type BillingAccessCompany } from "@/lib/billing-access";
 import styles from "./page.module.css";
 
 type BillingCycle = "MONTHLY" | "ANNUAL";
@@ -102,6 +103,11 @@ type ApiErrorWithPayload = {
   payload?: {
     code?: string | null;
   } | null;
+};
+
+type CurrentUser = {
+  role?: string | null;
+  company?: BillingAccessCompany | null;
 };
 
 type FinanceiroOverview = {
@@ -580,6 +586,7 @@ function waitForMercadoPagoSdk(isActive: () => boolean) {
 
 export default function FinanceiroClientPage() {
   const hasToken = useRequireAuth();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const isFrontMock = searchParams.get("mock") === "front";
   const publicKey = process.env.NEXT_PUBLIC_MERCADO_PAGO_PUBLIC_KEY || "";
@@ -624,6 +631,7 @@ export default function FinanceiroClientPage() {
     cpf: false,
     phone: false,
   });
+  const [operationalRedirecting, setOperationalRedirecting] = useState(false);
   const pendingCardSubmissionRef = useRef<PendingCardSubmission | null>(null);
 
   const reason = searchParams.get("reason");
@@ -638,6 +646,25 @@ export default function FinanceiroClientPage() {
   const annualMonthlyEquivalent = Number((annualTotal / 12).toFixed(2));
   const renewalCycleLabel = billingCycle === "ANNUAL" ? "anual" : "mensal";
   const subscriptionLineLabel = billingCycle === "ANNUAL" ? "Assinatura anual" : "Assinatura mensal";
+
+  useEffect(() => {
+    if (!hasToken) return;
+    let active = true;
+
+    apiFetch<CurrentUser>("/profile/current-user")
+      .then((profile) => {
+        if (!active || !isHbxOperationalCompany(profile?.company)) return;
+        setOperationalRedirecting(true);
+        const role = String(profile?.role || "").trim().toUpperCase();
+        router.replace(role === "USER" ? "/mobile/vendas" : "/gerencial");
+      })
+      .catch(() => undefined);
+
+    return () => {
+      active = false;
+    };
+  }, [hasToken, router]);
+
   const legalRenewalCopy = `Renova ${renewalCycleLabel} até cancelar. Cobraremos ${formatCurrency(total)} com base no plano selecionado e nas vagas ativas. Cancele quando quiser em Configurações. Ao assinar, você concorda com os Termos comerciais e autoriza o armazenamento e a cobrança do seu método de pagamento.`;
   const latestPixCharge = overview?.latestCharge?.paymentMethod === "PIX" ? overview.latestCharge : null;
   const paymentConsentPhoneDigits = normalizeBrazilPhone(paymentConsentForm.phone);
@@ -1203,6 +1230,8 @@ export default function FinanceiroClientPage() {
       teardownBrick();
     };
   }, [shouldRenderBrick, mpScriptReady, publicKey, total, submitSubscription]);
+
+  if (operationalRedirecting) return null;
 
   if (hasToken === null) {
     return (

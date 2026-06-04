@@ -1,4 +1,4 @@
-import { Controller, Delete, Get, Post, Req, UseGuards, ParseIntPipe, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Controller, Delete, Get, Post, Req, Res, UseGuards, ParseIntPipe, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -34,6 +34,14 @@ class CreateCommissionPayoutDto {
   dueOnly?: boolean;
   referenceLabel?: string;
   notes?: string;
+}
+
+class RejectHbxPartnerReferralDto {
+  reason?: string;
+}
+
+function contentDispositionFilename(filename: string) {
+  return String(filename || 'anexo').replace(/["\r\n]/g, '').slice(0, 180) || 'anexo';
 }
 
 @Controller('gerencial')
@@ -148,6 +156,24 @@ export class GerencialController {
     return this.sellerOnboardingService.uploadAttachment(Number(req.user?.companyId), userId, file, dto || {});
   }
 
+  @Get('hbx-partners/:userId/onboarding/attachments/:attachmentId/download')
+  @UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
+  @Admin()
+  @ModuleAccess('gerencial')
+  async downloadSellerOnboardingAttachment(
+    @Req() req: any,
+    @Res() res: any,
+    @Param('userId', ParseIntPipe) userId: number,
+    @Param('attachmentId') attachmentId: string,
+  ) {
+    const file = await this.sellerOnboardingService.getAttachmentFile(Number(req.user?.companyId), userId, attachmentId);
+    const filename = contentDispositionFilename(file.filename);
+    res.setHeader('Content-Type', file.contentType);
+    res.setHeader('Content-Length', String(file.byteSize));
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.end(file.content);
+  }
+
   @Delete('hbx-partners/:userId/onboarding/attachments/:attachmentId')
   @UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
   @Admin()
@@ -225,8 +251,8 @@ export class GerencialController {
   @UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
   @Admin()
   @ModuleAccess('gerencial')
-  async rejectHbxPartnerReferral(@Req() req: any, @Param('id') id: string) {
-    const candidate = await this.hbxPartnerReferrals.rejectCandidate(req.user, id);
+  async rejectHbxPartnerReferral(@Req() req: any, @Param('id') id: string, @Body() dto: RejectHbxPartnerReferralDto) {
+    const candidate = await this.hbxPartnerReferrals.rejectCandidate(req.user, id, dto?.reason);
     return { candidate };
   }
 }

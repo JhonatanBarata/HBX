@@ -19,6 +19,7 @@ import {
 	HbxPresentationEmailService,
 } from '../mail/hbx-presentation-email.service';
 import { MailService, type MailAttachment, type MailSendResult } from '../mail/mail.service';
+import { HbxPartnerReferralService } from '../gerencial/hbx-partner-referral.service';
 
 class UpdateRoleDto {
 	@IsString()
@@ -372,6 +373,7 @@ export class UsersController {
 		private readonly emailTemplates: EmailTemplateService,
 		private readonly hbxPresentationEmails: HbxPresentationEmailService,
 		private readonly sellerOnboardingService: SellerOnboardingService,
+		private readonly hbxPartnerReferrals: HbxPartnerReferralService,
 	) {}
 
 	private buildAppUrl() {
@@ -757,7 +759,7 @@ export class UsersController {
 			target.isActive === false;
 		let finalTemporaryPassword: string | null = null;
 		if (isHbxPartnerActivation) {
-			await this.sellerOnboardingService.assertCanActivatePartner(companyId, id);
+			await this.sellerOnboardingService.assertCanActivatePartner(companyId, id, requesterId);
 			finalTemporaryPassword = `Hbx@${Math.random().toString(36).slice(2, 10)}A1`;
 			assertPasswordPolicy(finalTemporaryPassword);
 			await this.usersService.setPassword(id, await bcrypt.hash(finalTemporaryPassword, 10), { mustChangePassword: true });
@@ -838,7 +840,7 @@ export class UsersController {
 		}
 		const referralCandidateId = String(dto.referralCandidateId || '').trim();
 		const referralCandidate = referralCandidateId
-			? await this.usersService.getHbxPartnerReferralCandidateForConversion(companyId, referralCandidateId)
+			? await this.hbxPartnerReferrals.getCandidateForConversion(companyId, referralCandidateId)
 			: null;
 		if (referralCandidateId && (!referralCandidate || role !== 'USER' || !isHbxSellerNetwork)) {
 			throw new BadRequestException('Indicação inválida para cadastro de Parceiro HBX.');
@@ -850,8 +852,8 @@ export class UsersController {
 		const hashed = await bcrypt.hash(tempPassword, 10);
 		assertPasswordPolicy(tempPassword);
 
-		const attendantName = String(dto?.name || referralCandidate?.name || '').trim();
-		const phone = normalizeNullableText(dto.phone) || normalizeNullableText(referralCandidate?.phone);
+		const attendantName = String(dto?.name || referralCandidate?.candidateName || '').trim();
+		const phone = normalizeNullableText(dto.phone) || normalizeNullableText(referralCandidate?.candidatePhone);
 		let commissionPercent = normalizeCommissionPercent(dto.commissionPercent) ?? 0;
 		const sellerNetworkDto = referralCandidate
 			? { ...dto, referredByUserId: referralCandidate.referrerUserId }
@@ -897,7 +899,7 @@ export class UsersController {
 				referredByCommissionPercentSnapshot: created.referredByCommissionPercentSnapshot,
 			});
 			if (referralCandidate) {
-				await this.usersService.markHbxPartnerReferralCandidateConverted({
+				await this.hbxPartnerReferrals.markCandidateConverted({
 					companyId,
 					candidateId: referralCandidate.id,
 					convertedUserId: created.id,
@@ -956,33 +958,17 @@ export class UsersController {
 			throw new ForbiddenException('Seu usuário ainda não está autorizado a indicar parceiros HBX.');
 		}
 
-		const attendantName = normalizeNullableText(dto.name);
-		const phone = normalizeNullableText(dto.phone);
-		if (!attendantName) throw new BadRequestException('Informe o nome do contato indicado.');
-		if (!phone) throw new BadRequestException('Informe o WhatsApp do contato indicado.');
-
-		const candidate = await this.usersService.createHbxPartnerReferralCandidate({
-			companyId,
-			referrerUserId: requester.id,
-			name: attendantName,
-			phone,
+		const candidate = await this.hbxPartnerReferrals.createCandidate(requester, {
+			candidateName: normalizeNullableText(dto.name),
+			candidatePhone: normalizeNullableText(dto.phone),
 			note: normalizeNullableText(dto.note),
 			preferredSegmentsJson: buildPreferredSegmentsJson(dto),
 		});
 
 		return {
-			candidate: {
-				id: candidate.id,
-				companyId: candidate.companyId,
-				referrerUserId: candidate.referrerUserId,
-				name: candidate.name,
-				phone: candidate.phone,
-				note: candidate.note,
-				preferredSegmentsJson: candidate.preferredSegmentsJson,
-				status: candidate.status,
-				createdAt: candidate.createdAt,
-			},
-			message: 'Indicação enviada para aprovação do Master.',
+			ok: true,
+			message: 'Indicação enviada para aprovação do Master HBX.',
+			candidate,
 		};
 	}
 
@@ -995,7 +981,9 @@ export class UsersController {
 		if (!companyId || !(await this.usersService.isHbxSellerNetworkCompany(companyId))) {
 			return { candidates: [] };
 		}
-		const candidates = await this.usersService.listHbxPartnerReferralCandidates(companyId, status || 'pending');
+		const candidates = status && status !== 'pending'
+			? await this.usersService.listHbxPartnerReferralCandidates(companyId, status)
+			: await this.hbxPartnerReferrals.listPendingForMaster(req.user);
 		return { candidates };
 	}
 
@@ -1008,7 +996,7 @@ export class UsersController {
 		if (!companyId || !(await this.usersService.isHbxSellerNetworkCompany(companyId))) {
 			return { found: false, candidate: null, referrer: null };
 		}
-		const candidate = await this.usersService.findHbxPartnerReferralCandidateByPhone(companyId, phone);
+		const candidate = await this.hbxPartnerReferrals.findCandidateByPhone(companyId, phone);
 		return {
 			found: Boolean(candidate),
 			candidate,
@@ -1025,11 +1013,7 @@ export class UsersController {
 		if (!companyId || !(await this.usersService.isHbxSellerNetworkCompany(companyId))) {
 			throw new ForbiddenException('Aprovação de indicações está disponível apenas na operação HBX.');
 		}
-		const candidate = await this.usersService.rejectHbxPartnerReferralCandidate({
-			companyId,
-			candidateId: id,
-			reviewedByUserId: Number(req?.user?.id || 0) || 0,
-		});
+		const candidate = await this.hbxPartnerReferrals.rejectCandidate(req.user, id, null);
 		return { candidate };
 	}
 
@@ -1042,12 +1026,8 @@ export class UsersController {
 		if (!companyId || !(await this.usersService.isHbxSellerNetworkCompany(companyId))) {
 			throw new ForbiddenException('Aprovação de indicações está disponível apenas na operação HBX.');
 		}
-		const result = await this.usersService.approveHbxPartnerReferralCandidate({
-			companyId,
-			candidateId: id,
-			reviewedByUserId: Number(req?.user?.id || 0) || 0,
-		});
-		return result;
+		const candidate = await this.hbxPartnerReferrals.approveCandidate(req.user, id);
+		return { candidate };
 	}
 
 	@Patch('master/:id/delete')
@@ -1104,7 +1084,7 @@ export class UsersController {
 
 		const referralCandidateId = String(dto.referralCandidateId || '').trim();
 		const referralCandidate = referralCandidateId
-			? await this.usersService.getHbxPartnerReferralCandidateForConversion(companyId, referralCandidateId)
+			? await this.hbxPartnerReferrals.getCandidateForConversion(companyId, referralCandidateId)
 			: null;
 		if (referralCandidateId && (!referralCandidate || role !== 'USER' || !isHbxSellerNetwork)) {
 			throw new BadRequestException('Indicação inválida para cadastro de Parceiro HBX.');
@@ -1112,11 +1092,11 @@ export class UsersController {
 		if (referralCandidate && dto.referredByUserId && Number(dto.referredByUserId) !== Number(referralCandidate.referrerUserId)) {
 			throw new BadRequestException('A indicação já define outro parceiro indicador.');
 		}
-		const attendantName = String(dto?.name || referralCandidate?.name || '').trim();
+		const attendantName = String(dto?.name || referralCandidate?.candidateName || '').trim();
 		const tempPassword = dto.password?.trim() || `Tmp@${Math.random().toString(36).slice(2, 10)}A1`;
 		assertPasswordPolicy(tempPassword);
 		const hashed = await bcrypt.hash(tempPassword, 10);
-		const phone = normalizeNullableText(dto.phone) || normalizeNullableText(referralCandidate?.phone);
+		const phone = normalizeNullableText(dto.phone) || normalizeNullableText(referralCandidate?.candidatePhone);
 		let commissionPercent = normalizeCommissionPercent(dto.commissionPercent) ?? 0;
 		const sellerNetworkDto = referralCandidate
 			? { ...dto, referredByUserId: referralCandidate.referrerUserId }
@@ -1163,7 +1143,7 @@ export class UsersController {
 				referredByCommissionPercentSnapshot: created.referredByCommissionPercentSnapshot,
 			});
 			if (referralCandidate) {
-				await this.usersService.markHbxPartnerReferralCandidateConverted({
+				await this.hbxPartnerReferrals.markCandidateConverted({
 					companyId,
 					candidateId: referralCandidate.id,
 					convertedUserId: created.id,
@@ -1315,7 +1295,7 @@ export class UsersController {
 			} else {
 				const isHbxSellerNetwork = await this.usersService.isHbxSellerNetworkCompany(Number(target.companyId || 0));
 				if (isHbxSellerNetwork && nextRole === 'USER' && target.isActive === false) {
-					await this.sellerOnboardingService.assertCanActivatePartner(Number(target.companyId || 0), id);
+					await this.sellerOnboardingService.assertCanActivatePartner(Number(target.companyId || 0), id, Number(req.user?.id || 0) || null);
 				}
 				data.isActive = true;
 				data.deactivatedAt = null;

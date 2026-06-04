@@ -144,7 +144,6 @@ function PasswordChangePanel({
   disabled?: boolean;
   onChanged: () => void;
 }) {
-  const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [saving, setSaving] = useState(false);
@@ -171,12 +170,10 @@ function PasswordChangePanel({
       await apiFetch("/profile/password", {
         method: "PATCH",
         body: JSON.stringify({
-          currentPassword,
           newPassword: next,
         }),
       });
       clearApiCache("/profile/current-user");
-      setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
       setMessage("Senha alterada. Seu acesso está pronto.");
@@ -195,17 +192,6 @@ function PasswordChangePanel({
         <strong>{userName || "Seu acesso HBX"}</strong>
         <small>{userEmail}</small>
       </div>
-      <label>
-        <span>Senha atual</span>
-        <input
-          type="password"
-          value={currentPassword}
-          onChange={(event) => setCurrentPassword(event.target.value)}
-          autoComplete="current-password"
-          disabled={disabled || saving}
-          required
-        />
-      </label>
       <label>
         <span>Nova senha</span>
         <input
