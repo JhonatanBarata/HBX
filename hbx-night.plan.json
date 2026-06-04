@@ -1,0 +1,126 @@
+{
+  "version": 1,
+  "description": "HBX Night Runner Smart. Use somente comandos npm run reais existentes nos package.json do repo.",
+  "tasks": [
+    {
+      "id": "prisma-generate",
+      "label": "Backend Prisma generate",
+      "command": "npm --prefix backend run prisma:generate",
+      "dependsOn": [],
+      "allowRepair": true,
+      "maxRepairAttempts": 1,
+      "continueOnFail": true,
+      "blocks": ["prisma-validate", "backend-build", "backend-test-meta-templates", "backend-test-whatsapp-channel", "root-e2e"]
+    },
+    {
+      "id": "prisma-validate",
+      "label": "Backend Prisma validate",
+      "command": "npm --prefix backend run prisma:validate",
+      "dependsOn": ["prisma-generate"],
+      "allowRepair": true,
+      "maxRepairAttempts": 1,
+      "continueOnFail": true,
+      "blocks": ["backend-build", "backend-test-meta-templates", "backend-test-whatsapp-channel", "root-e2e"]
+    },
+    {
+      "id": "backend-build",
+      "label": "Backend build",
+      "command": "npm --prefix backend run build",
+      "dependsOn": ["prisma-generate", "prisma-validate"],
+      "allowRepair": true,
+      "maxRepairAttempts": 2,
+      "continueOnFail": true,
+      "blocks": ["backend-test-meta-templates", "backend-test-whatsapp-channel", "root-e2e"]
+    },
+    {
+      "id": "backend-test-meta-templates",
+      "label": "Backend meta templates test",
+      "command": "npm --prefix backend run test:meta-templates",
+      "dependsOn": ["backend-build"],
+      "allowRepair": true,
+      "maxRepairAttempts": 1,
+      "continueOnFail": true,
+      "blocks": []
+    },
+    {
+      "id": "backend-test-whatsapp-channel",
+      "label": "Backend WhatsApp channel test",
+      "command": "npm --prefix backend run test:whatsapp-channel",
+      "dependsOn": ["backend-build"],
+      "allowRepair": true,
+      "maxRepairAttempts": 1,
+      "continueOnFail": true,
+      "blocks": []
+    },
+    {
+      "id": "frontend-lint",
+      "label": "Frontend lint",
+      "command": "npm --prefix frontend run lint",
+      "dependsOn": [],
+      "allowRepair": true,
+      "maxRepairAttempts": 1,
+      "continueOnFail": true,
+      "blocks": ["frontend-build", "root-e2e"]
+    },
+    {
+      "id": "frontend-build",
+      "label": "Frontend build",
+      "command": "npm --prefix frontend run build",
+      "dependsOn": ["frontend-lint"],
+      "allowRepair": true,
+      "maxRepairAttempts": 1,
+      "continueOnFail": true,
+      "blocks": ["root-e2e"]
+    },
+    {
+      "id": "webwhats-db-generate",
+      "label": "Webwhats Prisma generate",
+      "command": "npm --prefix Webwhats run db:generate",
+      "dependsOn": [],
+      "allowRepair": false,
+      "maxRepairAttempts": 0,
+      "continueOnFail": true,
+      "blocks": ["webwhats-typecheck", "webwhats-build"]
+    },
+    {
+      "id": "webwhats-typecheck",
+      "label": "Webwhats typecheck",
+      "command": "npm --prefix Webwhats run typecheck",
+      "dependsOn": ["webwhats-db-generate"],
+      "allowRepair": true,
+      "maxRepairAttempts": 1,
+      "continueOnFail": true,
+      "blocks": ["webwhats-build"]
+    },
+    {
+      "id": "webwhats-lint-check",
+      "label": "Webwhats lint check",
+      "command": "npm --prefix Webwhats run lint:check",
+      "dependsOn": [],
+      "allowRepair": true,
+      "maxRepairAttempts": 1,
+      "continueOnFail": true,
+      "blocks": ["webwhats-build"]
+    },
+    {
+      "id": "webwhats-build",
+      "label": "Webwhats build",
+      "command": "npm --prefix Webwhats run build",
+      "dependsOn": ["webwhats-typecheck", "webwhats-lint-check"],
+      "allowRepair": true,
+      "maxRepairAttempts": 1,
+      "continueOnFail": true,
+      "blocks": []
+    },
+    {
+      "id": "root-e2e",
+      "label": "Root Playwright e2e",
+      "command": "npm run test:e2e",
+      "dependsOn": ["backend-build", "frontend-build"],
+      "allowRepair": false,
+      "maxRepairAttempts": 0,
+      "continueOnFail": true,
+      "blocks": []
+    }
+  ]
+}

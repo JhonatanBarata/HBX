@@ -7,7 +7,8 @@ dist_electron/
 **/coverage/
 postgres-data/
 .orchestrator/
-.vscode/
+.vscode/*
+!.vscode/tasks.json
 **/logs/
 *.log
 .env
@@ -37,6 +38,9 @@ storage/**
 backend/storage/**
 !backend/storage/.gitkeep
 logs/**
+!logs/
+!logs/hbx-night/
+!logs/hbx-night/.gitkeep
 
 systeminfo.txt
 msinfo-completo.txt
@@ -47,6 +51,8 @@ windus.txt
 backend/tmp/
 backend/tmp/**
 tmp/
+/tmp-*
+/tmp_*
 __pycache__/
 *.pyc
 *.db
