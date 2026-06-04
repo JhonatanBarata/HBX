@@ -716,6 +716,44 @@ export class ChannelStartupService {
     });
   }
 
+  private parseChatListCursor(cursor?: string) {
+    const raw = typeof cursor === 'string' ? cursor.trim() : '';
+    if (!raw) return null;
+    const separatorIndex = raw.indexOf(':');
+    if (separatorIndex <= 0) return null;
+    const timestamp = Number(raw.slice(0, separatorIndex));
+    const remoteJid = raw.slice(separatorIndex + 1).trim();
+    if (!Number.isFinite(timestamp) || timestamp < 0 || !remoteJid) return null;
+    return {
+      timestamp: Math.floor(timestamp),
+      remoteJid,
+    };
+  }
+
+  private buildChatListCursor(row: any) {
+    const timestamp = Number(row?.lastMessageTimestamp || 0);
+    const remoteJid = String(row?.remoteJid || '').trim();
+    if (!Number.isFinite(timestamp) || timestamp < 0 || !remoteJid) return null;
+    return `${Math.floor(timestamp)}:${remoteJid}`;
+  }
+
+  private normalizeChatPreviewText(value: unknown, messageType: unknown) {
+    const text = String(value || '').replace(/\s+/g, ' ').trim();
+    if (text) return text.length > 160 ? `${text.slice(0, 157)}...` : text;
+
+    const normalizedType = String(messageType || '').trim().toLowerCase();
+    if (normalizedType.includes('image')) return '[image]';
+    if (normalizedType.includes('video')) return '[video]';
+    if (normalizedType.includes('audio')) return '[audio]';
+    if (normalizedType.includes('sticker')) return '[sticker]';
+    if (normalizedType.includes('document')) return '[document]';
+    if (normalizedType.includes('location')) return '[location]';
+    if (normalizedType.includes('contact')) return '[contact]';
+    if (normalizedType.includes('reaction')) return '[reaction]';
+    if (normalizedType.includes('poll')) return '[poll]';
+    return '';
+  }
+
   public async fetchChats(query: any) {
     const pagination = normalizePagination<Contact>(query, {
       take: 50,
@@ -754,13 +792,13 @@ export class ChannelStartupService {
           CASE 
             WHEN "Message"."key"->>'remoteJid' LIKE '%@g.us' THEN COALESCE("Chat"."name", "Contact"."pushName")
             ELSE COALESCE("Contact"."pushName", "Message"."pushName")
-          END as "pushName",
+          END as "displayName",
           "Contact"."profilePicUrl",
           COALESCE(
             to_timestamp("Message"."messageTimestamp"::double precision), 
             "Contact"."updatedAt"
           ) as "updatedAt",
-          "Chat"."name" as "pushName",
+          "Chat"."name" as "chatName",
           "Chat"."createdAt" as "windowStart",
           "Chat"."createdAt" + INTERVAL '24 hours' as "windowExpires",
           "Chat"."unreadMessages" as "unreadMessages",
@@ -816,7 +854,7 @@ export class ChannelStartupService {
         return {
           id: contact.contactId || null,
           remoteJid: contact.remoteJid,
-          pushName: contact.pushName,
+          pushName: contact.displayName || contact.chatName || null,
           profilePicUrl: contact.profilePicUrl,
           updatedAt: contact.updatedAt,
           windowStart: contact.windowStart,
@@ -832,6 +870,133 @@ export class ChannelStartupService {
     }
 
     return [];
+  }
+
+  public async fetchChatsFast(query: any) {
+    const pagination = normalizePagination<Contact>(query, {
+      take: 50,
+      maxTake: 100,
+      maxSkip: 5000,
+    });
+    const cursor = this.parseChatListCursor(pagination.cursor);
+    const remoteJid = query?.where?.remoteJid
+      ? query?.where?.remoteJid.includes('@')
+        ? query.where?.remoteJid
+        : createJid(query.where?.remoteJid)
+      : null;
+    const timestampFilter =
+      query?.where?.messageTimestamp?.gte && query?.where?.messageTimestamp?.lte
+        ? Prisma.sql`
+        AND "Message"."messageTimestamp" >= ${Math.floor(new Date(query.where.messageTimestamp.gte).getTime() / 1000)}
+        AND "Message"."messageTimestamp" <= ${Math.floor(new Date(query.where.messageTimestamp.lte).getTime() / 1000)}`
+        : Prisma.sql``;
+    const search = pagination.search ? `%${pagination.search}%` : null;
+    const searchFilter = search
+      ? Prisma.sql`
+        AND (
+          "Message"."key"->>'remoteJid' ILIKE ${search}
+          OR "Contact"."pushName" ILIKE ${search}
+          OR "Chat"."name" ILIKE ${search}
+          OR "Message"."pushName" ILIKE ${search}
+        )`
+      : Prisma.sql``;
+    const cursorFilter = cursor
+      ? Prisma.sql`
+        WHERE (
+          "lastMessageTimestamp" < ${cursor.timestamp}
+          OR ("lastMessageTimestamp" = ${cursor.timestamp} AND "remoteJid" > ${cursor.remoteJid})
+        )`
+      : Prisma.sql``;
+    const pageSize = pagination.take + 1;
+    const offset = !cursor && pagination.skip > 0 ? Prisma.sql`OFFSET ${pagination.skip}` : Prisma.sql``;
+
+    const results = await this.prismaRepository.$queryRaw`
+      WITH rankedMessages AS (
+        SELECT DISTINCT ON ("Message"."key"->>'remoteJid")
+          "Message"."key"->>'remoteJid' AS "remoteJid",
+          CASE
+            WHEN "Message"."key"->>'remoteJid' LIKE '%@g.us' THEN COALESCE("Chat"."name", "Contact"."pushName")
+            ELSE COALESCE("Contact"."pushName", "Message"."pushName", "Chat"."name")
+          END AS "displayName",
+          "Contact"."pushName" AS "pushName",
+          "Contact"."profilePicUrl" AS "profilePicUrl",
+          COALESCE(
+            to_timestamp("Message"."messageTimestamp"::double precision),
+            "Contact"."updatedAt",
+            "Chat"."updatedAt"
+          ) AS "updatedAt",
+          COALESCE("Chat"."unreadMessages", 0) AS "unreadCount",
+          CASE
+            WHEN "Chat"."createdAt" IS NOT NULL AND "Chat"."createdAt" + INTERVAL '24 hours' > NOW() THEN true
+            ELSE false
+          END AS "windowActive",
+          NULL::boolean AS "archived",
+          "Message"."id" AS "lastMessageId",
+          "Message"."messageType" AS "lastMessageType",
+          "Message"."messageTimestamp" AS "lastMessageTimestamp",
+          CASE WHEN "Message"."key"->>'fromMe' = 'true' THEN true ELSE false END AS "fromMe",
+          COALESCE(
+            NULLIF("Message"."message"->>'conversation', ''),
+            NULLIF("Message"."message"#>>'{extendedTextMessage,text}', ''),
+            NULLIF("Message"."message"#>>'{imageMessage,caption}', ''),
+            NULLIF("Message"."message"#>>'{videoMessage,caption}', ''),
+            NULLIF("Message"."message"#>>'{documentMessage,caption}', ''),
+            NULLIF("Message"."message"#>>'{documentMessage,fileName}', ''),
+            NULLIF("Message"."message"#>>'{documentWithCaptionMessage,message,documentMessage,caption}', ''),
+            NULLIF("Message"."message"#>>'{ephemeralMessage,message,conversation}', ''),
+            NULLIF("Message"."message"#>>'{ephemeralMessage,message,extendedTextMessage,text}', ''),
+            NULLIF("Message"."message"#>>'{viewOnceMessage,message,imageMessage,caption}', ''),
+            NULLIF("Message"."message"#>>'{viewOnceMessageV2,message,imageMessage,caption}', ''),
+            NULLIF("Message"."message"#>>'{buttonsResponseMessage,selectedDisplayText}', ''),
+            NULLIF("Message"."message"#>>'{listResponseMessage,title}', '')
+          ) AS "lastMessageTextPreview"
+        FROM "Message"
+        LEFT JOIN "Contact" ON "Contact"."remoteJid" = "Message"."key"->>'remoteJid' AND "Contact"."instanceId" = "Message"."instanceId"
+        LEFT JOIN "Chat" ON "Chat"."remoteJid" = "Message"."key"->>'remoteJid' AND "Chat"."instanceId" = "Message"."instanceId"
+        WHERE "Message"."instanceId" = ${this.instanceId}
+        AND COALESCE("Message"."key"->>'remoteJid', '') <> ''
+        ${remoteJid ? Prisma.sql`AND "Message"."key"->>'remoteJid' = ${remoteJid}` : Prisma.sql``}
+        ${timestampFilter}
+        ${searchFilter}
+        ORDER BY "Message"."key"->>'remoteJid', "Message"."messageTimestamp" DESC, "Message"."id" DESC
+      )
+      SELECT * FROM rankedMessages
+      ${cursorFilter}
+      ORDER BY "lastMessageTimestamp" DESC NULLS LAST, "remoteJid" ASC
+      LIMIT ${pageSize}
+      ${offset};
+    `;
+
+    const rows = results && isArray(results) ? results : [];
+    const pageRows = rows.slice(0, pagination.take);
+    const records = pageRows.map((contact) => {
+      const displayName = contact.displayName || contact.pushName || null;
+      return {
+        remoteJid: contact.remoteJid,
+        pushName: contact.pushName || displayName,
+        displayName,
+        profilePicUrl: contact.profilePicUrl || null,
+        unreadCount: Math.max(0, Number(contact.unreadCount || 0)),
+        updatedAt: contact.updatedAt || null,
+        lastMessageId: contact.lastMessageId || null,
+        lastMessageTextPreview: this.normalizeChatPreviewText(
+          contact.lastMessageTextPreview,
+          contact.lastMessageType,
+        ),
+        lastMessageType: contact.lastMessageType || null,
+        lastMessageTimestamp: Number(contact.lastMessageTimestamp || 0) || null,
+        fromMe: Boolean(contact.fromMe),
+        windowActive: Boolean(contact.windowActive),
+        archived: contact.archived ?? null,
+      };
+    });
+    const nextCursor = rows.length > pagination.take ? this.buildChatListCursor(pageRows[pageRows.length - 1]) : null;
+
+    return {
+      records,
+      nextCursor,
+      hasMore: Boolean(nextCursor),
+    };
   }
 
   public hasValidMediaContent(message: any): boolean {

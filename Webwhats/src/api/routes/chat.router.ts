@@ -203,6 +203,16 @@ export class ChatRouter extends RouterBroker {
 
         return res.status(HttpStatus.OK).json(response);
       })
+      .post(this.routerPath('findChatsFast'), ...guards, async (req, res) => {
+        const response = await this.dataValidate<Query<Contact>>({
+          request: req,
+          schema: contactValidateSchema,
+          ClassRef: Query<Contact>,
+          execute: (instance, data) => chatController.fetchChatsFast(instance, data),
+        });
+
+        return res.status(HttpStatus.OK).json(response);
+      })
       .get(this.routerPath('findChatByRemoteJid'), ...guards, async (req, res) => {
         const instance = req.params as unknown as InstanceDto;
         const { remoteJid } = req.query as unknown as { remoteJid: string };
