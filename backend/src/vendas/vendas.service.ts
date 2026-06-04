@@ -142,6 +142,22 @@ type VendasPlanAccess = {
   capabilities: CommercialPlanCapabilities;
 };
 
+type CommercialContactDuplicateReason =
+  | 'phone'
+  | 'email'
+  | 'source_history'
+  | 'google_place'
+  | 'website_domain'
+  | 'name_location';
+
+type CommercialContactDuplicateCheck = {
+  exists: boolean;
+  action: 'none' | 'reuse' | 'block';
+  reason: CommercialContactDuplicateReason | null;
+  leadId?: string | null;
+  leadName?: string | null;
+};
+
 type SalesProfileSource = 'user' | 'company' | 'default';
 type MasterNoticeAudience = 'seller' | 'customer';
 type MasterNoticeTone = 'info' | 'success' | 'warning' | 'urgent';
@@ -202,6 +218,7 @@ export type HbxPresentationEmailDraft = {
 
 const VENDAS_WHATSAPP_LOOKUP_SOURCE = 'webwhats_lookup';
 const VENDAS_REPORT_ADMIN_PHONE = '5519997024884';
+const COMMERCIAL_CONTACT_DUPLICATE_MESSAGE = 'Contato comercial duplicado nesta empresa. Use o card existente ou transfira/reabra pelo responsavel.';
 const MASTER_NOTICE_AUDIENCES = new Set(['seller', 'customer']);
 const MASTER_NOTICE_TONES = new Set(['info', 'success', 'warning', 'urgent']);
 
@@ -4432,18 +4449,200 @@ export class VendasService {
     return email;
   }
 
-  private async hasExistingVendasLeadForImport(companyId: number, phone: unknown, email: unknown) {
-    const phoneCandidates = this.buildLeadPhoneNormalizedCandidates(phone);
-    const emailNormalized = this.normalizeEmail(email);
-    const or: any[] = [];
-    if (phoneCandidates.length) or.push({ phoneNormalized: { in: phoneCandidates } });
-    if (emailNormalized) or.push({ email: emailNormalized });
-    if (!or.length) return false;
-    const existing = await this.prisma.vendasLead.findFirst({
-      where: { companyId, OR: or },
+  private normalizeCommercialDomain(value: unknown) {
+    const raw = this.normalizeText(value);
+    if (!raw) return null;
+    let candidate = raw.trim();
+    if (candidate.includes('@') && !candidate.includes('/')) {
+      candidate = candidate.split('@').pop() || candidate;
+    }
+    const parseCandidate = /^[a-z][a-z0-9+.-]*:\/\//i.test(candidate)
+      ? candidate
+      : `https://${candidate}`;
+    let host = '';
+    try {
+      host = new URL(parseCandidate).hostname;
+    } catch {
+      host = candidate.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '').split(/[/?#]/)[0] || '';
+    }
+    host = host.toLowerCase().replace(/:\d+$/g, '').replace(/\.$/, '');
+    while (host.startsWith('www.')) host = host.slice(4);
+    if (!host || !host.includes('.') || host.length < 4) return null;
+    const sharedDomains = new Set([
+      'bit.ly',
+      'facebook.com',
+      'fb.com',
+      'g.page',
+      'google.com',
+      'instagram.com',
+      'linktr.ee',
+      'maps.app.goo.gl',
+      'tiktok.com',
+      'wa.me',
+      'whatsapp.com',
+    ]);
+    for (const shared of sharedDomains) {
+      if (host === shared || host.endsWith(`.${shared}`)) return null;
+    }
+    return host;
+  }
+
+  private normalizeCommercialIdentity(value: unknown) {
+    const raw = this.normalizeText(value);
+    if (!raw) return null;
+    const normalized = raw
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/&/g, ' e ')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return normalized || null;
+  }
+
+  private buildCommercialDuplicateCheck(
+    row: any,
+    reason: CommercialContactDuplicateReason,
+    action: 'reuse' | 'block',
+  ): CommercialContactDuplicateCheck {
+    return {
+      exists: true,
+      action,
+      reason,
+      leadId: row?.id ? String(row.id) : null,
+      leadName: this.normalizeText(row?.name),
+    };
+  }
+
+  private buildCommercialDuplicateMessage(check: CommercialContactDuplicateCheck) {
+    const leadName = this.normalizeText(check.leadName);
+    return leadName
+      ? `${COMMERCIAL_CONTACT_DUPLICATE_MESSAGE} Card existente: ${leadName}.`
+      : COMMERCIAL_CONTACT_DUPLICATE_MESSAGE;
+  }
+
+  private async findExistingCommercialLeadByRadarPlace(companyId: number, placeId: unknown) {
+    const normalizedPlaceId = this.normalizeText(placeId);
+    if (!normalizedPlaceId) return null;
+    const [poolTableReady, stateTableReady] = await Promise.all([
+      this.prisma.hasTable('RadarLeadPool').catch(() => false),
+      this.prisma.hasTable('RadarLeadCompanyState').catch(() => false),
+    ]);
+    if (!poolTableReady || !stateTableReady) return null;
+    const poolQuery = (this.prisma as any).radarLeadPool?.findFirst?.({
+      where: { placeId: normalizedPlaceId },
       select: { id: true },
-    });
-    return Boolean(existing?.id);
+    }) || Promise.resolve(null);
+    const pool = await poolQuery.catch(() => null);
+    if (!pool?.id) return null;
+    const stateQuery = (this.prisma as any).radarLeadCompanyState?.findFirst?.({
+      where: {
+        companyId,
+        radarLeadId: String(pool.id),
+        vendasLeadId: { not: null },
+      },
+      select: {
+        vendasLeadId: true,
+        vendasLead: { select: { id: true, name: true } },
+      },
+    }) || Promise.resolve(null);
+    const state = await stateQuery.catch(() => null);
+    if (state?.vendasLead?.id) return state.vendasLead;
+    if (!state?.vendasLeadId) return null;
+    return this.prisma.vendasLead.findFirst({
+      where: { companyId, id: String(state.vendasLeadId) },
+      select: { id: true, name: true },
+    }).catch(() => null);
+  }
+
+  private async findExistingCommercialContactForImport(
+    companyId: number,
+    input: {
+      phone?: unknown;
+      email?: unknown;
+      sourceHistoryId?: unknown;
+      placeId?: unknown;
+      website?: unknown;
+      name?: unknown;
+      city?: unknown;
+      state?: unknown;
+    },
+  ): Promise<CommercialContactDuplicateCheck> {
+    const none: CommercialContactDuplicateCheck = { exists: false, action: 'none', reason: null };
+    const normalizedCompanyId = Math.trunc(Number(companyId || 0));
+    if (!normalizedCompanyId) return none;
+
+    const phoneCandidates = this.buildLeadPhoneNormalizedCandidates(input.phone);
+    if (phoneCandidates.length) {
+      const existing = await this.prisma.vendasLead.findFirst({
+        where: { companyId: normalizedCompanyId, phoneNormalized: { in: phoneCandidates } },
+        select: { id: true, name: true },
+      });
+      if (existing?.id) return this.buildCommercialDuplicateCheck(existing, 'phone', 'reuse');
+    }
+
+    const email = this.normalizeEmail(input.email);
+    if (email) {
+      const existing = await this.prisma.vendasLead.findFirst({
+        where: { companyId: normalizedCompanyId, email },
+        select: { id: true, name: true },
+      });
+      if (existing?.id) return this.buildCommercialDuplicateCheck(existing, 'email', 'block');
+    }
+
+    const sourceHistoryId = this.normalizeText(input.sourceHistoryId);
+    if (this.extractRadarLeadId(sourceHistoryId)) {
+      const existing = await this.prisma.vendasLead.findFirst({
+        where: { companyId: normalizedCompanyId, sourceHistoryId },
+        select: { id: true, name: true },
+      });
+      if (existing?.id) return this.buildCommercialDuplicateCheck(existing, 'source_history', 'block');
+    }
+
+    const placeMatch = await this.findExistingCommercialLeadByRadarPlace(normalizedCompanyId, input.placeId);
+    if (placeMatch?.id) return this.buildCommercialDuplicateCheck(placeMatch, 'google_place', 'block');
+
+    const domain = this.normalizeCommercialDomain(input.website);
+    if (domain) {
+      const rows = await this.prisma.vendasLead.findMany({
+        where: {
+          companyId: normalizedCompanyId,
+          website: { contains: domain },
+        },
+        select: { id: true, name: true, website: true },
+        orderBy: [{ updatedAt: 'desc' }],
+        take: 20,
+      });
+      const existing = rows.find((row: any) => this.normalizeCommercialDomain(row?.website) === domain);
+      if (existing?.id) return this.buildCommercialDuplicateCheck(existing, 'website_domain', 'block');
+    }
+
+    const nameKey = this.normalizeCommercialIdentity(input.name);
+    const cityKey = this.normalizeCommercialIdentity(input.city);
+    const stateKey = this.normalizeText(input.state)?.toUpperCase().slice(0, 2) || null;
+    if (nameKey && cityKey) {
+      const rows = await this.prisma.vendasLead.findMany({
+        where: {
+          companyId: normalizedCompanyId,
+          name: { not: null },
+          city: { not: null },
+          ...(stateKey ? { state: stateKey } : {}),
+        },
+        select: { id: true, name: true, city: true, state: true },
+        orderBy: [{ updatedAt: 'desc' }],
+        take: 100,
+      });
+      const existing = rows.find((row: any) => {
+        if (this.normalizeCommercialIdentity(row?.name) !== nameKey) return false;
+        if (this.normalizeCommercialIdentity(row?.city) !== cityKey) return false;
+        if (stateKey && this.normalizeText(row?.state)?.toUpperCase().slice(0, 2) !== stateKey) return false;
+        return true;
+      });
+      if (existing?.id) return this.buildCommercialDuplicateCheck(existing, 'name_location', 'block');
+    }
+
+    return none;
   }
 
   private hasActionableImportChannel(item: any, phoneDigits?: string | null) {
@@ -6249,6 +6448,24 @@ export class VendasService {
     if (!this.normalizeText(dto?.name) && !this.normalizeText(dto?.phone) && !this.normalizeText(dto?.email)) {
       throw new BadRequestException('Informe ao menos nome, telefone ou e-mail para criar o lead.');
     }
+    const existingManualLead = await this.findExistingCommercialContactForImport(
+      context.companyId,
+      {
+        phone: dto?.phone || null,
+        email: dto?.email || null,
+        website: dto?.website || null,
+        name: dto?.name || null,
+      },
+    );
+    if (existingManualLead.action === 'block') {
+      throw new BadRequestException(this.buildCommercialDuplicateMessage(existingManualLead));
+    }
+    if (!existingManualLead.exists) {
+      await this.commercialUsageLimits.assertSellerActiveCardSlots(
+        context.companyId,
+        owner.assignedUserId || context.userId,
+      );
+    }
 
     const result = await this.createOrUpdateLead({
       companyId: context.companyId,
@@ -6436,13 +6653,34 @@ export class VendasService {
       let duplicateInCompany = false;
       try {
         await this.assertRadarLeadImportAllowed(context, radarLeadId);
-        duplicateInCompany = await this.hasExistingVendasLeadForImport(
+        const duplicateCheck = await this.findExistingCommercialContactForImport(
           context.companyId,
-          itemContact,
-          item?.email || null,
+          {
+            phone: itemContact,
+            email: item?.email || null,
+            sourceHistoryId,
+            placeId: (item as any)?.placeId || null,
+            website: item?.website || null,
+            name: itemName,
+            city: item?.city || null,
+            state: item?.state || null,
+          },
         );
+        duplicateInCompany = duplicateCheck.exists;
         if (duplicateInCompany) skippedDuplicateCount += 1;
+        if (duplicateCheck.action === 'block') {
+          failedImports.push({
+            name: itemName,
+            phone: itemContact,
+            error: this.buildCommercialDuplicateMessage(duplicateCheck),
+          });
+          continue;
+        }
         if (!duplicateInCompany && shouldDebitOnImport) {
+          await this.commercialUsageLimits.assertSellerActiveCardSlots(
+            context.companyId,
+            owner.assignedUserId || context.userId,
+          );
           const usageSnapshot = await this.commercialUsageLimits.assertCanImportCard(context.companyId, context.userId);
           const companyRemaining = Number((usageSnapshot as any)?.cards?.remaining);
           const dailyRemaining = Number((usageSnapshot as any)?.cards?.dailyRemaining);
@@ -6528,6 +6766,7 @@ export class VendasService {
         socialStatus: this.normalizeText((item as any)?.socialStatus),
         socialConfidence: Number((item as any)?.socialConfidence || 0) || null,
         primarySocial: this.normalizeText((item as any)?.primarySocial),
+        placeId: this.normalizeText((item as any)?.placeId),
         googleMapsUrl: this.normalizeText((item as any)?.googleMapsUrl),
         businessCategory: this.normalizeText((item as any)?.businessCategory),
         openingHoursStatus: this.normalizeText((item as any)?.openingHoursStatus),

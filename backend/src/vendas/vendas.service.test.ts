@@ -15,6 +15,7 @@ function createService(overrides?: Partial<Record<string, any>>) {
   const prisma = {
     vendasLead: {
       findMany: async () => [],
+      findFirst: async () => null,
       ...(overrides?.vendasLead || {}),
     },
     vendasLeadTimelineEvent: {
@@ -94,7 +95,9 @@ function createService(overrides?: Partial<Record<string, any>>) {
   } as any;
 
   const commercialUsageLimits = {
+    getUsageSnapshot: async () => ({ cards: { remaining: 999, dailyRemaining: 999 } }),
     assertCanImportCard: async () => true,
+    assertSellerActiveCardSlots: async () => true,
     recordCardImport: async () => true,
     recordCardCommercialUseOnce: async () => ({ debited: true, alreadyDebited: false }),
     assertCanSendPresentationEmail: async () => true,
@@ -843,6 +846,164 @@ test('importWebscrapingLeadsForUser does not debit quota for duplicate card', as
   assert.equal(result.skippedDuplicateCount, 1);
   assert.equal(assertCanImportCalls, 0);
   assert.equal(recordCardImportCalls, 0);
+});
+
+test('importWebscrapingLeadsForUser blocks duplicate commercial domain before quota', async () => {
+  let activeQuotaCalls = 0;
+  const existing = {
+    id: 'lead-domain',
+    name: 'Clinica Exemplo',
+    website: 'https://www.clinicaexemplo.com.br',
+  };
+  const { service } = createService({
+    vendasLead: {
+      findMany: async ({ where }: any) => {
+        assert.equal(where.website.contains, 'clinicaexemplo.com.br');
+        return [existing];
+      },
+    },
+    commercialUsageLimits: {
+      assertSellerActiveCardSlots: async () => {
+        activeQuotaCalls += 1;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.importWebscrapingLeadsForUser(
+      { companyId: 7, id: 99 },
+      {
+        debitOnImport: true,
+        skipWhatsappValidation: true,
+        leads: [
+          {
+            name: 'Clinica Exemplo',
+            website: 'https://clinicaexemplo.com.br/contato',
+            city: 'Campinas',
+            state: 'SP',
+          },
+        ],
+      } as any,
+    ),
+    /Contato comercial duplicado/i,
+  );
+
+  assert.equal(activeQuotaCalls, 0);
+});
+
+test('importWebscrapingLeadsForUser blocks duplicate Google place before quota', async () => {
+  let activeQuotaCalls = 0;
+  const { service } = createService({
+    prisma: {
+      hasTable: async (table: string) => ['RadarLeadPool', 'RadarLeadCompanyState'].includes(table),
+      radarLeadPool: {
+        findFirst: async ({ where }: any) => {
+          assert.equal(where.placeId, 'google-place-1');
+          return { id: 'radar-place-1' };
+        },
+      },
+      radarLeadCompanyState: {
+        findFirst: async ({ where }: any) => {
+          assert.equal(where.companyId, 7);
+          assert.equal(where.radarLeadId, 'radar-place-1');
+          return { vendasLeadId: 'lead-place', vendasLead: { id: 'lead-place', name: 'Padaria Central' } };
+        },
+      },
+    },
+    commercialUsageLimits: {
+      assertSellerActiveCardSlots: async () => {
+        activeQuotaCalls += 1;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.importWebscrapingLeadsForUser(
+      { companyId: 7, id: 99 },
+      {
+        debitOnImport: true,
+        skipWhatsappValidation: true,
+        leads: [
+          {
+            name: 'Padaria Central',
+            placeId: 'google-place-1',
+            googleMapsUrl: 'https://www.google.com/maps/place/?q=place_id:google-place-1',
+          },
+        ],
+      } as any,
+    ),
+    /Contato comercial duplicado/i,
+  );
+
+  assert.equal(activeQuotaCalls, 0);
+});
+
+test('importWebscrapingLeadsForUser blocks duplicate name and city fallback before quota', async () => {
+  let activeQuotaCalls = 0;
+  const { service } = createService({
+    vendasLead: {
+      findMany: async ({ where }: any) => {
+        assert.equal(where.state, 'SP');
+        return [{ id: 'lead-name-city', name: 'Studio Alfa', city: 'Sao Paulo', state: 'SP' }];
+      },
+    },
+    commercialUsageLimits: {
+      assertSellerActiveCardSlots: async () => {
+        activeQuotaCalls += 1;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.importWebscrapingLeadsForUser(
+      { companyId: 7, id: 99 },
+      {
+        debitOnImport: true,
+        skipWhatsappValidation: true,
+        leads: [
+          {
+            name: 'Stúdio Alfa',
+            city: 'São Paulo',
+            state: 'SP',
+            instagramUrl: 'https://instagram.com/studioalfa',
+          },
+        ],
+      } as any,
+    ),
+    /Contato comercial duplicado/i,
+  );
+
+  assert.equal(activeQuotaCalls, 0);
+});
+
+test('createManualLeadForUser blocks duplicate website before active quota', async () => {
+  let activeQuotaCalls = 0;
+  const { service } = createService({
+    vendasLead: {
+      findMany: async ({ where }: any) => {
+        assert.equal(where.website.contains, 'empresaativa.com.br');
+        return [{ id: 'lead-site', name: 'Empresa Ativa', website: 'https://empresaativa.com.br' }];
+      },
+    },
+    commercialUsageLimits: {
+      assertSellerActiveCardSlots: async () => {
+        activeQuotaCalls += 1;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.createManualLeadForUser(
+      { companyId: 7, id: 99 },
+      {
+        name: 'Empresa Ativa',
+        website: 'https://www.empresaativa.com.br/produtos',
+      } as any,
+    ),
+    /Contato comercial duplicado/i,
+  );
+
+  assert.equal(activeQuotaCalls, 0);
 });
 
 test('importWebscrapingLeadsForUser reports protected Radar card without quota debit', async () => {
