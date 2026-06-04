@@ -5,6 +5,7 @@ import DashboardScaffold from "@/components/DashboardScaffold";
 import HbxGuide1, { type HbxGuide1Tab } from "@/components/HbxGuide1";
 import HbxMobileDock from "@/components/mobile/HbxMobileDock";
 import HbxMobileEmptyState from "@/components/mobile/HbxMobileEmptyState";
+import HbxPulseSummaryCard from "@/components/HbxPulseSummaryCard";
 import { HbxEmptyState, HbxSection, HbxStatusBadge } from "@/components/ui";
 import CommissionSummaryPanel from "./_components/CommissionSummaryPanel";
 import PartnerCreateForm from "./_components/PartnerCreateForm";
@@ -784,6 +785,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   const [userSearch, setUserSearch] = useState("");
   const [mobileTab, setMobileTab] = useState<MobileGerencialTab>("status");
   const [desktopGuideTab, setDesktopGuideTab] = useState<DesktopGerencialGuideTab>("status");
+  const [pulseRefreshKey, setPulseRefreshKey] = useState(0);
   const [editingUserId, setEditingUserId] = useState<number | null>(null);
   const [savingProfileUserId, setSavingProfileUserId] = useState<number | null>(null);
   const [profileDraft, setProfileDraft] = useState<UserProfileDraft>({
@@ -810,6 +812,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
       }));
       setModuleAccess(access);
       setReferralCandidates(referralCandidatesPayload);
+      setPulseRefreshKey((current) => current + 1);
     } catch (loadError) {
       setError(friendlyGerencialError(loadError, "Falha ao carregar módulo gerencial."));
     } finally {
@@ -2584,15 +2587,20 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     const audit = data?.operationAudit;
     if (!audit) {
       return (
-        <HbxMobileEmptyState
-          kind="connection"
-          title="Auditoria operacional indisponível."
-          description="Atualize a tela para tentar carregar os sinais do Gerencial novamente."
-        />
+        <div className="grid gap-3">
+          <HbxPulseSummaryCard mode="mobile" refreshKey={pulseRefreshKey} />
+          <HbxMobileEmptyState
+            kind="connection"
+            title="Auditoria operacional indisponível."
+            description="Atualize a tela para tentar carregar os sinais do Gerencial novamente."
+          />
+        </div>
       );
     }
     return (
       <div className="grid gap-3">
+        <HbxPulseSummaryCard mode="mobile" refreshKey={pulseRefreshKey} />
+
         <section className="hbx-mobile-card grid gap-3">
           <div className="flex items-start justify-between gap-3">
             <div>
@@ -2988,7 +2996,10 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
           </div>
           {renderCreateAccessPopup()}
 
-          {showDesktopStatus && data.operationAudit ? (
+          {showDesktopStatus ? (
+            <div className="grid gap-3">
+              <HbxPulseSummaryCard mode="desktop" refreshKey={pulseRefreshKey} />
+              {data.operationAudit ? (
             <section className="panel p-4 md:p-5 rounded-[20px]">
               <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
                 <div className="min-w-0">
@@ -3053,6 +3064,10 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                 </div>
               </div>
             </section>
+              ) : (
+                <div className="panel p-4 text-sm text-muted">Auditoria operacional indisponível.</div>
+              )}
+            </div>
           ) : null}
 
           {showDesktopCommissions ? (
