@@ -4,6 +4,7 @@ import { FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } 
 import DashboardScaffold from "@/components/DashboardScaffold";
 import HbxGuide1, { type HbxGuide1Tab } from "@/components/HbxGuide1";
 import HbxMobileDock from "@/components/mobile/HbxMobileDock";
+import HbxMobileEmptyState from "@/components/mobile/HbxMobileEmptyState";
 import { HbxEmptyState, HbxSection, HbxStatusBadge } from "@/components/ui";
 import CommissionSummaryPanel from "./_components/CommissionSummaryPanel";
 import PartnerCreateForm from "./_components/PartnerCreateForm";
@@ -2457,7 +2458,12 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
             <strong>{activationQueue.length}</strong>
           </div>
           {activationQueue.length === 0 ? (
-            <p className="text-sm text-[var(--hbx-mobile-muted)]">Nenhum cliente aguardando implantação agora.</p>
+            <HbxMobileEmptyState
+              kind="commission"
+              surface="inline"
+              title="Nenhum cliente aguardando implantação agora."
+              description="Clientes fechados por vendedores aparecem aqui antes de liberar a comissão."
+            />
           ) : (
             activationQueue.map((client) => (
               <article key={client.leadId} className="grid gap-2 rounded-[16px] border border-[var(--hbx-mobile-border)] bg-[var(--hbx-mobile-surface-soft)] p-3">
@@ -2518,7 +2524,12 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
             </button>
           </div>
           {payrollRows.length === 0 ? (
-            <p className="text-sm text-[var(--hbx-mobile-muted)]">Nenhuma comissão aguardando pagamento.</p>
+            <HbxMobileEmptyState
+              kind="commission"
+              surface="inline"
+              title="Nenhuma comissão aguardando pagamento."
+              description="Comissões liberadas pelo prazo D+ entram aqui para pagamento."
+            />
           ) : (
             payrollRows.map((row) => (
               <article key={row.sellerUserId} className="grid gap-2 rounded-[16px] border border-[var(--hbx-mobile-border)] bg-[var(--hbx-mobile-surface-soft)] p-3">
@@ -2572,7 +2583,13 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   function renderMobileStatus() {
     const audit = data?.operationAudit;
     if (!audit) {
-      return <div className="hbx-mobile-empty">Auditoria operacional indisponível.</div>;
+      return (
+        <HbxMobileEmptyState
+          kind="connection"
+          title="Auditoria operacional indisponível."
+          description="Atualize a tela para tentar carregar os sinais do Gerencial novamente."
+        />
+      );
     }
     return (
       <div className="grid gap-3">
@@ -2830,7 +2847,11 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         </header>
 
         {!data ? (
-          <div className="hbx-mobile-empty">{loading ? "Carregando..." : "Sem dados."}</div>
+          <HbxMobileEmptyState
+            kind="connection"
+            title={loading ? "Carregando Gerencial..." : undefined}
+            description={loading ? "Buscando equipe, permissões e comissões." : undefined}
+          />
         ) : (
           <>
             <section className="hbx-mobile-hero grid gap-3">
@@ -2923,7 +2944,15 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
 
   if (hasToken === null) {
     if (mobileRoute) {
-      return <main className="hbx-mobile-page"><div className="hbx-mobile-empty">Carregando...</div></main>;
+      return (
+        <main className="hbx-mobile-page">
+          <HbxMobileEmptyState
+            kind="connection"
+            title="Carregando Gerencial..."
+            description="Validando acesso da conta."
+          />
+        </main>
+      );
     }
     return (
       <main className="app-shell">
