@@ -1,4 +1,5 @@
 import { HbxEmptyState, HbxSection, HbxStatusBadge } from "@/components/ui";
+import HbxMobileEmptyState from "@/components/mobile/HbxMobileEmptyState";
 import type { HbxPartnerReferralCandidate, UserItem } from "./types";
 
 function referralCandidateStatusLabel(status?: string | null) {
@@ -48,10 +49,14 @@ export default function ReferralCandidatesPanel({
     : "rounded-[14px] border border-[var(--line)] bg-[var(--surface)] p-3";
 
   const panelBody = pendingCount === 0 ? (
-    <HbxEmptyState
-      title="Nenhuma indicação pendente ou aprovada."
-      description="Quando um parceiro HBX indicar nome e telefone, o pedido aparece aqui para aprovação do Master HBX."
-    />
+    isMobile ? (
+      <HbxMobileEmptyState kind="referral" surface="inline" />
+    ) : (
+      <HbxEmptyState
+        title="Nenhuma indicação pendente ou aprovada."
+        description="Quando um parceiro HBX indicar nome e telefone, o pedido aparece aqui para aprovação do Master HBX."
+      />
+    )
   ) : (
     <div className={isMobile ? "grid gap-2" : "grid grid-cols-1 xl:grid-cols-2 gap-2"}>
       {candidates.map((candidate) => {

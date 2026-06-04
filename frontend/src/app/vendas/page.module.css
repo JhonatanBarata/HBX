@@ -1318,8 +1318,7 @@
 }
 
 .mobileVendasCommissionHeader p,
-.mobileVendasCommissionHint,
-.mobileVendasCommissionEmpty {
+.mobileVendasCommissionHint {
   margin: 0;
   color: #64748b;
   font-size: 0.82rem;
@@ -1562,7 +1561,6 @@
 
 :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasCommissionHeader p,
 :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasCommissionHint,
-:global(html[data-hbx-mobile-theme="dark"]) .mobileVendasCommissionEmpty,
 :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasCommissionHero small,
 :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasCommissionGrid small,
 :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasCommissionFlow small,

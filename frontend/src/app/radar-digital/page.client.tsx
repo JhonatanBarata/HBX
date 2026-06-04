@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import HbxMobileDock from "@/components/mobile/HbxMobileDock";
+import HbxMobileEmptyState from "@/components/mobile/HbxMobileEmptyState";
 import {
   HbxStateCityPicker,
   HbxTargetTypeSelector,
@@ -3736,6 +3737,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     .filter(Boolean)
     .join(" · ");
   const preparingDelivery = hasSearched && !visibleItems.length && radarMomentDelivered > 0;
+  const mobileRadarConnectionEmpty = Boolean(error && /conex|indispon/i.test(error));
 
   function startMobileRadarSearch() {
     if (radarPausedLocked) {
@@ -4360,25 +4362,31 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
           {hasSearched || preparingDelivery || mobileRadarProcessing ? (
             <section className={`${styles.mobileRadarResults} hbx-mobile-card`} aria-live="polite">
               {preparingDelivery ? (
-                <div className={`${styles.mobileRadarState} hbx-mobile-empty`}>
-                  <strong>Preparando entrega</strong>
-                  <span>{autoImportFailureLine || "O Radar encontrou empresas e está enviando para Vendas."}</span>
-                </div>
+                <HbxMobileEmptyState
+                  kind="cards"
+                  surface="inline"
+                  title="Preparando entrega"
+                  description={autoImportFailureLine || "O Radar encontrou empresas e está enviando para Vendas."}
+                />
               ) : mobileRadarProcessing ? (
-                <div className={`${styles.mobileRadarState} hbx-mobile-empty`}>
-                  <strong>{radarOperationalLabel}</strong>
-                  <span>Os filtros ficam travados enquanto o Radar está funcionando. Aperte STOP para parar e ajustar a busca.</span>
-                </div>
+                <HbxMobileEmptyState
+                  kind="cards"
+                  surface="inline"
+                  title={radarOperationalLabel}
+                  description="Os filtros ficam travados enquanto o Radar está funcionando. Aperte STOP para parar e ajustar a busca."
+                />
               ) : !loading && !visibleItems.length ? (
-                <div className={`${styles.mobileRadarState} hbx-mobile-empty`}>
-                  <strong>Não achei empresas suficientes</strong>
-                  <span>Tente segmento mais amplo ou cidade próxima.</span>
-                </div>
+                <HbxMobileEmptyState
+                  kind={mobileRadarConnectionEmpty ? "connection" : "cards"}
+                  surface="inline"
+                />
               ) : (
-                <div className={`${styles.mobileRadarState} hbx-mobile-empty`}>
-                  <strong>Vendas abastecido</strong>
-                  <span>Os contatos aprovados foram enviados automaticamente para o Vendas.</span>
-                </div>
+                <HbxMobileEmptyState
+                  kind="cards"
+                  surface="inline"
+                  title="Vendas abastecido"
+                  description="Os contatos aprovados foram enviados automaticamente para o Vendas."
+                />
               )}
             </section>
           ) : null}

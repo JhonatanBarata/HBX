@@ -36,6 +36,7 @@ import LiquidGlassCard, {
   liquidGlassCardStyles as glassCardStyles,
 } from "@/components/LiquidGlassCard";
 import HbxMobileDock from "@/components/mobile/HbxMobileDock";
+import HbxMobileEmptyState from "@/components/mobile/HbxMobileEmptyState";
 import MobileLeadScoreGauge from "@/components/mobile/MobileLeadScoreGauge";
 import { useQuickLaunchNotice } from "@/components/useQuickLaunchNotice";
 import { apiFetch, getDashboardApiBaseUrl, getToken, type ApiFetchError } from "@/app/_lib/api";
@@ -6742,7 +6743,12 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
               ))}
             </div>
           ) : (
-            <p className={styles.mobileVendasCommissionEmpty}>Sem clientes nesta faixa.</p>
+            <HbxMobileEmptyState
+              kind="commission"
+              surface="inline"
+              title="Sem comissão nesta faixa."
+              description="Quando uma venda mudar de etapa, o cliente aparece aqui com prazo e status."
+            />
           )}
         </section>
       );
@@ -6855,7 +6861,12 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                   })}
                 </div>
               ) : (
-                <p className={styles.mobileVendasCommissionEmpty}>Sem comissão vencida para registrar pagamento.</p>
+                <HbxMobileEmptyState
+                  kind="commission"
+                  surface="inline"
+                  title="Sem comissão vencida."
+                  description="Comissões liberadas pelo prazo D+ aparecem aqui para fechamento financeiro."
+                />
               )}
             </section>
           ) : null}
@@ -6905,14 +6916,20 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                   </button>
                 </form>
               ) : (
-                <p className={styles.mobileVendasCommissionEmpty}>
-                  Seu usuário ainda não está autorizado pelo USERMASTER para cadastrar vendedores.
-                </p>
+                <HbxMobileEmptyState
+                  kind="referral"
+                  surface="inline"
+                  title="Indicação bloqueada."
+                  description="Seu usuário ainda não está autorizado pelo USERMASTER para cadastrar vendedores."
+                />
               )}
 
-              <p className={styles.mobileVendasCommissionEmpty}>
-                O indicado só vira usuário depois da aprovação do Master.
-              </p>
+              <HbxMobileEmptyState
+                kind="referral"
+                surface="inline"
+                title="Aguardando aprovação do Master HBX."
+                description="Indicações enviadas aparecem para aprovação do Master HBX."
+              />
             </section>
           ) : null}
 
@@ -6978,7 +6995,12 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 ))}
               </div>
             ) : (
-              <p className={styles.mobileVendasCommissionEmpty}>Nenhum fechamento pago ainda.</p>
+              <HbxMobileEmptyState
+                kind="commission"
+                surface="inline"
+                title="Nenhum fechamento pago ainda."
+                description="Pagamentos registrados aparecem aqui com comprovante e status."
+              />
             )}
           </section>
         </div>
@@ -8081,31 +8103,21 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 );
               })
             ) : (
-              <div className={`${styles.mobileVendasEmpty} hbx-mobile-empty`}>
-                <strong>
-                  {(board?.summary.total || 0) <= 0 && radarBlockedByStrictFilters
-                    ? "Cards localizados ainda não entraram"
-                    : (board?.summary.total || 0) <= 0 && radarFoundWithoutAgenda
-                    ? "Cards encontrados, preparando sua agenda"
-                    : (board?.summary.total || 0) <= 0
-                    ? "Sua lista de abordagem está vazia"
-                    : "Nenhum lead disponível agora"}
-                </strong>
-                <span>
-                  {(board?.summary.total || 0) <= 0 && radarBlockedByStrictFilters
-                    ? "O Radar localizou empresas. Aguarde a sincronização ou amplie cidade e segmento."
-                    : (board?.summary.total || 0) <= 0 && radarFoundWithoutAgenda
-                    ? "O Radar encontrou cards aprovados. Mantenha esta tela aberta enquanto o Vendas sincroniza."
-                    : (board?.summary.total || 0) <= 0
-                    ? "Busque empresas no Radar. Os cards aprovados chegam aqui prontos para chamar."
-                    : "Troque a guia, limpe a busca ou volte ao Radar para ampliar cidade e segmento."}
-                </span>
-                {(board?.summary.total || 0) <= 0 && !radarFoundWithoutAgenda ? (
+              <HbxMobileEmptyState
+                kind="cards"
+                className={styles.mobileVendasEmpty}
+                title={(board?.summary.total || 0) <= 0 ? undefined : "Nenhum lead disponível agora"}
+                description={
+                  (board?.summary.total || 0) <= 0
+                    ? undefined
+                    : "Troque a guia, limpe a busca ou volte ao Radar para ampliar cidade e segmento."
+                }
+                actions={(board?.summary.total || 0) <= 0 && !radarFoundWithoutAgenda ? (
                   <Link className="hbx-mobile-primary-button" href={toMobileRoute("/radar-digital")}>
                     Buscar cards agora
                   </Link>
                 ) : null}
-              </div>
+              />
             )}
           </div>
         )}
