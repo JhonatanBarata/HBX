@@ -4142,18 +4142,21 @@ function getInboxConversationQualityScore(conversation: InboxConversation) {
 function mergeInboxMessageLists(
   leftMessages?: InboxMessage[] | null,
   rightMessages?: InboxMessage[] | null,
+  options?: { removeMessageId?: string | null },
 ) {
-  const merged = [...(Array.isArray(leftMessages) ? leftMessages : []), ...(Array.isArray(rightMessages) ? rightMessages : [])];
+  const removeMessageId = String(options?.removeMessageId || "").trim();
   const byId = new Map<string, InboxMessage>();
-  for (const message of merged) {
+
+  for (const message of Array.isArray(leftMessages) ? leftMessages : []) {
+    if (removeMessageId && String(message.id) === removeMessageId) continue;
+    byId.set(String(message.id), message);
+  }
+  for (const message of Array.isArray(rightMessages) ? rightMessages : []) {
+    if (removeMessageId && String(message.id) === removeMessageId) continue;
     byId.set(String(message.id), message);
   }
 
-  return Array.from(byId.values()).sort((left, right) => {
-    const leftTime = new Date(String(left.createdAt || "")).getTime();
-    const rightTime = new Date(String(right.createdAt || "")).getTime();
-    return (Number.isFinite(leftTime) ? leftTime : 0) - (Number.isFinite(rightTime) ? rightTime : 0);
-  });
+  return sortInboxMessagesChronologically(Array.from(byId.values()));
 }
 
 function mergeInboxConversations(
@@ -4674,25 +4677,6 @@ function markInboxConversationMessagePageLimit(
       ...(typeof hasMore === "boolean" ? { __messagePageHasMore: hasMore } : {}),
     },
   } as InboxConversation;
-}
-
-function mergeInboxMessageLists(
-  currentMessages?: InboxMessage[] | null,
-  incomingMessages?: InboxMessage[] | null,
-  options?: { removeMessageId?: string | null },
-) {
-  const removeMessageId = String(options?.removeMessageId || "").trim();
-  const byId = new Map<string, InboxMessage>();
-
-  for (const message of Array.isArray(currentMessages) ? currentMessages : []) {
-    if (removeMessageId && String(message.id) === removeMessageId) continue;
-    byId.set(String(message.id), message);
-  }
-  for (const message of Array.isArray(incomingMessages) ? incomingMessages : []) {
-    byId.set(String(message.id), message);
-  }
-
-  return sortInboxMessagesChronologically(Array.from(byId.values()));
 }
 
 function mergeInboxConversationMessagePage(
