@@ -1,4 +1,4 @@
-import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 
 function buildRuntimeDatabaseUrl() {
@@ -29,8 +29,303 @@ function describeDatabaseTarget(databaseUrl: string) {
   }
 }
 
+type RuntimeSchemaEnsureDefinition = {
+  key: string;
+  method: string;
+  target: string;
+  shouldBecomeMigration: boolean;
+};
+
+type RuntimeSchemaHealthCheckDefinition = {
+  key: string;
+  ensureKey?: string;
+  type: 'table' | 'column';
+  table: string;
+  column?: string;
+  shouldBecomeMigration: boolean;
+};
+
+type RuntimeSchemaHealthCheckResult = RuntimeSchemaHealthCheckDefinition & {
+  ok: boolean;
+};
+
+export type RuntimeSchemaHealthReport = {
+  ok: boolean;
+  generatedAt: string;
+  databaseTarget: string;
+  checkedCount: number;
+  missingCount: number;
+  runtimeEnsures: RuntimeSchemaEnsureDefinition[];
+  checks: RuntimeSchemaHealthCheckResult[];
+  missing: RuntimeSchemaHealthCheckResult[];
+};
+
+const RUNTIME_SCHEMA_ENSURES: RuntimeSchemaEnsureDefinition[] = [
+  {
+    key: 'company-commission-settings-columns',
+    method: 'ensureCompanyCommissionSettingsColumns',
+    target: 'Company.commissionDueBusinessDays',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'user-sales-profile-columns',
+    method: 'ensureUserSalesProfileColumns',
+    target: 'User seller profile and distribution columns',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'hbx-partner-referral-candidate-tables',
+    method: 'ensureHbxPartnerReferralCandidateTables',
+    target: 'HbxPartnerReferralCandidate table, constraints and indexes',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'vendas-lead-assignment-columns',
+    method: 'ensureVendasLeadAssignmentColumns',
+    target: 'VendasLead assignment, sale and commission columns',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'vendas-commission-payout-tables',
+    method: 'ensureVendasCommissionPayoutTables',
+    target: 'VendasCommissionPayout table, constraints and indexes',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'vendas-commission-receivable-tables',
+    method: 'ensureVendasCommissionReceivableTables',
+    target: 'VendasCommissionReceivable table, constraints and indexes',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'radar-auto-distribution-rule-tables',
+    method: 'ensureRadarAutoDistributionRuleTables',
+    target: 'RadarAutoDistributionRule table, constraints and indexes',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'radar-distribution-daily-usage-tables',
+    method: 'ensureRadarDistributionDailyUsageTables',
+    target: 'RadarAutoDistributionRule daily limits and RadarDistributionDailyUsage table',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'master-notice-tables',
+    method: 'ensureMasterNoticeTables',
+    target: 'MasterNotice and MasterNoticeAck tables, constraints and indexes',
+    shouldBecomeMigration: true,
+  },
+];
+
+const RUNTIME_SCHEMA_HEALTH_CHECKS: RuntimeSchemaHealthCheckDefinition[] = [
+  {
+    key: 'company.commissionDueBusinessDays',
+    ensureKey: 'company-commission-settings-columns',
+    type: 'column',
+    table: 'Company',
+    column: 'commissionDueBusinessDays',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'user.phone',
+    ensureKey: 'user-sales-profile-columns',
+    type: 'column',
+    table: 'User',
+    column: 'phone',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'user.commissionPercent',
+    ensureKey: 'user-sales-profile-columns',
+    type: 'column',
+    table: 'User',
+    column: 'commissionPercent',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'user.canRegisterHbxSellers',
+    ensureKey: 'user-sales-profile-columns',
+    type: 'column',
+    table: 'User',
+    column: 'canRegisterHbxSellers',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'user.sellerReferralCommissionPercent',
+    ensureKey: 'user-sales-profile-columns',
+    type: 'column',
+    table: 'User',
+    column: 'sellerReferralCommissionPercent',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'user.referredByUserId',
+    ensureKey: 'user-sales-profile-columns',
+    type: 'column',
+    table: 'User',
+    column: 'referredByUserId',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'user.sellerDistributionMode',
+    ensureKey: 'user-sales-profile-columns',
+    type: 'column',
+    table: 'User',
+    column: 'sellerDistributionMode',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'hbxPartnerReferralCandidate.table',
+    ensureKey: 'hbx-partner-referral-candidate-tables',
+    type: 'table',
+    table: 'HbxPartnerReferralCandidate',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'hbxPartnerReferralCandidate.phoneNormalized',
+    ensureKey: 'hbx-partner-referral-candidate-tables',
+    type: 'column',
+    table: 'HbxPartnerReferralCandidate',
+    column: 'phoneNormalized',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'hbxPartnerReferralCandidate.status',
+    ensureKey: 'hbx-partner-referral-candidate-tables',
+    type: 'column',
+    table: 'HbxPartnerReferralCandidate',
+    column: 'status',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'vendasLead.assignedUserId',
+    ensureKey: 'vendas-lead-assignment-columns',
+    type: 'column',
+    table: 'VendasLead',
+    column: 'assignedUserId',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'vendasLead.commissionStatus',
+    ensureKey: 'vendas-lead-assignment-columns',
+    type: 'column',
+    table: 'VendasLead',
+    column: 'commissionStatus',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'vendasLead.commissionAmount',
+    ensureKey: 'vendas-lead-assignment-columns',
+    type: 'column',
+    table: 'VendasLead',
+    column: 'commissionAmount',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'vendasLead.commissionPayoutId',
+    ensureKey: 'vendas-lead-assignment-columns',
+    type: 'column',
+    table: 'VendasLead',
+    column: 'commissionPayoutId',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'vendasCommissionPayout.table',
+    ensureKey: 'vendas-commission-payout-tables',
+    type: 'table',
+    table: 'VendasCommissionPayout',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'vendasCommissionReceivable.table',
+    ensureKey: 'vendas-commission-receivable-tables',
+    type: 'table',
+    table: 'VendasCommissionReceivable',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'vendasCommissionReceivable.cycleKey',
+    ensureKey: 'vendas-commission-receivable-tables',
+    type: 'column',
+    table: 'VendasCommissionReceivable',
+    column: 'cycleKey',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'radarAutoDistributionRule.table',
+    ensureKey: 'radar-auto-distribution-rule-tables',
+    type: 'table',
+    table: 'RadarAutoDistributionRule',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'radarAutoDistributionRule.adminDailyLimit',
+    ensureKey: 'radar-distribution-daily-usage-tables',
+    type: 'column',
+    table: 'RadarAutoDistributionRule',
+    column: 'adminDailyLimit',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'radarAutoDistributionRule.dailyLimitPerSeller',
+    ensureKey: 'radar-distribution-daily-usage-tables',
+    type: 'column',
+    table: 'RadarAutoDistributionRule',
+    column: 'dailyLimitPerSeller',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'radarDistributionDailyUsage.table',
+    ensureKey: 'radar-distribution-daily-usage-tables',
+    type: 'table',
+    table: 'RadarDistributionDailyUsage',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'masterNotice.table',
+    ensureKey: 'master-notice-tables',
+    type: 'table',
+    table: 'MasterNotice',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'masterNoticeAck.table',
+    ensureKey: 'master-notice-tables',
+    type: 'table',
+    table: 'MasterNoticeAck',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'externalWebhookEvent.table',
+    type: 'table',
+    table: 'ExternalWebhookEvent',
+    shouldBecomeMigration: false,
+  },
+  {
+    key: 'externalWebhookEvent.payloadHash',
+    type: 'column',
+    table: 'ExternalWebhookEvent',
+    column: 'payloadHash',
+    shouldBecomeMigration: false,
+  },
+  {
+    key: 'whatsappConsentLedger.table',
+    type: 'table',
+    table: 'WhatsappConsentLedger',
+    shouldBecomeMigration: false,
+  },
+  {
+    key: 'whatsappConsentLedger.phoneNormalized',
+    type: 'column',
+    table: 'WhatsappConsentLedger',
+    column: 'phoneNormalized',
+    shouldBecomeMigration: false,
+  },
+];
+
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(PrismaService.name);
   private readonly schemaCapabilityCache = new Map<string, boolean>();
   private readonly runtimeDatabaseUrl: string;
 
@@ -56,15 +351,15 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       console.log('Prisma runtime target:', describeDatabaseTarget(this.runtimeDatabaseUrl || String(process.env.DATABASE_URL || '').trim()));
     } catch (e) {}
     await this.$connect();
-    await this.ensureCompanyCommissionSettingsColumns();
-    await this.ensureUserSalesProfileColumns();
-    await this.ensureHbxPartnerReferralCandidateTables();
-    await this.ensureVendasLeadAssignmentColumns();
-    await this.ensureVendasCommissionPayoutTables();
-    await this.ensureVendasCommissionReceivableTables();
-    await this.ensureRadarAutoDistributionRuleTables();
-    await this.ensureRadarDistributionDailyUsageTables();
-    await this.ensureMasterNoticeTables();
+    await this.runRuntimeSchemaEnsure('company-commission-settings-columns', () => this.ensureCompanyCommissionSettingsColumns());
+    await this.runRuntimeSchemaEnsure('user-sales-profile-columns', () => this.ensureUserSalesProfileColumns());
+    await this.runRuntimeSchemaEnsure('hbx-partner-referral-candidate-tables', () => this.ensureHbxPartnerReferralCandidateTables());
+    await this.runRuntimeSchemaEnsure('vendas-lead-assignment-columns', () => this.ensureVendasLeadAssignmentColumns());
+    await this.runRuntimeSchemaEnsure('vendas-commission-payout-tables', () => this.ensureVendasCommissionPayoutTables());
+    await this.runRuntimeSchemaEnsure('vendas-commission-receivable-tables', () => this.ensureVendasCommissionReceivableTables());
+    await this.runRuntimeSchemaEnsure('radar-auto-distribution-rule-tables', () => this.ensureRadarAutoDistributionRuleTables());
+    await this.runRuntimeSchemaEnsure('radar-distribution-daily-usage-tables', () => this.ensureRadarDistributionDailyUsageTables());
+    await this.runRuntimeSchemaEnsure('master-notice-tables', () => this.ensureMasterNoticeTables());
   }
 
   async onModuleDestroy() {
@@ -74,6 +369,64 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   private isSqliteUrl() {
     const databaseUrl = String(this.runtimeDatabaseUrl || process.env.DATABASE_URL || '').trim().toLowerCase();
     return databaseUrl.startsWith('file:') || databaseUrl.endsWith('.db');
+  }
+
+  private getRuntimeSchemaEnsureDefinition(key: string) {
+    const definition = RUNTIME_SCHEMA_ENSURES.find((ensure) => ensure.key === key);
+    if (!definition) {
+      throw new Error(`Runtime schema ensure not registered: ${key}`);
+    }
+    return definition;
+  }
+
+  private async runRuntimeSchemaEnsure(key: string, action: () => Promise<void>) {
+    const definition = this.getRuntimeSchemaEnsureDefinition(key);
+    const startedAt = Date.now();
+    this.logger.warn(
+      `[schema-runtime-ensure] running method=${definition.method} target="${definition.target}" shouldBecomeMigration=${definition.shouldBecomeMigration}`,
+    );
+
+    try {
+      await action();
+      this.logger.warn(
+        `[schema-runtime-ensure] ok method=${definition.method} durationMs=${Date.now() - startedAt} shouldBecomeMigration=${definition.shouldBecomeMigration}`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `[schema-runtime-ensure] failed method=${definition.method} target="${definition.target}" shouldBecomeMigration=${definition.shouldBecomeMigration}: ${message}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw error;
+    }
+  }
+
+  async getRuntimeSchemaHealth(): Promise<RuntimeSchemaHealthReport> {
+    const checks: RuntimeSchemaHealthCheckResult[] = [];
+
+    for (const check of RUNTIME_SCHEMA_HEALTH_CHECKS) {
+      const ok =
+        check.type === 'table'
+          ? await this.hasTable(check.table)
+          : await this.hasColumn(check.table, String(check.column || ''));
+
+      checks.push({
+        ...check,
+        ok,
+      });
+    }
+
+    const missing = checks.filter((check) => !check.ok);
+    return {
+      ok: missing.length === 0,
+      generatedAt: new Date().toISOString(),
+      databaseTarget: describeDatabaseTarget(this.runtimeDatabaseUrl || String(process.env.DATABASE_URL || '').trim()),
+      checkedCount: checks.length,
+      missingCount: missing.length,
+      runtimeEnsures: RUNTIME_SCHEMA_ENSURES,
+      checks,
+      missing,
+    };
   }
 
   private async ensureCompanyCommissionSettingsColumns() {
