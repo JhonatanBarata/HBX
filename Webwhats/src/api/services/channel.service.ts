@@ -752,11 +752,21 @@ export class ChannelStartupService {
     return `${Math.floor(timestamp)}:${remoteJid}`;
   }
 
+  private isInlineBase64PreviewValue(value: string) {
+    const normalized = String(value || '').trim();
+    if (!normalized) return false;
+    if (/^data:[^,]+;base64,/i.test(normalized)) return true;
+    const compact = normalized.replace(/\s+/g, '');
+    return compact.length > 512 && /^[a-z0-9+/]+={0,2}$/i.test(compact) && !/[./\\:_-]/.test(compact);
+  }
+
   private normalizeChatPreviewText(value: unknown, messageType: unknown) {
     const text = String(value || '')
       .replace(/\s+/g, ' ')
       .trim();
-    if (text) return text.length > 160 ? `${text.slice(0, 157)}...` : text;
+    if (text && !this.isInlineBase64PreviewValue(text)) {
+      return text.length > 160 ? `${text.slice(0, 157)}...` : text;
+    }
 
     const normalizedType = String(messageType || '')
       .trim()
