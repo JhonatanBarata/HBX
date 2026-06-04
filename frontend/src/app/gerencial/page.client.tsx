@@ -661,6 +661,18 @@ function stableUserOrder(previous: UserItem[] | undefined, next: UserItem[]) {
   return [...ordered, ...appended];
 }
 
+async function loadReferralCandidatesIfHbxNetwork(payload: GerencialOverview) {
+  if (!payload.company?.isHbxSellerNetwork) return [];
+
+  try {
+    const candidatesPayload = await apiFetch<HbxReferralCandidatesResult>("/gerencial/hbx-partner-referrals/pending");
+    return candidatesPayload.candidates || [];
+  } catch (referralError) {
+    console.warn("[HBX gerencial] Falha ao carregar indicacoes HBX.", referralError);
+    return [];
+  }
+}
+
 function friendlyGerencialError(error: unknown, fallback: string) {
   const raw = error instanceof Error ? error.message : fallback;
   const message = String(raw || "").trim();
@@ -777,17 +789,17 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [payload, access, candidatesPayload] = await Promise.all([
+      const [payload, access] = await Promise.all([
         apiFetch<GerencialOverview>("/gerencial/overview"),
         apiFetch<CompanyAccessPayload>("/modules/company/access"),
-        apiFetch<HbxReferralCandidatesResult>("/gerencial/hbx-partner-referrals/pending"),
       ]);
+      const referralCandidatesPayload = await loadReferralCandidatesIfHbxNetwork(payload);
       setData((prev) => ({
         ...payload,
         users: stableUserOrder(prev?.users, payload.users || []),
       }));
       setModuleAccess(access);
-      setReferralCandidates(candidatesPayload.candidates || []);
+      setReferralCandidates(referralCandidatesPayload);
     } catch (loadError) {
       setError(friendlyGerencialError(loadError, "Falha ao carregar módulo gerencial."));
     } finally {
