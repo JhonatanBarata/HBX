@@ -2380,7 +2380,7 @@ function makeClientId(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-const INBOX_RECENT_MESSAGES_LIMIT = 20;
+const INBOX_RECENT_MESSAGES_LIMIT = 30;
 const INBOX_CONVERSATION_LIST_LIMIT = 20;
 const INBOX_BOOTSTRAP_LIGHT_TAKE = 40;
 const INBOX_CONVERSATION_AUTOFILL_MAX = 120;
@@ -4651,6 +4651,111 @@ function sortInboxMessagesChronologically(messages: InboxMessage[]) {
   });
 }
 
+function getInboxConversationMessagePageLimit(conversation?: InboxConversation | null) {
+  const limit = Number(getInboxConversationMetadata(conversation)?.__messagePageLimit || 0);
+  return Number.isFinite(limit) ? limit : 0;
+}
+
+function getInboxConversationMessagePageHasMore(conversation?: InboxConversation | null) {
+  return getInboxConversationMetadata(conversation)?.__messagePageHasMore === true;
+}
+
+function markInboxConversationMessagePageLimit(
+  conversation: InboxConversation,
+  limit = INBOX_RECENT_MESSAGES_LIMIT,
+  hasMore?: boolean,
+) {
+  const metadata = getInboxConversationMetadata(conversation) || {};
+  return {
+    ...conversation,
+    metadata: {
+      ...metadata,
+      __messagePageLimit: limit,
+      ...(typeof hasMore === "boolean" ? { __messagePageHasMore: hasMore } : {}),
+    },
+  } as InboxConversation;
+}
+
+function mergeInboxMessageLists(
+  currentMessages?: InboxMessage[] | null,
+  incomingMessages?: InboxMessage[] | null,
+  options?: { removeMessageId?: string | null },
+) {
+  const removeMessageId = String(options?.removeMessageId || "").trim();
+  const byId = new Map<string, InboxMessage>();
+
+  for (const message of Array.isArray(currentMessages) ? currentMessages : []) {
+    if (removeMessageId && String(message.id) === removeMessageId) continue;
+    byId.set(String(message.id), message);
+  }
+  for (const message of Array.isArray(incomingMessages) ? incomingMessages : []) {
+    byId.set(String(message.id), message);
+  }
+
+  return sortInboxMessagesChronologically(Array.from(byId.values()));
+}
+
+function mergeInboxConversationMessagePage(
+  conversation: InboxConversation,
+  payload?: InboxMessagePagePayload | null,
+) {
+  const messages = Array.isArray(payload?.messages) ? payload.messages : [];
+  return markInboxConversationMessagePageLimit({
+    ...conversation,
+    messages: mergeInboxMessageLists(conversation.messages, messages),
+  }, INBOX_RECENT_MESSAGES_LIMIT, typeof payload?.hasMore === "boolean" ? payload.hasMore : undefined);
+}
+
+function isInboxOptimisticReplacement(
+  candidate: InboxMessage,
+  optimisticMessage: InboxMessage | null | undefined,
+) {
+  if (!optimisticMessage || isInboxOptimisticMessage(candidate)) return false;
+  if (String(candidate.direction || "").trim().toLowerCase() !== "outbound") return false;
+
+  const candidateMetadata = getInboxMessageMetadata(candidate);
+  const optimisticMetadata = getInboxMessageMetadata(optimisticMessage);
+  const candidateMediaUrl = String(candidateMetadata?.mediaUrl || candidateMetadata?.previewUrl || "").trim();
+  const optimisticMediaUrl = String(optimisticMetadata?.mediaUrl || optimisticMetadata?.previewUrl || "").trim();
+  if (candidateMediaUrl && optimisticMediaUrl && candidateMediaUrl === optimisticMediaUrl) return true;
+
+  const candidateContent = String(candidate.content || "").trim();
+  const optimisticContent = String(optimisticMessage.content || "").trim();
+  if (candidateContent && optimisticContent && candidateContent === optimisticContent) return true;
+
+  const candidateTime = new Date(String(candidate.createdAt || "")).getTime();
+  const optimisticTime = new Date(String(optimisticMessage.createdAt || "")).getTime();
+  return Number.isFinite(candidateTime) &&
+    Number.isFinite(optimisticTime) &&
+    Math.abs(candidateTime - optimisticTime) <= 120000;
+}
+
+function reconcileInboxConversationAfterSend(
+  currentConversation: InboxConversation | null | undefined,
+  serverConversation: InboxConversation,
+  optimisticMessage?: InboxMessage | null,
+) {
+  const replacementFound = Boolean(
+    optimisticMessage &&
+      (serverConversation.messages || []).some((message) => isInboxOptimisticReplacement(message, optimisticMessage)),
+  );
+  const currentMetadata = getInboxConversationMetadata(currentConversation) || {};
+  const serverMetadata = getInboxConversationMetadata(serverConversation) || {};
+  return markInboxConversationMessagePageLimit({
+    ...(currentConversation || serverConversation),
+    ...serverConversation,
+    metadata: {
+      ...currentMetadata,
+      ...serverMetadata,
+    },
+    messages: mergeInboxMessageLists(
+      currentConversation?.messages,
+      serverConversation.messages,
+      { removeMessageId: replacementFound ? optimisticMessage?.id : null },
+    ),
+  });
+}
+
 function getInboxMessageStableKey(message?: InboxMessage | null) {
   if (!message) return "";
   const metadata = (message.metadata || {}) as Record<string, unknown>;
@@ -5859,7 +5964,10 @@ function InboxDesktopClientPage() {
       setLastConversationSyncAt(new Date().toISOString());
       setBootstrapReady(true);
 
-      const detailLoader = !detail && preferredId ? loadConversationRef.current : null;
+      const needsMessagePageHydration =
+        preferredId &&
+        (!detail || getInboxConversationMessagePageLimit(selectedForView) < INBOX_RECENT_MESSAGES_LIMIT);
+      const detailLoader = needsMessagePageHydration ? loadConversationRef.current : null;
       keepConversationLoading = Boolean(detailLoader && preferredId);
       if (detailLoader && preferredId) {
         void detailLoader(preferredId, { forceRefresh: true });
@@ -5979,6 +6087,8 @@ function InboxDesktopClientPage() {
     const cachedDetailIsFresh = cachedDetail
       ? !shouldReloadInboxConversation(summary, cachedDetail)
       : false;
+    const cachedDetailHasRequestedMessagePage =
+      getInboxConversationMessagePageLimit(cachedDetail) >= INBOX_RECENT_MESSAGES_LIMIT;
     const mergedSummary = mergeInboxConversationSummary(
       summary,
       cachedDetail,
@@ -5997,9 +6107,9 @@ function InboxDesktopClientPage() {
       selectedConversationRef.current = null;
     }
     setConversationDetailError(null);
-    if (cachedDetail && cachedDetailIsFresh && !forceRefresh) {
+    if (cachedDetail && cachedDetailIsFresh && cachedDetailHasRequestedMessagePage && !forceRefresh) {
       setOlderMessagesBefore(getInboxOldestMessageDate(cachedDetail.messages));
-      setOlderMessagesHasMore((cachedDetail.messages?.length || 0) >= INBOX_RECENT_MESSAGES_LIMIT);
+      setOlderMessagesHasMore(getInboxConversationMessagePageHasMore(cachedDetail));
       setLoadingConversation(false);
       setBootstrapReady(true);
       markConversationRead(cachedDetail);
@@ -6027,7 +6137,27 @@ function InboxDesktopClientPage() {
         return;
       }
 
-      const detailedConversation = clearInboxConversationSummaryOnly(data);
+      const messagePage = await apiFetch<InboxMessagePagePayload>(
+        `/inbox/conversations/${conversationId}/messages?limit=${INBOX_RECENT_MESSAGES_LIMIT}`,
+        {
+          requireAuth: true,
+          signal: controller.signal,
+          timeoutMs: 10000,
+        },
+      );
+
+      if (
+        requestToken !== conversationLoadTokenRef.current ||
+        controller.signal.aborted ||
+        conversationDetailAbortControllerRef.current !== controller
+      ) {
+        return;
+      }
+
+      const detailedConversationBase = clearInboxConversationSummaryOnly(data);
+      const detailedConversation = detailedConversationBase
+        ? mergeInboxConversationMessagePage(detailedConversationBase, messagePage)
+        : detailedConversationBase;
       setSelectedConversation((current) =>
         detailedConversation && !(silent && !didInboxConversationViewChange(current, detailedConversation))
           ? detailedConversation
@@ -6066,7 +6196,7 @@ function InboxDesktopClientPage() {
         });
         markConversationRead(detailedConversation);
         setOlderMessagesBefore(getInboxOldestMessageDate(detailedConversation.messages));
-        setOlderMessagesHasMore((detailedConversation.messages?.length || 0) >= INBOX_RECENT_MESSAGES_LIMIT);
+        setOlderMessagesHasMore(Boolean(messagePage?.hasMore));
       }
       if (data) {
         setSelectedId(data.id);
@@ -6117,6 +6247,7 @@ function InboxDesktopClientPage() {
     const timeline = chatTimelineRef.current;
     const previousScrollHeight = timeline?.scrollHeight || 0;
     const previousScrollTop = timeline?.scrollTop || 0;
+    chatTimelineStickToBottomRef.current = false;
     setLoadingOlderMessages(true);
     setConversationDetailError(null);
     try {
@@ -6132,10 +6263,10 @@ function InboxDesktopClientPage() {
       for (const message of [...olderMessages, ...(baseConversation.messages || [])]) {
         byId.set(String(message.id), message);
       }
-      const nextConversation = {
+      const nextConversation = markInboxConversationMessagePageLimit({
         ...baseConversation,
         messages: sortInboxMessagesChronologically(Array.from(byId.values())),
-      };
+      }, INBOX_RECENT_MESSAGES_LIMIT, Boolean(payload?.hasMore));
       setSelectedConversation(nextConversation);
       selectedConversationRef.current = nextConversation;
       rememberConversationDetail(nextConversation);
@@ -6189,19 +6320,19 @@ function InboxDesktopClientPage() {
       const latestRealMessage = getInboxLatestRealMessage(nextMessages);
       const latestKey = getInboxMessageStableKey(latestMessage);
       const previousKey = activeConversationLatestMessageKeyRef.current[conversationId] || "";
-      const nextConversation: InboxConversation = {
+      const nextConversation: InboxConversation = markInboxConversationMessagePageLimit({
         ...currentConversation,
         messages: nextMessages,
         lastRealMessageAt: latestRealMessage?.createdAt || currentConversation.lastRealMessageAt || currentConversation.lastMessageAt || null,
         lastMessageAt: latestRealMessage?.createdAt || currentConversation.lastRealMessageAt || currentConversation.lastMessageAt || null,
         updatedAt: latestMessage?.createdAt || currentConversation.updatedAt,
-      };
+      }, INBOX_RECENT_MESSAGES_LIMIT, Boolean(payload?.hasMore));
 
       setSelectedConversation(nextConversation);
       selectedConversationRef.current = nextConversation;
       rememberConversationDetail(nextConversation);
       setOlderMessagesBefore(getInboxOldestMessageDate(nextMessages));
-      setOlderMessagesHasMore((nextMessages?.length || 0) >= INBOX_RECENT_MESSAGES_LIMIT || Boolean(payload?.hasMore));
+      setOlderMessagesHasMore(Boolean(payload?.hasMore));
       setLastConversationSyncAt(new Date().toISOString());
 
       setConversations((current) =>
@@ -8542,6 +8673,7 @@ function InboxDesktopClientPage() {
       setSending(true);
       setError(null);
       let optimisticMessageId: string | null = null;
+      let optimisticMessage: InboxMessage | null = null;
       const optimisticCreatedAt = new Date().toISOString();
       const initialText = sendText.trim();
       const quotedMessageId = replyingTo?.id;
@@ -8549,15 +8681,16 @@ function InboxDesktopClientPage() {
       const enqueueOptimisticMessage = (content: string, attachment?: Parameters<typeof buildOptimisticInboxMessage>[0]["attachment"]) => {
         if (optimisticMessageId) return;
         optimisticMessageId = `optimistic-${selectedId}-${Date.now()}`;
+        optimisticMessage = buildOptimisticInboxMessage({
+          id: optimisticMessageId,
+          content,
+          createdAt: optimisticCreatedAt,
+          quotedPreview,
+          attachment,
+        });
         upsertOptimisticMessage(
           selectedId,
-          buildOptimisticInboxMessage({
-            id: optimisticMessageId,
-            content,
-            createdAt: optimisticCreatedAt,
-            quotedPreview,
-            attachment,
-          }),
+          optimisticMessage,
         );
         chatTimelineStickToBottomRef.current = true;
         setShowScrollToBottom(false);
@@ -8626,16 +8759,22 @@ function InboxDesktopClientPage() {
         });
         chatTimelineStickToBottomRef.current = true;
         setShowScrollToBottom(false);
-        setSelectedConversation(data);
-        selectedConversationRef.current = data;
-        rememberConversationDetail(data);
-        const latestMessage = getInboxLatestMessage(data.messages);
+        const normalizedData = normalizeInboxConversationPayload(data) || data;
+        const nextConversation = reconcileInboxConversationAfterSend(
+          selectedConversationRef.current,
+          normalizedData,
+          optimisticMessage,
+        );
+        setSelectedConversation(nextConversation);
+        selectedConversationRef.current = nextConversation;
+        rememberConversationDetail(nextConversation);
+        const latestMessage = getInboxLatestMessage(nextConversation.messages);
         const latestKey = getInboxMessageStableKey(latestMessage);
         if (latestKey) {
-          activeConversationLatestMessageKeyRef.current[data.id] = latestKey;
+          activeConversationLatestMessageKeyRef.current[nextConversation.id] = latestKey;
         }
         setNotice({ tone: "success", text: "Mensagem manual enfileirada com sucesso." });
-        void loadConversations({ preferredId: data.id, silent: true });
+        void loadConversations({ preferredId: nextConversation.id, silent: true });
       } catch (sendError) {
         const message = sendError instanceof Error ? sendError.message : "Falha ao enviar mensagem.";
         if (optimisticMessageId) {
@@ -8774,6 +8913,7 @@ function InboxDesktopClientPage() {
     setSending(true);
     setError(null);
     let optimisticMessageId: string | null = null;
+    let optimisticMessage: InboxMessage | null = null;
     try {
       const ext = audioPreview.mimeType.includes("ogg") ? ".ogg" : ".webm";
       const file = new File([audioPreview.blob], `voz_${Date.now()}${ext}`, { type: audioPreview.mimeType });
@@ -8784,23 +8924,24 @@ function InboxDesktopClientPage() {
         { method: "POST", body: formData },
       );
       optimisticMessageId = `optimistic-${selectedId}-${Date.now()}`;
+      optimisticMessage = buildOptimisticInboxMessage({
+        id: optimisticMessageId,
+        content: mediaResult.url,
+        createdAt: new Date().toISOString(),
+        attachment: {
+          kind: "audio",
+          url: mediaResult.url,
+          previewUrl: mediaResult.url,
+          mimeType: mediaResult.mimeType,
+          fileName: mediaResult.filename,
+          fileSize: mediaResult.size,
+          durationSeconds: audioPreview.seconds,
+          isVoiceNote: true,
+        },
+      });
       upsertOptimisticMessage(
         selectedId,
-        buildOptimisticInboxMessage({
-          id: optimisticMessageId,
-          content: mediaResult.url,
-          createdAt: new Date().toISOString(),
-          attachment: {
-            kind: "audio",
-            url: mediaResult.url,
-            previewUrl: mediaResult.url,
-            mimeType: mediaResult.mimeType,
-            fileName: mediaResult.filename,
-            fileSize: mediaResult.size,
-            durationSeconds: audioPreview.seconds,
-            isVoiceNote: true,
-          },
-        }),
+        optimisticMessage,
       );
       chatTimelineStickToBottomRef.current = true;
       setShowScrollToBottom(false);
@@ -8821,11 +8962,17 @@ function InboxDesktopClientPage() {
       setAudioPreview(null);
       chatTimelineStickToBottomRef.current = true;
       setShowScrollToBottom(false);
-      setSelectedConversation(data);
-      selectedConversationRef.current = data;
-      rememberConversationDetail(data);
+      const normalizedData = normalizeInboxConversationPayload(data) || data;
+      const nextConversation = reconcileInboxConversationAfterSend(
+        selectedConversationRef.current,
+        normalizedData,
+        optimisticMessage,
+      );
+      setSelectedConversation(nextConversation);
+      selectedConversationRef.current = nextConversation;
+      rememberConversationDetail(nextConversation);
       setNotice({ tone: "success", text: "Áudio enfileirado com sucesso." });
-      void loadConversations({ preferredId: data.id, silent: true });
+      void loadConversations({ preferredId: nextConversation.id, silent: true });
     } catch (sendError) {
       const message = sendError instanceof Error ? sendError.message : "Falha ao enviar áudio.";
       if (optimisticMessageId) {
