@@ -89,8 +89,7 @@ const EMPLOYEE_BLOCKED_MODULE_KEYS = new Set([
   'exclusoes',
 ]);
 const SELLER_MOBILE_OPERATIONAL_MODULE_KEYS = new Set(['vendas', 'webscraping']);
-const SELLER_DESKTOP_OPERATIONAL_MODULE_KEYS = new Set(['vendas']);
-const HBX_SELLER_OPERATIONAL_MODULE_KEYS = new Set(['vendas', 'webscraping']);
+const SELLER_DESKTOP_OPERATIONAL_MODULE_KEYS = new Set(['vendas', 'webscraping']);
 const MODULE_DISPLAY_ORDER = [
   'atendimento',
   'vendas',
@@ -155,6 +154,7 @@ type WebscrapingUsageSummary = ReturnType<ModulesService['buildDefaultWebscrapin
 type ModuleAccessContext = {
   mobileRoute?: boolean;
 };
+type AccessGovernor = 'HBX_MASTER' | 'COMPANY_ADMIN';
 
 @Injectable()
 export class ModulesService implements OnModuleInit {
@@ -1938,15 +1938,11 @@ export class ModulesService implements OnModuleInit {
     const role = String(user?.role || '').trim().toUpperCase();
     if (role !== 'USER') return false;
     if (SELLER_DESKTOP_OPERATIONAL_MODULE_KEYS.has(normalized)) return true;
-    return Boolean(context?.mobileRoute) && SELLER_MOBILE_OPERATIONAL_MODULE_KEYS.has(normalized);
+    return this.canUseSellerMobileOperationalModule(user, normalized, context);
   }
 
   private isHbxSellerNetworkCompanySnapshot(company: any) {
     return String(company?.slug || '').trim().toLowerCase() === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG;
-  }
-
-  private isHbxSellerOperationalModule(moduleKey: string) {
-    return HBX_SELLER_OPERATIONAL_MODULE_KEYS.has(this.normalizeRequestedModuleKey(moduleKey));
   }
 
   private canUseAdminOnlyModule(user: any, moduleKey: string, context?: ModuleAccessContext) {
@@ -1957,11 +1953,56 @@ export class ModulesService implements OnModuleInit {
     return !EMPLOYEE_BLOCKED_MODULE_KEYS.has(normalized);
   }
 
-  private defaultUserModuleAllowed(user: any, moduleKey: string, context?: ModuleAccessContext) {
+  private defaultUserModuleAllowed(user: any, moduleKey: string, context?: ModuleAccessContext, company?: any) {
     if (!this.canUseAdminOnlyModule(user, moduleKey, context)) {
       return false;
     }
+    const normalized = this.normalizeRequestedModuleKey(moduleKey);
+    const role = String(user?.role || '').trim().toUpperCase();
+    if (role === 'USER' && this.canUseSellerOperationalModule(user, normalized, context)) {
+      if (this.isHbxSellerNetworkCompanySnapshot(company)) return true;
+      if (normalized === 'vendas') return true;
+      return this.canUseSellerMobileOperationalModule(user, normalized, context);
+    }
     return true;
+  }
+
+  private resolveAccessGovernor(targetUser: any, targetCompany: any): AccessGovernor {
+    if (this.isHbxSellerNetworkCompanySnapshot(targetCompany || targetUser?.company)) {
+      return 'HBX_MASTER';
+    }
+    return 'COMPANY_ADMIN';
+  }
+
+  private assertCanGovernSellerAccess(input: {
+    actor: any;
+    actorCompanyId?: number | null;
+    isSystemMaster?: boolean;
+    targetUser: any;
+    targetCompany: any;
+  }) {
+    const targetCompanyId = Math.trunc(Number(input.targetUser?.companyId || input.targetCompany?.id || 0));
+    if (!targetCompanyId) throw new ForbiddenException('Usuario alvo sem empresa governavel.');
+    if (Boolean(input.targetUser?.isSystemMaster)) {
+      throw new ForbiddenException('Permissoes do MASTER nao sao editadas por este fluxo.');
+    }
+
+    const governor = this.resolveAccessGovernor(input.targetUser, input.targetCompany);
+    if (governor === 'HBX_MASTER') {
+      if (!input.isSystemMaster) {
+        throw new ForbiddenException('Apenas o MASTER HBX pode alterar vendedor da operacao HBX.');
+      }
+      return;
+    }
+
+    if (input.isSystemMaster) return;
+
+    const actorRole = String(input.actor?.role || '').trim().toUpperCase();
+    const actorCompanyId = Math.trunc(Number(input.actorCompanyId || input.actor?.companyId || 0));
+    if (actorRole !== 'ADMIN') throw new ForbiddenException('Admin role required');
+    if (!actorCompanyId || actorCompanyId !== targetCompanyId) {
+      throw new ForbiddenException('Admin so pode alterar vendedores da propria empresa.');
+    }
   }
 
   async canUserAccessModule(userId: number, moduleKey: string, context?: ModuleAccessContext) {
@@ -2036,14 +2077,11 @@ export class ModulesService implements OnModuleInit {
               },
             },
           });
-      const sellerOperationalModule = this.canUseSellerOperationalModule(user, moduleItem.key, context);
       const userAllowed = isSystemMaster
         ? true
-        : sellerOperationalModule
-          ? true
         : userAccess
           ? Boolean(userAccess.allowed)
-          : this.defaultUserModuleAllowed(user, moduleItem.key, context);
+          : this.defaultUserModuleAllowed(user, moduleItem.key, context, companyAccessSnapshot);
       if (!userAllowed) continue;
 
       if (accessPolicy.moduleKeys.has(normalizedModuleKey)) {
@@ -2200,14 +2238,11 @@ export class ModulesService implements OnModuleInit {
         const planManagedModule = planManagedModuleKeys.has(normalizedKey);
         const financeModule = this.isFinanceModuleKey(normalizedKey);
         const effectiveCompanyEnabled = Boolean(row?.enabled || (accessPolicy.active && planAllowsModule));
-        const sellerOperationalModule = this.canUseSellerOperationalModule(user, moduleItem.key, context);
         const userAllowed = isSystemMaster
           ? true
-          : sellerOperationalModule
-            ? true
           : (row && userAccessMap.has(row.moduleId)
               ? Boolean(userAccessMap.get(row.moduleId))
-              : this.defaultUserModuleAllowed(user, moduleItem.key, context));
+              : this.defaultUserModuleAllowed(user, moduleItem.key, context, company));
         const roleEligible = this.canUseAdminOnlyModule(user, moduleItem.key, context);
         const visible =
           primaryCommercialModule ||
@@ -2325,7 +2360,6 @@ export class ModulesService implements OnModuleInit {
       }),
     ]);
     const accessPolicy = resolveCompanyModuleAccessPolicy(company);
-    const hbxSellerNetworkCompany = this.isHbxSellerNetworkCompanySnapshot(company);
     const planManagedModuleKeys = new Set(
       Object.values(COMMERCIAL_PLAN_MODULE_KEYS)
         .flat()
@@ -2359,20 +2393,17 @@ export class ModulesService implements OnModuleInit {
       })),
       users: users.map((u) => {
         const userMap = accessByUser.get(u.id) || new Map<number, boolean>();
-        const hbxSeller = hbxSellerNetworkCompany && String(u.role || '').trim().toUpperCase() === 'USER';
         return {
           id: u.id,
           username: u.username,
           email: u.email,
           role: u.role,
           modules: modules.map((m) => {
-            const hbxSellerOperationalModule = hbxSeller && this.isHbxSellerOperationalModule(m.key);
             return {
               key: m.key,
-              allowed: hbxSellerOperationalModule
-                ? true
-                : this.canUseAdminOnlyModule(u, m.key) &&
-                  (userMap.has(m.id) ? Boolean(userMap.get(m.id)) : this.defaultUserModuleAllowed(u, m.key)),
+              allowed:
+                this.canUseAdminOnlyModule(u, m.key) &&
+                (userMap.has(m.id) ? Boolean(userMap.get(m.id)) : this.defaultUserModuleAllowed(u, m.key, undefined, company)),
             };
           }),
         };
@@ -2384,18 +2415,24 @@ export class ModulesService implements OnModuleInit {
     await this.ensureDefaultSystemModules();
     const { user, companyId, isSystemMaster } = await this.resolveUserContext(adminUserId);
     const isAdmin = String((user as any).role || '').toUpperCase() === 'ADMIN';
-    if (!companyId || (!isAdmin && !isSystemMaster)) throw new ForbiddenException('Admin role required');
+    if (!isSystemMaster && (!companyId || !isAdmin)) throw new ForbiddenException('Admin role required');
 
     const target = await this.usersService.findById(targetUserId);
     if (!target) throw new BadRequestException('Usuario alvo nao encontrado');
-    if (Number(target.companyId || 0) !== companyId) throw new ForbiddenException('Usuario fora da sua empresa');
-    const company = await this.prisma.company.findUnique({
-      where: { id: companyId },
-      select: { slug: true },
+    const targetCompanyId = Math.trunc(Number((target as any).companyId || 0));
+    const company = targetCompanyId
+      ? await this.prisma.company.findUnique({
+          where: { id: targetCompanyId },
+          select: { slug: true },
+        })
+      : null;
+    this.assertCanGovernSellerAccess({
+      actor: user,
+      actorCompanyId: companyId,
+      isSystemMaster,
+      targetUser: target,
+      targetCompany: company,
     });
-    const hbxSeller =
-      this.isHbxSellerNetworkCompanySnapshot(company) &&
-      String((target as any).role || '').trim().toUpperCase() === 'USER';
 
     const modules = await this.prisma.systemModule.findMany({
       where: { companyAssignable: true, key: { notIn: RETIRED_MODULE_KEYS } },
@@ -2407,9 +2444,7 @@ export class ModulesService implements OnModuleInit {
         const normalizedKey = this.normalizeRequestedModuleKey(permission.key);
         const moduleItem = byKey.get(normalizedKey);
         if (!moduleItem) continue;
-        const allowed = hbxSeller && this.isHbxSellerOperationalModule(normalizedKey)
-          ? true
-          : Boolean(permission.allowed);
+        const allowed = Boolean(permission.allowed);
 
         await tx.userModuleAccess.upsert({
           where: {
@@ -2426,29 +2461,8 @@ export class ModulesService implements OnModuleInit {
           },
         });
       }
-
-      if (hbxSeller) {
-        for (const moduleKey of HBX_SELLER_OPERATIONAL_MODULE_KEYS) {
-          const moduleItem = byKey.get(moduleKey);
-          if (!moduleItem) continue;
-          await tx.userModuleAccess.upsert({
-            where: {
-              userId_moduleId: {
-                userId: targetUserId,
-                moduleId: moduleItem.id,
-              },
-            },
-            update: { allowed: true },
-            create: {
-              userId: targetUserId,
-              moduleId: moduleItem.id,
-              allowed: true,
-            },
-          });
-        }
-      }
     });
-    await this.ensureTrialBundleForCompany(companyId);
+    if (targetCompanyId) await this.ensureTrialBundleForCompany(targetCompanyId);
 
     return { ok: true };
   }

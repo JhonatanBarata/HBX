@@ -142,14 +142,55 @@ test('expired/canceled blocks modules', () => {
   assert.deepEqual([...expired.moduleKeys], []);
 });
 
-test('USER seller role can use Vendas desktop and only Radar on mobile route', () => {
+test('USER seller role is desktop-eligible for Radar but legacy default only opens Radar on mobile', () => {
   const service = new ModulesService({} as any, {} as any, {} as any, {} as any, {} as any, {} as any) as any;
   const seller = { role: 'USER', isSystemMaster: false };
 
   assert.equal(service.canUseAdminOnlyModule(seller, 'vendas', {}), true);
-  assert.equal(service.canUseAdminOnlyModule(seller, 'webscraping', {}), false);
+  assert.equal(service.canUseAdminOnlyModule(seller, 'webscraping', {}), true);
   assert.equal(service.canUseAdminOnlyModule(seller, 'webscraping', { mobileRoute: true }), true);
+  assert.equal(service.defaultUserModuleAllowed(seller, 'vendas', {}), true);
+  assert.equal(service.defaultUserModuleAllowed(seller, 'webscraping', {}), false);
+  assert.equal(service.defaultUserModuleAllowed(seller, 'webscraping', { mobileRoute: true }), true);
   assert.equal(service.canUseAdminOnlyModule(seller, 'gerencial', { mobileRoute: true }), false);
   assert.equal(service.canUseAdminOnlyModule(seller, 'financeiro', { mobileRoute: true }), false);
   assert.equal(service.canUseAdminOnlyModule(seller, 'cadastro', { mobileRoute: true }), false);
+});
+
+test('HBX operation seller defaults to Radar and Vendas until Master config overrides it', () => {
+  const service = new ModulesService({} as any, {} as any, {} as any, {} as any, {} as any, {} as any) as any;
+  const seller = { role: 'USER', isSystemMaster: false };
+  const company = { slug: 'hbx-master-whatsapp-engine' };
+
+  assert.equal(service.resolveAccessGovernor(seller, company), 'HBX_MASTER');
+  assert.equal(service.defaultUserModuleAllowed(seller, 'vendas', {}, company), true);
+  assert.equal(service.defaultUserModuleAllowed(seller, 'webscraping', {}, company), true);
+});
+
+test('seller access governance separates client admin from HBX Master', () => {
+  const service = new ModulesService({} as any, {} as any, {} as any, {} as any, {} as any, {} as any) as any;
+
+  assert.doesNotThrow(() => service.assertCanGovernSellerAccess({
+    actor: { role: 'ADMIN', companyId: 10 },
+    actorCompanyId: 10,
+    isSystemMaster: false,
+    targetUser: { id: 2, companyId: 10, role: 'USER' },
+    targetCompany: { id: 10, slug: 'cliente-a' },
+  }));
+
+  assert.throws(() => service.assertCanGovernSellerAccess({
+    actor: { role: 'ADMIN', companyId: 10 },
+    actorCompanyId: 10,
+    isSystemMaster: false,
+    targetUser: { id: 3, companyId: 20, role: 'USER' },
+    targetCompany: { id: 20, slug: 'hbx-master-whatsapp-engine' },
+  }));
+
+  assert.doesNotThrow(() => service.assertCanGovernSellerAccess({
+    actor: { role: 'USERMASTER', isSystemMaster: true },
+    actorCompanyId: null,
+    isSystemMaster: true,
+    targetUser: { id: 3, companyId: 20, role: 'USER' },
+    targetCompany: { id: 20, slug: 'hbx-master-whatsapp-engine' },
+  }));
 });
