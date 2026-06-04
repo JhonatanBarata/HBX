@@ -148,6 +148,10 @@ export type InboxConversation = {
 export type InboxBootstrapPayload = {
   conversations: InboxConversation[];
   selectedConversation: InboxConversation | null;
+  selectedConversationId?: string | null;
+  bootstrapMode?: "light" | "full" | string;
+  hasMoreConversations?: boolean;
+  nextSkip?: number | null;
   providerWarning?: {
     code?: string | null;
     message?: string | null;

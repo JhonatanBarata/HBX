@@ -685,6 +685,15 @@ function normalizeInboxConversationId(value: unknown) {
   return normalized;
 }
 
+function isRequestAbortError(error: unknown) {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      "name" in error &&
+      (error as { name?: unknown }).name === "AbortError",
+  );
+}
+
 function getInboxConversationRuntimeId(conversation: unknown) {
   if (!conversation || typeof conversation !== "object" || Array.isArray(conversation)) {
     return null;
@@ -2361,6 +2370,7 @@ function makeClientId(prefix: string) {
 
 const INBOX_RECENT_MESSAGES_LIMIT = 20;
 const INBOX_CONVERSATION_LIST_LIMIT = 20;
+const INBOX_BOOTSTRAP_LIGHT_TAKE = 40;
 const INBOX_CONVERSATION_AUTOFILL_MAX = 120;
 const WHATSAPP_ASSET_EXPIRY_GRACE_MS = 5 * 60 * 1000;
 
@@ -5249,6 +5259,11 @@ function InboxDesktopClientPage() {
   const activeConversationLatestMessageKeyRef = useRef<Record<string, string>>({});
   const inboxQueueRef = useRef<InboxQueue>("all");
   const conversationLoadTokenRef = useRef(0);
+  const bootstrapAbortControllerRef = useRef<AbortController | null>(null);
+  const conversationDetailAbortControllerRef = useRef<AbortController | null>(null);
+  const loadConversationRef = useRef<
+    ((id: string | null | undefined, options?: { silent?: boolean; forceRefresh?: boolean }) => Promise<void>) | null
+  >(null);
   const customerConversationCardLoadTokenRef = useRef(0);
   const botConfigLoadedRef = useRef(false);
   const agendaConfigLoadedRef = useRef(false);
@@ -5266,6 +5281,13 @@ function InboxDesktopClientPage() {
   const botAiActive = hasBotAi(commercialPlans);
   const botSetupComplete = isAtendimentoBotSetupComplete(botConfig);
   const globalBotEnabled = botAiActive && botSetupComplete && botConfig.routingRules.globalBotEnabled !== false;
+
+  useEffect(() => {
+    return () => {
+      bootstrapAbortControllerRef.current?.abort();
+      conversationDetailAbortControllerRef.current?.abort();
+    };
+  }, []);
 
   const saveComposerDraft = useCallback((conversationId: string | null | undefined, value: string) => {
     const normalizedId = normalizeInboxConversationId(conversationId);
@@ -5637,13 +5659,20 @@ function InboxDesktopClientPage() {
   }, [rememberConversationDetail]);
 
   const bootstrapInbox = useCallback(async (options?: { take?: number }) => {
-    const take = Math.max(
+    const requestedTake = Math.max(
       1,
-      Math.min(
-        120,
-        Number(options?.take || INBOX_CONVERSATION_LIST_LIMIT) || INBOX_CONVERSATION_LIST_LIMIT,
-      ),
+      Math.min(120, Number(options?.take || INBOX_BOOTSTRAP_LIGHT_TAKE) || INBOX_BOOTSTRAP_LIGHT_TAKE),
     );
+    const take = Math.max(INBOX_BOOTSTRAP_LIGHT_TAKE, requestedTake);
+    bootstrapAbortControllerRef.current?.abort();
+    conversationDetailAbortControllerRef.current?.abort();
+    conversationDetailAbortControllerRef.current = null;
+    conversationLoadTokenRef.current += 1;
+
+    const controller = new AbortController();
+    bootstrapAbortControllerRef.current = controller;
+    let keepConversationLoading = false;
+
     setBootstrapReady(false);
     setLoadingList(true);
     setLoadingConversation(true);
@@ -5651,11 +5680,25 @@ function InboxDesktopClientPage() {
     setConversationListError(null);
     setConversationDetailError(null);
     try {
-      const query = new URLSearchParams({ take: String(take) });
-      const payload = await apiFetch<InboxBootstrapPayload>(`/inbox/bootstrap?${query.toString()}`, {
-        requireAuth: true,
-        timeoutMs: 25000,
-      });
+      const fetchBootstrap = (light: boolean) => {
+        const query = new URLSearchParams({ take: String(take) });
+        if (light) query.set("light", "true");
+        return apiFetch<InboxBootstrapPayload>(`/inbox/bootstrap?${query.toString()}`, {
+          requireAuth: true,
+          signal: controller.signal,
+          timeoutMs: 25000,
+        });
+      };
+
+      let payload: InboxBootstrapPayload | null = null;
+      try {
+        payload = await fetchBootstrap(true);
+      } catch (lightLoadError) {
+        if (isRequestAbortError(lightLoadError) || controller.signal.aborted) return;
+        payload = await fetchBootstrap(false);
+      }
+
+      if (!payload || controller.signal.aborted || bootstrapAbortControllerRef.current !== controller) return;
       setWhatsappSession(payload?.whatsappSession || null);
       setWhatsappSessionCleanup(payload?.whatsappSessionCleanup || null);
       setProviderWarning(payload?.providerWarning || null);
@@ -5677,22 +5720,45 @@ function InboxDesktopClientPage() {
       );
       const normalizedDetail = normalizeInboxConversationPayload(payload?.selectedConversation);
       const detail = normalizedDetail || null;
-      const preferredId = detail?.id || nextList[0]?.id || null;
+      const payloadSelectedId = normalizeInboxConversationId(payload?.selectedConversationId);
+      const preferredId = detail?.id || payloadSelectedId || nextList[0]?.id || null;
       const summary = preferredId
         ? nextList.find((conversation) => conversation.id === preferredId) || null
         : null;
       const mergedSelected = mergeInboxConversationSummary(summary, detail);
+      const selectedForView = detail ? mergedSelected : markInboxConversationAsSummaryOnly(mergedSelected);
+      const selectedForViewId = selectedForView?.id || preferredId || null;
+      const hasMoreConversations =
+        typeof payload?.hasMoreConversations === "boolean"
+          ? payload.hasMoreConversations
+          : nextList.length >= take;
 
       setConversations(nextList);
-      setSelectedId(mergedSelected?.id || preferredId);
-      setSelectedConversation(mergedSelected);
-      rememberConversationDetail(mergedSelected);
-      setOlderMessagesBefore(getInboxOldestMessageDate(mergedSelected?.messages));
-      setOlderMessagesHasMore((mergedSelected?.messages?.length || 0) >= INBOX_RECENT_MESSAGES_LIMIT);
-      setConversationListHasMoreByQueue(buildInboxQueueBooleanMap(nextList.length >= take));
+      conversationsRef.current = nextList;
+      setSelectedId(selectedForViewId);
+      selectedIdRef.current = selectedForViewId || null;
+      setSelectedConversation(selectedForView);
+      selectedConversationRef.current = selectedForView;
+      rememberConversationDetail(selectedForView);
+      setOlderMessagesBefore(getInboxOldestMessageDate(selectedForView?.messages));
+      setOlderMessagesHasMore((selectedForView?.messages?.length || 0) >= INBOX_RECENT_MESSAGES_LIMIT);
+      setConversationListHasMoreByQueue(buildInboxQueueBooleanMap(hasMoreConversations));
       setLastConversationSyncAt(new Date().toISOString());
       setBootstrapReady(true);
+
+      const detailLoader = !detail && preferredId ? loadConversationRef.current : null;
+      keepConversationLoading = Boolean(detailLoader && preferredId);
+      if (detailLoader && preferredId) {
+        void detailLoader(preferredId, { forceRefresh: true });
+      }
     } catch (loadError) {
+      if (
+        isRequestAbortError(loadError) ||
+        controller.signal.aborted ||
+        bootstrapAbortControllerRef.current !== controller
+      ) {
+        return;
+      }
       const message =
         loadError instanceof Error ? loadError.message : "Falha ao carregar a inbox.";
       setConversationListError(message);
@@ -5704,8 +5770,11 @@ function InboxDesktopClientPage() {
         setSelectedConversation(null);
       }
     } finally {
-      setLoadingList(false);
-      setLoadingConversation(false);
+      if (bootstrapAbortControllerRef.current === controller) {
+        setLoadingList(false);
+        if (!keepConversationLoading) setLoadingConversation(false);
+        bootstrapAbortControllerRef.current = null;
+      }
     }
   }, [rememberConversationDetail]);
 
@@ -5773,6 +5842,9 @@ function InboxDesktopClientPage() {
     const silent = options?.silent ?? false;
     const forceRefresh = options?.forceRefresh ?? false;
     const conversationId = normalizeInboxConversationId(id);
+    const requestToken = ++conversationLoadTokenRef.current;
+    conversationDetailAbortControllerRef.current?.abort();
+    conversationDetailAbortControllerRef.current = null;
     if (!conversationId) {
       const message = "Conversa sem identificador valido. Recarregue a fila para sincronizar novamente.";
       setConversationDetailError(message);
@@ -5783,7 +5855,6 @@ function InboxDesktopClientPage() {
       return;
     }
 
-    const requestToken = ++conversationLoadTokenRef.current;
     const summary =
       conversationsRef.current.find((conversation) => conversation.id === conversationId) || null;
     const cachedDetail =
@@ -5822,9 +5893,12 @@ function InboxDesktopClientPage() {
       return;
     }
     if (!silent && !cachedDetail) setLoadingConversation(true);
+    const controller = new AbortController();
+    conversationDetailAbortControllerRef.current = controller;
     try {
       const rawData = await apiFetch<InboxConversation>(`/inbox/conversations/${conversationId}`, {
         requireAuth: true,
+        signal: controller.signal,
         timeoutMs: 10000,
       });
       const data = normalizeInboxConversationPayload(rawData);
@@ -5832,7 +5906,11 @@ function InboxDesktopClientPage() {
         throw new Error("Conversa sem identificador valido retornada pelo servidor.");
       }
 
-      if (requestToken !== conversationLoadTokenRef.current) {
+      if (
+        requestToken !== conversationLoadTokenRef.current ||
+        controller.signal.aborted ||
+        conversationDetailAbortControllerRef.current !== controller
+      ) {
         return;
       }
 
@@ -5883,7 +5961,12 @@ function InboxDesktopClientPage() {
       setConversationDetailError(null);
       setBootstrapReady(true);
     } catch (loadError) {
-      if (requestToken !== conversationLoadTokenRef.current) {
+      if (
+        requestToken !== conversationLoadTokenRef.current ||
+        isRequestAbortError(loadError) ||
+        controller.signal.aborted ||
+        conversationDetailAbortControllerRef.current !== controller
+      ) {
         return;
       }
       const message =
@@ -5894,11 +5977,22 @@ function InboxDesktopClientPage() {
         setWhatsappAccessBlocked(true);
       }
     } finally {
-      if (!silent && requestToken === conversationLoadTokenRef.current) {
+      if (
+        requestToken === conversationLoadTokenRef.current &&
+        selectedIdRef.current === conversationId &&
+        conversationDetailAbortControllerRef.current === controller
+      ) {
         setLoadingConversation(false);
+      }
+      if (conversationDetailAbortControllerRef.current === controller) {
+        conversationDetailAbortControllerRef.current = null;
       }
     }
   }, [markConversationRead, rememberConversationDetail]);
+
+  useEffect(() => {
+    loadConversationRef.current = loadConversation;
+  }, [loadConversation]);
 
   const loadOlderMessages = useCallback(async () => {
     const conversationId = normalizeInboxConversationId(selectedIdRef.current || selectedId);
