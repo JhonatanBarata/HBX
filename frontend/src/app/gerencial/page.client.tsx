@@ -5,6 +5,11 @@ import DashboardScaffold from "@/components/DashboardScaffold";
 import HbxGuide1, { type HbxGuide1Tab } from "@/components/HbxGuide1";
 import HbxMobileDock from "@/components/mobile/HbxMobileDock";
 import { HbxEmptyState, HbxSection, HbxStatusBadge } from "@/components/ui";
+import CommissionSummaryPanel from "./_components/CommissionSummaryPanel";
+import PartnerCreateForm from "./_components/PartnerCreateForm";
+import PartnerOnboardingPanel from "./_components/PartnerOnboardingPanel";
+import ReferralCandidatesPanel from "./_components/ReferralCandidatesPanel";
+import TeamListPanel from "./_components/TeamListPanel";
 import { apiFetch, getDashboardApiBaseUrl, getToken } from "@/app/_lib/api";
 import { startSmartPolling } from "@/app/_lib/polling";
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
@@ -450,22 +455,6 @@ function candidatePreferredSegmentsLabel(candidate: HbxPartnerReferralCandidate)
   } catch {
     return raw;
   }
-}
-
-function referralCandidateStatusLabel(status?: string | null) {
-  const normalized = String(status || "").toLowerCase();
-  if (normalized === "approved") return "Aprovada";
-  if (normalized === "converted") return "Convertida";
-  if (normalized === "rejected") return "Rejeitada";
-  return "Pendente";
-}
-
-function referralCandidateStatusTone(status?: string | null): "brand" | "success" | "warning" | "danger" {
-  const normalized = String(status || "").toLowerCase();
-  if (normalized === "approved") return "success";
-  if (normalized === "converted") return "brand";
-  if (normalized === "rejected") return "danger";
-  return "warning";
 }
 
 function buildProfileDraft(user: UserItem): UserProfileDraft {
@@ -2104,253 +2093,61 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
 
   function renderReferralCandidatesPanel(surface: "mobile" | "desktop" = "desktop") {
     if (!isHbxSellerNetwork) return null;
-    const isMobile = surface === "mobile";
-    const pendingCount = referralCandidates.length;
-    const containerClass = isMobile
-      ? "hbx-mobile-card grid gap-3"
-      : "mb-4";
-    const itemClass = isMobile
-      ? "rounded-[16px] border border-[var(--hbx-mobile-border)] bg-[var(--hbx-mobile-surface-soft)] p-3"
-      : "rounded-[14px] border border-[var(--line)] bg-[var(--surface)] p-3";
-
-    const panelBody = pendingCount === 0 ? (
-      <HbxEmptyState
-        title="Nenhuma indicação pendente ou aprovada."
-        description="Quando um parceiro HBX indicar nome e telefone, o pedido aparece aqui para aprovação do Master HBX."
-      />
-    ) : (
-      <div className={isMobile ? "grid gap-2" : "grid grid-cols-1 xl:grid-cols-2 gap-2"}>
-        {referralCandidates.map((candidate) => {
-          const busy = reviewingCandidateId === candidate.id;
-          return (
-            <article key={candidate.id} className={itemClass}>
-              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
-                <div className="min-w-0">
-                  <strong className="block truncate">{candidate.name}</strong>
-                  <span className={isMobile ? "text-xs text-[var(--hbx-mobile-muted)]" : "text-xs text-muted"}>
-                    {candidate.phone} · indicado por {candidate.referrerUser ? userLabel(candidate.referrerUser) : `#${candidate.referrerUserId}`}
-                  </span>
-                </div>
-                <HbxStatusBadge tone={referralCandidateStatusTone(candidate.status)}>
-                  {referralCandidateStatusLabel(candidate.status)} · {formatShortDate(candidate.createdAt)}
-                </HbxStatusBadge>
-              </div>
-              <div className={isMobile ? "mt-2 grid gap-1 text-sm" : "mt-3 grid grid-cols-1 md:grid-cols-2 gap-2 text-sm"}>
-                <div>
-                  <p className={isMobile ? "text-xs text-[var(--hbx-mobile-muted)]" : "text-xs text-muted"}>Segmentos preferidos</p>
-                  <strong className="block truncate">{candidatePreferredSegmentsLabel(candidate)}</strong>
-                </div>
-                <div>
-                  <p className={isMobile ? "text-xs text-[var(--hbx-mobile-muted)]" : "text-xs text-muted"}>Herança configurada</p>
-                  <strong className="block">
-                    {formatPercent(candidate.referrerUser?.sellerReferralCommissionPercent || 0)}
-                  </strong>
-                </div>
-              </div>
-              {candidate.note ? (
-                <p className={isMobile ? "mt-2 text-sm text-[var(--hbx-mobile-muted)]" : "mt-2 text-xs text-muted"}>{candidate.note}</p>
-              ) : null}
-              <div className={isMobile ? "mt-3 grid grid-cols-2 gap-2" : "mt-3 flex flex-wrap gap-2"}>
-                {candidate.status === "pending" ? (
-                  <button
-                    type="button"
-                    disabled={busy || reviewingCandidateId !== null}
-                    onClick={() => void reviewReferralCandidate(candidate, "approve")}
-                    className={isMobile ? "hbx-mobile-secondary-button" : "btn btn-secondary btn-sm"}
-                  >
-                    {busy ? "Processando..." : "Aprovar indicação"}
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  disabled={busy || reviewingCandidateId !== null}
-                  onClick={() => applyReferralCandidate(candidate)}
-                  className={isMobile ? "hbx-mobile-primary-button" : "btn btn-primary btn-sm"}
-                >
-                  Cadastrar agora
-                </button>
-                {candidate.status === "pending" ? (
-                  <button
-                    type="button"
-                    disabled={busy || reviewingCandidateId !== null}
-                    onClick={() => void reviewReferralCandidate(candidate, "reject")}
-                    className={isMobile ? "hbx-mobile-secondary-button" : "btn btn-secondary btn-sm"}
-                  >
-                    Rejeitar
-                  </button>
-                ) : null}
-              </div>
-            </article>
-          );
-        })}
-      </div>
-    );
-
-    if (!isMobile) {
-      return (
-        <HbxSection
-          className={containerClass}
-          eyebrow="Indicações ativas"
-          title="Pedidos de indicação"
-          aside={<HbxStatusBadge dot={false}>{pendingCount} ativa(s)</HbxStatusBadge>}
-        >
-          {panelBody}
-        </HbxSection>
-      );
-    }
-
     return (
-      <section className={containerClass}>
-        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
-          <div>
-            <HbxStatusBadge tone="brand" dot={false}>Indicações ativas</HbxStatusBadge>
-            <h3 className="text-base font-semibold">Pedidos de indicação</h3>
-          </div>
-          <HbxStatusBadge dot={false}>{pendingCount} ativa(s)</HbxStatusBadge>
-        </div>
-        {panelBody}
-      </section>
+      <ReferralCandidatesPanel
+        surface={surface}
+        candidates={referralCandidates}
+        reviewingCandidateId={reviewingCandidateId}
+        userLabel={userLabel}
+        candidatePreferredSegmentsLabel={candidatePreferredSegmentsLabel}
+        formatShortDate={formatShortDate}
+        formatPercent={formatPercent}
+        onReview={(candidate, action) => void reviewReferralCandidate(candidate, action)}
+        onApply={applyReferralCandidate}
+      />
     );
   }
 
   function renderMobileCreateForm() {
     return (
-      <form onSubmit={createCompanyUser} autoComplete="off" className="grid gap-3">
-        {renderReferralCandidatesPanel("mobile")}
-        <section className="hbx-mobile-card grid gap-3">
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <span className="text-xs font-bold uppercase text-[var(--hbx-mobile-primary)]">Novo acesso</span>
-              <h2 className="text-lg font-semibold">{isHbxSellerNetwork ? "Cadastrar Parceiro HBX" : "Cadastrar usuário"}</h2>
-            </div>
-            <span className="rounded-full border border-[var(--hbx-mobile-border)] px-3 py-1 text-xs font-bold">
-              {isHbxSellerNetwork ? "Parceiro HBX" : newUserRole === "USER" ? "Vendedor" : "Admin"}
-            </span>
-          </div>
-          {canCreateAdminUsers ? (
-            <div className="grid grid-cols-2 gap-2">
-              {(["USER", "ADMIN"] as const).map((role) => (
-                <button
-                  key={role}
-                  type="button"
-                  onClick={() => setNewUserRole(role)}
-                  className={newUserRole === role ? "hbx-mobile-primary-button" : "hbx-mobile-secondary-button"}
-                >
-                  {roleLabel(role)}
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-[16px] border border-[var(--hbx-mobile-border)] bg-[var(--hbx-mobile-surface-soft)] p-3 text-sm text-[var(--hbx-mobile-muted)]">
-              USERMASTER cria Parceiro HBX. Admin fica fora da rede de parceiros HBX.
-            </div>
-          )}
-          <input className="field" value={newUserName} onChange={(event) => setNewUserName(event.target.value)} placeholder="Nome" />
-          <input
-            className="field"
-            type="email"
-            name="hbx-create-seller-login"
-            autoComplete="off"
-            autoCapitalize="none"
-            value={newUserEmail}
-            onChange={(event) => setNewUserEmail(event.target.value)}
-            placeholder="E-mail"
-            required
-          />
-          <input className="field" type="tel" value={newUserPhone} onChange={(event) => setNewUserPhone(event.target.value)} placeholder="WhatsApp" />
-          {isHbxSellerNetwork && newUserRole === "USER" ? renderReferralMatchBox("mobile") : null}
-          <input
-            className="field disabled:opacity-60"
-            inputMode="decimal"
-            disabled={Boolean(selectedNewUserReferrer)}
-            value={selectedNewUserReferrer ? percentInputValue(selectedNewUserReferrer.commissionPercent) : newUserCommissionPercent}
-            onChange={(event) => setNewUserCommissionPercent(event.target.value)}
-            placeholder={selectedNewUserReferrer ? "Comissão herdada" : "Comissão %"}
-          />
-          <input
-            className="field"
-            type="password"
-            name="hbx-create-seller-password"
-            autoComplete="new-password"
-            value={newUserPassword}
-            onChange={(event) => setNewUserPassword(event.target.value)}
-            placeholder="Senha opcional"
-          />
-          {isHbxSellerNetwork && newUserRole === "USER" ? (
-            <div className="grid gap-2 rounded-[16px] border border-[var(--hbx-mobile-border)] bg-[var(--hbx-mobile-surface-soft)] p-3 text-sm">
-              <span>
-                <strong className="block">Parceiro HBX</strong>
-                <small className="text-[var(--hbx-mobile-muted)]">Dados iniciais para gerar o contrato de parceria HBX.</small>
-              </span>
-              <input className="field" value={newUserCpf} onChange={(event) => setNewUserCpf(event.target.value)} placeholder="CPF" />
-              <input className="field" value={newUserDeclaredAddress} onChange={(event) => setNewUserDeclaredAddress(event.target.value)} placeholder="Endereço declarado" />
-              <input
-                className="field"
-                inputMode="numeric"
-                value={newUserCommissionDueBusinessDays}
-                onChange={(event) => setNewUserCommissionDueBusinessDays(event.target.value)}
-                placeholder="Prazo D+ em dias úteis"
-              />
-            </div>
-          ) : null}
-        </section>
-
-        {isHbxSellerNetwork && newUserRole === "USER" ? (
-          <section className="hbx-mobile-card grid gap-3">
-            <div>
-              <span className="text-xs font-bold uppercase text-[var(--hbx-mobile-primary)]">Rede HBX</span>
-              <h3 className="text-base font-semibold">Indicação e herança</h3>
-            </div>
-            <input
-              className="field disabled:opacity-60"
-              inputMode="decimal"
-              disabled={Boolean(selectedNewUserReferrer)}
-              value={selectedNewUserReferrer ? percentInputValue(selectedNewUserReferrer.sellerReferralCommissionPercent) : newUserSellerReferralCommissionPercent}
-              onChange={(event) => setNewUserSellerReferralCommissionPercent(event.target.value)}
-              placeholder={selectedNewUserReferrer ? "Herança herdada" : "Herança que ele recebe %"}
-            />
-            <select
-              className="field"
-              value={newUserReferredByUserId}
-              onChange={(event) => {
-                const selectedReferrerId = event.target.value;
-                const selectedReferrer = hbxReferrers.find((referrer) => String(referrer.id) === selectedReferrerId);
-                setNewUserReferredByUserId(selectedReferrerId);
-                if (selectedReferrer) {
-                  setNewUserCommissionPercent(percentInputValue(selectedReferrer.commissionPercent));
-                  setNewUserSellerReferralCommissionPercent(percentInputValue(selectedReferrer.sellerReferralCommissionPercent));
-                  setNewUserReferredByCommissionPercent(percentInputValue(selectedReferrer.sellerReferralCommissionPercent));
-                }
-                if (!selectedReferrerId) setNewUserReferredByCommissionPercent("");
-              }}
-            >
-              <option value="">Direto HBX</option>
-              {hbxReferrers.map((referrer) => (
-                <option key={referrer.id} value={referrer.id}>
-                  {userLabel(referrer)} · {formatPercent(referrer.sellerReferralCommissionPercent)}
-                </option>
-              ))}
-            </select>
-            <input
-              className="field disabled:opacity-60"
-              inputMode="decimal"
-              disabled
-              value={selectedNewUserReferrer ? percentInputValue(selectedNewUserReferrer.sellerReferralCommissionPercent) : newUserReferredByCommissionPercent}
-              onChange={(event) => setNewUserReferredByCommissionPercent(event.target.value)}
-              placeholder="Herança automática do indicador"
-            />
-            {selectedNewUserReferrer ? (
-              <p className="text-xs text-[var(--hbx-mobile-muted)]">
-                Comissão e herança travadas pelo indicador {userLabel(selectedNewUserReferrer)}.
-              </p>
-            ) : null}
-          </section>
-        ) : null}
-
-        <button type="submit" disabled={creatingUser} className="hbx-mobile-primary-button">
-          {creatingUser ? "Criando..." : isHbxSellerNetwork ? "Criar Parceiro HBX" : newUserRole === "USER" ? "Criar vendedor" : "Criar admin"}
-        </button>
-      </form>
+      <PartnerCreateForm
+        onSubmit={createCompanyUser}
+        referralCandidatesPanel={renderReferralCandidatesPanel("mobile")}
+        referralMatchBox={renderReferralMatchBox("mobile")}
+        isHbxSellerNetwork={isHbxSellerNetwork}
+        canCreateAdminUsers={canCreateAdminUsers}
+        newUserRole={newUserRole}
+        setNewUserRole={setNewUserRole}
+        roleLabel={roleLabel}
+        newUserName={newUserName}
+        setNewUserName={setNewUserName}
+        newUserEmail={newUserEmail}
+        setNewUserEmail={setNewUserEmail}
+        newUserPhone={newUserPhone}
+        setNewUserPhone={setNewUserPhone}
+        newUserCommissionPercent={newUserCommissionPercent}
+        setNewUserCommissionPercent={setNewUserCommissionPercent}
+        newUserPassword={newUserPassword}
+        setNewUserPassword={setNewUserPassword}
+        newUserCpf={newUserCpf}
+        setNewUserCpf={setNewUserCpf}
+        newUserDeclaredAddress={newUserDeclaredAddress}
+        setNewUserDeclaredAddress={setNewUserDeclaredAddress}
+        newUserCommissionDueBusinessDays={newUserCommissionDueBusinessDays}
+        setNewUserCommissionDueBusinessDays={setNewUserCommissionDueBusinessDays}
+        newUserSellerReferralCommissionPercent={newUserSellerReferralCommissionPercent}
+        setNewUserSellerReferralCommissionPercent={setNewUserSellerReferralCommissionPercent}
+        newUserReferredByUserId={newUserReferredByUserId}
+        setNewUserReferredByUserId={setNewUserReferredByUserId}
+        newUserReferredByCommissionPercent={newUserReferredByCommissionPercent}
+        setNewUserReferredByCommissionPercent={setNewUserReferredByCommissionPercent}
+        selectedNewUserReferrer={selectedNewUserReferrer}
+        hbxReferrers={hbxReferrers}
+        userLabel={userLabel}
+        formatPercent={formatPercent}
+        percentInputValue={percentInputValue}
+        creatingUser={creatingUser}
+      />
     );
   }
 
@@ -2874,19 +2671,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     if (!createAccessOpen) return null;
     const canUseDocs = Boolean(isHbxSellerNetwork && newUserRole === "USER");
     const canPersistDocs = Boolean(canUseDocs && onboardingUserId);
-    const documentSlots = [
-      { kind: "photo_id", label: "Documento", required: true },
-      { kind: "curriculum", label: "Currículo", required: false },
-      { kind: "contract_pdf", label: "Contrato assinado", required: true },
-      { kind: "other", label: "Outro", required: false },
-    ] as const;
-    const documentReadiness = new Map((onboardingReadiness?.documents || []).map((item) => [String(item.kind), item]));
-    const missingRequiredLabels = onboardingReadiness?.missingRequiredDocuments.map((item) => item.label) || [];
     const canActivatePartner = Boolean(canPersistDocs && onboardingReadiness?.complete);
-    const pendingAttachmentCount = Object.keys(pendingOnboardingAttachments).length;
-    const activeOnboardingAttachments = onboardingAttachments.filter((item) => item.status !== "deleted");
-    const generatedContractAttachment = activeOnboardingAttachments.find((item) => item.kind === "generated_contract") || null;
-    const visibleDocumentAttachments = activeOnboardingAttachments.filter((item) => item.kind !== "generated_contract");
 
     return (
       <div className="hbx-popup-layer" data-clickable="true" role="presentation">
@@ -3001,132 +2786,30 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
               </button>
             </div>
 
-            <div className="hbx-partner-popup__panel" data-disabled={!canUseDocs}>
-              <div className="hbx-partner-popup__status">
-                <strong>{canUseDocs ? "Documentação do parceiro" : "Documentação disponível para vendedor"}</strong>
-                <span>
-                  {canUseDocs
-                    ? canPersistDocs
-                      ? canActivatePartner
-                        ? "Tudo em ordem. Criar Parceiro envia login e senha por e-mail."
-                        : missingRequiredLabels.length
-                          ? `Pendências obrigatórias: ${missingRequiredLabels.join(", ")}.`
-                          : "Gere o PDF, envie por e-mail e aguarde o PDF assinado voltar."
-                      : pendingAttachmentCount
-                        ? `${pendingAttachmentCount} arquivo(s) pronto(s). Eles serão anexados ao cadastrar o vendedor.`
-                        : "Anexe o que você já recebeu e marque obrigatório/opcional antes de cadastrar."
-                    : "Troque o perfil para vendedor para anexar documentos."}
-                </span>
-              </div>
-              {canUseDocs ? (
-                <div className="hbx-partner-popup__contract-note">
-                  <b>Assinatura</b>
-                  <span>Assine pelo gov.br ou por assinatura digital de sua preferência.</span>
-                </div>
-              ) : null}
-              <div className="hbx-partner-popup__docs">
-                {documentSlots.map((slot) => {
-                  const attachment = onboardingAttachments.find((item) => item.kind === slot.kind && item.status !== "deleted");
-                  const displayAttachment = slot.kind === "contract_pdf" && !attachment ? generatedContractAttachment : attachment;
-                  const displayGeneratedContract = slot.kind === "contract_pdf" && !attachment && Boolean(generatedContractAttachment);
-                  const pendingAttachment = pendingOnboardingAttachments[slot.kind];
-                  const readiness = documentReadiness.get(slot.kind);
-                  const pendingRequirement = pendingDocumentRequirements[slot.kind];
-                  const required = readiness ? readiness.required : pendingRequirement ?? slot.required;
-                  return (
-                    <label
-                      key={slot.kind}
-                      className="hbx-partner-popup__upload"
-                      data-pending={Boolean(pendingAttachment)}
-                      data-ready={Boolean(attachment)}
-                      data-generated={Boolean(displayGeneratedContract)}
-                    >
-                      <span>
-                        <b>{slot.label}</b>
-                        <small>
-                          {displayAttachment
-                            ? displayGeneratedContract
-                              ? `${displayAttachment.originalFilename || "contrato-parceria-hbx.pdf"} gerado`
-                              : displayAttachment.originalFilename
-                            : pendingAttachment
-                              ? `${pendingAttachment.file.name} pronto`
-                              : required
-                                ? "Obrigatório pendente"
-                                : "Opcional"}
-                        </small>
-                      </span>
-                      <input
-                        type="file"
-                        accept={slot.kind === "contract_pdf" ? ".pdf" : ".pdf,.jpg,.jpeg,.png"}
-                        disabled={!canUseDocs || uploadingAttachmentKind === slot.kind}
-                        onChange={(event) => {
-                          void uploadOnboardingAttachment(slot.kind, event.target.files?.[0], required);
-                          event.currentTarget.value = "";
-                        }}
-                      />
-                      <button
-                        type="button"
-                        disabled={!canUseDocs || slot.kind === "contract_pdf"}
-                        onClick={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          void updateOnboardingDocumentRequirement(slot.kind, !required);
-                        }}
-                      >
-                        {slot.kind === "contract_pdf" ? "Obrigatório" : required ? "Obrigatório" : "Opcional"}
-                      </button>
-                      {displayAttachment ? (
-                        <button
-                          type="button"
-                          disabled={downloadingOnboardingAttachmentId === displayAttachment.id}
-                          onClick={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            void downloadOnboardingAttachment(displayAttachment);
-                          }}
-                        >
-                          {downloadingOnboardingAttachmentId === displayAttachment.id ? "Baixando..." : "Baixar"}
-                        </button>
-                      ) : null}
-                      {attachment || pendingAttachment ? (
-                        <button
-                          type="button"
-                          disabled={removingOnboardingAttachmentId === attachment?.id}
-                          onClick={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            void removeOnboardingAttachment(slot.kind, attachment);
-                          }}
-                        >
-                          {removingOnboardingAttachmentId === attachment?.id ? "Removendo..." : "Remover"}
-                        </button>
-                      ) : null}
-                    </label>
-                  );
-                })}
-              </div>
-              <div className="hbx-partner-popup__actions">
-                <button type="button" disabled={!canPersistDocs || generatingContract} onClick={() => void generateOnboardingContract()} className="btn btn-secondary btn-sm">
-                  {generatingContract ? "Gerando..." : "Gerar contrato PDF"}
-                </button>
-                <button type="button" disabled={!canPersistDocs || sendingOnboardingEmail} onClick={() => void sendOnboardingEmail()} className="btn btn-primary btn-sm">
-                  {sendingOnboardingEmail ? "Enviando..." : "Solicitar documentos"}
-                </button>
-                <button type="button" disabled={!canActivatePartner || togglingActiveUserId === onboardingUserId} onClick={() => void activateOnboardingPartner()} className="btn btn-success btn-sm">
-                  {togglingActiveUserId === onboardingUserId ? "Criando..." : "Criar parceiro"}
-                </button>
-              </div>
-              {visibleDocumentAttachments.length || pendingAttachmentCount ? (
-                <div className="hbx-partner-popup__chips">
-                  {visibleDocumentAttachments.slice(0, 6).map((item) => (
-                    <span key={item.id}>{onboardingAttachmentLabel(item.kind)}</span>
-                  ))}
-                  {Object.values(pendingOnboardingAttachments).map((item) => (
-                    <span key={String(item.kind)}>{onboardingAttachmentLabel(item.kind)} pronto</span>
-                  ))}
-                </div>
-              ) : null}
-            </div>
+            <PartnerOnboardingPanel
+              canUseDocs={canUseDocs}
+              canPersistDocs={canPersistDocs}
+              canActivatePartner={canActivatePartner}
+              onboardingReadiness={onboardingReadiness}
+              pendingOnboardingAttachments={pendingOnboardingAttachments}
+              pendingDocumentRequirements={pendingDocumentRequirements}
+              onboardingAttachments={onboardingAttachments}
+              uploadingAttachmentKind={uploadingAttachmentKind}
+              downloadingOnboardingAttachmentId={downloadingOnboardingAttachmentId}
+              removingOnboardingAttachmentId={removingOnboardingAttachmentId}
+              generatingContract={generatingContract}
+              sendingOnboardingEmail={sendingOnboardingEmail}
+              togglingActiveUserId={togglingActiveUserId}
+              onboardingUserId={onboardingUserId}
+              onboardingAttachmentLabel={onboardingAttachmentLabel}
+              uploadOnboardingAttachment={(kind, file, required) => void uploadOnboardingAttachment(kind, file, required)}
+              updateOnboardingDocumentRequirement={(kind, required) => void updateOnboardingDocumentRequirement(kind, required)}
+              downloadOnboardingAttachment={(attachment) => void downloadOnboardingAttachment(attachment)}
+              removeOnboardingAttachment={(kind, attachment) => void removeOnboardingAttachment(kind, attachment)}
+              generateOnboardingContract={() => void generateOnboardingContract()}
+              sendOnboardingEmail={() => void sendOnboardingEmail()}
+              activateOnboardingPartner={() => void activateOnboardingPartner()}
+            />
           </form>
         </section>
       </div>
@@ -3344,95 +3027,21 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
           ) : null}
 
           {showDesktopCommissions ? (
-          <section className="panel p-4 md:p-5 rounded-[20px]">
-            <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
-              <div>
-                <span className="badge badge-brand">Fase 7</span>
-                <h2 className="mt-2 text-lg font-semibold">Comissões e carteira dos vendedores</h2>
-                <p className="mt-1 text-sm text-muted">
-                  O HBX sincroniza clientes, separa D+{commissionDueDays} úteis e monta a folha de pagamento por vendedor.
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={closingCommissionScope !== null || (data.commission?.totals.duePayableAmount || 0) <= 0}
-                  onClick={() => void closeDueCommissions()}
-                  className="btn btn-primary btn-sm"
-                >
-                  {closingCommissionScope === "all" ? "Fechando..." : "Fechar liberadas"}
-                </button>
-                <button
-                  type="button"
-                  disabled={syncingCommissions}
-                  onClick={() => void syncHbxClientCommissions()}
-                  className="btn btn-secondary btn-sm"
-                >
-                  {syncingCommissions ? "Sincronizando..." : "Sincronizar HBX"}
-                </button>
-                {canManageCommissionSettings ? (
-                  <>
-                    <label className="flex items-center gap-2 rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] px-3 py-2 text-xs font-semibold">
-                      <span>D+</span>
-                      <input
-                        type="number"
-                        min={0}
-                        max={30}
-                        value={commissionDueDaysDraft}
-                        onChange={(event) => setCommissionDueDaysDraft(event.target.value)}
-                        className="field h-8 w-16 px-2 py-1 text-sm"
-                        aria-label="Dias úteis para liberar comissão"
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      disabled={savingCommissionSettings}
-                      onClick={() => void saveCommissionSettings()}
-                      className="btn btn-secondary btn-sm"
-                    >
-                      {savingCommissionSettings ? "Salvando..." : "Salvar D+"}
-                    </button>
-                  </>
-                ) : (
-                  <span className="badge">USERMASTER define D+{commissionDueDays}</span>
-                )}
-              </div>
-            </div>
-
-            <div className="mt-4 grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-2">
-              <article className="rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3">
-                <p className="text-xs text-muted">A pagar</p>
-                <strong className="mt-1 block text-lg">{formatCurrency(data.commission?.totals.payableAmount || 0)}</strong>
-              </article>
-              <article className="rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3">
-                <p className="text-xs text-muted">Liberado</p>
-                <strong className="mt-1 block text-lg">{formatCurrency(data.commission?.totals.duePayableAmount || 0)}</strong>
-              </article>
-              <article className="rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3">
-                <p className="text-xs text-muted">Recorrente</p>
-                <strong className="mt-1 block text-lg">{formatCurrency(data.commission?.totals.recurringAmount || 0)}</strong>
-              </article>
-              <article className="rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3">
-                <p className="text-xs text-muted">Herdada</p>
-                <strong className="mt-1 block text-lg">{formatCurrency(data.commission?.totals.inheritedAmount || 0)}</strong>
-              </article>
-              <article className="rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3">
-                <p className="text-xs text-muted">Ativos</p>
-                <strong className="mt-1 block text-2xl">{data.commission?.totals.activeClients || 0}</strong>
-              </article>
-              <article className="rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3">
-                <p className="text-xs text-muted">Aguardando</p>
-                <strong className="mt-1 block text-2xl">{data.commission?.totals.pendingActivation || 0}</strong>
-              </article>
-              <article className="rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3">
-                <p className="text-xs text-muted">Inativados</p>
-                <strong className="mt-1 block text-2xl">{data.commission?.totals.inactiveClients || 0}</strong>
-              </article>
-              <article className="rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3">
-                <p className="text-xs text-muted">Próximo pagto</p>
-                <strong className="mt-1 block text-lg">{formatShortDate(data.commission?.totals.nextDueAt)}</strong>
-              </article>
-            </div>
+          <CommissionSummaryPanel
+            commissionDueDays={commissionDueDays}
+            commissionDueDaysDraft={commissionDueDaysDraft}
+            setCommissionDueDaysDraft={setCommissionDueDaysDraft}
+            canManageCommissionSettings={canManageCommissionSettings}
+            savingCommissionSettings={savingCommissionSettings}
+            closingCommissionScope={closingCommissionScope}
+            syncingCommissions={syncingCommissions}
+            totals={data.commission?.totals}
+            formatCurrency={formatCurrency}
+            formatShortDate={formatShortDate}
+            onCloseDueCommissions={() => void closeDueCommissions()}
+            onSyncHbxClientCommissions={() => void syncHbxClientCommissions()}
+            onSaveCommissionSettings={() => void saveCommissionSettings()}
+          >
 
             <HbxSection
               className="mt-4"
@@ -3718,71 +3327,26 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                 </div>
               )}
             </div>
-          </section>
+          </CommissionSummaryPanel>
           ) : null}
 
           {showDesktopTeam || showDesktopModules ? (
-          <section className="panel p-4 md:p-5 rounded-[20px]">
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-              <div>
-                <h2 className="text-lg font-semibold">
-                  {showDesktopModules ? `Módulos da equipe #${data.companyId}` : `Equipe da empresa #${data.companyId}`}
-                </h2>
-                <p className="mt-1 text-sm text-muted">
-                  {showDesktopModules
-                    ? "Libere ou bloqueie módulos por vendedor sem misturar com edição de perfil."
-                    : "Altere perfil e status sem perder o histórico da operação."}
-                </p>
-              </div>
-              <span className="badge badge-brand">
-                {showDesktopModules ? `${enabledModules.length} módulos` : `${data.users.length} pessoas`}
-              </span>
-              {showDesktopTeam ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    resetCreateAccessPopup();
-                    setCreateAccessOpen(true);
-                  }}
-                  className="btn btn-primary btn-sm"
-                >
-                  Criar acesso
-                </button>
-              ) : null}
-            </div>
-
-            {showDesktopTeam ? renderReferralCandidatesPanel("desktop") : null}
-
-            <div className="mt-4 grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-3">
-              <label className="grid gap-1 text-sm">
-                  <span className="font-medium">{showDesktopModules ? "Buscar usuário" : "Buscar na equipe"}</span>
-                <input
-                  type="search"
-                  placeholder="Nome, e-mail ou login"
-                  value={userSearch}
-                  onChange={(event) => setUserSearch(event.target.value)}
-                  className="field"
-                />
-              </label>
-              <div className="flex flex-wrap items-end gap-2">
-                {([
-                  ["active", "Ativos"],
-                  ["sellers", "Vendedores"],
-                  ["admins", "Admins"],
-                  ["inactive", "Inativos"],
-                  ["all", "Todos"],
-                ] as Array<[UserFilter, string]>).map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setUserFilter(value)}
-                    className={`btn btn-sm ${userFilter === value ? "btn-primary" : "btn-secondary"}`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
+          <TeamListPanel
+            showDesktopTeam={showDesktopTeam}
+            showDesktopModules={showDesktopModules}
+            companyId={data.companyId}
+            enabledModulesCount={enabledModules.length}
+            usersCount={data.users.length}
+            userSearch={userSearch}
+            setUserSearch={setUserSearch}
+            userFilter={userFilter}
+            setUserFilter={setUserFilter}
+            onCreateAccess={() => {
+              resetCreateAccessPopup();
+              setCreateAccessOpen(true);
+            }}
+            referralCandidatesPanel={renderReferralCandidatesPanel("desktop")}
+          >
 
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 mt-4">
               {filteredUsers.length === 0 ? (
@@ -4133,7 +3697,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                 );
               })}
             </div>
-          </section>
+          </TeamListPanel>
           ) : null}
 
           {showDesktopSignals ? (
