@@ -1,7 +1,7 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { createHash, randomUUID } from 'crypto';
 import { mkdir, readFile, unlink, writeFile } from 'fs/promises';
-import { extname, join } from 'path';
+import { extname, isAbsolute, join, relative, resolve, sep } from 'path';
 import PDFDocument from 'pdfkit';
 import { isMasterOperationalCompanySlug } from '../commercial-plans/seat-billing.util';
 import { MailService, type MailAttachment } from '../mail/mail.service';
@@ -65,6 +65,25 @@ function sha256Buffer(buffer: Buffer) {
 
 function sellerOnboardingUploadDir() {
   return process.env.SELLER_ONBOARDING_UPLOAD_DIR || join(process.cwd(), 'storage', 'seller-onboarding-temp');
+}
+
+function sellerOnboardingAllowedUploadDirs() {
+  return Array.from(new Set([
+    resolve(sellerOnboardingUploadDir()),
+    resolve(process.cwd(), 'storage', 'seller-onboarding-temp'),
+  ]));
+}
+
+function isPathInsideDir(filePath: string, dirPath: string) {
+  const relativePath = relative(dirPath, filePath);
+  return Boolean(relativePath)
+    && relativePath !== '..'
+    && !relativePath.startsWith(`..${sep}`)
+    && !isAbsolute(relativePath);
+}
+
+function hasPathTraversalSegment(rawPath: string) {
+  return rawPath.replace(/\\/g, '/').split('/').some((segment) => segment === '..');
 }
 
 function isContractSectionTitle(line: string) {
@@ -193,6 +212,8 @@ function partnerTypeFor(user: any) {
 
 @Injectable()
 export class SellerOnboardingService {
+  private readonly logger = new Logger(SellerOnboardingService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly mailService: MailService,
@@ -823,16 +844,53 @@ export class SellerOnboardingService {
         onboarding: companyId ? { companyId: Number(companyId) } : undefined,
       },
     });
+    let deletedCount = 0;
+    let missingFileCount = 0;
+    let skippedUnsafePathCount = 0;
+    let failedDeleteCount = 0;
     for (const attachment of attachments as any[]) {
+      const safeStoragePath = this.resolveSafeAttachmentStoragePath(attachment.storagePath);
+      if (!safeStoragePath) {
+        skippedUnsafePathCount += 1;
+        continue;
+      }
       try {
-        if (attachment.storagePath) await unlink(attachment.storagePath);
-      } catch {}
+        await unlink(safeStoragePath);
+      } catch (error: any) {
+        if (error?.code === 'ENOENT') {
+          missingFileCount += 1;
+        } else {
+          failedDeleteCount += 1;
+          continue;
+        }
+      }
       await this.prisma.sellerOnboardingAttachment.update({
         where: { id: attachment.id },
         data: { status: 'deleted', deletedAt: now },
       });
+      deletedCount += 1;
     }
-    return { ok: true, deletedCount: attachments.length };
+    this.logger.log(
+      `seller_onboarding_attachment_purge companyId=${Number(companyId || 0) || 'all'} scanned=${attachments.length} deleted=${deletedCount} missing=${missingFileCount} unsafe=${skippedUnsafePathCount} failed=${failedDeleteCount}`,
+    );
+    return {
+      ok: true,
+      scannedCount: attachments.length,
+      deletedCount,
+      missingFileCount,
+      skippedUnsafePathCount,
+      failedDeleteCount,
+    };
+  }
+
+  private resolveSafeAttachmentStoragePath(storagePath?: string | null) {
+    const rawPath = String(storagePath || '').trim();
+    if (!rawPath || rawPath.includes('\0') || hasPathTraversalSegment(rawPath)) return null;
+    const resolvedPath = resolve(rawPath);
+    const allowedDirs = sellerOnboardingAllowedUploadDirs();
+    return allowedDirs.some((allowedDir) => isPathInsideDir(resolvedPath, allowedDir))
+      ? resolvedPath
+      : null;
   }
 
   private async assertHbxSellerNetworkCompany(companyId: number) {
