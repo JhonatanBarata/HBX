@@ -753,10 +753,14 @@ export class ChannelStartupService {
   }
 
   private normalizeChatPreviewText(value: unknown, messageType: unknown) {
-    const text = String(value || '').replace(/\s+/g, ' ').trim();
+    const text = String(value || '')
+      .replace(/\s+/g, ' ')
+      .trim();
     if (text) return text.length > 160 ? `${text.slice(0, 157)}...` : text;
 
-    const normalizedType = String(messageType || '').trim().toLowerCase();
+    const normalizedType = String(messageType || '')
+      .trim()
+      .toLowerCase();
     if (normalizedType.includes('image')) return '[image]';
     if (normalizedType.includes('video')) return '[video]';
     if (normalizedType.includes('audio')) return '[audio]';
@@ -994,10 +998,7 @@ export class ChannelStartupService {
         unreadCount: Math.max(0, Number(contact.unreadCount || 0)),
         updatedAt: contact.updatedAt || null,
         lastMessageId: contact.lastMessageId || null,
-        lastMessageTextPreview: this.normalizeChatPreviewText(
-          contact.lastMessageTextPreview,
-          contact.lastMessageType,
-        ),
+        lastMessageTextPreview: this.normalizeChatPreviewText(contact.lastMessageTextPreview, contact.lastMessageType),
         lastMessageType: contact.lastMessageType || null,
         lastMessageTimestamp: Number(contact.lastMessageTimestamp || 0) || null,
         fromMe: Boolean(contact.fromMe),
@@ -1112,8 +1113,7 @@ export class ChannelStartupService {
     const previous = this.presenceStore.get(normalizedJid);
     const updatedAt = this.parsePresenceDate(input?.updatedAt) || new Date();
     const lastSeenAt =
-      this.parsePresenceDate(input?.lastSeenAt) ||
-      (presence === 'offline' ? updatedAt : previous?.lastSeenAt || null);
+      this.parsePresenceDate(input?.lastSeenAt) || (presence === 'offline' ? updatedAt : previous?.lastSeenAt || null);
 
     this.presenceStore.set(normalizedJid, {
       remoteJid: normalizedJid,
@@ -1149,7 +1149,9 @@ export class ChannelStartupService {
 
     for (const [participant, presenceData] of presenceEntries) {
       const rawPresence = presenceData as any;
-      const presence = this.normalizePresenceState(rawPresence?.lastKnownPresence || rawPresence?.presence || rawPresence);
+      const presence = this.normalizePresenceState(
+        rawPresence?.lastKnownPresence || rawPresence?.presence || rawPresence,
+      );
       const lastSeenAt = rawPresence?.lastSeen || rawPresence?.lastSeenAt;
       const updatedAt = rawPresence?.updatedAt || rawPresence?.timestamp;
 
@@ -1184,9 +1186,7 @@ export class ChannelStartupService {
       const remoteJid = this.normalizePresenceRemoteJid(contact?.id || contact?.remoteJid || contact?.jid);
       if (!remoteJid) continue;
 
-      const presence = this.normalizePresenceState(
-        contact?.presence || contact?.lastKnownPresence || contact?.status,
-      );
+      const presence = this.normalizePresenceState(contact?.presence || contact?.lastKnownPresence || contact?.status);
       const lastSeenAt = contact?.lastSeenAt || contact?.lastSeen || contact?.lastSeenTimestamp;
 
       if (presence === 'unknown' && !lastSeenAt) {

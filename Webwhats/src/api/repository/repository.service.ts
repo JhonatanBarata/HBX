@@ -66,10 +66,7 @@ export function normalizePagination<T>(
   const legacyOffset = toPositiveInteger(query?.offset);
   const legacyPage = toPositiveInteger(query?.page);
   const takeCandidate =
-    toPositiveInteger(query?.take) ||
-    toPositiveInteger(query?.limit) ||
-    legacyOffset ||
-    defaultTake;
+    toPositiveInteger(query?.take) || toPositiveInteger(query?.limit) || legacyOffset || defaultTake;
   const skipCandidate =
     toNonNegativeInteger(query?.skip) ??
     (legacyOffset && legacyPage ? legacyOffset * (Math.max(legacyPage, 1) - 1) : 0);

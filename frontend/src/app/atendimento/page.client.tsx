@@ -3055,7 +3055,10 @@ function getInboxConversationPresenceMeta(
       metadata.whatsappAbout ||
       "",
   ).trim();
-  if (statusText && statusText !== "unknown") return { label: statusText.slice(0, 48), tone: "human" as const, online: false };
+  const normalizedStatusText = statusText.toLowerCase();
+  if (statusText && !["unknown", "unavailable"].includes(normalizedStatusText)) {
+    return { label: statusText.slice(0, 48), tone: "human" as const, online: false };
+  }
 
   const lastSeenAt = [
     metadata.whatsappLastSeenAt,
