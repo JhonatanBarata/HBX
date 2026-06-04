@@ -21,6 +21,15 @@ import { v4 } from 'uuid';
 
 import { CacheService } from './cache.service';
 
+type PresenceSnapshotState = 'online' | 'offline' | 'composing' | 'recording' | 'paused' | 'unknown';
+
+type PresenceStoreEntry = {
+  remoteJid: string;
+  presence: PresenceSnapshotState;
+  lastSeenAt: Date | null;
+  updatedAt: Date;
+};
+
 export class ChannelStartupService {
   constructor(
     public readonly configService: ConfigService,
@@ -37,6 +46,12 @@ export class ChannelStartupService {
   public readonly localProxy: wa.LocalProxy = {};
   public readonly localSettings: wa.LocalSettings = {};
   public readonly localWebhook: wa.LocalWebHook = {};
+  private readonly presenceTtlMs = 60 * 1000;
+  private readonly presenceSubscribeThrottleMs = 30 * 1000;
+  private readonly presenceStore = new Map<string, PresenceStoreEntry>();
+  private readonly presenceSubscribeAt = new Map<string, number>();
+  private connectionPresence: PresenceSnapshotState = 'unknown';
+  private connectionPresenceUpdatedAt: Date | null = null;
 
   public chatwootService = new ChatwootService(
     waMonitor,
@@ -997,6 +1012,248 @@ export class ChannelStartupService {
       nextCursor,
       hasMore: Boolean(nextCursor),
     };
+  }
+
+  private normalizePresenceRemoteJid(value: unknown) {
+    const raw = String(value || '').trim();
+    if (!raw) return null;
+    if (raw.includes('@')) return raw.replace(/:\d+/, '');
+    return createJid(raw);
+  }
+
+  private normalizePresenceState(value: unknown): PresenceSnapshotState {
+    const state = String(value || '')
+      .trim()
+      .toLowerCase();
+
+    if (state === 'available' || state === 'online') return 'online';
+    if (state === 'unavailable' || state === 'offline') return 'offline';
+    if (state === 'composing') return 'composing';
+    if (state === 'recording') return 'recording';
+    if (state === 'paused') return 'paused';
+
+    return 'unknown';
+  }
+
+  private parsePresenceDate(value: unknown) {
+    if (!value) return null;
+    if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+
+    const numericValue =
+      typeof value === 'number'
+        ? value
+        : typeof (value as any)?.toNumber === 'function'
+          ? (value as any).toNumber()
+          : Number(String(value).trim());
+
+    if (Number.isFinite(numericValue) && numericValue > 0) {
+      const timestamp = numericValue < 10000000000 ? numericValue * 1000 : numericValue;
+      const date = new Date(timestamp);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+
+    const date = new Date(String(value).trim());
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  private getPresenceRank(presence: PresenceSnapshotState) {
+    if (presence === 'recording') return 5;
+    if (presence === 'composing') return 4;
+    if (presence === 'online') return 3;
+    if (presence === 'paused') return 2;
+    if (presence === 'offline') return 1;
+    return 0;
+  }
+
+  private buildPresenceSnapshot(remoteJid: string, record?: PresenceStoreEntry | null) {
+    const isExpired = record ? Date.now() - record.updatedAt.getTime() > this.presenceTtlMs : true;
+    const presence = record && !isExpired ? record.presence : 'unknown';
+
+    return {
+      remoteJid,
+      presence,
+      online: ['online', 'composing', 'recording', 'paused'].includes(presence),
+      typing: presence === 'composing',
+      recording: presence === 'recording',
+      lastSeenAt: record?.lastSeenAt ? record.lastSeenAt.toISOString() : null,
+      updatedAt: record?.updatedAt ? record.updatedAt.toISOString() : null,
+    };
+  }
+
+  private cleanupPresenceStore() {
+    const now = Date.now();
+    const cutoff = now - this.presenceTtlMs * 10;
+
+    if (this.presenceStore.size > 2000) {
+      for (const [remoteJid, entry] of this.presenceStore) {
+        if (entry.updatedAt.getTime() < cutoff) {
+          this.presenceStore.delete(remoteJid);
+        }
+      }
+    }
+
+    if (this.presenceSubscribeAt.size > 2000) {
+      for (const [remoteJid, subscribedAt] of this.presenceSubscribeAt) {
+        if (subscribedAt < cutoff) {
+          this.presenceSubscribeAt.delete(remoteJid);
+        }
+      }
+    }
+  }
+
+  private recordPresenceSnapshot(
+    remoteJid: unknown,
+    presence: PresenceSnapshotState,
+    input?: { lastSeenAt?: unknown; updatedAt?: unknown },
+  ) {
+    const normalizedJid = this.normalizePresenceRemoteJid(remoteJid);
+    if (!normalizedJid) return;
+
+    const previous = this.presenceStore.get(normalizedJid);
+    const updatedAt = this.parsePresenceDate(input?.updatedAt) || new Date();
+    const lastSeenAt =
+      this.parsePresenceDate(input?.lastSeenAt) ||
+      (presence === 'offline' ? updatedAt : previous?.lastSeenAt || null);
+
+    this.presenceStore.set(normalizedJid, {
+      remoteJid: normalizedJid,
+      presence,
+      lastSeenAt,
+      updatedAt,
+    });
+
+    this.cleanupPresenceStore();
+  }
+
+  protected recordBaileysPresenceUpdate(payload: any) {
+    const remoteJid = this.normalizePresenceRemoteJid(payload?.id || payload?.jid || payload?.remoteJid);
+    if (!remoteJid) return;
+
+    const presences = payload?.presences || {};
+    const presenceEntries = Object.entries(presences);
+
+    if (presenceEntries.length === 0) {
+      const presence = this.normalizePresenceState(payload?.lastKnownPresence || payload?.presence);
+      if (presence !== 'unknown' || payload?.lastSeen || payload?.lastSeenAt) {
+        this.recordPresenceSnapshot(remoteJid, presence, {
+          lastSeenAt: payload?.lastSeen || payload?.lastSeenAt,
+          updatedAt: payload?.updatedAt || payload?.timestamp,
+        });
+      }
+      return;
+    }
+
+    let selectedPresence: PresenceSnapshotState = 'unknown';
+    let selectedLastSeenAt: unknown = null;
+    let selectedUpdatedAt: unknown = null;
+
+    for (const [participant, presenceData] of presenceEntries) {
+      const rawPresence = presenceData as any;
+      const presence = this.normalizePresenceState(rawPresence?.lastKnownPresence || rawPresence?.presence || rawPresence);
+      const lastSeenAt = rawPresence?.lastSeen || rawPresence?.lastSeenAt;
+      const updatedAt = rawPresence?.updatedAt || rawPresence?.timestamp;
+
+      if (presence === 'unknown' && !lastSeenAt) {
+        continue;
+      }
+
+      const participantJid = this.normalizePresenceRemoteJid(participant);
+      if (participantJid && participantJid !== remoteJid) {
+        this.recordPresenceSnapshot(participantJid, presence, { lastSeenAt, updatedAt });
+      }
+
+      if (this.getPresenceRank(presence) >= this.getPresenceRank(selectedPresence)) {
+        selectedPresence = presence;
+        selectedLastSeenAt = lastSeenAt;
+        selectedUpdatedAt = updatedAt;
+      }
+    }
+
+    if (selectedPresence !== 'unknown' || selectedLastSeenAt) {
+      this.recordPresenceSnapshot(remoteJid, selectedPresence, {
+        lastSeenAt: selectedLastSeenAt,
+        updatedAt: selectedUpdatedAt,
+      });
+    }
+  }
+
+  protected recordContactPresenceUpdate(contacts: any[]) {
+    const contactList = Array.isArray(contacts) ? contacts : [contacts];
+
+    for (const contact of contactList) {
+      const remoteJid = this.normalizePresenceRemoteJid(contact?.id || contact?.remoteJid || contact?.jid);
+      if (!remoteJid) continue;
+
+      const presence = this.normalizePresenceState(
+        contact?.presence || contact?.lastKnownPresence || contact?.status,
+      );
+      const lastSeenAt = contact?.lastSeenAt || contact?.lastSeen || contact?.lastSeenTimestamp;
+
+      if (presence === 'unknown' && !lastSeenAt) {
+        continue;
+      }
+
+      this.recordPresenceSnapshot(remoteJid, presence, {
+        lastSeenAt,
+        updatedAt: contact?.updatedAt || contact?.timestamp,
+      });
+    }
+  }
+
+  protected recordConnectionPresenceUpdate(update: any) {
+    const connection = String(update?.connection || '')
+      .trim()
+      .toLowerCase();
+
+    if (!connection) return;
+
+    if (connection === 'open') {
+      this.connectionPresence = 'online';
+    } else if (connection === 'close' || connection === 'closed') {
+      this.connectionPresence = 'offline';
+    } else {
+      this.connectionPresence = 'unknown';
+    }
+
+    this.connectionPresenceUpdatedAt = new Date();
+  }
+
+  private getConnectionPresenceSnapshot(remoteJid: string): PresenceStoreEntry | null {
+    const ownerJid = this.normalizePresenceRemoteJid(this.instance.wuid);
+    if (!ownerJid || ownerJid !== remoteJid || !this.connectionPresenceUpdatedAt) return null;
+
+    return {
+      remoteJid,
+      presence: this.connectionPresence,
+      lastSeenAt: this.connectionPresence === 'offline' ? this.connectionPresenceUpdatedAt : null,
+      updatedAt: this.connectionPresenceUpdatedAt,
+    };
+  }
+
+  private async maybeSubscribePresence(remoteJid: string) {
+    if (!remoteJid || !this.client?.presenceSubscribe) return;
+
+    const now = Date.now();
+    const previousSubscribeAt = this.presenceSubscribeAt.get(remoteJid) || 0;
+    if (now - previousSubscribeAt < this.presenceSubscribeThrottleMs) return;
+
+    this.presenceSubscribeAt.set(remoteJid, now);
+
+    try {
+      await this.client.presenceSubscribe(remoteJid);
+    } catch (error) {
+      this.logger.warn(`Presence subscribe failed for ${remoteJid}: ${error?.message || error}`);
+    }
+  }
+
+  public async fetchPresence(data: { remoteJid?: string } | string) {
+    const remoteJid = this.normalizePresenceRemoteJid(typeof data === 'string' ? data : data?.remoteJid);
+    if (!remoteJid) return this.buildPresenceSnapshot('', null);
+
+    await this.maybeSubscribePresence(remoteJid);
+
+    const record = this.presenceStore.get(remoteJid) || this.getConnectionPresenceSnapshot(remoteJid);
+    return this.buildPresenceSnapshot(remoteJid, record);
   }
 
   public hasValidMediaContent(message: any): boolean {

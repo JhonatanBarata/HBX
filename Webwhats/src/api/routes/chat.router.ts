@@ -153,6 +153,16 @@ export class ChatRouter extends RouterBroker {
 
         return res.status(HttpStatus.CREATED).json(response);
       })
+      .get(this.routerPath('presence'), ...guards, async (req, res) => {
+        const instance = req.params as unknown as InstanceDto;
+        const { remoteJid } = req.query as unknown as { remoteJid: string };
+        if (!remoteJid) {
+          return res.status(HttpStatus.BAD_REQUEST).json({ error: 'remoteJid is a required query parameter' });
+        }
+        const response = await chatController.fetchPresence(instance, remoteJid);
+
+        return res.status(HttpStatus.OK).json(response);
+      })
       .post(this.routerPath('updateBlockStatus'), ...guards, async (req, res) => {
         const response = await this.dataValidate<BlockUserDto>({
           request: req,

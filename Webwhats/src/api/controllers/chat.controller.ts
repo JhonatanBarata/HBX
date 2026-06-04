@@ -87,6 +87,10 @@ export class ChatController {
     return await this.waMonitor.waInstances[instanceName].sendPresence(data);
   }
 
+  public async fetchPresence({ instanceName }: InstanceDto, remoteJid: string) {
+    return await this.waMonitor.waInstances[instanceName].fetchPresence({ remoteJid });
+  }
+
   public async fetchPrivacySettings({ instanceName }: InstanceDto) {
     return await this.waMonitor.waInstances[instanceName].fetchPrivacySettings();
   }
