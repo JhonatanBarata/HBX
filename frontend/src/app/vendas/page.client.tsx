@@ -32,6 +32,7 @@ import DashboardScaffold from "@/components/DashboardScaffold";
 import { HbxPopup1, HbxPopup2 } from "@/components/HbxPopup";
 import HbxGuide1 from "@/components/HbxGuide1";
 import HbxGuide4, { type HbxGuide4Item } from "@/components/HbxGuide4";
+import HbxPulseSummaryCard from "@/components/HbxPulseSummaryCard";
 import LiquidGlassCard, {
   liquidGlassCardStyles as glassCardStyles,
 } from "@/components/LiquidGlassCard";
@@ -4404,6 +4405,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   const [crmIntegrityLoading, setCrmIntegrityLoading] = useState(false);
   const [hbxClosingPipeline, setHbxClosingPipeline] = useState<HbxClosingPipelineResponse | null>(null);
   const [hbxClosingLoading, setHbxClosingLoading] = useState(false);
+  const [pulseRefreshKey, setPulseRefreshKey] = useState(0);
   const [desktopVendasTab, setDesktopVendasTab] = useState<DesktopVendasTab>("clientes");
   const [masterNoticeAudience, setMasterNoticeAudience] = useState<MasterNoticeAudience>("seller");
   const [masterNotices, setMasterNotices] = useState<MasterNotice[]>([]);
@@ -4594,6 +4596,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         pendingVisualBoardRef.current = null;
         applyBoardPayload(normalizedPayload, options);
       }
+      setPulseRefreshKey((current) => current + 1);
     } catch (loadError) {
       setError(
         loadError instanceof Error
@@ -7948,6 +7951,8 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
             </div>,
             document.body,
           ) : null}
+
+          <HbxPulseSummaryCard mode="mobile" refreshKey={pulseRefreshKey} />
 
           {nextRecommendedMobileLead && mobileSection !== "report" && mobileSection !== "commission" ? (
             <section className={styles.mobileVendasRecommendedCard} aria-label="Próximo card recomendado">
