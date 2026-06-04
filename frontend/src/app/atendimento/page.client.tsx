@@ -133,9 +133,10 @@ type InboxMessagePagePayload = {
 
 type InboxRealtimeEvent = {
   companyId: number;
-  kind: "message" | "status" | "conversation" | "automation";
+  kind: "message" | "status" | "conversation" | "automation" | "presence";
   conversationId?: string | number | null;
   messageId?: string | number | null;
+  presence?: InboxConversationPresencePayload | null;
   automation?: {
     type?: string | null;
     status?: ProspectingAutomationStatusValue | null;
@@ -145,6 +146,17 @@ type InboxRealtimeEvent = {
     leadId?: string | null;
   } | null;
   at?: string | null;
+};
+
+type InboxConversationPresencePayload = {
+  remoteJid?: string | null;
+  presence?: string | null;
+  providerStatus?: string | null;
+  online?: boolean | null;
+  typing?: boolean | null;
+  recording?: boolean | null;
+  lastSeenAt?: string | null;
+  updatedAt?: string | null;
 };
 
 type ProspectingAutomationStatusValue =
@@ -3000,18 +3012,33 @@ function formatShortDateTimeLabel(dateStr: string | null | undefined, mounted: b
   });
 }
 
-function getInboxConversationPresenceMeta(conversation: InboxConversation | null | undefined, mounted: boolean) {
+function getInboxConversationPresenceMeta(
+  conversation: InboxConversation | null | undefined,
+  mounted: boolean,
+  providerConnecting = false,
+) {
   const metadata = getInboxConversationMetadata(conversation);
-  if (!conversation || !metadata) {
-    return { label: "presença indisponível", tone: "closed" as const };
+  if (providerConnecting) {
+    return { label: "conectando...", tone: "warning" as const, online: false };
   }
+  if (!conversation || !metadata) {
+    return { label: "sem informação de presença", tone: "closed" as const, online: false };
+  }
+  const recording = [
+    metadata.whatsappRecording,
+    metadata.contactRecording,
+    metadata.isRecording,
+    metadata.presenceRecording,
+  ].some((value) => parseInboxBooleanFlag(value));
+  if (recording) return { label: "gravando áudio...", tone: "success" as const, online: true };
+
   const typing = [
     metadata.whatsappTyping,
     metadata.contactTyping,
     metadata.isTyping,
     metadata.presenceTyping,
   ].some((value) => parseInboxBooleanFlag(value));
-  if (typing) return { label: "digitando...", tone: "success" as const };
+  if (typing) return { label: "digitando...", tone: "success" as const, online: true };
 
   const online = [
     metadata.whatsappOnline,
@@ -3019,7 +3046,7 @@ function getInboxConversationPresenceMeta(conversation: InboxConversation | null
     metadata.isOnline,
     metadata.presenceOnline,
   ].some((value) => parseInboxBooleanFlag(value));
-  if (online) return { label: "online agora", tone: "success" as const };
+  if (online) return { label: "online", tone: "success" as const, online: true };
 
   const statusText = String(
     metadata.whatsappPresenceStatus ||
@@ -3028,7 +3055,7 @@ function getInboxConversationPresenceMeta(conversation: InboxConversation | null
       metadata.whatsappAbout ||
       "",
   ).trim();
-  if (statusText) return { label: statusText.slice(0, 48), tone: "human" as const };
+  if (statusText && statusText !== "unknown") return { label: statusText.slice(0, 48), tone: "human" as const, online: false };
 
   const lastSeenAt = [
     metadata.whatsappLastSeenAt,
@@ -3038,9 +3065,60 @@ function getInboxConversationPresenceMeta(conversation: InboxConversation | null
   ]
     .map((value) => String(value || "").trim())
     .find((value) => value && !Number.isNaN(new Date(value).getTime()));
-  if (lastSeenAt) return { label: `visto ${formatShortDateTimeLabel(lastSeenAt, mounted)}`, tone: "closed" as const };
+  if (lastSeenAt) {
+    return { label: `visto por último ${formatShortDateTimeLabel(lastSeenAt, mounted)}`, tone: "closed" as const, online: false };
+  }
 
-  return { label: "presença não enviada pelo WebWhats", tone: "closed" as const };
+  return { label: "sem informação de presença", tone: "closed" as const, online: false };
+}
+
+function isWhatsappProviderConnecting(session: InboxBootstrapPayload["whatsappSession"] | null | undefined) {
+  const healthStatus = String(session?.providerHealth?.status || "").trim().toLowerCase();
+  const reason = String(session?.reason || "").trim().toLowerCase();
+  return healthStatus === "connecting" || healthStatus === "reconnecting" || reason === "webwhats_reconnecting";
+}
+
+function mergeInboxConversationPresence(
+  conversation: InboxConversation,
+  presence: InboxConversationPresencePayload,
+) {
+  const metadata = getInboxConversationMetadata(conversation) || {};
+  const status = String(presence.providerStatus || presence.presence || "").trim();
+  const updatedAt = String(presence.updatedAt || new Date().toISOString()).trim();
+  const lastSeenAt = String(presence.lastSeenAt || "").trim();
+  const nextMetadata: Record<string, unknown> = {
+    ...metadata,
+    whatsappOnline: Boolean(presence.online),
+    contactOnline: Boolean(presence.online),
+    presenceOnline: Boolean(presence.online),
+    whatsappTyping: Boolean(presence.typing),
+    contactTyping: Boolean(presence.typing),
+    presenceTyping: Boolean(presence.typing),
+    whatsappRecording: Boolean(presence.recording),
+    contactRecording: Boolean(presence.recording),
+    presenceRecording: Boolean(presence.recording),
+    lastPresenceAt: updatedAt,
+    presenceUpdatedAt: updatedAt,
+  };
+
+  if (status) {
+    nextMetadata.whatsappPresenceStatus = status;
+    nextMetadata.contactPresenceStatus = status;
+    nextMetadata.presenceStatus = status;
+  }
+  if (lastSeenAt) {
+    nextMetadata.whatsappLastSeenAt = lastSeenAt;
+    nextMetadata.contactLastSeenAt = lastSeenAt;
+    nextMetadata.lastSeenAt = lastSeenAt;
+  }
+  if (presence.remoteJid) {
+    nextMetadata.presenceRemoteJid = presence.remoteJid;
+  }
+
+  return {
+    ...conversation,
+    metadata: nextMetadata,
+  } as InboxConversation;
 }
 
 function formatDateTimeLocalValue(dateStr: string | null | undefined) {
@@ -5261,6 +5339,7 @@ function InboxDesktopClientPage() {
   const conversationLoadTokenRef = useRef(0);
   const bootstrapAbortControllerRef = useRef<AbortController | null>(null);
   const conversationDetailAbortControllerRef = useRef<AbortController | null>(null);
+  const conversationPresenceAbortControllerRef = useRef<AbortController | null>(null);
   const loadConversationRef = useRef<
     ((id: string | null | undefined, options?: { silent?: boolean; forceRefresh?: boolean }) => Promise<void>) | null
   >(null);
@@ -5286,6 +5365,7 @@ function InboxDesktopClientPage() {
     return () => {
       bootstrapAbortControllerRef.current?.abort();
       conversationDetailAbortControllerRef.current?.abort();
+      conversationPresenceAbortControllerRef.current?.abort();
     };
   }, []);
 
@@ -6125,6 +6205,69 @@ function InboxDesktopClientPage() {
     }
   }, [loadConversation, rememberConversationDetail]);
 
+  const applyPresenceToConversationState = useCallback((
+    id: string | number | null | undefined,
+    presence: InboxConversationPresencePayload | null | undefined,
+  ) => {
+    const conversationId = normalizeInboxConversationId(id);
+    if (!conversationId || !presence) return;
+
+    const cachedDetail = conversationDetailCacheRef.current.get(conversationId);
+    if (cachedDetail) {
+      conversationDetailCacheRef.current.set(conversationId, mergeInboxConversationPresence(cachedDetail, presence));
+    }
+
+    setSelectedConversation((current) => {
+      if (!current || current.id !== conversationId) return current;
+      const next = mergeInboxConversationPresence(current, presence);
+      selectedConversationRef.current = next;
+      return next;
+    });
+
+    setConversations((current) =>
+      current.map((conversation) =>
+        conversation.id === conversationId ? mergeInboxConversationPresence(conversation, presence) : conversation,
+      ),
+    );
+  }, []);
+
+  const refreshSelectedConversationPresence = useCallback(async () => {
+    const conversationId = normalizeInboxConversationId(selectedIdRef.current);
+    if (!conversationId) return;
+
+    conversationPresenceAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    conversationPresenceAbortControllerRef.current = controller;
+
+    try {
+      const payload = await apiFetch<InboxConversationPresencePayload>(
+        `/inbox/conversations/${conversationId}/presence`,
+        {
+          requireAuth: true,
+          signal: controller.signal,
+          timeoutMs: 8000,
+        },
+      );
+      if (
+        controller.signal.aborted ||
+        conversationPresenceAbortControllerRef.current !== controller ||
+        selectedIdRef.current !== conversationId
+      ) {
+        return;
+      }
+      applyPresenceToConversationState(conversationId, payload);
+    } catch (presenceError) {
+      if (isRequestAbortError(presenceError) || controller.signal.aborted) return;
+      if (process.env.NODE_ENV !== "production") {
+        console.warn("Falha ao atualizar presença da conversa.", presenceError);
+      }
+    } finally {
+      if (conversationPresenceAbortControllerRef.current === controller) {
+        conversationPresenceAbortControllerRef.current = null;
+      }
+    }
+  }, [applyPresenceToConversationState]);
+
   const loadConversations = useCallback(
     async (options?: { preferredId?: string | null; silent?: boolean; append?: boolean; queue?: InboxQueue; merge?: boolean }) => {
       const silent = options?.silent ?? false;
@@ -6797,6 +6940,23 @@ function InboxDesktopClientPage() {
   useEffect(() => {
     if (hasToken !== true) return;
     if (activeTab !== "messages") return;
+    if (!selectedId) return;
+
+    void refreshSelectedConversationPresence();
+    const intervalId = window.setInterval(() => {
+      void refreshSelectedConversationPresence();
+    }, 15000);
+
+    return () => {
+      window.clearInterval(intervalId);
+      conversationPresenceAbortControllerRef.current?.abort();
+      conversationPresenceAbortControllerRef.current = null;
+    };
+  }, [activeTab, hasToken, refreshSelectedConversationPresence, selectedId]);
+
+  useEffect(() => {
+    if (hasToken !== true) return;
+    if (activeTab !== "messages") return;
 
     const QUICK_STREAM_FAILURE_MS = 8000;
     const MAX_QUICK_STREAM_FAILURES = 2;
@@ -6805,6 +6965,7 @@ function InboxDesktopClientPage() {
     let scheduledRefresh: number | null = null;
     let scheduledListRefresh: number | null = null;
     let scheduledDiagnosticsRefresh: number | null = null;
+    let scheduledPresenceRefresh: number | null = null;
     let consecutiveQuickFailures = 0;
 
     const scheduleRefresh = () => {
@@ -6829,6 +6990,14 @@ function InboxDesktopClientPage() {
         scheduledDiagnosticsRefresh = null;
         void refreshWhatsappSessionDiagnostics();
       }, 500);
+    };
+
+    const schedulePresenceRefresh = () => {
+      if (scheduledPresenceRefresh !== null) return;
+      scheduledPresenceRefresh = window.setTimeout(() => {
+        scheduledPresenceRefresh = null;
+        void refreshSelectedConversationPresence();
+      }, 240);
     };
 
     const waitBeforeReconnect = () =>
@@ -6876,7 +7045,18 @@ function InboxDesktopClientPage() {
               const eventConversationId = normalizeInboxConversationId(event.conversationId);
               if (!selectedConversationId || !eventConversationId) return;
               if (selectedConversationId !== eventConversationId) return;
+              if (event.kind === "presence") {
+                if (event.presence) {
+                  applyPresenceToConversationState(eventConversationId, event.presence);
+                } else {
+                  schedulePresenceRefresh();
+                }
+                return;
+              }
               scheduleRefresh();
+              if (event.kind === "status" || event.kind === "conversation") {
+                schedulePresenceRefresh();
+              }
             },
           });
           recordStreamDisconnect(startedAt);
@@ -6898,13 +7078,16 @@ function InboxDesktopClientPage() {
       if (scheduledRefresh !== null) window.clearTimeout(scheduledRefresh);
       if (scheduledListRefresh !== null) window.clearTimeout(scheduledListRefresh);
       if (scheduledDiagnosticsRefresh !== null) window.clearTimeout(scheduledDiagnosticsRefresh);
+      if (scheduledPresenceRefresh !== null) window.clearTimeout(scheduledPresenceRefresh);
     };
   }, [
     activeTab,
+    applyPresenceToConversationState,
     hasToken,
     loadConversations,
     loadProspectingAutomationStatus,
     refreshSelectedConversationMessages,
+    refreshSelectedConversationPresence,
     refreshWhatsappSessionDiagnostics,
   ]);
 
@@ -7329,8 +7512,12 @@ function InboxDesktopClientPage() {
   const selectedConversationDisplayName = resolveInboxConversationDisplayName(conversationForView);
   const selectedConversationAvatarUrl = resolveInboxAvatarUrl(conversationForView);
   const selectedConversationPresenceMeta = useMemo(
-    () => getInboxConversationPresenceMeta(conversationForView, mounted),
-    [conversationForView, mounted],
+    () => getInboxConversationPresenceMeta(
+      conversationForView,
+      mounted,
+      isWhatsappProviderConnecting(whatsappSession),
+    ),
+    [conversationForView, mounted, whatsappSession],
   );
   const selectedConversationStatusMeta = conversationForView
     ? getAtendimentoConversationStatusMeta(conversationForView, hasRecoveryCapability)
@@ -8911,17 +9098,22 @@ function InboxDesktopClientPage() {
                     aria-label={selectedConversationAvatarUrl ? "Abrir foto do contato" : "Contato sem foto"}
                     title={selectedConversationAvatarUrl ? "Abrir foto do contato" : "Contato sem foto"}
                   >
-                    <ChatAvatar
-                      initials={getInboxConversationInitials(conversationForView)}
-                      imageUrl={selectedConversationAvatarUrl}
-                      tone={
-                        selectedConversationWithoutWhatsapp
-                          ? "danger"
-                          : selectedConversationIsInterested
-                            ? "success"
-                            : mapAtendimentoConversationToneToQueueTone(selectedConversationStatusMeta?.tone || "bot")
-                      }
-                    />
+                    <span className={styles.whatsAppAvatarPresenceWrap}>
+                      <ChatAvatar
+                        initials={getInboxConversationInitials(conversationForView)}
+                        imageUrl={selectedConversationAvatarUrl}
+                        tone={
+                          selectedConversationWithoutWhatsapp
+                            ? "danger"
+                            : selectedConversationIsInterested
+                              ? "success"
+                              : mapAtendimentoConversationToneToQueueTone(selectedConversationStatusMeta?.tone || "bot")
+                        }
+                      />
+                      {selectedConversationPresenceMeta.online ? (
+                        <span className={styles.whatsAppAvatarOnlineIndicator} aria-label="Contato online" />
+                      ) : null}
+                    </span>
                   </button>
                   <div className={styles.whatsAppConversationIdentityText}>
                     <strong>{selectedConversationDisplayName}</strong>

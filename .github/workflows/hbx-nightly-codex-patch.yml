@@ -1,0 +1,115 @@
+name: HBX nightly Codex patch
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "59 23 * * *"
+      timezone: "America/Sao_Paulo"
+
+concurrency:
+  group: hbx-nightly-codex-patch
+  cancel-in-progress: false
+
+jobs:
+  codex-nightly-patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Run Codex phase-2 patch
+        id: run_codex
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          prompt-file: .github/codex/prompts/nightly-patch.md
+          output-file: codex-output.md
+          sandbox: workspace-write
+
+      - name: Preserve Codex report outside git
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP"
+          if [ -f codex-output.md ]; then
+            cp codex-output.md "$RUNNER_TEMP/codex-output.md"
+            rm -f codex-output.md
+          else
+            printf 'Codex did not produce codex-output.md\n' > "$RUNNER_TEMP/codex-output.md"
+          fi
+
+      - name: Guard patch scope
+        id: guard
+        shell: bash
+        run: |
+          changed_files="$( { git diff --name-only; git ls-files --others --exclude-standard; } | sort -u )"
+          if [ -z "$changed_files" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No patch produced."
+            exit 0
+          fi
+
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$changed_files"
+
+          count="$(printf '%s\n' "$changed_files" | sed '/^$/d' | wc -l | tr -d ' ')"
+          if [ "$count" -gt 5 ]; then
+            echo "Patch touched $count files, above the unattended limit of 5."
+            exit 1
+          fi
+
+          forbidden='(^|/)(\.env|\.env\..*|.*secret.*|.*token.*)$|(^|/)(\.github|\.agents)(/|$)|(^|/)AGENTS\.md$|(^|/)(node_modules|\.next|dist|build|coverage|\.turbo)(/|$)|(^|/)(package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$|(^|/)prisma/migrations/|(^|/)postgresql-migrations/|backend/src/(auth|commercial-plans|commercial|mercadopago|payment|payments|billing|subscription|subscriptions|checkout|entitlement|entitlements|webhook|webhooks)(/|$)|frontend/src/.*(auth|pricing|paywall|checkout|payment|billing|subscription|entitlement|mercadopago|webhook)'
+          if printf '%s\n' "$changed_files" | grep -Eiq "$forbidden"; then
+            echo "Patch touched protected commercial/auth/payment/migration/secret paths."
+            exit 1
+          fi
+
+          git diff --check
+
+      - name: Create pull request
+        if: steps.guard.outputs.changed == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          branch="codex/hbx-nightly-patch-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          git config user.name "codex-nightly[bot]"
+          git config user.email "codex-nightly[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add -A
+          git commit -m "chore: codex nightly maintenance"
+          git push origin "$branch"
+
+          body="$RUNNER_TEMP/codex-pr-body.md"
+          {
+            echo "## HBX nightly Codex patch"
+            echo
+            echo "Automated phase-2 maintenance patch. No auto-merge or deploy was performed."
+            echo
+            echo "Review checklist:"
+            echo
+            echo "- Confirm no pricing, checkout, payment, auth, migration, secrets, or commercial access behavior changed."
+            echo "- Confirm checks in the Codex report are acceptable."
+            echo "- Merge manually only after review."
+            echo
+            echo "## Codex report"
+            echo
+            cat "$RUNNER_TEMP/codex-output.md"
+          } > "$body"
+
+          gh pr create \
+            --base "${{ github.event.repository.default_branch }}" \
+            --head "$branch" \
+            --title "chore: Codex nightly maintenance" \
+            --body-file "$body"
+
+      - name: Upload Codex patch report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hbx-nightly-codex-patch
+          path: ${{ runner.temp }}/codex-output.md
+          if-no-files-found: warn
