@@ -1754,6 +1754,8 @@ export class RadarCoreFactoryAdminMixin {
             : 'RADAR_TEMPORARILY_UNAVAILABLE');
     const message = code === 'MODULE_ACCESS_DENIED'
       ? 'Acesso ao Radar Digital indisponÃ­vel para este usuÃ¡rio.'
+      : code === 'SELLER_CARD_QUOTA_REACHED' || code === 'SELLER_QUOTA_PAUSED'
+        ? String((error as any)?.response?.message || 'Seu limite de cards ativos foi atingido. Finalize, transfira ou peça mais cards ao responsável.')
       : code === 'NO_ENGINE_AVAILABLE'
         ? 'Motores ocupados. O sistema manteve sua busca na fila.'
         : code === 'RADAR_RUN_NOT_FOUND'
@@ -1778,6 +1780,9 @@ export class RadarCoreFactoryAdminMixin {
         available: false,
         route,
         status,
+        activeCount: (error as any)?.response?.activeCount ?? null,
+        effectiveLimit: (error as any)?.response?.effectiveLimit ?? null,
+        availableSlots: (error as any)?.response?.availableSlots ?? null,
       },
     };
   }
