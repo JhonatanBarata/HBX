@@ -89,6 +89,7 @@ const EMPLOYEE_BLOCKED_MODULE_KEYS = new Set([
   'exclusoes',
 ]);
 const SELLER_MOBILE_OPERATIONAL_MODULE_KEYS = new Set(['vendas', 'webscraping']);
+const SELLER_DESKTOP_OPERATIONAL_MODULE_KEYS = new Set(['vendas']);
 const HBX_SELLER_OPERATIONAL_MODULE_KEYS = new Set(['vendas', 'webscraping']);
 const MODULE_DISPLAY_ORDER = [
   'atendimento',
@@ -1932,6 +1933,14 @@ export class ModulesService implements OnModuleInit {
     return role === 'USER' && Boolean(context?.mobileRoute) && SELLER_MOBILE_OPERATIONAL_MODULE_KEYS.has(normalized);
   }
 
+  private canUseSellerOperationalModule(user: any, moduleKey: string, context?: ModuleAccessContext) {
+    const normalized = this.normalizeRequestedModuleKey(moduleKey);
+    const role = String(user?.role || '').trim().toUpperCase();
+    if (role !== 'USER') return false;
+    if (SELLER_DESKTOP_OPERATIONAL_MODULE_KEYS.has(normalized)) return true;
+    return Boolean(context?.mobileRoute) && SELLER_MOBILE_OPERATIONAL_MODULE_KEYS.has(normalized);
+  }
+
   private isHbxSellerNetworkCompanySnapshot(company: any) {
     return String(company?.slug || '').trim().toLowerCase() === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG;
   }
@@ -1944,7 +1953,7 @@ export class ModulesService implements OnModuleInit {
     const normalized = this.normalizeRequestedModuleKey(moduleKey);
     const role = String(user?.role || '').trim().toUpperCase();
     if (Boolean(user?.isSystemMaster) || role === 'ADMIN') return true;
-    if (this.canUseSellerMobileOperationalModule(user, normalized, context)) return true;
+    if (this.canUseSellerOperationalModule(user, normalized, context)) return true;
     return !EMPLOYEE_BLOCKED_MODULE_KEYS.has(normalized);
   }
 
@@ -2027,10 +2036,10 @@ export class ModulesService implements OnModuleInit {
               },
             },
           });
-      const sellerMobileOperationalModule = this.canUseSellerMobileOperationalModule(user, moduleItem.key, context);
+      const sellerOperationalModule = this.canUseSellerOperationalModule(user, moduleItem.key, context);
       const userAllowed = isSystemMaster
         ? true
-        : sellerMobileOperationalModule
+        : sellerOperationalModule
           ? true
         : userAccess
           ? Boolean(userAccess.allowed)
@@ -2191,10 +2200,10 @@ export class ModulesService implements OnModuleInit {
         const planManagedModule = planManagedModuleKeys.has(normalizedKey);
         const financeModule = this.isFinanceModuleKey(normalizedKey);
         const effectiveCompanyEnabled = Boolean(row?.enabled || (accessPolicy.active && planAllowsModule));
-        const sellerMobileOperationalModule = this.canUseSellerMobileOperationalModule(user, moduleItem.key, context);
+        const sellerOperationalModule = this.canUseSellerOperationalModule(user, moduleItem.key, context);
         const userAllowed = isSystemMaster
           ? true
-          : sellerMobileOperationalModule
+          : sellerOperationalModule
             ? true
           : (row && userAccessMap.has(row.moduleId)
               ? Boolean(userAccessMap.get(row.moduleId))
