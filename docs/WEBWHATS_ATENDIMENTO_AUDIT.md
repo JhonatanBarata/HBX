@@ -250,6 +250,14 @@ Ausencias relevantes para a lista de chats:
 - indice de expressao PostgreSQL para `("key"->>'remoteJid')`;
 - indice combinado que favoreca `instanceId + remoteJid extraido + messageTimestamp DESC`.
 
+Camada 4 adicionou a migration `Webwhats/prisma/postgresql-migrations/20260604000100_add_fast_chat_list_indexes/migration.sql` com:
+
+- `Message_instanceId_messageTimestamp_desc_idx` para ordenar mensagens recentes por instancia;
+- `Message_instanceId_remoteJid_timestamp_desc_idx` para `DISTINCT ON (key->>'remoteJid')`, filtros por instancia/JID e cursor por timestamp;
+- `Message_remoteJid_expr_idx` para consultas diretas por JID extraido do JSONB;
+- `Chat_instanceId_remoteJid_key` com `CREATE INDEX IF NOT EXISTS`, preservando o indice unico existente quando ja aplicado;
+- `Contact_instanceId_remoteJid_idx` para joins por instancia e JID na lista de chats.
+
 ## Cache existente
 
 - `WebwhatsBridgeService.listSyncAt`
