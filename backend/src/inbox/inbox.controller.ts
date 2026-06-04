@@ -127,6 +127,14 @@ export class InboxController {
     return this.inboxService.listConversationMessages(req.user, id, { limit, before });
   }
 
+  @Get('conversations/:id/presence')
+  getConversationPresence(
+    @Req() req: any,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.inboxService.getConversationPresence(req.user, id);
+  }
+
   @Get('conversations/:id')
   getConversation(
     @Req() req: any,

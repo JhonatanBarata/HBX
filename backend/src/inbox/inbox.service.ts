@@ -1596,6 +1596,50 @@ export class InboxService {
     return '';
   }
 
+  private resolveConversationPresenceRemoteJid(conversation: any, metadata?: Record<string, any> | null) {
+    const candidates = [
+      metadata?.whatsappRemoteJid,
+      metadata?.remoteJid,
+      metadata?.whatsappRemoteJidAlt,
+      metadata?.remoteJidAlt,
+      metadata?.customerPhone,
+      metadata?.whatsappPhone,
+      metadata?.phone,
+      conversation?.contact,
+    ];
+
+    for (const candidate of candidates) {
+      const remoteJid = this.normalizeConversationPresenceRemoteJid(candidate);
+      if (remoteJid) return remoteJid;
+    }
+
+    return null;
+  }
+
+  private normalizeConversationPresenceRemoteJid(value: unknown) {
+    const raw = this.normalizeMessageMetadataText(value);
+    if (!raw) return null;
+    const lowered = raw.toLowerCase();
+    if (lowered === 'status@broadcast' || lowered.includes('@broadcast')) return null;
+    if (raw.includes('@')) return raw;
+
+    const normalizedPhone = this.normalizeConversationPhone(raw);
+    return normalizedPhone ? `${normalizedPhone}@s.whatsapp.net` : null;
+  }
+
+  private buildUnknownConversationPresence(remoteJid: string | null) {
+    return {
+      remoteJid,
+      presence: 'unknown',
+      online: false,
+      typing: false,
+      recording: false,
+      lastSeenAt: null,
+      updatedAt: null,
+      providerStatus: 'unknown',
+    };
+  }
+
   private isConversationWhatsappIdentityConflicting(conversation: any, metadata?: Record<string, any> | null) {
     const contactPhone = this.normalizeConversationPhone(conversation?.contact);
     if (!contactPhone) return false;
@@ -3941,6 +3985,49 @@ export class InboxService {
 
   private async getConversationByIdForCompany(companyId: number, id: number) {
     return this.getPersistedConversationByIdForCompany(companyId, id);
+  }
+
+  async getConversationPresence(user: any, id: number) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const conversation = await this.prisma.companyConversation.findFirst({
+      where: { companyId, id, channel: 'whatsapp' },
+      select: {
+        id: true,
+        contact: true,
+        metadata: true,
+      },
+    });
+    if (!conversation) throw new NotFoundException('Conversation not found');
+
+    const metadata = this.parseConversationMetadata(conversation.metadata);
+    const remoteJid = this.resolveConversationPresenceRemoteJid(conversation, metadata);
+    if (!remoteJid) {
+      return this.buildUnknownConversationPresence(null);
+    }
+
+    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId);
+    if (!sessionScope.accessible || sessionScope.mode !== 'current') {
+      return this.buildUnknownConversationPresence(remoteJid);
+    }
+
+    try {
+      const presence = await this.webwhatsBridge.fetchPresence(companyId, remoteJid);
+      return {
+        remoteJid: presence.remoteJid || remoteJid,
+        presence: presence.presence || 'unknown',
+        online: Boolean(presence.online),
+        typing: Boolean(presence.typing),
+        recording: Boolean(presence.recording),
+        lastSeenAt: presence.lastSeenAt || null,
+        updatedAt: presence.updatedAt || null,
+        providerStatus: presence.presence || 'unknown',
+      };
+    } catch (error: any) {
+      this.logger.warn(
+        `Inbox conversation presence falhou company=${companyId} conversation=${conversation.id}: ${String(error?.message || error)}`,
+      );
+      return this.buildUnknownConversationPresence(remoteJid);
+    }
   }
 
   async getConversationById(user: any, id: number) {
