@@ -530,6 +530,11 @@ export class ImportWebscrapingLeadItemDto {
   @IsOptional()
   @IsString()
   sourceHistoryId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(220)
+  placeId?: string;
 }
 
 export class ImportWebscrapingLeadsDto {

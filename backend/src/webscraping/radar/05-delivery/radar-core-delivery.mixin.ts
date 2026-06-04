@@ -943,6 +943,8 @@ export class RadarCoreDeliveryMixin {
     }
     let quotaBlocked = false;
     let quotaRemaining: number | null = null;
+    let quotaBlockedCode: string | null = null;
+    let quotaBlockedMessage: string | null = null;
     if (this.commercialUsageLimits) {
       const usage = await this.commercialUsageLimits.getUsageSnapshot(context.companyId, context.userId).catch(() => null);
       const cardLimits = usage ? (usage as any).cards || {} : {};
@@ -963,6 +965,22 @@ export class RadarCoreDeliveryMixin {
           quotaRemaining = Math.max(0, Math.trunc(effectiveQuotaRemaining));
         }
       }
+      const sellerQuota = await this.commercialUsageLimits
+        .limitRequestedCardsBySellerActiveQuota(context.companyId, context.userId, filters.quantity)
+        .catch(() => null);
+      if (sellerQuota?.quota?.seller) {
+        if (Number(sellerQuota.limit || 0) <= 0) {
+          quotaBlocked = true;
+          quotaRemaining = 0;
+          quotaBlockedCode = sellerQuota.quota.code || 'SELLER_CARD_QUOTA_REACHED';
+          quotaBlockedMessage = 'Seu limite de cards ativos foi atingido. Finalize, transfira ou peça mais cards ao responsável.';
+        } else {
+          filters.quantity = Math.max(1, Math.min(filters.quantity, Math.trunc(Number(sellerQuota.limit || 0))));
+          quotaRemaining = quotaRemaining == null
+            ? Math.trunc(Number(sellerQuota.limit || 0))
+            : Math.min(quotaRemaining, Math.trunc(Number(sellerQuota.limit || 0)));
+        }
+      }
     }
     filters.limit = Math.max(filters.limit, filters.quantity);
 
@@ -980,7 +998,7 @@ export class RadarCoreDeliveryMixin {
       const now = new Date();
       const pauseReason = quotaBlocked ? 'vendas_card_limit_start' : 'vendas_stock_limit_start';
       const pauseMessage = quotaBlocked
-        ? 'Radar pausado. Limite diÃ¡rio de cards atingido; vou retomar esta mesma pesquisa quando houver cota.'
+        ? quotaBlockedMessage || 'Radar pausado. Limite de cards atingido; vou retomar esta mesma pesquisa quando houver cota.'
         : `Radar pausado. Vendas ja esta com ${safeInteger(vendasGate.pendingCount)} de ${vendasStockTarget} card(s). Vou retomar esta mesma pesquisa quando houver espaco.`;
       const retryAt = new Date(Date.now() + this.getRadarLimitPauseRetryDelayMs(pauseReason));
       const run = await this.prisma.webscrapingSearchRun.create({
@@ -1006,6 +1024,7 @@ export class RadarCoreDeliveryMixin {
             desiredStock: filters.desiredStock,
             minimumStock: filters.minimumStock,
             quotaRemaining,
+            quotaBlockedCode,
             radarPauseReason: pauseReason,
             radarPausedAt: now.toISOString(),
             radarPauseRetryAt: retryAt.toISOString(),
@@ -1388,6 +1407,26 @@ export class RadarCoreDeliveryMixin {
             },
           },
         };
+      }
+    }
+    if (this.commercialUsageLimits) {
+      const sellerQuota = await this.commercialUsageLimits
+        .limitRequestedCardsBySellerActiveQuota(context.companyId, context.userId, filters.quantity)
+        .catch(() => null);
+      if (sellerQuota?.quota?.seller) {
+        if (Number(sellerQuota.limit || 0) <= 0) {
+          throw new ConflictException({
+            ok: false,
+            code: sellerQuota.quota.code || 'SELLER_CARD_QUOTA_REACHED',
+            message: 'Seu limite de cards ativos foi atingido. Finalize, transfira ou peça mais cards ao responsável.',
+            activeCount: sellerQuota.quota.activeCount,
+            effectiveLimit: sellerQuota.quota.effectiveLimit,
+            availableSlots: 0,
+            quota: sellerQuota.quota,
+          });
+        }
+        filters.quantity = Math.max(1, Math.min(filters.quantity, Math.trunc(Number(sellerQuota.limit || 0))));
+        filters.limit = Math.max(filters.limit, filters.quantity);
       }
     }
 
@@ -2797,6 +2836,7 @@ export class RadarCoreDeliveryMixin {
       leads: [
         {
           sourceHistoryId: `radar:${leadRow.id}`,
+          placeId: leadRow.placeId || undefined,
           name: leadRow.name,
           phone: leadRow.phone || leadRow.phoneDigits,
           phoneDigits: leadRow.phoneDigits || normalizePhoneDigits(leadRow.phone),
@@ -2995,12 +3035,19 @@ export class RadarCoreDeliveryMixin {
     const dayKey = this.getSaoPauloDayKey();
     const dailyStateBySeller = new Map<number, Awaited<ReturnType<typeof this.getDailyDistributionSnapshot>>>();
     const dailyLimitBySeller = new Map<number, number>();
+    const activeQuotaBySeller = new Map<number, any>();
     for (const target of targets) {
       const sellerDailyLimit = this.resolveSellerDistributionDailyLimit(target, dailyLimitPerSeller);
       dailyLimitBySeller.set(Number(target.id), sellerDailyLimit);
       dailyStateBySeller.set(
         Number(target.id),
         await this.getDailyDistributionSnapshot(context.companyId, Number(target.id), sellerDailyLimit, dayKey),
+      );
+      activeQuotaBySeller.set(
+        Number(target.id),
+        this.commercialUsageLimits
+          ? await this.commercialUsageLimits.getSellerActiveCardQuotaSnapshot(context.companyId, Number(target.id)).catch(() => null)
+          : null,
       );
     }
 
@@ -3021,7 +3068,9 @@ export class RadarCoreDeliveryMixin {
       for (let offset = 0; offset < targets.length; offset += 1) {
         const candidate = targets[(index + offset) % targets.length];
         const state = candidate ? dailyStateBySeller.get(Number(candidate.id)) : null;
-        if (candidate && (!state || state.remainingToday > 0)) {
+        const activeQuota = candidate ? activeQuotaBySeller.get(Number(candidate.id)) : null;
+        const hasActiveSlot = !activeQuota?.seller || Number(activeQuota.availableSlots || 0) > 0;
+        if (candidate && (!state || state.remainingToday > 0) && hasActiveSlot) {
           target = candidate;
           break;
         }
@@ -3030,18 +3079,28 @@ export class RadarCoreDeliveryMixin {
         failedCount += 1;
         failures.push({
           radarLeadId,
-          error: 'Todos os vendedores atingiram o limite diÃ¡rio nÃ£o acumulativo.',
+          error: 'Todos os vendedores atingiram limite diÃ¡rio ou limite de cards ativos.',
         });
         continue;
       }
       const dailyState = dailyStateBySeller.get(Number(target.id));
       const targetDailyLimit = dailyLimitBySeller.get(Number(target.id)) ?? dailyLimitPerSeller;
+      const activeQuota = activeQuotaBySeller.get(Number(target.id));
       if (dailyState?.remainingToday <= 0) {
         failedCount += 1;
         await this.recordDailyDistributionSkip(context.companyId, Number(target.id), targetDailyLimit, 'limite_diario_atingido', dayKey);
         failures.push({
           radarLeadId,
           error: 'Limite diÃ¡rio do vendedor atingido.',
+        });
+        continue;
+      }
+      if (activeQuota?.seller && Number(activeQuota.availableSlots || 0) <= 0) {
+        failedCount += 1;
+        await this.recordDailyDistributionSkip(context.companyId, Number(target.id), targetDailyLimit, 'limite_cards_ativos_atingido', dayKey);
+        failures.push({
+          radarLeadId,
+          error: 'Limite de cards ativos do vendedor atingido.',
         });
         continue;
       }
@@ -3056,6 +3115,10 @@ export class RadarCoreDeliveryMixin {
         if (dailyState) {
           dailyState.deliveredToday += 1;
           dailyState.remainingToday = Math.max(0, dailyState.remainingToday - 1);
+        }
+        if (activeQuota?.seller) {
+          activeQuota.activeCount = Math.max(0, Number(activeQuota.activeCount || 0) + 1);
+          activeQuota.availableSlots = Math.max(0, Number(activeQuota.availableSlots || 0) - 1);
         }
         distributedCount += 1;
         assignments.push({

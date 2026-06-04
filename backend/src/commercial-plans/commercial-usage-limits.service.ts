@@ -7,8 +7,53 @@ const FALLBACK_TIMEZONE = 'America/Sao_Paulo';
 const CARD_SUCCESS_EVENTS = ['card_import_success', 'vendas_card_imported', 'radar_card_claimed', 'card_commercial_used'];
 const CARD_REFUND_EVENTS = ['vendas_card_refunded'];
 const LEAD_ENRICHMENT_SUCCESS_EVENTS = ['lead_enrichment_used'];
+const SELLER_ACTIVE_CARD_LIMIT_DEFAULT = 20;
+const SELLER_ACTIVE_CARD_LIMIT_MIN = 5;
+const SELLER_ACTIVE_CARD_LIMIT_MAX = 100;
+const ACTIVE_VENDAS_CARD_STATUSES = [
+  'novo',
+  'contato',
+  'retorno',
+  'qualificado',
+  'new',
+  'assigned',
+  'contacted',
+  'follow_up',
+  'waiting_reply',
+  'pending_activation',
+  'trial',
+  'negotiation',
+];
+const ACTIVE_RADAR_CARD_STATUSES = [
+  'new',
+  'clean',
+  'reserved',
+  'delivered',
+  'assigned',
+  'contacted',
+  'follow_up',
+  'waiting_reply',
+  'pending_activation',
+  'trial',
+  'negotiation',
+];
 
 type UsageKind = 'cards' | 'emails';
+type SellerActiveCardQuotaSnapshot = {
+  companyId: number;
+  userId: number;
+  seller: boolean;
+  paused: boolean;
+  activeCount: number;
+  baseLimit: number;
+  bonus: number;
+  inactivityPenalty: number;
+  effectiveLimit: number;
+  availableSlots: number;
+  salesWonLast30: number;
+  lastSeenAt: string | null;
+  code: string | null;
+};
 
 @Injectable()
 export class CommercialUsageLimitsService {
@@ -114,6 +159,240 @@ export class CommercialUsageLimitsService {
   private normalizePositiveOverride(value: unknown) {
     const parsed = Math.trunc(Number(value || 0));
     return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }
+
+  private clampInteger(value: unknown, min: number, max: number) {
+    const parsed = Math.trunc(Number(value || 0));
+    if (!Number.isFinite(parsed)) return min;
+    return Math.max(min, Math.min(max, parsed));
+  }
+
+  private parseDate(value: unknown) {
+    if (!value) return null;
+    const date = value instanceof Date ? value : new Date(String(value));
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  private daysSince(date: Date | null, now = new Date()) {
+    if (!date) return 0;
+    return Math.max(0, Math.floor((now.getTime() - date.getTime()) / (24 * 60 * 60 * 1000)));
+  }
+
+  private normalizeSellerMode(value: unknown) {
+    const normalized = String(value || 'learning').trim().toLowerCase();
+    return ['learning', 'normal', 'priority', 'paused'].includes(normalized) ? normalized : 'learning';
+  }
+
+  private isSellerPaused(user: any, now = new Date()) {
+    const mode = this.normalizeSellerMode(user?.sellerDistributionMode);
+    if (mode !== 'paused') return false;
+    const pausedUntil = this.parseDate(user?.sellerDistributionPausedUntil);
+    return !pausedUntil || pausedUntil.getTime() > now.getTime();
+  }
+
+  private async getSellerActiveCardBaseLimit(companyId: number, hbxOperationCompany: boolean) {
+    const rule = await this.prisma.radarAutoDistributionRule.findFirst({
+      where: {
+        companyId,
+        scope: hbxOperationCompany ? 'hbx_master' : 'company',
+      },
+      orderBy: [{ status: 'desc' }, { updatedAt: 'desc' }],
+      select: { targetStockPerSeller: true },
+    }).catch(() => null);
+    return this.clampInteger(
+      rule?.targetStockPerSeller || SELLER_ACTIVE_CARD_LIMIT_DEFAULT,
+      SELLER_ACTIVE_CARD_LIMIT_MIN,
+      SELLER_ACTIVE_CARD_LIMIT_MAX,
+    );
+  }
+
+  private async countSellerActiveVendasCards(companyId: number, userId: number) {
+    return this.prisma.vendasLead.count({
+      where: {
+        companyId,
+        assignedUserId: userId,
+        status: { in: ACTIVE_VENDAS_CARD_STATUSES },
+        closedAt: null,
+      },
+    }).catch(() => 0);
+  }
+
+  private async countSellerActiveRadarCards(companyId: number, userId: number) {
+    return this.prisma.radarLeadCompanyState.count({
+      where: {
+        companyId,
+        assignedUserId: userId,
+        vendasLeadId: null,
+        status: { in: ACTIVE_RADAR_CARD_STATUSES },
+      },
+    }).catch(() => 0);
+  }
+
+  private async countSellerWonCardsLast30Days(companyId: number, userId: number, now = new Date()) {
+    const since = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    return this.prisma.vendasLead.count({
+      where: {
+        companyId,
+        assignedUserId: userId,
+        OR: [
+          { saleStatus: { in: ['trial_started', 'sale_confirmed'] }, updatedAt: { gte: since } },
+          { saleConfirmedAt: { gte: since } },
+        ],
+      },
+    }).catch(() => 0);
+  }
+
+  private async getSellerLastSeenAt(userId: number, fallback?: Date | null) {
+    const session = await this.prisma.authSession.findFirst({
+      where: { userId },
+      orderBy: { lastSeenAt: 'desc' },
+      select: { lastSeenAt: true },
+    }).catch(() => null);
+    return this.parseDate(session?.lastSeenAt) || fallback || null;
+  }
+
+  private resolveInactivityPenalty(baseWithBonus: number, lastSeenAt: Date | null, now = new Date()) {
+    const days = this.daysSince(lastSeenAt, now);
+    if (days <= 3) return 0;
+    if (days <= 7) return Math.floor(baseWithBonus * 0.25);
+    if (days <= 14) return Math.floor(baseWithBonus * 0.5);
+    return Math.max(0, baseWithBonus - SELLER_ACTIVE_CARD_LIMIT_MIN);
+  }
+
+  async getSellerActiveCardQuotaSnapshot(companyIdRaw: number, userIdRaw: number): Promise<SellerActiveCardQuotaSnapshot> {
+    const companyId = Math.trunc(Number(companyIdRaw || 0));
+    const userId = Math.trunc(Number(userIdRaw || 0));
+    const unlimited = 999999;
+    if (!companyId || !userId) {
+      return {
+        companyId,
+        userId,
+        seller: false,
+        paused: false,
+        activeCount: 0,
+        baseLimit: unlimited,
+        bonus: 0,
+        inactivityPenalty: 0,
+        effectiveLimit: unlimited,
+        availableSlots: unlimited,
+        salesWonLast30: 0,
+        lastSeenAt: null,
+        code: null,
+      };
+    }
+
+    const [company, user] = await Promise.all([
+      this.prisma.company.findUnique({
+        where: { id: companyId },
+        select: { slug: true },
+      }).catch(() => null),
+      this.prisma.user.findFirst({
+        where: { id: userId, companyId },
+        select: {
+          id: true,
+          role: true,
+          isSystemMaster: true,
+          isActive: true,
+          deactivatedAt: true,
+          createdAt: true,
+          sellerDistributionMode: true,
+          sellerDistributionPausedUntil: true,
+        },
+      }).catch(() => null),
+    ]);
+
+    const role = String(user?.role || '').trim().toUpperCase();
+    const seller = Boolean(user && role === 'USER' && !user.isSystemMaster);
+    if (!seller) {
+      return {
+        companyId,
+        userId,
+        seller: false,
+        paused: false,
+        activeCount: 0,
+        baseLimit: unlimited,
+        bonus: 0,
+        inactivityPenalty: 0,
+        effectiveLimit: unlimited,
+        availableSlots: unlimited,
+        salesWonLast30: 0,
+        lastSeenAt: null,
+        code: null,
+      };
+    }
+
+    const now = new Date();
+    const active = Boolean(user?.isActive && !user?.deactivatedAt);
+    const paused = !active || this.isSellerPaused(user, now);
+    const hbxOperationCompany = company?.slug === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG;
+    const baseLimit = await this.getSellerActiveCardBaseLimit(companyId, hbxOperationCompany);
+    const [vendasActive, radarActive, salesWonLast30, lastSeenAt] = await Promise.all([
+      this.countSellerActiveVendasCards(companyId, userId),
+      this.countSellerActiveRadarCards(companyId, userId),
+      this.countSellerWonCardsLast30Days(companyId, userId, now),
+      this.getSellerLastSeenAt(userId, this.parseDate(user?.createdAt)),
+    ]);
+    const activeCount = Math.max(0, Math.trunc(Number(vendasActive || 0) + Number(radarActive || 0)));
+    const bonus = Math.floor(Math.max(0, salesWonLast30) / 3) * 5;
+    const inactivityPenalty = this.resolveInactivityPenalty(baseLimit + bonus, lastSeenAt, now);
+    const effectiveLimit = paused
+      ? 0
+      : this.clampInteger(baseLimit + bonus - inactivityPenalty, SELLER_ACTIVE_CARD_LIMIT_MIN, SELLER_ACTIVE_CARD_LIMIT_MAX);
+    const availableSlots = Math.max(0, effectiveLimit - activeCount);
+    return {
+      companyId,
+      userId,
+      seller: true,
+      paused,
+      activeCount,
+      baseLimit,
+      bonus,
+      inactivityPenalty,
+      effectiveLimit,
+      availableSlots,
+      salesWonLast30,
+      lastSeenAt: lastSeenAt ? lastSeenAt.toISOString() : null,
+      code: paused
+        ? 'SELLER_QUOTA_PAUSED'
+        : availableSlots <= 0
+          ? 'SELLER_CARD_QUOTA_REACHED'
+          : null,
+    };
+  }
+
+  async assertSellerActiveCardSlots(companyId: number, userId: number, requestedCount = 1) {
+    const snapshot = await this.getSellerActiveCardQuotaSnapshot(companyId, userId);
+    if (!snapshot.seller) return snapshot;
+    const requested = Math.max(1, Math.trunc(Number(requestedCount || 1) || 1));
+    if (snapshot.paused || snapshot.availableSlots < requested) {
+      await this.log(companyId, userId, 'seller_card_quota_blocked', 'seller_active_card_quota', {
+        reason: snapshot.paused ? 'paused' : 'active_card_limit_reached',
+        activeCount: snapshot.activeCount,
+        effectiveLimit: snapshot.effectiveLimit,
+        availableSlots: snapshot.availableSlots,
+        requestedCount: requested,
+      }).catch(() => null);
+      throw new ConflictException({
+        ok: false,
+        code: snapshot.paused ? 'SELLER_QUOTA_PAUSED' : 'SELLER_CARD_QUOTA_REACHED',
+        message: 'Seu limite de cards ativos foi atingido. Finalize, transfira ou peça mais cards ao responsável.',
+        activeCount: snapshot.activeCount,
+        effectiveLimit: snapshot.effectiveLimit,
+        availableSlots: snapshot.availableSlots,
+        quota: snapshot,
+      });
+    }
+    return snapshot;
+  }
+
+  async limitRequestedCardsBySellerActiveQuota(companyId: number, userId: number, requestedLimit: number) {
+    const requested = Math.max(0, Math.trunc(Number(requestedLimit || 0) || 0));
+    const snapshot = await this.getSellerActiveCardQuotaSnapshot(companyId, userId);
+    if (!snapshot.seller) return { limit: requested, quota: snapshot };
+    return {
+      limit: Math.max(0, Math.min(requested, snapshot.availableSlots)),
+      quota: snapshot,
+    };
   }
 
   private async isSystemMasterUser(userId?: number | null) {

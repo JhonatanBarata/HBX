@@ -812,16 +812,26 @@ export class RadarCoreDistributionMixin {
     const dailySnapshots = await Promise.all(
       recipients.map((recipient) => this.getDailyDistributionSnapshot(context.companyId, recipient.assignedUserId, recipient.dailyLimit, dayKey)),
     );
+    const activeQuotaSnapshots = await Promise.all(
+      recipients.map((recipient) => recipient.assignedUserId && this.commercialUsageLimits
+        ? this.commercialUsageLimits.getSellerActiveCardQuotaSnapshot(context.companyId, recipient.assignedUserId).catch(() => null)
+        : Promise.resolve(null)),
+    );
     recipients.forEach((recipient, index) => {
       recipient.currentStock = Math.max(0, Math.trunc(Number(currentStocks[index] || 0) || 0));
       recipient.deliveredToday = Math.max(0, Math.trunc(Number(dailySnapshots[index]?.deliveredToday || 0) || 0));
       recipient.dailyRemaining = Math.max(0, Math.trunc(Number(dailySnapshots[index]?.remainingToday ?? recipient.dailyLimit) || 0));
       const stockNeed = Math.max(0, recipient.targetStock - recipient.currentStock);
+      const activeQuota = activeQuotaSnapshots[index] as any;
+      const activeRemaining = activeQuota?.seller ? Math.max(0, Math.trunc(Number(activeQuota.availableSlots || 0))) : stockNeed;
       const blockedByReason = Boolean(recipient.noDeliveryReason);
-      recipient.needed = blockedByReason ? 0 : Math.min(stockNeed, recipient.dailyRemaining);
+      recipient.needed = blockedByReason ? 0 : Math.min(stockNeed, recipient.dailyRemaining, activeRemaining);
       if (!blockedByReason && stockNeed > 0 && recipient.dailyRemaining <= 0) {
         recipient.noDeliveryReason = 'Limite diÃ¡rio atingido';
         void this.recordDailyDistributionSkip(context.companyId, recipient.assignedUserId, recipient.dailyLimit, 'limite_diario_atingido', dayKey);
+      } else if (!blockedByReason && stockNeed > 0 && activeQuota?.seller && activeRemaining <= 0) {
+        recipient.noDeliveryReason = 'Limite de cards ativos atingido';
+        void this.recordDailyDistributionSkip(context.companyId, recipient.assignedUserId, recipient.dailyLimit, 'limite_cards_ativos_atingido', dayKey);
       }
     });
 
@@ -1412,12 +1422,26 @@ export class RadarCoreDistributionMixin {
       const sellerDailyLimit = this.resolveSellerDistributionDailyLimit(seller, dailyLimitPerSeller);
       const currentStock = await this.countRadarAutoDistributionOpenStock(context.companyId, Number(seller.id || 0));
       const dailySnapshot = await this.getDailyDistributionSnapshot(context.companyId, Number(seller.id || 0), sellerDailyLimit, dayKey);
+      const activeQuota = this.commercialUsageLimits
+        ? await this.commercialUsageLimits.getSellerActiveCardQuotaSnapshot(context.companyId, Number(seller.id || 0)).catch(() => null)
+        : null;
       const stockRemaining = Math.max(0, targetStockPerSeller - currentStock);
       const dailyRemaining = Math.max(0, Math.trunc(Number(dailySnapshot.remainingToday || 0) || 0));
-      const remaining = Math.min(stockRemaining, dailyRemaining);
-      const noDeliveryReason = stockRemaining > 0 && dailyRemaining <= 0 ? 'Limite diÃ¡rio atingido' : null;
+      const activeRemaining = (activeQuota as any)?.seller ? Math.max(0, Math.trunc(Number((activeQuota as any).availableSlots || 0))) : stockRemaining;
+      const remaining = Math.min(stockRemaining, dailyRemaining, activeRemaining);
+      const noDeliveryReason = stockRemaining > 0 && dailyRemaining <= 0
+        ? 'Limite diÃ¡rio atingido'
+        : stockRemaining > 0 && (activeQuota as any)?.seller && activeRemaining <= 0
+          ? 'Limite de cards ativos atingido'
+          : null;
       if (noDeliveryReason) {
-        await this.recordDailyDistributionSkip(context.companyId, Number(seller.id || 0), sellerDailyLimit, 'limite_diario_atingido', dayKey);
+        await this.recordDailyDistributionSkip(
+          context.companyId,
+          Number(seller.id || 0),
+          sellerDailyLimit,
+          noDeliveryReason.includes('ativos') ? 'limite_cards_ativos_atingido' : 'limite_diario_atingido',
+          dayKey,
+        );
       }
       recipients.push({
         userId: Number(seller.id || 0),
