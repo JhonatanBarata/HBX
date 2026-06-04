@@ -1934,6 +1934,7 @@ export class BaileysStartupService extends ChannelStartupService {
             }
 
             if (events['connection.update']) {
+              this.recordConnectionPresenceUpdate(events['connection.update']);
               await this.connectionUpdate(events['connection.update']);
             }
 
@@ -1982,6 +1983,7 @@ export class BaileysStartupService extends ChannelStartupService {
                 return;
               }
 
+              this.recordBaileysPresenceUpdate(payload);
               this.sendDataWebhook(Events.PRESENCE_UPDATE, payload);
             }
 
@@ -2024,6 +2026,7 @@ export class BaileysStartupService extends ChannelStartupService {
 
             if (events['contacts.update']) {
               const payload = events['contacts.update'];
+              this.recordContactPresenceUpdate(payload);
               this.contactHandle['contacts.update'](payload);
             }
 
