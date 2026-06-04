@@ -1,16 +1,17 @@
 import { BadRequestException, Body, Controller, Get, Patch, Req, UseGuards } from '@nestjs/common';
-import { IsNotEmpty, IsString, MinLength } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator';
 import * as bcrypt from 'bcryptjs';
 import { UsersService } from '../users/users.service';
 import { assertPasswordPolicy } from './password-policy';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { MasterContextService } from '../master-context/master-context.service';
 import { ThemePreferencesService } from './theme-preferences.service';
+import { PrismaService } from '../prisma/prisma.service';
 
 class ChangePasswordDto {
   @IsString()
-  @IsNotEmpty()
-  currentPassword: string;
+  @IsOptional()
+  currentPassword?: string;
 
   @IsString()
   @IsNotEmpty()
@@ -98,6 +99,7 @@ export class ProfileController {
     private readonly usersService: UsersService,
     private readonly masterContextService: MasterContextService,
     private readonly themePreferencesService: ThemePreferencesService,
+    private readonly prisma: PrismaService,
   ) {}
 
   private async resolveMasterContext(req: any, user: any) {
@@ -170,8 +172,22 @@ export class ProfileController {
     const nextPassword = String(dto.newPassword || '');
     assertPasswordPolicy(nextPassword);
 
-    const matches = await bcrypt.compare(currentPassword, user.password || '');
-    if (!matches) throw new BadRequestException('Senha atual incorreta');
+    const currentSessionId = String(req.user?.sessionId || '').trim();
+    const previousSessionCount = user.mustChangePassword
+      ? await this.prisma.authSession.count({
+          where: {
+            userId: user.id,
+            id: currentSessionId ? { not: currentSessionId } : undefined,
+          },
+        })
+      : 0;
+    const isFirstAccessPasswordChange = Boolean(user.mustChangePassword) && previousSessionCount === 0;
+
+    if (!isFirstAccessPasswordChange) {
+      if (!currentPassword) throw new BadRequestException('Informe a senha atual');
+      const matches = await bcrypt.compare(currentPassword, user.password || '');
+      if (!matches) throw new BadRequestException('Senha atual incorreta');
+    }
 
     const hashed = await bcrypt.hash(nextPassword, 10);
     await this.usersService.setPassword(user.id, hashed);

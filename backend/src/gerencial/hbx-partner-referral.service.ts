@@ -3,16 +3,38 @@ import type { User } from '@prisma/client';
 import { isMasterOperationalCompanySlug } from '../commercial-plans/seat-billing.util';
 import { PrismaService } from '../prisma/prisma.service';
 
+type RequesterUser = Pick<User, 'id' | 'companyId' | 'role' | 'isActive' | 'deactivatedAt' | 'isSystemMaster'>;
+
+type CreateCandidateDto = {
+  candidateName?: string | null;
+  candidatePhone?: string | null;
+  note?: string | null;
+  preferredSegmentsJson?: string | null;
+};
+
 @Injectable()
 export class HbxPartnerReferralService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private normalizeText(value: unknown) {
+    const normalized = String(value || '').trim().replace(/\s+/g, ' ');
+    return normalized || null;
+  }
 
   private normalizePhoneDigits(phone?: string | null) {
     const digits = String(phone || '').replace(/\D/g, '');
     return digits || null;
   }
 
-  private async assertHbxSellerNetwork(companyId?: number | null) {
+  private candidateInclude() {
+    return {
+      referrerUser: { select: { id: true, name: true, username: true, email: true, sellerReferralCommissionPercent: true, commissionPercent: true } },
+      reviewedByUser: { select: { id: true, name: true, username: true, email: true } },
+      convertedUser: { select: { id: true, name: true, username: true, email: true, isActive: true } },
+    };
+  }
+
+  private async assertHbxOperation(companyId?: number | null) {
     const normalizedCompanyId = Number(companyId || 0);
     if (!normalizedCompanyId) throw new ForbiddenException('Company context required');
     const company = await this.prisma.company.findUnique({
@@ -25,12 +47,16 @@ export class HbxPartnerReferralService {
     return normalizedCompanyId;
   }
 
-  private hbxReferralCandidateInclude() {
-    return {
-      referrerUser: { select: { id: true, name: true, username: true, email: true, sellerReferralCommissionPercent: true, commissionPercent: true } },
-      reviewedByUser: { select: { id: true, name: true, username: true, email: true } },
-      convertedUser: { select: { id: true, name: true, username: true, email: true, isActive: true } },
-    };
+  private assertActiveHbxPartner(user?: Partial<RequesterUser> | null) {
+    if (
+      !user ||
+      String(user.role || '').toUpperCase() !== 'USER' ||
+      !user.isActive ||
+      user.deactivatedAt ||
+      user.isSystemMaster
+    ) {
+      throw new ForbiddenException('Seu usuário ainda não está autorizado a indicar parceiros HBX.');
+    }
   }
 
   private async assertCandidateReferrerIsActive(companyId: number, referrerUserId: number) {
@@ -43,7 +69,16 @@ export class HbxPartnerReferralService {
         deactivatedAt: null,
         isSystemMaster: false,
       },
-      select: { id: true },
+      select: {
+        id: true,
+        companyId: true,
+        role: true,
+        isActive: true,
+        deactivatedAt: true,
+        isSystemMaster: true,
+        commissionPercent: true,
+        sellerReferralCommissionPercent: true,
+      },
     });
     if (!referrer) {
       throw new BadRequestException('Indicador precisa ser parceiro ativo da operação HBX.');
@@ -51,32 +86,54 @@ export class HbxPartnerReferralService {
     return referrer;
   }
 
-  async listPendingForMaster(masterUser: Pick<User, 'companyId'>) {
-    const companyId = await this.assertHbxSellerNetwork(masterUser?.companyId);
-    return this.prisma.hbxPartnerReferralCandidate.findMany({
-      where: { companyId, status: { in: ['pending', 'approved'] } },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      include: this.hbxReferralCandidateInclude(),
+  async createCandidate(requesterUser: RequesterUser, dto: CreateCandidateDto) {
+    const companyId = await this.assertHbxOperation(requesterUser?.companyId);
+    this.assertActiveHbxPartner(requesterUser);
+
+    const candidateName = this.normalizeText(dto?.candidateName);
+    const candidatePhone = this.normalizeText(dto?.candidatePhone);
+    const candidatePhoneNormalized = this.normalizePhoneDigits(candidatePhone);
+    if (!candidateName) throw new BadRequestException('Informe o nome do contato indicado.');
+    if (!candidatePhone) throw new BadRequestException('Informe o WhatsApp do contato indicado.');
+
+    const existing = await this.prisma.hbxPartnerReferralCandidate.findFirst({
+      where: {
+        companyId,
+        ...(candidatePhoneNormalized ? { candidatePhoneNormalized } : { candidatePhone }),
+        status: { in: ['pending', 'approved'] },
+      },
+      select: { id: true, status: true },
+    });
+    if (existing) {
+      throw new BadRequestException('Já existe uma indicação pendente ou aprovada com este WhatsApp.');
+    }
+
+    return this.prisma.hbxPartnerReferralCandidate.create({
+      data: {
+        companyId,
+        referrerUserId: Number(requesterUser.id),
+        candidateName,
+        candidatePhone,
+        candidatePhoneNormalized,
+        note: this.normalizeText(dto?.note),
+        preferredSegmentsJson: this.normalizeText(dto?.preferredSegmentsJson),
+        status: 'pending',
+      },
+      include: this.candidateInclude(),
     });
   }
 
-  async findCandidateByPhone(companyId: number, phone?: string | null) {
-    const normalizedCompanyId = await this.assertHbxSellerNetwork(companyId);
-    const candidatePhoneNormalized = this.normalizePhoneDigits(phone);
-    if (!candidatePhoneNormalized) return null;
-    return this.prisma.hbxPartnerReferralCandidate.findFirst({
-      where: {
-        companyId: normalizedCompanyId,
-        candidatePhoneNormalized,
-        status: { in: ['pending', 'approved'] },
-      },
-      orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
-      include: this.hbxReferralCandidateInclude(),
+  async listPendingForMaster(masterUser: Pick<User, 'companyId'>) {
+    const companyId = await this.assertHbxOperation(masterUser?.companyId);
+    return this.prisma.hbxPartnerReferralCandidate.findMany({
+      where: { companyId, status: { in: ['pending', 'approved'] } },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      include: this.candidateInclude(),
     });
   }
 
   async approveCandidate(masterUser: Pick<User, 'id' | 'companyId'>, candidateId: string) {
-    const companyId = await this.assertHbxSellerNetwork(masterUser?.companyId);
+    const companyId = await this.assertHbxOperation(masterUser?.companyId);
     const normalizedCandidateId = String(candidateId || '').trim();
     if (!normalizedCandidateId) throw new BadRequestException('Indicação inválida');
 
@@ -95,12 +152,12 @@ export class HbxPartnerReferralService {
         reviewedByUserId: Number(masterUser?.id || 0) || null,
         reviewedAt: new Date(),
       },
-      include: this.hbxReferralCandidateInclude(),
+      include: this.candidateInclude(),
     });
   }
 
-  async rejectCandidate(masterUser: Pick<User, 'id' | 'companyId'>, candidateId: string) {
-    const companyId = await this.assertHbxSellerNetwork(masterUser?.companyId);
+  async rejectCandidate(masterUser: Pick<User, 'id' | 'companyId'>, candidateId: string, _reason?: string | null) {
+    const companyId = await this.assertHbxOperation(masterUser?.companyId);
     const normalizedCandidateId = String(candidateId || '').trim();
     if (!normalizedCandidateId) throw new BadRequestException('Indicação inválida');
 
@@ -118,7 +175,82 @@ export class HbxPartnerReferralService {
         reviewedByUserId: Number(masterUser?.id || 0) || null,
         reviewedAt: new Date(),
       },
-      include: this.hbxReferralCandidateInclude(),
+      include: this.candidateInclude(),
+    });
+  }
+
+  async findCandidateByPhone(companyId: number, phone?: string | null) {
+    const normalizedCompanyId = await this.assertHbxOperation(companyId);
+    const candidatePhoneNormalized = this.normalizePhoneDigits(phone);
+    if (!candidatePhoneNormalized) return null;
+    return this.prisma.hbxPartnerReferralCandidate.findFirst({
+      where: {
+        companyId: normalizedCompanyId,
+        candidatePhoneNormalized,
+        status: { in: ['pending', 'approved'] },
+      },
+      orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
+      include: this.candidateInclude(),
+    });
+  }
+
+  async getCandidateForConversion(companyId: number, candidateId?: string | null) {
+    const normalizedCompanyId = await this.assertHbxOperation(companyId);
+    const normalizedCandidateId = String(candidateId || '').trim();
+    if (!normalizedCandidateId) return null;
+    return this.prisma.hbxPartnerReferralCandidate.findFirst({
+      where: {
+        id: normalizedCandidateId,
+        companyId: normalizedCompanyId,
+        status: 'approved',
+      },
+      include: {
+        referrerUser: {
+          select: {
+            id: true,
+            companyId: true,
+            role: true,
+            isActive: true,
+            deactivatedAt: true,
+            isSystemMaster: true,
+            canRegisterHbxSellers: true,
+            commissionPercent: true,
+            sellerReferralCommissionPercent: true,
+            name: true,
+            username: true,
+            email: true,
+          },
+        },
+      },
+    });
+  }
+
+  async markCandidateConverted(input: {
+    companyId: number;
+    candidateId: string;
+    convertedUserId: number;
+    reviewedByUserId?: number | null;
+  }) {
+    const companyId = await this.assertHbxOperation(input.companyId);
+    const candidateId = String(input.candidateId || '').trim();
+    const convertedUserId = Math.trunc(Number(input.convertedUserId || 0));
+    if (!candidateId || !convertedUserId) throw new BadRequestException('Conversão de indicação inválida');
+
+    const candidate = await this.prisma.hbxPartnerReferralCandidate.findFirst({
+      where: { id: candidateId, companyId, status: 'approved' },
+      select: { id: true, reviewedAt: true, reviewedByUserId: true },
+    });
+    if (!candidate) throw new NotFoundException('Indicação não encontrada para conversão');
+
+    return this.prisma.hbxPartnerReferralCandidate.update({
+      where: { id: candidate.id },
+      data: {
+        status: 'converted',
+        convertedUserId,
+        reviewedByUserId: candidate.reviewedByUserId || Math.trunc(Number(input.reviewedByUserId || 0)) || null,
+        reviewedAt: candidate.reviewedAt || new Date(),
+      },
+      include: this.candidateInclude(),
     });
   }
 }

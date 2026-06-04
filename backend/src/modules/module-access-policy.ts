@@ -4,11 +4,13 @@ import {
   normalizeCommercialPlanKey,
   type ActiveCommercialPlanKey,
 } from '../commercial-plans/commercial-plan-catalog';
+import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../companies/master-whatsapp-company.constants';
 
 export const PRIMARY_COMMERCIAL_MODULE_KEYS = ['atendimento', 'vendas', 'webscraping'] as const;
 export const ROUTE_GUARDED_MODULE_KEYS = ['atendimento', 'vendas', 'webscraping', 'website'] as const;
 
 export type ModuleAccessCompanySnapshot = {
+  slug?: string | null;
   isActive?: boolean | null;
   onboardingStatus?: string | null;
   paymentStatus?: string | null;
@@ -44,6 +46,20 @@ export function resolveCompanyModuleAccessPolicy(
   company: ModuleAccessCompanySnapshot | null | undefined,
   nowMs = Date.now(),
 ): CompanyModuleAccessPolicy {
+  const companySlug = String(company?.slug || '').trim().toLowerCase();
+  if (companySlug === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG) {
+    const planKey = COMMERCIAL_PLAN_KEYS.MELHOR;
+    return {
+      accessState: 'manual',
+      active: true,
+      pendingCheckout: false,
+      planKey,
+      moduleKeys: new Set<string>(COMMERCIAL_PLAN_MODULE_KEYS[planKey] || []),
+      blockedCode: null,
+      blockedReason: null,
+    };
+  }
+
   const paymentStatus = String(company?.paymentStatus || '').trim().toUpperCase();
   const subscriptionStatus = String(company?.subscriptionStatus || '').trim().toLowerCase();
   const onboardingStatus = String(company?.onboardingStatus || '').trim().toLowerCase();

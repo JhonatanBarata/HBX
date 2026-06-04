@@ -40,6 +40,7 @@
     "nodemailer": "^6.9.15",
     "passport": "^0.6.0",
     "passport-jwt": "^4.0.1",
+    "pdfkit": "^0.18.0",
     "qrcode": "^1.5.4",
     "reflect-metadata": "^0.1.13",
     "resend": "^6.10.0",
@@ -48,6 +49,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
+    "@types/pdfkit": "^0.17.6",
     "prisma": "5.22.0",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.9.3"

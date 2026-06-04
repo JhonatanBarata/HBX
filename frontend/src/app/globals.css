@@ -764,6 +764,16 @@ textarea {
   padding: 0.86rem;
 }
 
+.hbx-popup-stack {
+  width: min(92vw, 450px);
+  display: grid;
+  gap: 0.7rem;
+}
+
+.hbx-popup2--notice {
+  width: 100%;
+}
+
 .hbx-popup2[data-tone="success"] {
   border-color: color-mix(in srgb, var(--success) 42%, var(--line));
 }
@@ -824,7 +834,28 @@ textarea {
 }
 
 .hbx-popup2__action {
+  border: 1px solid color-mix(in srgb, var(--brand) 46%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--brand) 10%, var(--surface));
+  color: color-mix(in srgb, var(--brand) 76%, var(--foreground));
+  padding: 0.48rem 0.68rem;
+  font-size: 0.72rem;
+  font-weight: 850;
+  cursor: pointer;
   min-width: 0;
+}
+
+.hbx-popup2__secret {
+  width: 100%;
+  display: block;
+  overflow-wrap: anywhere;
+  border: 1px solid color-mix(in srgb, var(--warning) 26%, var(--line));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--warning) 8%, var(--surface));
+  color: var(--foreground);
+  padding: 0.5rem 0.58rem;
+  font-size: 0.82rem;
+  font-weight: 780;
 }
 
 .hbx-popup2__close {
@@ -973,6 +1004,28 @@ textarea {
   line-height: 1.3;
 }
 
+.hbx-partner-popup__contract-note {
+  display: grid;
+  gap: 0.12rem;
+  border: 1px solid color-mix(in srgb, var(--brand) 24%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--brand) 7%, var(--surface));
+  padding: 0.52rem 0.62rem;
+}
+
+.hbx-partner-popup__contract-note b {
+  color: var(--foreground);
+  font-size: 0.72rem;
+  font-weight: 860;
+}
+
+.hbx-partner-popup__contract-note span {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
 .hbx-partner-popup__upload {
   min-height: 82px;
   border: 1px dashed color-mix(in srgb, var(--brand) 32%, var(--line));
@@ -988,6 +1041,26 @@ textarea {
   background: color-mix(in srgb, var(--success) 10%, var(--surface));
 }
 
+.hbx-partner-popup__upload[data-ready="true"] {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--button-success) 46%, var(--line));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--button-success) 11%, var(--surface)), color-mix(in srgb, var(--surface) 94%, transparent));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--button-success) 10%, transparent),
+    0 12px 28px -24px color-mix(in srgb, var(--button-success) 46%, transparent);
+}
+
+.hbx-partner-popup__upload[data-generated="true"] {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--brand) 42%, var(--line));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--brand) 8%, var(--surface)), color-mix(in srgb, var(--surface) 94%, transparent));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--brand) 8%, transparent),
+    0 12px 28px -25px color-mix(in srgb, var(--brand) 40%, transparent);
+}
+
 .hbx-partner-popup__upload button {
   justify-self: start;
   border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
@@ -998,6 +1071,17 @@ textarea {
   font-size: 0.66rem;
   font-weight: 820;
   cursor: pointer;
+}
+
+.hbx-partner-popup__upload[data-ready="true"] button {
+  border-color: color-mix(in srgb, var(--button-success) 34%, var(--line));
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  color: color-mix(in srgb, var(--button-success) 62%, var(--foreground));
+}
+
+.hbx-partner-popup__upload[data-generated="true"] button {
+  border-color: color-mix(in srgb, var(--brand) 30%, var(--line));
+  color: color-mix(in srgb, var(--brand) 48%, var(--foreground));
 }
 
 .hbx-partner-popup__upload span {
@@ -1011,11 +1095,23 @@ textarea {
   font-size: 0.8rem;
 }
 
+.hbx-partner-popup__upload[data-ready="true"] b {
+  color: color-mix(in srgb, var(--button-success) 28%, var(--foreground));
+}
+
 .hbx-partner-popup__upload small {
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.hbx-partner-popup__upload[data-ready="true"] small {
+  color: color-mix(in srgb, var(--button-success) 36%, var(--muted));
+}
+
+.hbx-partner-popup__upload[data-generated="true"] small {
+  color: color-mix(in srgb, var(--brand) 42%, var(--muted));
 }
 
 .hbx-partner-popup__upload input {

@@ -336,7 +336,11 @@ export class ModulesController {
   @Get('me')
   @UseGuards(JwtAuthGuard)
   listMyModules(@Req() req: any) {
-    return this.modulesService.listMyModules(Number(req.user?.id));
+    const surface = String(req?.headers?.['x-hbx-client-surface'] || '').trim().toLowerCase();
+    const mobileRoute = String(req?.headers?.['x-hbx-mobile-route'] || '').trim().toLowerCase();
+    return this.modulesService.listMyModules(Number(req.user?.id), {
+      mobileRoute: surface === 'mobile' || mobileRoute === 'true' || mobileRoute === '1',
+    });
   }
 
   @Get('webscraping/entry')

@@ -24,7 +24,7 @@ function randSuffix() {
     console.log('[2] request reset link');
     const recoverRes = await axios.post(
       `${baseUrl}/auth/recover-password`,
-      { username },
+      { email },
       { headers: { 'Content-Type': 'application/json' }, timeout: 10_000 },
     );
     console.log('status', recoverRes.status);

@@ -109,6 +109,24 @@ test('MANUAL/premiumAccess releases selected plan or padrao fallback', () => {
   assert.equal(fallback.moduleKeys.has('gerencial'), true);
 });
 
+test('HBX operational company is not blocked by checkout/payment status', () => {
+  const policy = resolveCompanyModuleAccessPolicy({
+    slug: 'hbx-master-whatsapp-engine',
+    isActive: false,
+    onboardingStatus: 'pending_checkout',
+    paymentStatus: 'PENDING',
+    subscriptionStatus: 'pending_checkout',
+    selectedPlanKey: null,
+  });
+
+  assert.equal(policy.accessState, 'manual');
+  assert.equal(policy.active, true);
+  assert.equal(policy.pendingCheckout, false);
+  assert.equal(policy.moduleKeys.has('vendas'), true);
+  assert.equal(policy.moduleKeys.has('webscraping'), true);
+  assert.equal(policy.blockedCode, null);
+});
+
 test('expired/canceled blocks modules', () => {
   const expired = resolveCompanyModuleAccessPolicy({
     isActive: false,

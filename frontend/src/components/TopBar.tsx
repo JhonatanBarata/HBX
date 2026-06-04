@@ -5032,7 +5032,7 @@ export default function TopBar() {
                         <button
                           type="submit"
                           className="btn btn-primary btn-sm"
-                          disabled={changing || newPass.length < 4}
+                          disabled={changing || newPass.length < 8}
                         >
                           {changing ? "Salvando..." : "Salvar senha"}
                         </button>

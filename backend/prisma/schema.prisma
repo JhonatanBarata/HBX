@@ -907,6 +907,8 @@ model User {
   radarDistributionDailyUsages RadarDistributionDailyUsage[]
   sellerOnboardings SellerOnboarding[] @relation("SellerOnboardingUser")
   createdSellerOnboardings SellerOnboarding[] @relation("SellerOnboardingCreatedBy")
+  partnerContracts PartnerContract[] @relation("PartnerContractPartner")
+  approvedPartnerContracts PartnerContract[] @relation("PartnerContractApprovedBy")
   hbxReferralCandidates HbxPartnerReferralCandidate[] @relation("HbxReferralCandidateReferrer")
   reviewedHbxReferralCandidates HbxPartnerReferralCandidate[] @relation("HbxReferralCandidateReviewedBy")
   convertedHbxReferralCandidates HbxPartnerReferralCandidate[] @relation("HbxReferralCandidateConvertedUser")
@@ -921,9 +923,9 @@ model HbxPartnerReferralCandidate {
   companyId             Int
   referrerUser          User     @relation("HbxReferralCandidateReferrer", fields: [referrerUserId], references: [id], onDelete: Cascade)
   referrerUserId        Int
-  name                  String
-  phone                 String
-  phoneNormalized       String?
+  candidateName         String   @map("name")
+  candidatePhone        String   @map("phone")
+  candidatePhoneNormalized String? @map("phoneNormalized")
   note                  String?
   preferredSegmentsJson String?
   status                String   @default("pending")
@@ -937,7 +939,7 @@ model HbxPartnerReferralCandidate {
 
   @@index([companyId, status, createdAt])
   @@index([referrerUserId, status])
-  @@index([companyId, phoneNormalized])
+  @@index([companyId, candidatePhoneNormalized])
   @@index([reviewedByUserId])
   @@index([convertedUserId])
 }
@@ -1006,6 +1008,26 @@ model SellerOnboardingAttachment {
 
   @@index([onboardingId, kind])
   @@index([deleteAfter, status])
+}
+
+model PartnerContract {
+  id             String   @id @default(cuid())
+  partner        User     @relation("PartnerContractPartner", fields: [partnerId], references: [id], onDelete: Cascade)
+  partnerId      Int      @unique @map("partner_id")
+  contractPdfUrl String?  @map("contract_pdf_url")
+  signedPdfUrl   String?  @map("signed_pdf_url")
+  status         String   @default("generated")
+  sentAt         DateTime? @map("sent_at")
+  uploadedAt     DateTime? @map("uploaded_at")
+  approvedAt     DateTime? @map("approved_at")
+  approvedByUser User?    @relation("PartnerContractApprovedBy", fields: [approvedBy], references: [id], onDelete: SetNull)
+  approvedBy     Int?     @map("approved_by")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@index([approvedBy])
+  @@map("partner_contracts")
 }
 
 model CompanyBillableSeatUsage {
