@@ -7497,6 +7497,49 @@
   white-space: nowrap;
 }
 
+.whatsAppHealthDiagnostics {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.24rem;
+  overflow: hidden;
+}
+
+.whatsAppHealthChip {
+  min-width: 0;
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.24rem;
+  padding: 0.16rem 0.4rem;
+  border-radius: 999px;
+  border: 1px solid rgba(150, 174, 235, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(237, 243, 255, 0.82);
+  white-space: nowrap;
+}
+
+.whatsAppHealthChip small {
+  flex: 0 0 auto;
+  font-size: 0.56rem;
+  line-height: 1;
+  font-weight: 850;
+  letter-spacing: 0;
+  color: rgba(145, 160, 195, 0.88);
+}
+
+.whatsAppHealthChip strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.6rem;
+  line-height: 1;
+  font-weight: 850;
+  letter-spacing: 0;
+}
+
 .whatsAppConnectionActions {
   flex: 0 0 auto;
   display: inline-flex;
@@ -9600,6 +9643,16 @@
   color: color-mix(in srgb, var(--foreground) 62%, var(--muted));
 }
 
+:global(html[data-theme-mode="light"]) .whatsAppHealthChip {
+  border-color: color-mix(in srgb, var(--line) 84%, var(--background));
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  color: color-mix(in srgb, var(--foreground) 76%, var(--muted));
+}
+
+:global(html[data-theme-mode="light"]) .whatsAppHealthChip small {
+  color: color-mix(in srgb, var(--muted) 86%, var(--foreground));
+}
+
 :global(html[data-theme-mode="light"]) .whatsAppConnectionActions span {
   border-color: color-mix(in srgb, var(--line) 82%, var(--background));
   background: color-mix(in srgb, var(--surface) 86%, transparent);
@@ -10307,6 +10360,11 @@
   }
 
   .whatsAppConnectionActions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .whatsAppHealthDiagnostics {
     justify-content: flex-start;
     flex-wrap: wrap;
   }

@@ -5314,7 +5314,9 @@ function InboxDesktopClientPage() {
   const [conversationListError, setConversationListError] = useState<string | null>(null);
   const [conversationDetailError, setConversationDetailError] = useState<string | null>(null);
   const [inboxRealtimeFallbackActive, setInboxRealtimeFallbackActive] = useState(false);
+  const [lastChatSyncAt, setLastChatSyncAt] = useState<string | null>(null);
   const [lastConversationSyncAt, setLastConversationSyncAt] = useState<string | null>(null);
+  const [inboxBootstrapMode, setInboxBootstrapMode] = useState<string | null>(null);
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [commercialPlans, setCommercialPlans] = useState<CommercialPlansPayload | null>(null);
   const [sendText, setSendText] = useState("");
@@ -5916,14 +5918,20 @@ function InboxDesktopClientPage() {
       };
 
       let payload: InboxBootstrapPayload | null = null;
+      let resolvedBootstrapMode = "light";
       try {
         payload = await fetchBootstrap(true);
+        resolvedBootstrapMode = String(payload?.bootstrapMode || "light").trim() || "light";
       } catch (lightLoadError) {
         if (isRequestAbortError(lightLoadError) || controller.signal.aborted) return;
         payload = await fetchBootstrap(false);
+        resolvedBootstrapMode = String(payload?.bootstrapMode || "full").trim() || "full";
       }
 
       if (!payload || controller.signal.aborted || bootstrapAbortControllerRef.current !== controller) return;
+      const syncAt = new Date().toISOString();
+      setInboxBootstrapMode(resolvedBootstrapMode);
+      setLastChatSyncAt(syncAt);
       setWhatsappSession(payload?.whatsappSession || null);
       setWhatsappSessionCleanup(payload?.whatsappSessionCleanup || null);
       setProviderWarning(payload?.providerWarning || null);
@@ -5968,7 +5976,9 @@ function InboxDesktopClientPage() {
       setOlderMessagesBefore(getInboxOldestMessageDate(selectedForView?.messages));
       setOlderMessagesHasMore((selectedForView?.messages?.length || 0) >= INBOX_RECENT_MESSAGES_LIMIT);
       setConversationListHasMoreByQueue(buildInboxQueueBooleanMap(hasMoreConversations));
-      setLastConversationSyncAt(new Date().toISOString());
+      if (detail) {
+        setLastConversationSyncAt(syncAt);
+      }
       setBootstrapReady(true);
 
       const needsMessagePageHydration =
@@ -6160,6 +6170,7 @@ function InboxDesktopClientPage() {
       ) {
         return;
       }
+      setLastConversationSyncAt(new Date().toISOString());
 
       const detailedConversationBase = clearInboxConversationSummaryOnly(data);
       const detailedConversation = detailedConversationBase
@@ -6261,6 +6272,7 @@ function InboxDesktopClientPage() {
       const payload = await apiFetch<InboxMessagePagePayload>(
         `/inbox/conversations/${conversationId}/messages?limit=${INBOX_RECENT_MESSAGES_LIMIT}&before=${encodeURIComponent(before)}`,
       );
+      setLastConversationSyncAt(new Date().toISOString());
       const olderMessages = Array.isArray(payload?.messages) ? payload.messages : [];
       const baseConversation =
         selectedConversationRef.current?.id === conversationId ? selectedConversationRef.current : currentConversation;
@@ -6313,6 +6325,8 @@ function InboxDesktopClientPage() {
           timeoutMs: 15000,
         },
       );
+      const syncAt = new Date().toISOString();
+      setLastConversationSyncAt(syncAt);
       const latestMessages = Array.isArray(payload?.messages) ? payload.messages : [];
       if (!latestMessages.length) return;
 
@@ -6340,7 +6354,6 @@ function InboxDesktopClientPage() {
       rememberConversationDetail(nextConversation);
       setOlderMessagesBefore(getInboxOldestMessageDate(nextMessages));
       setOlderMessagesHasMore(Boolean(payload?.hasMore));
-      setLastConversationSyncAt(new Date().toISOString());
 
       setConversations((current) =>
         sortInboxConversationsByActivity(current.map((conversation) =>
@@ -6485,6 +6498,7 @@ function InboxDesktopClientPage() {
             timeoutMs: 15000,
           },
         );
+        setLastChatSyncAt(new Date().toISOString());
         const rawPage = normalizeInboxConversationList(Array.isArray(response) ? response : []);
         const page = append || appendQueue !== "all"
           ? rawPage.filter((conversation) =>
@@ -6521,9 +6535,6 @@ function InboxDesktopClientPage() {
         }
         setConversationListError(null);
         setBootstrapReady(true);
-        if (listChanged || currentList.length === 0) {
-          setLastConversationSyncAt(new Date().toISOString());
-        }
         if (append) return;
 
         const preferredId = options && Object.prototype.hasOwnProperty.call(options, "preferredId")
@@ -7476,10 +7487,10 @@ function InboxDesktopClientPage() {
       },
       {
         label: "Ultima leitura",
-        value: lastConversationSyncAt ? formatDateLabel(lastConversationSyncAt, mounted) : "nenhuma",
+        value: lastChatSyncAt ? formatDateLabel(lastChatSyncAt, mounted) : "nenhuma",
       },
     ],
-    [conversations.length, filteredConversations.length, hasToken, inboxQueue, lastConversationSyncAt, mounted, selectedId],
+    [conversations.length, filteredConversations.length, hasToken, inboxQueue, lastChatSyncAt, mounted, selectedId],
   );
 
   const inboxDetailDiagnostics = useMemo(
@@ -7644,6 +7655,48 @@ function InboxDesktopClientPage() {
     () => buildWhatsAppConnectionDiagnosis(whatsappSession, providerWarning),
     [providerWarning, whatsappSession],
   );
+  const atendimentoDebugEnabled = useMemo(() => {
+    const raw = String(searchParams?.get("atendimentoDebug") || searchParams?.get("debug") || "")
+      .trim()
+      .toLowerCase();
+    return raw === "1" || raw === "true" || raw === "webwhats" || raw === "atendimento";
+  }, [searchParams]);
+  const canViewWebwhatsDiagnostics = canManageAgenda || atendimentoDebugEnabled;
+  const webwhatsHealthDiagnostics = useMemo(() => {
+    const providerLabel = whatsappConnectionDiagnosis.providerLabel || "WebWhats";
+    const connectionState =
+      whatsappConnectionDiagnosis.tone === "ok"
+        ? "conectado"
+        : whatsappConnectionDiagnosis.tone === "danger"
+          ? "desconectado"
+          : "reconectando";
+
+    return [
+      {
+        label: "Status",
+        value: `${providerLabel} ${connectionState}`,
+      },
+      {
+        label: "Chats",
+        value: lastChatSyncAt ? formatShortDateTimeLabel(lastChatSyncAt, mounted) : "sem sync",
+      },
+      {
+        label: "Conversa",
+        value: lastConversationSyncAt ? formatShortDateTimeLabel(lastConversationSyncAt, mounted) : "sem sync",
+      },
+      {
+        label: "Bootstrap",
+        value: String(inboxBootstrapMode || "pendente").toLowerCase(),
+      },
+    ];
+  }, [
+    inboxBootstrapMode,
+    lastChatSyncAt,
+    lastConversationSyncAt,
+    mounted,
+    whatsappConnectionDiagnosis.providerLabel,
+    whatsappConnectionDiagnosis.tone,
+  ]);
 
   const sanitizeBotConfigForCurrentTenant = useCallback(
     (config: Partial<AtendimentoBotConfig> | null | undefined) =>
@@ -11217,6 +11270,16 @@ function InboxDesktopClientPage() {
                 <strong>{whatsappConnectionDiagnosis.label}</strong>
                 <span>{whatsappConnectionDiagnosis.detail}</span>
               </div>
+              {canViewWebwhatsDiagnostics ? (
+                <div className={styles.whatsAppHealthDiagnostics} aria-label="Diagnóstico WebWhats">
+                  {webwhatsHealthDiagnostics.map((item) => (
+                    <span key={item.label} className={styles.whatsAppHealthChip}>
+                      <small>{item.label}</small>
+                      <strong>{item.value}</strong>
+                    </span>
+                  ))}
+                </div>
+              ) : null}
               <div className={styles.whatsAppConnectionActions}>
                 <span>{whatsappConnectionDiagnosis.providerLabel}</span>
                 {whatsappConnectionDiagnosis.action === "connect" ? (
