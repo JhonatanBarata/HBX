@@ -68,12 +68,11 @@ export default function HbxPulseSummaryCard({
 
   useEffect(() => {
     let alive = true;
-    setLoading(true);
-    setError(null);
     apiFetch<PulseSummary>("/pulse/summary")
       .then((payload) => {
         if (!alive) return;
         setSummary(payload || null);
+        setError(null);
       })
       .catch(() => {
         if (!alive) return;
