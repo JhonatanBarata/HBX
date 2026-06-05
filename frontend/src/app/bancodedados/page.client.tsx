@@ -218,7 +218,6 @@ const TABS: Array<{ id: TabId; label: string; description: string }> = [
   { id: "pesquisas", label: "Pesquisas", description: "Cards pesquisados e salvos no banco Radar." },
   { id: "excluidos", label: "Excluídos", description: "Cards removidos, bloqueados ou descartados." },
   { id: "reclamacoes", label: "Reclamações", description: "Cards contestados pelos clientes." },
-  { id: "distribuicao", label: "Distribuição de Cards", description: "Modo tabela para UF, cidade, parceiro e limites de distribuição." },
 ];
 
 const TAB_GUIDE_ITEMS = TABS.map((tab) => ({
@@ -303,7 +302,7 @@ export default function BancoDeDadosClientPage({ embedded = false }: { embedded?
     setLoading(true);
     setError(null);
     try {
-      const [cardsResult, exclusionsResult, complaintsResult, territoryResult] = await Promise.allSettled([
+      const [cardsResult, exclusionsResult, complaintsResult] = await Promise.allSettled([
         apiFetch<RadarCardsPayload>(`/modules/master/webscraping/database-cards?limit=${MASS_DELETE_LOAD_LIMIT}&targetType=both`, {
           requireAuth: true,
           timeoutMs: 60000,
@@ -315,10 +314,6 @@ export default function BancoDeDadosClientPage({ embedded = false }: { embedded?
         apiFetch<ComplaintPayload>(`/modules/master/vendas-complaints?limit=${MASS_DELETE_LOAD_LIMIT}`, {
           requireAuth: true,
           timeoutMs: 60000,
-        }),
-        apiFetch<HbxTerritoryPanel>("/modules/master/webscraping/radar-auto-distribution", {
-          requireAuth: true,
-          timeoutMs: 20000,
         }),
       ]);
       const failures: string[] = [];
@@ -341,16 +336,6 @@ export default function BancoDeDadosClientPage({ embedded = false }: { embedded?
         setComplaints(complaintsResult.value?.items || []);
       } else {
         failures.push(`Reclamações (${normalizeLoadError(complaintsResult.reason)})`);
-      }
-
-      if (territoryResult.status === "fulfilled") {
-        const territoryPayload = territoryResult.value;
-        setTerritoryPanel(territoryPayload || null);
-        setTerritoryDraft(territoryPayload || null);
-        const firstSellerId = Number(territoryPayload?.sellers?.[0]?.id || 0);
-        setTerritoryInput((current) => ({ ...current, userId: current.userId || firstSellerId }));
-      } else {
-        failures.push(`Distribuição de Cards (${normalizeLoadError(territoryResult.reason)})`);
       }
 
       if (failures.length) {
@@ -452,8 +437,6 @@ export default function BancoDeDadosClientPage({ embedded = false }: { embedded?
   }, [complaints, search]);
 
   const territorySellers = territoryDraft?.sellers || [];
-  const territorySummary = territoryDraft?.summary || territoryPanel?.summary || {};
-  const territoryCityCount = territorySellers.reduce((sum, seller) => sum + seller.cities.length, 0);
   const territoryPotential = territorySellers.reduce((sum, seller) => sum + Number(seller.availableCards || 0), 0);
 
   const tabCount: Record<TabId, number> = {
@@ -681,8 +664,8 @@ export default function BancoDeDadosClientPage({ embedded = false }: { embedded?
         <section className={styles.kpiGrid} aria-label="Resumo do banco de dados">
           <article><span>Pesquisas</span><strong>{metric(cardsTotal || cards.length)}</strong></article>
           <article><span>Excluídos</span><strong>{metric(excludedCards.length + filteredDeletionRecords.length)}</strong></article>
-          <article><span>Vendedores HBX</span><strong>{metric(Number(territorySummary.sellerCount || territorySellers.length))}</strong></article>
-          <article><span>Cidades fixas</span><strong>{metric(Number(territorySummary.cityCount || territoryCityCount))}</strong></article>
+          <article><span>Reclamações</span><strong>{metric(filteredComplaints.length)}</strong></article>
+          <article><span>Total visível</span><strong>{metric(filteredCards.length + excludedCards.length + filteredDeletionRecords.length + filteredComplaints.length)}</strong></article>
         </section>
 
         <section className={styles.tableCard}>

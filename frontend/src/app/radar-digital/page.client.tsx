@@ -388,6 +388,7 @@ type RadarChannel = "whatsapp" | "instagram" | "email" | "website" | "phone" | "
 const PAGE_SIZE = 100;
 const RADAR_PROGRESS_STEPS = ["lendo banco", "filtrando negativos", "selecionando melhores cards", "alimentando Vendas/Prospecção"];
 const MOBILE_RADAR_SEARCH_NOTICE_DISMISSED_KEY = "hbx.radar.mobile.searchNoticeDismissed.v1";
+const RADAR_AUTO_DISTRIBUTION_ENABLED = false;
 
 const DEFAULT_FILTERS: FilterState = {
   state: "",
@@ -2557,6 +2558,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   }
 
   function openAutoDistributionModal() {
+    if (!RADAR_AUTO_DISTRIBUTION_ENABLED) return;
     setAutoDistributionDraft(buildRadarAutoDistributionDraft(autoDistributionRule, filters));
     setAutoDistributionOpen(true);
     if (!autoDistributionRule) {
@@ -3827,7 +3829,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   }
 
   function renderAutoDistributionModal() {
-    if (!autoDistributionOpen) return null;
+    if (!RADAR_AUTO_DISTRIBUTION_ENABLED || !autoDistributionOpen) return null;
     const sellerCount = autoDistributionEligibleSellerUsers.length;
     const targetCount = sellerCount + (autoDistributionDraft.includeAdmin ? 1 : 0);
     const summaryPlace = autoDistributionDraft.preferredCity
@@ -4203,15 +4205,17 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
               onChange={(quantity) => setFilters((current) => ({ ...current, quantity }))}
             />
 
-            <button
-              type="button"
-              className={styles.mobileAutoDistributionButton}
-              onClick={openAutoDistributionModal}
-              disabled={radarFiltersLocked}
-            >
-              <span>Distribuição automática</span>
-              <strong>{radarAutoDistributionStatusLabel(autoDistributionRule?.status)}</strong>
-            </button>
+            {RADAR_AUTO_DISTRIBUTION_ENABLED ? (
+              <button
+                type="button"
+                className={styles.mobileAutoDistributionButton}
+                onClick={openAutoDistributionModal}
+                disabled={radarFiltersLocked}
+              >
+                <span>Distribuição automática</span>
+                <strong>{radarAutoDistributionStatusLabel(autoDistributionRule?.status)}</strong>
+              </button>
+            ) : null}
 
             {radarFiltersLocked ? (
               <div className={styles.mobileRadarLockedNotice} role="status">
@@ -4526,15 +4530,17 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
                   <span>Distribuição</span>
                   <strong>{distributionLabel}</strong>
                 </div>
-                <button
-                  type="button"
-                  data-variant="secondary"
-                  className={styles.distributionAutoButton}
-                  onClick={openAutoDistributionModal}
-                  disabled={radarFiltersLocked}
-                >
-                  Automática
-                </button>
+                {RADAR_AUTO_DISTRIBUTION_ENABLED ? (
+                  <button
+                    type="button"
+                    data-variant="secondary"
+                    className={styles.distributionAutoButton}
+                    onClick={openAutoDistributionModal}
+                    disabled={radarFiltersLocked}
+                  >
+                    Automática
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   data-variant="secondary"

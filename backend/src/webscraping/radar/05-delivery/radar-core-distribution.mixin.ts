@@ -1107,30 +1107,46 @@ export class RadarCoreDistributionMixin {
   }
 
   private async listMasterRadarDistributionSellers(companyId: number): Promise<any[]> {
+    const where = {
+      companyId,
+      isActive: true,
+      isSystemMaster: false,
+      role: { in: ['USER', 'ADMIN'] },
+    };
+    const orderBy = [{ name: 'asc' }, { email: 'asc' }, { id: 'asc' }];
+    const baseSelect = {
+      id: true,
+      name: true,
+      email: true,
+      username: true,
+      phone: true,
+      commissionPercent: true,
+      canRegisterHbxSellers: true,
+      sellerReferralCommissionPercent: true,
+      referredByUserId: true,
+      preferredSegmentsJson: true,
+    };
+    const distributionSelect = {
+      ...baseSelect,
+      sellerDistributionMode: true,
+      sellerDistributionPausedUntil: true,
+      sellerDistributionDailyLimitOverride: true,
+      sellerDistributionNote: true,
+    };
     const sellers = await (this.prisma.user as any).findMany({
-      where: {
-        companyId,
-        isActive: true,
-        isSystemMaster: false,
-        role: { in: ['USER', 'ADMIN'] },
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        username: true,
-        phone: true,
-        commissionPercent: true,
-        canRegisterHbxSellers: true,
-        sellerReferralCommissionPercent: true,
-        referredByUserId: true,
-        preferredSegmentsJson: true,
-        sellerDistributionMode: true,
-        sellerDistributionPausedUntil: true,
-        sellerDistributionDailyLimitOverride: true,
-        sellerDistributionNote: true,
-      },
-      orderBy: [{ name: 'asc' }, { email: 'asc' }, { id: 'asc' }],
+      where,
+      select: distributionSelect,
+      orderBy,
+    }).catch(async (error: any) => {
+      this.logger.warn(`[radar-auto-distribution] campos de distribuicao do vendedor indisponiveis no schema local: ${String(error?.message || error)}`);
+      return (this.prisma.user as any).findMany({
+        where,
+        select: baseSelect,
+        orderBy,
+      }).catch((fallbackError: any) => {
+        this.logger.warn(`[radar-auto-distribution] falha ao listar vendedores HBX company=${companyId}: ${String(fallbackError?.message || fallbackError)}`);
+        return [];
+      });
     });
     return (sellers || [])
       .filter((seller: any) => !this.isSellerDistributionPaused(seller))
@@ -1149,8 +1165,10 @@ export class RadarCoreDistributionMixin {
         .map((item) => [`${item.normalizedCity}:${item.state}`, item]),
     ).values()).slice(0, 120);
     const output = new Map<string, number>();
+    const radarLeadPool = (this.prisma as any).radarLeadPool;
+    if (!radarLeadPool?.count) return output;
     for (const item of uniqueCities) {
-      const count = await (this.prisma as any).radarLeadPool.count({
+      const count = await radarLeadPool.count({
         where: {
           normalizedCity: item.normalizedCity,
           state: item.state,
@@ -1163,7 +1181,9 @@ export class RadarCoreDistributionMixin {
   }
 
   private async listMasterRadarCitySuggestions() {
-    const rows = await (this.prisma as any).radarLeadPool.findMany({
+    const radarLeadPool = (this.prisma as any).radarLeadPool;
+    if (!radarLeadPool?.findMany) return [];
+    const rows = await radarLeadPool.findMany({
       where: {
         city: { not: null },
         state: { not: null },
@@ -1596,10 +1616,13 @@ export class RadarCoreDistributionMixin {
     if (!user?.isSystemMaster) throw new ForbiddenException('Acesso exclusivo do MASTER.');
     const companyId = await this.resolveMasterRadarDistributionCompanyId(user);
     if (!companyId) throw new ServiceUnavailableException('Empresa operacional do MASTER nao encontrada.');
+    const radarAutoDistributionRule = (this.prisma as any).radarAutoDistributionRule;
     const [rule, sellers, citySuggestions] = await Promise.all([
-      this.prisma.radarAutoDistributionRule.findUnique({
-        where: { companyId_scope: { companyId, scope: 'hbx_master' } },
-      }).catch(() => null),
+      radarAutoDistributionRule?.findUnique
+        ? radarAutoDistributionRule.findUnique({
+            where: { companyId_scope: { companyId, scope: 'hbx_master' } },
+          }).catch(() => null)
+        : Promise.resolve(null),
       this.listMasterRadarDistributionSellers(companyId),
       this.listMasterRadarCitySuggestions(),
     ]);
