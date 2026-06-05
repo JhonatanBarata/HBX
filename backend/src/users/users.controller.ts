@@ -95,6 +95,13 @@ class CreateCompanyUserDto {
 	commissionDueBusinessDays?: number;
 
 	@IsOptional()
+	@Type(() => Number)
+	@IsInt()
+	@Min(0)
+	@Max(500)
+	sellerDistributionDailyLimitOverride?: number;
+
+	@IsOptional()
 	@IsString()
 	@IsIn(['USER', 'ADMIN'])
 	role?: 'USER' | 'ADMIN';
@@ -145,6 +152,13 @@ class UpdateCompanyUserProfileDto {
 	@Min(0)
 	@Max(100)
 	referredByCommissionPercentSnapshot?: number;
+
+	@IsOptional()
+	@Type(() => Number)
+	@IsInt()
+	@Min(0)
+	@Max(500)
+	sellerDistributionDailyLimitOverride?: number;
 }
 
 class MasterCreateUserDto {
@@ -679,6 +693,14 @@ export class UsersController {
 			dto,
 			targetUserId: id,
 		});
+		const isHbxSellerNetwork = await this.usersService.isHbxSellerNetworkCompany(companyId);
+		if (
+			dto.sellerDistributionDailyLimitOverride !== undefined &&
+			['USER', 'ADMIN'].includes(String(target.role || '').toUpperCase()) &&
+			isHbxSellerNetwork
+		) {
+			data.sellerDistributionDailyLimitOverride = Math.max(0, Math.min(500, Math.trunc(Number(dto.sellerDistributionDailyLimitOverride || 0) || 0)));
+		}
 		const changedReferrerId = sellerNetworkData.referredByUserId
 			? Number(sellerNetworkData.referredByUserId || 0)
 			: 0;
@@ -688,7 +710,7 @@ export class UsersController {
 		if (
 			lockedReferrerId &&
 			String(target.role || '').toUpperCase() !== 'ADMIN' &&
-			await this.usersService.isHbxSellerNetworkCompany(companyId)
+			isHbxSellerNetwork
 		) {
 			if (changedReferrerId) {
 				const referrer = await this.usersService.getActiveSellerReferrer(companyId, lockedReferrerId);
@@ -713,6 +735,7 @@ export class UsersController {
 			name: updated.name,
 			phone: updated.phone,
 			commissionPercent: updated.commissionPercent,
+			sellerDistributionDailyLimitOverride: updated.sellerDistributionDailyLimitOverride,
 			...this.sellerNetworkPayload(updated),
 		};
 	}
@@ -880,6 +903,9 @@ export class UsersController {
 			mustChangePassword: true,
 			companyId,
 			role,
+			...((role === 'USER' || role === 'ADMIN') && isHbxSellerNetwork && dto.sellerDistributionDailyLimitOverride !== undefined
+				? { sellerDistributionDailyLimitOverride: Math.max(0, Math.min(500, Math.trunc(Number(dto.sellerDistributionDailyLimitOverride || 0) || 0))) }
+				: {}),
 			...(role === 'USER' && isHbxSellerNetwork ? { isActive: false } : {}),
 		});
 		let welcomeEmail: Pick<MailSendResult, 'ok' | 'transport' | 'messageId' | 'errorCode' | 'errorMessage'> | null = null;
@@ -932,6 +958,7 @@ export class UsersController {
 				role: created.role,
 				isSystemMaster: created.isSystemMaster,
 				isActive: created.isActive,
+				sellerDistributionDailyLimitOverride: (created as any).sellerDistributionDailyLimitOverride,
 				...this.sellerNetworkPayload(created),
 			},
 			temporaryPassword: role === 'USER' && isHbxSellerNetwork ? null : dto.password ? null : tempPassword,

@@ -29,6 +29,7 @@ function buildPrismaMock(input: {
         createdAt: now,
         sellerDistributionMode: input.sellerMode || 'normal',
         sellerDistributionPausedUntil: input.sellerPausedUntil || null,
+        sellerDistributionDailyLimitOverride: input.targetStockPerSeller ?? null,
       }),
       findUnique: async () => ({ isSystemMaster: false }),
     },
@@ -98,7 +99,7 @@ test('HBX operation seller usage limit is daily per seller instead of master unl
     },
     user: {
       count: async () => 3,
-      findUnique: async () => ({ isSystemMaster: false, role: 'USER' }),
+      findUnique: async () => ({ isSystemMaster: false, role: 'USER', sellerDistributionDailyLimitOverride: null }),
     },
     $queryRawUnsafe: async () => [],
     companyCommercialUsageLog: {
@@ -116,12 +117,61 @@ test('HBX operation seller usage limit is daily per seller instead of master unl
   const snapshot = await service.getUsageSnapshot(1, 7);
 
   assert.equal(snapshot.planKey, 'hbx_seller');
-  assert.equal(snapshot.cards.dailySafetyLimit, 30);
+  assert.equal(snapshot.cards.dailySafetyLimit, 999999);
   assert.equal(snapshot.cards.dailyUsed, 29);
-  assert.equal(snapshot.cards.dailyRemaining, 1);
+  assert.equal(snapshot.cards.dailyRemaining, 999970);
   assert.equal(snapshot.enrichment.dailyLimit, 30);
   assert.equal(snapshot.enrichment.dailyUsed, 30);
   assert.equal(snapshot.enrichment.dailyRemaining, 0);
+});
+
+test('HBX operation seller enrichment limit can be overridden per seller', async () => {
+  const service = new CommercialUsageLimitsService({
+    company: {
+      findUnique: async () => ({
+        timezone: 'America/Sao_Paulo',
+        slug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
+      }),
+    },
+    user: {
+      count: async () => 3,
+      findUnique: async () => ({ isSystemMaster: false, role: 'USER', sellerDistributionDailyLimitOverride: 12 }),
+    },
+    $queryRawUnsafe: async () => [],
+    companyCommercialUsageLog: { count: async () => 0 },
+  } as any);
+
+  const snapshot = await service.getUsageSnapshot(1, 7);
+
+  assert.equal(snapshot.enrichment.dailyLimit, 12);
+  assert.equal(snapshot.enrichment.dailyRemaining, 12);
+  assert.equal(snapshot.enrichment.canAutoEnrich, false);
+  assert.equal(snapshot.enrichment.canManualEnrich, true);
+  assert.equal(snapshot.enrichment.mode, 'manual_only');
+});
+
+test('HBX operation seller enrichment override zero means auto/unlimited for the day', async () => {
+  const service = new CommercialUsageLimitsService({
+    company: {
+      findUnique: async () => ({
+        timezone: 'America/Sao_Paulo',
+        slug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
+      }),
+    },
+    user: {
+      count: async () => 3,
+      findUnique: async () => ({ isSystemMaster: false, role: 'USER', sellerDistributionDailyLimitOverride: 0 }),
+    },
+    $queryRawUnsafe: async () => [],
+    companyCommercialUsageLog: { count: async () => 0 },
+  } as any);
+
+  const snapshot = await service.getUsageSnapshot(1, 7);
+
+  assert.equal(snapshot.enrichment.dailyLimit, 999999);
+  assert.equal(snapshot.enrichment.dailyRemaining, 999999);
+  assert.equal(snapshot.enrichment.canAutoEnrich, false);
+  assert.equal(snapshot.enrichment.canManualEnrich, true);
 });
 
 test('seller active card quota limits requested Radar quantity to available slots', async () => {

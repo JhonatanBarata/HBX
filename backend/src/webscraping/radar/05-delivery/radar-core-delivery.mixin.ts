@@ -370,7 +370,6 @@ export class RadarCoreDeliveryMixin {
     const usage = await this.commercialUsageLimits.getUsageSnapshot(companyId, userId).catch(() => null);
     const cardLimits = usage ? (usage as any).cards || {} : {};
     const values = [
-      Number(cardLimits.dailyRemaining),
       Number(cardLimits.remaining),
       cardLimits.perUserLimit != null
         ? Number(cardLimits.userLimit || 0) - Number(cardLimits.userUsed || 0)
@@ -2768,15 +2767,7 @@ export class RadarCoreDeliveryMixin {
       include: { companyStates: { where: { companyId: context.companyId }, take: 1 } },
     });
     if (!row) throw new NotFoundException('Card do Radar nao encontrado.');
-    let preDeliveryEnrichmentError: any = null;
     let leadRow = row;
-    try {
-      const [enrichedRow] = await this.ensureRadarRowsEnriched([row]);
-      leadRow = enrichedRow || row;
-    } catch (error: any) {
-      preDeliveryEnrichmentError = error;
-      this.logger.warn(`[radar-vendas] pre-enriquecimento ignorado lead=${row?.id || '-'}: ${String(error?.message || error)}`);
-    }
     if (this.isRadarProtectedStatus(leadRow?.companyStates?.[0]?.status || leadRow?.status)) {
       throw new BadRequestException('Card protegido nao pode ser enviado para Vendas.');
     }
@@ -2909,17 +2900,6 @@ export class RadarCoreDeliveryMixin {
       ...existingEnrichment,
       ...deliveredState.enrichmentPatch,
     };
-    if (preDeliveryEnrichmentError) {
-      const retryable = this.getRadarDeliveryOrchestrator().markPostDeliveryFailure({
-        metadata: nextDeliveryMetadata,
-        enrichment: nextDeliveryEnrichment,
-        stage: 'enrichment',
-        error: preDeliveryEnrichmentError,
-        now,
-      });
-      nextDeliveryMetadata = retryable.metadata;
-      nextDeliveryEnrichment = retryable.enrichment;
-    }
     await (this.prisma as any).$transaction([
       (this.prisma as any).radarLeadCompanyState.upsert({
         where: {
@@ -2967,13 +2947,6 @@ export class RadarCoreDeliveryMixin {
       statusFrom: this.normalizeRadarLeadStatus(leadRow.status),
       statusTo: 'sent_to_vendas',
     });
-    void this.enrichRadarLeadForUser(user, leadRow.id)
-      .then(() => this.markRadarPostDeliveryUpdateCompleted(leadRow.id))
-      .catch((error: any) => {
-        this.logger.warn(`[radar-vendas] enriquecimento assÃ­ncrono ignorado lead=${leadRow?.id || '-'}: ${String(error?.message || error)}`);
-        void this.markRadarPostDeliveryUpdateRetryable(leadRow.id, error, 'post_delivery_update');
-      });
-
     return {
       ok: true,
       radarLeadId: leadRow.id,
