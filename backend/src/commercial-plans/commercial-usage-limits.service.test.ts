@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CommercialUsageLimitsService } from './commercial-usage-limits.service';
+import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../companies/master-whatsapp-company.constants';
 
 function buildPrismaMock(input: {
   activeVendas?: number;
@@ -10,12 +11,13 @@ function buildPrismaMock(input: {
   sellerMode?: string;
   sellerPausedUntil?: Date | null;
   lastSeenAt?: Date | null;
+  companySlug?: string;
 } = {}) {
   const now = new Date();
   const lastSeenAt = input.lastSeenAt === undefined ? now : input.lastSeenAt;
   return {
     company: {
-      findUnique: async () => ({ slug: 'cliente-a' }),
+      findUnique: async () => ({ slug: input.companySlug || 'cliente-a' }),
     },
     user: {
       findFirst: async () => ({
@@ -66,6 +68,60 @@ test('seller active card quota blocks when active count reaches effective limit'
   assert.equal(snapshot.effectiveLimit, 20);
   assert.equal(snapshot.availableSlots, 0);
   assert.equal(snapshot.code, 'SELLER_CARD_QUOTA_REACHED');
+});
+
+test('HBX operation seller active quota is independent from fixed distribution rule', async () => {
+  const service = new CommercialUsageLimitsService(buildPrismaMock({
+    companySlug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
+    targetStockPerSeller: 80,
+  }) as any);
+
+  const snapshot = await service.getSellerActiveCardQuotaSnapshot(1, 7);
+
+  assert.equal(snapshot.seller, true);
+  assert.equal(snapshot.baseLimit, 30);
+  assert.equal(snapshot.effectiveLimit, 30);
+  assert.equal(snapshot.availableSlots, 30);
+});
+
+test('HBX operation seller usage limit is daily per seller instead of master unlimited', async () => {
+  const service = new CommercialUsageLimitsService({
+    company: {
+      findUnique: async () => ({
+        selectedPlanKey: null,
+        premiumAccess: true,
+        paymentStatus: null,
+        subscriptionStatus: null,
+        timezone: 'America/Sao_Paulo',
+        slug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
+      }),
+    },
+    user: {
+      count: async () => 3,
+      findUnique: async () => ({ isSystemMaster: false, role: 'USER' }),
+    },
+    $queryRawUnsafe: async () => [],
+    companyCommercialUsageLog: {
+      count: async (args: any) => {
+        const eventTypes = args?.where?.eventType?.in || [];
+        const userScoped = Number(args?.where?.userId || 0) === 7;
+        if (eventTypes.includes('lead_enrichment_used')) return userScoped ? 30 : 90;
+        if (eventTypes.includes('vendas_card_refunded')) return 0;
+        if (eventTypes.includes('radar_card_claimed')) return userScoped ? 29 : 90;
+        return 0;
+      },
+    },
+  } as any);
+
+  const snapshot = await service.getUsageSnapshot(1, 7);
+
+  assert.equal(snapshot.planKey, 'hbx_seller');
+  assert.equal(snapshot.cards.dailySafetyLimit, 30);
+  assert.equal(snapshot.cards.dailyUsed, 29);
+  assert.equal(snapshot.cards.dailyRemaining, 1);
+  assert.equal(snapshot.enrichment.dailyLimit, 30);
+  assert.equal(snapshot.enrichment.dailyUsed, 30);
+  assert.equal(snapshot.enrichment.dailyRemaining, 0);
 });
 
 test('seller active card quota limits requested Radar quantity to available slots', async () => {

@@ -7,6 +7,10 @@ const FALLBACK_TIMEZONE = 'America/Sao_Paulo';
 const CARD_SUCCESS_EVENTS = ['card_import_success', 'vendas_card_imported', 'radar_card_claimed', 'card_commercial_used'];
 const CARD_REFUND_EVENTS = ['vendas_card_refunded'];
 const LEAD_ENRICHMENT_SUCCESS_EVENTS = ['lead_enrichment_used'];
+const HBX_SELLER_DAILY_CARD_LIMIT = 30;
+const HBX_SELLER_DAILY_ENRICHMENT_LIMIT = 30;
+const HBX_SELLER_MONTHLY_CARD_LIMIT = 999999;
+const HBX_SELLER_ACTIVE_CARD_LIMIT = 30;
 const SELLER_ACTIVE_CARD_LIMIT_DEFAULT = 20;
 const SELLER_ACTIVE_CARD_LIMIT_MIN = 5;
 const SELLER_ACTIVE_CARD_LIMIT_MAX = 100;
@@ -191,6 +195,7 @@ export class CommercialUsageLimitsService {
   }
 
   private async getSellerActiveCardBaseLimit(companyId: number, hbxOperationCompany: boolean) {
+    if (hbxOperationCompany) return HBX_SELLER_ACTIVE_CARD_LIMIT;
     const rule = await this.prisma.radarAutoDistributionRule.findFirst({
       where: {
         companyId,
@@ -396,13 +401,21 @@ export class CommercialUsageLimitsService {
   }
 
   private async isSystemMasterUser(userId?: number | null) {
+    const context = await this.getUsageUserContext(userId);
+    return context.isSystemMaster;
+  }
+
+  private async getUsageUserContext(userId?: number | null) {
     const normalizedUserId = Number(userId || 0) || null;
-    if (!normalizedUserId) return false;
+    if (!normalizedUserId) return { isSystemMaster: false, role: null as string | null };
     const user = await this.prisma.user.findUnique({
       where: { id: normalizedUserId },
-      select: { isSystemMaster: true },
-    });
-    return Boolean(user?.isSystemMaster);
+      select: { isSystemMaster: true, role: true },
+    }).catch(() => null);
+    return {
+      isSystemMaster: Boolean(user?.isSystemMaster),
+      role: String(user?.role || '').trim().toUpperCase() || null,
+    };
   }
 
   private buildUnlimitedSnapshot(input: {
@@ -500,6 +513,23 @@ export class CommercialUsageLimitsService {
     };
   }
 
+  private computeHbxSellerOperationalLimits(billableUsers: number) {
+    const melhorLimits = this.computeLimits(COMMERCIAL_PLAN_KEYS.MELHOR, billableUsers);
+    return {
+      cards: {
+        perUserLimit: null as number | null,
+        companyCap: HBX_SELLER_MONTHLY_CARD_LIMIT,
+        limit: HBX_SELLER_MONTHLY_CARD_LIMIT,
+        monthlyLimit: HBX_SELLER_MONTHLY_CARD_LIMIT,
+        dailySafetyLimit: HBX_SELLER_DAILY_CARD_LIMIT,
+      },
+      emails: melhorLimits.emails,
+      enrichment: {
+        dailyLimit: HBX_SELLER_DAILY_ENRICHMENT_LIMIT,
+      },
+    };
+  }
+
   private async countLogs(companyId: number, eventTypes: string[], dayStart: Date, dayEnd: Date, userId?: number | null) {
     return this.prisma.companyCommercialUsageLog.count({
       where: {
@@ -515,9 +545,10 @@ export class CommercialUsageLimitsService {
     const company = await this.getCompanyPlan(companyId);
     const { dayStart, dayEnd } = this.getDayBounds(company.timezone);
     const { monthStart, monthEnd } = this.getMonthBounds(company.timezone);
-    if (company.isMasterOperationalCompany || await this.isSystemMasterUser(userId)) {
+    const userContext = await this.getUsageUserContext(userId);
+    if (userContext.isSystemMaster) {
       return this.buildUnlimitedSnapshot({
-        planKey: company.isMasterOperationalCompany ? 'hbx_master' : company.planKey,
+        planKey: company.planKey,
         timezone: company.timezone,
         dayStart,
         dayEnd,
@@ -526,8 +557,12 @@ export class CommercialUsageLimitsService {
       });
     }
     const billableUsers = await this.getBillableUserCount(companyId);
-    const limits = this.computeLimits(company.planKey, billableUsers, company.quotaOverride);
     const normalizedUserId = Number(userId || 0) || null;
+    const hbxSellerOperation = Boolean(company.isMasterOperationalCompany && normalizedUserId && userContext.role === 'USER');
+    const planKey = hbxSellerOperation ? 'hbx_seller' : company.planKey;
+    const limits = hbxSellerOperation
+      ? this.computeHbxSellerOperationalLimits(billableUsers)
+      : this.computeLimits(company.planKey, billableUsers, company.quotaOverride);
 
     const [cardsGrossUsed, cardsUserGrossUsed, cardsDailyGrossUsed, cardsDailyUserGrossUsed, cardsRefunded, cardsUserRefunded, cardsDailyRefunded, cardsDailyUserRefunded, emailAttempted, emailSent, emailFailed, emailBlocked, emailUserSent, enrichmentDailyUsed, enrichmentDailyUserUsed] = await Promise.all([
       this.countLogs(companyId, CARD_SUCCESS_EVENTS, monthStart, monthEnd),
@@ -550,12 +585,14 @@ export class CommercialUsageLimitsService {
     const cardsUserUsed = Math.max(0, cardsUserGrossUsed - cardsUserRefunded);
     const cardsDailyUsed = Math.max(0, cardsDailyGrossUsed - cardsDailyRefunded);
     const cardsDailyUserUsed = Math.max(0, cardsDailyUserGrossUsed - cardsDailyUserRefunded);
+    const cardsDailyUsedForLimit = hbxSellerOperation ? cardsDailyUserUsed : cardsDailyUsed;
     const enrichmentDailyLimit = Math.max(0, Math.trunc(Number(limits.enrichment.dailyLimit || 0) || 0));
-    const enrichmentDailyRemaining = Math.max(0, enrichmentDailyLimit - Math.max(0, enrichmentDailyUsed));
-    const enrichmentAutoEnabled = company.planKey !== COMMERCIAL_PLAN_KEYS.LITE && enrichmentDailyRemaining > 0;
+    const enrichmentDailyUsedForLimit = hbxSellerOperation ? enrichmentDailyUserUsed : enrichmentDailyUsed;
+    const enrichmentDailyRemaining = Math.max(0, enrichmentDailyLimit - Math.max(0, enrichmentDailyUsedForLimit));
+    const enrichmentAutoEnabled = planKey !== COMMERCIAL_PLAN_KEYS.LITE && enrichmentDailyRemaining > 0;
 
     return {
-      planKey: company.planKey,
+      planKey,
       timezone: company.timezone,
       dayStart: dayStart.toISOString(),
       dayEnd: dayEnd.toISOString(),
@@ -573,10 +610,10 @@ export class CommercialUsageLimitsService {
         monthlyUsed: cardsUsed,
         monthlyLimit: limits.cards.monthlyLimit,
         monthlyRemaining: Math.max(0, limits.cards.monthlyLimit - cardsUsed),
-        dailyUsed: cardsDailyUsed,
+        dailyUsed: cardsDailyUsedForLimit,
         dailyUserUsed: cardsDailyUserUsed,
         dailySafetyLimit: limits.cards.dailySafetyLimit,
-        dailyRemaining: Math.max(0, limits.cards.dailySafetyLimit - cardsDailyUsed),
+        dailyRemaining: Math.max(0, limits.cards.dailySafetyLimit - cardsDailyUsedForLimit),
         refunded: cardsRefunded,
         grossUsed: cardsGrossUsed,
         dailyRefunded: cardsDailyRefunded,
@@ -595,16 +632,16 @@ export class CommercialUsageLimitsService {
         userLimit: limits.emails.perUserLimit || limits.emails.limit,
       },
       enrichment: {
-        used: Math.max(0, enrichmentDailyUsed),
+        used: Math.max(0, enrichmentDailyUsedForLimit),
         limit: enrichmentDailyLimit,
         remaining: enrichmentDailyRemaining,
-        dailyUsed: Math.max(0, enrichmentDailyUsed),
+        dailyUsed: Math.max(0, enrichmentDailyUsedForLimit),
         dailyUserUsed: Math.max(0, enrichmentDailyUserUsed),
         dailyLimit: enrichmentDailyLimit,
         dailyRemaining: enrichmentDailyRemaining,
         canAutoEnrich: enrichmentAutoEnabled,
         canManualEnrich: enrichmentDailyRemaining > 0,
-        mode: company.planKey === COMMERCIAL_PLAN_KEYS.LITE
+        mode: planKey === COMMERCIAL_PLAN_KEYS.LITE
           ? 'manual_only'
           : enrichmentDailyRemaining > 0
             ? 'auto'
