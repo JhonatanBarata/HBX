@@ -1,4 +1,0 @@
-interface:
-  display_name: "HBX CI Fixer"
-  short_description: "Fix failing PR checks with small guarded patches."
-  default_prompt: "Use $hbx-ci-fixer to inspect a failing PR and make a small guarded CI fix."

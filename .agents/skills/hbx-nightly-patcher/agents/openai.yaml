@@ -1,4 +1,0 @@
-interface:
-  display_name: "HBX Nightly Patcher"
-  short_description: "Small safe HBX maintenance patches in isolated branches."
-  default_prompt: "Use $hbx-nightly-patcher to make small safe HBX maintenance fixes in an isolated branch."
