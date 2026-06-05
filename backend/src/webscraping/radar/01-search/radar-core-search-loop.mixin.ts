@@ -390,6 +390,43 @@ export class RadarCoreSearchLoopMixin {
     return this.persistHistory(context, normalized, results, null).catch(() => null);
   }
 
+  private getExplicitRadarVendasStockTarget(run: any) {
+    const metrics = parseJsonObject(run?.metricsJson);
+    return Math.max(0, safeInteger(metrics?.vendasStockTarget));
+  }
+
+  private isRadarVendasStockGatedRun(run: any) {
+    return this.getExplicitRadarVendasStockTarget(run) > 0;
+  }
+
+  private async getRadarVendasStockSnapshotForRun(run: any) {
+    const target = this.getExplicitRadarVendasStockTarget(run);
+    const companyId = safeInteger(run?.companyId);
+    const pendingCount = target > 0 && companyId > 0
+      ? await this.getVendasPendingCountForRadarContext(companyId).catch(() => 0)
+      : 0;
+    return { target, pendingCount };
+  }
+
+  private async hasReachedRadarVendasStockTarget(run: any) {
+    const snapshot = await this.getRadarVendasStockSnapshotForRun(run);
+    return snapshot.target > 0 && snapshot.pendingCount >= snapshot.target;
+  }
+
+  private async buildRadarVendasStockExhaustedMessage(run: any, foundCount: number, targetQuantity: number) {
+    const snapshot = await this.getRadarVendasStockSnapshotForRun(run);
+    const target = Math.max(1, snapshot.target || safeInteger(targetQuantity));
+    const currentStock = Math.max(0, Math.min(target, safeInteger(snapshot.pendingCount)));
+    const locatedCount = Math.max(0, safeInteger(foundCount));
+    const prefix = currentStock > 0
+      ? `Radar parou: Vendas ficou com ${currentStock} de ${target} card(s).`
+      : 'Radar parou sem cards novos para Vendas.';
+    const locatedLine = locatedCount > currentStock
+      ? ` Localizei ${locatedCount} candidato(s), mas os repetidos/filtros nao viraram cards unicos suficientes.`
+      : '';
+    return `${prefix}${locatedLine} Para continuar automatico, aumente a distancia, inclua cidades proximas ou adicione mais segmentos.`;
+  }
+
   private async runGoogleEmergencyComplementIfEligible(
     runId: string,
     user: any,
@@ -402,16 +439,28 @@ export class RadarCoreSearchLoopMixin {
     const current = await this.prisma.webscrapingSearchRun.findUnique({
       where: { id: runId },
       select: {
+        id: true,
+        companyId: true,
         foundCount: true,
         targetQuantity: true,
         googleEmergencyUsedCount: true,
+        metricsJson: true,
       },
     });
-    if (!current || current.foundCount >= current.targetQuantity || current.googleEmergencyUsedCount > 0) return;
+    if (!current || current.googleEmergencyUsedCount > 0) return;
+    const stockGated = this.isRadarVendasStockGatedRun(current);
+    if (!stockGated && current.foundCount >= current.targetQuantity) return;
+    if (stockGated && await this.hasReachedRadarVendasStockTarget(current)) return;
+    const stockSnapshot = stockGated
+      ? await this.getRadarVendasStockSnapshotForRun(current)
+      : null;
+    const missingCount = stockSnapshot
+      ? Math.max(1, stockSnapshot.target - stockSnapshot.pendingCount)
+      : Math.max(1, current.targetQuantity - current.foundCount);
 
     const quantity = Math.min(
       this.getEnginePool().googleEmergencyMaxPerRun(),
-      Math.max(1, current.targetQuantity - current.foundCount),
+      missingCount,
     );
     const dedup = await this.snapshotSearchRunDedup(runId);
     const excludePhoneDigits = Array.from(dedup.phoneDigits);
@@ -670,6 +719,13 @@ export class RadarCoreSearchLoopMixin {
     }
 
     const normalized = initialInput || this.normalizeSearchInput(this.buildRunInputFromRow(current));
+    const useVendasStockGate = this.isRadarVendasStockGatedRun(current);
+    const vendasStockSnapshot = useVendasStockGate
+      ? await this.getRadarVendasStockSnapshotForRun(current)
+      : null;
+    const vendasStockMissing = vendasStockSnapshot
+      ? Math.max(1, vendasStockSnapshot.target - vendasStockSnapshot.pendingCount)
+      : null;
     const hasRequiredEnrichmentGate = this.hasExplicitRequiredChannels(normalized);
     const batchLimit = this.getHbxRunBatchLimit(normalized.quantity);
     const queryTaskCount = this.buildHbxBatchQueryTasks(normalized).length;
@@ -686,7 +742,7 @@ export class RadarCoreSearchLoopMixin {
     const attempt = safeInteger(current.attemptCount) + 1;
     const quantity = hasRequiredEnrichmentGate
       ? batchLimit
-      : Math.min(batchLimit, Math.max(1, normalized.quantity - safeInteger(current.foundCount)));
+      : Math.min(batchLimit, Math.max(1, useVendasStockGate && vendasStockMissing != null ? vendasStockMissing : normalized.quantity - safeInteger(current.foundCount)));
     const attemptTask = this.buildHbxBatchAttemptTask(normalized, attempt);
     const attemptInput = attemptTask.input;
     const queryUsed = attemptTask.query;
@@ -705,7 +761,7 @@ export class RadarCoreSearchLoopMixin {
     };
 
     try {
-      if (safeInteger(current.foundCount) >= normalized.quantity && this.hasCompletedHbxMinimumCoverage(normalized, safeInteger(current.attemptCount))) {
+      if (!useVendasStockGate && safeInteger(current.foundCount) >= normalized.quantity && this.hasCompletedHbxMinimumCoverage(normalized, safeInteger(current.attemptCount))) {
         const requiredChannelMatches = hasRequiredEnrichmentGate
           ? await this.countExistingRequiredChannelMatchesForRun(context, runId, normalized)
           : safeInteger(current.foundCount);
@@ -754,7 +810,9 @@ export class RadarCoreSearchLoopMixin {
           if (rested) return;
         }
         const finalMessage = counters.foundCount > 0
-          ? this.buildSearchRunFilterReviewMessage(counters.foundCount, normalized.quantity)
+          ? useVendasStockGate
+            ? await this.buildRadarVendasStockExhaustedMessage(current, counters.foundCount, normalized.quantity)
+            : this.buildSearchRunFilterReviewMessage(counters.foundCount, normalized.quantity)
           : this.buildSearchRunNoCardsMessage(safeInteger(current.attemptCount), current.lastQueryUsed);
         if (counters.foundCount > 0 && !hasRequiredEnrichmentGate) {
           if (await autoImportAndStopIfPaused('parcial')) return;
@@ -810,7 +868,8 @@ export class RadarCoreSearchLoopMixin {
       if (!liveRun || liveRun.status === 'canceled') return;
       if (this.isTerminalSearchRunStatus(liveRun.status)) return;
       if (
-        safeInteger(liveRun.foundCount) >= safeInteger(liveRun.targetQuantity)
+        !useVendasStockGate
+        && safeInteger(liveRun.foundCount) >= safeInteger(liveRun.targetQuantity)
         && this.hasCompletedHbxMinimumCoverage(normalized, attempt - 1)
       ) {
         const requiredChannelMatches = hasRequiredEnrichmentGate
@@ -900,9 +959,11 @@ export class RadarCoreSearchLoopMixin {
       const requiredChannelMatches = hasRequiredEnrichmentGate && counters.foundCount >= normalized.quantity
         ? await this.countExistingRequiredChannelMatchesForRun(context, runId, normalized)
         : counters.foundCount;
-      const reachedTargetBeforeCoverage = hasRequiredEnrichmentGate
-        ? requiredChannelMatches >= normalized.quantity
-        : counters.foundCount >= normalized.quantity;
+      const reachedTargetBeforeCoverage = useVendasStockGate
+        ? false
+        : hasRequiredEnrichmentGate
+          ? requiredChannelMatches >= normalized.quantity
+          : counters.foundCount >= normalized.quantity;
       const reachedTarget = reachedTargetBeforeCoverage && this.hasCompletedHbxMinimumCoverage(normalized, attempt);
       const reachedRequiredCandidateWindow = hasRequiredEnrichmentGate && counters.foundCount >= requiredCandidateWindow;
       const reachedMaxAttempts = attempt >= maxAttempts;
@@ -965,7 +1026,9 @@ export class RadarCoreSearchLoopMixin {
           if (rested) return;
         }
         const finalMessage = counters.foundCount > 0
-          ? this.buildSearchRunFilterReviewMessage(counters.foundCount, normalized.quantity)
+          ? useVendasStockGate
+            ? await this.buildRadarVendasStockExhaustedMessage(current, counters.foundCount, normalized.quantity)
+            : this.buildSearchRunFilterReviewMessage(counters.foundCount, normalized.quantity)
           : this.buildSearchRunNoCardsMessage(attempt, queryUsed);
         const finalMessageWithMeta = `${finalMessage} ${batchDebugMeta}`;
         if (counters.foundCount > 0) {
@@ -1072,7 +1135,9 @@ export class RadarCoreSearchLoopMixin {
         if (rested) return;
       }
       const finalMessage = counters.foundCount > 0
-        ? this.buildSearchRunFilterReviewMessage(counters.foundCount, normalized.quantity)
+        ? useVendasStockGate
+          ? await this.buildRadarVendasStockExhaustedMessage(current, counters.foundCount, normalized.quantity)
+          : this.buildSearchRunFilterReviewMessage(counters.foundCount, normalized.quantity)
         : reachedMaxAttempts
           ? `Nenhum card valido foi encontrado apos ${attempt} lotes. Ultima query: ${queryUsed}.`
           : this.buildSearchRunNoCardsMessage(attempt, queryUsed);

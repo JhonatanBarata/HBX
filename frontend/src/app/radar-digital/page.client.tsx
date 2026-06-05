@@ -4,6 +4,7 @@ import { type CSSProperties, type FocusEvent, useCallback, useEffect, useMemo, u
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
+import { HbxPopup2 } from "@/components/HbxPopup";
 import HbxMobileDock from "@/components/mobile/HbxMobileDock";
 import HbxMobileEmptyState from "@/components/mobile/HbxMobileEmptyState";
 import {
@@ -2242,6 +2243,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   const [mobileSearchNoticeOpen, setMobileSearchNoticeOpen] = useState(false);
   const [mobileSearchNoticeDismissed, setMobileSearchNoticeDismissed] = useState(readMobileRadarSearchNoticeDismissed);
   const [mobileQuotaPopupOpen, setMobileQuotaPopupOpen] = useState(false);
+  const [mobileRadarStoppedPopupDismissedKey, setMobileRadarStoppedPopupDismissedKey] = useState<string | null>(null);
   const [mobilePicker, setMobilePicker] = useState<"state" | "city" | "segment" | null>(null);
   const [radarStockPauseUnlocked, setRadarStockPauseUnlocked] = useState(false);
   const [locating, setLocating] = useState(false);
@@ -3608,6 +3610,8 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   const currentRadarBackendState = String(activeRun?.meta?.operationalState || terminalRunSnapshot?.meta?.operationalState || "").trim().toLowerCase();
   const radarPausedByRun = currentRadarRunStatus === "paused";
   const radarSleepingByRun = currentRadarRunStatus === "sleeping";
+  const radarTerminalByRun = isTerminalRadarRun(currentRadarRunStatus);
+  const radarStoppedByBackend = currentRadarBackendState === "parado";
   const radarHasRunPointer = Boolean(activeRun || activeRunIdRef.current);
   const radarPausedByQuota = cardQuotaBlocked && radarHasRunPointer;
   const radarPausedByBackend = currentRadarBackendState === "pausado";
@@ -3615,7 +3619,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   const radarOperationalState: RadarOperationalState =
     radarSleepingByRun || radarPausedByRun || radarPausedByStock || radarPausedByQuota || radarPausedByBackend
       ? "pausado"
-      : radarWorkingByBackend || searching || radarHasRunPointer || mobileAutoImportPending || bulkSending || radarCanceling
+      : !radarTerminalByRun && !radarStoppedByBackend && (radarWorkingByBackend || searching || radarHasRunPointer || mobileAutoImportPending || bulkSending || radarCanceling)
         ? "funcionando"
         : "parado";
   const radarIsWorking = radarOperationalState === "funcionando";
@@ -3625,13 +3629,21 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   const canCancelRadarRun = radarHasRunPointer && (radarIsWorking || radarCanceling || radarPausedByRun);
   const mobileRadarProcessing = radarIsWorking || bulkSending || mobileAutoImportPending || radarCanceling;
   const radarFiltersLocked = !radarIsStopped || mobileAutoImportPending || radarCanceling;
-  const radarOperationalLabel = radarIsWorking ? "Pesquisando empresas" : radarIsPaused ? "Radar pausado" : "Radar pronto";
+  const radarOperationalLabel = radarIsWorking
+    ? "Radar rodando"
+    : radarIsPaused
+      ? "Radar pausado"
+      : hasSearched || radarTerminalByRun || radarStoppedByBackend
+        ? "Radar parado"
+        : "Radar pronto";
   const radarBackendOperationalMessage = activeRun?.meta?.operationalMessage || terminalRunSnapshot?.meta?.operationalMessage || null;
   const radarOperationalHelper = radarIsWorking
     ? radarBackendOperationalMessage || "Encontrando contatos reais e enviando os aprovados para Vendas."
     : radarIsPaused
       ? radarBackendOperationalMessage || "Busca pausada. Pare o Radar para ajustar cidade, segmento ou quantidade."
-      : "Escolha cidade, segmento e quantidade para abastecer Vendas.";
+      : hasSearched || radarTerminalByRun || radarStoppedByBackend
+        ? radarBackendOperationalMessage || "Busca parada. Ajuste área, alcance ou segmentos para continuar."
+        : "Escolha cidade, segmento e quantidade para abastecer Vendas.";
   const mobileCanResendToVendas = Boolean(visibleItems.length && hasSearched && !mobileRadarProcessing && !radarFiltersLocked);
   const mobileDockCanSearch = !mobileVendasBlocked && radarIsStopped && !bulkSending;
   const mobileDockPrimaryIcon: "stop" | "pause" | "play" = radarPausedLocked ? "stop" : canCancelRadarRun ? "stop" : "play";
@@ -3670,11 +3682,12 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   const activeRunSleeping = activeRunStatus === "sleeping";
   const activeRunPartial = activeRunStatus === "completed_insufficient_results" || activeRunStatus === "partial_error";
   const activeRunFailed = activeRunStatus === "failed";
-  const activeRunRemaining = Math.max(0, radarMomentTarget - radarMomentDelivered);
-  const radarMomentState = activeRunFailed || radarStoppedWithoutCards
-      ? "warning"
-      : activeRunPartial
-        ? "partial"
+  const activeRunTerminal = isTerminalRadarRun(activeRunStatus);
+  const activeRunStopped = activeRunFailed || activeRunPartial || activeRunTerminal;
+  const radarMomentState = activeRunSleeping || radarPausedLocked
+      ? "paused"
+      : activeRunStopped || radarStoppedWithoutCards
+        ? "stopped"
       : radarMomentIsLive
         ? activeRunDelivered > 0
           ? "receiving"
@@ -3689,19 +3702,19 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
         ? "Vendas abastecido"
         : radarMomentState === "searching"
           ? "Pesquisando empresas reais"
+          : radarMomentState === "paused"
+            ? "Radar pausado"
+            : radarMomentState === "stopped"
+              ? "Radar parado"
           : radarOperationalLabel;
   const radarMotionActive = !radarCanceling && !activeRunSleeping && (radarMomentState === "searching" || radarMomentState === "receiving");
   const radarMomentDescription =
     radarStoppedWithoutCards
       ? "Radar parado sem cards para trabalhar. Ajuste cidade, segmento ou alcance e volte às pesquisas."
-    : radarMomentState === "warning"
+    : radarMomentState === "stopped"
       ? radarMomentRun?.errorMessage || radarMomentRun?.message || "Revise os filtros e rode uma nova busca."
-      : activeRunSleeping
-        ? radarMomentRun?.errorMessage || "A mesma pesquisa será retomada automaticamente."
-      : radarMomentState === "partial"
-        ? activeRunRemaining > 0
-          ? `Localizado ${radarMomentLocated.toLocaleString("pt-BR")}, filtrado ${radarMomentApprovedLine}. Amplie cidade ou segmento para completar.`
-          : `Localizado ${radarMomentLocated.toLocaleString("pt-BR")}, filtrado ${radarMomentApprovedLine}.`
+      : radarMomentState === "paused"
+        ? radarMomentRun?.errorMessage || radarBackendOperationalMessage || "Meta/limite atingido. O Radar tem continuidade e retoma quando houver espaço."
         : radarMomentState === "receiving"
           ? `Localizado ${radarMomentLocated.toLocaleString("pt-BR")}, filtrado ${radarMomentApprovedLine}.`
           : radarMomentState === "searching"
@@ -3710,16 +3723,16 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
               ? "Os aprovados já foram enviados para Vendas. O enriquecimento roda depois, em uma ação separada."
               : "Escolha cidade, segmento e alcance para buscar cards elegíveis.";
   const radarMomentBadge =
-    activeRunSleeping
-      ? "Retoma automaticamente"
+    radarMomentState === "paused"
+      ? "Pausado por limite"
       : radarStoppedWithoutCards
         ? "Atenção: voltar às pesquisas"
       : radarMomentState === "searching"
       ? `${radarMomentProgress}% em andamento`
-      : radarMomentState === "receiving" || radarMomentState === "partial"
+      : radarMomentState === "receiving"
         ? `${Math.min(radarMomentDelivered, radarMomentTarget).toLocaleString("pt-BR")} de ${radarMomentTarget.toLocaleString("pt-BR")} cards`
-        : radarMomentState === "warning"
-          ? "Atenção"
+        : radarMomentState === "stopped"
+          ? "Parado"
           : mobileRadarProcessing
             ? "Enviando cards aprovados para Vendas"
             : vendasPendingCount == null
@@ -3740,6 +3753,15 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     .join(" · ");
   const preparingDelivery = hasSearched && !visibleItems.length && radarMomentDelivered > 0;
   const mobileRadarConnectionEmpty = Boolean(error && /conex|indispon/i.test(error));
+  const radarStoppedPopupKey = radarMomentRun?.runId || (radarStoppedWithoutCards ? "sem-cards" : "");
+  const mobileRadarStoppedPopupOpen = Boolean(
+    mobileRoute &&
+    radarMomentState === "stopped" &&
+    radarStoppedPopupKey &&
+    mobileRadarStoppedPopupDismissedKey !== radarStoppedPopupKey,
+  );
+  const radarStoppedPopupText = radarMomentRun?.errorMessage || radarMomentRun?.message ||
+    "Localizei tudo que havia com os filtros atuais. Para continuar automático, aumente a distância, inclua cidades próximas ou adicione mais segmentos.";
 
   function startMobileRadarSearch() {
     if (radarPausedLocked) {
@@ -4097,6 +4119,27 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     >
       <section className={styles.shell} data-mobile-route={mobileRoute ? "true" : "false"}>
         {renderAutoDistributionModal()}
+        {mobileRadarStoppedPopupOpen ? (
+          <HbxPopup2
+            open
+            tone="danger"
+            title="Radar parado"
+            onClose={() => setMobileRadarStoppedPopupDismissedKey(radarStoppedPopupKey)}
+            action={(
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileRadarStoppedPopupDismissedKey(radarStoppedPopupKey);
+                  setMobilePicker(filters.state ? "segment" : "state");
+                }}
+              >
+                Ajustar área
+              </button>
+            )}
+          >
+            {radarStoppedPopupText}
+          </HbxPopup2>
+        ) : null}
         <div
           ref={mobileRadarRef}
           className={`${styles.mobileRadar} hbx-mobile-page`}
@@ -4241,7 +4284,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
               <button
                 type={radarPausedLocked || canCancelRadarRun || activeRunPartial || activeRunFailed || mobileCanResendToVendas ? "button" : "submit"}
                 className={`${styles.mobileRadarSubmit} hbx-mobile-primary-button`}
-                data-tone={radarPausedLocked ? "warning" : canCancelRadarRun ? "danger" : undefined}
+                data-tone={radarPausedLocked ? "warning" : canCancelRadarRun || activeRunPartial || activeRunFailed ? "danger" : undefined}
                 disabled={radarCanceling ? true : radarPausedLocked ? false : mobileVendasBlocked || searching || bulkSending || radarFiltersLocked}
                 title={radarPausedLocked ? "Pare o Radar para alterar filtros ou reenviar para Vendas." : undefined}
                 onClick={(event) => {
@@ -4433,7 +4476,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
               }
               void sendFilteredToVendas();
             }}
-            data-tone={radarPausedLocked ? "warning" : undefined}
+            data-tone={radarPausedLocked ? "warning" : activeRunPartial || activeRunFailed || radarStoppedWithoutCards ? "danger" : undefined}
             disabled={!radarStoppedWithoutCards && ((radarFiltersLocked && !radarPausedLocked) || (!radarPausedLocked && !activeRunPartial && !activeRunFailed && (bulkSending || !visibleItems.length)))}
             title={radarStoppedWithoutCards ? "Voltar aos filtros para pesquisar novamente." : radarFiltersLocked ? "Pare o Radar para alterar filtros ou enviar para Vendas." : !visibleItems.length && !activeRunPartial && !activeRunFailed ? "Pesquise primeiro para escolher o que vai para Vendas." : undefined}
           >

@@ -242,6 +242,8 @@ type BillboardSlide = {
   cardFeed?: TopbarProgressCard[];
 };
 
+type RadarTopbarViewState = "running" | "paused" | "stopped";
+
 type TopbarSignalTone = "success" | "warning" | "danger" | "neutral" | "loading";
 type TopbarOperationalTile = {
   id: string;
@@ -435,6 +437,13 @@ function getTopbarMetricIcon(label: string): HbxHeaderIconName {
   return "metric";
 }
 
+function getRadarTopbarViewState(status: string, active: boolean): RadarTopbarViewState {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (!active) return "stopped";
+  if (["queued", "running", "pending", "processing"].includes(normalized)) return "running";
+  return "paused";
+}
+
 function TopbarCenterSummary({
   slide,
   onAction,
@@ -450,11 +459,13 @@ function TopbarCenterSummary({
 
   return (
     <div
-      role="button"
+      role={canNavigate ? "button" : undefined}
       tabIndex={canNavigate ? 0 : -1}
       className="hbx-module-summary"
       data-phase={slide.phase}
-      onClick={() => onAction(slide)}
+      onClick={() => {
+        if (canNavigate) onAction(slide);
+      }}
       onKeyDown={(event) => {
         if (!canNavigate) return;
         if (event.key === "Enter" || event.key === " ") {
@@ -462,7 +473,7 @@ function TopbarCenterSummary({
           onAction(slide);
         }
       }}
-      aria-disabled={!canNavigate}
+      aria-disabled={canNavigate ? undefined : true}
       aria-label={`${slide.eyebrow}: ${slide.title}. ${slide.description}`}
     >
       <span className="hbx-module-summary__copy">
@@ -749,32 +760,51 @@ const HBX_TOPBAR_POLISH_CSS = `
   }
 
   .hbx-module-summary__metrics--actions button {
+    --radar-action-tone: var(--button-secondary, #009FD9);
     width: 38px;
     height: 38px;
     display: grid;
     place-items: center;
-    border: 1px solid color-mix(in srgb, #2563eb 34%, var(--line, rgba(148,163,184,.34)));
+    border: 1px solid color-mix(in srgb, var(--radar-action-tone) 34%, var(--line, rgba(148,163,184,.34)));
     border-radius: 999px;
-    background: color-mix(in srgb, var(--surface, #fff) 90%, #eff6ff);
-    color: color-mix(in srgb, #1e3a8a 86%, var(--foreground, #0f172a));
+    background: color-mix(in srgb, var(--surface, #fff) 88%, var(--radar-action-tone) 12%);
+    color: color-mix(in srgb, var(--radar-action-tone) 82%, var(--foreground, #0f172a));
     font: inherit;
     font-size: 12px;
     font-weight: 850;
     line-height: 1;
     cursor: pointer;
+    transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease, background 160ms ease;
   }
 
-  .hbx-module-summary__metrics--actions button:first-child {
-    border-color: color-mix(in srgb, #2563eb 52%, var(--line, rgba(148,163,184,.34)));
+  .hbx-module-summary__metrics--actions button[data-radar-action="play"] {
+    --radar-action-tone: var(--button-secondary, #009FD9);
+  }
+
+  .hbx-module-summary__metrics--actions button[data-radar-action="pause"] {
+    --radar-action-tone: var(--warning, #b45309);
+  }
+
+  .hbx-module-summary__metrics--actions button[data-radar-action="stop"] {
+    --radar-action-tone: var(--danger, #ef4444);
+  }
+
+  .hbx-module-summary__metrics--actions button[data-active="true"] {
+    border-color: color-mix(in srgb, var(--radar-action-tone) 68%, var(--line, rgba(148,163,184,.34)));
     background:
-      radial-gradient(circle at 34% 18%, rgba(255,255,255,.42), transparent 34%),
-      #2563eb;
+      radial-gradient(circle at 34% 18%, color-mix(in srgb, white 56%, transparent), transparent 34%),
+      linear-gradient(145deg, color-mix(in srgb, var(--radar-action-tone) 92%, white), var(--radar-action-tone));
     color: #fff;
+    box-shadow:
+      0 0 0 4px color-mix(in srgb, var(--radar-action-tone) 18%, transparent),
+      0 14px 26px -18px color-mix(in srgb, var(--radar-action-tone) 88%, transparent);
   }
 
   .hbx-module-summary__metrics--actions button:hover:not(:disabled) {
     transform: translateY(-1px);
-    box-shadow: 0 13px 23px -18px rgba(37, 99, 235, .9);
+    box-shadow:
+      0 0 0 3px color-mix(in srgb, var(--radar-action-tone) 14%, transparent),
+      0 13px 23px -18px color-mix(in srgb, var(--radar-action-tone) 90%, transparent);
   }
 
   .hbx-module-summary__metrics--actions button:disabled {
@@ -783,15 +813,16 @@ const HBX_TOPBAR_POLISH_CSS = `
   }
 
   html[data-theme-mode="dark"] .hbx-module-summary__metrics--actions button {
-    border-color: rgba(96, 165, 250, .28);
-    background: rgba(15, 33, 62, .86);
-    color: #dbeafe;
+    border-color: color-mix(in srgb, var(--radar-action-tone) 32%, rgba(96, 165, 250, .18));
+    background: color-mix(in srgb, rgba(15, 33, 62, .86) 84%, var(--radar-action-tone) 16%);
+    color: color-mix(in srgb, var(--radar-action-tone) 66%, #dbeafe);
   }
 
-  html[data-theme-mode="dark"] .hbx-module-summary__metrics--actions button:first-child {
+  html[data-theme-mode="dark"] .hbx-module-summary__metrics--actions button[data-active="true"] {
+    border-color: color-mix(in srgb, var(--radar-action-tone) 72%, rgba(96, 165, 250, .18));
     background:
       radial-gradient(circle at 34% 18%, rgba(255,255,255,.32), transparent 34%),
-      #2563eb;
+      linear-gradient(145deg, color-mix(in srgb, var(--radar-action-tone) 86%, white), var(--radar-action-tone));
     color: #fff;
   }
 
@@ -1463,6 +1494,10 @@ const HBX_TOPBAR_POLISH_CSS = `
     cursor: default;
   }
 
+  .hbx-module-summary[aria-disabled="true"] {
+    cursor: default;
+  }
+
   .hbx-module-summary__copy,
   .hbx-module-summary__metric,
   .hbx-module-summary__metric > span:last-child {
@@ -1497,12 +1532,25 @@ const HBX_TOPBAR_POLISH_CSS = `
   }
 
   .hbx-module-summary[data-phase="warning"] .hbx-module-summary__eyebrow {
-    color: #b45309;
+    color: var(--warning, #b45309);
   }
 
   .hbx-module-summary[data-phase="warning"] .hbx-module-summary__eyebrow i {
-    background: #f59e0b;
-    box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.14), 0 0 14px rgba(245, 158, 11, 0.74);
+    background: var(--warning, #b45309);
+    box-shadow:
+      0 0 0 4px color-mix(in srgb, var(--warning, #b45309) 14%, transparent),
+      0 0 14px color-mix(in srgb, var(--warning, #b45309) 74%, transparent);
+  }
+
+  .hbx-module-summary[data-phase="idle"] .hbx-module-summary__eyebrow {
+    color: var(--danger, #ef4444);
+  }
+
+  .hbx-module-summary[data-phase="idle"] .hbx-module-summary__eyebrow i {
+    background: var(--danger, #ef4444);
+    box-shadow:
+      0 0 0 4px color-mix(in srgb, var(--danger, #ef4444) 14%, transparent),
+      0 0 14px color-mix(in srgb, var(--danger, #ef4444) 72%, transparent);
   }
 
   .hbx-module-summary__copy > strong {
@@ -4412,7 +4460,7 @@ export default function TopBar() {
     if (isVendasRoute) {
       const status = String(radarTopbarRun?.status || "");
       const active = Boolean(radarTopbarRun?.runId && !isTerminalRadarRunStatus(status));
-      const state = active && ["queued", "running"].includes(status) ? "running" : active ? "paused" : "stopped";
+      const state = getRadarTopbarViewState(status, active);
       const delivered = Math.max(0, Math.trunc(Number(radarTopbarRun?.deliveredCount || 0)));
       const target = Math.max(1, Math.trunc(Number(radarTopbarRun?.targetQuantity || 20)));
       const context = [radarTopbarRun?.city || "", radarTopbarRun?.state || ""].filter(Boolean).join(" / ");
@@ -4433,8 +4481,8 @@ export default function TopBar() {
           title,
           description,
           phase: state === "paused" ? "warning" : state === "running" ? "success" : "idle",
-          source: "webscraping",
-          href: "/boasvindas?radar=1",
+          source: null,
+          href: null,
           progress,
           metrics: [],
         },
@@ -4595,6 +4643,7 @@ export default function TopBar() {
   const activeBillboardSlide = billboardSlides[0];
   const radarTopbarRawStatus = String(radarTopbarRun?.status || "");
   const radarTopbarActive = Boolean(radarTopbarRun?.runId && !isTerminalRadarRunStatus(radarTopbarRawStatus));
+  const radarTopbarControlState = getRadarTopbarViewState(radarTopbarRawStatus, radarTopbarActive);
 
   function openDesktopRadarPopup(action: "play" | "pause" | "stop" = "play") {
     const detail = { action };
@@ -4860,6 +4909,8 @@ export default function TopBar() {
                     <>
                       <button
                         type="button"
+                        data-radar-action="play"
+                        data-active={radarTopbarControlState === "running" ? "true" : "false"}
                         onClick={() => void handleRadarTopbarAction("play")}
                         disabled={radarTopbarBusy !== null}
                         aria-label="Abrir ou iniciar Radar"
@@ -4869,6 +4920,8 @@ export default function TopBar() {
                       </button>
                       <button
                         type="button"
+                        data-radar-action="pause"
+                        data-active={radarTopbarControlState === "paused" ? "true" : "false"}
                         onClick={() => void handleRadarTopbarAction("pause")}
                         disabled={radarTopbarBusy !== null}
                         aria-label="Pausar Radar"
@@ -4878,6 +4931,8 @@ export default function TopBar() {
                       </button>
                       <button
                         type="button"
+                        data-radar-action="stop"
+                        data-active={radarTopbarControlState === "stopped" ? "true" : "false"}
                         onClick={() => void handleRadarTopbarAction("stop")}
                         disabled={radarTopbarBusy !== null}
                         aria-label="Parar Radar"

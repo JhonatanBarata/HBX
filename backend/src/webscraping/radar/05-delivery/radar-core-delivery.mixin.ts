@@ -535,6 +535,9 @@ export class RadarCoreDeliveryMixin {
     const pendingCount = stockTarget > 0
       ? await this.getVendasPendingCountForRadarContext(safeInteger(run?.companyId))
       : null;
+    const deliveredCount = pendingCount == null
+      ? safeInteger(run?.importedCount)
+      : safeInteger(pendingCount);
     const message = String(run?.errorMessage || '').trim()
       || 'Radar pausado. Vou retomar esta mesma pesquisa quando houver espaco.';
     return {
@@ -551,14 +554,14 @@ export class RadarCoreDeliveryMixin {
       errorMessage: message,
       meta: {
         requestedQuantity,
-        deliveredCount: safeInteger(run?.importedCount),
+        deliveredCount,
         databaseCount: 0,
         fetchedCount: 0,
         requiredChannels: filters.requiredChannels,
         channelMatchMode: filters.channelMatchMode,
         requiredChannelRejectedCount: 0,
         progress: requestedQuantity > 0
-          ? Math.min(99, Math.round((Math.max(safeInteger(run?.importedCount), safeInteger(run?.foundCount)) / requestedQuantity) * 100))
+          ? Math.min(99, Math.round((Math.max(deliveredCount, safeInteger(run?.foundCount)) / requestedQuantity) * 100))
           : 0,
         terminal: false,
         paused: true,
@@ -730,6 +733,10 @@ export class RadarCoreDeliveryMixin {
         })
       : null;
     if (autoImport?.blocked) {
+      const pausedRun = await this.prisma.webscrapingSearchRun.findUnique({ where: { id: effectiveRun.id } }).catch(() => null);
+      if (pausedRun && this.isSearchRunPausedByLimit(pausedRun)) {
+        return this.buildPausedRadarSearchRunResponse(pausedRun);
+      }
       const message = 'Radar parado pelo limite de cards. Nada sera entregue depois automaticamente.';
       return {
         id: effectiveRun.id,

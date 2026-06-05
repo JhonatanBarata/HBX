@@ -188,6 +188,8 @@ const MERCADO_PAGO_SDK_WAIT_MS = 22000;
 const MERCADO_PAGO_BRICK_READY_WAIT_MS = 24000;
 const HBX_SUPPORT_PHONE = "5519997024884";
 const HBX_FULL_SUPPORT_MESSAGE = "Olá, quero falar com a HBX sobre implantação assistida do HBX Full.";
+const ANNUAL_DISCOUNT_PERCENT = 10;
+const ANNUAL_DISCOUNT_MULTIPLIER = 1 - ANNUAL_DISCOUNT_PERCENT / 100;
 
 const PLAN_CATALOG: Record<PlanKey, { title: string; monthly: number; includes: string[] }> = {
   hbx_lite: {
@@ -349,8 +351,12 @@ function normalizePaymentMethod(value?: string | null): CheckoutPaymentMethod {
 
 function planCycleAmount(planKey: PlanKey, billingCycle: BillingCycle) {
   const monthly = PLAN_CATALOG[planKey].monthly;
-  if (billingCycle === "ANNUAL") return Number((monthly * 12 * 0.9).toFixed(2));
+  if (billingCycle === "ANNUAL") return Number((monthly * 12 * ANNUAL_DISCOUNT_MULTIPLIER).toFixed(2));
   return Number(monthly.toFixed(2));
+}
+
+function discountedMonthlyAmount(planKey: PlanKey) {
+  return Number((PLAN_CATALOG[planKey].monthly * ANNUAL_DISCOUNT_MULTIPLIER).toFixed(2));
 }
 
 function isBillingGraceActive(company?: FinanceiroOverview["company"] | null) {
@@ -560,6 +566,11 @@ export default function MobilePaymentCheckoutPage() {
   const monthlyTotal = planCycleAmount(selectedPlanKey, "MONTHLY");
   const annualTotal = planCycleAmount(selectedPlanKey, "ANNUAL");
   const annualMonthlyEquivalent = Number((annualTotal / 12).toFixed(2));
+  const displayAmount = billingCycle === "ANNUAL" ? annualMonthlyEquivalent : monthlyTotal;
+  const displayAmountLabel = billingCycle === "ANNUAL" ? "por mês no anual" : "cobrança mensal";
+  const annualFormula = `${formatCurrency(monthlyTotal)} - ${ANNUAL_DISCOUNT_PERCENT}% = ${formatCurrency(annualMonthlyEquivalent)} x 12 meses = ${formatCurrency(annualTotal)}`;
+  const monthlyFormula = `${formatCurrency(monthlyTotal)} x 1 mês = ${formatCurrency(monthlyTotal)}`;
+  const cardFormula = billingCycle === "ANNUAL" ? annualFormula : monthlyFormula;
   const latestPixCharge = overview?.latestCharge?.paymentMethod === "PIX" ? overview.latestCharge : null;
   const profileReady = useMemo(() => {
     return (
@@ -1052,7 +1063,7 @@ export default function MobilePaymentCheckoutPage() {
         <footer className={styles.stickyBar}>
           <div className={styles.stickySummary}>
             <span>{plan.title}</span>
-            <strong>{formatCurrency(total)}</strong>
+            <strong>{formatCurrency(displayAmount)}</strong>
           </div>
           <button type="button" className={styles.primaryButton} disabled={primaryDisabled} onClick={handlePrimaryAction}>
             {primaryLabel}
@@ -1154,48 +1165,52 @@ export default function MobilePaymentCheckoutPage() {
             {(Object.keys(PLAN_CATALOG) as PlanKey[]).map((planKey) => {
               const item = PLAN_CATALOG[planKey];
               const active = selectedPlanKey === planKey;
+              const annualActive = active && billingCycle === "ANNUAL";
+              const cardDisplayAmount = annualActive ? discountedMonthlyAmount(planKey) : planCycleAmount(planKey, "MONTHLY");
+              const cardDisplayLabel = annualActive ? "por mês no anual" : "cobrança mensal";
               return (
-                <button
+                <article
                   key={planKey}
-                  type="button"
                   className={styles.planCard}
                   data-active={active}
-                  onClick={() => setSelectedPlanKey(planKey)}
+                  data-annual={annualActive}
                 >
-                  <div className={styles.cardHeader}>
-                    <div>
-                      <span className={styles.kicker}>{planKey === "hbx_melhor" ? "Assistido" : "Autoatendimento"}</span>
-                      <h2>{item.title}</h2>
-                      <p>{item.includes.slice(0, 2).join(" + ")}</p>
+                  <button
+                    type="button"
+                    className={styles.planSelectButton}
+                    onClick={() => {
+                      setSelectedPlanKey(planKey);
+                      setBillingCycle("MONTHLY");
+                    }}
+                  >
+                    <div className={styles.cardHeader}>
+                      <div>
+                        <span className={styles.kicker}>{planKey === "hbx_melhor" ? "Assistido" : "Autoatendimento"}</span>
+                        <h2>{item.title}</h2>
+                        <p>{item.includes.slice(0, 2).join(" + ")}</p>
+                      </div>
                     </div>
-                    <span className={styles.badge}>{active ? "Atual" : "Escolher"}</span>
-                  </div>
-                  <div className={styles.priceBlock}>
-                    <strong>{formatCurrency(planCycleAmount(planKey, billingCycle))}</strong>
-                    <span>{billingCycle === "ANNUAL" ? "cobrança anual com 10% de desconto" : "cobrança mensal"}</span>
-                  </div>
-                </button>
+                    <div className={styles.priceBlock}>
+                      <strong>{formatCurrency(cardDisplayAmount)}</strong>
+                      <span>{cardDisplayLabel}</span>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.annualRibbon}
+                    data-active={annualActive}
+                    aria-label={`${annualActive ? "Remover" : "Aplicar"} 10% de desconto anual no ${item.title}`}
+                    onClick={() => {
+                      setSelectedPlanKey(planKey);
+                      setBillingCycle(annualActive ? "MONTHLY" : "ANNUAL");
+                    }}
+                  >
+                    <span>10%</span>
+                    <small>Desconto anual</small>
+                  </button>
+                </article>
               );
             })}
-
-            <section className={styles.formCard}>
-              <div className={styles.cardHeader}>
-                <div>
-                  <h3>Ciclo de cobrança</h3>
-                  <p>O valor final segue o plano e as vagas ativas no backend.</p>
-                </div>
-              </div>
-              <div className={styles.cycleGrid} role="group" aria-label="Ciclo de cobrança">
-                <button type="button" className={styles.cycleButton} data-active={billingCycle === "MONTHLY"} onClick={() => setBillingCycle("MONTHLY")}>
-                  <strong>Mensal</strong>
-                  <small>{formatCurrency(monthlyTotal)}/mês</small>
-                </button>
-                <button type="button" className={styles.cycleButton} data-active={billingCycle === "ANNUAL"} onClick={() => setBillingCycle("ANNUAL")}>
-                  <strong>Anual</strong>
-                  <small>{formatCurrency(annualMonthlyEquivalent)}/mês</small>
-                </button>
-              </div>
-            </section>
           </>
         ) : null}
 
@@ -1205,9 +1220,9 @@ export default function MobilePaymentCheckoutPage() {
               <div className={styles.cardHeader}>
                 <div>
                   <h2>{plan.title}</h2>
-                  <p>{billingCycle === "ANNUAL" ? "Assinatura anual" : "Assinatura mensal"}</p>
+                  <p>{billingCycle === "ANNUAL" ? "Anual com 10% de desconto" : "Assinatura mensal"}</p>
                 </div>
-                <span className={styles.statusPill}>{formatCurrency(total)}</span>
+                <span className={styles.statusPill}>{formatCurrency(displayAmount)}</span>
               </div>
               <ul className={styles.features}>
                 {plan.includes.map((feature) => (
@@ -1267,7 +1282,7 @@ export default function MobilePaymentCheckoutPage() {
                 <h2>{checkoutPaymentMethod === "PIX" ? "Dados para Pix" : "Dados para cartão"}</h2>
                 <p>{checkoutPaymentMethod === "PIX" ? "O QR Code aparece depois da autorização." : "O cartão é tokenizado pelo Mercado Pago."}</p>
               </div>
-              <span className={styles.statusPill}>{formatCurrency(total)}</span>
+              <span className={styles.statusPill}>{plan.title}</span>
             </div>
 
             <div className={styles.fieldGrid}>
@@ -1330,12 +1345,33 @@ export default function MobilePaymentCheckoutPage() {
 
             {checkoutPaymentMethod === "CARD" ? (
               <>
-                {isFrontMock ? (
-                  <div className={styles.mockCard}>
-                    <strong>Preview do cartão</strong>
-                    <p>Número 5031 7557 3453 0604</p>
-                    <p>Validade 11/30 - CVV 123</p>
+                <div className={styles.paymentCardPreview} aria-label="Resumo visual do cartão">
+                  <div className={styles.paymentCardGlow} />
+                  <div className={styles.paymentCardTop}>
+                    <span className={styles.paymentCardChip} aria-hidden="true" />
+                    <span className={styles.paymentCardBrand}>
+                      <i aria-hidden="true" />
+                      <b>Mercado Pago</b>
+                    </span>
                   </div>
+                  <div className={styles.paymentCardNumber} aria-hidden="true">
+                    <span>5031</span>
+                    <span>7557</span>
+                    <span>3453</span>
+                    <span>0604</span>
+                  </div>
+                  <div className={styles.paymentCardFormula}>
+                    <span>{billingCycle === "ANNUAL" ? "Resultado do anual" : "Resultado do mensal"}</span>
+                    <strong>{cardFormula}</strong>
+                  </div>
+                  <div className={styles.paymentCardFooter}>
+                    <span>{plan.title}</span>
+                    <small>{billingCycle === "ANNUAL" ? "12 meses com desconto" : displayAmountLabel}</small>
+                  </div>
+                </div>
+
+                {isFrontMock ? (
+                  null
                 ) : isMockPayments ? (
                   <div className={styles.mockCard}>
                     <strong>Assinatura mock ativa.</strong>

@@ -105,6 +105,9 @@ type RadarSearchRunResponse = {
     deliveredCount?: number;
     progress?: number;
     terminal?: boolean;
+    operationalState?: "funcionando" | "pausado" | "parado";
+    operationalReason?: string | null;
+    operationalMessage?: string | null;
     autoImport?: {
       ran?: boolean;
       importedCount?: number;
@@ -4280,8 +4283,8 @@ function SalesMotionBackground() {
         </g>
         <defs>
           <linearGradient id="salesMotionBarGradient" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor="#75d5ff" stopOpacity="0.98" />
-            <stop offset="100%" stopColor="#1669ff" stopOpacity="0.35" />
+            <stop offset="0%" stopColor="currentColor" stopOpacity="0.98" />
+            <stop offset="100%" stopColor="currentColor" stopOpacity="0.35" />
           </linearGradient>
         </defs>
       </svg>
@@ -6530,11 +6533,14 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       Number(liveRadarRun?.targetQuantity || liveRadarRun?.meta?.requestedQuantity || storedRadarRun?.targetQuantity || 1),
     );
     const runTerminal = isTerminalRadarRunStatus(runStatus);
+    const runOperationalState = String(liveRadarRun?.meta?.operationalState || "").trim().toLowerCase();
+    const runPaused = runStatus === "sleeping" || runOperationalState === "pausado";
+    const runStopped = runOperationalState === "parado" || (runTerminal && Boolean(runStatus));
     const runActive = Boolean((liveRadarRun?.runId || storedRadarRun?.runId) && !runTerminal);
     const autoImportRan = Boolean(runAutoImport?.ran);
     const autoImportPendingCount = Math.max(0, Number(runAutoImport?.pendingCount || 0));
     const autoImportImportedCount = Math.max(0, Number(runAutoImport?.importedCount || 0));
-    const runDelivered = autoImportRan ? autoImportImportedCount : runFoundRaw;
+    const runDelivered = autoImportRan ? Math.max(autoImportPendingCount, autoImportImportedCount, runFoundRaw) : runFoundRaw;
     const liveAgendaCount = mobilePendingCount;
     const incomingAgendaCount = runActive ? Math.max(autoImportPendingCount, autoImportImportedCount) : 0;
     const agendaReceivedCount = liveAgendaCount;
@@ -6567,13 +6573,13 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     const possibleSocialVendasCount = activeVendasLeads.filter(leadHasPossibleSocial).length;
     const reviewedVendasCount = activeVendasLeads.filter((lead) => leadEnrichmentBadgeState(lead, board)?.label === "Revisado").length;
     const mobileRadarState =
-      !runActive && agendaReceivedCount > 0
+      runPaused
+        ? "paused"
+      : runStopped
+        ? "stopped"
+      : !runActive && agendaReceivedCount > 0
         ? "received"
-      : runStatus === "failed"
-        ? "warning"
-        : runStatus === "completed_insufficient_results" || runStatus === "partial_error"
-          ? "partial"
-          : radarBlockedByStrictFilters
+      : radarBlockedByStrictFilters
             ? "partial"
           : runActive && activeAgendaCount > 0
             ? "receiving"
@@ -6585,8 +6591,10 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                   ? "preparing"
                   : "ready";
     const mobileRadarStatusLabel =
-      runStatus === "sleeping"
-        ? "Radar descansando"
+      mobileRadarState === "paused"
+        ? "Radar pausado"
+      : mobileRadarState === "stopped"
+        ? "Radar parado"
       : mobileRadarState === "searching"
         ? "Pesquisando leads"
         : mobileRadarState === "preparing"
@@ -6595,16 +6603,16 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
           ? `${radarLocatedLabel}, ${radarVendasLabel}`
           : mobileRadarState === "partial"
             ? radarProgressLabel
-            : mobileRadarState === "warning"
-              ? "Radar precisa de ajuste"
       : mobileRadarState === "received"
                 ? enrichedVendasCount > 0
                   ? `${radarReceivedVendasLabel}, ${enrichedVendasCount} ${enrichedVendasCount === 1 ? "com sinal" : "com sinais"}`
                   : `${radarLocatedLabel}, ${radarReceivedVendasLabel}`
                 : "Motor pronto";
     const mobileRadarStatusText =
-      runStatus === "sleeping"
-        ? "Retoma sozinho"
+      mobileRadarState === "paused"
+        ? "Limite atingido"
+      : mobileRadarState === "stopped"
+        ? "Ajuste área ou segmentos"
       : mobileRadarState === "searching"
         ? "Radar encontrando empresas"
         : mobileRadarState === "preparing"
@@ -6613,8 +6621,6 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
           ? "ABASTECENDO VENDAS"
             : mobileRadarState === "partial"
             ? "Amplie cidade ou segmento"
-            : mobileRadarState === "warning"
-              ? "Abra o Radar para revisar"
               : mobileRadarState === "received"
                 ? possibleSocialVendasCount > 0
                   ? `${possibleSocialVendasCount} ${possibleSocialVendasCount === 1 ? "rede possível" : "redes possíveis"} para revisar`
@@ -6625,13 +6631,13 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                   : "Radar abasteceu Vendas"
                 : "Radar pronto para buscar";
     const salesHeaderState =
-      !runActive && agendaReceivedCount > 0
+      mobileRadarState === "paused"
+        ? "paused"
+      : mobileRadarState === "stopped"
+        ? "stopped"
+      : !runActive && agendaReceivedCount > 0
         ? "active"
-      : runStatus === "failed"
-        ? "warning"
-        : runStatus === "completed_insufficient_results" || runStatus === "partial_error"
-          ? "partial"
-          : radarBlockedByStrictFilters
+      : radarBlockedByStrictFilters
             ? "partial"
           : runActive && activeAgendaCount > 0
             ? "receiving"
@@ -6641,8 +6647,10 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
               ? "syncing"
               : "ready";
     const salesHeaderSubtitle =
-      runStatus === "sleeping"
-        ? "O Radar pausou esta busca e vai retomar automaticamente."
+      mobileRadarState === "paused"
+        ? liveRadarRun?.meta?.operationalMessage || "O Radar pausou porque chegou ao limite definido. Ele retoma quando houver espaço."
+      : mobileRadarState === "stopped"
+        ? liveRadarRun?.meta?.operationalMessage || "O Radar esgotou essa configuração. Amplie área, distância ou segmentos para continuar."
       : mobileRadarState === "ready"
         ? "Receba cards do Radar e acompanhe retornos."
         : mobileRadarState === "searching"
@@ -6653,8 +6661,6 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
             ? `Cards aprovados chegando de ${radarContextLabel}. O enriquecimento continua depois.`
             : mobileRadarState === "partial"
               ? "O Radar entregou o que encontrou. Ajuste cidade ou segmento para completar."
-              : mobileRadarState === "warning"
-                ? "Revise o Radar para destravar a busca."
                 : "Radar abasteceu sua agenda comercial.";
     const activeCapabilities = board?.capabilities || salesProfile?.capabilities || {};
     const mobileHeroPremiumAvailable = Boolean(
@@ -6676,6 +6682,18 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     const commissionClients = commissionSummary?.clients || {};
     const nextRecommendedMobileLead =
       allLeads.find(({ block }) => block !== "closed")?.lead || null;
+    const mobileVendasDockTone: "default" | "warning" | "danger" =
+      mobileRadarState === "paused"
+        ? "warning"
+        : mobileRadarState === "stopped"
+          ? "danger"
+          : "default";
+    const mobileVendasDockLabel =
+      mobileRadarState === "paused"
+        ? "Incluir lead manual - Radar pausado"
+        : mobileRadarState === "stopped"
+          ? "Incluir lead manual - Radar parado"
+          : "Incluir lead manual";
 
     function renderMobileReport() {
       return (
@@ -7682,7 +7700,8 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
 
             {mobileLeadActionBar}
             <HbxMobileDock
-              primaryLabel="Incluir lead manual"
+              primaryLabel={mobileVendasDockLabel}
+              primaryTone={mobileVendasDockTone}
               onPrimaryAction={() => setComposerOpen(true)}
               onComissao={() => {
                 setSelectedMobileLeadId(null);
@@ -7739,7 +7758,9 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 <b>
                   {mobileRadarState === "searching" ? (
                     <i />
-                  ) : mobileRadarState === "partial" || mobileRadarState === "warning" ? (
+                  ) : mobileRadarState === "paused" ? (
+                    "II"
+                  ) : mobileRadarState === "stopped" || mobileRadarState === "partial" ? (
                     "!"
                   ) : (
                     "✓"
@@ -7752,14 +7773,14 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
               </span>
               <Link
                 className={styles.mobileVendasHeroAction}
-                href={mobileRadarState === "partial" || mobileRadarState === "warning" ? radarAdjustHref : "/radar-digital"}
+                href={mobileRadarState === "stopped" || mobileRadarState === "partial" ? radarAdjustHref : "/radar-digital"}
                 aria-label={
-                  mobileRadarState === "partial" || mobileRadarState === "warning"
+                  mobileRadarState === "stopped" || mobileRadarState === "partial"
                     ? "Ajustar Radar Digital"
                     : "Abrir Radar Digital"
                 }
               >
-                {mobileRadarState === "partial" || mobileRadarState === "warning" ? "Ajustar Radar" : "Abrir Radar"}
+                {mobileRadarState === "stopped" || mobileRadarState === "partial" ? "Ajustar Radar" : "Abrir Radar"}
               </Link>
             </section>
           </header>
@@ -8156,7 +8177,8 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         )}
 
         <HbxMobileDock
-          primaryLabel="Incluir lead manual"
+          primaryLabel={mobileVendasDockLabel}
+          primaryTone={mobileVendasDockTone}
           onPrimaryAction={() => setComposerOpen(true)}
           onComissao={() => {
             setMobileSection("commission");
