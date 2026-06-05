@@ -41,6 +41,7 @@ import {
 } from './dto/vendas.dto';
 import { buildVendasLeadIntelligence } from './vendas-lead-enrichment';
 import { ensureVendasComplaintsRuntimeSchema } from './vendas-complaints-runtime';
+import { buildLeadFingerprints } from './commercial-contact-fingerprint';
 
 type VendasLeadStatus = 'novo' | 'contato' | 'retorno' | 'qualificado' | 'encerrado';
 type VendasSaleStatus = 'none' | 'activation_pending' | 'trial_started' | 'sale_confirmed' | 'inactive' | 'canceled';
@@ -156,6 +157,7 @@ type CommercialContactDuplicateCheck = {
   reason: CommercialContactDuplicateReason | null;
   leadId?: string | null;
   leadName?: string | null;
+  fingerprints?: string[];
 };
 
 type SalesProfileSource = 'user' | 'company' | 'default';
@@ -4505,6 +4507,7 @@ export class VendasService {
     row: any,
     reason: CommercialContactDuplicateReason,
     action: 'reuse' | 'block',
+    fingerprints: string[] = [],
   ): CommercialContactDuplicateCheck {
     return {
       exists: true,
@@ -4512,6 +4515,7 @@ export class VendasService {
       reason,
       leadId: row?.id ? String(row.id) : null,
       leadName: this.normalizeText(row?.name),
+      fingerprints,
     };
   }
 
@@ -4569,17 +4573,30 @@ export class VendasService {
       state?: unknown;
     },
   ): Promise<CommercialContactDuplicateCheck> {
-    const none: CommercialContactDuplicateCheck = { exists: false, action: 'none', reason: null };
     const normalizedCompanyId = Math.trunc(Number(companyId || 0));
+    const phoneCandidates = this.buildLeadPhoneNormalizedCandidates(input.phone);
+    const domain = this.normalizeCommercialDomain(input.website);
+    const nameKey = this.normalizeCommercialIdentity(input.name);
+    const cityKey = this.normalizeCommercialIdentity(input.city);
+    const stateKey = this.normalizeText(input.state)?.toUpperCase().slice(0, 2) || null;
+    const fingerprints = buildLeadFingerprints({
+      companyId: normalizedCompanyId,
+      normalizedPhone: phoneCandidates[0] || null,
+      googlePlaceId: this.normalizeText(input.placeId),
+      websiteDomain: domain,
+      normalizedName: nameKey,
+      city: cityKey,
+      state: stateKey,
+    });
+    const none: CommercialContactDuplicateCheck = { exists: false, action: 'none', reason: null, fingerprints };
     if (!normalizedCompanyId) return none;
 
-    const phoneCandidates = this.buildLeadPhoneNormalizedCandidates(input.phone);
     if (phoneCandidates.length) {
       const existing = await this.prisma.vendasLead.findFirst({
         where: { companyId: normalizedCompanyId, phoneNormalized: { in: phoneCandidates } },
         select: { id: true, name: true },
       });
-      if (existing?.id) return this.buildCommercialDuplicateCheck(existing, 'phone', 'reuse');
+      if (existing?.id) return this.buildCommercialDuplicateCheck(existing, 'phone', 'reuse', fingerprints);
     }
 
     const email = this.normalizeEmail(input.email);
@@ -4588,7 +4605,7 @@ export class VendasService {
         where: { companyId: normalizedCompanyId, email },
         select: { id: true, name: true },
       });
-      if (existing?.id) return this.buildCommercialDuplicateCheck(existing, 'email', 'block');
+      if (existing?.id) return this.buildCommercialDuplicateCheck(existing, 'email', 'block', fingerprints);
     }
 
     const sourceHistoryId = this.normalizeText(input.sourceHistoryId);
@@ -4597,13 +4614,12 @@ export class VendasService {
         where: { companyId: normalizedCompanyId, sourceHistoryId },
         select: { id: true, name: true },
       });
-      if (existing?.id) return this.buildCommercialDuplicateCheck(existing, 'source_history', 'block');
+      if (existing?.id) return this.buildCommercialDuplicateCheck(existing, 'source_history', 'block', fingerprints);
     }
 
     const placeMatch = await this.findExistingCommercialLeadByRadarPlace(normalizedCompanyId, input.placeId);
-    if (placeMatch?.id) return this.buildCommercialDuplicateCheck(placeMatch, 'google_place', 'block');
+    if (placeMatch?.id) return this.buildCommercialDuplicateCheck(placeMatch, 'google_place', 'block', fingerprints);
 
-    const domain = this.normalizeCommercialDomain(input.website);
     if (domain) {
       const rows = await this.prisma.vendasLead.findMany({
         where: {
@@ -4615,12 +4631,9 @@ export class VendasService {
         take: 20,
       });
       const existing = rows.find((row: any) => this.normalizeCommercialDomain(row?.website) === domain);
-      if (existing?.id) return this.buildCommercialDuplicateCheck(existing, 'website_domain', 'block');
+      if (existing?.id) return this.buildCommercialDuplicateCheck(existing, 'website_domain', 'block', fingerprints);
     }
 
-    const nameKey = this.normalizeCommercialIdentity(input.name);
-    const cityKey = this.normalizeCommercialIdentity(input.city);
-    const stateKey = this.normalizeText(input.state)?.toUpperCase().slice(0, 2) || null;
     if (nameKey && cityKey) {
       const rows = await this.prisma.vendasLead.findMany({
         where: {
@@ -4639,7 +4652,7 @@ export class VendasService {
         if (stateKey && this.normalizeText(row?.state)?.toUpperCase().slice(0, 2) !== stateKey) return false;
         return true;
       });
-      if (existing?.id) return this.buildCommercialDuplicateCheck(existing, 'name_location', 'block');
+      if (existing?.id) return this.buildCommercialDuplicateCheck(existing, 'name_location', 'block', fingerprints);
     }
 
     return none;
