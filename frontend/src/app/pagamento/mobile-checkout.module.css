@@ -1,0 +1,497 @@
+.mobileShell {
+  min-height: 100dvh;
+  display: grid;
+  background:
+    radial-gradient(circle at 20% 0%, rgba(23, 195, 184, 0.22), transparent 30%),
+    radial-gradient(circle at 85% 8%, rgba(77, 116, 255, 0.22), transparent 28%),
+    linear-gradient(180deg, #05070d 0%, #090b12 52%, #05070d 100%);
+  color: #f8fafc;
+}
+
+.mobilePage {
+  width: min(100%, 440px);
+  margin: 0 auto;
+  padding: 0.9rem 0.9rem 6.8rem;
+}
+
+.mobileTopbar {
+  min-height: 42px;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) 42px;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.backButton,
+.closeButton,
+.ghostButton {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #f8fafc;
+  background: rgba(255, 255, 255, 0.07);
+  cursor: pointer;
+}
+
+.backButton,
+.closeButton {
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+  font-size: 1.1rem;
+  font-weight: 900;
+}
+
+.mobileBrand {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  color: #dbeafe;
+  font-size: 0.75rem;
+  font-weight: 850;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.brandMark {
+  width: 28px;
+  height: 28px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 10px;
+  color: #ffffff;
+  background: linear-gradient(145deg, #20c6ff, #2154f5 58%, #16246f);
+  box-shadow: 0 12px 26px rgba(37, 99, 235, 0.32);
+  font-size: 0.68rem;
+}
+
+.heroCard,
+.planCard,
+.methodCard,
+.formCard,
+.resultCard,
+.noticeCard,
+.assistedCard,
+.loadingCard,
+.errorCard {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.075);
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(20px);
+}
+
+.heroCard {
+  display: grid;
+  gap: 1.15rem;
+  margin-top: 0.85rem;
+  padding: 1.05rem;
+  border-radius: 28px;
+}
+
+.heroHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.85rem;
+}
+
+.kicker {
+  display: block;
+  color: #73f5dc;
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.title {
+  margin: 0.34rem 0 0;
+  color: #ffffff;
+  font-size: clamp(1.8rem, 9vw, 2.35rem);
+  line-height: 0.94;
+  letter-spacing: -0.055em;
+}
+
+.securePill,
+.statusPill,
+.badge {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid rgba(115, 245, 220, 0.28);
+  color: #a7fff0;
+  background: rgba(115, 245, 220, 0.09);
+  font-size: 0.7rem;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.securePill {
+  padding: 0 0.65rem;
+}
+
+.stepper {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.stepper span {
+  min-height: 54px;
+  display: grid;
+  gap: 0.15rem;
+  align-content: center;
+  border-radius: 17px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(248, 250, 252, 0.58);
+  background: rgba(255, 255, 255, 0.055);
+  padding: 0.55rem;
+  font-size: 0.71rem;
+  font-weight: 820;
+}
+
+.stepper b {
+  color: #ffffff;
+  font-size: 0.78rem;
+}
+
+.stepper span[data-active="true"] {
+  color: #dffefa;
+  border-color: rgba(115, 245, 220, 0.38);
+  background: rgba(115, 245, 220, 0.1);
+}
+
+.stack {
+  display: grid;
+  gap: 0.9rem;
+  margin-top: 0.95rem;
+}
+
+.planCard,
+.methodCard,
+.formCard,
+.resultCard,
+.noticeCard,
+.assistedCard,
+.loadingCard,
+.errorCard {
+  border-radius: 26px;
+  padding: 1rem;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.cardHeader h2,
+.cardHeader h3,
+.assistedCard h2,
+.resultCard h2 {
+  margin: 0;
+  color: #ffffff;
+  font-size: 1.08rem;
+  line-height: 1.08;
+}
+
+.cardHeader p,
+.assistedCard p,
+.noticeCard p,
+.resultCard p,
+.helperText,
+.legalText {
+  margin: 0.24rem 0 0;
+  color: rgba(226, 232, 240, 0.68);
+  font-size: 0.84rem;
+  line-height: 1.35;
+}
+
+.priceBlock {
+  display: grid;
+  gap: 0.2rem;
+  margin-top: 1rem;
+  padding: 1rem;
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at top right, rgba(115, 245, 220, 0.22), transparent 36%),
+    rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(115, 245, 220, 0.22);
+}
+
+.priceBlock strong {
+  color: #ffffff;
+  font-size: 2rem;
+  line-height: 1;
+  letter-spacing: -0.045em;
+}
+
+.priceBlock span {
+  color: rgba(226, 232, 240, 0.68);
+  font-size: 0.82rem;
+  font-weight: 760;
+}
+
+.cycleGrid,
+.methodGrid {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 0.8rem;
+}
+
+.cycleGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.cycleButton,
+.methodButton {
+  min-height: 72px;
+  display: grid;
+  gap: 0.18rem;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  color: rgba(248, 250, 252, 0.72);
+  background: rgba(255, 255, 255, 0.055);
+  padding: 0.78rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.methodButton {
+  min-height: 88px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.cycleButton strong,
+.methodButton strong {
+  color: #ffffff;
+  font-size: 0.95rem;
+}
+
+.cycleButton small,
+.methodButton small {
+  color: rgba(226, 232, 240, 0.62);
+  font-weight: 730;
+}
+
+.cycleButton[data-active="true"],
+.methodButton[data-active="true"] {
+  border-color: rgba(115, 245, 220, 0.44);
+  background: rgba(115, 245, 220, 0.1);
+}
+
+.features {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0.9rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.features li {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  color: rgba(248, 250, 252, 0.78);
+  font-size: 0.86rem;
+  font-weight: 740;
+}
+
+.features li::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #73f5dc;
+  box-shadow: 0 0 16px rgba(115, 245, 220, 0.6);
+}
+
+.fieldGrid {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.85rem;
+}
+
+.field {
+  display: grid;
+  gap: 0.42rem;
+}
+
+.field span {
+  color: rgba(226, 232, 240, 0.64);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.field input,
+.copyArea textarea {
+  width: 100%;
+  min-height: 50px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.075);
+  padding: 0.84rem 0.9rem;
+  font: inherit;
+}
+
+.field input::placeholder,
+.copyArea textarea::placeholder {
+  color: rgba(226, 232, 240, 0.42);
+}
+
+.field input:focus,
+.copyArea textarea:focus {
+  outline: 2px solid rgba(115, 245, 220, 0.2);
+  border-color: rgba(115, 245, 220, 0.42);
+}
+
+.termsBox {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 0.65rem;
+  margin-top: 0.85rem;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.055);
+  padding: 0.82rem;
+  color: rgba(226, 232, 240, 0.72);
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.termsBox input {
+  width: 19px;
+  height: 19px;
+  margin-top: 0.1rem;
+  accent-color: #73f5dc;
+}
+
+.mpBrick {
+  min-height: 360px;
+  margin-top: 0.85rem;
+  border-radius: 20px;
+  overflow: hidden;
+  background: #ffffff;
+  padding: 0.2rem;
+}
+
+.mockCard {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 0.85rem;
+  border-radius: 20px;
+  border: 1px solid rgba(115, 245, 220, 0.24);
+  background: rgba(115, 245, 220, 0.08);
+  padding: 0.9rem;
+}
+
+.qrImage {
+  width: min(100%, 250px);
+  justify-self: center;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: #ffffff;
+  padding: 0.8rem;
+}
+
+.copyArea {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 0.85rem;
+}
+
+.copyArea textarea {
+  min-height: 104px;
+  resize: none;
+  color: #0f172a;
+  background: rgba(255, 255, 255, 0.94);
+}
+
+.stickyBar {
+  position: fixed;
+  left: 50%;
+  bottom: 0;
+  z-index: 70;
+  width: min(100%, 440px);
+  transform: translateX(-50%);
+  padding: 0.8rem 0.9rem calc(0.8rem + env(safe-area-inset-bottom));
+  background: linear-gradient(180deg, rgba(5, 7, 13, 0), rgba(5, 7, 13, 0.94) 28%, rgba(5, 7, 13, 0.98));
+}
+
+.primaryButton,
+.secondaryButton,
+.ghostButton {
+  width: 100%;
+  min-height: 52px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  border-radius: 18px;
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.primaryButton {
+  border: 0;
+  color: #041016;
+  background: linear-gradient(135deg, #73f5dc 0%, #ffffff 100%);
+  box-shadow: 0 18px 38px rgba(115, 245, 220, 0.18);
+  cursor: pointer;
+}
+
+.primaryButton:disabled {
+  opacity: 0.52;
+  cursor: not-allowed;
+}
+
+.secondaryButton,
+.ghostButton {
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  color: #f8fafc;
+  background: rgba(255, 255, 255, 0.075);
+}
+
+.errorCard {
+  border-color: rgba(248, 113, 113, 0.32);
+  background: rgba(127, 29, 29, 0.22);
+}
+
+.errorCard strong {
+  color: #fecaca;
+}
+
+.noticeCard[data-tone="success"] {
+  border-color: rgba(115, 245, 220, 0.32);
+  background: rgba(20, 184, 166, 0.14);
+}
+
+.noticeCard[data-tone="error"] {
+  border-color: rgba(248, 113, 113, 0.32);
+  background: rgba(127, 29, 29, 0.22);
+}
+
+.loadingCard {
+  margin-top: 1rem;
+  color: rgba(248, 250, 252, 0.76);
+  text-align: center;
+}
+
+.assistedActions {
+  display: grid;
+  gap: 0.7rem;
+  margin-top: 1rem;
+}
+
+@media (min-width: 721px) {
+  .mobileShell {
+    display: none;
+  }
+}
