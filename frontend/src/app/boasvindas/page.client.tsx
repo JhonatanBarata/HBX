@@ -188,12 +188,12 @@ function PasswordChangePanel({
   return (
     <form className={styles.passwordChangePanel} onSubmit={submitPassword} aria-label="Trocar senha do primeiro acesso">
       <div className={styles.passwordChangeHeader}>
-        <span>Senha temporária</span>
+        <span>{"Senha temporária"}</span>
         <strong>{userName || "Seu acesso HBX"}</strong>
         <small>{userEmail}</small>
       </div>
       <label>
-        <span>Nova senha</span>
+        <span>{"Nova senha"}</span>
         <input
           type="password"
           value={newPassword}
@@ -205,7 +205,7 @@ function PasswordChangePanel({
         />
       </label>
       <label>
-        <span>Confirmar senha</span>
+        <span>{"Confirmar senha"}</span>
         <input
           type="password"
           value={confirmPassword}
@@ -239,10 +239,13 @@ function MobileDashboard({
   onPasswordChanged?: () => void;
 }) {
   const disabled = leaving || !onNavigate;
-  const status = mobileOperationStatus(state);
+  const status = mobileOperationStatus(state) || "HBX pronto";
   const subtitle = state.mustChangePassword
     ? "Troque a senha temporária antes de abrir sua rotina comercial."
     : "Busque cards no Radar, chame pelo WhatsApp e organize retornos.";
+  const loadingLabel = state.loaded
+    ? (state.mustChangePassword ? "Primeiro login protegido." : "Escolha por onde continuar.")
+    : "Preparando seu acesso.";
   const desktopCards = [
     {
       label: "Radar",
@@ -265,16 +268,44 @@ function MobileDashboard({
       path: state.whatsappConnected ? "/vendas" : "/atendimento/automacao?tab=connection",
     },
   ];
+  const desktopSteps = [
+    {
+      key: "radar",
+      marker: "01",
+      title: "Buscar cards",
+      active: state.loaded && (state.radarReady || state.leadsCount > 0),
+      optional: false,
+    },
+    {
+      key: "vendas",
+      marker: "02",
+      title: "Organizar retornos",
+      active: state.loaded && state.vendasReady,
+      optional: false,
+    },
+    {
+      key: "whatsapp",
+      marker: "03",
+      title: state.whatsappConnected ? "Canal conectado" : "Conectar depois",
+      active: state.loaded && state.whatsappConnected,
+      optional: true,
+    },
+    {
+      key: "billing",
+      marker: "04",
+      title: "Cobrança depois",
+      active: false,
+      optional: true,
+    },
+  ];
 
   return (
     <div className={`${styles.mobileDashboard} ${styles.mobileWelcomeExperience} hbx-mobile-page`} aria-label="Boas-vindas HBX">
       <span className={styles.statusBadge}>{status}</span>
-      <div className={styles.brandMark} aria-hidden="true">HBX</div>
-      <h1 id="welcome-title" className={styles.mobileTitle}>Sua operação começa aqui</h1>
+      <div className={styles.brandMark} aria-hidden="true">{"HBX"}</div>
+      <h1 id="welcome-title" className={styles.mobileTitle}>{"Sua operação começa aqui"}</h1>
       <p className={styles.mobileSubtitle}>{subtitle}</p>
-      <p className={styles.loadingText}>
-        {state.loaded ? (state.mustChangePassword ? "Primeiro login protegido." : "Escolha por onde continuar.") : "Preparando seu acesso."}
-      </p>
+      <p className={styles.loadingText}>{loadingLabel}</p>
 
       {state.loaded && state.mustChangePassword ? (
         <PasswordChangePanel
@@ -300,9 +331,9 @@ function MobileDashboard({
 
       <section className={styles.desktopWelcomeBoard} aria-label="Resumo da operação HBX">
         <div className={styles.desktopWelcomeHero}>
-          <span>HBX pronto</span>
-          <strong>Comece pelo Radar.</strong>
-          <p>Sem checkout agora. Primeiro entre, busque oportunidades e organize sua operação comercial.</p>
+          <span>{"HBX pronto"}</span>
+          <strong>{"Comece pelo Radar."}</strong>
+          <p>{"Sem checkout agora. Primeiro entre, busque oportunidades e organize sua operação comercial."}</p>
           {state.loaded && !state.mustChangePassword ? (
             <button
               type="button"
@@ -310,24 +341,45 @@ function MobileDashboard({
               onClick={() => onNavigate?.("/vendas")}
               disabled={disabled}
             >
-              Buscar cards agora
+              {"Buscar cards agora"}
             </button>
           ) : null}
         </div>
         <div className={styles.desktopWelcomeMetrics}>
           <span>
-            <small>Cards</small>
+            <small>{"Cards"}</small>
             <b>{state.loaded ? state.leadsCount : "..."}</b>
           </span>
           <span>
-            <small>WhatsApp</small>
+            <small>{"WhatsApp"}</small>
             <b>{state.whatsappConnected ? "Conectado" : "Opcional"}</b>
           </span>
           <span>
-            <small>Cobrança</small>
-            <b>Depois</b>
+            <small>{"Cobrança"}</small>
+            <b>{"Depois"}</b>
           </span>
         </div>
+        <section className={styles.nextStepPanel} aria-label="Rota recomendada HBX">
+          <div className={styles.nextStepHeader}>
+            <div>
+              <span>{"Rota HBX"}</span>
+              <strong>{"Do login ao primeiro contato"}</strong>
+            </div>
+          </div>
+          <div className={styles.checklist}>
+            {desktopSteps.map((step) => (
+              <div
+                key={step.key}
+                className={styles.checkItem}
+                data-active={step.active ? "true" : "false"}
+                data-optional={step.optional ? "true" : "false"}
+              >
+                <span>{step.marker}</span>
+                <strong>{step.title}</strong>
+              </div>
+            ))}
+          </div>
+        </section>
         <div className={styles.desktopWelcomeCards}>
           {desktopCards.map((card) => (
             <button
