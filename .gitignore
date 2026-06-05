@@ -39,8 +39,6 @@ backend/storage/**
 !backend/storage/.gitkeep
 logs/**
 !logs/
-!logs/hbx-night/
-!logs/hbx-night/.gitkeep
 
 systeminfo.txt
 msinfo-completo.txt
