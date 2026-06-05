@@ -256,6 +256,13 @@ function normalizeText(value: unknown) {
   return String(value || "").trim().toLowerCase();
 }
 
+function normalizeLoadError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  const cleanMessage = message.trim();
+  if (!cleanMessage || /internal server error/i.test(cleanMessage)) return "erro interno no backend local";
+  return cleanMessage;
+}
+
 function preferredSegmentsLabel(value?: string | null) {
   const raw = String(value || "").trim();
   if (!raw) return "";
@@ -296,7 +303,7 @@ export default function BancoDeDadosClientPage({ embedded = false }: { embedded?
     setLoading(true);
     setError(null);
     try {
-      const [cardsPayload, exclusionsPayload, complaintsPayload, territoryPayload] = await Promise.all([
+      const [cardsResult, exclusionsResult, complaintsResult, territoryResult] = await Promise.allSettled([
         apiFetch<RadarCardsPayload>(`/modules/master/webscraping/database-cards?limit=${MASS_DELETE_LOAD_LIMIT}&targetType=both`, {
           requireAuth: true,
           timeoutMs: 60000,
@@ -314,14 +321,41 @@ export default function BancoDeDadosClientPage({ embedded = false }: { embedded?
           timeoutMs: 20000,
         }),
       ]);
-      setCards(cardsPayload?.items || []);
-      setCardsTotal(Number(cardsPayload?.total || cardsPayload?.items?.length || 0));
-      setExclusions(exclusionsPayload || {});
-      setComplaints(complaintsPayload?.items || []);
-      setTerritoryPanel(territoryPayload || null);
-      setTerritoryDraft(territoryPayload || null);
-      const firstSellerId = Number(territoryPayload?.sellers?.[0]?.id || 0);
-      setTerritoryInput((current) => ({ ...current, userId: current.userId || firstSellerId }));
+      const failures: string[] = [];
+
+      if (cardsResult.status === "fulfilled") {
+        const cardsPayload = cardsResult.value;
+        setCards(cardsPayload?.items || []);
+        setCardsTotal(Number(cardsPayload?.total || cardsPayload?.items?.length || 0));
+      } else {
+        failures.push(`Pesquisas (${normalizeLoadError(cardsResult.reason)})`);
+      }
+
+      if (exclusionsResult.status === "fulfilled") {
+        setExclusions(exclusionsResult.value || {});
+      } else {
+        failures.push(`Excluídos (${normalizeLoadError(exclusionsResult.reason)})`);
+      }
+
+      if (complaintsResult.status === "fulfilled") {
+        setComplaints(complaintsResult.value?.items || []);
+      } else {
+        failures.push(`Reclamações (${normalizeLoadError(complaintsResult.reason)})`);
+      }
+
+      if (territoryResult.status === "fulfilled") {
+        const territoryPayload = territoryResult.value;
+        setTerritoryPanel(territoryPayload || null);
+        setTerritoryDraft(territoryPayload || null);
+        const firstSellerId = Number(territoryPayload?.sellers?.[0]?.id || 0);
+        setTerritoryInput((current) => ({ ...current, userId: current.userId || firstSellerId }));
+      } else {
+        failures.push(`Distribuição de Cards (${normalizeLoadError(territoryResult.reason)})`);
+      }
+
+      if (failures.length) {
+        setError(`Banco carregado parcialmente. Falharam: ${failures.join("; ")}.`);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao carregar Banco de Dados.");
     } finally {
