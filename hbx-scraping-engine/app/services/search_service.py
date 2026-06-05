@@ -1159,7 +1159,7 @@ class SearchService:
                         continue
                     for url_to_score in bridge_social_urls:
                         candidate_score = self.score_social_candidate(contact, row, url_to_score, channel, city, segment, query)
-                        if candidate_score < 55:
+                        if candidate_score < 48:
                             continue
                         candidates.append(
                             {
@@ -1240,7 +1240,7 @@ class SearchService:
                     or query_identity_match
                     or (query_handle_match and (handle_identity_match or handle_business_variant_match or business_handle_distinctive_match))
                 )
-                if candidate_score >= 55 and has_identity_evidence:
+                if candidate_score >= 48 and has_identity_evidence:
                     candidates.append({
                         "url": url,
                         "score": candidate_score,
@@ -2547,7 +2547,7 @@ class SearchService:
             if website_score < 35:
                 contact["website"] = None
                 input_website_accepted = False
-        identity = self.enrich_identity_lookup(contact, request.city, request.state, request.segment, min(deadline, time.monotonic() + 2))
+        identity = self.enrich_identity_lookup(contact, request.city, request.state, request.segment, min(deadline, time.monotonic() + 12))
         identity_social_matches: list[dict] = []
         for key in ("website", "instagramUrl", "facebookUrl"):
             if social_required and key in {"instagramUrl", "facebookUrl"}:
