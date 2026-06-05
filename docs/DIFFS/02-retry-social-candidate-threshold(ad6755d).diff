@@ -1,0 +1,11 @@
+diff --git a/hbx-scraping-engine/app/services/search_service.py b/hbx-scraping-engine/app/services/search_service.py
+--- a/hbx-scraping-engine/app/services/search_service.py
++++ b/hbx-scraping-engine/app/services/search_service.py
+@@ -852,7 +852,7 @@ class SearchService:
+-                            if candidate_score < 55:
++                            if candidate_score < 48:
+                                 continue
+@@ -934,7 +934,7 @@ class SearchService:
+-                    if candidate_score >= 55 and has_identity_evidence:
++                    if candidate_score >= 48 and has_identity_evidence:
+                         candidates.append({
