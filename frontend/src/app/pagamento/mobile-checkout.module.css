@@ -2,16 +2,23 @@
   min-height: 100dvh;
   display: grid;
   background:
-    radial-gradient(circle at 20% 0%, rgba(23, 195, 184, 0.22), transparent 30%),
-    radial-gradient(circle at 85% 8%, rgba(77, 116, 255, 0.22), transparent 28%),
-    linear-gradient(180deg, #05070d 0%, #090b12 52%, #05070d 100%);
+    linear-gradient(135deg, rgba(23, 195, 184, 0.16), transparent 36%),
+    linear-gradient(225deg, rgba(245, 158, 11, 0.1), transparent 40%),
+    linear-gradient(180deg, #05070d 0%, #0a0d12 52%, #05070d 100%);
   color: #f8fafc;
+  font-family: var(--font-body, "Plus Jakarta Sans", Inter, "Segoe UI", Roboto, Arial, sans-serif);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
 }
 
 .mobilePage {
   width: min(100%, 440px);
   margin: 0 auto;
   padding: 0.9rem 0.9rem 6.8rem;
+}
+
+:global(body[data-hbx-payment-mobile="true"] .whatsapp-help) {
+  display: none !important;
 }
 
 .mobileTopbar {
@@ -35,9 +42,12 @@
 .closeButton {
   width: 38px;
   height: 38px;
+  display: inline-grid;
+  place-items: center;
   border-radius: 999px;
   font-size: 1.1rem;
   font-weight: 900;
+  text-decoration: none;
 }
 
 .mobileBrand {
@@ -48,7 +58,7 @@
   color: #dbeafe;
   font-size: 0.75rem;
   font-weight: 850;
-  letter-spacing: 0.14em;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
@@ -84,7 +94,7 @@
   gap: 1.15rem;
   margin-top: 0.85rem;
   padding: 1.05rem;
-  border-radius: 28px;
+  border-radius: 22px;
 }
 
 .heroHeader {
@@ -99,16 +109,16 @@
   color: #73f5dc;
   font-size: 0.7rem;
   font-weight: 900;
-  letter-spacing: 0.14em;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
 .title {
   margin: 0.34rem 0 0;
   color: #ffffff;
-  font-size: clamp(1.8rem, 9vw, 2.35rem);
+  font-size: 2rem;
   line-height: 0.94;
-  letter-spacing: -0.055em;
+  letter-spacing: 0;
 }
 
 .securePill,
@@ -180,6 +190,19 @@
   padding: 1rem;
 }
 
+.planCard {
+  width: 100%;
+  display: grid;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.planCard[data-active="true"] {
+  border-color: rgba(115, 245, 220, 0.44);
+  background: rgba(115, 245, 220, 0.11);
+}
+
 .cardHeader {
   display: flex;
   align-items: flex-start;
@@ -216,7 +239,7 @@
   padding: 1rem;
   border-radius: 22px;
   background:
-    radial-gradient(circle at top right, rgba(115, 245, 220, 0.22), transparent 36%),
+    linear-gradient(135deg, rgba(115, 245, 220, 0.18), transparent 58%),
     rgba(255, 255, 255, 0.07);
   border: 1px solid rgba(115, 245, 220, 0.22);
 }
@@ -225,7 +248,7 @@
   color: #ffffff;
   font-size: 2rem;
   line-height: 1;
-  letter-spacing: -0.045em;
+  letter-spacing: 0;
 }
 
 .priceBlock span {
@@ -325,7 +348,7 @@
   color: rgba(226, 232, 240, 0.64);
   font-size: 0.72rem;
   font-weight: 900;
-  letter-spacing: 0.1em;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
@@ -425,6 +448,33 @@
   background: linear-gradient(180deg, rgba(5, 7, 13, 0), rgba(5, 7, 13, 0.94) 28%, rgba(5, 7, 13, 0.98));
 }
 
+.stickySummary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  margin-bottom: 0.55rem;
+  color: rgba(226, 232, 240, 0.76);
+  font-size: 0.78rem;
+  font-weight: 780;
+}
+
+.stickySummary span,
+.stickySummary strong {
+  min-width: 0;
+}
+
+.stickySummary span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stickySummary strong {
+  color: #ffffff;
+  white-space: nowrap;
+}
+
 .primaryButton,
 .secondaryButton,
 .ghostButton {
@@ -457,6 +507,7 @@
   border: 1px solid rgba(255, 255, 255, 0.13);
   color: #f8fafc;
   background: rgba(255, 255, 255, 0.075);
+  cursor: pointer;
 }
 
 .errorCard {

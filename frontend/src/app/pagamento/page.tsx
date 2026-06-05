@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
-import FinanceiroClientPage from "./page.client";
+import ResponsivePagamentoPage from "./page.responsive.client";
 
 export default function Page() {
-  return <FinanceiroClientPage />;
+  return <ResponsivePagamentoPage />;
 }
