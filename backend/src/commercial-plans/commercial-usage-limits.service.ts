@@ -2,6 +2,7 @@ import { ConflictException, Injectable } from '@nestjs/common';
 import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../companies/master-whatsapp-company.constants';
 import { PrismaService } from '../prisma/prisma.service';
 import { COMMERCIAL_PLAN_KEYS, COMMERCIAL_PLAN_QUOTAS, resolveCommercialPlanKeyForCapabilities } from './commercial-plan-catalog';
+import { resolveRadarSearchAllowance, resolveSellerCardQuota } from './seller-card-quota.util';
 
 const FALLBACK_TIMEZONE = 'America/Sao_Paulo';
 const CARD_SUCCESS_EVENTS = ['card_import_success', 'vendas_card_imported', 'radar_card_claimed', 'card_commercial_used'];
@@ -337,11 +338,19 @@ export class CommercialUsageLimitsService {
       this.getSellerLastSeenAt(userId, this.parseDate(user?.createdAt)),
     ]);
     const activeCount = Math.max(0, Math.trunc(Number(vendasActive || 0) + Number(radarActive || 0)));
-    const bonus = Math.floor(Math.max(0, salesWonLast30) / 3) * 5;
-    const inactivityPenalty = this.resolveInactivityPenalty(baseLimit + bonus, lastSeenAt, now);
-    const effectiveLimit = paused
-      ? 0
-      : this.clampInteger(baseLimit + bonus - inactivityPenalty, SELLER_ACTIVE_CARD_LIMIT_MIN, SELLER_ACTIVE_CARD_LIMIT_MAX);
+    const quota = resolveSellerCardQuota({
+      config: {
+        baseActiveCardLimit: baseLimit,
+        minActiveCardLimit: SELLER_ACTIVE_CARD_LIMIT_MIN,
+        maxActiveCardLimit: SELLER_ACTIVE_CARD_LIMIT_MAX,
+        paused,
+      },
+      salesWonLast30,
+      inactivityDays: this.daysSince(lastSeenAt, now),
+    });
+    const bonus = quota.bonus;
+    const inactivityPenalty = quota.inactivityPenalty;
+    const effectiveLimit = quota.effectiveLimit;
     const availableSlots = Math.max(0, effectiveLimit - activeCount);
     return {
       companyId,
@@ -393,8 +402,15 @@ export class CommercialUsageLimitsService {
     const requested = Math.max(0, Math.trunc(Number(requestedLimit || 0) || 0));
     const snapshot = await this.getSellerActiveCardQuotaSnapshot(companyId, userId);
     if (!snapshot.seller) return { limit: requested, quota: snapshot };
+    const allowance = resolveRadarSearchAllowance({
+      sellerId: userId,
+      companyId,
+      requestedLimit: requested,
+      activeCount: snapshot.activeCount,
+      effectiveLimit: snapshot.effectiveLimit,
+    });
     return {
-      limit: Math.max(0, Math.min(requested, snapshot.availableSlots)),
+      limit: allowance.allowedLimit,
       quota: snapshot,
     };
   }
