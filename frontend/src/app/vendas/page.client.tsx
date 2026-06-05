@@ -1197,14 +1197,15 @@ function closedBadgeRadarIconName(key: string): HbxRadarIconName {
   return "check";
 }
 
-function HeroPremiumCrown({ active }: { active: boolean }) {
+function HeroPremiumCrown({ active, onClick }: { active: boolean; onClick?: () => void }) {
   return (
-    <Link
-      href={toMobileRoute("/planos?intent=lead")}
+    <button
+      type="button"
       className={styles.mobileHeroPremiumCrown}
       data-active={active ? "true" : "false"}
-      aria-label={active ? "Ver plano HBX Lead Plus" : "Fazer upgrade para HBX Lead Plus"}
-      title={active ? "Ver plano HBX Lead Plus" : "Upgrade para HBX Lead Plus"}
+      aria-label={active ? "Desativar enriquecimento automático" : "Ativar enriquecimento automático"}
+      title={active ? "Enriquecimento automático ativo" : "Ativar enriquecimento automático"}
+      onClick={onClick}
     >
       <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
         <path d="M4.2 18.5h15.6l.7-9.9-4.6 3.5L12 4.7 8.1 12.1 3.5 8.6l.7 9.9Z" />
@@ -1213,7 +1214,7 @@ function HeroPremiumCrown({ active }: { active: boolean }) {
         <circle cx="3.5" cy="8.6" r="1.15" />
         <circle cx="20.5" cy="8.6" r="1.15" />
       </svg>
-    </Link>
+    </button>
   );
 }
 
@@ -1335,6 +1336,7 @@ const VENDAS_PROGRESS_STEPS = [
 ];
 const MOBILE_READY_MESSAGE_PREF_KEY = "hbx.vendas.mobile.readyMessagePreference.v1";
 const MOBILE_PREFERRED_CALLER_NAME_KEY = "hbx.vendas.mobile.preferredCallerName.v1";
+const MOBILE_AUTO_ENRICHMENT_KEY = "hbx.vendas.mobile.autoEnrichment.v1";
 const DESKTOP_READY_MESSAGE_LIBRARY_KEY = "hbx.vendas.desktop.readyMessageLibrary.v2";
 const MOBILE_OPEN_LEAD_KEY = "hbx.vendas.mobile.openLeadId.v1";
 
@@ -1923,12 +1925,13 @@ function vendasEnrichmentCreditsView(board?: BoardResponse | null) {
   };
 }
 
-function shouldAutoEnrichLead(lead: LeadItem, board?: BoardResponse | null) {
+function shouldAutoEnrichLead(lead: LeadItem, board?: BoardResponse | null, autoEnabled = false) {
   if (!lead?.id) return false;
+  if (!autoEnabled) return false;
   if (!leadNeedsEnrichment(lead)) return false;
   const credits = vendasEnrichmentCreditsView(board);
   const capabilities = leadCapabilities(lead, board);
-  return credits.canAuto && capabilities.canAutoEnrichLeads === true;
+  return credits.canManual && capabilities.canAutoEnrichLeads === true;
 }
 
 function leadEnrichmentStatusKey(lead: LeadItem) {
@@ -2602,6 +2605,16 @@ function saveMobilePreferredCallerName(value: string) {
   const trimmed = String(value || "").trim();
   if (trimmed) window.localStorage.setItem(MOBILE_PREFERRED_CALLER_NAME_KEY, trimmed);
   else window.localStorage.removeItem(MOBILE_PREFERRED_CALLER_NAME_KEY);
+}
+
+function readMobileAutoEnrichmentPreference() {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(MOBILE_AUTO_ENRICHMENT_KEY) === "true";
+}
+
+function saveMobileAutoEnrichmentPreference(active: boolean) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(MOBILE_AUTO_ENRICHMENT_KEY, active ? "true" : "false");
 }
 
 function personalizeMobileReadyMessage(
@@ -4431,6 +4444,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   const [accountSheetOpen, setAccountSheetOpen] = useState(false);
   const [accountNameDraft, setAccountNameDraft] = useState("");
   const [mobilePreferredCallerName, setMobilePreferredCallerName] = useState("");
+  const [mobileAutoEnrichmentActive, setMobileAutoEnrichmentActive] = useState(() => readMobileAutoEnrichmentPreference());
   const [accountProfile, setAccountProfile] = useState<{
     email?: string | null;
     company?: {
@@ -6201,7 +6215,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     setMobileNoteLead(lead);
     setMobileNoteDraft("");
     setMobileHistoryOpen(false);
-    if (shouldAutoEnrichLead(lead, boardRef.current || board)) {
+    if (shouldAutoEnrichLead(lead, boardRef.current || board, mobileAutoEnrichmentActive)) {
       void loadMobileLeadEnrichment(lead);
     }
   }
@@ -6643,7 +6657,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 ? "Revise o Radar para destravar a busca."
                 : "Radar abasteceu sua agenda comercial.";
     const activeCapabilities = board?.capabilities || salesProfile?.capabilities || {};
-    const mobileHeroPremiumActive = Boolean(
+    const mobileHeroPremiumAvailable = Boolean(
       board?.planTier === "lead" ||
         board?.planTier === "full" ||
         activeCapabilities.canSeeLeadIntelligence ||
@@ -6653,6 +6667,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         accountProfile?.company?.premiumAccess ||
         String(accountProfile?.company?.subscriptionStatus || "").toLowerCase() === "trialing",
     );
+    const mobileHeroPremiumActive = Boolean(mobileHeroPremiumAvailable && mobileAutoEnrichmentActive);
     const reportMetrics = conversionReport?.metrics || {};
     const commissionTotals = commissionSummary?.totals || {};
     const payableAmount = Number(commissionTotals.payableAmount || 0);
@@ -7701,7 +7716,20 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
               aria-label="Resumo de Vendas"
             >
               <SalesMotionBackground />
-              <HeroPremiumCrown active={mobileHeroPremiumActive} />
+              <HeroPremiumCrown
+                active={mobileHeroPremiumActive}
+                onClick={() => {
+                  if (!mobileHeroPremiumAvailable) {
+                    window.location.href = toMobileRoute("/planos?intent=lead");
+                    return;
+                  }
+                  setMobileAutoEnrichmentActive((current) => {
+                    const next = !current;
+                    saveMobileAutoEnrichmentPreference(next);
+                    return next;
+                  });
+                }}
+              />
               {renderMasterNoticeBell()}
               <span className={styles.mobileVendasHeroCopy}>
                 <strong>Vendas</strong>

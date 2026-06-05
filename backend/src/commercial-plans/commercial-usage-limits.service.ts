@@ -7,7 +7,6 @@ const FALLBACK_TIMEZONE = 'America/Sao_Paulo';
 const CARD_SUCCESS_EVENTS = ['card_import_success', 'vendas_card_imported', 'radar_card_claimed', 'card_commercial_used'];
 const CARD_REFUND_EVENTS = ['vendas_card_refunded'];
 const LEAD_ENRICHMENT_SUCCESS_EVENTS = ['lead_enrichment_used'];
-const HBX_SELLER_DAILY_CARD_LIMIT = 30;
 const HBX_SELLER_DAILY_ENRICHMENT_LIMIT = 30;
 const HBX_SELLER_MONTHLY_CARD_LIMIT = 999999;
 const HBX_SELLER_ACTIVE_CARD_LIMIT = 30;
@@ -407,14 +406,19 @@ export class CommercialUsageLimitsService {
 
   private async getUsageUserContext(userId?: number | null) {
     const normalizedUserId = Number(userId || 0) || null;
-    if (!normalizedUserId) return { isSystemMaster: false, role: null as string | null };
+    if (!normalizedUserId) return { isSystemMaster: false, role: null as string | null, enrichmentLimitOverride: null as number | null };
     const user = await this.prisma.user.findUnique({
       where: { id: normalizedUserId },
-      select: { isSystemMaster: true, role: true },
+      select: { isSystemMaster: true, role: true, sellerDistributionDailyLimitOverride: true },
     }).catch(() => null);
+    const rawOverride = (user as any)?.sellerDistributionDailyLimitOverride;
+    const override = rawOverride === null || rawOverride === undefined
+      ? null
+      : Math.max(0, Math.min(500, Math.trunc(Number(rawOverride || 0) || 0)));
     return {
       isSystemMaster: Boolean(user?.isSystemMaster),
       role: String(user?.role || '').trim().toUpperCase() || null,
+      enrichmentLimitOverride: override,
     };
   }
 
@@ -513,19 +517,22 @@ export class CommercialUsageLimitsService {
     };
   }
 
-  private computeHbxSellerOperationalLimits(billableUsers: number) {
+  private computeHbxSellerOperationalLimits(billableUsers: number, enrichmentLimitOverride?: number | null) {
     const melhorLimits = this.computeLimits(COMMERCIAL_PLAN_KEYS.MELHOR, billableUsers);
+    const enrichmentDailyLimit = enrichmentLimitOverride === 0
+      ? HBX_SELLER_MONTHLY_CARD_LIMIT
+      : enrichmentLimitOverride || HBX_SELLER_DAILY_ENRICHMENT_LIMIT;
     return {
       cards: {
         perUserLimit: null as number | null,
         companyCap: HBX_SELLER_MONTHLY_CARD_LIMIT,
         limit: HBX_SELLER_MONTHLY_CARD_LIMIT,
         monthlyLimit: HBX_SELLER_MONTHLY_CARD_LIMIT,
-        dailySafetyLimit: HBX_SELLER_DAILY_CARD_LIMIT,
+        dailySafetyLimit: HBX_SELLER_MONTHLY_CARD_LIMIT,
       },
       emails: melhorLimits.emails,
       enrichment: {
-        dailyLimit: HBX_SELLER_DAILY_ENRICHMENT_LIMIT,
+        dailyLimit: enrichmentDailyLimit,
       },
     };
   }
@@ -558,10 +565,10 @@ export class CommercialUsageLimitsService {
     }
     const billableUsers = await this.getBillableUserCount(companyId);
     const normalizedUserId = Number(userId || 0) || null;
-    const hbxSellerOperation = Boolean(company.isMasterOperationalCompany && normalizedUserId && userContext.role === 'USER');
-    const planKey = hbxSellerOperation ? 'hbx_seller' : company.planKey;
-    const limits = hbxSellerOperation
-      ? this.computeHbxSellerOperationalLimits(billableUsers)
+    const hbxOperationUser = Boolean(company.isMasterOperationalCompany && normalizedUserId && userContext.role !== 'USERMASTER');
+    const planKey = hbxOperationUser ? 'hbx_seller' : company.planKey;
+    const limits = hbxOperationUser
+      ? this.computeHbxSellerOperationalLimits(billableUsers, userContext.enrichmentLimitOverride)
       : this.computeLimits(company.planKey, billableUsers, company.quotaOverride);
 
     const [cardsGrossUsed, cardsUserGrossUsed, cardsDailyGrossUsed, cardsDailyUserGrossUsed, cardsRefunded, cardsUserRefunded, cardsDailyRefunded, cardsDailyUserRefunded, emailAttempted, emailSent, emailFailed, emailBlocked, emailUserSent, enrichmentDailyUsed, enrichmentDailyUserUsed] = await Promise.all([
@@ -585,11 +592,11 @@ export class CommercialUsageLimitsService {
     const cardsUserUsed = Math.max(0, cardsUserGrossUsed - cardsUserRefunded);
     const cardsDailyUsed = Math.max(0, cardsDailyGrossUsed - cardsDailyRefunded);
     const cardsDailyUserUsed = Math.max(0, cardsDailyUserGrossUsed - cardsDailyUserRefunded);
-    const cardsDailyUsedForLimit = hbxSellerOperation ? cardsDailyUserUsed : cardsDailyUsed;
+    const cardsDailyUsedForLimit = hbxOperationUser ? cardsDailyUserUsed : cardsDailyUsed;
     const enrichmentDailyLimit = Math.max(0, Math.trunc(Number(limits.enrichment.dailyLimit || 0) || 0));
-    const enrichmentDailyUsedForLimit = hbxSellerOperation ? enrichmentDailyUserUsed : enrichmentDailyUsed;
+    const enrichmentDailyUsedForLimit = hbxOperationUser ? enrichmentDailyUserUsed : enrichmentDailyUsed;
     const enrichmentDailyRemaining = Math.max(0, enrichmentDailyLimit - Math.max(0, enrichmentDailyUsedForLimit));
-    const enrichmentAutoEnabled = planKey !== COMMERCIAL_PLAN_KEYS.LITE && enrichmentDailyRemaining > 0;
+    const enrichmentAutoEnabled = false;
 
     return {
       planKey,
@@ -641,11 +648,9 @@ export class CommercialUsageLimitsService {
         dailyRemaining: enrichmentDailyRemaining,
         canAutoEnrich: enrichmentAutoEnabled,
         canManualEnrich: enrichmentDailyRemaining > 0,
-        mode: planKey === COMMERCIAL_PLAN_KEYS.LITE
+        mode: enrichmentDailyRemaining > 0
           ? 'manual_only'
-          : enrichmentDailyRemaining > 0
-            ? 'auto'
-            : 'blocked_until_reset',
+          : 'blocked_until_reset',
         period: 'daily',
       },
       billableUsers,
@@ -672,20 +677,15 @@ export class CommercialUsageLimitsService {
     const snapshot = await this.getUsageSnapshot(companyId, userId);
     const userBlocked = snapshot.cards.perUserLimit != null && snapshot.cards.userUsed >= snapshot.cards.userLimit;
     const monthlyBlocked = snapshot.cards.remaining <= 0 || userBlocked;
-    const dailyBlocked = Number(snapshot.cards.dailyRemaining || 0) <= 0;
-    if (monthlyBlocked || dailyBlocked) {
+    if (monthlyBlocked) {
       await this.log(companyId, Number(userId || 0) || null, 'card_import_blocked', 'usage_limit', {
         reason: userBlocked
           ? 'monthly_user_card_limit_reached'
-          : monthlyBlocked
-            ? 'monthly_card_limit_reached'
-            : 'daily_card_safety_limit_reached',
+          : 'monthly_card_limit_reached',
       });
       throw new ConflictException({
-        code: monthlyBlocked ? 'MONTHLY_CARD_LIMIT_REACHED' : 'DAILY_CARD_SAFETY_LIMIT_REACHED',
-        message: monthlyBlocked
-          ? 'Limite mensal de cards atingido. O contador reinicia no próximo ciclo mensal.'
-          : 'Trava diária de segurança atingida. O limite mensal continua o mesmo; tente novamente após 00:00.',
+        code: 'MONTHLY_CARD_LIMIT_REACHED',
+        message: 'Limite mensal de cards atingido. O contador reinicia no próximo ciclo mensal.',
         usage: snapshot,
       });
     }

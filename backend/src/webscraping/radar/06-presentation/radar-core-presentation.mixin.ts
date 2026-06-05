@@ -2985,16 +2985,11 @@ export class RadarCorePresentationMixin {
       });
     }
     const usage = await this.commercialUsageLimits?.getUsageSnapshot(context.companyId, context.userId).catch(() => null);
-    const cards = usage?.cards || {};
-    const userBlocked = cards.perUserLimit != null && Number(cards.userUsed || 0) >= Number(cards.userLimit || 0);
-    if (usage && (Number(cards.remaining || 0) <= 0 || Number(cards.dailyRemaining || 0) <= 0 || userBlocked)) {
+    const enrichment = usage?.enrichment || {};
+    if (usage && Number(enrichment.dailyRemaining ?? enrichment.remaining ?? 0) <= 0) {
       throw new ConflictException({
         code: 'RADAR_ENRICHMENT_QUOTA_REACHED',
-        message: userBlocked
-          ? 'Limite mensal por usuÃ¡rio atingido para enriquecer cards.'
-          : Number(cards.dailyRemaining || 0) <= 0
-            ? 'Trava diÃ¡ria de seguranÃ§a atingida. Tente novamente apÃ³s 00:00.'
-            : 'Limite mensal de cards atingido. O contador reinicia no prÃ³ximo ciclo.',
+        message: 'Créditos de enriquecimento de hoje acabaram. Cards novos seguem básicos até o reset diário.',
         usage,
       });
     }

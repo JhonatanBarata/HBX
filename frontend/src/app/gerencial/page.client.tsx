@@ -36,6 +36,7 @@ type UserItem = {
   role: string;
   isSystemMaster?: boolean | null;
   isActive: boolean;
+  sellerDistributionDailyLimitOverride?: number | null;
   deactivatedAt?: string | null;
   retentionUntil?: string | null;
   createdAt: string;
@@ -287,6 +288,7 @@ type CreateCompanyUserResult = {
     sellerReferralCommissionPercent?: number | null;
     referredByUserId?: number | null;
     referredByCommissionPercentSnapshot?: number | null;
+    sellerDistributionDailyLimitOverride?: number | null;
     referredByUser?: UserItem["referredByUser"];
     role: string;
     isSystemMaster?: boolean | null;
@@ -322,6 +324,7 @@ type SellerOnboardingDraftPayload = {
   sellerReferralCommissionPercent?: number | null;
   referredByUserId?: number | null;
   referredByCommissionPercentSnapshot?: number | null;
+  sellerDistributionDailyLimitOverride?: number | null;
 };
 
 type SellerOnboardingReadiness = {
@@ -369,6 +372,7 @@ type UserProfileDraft = {
   sellerReferralCommissionPercent: string;
   referredByUserId: string;
   referredByCommissionPercentSnapshot: string;
+  enrichmentLimit: string;
 };
 
 type GerencialRole = "USER" | "ADMIN" | "USERMASTER";
@@ -474,6 +478,9 @@ function buildProfileDraft(user: UserItem): UserProfileDraft {
     referredByCommissionPercentSnapshot: Number(user.referredByCommissionPercentSnapshot || 0).toLocaleString("pt-BR", {
       maximumFractionDigits: 2,
     }),
+    enrichmentLimit: user.sellerDistributionDailyLimitOverride === 0
+      ? "auto"
+      : String(Math.max(1, Math.trunc(Number(user.sellerDistributionDailyLimitOverride || 30) || 30))),
   };
 }
 
@@ -488,6 +495,14 @@ function parsePercentInput(value: string) {
 function parseOptionalPercentInput(value: string) {
   if (!value.trim()) return undefined;
   return parsePercentInput(value);
+}
+
+function parseEnrichmentLimitInput(value: string) {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized || normalized === "auto") return 0;
+  const numeric = Math.trunc(Number(normalized.replace(",", ".")));
+  if (!Number.isFinite(numeric) || numeric < 1 || numeric > 500) return null;
+  return numeric;
 }
 
 function percentInputValue(value?: number | null) {
@@ -749,6 +764,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   const [newUserCpf, setNewUserCpf] = useState("");
   const [newUserDeclaredAddress, setNewUserDeclaredAddress] = useState("");
   const [newUserCommissionDueBusinessDays, setNewUserCommissionDueBusinessDays] = useState("3");
+  const [newUserEnrichmentLimit, setNewUserEnrichmentLimit] = useState("30");
   const [createdPasswordInfo, setCreatedPasswordInfo] = useState<CreatedPasswordInfo | null>(() =>
     loadCreatedPasswordInfo(),
   );
@@ -796,6 +812,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     sellerReferralCommissionPercent: "0",
     referredByUserId: "",
     referredByCommissionPercentSnapshot: "0",
+    enrichmentLimit: "30",
   });
 
   const load = useCallback(async () => {
@@ -1072,6 +1089,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     setNewUserSellerReferralCommissionPercent(percentInputValue(user.sellerReferralCommissionPercent));
     setNewUserReferredByUserId(user.referredByUserId ? String(user.referredByUserId) : "");
     setNewUserReferredByCommissionPercent(percentInputValue(user.referredByCommissionPercentSnapshot));
+    setNewUserEnrichmentLimit(user.sellerDistributionDailyLimitOverride === 0 ? "auto" : String(user.sellerDistributionDailyLimitOverride || 30));
     setNewUserPassword("");
     setOnboardingUserId(user.id);
     setCreateAccessOpen(true);
@@ -1304,6 +1322,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     setNewUserCpf("");
     setNewUserDeclaredAddress("");
     setNewUserCommissionDueBusinessDays("3");
+    setNewUserEnrichmentLimit("30");
     setNewUserReferralCandidateId("");
     setReferralPhoneMatch(null);
     setIgnoredReferralCandidateId("");
@@ -1397,6 +1416,11 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
       setError("Informe um prazo de pagamento entre 1 e 30 dias úteis.");
       return;
     }
+    const enrichmentLimit = parseEnrichmentLimitInput(newUserEnrichmentLimit);
+    if (enrichmentLimit === null) {
+      setError("Informe enriquecimento Auto ou um limite entre 1 e 500.");
+      return;
+    }
 
     setCreatingUser(true);
     setError(null);
@@ -1406,6 +1430,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         phone: newUserPhone.trim(),
         commissionPercent,
         canRegisterHbxSellers: false,
+        sellerDistributionDailyLimitOverride: enrichmentLimit,
       };
       if (referredByUserId) {
         profileBody.referredByUserId = referredByUserId;
@@ -1448,6 +1473,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                   sellerReferralCommissionPercent: updated.sellerReferralCommissionPercent ?? sellerReferralCommissionPercent,
                   referredByUserId: updated.referredByUserId ?? referredByUserId ?? null,
                   referredByCommissionPercentSnapshot: updated.referredByCommissionPercentSnapshot ?? 0,
+                  sellerDistributionDailyLimitOverride: updated.sellerDistributionDailyLimitOverride ?? enrichmentLimit,
                   referredByUser: updated.referredByUser ?? existingUser?.referredByUser ?? null,
                 }
               : item,
@@ -1477,7 +1503,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
       setError("Informe um e-mail válido.");
       return;
     }
-    const shouldUseHbxNetwork = isHbxSellerNetwork && newUserRole === "USER";
+    const shouldUseHbxNetwork = isHbxSellerNetwork && ["USER", "ADMIN"].includes(newUserRole);
     const referredByUserId = shouldUseHbxNetwork && newUserReferredByUserId
       ? Number(newUserReferredByUserId)
       : undefined;
@@ -1506,6 +1532,11 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
       setError("Informe uma comissão de indicação entre 0 e 100.");
       return;
     }
+    const enrichmentLimit = shouldUseHbxNetwork ? parseEnrichmentLimitInput(newUserEnrichmentLimit) : undefined;
+    if (enrichmentLimit === null) {
+      setError("Informe enriquecimento Auto ou um limite entre 1 e 500.");
+      return;
+    }
 
     setCreatingUser(true);
     try {
@@ -1531,6 +1562,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
       }
       if (shouldUseHbxNetwork) {
         requestBody.canRegisterHbxSellers = false;
+        requestBody.sellerDistributionDailyLimitOverride = enrichmentLimit;
         if (newUserReferralCandidateId) {
           requestBody.referralCandidateId = newUserReferralCandidateId;
         }
@@ -1629,7 +1661,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
       setError("Informe uma comissão entre 0 e 100.");
       return;
     }
-    const canEditHbxNetwork = isHbxSellerNetwork && normalizeRole(user.role, user.isSystemMaster) === "USER";
+    const canEditHbxNetwork = isHbxSellerNetwork && ["USER", "ADMIN"].includes(normalizeRole(user.role, user.isSystemMaster));
     const sellerReferralCommissionPercent = canEditHbxNetwork
       ? parsePercentInput(profileDraft.sellerReferralCommissionPercent)
       : 0;
@@ -1638,6 +1670,11 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
       : undefined;
     if (sellerReferralCommissionPercent === null || referredByCommissionPercentSnapshot === null) {
       setError("Informe uma comissão de indicação entre 0 e 100.");
+      return;
+    }
+    const enrichmentLimit = canEditHbxNetwork ? parseEnrichmentLimitInput(profileDraft.enrichmentLimit) : undefined;
+    if (enrichmentLimit === null) {
+      setError("Informe enriquecimento Auto ou um limite entre 1 e 500.");
       return;
     }
     const referredByUserId = canEditHbxNetwork && profileDraft.referredByUserId
@@ -1658,6 +1695,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
       };
       if (canEditHbxNetwork) {
         requestBody.canRegisterHbxSellers = false;
+        requestBody.sellerDistributionDailyLimitOverride = enrichmentLimit;
         if (referredByUserId) {
           if (referredByUserId !== Number(user.referredByUserId || 0)) {
             requestBody.referredByUserId = referredByUserId;
@@ -1687,6 +1725,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                   sellerReferralCommissionPercent: updated.sellerReferralCommissionPercent ?? 0,
                   referredByUserId: updated.referredByUserId ?? null,
                   referredByCommissionPercentSnapshot: updated.referredByCommissionPercentSnapshot ?? 0,
+                  sellerDistributionDailyLimitOverride: updated.sellerDistributionDailyLimitOverride ?? enrichmentLimit,
                   referredByUser: updated.referredByUser ?? null,
                 }
               : item,
@@ -2238,6 +2277,13 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                 Comissão e herança deste vendedor seguem o indicador.
               </p>
             ) : null}
+            <input
+              className="field"
+              inputMode="numeric"
+              value={profileDraft.enrichmentLimit}
+              onChange={(event) => setProfileDraft((draft) => ({ ...draft, enrichmentLimit: event.target.value }))}
+              placeholder="Enriquecimentos/dia: Auto ou 30"
+            />
           </>
         ) : null}
 
@@ -2804,6 +2850,16 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                       <input className="field disabled:opacity-60" disabled value={selectedNewUserReferrer ? percentInputValue(selectedNewUserReferrer.sellerReferralCommissionPercent) : newUserReferredByCommissionPercent} />
                     </label>
                   </div>
+                  <label>
+                    <span>Enriquecimentos/dia</span>
+                    <input
+                      className="field"
+                      inputMode="numeric"
+                      placeholder="Auto ou 30"
+                      value={newUserEnrichmentLimit}
+                      onChange={(event) => setNewUserEnrichmentLimit(event.target.value)}
+                    />
+                  </label>
                 </>
               ) : null}
               <button type="submit" disabled={creatingUser} className="btn btn-primary btn-sm">

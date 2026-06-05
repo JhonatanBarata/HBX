@@ -2376,7 +2376,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     ? Math.max(0, Math.trunc(Number(vendasUsage.cards.userLimit || 0) - Number(vendasUsage.cards.userUsed || 0)))
     : monthlyRemaining;
   const quotaRemaining = Math.min(
-    ...[dailyRemaining, monthlyRemaining, perUserRemaining].filter((value) => Number.isFinite(value)),
+    ...[monthlyRemaining, perUserRemaining].filter((value) => Number.isFinite(value)),
   );
   const fallbackSearchLimit = planCardsPerSearch || (isHbxList ? 50 : MAX_CARDS_PER_RADAR_SEARCH);
   const perSearchLimit = Math.max(1, Math.min(MAX_CARDS_PER_RADAR_SEARCH, fallbackSearchLimit));
@@ -3601,15 +3601,15 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
         availableFilters.citiesByState?.[filters.state]?.map((item) => item.value) || [],
       )
     : [];
-  const dailyQuotaBlocked = vendasUsage ? dailyRemaining <= 0 || radarQuantityLimit <= 0 : false;
-  const mobileVendasBlocked = dailyQuotaBlocked;
+  const cardQuotaBlocked = vendasUsage ? radarQuantityLimit <= 0 : false;
+  const mobileVendasBlocked = cardQuotaBlocked;
   const radarPausedByStock = vendasPendingCount != null && radarVendasStockMissing <= 0 && !radarStockPauseUnlocked;
   const currentRadarRunStatus = String(activeRun?.status || terminalRunSnapshot?.status || "").trim().toLowerCase();
   const currentRadarBackendState = String(activeRun?.meta?.operationalState || terminalRunSnapshot?.meta?.operationalState || "").trim().toLowerCase();
   const radarPausedByRun = currentRadarRunStatus === "paused";
   const radarSleepingByRun = currentRadarRunStatus === "sleeping";
   const radarHasRunPointer = Boolean(activeRun || activeRunIdRef.current);
-  const radarPausedByQuota = dailyQuotaBlocked && radarHasRunPointer;
+  const radarPausedByQuota = cardQuotaBlocked && radarHasRunPointer;
   const radarPausedByBackend = currentRadarBackendState === "pausado";
   const radarWorkingByBackend = currentRadarBackendState === "funcionando";
   const radarOperationalState: RadarOperationalState =
@@ -4573,7 +4573,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
           ) : null}
           <div className={styles.filterActions}>
             <button type="button" data-variant="secondary" onClick={clearFilters} disabled={radarFiltersLocked}>Limpar filtros</button>
-            <button type="submit" disabled={radarFiltersLocked || dailyQuotaBlocked}>
+            <button type="submit" disabled={radarFiltersLocked || cardQuotaBlocked}>
               {radarFiltersLocked ? radarOperationalLabel : "Pesquisar"}
             </button>
           </div>
