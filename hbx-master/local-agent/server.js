@@ -296,7 +296,7 @@ async function route(req, res) {
     "/git/current": ["git", "branch", "--show-current"],
     "/git/remotes": ["git", "remote", "-v"],
     "/git/last-commit": ["git", "log", "-1", "--pretty=format:%H%n%s%n%cd"],
-    "/git/changed-files": ["git", "diff", "--name-only", "master...HEAD"],
+    "/git/changed-files": ["git", "diff", "--name-only", "origin/master...HEAD"],
   };
   if (req.method === "GET" && gitRoutes[url.pathname]) {
     const result = execRead(gitRoutes[url.pathname]);

@@ -11,6 +11,12 @@
     "risk": "low",
     "confirm": false
   },
+  "git-fetch": {
+    "label": "Atualizar origin",
+    "command": ["git", "fetch", "origin"],
+    "risk": "low",
+    "confirm": false
+  },
   "frontend-lint": {
     "label": "Frontend lint",
     "command": ["npm", "--prefix", "frontend", "run", "lint"],

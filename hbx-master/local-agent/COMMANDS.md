@@ -6,6 +6,7 @@ Todos os comandos ficam em `allowlist.json` como array. O Local Agent nao aceita
 
 - `up`: `npm run up`
 - `down`: `npm run down`
+- `git-fetch`: `git fetch origin`
 
 ## Validacoes
 
@@ -26,9 +27,10 @@ Somente leitura por padrao:
 - `git branch --show-current`
 - `git remote -v`
 - `git log -1 --pretty=format:%H%n%s%n%cd`
-- `git diff --name-only master...HEAD`
+- `git diff --name-only origin/master...HEAD`
 
 Checkout de PR exige workspace limpo e usa apenas `gh pr checkout <numero>`.
+Esse checkout e opcional para diagnostico; o fluxo principal testa o lote integrado na branch atual.
 
 ## Deploy Control
 

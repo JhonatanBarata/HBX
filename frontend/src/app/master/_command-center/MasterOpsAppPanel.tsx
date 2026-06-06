@@ -181,6 +181,9 @@ export default function MasterOpsAppPanel({ panel, onOpenPanel }: MasterOpsAppPa
   const currentBranch = git.current?.stdout.trim() || "-";
   const lastCommitLines = useMemo(() => trimOutput(git.lastCommit?.stdout).split(/\r?\n/), [git.lastCommit?.stdout]);
   const changedFilePlan = useMemo(() => detectTestAreas(git.changedFiles?.stdout), [git.changedFiles?.stdout]);
+  const hasUpCommand = commands.some((command) => command.id === "up");
+  const hasDownCommand = commands.some((command) => command.id === "down");
+  const hasGitFetchCommand = commands.some((command) => command.id === "git-fetch");
 
   async function runCommand(commandId: string, confirm = false) {
     setBusy(commandId);
@@ -189,6 +192,15 @@ export default function MasterOpsAppPanel({ panel, onOpenPanel }: MasterOpsAppPa
     setBusy(null);
     setMessage(result.ok ? `Execução iniciada: ${result.data?.run.label}` : result.error || "Falha ao iniciar comando.");
     await loadAgent();
+  }
+
+  async function fetchOrigin() {
+    setBusy("git-fetch");
+    setMessage("");
+    const result = await runLocalAgentCommand("git-fetch");
+    setBusy(null);
+    setMessage(result.ok ? "Atualização de origin iniciada." : result.error || "Falha ao atualizar origin.");
+    await Promise.all([loadAgent(), loadGit()]);
   }
 
   async function runTest(area: "frontend" | "backend" | "webwhats" | "e2e") {
@@ -235,7 +247,7 @@ export default function MasterOpsAppPanel({ panel, onOpenPanel }: MasterOpsAppPa
     void refreshAll();
   }
 
-  const safeCommands = commands.filter((command) => ["up", "down", "frontend-lint", "frontend-build"].includes(command.id));
+  const safeCommands = commands.filter((command) => ["up", "down", "git-fetch", "frontend-lint", "frontend-build"].includes(command.id));
 
   if (panel === "morning") {
     return (
@@ -248,7 +260,7 @@ export default function MasterOpsAppPanel({ panel, onOpenPanel }: MasterOpsAppPa
         </div>
         <div className={styles.opsGrid}>
           <OpsCard title="Próximo passo recomendado" tone={workspaceDirty ? "warn" : "good"}>
-            <p>{workspaceDirty ? "Revise alterações locais antes de baixar PR ou rodar fluxo automático." : "Baixar PR, rodar testes por área e registrar resultado no Morning Desk."}</p>
+            <p>{workspaceDirty ? "Workspace tem alterações ou merges locais. Se esse é o lote aprovado, suba o localhost e rode os testes por área." : "Atualize origin, confirme a branch do lote, suba localhost e valide o ticket no sistema real."}</p>
             <div className={styles.opsButtonRow}>
               <OpsButton onClick={() => onOpenPanel("git")}>Abrir Git</OpsButton>
               <OpsButton onClick={() => onOpenPanel("tests")} variant="secondary">Abrir Testes</OpsButton>
@@ -296,11 +308,22 @@ export default function MasterOpsAppPanel({ panel, onOpenPanel }: MasterOpsAppPa
 
   if (panel === "git") {
     return (
-      <OpsSurface title="Git / PR" eyebrow="Somente seguro" action={<OpsButton onClick={loadGit}>Atualizar Git</OpsButton>}>
+      <OpsSurface
+        title="Git / PR"
+        eyebrow="Lote integrado"
+        action={(
+          <div className={styles.opsButtonRow}>
+            <OpsButton onClick={fetchOrigin} disabled={busy === "git-fetch" || !hasGitFetchCommand}>
+              {busy === "git-fetch" ? "Atualizando" : "Fetch origin"}
+            </OpsButton>
+            <OpsButton onClick={loadGit} variant="secondary">Atualizar Git</OpsButton>
+          </div>
+        )}
+      >
         <div className={styles.opsGrid}>
           <OpsCard title="Branch atual" tone={workspaceDirty ? "warn" : "good"}>
             <strong className={styles.opsValue}>{currentBranch}</strong>
-            <p>{workspaceDirty ? "Workspace sujo: checkout de PR fica bloqueado." : "Workspace limpo para baixar PR."}</p>
+            <p>{workspaceDirty ? "Workspace com mudanças locais; use como lote integrado se os merges foram intencionais." : "Workspace limpo. Pronto para validar o lote atual ou baixar PR avulso."}</p>
           </OpsCard>
           <OpsCard title="Último commit" tone="neutral">
             <pre className={styles.opsPre}>{lastCommitLines.slice(0, 3).join("\n")}</pre>
@@ -310,7 +333,8 @@ export default function MasterOpsAppPanel({ panel, onOpenPanel }: MasterOpsAppPa
           <OpsCard title="Status curto" tone={workspaceDirty ? "warn" : "good"}>
             <pre className={styles.opsPre}>{trimOutput(git.status?.stdout)}</pre>
           </OpsCard>
-          <OpsCard title="Baixar PR" tone="warn">
+          <OpsCard title="Baixar PR avulso" tone="warn">
+            <p>Opcional para diagnostico. O fluxo principal testa os PRs depois do merge no lote atual.</p>
             <label className={styles.opsField}>
               <span>Número do PR</span>
               <input value={prNumber} onChange={(event) => setPrNumber(event.target.value)} inputMode="numeric" placeholder="128" />
@@ -323,8 +347,8 @@ export default function MasterOpsAppPanel({ panel, onOpenPanel }: MasterOpsAppPa
         <OpsCard title="Branches" tone="neutral">
           <pre className={styles.opsPre}>{trimOutput(git.branches?.stdout)}</pre>
         </OpsCard>
-        <OpsCard title="Arquivos alterados e testes sugeridos" tone={changedFilePlan.hold ? "danger" : changedFilePlan.areas.length ? "warn" : "neutral"}>
-          {changedFilePlan.files.length ? <pre className={styles.opsPre}>{changedFilePlan.files.join("\n")}</pre> : <span className={styles.opsMuted}>Sem diff contra master ou branch equivalente.</span>}
+        <OpsCard title="Diff do lote e testes sugeridos" tone={changedFilePlan.hold ? "danger" : changedFilePlan.areas.length ? "warn" : "neutral"}>
+          {changedFilePlan.files.length ? <pre className={styles.opsPre}>{changedFilePlan.files.join("\n")}</pre> : <span className={styles.opsMuted}>Sem diff contra origin/master ou branch equivalente.</span>}
           <div className={styles.opsTags}>
             {changedFilePlan.hold ? <span>HOLD</span> : null}
             {changedFilePlan.areas.map((area) => <span key={area}>{area}</span>)}
@@ -339,6 +363,18 @@ export default function MasterOpsAppPanel({ panel, onOpenPanel }: MasterOpsAppPa
   if (panel === "tests") {
     return (
       <OpsSurface title="Testes" eyebrow="Allowlist local" action={<OpsButton onClick={loadAgent}>Atualizar execuções</OpsButton>}>
+        <OpsCard title="Localhost do lote" tone={agentHealth ? "good" : "warn"}>
+          <p>Roda o HBX exatamente na branch atual. Depois de mergear PRs em paralelo, esta é a validação visual principal.</p>
+          <div className={styles.opsButtonRow}>
+            <OpsButton onClick={() => void runCommand("up")} disabled={busy === "up" || !hasUpCommand}>
+              {busy === "up" ? "Subindo" : "Subir localhost"}
+            </OpsButton>
+            <OpsButton onClick={() => void runCommand("down")} disabled={busy === "down" || !hasDownCommand} variant="secondary">
+              {busy === "down" ? "Desligando" : "Desligar local"}
+            </OpsButton>
+          </div>
+          <span className={styles.opsMuted}>Abrir depois: http://localhost:3001</span>
+        </OpsCard>
         <div className={styles.opsGrid}>
           {[
             ["frontend", "Frontend", "Lint + build"],

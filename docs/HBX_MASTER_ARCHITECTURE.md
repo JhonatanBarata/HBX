@@ -36,11 +36,23 @@ Ser o centro de comando do HBX dentro deste repo, conectando Radar, Vendas, What
 2. Ver Morning Desk.
 3. Analisar tickets e HOLDs.
 4. Ativar automatizadores seguros.
-5. Baixar PR.
-6. Rodar testes.
-7. Revisar merge manualmente.
-8. Verificar producao.
-9. Responder cliente.
+5. Codex PR Worker ou Codex Cloud cria PRs pequenos para tickets `BUG_SAFE`.
+6. Revisar e mergear manualmente os PRs do lote quando o dono decidir aplicar em paralelo.
+7. Validar o checkout consolidado pelo HBX Master.
+8. Subir o HBX local com `npm run up` pelo Local Agent.
+9. Abrir `http://localhost:3001` e testar visualmente o ticket resolvido.
+10. Rodar testes por area conforme o diff do lote.
+11. Verificar producao somente quando a publicacao for uma etapa manual aprovada.
+12. Responder cliente.
+
+## Modelo PR paralelo + localhost
+
+- PR e branch sao unidades de producao do Codex, nao o ambiente final de uso.
+- O fluxo principal do dono e consolidar os PRs aprovados no checkout atual e testar esse lote integrado.
+- O localhost sempre mostra o codigo da pasta atual; depois dos merges, o HBX Master deve subir e testar essa pasta.
+- Baixar PR isolado fica como ferramenta opcional de diagnostico, quando o dono quiser investigar um PR antes do merge.
+- O HBX Master nao faz merge automatico, nao publica automatico e nao resolve conflitos sozinho.
+- Arquivos de auth, billing, planos, secrets, migrations, deploy e dados sensiveis continuam em HOLD manual.
 
 ## Regras de seguranca
 

@@ -16,6 +16,18 @@ Abra:
 http://localhost:3001/master
 ```
 
+## Teste de lote integrado
+
+Quando o Codex Cloud criar PRs para tickets, o HBX Master trabalha assim:
+
+1. O dono revisa e mergeia manualmente os PRs que quer aplicar em paralelo.
+2. O checkout atual passa a ser o lote de QA.
+3. O Local Agent roda `npm run up` nessa mesma pasta.
+4. O dono abre `http://localhost:3001` e testa o ticket no sistema real.
+5. O painel Testes roda frontend, backend, Webwhats ou E2E conforme o diff.
+
+Baixar PR isolado continua disponivel para diagnostico, mas nao e o caminho principal.
+
 ## Modulos
 
 - Morning Desk.
