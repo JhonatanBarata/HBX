@@ -172,6 +172,12 @@ Opcoes aceitaveis sem API:
 
 O resultado da pesquisa nunca deve executar direto. Ele gera cards no Kanban, e a classificacao do card decide revisao humana ou execucao automatica.
 
+Implementacao inicial decidida:
+
+- `Preparar pesquisa HBX`: monta prompt com data, repo `Jhonatanbarata/HBX`, branch, commits recentes, cards concluidos com commit, pendentes e bloqueados; copia para o clipboard; abre ChatGPT.
+- `Importar pesquisa`: caminho manual, com colagem do resultado.
+- `Importar clipboard`: tenta puxar o resultado copiado do ChatGPT e, se `Criar cards ao importar` estiver ligado, transforma em cards no Kanban.
+
 ## Modelo mental consolidado
 
 Kanban executa.
