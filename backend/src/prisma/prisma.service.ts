@@ -115,6 +115,12 @@ const RUNTIME_SCHEMA_ENSURES: RuntimeSchemaEnsureDefinition[] = [
     target: 'MasterNotice and MasterNoticeAck tables, constraints and indexes',
     shouldBecomeMigration: true,
   },
+  {
+    key: 'hbx-support-ticket-tables',
+    method: 'ensureHbxSupportTicketTables',
+    target: 'hbx_support_ticket and hbx_job tables, constraints and indexes',
+    shouldBecomeMigration: true,
+  },
 ];
 
 const RUNTIME_SCHEMA_HEALTH_CHECKS: RuntimeSchemaHealthCheckDefinition[] = [
@@ -296,6 +302,44 @@ const RUNTIME_SCHEMA_HEALTH_CHECKS: RuntimeSchemaHealthCheckDefinition[] = [
     shouldBecomeMigration: true,
   },
   {
+    key: 'hbxSupportTicket.table',
+    ensureKey: 'hbx-support-ticket-tables',
+    type: 'table',
+    table: 'hbx_support_ticket',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'hbxSupportTicket.status',
+    ensureKey: 'hbx-support-ticket-tables',
+    type: 'column',
+    table: 'hbx_support_ticket',
+    column: 'status',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'hbxSupportTicket.codexDispatchStatus',
+    ensureKey: 'hbx-support-ticket-tables',
+    type: 'column',
+    table: 'hbx_support_ticket',
+    column: 'codexDispatchStatus',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'hbxJob.table',
+    ensureKey: 'hbx-support-ticket-tables',
+    type: 'table',
+    table: 'hbx_job',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'hbxJob.ticketId',
+    ensureKey: 'hbx-support-ticket-tables',
+    type: 'column',
+    table: 'hbx_job',
+    column: 'ticketId',
+    shouldBecomeMigration: true,
+  },
+  {
     key: 'externalWebhookEvent.table',
     type: 'table',
     table: 'ExternalWebhookEvent',
@@ -360,6 +404,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     await this.runRuntimeSchemaEnsure('radar-auto-distribution-rule-tables', () => this.ensureRadarAutoDistributionRuleTables());
     await this.runRuntimeSchemaEnsure('radar-distribution-daily-usage-tables', () => this.ensureRadarDistributionDailyUsageTables());
     await this.runRuntimeSchemaEnsure('master-notice-tables', () => this.ensureMasterNoticeTables());
+    await this.runRuntimeSchemaEnsure('hbx-support-ticket-tables', () => this.ensureHbxSupportTicketTables());
   }
 
   async onModuleDestroy() {
@@ -1107,6 +1152,179 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     await this.$executeRawUnsafe(`
       CREATE INDEX IF NOT EXISTS "MasterNoticeAck_userId_acknowledgedAt_idx"
       ON "MasterNoticeAck"("userId", "acknowledgedAt")
+    `);
+  }
+
+  private async ensureHbxSupportTicketTables() {
+    await this.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "hbx_support_ticket" (
+        "id" TEXT NOT NULL,
+        "ticketCode" TEXT NOT NULL,
+        "externalId" TEXT,
+        "companyId" INTEGER,
+        "conversationId" INTEGER,
+        "source" TEXT NOT NULL DEFAULT 'owner',
+        "origin" TEXT NOT NULL DEFAULT 'owner',
+        "originChannel" TEXT NOT NULL DEFAULT 'manual',
+        "branch" TEXT NOT NULL DEFAULT 'technical_support',
+        "category" TEXT NOT NULL DEFAULT 'technical_support',
+        "classification" TEXT NOT NULL DEFAULT 'TRIAGE',
+        "status" TEXT NOT NULL DEFAULT 'new',
+        "priority" TEXT NOT NULL DEFAULT 'Alta',
+        "customerName" TEXT,
+        "customerPhone" TEXT,
+        "customerEmail" TEXT,
+        "title" TEXT NOT NULL,
+        "description" TEXT NOT NULL,
+        "lastCustomerMessage" TEXT,
+        "metadataJson" TEXT,
+        "codexDispatchStatus" TEXT NOT NULL DEFAULT 'not_dispatched',
+        "codexRunId" TEXT,
+        "codexRunUrl" TEXT,
+        "githubIssueUrl" TEXT,
+        "githubPrNumber" INTEGER,
+        "githubBranch" TEXT,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "hbx_support_ticket_pkey" PRIMARY KEY ("id")
+      )
+    `);
+
+    await this.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "hbx_job" (
+        "id" TEXT NOT NULL,
+        "ticketId" TEXT NOT NULL,
+        "companyId" INTEGER,
+        "type" TEXT NOT NULL DEFAULT 'codex_task',
+        "status" TEXT NOT NULL DEFAULT 'waiting_codex',
+        "branch" TEXT NOT NULL DEFAULT 'technical_support',
+        "title" TEXT NOT NULL,
+        "payloadJson" TEXT,
+        "resultJson" TEXT,
+        "startedAt" TIMESTAMP(3),
+        "finishedAt" TIMESTAMP(3),
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "hbx_job_pkey" PRIMARY KEY ("id")
+      )
+    `);
+
+    await this.$executeRawUnsafe(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint WHERE conname = 'hbx_support_ticket_companyId_fkey'
+        ) THEN
+          ALTER TABLE "hbx_support_ticket"
+          ADD CONSTRAINT "hbx_support_ticket_companyId_fkey"
+          FOREIGN KEY ("companyId") REFERENCES "Company"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+        END IF;
+
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint WHERE conname = 'hbx_support_ticket_conversationId_fkey'
+        ) THEN
+          ALTER TABLE "hbx_support_ticket"
+          ADD CONSTRAINT "hbx_support_ticket_conversationId_fkey"
+          FOREIGN KEY ("conversationId") REFERENCES "Conversation"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+        END IF;
+
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint WHERE conname = 'hbx_job_ticketId_fkey'
+        ) THEN
+          ALTER TABLE "hbx_job"
+          ADD CONSTRAINT "hbx_job_ticketId_fkey"
+          FOREIGN KEY ("ticketId") REFERENCES "hbx_support_ticket"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+        END IF;
+
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint WHERE conname = 'hbx_job_companyId_fkey'
+        ) THEN
+          ALTER TABLE "hbx_job"
+          ADD CONSTRAINT "hbx_job_companyId_fkey"
+          FOREIGN KEY ("companyId") REFERENCES "Company"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+        END IF;
+      END $$;
+    `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "hbx_support_ticket"
+      ADD COLUMN IF NOT EXISTS "codexDispatchStatus" TEXT NOT NULL DEFAULT 'not_dispatched'
+    `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "hbx_support_ticket"
+      ADD COLUMN IF NOT EXISTS "codexRunId" TEXT
+    `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "hbx_support_ticket"
+      ADD COLUMN IF NOT EXISTS "codexRunUrl" TEXT
+    `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "hbx_support_ticket"
+      ADD COLUMN IF NOT EXISTS "githubIssueUrl" TEXT
+    `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "hbx_support_ticket"
+      ADD COLUMN IF NOT EXISTS "githubPrNumber" INTEGER
+    `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "hbx_support_ticket"
+      ADD COLUMN IF NOT EXISTS "githubBranch" TEXT
+    `);
+
+    await this.$executeRawUnsafe(`
+      CREATE UNIQUE INDEX IF NOT EXISTS "hbx_support_ticket_ticketCode_key"
+      ON "hbx_support_ticket"("ticketCode")
+    `);
+
+    await this.$executeRawUnsafe(`
+      CREATE UNIQUE INDEX IF NOT EXISTS "hbx_support_ticket_externalId_key"
+      ON "hbx_support_ticket"("externalId")
+      WHERE "externalId" IS NOT NULL
+    `);
+
+    await this.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "hbx_support_ticket_companyId_status_createdAt_idx"
+      ON "hbx_support_ticket"("companyId", "status", "createdAt")
+    `);
+
+    await this.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "hbx_support_ticket_category_status_createdAt_idx"
+      ON "hbx_support_ticket"("category", "status", "createdAt")
+    `);
+
+    await this.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "hbx_support_ticket_branch_status_createdAt_idx"
+      ON "hbx_support_ticket"("branch", "status", "createdAt")
+    `);
+
+    await this.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "hbx_support_ticket_codexDispatchStatus_updatedAt_idx"
+      ON "hbx_support_ticket"("codexDispatchStatus", "updatedAt")
+    `);
+
+    await this.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "hbx_support_ticket_conversationId_idx"
+      ON "hbx_support_ticket"("conversationId")
+    `);
+
+    await this.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "hbx_job_ticketId_status_idx"
+      ON "hbx_job"("ticketId", "status")
+    `);
+
+    await this.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "hbx_job_companyId_status_createdAt_idx"
+      ON "hbx_job"("companyId", "status", "createdAt")
+    `);
+
+    await this.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "hbx_job_branch_status_createdAt_idx"
+      ON "hbx_job"("branch", "status", "createdAt")
     `);
   }
 }

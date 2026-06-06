@@ -155,7 +155,7 @@ function buildOnboardingService(input: {
   };
 }
 
-test('sendOnboardingEmail envia com arquivo, agenda limpeza e ativa parceiro', async () => {
+test('sendOnboardingEmail envia com arquivo, agenda limpeza e nao ativa parceiro', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'hbx-onboarding-'));
   try {
     const attachments = [
@@ -172,22 +172,51 @@ test('sendOnboardingEmail envia com arquivo, agenda limpeza e ativa parceiro', a
 
     assert.equal(result.ok, true);
     assert.equal(result.emailStatus, 'sent');
-    assert.equal(result.userActivated, true);
+    assert.equal(result.userActivated, false);
     assert.equal(result.messageId, 'msg_1');
     assert.deepEqual(result.missingRequiredAttachments, []);
     assert.equal(state.mailInput.to, 'parceiro@example.com');
     assert.equal(state.mailInput.cc, 'arquivo@example.com');
     assert.equal(state.mailInput.attachments.length, 3);
-    assert.equal(state.userUpdateData.isActive, true);
-    assert.equal(state.userUpdateData.deactivatedAt, null);
+    assert.equal(state.userUpdateData, null);
     assert.equal(state.onboardingUpdateData.emailStatus, 'sent');
-    assert.equal(state.onboardingUpdateData.status, 'approved');
+    assert.equal(state.onboardingUpdateData.status, 'sent');
     assert.ok(state.onboardingUpdateData.emailSentAt instanceof Date);
     assert.ok(state.onboardingUpdateData.attachmentsDeleteAfter instanceof Date);
     assert.equal(state.attachmentUpdateMany.where.onboardingId, 'onb_1');
     assert.deepEqual(state.attachmentUpdateMany.where.status, { not: 'deleted' });
     assert.ok(state.attachmentUpdateMany.data.deleteAfter instanceof Date);
     assert.equal(state.partnerContractCreateData.status, 'sent');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('sendOnboardingEmail respeita contrato assinado opcional', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'hbx-onboarding-'));
+  try {
+    const attachments = [
+      await createTempAttachment(dir, 'photo_id'),
+      await createTempAttachment(dir, 'generated_contract'),
+    ];
+    const { service, state } = buildOnboardingService({
+      attachments,
+      metadataJson: JSON.stringify({
+        documentRequirements: {
+          photo_id: true,
+          contract_pdf: false,
+          curriculum: false,
+        },
+      }),
+    });
+
+    const result = await service.sendOnboardingEmail(1, 200, 1);
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.missingRequiredAttachments, []);
+    assert.equal(state.mailInput.to, 'parceiro@example.com');
+    assert.equal(state.userUpdateData, null);
+    assert.equal(state.onboardingUpdateData.status, 'sent');
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

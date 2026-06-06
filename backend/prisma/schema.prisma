@@ -149,6 +149,8 @@ model Company {
   techAssistantInteractions TechAssistantInteraction[]
   masterAssumedContextSessions MasterAssumedContextSession[]
   masterSupportAuditLogs MasterSupportAuditLog[]
+  hbxSupportTickets HbxSupportTicket[]
+  hbxJobs HbxJob[]
   atendimentoCustomers AtendimentoCustomer[]
   webscrapingSearchHistories WebscrapingSearchHistory[]
   webscrapingSearchRuns WebscrapingSearchRun[]
@@ -517,6 +519,7 @@ model CompanyConversation {
 
   messages CompanyMessage[]
   atendimentoAppointments AtendimentoAppointment[]
+  hbxSupportTickets HbxSupportTicket[]
 
   @@unique([companyId, channel, contact, whatsappConnectionSessionId])
   @@index([companyId, channel, contact])
@@ -2149,6 +2152,70 @@ model MasterSupportAuditLog {
   @@index([masterUserId, createdAt])
   @@index([companyId, createdAt])
   @@index([scope, action, createdAt])
+}
+
+model HbxSupportTicket {
+  id                  String               @id @default(cuid())
+  ticketCode          String               @unique
+  externalId          String?              @unique
+  company             Company?             @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  companyId           Int?
+  conversation        CompanyConversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  conversationId      Int?
+  source              String               @default("owner")
+  origin              String               @default("owner")
+  originChannel       String               @default("manual")
+  branch              String               @default("technical_support")
+  category            String               @default("technical_support")
+  classification      String               @default("TRIAGE")
+  status              String               @default("new")
+  priority            String               @default("Alta")
+  customerName        String?
+  customerPhone       String?
+  customerEmail       String?
+  title               String
+  description         String
+  lastCustomerMessage String?
+  metadataJson        String?
+  codexDispatchStatus String               @default("not_dispatched")
+  codexRunId          String?
+  codexRunUrl         String?
+  githubIssueUrl      String?
+  githubPrNumber      Int?
+  githubBranch        String?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  jobs                HbxJob[]
+
+  @@index([companyId, status, createdAt])
+  @@index([category, status, createdAt])
+  @@index([branch, status, createdAt])
+  @@index([codexDispatchStatus, updatedAt])
+  @@index([conversationId])
+  @@map("hbx_support_ticket")
+}
+
+model HbxJob {
+  id          String           @id @default(cuid())
+  ticket      HbxSupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticketId    String
+  company     Company?         @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  companyId   Int?
+  type        String           @default("codex_task")
+  status      String           @default("waiting_codex")
+  branch      String           @default("technical_support")
+  title       String
+  payloadJson String?
+  resultJson  String?
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@index([ticketId, status])
+  @@index([companyId, status, createdAt])
+  @@index([branch, status, createdAt])
+  @@map("hbx_job")
 }
 
 model MasterGlobalIntegrationConfig {

@@ -29,6 +29,7 @@ import { getBackendPublicRoot } from './public-assets';
 import { AdminModule } from './admin/admin.module';
 import { CommercialPlansModule } from './commercial-plans/commercial-plans.module';
 import { PulseModule } from './pulse/pulse.module';
+import { OwnerModule } from './owner/owner.module';
 
 @Module({
   imports: [
@@ -65,6 +66,7 @@ import { PulseModule } from './pulse/pulse.module';
     FinanceiroModule,
     CommercialPlansModule,
     PulseModule,
+    OwnerModule,
     AdminModule,
   ],
   controllers: [AppController],

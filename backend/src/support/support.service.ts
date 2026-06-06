@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { ConversationsService } from '../messaging/conversations.service';
+import { TicketService } from '../owner/ticket.service';
 
 @Injectable()
 export class SupportService {
@@ -9,6 +10,7 @@ export class SupportService {
     private readonly prisma: PrismaService,
     private readonly mail: MailService,
     private readonly conversations: ConversationsService,
+    private readonly tickets: TicketService,
   ) {}
 
   async contactAdmin(input: { companySlug: string; username?: string; phone: string; message?: string }) {
@@ -33,7 +35,9 @@ export class SupportService {
       text,
     });
 
-    // Best-effort: record a WhatsApp outbound message if we have company context.
+    let ticketResult: Awaited<ReturnType<TicketService['createOwnerTicket']>> | null = null;
+
+    // Best-effort: record a WhatsApp outbound message and a support ticket if we have company context.
     if (company) {
       const supportTemplateName = String(process.env.WHATSAPP_SUPPORT_TEMPLATE_NAME || '').trim();
       try {
@@ -48,8 +52,30 @@ export class SupportService {
       } catch {
         // keep support flow resilient even when WhatsApp setup is incomplete
       }
+
+      try {
+        ticketResult = await this.tickets.createOwnerTicket({
+          companyId: company.id,
+          source: 'support',
+          origin: 'support/contact-admin',
+          originChannel: 'whatsapp',
+          branch: 'technical_support',
+          category: 'technical_support',
+          customerName: input.username,
+          customerPhone: input.phone,
+          title: `Atender suporte técnico de ${input.username || input.phone || company.slug || company.name}`,
+          description: input.message || text,
+          lastCustomerMessage: input.message || '',
+          metadata: {
+            companySlug: company.slug,
+            adminPhone,
+          },
+        });
+      } catch {
+        // contact-admin must keep working even if ticket storage is unavailable
+      }
     }
 
-    return { ok: true };
+    return { ok: true, ticket: ticketResult?.ticket || null };
   }
 }

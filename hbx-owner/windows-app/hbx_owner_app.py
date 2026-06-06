@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import argparse
 import atexit
+import base64
 import csv
 import ctypes
 import html as html_lib
+import importlib
 import json
+import os
 import re
 import shutil
 import sqlite3
@@ -13,11 +16,15 @@ import subprocess
 import sys
 import threading
 import tkinter as tk
+import unicodedata
+import urllib.error
+import urllib.parse
+import urllib.request
 import winsound
 import webbrowser
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from tkinter import font as tkfont
+from tkinter import filedialog, font as tkfont
 from tkinter import messagebox, simpledialog, ttk
 
 
@@ -52,7 +59,19 @@ INSTALL_SCRIPT_PATH = APP_DIR / "install-hbx-owner.ps1"
 UNINSTALL_SCRIPT_PATH = APP_DIR / "uninstall-hbx-owner.ps1"
 SELF_CHECK_SCRIPT_PATH = APP_DIR / "self-check-hbx-owner.ps1"
 
-TAB_NAMES = ("Hoje", "Ops Control", "Modo IA", "Execução", "Kanban", "Git", "ChatGPT", "Relatórios", "Config")
+TAB_NAMES = (
+    "Hoje",
+    "Ops Control",
+    "Modo IA",
+    "Execução",
+    "Tickets",
+    "Kanban",
+    "Git",
+    "PR Lab",
+    "ChatGPT",
+    "Relatórios",
+    "Config",
+)
 SAFE_GIT_COMMANDS = {
     ("status", "--short"),
     ("log", "-1", "--pretty=format:%H%n%s%n%cd"),
@@ -121,6 +140,13 @@ DEFAULT_CONFIG = {
     "hours_available": 8,
     "chatgpt_app_id": "OpenAI.ChatGPT-Desktop_2p2nqsd0c76g0!ChatGPT",
     "chatgpt_fallback_url": "",
+    "pdf_automation_url": "",
+    "pdf_automation_timeout_seconds": 90,
+    "owner_backend_url": "http://127.0.0.1:3000",
+    "owner_tickets_secret": "",
+    "pr_lab_base_branch": "main",
+    "pr_lab_worktree_dir": str(HBX_REPO_DIR / ".worktrees"),
+    "pr_lab_localhost_url": "http://127.0.0.1:3000",
     "unique_goal": "",
     "technical_task": "",
     "commercial_task": "",
@@ -217,6 +243,125 @@ FUGA_KEYWORDS = (
     "design bonito",
     "arquitetura",
     "reescrever",
+)
+
+CHATGPT_ACTION_VERBS = (
+    "abrir",
+    "adicionar",
+    "ajustar",
+    "automatizar",
+    "bloquear",
+    "conectar",
+    "configurar",
+    "corrigir",
+    "criar",
+    "definir",
+    "documentar",
+    "enriquecer",
+    "expor",
+    "formalizar",
+    "garantir",
+    "gerar",
+    "implementar",
+    "integrar",
+    "mapear",
+    "migrar",
+    "modelar",
+    "monitorar",
+    "normalizar",
+    "padronizar",
+    "persistir",
+    "proteger",
+    "refinar",
+    "registrar",
+    "remover",
+    "revisar",
+    "rodar",
+    "salvar",
+    "separar",
+    "testar",
+    "tornar",
+    "transformar",
+    "validar",
+    "vincular",
+)
+
+CHATGPT_ACTION_SECTION_HINTS = (
+    "checklist",
+    "sprints prioritários",
+    "sprints prioritarios",
+    "prioridade imediata",
+    "próximos cards",
+    "proximos cards",
+    "próximos passos",
+    "proximos passos",
+    "próximas ações",
+    "proximas acoes",
+    "ações recomendadas",
+    "acoes recomendadas",
+    "plano de ação",
+    "plano de acao",
+    "plano",
+    "entregas",
+    "ordem recomendada",
+    "cards sugeridos",
+    "tarefas",
+    "pendências",
+    "pendencias",
+    "backlog",
+    "escopo",
+)
+
+CHATGPT_NON_ACTION_PREFIXES = (
+    "resumo",
+    "contexto",
+    "fontes",
+    "conectores",
+    "base principal",
+    "observação",
+    "observacao",
+    "diagnóstico",
+    "diagnostico",
+    "leitura",
+)
+
+CHATGPT_GAP_MARKERS = (
+    "fraco em",
+    "falta de",
+    "faltam",
+    "falta ",
+    "lacuna em",
+    "lacunas em",
+    "pendente",
+    "pendências",
+    "pendencias",
+)
+
+AUTOCARD_JSON_START = "HBX_CARDS_JSON_START"
+AUTOCARD_JSON_END = "HBX_CARDS_JSON_END"
+AUTOCARD_MAX_CARDS = 12
+CHATGPT_FREEFORM_MAX_CARDS = AUTOCARD_MAX_CARDS
+PDF_TEXT_MAX_CHARS = 35000
+PDF_MIN_TEXT_CHARS = 1200
+PDF_AUTOMATION_MAX_BYTES = 25 * 1024 * 1024
+
+AUTOCARD_HIGH_PRIORITY_TERMS = (
+    "ticket",
+    "cliente",
+    "technical_support",
+    "whatsapp",
+    "p0",
+    "bug",
+)
+
+AUTOCARD_SENSITIVE_TERMS = (
+    "deploy",
+    "publish",
+    "migration",
+    "migrations",
+    "auth",
+    "billing",
+    "secrets",
 )
 
 PRIORITY_RANK = {"Crítica": 4, "Alta": 3, "Média": 2, "Baixa": 1}
@@ -493,6 +638,20 @@ class Database:
                 estimate_minutes INTEGER NOT NULL DEFAULT 0,
                 actual_minutes INTEGER NOT NULL DEFAULT 0,
                 blocked_reason TEXT NOT NULL DEFAULT '',
+                ticket_code TEXT NOT NULL DEFAULT '',
+                ticket_backend_id TEXT NOT NULL DEFAULT '',
+                ticket_customer TEXT NOT NULL DEFAULT '',
+                ticket_origin TEXT NOT NULL DEFAULT '',
+                ticket_category TEXT NOT NULL DEFAULT '',
+                ticket_classification TEXT NOT NULL DEFAULT '',
+                ticket_status TEXT NOT NULL DEFAULT '',
+                ticket_dispatch_status TEXT NOT NULL DEFAULT '',
+                ticket_codex_run_id TEXT NOT NULL DEFAULT '',
+                ticket_codex_run_url TEXT NOT NULL DEFAULT '',
+                ticket_github_issue_url TEXT NOT NULL DEFAULT '',
+                ticket_github_pr_number TEXT NOT NULL DEFAULT '',
+                ticket_github_branch TEXT NOT NULL DEFAULT '',
+                ticket_synced_at TEXT NOT NULL DEFAULT '',
                 sort_order INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
@@ -560,7 +719,31 @@ class Database:
             );
             """
         )
+        self.ensure_kanban_ticket_columns()
         self.conn.commit()
+
+    def ensure_kanban_ticket_columns(self) -> None:
+        columns = {row["name"] for row in self.conn.execute("PRAGMA table_info(kanban_cards)").fetchall()}
+        required = {
+            "ticket_code": "TEXT NOT NULL DEFAULT ''",
+            "ticket_backend_id": "TEXT NOT NULL DEFAULT ''",
+            "ticket_customer": "TEXT NOT NULL DEFAULT ''",
+            "ticket_origin": "TEXT NOT NULL DEFAULT ''",
+            "ticket_category": "TEXT NOT NULL DEFAULT ''",
+            "ticket_classification": "TEXT NOT NULL DEFAULT ''",
+            "ticket_status": "TEXT NOT NULL DEFAULT ''",
+            "ticket_dispatch_status": "TEXT NOT NULL DEFAULT ''",
+            "ticket_codex_run_id": "TEXT NOT NULL DEFAULT ''",
+            "ticket_codex_run_url": "TEXT NOT NULL DEFAULT ''",
+            "ticket_github_issue_url": "TEXT NOT NULL DEFAULT ''",
+            "ticket_github_pr_number": "TEXT NOT NULL DEFAULT ''",
+            "ticket_github_branch": "TEXT NOT NULL DEFAULT ''",
+            "ticket_synced_at": "TEXT NOT NULL DEFAULT ''",
+        }
+        for name, definition in required.items():
+            if name not in columns:
+                self.conn.execute(f"ALTER TABLE kanban_cards ADD COLUMN {name} {definition}")
+        self.conn.execute("CREATE INDEX IF NOT EXISTS kanban_cards_ticket_code_idx ON kanban_cards(ticket_code)")
 
     def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
         cur = self.conn.execute(sql, params)
@@ -633,7 +816,6 @@ class HbxOwnerApp(tk.Tk):
         self.git_repo_var = tk.StringVar(value=self.config_data.get("repo_path") or str(APP_DIR))
         self.last_commit_sha = ""
         self.last_commit_message = ""
-        self.last_chatgpt_prompt = ""
         self.boss_mode_var = tk.BooleanVar(value=bool(self.config_data.get("boss_mode")))
         self.config_entries: dict[str, tk.StringVar] = {}
         self.ops_status_var = tk.StringVar(value="Ops Control pronto para consultar.")
@@ -652,6 +834,22 @@ class HbxOwnerApp(tk.Tk):
         self.execution_command_var = tk.StringVar(value="py_compile")
         self.execution_status_var = tk.StringVar(value="Nenhuma execução local ainda.")
         self.last_execution_output = ""
+        self.last_chatgpt_prompt = ""
+        self.autocard_auto_create_var = tk.BooleanVar(value=True)
+        self.autocard_status_var = tk.StringVar(value="Autocard pronto.")
+        self.chatgpt_pdf_path_var = tk.StringVar(value="Nenhum PDF selecionado.")
+        self.owner_tickets_status_var = tk.StringVar(value="Tickets: aguardando atualização.")
+        self.owner_ticket_filter_var = tk.StringVar(value="todos")
+        self.owner_ticket_selected_var = tk.StringVar(value="Nenhum ticket selecionado.")
+        self.owner_tickets_tree: ttk.Treeview | None = None
+        self.owner_ticket_detail_text: tk.Text | None = None
+        self.owner_tickets_cache: list[dict] = []
+        self.pr_lab_status_var = tk.StringVar(value="PR Lab: aguardando listagem.")
+        self.pr_lab_selected_var = tk.StringVar(value="Nenhum PR ou branch selecionado.")
+        self.pr_lab_branch_filter_var = tk.StringVar(value="owner/")
+        self.pr_lab_tree: ttk.Treeview | None = None
+        self.pr_lab_output: tk.Text | None = None
+        self.pr_lab_items: dict[str, dict] = {}
         self.today_status_var = tk.StringVar(value="Sem expediente aberto.")
         self.today_elapsed_var = tk.StringVar(value="0 min")
         self.today_break_var = tk.StringVar(value="Sem pausa aberta.")
@@ -688,10 +886,14 @@ class HbxOwnerApp(tk.Tk):
                 self._build_smart_tab(frame)
             elif name == "Execução":
                 self._build_execution_tab(frame)
+            elif name == "Tickets":
+                self._build_tickets_tab(frame)
             elif name == "Kanban":
                 self._build_kanban_tab(frame)
             elif name == "Git":
                 self._build_git_tab(frame)
+            elif name == "PR Lab":
+                self._build_pr_lab_tab(frame)
             elif name == "ChatGPT":
                 self._build_chatgpt_tab(frame)
             elif name == "Relatórios":
@@ -2041,7 +2243,7 @@ class HbxOwnerApp(tk.Tk):
             return
 
         created_ids: list[int] = []
-        for action in actions[:3]:
+        for action in actions[:AUTOCARD_MAX_CARDS]:
             if self.card_title_exists(action["title"]):
                 continue
             created_ids.append(self.insert_kanban_card(action, source="Modo IA"))
@@ -2056,6 +2258,20 @@ class HbxOwnerApp(tk.Tk):
         self.set_execution_output(message + "\n\n" + plan)
 
     def extract_plan_actions(self, plan: str) -> list[dict]:
+        compiled = self.parse_chatgpt_cards(plan)
+        if compiled:
+            return [
+                self.normalize_autocard_payload(
+                    {
+                        **card,
+                        "type": card.get("type") or "Modo IA",
+                        "description": card.get("description")
+                        or "Criado a partir do plano local pelo Autocard Compiler.",
+                    }
+                )
+                for card in compiled
+            ]
+
         actions: list[dict] = []
         for line in plan.splitlines():
             match = re.match(r"^\s*[0-9]+\.\s*([^:]+):\s*(.+)$", line)
@@ -2069,30 +2285,33 @@ class HbxOwnerApp(tk.Tk):
             priority = "Alta" if any(word in lowered for word in ("técnica", "tecnica", "p0")) else "Média"
             estimate = 60 if priority == "Alta" else 30
             actions.append(
-                {
-                    "title": title[:180],
-                    "description": f"Criado a partir do plano local: {label}.",
-                    "module": label[:60],
-                    "type": "Modo IA",
-                    "priority": priority,
-                    "lane": "HOJE",
-                    "acceptance_criteria": "Entrega verificável registrada no HBX Owner.",
-                    "test_command": "",
-                    "estimate_minutes": estimate,
-                }
+                self.normalize_autocard_payload(
+                    {
+                        "title": title[:180],
+                        "description": f"Criado a partir do plano local: {label}.",
+                        "module": label[:60],
+                        "type": "Modo IA",
+                        "priority": priority,
+                        "lane": "HOJE",
+                        "acceptance_criteria": "Entrega verificável registrada no HBX Owner.",
+                        "test_command": "",
+                        "estimate_minutes": estimate,
+                    }
+                )
             )
-        return actions
+        return [card for card in actions if card]
 
     def card_title_exists(self, title: str) -> bool:
-        row = self.db.fetchone(
+        target_key = self.normalize_card_title_key(title)
+        if not target_key:
+            return False
+        rows = self.db.fetchall(
             """
-            SELECT id FROM kanban_cards
-            WHERE title = ? AND lane NOT IN ('ARQUIVADO')
-            LIMIT 1
-            """,
-            (title,),
+            SELECT title FROM kanban_cards
+            WHERE lane NOT IN ('ARQUIVADO')
+            """
         )
-        return row is not None
+        return any(self.normalize_card_title_key(row["title"]) == target_key for row in rows)
 
     def save_execution_as_blocker(self) -> None:
         if not self.last_execution_output:
@@ -2203,6 +2422,719 @@ class HbxOwnerApp(tk.Tk):
         self.set_report_output(f"Backup SQLite criado:\n{path}")
         messagebox.showinfo("Backup", f"Backup SQLite criado em:\n{path}")
 
+    def _build_tickets_tab(self, frame: ttk.Frame) -> None:
+        self.page_title(frame, "Tickets", "Cards de atendimento técnico que precisam de ação")
+        frame.columnconfigure(0, weight=1)
+        frame.rowconfigure(3, weight=1)
+
+        toolbar = ttk.Frame(frame, style="Toolbar.TFrame")
+        toolbar.grid(row=1, column=0, sticky="ew", pady=(12, 8))
+        toolbar.columnconfigure(7, weight=1)
+
+        ttk.Label(toolbar, text="Status", style="Muted.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 8))
+        ttk.Combobox(
+            toolbar,
+            textvariable=self.owner_ticket_filter_var,
+            values=("todos", "new", "triage", "waiting_codex", "in_progress", "done"),
+            state="readonly",
+            width=18,
+        ).grid(row=0, column=1, sticky="w", padx=(0, 8))
+        ttk.Button(toolbar, text="Atualizar", command=self.refresh_owner_tickets, style="Accent.TButton").grid(
+            row=0, column=2, sticky="w", padx=8
+        )
+        ttk.Button(
+            toolbar,
+            text="Abrir card",
+            command=self.open_selected_ticket_card,
+            style="Success.TButton",
+        ).grid(row=0, column=3, sticky="w", padx=8)
+        ttk.Button(
+            toolbar,
+            text="Registrar dispatch",
+            command=self.open_selected_ticket_dispatch_dialog,
+            style="Warning.TButton",
+        ).grid(row=0, column=4, sticky="w", padx=8)
+        ttk.Button(toolbar, text="Copiar prompt", command=self.copy_selected_ticket_codex_prompt).grid(
+            row=0, column=5, sticky="w", padx=8
+        )
+        ttk.Button(toolbar, text="Abrir Kanban", command=lambda: self.notebook.select(self.tabs["Kanban"])).grid(
+            row=0, column=6, sticky="w", padx=8
+        )
+
+        status = self.card_frame(frame, padding=(12, 10))
+        status.grid(row=2, column=0, sticky="ew", pady=(0, 10))
+        status.columnconfigure(0, weight=1)
+        ttk.Label(status, textvariable=self.owner_tickets_status_var, style="Card.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(status, textvariable=self.owner_ticket_selected_var, style="CardMuted.TLabel").grid(
+            row=1, column=0, sticky="w", pady=(3, 0)
+        )
+
+        body = ttk.Frame(frame, style="App.TFrame")
+        body.grid(row=3, column=0, sticky="nsew")
+        body.columnconfigure(0, weight=3)
+        body.columnconfigure(1, weight=2)
+        body.rowconfigure(0, weight=1)
+
+        table_panel = ttk.LabelFrame(body, text="Fila Owner", padding=8, style="Modern.TLabelframe")
+        table_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        table_panel.columnconfigure(0, weight=1)
+        table_panel.rowconfigure(0, weight=1)
+
+        columns = ("ticket", "cliente", "origem", "categoria", "classificacao", "status", "dispatch", "acao")
+        tree = ttk.Treeview(table_panel, columns=columns, show="headings", height=18)
+        headings = {
+            "ticket": "Ticket",
+            "cliente": "Cliente",
+            "origem": "Origem",
+            "categoria": "Categoria",
+            "classificacao": "Classificação",
+            "status": "Status",
+            "dispatch": "Dispatch",
+            "acao": "Ação",
+        }
+        widths = {
+            "ticket": 142,
+            "cliente": 160,
+            "origem": 110,
+            "categoria": 150,
+            "classificacao": 130,
+            "status": 120,
+            "dispatch": 132,
+            "acao": 150,
+        }
+        for column in columns:
+            tree.heading(column, text=headings[column])
+            tree.column(column, width=widths[column], anchor="w")
+        tree.grid(row=0, column=0, sticky="nsew")
+        tree_scroll = ttk.Scrollbar(table_panel, orient="vertical", command=tree.yview)
+        tree_scroll.grid(row=0, column=1, sticky="ns")
+        tree.configure(yscrollcommand=tree_scroll.set)
+        tree.bind("<<TreeviewSelect>>", self.on_owner_ticket_selected)
+        self.owner_tickets_tree = tree
+
+        detail_panel = ttk.LabelFrame(body, text="Detalhe", padding=8, style="Modern.TLabelframe")
+        detail_panel.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
+        detail_panel.columnconfigure(0, weight=1)
+        detail_panel.rowconfigure(0, weight=1)
+        self.owner_ticket_detail_text = tk.Text(detail_panel, height=18, wrap="word")
+        self.style_text_widget(self.owner_ticket_detail_text)
+        self.owner_ticket_detail_text.grid(row=0, column=0, sticky="nsew")
+        detail_scroll = ttk.Scrollbar(detail_panel, orient="vertical", command=self.owner_ticket_detail_text.yview)
+        detail_scroll.grid(row=0, column=1, sticky="ns")
+        self.owner_ticket_detail_text.configure(yscrollcommand=detail_scroll.set)
+        self.set_owner_ticket_detail("Atualize para sincronizar backend ou ver cards-ticket locais.")
+
+    def owner_backend_url(self) -> str:
+        return str(self.config_data.get("owner_backend_url") or DEFAULT_CONFIG["owner_backend_url"]).strip().rstrip("/")
+
+    def owner_tickets_secret(self) -> str:
+        return str(os.environ.get("HBX_OWNER_TICKETS_SECRET") or self.config_data.get("owner_tickets_secret") or "").strip()
+
+    def owner_ticket_status_filter(self) -> str:
+        value = self.owner_ticket_filter_var.get().strip()
+        return "" if value == "todos" else value
+
+    def owner_ticket_cache_key(self, ticket: dict) -> str:
+        return str(
+            ticket.get("cacheKey")
+            or ticket.get("cardId")
+            or ticket.get("ticketCode")
+            or ticket.get("id")
+            or ""
+        )
+
+    def owner_tickets_request(self, path: str, method: str = "GET", payload: dict | None = None) -> dict:
+        base_url = self.owner_backend_url()
+        secret = self.owner_tickets_secret()
+        if not base_url:
+            raise RuntimeError("Configure owner_backend_url em Config.")
+        if not secret:
+            raise RuntimeError("Configure owner_tickets_secret localmente ou HBX_OWNER_TICKETS_SECRET.")
+
+        url = f"{base_url}{path}"
+        data = None
+        headers = {
+            "Accept": "application/json",
+            "x-owner-secret": secret,
+        }
+        if payload is not None:
+            data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            headers["Content-Type"] = "application/json; charset=utf-8"
+        request = urllib.request.Request(url, data=data, headers=headers, method=method)
+        try:
+            with urllib.request.urlopen(request, timeout=12) as response:
+                raw = response.read().decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")[:500]
+            raise RuntimeError(f"Backend respondeu {exc.code}: {detail}") from exc
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            raise RuntimeError(f"Backend indisponível: {exc}") from exc
+        try:
+            return json.loads(raw or "{}")
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"Resposta inválida do backend: {raw[:300]}") from exc
+
+    def refresh_owner_tickets(self) -> None:
+        status = self.owner_ticket_status_filter()
+        query = f"?status={urllib.parse.quote(status)}" if status else ""
+        try:
+            payload = self.owner_tickets_request(f"/owner/tickets{query}")
+        except RuntimeError as exc:
+            total = self.load_local_ticket_cards(status)
+            message = f"{exc} Mostrando {total} card(s)-ticket locais."
+            self.owner_tickets_status_var.set(message)
+            self.set_owner_ticket_detail(message)
+            return
+
+        tickets = payload.get("tickets") if isinstance(payload, dict) else []
+        if not isinstance(tickets, list):
+            tickets = []
+        synced = self.sync_owner_ticket_cards([ticket for ticket in tickets if isinstance(ticket, dict)])
+        visible = self.load_local_ticket_cards(status)
+        self.owner_tickets_status_var.set(f"Tickets sincronizados como cards: {visible} visíveis, {synced} atualizados.")
+
+    def load_local_ticket_cards(self, status: str = "", selected_key: str | None = None) -> int:
+        if status:
+            rows = self.db.fetchall(
+                """
+                SELECT * FROM kanban_cards
+                WHERE (ticket_code <> '' OR LOWER(type) LIKE '%ticket%')
+                  AND lane <> 'ARQUIVADO'
+                  AND ticket_status = ?
+                ORDER BY updated_at DESC, id DESC
+                """,
+                (status,),
+            )
+        else:
+            rows = self.db.fetchall(
+                """
+                SELECT * FROM kanban_cards
+                WHERE (ticket_code <> '' OR LOWER(type) LIKE '%ticket%')
+                  AND lane <> 'ARQUIVADO'
+                ORDER BY updated_at DESC, id DESC
+                """
+            )
+        self.owner_tickets_cache = [self.ticket_from_card_row(row) for row in rows]
+        self.populate_owner_tickets_tree(selected_key)
+        return len(self.owner_tickets_cache)
+
+    def sync_owner_ticket_cards(self, tickets: list[dict]) -> int:
+        synced = 0
+        for ticket in tickets:
+            if self.upsert_owner_ticket_card(ticket):
+                synced += 1
+        if synced:
+            self.refresh_kanban()
+        return synced
+
+    def ticket_from_card_row(self, card: sqlite3.Row) -> dict:
+        ticket_code = card["ticket_code"] or f"CARD-{card['id']}"
+        return {
+            "cacheKey": f"card:{card['id']}",
+            "cardId": int(card["id"]),
+            "id": card["ticket_backend_id"] or f"card:{card['id']}",
+            "ticketCode": ticket_code,
+            "originChannel": card["ticket_origin"],
+            "origin": card["ticket_origin"],
+            "category": card["ticket_category"],
+            "classification": card["ticket_classification"],
+            "status": card["ticket_status"],
+            "priority": card["priority"],
+            "customerName": card["ticket_customer"],
+            "title": card["title"],
+            "description": card["description"],
+            "codexDispatchStatus": card["ticket_dispatch_status"],
+            "codexRunId": card["ticket_codex_run_id"],
+            "codexRunUrl": card["ticket_codex_run_url"],
+            "githubIssueUrl": card["ticket_github_issue_url"],
+            "githubPrNumber": card["ticket_github_pr_number"],
+            "githubBranch": card["ticket_github_branch"],
+            "lane": card["lane"],
+            "updatedAt": card["updated_at"],
+            "jobs": [],
+        }
+
+    def ticket_initial_lane(self, ticket: dict) -> str:
+        status = str(ticket.get("status") or "").strip()
+        dispatch = str(ticket.get("codexDispatchStatus") or "").strip()
+        classification = str(ticket.get("classification") or "").upper()
+        if status == "done" or dispatch == "done":
+            return "FEITO"
+        if classification == "BUG_BLOCKED" or dispatch == "failed":
+            return "BLOQUEADO"
+        if dispatch == "pr_open":
+            return "TESTAR"
+        if status == "in_progress" or dispatch in ("dispatched", "running"):
+            return "FAZENDO"
+        if status == "waiting_codex":
+            return "AGUARDANDO CODEX"
+        if status in ("new", "triage"):
+            return "HOJE"
+        return "HOJE"
+
+    def ticket_synced_lane(self, ticket: dict, current_lane: str | None = None) -> str:
+        suggested = self.ticket_initial_lane(ticket)
+        if current_lane == "ARQUIVADO":
+            return current_lane
+        if suggested in ("FEITO", "BLOQUEADO", "TESTAR", "FAZENDO"):
+            return suggested
+        if current_lane in KANBAN_LANES and current_lane not in ("BACKLOG", ""):
+            return current_lane
+        return suggested
+
+    def ticket_card_title(self, ticket: dict) -> str:
+        ticket_code = str(ticket.get("ticketCode") or ticket.get("id") or "").strip()
+        raw_title = str(ticket.get("title") or ticket.get("description") or "ticket de cliente").strip()
+        if ticket_code and raw_title.startswith(ticket_code):
+            return raw_title[:180]
+        return f"{ticket_code} - {raw_title}"[:180] if ticket_code else raw_title[:180]
+
+    def ticket_card_description(self, ticket: dict) -> str:
+        ticket_code = str(ticket.get("ticketCode") or ticket.get("id") or "-")
+        return (
+            f"Ticket: {ticket_code}\n"
+            f"Cliente: {self.ticket_customer_label(ticket)}\n"
+            f"Origem: {ticket.get('originChannel') or ticket.get('origin') or '-'}\n"
+            f"Categoria: {ticket.get('category') or '-'}\n"
+            f"Classificação: {ticket.get('classification') or '-'}\n"
+            f"Status ticket: {ticket.get('status') or '-'}\n"
+            f"Dispatch: {self.ticket_dispatch_label(ticket)}\n\n"
+            f"{ticket.get('description') or ticket.get('lastCustomerMessage') or ticket.get('title') or ''}"
+        )
+
+    def ticket_to_card_data(self, ticket: dict, current_lane: str | None = None) -> dict:
+        priority = str(ticket.get("priority") or "Alta")
+        ticket_code = str(ticket.get("ticketCode") or ticket.get("id") or "").strip()
+        return {
+            "title": self.ticket_card_title(ticket),
+            "description": self.ticket_card_description(ticket),
+            "module": "Retorno",
+            "type": "Ticket cliente",
+            "priority": priority,
+            "lane": self.ticket_synced_lane(ticket, current_lane),
+            "acceptance_criteria": "Ticket do cliente resolvido ou encaminhado com evidência registrada.",
+            "test_command": "cd backend && npm run build",
+            "codex_prompt": self.selected_ticket_codex_prompt(ticket),
+            "chatgpt_prompt": "Revisar se o ticket cobre causa, impacto e aceite.",
+            "estimate_minutes": 60 if priority in ("Alta", "Crítica") else 30,
+            "blocked_reason": "Ticket bloqueado por risco sensível." if self.ticket_initial_lane(ticket) == "BLOQUEADO" else "",
+            "ticket_code": ticket_code,
+            "ticket_backend_id": str(ticket.get("id") or "").strip(),
+            "ticket_customer": self.ticket_customer_label(ticket),
+            "ticket_origin": str(ticket.get("originChannel") or ticket.get("origin") or "").strip(),
+            "ticket_category": str(ticket.get("category") or "").strip(),
+            "ticket_classification": str(ticket.get("classification") or "").strip(),
+            "ticket_status": str(ticket.get("status") or "").strip(),
+            "ticket_dispatch_status": self.ticket_dispatch_label(ticket),
+            "ticket_codex_run_id": str(ticket.get("codexRunId") or "").strip(),
+            "ticket_codex_run_url": str(ticket.get("codexRunUrl") or "").strip(),
+            "ticket_github_issue_url": str(ticket.get("githubIssueUrl") or "").strip(),
+            "ticket_github_pr_number": str(ticket.get("githubPrNumber") or "").strip(),
+            "ticket_github_branch": str(ticket.get("githubBranch") or "").strip(),
+            "ticket_synced_at": now_iso(),
+        }
+
+    def upsert_owner_ticket_card(self, ticket: dict) -> int | None:
+        ticket_code = str(ticket.get("ticketCode") or ticket.get("id") or "").strip()
+        if not ticket_code:
+            return None
+        existing = self.db.fetchone(
+            """
+            SELECT * FROM kanban_cards
+            WHERE ticket_code = ?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (ticket_code,),
+        )
+        data = self.ticket_to_card_data(ticket, existing["lane"] if existing else None)
+        if existing:
+            done_at = existing["done_at"]
+            if data["lane"] == "FEITO" and not done_at:
+                done_at = now_iso()
+            elif data["lane"] != "FEITO":
+                done_at = None
+            sort_order = existing["sort_order"]
+            if data["lane"] != existing["lane"]:
+                sort_order = self.next_lane_sort_order(data["lane"])
+            self.db.execute(
+                """
+                UPDATE kanban_cards
+                SET title = ?, description = ?, module = ?, type = ?, priority = ?, lane = ?,
+                    acceptance_criteria = ?, test_command = ?, codex_prompt = ?, chatgpt_prompt = ?,
+                    estimate_minutes = ?, blocked_reason = ?, ticket_backend_id = ?, ticket_customer = ?,
+                    ticket_origin = ?, ticket_category = ?, ticket_classification = ?, ticket_status = ?,
+                    ticket_dispatch_status = ?, ticket_codex_run_id = ?, ticket_codex_run_url = ?,
+                    ticket_github_issue_url = ?, ticket_github_pr_number = ?, ticket_github_branch = ?,
+                    ticket_synced_at = ?, sort_order = ?, updated_at = ?, done_at = ?
+                WHERE id = ?
+                """,
+                (
+                    data["title"],
+                    data["description"],
+                    data["module"],
+                    data["type"],
+                    data["priority"],
+                    data["lane"],
+                    data["acceptance_criteria"],
+                    data["test_command"],
+                    data["codex_prompt"],
+                    data["chatgpt_prompt"],
+                    data["estimate_minutes"],
+                    data["blocked_reason"],
+                    data["ticket_backend_id"],
+                    data["ticket_customer"],
+                    data["ticket_origin"],
+                    data["ticket_category"],
+                    data["ticket_classification"],
+                    data["ticket_status"],
+                    data["ticket_dispatch_status"],
+                    data["ticket_codex_run_id"],
+                    data["ticket_codex_run_url"],
+                    data["ticket_github_issue_url"],
+                    data["ticket_github_pr_number"],
+                    data["ticket_github_branch"],
+                    data["ticket_synced_at"],
+                    sort_order,
+                    now_iso(),
+                    done_at,
+                    existing["id"],
+                ),
+            )
+            if data["lane"] != existing["lane"] or data["ticket_status"] != existing["ticket_status"]:
+                self.db.execute(
+                    "INSERT INTO card_events (card_id, event_type, message, created_at) VALUES (?, 'ticket_sync', ?, ?)",
+                    (existing["id"], f"Ticket sincronizado: {ticket_code}.", now_iso()),
+                )
+            return int(existing["id"])
+
+        card_id = self.insert_kanban_card(data, source="Ticket cliente")
+        self.db.execute(
+            "INSERT INTO card_events (card_id, event_type, message, created_at) VALUES (?, 'ticket_sync', ?, ?)",
+            (card_id, f"Ticket sincronizado como card: {ticket_code}.", now_iso()),
+        )
+        return card_id
+
+    def merge_ticket_dispatch_payload(self, ticket: dict, payload: dict) -> dict:
+        updated = dict(ticket)
+        for key in (
+            "codexDispatchStatus",
+            "codexRunId",
+            "codexRunUrl",
+            "githubIssueUrl",
+            "githubPrNumber",
+            "githubBranch",
+            "status",
+        ):
+            value = payload.get(key)
+            if value not in (None, ""):
+                updated[key] = value
+        dispatch = payload.get("codexDispatchStatus")
+        if dispatch == "done":
+            updated["status"] = "done"
+        elif dispatch in ("dispatched", "running", "pr_open"):
+            updated["status"] = "in_progress"
+        elif dispatch == "failed":
+            updated["status"] = "triage"
+        elif dispatch == "prompt_copied":
+            updated["status"] = "waiting_codex"
+        return updated
+
+    def open_selected_ticket_card(self) -> None:
+        ticket = self.selected_owner_ticket()
+        if not ticket:
+            messagebox.showwarning("Tickets", "Selecione um ticket primeiro.")
+            return
+        card_id = int(ticket.get("cardId") or 0)
+        if not card_id:
+            synced = self.upsert_owner_ticket_card(ticket)
+            card_id = int(synced or 0)
+        if not card_id:
+            messagebox.showwarning("Tickets", "Não consegui localizar ou criar o card deste ticket.")
+            return
+        self.refresh_kanban()
+        self.selected_card_id = card_id
+        self.select_card(card_id)
+        self.notebook.select(self.tabs["Kanban"])
+        self.owner_tickets_status_var.set(f"Ticket aberto como card #{card_id}.")
+
+    def populate_owner_tickets_tree(self, selected_code: str | None = None) -> None:
+        if not self.owner_tickets_tree:
+            return
+        tree = self.owner_tickets_tree
+        for item in tree.get_children():
+            tree.delete(item)
+        for ticket in self.owner_tickets_cache:
+            ticket_code = str(ticket.get("ticketCode") or ticket.get("id") or "")
+            if not ticket_code:
+                continue
+            cache_key = self.owner_ticket_cache_key(ticket)
+            tree.insert(
+                "",
+                "end",
+                iid=cache_key,
+                values=(
+                    ticket_code,
+                    self.ticket_customer_label(ticket),
+                    str(ticket.get("originChannel") or ticket.get("origin") or "-"),
+                    str(ticket.get("category") or "-"),
+                    str(ticket.get("classification") or "-"),
+                    str(ticket.get("status") or "-"),
+                    self.ticket_dispatch_label(ticket),
+                    self.ticket_action_label(ticket),
+                ),
+            )
+        if self.owner_tickets_cache:
+            target = selected_code or self.owner_ticket_cache_key(self.owner_tickets_cache[0])
+            if target:
+                tree.selection_set(target)
+                tree.focus(target)
+                selected_ticket = self.selected_owner_ticket()
+                if selected_ticket:
+                    self.show_owner_ticket_detail(selected_ticket)
+
+    def on_owner_ticket_selected(self, _event: tk.Event | None = None) -> None:
+        ticket = self.selected_owner_ticket()
+        if not ticket:
+            self.owner_ticket_selected_var.set("Nenhum ticket selecionado.")
+            self.set_owner_ticket_detail("")
+            return
+        self.show_owner_ticket_detail(ticket)
+
+    def selected_owner_ticket(self) -> dict | None:
+        if not self.owner_tickets_tree:
+            return None
+        selected = self.owner_tickets_tree.selection()
+        if not selected:
+            return None
+        key = str(selected[0])
+        for ticket in self.owner_tickets_cache:
+            if self.owner_ticket_cache_key(ticket) == key:
+                return ticket
+        return None
+
+    def ticket_customer_label(self, ticket: dict) -> str:
+        return str(ticket.get("customerName") or ticket.get("customerPhone") or ticket.get("customerEmail") or "-")
+
+    def ticket_action_label(self, ticket: dict) -> str:
+        dispatch = str(ticket.get("codexDispatchStatus") or "")
+        status = str(ticket.get("status") or "")
+        if ticket.get("cardId"):
+            if status == "done":
+                return "card concluído"
+            if dispatch == "pr_open":
+                return "testar card"
+            return "abrir card"
+        if dispatch == "pr_open":
+            return "acompanhar PR"
+        if dispatch in ("dispatched", "running"):
+            return "acompanhar Codex"
+        if dispatch == "failed":
+            return "triagem técnica"
+        if status == "waiting_codex":
+            return "criar task Codex"
+        if status == "triage":
+            return "triagem técnica"
+        if status == "in_progress":
+            return "acompanhar execução"
+        if status == "done":
+            return "validar fechamento"
+        return "avaliar"
+
+    def ticket_dispatch_label(self, ticket: dict) -> str:
+        return str(ticket.get("codexDispatchStatus") or "not_dispatched")
+
+    def show_owner_ticket_detail(self, ticket: dict) -> None:
+        ticket_code = str(ticket.get("ticketCode") or ticket.get("id") or "-")
+        self.owner_ticket_selected_var.set(
+            f"{ticket_code} | {self.ticket_customer_label(ticket)} | {ticket.get('category') or '-'} | {ticket.get('status') or '-'}"
+        )
+        jobs = ticket.get("jobs") if isinstance(ticket.get("jobs"), list) else []
+        job_lines = [
+            f"- {job.get('id')}: {job.get('type')} / {job.get('status')} / {job.get('branch')}"
+            for job in jobs
+            if isinstance(job, dict)
+        ]
+        detail = (
+            f"Ticket: {ticket_code}\n"
+            f"Card local: #{ticket.get('cardId') or '-'}\n"
+            f"Cliente: {self.ticket_customer_label(ticket)}\n"
+            f"Origem: {ticket.get('originChannel') or ticket.get('origin') or '-'}\n"
+            f"Categoria: {ticket.get('category') or '-'}\n"
+            f"Classificação: {ticket.get('classification') or '-'}\n"
+            f"Status: {ticket.get('status') or '-'}\n"
+            f"Prioridade: {ticket.get('priority') or '-'}\n"
+            f"Dispatch: {self.ticket_dispatch_label(ticket)}\n"
+            f"Codex run: {ticket.get('codexRunId') or '-'}\n"
+            f"Codex URL: {ticket.get('codexRunUrl') or '-'}\n"
+            f"GitHub issue: {ticket.get('githubIssueUrl') or '-'}\n"
+            f"GitHub PR: {ticket.get('githubPrNumber') or '-'}\n"
+            f"Branch: {ticket.get('githubBranch') or '-'}\n"
+            f"Ação: {self.ticket_action_label(ticket)}\n\n"
+            f"Título:\n{ticket.get('title') or '-'}\n\n"
+            f"Descrição:\n{ticket.get('description') or '-'}\n\n"
+            f"Última mensagem do cliente:\n{ticket.get('lastCustomerMessage') or '-'}\n\n"
+            f"Jobs:\n{chr(10).join(job_lines) if job_lines else '-'}"
+        )
+        self.set_owner_ticket_detail(detail)
+
+    def set_owner_ticket_detail(self, text: str) -> None:
+        if not self.owner_ticket_detail_text:
+            return
+        self.owner_ticket_detail_text.delete("1.0", tk.END)
+        self.owner_ticket_detail_text.insert(tk.END, text)
+
+    def selected_ticket_codex_prompt(self, ticket: dict) -> str:
+        ticket_code = str(ticket.get("ticketCode") or ticket.get("id") or "-")
+        return (
+            f"## {ticket_code} — Resolver ticket técnico HBX\n\n"
+            "Leia AGENTS.md primeiro.\n\n"
+            f"Cliente: {self.ticket_customer_label(ticket)}\n"
+            f"Origem: {ticket.get('originChannel') or ticket.get('origin') or '-'}\n"
+            f"Categoria: {ticket.get('category') or '-'}\n"
+            f"Classificação: {ticket.get('classification') or '-'}\n"
+            f"Status: {ticket.get('status') or '-'}\n"
+            f"Prioridade: {ticket.get('priority') or '-'}\n\n"
+            f"Problema:\n{ticket.get('description') or ticket.get('title') or '-'}\n\n"
+            "Objetivo:\n"
+            "Investigar a menor correção segura, manter o fluxo Radar -> Vendas -> WhatsApp -> Retorno e não mexer em cobrança, auth, secrets, deploy ou migration sem aprovação explícita.\n\n"
+            "Entrega:\n"
+            "- resumo técnico\n"
+            "- arquivos alterados\n"
+            "- comandos locais rodados\n"
+            "- risco residual\n"
+        )
+
+    def copy_selected_ticket_codex_prompt(self) -> None:
+        ticket = self.selected_owner_ticket()
+        if not ticket:
+            messagebox.showwarning("Tickets", "Selecione um ticket primeiro.")
+            return
+        prompt = self.selected_ticket_codex_prompt(ticket)
+        self.copy_text(prompt)
+        path = self.save_prompt_file("owner-ticket-codex", prompt)
+        self.owner_tickets_status_var.set(f"Prompt copiado e salvo em {path}")
+        self.set_owner_ticket_detail(prompt)
+        self.register_owner_ticket_dispatch(ticket, {"codexDispatchStatus": "prompt_copied"}, silent=True)
+
+    def open_selected_ticket_dispatch_dialog(self) -> None:
+        ticket = self.selected_owner_ticket()
+        if not ticket:
+            messagebox.showwarning("Tickets", "Selecione um ticket primeiro.")
+            return
+
+        win = tk.Toplevel(self)
+        win.title("Registrar dispatch Codex")
+        win.transient(self)
+        win.grab_set()
+        win.resizable(False, False)
+        win.configure(padx=16, pady=16, bg=THEME["bg"])
+
+        fields = [
+            ("codexDispatchStatus", "Dispatch", ticket.get("codexDispatchStatus") or "dispatched"),
+            ("codexRunId", "Codex run id", ticket.get("codexRunId") or ""),
+            ("codexRunUrl", "Codex run URL", ticket.get("codexRunUrl") or ""),
+            ("githubIssueUrl", "GitHub issue URL", ticket.get("githubIssueUrl") or ""),
+            ("githubPrNumber", "GitHub PR número", ticket.get("githubPrNumber") or ""),
+            ("githubBranch", "GitHub branch", ticket.get("githubBranch") or ""),
+            ("note", "Nota", ""),
+        ]
+        values: dict[str, tk.StringVar] = {}
+        for row, (key, label, initial) in enumerate(fields):
+            ttk.Label(win, text=label).grid(row=row, column=0, sticky="w", padx=(0, 10), pady=5)
+            var = tk.StringVar(value=str(initial or ""))
+            values[key] = var
+            if key == "codexDispatchStatus":
+                widget = ttk.Combobox(
+                    win,
+                    textvariable=var,
+                    values=("prompt_copied", "dispatched", "running", "pr_open", "done", "failed"),
+                    state="readonly",
+                    width=52,
+                )
+            else:
+                widget = ttk.Entry(win, textvariable=var, width=56)
+            widget.grid(row=row, column=1, sticky="ew", pady=5)
+
+        def submit() -> None:
+            payload = {key: var.get().strip() for key, var in values.items() if var.get().strip()}
+            if not payload.get("codexDispatchStatus"):
+                payload["codexDispatchStatus"] = "dispatched"
+            if self.register_owner_ticket_dispatch(ticket, payload):
+                win.destroy()
+
+        buttons = ttk.Frame(win, style="Toolbar.TFrame")
+        buttons.grid(row=len(fields), column=0, columnspan=2, sticky="e", pady=(12, 0))
+        ttk.Button(buttons, text="Cancelar", command=win.destroy).grid(row=0, column=0, padx=(0, 8))
+        ttk.Button(buttons, text="Salvar dispatch", command=submit, style="Success.TButton").grid(row=0, column=1)
+
+    def register_owner_ticket_dispatch(self, ticket: dict, payload: dict, silent: bool = False) -> bool:
+        ticket_code = str(ticket.get("ticketCode") or ticket.get("id") or "").strip()
+        if not ticket_code:
+            if not silent:
+                messagebox.showwarning("Tickets", "Ticket sem código para registrar dispatch.")
+            return False
+
+        local_ticket = self.merge_ticket_dispatch_payload(ticket, payload)
+        local_card_id = self.upsert_owner_ticket_card(local_ticket)
+        self.load_local_ticket_cards(self.owner_ticket_status_filter(), f"card:{local_card_id}" if local_card_id else None)
+        self.refresh_kanban()
+
+        path = f"/owner/tickets/{urllib.parse.quote(ticket_code, safe='')}/dispatch"
+        try:
+            response = self.owner_tickets_request(path, method="POST", payload=payload)
+        except RuntimeError as exc:
+            self.owner_tickets_status_var.set(f"Dispatch salvo no card local. Backend não atualizado: {exc}")
+            if not silent:
+                messagebox.showwarning("Tickets", f"Dispatch salvo no card local.\nBackend não atualizado:\n{exc}")
+            return True
+
+        updated = response.get("ticket") if isinstance(response, dict) else None
+        if isinstance(updated, dict):
+            updated_card_id = self.upsert_owner_ticket_card(updated)
+            self.load_local_ticket_cards(
+                self.owner_ticket_status_filter(),
+                f"card:{updated_card_id}" if updated_card_id else f"card:{local_card_id}" if local_card_id else None,
+            )
+            self.refresh_kanban()
+        message = f"Dispatch registrado para {ticket_code}."
+        self.owner_tickets_status_var.set(message)
+        if not silent:
+            messagebox.showinfo("Tickets", message)
+        return True
+
+    def replace_owner_ticket_cache(self, ticket: dict) -> None:
+        key = str(ticket.get("ticketCode") or ticket.get("id") or "")
+        if not key:
+            return
+        card_id = self.upsert_owner_ticket_card(ticket)
+        self.load_local_ticket_cards(self.owner_ticket_status_filter(), f"card:{card_id}" if card_id else None)
+
+    def replace_owner_ticket_cache_legacy(self, ticket: dict) -> None:
+        key = str(ticket.get("ticketCode") or ticket.get("id") or "")
+        if not key:
+            return
+        replaced = False
+        next_cache: list[dict] = []
+        for current in self.owner_tickets_cache:
+            current_key = str(current.get("ticketCode") or current.get("id") or "")
+            if current_key == key:
+                next_cache.append(ticket)
+                replaced = True
+            else:
+                next_cache.append(current)
+        if not replaced:
+            next_cache.insert(0, ticket)
+        self.owner_tickets_cache = next_cache
+
+    def create_codex_task_from_selected_ticket(self) -> None:
+        self.open_selected_ticket_card()
+
+    def open_tickets_tab(self) -> None:
+        self.notebook.select(self.tabs["Tickets"])
+        if not self.owner_tickets_cache:
+            self.load_local_ticket_cards(self.owner_ticket_status_filter())
+
     def _build_kanban_tab(self, frame: ttk.Frame) -> None:
         self.page_title(frame, "Kanban", "Fila operacional do dia")
 
@@ -2221,6 +3153,7 @@ class HbxOwnerApp(tk.Tk):
             ("Arquivar", self.archive_card, "Danger.TButton"),
             ("Definir atual", self.set_current_card, "Accent.TButton"),
             ("Atualizar", self.refresh_kanban, "TButton"),
+            ("Tickets", self.open_tickets_tab, "Warning.TButton"),
         )
         for index, (text, command, style_name) in enumerate(buttons):
             ttk.Button(toolbar, text=text, command=command, style=style_name).grid(
@@ -2406,6 +3339,7 @@ class HbxOwnerApp(tk.Tk):
         module = str(card["module"] or "HBX")
         estimate = f"{card['estimate_minutes']} min" if int(card["estimate_minutes"] or 0) else "sem estim."
         commit = (str(card["commit_sha"] or "")[:7] or "-")
+        ticket_code = str(card["ticket_code"] or "")
 
         row_index = len(parent.winfo_children())
         shell = tk.Frame(
@@ -2434,7 +3368,7 @@ class HbxOwnerApp(tk.Tk):
         meta.columnconfigure(0, weight=1)
         tk.Label(
             meta,
-            text=priority,
+            text=f"TICKET {ticket_code}" if ticket_code else priority,
             bg=accent,
             fg="#ffffff",
             padx=7,
@@ -2463,7 +3397,11 @@ class HbxOwnerApp(tk.Tk):
 
         detail = tk.Label(
             body,
-            text=f"{module}  |  commit {commit}",
+            text=(
+                f"{module}  |  {card['ticket_customer'] or 'cliente'}  |  {card['ticket_status'] or card['lane']}"
+                if ticket_code
+                else f"{module}  |  commit {commit}"
+            ),
             bg=THEME["card"],
             fg=THEME["muted"],
             justify="left",
@@ -2821,8 +3759,11 @@ class HbxOwnerApp(tk.Tk):
             INSERT INTO kanban_cards
             (date, title, description, module, type, priority, lane, acceptance_criteria,
              test_command, codex_prompt, chatgpt_prompt, estimate_minutes, blocked_reason,
-             created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ticket_code, ticket_backend_id, ticket_customer, ticket_origin, ticket_category,
+             ticket_classification, ticket_status, ticket_dispatch_status, ticket_codex_run_id,
+             ticket_codex_run_url, ticket_github_issue_url, ticket_github_pr_number,
+             ticket_github_branch, ticket_synced_at, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 today_str(),
@@ -2838,6 +3779,20 @@ class HbxOwnerApp(tk.Tk):
                 data.get("chatgpt_prompt", "").strip(),
                 int(data.get("estimate_minutes") or 0),
                 data.get("blocked_reason", "").strip(),
+                str(data.get("ticket_code") or "").strip(),
+                str(data.get("ticket_backend_id") or "").strip(),
+                str(data.get("ticket_customer") or "").strip(),
+                str(data.get("ticket_origin") or "").strip(),
+                str(data.get("ticket_category") or "").strip(),
+                str(data.get("ticket_classification") or "").strip(),
+                str(data.get("ticket_status") or "").strip(),
+                str(data.get("ticket_dispatch_status") or "").strip(),
+                str(data.get("ticket_codex_run_id") or "").strip(),
+                str(data.get("ticket_codex_run_url") or "").strip(),
+                str(data.get("ticket_github_issue_url") or "").strip(),
+                str(data.get("ticket_github_pr_number") or "").strip(),
+                str(data.get("ticket_github_branch") or "").strip(),
+                str(data.get("ticket_synced_at") or "").strip(),
                 now_iso(),
                 now_iso(),
             ),
@@ -2995,33 +3950,536 @@ class HbxOwnerApp(tk.Tk):
             self.save_git_snapshot(commit_sha=sha, commit_message=message, diff_stat=summary)
         self.set_git_output(summary if ok else f"Erro ao gerar resumo:\n{summary}")
 
+    def _build_pr_lab_tab(self, frame: ttk.Frame) -> None:
+        self.page_title(frame, "PR Lab", "Branches, worktrees, testes isolados e merge aprovado")
+        frame.columnconfigure(0, weight=1)
+        frame.rowconfigure(4, weight=1)
+
+        controls = self.card_frame(frame, padding=(12, 10))
+        controls.grid(row=1, column=0, sticky="ew", pady=(12, 10))
+        controls.columnconfigure(1, weight=1)
+        controls.columnconfigure(3, weight=1)
+        controls.columnconfigure(5, weight=1)
+        ttk.Label(controls, text="base", style="CardMuted.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 8))
+        ttk.Label(
+            controls,
+            text=str(self.config_data.get("pr_lab_base_branch") or DEFAULT_CONFIG["pr_lab_base_branch"]),
+            style="Card.TLabel",
+        ).grid(row=0, column=1, sticky="w", padx=(0, 18))
+        ttk.Label(controls, text="worktrees", style="CardMuted.TLabel").grid(row=0, column=2, sticky="w", padx=(0, 8))
+        ttk.Label(
+            controls,
+            text=str(self.config_data.get("pr_lab_worktree_dir") or DEFAULT_CONFIG["pr_lab_worktree_dir"]),
+            style="Card.TLabel",
+        ).grid(row=0, column=3, sticky="w", padx=(0, 18))
+        ttk.Label(controls, text="filtro", style="CardMuted.TLabel").grid(row=0, column=4, sticky="w", padx=(0, 8))
+        ttk.Entry(controls, textvariable=self.pr_lab_branch_filter_var, width=18).grid(row=0, column=5, sticky="w")
+
+        toolbar = ttk.Frame(frame, style="Toolbar.TFrame")
+        toolbar.grid(row=2, column=0, sticky="ew", pady=(0, 10))
+        ttk.Button(toolbar, text="Listar PRs GitHub", command=self.pr_lab_list_github_prs, style="Accent.TButton").grid(
+            row=0, column=0, sticky="w", padx=(0, 8)
+        )
+        ttk.Button(toolbar, text="Listar owner/*", command=self.pr_lab_list_owner_branches).grid(
+            row=0, column=1, sticky="w", padx=8
+        )
+        ttk.Button(toolbar, text="Criar worktree", command=self.pr_lab_create_worktree, style="Success.TButton").grid(
+            row=0, column=2, sticky="w", padx=8
+        )
+        ttk.Button(toolbar, text="Rodar testes", command=self.pr_lab_run_tests, style="Warning.TButton").grid(
+            row=0, column=3, sticky="w", padx=8
+        )
+        ttk.Button(toolbar, text="Abrir localhost", command=self.pr_lab_open_localhost).grid(
+            row=0, column=4, sticky="w", padx=8
+        )
+        ttk.Button(toolbar, text="Abrir worktree", command=self.pr_lab_open_worktree_folder).grid(
+            row=0, column=5, sticky="w", padx=8
+        )
+        ttk.Button(toolbar, text="Merge aprovado", command=self.pr_lab_merge_approved, style="Danger.TButton").grid(
+            row=0, column=6, sticky="w", padx=8
+        )
+
+        status = self.card_frame(frame, padding=(12, 10))
+        status.grid(row=3, column=0, sticky="ew", pady=(0, 10))
+        status.columnconfigure(0, weight=1)
+        ttk.Label(status, textvariable=self.pr_lab_status_var, style="Card.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(status, textvariable=self.pr_lab_selected_var, style="CardMuted.TLabel").grid(
+            row=1, column=0, sticky="w", pady=(3, 0)
+        )
+
+        body = ttk.Frame(frame, style="App.TFrame")
+        body.grid(row=4, column=0, sticky="nsew")
+        body.columnconfigure(0, weight=3)
+        body.columnconfigure(1, weight=2)
+        body.rowconfigure(0, weight=1)
+
+        table_panel = ttk.LabelFrame(body, text="PRs e branches", padding=8, style="Modern.TLabelframe")
+        table_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        table_panel.columnconfigure(0, weight=1)
+        table_panel.rowconfigure(0, weight=1)
+
+        columns = ("tipo", "ref", "branch", "titulo", "status", "worktree")
+        tree = ttk.Treeview(table_panel, columns=columns, show="headings", height=18)
+        headings = {
+            "tipo": "Tipo",
+            "ref": "Ref",
+            "branch": "Branch",
+            "titulo": "Título",
+            "status": "Status",
+            "worktree": "Worktree",
+        }
+        widths = {
+            "tipo": 80,
+            "ref": 170,
+            "branch": 170,
+            "titulo": 260,
+            "status": 110,
+            "worktree": 260,
+        }
+        for column in columns:
+            tree.heading(column, text=headings[column])
+            tree.column(column, width=widths[column], anchor="w")
+        tree.grid(row=0, column=0, sticky="nsew")
+        tree_scroll = ttk.Scrollbar(table_panel, orient="vertical", command=tree.yview)
+        tree_scroll.grid(row=0, column=1, sticky="ns")
+        tree.configure(yscrollcommand=tree_scroll.set)
+        tree.bind("<<TreeviewSelect>>", self.on_pr_lab_selected)
+        self.pr_lab_tree = tree
+
+        output_panel = ttk.LabelFrame(body, text="Saída", padding=8, style="Modern.TLabelframe")
+        output_panel.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
+        output_panel.columnconfigure(0, weight=1)
+        output_panel.rowconfigure(0, weight=1)
+        self.pr_lab_output = tk.Text(output_panel, height=18, wrap="word")
+        self.style_text_widget(self.pr_lab_output)
+        self.pr_lab_output.grid(row=0, column=0, sticky="nsew")
+        output_scroll = ttk.Scrollbar(output_panel, orient="vertical", command=self.pr_lab_output.yview)
+        output_scroll.grid(row=0, column=1, sticky="ns")
+        self.pr_lab_output.configure(yscrollcommand=output_scroll.set)
+        self.set_pr_lab_output(
+            "Fluxo seguro:\n"
+            "1. Listar PRs ou owner/*.\n"
+            "2. Criar worktree isolado.\n"
+            "3. Rodar testes no worktree.\n"
+            "4. Abrir localhost já configurado.\n"
+            "5. Fazer merge local apenas com aprovação e repo limpo.\n"
+        )
+
+    def set_pr_lab_output(self, text: str) -> None:
+        if not self.pr_lab_output:
+            return
+        self.pr_lab_output.delete("1.0", tk.END)
+        self.pr_lab_output.insert(tk.END, text)
+
+    def pr_lab_repo_path(self) -> Path:
+        repo_path = self.repo_path()
+        if not repo_path.exists():
+            raise RuntimeError(f"repo_path não existe: {repo_path}")
+        return repo_path
+
+    def pr_lab_run_git(self, args: list[str], timeout: int = 30) -> tuple[bool, str]:
+        try:
+            repo_path = self.pr_lab_repo_path()
+        except RuntimeError as exc:
+            return False, str(exc)
+        return self.run_hidden_command(["git", *args], repo_path, timeout=timeout)
+
+    def pr_lab_worktree_root(self, ensure: bool = False) -> Path:
+        configured = str(self.config_data.get("pr_lab_worktree_dir") or DEFAULT_CONFIG["pr_lab_worktree_dir"]).strip()
+        root = Path(configured).expanduser()
+        if not root.is_absolute():
+            root = self.repo_path() / root
+        root = root.resolve()
+        if ensure:
+            root.mkdir(parents=True, exist_ok=True)
+        return root
+
+    def pr_lab_worktree_name(self, item: dict) -> str:
+        raw = str(item.get("branch") or item.get("ref") or item.get("id") or "worktree")
+        raw = raw.replace("origin/", "")
+        name = re.sub(r"[^A-Za-z0-9._-]+", "-", raw).strip(".-").lower()
+        return name[:80] or "worktree"
+
+    def pr_lab_default_worktree_path(self, item: dict, ensure_root: bool = False) -> Path:
+        root = self.pr_lab_worktree_root(ensure=ensure_root)
+        target = (root / self.pr_lab_worktree_name(item)).resolve()
+        if target != root and root not in target.parents:
+            raise RuntimeError(f"worktree fora do diretório permitido: {target}")
+        return target
+
+    def pr_lab_existing_worktree_label(self, item: dict) -> str:
+        try:
+            target = self.pr_lab_default_worktree_path(item)
+        except RuntimeError:
+            return "-"
+        return str(target) if target.exists() else "-"
+
+    def pr_lab_insert_items(self, items: list[dict], status: str) -> None:
+        if not self.pr_lab_tree:
+            return
+        tree = self.pr_lab_tree
+        for row in tree.get_children():
+            tree.delete(row)
+        self.pr_lab_items = {}
+        for item in items:
+            iid = str(item["id"])
+            item["worktree"] = item.get("worktree") or self.pr_lab_existing_worktree_label(item)
+            self.pr_lab_items[iid] = item
+            tree.insert(
+                "",
+                "end",
+                iid=iid,
+                values=(
+                    item.get("type", "-"),
+                    item.get("ref", "-"),
+                    item.get("branch", "-"),
+                    item.get("title", "-"),
+                    item.get("status", "-"),
+                    item.get("worktree", "-"),
+                ),
+            )
+        self.pr_lab_status_var.set(status)
+        if items:
+            first = str(items[0]["id"])
+            tree.selection_set(first)
+            tree.focus(first)
+            self.on_pr_lab_selected()
+
+    def pr_lab_list_owner_branches(self) -> None:
+        filter_value = self.pr_lab_branch_filter_var.get().strip() or "owner/"
+        if not filter_value.startswith("owner/"):
+            filter_value = "owner/"
+            self.pr_lab_branch_filter_var.set(filter_value)
+        ref_root = f"refs/remotes/origin/{filter_value.strip('/')}"
+        ok, output = self.pr_lab_run_git(["for-each-ref", "--format=%(refname:short)", ref_root], timeout=30)
+        if not ok:
+            self.pr_lab_status_var.set("Falha ao listar owner/*.")
+            self.set_pr_lab_output(output)
+            return
+        refs = [line.strip() for line in output.splitlines() if line.strip().startswith("origin/owner/")]
+        items = [
+            {
+                "id": f"branch:{ref}",
+                "type": "branch",
+                "ref": ref,
+                "branch": ref.replace("origin/", "", 1),
+                "title": ref.replace("origin/", "", 1),
+                "status": "remoto",
+            }
+            for ref in refs
+        ]
+        self.pr_lab_insert_items(items, f"Branches owner/* carregadas: {len(items)}")
+        self.set_pr_lab_output(output or "Nenhuma branch origin/owner/* encontrada.")
+
+    def pr_lab_list_github_prs(self) -> None:
+        gh_path = shutil.which("gh")
+        if not gh_path:
+            message = "GitHub CLI não encontrado. Use Listar owner/* ou instale/autentique o gh localmente."
+            self.pr_lab_status_var.set(message)
+            self.set_pr_lab_output(message)
+            return
+        try:
+            repo_path = self.pr_lab_repo_path()
+        except RuntimeError as exc:
+            self.pr_lab_status_var.set(str(exc))
+            self.set_pr_lab_output(str(exc))
+            return
+        command = [
+            gh_path,
+            "pr",
+            "list",
+            "--state",
+            "open",
+            "--limit",
+            "30",
+            "--json",
+            "number,title,headRefName,baseRefName,state,url,isDraft",
+        ]
+        ok, output = self.run_hidden_command(command, repo_path, timeout=45)
+        if not ok:
+            self.pr_lab_status_var.set("Falha ao listar PRs GitHub.")
+            self.set_pr_lab_output(output)
+            return
+        try:
+            rows = json.loads(output or "[]")
+        except json.JSONDecodeError as exc:
+            self.pr_lab_status_var.set("GitHub CLI retornou JSON inválido.")
+            self.set_pr_lab_output(f"{exc}\n\n{output}")
+            return
+        if not isinstance(rows, list):
+            rows = []
+        items: list[dict] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            number = str(row.get("number") or "")
+            branch = str(row.get("headRefName") or "")
+            ref = f"origin/{branch}" if branch and not branch.startswith("origin/") else branch
+            draft = "draft" if row.get("isDraft") else str(row.get("state") or "open").lower()
+            items.append(
+                {
+                    "id": f"pr:{number}",
+                    "type": "PR",
+                    "ref": ref or f"PR #{number}",
+                    "branch": branch or "-",
+                    "title": f"#{number} {row.get('title') or '-'}",
+                    "status": draft,
+                    "url": str(row.get("url") or ""),
+                    "base": str(row.get("baseRefName") or ""),
+                }
+            )
+        self.pr_lab_insert_items(items, f"PRs GitHub carregados: {len(items)}")
+        self.set_pr_lab_output(json.dumps(rows, ensure_ascii=False, indent=2) if rows else "Nenhum PR aberto encontrado.")
+
+    def on_pr_lab_selected(self, _event: tk.Event | None = None) -> None:
+        item = self.selected_pr_lab_item()
+        if not item:
+            self.pr_lab_selected_var.set("Nenhum PR ou branch selecionado.")
+            return
+        self.pr_lab_selected_var.set(
+            f"{item.get('type')} | {item.get('branch') or item.get('ref')} | {item.get('status')} | {item.get('worktree') or '-'}"
+        )
+
+    def selected_pr_lab_item(self) -> dict | None:
+        if not self.pr_lab_tree:
+            return None
+        selected = self.pr_lab_tree.selection()
+        if not selected:
+            return None
+        return self.pr_lab_items.get(str(selected[0]))
+
+    def pr_lab_item_ref_is_owner_branch(self, item: dict) -> bool:
+        ref = str(item.get("ref") or "")
+        branch = str(item.get("branch") or "")
+        return ref.startswith("origin/owner/") or branch.startswith("owner/")
+
+    def pr_lab_create_worktree(self) -> None:
+        item = self.selected_pr_lab_item()
+        if not item:
+            messagebox.showwarning("PR Lab", "Selecione um PR ou branch.")
+            return
+        if not self.pr_lab_item_ref_is_owner_branch(item):
+            message = "Por segurança, o Owner só cria worktree automático para origin/owner/*."
+            self.pr_lab_status_var.set(message)
+            self.set_pr_lab_output(message)
+            return
+        ref = str(item.get("ref") or "")
+        if not ref.startswith("origin/owner/"):
+            ref = f"origin/{str(item.get('branch') or '').strip()}"
+        try:
+            target = self.pr_lab_default_worktree_path(item, ensure_root=True)
+        except RuntimeError as exc:
+            self.pr_lab_status_var.set(str(exc))
+            self.set_pr_lab_output(str(exc))
+            return
+        if target.exists():
+            item["worktree"] = str(target)
+            if self.pr_lab_tree:
+                self.pr_lab_tree.set(str(item["id"]), "worktree", str(target))
+            self.pr_lab_status_var.set(f"Worktree já existe: {target}")
+            self.set_pr_lab_output(f"Worktree já existe:\n{target}")
+            self.on_pr_lab_selected()
+            return
+        ok, output = self.pr_lab_run_git(["worktree", "add", str(target), ref], timeout=120)
+        if ok:
+            item["worktree"] = str(target)
+            if self.pr_lab_tree:
+                self.pr_lab_tree.set(str(item["id"]), "worktree", str(target))
+            self.pr_lab_status_var.set(f"Worktree criado: {target}")
+            self.on_pr_lab_selected()
+        else:
+            self.pr_lab_status_var.set("Falha ao criar worktree.")
+        self.set_pr_lab_output(output or f"Worktree criado em {target}")
+
+    def pr_lab_selected_worktree_path(self, item: dict) -> Path | None:
+        configured = str(item.get("worktree") or "").strip()
+        if configured and configured != "-":
+            path = Path(configured)
+            return path if path.exists() else None
+        try:
+            path = self.pr_lab_default_worktree_path(item)
+        except RuntimeError:
+            return None
+        return path if path.exists() else None
+
+    def pr_lab_npm_command(self) -> str:
+        return "npm.cmd" if sys.platform.startswith("win") else "npm"
+
+    def pr_lab_test_specs(self, worktree: Path) -> list[tuple[str, list[str], Path, int]]:
+        npm = self.pr_lab_npm_command()
+        specs: list[tuple[str, list[str], Path, int]] = []
+        owner_dir = worktree / "hbx-owner" / "windows-app"
+        if (owner_dir / "hbx_owner_app.py").exists():
+            specs.append(("Owner py_compile", [sys.executable, "-m", "py_compile", "hbx_owner_app.py"], owner_dir, 30))
+            specs.append(("Owner no-gui", [sys.executable, "hbx_owner_app.py", "--no-gui"], owner_dir, 30))
+        backend_dir = worktree / "backend"
+        if (backend_dir / "package.json").exists():
+            specs.append(("Backend prisma validate", [npm, "run", "prisma:validate"], backend_dir, 90))
+            specs.append(("Backend build", [npm, "run", "build"], backend_dir, 180))
+        frontend_dir = worktree / "frontend"
+        if (frontend_dir / "package.json").exists():
+            specs.append(("Frontend lint", [npm, "run", "lint"], frontend_dir, 180))
+        if not specs:
+            specs.append(("Git status", ["git", "status", "--short"], worktree, 30))
+        return specs
+
+    def pr_lab_run_tests(self) -> None:
+        item = self.selected_pr_lab_item()
+        if not item:
+            messagebox.showwarning("PR Lab", "Selecione um PR ou branch.")
+            return
+        worktree = self.pr_lab_selected_worktree_path(item)
+        if not worktree:
+            message = "Crie o worktree antes de rodar testes."
+            self.pr_lab_status_var.set(message)
+            self.set_pr_lab_output(message)
+            return
+        reports: list[str] = []
+        all_ok = True
+        for label, command, cwd, timeout in self.pr_lab_test_specs(worktree):
+            ok, output = self.run_hidden_command(command, cwd, timeout=timeout)
+            all_ok = all_ok and ok
+            command_text = " ".join(command)
+            reports.append(
+                f"{label}\n"
+                f"CWD: {cwd}\n"
+                f"CMD: {command_text}\n"
+                f"RESULTADO: {'OK' if ok else 'FALHOU'}\n"
+                f"{output or '-'}"
+            )
+            if not ok:
+                break
+        self.pr_lab_status_var.set(f"Testes no worktree: {'OK' if all_ok else 'com falha'}")
+        self.set_pr_lab_output(("\n\n" + ("=" * 72) + "\n\n").join(reports))
+
+    def pr_lab_open_localhost(self) -> None:
+        url = str(self.config_data.get("pr_lab_localhost_url") or DEFAULT_CONFIG["pr_lab_localhost_url"]).strip()
+        if not url:
+            url = DEFAULT_CONFIG["pr_lab_localhost_url"]
+        if not re.match(r"^https?://", url, flags=re.IGNORECASE):
+            url = f"http://{url}"
+        webbrowser.open(url)
+        self.pr_lab_status_var.set(f"Localhost aberto: {url}")
+
+    def pr_lab_open_worktree_folder(self) -> None:
+        item = self.selected_pr_lab_item()
+        if not item:
+            messagebox.showwarning("PR Lab", "Selecione um PR ou branch.")
+            return
+        worktree = self.pr_lab_selected_worktree_path(item)
+        if not worktree:
+            message = "Worktree ainda não existe."
+            self.pr_lab_status_var.set(message)
+            self.set_pr_lab_output(message)
+            return
+        try:
+            subprocess.Popen(["explorer.exe", str(worktree)])
+        except OSError as exc:
+            self.pr_lab_status_var.set(f"Não consegui abrir worktree: {exc}")
+            return
+        self.pr_lab_status_var.set(f"Worktree aberto: {worktree}")
+
+    def pr_lab_merge_approved(self) -> None:
+        item = self.selected_pr_lab_item()
+        if not item:
+            messagebox.showwarning("PR Lab", "Selecione um PR ou branch.")
+            return
+        if not self.pr_lab_item_ref_is_owner_branch(item):
+            message = "Merge automático bloqueado: só origin/owner/* é permitido."
+            self.pr_lab_status_var.set(message)
+            self.set_pr_lab_output(message)
+            return
+        ref = str(item.get("ref") or "")
+        if not ref.startswith("origin/owner/"):
+            ref = f"origin/{str(item.get('branch') or '').strip()}"
+        base_branch = str(self.config_data.get("pr_lab_base_branch") or DEFAULT_CONFIG["pr_lab_base_branch"]).strip()
+        ok, current_branch = self.pr_lab_run_git(["rev-parse", "--abbrev-ref", "HEAD"], timeout=20)
+        if not ok:
+            self.pr_lab_status_var.set("Não consegui validar a branch atual.")
+            self.set_pr_lab_output(current_branch)
+            return
+        if current_branch.strip() != base_branch:
+            message = (
+                f"Merge bloqueado: repo atual está em '{current_branch.strip()}', "
+                f"mas a base configurada é '{base_branch}'."
+            )
+            self.pr_lab_status_var.set(message)
+            self.set_pr_lab_output(message)
+            return
+        ok, status = self.pr_lab_run_git(["status", "--porcelain"], timeout=20)
+        if not ok:
+            self.pr_lab_status_var.set("Não consegui validar status do repo.")
+            self.set_pr_lab_output(status)
+            return
+        if status.strip():
+            message = "Merge bloqueado: repo principal tem mudanças locais. Limpe ou salve antes de aprovar merge."
+            self.pr_lab_status_var.set(message)
+            self.set_pr_lab_output(f"{message}\n\n{status}")
+            return
+        confirmed = messagebox.askyesno(
+            "Merge aprovado",
+            (
+                f"Confirmar merge local de {ref} em {base_branch}?\n\n"
+                "Isso não faz push, não publica e não roda deploy."
+            ),
+        )
+        if not confirmed:
+            self.pr_lab_status_var.set("Merge cancelado pelo dono.")
+            return
+        ok, output = self.pr_lab_run_git(["merge", "--no-ff", "--no-edit", ref], timeout=180)
+        self.pr_lab_status_var.set(f"Merge aprovado: {'OK' if ok else 'falhou'}")
+        self.set_pr_lab_output(output or f"Merge local concluído: {ref} -> {base_branch}")
+
     def _build_chatgpt_tab(self, frame: ttk.Frame) -> None:
-        self.page_title(frame, "ChatGPT", "Prompts com contexto local")
+        self.page_title(frame, "ChatGPT", "Pesquisa em cards")
 
         buttons = ttk.Frame(frame, style="Toolbar.TFrame")
         buttons.grid(row=1, column=0, sticky="w", pady=(12, 10))
         ttk.Button(buttons, text="Abrir ChatGPT Desktop", command=self.open_chatgpt, style="Accent.TButton").grid(
             row=0, column=0, padx=(0, 8)
         )
-        ttk.Button(buttons, text="Copiar check-in", command=self.copy_checkin_prompt).grid(row=0, column=1, padx=8)
-        ttk.Button(buttons, text="Copiar revisão de card", command=self.copy_card_review_prompt).grid(
-            row=0, column=2, padx=8
+        ttk.Button(
+            buttons,
+            text="Importar pesquisa",
+            command=self.import_research_text,
+            style="Warning.TButton",
+        ).grid(row=0, column=1, padx=8)
+        ttk.Button(
+            buttons,
+            text="Gerar cards automático",
+            command=self.transform_response_into_cards,
+            style="Success.TButton",
+        ).grid(row=0, column=2, padx=8)
+        ttk.Button(
+            buttons,
+            text="Copiar formato HBX_CARDS_JSON",
+            command=self.copy_hbx_cards_json_format,
+        ).grid(row=0, column=3, padx=8)
+        ttk.Checkbutton(
+            buttons,
+            text="Criar cards ao importar",
+            variable=self.autocard_auto_create_var,
+        ).grid(row=0, column=4, padx=(12, 0))
+
+        pdf_frame = ttk.LabelFrame(frame, text="Adicionar PDF", padding=8, style="Modern.TLabelframe")
+        pdf_frame.grid(row=2, column=0, sticky="ew", pady=(0, 10))
+        pdf_frame.columnconfigure(0, weight=1)
+        ttk.Entry(pdf_frame, textvariable=self.chatgpt_pdf_path_var, state="readonly").grid(
+            row=0, column=0, sticky="ew", padx=(0, 8)
         )
-        ttk.Button(buttons, text="Copiar revisão de commit", command=self.copy_commit_review_prompt).grid(
-            row=0, column=3, padx=8
-        )
-        ttk.Button(buttons, text="Colar resposta do ChatGPT", command=self.paste_chatgpt_response).grid(
-            row=0, column=4, padx=8
-        )
-        ttk.Button(buttons, text="Transformar resposta em cards", command=self.transform_response_into_cards).grid(
-            row=0, column=5, padx=8
+        ttk.Button(pdf_frame, text="Adicionar PDF", command=self.add_pdf_to_chatgpt, style="Warning.TButton").grid(
+            row=0, column=1, sticky="e"
         )
 
-        output_frame = ttk.LabelFrame(frame, text="Prompt ou resposta", padding=8, style="Modern.TLabelframe")
-        output_frame.grid(row=2, column=0, sticky="nsew")
+        status = ttk.Frame(frame, style="Toolbar.TFrame")
+        status.grid(row=3, column=0, sticky="ew", pady=(0, 10))
+        ttk.Label(status, textvariable=self.autocard_status_var, style="Muted.TLabel").grid(row=0, column=0, sticky="w")
+
+        output_frame = ttk.LabelFrame(frame, text="Pesquisa, prompt ou resposta", padding=8, style="Modern.TLabelframe")
+        output_frame.grid(row=4, column=0, sticky="nsew")
         output_frame.columnconfigure(0, weight=1)
         output_frame.rowconfigure(0, weight=1)
-        frame.rowconfigure(2, weight=1)
+        frame.rowconfigure(4, weight=1)
 
         self.chatgpt_text = tk.Text(output_frame, height=26, wrap="word")
         self.style_text_widget(self.chatgpt_text)
@@ -3035,6 +4493,391 @@ class HbxOwnerApp(tk.Tk):
             return
         self.chatgpt_text.delete("1.0", tk.END)
         self.chatgpt_text.insert(tk.END, text)
+
+    def add_pdf_to_chatgpt(self) -> None:
+        initial_dir = HBX_REPO_DIR / "docs"
+        if not initial_dir.exists():
+            initial_dir = Path.home()
+        selected = filedialog.askopenfilename(
+            title="Adicionar PDF",
+            initialdir=str(initial_dir),
+            filetypes=(("Arquivos PDF", "*.pdf"), ("Todos os arquivos", "*.*")),
+        )
+        if not selected:
+            return
+
+        pdf_path = Path(selected)
+        self.chatgpt_pdf_path_var.set(str(pdf_path))
+        extracted_text, extraction_status = self.extract_pdf_text(pdf_path)
+        prompt = self.build_pdf_cards_prompt(pdf_path, extracted_text, extraction_status)
+        automation_response = ""
+
+        if not self.pdf_text_is_usable(extracted_text):
+            automation_response = self.send_pdf_to_automation(pdf_path, prompt)
+
+        if automation_response:
+            self.set_chatgpt_text(automation_response)
+            self.save_chatgpt_exchange(automation_response, prompt=prompt)
+            self.autocard_status_var.set("Automação respondeu. Transformando resposta em cards.")
+            self.transform_response_into_cards()
+            return
+
+        self.set_chatgpt_text(prompt)
+        self.copy_text(prompt)
+        self.autocard_status_var.set("Prompt do PDF copiado. Envie ao ChatGPT e cole a resposta aqui.")
+        if not self.pdf_text_is_usable(extracted_text):
+            self.open_chatgpt()
+            self.set_chatgpt_text(prompt)
+            self.copy_text(prompt)
+            messagebox.showwarning(
+                "PDF",
+                (
+                    "Não consegui extrair texto suficiente do PDF e nenhuma automação retornou cards.\n"
+                    "Anexe o PDF no ChatGPT Desktop e cole o prompt copiado."
+                ),
+            )
+            return
+
+        messagebox.showinfo(
+            "PDF",
+            (
+                f"PDF lido localmente: {extraction_status}\n"
+                "O prompt para gerar cards foi copiado para o clipboard."
+            ),
+        )
+
+    def extract_pdf_text(self, pdf_path: Path) -> tuple[str, str]:
+        if not pdf_path.exists():
+            return "", "arquivo não encontrado"
+        if pdf_path.suffix.lower() != ".pdf":
+            return "", "arquivo selecionado não é PDF"
+
+        errors: list[str] = []
+        for module_name in ("pypdf", "PyPDF2"):
+            try:
+                module = importlib.import_module(module_name)
+                reader = module.PdfReader(str(pdf_path))
+                pages = []
+                for page in reader.pages:
+                    try:
+                        pages.append(page.extract_text() or "")
+                    except Exception:
+                        pages.append("")
+                text = "\n\n".join(page.strip() for page in pages if page.strip()).strip()
+                if text:
+                    return text, f"texto extraído com {module_name} ({len(text)} caracteres)"
+            except Exception as exc:
+                errors.append(f"{module_name}: {exc}")
+
+        pdftotext = shutil.which("pdftotext")
+        if pdftotext:
+            try:
+                result = subprocess.run(
+                    [pdftotext, "-layout", str(pdf_path), "-"],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    check=False,
+                )
+                text = (result.stdout or "").strip()
+                if text:
+                    return text, f"texto extraído com pdftotext ({len(text)} caracteres)"
+                if result.stderr:
+                    errors.append(f"pdftotext: {result.stderr.strip()}")
+            except Exception as exc:
+                errors.append(f"pdftotext: {exc}")
+
+        detail = "; ".join(errors[:2]) if errors else "nenhum extrator disponível"
+        return "", f"não foi possível extrair texto localmente ({detail})"
+
+    def pdf_text_is_usable(self, text: str) -> bool:
+        clean = re.sub(r"\s+", " ", text or "").strip()
+        return len(clean) >= PDF_MIN_TEXT_CHARS
+
+    def build_pdf_cards_prompt(self, pdf_path: Path, extracted_text: str, extraction_status: str) -> str:
+        clipped_text = (extracted_text or "").strip()
+        if len(clipped_text) > PDF_TEXT_MAX_CHARS:
+            clipped_text = clipped_text[:PDF_TEXT_MAX_CHARS].rstrip() + "\n\n[TEXTO CORTADO PELO HBX OWNER]"
+        text_block = clipped_text or "Texto local indisponível. Use o PDF anexado como fonte principal."
+        return (
+            "HBX OWNER - LER PDF E DEVOLVER CARDS PARA KANBAN\n\n"
+            f"Arquivo: {pdf_path.name}\n"
+            f"Caminho local: {pdf_path}\n"
+            f"Leitura local: {extraction_status}\n\n"
+            "Objetivo:\n"
+            "Leia o documento inteiro e transforme o que for acionável em cards operacionais para o HBX Owner.\n"
+            "Priorize tickets de clientes, problemas de suporte, pedidos reais, riscos de operação, lacunas do produto, "
+            "oportunidades claras e respostas de API que precisem virar trabalho.\n\n"
+            "Regras obrigatórias:\n"
+            "1. Responda somente com um bloco HBX_CARDS_JSON_START / HBX_CARDS_JSON_END.\n"
+            "2. Dentro do bloco, devolva um JSON array válido, sem markdown fora do bloco.\n"
+            "3. Um card por ticket, demanda, risco ou ação verificável.\n"
+            "4. Não crie card genérico sem cliente, empresa, evidência ou origem. Se faltar identificação, crie um card de triagem para identificar cliente/origem.\n"
+            "5. Preserve histórico negativo, bloqueios, erros de API e falhas de atendimento como evidência; não apague nem suavize.\n"
+            "6. Cards de ticket de cliente devem usar type = \"Ticket cliente\" e module = \"Retorno\", salvo quando o texto provar outro módulo.\n"
+            "7. Cards derivados de resposta de API devem usar type = \"Resposta API\" e descrever endpoint, erro, payload ou comportamento observado quando existir.\n"
+            "8. Use lane \"HOJE\" só para algo urgente/cliente bloqueado; use \"BACKLOG\" para melhoria; use \"BLOQUEADO\" quando faltar dado ou depender de autorização.\n"
+            "9. Se aparecer deploy, migração, auth, billing, secrets ou pagamento, coloque lane \"BLOQUEADO\" e explique blocked_reason.\n\n"
+            "Campos de cada card:\n"
+            "- title: frase curta começando com verbo ou com o ticket do cliente.\n"
+            "- module: Radar, Vendas, WhatsApp, Retorno, Backend, Frontend, Owner ou HBX.\n"
+            "- priority: Crítica, Alta, Média ou Baixa.\n"
+            "- lane: BACKLOG, HOJE, AGUARDANDO CODEX, TESTAR ou BLOQUEADO.\n"
+            "- type: Ticket cliente, Resposta API, Produto, Bug, Pesquisa ou Operação.\n"
+            "- description: contexto, cliente/empresa, evidência do PDF/API e impacto.\n"
+            "- acceptance_criteria: como saber que o card foi resolvido.\n"
+            "- test_command: comando real se existir; vazio se não existir.\n"
+            "- codex_prompt: instrução objetiva para implementar ou investigar no repositório.\n"
+            "- chatgpt_prompt: pergunta de revisão quando fizer sentido.\n"
+            "- estimate_minutes: número inteiro.\n"
+            "- blocked_reason: vazio ou motivo do bloqueio.\n\n"
+            "Formato obrigatório:\n"
+            f"{AUTOCARD_JSON_START}\n"
+            "[\n"
+            "  {\n"
+            "    \"title\": \"Formalizar ticket do cliente X sobre falha Y\",\n"
+            "    \"module\": \"Retorno\",\n"
+            "    \"priority\": \"Alta\",\n"
+            "    \"lane\": \"HOJE\",\n"
+            "    \"type\": \"Ticket cliente\",\n"
+            "    \"description\": \"Cliente, evidência do PDF/API, impacto e origem.\",\n"
+            "    \"acceptance_criteria\": \"Ticket reproduzido, corrigido ou encaminhado com evidência registrada.\",\n"
+            "    \"test_command\": \"\",\n"
+            "    \"codex_prompt\": \"Investigar o fluxo citado e registrar a menor correção segura.\",\n"
+            "    \"chatgpt_prompt\": \"Revisar se o ticket cobre causa, impacto e aceite.\",\n"
+            "    \"estimate_minutes\": 60,\n"
+            "    \"blocked_reason\": \"\"\n"
+            "  }\n"
+            "]\n"
+            f"{AUTOCARD_JSON_END}\n\n"
+            "Texto extraído localmente:\n"
+            "<<<HBX_PDF_TEXT_START\n"
+            f"{text_block}\n"
+            "HBX_PDF_TEXT_END>>>\n"
+        )
+
+    def send_pdf_to_automation(self, pdf_path: Path, prompt: str) -> str:
+        url = str(self.config_data.get("pdf_automation_url") or "").strip()
+        if not url:
+            return ""
+        try:
+            pdf_bytes = pdf_path.read_bytes()
+        except OSError as exc:
+            self.autocard_status_var.set(f"PDF não lido para automação: {exc}")
+            return ""
+        if len(pdf_bytes) > PDF_AUTOMATION_MAX_BYTES:
+            self.autocard_status_var.set("PDF maior que 25 MB; automação não acionada.")
+            return ""
+
+        payload = {
+            "kind": "hbx-owner-pdf-to-cards",
+            "filename": pdf_path.name,
+            "pdfPath": str(pdf_path),
+            "pdfBase64": base64.b64encode(pdf_bytes).decode("ascii"),
+            "prompt": prompt,
+            "expectedFormat": "HBX_CARDS_JSON",
+        }
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        headers = {"Content-Type": "application/json; charset=utf-8"}
+        token = str(os.environ.get("HBX_OWNER_PDF_AUTOMATION_TOKEN") or self.config_data.get("pdf_automation_token") or "").strip()
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        timeout = self.parse_int_config("pdf_automation_timeout_seconds", 90)
+
+        try:
+            request = urllib.request.Request(url, data=body, headers=headers, method="POST")
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                raw = response.read().decode("utf-8", errors="replace").strip()
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            self.autocard_status_var.set(f"Automação PDF indisponível: {exc}")
+            return ""
+
+        parsed = self.extract_automation_response_text(raw)
+        if parsed:
+            return parsed
+        self.autocard_status_var.set("Automação respondeu, mas sem texto/cards reconhecíveis.")
+        return ""
+
+    def extract_automation_response_text(self, raw: str) -> str:
+        if not raw:
+            return ""
+        if AUTOCARD_JSON_START in raw and AUTOCARD_JSON_END in raw:
+            return raw
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            return raw
+
+        cards_payload = None
+        if isinstance(payload, list):
+            cards_payload = payload
+        elif isinstance(payload, dict):
+            for key in ("response", "text", "content", "answer", "message", "output"):
+                value = payload.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+            for key in ("cards", "items"):
+                value = payload.get(key)
+                if isinstance(value, list):
+                    cards_payload = value
+                    break
+            data = payload.get("data")
+            if isinstance(data, dict):
+                return self.extract_automation_response_text(json.dumps(data, ensure_ascii=False))
+
+        if cards_payload is not None:
+            return (
+                f"{AUTOCARD_JSON_START}\n"
+                f"{json.dumps(cards_payload, indent=2, ensure_ascii=False)}\n"
+                f"{AUTOCARD_JSON_END}"
+            )
+        return ""
+
+    def parse_int_config(self, key: str, fallback: int) -> int:
+        try:
+            value = int(float(str(self.config_data.get(key, fallback))))
+        except (TypeError, ValueError):
+            return fallback
+        return value if value > 0 else fallback
+
+    def hbx_cards_json_template(self) -> str:
+        sample = [
+            {
+                "title": "Implementar TicketService para suporte técnico",
+                "module": "backend",
+                "priority": "Alta",
+                "lane": "AGUARDANDO CODEX",
+                "type": "technical_support",
+                "description": "Transformar atendimento técnico do cliente em ticket operacional.",
+                "acceptance_criteria": "Ticket criado com status inicial e dados de origem.",
+                "test_command": "npm run build",
+                "codex_prompt": "Leia AGENTS.md e implemente o serviço mantendo o escopo seguro.",
+            }
+        ]
+        return (
+            f"{AUTOCARD_JSON_START}\n"
+            f"{json.dumps(sample, indent=2, ensure_ascii=False)}\n"
+            f"{AUTOCARD_JSON_END}"
+        )
+
+    def copy_hbx_cards_json_format(self) -> None:
+        template = self.hbx_cards_json_template()
+        self.copy_text(template)
+        path = self.save_prompt_file("hbx-cards-json", template)
+        self.set_chatgpt_text(f"{template}\n\n---\nFormato copiado e salvo em: {path}")
+        self.autocard_status_var.set("Formato HBX_CARDS_JSON copiado para o clipboard.")
+
+    def save_chatgpt_exchange(self, response: str, prompt: str | None = None) -> None:
+        card = self.get_card(self.current_card_id) or self.get_card(self.selected_card_id)
+        card_id = int(card["id"]) if card else None
+        self.db.execute(
+            """
+            INSERT INTO chatgpt_exchanges (date, card_id, prompt, response, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (today_str(), card_id, prompt or self.last_chatgpt_prompt or "", response, now_iso()),
+        )
+
+    def import_research_text(self) -> None:
+        win = tk.Toplevel(self)
+        win.title("Importar pesquisa")
+        win.transient(self)
+        win.grab_set()
+        win.geometry("900x620")
+        win.minsize(720, 480)
+        win.configure(padx=16, pady=16, bg=THEME["bg"])
+        win.columnconfigure(0, weight=1)
+        win.rowconfigure(1, weight=1)
+
+        ttk.Label(
+            win,
+            text="Cole aqui a pesquisa, plano ou resposta do ChatGPT.",
+            style="TLabel",
+        ).grid(row=0, column=0, sticky="w", pady=(0, 10))
+
+        text_frame = ttk.LabelFrame(win, text="Pesquisa", padding=8, style="Modern.TLabelframe")
+        text_frame.grid(row=1, column=0, sticky="nsew")
+        text_frame.columnconfigure(0, weight=1)
+        text_frame.rowconfigure(0, weight=1)
+
+        text_widget = tk.Text(text_frame, height=24, wrap="word")
+        self.style_text_widget(text_widget)
+        text_widget.grid(row=0, column=0, sticky="nsew")
+        scroll = ttk.Scrollbar(text_frame, orient="vertical", command=text_widget.yview)
+        scroll.grid(row=0, column=1, sticky="ns")
+        text_widget.configure(yscrollcommand=scroll.set)
+
+        initial_text = ""
+        if hasattr(self, "chatgpt_text"):
+            initial_text = self.chatgpt_text.get("1.0", tk.END).strip()
+        if not initial_text:
+            try:
+                initial_text = self.clipboard_get().strip()
+            except tk.TclError:
+                initial_text = ""
+        if initial_text:
+            text_widget.insert("1.0", initial_text)
+
+        actions = ttk.Frame(win, style="Toolbar.TFrame")
+        actions.grid(row=2, column=0, sticky="ew", pady=(12, 0))
+        actions.columnconfigure(0, weight=1)
+
+        def finish(force_create: bool) -> None:
+            payload = text_widget.get("1.0", tk.END).strip()
+            if not payload:
+                messagebox.showwarning("Importar pesquisa", "Cole uma pesquisa antes de importar.", parent=win)
+                return
+
+            should_create = force_create or bool(self.autocard_auto_create_var.get())
+            if should_create and not self.can_create_new_card():
+                return
+
+            self.set_chatgpt_text(payload)
+            self.save_chatgpt_exchange(payload, prompt="importar-pesquisa")
+
+            if not should_create:
+                message = "Pesquisa importada e salva localmente. Auto-criação desligada."
+                self.autocard_status_var.set(message)
+                win.destroy()
+                return
+
+            created_ids, skipped_existing, recognized_count = self.create_chatgpt_cards_from_text(payload, source="Pesquisa")
+            win.destroy()
+            self.report_autocard_result(created_ids, skipped_existing, recognized_count, "Importar pesquisa")
+
+        ttk.Button(actions, text="Cancelar", command=win.destroy).grid(row=0, column=1, padx=(0, 8), sticky="e")
+        ttk.Button(actions, text="Importar texto", command=lambda: finish(False), style="Warning.TButton").grid(
+            row=0, column=2, padx=8, sticky="e"
+        )
+        ttk.Button(actions, text="Gerar cards agora", command=lambda: finish(True), style="Success.TButton").grid(
+            row=0, column=3, padx=(8, 0), sticky="e"
+        )
+
+        text_widget.focus_set()
+
+    def report_autocard_result(
+        self,
+        created_ids: list[int],
+        skipped_existing: int,
+        recognized_count: int,
+        context: str,
+        parent: tk.Misc | None = None,
+    ) -> str:
+        if created_ids:
+            message = (
+                f"{context}: {len(created_ids)} card(s) criado(s): "
+                f"{', '.join('#' + str(card_id) for card_id in created_ids)}"
+            )
+        elif recognized_count and skipped_existing:
+            message = f"{context}: {skipped_existing} card(s) reconhecido(s), mas todos já existiam."
+        elif recognized_count:
+            message = f"{context}: cards reconhecidos, mas nenhum novo foi criado."
+        else:
+            message = f"{context}: nenhum card reconhecido."
+        if hasattr(self, "autocard_status_var"):
+            self.autocard_status_var.set(message)
+        messagebox.showinfo("Autocard", message, parent=parent)
+        return message
 
     def copy_text(self, text: str) -> None:
         self.clipboard_clear()
@@ -3096,128 +4939,6 @@ class HbxOwnerApp(tk.Tk):
             "ChatGPT Desktop não encontrado. Instale o app do Windows ou configure chatgpt_app_id em config.json.",
         )
 
-    def current_card_text(self) -> str:
-        card = self.get_card(self.current_card_id) or self.get_card(self.selected_card_id)
-        if not card:
-            return "Nenhum card atual."
-        return (
-            f"#{card['id']} {card['title']} | lane: {card['lane']} | módulo: {card['module']} | "
-            f"prioridade: {card['priority']} | commit: {card['commit_sha'] or '-'}"
-        )
-
-    def repo_status_for_prompt(self) -> str:
-        ok, status = self.run_git_command(["status", "--short"])
-        return status if ok else f"Status indisponível: {status}"
-
-    def copy_prompt(self, kind: str, prompt: str) -> None:
-        self.last_chatgpt_prompt = prompt
-        self.copy_text(prompt)
-        path = self.save_prompt_file(kind, prompt)
-        self.set_chatgpt_text(f"{prompt}\n\n---\nPrompt salvo em: {path}")
-
-    def copy_checkin_prompt(self) -> None:
-        sha, message, raw_commit = self.get_last_commit_info()
-        last_commit = f"{sha} {message}".strip() if sha else raw_commit
-        prompt = (
-            "CHECK-IN HBX\n"
-            f"Data: {today_str()}\n"
-            f"Horas disponíveis: {self.config_data.get('hours_available', self.config_data.get('planned_hours', 8))}\n"
-            f"Meta única: {self.config_data.get('unique_goal', '')}\n"
-            f"Card atual: {self.current_card_text()}\n"
-            f"Tarefa técnica: {self.config_data.get('technical_task', '')}\n"
-            f"Tarefa comercial: {self.config_data.get('commercial_task', '')}\n"
-            f"Bloqueio: {self.config_data.get('blocker', '')}\n"
-            f"O que eu NÃO posso fazer hoje: {self.config_data.get('not_today', '')}\n"
-            f"Último commit: {last_commit}\n"
-            f"Status do repo:\n{self.repo_status_for_prompt()}\n"
-        )
-        self.copy_prompt("checkin", prompt)
-
-    def copy_card_review_prompt(self) -> None:
-        card = self.require_selected_card()
-        if not card:
-            return
-        prompt = (
-            "REVISÃO DE CARD HBX\n"
-            f"Card: #{card['id']} {card['title']}\n"
-            f"Módulo: {card['module']}\n"
-            f"Lane: {card['lane']}\n"
-            f"Prioridade: {card['priority']}\n"
-            f"Descrição: {card['description']}\n"
-            f"Critério de aceite: {card['acceptance_criteria']}\n"
-            f"Comando de teste: {card['test_command']}\n"
-            f"Commit vinculado: {card['commit_sha'] or '-'}\n"
-            "Me diga:\n"
-            "1. aprovado ou não\n"
-            "2. falhas prováveis\n"
-            "3. próximo card\n"
-            "4. se devo parar ou continuar\n"
-        )
-        self.copy_prompt("card-review", prompt)
-
-    def copy_commit_review_prompt(self) -> None:
-        sha, message, raw_commit = self.get_last_commit_info()
-        ok, diff_stat = self.run_git_command(["show", "--stat", "--oneline", "--summary", "HEAD"])
-        card = self.get_card(self.current_card_id) or self.get_card(self.selected_card_id)
-        prompt = (
-            "REVISÃO HBX\n"
-            f"Commit: {sha or raw_commit}\n"
-            f"Mensagem: {message}\n"
-            f"Diff stat:\n{diff_stat if ok else 'Indisponível: ' + diff_stat}\n"
-            f"Card relacionado: {self.current_card_text()}\n"
-            f"Critério de aceite: {card['acceptance_criteria'] if card else ''}\n"
-            f"Comando de teste: {card['test_command'] if card else ''}\n"
-            f"Riscos: {card['blocked_reason'] if card else ''}\n"
-            "Me diga:\n"
-            "1. aprovado ou não\n"
-            "2. falhas prováveis\n"
-            "3. próximo card\n"
-            "4. se devo parar ou continuar\n"
-        )
-        self.copy_prompt("commit-review", prompt)
-
-    def paste_chatgpt_response(self) -> None:
-        try:
-            initial_text = self.clipboard_get()
-        except tk.TclError:
-            initial_text = ""
-
-        win = tk.Toplevel(self)
-        win.title("Colar resposta do ChatGPT")
-        win.transient(self)
-        win.grab_set()
-        win.geometry("760x520")
-        win.configure(bg=THEME["bg"])
-        win.columnconfigure(0, weight=1)
-        win.rowconfigure(0, weight=1)
-
-        text = tk.Text(win, wrap="word")
-        self.style_text_widget(text)
-        text.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
-        text.insert("1.0", initial_text)
-
-        def save_response() -> None:
-            response = text.get("1.0", tk.END).strip()
-            if not response:
-                messagebox.showerror("ChatGPT", "Cole uma resposta antes de salvar.", parent=win)
-                return
-            card = self.get_card(self.current_card_id) or self.get_card(self.selected_card_id)
-            self.db.execute(
-                """
-                INSERT INTO chatgpt_exchanges (date, card_id, prompt, response, created_at)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (today_str(), card["id"] if card else None, self.last_chatgpt_prompt, response, now_iso()),
-            )
-            self.set_chatgpt_text(response)
-            win.destroy()
-            messagebox.showinfo("ChatGPT", "Resposta salva localmente.")
-
-        actions = ttk.Frame(win, style="Toolbar.TFrame")
-        actions.grid(row=1, column=0, sticky="e", padx=10, pady=(0, 10))
-        ttk.Button(actions, text="Cancelar", command=win.destroy).grid(row=0, column=0, padx=(0, 8))
-        ttk.Button(actions, text="Salvar resposta", command=save_response, style="Accent.TButton").grid(row=0, column=1)
-
     def transform_response_into_cards(self) -> None:
         if not self.can_create_new_card():
             return
@@ -3233,41 +4954,265 @@ class HbxOwnerApp(tk.Tk):
             latest = self.db.fetchone("SELECT response FROM chatgpt_exchanges ORDER BY id DESC LIMIT 1")
             raw = latest["response"] if latest else ""
         if not raw:
-            messagebox.showwarning("Parser", "Não há resposta para transformar em cards.")
+            self.autocard_status_var.set("Não há pesquisa ou resposta para transformar em cards.")
+            messagebox.showwarning("Autocard", "Não há pesquisa ou resposta para transformar em cards.")
             return
 
+        self.save_chatgpt_exchange(raw, prompt="gerar-cards-automatico")
+        created_ids, skipped_existing, recognized_count = self.create_chatgpt_cards_from_text(raw)
+        if created_ids:
+            self.set_chatgpt_text(
+                f"{len(created_ids)} card(s) criado(s): {', '.join('#' + str(cid) for cid in created_ids)}"
+            )
+        self.report_autocard_result(created_ids, skipped_existing, recognized_count, "Gerar cards automático")
+
+    def create_chatgpt_cards_from_text(self, raw: str, source: str = "ChatGPT") -> tuple[list[int], int, int]:
         cards = self.parse_chatgpt_cards(raw)
-        if not cards:
-            messagebox.showinfo("Parser", "Nenhum card reconhecido no texto.")
-            return
-
-        created_ids = [self.insert_kanban_card(card, source="ChatGPT") for card in cards]
-        self.refresh_kanban()
-        self.set_chatgpt_text(f"{len(created_ids)} card(s) criado(s): {', '.join('#' + str(cid) for cid in created_ids)}")
-        messagebox.showinfo("Parser", f"{len(created_ids)} card(s) criado(s) no Kanban.")
-
-    def parse_chatgpt_cards(self, text: str) -> list[dict]:
-        cards: list[dict] = []
-        cards.extend(self.parse_card_blocks(text))
-        cards.extend(self.parse_markdown_tasks(text))
-        cards.extend(self.parse_next_cards_block(text))
-
-        seen: set[str] = set()
-        unique_cards: list[dict] = []
+        created_ids: list[int] = []
+        skipped_existing = 0
         for card in cards:
             title = card.get("title", "").strip()
             if not title:
                 continue
-            key = title.lower()
-            if key in seen:
+            if self.card_title_exists(title):
+                skipped_existing += 1
+                continue
+            created_ids.append(self.insert_kanban_card(card, source=source))
+        if created_ids:
+            self.refresh_kanban()
+        return created_ids, skipped_existing, len(cards)
+
+    def parse_chatgpt_cards(self, text: str) -> list[dict]:
+        return self.compile_autocards(text)
+
+    def compile_autocards(self, text: str) -> list[dict]:
+        raw = str(text or "").strip()
+        if not raw:
+            return []
+
+        json_cards = self.parse_hbx_cards_json(raw)
+        if json_cards:
+            return self.unique_autocards(json_cards)
+
+        legacy_cards: list[dict] = []
+        legacy_cards.extend(self.parse_card_blocks(raw))
+        legacy_cards.extend(self.parse_markdown_tasks(raw))
+        legacy_cards.extend(self.parse_next_cards_block(raw))
+        if legacy_cards:
+            return self.unique_autocards(legacy_cards)
+
+        freeform_cards: list[dict] = []
+        freeform_cards.extend(self.parse_section_action_cards(raw))
+        freeform_cards.extend(self.parse_freeform_action_cards(raw))
+        return self.unique_autocards(freeform_cards)
+
+    def parse_hbx_cards_json(self, text: str) -> list[dict]:
+        pattern = re.compile(
+            rf"{re.escape(AUTOCARD_JSON_START)}\s*(.*?)\s*{re.escape(AUTOCARD_JSON_END)}",
+            re.IGNORECASE | re.DOTALL,
+        )
+        cards: list[dict] = []
+        for match in pattern.finditer(text):
+            block = match.group(1).strip()
+            if not block:
+                continue
+            try:
+                payload = json.loads(block)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict):
+                payload = payload.get("cards") or payload.get("items") or []
+            if not isinstance(payload, list):
+                continue
+            for item in payload:
+                if isinstance(item, dict):
+                    cards.append(dict(item))
+        return cards
+
+    def unique_autocards(self, cards: list[dict]) -> list[dict]:
+        seen: set[str] = set()
+        unique_cards: list[dict] = []
+        for card in cards:
+            normalized = self.normalize_autocard_payload(card)
+            title = normalized.get("title", "").strip()
+            key = self.normalize_card_title_key(title)
+            if not key or key in seen:
                 continue
             seen.add(key)
-            unique_cards.append(card)
+            unique_cards.append(normalized)
+            if len(unique_cards) >= AUTOCARD_MAX_CARDS:
+                break
         return unique_cards
+
+    def normalize_card_title_key(self, title: str) -> str:
+        clean = unicodedata.normalize("NFD", str(title or "").lower())
+        clean = "".join(ch for ch in clean if unicodedata.category(ch) != "Mn")
+        clean = re.sub(r"[^a-z0-9]+", " ", clean)
+        return re.sub(r"\s+", " ", clean).strip()
+
+    def normalize_autocard_payload(self, card: dict | None) -> dict:
+        raw = dict(card or {})
+        title = self.clean_chatgpt_candidate_text(str(raw.get("title") or raw.get("titulo") or ""))
+        if not title:
+            return {}
+        title = title[:180].rstrip(" ,.;:")
+        full_text = " ".join(str(raw.get(key) or "") for key in ("title", "description", "module", "type", "codex_prompt"))
+        full_text = f"{title} {full_text}"
+        priority = self.normalize_autocard_priority(raw.get("priority") or raw.get("prioridade"), full_text)
+        lane = self.normalize_autocard_lane(raw.get("lane") or raw.get("status"), full_text)
+        sensitive = self.autocard_has_sensitive_terms(full_text)
+        if sensitive and lane == "FEITO":
+            lane = "BLOQUEADO"
+        elif sensitive and lane not in ("BLOQUEADO", "AGUARDANDO CODEX"):
+            lane = "BLOQUEADO"
+
+        blocked_reason = str(raw.get("blocked_reason") or raw.get("bloqueio") or "").strip()
+        if sensitive and not blocked_reason:
+            blocked_reason = "Requer revisão do dono antes de qualquer ação sensível."
+
+        return {
+            "title": title,
+            "description": str(raw.get("description") or raw.get("descricao") or "").strip(),
+            "module": str(raw.get("module") or raw.get("modulo") or self.infer_module_from_text(full_text)).strip()[:60],
+            "type": str(raw.get("type") or raw.get("tipo") or "ChatGPT").strip()[:60],
+            "priority": priority,
+            "lane": lane,
+            "acceptance_criteria": str(
+                raw.get("acceptance_criteria")
+                or raw.get("criterio_de_aceite")
+                or raw.get("critério_de_aceite")
+                or raw.get("criterio de aceite")
+                or raw.get("critério de aceite")
+                or "Entrega verificável registrada no HBX Owner."
+            ).strip(),
+            "test_command": str(raw.get("test_command") or raw.get("teste") or "").strip(),
+            "codex_prompt": str(raw.get("codex_prompt") or raw.get("prompt_codex") or raw.get("prompt codex") or "").strip(),
+            "chatgpt_prompt": str(raw.get("chatgpt_prompt") or raw.get("prompt_chatgpt") or raw.get("prompt chatgpt") or "").strip(),
+            "estimate_minutes": self.normalize_autocard_estimate(raw.get("estimate_minutes"), priority),
+            "blocked_reason": blocked_reason,
+        }
+
+    def normalize_autocard_priority(self, value: object, text: str) -> str:
+        key = self.normalize_card_title_key(str(value or ""))
+        if key in ("critica", "critico"):
+            return "Crítica"
+        if key == "alta":
+            return "Alta"
+        if key in ("media", "medio"):
+            return "Média"
+        if key == "baixa":
+            return "Baixa"
+        lowered = self.normalize_card_title_key(text)
+        if any(self.normalize_card_title_key(term) in lowered for term in AUTOCARD_HIGH_PRIORITY_TERMS):
+            return "Alta"
+        return self.infer_priority_from_text(text)
+
+    def normalize_autocard_lane(self, value: object, text: str) -> str:
+        raw = str(value or "").strip().upper()
+        raw = unicodedata.normalize("NFD", raw)
+        raw = "".join(ch for ch in raw if unicodedata.category(ch) != "Mn")
+        raw = re.sub(r"[_\-]+", " ", raw)
+        raw = re.sub(r"\s+", " ", raw).strip()
+        aliases = {
+            "AGUARDANDO CODEX": "AGUARDANDO CODEX",
+            "WAITING CODEX": "AGUARDANDO CODEX",
+            "AGUARDANDO": "AGUARDANDO CODEX",
+            "REVISAR COM CHATGPT": "REVISAR COM CHATGPT",
+            "BACKLOG": "BACKLOG",
+            "NEW": "BACKLOG",
+            "TRIAGE": "HOJE",
+            "HOJE": "HOJE",
+            "FAZENDO": "FAZENDO",
+            "IN PROGRESS": "FAZENDO",
+            "TESTAR": "TESTAR",
+            "FEITO": "FEITO",
+            "DONE": "FEITO",
+            "BLOQUEADO": "BLOQUEADO",
+            "ARQUIVADO": "ARQUIVADO",
+        }
+        if raw in aliases:
+            return aliases[raw]
+        return self.infer_lane_from_text(text)
+
+    def normalize_autocard_estimate(self, value: object, priority: str) -> int:
+        try:
+            parsed = int(float(str(value or "").strip()))
+        except ValueError:
+            parsed = 0
+        if parsed > 0:
+            return max(5, min(parsed, 960))
+        return 60 if priority in ("Alta", "Crítica") else 30
+
+    def autocard_has_sensitive_terms(self, text: str) -> bool:
+        normalized = self.normalize_card_title_key(text)
+        return any(self.normalize_card_title_key(term) in normalized.split() for term in AUTOCARD_SENSITIVE_TERMS)
+
+    def parse_section_action_cards(self, text: str) -> list[dict]:
+        cards: list[dict] = []
+        in_action_section = False
+        section_label = ""
+        for raw_line in text.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            bullet_match = re.match(r"^(?:[-*•]\s+|\[[ xX]\]\s+|\d+[\).\-\s]+)(.+)$", line)
+            if not bullet_match and self.is_freeform_heading(line):
+                in_action_section = self.heading_suggests_actions(line)
+                section_label = self.clean_chatgpt_candidate_text(line.strip("# :"))
+                continue
+            if not in_action_section:
+                continue
+
+            content = (bullet_match.group(1) if bullet_match else line).strip()
+            if not content:
+                continue
+
+            candidates = self.extract_freeform_candidates(content, True)
+            titled_candidates = [
+                (candidate, self.normalize_freeform_title(candidate))
+                for candidate in candidates
+            ]
+            titled_candidates = [(candidate, title) for candidate, title in titled_candidates if title]
+            if not titled_candidates:
+                section_candidate = self.normalize_section_action_candidate(content)
+                section_title = self.normalize_freeform_title(section_candidate)
+                if section_candidate and section_title:
+                    titled_candidates = [(section_candidate, section_title)]
+            for candidate, title in titled_candidates:
+                card = self.build_freeform_card(title, candidate)
+                card["lane"] = self.infer_lane_from_text(f"{section_label} {candidate}")
+                card["description"] = (
+                    f"Criado automaticamente a partir da seção {section_label or 'operacional'}.\n\n"
+                    f"Trecho: {content[:800]}"
+                )
+                cards.append(card)
+                if len(cards) >= AUTOCARD_MAX_CARDS:
+                    return cards
+        return cards
+
+    def normalize_section_action_candidate(self, text: str) -> str:
+        clean = self.clean_chatgpt_candidate_text(text)
+        if not clean or len(clean) < 6:
+            return ""
+        clean = re.sub(r"^sprint\s+\d+\s*[—-]\s*", "", clean, flags=re.IGNORECASE).strip()
+        clean = re.sub(r"^objetivo\s*[:\-]\s*", "", clean, flags=re.IGNORECASE).strip()
+        if not clean or len(clean) > 180:
+            return ""
+        if self.has_action_verb(clean):
+            return clean
+        return f"Implementar {clean}"
 
     def infer_lane_from_text(self, text: str) -> str:
         upper = text.upper()
-        if "HOJE" in upper or "AGORA" in upper:
+        if "BLOQUEADO" in upper or "BLOQUEIO" in upper:
+            return "BLOQUEADO"
+        if "AGUARDANDO CODEX" in upper or "WAITING_CODEX" in upper or "WAITING CODEX" in upper:
+            return "AGUARDANDO CODEX"
+        if "TESTAR" in upper or "TESTE" in upper:
+            return "TESTAR"
+        if "REVISAR COM CHATGPT" in upper:
+            return "REVISAR COM CHATGPT"
+        if "HOJE" in upper or "AGORA" in upper or "PRIORIDADE IMEDIATA" in upper or "IMEDIATA" in upper or "P0" in upper:
             return "HOJE"
         return "BACKLOG"
 
@@ -3281,9 +5226,21 @@ class HbxOwnerApp(tk.Tk):
             "criterio de aceite": "acceptance_criteria",
             "critério de aceite": "acceptance_criteria",
             "teste": "test_command",
+            "test_command": "test_command",
             "descricao": "description",
             "descrição": "description",
+            "tipo": "type",
             "lane": "lane",
+            "status": "lane",
+            "prompt codex": "codex_prompt",
+            "codex prompt": "codex_prompt",
+            "codex_prompt": "codex_prompt",
+            "prompt chatgpt": "chatgpt_prompt",
+            "chatgpt_prompt": "chatgpt_prompt",
+            "bloqueio": "blocked_reason",
+            "blocked_reason": "blocked_reason",
+            "estimativa": "estimate_minutes",
+            "estimate_minutes": "estimate_minutes",
         }
         cards: list[dict] = []
         current: dict | None = None
@@ -3355,7 +5312,7 @@ class HbxOwnerApp(tk.Tk):
                 continue
             if not in_block:
                 continue
-            match = re.match(r"^\d+[\).\-\s]+(.+)$", line)
+            match = re.match(r"^(?:[-*•]\s+|\d+[\).\-\s]+)(.+)$", line)
             if not match:
                 continue
             title = match.group(1).strip()
@@ -3370,6 +5327,257 @@ class HbxOwnerApp(tk.Tk):
                     }
                 )
         return cards
+
+    def parse_freeform_action_cards(self, text: str) -> list[dict]:
+        cards: list[dict] = []
+        candidates: list[str] = []
+        in_action_section = False
+
+        for raw_line in text.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            if self.is_freeform_heading(line):
+                in_action_section = self.heading_suggests_actions(line)
+                continue
+
+            bullet_match = re.match(r"^(?:[-*•]\s+|\d+[\).\-\s]+)(.+)$", line)
+            if bullet_match:
+                candidates.extend(self.extract_freeform_candidates(bullet_match.group(1), in_action_section))
+                continue
+
+            candidates.extend(self.extract_freeform_candidates(line, in_action_section))
+
+        seen: set[str] = set()
+        for candidate in candidates:
+            title = self.normalize_freeform_title(candidate)
+            if not title:
+                continue
+            key = re.sub(r"\W+", "", title.lower())
+            if key in seen:
+                continue
+            seen.add(key)
+            cards.append(self.build_freeform_card(title, candidate))
+            if len(cards) >= CHATGPT_FREEFORM_MAX_CARDS:
+                break
+        return cards
+
+    def extract_freeform_candidates(self, line: str, in_action_section: bool) -> list[str]:
+        clean = self.clean_chatgpt_candidate_text(line)
+        if not clean:
+            return []
+
+        lowered = clean.lower()
+        if not in_action_section and any(lowered.startswith(prefix) for prefix in CHATGPT_NON_ACTION_PREFIXES):
+            return []
+
+        candidates: list[str] = []
+        if any(marker in lowered for marker in CHATGPT_GAP_MARKERS):
+            candidates.extend(self.extract_gap_candidates(clean))
+
+        if in_action_section or self.has_action_verb(clean):
+            candidates.extend(self.split_freeform_action_segments(clean))
+
+        return candidates
+
+    def extract_gap_candidates(self, line: str) -> list[str]:
+        lowered = line.lower()
+        marker_positions = [(lowered.find(marker), marker) for marker in CHATGPT_GAP_MARKERS if marker in lowered]
+        if not marker_positions:
+            return []
+        index, marker = min(marker_positions, key=lambda item: item[0])
+        fragment = line[index + len(marker) :].strip(" :.,;")
+        if not fragment:
+            return []
+
+        fragment = re.split(r"(?<=[.!?])\s+(?=[A-ZÀ-Ý])", fragment, maxsplit=1)[0]
+        fragment = re.sub(r"\s+e\s+(?=[a-zA-ZÀ-ÿ0-9])", "; ", fragment, flags=re.IGNORECASE)
+        parts = re.split(r"[,;]+", fragment)
+        return [part.strip() for part in parts if part.strip()]
+
+    def split_freeform_action_segments(self, line: str) -> list[str]:
+        action_pattern = "|".join(re.escape(verb) for verb in CHATGPT_ACTION_VERBS)
+        line = re.sub(rf"\s+e\s+(?=(?:{action_pattern})\b)", "; ", line, flags=re.IGNORECASE)
+        chunks = re.split(r";+|(?<=[.!?])\s+", line)
+        segments: list[str] = []
+        for chunk in chunks:
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            if "," in chunk and len(chunk) > 80:
+                segments.extend(part.strip() for part in chunk.split(",") if part.strip())
+            else:
+                segments.append(chunk)
+        return segments
+
+    def normalize_freeform_title(self, text: str) -> str:
+        title = self.clean_chatgpt_candidate_text(text)
+        if not title:
+            return ""
+
+        title = self.strip_before_action_verb(title)
+        title = self.strip_freeform_modal_prefix(title)
+        title = self.normalize_gap_title(title)
+        title = self.clean_chatgpt_candidate_text(title)
+
+        if not title or len(title) < 8:
+            return ""
+        if not self.has_action_verb(title):
+            return ""
+        if len(title) > 180:
+            title = title[:177].rstrip(" ,.;:") + "..."
+        return title[:1].upper() + title[1:]
+
+    def clean_chatgpt_candidate_text(self, text: str) -> str:
+        clean = re.sub(r"https?://\S+", "", text)
+        clean = re.sub(r"\[[^\]]+\]", "", clean)
+        clean = clean.replace("**", "").replace("__", "").replace("`", "")
+        clean = re.sub(
+            r"^\s*(?:ação|acao|tarefa|card|próximo card|proximo card|recomendação|recomendacao)\s*[:\-]\s*",
+            "",
+            clean,
+            flags=re.IGNORECASE,
+        )
+        clean = re.sub(r"^\s*\[[ xX]\]\s+", "", clean)
+        clean = re.sub(r"\s+", " ", clean)
+        return clean.strip(" \t\r\n.,;:-")
+
+    def strip_before_action_verb(self, title: str) -> str:
+        action_pattern = "|".join(re.escape(verb) for verb in CHATGPT_ACTION_VERBS)
+        match = re.search(rf"\b(?:{action_pattern})\b", title, flags=re.IGNORECASE)
+        if match and match.start() > 0:
+            return title[match.start() :].strip(" ,.;:")
+        return title
+
+    def strip_freeform_modal_prefix(self, title: str) -> str:
+        title = re.sub(
+            r"^(?:o\s+)?(?:sistema|app|hbx|backend|frontend|owner)?\s*(?:deve|precisa|deveria|tem que)\s+",
+            "",
+            title,
+            flags=re.IGNORECASE,
+        )
+        title = re.sub(r"^(?:é necessário|e necessario|recomendo|recomenda-se)\s+", "", title, flags=re.IGNORECASE)
+        title = re.sub(r"^(?:e|ou)\s+", "", title, flags=re.IGNORECASE)
+        return title.strip(" ,.;:")
+
+    def normalize_gap_title(self, title: str) -> str:
+        lower = title.lower()
+        conversions = (
+            ("formalização de ", "Formalizar "),
+            ("formalizacao de ", "Formalizar "),
+            ("validação de ", "Validar "),
+            ("validacao de ", "Validar "),
+            ("integração de ", "Integrar "),
+            ("integracao de ", "Integrar "),
+            ("documentação de ", "Documentar "),
+            ("documentacao de ", "Documentar "),
+            ("automação de ", "Automatizar "),
+            ("automacao de ", "Automatizar "),
+        )
+        for prefix, replacement in conversions:
+            if lower.startswith(prefix):
+                return replacement + title[len(prefix) :].strip()
+
+        if lower.startswith("fila "):
+            return "Tornar " + title
+        if lower.startswith(("ticket/os", "ticket/OS")):
+            return "Formalizar " + title
+        if lower.startswith(("deep email discovery", "email discovery", "email finder", "email verifier")):
+            return "Implementar " + title
+        if lower.startswith(("campanha ", "campanha automática", "campanha automatica")):
+            return "Implementar " + title
+        if lower.startswith(("anexo", "anexos")):
+            return "Adicionar " + title
+        return title
+
+    def has_action_verb(self, text: str) -> bool:
+        lowered = text.lower()
+        action_pattern = "|".join(re.escape(verb) for verb in CHATGPT_ACTION_VERBS)
+        return bool(re.search(rf"\b(?:{action_pattern})\b", lowered, flags=re.IGNORECASE))
+
+    def is_freeform_heading(self, line: str) -> bool:
+        clean = self.clean_chatgpt_candidate_text(line.strip("# "))
+        if not clean or len(clean) > 80:
+            return False
+        if line.rstrip().endswith(":"):
+            return True
+        if any(mark in clean for mark in (".", "?", "!")):
+            return False
+        return clean[:1].isupper() and len(clean.split()) <= 8
+
+    def heading_suggests_actions(self, line: str) -> bool:
+        lowered = self.clean_chatgpt_candidate_text(line).lower()
+        return any(hint in lowered for hint in CHATGPT_ACTION_SECTION_HINTS)
+
+    def build_freeform_card(self, title: str, source_text: str) -> dict:
+        priority = self.infer_priority_from_text(title + " " + source_text)
+        return {
+            "title": title,
+            "description": f"Criado automaticamente a partir de resposta livre do ChatGPT.\n\nTrecho: {source_text[:800]}",
+            "module": self.infer_module_from_text(title + " " + source_text),
+            "type": "ChatGPT",
+            "priority": priority,
+            "lane": self.infer_lane_from_text(title + " " + source_text),
+            "acceptance_criteria": "Entrega verificável registrada no HBX Owner.",
+            "test_command": "",
+            "estimate_minutes": 60 if priority in ("Alta", "Crítica") else 30,
+        }
+
+    def infer_priority_from_text(self, text: str) -> str:
+        lowered = text.lower()
+        if any(term in lowered for term in ("p0", "crítico", "critico", "quebrado", "bloqueio", "vazamento")):
+            return "Crítica"
+        if any(
+            term in lowered
+            for term in (
+                "urgente",
+                "deve",
+                "precisa",
+                "fraco em",
+                "falta",
+                "monetização",
+                "monetizacao",
+                "durável",
+                "duravel",
+                "ticket",
+                "os",
+                "fila",
+            )
+        ):
+            return "Alta"
+        return "Média"
+
+    def infer_module_from_text(self, text: str) -> str:
+        lowered = text.lower()
+        module_keywords = (
+            (
+                "Radar",
+                (
+                    "radar",
+                    "lead",
+                    "leads",
+                    "oportunidade",
+                    "hunter",
+                    "domain search",
+                    "enriquecimento",
+                    "email discovery",
+                    "email finder",
+                    "email verifier",
+                    "deep email",
+                ),
+            ),
+            ("WhatsApp", ("whatsapp", "mensagem", "atendimento")),
+            ("Retorno", ("retorno", "suporte", "ticket", "ticket/os", "os", "inbound", "conversa", "agenda")),
+            ("Vendas", ("venda", "vendas", "comercial", "pipeline", "campanha", "outbound", "demo")),
+            ("Backend", ("backend", "prisma", "nest", "api", "banco", "sqlite", "firestore", "worker", "fila")),
+            ("Frontend", ("frontend", "next", "react", "tela", "ui", "interface")),
+            ("Owner", ("owner", "codex", "chatgpt", "automação", "automacao", "documentação", "documentacao")),
+        )
+        for module, keywords in module_keywords:
+            if any(keyword in lowered for keyword in keywords):
+                return module
+        return "HBX"
 
     def get_current_session(self) -> sqlite3.Row | None:
         return self.db.fetchone(
@@ -4057,6 +6265,12 @@ class HbxOwnerApp(tk.Tk):
             ("planned_hours", "Horas planejadas"),
             ("hours_available", "Horas disponíveis"),
             ("chatgpt_app_id", "ChatGPT Desktop AppID"),
+            ("pdf_automation_url", "PDF automation URL"),
+            ("owner_backend_url", "Owner backend URL"),
+            ("owner_tickets_secret", "Owner tickets secret"),
+            ("pr_lab_base_branch", "PR Lab base branch"),
+            ("pr_lab_worktree_dir", "PR Lab worktree dir"),
+            ("pr_lab_localhost_url", "PR Lab localhost URL"),
             ("unique_goal", "Meta única"),
             ("technical_task", "Tarefa técnica"),
             ("commercial_task", "Tarefa comercial"),
@@ -4067,7 +6281,8 @@ class HbxOwnerApp(tk.Tk):
             ttk.Label(panel, text=label, style="CardMuted.TLabel").grid(row=row, column=0, sticky="w", padx=(0, 10), pady=5)
             var = tk.StringVar(value=str(self.config_data.get(key, "")))
             self.config_entries[key] = var
-            ttk.Entry(panel, textvariable=var).grid(row=row, column=1, sticky="ew", pady=5)
+            show_char = "*" if key == "owner_tickets_secret" else ""
+            ttk.Entry(panel, textvariable=var, show=show_char).grid(row=row, column=1, sticky="ew", pady=5)
 
         boss_row = len(fields)
         ttk.Checkbutton(panel, text="Chefe chato", variable=self.boss_mode_var).grid(

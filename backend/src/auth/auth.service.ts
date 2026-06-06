@@ -2135,6 +2135,7 @@ export class AuthService implements OnModuleInit {
         company: {
           select: {
             name: true,
+            slug: true,
             onboardingStatus: true,
             entityType: true,
             trialModuleSelection: true,
@@ -2144,7 +2145,16 @@ export class AuthService implements OnModuleInit {
       },
     });
 
-    if (!user || user.emailConfirmedAt || String(user.company?.onboardingStatus || '').trim().toLowerCase() !== 'pending_email_confirmation') {
+    const onboardingStatus = String(user?.company?.onboardingStatus || '').trim().toLowerCase();
+    const isHbxOperationalCompany =
+      String(user?.company?.slug || '').trim().toLowerCase() === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG;
+    const canResendConfirmation = Boolean(
+      user &&
+        !user.emailConfirmedAt &&
+        (onboardingStatus === 'pending_email_confirmation' || isHbxOperationalCompany),
+    );
+
+    if (!canResendConfirmation) {
       return {
         ok: true,
         status: 'confirmation_resent_if_pending',

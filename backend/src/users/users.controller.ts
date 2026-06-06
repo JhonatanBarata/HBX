@@ -20,6 +20,7 @@ import {
 } from '../mail/hbx-presentation-email.service';
 import { MailService, type MailAttachment, type MailSendResult } from '../mail/mail.service';
 import { HbxPartnerReferralService } from '../gerencial/hbx-partner-referral.service';
+import * as crypto from 'crypto';
 
 class UpdateRoleDto {
 	@IsString()
@@ -396,6 +397,83 @@ export class UsersController {
 
 	private roleWelcomeLabel(role: 'USER' | 'ADMIN') {
 		return role === 'ADMIN' ? 'admin' : 'vendedor';
+	}
+
+	private createEmailConfirmationToken() {
+		return crypto.randomBytes(32).toString('base64url');
+	}
+
+	private hashEmailConfirmationToken(rawToken: string) {
+		return crypto.createHash('sha256').update(rawToken).digest('hex');
+	}
+
+	private shouldExposeEmailConfirmationDebugLink() {
+		const debugEnabled = String(process.env.AUTH_DEBUG_CONFIRMATION_LINK || '').trim().toLowerCase() === 'true';
+		return debugEnabled && String(process.env.NODE_ENV || '').trim().toLowerCase() !== 'production';
+	}
+
+	private buildEmailConfirmationLink(rawToken: string) {
+		return `${this.buildAppUrl()}/confirm-email?token=${encodeURIComponent(rawToken)}`;
+	}
+
+	private async sendAccountConfirmationEmail(input: {
+		userId: number;
+		email?: string | null;
+		username?: string | null;
+		name?: string | null;
+		companyName?: string | null;
+		source: string;
+	}): Promise<Pick<MailSendResult, 'ok' | 'transport' | 'messageId' | 'errorCode' | 'errorMessage'> & { previewUrl?: string | null; confirmUrl?: string | null } | null> {
+		const userId = Number(input.userId || 0);
+		const email = String(input.email || '').trim().toLowerCase();
+		if (!userId || !email) return null;
+		const rawToken = this.createEmailConfirmationToken();
+		const confirmationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+		await this.usersService.updateById(userId, {
+			emailConfirmationToken: this.hashEmailConfirmationToken(rawToken),
+			emailConfirmationSentAt: new Date(),
+			emailConfirmationExpiresAt: confirmationExpiresAt,
+		});
+
+		const confirmationLink = this.buildEmailConfirmationLink(rawToken);
+		const template = await this.emailTemplates.getTemplateSafe('email_confirmation');
+		const displayName = String(input.name || input.username || email).trim();
+		const rendered = this.emailTemplates.renderTemplate(template, {
+			nome: displayName,
+			empresa: String(input.companyName || 'HBX').trim(),
+			email,
+			linkConfirmacao: confirmationLink,
+			ano: new Date().getFullYear(),
+		});
+
+		try {
+			const result = await this.mailService.sendMail({
+				to: email,
+				subject: rendered.subject,
+				text: rendered.text,
+				html: rendered.html,
+			});
+			return {
+				ok: result.ok,
+				transport: result.transport,
+				messageId: result.messageId,
+				errorCode: result.errorCode,
+				errorMessage: result.errorMessage,
+				previewUrl: result.previewUrl,
+				confirmUrl: this.shouldExposeEmailConfirmationDebugLink() ? confirmationLink : null,
+			};
+		} catch (error) {
+			this.logger.warn(`Falha ao enviar confirmação de e-mail para user ${userId} (${input.source}): ${error instanceof Error ? error.message : error}`);
+			return {
+				ok: false,
+				transport: this.mailService.getConfigurationSummary().mode,
+				messageId: null,
+				errorCode: 'EMAIL_CONFIRMATION_DELIVERY_FAILED',
+				errorMessage: error instanceof Error ? error.message : String(error),
+				previewUrl: null,
+				confirmUrl: this.shouldExposeEmailConfirmationDebugLink() ? confirmationLink : null,
+			};
+		}
 	}
 
 	private async sendWelcomeAccessEmail(input: {
@@ -775,6 +853,7 @@ export class UsersController {
 		}
 
 		let welcomeEmail: Pick<MailSendResult, 'ok' | 'transport' | 'messageId' | 'errorCode' | 'errorMessage'> | null = null;
+		let confirmationEmail: (Pick<MailSendResult, 'ok' | 'transport' | 'messageId' | 'errorCode' | 'errorMessage'> & { previewUrl?: string | null; confirmUrl?: string | null }) | null = null;
 		const isHbxSellerNetwork = await this.usersService.isHbxSellerNetworkCompany(companyId);
 		const isHbxPartnerActivation =
 			isHbxSellerNetwork &&
@@ -802,6 +881,16 @@ export class UsersController {
 				sellerReferralCommissionPercent: updated.sellerReferralCommissionPercent,
 				referredByCommissionPercentSnapshot: updated.referredByCommissionPercentSnapshot,
 			});
+			if (!target.emailConfirmedAt) {
+				confirmationEmail = await this.sendAccountConfirmationEmail({
+					userId: updated.id,
+					email: updated.email || target.email,
+					username: updated.username || target.username,
+					name: updated.name || target.name,
+					companyName: (target as any).company?.name,
+					source: 'hbx_partner_activation',
+				});
+			}
 		}
 		return {
 			id: updated.id,
@@ -809,9 +898,10 @@ export class UsersController {
 			deactivatedAt: updated.deactivatedAt,
 			retentionUntil: updated.retentionUntil,
 			message: isHbxPartnerActivation
-				? 'Parceiro criado e e-mail de boas-vindas enviado com login e senha.'
+				? 'Parceiro criado e e-mails de boas-vindas e confirmação enviados.'
 				: 'Usuário reativado com sucesso',
 			welcomeEmail,
+			confirmationEmail,
 		};
 	}
 

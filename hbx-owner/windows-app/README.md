@@ -196,6 +196,20 @@ A aba `Kanban` tem as lanes:
 
 Você pode criar, editar, mover, marcar como feito, vincular commit, adicionar nota, duplicar, arquivar e definir o card atual.
 
+## Tickets
+
+A aba `Tickets` é uma visão de cards do Kanban. Ticket e card são a mesma unidade operacional no Owner.
+
+Ao clicar em `Atualizar`, o Owner tenta consultar o backend local em `GET /owner/tickets` usando `owner_backend_url` e `owner_tickets_secret` salvos localmente na aba `Config` ou a variável `HBX_OWNER_TICKETS_SECRET`. Cada ticket recebido é criado ou atualizado como card em `kanban_cards`, identificado por `ticket_code`.
+
+Se o backend ou o segredo não estiver disponível, a aba continua mostrando os cards locais do tipo `Ticket cliente` ou com `ticket_code`.
+
+Ela mostra ticket, cliente, origem, categoria, classificação, status, dispatch e ação sugerida. Use `Abrir card` para ir direto ao Kanban no mesmo registro. Use `Copiar prompt` quando quiser levar a tarefa manualmente ao Codex.
+
+Use `Registrar dispatch` para salvar manualmente `codexDispatchStatus`, `codexRunId`, `codexRunUrl`, `githubIssueUrl`, `githubPrNumber` e `githubBranch` no backend.
+
+O dispatch também fica salvo no card local. Essa aba não executa Codex, não cria branch automaticamente, não faz merge e não roda shell livre.
+
 ## Git local
 
 A aba `Git` só executa comandos seguros:
@@ -208,18 +222,30 @@ git show --stat --oneline --summary HEAD
 
 Nunca executa `git push`, `git reset`, `git checkout` ou `git clean`.
 
+## PR Lab
+
+A aba `PR Lab` é o laboratório local para revisar branches antes de aprovar merge:
+
+- lista PRs abertos com GitHub CLI (`gh`) quando ele estiver instalado e autenticado;
+- lista branches remotas `origin/owner/*` sem fazer checkout;
+- cria worktrees em `pr_lab_worktree_dir`, dentro de uma pasta controlada;
+- roda uma sequência fixa de validação por worktree: Owner `py_compile`, Owner `--no-gui`, backend `prisma:validate`, backend `build` e frontend `lint`, quando essas áreas existirem;
+- abre a URL configurada em `pr_lab_localhost_url`;
+- executa `Merge aprovado` somente com confirmação, branch base correta e `git status --porcelain` vazio.
+
+O `Merge aprovado` é apenas local: não faz push, não publica, não executa deploy, não roda migração, não usa shell livre e não limpa arquivos.
+
 ## ChatGPT manual
 
 A aba `ChatGPT`:
 
 - chama o ChatGPT Desktop do Windows via `shell:AppsFolder`;
-- copia prompt de check-in;
-- copia revisão de card;
-- copia revisão de commit;
-- salva manualmente a resposta colada;
-- transforma resposta em cards quando o texto vier em `CARD:`, markdown checklist ou `PRÓXIMOS CARDS:`.
+- importa pesquisa colada por modal local e salva o texto em SQLite;
+- gera cards automaticamente usando o Autocard Compiler;
+- copia um exemplo pronto de `HBX_CARDS_JSON_START` / `HBX_CARDS_JSON_END`;
+- transforma resposta em cards quando o texto vier em JSON HBX, `CARD:`, markdown checklist, `PRÓXIMOS CARDS:` ou resposta livre com ações, lacunas e recomendações.
 
-Os prompts ficam em `prompts\`. As respostas ficam em SQLite.
+Use `Importar pesquisa` para colar uma pesquisa normal do ChatGPT. Com `Criar cards ao importar` ligado, o Owner já cria os cards na importação; desligado, ele só salva o texto. Use `Gerar cards automático` para compilar o conteúdo atual da área de texto. Os prompts ficam em `prompts\`. As respostas salvas ficam em SQLite.
 
 O AppID padrão do ChatGPT Desktop é:
 

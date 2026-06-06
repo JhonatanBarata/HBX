@@ -129,14 +129,14 @@ export default function PartnerOnboardingPanel({
               />
               <button
                 type="button"
-                disabled={!canUseDocs || slot.kind === "contract_pdf"}
+                disabled={!canUseDocs}
                 onClick={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
                   updateOnboardingDocumentRequirement(slot.kind, !required);
                 }}
               >
-                {slot.kind === "contract_pdf" ? "Obrigatório" : required ? "Obrigatório" : "Opcional"}
+                {required ? "Obrigatório" : "Opcional"}
               </button>
               {displayAttachment ? (
                 <button

@@ -18,6 +18,24 @@
     "forbiddenActions": ["shell", "deploy", "migration", "secrets"]
   },
   {
+    "id": "autocard-compiler",
+    "label": "Autocard Compiler",
+    "kind": "local-parser",
+    "defaultMode": "manual",
+    "risk": "low",
+    "allowedActions": [
+      "parse-json",
+      "parse-sections",
+      "parse-actions",
+      "dedupe",
+      "import-research",
+      "copy-json-format",
+      "auto-create-toggle",
+      "create-cards"
+    ],
+    "forbiddenActions": ["api", "shell", "deploy", "migration", "secrets"]
+  },
+  {
     "id": "codex-queue-runner",
     "label": "Codex Queue Runner",
     "kind": "local-agent",
@@ -52,5 +70,57 @@
     "risk": "medium",
     "allowedActions": ["classify", "route-human", "draft-reply"],
     "forbiddenActions": ["auto-send-risky", "auth", "billing", "deploy", "secrets"]
+  },
+  {
+    "id": "owner-ticket-backend",
+    "label": "Owner Ticket Backend",
+    "kind": "backend-api",
+    "defaultMode": "manual",
+    "risk": "medium",
+    "allowedActions": [
+      "create-ticket",
+      "create-job",
+      "list-tickets",
+      "technical-support-branch",
+      "status-flow",
+      "register-dispatch",
+      "link-codex-run",
+      "link-github-pr"
+    ],
+    "forbiddenActions": ["public-open-endpoint", "auth-bypass", "billing", "deploy", "migration", "secrets"]
+  },
+  {
+    "id": "owner-tickets-ui",
+    "label": "Owner Tickets UI",
+    "kind": "windows-owner",
+    "defaultMode": "manual",
+    "risk": "medium",
+    "allowedActions": [
+      "list-owner-tickets",
+      "filter-status",
+      "sync-ticket-cards",
+      "copy-codex-prompt",
+      "open-kanban-card",
+      "register-dispatch",
+      "open-kanban"
+    ],
+    "forbiddenActions": ["run-codex", "shell", "branch", "merge", "deploy", "migration", "secrets"]
+  },
+  {
+    "id": "pr-branch-lab",
+    "label": "PR Branch Lab",
+    "kind": "windows-owner",
+    "defaultMode": "manual",
+    "risk": "medium",
+    "allowedActions": [
+      "list-github-prs",
+      "list-owner-branches",
+      "create-worktree",
+      "run-fixed-tests",
+      "open-localhost",
+      "open-worktree",
+      "local-merge-approved"
+    ],
+    "forbiddenActions": ["free-shell", "push", "deploy", "migration", "reset", "clean", "checkout", "secrets"]
   }
 ]

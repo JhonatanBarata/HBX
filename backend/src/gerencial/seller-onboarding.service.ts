@@ -565,9 +565,6 @@ export class SellerOnboardingService {
   async updateDocumentRequirement(companyId: number, userId: number, kindValue: unknown, requiredValue: unknown) {
     const onboarding = await this.getOrCreateForUser(companyId, userId, null);
     const kind = this.normalizeAttachmentKind(kindValue);
-    if (kind === 'contract_pdf' && !this.normalizeBoolean(requiredValue)) {
-      throw new BadRequestException('Contrato assinado é obrigatório para aprovar o parceiro.');
-    }
     const metadata = parseMetadataJson(onboarding.metadataJson);
     const existingRequirements =
       metadata.documentRequirements && typeof metadata.documentRequirements === 'object'
@@ -786,15 +783,6 @@ export class SellerOnboardingService {
         where: { onboardingId: onboarding.id, status: { not: 'deleted' } },
         data: { deleteAfter: attachmentsDeleteAfter },
       });
-      await this.prisma.user.update({
-        where: { id: Number(userId) },
-        data: {
-          isActive: true,
-          deactivatedAt: null,
-          retentionUntil: null,
-        },
-      });
-      userActivated = true;
     }
 
     const updated = await this.prisma.sellerOnboarding.update({
@@ -803,7 +791,7 @@ export class SellerOnboardingService {
         emailStatus: result.ok ? 'sent' : 'email_failed',
         emailMessageId: result.messageId,
         emailSentAt: sentAt,
-        status: result.ok ? 'approved' : onboarding.status,
+        status: result.ok ? 'sent' : onboarding.status,
         ...(attachmentsDeleteAfter ? { attachmentsDeleteAfter } : {}),
       },
       include: { attachments: { orderBy: { createdAt: 'desc' } } },
@@ -940,14 +928,14 @@ export class SellerOnboardingService {
     const slot = ONBOARDING_DOCUMENT_SLOTS.find((item) => item.kind === kind);
     const metadata = parseMetadataJson(onboarding?.metadataJson);
     const override = metadata?.documentRequirements?.[kind];
+    if (typeof override === 'boolean') return override;
     if (kind === 'contract_pdf') {
       const hasGeneratedContract = Boolean(
         onboarding?.contractTextSnapshot
         || (onboarding?.attachments || []).some((item: any) => item.status !== 'deleted' && item.kind === GENERATED_CONTRACT_KIND),
       );
-      return override === true || hasGeneratedContract;
+      return hasGeneratedContract;
     }
-    if (typeof override === 'boolean') return override;
     return Boolean(slot?.defaultRequired);
   }
 
