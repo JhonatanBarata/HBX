@@ -5,6 +5,7 @@ import atexit
 import ctypes
 import os
 import runpy
+import shutil
 import sqlite3
 import sys
 import time
@@ -12,11 +13,12 @@ from datetime import date, datetime
 from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parent
-APP_SCRIPT = APP_DIR / "hbx_master_app.py"
-DB_PATH = APP_DIR / "hbx_master.db"
+APP_SCRIPT = APP_DIR / "hbx_owner_app.py"
+DB_PATH = APP_DIR / "hbx_owner.db"
+LEGACY_DB_PATH = APP_DIR / "hbx_master.db"
 LOG_DIR = APP_DIR / "logs"
-LOCK_PATH = APP_DIR / "hbx_master.lock"
-MUTEX_NAME = "Local\\HBXMASTER_LOCAL_PRO_SINGLE_INSTANCE"
+LOCK_PATH = APP_DIR / "hbx_owner.lock"
+MUTEX_NAME = "Local\\HBXOWNER_LOCAL_PRO_SINGLE_INSTANCE"
 
 
 def now_iso() -> str:
@@ -29,6 +31,8 @@ def today_str() -> str:
 
 def ensure_dirs() -> None:
     LOG_DIR.mkdir(exist_ok=True)
+    if not DB_PATH.exists() and LEGACY_DB_PATH.exists():
+        shutil.copy2(LEGACY_DB_PATH, DB_PATH)
 
 
 def log_line(message: str) -> None:
@@ -183,7 +187,7 @@ def run_app(extra_args: list[str] | None = None) -> None:
 
 
 def doctor(fix: bool) -> int:
-    print("HBX Master Doctor")
+    print("HBX Owner Doctor")
     print(f"Pasta: {APP_DIR}")
     print(f"Python: {sys.executable}")
     print(f"DB: {DB_PATH} ({'existe' if DB_PATH.exists() else 'não existe'})")
@@ -197,7 +201,7 @@ def doctor(fix: bool) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Launcher seguro do HBX Master Local Pro.")
+    parser = argparse.ArgumentParser(description="Launcher seguro do HBX Owner Local Pro.")
     parser.add_argument("--doctor", action="store_true", help="mostra diagnóstico do app e do banco")
     parser.add_argument("--fix", action="store_true", help="corrige sessões antigas abertas; usado com --doctor")
     parser.add_argument("--init-db", action="store_true", help="inicializa o SQLite pelo app principal")
@@ -210,7 +214,7 @@ def main(argv: list[str] | None = None) -> int:
 
     lock = SingleInstanceLock()
     if not lock.acquire():
-        log_line("Segunda instância bloqueada; o HBX Master já está aberto.")
+        log_line("Segunda instância bloqueada; o HBX Owner já está aberto.")
         return 0
 
     for action in close_stale_sessions(dry_run=False):

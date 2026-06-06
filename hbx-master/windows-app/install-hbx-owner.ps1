@@ -4,7 +4,7 @@ param(
 )
 
 $BaseDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$ExePath = Join-Path $BaseDir "HBX Master.exe"
+$ExePath = Join-Path $BaseDir "HBX Owner.exe"
 $StartScript = Join-Path $BaseDir "start-hbx.ps1"
 $StartWorkScript = Join-Path $BaseDir "start-work.ps1"
 $FinishScript = Join-Path $BaseDir "finish-day.ps1"
@@ -60,7 +60,7 @@ function New-HBXExeShortcut {
 if (!(Test-Path $StartScript)) {
     [System.Windows.MessageBox]::Show(
         "Nao encontrei $StartScript. Rode este instalador a partir de C:\Users\Jhonatan\Desktop\App\hbx-master\windows-app.",
-        "HBX Master",
+        "HBX Owner",
         "OK",
         "Error"
     )
@@ -72,6 +72,9 @@ $programs = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
 $startup = Join-Path $programs "Startup"
 
 foreach ($oldShortcut in @(
+    (Join-Path $desktop "HBX Master.lnk"),
+    (Join-Path $programs "HBX Master.lnk"),
+    (Join-Path $startup "HBX Master.lnk"),
     (Join-Path $desktop "HBX Boss.lnk"),
     (Join-Path $programs "HBX Boss.lnk"),
     (Join-Path $startup "HBX Boss.lnk")
@@ -83,31 +86,31 @@ foreach ($oldShortcut in @(
 
 if (-not $NoDesktop) {
     if (Test-Path $ExePath) {
-        New-HBXExeShortcut -Path (Join-Path $desktop "HBX Master.lnk") -Description "Abrir HBX Master local"
+        New-HBXExeShortcut -Path (Join-Path $desktop "HBX Owner.lnk") -Description "Abrir HBX Owner local"
     } else {
-        New-HBXShortcut -Path (Join-Path $desktop "HBX Master.lnk") -ScriptPath $StartScript -Description "Abrir HBX Master local"
+        New-HBXShortcut -Path (Join-Path $desktop "HBX Owner.lnk") -ScriptPath $StartScript -Description "Abrir HBX Owner local"
     }
     New-HBXShortcut -Path (Join-Path $desktop "HBX Start Work.lnk") -ScriptPath $StartWorkScript -Description "Iniciar expediente HBX"
     New-HBXShortcut -Path (Join-Path $desktop "HBX Fechar Dia.lnk") -ScriptPath $FinishScript -Description "Fechar expediente HBX"
 }
 
 if (Test-Path $ExePath) {
-    New-HBXExeShortcut -Path (Join-Path $programs "HBX Master.lnk") -Description "Abrir HBX Master local"
+    New-HBXExeShortcut -Path (Join-Path $programs "HBX Owner.lnk") -Description "Abrir HBX Owner local"
 } else {
-    New-HBXShortcut -Path (Join-Path $programs "HBX Master.lnk") -ScriptPath $StartScript -Description "Abrir HBX Master local"
+    New-HBXShortcut -Path (Join-Path $programs "HBX Owner.lnk") -ScriptPath $StartScript -Description "Abrir HBX Owner local"
 }
 
 if (-not $NoStartup) {
     if (Test-Path $StartupInstaller) {
         & $PowerShellExe -NoProfile -ExecutionPolicy Bypass -File $StartupInstaller
     } else {
-        New-HBXShortcut -Path (Join-Path $startup "HBX Master.lnk") -ScriptPath $StartScript -Description "Abrir HBX Master no login"
+        New-HBXShortcut -Path (Join-Path $startup "HBX Owner.lnk") -ScriptPath $StartScript -Description "Abrir HBX Owner no login"
     }
 }
 
 [System.Windows.MessageBox]::Show(
-    "HBX Master instalado. Atalhos criados no Windows.",
-    "HBX Master",
+    "HBX Owner instalado. Atalhos criados no Windows.",
+    "HBX Owner",
     "OK",
     "Information"
 )

@@ -1,30 +1,30 @@
-# HBX Master Local Pro
+# HBX Owner Local Pro
 
-Executável local Windows para controle pessoal de trabalho do HBX Master.
+Executável local Windows para controle pessoal de trabalho do HBX Owner.
 
-O uso normal é pelo `HBX Master.exe`. O código-fonte continua em Python/Tkinter para manutenção e build local. Não usa API OpenAI, não automatiza clique no ChatGPT, não captura teclado, não tira screenshot, não coleta senha/token, não sobe dados para internet, não usa Electron e não cria servidor.
+O uso normal é pelo `HBX Owner.exe`. O código-fonte continua em Python/Tkinter para manutenção e build local. Não usa API OpenAI, não automatiza clique no ChatGPT, não captura teclado, não tira screenshot, não coleta senha/token, não sobe dados para internet, não usa Electron e não cria servidor.
 
 ## Estrutura
 
 ```text
 C:\Users\Jhonatan\Desktop\App\hbx-master\windows-app
-├─ HBX Master.exe             # executável local gerado
-├─ hbx_master_app.py              # app principal
-├─ hbx_master_launcher.py     # entrada segura; use esta no Startup
-├─ build-hbx-master-exe.ps1   # build local do executável
-├─ launch-hbx-master.ps1      # launcher PowerShell compatível com o app atual
-├─ run-hbx-master.cmd          # launcher CMD seguro
+├─ HBX Owner.exe             # executável local gerado
+├─ hbx_owner_app.py              # app principal
+├─ hbx_owner_launcher.py     # entrada segura; use esta no Startup
+├─ build-hbx-owner-exe.ps1   # build local do executável
+├─ launch-hbx-owner.ps1      # launcher PowerShell compatível com o app atual
+├─ run-hbx-owner.cmd          # launcher CMD seguro
 ├─ install-startup.cmd      # instalador CMD do Startup limpo
-├─ install-hbx-master.ps1     # atalhos Windows + delega Startup limpo
-├─ uninstall-hbx-master.ps1
-├─ self-check-hbx-master.ps1
+├─ install-hbx-owner.ps1     # atalhos Windows + delega Startup limpo
+├─ uninstall-hbx-owner.ps1
+├─ self-check-hbx-owner.ps1
 ├─ scripts\
 │  ├─ install-startup.ps1
-│  └─ hbx-master-doctor.ps1
+│  └─ hbx-owner-doctor.ps1
 ├─ assets\
-│  └─ hbx-master.ico
+│  └─ hbx-owner.ico
 ├─ config.example.json
-├─ hbx_master.db              # criado localmente
+├─ hbx_owner.db              # criado localmente
 ├─ config.json              # criado localmente
 ├─ exports\
 ├─ logs\
@@ -32,7 +32,7 @@ C:\Users\Jhonatan\Desktop\App\hbx-master\windows-app
 └─ reports\
 ```
 
-`hbx_master.db`, `config.json`, logs, exports, prompts e relatórios gerados são arquivos locais e não devem ser versionados.
+`hbx_owner.db`, `config.json`, logs, exports, prompts e relatórios gerados são arquivos locais e não devem ser versionados.
 
 O app também inicializa arquivos operacionais simples: `hbx-dia.json`, `hbx-plano.md`, `hbx-memoria.md` e `hbx-ponto.csv`.
 
@@ -41,44 +41,44 @@ O app também inicializa arquivos operacionais simples: `hbx-dia.json`, `hbx-pla
 Uso normal:
 
 ```powershell
-& "C:\Users\Jhonatan\Desktop\App\hbx-master\windows-app\HBX Master.exe"
+& "C:\Users\Jhonatan\Desktop\App\hbx-master\windows-app\HBX Owner.exe"
 ```
 
 Build local do executável:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Users\Jhonatan\Desktop\App\hbx-master\windows-app\build-hbx-master-exe.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Users\Jhonatan\Desktop\App\hbx-master\windows-app\build-hbx-owner-exe.ps1
 ```
 
 Fallback de desenvolvimento:
 
 ```powershell
 cd C:\Users\Jhonatan\Desktop\App\hbx-master\windows-app
-python C:\Users\Jhonatan\Desktop\App\hbx-master\windows-app\hbx_master_launcher.py
+python C:\Users\Jhonatan\Desktop\App\hbx-master\windows-app\hbx_owner_launcher.py
 ```
 
 Sem janela de console:
 
 ```powershell
-pythonw C:\Users\Jhonatan\Desktop\App\hbx-master\windows-app\hbx_master_launcher.py
+pythonw C:\Users\Jhonatan\Desktop\App\hbx-master\windows-app\hbx_owner_launcher.py
 ```
 
 Pelo CMD:
 
 ```cmd
-C:\Users\Jhonatan\Desktop\App\hbx-master\windows-app\run-hbx-master.cmd
+C:\Users\Jhonatan\Desktop\App\hbx-master\windows-app\run-hbx-owner.cmd
 ```
 
 Compatível com os atalhos antigos do app atual:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Users\Jhonatan\Desktop\App\hbx-master\windows-app\launch-hbx-master.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Users\Jhonatan\Desktop\App\hbx-master\windows-app\launch-hbx-owner.ps1
 ```
 
 Para criar/atualizar o banco sem abrir a janela:
 
 ```powershell
-python C:\Users\Jhonatan\Desktop\App\hbx-master\windows-app\hbx_master_launcher.py --init-db
+python C:\Users\Jhonatan\Desktop\App\hbx-master\windows-app\hbx_owner_launcher.py --init-db
 ```
 
 ## Startup limpo do Windows
@@ -96,28 +96,28 @@ Ou pelo CMD:
 C:\Users\Jhonatan\Desktop\App\hbx-master\windows-app\install-startup.cmd
 ```
 
-Esse instalador remove atalhos antigos do HBX Master no Startup e cria um único atalho chamando `hbx_master_launcher.py` com `pythonw.exe`.
+Esse instalador remove atalhos antigos do HBX Owner no Startup e cria um único atalho chamando `hbx_owner_launcher.py` com `pythonw.exe`.
 
-Não deixe atalhos antigos chamando `python hbx_master_app.py` direto. Isso pode abrir console, PowerShell/CMD e mais de uma janela do app.
+Não deixe atalhos antigos chamando `python hbx_owner_app.py` direto. Isso pode abrir console, PowerShell/CMD e mais de uma janela do app.
 
 ## Doctor
 
 Diagnosticar sem alterar:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\hbx-master-doctor.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\hbx-owner-doctor.ps1
 ```
 
 Corrigir sessão antiga aberta no SQLite:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\hbx-master-doctor.ps1 -Fix
+powershell -ExecutionPolicy Bypass -File .\scripts\hbx-owner-doctor.ps1 -Fix
 ```
 
-Listar processos do HBX Master e encerrar duplicados detectados:
+Listar processos do HBX Owner e encerrar duplicados detectados:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\hbx-master-doctor.ps1 -KillDuplicates
+powershell -ExecutionPolicy Bypass -File .\scripts\hbx-owner-doctor.ps1 -KillDuplicates
 ```
 
 O launcher faz a correção de sessão antiga automaticamente antes de abrir o app.
@@ -183,7 +183,7 @@ Também permite abrir terminal/pasta do projeto, criar cards a partir do plano, 
 Para validar o app sem abrir janela nem navegador:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Users\Jhonatan\Desktop\App\hbx-master\windows-app\self-check-hbx-master.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Users\Jhonatan\Desktop\App\hbx-master\windows-app\self-check-hbx-owner.ps1
 ```
 
 O log do self-check sai em `logs\self-check-YYYYMMDD-HHMMSS.txt`.
@@ -249,13 +249,13 @@ Na aba `Relatórios`, o app também exporta sessões em CSV, cards em CSV, relat
 Para criar atalhos no Desktop, Start Menu e Startup limpo:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Users\Jhonatan\Desktop\App\hbx-master\windows-app\install-hbx-master.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Users\Jhonatan\Desktop\App\hbx-master\windows-app\install-hbx-owner.ps1
 ```
 
 Para remover apenas os atalhos, preservando arquivos e banco local:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Users\Jhonatan\Desktop\App\hbx-master\windows-app\uninstall-hbx-master.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Users\Jhonatan\Desktop\App\hbx-master\windows-app\uninstall-hbx-owner.ps1
 ```
 
 Na aba `Config`, use:

@@ -5,7 +5,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $PSScriptRoot
-$Launcher = Join-Path $Root 'hbx_master_launcher.py'
+$Launcher = Join-Path $Root 'hbx_owner_launcher.py'
 
 function Resolve-PythonCommand {
     foreach ($name in @('python.exe', 'py.exe')) {
@@ -17,9 +17,9 @@ function Resolve-PythonCommand {
 
 $python = Resolve-PythonCommand
 
-Write-Host 'Processos HBX Master encontrados:'
+Write-Host 'Processos HBX Owner encontrados:'
 $procs = Get-CimInstance Win32_Process | Where-Object {
-    $_.CommandLine -and ($_.CommandLine -match 'hbx_master_(app|launcher)\.py|HBX Master\.exe')
+    $_.CommandLine -and ($_.CommandLine -match 'hbx_owner_(app|launcher)\.py|HBX Owner\.exe')
 } | Sort-Object CreationDate
 
 if (!$procs) {

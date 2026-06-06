@@ -1,15 +1,15 @@
-# DEV SUMMARY - HBX Master Local Pro
+# DEV SUMMARY - HBX Owner Local Pro
 
 ## Arquivos criados
 
-- `hbx_master_app.py`: app Tkinter com ponto, pausas, alertas, Modo IA, Execução local, Kanban, Git, ChatGPT manual, relatórios, PDF, export e backup.
-- `hbx_master.db`: SQLite local criado em runtime e ignorado no Git.
+- `hbx_owner_app.py`: app Tkinter com ponto, pausas, alertas, Modo IA, Execução local, Kanban, Git, ChatGPT manual, relatórios, PDF, export e backup.
+- `hbx_owner.db`: SQLite local criado em runtime e ignorado no Git.
 - `config.json`: configurações locais do app.
 - `.gitignore`: ignora banco, exports gerados, prompts gerados, relatórios HTML/PDF e logs.
 - `README.md`: guia de uso, config, ChatGPT, retroativo, PDF e startup.
-- `install-hbx-master.ps1`: cria atalhos Windows para Desktop, Start Menu e Startup.
-- `uninstall-hbx-master.ps1`: remove apenas os atalhos criados, preservando arquivos e banco.
-- `self-check-hbx-master.ps1`: valida Python, SQLite e sintaxe dos scripts sem abrir GUI/navegador.
+- `install-hbx-owner.ps1`: cria atalhos Windows para Desktop, Start Menu e Startup.
+- `uninstall-hbx-owner.ps1`: remove apenas os atalhos criados, preservando arquivos e banco.
+- `self-check-hbx-owner.ps1`: valida Python, SQLite e sintaxe dos scripts sem abrir GUI/navegador.
 - `exports/.gitkeep`
 - `logs/.gitkeep`
 - `prompts/.gitkeep`
@@ -18,7 +18,7 @@
 
 ## Commits feitos
 
-1. `feat: scaffold HBX Master Local Pro`
+1. `feat: scaffold HBX Owner Local Pro`
 2. `feat: add SQLite persistence for work, kanban and reports`
 3. `feat: add work session and break control`
 4. `feat: add relative checkpoints and hard stop alerts`
@@ -32,16 +32,16 @@
 12. `feat: generate next day handoff plan`
 13. `feat: add daily progress dashboard`
 14. `feat: add CSV export and local backup`
-15. `docs: document HBX Master Local Pro`
+15. `docs: document HBX Owner Local Pro`
 
 ## Como testar
 
 ```powershell
 cd C:\Users\Jhonatan\Desktop\App\hbx-master\windows-app
-python -m py_compile hbx_master_app.py
-python C:\Users\Jhonatan\Desktop\App\hbx-master\windows-app\hbx_master_app.py --init-db
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Users\Jhonatan\Desktop\App\hbx-master\windows-app\self-check-hbx-master.ps1
-python C:\Users\Jhonatan\Desktop\App\hbx-master\windows-app\hbx_master_app.py
+python -m py_compile hbx_owner_app.py
+python C:\Users\Jhonatan\Desktop\App\hbx-master\windows-app\hbx_owner_app.py --init-db
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Users\Jhonatan\Desktop\App\hbx-master\windows-app\self-check-hbx-owner.ps1
+python C:\Users\Jhonatan\Desktop\App\hbx-master\windows-app\hbx_owner_app.py
 ```
 
 Fluxo manual recomendado:

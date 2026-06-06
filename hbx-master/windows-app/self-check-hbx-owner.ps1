@@ -48,19 +48,19 @@ Write-Check "BaseDir: $BaseDir"
 Write-Check ""
 
 $RequiredFiles = @(
-    "hbx_master_app.py",
-    "hbx_master_launcher.py",
+    "hbx_owner_app.py",
+    "hbx_owner_launcher.py",
     "config.example.json",
-    "launch-hbx-master.ps1",
+    "launch-hbx-owner.ps1",
     "start-hbx.ps1",
     "start-work.ps1",
     "finish-day.ps1",
     "save-tomorrow.ps1",
     "hbx-alert.ps1",
-    "install-hbx-master.ps1",
-    "uninstall-hbx-master.ps1",
+    "install-hbx-owner.ps1",
+    "uninstall-hbx-owner.ps1",
     "scripts\install-startup.ps1",
-    "scripts\hbx-master-doctor.ps1"
+    "scripts\hbx-owner-doctor.ps1"
 )
 
 Write-Check "Arquivos obrigatorios:"
@@ -79,24 +79,24 @@ if ($null -eq $Python) {
 } else {
     Write-Check ""
     Write-Check "[OK] Python: $($Python.Source)"
-    Invoke-LoggedCommand "Python compile:" "python" @("-m", "py_compile", "hbx_master_app.py", "hbx_master_launcher.py")
-    Invoke-LoggedCommand "SQLite init:" "python" @("hbx_master_launcher.py", "--init-db")
+    Invoke-LoggedCommand "Python compile:" "python" @("-m", "py_compile", "hbx_owner_app.py", "hbx_owner_launcher.py")
+    Invoke-LoggedCommand "SQLite init:" "python" @("hbx_owner_launcher.py", "--init-db")
 }
 
 Write-Check ""
 Write-Check "PowerShell parse:"
 $PowerShellFiles = @(
-    "self-check-hbx-master.ps1",
-    "install-hbx-master.ps1",
-    "uninstall-hbx-master.ps1",
-    "launch-hbx-master.ps1",
+    "self-check-hbx-owner.ps1",
+    "install-hbx-owner.ps1",
+    "uninstall-hbx-owner.ps1",
+    "launch-hbx-owner.ps1",
     "start-hbx.ps1",
     "start-work.ps1",
     "finish-day.ps1",
     "save-tomorrow.ps1",
     "hbx-alert.ps1",
     "scripts\install-startup.ps1",
-    "scripts\hbx-master-doctor.ps1"
+    "scripts\hbx-owner-doctor.ps1"
 )
 
 foreach ($File in $PowerShellFiles) {

@@ -4,10 +4,13 @@ __pycache__/
 # Generated executable artifacts
 build/
 *.spec
+HBX Owner.exe
 HBX Master.exe
 HBX Boss.exe
 
 # Local state
+hbx_owner.db
+hbx_owner.lock
 hbx_master.db
 hbx_master.lock
 hbx_boss.db

@@ -33,23 +33,24 @@ HBX_REPO_DIR = (
     if APP_DIR.name == "windows-app" and APP_DIR.parent.name == "hbx-master" and len(APP_DIR.parents) > 1
     else APP_DIR
 )
-HBX_MASTER_DIR = APP_DIR.parent if APP_DIR.name == "windows-app" else HBX_REPO_DIR / "hbx-master"
-OPS_CONTROL_DIR = HBX_MASTER_DIR / "ops-control"
+HBX_MASTER_WORKSPACE_DIR = APP_DIR.parent if APP_DIR.name == "windows-app" else HBX_REPO_DIR / "hbx-master"
+OPS_CONTROL_DIR = HBX_MASTER_WORKSPACE_DIR / "ops-control"
 OPS_CONTROL_SCRIPT_PATH = OPS_CONTROL_DIR / "open-hbx-ops-control.ps1"
 OPS_CONTROL_ENV_PATH = HBX_REPO_DIR / ".env.ops-control"
 OPS_CONTROL_COMPOSE_PATH = OPS_CONTROL_DIR / "docker-compose.yml"
-APP_TITLE = "HBX Master Local Pro"
-APP_MUTEX_NAME = "Local\\HBXMASTER_LOCAL_PRO_APP_INSTANCE"
-ICON_PATH = APP_DIR / "assets" / "hbx-master.ico"
+APP_TITLE = "HBX Owner Local Pro"
+APP_MUTEX_NAME = "Local\\HBXOWNER_LOCAL_PRO_APP_INSTANCE"
+ICON_PATH = APP_DIR / "assets" / "hbx-owner.ico"
 CONFIG_PATH = APP_DIR / "config.json"
-DB_PATH = APP_DIR / "hbx_master.db"
+DB_PATH = APP_DIR / "hbx_owner.db"
+LEGACY_DB_PATH = APP_DIR / "hbx_master.db"
 POINT_LOG_PATH = APP_DIR / "hbx-ponto.csv"
 DAY_STATE_PATH = APP_DIR / "hbx-dia.json"
 DAY_PLAN_PATH = APP_DIR / "hbx-plano.md"
 MEMORY_PATH = APP_DIR / "hbx-memoria.md"
-INSTALL_SCRIPT_PATH = APP_DIR / "install-hbx-master.ps1"
-UNINSTALL_SCRIPT_PATH = APP_DIR / "uninstall-hbx-master.ps1"
-SELF_CHECK_SCRIPT_PATH = APP_DIR / "self-check-hbx-master.ps1"
+INSTALL_SCRIPT_PATH = APP_DIR / "install-hbx-owner.ps1"
+UNINSTALL_SCRIPT_PATH = APP_DIR / "uninstall-hbx-owner.ps1"
+SELF_CHECK_SCRIPT_PATH = APP_DIR / "self-check-hbx-owner.ps1"
 
 TAB_NAMES = ("Hoje", "Ops Control", "Modo IA", "Execução", "Kanban", "Git", "ChatGPT", "Relatórios", "Config")
 SAFE_GIT_COMMANDS = {
@@ -60,24 +61,24 @@ SAFE_GIT_COMMANDS = {
 SAFE_LOCAL_COMMANDS = {
     "py_compile": {
         "label": "Python compile do app",
-        "description": "Valida sintaxe do hbx_master_app.py.",
-        "command": ("{python}", "-m", "py_compile", "hbx_master_app.py"),
+        "description": "Valida sintaxe do hbx_owner_app.py.",
+        "command": ("{python}", "-m", "py_compile", "hbx_owner_app.py"),
         "timeout": 20,
     },
     "app_no_gui": {
         "label": "Smoke no-gui",
         "description": "Executa inicialização sem abrir janela.",
-        "command": ("{python}", "hbx_master_app.py", "--no-gui"),
+        "command": ("{python}", "hbx_owner_app.py", "--no-gui"),
         "timeout": 20,
     },
     "init_db": {
         "label": "Inicializar SQLite",
         "description": "Cria/atualiza tabelas locais.",
-        "command": ("{python}", "hbx_master_app.py", "--init-db"),
+        "command": ("{python}", "hbx_owner_app.py", "--init-db"),
         "timeout": 20,
     },
     "self_check": {
-        "label": "Self-check HBX Master",
+        "label": "Self-check HBX Owner",
         "description": "Valida Python, SQLite e scripts locais; grava log em logs.",
         "command": ("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(SELF_CHECK_SCRIPT_PATH)),
         "timeout": 60,
@@ -285,7 +286,14 @@ def focus_existing_window() -> None:
         user32.SetForegroundWindow(hwnd)
 
 
+def migrate_legacy_db() -> None:
+    if DB_PATH.exists() or not LEGACY_DB_PATH.exists():
+        return
+    shutil.copy2(LEGACY_DB_PATH, DB_PATH)
+
+
 def ensure_app_dirs() -> None:
+    migrate_legacy_db()
     for name in ("exports", "logs", "prompts", "reports"):
         (APP_DIR / name).mkdir(exist_ok=True)
 
@@ -331,7 +339,7 @@ def ensure_operational_files() -> None:
     if not MEMORY_PATH.exists():
         MEMORY_PATH.write_text(
             (
-                "# Memória HBX Master\n\n"
+                "# Memória HBX Owner\n\n"
                 "## Objetivo atual\n"
                 "Monetizar o HBX ASAP com Recovery, P0 técnico, demo e outbound.\n\n"
                 "## Regras fixas\n"
@@ -589,7 +597,7 @@ def create_work_session(db: Database, planned_hours: float, notes: str = "", sou
     return session_id, f"Expediente iniciado: sessão #{session_id}, {planned_hours}h planejadas."
 
 
-class HbxMasterApp(tk.Tk):
+class HbxOwnerApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title(APP_TITLE)
@@ -779,7 +787,7 @@ class HbxMasterApp(tk.Tk):
             font=(self.font_family, 11, "bold"),
         )
         mark.grid(row=0, column=0, rowspan=2, sticky="nsw", padx=(0, 12))
-        ttk.Label(brand, text="HBX Master", style="HeaderTitle.TLabel").grid(row=0, column=1, sticky="w")
+        ttk.Label(brand, text="HBX Owner", style="HeaderTitle.TLabel").grid(row=0, column=1, sticky="w")
         ttk.Label(
             brand,
             text="Recovery + P0 técnico + demo + outbound",
@@ -2056,7 +2064,7 @@ class HbxMasterApp(tk.Tk):
                     "type": "Modo IA",
                     "priority": priority,
                     "lane": "HOJE",
-                    "acceptance_criteria": "Entrega verificável registrada no HBX Master.",
+                    "acceptance_criteria": "Entrega verificável registrada no HBX Owner.",
                     "test_command": "",
                     "estimate_minutes": estimate,
                 }
@@ -2174,7 +2182,7 @@ class HbxMasterApp(tk.Tk):
 
     def backup_sqlite(self) -> None:
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        path = APP_DIR / "exports" / f"hbx_master-{stamp}.db"
+        path = APP_DIR / "exports" / f"hbx_owner-{stamp}.db"
         dest = sqlite3.connect(path)
         try:
             self.db.conn.backup(dest)
@@ -3536,7 +3544,7 @@ class HbxMasterApp(tk.Tk):
     def show_alert_window(self, checkpoint_id: int, checkpoint_type: str, message: str) -> None:
         self.play_alert_sound()
         win = tk.Toplevel(self)
-        win.title("Alerta HBX Master")
+        win.title("Alerta HBX Owner")
         win.attributes("-topmost", True)
         win.resizable(False, False)
         win.configure(padx=18, pady=18, bg=THEME["bg"])
@@ -3777,7 +3785,7 @@ class HbxMasterApp(tk.Tk):
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
-  <title>HBX Master - Relatório semanal {html_lib.escape(start)} a {html_lib.escape(end)}</title>
+  <title>HBX Owner - Relatório semanal {html_lib.escape(start)} a {html_lib.escape(end)}</title>
   <style>
     body {{ font-family: Segoe UI, Arial, sans-serif; margin: 32px; color: #1f2937; }}
     h1, h2 {{ color: #111827; }}
@@ -3786,7 +3794,7 @@ class HbxMasterApp(tk.Tk):
   </style>
 </head>
 <body>
-  <h1>HBX Master Local Pro - Relatório semanal</h1>
+  <h1>HBX Owner Local Pro - Relatório semanal</h1>
   <p><strong>Período:</strong> {html_lib.escape(start)} a {html_lib.escape(end)}</p>
   <p><strong>Resumo:</strong> {html_lib.escape(summary)}</p>
   <section><h2>Horas por dia</h2>{self.html_list(hours_items)}</section>
@@ -3884,7 +3892,7 @@ class HbxMasterApp(tk.Tk):
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
-  <title>HBX Master - Relatório {html_lib.escape(report_date)}</title>
+  <title>HBX Owner - Relatório {html_lib.escape(report_date)}</title>
   <style>
     body {{ font-family: Segoe UI, Arial, sans-serif; margin: 32px; color: #1f2937; }}
     h1, h2 {{ color: #111827; }}
@@ -3894,7 +3902,7 @@ class HbxMasterApp(tk.Tk):
   </style>
 </head>
 <body>
-  <h1>HBX Master Local Pro - Relatório diário</h1>
+  <h1>HBX Owner Local Pro - Relatório diário</h1>
   <p><strong>Data:</strong> {html_lib.escape(report_date)}</p>
   <p><strong>Resumo:</strong> {html_lib.escape(summary)}</p>
 
@@ -3981,7 +3989,7 @@ class HbxMasterApp(tk.Tk):
             f"Cards secundários:\n{secondary}\n"
             f"Não fazer: {self.config_data.get('not_today', '')}\n"
             "Risco: fadiga e dispersão se passar de 8h\n"
-            f"Primeiro comando do dia: python {APP_DIR / 'hbx_master_app.py'}\n"
+            f"Primeiro comando do dia: python {APP_DIR / 'hbx_owner_app.py'}\n"
         )
 
     def get_pending_cards(self) -> list[sqlite3.Row]:
@@ -4159,9 +4167,9 @@ class HbxMasterApp(tk.Tk):
         startup = self.startup_folder_path()
         desktop = self.desktop_folder_path()
         checks = [
-            ("App Python", APP_DIR / "hbx_master_app.py"),
-            ("Launcher", APP_DIR / "launch-hbx-master.ps1"),
-            ("Master root", HBX_MASTER_DIR),
+            ("App Python", APP_DIR / "hbx_owner_app.py"),
+            ("Launcher", APP_DIR / "launch-hbx-owner.ps1"),
+            ("Workspace root", HBX_MASTER_WORKSPACE_DIR),
             ("Ops Control", OPS_CONTROL_DIR),
             ("Ops Control script", OPS_CONTROL_SCRIPT_PATH),
             ("Ops Control compose", OPS_CONTROL_COMPOSE_PATH),
@@ -4174,10 +4182,10 @@ class HbxMasterApp(tk.Tk):
             ("SQLite", DB_PATH),
             ("Memoria", MEMORY_PATH),
             ("Plano do dia", DAY_PLAN_PATH),
-            ("Startup shortcut", startup / "HBX Master.lnk"),
-            ("Desktop shortcut", desktop / "HBX Master.lnk"),
+            ("Startup shortcut", startup / "HBX Owner.lnk"),
+            ("Desktop shortcut", desktop / "HBX Owner.lnk"),
         ]
-        lines = ["SAUDE HBX MASTER WINDOWS", f"Data: {now_iso()}", ""]
+        lines = ["SAUDE HBX OWNER WINDOWS", f"Data: {now_iso()}", ""]
         for label, path in checks:
             lines.append(f"[{'OK' if path.exists() else '--'}] {label}: {path}")
         python_status = shutil.which("py.exe") or shutil.which("python.exe") or "-"
@@ -4300,7 +4308,7 @@ def main() -> None:
     ensure_app_dirs()
     ensure_operational_files()
 
-    parser = argparse.ArgumentParser(description="HBX Master Local Pro")
+    parser = argparse.ArgumentParser(description="HBX Owner Local Pro")
     parser.add_argument("--init-db", action="store_true", help="Cria ou atualiza o SQLite sem abrir a janela.")
     parser.add_argument("--start-work", type=float, default=None, help="Inicia expediente com horas planejadas.")
     parser.add_argument("--no-gui", action="store_true", help="Executa a ação pedida sem abrir a janela.")
@@ -4331,7 +4339,7 @@ def main() -> None:
     if not single_instance.acquire():
         return
 
-    app = HbxMasterApp()
+    app = HbxOwnerApp()
     app.single_instance = single_instance
     app.mainloop()
 

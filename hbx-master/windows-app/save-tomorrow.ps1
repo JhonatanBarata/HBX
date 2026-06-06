@@ -12,7 +12,7 @@ if ([string]::IsNullOrWhiteSpace($content)) {
     Add-Type -AssemblyName PresentationFramework
     [System.Windows.MessageBox]::Show(
         "Clipboard vazio. Copie o PLANO_AMANHA antes de salvar.",
-        "HBX Master",
+        "HBX Owner",
         "OK",
         "Error"
     )
@@ -34,7 +34,7 @@ if (!(Test-Path $LogFile)) {
 Add-Type -AssemblyName PresentationFramework
 [System.Windows.MessageBox]::Show(
     "Plano de amanhã salvo. O próximo START já vai carregar isso.",
-    "HBX Master",
+    "HBX Owner",
     "OK",
     "Information"
 )

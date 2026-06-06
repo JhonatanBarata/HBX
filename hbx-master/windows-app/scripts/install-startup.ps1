@@ -4,10 +4,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $PSScriptRoot
-$Exe = Join-Path $Root 'HBX Master.exe'
-$Launcher = Join-Path $Root 'hbx_master_launcher.py'
+$Exe = Join-Path $Root 'HBX Owner.exe'
+$Launcher = Join-Path $Root 'hbx_owner_launcher.py'
 $Startup = [Environment]::GetFolderPath('Startup')
-$ShortcutPath = Join-Path $Startup 'HBX Master.lnk'
+$ShortcutPath = Join-Path $Startup 'HBX Owner.lnk'
 
 function Resolve-PythonCommand {
     param([switch]$Windowless)
@@ -27,8 +27,8 @@ function Remove-HbxStartupShortcuts {
         $joined = (($shortcut.TargetPath + ' ' + $shortcut.Arguments + ' ' + $_.Name) -replace '\\', '/').ToLowerInvariant()
         $rootKey = ($Root -replace '\\', '/').ToLowerInvariant()
         if (
-            $joined.Contains('hbx_master_app.py') -or
-            $joined.Contains('hbx_master_launcher.py') -or
+            $joined.Contains('hbx_owner_app.py') -or
+            $joined.Contains('hbx_owner_launcher.py') -or
             $joined.Contains('hbx boss') -or
             $joined.Contains('hbxboss') -or
             $joined.Contains('hbx-boss') -or
@@ -47,7 +47,7 @@ if (!(Test-Path $Exe) -and !(Test-Path $Launcher)) {
 
 if (!$SkipDoctor -and (Test-Path $Launcher)) {
     $python = Resolve-PythonCommand
-    Write-Host 'Rodando doctor do HBX Master...'
+    Write-Host 'Rodando doctor do HBX Owner...'
     & $python $Launcher --doctor --fix
 }
 
@@ -60,18 +60,18 @@ if (Test-Path $Exe) {
     $shortcut.TargetPath = $Exe
     $shortcut.Arguments = ''
     $shortcut.IconLocation = "$Exe,0"
-    $shortcut.Description = 'HBX Master Local Pro - executável único sem console'
+    $shortcut.Description = 'HBX Owner Local Pro - executável único sem console'
 } else {
     $pythonw = Resolve-PythonCommand -Windowless
     $shortcut.TargetPath = $pythonw
     $shortcut.Arguments = '"' + $Launcher + '"'
     $shortcut.IconLocation = "$pythonw,0"
-    $shortcut.Description = 'HBX Master Local Pro - launcher seguro sem console duplicado'
+    $shortcut.Description = 'HBX Owner Local Pro - launcher seguro sem console duplicado'
 }
 $shortcut.WorkingDirectory = $Root
 $shortcut.WindowStyle = 3
 $shortcut.Save()
 
 Write-Host "Atalho único criado: $ShortcutPath"
-Write-Host 'Na próxima inicialização, use apenas esse atalho. Não deixe outros atalhos chamando hbx_master_app.py direto.'
+Write-Host 'Na próxima inicialização, use apenas esse atalho. Não deixe outros atalhos chamando hbx_owner_app.py direto.'
 

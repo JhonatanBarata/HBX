@@ -1,7 +1,7 @@
 $BaseDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $LogFile = "$BaseDir\hbx-ponto.csv"
 $NextDayFile = "$BaseDir\next-day.md"
-$LaunchScript = "$BaseDir\launch-hbx-master.ps1"
+$LaunchScript = "$BaseDir\launch-hbx-owner.ps1"
 
 if (!(Test-Path $BaseDir)) {
     New-Item -ItemType Directory -Path $BaseDir | Out-Null
@@ -40,7 +40,7 @@ $hora = $now.ToString("HH:mm:ss")
 "$data,$hora,HBX_WORK_START_REQUEST_${totalHours}H" | Out-File -FilePath $LogFile -Append -Encoding UTF8
 
 # Remove alertas antigos do runtime legado. O app local passa a controlar a sessão ativa.
-Get-ScheduledTask | Where-Object { $_.TaskName -like "HBX Master Runtime -*" } | ForEach-Object {
+Get-ScheduledTask | Where-Object { $_.TaskName -like "HBX Owner Runtime -*" } | ForEach-Object {
     Unregister-ScheduledTask -TaskName $_.TaskName -Confirm:$false
 }
 
@@ -77,7 +77,7 @@ Set-Clipboard -Value $prompt
 
 [System.Windows.MessageBox]::Show(
     "Expediente HBX iniciado no app local. O check-in está no clipboard.",
-    "HBX Master",
+    "HBX Owner",
     "OK",
     "Information"
 )

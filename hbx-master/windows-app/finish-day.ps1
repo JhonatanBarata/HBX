@@ -1,6 +1,6 @@
 $BaseDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $LogFile = "$BaseDir\hbx-ponto.csv"
-$LaunchScript = "$BaseDir\launch-hbx-master.ps1"
+$LaunchScript = "$BaseDir\launch-hbx-owner.ps1"
 
 if (!(Test-Path $BaseDir)) {
     New-Item -ItemType Directory -Path $BaseDir | Out-Null
@@ -41,8 +41,8 @@ Set-Clipboard -Value $prompt
 
 Add-Type -AssemblyName PresentationFramework
 [System.Windows.MessageBox]::Show(
-    "Fechamento copiado. HBX Master local aberto para fechar o dia.",
-    "HBX Master",
+    "Fechamento copiado. HBX Owner local aberto para fechar o dia.",
+    "HBX Owner",
     "OK",
     "Information"
 )

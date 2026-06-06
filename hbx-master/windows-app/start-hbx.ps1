@@ -1,7 +1,7 @@
 $BaseDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $LogFile = "$BaseDir\hbx-ponto.csv"
 $NextDayFile = "$BaseDir\next-day.md"
-$LaunchScript = "$BaseDir\launch-hbx-master.ps1"
+$LaunchScript = "$BaseDir\launch-hbx-owner.ps1"
 
 if (!(Test-Path $BaseDir)) {
     New-Item -ItemType Directory -Path $BaseDir | Out-Null
@@ -20,7 +20,7 @@ $hora = $now.ToString("HH:mm:ss")
 if (Test-Path $NextDayFile) {
     $nextDay = Get-Content $NextDayFile -Raw -Encoding UTF8
 } else {
-    $nextDay = "Nenhum plano salvo para hoje. Fazer check-in manual no app HBX Master."
+    $nextDay = "Nenhum plano salvo para hoje. Fazer check-in manual no app HBX Owner."
 }
 
 $prompt = @"
@@ -46,8 +46,8 @@ Set-Clipboard -Value $prompt
 
 Add-Type -AssemblyName PresentationFramework
 [System.Windows.MessageBox]::Show(
-    "HBX Master local aberto. O check-in pré-start está no clipboard.",
-    "HBX Master",
+    "HBX Owner local aberto. O check-in pré-start está no clipboard.",
+    "HBX Owner",
     "OK",
     "Information"
 )

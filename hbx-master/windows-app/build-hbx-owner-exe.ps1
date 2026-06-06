@@ -4,10 +4,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 $BaseDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$AppScript = Join-Path $BaseDir "hbx_master_app.py"
-$IconPath = Join-Path $BaseDir "assets\hbx-master.ico"
+$AppScript = Join-Path $BaseDir "hbx_owner_app.py"
+$IconPath = Join-Path $BaseDir "assets\hbx-owner.ico"
 $BuildPath = Join-Path $BaseDir "build"
-$ExePath = Join-Path $BaseDir "HBX Master.exe"
+$ExePath = Join-Path $BaseDir "HBX Owner.exe"
 
 if (!(Test-Path $AppScript)) {
     throw "App principal não encontrado: $AppScript"
@@ -27,7 +27,7 @@ python -m PyInstaller `
     @cleanArgs `
     --onefile `
     --windowed `
-    --name "HBX Master" `
+    --name "HBX Owner" `
     --icon "$IconPath" `
     --distpath "$BaseDir" `
     --workpath "$BuildPath" `

@@ -4,8 +4,8 @@ param(
 )
 
 $BaseDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$ExePath = Join-Path $BaseDir "HBX Master.exe"
-$AppScript = Join-Path $BaseDir "hbx_master_launcher.py"
+$ExePath = Join-Path $BaseDir "HBX Owner.exe"
+$AppScript = Join-Path $BaseDir "hbx_owner_launcher.py"
 
 Add-Type -AssemblyName PresentationFramework
 
@@ -29,7 +29,7 @@ if (Test-Path $ExePath) {
 if (!(Test-Path $AppScript)) {
     [System.Windows.MessageBox]::Show(
         "Não encontrei o executável nem o app local em $BaseDir.",
-        "HBX Master",
+        "HBX Owner",
         "OK",
         "Error"
     )
@@ -50,8 +50,8 @@ if ($pythonw) {
     $executable = $python.Source
 } else {
     [System.Windows.MessageBox]::Show(
-        "Python não encontrado no PATH. Instale Python 3 ou ajuste o atalho do HBX Master.",
-        "HBX Master",
+        "Python não encontrado no PATH. Instale Python 3 ou ajuste o atalho do HBX Owner.",
+        "HBX Owner",
         "OK",
         "Error"
     )

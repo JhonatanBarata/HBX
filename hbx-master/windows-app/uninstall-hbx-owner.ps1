@@ -5,10 +5,13 @@ $startup = Join-Path $programs "Startup"
 Add-Type -AssemblyName PresentationFramework
 
 $shortcuts = @(
+    (Join-Path $desktop "HBX Owner.lnk"),
     (Join-Path $desktop "HBX Master.lnk"),
     (Join-Path $desktop "HBX Start Work.lnk"),
     (Join-Path $desktop "HBX Fechar Dia.lnk"),
+    (Join-Path $programs "HBX Owner.lnk"),
     (Join-Path $programs "HBX Master.lnk"),
+    (Join-Path $startup "HBX Owner.lnk"),
     (Join-Path $startup "HBX Master.lnk")
 )
 
@@ -21,8 +24,8 @@ foreach ($shortcut in $shortcuts) {
 }
 
 [System.Windows.MessageBox]::Show(
-    "Atalhos removidos: $removed. Arquivos e banco local do HBX Master foram preservados.",
-    "HBX Master",
+    "Atalhos removidos: $removed. Arquivos e banco local do HBX Owner foram preservados.",
+    "HBX Owner",
     "OK",
     "Information"
 )

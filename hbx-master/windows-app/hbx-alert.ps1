@@ -22,7 +22,7 @@ $hora = $now.ToString("HH:mm:ss")
 Add-Type -AssemblyName PresentationFramework
 [System.Windows.MessageBox]::Show(
     $Mensagem,
-    "HBX Master",
+    "HBX Owner",
     "OK",
     "Warning"
 )
