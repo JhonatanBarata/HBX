@@ -5,6 +5,7 @@ param(
 
 $BaseDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ExePath = Join-Path $BaseDir "HBX Owner.exe"
+$IconPath = Join-Path $BaseDir "assets\hbx-owner.ico"
 $StartScript = Join-Path $BaseDir "start-hbx.ps1"
 $StartWorkScript = Join-Path $BaseDir "start-work.ps1"
 $FinishScript = Join-Path $BaseDir "finish-day.ps1"
@@ -31,7 +32,7 @@ function New-HBXShortcut {
     $shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$ScriptPath`""
     $shortcut.WorkingDirectory = $BaseDir
     $shortcut.Description = $Description
-    $shortcut.IconLocation = "$PowerShellExe,0"
+    $shortcut.IconLocation = if (Test-Path $IconPath) { "$IconPath,0" } else { "$PowerShellExe,0" }
     $shortcut.Save()
 }
 
@@ -52,7 +53,7 @@ function New-HBXExeShortcut {
     $shortcut.Arguments = ""
     $shortcut.WorkingDirectory = $BaseDir
     $shortcut.Description = $Description
-    $shortcut.IconLocation = "$ExePath,0"
+    $shortcut.IconLocation = if (Test-Path $IconPath) { "$IconPath,0" } else { "$ExePath,0" }
     $shortcut.WindowStyle = 3
     $shortcut.Save()
 }
