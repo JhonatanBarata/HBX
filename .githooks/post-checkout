@@ -1,7 +1,4 @@
 #!/bin/sh
 
-branch="$(git branch --show-current 2>/dev/null || true)"
-
-if [ "$branch" != "master" ]; then
-  echo "Warning: this repository is master-only. Current branch: ${branch:-detached HEAD}." >&2
-fi
+# Branch-specific checkout warnings were removed by owner request.
+exit 0

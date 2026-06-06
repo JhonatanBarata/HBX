@@ -1,8 +1,4 @@
 #!/bin/sh
 
-branch="$(git branch --show-current 2>/dev/null || true)"
-
-if [ "$branch" != "master" ]; then
-  echo "Commits are blocked outside master. Current branch: ${branch:-detached HEAD}." >&2
-  exit 1
-fi
+# Branch-specific commit blocking was removed by owner request.
+exit 0
