@@ -38,6 +38,13 @@ import {
 import { resolveExtraSeatMonthlyAmount } from '../commercial-plans/seat-billing.util';
 import { ensureVendasComplaintsRuntimeSchema } from '../vendas/vendas-complaints-runtime';
 import {
+  buildModuleCapabilityKey,
+  isHbxOperationCompany,
+  resolveAccessGovernor as resolveSellerAccessGovernor,
+  resolveEffectiveCapability,
+  type AccessGovernor,
+} from '../access/seller-access-governance';
+import {
   PRIMARY_COMMERCIAL_MODULE_KEYS,
   ROUTE_GUARDED_MODULE_KEYS,
   resolveCompanyModuleAccessPolicy,
@@ -154,7 +161,6 @@ type WebscrapingUsageSummary = ReturnType<ModulesService['buildDefaultWebscrapin
 type ModuleAccessContext = {
   mobileRoute?: boolean;
 };
-type AccessGovernor = 'HBX_MASTER' | 'COMPANY_ADMIN';
 
 @Injectable()
 export class ModulesService implements OnModuleInit {
@@ -1942,7 +1948,7 @@ export class ModulesService implements OnModuleInit {
   }
 
   private isHbxSellerNetworkCompanySnapshot(company: any) {
-    return String(company?.slug || '').trim().toLowerCase() === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG;
+    return isHbxOperationCompany(company);
   }
 
   private canUseAdminOnlyModule(user: any, moduleKey: string, context?: ModuleAccessContext) {
@@ -1968,10 +1974,26 @@ export class ModulesService implements OnModuleInit {
   }
 
   private resolveAccessGovernor(targetUser: any, targetCompany: any): AccessGovernor {
-    if (this.isHbxSellerNetworkCompanySnapshot(targetCompany || targetUser?.company)) {
-      return 'HBX_MASTER';
-    }
-    return 'COMPANY_ADMIN';
+    return resolveSellerAccessGovernor(targetUser, targetCompany);
+  }
+
+  private resolveModuleEffectiveCapability(input: {
+    user: any;
+    moduleKey: string;
+    userAllowed: boolean;
+    companyAllowed: boolean;
+    context?: ModuleAccessContext;
+  }) {
+    const capability = buildModuleCapabilityKey(input.moduleKey);
+    if (!capability) return Boolean(input.userAllowed && input.companyAllowed);
+    return resolveEffectiveCapability({
+      capability,
+      companyEntitlements: { [capability]: input.companyAllowed },
+      configuredUserCaps: { [capability]: input.userAllowed },
+      safetyCaps: {
+        [capability]: this.canUseAdminOnlyModule(input.user, input.moduleKey, input.context),
+      },
+    });
   }
 
   private assertCanGovernSellerAccess(input: {
@@ -2085,7 +2107,13 @@ export class ModulesService implements OnModuleInit {
       if (!userAllowed) continue;
 
       if (accessPolicy.moduleKeys.has(normalizedModuleKey)) {
-        return true;
+        return this.resolveModuleEffectiveCapability({
+          user,
+          moduleKey: moduleItem.key,
+          userAllowed,
+          companyAllowed: true,
+          context,
+        });
       }
 
       if (isSystemMaster) {
@@ -2097,7 +2125,13 @@ export class ModulesService implements OnModuleInit {
 
       const companyEnabled = await this.isCompanyModuleEnabled(companyId, moduleItem.id);
       if (!companyEnabled) continue;
-      return true;
+      return this.resolveModuleEffectiveCapability({
+        user,
+        moduleKey: moduleItem.key,
+        userAllowed,
+        companyAllowed: true,
+        context,
+      });
     }
 
     return false;
