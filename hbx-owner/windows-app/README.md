@@ -1,8 +1,8 @@
 # HBX Owner Local Pro
 
-Executável local Windows para controle pessoal de trabalho do HBX Owner.
+App local Windows para controle pessoal de trabalho do HBX Owner.
 
-O uso normal é pelo `HBX Owner.exe`. O código-fonte continua em Python/Tkinter para manutenção e build local. Não usa API OpenAI, não automatiza clique no ChatGPT, não captura teclado, não tira screenshot, não coleta senha/token, não sobe dados para internet, não usa Electron e não cria servidor.
+O uso normal é pelo atalho `HBX Owner` do Desktop, que chama `launch-hbx-owner.ps1` e abre o código Python atual. O `HBX Owner.exe` pode existir como build antigo, mas não é o caminho recomendado para validar edições recentes. Não usa API OpenAI, não automatiza clique no ChatGPT, não captura teclado, não tira screenshot, não coleta senha/token, não sobe dados para internet, não usa Electron e não cria servidor.
 
 ## Estrutura
 
@@ -41,7 +41,7 @@ O app também inicializa arquivos operacionais simples: `hbx-dia.json`, `hbx-pla
 Uso normal:
 
 ```powershell
-& "C:\Users\Jhonatan\Desktop\App\hbx-owner\windows-app\HBX Owner.exe"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Users\Jhonatan\Desktop\App\hbx-owner\windows-app\launch-hbx-owner.ps1
 ```
 
 Build local do executável:
@@ -222,6 +222,36 @@ git show --stat --oneline --summary HEAD
 
 Nunca executa `git push`, `git reset`, `git checkout` ou `git clean`.
 
+## Codex automático local
+
+Quando um card é movido para `AGUARDANDO CODEX`, o Owner prepara um dispatch local:
+
+- cria ou reutiliza uma branch `owner/card-<id>-<titulo>`;
+- cria worktree isolado em `codex_worktree_dir`;
+- grava prompt, log e última resposta em `codex-dispatches\`;
+- inicia `codex exec` com comando fixo, sem campo de shell livre;
+- não faz push, deploy, publish, migration, reset ou clean;
+- bloqueia automaticamente cards que toquem `deploy`, `publish`, `migration`, `auth`, `billing`, `secrets` ou pagamento.
+
+Quando o processo termina, o Owner verifica o worktree. Se houver commit novo, preenche `commit_sha` no card e move para `TESTAR`. Se houver mudanças sem commit ou nenhuma mudança, move para `REVISAR COM CHATGPT`.
+
+Use `Disparar Codex` no Kanban para forçar o dispatch do card selecionado. Use `Atualizar Codex` para checar execuções finalizadas antes do próximo tick automático.
+
+## HUD de uso local
+
+O Owner abre uma janelinha fixa no topo da tela com:
+
+- data atual;
+- janela local de uso, padrão `5H LOCAL`;
+- contagem dos últimos 5h para `SPK` e `NORM`.
+
+`SPK` conta chamadas reais do compilador Spark de cards. `NORM` conta dispatches Codex normais iniciados por card. A contagem é local, gravada em SQLite na tabela `ai_usage_events`; ela não consulta limite real externo.
+
+Configurações:
+
+- `usage_hud_enabled`: liga/desliga a janelinha;
+- `usage_hud_window_hours`: janela local de contagem, padrão `5`.
+
 ## PR Lab
 
 A aba `PR Lab` é o laboratório local para revisar branches antes de aprovar merge:
@@ -242,10 +272,20 @@ A aba `ChatGPT`:
 - chama o ChatGPT Desktop do Windows via `shell:AppsFolder`;
 - importa pesquisa colada por modal local e salva o texto em SQLite;
 - gera cards automaticamente usando o Autocard Compiler;
+- gera cards com `Spark` quando você quiser usar um compilador rápido para estruturar texto/PDF mastigado;
 - copia um exemplo pronto de `HBX_CARDS_JSON_START` / `HBX_CARDS_JSON_END`;
 - transforma resposta em cards quando o texto vier em JSON HBX, `CARD:`, markdown checklist, `PRÓXIMOS CARDS:` ou resposta livre com ações, lacunas e recomendações.
 
 Use `Importar pesquisa` para colar uma pesquisa normal do ChatGPT. Com `Criar cards ao importar` ligado, o Owner já cria os cards na importação; desligado, ele só salva o texto. Use `Gerar cards automático` para compilar o conteúdo atual da área de texto. Os prompts ficam em `prompts\`. As respostas salvas ficam em SQLite.
+
+Use `Gerar cards com Spark` para chamar `codex exec` em modo read-only com `card_compiler_model` e exigir saída `HBX_CARDS_JSON`. Use `PDF -> prompt` quando quiser copiar o prompt manual para ChatGPT Desktop. Use `PDF -> cards Spark` para extrair texto do PDF, pedir ao Spark para estruturar e criar cards no Kanban. Se o PDF não tiver texto local suficiente, o Spark recebe o caminho do arquivo e deve devolver cards verificáveis ou uma triagem `BLOQUEADO`, sem cair na regra antiga de anexo manual.
+
+Configurações relevantes:
+
+- `card_compiler_engine`: `local` ou `spark`;
+- `card_compiler_cli_path`: padrão `codex`;
+- `card_compiler_model`: padrão `spark`;
+- `card_compiler_timeout_seconds`: timeout da compilação.
 
 O AppID padrão do ChatGPT Desktop é:
 

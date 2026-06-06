@@ -6,6 +6,7 @@ param(
 $BaseDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ExePath = Join-Path $BaseDir "HBX Owner.exe"
 $IconPath = Join-Path $BaseDir "assets\hbx-owner.ico"
+$LaunchScript = Join-Path $BaseDir "launch-hbx-owner.ps1"
 $StartScript = Join-Path $BaseDir "start-hbx.ps1"
 $StartWorkScript = Join-Path $BaseDir "start-work.ps1"
 $FinishScript = Join-Path $BaseDir "finish-day.ps1"
@@ -58,9 +59,9 @@ function New-HBXExeShortcut {
     $shortcut.Save()
 }
 
-if (!(Test-Path $StartScript)) {
+if (!(Test-Path $LaunchScript)) {
     [System.Windows.MessageBox]::Show(
-        "Nao encontrei $StartScript. Rode este instalador a partir de C:\Users\Jhonatan\Desktop\App\hbx-owner\windows-app.",
+        "Nao encontrei $LaunchScript. Rode este instalador a partir de C:\Users\Jhonatan\Desktop\App\hbx-owner\windows-app.",
         "HBX Owner",
         "OK",
         "Error"
@@ -86,20 +87,12 @@ foreach ($oldShortcut in @(
 }
 
 if (-not $NoDesktop) {
-    if (Test-Path $ExePath) {
-        New-HBXExeShortcut -Path (Join-Path $desktop "HBX Owner.lnk") -Description "Abrir HBX Owner local"
-    } else {
-        New-HBXShortcut -Path (Join-Path $desktop "HBX Owner.lnk") -ScriptPath $StartScript -Description "Abrir HBX Owner local"
-    }
+    New-HBXShortcut -Path (Join-Path $desktop "HBX Owner.lnk") -ScriptPath $LaunchScript -Description "Abrir HBX Owner local atualizado"
     New-HBXShortcut -Path (Join-Path $desktop "HBX Start Work.lnk") -ScriptPath $StartWorkScript -Description "Iniciar expediente HBX"
     New-HBXShortcut -Path (Join-Path $desktop "HBX Fechar Dia.lnk") -ScriptPath $FinishScript -Description "Fechar expediente HBX"
 }
 
-if (Test-Path $ExePath) {
-    New-HBXExeShortcut -Path (Join-Path $programs "HBX Owner.lnk") -Description "Abrir HBX Owner local"
-} else {
-    New-HBXShortcut -Path (Join-Path $programs "HBX Owner.lnk") -ScriptPath $StartScript -Description "Abrir HBX Owner local"
-}
+New-HBXShortcut -Path (Join-Path $programs "HBX Owner.lnk") -ScriptPath $LaunchScript -Description "Abrir HBX Owner local atualizado"
 
 if (-not $NoStartup) {
     if (Test-Path $StartupInstaller) {

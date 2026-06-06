@@ -36,6 +36,36 @@
     "forbiddenActions": ["api", "shell", "deploy", "migration", "secrets"]
   },
   {
+    "id": "spark-card-compiler",
+    "label": "Spark Card Compiler",
+    "kind": "local-compiler",
+    "defaultMode": "manual",
+    "risk": "low",
+    "allowedActions": [
+      "read-pasted-text",
+      "read-extracted-pdf-text",
+      "run-codex-exec-read-only",
+      "force-hbx-cards-json",
+      "create-kanban-cards",
+      "fallback-local-autocard"
+    ],
+    "forbiddenActions": ["edit-code", "shell", "deploy", "publish", "migration", "auth", "billing", "secrets"]
+  },
+  {
+    "id": "local-usage-hud",
+    "label": "Local Usage HUD",
+    "kind": "windows-owner",
+    "defaultMode": "automatic-local",
+    "risk": "low",
+    "allowedActions": [
+      "record-local-ai-usage",
+      "count-last-5h",
+      "show-topmost-hud",
+      "read-sqlite-only"
+    ],
+    "forbiddenActions": ["external-quota-api", "billing", "secrets", "shell", "deploy", "migration"]
+  },
+  {
     "id": "codex-queue-runner",
     "label": "Codex Queue Runner",
     "kind": "local-agent",
@@ -122,5 +152,23 @@
       "local-merge-approved"
     ],
     "forbiddenActions": ["free-shell", "push", "deploy", "migration", "reset", "clean", "checkout", "secrets"]
+  },
+  {
+    "id": "codex-auto-dispatch",
+    "label": "Codex Auto Dispatch",
+    "kind": "windows-owner",
+    "defaultMode": "automatic-local",
+    "risk": "medium",
+    "allowedActions": [
+      "dispatch-on-kanban-lane",
+      "create-owner-worktree",
+      "create-owner-branch",
+      "run-codex-exec-fixed",
+      "poll-local-process",
+      "read-worktree-commit",
+      "fill-card-commit",
+      "move-card-to-test"
+    ],
+    "forbiddenActions": ["free-shell", "push", "deploy", "publish", "migration", "reset", "clean", "auth", "billing", "secrets"]
   }
 ]

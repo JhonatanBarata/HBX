@@ -6,7 +6,6 @@ import { assertPasswordPolicy } from './password-policy';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { MasterContextService } from '../master-context/master-context.service';
 import { ThemePreferencesService } from './theme-preferences.service';
-import { PrismaService } from '../prisma/prisma.service';
 
 class ChangePasswordDto {
   @IsString()
@@ -99,7 +98,6 @@ export class ProfileController {
     private readonly usersService: UsersService,
     private readonly masterContextService: MasterContextService,
     private readonly themePreferencesService: ThemePreferencesService,
-    private readonly prisma: PrismaService,
   ) {}
 
   private async resolveMasterContext(req: any, user: any) {
@@ -172,18 +170,7 @@ export class ProfileController {
     const nextPassword = String(dto.newPassword || '');
     assertPasswordPolicy(nextPassword);
 
-    const currentSessionId = String(req.user?.sessionId || '').trim();
-    const previousSessionCount = user.mustChangePassword
-      ? await this.prisma.authSession.count({
-          where: {
-            userId: user.id,
-            id: currentSessionId ? { not: currentSessionId } : undefined,
-          },
-        })
-      : 0;
-    const isFirstAccessPasswordChange = Boolean(user.mustChangePassword) && previousSessionCount === 0;
-
-    if (!isFirstAccessPasswordChange) {
+    if (!user.mustChangePassword) {
       if (!currentPassword) throw new BadRequestException('Informe a senha atual');
       const matches = await bcrypt.compare(currentPassword, user.password || '');
       if (!matches) throw new BadRequestException('Senha atual incorreta');

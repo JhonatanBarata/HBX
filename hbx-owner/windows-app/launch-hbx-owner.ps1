@@ -21,7 +21,7 @@ if ($NoGui) {
     $appArguments += "--no-gui"
 }
 
-if (Test-Path $ExePath) {
+if ((Test-Path $ExePath) -and ($env:HBX_OWNER_USE_EXE -eq "1")) {
     Start-Process -FilePath $ExePath -ArgumentList $appArguments -WorkingDirectory $BaseDir
     exit 0
 }

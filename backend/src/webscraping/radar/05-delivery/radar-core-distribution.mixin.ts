@@ -1858,6 +1858,11 @@ export class RadarCoreDistributionMixin {
     const now = new Date();
     let updatedCount = 0;
     for (const row of rows || []) {
+      if (this.isHbxOperationSellerUser(user)) {
+        const assignedToUser = (Array.isArray(row?.companyStates) ? row.companyStates : [])
+          .some((state: any) => Number(state?.assignedUserId || 0) === context.userId);
+        if (!assignedToUser) continue;
+      }
       const existing = Array.isArray(row?.companyStates) && row.companyStates.length ? row.companyStates[0] : null;
       if (this.isRadarProtectedStatus(existing?.status || row?.status)) continue;
       try {

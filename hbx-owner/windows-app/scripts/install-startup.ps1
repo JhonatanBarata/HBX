@@ -4,8 +4,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $PSScriptRoot
-$Exe = Join-Path $Root 'HBX Owner.exe'
 $Launcher = Join-Path $Root 'hbx_owner_launcher.py'
+$StartScript = Join-Path $Root 'start-hbx.ps1'
 $Startup = [Environment]::GetFolderPath('Startup')
 $ShortcutPath = Join-Path $Startup 'HBX Owner.lnk'
 
@@ -45,7 +45,7 @@ function Remove-HbxStartupShortcuts {
     }
 }
 
-if (!(Test-Path $Exe) -and !(Test-Path $Launcher)) {
+if (!(Test-Path $StartScript) -and !(Test-Path $Launcher)) {
     throw "Launcher não encontrado: $Launcher"
 }
 
@@ -60,18 +60,11 @@ Remove-HbxStartupShortcuts
 
 $shell = New-Object -ComObject WScript.Shell
 $shortcut = $shell.CreateShortcut($ShortcutPath)
-if (Test-Path $Exe) {
-    $shortcut.TargetPath = $Exe
-    $shortcut.Arguments = ''
-    $shortcut.IconLocation = "$Exe,0"
-    $shortcut.Description = 'HBX Owner Local Pro - executável único sem console'
-} else {
-    $pythonw = Resolve-PythonCommand -Windowless
-    $shortcut.TargetPath = $pythonw
-    $shortcut.Arguments = '"' + $Launcher + '"'
-    $shortcut.IconLocation = "$pythonw,0"
-    $shortcut.Description = 'HBX Owner Local Pro - launcher seguro sem console duplicado'
-}
+$powershellExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+$shortcut.TargetPath = $powershellExe
+$shortcut.Arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $StartScript + '"'
+$shortcut.IconLocation = "$powershellExe,0"
+$shortcut.Description = 'HBX Owner Local Pro - launcher seguro atualizado'
 $shortcut.WorkingDirectory = $Root
 $shortcut.WindowStyle = 3
 $shortcut.Save()

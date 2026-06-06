@@ -1359,8 +1359,15 @@ export class RadarCoreDeliveryMixin {
     return { releasedCount };
   }
 
-  private async markRadarDelivered(companyId: number, userId: number, rows: any[]) {
+  private async markRadarDelivered(
+    companyId: number,
+    userId: number,
+    rows: any[],
+    options: { assignedUserId?: number | null; assignedByUserId?: number | null } = {},
+  ) {
     const context = { companyId, userId } as SearchExecutionContext;
+    const assignedUserId = Math.trunc(Number(options.assignedUserId || 0)) || null;
+    const assignedByUserId = assignedUserId ? Math.trunc(Number(options.assignedByUserId || userId || 0)) || null : null;
     const claimedRows: any[] = [];
     for (const row of rows) {
       const existing = Array.isArray(row?.companyStates) && row.companyStates.length ? row.companyStates[0] : null;
@@ -1372,6 +1379,8 @@ export class RadarCoreDeliveryMixin {
         companyStatus: existing?.status && !['new', 'clean'].includes(String(existing.status)) ? this.normalizeRadarLeadStatus(existing.status) : 'reserved',
         eventType: 'ownership_reserved',
         note: 'Card puxado no Radar Digital.',
+        assignedUserId,
+        assignedByUserId,
       }).then(() => {
         claimedRows.push(row);
       }).catch((error: any) => {
@@ -1574,8 +1583,12 @@ export class RadarCoreDeliveryMixin {
     }
     
     let claimedRows = deliveredRows;
+    const assignToUserId = this.isHbxOperationSellerUser(user) ? context.userId : null;
     try {
-      claimedRows = await this.markRadarDelivered(context.companyId, context.userId, deliveredRows);
+      claimedRows = await this.markRadarDelivered(context.companyId, context.userId, deliveredRows, {
+        assignedUserId: assignToUserId,
+        assignedByUserId: assignToUserId ? context.userId : null,
+      });
       if (!claimedRows.length && deliveredRows.length) {
         claimedRows = deliveredRows;
       }
@@ -1592,7 +1605,11 @@ export class RadarCoreDeliveryMixin {
         ownerCompanyId: context.companyId,
         claimedAt: new Date(),
         status: 'reserved',
-        companyStates: [{ status: 'reserved' }],
+        companyStates: [{
+          status: 'reserved',
+          assignedUserId: assignToUserId,
+          assignedByUserId: assignToUserId ? context.userId : null,
+        }],
       }, { includeSmartFields }));
       whatsapp = await this.applyRadarWhatsappCheck(context, publicItems, filters.whatsappCheckMode);
       items = includeSmartFields ? whatsapp.items : whatsapp.items.map((item: any) => this.maskRadarSmartFieldsForList(item));
@@ -2606,6 +2623,7 @@ export class RadarCoreDeliveryMixin {
       include: { companyStates: { where: { companyId: context.companyId }, take: 1 } },
     }).catch(() => null);
     if (!row) throw new NotFoundException('Card do Radar nao encontrado.');
+    this.assertRadarLeadVisibleForUser(user, context, row);
     const ownershipEnabled = await this.supportsRadarOwnershipPersistence();
     const ownerCompanyId = Math.trunc(Number(row?.ownerCompanyId || 0)) || 0;
     if (ownershipEnabled && ownerCompanyId && ownerCompanyId !== context.companyId) {
@@ -2774,6 +2792,7 @@ export class RadarCoreDeliveryMixin {
       include: { companyStates: { where: { companyId: context.companyId }, take: 1 } },
     });
     if (!row) throw new NotFoundException('Card do Radar nao encontrado.');
+    this.assertRadarLeadVisibleForUser(user, context, row);
     let leadRow = row;
     if (this.isRadarProtectedStatus(leadRow?.companyStates?.[0]?.status || leadRow?.status)) {
       throw new BadRequestException('Card protegido nao pode ser enviado para Vendas.');

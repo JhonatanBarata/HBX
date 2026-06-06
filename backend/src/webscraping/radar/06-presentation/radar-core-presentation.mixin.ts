@@ -192,6 +192,26 @@ export class RadarCorePresentationMixin {
     return Boolean(user?.isSystemMaster) || role === 'ADMIN';
   }
 
+  private isHbxOperationSellerUser(user: any) {
+    const role = String(user?.role || '').trim().toUpperCase();
+    if (role !== 'USER' || Boolean(user?.isSystemMaster) || Boolean(user?.masterContext?.active)) return false;
+    const company = user?.company || {};
+    const slug = String(company?.slug || '').trim().toLowerCase();
+    return Boolean(
+      company?.isHbxOperation === true ||
+        company?.isMasterOperationalCompany === true ||
+        slug === 'hbx' ||
+        slug === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
+    );
+  }
+
+  private assertRadarLeadVisibleForUser(user: any, context: SearchExecutionContext, row: any) {
+    if (!this.isHbxOperationSellerUser(user)) return;
+    const companyStates = Array.isArray(row?.companyStates) ? row.companyStates : [];
+    const assignedToUser = companyStates.some((state: any) => Number(state?.assignedUserId || 0) === context.userId);
+    if (!assignedToUser) throw new NotFoundException('Card do Radar nao encontrado.');
+  }
+
   private canSeeDiagnostics(user: any) {
     return this.canUseWebscrapingRole(user);
   }
@@ -1381,6 +1401,7 @@ export class RadarCorePresentationMixin {
       includeHidden?: boolean;
       ownershipEnabled?: boolean;
       availableOnly?: boolean;
+      assignedUserId?: number | null;
     } = {},
   ) {
     const where: any = {};
@@ -1456,6 +1477,18 @@ export class RadarCorePresentationMixin {
           ],
         });
       }
+    }
+
+    const assignedUserId = Math.trunc(Number(options.assignedUserId || 0)) || 0;
+    if (companyId && assignedUserId) {
+      and.push({
+        companyStates: {
+          some: {
+            companyId,
+            assignedUserId,
+          },
+        },
+      });
     }
 
     const excludePhoneDigits = Array.from(new Set((options.excludePhoneDigits || []).map((phone) => normalizePhoneDigits(phone)).filter(Boolean)));
@@ -1803,7 +1836,7 @@ export class RadarCorePresentationMixin {
   private async queryRadarRowsForCompany(
     companyId: number,
     filters: NormalizedRadarFilters,
-    options: { limit?: number; excludePhoneDigits?: string[]; requirePhone?: boolean; includeHidden?: boolean; availableOnly?: boolean } = {},
+    options: { limit?: number; excludePhoneDigits?: string[]; requirePhone?: boolean; includeHidden?: boolean; availableOnly?: boolean; assignedUserId?: number | null } = {},
   ) {
     if (!(await this.supportsRadarPersistence())) return [];
     const ownershipEnabled = await this.supportsRadarOwnershipPersistence();
@@ -2516,6 +2549,7 @@ export class RadarCorePresentationMixin {
   async listRadarLeadsForUser(user: any, input: RadarFiltersInput = {}) {
     const context = this.resolveContext(user);
     const filters = this.normalizeRadarFilters({ ...input, engine: undefined });
+    const assignedUserId = this.isHbxOperationSellerUser(user) ? context.userId : null;
     if (!(await this.supportsRadarPersistence())) {
       return { items: [], total: 0, facets: [], meta: { available: false, message: 'Banco do Radar ainda nao foi migrado neste ambiente.' } };
     }
@@ -2532,10 +2566,12 @@ export class RadarCorePresentationMixin {
     const availableRows = await this.queryRadarRowsForCompany(context.companyId, availabilityFilters, {
       limit: 2000,
       includeHidden: filters.includeHidden,
+      assignedUserId,
     });
     const allRows = await this.queryRadarRowsForCompany(context.companyId, baseFilters, {
       limit: 2000,
       includeHidden: filters.includeHidden,
+      assignedUserId,
     });
     const filteredRows = filters.filterKey || filters.status || filters.ddd || filters.source || filters.scoreRange
       ? this.filterRadarRowsInMemory(allRows, filters)
@@ -2575,6 +2611,7 @@ export class RadarCorePresentationMixin {
       },
     }).catch(() => null);
     if (!row) throw new NotFoundException('Card do Radar nao encontrado.');
+    this.assertRadarLeadVisibleForUser(user, context, row);
     const [enrichedRow] = await this.ensureRadarRowsEnriched([row]);
     const leadRow = enrichedRow || row;
     const includeSmartFields = await this.canUseRadarSmartLeadFields(context.companyId);

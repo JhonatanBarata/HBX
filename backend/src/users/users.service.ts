@@ -557,11 +557,33 @@ export class UsersService {
   }
 
   async setPassword(userId: number, hashedPassword: string, options?: { mustChangePassword?: boolean }): Promise<User> {
+    const mustChangePassword = Boolean(options?.mustChangePassword);
+    if (mustChangePassword) {
+      return this.prisma.$transaction(async (tx) => {
+        const now = new Date();
+        await tx.authSession.updateMany({
+          where: { userId, revokedAt: null },
+          data: {
+            revokedAt: now,
+            revokedReason: 'temporary_password_reset',
+          },
+        });
+        return tx.user.update({
+          where: { id: userId },
+          data: {
+            password: hashedPassword,
+            mustChangePassword,
+            currentSessionId: null,
+            sessionVersion: { increment: 1 },
+          },
+        });
+      });
+    }
     return this.prisma.user.update({
       where: { id: userId },
       data: {
         password: hashedPassword,
-        mustChangePassword: Boolean(options?.mustChangePassword),
+        mustChangePassword,
       },
     });
   }

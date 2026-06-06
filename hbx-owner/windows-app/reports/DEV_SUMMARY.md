@@ -39,6 +39,9 @@
 19. `feat: add Owner Tickets tab`
 20. `feat: add Codex Dispatch registry`
 21. `feat: add PR Branch Lab`
+22. `feat: add local Codex auto dispatch`
+23. `feat: add Spark card compiler`
+24. `feat: add local usage HUD`
 
 ## Como testar
 
@@ -59,10 +62,11 @@ Fluxo manual recomendado:
 5. Na aba `Modo IA`, gerar plano do dia, classificar um pedido e copiar pacote Codex.
 6. Na aba `Execução`, rodar a sequência básica ou `self_check`, copiar saída para Codex e criar cards do plano.
 7. Na aba `Tickets`, atualizar a fila do backend e abrir o ticket como o mesmo card local no Kanban.
-8. Na aba `PR Lab`, listar `owner/*`, criar worktree, rodar testes e usar merge aprovado apenas quando o repo estiver limpo.
-9. Na aba `ChatGPT`, importar pesquisa, gerar cards automáticos e copiar o formato `HBX_CARDS_JSON`.
-10. Na aba `Relatórios`, gerar HTML/PDF, relatório semanal, exportar CSV/JSON e criar backup SQLite.
-11. Na aba `Config`, copiar comando de instalação, copiar self-check, verificar saúde e abrir Startup.
+8. No Kanban, mover um card seguro para `AGUARDANDO CODEX` e acompanhar o dispatch local até commit ou revisão.
+9. Na aba `PR Lab`, listar `owner/*`, criar worktree, rodar testes e usar merge aprovado apenas quando o repo estiver limpo.
+10. Na aba `ChatGPT`, importar pesquisa, gerar cards automáticos e copiar o formato `HBX_CARDS_JSON`.
+11. Na aba `Relatórios`, gerar HTML/PDF, relatório semanal, exportar CSV/JSON e criar backup SQLite.
+12. Na aba `Config`, copiar comando de instalação, copiar self-check, verificar saúde e abrir Startup.
 
 ## Autocard Compiler
 
@@ -74,7 +78,9 @@ Fluxo manual recomendado:
 - Termos como `ticket`, `cliente`, `technical_support`, `whatsapp`, `p0` e `bug` sobem para prioridade `Alta`.
 - Termos sensíveis como `deploy`, `publish`, `migration`, `auth`, `billing` e `secrets` nunca entram como `FEITO`; viram `BLOQUEADO` ou `AGUARDANDO CODEX`.
 - A aba `ChatGPT` agora tem `Importar pesquisa`, `Gerar cards automático`, `Copiar formato HBX_CARDS_JSON` e auto-criação opcional.
+- A aba `ChatGPT` agora tem `Gerar cards com Spark`, `PDF -> prompt` e `PDF -> cards Spark`; PDF sem texto local suficiente não cai mais no aviso antigo de anexo manual antes do fluxo Spark.
 - Pesquisas importadas são salvas localmente em `chatgpt_exchanges` no SQLite, sem API externa.
+- Configurações: `card_compiler_engine`, `card_compiler_cli_path`, `card_compiler_model` e `card_compiler_timeout_seconds`.
 
 ## Sprint 3 - Tickets reais no backend
 
@@ -117,9 +123,35 @@ Fluxo manual recomendado:
 - `Merge aprovado` só executa merge local de `origin/owner/*`, com confirmação, na branch base configurada e com repo limpo.
 - Não faz push, deploy, migration, reset, clean, checkout automático nem shell livre.
 
+## Camada 7 - Codex automático local
+
+- Mover card para `AGUARDANDO CODEX` cria dispatch local em `codex_dispatches`.
+- O Owner cria branch/worktree `owner/card-*` e roda `codex exec` com comando fixo, sem shell livre.
+- Prompt, log e última resposta ficam em `codex-dispatches\`.
+- Cards com termos sensíveis como `deploy`, `publish`, `migration`, `auth`, `billing`, `secrets` ou pagamento são bloqueados antes do dispatch.
+- O tick do app verifica processos Codex em execução; quando termina, lê o worktree.
+- Se houver commit novo, grava `commit_sha` no card e move para `TESTAR`.
+- Se não houver commit, move para `REVISAR COM CHATGPT` com evento explicando o estado.
+- Não faz push, deploy, migration, reset ou clean.
+
+## HUD de uso local
+
+- Adiciona janelinha fixa no topo com data, janela `5H LOCAL`, contagem `SPK` e `NORM`.
+- `SPK` conta chamadas reais ao compilador Spark de cards.
+- `NORM` conta dispatches Codex normais iniciados por card.
+- Eventos ficam no SQLite em `ai_usage_events`.
+- A contagem é local; não consulta limite real externo.
+- Configurações: `usage_hud_enabled` e `usage_hud_window_hours`.
+
+## Atalho Windows
+
+- O atalho `HBX Owner` do Desktop e do Menu Iniciar aponta para `launch-hbx-owner.ps1`.
+- Esse caminho abre o Python atual e evita validar alterações contra um `HBX Owner.exe` antigo.
+- `install-hbx-owner.ps1` recria o atalho principal nesse mesmo formato.
+
 ## Limitações
 
-- O app não usa API OpenAI e não automatiza ChatGPT/Codex; a interação é manual via ChatGPT Desktop do Windows, Codex no projeto e clipboard.
+- O app não usa API OpenAI. ChatGPT continua manual; Codex pode ser acionado localmente via CLI em worktree isolado.
 - A aba `Execução` não aceita comando livre; só roda a lista segura definida no código.
 - A aba `PR Lab` depende de `gh` apenas para listar PRs; a listagem de `origin/owner/*` funciona só com Git local.
 - A instalação Windows cria atalhos; não empacota executável nem instala dependências.
