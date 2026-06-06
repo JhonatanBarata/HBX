@@ -31,8 +31,18 @@ def today_str() -> str:
 
 def ensure_dirs() -> None:
     LOG_DIR.mkdir(exist_ok=True)
-    if not DB_PATH.exists() and LEGACY_DB_PATH.exists():
+    if not DB_PATH.exists() and LEGACY_DB_PATH.exists() and sqlite_db_is_usable(LEGACY_DB_PATH):
         shutil.copy2(LEGACY_DB_PATH, DB_PATH)
+
+
+def sqlite_db_is_usable(path: Path) -> bool:
+    try:
+        conn = sqlite3.connect(path)
+        result = conn.execute("PRAGMA integrity_check").fetchone()
+        conn.close()
+    except sqlite3.Error:
+        return False
+    return bool(result and result[0] == "ok")
 
 
 def log_line(message: str) -> None:

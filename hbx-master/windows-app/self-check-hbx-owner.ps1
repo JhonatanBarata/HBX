@@ -42,7 +42,7 @@ function Invoke-LoggedCommand {
 
 Set-Location $BaseDir
 
-Write-Check "SELF-CHECK HBX MASTER"
+Write-Check "SELF-CHECK HBX OWNER"
 Write-Check "Data: $(Get-Date -Format s)"
 Write-Check "BaseDir: $BaseDir"
 Write-Check ""

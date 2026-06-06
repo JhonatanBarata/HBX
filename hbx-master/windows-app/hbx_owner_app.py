@@ -286,8 +286,20 @@ def focus_existing_window() -> None:
         user32.SetForegroundWindow(hwnd)
 
 
+def sqlite_db_is_usable(path: Path) -> bool:
+    try:
+        conn = sqlite3.connect(path)
+        result = conn.execute("PRAGMA integrity_check").fetchone()
+        conn.close()
+    except sqlite3.Error:
+        return False
+    return bool(result and result[0] == "ok")
+
+
 def migrate_legacy_db() -> None:
     if DB_PATH.exists() or not LEGACY_DB_PATH.exists():
+        return
+    if not sqlite_db_is_usable(LEGACY_DB_PATH):
         return
     shutil.copy2(LEGACY_DB_PATH, DB_PATH)
 
@@ -1784,7 +1796,7 @@ class HbxOwnerApp(tk.Tk):
         ) or "-"
 
         return (
-            "CONTEXTO PARA CODEX - HBX MASTER\n"
+            "CONTEXTO PARA CODEX - HBX OWNER\n"
             f"Workspace: {APP_DIR}\n"
             f"Data: {today_str()}\n\n"
             "OBJETIVO FIXO\n"
@@ -4024,7 +4036,7 @@ class HbxOwnerApp(tk.Tk):
         next_cards = "\n".join(f"- #{card['id']} {card['lane']} {card['title']}" for card in pending_cards[:5]) or "-"
         commit = f"{latest_git['commit_sha']} {latest_git['commit_message']}" if latest_git else "-"
         return (
-            "HANDOFF HBX MASTER\n"
+            "HANDOFF HBX OWNER\n"
             f"Data: {report_date}\n"
             f"Resumo: {summary}\n"
             f"Último commit: {commit}\n"
