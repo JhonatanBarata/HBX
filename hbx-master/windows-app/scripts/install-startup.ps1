@@ -29,6 +29,10 @@ function Remove-HbxStartupShortcuts {
         if (
             $joined.Contains('hbx_owner_app.py') -or
             $joined.Contains('hbx_owner_launcher.py') -or
+            $joined.Contains('hbx_master_app.py') -or
+            $joined.Contains('hbx_master_launcher.py') -or
+            $joined.Contains('hbx master') -or
+            $joined.Contains('hbxmaster') -or
             $joined.Contains('hbx boss') -or
             $joined.Contains('hbxboss') -or
             $joined.Contains('hbx-boss') -or
