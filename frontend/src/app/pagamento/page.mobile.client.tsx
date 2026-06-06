@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch } from "@/app/_lib/api";
+import { toMobileRoute } from "@/app/_lib/mobileRoutes";
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
 import { isHbxOperationalCompany, type BillingAccessCompany } from "@/lib/billing-access";
 import styles from "./mobile-checkout.module.css";
@@ -608,7 +609,7 @@ export default function MobilePaymentCheckoutPage() {
         if (!active || !isHbxOperationalCompany(profile?.company)) return;
         setOperationalRedirecting(true);
         const role = String(profile?.role || "").trim().toUpperCase();
-        router.replace(role === "USER" ? "/mobile/vendas" : "/gerencial");
+        router.replace(toMobileRoute(role === "USER" ? "/vendas" : "/gerencial"));
       })
       .catch(() => undefined);
 

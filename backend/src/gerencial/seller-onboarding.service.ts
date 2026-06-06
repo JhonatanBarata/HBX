@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { createHash, randomUUID } from 'crypto';
+import { createHash, randomBytes, randomUUID } from 'crypto';
 import { mkdir, readFile, unlink, writeFile } from 'fs/promises';
 import { extname, isAbsolute, join, relative, resolve, sep } from 'path';
 import PDFDocument from 'pdfkit';
@@ -25,6 +25,12 @@ type UpdateDraftInput = {
   referredByCommissionPercentSnapshot?: unknown;
   archiveEmail?: unknown;
   metadataJson?: unknown;
+};
+
+type SendOnboardingEmailOptions = {
+  allowMissingRequiredAttachments?: boolean;
+  confirmationLink?: string | null;
+  includeConfirmationLink?: boolean;
 };
 
 const ONBOARDING_DOCUMENT_SLOTS = [
@@ -219,6 +225,35 @@ export class SellerOnboardingService {
     private readonly mailService: MailService,
     private readonly emailTemplates: EmailTemplateService,
   ) {}
+
+  private buildAppUrl() {
+    return String(process.env.APP_URL || process.env.FRONTEND_URL || 'https://hbxsystem.com.br').replace(/\/$/, '');
+  }
+
+  private buildEmailConfirmationLink(rawToken: string) {
+    return `${this.buildAppUrl()}/confirm-email?token=${encodeURIComponent(rawToken)}`;
+  }
+
+  private async prepareEmailConfirmationLink(userId: number, email?: string | null) {
+    const partnerId = Number(userId || 0);
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    if (!partnerId || !normalizedEmail) return null;
+    const user = await this.prisma.user.findUnique({
+      where: { id: partnerId },
+      select: { email: true, emailConfirmedAt: true },
+    });
+    if (!user || user.emailConfirmedAt) return null;
+    const rawToken = randomBytes(32).toString('base64url');
+    await this.prisma.user.update({
+      where: { id: partnerId },
+      data: {
+        emailConfirmationToken: createHash('sha256').update(rawToken).digest('hex'),
+        emailConfirmationSentAt: new Date(),
+        emailConfirmationExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      },
+    });
+    return this.buildEmailConfirmationLink(rawToken);
+  }
 
   private contractDownloadPath(userId: number, attachmentId: string) {
     return `/gerencial/hbx-partners/${Number(userId)}/onboarding/attachments/${attachmentId}/download`;
@@ -694,7 +729,12 @@ export class SellerOnboardingService {
     };
   }
 
-  async sendOnboardingEmail(companyId: number, userId: number, createdByUserId?: number | null) {
+  async sendOnboardingEmail(
+    companyId: number,
+    userId: number,
+    createdByUserId?: number | null,
+    options?: SendOnboardingEmailOptions,
+  ) {
     let onboarding = await this.getOrCreateForUser(companyId, userId, createdByUserId);
     if (!onboarding.email) throw new BadRequestException('Informe o e-mail do parceiro antes de enviar.');
     if (!onboarding.contractTextSnapshot) {
@@ -713,7 +753,7 @@ export class SellerOnboardingService {
       kind: item.kind,
       label: item.label,
     }));
-    if (missingRequiredAttachments.length) {
+    if (missingRequiredAttachments.length && !options?.allowMissingRequiredAttachments) {
       const labels = missingRequiredAttachments.map((item) => item.label).join(', ');
       throw new BadRequestException({
         message: `Pendências obrigatórias antes do envio: ${labels}.`,
@@ -722,6 +762,9 @@ export class SellerOnboardingService {
     }
     const receivedLabels = readiness.receivedDocuments.map((item) => item.label);
     const missingLabels = readiness.missingRequiredDocuments.map((item) => item.label);
+    const confirmationLink = options?.confirmationLink || (options?.includeConfirmationLink
+      ? await this.prepareEmailConfirmationLink(userId, onboarding.email)
+      : '');
 
     const attachments: MailAttachment[] = [];
     for (const attachment of activeAttachments as any[]) {
@@ -751,6 +794,7 @@ export class SellerOnboardingService {
       documentosFaltantes: missingLabels.length ? missingLabels.join(', ') : 'nenhuma pendência obrigatória',
       contrato: onboarding.contractTextSnapshot || '',
       instrucaoAssinatura: CONTRACT_SIGNATURE_INSTRUCTION,
+      linkConfirmacao: confirmationLink,
     });
     let result: Awaited<ReturnType<MailService['sendMail']>>;
     try {
@@ -809,6 +853,13 @@ export class SellerOnboardingService {
   }
 
   async assertCanActivatePartner(companyId: number, userId: number, approvedByUserId?: number | null) {
+    const { user } = await this.requirePartnerUserInCompany(companyId, userId);
+    if (!user.emailConfirmedAt) {
+      throw new BadRequestException({
+        code: 'HBX_PARTNER_EMAIL_CONFIRMATION_PENDING',
+        message: 'Parceiro ainda não pode ser liberado. O e-mail do pré-boas-vindas precisa ser confirmado antes do acesso final.',
+      });
+    }
     const onboarding = await this.getOrCreateForUser(companyId, userId, null);
     const readiness = this.buildReadiness(onboarding);
     if (!readiness.complete) {

@@ -555,6 +555,17 @@ textarea {
   pointer-events: none;
 }
 
+.hbx-popup-layer--partner-access {
+  place-items: start center;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding:
+    max(0.75rem, env(safe-area-inset-top))
+    max(0.75rem, env(safe-area-inset-right))
+    max(0.75rem, env(safe-area-inset-bottom))
+    max(0.75rem, env(safe-area-inset-left));
+}
+
 .hbx-popup-layer[data-variant="side-phone"] {
   place-items: center end;
   padding:
@@ -868,7 +879,8 @@ textarea {
 .hbx-popup2--partner-access {
   width: clamp(760px, 82vw, 1120px);
   max-width: calc(100vw - 2rem - env(safe-area-inset-left) - env(safe-area-inset-right));
-  max-height: min(90dvh, 780px);
+  height: min(780px, calc(100dvh - 1.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom)));
+  max-height: calc(100dvh - 1.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom));
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr);
   align-items: stretch;
@@ -883,7 +895,11 @@ textarea {
   justify-content: space-between;
   gap: 0.75rem;
   border-bottom: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+  background: color-mix(in srgb, var(--surface-raised) 96%, var(--background));
   padding: 0.8rem 0.9rem;
+  position: sticky;
+  top: 0;
+  z-index: 4;
 }
 
 .hbx-partner-popup__header div {
@@ -903,6 +919,14 @@ textarea {
   color: var(--muted);
   font-size: 0.72rem;
   font-weight: 700;
+}
+
+.hbx-popup2--partner-access .hbx-popup2__close {
+  flex: 0 0 32px;
+  display: grid;
+  place-items: center;
+  position: relative;
+  z-index: 5;
 }
 
 .hbx-partner-popup__grid {
@@ -1146,6 +1170,7 @@ textarea {
   .hbx-popup2--partner-access {
     width: calc(100vw - 1rem - env(safe-area-inset-left) - env(safe-area-inset-right));
     max-width: 520px;
+    height: calc(100dvh - 1rem - env(safe-area-inset-top) - env(safe-area-inset-bottom));
     max-height: calc(100dvh - 1rem - env(safe-area-inset-top) - env(safe-area-inset-bottom));
   }
 

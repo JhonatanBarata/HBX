@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import HbxGuide1, { type HbxGuide1Tab } from "@/components/HbxGuide1";
 import { apiFetch } from "@/app/_lib/api";
+import { shouldUseMobileRoute, toDesktopRoute, toMobileRoute } from "@/app/_lib/mobileRoutes";
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
 import { isHbxOperationalCompany, type BillingAccessCompany } from "@/lib/billing-access";
 import styles from "./page.module.css";
@@ -656,7 +657,8 @@ export default function FinanceiroClientPage() {
         if (!active || !isHbxOperationalCompany(profile?.company)) return;
         setOperationalRedirecting(true);
         const role = String(profile?.role || "").trim().toUpperCase();
-        router.replace(role === "USER" ? "/mobile/vendas" : "/gerencial");
+        const destination = role === "USER" ? "/vendas" : "/gerencial";
+        router.replace(shouldUseMobileRoute(window.location.pathname) ? toMobileRoute(destination) : toDesktopRoute(destination));
       })
       .catch(() => undefined);
 

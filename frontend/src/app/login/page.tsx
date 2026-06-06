@@ -4,7 +4,7 @@ import type { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent } from
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { apiFetch, setToken } from "@/app/_lib/api";
-import { shouldUseMobileRoute, toMobileRoute } from "@/app/_lib/mobileRoutes";
+import { isMobileViewport, shouldUseMobileRoute, toDesktopRoute, toMobileRoute } from "@/app/_lib/mobileRoutes";
 import { useHbxTheme } from "../../components/ThemeProvider";
 import {
   LOGIN_VIDEO_PREFERENCE_EVENT,
@@ -64,6 +64,11 @@ type RecoverPasswordResponse = {
 
 type LoginCurrentUser = {
   isSystemMaster?: boolean;
+  role?: string | null;
+  userKind?: string | null;
+  company?: {
+    isHbxSellerNetwork?: boolean | null;
+  } | null;
 };
 
 type LoginParticleStyle = CSSProperties & {
@@ -375,7 +380,7 @@ export default function LoginPage({ mobileRoute = false }: { mobileRoute?: boole
   };
 
   useEffect(() => {
-    setIsMobileLoginSurface(mobileRoute);
+    setIsMobileLoginSurface(mobileRoute && (typeof window === "undefined" || isMobileViewport()));
   }, [mobileRoute]);
 
   useEffect(() => {
@@ -402,7 +407,7 @@ export default function LoginPage({ mobileRoute = false }: { mobileRoute?: boole
       // ignore sessionStorage errors
     }
     window.setTimeout(() => {
-      router.push(`/register${mobileRoute ? "?surface=mobile" : ""}`);
+      router.push(`/register${isMobileLoginSurface ? "?surface=mobile" : ""}`);
     }, 500);
   }
 
@@ -500,7 +505,9 @@ export default function LoginPage({ mobileRoute = false }: { mobileRoute?: boole
     const successDelay = isMobileLoginSurface ? MOBILE_LOGIN_SUCCESS_DELAY_MS : LOGIN_SUCCESS_DELAY_MS;
     await new Promise((resolve) => window.setTimeout(resolve, successDelay));
     const destination = await destinationPromise;
-    const routeDestination = mobileRoute ? toMobileRoute(destination) : destination;
+    const routeDestination = mobileRoute && isMobileViewport()
+      ? toMobileRoute(destination)
+      : toDesktopRoute(destination);
 
     setToken(token);
 

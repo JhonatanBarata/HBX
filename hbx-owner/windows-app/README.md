@@ -155,21 +155,9 @@ Na aba `Hoje`:
 
 O dashboard mostra progresso do expediente, tempo sentado, card atual, commits hoje, cards feitos, bloqueados e status `saudável`, `atenção` ou `pare`.
 
-## Modo IA
-
-A aba `Modo IA` é o cockpit de alinhamento do dia:
-
-- salva check-in local com horas, meta única, tarefa técnica, tarefa comercial, bloqueio e não fazer;
-- gera `hbx-plano.md` com plano de ação proporcional ao tempo disponível;
-- classifica pedidos como `APROVADO`, `AJUSTE` ou `NÃO` usando a regra anti-fuga;
-- copia um pacote de contexto para Codex/ChatGPT com cards pendentes, bloqueios, Git, memória local e pedido atual;
-- atualiza `hbx-memoria.md` com decisões e próximos passos.
-
-Ela não chama API externa. A interação com Codex/ChatGPT continua manual via clipboard, mas agora com contexto estruturado.
-
 ## Execução local
 
-A aba `Execução` roda somente comandos seguros pré-definidos:
+A aba `Execução` é diagnóstico global do Owner e roda somente comandos seguros pré-definidos:
 
 - `py_compile`: valida sintaxe do app;
 - `app_no_gui`: testa inicialização sem abrir janela;
@@ -178,7 +166,7 @@ A aba `Execução` roda somente comandos seguros pré-definidos:
 - `git_status` e `git_last_commit`: leitura segura de Git;
 - `focus_scan`: busca termos de P0, Recovery, demo e outbound.
 
-Também permite abrir terminal/pasta do projeto, criar cards a partir do plano, copiar a saída para Codex e salvar uma falha como card bloqueado.
+Também permite abrir terminal/pasta do projeto e salvar uma falha como card bloqueado. Execução de card, dispatch Codex, teste e commit ficam no `Kanban`.
 
 Para validar o app sem abrir janela nem navegador:
 
@@ -252,9 +240,9 @@ Configurações:
 - `usage_hud_enabled`: liga/desliga a janelinha;
 - `usage_hud_window_hours`: janela local de contagem, padrão `5`.
 
-## PR Lab
+## Branches
 
-A aba `PR Lab` é o laboratório local para revisar branches antes de aprovar merge:
+A aba `Branches` é o laboratório local para revisar branches antes de aprovar merge:
 
 - lista PRs abertos com GitHub CLI (`gh`) quando ele estiver instalado e autenticado;
 - lista branches remotas `origin/owner/*` sem fazer checkout;
@@ -270,13 +258,15 @@ O `Merge aprovado` é apenas local: não faz push, não publica, não executa de
 A aba `ChatGPT`:
 
 - chama o ChatGPT Desktop do Windows via `shell:AppsFolder`;
+- prepara pesquisa HBX com data, repo `Jhonatanbarata/HBX`, branch, commits recentes, cards concluídos com commit, pendentes e bloqueados;
+- importa o resultado copiado do ChatGPT via clipboard assistido;
 - importa pesquisa colada por modal local e salva o texto em SQLite;
 - gera cards automaticamente usando o Autocard Compiler;
 - gera cards com `Spark` quando você quiser usar um compilador rápido para estruturar texto/PDF mastigado;
 - copia um exemplo pronto de `HBX_CARDS_JSON_START` / `HBX_CARDS_JSON_END`;
 - transforma resposta em cards quando o texto vier em JSON HBX, `CARD:`, markdown checklist, `PRÓXIMOS CARDS:` ou resposta livre com ações, lacunas e recomendações.
 
-Use `Importar pesquisa` para colar uma pesquisa normal do ChatGPT. Com `Criar cards ao importar` ligado, o Owner já cria os cards na importação; desligado, ele só salva o texto. Use `Gerar cards automático` para compilar o conteúdo atual da área de texto. Os prompts ficam em `prompts\`. As respostas salvas ficam em SQLite.
+Use `Preparar pesquisa HBX` para copiar o prompt e abrir o ChatGPT. Depois que a resposta terminar, copie o resultado no ChatGPT e use `Importar clipboard`. Use `Importar pesquisa` para colar manualmente. Com `Criar cards ao importar` ligado, o Owner cria os cards no Kanban; desligado, ele só salva o texto. Use `Gerar cards automático` para compilar o conteúdo atual da área de texto. Os prompts ficam em `prompts\`. As respostas salvas ficam em SQLite.
 
 Use `Gerar cards com Spark` para chamar `codex exec` em modo read-only com `card_compiler_model` e exigir saída `HBX_CARDS_JSON`. Use `PDF -> prompt` quando quiser copiar o prompt manual para ChatGPT Desktop. Use `PDF -> cards Spark` para extrair texto do PDF, pedir ao Spark para estruturar e criar cards no Kanban. Se o PDF não tiver texto local suficiente, o Spark recebe o caminho do arquivo e deve devolver cards verificáveis ou uma triagem `BLOQUEADO`, sem cair na regra antiga de anexo manual.
 
@@ -298,7 +288,7 @@ Se o app do Windows mudar, ajuste `chatgpt_app_id` em `config.json` ou na aba `C
 ## Relatórios e PDF
 
 Na aba `Relatórios`, clique em `Gerar relatório HTML` ou use `FECHAR DIA` na aba Hoje.
-Use `Gerar relatório semanal` para revisar os últimos 7 dias com horas, cards, Modo IA, execuções locais e Git.
+Use `Gerar relatório semanal` para revisar os últimos 7 dias com horas, cards, execuções locais e Git.
 
 O HTML sai em:
 

@@ -102,6 +102,9 @@ type RadarSearchRunResponse = {
   message?: string | null;
   meta?: {
     requestedQuantity?: number;
+    vendasStockTarget?: number | null;
+    desiredStock?: number | null;
+    minimumStock?: number | null;
     deliveredCount?: number;
     progress?: number;
     terminal?: boolean;
@@ -6537,16 +6540,39 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     const runPaused = runStatus === "sleeping" || runOperationalState === "pausado";
     const runStopped = runOperationalState === "parado" || (runTerminal && Boolean(runStatus));
     const runActive = Boolean((liveRadarRun?.runId || storedRadarRun?.runId) && !runTerminal);
+    const runPauseReason = String(liveRadarRun?.meta?.operationalReason || liveRadarRun?.meta?.operationalMessage || liveRadarRun?.message || "").toLowerCase();
+    const runPausedByCardLimit = runPaused && (
+      runPauseReason.includes("limit") ||
+      runPauseReason.includes("limite") ||
+      runPauseReason.includes("quota") ||
+      runPauseReason.includes("vendas_stock") ||
+      runPauseReason.includes("card_limit")
+    );
+    const runVendasStockTarget = Math.max(
+      0,
+      Number(
+        liveRadarRun?.meta?.vendasStockTarget ||
+          liveRadarRun?.targetQuantity ||
+          liveRadarRun?.meta?.requestedQuantity ||
+          storedRadarRun?.targetQuantity ||
+          0,
+      ) || 0,
+    );
+    const runPauseMatchesVisibleVendas =
+      !runPausedByCardLimit ||
+      (runVendasStockTarget > 0 && mobilePendingCount >= runVendasStockTarget);
+    const displayRunPaused = runPaused && runPauseMatchesVisibleVendas;
+    const staleVendasLimitPause = runPaused && !displayRunPaused;
+    const displayRunActive = runActive && !staleVendasLimitPause;
     const autoImportRan = Boolean(runAutoImport?.ran);
     const autoImportPendingCount = Math.max(0, Number(runAutoImport?.pendingCount || 0));
     const autoImportImportedCount = Math.max(0, Number(runAutoImport?.importedCount || 0));
     const runDelivered = autoImportRan ? Math.max(autoImportPendingCount, autoImportImportedCount, runFoundRaw) : runFoundRaw;
     const liveAgendaCount = mobilePendingCount;
-    const incomingAgendaCount = runActive ? Math.max(autoImportPendingCount, autoImportImportedCount) : 0;
     const agendaReceivedCount = liveAgendaCount;
-    const activeAgendaCount = liveAgendaCount > 0 ? liveAgendaCount : incomingAgendaCount;
-    const radarBlockedByStrictFilters = autoImportRan && runFoundRaw > 0 && runDelivered <= 0 && activeAgendaCount <= 0;
-    const radarFoundWithoutAgenda = runDelivered > 0 && activeAgendaCount <= 0;
+    const activeAgendaCount = liveAgendaCount;
+    const radarBlockedByStrictFilters = displayRunActive && autoImportRan && runFoundRaw > 0 && runDelivered <= 0 && activeAgendaCount <= 0;
+    const radarFoundWithoutAgenda = displayRunActive && runDelivered > 0 && activeAgendaCount <= 0;
     const runFilters = liveRadarRun?.meta?.filters;
     const radarState = runFilters?.state || storedRadarRun?.state || "";
     const radarCity = runFilters?.city || storedRadarRun?.city || "";
@@ -6559,33 +6585,27 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     const radarAdjustHref = radarAdjustParams.toString()
       ? `/radar-digital?${radarAdjustParams.toString()}`
       : "/radar-digital";
-    const radarProgressLabel =
-      runTarget > 1
-        ? `${Math.min(runDelivered, runTarget)} de ${runTarget} cards`
-        : `${runDelivered} ${runDelivered === 1 ? "card recebido" : "cards recebidos"}`;
-    const radarLocatedCount = Math.max(runFoundRaw, activeAgendaCount, agendaReceivedCount);
-    const radarLocatedLabel = `${radarLocatedCount.toLocaleString("pt-BR")} ${radarLocatedCount === 1 ? "card localizado" : "cards localizados"}`;
-    const radarVendasLabel = `${activeAgendaCount.toLocaleString("pt-BR")} no Vendas`;
-    const radarReceivedVendasLabel = `${agendaReceivedCount.toLocaleString("pt-BR")} no Vendas`;
+    const radarVendasLabel = `${activeAgendaCount.toLocaleString("pt-BR")} ${activeAgendaCount === 1 ? "card" : "cards"} no Vendas`;
+    const radarReceivedVendasLabel = `${agendaReceivedCount.toLocaleString("pt-BR")} ${agendaReceivedCount === 1 ? "card" : "cards"} no Vendas`;
     const radarContextLabel = [radarCity, radarState].filter(Boolean).join(" / ") || radarSegment || "Radar Digital";
     const activeVendasLeads = allLeads.filter(({ block }) => block !== "closed").map(({ lead }) => lead);
     const enrichedVendasCount = activeVendasLeads.filter(leadHasPremiumSignals).length;
     const possibleSocialVendasCount = activeVendasLeads.filter(leadHasPossibleSocial).length;
     const reviewedVendasCount = activeVendasLeads.filter((lead) => leadEnrichmentBadgeState(lead, board)?.label === "Revisado").length;
     const mobileRadarState =
-      runPaused
+      displayRunPaused
         ? "paused"
       : runStopped
         ? "stopped"
-      : !runActive && agendaReceivedCount > 0
+      : !displayRunActive && agendaReceivedCount > 0
         ? "received"
       : radarBlockedByStrictFilters
             ? "partial"
-          : runActive && activeAgendaCount > 0
+          : displayRunActive && activeAgendaCount > 0
             ? "receiving"
-            : runActive && radarFoundWithoutAgenda
+            : displayRunActive && radarFoundWithoutAgenda
               ? "preparing"
-            : runActive || loading
+            : displayRunActive || loading
               ? "searching"
               : radarFoundWithoutAgenda
                   ? "preparing"
@@ -6597,20 +6617,20 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         ? "Radar parado"
       : mobileRadarState === "searching"
         ? "Pesquisando leads"
-        : mobileRadarState === "preparing"
-          ? `${runDelivered} ${runDelivered === 1 ? "card encontrado" : "cards encontrados"}`
+      : mobileRadarState === "preparing"
+          ? "Preparando Vendas"
         : mobileRadarState === "receiving"
-          ? `${radarLocatedLabel}, ${radarVendasLabel}`
+          ? radarVendasLabel
           : mobileRadarState === "partial"
-            ? radarProgressLabel
+            ? "Radar sem entrega"
       : mobileRadarState === "received"
                 ? enrichedVendasCount > 0
                   ? `${radarReceivedVendasLabel}, ${enrichedVendasCount} ${enrichedVendasCount === 1 ? "com sinal" : "com sinais"}`
-                  : `${radarLocatedLabel}, ${radarReceivedVendasLabel}`
-                : "Motor pronto";
+                  : radarReceivedVendasLabel
+                : radarReceivedVendasLabel;
     const mobileRadarStatusText =
       mobileRadarState === "paused"
-        ? "Limite atingido"
+        ? radarReceivedVendasLabel
       : mobileRadarState === "stopped"
         ? "Ajuste área ou segmentos"
       : mobileRadarState === "searching"
@@ -6629,26 +6649,24 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                     : agendaReceivedCount >= 40
                   ? "Finalize ou delete para liberar"
                   : "Radar abasteceu Vendas"
-                : "Radar pronto para buscar";
+                : "Abra o Radar para receber";
     const salesHeaderState =
       mobileRadarState === "paused"
         ? "paused"
       : mobileRadarState === "stopped"
         ? "stopped"
-      : !runActive && agendaReceivedCount > 0
+      : mobileRadarState === "received"
         ? "active"
-      : radarBlockedByStrictFilters
-            ? "partial"
-          : runActive && activeAgendaCount > 0
-            ? "receiving"
-            : runActive && radarFoundWithoutAgenda
-              ? "syncing"
-            : runActive || loading
-              ? "syncing"
-              : "ready";
+      : mobileRadarState === "partial"
+        ? "partial"
+      : mobileRadarState === "receiving"
+        ? "receiving"
+      : mobileRadarState === "searching" || mobileRadarState === "preparing"
+        ? "syncing"
+        : "ready";
     const salesHeaderSubtitle =
       mobileRadarState === "paused"
-        ? liveRadarRun?.meta?.operationalMessage || "O Radar pausou porque chegou ao limite definido. Ele retoma quando houver espaço."
+        ? `${radarReceivedVendasLabel}. Delete, finalize ou transfira cards para liberar o Radar.`
       : mobileRadarState === "stopped"
         ? liveRadarRun?.meta?.operationalMessage || "O Radar esgotou essa configuração. Amplie área, distância ou segmentos para continuar."
       : mobileRadarState === "ready"
@@ -6656,9 +6674,9 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         : mobileRadarState === "searching"
           ? `Buscando empresas em ${radarContextLabel}.`
           : mobileRadarState === "preparing"
-            ? `Radar encontrou cards em ${radarContextLabel}. Preparando Vendas.`
+            ? `Radar trabalhando em ${radarContextLabel}. O Vendas ainda não recebeu novos cards.`
           : mobileRadarState === "receiving"
-            ? `Cards aprovados chegando de ${radarContextLabel}. O enriquecimento continua depois.`
+            ? `${radarVendasLabel}. O enriquecimento continua depois.`
             : mobileRadarState === "partial"
               ? "O Radar entregou o que encontrou. Ajuste cidade ou segmento para completar."
                 : "Radar abasteceu sua agenda comercial.";

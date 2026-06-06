@@ -2,7 +2,7 @@
 
 ## Arquivos criados
 
-- `hbx_owner_app.py`: app Tkinter com ponto, pausas, alertas, Modo IA, Execução local, Kanban, Git, ChatGPT manual, relatórios, PDF, export e backup.
+- `hbx_owner_app.py`: app Tkinter com ponto, pausas, alertas, Execução local, Kanban, Git, Branches, ChatGPT manual, relatórios, PDF, export e backup.
 - `hbx_owner.db`: SQLite local criado em runtime e ignorado no Git.
 - `config.json`: configurações locais do app.
 - `.gitignore`: ignora banco, exports gerados, prompts gerados, relatórios HTML/PDF e logs.
@@ -59,14 +59,13 @@ Fluxo manual recomendado:
 2. Na aba `Hoje`, clicar em `START WORK`, `PAUSA`, `RETOMAR` e `STOP WORK`.
 3. Na aba `Kanban`, criar card, mover para `FAZENDO`, marcar como feito e definir como atual.
 4. Na aba `Git`, ler status, último commit e vincular commit ao card selecionado.
-5. Na aba `Modo IA`, gerar plano do dia, classificar um pedido e copiar pacote Codex.
-6. Na aba `Execução`, rodar a sequência básica ou `self_check`, copiar saída para Codex e criar cards do plano.
-7. Na aba `Tickets`, atualizar a fila do backend e abrir o ticket como o mesmo card local no Kanban.
-8. No Kanban, mover um card seguro para `AGUARDANDO CODEX` e acompanhar o dispatch local até commit ou revisão.
-9. Na aba `PR Lab`, listar `owner/*`, criar worktree, rodar testes e usar merge aprovado apenas quando o repo estiver limpo.
-10. Na aba `ChatGPT`, importar pesquisa, gerar cards automáticos e copiar o formato `HBX_CARDS_JSON`.
-11. Na aba `Relatórios`, gerar HTML/PDF, relatório semanal, exportar CSV/JSON e criar backup SQLite.
-12. Na aba `Config`, copiar comando de instalação, copiar self-check, verificar saúde e abrir Startup.
+5. Na aba `Execução`, rodar a sequência básica ou `self_check` para diagnóstico global.
+6. Na aba `Tickets`, atualizar a fila do backend e abrir o ticket como o mesmo card local no Kanban.
+7. No Kanban, mover um card seguro para `AGUARDANDO CODEX` e acompanhar o dispatch local até commit ou revisão.
+8. Na aba `Branches`, listar `owner/*`, criar worktree, rodar testes e usar merge aprovado apenas quando o repo estiver limpo.
+9. Na aba `ChatGPT`, preparar pesquisa HBX, importar clipboard, gerar cards automáticos e copiar o formato `HBX_CARDS_JSON`.
+10. Na aba `Relatórios`, gerar HTML/PDF, relatório semanal, exportar CSV/JSON e criar backup SQLite.
+11. Na aba `Config`, copiar comando de instalação, copiar self-check, verificar saúde e abrir Startup.
 
 ## Autocard Compiler
 
@@ -79,6 +78,7 @@ Fluxo manual recomendado:
 - Termos sensíveis como `deploy`, `publish`, `migration`, `auth`, `billing` e `secrets` nunca entram como `FEITO`; viram `BLOQUEADO` ou `AGUARDANDO CODEX`.
 - A aba `ChatGPT` agora tem `Importar pesquisa`, `Gerar cards automático`, `Copiar formato HBX_CARDS_JSON` e auto-criação opcional.
 - A aba `ChatGPT` agora tem `Gerar cards com Spark`, `PDF -> prompt` e `PDF -> cards Spark`; PDF sem texto local suficiente não cai mais no aviso antigo de anexo manual antes do fluxo Spark.
+- A aba `ChatGPT` agora tem `Preparar pesquisa HBX` e `Importar clipboard` para rotina manual sem API.
 - Pesquisas importadas são salvas localmente em `chatgpt_exchanges` no SQLite, sem API externa.
 - Configurações: `card_compiler_engine`, `card_compiler_cli_path`, `card_compiler_model` e `card_compiler_timeout_seconds`.
 
@@ -112,9 +112,9 @@ Fluxo manual recomendado:
 - O primeiro job do ticket recebe o resumo de dispatch em `resultJson`.
 - Não chama API Codex, não abre branch, não cria PR e não faz merge automático.
 
-## Sprint 6 - PR/Branch Lab
+## Sprint 6 - Branches
 
-- Adiciona aba `PR Lab` no HBX Owner Windows.
+- Adiciona aba `Branches` no HBX Owner Windows.
 - Lista PRs abertos via GitHub CLI local (`gh`) quando disponível.
 - Lista branches remotas `origin/owner/*` sem checkout.
 - Cria worktrees isolados em `pr_lab_worktree_dir` com validação para impedir caminho fora da pasta configurada.
@@ -153,7 +153,7 @@ Fluxo manual recomendado:
 
 - O app não usa API OpenAI. ChatGPT continua manual; Codex pode ser acionado localmente via CLI em worktree isolado.
 - A aba `Execução` não aceita comando livre; só roda a lista segura definida no código.
-- A aba `PR Lab` depende de `gh` apenas para listar PRs; a listagem de `origin/owner/*` funciona só com Git local.
+- A aba `Branches` depende de `gh` apenas para listar PRs; a listagem de `origin/owner/*` funciona só com Git local.
 - A instalação Windows cria atalhos; não empacota executável nem instala dependências.
 - O self-check valida arquivos locais; não substitui um teste manual de UX da janela Tkinter.
 - O PDF depende do Microsoft Edge instalado e acessível como `msedge` ou nos caminhos padrão do Windows.

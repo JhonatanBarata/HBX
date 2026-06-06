@@ -416,6 +416,20 @@ export class UsersController {
 		return `${this.buildAppUrl()}/confirm-email?token=${encodeURIComponent(rawToken)}`;
 	}
 
+	private async prepareEmailConfirmationLink(input: { userId: number; email?: string | null }) {
+		const userId = Number(input.userId || 0);
+		const email = String(input.email || '').trim().toLowerCase();
+		if (!userId || !email) return null;
+		const rawToken = this.createEmailConfirmationToken();
+		const confirmationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+		await this.usersService.updateById(userId, {
+			emailConfirmationToken: this.hashEmailConfirmationToken(rawToken),
+			emailConfirmationSentAt: new Date(),
+			emailConfirmationExpiresAt: confirmationExpiresAt,
+		});
+		return this.buildEmailConfirmationLink(rawToken);
+	}
+
 	private async sendAccountConfirmationEmail(input: {
 		userId: number;
 		email?: string | null;
@@ -427,15 +441,8 @@ export class UsersController {
 		const userId = Number(input.userId || 0);
 		const email = String(input.email || '').trim().toLowerCase();
 		if (!userId || !email) return null;
-		const rawToken = this.createEmailConfirmationToken();
-		const confirmationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-		await this.usersService.updateById(userId, {
-			emailConfirmationToken: this.hashEmailConfirmationToken(rawToken),
-			emailConfirmationSentAt: new Date(),
-			emailConfirmationExpiresAt: confirmationExpiresAt,
-		});
-
-		const confirmationLink = this.buildEmailConfirmationLink(rawToken);
+		const confirmationLink = await this.prepareEmailConfirmationLink({ userId, email });
+		if (!confirmationLink) return null;
 		const template = await this.emailTemplates.getTemplateSafe('email_confirmation');
 		const displayName = String(input.name || input.username || email).trim();
 		const rendered = this.emailTemplates.renderTemplate(template, {
@@ -561,6 +568,70 @@ export class UsersController {
 				messageId: null,
 				errorCode: 'WELCOME_EMAIL_FAILED',
 				errorMessage: error instanceof Error ? error.message : String(error),
+			};
+		}
+	}
+
+	private summarizeInitialOnboardingEmail(result: any) {
+		if (!result) return null;
+		return {
+			ok: Boolean(result.ok),
+			emailStatus: result.emailStatus || null,
+			messageId: result.messageId || null,
+			missingRequiredAttachments: Array.isArray(result.missingRequiredAttachments) ? result.missingRequiredAttachments : [],
+			delivery: result.delivery
+				? {
+					ok: Boolean(result.delivery.ok),
+					transport: result.delivery.transport || null,
+					messageId: result.delivery.messageId || null,
+					errorCode: result.delivery.errorCode || null,
+					errorMessage: result.delivery.errorMessage || null,
+					previewUrl: result.delivery.previewUrl || null,
+				}
+				: null,
+		};
+	}
+
+	private async sendInitialHbxPartnerOnboardingEmail(input: {
+		companyId: number;
+		userId: number;
+		email?: string | null;
+		emailConfirmedAt?: Date | string | null;
+		createdByUserId?: number | null;
+	}) {
+		let confirmationLink: string | null = null;
+		if (!input.emailConfirmedAt) {
+			confirmationLink = await this.prepareEmailConfirmationLink({
+				userId: input.userId,
+				email: input.email,
+			});
+		}
+		try {
+			const result = await this.sellerOnboardingService.sendOnboardingEmail(
+				input.companyId,
+				input.userId,
+				input.createdByUserId,
+				{
+					allowMissingRequiredAttachments: true,
+					confirmationLink,
+				},
+			);
+			return this.summarizeInitialOnboardingEmail(result);
+		} catch (error) {
+			this.logger.warn(`Falha ao enviar pré-boas-vindas HBX para user ${input.userId}: ${error instanceof Error ? error.message : error}`);
+			return {
+				ok: false,
+				emailStatus: 'email_failed',
+				messageId: null,
+				missingRequiredAttachments: [],
+				delivery: {
+					ok: false,
+					transport: this.mailService.getConfigurationSummary().mode,
+					messageId: null,
+					errorCode: 'SELLER_ONBOARDING_INITIAL_EMAIL_FAILED',
+					errorMessage: error instanceof Error ? error.message : String(error),
+					previewUrl: null,
+				},
 			};
 		}
 	}
@@ -881,16 +952,6 @@ export class UsersController {
 				sellerReferralCommissionPercent: updated.sellerReferralCommissionPercent,
 				referredByCommissionPercentSnapshot: updated.referredByCommissionPercentSnapshot,
 			});
-			if (!target.emailConfirmedAt) {
-				confirmationEmail = await this.sendAccountConfirmationEmail({
-					userId: updated.id,
-					email: updated.email || target.email,
-					username: updated.username || target.username,
-					name: updated.name || target.name,
-					companyName: (target as any).company?.name,
-					source: 'hbx_partner_activation',
-				});
-			}
 		}
 		return {
 			id: updated.id,
@@ -898,7 +959,7 @@ export class UsersController {
 			deactivatedAt: updated.deactivatedAt,
 			retentionUntil: updated.retentionUntil,
 			message: isHbxPartnerActivation
-				? 'Parceiro criado e e-mails de boas-vindas e confirmação enviados.'
+				? 'Parceiro criado e e-mail de boas-vindas enviado.'
 				: 'Usuário reativado com sucesso',
 			welcomeEmail,
 			confirmationEmail,
@@ -999,8 +1060,10 @@ export class UsersController {
 			...(role === 'USER' && isHbxSellerNetwork ? { isActive: false } : {}),
 		});
 		let welcomeEmail: Pick<MailSendResult, 'ok' | 'transport' | 'messageId' | 'errorCode' | 'errorMessage'> | null = null;
+		let onboardingEmail: any = null;
 		if (role === 'USER' && isHbxSellerNetwork) {
-			await this.sellerOnboardingService.getOrCreateForUser(companyId, created.id, Number(req?.user?.id || 0) || null);
+			const createdByUserId = Number(req?.user?.id || 0) || null;
+			await this.sellerOnboardingService.getOrCreateForUser(companyId, created.id, createdByUserId);
 			await this.sellerOnboardingService.updateDraft(companyId, created.id, {
 				legalName: attendantName || created.name || '',
 				email,
@@ -1014,12 +1077,19 @@ export class UsersController {
 				referredByUserId: created.referredByUserId,
 				referredByCommissionPercentSnapshot: created.referredByCommissionPercentSnapshot,
 			});
+			onboardingEmail = await this.sendInitialHbxPartnerOnboardingEmail({
+				companyId,
+				userId: created.id,
+				email,
+				emailConfirmedAt: (created as any).emailConfirmedAt || null,
+				createdByUserId,
+			});
 			if (referralCandidate) {
 				await this.hbxPartnerReferrals.markCandidateConverted({
 					companyId,
 					candidateId: referralCandidate.id,
 					convertedUserId: created.id,
-					reviewedByUserId: Number(req?.user?.id || 0) || null,
+					reviewedByUserId: createdByUserId,
 				});
 			}
 		} else {
@@ -1053,6 +1123,7 @@ export class UsersController {
 			},
 			temporaryPassword: role === 'USER' && isHbxSellerNetwork ? null : dto.password ? null : tempPassword,
 			welcomeEmail,
+			onboardingEmail,
 		};
 	}
 
@@ -1244,8 +1315,10 @@ export class UsersController {
 			...(role === 'USER' && isHbxSellerNetwork ? { isActive: false } : {}),
 		});
 		let welcomeEmail: Pick<MailSendResult, 'ok' | 'transport' | 'messageId' | 'errorCode' | 'errorMessage'> | null = null;
+		let onboardingEmail: any = null;
 		if (role === 'USER' && isHbxSellerNetwork) {
-			await this.sellerOnboardingService.getOrCreateForUser(companyId, created.id, Number(req?.user?.id || 0) || null);
+			const createdByUserId = Number(req?.user?.id || 0) || null;
+			await this.sellerOnboardingService.getOrCreateForUser(companyId, created.id, createdByUserId);
 			await this.sellerOnboardingService.updateDraft(companyId, created.id, {
 				legalName: attendantName || created.name || '',
 				email,
@@ -1259,12 +1332,19 @@ export class UsersController {
 				referredByUserId: created.referredByUserId,
 				referredByCommissionPercentSnapshot: created.referredByCommissionPercentSnapshot,
 			});
+			onboardingEmail = await this.sendInitialHbxPartnerOnboardingEmail({
+				companyId,
+				userId: created.id,
+				email,
+				emailConfirmedAt: (created as any).emailConfirmedAt || null,
+				createdByUserId,
+			});
 			if (referralCandidate) {
 				await this.hbxPartnerReferrals.markCandidateConverted({
 					companyId,
 					candidateId: referralCandidate.id,
 					convertedUserId: created.id,
-					reviewedByUserId: Number(req?.user?.id || 0) || null,
+					reviewedByUserId: createdByUserId,
 				});
 			}
 		} else {
@@ -1314,6 +1394,7 @@ export class UsersController {
 			},
 			temporaryPassword: role === 'USER' && isHbxSellerNetwork ? null : dto.password ? null : tempPassword,
 			welcomeEmail,
+			onboardingEmail,
 		};
 	}
 

@@ -208,7 +208,10 @@ export class GerencialController {
   @Admin()
   @ModuleAccess('gerencial')
   async sendSellerOnboardingEmail(@Req() req: any, @Param('userId', ParseIntPipe) userId: number) {
-    return this.sellerOnboardingService.sendOnboardingEmail(Number(req.user?.companyId), userId, Number(req.user?.id || 0) || null);
+    return this.sellerOnboardingService.sendOnboardingEmail(Number(req.user?.companyId), userId, Number(req.user?.id || 0) || null, {
+      allowMissingRequiredAttachments: true,
+      includeConfirmationLink: true,
+    });
   }
 
   @Post('hbx-partners/onboarding/purge-expired-attachments')

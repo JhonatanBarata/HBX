@@ -12,6 +12,13 @@ const MOBILE_ROUTE_ALIASES: Record<string, string> = {
   "/planos": "/mobile/planos",
 };
 
+const DESKTOP_ROUTE_ALIASES: Record<string, string> = {
+  ...Object.fromEntries(
+    Object.entries(MOBILE_ROUTE_ALIASES).map(([desktop, mobile]) => [mobile, desktop]),
+  ),
+  "/mobile/boas-vindas": "/boasvindas",
+};
+
 function splitInternalPath(value: string) {
   const hashIndex = value.indexOf("#");
   const beforeHash = hashIndex >= 0 ? value.slice(0, hashIndex) : value;
@@ -34,6 +41,14 @@ export function toMobileRoute(value?: string | null) {
   }
 
   const mappedPathname = MOBILE_ROUTE_ALIASES[pathname] || pathname;
+  return `${mappedPathname}${search}${hash}`;
+}
+
+export function toDesktopRoute(value?: string | null) {
+  const path = String(value || "").trim();
+  if (!path || !path.startsWith("/") || path.startsWith("//")) return path;
+  const { pathname, search, hash } = splitInternalPath(path);
+  const mappedPathname = DESKTOP_ROUTE_ALIASES[pathname] || pathname;
   return `${mappedPathname}${search}${hash}`;
 }
 

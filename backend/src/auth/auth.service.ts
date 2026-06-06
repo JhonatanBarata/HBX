@@ -1123,7 +1123,7 @@ export class AuthService implements OnModuleInit {
     const isHbxOperationalCompany =
       String(company?.slug || '').trim().toLowerCase() === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG;
     const hbxOperationalNext =
-      String(sessionContext.user?.role || '').trim().toUpperCase() === 'USER' ? '/mobile/vendas' : '/gerencial';
+      String(sessionContext.user?.role || '').trim().toUpperCase() === 'USER' ? '/vendas' : '/gerencial';
     const accessReleased =
       isHbxOperationalCompany ||
       ['active', 'authorized', 'manual'].includes(String(company?.subscriptionStatus || '').trim().toLowerCase()) ||
@@ -1783,6 +1783,7 @@ export class AuthService implements OnModuleInit {
         email: true,
         companyId: true,
         role: true,
+        isActive: true,
         isSystemMaster: true,
         emailConfirmationExpiresAt: true,
         company: {
@@ -1813,6 +1814,10 @@ export class AuthService implements OnModuleInit {
     const selectedPlanKey = this.normalizeSelectedPlanKey(user.company?.selectedPlanKey || undefined);
     const isHbxOperationalCompany =
       String(user.company?.slug || '').trim().toLowerCase() === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG;
+    const isPendingHbxPartnerApproval =
+      isHbxOperationalCompany &&
+      String(user.role || '').trim().toUpperCase() === 'USER' &&
+      user.isActive === false;
     const requiresTrialActivation = Boolean(
       user.companyId &&
         !isHbxOperationalCompany &&
@@ -1857,7 +1862,7 @@ export class AuthService implements OnModuleInit {
       }
     });
 
-    if (user.companyId) {
+    if (user.companyId && !isPendingHbxPartnerApproval) {
       await this.hbxCommissionSync.syncActivatedCompany(Number(user.companyId), {
         source: requiresTrialActivation ? 'auth_email_confirmed_pending_trial' : 'auth_email_confirmed',
       }).catch((error: any) => {
@@ -1865,7 +1870,7 @@ export class AuthService implements OnModuleInit {
       });
     }
 
-    const loginPayload = user.companyId
+    const loginPayload = user.companyId && !isPendingHbxPartnerApproval
       ? await this.login(
           {
             id: user.id,
@@ -1877,14 +1882,18 @@ export class AuthService implements OnModuleInit {
           { companyId: Number(user.companyId), userAgent: opts?.userAgent, ip: opts?.ip },
         )
       : null;
-    const next = isHbxOperationalCompany
-      ? '/mobile/vendas'
+    const next = isPendingHbxPartnerApproval
+      ? '/login'
+      : isHbxOperationalCompany
+      ? '/vendas'
       : loginPayload?.next || (requiresTrialActivation ? this.pendingTrialActivationNextPath() : trialEndsAt ? '/dashboard' : this.pendingCheckoutNextPath());
 
     return {
       ok: true,
       status: user.companyId
-        ? isHbxOperationalCompany
+        ? isPendingHbxPartnerApproval
+          ? 'pending_partner_approval'
+          : isHbxOperationalCompany
           ? 'confirmed'
           : requiresTrialActivation
             ? 'pending_trial_activation'
@@ -1894,7 +1903,9 @@ export class AuthService implements OnModuleInit {
         : 'confirmed',
       email: user.email || null,
       message: user.companyId
-        ? isHbxOperationalCompany
+        ? isPendingHbxPartnerApproval
+          ? 'E-mail confirmado. Seu acesso de parceiro HBX será liberado após aprovação dos documentos e contrato.'
+          : isHbxOperationalCompany
           ? 'E-mail confirmado. Acesso de parceiro HBX liberado para a esteira de vendas.'
           : requiresTrialActivation
           ? 'E-mail confirmado. Agora ative seu trial gratuito de 14 dias.'
@@ -1908,8 +1919,10 @@ export class AuthService implements OnModuleInit {
       next,
       loginNext: loginPayload?.access_token
         ? next
+        : isPendingHbxPartnerApproval
+        ? '/login'
         : isHbxOperationalCompany
-        ? '/login?next=/mobile/vendas'
+        ? '/login?next=/vendas'
         : requiresTrialActivation
         ? `/login?next=${encodeURIComponent(this.pendingTrialActivationNextPath())}`
         : trialEndsAt
@@ -2089,7 +2102,7 @@ export class AuthService implements OnModuleInit {
     const next = pendingTrialActivation
       ? this.pendingTrialActivationNextPath()
       : isHbxOperationalCompany
-        ? '/mobile/vendas'
+        ? '/vendas'
       : trialExpired
         ? this.preCheckoutNextPath('trial_expired')
       : paymentFailed
@@ -2107,7 +2120,7 @@ export class AuthService implements OnModuleInit {
       loginNext: pendingTrialActivation
         ? `/login?next=${encodeURIComponent(this.pendingTrialActivationNextPath())}`
         : isHbxOperationalCompany
-          ? '/login?next=/mobile/vendas'
+          ? '/login?next=/vendas'
         : trialExpired
           ? `/login?next=${encodeURIComponent(this.preCheckoutNextPath('trial_expired'))}`
         : paymentFailed

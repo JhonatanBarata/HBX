@@ -295,6 +295,19 @@ type CreateCompanyUserResult = {
     isActive: boolean;
   };
   temporaryPassword?: string | null;
+  onboardingEmail?: {
+    ok?: boolean;
+    emailStatus?: string | null;
+    messageId?: string | null;
+    missingRequiredAttachments?: Array<{ kind?: string | null; label?: string | null }>;
+    delivery?: {
+      ok?: boolean;
+      transport?: string | null;
+      errorCode?: string | null;
+      errorMessage?: string | null;
+      previewUrl?: string | null;
+    } | null;
+  } | null;
 };
 
 type SellerOnboardingAttachment = {
@@ -1601,11 +1614,14 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         setCreatedPasswordInfo(info);
         saveCreatedPasswordInfo(info);
         setActionInfo(isHbxSellerNetwork && newUserRole === "USER"
-          ? "Parceiro HBX criado. Gere o contrato antes de liberar operação."
+          ? "Parceiro HBX cadastrado. Contrato gerado e pré-boas-vindas enviado para solicitar documentos."
           : `${roleLabel(payload.user.role)} criado. Entregue a senha temporária com segurança.`);
       } else {
+        const onboardingFailed = isHbxSellerNetwork && newUserRole === "USER" && payload?.onboardingEmail?.ok === false;
         setActionInfo(isHbxSellerNetwork && newUserRole === "USER"
-          ? "Parceiro HBX criado. Gere o contrato antes de liberar operação."
+          ? onboardingFailed
+            ? "Parceiro HBX cadastrado, mas o pré-boas-vindas não foi enviado. Use Solicitar documentos após revisar o cadastro."
+            : "Parceiro HBX cadastrado. Contrato gerado e pré-boas-vindas enviado para solicitar documentos."
           : `${roleLabel(payload.user.role)} criado com senha definida manualmente.`);
       }
 
@@ -1629,7 +1645,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
           if (uploadedCount > 0) {
             setPendingOnboardingAttachments({});
             setPendingDocumentRequirements({});
-            setActionInfo(`Parceiro HBX cadastrado. ${uploadedCount} documento(s) anexado(s). Gere ou envie o contrato antes de liberar o acesso.`);
+            setActionInfo(`Parceiro HBX cadastrado. ${uploadedCount} documento(s) anexado(s). Revise as pendências antes de liberar o acesso.`);
           }
         } catch (attachmentError) {
           setError(friendlyGerencialError(attachmentError, "Cadastro criado, mas falhou ao anexar um documento."));
@@ -2745,7 +2761,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     const canActivatePartner = Boolean(canPersistDocs && onboardingReadiness?.complete);
 
     return (
-      <div className="hbx-popup-layer" data-clickable="true" role="presentation">
+      <div className="hbx-popup-layer hbx-popup-layer--partner-access" data-clickable="true" role="presentation">
         <section className="hbx-popup2 hbx-popup2--partner-access" data-tone="info" role="dialog" aria-modal="true" aria-label="Criar acesso">
           <header className="hbx-partner-popup__header">
             <div>

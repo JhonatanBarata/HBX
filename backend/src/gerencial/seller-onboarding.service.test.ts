@@ -35,6 +35,7 @@ function buildOnboardingService(input: {
   metadataJson?: string | null;
   archiveEmail?: string | null;
   mailResult?: any;
+  emailConfirmedAt?: Date | null;
 }) {
   const state: Record<string, any> = {
     mailInput: null,
@@ -42,6 +43,7 @@ function buildOnboardingService(input: {
     attachmentUpdateMany: null,
     userUpdateData: null,
     partnerContractCreateData: null,
+    partnerContractUpsertData: null,
   };
   const onboarding = {
     id: 'onb_1',
@@ -93,6 +95,7 @@ function buildOnboardingService(input: {
         id: 200,
         companyId: 1,
         role: 'USER',
+        emailConfirmedAt: input.emailConfirmedAt ?? null,
         company: { id: 1, commissionDueBusinessDays: 3 },
       }),
       update: async ({ data }: any) => {
@@ -120,6 +123,10 @@ function buildOnboardingService(input: {
         return { id: 'contract_1', ...data };
       },
       update: async ({ data }: any) => ({ id: 'contract_1', ...data }),
+      upsert: async ({ create, update }: any) => {
+        state.partnerContractUpsertData = { create, update };
+        return { id: 'contract_1', ...create, ...update };
+      },
     },
   };
   const mailService = {
@@ -315,6 +322,53 @@ test('sendOnboardingEmail respeita curriculum obrigatorio configurado', async ()
     );
     assert.equal(state.mailInput, null);
     assert.equal(state.userUpdateData, null);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('assertCanActivatePartner bloqueia parceiro com email ainda nao confirmado', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'hbx-onboarding-'));
+  try {
+    const attachments = [
+      await createTempAttachment(dir, 'photo_id'),
+      await createTempAttachment(dir, 'contract_pdf'),
+      await createTempAttachment(dir, 'generated_contract'),
+    ];
+    const { service, state } = buildOnboardingService({ attachments, emailConfirmedAt: null });
+
+    await assert.rejects(
+      () => service.assertCanActivatePartner(1, 200, 1),
+      (error: any) => {
+        const response = error.getResponse();
+        assert.equal(response.code, 'HBX_PARTNER_EMAIL_CONFIRMATION_PENDING');
+        assert.match(response.message, /e-mail.*confirmado/i);
+        return true;
+      },
+    );
+    assert.equal(state.partnerContractUpsertData, null);
+    assert.equal(state.onboardingUpdateData, null);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('assertCanActivatePartner aprova parceiro com email confirmado e documentos completos', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'hbx-onboarding-'));
+  try {
+    const attachments = [
+      await createTempAttachment(dir, 'photo_id'),
+      await createTempAttachment(dir, 'contract_pdf'),
+      await createTempAttachment(dir, 'generated_contract'),
+    ];
+    const { service, state } = buildOnboardingService({ attachments, emailConfirmedAt: new Date() });
+
+    const readiness = await service.assertCanActivatePartner(1, 200, 1);
+
+    assert.equal(readiness.complete, true);
+    assert.equal(state.partnerContractUpsertData.create.status, 'approved');
+    assert.equal(state.partnerContractUpsertData.update.status, 'approved');
+    assert.equal(state.onboardingUpdateData.status, 'approved');
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

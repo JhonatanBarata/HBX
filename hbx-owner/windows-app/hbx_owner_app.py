@@ -65,7 +65,7 @@ TAB_NAMES = (
     "Tickets",
     "Kanban",
     "Git",
-    "PR Lab",
+    "Branches",
     "ChatGPT",
     "Relatórios",
     "Ops Control",
@@ -353,6 +353,8 @@ CHATGPT_FREEFORM_MAX_CARDS = AUTOCARD_MAX_CARDS
 PDF_TEXT_MAX_CHARS = 35000
 PDF_MIN_TEXT_CHARS = 1200
 PDF_AUTOMATION_MAX_BYTES = 25 * 1024 * 1024
+URGENCY_LEVELS = ("Baixa", "Normal", "Alta", "Crítica")
+INTELLIGENCE_LEVELS = ("Local rápido", "Spark rápido", "Spark longo", "Revisão humana")
 
 AUTOCARD_HIGH_PRIORITY_TERMS = (
     "ticket",
@@ -368,9 +370,14 @@ AUTOCARD_SENSITIVE_TERMS = (
     "publish",
     "migration",
     "migrations",
+    "migração",
+    "migracao",
     "auth",
     "billing",
     "secrets",
+    "segredo",
+    "pagamento",
+    "payment",
 )
 
 PRIORITY_RANK = {"Crítica": 4, "Alta": 3, "Média": 2, "Baixa": 1}
@@ -638,6 +645,11 @@ class Database:
                 module TEXT NOT NULL DEFAULT '',
                 type TEXT NOT NULL DEFAULT '',
                 priority TEXT NOT NULL DEFAULT 'Média',
+                urgency_level TEXT NOT NULL DEFAULT '',
+                intelligence_level TEXT NOT NULL DEFAULT '',
+                codex_model_override TEXT NOT NULL DEFAULT '',
+                execution_timeout_seconds INTEGER NOT NULL DEFAULT 0,
+                research_path TEXT NOT NULL DEFAULT '',
                 lane TEXT NOT NULL DEFAULT 'BACKLOG',
                 acceptance_criteria TEXT NOT NULL DEFAULT '',
                 test_command TEXT NOT NULL DEFAULT '',
@@ -706,16 +718,6 @@ class Database:
                 created_at TEXT NOT NULL
             );
 
-            CREATE TABLE IF NOT EXISTS smart_interactions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                date TEXT NOT NULL,
-                intent TEXT NOT NULL DEFAULT '',
-                user_text TEXT NOT NULL DEFAULT '',
-                assistant_text TEXT NOT NULL DEFAULT '',
-                decision TEXT NOT NULL DEFAULT '',
-                created_at TEXT NOT NULL
-            );
-
             CREATE TABLE IF NOT EXISTS local_runs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 date TEXT NOT NULL,
@@ -738,6 +740,8 @@ class Database:
                 last_message_path TEXT NOT NULL DEFAULT '',
                 base_sha TEXT NOT NULL DEFAULT '',
                 commit_sha TEXT NOT NULL DEFAULT '',
+                model TEXT NOT NULL DEFAULT '',
+                intelligence_level TEXT NOT NULL DEFAULT '',
                 process_id INTEGER NOT NULL DEFAULT 0,
                 error TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL,
@@ -767,6 +771,7 @@ class Database:
             """
         )
         self.ensure_kanban_ticket_columns()
+        self.ensure_codex_dispatch_columns()
         self.conn.commit()
 
     def ensure_kanban_ticket_columns(self) -> None:
@@ -786,11 +791,89 @@ class Database:
             "ticket_github_pr_number": "TEXT NOT NULL DEFAULT ''",
             "ticket_github_branch": "TEXT NOT NULL DEFAULT ''",
             "ticket_synced_at": "TEXT NOT NULL DEFAULT ''",
+            "urgency_level": "TEXT NOT NULL DEFAULT ''",
+            "intelligence_level": "TEXT NOT NULL DEFAULT ''",
+            "codex_model_override": "TEXT NOT NULL DEFAULT ''",
+            "execution_timeout_seconds": "INTEGER NOT NULL DEFAULT 0",
+            "research_path": "TEXT NOT NULL DEFAULT ''",
         }
         for name, definition in required.items():
             if name not in columns:
                 self.conn.execute(f"ALTER TABLE kanban_cards ADD COLUMN {name} {definition}")
+        self.conn.execute("UPDATE kanban_cards SET type = 'Operacional' WHERE lower(type) = 'modo' || ' ia'")
+        self.conn.execute(
+            """
+            UPDATE kanban_cards
+            SET urgency_level = CASE
+                WHEN priority = 'Crítica' OR lane = 'BLOQUEADO' THEN 'Crítica'
+                WHEN priority = 'Alta' OR lane IN ('HOJE', 'AGUARDANDO CODEX') THEN 'Alta'
+                WHEN priority = 'Baixa' THEN 'Baixa'
+                ELSE 'Normal'
+            END
+            WHERE urgency_level = ''
+            """
+        )
+        self.conn.execute(
+            """
+            UPDATE kanban_cards
+            SET intelligence_level = CASE
+                WHEN lane = 'BLOQUEADO'
+                    OR lower(title || ' ' || description || ' ' || module || ' ' || type || ' ' || blocked_reason)
+                        GLOB '*deploy*'
+                    OR lower(title || ' ' || description || ' ' || module || ' ' || type || ' ' || blocked_reason)
+                        GLOB '*publish*'
+                    OR lower(title || ' ' || description || ' ' || module || ' ' || type || ' ' || blocked_reason)
+                        GLOB '*migration*'
+                    OR lower(title || ' ' || description || ' ' || module || ' ' || type || ' ' || blocked_reason)
+                        GLOB '*migração*'
+                    OR lower(title || ' ' || description || ' ' || module || ' ' || type || ' ' || blocked_reason)
+                        GLOB '*migracao*'
+                    OR lower(title || ' ' || description || ' ' || module || ' ' || type || ' ' || blocked_reason)
+                        GLOB '*auth*'
+                    OR lower(title || ' ' || description || ' ' || module || ' ' || type || ' ' || blocked_reason)
+                        GLOB '*billing*'
+                    OR lower(title || ' ' || description || ' ' || module || ' ' || type || ' ' || blocked_reason)
+                        GLOB '*secret*'
+                    OR lower(title || ' ' || description || ' ' || module || ' ' || type || ' ' || blocked_reason)
+                        GLOB '*pagamento*'
+                    THEN 'Revisão humana'
+                WHEN priority = 'Crítica' THEN 'Spark longo'
+                WHEN priority = 'Alta' OR lane IN ('HOJE', 'AGUARDANDO CODEX') THEN 'Spark rápido'
+                WHEN priority = 'Baixa' THEN 'Local rápido'
+                ELSE 'Spark rápido'
+            END
+            WHERE intelligence_level = ''
+            """
+        )
+        self.conn.execute(
+            """
+            UPDATE kanban_cards
+            SET execution_timeout_seconds = CASE
+                WHEN intelligence_level = 'Spark longo' THEN 300
+                WHEN intelligence_level = 'Spark rápido' THEN 180
+                ELSE 90
+            END
+            WHERE execution_timeout_seconds = 0
+            """
+        )
+        self.conn.execute(
+            """
+            UPDATE kanban_cards
+            SET research_path = 'Pesquisar primeiro com rg pelo título do card, módulo e termos-chave antes de editar qualquer arquivo.'
+            WHERE research_path = ''
+            """
+        )
         self.conn.execute("CREATE INDEX IF NOT EXISTS kanban_cards_ticket_code_idx ON kanban_cards(ticket_code)")
+
+    def ensure_codex_dispatch_columns(self) -> None:
+        columns = {row["name"] for row in self.conn.execute("PRAGMA table_info(codex_dispatches)").fetchall()}
+        required = {
+            "model": "TEXT NOT NULL DEFAULT ''",
+            "intelligence_level": "TEXT NOT NULL DEFAULT ''",
+        }
+        for name, definition in required.items():
+            if name not in columns:
+                self.conn.execute(f"ALTER TABLE codex_dispatches ADD COLUMN {name} {definition}")
 
     def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
         cur = self.conn.execute(sql, params)
@@ -882,13 +965,20 @@ class HbxOwnerApp(tk.Tk):
         self.autocard_status_var = tk.StringVar(value="Autocard pronto.")
         self.chatgpt_pdf_path_var = tk.StringVar(value="Nenhum PDF selecionado.")
         self.chatgpt_last_research_prompt = ""
+        self.intelligence_engine_var = tk.StringVar(value=str(self.config_data.get("card_compiler_engine") or "local"))
+        self.intelligence_model_var = tk.StringVar(value=str(self.config_data.get("card_compiler_model") or "spark"))
+        self.intelligence_timeout_var = tk.StringVar(
+            value=str(self.config_data.get("card_compiler_timeout_seconds") or 120)
+        )
+        self.codex_model_var = tk.StringVar(value=str(self.config_data.get("codex_model") or ""))
+        self.intelligence_status_var = tk.StringVar(value="Inteligência: carregando.")
         self.owner_tickets_status_var = tk.StringVar(value="Tickets: aguardando atualização.")
         self.owner_ticket_filter_var = tk.StringVar(value="todos")
         self.owner_ticket_selected_var = tk.StringVar(value="Nenhum ticket selecionado.")
         self.owner_tickets_tree: ttk.Treeview | None = None
         self.owner_ticket_detail_text: tk.Text | None = None
         self.owner_tickets_cache: list[dict] = []
-        self.pr_lab_status_var = tk.StringVar(value="PR Lab: aguardando listagem.")
+        self.pr_lab_status_var = tk.StringVar(value="Branches: aguardando listagem.")
         self.pr_lab_selected_var = tk.StringVar(value="Nenhum PR ou branch selecionado.")
         self.pr_lab_branch_filter_var = tk.StringVar(value="owner/")
         self.pr_lab_tree: ttk.Treeview | None = None
@@ -938,7 +1028,7 @@ class HbxOwnerApp(tk.Tk):
                 self._build_kanban_tab(frame)
             elif name == "Git":
                 self._build_git_tab(frame)
-            elif name == "PR Lab":
+            elif name == "Branches":
                 self._build_pr_lab_tab(frame)
             elif name == "ChatGPT":
                 self._build_chatgpt_tab(frame)
@@ -1769,420 +1859,8 @@ class HbxOwnerApp(tk.Tk):
             wraplength=320,
         ).grid(row=3, column=0, sticky="w", pady=(4, 0))
 
-    def _build_smart_tab(self, frame: ttk.Frame) -> None:
-        self.page_title(frame, "Modo IA", "Plano diário, anti-fuga e pacote para Codex")
-        frame.columnconfigure(0, weight=1)
-        frame.columnconfigure(1, weight=2)
-        frame.rowconfigure(3, weight=1)
-
-        checkin = self.card_frame(frame, padding=(16, 14))
-        checkin.grid(row=1, column=0, sticky="nsew", padx=(0, 8), pady=(18, 12))
-        checkin.columnconfigure(1, weight=1)
-        fields = (
-            ("hours_available", "Horas"),
-            ("unique_goal", "Meta única"),
-            ("technical_task", "Técnica"),
-            ("commercial_task", "Comercial"),
-            ("blocker", "Bloqueio"),
-            ("not_today", "Não fazer"),
-        )
-        for row, (key, label) in enumerate(fields):
-            ttk.Label(checkin, text=label, style="CardMuted.TLabel").grid(row=row, column=0, sticky="w", padx=(0, 8), pady=5)
-            var = tk.StringVar(value=str(self.config_data.get(key, "")))
-            self.smart_entries[key] = var
-            ttk.Entry(checkin, textvariable=var).grid(row=row, column=1, sticky="ew", pady=5)
-
-        status = self.card_frame(frame, padding=(16, 14))
-        status.grid(row=1, column=1, sticky="nsew", padx=(8, 0), pady=(18, 12))
-        status.columnconfigure(0, weight=1)
-        ttk.Label(status, text="Decisão", style="CardMuted.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(status, textvariable=self.smart_decision_var, style="CardValue.TLabel", wraplength=650).grid(
-            row=1, column=0, sticky="w", pady=(4, 12)
-        )
-        ttk.Label(status, text="Próxima ação", style="CardMuted.TLabel").grid(row=2, column=0, sticky="w")
-        ttk.Label(status, textvariable=self.smart_next_action_var, style="Card.TLabel", wraplength=650).grid(
-            row=3, column=0, sticky="w", pady=(4, 12)
-        )
-        ttk.Label(status, text="Status", style="CardMuted.TLabel").grid(row=4, column=0, sticky="w")
-        ttk.Label(status, textvariable=self.smart_status_var, style="Card.TLabel", wraplength=650).grid(
-            row=5, column=0, sticky="w", pady=(4, 0)
-        )
-
-        actions = ttk.Frame(frame, style="Toolbar.TFrame")
-        actions.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(0, 12))
-        action_buttons = (
-            ("Gerar plano", self.smart_generate_daily_plan, "Accent.TButton"),
-            ("Replanejar agora", self.smart_replan_now, "Warning.TButton"),
-            ("Classificar pedido", self.smart_classify_current_input, "TButton"),
-            ("Copiar pacote Codex", self.smart_copy_codex_package, "Success.TButton"),
-            ("Abrir ChatGPT Desktop", self.open_chatgpt, "TButton"),
-            ("Atualizar memória", self.smart_update_memory, "TButton"),
-        )
-        for index, (text, command, style_name) in enumerate(action_buttons):
-            ttk.Button(actions, text=text, command=command, style=style_name).grid(
-                row=0, column=index, padx=(0, 8), pady=(0, 6), sticky="w"
-            )
-
-        input_frame = ttk.LabelFrame(frame, text="Pedido/status seu", padding=8, style="Modern.TLabelframe")
-        input_frame.grid(row=3, column=0, sticky="nsew", padx=(0, 8))
-        input_frame.columnconfigure(0, weight=1)
-        input_frame.rowconfigure(0, weight=1)
-        self.smart_input = tk.Text(input_frame, height=18, wrap="word")
-        self.style_text_widget(self.smart_input)
-        self.smart_input.grid(row=0, column=0, sticky="nsew")
-        self.smart_input.insert(
-            "1.0",
-            "O que aconteceu agora?\nO que você quer fazer?\nQual bloqueio apareceu?\n",
-        )
-
-        output_frame = ttk.LabelFrame(frame, text="Plano / resposta / pacote", padding=8, style="Modern.TLabelframe")
-        output_frame.grid(row=3, column=1, sticky="nsew", padx=(8, 0))
-        output_frame.columnconfigure(0, weight=1)
-        output_frame.rowconfigure(0, weight=1)
-        self.smart_output = tk.Text(output_frame, height=18, wrap="word")
-        self.style_text_widget(self.smart_output)
-        self.smart_output.grid(row=0, column=0, sticky="nsew")
-        scroll = ttk.Scrollbar(output_frame, orient="vertical", command=self.smart_output.yview)
-        scroll.grid(row=0, column=1, sticky="ns")
-        self.smart_output.configure(yscrollcommand=scroll.set)
-
-    def set_smart_output(self, text: str) -> None:
-        if not hasattr(self, "smart_output"):
-            return
-        self.smart_output.delete("1.0", tk.END)
-        self.smart_output.insert(tk.END, text)
-
-    def get_smart_input_text(self) -> str:
-        if not hasattr(self, "smart_input"):
-            return ""
-        return self.smart_input.get("1.0", tk.END).strip()
-
-    def save_smart_checkin(self) -> dict:
-        data: dict[str, str | float] = {}
-        for key, var in self.smart_entries.items():
-            value = var.get().strip()
-            if key == "hours_available":
-                try:
-                    data[key] = float(value.replace(",", ".") or self.config_data.get("hours_available", 8))
-                except ValueError:
-                    data[key] = float(self.config_data.get("hours_available", 8) or 8)
-            else:
-                data[key] = value
-
-        self.config_data.update(data)
-        self.config_data["planned_hours"] = data.get("hours_available", self.config_data.get("planned_hours", 8))
-        save_config(self.config_data)
-        update_day_state(
-            hours_available=data.get("hours_available", self.config_data.get("hours_available", 8)),
-            unique_goal=data.get("unique_goal", ""),
-            technical_task=data.get("technical_task", ""),
-            commercial_task=data.get("commercial_task", ""),
-            blocker=data.get("blocker", ""),
-            not_today=data.get("not_today", ""),
-            last_event="smart_checkin_saved",
-        )
-        self.today_plan_var.set(str(data.get("unique_goal") or "Meta única não definida."))
-        return data
-
-    def classify_smart_text(self, text: str) -> tuple[str, str, str]:
-        normalized = text.lower()
-        focus_hits = [word for word in FOCUS_KEYWORDS if word in normalized]
-        fuga_hits = [word for word in FUGA_KEYWORDS if word in normalized]
-
-        if fuga_hits and not focus_hits:
-            return (
-                "NÃO",
-                f"Fuga provável: {', '.join(fuga_hits[:4])}.",
-                "Volte para Recovery, P0 técnico, demo ou outbound.",
-            )
-        if fuga_hits and focus_hits:
-            return (
-                "AJUSTE",
-                f"Tem risco de fuga ({', '.join(fuga_hits[:3])}), mas há ligação com {', '.join(focus_hits[:3])}.",
-                "Corte escopo e entregue uma prova verificável hoje.",
-            )
-        if focus_hits:
-            return (
-                "APROVADO",
-                f"Alinhado ao foco: {', '.join(focus_hits[:4])}.",
-                "Execute o menor próximo passo testável.",
-            )
-        return (
-            "AJUSTE",
-            "Sem ligação clara com monetização imediata.",
-            "Reescreva como venda, demo, cobrança, correção P0 ou prova técnica.",
-        )
-
-    def smart_context_rows(self) -> dict:
-        session = self.get_current_session()
-        pending = self.prioritized_pending_cards()
-        done_today = self.db.fetchall(
-            "SELECT * FROM kanban_cards WHERE done_at LIKE ? ORDER BY done_at DESC, updated_at DESC LIMIT 6",
-            (f"{today_str()}%",),
-        )
-        blocked = self.db.fetchall("SELECT * FROM kanban_cards WHERE lane = 'BLOQUEADO' ORDER BY updated_at DESC LIMIT 6")
-        latest_git = self.db.fetchone("SELECT * FROM git_snapshots ORDER BY id DESC LIMIT 1")
-        smart_recent = self.db.fetchall(
-            "SELECT * FROM smart_interactions WHERE date = ? ORDER BY id DESC LIMIT 5",
-            (today_str(),),
-        )
-        local_runs = self.db.fetchall(
-            "SELECT * FROM local_runs WHERE date = ? ORDER BY id DESC LIMIT 5",
-            (today_str(),),
-        )
-        local_runs = self.db.fetchall(
-            "SELECT * FROM local_runs WHERE date = ? ORDER BY id DESC LIMIT 5",
-            (today_str(),),
-        )
-        ok, repo_status = self.run_git_command(["status", "--short"])
-        return {
-            "session": session,
-            "pending": pending,
-            "done_today": done_today,
-            "blocked": blocked,
-            "latest_git": latest_git,
-            "smart_recent": smart_recent,
-            "local_runs": local_runs,
-            "local_runs": local_runs,
-            "repo_status": repo_status if ok else f"Indisponível: {repo_status}",
-            "memory": self.read_memory_text(),
-        }
-
-    def prioritized_pending_cards(self) -> list[sqlite3.Row]:
-        cards = self.get_pending_cards()
-        return sorted(
-            cards,
-            key=lambda card: (
-                LANE_RANK.get(card["lane"], 50),
-                -PRIORITY_RANK.get(card["priority"], 0),
-                0 if self.card_has_focus(card) else 1,
-                card["updated_at"],
-            ),
-        )
-
-    def card_has_focus(self, card: sqlite3.Row) -> bool:
-        text = " ".join(
-            str(card[key] or "")
-            for key in ("title", "description", "module", "type", "acceptance_criteria", "blocked_reason")
-        ).lower()
-        return any(word in text for word in FOCUS_KEYWORDS) and not (
-            "radar" in text and not any(word in text for word in ("p0", "recovery", "cliente", "vendas", "whatsapp"))
-        )
-
-    def read_memory_text(self) -> str:
-        ensure_operational_files()
-        try:
-            return MEMORY_PATH.read_text(encoding="utf-8").strip()
-        except OSError:
-            return ""
-
-    def smart_generate_daily_plan(self) -> None:
-        data = self.save_smart_checkin()
-        request = self.get_smart_input_text()
-        decision, reason, next_action = self.classify_smart_text(
-            "\n".join(str(data.get(key, "")) for key in ("unique_goal", "technical_task", "commercial_task", "blocker", "not_today"))
-            + "\n"
-            + request
-        )
-        context = self.smart_context_rows()
-        plan = self.build_smart_plan_text(data, request, decision, reason, next_action, context, replan=False)
-        DAY_PLAN_PATH.write_text(plan, encoding="utf-8")
-        self.store_smart_interaction("plano-dia", request, plan, decision)
-        self.smart_decision_var.set(f"{decision} - {reason}")
-        self.smart_next_action_var.set(next_action)
-        self.smart_status_var.set(f"Plano salvo em {DAY_PLAN_PATH}")
-        self.set_smart_output(plan)
-
-    def smart_replan_now(self) -> None:
-        data = self.save_smart_checkin()
-        request = self.get_smart_input_text()
-        decision, reason, next_action = self.classify_smart_text(request)
-        context = self.smart_context_rows()
-        plan = self.build_smart_plan_text(data, request, decision, reason, next_action, context, replan=True)
-        DAY_PLAN_PATH.write_text(plan, encoding="utf-8")
-        self.store_smart_interaction("replanejamento", request, plan, decision)
-        self.smart_decision_var.set(f"{decision} - {reason}")
-        self.smart_next_action_var.set(next_action)
-        self.smart_status_var.set(f"Replanejamento salvo em {DAY_PLAN_PATH}")
-        self.set_smart_output(plan)
-
-    def smart_classify_current_input(self) -> None:
-        request = self.get_smart_input_text()
-        decision, reason, next_action = self.classify_smart_text(request)
-        answer = (
-            f"DECISÃO: {decision}\n"
-            f"Motivo: {reason}\n"
-            f"Próxima ação: {next_action}\n\n"
-            "Regra: monetização ASAP. Não trocar Recovery/P0 técnico/demo/outbound por feature nova, Radar, "
-            "refactor bonito ou marketing amplo."
-        )
-        self.store_smart_interaction("classificacao", request, answer, decision)
-        self.smart_decision_var.set(f"{decision} - {reason}")
-        self.smart_next_action_var.set(next_action)
-        self.smart_status_var.set("Pedido classificado e salvo no histórico.")
-        self.set_smart_output(answer)
-
-    def smart_copy_codex_package(self) -> None:
-        data = self.save_smart_checkin()
-        request = self.get_smart_input_text()
-        context = self.smart_context_rows()
-        prompt = self.build_codex_context_prompt(data, request, context)
-        self.copy_text(prompt)
-        path = self.save_prompt_file("codex-contexto", prompt)
-        self.store_smart_interaction("pacote-codex", request, prompt, "CONTEXTO")
-        self.smart_decision_var.set("CONTEXTO - pacote pronto para Codex")
-        self.smart_next_action_var.set("Cole este pacote no Codex e peça execução objetiva.")
-        self.smart_status_var.set(f"Pacote copiado e salvo em {path}")
-        self.set_smart_output(prompt)
-
-    def smart_update_memory(self) -> None:
-        request = self.get_smart_input_text()
-        output = self.smart_output.get("1.0", tk.END).strip() if hasattr(self, "smart_output") else ""
-        entry = (
-            f"\n## Registro {now_iso()}\n"
-            f"- Pedido/status: {request or '-'}\n"
-            f"- Decisão: {self.smart_decision_var.get()}\n"
-            f"- Próxima ação: {self.smart_next_action_var.get()}\n"
-        )
-        if output:
-            entry += f"- Plano/resposta: {output[:700].replace(chr(10), ' ')}\n"
-        with MEMORY_PATH.open("a", encoding="utf-8") as memory:
-            memory.write(entry)
-        self.store_smart_interaction("memoria", request, entry, "MEMÓRIA")
-        self.smart_status_var.set(f"Memória atualizada em {MEMORY_PATH}")
-        self.set_smart_output(self.read_memory_text())
-
-    def build_smart_plan_text(
-        self,
-        data: dict,
-        request: str,
-        decision: str,
-        reason: str,
-        next_action: str,
-        context: dict,
-        replan: bool,
-    ) -> str:
-        pending = context["pending"]
-        session = context["session"]
-        hours = float(data.get("hours_available") or self.config_data.get("hours_available") or 8)
-        total_minutes = max(60, int(hours * 60))
-        worked = self.work_minutes(session) if session else 0
-        remaining = max(0, total_minutes - worked)
-        block_minutes = max(60, remaining)
-        main_card = self.get_card(self.current_card_id) or (pending[0] if pending else None)
-        secondary = pending[1:4] if pending else []
-        commercial_start = max(30, int(block_minutes * 0.72))
-        close_start = max(commercial_start + 10, int(block_minutes * 0.9))
-        prefix = "REPLANEJAMENTO HBX" if replan else "PLANO DE AÇÃO HBX"
-
-        secondary_lines = "\n".join(f"- #{card['id']} {card['lane']} | {card['title']}" for card in secondary) or "-"
-        blocked_lines = "\n".join(
-            f"- #{card['id']} {card['title']} | {card['blocked_reason'] or 'sem motivo registrado'}"
-            for card in context["blocked"][:4]
-        ) or "-"
-
-        return (
-            f"{prefix}\n"
-            f"Data: {today_str()}\n"
-            f"Decisão: {decision} - {reason}\n"
-            f"Horas disponíveis: {hours:g}\n"
-            f"Tempo líquido já registrado: {self.format_minutes(worked)}\n"
-            f"Tempo restante estimado: {self.format_minutes(remaining)}\n\n"
-            "META ÚNICA\n"
-            f"{data.get('unique_goal') or (main_card['title'] if main_card else 'Definir meta única antes de começar.')}\n\n"
-            "ORDEM DO DIA\n"
-            f"1. Técnica/P0: {data.get('technical_task') or (main_card['title'] if main_card else 'Escolher card HOJE/FAZENDO.')}\n"
-            f"2. Comercial: {data.get('commercial_task') or 'Fazer outbound/follow-up/demo antes do fechamento.'}\n"
-            f"3. Bloqueio explícito: {data.get('blocker') or 'Nenhum bloqueio declarado.'}\n"
-            f"4. Não fazer: {data.get('not_today') or 'Feature nova, Radar por curiosidade, refactor bonito ou marketing amplo.'}\n\n"
-            "CARD PRINCIPAL\n"
-            f"{('#' + str(main_card['id']) + ' ' + main_card['title'] + ' | ' + main_card['lane']) if main_card else '-'}\n\n"
-            "CARDS SECUNDÁRIOS\n"
-            f"{secondary_lines}\n\n"
-            "BLOQUEIOS ATIVOS\n"
-            f"{blocked_lines}\n\n"
-            "BLOCOS SUGERIDOS\n"
-            f"- 0-15min: confirmar card principal, critério de aceite e teste/build.\n"
-            f"- 15-{max(30, commercial_start)}min: entregar prova técnica verificável.\n"
-            f"- {commercial_start}-{close_start}min: demo, outbound, follow-up ou cobrança.\n"
-            f"- {close_start}-{block_minutes}min: registrar entrega, bloquear pendências e salvar plano de amanhã.\n\n"
-            "PRÓXIMO PASSO AGORA\n"
-            f"{next_action}\n\n"
-            "PEDIDO/STATUS RECEBIDO\n"
-            f"{request or '-'}\n\n"
-            "REGRA DE GUARDA\n"
-            "Se aparecer Radar, feature nova, refactor bonito, UI por estética ou marketing amplo, responder NÃO e voltar para monetização ASAP.\n"
-        )
-
-    def build_codex_context_prompt(self, data: dict, request: str, context: dict) -> str:
-        pending_lines = "\n".join(
-            f"- #{card['id']} {card['lane']} | {card['priority']} | {card['title']} | teste: {card['test_command'] or '-'}"
-            for card in context["pending"][:8]
-        ) or "-"
-        done_lines = "\n".join(f"- #{card['id']} {card['title']}" for card in context["done_today"]) or "-"
-        blocked_lines = "\n".join(
-            f"- #{card['id']} {card['title']} | {card['blocked_reason'] or '-'}" for card in context["blocked"]
-        ) or "-"
-        latest_git = context["latest_git"]
-        commit = f"{latest_git['commit_sha']} {latest_git['commit_message']}" if latest_git else "-"
-        recent_smart = "\n".join(
-            f"- {row['created_at']} | {row['intent']} | {row['decision']}" for row in context["smart_recent"]
-        ) or "-"
-        local_runs = "\n".join(
-            f"- {row['created_at']} | {row['command_key']} | rc={row['returncode']} | {row['output'][:240].replace(chr(10), ' ')}"
-            for row in context.get("local_runs", [])
-        ) or "-"
-
-        return (
-            "CONTEXTO PARA CODEX - HBX OWNER\n"
-            f"Workspace: {APP_DIR}\n"
-            f"Data: {today_str()}\n\n"
-            "OBJETIVO FIXO\n"
-            "Monetizar o HBX ASAP. Prioridade: HBX Recovery + P0 técnico + demo + outbound.\n\n"
-            "REGRA ANTI-FUGA\n"
-            "Se eu tentar trocar isso por feature nova, Radar, UI por estética, refactor bonito ou marketing amplo, diga NÃO e volte para o plano do dia.\n\n"
-            "CHECK-IN ATUAL\n"
-            f"- Horas disponíveis: {data.get('hours_available')}\n"
-            f"- Meta única: {data.get('unique_goal')}\n"
-            f"- Tarefa técnica: {data.get('technical_task')}\n"
-            f"- Tarefa comercial: {data.get('commercial_task')}\n"
-            f"- Bloqueio: {data.get('blocker')}\n"
-            f"- Não fazer: {data.get('not_today')}\n\n"
-            "PEDIDO/STATUS DO USUÁRIO\n"
-            f"{request or '-'}\n\n"
-            "CARDS PENDENTES PRIORIZADOS\n"
-            f"{pending_lines}\n\n"
-            "CARDS FEITOS HOJE\n"
-            f"{done_lines}\n\n"
-            "BLOQUEIOS\n"
-            f"{blocked_lines}\n\n"
-            "GIT\n"
-            f"- Último snapshot: {commit}\n"
-            f"- Status:\n{context['repo_status']}\n\n"
-            "MEMÓRIA LOCAL\n"
-            f"{context['memory'][:1800] or '-'}\n\n"
-            "HISTÓRICO DO MODO IA HOJE\n"
-            f"{recent_smart}\n\n"
-            "EXECUÇÕES LOCAIS HOJE\n"
-            f"{local_runs}\n\n"
-            "O QUE EU PRECISO DE VOCÊ\n"
-            "1. Responda com APROVADO, AJUSTE ou NÃO.\n"
-            "2. Dê o menor próximo passo executável agora.\n"
-            "3. Se for trabalho técnico, diga quais arquivos/comandos verificar.\n"
-            "4. Não aceite fuga de foco.\n"
-        )
-
-    def store_smart_interaction(self, intent: str, user_text: str, assistant_text: str, decision: str) -> None:
-        self.db.execute(
-            """
-            INSERT INTO smart_interactions (date, intent, user_text, assistant_text, decision, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (today_str(), intent, user_text, assistant_text, decision, now_iso()),
-        )
-
     def _build_execution_tab(self, frame: ttk.Frame) -> None:
-        self.page_title(frame, "Execução", "Checks locais seguros e ponte com Codex")
+        self.page_title(frame, "Execução", "Diagnósticos locais seguros")
         frame.columnconfigure(0, weight=1)
         frame.columnconfigure(1, weight=2)
         frame.rowconfigure(2, weight=1)
@@ -2218,8 +1896,6 @@ class HbxOwnerApp(tk.Tk):
             ("Sequência básica", self.run_basic_check_sequence, "Success.TButton"),
             ("Abrir terminal", self.open_project_terminal, "TButton"),
             ("Abrir pasta", self.open_project_folder, "TButton"),
-            ("Cards do plano", self.create_cards_from_current_plan, "Warning.TButton"),
-            ("Saída para Codex", self.copy_execution_for_codex, "Accent.TButton"),
             ("Salvar bloqueio", self.save_execution_as_blocker, "Danger.TButton"),
         )
         for row, (text, command, style_name) in enumerate(buttons, start=4):
@@ -2234,12 +1910,12 @@ class HbxOwnerApp(tk.Tk):
         ttk.Label(status, textvariable=self.execution_status_var, style="CardValue.TLabel", wraplength=700).grid(
             row=1, column=0, sticky="w", pady=(4, 12)
         )
-        ttk.Label(status, text="Uso recomendado", style="CardMuted.TLabel").grid(row=2, column=0, sticky="w")
+        ttk.Label(status, text="Uso", style="CardMuted.TLabel").grid(row=2, column=0, sticky="w")
         ttk.Label(
             status,
             text=(
-                "Rode a sequência básica antes de pedir intervenção técnica ao Codex. "
-                "Depois copie a saída para manter o plano do dia alinhado com evidência local."
+                "Rode a sequência básica para validar o Owner e o repositório local. "
+                "Execução de card, dispatch Codex, teste e commit ficam no Kanban."
             ),
             style="Card.TLabel",
             wraplength=700,
@@ -2350,92 +2026,6 @@ class HbxOwnerApp(tk.Tk):
             self.execution_status_var.set(f"Não consegui abrir pasta: {exc}")
             return
         self.execution_status_var.set(f"Pasta aberta: {cwd}")
-
-    def copy_execution_for_codex(self) -> None:
-        data = self.save_smart_checkin() if self.smart_entries else self.config_data
-        context = self.smart_context_rows()
-        prompt = self.build_codex_context_prompt(data, self.last_execution_output, context)
-        prompt += "\n\nSAÍDA LOCAL MAIS RECENTE\n" + (self.last_execution_output or "-")
-        self.copy_text(prompt)
-        path = self.save_prompt_file("codex-execucao", prompt)
-        self.execution_status_var.set(f"Saída copiada para Codex e salva em {path}")
-        self.set_execution_output(prompt)
-
-    def plan_source_text(self) -> str:
-        if hasattr(self, "smart_output"):
-            text = self.smart_output.get("1.0", tk.END).strip()
-            if text:
-                return text
-        if DAY_PLAN_PATH.exists():
-            return DAY_PLAN_PATH.read_text(encoding="utf-8")
-        return ""
-
-    def create_cards_from_current_plan(self) -> None:
-        plan = self.plan_source_text()
-        actions = self.extract_plan_actions(plan)
-        if not actions:
-            self.execution_status_var.set("Nenhuma ação clara encontrada no plano.")
-            self.set_execution_output("Gere um plano no Modo IA antes de criar cards.")
-            return
-
-        created_ids: list[int] = []
-        for action in actions[:AUTOCARD_MAX_CARDS]:
-            if self.card_title_exists(action["title"]):
-                continue
-            created_ids.append(self.insert_kanban_card(action, source="Modo IA"))
-
-        self.refresh_kanban()
-        message = (
-            f"Cards criados: {', '.join('#' + str(card_id) for card_id in created_ids)}"
-            if created_ids
-            else "Nenhum card novo criado; títulos já existiam."
-        )
-        self.execution_status_var.set(message)
-        self.set_execution_output(message + "\n\n" + plan)
-
-    def extract_plan_actions(self, plan: str) -> list[dict]:
-        compiled = self.parse_chatgpt_cards(plan)
-        if compiled:
-            return [
-                self.normalize_autocard_payload(
-                    {
-                        **card,
-                        "type": card.get("type") or "Modo IA",
-                        "description": card.get("description")
-                        or "Criado a partir do plano local pelo Autocard Compiler.",
-                    }
-                )
-                for card in compiled
-            ]
-
-        actions: list[dict] = []
-        for line in plan.splitlines():
-            match = re.match(r"^\s*[0-9]+\.\s*([^:]+):\s*(.+)$", line)
-            if not match:
-                continue
-            label = match.group(1).strip()
-            title = match.group(2).strip()
-            lowered = label.lower()
-            if lowered.startswith("bloqueio") or lowered.startswith("não fazer") or not title or title == "-":
-                continue
-            priority = "Alta" if any(word in lowered for word in ("técnica", "tecnica", "p0")) else "Média"
-            estimate = 60 if priority == "Alta" else 30
-            actions.append(
-                self.normalize_autocard_payload(
-                    {
-                        "title": title[:180],
-                        "description": f"Criado a partir do plano local: {label}.",
-                        "module": label[:60],
-                        "type": "Modo IA",
-                        "priority": priority,
-                        "lane": "HOJE",
-                        "acceptance_criteria": "Entrega verificável registrada no HBX Owner.",
-                        "test_command": "",
-                        "estimate_minutes": estimate,
-                    }
-                )
-            )
-        return [card for card in actions if card]
 
     def card_title_exists(self, title: str) -> bool:
         target_key = self.normalize_card_title_key(title)
@@ -2841,13 +2431,23 @@ class HbxOwnerApp(tk.Tk):
     def ticket_to_card_data(self, ticket: dict, current_lane: str | None = None) -> dict:
         priority = str(ticket.get("priority") or "Alta")
         ticket_code = str(ticket.get("ticketCode") or ticket.get("id") or "").strip()
-        return {
+        base = {
             "title": self.ticket_card_title(ticket),
             "description": self.ticket_card_description(ticket),
             "module": "Retorno",
             "type": "Ticket cliente",
             "priority": priority,
             "lane": self.ticket_synced_lane(ticket, current_lane),
+        }
+        urgency_level, intelligence_level = self.suggest_card_execution_controls(base)
+        return {
+            **base,
+            "urgency_level": urgency_level,
+            "intelligence_level": intelligence_level,
+            "codex_model_override": "",
+            "execution_timeout_seconds": 180 if intelligence_level == "Spark rápido" else 300,
+            "research_path": self.infer_research_path_from_text("Retorno", base["description"]),
+            "priority": priority,
             "acceptance_criteria": "Ticket do cliente resolvido ou encaminhado com evidência registrada.",
             "test_command": "cd backend && npm run build",
             "codex_prompt": self.selected_ticket_codex_prompt(ticket),
@@ -2896,7 +2496,9 @@ class HbxOwnerApp(tk.Tk):
             self.db.execute(
                 """
                 UPDATE kanban_cards
-                SET title = ?, description = ?, module = ?, type = ?, priority = ?, lane = ?,
+                SET title = ?, description = ?, module = ?, type = ?, priority = ?,
+                    urgency_level = ?, intelligence_level = ?, codex_model_override = ?,
+                    execution_timeout_seconds = ?, research_path = ?, lane = ?,
                     acceptance_criteria = ?, test_command = ?, codex_prompt = ?, chatgpt_prompt = ?,
                     estimate_minutes = ?, blocked_reason = ?, ticket_backend_id = ?, ticket_customer = ?,
                     ticket_origin = ?, ticket_category = ?, ticket_classification = ?, ticket_status = ?,
@@ -2911,6 +2513,11 @@ class HbxOwnerApp(tk.Tk):
                     data["module"],
                     data["type"],
                     data["priority"],
+                    data["urgency_level"],
+                    data["intelligence_level"],
+                    data["codex_model_override"],
+                    data["execution_timeout_seconds"],
+                    data["research_path"],
                     data["lane"],
                     data["acceptance_criteria"],
                     data["test_command"],
@@ -3281,6 +2888,7 @@ class HbxOwnerApp(tk.Tk):
         buttons = (
             ("Criar card", self.create_card, "Accent.TButton"),
             ("Editar", self.edit_card, "TButton"),
+            ("Detalhe", self.open_selected_card_detail, "TButton"),
             ("Mover", self.move_card, "TButton"),
             ("Marcar feito", self.mark_card_done, "Success.TButton"),
             ("Vincular commit", self.link_commit_to_card, "TButton"),
@@ -3481,6 +3089,50 @@ class HbxOwnerApp(tk.Tk):
             (card_id,),
         )
 
+    def dispatch_status_label(self, status: str) -> str:
+        labels = {
+            "queued": "na fila",
+            "running": "rodando",
+            "done": "concluído",
+            "needs_review": "revisar",
+            "failed": "falhou",
+        }
+        return labels.get(str(status or "").strip(), str(status or "-"))
+
+    def dispatch_card_summary(self, dispatch: sqlite3.Row, card: sqlite3.Row) -> tuple[str, str, str]:
+        status = str(dispatch["status"] or "")
+        commit = str(dispatch["commit_sha"] or card["commit_sha"] or "")
+        branch = str(dispatch["branch"] or "-")
+        error = str(dispatch["error"] or "").strip()
+        if error:
+            first_line = re.sub(r"\s+", " ", error.splitlines()[0]).strip()
+        elif status == "running":
+            first_line = f"iniciado {dispatch['started_at'] or dispatch['created_at']}"
+        else:
+            first_line = "sem detalhe registrado"
+        paths: list[str] = []
+        for label, key in (("log", "output_path"), ("msg", "last_message_path"), ("prompt", "prompt_path")):
+            value = str(dispatch[key] or "").strip()
+            if value:
+                paths.append(f"{label}: {Path(value).name}")
+        details = " | ".join(paths[:3])
+        model = str(dispatch["model"] or self.card_codex_model(card) or "padrão")
+        intelligence = str(dispatch["intelligence_level"] or self.card_value(card, "intelligence_level", "") or "-")
+        text = (
+            f"Codex {self.dispatch_status_label(status)} | {branch}\n"
+            f"{intelligence} | modelo {model} | commit {(commit[:7] if commit else '-')}\n"
+            f"{first_line}"
+        )
+        if details:
+            text += f"\n{details}"
+        if status == "running":
+            return text, THEME["lane_hover"], THEME["accent"]
+        if status == "done" or commit:
+            return text, THEME["soft_success"], THEME["success"]
+        if status == "failed":
+            return text, THEME["soft_danger"], THEME["danger"]
+        return text, THEME["soft_warning"], THEME["warning"]
+
     def render_kanban_card(self, parent: tk.Frame, card: sqlite3.Row, lane: str) -> None:
         card_id = int(card["id"])
         priority = str(card["priority"] or "Média")
@@ -3489,6 +3141,9 @@ class HbxOwnerApp(tk.Tk):
         estimate = f"{card['estimate_minutes']} min" if int(card["estimate_minutes"] or 0) else "sem estim."
         commit = (str(card["commit_sha"] or "")[:7] or "-")
         ticket_code = str(card["ticket_code"] or "")
+        urgency_level = self.normalize_urgency_level(self.card_value(card, "urgency_level", ""), priority)
+        intelligence_level = self.normalize_intelligence_level(self.card_value(card, "intelligence_level", ""), card)
+        model_label = self.card_codex_model(card) or "padrão"
         dispatch = self.latest_card_dispatch(card_id)
 
         row_index = len(parent.winfo_children())
@@ -3562,17 +3217,28 @@ class HbxOwnerApp(tk.Tk):
         detail.grid(row=2, column=0, sticky="ew")
         next_row = 3
 
+        intelligence = tk.Label(
+            body,
+            text=f"{urgency_level} | {intelligence_level} | modelo {model_label}",
+            bg=THEME["card_alt"],
+            fg=THEME["text"],
+            justify="left",
+            anchor="w",
+            wraplength=220,
+            padx=7,
+            pady=4,
+            font=(self.font_family, 8, "bold"),
+        )
+        intelligence.grid(row=next_row, column=0, sticky="ew", pady=(7, 0))
+        next_row += 1
+
         if dispatch:
-            dispatch_commit = str(dispatch["commit_sha"] or card["commit_sha"] or "")
-            dispatch_text = (
-                f"Codex {dispatch['status']} | {dispatch['branch'] or '-'}"
-                f" | commit {(dispatch_commit[:7] if dispatch_commit else '-')}"
-            )
+            dispatch_text, dispatch_bg, dispatch_fg = self.dispatch_card_summary(dispatch, card)
             dispatch_label = tk.Label(
                 body,
                 text=dispatch_text,
-                bg=THEME["soft_success"] if dispatch_commit else THEME["soft_warning"],
-                fg=THEME["success"] if dispatch_commit else THEME["warning"],
+                bg=dispatch_bg,
+                fg=dispatch_fg,
                 justify="left",
                 anchor="w",
                 wraplength=220,
@@ -3614,7 +3280,7 @@ class HbxOwnerApp(tk.Tk):
             )
             block.grid(row=next_row, column=0, sticky="ew", pady=(7, 0))
 
-        for widget in (shell, body, meta, title_label, detail):
+        for widget in (shell, body, meta, title_label, detail, intelligence):
             self.register_card_drag_widgets(widget, card_id, lane)
         for child in meta.winfo_children():
             self.register_card_drag_widgets(child, card_id, lane)
@@ -3634,6 +3300,7 @@ class HbxOwnerApp(tk.Tk):
         widget.bind("<ButtonPress-1>", self.start_kanban_drag, add="+")
         widget.bind("<B1-Motion>", self.move_kanban_drag, add="+")
         widget.bind("<ButtonRelease-1>", self.release_kanban_drag, add="+")
+        widget.bind("<Double-Button-1>", self.open_card_detail_from_event, add="+")
 
     def start_kanban_drag(self, event: tk.Event) -> None:
         widget = event.widget
@@ -3688,41 +3355,435 @@ class HbxOwnerApp(tk.Tk):
             return None
         return card
 
+    def card_value(self, data: dict | sqlite3.Row | None, key: str, default: object = "") -> object:
+        if not data:
+            return default
+        if isinstance(data, sqlite3.Row):
+            return data[key] if key in data.keys() else default
+        return data.get(key, default)
+
+    def sanitize_card_type(self, value: object, fallback: str = "Operacional") -> str:
+        clean = str(value or "").strip()
+        legacy_ai_label = "modo" + " ia"
+        if self.normalize_card_title_key(clean) == legacy_ai_label:
+            return fallback
+        return clean or fallback
+
+    def normalize_urgency_level(self, value: object, priority: object = "") -> str:
+        clean = str(value or "").strip()
+        if clean in URGENCY_LEVELS:
+            return clean
+        priority_clean = str(priority or "").strip()
+        if priority_clean == "Crítica":
+            return "Crítica"
+        if priority_clean == "Alta":
+            return "Alta"
+        if priority_clean == "Baixa":
+            return "Baixa"
+        return "Normal"
+
+    def normalize_intelligence_level(self, value: object, data: dict | sqlite3.Row | None = None) -> str:
+        clean = str(value or "").strip()
+        if clean in INTELLIGENCE_LEVELS:
+            return clean
+        _urgency, suggested = self.suggest_card_execution_controls(data or {})
+        return suggested
+
+    def suggest_card_execution_controls(self, data: dict | sqlite3.Row | None) -> tuple[str, str]:
+        priority = str(self.card_value(data, "priority", "Média") or "Média").strip()
+        lane = str(self.card_value(data, "lane", "") or "")
+        text = " ".join(
+            str(self.card_value(data, key, "") or "")
+            for key in (
+                "title",
+                "description",
+                "module",
+                "type",
+                "priority",
+                "lane",
+                "blocked_reason",
+                "test_command",
+                "codex_prompt",
+                "chatgpt_prompt",
+            )
+        )
+        normalized = self.normalize_card_title_key(text)
+        sensitive = self.autocard_has_sensitive_terms(text)
+        if sensitive or lane == "BLOQUEADO":
+            return "Crítica", "Revisão humana"
+        if priority == "Crítica":
+            return "Crítica", "Spark longo"
+        if any(term in normalized for term in ("multi area", "arquitetura", "worker", "fila", "integracao", "integração")):
+            return "Alta", "Spark longo"
+        if priority == "Alta" or lane in ("HOJE", "AGUARDANDO CODEX") or any(
+            term in normalized for term in ("ticket", "cliente", "bug", "erro", "falha", "whatsapp", "p0")
+        ):
+            return "Alta", "Spark rápido"
+        if priority == "Baixa" or any(
+            term in normalized for term in ("readme", "documentacao", "documentação", "texto", "label", "copy", "limpeza")
+        ):
+            return "Baixa", "Local rápido"
+        return "Normal", "Spark rápido"
+
+    def infer_research_path_from_text(self, module: object, text: object = "") -> str:
+        module_key = self.normalize_card_title_key(str(module or ""))
+        combined = self.normalize_card_title_key(f"{module or ''} {text or ''}")
+        if "backend" in module_key or any(term in combined for term in ("api", "nest", "prisma", "worker", "fila")):
+            return "Pesquisar primeiro em backend/src, backend/package.json e backend/prisma quando existir."
+        if "frontend" in module_key or any(term in combined for term in ("next", "react", "tela", "ui", "interface")):
+            return "Pesquisar primeiro em frontend/src e nos componentes/telas relacionados."
+        if "owner" in module_key or "codex" in combined or "chatgpt" in combined:
+            return "Pesquisar primeiro em hbx-owner/windows-app/hbx_owner_app.py, hbx-owner/windows-app/README.md e docs relacionados."
+        if "whatsapp" in module_key or "whatsapp" in combined:
+            return "Pesquisar primeiro em Webwhats, backend/src e telas de atendimento/retorno relacionadas."
+        if "radar" in module_key or any(term in combined for term in ("lead", "leads", "oportunidade", "email discovery")):
+            return "Pesquisar primeiro em backend/src e frontend/src buscando por Radar, leads e oportunidades com rg."
+        if "retorno" in module_key or any(term in combined for term in ("ticket", "suporte", "inbound", "cliente")):
+            return "Pesquisar primeiro em backend/src, frontend/src e fluxos de Retorno/Tickets com rg."
+        if "vendas" in module_key or any(term in combined for term in ("vendas", "comercial", "outbound", "demo", "campanha")):
+            return "Pesquisar primeiro em frontend/src e backend/src buscando por Vendas, campanha, outbound e demo."
+        return "Pesquisar primeiro com rg pelo título do card, módulo e termos-chave antes de editar qualquer arquivo."
+
+    def card_research_path(self, data: dict | sqlite3.Row) -> str:
+        existing = str(self.card_value(data, "research_path", "") or "").strip()
+        if existing:
+            return existing
+        return self.infer_research_path_from_text(
+            self.card_value(data, "module", ""),
+            " ".join(
+                str(self.card_value(data, key, "") or "")
+                for key in ("title", "description", "type", "codex_prompt", "chatgpt_prompt")
+            ),
+        )
+
+    def card_execution_timeout(self, data: dict | sqlite3.Row | None) -> int:
+        try:
+            value = int(float(str(self.card_value(data, "execution_timeout_seconds", 0) or 0)))
+        except ValueError:
+            value = 0
+        if value > 0:
+            return max(30, min(value, 3600))
+        intelligence = str(self.card_value(data, "intelligence_level", "") or "")
+        if intelligence == "Spark longo":
+            return 300
+        if intelligence == "Spark rápido":
+            return 180
+        return 90
+
+    def card_codex_model(self, data: dict | sqlite3.Row | None) -> str:
+        override = str(self.card_value(data, "codex_model_override", "") or "").strip()
+        return override or str(self.config_data.get("codex_model") or "").strip()
+
+    def refresh_intelligence_status(self) -> None:
+        engine = str(self.intelligence_engine_var.get() or "local").strip().lower()
+        model = str(self.intelligence_model_var.get() or "").strip() or "padrão"
+        codex_model = str(self.codex_model_var.get() or "").strip() or "padrão"
+        timeout = str(self.intelligence_timeout_var.get() or "").strip() or "120"
+        cli = self.resolve_card_compiler_cli_path() if engine == "spark" else ""
+        cli_status = "Spark pronto" if cli else ("Spark sem CLI; cai para prompt/clipboard" if engine == "spark" else "local sem custo")
+        self.intelligence_status_var.set(
+            f"Cards: {engine} / {model} / {timeout}s. Codex dos cards: {codex_model}. {cli_status}."
+        )
+
+    def save_intelligence_controls(self) -> None:
+        engine = str(self.intelligence_engine_var.get() or "local").strip().lower()
+        engine = engine if engine in ("local", "spark") else "local"
+        try:
+            timeout = int(float(str(self.intelligence_timeout_var.get() or "120")))
+        except ValueError:
+            messagebox.showerror("Inteligência", "Timeout precisa ser número inteiro.")
+            return
+        timeout = max(30, min(timeout, 3600))
+        self.config_data["card_compiler_engine"] = engine
+        self.config_data["card_compiler_model"] = str(self.intelligence_model_var.get() or "").strip() or "spark"
+        self.config_data["card_compiler_timeout_seconds"] = timeout
+        self.config_data["codex_model"] = str(self.codex_model_var.get() or "").strip()
+        save_config(self.config_data)
+        for key, value in (
+            ("card_compiler_engine", self.config_data["card_compiler_engine"]),
+            ("card_compiler_model", self.config_data["card_compiler_model"]),
+            ("card_compiler_timeout_seconds", str(timeout)),
+            ("codex_model", self.config_data["codex_model"]),
+        ):
+            if key in self.config_entries:
+                self.config_entries[key].set(str(value))
+        self.intelligence_engine_var.set(engine)
+        self.intelligence_timeout_var.set(str(timeout))
+        self.refresh_intelligence_status()
+        self.autocard_status_var.set("Controles de inteligência salvos.")
+
+    def apply_intelligence_preset(self, preset: str) -> None:
+        if preset == "local":
+            self.intelligence_engine_var.set("local")
+            self.intelligence_model_var.set("local")
+            self.intelligence_timeout_var.set("90")
+        elif preset == "spark-long":
+            self.intelligence_engine_var.set("spark")
+            self.intelligence_model_var.set(str(self.config_data.get("card_compiler_model") or "spark"))
+            self.intelligence_timeout_var.set("300")
+        else:
+            self.intelligence_engine_var.set("spark")
+            self.intelligence_model_var.set(str(self.config_data.get("card_compiler_model") or "spark"))
+            self.intelligence_timeout_var.set("180")
+        self.save_intelligence_controls()
+
+    def open_card_detail_from_event(self, event: tk.Event) -> None:
+        card_id = getattr(event.widget, "hbx_card_id", None)
+        if not card_id:
+            return
+        self.select_card(int(card_id))
+        self.open_card_detail(int(card_id))
+
+    def open_selected_card_detail(self) -> None:
+        card = self.require_selected_card()
+        if not card:
+            return
+        self.open_card_detail(int(card["id"]))
+
+    def build_card_detail_text(self, card: sqlite3.Row) -> str:
+        dispatch = self.latest_card_dispatch(int(card["id"]))
+        events = self.db.fetchall(
+            """
+            SELECT event_type, message, created_at
+            FROM card_events
+            WHERE card_id = ?
+            ORDER BY id DESC
+            LIMIT 30
+            """,
+            (card["id"],),
+        )
+        urgency = self.normalize_urgency_level(self.card_value(card, "urgency_level", ""), card["priority"])
+        intelligence = self.normalize_intelligence_level(self.card_value(card, "intelligence_level", ""), card)
+        model = self.card_codex_model(card) or "padrão"
+        timeout = self.card_execution_timeout(card)
+        sections = [
+            f"Card #{card['id']} - {card['title']}",
+            "",
+            "EXECUÇÃO",
+            f"Lane: {card['lane']}",
+            f"Prioridade: {card['priority']}",
+            f"Urgência: {urgency}",
+            f"Inteligência: {intelligence}",
+            f"Modelo Codex: {model}",
+            f"Timeout alvo: {timeout}s",
+            f"Módulo: {card['module'] or '-'}",
+            f"Tipo: {self.sanitize_card_type(card['type'], 'Operacional')}",
+            f"Estimativa: {card['estimate_minutes'] or 0} min",
+            f"Commit: {card['commit_sha'] or '-'}",
+            "",
+            "CAMINHO DE PESQUISA",
+            self.card_research_path(card),
+            "",
+            "DESCRIÇÃO",
+            str(card["description"] or "-"),
+            "",
+            "CRITÉRIO DE ACEITE",
+            str(card["acceptance_criteria"] or "-"),
+            "",
+            "TESTE SUGERIDO",
+            str(card["test_command"] or "-"),
+            "",
+            "PROMPT CODEX",
+            str(card["codex_prompt"] or "-"),
+            "",
+            "PROMPT CHATGPT",
+            str(card["chatgpt_prompt"] or "-"),
+            "",
+            "BLOQUEIO / CUIDADO",
+            str(card["blocked_reason"] or "-"),
+        ]
+        if dispatch:
+            sections.extend(
+                [
+                    "",
+                    "ÚLTIMO DISPATCH CODEX",
+                    f"Status: {self.dispatch_status_label(str(dispatch['status'] or ''))}",
+                    f"Branch: {dispatch['branch'] or '-'}",
+                    f"Modelo: {dispatch['model'] or model}",
+                    f"Inteligência: {dispatch['intelligence_level'] or intelligence}",
+                    f"Worktree: {dispatch['worktree_path'] or '-'}",
+                    f"Prompt: {dispatch['prompt_path'] or '-'}",
+                    f"Log: {dispatch['output_path'] or '-'}",
+                    f"Última resposta: {dispatch['last_message_path'] or '-'}",
+                    f"Commit: {dispatch['commit_sha'] or '-'}",
+                    f"Erro/detalhe: {dispatch['error'] or '-'}",
+                ]
+            )
+        if events:
+            sections.extend(["", "HISTÓRICO"])
+            for event in events:
+                message = re.sub(r"\s+", " ", str(event["message"] or "")).strip()
+                sections.append(f"- {event['created_at']} | {event['event_type']} | {message}")
+        return "\n".join(sections)
+
+    def open_card_detail(self, card_id: int) -> None:
+        card = self.get_card(card_id)
+        if not card:
+            messagebox.showwarning("Card", "Card não encontrado.")
+            return
+        win = tk.Toplevel(self)
+        win.title(f"Card #{card['id']} - detalhes")
+        win.transient(self)
+        win.geometry("980x720")
+        win.minsize(760, 520)
+        win.configure(padx=16, pady=16, bg=THEME["bg"])
+        win.columnconfigure(0, weight=1)
+        win.rowconfigure(0, weight=1)
+
+        frame = ttk.LabelFrame(win, text="Detalhe completo", padding=8, style="Modern.TLabelframe")
+        frame.grid(row=0, column=0, sticky="nsew")
+        frame.columnconfigure(0, weight=1)
+        frame.rowconfigure(0, weight=1)
+        text = tk.Text(frame, wrap="word")
+        self.style_text_widget(text)
+        text.insert("1.0", self.build_card_detail_text(card))
+        text.configure(state="disabled")
+        text.grid(row=0, column=0, sticky="nsew")
+        scroll = ttk.Scrollbar(frame, orient="vertical", command=text.yview)
+        scroll.grid(row=0, column=1, sticky="ns")
+        text.configure(yscrollcommand=scroll.set)
+
+        actions = ttk.Frame(win, style="Toolbar.TFrame")
+        actions.grid(row=1, column=0, sticky="e", pady=(12, 0))
+
+        def edit_and_close() -> None:
+            win.destroy()
+            self.selected_card_id = int(card["id"])
+            self.edit_card()
+
+        def dispatch_and_close() -> None:
+            win.destroy()
+            self.selected_card_id = int(card["id"])
+            self.dispatch_selected_card_to_codex()
+
+        ttk.Button(actions, text="Editar", command=edit_and_close, style="Accent.TButton").grid(
+            row=0, column=0, padx=(0, 8)
+        )
+        ttk.Button(actions, text="Disparar Codex", command=dispatch_and_close, style="Success.TButton").grid(
+            row=0, column=1, padx=(0, 8)
+        )
+        ttk.Button(actions, text="Fechar", command=win.destroy).grid(row=0, column=2)
+
     def show_card_form(self, title: str, card: sqlite3.Row | None = None) -> dict | None:
         win = tk.Toplevel(self)
         win.title(title)
         win.transient(self)
         win.grab_set()
-        win.resizable(False, False)
+        win.geometry("1060x780")
+        win.minsize(820, 640)
+        win.resizable(True, True)
         win.configure(padx=16, pady=16, bg=THEME["bg"])
+        win.columnconfigure(0, weight=1)
+        win.rowconfigure(2, weight=1)
 
-        fields = [
-            ("title", "Título", card["title"] if card else ""),
-            ("description", "Descrição", card["description"] if card else ""),
-            ("module", "Módulo", card["module"] if card else ""),
-            ("type", "Tipo", card["type"] if card else ""),
-            ("priority", "Prioridade", card["priority"] if card else "Média"),
-            ("lane", "Lane", card["lane"] if card else "BACKLOG"),
-            ("acceptance_criteria", "Critério de aceite", card["acceptance_criteria"] if card else ""),
-            ("test_command", "Teste", card["test_command"] if card else ""),
-            ("codex_prompt", "Prompt Codex", card["codex_prompt"] if card else ""),
-            ("chatgpt_prompt", "Prompt ChatGPT", card["chatgpt_prompt"] if card else ""),
-            ("estimate_minutes", "Estimativa min", str(card["estimate_minutes"] if card else 0)),
-            ("blocked_reason", "Bloqueio", card["blocked_reason"] if card else ""),
-        ]
-        values: dict[str, tk.StringVar] = {}
+        initial: dict[str, object] = {
+            "title": self.card_value(card, "title", ""),
+            "description": self.card_value(card, "description", ""),
+            "module": self.card_value(card, "module", ""),
+            "type": self.sanitize_card_type(self.card_value(card, "type", ""), "Operacional"),
+            "priority": self.card_value(card, "priority", "Média"),
+            "lane": self.card_value(card, "lane", "BACKLOG"),
+            "acceptance_criteria": self.card_value(card, "acceptance_criteria", ""),
+            "test_command": self.card_value(card, "test_command", ""),
+            "codex_prompt": self.card_value(card, "codex_prompt", ""),
+            "chatgpt_prompt": self.card_value(card, "chatgpt_prompt", ""),
+            "estimate_minutes": str(self.card_value(card, "estimate_minutes", 30 if not card else 0) or 0),
+            "blocked_reason": self.card_value(card, "blocked_reason", ""),
+            "codex_model_override": self.card_value(card, "codex_model_override", ""),
+            "execution_timeout_seconds": str(self.card_value(card, "execution_timeout_seconds", 0) or ""),
+            "research_path": self.card_research_path(card) if card else "",
+        }
+        suggested_urgency, suggested_intelligence = self.suggest_card_execution_controls(initial)
+        initial["urgency_level"] = self.normalize_urgency_level(
+            self.card_value(card, "urgency_level", suggested_urgency), initial["priority"]
+        )
+        initial["intelligence_level"] = self.normalize_intelligence_level(
+            self.card_value(card, "intelligence_level", suggested_intelligence), initial
+        )
+        if not initial["research_path"]:
+            initial["research_path"] = self.infer_research_path_from_text(initial["module"], initial["description"])
 
-        for row, (key, label, initial) in enumerate(fields):
-            ttk.Label(win, text=label).grid(row=row, column=0, sticky="w", padx=(0, 10), pady=4)
-            var = tk.StringVar(value=str(initial or ""))
-            values[key] = var
-            if key == "lane":
-                widget = ttk.Combobox(win, textvariable=var, values=KANBAN_LANES, state="readonly", width=44)
-            elif key == "priority":
-                widget = ttk.Combobox(win, textvariable=var, values=("Baixa", "Média", "Alta", "Crítica"), width=44)
-            else:
-                widget = ttk.Entry(win, textvariable=var, width=48)
-            widget.grid(row=row, column=1, sticky="ew", pady=4)
+        header = ttk.Frame(win, style="Toolbar.TFrame")
+        header.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        header.columnconfigure(1, weight=1)
+        ttk.Label(header, text="Título", style="CardMuted.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 10))
+        values: dict[str, tk.StringVar] = {
+            "title": tk.StringVar(value=str(initial["title"] or "")),
+            "module": tk.StringVar(value=str(initial["module"] or "")),
+            "type": tk.StringVar(value=str(initial["type"] or "")),
+            "priority": tk.StringVar(value=str(initial["priority"] or "Média")),
+            "lane": tk.StringVar(value=str(initial["lane"] or "BACKLOG")),
+            "urgency_level": tk.StringVar(value=str(initial["urgency_level"] or "Normal")),
+            "intelligence_level": tk.StringVar(value=str(initial["intelligence_level"] or "Spark rápido")),
+            "codex_model_override": tk.StringVar(value=str(initial["codex_model_override"] or "")),
+            "execution_timeout_seconds": tk.StringVar(value=str(initial["execution_timeout_seconds"] or "")),
+            "estimate_minutes": tk.StringVar(value=str(initial["estimate_minutes"] or "0")),
+            "test_command": tk.StringVar(value=str(initial["test_command"] or "")),
+        }
+        ttk.Entry(header, textvariable=values["title"]).grid(row=0, column=1, sticky="ew")
+
+        meta = ttk.LabelFrame(win, text="Controle de execução", padding=10, style="Modern.TLabelframe")
+        meta.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+        for column in range(8):
+            meta.columnconfigure(column, weight=1 if column in (1, 3, 5, 7) else 0)
+        meta_fields = (
+            ("module", "Módulo", ttk.Entry, {}),
+            ("type", "Tipo", ttk.Combobox, {"values": ("Operacional", "Ticket cliente", "ChatGPT", "Spark", "PDF", "Bug", "Frontend", "Backend", "Docs")}),
+            ("priority", "Prioridade", ttk.Combobox, {"values": ("Baixa", "Média", "Alta", "Crítica")}),
+            ("urgency_level", "Urgência", ttk.Combobox, {"values": URGENCY_LEVELS}),
+            ("lane", "Lane", ttk.Combobox, {"values": KANBAN_LANES, "state": "readonly"}),
+            ("intelligence_level", "Inteligência", ttk.Combobox, {"values": INTELLIGENCE_LEVELS, "state": "readonly"}),
+            ("codex_model_override", "Modelo Codex", ttk.Entry, {}),
+            ("execution_timeout_seconds", "Timeout s", ttk.Entry, {}),
+            ("estimate_minutes", "Estimativa min", ttk.Entry, {}),
+        )
+        for index, (key, label, widget_class, kwargs) in enumerate(meta_fields):
+            row = index // 3
+            base_col = (index % 3) * 2
+            ttk.Label(meta, text=label, style="CardMuted.TLabel").grid(
+                row=row, column=base_col, sticky="w", padx=(0, 8), pady=5
+            )
+            widget_kwargs = dict(kwargs)
+            if widget_class is ttk.Combobox and "state" not in widget_kwargs:
+                widget_kwargs["state"] = "readonly"
+            widget = widget_class(meta, textvariable=values[key], **widget_kwargs)
+            widget.grid(row=row, column=base_col + 1, sticky="ew", padx=(0, 14), pady=5)
+
+        body = ttk.Frame(win, style="App.TFrame")
+        body.grid(row=2, column=0, sticky="nsew")
+        body.columnconfigure(0, weight=1)
+        body.columnconfigure(1, weight=1)
+        body.rowconfigure(0, weight=2)
+        body.rowconfigure(1, weight=1)
+        body.rowconfigure(2, weight=1)
+
+        text_widgets: dict[str, tk.Text] = {}
+
+        def add_text(area: ttk.Frame, key: str, label: str, value: object, row: int, column: int, height: int) -> None:
+            frame = ttk.LabelFrame(area, text=label, padding=8, style="Modern.TLabelframe")
+            frame.grid(row=row, column=column, sticky="nsew", padx=(0, 8) if column == 0 else (8, 0), pady=(0, 10))
+            frame.columnconfigure(0, weight=1)
+            frame.rowconfigure(0, weight=1)
+            widget = tk.Text(frame, height=height, wrap="word")
+            self.style_text_widget(widget)
+            widget.insert("1.0", str(value or ""))
+            widget.grid(row=0, column=0, sticky="nsew")
+            scroll = ttk.Scrollbar(frame, orient="vertical", command=widget.yview)
+            scroll.grid(row=0, column=1, sticky="ns")
+            widget.configure(yscrollcommand=scroll.set)
+            text_widgets[key] = widget
+
+        add_text(body, "description", "Descrição grande do card", initial["description"], 0, 0, 12)
+        add_text(body, "research_path", "Caminho de pesquisa obrigatório para IA", initial["research_path"], 0, 1, 12)
+        add_text(body, "acceptance_criteria", "Critério de aceite", initial["acceptance_criteria"], 1, 0, 6)
+        add_text(body, "codex_prompt", "Prompt Codex", initial["codex_prompt"], 1, 1, 6)
+        add_text(body, "chatgpt_prompt", "Prompt ChatGPT", initial["chatgpt_prompt"], 2, 0, 5)
+        add_text(body, "blocked_reason", "Bloqueio / cuidado", initial["blocked_reason"], 2, 1, 5)
+
+        test_frame = ttk.LabelFrame(win, text="Teste sugerido", padding=8, style="Modern.TLabelframe")
+        test_frame.grid(row=3, column=0, sticky="ew", pady=(0, 10))
+        test_frame.columnconfigure(0, weight=1)
+        ttk.Entry(test_frame, textvariable=values["test_command"]).grid(row=0, column=0, sticky="ew")
 
         result: dict | None = None
 
@@ -3737,12 +3798,27 @@ class HbxOwnerApp(tk.Tk):
             except ValueError:
                 messagebox.showerror("Card", "Estimativa precisa ser número inteiro.", parent=win)
                 return
+            try:
+                timeout = int(float(str(values["execution_timeout_seconds"].get() or 0)))
+            except ValueError:
+                messagebox.showerror("Card", "Timeout precisa ser número inteiro.", parent=win)
+                return
             result = {key: var.get().strip() for key, var in values.items()}
+            for key, widget in text_widgets.items():
+                result[key] = widget.get("1.0", tk.END).strip()
             result["estimate_minutes"] = max(0, estimate)
+            result["execution_timeout_seconds"] = max(0, timeout)
+            result["type"] = self.sanitize_card_type(result.get("type"), "Operacional")
+            result["urgency_level"] = self.normalize_urgency_level(result.get("urgency_level"), result.get("priority"))
+            result["intelligence_level"] = self.normalize_intelligence_level(result.get("intelligence_level"), result)
+            if not result.get("research_path"):
+                result["research_path"] = self.infer_research_path_from_text(
+                    result.get("module"), f"{result.get('title')} {result.get('description')}"
+                )
             win.destroy()
 
         actions = ttk.Frame(win)
-        actions.grid(row=len(fields), column=0, columnspan=2, sticky="e", pady=(12, 0))
+        actions.grid(row=4, column=0, sticky="e")
         ttk.Button(actions, text="Cancelar", command=win.destroy).grid(row=0, column=0, padx=(0, 8))
         ttk.Button(actions, text="Salvar", command=save).grid(row=0, column=1)
         win.wait_window()
@@ -3757,10 +3833,11 @@ class HbxOwnerApp(tk.Tk):
         cur = self.db.execute(
             """
             INSERT INTO kanban_cards
-            (date, title, description, module, type, priority, lane, acceptance_criteria,
+            (date, title, description, module, type, priority, urgency_level, intelligence_level,
+             codex_model_override, execution_timeout_seconds, research_path, lane, acceptance_criteria,
              test_command, codex_prompt, chatgpt_prompt, estimate_minutes, blocked_reason,
              created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 today_str(),
@@ -3769,6 +3846,11 @@ class HbxOwnerApp(tk.Tk):
                 data["module"],
                 data["type"],
                 data["priority"],
+                data["urgency_level"],
+                data["intelligence_level"],
+                data["codex_model_override"],
+                data["execution_timeout_seconds"],
+                data["research_path"],
                 data["lane"],
                 data["acceptance_criteria"],
                 data["test_command"],
@@ -3803,7 +3885,9 @@ class HbxOwnerApp(tk.Tk):
         self.db.execute(
             """
             UPDATE kanban_cards
-            SET title = ?, description = ?, module = ?, type = ?, priority = ?, lane = ?,
+            SET title = ?, description = ?, module = ?, type = ?, priority = ?, urgency_level = ?,
+                intelligence_level = ?, codex_model_override = ?, execution_timeout_seconds = ?,
+                research_path = ?, lane = ?,
                 acceptance_criteria = ?, test_command = ?, codex_prompt = ?, chatgpt_prompt = ?,
                 estimate_minutes = ?, blocked_reason = ?, updated_at = ?, done_at = ?
             WHERE id = ?
@@ -3814,6 +3898,11 @@ class HbxOwnerApp(tk.Tk):
                 data["module"],
                 data["type"],
                 data["priority"],
+                data["urgency_level"],
+                data["intelligence_level"],
+                data["codex_model_override"],
+                data["execution_timeout_seconds"],
+                data["research_path"],
                 data["lane"],
                 data["acceptance_criteria"],
                 data["test_command"],
@@ -3891,7 +3980,23 @@ class HbxOwnerApp(tk.Tk):
             return ""
         if Path(candidate).is_absolute():
             return candidate if Path(candidate).exists() else ""
-        return shutil.which(candidate) or ""
+        return self.find_codex_cli(candidate)
+
+    def find_codex_cli(self, candidate: str = "codex") -> str:
+        found = shutil.which(candidate) or shutil.which("codex.exe")
+        if found:
+            return found
+        extension_root = Path.home() / ".vscode" / "extensions"
+        if extension_root.exists():
+            matches = sorted(
+                extension_root.glob("openai.chatgpt-*/bin/windows-x86_64/codex.exe"),
+                key=lambda item: item.stat().st_mtime,
+                reverse=True,
+            )
+            for match in matches:
+                if match.exists():
+                    return str(match)
+        return ""
 
     def codex_worktree_root(self, ensure: bool = False) -> Path:
         configured = str(self.config_data.get("codex_worktree_dir") or DEFAULT_CONFIG["codex_worktree_dir"]).strip()
@@ -3920,9 +4025,12 @@ class HbxOwnerApp(tk.Tk):
         return target
 
     def card_has_codex_blocker(self, card: sqlite3.Row) -> str:
+        intelligence = self.normalize_intelligence_level(self.card_value(card, "intelligence_level", ""), card)
+        if intelligence == "Revisão humana":
+            return "Dispatch Codex bloqueado: este card exige revisão humana pelo nível de inteligência."
         text = " ".join(
             str(card[key] or "")
-            for key in ("title", "description", "module", "type", "blocked_reason", "test_command")
+            for key in ("title", "description", "module", "type", "blocked_reason", "test_command", "research_path")
             if key in card.keys()
         ).lower()
         sensitive = ("deploy", "publish", "migration", "migracao", "migração", "auth", "billing", "secrets", "pagamento")
@@ -3934,6 +4042,8 @@ class HbxOwnerApp(tk.Tk):
         card = self.get_card(card_id)
         if not card:
             return False
+        intelligence_level = self.normalize_intelligence_level(self.card_value(card, "intelligence_level", ""), card)
+        model = self.card_codex_model(card)
 
         if not self.codex_auto_dispatch_enabled():
             prompt = self.build_codex_dispatch_prompt(card, "")
@@ -4025,9 +4135,10 @@ class HbxOwnerApp(tk.Tk):
             output_path=output_path,
             last_message_path=last_message_path,
             base_sha=base_sha,
+            model=model,
+            intelligence_level=intelligence_level,
         )
 
-        model = str(self.config_data.get("codex_model") or "").strip()
         command = [
             codex_path,
             "exec",
@@ -4069,11 +4180,15 @@ class HbxOwnerApp(tk.Tk):
                 output_handle.close()
 
         self.update_codex_dispatch(dispatch_id, status="running", process_id=process.pid, started_at=now_iso())
-        self.record_ai_usage_event("normal", model=model or "default", context=f"card:{card_id}")
+        self.record_ai_usage_event(intelligence_level, model=model or "default", context=f"card:{card_id}")
         self.refresh_usage_hud()
         self.db.execute(
             "INSERT INTO card_events (card_id, event_type, message, created_at) VALUES (?, 'codex_started', ?, ?)",
-            (card_id, f"Codex iniciado em {branch} por {trigger}. PID {process.pid}.", now_iso()),
+            (
+                card_id,
+                f"Codex iniciado em {branch} por {trigger}. PID {process.pid}. Inteligência: {intelligence_level}. Modelo: {model or 'padrão'}.",
+                now_iso(),
+            ),
         )
         self.execution_status_var.set(f"Codex iniciado para card #{card_id}: {branch}")
         return True
@@ -4088,13 +4203,15 @@ class HbxOwnerApp(tk.Tk):
         output_path: Path,
         last_message_path: Path,
         base_sha: str,
+        model: str = "",
+        intelligence_level: str = "",
     ) -> int:
         cur = self.db.execute(
             """
             INSERT INTO codex_dispatches
             (card_id, status, branch, worktree_path, prompt_path, output_path, last_message_path,
-             base_sha, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             base_sha, model, intelligence_level, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 card_id,
@@ -4105,6 +4222,8 @@ class HbxOwnerApp(tk.Tk):
                 str(output_path),
                 str(last_message_path),
                 base_sha,
+                model,
+                intelligence_level,
                 now_iso(),
                 now_iso(),
             ),
@@ -4129,11 +4248,18 @@ class HbxOwnerApp(tk.Tk):
             f"Módulo: {card['module'] or '-'}\n"
             f"Tipo: {card['type'] or '-'}\n"
             f"Prioridade: {card['priority'] or '-'}\n"
+            f"Urgência: {self.normalize_urgency_level(self.card_value(card, 'urgency_level', ''), card['priority'])}\n"
+            f"Inteligência solicitada: {self.normalize_intelligence_level(self.card_value(card, 'intelligence_level', ''), card)}\n"
+            f"Modelo solicitado: {self.card_codex_model(card) or 'padrão'}\n"
+            f"Timeout alvo: {self.card_execution_timeout(card)}s\n"
             f"Ticket: {card['ticket_code'] or '-'}\n"
             f"Cliente: {card['ticket_customer'] or '-'}\n\n"
+            "Caminho de pesquisa obrigatório:\n"
+            f"{self.card_research_path(card)}\n\n"
             f"Descrição:\n{card['description'] or '-'}\n\n"
             f"Critério de aceite:\n{card['acceptance_criteria'] or 'Entrega verificável registrada.'}\n\n"
             f"Teste sugerido:\n{card['test_command'] or '-'}\n\n"
+            f"Prompt específico do card:\n{card['codex_prompt'] or '-'}\n\n"
             "Regras de segurança:\n"
             "- Não mexer em pricing, billing, payment, auth, secrets, deploy, publish ou migration.\n"
             "- Não fazer push.\n"
@@ -4216,10 +4342,17 @@ class HbxOwnerApp(tk.Tk):
             if status_output
             else "Codex terminou sem commit e sem mudanças detectadas."
         )
+        output_path = str(dispatch["output_path"] or "").strip()
+        last_message_path = str(dispatch["last_message_path"] or "").strip()
+        detail_note = note
+        if output_path:
+            detail_note += f"\nLog: {output_path}"
+        if last_message_path:
+            detail_note += f"\nÚltima resposta: {last_message_path}"
         self.update_codex_dispatch(
             int(dispatch["id"]),
             status=status,
-            error=note[:4000],
+            error=detail_note[:4000],
             finished_at=now_iso(),
         )
         self.db.execute(
@@ -4228,7 +4361,7 @@ class HbxOwnerApp(tk.Tk):
         )
         self.db.execute(
             "INSERT INTO card_events (card_id, event_type, message, created_at) VALUES (?, 'codex_review', ?, ?)",
-            (card_id, note[:1000], now_iso()),
+            (card_id, detail_note[:1000], now_iso()),
         )
 
     def dispatch_selected_card_to_codex(self) -> None:
@@ -4279,18 +4412,24 @@ class HbxOwnerApp(tk.Tk):
         cur = self.db.execute(
             """
             INSERT INTO kanban_cards
-            (date, title, description, module, type, priority, lane, acceptance_criteria,
+            (date, title, description, module, type, priority, urgency_level, intelligence_level,
+             codex_model_override, execution_timeout_seconds, research_path, lane, acceptance_criteria,
              test_command, codex_prompt, chatgpt_prompt, estimate_minutes, blocked_reason,
              created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, 'BACKLOG', ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'BACKLOG', ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 today_str(),
                 f"{card['title']} (cópia)",
                 card["description"],
                 card["module"],
-                card["type"],
+                self.sanitize_card_type(card["type"], "Operacional"),
                 card["priority"],
+                self.normalize_urgency_level(self.card_value(card, "urgency_level", ""), card["priority"]),
+                self.normalize_intelligence_level(self.card_value(card, "intelligence_level", ""), card),
+                str(self.card_value(card, "codex_model_override", "") or ""),
+                self.card_execution_timeout(card),
+                self.card_research_path(card),
                 card["acceptance_criteria"],
                 card["test_command"],
                 card["codex_prompt"],
@@ -4313,16 +4452,28 @@ class HbxOwnerApp(tk.Tk):
         lane = data.get("lane") or "BACKLOG"
         if lane not in KANBAN_LANES:
             lane = "BACKLOG"
+        data["type"] = self.sanitize_card_type(data.get("type"), source if source != "manual" else "Operacional")
+        suggested_urgency, suggested_intelligence = self.suggest_card_execution_controls(data)
+        urgency_level = self.normalize_urgency_level(data.get("urgency_level") or suggested_urgency, data.get("priority"))
+        intelligence_level = self.normalize_intelligence_level(data.get("intelligence_level") or suggested_intelligence, data)
+        research_path = str(data.get("research_path") or "").strip() or self.infer_research_path_from_text(
+            data.get("module"), f"{data.get('title', '')} {data.get('description', '')} {data.get('codex_prompt', '')}"
+        )
+        try:
+            timeout_seconds = int(float(str(data.get("execution_timeout_seconds") or 0)))
+        except ValueError:
+            timeout_seconds = 0
         cur = self.db.execute(
             """
             INSERT INTO kanban_cards
-            (date, title, description, module, type, priority, lane, acceptance_criteria,
+            (date, title, description, module, type, priority, urgency_level, intelligence_level,
+             codex_model_override, execution_timeout_seconds, research_path, lane, acceptance_criteria,
              test_command, codex_prompt, chatgpt_prompt, estimate_minutes, blocked_reason,
              ticket_code, ticket_backend_id, ticket_customer, ticket_origin, ticket_category,
              ticket_classification, ticket_status, ticket_dispatch_status, ticket_codex_run_id,
              ticket_codex_run_url, ticket_github_issue_url, ticket_github_pr_number,
              ticket_github_branch, ticket_synced_at, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 today_str(),
@@ -4331,6 +4482,11 @@ class HbxOwnerApp(tk.Tk):
                 data.get("module", "").strip(),
                 data.get("type", "").strip() or source,
                 data.get("priority", "").strip() or "Média",
+                urgency_level,
+                intelligence_level,
+                str(data.get("codex_model_override") or "").strip(),
+                max(0, timeout_seconds),
+                research_path,
                 lane,
                 data.get("acceptance_criteria", "").strip(),
                 data.get("test_command", "").strip(),
@@ -4510,7 +4666,7 @@ class HbxOwnerApp(tk.Tk):
         self.set_git_output(summary if ok else f"Erro ao gerar resumo:\n{summary}")
 
     def _build_pr_lab_tab(self, frame: ttk.Frame) -> None:
-        self.page_title(frame, "PR Lab", "Branches, worktrees, testes isolados e merge aprovado")
+        self.page_title(frame, "Branches", "Branches, worktrees, testes isolados e merge aprovado")
         frame.columnconfigure(0, weight=1)
         frame.rowconfigure(4, weight=1)
 
@@ -4815,7 +4971,7 @@ class HbxOwnerApp(tk.Tk):
     def pr_lab_create_worktree(self) -> None:
         item = self.selected_pr_lab_item()
         if not item:
-            messagebox.showwarning("PR Lab", "Selecione um PR ou branch.")
+            messagebox.showwarning("Branches", "Selecione um PR ou branch.")
             return
         if not self.pr_lab_item_ref_is_owner_branch(item):
             message = "Por segurança, o Owner só cria worktree automático para origin/owner/*."
@@ -4885,7 +5041,7 @@ class HbxOwnerApp(tk.Tk):
     def pr_lab_run_tests(self) -> None:
         item = self.selected_pr_lab_item()
         if not item:
-            messagebox.showwarning("PR Lab", "Selecione um PR ou branch.")
+            messagebox.showwarning("Branches", "Selecione um PR ou branch.")
             return
         worktree = self.pr_lab_selected_worktree_path(item)
         if not worktree:
@@ -4923,7 +5079,7 @@ class HbxOwnerApp(tk.Tk):
     def pr_lab_open_worktree_folder(self) -> None:
         item = self.selected_pr_lab_item()
         if not item:
-            messagebox.showwarning("PR Lab", "Selecione um PR ou branch.")
+            messagebox.showwarning("Branches", "Selecione um PR ou branch.")
             return
         worktree = self.pr_lab_selected_worktree_path(item)
         if not worktree:
@@ -4941,7 +5097,7 @@ class HbxOwnerApp(tk.Tk):
     def pr_lab_merge_approved(self) -> None:
         item = self.selected_pr_lab_item()
         if not item:
-            messagebox.showwarning("PR Lab", "Selecione um PR ou branch.")
+            messagebox.showwarning("Branches", "Selecione um PR ou branch.")
             return
         if not self.pr_lab_item_ref_is_owner_branch(item):
             message = "Merge automático bloqueado: só origin/owner/* é permitido."
@@ -4992,8 +5148,53 @@ class HbxOwnerApp(tk.Tk):
     def _build_chatgpt_tab(self, frame: ttk.Frame) -> None:
         self.page_title(frame, "ChatGPT", "Pesquisa em cards")
 
+        intelligence = ttk.LabelFrame(frame, text="Inteligência", padding=8, style="Modern.TLabelframe")
+        intelligence.grid(row=1, column=0, sticky="ew", pady=(12, 10))
+        for column in range(12):
+            intelligence.columnconfigure(column, weight=1 if column == 11 else 0)
+        ttk.Label(intelligence, text="Motor", style="CardMuted.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 6))
+        ttk.Combobox(
+            intelligence,
+            textvariable=self.intelligence_engine_var,
+            values=("local", "spark"),
+            state="readonly",
+            width=10,
+        ).grid(row=0, column=1, sticky="w", padx=(0, 10))
+        ttk.Label(intelligence, text="Modelo cards", style="CardMuted.TLabel").grid(
+            row=0, column=2, sticky="w", padx=(0, 6)
+        )
+        ttk.Entry(intelligence, textvariable=self.intelligence_model_var, width=16).grid(
+            row=0, column=3, sticky="w", padx=(0, 10)
+        )
+        ttk.Label(intelligence, text="Timeout", style="CardMuted.TLabel").grid(row=0, column=4, sticky="w", padx=(0, 6))
+        ttk.Entry(intelligence, textvariable=self.intelligence_timeout_var, width=8).grid(
+            row=0, column=5, sticky="w", padx=(0, 10)
+        )
+        ttk.Label(intelligence, text="Modelo Codex", style="CardMuted.TLabel").grid(
+            row=0, column=6, sticky="w", padx=(0, 6)
+        )
+        ttk.Entry(intelligence, textvariable=self.codex_model_var, width=16).grid(
+            row=0, column=7, sticky="w", padx=(0, 10)
+        )
+        ttk.Button(intelligence, text="Salvar", command=self.save_intelligence_controls, style="Accent.TButton").grid(
+            row=0, column=8, sticky="w", padx=(0, 8)
+        )
+        ttk.Button(intelligence, text="Local rápido", command=lambda: self.apply_intelligence_preset("local")).grid(
+            row=0, column=9, sticky="w", padx=(0, 8)
+        )
+        ttk.Button(intelligence, text="Spark rápido", command=lambda: self.apply_intelligence_preset("spark-fast")).grid(
+            row=0, column=10, sticky="w", padx=(0, 8)
+        )
+        ttk.Button(intelligence, text="Spark longo", command=lambda: self.apply_intelligence_preset("spark-long")).grid(
+            row=0, column=11, sticky="w"
+        )
+        ttk.Label(intelligence, textvariable=self.intelligence_status_var, style="Card.TLabel").grid(
+            row=1, column=0, columnspan=12, sticky="w", pady=(8, 0)
+        )
+        self.refresh_intelligence_status()
+
         buttons = ttk.Frame(frame, style="Toolbar.TFrame")
-        buttons.grid(row=1, column=0, sticky="w", pady=(12, 10))
+        buttons.grid(row=2, column=0, sticky="w", pady=(0, 10))
         ttk.Button(buttons, text="Abrir ChatGPT Desktop", command=self.open_chatgpt, style="Accent.TButton").grid(
             row=0, column=0, padx=(0, 8)
         )
@@ -5039,7 +5240,7 @@ class HbxOwnerApp(tk.Tk):
         ).grid(row=1, column=1, padx=8, pady=(8, 0), sticky="w")
 
         pdf_frame = ttk.LabelFrame(frame, text="Adicionar PDF", padding=8, style="Modern.TLabelframe")
-        pdf_frame.grid(row=2, column=0, sticky="ew", pady=(0, 10))
+        pdf_frame.grid(row=3, column=0, sticky="ew", pady=(0, 10))
         pdf_frame.columnconfigure(0, weight=1)
         ttk.Entry(pdf_frame, textvariable=self.chatgpt_pdf_path_var, state="readonly").grid(
             row=0, column=0, sticky="ew", padx=(0, 8)
@@ -5052,14 +5253,14 @@ class HbxOwnerApp(tk.Tk):
         )
 
         status = ttk.Frame(frame, style="Toolbar.TFrame")
-        status.grid(row=3, column=0, sticky="ew", pady=(0, 10))
+        status.grid(row=4, column=0, sticky="ew", pady=(0, 10))
         ttk.Label(status, textvariable=self.autocard_status_var, style="Muted.TLabel").grid(row=0, column=0, sticky="w")
 
         output_frame = ttk.LabelFrame(frame, text="Pesquisa, prompt ou resposta", padding=8, style="Modern.TLabelframe")
-        output_frame.grid(row=4, column=0, sticky="nsew")
+        output_frame.grid(row=5, column=0, sticky="nsew")
         output_frame.columnconfigure(0, weight=1)
         output_frame.rowconfigure(0, weight=1)
-        frame.rowconfigure(4, weight=1)
+        frame.rowconfigure(5, weight=1)
 
         self.chatgpt_text = tk.Text(output_frame, height=26, wrap="word")
         self.style_text_widget(self.chatgpt_text)
@@ -5256,15 +5457,14 @@ class HbxOwnerApp(tk.Tk):
         if not self.pdf_text_is_usable(extracted_text):
             message = (
                 "Texto local insuficiente. Prompt copiado. "
-                "Use PDF -> cards Spark para tentar criar cards pelo Spark, "
-                "ou anexe o PDF no ChatGPT Desktop."
+                "Anexe o PDF no ChatGPT Desktop, envie o prompt e depois use Importar clipboard."
             )
             self.autocard_status_var.set(message)
             messagebox.showinfo(
                 "PDF -> prompt",
                 (
-                    f"{extraction_status}\n\n"
-                    f"{message}"
+                    f"{message}\n\n"
+                    "Leitura local opcional indisponível; isso não impede o fluxo manual com ChatGPT."
                 ),
             )
             return
@@ -5296,7 +5496,7 @@ class HbxOwnerApp(tk.Tk):
         created, status = self.compile_pdf_cards_with_spark(pdf_path, extracted_text, extraction_status)
         if not created:
             self.autocard_status_var.set(status)
-            messagebox.showwarning("PDF -> cards Spark", status)
+            messagebox.showinfo("PDF -> cards Spark", status)
 
     def compile_pdf_cards_with_spark(
         self,
@@ -5331,7 +5531,13 @@ class HbxOwnerApp(tk.Tk):
         self.save_chatgpt_exchange(cards_text or prompt, prompt=f"spark-pdf:{pdf_path.name}")
 
         if not cards_text:
-            return False, compiler_status
+            self.copy_text(prompt)
+            status = (
+                f"{compiler_status} "
+                "Prompt do PDF copiado. Envie no ChatGPT e depois use Importar clipboard."
+            ).strip()
+            self.autocard_status_var.set(status)
+            return False, status
 
         created_ids, skipped_existing, recognized_count = self.create_cards_from_compiler_output(
             cards_text,
@@ -5548,6 +5754,11 @@ class HbxOwnerApp(tk.Tk):
                 "acceptance_criteria": "Ticket criado com status inicial e dados de origem.",
                 "test_command": "npm run build",
                 "codex_prompt": "Leia AGENTS.md e implemente o serviço mantendo o escopo seguro.",
+                "urgency_level": "Alta",
+                "intelligence_level": "Spark rápido",
+                "codex_model_override": "",
+                "execution_timeout_seconds": 180,
+                "research_path": "Pesquisar primeiro em backend/src e frontend/src buscando pelo ticket e pelo módulo Retorno.",
             }
         ]
         return (
@@ -5833,7 +6044,7 @@ class HbxOwnerApp(tk.Tk):
             return ""
         if Path(candidate).is_absolute():
             return candidate if Path(candidate).exists() else ""
-        return shutil.which(candidate) or ""
+        return self.find_codex_cli(candidate)
 
     def sanitize_card_compiler_model(self) -> str:
         model = str(self.config_data.get("card_compiler_model") or DEFAULT_CONFIG["card_compiler_model"]).strip()
@@ -5858,12 +6069,21 @@ class HbxOwnerApp(tk.Tk):
             "5. Se o item for atendimento de cliente, use type = \"Ticket cliente\" e module = \"Retorno\".\n"
             "6. Se citar deploy, publish, migration, auth, billing, secrets ou pagamento, use lane = \"BLOQUEADO\".\n"
             "7. Prioridade Alta para ticket, cliente, WhatsApp, p0, bug, erro, falha ou bloqueio.\n"
-            "8. Máximo 12 cards.\n\n"
+            "8. Defina urgency_level e intelligence_level conforme risco e complexidade.\n"
+            "9. Preencha research_path com o caminho exato onde o Codex deve pesquisar primeiro.\n"
+            "10. Nunca use rótulo legado de IA removido como type.\n"
+            "11. Máximo 12 cards.\n\n"
             "Campos obrigatórios por card:\n"
             "title, module, priority, lane, type, description, acceptance_criteria, test_command, "
-            "codex_prompt, chatgpt_prompt, estimate_minutes, blocked_reason.\n\n"
+            "codex_prompt, chatgpt_prompt, estimate_minutes, blocked_reason, urgency_level, "
+            "intelligence_level, codex_model_override, execution_timeout_seconds, research_path.\n\n"
             "Lanes válidas: BACKLOG, HOJE, AGUARDANDO CODEX, TESTAR, BLOQUEADO.\n"
             "Prioridades válidas: Crítica, Alta, Média, Baixa.\n\n"
+            "Inteligência:\n"
+            "- Local rápido: texto, documentação, classificação simples, baixo risco.\n"
+            "- Spark rápido: bug/ticket/cliente/fluxo normal com execução objetiva.\n"
+            "- Spark longo: multiárea, backend+frontend, worker/fila, criticidade alta.\n"
+            "- Revisão humana: deploy, publish, migration, auth, billing, secrets, pagamento.\n\n"
             f"{AUTOCARD_JSON_START}\n"
             "[\n"
             "  {\n"
@@ -5878,7 +6098,12 @@ class HbxOwnerApp(tk.Tk):
             "    \"codex_prompt\": \"Investigar e aplicar a menor correção segura.\",\n"
             "    \"chatgpt_prompt\": \"Revisar causa, impacto e aceite.\",\n"
             "    \"estimate_minutes\": 60,\n"
-            "    \"blocked_reason\": \"\"\n"
+            "    \"blocked_reason\": \"\",\n"
+            "    \"urgency_level\": \"Alta\",\n"
+            "    \"intelligence_level\": \"Spark rápido\",\n"
+            "    \"codex_model_override\": \"\",\n"
+            "    \"execution_timeout_seconds\": 180,\n"
+            "    \"research_path\": \"Pesquisar primeiro em backend/src e frontend/src buscando pelo ticket e pelo módulo Retorno.\"\n"
             "  }\n"
             "]\n"
             f"{AUTOCARD_JSON_END}\n\n"
@@ -5893,7 +6118,7 @@ class HbxOwnerApp(tk.Tk):
         if not cli_path:
             prompt = self.build_spark_card_compiler_prompt(text, context)
             self.copy_text(prompt)
-            return "", "Codex/Spark CLI não encontrado. Prompt Spark copiado; usando compilador local."
+            return "", "Codex/Spark CLI não encontrado."
 
         dispatch_dir = APP_DIR / "card-compilers"
         dispatch_dir.mkdir(parents=True, exist_ok=True)
@@ -6061,11 +6286,13 @@ class HbxOwnerApp(tk.Tk):
         if sensitive and not blocked_reason:
             blocked_reason = "Requer revisão do dono antes de qualquer ação sensível."
 
-        return {
+        type_value = self.sanitize_card_type(raw.get("type") or raw.get("tipo") or "ChatGPT", "ChatGPT")
+        module_value = str(raw.get("module") or raw.get("modulo") or self.infer_module_from_text(full_text)).strip()[:60]
+        normalized = {
             "title": title,
             "description": str(raw.get("description") or raw.get("descricao") or "").strip(),
-            "module": str(raw.get("module") or raw.get("modulo") or self.infer_module_from_text(full_text)).strip()[:60],
-            "type": str(raw.get("type") or raw.get("tipo") or "ChatGPT").strip()[:60],
+            "module": module_value,
+            "type": type_value[:60],
             "priority": priority,
             "lane": lane,
             "acceptance_criteria": str(
@@ -6082,6 +6309,31 @@ class HbxOwnerApp(tk.Tk):
             "estimate_minutes": self.normalize_autocard_estimate(raw.get("estimate_minutes"), priority),
             "blocked_reason": blocked_reason,
         }
+        urgency_level, intelligence_level = self.suggest_card_execution_controls(normalized)
+        normalized["urgency_level"] = self.normalize_urgency_level(
+            raw.get("urgency_level") or raw.get("urgencia") or urgency_level,
+            priority,
+        )
+        normalized["intelligence_level"] = self.normalize_intelligence_level(
+            raw.get("intelligence_level") or raw.get("inteligencia") or intelligence_level,
+            normalized,
+        )
+        normalized["codex_model_override"] = str(
+            raw.get("codex_model_override") or raw.get("modelo_codex") or raw.get("modelo codex") or ""
+        ).strip()
+        try:
+            normalized["execution_timeout_seconds"] = int(
+                float(str(raw.get("execution_timeout_seconds") or raw.get("timeout_seconds") or 0))
+            )
+        except ValueError:
+            normalized["execution_timeout_seconds"] = 0
+        normalized["research_path"] = str(
+            raw.get("research_path")
+            or raw.get("caminho_de_pesquisa")
+            or raw.get("caminho pesquisa")
+            or self.infer_research_path_from_text(module_value, full_text)
+        ).strip()
+        return normalized
 
     def normalize_autocard_priority(self, value: object, text: str) -> str:
         key = self.normalize_card_title_key(str(value or ""))
@@ -6136,7 +6388,7 @@ class HbxOwnerApp(tk.Tk):
 
     def autocard_has_sensitive_terms(self, text: str) -> bool:
         normalized = self.normalize_card_title_key(text)
-        return any(self.normalize_card_title_key(term) in normalized.split() for term in AUTOCARD_SENSITIVE_TERMS)
+        return any(self.normalize_card_title_key(term) in normalized for term in AUTOCARD_SENSITIVE_TERMS)
 
     def parse_section_action_cards(self, text: str) -> list[dict]:
         cards: list[dict] = []
@@ -6223,6 +6475,18 @@ class HbxOwnerApp(tk.Tk):
             "tipo": "type",
             "lane": "lane",
             "status": "lane",
+            "urgencia": "urgency_level",
+            "urgência": "urgency_level",
+            "inteligencia": "intelligence_level",
+            "inteligência": "intelligence_level",
+            "nivel de inteligencia": "intelligence_level",
+            "nível de inteligência": "intelligence_level",
+            "caminho de pesquisa": "research_path",
+            "research_path": "research_path",
+            "modelo codex": "codex_model_override",
+            "codex_model_override": "codex_model_override",
+            "timeout": "execution_timeout_seconds",
+            "execution_timeout_seconds": "execution_timeout_seconds",
             "prompt codex": "codex_prompt",
             "codex prompt": "codex_prompt",
             "codex_prompt": "codex_prompt",
@@ -6503,7 +6767,7 @@ class HbxOwnerApp(tk.Tk):
 
     def build_freeform_card(self, title: str, source_text: str) -> dict:
         priority = self.infer_priority_from_text(title + " " + source_text)
-        return {
+        card = {
             "title": title,
             "description": f"Criado automaticamente a partir de resposta livre do ChatGPT.\n\nTrecho: {source_text[:800]}",
             "module": self.infer_module_from_text(title + " " + source_text),
@@ -6514,6 +6778,13 @@ class HbxOwnerApp(tk.Tk):
             "test_command": "",
             "estimate_minutes": 60 if priority in ("Alta", "Crítica") else 30,
         }
+        urgency_level, intelligence_level = self.suggest_card_execution_controls(card)
+        card["urgency_level"] = urgency_level
+        card["intelligence_level"] = intelligence_level
+        card["codex_model_override"] = ""
+        card["execution_timeout_seconds"] = 180 if intelligence_level == "Spark rápido" else 300 if intelligence_level == "Spark longo" else 90
+        card["research_path"] = self.infer_research_path_from_text(card["module"], title + " " + source_text)
+        return card
 
     def infer_priority_from_text(self, text: str) -> str:
         lowered = text.lower()
@@ -6957,10 +7228,6 @@ class HbxOwnerApp(tk.Tk):
             (f"{start} 00:00:00", f"{end} 23:59:59"),
         )
         blocked_cards = self.db.fetchall("SELECT * FROM kanban_cards WHERE lane = 'BLOQUEADO' ORDER BY updated_at DESC")
-        smart_rows = self.db.fetchall(
-            "SELECT * FROM smart_interactions WHERE date BETWEEN ? AND ? ORDER BY created_at DESC",
-            (start, end),
-        )
         local_runs = self.db.fetchall(
             "SELECT * FROM local_runs WHERE date BETWEEN ? AND ? ORDER BY created_at DESC",
             (start, end),
@@ -6980,7 +7247,6 @@ class HbxOwnerApp(tk.Tk):
         ] or ["Nenhuma sessão registrada."]
         done_items = [f"#{card['id']} {card['title']} | {card['module']} | {card['done_at'] or '-'}" for card in done_cards]
         blocked_items = [f"#{card['id']} {card['title']} | {card['blocked_reason'] or '-'}" for card in blocked_cards]
-        smart_items = [f"{row['created_at']} | {row['intent']} | {row['decision']}" for row in smart_rows]
         run_items = [
             f"{row['created_at']} | {row['command_key']} | rc={row['returncode']} | {row['output'][:180]}"
             for row in local_runs
@@ -6991,7 +7257,7 @@ class HbxOwnerApp(tk.Tk):
         summary = (
             f"Semana {start} a {end}: {self.format_minutes(total_minutes)} trabalhados, "
             f"{len(done_cards)} cards feitos, {len(blocked_cards)} bloqueios ativos, "
-            f"{len(smart_rows)} decisões IA."
+            f"{len(local_runs)} execuções locais."
         )
 
         html = f"""<!doctype html>
@@ -7013,7 +7279,6 @@ class HbxOwnerApp(tk.Tk):
   <section><h2>Horas por dia</h2>{self.html_list(hours_items)}</section>
   <section><h2>Cards feitos</h2>{self.html_list(done_items)}</section>
   <section><h2>Bloqueios ativos</h2>{self.html_list(blocked_items)}</section>
-  <section><h2>Modo IA</h2>{self.html_list(smart_items)}</section>
   <section><h2>Execuções locais</h2>{self.html_list(run_items)}</section>
   <section><h2>Git snapshots</h2>{self.html_list(git_items)}</section>
 </body>
@@ -7064,9 +7329,6 @@ class HbxOwnerApp(tk.Tk):
         chatgpt_rows = self.db.fetchall(
             "SELECT * FROM chatgpt_exchanges WHERE date = ? ORDER BY created_at", (report_date,)
         )
-        smart_rows = self.db.fetchall(
-            "SELECT * FROM smart_interactions WHERE date = ? ORDER BY created_at", (report_date,)
-        )
         local_run_rows = self.db.fetchall(
             "SELECT * FROM local_runs WHERE date = ? ORDER BY created_at", (report_date,)
         )
@@ -7084,10 +7346,6 @@ class HbxOwnerApp(tk.Tk):
         blocked_items = [f"#{card['id']} {card['title']} | {card['blocked_reason']}" for card in blocked_cards]
         chat_items = [
             f"{row['created_at']} | card #{row['card_id'] or '-'} | {row['response'][:500]}" for row in chatgpt_rows
-        ]
-        smart_items = [
-            f"{row['created_at']} | {row['intent']} | {row['decision']} | {row['assistant_text'][:500]}"
-            for row in smart_rows
         ]
         local_run_items = [
             f"{row['created_at']} | {row['command_key']} | rc={row['returncode']} | {row['output'][:500]}"
@@ -7128,7 +7386,6 @@ class HbxOwnerApp(tk.Tk):
   <section><h2>Último commit</h2><pre>{html_lib.escape((latest_git['commit_sha'] + ' ' + latest_git['commit_message']) if latest_git else 'Nenhum snapshot Git.')}</pre></section>
   <section><h2>Status do repo</h2><pre>{html_lib.escape(repo_status_text)}</pre></section>
   <section><h2>Respostas do ChatGPT</h2>{self.html_list(chat_items)}</section>
-  <section><h2>Modo IA</h2>{self.html_list(smart_items)}</section>
   <section><h2>Execuções locais</h2>{self.html_list(local_run_items)}</section>
   <section><h2>Risco físico/foco</h2><p class="risk">{html_lib.escape(risk)}</p></section>
   <section><h2>Plano de amanhã</h2><pre>{html_lib.escape(next_plan)}</pre></section>
@@ -7267,9 +7524,9 @@ class HbxOwnerApp(tk.Tk):
             ("usage_hud_window_hours", "Usage HUD window hours"),
             ("owner_backend_url", "Owner backend URL"),
             ("owner_tickets_secret", "Owner tickets secret"),
-            ("pr_lab_base_branch", "PR Lab base branch"),
-            ("pr_lab_worktree_dir", "PR Lab worktree dir"),
-            ("pr_lab_localhost_url", "PR Lab localhost URL"),
+            ("pr_lab_base_branch", "Branches base branch"),
+            ("pr_lab_worktree_dir", "Branches worktree dir"),
+            ("pr_lab_localhost_url", "Branches localhost URL"),
             ("codex_auto_dispatch", "Codex auto dispatch"),
             ("codex_cli_path", "Codex CLI path"),
             ("codex_model", "Codex model opcional"),
@@ -7372,6 +7629,11 @@ class HbxOwnerApp(tk.Tk):
         )
         self.git_repo_var.set(str(self.config_data.get("repo_path") or APP_DIR))
         self.today_plan_var.set(self.config_data.get("unique_goal") or "Meta única não definida.")
+        self.intelligence_engine_var.set(str(self.config_data.get("card_compiler_engine") or "local"))
+        self.intelligence_model_var.set(str(self.config_data.get("card_compiler_model") or "spark"))
+        self.intelligence_timeout_var.set(str(self.config_data.get("card_compiler_timeout_seconds") or 120))
+        self.codex_model_var.set(str(self.config_data.get("codex_model") or ""))
+        self.refresh_intelligence_status()
         self.refresh_usage_hud()
         messagebox.showinfo("Config", "Configuração salva localmente.")
 

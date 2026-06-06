@@ -37,12 +37,14 @@ function buildUsersController(overrides: {
       sellerReferralCommissionPercent: 3,
     }),
     create: async (data: any) => ({ id: 200, email: data.email, username: data.username, role: data.role, isSystemMaster: false, isActive: data.isActive ?? true, ...data }),
+    updateById: async (id: number, data: any) => ({ id, ...data }),
     ...overrides.usersService,
   };
 
   const sellerOnboardingService = {
     getOrCreateForUser: async () => ({}),
     updateDraft: async () => ({}),
+    sendOnboardingEmail: async () => ({ ok: true, emailStatus: 'sent', messageId: 'msg_1', missingRequiredAttachments: [], delivery: { ok: true } }),
     ...overrides.sellerOnboardingService,
   };
 
@@ -285,6 +287,94 @@ test('/users/company/create com referralCandidateId cria User com referredByUser
   assert.equal(onboardingDraft.referredByCommissionPercentSnapshot, 3);
   assert.equal(convertedInput.candidateId, 'cand_1');
   assert.equal(convertedInput.convertedUserId, 200);
+});
+
+test('/users/company/create vendedor comum nao usa onboarding de Parceiro HBX', async () => {
+  let createdData: any = null;
+  let onboardingCalled = false;
+  const controller = buildUsersController({
+    usersService: {
+      isHbxSellerNetworkCompany: async () => false,
+      create: async (data: any) => {
+        createdData = data;
+        return { id: 201, email: data.email, username: data.username, role: data.role, isSystemMaster: false, isActive: data.isActive ?? true, ...data };
+      },
+    },
+    sellerOnboardingService: {
+      getOrCreateForUser: async () => {
+        onboardingCalled = true;
+        throw new Error('onboarding HBX nao deve rodar para vendedor comum');
+      },
+      updateDraft: async () => {
+        onboardingCalled = true;
+        throw new Error('draft HBX nao deve rodar para vendedor comum');
+      },
+      sendOnboardingEmail: async () => {
+        onboardingCalled = true;
+        throw new Error('pre-boas-vindas HBX nao deve rodar para vendedor comum');
+      },
+    },
+  });
+
+  const result = await controller.createCompanyUser(
+    { user: { id: 1, companyId: 77 } } as any,
+    {
+      email: 'vendedor-comum@example.com',
+      role: 'USER',
+    } as any,
+  );
+
+  assert.equal(onboardingCalled, false);
+  assert.equal(createdData.companyId, 77);
+  assert.equal(createdData.role, 'USER');
+  assert.equal(createdData.isActive, undefined);
+  assert.equal(result.user.isActive, true);
+  assert.equal(typeof result.temporaryPassword, 'string');
+  assert.equal(result.onboardingEmail, null);
+});
+
+test('/users/company/create admin comum nao usa onboarding de Parceiro HBX', async () => {
+  let createdData: any = null;
+  let onboardingCalled = false;
+  const controller = buildUsersController({
+    usersService: {
+      isHbxSellerNetworkCompany: async () => false,
+      create: async (data: any) => {
+        createdData = data;
+        return { id: 202, email: data.email, username: data.username, role: data.role, isSystemMaster: false, isActive: data.isActive ?? true, ...data };
+      },
+    },
+    sellerOnboardingService: {
+      getOrCreateForUser: async () => {
+        onboardingCalled = true;
+        throw new Error('onboarding HBX nao deve rodar para admin comum');
+      },
+      updateDraft: async () => {
+        onboardingCalled = true;
+        throw new Error('draft HBX nao deve rodar para admin comum');
+      },
+      sendOnboardingEmail: async () => {
+        onboardingCalled = true;
+        throw new Error('pre-boas-vindas HBX nao deve rodar para admin comum');
+      },
+    },
+  });
+
+  const result = await controller.createCompanyUser(
+    { user: { id: 1, companyId: 77 } } as any,
+    {
+      email: 'admin-comum@example.com',
+      role: 'ADMIN',
+    } as any,
+  );
+
+  assert.equal(onboardingCalled, false);
+  assert.equal(createdData.companyId, 77);
+  assert.equal(createdData.role, 'ADMIN');
+  assert.equal(createdData.isActive, undefined);
+  assert.equal(result.user.isActive, true);
+  assert.equal(typeof result.temporaryPassword, 'string');
+  assert.equal(result.onboardingEmail, null);
 });
 
 test('SellerOnboarding salva herdeiro com indicador e snapshot', async () => {

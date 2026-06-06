@@ -6,6 +6,7 @@ import { assertPasswordPolicy } from './password-policy';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { MasterContextService } from '../master-context/master-context.service';
 import { ThemePreferencesService } from './theme-preferences.service';
+import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../companies/master-whatsapp-company.constants';
 
 class ChangePasswordDto {
   @IsString()
@@ -26,6 +27,19 @@ class UpdateDisplayNameDto {
 
 function sanitizeUser(user: any, masterContext?: any) {
   if (!user) return null;
+  const role = String(user.role || '').trim().toUpperCase();
+  const isHbxSellerNetwork =
+    String(user.company?.slug || '').trim().toLowerCase() === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG;
+  const isHbxPartnerSeller = isHbxSellerNetwork && role === 'USER' && !user.isSystemMaster;
+  const userKind = user.isSystemMaster
+    ? 'system_master'
+    : isHbxPartnerSeller
+      ? 'hbx_partner_seller'
+      : role === 'ADMIN'
+        ? 'admin'
+        : role === 'USER'
+          ? 'seller'
+          : 'user';
   const trialEndsAt = user.company?.trialEndsAt instanceof Date ? user.company.trialEndsAt : null;
   const trialRemainingDays = trialEndsAt
     ? Math.max(0, Math.ceil((trialEndsAt.getTime() - Date.now()) / (24 * 60 * 60 * 1000)))
@@ -36,14 +50,24 @@ function sanitizeUser(user: any, masterContext?: any) {
     email: user.email,
     name: user.name,
     role: user.role,
+    userKind,
     isSystemMaster: Boolean(user.isSystemMaster),
     mustChangePassword: Boolean(user.mustChangePassword),
+    sellerProfile: {
+      isHbxPartnerSeller,
+      isCommonSeller: role === 'USER' && !isHbxPartnerSeller && !user.isSystemMaster,
+      isAdmin: role === 'ADMIN' && !user.isSystemMaster,
+      canRegisterHbxSellers: Boolean(user.canRegisterHbxSellers),
+      sellerReferralCommissionPercent: Number(user.sellerReferralCommissionPercent || 0) || 0,
+      referredByUserId: user.referredByUserId ?? null,
+    },
     createdAt: user.createdAt,
     company: user.company
       ? {
           id: user.company.id,
           name: user.company.name,
           slug: user.company.slug ?? null,
+          isHbxSellerNetwork,
           onboardingStatus: user.company.onboardingStatus ?? null,
           paymentStatus: user.company.paymentStatus ?? null,
           subscriptionStatus: user.company.subscriptionStatus ?? null,
