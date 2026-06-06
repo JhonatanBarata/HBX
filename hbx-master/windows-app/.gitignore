@@ -1,0 +1,36 @@
+__pycache__/
+*.py[cod]
+
+# Generated executable artifacts
+build/
+*.spec
+HBX Master.exe
+HBX Boss.exe
+
+# Local state
+hbx_master.db
+hbx_master.lock
+hbx_boss.db
+hbx_boss.lock
+config.json
+hbx-ponto.csv
+hbx-dia.json
+hbx-plano.md
+hbx-memoria.md
+next-day.md
+
+# Generated runtime folders
+logs/*
+!logs/.gitkeep
+exports/*
+!exports/.gitkeep
+reports/*.html
+reports/*.pdf
+reports/*.json
+!reports/.gitkeep
+!reports/DEV_SUMMARY.md
+prompts/*
+!prompts/.gitkeep
+legacy-backups/*
+!legacy-backups/.gitkeep
+

@@ -1,7 +1,7 @@
 services:
   ops-control:
     build:
-      context: ./ops-control
+      context: ./hbx-master/ops-control
       dockerfile: Dockerfile
     container_name: hbx-ops-control
     restart: unless-stopped
@@ -21,4 +21,4 @@ services:
       OPS_CONTROL_LOCAL_HOST_ROOT: ${OPS_CONTROL_LOCAL_HOST_ROOT:-/host/hbx}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./:/host/hbx:ro
+      - .:/host/hbx:ro

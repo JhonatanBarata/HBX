@@ -1,6 +1,12 @@
-# HBX Ops Control
+# HBX Master Ops Control
 
-Painel operacional local para controlar a VPS HBX via SSH, acessivel somente em `127.0.0.1:3099`.
+Painel operacional local do HBX Master para controlar a VPS HBX via SSH, acessivel somente em `127.0.0.1:3099`.
+
+Este modulo fica dentro do Master:
+
+```text
+hbx-master/ops-control
+```
 
 Agora o painel tambem tem a area **Auditoria do Radar**, com abas:
 
@@ -15,7 +21,13 @@ echo "OPS_CONTROL_TARGET=ssh" >> .env.ops-control
 echo "OPS_CONTROL_SSH_HOST=187.77.47.18" >> .env.ops-control
 echo "OPS_CONTROL_SSH_USER=root" >> .env.ops-control
 echo "OPS_CONTROL_SSH_PASSWORD=sua-senha" >> .env.ops-control
-docker compose --env-file .env.ops-control -f docker-compose.ops.yml up -d --build
+docker compose --env-file .env.ops-control -f hbx-master/ops-control/docker-compose.yml --project-directory . up -d --build
+```
+
+Ou pelo script local do Master:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\hbx-master\ops-control\open-hbx-ops-control.ps1
 ```
 
 Abra:

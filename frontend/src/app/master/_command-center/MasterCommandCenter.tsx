@@ -11,9 +11,12 @@ import type {
 import HbxGuide1 from "@/components/HbxGuide1";
 import BancoDeDadosClientPage from "../../bancodedados/page.client";
 import { MasterEmailWorkspace } from "../email/page.client";
+import MasterOpsAppPanel from "./MasterOpsAppPanel";
+import type { MasterOpsPanelId } from "./MasterOpsAppPanel";
 import { useMasterCommandCenterActions } from "./MasterCommandCenter.hooks";
 import type {
   MasterCommandCenterProps,
+  MasterCommandKpi,
   MasterPlanKey,
   MasterRealityTone,
 } from "./MasterCommandCenter.types";
@@ -22,6 +25,7 @@ import {
   activeModuleCount,
   auditTitle,
   billingCycleLabel,
+  buildCommandKpis,
   buildHardDeleteConfirmation,
   buildPlanChangePreview,
   commercialPlanLabel,
@@ -44,7 +48,22 @@ import styles from "./MasterCommandCenter.module.css";
 type CommandActions = ReturnType<typeof useMasterCommandCenterActions>["actions"];
 type CommandState = ReturnType<typeof useMasterCommandCenterActions>["state"];
 type MasterInspectorTabId = "overview" | "access" | "billing" | "users" | "whatsapp" | "radar" | "integrations" | "audit" | "danger";
-type MasterPrimaryTabId = "empresas" | "email" | "database" | "tokens" | "links" | "refresh" | "exit";
+type MasterPrimaryTabId =
+  | "empresas"
+  | "morning"
+  | "automations"
+  | "git"
+  | "tests"
+  | "ops"
+  | "deploy"
+  | "support"
+  | "config"
+  | "email"
+  | "database"
+  | "tokens"
+  | "links"
+  | "refresh"
+  | "exit";
 
 const MASTER_INSPECTOR_TABS: Array<{ id: MasterInspectorTabId; label: string; meta: string }> = [
   { id: "overview", label: "Resumo", meta: "estado" },
@@ -60,6 +79,14 @@ const MASTER_INSPECTOR_TABS: Array<{ id: MasterInspectorTabId; label: string; me
 
 const MASTER_PRIMARY_TABS = [
   { key: "empresas", label: "Empresas" },
+  { key: "morning", label: "Morning" },
+  { key: "automations", label: "Autos" },
+  { key: "git", label: "Git" },
+  { key: "tests", label: "Testes" },
+  { key: "ops", label: "Ops" },
+  { key: "deploy", label: "Deploy" },
+  { key: "support", label: "Support" },
+  { key: "config", label: "Config" },
   { key: "email", label: "Email" },
   { key: "database", label: "Banco de Dados" },
   { key: "tokens", label: "Tokens" },
@@ -71,6 +98,36 @@ const MASTER_INSPECTOR_GUIDE_TABS = MASTER_INSPECTOR_TABS.map((item) => ({
   key: item.id,
   label: item.label,
 })) satisfies Array<{ key: MasterInspectorTabId; label: string }>;
+
+function resolvePrimaryTabAlias(value?: string | null): MasterPrimaryTabId | null {
+  const normalized = String(value || "").trim().toLowerCase();
+  const aliases: Record<string, MasterPrimaryTabId> = {
+    morning: "morning",
+    "morning-desk": "morning",
+    automatizadores: "automations",
+    automations: "automations",
+    autos: "automations",
+    git: "git",
+    pr: "git",
+    testes: "tests",
+    tests: "tests",
+    ops: "ops",
+    "ops-control": "ops",
+    deploy: "deploy",
+    support: "support",
+    suporte: "support",
+    config: "config",
+    configuracao: "config",
+    "configuração": "config",
+    email: "email",
+    database: "database",
+    banco: "database",
+    tokens: "tokens",
+    links: "links",
+    empresas: "empresas",
+  };
+  return aliases[normalized] || null;
+}
 
 function featureLabel(value: string) {
   const normalized = String(value || "").trim();
@@ -91,8 +148,8 @@ function featureLabel(value: string) {
 }
 
 export default function MasterCommandCenter(props: MasterCommandCenterProps) {
-  const { workspace, currentUser, loading, refreshing, initialCompanyId, initialPanel, onReload, setWorkspace, setCurrentUser } = props;
-  const [activePrimaryTab, setActivePrimaryTab] = useState<MasterPrimaryTabId>("empresas");
+  const { workspace, currentUser, loading, refreshing, initialCompanyId, initialSection, initialPanel, onReload, setWorkspace, setCurrentUser } = props;
+  const [activePrimaryTab, setActivePrimaryTab] = useState<MasterPrimaryTabId>(() => resolvePrimaryTabAlias(initialSection) || "empresas");
   const deepLinkHandled = useRef<string | null>(null);
   const initialPanelHandled = useRef<string | null>(null);
   const { state, actions } = useMasterCommandCenterActions({
@@ -157,7 +214,12 @@ export default function MasterCommandCenter(props: MasterCommandCenterProps) {
           />
         )
       ) : (
-        <MasterPrimaryWorkspace tab={activePrimaryTab} state={state} actions={actions} />
+        <MasterPrimaryWorkspace
+          tab={activePrimaryTab}
+          state={state}
+          actions={actions}
+          onPrimaryTabChange={setActivePrimaryTab}
+        />
       )}
 
       <UserEditorModal state={state} actions={actions} />
@@ -197,8 +259,21 @@ function MasterOperationsLayout({
   state: CommandState;
   actions: CommandActions;
 }) {
+  const commandKpis = useMemo(() => buildCommandKpis(companies), [companies]);
+  const monthlyTotal = useMemo(() => companies.reduce((total, company) => total + Number(company.monthlyValue || 0), 0), [companies]);
+  const operatingCompanies = useMemo(() => companies.filter((company) => companyHasOperationalAccess(company)).length, [companies]);
+  const criticalCompanies = useMemo(() => companies.filter((company) => riskTone(company) === "danger").length, [companies]);
+
   return (
     <section className={styles.operationsSurface}>
+      <MasterMissionHud
+        companies={companies}
+        kpis={commandKpis}
+        selectedCompanyName={state.activeCompany?.name || null}
+        monthlyTotal={monthlyTotal}
+        operatingCompanies={operatingCompanies}
+        criticalCompanies={criticalCompanies}
+      />
       <div className={styles.commandLayout}>
         <MasterCompanyBoard
           companies={companies}
@@ -276,11 +351,24 @@ function MasterPrimaryWorkspace({
   tab,
   state,
   actions,
+  onPrimaryTabChange,
 }: {
   tab: MasterPrimaryTabId;
   state: CommandState;
   actions: CommandActions;
+  onPrimaryTabChange: (tab: MasterPrimaryTabId) => void;
 }) {
+  if (["morning", "automations", "git", "tests", "ops", "deploy", "support", "config"].includes(tab)) {
+    return (
+      <MasterOpsAppPanel
+        panel={tab as MasterOpsPanelId}
+        onOpenPanel={(nextPanel) => {
+          onPrimaryTabChange(nextPanel);
+          window.history.replaceState(null, "", `/master?tab=${nextPanel}`);
+        }}
+      />
+    );
+  }
   if (tab === "email") {
     return (
       <section className={`${styles.primaryWorkspace} hbx-page-mobile-enter`}>
@@ -331,6 +419,99 @@ function MasterInlinePanel({ eyebrow, title, children }: { eyebrow: string; titl
   );
 }
 
+function MasterMissionHud({
+  companies,
+  kpis,
+  selectedCompanyName,
+  monthlyTotal,
+  operatingCompanies,
+  criticalCompanies,
+}: {
+  companies: CompanySummary[];
+  kpis: MasterCommandKpi[];
+  selectedCompanyName: string | null;
+  monthlyTotal: number;
+  operatingCompanies: number;
+  criticalCompanies: number;
+}) {
+  const kpiById = new Map(kpis.map((item) => [item.id, item]));
+  const totalCompanies = companies.length;
+  const trialEnding = kpiById.get("trial")?.value || 0;
+  const noAccess = kpiById.get("no_access")?.value || 0;
+  const overdue = kpiById.get("overdue")?.value || 0;
+  const whatsappAttention = kpiById.get("whatsapp")?.value || 0;
+  const radarReady = companies.filter((company) => (
+    (company.modules || []).some((module) => module.enabled && (module.key === "webscraping" || /radar/i.test(module.name || "")))
+  )).length;
+  const pulseTone: MasterRealityTone = criticalCompanies || noAccess || overdue ? "danger" : trialEnding || whatsappAttention ? "warn" : "good";
+
+  return (
+    <section className={styles.missionHud} aria-label="Resumo operacional Master">
+      <div className={styles.missionHudIntro}>
+        <span>Master Ops</span>
+        <strong>{selectedCompanyName ? `Operando ${selectedCompanyName}` : "Cockpit comercial"}</strong>
+        <small>{totalCompanies} empresa(s) no radar master</small>
+        <div className={styles.missionHudStatus} data-tone={pulseTone}>
+          <i aria-hidden="true" />
+          <span>{pulseTone === "good" ? "Saudável" : pulseTone === "warn" ? "Atenção" : "Crítico"}</span>
+        </div>
+      </div>
+      <div className={styles.missionHudGrid}>
+        <MasterMissionHudTile
+          label="Operação"
+          value={`${operatingCompanies}/${totalCompanies || 0}`}
+          detail="Com acesso"
+          tone={operatingCompanies === totalCompanies ? "good" : noAccess ? "danger" : "warn"}
+        />
+        <MasterMissionHudTile
+          label="Receita mensal"
+          value={formatCurrency(monthlyTotal)}
+          detail="Carteira ativa"
+          tone="good"
+        />
+        <MasterMissionHudTile
+          label="Radar"
+          value={`${radarReady}/${totalCompanies || 0}`}
+          detail="Módulo pronto"
+          tone={radarReady ? "good" : "warn"}
+        />
+        <MasterMissionHudTile
+          label="Cobrança"
+          value={`${overdue}`}
+          detail="Em atraso"
+          tone={overdue ? "danger" : "good"}
+        />
+        <MasterMissionHudTile
+          label="WhatsApp"
+          value={`${whatsappAttention}`}
+          detail="Pedindo atenção"
+          tone={whatsappAttention ? "warn" : "good"}
+        />
+      </div>
+    </section>
+  );
+}
+
+function MasterMissionHudTile({
+  label,
+  value,
+  detail,
+  tone,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  tone: MasterRealityTone;
+}) {
+  return (
+    <div className={styles.missionHudTile} data-tone={tone}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+    </div>
+  );
+}
+
 function MasterCompanyBoard({
   companies,
   activeCompanyId,
@@ -348,10 +529,19 @@ function MasterCompanyBoard({
   onCreate: () => void;
   busyAction: string | null;
 }) {
+  const activeCount = companies.filter((company) => company.isActive).length;
+  const criticalCount = companies.filter((company) => riskTone(company) === "danger").length;
+  const warningCount = companies.filter((company) => riskTone(company) === "warn").length;
+
   return (
     <section className={styles.companyBoard} aria-label="Empresas">
-      <div className={styles.companyBoardToolbar}>
-        <MasterActionButton onClick={onCreate}>Nova empresa</MasterActionButton>
+      <div className={styles.boardHeader}>
+        <div className={styles.boardHeaderText}>
+          <span>Radar Master</span>
+          <strong>{companies.length} empresas</strong>
+          <small>{activeCount} ativas · {criticalCount} críticas · {warningCount} atenção</small>
+        </div>
+        <MasterActionButton onClick={onCreate}>Nova</MasterActionButton>
       </div>
       <div className={styles.companyRows}>
         {companies.map((company) => (

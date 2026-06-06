@@ -1,0 +1,56 @@
+[
+  {
+    "id": "night-factory",
+    "label": "Night Factory",
+    "kind": "backend-api",
+    "defaultMode": "manual",
+    "risk": "medium",
+    "allowedActions": ["status", "run-now", "pause", "resume", "save-config"],
+    "forbiddenActions": ["deploy", "migration", "secrets"]
+  },
+  {
+    "id": "md-task-runner",
+    "label": "MD Task Runner",
+    "kind": "local-agent",
+    "defaultMode": "manual",
+    "risk": "low",
+    "allowedActions": ["read-queue", "show-next"],
+    "forbiddenActions": ["shell", "deploy", "migration", "secrets"]
+  },
+  {
+    "id": "codex-queue-runner",
+    "label": "Codex Queue Runner",
+    "kind": "local-agent",
+    "defaultMode": "manual",
+    "risk": "medium",
+    "allowedActions": ["status", "show", "next", "skip"],
+    "forbiddenActions": ["commit", "push", "deploy", "migration", "secrets"]
+  },
+  {
+    "id": "git-morning-sync",
+    "label": "Git Morning Sync",
+    "kind": "local-agent",
+    "defaultMode": "manual",
+    "risk": "medium",
+    "allowedActions": ["status", "branches", "current", "last-commit", "checkout-pr"],
+    "forbiddenActions": ["merge", "push", "reset", "clean", "force"]
+  },
+  {
+    "id": "ops-health-watcher",
+    "label": "Ops Health Watcher",
+    "kind": "ops-control",
+    "defaultMode": "manual",
+    "risk": "medium",
+    "allowedActions": ["overview", "containers", "radar-audit-vps", "radar-audit-localhost"],
+    "forbiddenActions": ["restart", "ssh-shell", "deploy", "secrets"]
+  },
+  {
+    "id": "support-bot-classifier",
+    "label": "Support Bot Classifier",
+    "kind": "planned",
+    "defaultMode": "manual",
+    "risk": "medium",
+    "allowedActions": ["classify", "route-human", "draft-reply"],
+    "forbiddenActions": ["auto-send-risky", "auth", "billing", "deploy", "secrets"]
+  }
+]

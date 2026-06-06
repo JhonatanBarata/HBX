@@ -1285,6 +1285,33 @@ export default function MobilePaymentCheckoutPage() {
               <span className={styles.statusPill}>{plan.title}</span>
             </div>
 
+            {checkoutPaymentMethod === "CARD" ? (
+              <div className={styles.paymentCardPreview} aria-label="Resumo visual do cartão">
+                <div className={styles.paymentCardGlow} />
+                <div className={styles.paymentCardTop}>
+                  <span className={styles.paymentCardChip} aria-hidden="true" />
+                  <span className={styles.paymentCardBrand}>
+                    <i aria-hidden="true" />
+                    <b>Mercado Pago</b>
+                  </span>
+                </div>
+                <div className={styles.paymentCardNumber} aria-hidden="true">
+                  <span>5031</span>
+                  <span>7557</span>
+                  <span>3453</span>
+                  <span>0604</span>
+                </div>
+                <div className={styles.paymentCardFormula}>
+                  <span>{billingCycle === "ANNUAL" ? "Resultado do anual" : "Resultado do mensal"}</span>
+                  <strong>{cardFormula}</strong>
+                </div>
+                <div className={styles.paymentCardFooter}>
+                  <span>{plan.title}</span>
+                  <small>{billingCycle === "ANNUAL" ? "12 meses com desconto" : displayAmountLabel}</small>
+                </div>
+              </div>
+            ) : null}
+
             <div className={styles.fieldGrid}>
               <label className={styles.field} htmlFor="mobile-checkout-name">
                 <span>Nome completo</span>
@@ -1345,31 +1372,6 @@ export default function MobilePaymentCheckoutPage() {
 
             {checkoutPaymentMethod === "CARD" ? (
               <>
-                <div className={styles.paymentCardPreview} aria-label="Resumo visual do cartão">
-                  <div className={styles.paymentCardGlow} />
-                  <div className={styles.paymentCardTop}>
-                    <span className={styles.paymentCardChip} aria-hidden="true" />
-                    <span className={styles.paymentCardBrand}>
-                      <i aria-hidden="true" />
-                      <b>Mercado Pago</b>
-                    </span>
-                  </div>
-                  <div className={styles.paymentCardNumber} aria-hidden="true">
-                    <span>5031</span>
-                    <span>7557</span>
-                    <span>3453</span>
-                    <span>0604</span>
-                  </div>
-                  <div className={styles.paymentCardFormula}>
-                    <span>{billingCycle === "ANNUAL" ? "Resultado do anual" : "Resultado do mensal"}</span>
-                    <strong>{cardFormula}</strong>
-                  </div>
-                  <div className={styles.paymentCardFooter}>
-                    <span>{plan.title}</span>
-                    <small>{billingCycle === "ANNUAL" ? "12 meses com desconto" : displayAmountLabel}</small>
-                  </div>
-                </div>
-
                 {isFrontMock ? (
                   null
                 ) : isMockPayments ? (

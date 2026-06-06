@@ -15,9 +15,9 @@ if (-not $isAdmin) {
   exit
 }
 
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
+$repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..\..')
 $envFile = Join-Path $repoRoot '.env.ops-control'
-$composeFile = Join-Path $repoRoot 'docker-compose.ops.yml'
+$composeFile = Join-Path $PSScriptRoot 'docker-compose.yml'
 
 Set-Location $repoRoot
 
@@ -28,7 +28,7 @@ OPS_CONTROL_TOKEN=troque-por-um-token-grande
   Write-Host 'Arquivo .env.ops-control criado. Edite OPS_CONTROL_TOKEN antes de usar em ambiente real.'
 }
 
-docker compose --env-file $envFile -f $composeFile up -d --build
+docker compose --env-file $envFile -f $composeFile --project-directory $repoRoot up -d --build
 
 Start-Sleep -Seconds 2
 Start-Process 'http://127.0.0.1:3099'

@@ -25,7 +25,15 @@
 		"abner:hosting": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/deploy-abner-firebase.ps1 -Only hosting",
 		"abner:functions": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/deploy-abner-firebase.ps1 -Only functions",
 		"test:e2e": "playwright test",
-		"test:e2e:ui": "playwright test --ui"
+		"test:e2e:ui": "playwright test --ui",
+		"codex:status": "node ./scripts/codex/hbx-codex-queue.js status",
+		"codex:next": "node ./scripts/codex/hbx-codex-queue.js next",
+		"codex:show": "node ./scripts/codex/hbx-codex-queue.js show",
+		"codex:skip": "node ./scripts/codex/hbx-codex-queue.js skip",
+		"master:agent": "node ./hbx-master/local-agent/server.js",
+		"master:agent:health": "node ./hbx-master/local-agent/scripts/health-check.js",
+		"master:ops": "powershell -NoProfile -ExecutionPolicy Bypass -File ./hbx-master/ops-control/open-hbx-ops-control.ps1",
+		"master:ops:start": "docker compose --env-file .env.ops-control -f ./hbx-master/ops-control/docker-compose.yml --project-directory . up -d --build ops-control"
 	},
 	"devDependencies": {
 		"@playwright/test": "^1.60.0"
