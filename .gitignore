@@ -29,6 +29,7 @@ temp_*.json
 index 26-01 com auth.txt
 
 backups/
+.worktrees/
 
 # Runtime uploads and local storage
 backend/public/uploads/**
@@ -83,3 +84,7 @@ Webwhats/keys/*
 Webwhats/temp/
 Webwhats/store/
 Webwhats/src/env.yml
+
+# HBX Owner local automation artifacts
+hbx-owner/windows-app/card-compilers/
+hbx-owner/windows-app/codex-dispatches/

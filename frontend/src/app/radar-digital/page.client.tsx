@@ -170,6 +170,27 @@ type RadarSearchRunStatus =
 
 type RadarOperationalState = "funcionando" | "pausado" | "parado";
 
+type RadarPauseDiagnostics = {
+  kind?: string | null;
+  title?: string | null;
+  message?: string | null;
+  action?: string | null;
+  reason?: string | null;
+  code?: string | null;
+  currentStock?: number | null;
+  stockTarget?: number | null;
+  stockRemaining?: number | null;
+  dailyLimit?: number | null;
+  dailyUsed?: number | null;
+  dailyRemaining?: number | null;
+  dailyResetAt?: string | null;
+  monthlyRemaining?: number | null;
+  sellerActiveCount?: number | null;
+  sellerCapacity?: number | null;
+  sellerAvailableSlots?: number | null;
+  nextRetryAt?: string | null;
+};
+
 type RadarSearchRunResponse = RadarPullResponse & {
   id: string;
   runId: string;
@@ -186,6 +207,7 @@ type RadarSearchRunResponse = RadarPullResponse & {
     operationalState?: RadarOperationalState;
     operationalReason?: string | null;
     operationalMessage?: string | null;
+    pauseDiagnostics?: RadarPauseDiagnostics | null;
     status?: RadarSearchRunStatus;
     runId?: string;
     nextRetryAt?: string | null;
@@ -238,6 +260,18 @@ type SalesProfileResponse = {
     preferredChannels?: string[] | null;
     leadPreferences?: Record<string, unknown> | null;
     negativeRules?: Record<string, unknown> | null;
+  } | null;
+};
+
+type CurrentUserProfile = {
+  role?: string | null;
+  userKind?: string | null;
+  isSystemMaster?: boolean | null;
+  sellerProfile?: {
+    isHbxPartnerSeller?: boolean | null;
+  } | null;
+  company?: {
+    isHbxSellerNetwork?: boolean | null;
   } | null;
 };
 
@@ -332,6 +366,7 @@ type RadarEnrichResponse = {
 };
 
 type VendasUsageSnapshot = {
+  planKey?: string | null;
   cards?: {
     remaining?: number;
     dailyRemaining?: number;
@@ -343,6 +378,14 @@ type VendasUsageSnapshot = {
     userUsed?: number;
     perUserLimit?: number | null;
   };
+  sellerActiveQuota?: {
+    seller?: boolean | null;
+    paused?: boolean | null;
+    activeCount?: number | null;
+    effectiveLimit?: number | null;
+    availableSlots?: number | null;
+    code?: string | null;
+  } | null;
   dailyResetAt?: string | null;
 };
 
@@ -603,6 +646,27 @@ function normalizeStoredRadarFilterDraft(value: unknown): FilterState {
   };
 }
 
+function hasRadarLocationCoordinates(filters: Pick<FilterState, "originLat" | "originLng">) {
+  return typeof filters.originLat === "number" &&
+    typeof filters.originLng === "number" &&
+    Number.isFinite(filters.originLat) &&
+    Number.isFinite(filters.originLng);
+}
+
+function restrictHbxSellerFilters(filters: FilterState): FilterState {
+  const hasCoordinates = hasRadarLocationCoordinates(filters);
+  const radiusKm = Math.min(100, Math.max(0, Math.trunc(Number(filters.radiusKm || DEFAULT_FILTERS.radiusKm) || DEFAULT_FILTERS.radiusKm)));
+  if (hasCoordinates) return { ...filters, radiusKm };
+  return {
+    ...filters,
+    state: "",
+    city: "",
+    originLat: null,
+    originLng: null,
+    radiusKm,
+  };
+}
+
 function HeroPremiumCrown({ active }: { active: boolean }) {
   return (
     <Link
@@ -627,12 +691,18 @@ function DailyQuotaSpeedometer({
   remaining,
   dailyLimit,
   spendLimit,
+  label = "disponíveis",
+  title = "hoje",
+  usedLabel = "usados",
   compact,
   onClick,
 }: {
   remaining: number;
   dailyLimit: number;
   spendLimit: number;
+  label?: string;
+  title?: string;
+  usedLabel?: string;
   compact?: boolean;
   onClick?: () => void;
 }) {
@@ -643,9 +713,9 @@ function DailyQuotaSpeedometer({
     <>
       <b>{safeRemaining}</b>
       <div className={styles.dailyQuotaText}>
-        <span>disponíveis</span>
-        <strong>hoje</strong>
-        <small>{spentToday}/{safeLimit} usados</small>
+        <span>{label}</span>
+        <strong>{title}</strong>
+        <small>{spentToday}/{safeLimit} {usedLabel}</small>
       </div>
     </>
   );
@@ -657,8 +727,8 @@ function DailyQuotaSpeedometer({
         className={styles.dailyQuotaGauge}
         data-compact={compact ? "true" : "false"}
         onClick={onClick}
-        aria-label={`${safeRemaining} cards disponíveis hoje`}
-        title={`${safeRemaining} cards disponíveis hoje`}
+        aria-label={`${safeRemaining} ${label} ${title}`}
+        title={`${safeRemaining} ${label} ${title}`}
       >
         {content}
       </button>
@@ -669,8 +739,8 @@ function DailyQuotaSpeedometer({
     <div
       className={styles.dailyQuotaGauge}
       data-compact={compact ? "true" : "false"}
-      aria-label={`${safeRemaining} cards disponíveis hoje`}
-      title={`${safeRemaining} cards disponíveis hoje`}
+      aria-label={`${safeRemaining} ${label} ${title}`}
+      title={`${safeRemaining} ${label} ${title}`}
     >
       {content}
     </div>
@@ -1047,6 +1117,114 @@ function formatDate(value?: string | null) {
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return "";
   return date.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function radarPauseInt(value: unknown): number | null {
+  if (value === null || typeof value === "undefined" || value === "") return null;
+  const parsed = Math.trunc(Number(value));
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : null;
+}
+
+function radarPauseMessageLooksTechnical(value?: string | null) {
+  const text = String(value || "");
+  return /\b[A-Z0-9_]{5,}\b/.test(text) || /exception|stack|forbidden|conflict|statuscode|trace/i.test(text);
+}
+
+function buildRadarPauseView(input: {
+  diagnostics?: RadarPauseDiagnostics | null;
+  backendMessage?: string | null;
+  dailyLimit: number;
+  dailyRemaining: number;
+  dailyResetAt?: string | null;
+  currentStock: number;
+  stockTarget: number;
+  cardQuotaBlocked: boolean;
+  stockBlocked: boolean;
+}) {
+  const diagnostics = input.diagnostics || null;
+  const rawKind = String(diagnostics?.kind || "").toLowerCase();
+  const rawReason = `${rawKind} ${diagnostics?.reason || ""} ${diagnostics?.message || ""} ${input.backendMessage || ""}`.toLowerCase();
+  const dailyLimit = radarPauseInt(diagnostics?.dailyLimit) ?? input.dailyLimit;
+  const dailyRemaining = radarPauseInt(diagnostics?.dailyRemaining) ?? input.dailyRemaining;
+  const dailyUsed = radarPauseInt(diagnostics?.dailyUsed) ?? Math.max(0, dailyLimit - dailyRemaining);
+  const dailyResetAt = diagnostics?.dailyResetAt || input.dailyResetAt || null;
+  const currentStock = radarPauseInt(diagnostics?.currentStock) ?? input.currentStock;
+  const stockTarget = radarPauseInt(diagnostics?.stockTarget) ?? input.stockTarget;
+  const sellerActiveCount = radarPauseInt(diagnostics?.sellerActiveCount);
+  const sellerCapacity = radarPauseInt(diagnostics?.sellerCapacity);
+  const sellerAvailableSlots = radarPauseInt(diagnostics?.sellerAvailableSlots);
+  const monthlyRemaining = radarPauseInt(diagnostics?.monthlyRemaining);
+  const resetLabel = formatDate(dailyResetAt);
+  const nextRetryLabel = formatDate(diagnostics?.nextRetryAt);
+  const inferredKind =
+    rawKind ||
+    (input.stockBlocked ? "vendas_stock_full" : "") ||
+    (dailyLimit > 0 && dailyRemaining <= 0 ? "daily_limit" : "") ||
+    (input.cardQuotaBlocked ? "card_limit" : "") ||
+    (/permission|permiss|distribui|sem regra/.test(rawReason) ? "permission_or_distribution" : "") ||
+    (/seller_stock|cards ativos|active_card|SELLER_CARD_QUOTA/i.test(rawReason) ? "seller_stock_full" : "") ||
+    (/vendas_stock|estoque|quando houver espa/.test(rawReason) ? "vendas_stock_full" : "") ||
+    (/quota|cota|limite|limit/.test(rawReason) ? "card_limit" : "") ||
+    "operational_pause";
+  const titleByKind: Record<string, string> = {
+    seller_paused: "Distribuição pausada para você",
+    seller_stock_full: "Seu limite de cards ativos foi atingido",
+    daily_limit: "Limite diário atingido",
+    commercial_quota: "Cota comercial atingida",
+    vendas_stock_full: "Vendas já tem cards para trabalhar",
+    permission_or_distribution: "Regra de distribuição pendente",
+    card_limit: "Limite de cards atingido",
+    operational_pause: "Radar pausado",
+  };
+  const title = String(diagnostics?.title || "").trim() || titleByKind[inferredKind] || titleByKind.operational_pause;
+  const metrics: string[] = [];
+  let description = "";
+  let badge = "Pausa identificada";
+  let helper = String(diagnostics?.action || "").trim();
+
+  if (inferredKind === "daily_limit") {
+    description = `Hoje foram usados ${dailyUsed.toLocaleString("pt-BR")} de ${Math.max(dailyLimit, dailyUsed).toLocaleString("pt-BR")} cards.`;
+    badge = resetLabel ? `Reseta em ${resetLabel}` : "Reseta no próximo ciclo diário";
+    helper ||= "Aguarde o reset diário para receber novos cards.";
+    metrics.push(`${dailyRemaining.toLocaleString("pt-BR")} restante(s) hoje`);
+  } else if (inferredKind === "seller_stock_full") {
+    const capacity = sellerCapacity ?? stockTarget;
+    const active = sellerActiveCount ?? currentStock;
+    description = `Você está com ${active.toLocaleString("pt-BR")} de ${Math.max(capacity, active).toLocaleString("pt-BR")} cards ativos.`;
+    badge = `${Math.max(0, sellerAvailableSlots ?? capacity - active).toLocaleString("pt-BR")} vaga(s) livre(s)`;
+    helper ||= "Finalize, transfira ou descarte cards em Vendas para abrir espaço.";
+  } else if (inferredKind === "vendas_stock_full") {
+    description = `Vendas está com ${currentStock.toLocaleString("pt-BR")} de ${Math.max(stockTarget, currentStock).toLocaleString("pt-BR")} cards da meta.`;
+    badge = "Estoque cheio";
+    helper ||= "Trabalhe os cards em Vendas; o Radar retoma quando houver espaço.";
+  } else if (inferredKind === "commercial_quota") {
+    description = monthlyRemaining === 0 ? "A cota comercial de cards acabou neste período." : "A cota comercial bloqueou novos cards.";
+    badge = resetLabel ? `Próximo reset ${resetLabel}` : "Cota sem saldo";
+    helper ||= "Peça ao responsável para revisar a cota comercial.";
+  } else if (inferredKind === "permission_or_distribution") {
+    description = "A regra de distribuição ou permissão deste vendedor ainda não libera novos cards.";
+    badge = "Ação do responsável";
+    helper ||= "Peça ao responsável para revisar território, distribuição e permissão.";
+  } else {
+    const safeBackendMessage = input.backendMessage && !radarPauseMessageLooksTechnical(input.backendMessage)
+      ? input.backendMessage
+      : "";
+    description = safeBackendMessage || "O Radar pausou e aguarda uma condição operacional para continuar.";
+    badge = nextRetryLabel ? `Nova tentativa ${nextRetryLabel}` : "Aguardando retomada";
+    helper ||= "Acompanhe a retomada automática ou pare o Radar para editar filtros.";
+  }
+
+  if (dailyLimit > 0 && !metrics.some((item) => item.includes("hoje"))) {
+    metrics.push(`${dailyUsed.toLocaleString("pt-BR")}/${dailyLimit.toLocaleString("pt-BR")} usado(s) hoje`);
+  }
+  if (stockTarget > 0 && !metrics.some((item) => item.includes("Vendas"))) {
+    metrics.push(`${currentStock.toLocaleString("pt-BR")}/${Math.max(stockTarget, currentStock).toLocaleString("pt-BR")} no Vendas`);
+  }
+  if (nextRetryLabel && !metrics.some((item) => item.includes(nextRetryLabel))) {
+    metrics.push(`Retomada ${nextRetryLabel}`);
+  }
+
+  return { kind: inferredKind, title, description, badge, helper, metrics: metrics.slice(0, 3) };
 }
 
 function statusLabel(value?: string | null) {
@@ -2225,6 +2403,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   const [radarVisualCount, setRadarVisualCount] = useState(0);
   const [activeRun, setActiveRun] = useState<RadarSearchRunResponse | null>(null);
   const [terminalRunSnapshot, setTerminalRunSnapshot] = useState<RadarSearchRunResponse | null>(null);
+  const [currentUser, setCurrentUser] = useState<CurrentUserProfile | null>(null);
   const [commercialPlans, setCommercialPlans] = useState<CommercialPlansPayload | null>(null);
   const [vendasUsage, setVendasUsage] = useState<VendasUsageSnapshot | null>(null);
   const [vendasPendingCount, setVendasPendingCount] = useState<number | null>(null);
@@ -2267,6 +2446,18 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     () => mobileRoute || isMobileRadarViewport(),
     [mobileRoute],
   );
+  const hbxSellerRadarRestricted = Boolean(
+    currentUser?.sellerProfile?.isHbxPartnerSeller ||
+    currentUser?.userKind === "hbx_partner_seller" ||
+    (currentUser?.company?.isHbxSellerNetwork && String(currentUser?.role || "").trim().toUpperCase() === "USER" && !currentUser?.isSystemMaster),
+  );
+  const hbxSellerLocationReady = hasRadarLocationCoordinates(filters);
+  const hbxSellerLocationLabel = filters.city && filters.state
+    ? `${filters.city}/${filters.state}`
+    : filters.city || "Use sua localização";
+  const hbxSellerLocationHelper = hbxSellerLocationReady
+    ? "Base do vendedor capturada por localização."
+    : "Toque em Localização para liberar a busca.";
 
   useEffect(() => {
     filtersRef.current = filters;
@@ -2373,6 +2564,13 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   const planCardsPerSearch = Math.max(0, Math.trunc(Number(currentPlan?.quotas?.cardsPerSearch || 0)));
   const dailyLimit = Math.max(0, Math.trunc(Number(vendasUsage?.cards?.dailySafetyLimit || currentPlan?.quotas?.dailyCardSafetyLimit || 0)));
   const dailyRemaining = Math.max(0, Math.trunc(Number(vendasUsage?.cards?.dailyRemaining ?? dailyLimit ?? 0)));
+  const sellerActiveQuota = vendasUsage?.sellerActiveQuota?.seller ? vendasUsage.sellerActiveQuota : null;
+  const sellerActiveLimit = Math.max(0, Math.trunc(Number(sellerActiveQuota?.effectiveLimit || 0)));
+  const sellerActiveCount = Math.max(0, Math.trunc(Number(sellerActiveQuota?.activeCount || 0)));
+  const sellerActiveAvailableSource = sellerActiveQuota?.availableSlots ?? Math.max(0, sellerActiveLimit - sellerActiveCount);
+  const sellerActiveAvailable = Math.max(0, Math.trunc(Number(sellerActiveAvailableSource || 0)));
+  const hbxSellerUsage = hbxSellerRadarRestricted || String(vendasUsage?.planKey || "").trim().toLowerCase() === "hbx_seller";
+  const hbxSellerQuotaDisplay = Boolean(hbxSellerUsage && sellerActiveQuota && sellerActiveLimit > 0);
   const monthlyRemaining = Math.max(0, Math.trunc(Number(vendasUsage?.cards?.remaining ?? vendasUsage?.cards?.monthlyRemaining ?? 999999)));
   const perUserRemaining = vendasUsage?.cards?.perUserLimit != null
     ? Math.max(0, Math.trunc(Number(vendasUsage.cards.userLimit || 0) - Number(vendasUsage.cards.userUsed || 0)))
@@ -2382,9 +2580,25 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   );
   const fallbackSearchLimit = planCardsPerSearch || (isHbxList ? 50 : MAX_CARDS_PER_RADAR_SEARCH);
   const perSearchLimit = Math.max(1, Math.min(MAX_CARDS_PER_RADAR_SEARCH, fallbackSearchLimit));
-  const availableSpendLimit = Number.isFinite(quotaRemaining) ? quotaRemaining : fallbackSearchLimit;
+  const availableSpendLimit = hbxSellerQuotaDisplay
+    ? sellerActiveAvailable
+    : Number.isFinite(quotaRemaining)
+      ? quotaRemaining
+      : fallbackSearchLimit;
   const searchSpendLimit = Math.max(0, Math.min(perSearchLimit, availableSpendLimit));
   const radarQuantityLimit = Math.max(0, searchSpendLimit);
+  const radarCounterLimit = hbxSellerQuotaDisplay
+    ? sellerActiveLimit
+    : dailyLimit || dailyRemaining || radarQuantityLimit;
+  const radarCounterRemaining = hbxSellerQuotaDisplay
+    ? sellerActiveAvailable
+    : dailyRemaining;
+  const radarCounterUsed = hbxSellerQuotaDisplay
+    ? sellerActiveCount
+    : Math.max(0, radarCounterLimit - dailyRemaining);
+  const radarCounterLabel = hbxSellerQuotaDisplay ? "vagas" : "disponíveis";
+  const radarCounterTitle = hbxSellerQuotaDisplay ? "no Vendas" : "hoje";
+  const radarCounterUsedLabel = hbxSellerQuotaDisplay ? "ativos" : "usados";
   const selectedVendasStockTarget = Math.max(
     1,
     Math.min(RADAR_VENDAS_STOCK_TARGET_MAX, Math.trunc(Number(filters.quantity || DEFAULT_FILTERS.quantity) || DEFAULT_FILTERS.quantity)),
@@ -2463,6 +2677,37 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
       generalSearch,
     });
   }, [filters, generalSearch, radarFilterDraftReady]);
+
+  useEffect(() => {
+    if (hasToken !== true) return;
+    let cancelled = false;
+    apiFetch<CurrentUserProfile>("/profile/current-user", {
+      requireAuth: true,
+      timeoutMs: 12000,
+    })
+      .then((profile) => {
+        if (!cancelled) setCurrentUser(profile || null);
+      })
+      .catch(() => {
+        if (!cancelled) setCurrentUser(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [hasToken]);
+
+  useEffect(() => {
+    if (!hbxSellerRadarRestricted) return;
+    setMobilePicker((current) => (current === "state" || current === "city" ? null : current));
+    setFilters((current) => {
+      const next = restrictHbxSellerFilters(current);
+      return JSON.stringify(current) === JSON.stringify(next) ? current : next;
+    });
+    setAppliedFilters((current) => {
+      const next = restrictHbxSellerFilters(current);
+      return JSON.stringify(current) === JSON.stringify(next) ? current : next;
+    });
+  }, [hbxSellerRadarRestricted]);
 
   useEffect(() => {
     if (hasToken !== true || !radarFilterDraftReady) return;
@@ -2980,8 +3225,17 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   useEffect(() => () => clearTopbarProgress("radar"), []);
 
   function clearFilters() {
-    setFilters(DEFAULT_FILTERS);
-    setAppliedFilters(DEFAULT_FILTERS);
+    const baseFilters = hbxSellerRadarRestricted && hasRadarLocationCoordinates(filtersRef.current)
+      ? {
+          ...DEFAULT_FILTERS,
+          state: filtersRef.current.state,
+          city: filtersRef.current.city,
+          originLat: filtersRef.current.originLat,
+          originLng: filtersRef.current.originLng,
+        }
+      : DEFAULT_FILTERS;
+    setFilters(baseFilters);
+    setAppliedFilters(baseFilters);
     setGeneralSearch("");
     setAppliedGeneralSearch("");
     setHasSearched(false);
@@ -3272,6 +3526,12 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
       targetType: isMobileRadarSurface() ? "pj" : effectiveFilters.targetType,
       quantity: Math.max(1, Math.min(RADAR_VENDAS_STOCK_TARGET_MAX, Number(options?.quantityOverride || effectiveFilters.quantity || 1))),
     };
+    if (hbxSellerRadarRestricted && !hasRadarLocationCoordinates(nextTargetFilters)) {
+      setMobileAutoImportPending(false);
+      pendingFreshRunRef.current = false;
+      setError("Use sua localização para definir a base do Radar antes de buscar.");
+      return;
+    }
     const nextGeneralSearch = generalSearch.trim();
     const latestVendasStock = await refreshVendasPendingCount().catch(() => vendasPendingCount ?? 0);
     const missingForTarget = Math.max(0, nextTargetFilters.quantity - Math.max(0, Math.trunc(Number(latestVendasStock || 0))));
@@ -3279,7 +3539,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
       setMobileAutoImportPending(false);
       clearStoredRadarRun();
       pendingFreshRunRef.current = false;
-      setError("Limite diário de cards atingido. O contador reinicia após 00:00.");
+      setError(radarQuotaBlockedMessage);
       return;
     }
     const nextSearchQuantity = Math.max(1, Math.min(radarQuantityLimit, missingForTarget > 0 ? missingForTarget : nextTargetFilters.quantity));
@@ -3295,7 +3555,9 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     if (hasPartialRadarSearch(nextTargetFilters)) {
       setSearching(false);
       setHasSearched(false);
-      setError("Preencha cidade e segmento para pesquisar novos cards. Para ver histórico salvo, limpe esses campos.");
+      setError(hbxSellerRadarRestricted
+        ? "Use sua localização e escolha segmento para pesquisar novos cards."
+        : "Preencha cidade e segmento para pesquisar novos cards. Para ver histórico salvo, limpe esses campos.");
       return;
     }
     setAppliedFilters(nextTargetFilters);
@@ -3314,7 +3576,9 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
         pendingFreshRunRef.current = false;
         setTelonProgress(0);
         setFeedback(null);
-        setError("Para buscar novos cards, escolha cidade e segmento. Para ver histórico salvo, use Ver histórico.");
+        setError(hbxSellerRadarRestricted
+          ? "Para buscar novos cards, use sua localização e escolha segmento."
+          : "Para buscar novos cards, escolha cidade e segmento. Para ver histórico salvo, use Ver histórico.");
         return;
       }
 
@@ -3605,6 +3869,9 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     : [];
   const cardQuotaBlocked = vendasUsage ? radarQuantityLimit <= 0 : false;
   const mobileVendasBlocked = cardQuotaBlocked;
+  const radarQuotaBlockedMessage = hbxSellerQuotaDisplay
+    ? "Seu limite de cards ativos foi atingido. Finalize ou descarte cards em Vendas para abrir espaço."
+    : "Limite diário de cards atingido. O contador reinicia após 00:00.";
   const radarPausedByStock = vendasPendingCount != null && radarVendasStockMissing <= 0 && !radarStockPauseUnlocked;
   const currentRadarRunStatus = String(activeRun?.status || terminalRunSnapshot?.status || "").trim().toLowerCase();
   const currentRadarBackendState = String(activeRun?.meta?.operationalState || terminalRunSnapshot?.meta?.operationalState || "").trim().toLowerCase();
@@ -3637,13 +3904,27 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
         ? "Radar parado"
         : "Radar pronto";
   const radarBackendOperationalMessage = activeRun?.meta?.operationalMessage || terminalRunSnapshot?.meta?.operationalMessage || null;
+  const radarPauseDiagnostics = activeRun?.meta?.pauseDiagnostics || terminalRunSnapshot?.meta?.pauseDiagnostics || null;
+  const radarPauseView = buildRadarPauseView({
+    diagnostics: radarPauseDiagnostics,
+    backendMessage: radarBackendOperationalMessage,
+    dailyLimit,
+    dailyRemaining,
+    dailyResetAt: vendasUsage?.dailyResetAt || null,
+    currentStock: currentVendasStock,
+    stockTarget: effectiveFilters.quantity,
+    cardQuotaBlocked,
+    stockBlocked: radarPausedByStock,
+  });
   const radarOperationalHelper = radarIsWorking
     ? radarBackendOperationalMessage || "Encontrando contatos reais e enviando os aprovados para Vendas."
     : radarIsPaused
-      ? radarBackendOperationalMessage || "Busca pausada. Pare o Radar para ajustar cidade, segmento ou quantidade."
+      ? radarPauseView.helper || radarPauseView.description
       : hasSearched || radarTerminalByRun || radarStoppedByBackend
         ? radarBackendOperationalMessage || "Busca parada. Ajuste área, alcance ou segmentos para continuar."
-        : "Escolha cidade, segmento e quantidade para abastecer Vendas.";
+        : hbxSellerRadarRestricted
+          ? "Use sua localização, escolha segmento e alcance para abastecer Vendas."
+          : "Escolha cidade, segmento e quantidade para abastecer Vendas.";
   const mobileCanResendToVendas = Boolean(visibleItems.length && hasSearched && !mobileRadarProcessing && !radarFiltersLocked);
   const mobileDockCanSearch = !mobileVendasBlocked && radarIsStopped && !bulkSending;
   const mobileDockPrimaryIcon: "stop" | "pause" | "play" = radarPausedLocked ? "stop" : canCancelRadarRun ? "stop" : "play";
@@ -3703,28 +3984,32 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
         : radarMomentState === "searching"
           ? "Pesquisando empresas reais"
           : radarMomentState === "paused"
-            ? "Radar pausado"
+            ? radarPauseView.title
             : radarMomentState === "stopped"
               ? "Radar parado"
           : radarOperationalLabel;
   const radarMotionActive = !radarCanceling && !activeRunSleeping && (radarMomentState === "searching" || radarMomentState === "receiving");
   const radarMomentDescription =
     radarStoppedWithoutCards
-      ? "Radar parado sem cards para trabalhar. Ajuste cidade, segmento ou alcance e volte às pesquisas."
+      ? hbxSellerRadarRestricted
+        ? "Radar parado sem cards para trabalhar. Atualize localização, segmento ou alcance e volte às pesquisas."
+        : "Radar parado sem cards para trabalhar. Ajuste cidade, segmento ou alcance e volte às pesquisas."
     : radarMomentState === "stopped"
       ? radarMomentRun?.errorMessage || radarMomentRun?.message || "Revise os filtros e rode uma nova busca."
-      : radarMomentState === "paused"
-        ? radarMomentRun?.errorMessage || radarBackendOperationalMessage || "Meta/limite atingido. O Radar tem continuidade e retoma quando houver espaço."
+    : radarMomentState === "paused"
+        ? radarPauseView.description
         : radarMomentState === "receiving"
           ? `Localizado ${radarMomentLocated.toLocaleString("pt-BR")}, filtrado ${radarMomentApprovedLine}.`
           : radarMomentState === "searching"
             ? "Encontrando empresas, cortando repetidos e separando cards que já podem ir para Vendas."
             : radarMomentState === "received"
               ? "Os aprovados já foram enviados para Vendas. O enriquecimento roda depois, em uma ação separada."
-              : "Escolha cidade, segmento e alcance para buscar cards elegíveis.";
+              : hbxSellerRadarRestricted
+                ? "Use sua localização, escolha segmento e alcance para buscar cards elegíveis."
+                : "Escolha cidade, segmento e alcance para buscar cards elegíveis.";
   const radarMomentBadge =
     radarMomentState === "paused"
-      ? "Pausado por limite"
+      ? radarPauseView.badge
       : radarStoppedWithoutCards
         ? "Atenção: voltar às pesquisas"
       : radarMomentState === "searching"
@@ -3790,7 +4075,9 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     setMobileAutoImportPending(false);
     setSearching(false);
     setError(null);
-    setFeedback("Radar parado para edição. Ajuste cidade, segmento, alcance ou quantidade.");
+    setFeedback(hbxSellerRadarRestricted
+      ? "Radar parado para edição. Atualize localização, segmento ou alcance."
+      : "Radar parado para edição. Ajuste cidade, segmento, alcance ou quantidade.");
   }
 
   function dismissMobileSearchNotice(permanent = false) {
@@ -3815,14 +4102,14 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     }
     if (radarFiltersLocked) return;
     if (activeRunPartial || activeRunFailed) {
-      setMobilePicker(filters.state ? "segment" : "state");
+      setMobilePicker(hbxSellerRadarRestricted || filters.state ? "segment" : "state");
       return;
     }
     if (mobileDockCanSearch && canPullWithFilters(effectiveFilters)) {
       startMobileRadarSearch();
       return;
     }
-    setMobilePicker(filters.state ? "city" : "state");
+    setMobilePicker(hbxSellerRadarRestricted ? "segment" : filters.state ? "city" : "state");
   }
 
   async function applyMobileSegments(value: string) {
@@ -4130,7 +4417,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
                 type="button"
                 onClick={() => {
                   setMobileRadarStoppedPopupDismissedKey(radarStoppedPopupKey);
-                  setMobilePicker(filters.state ? "segment" : "state");
+                  setMobilePicker(hbxSellerRadarRestricted || filters.state ? "segment" : "state");
                 }}
               >
                 Ajustar área
@@ -4150,9 +4437,12 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
             <HeroPremiumCrown active={mobileHeroPremiumActive} />
             <DailyQuotaSpeedometer
               compact
-              remaining={dailyRemaining}
-              dailyLimit={dailyLimit || dailyRemaining || radarQuantityLimit}
+              remaining={radarCounterRemaining}
+              dailyLimit={radarCounterLimit}
               spendLimit={radarQuantityLimit}
+              label={radarCounterLabel}
+              title={radarCounterTitle}
+              usedLabel={radarCounterUsedLabel}
               onClick={() => setMobileQuotaPopupOpen((current) => !current)}
             />
             <div className={styles.mobileRadarHeroCopy}>
@@ -4163,10 +4453,10 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
             </div>
           </section>
 
-          <div className={styles.mobileRadarHeroStats}>
-            <div className={styles.mobileRadarHeroStat}>
-              <span>Cidade</span>
-              <strong>{filters.city || "Definir"}</strong>
+            <div className={styles.mobileRadarHeroStats}>
+              <div className={styles.mobileRadarHeroStat}>
+              <span>{hbxSellerRadarRestricted ? "Base" : "Cidade"}</span>
+              <strong>{hbxSellerRadarRestricted ? hbxSellerLocationLabel : filters.city || "Definir"}</strong>
             </div>
             <div className={styles.mobileRadarHeroStat}>
               <span>Segmento</span>
@@ -4205,23 +4495,31 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
               Localização
             </button>
 
-            <div className={styles.mobileRadarLocationRow}>
-              <MobilePickerButton
-                label="Estado"
-                value={filters.state}
-                placeholder="UF"
-                disabled={radarFiltersLocked}
-                onClick={() => setMobilePicker("state")}
-              />
+            {hbxSellerRadarRestricted ? (
+              <div className={styles.hbxSellerLocationLock} data-ready={hbxSellerLocationReady ? "true" : "false"}>
+                <span>Base do vendedor</span>
+                <strong>{hbxSellerLocationLabel}</strong>
+                <small>{hbxSellerLocationHelper}</small>
+              </div>
+            ) : (
+              <div className={styles.mobileRadarLocationRow}>
+                <MobilePickerButton
+                  label="Estado"
+                  value={filters.state}
+                  placeholder="UF"
+                  disabled={radarFiltersLocked}
+                  onClick={() => setMobilePicker("state")}
+                />
 
-              <MobilePickerButton
-                label="Cidade"
-                value={filters.city}
-                placeholder={filters.state ? "Selecionar cidade" : "Escolha o estado"}
-                disabled={radarFiltersLocked || !filters.state}
-                onClick={() => setMobilePicker("city")}
-              />
-            </div>
+                <MobilePickerButton
+                  label="Cidade"
+                  value={filters.city}
+                  placeholder={filters.state ? "Selecionar cidade" : "Escolha o estado"}
+                  disabled={radarFiltersLocked || !filters.state}
+                  onClick={() => setMobilePicker("city")}
+                />
+              </div>
+            )}
 
             <MobilePickerButton
               label="Segmento"
@@ -4262,8 +4560,15 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
 
             {radarFiltersLocked ? (
               <div className={styles.mobileRadarLockedNotice} role="status">
-                <strong>{radarOperationalLabel}</strong>
+                <strong>{radarPausedLocked ? radarPauseView.title : radarOperationalLabel}</strong>
                 <span>{radarOperationalHelper}</span>
+                {radarPausedLocked && radarPauseView.metrics.length ? (
+                  <div className={styles.mobileRadarLockedMetrics} aria-label="Detalhes da pausa do Radar">
+                    {radarPauseView.metrics.map((metric) => (
+                      <b key={metric}>{metric}</b>
+                    ))}
+                  </div>
+                ) : null}
                 {radarPausedLocked ? (
                   <button type="button" onClick={() => void stopRadarForEditing()} disabled={radarCanceling}>
                     {radarCanceling ? "Parando..." : "Parar e editar"}
@@ -4274,7 +4579,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
 
             {mobileVendasBlocked ? (
               <div className={`${styles.mobileRadarNotice} hbx-mobile-notice`}>
-                Limite diário de cards atingido. O contador reinicia após 00:00.
+                {radarQuotaBlockedMessage}
               </div>
             ) : null}
             {error ? <div className={`${styles.mobileRadarNotice} hbx-mobile-notice`} data-tone="error">{compactRadarMessage(error)}</div> : null}
@@ -4300,7 +4605,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
                   }
                   if (activeRunPartial || activeRunFailed) {
                     event.preventDefault();
-                    setMobilePicker(filters.state ? "segment" : "state");
+                    setMobilePicker(hbxSellerRadarRestricted || filters.state ? "segment" : "state");
                     return;
                   }
                   if (mobileCanResendToVendas) {
@@ -4348,15 +4653,15 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
                   </div>
                 </div>
                 <div className={styles.mobileQuotaSummary}>
-                  <b>{dailyRemaining}</b>
-                  <span>disponíveis hoje</span>
-                  <small>{Math.max(0, (dailyLimit || dailyRemaining || radarQuantityLimit) - dailyRemaining)}/{dailyLimit || dailyRemaining || radarQuantityLimit} usados</small>
+                  <b>{radarCounterRemaining}</b>
+                  <span>{radarCounterLabel} {radarCounterTitle}</span>
+                  <small>{radarCounterUsed}/{radarCounterLimit || radarCounterRemaining || 1} {radarCounterUsedLabel}</small>
                 </div>
               </section>
             </div>
           ) : null}
 
-          {!radarFiltersLocked && mobilePicker === "state" ? (
+          {!hbxSellerRadarRestricted && !radarFiltersLocked && mobilePicker === "state" ? (
             <MobileFilterSheet
               title="Estado"
               value={filters.state}
@@ -4366,7 +4671,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
               onClose={() => setMobilePicker(null)}
             />
           ) : null}
-          {!radarFiltersLocked && mobilePicker === "city" ? (
+          {!hbxSellerRadarRestricted && !radarFiltersLocked && mobilePicker === "city" ? (
             <MobileFilterSheet
               title="Cidade"
               value={filters.city}
@@ -4502,14 +4807,22 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
           </div>
 
           <div className={styles.filterLocation}>
-            <HbxStateCityPicker
-              state={filters.state}
-              city={filters.city}
-              onStateChange={(value) => setFilters((current) => ({ ...current, state: value, city: "", originLat: null, originLng: null }))}
-              onCityChange={(value) => setFilters((current) => ({ ...current, city: value, originLat: null, originLng: null }))}
-              disabled={radarFiltersLocked}
-              helperText=""
-            />
+            {hbxSellerRadarRestricted ? (
+              <div className={styles.hbxSellerLocationLock} data-ready={hbxSellerLocationReady ? "true" : "false"}>
+                <span>Base do vendedor</span>
+                <strong>{hbxSellerLocationLabel}</strong>
+                <small>{hbxSellerLocationHelper}</small>
+              </div>
+            ) : (
+              <HbxStateCityPicker
+                state={filters.state}
+                city={filters.city}
+                onStateChange={(value) => setFilters((current) => ({ ...current, state: value, city: "", originLat: null, originLng: null }))}
+                onCityChange={(value) => setFilters((current) => ({ ...current, city: value, originLat: null, originLng: null }))}
+                disabled={radarFiltersLocked}
+                helperText=""
+              />
+            )}
             <button
               type="button"
               className={styles.radarGpsButton}
@@ -4554,9 +4867,12 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
           </div>
           <div className={styles.filterAdvanced}>
             <DailyQuotaSpeedometer
-              remaining={dailyRemaining}
-              dailyLimit={dailyLimit || dailyRemaining || radarQuantityLimit}
+              remaining={radarCounterRemaining}
+              dailyLimit={radarCounterLimit}
               spendLimit={radarQuantityLimit}
+              label={radarCounterLabel}
+              title={radarCounterTitle}
+              usedLabel={radarCounterUsedLabel}
             />
             <RadarQuantitySelector
               value={filters.quantity}

@@ -34,13 +34,13 @@ Corrigir, com cadastro assistido em localhost, os bugs do processo de cadastro e
 
 ### Bug 1
 
-- Status: detectado
+- Status: corrigido nos passos 2 e 6
 - Tela/fluxo: Master/Gerencial -> cadastro de vendedor/parceiro HBX
 - Como reproduzir: cadastrar o vendedor Josefinho com o e-mail `henrique_lua16@hotmail.com` em localhost e clicar em `Cadastrar vendedor`.
 - Comportamento atual: o cadastro não envia o e-mail pedindo documentos.
 - Comportamento esperado: ao cadastrar o vendedor, o sistema deve gerar o contrato automaticamente e enviar o e-mail de pré-boas-vindas solicitando documentos.
 - Causa provável: a ação de criação do vendedor está separada das etapas de geração de contrato e envio de e-mail/documentos, ou essas etapas não são disparadas no submit inicial.
-- Correção: pendente para a etapa final de edições.
+- Correção: aplicada nos passos 2 e 6.
 - Validação: leitura local em `2026-06-06` confirmou que o usuário foi criado, mas o onboarding ficou incompleto:
   - usuário `Josefinho`, e-mail `henrique_lua16@hotmail.com`, `role=USER`, `isActive=false`;
   - comissão principal `20%`, prazo `D+3`;
@@ -147,8 +147,8 @@ Corrigir, com cadastro assistido em localhost, os bugs do processo de cadastro e
   - aviso criado com fallback genérico de `meta/limite atingido`;
   - a UI não diferencia limite diário, estoque cheio, quota comercial, pausa operacional, ausência de distribuição ou erro de backend;
   - o texto de continuidade está sendo exibido mesmo quando o sistema não tem diagnóstico suficiente.
-- Correção: pendente para a etapa final de edições.
-- Validação: pendente; testar Radar do parceiro HBX com os estados reais de limite diário, estoque cheio e sem permissão/distribuição.
+- Correção: aplicada no passo 8.
+- Validação: build/lint passaram no passo 8; testar visualmente o Radar do parceiro HBX com os estados reais de limite diário, estoque cheio e sem permissão/distribuição.
 
 ### Bug 6
 
@@ -170,8 +170,8 @@ Corrigir, com cadastro assistido em localhost, os bugs do processo de cadastro e
   - Radar está reutilizando UI/filtros de usuário com permissão mais ampla;
   - perfil de Parceiro/Vendedor HBX não está recebendo uma variante restrita de filtros;
   - permissões de território/localização não estão refletidas na UI.
-- Correção: pendente para a etapa final de edições.
-- Validação: pendente; entrar como vendedor HBX e confirmar que só aparecem localização, raio até 100 km e segmento.
+- Correção: aplicada no passo 9.
+- Validação: lint/build passaram no passo 9; entrar como vendedor HBX e confirmar que aparecem localização/base, raio até 100 km e segmento, sem picker livre de Estado/Cidade.
 
 ### Bug 7
 
@@ -187,8 +187,8 @@ Corrigir, com cadastro assistido em localhost, os bugs do processo de cadastro e
   - payload ou UI do Radar está usando limite global/Master como fallback;
   - contexto de usuário vendedor não está substituindo corretamente a quota exibida;
   - badge/contador visual não diferencia Master de Parceiro/Vendedor HBX.
-- Correção: pendente para a etapa final de edições.
-- Validação: pendente; comparar login Master x vendedor HBX e confirmar contadores separados.
+- Correção: aplicada no passo 10.
+- Validação: build/lint passaram no passo 10; comparar login Master x vendedor HBX e confirmar contadores separados.
 
 ### Bug 8
 
@@ -654,10 +654,10 @@ Corrigir, com cadastro assistido em localhost, os bugs do processo de cadastro e
 - Observação:
   - este passo não alterou regra de produção; ele travou em teste que vendedor/admin comum não herdam o fluxo especial de Parceiro HBX.
 
-### Passo 6 - Roteiro de testes manuais em localhost
+### Passo 6 - Testes manuais em localhost
 
-- Status: registrado, execução pendente
-- Data: `2026-06-06`
+- Status: executado via API localhost
+- Data: `2026-06-07`
 - Escopo:
   - registrar os testes manuais necessários antes de avançar para Radar;
   - cobrir Parceiro HBX novo, vendedor comum, admin comum e parceiro HBX indicado;
@@ -715,7 +715,29 @@ Corrigir, com cadastro assistido em localhost, os bugs do processo de cadastro e
 - Critério de parada:
   - se qualquer cenário enviar confirmação genérica duplicada, forçar mobile no desktop ou liberar parceiro sem confirmação/documentos, parar antes do passo 7 e registrar o erro no topo deste arquivo.
 - Observação:
-  - localhost não foi aberto neste passo por orientação do dono; abrir somente quando solicitado.
+  - o navegador integrado `iab` não estava disponível nesta sessão; a validação foi executada contra `http://localhost:3000` com API local e conferência direta da base local.
+  - a confirmação por link não pôde ser aberta por falta de acesso ao navegador/e-mail preview; para completar o ciclo, `emailConfirmedAt` foi simulado na base local dos usuários temporários criados no smoke.
+- Resultado executado:
+  - preflight:
+    - login master local: passou;
+    - empresa HBX local encontrada: `companyId=11`;
+    - empresa comum local encontrada: `companyId=7`.
+  - smoke `20260607003807`:
+    - Parceiro HBX novo criado via Master: passou, usuário `22`, `isActive=false`;
+    - pré-boas-vindas/contrato: passou, onboarding `status=sent`, `emailStatus=sent`, contrato gerado;
+    - bloqueio antes da confirmação: passou, erro claro de confirmação pendente;
+    - confirmação local simulada + documentos mock: passou;
+    - ativação após pendências: passou, usuário ativo;
+    - vendedor comum: passou, usuário `23`, sem onboarding HBX;
+    - admin comum: passou, usuário `24`, sem onboarding HBX;
+    - parceiro HBX indicado: passou, usuário `25`, indicador `20`, onboarding criado e usuário pendente;
+    - login desktop do parceiro: passou, `next=/vendas`.
+  - smoke `20260607003919` pelo endpoint real do botão:
+    - admin HBX temporário criado/logado: passou, usuário `26`, `next=/gerencial`;
+    - Gerencial criou Parceiro HBX novo via `/users/company/create`: passou, usuário `27`, `isActive=false`, `onboardingEmailStatus=sent`;
+    - `Criar parceiro` antes da confirmação: passou, bloqueado com mensagem clara;
+    - confirmação local simulada + documentos mock: passou;
+    - `Criar parceiro` via `/users/:id/active`: passou, usuário ativo, mensagem `Parceiro criado e e-mail de boas-vindas enviado.`, `welcomeEmail.ok=true`, `confirmationEmail=null`.
 
 ### Passo 7 - Roteamento pós-login desktop/mobile
 
@@ -747,3 +769,91 @@ Corrigir, com cadastro assistido em localhost, os bugs do processo de cadastro e
   - login de Parceiro HBX em `/mobile/login` com viewport mobile deve abrir `/mobile/vendas`;
   - passagem por pagamento em desktop não deve forçar `/mobile/vendas`;
   - passagem por pagamento mobile deve permanecer em rota mobile.
+
+### Passo 8 - Diagnóstico real do Radar pausado
+
+- Status: aplicado
+- Data: `2026-06-06`
+- Escopo:
+  - remover o fallback visual `Meta/limite atingido` no Radar mobile;
+  - separar pausa por estoque cheio, limite diário, cota comercial, limite de cards ativos do vendedor, pausa do vendedor e regra/permissão pendente;
+  - mostrar números operacionais sem expor códigos técnicos ao vendedor.
+- Mudanças aplicadas:
+  - backend passa a devolver `meta.pauseDiagnostics` em respostas de pesquisa pausada;
+  - diagnóstico inclui tipo da pausa, título operacional, ação esperada, estoque atual/meta, uso diário/restante/reset, cota mensal e slots ativos do vendedor quando disponíveis;
+  - criação de run pausado por limite diário grava campos de uso/reset no `metricsJson`;
+  - frontend do Radar mobile monta título, descrição, badge e métricas a partir de `pauseDiagnostics`;
+  - runs antigos sem `pauseDiagnostics` ainda são inferidos pela UI com base no estado local e mensagem segura;
+  - aviso travado do Radar ganhou chips pequenos com os números principais.
+- Arquivos alterados:
+  - `backend/src/webscraping/radar/05-delivery/radar-core-delivery.mixin.ts`
+  - `frontend/src/app/radar-digital/page.client.tsx`
+  - `frontend/src/app/radar-digital/page.module.css`
+- Validações:
+  - `cd backend && npm run build`: passou.
+  - `cd backend && npm run prisma:validate`: passou.
+  - `cd frontend && npm run lint`: passou com 8 warnings preexistentes.
+  - `cd frontend && npm run build`: passou.
+- Teste manual pendente em localhost:
+  - vendedor com Vendas cheio deve ver estoque atual/meta e ação de trabalhar/liberar cards;
+  - vendedor com limite diário zerado deve ver usado/limite/restante e reset;
+  - vendedor bloqueado por card ativo deve ver capacidade/ativos/vagas;
+  - erro de regra/permissão deve virar mensagem operacional, sem código de backend.
+
+### Passo 9 - Filtros restritos para Vendedor HBX
+
+- Status: aplicado
+- Data: `2026-06-06`
+- Escopo:
+  - impedir que Parceiro/Vendedor HBX escolha Estado/Cidade livremente no Radar;
+  - manter localização/base por GPS, segmento e alcance até `100 km`;
+  - evitar uso de filtro antigo salvo com cidade manual.
+- Mudanças aplicadas:
+  - Radar Digital passa a carregar `/profile/current-user` e identificar `sellerProfile.isHbxPartnerSeller`;
+  - para Vendedor HBX, filtros salvos sem coordenadas são limpos de `state/city`;
+  - busca do Vendedor HBX exige coordenadas de localização antes de chamar o backend;
+  - mobile substitui os botões `Estado` e `Cidade` por painel somente leitura `Base do vendedor`;
+  - desktop substitui `HbxStateCityPicker` pelo mesmo painel somente leitura para esse perfil;
+  - atalhos de ajuste não abrem mais picker de Estado/Cidade para Vendedor HBX;
+  - botão `Limpar filtros` preserva localização GPS do vendedor.
+- Arquivos alterados:
+  - `frontend/src/app/radar-digital/page.client.tsx`
+  - `frontend/src/app/radar-digital/page.module.css`
+- Validações:
+  - `cd frontend && npm run lint`: passou com 8 warnings preexistentes.
+  - `cd frontend && npm run build`: passou.
+- Teste manual pendente em localhost:
+  - entrar como Parceiro/Vendedor HBX e confirmar que Estado/Cidade não são clicáveis;
+  - sem GPS/localização, clicar em Buscar deve pedir localização;
+  - depois de usar localização, deve permitir segmento e alcance até `100 km`;
+  - usuário comum/admin deve continuar com picker normal de Estado/Cidade.
+
+### Passo 10 - Contador do Vendedor HBX sem limite Master
+
+- Status: aplicado
+- Data: `2026-06-06`
+- Escopo:
+  - impedir que o Radar do Parceiro/Vendedor HBX exiba `999999`/limite de Master;
+  - mostrar capacidade e vagas do vendedor, não a cota comercial global;
+  - manter Master/admin com contadores comerciais normais.
+- Mudanças aplicadas:
+  - `/vendas/usage` agora inclui `sellerActiveQuota`, usando `getSellerActiveCardQuotaSnapshot`;
+  - `/vendas/pending-summary` passou a respeitar o escopo do vendedor quando não é gestor;
+  - Radar Digital usa `sellerActiveQuota` para Vendedor HBX/`planKey=hbx_seller`;
+  - velocímetro troca `disponíveis hoje` por `vagas no Vendas`;
+  - popup do contador mostra `ativos/capacidade`;
+  - limite de quantidade da busca usa as vagas reais do vendedor quando essa cota está disponível;
+  - mensagens de bloqueio deixam de falar em reset diário quando o bloqueio é por cards ativos.
+- Arquivos alterados:
+  - `backend/src/vendas/vendas.service.ts`
+  - `frontend/src/app/radar-digital/page.client.tsx`
+- Validações:
+  - `cd backend && npm run build`: passou.
+  - `cd backend && npm run prisma:validate`: passou.
+  - `cd frontend && npm run lint`: passou com 8 warnings preexistentes.
+  - `cd frontend && npm run build`: passou.
+- Teste manual pendente em localhost:
+  - login como Parceiro/Vendedor HBX deve exibir contador `vagas no Vendas`, sem `999999`;
+  - o número usado deve bater com cards ativos do vendedor;
+  - Master/admin deve continuar com contador comercial diário/mensal;
+  - ao atingir limite de cards ativos, a mensagem deve pedir liberar/finalizar cards.

@@ -530,6 +530,7 @@ export class RadarCoreDeliveryMixin {
 
   private async buildPausedRadarSearchRunResponse(run: any) {
     const filters = this.buildRadarFiltersFromSearchRun(run);
+    const metrics = parseJsonObject(run?.metricsJson);
     const requestedQuantity = Math.max(1, safeInteger(run?.targetQuantity));
     const stockTarget = this.getRadarRunVendasStockTarget(run);
     const pendingCount = stockTarget > 0
@@ -540,6 +541,13 @@ export class RadarCoreDeliveryMixin {
       : safeInteger(pendingCount);
     const message = String(run?.errorMessage || '').trim()
       || 'Radar pausado. Vou retomar esta mesma pesquisa quando houver espaco.';
+    const pauseDiagnostics = await this.buildRadarPauseDiagnostics(run, {
+      message,
+      metrics,
+      pendingCount,
+      requestedQuantity,
+      stockTarget,
+    });
     return {
       id: run.id,
       runId: run.id,
@@ -569,6 +577,7 @@ export class RadarCoreDeliveryMixin {
         operationalState: 'pausado' as RadarOperationalState,
         operationalReason: String(run?.lastBatchStatus || 'radar_paused'),
         operationalMessage: message,
+        pauseDiagnostics,
         status: 'sleeping' as WebscrapingSearchRunStatus,
         runId: run.id,
         nextRetryAt: run?.nextRetryAt instanceof Date ? run.nextRetryAt.toISOString() : null,
@@ -598,6 +607,113 @@ export class RadarCoreDeliveryMixin {
           channelMatchMode: filters.channelMatchMode,
         },
       },
+    };
+  }
+
+  private async buildRadarPauseDiagnostics(run: any, input: {
+    message: string;
+    metrics: Record<string, any>;
+    pendingCount: number | null;
+    requestedQuantity: number;
+    stockTarget: number;
+  }) {
+    const intOrNull = (value: unknown) => {
+      const parsed = Math.trunc(Number(value));
+      return Number.isFinite(parsed) ? Math.max(0, parsed) : null;
+    };
+    const rawReason = String(run?.lastBatchStatus || input.metrics?.radarPauseReason || '').trim();
+    const reason = rawReason || 'radar_paused';
+    const code = String(input.metrics?.quotaBlockedCode || '').trim() || null;
+    const companyId = safeInteger(run?.companyId);
+    const userId = safeInteger(run?.userId);
+    const [usage, sellerQuota] = await Promise.all([
+      this.commercialUsageLimits && companyId
+        ? this.commercialUsageLimits.getUsageSnapshot(companyId, userId || null).catch(() => null)
+        : Promise.resolve(null),
+      this.commercialUsageLimits && companyId && userId
+        ? this.commercialUsageLimits.getSellerActiveCardQuotaSnapshot(companyId, userId).catch(() => null)
+        : Promise.resolve(null),
+    ]);
+    const cards = (usage as any)?.cards || {};
+    const dailyLimit = intOrNull(cards.dailySafetyLimit);
+    const dailyUsed = intOrNull(cards.dailyUsed);
+    const dailyRemaining = intOrNull(cards.dailyRemaining);
+    const monthlyRemaining = intOrNull(cards.monthlyRemaining ?? cards.remaining);
+    const currentStock = input.pendingCount == null
+      ? intOrNull(input.metrics?.vendasStockBefore)
+      : Math.max(0, safeInteger(input.pendingCount));
+    const stockTarget = Math.max(0, safeInteger(input.stockTarget || input.metrics?.vendasStockTarget || input.requestedQuantity));
+    const stockRemaining = currentStock == null || stockTarget <= 0 ? null : Math.max(0, stockTarget - currentStock);
+    const sellerActiveCount = intOrNull((sellerQuota as any)?.activeCount);
+    const sellerCapacity = intOrNull((sellerQuota as any)?.effectiveLimit);
+    const sellerAvailableSlots = intOrNull((sellerQuota as any)?.availableSlots);
+    const lowerReason = reason.toLowerCase();
+    const lowerMessage = String(input.message || '').toLowerCase();
+    const dailyLimitReached = dailyLimit != null && dailyRemaining != null && dailyLimit > 0 && dailyRemaining <= 0;
+    const sellerPaused = code === 'SELLER_QUOTA_PAUSED' || Boolean((sellerQuota as any)?.paused);
+    const sellerStockFull = code === 'SELLER_CARD_QUOTA_REACHED'
+      || (sellerCapacity != null && sellerActiveCount != null && sellerCapacity > 0 && sellerActiveCount >= sellerCapacity)
+      || (sellerAvailableSlots != null && sellerAvailableSlots <= 0 && Boolean((sellerQuota as any)?.seller));
+    const vendasStockFull = lowerReason.includes('vendas_stock')
+      || (currentStock != null && stockTarget > 0 && currentStock >= stockTarget);
+    const commercialQuotaReached = !dailyLimitReached && monthlyRemaining != null && monthlyRemaining <= 0;
+    const permissionBlocked = /permission|permiss|unauthor|forbidden|sem_regra|sem regra|distribu/i.test(`${reason} ${input.message}`);
+    const kind = sellerPaused
+      ? 'seller_paused'
+      : sellerStockFull
+        ? 'seller_stock_full'
+        : dailyLimitReached
+          ? 'daily_limit'
+          : commercialQuotaReached
+            ? 'commercial_quota'
+            : vendasStockFull
+              ? 'vendas_stock_full'
+              : permissionBlocked
+                ? 'permission_or_distribution'
+                : /quota|limite|limit|cota/i.test(`${lowerReason} ${lowerMessage}`)
+                  ? 'card_limit'
+                  : 'operational_pause';
+    const titleByKind: Record<string, string> = {
+      seller_paused: 'Distribuição pausada para este vendedor',
+      seller_stock_full: 'Limite de cards ativos do vendedor atingido',
+      daily_limit: 'Limite diário de cards atingido',
+      commercial_quota: 'Cota comercial de cards atingida',
+      vendas_stock_full: 'Vendas já está com estoque suficiente',
+      permission_or_distribution: 'Distribuição ou permissão pendente',
+      card_limit: 'Limite de cards atingido',
+      operational_pause: 'Radar pausado aguardando retomada',
+    };
+    const actionByKind: Record<string, string> = {
+      seller_paused: 'Peça ao responsável para liberar a distribuição.',
+      seller_stock_full: 'Finalize, transfira ou descarte cards em Vendas para abrir espaço.',
+      daily_limit: 'Aguarde o reset diário para receber novos cards.',
+      commercial_quota: 'Peça ao responsável para revisar a cota comercial.',
+      vendas_stock_full: 'Trabalhe os cards em Vendas; o Radar retoma quando houver espaço.',
+      permission_or_distribution: 'Peça ao responsável para revisar regras de distribuição e permissão.',
+      card_limit: 'Libere espaço ou aguarde a cota retornar.',
+      operational_pause: 'Acompanhe a retomada automática ou pare o Radar para editar filtros.',
+    };
+    return {
+      kind,
+      title: titleByKind[kind] || titleByKind.operational_pause,
+      message: input.message,
+      action: actionByKind[kind] || actionByKind.operational_pause,
+      reason,
+      code,
+      currentStock,
+      stockTarget,
+      stockRemaining,
+      dailyLimit,
+      dailyUsed,
+      dailyRemaining,
+      dailyResetAt: (usage as any)?.dailyResetAt || (usage as any)?.dayEnd || null,
+      monthlyRemaining,
+      sellerActiveCount,
+      sellerCapacity,
+      sellerAvailableSlots,
+      nextRetryAt: run?.nextRetryAt instanceof Date
+        ? run.nextRetryAt.toISOString()
+        : String(input.metrics?.radarPauseRetryAt || '').trim() || null,
     };
   }
 
@@ -951,14 +1067,25 @@ export class RadarCoreDeliveryMixin {
     let quotaRemaining: number | null = null;
     let quotaBlockedCode: string | null = null;
     let quotaBlockedMessage: string | null = null;
+    let usageSnapshot: any = null;
+    let quotaDailyLimit: number | null = null;
+    let quotaDailyUsed: number | null = null;
+    let quotaDailyRemaining: number | null = null;
+    let quotaDailyResetAt: string | null = null;
+    let quotaMonthlyRemaining: number | null = null;
     if (this.commercialUsageLimits) {
-      const usage = await this.commercialUsageLimits.getUsageSnapshot(context.companyId, context.userId).catch(() => null);
-      const cardLimits = usage ? (usage as any).cards || {} : {};
+      usageSnapshot = await this.commercialUsageLimits.getUsageSnapshot(context.companyId, context.userId).catch(() => null);
+      const cardLimits = usageSnapshot ? (usageSnapshot as any).cards || {} : {};
       const dailyRemaining = Number(cardLimits.dailyRemaining);
       const monthlyRemaining = Number(cardLimits.remaining);
       const perUserRemaining = cardLimits.perUserLimit != null
         ? Number(cardLimits.userLimit || 0) - Number(cardLimits.userUsed || 0)
         : monthlyRemaining;
+      quotaDailyLimit = Number.isFinite(Number(cardLimits.dailySafetyLimit)) ? Math.max(0, Math.trunc(Number(cardLimits.dailySafetyLimit))) : null;
+      quotaDailyUsed = Number.isFinite(Number(cardLimits.dailyUsed)) ? Math.max(0, Math.trunc(Number(cardLimits.dailyUsed))) : null;
+      quotaDailyRemaining = Number.isFinite(dailyRemaining) ? Math.max(0, Math.trunc(dailyRemaining)) : null;
+      quotaDailyResetAt = String((usageSnapshot as any)?.dailyResetAt || (usageSnapshot as any)?.dayEnd || '').trim() || null;
+      quotaMonthlyRemaining = Number.isFinite(monthlyRemaining) ? Math.max(0, Math.trunc(monthlyRemaining)) : null;
       const effectiveQuotaRemaining = Math.min(
         ...[dailyRemaining, monthlyRemaining, perUserRemaining].filter((value) => Number.isFinite(value)),
       );
@@ -979,7 +1106,9 @@ export class RadarCoreDeliveryMixin {
           quotaBlocked = true;
           quotaRemaining = 0;
           quotaBlockedCode = sellerQuota.quota.code || 'SELLER_CARD_QUOTA_REACHED';
-          quotaBlockedMessage = 'Seu limite de cards ativos foi atingido. Finalize, transfira ou peça mais cards ao responsável.';
+          quotaBlockedMessage = quotaBlockedCode === 'SELLER_QUOTA_PAUSED'
+            ? 'Distribuição pausada para este vendedor. Peça ao responsável para liberar a distribuição.'
+            : 'Seu limite de cards ativos foi atingido. Finalize, transfira ou peça mais cards ao responsável.';
         } else {
           filters.quantity = Math.max(1, Math.min(filters.quantity, Math.trunc(Number(sellerQuota.limit || 0))));
           quotaRemaining = quotaRemaining == null
@@ -1004,7 +1133,10 @@ export class RadarCoreDeliveryMixin {
       const now = new Date();
       const pauseReason = quotaBlocked ? 'vendas_card_limit_start' : 'vendas_stock_limit_start';
       const pauseMessage = quotaBlocked
-        ? quotaBlockedMessage || 'Radar pausado. Limite de cards atingido; vou retomar esta mesma pesquisa quando houver cota.'
+        ? quotaBlockedMessage
+          || (quotaDailyLimit != null && quotaDailyRemaining === 0
+            ? `Limite diário de cards atingido. ${quotaDailyUsed ?? quotaDailyLimit} de ${quotaDailyLimit} usado(s) hoje. O Radar retoma no reset diário.`
+            : 'Radar pausado. Limite de cards atingido; vou retomar esta mesma pesquisa quando houver cota.')
         : `Radar pausado. Vendas ja esta com ${safeInteger(vendasGate.pendingCount)} de ${vendasStockTarget} card(s). Vou retomar esta mesma pesquisa quando houver espaco.`;
       const retryAt = new Date(Date.now() + this.getRadarLimitPauseRetryDelayMs(pauseReason));
       const run = await this.prisma.webscrapingSearchRun.create({
@@ -1031,6 +1163,11 @@ export class RadarCoreDeliveryMixin {
             minimumStock: filters.minimumStock,
             quotaRemaining,
             quotaBlockedCode,
+            quotaDailyLimit,
+            quotaDailyUsed,
+            quotaDailyRemaining,
+            quotaDailyResetAt,
+            quotaMonthlyRemaining,
             radarPauseReason: pauseReason,
             radarPausedAt: now.toISOString(),
             radarPauseRetryAt: retryAt.toISOString(),

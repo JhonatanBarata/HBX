@@ -316,7 +316,14 @@ export class VendasService {
 
   async getUsageSnapshotForUser(user: any) {
     const { companyId, userId } = this.resolveUserContext(user);
-    return this.commercialUsageLimits.getUsageSnapshot(companyId, userId);
+    const snapshot = await this.commercialUsageLimits.getUsageSnapshot(companyId, userId);
+    const sellerActiveQuota = await this.commercialUsageLimits
+      .getSellerActiveCardQuotaSnapshot(companyId, userId)
+      .catch(() => null);
+    return {
+      ...snapshot,
+      sellerActiveQuota,
+    };
   }
 
   async getPendingVendasCardCountForCompany(companyId: number) {
@@ -334,8 +341,17 @@ export class VendasService {
   }
 
   async getPendingSummaryForUser(user: any) {
-    const { companyId } = this.resolveUserContext(user);
-    const pendingCount = await this.getPendingVendasCardCountForCompany(companyId);
+    const context = this.resolveUserContext(user);
+    const pendingCount = context.canManageTeam
+      ? await this.getPendingVendasCardCountForCompany(context.companyId)
+      : await this.prisma.vendasLead.count({
+          where: this.buildLeadAccessWhere(context, {
+            NOT: [
+              { status: 'encerrado' },
+              { closedAt: { not: null } },
+            ],
+          }),
+        });
     return {
       ok: true,
       limit: null,

@@ -15,6 +15,7 @@ import sqlite3
 import subprocess
 import sys
 import threading
+import time
 import tkinter as tk
 import unicodedata
 import urllib.error
@@ -139,11 +140,18 @@ DEFAULT_CONFIG = {
     "hours_available": 8,
     "chatgpt_app_id": "OpenAI.ChatGPT-Desktop_2p2nqsd0c76g0!ChatGPT",
     "chatgpt_fallback_url": "",
+    "chatgpt_auto_focus_delay_seconds": 5,
+    "chatgpt_auto_model_mode": "Pro",
+    "chatgpt_auto_new_chat": True,
+    "chatgpt_auto_send_enter": True,
+    "chatgpt_auto_extra_keys": "",
+    "chatgpt_auto_monitor_minutes": 0,
+    "chatgpt_auto_poll_seconds": 20,
     "pdf_automation_url": "",
     "pdf_automation_timeout_seconds": 90,
     "card_compiler_engine": "local",
     "card_compiler_cli_path": "codex",
-    "card_compiler_model": "spark",
+    "card_compiler_model": "5.5",
     "card_compiler_timeout_seconds": 120,
     "usage_hud_enabled": True,
     "usage_hud_window_hours": 5,
@@ -155,6 +163,8 @@ DEFAULT_CONFIG = {
     "codex_auto_dispatch": True,
     "codex_cli_path": "codex",
     "codex_model": "",
+    "codex_model_fast": "5.5",
+    "codex_model_deep": "5.5",
     "codex_worktree_dir": str(HBX_REPO_DIR / ".worktrees"),
     "unique_goal": "",
     "technical_task": "",
@@ -354,7 +364,8 @@ PDF_TEXT_MAX_CHARS = 35000
 PDF_MIN_TEXT_CHARS = 1200
 PDF_AUTOMATION_MAX_BYTES = 25 * 1024 * 1024
 URGENCY_LEVELS = ("Baixa", "Normal", "Alta", "Crítica")
-INTELLIGENCE_LEVELS = ("Local rápido", "Spark rápido", "Spark longo", "Revisão humana")
+CARD_CODEX_MODEL_DEFAULT = "5.5"
+INTELLIGENCE_LEVELS = ("Média", "High", "Extra high", "Revisão humana")
 
 AUTOCARD_HIGH_PRIORITY_TERMS = (
     "ticket",
@@ -804,6 +815,27 @@ class Database:
         self.conn.execute(
             """
             UPDATE kanban_cards
+            SET intelligence_level = CASE
+                WHEN intelligence_level IN ('Local rápido', 'Local rapido') THEN 'Média'
+                WHEN intelligence_level IN ('Spark rápido', 'Spark rapido') THEN 'High'
+                WHEN intelligence_level = 'Spark longo' THEN 'Extra high'
+                ELSE intelligence_level
+            END
+            WHERE intelligence_level IN ('Local rápido', 'Local rapido', 'Spark rápido', 'Spark rapido', 'Spark longo')
+            """
+        )
+        self.conn.execute(
+            """
+            UPDATE kanban_cards
+            SET codex_model_override = ?
+            WHERE codex_model_override = ''
+              AND type IN ('ChatGPT', 'Pesquisa', 'PDF', 'Bug', 'Frontend', 'Backend', 'Docs', 'Ticket cliente')
+            """,
+            (CARD_CODEX_MODEL_DEFAULT,),
+        )
+        self.conn.execute(
+            """
+            UPDATE kanban_cards
             SET urgency_level = CASE
                 WHEN priority = 'Crítica' OR lane = 'BLOQUEADO' THEN 'Crítica'
                 WHEN priority = 'Alta' OR lane IN ('HOJE', 'AGUARDANDO CODEX') THEN 'Alta'
@@ -837,10 +869,9 @@ class Database:
                     OR lower(title || ' ' || description || ' ' || module || ' ' || type || ' ' || blocked_reason)
                         GLOB '*pagamento*'
                     THEN 'Revisão humana'
-                WHEN priority = 'Crítica' THEN 'Spark longo'
-                WHEN priority = 'Alta' OR lane IN ('HOJE', 'AGUARDANDO CODEX') THEN 'Spark rápido'
-                WHEN priority = 'Baixa' THEN 'Local rápido'
-                ELSE 'Spark rápido'
+                WHEN priority = 'Crítica' THEN 'Extra high'
+                WHEN priority = 'Alta' OR lane IN ('HOJE', 'AGUARDANDO CODEX') THEN 'High'
+                ELSE 'Média'
             END
             WHERE intelligence_level = ''
             """
@@ -849,9 +880,9 @@ class Database:
             """
             UPDATE kanban_cards
             SET execution_timeout_seconds = CASE
-                WHEN intelligence_level = 'Spark longo' THEN 300
-                WHEN intelligence_level = 'Spark rápido' THEN 180
-                ELSE 90
+                WHEN intelligence_level IN ('Extra high', 'Revisão humana') THEN 300
+                WHEN intelligence_level = 'High' THEN 180
+                ELSE 120
             END
             WHERE execution_timeout_seconds = 0
             """
@@ -965,8 +996,9 @@ class HbxOwnerApp(tk.Tk):
         self.autocard_status_var = tk.StringVar(value="Autocard pronto.")
         self.chatgpt_pdf_path_var = tk.StringVar(value="Nenhum PDF selecionado.")
         self.chatgpt_last_research_prompt = ""
-        self.intelligence_engine_var = tk.StringVar(value=str(self.config_data.get("card_compiler_engine") or "local"))
-        self.intelligence_model_var = tk.StringVar(value=str(self.config_data.get("card_compiler_model") or "spark"))
+        engine_display = "5.5" if str(self.config_data.get("card_compiler_engine") or "local").lower() == "spark" else "local"
+        self.intelligence_engine_var = tk.StringVar(value=engine_display)
+        self.intelligence_model_var = tk.StringVar(value=str(self.config_data.get("card_compiler_model") or CARD_CODEX_MODEL_DEFAULT))
         self.intelligence_timeout_var = tk.StringVar(
             value=str(self.config_data.get("card_compiler_timeout_seconds") or 120)
         )
@@ -1207,7 +1239,7 @@ class HbxOwnerApp(tk.Tk):
         normal_count = self.count_ai_usage_events("normal", since)
         self.usage_hud_date_var.set(today_str())
         self.usage_hud_window_var.set(f"{hours}H LOCAL")
-        self.usage_hud_counts_var.set(f"SPK {spark_count}  NORM {normal_count}")
+        self.usage_hud_counts_var.set(f"5.5 {spark_count}  NORM {normal_count}")
         if self.usage_hud_window:
             self.usage_hud_window.lift()
             self.usage_hud_window.attributes("-topmost", True)
@@ -2444,8 +2476,8 @@ class HbxOwnerApp(tk.Tk):
             **base,
             "urgency_level": urgency_level,
             "intelligence_level": intelligence_level,
-            "codex_model_override": "",
-            "execution_timeout_seconds": 180 if intelligence_level == "Spark rápido" else 300,
+            "codex_model_override": CARD_CODEX_MODEL_DEFAULT,
+            "execution_timeout_seconds": self.card_execution_timeout(base),
             "research_path": self.infer_research_path_from_text("Retorno", base["description"]),
             "priority": priority,
             "acceptance_criteria": "Ticket do cliente resolvido ou encaminhado com evidência registrada.",
@@ -3386,6 +3418,27 @@ class HbxOwnerApp(tk.Tk):
         clean = str(value or "").strip()
         if clean in INTELLIGENCE_LEVELS:
             return clean
+        key = self.normalize_card_title_key(clean)
+        aliases = {
+            "local rapido": "Média",
+            "medio": "Média",
+            "media": "Média",
+            "medium": "Média",
+            "spark rapido": "High",
+            "alta": "High",
+            "alto": "High",
+            "high": "High",
+            "spark longo": "Extra high",
+            "extra alto": "Extra high",
+            "extra alta": "Extra high",
+            "extra high": "Extra high",
+            "muito alto": "Extra high",
+            "muito alta": "Extra high",
+            "revisao humana": "Revisão humana",
+            "humana": "Revisão humana",
+        }
+        if key in aliases:
+            return aliases[key]
         _urgency, suggested = self.suggest_card_execution_controls(data or {})
         return suggested
 
@@ -3412,18 +3465,18 @@ class HbxOwnerApp(tk.Tk):
         if sensitive or lane == "BLOQUEADO":
             return "Crítica", "Revisão humana"
         if priority == "Crítica":
-            return "Crítica", "Spark longo"
+            return "Crítica", "Extra high"
         if any(term in normalized for term in ("multi area", "arquitetura", "worker", "fila", "integracao", "integração")):
-            return "Alta", "Spark longo"
+            return "Alta", "Extra high"
         if priority == "Alta" or lane in ("HOJE", "AGUARDANDO CODEX") or any(
             term in normalized for term in ("ticket", "cliente", "bug", "erro", "falha", "whatsapp", "p0")
         ):
-            return "Alta", "Spark rápido"
+            return "Alta", "High"
         if priority == "Baixa" or any(
             term in normalized for term in ("readme", "documentacao", "documentação", "texto", "label", "copy", "limpeza")
         ):
-            return "Baixa", "Local rápido"
-        return "Normal", "Spark rápido"
+            return "Baixa", "Média"
+        return "Normal", "Média"
 
     def infer_research_path_from_text(self, module: object, text: object = "") -> str:
         module_key = self.normalize_card_title_key(str(module or ""))
@@ -3464,30 +3517,70 @@ class HbxOwnerApp(tk.Tk):
         if value > 0:
             return max(30, min(value, 3600))
         intelligence = str(self.card_value(data, "intelligence_level", "") or "")
-        if intelligence == "Spark longo":
+        if intelligence in ("Extra high", "Revisão humana"):
             return 300
-        if intelligence == "Spark rápido":
+        if intelligence == "High":
             return 180
-        return 90
+        return 120
 
     def card_codex_model(self, data: dict | sqlite3.Row | None) -> str:
         override = str(self.card_value(data, "codex_model_override", "") or "").strip()
-        return override or str(self.config_data.get("codex_model") or "").strip()
+        if override:
+            return CARD_CODEX_MODEL_DEFAULT if override != CARD_CODEX_MODEL_DEFAULT else override
+        global_model = str(self.config_data.get("codex_model") or "").strip()
+        if global_model:
+            return CARD_CODEX_MODEL_DEFAULT if global_model != CARD_CODEX_MODEL_DEFAULT else global_model
+        return self.routed_codex_model(data)
+
+    def routed_codex_model(self, data: dict | sqlite3.Row | None) -> str:
+        fast_model = str(self.config_data.get("codex_model_fast") or DEFAULT_CONFIG["codex_model_fast"]).strip()
+        deep_model = str(self.config_data.get("codex_model_deep") or DEFAULT_CONFIG["codex_model_deep"]).strip()
+        priority = str(self.card_value(data, "priority", "") or "").strip()
+        intelligence = self.normalize_intelligence_level(self.card_value(data, "intelligence_level", ""), data)
+        text = self.normalize_card_title_key(
+            " ".join(
+                str(self.card_value(data, key, "") or "")
+                for key in ("title", "description", "module", "type", "priority", "lane", "test_command", "research_path")
+            )
+        )
+        deep_terms = (
+            "critica",
+            "multi area",
+            "backend frontend",
+            "integracao",
+            "arquitetura",
+            "worker",
+            "fila",
+            "prisma",
+            "schema",
+            "runtime",
+            "radar",
+            "vendas",
+            "pagamento",
+            "comercial",
+        )
+        if intelligence in ("Extra high", "Revisão humana") or priority == "Crítica" or any(term in text for term in deep_terms):
+            return deep_model or fast_model
+        return fast_model
 
     def refresh_intelligence_status(self) -> None:
         engine = str(self.intelligence_engine_var.get() or "local").strip().lower()
+        engine_key = "spark" if engine in ("5.5", "55", "codex") else engine
+        engine_label = "5.5" if engine_key == "spark" else "local"
         model = str(self.intelligence_model_var.get() or "").strip() or "padrão"
         codex_model = str(self.codex_model_var.get() or "").strip() or "padrão"
+        fast_model = str(self.config_data.get("codex_model_fast") or DEFAULT_CONFIG["codex_model_fast"]).strip() or "padrão"
+        deep_model = str(self.config_data.get("codex_model_deep") or DEFAULT_CONFIG["codex_model_deep"]).strip() or "padrão"
         timeout = str(self.intelligence_timeout_var.get() or "").strip() or "120"
-        cli = self.resolve_card_compiler_cli_path() if engine == "spark" else ""
-        cli_status = "Spark pronto" if cli else ("Spark sem CLI; cai para prompt/clipboard" if engine == "spark" else "local sem custo")
+        cli = self.resolve_card_compiler_cli_path() if engine_key == "spark" else ""
+        cli_status = "Compilador pronto" if cli else ("Compilador sem CLI; cai para prompt/clipboard" if engine_key == "spark" else "local sem custo")
         self.intelligence_status_var.set(
-            f"Cards: {engine} / {model} / {timeout}s. Codex dos cards: {codex_model}. {cli_status}."
+            f"Cards: {engine_label} / {model} / {timeout}s. Codex: global {codex_model}; média {fast_model}; extra {deep_model}. {cli_status}."
         )
 
     def save_intelligence_controls(self) -> None:
         engine = str(self.intelligence_engine_var.get() or "local").strip().lower()
-        engine = engine if engine in ("local", "spark") else "local"
+        engine = "spark" if engine in ("5.5", "55", "codex", "spark") else "local"
         try:
             timeout = int(float(str(self.intelligence_timeout_var.get() or "120")))
         except ValueError:
@@ -3495,7 +3588,7 @@ class HbxOwnerApp(tk.Tk):
             return
         timeout = max(30, min(timeout, 3600))
         self.config_data["card_compiler_engine"] = engine
-        self.config_data["card_compiler_model"] = str(self.intelligence_model_var.get() or "").strip() or "spark"
+        self.config_data["card_compiler_model"] = str(self.intelligence_model_var.get() or "").strip() or CARD_CODEX_MODEL_DEFAULT
         self.config_data["card_compiler_timeout_seconds"] = timeout
         self.config_data["codex_model"] = str(self.codex_model_var.get() or "").strip()
         save_config(self.config_data)
@@ -3507,7 +3600,7 @@ class HbxOwnerApp(tk.Tk):
         ):
             if key in self.config_entries:
                 self.config_entries[key].set(str(value))
-        self.intelligence_engine_var.set(engine)
+        self.intelligence_engine_var.set("5.5" if engine == "spark" else "local")
         self.intelligence_timeout_var.set(str(timeout))
         self.refresh_intelligence_status()
         self.autocard_status_var.set("Controles de inteligência salvos.")
@@ -3518,12 +3611,12 @@ class HbxOwnerApp(tk.Tk):
             self.intelligence_model_var.set("local")
             self.intelligence_timeout_var.set("90")
         elif preset == "spark-long":
-            self.intelligence_engine_var.set("spark")
-            self.intelligence_model_var.set(str(self.config_data.get("card_compiler_model") or "spark"))
+            self.intelligence_engine_var.set("5.5")
+            self.intelligence_model_var.set(str(self.config_data.get("card_compiler_model") or CARD_CODEX_MODEL_DEFAULT))
             self.intelligence_timeout_var.set("300")
         else:
-            self.intelligence_engine_var.set("spark")
-            self.intelligence_model_var.set(str(self.config_data.get("card_compiler_model") or "spark"))
+            self.intelligence_engine_var.set("5.5")
+            self.intelligence_model_var.set(str(self.config_data.get("card_compiler_model") or CARD_CODEX_MODEL_DEFAULT))
             self.intelligence_timeout_var.set("180")
         self.save_intelligence_controls()
 
@@ -3714,8 +3807,8 @@ class HbxOwnerApp(tk.Tk):
             "priority": tk.StringVar(value=str(initial["priority"] or "Média")),
             "lane": tk.StringVar(value=str(initial["lane"] or "BACKLOG")),
             "urgency_level": tk.StringVar(value=str(initial["urgency_level"] or "Normal")),
-            "intelligence_level": tk.StringVar(value=str(initial["intelligence_level"] or "Spark rápido")),
-            "codex_model_override": tk.StringVar(value=str(initial["codex_model_override"] or "")),
+            "intelligence_level": tk.StringVar(value=str(initial["intelligence_level"] or "Média")),
+            "codex_model_override": tk.StringVar(value=str(initial["codex_model_override"] or CARD_CODEX_MODEL_DEFAULT)),
             "execution_timeout_seconds": tk.StringVar(value=str(initial["execution_timeout_seconds"] or "")),
             "estimate_minutes": tk.StringVar(value=str(initial["estimate_minutes"] or "0")),
             "test_command": tk.StringVar(value=str(initial["test_command"] or "")),
@@ -3728,7 +3821,7 @@ class HbxOwnerApp(tk.Tk):
             meta.columnconfigure(column, weight=1 if column in (1, 3, 5, 7) else 0)
         meta_fields = (
             ("module", "Módulo", ttk.Entry, {}),
-            ("type", "Tipo", ttk.Combobox, {"values": ("Operacional", "Ticket cliente", "ChatGPT", "Spark", "PDF", "Bug", "Frontend", "Backend", "Docs")}),
+            ("type", "Tipo", ttk.Combobox, {"values": ("Operacional", "Ticket cliente", "ChatGPT", "PDF", "Bug", "Frontend", "Backend", "Docs")}),
             ("priority", "Prioridade", ttk.Combobox, {"values": ("Baixa", "Média", "Alta", "Crítica")}),
             ("urgency_level", "Urgência", ttk.Combobox, {"values": URGENCY_LEVELS}),
             ("lane", "Lane", ttk.Combobox, {"values": KANBAN_LANES, "state": "readonly"}),
@@ -3811,6 +3904,7 @@ class HbxOwnerApp(tk.Tk):
             result["type"] = self.sanitize_card_type(result.get("type"), "Operacional")
             result["urgency_level"] = self.normalize_urgency_level(result.get("urgency_level"), result.get("priority"))
             result["intelligence_level"] = self.normalize_intelligence_level(result.get("intelligence_level"), result)
+            result["codex_model_override"] = result.get("codex_model_override") or CARD_CODEX_MODEL_DEFAULT
             if not result.get("research_path"):
                 result["research_path"] = self.infer_research_path_from_text(
                     result.get("module"), f"{result.get('title')} {result.get('description')}"
@@ -4146,8 +4240,6 @@ class HbxOwnerApp(tk.Tk):
             str(worktree),
             "--sandbox",
             "workspace-write",
-            "--ask-for-approval",
-            "never",
             "-o",
             str(last_message_path),
         ]
@@ -4180,7 +4272,7 @@ class HbxOwnerApp(tk.Tk):
                 output_handle.close()
 
         self.update_codex_dispatch(dispatch_id, status="running", process_id=process.pid, started_at=now_iso())
-        self.record_ai_usage_event(intelligence_level, model=model or "default", context=f"card:{card_id}")
+        self.record_ai_usage_event("normal", model=model or "default", context=f"card:{card_id}:{intelligence_level}")
         self.refresh_usage_hud()
         self.db.execute(
             "INSERT INTO card_events (card_id, event_type, message, created_at) VALUES (?, 'codex_started', ?, ?)",
@@ -4427,7 +4519,7 @@ class HbxOwnerApp(tk.Tk):
                 card["priority"],
                 self.normalize_urgency_level(self.card_value(card, "urgency_level", ""), card["priority"]),
                 self.normalize_intelligence_level(self.card_value(card, "intelligence_level", ""), card),
-                str(self.card_value(card, "codex_model_override", "") or ""),
+                str(self.card_value(card, "codex_model_override", "") or CARD_CODEX_MODEL_DEFAULT),
                 self.card_execution_timeout(card),
                 self.card_research_path(card),
                 card["acceptance_criteria"],
@@ -4484,7 +4576,7 @@ class HbxOwnerApp(tk.Tk):
                 data.get("priority", "").strip() or "Média",
                 urgency_level,
                 intelligence_level,
-                str(data.get("codex_model_override") or "").strip(),
+                str(data.get("codex_model_override") or CARD_CODEX_MODEL_DEFAULT).strip(),
                 max(0, timeout_seconds),
                 research_path,
                 lane,
@@ -5156,7 +5248,7 @@ class HbxOwnerApp(tk.Tk):
         ttk.Combobox(
             intelligence,
             textvariable=self.intelligence_engine_var,
-            values=("local", "spark"),
+            values=("local", "5.5"),
             state="readonly",
             width=10,
         ).grid(row=0, column=1, sticky="w", padx=(0, 10))
@@ -5179,13 +5271,13 @@ class HbxOwnerApp(tk.Tk):
         ttk.Button(intelligence, text="Salvar", command=self.save_intelligence_controls, style="Accent.TButton").grid(
             row=0, column=8, sticky="w", padx=(0, 8)
         )
-        ttk.Button(intelligence, text="Local rápido", command=lambda: self.apply_intelligence_preset("local")).grid(
+        ttk.Button(intelligence, text="Média local", command=lambda: self.apply_intelligence_preset("local")).grid(
             row=0, column=9, sticky="w", padx=(0, 8)
         )
-        ttk.Button(intelligence, text="Spark rápido", command=lambda: self.apply_intelligence_preset("spark-fast")).grid(
+        ttk.Button(intelligence, text="High", command=lambda: self.apply_intelligence_preset("spark-fast")).grid(
             row=0, column=10, sticky="w", padx=(0, 8)
         )
-        ttk.Button(intelligence, text="Spark longo", command=lambda: self.apply_intelligence_preset("spark-long")).grid(
+        ttk.Button(intelligence, text="Extra high", command=lambda: self.apply_intelligence_preset("spark-long")).grid(
             row=0, column=11, sticky="w"
         )
         ttk.Label(intelligence, textvariable=self.intelligence_status_var, style="Card.TLabel").grid(
@@ -5212,7 +5304,7 @@ class HbxOwnerApp(tk.Tk):
         ).grid(row=0, column=2, padx=8)
         ttk.Button(
             buttons,
-            text="Gerar cards com Spark",
+            text="Gerar cards com 5.5",
             command=self.transform_response_into_cards_with_spark,
             style="Accent.TButton",
         ).grid(row=0, column=3, padx=8)
@@ -5238,6 +5330,12 @@ class HbxOwnerApp(tk.Tk):
             command=self.import_clipboard_research,
             style="Warning.TButton",
         ).grid(row=1, column=1, padx=8, pady=(8, 0), sticky="w")
+        ttk.Button(
+            buttons,
+            text="Pesquisa HBX auto",
+            command=self.prepare_hbx_deep_research_auto,
+            style="Success.TButton",
+        ).grid(row=1, column=2, padx=8, pady=(8, 0), sticky="w")
 
         pdf_frame = ttk.LabelFrame(frame, text="PDF opcional (material externo)", padding=8, style="Modern.TLabelframe")
         pdf_frame.grid(row=3, column=0, sticky="ew", pady=(0, 10))
@@ -5248,7 +5346,7 @@ class HbxOwnerApp(tk.Tk):
         ttk.Button(pdf_frame, text="PDF -> prompt", command=self.add_pdf_to_chatgpt, style="Warning.TButton").grid(
             row=0, column=1, sticky="e"
         )
-        ttk.Button(pdf_frame, text="PDF -> cards Spark", command=self.add_pdf_to_spark_cards, style="Success.TButton").grid(
+        ttk.Button(pdf_frame, text="PDF -> cards 5.5", command=self.add_pdf_to_spark_cards, style="Success.TButton").grid(
             row=0, column=2, sticky="e", padx=(8, 0)
         )
 
@@ -5284,9 +5382,425 @@ class HbxOwnerApp(tk.Tk):
         self.open_chatgpt()
         self.set_chatgpt_text(
             f"{prompt}\n\n---\nPrompt copiado e salvo em: {path}\n"
-            "Envie no ChatGPT. Quando a resposta terminar, copie o resultado e use Importar clipboard."
+            "No ChatGPT: selecione Pesquisa aprofundada/Deep research, confirme o plano se a tela pedir, "
+            "marque GitHub/Jhonatanbarata/HBX em Aplicativos quando aparecer e envie o prompt copiado. "
+            "Quando a resposta terminar, copie o resultado e use Importar clipboard."
         )
-        self.autocard_status_var.set("Pesquisa HBX preparada. Prompt copiado; aguardando resultado copiado.")
+        self.autocard_status_var.set(
+            "Pesquisa HBX preparada. Selecione Pesquisa aprofundada + GitHub no ChatGPT e cole a resposta aqui."
+        )
+
+    def prepare_hbx_deep_research_auto(self) -> None:
+        prompt = self.build_hbx_deep_research_prompt()
+        self.last_chatgpt_prompt = prompt
+        self.chatgpt_last_research_prompt = prompt
+        self.copy_text(prompt)
+        path = self.save_prompt_file("hbx-deep-research-auto", prompt)
+        self.open_chatgpt()
+        self.set_chatgpt_text(
+            f"{prompt}\n\n---\nPrompt copiado e salvo em: {path}\n"
+            "Automação full iniciada: tentando focar o ChatGPT, selecionar pesquisa aprofundada/GitHub, colar e enviar."
+        )
+        self.autocard_status_var.set("Pesquisa HBX auto: tentando controlar o ChatGPT Desktop.")
+        threading.Thread(
+            target=lambda: self.run_chatgpt_deep_research_automation(path),
+            daemon=True,
+        ).start()
+
+    def run_chatgpt_deep_research_automation(self, prompt_path: Path) -> None:
+        ok, output = self.submit_chatgpt_deep_research_prompt()
+        if not ok:
+            self.after(
+                0,
+                lambda: self.autocard_status_var.set(
+                    f"Pesquisa HBX auto falhou ao enviar. Prompt segue no clipboard. {output[:180]}"
+                ),
+            )
+            return
+
+        self.after(
+            0,
+            lambda: self.autocard_status_var.set(
+                "Pesquisa HBX auto enviada. Monitorando ChatGPT até aparecer HBX_CARDS_JSON."
+            ),
+        )
+        self.monitor_chatgpt_deep_research_result(prompt_path)
+
+    def submit_chatgpt_deep_research_prompt(self) -> tuple[bool, str]:
+        if not sys.platform.startswith("win"):
+            return False, "Automação full só está implementada no Windows."
+
+        delay_ms = max(500, self.parse_int_config("chatgpt_auto_focus_delay_seconds", 5) * 1000)
+        extra_keys = self.chatgpt_auto_extra_key_sequence()
+        script = self.build_chatgpt_submit_script(
+            delay_ms=delay_ms,
+            model_mode=str(self.config_data.get("chatgpt_auto_model_mode") or "Pro").strip(),
+            new_chat=self.config_bool("chatgpt_auto_new_chat", True),
+            send_enter=self.config_bool("chatgpt_auto_send_enter", True),
+            extra_keys=extra_keys,
+        )
+        timeout = max(20, int(delay_ms / 1000) + 25)
+        return self.run_powershell_automation(script, timeout=timeout)
+
+    def monitor_chatgpt_deep_research_result(self, prompt_path: Path) -> None:
+        max_minutes = self.parse_int_config("chatgpt_auto_monitor_minutes", 0)
+        poll_seconds = max(5, self.parse_int_config("chatgpt_auto_poll_seconds", 20))
+        deadline = time.monotonic() + max_minutes * 60 if max_minutes > 0 else None
+        attempt = 0
+        last_error = ""
+
+        while deadline is None or time.monotonic() < deadline:
+            attempt += 1
+            ok, visible_text = self.read_chatgpt_visible_text()
+            if ok and visible_text:
+                block = self.extract_autocard_json_block(visible_text)
+                if block:
+                    self.after(0, lambda text=block: self.finish_chatgpt_auto_research(text, prompt_path))
+                    return
+                last_error = ""
+            elif visible_text:
+                last_error = visible_text[:220]
+
+            if attempt <= 6 or attempt % 6 == 0:
+                self.advance_chatgpt_research_if_needed()
+
+            if attempt == 1 or attempt % 3 == 0:
+                remaining = "sem limite" if deadline is None else f"{max(0, int((deadline - time.monotonic()) // 60))} min"
+                self.after(
+                    0,
+                    lambda remaining=remaining: self.autocard_status_var.set(
+                        f"Pesquisa HBX auto em andamento. Aguardando JSON no ChatGPT; limite restante: {remaining}."
+                    ),
+                )
+            time.sleep(poll_seconds)
+
+        message = (
+            "Pesquisa HBX auto: não encontrei HBX_CARDS_JSON na janela do ChatGPT dentro do limite. "
+            "A pesquisa pode ainda estar rodando; copie o resultado final e use Importar clipboard."
+        )
+        if last_error:
+            message = f"{message} Último detalhe: {last_error}"
+        self.after(0, lambda: self.autocard_status_var.set(message[:500]))
+
+    def finish_chatgpt_auto_research(self, text: str, prompt_path: Path) -> None:
+        self.copy_text(text)
+        self.set_chatgpt_text(text)
+        self.save_chatgpt_exchange(text, prompt=f"auto-pesquisa-hbx:{prompt_path.name}")
+        if not self.autocard_auto_create_var.get():
+            self.autocard_status_var.set("Pesquisa HBX auto capturada. Auto-criação desligada.")
+            return
+        if not self.can_create_new_card():
+            return
+        created_ids, skipped_existing, recognized_count = self.create_chatgpt_cards_from_text(text, source="ChatGPT auto")
+        self.report_autocard_result(created_ids, skipped_existing, recognized_count, "Pesquisa HBX auto")
+
+    def extract_autocard_json_block(self, text: str) -> str:
+        pattern = re.compile(
+            rf"{re.escape(AUTOCARD_JSON_START)}\s*(.*?)\s*{re.escape(AUTOCARD_JSON_END)}",
+            re.IGNORECASE | re.DOTALL,
+        )
+        match = pattern.search(str(text or ""))
+        if not match:
+            return ""
+        return f"{AUTOCARD_JSON_START}\n{match.group(1).strip()}\n{AUTOCARD_JSON_END}"
+
+    def read_chatgpt_visible_text(self) -> tuple[bool, str]:
+        if not sys.platform.startswith("win"):
+            return False, "Leitura automática do ChatGPT só está implementada no Windows."
+        return self.run_powershell_automation(self.chatgpt_visible_text_script(), timeout=20)
+
+    def advance_chatgpt_research_if_needed(self) -> tuple[bool, str]:
+        if not sys.platform.startswith("win"):
+            return False, ""
+        return self.run_powershell_automation(self.chatgpt_advance_research_script(), timeout=15)
+
+    def run_powershell_automation(self, script: str, timeout: int = 30) -> tuple[bool, str]:
+        command = ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script]
+        try:
+            result = subprocess.run(
+                command,
+                cwd=APP_DIR,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+                creationflags=self.hidden_creation_flags(),
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return False, str(exc)
+        output = "\n".join(part for part in ((result.stdout or "").strip(), (result.stderr or "").strip()) if part)
+        return result.returncode == 0, output
+
+    def config_bool(self, key: str, fallback: bool = False) -> bool:
+        value = self.config_data.get(key, fallback)
+        if isinstance(value, bool):
+            return value
+        return str(value).strip().lower() in ("1", "true", "sim", "yes", "on")
+
+    def chatgpt_auto_extra_key_sequence(self) -> list[str]:
+        raw = str(self.config_data.get("chatgpt_auto_extra_keys") or "").strip()
+        if not raw:
+            return []
+        return [part.strip() for part in re.split(r"[\n|]+", raw) if part.strip()]
+
+    def build_chatgpt_submit_script(
+        self,
+        delay_ms: int,
+        model_mode: str,
+        new_chat: bool,
+        send_enter: bool,
+        extra_keys: list[str],
+    ) -> str:
+        template = r'''
+$ErrorActionPreference = "SilentlyContinue"
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationTypes
+
+$delayMs = __DELAY_MS__
+$modelMode = @'
+__MODEL_MODE__
+'@
+$newChat = __NEW_CHAT__
+$sendEnter = __SEND_ENTER__
+$extraKeys = ConvertFrom-Json @'
+__EXTRA_KEYS_JSON__
+'@
+
+function Send-HbxKeys([string]$keys, [int]$pauseMs = 350) {
+    [System.Windows.Forms.SendKeys]::SendWait($keys)
+    Start-Sleep -Milliseconds $pauseMs
+}
+
+function Get-HbxChatGptWindow {
+    $root = [System.Windows.Automation.AutomationElement]::RootElement
+    $windows = $root.FindAll(
+        [System.Windows.Automation.TreeScope]::Children,
+        [System.Windows.Automation.Condition]::TrueCondition
+    )
+    foreach ($window in $windows) {
+        $name = [string]$window.Current.Name
+        if ($name -match "ChatGPT|OpenAI") {
+            return $window
+        }
+    }
+    return $null
+}
+
+function Invoke-HbxByText([string[]]$needles) {
+    $window = Get-HbxChatGptWindow
+    if ($null -eq $window) { return $false }
+    $all = $window.FindAll(
+        [System.Windows.Automation.TreeScope]::Descendants,
+        [System.Windows.Automation.Condition]::TrueCondition
+    )
+    foreach ($needle in $needles) {
+        $needleLower = $needle.ToLowerInvariant()
+        foreach ($element in $all) {
+            $name = [string]$element.Current.Name
+            if ([string]::IsNullOrWhiteSpace($name)) { continue }
+            if (-not $name.ToLowerInvariant().Contains($needleLower)) { continue }
+            try {
+                $invoke = $element.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+                $invoke.Invoke()
+                Start-Sleep -Milliseconds 500
+                return $true
+            } catch {}
+            try {
+                $select = $element.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)
+                $select.Select()
+                Start-Sleep -Milliseconds 500
+                return $true
+            } catch {}
+        }
+    }
+    return $false
+}
+
+function Select-HbxModelMode([string]$mode) {
+    if ([string]::IsNullOrWhiteSpace($mode)) { return $false }
+    $opened = Invoke-HbxByText @("Pro", "Instant", "Thinking", "Estendido", "5.5", "Modelo", "Model")
+    if (-not $opened) {
+        Send-HbxKeys "%{DOWN}" 450
+    }
+    Start-Sleep -Milliseconds 700
+    $selected = Invoke-HbxByText @($mode)
+    if (-not $selected -and $mode -match "pro") {
+        $selected = Invoke-HbxByText @("Pro")
+    }
+    if (-not $selected -and ($mode -match "thinking" -or $mode -match "estendido")) {
+        $selected = Invoke-HbxByText @("Thinking", "Estendido")
+    }
+    Send-HbxKeys "{ESC}" 250
+    return $selected
+}
+
+$shell = New-Object -ComObject WScript.Shell
+Start-Sleep -Milliseconds $delayMs
+$activated = $false
+foreach ($name in @("ChatGPT", "OpenAI")) {
+    if ($shell.AppActivate($name)) {
+        $activated = $true
+        break
+    }
+}
+if (-not $activated) {
+    Write-Output "Janela do ChatGPT não encontrada."
+    exit 2
+}
+
+Start-Sleep -Milliseconds 700
+Send-HbxKeys "{ESC}" 250
+if ($newChat) {
+    Send-HbxKeys "^n" 800
+}
+
+[void](Select-HbxModelMode $modelMode)
+[void](Invoke-HbxByText @("Pesquisa aprofundada", "Deep research", "Pesquisa profunda"))
+[void](Invoke-HbxByText @("Ferramentas", "Tools", "Aplicativos", "Apps", "Conectores", "Connectors"))
+[void](Invoke-HbxByText @("Pesquisa aprofundada", "Deep research", "Pesquisa profunda"))
+[void](Invoke-HbxByText @("GitHub", "Jhonatanbarata/HBX", "HBX"))
+
+foreach ($keys in $extraKeys) {
+    if (-not [string]::IsNullOrWhiteSpace([string]$keys)) {
+        Send-HbxKeys ([string]$keys) 450
+    }
+}
+
+Send-HbxKeys "^v" 900
+if ($sendEnter) {
+    Send-HbxKeys "{ENTER}" 700
+}
+
+Write-Output "Prompt enviado ao ChatGPT; monitoramento ativo."
+exit 0
+'''
+        return (
+            template.replace("__DELAY_MS__", str(delay_ms))
+            .replace("__MODEL_MODE__", model_mode)
+            .replace("__NEW_CHAT__", "$true" if new_chat else "$false")
+            .replace("__SEND_ENTER__", "$true" if send_enter else "$false")
+            .replace("__EXTRA_KEYS_JSON__", json.dumps(extra_keys, ensure_ascii=False))
+        )
+
+    def chatgpt_visible_text_script(self) -> str:
+        return r'''
+$ErrorActionPreference = "SilentlyContinue"
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationTypes
+
+$root = [System.Windows.Automation.AutomationElement]::RootElement
+$windows = $root.FindAll(
+    [System.Windows.Automation.TreeScope]::Children,
+    [System.Windows.Automation.Condition]::TrueCondition
+)
+$target = $null
+foreach ($window in $windows) {
+    $name = [string]$window.Current.Name
+    if ($name -match "ChatGPT|OpenAI") {
+        $target = $window
+        break
+    }
+}
+if ($null -eq $target) {
+    Write-Output "Janela do ChatGPT não encontrada."
+    exit 2
+}
+
+$items = New-Object System.Collections.Generic.List[string]
+$all = $target.FindAll(
+    [System.Windows.Automation.TreeScope]::Descendants,
+    [System.Windows.Automation.Condition]::TrueCondition
+)
+foreach ($element in $all) {
+    $name = [string]$element.Current.Name
+    if (-not [string]::IsNullOrWhiteSpace($name)) {
+        $items.Add($name)
+    }
+    try {
+        $value = $element.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value
+        if (-not [string]::IsNullOrWhiteSpace([string]$value)) {
+            $items.Add([string]$value)
+        }
+    } catch {}
+}
+
+$text = ($items | Select-Object -Unique) -join "`n"
+if ($text.Length -gt 220000) {
+    $text = $text.Substring($text.Length - 220000)
+}
+Write-Output $text
+exit 0
+'''
+
+    def chatgpt_advance_research_script(self) -> str:
+        return r'''
+$ErrorActionPreference = "SilentlyContinue"
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationTypes
+
+function Get-HbxChatGptWindow {
+    $root = [System.Windows.Automation.AutomationElement]::RootElement
+    $windows = $root.FindAll(
+        [System.Windows.Automation.TreeScope]::Children,
+        [System.Windows.Automation.Condition]::TrueCondition
+    )
+    foreach ($window in $windows) {
+        $name = [string]$window.Current.Name
+        if ($name -match "ChatGPT|OpenAI") { return $window }
+    }
+    return $null
+}
+
+function Invoke-HbxByText([string[]]$needles) {
+    $window = Get-HbxChatGptWindow
+    if ($null -eq $window) { return $false }
+    $all = $window.FindAll(
+        [System.Windows.Automation.TreeScope]::Descendants,
+        [System.Windows.Automation.Condition]::TrueCondition
+    )
+    foreach ($needle in $needles) {
+        $needleLower = $needle.ToLowerInvariant()
+        foreach ($element in $all) {
+            $name = [string]$element.Current.Name
+            if ([string]::IsNullOrWhiteSpace($name)) { continue }
+            if (-not $name.ToLowerInvariant().Contains($needleLower)) { continue }
+            try {
+                $invoke = $element.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+                $invoke.Invoke()
+                Start-Sleep -Milliseconds 700
+                Write-Output "Clique intermediário: $name"
+                return $true
+            } catch {}
+            try {
+                $select = $element.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)
+                $select.Select()
+                Start-Sleep -Milliseconds 700
+                Write-Output "Seleção intermediária: $name"
+                return $true
+            } catch {}
+        }
+    }
+    return $false
+}
+
+[void](Invoke-HbxByText @(
+    "Atualizar",
+    "Iniciar pesquisa",
+    "Iniciar",
+    "Começar pesquisa",
+    "Comecar pesquisa",
+    "Start research",
+    "Run research",
+    "Continue",
+    "Continuar",
+    "Confirmar",
+    "Confirm",
+    "Prosseguir"
+))
+exit 0
+'''
 
     def build_hbx_deep_research_prompt(self) -> str:
         branch = self.safe_git_output(["rev-parse", "--abbrev-ref", "HEAD"], "-").strip() or "-"
@@ -5344,17 +5858,25 @@ class HbxOwnerApp(tk.Tk):
         ) or "-"
 
         return (
-            "HBX OWNER - PESQUISA PERIODICA EM CARDS\n\n"
-            "Se a interface oferecer modo de pesquisa profunda/deep research, use esse modo. "
-            "Nao peca PDF, arquivo, anexo ou upload: use o repositorio Jhonatanbarata/HBX, "
-            "o contexto abaixo e a sua pesquisa avancada. A resposta sera copiada de volta para "
-            "o HBX Owner e precisa nascer no formato que o Kanban le.\n\n"
+            "HBX OWNER - PESQUISA PERIODICA DE EVOLUCAO\n\n"
+            "Use o repositorio Jhonatanbarata/HBX, o contexto operacional abaixo e a sua pesquisa avancada. "
+            "Se a interface abrir uma etapa de planejamento, selecione Pesquisa aprofundada/Deep research; "
+            "quando GitHub aparecer em Aplicativos/Apps, use o repositorio Jhonatanbarata/HBX como fonte. "
+            "A resposta sera copiada de volta para o HBX Owner e precisa nascer diretamente no formato "
+            "que o Kanban do HBX Owner entende.\n\n"
             f"Data de hoje: {research_date}\n"
             f"Rodada curta: {research_stamp}; rodada anterior de referencia: {previous_stamp}\n"
             f"Arquivo de relatorio que o Codex deve criar/atualizar: {report_path}\n"
             "Repositorio publico/referencia: Jhonatanbarata/HBX\n"
             f"Workspace local: {self.repo_path()}\n"
             f"Branch atual: {branch}\n\n"
+            "VALIDACAO OBRIGATORIA DO REPOSITORIO\n"
+            "- Antes de criar qualquer card, confirme internamente que conseguiu consultar o repositorio Jhonatanbarata/HBX.\n"
+            "- Use como referencia minima os caminhos AGENTS.md, hbx-owner/windows-app, docs, frontend/src e backend/src.\n"
+            "- Se nao conseguir ler o repositorio, nao use conhecimento generico sobre SaaS, CRM, prospeccao ou kanban.\n"
+            "- Se nao conseguir entender o que e o HBX Owner pelo repositorio, nao gere HBX_CARDS_JSON.\n"
+            "- Se nao houver acesso real ao repositorio, responda somente: REPOSITORIO_INDISPONIVEL - nao consegui ler Jhonatanbarata/HBX.\n"
+            "- se nao conseguir resposta do repositorio, pare agora a analise.\n\n"
             "NORTE DO PRODUTO\n"
             "HBX e uma esteira de prospeccao: Radar -> Vendas -> WhatsApp -> Retorno.\n"
             "Radar e memoria de leads/oportunidades. Resultado negativo protege contra retrabalho e nao deve ser descartado.\n"
@@ -5389,10 +5911,12 @@ class HbxOwnerApp(tk.Tk):
             f"{report_path}, com estado atual, evolucao, proximos passos em paralelo e riscos.\n"
             "4. Cards de execucao devem ter lane AGUARDANDO CODEX quando o Owner puder criar branch e trabalhar neles.\n"
             "5. Use lane BLOQUEADO para deploy, publish, migration, auth, billing, secrets, pagamento ou acesso comercial.\n"
-            "6. Preencha urgency_level, intelligence_level, execution_timeout_seconds e research_path.\n"
+            "6. Preencha urgency_level, intelligence_level, codex_model_override, execution_timeout_seconds e research_path.\n"
+            "   intelligence_level valido: use somente Média, High, Extra high ou Revisão humana.\n"
+            f"   codex_model_override deve ser sempre \"{CARD_CODEX_MODEL_DEFAULT}\" em todos os cards.\n"
             "7. O codex_prompt deve ser a licao de casa: leia AGENTS.md, pesquise nos caminhos certos, "
             "trabalhe na branch criada pelo Owner, implemente a menor correcao segura, rode checks relevantes "
-            "e registre o resultado. Nao mande o usuario anexar arquivo.\n"
+            "e registre o resultado.\n"
             "8. Maximo 12 cards. Priorize problemas graves, regressao provavel e evolucao real do sistema.\n\n"
             f"{AUTOCARD_JSON_START}\n"
             "[\n"
@@ -5406,12 +5930,12 @@ class HbxOwnerApp(tk.Tk):
             "    \"acceptance_criteria\": \"Relatorio markdown criado/atualizado com data da rodada, comparativo com a rodada anterior, riscos e plano executavel.\",\n"
             "    \"test_command\": \"python -m py_compile hbx-owner/windows-app/hbx_owner_app.py\",\n"
             f"    \"codex_prompt\": \"Leia AGENTS.md. O HBX Owner criara a branch deste card; trabalhe nela. Crie/atualize {report_path} com estado atual do HBX, evolucao desde a rodada anterior, proximos passos em paralelo e os problemas graves detectados. Se encontrar correcao pequena e segura ligada ao relatorio, aplique; caso contrario, limite a documentacao operacional. Rode checks relevantes e deixe commit local.\",\n"
-            "    \"chatgpt_prompt\": \"Revisar se a rodada gerou cards acionaveis, sem bypass comercial e sem pedir arquivo/anexo.\",\n"
+            "    \"chatgpt_prompt\": \"Revisar se a rodada gerou cards acionaveis, sem bypass comercial e com JSON importavel pelo Owner.\",\n"
             "    \"estimate_minutes\": 90,\n"
             "    \"blocked_reason\": \"\",\n"
             "    \"urgency_level\": \"Alta\",\n"
-            "    \"intelligence_level\": \"Spark longo\",\n"
-            "    \"codex_model_override\": \"\",\n"
+            "    \"intelligence_level\": \"Extra high\",\n"
+            f"    \"codex_model_override\": \"{CARD_CODEX_MODEL_DEFAULT}\",\n"
             "    \"execution_timeout_seconds\": 300,\n"
             "    \"research_path\": \"Pesquisar primeiro em AGENTS.md, docs, hbx-owner/windows-app, frontend/src e backend/src conforme as lacunas detectadas.\"\n"
             "  }\n"
@@ -5506,7 +6030,7 @@ class HbxOwnerApp(tk.Tk):
         if not initial_dir.exists():
             initial_dir = Path.home()
         selected = filedialog.askopenfilename(
-            title="PDF para cards com Spark",
+            title="PDF para cards com 5.5",
             initialdir=str(initial_dir),
             filetypes=(("Arquivos PDF", "*.pdf"), ("Todos os arquivos", "*.*")),
         )
@@ -5519,7 +6043,7 @@ class HbxOwnerApp(tk.Tk):
         created, status = self.compile_pdf_cards_with_spark(pdf_path, extracted_text, extraction_status)
         if not created:
             self.autocard_status_var.set(status)
-            messagebox.showinfo("PDF -> cards Spark", status)
+            messagebox.showinfo("PDF -> cards 5.5", status)
 
     def compile_pdf_cards_with_spark(
         self,
@@ -5551,7 +6075,7 @@ class HbxOwnerApp(tk.Tk):
         )
         cards_text, compiler_status = self.run_spark_card_compiler(compiler_input, context=f"PDF {pdf_path.name}")
         self.set_chatgpt_text(cards_text or prompt)
-        self.save_chatgpt_exchange(cards_text or prompt, prompt=f"spark-pdf:{pdf_path.name}")
+        self.save_chatgpt_exchange(cards_text or prompt, prompt=f"cards-5.5-pdf:{pdf_path.name}")
 
         if not cards_text:
             self.copy_text(prompt)
@@ -5564,9 +6088,9 @@ class HbxOwnerApp(tk.Tk):
 
         created_ids, skipped_existing, recognized_count = self.create_cards_from_compiler_output(
             cards_text,
-            source="Spark PDF",
+            source="PDF 5.5",
         )
-        message = self.report_autocard_result(created_ids, skipped_existing, recognized_count, "PDF -> cards Spark")
+        message = self.report_autocard_result(created_ids, skipped_existing, recognized_count, "PDF -> cards 5.5")
         status = f"{message} {compiler_status}".strip()
         self.autocard_status_var.set(status)
         return True, status
@@ -5655,7 +6179,12 @@ class HbxOwnerApp(tk.Tk):
             "- codex_prompt: instrução objetiva para implementar ou investigar no repositório.\n"
             "- chatgpt_prompt: pergunta de revisão quando fizer sentido.\n"
             "- estimate_minutes: número inteiro.\n"
-            "- blocked_reason: vazio ou motivo do bloqueio.\n\n"
+            "- blocked_reason: vazio ou motivo do bloqueio.\n"
+            "- urgency_level: Baixa, Normal, Alta ou Crítica.\n"
+            "- intelligence_level: use somente Média, High, Extra high ou Revisão humana.\n"
+            f"- codex_model_override: sempre \"{CARD_CODEX_MODEL_DEFAULT}\".\n"
+            "- execution_timeout_seconds: 120 para Média, 180 para High, 300 para Extra high ou Revisão humana.\n"
+            "- research_path: caminho onde o Codex deve pesquisar primeiro.\n\n"
             "Formato obrigatório:\n"
             f"{AUTOCARD_JSON_START}\n"
             "[\n"
@@ -5671,7 +6200,12 @@ class HbxOwnerApp(tk.Tk):
             "    \"codex_prompt\": \"Investigar o fluxo citado e registrar a menor correção segura.\",\n"
             "    \"chatgpt_prompt\": \"Revisar se o ticket cobre causa, impacto e aceite.\",\n"
             "    \"estimate_minutes\": 60,\n"
-            "    \"blocked_reason\": \"\"\n"
+            "    \"blocked_reason\": \"\",\n"
+            "    \"urgency_level\": \"Alta\",\n"
+            "    \"intelligence_level\": \"High\",\n"
+            f"    \"codex_model_override\": \"{CARD_CODEX_MODEL_DEFAULT}\",\n"
+            "    \"execution_timeout_seconds\": 180,\n"
+            "    \"research_path\": \"Pesquisar primeiro em backend/src e frontend/src buscando pelo ticket, cliente ou erro citado.\"\n"
             "  }\n"
             "]\n"
             f"{AUTOCARD_JSON_END}\n\n"
@@ -5789,10 +6323,10 @@ class HbxOwnerApp(tk.Tk):
                     f"Crie/atualize {report_path}, aplique apenas correções pequenas e seguras se forem claras, "
                     "rode checks relevantes e deixe commit local."
                 ),
-                "chatgpt_prompt": "Revisar se a rodada gerou cards acionáveis, sem bypass comercial e sem pedir arquivo/anexo.",
+                "chatgpt_prompt": "Revisar se a rodada gerou cards acionáveis, sem bypass comercial e com JSON importável pelo Owner.",
                 "urgency_level": "Alta",
-                "intelligence_level": "Spark longo",
-                "codex_model_override": "",
+                "intelligence_level": "Extra high",
+                "codex_model_override": CARD_CODEX_MODEL_DEFAULT,
                 "execution_timeout_seconds": 300,
                 "research_path": "Pesquisar primeiro em AGENTS.md, docs, hbx-owner/windows-app, frontend/src e backend/src.",
             }
@@ -5907,10 +6441,13 @@ class HbxOwnerApp(tk.Tk):
         parent: tk.Misc | None = None,
     ) -> str:
         if created_ids:
+            lane_summary = self.autocard_created_lane_summary(created_ids)
             message = (
                 f"{context}: {len(created_ids)} card(s) criado(s): "
                 f"{', '.join('#' + str(card_id) for card_id in created_ids)}"
             )
+            if lane_summary:
+                message = f"{message}\n\nColunas: {lane_summary}"
         elif recognized_count and skipped_existing:
             message = f"{context}: {skipped_existing} card(s) reconhecido(s), mas todos já existiam."
         elif recognized_count:
@@ -5921,6 +6458,33 @@ class HbxOwnerApp(tk.Tk):
             self.autocard_status_var.set(message)
         messagebox.showinfo("Autocard", message, parent=parent)
         return message
+
+    def autocard_created_lane_summary(self, card_ids: list[int]) -> str:
+        ids = [int(card_id) for card_id in card_ids if int(card_id) > 0]
+        if not ids:
+            return ""
+        placeholders = ",".join("?" for _ in ids)
+        rows = self.db.fetchall(
+            f"""
+            SELECT lane, COUNT(*) AS total
+            FROM kanban_cards
+            WHERE id IN ({placeholders})
+            GROUP BY lane
+            ORDER BY
+                CASE lane
+                    WHEN 'HOJE' THEN 1
+                    WHEN 'FAZENDO' THEN 2
+                    WHEN 'AGUARDANDO CODEX' THEN 3
+                    WHEN 'TESTAR' THEN 4
+                    WHEN 'REVISAR COM CHATGPT' THEN 5
+                    WHEN 'BLOQUEADO' THEN 6
+                    WHEN 'BACKLOG' THEN 7
+                    ELSE 9
+                END
+            """,
+            tuple(ids),
+        )
+        return ", ".join(f"{row['lane']}: {row['total']}" for row in rows)
 
     def copy_text(self, text: str) -> None:
         self.clipboard_clear()
@@ -6008,7 +6572,7 @@ class HbxOwnerApp(tk.Tk):
                 self.set_chatgpt_text(cards_text)
                 created_ids, skipped_existing, recognized_count = self.create_cards_from_compiler_output(
                     cards_text,
-                    source="Spark",
+                    source="Compilador 5.5",
                 )
                 if compiler_status:
                     self.autocard_status_var.set(compiler_status)
@@ -6035,21 +6599,21 @@ class HbxOwnerApp(tk.Tk):
             except tk.TclError:
                 raw = ""
         if not raw:
-            self.autocard_status_var.set("Não há texto para o Spark transformar em cards.")
-            messagebox.showwarning("Spark", "Não há texto para transformar em cards.")
+            self.autocard_status_var.set("Não há texto para o 5.5 transformar em cards.")
+            messagebox.showwarning("Compilador 5.5", "Não há texto para transformar em cards.")
             return
 
-        self.save_chatgpt_exchange(raw, prompt="spark-card-compiler")
+        self.save_chatgpt_exchange(raw, prompt="card-compiler-5.5")
         cards_text, compiler_status = self.run_spark_card_compiler(raw, context="Pesquisa")
         if not cards_text:
             self.autocard_status_var.set(compiler_status)
-            messagebox.showwarning("Spark", compiler_status)
+            messagebox.showwarning("Compilador 5.5", compiler_status)
             return
         self.set_chatgpt_text(cards_text)
-        created_ids, skipped_existing, recognized_count = self.create_cards_from_compiler_output(cards_text, source="Spark")
-        self.report_autocard_result(created_ids, skipped_existing, recognized_count, "Gerar cards com Spark")
+        created_ids, skipped_existing, recognized_count = self.create_cards_from_compiler_output(cards_text, source="Compilador 5.5")
+        self.report_autocard_result(created_ids, skipped_existing, recognized_count, "Gerar cards com 5.5")
 
-    def create_cards_from_compiler_output(self, compiled_text: str, source: str = "Spark") -> tuple[list[int], int, int]:
+    def create_cards_from_compiler_output(self, compiled_text: str, source: str = "Compilador 5.5") -> tuple[list[int], int, int]:
         cards = self.compile_autocards(compiled_text)
         if not cards:
             cards = self.compile_autocards(self.extract_automation_response_text(compiled_text))
@@ -6069,6 +6633,8 @@ class HbxOwnerApp(tk.Tk):
 
     def card_compiler_engine(self) -> str:
         value = str(self.config_data.get("card_compiler_engine") or DEFAULT_CONFIG["card_compiler_engine"]).strip().lower()
+        if value in ("5.5", "55", "codex"):
+            return "spark"
         return value if value in ("local", "spark") else "local"
 
     def resolve_card_compiler_cli_path(self) -> str:
@@ -6093,8 +6659,8 @@ class HbxOwnerApp(tk.Tk):
         if len(clipped) > PDF_TEXT_MAX_CHARS:
             clipped = clipped[:PDF_TEXT_MAX_CHARS].rstrip() + "\n\n[TEXTO CORTADO PELO HBX OWNER]"
         return (
-            "HBX OWNER - SPARK CARD COMPILER\n\n"
-            "Você é o compilador rápido de cards do HBX Owner. O texto já vem mastigado por pesquisa/GPT; "
+            "HBX OWNER - CARD COMPILER\n\n"
+            "Você é o compilador de cards do HBX Owner. O texto já vem mastigado por pesquisa/GPT; "
             "PDF é apenas fallback para material externo.\n"
             "Sua função é apenas ler a estrutura e devolver cards operacionais.\n\n"
             f"Contexto: {context}\n\n"
@@ -6110,8 +6676,9 @@ class HbxOwnerApp(tk.Tk):
             "9. Preencha research_path com o caminho exato onde o Codex deve pesquisar primeiro.\n"
             "10. Nunca use rótulo legado de IA removido como type.\n"
             "11. Se a fonte for pesquisa periódica do HBX, preserve cards de relatório datado e lição de casa Codex.\n"
-            "12. Não peça PDF, arquivo ou anexo quando a fonte já trouxer a pesquisa do Owner.\n"
-            "13. Máximo 12 cards.\n\n"
+            "12. Quando a fonte já trouxer a pesquisa do Owner, preserve o formato direto de cards.\n"
+            f"13. codex_model_override deve ser sempre \"{CARD_CODEX_MODEL_DEFAULT}\".\n"
+            "14. Máximo 12 cards.\n\n"
             "Campos obrigatórios por card:\n"
             "title, module, priority, lane, type, description, acceptance_criteria, test_command, "
             "codex_prompt, chatgpt_prompt, estimate_minutes, blocked_reason, urgency_level, "
@@ -6119,9 +6686,9 @@ class HbxOwnerApp(tk.Tk):
             "Lanes válidas: BACKLOG, HOJE, AGUARDANDO CODEX, TESTAR, BLOQUEADO.\n"
             "Prioridades válidas: Crítica, Alta, Média, Baixa.\n\n"
             "Inteligência:\n"
-            "- Local rápido: texto, documentação, classificação simples, baixo risco.\n"
-            "- Spark rápido: bug/ticket/cliente/fluxo normal com execução objetiva.\n"
-            "- Spark longo: multiárea, backend+frontend, worker/fila, criticidade alta.\n"
+            "- Média: texto, documentação, classificação simples, baixo risco.\n"
+            "- High: bug, ticket, cliente ou fluxo normal com execução objetiva.\n"
+            "- Extra high: multiárea, backend+frontend, worker/fila, criticidade alta.\n"
             "- Revisão humana: deploy, publish, migration, auth, billing, secrets, pagamento.\n\n"
             f"{AUTOCARD_JSON_START}\n"
             "[\n"
@@ -6139,8 +6706,8 @@ class HbxOwnerApp(tk.Tk):
             "    \"estimate_minutes\": 60,\n"
             "    \"blocked_reason\": \"\",\n"
             "    \"urgency_level\": \"Alta\",\n"
-            "    \"intelligence_level\": \"Spark rápido\",\n"
-            "    \"codex_model_override\": \"\",\n"
+            "    \"intelligence_level\": \"High\",\n"
+            f"    \"codex_model_override\": \"{CARD_CODEX_MODEL_DEFAULT}\",\n"
             "    \"execution_timeout_seconds\": 180,\n"
             "    \"research_path\": \"Pesquisar primeiro em backend/src e frontend/src buscando pelo ticket e pelo módulo Retorno.\"\n"
             "  }\n"
@@ -6157,7 +6724,7 @@ class HbxOwnerApp(tk.Tk):
         if not cli_path:
             prompt = self.build_spark_card_compiler_prompt(text, context)
             self.copy_text(prompt)
-            return "", "Codex/Spark CLI não encontrado."
+            return "", "Codex CLI não encontrado."
 
         dispatch_dir = APP_DIR / "card-compilers"
         dispatch_dir.mkdir(parents=True, exist_ok=True)
@@ -6175,8 +6742,6 @@ class HbxOwnerApp(tk.Tk):
             str(self.repo_path()),
             "--sandbox",
             "read-only",
-            "--ask-for-approval",
-            "never",
             "-o",
             str(last_message_path),
         ]
@@ -6202,7 +6767,7 @@ class HbxOwnerApp(tk.Tk):
                 )
         except (OSError, subprocess.TimeoutExpired) as exc:
             self.copy_text(prompt)
-            return "", f"Spark indisponível: {exc}. Prompt copiado; usando compilador local."
+            return "", f"Compilador indisponível: {exc}. Prompt copiado; usando compilador local."
 
         output = "\n".join(part for part in ((result.stdout or "").strip(), (result.stderr or "").strip()) if part)
         output_path.write_text(output, encoding="utf-8")
@@ -6215,11 +6780,11 @@ class HbxOwnerApp(tk.Tk):
         compiled = last_message or output
         if result.returncode != 0:
             self.copy_text(prompt)
-            return "", f"Spark falhou ({result.returncode}). Log: {output_path}. Prompt copiado."
+            return "", f"Compilador falhou ({result.returncode}). Log: {output_path}. Prompt copiado."
         if AUTOCARD_JSON_START not in compiled:
             self.copy_text(prompt)
-            return "", f"Spark respondeu sem JSON HBX. Log: {output_path}. Prompt copiado."
-        return compiled, f"Spark gerou JSON HBX. Log: {output_path}"
+            return "", f"Compilador respondeu sem JSON HBX. Log: {output_path}. Prompt copiado."
+        return compiled, f"Compilador gerou JSON HBX. Log: {output_path}"
 
     def create_chatgpt_cards_from_text(self, raw: str, source: str = "ChatGPT") -> tuple[list[int], int, int]:
         cards = self.parse_chatgpt_cards(raw)
@@ -6357,9 +6922,7 @@ class HbxOwnerApp(tk.Tk):
             raw.get("intelligence_level") or raw.get("inteligencia") or intelligence_level,
             normalized,
         )
-        normalized["codex_model_override"] = str(
-            raw.get("codex_model_override") or raw.get("modelo_codex") or raw.get("modelo codex") or ""
-        ).strip()
+        normalized["codex_model_override"] = CARD_CODEX_MODEL_DEFAULT
         try:
             normalized["execution_timeout_seconds"] = int(
                 float(str(raw.get("execution_timeout_seconds") or raw.get("timeout_seconds") or 0))
@@ -6820,8 +7383,8 @@ class HbxOwnerApp(tk.Tk):
         urgency_level, intelligence_level = self.suggest_card_execution_controls(card)
         card["urgency_level"] = urgency_level
         card["intelligence_level"] = intelligence_level
-        card["codex_model_override"] = ""
-        card["execution_timeout_seconds"] = 180 if intelligence_level == "Spark rápido" else 300 if intelligence_level == "Spark longo" else 90
+        card["codex_model_override"] = CARD_CODEX_MODEL_DEFAULT
+        card["execution_timeout_seconds"] = self.card_execution_timeout(card)
         card["research_path"] = self.infer_research_path_from_text(card["module"], title + " " + source_text)
         return card
 
@@ -7554,6 +8117,13 @@ class HbxOwnerApp(tk.Tk):
             ("planned_hours", "Horas planejadas"),
             ("hours_available", "Horas disponíveis"),
             ("chatgpt_app_id", "ChatGPT Desktop AppID"),
+            ("chatgpt_auto_focus_delay_seconds", "ChatGPT auto delay foco"),
+            ("chatgpt_auto_model_mode", "ChatGPT auto modo/modelo"),
+            ("chatgpt_auto_new_chat", "ChatGPT auto novo chat"),
+            ("chatgpt_auto_send_enter", "ChatGPT auto enviar"),
+            ("chatgpt_auto_extra_keys", "ChatGPT auto teclas extras"),
+            ("chatgpt_auto_monitor_minutes", "ChatGPT auto monitor min"),
+            ("chatgpt_auto_poll_seconds", "ChatGPT auto polling seg"),
             ("pdf_automation_url", "PDF automation URL"),
             ("card_compiler_engine", "Card compiler engine"),
             ("card_compiler_cli_path", "Card compiler CLI"),
@@ -7568,7 +8138,9 @@ class HbxOwnerApp(tk.Tk):
             ("pr_lab_localhost_url", "Branches localhost URL"),
             ("codex_auto_dispatch", "Codex auto dispatch"),
             ("codex_cli_path", "Codex CLI path"),
-            ("codex_model", "Codex model opcional"),
+            ("codex_model", "Codex model global opcional"),
+            ("codex_model_fast", "Codex model rápido"),
+            ("codex_model_deep", "Codex model grave"),
             ("codex_worktree_dir", "Codex worktree dir"),
             ("unique_goal", "Meta única"),
             ("technical_task", "Tarefa técnica"),
@@ -7642,17 +8214,21 @@ class HbxOwnerApp(tk.Tk):
                 except ValueError:
                     messagebox.showerror("Config", f"{key} precisa ser numérico.")
                     return
-            elif key in {"card_compiler_timeout_seconds", "usage_hud_window_hours"}:
+            elif key in {
+                "card_compiler_timeout_seconds",
+                "usage_hud_window_hours",
+                "chatgpt_auto_focus_delay_seconds",
+                "chatgpt_auto_monitor_minutes",
+                "chatgpt_auto_poll_seconds",
+            }:
                 try:
                     value = int(float(value))
                 except ValueError:
                     messagebox.showerror("Config", f"{key} precisa ser numérico.")
                     return
             elif key == "card_compiler_engine":
-                value = value.lower() if value.lower() in ("local", "spark") else "local"
-            elif key == "codex_auto_dispatch":
-                value = value.lower() in ("1", "true", "sim", "yes", "on")
-            elif key == "usage_hud_enabled":
+                value = "spark" if value.lower() in ("spark", "5.5", "55", "codex") else "local"
+            elif key in {"codex_auto_dispatch", "usage_hud_enabled", "chatgpt_auto_new_chat", "chatgpt_auto_send_enter"}:
                 value = value.lower() in ("1", "true", "sim", "yes", "on")
             self.config_data[key] = value
         self.config_data["boss_mode"] = bool(self.boss_mode_var.get())
@@ -7668,8 +8244,8 @@ class HbxOwnerApp(tk.Tk):
         )
         self.git_repo_var.set(str(self.config_data.get("repo_path") or APP_DIR))
         self.today_plan_var.set(self.config_data.get("unique_goal") or "Meta única não definida.")
-        self.intelligence_engine_var.set(str(self.config_data.get("card_compiler_engine") or "local"))
-        self.intelligence_model_var.set(str(self.config_data.get("card_compiler_model") or "spark"))
+        self.intelligence_engine_var.set("5.5" if str(self.config_data.get("card_compiler_engine") or "local").lower() == "spark" else "local")
+        self.intelligence_model_var.set(str(self.config_data.get("card_compiler_model") or CARD_CODEX_MODEL_DEFAULT))
         self.intelligence_timeout_var.set(str(self.config_data.get("card_compiler_timeout_seconds") or 120))
         self.codex_model_var.set(str(self.config_data.get("codex_model") or ""))
         self.refresh_intelligence_status()

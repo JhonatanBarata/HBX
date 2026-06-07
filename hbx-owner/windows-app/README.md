@@ -2,7 +2,7 @@
 
 App local Windows para controle pessoal de trabalho do HBX Owner.
 
-O uso normal é pelo atalho `HBX Owner` do Desktop, que chama `launch-hbx-owner.ps1` e abre o código Python atual. O `HBX Owner.exe` pode existir como build antigo, mas não é o caminho recomendado para validar edições recentes. Não usa API OpenAI, não automatiza clique no ChatGPT, não captura teclado, não tira screenshot, não coleta senha/token, não sobe dados para internet, não usa Electron e não cria servidor.
+O uso normal é pelo atalho `HBX Owner` do Desktop, que chama `launch-hbx-owner.ps1` e abre o código Python atual. O `HBX Owner.exe` pode existir como build antigo, mas não é o caminho recomendado para validar edições recentes. Não usa API OpenAI, não tira screenshot, não coleta senha/token, não sobe dados para internet, não usa Electron e não cria servidor. A automação full do ChatGPT é local e opcional: usa foco de janela, UI Automation e teclas do Windows para tentar selecionar `Pro`, pesquisa aprofundada/GitHub, enviar o prompt e monitorar texto visível até encontrar `HBX_CARDS_JSON`.
 
 ## Estrutura
 
@@ -233,7 +233,7 @@ O Owner abre uma janelinha fixa no topo da tela com:
 - janela local de uso, padrão `5H LOCAL`;
 - contagem dos últimos 5h para `SPK` e `NORM`.
 
-`SPK` conta chamadas reais do compilador Spark de cards. `NORM` conta dispatches Codex normais iniciados por card. A contagem é local, gravada em SQLite na tabela `ai_usage_events`; ela não consulta limite real externo.
+`5.5` conta chamadas reais do compilador de cards. `NORM` conta dispatches Codex normais iniciados por card. A contagem é local, gravada em SQLite na tabela `ai_usage_events`; ela não consulta limite real externo.
 
 Configurações:
 
@@ -259,24 +259,34 @@ A aba `ChatGPT`:
 
 - chama o ChatGPT Desktop do Windows via `shell:AppsFolder`;
 - prepara pesquisa periódica HBX com data, repo `Jhonatanbarata/HBX`, branch, commits recentes, cards concluídos com commit, pendentes e bloqueados;
-- exige que a resposta do ChatGPT volte direto em `HBX_CARDS_JSON`, sem pedir PDF/anexo, com relatório datado, urgência, inteligência, caminho de pesquisa e lição de casa Codex;
+- exige que a resposta do ChatGPT volte direto em `HBX_CARDS_JSON`, com relatório datado, urgência, inteligência, caminho de pesquisa e lição de casa Codex;
 - importa o resultado copiado do ChatGPT via clipboard assistido;
+- pode iniciar uma pesquisa full automática no ChatGPT Desktop e monitorar a janela até aparecer `HBX_CARDS_JSON`;
 - importa pesquisa colada por modal local e salva o texto em SQLite;
 - gera cards automaticamente usando o Autocard Compiler;
-- gera cards com `Spark` quando você quiser usar um compilador rápido para estruturar texto/PDF mastigado;
+- gera cards com o compilador `5.5` quando você quiser estruturar texto/PDF mastigado;
 - copia um exemplo pronto de `HBX_CARDS_JSON_START` / `HBX_CARDS_JSON_END`;
 - transforma resposta em cards quando o texto vier em JSON HBX, `CARD:`, markdown checklist, `PRÓXIMOS CARDS:` ou resposta livre com ações, lacunas e recomendações.
 
-Use `Preparar pesquisa HBX` para copiar o prompt e abrir o ChatGPT. O prompt já pede que a pesquisa avançada devolva cards no formato que o Owner lê, incluindo o card de relatório `docs/OWNER_RESEARCH_YYYY-MM-DD.md` e cards de execução para Codex. Depois que a resposta terminar, copie o resultado no ChatGPT e use `Importar clipboard`. Use `Importar pesquisa` para colar manualmente. Com `Criar cards ao importar` ligado, o Owner cria os cards no Kanban; desligado, ele só salva o texto. Use `Gerar cards automático` para compilar o conteúdo atual da área de texto. Os prompts ficam em `prompts\`. As respostas salvas ficam em SQLite.
+Use `Preparar pesquisa HBX` para copiar o prompt e abrir o ChatGPT. No ChatGPT, selecione `Pesquisa aprofundada`/`Deep research`, confirme o plano se a tela pedir e marque `GitHub` em `Aplicativos` quando aparecer. O prompt já pede que a pesquisa avançada devolva cards no formato que o Owner lê, incluindo o card de relatório `docs/OWNER_RESEARCH_YYYY-MM-DD.md` e cards de execução para Codex. Depois que a resposta terminar, copie o resultado no ChatGPT e use `Importar clipboard`. Use `Importar pesquisa` para colar manualmente. Com `Criar cards ao importar` ligado, o Owner cria os cards no Kanban; desligado, ele só salva o texto. Use `Gerar cards automático` para compilar o conteúdo atual da área de texto. Os prompts ficam em `prompts\`. As respostas salvas ficam em SQLite.
 
-Use `Gerar cards com Spark` para chamar `codex exec` em modo read-only com `card_compiler_model` e exigir saída `HBX_CARDS_JSON`. PDF é fallback para material externo: use `PDF -> prompt` quando quiser copiar o prompt manual para ChatGPT Desktop. Use `PDF -> cards Spark` para extrair texto do PDF, pedir ao Spark para estruturar e criar cards no Kanban. Se o PDF não tiver texto local suficiente, o Spark recebe o caminho do arquivo e deve devolver cards verificáveis ou uma triagem `BLOQUEADO`, sem cair na regra antiga de anexo manual.
+Use `Pesquisa HBX auto` para o caminho full automático. O Owner copia e salva o prompt, abre o ChatGPT Desktop, tenta selecionar o modo configurado em `chatgpt_auto_model_mode` (`Pro` por padrão), depois tenta selecionar `Pesquisa aprofundada`/`Deep research` e `GitHub`, cola/envia o prompt e entra em polling inteligente. O polling lê a árvore visual da janela do ChatGPT a cada `chatgpt_auto_poll_seconds` segundos até encontrar `HBX_CARDS_JSON_START` / `HBX_CARDS_JSON_END`; se `chatgpt_auto_monitor_minutes` for `0`, ele não encerra por tempo. Quando encontra o bloco, copia para o clipboard, salva em SQLite e cria cards se `Criar cards ao importar` estiver ligado. Se a UI do ChatGPT mudar, ajuste `chatgpt_auto_extra_keys` com uma sequência de SendKeys separada por `|`.
+
+Use `Gerar cards com 5.5` para chamar `codex exec` em modo read-only com `card_compiler_model` e exigir saída `HBX_CARDS_JSON`. PDF é fallback para material externo: use `PDF -> prompt` quando quiser copiar o prompt manual para ChatGPT Desktop. Use `PDF -> cards 5.5` para extrair texto do PDF, pedir ao compilador para estruturar e criar cards no Kanban. Se o PDF não tiver texto local suficiente, o compilador recebe o caminho do arquivo e deve devolver cards verificáveis ou uma triagem `BLOQUEADO`, sem cair na regra antiga de anexo manual.
+
+Nos cards, `intelligence_level` usa somente `Média`, `High`, `Extra high` ou `Revisão humana`. Para cards vindos do ChatGPT/Autocard, `codex_model_override` é gravado como `5.5`; respostas antigas com rótulos legados são normalizadas na importação e na inicialização do Owner.
 
 Configurações relevantes:
 
-- `card_compiler_engine`: `local` ou `spark`;
+- `card_compiler_engine`: `local` ou `5.5` (`spark` ainda é aceito internamente por compatibilidade);
 - `card_compiler_cli_path`: padrão `codex`;
-- `card_compiler_model`: padrão `spark`;
-- `card_compiler_timeout_seconds`: timeout da compilação.
+- `card_compiler_model`: padrão `5.5`;
+- `card_compiler_timeout_seconds`: timeout da compilação;
+- `chatgpt_auto_model_mode`: modo/modelo a selecionar no ChatGPT, padrão `Pro`;
+- `chatgpt_auto_monitor_minutes`: `0` monitora sem limite de tempo;
+- `chatgpt_auto_poll_seconds`: intervalo de leitura da janela do ChatGPT;
+- `codex_model_fast`: modelo Codex para cards de média complexidade, padrão `5.5`;
+- `codex_model_deep`: modelo Codex para cards graves/extra high, padrão `5.5`.
 
 O AppID padrão do ChatGPT Desktop é:
 
