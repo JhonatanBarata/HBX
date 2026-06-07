@@ -6733,84 +6733,27 @@ class HbxOwnerApp(tk.Tk):
     def _build_chatgpt_tab(self, frame: ttk.Frame) -> None:
         self.page_title(frame, "ChatGPT", "Pesquisa em cards")
 
-        intelligence = ttk.LabelFrame(frame, text="Inteligência", padding=8, style="Modern.TLabelframe")
-        intelligence.grid(row=1, column=0, sticky="ew", pady=(12, 10))
-        for column in range(12):
-            intelligence.columnconfigure(column, weight=1 if column == 11 else 0)
-        ttk.Label(intelligence, text="Motor", style="CardMuted.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 6))
-        ttk.Combobox(
-            intelligence,
-            textvariable=self.intelligence_engine_var,
-            values=("local", "5.5"),
-            state="readonly",
-            width=10,
-        ).grid(row=0, column=1, sticky="w", padx=(0, 10))
-        ttk.Label(intelligence, text="Modelo cards", style="CardMuted.TLabel").grid(
-            row=0, column=2, sticky="w", padx=(0, 6)
-        )
-        ttk.Entry(intelligence, textvariable=self.intelligence_model_var, width=16).grid(
-            row=0, column=3, sticky="w", padx=(0, 10)
-        )
-        ttk.Label(intelligence, text="Timeout", style="CardMuted.TLabel").grid(row=0, column=4, sticky="w", padx=(0, 6))
-        ttk.Entry(intelligence, textvariable=self.intelligence_timeout_var, width=8).grid(
-            row=0, column=5, sticky="w", padx=(0, 10)
-        )
-        ttk.Label(intelligence, text="Modelo Codex", style="CardMuted.TLabel").grid(
-            row=0, column=6, sticky="w", padx=(0, 6)
-        )
-        ttk.Entry(intelligence, textvariable=self.codex_model_var, width=16).grid(
-            row=0, column=7, sticky="w", padx=(0, 10)
-        )
-        ttk.Button(intelligence, text="Salvar", command=self.save_intelligence_controls, style="Accent.TButton").grid(
-            row=0, column=8, sticky="w", padx=(0, 8)
-        )
-        ttk.Button(intelligence, text="Média local", command=lambda: self.apply_intelligence_preset("local")).grid(
-            row=0, column=9, sticky="w", padx=(0, 8)
-        )
-        ttk.Button(intelligence, text="High", command=lambda: self.apply_intelligence_preset("spark-fast")).grid(
-            row=0, column=10, sticky="w", padx=(0, 8)
-        )
-        ttk.Button(intelligence, text="Extra high", command=lambda: self.apply_intelligence_preset("spark-long")).grid(
-            row=0, column=11, sticky="w"
-        )
-        ttk.Label(intelligence, textvariable=self.intelligence_status_var, style="Card.TLabel").grid(
-            row=1, column=0, columnspan=12, sticky="w", pady=(8, 0)
-        )
-        self.refresh_intelligence_status()
-
         buttons = ttk.Frame(frame, style="Toolbar.TFrame")
-        buttons.grid(row=2, column=0, sticky="w", pady=(0, 10))
+        buttons.grid(row=1, column=0, sticky="w", pady=(12, 10))
         ttk.Button(buttons, text="Abrir ChatGPT Desktop", command=self.open_chatgpt, style="Accent.TButton").grid(
             row=0, column=0, padx=(0, 8)
         )
         ttk.Button(
             buttons,
-            text="Importar pesquisa",
-            command=self.import_research_text,
-            style="Warning.TButton",
-        ).grid(row=0, column=1, padx=8)
-        ttk.Button(
-            buttons,
             text="Gerar cards automático",
             command=self.transform_response_into_cards,
             style="Success.TButton",
-        ).grid(row=0, column=2, padx=8)
-        ttk.Button(
-            buttons,
-            text="Gerar cards com 5.5",
-            command=self.transform_response_into_cards_with_spark,
-            style="Accent.TButton",
-        ).grid(row=0, column=3, padx=8)
+        ).grid(row=0, column=1, padx=8)
         ttk.Button(
             buttons,
             text="Copiar formato HBX_CARDS_JSON",
             command=self.copy_hbx_cards_json_format,
-        ).grid(row=0, column=4, padx=8)
+        ).grid(row=0, column=2, padx=8)
         ttk.Checkbutton(
             buttons,
             text="Criar cards ao importar",
             variable=self.autocard_auto_create_var,
-        ).grid(row=0, column=5, padx=(12, 0))
+        ).grid(row=0, column=3, padx=(12, 0))
         ttk.Button(
             buttons,
             text="Preparar pesquisa HBX",
@@ -6819,19 +6762,13 @@ class HbxOwnerApp(tk.Tk):
         ).grid(row=1, column=0, padx=(0, 8), pady=(8, 0), sticky="w")
         ttk.Button(
             buttons,
-            text="Importar clipboard",
-            command=self.import_clipboard_research,
-            style="Warning.TButton",
-        ).grid(row=1, column=1, padx=8, pady=(8, 0), sticky="w")
-        ttk.Button(
-            buttons,
             text="Pesquisa HBX auto",
             command=self.prepare_hbx_deep_research_auto,
             style="Success.TButton",
-        ).grid(row=1, column=2, padx=8, pady=(8, 0), sticky="w")
+        ).grid(row=1, column=1, padx=8, pady=(8, 0), sticky="w")
 
         pdf_frame = ttk.LabelFrame(frame, text="PDF opcional (material externo)", padding=8, style="Modern.TLabelframe")
-        pdf_frame.grid(row=3, column=0, sticky="ew", pady=(0, 10))
+        pdf_frame.grid(row=2, column=0, sticky="ew", pady=(0, 10))
         pdf_frame.columnconfigure(0, weight=1)
         ttk.Entry(pdf_frame, textvariable=self.chatgpt_pdf_path_var, state="readonly").grid(
             row=0, column=0, sticky="ew", padx=(0, 8)
@@ -6839,19 +6776,16 @@ class HbxOwnerApp(tk.Tk):
         ttk.Button(pdf_frame, text="PDF -> prompt", command=self.add_pdf_to_chatgpt, style="Warning.TButton").grid(
             row=0, column=1, sticky="e"
         )
-        ttk.Button(pdf_frame, text="PDF -> cards 5.5", command=self.add_pdf_to_spark_cards, style="Success.TButton").grid(
-            row=0, column=2, sticky="e", padx=(8, 0)
-        )
 
         status = ttk.Frame(frame, style="Toolbar.TFrame")
-        status.grid(row=4, column=0, sticky="ew", pady=(0, 10))
+        status.grid(row=3, column=0, sticky="ew", pady=(0, 10))
         ttk.Label(status, textvariable=self.autocard_status_var, style="Muted.TLabel").grid(row=0, column=0, sticky="w")
 
         output_frame = ttk.LabelFrame(frame, text="Pesquisa, prompt ou resposta", padding=8, style="Modern.TLabelframe")
-        output_frame.grid(row=5, column=0, sticky="nsew")
+        output_frame.grid(row=4, column=0, sticky="nsew")
         output_frame.columnconfigure(0, weight=1)
         output_frame.rowconfigure(0, weight=1)
-        frame.rowconfigure(5, weight=1)
+        frame.rowconfigure(4, weight=1)
 
         self.chatgpt_text = tk.Text(output_frame, height=26, wrap="word")
         self.style_text_widget(self.chatgpt_text)
@@ -6876,7 +6810,7 @@ class HbxOwnerApp(tk.Tk):
             f"{prompt}\n\n---\nPrompt copiado e salvo em: {path}\n"
             "Abra o ChatGPT quando quiser. No ChatGPT: selecione Pesquisa aprofundada/Deep research, confirme o plano se a tela pedir, "
             "marque GitHub/JhonatanBarata/HBX em Aplicativos quando aparecer e envie o prompt copiado. "
-            "Quando a resposta terminar, copie o resultado e use Importar clipboard."
+            "Quando a resposta terminar, cole aqui com Ctrl+V e clique em Gerar cards automático."
         )
         self.autocard_status_var.set(
             "Pesquisa HBX preparada e copiada. Abra o ChatGPT manualmente quando quiser enviar."
