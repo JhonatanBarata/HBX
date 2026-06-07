@@ -1,10 +1,17 @@
 # stop-all.ps1
 # Stop backend (docker compose), frontend (Next) and Prisma Studio background jobs
 
+param(
+    [switch]$KeepEngines,
+    [int]$EngineCount = 50
+)
+
+$startedAt = Get-Date
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $composeFile = Join-Path $scriptRoot "..\docker-compose.yml"
 $orchestratorDir = Join-Path $scriptRoot "..\.orchestrator"
 $pidsFile = Join-Path $orchestratorDir "pids.json"
+$stopEnginesScript = Join-Path $scriptRoot "stop-hbx-engines.ps1"
 
 function Stop-IfRunning([int]$processId, [string]$name) {
     if (!$processId) { return }
@@ -39,6 +46,38 @@ function Resolve-PidValue($value) {
     }
 }
 
+function Test-EnvTruthy([string]$value) {
+    if ([string]::IsNullOrWhiteSpace($value)) { return $false }
+    return $value.Trim().ToLowerInvariant() -in @('1', 'true', 'yes', 'y', 'on', 'sim')
+}
+
+function Resolve-EngineCount([int]$requested) {
+    if ($requested -gt 0) { return [Math]::Min([Math]::Max($requested, 1), 50) }
+    $fromEnv = [string]$env:HBX_DOWN_ENGINE_COUNT
+    if ([string]::IsNullOrWhiteSpace($fromEnv)) { $fromEnv = [string]$env:HBX_LOCAL_ENGINE_COUNT }
+    $parsed = 0
+    if ([int]::TryParse($fromEnv, [ref]$parsed) -and $parsed -gt 0) {
+        return [Math]::Min([Math]::Max($parsed, 1), 50)
+    }
+    return 50
+}
+
+function Format-Elapsed([datetime]$start) {
+    $elapsed = (Get-Date) - $start
+    if ($elapsed.TotalMinutes -ge 1) {
+        return ("{0}m{1:00}s" -f [int]$elapsed.TotalMinutes, $elapsed.Seconds)
+    }
+    return ("{0}s" -f [Math]::Max(0, [int]$elapsed.TotalSeconds))
+}
+
+$shouldStopEngines = (-not $KeepEngines.IsPresent) -and (-not (Test-EnvTruthy ([string]$env:HBX_DOWN_KEEP_ENGINES)))
+$resolvedEngineCount = Resolve-EngineCount $EngineCount
+$engineSummary = if ($shouldStopEngines) { "stop ate $resolvedEngineCount" } else { 'mantidos' }
+
+Write-Host "=== npm run down ASAP ==="
+Write-Host "App local: frontend/studio/Webwhats + docker compose down."
+Write-Host "Motores dedicados: $engineSummary."
+
 Write-Host "Stopping orchestrated processes (wrapper, frontend, studio) if present..."
 
 # First: stop wrapper/frontend/studio processes recorded in pids file
@@ -70,6 +109,21 @@ try {
     Write-Host "docker compose down failed (Docker may be stopped). Continuing..."
 }
 
+if ($shouldStopEngines) {
+    Write-Host "Stopping dedicated HBX engine warm pool if present..."
+    try {
+        if (Test-Path -LiteralPath $stopEnginesScript) {
+            & powershell -NoProfile -ExecutionPolicy Bypass -File $stopEnginesScript -Count $resolvedEngineCount
+        } else {
+            Write-Host "stop-hbx-engines.ps1 not found; skipping dedicated engine cleanup."
+        }
+    } catch {
+        Write-Host "Dedicated engine cleanup failed or Docker is stopped. Continuing..."
+    }
+} else {
+    Write-Host "Keeping dedicated HBX engines by request."
+}
+
 # (PID handling performed above before docker compose down)
 
 # Ports used by Webwhats, frontend (Next) and Prisma Studio
@@ -96,4 +150,4 @@ foreach ($p in $ports) {
     }
 }
 
-Write-Host "stop-all complete."
+Write-Host "stop-all complete in $(Format-Elapsed $startedAt)."

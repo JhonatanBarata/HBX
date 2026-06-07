@@ -18,6 +18,17 @@ Todos os comandos ficam em `allowlist.json` como array. O Local Agent nao aceita
 - `webwhats-build`: `npm --prefix Webwhats run build`
 - `e2e`: `npm run test:e2e`
 
+## Radar Motores
+
+Endpoints dedicados, sem comando vindo do body:
+
+- `GET /radar/engines/status`: consulta `docker ps` e `docker stats`, filtrando apenas `hbx-engine-N`.
+- `GET /radar/engines/:id/logs`: mostra logs recentes do motor selecionado.
+- `POST /radar/engines/:id/start`: executa `docker start hbx-engine-N`.
+- `POST /radar/engines/:id/stop`: executa `docker stop hbx-engine-N` e exige confirmacao.
+
+O filtro bloqueia nomes como `hbx-engine-watchdog`, comandos com operadores de shell e qualquer container fora de `hbx-engine-N`.
+
 ## Git
 
 Somente leitura por padrao:

@@ -176,6 +176,33 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Users\Jhonatan\Deskto
 
 O log do self-check sai em `logs\self-check-YYYYMMDD-HHMMSS.txt`.
 
+## Radar Motores
+
+A aba `Radar Motores` é o controle local do Elastic Engine Governor no Windows Owner.
+
+Pré-requisito:
+
+```powershell
+$env:HBX_OWNER_LOCAL_TOKEN="token-local-forte"
+npm run owner:agent
+```
+
+Configurações locais:
+
+- `owner_local_agent_url`: padrão `http://127.0.0.1:3107`;
+- `owner_local_agent_token`: opcional; prefira usar a variável `HBX_OWNER_LOCAL_TOKEN`;
+- `radar_owner_panel_url`: padrão `http://127.0.0.1:3001/bancodedados?tab=motores`.
+
+A aba consulta `GET /radar/engines/status` no local-agent e lista apenas containers `hbx-engine-*`. Ela permite:
+
+- atualizar status local do Docker;
+- abrir logs do motor selecionado;
+- iniciar container selecionado;
+- parar container selecionado com confirmação;
+- abrir o painel Master web dos motores.
+
+Force night, cancelamento de factory e dreno por lease continuam no painel Master web, porque dependem do backend e da autorização Master. O local-agent não aceita shell livre e não executa ações em containers fora do padrão `hbx-engine-N`.
+
 ## Kanban
 
 A aba `Kanban` tem as lanes:

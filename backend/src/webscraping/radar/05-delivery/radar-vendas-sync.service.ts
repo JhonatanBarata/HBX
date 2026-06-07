@@ -4,7 +4,7 @@ import { VendasService } from '../../../vendas/vendas.service';
 import type { SearchExecutionContext } from '../shared/radar-types';
 
 export type RadarVendasSyncHost = {
-  getPendingCount: (companyId: number) => Promise<number>;
+  getPendingCount: (context: SearchExecutionContext) => Promise<number>;
   resolveContext: (user: any) => SearchExecutionContext;
   syncRadarSearchRunItemsToPool: (context: SearchExecutionContext, run: any) => Promise<void>;
   buildRadarFiltersFromSearchRun: (run: any) => any;
@@ -53,6 +53,14 @@ export class RadarVendasSyncService {
     if (!this.vendasService || typeof (this.vendasService as any).getPendingVendasCardCountForCompany !== 'function') return 0;
     return this.vendasService.getPendingVendasCardCountForCompany(companyId).catch((error: any) => {
       this.logger.warn(`[radar-vendas] falha ao contar cards pendentes company=${companyId}: ${String(error?.message || error)}`);
+      return 0;
+    });
+  }
+
+  async getPendingCountForSeller(companyId: number, userId: number) {
+    if (!this.vendasService || typeof (this.vendasService as any).getPendingVendasCardCountForSeller !== 'function') return 0;
+    return this.vendasService.getPendingVendasCardCountForSeller(companyId, userId).catch((error: any) => {
+      this.logger.warn(`[radar-vendas] falha ao contar cards pendentes company=${companyId} seller=${userId}: ${String(error?.message || error)}`);
       return 0;
     });
   }
@@ -122,7 +130,7 @@ export class RadarVendasSyncService {
   async autoImportSearchRunToVendas(user: any, runId: string, host: RadarVendasSyncHost) {
     if (!this.vendasService) return { ran: false, importedCount: 0, pendingCount: 0, remaining: null };
     const context = host.resolveContext(user);
-    let pendingCount = await host.getPendingCount(context.companyId);
+    let pendingCount = await host.getPendingCount(context);
     const remaining = null;
 
     const run = await this.prisma.webscrapingSearchRun.findFirst({
@@ -176,7 +184,7 @@ export class RadarVendasSyncService {
     let processedCount = 0;
     let blockedByLimit = false;
     for (const row of orderedRows.slice(0, requestedQuantity)) {
-      pendingCount = await host.getPendingCount(context.companyId);
+      pendingCount = await host.getPendingCount(context);
       if (stockTarget > 0 && pendingCount >= stockTarget) {
         await host.stopSearchRunIfVendasStockLimitReached(run, 'vendas_stock_limit_during_import');
         failures.push({ reason: 'vendas_stock_limit' });
@@ -192,7 +200,7 @@ export class RadarVendasSyncService {
       try {
         const imported = await host.importRadarLeadToVendasForUser(user, row.id, { skipWhatsappValidation: true });
         processedCount += 1;
-        pendingCount = await host.getPendingCount(context.companyId);
+        pendingCount = await host.getPendingCount(context);
         importedCount += Math.max(0, safeInteger(imported?.import?.deliveredCount));
       } catch (error: any) {
         const reason = String(error?.response?.code || error?.code || 'falha_importacao_vendas');
@@ -214,7 +222,7 @@ export class RadarVendasSyncService {
         },
       }).catch(() => null);
     }
-    const finalPendingCount = await host.getPendingCount(context.companyId);
+    const finalPendingCount = await host.getPendingCount(context);
     if (!blockedByLimit && stockTarget > 0 && finalPendingCount >= stockTarget) {
       await host.stopSearchRunIfVendasStockLimitReached(run, 'vendas_stock_limit_after_import');
       failures.push({ reason: 'vendas_stock_limit' });

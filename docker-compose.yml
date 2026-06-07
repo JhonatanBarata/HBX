@@ -3,6 +3,7 @@ x-hbx-engine-common: &hbx-engine-common
     context: ./hbx-scraping-engine
     dockerfile: Dockerfile
   restart: unless-stopped
+  profiles: ["hbx-engines"]
   environment:
     HBX_SCRAPING_USER_AGENT: ${HBX_SCRAPING_USER_AGENT:-HBX-Scraping/0.1 contato@hbxsystem.com.br}
     HBX_SCRAPING_TIMEOUT_SECONDS: ${HBX_SCRAPING_TIMEOUT_SECONDS:-20}
@@ -59,56 +60,6 @@ services:
     depends_on:
       - db
       - hbx-scraping-engine
-      - hbx-engine-1
-      - hbx-engine-2
-      - hbx-engine-3
-      - hbx-engine-4
-      - hbx-engine-5
-      - hbx-engine-6
-      - hbx-engine-7
-      - hbx-engine-8
-      - hbx-engine-9
-      - hbx-engine-10
-      - hbx-engine-11
-      - hbx-engine-12
-      - hbx-engine-13
-      - hbx-engine-14
-      - hbx-engine-15
-      - hbx-engine-16
-      - hbx-engine-17
-      - hbx-engine-18
-      - hbx-engine-19
-      - hbx-engine-20
-      - hbx-engine-21
-      - hbx-engine-22
-      - hbx-engine-23
-      - hbx-engine-24
-      - hbx-engine-25
-      - hbx-engine-26
-      - hbx-engine-27
-      - hbx-engine-28
-      - hbx-engine-29
-      - hbx-engine-30
-      - hbx-engine-31
-      - hbx-engine-32
-      - hbx-engine-33
-      - hbx-engine-34
-      - hbx-engine-35
-      - hbx-engine-36
-      - hbx-engine-37
-      - hbx-engine-38
-      - hbx-engine-39
-      - hbx-engine-40
-      - hbx-engine-41
-      - hbx-engine-42
-      - hbx-engine-43
-      - hbx-engine-44
-      - hbx-engine-45
-      - hbx-engine-46
-      - hbx-engine-47
-      - hbx-engine-48
-      - hbx-engine-49
-      - hbx-engine-50
     environment:
       APP_PORT: "3000"
       DATABASE_URL: postgresql://admin:admin123@db:5432/jhonatan_dev
@@ -116,13 +67,20 @@ services:
       NODE_ENV: development
       WHATSAPP_MODAL_INTERNAL_URL: http://host.docker.internal:8080
       HBX_SCRAPING_ENGINE_URL: http://hbx-scraping-engine:8001
-      HBX_ENGINE_COUNT: ${HBX_ENGINE_COUNT:-50}
-      HBX_ENGINE_MAX_COUNT: ${HBX_ENGINE_MAX_COUNT:-50}
-      HBX_ENGINE_URLS: ${HBX_ENGINE_URLS:-http://hbx-engine-{n}:8001}
-      HBX_LIST_ENGINE_COUNT: ${HBX_LIST_ENGINE_COUNT:-50}
+      HBX_ENGINE_COUNT: ${HBX_ENGINE_COUNT:-1}
+      HBX_ENGINE_MAX_COUNT: ${HBX_ENGINE_MAX_COUNT:-1}
+      HBX_ENGINE_URLS: ${HBX_ENGINE_URLS:-http://hbx-scraping-engine:8001}
+      HBX_LIST_ENGINE_COUNT: ${HBX_LIST_ENGINE_COUNT:-1}
       HBX_CLIENT_RESERVED_ENGINES: ${HBX_CLIENT_RESERVED_ENGINES:-2}
       HBX_FACTORY_MIN_ENGINES: ${HBX_FACTORY_MIN_ENGINES:-1}
-      HBX_FACTORY_MAX_ENGINES: ${HBX_FACTORY_MAX_ENGINES:-50}
+      HBX_FACTORY_MAX_ENGINES: ${HBX_FACTORY_MAX_ENGINES:-1}
+      HBX_FACTORY_MEMORY_SOFT_PRESSURE_PERCENT: ${HBX_FACTORY_MEMORY_SOFT_PRESSURE_PERCENT:-82}
+      HBX_FACTORY_MEMORY_HARD_PRESSURE_PERCENT: ${HBX_FACTORY_MEMORY_HARD_PRESSURE_PERCENT:-85}
+      HBX_FACTORY_MEMORY_PANIC_PRESSURE_PERCENT: ${HBX_FACTORY_MEMORY_PANIC_PRESSURE_PERCENT:-88}
+      HBX_ENGINE_GOVERNOR_ENABLED: ${HBX_ENGINE_GOVERNOR_ENABLED:-false}
+      HBX_ENGINE_GOVERNOR_INTERVAL_SECONDS: ${HBX_ENGINE_GOVERNOR_INTERVAL_SECONDS:-30}
+      HBX_ENGINE_GOVERNOR_COOLDOWN_SECONDS: ${HBX_ENGINE_GOVERNOR_COOLDOWN_SECONDS:-120}
+      HBX_ENGINE_DRAIN_TIMEOUT_SECONDS: ${HBX_ENGINE_DRAIN_TIMEOUT_SECONDS:-90}
       HBX_RADAR_CLIENT_PRIORITY_START_HOUR: ${HBX_RADAR_CLIENT_PRIORITY_START_HOUR:-8}
       HBX_RADAR_CLIENT_PRIORITY_END_HOUR: ${HBX_RADAR_CLIENT_PRIORITY_END_HOUR:-20}
       HBX_RADAR_CLIENT_REQUEST_TIMEOUT_MS: ${HBX_RADAR_CLIENT_REQUEST_TIMEOUT_MS:-25000}

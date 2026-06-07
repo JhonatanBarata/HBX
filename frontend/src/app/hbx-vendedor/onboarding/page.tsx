@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import styles from "./page.module.css";
 
@@ -55,7 +55,7 @@ function PublicSellerOnboarding() {
   const [selectedFiles, setSelectedFiles] = useState<Record<string, File | null>>({});
   const [completing, setCompleting] = useState(false);
 
-  async function loadStatus() {
+  const loadStatus = useCallback(async () => {
     if (!token) {
       setError("Link inválido. Solicite um novo envio ao HBX.");
       setLoading(false);
@@ -77,11 +77,11 @@ function PublicSellerOnboarding() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [token]);
 
   useEffect(() => {
     void loadStatus();
-  }, [token]);
+  }, [loadStatus]);
 
   async function uploadDocument(kind: string, file?: File | null) {
     if (!file || !token) return;
@@ -99,12 +99,14 @@ function PublicSellerOnboarding() {
       const data: unknown = await response.json().catch(() => null);
       if (!response.ok) {
         setError(errorMessage(data, "Falha ao enviar documento."));
+        setSelectedFiles((current) => ({ ...current, [kind]: null }));
         return;
       }
       setPayload((data as PublicOnboardingPayload) || null);
       setSelectedFiles((current) => ({ ...current, [kind]: null }));
     } catch {
       setError("Falha ao enviar documento. Verifique sua conexão e tente novamente.");
+      setSelectedFiles((current) => ({ ...current, [kind]: null }));
     } finally {
       setUploadingKind(null);
     }
@@ -157,7 +159,6 @@ function PublicSellerOnboarding() {
   }
 
   const documents = payload?.documents || [];
-  const pendingDocuments = documents.filter((item) => item.required && !item.present);
   const readyToConfirm = Boolean(payload?.documentsComplete && !payload?.emailConfirmed);
   const done = Boolean(payload?.emailConfirmed);
 
@@ -250,28 +251,7 @@ function PublicSellerOnboarding() {
                           ) : null}
                         </>
                       ) : selectedFile ? (
-                        <>
-                          <button
-                            type="button"
-                            className={styles.uploadButton}
-                            onClick={() => void uploadDocument(document.kind, selectedFile)}
-                            disabled={Boolean(uploadingKind)}
-                          >
-                            {uploadingKind === document.kind ? "Enviando..." : "Enviar"}
-                          </button>
-                          <button
-                            type="button"
-                            className={styles.removeButton}
-                            onClick={() => {
-                              setError(null);
-                              setSelectedFiles((current) => ({ ...current, [document.kind]: null }));
-                            }}
-                            disabled={Boolean(uploadingKind)}
-                            aria-label={`Cancelar ${document.label}`}
-                          >
-                            ×
-                          </button>
-                        </>
+                        <b>{uploadingKind === document.kind ? "Enviando..." : "Anexo carregado"}</b>
                       ) : (
                         <label>
                           Escolher arquivo
@@ -283,6 +263,7 @@ function PublicSellerOnboarding() {
                               const file = event.target.files?.[0] || null;
                               setError(null);
                               setSelectedFiles((current) => ({ ...current, [document.kind]: file }));
+                              if (file) void uploadDocument(document.kind, file);
                               event.currentTarget.value = "";
                             }}
                           />
@@ -294,9 +275,6 @@ function PublicSellerOnboarding() {
               })}
             </div>
 
-            {!done && pendingDocuments.length ? (
-              <p className={styles.footerText}>O link continuará válido enquanto houver documento obrigatório pendente.</p>
-            ) : null}
           </>
         )}
       </section>

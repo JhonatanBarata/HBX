@@ -169,6 +169,91 @@ function execRead(command) {
   };
 }
 
+function isAllowedHbxEngineName(name) {
+  return /^hbx-engine-\d+$/.test(String(name || "").trim());
+}
+
+function parseDockerRows(output) {
+  return String(output || "")
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter(Boolean)
+    .map((line) => {
+      const [name, image, status, state, ports = ""] = line.split("\t");
+      return { name, image, status, state, ports };
+    })
+    .filter((item) => isAllowedHbxEngineName(item.name));
+}
+
+function parseDockerStats(output) {
+  const stats = new Map();
+  for (const line of String(output || "").split(/\r?\n/)) {
+    const [name, cpu, memory, memPercent, pids] = line.split("\t");
+    if (!isAllowedHbxEngineName(name)) continue;
+    stats.set(name, { cpu, memory, memPercent, pids });
+  }
+  return stats;
+}
+
+function engineNumber(name) {
+  const match = String(name || "").match(/^hbx-engine-(\d+)$/);
+  return match ? Number(match[1]) : 0;
+}
+
+function readRadarEngineStatus() {
+  const ps = execRead([
+    "docker",
+    "ps",
+    "-a",
+    "--format",
+    "{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.State}}\t{{.Ports}}",
+  ]);
+  const stats = execRead([
+    "docker",
+    "stats",
+    "--no-stream",
+    "--format",
+    "{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}\t{{.PIDs}}",
+  ]);
+  const statRows = parseDockerStats(stats.stdout);
+  const engines = parseDockerRows(ps.stdout)
+    .sort((left, right) => engineNumber(left.name) - engineNumber(right.name))
+    .map((engine) => {
+      const itemStats = statRows.get(engine.name) || {};
+      return {
+        ...engine,
+        cpu: itemStats.cpu || "-",
+        memory: itemStats.memory || "-",
+        memPercent: itemStats.memPercent || "-",
+        pids: itemStats.pids || "-",
+      };
+    });
+  return {
+    ok: ps.ok,
+    dockerOk: ps.ok,
+    statsOk: stats.ok,
+    generatedAt: nowIso(),
+    summary: {
+      total: engines.length,
+      running: engines.filter((engine) => engine.state === "running").length,
+      stopped: engines.filter((engine) => engine.state !== "running").length,
+    },
+    engines,
+    errors: [
+      ps.ok ? "" : (ps.stderr || ps.stdout || "docker ps falhou.").trim(),
+      stats.ok ? "" : (stats.stderr || stats.stdout || "docker stats indisponivel.").trim(),
+    ].filter(Boolean),
+  };
+}
+
+function runDockerEngineAction(engineId, action, label) {
+  if (!isAllowedHbxEngineName(engineId)) {
+    throw new Error("Motor invalido. Use apenas hbx-engine-N.");
+  }
+  const command = ["docker", action, engineId];
+  return runCommandArray(`radar-engine-${action}`, `${label} ${engineId}`, command);
+}
+
 function sendJson(res, statusCode, payload) {
   const body = JSON.stringify(payload);
   res.writeHead(statusCode, {
@@ -254,6 +339,42 @@ async function route(req, res) {
 
   if (req.method === "GET" && url.pathname === "/commands") {
     sendJson(res, 200, { ok: true, commands: Object.entries(allowlist).map(([id, item]) => publicCommand(id, item)) });
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/radar/engines/status") {
+    sendJson(res, 200, readRadarEngineStatus());
+    return;
+  }
+
+  const radarEngineLogsMatch = url.pathname.match(/^\/radar\/engines\/([^/]+)\/logs$/);
+  if (req.method === "GET" && radarEngineLogsMatch) {
+    const engineId = radarEngineLogsMatch[1];
+    if (!isAllowedHbxEngineName(engineId)) {
+      sendError(res, 400, "Motor invalido. Use apenas hbx-engine-N.");
+      return;
+    }
+    const result = execRead(["docker", "logs", "--tail", "160", engineId]);
+    sendJson(res, 200, {
+      ok: result.ok,
+      engineId,
+      log: `${result.stdout || ""}${result.stderr || ""}`.slice(-30000),
+      result,
+    });
+    return;
+  }
+
+  const radarEngineActionMatch = url.pathname.match(/^\/radar\/engines\/([^/]+)\/(start|stop)$/);
+  if (req.method === "POST" && radarEngineActionMatch) {
+    const engineId = radarEngineActionMatch[1];
+    const action = radarEngineActionMatch[2];
+    const body = await readBody(req);
+    if (action === "stop" && body.confirm !== true && body.confirmation !== "CONFIRMAR") {
+      sendError(res, 400, "Confirmacao obrigatoria para parar motor.");
+      return;
+    }
+    const run = runDockerEngineAction(engineId, action, action === "start" ? "Iniciar motor" : "Parar motor");
+    sendJson(res, 202, { ok: true, run });
     return;
   }
 

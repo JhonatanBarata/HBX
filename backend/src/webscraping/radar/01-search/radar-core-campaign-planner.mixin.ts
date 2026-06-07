@@ -878,15 +878,18 @@ export class RadarCoreCampaignPlannerMixin {
     const factoryMaxEngines = clampInteger(input.maxEngines ?? input.engineCount ?? base.engineCount, base.engineCount, 0, getConfiguredHbxEngineCount());
     const factoryMinEngines = clampInteger(input.minEngines ?? factoryMaxEngines, factoryMaxEngines, 0, factoryMaxEngines);
     const drainTimeoutSeconds = clampInteger(input.drainTimeoutSeconds, existingMetadata.drainTimeoutSeconds || 90, 10, 900);
+    const forcedUntilProvided = Object.prototype.hasOwnProperty.call(input, 'forcedUntil');
     const explicitForcedUntil = String(input.forcedUntil || '').trim();
     const now = new Date();
     const forcedUntil = coerceBoolean(input.forceNow)
       ? this.buildForcedUntil(base, now)
-      : explicitForcedUntil
-        ? explicitForcedUntil
-        : existingMetadata.forcedUntil && new Date(existingMetadata.forcedUntil).getTime() > now.getTime()
-          ? existingMetadata.forcedUntil
-          : null;
+      : forcedUntilProvided
+        ? (explicitForcedUntil || null)
+        : explicitForcedUntil
+          ? explicitForcedUntil
+          : existingMetadata.forcedUntil && new Date(existingMetadata.forcedUntil).getTime() > now.getTime()
+            ? existingMetadata.forcedUntil
+            : null;
     return {
       ...base,
       metadataJson: JSON.stringify({

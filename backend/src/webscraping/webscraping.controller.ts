@@ -549,6 +549,22 @@ class MasterEnginePauseDto {
   minutes?: number;
 }
 
+class MasterEngineDrainDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(10)
+  @Max(900)
+  seconds?: number;
+}
+
+class MasterEngineStopDto extends MasterEngineDrainDto {
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  force?: boolean;
+}
+
 class MasterDatabaseCardsQueryDto extends RadarDatabaseQueryDto {
   @IsOptional()
   @Type(() => Number)
@@ -1139,9 +1155,24 @@ export class MasterWebscrapingController {
     return this.webscrapingService.getRadarFactoryStatus(req.user);
   }
 
+  @Get('elastic/status')
+  getElasticStatus(@Req() req: any) {
+    return this.webscrapingService.getMasterMassDataControl(req.user);
+  }
+
   @Post('factory/start')
   startFactory(@Req() req: any) {
     return this.webscrapingService.startRadarFactory(req.user);
+  }
+
+  @Post('elastic/force-night')
+  forceNightFactory(@Req() req: any, @Body() dto: MasterTurboConfigDto) {
+    return this.webscrapingService.forceNightRadarFactory(req.user, dto || {});
+  }
+
+  @Post('elastic/cancel-forced')
+  cancelForcedFactory(@Req() req: any, @Body() dto: MasterEngineStopDto) {
+    return this.webscrapingService.cancelForcedRadarFactory(req.user, dto || {});
   }
 
   @Post('factory/stop')
@@ -1198,6 +1229,24 @@ export class MasterWebscrapingController {
   @Post('engines/:id/resume')
   async resumeMasterEngine(@Req() req: any, @Param('id') id: string) {
     await this.hbxEnginePool.resumeEngine(id);
+    return this.webscrapingService.getMasterMassDataControl(req.user);
+  }
+
+  @Post('engines/:id/drain')
+  async drainMasterEngine(@Req() req: any, @Param('id') id: string, @Body() dto: MasterEngineDrainDto) {
+    await this.hbxEnginePool.drainEngine(id, { seconds: dto?.seconds });
+    return this.webscrapingService.getMasterMassDataControl(req.user);
+  }
+
+  @Post('engines/:id/stop')
+  async stopMasterEngine(@Req() req: any, @Param('id') id: string, @Body() dto: MasterEngineStopDto) {
+    await this.hbxEnginePool.stopEngine(id, { force: Boolean(dto?.force), seconds: dto?.seconds });
+    return this.webscrapingService.getMasterMassDataControl(req.user);
+  }
+
+  @Post('engines/:id/stop-container')
+  async stopMasterEngineContainer(@Req() req: any, @Param('id') id: string, @Body() dto: MasterEngineStopDto) {
+    await this.hbxEnginePool.stopEngine(id, { force: Boolean(dto?.force), seconds: dto?.seconds });
     return this.webscrapingService.getMasterMassDataControl(req.user);
   }
 

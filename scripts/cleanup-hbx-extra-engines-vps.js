@@ -19,6 +19,18 @@ const env = {
 const host = String(env.HOSTINGER_SSH_HOST || '').trim();
 const user = String(env.HOSTINGER_SSH_USER || '').trim();
 const appDir = String(env.HOSTINGER_APP_DIR || '').trim();
+const rewriteEnv = ['1', 'true', 'yes', 'on'].includes(String(env.HBX_ENGINE_CLEANUP_REWRITE_ENV || '').trim().toLowerCase());
+const keepCount = Math.min(
+  Math.max(
+    Number.parseInt(String(env.HBX_ENGINE_CLEANUP_KEEP_COUNT || env.HBX_ENGINE_MAX_COUNT || env.HBX_ENGINE_HARD_LIMIT || '200'), 10) || 200,
+    1,
+  ),
+  200,
+);
+const scanLimit = Math.max(
+  keepCount,
+  Math.min(Number.parseInt(String(env.HBX_ENGINE_CLEANUP_SCAN_LIMIT || '400'), 10) || 400, 400),
+);
 
 if (!host || !user) {
   throw new Error('HOSTINGER_SSH_HOST/HOSTINGER_SSH_USER ausentes.');
@@ -27,7 +39,12 @@ if (!host || !user) {
 const remote = [
   'set -eu',
   appDir ? `cd ${shellSingleQuote(appDir)}` : 'true',
-  'for n in $(seq 51 200); do',
+  `KEEP_COUNT=${shellSingleQuote(keepCount)}`,
+  `SCAN_LIMIT=${shellSingleQuote(scanLimit)}`,
+  `HBX_ENGINE_CLEANUP_REWRITE_ENV=${shellSingleQuote(rewriteEnv ? 'true' : 'false')}`,
+  'START_REMOVE=$((KEEP_COUNT + 1))',
+  'if [ "$START_REMOVE" -le "$SCAN_LIMIT" ]; then',
+  'for n in $(seq "$START_REMOVE" "$SCAN_LIMIT"); do',
   '  name="hbx-engine-$n"',
   '  if docker ps -a --format "{{.Names}}" | grep -qx "$name"; then',
   '    echo "Stopping/removing $name"',
@@ -35,14 +52,15 @@ const remote = [
   '    docker rm "$name" >/dev/null 2>&1 || true',
   '  fi',
   'done',
-  'if [ -f .env ]; then',
+  'fi',
+  'if [ "${HBX_ENGINE_CLEANUP_REWRITE_ENV:-false}" = "true" ] && [ -f .env ]; then',
   '  tmp="$(mktemp)"',
-  '  awk \'BEGIN{c=0;mc=0;r=0;m=0} /^HBX_ENGINE_COUNT=/ {print "HBX_ENGINE_COUNT=50"; c=1; next} /^HBX_ENGINE_MAX_COUNT=/ {print "HBX_ENGINE_MAX_COUNT=50"; mc=1; next} /^HBX_CLIENT_RESERVED_ENGINES=/ {print "HBX_CLIENT_RESERVED_ENGINES=0"; r=1; next} /^HBX_FACTORY_MAX_ENGINES=/ {print "HBX_FACTORY_MAX_ENGINES=50"; m=1; next} {print} END{if(!c) print "HBX_ENGINE_COUNT=50"; if(!mc) print "HBX_ENGINE_MAX_COUNT=50"; if(!r) print "HBX_CLIENT_RESERVED_ENGINES=0"; if(!m) print "HBX_FACTORY_MAX_ENGINES=50"}\' .env > "$tmp"',
+  '  awk -v keep="$KEEP_COUNT" \'BEGIN{c=0;mc=0;m=0} /^HBX_ENGINE_COUNT=/ {print "HBX_ENGINE_COUNT=" keep; c=1; next} /^HBX_ENGINE_MAX_COUNT=/ {print "HBX_ENGINE_MAX_COUNT=" keep; mc=1; next} /^HBX_FACTORY_MAX_ENGINES=/ {print "HBX_FACTORY_MAX_ENGINES=" keep; m=1; next} {print} END{if(!c) print "HBX_ENGINE_COUNT=" keep; if(!mc) print "HBX_ENGINE_MAX_COUNT=" keep; if(!m) print "HBX_FACTORY_MAX_ENGINES=" keep}\' .env > "$tmp"',
   '  cat "$tmp" > .env',
   '  rm -f "$tmp"',
   'fi',
-  'docker ps -a --format "{{.Names}}" | grep -E "^hbx-engine-([5-9][1-9]|[1-9][0-9]{2})$" && exit 1 || true',
-  'echo "Cleanup extra HBX engines done."',
+  'docker ps -a --format "{{.Names}}" | awk -v keep="$KEEP_COUNT" \'/^hbx-engine-[0-9]+$/ { split($0, p, "-"); if ((p[3] + 0) > keep) { print; found=1 } } END { exit found ? 1 : 0 }\'',
+  'echo "Cleanup extra HBX engines done. keep=$KEEP_COUNT scan=$SCAN_LIMIT"',
 ].join('\n');
 
 run('ssh', [`${user}@${host}`, remote], { cwd: repoRoot });

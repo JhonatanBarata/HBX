@@ -17,8 +17,8 @@ const {
 
 const remote = 'origin';
 const branch = 'master';
-const HBX_ACTIVE_ENGINE_COUNT = 50;
-const HBX_MAX_ENGINE_COUNT = 50;
+const HBX_ENGINE_HARD_LIMIT = 200;
+const HBX_DEFAULT_PUBLISH_ENGINE_COUNT = 3;
 const rawArgs = process.argv.slice(2).map((arg) => String(arg || '').trim()).filter(Boolean);
 
 function parseMode() {
@@ -36,6 +36,14 @@ function parseMode() {
 
 function logStage(title) {
   console.log(`\n=== ${title} ===`);
+}
+
+function formatElapsed(startedAt) {
+  const elapsedSeconds = Math.max(0, Math.round((Date.now() - startedAt) / 1000));
+  const minutes = Math.floor(elapsedSeconds / 60);
+  const seconds = elapsedSeconds % 60;
+  if (minutes > 0) return `${minutes}m${String(seconds).padStart(2, '0')}s`;
+  return `${seconds}s`;
 }
 
 function quietToolEnv(extra = {}) {
@@ -94,12 +102,20 @@ function parsePositiveInteger(value, fallback) {
   return Math.max(1, Math.trunc(parsed));
 }
 
+function parseNonNegativeInteger(value, fallback) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(0, Math.trunc(parsed));
+}
+
 function resolveHbxEngineCount(env) {
   const requested = parsePositiveInteger(
-    env.HBX_ENGINE_COUNT || env.HBX_PUBLISH_ENGINE_COUNT,
-    HBX_ACTIVE_ENGINE_COUNT,
+    env.HBX_PUBLISH_ENGINE_COUNT || env.HBX_PUBLISH_WARM_ENGINE_COUNT,
+    HBX_DEFAULT_PUBLISH_ENGINE_COUNT,
   );
-  return Math.min(requested, HBX_ACTIVE_ENGINE_COUNT);
+  return Math.min(requested, HBX_ENGINE_HARD_LIMIT);
 }
 
 function ensureRequiredEnv(env) {
@@ -129,9 +145,13 @@ function ensureRequiredEnv(env) {
   const hbxEngineMaxCount = Math.min(
     Math.max(
       hbxEngineCount,
-      parsePositiveInteger(env.HBX_ENGINE_MAX_COUNT || env.HBX_PUBLISH_ENGINE_MAX_COUNT, HBX_MAX_ENGINE_COUNT),
+      parsePositiveInteger(env.HBX_PUBLISH_ENGINE_MAX_COUNT || env.HBX_ENGINE_MAX_COUNT, HBX_ENGINE_HARD_LIMIT),
     ),
-    HBX_MAX_ENGINE_COUNT,
+    HBX_ENGINE_HARD_LIMIT,
+  );
+  const hbxClientReservedEngines = Math.min(
+    parseNonNegativeInteger(env.HBX_CLIENT_RESERVED_ENGINES, 2),
+    Math.max(0, hbxEngineCount - 1),
   );
 
   return {
@@ -143,6 +163,7 @@ function ensureRequiredEnv(env) {
     forceReboot: isTruthy(env.FORCE_REBOOT_HOSTINGER),
     hbxEngineCount,
     hbxEngineMaxCount,
+    hbxClientReservedEngines,
     webwhatsAppDir: String(env.WEBWHATS_APP_DIR || `${env.HOSTINGER_APP_DIR}/Webwhats`).trim(),
     webwhatsSystemdService: String(env.WEBWHATS_SYSTEMD_SERVICE || 'webwhats').trim(),
   };
@@ -286,6 +307,8 @@ function buildRemoteDeployScript(config, mode) {
     `BACKEND_VERIFY_ATTEMPTS=${shellSingleQuote(backendVerifyAttempts)}`,
     `REQUESTED_HBX_ENGINE_COUNT=${shellSingleQuote(config.hbxEngineCount)}`,
     `REQUESTED_HBX_ENGINE_MAX_COUNT=${shellSingleQuote(config.hbxEngineMaxCount)}`,
+    `REQUESTED_HBX_CLIENT_RESERVED_ENGINES=${shellSingleQuote(config.hbxClientReservedEngines)}`,
+    `HBX_ENGINE_HARD_LIMIT=${shellSingleQuote(HBX_ENGINE_HARD_LIMIT)}`,
     `WEBWHATS_APP_DIR=${shellSingleQuote(config.webwhatsAppDir)}`,
     `WEBWHATS_SYSTEMD_SERVICE=${shellSingleQuote(config.webwhatsSystemdService)}`,
     'export GIT_SSH_COMMAND="ssh -o BatchMode=yes"',
@@ -306,7 +329,7 @@ function buildRemoteDeployScript(config, mode) {
     'upsert_root_env() { key="$1"; value="$2"; tmp="$(mktemp)"; awk -v key="$key" -v value="$value" \'BEGIN{done=0} $0 ~ "^" key "=" { print key "=" value; done=1; next } { print } END{ if (!done) print key "=" value }\' .env > "$tmp"; cat "$tmp" > .env; rm -f "$tmp"; }',
     'upsert_root_env HBX_ENGINE_COUNT "$REQUESTED_HBX_ENGINE_COUNT"',
     'upsert_root_env HBX_ENGINE_MAX_COUNT "$REQUESTED_HBX_ENGINE_MAX_COUNT"',
-    'upsert_root_env HBX_CLIENT_RESERVED_ENGINES "0"',
+    'upsert_root_env HBX_CLIENT_RESERVED_ENGINES "$REQUESTED_HBX_CLIENT_RESERVED_ENGINES"',
     'upsert_root_env HBX_FACTORY_MIN_ENGINES "$REQUESTED_HBX_ENGINE_COUNT"',
     'upsert_root_env HBX_FACTORY_MAX_ENGINES "$REQUESTED_HBX_ENGINE_COUNT"',
     'upsert_root_env HBX_RADAR_CLIENT_PRIORITY_START_HOUR "${HBX_RADAR_CLIENT_PRIORITY_START_HOUR:-8}"',
@@ -321,14 +344,24 @@ function buildRemoteDeployScript(config, mode) {
     'if [ -z "$POSTGRES_USER" ] || [ -z "$POSTGRES_PASSWORD" ] || [ -z "$POSTGRES_DB" ] || [ -z "$POSTGRES_DATA_VOLUME" ] || [ -z "$NEXT_PUBLIC_API_URL" ]; then echo "ERRO: .env raiz sem variaveis obrigatorias do docker-compose."; exit 1; fi',
     'export HBX_ENGINE_COUNT="$(awk -F= \'/^HBX_ENGINE_COUNT=/{print substr($0, length("HBX_ENGINE_COUNT")+2); exit}\' .env)"',
     'export HBX_ENGINE_MAX_COUNT="$(awk -F= \'/^HBX_ENGINE_MAX_COUNT=/{print substr($0, length("HBX_ENGINE_MAX_COUNT")+2); exit}\' .env)"',
-    'if [ -z "$HBX_ENGINE_MAX_COUNT" ]; then export HBX_ENGINE_MAX_COUNT=50; fi',
-    'case "$HBX_ENGINE_MAX_COUNT" in *[!0-9]*|"") echo "Aviso: HBX_ENGINE_MAX_COUNT invalido no .env; usando 50."; export HBX_ENGINE_MAX_COUNT=50;; esac',
-    'if [ "$HBX_ENGINE_MAX_COUNT" -gt 50 ]; then echo "Aviso: HBX_ENGINE_MAX_COUNT=$HBX_ENGINE_MAX_COUNT acima da frota oficial; usando 50."; export HBX_ENGINE_MAX_COUNT=50; fi',
-    'if [ -z "$HBX_ENGINE_COUNT" ]; then export HBX_ENGINE_COUNT=50; fi',
-    'case "$HBX_ENGINE_COUNT" in *[!0-9]*|"") echo "Aviso: HBX_ENGINE_COUNT invalido no .env; usando 50."; export HBX_ENGINE_COUNT=50;; esac',
+    'if [ -z "$HBX_ENGINE_MAX_COUNT" ]; then export HBX_ENGINE_MAX_COUNT="$HBX_ENGINE_HARD_LIMIT"; fi',
+    'case "$HBX_ENGINE_MAX_COUNT" in *[!0-9]*|"") echo "Aviso: HBX_ENGINE_MAX_COUNT invalido no .env; usando $HBX_ENGINE_HARD_LIMIT."; export HBX_ENGINE_MAX_COUNT="$HBX_ENGINE_HARD_LIMIT";; esac',
+    'if [ "$HBX_ENGINE_MAX_COUNT" -gt "$HBX_ENGINE_HARD_LIMIT" ]; then echo "Aviso: HBX_ENGINE_MAX_COUNT=$HBX_ENGINE_MAX_COUNT acima do hard limit; usando $HBX_ENGINE_HARD_LIMIT."; export HBX_ENGINE_MAX_COUNT="$HBX_ENGINE_HARD_LIMIT"; fi',
+    'if [ -z "$HBX_ENGINE_COUNT" ]; then export HBX_ENGINE_COUNT="$REQUESTED_HBX_ENGINE_COUNT"; fi',
+    'case "$HBX_ENGINE_COUNT" in *[!0-9]*|"") echo "Aviso: HBX_ENGINE_COUNT invalido no .env; usando $REQUESTED_HBX_ENGINE_COUNT."; export HBX_ENGINE_COUNT="$REQUESTED_HBX_ENGINE_COUNT";; esac',
     'if [ "$HBX_ENGINE_COUNT" -lt 1 ]; then echo "Aviso: HBX_ENGINE_COUNT=$HBX_ENGINE_COUNT abaixo do minimo; usando 1."; export HBX_ENGINE_COUNT=1; fi',
-    'if [ "$HBX_ENGINE_COUNT" -gt 50 ]; then echo "Aviso: HBX_ENGINE_COUNT=$HBX_ENGINE_COUNT acima da frota ativa atual; usando 50."; export HBX_ENGINE_COUNT=50; fi',
+    'if [ "$HBX_ENGINE_COUNT" -gt "$HBX_ENGINE_HARD_LIMIT" ]; then echo "Aviso: HBX_ENGINE_COUNT=$HBX_ENGINE_COUNT acima do hard limit; usando $HBX_ENGINE_HARD_LIMIT."; export HBX_ENGINE_COUNT="$HBX_ENGINE_HARD_LIMIT"; fi',
     'if [ "$HBX_ENGINE_COUNT" -gt "$HBX_ENGINE_MAX_COUNT" ]; then echo "Aviso: HBX_ENGINE_COUNT=$HBX_ENGINE_COUNT acima do limite; usando $HBX_ENGINE_MAX_COUNT."; export HBX_ENGINE_COUNT="$HBX_ENGINE_MAX_COUNT"; fi',
+    'export HBX_CLIENT_RESERVED_ENGINES="$(awk -F= \'/^HBX_CLIENT_RESERVED_ENGINES=/{print substr($0, length("HBX_CLIENT_RESERVED_ENGINES")+2); exit}\' .env)"',
+    'if [ -z "$HBX_CLIENT_RESERVED_ENGINES" ]; then export HBX_CLIENT_RESERVED_ENGINES="$REQUESTED_HBX_CLIENT_RESERVED_ENGINES"; fi',
+    'case "$HBX_CLIENT_RESERVED_ENGINES" in *[!0-9]*|"") echo "Aviso: HBX_CLIENT_RESERVED_ENGINES invalido no .env; usando $REQUESTED_HBX_CLIENT_RESERVED_ENGINES."; export HBX_CLIENT_RESERVED_ENGINES="$REQUESTED_HBX_CLIENT_RESERVED_ENGINES";; esac',
+    'if [ "$HBX_CLIENT_RESERVED_ENGINES" -ge "$HBX_ENGINE_COUNT" ]; then export HBX_CLIENT_RESERVED_ENGINES=$((HBX_ENGINE_COUNT - 1)); fi',
+    'if [ "$HBX_CLIENT_RESERVED_ENGINES" -lt 0 ]; then export HBX_CLIENT_RESERVED_ENGINES=0; fi',
+    'export HBX_ENGINE_GOVERNOR_ENABLED="$(awk -F= \'/^HBX_ENGINE_GOVERNOR_ENABLED=/{print substr($0, length("HBX_ENGINE_GOVERNOR_ENABLED")+2); exit}\' .env)"',
+    'export HBX_ENGINE_GOVERNOR_INTERVAL_SECONDS="$(awk -F= \'/^HBX_ENGINE_GOVERNOR_INTERVAL_SECONDS=/{print substr($0, length("HBX_ENGINE_GOVERNOR_INTERVAL_SECONDS")+2); exit}\' .env)"',
+    'export HBX_ENGINE_GOVERNOR_COOLDOWN_SECONDS="$(awk -F= \'/^HBX_ENGINE_GOVERNOR_COOLDOWN_SECONDS=/{print substr($0, length("HBX_ENGINE_GOVERNOR_COOLDOWN_SECONDS")+2); exit}\' .env)"',
+    'export HBX_ENGINE_DRAIN_TIMEOUT_SECONDS="$(awk -F= \'/^HBX_ENGINE_DRAIN_TIMEOUT_SECONDS=/{print substr($0, length("HBX_ENGINE_DRAIN_TIMEOUT_SECONDS")+2); exit}\' .env)"',
+    'export HBX_ENGINE_DOCKER_CLI_PATH="$(awk -F= \'/^HBX_ENGINE_DOCKER_CLI_PATH=/{print substr($0, length("HBX_ENGINE_DOCKER_CLI_PATH")+2); exit}\' .env)"',
     'if docker network inspect hbx_net >/dev/null 2>&1; then export HBX_DOCKER_NETWORK=hbx_net; elif docker network inspect hbx-net >/dev/null 2>&1; then export HBX_DOCKER_NETWORK=hbx-net; else docker network create hbx_net >/dev/null; export HBX_DOCKER_NETWORK=hbx_net; fi',
     'if docker compose version >/dev/null 2>&1; then DC="docker compose"; elif docker-compose --version >/dev/null 2>&1; then DC="docker-compose"; else echo "ERRO: docker-compose nao encontrado."; exit 1; fi',
     'run_filtered() { set +e; "$@" 2>&1 | sed \'/legacy builder is deprecated/d;/Install the buildx component/d;/docs.docker.com\\/go\\/buildx/d\'; status="${PIPESTATUS[0]}"; set -e; return "$status"; }',
@@ -511,9 +544,14 @@ function buildRemoteDeployScript(config, mode) {
     '    -e HBX_ENGINE_COUNT="$HBX_ENGINE_COUNT" \\',
     '    -e HBX_ENGINE_MAX_COUNT="$HBX_ENGINE_MAX_COUNT" \\',
     '    -e HBX_ENGINE_URLS="$(hbx_engine_urls)" \\',
-    '    -e HBX_CLIENT_RESERVED_ENGINES="${HBX_CLIENT_RESERVED_ENGINES:-0}" \\',
+    '    -e HBX_CLIENT_RESERVED_ENGINES="${HBX_CLIENT_RESERVED_ENGINES:-$REQUESTED_HBX_CLIENT_RESERVED_ENGINES}" \\',
     '    -e HBX_FACTORY_MIN_ENGINES="${HBX_FACTORY_MIN_ENGINES:-$HBX_ENGINE_COUNT}" \\',
     '    -e HBX_FACTORY_MAX_ENGINES="${HBX_FACTORY_MAX_ENGINES:-$HBX_ENGINE_COUNT}" \\',
+    '    -e HBX_ENGINE_GOVERNOR_ENABLED="${HBX_ENGINE_GOVERNOR_ENABLED:-false}" \\',
+    '    -e HBX_ENGINE_GOVERNOR_INTERVAL_SECONDS="${HBX_ENGINE_GOVERNOR_INTERVAL_SECONDS:-30}" \\',
+    '    -e HBX_ENGINE_GOVERNOR_COOLDOWN_SECONDS="${HBX_ENGINE_GOVERNOR_COOLDOWN_SECONDS:-120}" \\',
+    '    -e HBX_ENGINE_DRAIN_TIMEOUT_SECONDS="${HBX_ENGINE_DRAIN_TIMEOUT_SECONDS:-90}" \\',
+    '    -e HBX_ENGINE_DOCKER_CLI_PATH="${HBX_ENGINE_DOCKER_CLI_PATH:-docker}" \\',
     '    -e HBX_RADAR_CLIENT_PRIORITY_START_HOUR="${HBX_RADAR_CLIENT_PRIORITY_START_HOUR:-8}" \\',
     '    -e HBX_RADAR_CLIENT_PRIORITY_END_HOUR="${HBX_RADAR_CLIENT_PRIORITY_END_HOUR:-20}" \\',
     '    -e HBX_RADAR_CLIENT_REQUEST_TIMEOUT_MS="${HBX_RADAR_CLIENT_REQUEST_TIMEOUT_MS:-25000}" \\',
@@ -707,7 +745,7 @@ function printDryRun(config, mode) {
   console.log('\n[dry-run] No git push, no SSH execution, no docker-compose down/up on Hostinger.');
   console.log('[dry-run] Would run: git push origin master');
   console.log(`[dry-run] Would SSH into: ${config.sshUser}@${config.sshHost}`);
-  console.log('[dry-run] Would run Hostinger remote deploy: fetch/reset, validate env/db/docker, build hbx-engine-1..50 + fallback, run backend with HBX_ENGINE_COUNT/HBX_ENGINE_URLS, run frontend via Docker hbx-frontend, list containers.');
+  console.log('[dry-run] Would run Hostinger remote deploy: fetch/reset, validate env/db/docker, build hbx-engine warm pool + fallback, run backend with HBX_ENGINE_COUNT/HBX_ENGINE_URLS, run frontend via Docker hbx-frontend, list containers.');
   if (isTruthy(process.env.PUBLISH_VERBOSE_DRY_RUN)) {
     console.log('--- remote script start ---');
     console.log(buildRemoteDeployScript(config, mode));
@@ -725,6 +763,18 @@ function deployOnHostinger(config, mode) {
   });
 }
 
+function printAsapSummary(config, webwhatsConfig, mode) {
+  logStage('Deploy ASAP');
+  console.log(`Modo: ${mode}`);
+  console.log(`Destino Hostinger: ${config.sshUser}@${config.sshHost}:${config.appDir}`);
+  console.log(`Backend: ${config.backendUrl}`);
+  console.log(`Frontend: ${config.frontendUrl}`);
+  console.log(`Motores HBX: warm pool ${config.hbxEngineCount}, max configurado ${config.hbxEngineMaxCount}.`);
+  console.log(`Webwhats deploy: ${webwhatsConfig ? `${webwhatsConfig.sshUser}@${webwhatsConfig.sshHost}:${webwhatsConfig.appDir}` : 'off'}.`);
+  console.log('Escopo pesado preservado: build local backend/frontend, build remoto backend/frontend/motores e migrations dentro do backend.');
+  console.log('Atalho seguro para rotina: npm run new faz publish seletivo quando a mudanca nao exige rebuild completo.');
+}
+
 async function verifyProduction(config, options = {}) {
   void config;
   void options;
@@ -732,10 +782,13 @@ async function verifyProduction(config, options = {}) {
 }
 
 async function main() {
+  const startedAt = Date.now();
   const mode = parseMode();
   const env = loadOperationsEnv();
   const config = ensureRequiredEnv(env);
   const webwhatsConfig = resolveWebwhatsDeployConfig(env, config);
+
+  printAsapSummary(config, webwhatsConfig, mode);
 
   logStage(`Local Preflight (${mode})`);
   console.log('Banco esperado: hbx-postgres/hbx_prod');
@@ -783,7 +836,7 @@ async function main() {
   printPublishedChanges(commitsAheadOfRemote, changedFilesAheadOfRemote);
   printFrontendDeployNotice(config, changedFilesAheadOfRemote);
 
-  console.log('\nHostinger deploy completed.');
+  console.log(`\nHostinger deploy completed em ${formatElapsed(startedAt)}.`);
 }
 
 if (require.main === module) {

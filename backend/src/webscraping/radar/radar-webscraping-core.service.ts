@@ -580,7 +580,7 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
 
   private buildRadarVendasSyncHost(): RadarVendasSyncHost {
     return {
-      getPendingCount: (companyId) => this.getVendasPendingCountForRadarContext(companyId),
+      getPendingCount: (context) => this.getVendasPendingCountForRadarContext(context),
       resolveContext: (user) => this.resolveContext(user),
       syncRadarSearchRunItemsToPool: (context, run) => this.syncRadarSearchRunItemsToPool(context, run),
       buildRadarFiltersFromSearchRun: (run) => this.buildRadarFiltersFromSearchRun(run),

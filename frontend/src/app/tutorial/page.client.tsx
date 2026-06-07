@@ -881,11 +881,12 @@ export default function TutorialClientPage() {
         ? normalizeText(effective.whatDoYouSell || effective.offerCategory)
         : "";
       const nextPlan = planTierFromPayload(commercialPlans, user);
+      const registeredName = normalizeText(user?.name || user?.username || user?.email);
       const nextProfile: OnboardingProfile = {
         ...DEFAULT_PROFILE,
         ...stored,
         currentPlan: nextPlan,
-        name: normalizeText(stored.name) || normalizeText(user?.name || user?.username || user?.email),
+        name: registeredName || normalizeText(stored.name),
         sells: effectiveSells || normalizeText(stored.sells),
         targetAudience: normalizeAudienceSelection(stored.targetAudience, normalizeAudienceSelection(effective.targetAudience)),
         avoid: normalizeAvoidSelection(stored.avoid, normalizeAvoidSelection(effective.avoidSegments)),
@@ -1508,7 +1509,10 @@ export default function TutorialClientPage() {
           <SegmentPickerSheet
             value={profile.segment}
             availableSegments={segmentOptions.map((option) => option.value)}
-            onChange={(segment) => updateProfile({ segment })}
+            onChange={(segment) => {
+              updateProfile({ segment });
+              setPicker(null);
+            }}
             onClose={() => setPicker(null)}
           />
         ) : null}

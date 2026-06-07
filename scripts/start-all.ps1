@@ -1,6 +1,14 @@
 # start-all.ps1
 # Executa backend (docker), frontend (Next) e Prisma Studio
 
+param(
+	[string]$BuildMode = "",
+	[switch]$SyncBackendDeps,
+	[switch]$NoWebwhats,
+	[switch]$NoStudio
+)
+
+$startedAt = Get-Date
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $composeFile = Join-Path $scriptRoot "..\docker-compose.yml"
 $frontendDir = Join-Path $scriptRoot "..\frontend"
@@ -9,6 +17,8 @@ $webwhatsDir = Join-Path $scriptRoot "..\Webwhats"
 $orchestratorDir = Join-Path $scriptRoot "..\.orchestrator"
 $pidsFile = Join-Path $orchestratorDir "pids.json"
 $webwhatsLogFile = Join-Path $orchestratorDir "webwhats.log"
+$backendDepsStampFile = Join-Path $orchestratorDir "backend-package-lock.sha256"
+$composeBuildStampFile = Join-Path $orchestratorDir "compose-build-inputs.sha256"
 
 $ErrorActionPreference = 'Stop'
 
@@ -115,6 +125,215 @@ function Resolve-PidValue($value) {
 	}
 }
 
+function Test-EnvTruthy([string]$value) {
+	if ([string]::IsNullOrWhiteSpace($value)) { return $false }
+	return $value.Trim().ToLowerInvariant() -in @('1', 'true', 'yes', 'y', 'on', 'sim')
+}
+
+function Test-EnvFalsey([string]$value) {
+	if ([string]::IsNullOrWhiteSpace($value)) { return $false }
+	return $value.Trim().ToLowerInvariant() -in @('0', 'false', 'no', 'n', 'off', 'nao')
+}
+
+function Format-Elapsed([datetime]$start) {
+	$elapsed = (Get-Date) - $start
+	if ($elapsed.TotalMinutes -ge 1) {
+		return ("{0}m{1:00}s" -f [int]$elapsed.TotalMinutes, $elapsed.Seconds)
+	}
+	return ("{0}s" -f [Math]::Max(0, [int]$elapsed.TotalSeconds))
+}
+
+function Resolve-BuildMode([string]$requested) {
+	$value = $requested
+	if ([string]::IsNullOrWhiteSpace($value)) {
+		$value = [string]$env:HBX_UP_BUILD
+	}
+	if ([string]::IsNullOrWhiteSpace($value)) {
+		$value = 'auto'
+	}
+
+	$normalized = $value.Trim().ToLowerInvariant()
+	if ($normalized -notin @('auto', 'always', 'never')) {
+		throw "Invalid build mode '$value'. Use auto, always or never."
+	}
+	return $normalized
+}
+
+function Get-FileSha256([string]$path) {
+	if (!(Test-Path -LiteralPath $path)) { return "" }
+	return (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+
+function Get-ComposeBuildInputsHash() {
+	$paths = @(
+		(Join-Path $scriptRoot "..\docker-compose.yml"),
+		(Join-Path $backendDir "Dockerfile"),
+		(Join-Path $backendDir "package.json"),
+		(Join-Path $backendDir "package-lock.json"),
+		(Join-Path $scriptRoot "..\hbx-scraping-engine\Dockerfile"),
+		(Join-Path $scriptRoot "..\hbx-scraping-engine\requirements.txt"),
+		(Join-Path $scriptRoot "..\hbx-scraping-engine\app"),
+		(Join-Path $scriptRoot "..\webscraping\Dockerfile"),
+		(Join-Path $scriptRoot "..\webscraping\requirements.txt")
+	)
+
+	$entries = New-Object System.Collections.Generic.List[string]
+	foreach ($candidate in $paths) {
+		if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+			$resolved = Resolve-Path -LiteralPath $candidate
+			$entries.Add("$($resolved.Path)|$(Get-FileSha256 $resolved.Path)") | Out-Null
+			continue
+		}
+		if (Test-Path -LiteralPath $candidate -PathType Container) {
+			$rootPath = (Resolve-Path -LiteralPath $candidate).Path
+			Get-ChildItem -LiteralPath $rootPath -Recurse -File |
+				Where-Object { $_.FullName -notmatch '\\(__pycache__|\.pytest_cache|data|data-\d+)\\' } |
+				Sort-Object FullName |
+				ForEach-Object {
+					$entries.Add("$($_.FullName)|$(Get-FileSha256 $_.FullName)") | Out-Null
+				}
+		}
+	}
+
+	$payload = $entries -join "`n"
+	$sha = [System.Security.Cryptography.SHA256]::Create()
+	try {
+		$bytes = [System.Text.Encoding]::UTF8.GetBytes($payload)
+		return [BitConverter]::ToString($sha.ComputeHash($bytes)).Replace('-', '').ToLowerInvariant()
+	} finally {
+		$sha.Dispose()
+	}
+}
+
+function Save-ComposeBuildStamp([string]$hash) {
+	if (-not [string]::IsNullOrWhiteSpace($hash)) {
+		Set-Content -Path $composeBuildStampFile -Value $hash -Encoding ASCII
+	}
+}
+
+function Test-ComposeRuntimePresent([string[]]$services) {
+	foreach ($service in $services) {
+		try {
+			$serviceId = (& docker compose -f $composeFile ps -q $service 2>$null)
+			if ([string]::IsNullOrWhiteSpace($serviceId)) { return $false }
+		} catch {
+			return $false
+		}
+	}
+	return $true
+}
+
+function Get-ComposeUpArguments([string]$mode) {
+	$args = @('compose', '-f', $composeFile, 'up', '-d')
+	$currentBuildHash = Get-ComposeBuildInputsHash
+	if ($mode -eq 'always') {
+		return [pscustomobject]@{
+			Arguments  = $args + @('--build')
+			Reason     = 'build forcado por HBX_UP_BUILD=always ou -BuildMode always'
+			BuildHash  = $currentBuildHash
+			ShouldSave = $true
+		}
+	}
+	if ($mode -eq 'never') {
+		return [pscustomobject]@{
+			Arguments  = $args
+			Reason     = 'build pulado por HBX_UP_BUILD=never ou -BuildMode never'
+			BuildHash  = $currentBuildHash
+			ShouldSave = $false
+		}
+	}
+	$runtimePresent = Test-ComposeRuntimePresent -services @('db', 'backend', 'hbx-scraping-engine')
+	if ($runtimePresent -and (Test-Path -LiteralPath $composeBuildStampFile)) {
+		$previousBuildHash = (Get-Content -LiteralPath $composeBuildStampFile -Raw).Trim().ToLowerInvariant()
+		if ($previousBuildHash -ne $currentBuildHash) {
+			return [pscustomobject]@{
+				Arguments  = $args + @('--build')
+				Reason     = 'insumos de build mudaram; rebuild automatico necessario'
+				BuildHash  = $currentBuildHash
+				ShouldSave = $true
+			}
+		}
+	}
+	if ($runtimePresent) {
+		return [pscustomobject]@{
+			Arguments  = $args
+			Reason     = 'runtime Docker existente; build pulado no modo auto'
+			BuildHash  = $currentBuildHash
+			ShouldSave = $true
+		}
+	}
+	return [pscustomobject]@{
+		Arguments  = $args + @('--build')
+		Reason     = 'runtime Docker ausente; build automatico necessario'
+		BuildHash  = $currentBuildHash
+		ShouldSave = $true
+	}
+}
+
+function Test-BackendDepsReady() {
+	try {
+		$null = & docker compose -f $composeFile exec -T backend sh -lc 'test -x node_modules/.bin/prisma && test -d node_modules/@nestjs/core && test -d node_modules/@prisma/client' 2>$null
+		return ($LASTEXITCODE -eq 0)
+	} catch {
+		return $false
+	}
+}
+
+function Resolve-BackendDependencySync() {
+	$forced = $SyncBackendDeps.IsPresent -or (Test-EnvTruthy ([string]$env:HBX_UP_SYNC_BACKEND_DEPS))
+	if ($forced) {
+		return [pscustomobject]@{
+			Sync   = $true
+			Reason = 'sincronizacao forcada por flag/env'
+		}
+	}
+
+	if (-not (Test-BackendDepsReady)) {
+		return [pscustomobject]@{
+			Sync   = $true
+			Reason = 'node_modules do backend incompleto no container'
+		}
+	}
+
+	$lockPath = Join-Path $backendDir "package-lock.json"
+	$currentHash = Get-FileSha256 $lockPath
+	if ([string]::IsNullOrWhiteSpace($currentHash)) {
+		return [pscustomobject]@{
+			Sync   = $false
+			Reason = 'package-lock nao encontrado; deps parecem prontas'
+		}
+	}
+
+	if (!(Test-Path -LiteralPath $backendDepsStampFile)) {
+		Set-Content -Path $backendDepsStampFile -Value $currentHash -Encoding ASCII
+		return [pscustomobject]@{
+			Sync   = $false
+			Reason = 'deps prontas; hash inicial registrado'
+		}
+	}
+
+	$previousHash = (Get-Content -LiteralPath $backendDepsStampFile -Raw).Trim().ToLowerInvariant()
+	if ($previousHash -ne $currentHash) {
+		return [pscustomobject]@{
+			Sync   = $true
+			Reason = 'backend/package-lock.json mudou desde a ultima sincronizacao'
+		}
+	}
+
+	return [pscustomobject]@{
+		Sync   = $false
+		Reason = 'deps do backend ja sincronizadas'
+	}
+}
+
+function Save-BackendDependencyStamp() {
+	$lockPath = Join-Path $backendDir "package-lock.json"
+	$currentHash = Get-FileSha256 $lockPath
+	if (-not [string]::IsNullOrWhiteSpace($currentHash)) {
+		Set-Content -Path $backendDepsStampFile -Value $currentHash -Encoding ASCII
+	}
+}
+
 function Ensure-WebwhatsEnv() {
 	if (!(Test-Path -LiteralPath $webwhatsDir)) {
 		throw "Webwhats directory not found at $webwhatsDir"
@@ -179,6 +398,15 @@ function Test-WebwhatsProcess([int]$processId) {
 function Start-Webwhats() {
 	Ensure-WebwhatsEnv
 
+	$existingPid = Get-ListenerPid -port 8080
+	if ($existingPid -gt 0) {
+		if (Test-WebwhatsProcess -processId $existingPid) {
+			Write-Host "Webwhats already listening on port 8080 pid=$existingPid"
+			return $existingPid
+		}
+		throw "Port 8080 is already in use by pid=$existingPid. Stop it before starting Webwhats."
+	}
+
 	Push-Location $webwhatsDir
 	try {
 		if (!(Test-Path node_modules)) {
@@ -197,15 +425,6 @@ function Start-Webwhats() {
 		Invoke-ExternalOrThrow -filePath 'npx' -arguments @('prisma', 'migrate', 'deploy', '--schema', 'prisma/postgresql-schema.prisma') -failureMessage 'Webwhats prisma migrate deploy failed.' | Out-Host
 	} finally {
 		Pop-Location
-	}
-
-	$existingPid = Get-ListenerPid -port 8080
-	if ($existingPid -gt 0) {
-		if (Test-WebwhatsProcess -processId $existingPid) {
-			Write-Host "Webwhats already listening on port 8080 pid=$existingPid"
-			return $existingPid
-		}
-		throw "Port 8080 is already in use by pid=$existingPid. Stop it before starting Webwhats."
 	}
 
 	Write-Host "2.2) Starting Webwhats on port 8080 ..."
@@ -328,6 +547,21 @@ function Assert-DockerReady() {
 	throw "Docker daemon is not available for the current context. Verify Docker Desktop is open and the 'desktop-linux' engine is healthy, then try again."
 }
 
+$resolvedBuildMode = Resolve-BuildMode $BuildMode
+$shouldStartWebwhats = (-not $NoWebwhats.IsPresent) -and (-not (Test-EnvFalsey ([string]$env:HBX_UP_WEBWHATS)))
+$shouldStartStudio = (-not $NoStudio.IsPresent) -and (-not (Test-EnvFalsey ([string]$env:HBX_UP_STUDIO)))
+$backendSyncForced = $SyncBackendDeps.IsPresent -or (Test-EnvTruthy ([string]$env:HBX_UP_SYNC_BACKEND_DEPS))
+$backendSyncSuffix = if ($backendSyncForced) { ' (forcado)' } else { '' }
+$webwhatsSummary = if ($shouldStartWebwhats) { 'on' } else { 'off' }
+$studioSummary = if ($shouldStartStudio) { 'on' } else { 'off' }
+
+Write-Host "=== npm run up ASAP ==="
+Write-Host "Build Docker: $resolvedBuildMode (use HBX_UP_BUILD=always para rebuild completo; never para pular sempre)."
+Write-Host "Backend npm install: sob demanda$backendSyncSuffix."
+Write-Host "Webwhats: $webwhatsSummary."
+Write-Host "Prisma Studio: $studioSummary."
+Write-Host "Motores dedicados: fora do up padrao; use npm run engines:up quando precisar."
+
 # Stop previously started processes if we have a pid file
 if (Test-Path $pidsFile) {
 	$prev = $null
@@ -341,15 +575,30 @@ if (Test-Path $pidsFile) {
 	if ($null -ne $prev) {
 		Stop-IfRunning -processId ([int]$prev.frontend) -name 'frontend'
 		Stop-IfRunning -processId ([int]$prev.studio) -name 'prisma-studio'
-		Stop-IfRunning -processId (Resolve-PidValue $prev.webwhats) -name 'webwhats'
+		$previousWebwhatsPid = Resolve-PidValue $prev.webwhats
+		if ($shouldStartWebwhats) {
+			$existingWebwhatsListener = Get-ListenerPid -port 8080
+			if ($existingWebwhatsListener -gt 0 -and (Test-WebwhatsProcess -processId $existingWebwhatsListener)) {
+				Write-Host "Keeping existing Webwhats listener pid=$existingWebwhatsListener."
+			} else {
+				Stop-IfRunning -processId $previousWebwhatsPid -name 'webwhats'
+			}
+		} else {
+			Stop-IfRunning -processId $previousWebwhatsPid -name 'webwhats'
+		}
 	}
 }
 
 Assert-DockerReady
 
-Write-Host "1) Starting backend (docker compose) ..."
+$composePlan = Get-ComposeUpArguments -mode $resolvedBuildMode
+Write-Host "1) Starting backend stack (docker compose) ..."
+Write-Host "1.ASAP) $($composePlan.Reason)"
 try {
-	Invoke-ExternalOrThrow -filePath 'docker' -arguments @('compose', '-f', $composeFile, 'up', '-d', '--build') -failureMessage 'Failed to start backend containers with docker compose.'
+	Invoke-ExternalOrThrow -filePath 'docker' -arguments $composePlan.Arguments -failureMessage 'Failed to start backend containers with docker compose.'
+	if ($composePlan.ShouldSave) {
+		Save-ComposeBuildStamp $composePlan.BuildHash
+	}
 } catch {
 	Write-Host "Docker compose failed while starting services."
 	Show-ComposeLogs -services @('db', 'backend', 'hbx-scraping-engine') -tail 80
@@ -363,8 +612,13 @@ if (-not (Wait-ComposePostgresReady -retries 180 -delayMs 500)) {
 	throw "Database is not ready."
 }
 
-Write-Host "2) Starting Webwhats engine ..."
-$webwhatsPidToTrack = [int](Start-Webwhats | Select-Object -Last 1)
+$webwhatsPidToTrack = 0
+if ($shouldStartWebwhats) {
+	Write-Host "2) Starting Webwhats engine ..."
+	$webwhatsPidToTrack = [int](Start-Webwhats | Select-Object -Last 1)
+} else {
+	Write-Host "2) Webwhats skipped by HBX_UP_WEBWHATS=false or -NoWebwhats."
+}
 
 Write-Host "1.0.1) Waiting backend container to be running ..."
 if (-not (Wait-ComposeServiceRunning -service 'backend' -retries 180 -delayMs 500)) {
@@ -373,13 +627,20 @@ if (-not (Wait-ComposeServiceRunning -service 'backend' -retries 180 -delayMs 50
 	throw "Backend container is not running."
 }
 
-Write-Host "1.1) Sync backend deps inside container (npm install) ..."
-try {
-	Invoke-ExternalOrThrow -filePath 'docker' -arguments @('compose', '-f', $composeFile, 'exec', '-T', 'backend', 'sh', '-lc', 'npm install --no-audit --no-fund && npx prisma generate') -failureMessage 'Dependency sync failed in backend container.'
-} catch {
-	Write-Host "Failed to sync backend dependencies inside container. Showing backend logs:"
-	Show-ComposeLogs -services @('backend') -tail 120
-	throw "Dependency sync failed in backend container."
+$backendDepsPlan = Resolve-BackendDependencySync
+if ($backendDepsPlan.Sync) {
+	Write-Host "1.1) Sync backend deps inside container (npm install) ..."
+	Write-Host "1.1.ASAP) $($backendDepsPlan.Reason)"
+	try {
+		Invoke-ExternalOrThrow -filePath 'docker' -arguments @('compose', '-f', $composeFile, 'exec', '-T', 'backend', 'sh', '-lc', 'npm install --no-audit --no-fund --loglevel=error && npx prisma generate --schema=./prisma/schema.prisma --no-hints') -failureMessage 'Dependency sync failed in backend container.'
+		Save-BackendDependencyStamp
+	} catch {
+		Write-Host "Failed to sync backend dependencies inside container. Showing backend logs:"
+		Show-ComposeLogs -services @('backend') -tail 120
+		throw "Dependency sync failed in backend container."
+	}
+} else {
+	Write-Host "1.1) Backend deps OK; skipping npm install ($($backendDepsPlan.Reason))."
 }
 
 Write-Host "1.2) Waiting backend port on http://localhost:3000 ..."
@@ -436,52 +697,56 @@ $frontendPidToTrack = $frontendProc.Id
 if ($listenerPid -gt 0) { $frontendPidToTrack = $listenerPid }
 Write-Host "Frontend listener pid=$frontendPidToTrack (wrapper=$($frontendProc.Id))"
 
-Write-Host "5) Starting Prisma Studio on port 5555 ..."
 $studioPidToTrack = 0
-$backendEnvPath = Join-Path $backendDir '.env'
-if (Test-Path -LiteralPath $backendEnvPath) {
-	try {
-		# Start Prisma Studio as the actual Node process so the tracked PID owns port 5555.
-		Import-DotEnv $backendEnvPath
-		if (!$env:DATABASE_URL) {
-			throw "backend/.env does not define DATABASE_URL"
-		}
-		$env:DATABASE_URL = Normalize-DatabaseUrlForHost $env:DATABASE_URL
-		Assert-LocalDatabaseUrl -databaseUrl $env:DATABASE_URL -sourceLabel 'backend/.env'
-		if (!$env:DIRECT_URL) {
-			$env:DIRECT_URL = $env:DATABASE_URL
-		} else {
-			$env:DIRECT_URL = Normalize-DatabaseUrlForHost $env:DIRECT_URL
-			Assert-LocalDatabaseUrl -databaseUrl $env:DIRECT_URL -sourceLabel 'backend/.env'
-		}
+if ($shouldStartStudio) {
+	Write-Host "5) Starting Prisma Studio on port 5555 ..."
+	$backendEnvPath = Join-Path $backendDir '.env'
+	if (Test-Path -LiteralPath $backendEnvPath) {
+		try {
+			# Start Prisma Studio as the actual Node process so the tracked PID owns port 5555.
+			Import-DotEnv $backendEnvPath
+			if (!$env:DATABASE_URL) {
+				throw "backend/.env does not define DATABASE_URL"
+			}
+			$env:DATABASE_URL = Normalize-DatabaseUrlForHost $env:DATABASE_URL
+			Assert-LocalDatabaseUrl -databaseUrl $env:DATABASE_URL -sourceLabel 'backend/.env'
+			if (!$env:DIRECT_URL) {
+				$env:DIRECT_URL = $env:DATABASE_URL
+			} else {
+				$env:DIRECT_URL = Normalize-DatabaseUrlForHost $env:DIRECT_URL
+				Assert-LocalDatabaseUrl -databaseUrl $env:DIRECT_URL -sourceLabel 'backend/.env'
+			}
 
-		$studioArgs = @(
-			"node_modules/prisma/build/index.js",
-			"studio",
-			"--schema", "prisma/schema.prisma",
-			"--port", "5555"
-		)
+			$studioArgs = @(
+				"node_modules/prisma/build/index.js",
+				"studio",
+				"--schema", "prisma/schema.prisma",
+				"--port", "5555"
+			)
 
-		$studioProc = Start-Process -FilePath "node" -WorkingDirectory $backendDir -ArgumentList $studioArgs -PassThru -WindowStyle Hidden
-		Start-Sleep -Milliseconds 600
-		$listenerPid = 0
-		for ($i = 0; $i -lt 20; $i++) {
-			$listenerPid = Get-ListenerPid -port 5555
-			if ($listenerPid -gt 0) { break }
-			Start-Sleep -Milliseconds 250
+			$studioProc = Start-Process -FilePath "node" -WorkingDirectory $backendDir -ArgumentList $studioArgs -PassThru -WindowStyle Hidden
+			Start-Sleep -Milliseconds 600
+			$listenerPid = 0
+			for ($i = 0; $i -lt 20; $i++) {
+				$listenerPid = Get-ListenerPid -port 5555
+				if ($listenerPid -gt 0) { break }
+				Start-Sleep -Milliseconds 250
+			}
+
+			$studioPidToTrack = $studioProc.Id
+			if ($listenerPid -gt 0) {
+				$studioPidToTrack = $listenerPid
+			}
+
+			Write-Host "Started prisma studio pid=$studioPidToTrack (listener)"
+		} catch {
+			Write-Host "Skipping Prisma Studio: $($_.Exception.Message)"
 		}
-
-		$studioPidToTrack = $studioProc.Id
-		if ($listenerPid -gt 0) {
-			$studioPidToTrack = $listenerPid
-		}
-
-		Write-Host "Started prisma studio pid=$studioPidToTrack (listener)"
-	} catch {
-		Write-Host "Skipping Prisma Studio: $($_.Exception.Message)"
+	} else {
+		Write-Host "Skipping Prisma Studio: backend/.env not found."
 	}
 } else {
-	Write-Host "Skipping Prisma Studio: backend/.env not found."
+	Write-Host "5) Prisma Studio skipped by HBX_UP_STUDIO=false or -NoStudio."
 }
 
 $tmpPidsFile = "${pidsFile}.tmp"
@@ -493,4 +758,5 @@ $tmpPidsFile = "${pidsFile}.tmp"
 Move-Item -Force $tmpPidsFile $pidsFile
 
 $studioStatus = if ($studioPidToTrack -gt 0) { 'Prisma Studio: http://localhost:5555' } else { 'Prisma Studio: skipped' }
-Write-Host "OK. All processes started. Backend: http://localhost:3000, Webwhats: http://localhost:8080, Frontend: http://localhost:3001, $studioStatus"
+$webwhatsStatus = if ($webwhatsPidToTrack -gt 0) { 'Webwhats: http://localhost:8080' } else { 'Webwhats: skipped' }
+Write-Host "OK. All processes started in $(Format-Elapsed $startedAt). Backend: http://localhost:3000, $webwhatsStatus, Frontend: http://localhost:3001, $studioStatus"

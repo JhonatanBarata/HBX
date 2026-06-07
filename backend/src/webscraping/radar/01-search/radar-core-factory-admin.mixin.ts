@@ -311,10 +311,23 @@ export class RadarCoreFactoryAdminMixin {
   }
 
   private isFactoryAllowedNow(cursor: any, config: any, date = new Date()) {
-    void cursor;
-    void config;
-    void date;
-    return true;
+    const operationalConfig = config || {};
+    const metadata = this.parseOperationalMetadata(operationalConfig?.metadataJson);
+    if (metadata.emergencyStop || operationalConfig?.emergencyStop) return false;
+    if (cursor?.forcedOn || this.isForcedOperationalWindow(operationalConfig, date)) return true;
+    if (!metadata.stopOutsideWindow) return true;
+
+    const timezone = String(metadata.timezone || operationalConfig?.timezone || this.getFactoryWindowConfig().timezone || 'America/Sao_Paulo');
+    const weekend = this.isFactoryWeekendByTimezone(timezone, date);
+    if (metadata.weekendAlwaysOn && weekend) return true;
+    if (metadata.weekdaysOnly && weekend) return false;
+    return this.isWithinConfiguredOperationalWindow({
+      enabled: operationalConfig?.enabled ?? true,
+      startHour: operationalConfig?.startHour ?? this.getFactoryWindowConfig().startHour,
+      startMinute: operationalConfig?.startMinute ?? this.getFactoryWindowConfig().startMinute,
+      endHour: operationalConfig?.endHour ?? this.getFactoryWindowConfig().endHour,
+      endMinute: operationalConfig?.endMinute ?? this.getFactoryWindowConfig().endMinute,
+    }, date);
   }
 
   private nextFactoryWindowAt(date = new Date()) {
@@ -800,22 +813,27 @@ export class RadarCoreFactoryAdminMixin {
       getConfiguredHbxEngineCount(),
       Math.max(0, savedMaxEngines || safeInteger(existingConfig?.engineCount, getConfiguredHbxEngineCount())),
     );
+    const window = this.getFactoryWindowConfig();
+    const previousAllDay = safeInteger(existingConfig?.startHour, window.startHour) === 0
+      && safeInteger(existingConfig?.startMinute, window.startMinute) === 0
+      && safeInteger(existingConfig?.endHour, window.endHour) === 0
+      && safeInteger(existingConfig?.endMinute, window.endMinute) === 0;
     if (await this.supportsRadarFactoryPersistence()) {
       await (this.prisma as any).radarFactoryCursor.upsert({
         where: { key: 'main' },
-        create: { key: 'main', enabled: true, forcedOn: true, status: 'idle', reasonStopped: null },
-        update: { enabled: true, forcedOn: true, status: 'idle', reasonStopped: null, lastError: null, nextRunAt: new Date() },
+        create: { key: 'main', enabled: true, forcedOn: false, status: 'idle', reasonStopped: null },
+        update: { enabled: true, forcedOn: false, status: 'idle', reasonStopped: null, lastError: null, nextRunAt: new Date() },
       }).catch(() => null);
     }
     await this.saveOperationalConfig(Number(user?.id || 0), {
       enabled: true,
-      forceNow: true,
+      forcedUntil: '',
       emergencyStop: false,
-      startHour: 0,
-      startMinute: 0,
-      endHour: 0,
-      endMinute: 0,
-      stopOutsideWindow: false,
+      startHour: previousAllDay ? window.startHour : safeInteger(existingConfig?.startHour, window.startHour),
+      startMinute: previousAllDay ? window.startMinute : safeInteger(existingConfig?.startMinute, window.startMinute),
+      endHour: previousAllDay ? window.endHour : safeInteger(existingConfig?.endHour, window.endHour),
+      endMinute: previousAllDay ? window.endMinute : safeInteger(existingConfig?.endMinute, window.endMinute),
+      stopOutsideWindow: true,
       weekdaysOnly: false,
       weekendAlwaysOn: false,
       engineCount: Math.max(1, engineCount),
@@ -848,6 +866,37 @@ export class RadarCoreFactoryAdminMixin {
       where: { mode: 'mass_data', status: { in: ['queued', 'running', 'sleeping', 'partial_error'] } },
       data: { status: 'paused', nextRunAt: null, lastErrorMessage: 'FÃ¡brica desligada manualmente.' },
     }).catch(() => null);
+    await this.getEnginePool().drainFactoryEngines({ reason: 'factory_disabled' }).catch((error) => {
+      this.logger.warn(`[factory-stop] falha ao drenar motores da fabrica: ${error instanceof Error ? error.message : String(error || 'erro desconhecido')}`);
+    });
+    return this.getRadarFactoryStatus(user);
+  }
+
+  async forceNightRadarFactory(user: any, input: WebscrapingOperationalConfigInput = {}) {
+    const existingConfig = await this.getOperationalConfig().catch(() => null);
+    const engineCount = Math.min(
+      getConfiguredHbxEngineCount(),
+      Math.max(1, safeInteger(input.engineCount, safeInteger(existingConfig?.factoryMaxEngines, safeInteger(existingConfig?.engineCount, getConfiguredHbxEngineCount())))),
+    );
+    if (await this.supportsRadarFactoryPersistence()) {
+      await (this.prisma as any).radarFactoryCursor.upsert({
+        where: { key: 'main' },
+        create: { key: 'main', enabled: true, forcedOn: true, status: 'idle', reasonStopped: 'Fabrica forcada pelo MASTER.', nextRunAt: new Date() },
+        update: { enabled: true, forcedOn: true, status: 'idle', reasonStopped: 'Fabrica forcada pelo MASTER.', lastError: null, nextRunAt: new Date() },
+      }).catch(() => null);
+    }
+    await this.saveOperationalConfig(Number(user?.id || 0), {
+      ...input,
+      enabled: true,
+      forceNow: true,
+      emergencyStop: false,
+      stopOutsideWindow: true,
+      engineCount,
+      maxEngines: input.maxEngines ?? engineCount,
+      minEngines: input.minEngines ?? engineCount,
+      autonomousFillEnabled: true,
+    }).catch(() => null);
+    await this.ensureNightFactoryWork(user);
     return this.getRadarFactoryStatus(user);
   }
 
@@ -861,6 +910,12 @@ export class RadarCoreFactoryAdminMixin {
         update: { enabled: true, forcedOn: true, status: 'idle', ...nextIndexes, nextRunAt: new Date(), reasonStopped: 'PrÃ³xima missÃ£o forÃ§ada pelo MASTER.' },
       }).catch(() => null);
     }
+    await this.saveOperationalConfig(Number(user?.id || 0), {
+      enabled: true,
+      forceNow: true,
+      emergencyStop: false,
+      stopOutsideWindow: true,
+    }).catch(() => null);
     await this.ensureNightFactoryWork(user);
     return this.getRadarFactoryStatus(user);
   }

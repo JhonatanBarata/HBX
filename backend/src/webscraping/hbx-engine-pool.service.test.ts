@@ -77,9 +77,9 @@ test('host memory pressure uses MemAvailable instead of process heap pressure', 
   assert.equal(pressure, 21);
 });
 
-test('getConfiguredHbxEngineCount uses dev/local default of four', () => {
-  assert.equal(getConfiguredHbxEngineCount({ NODE_ENV: 'development' }), 4);
-  assert.deepEqual(resolveConfiguredHbxEngineUrls({ NODE_ENV: 'development' }), buildLocalHbxEngineUrls(4));
+test('getConfiguredHbxEngineCount uses dev/local default of three', () => {
+  assert.equal(getConfiguredHbxEngineCount({ NODE_ENV: 'development' }), 3);
+  assert.deepEqual(resolveConfiguredHbxEngineUrls({ NODE_ENV: 'development' }), buildLocalHbxEngineUrls(3));
 });
 
 test('HBX engine purposes use the same common pool without Lead+ tail reservation', () => {
@@ -116,23 +116,22 @@ test('buildHbxEngineUrls builds local and docker URL ranges without hardcoded ar
   assert.deepEqual(buildLocalHbxEngineUrls(2), ['http://localhost:8001', 'http://localhost:8002']);
 });
 
-test('parseHbxEngineUrls trims, removes trailing slashes, and uses four URLs by default', () => {
+test('parseHbxEngineUrls trims, removes trailing slashes, and uses three URLs by default', () => {
   assert.deepEqual(
     parseHbxEngineUrls(' http://engine-1:8001/ , http://engine-2:8001///,http://engine-3:8001,http://engine-4:8001,http://engine-5:8001 '),
     [
       'http://engine-1:8001',
       'http://engine-2:8001',
       'http://engine-3:8001',
-      'http://engine-4:8001',
     ],
   );
 });
 
-test('parseHbxEngineUrls supports HBX_ENGINE_COUNT up to fifty URLs', () => {
-  withHbxEngineCount('50', () => {
+test('parseHbxEngineUrls supports HBX_ENGINE_COUNT up to two hundred URLs', () => {
+  withEnv({ HBX_ENGINE_COUNT: '200', HBX_ENGINE_MAX_COUNT: '200' }, () => {
     assert.deepEqual(
-      parseHbxEngineUrls(Array.from({ length: 51 }, (_, index) => `http://engine-${index + 1}:8001`)),
-      Array.from({ length: 50 }, (_, index) => `http://engine-${index + 1}:8001`),
+      parseHbxEngineUrls(Array.from({ length: 201 }, (_, index) => `http://engine-${index + 1}:8001`)),
+      Array.from({ length: 200 }, (_, index) => `http://engine-${index + 1}:8001`),
     );
   });
 });
@@ -151,6 +150,17 @@ test('HBX_ENGINE_COUNT=50 accepts fifty configured URLs', () => {
       HBX_ENGINE_URLS: Array.from({ length: 50 }, (_, index) => `http://engine-${index + 1}:8001`).join(','),
     }),
     Array.from({ length: 50 }, (_, index) => `http://engine-${index + 1}:8001`),
+  );
+});
+
+test('HBX_ENGINE_COUNT=200 accepts two hundred configured URLs', () => {
+  assert.deepEqual(
+    resolveConfiguredHbxEngineUrls({
+      HBX_ENGINE_COUNT: '200',
+      HBX_ENGINE_MAX_COUNT: '200',
+      HBX_ENGINE_URLS: Array.from({ length: 200 }, (_, index) => `http://engine-${index + 1}:8001`).join(','),
+    }),
+    Array.from({ length: 200 }, (_, index) => `http://engine-${index + 1}:8001`),
   );
 });
 
@@ -196,17 +206,18 @@ test('resolveConfiguredHbxEngineUrls uses mass data engine URL sources before sc
 });
 
 test('resolveConfiguredHbxEngineUrls never returns localhost defaults in production', () => {
-  const dockerUrls = Array.from({ length: 50 }, (_, index) => `http://hbx-engine-${index + 1}:8001`);
+  const dockerUrls = Array.from({ length: 20 }, (_, index) => `http://hbx-engine-${index + 1}:8001`);
+  const fiftyDockerUrls = Array.from({ length: 50 }, (_, index) => `http://hbx-engine-${index + 1}:8001`);
 
   withHbxEngineCount('50', () => {
-    assert.deepEqual(resolveConfiguredHbxEngineUrls({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '50' }), dockerUrls);
+    assert.deepEqual(resolveConfiguredHbxEngineUrls({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '50' }), fiftyDockerUrls);
     assert.deepEqual(
       resolveConfiguredHbxEngineUrls({
         NODE_ENV: 'production',
         HBX_ENGINE_COUNT: '50',
         HBX_ENGINE_URLS: Array.from({ length: 50 }, (_, index) => `http://localhost:${8001 + index}`).join(','),
       }),
-      dockerUrls,
+      fiftyDockerUrls,
     );
   });
 
@@ -214,13 +225,13 @@ test('resolveConfiguredHbxEngineUrls never returns localhost defaults in product
 });
 
 test('invalid HBX_ENGINE_COUNT respects environment fallback', () => {
-  assert.equal(getConfiguredHbxEngineCount({ NODE_ENV: 'development', HBX_ENGINE_COUNT: 'invalid' }), 4);
-  assert.equal(getConfiguredHbxEngineCount({ NODE_ENV: 'production', HBX_ENGINE_COUNT: 'invalid' }), 50);
+  assert.equal(getConfiguredHbxEngineCount({ NODE_ENV: 'development', HBX_ENGINE_COUNT: 'invalid' }), 3);
+  assert.equal(getConfiguredHbxEngineCount({ NODE_ENV: 'production', HBX_ENGINE_COUNT: 'invalid' }), 20);
 
   withEnv({ NODE_ENV: 'development', HBX_ENGINE_COUNT: 'invalid' }, () => {
     assert.deepEqual(
       parseHbxEngineUrls(Array.from({ length: 20 }, (_, index) => `http://engine-${index + 1}:8001`)),
-      Array.from({ length: 4 }, (_, index) => `http://engine-${index + 1}:8001`),
+      Array.from({ length: 3 }, (_, index) => `http://engine-${index + 1}:8001`),
     );
   });
 });
@@ -246,7 +257,7 @@ test('factory scheduler defaults to configured engine count in production when m
 });
 
 test('factory scheduler respects configured database engine quantity', () => {
-  withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '50', HBX_FACTORY_MAX_ENGINES: '' }, () => {
+  withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '50', HBX_FACTORY_MAX_ENGINES: '', HBX_FACTORY_START_HOUR: '0', HBX_FACTORY_END_HOUR: '0' }, () => {
     const service = new HbxEnginePoolService({} as any);
     const allowed = service.resolveFactoryAllowedEngines({
       engineCount: 50,
@@ -262,7 +273,7 @@ test('factory scheduler respects configured database engine quantity', () => {
 });
 
 test('factory scheduler keeps automatic work stopped when configured quantity is zero', () => {
-  withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '50', HBX_FACTORY_MAX_ENGINES: '' }, () => {
+  withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '50', HBX_FACTORY_MAX_ENGINES: '', HBX_FACTORY_START_HOUR: '0', HBX_FACTORY_END_HOUR: '0' }, () => {
     const service = new HbxEnginePoolService({} as any);
     const allowed = service.resolveFactoryAllowedEngines({
       engineCount: 50,
@@ -276,7 +287,7 @@ test('factory scheduler keeps automatic work stopped when configured quantity is
   });
 });
 
-test('factory scheduler keeps all engines available outside the old window rule', () => {
+test('factory scheduler blocks normal factory outside the operational window', () => {
   withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '100', HBX_FACTORY_MAX_ENGINES: '16' }, () => {
     const service = new HbxEnginePoolService({} as any);
     const allowed = service.resolveFactoryAllowedEngines({
@@ -287,13 +298,110 @@ test('factory scheduler keeps all engines available outside the old window rule'
       operationalConfig: { enabled: true, startHour: 22, startMinute: 0, endHour: 7, endMinute: 0, metadataJson: '{}' },
       date: new Date('2026-05-09T15:00:00-03:00'),
     });
-    assert.equal(allowed.windowStatus, 'open');
-    assert.equal(allowed.reason, 'factory_max');
-    assert.equal(allowed.allowedEngines, 100);
+    assert.equal(allowed.windowStatus, 'closed');
+    assert.equal(allowed.reason, 'outside_factory_window');
+    assert.equal(allowed.allowedEngines, 0);
   });
 });
 
-test('factory scheduler ignores the old window max env and uses configured count', () => {
+test('force night ignores the factory window but still respects memory guard', () => {
+  withEnv({
+    NODE_ENV: 'production',
+    HBX_ENGINE_COUNT: '20',
+    HBX_FACTORY_MAX_ENGINES: '',
+    HBX_FACTORY_MEMORY_SOFT_PRESSURE_PERCENT: '82',
+    HBX_FACTORY_MEMORY_HARD_PRESSURE_PERCENT: '85',
+    HBX_FACTORY_MEMORY_PANIC_PRESSURE_PERCENT: '88',
+  }, () => {
+    const service = new HbxEnginePoolService({} as any);
+    const forcedUntil = new Date(Date.now() + 60 * 60_000).toISOString();
+    const forced = service.resolveFactoryAllowedEngines({
+      engineCount: 20,
+      onlineHealthyEngines: 20,
+      manualReservedEngines: 0,
+      memoryPressurePercent: 50,
+      operationalConfig: { enabled: true, startHour: 22, startMinute: 0, endHour: 7, endMinute: 0, metadataJson: JSON.stringify({ forcedUntil }) },
+      date: new Date('2026-05-09T15:00:00-03:00'),
+    });
+    const memoryStop = service.resolveFactoryAllowedEngines({
+      engineCount: 20,
+      onlineHealthyEngines: 20,
+      manualReservedEngines: 0,
+      memoryPressurePercent: 90,
+      operationalConfig: { enabled: true, startHour: 22, startMinute: 0, endHour: 7, endMinute: 0, metadataJson: JSON.stringify({ forcedUntil }) },
+      date: new Date('2026-05-09T15:00:00-03:00'),
+    });
+    assert.equal(forced.forcedActive, true);
+    assert.equal(forced.windowStatus, 'open');
+    assert.equal(forced.allowedEngines, 20);
+    assert.equal(memoryStop.allowedEngines, 0);
+    assert.equal(memoryStop.reason, 'memory_stop');
+  });
+});
+
+test('factory emergency stop wins even when force night is active', () => {
+  withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '20', HBX_FACTORY_MAX_ENGINES: '' }, () => {
+    const service = new HbxEnginePoolService({} as any);
+    const allowed = service.resolveFactoryAllowedEngines({
+      engineCount: 20,
+      onlineHealthyEngines: 20,
+      manualReservedEngines: 0,
+      memoryPressurePercent: 50,
+      operationalConfig: {
+        enabled: true,
+        startHour: 22,
+        startMinute: 0,
+        endHour: 7,
+        endMinute: 0,
+        metadataJson: JSON.stringify({
+          forcedUntil: new Date(Date.now() + 60 * 60_000).toISOString(),
+          emergencyStop: true,
+        }),
+      },
+      date: new Date('2026-05-09T15:00:00-03:00'),
+    });
+    assert.equal(allowed.allowedEngines, 0);
+    assert.equal(allowed.reason, 'emergency_stop');
+    assert.equal(allowed.windowStatus, 'emergency_stop');
+  });
+});
+
+test('factory scheduler reserves automatic capacity during client priority', () => {
+  withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '20', HBX_FACTORY_MAX_ENGINES: '', HBX_FACTORY_START_HOUR: '0', HBX_FACTORY_END_HOUR: '0' }, () => {
+    const service = new HbxEnginePoolService({} as any);
+    const allowed = service.resolveFactoryAllowedEngines({
+      engineCount: 20,
+      onlineHealthyEngines: 20,
+      manualReservedEngines: 2,
+      clientPriorityActive: true,
+      memoryPressurePercent: 50,
+      operationalConfig: { enabled: true, metadataJson: '{}' },
+    });
+    assert.equal(allowed.allowedEngines, 18);
+    assert.equal(allowed.reservedEngines, 2);
+    assert.equal(allowed.reason, 'client_priority');
+  });
+});
+
+test('factory scheduler protects manual demand before automatic work', () => {
+  withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '20', HBX_FACTORY_MAX_ENGINES: '', HBX_FACTORY_START_HOUR: '0', HBX_FACTORY_END_HOUR: '0' }, () => {
+    const service = new HbxEnginePoolService({} as any);
+    const allowed = service.resolveFactoryAllowedEngines({
+      engineCount: 20,
+      onlineHealthyEngines: 20,
+      manualReservedEngines: 2,
+      clientPriorityActive: true,
+      manualDemandActive: true,
+      memoryPressurePercent: 50,
+      operationalConfig: { enabled: true, metadataJson: '{}' },
+    });
+    assert.equal(allowed.allowedEngines, 18);
+    assert.equal(allowed.reservedEngines, 2);
+    assert.equal(allowed.reason, 'manual_demand');
+  });
+});
+
+test('factory scheduler uses configured count inside the operational window', () => {
   withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '100', HBX_FACTORY_MAX_ENGINES: '12' }, () => {
     const service = new HbxEnginePoolService({} as any);
     const allowed = service.resolveFactoryAllowedEngines({
@@ -309,14 +417,37 @@ test('factory scheduler ignores the old window max env and uses configured count
   });
 });
 
-test('factory scheduler memory guard is diagnostic and does not cap automatic work', () => {
-  withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '50', HBX_FACTORY_MAX_ENGINES: '50', HBX_FACTORY_START_HOUR: '0', HBX_FACTORY_END_HOUR: '0' }, () => {
+test('factory scheduler memory guard reduces and stops automatic work', () => {
+  withEnv({
+    NODE_ENV: 'production',
+    HBX_ENGINE_COUNT: '50',
+    HBX_FACTORY_MAX_ENGINES: '50',
+    HBX_FACTORY_START_HOUR: '0',
+    HBX_FACTORY_END_HOUR: '0',
+    HBX_FACTORY_MEMORY_SOFT_PRESSURE_PERCENT: '82',
+    HBX_FACTORY_MEMORY_HARD_PRESSURE_PERCENT: '85',
+    HBX_FACTORY_MEMORY_PANIC_PRESSURE_PERCENT: '88',
+  }, () => {
     const service = new HbxEnginePoolService({} as any);
     const at80 = service.resolveFactoryAllowedEngines({
       engineCount: 50,
       onlineHealthyEngines: 50,
       manualReservedEngines: 0,
       memoryPressurePercent: 80,
+      operationalConfig: { enabled: true, metadataJson: '{}' },
+    });
+    const at83 = service.resolveFactoryAllowedEngines({
+      engineCount: 50,
+      onlineHealthyEngines: 50,
+      manualReservedEngines: 0,
+      memoryPressurePercent: 83,
+      operationalConfig: { enabled: true, metadataJson: '{}' },
+    });
+    const at86 = service.resolveFactoryAllowedEngines({
+      engineCount: 50,
+      onlineHealthyEngines: 50,
+      manualReservedEngines: 0,
+      memoryPressurePercent: 86,
       operationalConfig: { enabled: true, metadataJson: '{}' },
     });
     const at90 = service.resolveFactoryAllowedEngines({
@@ -328,8 +459,12 @@ test('factory scheduler memory guard is diagnostic and does not cap automatic wo
     });
     assert.equal(at80.allowedEngines, 50);
     assert.equal(at80.reason, 'factory_max');
-    assert.equal(at90.allowedEngines, 50);
-    assert.equal(at90.reason, 'factory_max');
+    assert.equal(at83.allowedEngines, 30);
+    assert.equal(at83.reason, 'memory_guard');
+    assert.equal(at86.allowedEngines, 12);
+    assert.equal(at86.reason, 'memory_guard');
+    assert.equal(at90.allowedEngines, 0);
+    assert.equal(at90.reason, 'memory_stop');
   });
 });
 
@@ -348,7 +483,7 @@ test('factory scheduler emergency stop blocks automatic work immediately', () =>
   });
 });
 
-test('factory scheduler ignores the old business-day limiter', () => {
+test('factory scheduler respects business-day limiter when enabled', () => {
   withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '100', HBX_FACTORY_MAX_ENGINES: '16', HBX_FACTORY_START_HOUR: '0', HBX_FACTORY_END_HOUR: '0' }, () => {
     const service = new HbxEnginePoolService({} as any);
     const weekend = service.resolveFactoryAllowedEngines({
@@ -367,13 +502,13 @@ test('factory scheduler ignores the old business-day limiter', () => {
       operationalConfig: { enabled: true, metadataJson: '{"weekdaysOnly":true}' },
       date: new Date('2026-05-11T12:00:00-03:00'),
     });
-    assert.equal(weekend.allowedEngines, 100);
-    assert.equal(weekend.reason, 'factory_max');
+    assert.equal(weekend.allowedEngines, 0);
+    assert.equal(weekend.reason, 'outside_business_days');
     assert.equal(monday.allowedEngines, 100);
   });
 });
 
-test('factory scheduler keeps weekdays and weekends open all day', () => {
+test('factory scheduler lets weekend always-on bypass only weekend window', () => {
   withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '100', HBX_FACTORY_MAX_ENGINES: '16' }, () => {
     const service = new HbxEnginePoolService({} as any);
     const saturdayAfternoon = service.resolveFactoryAllowedEngines({
@@ -409,14 +544,15 @@ test('factory scheduler keeps weekdays and weekends open all day', () => {
 
     assert.equal(saturdayAfternoon.allowedEngines, 100);
     assert.equal(saturdayAfternoon.reason, 'factory_max');
-    assert.equal(mondayAfternoon.allowedEngines, 100);
-    assert.equal(mondayAfternoon.reason, 'factory_max');
+    assert.equal(mondayAfternoon.allowedEngines, 0);
+    assert.equal(mondayAfternoon.reason, 'outside_factory_window');
   });
 });
 
 test('HBX_ENGINE_MAX_COUNT can intentionally clamp engine count', () => {
   assert.equal(getConfiguredHbxEngineCount({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '100', HBX_ENGINE_MAX_COUNT: '40' }), 40);
-  assert.equal(getConfiguredHbxEngineCount({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '220' }), 50);
+  assert.equal(getConfiguredHbxEngineCount({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '220' }), 200);
+  assert.equal(getConfiguredHbxEngineCount({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '220', HBX_ENGINE_HARD_LIMIT: '120' }), 120);
 });
 
 function createPoolForCapacity(input: {
@@ -426,6 +562,7 @@ function createPoolForCapacity(input: {
   partialLast10Min?: number;
   progressingRuns?: number;
   oldestQueuedAgeMinutes?: number;
+  memoryPressurePercent?: number;
   operationalConfig?: Record<string, any> | null;
 }) {
   const service = new HbxEnginePoolService({} as any) as any;
@@ -443,6 +580,7 @@ function createPoolForCapacity(input: {
     progressingRuns: Number(input.progressingRuns || 0),
     oldestQueuedAgeMinutes: Number(input.oldestQueuedAgeMinutes || 0),
   });
+  service.resolveMemoryPressurePercent = () => Number(input.memoryPressurePercent ?? 50);
   return service as HbxEnginePoolService;
 }
 
@@ -494,7 +632,7 @@ test('eligible engines include hbx-engine-20 when active capacity is twenty', as
   });
 });
 
-test('automatic queue gets all engines even when old manual reservation env is set', async () => {
+test('automatic queue honors factory max while manual priority still sees the full pool', async () => {
   await withEnv({
     NODE_ENV: 'production',
     HBX_ENGINE_COUNT: '20',
@@ -507,11 +645,58 @@ test('automatic queue gets all engines even when old manual reservation env is s
     HBX_AUTONOMOUS_MAX_MEMORY_PRESSURE_PERCENT: '100',
   }, async () => {
     const service = createPoolForCapacity({ queuedCount: 100 }) as any;
+    service.isWithinClientPriorityWindow = () => false;
     service.healthCheckEngines = async () => buildEngineRows(20);
     const automatic = await service.getEligibleEnginesForCurrentQueue('mass_data');
     const manual = await service.getEligibleEnginesForCurrentQueue('manual');
-    assert.equal(automatic.length, 20);
+    assert.equal(automatic.length, 18);
     assert.equal(manual.length, 20);
+  });
+});
+
+test('automatic queue reserves engines during client priority window', async () => {
+  await withEnv({
+    NODE_ENV: 'production',
+    HBX_ENGINE_COUNT: '20',
+    HBX_CLIENT_RESERVED_ENGINES: '2',
+    HBX_FACTORY_MAX_ENGINES: '20',
+    HBX_FACTORY_START_HOUR: '0',
+    HBX_FACTORY_END_HOUR: '0',
+    HBX_FACTORY_MEMORY_SOFT_PRESSURE_PERCENT: '100',
+    HBX_FACTORY_MEMORY_HARD_PRESSURE_PERCENT: '100',
+    HBX_FACTORY_MEMORY_PANIC_PRESSURE_PERCENT: '100',
+  }, async () => {
+    const service = createPoolForCapacity({ queuedCount: 100 }) as any;
+    service.isWithinClientPriorityWindow = () => true;
+    service.healthCheckEngines = async () => buildEngineRows(20);
+    const automatic = await service.getEligibleEnginesForCurrentQueue('mass_data');
+    const vendas = await service.getEligibleEnginesForCurrentQueue('vendas');
+    assert.equal(automatic.length, 18);
+    assert.equal(automatic.at(-1)?.id, 'hbx-engine-18');
+    assert.equal(vendas.length, 20);
+    assert.equal(vendas.at(-1)?.id, 'hbx-engine-20');
+  });
+});
+
+test('automatic queue stops when memory pressure reaches panic threshold', async () => {
+  await withEnv({
+    NODE_ENV: 'production',
+    HBX_ENGINE_COUNT: '20',
+    HBX_CLIENT_RESERVED_ENGINES: '0',
+    HBX_FACTORY_MAX_ENGINES: '20',
+    HBX_FACTORY_START_HOUR: '0',
+    HBX_FACTORY_END_HOUR: '0',
+    HBX_FACTORY_MEMORY_SOFT_PRESSURE_PERCENT: '82',
+    HBX_FACTORY_MEMORY_HARD_PRESSURE_PERCENT: '85',
+    HBX_FACTORY_MEMORY_PANIC_PRESSURE_PERCENT: '88',
+  }, async () => {
+    const service = createPoolForCapacity({ queuedCount: 100, memoryPressurePercent: 90 }) as any;
+    service.isWithinClientPriorityWindow = () => false;
+    service.healthCheckEngines = async () => buildEngineRows(20);
+    const automatic = await service.getEligibleEnginesForCurrentQueue('mass_data');
+    const radar = await service.getEligibleEnginesForCurrentQueue('radar_digital');
+    assert.equal(automatic.length, 0);
+    assert.equal(radar.length, 20);
   });
 });
 
@@ -643,6 +828,206 @@ test('eligible engines ignore manually paused and timed paused engines', async (
     const eligible = await service.getEligibleEnginesForCurrentQueue();
     assert.deepEqual(eligible.map((engine: any) => engine.id), ['hbx-engine-1', 'hbx-engine-4']);
   });
+});
+
+test('eligible engines ignore draining and stopped engines without treating pause as stop', async () => {
+  await withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '4' }, async () => {
+    const service = createPoolForCapacity({ queuedCount: 100 }) as any;
+    const rows = buildEngineRows(4);
+    rows[1].status = 'draining';
+    rows[1].lockedRunId = 'campaign-1:mass:1';
+    rows[1].lockedUntil = new Date(Date.now() + 60_000);
+    rows[2].status = 'stopped';
+    service.healthCheckEngines = async () => rows;
+    const eligible = await service.getEligibleEnginesForCurrentQueue('manual');
+    assert.deepEqual(eligible.map((engine: any) => engine.id), ['hbx-engine-1', 'hbx-engine-4']);
+  });
+});
+
+test('drain marks busy engine as draining and keeps the active lease', async () => {
+  const updates: any[] = [];
+  const lockedUntil = new Date(Date.now() + 60_000);
+  const row = {
+    id: 'hbx-engine-2',
+    engineIndex: 1,
+    url: 'http://hbx-engine-2:8001',
+    status: 'busy',
+    lastHealthStatus: 'online',
+    lockedRunId: 'campaign-1:mass:1',
+    lockedUntil,
+  };
+  const service = new HbxEnginePoolService({
+    hasTable: async (name: string) => name === 'HbxEngineLock',
+    hbxEngineLock: {
+      findUnique: async () => row,
+      updateMany: async (input: any) => {
+        updates.push(input);
+        return { count: 1 };
+      },
+    },
+  } as any) as any;
+  service.refreshEngineRegistryFromEnv = async () => [];
+  service.getDashboardEngineStatus = async () => ({ ok: true });
+  service.getOperationalConfig = async () => ({ metadataJson: '{"drainTimeoutSeconds":30}' });
+
+  await service.drainEngine('hbx-engine-2');
+
+  assert.equal(updates[0].data.status, 'draining');
+  assert.equal(updates[0].data.manualPaused, false);
+  assert.equal(updates[0].data.lockedRunId, undefined);
+  assert.equal(updates[0].data.pausedUntil instanceof Date, true);
+});
+
+test('release of draining engine moves it to stopped and clears the lease', async () => {
+  const updates: any[] = [];
+  const row = {
+    id: 'hbx-engine-2',
+    engineIndex: 1,
+    url: 'http://hbx-engine-2:8001',
+    status: 'draining',
+    lastHealthStatus: 'online',
+    lockedRunId: 'campaign-1:mass:1',
+    lockedUntil: new Date(Date.now() + 60_000),
+  };
+  const service = new HbxEnginePoolService({
+    hasTable: async (name: string) => name === 'HbxEngineLock',
+    hbxEngineLock: {
+      findUnique: async () => row,
+      update: async (input: any) => {
+        updates.push(input);
+        return { ...row, ...input.data };
+      },
+    },
+  } as any) as any;
+
+  await service.releaseEngine('hbx-engine-2');
+
+  assert.equal(updates[0].data.status, 'stopped');
+  assert.equal(updates[0].data.lockedRunId, null);
+  assert.equal(updates[0].data.pausedUntil, null);
+});
+
+test('stop on idle engine marks stopped without force requeue', async () => {
+  const updates: any[] = [];
+  const row = {
+    id: 'hbx-engine-3',
+    engineIndex: 2,
+    url: 'http://hbx-engine-3:8001',
+    status: 'online',
+    lastHealthStatus: 'online',
+    lockedRunId: null,
+    lockedUntil: null,
+  };
+  const service = new HbxEnginePoolService({
+    hasTable: async (name: string) => name === 'HbxEngineLock',
+    hbxEngineLock: {
+      findUnique: async () => row,
+      updateMany: async (input: any) => {
+        updates.push(input);
+        return { count: 1 };
+      },
+    },
+  } as any) as any;
+  service.refreshEngineRegistryFromEnv = async () => [];
+  service.getDashboardEngineStatus = async () => ({ ok: true });
+
+  await service.stopEngine('hbx-engine-3');
+
+  assert.equal(updates[0].data.status, 'stopped');
+  assert.equal(updates[0].data.lockedRunId, null);
+  assert.equal(updates[0].data.lastError, 'Motor aguardando parada fisica pelo governor.');
+});
+
+test('force stop requeues active campaign task and search run before stopping', async () => {
+  const lockUpdates: any[] = [];
+  const taskUpdates: any[] = [];
+  const runUpdates: any[] = [];
+  const row = {
+    id: 'hbx-engine-4',
+    engineIndex: 3,
+    url: 'http://hbx-engine-4:8001',
+    status: 'busy',
+    lastHealthStatus: 'online',
+    lockedRunId: 'campaign-1:mass:3',
+    lockedUntil: new Date(Date.now() + 60_000),
+  };
+  const service = new HbxEnginePoolService({
+    hasTable: async (name: string) => ['HbxEngineLock', 'WebscrapingCampaignTask', 'WebscrapingSearchRun'].includes(name),
+    hbxEngineLock: {
+      findUnique: async () => row,
+      updateMany: async (input: any) => {
+        lockUpdates.push(input);
+        return { count: 1 };
+      },
+    },
+    webscrapingCampaignTask: {
+      updateMany: async (input: any) => {
+        taskUpdates.push(input);
+        return { count: 1 };
+      },
+    },
+    webscrapingSearchRun: {
+      updateMany: async (input: any) => {
+        runUpdates.push(input);
+        return { count: 1 };
+      },
+    },
+  } as any) as any;
+  service.refreshEngineRegistryFromEnv = async () => [];
+  service.getDashboardEngineStatus = async () => ({ ok: true });
+
+  await service.stopEngine('hbx-engine-4', { force: true });
+
+  assert.equal(taskUpdates[0].where.lockedByEngineId, 'hbx-engine-4');
+  assert.equal(taskUpdates[0].data.status, 'queued');
+  assert.equal(runUpdates[0].where.assignedEngineId, 'hbx-engine-4');
+  assert.equal(runUpdates[0].data.status, 'queued');
+  assert.equal(lockUpdates.at(-1).data.status, 'stopped');
+  assert.equal(lockUpdates.at(-1).data.lockedRunId, null);
+});
+
+test('factory drain keeps client reserved engine and drains factory engines', async () => {
+  const drained: string[] = [];
+  const rows = [
+    {
+      id: 'hbx-engine-1',
+      engineIndex: 0,
+      status: 'online',
+      lockedRunId: null,
+      lockedUntil: null,
+    },
+    {
+      id: 'hbx-engine-2',
+      engineIndex: 1,
+      status: 'busy',
+      lockedRunId: 'campaign-1:mass:1',
+      lockedUntil: new Date(Date.now() + 60_000),
+    },
+    {
+      id: 'hbx-engine-3',
+      engineIndex: 2,
+      status: 'online',
+      lockedRunId: null,
+      lockedUntil: null,
+    },
+  ];
+  const service = new HbxEnginePoolService({
+    hasTable: async (name: string) => name === 'HbxEngineLock',
+    hbxEngineLock: {
+      findMany: async () => rows,
+    },
+  } as any) as any;
+  service.refreshEngineRegistryFromEnv = async () => [];
+  service.getSchedulerStatus = async () => ({ manualReservedEngines: 1 });
+  service.drainEngine = async (id: string) => {
+    drained.push(id);
+    return { ok: true };
+  };
+
+  const result = await service.drainFactoryEngines({ seconds: 30, reason: 'test' });
+
+  assert.equal(result.affected, 2);
+  assert.deepEqual(drained, ['hbx-engine-2', 'hbx-engine-3']);
 });
 
 test('operational turbo config respects configured engine count', async () => {

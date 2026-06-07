@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { apiFetch, clearApiCache, clearToken, getToken } from "@/app/_lib/api";
@@ -212,6 +212,32 @@ type TopBarMasterNotice = {
 type TopBarMasterNoticeListResponse = {
   notices?: TopBarMasterNotice[];
 };
+
+function extractSellerEmailFromNotice(notice: TopBarMasterNotice) {
+  const text = `${notice.title || ""} ${notice.body || ""}`;
+  const match = /E-mail:\s*([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/i.exec(text);
+  return match?.[1]?.trim().toLowerCase() || "";
+}
+
+function buildHeaderMasterNoticeHref(notice: TopBarMasterNotice) {
+  const title = String(notice.title || "").toLowerCase();
+  const body = String(notice.body || "").toLowerCase();
+  const isSellerDocumentsNotice =
+    title.includes("documentos confirmados") ||
+    body.includes("documentos obrigatórios do cadastro hbx") ||
+    body.includes("documentos obrigatorios do cadastro hbx");
+
+  if (!isSellerDocumentsNotice) return "/gerencial";
+
+  const params = new URLSearchParams({
+    tab: "equipe",
+    noticeKind: "seller-documents-confirmed",
+    noticeId: String(notice.id || ""),
+  });
+  const sellerEmail = extractSellerEmailFromNotice(notice);
+  if (sellerEmail) params.set("sellerEmail", sellerEmail);
+  return `/gerencial?${params.toString()}`;
+}
 type InboxAlertConversation = {
   id: string;
   status: string;
@@ -2014,28 +2040,56 @@ const HBX_TOPBAR_POLISH_CSS = `
     background: color-mix(in srgb, var(--surface, #ffffff) 92%, var(--background, #f8fafc));
     color: var(--foreground, #0f172a);
     display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
     gap: 0.18rem;
+    text-align: left;
+  }
+
+  .hbx-header-notices-itemMain {
+    min-width: 0;
+    display: grid;
+    gap: 0.18rem;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    padding: 0;
     text-align: left;
     cursor: pointer;
   }
 
-  .hbx-header-notices-item strong,
-  .hbx-header-notices-item span {
+  .hbx-header-notices-itemMain strong,
+  .hbx-header-notices-itemMain span {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .hbx-header-notices-item strong {
+  .hbx-header-notices-itemMain strong {
     font-size: 0.74rem;
     font-weight: 900;
   }
 
-  .hbx-header-notices-item span {
+  .hbx-header-notices-itemMain span {
     color: var(--muted, #64748b);
     font-size: 0.68rem;
     font-weight: 700;
+  }
+
+  .hbx-header-notices-dismiss {
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    border: 1px solid color-mix(in srgb, var(--danger, #ef4444) 28%, var(--line, rgba(148, 163, 184, 0.22)));
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--danger, #ef4444) 9%, var(--surface, #ffffff));
+    color: color-mix(in srgb, var(--danger, #ef4444) 78%, var(--foreground, #0f172a));
+    font-size: 1rem;
+    font-weight: 900;
+    line-height: 1;
+    cursor: pointer;
   }
 
   @keyframes hbxHeaderDot {
@@ -3997,7 +4051,7 @@ export default function TopBar() {
     }
   }
 
-  async function loadHeaderMasterNoticeEntries(options?: { menu?: boolean }) {
+  const loadHeaderMasterNoticeEntries = useCallback(async (options?: { menu?: boolean }) => {
     if (options?.menu) {
       setUnreadInboxLoading(true);
       setUnreadInboxError(null);
@@ -4015,7 +4069,7 @@ export default function TopBar() {
         messageAt: String(notice.createdAt || ""),
         unreadCount: 1,
         noticeId: String(notice.id || ""),
-        href: "/gerencial",
+        href: buildHeaderMasterNoticeHref(notice),
       }));
       setMasterNoticeCount(entries.length);
       if (options?.menu) setUnreadInboxEntries(entries);
@@ -4027,6 +4081,18 @@ export default function TopBar() {
       }
     } finally {
       if (options?.menu) setUnreadInboxLoading(false);
+    }
+  }, [user?.isSystemMaster, user?.role]);
+
+  async function acknowledgeHeaderMasterNotice(noticeId: string) {
+    const normalizedNoticeId = String(noticeId || "").trim();
+    if (!normalizedNoticeId) return;
+    setUnreadInboxEntries((current) => current.filter((entry) => entry.noticeId !== normalizedNoticeId));
+    setMasterNoticeCount((current) => Math.max(0, current - 1));
+    try {
+      await apiFetch(`/vendas/master-notices/${encodeURIComponent(normalizedNoticeId)}/ack`, { method: "POST" });
+    } finally {
+      await loadHeaderMasterNoticeEntries({ menu: unreadInboxOpen });
     }
   }
 
@@ -4062,9 +4128,16 @@ export default function TopBar() {
       return;
     }
     void loadHeaderMasterNoticeEntries();
+    const refreshFromWorkflow = () => {
+      void loadHeaderMasterNoticeEntries();
+    };
+    window.addEventListener("hbx:master-notices-refresh", refreshFromWorkflow);
     const timer = window.setInterval(() => void loadHeaderMasterNoticeEntries(), 60000);
-    return () => window.clearInterval(timer);
-  }, [authenticated, user?.role, user?.isSystemMaster, user?.company?.id]);
+    return () => {
+      window.removeEventListener("hbx:master-notices-refresh", refreshFromWorkflow);
+      window.clearInterval(timer);
+    };
+  }, [authenticated, loadHeaderMasterNoticeEntries, user?.company?.id]);
 
   useEffect(() => {
     if (!unreadInboxOpen) return;
@@ -5059,22 +5132,32 @@ export default function TopBar() {
                     {!unreadInboxLoading && unreadInboxEntries.length > 0 ? (
                       <div className="hbx-header-notices-list">
                         {unreadInboxEntries.slice(0, 6).map((entry) => (
-                          <button
+                          <div
                             key={`${entry.conversationId}:${entry.messageId}`}
-                            type="button"
                             className="hbx-header-notices-item"
-                            onClick={() => {
-                              setUnreadInboxOpen(false);
-                              if (entry.noticeId) {
-                                void apiFetch(`/vendas/master-notices/${encodeURIComponent(entry.noticeId)}/ack`, { method: "POST" })
-                                  .finally(() => void loadHeaderMasterNoticeEntries());
-                              }
-                              router.push(entry.href || "/gerencial");
-                            }}
                           >
-                            <strong>{entry.conversationLabel}</strong>
-                            <span>{entry.messagePreview}</span>
-                          </button>
+                            <button
+                              type="button"
+                              className="hbx-header-notices-itemMain"
+                              onClick={() => {
+                                setUnreadInboxOpen(false);
+                                router.push(entry.href || "/gerencial");
+                              }}
+                            >
+                              <strong>{entry.conversationLabel}</strong>
+                              <span>{entry.messagePreview}</span>
+                            </button>
+                            {entry.noticeId ? (
+                              <button
+                                type="button"
+                                className="hbx-header-notices-dismiss"
+                                onClick={() => void acknowledgeHeaderMasterNotice(entry.noticeId || "")}
+                                aria-label="Remover aviso"
+                              >
+                                ×
+                              </button>
+                            ) : null}
+                          </div>
                         ))}
                       </div>
                     ) : null}

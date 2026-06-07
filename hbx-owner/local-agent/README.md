@@ -45,5 +45,16 @@ http://127.0.0.1:3107
 - `POST /test/webwhats`
 - `POST /test/e2e`
 - `POST /deploy/verify-prod`
+- `GET /radar/engines/status`
+- `GET /radar/engines/:id/logs`
+- `POST /radar/engines/:id/start`
+- `POST /radar/engines/:id/stop`
 
 `/deploy/new`, `/deploy/publish` e `force` nao existem nesta fase.
+
+## Radar Motores
+
+Os endpoints de motores aceitam somente nomes no formato `hbx-engine-N`.
+Eles nao recebem shell livre pelo body e continuam exigindo `Authorization: Bearer <HBX_OWNER_LOCAL_TOKEN>`.
+
+Use a aba `Radar Motores` do HBX Owner Windows para consultar Docker local, abrir logs, iniciar um motor parado ou parar um container selecionado com confirmacao. Acoes de scheduler, dreno com lease, force night e cancelamento de factory continuam no painel Master web.

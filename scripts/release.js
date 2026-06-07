@@ -10,8 +10,8 @@ const {
 
 const remote = 'origin';
 const branch = 'master';
-const HBX_ACTIVE_ENGINE_COUNT = 50;
-const HBX_MAX_ENGINE_COUNT = 50;
+const HBX_ENGINE_HARD_LIMIT = 200;
+const HBX_DEFAULT_PUBLISH_ENGINE_COUNT = 3;
 const rawArgs = process.argv.slice(2).map((arg) => String(arg || '').trim()).filter(Boolean);
 const isDryRun = rawArgs.some((arg) => ['d', 'dry-run', '--dry-run'].includes(arg.toLowerCase()));
 
@@ -45,16 +45,24 @@ function parsePositiveInteger(value, fallback) {
   return Math.max(1, Math.trunc(parsed));
 }
 
+function parseNonNegativeInteger(value, fallback) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(0, Math.trunc(parsed));
+}
+
 function isTruthy(value) {
   return ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
 }
 
 function resolveHbxEngineCount(env) {
   const requested = parsePositiveInteger(
-    env.HBX_ENGINE_COUNT || env.HBX_PUBLISH_ENGINE_COUNT,
-    HBX_ACTIVE_ENGINE_COUNT,
+    env.HBX_PUBLISH_ENGINE_COUNT || env.HBX_PUBLISH_WARM_ENGINE_COUNT,
+    HBX_DEFAULT_PUBLISH_ENGINE_COUNT,
   );
-  return Math.min(requested, HBX_ACTIVE_ENGINE_COUNT);
+  return Math.min(requested, HBX_ENGINE_HARD_LIMIT);
 }
 
 function loadOperationsEnv() {
@@ -119,9 +127,13 @@ function ensureRequiredEnv(env) {
   const hbxEngineMaxCount = Math.min(
     Math.max(
       hbxEngineCount,
-      parsePositiveInteger(env.HBX_ENGINE_MAX_COUNT || env.HBX_PUBLISH_ENGINE_MAX_COUNT, HBX_MAX_ENGINE_COUNT),
+      parsePositiveInteger(env.HBX_PUBLISH_ENGINE_MAX_COUNT || env.HBX_ENGINE_MAX_COUNT, HBX_ENGINE_HARD_LIMIT),
     ),
-    HBX_MAX_ENGINE_COUNT,
+    HBX_ENGINE_HARD_LIMIT,
+  );
+  const hbxClientReservedEngines = Math.min(
+    parseNonNegativeInteger(env.HBX_CLIENT_RESERVED_ENGINES, 2),
+    Math.max(0, hbxEngineCount - 1),
   );
 
   return {
@@ -132,6 +144,7 @@ function ensureRequiredEnv(env) {
     backendUrl: normalizeBaseUrl(env.PROD_BACKEND_URL || ''),
     hbxEngineCount,
     hbxEngineMaxCount,
+    hbxClientReservedEngines,
     webwhatsAppDir: String(env.WEBWHATS_APP_DIR || `${env.HOSTINGER_APP_DIR}/Webwhats`).trim(),
     webwhatsRunUser: String(env.WEBWHATS_RUN_USER || 'root').trim(),
     webwhatsSystemdService: String(env.WEBWHATS_SYSTEMD_SERVICE || 'webwhats').trim(),
@@ -282,6 +295,8 @@ function buildRemoteReleaseScript(config, services) {
     `COMPOSE_SERVICES="${composeServices.join(' ')}"`,
     `REQUESTED_HBX_ENGINE_COUNT=${shellSingleQuote(config.hbxEngineCount)}`,
     `REQUESTED_HBX_ENGINE_MAX_COUNT=${shellSingleQuote(config.hbxEngineMaxCount)}`,
+    `REQUESTED_HBX_CLIENT_RESERVED_ENGINES=${shellSingleQuote(config.hbxClientReservedEngines)}`,
+    `HBX_ENGINE_HARD_LIMIT=${shellSingleQuote(HBX_ENGINE_HARD_LIMIT)}`,
     `BACKEND_URL=${shellSingleQuote(config.backendUrl)}`,
     `FRONTEND_URL=${shellSingleQuote(config.frontendUrl)}`,
     'BACKEND_VERIFY_ATTEMPTS=30',
@@ -303,7 +318,7 @@ function buildRemoteReleaseScript(config, services) {
     'upsert_root_env() { key="$1"; value="$2"; tmp="$(mktemp)"; awk -v key="$key" -v value="$value" \'BEGIN{done=0} $0 ~ "^" key "=" { print key "=" value; done=1; next } { print } END{ if (!done) print key "=" value }\' .env > "$tmp"; cat "$tmp" > .env; rm -f "$tmp"; }',
     'upsert_root_env HBX_ENGINE_COUNT "$REQUESTED_HBX_ENGINE_COUNT"',
     'upsert_root_env HBX_ENGINE_MAX_COUNT "$REQUESTED_HBX_ENGINE_MAX_COUNT"',
-    'upsert_root_env HBX_CLIENT_RESERVED_ENGINES "0"',
+    'upsert_root_env HBX_CLIENT_RESERVED_ENGINES "$REQUESTED_HBX_CLIENT_RESERVED_ENGINES"',
     'upsert_root_env HBX_FACTORY_MIN_ENGINES "$REQUESTED_HBX_ENGINE_COUNT"',
     'upsert_root_env HBX_FACTORY_MAX_ENGINES "$REQUESTED_HBX_ENGINE_COUNT"',
     'upsert_root_env HBX_RADAR_CLIENT_PRIORITY_START_HOUR "${HBX_RADAR_CLIENT_PRIORITY_START_HOUR:-8}"',
@@ -312,14 +327,24 @@ function buildRemoteReleaseScript(config, services) {
     'upsert_root_env HBX_RADAR_CLIENT_FALLBACK_TO_POOL "${HBX_RADAR_CLIENT_FALLBACK_TO_POOL:-true}"',
     'export HBX_ENGINE_COUNT="$(awk -F= \'/^HBX_ENGINE_COUNT=/{print substr($0, length("HBX_ENGINE_COUNT")+2); exit}\' .env)"',
     'export HBX_ENGINE_MAX_COUNT="$(awk -F= \'/^HBX_ENGINE_MAX_COUNT=/{print substr($0, length("HBX_ENGINE_MAX_COUNT")+2); exit}\' .env)"',
-    'if [ -z "$HBX_ENGINE_MAX_COUNT" ]; then export HBX_ENGINE_MAX_COUNT=50; fi',
-    'case "$HBX_ENGINE_MAX_COUNT" in *[!0-9]*|"") echo "Aviso: HBX_ENGINE_MAX_COUNT invalido no .env; usando 50."; export HBX_ENGINE_MAX_COUNT=50;; esac',
-    'if [ "$HBX_ENGINE_MAX_COUNT" -gt 50 ]; then echo "Aviso: HBX_ENGINE_MAX_COUNT=$HBX_ENGINE_MAX_COUNT acima da frota oficial; usando 50."; export HBX_ENGINE_MAX_COUNT=50; fi',
-    'if [ -z "$HBX_ENGINE_COUNT" ]; then export HBX_ENGINE_COUNT=50; fi',
-    'case "$HBX_ENGINE_COUNT" in *[!0-9]*|"") echo "Aviso: HBX_ENGINE_COUNT invalido no .env; usando 50."; export HBX_ENGINE_COUNT=50;; esac',
+    'if [ -z "$HBX_ENGINE_MAX_COUNT" ]; then export HBX_ENGINE_MAX_COUNT="$HBX_ENGINE_HARD_LIMIT"; fi',
+    'case "$HBX_ENGINE_MAX_COUNT" in *[!0-9]*|"") echo "Aviso: HBX_ENGINE_MAX_COUNT invalido no .env; usando $HBX_ENGINE_HARD_LIMIT."; export HBX_ENGINE_MAX_COUNT="$HBX_ENGINE_HARD_LIMIT";; esac',
+    'if [ "$HBX_ENGINE_MAX_COUNT" -gt "$HBX_ENGINE_HARD_LIMIT" ]; then echo "Aviso: HBX_ENGINE_MAX_COUNT=$HBX_ENGINE_MAX_COUNT acima do hard limit; usando $HBX_ENGINE_HARD_LIMIT."; export HBX_ENGINE_MAX_COUNT="$HBX_ENGINE_HARD_LIMIT"; fi',
+    'if [ -z "$HBX_ENGINE_COUNT" ]; then export HBX_ENGINE_COUNT="$REQUESTED_HBX_ENGINE_COUNT"; fi',
+    'case "$HBX_ENGINE_COUNT" in *[!0-9]*|"") echo "Aviso: HBX_ENGINE_COUNT invalido no .env; usando $REQUESTED_HBX_ENGINE_COUNT."; export HBX_ENGINE_COUNT="$REQUESTED_HBX_ENGINE_COUNT";; esac',
     'if [ "$HBX_ENGINE_COUNT" -lt 1 ]; then echo "Aviso: HBX_ENGINE_COUNT=$HBX_ENGINE_COUNT abaixo do minimo; usando 1."; export HBX_ENGINE_COUNT=1; fi',
-    'if [ "$HBX_ENGINE_COUNT" -gt 50 ]; then echo "Aviso: HBX_ENGINE_COUNT=$HBX_ENGINE_COUNT acima da frota ativa atual; usando 50."; export HBX_ENGINE_COUNT=50; fi',
+    'if [ "$HBX_ENGINE_COUNT" -gt "$HBX_ENGINE_HARD_LIMIT" ]; then echo "Aviso: HBX_ENGINE_COUNT=$HBX_ENGINE_COUNT acima do hard limit; usando $HBX_ENGINE_HARD_LIMIT."; export HBX_ENGINE_COUNT="$HBX_ENGINE_HARD_LIMIT"; fi',
     'if [ "$HBX_ENGINE_COUNT" -gt "$HBX_ENGINE_MAX_COUNT" ]; then echo "Aviso: HBX_ENGINE_COUNT=$HBX_ENGINE_COUNT acima do limite; usando $HBX_ENGINE_MAX_COUNT."; export HBX_ENGINE_COUNT="$HBX_ENGINE_MAX_COUNT"; fi',
+    'export HBX_CLIENT_RESERVED_ENGINES="$(awk -F= \'/^HBX_CLIENT_RESERVED_ENGINES=/{print substr($0, length("HBX_CLIENT_RESERVED_ENGINES")+2); exit}\' .env)"',
+    'if [ -z "$HBX_CLIENT_RESERVED_ENGINES" ]; then export HBX_CLIENT_RESERVED_ENGINES="$REQUESTED_HBX_CLIENT_RESERVED_ENGINES"; fi',
+    'case "$HBX_CLIENT_RESERVED_ENGINES" in *[!0-9]*|"") echo "Aviso: HBX_CLIENT_RESERVED_ENGINES invalido no .env; usando $REQUESTED_HBX_CLIENT_RESERVED_ENGINES."; export HBX_CLIENT_RESERVED_ENGINES="$REQUESTED_HBX_CLIENT_RESERVED_ENGINES";; esac',
+    'if [ "$HBX_CLIENT_RESERVED_ENGINES" -ge "$HBX_ENGINE_COUNT" ]; then export HBX_CLIENT_RESERVED_ENGINES=$((HBX_ENGINE_COUNT - 1)); fi',
+    'if [ "$HBX_CLIENT_RESERVED_ENGINES" -lt 0 ]; then export HBX_CLIENT_RESERVED_ENGINES=0; fi',
+    'export HBX_ENGINE_GOVERNOR_ENABLED="$(awk -F= \'/^HBX_ENGINE_GOVERNOR_ENABLED=/{print substr($0, length("HBX_ENGINE_GOVERNOR_ENABLED")+2); exit}\' .env)"',
+    'export HBX_ENGINE_GOVERNOR_INTERVAL_SECONDS="$(awk -F= \'/^HBX_ENGINE_GOVERNOR_INTERVAL_SECONDS=/{print substr($0, length("HBX_ENGINE_GOVERNOR_INTERVAL_SECONDS")+2); exit}\' .env)"',
+    'export HBX_ENGINE_GOVERNOR_COOLDOWN_SECONDS="$(awk -F= \'/^HBX_ENGINE_GOVERNOR_COOLDOWN_SECONDS=/{print substr($0, length("HBX_ENGINE_GOVERNOR_COOLDOWN_SECONDS")+2); exit}\' .env)"',
+    'export HBX_ENGINE_DRAIN_TIMEOUT_SECONDS="$(awk -F= \'/^HBX_ENGINE_DRAIN_TIMEOUT_SECONDS=/{print substr($0, length("HBX_ENGINE_DRAIN_TIMEOUT_SECONDS")+2); exit}\' .env)"',
+    'export HBX_ENGINE_DOCKER_CLI_PATH="$(awk -F= \'/^HBX_ENGINE_DOCKER_CLI_PATH=/{print substr($0, length("HBX_ENGINE_DOCKER_CLI_PATH")+2); exit}\' .env)"',
     'export POSTGRES_USER="$(awk -F= \'/^POSTGRES_USER=/{print substr($0, length("POSTGRES_USER")+2); exit}\' .env)"',
     'export POSTGRES_PASSWORD="$(awk -F= \'/^POSTGRES_PASSWORD=/{print substr($0, length("POSTGRES_PASSWORD")+2); exit}\' .env)"',
     'export POSTGRES_DB="$(awk -F= \'/^POSTGRES_DB=/{print substr($0, length("POSTGRES_DB")+2); exit}\' .env)"',
@@ -512,9 +537,14 @@ function buildRemoteReleaseScript(config, services) {
     '    -e HBX_ENGINE_COUNT="$HBX_ENGINE_COUNT" \\',
     '    -e HBX_ENGINE_MAX_COUNT="$HBX_ENGINE_MAX_COUNT" \\',
     '    -e HBX_ENGINE_URLS="$(hbx_engine_urls)" \\',
-    '    -e HBX_CLIENT_RESERVED_ENGINES="${HBX_CLIENT_RESERVED_ENGINES:-0}" \\',
+    '    -e HBX_CLIENT_RESERVED_ENGINES="${HBX_CLIENT_RESERVED_ENGINES:-$REQUESTED_HBX_CLIENT_RESERVED_ENGINES}" \\',
     '    -e HBX_FACTORY_MIN_ENGINES="${HBX_FACTORY_MIN_ENGINES:-$HBX_ENGINE_COUNT}" \\',
     '    -e HBX_FACTORY_MAX_ENGINES="${HBX_FACTORY_MAX_ENGINES:-$HBX_ENGINE_COUNT}" \\',
+    '    -e HBX_ENGINE_GOVERNOR_ENABLED="${HBX_ENGINE_GOVERNOR_ENABLED:-false}" \\',
+    '    -e HBX_ENGINE_GOVERNOR_INTERVAL_SECONDS="${HBX_ENGINE_GOVERNOR_INTERVAL_SECONDS:-30}" \\',
+    '    -e HBX_ENGINE_GOVERNOR_COOLDOWN_SECONDS="${HBX_ENGINE_GOVERNOR_COOLDOWN_SECONDS:-120}" \\',
+    '    -e HBX_ENGINE_DRAIN_TIMEOUT_SECONDS="${HBX_ENGINE_DRAIN_TIMEOUT_SECONDS:-90}" \\',
+    '    -e HBX_ENGINE_DOCKER_CLI_PATH="${HBX_ENGINE_DOCKER_CLI_PATH:-docker}" \\',
     '    -e HBX_RADAR_CLIENT_PRIORITY_START_HOUR="${HBX_RADAR_CLIENT_PRIORITY_START_HOUR:-8}" \\',
     '    -e HBX_RADAR_CLIENT_PRIORITY_END_HOUR="${HBX_RADAR_CLIENT_PRIORITY_END_HOUR:-20}" \\',
     '    -e HBX_RADAR_CLIENT_REQUEST_TIMEOUT_MS="${HBX_RADAR_CLIENT_REQUEST_TIMEOUT_MS:-25000}" \\',
@@ -548,7 +578,7 @@ function buildRemoteReleaseScript(config, services) {
     '  if [ "$running_count" -lt "$HBX_ENGINE_COUNT" ]; then echo "ERRO: motores HBX running=$running_count esperados=$HBX_ENGINE_COUNT"; exit 1; fi',
     '  echo "Motores HBX running=$running_count esperados=$HBX_ENGINE_COUNT; chamada HTTP desativada."',
     '}',
-    'if has_service hbx-scraping-engine; then start_hbx_engines; fi',
+    'if has_service backend || has_service hbx-scraping-engine; then start_hbx_engines; fi',
     'if has_service backend; then start_hbx_backend; verify_backend_api; fi',
     'if [ -n "$COMPOSE_SERVICES" ]; then',
     '  for s in $COMPOSE_SERVICES; do',
@@ -600,8 +630,7 @@ function expandPublishedServices(services) {
     .map((service) => serviceLabels[service] || service);
 
   if (selected.has('hbx-scraping-engine')) {
-    const engineCount = HBX_ACTIVE_ENGINE_COUNT;
-    published.push(...Array.from({ length: engineCount }, (_, index) => `hbx-engine-${index + 1}`), 'hbx-scraping-engine');
+    published.push(`hbx-engine warm pool (padrao ${HBX_DEFAULT_PUBLISH_ENGINE_COUNT})`, 'hbx-scraping-engine');
   }
 
   return published;

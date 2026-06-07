@@ -71,6 +71,7 @@ TAB_NAMES = (
     "Alinhamento",
     "ChatGPT",
     "Relatórios",
+    "Radar Motores",
     "Ops Control",
     "Config",
 )
@@ -162,6 +163,9 @@ DEFAULT_CONFIG = {
     "usage_hud_window_hours": 5,
     "owner_backend_url": "http://127.0.0.1:3000",
     "owner_tickets_secret": "",
+    "owner_local_agent_url": "http://127.0.0.1:3107",
+    "owner_local_agent_token": "",
+    "radar_owner_panel_url": "http://127.0.0.1:3001/bancodedados?tab=motores",
     "pr_lab_base_branch": "master",
     "pr_lab_worktree_dir": str(HBX_REPO_DIR / ".worktrees"),
     "pr_lab_localhost_url": "http://127.0.0.1:3000",
@@ -1024,6 +1028,15 @@ class HbxOwnerApp(tk.Tk):
         self.ops_panel_url_var = tk.StringVar(value="Painel IP: carregando...")
         self.ops_tree: ttk.Treeview | None = None
         self.ops_events_text: tk.Text | None = None
+        self.radar_engine_status_var = tk.StringVar(value="Radar Motores: aguardando agent local.")
+        self.radar_engine_total_var = tk.StringVar(value="-")
+        self.radar_engine_running_var = tk.StringVar(value="-")
+        self.radar_engine_stopped_var = tk.StringVar(value="-")
+        self.radar_engine_agent_var = tk.StringVar(value="-")
+        self.radar_engine_panel_var = tk.StringVar(value="Painel Master: carregando...")
+        self.radar_engine_selected_var = tk.StringVar(value="Nenhum motor selecionado.")
+        self.radar_engine_tree: ttk.Treeview | None = None
+        self.radar_engine_events_text: tk.Text | None = None
         self.execution_command_var = tk.StringVar(value="py_compile")
         self.execution_status_var = tk.StringVar(value="Nenhuma execução local ainda.")
         self.last_execution_output = ""
@@ -1106,6 +1119,8 @@ class HbxOwnerApp(tk.Tk):
                 self._build_chatgpt_tab(frame)
             elif name == "Relatórios":
                 self._build_reports_tab(frame)
+            elif name == "Radar Motores":
+                self._build_radar_engines_tab(frame)
             elif name == "Config":
                 self._build_config_tab(frame)
             else:
@@ -1372,6 +1387,328 @@ class HbxOwnerApp(tk.Tk):
             wraplength=720,
         )
         body.grid(row=1, column=0, sticky="nw", pady=(16, 0))
+
+    def _build_radar_engines_tab(self, frame: ttk.Frame) -> None:
+        self.page_title(frame, "Radar Motores", "Controle local do Elastic Engine Governor no Windows Owner")
+        frame.columnconfigure(0, weight=1)
+        frame.rowconfigure(3, weight=2)
+        frame.rowconfigure(4, weight=1)
+
+        hero = tk.Frame(frame, bg=THEME["card"], highlightthickness=1, highlightbackground=THEME["line"])
+        hero.grid(row=1, column=0, sticky="ew", pady=(14, 12))
+        hero.columnconfigure(0, weight=1)
+        hero_body = tk.Frame(hero, bg=THEME["card"], padx=18, pady=14)
+        hero_body.grid(row=0, column=0, sticky="ew")
+        hero_body.columnconfigure(0, weight=1)
+
+        tk.Label(
+            hero_body,
+            text="Elastic Engine Governor",
+            bg=THEME["card"],
+            fg=THEME["text"],
+            font=(self.font_family, 18, "bold"),
+            anchor="w",
+        ).grid(row=0, column=0, sticky="w")
+        tk.Label(
+            hero_body,
+            textvariable=self.radar_engine_status_var,
+            bg=THEME["card"],
+            fg=THEME["muted"],
+            font=(self.font_family, 10),
+            anchor="w",
+        ).grid(row=1, column=0, sticky="w", pady=(4, 0))
+        tk.Label(
+            hero_body,
+            textvariable=self.radar_engine_panel_var,
+            bg=THEME["card"],
+            fg=THEME["accent"],
+            font=(self.font_family, 9, "bold"),
+            anchor="w",
+        ).grid(row=2, column=0, sticky="w", pady=(6, 0))
+
+        actions = tk.Frame(hero_body, bg=THEME["card"])
+        actions.grid(row=0, column=1, rowspan=3, sticky="e")
+        ttk.Button(actions, text="Abrir painel Master", command=self.open_radar_owner_panel, style="Accent.TButton").grid(
+            row=0, column=0, padx=(0, 8)
+        )
+        ttk.Button(actions, text="Atualizar", command=self.refresh_radar_engines, style="Success.TButton").grid(
+            row=0, column=1, padx=8
+        )
+        ttk.Button(actions, text="Iniciar motor", command=self.start_selected_radar_engine).grid(row=0, column=2, padx=8)
+        ttk.Button(actions, text="Parar container", command=self.stop_selected_radar_engine, style="Danger.TButton").grid(
+            row=0, column=3, padx=8
+        )
+        ttk.Button(actions, text="Logs", command=self.show_selected_radar_engine_logs).grid(row=0, column=4, padx=(8, 0))
+
+        metrics = ttk.Frame(frame, style="App.TFrame")
+        metrics.grid(row=2, column=0, sticky="ew", pady=(0, 12))
+        for col in range(4):
+            metrics.columnconfigure(col, weight=1)
+        self.ops_metric_card(metrics, 0, "Total", self.radar_engine_total_var, "#2563eb")
+        self.ops_metric_card(metrics, 1, "Rodando", self.radar_engine_running_var, "#16a34a")
+        self.ops_metric_card(metrics, 2, "Parados", self.radar_engine_stopped_var, "#b42318")
+        self.ops_metric_card(metrics, 3, "Agent", self.radar_engine_agent_var, "#0e7490")
+
+        table_panel = tk.Frame(frame, bg=THEME["card"], highlightthickness=1, highlightbackground=THEME["line"])
+        table_panel.grid(row=3, column=0, sticky="nsew")
+        table_panel.columnconfigure(0, weight=1)
+        table_panel.rowconfigure(1, weight=1)
+        tk.Label(
+            table_panel,
+            text="Containers hbx-engine-*",
+            bg=THEME["card"],
+            fg=THEME["text"],
+            font=(self.font_family, 12, "bold"),
+            anchor="w",
+            padx=14,
+            pady=10,
+        ).grid(row=0, column=0, sticky="ew")
+        columns = ("name", "state", "cpu", "memory", "mem_percent", "ports")
+        tree = ttk.Treeview(table_panel, columns=columns, show="headings", height=11)
+        headings = {
+            "name": "Motor",
+            "state": "Estado",
+            "cpu": "CPU",
+            "memory": "Memória",
+            "mem_percent": "Mem %",
+            "ports": "Portas",
+        }
+        widths = {
+            "name": 180,
+            "state": 110,
+            "cpu": 85,
+            "memory": 190,
+            "mem_percent": 90,
+            "ports": 440,
+        }
+        for column in columns:
+            tree.heading(column, text=headings[column])
+            tree.column(column, width=widths[column], anchor="w" if column in {"name", "state", "ports"} else "e")
+        tree.tag_configure("running", foreground=THEME["success"])
+        tree.tag_configure("stopped", foreground=THEME["danger"])
+        tree.tag_configure("other", foreground=THEME["muted"])
+        tree.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 12))
+        tree_scroll = ttk.Scrollbar(table_panel, orient="vertical", command=tree.yview)
+        tree_scroll.grid(row=1, column=1, sticky="ns", pady=(0, 12))
+        tree.configure(yscrollcommand=tree_scroll.set)
+        tree.bind("<<TreeviewSelect>>", self.on_radar_engine_selected)
+        self.radar_engine_tree = tree
+
+        events_panel = tk.Frame(frame, bg=THEME["card"], highlightthickness=1, highlightbackground=THEME["line"])
+        events_panel.grid(row=4, column=0, sticky="nsew", pady=(12, 0))
+        events_panel.columnconfigure(0, weight=1)
+        events_panel.rowconfigure(1, weight=1)
+        tk.Label(
+            events_panel,
+            text="Eventos e orientações",
+            bg=THEME["card"],
+            fg=THEME["text"],
+            font=(self.font_family, 12, "bold"),
+            anchor="w",
+            padx=14,
+            pady=10,
+        ).grid(row=0, column=0, sticky="ew")
+        self.radar_engine_events_text = tk.Text(events_panel, height=7, wrap="word")
+        self.style_text_widget(self.radar_engine_events_text)
+        self.radar_engine_events_text.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 12))
+        events_scroll = ttk.Scrollbar(events_panel, orient="vertical", command=self.radar_engine_events_text.yview)
+        events_scroll.grid(row=1, column=1, sticky="ns", pady=(0, 12))
+        self.radar_engine_events_text.configure(yscrollcommand=events_scroll.set)
+        self.radar_engine_panel_var.set(f"Painel Master: {self.radar_owner_panel_url()}")
+        self.set_radar_engine_events(
+            "Use Atualizar para consultar o agent local.\n"
+            "Force night, cancelamento de factory e dreno por lease ficam no painel Master web."
+        )
+        self.after(300, self.refresh_radar_engines)
+
+    def owner_local_agent_url(self) -> str:
+        return str(self.config_data.get("owner_local_agent_url") or DEFAULT_CONFIG["owner_local_agent_url"]).strip().rstrip("/")
+
+    def owner_local_agent_token(self) -> str:
+        return str(os.environ.get("HBX_OWNER_LOCAL_TOKEN") or self.config_data.get("owner_local_agent_token") or "").strip()
+
+    def radar_owner_panel_url(self) -> str:
+        configured = str(self.config_data.get("radar_owner_panel_url") or DEFAULT_CONFIG["radar_owner_panel_url"]).strip()
+        return configured or DEFAULT_CONFIG["radar_owner_panel_url"]
+
+    def owner_local_agent_request(self, path: str, method: str = "GET", payload: dict | None = None, timeout: int = 12) -> dict:
+        base_url = self.owner_local_agent_url()
+        token = self.owner_local_agent_token()
+        if not base_url:
+            raise RuntimeError("Configure owner_local_agent_url em Config.")
+        if not token:
+            raise RuntimeError("Configure HBX_OWNER_LOCAL_TOKEN no Windows ou owner_local_agent_token em Config.")
+        data = None
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {token}",
+        }
+        if payload is not None:
+            data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            headers["Content-Type"] = "application/json; charset=utf-8"
+        url = f"{base_url}{path}"
+        request = urllib.request.Request(url, data=data, headers=headers, method=method)
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                raw = response.read().decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")[:500]
+            raise RuntimeError(f"Agent respondeu {exc.code}: {detail}") from exc
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            raise RuntimeError(f"Agent local indisponível: {exc}") from exc
+        try:
+            return json.loads(raw or "{}")
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"Resposta inválida do agent local: {raw[:300]}") from exc
+
+    def set_radar_engine_events(self, text: str) -> None:
+        if not self.radar_engine_events_text:
+            return
+        self.radar_engine_events_text.configure(state="normal")
+        self.radar_engine_events_text.delete("1.0", tk.END)
+        self.radar_engine_events_text.insert(tk.END, text)
+        self.radar_engine_events_text.configure(state="disabled")
+
+    def refresh_radar_engines(self) -> None:
+        self.radar_engine_status_var.set("Consultando motores no agent local...")
+        self.radar_engine_agent_var.set("consultando")
+
+        def worker() -> None:
+            try:
+                payload = self.owner_local_agent_request("/radar/engines/status")
+                self.after(0, lambda: self.apply_radar_engine_snapshot(payload))
+            except RuntimeError as exc:
+                self.after(0, lambda: self.apply_radar_engine_error(str(exc)))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def apply_radar_engine_error(self, message: str) -> None:
+        self.radar_engine_agent_var.set("falha")
+        self.radar_engine_status_var.set("Radar Motores com alerta.")
+        self.set_radar_engine_events(
+            f"{message}\n\n"
+            "Inicie o agent com:\n"
+            "$env:HBX_OWNER_LOCAL_TOKEN=\"token-local-forte\"\n"
+            "npm run owner:agent"
+        )
+
+    def apply_radar_engine_snapshot(self, payload: dict) -> None:
+        engines = payload.get("engines") if isinstance(payload, dict) else []
+        if not isinstance(engines, list):
+            engines = []
+        summary = payload.get("summary") if isinstance(payload, dict) else {}
+        if not isinstance(summary, dict):
+            summary = {}
+        self.radar_engine_total_var.set(str(summary.get("total", len(engines))))
+        self.radar_engine_running_var.set(str(summary.get("running", 0)))
+        self.radar_engine_stopped_var.set(str(summary.get("stopped", 0)))
+        self.radar_engine_agent_var.set("online" if payload.get("ok") else "alerta")
+        self.radar_engine_status_var.set(f"Motores atualizados às {datetime.now().strftime('%H:%M:%S')}.")
+        if self.radar_engine_tree:
+            for item in self.radar_engine_tree.get_children():
+                self.radar_engine_tree.delete(item)
+            for engine in engines:
+                state = str(engine.get("state") or "")
+                tag = "running" if state == "running" else "stopped" if state in {"exited", "created"} else "other"
+                self.radar_engine_tree.insert(
+                    "",
+                    tk.END,
+                    values=(
+                        engine.get("name", "-"),
+                        self.state_label(state),
+                        engine.get("cpu", "-"),
+                        engine.get("memory", "-"),
+                        engine.get("memPercent", "-"),
+                        engine.get("ports", "-"),
+                    ),
+                    tags=(tag,),
+                )
+        errors = [str(item) for item in (payload.get("errors") or []) if str(item).strip()]
+        if errors:
+            self.set_radar_engine_events("\n".join(errors))
+        else:
+            self.set_radar_engine_events(
+                "Consulta local concluída. Para forçar noite, cancelar factory ou drenar com lease, abra o painel Master web."
+            )
+
+    def selected_radar_engine_name(self) -> str:
+        if not self.radar_engine_tree:
+            return ""
+        selected = self.radar_engine_tree.selection()
+        if not selected:
+            return ""
+        values = self.radar_engine_tree.item(selected[0], "values")
+        return str(values[0]) if values else ""
+
+    def on_radar_engine_selected(self, _event: tk.Event | None = None) -> None:
+        name = self.selected_radar_engine_name()
+        self.radar_engine_selected_var.set(f"Selecionado: {name}" if name else "Nenhum motor selecionado.")
+
+    def run_radar_engine_action(self, action: str, confirm_message: str = "") -> None:
+        name = self.selected_radar_engine_name()
+        if not name:
+            messagebox.showwarning("Radar Motores", "Selecione um motor primeiro.")
+            return
+        if confirm_message and not messagebox.askyesno("Radar Motores", confirm_message):
+            return
+        self.radar_engine_status_var.set(f"Executando {action} em {name}...")
+
+        def worker() -> None:
+            try:
+                payload = self.owner_local_agent_request(
+                    f"/radar/engines/{urllib.parse.quote(name)}/{action}",
+                    method="POST",
+                    payload={"confirm": True} if action == "stop" else {},
+                    timeout=15,
+                )
+                run = payload.get("run") if isinstance(payload, dict) else {}
+                message = f"Ação enviada para {name}. Run: {run.get('id') or '-'}"
+                self.after(0, lambda: self.finish_radar_engine_action(message))
+            except RuntimeError as exc:
+                self.after(0, lambda: self.apply_radar_engine_error(str(exc)))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def finish_radar_engine_action(self, message: str) -> None:
+        self.radar_engine_status_var.set(message)
+        self.set_radar_engine_events(message)
+        self.after(800, self.refresh_radar_engines)
+
+    def start_selected_radar_engine(self) -> None:
+        self.run_radar_engine_action("start", "Iniciar este container pode consumir memória local. Continuar?")
+
+    def stop_selected_radar_engine(self) -> None:
+        self.run_radar_engine_action(
+            "stop",
+            "Parar container local não substitui o dreno de lease no backend. Use apenas se o motor estiver ocioso ou se você já drenou pelo painel Master. Continuar?",
+        )
+
+    def show_selected_radar_engine_logs(self) -> None:
+        name = self.selected_radar_engine_name()
+        if not name:
+            messagebox.showwarning("Radar Motores", "Selecione um motor primeiro.")
+            return
+        self.radar_engine_status_var.set(f"Buscando logs de {name}...")
+
+        def worker() -> None:
+            try:
+                payload = self.owner_local_agent_request(f"/radar/engines/{urllib.parse.quote(name)}/logs", timeout=20)
+                log = str(payload.get("log") or f"Sem logs recentes para {name}.")
+                self.after(0, lambda: self.finish_radar_engine_logs(name, log))
+            except RuntimeError as exc:
+                self.after(0, lambda: self.apply_radar_engine_error(str(exc)))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def finish_radar_engine_logs(self, name: str, log: str) -> None:
+        self.radar_engine_status_var.set(f"Logs de {name} carregados.")
+        self.set_radar_engine_events(log)
+
+    def open_radar_owner_panel(self) -> None:
+        url = self.radar_owner_panel_url()
+        self.radar_engine_panel_var.set(f"Painel Master: {url}")
+        webbrowser.open(url)
+        self.radar_engine_status_var.set(f"Painel Master aberto: {url}")
 
     def _build_ops_control_tab(self, frame: ttk.Frame) -> None:
         self.page_title(frame, "Ops Control", "Painel técnico dentro do Master")
@@ -9762,6 +10099,9 @@ exit 0
             ("usage_hud_window_hours", "Usage HUD window hours"),
             ("owner_backend_url", "Owner backend URL"),
             ("owner_tickets_secret", "Owner tickets secret"),
+            ("owner_local_agent_url", "Owner local agent URL"),
+            ("owner_local_agent_token", "Owner local agent token"),
+            ("radar_owner_panel_url", "Radar painel Master URL"),
             ("pr_lab_base_branch", "Branches base branch"),
             ("pr_lab_worktree_dir", "Branches worktree dir"),
             ("pr_lab_localhost_url", "Branches localhost URL"),
@@ -9786,7 +10126,7 @@ exit 0
             ttk.Label(panel, text=label, style="CardMuted.TLabel").grid(row=row, column=0, sticky="w", padx=(0, 10), pady=5)
             var = tk.StringVar(value=str(self.config_data.get(key, "")))
             self.config_entries[key] = var
-            show_char = "*" if key == "owner_tickets_secret" else ""
+            show_char = "*" if key in {"owner_tickets_secret", "owner_local_agent_token"} else ""
             ttk.Entry(panel, textvariable=var, show=show_char).grid(row=row, column=1, sticky="ew", pady=5)
 
         boss_row = len(fields)

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import {
   DndContext,
   DragOverlay,
@@ -40,7 +41,7 @@ import HbxMobileDock from "@/components/mobile/HbxMobileDock";
 import HbxMobileEmptyState from "@/components/mobile/HbxMobileEmptyState";
 import MobileLeadScoreGauge from "@/components/mobile/MobileLeadScoreGauge";
 import { useQuickLaunchNotice } from "@/components/useQuickLaunchNotice";
-import { apiFetch, getDashboardApiBaseUrl, getToken, type ApiFetchError } from "@/app/_lib/api";
+import { apiFetch, clearApiCache, getDashboardApiBaseUrl, getToken, type ApiFetchError } from "@/app/_lib/api";
 import { shouldUseMobileRoute, toMobileRoute } from "@/app/_lib/mobileRoutes";
 import { startSmartPolling } from "@/app/_lib/polling";
 import { useRequireModule } from "@/app/_lib/useRequireModule";
@@ -354,6 +355,17 @@ type SalesProfileResponse = {
   };
   source?: "user" | "company" | "default";
   capabilities?: VendasCapabilities;
+};
+
+type VendasAccountProfile = {
+  name?: string | null;
+  username?: string | null;
+  email?: string | null;
+  company?: {
+    paymentStatus?: string | null;
+    subscriptionStatus?: string | null;
+    premiumAccess?: boolean | null;
+  } | null;
 };
 
 type ConversionReportResponse = {
@@ -1139,22 +1151,15 @@ type HbxRadarIconName =
   | "lead-plus"
   | "coins";
 
-const HBX_RADAR_ICON_SPRITE = "/assets/hbx-radar-cards/hbx-radar-card-icons.svg";
 const HBX_RADAR_PNG_ICON_BASE = "/assets/hbx-radar-cards/png/generated-light";
-
-function HbxRadarCardIcon({ name, className }: { name: HbxRadarIconName; className?: string }) {
-  return (
-    <svg className={className || styles.hbxRadarCardIcon} focusable="false" aria-hidden="true">
-      <use href={`${HBX_RADAR_ICON_SPRITE}#hbx-icon-${name}`} />
-    </svg>
-  );
-}
 
 function HbxRadarPngIcon({ name, className }: { name: HbxRadarIconName | "linkedin" | "message"; className?: string }) {
   const iconName = name === "linkedin" ? "social-partial" : name;
   return (
-    <img
+    <Image
       src={`${HBX_RADAR_PNG_ICON_BASE}/${iconName}.png`}
+      width={24}
+      height={24}
       className={className || styles.hbxRadarPngIcon}
       alt=""
       aria-hidden="true"
@@ -1464,8 +1469,8 @@ function assistedSignupFailureMessage(value: unknown) {
   return vendasClientMessage(value, "Não foi possível criar o cadastro assistido agora.");
 }
 const SALES_PROFILE_DEFAULT_DRAFT: SalesProfileDraft = {
-  whatDoYouSell: "Sistema/Software",
-  offerCategory: "serviço comercial",
+  whatDoYouSell: "",
+  offerCategory: "",
   targetAudience: ["empresas pequenas", "comércios locais"],
   targetSegments: ["clínicas", "oficinas", "restaurantes"],
   avoidSegments: ["empresa grande", "órgão público", "sem telefone", "diretório/lista genérica"],
@@ -2630,9 +2635,11 @@ function readMobileOpenLeadId() {
 
 function salesProfileDraftFromResponse(payload?: SalesProfileResponse | null): SalesProfileDraft {
   const profile = payload?.effectiveProfile || {};
+  const source = String(payload?.source || "").trim().toLowerCase();
+  const useSavedProfile = source ? source !== "default" : Boolean(profile.whatDoYouSell || profile.offerCategory);
   return {
-    whatDoYouSell: String(profile.whatDoYouSell || SALES_PROFILE_DEFAULT_DRAFT.whatDoYouSell),
-    offerCategory: String(profile.offerCategory || SALES_PROFILE_DEFAULT_DRAFT.offerCategory),
+    whatDoYouSell: useSavedProfile ? String(profile.whatDoYouSell || SALES_PROFILE_DEFAULT_DRAFT.whatDoYouSell) : "",
+    offerCategory: useSavedProfile ? String(profile.offerCategory || SALES_PROFILE_DEFAULT_DRAFT.offerCategory) : "",
     targetAudience: Array.isArray(profile.targetAudience) && profile.targetAudience.length
       ? profile.targetAudience
       : SALES_PROFILE_DEFAULT_DRAFT.targetAudience,
@@ -2647,6 +2654,14 @@ function salesProfileDraftFromResponse(payload?: SalesProfileResponse | null): S
       : SALES_PROFILE_DEFAULT_DRAFT.preferredChannels,
     weeklyAutoUpdateEnabled: Boolean(profile.weeklyAutoUpdateEnabled),
   };
+}
+
+function normalizeAccountName(value: unknown) {
+  return String(value || "").trim().replace(/\s+/g, " ");
+}
+
+function accountDisplayNameFromProfile(profile?: VendasAccountProfile | null) {
+  return normalizeAccountName(profile?.name || profile?.username || profile?.email);
 }
 
 function toggleStringValue(values: string[], value: string) {
@@ -4551,15 +4566,9 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   const [accountSheetOpen, setAccountSheetOpen] = useState(false);
   const [accountNameDraft, setAccountNameDraft] = useState("");
   const [mobilePreferredCallerName, setMobilePreferredCallerName] = useState("");
+  const [accountNameSaving, setAccountNameSaving] = useState(false);
   const [mobileAutoEnrichmentActive, setMobileAutoEnrichmentActive] = useState(() => readMobileAutoEnrichmentPreference());
-  const [accountProfile, setAccountProfile] = useState<{
-    email?: string | null;
-    company?: {
-      paymentStatus?: string | null;
-      subscriptionStatus?: string | null;
-      premiumAccess?: boolean | null;
-    } | null;
-  } | null>(null);
+  const [accountProfile, setAccountProfile] = useState<VendasAccountProfile | null>(null);
   const [accountProfileLoading, setAccountProfileLoading] = useState(false);
   const composerOpenRef = useRef(false);
   const mobileSkipDraftHydrateRef = useRef(false);
@@ -4761,7 +4770,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         method: "PATCH",
         body: JSON.stringify({
           whatDoYouSell: salesProfileDraft.whatDoYouSell,
-          offerCategory: salesProfileDraft.offerCategory,
+          offerCategory: salesProfileDraft.offerCategory || salesProfileDraft.whatDoYouSell,
           targetAudience: { labels: salesProfileDraft.targetAudience },
           targetSegments: { labels: salesProfileDraft.targetSegments },
           avoidSegments: {
@@ -4797,6 +4806,33 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       setError(profileError instanceof Error ? profileError.message : "Falha ao salvar Perfil de Venda.");
     } finally {
       setSalesProfileSaving(false);
+    }
+  }
+
+  async function saveAccountDisplayName() {
+    const trimmed = normalizeAccountName(accountNameDraft);
+    if (trimmed.length < 2) {
+      setError("Informe o nome do atendente/vendedor.");
+      return;
+    }
+    setAccountNameSaving(true);
+    setError(null);
+    try {
+      const profile = await apiFetch<VendasAccountProfile>("/profile/display-name", {
+        method: "PATCH",
+        body: JSON.stringify({ name: trimmed }),
+      });
+      clearApiCache("/profile/current-user");
+      setAccountProfile(profile);
+      setAccountNameDraft(accountDisplayNameFromProfile(profile) || trimmed);
+      setMobilePreferredCallerName(accountDisplayNameFromProfile(profile) || trimmed);
+      saveMobilePreferredCallerName(accountDisplayNameFromProfile(profile) || trimmed);
+      setAccountSheetOpen(false);
+      setFeedback("Nome do vendedor salvo.");
+    } catch (nameError) {
+      setError(nameError instanceof Error ? nameError.message : "Não foi possível salvar o nome agora.");
+    } finally {
+      setAccountNameSaving(false);
     }
   }
 
@@ -5121,10 +5157,10 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       setMobileAgendaTab("today");
     }
     if (requestedSheet === "account") {
-      setAccountNameDraft(mobilePreferredCallerName || readMobilePreferredCallerName());
+      setAccountNameDraft(accountDisplayNameFromProfile(accountProfile) || mobilePreferredCallerName || readMobilePreferredCallerName());
       setAccountSheetOpen(true);
     }
-  }, [mobilePreferredCallerName, searchParams]);
+  }, [accountProfile, mobilePreferredCallerName, searchParams]);
 
   useEffect(() => {
     const syncStoredRun = () => {
@@ -5421,6 +5457,14 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   }, []);
 
   useEffect(() => {
+    const registeredName = accountDisplayNameFromProfile(accountProfile);
+    if (!registeredName) return;
+    setMobilePreferredCallerName(registeredName);
+    setAccountNameDraft((current) => accountSheetOpen || !current ? registeredName : current);
+    saveMobilePreferredCallerName(registeredName);
+  }, [accountProfile, accountSheetOpen]);
+
+  useEffect(() => {
     boardRef.current = board;
   }, [board]);
 
@@ -5452,20 +5496,21 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   });
 
   useEffect(() => {
-    if (!accountSheetOpen || hasToken !== true) return;
+    if (hasToken !== true) return;
     let cancelled = false;
-    setAccountProfileLoading(true);
+    if (accountSheetOpen) setAccountProfileLoading(true);
     void (async () => {
       try {
-        const profile = await apiFetch<{
-          email?: string | null;
-          company?: {
-            paymentStatus?: string | null;
-            subscriptionStatus?: string | null;
-            premiumAccess?: boolean | null;
-          } | null;
-        }>("/profile/current-user");
-        if (!cancelled) setAccountProfile(profile);
+        const profile = await apiFetch<VendasAccountProfile>("/profile/current-user");
+        if (!cancelled) {
+          setAccountProfile(profile);
+          const registeredName = accountDisplayNameFromProfile(profile);
+          if (registeredName) {
+            setAccountNameDraft(registeredName);
+            setMobilePreferredCallerName(registeredName);
+            saveMobilePreferredCallerName(registeredName);
+          }
+        }
       } catch {
         if (!cancelled) setAccountProfile(null);
       } finally {
@@ -7906,7 +7951,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 setMobileSection("report");
               }}
               onConta={() => {
-                setAccountNameDraft(mobilePreferredCallerName || readMobilePreferredCallerName());
+                setAccountNameDraft(accountDisplayNameFromProfile(accountProfile) || mobilePreferredCallerName || readMobilePreferredCallerName());
                 setAccountSheetOpen(true);
               }}
             />
@@ -8431,7 +8476,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
             setSelectedMobileLeadId(null);
           }}
           onConta={() => {
-            setAccountNameDraft(mobilePreferredCallerName || readMobilePreferredCallerName());
+            setAccountNameDraft(accountDisplayNameFromProfile(accountProfile) || mobilePreferredCallerName || readMobilePreferredCallerName());
             setAccountSheetOpen(true);
           }}
         />
@@ -11886,7 +11931,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
             </button>
           </div>
           <div className={styles.mobileVendasAccountAvatar} aria-hidden="true">
-            {(accountProfile?.email || "?").slice(0, 1).toUpperCase()}
+            {(accountDisplayNameFromProfile(accountProfile) || "?").slice(0, 1).toUpperCase()}
           </div>
           <label className={styles.mobileVendasAccountField}>
             <span>Como quer ser chamado</span>
@@ -11900,15 +11945,10 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
           <button
             type="button"
             className={`${styles.mobileVendasAccountSave} hbx-mobile-primary-button`}
-            onClick={() => {
-              const trimmed = accountNameDraft.trim();
-              saveMobilePreferredCallerName(trimmed);
-              setMobilePreferredCallerName(trimmed);
-              setAccountSheetOpen(false);
-              if (trimmed) setFeedback("Preferência salva.");
-            }}
+            onClick={() => void saveAccountDisplayName()}
+            disabled={accountNameSaving}
           >
-            Salvar
+            {accountNameSaving ? "Salvando" : "Salvar"}
           </button>
           <div className={styles.mobileVendasAccountBlock}>
             <strong>Financeiro</strong>

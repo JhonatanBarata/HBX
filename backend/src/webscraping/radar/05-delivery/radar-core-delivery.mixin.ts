@@ -346,7 +346,24 @@ export class RadarCoreDeliveryMixin {
     });
   }
 
-  private async getVendasPendingCountForRadarContext(companyId: number) {
+  private async getRadarSellerQuotaForContext(companyIdRaw: number, userIdRaw?: number | null) {
+    const companyId = safeInteger(companyIdRaw);
+    const userId = safeInteger(userIdRaw);
+    if (!this.commercialUsageLimits || !companyId || !userId) return null;
+    return this.commercialUsageLimits.getSellerActiveCardQuotaSnapshot(companyId, userId).catch(() => null);
+  }
+
+  private async getVendasPendingCountForRadarContext(contextOrCompanyId: SearchExecutionContext | number, userIdRaw?: number | null) {
+    const context = typeof contextOrCompanyId === 'object' && contextOrCompanyId
+      ? contextOrCompanyId
+      : null;
+    const companyId = context ? safeInteger(context.companyId) : safeInteger(contextOrCompanyId);
+    const userId = context ? safeInteger(context.userId) : safeInteger(userIdRaw);
+    if (!companyId) return 0;
+    const sellerQuota = await this.getRadarSellerQuotaForContext(companyId, userId);
+    if (sellerQuota?.seller) {
+      return this.getRadarVendasSyncService().getPendingCountForSeller(companyId, userId);
+    }
     return this.getRadarVendasSyncService().getPendingCount(companyId);
   }
 
@@ -386,7 +403,7 @@ export class RadarCoreDeliveryMixin {
     if (!companyId || !userId) return false;
     const target = this.getRadarRunVendasStockTarget(run);
     if (target > 0) {
-      const pendingCount = await this.getVendasPendingCountForRadarContext(companyId);
+      const pendingCount = await this.getVendasPendingCountForRadarContext(companyId, userId);
       if (pendingCount >= target) return false;
     }
     const quotaRemaining = await this.getRadarCardQuotaRemaining(companyId, userId);
@@ -490,9 +507,10 @@ export class RadarCoreDeliveryMixin {
     const runId = String(run?.id || '').trim();
     const companyId = safeInteger(run?.companyId);
     if (!runId || !companyId) return false;
+    const userId = safeInteger(run?.userId);
     const target = this.getRadarRunVendasStockTarget(run);
     if (target <= 0) return false;
-    const pendingCount = await this.getVendasPendingCountForRadarContext(companyId);
+    const pendingCount = await this.getVendasPendingCountForRadarContext(companyId, userId);
     if (pendingCount < target) return false;
     return this.pauseSearchRunForLimit(run, reason, `Radar pausado. Vendas ja esta com ${pendingCount} de ${target} card(s). Vou retomar esta mesma pesquisa quando houver espaco.`);
   }
@@ -517,7 +535,11 @@ export class RadarCoreDeliveryMixin {
   }
 
   private async assertRadarCanFeedVendas(context: SearchExecutionContext) {
-    return this.getRadarVendasSyncService().assertCanFeed(context);
+    const pendingCount = await this.getVendasPendingCountForRadarContext(context);
+    return {
+      pendingCount,
+      remaining: null,
+    };
   }
 
   private async autoImportRadarSearchRunToVendas(user: any, runId: string) {
@@ -534,7 +556,7 @@ export class RadarCoreDeliveryMixin {
     const requestedQuantity = Math.max(1, safeInteger(run?.targetQuantity));
     const stockTarget = this.getRadarRunVendasStockTarget(run);
     const pendingCount = stockTarget > 0
-      ? await this.getVendasPendingCountForRadarContext(safeInteger(run?.companyId))
+      ? await this.getVendasPendingCountForRadarContext(safeInteger(run?.companyId), safeInteger(run?.userId))
       : null;
     const deliveredCount = pendingCount == null
       ? safeInteger(run?.importedCount)
@@ -756,7 +778,7 @@ export class RadarCoreDeliveryMixin {
     }
     const stockTarget = this.getRadarRunVendasStockTarget(effectiveRun);
     const pendingCount = stockTarget > 0
-      ? await this.getVendasPendingCountForRadarContext(context.companyId)
+      ? await this.getVendasPendingCountForRadarContext(context)
       : 0;
     const hasFoundRunItemsBeforeStockGate = (effectiveRun.items || []).some((item: any) => String(item?.status || '') === 'found');
     const hasImportedRunItemsBeforeStockGate = safeInteger(effectiveRun.importedCount) > 0 || safeInteger(effectiveRun.foundCount) > 0;

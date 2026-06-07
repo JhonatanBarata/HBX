@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { createPortal } from "react-dom";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import HbxGuide1, { type HbxGuide1Tab } from "@/components/HbxGuide1";
@@ -9,7 +10,6 @@ import HbxMobileEmptyState from "@/components/mobile/HbxMobileEmptyState";
 import HbxPulseSummaryCard from "@/components/HbxPulseSummaryCard";
 import { HbxEmptyState, HbxSection, HbxStatusBadge } from "@/components/ui";
 import CommissionSummaryPanel from "./_components/CommissionSummaryPanel";
-import PartnerCreateForm from "./_components/PartnerCreateForm";
 import PartnerOnboardingPanel from "./_components/PartnerOnboardingPanel";
 import ReferralCandidatesPanel from "./_components/ReferralCandidatesPanel";
 import TeamListPanel from "./_components/TeamListPanel";
@@ -443,10 +443,6 @@ function roleLabel(role?: string | null, isSystemMaster?: boolean | null) {
   return SELLER_ROLE_COPY[normalizeRole(role, isSystemMaster)].label;
 }
 
-function roleDescription(role?: string | null, isSystemMaster?: boolean | null) {
-  return SELLER_ROLE_COPY[normalizeRole(role, isSystemMaster)].description;
-}
-
 function moduleLabel(module: Pick<CompanyModule, "key" | "name">) {
   const key = normalizeModuleKey(module.key);
   if (key === "webscraping") return "Radar";
@@ -747,6 +743,28 @@ function friendlyGerencialError(error: unknown, fallback: string) {
   return message || fallback;
 }
 
+function isDuplicateAccessError(error: unknown, message?: string) {
+  const raw = error instanceof Error ? error.message : message || "";
+  const text = `${raw} ${message || ""}`.toLowerCase();
+  return (
+    text.includes("e-mail já cadastrado") ||
+    text.includes("email já cadastrado") ||
+    text.includes("username já cadastrado") ||
+    text.includes("login já cadastrado")
+  );
+}
+
+function focusCreateAccessEmailField() {
+  if (typeof window === "undefined") return;
+  window.setTimeout(() => {
+    const input = document.querySelector<HTMLInputElement>(
+      'input[name="hbx-create-seller-login-popup"], input[name="hbx-create-seller-login"]',
+    );
+    input?.focus();
+    input?.select();
+  }, 0);
+}
+
 function loadCreatedPasswordInfo(): CreatedPasswordInfo | null {
   if (typeof window === "undefined") return null;
   try {
@@ -771,6 +789,8 @@ function saveCreatedPasswordInfo(info: CreatedPasswordInfo | null) {
 
 export default function GerencialClientPage({ mobileRoute = false }: { mobileRoute?: boolean } = {}) {
   const hasToken = useRequireAuth();
+  const searchParams = useSearchParams();
+  const deepLinkHandledRef = useRef<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<GerencialOverview | null>(null);
@@ -780,7 +800,6 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   const [newUserName, setNewUserName] = useState("");
   const [newUserPhone, setNewUserPhone] = useState("");
   const [newUserCommissionPercent, setNewUserCommissionPercent] = useState("");
-  const [newUserCanRegisterHbxSellers, setNewUserCanRegisterHbxSellers] = useState(false);
   const [newUserSellerReferralCommissionPercent, setNewUserSellerReferralCommissionPercent] = useState("");
   const [newUserReferredByUserId, setNewUserReferredByUserId] = useState("");
   const [newUserReferredByCommissionPercent, setNewUserReferredByCommissionPercent] = useState("");
@@ -845,6 +864,10 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     referredByCommissionPercentSnapshot: "0",
     enrichmentLimit: "30",
   });
+  const onboardingNoticeKind = String(searchParams.get("noticeKind") || "").trim();
+  const onboardingNoticeId = String(searchParams.get("noticeId") || "").trim();
+  const onboardingNoticeSellerEmail = String(searchParams.get("sellerEmail") || "").trim().toLowerCase();
+  const onboardingNoticeSellerId = Number(searchParams.get("sellerId") || 0) || 0;
 
   usePopupTopbarLock(createAccessOpen);
 
@@ -1177,6 +1200,36 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     }
   }
 
+  useEffect(() => {
+    if (hasToken !== true || !data?.users?.length) return;
+    if (onboardingNoticeKind !== "seller-documents-confirmed") return;
+    if (!onboardingNoticeSellerEmail && !onboardingNoticeSellerId) return;
+
+    const deepLinkKey = `${onboardingNoticeId || "notice"}:${onboardingNoticeSellerId || onboardingNoticeSellerEmail}`;
+    if (deepLinkHandledRef.current === deepLinkKey) return;
+
+    const targetUser = data.users.find((user) => {
+      if (onboardingNoticeSellerId && Number(user.id) === onboardingNoticeSellerId) return true;
+      const email = String(user.email || user.username || "").trim().toLowerCase();
+      return Boolean(onboardingNoticeSellerEmail && email === onboardingNoticeSellerEmail);
+    });
+    if (!targetUser) return;
+
+    deepLinkHandledRef.current = deepLinkKey;
+    setDesktopGuideTab("equipe");
+    setMobileTab("equipe");
+    void openSellerCadastroPopup(targetUser);
+    // The target function is intentionally reused as the single source for opening this onboarding popup.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    data?.users,
+    hasToken,
+    onboardingNoticeId,
+    onboardingNoticeKind,
+    onboardingNoticeSellerEmail,
+    onboardingNoticeSellerId,
+  ]);
+
   function validateOnboardingFile(file: File, kind?: SellerOnboardingAttachment["kind"]) {
     const extension = `.${(file.name.split(".").pop() || "").toLowerCase()}`;
     if (kind === "contract_pdf" && extension !== ".pdf") {
@@ -1397,6 +1450,20 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     }
   }
 
+  async function acknowledgeResolvedOnboardingNotice() {
+    if (!onboardingNoticeId || onboardingNoticeKind !== "seller-documents-confirmed") return;
+    await apiFetch(`/vendas/master-notices/${encodeURIComponent(onboardingNoticeId)}/ack`, { method: "POST" }).catch(() => null);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("hbx:master-notices-refresh"));
+      const url = new URL(window.location.href);
+      url.searchParams.delete("noticeId");
+      url.searchParams.delete("noticeKind");
+      url.searchParams.delete("sellerEmail");
+      url.searchParams.delete("sellerId");
+      window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+    }
+  }
+
   async function activateOnboardingPartner() {
     if (!onboardingUserId) return;
     setTogglingActiveUserId(onboardingUserId);
@@ -1408,6 +1475,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         body: JSON.stringify({ active: true }),
       });
       setActionInfo(payload.message || "Parceiro criado e e-mail de boas-vindas enviado.");
+      await acknowledgeResolvedOnboardingNotice();
       await load();
       resetCreateAccessPopup();
       setCreateAccessOpen(false);
@@ -1424,7 +1492,6 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     setNewUserName("");
     setNewUserPhone("");
     setNewUserCommissionPercent("");
-    setNewUserCanRegisterHbxSellers(false);
     setNewUserSellerReferralCommissionPercent("");
     setNewUserReferredByUserId("");
     setNewUserReferredByCommissionPercent("");
@@ -1605,6 +1672,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   async function createCompanyUser(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
+    setActionInfo(null);
 
     if (onboardingUserId) {
       await saveExistingSellerCadastro(onboardingUserId);
@@ -1614,6 +1682,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     const email = newUserEmail.trim().toLowerCase();
     if (!email) {
       setError("Informe um e-mail válido.");
+      focusCreateAccessEmailField();
       return;
     }
     const shouldUseHbxNetwork = isHbxSellerNetwork && ["USER", "ADMIN"].includes(newUserRole);
@@ -1758,7 +1827,12 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
       }
       await load();
     } catch (createError) {
-      setError(friendlyGerencialError(createError, "Falha ao cadastrar usuário."));
+      const message = friendlyGerencialError(createError, "Falha ao cadastrar usuário.");
+      setError(message);
+      if (isDuplicateAccessError(createError, message)) {
+        setCreateAccessOpen(true);
+        focusCreateAccessEmailField();
+      }
     } finally {
       setCreatingUser(false);
     }
@@ -2262,49 +2336,6 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         formatPercent={formatPercent}
         onReview={(candidate, action) => void reviewReferralCandidate(candidate, action)}
         onApply={applyReferralCandidate}
-      />
-    );
-  }
-
-  function renderMobileCreateForm() {
-    return (
-      <PartnerCreateForm
-        onSubmit={createCompanyUser}
-        referralCandidatesPanel={renderReferralCandidatesPanel("mobile")}
-        referralMatchBox={renderReferralMatchBox("mobile")}
-        isHbxSellerNetwork={isHbxSellerNetwork}
-        canCreateAdminUsers={canCreateAdminUsers}
-        newUserRole={newUserRole}
-        setNewUserRole={setNewUserRole}
-        roleLabel={roleLabel}
-        newUserName={newUserName}
-        setNewUserName={setNewUserName}
-        newUserEmail={newUserEmail}
-        setNewUserEmail={setNewUserEmail}
-        newUserPhone={newUserPhone}
-        setNewUserPhone={setNewUserPhone}
-        newUserCommissionPercent={newUserCommissionPercent}
-        setNewUserCommissionPercent={setNewUserCommissionPercent}
-        newUserPassword={newUserPassword}
-        setNewUserPassword={setNewUserPassword}
-        newUserCpf={newUserCpf}
-        setNewUserCpf={setNewUserCpf}
-        newUserDeclaredAddress={newUserDeclaredAddress}
-        setNewUserDeclaredAddress={setNewUserDeclaredAddress}
-        newUserCommissionDueBusinessDays={newUserCommissionDueBusinessDays}
-        setNewUserCommissionDueBusinessDays={setNewUserCommissionDueBusinessDays}
-        newUserSellerReferralCommissionPercent={newUserSellerReferralCommissionPercent}
-        setNewUserSellerReferralCommissionPercent={setNewUserSellerReferralCommissionPercent}
-        newUserReferredByUserId={newUserReferredByUserId}
-        setNewUserReferredByUserId={setNewUserReferredByUserId}
-        newUserReferredByCommissionPercent={newUserReferredByCommissionPercent}
-        setNewUserReferredByCommissionPercent={setNewUserReferredByCommissionPercent}
-        selectedNewUserReferrer={selectedNewUserReferrer}
-        hbxReferrers={hbxReferrers}
-        userLabel={userLabel}
-        formatPercent={formatPercent}
-        percentInputValue={percentInputValue}
-        creatingUser={creatingUser}
       />
     );
   }
@@ -3170,7 +3201,6 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
       description="Cadastro de vendedores, permissões administrativas e controle de acesso por módulo."
       hideHeader
     >
-      {renderGerencialNoticePopups()}
       {!data ? (
         <div className="panel p-4 text-sm text-muted">{loading ? "Carregando..." : "Sem dados."}</div>
       ) : (
@@ -4025,6 +4055,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
           ) : null}
         </>
       )}
+      {renderGerencialNoticePopups()}
     </DashboardScaffold>
   );
 }

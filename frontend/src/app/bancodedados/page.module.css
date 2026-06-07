@@ -150,7 +150,7 @@
 
 .kpiGrid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  grid-template-columns: repeat(5, minmax(120px, 1fr));
   gap: 8px;
 }
 
@@ -308,6 +308,210 @@
   color: var(--bd-muted);
   font-weight: 750;
   text-align: center;
+}
+
+.elasticPanel {
+  display: grid;
+  gap: 12px;
+}
+
+.elasticActionBar,
+.elasticSummaryGrid article,
+.elasticDiagnostics,
+.elasticEngineTableWrap {
+  border: 1px solid var(--bd-border);
+  border-radius: 8px;
+  background: var(--bd-soft);
+}
+
+.elasticActionBar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px;
+}
+
+.elasticActionBar button,
+.elasticEngineActions button {
+  min-height: 36px;
+  border: 1px solid var(--bd-border);
+  border-radius: 8px;
+  background: var(--bd-surface);
+  color: var(--bd-text);
+  padding: 0 11px;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.elasticActionBar button[data-primary="true"] {
+  color: #fff;
+  border-color: var(--bd-blue);
+  background: var(--bd-blue);
+}
+
+.elasticActionBar button[data-danger="true"],
+.elasticEngineActions button[data-danger="true"] {
+  color: #fff;
+  border-color: var(--bd-red);
+  background: var(--bd-red);
+}
+
+.elasticActionBar button:disabled,
+.elasticEngineActions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.elasticSummaryGrid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.elasticSummaryGrid article {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  min-height: 86px;
+  padding: 11px;
+}
+
+.elasticSummaryGrid span,
+.elasticEngineTable th {
+  color: var(--bd-muted);
+  font-size: 0.68rem;
+  font-weight: 850;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.elasticSummaryGrid strong {
+  color: var(--bd-text);
+  font-size: 1.05rem;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+
+.elasticSummaryGrid small,
+.elasticEngineTable td span,
+.elasticEngineTable td small,
+.elasticDiagnostics p {
+  color: var(--bd-muted);
+  font-size: 0.8rem;
+  line-height: 1.38;
+}
+
+.elasticDiagnostics {
+  display: grid;
+  gap: 7px;
+  padding: 11px;
+}
+
+.elasticDiagnostics p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.elasticDiagnostics p[data-tone="warning"] {
+  color: #b45309;
+}
+
+.elasticEngineTableWrap {
+  overflow-x: auto;
+  padding: 4px 8px 8px;
+}
+
+.elasticEngineTable {
+  width: 100%;
+  min-width: 980px;
+  border-collapse: separate;
+  border-spacing: 0 8px;
+}
+
+.elasticEngineTable th {
+  padding: 0 10px 2px;
+  text-align: left;
+}
+
+.elasticEngineTable td {
+  vertical-align: top;
+  border-top: 1px solid var(--bd-border);
+  border-bottom: 1px solid var(--bd-border);
+  padding: 11px 10px;
+  color: var(--bd-text);
+  background: var(--bd-surface);
+  font-size: 0.86rem;
+  font-weight: 750;
+}
+
+.elasticEngineTable td:first-child {
+  border-left: 1px solid var(--bd-border);
+  border-radius: 8px 0 0 8px;
+}
+
+.elasticEngineTable td:last-child {
+  border-right: 1px solid var(--bd-border);
+  border-radius: 0 8px 8px 0;
+}
+
+.elasticEngineTable td strong,
+.elasticEngineTable td span,
+.elasticEngineTable td small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.elasticEngineTable td strong {
+  color: var(--bd-text);
+  font-size: 0.9rem;
+}
+
+.elasticEngineTable td span,
+.elasticEngineTable td small {
+  margin-top: 4px;
+}
+
+.elasticStatusBadge {
+  display: inline-flex !important;
+  width: fit-content;
+  margin-top: 0 !important;
+  border: 1px solid var(--bd-border);
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: var(--bd-soft);
+  color: var(--bd-muted) !important;
+  font-weight: 850;
+}
+
+.elasticStatusBadge[data-tone="running"] {
+  color: #0f766e !important;
+  border-color: color-mix(in srgb, #0f766e 32%, var(--bd-border));
+  background: color-mix(in srgb, #0f766e 9%, var(--bd-surface));
+}
+
+.elasticStatusBadge[data-tone="draining"],
+.elasticStatusBadge[data-tone="warning"] {
+  color: #b45309 !important;
+  border-color: color-mix(in srgb, #b45309 34%, var(--bd-border));
+  background: color-mix(in srgb, #b45309 10%, var(--bd-surface));
+}
+
+.elasticStatusBadge[data-tone="stopped"],
+.elasticStatusBadge[data-tone="error"] {
+  color: var(--bd-red) !important;
+  border-color: color-mix(in srgb, var(--bd-red) 32%, var(--bd-border));
+  background: color-mix(in srgb, var(--bd-red) 8%, var(--bd-surface));
+}
+
+.elasticEngineActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  justify-content: flex-end;
+  min-width: 180px;
 }
 
 .territoryLayout {
@@ -873,6 +1077,7 @@
   .kpiGrid,
   .tabs,
   .metaGrid,
+  .elasticSummaryGrid,
   .territoryInsightGrid,
   .territoryBalanceList,
   .territoryFilterGrid,
@@ -895,7 +1100,8 @@
   .territoryTableHeader,
   .territoryBalancePanel header,
   .territorySellerCard header,
-  .territoryFooter {
+  .territoryFooter,
+  .elasticActionBar {
     display: grid;
   }
 
@@ -903,6 +1109,9 @@
   .headerActions button,
   .sectionTitle button,
   .dataCard header a,
+  .elasticActionBar button,
+  .elasticEngineActions,
+  .elasticEngineActions button,
   .territoryControls button,
   .territoryTableActions,
   .territoryTableActions button,
@@ -915,6 +1124,7 @@
   .kpiGrid,
   .tabs,
   .metaGrid,
+  .elasticSummaryGrid,
   .territoryInsightGrid,
   .territoryBalanceList,
   .territoryFilterGrid,
@@ -923,50 +1133,62 @@
     grid-template-columns: 1fr;
   }
 
-  .territoryTableWrap {
+  .territoryTableWrap,
+  .elasticEngineTableWrap {
     overflow: visible;
   }
 
-  .territoryTable {
+  .territoryTable,
+  .elasticEngineTable {
     min-width: 0;
     border-spacing: 0;
   }
 
-  .territoryTable thead {
+  .territoryTable thead,
+  .elasticEngineTable thead {
     display: none;
   }
 
   .territoryTable,
   .territoryTable tbody,
   .territoryTable tr,
-  .territoryTable td {
+  .territoryTable td,
+  .elasticEngineTable,
+  .elasticEngineTable tbody,
+  .elasticEngineTable tr,
+  .elasticEngineTable td {
     display: block;
     width: 100%;
   }
 
-  .territoryTable tr {
+  .territoryTable tr,
+  .elasticEngineTable tr {
     border: 1px solid var(--bd-border);
     border-radius: 8px;
     overflow: hidden;
     background: var(--bd-surface);
   }
 
-  .territoryTable tr + tr {
+  .territoryTable tr + tr,
+  .elasticEngineTable tr + tr {
     margin-top: 10px;
   }
 
-  .territoryTable td {
+  .territoryTable td,
+  .elasticEngineTable td {
     border: 0;
     border-bottom: 1px solid var(--bd-border);
     border-radius: 0 !important;
     padding: 10px 11px;
   }
 
-  .territoryTable td:last-child {
+  .territoryTable td:last-child,
+  .elasticEngineTable td:last-child {
     border-bottom: 0;
   }
 
-  .territoryTable td::before {
+  .territoryTable td::before,
+  .elasticEngineTable td::before {
     content: attr(data-label);
     display: block;
     margin-bottom: 5px;

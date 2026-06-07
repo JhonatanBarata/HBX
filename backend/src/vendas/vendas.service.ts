@@ -340,6 +340,22 @@ export class VendasService {
     });
   }
 
+  async getPendingVendasCardCountForSeller(companyId: number, userId: number) {
+    const normalizedCompanyId = Math.trunc(Number(companyId || 0));
+    const normalizedUserId = Math.trunc(Number(userId || 0));
+    if (!normalizedCompanyId || !normalizedUserId) return 0;
+    return this.prisma.vendasLead.count({
+      where: {
+        companyId: normalizedCompanyId,
+        assignedUserId: normalizedUserId,
+        NOT: [
+          { status: 'encerrado' },
+          { closedAt: { not: null } },
+        ],
+      },
+    });
+  }
+
   async getPendingSummaryForUser(user: any) {
     const context = this.resolveUserContext(user);
     const pendingCount = context.canManageTeam

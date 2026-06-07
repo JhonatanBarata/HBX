@@ -1316,7 +1316,7 @@ model HbxEngineLock {
   id              String   @id
   engineIndex     Int
   url             String
-  status          String   @default("standby") // standby | online | busy | degraded | offline | cooldown | paused
+  status          String   @default("standby") // standby | online | busy | draining | stopped | degraded | offline | cooldown | paused
   lastHealthStatus String?
   lastError       String?
   failureCount    Int      @default(0)

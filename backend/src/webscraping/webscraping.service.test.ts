@@ -2328,6 +2328,100 @@ test('startRadarSearchRunForUser pausa quando Vendas ja esta no limite', async (
   assert.equal(queriedStock, false);
 });
 
+test('startRadarSearchRunForUser vendedor HBX ignora estoque global e usa estoque do vendedor', async () => {
+  const { prisma, run } = createSearchRunPrisma({
+    status: 'completed',
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'oficinas',
+    targetQuantity: 10,
+  });
+  const service = new WebscrapingService(prisma) as any;
+  disableSearchRunAutoPump(service);
+  service.supportsRadarPersistence = async () => true;
+  service.commercialUsageLimits = {
+    getUsageSnapshot: async () => ({
+      cards: {
+        dailyRemaining: 999999,
+        remaining: 999999,
+      },
+    }),
+    limitRequestedCardsBySellerActiveQuota: async () => ({
+      limit: 10,
+      quota: {
+        seller: true,
+        paused: false,
+        activeCount: 0,
+        effectiveLimit: 10,
+        availableSlots: 10,
+        code: null,
+      },
+    }),
+    getSellerActiveCardQuotaSnapshot: async () => ({
+      seller: true,
+      paused: false,
+      activeCount: 0,
+      effectiveLimit: 10,
+      availableSlots: 10,
+      code: null,
+    }),
+  };
+  let globalStockCounted = false;
+  service.radarVendasSync = {
+    getPendingCount: async () => {
+      globalStockCounted = true;
+      return 100;
+    },
+    getPendingCountForSeller: async () => 0,
+  };
+  let queriedStock = false;
+  service.queryRadarRowsForCompany = async () => {
+    queriedStock = true;
+    return [{
+      id: 'radar-seller-1',
+      placeId: 'place-seller-1',
+      name: 'Oficina Seller',
+      phone: '(19) 99999-0001',
+      phoneDigits: '19999990001',
+      city: 'Rio Claro',
+      state: 'SP',
+      segment: 'oficinas',
+      opportunityScore: 82,
+      status: 'clean',
+    }];
+  };
+  service.markRadarDelivered = async (_companyId: number, _userId: number, rows: any[]) => rows;
+  service.recalculateSearchRunCounters = async () => ({ foundCount: 1, duplicateCount: 0, skippedCount: 0 });
+  service.buildRadarSearchRunResponse = async (_user: any, runId: string) => ({
+    runId,
+    status: run.status,
+    message: run.errorMessage,
+  });
+
+  const response = await service.startRadarSearchRunForUser({
+    id: 44,
+    companyId: 7,
+    name: 'Henrique',
+    role: 'USER',
+    isSystemMaster: false,
+    company: { slug: 'hbx' },
+    masterContext: { active: false },
+  }, {
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'oficinas',
+    quantity: 10,
+    engine: 'hbx',
+    targetType: 'pj',
+  });
+
+  assert.equal(response.status, 'queued');
+  assert.equal(run.status, 'queued');
+  assert.equal(run.lastBatchStatus, null);
+  assert.equal(globalStockCounted, false);
+  assert.equal(queriedStock, true);
+});
+
 test('resumePausedSearchRunIfPossible retoma Radar pausado quando Vendas libera espaco', async () => {
   const { prisma, run } = createSearchRunPrisma({
     status: 'sleeping',

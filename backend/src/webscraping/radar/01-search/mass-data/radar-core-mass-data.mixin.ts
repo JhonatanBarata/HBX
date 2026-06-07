@@ -427,6 +427,17 @@ export class RadarCoreMassDataMixin {
         id,
         label: `M${index + 1}`,
         status,
+        desiredState: engine?.desiredState || null,
+        actualState: engine?.actualState || null,
+        containerName: engine?.containerName || id,
+        memoryRssMb: engine?.memoryRssMb ?? null,
+        memoryEwmaMb: engine?.memoryEwmaMb ?? null,
+        drainUntil: engine?.drainUntil || null,
+        idleSince: engine?.idleSince || null,
+        priorityClass: engine?.priorityClass || null,
+        lastLeasePurpose: engine?.lastLeasePurpose || null,
+        leaseActive: Boolean(engine?.leaseActive),
+        stopEligible: Boolean(engine?.stopEligible),
         configured: Boolean(engine?.configured ?? index < totalConfiguredEngines),
         online: Boolean(engine?.online),
         busy: Boolean(engine?.busy || engine?.activeRunId || engine?.activeCampaignId),
@@ -602,6 +613,13 @@ export class RadarCoreMassDataMixin {
 
   async saveMasterTurboConfig(user: any, input: WebscrapingOperationalConfigInput = {}) {
     const saved = await this.saveOperationalConfig(Number(user?.id || 0), input);
+    if (!saved.enabled || saved.emergencyStop || safeInteger(saved.factoryMaxEngines) <= 0) {
+      this.scheduleRadarCampaignPump(0);
+      return {
+        config: saved,
+        control: await this.getMasterMassDataControl(user),
+      };
+    }
     const guidedLocationActive = Boolean(String(saved.factoryState || '').trim() && String(saved.factoryCity || '').trim());
     if (guidedLocationActive) {
       await (this.prisma as any).webscrapingCampaign.updateMany({
@@ -665,21 +683,82 @@ export class RadarCoreMassDataMixin {
       enabled: true,
       emergencyStop: true,
       stopOutsideWindow: true,
+      forcedUntil: '',
+      maxEngines: 0,
+      minEngines: 0,
     });
+    if (await this.supportsRadarFactoryPersistence()) {
+      await (this.prisma as any).radarFactoryCursor.upsert({
+        where: { key: 'main' },
+        create: { key: 'main', enabled: false, forcedOn: false, status: 'paused', reasonStopped: 'PARAR TUDO ativo pelo MASTER.', nextRunAt: null },
+        update: { enabled: false, forcedOn: false, status: 'paused', reasonStopped: 'PARAR TUDO ativo pelo MASTER.', nextRunAt: null },
+      }).catch(() => null);
+    }
     const drainUntil = new Date(Date.now() + Math.max(10, safeInteger(saved.drainTimeoutSeconds, 90)) * 1000);
     await (this.prisma as any).webscrapingCampaign.updateMany({
       where: { mode: 'mass_data', status: { in: ['queued', 'running', 'sleeping', 'partial_error'] } },
       data: { status: 'paused', nextRunAt: null, lastErrorMessage: 'PARAR TUDO ativo pelo MASTER.' },
     }).catch(() => null);
     await (this.prisma as any).webscrapingCampaignTask.updateMany({
-      where: { status: 'running', lockedByEngineId: { not: null } },
+      where: { campaign: { mode: 'mass_data' }, status: 'running', lockedByEngineId: { not: null } },
       data: { lockedUntil: drainUntil, lastError: 'PARAR TUDO ativo; batch atual deve drenar rapidamente.' },
     }).catch(() => null);
     await (this.prisma as any).hbxEngineLock?.updateMany?.({
       where: { lockedRunId: { contains: ':mass:' } },
       data: { lockedUntil: drainUntil, lastError: 'PARAR TUDO ativo; lock automÃ¡tico em drenagem curta.' },
     }).catch(() => null);
+    await this.getEnginePool().drainFactoryEngines({
+      force: true,
+      seconds: safeInteger(saved.drainTimeoutSeconds, 90),
+      reason: 'emergency_stop',
+    }).catch((error) => {
+      this.logger.warn(`[factory-stop] falha ao parar motores da fabrica: ${error instanceof Error ? error.message : String(error || 'erro desconhecido')}`);
+    });
     this.logger.warn('[factory-stop] emergency stop active; automaticAllowed=0');
+    return {
+      config: saved,
+      control: await this.getMasterMassDataControl(user),
+    };
+  }
+
+  async cancelForcedRadarFactory(user: any, input: { seconds?: number | null; force?: boolean | null } = {}) {
+    const saved = await this.saveOperationalConfig(Number(user?.id || 0), {
+      enabled: false,
+      emergencyStop: false,
+      forcedUntil: '',
+      maxEngines: 0,
+      minEngines: 0,
+      autonomousFillEnabled: false,
+    });
+    if (await this.supportsRadarFactoryPersistence()) {
+      await (this.prisma as any).radarFactoryCursor.upsert({
+        where: { key: 'main' },
+        create: { key: 'main', enabled: false, forcedOn: false, status: 'paused', reasonStopped: 'Scraping forcado cancelado pelo MASTER.', nextRunAt: null },
+        update: { enabled: false, forcedOn: false, status: 'paused', reasonStopped: 'Scraping forcado cancelado pelo MASTER.', nextRunAt: null },
+      }).catch(() => null);
+    }
+    await (this.prisma as any).webscrapingCampaign.updateMany({
+      where: { mode: 'mass_data', status: { in: ['queued', 'running', 'sleeping', 'partial_error', 'paused'] } },
+      data: { status: 'canceled', finishedAt: new Date(), nextRunAt: null, lastErrorMessage: 'Scraping forcado cancelado pelo MASTER.' },
+    }).catch(() => null);
+    await (this.prisma as any).webscrapingCampaignTask.updateMany({
+      where: { campaign: { mode: 'mass_data' }, status: { in: ['queued', 'running'] } },
+      data: {
+        status: 'canceled',
+        lockedByEngineId: null,
+        lockedUntil: null,
+        finishedAt: new Date(),
+        lastError: 'Scraping forcado cancelado pelo MASTER.',
+      },
+    }).catch(() => null);
+    await this.getEnginePool().drainFactoryEngines({
+      force: Boolean(input.force),
+      seconds: input.seconds,
+      reason: 'cancel_forced',
+    }).catch((error) => {
+      this.logger.warn(`[factory-stop] falha ao drenar motores do cancelamento forcado: ${error instanceof Error ? error.message : String(error || 'erro desconhecido')}`);
+    });
+    this.logger.warn('[factory-stop] forced factory canceled; automaticAllowed=0');
     return {
       config: saved,
       control: await this.getMasterMassDataControl(user),
@@ -693,6 +772,13 @@ export class RadarCoreMassDataMixin {
       stopOutsideWindow: true,
       forcedUntil: '',
     });
+    if (await this.supportsRadarFactoryPersistence()) {
+      await (this.prisma as any).radarFactoryCursor.upsert({
+        where: { key: 'main' },
+        create: { key: 'main', enabled: true, forcedOn: false, status: 'idle', reasonStopped: null, nextRunAt: new Date() },
+        update: { enabled: true, forcedOn: false, status: 'idle', reasonStopped: null, nextRunAt: new Date() },
+      }).catch(() => null);
+    }
     await (this.prisma as any).webscrapingCampaign.updateMany({
       where: { mode: 'mass_data', status: 'paused' },
       data: { status: 'queued', nextRunAt: new Date(), lastErrorMessage: 'Agenda da fÃ¡brica retomada pelo MASTER.' },
