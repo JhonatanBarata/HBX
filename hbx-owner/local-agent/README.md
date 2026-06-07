@@ -52,9 +52,9 @@ http://127.0.0.1:3107
 
 `/deploy/new`, `/deploy/publish` e `force` nao existem nesta fase.
 
-## Radar Motores
+## Motores no Ops Control
 
 Os endpoints de motores aceitam somente nomes no formato `hbx-engine-N`.
 Eles nao recebem shell livre pelo body e continuam exigindo `Authorization: Bearer <HBX_OWNER_LOCAL_TOKEN>`.
 
-Use a aba `Radar Motores` do HBX Owner Windows para consultar Docker local, abrir logs, iniciar um motor parado ou parar um container selecionado com confirmacao. Acoes de scheduler, dreno com lease, force night e cancelamento de factory continuam no painel Master web.
+Use `HBX Owner > Ops Control` para consultar Docker local, abrir logs, iniciar um motor parado ou parar um container selecionado com confirmacao. Acoes de scheduler, dreno com lease, force night, filtro e cancelamento da factory ficam concentradas no `ops-control`.

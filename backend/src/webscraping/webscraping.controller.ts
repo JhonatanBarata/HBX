@@ -508,6 +508,26 @@ class MasterTurboConfigDto {
   @Min(10)
   @Max(900)
   drainTimeoutSeconds?: number;
+
+  @IsOptional()
+  @Transform(({ value }) => value == null || value === '' ? [] : Array.isArray(value) ? value : [value])
+  @IsArray()
+  @IsString({ each: true })
+  preferredChannels?: string[];
+
+  @IsOptional()
+  @Transform(({ value }) => value == null || value === '' ? [] : Array.isArray(value) ? value : [value])
+  @IsArray()
+  @IsString({ each: true })
+  requiredChannels?: string[];
+
+  @IsOptional()
+  @IsIn(['prefer', 'any_required', 'all_required'])
+  channelMatchMode?: 'prefer' | 'any_required' | 'all_required';
+
+  @IsOptional()
+  @IsIn(['live', 'database_first', 'hybrid'])
+  freshness?: 'live' | 'database_first' | 'hybrid';
 }
 
 class MasterMassDataDto extends MasterTurboConfigDto {

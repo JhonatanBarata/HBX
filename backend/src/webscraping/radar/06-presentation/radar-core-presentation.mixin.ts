@@ -1600,8 +1600,13 @@ export class RadarCorePresentationMixin {
     };
   }
 
-  private matchesRadarChannelFilters(_row: any, _filters: NormalizedRadarFilters) {
-    return true;
+  private matchesRadarChannelFilters(row: any, filters: NormalizedRadarFilters) {
+    const required = this.requiredChannelsForInput(filters);
+    const mode = this.normalizeChannelMatchMode(filters?.channelMatchMode);
+    if (!required.length || mode === 'prefer') return true;
+    const availability = this.getRadarChannelAvailability(row);
+    const matches = required.map((channel) => availability[channel] === true);
+    return mode === 'all_required' ? matches.every(Boolean) : matches.some(Boolean);
   }
 
   private dedupeRadarRows(rows: any[]) {

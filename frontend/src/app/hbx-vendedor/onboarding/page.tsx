@@ -243,7 +243,7 @@ function PublicSellerOnboarding() {
               <span className={done ? styles.successBadge : styles.pendingBadge}>
                 {done ? "Documentos recebidos" : "Documentos pendentes"}
               </span>
-              <h1>{done ? "Tudo enviado" : showSubmitButton ? "Anexos prontos" : "Envie seus documentos"}</h1>
+              <h1>{done ? "Documentação recebida" : showSubmitButton ? "Anexos prontos" : "Envie seus documentos"}</h1>
               <p className={styles.lead}>{done ? "E-mail confirmado" : payload?.partner?.name || "Parceiro HBX"}</p>
               <p>{statusMessage}</p>
               {showSubmitButton ? (

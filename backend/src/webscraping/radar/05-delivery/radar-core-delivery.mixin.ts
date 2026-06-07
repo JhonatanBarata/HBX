@@ -2108,6 +2108,22 @@ export class RadarCoreDeliveryMixin {
         }
         continue;
       }
+      const channelCandidate = {
+        ...(existing || {}),
+        ...(result as any),
+        phoneDigits: phoneDigits || existing?.phoneDigits || null,
+        email: (result as any).email || existing?.email || null,
+        emailStatus: (result as any).emailStatus || existing?.emailStatus || null,
+        website: (result as any).website || existing?.website || null,
+        websiteStatus: (result as any).websiteStatus || existing?.websiteStatus || null,
+        instagramUrl: (result as any).instagramUrl || existing?.instagramUrl || null,
+        facebookUrl: (result as any).facebookUrl || existing?.facebookUrl || null,
+        whatsappStatus: (result as any).whatsappStatus || (result as any).whatsappCheckStatus || existing?.whatsappStatus || null,
+      };
+      if (!this.candidateHasRequiredChannels(channelCandidate, input, qualityV2)) {
+        counts.rejectedCount += 1;
+        continue;
+      }
       if (existing?.id) counts.duplicateCount += 1;
       if (dddMismatch) counts.rejectedCount += 1;
       else counts.approvedCount += 1;

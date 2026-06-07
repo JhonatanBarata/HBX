@@ -473,6 +473,8 @@ test('normalizeOperationalConfigInput preserves midnight start and end hours', (
 
 test('normalizeOperationalConfigInput preserves existing schedule on partial update', () => {
   const service = new WebscrapingService(createPrisma()) as any;
+  const configuredEngineCount = service.normalizeOperationalConfigInput().engineCount;
+  const previousFactoryMaxEngines = Math.max(0, configuredEngineCount - 1);
 
   const normalized = service.normalizeOperationalConfigInput(
     { startHour: 19, startMinute: 30 },
@@ -483,13 +485,16 @@ test('normalizeOperationalConfigInput preserves existing schedule on partial upd
       startMinute: 0,
       endHour: 9,
       endMinute: 15,
-      engineCount: 4,
+      engineCount: configuredEngineCount,
       intensity: 'normal',
       memoryTargetGb: 24,
       batchSize: 12,
       maxAttemptsPerTask: 4,
       engineUrlsJson: '[]',
-      metadataJson: '{"weekendAlwaysOn":true,"factoryMaxEngines":3}',
+      metadataJson: JSON.stringify({
+        weekendAlwaysOn: true,
+        factoryMaxEngines: previousFactoryMaxEngines,
+      }),
     },
   );
 
@@ -497,9 +502,9 @@ test('normalizeOperationalConfigInput preserves existing schedule on partial upd
   assert.equal(normalized.startMinute, 30);
   assert.equal(normalized.endHour, 9);
   assert.equal(normalized.endMinute, 15);
-  assert.equal(normalized.engineCount, 4);
+  assert.equal(normalized.engineCount, configuredEngineCount);
   assert.equal(normalized.weekendAlwaysOn, true);
-  assert.equal(normalized.factoryMaxEngines, 4);
+  assert.equal(normalized.factoryMaxEngines, configuredEngineCount);
 });
 
 test('mass data guided city has enough independent segments for one hundred engines', () => {
@@ -2106,6 +2111,59 @@ test('matchesRadarChannelFilters aceita site presente mesmo com websiteStatus an
   };
 
   assert.equal(service.matchesRadarChannelFilters(row, filters), true);
+});
+
+test('candidateHasRequiredChannels aplica email obrigatorio com all_required', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const input = {
+    requiredChannels: ['email'],
+    channelMatchMode: 'all_required',
+  };
+
+  assert.equal(service.candidateHasRequiredChannels({
+    name: 'Pizzaria Sem Email',
+    phoneDigits: '19999990001',
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'pizzarias',
+  }, input), false);
+
+  assert.equal(service.candidateHasRequiredChannels({
+    name: 'Pizzaria Com Email',
+    phoneDigits: '19999990001',
+    email: 'contato@pizzariacomemail.com.br',
+    emailStatus: 'confirmed',
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'pizzarias',
+  }, input), true);
+
+  assert.equal(service.candidateHasRequiredChannels({
+    name: 'Pizzaria Prefer',
+    phoneDigits: '19999990001',
+  }, { ...input, channelMatchMode: 'prefer' }), true);
+});
+
+test('matchesRadarChannelFilters bloqueia row sem canal obrigatorio', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const filters = {
+    requiredChannels: ['email'],
+    channelMatchMode: 'all_required',
+  };
+
+  assert.equal(service.matchesRadarChannelFilters({
+    id: 'sem-email',
+    name: 'Pizzaria Sem Email',
+    phoneDigits: '19999990001',
+  }, filters), false);
+
+  assert.equal(service.matchesRadarChannelFilters({
+    id: 'com-email',
+    name: 'Pizzaria Com Email',
+    phoneDigits: '19999990001',
+    email: 'contato@pizzariacomemail.com.br',
+    emailStatus: 'confirmed',
+  }, filters), true);
 });
 
 test('buildRadarLeadPublic sanitiza email de asset e social incompativel', () => {

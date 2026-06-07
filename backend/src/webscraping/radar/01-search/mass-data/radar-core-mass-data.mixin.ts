@@ -602,6 +602,10 @@ export class RadarCoreMassDataMixin {
       targetTotal: config.autonomousFillBatchSize || AUTONOMOUS_MASS_DATA_DEFAULT_TASKS,
       batchSize: config.batchSize,
       maxAttemptsPerTask: config.maxAttemptsPerTask,
+      preferredChannels: config.preferredChannels,
+      requiredChannels: config.requiredChannels,
+      channelMatchMode: config.channelMatchMode,
+      freshness: config.freshness,
       nightOnly: true,
       allowedStartHour: config.startHour,
       allowedEndHour: config.endHour,
@@ -804,6 +808,10 @@ export class RadarCoreMassDataMixin {
       maxAttemptsPerTask: input.maxAttemptsPerTask,
       autonomousFillEnabled: input.autonomousFillEnabled,
       autonomousFillBatchSize: input.autonomousFillBatchSize,
+      preferredChannels: input.preferredChannels,
+      requiredChannels: input.requiredChannels,
+      channelMatchMode: input.channelMatchMode,
+      freshness: input.freshness,
     });
     const context = await this.resolveMasterCampaignContext(user, input.companyId);
     const campaign = await this.createRadarCampaignForUser(context.user, {
@@ -815,6 +823,10 @@ export class RadarCoreMassDataMixin {
       targetTotal: input.targetTotal || 0,
       batchSize: config.batchSize,
       maxAttemptsPerTask: config.maxAttemptsPerTask,
+      preferredChannels: config.preferredChannels,
+      requiredChannels: config.requiredChannels,
+      channelMatchMode: config.channelMatchMode,
+      freshness: config.freshness,
       nightOnly: true,
       allowedStartHour: config.startHour,
       allowedEndHour: config.endHour,
@@ -1332,6 +1344,8 @@ export class RadarCoreMassDataMixin {
     }
     const attempt = safeInteger(task.attemptCount) + 1;
     const maxAttempts = Math.max(1, safeInteger(task.maxAttempts, 3));
+    const operationalConfig = await this.getOperationalConfig().catch(() => null);
+    const channelFilters = this.buildOperationalChannelSearchInput(operationalConfig || task.campaign || {});
     const normalized = this.normalizeSearchInput({
       city: task.city,
       state: task.state,
@@ -1339,6 +1353,7 @@ export class RadarCoreMassDataMixin {
       quantity: Math.min(Math.max(safeInteger(task.campaign.batchSize, 20), 1), 20),
       engine: 'hbx',
       targetType: normalizeTargetType(task.targetType),
+      ...channelFilters,
     });
     const queryUsed = this.buildMassDataTaskQuery(task.city, task.state, task.segment, attempt);
     let batch: any = null;
@@ -1382,16 +1397,14 @@ export class RadarCoreMassDataMixin {
           excludeUrls: existingLeads.flatMap((row: any) => [row.website, row.sourceUrl]).map((url: any) => String(url || '').trim()).filter(Boolean),
         },
       );
-      const newPhoneCount = output.results
-        .map((result) => normalizePhoneDigits(result.phoneDigits || result.phone))
-        .filter((phone) => phone && !existingPhones.has(phone)).length;
       const persisted = await this.persistRadarLeadPoolBatch(normalized, output.results, 'hbx_mass_data', {
         campaignId,
         strictLocalDdd: normalizeTargetType(task.targetType) === 'pf',
       });
+      const approvedCount = safeInteger(persisted.approvedCount);
       const batchRejectedCount = persisted.rejectedCount + safeInteger(output.rejectedCount);
       const duplicateCount = persisted.duplicateCount + safeInteger(output.duplicateCount);
-      const finalTaskStatus = newPhoneCount > 0
+      const finalTaskStatus = approvedCount > 0
         ? 'completed'
         : attempt >= maxAttempts
           ? 'exhausted'
@@ -1399,8 +1412,8 @@ export class RadarCoreMassDataMixin {
       await (this.prisma as any).webscrapingCampaignBatch.update({
         where: { id: batch.id },
         data: {
-          status: newPhoneCount > 0 ? 'completed' : 'empty_batch',
-          approvedCount: newPhoneCount,
+          status: approvedCount > 0 ? 'completed' : 'empty_batch',
+          approvedCount,
           duplicateCount,
           rejectedCount: batchRejectedCount,
           errorMessage: output.rawErrorMessage || null,
@@ -1412,7 +1425,7 @@ export class RadarCoreMassDataMixin {
         where: { id: taskId },
         data: {
           status: finalTaskStatus,
-          foundCount: { increment: newPhoneCount },
+          foundCount: { increment: approvedCount },
           duplicateCount: { increment: duplicateCount },
           rejectedCount: { increment: batchRejectedCount },
           lastError: output.rawErrorMessage || null,

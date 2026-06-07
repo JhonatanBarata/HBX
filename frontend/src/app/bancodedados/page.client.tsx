@@ -12,7 +12,7 @@ type CurrentUser = {
   isSystemMaster?: boolean;
 };
 
-type TabId = "pesquisas" | "motores" | "excluidos" | "reclamacoes" | "distribuicao";
+type TabId = "pesquisas" | "excluidos" | "reclamacoes" | "distribuicao";
 type ComplaintStatus = "new" | "reviewing" | "refunded" | "denied" | "resolved";
 
 type RadarCard = {
@@ -182,95 +182,6 @@ type HbxTerritoryRunPayload = {
   shortageCount?: number;
 };
 
-type ElasticEngine = {
-  id: string;
-  label?: string | null;
-  status?: string | null;
-  desiredState?: "running" | "draining" | "stopped" | string | null;
-  actualState?: "running" | "exited" | "missing" | "starting" | string | null;
-  configured?: boolean;
-  online?: boolean;
-  busy?: boolean;
-  active?: boolean;
-  usagePercent?: number | null;
-  stateLabel?: string | null;
-  detail?: string | null;
-  cardsFabricated?: number | null;
-  batches?: number | null;
-  duplicates?: number | null;
-  rejected?: number | null;
-  queue?: number | null;
-  lastActivityAt?: string | null;
-  activeCampaignId?: string | null;
-  lastError?: string | null;
-  lockUrl?: string | null;
-  cooldownUntil?: string | null;
-  pausedUntil?: string | null;
-  manualPaused?: boolean;
-  localhostInProduction?: boolean;
-  containerName?: string | null;
-  memoryRssMb?: number | null;
-  memoryEwmaMb?: number | null;
-  drainUntil?: string | null;
-  idleSince?: string | null;
-  priorityClass?: "client" | "factory" | "mixed" | string | null;
-  lastLeasePurpose?: string | null;
-  leaseActive?: boolean;
-  stopEligible?: boolean;
-};
-
-type ElasticStatus = {
-  generatedAt?: string | null;
-  summary?: {
-    cardsToday?: number | null;
-    activeQueue?: number | null;
-    errors24h?: number | null;
-    totalConfiguredEngines?: number | null;
-    onlineEngines?: number | null;
-    activeEngineLimit?: number | null;
-    runningEngines?: number | null;
-    cooldownEngines?: number | null;
-    pausedEngines?: number | null;
-    offlineEngines?: number | null;
-    totalEngines?: number | null;
-  };
-  scheduler?: {
-    manualReservedEngines?: number | null;
-    automaticAllowedEngines?: number | null;
-    memoryPressurePercent?: number | null;
-    manualDemandActive?: boolean;
-    productionMode?: string | null;
-  };
-  status?: {
-    currentMode?: string | null;
-    critical?: boolean;
-    criticalReason?: string | null;
-    localTime?: string | null;
-    isTurboForcedNow?: boolean;
-    isTurboWindowActive?: boolean;
-    forcedUntil?: string | null;
-    operationalMessage?: string | null;
-  };
-  turbo?: {
-    active?: boolean;
-    scheduledActive?: boolean;
-    endsAt?: string | null;
-    remainingSeconds?: number | null;
-    startLabel?: string | null;
-    endLabel?: string | null;
-  };
-  engines?: ElasticEngine[];
-  campaigns?: Array<{ id?: string; status?: string | null; mode?: string | null; city?: string | null; state?: string | null; segment?: string | null; tasks?: unknown[] }>;
-  taskStatusCounts?: Record<string, number>;
-  diagnostics?: {
-    queueStatus?: "ok" | "warning" | "error" | string | null;
-    databaseStatus?: "ok" | "warning" | "error" | string | null;
-    engineHealthStatus?: "ok" | "warning" | "error" | string | null;
-    messages?: string[];
-  };
-  warnings?: Array<{ route?: string | null; message?: string | null; createdAt?: string | null }>;
-};
-
 const EMPTY_TERRITORY_SELLERS: HbxTerritorySeller[] = [];
 const EMPTY_TERRITORY_CITIES: HbxTerritoryCity[] = [];
 const EMPTY_CITY_BALANCE: HbxTerritoryCityBalance[] = [];
@@ -306,7 +217,6 @@ type HbxTerritoryTableRow = {
 
 const TABS: Array<{ id: TabId; label: string; description: string }> = [
   { id: "pesquisas", label: "Pesquisas", description: "Cards pesquisados e salvos no banco Radar." },
-  { id: "motores", label: "Motores", description: "Elastic Engine Governor e warm pool do Radar." },
   { id: "excluidos", label: "Excluídos", description: "Cards removidos, bloqueados ou descartados." },
   { id: "reclamacoes", label: "Reclamações", description: "Cards contestados pelos clientes." },
 ];
@@ -355,61 +265,8 @@ function normalizeLoadError(error: unknown) {
 
 function normalizeTab(value: unknown): TabId | null {
   const tab = String(value || "").trim().toLowerCase();
-  if (tab === "pesquisas" || tab === "motores" || tab === "excluidos" || tab === "reclamacoes" || tab === "distribuicao") return tab;
+  if (tab === "pesquisas" || tab === "excluidos" || tab === "reclamacoes" || tab === "distribuicao") return tab;
   return null;
-}
-
-function engineDesiredLabel(engine: ElasticEngine) {
-  const desired = String(engine.desiredState || engine.status || "").toLowerCase();
-  if (desired === "draining") return "Drenando";
-  if (desired === "stopped") return "Parado";
-  if (desired === "running" || desired === "busy" || desired === "online") return "Rodando";
-  if (desired === "cooldown") return "Cooldown";
-  if (desired === "paused") return "Pausado";
-  if (desired === "offline") return "Offline";
-  return engine.stateLabel || engine.status || "-";
-}
-
-function engineStatusTone(engine: ElasticEngine) {
-  const desired = String(engine.desiredState || engine.status || "").toLowerCase();
-  const status = String(engine.status || "").toLowerCase();
-  if (desired === "stopped" || status === "stopped") return "stopped";
-  if (desired === "draining" || status === "draining") return "draining";
-  if (status === "offline" || status === "degraded" || engine.lastError) return "error";
-  if (status === "cooldown" || status === "paused" || engine.manualPaused) return "warning";
-  if (engine.busy || engine.active || status === "running" || status === "busy") return "running";
-  return "idle";
-}
-
-function formatPercent(value?: number | null) {
-  const parsed = Number(value || 0);
-  return `${Number.isFinite(parsed) ? Math.round(parsed) : 0}%`;
-}
-
-function formatMemoryMb(value?: number | null) {
-  const parsed = Number(value || 0);
-  if (!Number.isFinite(parsed) || parsed <= 0) return "-";
-  if (parsed >= 1024) return `${(parsed / 1024).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} GB`;
-  return `${Math.round(parsed).toLocaleString("pt-BR")} MB`;
-}
-
-function elasticModeLabel(value?: string | null) {
-  const mode = String(value || "").trim().toLowerCase();
-  if (!mode) return "-";
-  if (mode === "normal") return "Normal";
-  if (mode === "turbo") return "Turbo";
-  if (mode === "economico" || mode === "economic") return "Econômico";
-  if (mode === "forced") return "Forçado";
-  if (mode === "paused") return "Pausado";
-  return value || "-";
-}
-
-function enginePriorityLabel(value?: string | null) {
-  const priority = String(value || "").trim().toLowerCase();
-  if (priority === "client") return "Cliente";
-  if (priority === "factory") return "Factory";
-  if (priority === "mixed") return "Misto";
-  return value || "-";
 }
 
 function preferredSegmentsLabel(value?: string | null) {
@@ -436,8 +293,6 @@ export default function BancoDeDadosClientPage({ embedded = false }: { embedded?
   const [activeTab, setActiveTab] = useState<TabId>(() => normalizeTab(searchParams.get("tab")) || "pesquisas");
   const [loading, setLoading] = useState(false);
   const [busyBatch, setBusyBatch] = useState(false);
-  const [elasticLoading, setElasticLoading] = useState(false);
-  const [elasticBusy, setElasticBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -447,7 +302,6 @@ export default function BancoDeDadosClientPage({ embedded = false }: { embedded?
   const [complaints, setComplaints] = useState<VendasComplaint[]>([]);
   const [territoryPanel, setTerritoryPanel] = useState<HbxTerritoryPanel | null>(null);
   const [territoryDraft, setTerritoryDraft] = useState<HbxTerritoryPanel | null>(null);
-  const [elasticStatus, setElasticStatus] = useState<ElasticStatus | null>(null);
   const [territorySaving, setTerritorySaving] = useState(false);
   const [territoryRunning, setTerritoryRunning] = useState(false);
   const [territoryInput, setTerritoryInput] = useState({ userId: 0, state: "SP", city: "" });
@@ -457,28 +311,11 @@ export default function BancoDeDadosClientPage({ embedded = false }: { embedded?
     if (nextTab) setActiveTab(nextTab);
   }, [searchParams]);
 
-  const fetchElasticStatus = useCallback(() => apiFetch<ElasticStatus>("/modules/master/webscraping/elastic/status", {
-    requireAuth: true,
-    timeoutMs: 60000,
-  }), []);
-
-  const loadElasticStatus = useCallback(async () => {
-    setElasticLoading(true);
-    setError(null);
-    try {
-      setElasticStatus(await fetchElasticStatus());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao carregar motores do Radar.");
-    } finally {
-      setElasticLoading(false);
-    }
-  }, [fetchElasticStatus]);
-
   const loadAll = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [cardsResult, exclusionsResult, complaintsResult, elasticResult] = await Promise.allSettled([
+      const [cardsResult, exclusionsResult, complaintsResult] = await Promise.allSettled([
         apiFetch<RadarCardsPayload>(`/modules/master/webscraping/database-cards?limit=${MASS_DELETE_LOAD_LIMIT}&targetType=both`, {
           requireAuth: true,
           timeoutMs: 60000,
@@ -491,7 +328,6 @@ export default function BancoDeDadosClientPage({ embedded = false }: { embedded?
           requireAuth: true,
           timeoutMs: 60000,
         }),
-        fetchElasticStatus(),
       ]);
       const failures: string[] = [];
 
@@ -515,12 +351,6 @@ export default function BancoDeDadosClientPage({ embedded = false }: { embedded?
         failures.push(`Reclamações (${normalizeLoadError(complaintsResult.reason)})`);
       }
 
-      if (elasticResult.status === "fulfilled") {
-        setElasticStatus(elasticResult.value || null);
-      } else {
-        failures.push(`Motores (${normalizeLoadError(elasticResult.reason)})`);
-      }
-
       if (failures.length) {
         setError(`Banco carregado parcialmente. Falharam: ${failures.join("; ")}.`);
       }
@@ -529,7 +359,7 @@ export default function BancoDeDadosClientPage({ embedded = false }: { embedded?
     } finally {
       setLoading(false);
     }
-  }, [fetchElasticStatus]);
+  }, []);
 
   useEffect(() => {
     if (hasToken !== true) return;
@@ -624,7 +454,6 @@ export default function BancoDeDadosClientPage({ embedded = false }: { embedded?
 
   const tabCount: Record<TabId, number> = {
     pesquisas: filteredCards.length,
-    motores: elasticStatus?.engines?.length || 0,
     excluidos: excludedCards.length + filteredDeletionRecords.length,
     reclamacoes: filteredComplaints.length,
     distribuicao: territorySellers.length,
@@ -752,29 +581,8 @@ export default function BancoDeDadosClientPage({ embedded = false }: { embedded?
     }
   }
 
-  async function runElasticAction(label: string, path: string, options: { body?: unknown; confirm?: string } = {}) {
-    if (options.confirm && typeof window !== "undefined" && !window.confirm(options.confirm)) return;
-    setElasticBusy(label);
-    setError(null);
-    setFeedback(null);
-    try {
-      await apiFetch(path, {
-        method: "POST",
-        requireAuth: true,
-        timeoutMs: 60000,
-        body: options.body === undefined ? undefined : JSON.stringify(options.body),
-      });
-      setFeedback(`${label} executado.`);
-      await loadElasticStatus();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : `Falha ao executar ${label}.`);
-    } finally {
-      setElasticBusy(null);
-    }
-  }
-
   async function deleteActiveBatch() {
-    if (activeTab === "distribuicao" || activeTab === "motores") return;
+    if (activeTab === "distribuicao") return;
     setBusyBatch(true);
     setError(null);
     setFeedback(null);
@@ -853,9 +661,6 @@ export default function BancoDeDadosClientPage({ embedded = false }: { embedded?
               <button type="button" onClick={() => void loadAll()} disabled={loading}>
                 {loading ? "Atualizando..." : "Atualizar"}
               </button>
-              <button type="button" onClick={() => { window.location.href = "/master"; }}>
-                Master
-              </button>
             </div>
           </div>
           <input
@@ -868,7 +673,6 @@ export default function BancoDeDadosClientPage({ embedded = false }: { embedded?
 
         <section className={styles.kpiGrid} aria-label="Resumo do banco de dados">
           <article><span>Pesquisas</span><strong>{metric(cardsTotal || cards.length)}</strong></article>
-          <article><span>Motores</span><strong>{metric(elasticStatus?.engines?.length || 0)}</strong></article>
           <article><span>Excluídos</span><strong>{metric(excludedCards.length + filteredDeletionRecords.length)}</strong></article>
           <article><span>Reclamações</span><strong>{metric(filteredComplaints.length)}</strong></article>
           <article><span>Total visível</span><strong>{metric(filteredCards.length + excludedCards.length + filteredDeletionRecords.length + filteredComplaints.length)}</strong></article>
@@ -883,53 +687,24 @@ export default function BancoDeDadosClientPage({ embedded = false }: { embedded?
                   ? "Carregando..."
                   : activeTab === "distribuicao"
                     ? `${metric(territoryPotential)} cards potenciais`
-                    : activeTab === "motores"
-                      ? `${metric(elasticStatus?.engines?.length || 0)} motor(es)`
-                      : `${metric(activeBatchCount)} item(ns)`}
+                    : `${metric(activeBatchCount)} item(ns)`}
               </strong>
             </div>
             <button
               type="button"
               className={styles.dangerButton}
-              disabled={busyBatch || loading || activeBatchCount === 0 || activeTab === "distribuicao" || activeTab === "motores"}
+              disabled={busyBatch || loading || activeBatchCount === 0 || activeTab === "distribuicao"}
               onClick={() => void deleteActiveBatch()}
             >
-              {activeTab === "distribuicao" || activeTab === "motores" ? "Sem exclusão em massa" : busyBatch ? "Excluindo..." : `Excluir em massa (${metric(activeBatchCount)})`}
+              {activeTab === "distribuicao" ? "Sem exclusão em massa" : busyBatch ? "Excluindo..." : `Excluir em massa (${metric(activeBatchCount)})`}
             </button>
           </div>
 
-          {!loading && activeBatchCount === 0 && activeTab !== "distribuicao" && activeTab !== "motores" ? (
+          {!loading && activeBatchCount === 0 && activeTab !== "distribuicao" ? (
             <div className={styles.emptyState}>Nenhum card encontrado nesta guia.</div>
           ) : null}
 
           {activeTab === "pesquisas" ? <RadarCardList items={filteredCards} /> : null}
-          {activeTab === "motores" ? (
-            <ElasticEnginePanel
-              status={elasticStatus}
-              loading={elasticLoading || loading}
-              busy={elasticBusy}
-              onRefresh={loadElasticStatus}
-              onForceNight={() => runElasticAction("Forçar noite", "/modules/master/webscraping/elastic/force-night", {
-                body: { forceNow: true },
-                confirm: "Forçar scraping noturno agora?",
-              })}
-              onCancelForced={() => runElasticAction("Cancelar factory", "/modules/master/webscraping/elastic/cancel-forced", {
-                body: { seconds: 90 },
-                confirm: "Cancelar factory e drenar motores automáticos?",
-              })}
-              onResumeWarmPool={() => runElasticAction("Religar warm pool", "/modules/master/webscraping/factory/start", {
-                confirm: "Religar warm pool da factory?",
-              })}
-              onDrainEngine={(id) => runElasticAction(`Drenar ${id}`, `/modules/master/webscraping/engines/${encodeURIComponent(id)}/drain`, {
-                body: { seconds: 90 },
-                confirm: `Drenar ${id}?`,
-              })}
-              onStopEngine={(id) => runElasticAction(`Parar ${id}`, `/modules/master/webscraping/engines/${encodeURIComponent(id)}/stop-container`, {
-                body: { force: false, seconds: 90 },
-                confirm: `Parar container ocioso ${id}?`,
-              })}
-            />
-          ) : null}
           {activeTab === "excluidos" ? <ExcludedList items={excludedCards} records={filteredDeletionRecords} /> : null}
           {activeTab === "reclamacoes" ? <ComplaintList items={filteredComplaints} /> : null}
           {activeTab === "distribuicao" ? (
@@ -958,179 +733,6 @@ export default function BancoDeDadosClientPage({ embedded = false }: { embedded?
     <DashboardScaffold title="Banco de Dados" hideHeader showDashboardShortcut={false}>
       {content}
     </DashboardScaffold>
-  );
-}
-
-function ElasticEnginePanel({
-  status,
-  loading,
-  busy,
-  onRefresh,
-  onForceNight,
-  onCancelForced,
-  onResumeWarmPool,
-  onDrainEngine,
-  onStopEngine,
-}: {
-  status: ElasticStatus | null;
-  loading: boolean;
-  busy: string | null;
-  onRefresh: () => void | Promise<void>;
-  onForceNight: () => void | Promise<void>;
-  onCancelForced: () => void | Promise<void>;
-  onResumeWarmPool: () => void | Promise<void>;
-  onDrainEngine: (id: string) => void | Promise<void>;
-  onStopEngine: (id: string) => void | Promise<void>;
-}) {
-  const engines = status?.engines || [];
-  const taskCounts = status?.taskStatusCounts || {};
-  const runningEngines = engines.filter((engine) => {
-    const desired = String(engine.desiredState || "").toLowerCase();
-    const actual = String(engine.actualState || engine.status || "").toLowerCase();
-    return desired === "running" || actual === "running" || Boolean(engine.busy || engine.active || engine.online);
-  }).length;
-  const drainingEngines = engines.filter((engine) => String(engine.desiredState || engine.status || "").toLowerCase() === "draining").length;
-  const stoppedEngines = engines.filter((engine) => {
-    const desired = String(engine.desiredState || "").toLowerCase();
-    const actual = String(engine.actualState || engine.status || "").toLowerCase();
-    return desired === "stopped" || actual === "exited" || actual === "missing" || actual === "offline";
-  }).length;
-  const backlogFactory = Number(taskCounts.queued || taskCounts.pending || status?.summary?.activeQueue || 0);
-  const runningTasks = Number(taskCounts.running || 0);
-  const diagnosticsMessages = [
-    status?.status?.operationalMessage,
-    status?.status?.criticalReason,
-    ...(status?.diagnostics?.messages || []),
-  ].map((message) => String(message || "").trim()).filter(Boolean);
-  const warnings = status?.warnings || [];
-  const actionDisabled = Boolean(busy);
-
-  return (
-    <div className={styles.elasticPanel}>
-      <section className={styles.elasticActionBar} aria-label="Controles Master dos motores Radar">
-        <button type="button" onClick={() => void onRefresh()} disabled={loading}>
-          {loading ? "Atualizando..." : "Atualizar status"}
-        </button>
-        <button type="button" data-primary="true" onClick={() => void onForceNight()} disabled={actionDisabled}>
-          {busy === "Forçar noite" ? "Forçando..." : "Forçar noite"}
-        </button>
-        <button type="button" onClick={() => void onResumeWarmPool()} disabled={actionDisabled}>
-          {busy === "Religar warm pool" ? "Religando..." : "Religar warm pool"}
-        </button>
-        <button type="button" data-danger="true" onClick={() => void onCancelForced()} disabled={actionDisabled}>
-          {busy === "Cancelar factory" ? "Cancelando..." : "Cancelar factory"}
-        </button>
-      </section>
-
-      {!status && loading ? <div className={styles.emptyState}>Carregando motores do Radar...</div> : null}
-      {!status && !loading ? <div className={styles.emptyState}>Status de motores indisponível.</div> : null}
-
-      {status ? (
-        <>
-          <section className={styles.elasticSummaryGrid} aria-label="Resumo do Elastic Engine Governor">
-            <article>
-              <span>Memória host</span>
-              <strong>{formatPercent(status.scheduler?.memoryPressurePercent)}</strong>
-              <small>{status.status?.critical ? "pressão crítica" : "dentro da régua"}</small>
-            </article>
-            <article>
-              <span>Warm pool</span>
-              <strong>{metric(status.summary?.onlineEngines ?? runningEngines)}/{metric(status.summary?.totalConfiguredEngines ?? engines.length)}</strong>
-              <small>{metric(drainingEngines)} drenando, {metric(stoppedEngines)} parado(s)</small>
-            </article>
-            <article>
-              <span>Factory allowed</span>
-              <strong>{metric(status.scheduler?.automaticAllowedEngines)}</strong>
-              <small>motores automáticos</small>
-            </article>
-            <article>
-              <span>Reserva cliente</span>
-              <strong>{metric(status.scheduler?.manualReservedEngines)}</strong>
-              <small>{status.scheduler?.manualDemandActive ? "demanda ativa" : "sem demanda manual"}</small>
-            </article>
-            <article>
-              <span>Backlog factory</span>
-              <strong>{metric(backlogFactory)}</strong>
-              <small>{metric(runningTasks)} tarefa(s) rodando</small>
-            </article>
-            <article>
-              <span>Modo</span>
-              <strong>{elasticModeLabel(status.status?.currentMode || status.scheduler?.productionMode)}</strong>
-              <small>{status.status?.isTurboForcedNow ? "forçado agora" : status.status?.isTurboWindowActive ? "janela ativa" : "janela normal"}</small>
-            </article>
-          </section>
-
-          {diagnosticsMessages.length || warnings.length ? (
-            <section className={styles.elasticDiagnostics} aria-label="Diagnósticos dos motores">
-              {diagnosticsMessages.map((message, index) => <p key={`diagnostic-${index}`}>{message}</p>)}
-              {warnings.slice(0, 5).map((warning, index) => (
-                <p key={`warning-${index}`} data-tone="warning">
-                  {warning.route ? `${warning.route}: ` : ""}{warning.message || "Aviso operacional sem detalhe."}
-                </p>
-              ))}
-            </section>
-          ) : null}
-
-          <div className={styles.elasticEngineTableWrap}>
-            <table className={styles.elasticEngineTable}>
-              <thead>
-                <tr>
-                  <th>Motor</th>
-                  <th>Estado</th>
-                  <th>Uso</th>
-                  <th>Produção</th>
-                  <th>Lease</th>
-                  <th>Ações</th>
-                </tr>
-              </thead>
-              <tbody>
-                {engines.map((engine) => {
-                  const engineId = engine.id || engine.containerName || "engine";
-                  const desired = String(engine.desiredState || engine.status || "").toLowerCase();
-                  const canDrain = !actionDisabled && desired !== "stopped";
-                  const canStop = !actionDisabled && !engine.leaseActive && engine.stopEligible !== false && desired !== "draining";
-                  return (
-                    <tr key={engineId}>
-                      <td data-label="Motor">
-                        <strong>{engine.label || engine.containerName || engineId}</strong>
-                        <span>{engineId}</span>
-                      </td>
-                      <td data-label="Estado">
-                        <span className={styles.elasticStatusBadge} data-tone={engineStatusTone(engine)}>{engineDesiredLabel(engine)}</span>
-                        <small>{engine.actualState || engine.status || "-"}</small>
-                      </td>
-                      <td data-label="Uso">
-                        <strong>{formatPercent(engine.usagePercent)}</strong>
-                        <span>{formatMemoryMb(engine.memoryRssMb ?? engine.memoryEwmaMb)} RSS</span>
-                      </td>
-                      <td data-label="Produção">
-                        <strong>{metric(engine.cardsFabricated)} cards</strong>
-                        <span>{metric(engine.batches)} lote(s), {metric(engine.duplicates)} duplicado(s)</span>
-                      </td>
-                      <td data-label="Lease">
-                        <strong>{enginePriorityLabel(engine.priorityClass)}</strong>
-                        <span>{engine.leaseActive ? `ativo: ${engine.lastLeasePurpose || "-"}` : "sem lease ativo"}</span>
-                      </td>
-                      <td data-label="Ações">
-                        <div className={styles.elasticEngineActions}>
-                          <button type="button" onClick={() => void onDrainEngine(engineId)} disabled={!canDrain}>
-                            Drenar
-                          </button>
-                          <button type="button" data-danger="true" onClick={() => void onStopEngine(engineId)} disabled={!canStop}>
-                            Parar ocioso
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            {!engines.length ? <div className={styles.emptyState}>Nenhum motor configurado no Elastic Engine Governor.</div> : null}
-          </div>
-        </>
-      ) : null}
-    </div>
   );
 }
 

@@ -369,7 +369,7 @@ export class SellerOnboardingService {
       emailConfirmed,
       missingRequiredDocuments: readiness.missingRequiredDocuments,
       message: message || (emailConfirmed
-        ? 'Documentos recebidos e e-mail confirmado. Assim que confirmado, chegará um e-mail com seu usuário e senha.'
+        ? 'Em breve chegará sua confirmação, com seu usuário e senha. '
         : documentsComplete
           ? 'Anexos aceitos. Clique em Enviar para confirmar seus documentos.'
           : 'Envie os documentos obrigatórios pendentes.'),
@@ -466,7 +466,7 @@ export class SellerOnboardingService {
     });
     return this.buildPublicOnboardingPayload(
       confirmed,
-      'Documentos recebidos e e-mail confirmado. Assim que confirmado, chegará um e-mail com seu usuário e senha.',
+      'Em breve chegará sua confirmação, com seu usuário e senha. ',
     );
   }
 

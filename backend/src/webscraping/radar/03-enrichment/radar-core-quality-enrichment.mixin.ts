@@ -868,8 +868,12 @@ export class RadarCoreQualityEnrichmentMixin {
     return false;
   }
 
-  private candidateHasRequiredChannels(_candidate: Record<string, any>, _input?: NormalizedSearchInput | NormalizedRadarFilters, _qualityV2?: LeadQualityV2 | null) {
-    return true;
+  private candidateHasRequiredChannels(candidate: Record<string, any>, input?: NormalizedSearchInput | NormalizedRadarFilters, qualityV2?: LeadQualityV2 | null) {
+    const required = this.requiredChannelsForInput(input);
+    const mode = this.normalizeChannelMatchMode((input as any)?.channelMatchMode);
+    if (!required.length || mode === 'prefer') return true;
+    const matches = required.map((channel) => this.candidateHasRequiredChannel(candidate, channel, qualityV2));
+    return mode === 'all_required' ? matches.every(Boolean) : matches.some(Boolean);
   }
 
   private hasUsablePublicContactChannel(candidate: Record<string, any>) {

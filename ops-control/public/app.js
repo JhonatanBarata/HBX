@@ -325,6 +325,12 @@ function environmentActionLabel(environment) {
 
 function summarizeOpsActionResult(actionLabel, result) {
   const rows = result.results || [];
+  if (result.coordination?.blocked && !rows.length) {
+    return {
+      tone: 'error',
+      text: `${actionLabel} bloqueado pela coordenacao: ${result.coordination.message || 'risco de duplicidade Local x VPS.'}`,
+    };
+  }
   const ok = rows.filter((item) => item.ok).length;
   const skipped = rows.filter((item) => item.skipped).length;
   const failed = Math.max(0, rows.length - ok - skipped);
@@ -333,19 +339,30 @@ function summarizeOpsActionResult(actionLabel, result) {
     if (item.ok) return `${label}: ok`;
     return `${label}: ${item.reason || item.error || `HTTP ${item.statusCode || 'falha'}`}`;
   }).join(' | ');
-  const filterNotice = result.filterForwarded === false
-    ? ' Filtro anotado no cockpit; hard filter entra no passo 6.'
+  const filterNotice = result.filterForwarded === true
+    ? ' Filtro encaminhado ao backend com hard filter ativo.'
+    : result.filterForwarded === false
+      ? ' Filtro nao encaminhado; verifique backend/DTO.'
+      : '';
+  const coordinationNotice = result.coordination?.actions?.length
+    ? ` Coordenacao: ${result.coordination.message || 'missao ajustada antes de iniciar ambos.'}`
     : '';
   const tone = failed ? 'error' : skipped ? 'warn' : 'ok';
   return {
     tone,
-    text: `${actionLabel}: ${ok} ok, ${skipped} precisa configurar, ${failed} falha(s). ${details || 'Sem alvos.'}${filterNotice}`,
+    text: `${actionLabel}: ${ok} ok, ${skipped} precisa configurar, ${failed} falha(s). ${details || 'Sem alvos.'}${coordinationNotice}${filterNotice}`,
   };
 }
 
 function setRadarCockpitLoading() {
   document.getElementById('radarCockpitDecision').textContent = 'Coletando localhost e VPS...';
   document.getElementById('radarCockpitMeta').textContent = 'Consultando Docker, banco, campanhas, tarefas e logs.';
+  renderRadarCoordination({
+    status: 'idle',
+    summary: 'Aguardando leitura de cidade, segmento e tarefas.',
+    conflicts: [],
+    environments: {},
+  });
   ['local', 'vps'].forEach((prefix) => {
     document.getElementById(`${prefix}WorkingNow`).textContent = 'Atualizando...';
     document.getElementById(`${prefix}WorkingQuery`).textContent = '-';
@@ -372,6 +389,50 @@ function renderRadarCockpit(data) {
   document.getElementById('radarCockpitMeta').textContent = `Atualizado em ${formatDateTime(data.generatedAt)}. Cada lado mostra o que esta scrapeando e o que o banco decidiu.`;
   document.getElementById('radarDiagnosticJson').textContent = JSON.stringify(data, null, 2);
   document.getElementById('radarLogLines').textContent = buildCockpitLogs(local, vps);
+  renderRadarCoordination(data.coordination);
+}
+
+function renderRadarCoordination(coordination = {}) {
+  const panel = document.getElementById('coordinationPanel');
+  if (!panel) return;
+  const status = coordination.status || 'idle';
+  const conflicts = coordination.conflicts || [];
+  panel.className = `coordination-panel coordination-panel--${status}`;
+  document.getElementById('coordinationStatus').textContent = {
+    ok: 'Coordenacao ok',
+    attention: 'Coordenacao com risco',
+    blocked: 'Coordenacao bloqueada',
+    idle: 'Coordenacao Local x VPS',
+  }[status] || 'Coordenacao Local x VPS';
+  document.getElementById('coordinationMessage').textContent = coordination.summary || 'Aguardando leitura de cidade, segmento e tarefas.';
+  const local = coordination.environments?.localhost || {};
+  const vps = coordination.environments?.vps || {};
+  const chips = [
+    renderCoordinationChip('LOCAL ativo', local.active),
+    renderCoordinationChip('LOCAL proximo', local.next),
+    renderCoordinationChip('VPS ativo', vps.active),
+    renderCoordinationChip('VPS proximo', vps.next),
+  ].filter(Boolean);
+  const conflictRows = conflicts.map((item) => `
+    <div class="coordination-conflict">
+      <b>${escapeHtml(item.severity === 'blocked' ? 'Bloqueio' : 'Risco')}</b>
+      <span>${escapeHtml(item.message || '-')}</span>
+    </div>
+  `);
+  document.getElementById('coordinationDetails').innerHTML = [
+    chips.length ? `<div class="coordination-chips">${chips.join('')}</div>` : '',
+    conflictRows.length ? `<div class="coordination-conflicts">${conflictRows.join('')}</div>` : '',
+  ].join('') || '<span>Sem missao suficiente para comparar ainda.</span>';
+}
+
+function renderCoordinationChip(label, candidate) {
+  if (!candidate) return '';
+  return `
+    <span class="coordination-chip">
+      <b>${escapeHtml(label)}</b>
+      ${escapeHtml(candidate.label || '-')}
+    </span>
+  `;
 }
 
 function renderCockpitEnvironment(prefix, data) {

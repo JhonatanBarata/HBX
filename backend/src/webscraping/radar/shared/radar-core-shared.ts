@@ -1085,6 +1085,10 @@ export type RadarCampaignInput = {
   allowedStartHour?: number | null;
   allowedEndHour?: number | null;
   timezone?: string | null;
+  preferredChannels?: string[] | null;
+  requiredChannels?: string[] | null;
+  channelMatchMode?: RadarChannelMatchMode | string | null;
+  freshness?: 'live' | 'database_first' | 'hybrid' | string | null;
 };
 
 export type WebscrapingOperationalConfigInput = {
@@ -1112,6 +1116,10 @@ export type WebscrapingOperationalConfigInput = {
   maxEngines?: number | null;
   minEngines?: number | null;
   drainTimeoutSeconds?: number | null;
+  preferredChannels?: string[] | null;
+  requiredChannels?: string[] | null;
+  channelMatchMode?: RadarChannelMatchMode | string | null;
+  freshness?: 'live' | 'database_first' | 'hybrid' | string | null;
 };
 
 export type MasterMassDataCampaignInput = RadarCampaignInput & WebscrapingOperationalConfigInput & {

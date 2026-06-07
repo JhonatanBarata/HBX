@@ -586,7 +586,7 @@ async function runScopedBackendAction(scope, method, route, payloadFactory, opti
   };
 }
 
-function buildTurboPayload() {
+function buildTurboPayload(extra = {}) {
   return {
     enabled: true,
     forceNow: true,
@@ -594,6 +594,7 @@ function buildTurboPayload() {
     timezone: 'America/Sao_Paulo',
     autonomousFillEnabled: true,
     forcedUntil: new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(),
+    ...extra,
   };
 }
 
@@ -1344,6 +1345,7 @@ async function collectRadarCockpit() {
       localhost,
       vps,
     },
+    coordination: buildRadarCoordination({ localhost, vps }),
   };
 }
 
@@ -1455,6 +1457,7 @@ app.post('/api/opscontrol/turbo', async (req, res) => {
       'POST',
       '/modules/master/webscraping/turbo-noturno/force-now',
       () => buildTurboPayload(),
+      { coordinateBoth: true, reason: 'turbo' },
     );
     res.json({
       action: 'turbo',
@@ -1474,18 +1477,23 @@ app.post('/api/opscontrol/force-filter', async (req, res) => {
       scope,
       'POST',
       '/modules/master/webscraping/turbo-noturno/force-now',
-      () => buildTurboPayload(),
+      () => buildTurboPayload({
+        requiredChannels: [requiredChannel],
+        channelMatchMode: 'all_required',
+        freshness: 'live',
+      }),
+      { coordinateBoth: true, reason: 'force-filter' },
     );
     res.json({
       action: 'force-filter',
-      message: 'Filtro solicitado no cockpit; hard filter sera aplicado quando o passo 6 propagar o campo no backend.',
+      message: 'Filtro solicitado no cockpit; hard filter encaminhado ao backend.',
       requestedFilter: {
         requiredChannels: [requiredChannel],
         channelMatchMode: 'all_required',
         freshness: 'live',
       },
-      filterForwarded: false,
-      filterReason: 'backend_hard_filter_pending_step_6',
+      filterForwarded: true,
+      filterReason: 'backend_hard_filter_enabled_step_6',
       ...result,
     });
   } catch (error) {

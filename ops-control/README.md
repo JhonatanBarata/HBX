@@ -10,8 +10,9 @@ Agora o painel tambem tem a area **Auditoria do Radar**, com abas:
 O cockpit Local x VPS tambem tem controles seguros:
 
 - `Turbo LOCAL`, `Turbo VPS` e `Turbo ambos`.
-- `Forcar filtro`, hoje registrando o filtro no cockpit e forçando o turbo; o hard filter por canal entra quando o backend receber o passo 6.
+- `Forcar filtro`, enviando `requiredChannels`, `channelMatchMode=all_required` e `freshness=live` para o backend.
 - `Cancelar scraping`, que chama o cancelamento do modo forcado com drenagem curta.
+- Coordenacao Local x VPS para evitar que o alvo `Local + VPS` inicie duas fabricas na mesma cidade/segmento/tarefa.
 
 ## Uso
 
@@ -48,6 +49,7 @@ http://127.0.0.1:3099
 - As acoes executam apenas comandos Docker allowlistados.
 - A auditoria do Radar le apenas Docker, logs recentes e consultas SQL fixas de diagnostico.
 - Os controles de turbo/cancelamento chamam apenas rotas master existentes no backend e exigem JWT master configurado por ambiente.
-- O filtro por canal ainda nao e enviado ao backend neste passo, porque o DTO atual rejeita campos desconhecidos.
+- O filtro por canal e enviado ao backend master; exige backend atualizado com o passo 6.
+- Quando `Turbo ambos` ou `Forcar filtro` usam `Local + VPS`, o Ops Control compara trabalho ativo e proxima missao dos dois ambientes. Se houver colisao resolvivel, ele chama `factory/force-next` em um lado antes de iniciar; se os dois ja estiverem no mesmo trabalho ativo, ele bloqueia o comando para evitar duplicidade.
 - A aba localhost exige Docker local acessivel pelo processo do Ops Control. No compose, isso usa `/var/run/docker.sock`.
 - O frontend em PM2 nao e controlado nesta primeira versao, porque o painel roda isolado em Docker e nao monta o ambiente PM2 do usuario host.

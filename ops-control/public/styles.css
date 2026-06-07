@@ -249,6 +249,75 @@ button.kill:hover {
   font-size: 18px;
 }
 
+.coordination-panel {
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 13px;
+}
+
+.coordination-panel > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.coordination-panel strong {
+  font-size: 16px;
+}
+
+.coordination-panel span,
+.coordination-chip {
+  color: var(--muted);
+}
+
+.coordination-panel--ok {
+  border-left-color: var(--success);
+}
+
+.coordination-panel--attention {
+  border-left-color: var(--warning);
+}
+
+.coordination-panel--blocked {
+  border-left-color: var(--danger);
+}
+
+.coordination-details,
+.coordination-conflicts {
+  display: grid;
+  gap: 8px;
+}
+
+.coordination-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.coordination-chip,
+.coordination-conflict {
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  min-width: 190px;
+  padding: 8px 10px;
+}
+
+.coordination-chip b,
+.coordination-conflict b {
+  color: var(--text);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.coordination-conflict span {
+  overflow-wrap: anywhere;
+}
+
 .ops-action-panel {
   background: var(--panel-soft);
   border: 1px solid var(--line);

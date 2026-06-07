@@ -181,6 +181,10 @@ export class RadarCoreCampaignPlannerMixin {
     const nightOnly = input.nightOnly == null ? true : coerceBoolean(input.nightOnly);
     const maxAttemptsPerTask = Math.min(Math.max(Math.trunc(Number(input.maxAttemptsPerTask || 3) || 3), 1), 10);
     const maxAttempts = mode === 'mass_data' ? maxAttemptsPerTask : Math.max(Math.ceil(Math.max(1, targetTotal) / Math.max(1, batchSize)) * 3, 40);
+    const preferredChannels = this.normalizeRadarChannels(input.preferredChannels || []);
+    const requiredChannels = this.normalizeRadarChannels(input.requiredChannels || []);
+    const channelMatchMode = this.normalizeChannelMatchMode(input.channelMatchMode);
+    const freshness = this.normalizeFreshness(input.freshness);
     return {
       city,
       state,
@@ -195,6 +199,10 @@ export class RadarCoreCampaignPlannerMixin {
       allowedStartHour,
       allowedEndHour,
       timezone,
+      preferredChannels,
+      requiredChannels,
+      channelMatchMode,
+      freshness,
     };
   }
 
@@ -745,6 +753,7 @@ export class RadarCoreCampaignPlannerMixin {
   private parseOperationalMetadata(value: unknown) {
     try {
       const parsed = JSON.parse(String(value || '{}'));
+      const channelFilters = parsed?.channelFilters && typeof parsed.channelFilters === 'object' ? parsed.channelFilters : {};
       return {
         forcedUntil: typeof parsed?.forcedUntil === 'string' ? parsed.forcedUntil : null,
         forcedAt: typeof parsed?.forcedAt === 'string' ? parsed.forcedAt : null,
@@ -765,6 +774,10 @@ export class RadarCoreCampaignPlannerMixin {
         factoryMaxEngines: clampInteger(parsed?.factoryMaxEngines, getConfiguredHbxEngineCount(), 0, getConfiguredHbxEngineCount()),
         factoryMinEngines: clampInteger(parsed?.factoryMinEngines, 0, 0, getConfiguredHbxEngineCount()),
         drainTimeoutSeconds: clampInteger(parsed?.drainTimeoutSeconds, 90, 10, 900),
+        preferredChannels: this.normalizeRadarChannels(parsed?.preferredChannels ?? channelFilters.preferredChannels ?? []),
+        requiredChannels: this.normalizeRadarChannels(parsed?.requiredChannels ?? channelFilters.requiredChannels ?? []),
+        channelMatchMode: this.normalizeChannelMatchMode(parsed?.channelMatchMode ?? channelFilters.channelMatchMode),
+        freshness: this.normalizeFreshness(parsed?.freshness ?? channelFilters.freshness),
       };
     } catch {
       return {
@@ -782,8 +795,22 @@ export class RadarCoreCampaignPlannerMixin {
         factoryMaxEngines: getConfiguredHbxEngineCount(),
         factoryMinEngines: 0,
         drainTimeoutSeconds: 90,
+        preferredChannels: [],
+        requiredChannels: [],
+        channelMatchMode: 'prefer',
+        freshness: 'hybrid',
       };
     }
+  }
+
+  private buildOperationalChannelSearchInput(config: any = {}) {
+    const metadata = this.parseOperationalMetadata(config?.metadataJson);
+    return {
+      preferredChannels: this.normalizeRadarChannels(config?.preferredChannels ?? metadata.preferredChannels ?? []),
+      requiredChannels: this.normalizeRadarChannels(config?.requiredChannels ?? metadata.requiredChannels ?? []),
+      channelMatchMode: this.normalizeChannelMatchMode(config?.channelMatchMode ?? metadata.channelMatchMode),
+      freshness: this.normalizeFreshness(config?.freshness ?? metadata.freshness),
+    };
   }
 
   private getForcedUntilDate(config: any) {
@@ -878,6 +905,18 @@ export class RadarCoreCampaignPlannerMixin {
     const factoryMaxEngines = clampInteger(input.maxEngines ?? input.engineCount ?? base.engineCount, base.engineCount, 0, getConfiguredHbxEngineCount());
     const factoryMinEngines = clampInteger(input.minEngines ?? factoryMaxEngines, factoryMaxEngines, 0, factoryMaxEngines);
     const drainTimeoutSeconds = clampInteger(input.drainTimeoutSeconds, existingMetadata.drainTimeoutSeconds || 90, 10, 900);
+    const preferredChannels = Object.prototype.hasOwnProperty.call(input, 'preferredChannels')
+      ? this.normalizeRadarChannels(input.preferredChannels || [])
+      : existingMetadata.preferredChannels;
+    const requiredChannels = Object.prototype.hasOwnProperty.call(input, 'requiredChannels')
+      ? this.normalizeRadarChannels(input.requiredChannels || [])
+      : existingMetadata.requiredChannels;
+    const channelMatchMode = Object.prototype.hasOwnProperty.call(input, 'channelMatchMode')
+      ? this.normalizeChannelMatchMode(input.channelMatchMode)
+      : existingMetadata.channelMatchMode;
+    const freshness = Object.prototype.hasOwnProperty.call(input, 'freshness')
+      ? this.normalizeFreshness(input.freshness)
+      : existingMetadata.freshness;
     const forcedUntilProvided = Object.prototype.hasOwnProperty.call(input, 'forcedUntil');
     const explicitForcedUntil = String(input.forcedUntil || '').trim();
     const now = new Date();
@@ -907,6 +946,10 @@ export class RadarCoreCampaignPlannerMixin {
         factoryMaxEngines,
         factoryMinEngines,
         drainTimeoutSeconds,
+        preferredChannels,
+        requiredChannels,
+        channelMatchMode,
+        freshness,
       }),
       forcedUntil,
       autonomousFillEnabled,
@@ -921,6 +964,10 @@ export class RadarCoreCampaignPlannerMixin {
       factoryMaxEngines,
       factoryMinEngines,
       drainTimeoutSeconds,
+      preferredChannels,
+      requiredChannels,
+      channelMatchMode,
+      freshness,
     };
   }
 
@@ -963,6 +1010,10 @@ export class RadarCoreCampaignPlannerMixin {
       factoryMaxEngines: metadata.factoryMaxEngines,
       factoryMinEngines: metadata.factoryMinEngines,
       drainTimeoutSeconds: metadata.drainTimeoutSeconds,
+      preferredChannels: metadata.preferredChannels,
+      requiredChannels: metadata.requiredChannels,
+      channelMatchMode: metadata.channelMatchMode,
+      freshness: metadata.freshness,
       isTurboForcedNow: Boolean(metadata.forcedUntil && new Date(metadata.forcedUntil).getTime() > Date.now()),
       createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : null,
       updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : null,
@@ -1048,6 +1099,10 @@ export class RadarCoreCampaignPlannerMixin {
       factoryMaxEngines: this.parseOperationalMetadata(saved.metadataJson).factoryMaxEngines,
       factoryMinEngines: this.parseOperationalMetadata(saved.metadataJson).factoryMinEngines,
       drainTimeoutSeconds: this.parseOperationalMetadata(saved.metadataJson).drainTimeoutSeconds,
+      preferredChannels: this.parseOperationalMetadata(saved.metadataJson).preferredChannels,
+      requiredChannels: this.parseOperationalMetadata(saved.metadataJson).requiredChannels,
+      channelMatchMode: this.parseOperationalMetadata(saved.metadataJson).channelMatchMode,
+      freshness: this.parseOperationalMetadata(saved.metadataJson).freshness,
       isTurboForcedNow: Boolean(forcedUntil && new Date(forcedUntil).getTime() > Date.now()),
       createdAt: saved.createdAt instanceof Date ? saved.createdAt.toISOString() : null,
       updatedAt: saved.updatedAt instanceof Date ? saved.updatedAt.toISOString() : null,
