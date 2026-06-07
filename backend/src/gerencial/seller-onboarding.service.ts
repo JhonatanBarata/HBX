@@ -7,7 +7,11 @@ import { isMasterOperationalCompanySlug } from '../commercial-plans/seat-billing
 import { MailService, type MailAttachment } from '../mail/mail.service';
 import { EmailTemplateService } from '../mail/email-template.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { buildSellerPartnerContract, SELLER_CONTRACT_VERSION } from './seller-contract-template';
+import {
+  DEFAULT_SELLER_PARTNER_CONTRACT_TEMPLATE,
+  renderSellerPartnerContractTemplate,
+  SELLER_CONTRACT_VERSION,
+} from './seller-contract-template';
 
 type UpdateDraftInput = {
   partnerType?: unknown;
@@ -25,6 +29,7 @@ type UpdateDraftInput = {
   referredByCommissionPercentSnapshot?: unknown;
   archiveEmail?: unknown;
   metadataJson?: unknown;
+  contractTextSnapshot?: unknown;
 };
 
 type SendOnboardingEmailOptions = {
@@ -43,9 +48,19 @@ const ONBOARDING_DOCUMENT_SLOTS = [
 const GENERATED_CONTRACT_KIND = 'generated_contract';
 const CONTRACT_SIGNATURE_INSTRUCTION = 'Assine pelo gov.br ou por assinatura digital de sua preferência.';
 const ONBOARDING_ATTACHMENT_RETENTION_DAYS = 7;
+const SELLER_ONBOARDING_LINK_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const SELLER_ONBOARDING_INCLUDE = {
+  user: { select: { emailConfirmedAt: true } },
+  attachments: { orderBy: { createdAt: 'desc' as const } },
+};
 
 function normalizeText(value: unknown, max = 500) {
   const text = String(value || '').replace(/\s+/g, ' ').trim();
+  return text ? text.slice(0, max) : null;
+}
+
+function normalizeContractText(value: unknown, max = 30000) {
+  const text = String(value ?? '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
   return text ? text.slice(0, max) : null;
 }
 
@@ -69,8 +84,37 @@ function sha256Buffer(buffer: Buffer) {
   return createHash('sha256').update(buffer).digest('hex');
 }
 
+function isAllowedAttachmentContent(buffer: Buffer, extension: string) {
+  if (extension === '.pdf') {
+    return buffer.subarray(0, 5).toString('utf8') === '%PDF-';
+  }
+  if (extension === '.png') {
+    return buffer.length >= 8
+      && buffer[0] === 0x89
+      && buffer[1] === 0x50
+      && buffer[2] === 0x4e
+      && buffer[3] === 0x47
+      && buffer[4] === 0x0d
+      && buffer[5] === 0x0a
+      && buffer[6] === 0x1a
+      && buffer[7] === 0x0a;
+  }
+  if (extension === '.jpg' || extension === '.jpeg') {
+    return buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+  }
+  return false;
+}
+
 function sellerOnboardingUploadDir() {
   return process.env.SELLER_ONBOARDING_UPLOAD_DIR || join(process.cwd(), 'storage', 'seller-onboarding-temp');
+}
+
+function sellerOnboardingContractTemplateDir() {
+  return process.env.SELLER_ONBOARDING_CONTRACT_TEMPLATE_DIR || join(process.cwd(), 'storage', 'seller-onboarding-contract-templates');
+}
+
+function sellerOnboardingContractTemplatePath(companyId: number) {
+  return join(sellerOnboardingContractTemplateDir(), `company-${Number(companyId)}.json`);
 }
 
 function sellerOnboardingAllowedUploadDirs() {
@@ -127,7 +171,10 @@ async function buildContractPdfBuffer(contractText: string) {
   const title = lines[0] || 'CONTRATO DE PARCERIA COMERCIAL AUTÔNOMA E INDICAÇÃO COMISSIONADA';
   const signatureStart = lines.lastIndexOf('HBX SYSTEM');
   const contentLines = signatureStart > 0 ? lines.slice(1, signatureStart) : lines.slice(1);
-  const partnerSignature = signatureStart >= 0 ? lines[signatureStart + 1] || 'Parceiro HBX' : 'Parceiro HBX';
+  const signatureLines = signatureStart >= 0 ? lines.slice(signatureStart + 1) : [];
+  const partnerSignature = [...signatureLines].reverse().find((line) => {
+    return !/^assinatura\b/i.test(line) && !/^hbx system$/i.test(line) && !/^jhonatan barata$/i.test(line);
+  }) || 'Parceiro HBX';
 
   return new Promise<Buffer>((resolve, reject) => {
     const doc = new PDFDocument({
@@ -231,7 +278,7 @@ export class SellerOnboardingService {
   }
 
   private buildEmailConfirmationLink(rawToken: string) {
-    return `${this.buildAppUrl()}/confirm-email?token=${encodeURIComponent(rawToken)}`;
+    return `${this.buildAppUrl()}/hbx-vendedor/onboarding?token=${encodeURIComponent(rawToken)}`;
   }
 
   private async prepareEmailConfirmationLink(userId: number, email?: string | null) {
@@ -249,14 +296,260 @@ export class SellerOnboardingService {
       data: {
         emailConfirmationToken: createHash('sha256').update(rawToken).digest('hex'),
         emailConfirmationSentAt: new Date(),
-        emailConfirmationExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        emailConfirmationExpiresAt: new Date(Date.now() + SELLER_ONBOARDING_LINK_TTL_MS),
       },
     });
     return this.buildEmailConfirmationLink(rawToken);
   }
 
+  private async resolvePublicOnboardingToken(rawToken: unknown) {
+    const token = String(rawToken || '').trim();
+    if (!token) {
+      throw new BadRequestException({
+        code: 'HBX_SELLER_ONBOARDING_LINK_INVALID',
+        message: 'Link de documentos inválido.',
+      });
+    }
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+    const user = await this.prisma.user.findFirst({
+      where: { emailConfirmationToken: tokenHash },
+      select: {
+        id: true,
+        companyId: true,
+        role: true,
+        email: true,
+        username: true,
+        name: true,
+        isActive: true,
+        emailConfirmedAt: true,
+        emailConfirmationExpiresAt: true,
+      },
+    });
+    if (!user) {
+      throw new BadRequestException({
+        code: 'HBX_SELLER_ONBOARDING_LINK_INVALID',
+        message: 'Link de documentos inválido ou já utilizado.',
+      });
+    }
+    if (!user.emailConfirmationExpiresAt || user.emailConfirmationExpiresAt.getTime() < Date.now()) {
+      throw new BadRequestException({
+        code: 'HBX_SELLER_ONBOARDING_LINK_EXPIRED',
+        message: 'Link de documentos expirado. Solicite um novo envio ao HBX.',
+      });
+    }
+    const companyId = Number(user.companyId || 0);
+    await this.assertHbxSellerNetworkCompany(companyId);
+    await this.requirePartnerUserInCompany(companyId, user.id);
+    const onboarding = await this.getOrCreateForUser(companyId, user.id, null);
+    return { user, companyId, onboarding };
+  }
+
+  private buildPublicOnboardingPayload(onboarding: any, message?: string | null) {
+    const readiness = this.buildReadiness(onboarding);
+    const activeAttachments = (onboarding?.attachments || []).filter((item: any) => item.status !== 'deleted');
+    const documents = readiness.documents
+      .filter((item) => item.required)
+      .map((item) => {
+        const attachment = activeAttachments.find((candidate: any) => String(candidate.kind || '') === String(item.kind));
+        return {
+          ...item,
+          filename: attachment?.originalFilename || null,
+        };
+      });
+    const documentsComplete = readiness.missingRequiredDocuments.length === 0;
+    const emailConfirmed = Boolean(onboarding?.user?.emailConfirmedAt);
+    return {
+      ok: true,
+      partner: {
+        name: onboarding?.legalName || onboarding?.email || 'Parceiro HBX',
+        email: onboarding?.email || null,
+      },
+      documents,
+      documentsComplete,
+      emailConfirmed,
+      missingRequiredDocuments: readiness.missingRequiredDocuments,
+      message: message || (emailConfirmed
+        ? 'Documentos recebidos e e-mail confirmado. Assim que confirmado, chegará um e-mail com seu usuário e senha.'
+        : documentsComplete
+          ? 'Anexos aceitos. Clique em Enviar para confirmar seus documentos.'
+          : 'Envie os documentos obrigatórios pendentes.'),
+    };
+  }
+
+  private async createDocumentsConfirmedMasterNotice(onboarding: any) {
+    const companyId = Number(onboarding?.companyId || 0);
+    if (!companyId) return;
+    const partnerName = normalizeText(onboarding?.legalName || onboarding?.email, 160) || 'Parceiro HBX';
+    const partnerEmail = normalizeText(onboarding?.email, 180) || 'sem e-mail';
+    const now = new Date();
+    await this.prisma.masterNotice.create({
+      data: {
+        companyId,
+        audience: 'customer',
+        title: 'Ticket aberto: documentos confirmados',
+        body: `${partnerName} enviou todos os documentos obrigatórios do cadastro HBX. E-mail: ${partnerEmail}.`,
+        tone: 'success',
+        forceSeconds: 0,
+        startsAt: now,
+        expiresAt: addDays(now, 7),
+      },
+    });
+  }
+
+  async getPublicOnboarding(rawToken: unknown) {
+    const { onboarding } = await this.resolvePublicOnboardingToken(rawToken);
+    return this.buildPublicOnboardingPayload(onboarding);
+  }
+
+  async uploadPublicAttachment(rawToken: unknown, file: any, dto: { kind?: unknown }) {
+    const { user, companyId, onboarding } = await this.resolvePublicOnboardingToken(rawToken);
+    const kind = this.normalizeAttachmentKind(dto?.kind);
+    const readiness = this.buildReadiness(onboarding);
+    const slot = readiness.documents.find((item) => item.kind === kind);
+    if (!slot?.required) {
+      throw new BadRequestException('Este anexo não está pendente como obrigatório neste link.');
+    }
+    if (slot.present) {
+      throw new BadRequestException('Este documento já foi recebido.');
+    }
+
+    await this.uploadAttachment(companyId, user.id, file, { kind, required: true });
+    const refreshed = await this.getOrCreateForUser(companyId, user.id, null);
+    return this.buildPublicOnboardingPayload(refreshed);
+  }
+
+  async removePublicAttachment(rawToken: unknown, kindValue: unknown) {
+    const { user, companyId, onboarding } = await this.resolvePublicOnboardingToken(rawToken);
+    const kind = this.normalizeAttachmentKind(kindValue);
+    const readiness = this.buildReadiness(onboarding);
+    const slot = readiness.documents.find((item) => item.kind === kind);
+    if (!slot?.required) {
+      throw new BadRequestException('Este anexo não está neste checklist.');
+    }
+    const attachment = (onboarding.attachments || []).find((item: any) => {
+      return item.status !== 'deleted' && String(item.kind || '') === kind;
+    });
+    if (!attachment) throw new BadRequestException('Nenhum anexo recebido para remover.');
+    await this.deleteAttachment(companyId, user.id, attachment.id);
+    const refreshed = await this.getOrCreateForUser(companyId, user.id, null);
+    return this.buildPublicOnboardingPayload(refreshed, 'Anexo removido. Envie o arquivo correto para continuar.');
+  }
+
+  async completePublicOnboarding(rawToken: unknown) {
+    const { user, onboarding } = await this.resolvePublicOnboardingToken(rawToken);
+    const readiness = this.buildReadiness(onboarding);
+    if (readiness.missingRequiredDocuments.length) {
+      const missing = readiness.missingRequiredDocuments.map((item) => item.label).join(', ');
+      throw new BadRequestException(`Ainda falta enviar: ${missing}.`);
+    }
+    const confirmedAt = new Date();
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        emailConfirmedAt: confirmedAt,
+        emailConfirmationToken: null,
+        emailConfirmationSentAt: null,
+        emailConfirmationExpiresAt: null,
+      },
+    });
+    const updated = await this.prisma.sellerOnboarding.update({
+      where: { id: onboarding.id },
+      data: { status: 'documents_received' },
+      include: SELLER_ONBOARDING_INCLUDE,
+    });
+    const confirmed = {
+      ...updated,
+      user: { ...(updated.user || {}), emailConfirmedAt: confirmedAt },
+    };
+    await this.createDocumentsConfirmedMasterNotice(confirmed).catch((error) => {
+      this.logger.warn(`seller_onboarding_master_notice_failed userId=${user.id} error=${String(error?.message || error)}`);
+    });
+    return this.buildPublicOnboardingPayload(
+      confirmed,
+      'Documentos recebidos e e-mail confirmado. Assim que confirmado, chegará um e-mail com seu usuário e senha.',
+    );
+  }
+
   private contractDownloadPath(userId: number, attachmentId: string) {
     return `/gerencial/hbx-partners/${Number(userId)}/onboarding/attachments/${attachmentId}/download`;
+  }
+
+  private buildContractInputFromOnboarding(onboarding: any) {
+    return {
+      sellerName: onboarding.legalName || onboarding.email || 'Parceiro HBX',
+      sellerCpf: onboarding.cpf || null,
+      sellerEmail: onboarding.email || null,
+      sellerPhone: onboarding.phone || null,
+      sellerAddress: onboarding.declaredAddress || null,
+      commissionPercent: onboarding.commissionPercent,
+      commissionDueBusinessDays: onboarding.commissionDueBusinessDays,
+      contractDate: new Date().toLocaleDateString('pt-BR'),
+      canRegisterHbxSellers: onboarding.canRegisterHbxSellers,
+      sellerReferralCommissionPercent: onboarding.sellerReferralCommissionPercent,
+      referredByName: onboarding.referredByNameSnapshot,
+    };
+  }
+
+  private async readCompanyContractTemplate(companyId: number) {
+    try {
+      const parsed = JSON.parse(await readFile(sellerOnboardingContractTemplatePath(companyId), 'utf8'));
+      return normalizeContractText(parsed?.template, 30000) || DEFAULT_SELLER_PARTNER_CONTRACT_TEMPLATE;
+    } catch {
+      return DEFAULT_SELLER_PARTNER_CONTRACT_TEMPLATE;
+    }
+  }
+
+  private async buildContractTextFromOnboarding(onboarding: any) {
+    const template = await this.readCompanyContractTemplate(Number(onboarding.companyId || 0));
+    return renderSellerPartnerContractTemplate(template, this.buildContractInputFromOnboarding(onboarding))
+      .split('\n')
+      .filter((line) => line.trim() !== '')
+      .join('\n');
+  }
+
+  private async withContractDraft<T extends Record<string, any> | null>(onboarding: T): Promise<T> {
+    if (!onboarding) return onboarding;
+    return {
+      ...onboarding,
+      contractTextDraft: normalizeContractText(onboarding.contractTextSnapshot) || await this.buildContractTextFromOnboarding(onboarding),
+    };
+  }
+
+  async getContractTemplate(companyId: number) {
+    await this.assertHbxSellerNetworkCompany(companyId);
+    return {
+      template: await this.readCompanyContractTemplate(companyId),
+      defaultTemplate: DEFAULT_SELLER_PARTNER_CONTRACT_TEMPLATE,
+      variables: [
+        '{sellerName}',
+        '{sellerCpf}',
+        '{sellerEmail}',
+        '{sellerPhone}',
+        '{sellerAddress}',
+        '{commissionPercent}',
+        '{commissionDueBusinessDays}',
+        '{contractDate}',
+        '{networkClause}',
+        '{inheritedCommissionClause}',
+        '{referredByClause}',
+      ],
+    };
+  }
+
+  async updateContractTemplate(companyId: number, dto: { template?: unknown }) {
+    await this.assertHbxSellerNetworkCompany(companyId);
+    const template = normalizeContractText(dto?.template, 30000);
+    if (!template) throw new BadRequestException('Informe o modelo do contrato.');
+    await mkdir(sellerOnboardingContractTemplateDir(), { recursive: true });
+    await writeFile(sellerOnboardingContractTemplatePath(companyId), JSON.stringify({
+      template,
+      updatedAt: new Date().toISOString(),
+    }, null, 2), 'utf8');
+    return {
+      ok: true,
+      template,
+      defaultTemplate: DEFAULT_SELLER_PARTNER_CONTRACT_TEMPLATE,
+    };
   }
 
   private async upsertGeneratedPartnerContract(userId: number, attachmentId: string) {
@@ -392,12 +685,12 @@ export class SellerOnboardingService {
     const { user, company } = await this.requirePartnerUserInCompany(companyId, userId);
     const existing = await this.prisma.sellerOnboarding.findUnique({
       where: { companyId_userId: { companyId, userId } },
-      include: { attachments: { orderBy: { createdAt: 'desc' } } },
+      include: SELLER_ONBOARDING_INCLUDE,
     });
-    if (existing) return existing;
+    if (existing) return this.withContractDraft(existing);
 
     const referredByNameSnapshot = await this.resolveReferredByNameSnapshot(companyId, user.referredByUserId);
-    return this.prisma.sellerOnboarding.create({
+    const created = await this.prisma.sellerOnboarding.create({
       data: {
         companyId,
         userId,
@@ -417,8 +710,9 @@ export class SellerOnboardingService {
         referredByCommissionPercentSnapshot: normalizePercent(user.referredByCommissionPercentSnapshot, 0),
         contractVersion: SELLER_CONTRACT_VERSION,
       },
-      include: { attachments: { orderBy: { createdAt: 'desc' } } },
+      include: SELLER_ONBOARDING_INCLUDE,
     });
+    return this.withContractDraft(created);
   }
 
   async updateDraft(companyId: number, userId: number, dto: UpdateDraftInput) {
@@ -430,8 +724,25 @@ export class SellerOnboardingService {
       : null;
     const partnerType = normalizeText(dto.partnerType, 40)
       || (referrerId ? 'hbx_heir' : 'hbx_partner');
+    const hasContractText = Object.prototype.hasOwnProperty.call(dto || {}, 'contractTextSnapshot');
+    const contractTextSnapshot = hasContractText ? normalizeContractText(dto.contractTextSnapshot) : undefined;
+    const contractChanged = hasContractText && contractTextSnapshot !== normalizeContractText(onboarding.contractTextSnapshot);
+    if (contractChanged) {
+      const previousGenerated = (onboarding.attachments || []).filter((attachment: any) => {
+        return attachment.status !== 'deleted' && attachment.kind === GENERATED_CONTRACT_KIND;
+      });
+      for (const attachment of previousGenerated as any[]) {
+        try {
+          if (attachment.storagePath) await unlink(attachment.storagePath);
+        } catch {}
+        await this.prisma.sellerOnboardingAttachment.update({
+          where: { id: attachment.id },
+          data: { status: 'deleted', deletedAt: new Date() },
+        });
+      }
+    }
 
-    return this.prisma.sellerOnboarding.update({
+    const updated = await this.prisma.sellerOnboarding.update({
       where: { id: onboarding.id },
       data: {
         partnerType,
@@ -450,26 +761,25 @@ export class SellerOnboardingService {
         referredByCommissionPercentSnapshot: normalizePercent(dto.referredByCommissionPercentSnapshot, onboarding.referredByCommissionPercentSnapshot),
         archiveEmail: normalizeText(dto.archiveEmail, 180) ?? onboarding.archiveEmail,
         metadataJson: typeof dto.metadataJson === 'string' ? dto.metadataJson.slice(0, 5000) : onboarding.metadataJson,
+        ...(hasContractText
+          ? {
+              contractVersion: SELLER_CONTRACT_VERSION,
+              contractTextSnapshot,
+              contractSha256: contractTextSnapshot ? sha256Text(contractTextSnapshot) : null,
+              status: contractTextSnapshot ? 'ready_to_send' : onboarding.status,
+            }
+          : {}),
       },
-      include: { attachments: { orderBy: { createdAt: 'desc' } } },
+      include: SELLER_ONBOARDING_INCLUDE,
     });
+    return this.withContractDraft(updated);
   }
 
   async generateContract(companyId: number, userId: number, createdByUserId?: number | null) {
     const onboarding = await this.getOrCreateForUser(companyId, userId, createdByUserId);
-    const contractText = buildSellerPartnerContract({
-      sellerName: onboarding.legalName || onboarding.email || 'Parceiro HBX',
-      sellerCpf: onboarding.cpf || null,
-      sellerEmail: onboarding.email || null,
-      sellerPhone: onboarding.phone || null,
-      sellerAddress: onboarding.declaredAddress || null,
-      commissionPercent: onboarding.commissionPercent,
-      commissionDueBusinessDays: onboarding.commissionDueBusinessDays,
-      contractDate: new Date().toLocaleDateString('pt-BR'),
-      canRegisterHbxSellers: onboarding.canRegisterHbxSellers,
-      sellerReferralCommissionPercent: onboarding.sellerReferralCommissionPercent,
-      referredByName: onboarding.referredByNameSnapshot,
-    });
+    const contractText = normalizeContractText(onboarding.contractTextSnapshot)
+      || await this.buildContractTextFromOnboarding(onboarding);
+    if (!contractText) throw new BadRequestException('Informe o texto do contrato antes de gerar o PDF.');
     const buffer = await buildContractPdfBuffer(contractText);
     const uploadDir = sellerOnboardingUploadDir();
     await mkdir(uploadDir, { recursive: true });
@@ -517,7 +827,7 @@ export class SellerOnboardingService {
     await this.upsertGeneratedPartnerContract(userId, attachment.id);
     const refreshed = await this.prisma.sellerOnboarding.findUnique({
       where: { id: updated.id },
-      include: { attachments: { orderBy: { createdAt: 'desc' } } },
+      include: SELLER_ONBOARDING_INCLUDE,
     });
     if (!refreshed) throw new NotFoundException('Cadastro do parceiro não encontrado após gerar contrato.');
     return {
@@ -549,7 +859,7 @@ export class SellerOnboardingService {
     if (outdatedGeneratedContracts.length) {
       const refreshed = await this.prisma.sellerOnboarding.findUnique({
         where: { id: onboarding.id },
-        include: { attachments: { orderBy: { createdAt: 'desc' } } },
+        include: SELLER_ONBOARDING_INCLUDE,
       });
       if (refreshed) onboarding = refreshed;
     }
@@ -580,7 +890,7 @@ export class SellerOnboardingService {
       await this.ensurePartnerContractForGeneratedAttachment(userId, attachment, onboarding);
       const refreshed = await this.prisma.sellerOnboarding.findUnique({
         where: { id: onboarding.id },
-        include: { attachments: { orderBy: { createdAt: 'desc' } } },
+        include: SELLER_ONBOARDING_INCLUDE,
       });
       if (refreshed) onboarding = refreshed;
     }
@@ -617,7 +927,7 @@ export class SellerOnboardingService {
           documentRequirements,
         }),
       },
-      include: { attachments: { orderBy: { createdAt: 'desc' } } },
+      include: SELLER_ONBOARDING_INCLUDE,
     });
     return {
       ok: true,
@@ -641,12 +951,15 @@ export class SellerOnboardingService {
     if (Number(file.size || file.buffer.length || 0) > 5 * 1024 * 1024) {
       throw new BadRequestException('Anexo deve ter no máximo 5MB.');
     }
+    const buffer = Buffer.from(file.buffer);
+    if (!isAllowedAttachmentContent(buffer, extension)) {
+      throw new BadRequestException('Arquivo inválido. Envie um PDF, JPG ou PNG real.');
+    }
 
     const uploadDir = process.env.SELLER_ONBOARDING_UPLOAD_DIR || join(process.cwd(), 'storage', 'seller-onboarding-temp');
     await mkdir(uploadDir, { recursive: true });
     const storedFilename = `${onboarding.id}-${kind}-${randomUUID()}${extension}`;
     const storagePath = join(uploadDir, storedFilename);
-    const buffer = Buffer.from(file.buffer);
     await writeFile(storagePath, buffer);
 
     const attachment = await this.prisma.sellerOnboardingAttachment.create({
@@ -668,7 +981,7 @@ export class SellerOnboardingService {
     }
     const updated = await this.prisma.sellerOnboarding.findUnique({
       where: { id: onboarding.id },
-      include: { attachments: { orderBy: { createdAt: 'desc' } } },
+      include: SELLER_ONBOARDING_INCLUDE,
     });
     return { ok: true, attachment, readiness: this.buildReadiness(updated || onboarding) };
   }
@@ -696,7 +1009,7 @@ export class SellerOnboardingService {
     }
     const updated = await this.prisma.sellerOnboarding.findUnique({
       where: { id: onboarding.id },
-      include: { attachments: { orderBy: { createdAt: 'desc' } } },
+      include: SELLER_ONBOARDING_INCLUDE,
     });
     return {
       ok: true,
@@ -792,7 +1105,7 @@ export class SellerOnboardingService {
       documentosRecebidos: receivedLabels.length ? receivedLabels.join(', ') : '',
       documentosPendentes: missingLabels.length ? missingLabels.join(', ') : 'nenhuma pendência obrigatória',
       documentosFaltantes: missingLabels.length ? missingLabels.join(', ') : 'nenhuma pendência obrigatória',
-      contrato: onboarding.contractTextSnapshot || '',
+      contrato: '',
       instrucaoAssinatura: CONTRACT_SIGNATURE_INSTRUCTION,
       linkConfirmacao: confirmationLink,
     });
@@ -838,7 +1151,7 @@ export class SellerOnboardingService {
         status: result.ok ? 'sent' : onboarding.status,
         ...(attachmentsDeleteAfter ? { attachmentsDeleteAfter } : {}),
       },
-      include: { attachments: { orderBy: { createdAt: 'desc' } } },
+      include: SELLER_ONBOARDING_INCLUDE,
     });
     return {
       ok: result.ok,
@@ -857,14 +1170,25 @@ export class SellerOnboardingService {
     if (!user.emailConfirmedAt) {
       throw new BadRequestException({
         code: 'HBX_PARTNER_EMAIL_CONFIRMATION_PENDING',
-        message: 'Parceiro ainda não pode ser liberado. O e-mail do pré-boas-vindas precisa ser confirmado antes do acesso final.',
+        message: 'Parceiro ainda não pode ser liberado. Faltou confirmar o e-mail do pré-boas-vindas.',
+        missingActivationRequirements: [
+          { code: 'email_confirmation', label: 'Confirmar e-mail do pré-boas-vindas' },
+        ],
       });
     }
     const onboarding = await this.getOrCreateForUser(companyId, userId, null);
     const readiness = this.buildReadiness(onboarding);
     if (!readiness.complete) {
-      const missing = readiness.missingRequiredDocuments.map((item) => item.label).join(', ');
-      throw new BadRequestException(`Parceiro ainda não pode ser liberado. Pendências obrigatórias: ${missing || 'documentação'}.`);
+      const missing = [
+        ...readiness.missingRequiredDocuments.map((item) => item.label),
+        ...readiness.missingActivationRequirements.map((item) => item.label),
+      ].join(', ');
+      throw new BadRequestException({
+        code: 'HBX_PARTNER_ONBOARDING_PENDING',
+        message: `Parceiro ainda não pode ser liberado. Faltou: ${missing || 'documentação'}.`,
+        missingRequiredDocuments: readiness.missingRequiredDocuments,
+        missingActivationRequirements: readiness.missingActivationRequirements,
+      });
     }
     await this.markPartnerContractApproved(userId, approvedByUserId);
     await this.prisma.sellerOnboarding.update({
@@ -1000,11 +1324,17 @@ export class SellerOnboardingService {
       present: receivedKinds.has(slot.kind),
     }));
     const missingRequiredDocuments = documents.filter((item) => item.required && !item.present);
+    const emailConfirmed = Boolean(onboarding?.user?.emailConfirmedAt);
+    const missingActivationRequirements = emailConfirmed
+      ? []
+      : [{ code: 'email_confirmation', label: 'Confirmar e-mail do pré-boas-vindas' }];
     return {
-      complete: missingRequiredDocuments.length === 0,
+      complete: missingRequiredDocuments.length === 0 && missingActivationRequirements.length === 0,
+      emailConfirmed,
       documents,
       receivedDocuments: documents.filter((item) => item.present),
       missingRequiredDocuments,
+      missingActivationRequirements,
     };
   }
 

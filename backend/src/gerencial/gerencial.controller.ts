@@ -12,6 +12,7 @@ import { SellerOnboardingService } from './seller-onboarding.service';
 import { HbxPartnerReferralService } from './hbx-partner-referral.service';
 import { Type } from 'class-transformer';
 import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { Throttle } from '@nestjs/throttler';
 
 class MarkComplaintDto {
   @IsBoolean()
@@ -148,6 +149,22 @@ export class GerencialController {
     return this.gerencialService.syncHbxClientCommissions(req.user);
   }
 
+  @Get('hbx-partners/onboarding/contract-template')
+  @UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
+  @Admin()
+  @ModuleAccess('gerencial')
+  async getSellerOnboardingContractTemplate(@Req() req: any) {
+    return this.sellerOnboardingService.getContractTemplate(Number(req.user?.companyId));
+  }
+
+  @Patch('hbx-partners/onboarding/contract-template')
+  @UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
+  @Admin()
+  @ModuleAccess('gerencial')
+  async updateSellerOnboardingContractTemplate(@Req() req: any, @Body() dto: any) {
+    return this.sellerOnboardingService.updateContractTemplate(Number(req.user?.companyId), dto || {});
+  }
+
   @Get('hbx-partners/:userId/onboarding')
   @UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
   @Admin()
@@ -250,6 +267,31 @@ export class GerencialController {
       allowMissingRequiredAttachments: true,
       includeConfirmationLink: true,
     });
+  }
+
+  @Get('hbx-partners/onboarding/public')
+  @Throttle({ default: { limit: 30, ttl: 60 } })
+  async getPublicSellerOnboarding(@Query('token') token: string) {
+    return this.sellerOnboardingService.getPublicOnboarding(token);
+  }
+
+  @Post('hbx-partners/onboarding/public/attachments')
+  @Throttle({ default: { limit: 20, ttl: 60 } })
+  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }))
+  async uploadPublicSellerOnboardingAttachment(@UploadedFile() file: any, @Body() dto: any) {
+    return this.sellerOnboardingService.uploadPublicAttachment(dto?.token, file, dto || {});
+  }
+
+  @Delete('hbx-partners/onboarding/public/attachments/:kind')
+  @Throttle({ default: { limit: 20, ttl: 60 } })
+  async removePublicSellerOnboardingAttachment(@Param('kind') kind: string, @Query('token') token: string) {
+    return this.sellerOnboardingService.removePublicAttachment(token, kind);
+  }
+
+  @Post('hbx-partners/onboarding/public/complete')
+  @Throttle({ default: { limit: 10, ttl: 60 } })
+  async completePublicSellerOnboarding(@Body() dto: any) {
+    return this.sellerOnboardingService.completePublicOnboarding(dto?.token);
   }
 
   @Post('hbx-partners/onboarding/purge-expired-attachments')

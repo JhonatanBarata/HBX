@@ -41,6 +41,7 @@ function buildOnboardingService(input: {
     mailInput: null,
     onboardingUpdateData: null,
     attachmentUpdateMany: null,
+    attachmentUpdate: null,
     userUpdateData: null,
     partnerContractCreateData: null,
     partnerContractUpsertData: null,
@@ -111,6 +112,10 @@ function buildOnboardingService(input: {
       },
     },
     sellerOnboardingAttachment: {
+      update: async (args: any) => {
+        state.attachmentUpdate = args;
+        return { id: args.where.id, ...args.data };
+      },
       updateMany: async (args: any) => {
         state.attachmentUpdateMany = args;
         return { count: input.attachments.length };
@@ -161,6 +166,30 @@ function buildOnboardingService(input: {
     state,
   };
 }
+
+test('updateDraft salva texto editado e invalida PDF gerado anterior', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'hbx-onboarding-'));
+  try {
+    const attachments = [
+      await createTempAttachment(dir, 'photo_id'),
+      await createTempAttachment(dir, 'generated_contract'),
+    ];
+    const { service, state } = buildOnboardingService({ attachments });
+
+    const updated = await service.updateDraft(1, 200, {
+      contractTextSnapshot: 'CONTRATO EDITADO\n\nCláusula nova\n\nHBX SYSTEM\nParceiro Teste',
+    });
+
+    assert.equal((updated as any).contractTextSnapshot, 'CONTRATO EDITADO\n\nCláusula nova\n\nHBX SYSTEM\nParceiro Teste');
+    assert.equal((updated as any).contractTextDraft, (updated as any).contractTextSnapshot);
+    assert.equal(state.onboardingUpdateData.status, 'ready_to_send');
+    assert.equal(state.attachmentUpdate.where.id, 'generated_contract_1');
+    assert.equal(state.attachmentUpdate.data.status, 'deleted');
+    assert.ok(state.attachmentUpdate.data.deletedAt instanceof Date);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
 
 test('sendOnboardingEmail envia com arquivo, agenda limpeza e nao ativa parceiro', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'hbx-onboarding-'));

@@ -572,70 +572,6 @@ export class UsersController {
 		}
 	}
 
-	private summarizeInitialOnboardingEmail(result: any) {
-		if (!result) return null;
-		return {
-			ok: Boolean(result.ok),
-			emailStatus: result.emailStatus || null,
-			messageId: result.messageId || null,
-			missingRequiredAttachments: Array.isArray(result.missingRequiredAttachments) ? result.missingRequiredAttachments : [],
-			delivery: result.delivery
-				? {
-					ok: Boolean(result.delivery.ok),
-					transport: result.delivery.transport || null,
-					messageId: result.delivery.messageId || null,
-					errorCode: result.delivery.errorCode || null,
-					errorMessage: result.delivery.errorMessage || null,
-					previewUrl: result.delivery.previewUrl || null,
-				}
-				: null,
-		};
-	}
-
-	private async sendInitialHbxPartnerOnboardingEmail(input: {
-		companyId: number;
-		userId: number;
-		email?: string | null;
-		emailConfirmedAt?: Date | string | null;
-		createdByUserId?: number | null;
-	}) {
-		let confirmationLink: string | null = null;
-		if (!input.emailConfirmedAt) {
-			confirmationLink = await this.prepareEmailConfirmationLink({
-				userId: input.userId,
-				email: input.email,
-			});
-		}
-		try {
-			const result = await this.sellerOnboardingService.sendOnboardingEmail(
-				input.companyId,
-				input.userId,
-				input.createdByUserId,
-				{
-					allowMissingRequiredAttachments: true,
-					confirmationLink,
-				},
-			);
-			return this.summarizeInitialOnboardingEmail(result);
-		} catch (error) {
-			this.logger.warn(`Falha ao enviar pré-boas-vindas HBX para user ${input.userId}: ${error instanceof Error ? error.message : error}`);
-			return {
-				ok: false,
-				emailStatus: 'email_failed',
-				messageId: null,
-				missingRequiredAttachments: [],
-				delivery: {
-					ok: false,
-					transport: this.mailService.getConfigurationSummary().mode,
-					messageId: null,
-					errorCode: 'SELLER_ONBOARDING_INITIAL_EMAIL_FAILED',
-					errorMessage: error instanceof Error ? error.message : String(error),
-					previewUrl: null,
-				},
-			};
-		}
-	}
-
 	private hasSellerNetworkInput(dto: any) {
 		return (
 			dto?.canRegisterHbxSellers !== undefined ||
@@ -1077,13 +1013,6 @@ export class UsersController {
 				referredByUserId: created.referredByUserId,
 				referredByCommissionPercentSnapshot: created.referredByCommissionPercentSnapshot,
 			});
-			onboardingEmail = await this.sendInitialHbxPartnerOnboardingEmail({
-				companyId,
-				userId: created.id,
-				email,
-				emailConfirmedAt: (created as any).emailConfirmedAt || null,
-				createdByUserId,
-			});
 			if (referralCandidate) {
 				await this.hbxPartnerReferrals.markCandidateConverted({
 					companyId,
@@ -1331,13 +1260,6 @@ export class UsersController {
 				sellerReferralCommissionPercent: created.sellerReferralCommissionPercent,
 				referredByUserId: created.referredByUserId,
 				referredByCommissionPercentSnapshot: created.referredByCommissionPercentSnapshot,
-			});
-			onboardingEmail = await this.sendInitialHbxPartnerOnboardingEmail({
-				companyId,
-				userId: created.id,
-				email,
-				emailConfirmedAt: (created as any).emailConfirmedAt || null,
-				createdByUserId,
 			});
 			if (referralCandidate) {
 				await this.hbxPartnerReferrals.markCandidateConverted({

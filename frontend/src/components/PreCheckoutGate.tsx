@@ -16,6 +16,7 @@ const PUBLIC_OR_BILLING_PATHS = new Set([
   "/register",
   "/reset-password",
   "/confirm-email",
+  "/hbx-vendedor/onboarding",
   "/pre-checkout",
   "/precheckout",
   "/pagamento",

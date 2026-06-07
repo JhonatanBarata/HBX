@@ -198,6 +198,19 @@ type TopBarUnreadEntry = {
   messagePreview: string;
   messageAt: string;
   unreadCount: number;
+  noticeId?: string;
+  href?: string;
+};
+type TopBarMasterNotice = {
+  id: string;
+  title: string;
+  body: string;
+  tone?: string | null;
+  createdAt?: string | null;
+  acknowledged?: boolean | null;
+};
+type TopBarMasterNoticeListResponse = {
+  notices?: TopBarMasterNotice[];
 };
 type InboxAlertConversation = {
   id: string;
@@ -287,7 +300,7 @@ const MODULES_TRIGGER_ID = "app-modules-trigger";
 const SUPPORT_PHONE = "++5519997024884";
 const SUPPORT_MESSAGE = "Olá, preciso de ajuda com o HBX!";
 
-const hiddenRoutes = new Set(["/", "/login", "/register", "/reset-password", "/confirm-email", "/boasvindas", "/tutorial", "/pre-checkout", "/precheckout"]);
+const hiddenRoutes = new Set(["/", "/login", "/register", "/reset-password", "/confirm-email", "/hbx-vendedor/onboarding", "/boasvindas", "/tutorial", "/pre-checkout", "/precheckout"]);
 const SCRAPING_ENGINE_POLL_MS = 5000;
 const TOPBAR_FALLBACK_HBX_ENGINE_COUNT = 4;
 const HBX_GAUGE_BOOT_MS = 1350;
@@ -2455,6 +2468,7 @@ export default function TopBar() {
   const [unreadInboxError, setUnreadInboxError] = useState<string | null>(null);
   const [unreadInboxEntries, setUnreadInboxEntries] = useState<TopBarUnreadEntry[]>([]);
   const [unreadInboxCount, setUnreadInboxCount] = useState(0);
+  const [masterNoticeCount, setMasterNoticeCount] = useState(0);
   const [incomingPopup, setIncomingPopup] = useState<TopBarIncomingPopup | null>(null);
   const [masterContextModalOpen, setMasterContextModalOpen] = useState(false);
   const [masterContextActionBusy, setMasterContextActionBusy] = useState(false);
@@ -3462,6 +3476,7 @@ export default function TopBar() {
       setRecoveryPendingHumanCount(0);
       setAtendimentoPendingHumanCount(0);
       setUnreadInboxCount(0);
+      setMasterNoticeCount(0);
       return;
     }
 
@@ -3982,6 +3997,39 @@ export default function TopBar() {
     }
   }
 
+  async function loadHeaderMasterNoticeEntries(options?: { menu?: boolean }) {
+    if (options?.menu) {
+      setUnreadInboxLoading(true);
+      setUnreadInboxError(null);
+    }
+    try {
+      const role = String(user?.role || "").trim().toUpperCase();
+      const audience = role === "ADMIN" || user?.isSystemMaster ? "customer" : "seller";
+      const payload = await apiFetch<TopBarMasterNoticeListResponse>(`/vendas/master-notices?audience=${encodeURIComponent(audience)}`);
+      const notices = (Array.isArray(payload?.notices) ? payload.notices : []).filter((notice) => !notice.acknowledged);
+      const entries = notices.map((notice) => ({
+        conversationId: "master",
+        conversationLabel: String(notice.title || "Aviso Master").trim() || "Aviso Master",
+        messageId: String(notice.id || ""),
+        messagePreview: String(notice.body || "").trim() || "Aviso interno HBX.",
+        messageAt: String(notice.createdAt || ""),
+        unreadCount: 1,
+        noticeId: String(notice.id || ""),
+        href: "/gerencial",
+      }));
+      setMasterNoticeCount(entries.length);
+      if (options?.menu) setUnreadInboxEntries(entries);
+    } catch (error) {
+      if (options?.menu) {
+        const message = error instanceof Error ? error.message : "Falha ao carregar avisos Master.";
+        setUnreadInboxError(message);
+        setUnreadInboxEntries([]);
+      }
+    } finally {
+      if (options?.menu) setUnreadInboxLoading(false);
+    }
+  }
+
   async function toggleUnreadInboxPopup() {
     if (unreadInboxOpen) {
       setUnreadInboxOpen(false);
@@ -4000,8 +4048,23 @@ export default function TopBar() {
       return;
     }
 
-    await toggleUnreadInboxPopup();
+    if (unreadInboxOpen) {
+      setUnreadInboxOpen(false);
+      return;
+    }
+    setUnreadInboxOpen(true);
+    await loadHeaderMasterNoticeEntries({ menu: true });
   }
+
+  useEffect(() => {
+    if (authenticated !== true) {
+      setMasterNoticeCount(0);
+      return;
+    }
+    void loadHeaderMasterNoticeEntries();
+    const timer = window.setInterval(() => void loadHeaderMasterNoticeEntries(), 60000);
+    return () => window.clearInterval(timer);
+  }, [authenticated, user?.role, user?.isSystemMaster, user?.company?.id]);
 
   useEffect(() => {
     if (!unreadInboxOpen) return;
@@ -4422,7 +4485,7 @@ export default function TopBar() {
   }
 
   const pendingHumanCount = recoveryPendingHumanCount + atendimentoPendingHumanCount;
-  const headerNoticeCount = Math.max(0, pendingHumanCount + unreadInboxCount + (incomingPopup ? 1 : 0));
+  const headerNoticeCount = Math.max(0, masterNoticeCount);
   const headerNoticeBadge = headerNoticeCount > 99 ? "99+" : headerNoticeCount > 0 ? String(headerNoticeCount) : "!";
   const operationalSummaryMessage = pendingCheckoutLocked
     ? "Finalize contratação"
@@ -4986,8 +5049,8 @@ export default function TopBar() {
                   <strong>Avisos</strong>
                 </button>
                 {unreadInboxOpen && !isVendasRoute ? (
-                  <div className="app-user__menu hbx-header-notices-menu" role="dialog" aria-label="Avisos">
-                    <p className="app-user__menu-title">Avisos</p>
+                  <div className="app-user__menu hbx-header-notices-menu" role="dialog" aria-label="Avisos Master">
+                    <p className="app-user__menu-title">Avisos Master</p>
                     {unreadInboxLoading ? <p className="text-xs text-muted leading-5">Carregando...</p> : null}
                     {unreadInboxError ? <div className="alert alert-error">{unreadInboxError}</div> : null}
                     {!unreadInboxLoading && !unreadInboxError && unreadInboxEntries.length === 0 ? (
@@ -5002,7 +5065,11 @@ export default function TopBar() {
                             className="hbx-header-notices-item"
                             onClick={() => {
                               setUnreadInboxOpen(false);
-                              router.push("/atendimento");
+                              if (entry.noticeId) {
+                                void apiFetch(`/vendas/master-notices/${encodeURIComponent(entry.noticeId)}/ack`, { method: "POST" })
+                                  .finally(() => void loadHeaderMasterNoticeEntries());
+                              }
+                              router.push(entry.href || "/gerencial");
                             }}
                           >
                             <strong>{entry.conversationLabel}</strong>

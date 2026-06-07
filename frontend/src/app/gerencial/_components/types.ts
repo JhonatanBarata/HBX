@@ -96,6 +96,7 @@ export type PendingOnboardingAttachment = {
 
 export type SellerOnboardingReadiness = {
   complete: boolean;
+  emailConfirmed?: boolean;
   documents: Array<{
     kind: SellerOnboardingAttachment["kind"];
     label: string;
@@ -104,4 +105,5 @@ export type SellerOnboardingReadiness = {
   }>;
   receivedDocuments: Array<{ kind: SellerOnboardingAttachment["kind"]; label: string; required: boolean; present: boolean }>;
   missingRequiredDocuments: Array<{ kind: SellerOnboardingAttachment["kind"]; label: string; required: boolean; present: boolean }>;
+  missingActivationRequirements?: Array<{ code?: string | null; label: string }>;
 };

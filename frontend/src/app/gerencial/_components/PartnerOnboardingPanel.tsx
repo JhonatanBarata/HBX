@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import type { PendingOnboardingAttachment, SellerOnboardingAttachment, SellerOnboardingReadiness } from "./types";
 
 const DOCUMENT_SLOTS = [
@@ -23,10 +25,21 @@ type PartnerOnboardingPanelProps = {
   togglingActiveUserId: number | null;
   onboardingUserId: number | null;
   onboardingAttachmentLabel: (kind?: string | null) => string;
+  contractTemplateDraft: string;
+  setContractTemplateDraft: (value: string) => void;
+  contractTemplateVariables: string[];
+  savingContractTemplate: boolean;
+  contractTextDraft: string;
+  setContractTextDraft: (value: string) => void;
+  savingContractText: boolean;
+  resettingContractText: boolean;
   uploadOnboardingAttachment: (kind: SellerOnboardingAttachment["kind"], file: File | null | undefined, required: boolean) => void;
   updateOnboardingDocumentRequirement: (kind: SellerOnboardingAttachment["kind"], required: boolean) => void;
   downloadOnboardingAttachment: (attachment: SellerOnboardingAttachment) => void;
   removeOnboardingAttachment: (kind: SellerOnboardingAttachment["kind"], attachment?: SellerOnboardingAttachment | null) => void;
+  saveOnboardingContractTemplate: (template?: string) => Promise<void> | void;
+  saveOnboardingContractText: () => void;
+  resetOnboardingContractText: () => void;
   generateOnboardingContract: () => void;
   sendOnboardingEmail: () => void;
   activateOnboardingPartner: () => void;
@@ -48,50 +61,141 @@ export default function PartnerOnboardingPanel({
   togglingActiveUserId,
   onboardingUserId,
   onboardingAttachmentLabel,
+  contractTemplateDraft,
+  setContractTemplateDraft,
+  contractTemplateVariables,
+  savingContractTemplate,
+  contractTextDraft,
+  setContractTextDraft,
+  savingContractText,
+  resettingContractText,
   uploadOnboardingAttachment,
   updateOnboardingDocumentRequirement,
   downloadOnboardingAttachment,
   removeOnboardingAttachment,
+  saveOnboardingContractTemplate,
+  saveOnboardingContractText,
+  resetOnboardingContractText,
   generateOnboardingContract,
   sendOnboardingEmail,
   activateOnboardingPartner,
 }: PartnerOnboardingPanelProps) {
+  const [templateEditorOpen, setTemplateEditorOpen] = useState(false);
+  const [templateVariablesOpen, setTemplateVariablesOpen] = useState(false);
+  const [templateEditorDraft, setTemplateEditorDraft] = useState(contractTemplateDraft);
   const documentReadiness = new Map((onboardingReadiness?.documents || []).map((item) => [String(item.kind), item]));
   const missingRequiredLabels = onboardingReadiness?.missingRequiredDocuments.map((item) => item.label) || [];
+  const missingActivationLabels = onboardingReadiness?.missingActivationRequirements?.map((item) => item.label).filter(Boolean) || [];
+  const onboardingIssueLabels = [
+    ...missingRequiredLabels.map((label) => `Falta: ${label}`),
+    ...missingActivationLabels.map((label) => `Falta: ${label}`),
+  ];
   const pendingAttachmentCount = Object.keys(pendingOnboardingAttachments).length;
   const activeOnboardingAttachments = onboardingAttachments.filter((item) => item.status !== "deleted");
   const generatedContractAttachment = activeOnboardingAttachments.find((item) => item.kind === "generated_contract") || null;
   const visibleDocumentAttachments = activeOnboardingAttachments.filter((item) => item.kind !== "generated_contract");
+  const createPartnerDisabledReason = onboardingIssueLabels.join(", ");
+
+  function openTemplateEditor() {
+    setTemplateEditorDraft(contractTemplateDraft);
+    setTemplateVariablesOpen(false);
+    setTemplateEditorOpen(true);
+  }
 
   return (
     <div className="hbx-partner-popup__panel" data-disabled={!canUseDocs}>
-      <div className="hbx-partner-popup__status">
-        <strong>{canUseDocs ? "Documentação do parceiro" : "Documentação disponível para vendedor"}</strong>
-        <span>
-          {canUseDocs
-            ? canPersistDocs
-              ? canActivatePartner
-                ? "Tudo em ordem. Criar Parceiro envia login e senha por e-mail."
-                : missingRequiredLabels.length
-                  ? `Pendências obrigatórias: ${missingRequiredLabels.join(", ")}.`
-                  : "Gere o PDF, envie por e-mail e aguarde o PDF assinado voltar."
-              : pendingAttachmentCount
-                ? `${pendingAttachmentCount} arquivo(s) pronto(s). Eles serão anexados ao cadastrar o vendedor.`
-                : "Anexe o que você já recebeu e marque obrigatório/opcional antes de cadastrar."
-            : "Troque o perfil para vendedor para anexar documentos."}
-        </span>
-      </div>
+      {templateEditorOpen ? (
+        <div className="hbx-popup-layer hbx-popup-layer--contract-template" data-clickable="true" role="presentation">
+          <section className="hbx-popup2 hbx-popup2--contract-template" data-tone="info" role="dialog" aria-modal="true" aria-label="Editar modelo do contrato">
+            <header className="hbx-partner-popup__header">
+              <div>
+                <strong>Modelo padrão do contrato</strong>
+                <span>Vale para os próximos contratos HBX.</span>
+              </div>
+              <button type="button" className="hbx-popup2__close" onClick={() => setTemplateEditorOpen(false)} aria-label="Fechar">
+                ×
+              </button>
+            </header>
+            <div className="hbx-contract-template-modal__body">
+              {templateVariablesOpen ? (
+                <div className="hbx-partner-popup__contract-vars">
+                  {contractTemplateVariables.map((variable) => (
+                    <code key={variable}>{variable}</code>
+                  ))}
+                </div>
+              ) : null}
+              <textarea
+                value={templateEditorDraft}
+                onChange={(event) => setTemplateEditorDraft(event.target.value)}
+                disabled={savingContractTemplate}
+                spellCheck
+              />
+            </div>
+            <footer className="hbx-contract-template-modal__footer">
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setTemplateVariablesOpen((value) => !value)} disabled={savingContractTemplate}>
+                Variáveis
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                disabled={savingContractTemplate}
+                onClick={async () => {
+                  setContractTemplateDraft(templateEditorDraft);
+                  await saveOnboardingContractTemplate(templateEditorDraft);
+                  setTemplateEditorOpen(false);
+                }}
+              >
+                {savingContractTemplate ? "Salvando..." : "Salvar"}
+              </button>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setTemplateEditorOpen(false)} disabled={savingContractTemplate}>
+                Cancelar
+              </button>
+            </footer>
+          </section>
+        </div>
+      ) : null}
       {canUseDocs ? (
-        <div className="hbx-partner-popup__contract-note">
-          <b>Assinatura</b>
-          <span>Assine pelo gov.br ou por assinatura digital de sua preferência.</span>
+        <div className="hbx-partner-popup__contract-editor">
+          <div className="hbx-partner-popup__contract-editor-head">
+            <span>
+              <b>Contrato deste parceiro</b>
+              <small>{onboardingUserId ? "Texto usado no PDF gerado" : "Disponível após cadastrar"}</small>
+            </span>
+            <div>
+              <button type="button" disabled={!canPersistDocs || savingContractText} onClick={saveOnboardingContractText} className="btn btn-secondary btn-sm">
+                {savingContractText ? "Salvando..." : "Salvar texto"}
+              </button>
+              <button type="button" disabled={!canPersistDocs || resettingContractText} onClick={resetOnboardingContractText} className="btn btn-secondary btn-sm">
+                {resettingContractText ? "Aplicando..." : "Aplicar modelo"}
+              </button>
+            </div>
+          </div>
+          <textarea
+            value={contractTextDraft}
+            onChange={(event) => setContractTextDraft(event.target.value)}
+            disabled={!canPersistDocs || savingContractText || resettingContractText}
+            spellCheck
+          />
+        </div>
+      ) : null}
+      {generatedContractAttachment ? (
+        <div className="hbx-partner-popup__generated-contract">
+          <span>
+            <b>PDF gerado para envio</b>
+            <small>{generatedContractAttachment.originalFilename || "contrato-parceria-hbx.pdf"}</small>
+          </span>
+          <button type="button" disabled={downloadingOnboardingAttachmentId === generatedContractAttachment.id} onClick={() => downloadOnboardingAttachment(generatedContractAttachment)}>
+            {downloadingOnboardingAttachmentId === generatedContractAttachment.id ? "Baixando..." : "Baixar"}
+          </button>
+          <button type="button" disabled={removingOnboardingAttachmentId === generatedContractAttachment.id} onClick={() => removeOnboardingAttachment("generated_contract", generatedContractAttachment)}>
+            {removingOnboardingAttachmentId === generatedContractAttachment.id ? "Removendo..." : "Remover"}
+          </button>
         </div>
       ) : null}
       <div className="hbx-partner-popup__docs">
         {DOCUMENT_SLOTS.map((slot) => {
           const attachment = onboardingAttachments.find((item) => item.kind === slot.kind && item.status !== "deleted");
-          const displayAttachment = slot.kind === "contract_pdf" && !attachment ? generatedContractAttachment : attachment;
-          const displayGeneratedContract = slot.kind === "contract_pdf" && !attachment && Boolean(generatedContractAttachment);
+          const displayAttachment = attachment;
           const pendingAttachment = pendingOnboardingAttachments[slot.kind];
           const readiness = documentReadiness.get(slot.kind);
           const pendingRequirement = pendingDocumentRequirements[slot.kind];
@@ -102,15 +206,12 @@ export default function PartnerOnboardingPanel({
               className="hbx-partner-popup__upload"
               data-pending={Boolean(pendingAttachment)}
               data-ready={Boolean(attachment)}
-              data-generated={Boolean(displayGeneratedContract)}
             >
               <span>
                 <b>{slot.label}</b>
                 <small>
                   {displayAttachment
-                    ? displayGeneratedContract
-                      ? `${displayAttachment.originalFilename || "contrato-parceria-hbx.pdf"} gerado`
-                      : displayAttachment.originalFilename
+                    ? displayAttachment.originalFilename
                     : pendingAttachment
                       ? `${pendingAttachment.file.name} pronto`
                       : required
@@ -169,18 +270,30 @@ export default function PartnerOnboardingPanel({
         })}
       </div>
       <div className="hbx-partner-popup__actions">
+        <button type="button" disabled={!canUseDocs} onClick={openTemplateEditor} className="btn btn-secondary btn-sm">
+          Editar modelo
+        </button>
         <button type="button" disabled={!canPersistDocs || generatingContract} onClick={generateOnboardingContract} className="btn btn-secondary btn-sm">
           {generatingContract ? "Gerando..." : "Gerar contrato PDF"}
         </button>
         <button type="button" disabled={!canPersistDocs || sendingOnboardingEmail} onClick={sendOnboardingEmail} className="btn btn-primary btn-sm">
           {sendingOnboardingEmail ? "Enviando..." : "Solicitar documentos"}
         </button>
-        <button type="button" disabled={!canActivatePartner || togglingActiveUserId === onboardingUserId} onClick={activateOnboardingPartner} className="btn btn-success btn-sm">
+        <button
+          type="button"
+          disabled={!canActivatePartner || togglingActiveUserId === onboardingUserId}
+          onClick={activateOnboardingPartner}
+          className="btn btn-success btn-sm"
+          title={!canActivatePartner && createPartnerDisabledReason ? createPartnerDisabledReason : undefined}
+        >
           {togglingActiveUserId === onboardingUserId ? "Criando..." : "Criar parceiro"}
         </button>
       </div>
-      {visibleDocumentAttachments.length || pendingAttachmentCount ? (
+      {visibleDocumentAttachments.length || pendingAttachmentCount || onboardingIssueLabels.length ? (
         <div className="hbx-partner-popup__chips">
+          {onboardingIssueLabels.map((label) => (
+            <span key={label}>{label}</span>
+          ))}
           {visibleDocumentAttachments.slice(0, 6).map((item) => (
             <span key={item.id}>{onboardingAttachmentLabel(item.kind)}</span>
           ))}

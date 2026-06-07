@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import HbxGuide1, { type HbxGuide1Tab } from "@/components/HbxGuide1";
 import HbxMobileDock from "@/components/mobile/HbxMobileDock";
@@ -15,6 +16,7 @@ import TeamListPanel from "./_components/TeamListPanel";
 import { apiFetch, getDashboardApiBaseUrl, getToken } from "@/app/_lib/api";
 import { startSmartPolling } from "@/app/_lib/polling";
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
+import { usePopupTopbarLock } from "@/lib/use-popup-topbar-lock";
 
 type UserItem = {
   id: number;
@@ -338,10 +340,19 @@ type SellerOnboardingDraftPayload = {
   referredByUserId?: number | null;
   referredByCommissionPercentSnapshot?: number | null;
   sellerDistributionDailyLimitOverride?: number | null;
+  contractTextSnapshot?: string | null;
+  contractTextDraft?: string | null;
+};
+
+type SellerContractTemplatePayload = {
+  template: string;
+  defaultTemplate?: string;
+  variables?: string[];
 };
 
 type SellerOnboardingReadiness = {
   complete: boolean;
+  emailConfirmed?: boolean;
   documents: Array<{
     kind: SellerOnboardingAttachment["kind"];
     label: string;
@@ -350,6 +361,7 @@ type SellerOnboardingReadiness = {
   }>;
   receivedDocuments: Array<{ kind: SellerOnboardingAttachment["kind"]; label: string; required: boolean; present: boolean }>;
   missingRequiredDocuments: Array<{ kind: SellerOnboardingAttachment["kind"]; label: string; required: boolean; present: boolean }>;
+  missingActivationRequirements?: Array<{ code?: string | null; label: string }>;
 };
 
 type HbxReferralCandidatesResult = {
@@ -799,6 +811,12 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   const [uploadingAttachmentKind, setUploadingAttachmentKind] = useState<string | null>(null);
   const [removingOnboardingAttachmentId, setRemovingOnboardingAttachmentId] = useState<string | null>(null);
   const [downloadingOnboardingAttachmentId, setDownloadingOnboardingAttachmentId] = useState<string | null>(null);
+  const [contractTextDraft, setContractTextDraft] = useState("");
+  const [contractTemplateDraft, setContractTemplateDraft] = useState("");
+  const [contractTemplateVariables, setContractTemplateVariables] = useState<string[]>([]);
+  const [savingContractTemplate, setSavingContractTemplate] = useState(false);
+  const [savingContractText, setSavingContractText] = useState(false);
+  const [resettingContractText, setResettingContractText] = useState(false);
   const [generatingContract, setGeneratingContract] = useState(false);
   const [sendingOnboardingEmail, setSendingOnboardingEmail] = useState(false);
   const [savingModuleUserId, setSavingModuleUserId] = useState<number | null>(null);
@@ -828,6 +846,8 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     enrichmentLimit: "30",
   });
 
+  usePopupTopbarLock(createAccessOpen);
+
   const load = useCallback(async () => {
     setError(null);
     try {
@@ -836,6 +856,14 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         apiFetch<CompanyAccessPayload>("/modules/company/access"),
       ]);
       const referralCandidatesPayload = await loadReferralCandidatesIfHbxNetwork(payload);
+      if (payload.company?.isHbxSellerNetwork) {
+        apiFetch<SellerContractTemplatePayload>("/gerencial/hbx-partners/onboarding/contract-template")
+          .then((templatePayload) => {
+            setContractTemplateDraft(templatePayload.template || "");
+            setContractTemplateVariables(templatePayload.variables || []);
+          })
+          .catch(() => null);
+      }
       setData((prev) => ({
         ...payload,
         users: stableUserOrder(prev?.users, payload.users || []),
@@ -849,6 +877,28 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
       setLoading(false);
     }
   }, []);
+
+  async function saveOnboardingContractTemplate(templateOverride?: string) {
+    const template = (templateOverride ?? contractTemplateDraft).trim();
+    if (!template) {
+      setError("Informe o modelo padrão do contrato.");
+      return;
+    }
+    setSavingContractTemplate(true);
+    setError(null);
+    try {
+      const payload = await apiFetch<SellerContractTemplatePayload>("/gerencial/hbx-partners/onboarding/contract-template", {
+        method: "PATCH",
+        body: JSON.stringify({ template }),
+      });
+      setContractTemplateDraft(payload.template || template);
+      setOnboardingStatusMessage("Modelo padrão salvo. Novos contratos vão nascer com esse texto.");
+    } catch (templateError) {
+      setError(friendlyGerencialError(templateError, "Falha ao salvar modelo padrão do contrato."));
+    } finally {
+      setSavingContractTemplate(false);
+    }
+  }
 
   useEffect(() => {
     if (hasToken !== true) return;
@@ -1119,6 +1169,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
       setNewUserSellerReferralCommissionPercent(percentInputValue(onboarding.sellerReferralCommissionPercent ?? user.sellerReferralCommissionPercent));
       setNewUserReferredByUserId(onboarding.referredByUserId ? String(onboarding.referredByUserId) : user.referredByUserId ? String(user.referredByUserId) : "");
       setNewUserReferredByCommissionPercent(percentInputValue(onboarding.referredByCommissionPercentSnapshot ?? user.referredByCommissionPercentSnapshot));
+      setContractTextDraft(onboarding.contractTextDraft || onboarding.contractTextSnapshot || "");
       await loadOnboardingAttachments(user.id);
     } catch (openError) {
       setError(friendlyGerencialError(openError, "Falha ao abrir cadastro do vendedor."));
@@ -1185,6 +1236,8 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     setGeneratingContract(true);
     setError(null);
     try {
+      const contractSaved = await saveOnboardingContractText(onboardingUserId, { quiet: true });
+      if (!contractSaved) return;
       const payload = await apiFetch<{ attachments?: SellerOnboardingAttachment[]; readiness?: SellerOnboardingReadiness }>(`/gerencial/hbx-partners/${onboardingUserId}/onboarding/generate-contract`, { method: "POST" });
       if (payload.attachments) setOnboardingAttachments(payload.attachments);
       if (payload.readiness) setOnboardingReadiness(payload.readiness);
@@ -1194,6 +1247,51 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
       setError(friendlyGerencialError(contractError, "Falha ao gerar contrato."));
     } finally {
       setGeneratingContract(false);
+    }
+  }
+
+  async function saveOnboardingContractText(userId = onboardingUserId, options?: { quiet?: boolean }) {
+    if (!userId) return false;
+    const text = contractTextDraft.trim();
+    if (!text) {
+      setError("Informe o texto do contrato antes de salvar.");
+      return false;
+    }
+    setSavingContractText(true);
+    setError(null);
+    try {
+      const payload = await apiFetch<SellerOnboardingDraftPayload>(`/gerencial/hbx-partners/${userId}/onboarding`, {
+        method: "PATCH",
+        body: JSON.stringify({ contractTextSnapshot: text }),
+      });
+      setContractTextDraft(payload.contractTextDraft || payload.contractTextSnapshot || text);
+      await loadOnboardingAttachments(userId);
+      if (!options?.quiet) setOnboardingStatusMessage("Contrato salvo. Gere o PDF para anexar a versão atual.");
+      return true;
+    } catch (saveError) {
+      setError(friendlyGerencialError(saveError, "Falha ao salvar contrato."));
+      return false;
+    } finally {
+      setSavingContractText(false);
+    }
+  }
+
+  async function resetOnboardingContractText() {
+    if (!onboardingUserId) return;
+    setResettingContractText(true);
+    setError(null);
+    try {
+      const payload = await apiFetch<SellerOnboardingDraftPayload>(`/gerencial/hbx-partners/${onboardingUserId}/onboarding`, {
+        method: "PATCH",
+        body: JSON.stringify({ contractTextSnapshot: null }),
+      });
+      setContractTextDraft(payload.contractTextDraft || "");
+      await loadOnboardingAttachments(onboardingUserId);
+      setOnboardingStatusMessage("Contrato recarregado com os dados atuais do cadastro.");
+    } catch (resetError) {
+      setError(friendlyGerencialError(resetError, "Falha ao recarregar contrato."));
+    } finally {
+      setResettingContractText(false);
     }
   }
 
@@ -1343,6 +1441,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     setOnboardingAttachments([]);
     setOnboardingReadiness(null);
     setOnboardingStatusMessage(null);
+    setContractTextDraft("");
     setPendingOnboardingAttachments({});
     setPendingDocumentRequirements({});
   }
@@ -1469,6 +1568,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
           sellerReferralCommissionPercent,
           referredByUserId: referredByUserId || null,
           referredByCommissionPercentSnapshot: referredByUserId ? newUserReferredByCommissionPercent : 0,
+          ...(contractTextDraft.trim() ? { contractTextSnapshot: contractTextDraft.trim() } : {}),
         }),
       });
       setData((prev) => {
@@ -1614,14 +1714,11 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         setCreatedPasswordInfo(info);
         saveCreatedPasswordInfo(info);
         setActionInfo(isHbxSellerNetwork && newUserRole === "USER"
-          ? "Parceiro HBX cadastrado. Contrato gerado e pré-boas-vindas enviado para solicitar documentos."
+          ? "Parceiro HBX cadastrado. Edite o contrato, gere o PDF e use Solicitar documentos."
           : `${roleLabel(payload.user.role)} criado. Entregue a senha temporária com segurança.`);
       } else {
-        const onboardingFailed = isHbxSellerNetwork && newUserRole === "USER" && payload?.onboardingEmail?.ok === false;
         setActionInfo(isHbxSellerNetwork && newUserRole === "USER"
-          ? onboardingFailed
-            ? "Parceiro HBX cadastrado, mas o pré-boas-vindas não foi enviado. Use Solicitar documentos após revisar o cadastro."
-            : "Parceiro HBX cadastrado. Contrato gerado e pré-boas-vindas enviado para solicitar documentos."
+          ? "Parceiro HBX cadastrado em rascunho. Edite as cláusulas, gere o PDF e clique em Solicitar documentos."
           : `${roleLabel(payload.user.role)} criado com senha definida manualmente.`);
       }
 
@@ -1631,6 +1728,8 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         const pendingAttachments = Object.values(pendingOnboardingAttachments);
         let uploadedCount = 0;
         try {
+          const onboarding = await apiFetch<SellerOnboardingDraftPayload>(`/gerencial/hbx-partners/${payload.user.id}/onboarding`);
+          setContractTextDraft(onboarding.contractTextDraft || onboarding.contractTextSnapshot || "");
           for (const [kind, required] of Object.entries(pendingRequirements)) {
             await apiFetch(`/gerencial/hbx-partners/${payload.user.id}/onboarding/document-requirement`, {
               method: "PATCH",
@@ -2756,11 +2855,12 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
 
   function renderCreateAccessPopup() {
     if (!createAccessOpen) return null;
+    if (typeof document === "undefined") return null;
     const canUseDocs = Boolean(isHbxSellerNetwork && newUserRole === "USER");
     const canPersistDocs = Boolean(canUseDocs && onboardingUserId);
     const canActivatePartner = Boolean(canPersistDocs && onboardingReadiness?.complete);
 
-    return (
+    return createPortal(
       <div className="hbx-popup-layer hbx-popup-layer--partner-access" data-clickable="true" role="presentation">
         <section className="hbx-popup2 hbx-popup2--partner-access" data-tone="info" role="dialog" aria-modal="true" aria-label="Criar acesso">
           <header className="hbx-partner-popup__header">
@@ -2899,17 +2999,29 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
               togglingActiveUserId={togglingActiveUserId}
               onboardingUserId={onboardingUserId}
               onboardingAttachmentLabel={onboardingAttachmentLabel}
+              contractTemplateDraft={contractTemplateDraft}
+              setContractTemplateDraft={setContractTemplateDraft}
+              contractTemplateVariables={contractTemplateVariables}
+              savingContractTemplate={savingContractTemplate}
+              contractTextDraft={contractTextDraft}
+              setContractTextDraft={setContractTextDraft}
+              savingContractText={savingContractText}
+              resettingContractText={resettingContractText}
               uploadOnboardingAttachment={(kind, file, required) => void uploadOnboardingAttachment(kind, file, required)}
               updateOnboardingDocumentRequirement={(kind, required) => void updateOnboardingDocumentRequirement(kind, required)}
               downloadOnboardingAttachment={(attachment) => void downloadOnboardingAttachment(attachment)}
               removeOnboardingAttachment={(kind, attachment) => void removeOnboardingAttachment(kind, attachment)}
+              saveOnboardingContractTemplate={saveOnboardingContractTemplate}
+              saveOnboardingContractText={() => void saveOnboardingContractText()}
+              resetOnboardingContractText={() => void resetOnboardingContractText()}
               generateOnboardingContract={() => void generateOnboardingContract()}
               sendOnboardingEmail={() => void sendOnboardingEmail()}
               activateOnboardingPartner={() => void activateOnboardingPartner()}
             />
           </form>
         </section>
-      </div>
+      </div>,
+      document.body
     );
   }
 
