@@ -5239,7 +5239,7 @@ class HbxOwnerApp(tk.Tk):
             style="Warning.TButton",
         ).grid(row=1, column=1, padx=8, pady=(8, 0), sticky="w")
 
-        pdf_frame = ttk.LabelFrame(frame, text="Adicionar PDF", padding=8, style="Modern.TLabelframe")
+        pdf_frame = ttk.LabelFrame(frame, text="PDF opcional (material externo)", padding=8, style="Modern.TLabelframe")
         pdf_frame.grid(row=3, column=0, sticky="ew", pady=(0, 10))
         pdf_frame.columnconfigure(0, weight=1)
         ttk.Entry(pdf_frame, textvariable=self.chatgpt_pdf_path_var, state="readonly").grid(
@@ -5292,6 +5292,10 @@ class HbxOwnerApp(tk.Tk):
         branch = self.safe_git_output(["rev-parse", "--abbrev-ref", "HEAD"], "-").strip() or "-"
         status = self.safe_git_output(["status", "--short"], "-").strip() or "limpo"
         recent_commits = self.safe_git_output(["log", "--oneline", "-12"], "-").strip() or "-"
+        research_date = today_str()
+        research_stamp = date.today().strftime("%d-%m")
+        previous_stamp = (date.today() - timedelta(days=1)).strftime("%d-%m")
+        report_path = f"docs/OWNER_RESEARCH_{research_date}.md"
         done_cards = self.db.fetchall(
             """
             SELECT * FROM kanban_cards
@@ -5340,10 +5344,14 @@ class HbxOwnerApp(tk.Tk):
         ) or "-"
 
         return (
-            "HBX OWNER - PESQUISA PROFUNDA DO REPOSITORIO\n\n"
+            "HBX OWNER - PESQUISA PERIODICA EM CARDS\n\n"
             "Se a interface oferecer modo de pesquisa profunda/deep research, use esse modo. "
-            "Se nao oferecer, faca a melhor analise possivel com o contexto abaixo.\n\n"
-            f"Data de hoje: {today_str()}\n"
+            "Nao peca PDF, arquivo, anexo ou upload: use o repositorio Jhonatanbarata/HBX, "
+            "o contexto abaixo e a sua pesquisa avancada. A resposta sera copiada de volta para "
+            "o HBX Owner e precisa nascer no formato que o Kanban le.\n\n"
+            f"Data de hoje: {research_date}\n"
+            f"Rodada curta: {research_stamp}; rodada anterior de referencia: {previous_stamp}\n"
+            f"Arquivo de relatorio que o Codex deve criar/atualizar: {report_path}\n"
             "Repositorio publico/referencia: Jhonatanbarata/HBX\n"
             f"Workspace local: {self.repo_path()}\n"
             f"Branch atual: {branch}\n\n"
@@ -5362,9 +5370,12 @@ class HbxOwnerApp(tk.Tk):
             "GIT - STATUS LOCAL\n"
             f"{status}\n\n"
             "TAREFA\n"
-            "Leia e descreva o repositorio HBX como Jhonatanbarata/HBX, usando o contexto acima. "
-            "Identifique lacunas reais, proximos passos, riscos, regressões provaveis, pontos que precisam teste local, "
-            "e cards que faltam para avançar sem baguncar Radar -> Vendas -> WhatsApp -> Retorno.\n\n"
+            "Faca uma analise do estado atual do /HBX: o que evoluiu, quais riscos ficaram, "
+            "quais problemas graves precisam ser atacados e quais proximos passos podem andar em paralelo. "
+            "Transforme a analise diretamente em cards aplicaveis pelo HBX Owner. "
+            "Inclua um card para criar o relatorio datado acima, equivalente a uma nova rodada de pesquisa, "
+            "comparavel a rodada anterior. Inclua tambem uma licao de casa para Codex trabalhar nos problemas "
+            "mais graves detectados.\n\n"
             "REGRAS DE SEGURANCA\n"
             "- Nao sugerir bypass de plano, pagamento, entitlement, quota, auth ou backend.\n"
             "- Nao sugerir apagar historico negativo de Radar.\n"
@@ -5372,25 +5383,37 @@ class HbxOwnerApp(tk.Tk):
             "- Deploy, publish, migration, auth, billing, secrets, pagamento ou acesso comercial devem virar card BLOQUEADO.\n"
             "- Publicacao e merge dependem de comando explicito do dono.\n\n"
             "SAIDA OBRIGATORIA\n"
-            "1. Comece com um resumo curto do estado do repositorio e do ciclo atual.\n"
-            "2. Depois devolva cards acionaveis no formato HBX_CARDS_JSON abaixo.\n"
-            "3. Maximo 20 cards. Priorize o que vira entrega real.\n"
-            "4. Nao execute nada; apenas gere cards para o Kanban.\n\n"
+            "1. Responda somente com HBX_CARDS_JSON_START / HBX_CARDS_JSON_END.\n"
+            "2. Dentro do bloco, devolva apenas um JSON array valido; sem markdown e sem resumo fora do bloco.\n"
+            "3. Primeiro card: criar/atualizar o relatorio datado em "
+            f"{report_path}, com estado atual, evolucao, proximos passos em paralelo e riscos.\n"
+            "4. Cards de execucao devem ter lane AGUARDANDO CODEX quando o Owner puder criar branch e trabalhar neles.\n"
+            "5. Use lane BLOQUEADO para deploy, publish, migration, auth, billing, secrets, pagamento ou acesso comercial.\n"
+            "6. Preencha urgency_level, intelligence_level, execution_timeout_seconds e research_path.\n"
+            "7. O codex_prompt deve ser a licao de casa: leia AGENTS.md, pesquise nos caminhos certos, "
+            "trabalhe na branch criada pelo Owner, implemente a menor correcao segura, rode checks relevantes "
+            "e registre o resultado. Nao mande o usuario anexar arquivo.\n"
+            "8. Maximo 12 cards. Priorize problemas graves, regressao provavel e evolucao real do sistema.\n\n"
             f"{AUTOCARD_JSON_START}\n"
             "[\n"
             "  {\n"
-            "    \"title\": \"Validar fluxo X antes de publicar\",\n"
+            f"    \"title\": \"Criar relatorio de evolucao HBX {research_stamp}\",\n"
             "    \"module\": \"Owner\",\n"
             "    \"priority\": \"Alta\",\n"
-            "    \"lane\": \"HOJE\",\n"
+            "    \"lane\": \"AGUARDANDO CODEX\",\n"
             "    \"type\": \"Pesquisa\",\n"
-            "    \"description\": \"Contexto, evidencia e impacto operacional.\",\n"
-            "    \"acceptance_criteria\": \"Como saber que o card foi concluido.\",\n"
-            "    \"test_command\": \"\",\n"
-            "    \"codex_prompt\": \"Instrucao objetiva para investigar/implementar a menor correcao segura.\",\n"
-            "    \"chatgpt_prompt\": \"Pergunta de revisao quando fizer sentido.\",\n"
-            "    \"estimate_minutes\": 60,\n"
-            "    \"blocked_reason\": \"\"\n"
+            f"    \"description\": \"Gerar {report_path} com estado atual, o que evoluiu, riscos, proximos passos em paralelo e relacao dos cards criados nesta rodada.\",\n"
+            "    \"acceptance_criteria\": \"Relatorio markdown criado/atualizado com data da rodada, comparativo com a rodada anterior, riscos e plano executavel.\",\n"
+            "    \"test_command\": \"python -m py_compile hbx-owner/windows-app/hbx_owner_app.py\",\n"
+            f"    \"codex_prompt\": \"Leia AGENTS.md. O HBX Owner criara a branch deste card; trabalhe nela. Crie/atualize {report_path} com estado atual do HBX, evolucao desde a rodada anterior, proximos passos em paralelo e os problemas graves detectados. Se encontrar correcao pequena e segura ligada ao relatorio, aplique; caso contrario, limite a documentacao operacional. Rode checks relevantes e deixe commit local.\",\n"
+            "    \"chatgpt_prompt\": \"Revisar se a rodada gerou cards acionaveis, sem bypass comercial e sem pedir arquivo/anexo.\",\n"
+            "    \"estimate_minutes\": 90,\n"
+            "    \"blocked_reason\": \"\",\n"
+            "    \"urgency_level\": \"Alta\",\n"
+            "    \"intelligence_level\": \"Spark longo\",\n"
+            "    \"codex_model_override\": \"\",\n"
+            "    \"execution_timeout_seconds\": 300,\n"
+            "    \"research_path\": \"Pesquisar primeiro em AGENTS.md, docs, hbx-owner/windows-app, frontend/src e backend/src conforme as lacunas detectadas.\"\n"
             "  }\n"
             "]\n"
             f"{AUTOCARD_JSON_END}\n"
@@ -5743,22 +5766,35 @@ class HbxOwnerApp(tk.Tk):
         return value if value > 0 else fallback
 
     def hbx_cards_json_template(self) -> str:
+        research_date = today_str()
+        research_stamp = date.today().strftime("%d-%m")
+        report_path = f"docs/OWNER_RESEARCH_{research_date}.md"
         sample = [
             {
-                "title": "Implementar TicketService para suporte técnico",
-                "module": "backend",
+                "title": f"Criar relatório de evolução HBX {research_stamp}",
+                "module": "Owner",
                 "priority": "Alta",
                 "lane": "AGUARDANDO CODEX",
-                "type": "technical_support",
-                "description": "Transformar atendimento técnico do cliente em ticket operacional.",
-                "acceptance_criteria": "Ticket criado com status inicial e dados de origem.",
-                "test_command": "npm run build",
-                "codex_prompt": "Leia AGENTS.md e implemente o serviço mantendo o escopo seguro.",
+                "type": "Pesquisa",
+                "description": (
+                    f"Gerar {report_path} com estado atual, evolução do HBX, riscos, próximos passos "
+                    "em paralelo e relação dos cards desta rodada."
+                ),
+                "acceptance_criteria": (
+                    "Relatório markdown criado/atualizado com data da rodada, comparativo, riscos e plano executável."
+                ),
+                "test_command": "python -m py_compile hbx-owner/windows-app/hbx_owner_app.py",
+                "codex_prompt": (
+                    "Leia AGENTS.md. O HBX Owner criará a branch deste card; trabalhe nela. "
+                    f"Crie/atualize {report_path}, aplique apenas correções pequenas e seguras se forem claras, "
+                    "rode checks relevantes e deixe commit local."
+                ),
+                "chatgpt_prompt": "Revisar se a rodada gerou cards acionáveis, sem bypass comercial e sem pedir arquivo/anexo.",
                 "urgency_level": "Alta",
-                "intelligence_level": "Spark rápido",
+                "intelligence_level": "Spark longo",
                 "codex_model_override": "",
-                "execution_timeout_seconds": 180,
-                "research_path": "Pesquisar primeiro em backend/src e frontend/src buscando pelo ticket e pelo módulo Retorno.",
+                "execution_timeout_seconds": 300,
+                "research_path": "Pesquisar primeiro em AGENTS.md, docs, hbx-owner/windows-app, frontend/src e backend/src.",
             }
         ]
         return (
@@ -6058,7 +6094,8 @@ class HbxOwnerApp(tk.Tk):
             clipped = clipped[:PDF_TEXT_MAX_CHARS].rstrip() + "\n\n[TEXTO CORTADO PELO HBX OWNER]"
         return (
             "HBX OWNER - SPARK CARD COMPILER\n\n"
-            "Você é o compilador rápido de cards do HBX Owner. O texto já vem mastigado por pesquisa/PDF/GPT.\n"
+            "Você é o compilador rápido de cards do HBX Owner. O texto já vem mastigado por pesquisa/GPT; "
+            "PDF é apenas fallback para material externo.\n"
             "Sua função é apenas ler a estrutura e devolver cards operacionais.\n\n"
             f"Contexto: {context}\n\n"
             "Regras obrigatórias:\n"
@@ -6072,7 +6109,9 @@ class HbxOwnerApp(tk.Tk):
             "8. Defina urgency_level e intelligence_level conforme risco e complexidade.\n"
             "9. Preencha research_path com o caminho exato onde o Codex deve pesquisar primeiro.\n"
             "10. Nunca use rótulo legado de IA removido como type.\n"
-            "11. Máximo 12 cards.\n\n"
+            "11. Se a fonte for pesquisa periódica do HBX, preserve cards de relatório datado e lição de casa Codex.\n"
+            "12. Não peça PDF, arquivo ou anexo quando a fonte já trouxer a pesquisa do Owner.\n"
+            "13. Máximo 12 cards.\n\n"
             "Campos obrigatórios por card:\n"
             "title, module, priority, lane, type, description, acceptance_criteria, test_command, "
             "codex_prompt, chatgpt_prompt, estimate_minutes, blocked_reason, urgency_level, "
