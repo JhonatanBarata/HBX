@@ -283,8 +283,297 @@ async function callBackendForEnvironment(environment, scope, method, route, payl
   }
 }
 
-async function runScopedBackendAction(scope, method, route, payloadFactory) {
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function collectBackendFactoryStatuses(scope) {
+  const results = await Promise.all(environmentsForScope(scope).map((environment) => (
+    callBackendForEnvironment(environment, scope, 'GET', '/modules/master/webscraping/factory-status')
+  )));
+  return {
+    results,
+    statuses: Object.fromEntries(results.map((item) => [item.environment, item.ok ? item.data : null])),
+  };
+}
+
+function normalizeCoordinationValue(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function normalizeCoordinationTargetType(value) {
+  const targetType = String(value || 'pj').trim().toLowerCase();
+  return ['pj', 'pf', 'both'].includes(targetType) ? targetType : 'pj';
+}
+
+function targetTypesOverlap(left, right) {
+  const a = normalizeCoordinationTargetType(left);
+  const b = normalizeCoordinationTargetType(right);
+  return a === b || a === 'both' || b === 'both';
+}
+
+function buildMissionCandidate(environment, kind, source, input = {}) {
+  const city = String(input.city || input.currentCity || '').trim();
+  const segment = String(input.segment || input.currentSegment || '').trim();
+  if (!city || !segment) return null;
+  const state = String(input.state || input.currentState || '').trim().toUpperCase();
+  const targetType = normalizeCoordinationTargetType(input.targetType || input.currentTargetType);
+  const normalized = {
+    state: normalizeCoordinationValue(state),
+    city: normalizeCoordinationValue(city),
+    segment: normalizeCoordinationValue(segment),
+    targetType,
+  };
+  return {
+    environment,
+    kind,
+    source,
+    id: input.id || input.campaignId || input.lastCampaignId || null,
+    status: input.status || null,
+    state: state || null,
+    city,
+    segment,
+    targetType,
+    query: input.query || input.lastQueryUsed || null,
+    normalized,
+    label: `${city}${state ? `/${state}` : ''} - ${segment} - ${targetType}`,
+  };
+}
+
+function lockedUntilActive(value) {
+  const parsed = value ? new Date(value).getTime() : NaN;
+  return Number.isFinite(parsed) && parsed >= Date.now();
+}
+
+function pickActiveTask(environment, tasks = []) {
+  const scored = tasks
+    .map((task) => {
+      const status = String(task?.status || '').toLowerCase();
+      const locked = lockedUntilActive(task?.lockedUntil);
+      const score = status === 'running' || locked ? 0 : status === 'queued' ? 1 : 9;
+      return { task, score };
+    })
+    .filter((item) => item.score < 9)
+    .sort((a, b) => a.score - b.score);
+  const selected = scored[0]?.task;
+  return selected ? buildMissionCandidate(environment, 'active', 'task', selected) : null;
+}
+
+function pickActiveCampaign(environment, campaigns = []) {
+  const active = campaigns.find((campaign) => ['running', 'queued', 'sleeping', 'partial_error'].includes(String(campaign?.status || '').toLowerCase()));
+  return active ? buildMissionCandidate(environment, 'active', 'campaign', active) : null;
+}
+
+function buildEnvironmentCoordination(environment, audit = {}, factoryStatus = null) {
+  const active = pickActiveTask(environment, audit.activeTasks || [])
+    || pickActiveCampaign(environment, factoryStatus?.activeCampaigns || [])
+    || pickActiveCampaign(environment, audit.activeCampaigns || []);
+  const current = buildMissionCandidate(environment, 'current', 'factory-status-current', factoryStatus?.currentMission || {})
+    || buildMissionCandidate(environment, 'current', 'factory-cursor-current', audit.factoryCursor || {});
+  const next = buildMissionCandidate(environment, 'next', 'factory-status-next', factoryStatus?.nextMission || {})
+    || buildMissionCandidate(environment, 'next', 'factory-cursor-current', audit.factoryCursor || {});
+  return {
+    available: audit.available !== false,
+    active,
+    current,
+    next,
+  };
+}
+
+function candidatesOverlap(left, right) {
+  if (!left || !right) return false;
+  if (!left.normalized?.city || !left.normalized?.segment || !right.normalized?.city || !right.normalized?.segment) return false;
+  const sameCity = left.normalized.city === right.normalized.city;
+  const sameSegment = left.normalized.segment === right.normalized.segment;
+  const sameState = !left.normalized.state || !right.normalized.state || left.normalized.state === right.normalized.state;
+  return sameCity && sameSegment && sameState && targetTypesOverlap(left.targetType, right.targetType);
+}
+
+function coordinationKindLabel(kind) {
+  return {
+    active: 'trabalho ativo',
+    current: 'missao atual',
+    next: 'proxima missao',
+  }[kind] || kind || 'missao';
+}
+
+function buildCoordinationConflict(localCandidate, vpsCandidate) {
+  const activeActive = localCandidate.kind === 'active' && vpsCandidate.kind === 'active';
+  const severity = activeActive ? 'blocked' : 'attention';
+  const city = localCandidate.city || vpsCandidate.city || '-';
+  const state = localCandidate.state || vpsCandidate.state || '';
+  const segment = localCandidate.segment || vpsCandidate.segment || '-';
+  return {
+    type: `${localCandidate.kind}_${vpsCandidate.kind}`,
+    severity,
+    key: [
+      normalizeCoordinationValue(state),
+      normalizeCoordinationValue(city),
+      normalizeCoordinationValue(segment),
+      normalizeCoordinationTargetType(localCandidate.targetType),
+      normalizeCoordinationTargetType(vpsCandidate.targetType),
+    ].join('|'),
+    message: `${coordinationKindLabel(localCandidate.kind)} LOCAL e ${coordinationKindLabel(vpsCandidate.kind)} VPS apontam para ${city}${state ? `/${state}` : ''} - ${segment}.`,
+    local: localCandidate,
+    vps: vpsCandidate,
+  };
+}
+
+function buildRadarCoordination(environments = {}, factoryStatuses = {}) {
+  const local = buildEnvironmentCoordination('localhost', environments.localhost || {}, factoryStatuses.localhost);
+  const vps = buildEnvironmentCoordination('vps', environments.vps || {}, factoryStatuses.vps);
+  const pairs = [
+    [local.active, vps.active],
+    [local.active, vps.next],
+    [local.next, vps.active],
+    [local.next, vps.next],
+  ];
+  const seen = new Set();
+  const conflicts = [];
+
+  for (const [localCandidate, vpsCandidate] of pairs) {
+    if (!candidatesOverlap(localCandidate, vpsCandidate)) continue;
+    const conflict = buildCoordinationConflict(localCandidate, vpsCandidate);
+    const dedupeKey = `${conflict.type}:${conflict.key}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    conflicts.push(conflict);
+  }
+
+  const status = conflicts.some((item) => item.severity === 'blocked')
+    ? 'blocked'
+    : conflicts.length
+      ? 'attention'
+      : 'ok';
+
+  return {
+    generatedAt: new Date().toISOString(),
+    status,
+    summary: status === 'ok'
+      ? 'Local e VPS estao em missoes diferentes.'
+      : status === 'blocked'
+        ? 'Local e VPS ja estao no mesmo trabalho ativo; nao iniciar ambos ate separar.'
+        : 'Ha risco de duplicidade na proxima missao; o Ops Control deve avancar um lado antes de iniciar ambos.',
+    environments: {
+      localhost: local,
+      vps,
+    },
+    conflicts,
+  };
+}
+
+function chooseCoordinationAdvanceEnvironment(coordination) {
+  const conflict = coordination?.conflicts?.find((item) => item.severity !== 'blocked') || null;
+  if (!conflict) return 'vps';
+  if (conflict.local?.kind === 'active' && conflict.vps?.kind !== 'active') return 'vps';
+  if (conflict.vps?.kind === 'active' && conflict.local?.kind !== 'active') return 'localhost';
+  return 'vps';
+}
+
+async function collectCoordinationSnapshot(scope = 'both') {
+  const cockpit = await collectRadarCockpit();
+  const factory = await collectBackendFactoryStatuses(scope);
+  return {
+    cockpitGeneratedAt: cockpit.generatedAt,
+    backendStatusResults: factory.results,
+    coordination: buildRadarCoordination(cockpit.environments, factory.statuses),
+  };
+}
+
+async function coordinateBothBeforeRun(reason) {
+  const before = await collectCoordinationSnapshot('both');
+  const blockedConflict = before.coordination.conflicts.find((item) => item.severity === 'blocked');
+  if (blockedConflict) {
+    return {
+      status: 'blocked',
+      blocked: true,
+      reason: 'duplicate_active_work',
+      message: blockedConflict.message,
+      before: before.coordination,
+      after: before.coordination,
+      actions: [],
+    };
+  }
+  if (!before.coordination.conflicts.length) {
+    return {
+      status: 'ok',
+      blocked: false,
+      reason: 'no_conflict',
+      message: 'Local e VPS sem colisao de cidade/segmento/tarefa.',
+      before: before.coordination,
+      after: before.coordination,
+      actions: [],
+    };
+  }
+
+  const environment = chooseCoordinationAdvanceEnvironment(before.coordination);
+  const advance = await callBackendForEnvironment(environment, 'both', 'POST', '/modules/master/webscraping/factory/force-next');
+  const actions = [{
+    type: 'force-next',
+    environment,
+    reason,
+    ok: advance.ok,
+    skipped: Boolean(advance.skipped),
+    statusCode: advance.statusCode || null,
+    message: advance.reason || advance.error || null,
+  }];
+
+  if (!advance.ok) {
+    return {
+      status: 'blocked',
+      blocked: true,
+      reason: 'coordination_advance_failed',
+      message: advance.reason || advance.error || 'Nao foi possivel avancar a missao duplicada.',
+      before: before.coordination,
+      after: before.coordination,
+      actions,
+    };
+  }
+
+  await sleep(500);
+  const after = await collectCoordinationSnapshot('both');
+  if (after.coordination.conflicts.length) {
+    return {
+      status: 'blocked',
+      blocked: true,
+      reason: 'duplicate_risk_after_advance',
+      message: after.coordination.summary,
+      before: before.coordination,
+      after: after.coordination,
+      actions,
+    };
+  }
+
+  return {
+    status: 'ok',
+    blocked: false,
+    reason: 'advanced_duplicate_mission',
+    message: `${environmentLabel(environment)} avancou para a proxima missao antes de iniciar ambos.`,
+    before: before.coordination,
+    after: after.coordination,
+    actions,
+  };
+}
+
+async function runScopedBackendAction(scope, method, route, payloadFactory, options = {}) {
+  const coordination = options.coordinateBoth && scope === 'both'
+    ? await coordinateBothBeforeRun(options.reason || route)
+    : null;
   const environments = environmentsForScope(scope);
+  if (coordination?.blocked) {
+    return {
+      ok: false,
+      scope,
+      environments,
+      results: [],
+      coordination,
+    };
+  }
   const results = await Promise.all(environments.map((environment) => (
     callBackendForEnvironment(environment, scope, method, route, payloadFactory(environment))
   )));
@@ -293,6 +582,7 @@ async function runScopedBackendAction(scope, method, route, payloadFactory) {
     scope,
     environments,
     results,
+    coordination,
   };
 }
 
