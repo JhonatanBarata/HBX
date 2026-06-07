@@ -83,10 +83,14 @@ function PublicSellerOnboarding() {
     void loadStatus();
   }, [loadStatus]);
 
-  async function uploadDocument(kind: string, file?: File | null) {
-    if (!file || !token) return;
-    setUploadingKind(kind);
+  function handleFileSelected(kind: string, file?: File | null) {
     setError(null);
+    setSelectedFiles((current) => ({ ...current, [kind]: file || null }));
+  }
+
+  async function uploadDocument(kind: string, file?: File | null) {
+    if (!file || !token) return null;
+    setUploadingKind(kind);
     try {
       const form = new FormData();
       form.append("token", token);
@@ -99,14 +103,15 @@ function PublicSellerOnboarding() {
       const data: unknown = await response.json().catch(() => null);
       if (!response.ok) {
         setError(errorMessage(data, "Falha ao enviar documento."));
-        setSelectedFiles((current) => ({ ...current, [kind]: null }));
-        return;
+        return null;
       }
-      setPayload((data as PublicOnboardingPayload) || null);
+      const nextPayload = (data as PublicOnboardingPayload) || null;
+      setPayload(nextPayload);
       setSelectedFiles((current) => ({ ...current, [kind]: null }));
+      return nextPayload;
     } catch {
       setError("Falha ao enviar documento. Verifique sua conexão e tente novamente.");
-      setSelectedFiles((current) => ({ ...current, [kind]: null }));
+      return null;
     } finally {
       setUploadingKind(null);
     }
@@ -134,10 +139,8 @@ function PublicSellerOnboarding() {
     }
   }
 
-  async function completeDocuments() {
-    if (!token) return;
-    setCompleting(true);
-    setError(null);
+  async function confirmDocuments() {
+    if (!token) return null;
     try {
       const response = await fetch(`${API_URL}/gerencial/hbx-partners/onboarding/public/complete`, {
         method: "POST",
@@ -147,20 +150,58 @@ function PublicSellerOnboarding() {
       const data: unknown = await response.json().catch(() => null);
       if (!response.ok) {
         setError(errorMessage(data, "Falha ao confirmar documentos."));
-        return;
+        return null;
       }
-      setPayload((data as PublicOnboardingPayload) || null);
+      const nextPayload = (data as PublicOnboardingPayload) || null;
+      setPayload(nextPayload);
       setSelectedFiles({});
+      return nextPayload;
     } catch {
       setError("Falha ao confirmar documentos. Tente novamente em instantes.");
+      return null;
+    }
+  }
+
+  async function submitDocuments() {
+    if (!token || completing) return;
+    const missingSelections = documents.filter((document) => !document.present && !selectedFiles[document.kind]);
+    if (!payload?.documentsComplete && missingSelections.length) {
+      setError("Selecione todos os documentos obrigatórios antes de enviar.");
+      return;
+    }
+    setCompleting(true);
+    setError(null);
+    try {
+      let nextPayload = payload;
+      for (const document of documents) {
+        if (document.present) continue;
+        const file = selectedFiles[document.kind] || null;
+        if (!file) continue;
+        const uploadedPayload = await uploadDocument(document.kind, file);
+        if (!uploadedPayload) return;
+        nextPayload = uploadedPayload;
+      }
+      if (!nextPayload?.documentsComplete) {
+        setError("Ainda falta enviar todos os documentos obrigatórios.");
+        return;
+      }
+      await confirmDocuments();
     } finally {
       setCompleting(false);
+      setUploadingKind(null);
     }
   }
 
   const documents = payload?.documents || [];
   const readyToConfirm = Boolean(payload?.documentsComplete && !payload?.emailConfirmed);
   const done = Boolean(payload?.emailConfirmed);
+  const readyToSend = !done && documents.length > 0 && documents.every((document) => document.present || selectedFiles[document.kind]);
+  const showSubmitButton = readyToConfirm || readyToSend;
+  const statusMessage = done
+    ? payload?.message || "Após análise, chegará um e-mail com seu usuário e senha."
+    : showSubmitButton
+      ? "Confira os anexos e clique em Enviar para confirmar."
+      : payload?.message || "Envie os documentos obrigatórios pendentes para confirmar seu e-mail.";
 
   return (
     <main className={styles.page}>
@@ -202,17 +243,11 @@ function PublicSellerOnboarding() {
               <span className={done ? styles.successBadge : styles.pendingBadge}>
                 {done ? "Documentos recebidos" : "Documentos pendentes"}
               </span>
-              <h1>{done ? "Tudo enviado" : readyToConfirm ? "Anexos aceitos" : "Envie seus documentos"}</h1>
+              <h1>{done ? "Tudo enviado" : showSubmitButton ? "Anexos prontos" : "Envie seus documentos"}</h1>
               <p className={styles.lead}>{done ? "E-mail confirmado" : payload?.partner?.name || "Parceiro HBX"}</p>
-              <p>
-                {payload?.message || (done
-                  ? "Assim que confirmado, chegará um e-mail com seu usuário e senha."
-                  : readyToConfirm
-                    ? "Confira os anexos aceitos e clique em Enviar para confirmar."
-                  : "Envie os documentos obrigatórios pendentes para confirmar seu e-mail.")}
-              </p>
-              {readyToConfirm ? (
-                <button type="button" className={styles.finalButton} onClick={() => void completeDocuments()} disabled={completing}>
+              <p>{statusMessage}</p>
+              {showSubmitButton ? (
+                <button type="button" className={styles.finalButton} onClick={() => void submitDocuments()} disabled={completing}>
                   {completing ? "Enviando..." : "Enviar documentos"}
                 </button>
               ) : null}
@@ -251,19 +286,30 @@ function PublicSellerOnboarding() {
                           ) : null}
                         </>
                       ) : selectedFile ? (
-                        <b>{uploadingKind === document.kind ? "Enviando..." : "Anexo carregado"}</b>
+                        <>
+                          <b>{uploadingKind === document.kind ? "Enviando..." : "Anexo pronto"}</b>
+                          <label>
+                            Trocar
+                            <input
+                              type="file"
+                              accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                              disabled={Boolean(uploadingKind) || completing}
+                              onChange={(event) => {
+                                handleFileSelected(document.kind, event.target.files?.[0] || null);
+                                event.currentTarget.value = "";
+                              }}
+                            />
+                          </label>
+                        </>
                       ) : (
                         <label>
                           Escolher arquivo
                           <input
                             type="file"
                             accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
-                            disabled={Boolean(uploadingKind)}
+                            disabled={Boolean(uploadingKind) || completing}
                             onChange={(event) => {
-                              const file = event.target.files?.[0] || null;
-                              setError(null);
-                              setSelectedFiles((current) => ({ ...current, [document.kind]: file }));
-                              if (file) void uploadDocument(document.kind, file);
+                              handleFileSelected(document.kind, event.target.files?.[0] || null);
                               event.currentTarget.value = "";
                             }}
                           />

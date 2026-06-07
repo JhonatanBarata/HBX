@@ -391,6 +391,9 @@ type VendasUsageSnapshot = {
     limit?: number | null;
     used?: number | null;
     dailyUsed?: number | null;
+    dailyLimitSource?: string | null;
+    configuredDailyLimit?: number | null;
+    fallbackDailyLimit?: number | null;
     canManualEnrich?: boolean | null;
     canAutoEnrich?: boolean | null;
     mode?: string | null;
@@ -522,7 +525,8 @@ function radarAutoDistributionStatusLabel(status?: string | null) {
 const MAX_CARDS_PER_RADAR_SEARCH = 100;
 const RADAR_VENDAS_STOCK_TARGET_MAX = 100;
 
-const RADAR_RADIUS_OPTIONS = [0, 25, 50, 100] as const;
+const RADAR_RADIUS_OPTIONS = [0, 25, 50, 100, 250] as const;
+const RADAR_MAX_RADIUS_KM = 250;
 
 function radarRadiusLabel(value?: number | null) {
   const radius = Math.max(0, Number(value || 0));
@@ -665,7 +669,7 @@ function hasRadarLocationCoordinates(filters: Pick<FilterState, "originLat" | "o
 
 function restrictHbxSellerFilters(filters: FilterState): FilterState {
   const hasCoordinates = hasRadarLocationCoordinates(filters);
-  const radiusKm = Math.min(100, Math.max(0, Math.trunc(Number(filters.radiusKm || DEFAULT_FILTERS.radiusKm) || DEFAULT_FILTERS.radiusKm)));
+  const radiusKm = Math.min(RADAR_MAX_RADIUS_KM, Math.max(0, Math.trunc(Number(filters.radiusKm || DEFAULT_FILTERS.radiusKm) || DEFAULT_FILTERS.radiusKm)));
   if (hasCoordinates) return { ...filters, radiusKm };
   return {
     ...filters,
@@ -738,6 +742,8 @@ function DailyQuotaSpeedometer({
   label = "disponíveis",
   title = "hoje",
   usedLabel = "usados",
+  valueLabel,
+  metaLabel,
   compact,
   onClick,
 }: {
@@ -747,19 +753,23 @@ function DailyQuotaSpeedometer({
   label?: string;
   title?: string;
   usedLabel?: string;
+  valueLabel?: string;
+  metaLabel?: string;
   compact?: boolean;
   onClick?: () => void;
 }) {
   const safeLimit = Math.max(1, Math.trunc(Number(dailyLimit || remaining || spendLimit || 1)));
   const safeRemaining = Math.max(0, Math.trunc(Number(remaining || 0)));
   const spentToday = Math.max(0, safeLimit - safeRemaining);
+  const displayValue = valueLabel || safeRemaining.toLocaleString("pt-BR");
+  const displayMeta = metaLabel || `${spentToday}/${safeLimit} ${usedLabel}`;
   const content = (
     <>
-      <b>{safeRemaining}</b>
+      <b>{displayValue}</b>
       <div className={styles.dailyQuotaText}>
         <span>{label}</span>
         <strong>{title}</strong>
-        <small>{spentToday}/{safeLimit} {usedLabel}</small>
+        <small>{displayMeta}</small>
       </div>
     </>
   );
@@ -771,8 +781,8 @@ function DailyQuotaSpeedometer({
         className={styles.dailyQuotaGauge}
         data-compact={compact ? "true" : "false"}
         onClick={onClick}
-        aria-label={`${safeRemaining} ${label} ${title}`}
-        title={`${safeRemaining} ${label} ${title}`}
+        aria-label={`${displayValue} ${label} ${title}`}
+        title={`${displayValue} ${label} ${title}`}
       >
         {content}
       </button>
@@ -783,8 +793,8 @@ function DailyQuotaSpeedometer({
     <div
       className={styles.dailyQuotaGauge}
       data-compact={compact ? "true" : "false"}
-      aria-label={`${safeRemaining} ${label} ${title}`}
-      title={`${safeRemaining} ${label} ${title}`}
+      aria-label={`${displayValue} ${label} ${title}`}
+      title={`${displayValue} ${label} ${title}`}
     >
       {content}
     </div>
@@ -1576,6 +1586,40 @@ function compactRadarMessage(message: string | null) {
   return text;
 }
 
+function hbxSellerRadarAdjustmentActionMessage() {
+  return "Para continuar automático, aumente o alcance, atualize sua localização ou ajuste segmentos.";
+}
+
+function hbxSellerRadarAdjustmentMessage() {
+  return `Localizei tudo que havia com os filtros atuais. ${hbxSellerRadarAdjustmentActionMessage()}`;
+}
+
+function hbxSellerRadarNoCardsMessage() {
+  return "Não achei cards suficientes para esse filtro. Tente segmento mais amplo ou alcance maior.";
+}
+
+function extractRadarDeliveryDeficit(message: string | null | undefined) {
+  const raw = String(message || "");
+  const match = raw.match(/\b(?:entreguei|encontrei)\s+(\d+)\s+de\s+(\d+)\s+card/i)
+    || raw.match(/\bvendas\s+ficou\s+com\s+(\d+)\s+de\s+(\d+)\s+card/i);
+  if (!match) return null;
+  const delivered = Math.max(0, Math.trunc(Number(match[1] || 0)));
+  const target = Math.max(1, Math.trunc(Number(match[2] || 1)));
+  const missing = Math.max(0, target - Math.min(delivered, target));
+  if (missing <= 0) return null;
+  return { delivered: Math.min(delivered, target), target, missing };
+}
+
+function radarDeliveryDeficitMessage(message: string | null | undefined, restricted: boolean) {
+  const deficit = extractRadarDeliveryDeficit(message);
+  if (!deficit) return "";
+  const missingText = deficit.missing === 1 ? "faltou 1" : `faltaram ${deficit.missing.toLocaleString("pt-BR")}`;
+  const base = `Vendas ficou com ${deficit.delivered.toLocaleString("pt-BR")} de ${deficit.target.toLocaleString("pt-BR")} card(s); ${missingText}.`;
+  return restricted
+    ? `${base} ${hbxSellerRadarAdjustmentActionMessage()}`
+    : `${base} Revise alcance ou segmento para completar a meta.`;
+}
+
 function radarTextLooksDiagnostic(value?: string | null) {
   const text = String(value || "").trim();
   if (!text) return false;
@@ -1601,11 +1645,19 @@ function publicRadarMessage(message: string | null | undefined, restricted: bool
   if (/quota|cota|limite|limit|429/.test(normalized)) {
     return "Limite de cards atingido agora. O Radar pausa para proteger sua operação.";
   }
+  const deficitMessage = radarDeliveryDeficitMessage(raw, true);
+  if (deficitMessage) return deficitMessage;
   if (/engine|motor|fila|queued|running|sleeping|paused/.test(normalized)) {
     return "Radar aguardando retomada operacional. Tente novamente em instantes.";
   }
+  if (/cidade\s+e\s+segmento/.test(normalized)) {
+    return "Use sua localização e escolha segmento para buscar cards.";
+  }
+  if (/cidade|cidades|cidade\s+pr[oó]xima|cidades\s+pr[oó]ximas|trocar\s+cidade|inclua\s+cidades|revise\s+cidade|ajuste\s+cidade/.test(normalized)) {
+    return hbxSellerRadarAdjustmentMessage();
+  }
   if (/sem cards|no results|insufficient|empty/.test(normalized)) {
-    return "Não achei cards suficientes para esse filtro. Tente segmento mais amplo ou alcance maior.";
+    return hbxSellerRadarNoCardsMessage();
   }
   if (radarTextLooksDiagnostic(raw)) return fallback;
   return compactRadarMessage(raw) || fallback;
@@ -2518,8 +2570,10 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   const [activeRun, setActiveRun] = useState<RadarSearchRunResponse | null>(null);
   const [terminalRunSnapshot, setTerminalRunSnapshot] = useState<RadarSearchRunResponse | null>(null);
   const [currentUser, setCurrentUser] = useState<CurrentUserProfile | null>(null);
+  const [currentUserLoaded, setCurrentUserLoaded] = useState(false);
   const [commercialPlans, setCommercialPlans] = useState<CommercialPlansPayload | null>(null);
   const [vendasUsage, setVendasUsage] = useState<VendasUsageSnapshot | null>(null);
+  const [vendasUsageLoaded, setVendasUsageLoaded] = useState(false);
   const [vendasPendingCount, setVendasPendingCount] = useState<number | null>(null);
   const [teamUsers, setTeamUsers] = useState<GerencialTeamUser[]>([]);
   const [distributionUserIds, setDistributionUserIds] = useState<number[]>([]);
@@ -2686,7 +2740,10 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   const sellerActiveAvailable = Math.max(0, Math.trunc(Number(sellerActiveAvailableSource || 0)));
   const hbxSellerUsage = hbxSellerRadarRestricted || String(vendasUsage?.planKey || "").trim().toLowerCase() === "hbx_seller";
   const hbxSellerPublicUi = hbxSellerUsage;
-  const hbxSellerQuotaDisplay = Boolean(hbxSellerUsage && sellerActiveQuota && sellerActiveLimit > 0);
+  const quotaSnapshotLoading = Boolean(hasToken === true && (!currentUserLoaded || !vendasUsageLoaded));
+  const hbxSellerQuotaDisplay = Boolean(hbxSellerUsage && sellerActiveQuota);
+  const hbxSellerQuotaLoading = Boolean(!quotaSnapshotLoading && hbxSellerUsage && !sellerActiveQuota);
+  const quotaLoading = quotaSnapshotLoading || hbxSellerQuotaLoading;
   const monthlyRemaining = Math.max(0, Math.trunc(Number(vendasUsage?.cards?.remaining ?? vendasUsage?.cards?.monthlyRemaining ?? 999999)));
   const perUserRemaining = vendasUsage?.cards?.perUserLimit != null
     ? Math.max(0, Math.trunc(Number(vendasUsage.cards.userLimit || 0) - Number(vendasUsage.cards.userUsed || 0)))
@@ -2698,44 +2755,77 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   const perSearchLimit = Math.max(1, Math.min(MAX_CARDS_PER_RADAR_SEARCH, fallbackSearchLimit));
   const availableSpendLimit = hbxSellerQuotaDisplay
     ? sellerActiveAvailable
-    : Number.isFinite(quotaRemaining)
+    : quotaLoading
+      ? 0
+      : Number.isFinite(quotaRemaining)
       ? quotaRemaining
       : fallbackSearchLimit;
   const searchSpendLimit = Math.max(0, Math.min(perSearchLimit, availableSpendLimit));
   const radarQuantityLimit = Math.max(0, searchSpendLimit);
   const radarCounterLimit = hbxSellerQuotaDisplay
     ? sellerActiveLimit
-    : dailyLimit || dailyRemaining || radarQuantityLimit;
+    : quotaLoading
+      ? 0
+      : dailyLimit || dailyRemaining || radarQuantityLimit;
   const radarCounterRemaining = hbxSellerQuotaDisplay
     ? sellerActiveAvailable
-    : dailyRemaining;
+    : quotaLoading
+      ? 0
+      : dailyRemaining;
   const radarCounterUsed = hbxSellerQuotaDisplay
     ? sellerActiveCount
-    : Math.max(0, radarCounterLimit - dailyRemaining);
-  const radarCounterLabel = hbxSellerQuotaDisplay ? "vagas" : "disponíveis";
-  const radarCounterTitle = hbxSellerQuotaDisplay ? "no Vendas" : "hoje";
-  const radarCounterUsedLabel = hbxSellerQuotaDisplay ? "ativos" : "usados";
+    : quotaLoading
+      ? 0
+      : Math.max(0, radarCounterLimit - dailyRemaining);
+  const radarCounterLabel = hbxSellerQuotaDisplay || hbxSellerQuotaLoading ? "vagas" : "disponíveis";
+  const radarCounterTitle = hbxSellerQuotaDisplay || hbxSellerQuotaLoading ? "no Vendas" : "hoje";
+  const radarCounterUsedLabel = hbxSellerQuotaDisplay || hbxSellerQuotaLoading ? "ativos" : "usados";
+  const radarCounterValueLabel = quotaLoading ? "--" : undefined;
+  const radarCounterMetaLimit = hbxSellerQuotaDisplay
+    ? Math.max(0, radarCounterLimit)
+    : Math.max(1, radarCounterLimit || radarCounterRemaining || 1);
+  const radarCounterMetaLabel = quotaLoading
+    ? "carregando limite"
+    : `${radarCounterUsed.toLocaleString("pt-BR")}/${radarCounterMetaLimit.toLocaleString("pt-BR")} ${radarCounterUsedLabel}`;
   const enrichmentUsage = vendasUsage?.enrichment || null;
-  const enrichmentRemainingRaw = Math.max(0, Math.trunc(Number(
-    enrichmentUsage?.dailyRemaining ?? enrichmentUsage?.remaining ?? radarCounterRemaining ?? 0,
-  )));
-  const enrichmentLimitRaw = Math.max(0, Math.trunc(Number(
-    enrichmentUsage?.dailyLimit ?? enrichmentUsage?.limit ?? radarCounterLimit ?? 0,
-  )));
-  const enrichmentUsedRaw = Math.max(0, Math.trunc(Number(
-    enrichmentUsage?.dailyUsed ??
-    enrichmentUsage?.used ??
-    Math.max(0, enrichmentLimitRaw - enrichmentRemainingRaw),
-  )));
-  const enrichmentLooksUnlimited = enrichmentRemainingRaw >= 999999 || enrichmentLimitRaw >= 999999;
-  const radarCrownCounterValue = enrichmentLooksUnlimited ? "Livre" : enrichmentRemainingRaw.toLocaleString("pt-BR");
-  const radarCrownCounterLabel = enrichmentUsage ? "enriquec." : radarCounterLabel;
-  const radarCrownCounterTitle = enrichmentUsage ? "hoje" : radarCounterTitle;
-  const radarCrownCounterMeta = enrichmentLooksUnlimited
-    ? "sem limite diário"
-    : `${enrichmentUsedRaw}/${Math.max(1, enrichmentLimitRaw || enrichmentRemainingRaw || 1)} ${enrichmentUsage ? "usados" : radarCounterUsedLabel}`;
-  const radarCrownQuotaDenied = Boolean(enrichmentUsage && (enrichmentUsage.canManualEnrich === false || enrichmentUsage.canAutoEnrich === false));
-  const radarCrownNoQuota = Boolean(vendasUsage && (radarCrownQuotaDenied || (!enrichmentLooksUnlimited && enrichmentRemainingRaw <= 0)));
+  const enrichmentQuotaLoaded = Boolean(vendasUsageLoaded && enrichmentUsage);
+  const enrichmentRemainingRaw = enrichmentQuotaLoaded
+    ? Math.max(0, Math.trunc(Number(enrichmentUsage?.dailyRemaining ?? enrichmentUsage?.remaining ?? 0)))
+    : 0;
+  const enrichmentLimitRaw = enrichmentQuotaLoaded
+    ? Math.max(0, Math.trunc(Number(enrichmentUsage?.dailyLimit ?? enrichmentUsage?.limit ?? 0)))
+    : 0;
+  const enrichmentUsedRaw = enrichmentQuotaLoaded
+    ? Math.max(0, Math.trunc(Number(
+        enrichmentUsage?.dailyUsed ??
+        enrichmentUsage?.used ??
+        Math.max(0, enrichmentLimitRaw - enrichmentRemainingRaw),
+      )))
+    : 0;
+  const enrichmentLooksUnlimited = enrichmentQuotaLoaded && (enrichmentRemainingRaw >= 999999 || enrichmentLimitRaw >= 999999);
+  const radarCrownCounterValue = !enrichmentQuotaLoaded
+    ? "--"
+    : enrichmentLooksUnlimited
+      ? "Livre"
+      : enrichmentRemainingRaw.toLocaleString("pt-BR");
+  const radarCrownCounterLabel = "enriquec.";
+  const radarCrownCounterTitle = "hoje";
+  const enrichmentDailyLimitSource = String(enrichmentUsage?.dailyLimitSource || "").trim();
+  const enrichmentLimitSourceLabel = enrichmentDailyLimitSource === "owner_override" || enrichmentDailyLimitSource === "owner_override_unlimited"
+    ? "config. HBX"
+    : enrichmentDailyLimitSource === "hbx_default"
+      ? "fallback HBX"
+      : "";
+  const radarCrownCounterMeta = !enrichmentQuotaLoaded
+    ? "carregando limite"
+    : enrichmentLooksUnlimited
+      ? ["sem limite diário", enrichmentLimitSourceLabel].filter(Boolean).join(" · ")
+      : [
+          `${enrichmentUsedRaw.toLocaleString("pt-BR")}/${Math.max(1, enrichmentLimitRaw || enrichmentRemainingRaw || 1).toLocaleString("pt-BR")} usados`,
+          enrichmentLimitSourceLabel,
+        ].filter(Boolean).join(" · ");
+  const radarCrownQuotaDenied = Boolean(enrichmentUsage && enrichmentUsage.canManualEnrich === false);
+  const radarCrownNoQuota = Boolean(enrichmentQuotaLoaded && (radarCrownQuotaDenied || (!enrichmentLooksUnlimited && enrichmentRemainingRaw <= 0)));
   const radarHeroCrownActive = radarAutoEnrichmentActive || radarAutoEnrichmentRunning;
   const selectedVendasStockTarget = Math.max(
     1,
@@ -2819,15 +2909,22 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   useEffect(() => {
     if (hasToken !== true) return;
     let cancelled = false;
+    setCurrentUserLoaded(false);
     apiFetch<CurrentUserProfile>("/profile/current-user", {
       requireAuth: true,
       timeoutMs: 12000,
     })
       .then((profile) => {
-        if (!cancelled) setCurrentUser(profile || null);
+        if (!cancelled) {
+          setCurrentUser(profile || null);
+          setCurrentUserLoaded(true);
+        }
       })
       .catch(() => {
-        if (!cancelled) setCurrentUser(null);
+        if (!cancelled) {
+          setCurrentUser(null);
+          setCurrentUserLoaded(true);
+        }
       });
     return () => {
       cancelled = true;
@@ -2886,6 +2983,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   useEffect(() => {
     if (hasToken !== true) return;
     let cancelled = false;
+    setVendasUsageLoaded(false);
     apiFetch<VendasUsageSnapshot>("/vendas/usage", {
       requireAuth: true,
       timeoutMs: 12000,
@@ -2893,10 +2991,12 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
       .then((usagePayload) => {
         if (cancelled) return;
         setVendasUsage(usagePayload);
+        setVendasUsageLoaded(true);
       })
       .catch(() => {
         if (!cancelled) {
           setVendasUsage(null);
+          setVendasUsageLoaded(true);
         }
       });
     return () => {
@@ -3784,6 +3884,12 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
       return;
     }
 
+    if (!enrichmentQuotaLoaded) {
+      setFeedback(null);
+      setError("Carregando limite de enriquecimento. Tente novamente em instantes.");
+      return;
+    }
+
     if (radarCrownNoQuota) {
       setRadarAutoEnrichmentActive(false);
       saveRadarAutoEnrichmentPreference(false);
@@ -3803,7 +3909,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
 
     const quotaForRun = enrichmentLooksUnlimited
       ? 12
-      : Math.max(1, enrichmentRemainingRaw || radarCounterRemaining || candidates.length);
+      : Math.max(1, enrichmentRemainingRaw);
     const batch = candidates.slice(0, Math.min(candidates.length, quotaForRun, 12));
     let enrichedCount = 0;
     let failedCount = 0;
@@ -3836,7 +3942,12 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
       void apiFetch<VendasUsageSnapshot>("/vendas/usage", {
         requireAuth: true,
         timeoutMs: 12000,
-      }).then(setVendasUsage).catch(() => null);
+      })
+        .then((usagePayload) => {
+          setVendasUsage(usagePayload);
+          setVendasUsageLoaded(true);
+        })
+        .catch(() => null);
 
       if (stoppedByQuota) {
         setRadarAutoEnrichmentActive(false);
@@ -4074,7 +4185,12 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
       apiFetch<VendasUsageSnapshot>("/vendas/usage", {
         requireAuth: true,
         timeoutMs: 12000,
-      }).then(setVendasUsage).catch(() => null);
+      })
+        .then((usagePayload) => {
+          setVendasUsage(usagePayload);
+          setVendasUsageLoaded(true);
+        })
+        .catch(() => null);
       void refreshVendasPendingCount().catch(() => null);
       setFeedback(
         publicRadarMessage(
@@ -4117,10 +4233,14 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
         availableFilters.citiesByState?.[filters.state]?.map((item) => item.value) || [],
       )
     : [];
-  const cardQuotaBlocked = vendasUsage ? radarQuantityLimit <= 0 : false;
+  const cardQuotaBlocked = quotaLoading || (vendasUsage ? radarQuantityLimit <= 0 : false);
   const mobileVendasBlocked = cardQuotaBlocked;
-  const radarQuotaBlockedMessage = hbxSellerQuotaDisplay
+  const radarQuotaBlockedMessage = quotaSnapshotLoading
+    ? "Carregando seus limites do Radar. Tente novamente em instantes."
+    : hbxSellerQuotaDisplay
     ? "Seu limite de cards ativos foi atingido. Finalize ou descarte cards em Vendas para abrir espaço."
+    : hbxSellerQuotaLoading
+      ? "Carregando seu limite de vagas no Vendas. Tente novamente em instantes."
     : "Limite diário de cards atingido. O contador reinicia após 00:00.";
   const radarPausedByStock = vendasPendingCount != null && radarVendasStockMissing <= 0 && !radarStockPauseUnlocked;
   const currentRadarRunStatus = String(activeRun?.status || terminalRunSnapshot?.status || "").trim().toLowerCase();
@@ -4298,7 +4418,9 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   const radarStoppedPopupText = publicRadarMessage(
     radarMomentRun?.errorMessage || radarMomentRun?.message,
     hbxSellerPublicUi,
-    "Localizei tudo que havia com os filtros atuais. Para continuar automático, aumente a distância, inclua cidades próximas ou adicione mais segmentos.",
+    hbxSellerPublicUi
+      ? hbxSellerRadarAdjustmentMessage()
+      : "Localizei tudo que havia com os filtros atuais. Para continuar automático, aumente a distância, inclua cidades próximas ou adicione mais segmentos.",
   );
 
   function startMobileRadarSearch() {
@@ -4701,6 +4823,8 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
               label={radarCounterLabel}
               title={radarCounterTitle}
               usedLabel={radarCounterUsedLabel}
+              valueLabel={radarCounterValueLabel}
+              metaLabel={radarCounterMetaLabel}
               onClick={() => setMobileQuotaPopupOpen((current) => !current)}
             />
             <div className={styles.mobileRadarHeroCopy}>
@@ -4915,9 +5039,9 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
                   </div>
                 </div>
                 <div className={styles.mobileQuotaSummary}>
-                  <b>{radarCounterRemaining}</b>
+                  <b>{radarCounterValueLabel || radarCounterRemaining.toLocaleString("pt-BR")}</b>
                   <span>{radarCounterLabel} {radarCounterTitle}</span>
-                  <small>{radarCounterUsed}/{radarCounterLimit || radarCounterRemaining || 1} {radarCounterUsedLabel}</small>
+                  <small>{radarCounterMetaLabel}</small>
                 </div>
               </section>
             </div>
@@ -5156,6 +5280,8 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
               label={radarCounterLabel}
               title={radarCounterTitle}
               usedLabel={radarCounterUsedLabel}
+              valueLabel={radarCounterValueLabel}
+              metaLabel={radarCounterMetaLabel}
             />
             <RadarQuantitySelector
               value={filters.quantity}

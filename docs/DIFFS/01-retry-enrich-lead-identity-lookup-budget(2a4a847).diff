@@ -1,6 +1,0 @@
-diff --git a/hbx-scraping-engine/app/services/search_service.py b/hbx-scraping-engine/app/services/search_service.py
---- a/hbx-scraping-engine/app/services/search_service.py
-+++ b/hbx-scraping-engine/app/services/search_service.py
-@@ -1954,7 +1954,7 @@ class SearchService:
--        identity = self.enrich_identity_lookup(contact, request.city, request.state, request.segment, min(deadline, time.monotonic() + 8))
-+        identity = self.enrich_identity_lookup(contact, request.city, request.state, request.segment, min(deadline, time.monotonic() + 12))

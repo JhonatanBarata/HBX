@@ -527,7 +527,7 @@ export class RadarCoreDistributionMixin {
       ? existing?.radiusKm ?? null
       : input.radiusKm == null
         ? null
-        : this.normalizeRadarAutoDistributionInt(input.radiusKm, 0, 0, 100);
+        : this.normalizeRadarAutoDistributionInt(input.radiusKm, 0, 0, RADAR_REGION_MAX_RADIUS_KM);
     const targetUserIds = Array.isArray(input.userIds)
       ? Array.from(new Set(
           input.userIds

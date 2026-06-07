@@ -204,7 +204,7 @@ export const AUTONOMOUS_MASS_DATA_MAX_TASKS = 1000;
 export const DEFAULT_MASS_DATA_ENGINE_URLS = buildLocalHbxEngineUrls();
 export const TURBO_OPERATIONAL_CONFIG_KEY = 'turbo_noturno';
 export const RADAR_RESERVATION_TTL_MS = 72 * 60 * 60 * 1000;
-export const RADAR_REGION_MAX_RADIUS_KM = 100;
+export const RADAR_REGION_MAX_RADIUS_KM = 250;
 export const RADAR_PROTECTED_STATUSES = [
   'negative',
   'denied',

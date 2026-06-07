@@ -56,7 +56,7 @@ def normalize_card_discovery_contract(model: BaseModel) -> BaseModel:
 class SearchRequest(BaseModel):
     city: str = ""
     state: str = ""
-    radiusKm: int = Field(0, ge=0, le=100)
+    radiusKm: int = Field(0, ge=0, le=250)
     originLat: float | None = Field(None, ge=-90, le=90)
     originLng: float | None = Field(None, ge=-180, le=180)
     segment: str = ""

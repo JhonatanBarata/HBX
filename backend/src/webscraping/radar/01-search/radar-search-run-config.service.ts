@@ -31,6 +31,10 @@ export class RadarSearchRunConfigService {
     return Math.max(1, parsePositiveIntegerEnv('HBX_SEARCH_RUN_MAX_FAILED_BATCHES', 6));
   }
 
+  getHbxRunMaxStalledPartialBatches() {
+    return Math.max(1, parsePositiveIntegerEnv('HBX_SEARCH_RUN_MAX_STALLED_PARTIAL_BATCHES', 5));
+  }
+
   getHbxSearchRunRestDelayMs() {
     return Math.max(60_000, parsePositiveIntegerEnv('HBX_SEARCH_RUN_REST_DELAY_MS', 15 * 60_000));
   }
@@ -107,9 +111,16 @@ export class RadarSearchRunConfigService {
   }
 
   buildSearchRunFilterReviewMessage(foundCount: number, targetQuantity: number) {
-    return foundCount > 0
-      ? `Entreguei ${foundCount} de ${targetQuantity} card(s). Revise cidade, alcance ou segmento para completar a meta.`
-      : 'Nao achei cards suficientes para esse filtro. Tente segmento mais amplo, cidade proxima ou maior alcance.';
+    const target = Math.max(1, safeInteger(targetQuantity, 1));
+    const delivered = Math.max(0, Math.min(target, safeInteger(foundCount)));
+    const missing = Math.max(0, target - delivered);
+    if (delivered > 0) {
+      const missingText = missing === 1 ? 'faltou 1' : `faltaram ${missing}`;
+      return missing > 0
+        ? `Entreguei ${delivered} de ${target} card(s); ${missingText}. Revise alcance ou segmento para completar a meta.`
+        : `Entreguei ${delivered} de ${target} card(s).`;
+    }
+    return 'Nao achei cards suficientes para esse filtro. Tente segmento mais amplo ou alcance maior.';
   }
 
   getSearchRunRestCount(metricsJson: unknown, parseMaybeJsonObject: (value: unknown) => Record<string, any>) {

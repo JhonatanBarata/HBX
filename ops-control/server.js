@@ -13,6 +13,8 @@ const vpsHostRoot = process.env.OPS_CONTROL_VPS_HOST_ROOT || process.env.OPS_CON
 const localHostRoot = process.env.OPS_CONTROL_LOCAL_HOST_ROOT || path.resolve(__dirname, '..');
 const safeNamePattern = /^[a-zA-Z0-9_.-]+$/;
 const dockerActions = new Set(['start', 'stop', 'restart', 'kill']);
+const opsScopes = new Set(['local', 'vps', 'both']);
+const radarChannels = new Set(['email', 'whatsapp', 'instagram', 'website', 'phone', 'facebook']);
 
 const sshConfig = {
   host: process.env.OPS_CONTROL_SSH_HOST,
@@ -170,6 +172,150 @@ function validateName(name) {
 
 function validateRange(from, to) {
   return Number.isInteger(from) && Number.isInteger(to) && from >= 1 && to <= 200 && from <= to && (to - from) <= 49;
+}
+
+function createHttpError(statusCode, message) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+}
+
+function normalizeOpsScope(value) {
+  const scope = String(value || 'both').trim().toLowerCase();
+  if (!opsScopes.has(scope)) throw createHttpError(400, 'Escopo invalido. Use local, vps ou both.');
+  return scope;
+}
+
+function environmentsForScope(scope) {
+  if (scope === 'local') return ['localhost'];
+  if (scope === 'vps') return ['vps'];
+  return ['localhost', 'vps'];
+}
+
+function normalizeRequiredChannel(value) {
+  const channel = String(value || 'email').trim().toLowerCase();
+  if (!radarChannels.has(channel)) throw createHttpError(400, 'Canal invalido para filtro.');
+  return channel;
+}
+
+function backendConfigForEnvironment(environment, scope) {
+  const isVps = environment === 'vps';
+  const prefix = isVps ? 'VPS' : 'LOCAL';
+  const specificUrl = process.env[`OPS_CONTROL_${prefix}_BACKEND_URL`] || '';
+  const specificToken = process.env[`OPS_CONTROL_${prefix}_BACKEND_TOKEN`] || '';
+  const commonUrl = process.env.OPS_CONTROL_BACKEND_URL || '';
+  const commonToken = process.env.OPS_CONTROL_BACKEND_TOKEN || '';
+  const allowCommonFallback = scope !== 'both';
+  const baseUrl = specificUrl || (allowCommonFallback ? commonUrl : '');
+  const authToken = specificToken || (allowCommonFallback ? commonToken : '');
+
+  return {
+    baseUrl,
+    authToken,
+    missingReason: allowCommonFallback
+      ? `Configure OPS_CONTROL_${prefix}_BACKEND_URL e OPS_CONTROL_${prefix}_BACKEND_TOKEN, ou OPS_CONTROL_BACKEND_URL e OPS_CONTROL_BACKEND_TOKEN.`
+      : `Para acionar ambos sem duplicar o mesmo backend, configure OPS_CONTROL_LOCAL_BACKEND_URL/TOKEN e OPS_CONTROL_VPS_BACKEND_URL/TOKEN.`,
+  };
+}
+
+function joinUrl(baseUrl, route) {
+  return `${String(baseUrl || '').replace(/\/+$/, '')}/${String(route || '').replace(/^\/+/, '')}`;
+}
+
+function timeoutSignal(ms) {
+  return typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+    ? AbortSignal.timeout(ms)
+    : undefined;
+}
+
+function redactSensitive(value) {
+  if (Array.isArray(value)) return value.slice(0, 20).map(redactSensitive);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => {
+    if (/token|password|secret|authorization|cookie/i.test(key)) return [key, '[redacted]'];
+    return [key, redactSensitive(item)];
+  }));
+}
+
+async function callBackendForEnvironment(environment, scope, method, route, payload) {
+  const config = backendConfigForEnvironment(environment, scope);
+  if (!config.baseUrl || !config.authToken) {
+    return {
+      environment,
+      label: environmentLabel(environment),
+      ok: false,
+      skipped: true,
+      reason: config.missingReason,
+    };
+  }
+
+  try {
+    const response = await fetch(joinUrl(config.baseUrl, route), {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${config.authToken}`,
+      },
+      body: payload ? JSON.stringify(payload) : undefined,
+      signal: timeoutSignal(30000),
+    });
+    const text = await response.text();
+    let data = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch (error) {
+      data = text ? { message: text.slice(0, 1000) } : null;
+    }
+    return {
+      environment,
+      label: environmentLabel(environment),
+      ok: response.ok,
+      statusCode: response.status,
+      data: redactSensitive(data),
+    };
+  } catch (error) {
+    return {
+      environment,
+      label: environmentLabel(environment),
+      ok: false,
+      error: error.message || 'Falha ao chamar backend.',
+    };
+  }
+}
+
+async function runScopedBackendAction(scope, method, route, payloadFactory) {
+  const environments = environmentsForScope(scope);
+  const results = await Promise.all(environments.map((environment) => (
+    callBackendForEnvironment(environment, scope, method, route, payloadFactory(environment))
+  )));
+  return {
+    ok: results.some((item) => item.ok),
+    scope,
+    environments,
+    results,
+  };
+}
+
+function buildTurboPayload() {
+  return {
+    enabled: true,
+    forceNow: true,
+    intensity: 'turbo',
+    timezone: 'America/Sao_Paulo',
+    autonomousFillEnabled: true,
+    forcedUntil: new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(),
+  };
+}
+
+function buildCancelPayload(body = {}) {
+  const rawSeconds = Number(body.seconds || 90);
+  const seconds = Number.isFinite(rawSeconds)
+    ? Math.min(900, Math.max(10, Math.trunc(rawSeconds)))
+    : 90;
+  return {
+    seconds,
+    force: Boolean(body.force),
+  };
 }
 
 function parseDockerPs(line) {
@@ -544,6 +690,43 @@ SELECT json_build_object(
     ORDER BY "createdAt" DESC
     LIMIT 8
   ) t), '[]'::json),
+  'activeCampaigns', COALESCE((SELECT json_agg(row_to_json(c)) FROM (
+    SELECT id,status,mode,city,state,segment,"targetType","targetTotal","batchSize","foundCount","approvedCount","duplicateCount","rejectedCount","currentAttempt","lastQueryUsed","lastEngineUrl","lastErrorMessage","nextRunAt","startedAt","updatedAt"
+    FROM "WebscrapingCampaign"
+    WHERE status IN ('queued','running','sleeping','partial_error')
+    ORDER BY "updatedAt" DESC
+    LIMIT 8
+  ) c), '[]'::json),
+  'activeTasks', COALESCE((SELECT json_agg(row_to_json(tk)) FROM (
+    SELECT task.id,task."campaignId",task.status,task.state,task.city,task.segment,task."targetType",task.query,task."attemptCount",task."foundCount",task."duplicateCount",task."rejectedCount",task."lastError",task."lockedByEngineId",task."lockedUntil",task."startedAt",task."updatedAt",campaign.mode AS "campaignMode",campaign.status AS "campaignStatus"
+    FROM "WebscrapingCampaignTask" task
+    JOIN "WebscrapingCampaign" campaign ON campaign.id = task."campaignId"
+    WHERE task.status IN ('queued','running','failed') OR task."lockedUntil" >= now()
+    ORDER BY
+      CASE WHEN task.status = 'running' THEN 0 WHEN task.status = 'queued' THEN 1 ELSE 2 END,
+      task."updatedAt" DESC
+    LIMIT 12
+  ) tk), '[]'::json),
+  'recentBatches', COALESCE((SELECT json_agg(row_to_json(b)) FROM (
+    SELECT batch.id,batch."campaignId",batch."taskId",batch.status,batch."attemptNumber",batch."engineId",batch."engineUrl",batch."queryUsed",batch."batchSize",batch."fetchedUrlCount",batch."parsedCount",batch."approvedCount",batch."duplicateCount",batch."rejectedCount",batch."errorMessage",batch."startedAt",batch."finishedAt",batch."createdAt"
+    FROM "WebscrapingCampaignBatch" batch
+    ORDER BY batch."createdAt" DESC
+    LIMIT 8
+  ) b), '[]'::json),
+  'factoryCursor', COALESCE((SELECT row_to_json(fc) FROM (
+    SELECT status,"forcedOn","currentState","currentCity","currentSegment","currentTargetType","lastCampaignId","lastRunId","lastSavedCount","lastDuplicateCount","lastRejectedCount","consecutiveEmptyCount","consecutiveFailureCount","lastError","reasonStopped","lastWorkedAt","nextRunAt","updatedAt"
+    FROM "RadarFactoryCursor"
+    WHERE key = 'main'
+    LIMIT 1
+  ) fc), '{}'::json),
+  'leadStock', COALESCE((SELECT json_build_object(
+    'total24h', count(*) FILTER (WHERE "createdAt" >= now() - interval '24 hours')::int,
+    'withEmail24h', count(*) FILTER (WHERE "createdAt" >= now() - interval '24 hours' AND COALESCE(email, '') <> '' AND COALESCE("emailStatus", '') NOT IN ('missing','invalid'))::int,
+    'clean24h', count(*) FILTER (WHERE "createdAt" >= now() - interval '24 hours' AND status = 'clean')::int,
+    'rejected24h', count(*) FILTER (WHERE "createdAt" >= now() - interval '24 hours' AND status IN ('rejected','duplicate','denied','complaint','hidden'))::int,
+    'total7d', count(*) FILTER (WHERE "createdAt" >= now() - interval '7 days')::int,
+    'withEmail7d', count(*) FILTER (WHERE "createdAt" >= now() - interval '7 days' AND COALESCE(email, '') <> '' AND COALESCE("emailStatus", '') NOT IN ('missing','invalid'))::int
+  ) FROM "RadarLeadPool"), '{}'::json),
   'usageLogs', COALESCE((SELECT json_agg(row_to_json(u)) FROM (
     SELECT "eventType",source,city,segment,quantity,"resultCount","reusedCount","fetchedCount",message,"createdAt"
     FROM "WebscrapingUsageLog"
@@ -646,6 +829,81 @@ function buildHumanDecision(input) {
   return 'Sem bloqueio critico detectado agora. Use o diagnostico se uma busca especifica barrar.';
 }
 
+function buildWorkingNow(data) {
+  const activeTasks = data?.activeTasks || [];
+  const activeCampaigns = data?.activeCampaigns || [];
+  const recentBatches = data?.recentBatches || [];
+  const factory = data?.factoryCursor || {};
+  const runningTask = activeTasks.find((item) => String(item?.status || '').toLowerCase() === 'running');
+  const lockedTask = activeTasks.find((item) => item?.lockedByEngineId);
+  const runningCampaign = activeCampaigns.find((item) => ['running', 'sleeping', 'queued', 'partial_error'].includes(String(item?.status || '').toLowerCase()));
+  const latestBatch = recentBatches[0] || null;
+
+  if (runningTask) {
+    return {
+      kind: 'task',
+      title: `${runningTask.city || '-'} / ${runningTask.segment || '-'}`,
+      subtitle: `${runningTask.state || '-'} - ${runningTask.targetType || 'pj'} - ${runningTask.lockedByEngineId || 'motor ainda nao fixado'}`,
+      status: runningTask.status || 'running',
+      query: runningTask.query || null,
+      updatedAt: runningTask.updatedAt || runningTask.startedAt || null,
+    };
+  }
+
+  if (lockedTask) {
+    return {
+      kind: 'locked_task',
+      title: `${lockedTask.city || '-'} / ${lockedTask.segment || '-'}`,
+      subtitle: `${lockedTask.state || '-'} - reservado por ${lockedTask.lockedByEngineId}`,
+      status: lockedTask.status || 'locked',
+      query: lockedTask.query || null,
+      updatedAt: lockedTask.updatedAt || lockedTask.lockedUntil || null,
+    };
+  }
+
+  if (runningCampaign) {
+    return {
+      kind: 'campaign',
+      title: `${runningCampaign.city || '-'} / ${runningCampaign.segment || '-'}`,
+      subtitle: `${runningCampaign.mode || 'campanha'} - ${runningCampaign.approvedCount || 0}/${runningCampaign.targetTotal || 0} aprovados`,
+      status: runningCampaign.status || 'running',
+      query: runningCampaign.lastQueryUsed || null,
+      updatedAt: runningCampaign.updatedAt || runningCampaign.startedAt || null,
+    };
+  }
+
+  if (factory?.currentCity || factory?.currentSegment) {
+    return {
+      kind: 'factory',
+      title: `${factory.currentCity || '-'} / ${factory.currentSegment || '-'}`,
+      subtitle: `${factory.currentState || '-'} - fabrica ${factory.status || 'idle'}`,
+      status: factory.status || 'idle',
+      query: null,
+      updatedAt: factory.lastWorkedAt || factory.updatedAt || null,
+    };
+  }
+
+  if (latestBatch) {
+    return {
+      kind: 'batch',
+      title: latestBatch.queryUsed || 'Ultimo lote',
+      subtitle: `${latestBatch.status || '-'} - motor ${latestBatch.engineId || '-'}`,
+      status: latestBatch.status || 'recent',
+      query: latestBatch.queryUsed || null,
+      updatedAt: latestBatch.createdAt || latestBatch.startedAt || null,
+    };
+  }
+
+  return {
+    kind: 'idle',
+    title: 'Sem scraping ativo detectado',
+    subtitle: 'Nenhuma tarefa/campanha rodando no banco agora.',
+    status: 'idle',
+    query: null,
+    updatedAt: null,
+  };
+}
+
 async function collectRadarAudit(environment) {
   const startedAt = new Date();
   if (!['vps', 'localhost'].includes(environment)) {
@@ -703,6 +961,7 @@ async function collectRadarAudit(environment) {
     latestRun,
     runBreakdowns: runBreakdowns.slice(0, 3),
     blockers,
+    workingNow: buildWorkingNow(dbAudit?.data || {}),
     enrichment: {
       summary: dbAudit?.data?.socialSummary || {},
       recent: (dbAudit?.data?.recentEnrichments || []).slice(0, 5).map((row) => ({
@@ -742,6 +1001,12 @@ async function collectRadarAudit(environment) {
     },
     latestRun,
     recentRuns: dbAudit?.data?.recentRuns || [],
+    activeCampaigns: dbAudit?.data?.activeCampaigns || [],
+    activeTasks: dbAudit?.data?.activeTasks || [],
+    recentBatches: dbAudit?.data?.recentBatches || [],
+    factoryCursor: dbAudit?.data?.factoryCursor || {},
+    leadStock: dbAudit?.data?.leadStock || {},
+    workingNow: buildWorkingNow(dbAudit?.data || {}),
     runBreakdowns,
     usageLogs: dbAudit?.data?.usageLogs || [],
     socialSummary: dbAudit?.data?.socialSummary || {},
@@ -760,6 +1025,35 @@ async function collectRadarAudit(environment) {
     decision,
     errors,
     diagnostic,
+  };
+}
+
+async function collectRadarCockpit() {
+  const generatedAt = new Date().toISOString();
+  const [localhost, vps] = await Promise.all([
+    collectRadarAudit('localhost').catch((error) => ({
+      environment: 'localhost',
+      label: 'localhost',
+      available: false,
+      generatedAt,
+      message: error.message || 'Falha ao auditar localhost.',
+    })),
+    collectRadarAudit('vps').catch((error) => ({
+      environment: 'vps',
+      label: 'VPS',
+      available: false,
+      generatedAt,
+      message: error.message || 'Falha ao auditar VPS.',
+    })),
+  ]);
+
+  return {
+    generatedAt,
+    mode: 'local-vps',
+    environments: {
+      localhost,
+      vps,
+    },
   };
 }
 
@@ -860,6 +1154,80 @@ app.get('/api/radar-audit/:environment', async (req, res) => {
     res.json(await collectRadarAudit(req.params.environment));
   } catch (error) {
     res.status(error.statusCode || 500).json({ error: error.message || 'Falha ao auditar Radar.' });
+  }
+});
+
+app.post('/api/opscontrol/turbo', async (req, res) => {
+  try {
+    const scope = normalizeOpsScope(req.body?.scope);
+    const result = await runScopedBackendAction(
+      scope,
+      'POST',
+      '/modules/master/webscraping/turbo-noturno/force-now',
+      () => buildTurboPayload(),
+    );
+    res.json({
+      action: 'turbo',
+      message: 'Turbo solicitado no backend configurado.',
+      ...result,
+    });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Falha ao solicitar turbo.' });
+  }
+});
+
+app.post('/api/opscontrol/force-filter', async (req, res) => {
+  try {
+    const scope = normalizeOpsScope(req.body?.scope);
+    const requiredChannel = normalizeRequiredChannel(req.body?.requiredChannel);
+    const result = await runScopedBackendAction(
+      scope,
+      'POST',
+      '/modules/master/webscraping/turbo-noturno/force-now',
+      () => buildTurboPayload(),
+    );
+    res.json({
+      action: 'force-filter',
+      message: 'Filtro solicitado no cockpit; hard filter sera aplicado quando o passo 6 propagar o campo no backend.',
+      requestedFilter: {
+        requiredChannels: [requiredChannel],
+        channelMatchMode: 'all_required',
+        freshness: 'live',
+      },
+      filterForwarded: false,
+      filterReason: 'backend_hard_filter_pending_step_6',
+      ...result,
+    });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Falha ao solicitar filtro.' });
+  }
+});
+
+app.post('/api/opscontrol/cancel', async (req, res) => {
+  try {
+    const scope = normalizeOpsScope(req.body?.scope);
+    const payload = buildCancelPayload(req.body || {});
+    const result = await runScopedBackendAction(
+      scope,
+      'POST',
+      '/modules/master/webscraping/elastic/cancel-forced',
+      () => payload,
+    );
+    res.json({
+      action: 'cancel',
+      message: 'Cancelamento do scraping forcado solicitado.',
+      ...result,
+    });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Falha ao cancelar scraping.' });
+  }
+});
+
+app.get('/api/radar-cockpit', async (req, res) => {
+  try {
+    res.json(await collectRadarCockpit());
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Falha ao montar cockpit Radar.' });
   }
 });
 

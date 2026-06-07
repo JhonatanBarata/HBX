@@ -50,114 +50,147 @@
           </article>
         </section>
 
-        <section class="panel radar-audit">
+        <section class="panel radar-cockpit">
           <div class="panel-title">
             <div>
-              <h2>Auditoria do Radar</h2>
-              <span>Motor x backend, bloqueios e diagnostico para suporte</span>
+              <h2>Cockpit Radar Local x VPS</h2>
+              <span>Scraping em tempo quase real, motores, campanhas, banco e bloqueios por ambiente</span>
             </div>
-            <div class="radar-tabs" role="tablist" aria-label="Ambiente da auditoria">
-              <button type="button" class="radar-tab active" data-radar-env="vps">VPS</button>
-              <button type="button" class="radar-tab" data-radar-env="localhost">localhost</button>
+            <div class="radar-audit-actions">
+              <button type="button" data-radar-cockpit-refresh>Atualizar cockpit</button>
+              <button type="button" class="secondary" data-copy-diagnostic>Copiar diagnostico</button>
             </div>
           </div>
 
           <div class="radar-audit-head">
             <div>
-              <strong id="radarAuditDecision">Aguardando auditoria</strong>
-              <span id="radarAuditMeta">Selecione um ambiente ou atualize os dados.</span>
-            </div>
-            <div class="radar-audit-actions">
-              <button type="button" data-radar-refresh>Auditar Radar</button>
-              <button type="button" class="secondary" data-copy-diagnostic>Copiar diagnostico</button>
+              <strong id="radarCockpitDecision">Aguardando cockpit</strong>
+              <span id="radarCockpitMeta">Coleta simultanea de localhost e VPS.</span>
             </div>
           </div>
 
-          <div class="radar-audit-grid">
-            <article class="radar-card">
-              <span>Motor</span>
-              <strong id="radarEngineMetric">-</strong>
-              <small id="radarEngineSub">-</small>
-            </article>
-            <article class="radar-card">
-              <span>Backend</span>
-              <strong id="radarBackendMetric">-</strong>
-              <small id="radarBackendSub">-</small>
-            </article>
-            <article class="radar-card">
-              <span>Bloqueios 24h</span>
-              <strong id="radarBlockedMetric">-</strong>
-              <small id="radarBlockedSub">-</small>
-            </article>
-            <article class="radar-card">
-              <span>Ultima busca</span>
-              <strong id="radarLatestMetric">-</strong>
-              <small id="radarLatestSub">-</small>
-            </article>
+          <div class="ops-action-panel" aria-label="Controles operacionais do scraping">
+            <div class="ops-action-copy">
+              <strong>Controle seguro de operacao</strong>
+              <span>Acione Local, VPS ou os dois sem sair do cockpit.</span>
+            </div>
+            <div class="ops-action-toolbar">
+              <label class="ops-field" for="opsScopeSelect">
+                <span>Alvo</span>
+                <select id="opsScopeSelect">
+                  <option value="both">Local + VPS</option>
+                  <option value="local">Somente LOCAL</option>
+                  <option value="vps">Somente VPS</option>
+                </select>
+              </label>
+              <label class="ops-field" for="opsChannelSelect">
+                <span>Filtro</span>
+                <select id="opsChannelSelect">
+                  <option value="email">Email obrigatorio</option>
+                  <option value="whatsapp">WhatsApp obrigatorio</option>
+                  <option value="instagram">Instagram obrigatorio</option>
+                  <option value="website">Site obrigatorio</option>
+                  <option value="phone">Telefone obrigatorio</option>
+                  <option value="facebook">Facebook obrigatorio</option>
+                </select>
+              </label>
+              <button type="button" data-ops-action="turbo" data-ops-scope="local">Turbo LOCAL</button>
+              <button type="button" data-ops-action="turbo" data-ops-scope="vps">Turbo VPS</button>
+              <button type="button" data-ops-action="turbo" data-ops-scope="both">Turbo ambos</button>
+              <button type="button" class="secondary" data-ops-action="force-filter">Forcar filtro</button>
+              <button type="button" class="danger" data-ops-action="cancel">Cancelar scraping</button>
+            </div>
+            <div id="opsActionStatus" class="ops-action-status">Nenhuma acao enviada nesta sessao.</div>
           </div>
 
-          <div class="radar-flow" aria-label="Caminho da busca no Radar">
-            <div class="radar-step">
-              <span>1</span>
-              <strong>Pessoa pesquisou</strong>
-              <small id="radarStepSearch">Aguardando busca recente</small>
-            </div>
-            <div class="radar-step">
-              <span>2</span>
-              <strong>Backend decidiu</strong>
-              <small id="radarStepBackend">Aguardando backend</small>
-            </div>
-            <div class="radar-step">
-              <span>3</span>
-              <strong>Motor executou</strong>
-              <small id="radarStepEngine">Aguardando motor</small>
-            </div>
-            <div class="radar-step">
-              <span>4</span>
-              <strong>Banco salvou/barrou</strong>
-              <small id="radarStepDatabase">Aguardando banco</small>
-            </div>
-          </div>
+          <div class="cockpit-grid" aria-label="Ambientes de scraping">
+            <article class="cockpit-env" data-env-tone="local">
+              <div class="cockpit-env-head">
+                <div>
+                  <span>localhost</span>
+                  <strong id="localWorkTitle">Aguardando dados</strong>
+                  <small id="localWorkMeta">Backend local e Docker local</small>
+                </div>
+                <b id="localHealthBadge" class="status-badge status-other">...</b>
+              </div>
 
-          <div class="radar-audit-split">
-            <div>
-              <h3>Conta do bloqueio</h3>
-              <div id="radarBlockers" class="radar-list"></div>
-            </div>
-            <div>
-              <h3>Buscas recentes</h3>
-              <div id="radarRecentRuns" class="radar-list"></div>
-            </div>
-          </div>
+              <div class="cockpit-work">
+                <span>Scrapeando agora</span>
+                <strong id="localWorkingNow">-</strong>
+                <small id="localWorkingQuery">-</small>
+              </div>
 
-          <div class="radar-enrichment">
-            <div class="radar-section-title">
-              <h3>Enriquecimento e sociais</h3>
-              <span id="radarSocialSummary">Aguardando leitura do banco</span>
-            </div>
-            <div class="radar-audit-grid">
-              <article class="radar-card">
-                <span>Instagram</span>
-                <strong id="radarInstagramMetric">-</strong>
-                <small>leads com Instagram salvo</small>
-              </article>
-              <article class="radar-card">
-                <span>Facebook</span>
-                <strong id="radarFacebookMetric">-</strong>
-                <small>leads com Facebook salvo</small>
-              </article>
-              <article class="radar-card">
-                <span>Sem social</span>
-                <strong id="radarSocialMissingMetric">-</strong>
-                <small>sem canal social confiavel</small>
-              </article>
-              <article class="radar-card">
-                <span>Falhas 24h</span>
-                <strong id="radarEnrichmentFailedMetric">-</strong>
-                <small>enriquecimento com erro</small>
-              </article>
-            </div>
-            <div id="radarRecentEnrichments" class="radar-list"></div>
+              <div class="cockpit-metrics">
+                <div><span>Motores</span><strong id="localEngines">-</strong><small id="localEnginesSub">-</small></div>
+                <div><span>Backend</span><strong id="localBackend">-</strong><small id="localBackendSub">-</small></div>
+                <div><span>Email 24h</span><strong id="localEmail24h">-</strong><small id="localStockSub">-</small></div>
+                <div><span>Bloqueios</span><strong id="localBlocked">-</strong><small>ultimas 24h</small></div>
+              </div>
+
+              <div class="cockpit-flow">
+                <div><span>Campanha</span><strong id="localCampaign">-</strong></div>
+                <div><span>Tarefa</span><strong id="localTask">-</strong></div>
+                <div><span>Lote</span><strong id="localBatch">-</strong></div>
+                <div><span>Banco</span><strong id="localDatabase">-</strong></div>
+              </div>
+
+              <div class="cockpit-section">
+                <h3>O que esta acontecendo</h3>
+                <div id="localDecision" class="cockpit-decision">-</div>
+              </div>
+              <div class="cockpit-section">
+                <h3>Campanhas e tarefas</h3>
+                <div id="localOperations" class="radar-list"></div>
+              </div>
+              <div class="cockpit-section">
+                <h3>Bloqueios e ultimas buscas</h3>
+                <div id="localBlockers" class="radar-list"></div>
+              </div>
+            </article>
+
+            <article class="cockpit-env" data-env-tone="vps">
+              <div class="cockpit-env-head">
+                <div>
+                  <span>VPS</span>
+                  <strong id="vpsWorkTitle">Aguardando dados</strong>
+                  <small id="vpsWorkMeta">Docker e banco via SSH</small>
+                </div>
+                <b id="vpsHealthBadge" class="status-badge status-other">...</b>
+              </div>
+
+              <div class="cockpit-work">
+                <span>Scrapeando agora</span>
+                <strong id="vpsWorkingNow">-</strong>
+                <small id="vpsWorkingQuery">-</small>
+              </div>
+
+              <div class="cockpit-metrics">
+                <div><span>Motores</span><strong id="vpsEngines">-</strong><small id="vpsEnginesSub">-</small></div>
+                <div><span>Backend</span><strong id="vpsBackend">-</strong><small id="vpsBackendSub">-</small></div>
+                <div><span>Email 24h</span><strong id="vpsEmail24h">-</strong><small id="vpsStockSub">-</small></div>
+                <div><span>Bloqueios</span><strong id="vpsBlocked">-</strong><small>ultimas 24h</small></div>
+              </div>
+
+              <div class="cockpit-flow">
+                <div><span>Campanha</span><strong id="vpsCampaign">-</strong></div>
+                <div><span>Tarefa</span><strong id="vpsTask">-</strong></div>
+                <div><span>Lote</span><strong id="vpsBatch">-</strong></div>
+                <div><span>Banco</span><strong id="vpsDatabase">-</strong></div>
+              </div>
+
+              <div class="cockpit-section">
+                <h3>O que esta acontecendo</h3>
+                <div id="vpsDecision" class="cockpit-decision">-</div>
+              </div>
+              <div class="cockpit-section">
+                <h3>Campanhas e tarefas</h3>
+                <div id="vpsOperations" class="radar-list"></div>
+              </div>
+              <div class="cockpit-section">
+                <h3>Bloqueios e ultimas buscas</h3>
+                <div id="vpsBlockers" class="radar-list"></div>
+              </div>
+            </article>
           </div>
 
           <details class="radar-details">

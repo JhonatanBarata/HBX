@@ -418,13 +418,17 @@ export class RadarCoreSearchLoopMixin {
     const target = Math.max(1, snapshot.target || safeInteger(targetQuantity));
     const currentStock = Math.max(0, Math.min(target, safeInteger(snapshot.pendingCount)));
     const locatedCount = Math.max(0, safeInteger(foundCount));
+    const missing = Math.max(0, target - currentStock);
+    const missingText = missing === 1 ? 'faltou 1' : `faltaram ${missing}`;
     const prefix = currentStock > 0
-      ? `Radar parou: Vendas ficou com ${currentStock} de ${target} card(s).`
+      ? missing > 0
+        ? `Radar parou: Vendas ficou com ${currentStock} de ${target} card(s); ${missingText}.`
+        : `Radar parou: Vendas ficou com ${currentStock} de ${target} card(s).`
       : 'Radar parou sem cards novos para Vendas.';
     const locatedLine = locatedCount > currentStock
       ? ` Localizei ${locatedCount} candidato(s), mas os repetidos/filtros nao viraram cards unicos suficientes.`
       : '';
-    return `${prefix}${locatedLine} Para continuar automatico, aumente a distancia, inclua cidades proximas ou adicione mais segmentos.`;
+    return `${prefix}${locatedLine} Para continuar automatico, aumente o alcance ou ajuste segmentos.`;
   }
 
   private async runGoogleEmergencyComplementIfEligible(
@@ -739,6 +743,7 @@ export class RadarCoreSearchLoopMixin {
       ? Math.max(this.getHbxRunMaxEmptyBatches(), Math.min(Math.max(queryTaskCount, 1), 120))
       : this.getHbxRunMaxEmptyBatches();
     const maxFailedBatches = this.getHbxRunMaxFailedBatches();
+    const maxStalledPartialBatches = this.getHbxRunMaxStalledPartialBatches();
     const attempt = safeInteger(current.attemptCount) + 1;
     const quantity = hasRequiredEnrichmentGate
       ? batchLimit
@@ -973,6 +978,14 @@ export class RadarCoreSearchLoopMixin {
         && consecutiveEmptyBatchCount >= maxEmptyBatches
         && completedSocialWarmup
         && (counters.foundCount <= 0 || completedPrimaryTasksOnce);
+      const reachedStalledPartialTarget = approvedCount === 0
+        && !hasRequiredEnrichmentGate
+        && counters.foundCount > 0
+        && counters.foundCount < normalized.quantity
+        && counters.foundCount === safeInteger(current.foundCount)
+        && counters.foundCount / Math.max(1, normalized.quantity) >= 0.8
+        && consecutiveEmptyBatchCount >= maxStalledPartialBatches
+        && completedSocialWarmup;
       const batchDebugMeta = `attempts=${attempt}/${maxAttempts}; queryTaskCount=${queryTaskCount}; currentCity=${attemptTask.searchScope?.currentCity || normalized.city}; currentSegment=${attemptTask.searchScope?.currentSegment || normalized.segment}; currentQuery=${queryUsed}; approved=${approvedCount}; skipped=${savedCounts.skipped + savedCounts.invalid + batchResponse.rejectedCount}; duplicate=${duplicateCount}`;
 
       this.logHbxBatch({
@@ -1011,7 +1024,7 @@ export class RadarCoreSearchLoopMixin {
         return;
       }
 
-      if (reachedMaxAttempts || reachedMaxEmptyBatches || reachedRequiredCandidateWindow) {
+      if (reachedMaxAttempts || reachedMaxEmptyBatches || reachedRequiredCandidateWindow || reachedStalledPartialTarget) {
         const finalStatus: WebscrapingSearchRunStatus = counters.foundCount > 0
           ? 'completed_insufficient_results'
           : 'failed';
@@ -1021,7 +1034,7 @@ export class RadarCoreSearchLoopMixin {
             current,
             counters.foundCount,
             normalized.quantity,
-            reachedMaxEmptyBatches ? 'max_empty_batches' : 'max_attempts',
+            reachedStalledPartialTarget ? 'stalled_partial_target' : reachedMaxEmptyBatches ? 'max_empty_batches' : 'max_attempts',
           );
           if (rested) return;
         }

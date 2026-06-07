@@ -71,7 +71,6 @@ TAB_NAMES = (
     "Alinhamento",
     "ChatGPT",
     "Relatórios",
-    "Radar Motores",
     "Ops Control",
     "Config",
 )
@@ -165,7 +164,6 @@ DEFAULT_CONFIG = {
     "owner_tickets_secret": "",
     "owner_local_agent_url": "http://127.0.0.1:3107",
     "owner_local_agent_token": "",
-    "radar_owner_panel_url": "http://127.0.0.1:3001/bancodedados?tab=motores",
     "pr_lab_base_branch": "master",
     "pr_lab_worktree_dir": str(HBX_REPO_DIR / ".worktrees"),
     "pr_lab_localhost_url": "http://127.0.0.1:3000",
@@ -1021,6 +1019,8 @@ class HbxOwnerApp(tk.Tk):
         self.config_entries: dict[str, tk.StringVar] = {}
         self.ops_status_var = tk.StringVar(value="Ops Control pronto para consultar.")
         self.ops_runtime_var = tk.StringVar(value="-")
+        self.ops_local_cockpit_var = tk.StringVar(value="-")
+        self.ops_vps_cockpit_var = tk.StringVar(value="-")
         self.ops_containers_var = tk.StringVar(value="-")
         self.ops_docker_var = tk.StringVar(value="-")
         self.ops_watchdog_var = tk.StringVar(value="-")
@@ -1028,12 +1028,11 @@ class HbxOwnerApp(tk.Tk):
         self.ops_panel_url_var = tk.StringVar(value="Painel IP: carregando...")
         self.ops_tree: ttk.Treeview | None = None
         self.ops_events_text: tk.Text | None = None
-        self.radar_engine_status_var = tk.StringVar(value="Radar Motores: aguardando agent local.")
+        self.radar_engine_status_var = tk.StringVar(value="Motores locais: aguardando agent local.")
         self.radar_engine_total_var = tk.StringVar(value="-")
         self.radar_engine_running_var = tk.StringVar(value="-")
         self.radar_engine_stopped_var = tk.StringVar(value="-")
         self.radar_engine_agent_var = tk.StringVar(value="-")
-        self.radar_engine_panel_var = tk.StringVar(value="Painel Master: carregando...")
         self.radar_engine_selected_var = tk.StringVar(value="Nenhum motor selecionado.")
         self.radar_engine_tree: ttk.Treeview | None = None
         self.radar_engine_events_text: tk.Text | None = None
@@ -1119,8 +1118,6 @@ class HbxOwnerApp(tk.Tk):
                 self._build_chatgpt_tab(frame)
             elif name == "Relatórios":
                 self._build_reports_tab(frame)
-            elif name == "Radar Motores":
-                self._build_radar_engines_tab(frame)
             elif name == "Config":
                 self._build_config_tab(frame)
             else:
@@ -1388,29 +1385,25 @@ class HbxOwnerApp(tk.Tk):
         )
         body.grid(row=1, column=0, sticky="nw", pady=(16, 0))
 
-    def _build_radar_engines_tab(self, frame: ttk.Frame) -> None:
-        self.page_title(frame, "Radar Motores", "Controle local do Elastic Engine Governor no Windows Owner")
-        frame.columnconfigure(0, weight=1)
-        frame.rowconfigure(3, weight=2)
-        frame.rowconfigure(4, weight=1)
+    def _build_radar_engines_panel(self, parent: ttk.Frame, row: int) -> None:
+        panel = tk.Frame(parent, bg=THEME["card"], highlightthickness=1, highlightbackground=THEME["line"])
+        panel.grid(row=row, column=0, sticky="nsew", pady=(12, 0))
+        panel.columnconfigure(0, weight=1)
+        panel.rowconfigure(2, weight=1)
 
-        hero = tk.Frame(frame, bg=THEME["card"], highlightthickness=1, highlightbackground=THEME["line"])
-        hero.grid(row=1, column=0, sticky="ew", pady=(14, 12))
-        hero.columnconfigure(0, weight=1)
-        hero_body = tk.Frame(hero, bg=THEME["card"], padx=18, pady=14)
-        hero_body.grid(row=0, column=0, sticky="ew")
-        hero_body.columnconfigure(0, weight=1)
-
+        header = tk.Frame(panel, bg=THEME["card"], padx=14, pady=12)
+        header.grid(row=0, column=0, sticky="ew")
+        header.columnconfigure(0, weight=1)
         tk.Label(
-            hero_body,
-            text="Elastic Engine Governor",
+            header,
+            text="Motores locais do Radar",
             bg=THEME["card"],
             fg=THEME["text"],
-            font=(self.font_family, 18, "bold"),
+            font=(self.font_family, 12, "bold"),
             anchor="w",
         ).grid(row=0, column=0, sticky="w")
         tk.Label(
-            hero_body,
+            header,
             textvariable=self.radar_engine_status_var,
             bg=THEME["card"],
             fg=THEME["muted"],
@@ -1418,30 +1411,27 @@ class HbxOwnerApp(tk.Tk):
             anchor="w",
         ).grid(row=1, column=0, sticky="w", pady=(4, 0))
         tk.Label(
-            hero_body,
-            textvariable=self.radar_engine_panel_var,
+            header,
+            textvariable=self.radar_engine_selected_var,
             bg=THEME["card"],
             fg=THEME["accent"],
             font=(self.font_family, 9, "bold"),
             anchor="w",
         ).grid(row=2, column=0, sticky="w", pady=(6, 0))
 
-        actions = tk.Frame(hero_body, bg=THEME["card"])
+        actions = tk.Frame(header, bg=THEME["card"])
         actions.grid(row=0, column=1, rowspan=3, sticky="e")
-        ttk.Button(actions, text="Abrir painel Master", command=self.open_radar_owner_panel, style="Accent.TButton").grid(
+        ttk.Button(actions, text="Atualizar motores", command=self.refresh_radar_engines, style="Success.TButton").grid(
             row=0, column=0, padx=(0, 8)
         )
-        ttk.Button(actions, text="Atualizar", command=self.refresh_radar_engines, style="Success.TButton").grid(
-            row=0, column=1, padx=8
-        )
-        ttk.Button(actions, text="Iniciar motor", command=self.start_selected_radar_engine).grid(row=0, column=2, padx=8)
+        ttk.Button(actions, text="Iniciar motor", command=self.start_selected_radar_engine).grid(row=0, column=1, padx=8)
         ttk.Button(actions, text="Parar container", command=self.stop_selected_radar_engine, style="Danger.TButton").grid(
-            row=0, column=3, padx=8
+            row=0, column=2, padx=8
         )
-        ttk.Button(actions, text="Logs", command=self.show_selected_radar_engine_logs).grid(row=0, column=4, padx=(8, 0))
+        ttk.Button(actions, text="Logs do motor", command=self.show_selected_radar_engine_logs).grid(row=0, column=3, padx=(8, 0))
 
-        metrics = ttk.Frame(frame, style="App.TFrame")
-        metrics.grid(row=2, column=0, sticky="ew", pady=(0, 12))
+        metrics = ttk.Frame(panel, style="App.TFrame")
+        metrics.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 12))
         for col in range(4):
             metrics.columnconfigure(col, weight=1)
         self.ops_metric_card(metrics, 0, "Total", self.radar_engine_total_var, "#2563eb")
@@ -1449,22 +1439,30 @@ class HbxOwnerApp(tk.Tk):
         self.ops_metric_card(metrics, 2, "Parados", self.radar_engine_stopped_var, "#b42318")
         self.ops_metric_card(metrics, 3, "Agent", self.radar_engine_agent_var, "#0e7490")
 
-        table_panel = tk.Frame(frame, bg=THEME["card"], highlightthickness=1, highlightbackground=THEME["line"])
-        table_panel.grid(row=3, column=0, sticky="nsew")
-        table_panel.columnconfigure(0, weight=1)
-        table_panel.rowconfigure(1, weight=1)
+        body = tk.Frame(panel, bg=THEME["card"])
+        body.grid(row=2, column=0, sticky="nsew", padx=12, pady=(0, 12))
+        body.columnconfigure(0, weight=3)
+        body.columnconfigure(2, weight=2)
+        body.rowconfigure(1, weight=1)
         tk.Label(
-            table_panel,
+            body,
             text="Containers hbx-engine-*",
             bg=THEME["card"],
             fg=THEME["text"],
-            font=(self.font_family, 12, "bold"),
+            font=(self.font_family, 11, "bold"),
             anchor="w",
-            padx=14,
-            pady=10,
-        ).grid(row=0, column=0, sticky="ew")
+        ).grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        tk.Label(
+            body,
+            text="Eventos do motor",
+            bg=THEME["card"],
+            fg=THEME["text"],
+            font=(self.font_family, 11, "bold"),
+            anchor="w",
+        ).grid(row=0, column=2, sticky="ew", pady=(0, 8), padx=(12, 0))
+
         columns = ("name", "state", "cpu", "memory", "mem_percent", "ports")
-        tree = ttk.Treeview(table_panel, columns=columns, show="headings", height=11)
+        tree = ttk.Treeview(body, columns=columns, show="headings", height=8)
         headings = {
             "name": "Motor",
             "state": "Estado",
@@ -1474,12 +1472,12 @@ class HbxOwnerApp(tk.Tk):
             "ports": "Portas",
         }
         widths = {
-            "name": 180,
-            "state": 110,
-            "cpu": 85,
-            "memory": 190,
-            "mem_percent": 90,
-            "ports": 440,
+            "name": 170,
+            "state": 100,
+            "cpu": 75,
+            "memory": 150,
+            "mem_percent": 80,
+            "ports": 280,
         }
         for column in columns:
             tree.heading(column, text=headings[column])
@@ -1487,49 +1485,30 @@ class HbxOwnerApp(tk.Tk):
         tree.tag_configure("running", foreground=THEME["success"])
         tree.tag_configure("stopped", foreground=THEME["danger"])
         tree.tag_configure("other", foreground=THEME["muted"])
-        tree.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 12))
-        tree_scroll = ttk.Scrollbar(table_panel, orient="vertical", command=tree.yview)
-        tree_scroll.grid(row=1, column=1, sticky="ns", pady=(0, 12))
+        tree.grid(row=1, column=0, sticky="nsew")
+        tree_scroll = ttk.Scrollbar(body, orient="vertical", command=tree.yview)
+        tree_scroll.grid(row=1, column=1, sticky="ns")
         tree.configure(yscrollcommand=tree_scroll.set)
         tree.bind("<<TreeviewSelect>>", self.on_radar_engine_selected)
         self.radar_engine_tree = tree
 
-        events_panel = tk.Frame(frame, bg=THEME["card"], highlightthickness=1, highlightbackground=THEME["line"])
-        events_panel.grid(row=4, column=0, sticky="nsew", pady=(12, 0))
-        events_panel.columnconfigure(0, weight=1)
-        events_panel.rowconfigure(1, weight=1)
-        tk.Label(
-            events_panel,
-            text="Eventos e orientações",
-            bg=THEME["card"],
-            fg=THEME["text"],
-            font=(self.font_family, 12, "bold"),
-            anchor="w",
-            padx=14,
-            pady=10,
-        ).grid(row=0, column=0, sticky="ew")
-        self.radar_engine_events_text = tk.Text(events_panel, height=7, wrap="word")
+        self.radar_engine_events_text = tk.Text(body, height=8, wrap="word")
         self.style_text_widget(self.radar_engine_events_text)
-        self.radar_engine_events_text.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 12))
-        events_scroll = ttk.Scrollbar(events_panel, orient="vertical", command=self.radar_engine_events_text.yview)
-        events_scroll.grid(row=1, column=1, sticky="ns", pady=(0, 12))
+        self.radar_engine_events_text.grid(row=1, column=2, sticky="nsew", padx=(12, 0))
+        events_scroll = ttk.Scrollbar(body, orient="vertical", command=self.radar_engine_events_text.yview)
+        events_scroll.grid(row=1, column=3, sticky="ns")
         self.radar_engine_events_text.configure(yscrollcommand=events_scroll.set)
-        self.radar_engine_panel_var.set(f"Painel Master: {self.radar_owner_panel_url()}")
         self.set_radar_engine_events(
-            "Use Atualizar para consultar o agent local.\n"
-            "Force night, cancelamento de factory e dreno por lease ficam no painel Master web."
+            "Motores locais consolidados no Ops Control.\n"
+            "Use Atualizar motores para consultar o agent local sem sair do Ops Control."
         )
-        self.after(300, self.refresh_radar_engines)
+        self.after(350, self.refresh_radar_engines)
 
     def owner_local_agent_url(self) -> str:
         return str(self.config_data.get("owner_local_agent_url") or DEFAULT_CONFIG["owner_local_agent_url"]).strip().rstrip("/")
 
     def owner_local_agent_token(self) -> str:
         return str(os.environ.get("HBX_OWNER_LOCAL_TOKEN") or self.config_data.get("owner_local_agent_token") or "").strip()
-
-    def radar_owner_panel_url(self) -> str:
-        configured = str(self.config_data.get("radar_owner_panel_url") or DEFAULT_CONFIG["radar_owner_panel_url"]).strip()
-        return configured or DEFAULT_CONFIG["radar_owner_panel_url"]
 
     def owner_local_agent_request(self, path: str, method: str = "GET", payload: dict | None = None, timeout: int = 12) -> dict:
         base_url = self.owner_local_agent_url()
@@ -1584,7 +1563,7 @@ class HbxOwnerApp(tk.Tk):
 
     def apply_radar_engine_error(self, message: str) -> None:
         self.radar_engine_agent_var.set("falha")
-        self.radar_engine_status_var.set("Radar Motores com alerta.")
+        self.radar_engine_status_var.set("Motores locais com alerta.")
         self.set_radar_engine_events(
             f"{message}\n\n"
             "Inicie o agent com:\n"
@@ -1628,7 +1607,7 @@ class HbxOwnerApp(tk.Tk):
             self.set_radar_engine_events("\n".join(errors))
         else:
             self.set_radar_engine_events(
-                "Consulta local concluída. Para forçar noite, cancelar factory ou drenar com lease, abra o painel Master web."
+                "Consulta local concluída. Os motores locais agora ficam consolidados no Ops Control."
             )
 
     def selected_radar_engine_name(self) -> str:
@@ -1647,9 +1626,9 @@ class HbxOwnerApp(tk.Tk):
     def run_radar_engine_action(self, action: str, confirm_message: str = "") -> None:
         name = self.selected_radar_engine_name()
         if not name:
-            messagebox.showwarning("Radar Motores", "Selecione um motor primeiro.")
+            messagebox.showwarning("Ops Control", "Selecione um motor primeiro.")
             return
-        if confirm_message and not messagebox.askyesno("Radar Motores", confirm_message):
+        if confirm_message and not messagebox.askyesno("Ops Control", confirm_message):
             return
         self.radar_engine_status_var.set(f"Executando {action} em {name}...")
 
@@ -1680,13 +1659,13 @@ class HbxOwnerApp(tk.Tk):
     def stop_selected_radar_engine(self) -> None:
         self.run_radar_engine_action(
             "stop",
-            "Parar container local não substitui o dreno de lease no backend. Use apenas se o motor estiver ocioso ou se você já drenou pelo painel Master. Continuar?",
+            "Parar container local não substitui o dreno de lease no backend. Use apenas se o motor estiver ocioso ou se você já drenou a tarefa no fluxo operacional. Continuar?",
         )
 
     def show_selected_radar_engine_logs(self) -> None:
         name = self.selected_radar_engine_name()
         if not name:
-            messagebox.showwarning("Radar Motores", "Selecione um motor primeiro.")
+            messagebox.showwarning("Ops Control", "Selecione um motor primeiro.")
             return
         self.radar_engine_status_var.set(f"Buscando logs de {name}...")
 
@@ -1704,17 +1683,12 @@ class HbxOwnerApp(tk.Tk):
         self.radar_engine_status_var.set(f"Logs de {name} carregados.")
         self.set_radar_engine_events(log)
 
-    def open_radar_owner_panel(self) -> None:
-        url = self.radar_owner_panel_url()
-        self.radar_engine_panel_var.set(f"Painel Master: {url}")
-        webbrowser.open(url)
-        self.radar_engine_status_var.set(f"Painel Master aberto: {url}")
-
     def _build_ops_control_tab(self, frame: ttk.Frame) -> None:
-        self.page_title(frame, "Ops Control", "Painel técnico dentro do Master")
+        self.page_title(frame, "Ops Control", "Cockpit Local x VPS do scraping Radar")
         frame.columnconfigure(0, weight=1)
         frame.rowconfigure(3, weight=2)
-        frame.rowconfigure(4, weight=1)
+        frame.rowconfigure(4, weight=2)
+        frame.rowconfigure(5, weight=1)
 
         hero = tk.Frame(frame, bg=THEME["card"], highlightthickness=1, highlightbackground=THEME["line"])
         hero.grid(row=1, column=0, sticky="ew", pady=(14, 12))
@@ -1725,7 +1699,7 @@ class HbxOwnerApp(tk.Tk):
 
         tk.Label(
             hero_body,
-            text="Ops Control",
+            text="Ops Control - Cockpit Local x VPS",
             bg=THEME["card"],
             fg=THEME["text"],
             font=(self.font_family, 18, "bold"),
@@ -1750,7 +1724,7 @@ class HbxOwnerApp(tk.Tk):
 
         actions = tk.Frame(hero_body, bg=THEME["card"])
         actions.grid(row=0, column=1, rowspan=3, sticky="e")
-        ttk.Button(actions, text="Abrir painel", command=self.open_ops_control_web, style="Accent.TButton").grid(
+        ttk.Button(actions, text="Abrir cockpit", command=self.open_ops_control_web, style="Accent.TButton").grid(
             row=0, column=0, padx=(0, 8)
         )
         ttk.Button(actions, text="Iniciar painel", command=self.start_ops_control_native, style="Success.TButton").grid(
@@ -1767,13 +1741,14 @@ class HbxOwnerApp(tk.Tk):
 
         metrics = ttk.Frame(frame, style="App.TFrame")
         metrics.grid(row=2, column=0, sticky="ew", pady=(0, 12))
-        for col in range(5):
+        for col in range(6):
             metrics.columnconfigure(col, weight=1)
         self.ops_metric_card(metrics, 0, "Painel", self.ops_runtime_var, "#0e7490")
-        self.ops_metric_card(metrics, 1, "Containers", self.ops_containers_var, "#2563eb")
-        self.ops_metric_card(metrics, 2, "Docker", self.ops_docker_var, "#16a34a")
-        self.ops_metric_card(metrics, 3, "Watchdog", self.ops_watchdog_var, "#b45309")
-        self.ops_metric_card(metrics, 4, "Atualizado", self.ops_updated_var, "#64748b")
+        self.ops_metric_card(metrics, 1, "Local", self.ops_local_cockpit_var, "#2563eb")
+        self.ops_metric_card(metrics, 2, "VPS", self.ops_vps_cockpit_var, "#16a34a")
+        self.ops_metric_card(metrics, 3, "Containers", self.ops_containers_var, "#7c3aed")
+        self.ops_metric_card(metrics, 4, "Docker", self.ops_docker_var, "#b45309")
+        self.ops_metric_card(metrics, 5, "Atualizado", self.ops_updated_var, "#64748b")
 
         table_panel = tk.Frame(frame, bg=THEME["card"], highlightthickness=1, highlightbackground=THEME["line"])
         table_panel.grid(row=3, column=0, sticky="nsew")
@@ -1810,8 +1785,10 @@ class HbxOwnerApp(tk.Tk):
         tree.configure(yscrollcommand=tree_scroll.set)
         self.ops_tree = tree
 
+        self._build_radar_engines_panel(frame, row=4)
+
         events_panel = tk.Frame(frame, bg=THEME["card"], highlightthickness=1, highlightbackground=THEME["line"])
-        events_panel.grid(row=4, column=0, sticky="nsew", pady=(12, 0))
+        events_panel.grid(row=5, column=0, sticky="nsew", pady=(12, 0))
         events_panel.columnconfigure(0, weight=1)
         events_panel.rowconfigure(1, weight=1)
         tk.Label(
@@ -1830,8 +1807,8 @@ class HbxOwnerApp(tk.Tk):
         events_scroll = ttk.Scrollbar(events_panel, orient="vertical", command=self.ops_events_text.yview)
         events_scroll.grid(row=1, column=1, sticky="ns", pady=(0, 12))
         self.ops_events_text.configure(yscrollcommand=events_scroll.set)
-        self.set_ops_events("Ops Control carregado dentro do Master.\nClique em Atualizar para consultar Docker sem abrir terminal.")
-        self.ops_panel_url_var.set(f"Painel IP: {self.ops_control_panel_url()}")
+        self.set_ops_events("Ops Control carregado como cockpit Local x VPS.\nClique em Atualizar para consultar scraping, Docker e banco pelo ops-control.")
+        self.ops_panel_url_var.set(f"Cockpit: {self.ops_control_panel_url()}")
         self.after(250, self.refresh_ops_control)
 
     def ops_metric_card(self, parent: ttk.Frame, col: int, label: str, var: tk.StringVar, accent: str) -> None:
@@ -1903,6 +1880,14 @@ class HbxOwnerApp(tk.Tk):
         port = self.read_ops_env_public_value("OPS_CONTROL_PORT") or "3099"
         return f"http://127.0.0.1:{port}"
 
+    def ops_control_api_url(self, path: str) -> str:
+        base = self.ops_control_panel_url().rstrip("/")
+        clean_path = path if path.startswith("/") else f"/{path}"
+        return f"{base}{clean_path}"
+
+    def read_ops_control_token(self) -> str:
+        return str(os.environ.get("OPS_CONTROL_TOKEN") or self.read_ops_env_public_value("OPS_CONTROL_TOKEN") or "").strip()
+
     def ops_compose_command(self, action: str) -> list[str]:
         return [
             "docker",
@@ -1921,7 +1906,7 @@ class HbxOwnerApp(tk.Tk):
         if not self.ops_control_files_ready():
             return
         self.ops_status_var.set("Iniciando Ops Control em background...")
-        self.ops_panel_url_var.set(f"Painel IP: {self.ops_control_panel_url()}")
+        self.ops_panel_url_var.set(f"Cockpit: {self.ops_control_panel_url()}")
 
         def worker() -> None:
             command = self.ops_compose_command("up")
@@ -1967,7 +1952,7 @@ class HbxOwnerApp(tk.Tk):
         self.refresh_ops_control()
 
     def refresh_ops_control(self) -> None:
-        self.ops_status_var.set("Consultando Docker e Ops Control...")
+        self.ops_status_var.set("Consultando cockpit Local x VPS...")
 
         def worker() -> None:
             snapshot = self.collect_ops_snapshot()
@@ -2008,6 +1993,7 @@ class HbxOwnerApp(tk.Tk):
         running = sum(1 for item in containers if item.get("state") == "running")
         ops_state = self.find_container_state(containers, ("ops-control", "hbx-owner-ops-control", "hbx-master-ops-control"))
         watchdog_state = self.find_container_state(containers, ("watchdog", "hbx-engine-watchdog", "hbx-watchdog"))
+        cockpit, cockpit_error = self.fetch_ops_radar_cockpit()
         errors = []
         if not ps_ok:
             errors.append(self.friendly_docker_error(ps_output or "Docker ps falhou."))
@@ -2015,6 +2001,8 @@ class HbxOwnerApp(tk.Tk):
             errors.append(self.friendly_docker_error(stats_output or "Docker stats indisponível."))
         if not OPS_CONTROL_ENV_PATH.exists():
             errors.append(".env.ops-control não encontrado na raiz do repo.")
+        if cockpit_error:
+            errors.append(cockpit_error)
         return {
             "containers": containers,
             "running": running,
@@ -2022,9 +2010,29 @@ class HbxOwnerApp(tk.Tk):
             "ops_state": ops_state,
             "watchdog_state": watchdog_state,
             "docker_ok": ps_ok,
+            "cockpit": cockpit,
             "errors": errors,
             "updated_at": datetime.now().strftime("%H:%M:%S"),
         }
+
+    def fetch_ops_radar_cockpit(self) -> tuple[dict | None, str]:
+        token = self.read_ops_control_token()
+        if not token:
+            return None, "OPS_CONTROL_TOKEN não configurado para consultar /api/radar-cockpit."
+        url = self.ops_control_api_url("/api/radar-cockpit")
+        request = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+        try:
+            with urllib.request.urlopen(request, timeout=8) as response:
+                raw = response.read().decode("utf-8", errors="replace")
+            return json.loads(raw), ""
+        except urllib.error.HTTPError as exc:
+            if exc.code == 401:
+                return None, "Token do Ops Control inválido para consultar o cockpit."
+            return None, f"Cockpit Local x VPS respondeu HTTP {exc.code}."
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            return None, f"Cockpit Local x VPS indisponível: {exc}"
+        except json.JSONDecodeError:
+            return None, "Cockpit Local x VPS respondeu JSON inválido."
 
     def parse_docker_rows(self, output: str) -> list[dict]:
         rows = []
@@ -2097,6 +2105,8 @@ class HbxOwnerApp(tk.Tk):
         ops_state = str(snapshot["ops_state"])
         watchdog_state = str(snapshot["watchdog_state"])
         self.ops_runtime_var.set(self.state_label(ops_state))
+        cockpit = snapshot.get("cockpit") if isinstance(snapshot.get("cockpit"), dict) else None
+        self.apply_ops_cockpit_metrics(cockpit)
         self.ops_containers_var.set(f"{snapshot['running']} / {snapshot['total']}")
         self.ops_docker_var.set("online" if snapshot["docker_ok"] else "falha")
         self.ops_watchdog_var.set(self.state_label(watchdog_state))
@@ -2119,13 +2129,60 @@ class HbxOwnerApp(tk.Tk):
                     ),
                     tags=(tag,),
                 )
+        cockpit_summary = self.format_ops_cockpit_summary(cockpit)
         errors = snapshot.get("errors") or []
         if errors:
             self.ops_status_var.set("Ops Control consultado com alertas.")
-            self.set_ops_events("\n".join(str(error) for error in errors))
+            message = "\n\n".join(part for part in [cockpit_summary, "\n".join(str(error) for error in errors)] if part)
+            self.set_ops_events(message)
         else:
-            self.ops_status_var.set("Ops Control atualizado dentro do Master.")
-            self.set_ops_events("Consulta concluída. Selecione um container e clique em Logs para ver eventos recentes.")
+            self.ops_status_var.set("Cockpit Local x VPS atualizado.")
+            self.set_ops_events(cockpit_summary or "Consulta concluída. Selecione um container e clique em Logs para ver eventos recentes.")
+
+    def apply_ops_cockpit_metrics(self, cockpit: dict | None) -> None:
+        environments = cockpit.get("environments") if isinstance(cockpit, dict) else {}
+        self.ops_local_cockpit_var.set(self.ops_environment_metric(environments.get("localhost") if isinstance(environments, dict) else None))
+        self.ops_vps_cockpit_var.set(self.ops_environment_metric(environments.get("vps") if isinstance(environments, dict) else None))
+
+    def ops_environment_metric(self, data: dict | None) -> str:
+        if not isinstance(data, dict):
+            return "offline"
+        if data.get("available") is False:
+            return "config"
+        working = data.get("workingNow") if isinstance(data.get("workingNow"), dict) else {}
+        status = str(working.get("status") or "").lower()
+        if status in {"running", "queued", "sleeping", "partial_error", "locked"}:
+            return "trabalhando"
+        backend = data.get("services", {}).get("backend", {}) if isinstance(data.get("services"), dict) else {}
+        if str(backend.get("state") or "").lower() == "running":
+            return "pronto"
+        return "alerta"
+
+    def format_ops_cockpit_summary(self, cockpit: dict | None) -> str:
+        if not isinstance(cockpit, dict):
+            return ""
+        environments = cockpit.get("environments") if isinstance(cockpit.get("environments"), dict) else {}
+        lines = ["Cockpit Local x VPS"]
+        for key, label in (("localhost", "Local"), ("vps", "VPS")):
+            data = environments.get(key)
+            if not isinstance(data, dict):
+                lines.append(f"{label}: sem dados.")
+                continue
+            if data.get("available") is False:
+                lines.append(f"{label}: indisponível - {data.get('message') or 'sem detalhe'}")
+                continue
+            working = data.get("workingNow") if isinstance(data.get("workingNow"), dict) else {}
+            engines = data.get("engineSummary") if isinstance(data.get("engineSummary"), dict) else {}
+            stock = data.get("leadStock") if isinstance(data.get("leadStock"), dict) else {}
+            title = working.get("title") or "sem scraping ativo"
+            query = working.get("query") or working.get("subtitle") or ""
+            lines.append(
+                f"{label}: {self.ops_environment_metric(data)} | {title} | motores {engines.get('running', 0)}/{engines.get('total', 0)} | "
+                f"email 24h {stock.get('withEmail24h', 0)} | bloqueios {data.get('blocked24h', 0)}"
+            )
+            if query:
+                lines.append(f"  query/contexto: {query}")
+        return "\n".join(lines)
 
     def selected_ops_container_name(self) -> str:
         if not self.ops_tree:
@@ -2176,9 +2233,9 @@ class HbxOwnerApp(tk.Tk):
 
     def open_ops_control_web(self) -> None:
         url = self.ops_control_panel_url()
-        self.ops_panel_url_var.set(f"Painel IP: {url}")
+        self.ops_panel_url_var.set(f"Cockpit: {url}")
         webbrowser.open(url)
-        self.ops_status_var.set(f"Painel web do Ops Control aberto: {url}")
+        self.ops_status_var.set(f"Cockpit Local x VPS aberto: {url}")
 
     def _build_today_tab(self, frame: ttk.Frame) -> None:
         self.page_title(frame, "Hoje", "Ponto, foco e execução")
@@ -10101,7 +10158,6 @@ exit 0
             ("owner_tickets_secret", "Owner tickets secret"),
             ("owner_local_agent_url", "Owner local agent URL"),
             ("owner_local_agent_token", "Owner local agent token"),
-            ("radar_owner_panel_url", "Radar painel Master URL"),
             ("pr_lab_base_branch", "Branches base branch"),
             ("pr_lab_worktree_dir", "Branches worktree dir"),
             ("pr_lab_localhost_url", "Branches localhost URL"),

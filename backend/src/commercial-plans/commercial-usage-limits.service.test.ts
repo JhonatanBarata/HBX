@@ -123,6 +123,9 @@ test('HBX operation seller usage limit is daily per seller instead of master unl
   assert.equal(snapshot.enrichment.dailyLimit, 30);
   assert.equal(snapshot.enrichment.dailyUsed, 30);
   assert.equal(snapshot.enrichment.dailyRemaining, 0);
+  assert.equal(snapshot.enrichment.dailyLimitSource, 'hbx_default');
+  assert.equal(snapshot.enrichment.configuredDailyLimit, null);
+  assert.equal(snapshot.enrichment.fallbackDailyLimit, 30);
 });
 
 test('HBX operation seller enrichment limit can be overridden per seller', async () => {
@@ -145,9 +148,36 @@ test('HBX operation seller enrichment limit can be overridden per seller', async
 
   assert.equal(snapshot.enrichment.dailyLimit, 12);
   assert.equal(snapshot.enrichment.dailyRemaining, 12);
+  assert.equal(snapshot.enrichment.dailyLimitSource, 'owner_override');
+  assert.equal(snapshot.enrichment.configuredDailyLimit, 12);
+  assert.equal(snapshot.enrichment.fallbackDailyLimit, 30);
   assert.equal(snapshot.enrichment.canAutoEnrich, false);
   assert.equal(snapshot.enrichment.canManualEnrich, true);
   assert.equal(snapshot.enrichment.mode, 'manual_only');
+});
+
+test('HBX operation seller enrichment override accepts owner configured 250', async () => {
+  const service = new CommercialUsageLimitsService({
+    company: {
+      findUnique: async () => ({
+        timezone: 'America/Sao_Paulo',
+        slug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
+      }),
+    },
+    user: {
+      count: async () => 3,
+      findUnique: async () => ({ isSystemMaster: false, role: 'USER', sellerDistributionDailyLimitOverride: 250 }),
+    },
+    $queryRawUnsafe: async () => [],
+    companyCommercialUsageLog: { count: async () => 0 },
+  } as any);
+
+  const snapshot = await service.getUsageSnapshot(1, 7);
+
+  assert.equal(snapshot.enrichment.dailyLimit, 250);
+  assert.equal(snapshot.enrichment.dailyRemaining, 250);
+  assert.equal(snapshot.enrichment.dailyLimitSource, 'owner_override');
+  assert.equal(snapshot.enrichment.configuredDailyLimit, 250);
 });
 
 test('HBX operation seller enrichment override zero means auto/unlimited for the day', async () => {
@@ -170,6 +200,8 @@ test('HBX operation seller enrichment override zero means auto/unlimited for the
 
   assert.equal(snapshot.enrichment.dailyLimit, 999999);
   assert.equal(snapshot.enrichment.dailyRemaining, 999999);
+  assert.equal(snapshot.enrichment.dailyLimitSource, 'owner_override_unlimited');
+  assert.equal(snapshot.enrichment.configuredDailyLimit, 0);
   assert.equal(snapshot.enrichment.canAutoEnrich, false);
   assert.equal(snapshot.enrichment.canManualEnrich, true);
 });

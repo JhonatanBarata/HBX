@@ -5159,6 +5159,79 @@ test('search-run hbx so finaliza lote vazio quando maxEmptyBatches e atingido', 
   }
 });
 
+test('search-run hbx encerra entrega parcial perto da meta quando lotes ficam estagnados', async () => {
+  const previousFetch = global.fetch;
+  const previousBatchLimit = process.env.HBX_SEARCH_RUN_BATCH_LIMIT;
+  const previousMaxAttempts = process.env.HBX_SEARCH_RUN_MAX_ATTEMPTS;
+  const previousMaxEmpty = process.env.HBX_SEARCH_RUN_MAX_EMPTY_BATCHES;
+  const previousMaxStalled = process.env.HBX_SEARCH_RUN_MAX_STALLED_PARTIAL_BATCHES;
+  process.env.HBX_SEARCH_RUN_BATCH_LIMIT = '10';
+  process.env.HBX_SEARCH_RUN_MAX_ATTEMPTS = '200';
+  process.env.HBX_SEARCH_RUN_MAX_EMPTY_BATCHES = '120';
+  process.env.HBX_SEARCH_RUN_MAX_STALLED_PARTIAL_BATCHES = '5';
+
+  global.fetch = (async () =>
+    createResponse(200, {
+      results: [],
+    }) as any) as any;
+
+  const { prisma, run, items } = createSearchRunPrisma({
+    targetQuantity: 30,
+    foundCount: 29,
+    attemptCount: 4,
+    consecutiveEmptyBatchCount: 4,
+    segment: 'oficina, auto center, funilaria, pneus, borracharia',
+    metricsJson: JSON.stringify({ radiusKm: 100 }),
+  });
+  for (let index = 0; index < 29; index += 1) {
+    items.push({
+      id: `prefill-${index + 1}`,
+      runId: 'run-1',
+      companyId: 7,
+      userId: 9,
+      status: 'found',
+      placeId: `prefill-${index + 1}`,
+      name: `Oficina ${index + 1}`,
+      phone: `(19) 99999-${String(index + 1).padStart(4, '0')}`,
+      phoneDigits: `1999999${String(index + 1).padStart(4, '0')}`,
+      city: 'Campinas',
+      state: 'SP',
+      segment: 'oficina',
+      source: 'hbx_scraping:web',
+    });
+  }
+  const service = new WebscrapingService(prisma);
+  disableSearchRunAutoPump(service);
+  (service as any).supportsHistoryPersistence = async () => false;
+  const lease = {
+    engineId: 'hbx-engine-1',
+    engineIndex: 0,
+    url: 'http://engine-1',
+    lockedUntil: new Date(Date.now() + 60_000),
+    googleEmergencyMode: false,
+  };
+
+  try {
+    await (service as any).processSearchRun('run-1', createUser(), undefined, lease);
+
+    assert.equal(run.attemptCount, 5);
+    assert.equal(run.consecutiveEmptyBatchCount, 5);
+    assert.equal(run.status, 'completed_insufficient_results');
+    assert.match(String(run.errorMessage || ''), /Entreguei 29 de 30 card\(s\); faltou 1/i);
+    assert.doesNotMatch(String(run.errorMessage || ''), /cidade|cidades/i);
+  } finally {
+    global.fetch = previousFetch;
+    if (previousBatchLimit === undefined) delete process.env.HBX_SEARCH_RUN_BATCH_LIMIT;
+    else process.env.HBX_SEARCH_RUN_BATCH_LIMIT = previousBatchLimit;
+    if (previousMaxAttempts === undefined) delete process.env.HBX_SEARCH_RUN_MAX_ATTEMPTS;
+    else process.env.HBX_SEARCH_RUN_MAX_ATTEMPTS = previousMaxAttempts;
+    if (previousMaxEmpty === undefined) delete process.env.HBX_SEARCH_RUN_MAX_EMPTY_BATCHES;
+    else process.env.HBX_SEARCH_RUN_MAX_EMPTY_BATCHES = previousMaxEmpty;
+    if (previousMaxStalled === undefined) delete process.env.HBX_SEARCH_RUN_MAX_STALLED_PARTIAL_BATCHES;
+    else process.env.HBX_SEARCH_RUN_MAX_STALLED_PARTIAL_BATCHES = previousMaxStalled;
+  }
+});
+
 test('campanha radar cria target 10000 sem executar lote no HTTP de criacao', async () => {
   const { prisma, campaign } = createCampaignPrisma();
   const service = new WebscrapingService(prisma);

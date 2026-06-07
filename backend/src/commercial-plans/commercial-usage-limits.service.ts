@@ -438,6 +438,31 @@ export class CommercialUsageLimitsService {
     };
   }
 
+  private resolveHbxSellerEnrichmentLimit(enrichmentLimitOverride?: number | null) {
+    if (enrichmentLimitOverride === 0) {
+      return {
+        dailyLimit: HBX_SELLER_MONTHLY_CARD_LIMIT,
+        dailyLimitSource: 'owner_override_unlimited',
+        configuredDailyLimit: 0,
+        fallbackDailyLimit: HBX_SELLER_DAILY_ENRICHMENT_LIMIT,
+      };
+    }
+    if (typeof enrichmentLimitOverride === 'number' && enrichmentLimitOverride > 0) {
+      return {
+        dailyLimit: enrichmentLimitOverride,
+        dailyLimitSource: 'owner_override',
+        configuredDailyLimit: enrichmentLimitOverride,
+        fallbackDailyLimit: HBX_SELLER_DAILY_ENRICHMENT_LIMIT,
+      };
+    }
+    return {
+      dailyLimit: HBX_SELLER_DAILY_ENRICHMENT_LIMIT,
+      dailyLimitSource: 'hbx_default',
+      configuredDailyLimit: null as number | null,
+      fallbackDailyLimit: HBX_SELLER_DAILY_ENRICHMENT_LIMIT,
+    };
+  }
+
   private buildUnlimitedSnapshot(input: {
     planKey: string;
     timezone: string;
@@ -489,6 +514,9 @@ export class CommercialUsageLimitsService {
         dailyUsed: 0,
         dailyLimit: unlimited,
         dailyRemaining: unlimited,
+        dailyLimitSource: 'system_master',
+        configuredDailyLimit: null as number | null,
+        fallbackDailyLimit: null as number | null,
         canAutoEnrich: true,
         canManualEnrich: true,
         mode: 'auto',
@@ -529,15 +557,16 @@ export class CommercialUsageLimitsService {
         : { perUserLimit: null as number | null, companyCap: 25, limit: 25 },
       enrichment: {
         dailyLimit: quotas.enrichmentsPerDay || (planKey === COMMERCIAL_PLAN_KEYS.LITE ? 3 : dailyCardSafetyLimit),
+        dailyLimitSource: 'plan',
+        configuredDailyLimit: null as number | null,
+        fallbackDailyLimit: null as number | null,
       },
     };
   }
 
   private computeHbxSellerOperationalLimits(billableUsers: number, enrichmentLimitOverride?: number | null) {
     const melhorLimits = this.computeLimits(COMMERCIAL_PLAN_KEYS.MELHOR, billableUsers);
-    const enrichmentDailyLimit = enrichmentLimitOverride === 0
-      ? HBX_SELLER_MONTHLY_CARD_LIMIT
-      : enrichmentLimitOverride || HBX_SELLER_DAILY_ENRICHMENT_LIMIT;
+    const enrichmentLimit = this.resolveHbxSellerEnrichmentLimit(enrichmentLimitOverride);
     return {
       cards: {
         perUserLimit: null as number | null,
@@ -548,7 +577,10 @@ export class CommercialUsageLimitsService {
       },
       emails: melhorLimits.emails,
       enrichment: {
-        dailyLimit: enrichmentDailyLimit,
+        dailyLimit: enrichmentLimit.dailyLimit,
+        dailyLimitSource: enrichmentLimit.dailyLimitSource,
+        configuredDailyLimit: enrichmentLimit.configuredDailyLimit,
+        fallbackDailyLimit: enrichmentLimit.fallbackDailyLimit,
       },
     };
   }
@@ -662,6 +694,9 @@ export class CommercialUsageLimitsService {
         dailyUserUsed: Math.max(0, enrichmentDailyUserUsed),
         dailyLimit: enrichmentDailyLimit,
         dailyRemaining: enrichmentDailyRemaining,
+        dailyLimitSource: limits.enrichment.dailyLimitSource,
+        configuredDailyLimit: limits.enrichment.configuredDailyLimit,
+        fallbackDailyLimit: limits.enrichment.fallbackDailyLimit,
         canAutoEnrich: enrichmentAutoEnabled,
         canManualEnrich: enrichmentDailyRemaining > 0,
         mode: enrichmentDailyRemaining > 0

@@ -297,6 +297,10 @@ export class RadarCoreSearchRunnerMixin {
     return this.getRadarSearchRunConfig().getHbxRunMaxFailedBatches();
   }
 
+  private getHbxRunMaxStalledPartialBatches() {
+    return this.getRadarSearchRunConfig().getHbxRunMaxStalledPartialBatches();
+  }
+
   private getHbxSearchRunRestDelayMs() {
     return this.getRadarSearchRunConfig().getHbxSearchRunRestDelayMs();
   }
