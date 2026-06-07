@@ -775,16 +775,21 @@ export class GerencialService {
       select: { id: true, commissionDueAt: true, saleStatus: true },
     });
     if (!existing) throw new NotFoundException('Lead comercial nao encontrado.');
+    const saleConfirmed = normalizeSaleStatus(existing.saleStatus) === 'sale_confirmed';
+    if (['payable', 'paid'].includes(status) && !saleConfirmed) {
+      throw new BadRequestException('Comissão só pode ser liberada após pagamento confirmado do cliente.');
+    }
     const now = new Date();
     const dueBusinessDays = await this.resolveCommissionDueBusinessDays(companyId);
     const data: any = {
       commissionStatus: status,
       commissionNote: typeof input?.commissionNote === 'string' ? input.commissionNote.trim() || null : undefined,
       commissionPaidAt: status === 'paid' ? now : null,
-      commissionDueAt: status === 'payable' ? existing.commissionDueAt || addBusinessDays(now, dueBusinessDays) : existing.commissionDueAt,
-      commissionRecurring: ['trial_started', 'sale_confirmed'].includes(String(existing.saleStatus || '').toLowerCase()) && status !== 'canceled',
+      commissionDueAt: saleConfirmed && status === 'payable' ? existing.commissionDueAt || addBusinessDays(now, dueBusinessDays) : null,
+      commissionRecurring: saleConfirmed && status !== 'canceled',
       commissionPayoutId: status === 'paid' ? undefined : null,
     };
+    if (!saleConfirmed) data.commissionAmount = 0;
     if (status === 'canceled') data.commissionRecurring = false;
     const updated = await this.prisma.vendasLead.update({
       where: { id: existing.id },
@@ -860,19 +865,25 @@ export class GerencialService {
       money(existing.commissionBaseAmount) ||
       getCommercialPlanMonthlyPrice(existing.salePlanKey),
     );
-    const commissionAmount = money((baseAmount * commissionPercent) / 100);
-    const confirmsSale = ['trial_started', 'sale_confirmed'].includes(saleStatus);
+    const projectedCommissionAmount = money((baseAmount * commissionPercent) / 100);
+    const paidSale = saleStatus === 'sale_confirmed';
+    const confirmsSale = saleStatus === 'trial_started' || paidSale;
     const endsSale = ['inactive', 'canceled'].includes(saleStatus);
     const currentCommissionStatus = normalizeCommissionStatus(existing.commissionStatus);
-    const keepPaid = currentCommissionStatus === 'paid' && !endsSale;
+    const keepPaid = currentCommissionStatus === 'paid' && paidSale;
     const commissionStatus = keepPaid
       ? 'paid'
-      : confirmsSale
-        ? (commissionAmount > 0 ? 'payable' : 'pending')
+      : paidSale
+        ? (projectedCommissionAmount > 0 ? 'payable' : 'pending')
+        : saleStatus === 'trial_started'
+          ? 'pending'
         : saleStatus === 'activation_pending'
           ? 'pending'
           : 'canceled';
-    const confirmedAt = confirmsSale
+    const commissionAmount = paidSale && ['payable', 'paid'].includes(commissionStatus)
+      ? projectedCommissionAmount
+      : 0;
+    const confirmedAt = paidSale
       ? (existing.saleConfirmedAt instanceof Date ? existing.saleConfirmedAt : now)
       : null;
     const commissionDueAt = commissionStatus === 'payable'
@@ -892,7 +903,7 @@ export class GerencialService {
           commissionAmount,
           commissionDueAt,
           commissionPaidAt: keepPaid ? existing.commissionPaidAt : null,
-          commissionRecurring: confirmsSale && commissionStatus !== 'canceled',
+          commissionRecurring: paidSale && commissionStatus !== 'canceled',
           commissionPayoutId: keepPaid ? existing.commissionPayoutId : null,
           commissionNote: typeof input?.commissionNote === 'string' ? input.commissionNote.trim() || null : undefined,
         },

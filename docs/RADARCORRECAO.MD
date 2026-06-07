@@ -204,8 +204,8 @@ Corrigir, com cadastro assistido em localhost, os bugs do processo de cadastro e
   - componente está renderizando diretamente `reason`, `code`, `status`, `debug` ou mensagem bruta do backend;
   - falta camada de tradução/normalização de estado para texto público;
   - modo avançado não está restrito a Master/admin.
-- Correção: pendente para a etapa final de edições.
-- Validação: pendente; testar Radar do vendedor HBX e confirmar que nenhum código técnico aparece.
+- Correção: aplicada no passo 11.
+- Validação: lint/build passaram no passo 11; testar Radar do vendedor HBX e confirmar que nenhum código técnico aparece.
 
 ### Bug 9
 
@@ -228,8 +228,8 @@ Corrigir, com cadastro assistido em localhost, os bugs do processo de cadastro e
   - estado global de coroa/enriquecimento desativado não está sendo aplicado nos cards entregues ao vendedor;
   - payload do card pode estar vindo com flag incorreta, fallback `true` ou estilo sem checar enriquecimento real;
   - possível divergência entre controle superior do Vendas e renderização mobile dos cards.
-- Correção: pendente para a etapa final de edições.
-- Validação: pendente; analisar payload/estado do card e confirmar que coroa dourada só aparece quando houver enriquecimento real.
+- Correção: aplicada no passo 12.
+- Validação: lint/build passaram no passo 12; teste visual em localhost ainda deve confirmar card enriquecido x card não enriquecido.
 
 ### Bug 10
 
@@ -255,8 +255,8 @@ Corrigir, com cadastro assistido em localhost, os bugs do processo de cadastro e
   - endpoint de enriquecimento automático pode estar filtrando os cards como já processados;
   - status visual dourado pode estar impedindo a seleção dos cards pendentes;
   - falta feedback quando não há cards elegíveis ou quando limite impede execução.
-- Correção: pendente para a etapa final de edições.
-- Validação: pendente; inspecionar estado real dos cards, flags de enriquecimento e chamadas feitas ao clicar na coroa.
+- Correção: aplicada no passo 13.
+- Validação: lint/build passaram no passo 13; teste manual em localhost ainda deve clicar na coroa com cards pendentes e com cards já revisados.
 
 ### Bug 11
 
@@ -279,8 +279,8 @@ Corrigir, com cadastro assistido em localhost, os bugs do processo de cadastro e
   - UI está expondo botões de status internos como ações manuais;
   - fluxo não separa status operacional do vendedor de status automático de onboarding/pagamento;
   - falta estado neutro/desfazer no componente.
-- Correção: pendente para a etapa final de edições.
-- Validação: pendente; testar que status automáticos só mudam por eventos reais e que ações manuais permitidas têm reversão.
+- Correção: aplicada no passo 14.
+- Validação: lint/build passaram no passo 14; teste manual em localhost ainda deve confirmar que status automáticos não são clicáveis e que `Cancelado`/`Sem venda` podem ser desfeitos.
 
 ### Bug 12
 
@@ -307,8 +307,8 @@ Corrigir, com cadastro assistido em localhost, os bugs do processo de cadastro e
   - persistência no cadastro do cliente/card não está garantida para dados adicionados;
   - validação de duplicidade/trial anterior não está suficientemente refletida na UI;
   - fluxo pode estar reaproveitando signup comum sem regra forte de trial único por contato.
-- Correção: pendente para a etapa final de edições.
-- Validação: pendente; testar cadastro com telefone existente, telefone novo adicionado, e-mail existente e e-mail novo.
+- Correção: aplicada no passo 15.
+- Validação: lint/build passaram no passo 15; teste manual em localhost ainda deve confirmar telefone travado, telefone novo salvo e conflitos claros.
 
 ### Bug 13
 
@@ -346,12 +346,12 @@ Corrigir, com cadastro assistido em localhost, os bugs do processo de cadastro e
   - 403 do popup/aviso pode estar tentando buscar ou exibir recurso restrito;
   - botão não fica travado após resultado ou não limpa corretamente em caso de conflito;
   - duplicidade de celular/e-mail/trial anterior pode estar disparando o 409.
-- Correção: pendente para a etapa final de edições.
-- Validação: pendente; reproduzir com celular repetido, e-mail repetido e cadastro novo, confirmando mensagens e bloqueio de clique duplo.
+- Correção: aplicada no passo 16.
+- Validação: lint/build passaram no passo 16; teste manual em localhost ainda deve reproduzir celular repetido, e-mail repetido e cadastro novo.
 
 ### Bug 14
 
-- Status: detectado
+- Status: corrigido no passo 17
 - Tela/fluxo: Radar desktop -> controle da coroa/enriquecimento
 - Como reproduzir:
   - abrir Radar em desktop;
@@ -374,12 +374,12 @@ Corrigir, com cadastro assistido em localhost, os bugs do processo de cadastro e
   - estado de enriquecimento automático não está padronizado entre layouts;
   - contador do vendedor não foi integrado no header/área direita do Radar desktop;
   - coroa pode estar misturada com fluxo de plano/lead, em vez de ação operacional de enriquecimento.
-- Correção: pendente para a etapa final de edições.
-- Validação: pendente; comparar desktop e mobile e confirmar mesma semântica visual e contador correto do vendedor.
+- Correção: aplicada no passo 17.
+- Validação: lint/build passaram no passo 17; teste manual em localhost ainda deve comparar desktop e mobile e confirmar mesma semântica visual, contador correto e clique sem redirect para planos.
 
 ### Ajuste UI 1
 
-- Status: solicitado
+- Status: aplicado no passo 18
 - Tela/fluxo: Vendas/Radar mobile do Parceiro/Vendedor HBX
 - Elementos: `HBX Pulse` e `Próximo card recomendado`.
 - Problema atual:
@@ -391,8 +391,8 @@ Corrigir, com cadastro assistido em localhost, os bugs do processo de cadastro e
   - transformar `Próximo card recomendado` em um botão único, fino, azul e expansível;
   - dentro do conteúdo expandido manter ações como `Chamar agora` e `Observação`;
   - por padrão, deixar recolhido para priorizar cards e ações diretas.
-- Correção: pendente para a etapa final de edições.
-- Validação: pendente; conferir mobile sem sobrecarga visual e com expansão por clique.
+- Correção: aplicada no passo 18.
+- Validação: lint/build passaram no passo 18; teste manual em localhost ainda deve conferir mobile sem sobrecarga visual e com expansão por clique.
 
 ## Plano de Correção do Fluxo Parceiro/Vendedor HBX
 
@@ -857,3 +857,304 @@ Corrigir, com cadastro assistido em localhost, os bugs do processo de cadastro e
   - o número usado deve bater com cards ativos do vendedor;
   - Master/admin deve continuar com contador comercial diário/mensal;
   - ao atingir limite de cards ativos, a mensagem deve pedir liberar/finalizar cards.
+
+### Passo 11 - Mensagens públicas do Radar para Vendedor HBX
+
+- Status: aplicado
+- Data: `2026-06-06`
+- Escopo:
+  - impedir que `reason`, `code`, `status` ou mensagens brutas do backend apareçam no Radar do Parceiro/Vendedor HBX;
+  - manter diagnóstico técnico no payload/backend, mas traduzir a superfície operacional.
+- Mudanças aplicadas:
+  - criado normalizador `publicRadarMessage()` para mensagens do Radar;
+  - códigos como `SELLER_CARD_QUOTA_REACHED`, `vendas_stock_*`, `completed_insufficient_results`, `403/409` e erros de engine/fila viram textos operacionais em PT-BR;
+  - falhas de `autoImport.failures.reason` viram linha pública sem snake_case/código;
+  - feedback de run, popup de Radar parado, hero, aviso mobile, aviso desktop, topbar e ações de importação/enriquecimento passam pela normalização;
+  - para usuário não restrito, o comportamento técnico atual fica preservado tanto quanto possível.
+- Arquivos alterados:
+  - `frontend/src/app/radar-digital/page.client.tsx`
+- Validações:
+  - `cd frontend && npm run lint`: passou com 8 warnings preexistentes.
+  - `cd frontend && npm run build`: passou.
+- Teste manual pendente em localhost:
+  - entrar como Parceiro/Vendedor HBX e forçar estados de limite, estoque, busca parada e erro;
+  - confirmar que não aparecem códigos como `SELLER_*`, `RADAR_*`, `*_limit_*`, `completed_insufficient_results`, `403`, `409`;
+  - confirmar que Master/admin ainda consegue diagnosticar estados operacionais quando necessário.
+
+### Passo 12 - Coroa dourada somente com enriquecimento real
+
+- Status: aplicado
+- Data: `2026-06-06`
+- Escopo:
+  - corrigir o falso estado dourado das coroas em cards de Vendas/Radar;
+  - manter este passo apenas na semântica visual do estado, sem acionar jobs automáticos ainda.
+- Diagnóstico:
+  - em `Vendas`, a coroa tratava sinais básicos como e-mail, rede possível, `opportunityScore`, `visibilityTier` e teaser premium como prova de enriquecimento;
+  - em `Radar`, a coroa desktop também considerava `instagramUrl`, `facebookUrl` e status genérico `delivered` como enriquecimento pronto;
+  - isso fazia card comum parecer enriquecido mesmo sem `enrichmentStatus` concluído/`enrichedAt`.
+- Mudanças aplicadas:
+  - criado critério explícito `leadHasCompletedEnrichment()` para dourar card no Vendas apenas quando houver enriquecimento concluído;
+  - cards de Radar/Vendas sem enriquecimento explícito passam para estado `idle`/cinza, não `ready`/dourado;
+  - estado `failed` continua como revisado/cinza;
+  - estado `pending/queued/processing` continua como enriquecendo;
+  - `leadPremiumState()` do Radar deixa de usar `instagramUrl`, `facebookUrl` e `delivered` como prova de enriquecimento.
+- Arquivos alterados:
+  - `frontend/src/app/vendas/page.client.tsx`
+  - `frontend/src/app/radar-digital/page.client.tsx`
+- Validações:
+  - `cd frontend && npm run lint`: passou com 8 warnings preexistentes.
+  - `cd frontend && npm run build`: passou.
+- Pendente para o passo 13:
+  - corrigir a ação da coroa para enriquecer cards existentes não enriquecidos;
+  - mostrar progresso/erro quando não houver card elegível ou quota disponível.
+
+### Passo 13 - Clique da coroa inicia enriquecimento dos cards pendentes
+
+- Status: aplicado
+- Data: `2026-06-06`
+- Escopo:
+  - fazer o clique da coroa no topo do Vendas deixar de ser apenas preferência visual;
+  - iniciar enriquecimento dos cards ativos já existentes no Vendas.
+- Diagnóstico:
+  - a coroa do topo apenas alternava `mobileAutoEnrichmentActive` no `localStorage`;
+  - o enriquecimento só era chamado depois, ao abrir um card individual;
+  - cards com `enrichmentStatus` `queued/pending` não entravam na seleção automática porque eram tratados como "em andamento" e não como pendentes acionáveis.
+- Mudanças aplicadas:
+  - criada elegibilidade `leadCanRequestEnrichment()` para permitir ação em cards sem enriquecimento concluído, incluindo `queued/pending`;
+  - o clique da coroa agora liga o modo automático e dispara uma fila dos cards ativos (`overdue`, `today`, `scheduled`) elegíveis;
+  - a fila usa o endpoint existente `/vendas/lead/:leadId/enrichment`, respeitando saldo diário/limite de crédito;
+  - a UI mostra progresso `Enriquecendo X/Y`, sucesso, falha, itens que ficaram para depois por crédito e caso sem pendentes;
+  - quando não houver card pendente, o feedback informa quantos já estão revisados/em andamento e mostra uma prova operacional simples do primeiro card revisado.
+- Arquivos alterados:
+  - `frontend/src/app/vendas/page.client.tsx`
+- Validações:
+  - `cd frontend && npm run lint`: passou com 8 warnings preexistentes.
+  - `cd frontend && npm run build`: passou.
+- Teste manual pendente em localhost:
+  - entrar como vendedor HBX com cards pendentes em Vendas;
+  - clicar na coroa do topo e confirmar progresso imediato;
+  - confirmar que cards `queued/pending` entram na fila;
+  - repetir sem saldo e sem card pendente para validar mensagens operacionais.
+
+### Passo 14 - Status automáticos fora da ação manual do vendedor
+
+- Status: aplicado
+- Data: `2026-06-06`
+- Escopo:
+  - corrigir os botões de status no fluxo de Observação/Cadastro de cliente;
+  - impedir que vendedor force `Trial iniciado`, `Pagamento confirmado` ou estado derivado de cadastro/pagamento.
+- Diagnóstico:
+  - a UI expunha `Aguard. ativação`, `Trial iniciado`, `Pagamento confirmado` e `Cancelado` como botões equivalentes;
+  - `saveLeadSaleStatus()` chamava o PATCH comum do lead e o backend atualizava `saleStatus`/comissão como fato real;
+  - não existia ação clara para desfazer um status manual como `Cancelado`.
+- Mudanças aplicadas:
+  - `activation_pending`, `trial_started` e `sale_confirmed` viraram status automáticos na UI;
+  - esses status aparecem como informativos/desabilitados no card e no popup de cadastro assistido;
+  - o vendedor continua usando `Copiar link HBX` ou `Cadastrar cliente` para gerar o fluxo automático;
+  - ações manuais permitidas, como `Cancelado`, podem ser desfeitas voltando para `Sem venda`;
+  - o PATCH comum do backend rejeita mudança manual para status automático;
+  - fluxos internos `createHbxSalesHandoffForUser` e `createHbxAssistedSignupForUser` continuam autorizados a marcar `Aguardando ativação`.
+- Arquivos alterados:
+  - `frontend/src/app/vendas/page.client.tsx`
+  - `frontend/src/app/vendas/page.module.css`
+  - `backend/src/vendas/vendas.service.ts`
+- Validações:
+  - `cd frontend && npm run lint`: passou com 8 warnings preexistentes.
+  - `cd frontend && npm run build`: passou.
+  - `cd backend && npm run prisma:validate`: passou.
+  - `cd backend && npm run build`: passou.
+- Teste manual pendente em localhost:
+  - abrir Observação/Cadastro de cliente;
+  - confirmar que `Trial iniciado` e `Pagamento confirmado` não clicam;
+  - confirmar que `Cadastrar cliente` gera `Aguardando ativação`;
+  - clicar `Cancelado` e depois `Limpar status`/`Desfazer`.
+
+### Passo 15 - Cadastro assistido usa telefone do card e bloqueia repetição
+
+- Status: aplicado
+- Data: `2026-06-06`
+- Escopo:
+  - corrigir o campo de WhatsApp no cadastro assistido do Vendas mobile;
+  - impedir cadastro/trial repetido por e-mail, telefone, card já vinculado ou telefone já registrado no HBX.
+- Diagnóstico:
+  - o formulário permitia editar livremente o WhatsApp mesmo quando o card já tinha telefone;
+  - o backend aceitava o telefone enviado no submit sem reforçar que o telefone do card é a fonte;
+  - conflitos de cadastro anterior apareciam como erro genérico para o vendedor.
+- Mudanças aplicadas:
+  - quando o card tem telefone, o campo `WhatsApp` fica travado e envia sempre o telefone do card;
+  - quando o card não tem telefone, o vendedor pode adicionar um número, que é salvo no card/perfil do cliente;
+  - o e-mail informado também passa a ser persistido no card/perfil do cliente;
+  - o backend bloqueia troca indevida do WhatsApp do card;
+  - o backend bloqueia card já com cadastro/link HBX, outro card com mesmo telefone/e-mail, e-mail já cadastrado no HBX, telefone já vinculado a usuário/empresa/trial HBX;
+  - a empresa/usuário HBX criados pelo cadastro assistido recebem contato/e-mail/telefone normalizados para reforçar os próximos bloqueios.
+- Arquivos alterados:
+  - `frontend/src/app/vendas/page.client.tsx`
+  - `frontend/src/app/vendas/page.module.css`
+  - `backend/src/vendas/vendas.service.ts`
+- Validações:
+  - `cd frontend && npm run lint`: passou com 8 warnings preexistentes.
+  - `cd frontend && npm run build`: passou.
+  - `cd backend && npm run prisma:validate`: passou.
+  - `cd backend && npm run build`: passou.
+- Teste manual pendente em localhost:
+  - abrir cadastro assistido de card com telefone e confirmar que o WhatsApp não edita;
+  - abrir card sem telefone, adicionar WhatsApp e confirmar que ele volta salvo no card;
+  - tentar repetir e-mail já cadastrado no HBX e confirmar mensagem clara;
+  - tentar repetir telefone usado em outro card/conta/trial e confirmar mensagem clara;
+  - clicar uma segunda vez no mesmo cadastro e confirmar que retorna conflito explicando que já existe cadastro/link.
+
+### Passo 16 - Feedback correto para conflito e envio do cadastro assistido
+
+- Status: aplicado
+- Data: `2026-06-06`
+- Escopo:
+  - corrigir mensagem e estado visual do cadastro assistido quando houver conflito, envio de e-mail falho ou clique duplicado;
+  - manter a regra do passo 15 como fonte de bloqueio de duplicidade.
+- Diagnóstico:
+  - o popup mantinha `assistedSignupResult` antigo quando uma nova tentativa falhava;
+  - por isso um `409 Conflict` podia aparecer junto de bloco antigo de `Parabéns`;
+  - o botão continuava habilitado depois de uma resposta `ok`, permitindo segunda tentativa desnecessária;
+  - `HbxPopup2` é apenas componente visual de aviso; o `403 Forbidden` vinha de chamada de API renderizada no aviso/fluxo, não de um recurso próprio do popup.
+- Mudanças aplicadas:
+  - o submit limpa resultado antigo antes da chamada e limpa de novo no `catch`;
+  - conflitos `409` do cadastro assistido viram mensagens operacionais específicas para WhatsApp, e-mail, card já registrado e trial/cadastro anterior;
+  - `403` no fluxo vira aviso de acesso/liberação, sem texto técnico;
+  - o botão fica bloqueado enquanto salva e também depois que o backend confirma `ok`;
+  - o resultado agora tem tons separados:
+    - `success`: cadastro confirmado de verdade;
+    - `info`: cadastro criado e e-mail de confirmação enviado, ainda pendente do cliente;
+    - `warning`: cadastro criado, mas envio de e-mail pendente/falhou;
+  - `Parabéns` só aparece no estado `success`, não em conflito, pendência ou falha de envio;
+  - backend passa a diferenciar mensagem de `e-mail enviado` e `envio falhou`, incluindo detalhe de entrega quando houver.
+- Arquivos alterados:
+  - `frontend/src/app/vendas/page.client.tsx`
+  - `frontend/src/app/vendas/page.module.css`
+  - `backend/src/vendas/vendas.service.ts`
+  - `docs/RADARCORRECAO.MD`
+- Validações:
+  - `cd frontend && npm run lint`: passou com 8 warnings preexistentes.
+  - `cd frontend && npm run build`: passou.
+  - `cd backend && npm run prisma:validate`: passou.
+  - `cd backend && npm run build`: passou.
+- Teste manual pendente em localhost:
+  - tentar cadastro novo e confirmar estado `E-mail de confirmação enviado` sem `Parabéns`;
+  - tentar clicar novamente e confirmar botão bloqueado;
+  - repetir e-mail/telefone e confirmar mensagem clara de conflito;
+  - simular falha de envio de e-mail e confirmar estado `Cadastro criado, envio pendente`;
+  - confirmar que nenhum `409`, `403`, `Conflict` ou `Forbidden` aparece no texto público.
+
+### Passo 17 - Coroa operacional no Radar desktop
+
+- Status: aplicado
+- Data: `2026-06-06`
+- Escopo:
+  - corrigir o clique da coroa no Radar desktop para não abrir `/mobile/planos?intent=lead`;
+  - padronizar a semântica visual da coroa entre desktop e mobile;
+  - adicionar coroa e contador na direita do header desktop do Radar.
+- Diagnóstico:
+  - a coroa do hero ainda estava ligada ao fluxo de upsell/planos mobile;
+  - o desktop não tinha o mesmo controle operacional do mobile para ativar enriquecimento;
+  - o contador do vendedor não aparecia junto da coroa no header desktop.
+- Mudanças aplicadas:
+  - `HeroPremiumCrown` deixou de ser link de planos e virou botão operacional;
+  - coroa dourada indica enriquecimento automático ativo/em execução;
+  - coroa acinzentada indica enriquecimento desativado ou sem saldo;
+  - o clique liga/desliga o modo automático e dispara uma fila curta de enriquecimento nos cards visíveis ainda não enriquecidos;
+  - cards com `lastEnrichedAt`, `enrichmentVersion` ou status premium real continuam como enriquecidos; rede social/Instagram/Facebook não contam sozinhos como enriquecimento;
+  - o header desktop ganhou coroa na direita e contador à direita da coroa;
+  - contador usa `vendasUsage.enrichment` quando disponível e mostra `Livre` em vez de expor número técnico ilimitado como `999999`;
+  - após a fila de enriquecimento, a UI atualiza os cards retornados e tenta recarregar `/vendas/usage`.
+- Arquivos alterados:
+  - `frontend/src/app/radar-digital/page.client.tsx`
+  - `frontend/src/app/radar-digital/page.module.css`
+  - `docs/RADARCORRECAO.MD`
+- Validações:
+  - `cd frontend && npm run lint`: passou com 8 warnings preexistentes.
+  - `cd frontend && npm run build`: passou.
+- Teste manual pendente em localhost:
+  - abrir Radar desktop e confirmar coroa na direita do header com contador à direita;
+  - clicar na coroa e confirmar que não redireciona para planos;
+  - confirmar coroa dourada quando enriquecimento automático estiver ativo/carregando;
+  - confirmar coroa acinzentada quando enriquecimento estiver desativado ou sem saldo;
+  - confirmar que cards não enriquecidos visíveis entram na fila e mudam de estado quando o backend retorna item enriquecido;
+  - comparar mobile e desktop para garantir mesma regra visual.
+
+### Passo 18 - UI mobile compacta para Pulse e próximo recomendado
+
+- Status: aplicado
+- Data: `2026-06-07`
+- Escopo:
+  - reduzir a poluição visual no Vendas mobile do Parceiro/Vendedor HBX;
+  - transformar `HBX Pulse` e `Próximo card recomendado` em botões finos, azuis e expansíveis.
+- Diagnóstico:
+  - `HbxPulseSummaryCard` renderizava aberto por padrão no topo do mobile;
+  - `Próximo card recomendado` também renderizava como bloco completo por padrão;
+  - os dois competiam com a lista de cards e ações principais do vendedor.
+- Mudanças aplicadas:
+  - `HBX Pulse` agora aparece recolhido em um botão fino azul;
+  - ao expandir, o card `HbxPulseSummaryCard` original é renderizado dentro do painel;
+  - `Próximo card recomendado` agora aparece recolhido em um botão fino azul com o nome do lead;
+  - ao expandir, mantém o conteúdo do card e as ações `Chamar agora` e `Observação`;
+  - os painéis começam recolhidos por padrão;
+  - adicionados estilos equivalentes para tema claro e escuro.
+- Arquivos alterados:
+  - `frontend/src/app/vendas/page.client.tsx`
+  - `frontend/src/app/vendas/page.module.css`
+  - `docs/RADARCORRECAO.MD`
+- Validações:
+  - `cd frontend && npm run lint`: passou com 8 warnings preexistentes.
+  - `cd frontend && npm run build`: passou.
+- Teste manual pendente em localhost:
+  - abrir `/mobile/vendas`;
+  - confirmar que `HBX Pulse` começa recolhido como botão fino azul;
+  - expandir/recolher `HBX Pulse` e confirmar que o conteúdo carrega corretamente;
+  - confirmar que `Próximo card recomendado` começa recolhido;
+  - expandir `Próximo card recomendado` e testar `Chamar agora` e `Observação`;
+  - conferir tema claro e escuro no mobile.
+
+### QA final passos 1-18 - Cadastro assistido, Radar/Vendas e comissão
+
+- Status: executado
+- Data: `2026-06-07`
+- Escopo:
+  - testar o fluxo mock de vendedor/card/cadastro assistido do início ao fim;
+  - validar duplicidade de e-mail/WhatsApp e mensagens de conflito;
+  - validar que trial não gera comissão;
+  - validar cálculo de comissão apenas após pagamento confirmado;
+  - validar UI mobile/desktop crítica dos passos 17 e 18.
+- Correções aplicadas durante o QA:
+  - backend agora mantém `activation_pending` e `trial_started` com `commissionAmount = 0`, `commissionDueAt = null` e `commissionRecurring = false`;
+  - backend só libera `payable/paid` quando o cliente está em `sale_confirmed`;
+  - sincronização HBX trata `TRIAL/trialing/active_trial` como trial pendente, sem comissão pagável;
+  - recorrência mensal ignora leads em trial e usa apenas `sale_confirmed`;
+  - DTOs do `GerencialController` receberam validators para não rejeitar campos válidos como `saleStatus` e `commissionStatus`;
+  - textos de Vendas deixam claro que trial aguarda pagamento, sem prometer comissão.
+- Evidência localhost `3000`:
+  - o backend ativo em `3000` ainda estava com comportamento antigo no momento do teste;
+  - cadastro assistido mock criou lead `activation_pending`, mas mostrou `commissionAmount = 19,80` e `pendingAmount = 19,80`;
+  - rotas de Gerencial em `3000` rejeitaram campos válidos com `property ... should not exist`;
+  - conclusão: o servidor `3000` precisava recarregar o backend novo.
+- Evidência backend atual `3010`:
+  - backend compilado atual foi iniciado temporariamente em `localhost:3010` e encerrado ao final;
+  - cadastro assistido mock bem-sucedido: `activation_pending`, `commissionStatus = pending`, `commissionAmount = 0`;
+  - clique/tentativa duplicada no mesmo card retornou `409` com mensagem clara de cadastro/link já existente;
+  - tentativa de liberar comissão antes de pagamento retornou `400`: comissão só pode liberar após pagamento confirmado;
+  - trial real ativado com cliente mock: lead ficou `trial_started`, `commissionAmount = 0`, sem vencimento e sem recorrência;
+  - após simular pagamento somente na empresa mock local e rodar sync: lead ficou `sale_confirmed`, `commissionStatus = payable`, `commissionAmount = 19,80`, D+3 em `2026-06-10`;
+  - resumo do vendedor após pagamento mock: `payableAmount = 19,80`, `pendingAmount = 0`.
+- Evidência UI:
+  - `/mobile/vendas` tem `HBX Pulse` e `Próximo card recomendado` como botões finos, ambos com `aria-expanded=false` inicialmente;
+  - `/radar-digital` desktop não foi forçado para rota mobile;
+  - Radar desktop tem controles de coroa/enriquecimento e não mantém link para `/mobile/planos?intent=lead`.
+- Validações automatizadas:
+  - `cd backend && npm run prisma:validate`: passou;
+  - `cd backend && npm run build`: passou;
+  - suíte Node focada backend: `123/123` passou;
+  - `cd frontend && npm run lint`: passou com 8 warnings preexistentes;
+  - `cd frontend && npm run build`: passou;
+  - Playwright custom local validou botões recolhidos no mobile e coroa/desktop no Radar.
+- Testes legados que ainda precisam ajuste:
+  - `tests/frontend-radar-channel-filter.test.mjs` está desatualizado e procura componente antigo;
+  - `tests/radar-backend-policy.test.mjs` está desatualizado após migração da política para serviços novos;
+  - `tests/e2e/login-register-mobile.spec.ts` espera preço antigo `R$ 49,90`, mas a UI atual mostra `R$ 45,00`;
+  - `tests/e2e/vendas-observacao.spec.ts` espera observação visível de cara, mas o passo 18 mudou para botão recolhido.

@@ -1253,3 +1253,85 @@ test('importWebscrapingLeadsForUser debita somente aprovado criado e reporta des
   assert.equal(checkWhatsappCalls, 0);
   assert.match(result.message, /Descartados nao consomem limite/);
 });
+
+test('buildSaleCommissionPatch keeps trial without payable commission', async () => {
+  const { service } = createService();
+  const result = await (service as any).buildSaleCommissionPatch(
+    {
+      id: 'lead-trial',
+      companyId: 7,
+      assignedUserId: 99,
+      commissionPercentSnapshot: 20,
+      saleValue: 99,
+      salePlanKey: 'hbx_padrao',
+      saleStatus: 'activation_pending',
+      commissionStatus: 'pending',
+      commissionAmount: 0,
+      commissionDueAt: null,
+      commissionPaidAt: null,
+      commissionPayoutId: null,
+    },
+    { saleStatus: 'trial_started' } as any,
+    99,
+    { allowAutomaticSaleStatus: true },
+  );
+
+  assert.equal(result.data.saleStatus, 'trial_started');
+  assert.equal(result.data.commissionStatus, 'pending');
+  assert.equal(result.data.commissionAmount, 0);
+  assert.equal(result.data.commissionDueAt, null);
+  assert.equal(result.data.commissionPaidAt, null);
+  assert.equal(result.data.commissionRecurring, false);
+});
+
+test('buildSaleCommissionPatch releases commission only after confirmed payment', async () => {
+  const { service } = createService();
+  const result = await (service as any).buildSaleCommissionPatch(
+    {
+      id: 'lead-paid',
+      companyId: 7,
+      assignedUserId: 99,
+      commissionPercentSnapshot: 20,
+      saleValue: 99,
+      salePlanKey: 'hbx_padrao',
+      saleStatus: 'trial_started',
+      commissionStatus: 'pending',
+      commissionAmount: 0,
+      commissionDueAt: null,
+      commissionPaidAt: null,
+      commissionPayoutId: null,
+    },
+    { saleStatus: 'sale_confirmed' } as any,
+    99,
+    { allowAutomaticSaleStatus: true },
+  );
+
+  assert.equal(result.data.saleStatus, 'sale_confirmed');
+  assert.equal(result.data.commissionStatus, 'payable');
+  assert.equal(result.data.commissionAmount, 19.8);
+  assert.ok(result.data.commissionDueAt instanceof Date);
+  assert.equal(result.data.commissionRecurring, true);
+});
+
+test('buildSaleCommissionPatch rejects payable commission before confirmed payment', async () => {
+  const { service } = createService();
+
+  await assert.rejects(
+    () => (service as any).buildSaleCommissionPatch(
+      {
+        id: 'lead-early-payable',
+        companyId: 7,
+        assignedUserId: 99,
+        commissionPercentSnapshot: 20,
+        saleValue: 99,
+        salePlanKey: 'hbx_padrao',
+        saleStatus: 'activation_pending',
+        commissionStatus: 'pending',
+      },
+      { saleStatus: 'trial_started', commissionStatus: 'payable' } as any,
+      99,
+      { allowAutomaticSaleStatus: true },
+    ),
+    /pagamento confirmado/i,
+  );
+});

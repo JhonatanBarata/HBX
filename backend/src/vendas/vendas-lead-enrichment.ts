@@ -148,7 +148,22 @@ function extractRadarEnrichment(lead: any) {
   const mergedEvidence = { ...direct, ...nested, ...fromEvent };
   const rawStatus = normalizeText(fromEvent.enrichmentStatus || nested?.enrichmentStatus || direct?.enrichmentStatus);
   const normalizedRawStatus = normalizeKey(rawStatus);
-  const enrichmentStatus = normalizedRawStatus === 'pending' ? 'queued' : rawStatus;
+  const hasPreservedEnrichmentPayload = Boolean(
+    nested?.version ||
+    nested?.qualityV2 ||
+    nested?.signals ||
+    direct?.version ||
+    direct?.qualityV2 ||
+    direct?.signals ||
+    fromEvent.enrichedAt ||
+    nested?.enrichedAt ||
+    direct?.enrichedAt,
+  );
+  const enrichmentStatus = ['pending', 'queued'].includes(normalizedRawStatus) && hasPreservedEnrichmentPayload
+    ? 'completed'
+    : normalizedRawStatus === 'pending'
+      ? 'queued'
+      : rawStatus;
   return {
     ...direct,
     ...nested,

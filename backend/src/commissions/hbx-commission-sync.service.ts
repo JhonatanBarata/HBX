@@ -98,6 +98,10 @@ export class HbxCommissionSyncService {
             ? company.createdAt
             : now;
 
+    if (paymentStatus === 'TRIAL' || subscriptionStatus === 'trialing' || onboardingStatus === 'active_trial') {
+      return { saleStatus: 'trial_started', commissionStatus: 'pending', recurring: false, eventAt };
+    }
+
     if (
       paymentStatus === 'PAID' ||
       paymentStatus === 'MANUAL' ||
@@ -107,10 +111,6 @@ export class HbxCommissionSyncService {
       onboardingStatus === 'active_paid'
     ) {
       return { saleStatus: 'sale_confirmed', commissionStatus: 'payable', recurring: true, eventAt };
-    }
-
-    if (paymentStatus === 'TRIAL' || subscriptionStatus === 'trialing' || onboardingStatus === 'active_trial') {
-      return { saleStatus: 'trial_started', commissionStatus: 'payable', recurring: true, eventAt };
     }
 
     if (
@@ -356,12 +356,15 @@ export class HbxCommissionSyncService {
     const dueBusinessDays = await this.resolveCommissionDueBusinessDays(Number(lead?.companyId || 0));
     const now = new Date();
     const currentCommissionStatus = String(lead?.commissionStatus || 'none').trim().toLowerCase();
-    const keepPaid = currentCommissionStatus === 'paid';
+    const keepPaid = currentCommissionStatus === 'paid' && state.saleStatus === 'sale_confirmed';
     const nextCommissionStatus = keepPaid
       ? 'paid'
       : state.commissionStatus === 'payable' && commissionAmount <= 0
         ? 'pending'
         : state.commissionStatus;
+    const nextCommissionAmount = nextCommissionStatus === 'payable' || nextCommissionStatus === 'paid'
+      ? commissionAmount
+      : 0;
     const nextDueAt =
       nextCommissionStatus === 'payable'
         ? (lead?.commissionDueAt instanceof Date ? lead.commissionDueAt : this.addBusinessDays(state.eventAt, dueBusinessDays))
@@ -371,13 +374,13 @@ export class HbxCommissionSyncService {
       saleStatus: state.saleStatus,
       saleValue: baseAmount,
       salePlanKey: normalizeCommercialPlanKey(company?.selectedPlanKey),
-      saleConfirmedAt: ['trial_started', 'sale_confirmed'].includes(state.saleStatus)
+      saleConfirmedAt: state.saleStatus === 'sale_confirmed'
         ? (lead?.saleConfirmedAt instanceof Date ? lead.saleConfirmedAt : state.eventAt)
         : null,
       saleCanceledAt: state.saleStatus === 'inactive' || state.saleStatus === 'canceled' ? now : null,
       commissionStatus: nextCommissionStatus,
       commissionBaseAmount: baseAmount,
-      commissionAmount,
+      commissionAmount: nextCommissionAmount,
       commissionDueAt: nextDueAt,
       commissionPaidAt: keepPaid ? lead.commissionPaidAt : null,
       commissionRecurring: Boolean(state.recurring && nextCommissionStatus !== 'canceled'),
@@ -666,7 +669,7 @@ export class HbxCommissionSyncService {
         assignedUserId: { not: null },
         commissionRecurring: true,
         commissionLinkedCompanyId: { not: null },
-        saleStatus: { in: ['trial_started', 'sale_confirmed'] },
+        saleStatus: 'sale_confirmed',
       },
       orderBy: [{ updatedAt: 'desc' }],
       take: 2000,

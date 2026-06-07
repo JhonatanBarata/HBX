@@ -1,7 +1,6 @@
 "use client";
 
 import { type CSSProperties, type FocusEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { HbxPopup2 } from "@/components/HbxPopup";
@@ -14,7 +13,6 @@ import {
   type HbxTargetTypeValue,
 } from "@/components/prospecting-filters";
 import { apiFetch, type ApiFetchError } from "@/app/_lib/api";
-import { toMobileRoute } from "@/app/_lib/mobileRoutes";
 import { startSmartPolling } from "@/app/_lib/polling";
 import { useRequireModule } from "@/app/_lib/useRequireModule";
 import { clearTopbarProgress, dispatchTopbarProgress } from "@/lib/topbar-progress";
@@ -386,6 +384,17 @@ type VendasUsageSnapshot = {
     availableSlots?: number | null;
     code?: string | null;
   } | null;
+  enrichment?: {
+    remaining?: number | null;
+    dailyRemaining?: number | null;
+    dailyLimit?: number | null;
+    limit?: number | null;
+    used?: number | null;
+    dailyUsed?: number | null;
+    canManualEnrich?: boolean | null;
+    canAutoEnrich?: boolean | null;
+    mode?: string | null;
+  } | null;
   dailyResetAt?: string | null;
 };
 
@@ -432,6 +441,7 @@ type RadarChannel = "whatsapp" | "instagram" | "email" | "website" | "phone" | "
 const PAGE_SIZE = 100;
 const RADAR_PROGRESS_STEPS = ["lendo banco", "filtrando negativos", "selecionando melhores cards", "alimentando Vendas/Prospecção"];
 const MOBILE_RADAR_SEARCH_NOTICE_DISMISSED_KEY = "hbx.radar.mobile.searchNoticeDismissed.v1";
+const RADAR_AUTO_ENRICHMENT_KEY = "hbx.radar.autoEnrichment.v1";
 const RADAR_AUTO_DISTRIBUTION_ENABLED = false;
 
 const DEFAULT_FILTERS: FilterState = {
@@ -667,14 +677,48 @@ function restrictHbxSellerFilters(filters: FilterState): FilterState {
   };
 }
 
-function HeroPremiumCrown({ active }: { active: boolean }) {
+function HeroPremiumCrown({
+  active,
+  loading = false,
+  disabled = false,
+  blocked = false,
+  onClick,
+  className,
+}: {
+  active: boolean;
+  loading?: boolean;
+  disabled?: boolean;
+  blocked?: boolean;
+  onClick?: () => void;
+  className?: string;
+}) {
+  const state = loading ? "loading" : blocked ? "blocked" : active ? "active" : "idle";
+  const ariaLabel = loading
+    ? "Enriquecendo cards"
+    : blocked
+      ? "Sem enriquecimentos disponíveis"
+      : active
+        ? "Desativar enriquecimento automático"
+        : "Ativar enriquecimento automático";
+  const title = loading
+    ? "Enriquecendo cards"
+    : blocked
+      ? "Sem enriquecimentos disponíveis"
+      : active
+        ? "Enriquecimento automático ativo"
+        : "Ativar enriquecimento automático";
+
   return (
-    <Link
-      href={toMobileRoute("/planos?intent=lead")}
-      className={styles.mobileHeroPremiumCrown}
+    <button
+      type="button"
+      className={`${styles.mobileHeroPremiumCrown}${className ? ` ${className}` : ""}`}
       data-active={active ? "true" : "false"}
-      aria-label={active ? "Ver plano HBX Lead Plus" : "Fazer upgrade para HBX Lead Plus"}
-      title={active ? "Ver plano HBX Lead Plus" : "Upgrade para HBX Lead Plus"}
+      data-state={state}
+      aria-busy={loading ? "true" : "false"}
+      aria-label={ariaLabel}
+      title={title}
+      disabled={disabled || loading}
+      onClick={onClick}
     >
       <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
         <path d="M4.2 18.5h15.6l.7-9.9-4.6 3.5L12 4.7 8.1 12.1 3.5 8.6l.7 9.9Z" />
@@ -683,7 +727,7 @@ function HeroPremiumCrown({ active }: { active: boolean }) {
         <circle cx="3.5" cy="8.6" r="1.15" />
         <circle cx="20.5" cy="8.6" r="1.15" />
       </svg>
-    </Link>
+    </button>
   );
 }
 
@@ -1532,6 +1576,52 @@ function compactRadarMessage(message: string | null) {
   return text;
 }
 
+function radarTextLooksDiagnostic(value?: string | null) {
+  const text = String(value || "").trim();
+  if (!text) return false;
+  return radarPauseMessageLooksTechnical(text) ||
+    /\b[a-z]+(?:_[a-z0-9]+){1,}\b/i.test(text) ||
+    /\b(?:queued|running|sleeping|paused|completed_insufficient_results|partial_error|conflict|forbidden|unauthorized)\b/i.test(text);
+}
+
+function publicRadarMessage(message: string | null | undefined, restricted: boolean, fallback = "Radar aguardando condição operacional para continuar.") {
+  const raw = String(message || "").trim();
+  if (!raw) return fallback;
+  if (!restricted) return compactRadarMessage(raw) || fallback;
+  const normalized = raw.toLowerCase();
+  if (/403|401|forbidden|unauthor|access|permission|permiss|m[oó]dulo|module/.test(normalized)) {
+    return "Radar precisa de liberação da conta para continuar.";
+  }
+  if (/seller.*quota|active_card|cards ativos|card_quota|SELLER_CARD_QUOTA/i.test(raw)) {
+    return "Seu limite de cards ativos foi atingido. Finalize ou descarte cards em Vendas para abrir espaço.";
+  }
+  if (/vendas_stock|stock|estoque|quando houver espa/.test(normalized)) {
+    return "Vendas já tem cards suficientes. Trabalhe os cards atuais para abrir espaço.";
+  }
+  if (/quota|cota|limite|limit|429/.test(normalized)) {
+    return "Limite de cards atingido agora. O Radar pausa para proteger sua operação.";
+  }
+  if (/engine|motor|fila|queued|running|sleeping|paused/.test(normalized)) {
+    return "Radar aguardando retomada operacional. Tente novamente em instantes.";
+  }
+  if (/sem cards|no results|insufficient|empty/.test(normalized)) {
+    return "Não achei cards suficientes para esse filtro. Tente segmento mais amplo ou alcance maior.";
+  }
+  if (radarTextLooksDiagnostic(raw)) return fallback;
+  return compactRadarMessage(raw) || fallback;
+}
+
+function publicRadarFailureLine(
+  failure: { reason?: string | null; count?: number | null },
+  restricted: boolean,
+) {
+  const count = Math.max(0, Math.trunc(Number(failure.count || 0)));
+  const label = restricted
+    ? publicRadarMessage(failure.reason, true, "pendência operacional")
+    : String(failure.reason || "falha").replace(/_/g, " ");
+  return count > 0 ? `${count} ${label}` : label;
+}
+
 function radarFriendlyError(error: unknown) {
   const apiError = error as ApiFetchError;
   if (isRadarRunNotFoundError(error)) {
@@ -1612,26 +1702,32 @@ function RadarLeadChannelIcons({ lead }: { lead: RadarLead }) {
 }
 
 function leadPremiumState(lead: RadarLead, loading: boolean) {
-  const status = String(lead.premiumFeatureStatus || lead.visibilityTier || lead.deliveryProduct || "").toLowerCase();
+  const premiumStatus = String(lead.premiumFeatureStatus || "").toLowerCase();
+  const visibilityTier = String(lead.visibilityTier || "").toLowerCase();
+  const deliveryProduct = String(lead.deliveryProduct || "").toLowerCase();
+  const combinedStatus = `${premiumStatus} ${visibilityTier} ${deliveryProduct}`.trim();
   const hasEnrichment = Boolean(
     lead.lastEnrichedAt ||
     lead.enrichmentVersion ||
-    lead.instagramUrl ||
-    lead.facebookUrl ||
-    status.includes("ready") ||
-    status.includes("enriched") ||
-    status.includes("delivered"),
+    premiumStatus.includes("ready") ||
+    premiumStatus.includes("enriched") ||
+    premiumStatus.includes("completed"),
   );
 
   if (loading) return { state: "loading", label: "Enriquecendo", caption: "Pesquisando sinais" };
-  if (lead.premiumLocked || status.includes("locked") || status.includes("blocked")) {
+  if (lead.premiumLocked || combinedStatus.includes("locked") || combinedStatus.includes("blocked")) {
     return { state: "locked", label: "Premium", caption: "Bloqueado" };
   }
   if (hasEnrichment) return { state: "ready", label: "Enriquecido", caption: "Sinais prontos" };
-  if (lead.premiumTeaser || status.includes("pending") || status.includes("teaser")) {
+  if (lead.premiumTeaser || combinedStatus.includes("pending") || combinedStatus.includes("teaser")) {
     return { state: "pending", label: "Premium", caption: "Aguardando" };
   }
   return { state: "idle", label: "Premium", caption: "Enriquecer" };
+}
+
+function radarLeadCanAutoEnrich(lead: RadarLead) {
+  const state = leadPremiumState(lead, false).state;
+  return Boolean(lead.id) && state !== "ready" && state !== "locked";
 }
 
 function PremiumCrownGlyph() {
@@ -2339,6 +2435,24 @@ function readMobileRadarSearchNoticeDismissed() {
   return window.localStorage.getItem(MOBILE_RADAR_SEARCH_NOTICE_DISMISSED_KEY) === "true";
 }
 
+function readRadarAutoEnrichmentPreference() {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(RADAR_AUTO_ENRICHMENT_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function saveRadarAutoEnrichmentPreference(active: boolean) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(RADAR_AUTO_ENRICHMENT_KEY, active ? "true" : "false");
+  } catch {
+    // Prefer keeping the UI usable even if storage is blocked.
+  }
+}
+
 function RadarMotionBackground({ active }: { active: boolean }) {
   const blips = [
     { left: 21, top: 32, delay: "0s" },
@@ -2433,6 +2547,8 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   });
   const [radarFilterDraftReady, setRadarFilterDraftReady] = useState(false);
   const [enrichmentSummary, setEnrichmentSummary] = useState<RadarEnrichmentSummary | null>(null);
+  const [radarAutoEnrichmentActive, setRadarAutoEnrichmentActive] = useState(readRadarAutoEnrichmentPreference);
+  const [radarAutoEnrichmentRunning, setRadarAutoEnrichmentRunning] = useState(false);
   const activeRunIdRef = useRef<string | null>(null);
   const pendingFreshRunRef = useRef(false);
   const filtersRef = useRef(filters);
@@ -2553,7 +2669,6 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     commercialPlans?.current?.entitlements?.ai_sales_scripts ||
     commercialPlans?.current?.entitlements?.bot_ia,
   );
-  const mobileHeroPremiumActive = Boolean(hasLeadCapabilities || commercialPlans?.current?.premiumAccess);
   const isHbxList = !hasLeadCapabilities && (
     commercialPlans?.current?.planKey === "hbx_lite" ||
     commercialPlans?.current?.selectedPlanKey === "hbx_lite"
@@ -2570,6 +2685,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   const sellerActiveAvailableSource = sellerActiveQuota?.availableSlots ?? Math.max(0, sellerActiveLimit - sellerActiveCount);
   const sellerActiveAvailable = Math.max(0, Math.trunc(Number(sellerActiveAvailableSource || 0)));
   const hbxSellerUsage = hbxSellerRadarRestricted || String(vendasUsage?.planKey || "").trim().toLowerCase() === "hbx_seller";
+  const hbxSellerPublicUi = hbxSellerUsage;
   const hbxSellerQuotaDisplay = Boolean(hbxSellerUsage && sellerActiveQuota && sellerActiveLimit > 0);
   const monthlyRemaining = Math.max(0, Math.trunc(Number(vendasUsage?.cards?.remaining ?? vendasUsage?.cards?.monthlyRemaining ?? 999999)));
   const perUserRemaining = vendasUsage?.cards?.perUserLimit != null
@@ -2599,6 +2715,28 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   const radarCounterLabel = hbxSellerQuotaDisplay ? "vagas" : "disponíveis";
   const radarCounterTitle = hbxSellerQuotaDisplay ? "no Vendas" : "hoje";
   const radarCounterUsedLabel = hbxSellerQuotaDisplay ? "ativos" : "usados";
+  const enrichmentUsage = vendasUsage?.enrichment || null;
+  const enrichmentRemainingRaw = Math.max(0, Math.trunc(Number(
+    enrichmentUsage?.dailyRemaining ?? enrichmentUsage?.remaining ?? radarCounterRemaining ?? 0,
+  )));
+  const enrichmentLimitRaw = Math.max(0, Math.trunc(Number(
+    enrichmentUsage?.dailyLimit ?? enrichmentUsage?.limit ?? radarCounterLimit ?? 0,
+  )));
+  const enrichmentUsedRaw = Math.max(0, Math.trunc(Number(
+    enrichmentUsage?.dailyUsed ??
+    enrichmentUsage?.used ??
+    Math.max(0, enrichmentLimitRaw - enrichmentRemainingRaw),
+  )));
+  const enrichmentLooksUnlimited = enrichmentRemainingRaw >= 999999 || enrichmentLimitRaw >= 999999;
+  const radarCrownCounterValue = enrichmentLooksUnlimited ? "Livre" : enrichmentRemainingRaw.toLocaleString("pt-BR");
+  const radarCrownCounterLabel = enrichmentUsage ? "enriquec." : radarCounterLabel;
+  const radarCrownCounterTitle = enrichmentUsage ? "hoje" : radarCounterTitle;
+  const radarCrownCounterMeta = enrichmentLooksUnlimited
+    ? "sem limite diário"
+    : `${enrichmentUsedRaw}/${Math.max(1, enrichmentLimitRaw || enrichmentRemainingRaw || 1)} ${enrichmentUsage ? "usados" : radarCounterUsedLabel}`;
+  const radarCrownQuotaDenied = Boolean(enrichmentUsage && (enrichmentUsage.canManualEnrich === false || enrichmentUsage.canAutoEnrich === false));
+  const radarCrownNoQuota = Boolean(vendasUsage && (radarCrownQuotaDenied || (!enrichmentLooksUnlimited && enrichmentRemainingRaw <= 0)));
+  const radarHeroCrownActive = radarAutoEnrichmentActive || radarAutoEnrichmentRunning;
   const selectedVendasStockTarget = Math.max(
     1,
     Math.min(RADAR_VENDAS_STOCK_TARGET_MAX, Math.trunc(Number(filters.quantity || DEFAULT_FILTERS.quantity) || DEFAULT_FILTERS.quantity)),
@@ -2906,7 +3044,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
       const rule = payload.rule || null;
       setAutoDistributionRule(rule);
       setAutoDistributionDraft(buildRadarAutoDistributionDraft(rule, filters));
-      let activationMessage = payload.message || "Distribuição automática ativada.";
+      let activationMessage = publicRadarMessage(payload.message, hbxSellerPublicUi, "Distribuição automática ativada.");
       try {
         const runPayload = await apiFetch<RadarAutoDistributionRunResponse>("/webscraping/radar/auto-distribution/run", {
           method: "POST",
@@ -2914,7 +3052,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
           timeoutMs: 60000,
           body: JSON.stringify({ limit: 80 }),
         });
-        activationMessage = runPayload.message || activationMessage;
+        activationMessage = publicRadarMessage(runPayload.message, hbxSellerPublicUi, activationMessage);
       } catch (runError) {
         activationMessage = `${activationMessage} ${radarFriendlyError(runError) || "O robô tentará novamente em instantes."}`;
       }
@@ -3083,7 +3221,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
       { label: "High", value: highOpportunityCount.toLocaleString("pt-BR") },
       { label: "Total", value: total.toLocaleString("pt-BR") },
     ];
-    const errorMessage = compactRadarMessage(error);
+    const errorMessage = publicRadarMessage(error, hbxSellerPublicUi, "");
     const activeStepIndex = Math.min(RADAR_PROGRESS_STEPS.length - 1, Math.floor(topbarProgressPercentFrom(telonProgress) / 25));
     const realCardFeed = visibleItems.slice(-4).map((item) => ({
       id: `radar:${item.id}`,
@@ -3211,6 +3349,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     filters.engine,
     filters.segment,
     hasToken,
+    hbxSellerPublicUi,
     highOpportunityCount,
     loading,
     loadingMore,
@@ -3281,7 +3420,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
       setActiveRun(null);
       setTerminalRunSnapshot(null);
       setSearching(false);
-      setFeedback(compactRadarMessage(payload.message || "Busca anterior encerrada. Radar pronto para uma nova pesquisa."));
+      setFeedback(publicRadarMessage(payload.message, hbxSellerPublicUi, "Busca anterior encerrada. Radar pronto para uma nova pesquisa."));
       return;
     }
     const runId = String(payload.runId || payload.id || "");
@@ -3292,7 +3431,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
       setActiveRun(null);
       setTerminalRunSnapshot(null);
       setSearching(false);
-      setFeedback(payload.message || "A busca foi recebida, mas o Radar não retornou progresso detalhado agora.");
+      setFeedback(publicRadarMessage(payload.message, hbxSellerPublicUi, "A busca foi recebida, mas o Radar não retornou progresso detalhado agora."));
       return;
     }
     if (activeRunIdRef.current && runId && activeRunIdRef.current !== runId) return;
@@ -3370,7 +3509,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
       if (payload.status === "canceled") {
         clearStoredRadarRun(runId);
       }
-      const nextFeedback = compactRadarMessage(payload.message || `${nextItems.length} card(s) entregues.`);
+      const nextFeedback = publicRadarMessage(payload.message, hbxSellerPublicUi, `${nextItems.length} card(s) entregues.`);
       setFeedback((current) => current === nextFeedback ? current : nextFeedback);
       void refreshVendasPendingCount().catch(() => null);
       return;
@@ -3379,9 +3518,9 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     setActiveRun((current) => radarRunPayloadEqual(current, payload) ? current : payload);
     setTerminalRunSnapshot(null);
     setSearching(true);
-    const nextFeedback = compactRadarMessage(payload.message || "Busca em andamento. Os cards aparecem conforme o Radar aprova novos contatos.");
+    const nextFeedback = publicRadarMessage(payload.message, hbxSellerPublicUi, "Busca em andamento. Os cards aparecem conforme o Radar aprova novos contatos.");
     setFeedback((current) => current === nextFeedback ? current : nextFeedback);
-  }, [refreshVendasPendingCount]);
+  }, [hbxSellerPublicUi, refreshVendasPendingCount]);
 
   useEffect(() => {
     if (hasToken !== true || queryRadarLeadId || !radarFilterDraftReady) return;
@@ -3622,6 +3761,117 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     }
   }
 
+  async function enrichRadarLead(lead: RadarLead) {
+    const payload = await apiFetch<RadarEnrichResponse>(`/webscraping/radar/leads/${lead.id}/enrich`, {
+      method: "POST",
+      requireAuth: true,
+      timeoutMs: 18000,
+    });
+    if (payload.item) {
+      setItems((current) => current.map((item) => item.id === lead.id ? { ...item, ...payload.item } : item));
+    }
+    return payload;
+  }
+
+  async function runRadarAutoEnrichmentQueue() {
+    if (radarAutoEnrichmentRunning) return;
+
+    if (radarAutoEnrichmentActive) {
+      setRadarAutoEnrichmentActive(false);
+      saveRadarAutoEnrichmentPreference(false);
+      setFeedback("Enriquecimento automático pausado.");
+      setError(null);
+      return;
+    }
+
+    if (radarCrownNoQuota) {
+      setRadarAutoEnrichmentActive(false);
+      saveRadarAutoEnrichmentPreference(false);
+      setFeedback(null);
+      setError("Sem enriquecimentos disponíveis agora.");
+      return;
+    }
+
+    const candidates = visibleItems.filter(radarLeadCanAutoEnrich);
+    if (!candidates.length) {
+      setRadarAutoEnrichmentActive(true);
+      saveRadarAutoEnrichmentPreference(true);
+      setError(null);
+      setFeedback("Enriquecimento automático ativo. Nenhum card pendente visível agora.");
+      return;
+    }
+
+    const quotaForRun = enrichmentLooksUnlimited
+      ? 12
+      : Math.max(1, enrichmentRemainingRaw || radarCounterRemaining || candidates.length);
+    const batch = candidates.slice(0, Math.min(candidates.length, quotaForRun, 12));
+    let enrichedCount = 0;
+    let failedCount = 0;
+    let lastError: unknown = null;
+    let stoppedByQuota = false;
+
+    setRadarAutoEnrichmentActive(true);
+    saveRadarAutoEnrichmentPreference(true);
+    setRadarAutoEnrichmentRunning(true);
+    setError(null);
+    setFeedback(`Enriquecendo ${batch.length} card(s) do Radar.`);
+
+    try {
+      for (const lead of batch) {
+        setActionId(`${lead.id}:enrich`);
+        try {
+          await enrichRadarLead(lead);
+          enrichedCount += 1;
+        } catch (leadError) {
+          failedCount += 1;
+          lastError = leadError;
+          const apiError = leadError as ApiFetchError;
+          if (apiError?.status === 402 || apiError?.status === 403 || apiError?.status === 429) {
+            stoppedByQuota = true;
+            break;
+          }
+        }
+      }
+
+      void apiFetch<VendasUsageSnapshot>("/vendas/usage", {
+        requireAuth: true,
+        timeoutMs: 12000,
+      }).then(setVendasUsage).catch(() => null);
+
+      if (stoppedByQuota) {
+        setRadarAutoEnrichmentActive(false);
+        saveRadarAutoEnrichmentPreference(false);
+        setFeedback(null);
+        setError(publicRadarMessage(
+          lastError instanceof Error ? lastError.message : null,
+          hbxSellerPublicUi,
+          "Enriquecimento pausado por limite ou liberação da conta.",
+        ));
+        return;
+      }
+
+      if (enrichedCount > 0) {
+        setError(null);
+        setFeedback(
+          failedCount > 0
+            ? `${enrichedCount} card(s) enriquecidos. ${failedCount} card(s) ficaram para depois.`
+            : `${enrichedCount} card(s) enriquecidos automaticamente.`,
+        );
+        return;
+      }
+
+      setFeedback(null);
+      setError(publicRadarMessage(
+        lastError instanceof Error ? lastError.message : null,
+        hbxSellerPublicUi,
+        "Não foi possível enriquecer os cards visíveis agora.",
+      ));
+    } finally {
+      setActionId(null);
+      setRadarAutoEnrichmentRunning(false);
+    }
+  }
+
   async function runLeadAction(
     lead: RadarLead,
     action: "send" | "hide" | "negative" | "csx" | "enrich",
@@ -3635,15 +3885,8 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     setError(null);
     try {
       if (action === "enrich") {
-        const payload = await apiFetch<RadarEnrichResponse>(`/webscraping/radar/leads/${lead.id}/enrich`, {
-          method: "POST",
-          requireAuth: true,
-          timeoutMs: 18000,
-        });
-        if (payload.item) {
-          setItems((current) => current.map((item) => item.id === lead.id ? { ...item, ...payload.item } : item));
-        }
-        setFeedback(payload.message || "Card enriquecido");
+        const payload = await enrichRadarLead(lead);
+        setFeedback(publicRadarMessage(payload.message, hbxSellerPublicUi, "Card enriquecido"));
       }
 
       if (action === "send") {
@@ -3834,17 +4077,24 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
       }).then(setVendasUsage).catch(() => null);
       void refreshVendasPendingCount().catch(() => null);
       setFeedback(
-        imported.message ||
-          (distributionEnabled
+        publicRadarMessage(
+          imported.message,
+          hbxSellerPublicUi,
+          distributionEnabled
             ? `${leads.length} card(s) distribuídos entre vendedores.`
-            : `${leads.length} lead(s) herdados para Vendas.`),
+            : `${leads.length} lead(s) herdados para Vendas.`,
+        ),
       );
     } catch (bulkError) {
-      setError(bulkError instanceof Error ? bulkError.message : "Não foi possível herdar leads para Vendas agora.");
+      setError(publicRadarMessage(
+        bulkError instanceof Error ? bulkError.message : null,
+        hbxSellerPublicUi,
+        "Não foi possível herdar leads para Vendas agora.",
+      ));
     } finally {
       setBulkSending(false);
     }
-  }, [distributionEnabled, effectiveFilters.quantity, refreshVendasPendingCount, selectedDistributionUsers, visibleItems]);
+  }, [distributionEnabled, effectiveFilters.quantity, hbxSellerPublicUi, refreshVendasPendingCount, selectedDistributionUsers, visibleItems]);
 
   if (hasToken === null || loading && items.length === 0 && hasSearched) {
     return (
@@ -3995,7 +4245,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
         ? "Radar parado sem cards para trabalhar. Atualize localização, segmento ou alcance e volte às pesquisas."
         : "Radar parado sem cards para trabalhar. Ajuste cidade, segmento ou alcance e volte às pesquisas."
     : radarMomentState === "stopped"
-      ? radarMomentRun?.errorMessage || radarMomentRun?.message || "Revise os filtros e rode uma nova busca."
+      ? publicRadarMessage(radarMomentRun?.errorMessage || radarMomentRun?.message, hbxSellerPublicUi, "Revise os filtros e rode uma nova busca.")
     : radarMomentState === "paused"
         ? radarPauseView.description
         : radarMomentState === "receiving"
@@ -4033,7 +4283,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   const scopePlace = scopeCity ? `${scopeCity}${scopeState ? `/${scopeState}` : ""}` : "";
   const searchScopeLine = [scopeSegment, scopePlace, radarRadiusLabel(filters.radiusKm ?? runFilters?.radiusKm)].filter(Boolean).join(" · ");
   const autoImportFailureLine = (radarMomentRun?.meta?.autoImport?.failures || [])
-    .map((failure) => `${failure.count || 0} ${String(failure.reason || "falha").replace(/_/g, " ")}`)
+    .map((failure) => publicRadarFailureLine(failure, hbxSellerPublicUi))
     .filter(Boolean)
     .join(" · ");
   const preparingDelivery = hasSearched && !visibleItems.length && radarMomentDelivered > 0;
@@ -4045,8 +4295,11 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     radarStoppedPopupKey &&
     mobileRadarStoppedPopupDismissedKey !== radarStoppedPopupKey,
   );
-  const radarStoppedPopupText = radarMomentRun?.errorMessage || radarMomentRun?.message ||
-    "Localizei tudo que havia com os filtros atuais. Para continuar automático, aumente a distância, inclua cidades próximas ou adicione mais segmentos.";
+  const radarStoppedPopupText = publicRadarMessage(
+    radarMomentRun?.errorMessage || radarMomentRun?.message,
+    hbxSellerPublicUi,
+    "Localizei tudo que havia com os filtros atuais. Para continuar automático, aumente a distância, inclua cidades próximas ou adicione mais segmentos.",
+  );
 
   function startMobileRadarSearch() {
     if (radarPausedLocked) {
@@ -4434,7 +4687,12 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
         >
           <section className={`${styles.mobileRadarHero} hbx-mobile-hero`} data-state={radarMomentState}>
             <RadarMotionBackground active={radarMotionActive} />
-            <HeroPremiumCrown active={mobileHeroPremiumActive} />
+            <HeroPremiumCrown
+              active={radarHeroCrownActive}
+              loading={radarAutoEnrichmentRunning}
+              blocked={radarCrownNoQuota}
+              onClick={() => void runRadarAutoEnrichmentQueue()}
+            />
             <DailyQuotaSpeedometer
               compact
               remaining={radarCounterRemaining}
@@ -4582,7 +4840,11 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
                 {radarQuotaBlockedMessage}
               </div>
             ) : null}
-            {error ? <div className={`${styles.mobileRadarNotice} hbx-mobile-notice`} data-tone="error">{compactRadarMessage(error)}</div> : null}
+            {error ? (
+              <div className={`${styles.mobileRadarNotice} hbx-mobile-notice`} data-tone="error">
+                {publicRadarMessage(error, hbxSellerPublicUi, "Não foi possível concluir agora. Ajuste os filtros ou tente novamente.")}
+              </div>
+            ) : null}
             {feedback && !mobileRadarProcessing ? <div className={`${styles.mobileRadarNotice} hbx-mobile-notice`} data-tone="ok">{feedback}</div> : null}
 
             <div className={`${styles.mobileRadarActionRow} hbx-mobile-action-bar`}>
@@ -4757,36 +5019,57 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
             <h1>{radarMomentTitle}</h1>
             <p>{radarMomentDescription}</p>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              if (radarStoppedWithoutCards) {
-                setFilterEditing(true);
-                if (typeof document !== "undefined") {
-                  document.querySelector(`.${styles.filters}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+          <div className={styles.radarHeaderActions}>
+            <div className={styles.radarHeroEnrichmentControls}>
+              <HeroPremiumCrown
+                active={radarHeroCrownActive}
+                loading={radarAutoEnrichmentRunning}
+                blocked={radarCrownNoQuota}
+                onClick={() => void runRadarAutoEnrichmentQueue()}
+                className={styles.desktopHeroPremiumCrown}
+              />
+              <div
+                className={styles.radarHeroCrownCounter}
+                data-unlimited={enrichmentLooksUnlimited ? "true" : "false"}
+                title={`${radarCrownCounterValue} ${radarCrownCounterLabel} ${radarCrownCounterTitle}`}
+              >
+                <b>{radarCrownCounterValue}</b>
+                <span>{radarCrownCounterLabel} {radarCrownCounterTitle}</span>
+                <small>{radarCrownCounterMeta}</small>
+              </div>
+            </div>
+            <button
+              type="button"
+              className={styles.radarHeaderPrimaryAction}
+              onClick={() => {
+                if (radarStoppedWithoutCards) {
+                  setFilterEditing(true);
+                  if (typeof document !== "undefined") {
+                    document.querySelector(`.${styles.filters}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }
+                  return;
                 }
-                return;
-              }
-              if (radarPausedLocked) {
-                void stopRadarForEditing();
-                return;
-              }
-              if (radarFiltersLocked) return;
-              if (activeRunPartial || activeRunFailed) {
-                setFilterEditing(true);
-                if (typeof document !== "undefined") {
-                  document.querySelector(`.${styles.filters}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+                if (radarPausedLocked) {
+                  void stopRadarForEditing();
+                  return;
                 }
-                return;
-              }
-              void sendFilteredToVendas();
-            }}
-            data-tone={radarPausedLocked ? "warning" : activeRunPartial || activeRunFailed || radarStoppedWithoutCards ? "danger" : undefined}
-            disabled={!radarStoppedWithoutCards && ((radarFiltersLocked && !radarPausedLocked) || (!radarPausedLocked && !activeRunPartial && !activeRunFailed && (bulkSending || !visibleItems.length)))}
-            title={radarStoppedWithoutCards ? "Voltar aos filtros para pesquisar novamente." : radarFiltersLocked ? "Pare o Radar para alterar filtros ou enviar para Vendas." : !visibleItems.length && !activeRunPartial && !activeRunFailed ? "Pesquise primeiro para escolher o que vai para Vendas." : undefined}
-          >
-            {radarStoppedWithoutCards ? "Voltar às pesquisas" : radarPausedLocked ? "Parar e editar" : activeRunPartial || activeRunFailed ? "Ajustar busca" : bulkSending ? "Enviando..." : distributionEnabled ? "Distribuir cards" : "Enviar para Vendas"}
-          </button>
+                if (radarFiltersLocked) return;
+                if (activeRunPartial || activeRunFailed) {
+                  setFilterEditing(true);
+                  if (typeof document !== "undefined") {
+                    document.querySelector(`.${styles.filters}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }
+                  return;
+                }
+                void sendFilteredToVendas();
+              }}
+              data-tone={radarPausedLocked ? "warning" : activeRunPartial || activeRunFailed || radarStoppedWithoutCards ? "danger" : undefined}
+              disabled={!radarStoppedWithoutCards && ((radarFiltersLocked && !radarPausedLocked) || (!radarPausedLocked && !activeRunPartial && !activeRunFailed && (bulkSending || !visibleItems.length)))}
+              title={radarStoppedWithoutCards ? "Voltar aos filtros para pesquisar novamente." : radarFiltersLocked ? "Pare o Radar para alterar filtros ou enviar para Vendas." : !visibleItems.length && !activeRunPartial && !activeRunFailed ? "Pesquise primeiro para escolher o que vai para Vendas." : undefined}
+            >
+              {radarStoppedWithoutCards ? "Voltar às pesquisas" : radarPausedLocked ? "Parar e editar" : activeRunPartial || activeRunFailed ? "Ajustar busca" : bulkSending ? "Enviando..." : distributionEnabled ? "Distribuir cards" : "Enviar para Vendas"}
+            </button>
+          </div>
         </header>
 
         <form
@@ -4951,11 +5234,19 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
               <span style={{ ["--progress" as string]: `${activeRunProgress}%` }} />
             </div>
             {searchScopeLine ? <p>{searchScopeLine}</p> : null}
-            <p>{socialLookupPendingCount > 0 ? "Chegando cards para o Vendas. Redes sociais ficam para a etapa seguinte." : activeRun.message || "O Radar entrega primeiro os cards aprovados e encerra a busca primária."}</p>
+            <p>
+              {socialLookupPendingCount > 0
+                ? "Chegando cards para o Vendas. Redes sociais ficam para a etapa seguinte."
+                : publicRadarMessage(activeRun.message, hbxSellerPublicUi, "O Radar entrega primeiro os cards aprovados e encerra a busca primária.")}
+            </p>
           </section>
         ) : null}
 
-        {error ? <div className={styles.notice} data-tone="error">{compactRadarMessage(error)}</div> : null}
+        {error ? (
+          <div className={styles.notice} data-tone="error">
+            {publicRadarMessage(error, hbxSellerPublicUi, "Não foi possível concluir agora. Ajuste os filtros ou tente novamente.")}
+          </div>
+        ) : null}
         {feedback && !activeRun ? <div className={styles.notice} data-tone="ok">{feedback}</div> : null}
 
         <section className={styles.results}>

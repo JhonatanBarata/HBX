@@ -1,5 +1,17 @@
 # Evolution API - AI Agent Guidelines
 
+## HBX Context
+
+This folder is part of the HBX repository. Before changing Webwhats in the HBX context, read:
+
+- `../docs/ai/AI_CONTEXT.md`
+- `../docs/ai/PRODUCT_INVARIANTS.md`
+- `../docs/ai/REPO_MAP.md`
+- `../docs/ai/AI_ENTRYPOINTS.md`
+- `../docs/ai/AGENT_INSTRUCTIONS.md`
+
+Keep this `AGENTS.md` inside `Webwhats`. Agents use this local file automatically when working in this subtree.
+
 This document provides comprehensive guidelines for AI agents (Claude, GPT, Cursor, etc.) working with the Evolution API codebase.
 
 ## Project Overview
@@ -352,4 +364,3 @@ export DATABASE_PROVIDER=postgresql  # or mysql
 - **Error tracking**: Comprehensive error scenarios
 - **Health checks**: Instance status and connection monitoring
 - **Telemetry**: Usage analytics (non-sensitive data only)
-

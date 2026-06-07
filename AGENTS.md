@@ -1,5 +1,20 @@
 # HBX Agent Instructions
 
+## AI Context Index
+
+Before changing HBX code, read the local AI context in `docs/ai/README.md`.
+
+For broad repository orientation, use:
+
+- `docs/ai/AI_CONTEXT.md`
+- `docs/ai/PRODUCT_INVARIANTS.md`
+- `docs/ai/REPO_MAP.md`
+- `docs/ai/AI_ENTRYPOINTS.md`
+- `docs/ai/AI_COMMANDS.md`
+- `docs/ai/SKILL_REFERENCE.md`
+
+Keep this `AGENTS.md` at the repository root. Agents read this path automatically; do not move it into `docs`.
+
 ## Product Direction
 
 HBX is a prospecting pipeline:

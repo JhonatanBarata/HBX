@@ -10,33 +10,71 @@ import { ModuleAccessGuard } from '../modules/module-access.guard';
 import { ModuleAccess } from '../modules/module-feature.decorator';
 import { SellerOnboardingService } from './seller-onboarding.service';
 import { HbxPartnerReferralService } from './hbx-partner-referral.service';
+import { Type } from 'class-transformer';
+import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 
 class MarkComplaintDto {
+  @IsBoolean()
   isComplaint: boolean;
 }
 
 class UpdateCommissionDto {
+  @IsOptional()
+  @IsIn(['pending', 'payable', 'paid', 'canceled'])
   commissionStatus?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(280)
   commissionNote?: string;
 }
 
 class UpdateCommissionSettingsDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(30)
   commissionDueBusinessDays?: number;
 }
 
 class UpdateClientSaleStatusDto {
+  @IsOptional()
+  @IsIn(['activation_pending', 'trial_started', 'sale_confirmed', 'inactive', 'canceled'])
   saleStatus?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(280)
   commissionNote?: string;
 }
 
 class CreateCommissionPayoutDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
   sellerUserId?: number;
+
+  @IsOptional()
+  @IsBoolean()
   dueOnly?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
   referenceLabel?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
   notes?: string;
 }
 
 class RejectHbxPartnerReferralDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(280)
   reason?: string;
 }
 

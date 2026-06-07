@@ -904,9 +904,38 @@ type HbxAssistedSignupResponse = {
     failed?: boolean | null;
     previewUrl?: string | null;
     confirmUrl?: string | null;
+    errorCode?: string | null;
+    errorMessage?: string | null;
   } | null;
   lead?: LeadItem | null;
 };
+
+function assistedSignupResultTone(result?: HbxAssistedSignupResponse | null) {
+  if (!result?.ok) return "info";
+  if (result.delivery?.failed) return "warning";
+  if (result.requiresEmailConfirmation) return "info";
+  return "success";
+}
+
+function assistedSignupResultTitle(result?: HbxAssistedSignupResponse | null) {
+  const tone = assistedSignupResultTone(result);
+  if (tone === "warning") return "Cadastro criado, envio pendente";
+  if (tone === "info") return "E-mail de confirmação enviado";
+  return "Cadastro confirmado";
+}
+
+function assistedSignupResultNextAction(result?: HbxAssistedSignupResponse | null) {
+  const tone = assistedSignupResultTone(result);
+  if (tone === "warning") {
+    return result?.delivery?.confirmUrl || result?.delivery?.previewUrl
+      ? "Próxima ação: copie o link de confirmação e envie ao cliente. Não crie outro cadastro."
+      : "Próxima ação: não crie outro cadastro. Verifique o envio de e-mail antes de repetir.";
+  }
+  if (tone === "info") {
+    return "Próxima ação: acompanhar a confirmação do e-mail pelo cliente antes de trial, pagamento ou implantação.";
+  }
+  return "Próxima ação: acompanhar ativação, trial ou pagamento no card.";
+}
 
 type AssistedSignupDraft = {
   companyName: string;
@@ -1203,15 +1232,17 @@ function closedBadgeRadarIconName(key: string): HbxRadarIconName {
   return "check";
 }
 
-function HeroPremiumCrown({ active, onClick }: { active: boolean; onClick?: () => void }) {
+function HeroPremiumCrown({ active, loading = false, onClick }: { active: boolean; loading?: boolean; onClick?: () => void }) {
   return (
     <button
       type="button"
       className={styles.mobileHeroPremiumCrown}
       data-active={active ? "true" : "false"}
-      aria-label={active ? "Desativar enriquecimento automático" : "Ativar enriquecimento automático"}
-      title={active ? "Enriquecimento automático ativo" : "Ativar enriquecimento automático"}
+      aria-busy={loading ? "true" : "false"}
+      aria-label={loading ? "Enriquecendo cards" : active ? "Desativar enriquecimento automático" : "Ativar enriquecimento automático"}
+      title={loading ? "Enriquecendo cards" : active ? "Enriquecimento automático ativo" : "Ativar enriquecimento automático"}
       onClick={onClick}
+      disabled={loading}
     >
       <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
         <path d="M4.2 18.5h15.6l.7-9.9-4.6 3.5L12 4.7 8.1 12.1 3.5 8.6l.7 9.9Z" />
@@ -1306,7 +1337,7 @@ const SALE_CLOSING_ACTIONS: Array<{
   {
     value: "trial_started",
     label: "Trial iniciado",
-    helper: "Comissão prevista entra no prazo definido.",
+    helper: "Acompanhe o trial; comissão só libera após pagamento.",
     tone: "success",
   },
   {
@@ -1322,6 +1353,35 @@ const SALE_CLOSING_ACTIONS: Array<{
     tone: "danger",
   },
 ];
+
+const AUTOMATIC_SALE_STATUSES = new Set<SaleStatus>([
+  "activation_pending",
+  "trial_started",
+  "sale_confirmed",
+]);
+
+function saleStatusIsAutomatic(status?: string | null) {
+  return AUTOMATIC_SALE_STATUSES.has(normalizeSaleStatus(status));
+}
+
+function saleStatusHasSystemProof(lead?: Pick<LeadItem, "commissionLinkedCompanyId" | "commissionLinkedAt" | "commissionAutoSyncedAt" | "commissionSyncSource"> | null) {
+  return Boolean(
+    lead?.commissionLinkedCompanyId ||
+    lead?.commissionLinkedAt ||
+    lead?.commissionAutoSyncedAt ||
+    lead?.commissionSyncSource,
+  );
+}
+
+function saleStatusCanBeCleared(lead: LeadItem, status?: string | null) {
+  const normalized = normalizeSaleStatus(status);
+  if (normalized === "none") return false;
+  return !saleStatusIsAutomatic(normalized) || !saleStatusHasSystemProof(lead);
+}
+
+function saleStatusManualOptionDisabled(option: SaleStatus, currentStatus?: string | null) {
+  return saleStatusIsAutomatic(option) && normalizeSaleStatus(currentStatus) !== option;
+}
 
 const BLOCK_LABELS: Record<LeadBlockKey, string> = {
   overdue: "Atrasados",
@@ -1365,6 +1425,43 @@ function vendasClientMessage(value: unknown, fallback = "Não consegui atualizar
     return fallback;
   }
   return text || fallback;
+}
+
+function assistedSignupFailureMessage(value: unknown) {
+  const apiError = value as ApiFetchError;
+  const payload =
+    apiError?.payload && typeof apiError.payload === "object" && !Array.isArray(apiError.payload)
+      ? apiError.payload as Record<string, unknown>
+      : null;
+  const payloadMessage = Array.isArray(payload?.message)
+    ? payload.message.join(", ")
+    : typeof payload?.message === "string"
+      ? payload.message
+      : "";
+  const code = String(apiError?.code || payload?.code || "").trim();
+  const text = String(payloadMessage || (value instanceof Error ? value.message : value || "")).trim();
+
+  if (apiError?.status === 409) {
+    if (/PHONE.*REGISTERED|TRIAL_PHONE_ALREADY_USED/i.test(code)) {
+      return text || "Este WhatsApp já tem cadastro ou trial HBX. Use o cadastro existente.";
+    }
+    if (/EMAIL.*REGISTERED|EMAIL.*DUPLICATED/i.test(code)) {
+      return text || "Este e-mail já tem cadastro HBX. Use o cadastro existente.";
+    }
+    if (/LEAD_ALREADY_REGISTERED/i.test(code)) {
+      return text || "Este card já tem cadastro/link HBX em andamento. Não crie outro trial.";
+    }
+    if (/PHONE_LOCKED/i.test(code)) {
+      return text || "O WhatsApp do cadastro deve ser o telefone do card.";
+    }
+    return text || "Já existe cadastro HBX para estes dados. Use o cadastro existente.";
+  }
+
+  if (apiError?.status === 403) {
+    return "Sua conta não tem liberação para concluir este cadastro agora. Verifique o acesso HBX antes de tentar de novo.";
+  }
+
+  return vendasClientMessage(value, "Não foi possível criar o cadastro assistido agora.");
 }
 const SALES_PROFILE_DEFAULT_DRAFT: SalesProfileDraft = {
   whatDoYouSell: "Sistema/Software",
@@ -1786,6 +1883,14 @@ function normalizePhoneDigits(raw: string) {
   return digits;
 }
 
+function leadCardPhoneForAssistedSignup(lead?: Pick<LeadItem, "phone" | "phoneNormalized"> | null) {
+  const phone = String(lead?.phone || "").trim();
+  if (normalizePhoneDigits(phone)) return phone;
+  const phoneNormalized = String(lead?.phoneNormalized || "").trim();
+  if (normalizePhoneDigits(phoneNormalized)) return phoneNormalized;
+  return "";
+}
+
 function buildCallUrl(phone?: string | null) {
   const digits = normalizePhoneDigits(String(phone || ""));
   return digits ? `tel:+55${digits}` : "";
@@ -1934,7 +2039,7 @@ function vendasEnrichmentCreditsView(board?: BoardResponse | null) {
 function shouldAutoEnrichLead(lead: LeadItem, board?: BoardResponse | null, autoEnabled = false) {
   if (!lead?.id) return false;
   if (!autoEnabled) return false;
-  if (!leadNeedsEnrichment(lead)) return false;
+  if (!leadCanRequestEnrichment(lead)) return false;
   const credits = vendasEnrichmentCreditsView(board);
   const capabilities = leadCapabilities(lead, board);
   return credits.canManual && capabilities.canAutoEnrichLeads === true;
@@ -1948,14 +2053,28 @@ function leadEnrichmentInProgress(lead: LeadItem) {
   return ["pending", "queued", "processing"].includes(leadEnrichmentStatusKey(lead));
 }
 
-function leadEnrichmentReviewed(lead: LeadItem) {
+function leadHasCompletedEnrichment(lead: LeadItem) {
+  const intelligence = lead.leadIntelligence || {};
   const status = leadEnrichmentStatusKey(lead);
-  return ["completed", "failed"].includes(status) || Boolean(lead.leadIntelligence?.enrichedAt);
+  const tier = String(intelligence.visibilityTier || "").trim().toLowerCase();
+  const hasCompletedStatus = ["completed", "enriched", "ready", "done"].includes(status);
+  const hasTimestamp = Boolean(intelligence.enrichedAt);
+  if (["pending", "queued", "processing", "failed"].includes(status)) return false;
+  if (hasTimestamp && (!status || hasCompletedStatus)) return true;
+  return hasCompletedStatus && ["lead_plus_qualified", "review_backup"].includes(tier);
 }
 
-function leadNeedsEnrichment(lead: LeadItem) {
+function leadHasFailedEnrichmentAttempt(lead: LeadItem) {
+  return leadEnrichmentStatusKey(lead) === "failed";
+}
+
+function leadEnrichmentReviewed(lead: LeadItem) {
+  return leadHasCompletedEnrichment(lead) || leadHasFailedEnrichmentAttempt(lead);
+}
+
+function leadCanRequestEnrichment(lead: LeadItem) {
   if (!lead?.id) return false;
-  if (leadEnrichmentInProgress(lead)) return false;
+  if (leadEnrichmentStatusKey(lead) === "processing") return false;
   return !leadEnrichmentReviewed(lead);
 }
 
@@ -2020,53 +2139,35 @@ function leadHasPremiumSignals(lead: LeadItem) {
   );
 }
 
+function leadEnrichmentProofLabel(lead: LeadItem) {
+  const intelligence = lead.leadIntelligence || {};
+  const status = leadEnrichmentStatusKey(lead);
+  const tier = String(intelligence.visibilityTier || "").trim().toLowerCase();
+  const proofs: string[] = [];
+  if (leadHasCompletedEnrichment(lead)) proofs.push("enriquecimento concluído");
+  else if (leadHasFailedEnrichmentAttempt(lead)) proofs.push("revisado sem novos sinais");
+  if (intelligence.enrichedAt) proofs.push("data registrada");
+  if (tier === "lead_plus_qualified") proofs.push("Lead+ qualificado");
+  else if (tier === "review_backup") proofs.push("revisão preservada");
+  if (leadEmailForDisplay(lead)) proofs.push("e-mail");
+  if (leadWebsiteForDisplay(lead)) proofs.push("site");
+  if (intelligence.instagramUrl || intelligence.facebookUrl) proofs.push("rede social");
+  if (!proofs.length && ["pending", "queued"].includes(status)) proofs.push("na fila");
+  if (!proofs.length && status === "processing") proofs.push("em processamento");
+  return proofs.slice(0, 3).join(", ") || "sem prova explícita";
+}
+
 function leadEnrichmentBadgeState(lead: LeadItem, board?: BoardResponse | null) {
   const intelligence = lead.leadIntelligence || {};
   const enrichmentStatus = String(intelligence.enrichmentStatus || "").trim().toLowerCase();
-  const socialStatus = String(intelligence.socialStatus || "").trim().toLowerCase();
-  const emailStatus = String(intelligence.emailStatus || "").trim().toLowerCase();
-  const websiteStatus = String(intelligence.websiteStatus || "").trim().toLowerCase();
-  const whatsappStatus = String(intelligence.whatsappStatus || "").trim().toLowerCase();
   const tier = String(intelligence.visibilityTier || "").trim().toLowerCase();
   const fromRadar = lead.sourceType === "webscraping" || String(lead.primarySource || "").toLowerCase().includes("radar");
   const lockedPremium = hasLockedSocialLinks(lead, board) || Boolean(intelligence.premiumTeaser);
-  const pendingTier = ["candidate", "list_basic", "enrichment_pending"].includes(tier);
   const readyTier = ["lead_plus_qualified", "review_backup"].includes(tier);
   const possibleSocial = leadHasPossibleSocial(lead);
-  const hasSite = Boolean(leadWebsiteForDisplay(lead));
-  const hasEmail = Boolean(leadEmailForDisplay(lead));
   const hasPremiumSignals = leadHasPremiumSignals(lead);
-  const radarReviewedMissing = fromRadar
-    && !hasSite
-    && !hasEmail
-    && ["missing", "weak", "unknown", ""].includes(socialStatus)
-    && ["missing", "invalid", "none", ""].includes(emailStatus)
-    && ["none", "missing", "weak", "unreachable", ""].includes(websiteStatus)
-    && Boolean(intelligence.opportunityReason || intelligence.nextBestAction || intelligence.recommendedChannel || intelligence.contactQuality);
-  const completedByEnrichment = enrichmentStatus === "completed" && Boolean(
-    intelligence.enrichedAt
-    || readyTier
-    || hasSite
-    || hasEmail
-    || hasPremiumSignals
-    || ["confirmed", "probable"].includes(emailStatus)
-    || radarReviewedMissing
-  );
-  const enrichmentChecked = Boolean(
-    completedByEnrichment
-    || radarReviewedMissing
-    || ["confirmed", "unverified"].includes(whatsappStatus)
-    || ["confirmed", "probable", "unverified"].includes(emailStatus)
-    || (enrichmentStatus === "failed" && ["missing", "weak"].includes(socialStatus))
-  );
+  const completedByEnrichment = leadHasCompletedEnrichment(lead);
   if (["pending", "queued", "processing"].includes(enrichmentStatus) && fromRadar) {
-    return {
-      state: "enriching" as const,
-      label: "Enriquecendo",
-      title: "Card entregue. O Radar está completando redes sociais, site e sinais comerciais.",
-    };
-  }
-  if ((pendingTier && !enrichmentChecked) || (fromRadar && !readyTier && !hasPremiumSignals && !enrichmentChecked)) {
     return {
       state: "enriching" as const,
       label: "Enriquecendo",
@@ -2080,21 +2181,7 @@ function leadEnrichmentBadgeState(lead: LeadItem, board?: BoardResponse | null) 
       title: "O Radar revisou este card, mas não encontrou novos sinais agora.",
     };
   }
-  if (lockedPremium) {
-    return {
-      state: "locked" as const,
-      label: "Lead",
-      title: "Sinais premium encontrados. Disponível no HBX Lead Plus.",
-    };
-  }
-  if (fromRadar && hasPremiumSignals && !readyTier && !completedByEnrichment) {
-    return {
-      state: "enriching" as const,
-      label: "Enriquecendo",
-      title: "Sinal encontrado. O Radar ainda está completando o card.",
-    };
-  }
-  if (readyTier || hasPremiumSignals) {
+  if (completedByEnrichment) {
     return {
       state: "ready" as const,
       label: possibleSocial && !intelligence.instagramUrl && !intelligence.facebookUrl ? "Possível" : "Pronto",
@@ -2103,11 +2190,11 @@ function leadEnrichmentBadgeState(lead: LeadItem, board?: BoardResponse | null) 
         : "Enriquecimento premium analisado.",
     };
   }
-  if (fromRadar && enrichmentChecked) {
+  if (fromRadar || lockedPremium || readyTier || hasPremiumSignals || ["candidate", "list_basic", "enrichment_pending"].includes(tier)) {
     return {
-      state: "ready" as const,
-      label: "Revisado",
-      title: "O Radar revisou este card, mas não encontrou novos sinais agora.",
+      state: "idle" as const,
+      label: "Lead",
+      title: "Enriquecimento ainda não aplicado neste card.",
     };
   }
   return null;
@@ -2183,22 +2270,6 @@ function CrownGlyph() {
 function MobileEnrichmentCrown({ lead, board, compact = false }: { lead: LeadItem; board?: BoardResponse | null; compact?: boolean }) {
   const badge = leadEnrichmentBadgeState(lead, board);
   if (!badge) return null;
-  if (badge.state === "locked") {
-    return (
-      <Link
-        href={toMobileRoute("/planos?intent=lead")}
-        className={styles.mobileLeadEnrichmentCrown}
-        data-state={badge.state}
-        data-compact={compact ? "true" : "false"}
-        title={badge.title}
-        aria-label={badge.title}
-        onClick={(event) => event.stopPropagation()}
-      >
-        <CrownGlyph />
-        <span>{badge.label}</span>
-      </Link>
-    );
-  }
   return (
     <span
       className={styles.mobileLeadEnrichmentCrown}
@@ -2891,7 +2962,7 @@ function normalizeCommissionDueBusinessDays(value?: number | string | null) {
   return Math.min(30, Math.max(0, numeric));
 }
 
-function commissionLifecycleLabel(client: CommissionClient, dueBusinessDays = 3) {
+function commissionLifecycleLabel(client: CommissionClient) {
   const saleStatus = normalizeSaleStatus(client.saleStatus);
   const commissionStatus = String(client.commissionStatus || "").trim().toLowerCase();
   if (saleStatus === "activation_pending") {
@@ -2907,7 +2978,7 @@ function commissionLifecycleLabel(client: CommissionClient, dueBusinessDays = 3)
   }
   if (commissionStatus === "paid") return `Pago ${formatDateTime(client.commissionPaidAt)}`;
   if (commissionStatus === "canceled" || saleStatus === "canceled") return "Comissão cancelada";
-  if (saleStatus === "trial_started") return `Trial ativo, aguardando D+${dueBusinessDays}`;
+  if (saleStatus === "trial_started") return "Trial ativo, aguardando pagamento";
   if (saleStatus === "sale_confirmed") return "Cliente ativo recorrente";
   if (saleStatus === "inactive") return "Cliente inativado";
   return commissionSourceLabel(client);
@@ -2972,7 +3043,7 @@ function buildSaleClosingPatch(lead: LeadItem, draft: LeadDraft, status: SaleSta
 
 function saleClosingFeedback(status: SaleStatus) {
   if (status === "activation_pending") return "Fechamento enviado para ativação.";
-  if (status === "trial_started") return "Trial iniciado e comissão prevista.";
+  if (status === "trial_started") return "Trial iniciado. Comissão só libera após pagamento confirmado.";
   if (status === "sale_confirmed") return "Pagamento confirmado e comissão recorrente.";
   if (status === "canceled") return "Venda cancelada no card.";
   if (status === "inactive") return "Cliente marcado como inativo.";
@@ -3863,8 +3934,13 @@ function LeadCardView({
                   }
                 >
                   {SALE_STATUS_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
+                    <option
+                      key={option.value}
+                      value={option.value}
+                      disabled={saleStatusManualOptionDisabled(option.value, draft.saleStatus)}
+                    >
                       {option.label}
+                      {saleStatusManualOptionDisabled(option.value, draft.saleStatus) ? " (automático)" : ""}
                     </option>
                   ))}
                 </select>
@@ -3910,20 +3986,42 @@ function LeadCardView({
                   <b>{commissionPercent > 0 ? `${formatCurrency(commissionPreview)} comissão` : "Sem comissão definida"}</b>
                 </header>
                 <div className={styles.hbxClosingSteps}>
-                  {SALE_CLOSING_ACTIONS.map((action) => (
+                  {SALE_CLOSING_ACTIONS.map((action) => {
+                    const automatic = saleStatusIsAutomatic(action.value);
+                    const active = draft.saleStatus === action.value;
+                    const nextStatus: SaleStatus = active && !automatic ? "none" : action.value;
+                    const helper = automatic ? "Status automático pelo cadastro, trial ou pagamento do cliente." : action.helper;
+                    return (
+                      <button
+                        type="button"
+                        key={action.value}
+                        data-tone={action.tone}
+                        data-active={active ? "true" : "false"}
+                        onClick={() => {
+                          if (automatic) return;
+                          onCloseSale?.(nextStatus);
+                        }}
+                        disabled={saving || automatic}
+                        title={helper}
+                      >
+                        <strong>{active && !automatic ? "Desfazer" : action.label}</strong>
+                        <span>{helper}</span>
+                      </button>
+                    );
+                  })}
+                  {saleStatusCanBeCleared(lead, draft.saleStatus) ? (
                     <button
                       type="button"
-                      key={action.value}
-                      data-tone={action.tone}
-                      data-active={draft.saleStatus === action.value ? "true" : "false"}
-                      onClick={() => onCloseSale?.(action.value)}
+                      data-tone="pending"
+                      data-active="false"
+                      onClick={() => onCloseSale?.("none")}
                       disabled={saving}
-                      title={action.helper}
+                      title="Voltar este card para Sem venda."
                     >
-                      <strong>{action.label}</strong>
-                      <span>{action.helper}</span>
+                      <strong>Limpar status</strong>
+                      <span>Volta para Sem venda sem forçar trial ou pagamento.</span>
                     </button>
-                  ))}
+                  ) : null}
                 </div>
                 <div className={styles.hbxClosingFooter}>
                   <div className={styles.hbxClosingFooterActions}>
@@ -4371,6 +4469,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   const [mobileHistoryOpen, setMobileHistoryOpen] = useState(false);
   const [mobileSavingNote, setMobileSavingNote] = useState(false);
   const [mobileEnrichmentLoadingId, setMobileEnrichmentLoadingId] = useState<string | null>(null);
+  const [mobileAutoEnrichmentRunning, setMobileAutoEnrichmentRunning] = useState(false);
   const [mobileTemplateIndex, setMobileTemplateIndex] = useState(() => readMobileReadyMessagePreference());
   const [mobileReportLead, setMobileReportLead] = useState<LeadItem | null>(null);
   const [mobileReportReason, setMobileReportReason] = useState("");
@@ -4425,6 +4524,8 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   const [hbxClosingPipeline, setHbxClosingPipeline] = useState<HbxClosingPipelineResponse | null>(null);
   const [hbxClosingLoading, setHbxClosingLoading] = useState(false);
   const [pulseRefreshKey, setPulseRefreshKey] = useState(0);
+  const [mobilePulseExpanded, setMobilePulseExpanded] = useState(false);
+  const [mobileRecommendedExpanded, setMobileRecommendedExpanded] = useState(false);
   const [desktopVendasTab, setDesktopVendasTab] = useState<DesktopVendasTab>("clientes");
   const [masterNoticeAudience, setMasterNoticeAudience] = useState<MasterNoticeAudience>("seller");
   const [masterNotices, setMasterNotices] = useState<MasterNotice[]>([]);
@@ -6148,8 +6249,8 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     });
   }
 
-  async function loadMobileLeadEnrichment(lead: LeadItem) {
-    if (!leadNeedsEnrichment(lead) && !leadEnrichmentInProgress(lead)) return;
+  async function loadMobileLeadEnrichment(lead: LeadItem, options?: { silent?: boolean }): Promise<boolean> {
+    if (!leadCanRequestEnrichment(lead) && !leadEnrichmentInProgress(lead)) return false;
     const previousIntelligence = lead.leadIntelligence || null;
     const processingPatch: Partial<LeadItem> = {
       leadIntelligence: {
@@ -6187,6 +6288,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       setMobileNoteLead((current) =>
         current?.id === lead.id ? { ...current, ...patch } : current,
       );
+      return true;
     } catch (err) {
       const apiError = err as ApiFetchError;
       const payload = apiError?.payload as { usage?: VendasUsageSnapshot | null } | undefined;
@@ -6203,13 +6305,87 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       setMobileNoteLead((current) =>
         current?.id === lead.id ? { ...current, ...failedPatch } : current,
       );
-      setFeedback(
-        err instanceof Error
-          ? err.message
-          : "Não foi possível enriquecer o card agora.",
-      );
+      if (!options?.silent) {
+        setFeedback(
+          err instanceof Error
+            ? err.message
+            : "Não foi possível enriquecer o card agora.",
+        );
+      }
+      return false;
     } finally {
       setMobileEnrichmentLoadingId((current) => (current === lead.id ? null : current));
+    }
+  }
+
+  function mobileAutoEnrichmentCandidateLeads(currentBoard: BoardResponse | null | undefined) {
+    if (!currentBoard) return [];
+    return (["overdue", "today", "scheduled"] as LeadBlockKey[])
+      .flatMap((blockKey) => currentBoard.blocks[blockKey] || [])
+      .filter((lead) => shouldAutoEnrichLead(lead, currentBoard, true));
+  }
+
+  async function runMobileAutoEnrichmentQueue() {
+    const currentBoard = boardRef.current || board;
+    if (!currentBoard) {
+      setFeedback("Vendas ainda está carregando os cards.");
+      return;
+    }
+
+    const credits = vendasEnrichmentCreditsView(currentBoard);
+    if (credits.isBlocked || !credits.canManual) {
+      setFeedback("Sem crédito de enriquecimento agora. Trabalhe os cards atuais ou aguarde o reset.");
+      return;
+    }
+
+    const candidates = mobileAutoEnrichmentCandidateLeads(currentBoard);
+    const activeLeads = (["overdue", "today", "scheduled"] as LeadBlockKey[])
+      .flatMap((blockKey) => currentBoard.blocks[blockKey] || []);
+    if (!candidates.length) {
+      const completed = activeLeads.filter(leadHasCompletedEnrichment).length;
+      const processing = activeLeads.filter((lead) => leadEnrichmentStatusKey(lead) === "processing").length;
+      const proofLead = activeLeads.find((lead) => leadHasCompletedEnrichment(lead) || leadHasFailedEnrichmentAttempt(lead));
+      const proofText = proofLead
+        ? ` Ex.: ${proofLead.name || "card"} (${leadEnrichmentProofLabel(proofLead)}).`
+        : "";
+      setFeedback(
+        completed || processing
+          ? `Nenhum card pendente para enriquecer. ${completed} já revisado(s), ${processing} em andamento.${proofText}`
+          : "Nenhum card pendente para enriquecer agora.",
+      );
+      return;
+    }
+
+    const batchLimit = credits.remaining >= 999999
+      ? candidates.length
+      : Math.max(1, Math.min(candidates.length, Math.trunc(Number(credits.remaining || 0))));
+    const queue = candidates.slice(0, batchLimit);
+    const skippedByCredit = Math.max(0, candidates.length - queue.length);
+    setMobileAutoEnrichmentRunning(true);
+    setFeedback(`Enriquecendo ${queue.length} card(s) do Vendas.`);
+
+    let completed = 0;
+    let failed = 0;
+    try {
+      for (const [index, lead] of queue.entries()) {
+        setFeedback(`Enriquecendo ${index + 1}/${queue.length}: ${lead.name || "card"}.`);
+        const ok = await loadMobileLeadEnrichment(lead, { silent: true });
+        if (ok) completed += 1;
+        else failed += 1;
+      }
+
+      await loadBoardRef.current({ forceVisualRefresh: true });
+      const skippedText = skippedByCredit ? ` ${skippedByCredit} ficou para depois por limite de crédito.` : "";
+      const failedText = failed ? ` ${failed} não concluiu agora.` : "";
+      setFeedback(
+        completed
+          ? `${completed} card(s) enriquecido(s).${failedText}${skippedText}`
+          : `Nenhum card foi enriquecido agora.${failedText}${skippedText}`,
+      );
+    } catch {
+      setFeedback("Enriquecimento interrompido. Tente novamente em instantes.");
+    } finally {
+      setMobileAutoEnrichmentRunning(false);
     }
   }
 
@@ -6792,7 +6968,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                     <span>{salePlanLabel(client.salePlanKey)} · {client.city || client.segment || "Sem local"}</span>
                   </div>
                   <b>{formatCurrency(client.commissionAmount || 0)}</b>
-                  <small>{commissionLifecycleLabel(client, commissionDueDays)}</small>
+                  <small>{commissionLifecycleLabel(client)}</small>
                 </article>
               ))}
             </div>
@@ -7755,16 +7931,25 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
               <SalesMotionBackground />
               <HeroPremiumCrown
                 active={mobileHeroPremiumActive}
+                loading={mobileAutoEnrichmentRunning}
                 onClick={() => {
+                  if (mobileAutoEnrichmentRunning) return;
                   if (!mobileHeroPremiumAvailable) {
                     window.location.href = toMobileRoute("/planos?intent=lead");
                     return;
                   }
+                  if (mobileAutoEnrichmentActive) {
+                    setMobileAutoEnrichmentActive(false);
+                    saveMobileAutoEnrichmentPreference(false);
+                    setFeedback("Enriquecimento automático pausado.");
+                    return;
+                  }
                   setMobileAutoEnrichmentActive((current) => {
-                    const next = !current;
-                    saveMobileAutoEnrichmentPreference(next);
-                    return next;
+                    if (current) return current;
+                    saveMobileAutoEnrichmentPreference(true);
+                    return true;
                   });
+                  void runMobileAutoEnrichmentQueue();
                 }}
               />
               {renderMasterNoticeBell()}
@@ -8019,57 +8204,96 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
             document.body,
           ) : null}
 
-          <HbxPulseSummaryCard mode="mobile" refreshKey={pulseRefreshKey} />
+          <div className={styles.mobileVendasCompactPanels}>
+            <button
+              type="button"
+              className={styles.mobileVendasThinToggle}
+              data-open={mobilePulseExpanded ? "true" : "false"}
+              aria-expanded={mobilePulseExpanded}
+              aria-controls="mobile-vendas-pulse-panel"
+              onClick={() => setMobilePulseExpanded((current) => !current)}
+            >
+              <span>HBX Pulse</span>
+              <small>{mobilePulseExpanded ? "Recolher" : "Abrir leitura"}</small>
+              <b aria-hidden="true">{mobilePulseExpanded ? "-" : "+"}</b>
+            </button>
+            {mobilePulseExpanded ? (
+              <div id="mobile-vendas-pulse-panel" className={styles.mobileVendasThinPanel}>
+                <HbxPulseSummaryCard mode="mobile" refreshKey={pulseRefreshKey} className={styles.mobileVendasPulsePanel} />
+              </div>
+            ) : null}
 
-          {nextRecommendedMobileLead && mobileSection !== "report" && mobileSection !== "commission" ? (
-            <section className={styles.mobileVendasRecommendedCard} aria-label="Próximo card recomendado">
-              <button
-                type="button"
-                onClick={() => openMobileLeadDetail(nextRecommendedMobileLead)}
-              >
-                <span className={styles.mobileVendasRecommendedTopline}>
-                  <span>Próximo card recomendado</span>
-                  <MobileEnrichmentCrown lead={nextRecommendedMobileLead} board={board} compact />
-                </span>
-                <strong>{nextRecommendedMobileLead.name || "Lead sem nome"}</strong>
-                <small>
-                  {mobileLeadPlace(nextRecommendedMobileLead)} · {nextRecommendedMobileLead.nextAction || "Executar contato"}
-                </small>
-              </button>
-              <div className={styles.mobileVendasRecommendedFooter}>
-                <a
-                  className={styles.mobileVendasRecommendedPhone}
-                  href={leadWhatsappHref(nextRecommendedMobileLead) || buildCallUrl(nextRecommendedMobileLead.phone) || undefined}
-                  aria-disabled={!leadWhatsappHref(nextRecommendedMobileLead) && !buildCallUrl(nextRecommendedMobileLead.phone)}
-                  aria-label={`Abrir telefone de ${nextRecommendedMobileLead.name || "lead"}`}
-                  onClick={(event) => {
-                    if (!leadWhatsappHref(nextRecommendedMobileLead) && !buildCallUrl(nextRecommendedMobileLead.phone)) {
-                      event.preventDefault();
-                    } else {
-                      void incrementAttempt(nextRecommendedMobileLead.id);
-                    }
-                  }}
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M6.6 10.8c1.4 2.8 3.7 5.1 6.5 6.5l2.2-2.2c.3-.3.8-.4 1.2-.2 1.3.4 2.6.7 4 .7.7 0 1.2.5 1.2 1.2v3.5c0 .7-.5 1.2-1.2 1.2C10.3 22 2 13.7 2 3.2 2 2.5 2.5 2 3.2 2h3.6C7.5 2 8 2.5 8 3.2c0 1.4.2 2.8.7 4 .1.4 0 .8-.3 1.1l-2.2 2.5Z" />
-                  </svg>
-                </a>
-                <button type="button" onClick={() => executeMobileLead(nextRecommendedMobileLead)}>
-                  Chamar agora
-                </button>
+            {nextRecommendedMobileLead && mobileSection !== "report" && mobileSection !== "commission" ? (
+              <>
                 <button
                   type="button"
-                  aria-label={`Abrir observação de ${nextRecommendedMobileLead.name || "lead"}`}
-                  onClick={() => {
-                    setMobileNoteLead(nextRecommendedMobileLead);
-                    setMobileNoteDraft(nextRecommendedMobileLead.shortNote || "");
-                  }}
+                  className={styles.mobileVendasThinToggle}
+                  data-open={mobileRecommendedExpanded ? "true" : "false"}
+                  aria-expanded={mobileRecommendedExpanded}
+                  aria-controls="mobile-vendas-recommended-panel"
+                  onClick={() => setMobileRecommendedExpanded((current) => !current)}
                 >
-                  Observação
+                  <span>Próximo card recomendado</span>
+                  <small>{nextRecommendedMobileLead.name || "Lead sem nome"}</small>
+                  <b aria-hidden="true">{mobileRecommendedExpanded ? "-" : "+"}</b>
                 </button>
-              </div>
-            </section>
-          ) : null}
+
+                {mobileRecommendedExpanded ? (
+                  <section
+                    id="mobile-vendas-recommended-panel"
+                    className={styles.mobileVendasRecommendedCard}
+                    aria-label="Próximo card recomendado"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => openMobileLeadDetail(nextRecommendedMobileLead)}
+                    >
+                      <span className={styles.mobileVendasRecommendedTopline}>
+                        <span>Próximo card recomendado</span>
+                        <MobileEnrichmentCrown lead={nextRecommendedMobileLead} board={board} compact />
+                      </span>
+                      <strong>{nextRecommendedMobileLead.name || "Lead sem nome"}</strong>
+                      <small>
+                        {mobileLeadPlace(nextRecommendedMobileLead)} · {nextRecommendedMobileLead.nextAction || "Executar contato"}
+                      </small>
+                    </button>
+                    <div className={styles.mobileVendasRecommendedFooter}>
+                      <a
+                        className={styles.mobileVendasRecommendedPhone}
+                        href={leadWhatsappHref(nextRecommendedMobileLead) || buildCallUrl(nextRecommendedMobileLead.phone) || undefined}
+                        aria-disabled={!leadWhatsappHref(nextRecommendedMobileLead) && !buildCallUrl(nextRecommendedMobileLead.phone)}
+                        aria-label={`Abrir telefone de ${nextRecommendedMobileLead.name || "lead"}`}
+                        onClick={(event) => {
+                          if (!leadWhatsappHref(nextRecommendedMobileLead) && !buildCallUrl(nextRecommendedMobileLead.phone)) {
+                            event.preventDefault();
+                          } else {
+                            void incrementAttempt(nextRecommendedMobileLead.id);
+                          }
+                        }}
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M6.6 10.8c1.4 2.8 3.7 5.1 6.5 6.5l2.2-2.2c.3-.3.8-.4 1.2-.2 1.3.4 2.6.7 4 .7.7 0 1.2.5 1.2 1.2v3.5c0 .7-.5 1.2-1.2 1.2C10.3 22 2 13.7 2 3.2 2 2.5 2.5 2 3.2 2h3.6C7.5 2 8 2.5 8 3.2c0 1.4.2 2.8.7 4 .1.4 0 .8-.3 1.1l-2.2 2.5Z" />
+                        </svg>
+                      </a>
+                      <button type="button" onClick={() => executeMobileLead(nextRecommendedMobileLead)}>
+                        Chamar agora
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Abrir observação de ${nextRecommendedMobileLead.name || "lead"}`}
+                        onClick={() => {
+                          setMobileNoteLead(nextRecommendedMobileLead);
+                          setMobileNoteDraft(nextRecommendedMobileLead.shortNote || "");
+                        }}
+                      >
+                        Observação
+                      </button>
+                    </div>
+                  </section>
+                ) : null}
+              </>
+            ) : null}
+          </div>
 
         </div>
 
@@ -8634,6 +8858,10 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   }
 
   async function saveLeadSaleStatus(lead: LeadItem, status: SaleStatus) {
+    if (saleStatusIsAutomatic(status) && normalizeSaleStatus(lead.saleStatus) !== status) {
+      setFeedback("Esse status é automático. Use o cadastro do cliente, confirmação de e-mail ou pagamento para atualizar.");
+      return;
+    }
     const currentDraft = drafts[lead.id] || createDraft(lead);
     const patch = buildSaleClosingPatch(lead, currentDraft, status);
     setLeadDraft(lead.id, patch);
@@ -8693,13 +8921,14 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   function openAssistedSignup(lead: LeadItem) {
     const currentDraft = drafts[lead.id] || createDraft(lead);
     const salePlanKey = normalizeSalePlanKey(currentDraft.salePlanKey || lead.salePlanKey);
+    const cardPhone = leadCardPhoneForAssistedSignup(lead);
     setAssistedSignupLead(lead);
     setAssistedSignupResult(null);
     setAssistedSignupDraft({
       companyName: currentDraft.name || lead.name || "",
       contactName: currentDraft.name || lead.name || "",
       email: currentDraft.email || lead.email || "",
-      phone: currentDraft.phone || lead.phone || "",
+      phone: cardPhone || currentDraft.phone || "",
       password: "",
       salePlanKey,
     });
@@ -8714,13 +8943,25 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   async function submitAssistedSignup(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!assistedSignupLead) return;
+    if (assistedSignupResult?.ok) {
+      setFeedback("Este cadastro já foi registrado. Acompanhe a confirmação do e-mail no card.");
+      return;
+    }
     const email = assistedSignupDraft.email.trim().toLowerCase();
     if (!email) {
       setError("Informe o e-mail do cliente. O e-mail precisa ser confirmado para ativar.");
       return;
     }
+    const cardPhone = leadCardPhoneForAssistedSignup(assistedSignupLead);
+    const submittedPhone = cardPhone || assistedSignupDraft.phone.trim();
+    const submittedPhoneDigits = normalizePhoneDigits(submittedPhone);
+    if (!cardPhone && submittedPhone && submittedPhoneDigits.length < 10) {
+      setError("Informe um WhatsApp válido do cliente ou deixe o campo vazio.");
+      return;
+    }
     setAssistedSignupSaving(true);
     setError(null);
+    setAssistedSignupResult(null);
     try {
       const payload = await apiFetch<HbxAssistedSignupResponse>(
         `/vendas/lead/${encodeURIComponent(assistedSignupLead.id)}/hbx-assisted-signup`,
@@ -8729,6 +8970,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
           body: JSON.stringify({
             ...assistedSignupDraft,
             email,
+            phone: submittedPhone,
             salePlanKey: normalizeSalePlanKey(assistedSignupDraft.salePlanKey),
           }),
         },
@@ -8746,11 +8988,10 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       await loadCommissionSummary();
       await loadHbxClosingPipeline();
     } catch (signupError) {
-      setError(
-        signupError instanceof Error
-          ? signupError.message
-          : "Falha ao criar cadastro assistido.",
-      );
+      const message = assistedSignupFailureMessage(signupError);
+      setAssistedSignupResult(null);
+      setError(message);
+      setFeedback(message);
     } finally {
       setAssistedSignupSaving(false);
     }
@@ -10995,7 +11236,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
               <article key={`${client.leadId}:${client.commissionStatus || client.saleStatus || "lead"}:${index}`} data-tone={commissionLifecycleTone(client)}>
                 <div>
                   <strong>{client.name || "Cliente sem nome"}</strong>
-                  <span>{salePlanLabel(client.salePlanKey)} · {commissionLifecycleLabel(client, commissionDueDays)}</span>
+                  <span>{salePlanLabel(client.salePlanKey)} · {commissionLifecycleLabel(client)}</span>
                 </div>
                 <b>{formatCurrency(client.commissionAmount || 0)}</b>
               </article>
@@ -11204,10 +11445,15 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
     const mobileCommissionPercent = leadCommissionPercent(currentLead);
     const mobileCommissionPreview = (mobileSaleValue * mobileCommissionPercent) / 100;
     const isSavingClosing = savingLeadId === currentLead.id;
+    const cardPhone = leadCardPhoneForAssistedSignup(currentLead);
+    const cardPhoneLocked = Boolean(cardPhone);
+    const assistedSignupPhoneValue = cardPhoneLocked ? cardPhone : assistedSignupDraft.phone;
     const confirmationUrl =
       assistedSignupResult?.delivery?.confirmUrl ||
       assistedSignupResult?.delivery?.previewUrl ||
       "";
+    const assistedSignupTone = assistedSignupResultTone(assistedSignupResult);
+    const assistedSignupSubmitLocked = Boolean(assistedSignupResult?.ok);
     return createPortal(
       <div
         className={`${styles.systemPopupOverlay} ${styles.systemPopupOverlayActive} ${styles.mobileComposerOverlay}`}
@@ -11253,18 +11499,39 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                   </span>
                 </div>
                 <div className={styles.assistedSignupClosingActions}>
-                  {SALE_CLOSING_ACTIONS.map((action) => (
+                  {SALE_CLOSING_ACTIONS.map((action) => {
+                    const automatic = saleStatusIsAutomatic(action.value);
+                    const active = mobileSaleStatus === action.value;
+                    const nextStatus: SaleStatus = active && !automatic ? "none" : action.value;
+                    return (
+                      <button
+                        type="button"
+                        key={action.value}
+                        data-tone={action.tone}
+                        data-active={active ? "true" : "false"}
+                        onClick={() => {
+                          if (automatic) return;
+                          void saveLeadSaleStatus(currentLead, nextStatus);
+                        }}
+                        disabled={isSavingClosing || automatic}
+                        title={automatic ? "Status automático pelo cadastro, trial ou pagamento do cliente." : action.helper}
+                      >
+                        {active && !automatic ? "Desfazer" : action.label}
+                      </button>
+                    );
+                  })}
+                  {saleStatusCanBeCleared(currentLead, mobileSaleStatus) ? (
                     <button
                       type="button"
-                      key={action.value}
-                      data-tone={action.tone}
-                      data-active={mobileSaleStatus === action.value ? "true" : "false"}
-                      onClick={() => void saveLeadSaleStatus(currentLead, action.value)}
+                      data-tone="pending"
+                      data-active="false"
+                      onClick={() => void saveLeadSaleStatus(currentLead, "none")}
                       disabled={isSavingClosing}
+                      title="Voltar este card para Sem venda."
                     >
-                      {action.label}
+                      Limpar status
                     </button>
-                  ))}
+                  ) : null}
                 </div>
                 <div className={styles.assistedSignupClosingMeta}>
                   <span>{salePlanLabel(mobileSalePlanKey)}</span>
@@ -11311,12 +11578,21 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                 <span className={styles.fieldLabel}>WhatsApp</span>
                 <input
                   className={styles.fieldInput}
-                  value={assistedSignupDraft.phone}
+                  value={assistedSignupPhoneValue}
                   onChange={(event) =>
                     setAssistedSignupDraft((draft) => ({ ...draft, phone: event.target.value }))
                   }
-                  placeholder="Telefone do cliente"
+                  placeholder={cardPhoneLocked ? "Telefone do card" : "Adicionar telefone se o card não tiver"}
+                  readOnly={cardPhoneLocked}
+                  disabled={cardPhoneLocked}
+                  aria-readonly={cardPhoneLocked}
+                  title={cardPhoneLocked ? "WhatsApp travado pelo telefone do card." : "Card sem telefone: adicione o WhatsApp do cliente se tiver."}
                 />
+                <small className={styles.assistedSignupFieldHint}>
+                  {cardPhoneLocked
+                    ? "Usando o telefone do card. Para trocar, edite o card antes."
+                    : "Card sem telefone: o número informado será salvo no card e no cadastro do cliente."}
+                </small>
               </label>
               <label className={styles.field}>
                 <span className={styles.fieldLabel}>Plano</span>
@@ -11369,26 +11645,37 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
               </div>
 
               {assistedSignupResult ? (
-                <div className={styles.assistedSignupResult}>
-                  <div className={styles.assistedSignupCongratsVisual} aria-hidden="true">
-                    <svg viewBox="0 0 160 104" focusable="false">
-                      <path d="M32 80h96" />
-                      <path d="M51 78c0-22 12-38 29-38s29 16 29 38" />
-                      <path d="M61 42 80 18l19 24" />
-                      <path d="M69 62h22" />
-                      <path d="M42 34 29 22" />
-                      <path d="M118 34l13-12" />
-                      <path d="M36 55 18 52" />
-                      <path d="m124 55 18-3" />
-                      <circle cx="36" cy="20" r="3" />
-                      <circle cx="124" cy="20" r="3" />
-                      <circle cx="23" cy="70" r="2.5" />
-                      <circle cx="137" cy="70" r="2.5" />
-                    </svg>
-                    <span>Parabéns!</span>
-                  </div>
-                  <strong>{assistedSignupResult.message || "Cadastro assistido criado."}</strong>
+                <div className={styles.assistedSignupResult} data-tone={assistedSignupTone}>
+                  {assistedSignupTone === "success" ? (
+                    <div className={styles.assistedSignupCongratsVisual} aria-hidden="true">
+                      <svg viewBox="0 0 160 104" focusable="false">
+                        <path d="M32 80h96" />
+                        <path d="M51 78c0-22 12-38 29-38s29 16 29 38" />
+                        <path d="M61 42 80 18l19 24" />
+                        <path d="M69 62h22" />
+                        <path d="M42 34 29 22" />
+                        <path d="M118 34l13-12" />
+                        <path d="M36 55 18 52" />
+                        <path d="m124 55 18-3" />
+                        <circle cx="36" cy="20" r="3" />
+                        <circle cx="124" cy="20" r="3" />
+                        <circle cx="23" cy="70" r="2.5" />
+                        <circle cx="137" cy="70" r="2.5" />
+                      </svg>
+                      <span>Parabéns!</span>
+                    </div>
+                  ) : (
+                    <div className={styles.assistedSignupResultStatus} data-tone={assistedSignupTone}>
+                      {assistedSignupTone === "warning" ? "!" : "i"}
+                    </div>
+                  )}
+                  <strong>{assistedSignupResultTitle(assistedSignupResult)}</strong>
+                  <span>{assistedSignupResult.message || "Cadastro assistido registrado."}</span>
                   <span>{assistedSignupResult.email || assistedSignupDraft.email}</span>
+                  <span>{assistedSignupResultNextAction(assistedSignupResult)}</span>
+                  {assistedSignupResult.delivery?.failed && assistedSignupResult.delivery?.errorMessage ? (
+                    <span>Envio: {assistedSignupResult.delivery.errorMessage}</span>
+                  ) : null}
                   {assistedSignupResult.generatedPassword ? (
                     <span>Senha temporária: {assistedSignupResult.generatedPassword}</span>
                   ) : null}
@@ -11417,9 +11704,13 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                 <button
                   type="submit"
                   className={styles.primaryAction}
-                  disabled={assistedSignupSaving}
+                  disabled={assistedSignupSaving || assistedSignupSubmitLocked}
                 >
-                  {assistedSignupSaving ? "Criando cadastro..." : "Criar cadastro e enviar confirmação"}
+                  {assistedSignupSaving
+                    ? "Criando cadastro..."
+                    : assistedSignupSubmitLocked
+                      ? "Cadastro já registrado"
+                      : "Criar cadastro e enviar confirmação"}
                 </button>
               </div>
             </form>

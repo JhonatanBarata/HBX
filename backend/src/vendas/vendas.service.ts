@@ -650,6 +650,10 @@ export class VendasService {
     return 'none';
   }
 
+  private isAutomaticSaleStatus(status: VendasSaleStatus) {
+    return status === 'activation_pending' || status === 'trial_started' || status === 'sale_confirmed';
+  }
+
   private normalizeCommissionStatus(value: unknown): VendasCommissionStatus {
     const normalized = String(value || '').trim().toLowerCase();
     if (normalized === 'pending') return 'pending';
@@ -770,7 +774,7 @@ export class VendasService {
     return Math.min(100, Math.max(0, Number(owner?.commissionPercent || 0) || 0));
   }
 
-  private async buildSaleCommissionPatch(row: any, dto: UpdateVendasLeadDto, userId?: number | null) {
+  private async buildSaleCommissionPatch(row: any, dto: UpdateVendasLeadDto, userId?: number | null, options?: { allowAutomaticSaleStatus?: boolean }) {
     const saleStatusProvided = dto?.saleStatus !== undefined;
     const saleValueProvided = dto?.saleValue !== undefined;
     const salePlanProvided = dto?.salePlanKey !== undefined;
@@ -784,6 +788,16 @@ export class VendasService {
     const dueBusinessDays = await this.resolveCommissionDueBusinessDays(row?.companyId);
     const previousSaleStatus = this.normalizeSaleStatus(row?.saleStatus);
     const nextSaleStatus = saleStatusProvided ? this.normalizeSaleStatus(dto.saleStatus) : previousSaleStatus;
+    if (
+      saleStatusProvided &&
+      nextSaleStatus !== previousSaleStatus &&
+      this.isAutomaticSaleStatus(nextSaleStatus) &&
+      !options?.allowAutomaticSaleStatus
+    ) {
+      throw new BadRequestException(
+        'Este status é automático. Use cadastro do cliente, confirmação de e-mail ou pagamento para atualizar.',
+      );
+    }
     const salePlanKey = salePlanProvided ? this.normalizeText(dto.salePlanKey) : this.normalizeText(row?.salePlanKey);
     const baseAmount = this.resolveSaleBaseAmount({
       saleValue: saleValueProvided ? dto.saleValue : row?.saleValue,
@@ -791,15 +805,21 @@ export class VendasService {
       fallbackValue: row?.commissionBaseAmount,
     });
     const percent = await this.resolveCommissionPercentForLead(row);
-    const commissionAmount = this.normalizeCurrencyAmount((baseAmount * percent) / 100);
-    const confirmsSale = nextSaleStatus === 'trial_started' || nextSaleStatus === 'sale_confirmed';
+    const projectedCommissionAmount = this.normalizeCurrencyAmount((baseAmount * percent) / 100);
+    const paidSale = nextSaleStatus === 'sale_confirmed';
+    const confirmsSale = nextSaleStatus === 'trial_started' || paidSale;
     const endsSale = nextSaleStatus === 'inactive' || nextSaleStatus === 'canceled';
 
     let commissionStatus = this.normalizeCommissionStatus(row?.commissionStatus);
     if (commissionStatusProvided) {
       commissionStatus = this.normalizeCommissionStatus(dto.commissionStatus);
-    } else if (confirmsSale) {
-      commissionStatus = commissionAmount > 0 ? 'payable' : 'pending';
+      if (['payable', 'paid'].includes(commissionStatus) && !paidSale) {
+        throw new BadRequestException('Comissão só pode ser liberada após pagamento confirmado do cliente.');
+      }
+    } else if (paidSale) {
+      commissionStatus = projectedCommissionAmount > 0 ? 'payable' : 'pending';
+    } else if (nextSaleStatus === 'trial_started') {
+      commissionStatus = 'pending';
     } else if (nextSaleStatus === 'activation_pending') {
       commissionStatus = 'pending';
     } else if (endsSale) {
@@ -807,17 +827,20 @@ export class VendasService {
     } else if (nextSaleStatus === 'none') {
       commissionStatus = 'none';
     }
+    const commissionAmount = paidSale && ['payable', 'paid'].includes(commissionStatus)
+      ? projectedCommissionAmount
+      : 0;
 
     const paidAt = commissionStatus === 'paid'
       ? (row?.commissionPaidAt instanceof Date ? row.commissionPaidAt : now)
-      : (commissionStatusProvided ? null : row?.commissionPaidAt || null);
-    const confirmedAt = confirmsSale
+      : null;
+    const confirmedAt = paidSale
       ? (row?.saleConfirmedAt instanceof Date ? row.saleConfirmedAt : now)
       : (nextSaleStatus === 'none' || endsSale ? null : row?.saleConfirmedAt || null);
     const canceledAt = endsSale
       ? (row?.saleCanceledAt instanceof Date ? row.saleCanceledAt : now)
       : (nextSaleStatus === 'none' || confirmsSale || nextSaleStatus === 'activation_pending' ? null : row?.saleCanceledAt || null);
-    const dueAt = confirmsSale && commissionStatus !== 'paid'
+    const dueAt = paidSale && commissionStatus !== 'paid'
       ? (row?.commissionDueAt instanceof Date ? row.commissionDueAt : this.addBusinessDays(confirmedAt || now, dueBusinessDays))
       : (commissionStatus === 'payable' ? row?.commissionDueAt || this.addBusinessDays(now, dueBusinessDays) : null);
 
@@ -832,7 +855,8 @@ export class VendasService {
       commissionAmount,
       commissionDueAt: dueAt,
       commissionPaidAt: paidAt,
-      commissionRecurring: confirmsSale,
+      commissionRecurring: paidSale && commissionStatus !== 'canceled',
+      commissionPayoutId: commissionStatus === 'paid' ? row?.commissionPayoutId || null : null,
       ...(commissionNoteProvided ? { commissionNote: this.normalizeText(dto.commissionNote) } : {}),
     };
 
@@ -7225,7 +7249,7 @@ export class VendasService {
       salePlanKey: planKey,
       saleValue: planAmount,
       commissionNote: `Link de contratacao gerado para ${planLabel}.`,
-    }, context.userId);
+    }, context.userId, { allowAutomaticSaleStatus: true });
 
     const timelineEvents: TimelineEventRecord[] = [];
     if (saleCommissionPatch.event) timelineEvents.push(saleCommissionPatch.event);
@@ -7341,7 +7365,119 @@ export class VendasService {
     const planLabel = this.commercialPlanLabel(planKey);
     const companyName = this.normalizeText(dto?.companyName) || this.normalizeText(existing.name) || 'Cliente HBX';
     const contactName = this.normalizeText(dto?.contactName) || this.normalizeText(existing.name) || companyName;
-    const phone = this.normalizeText(dto?.phone) || this.normalizeText(existing.phone);
+    const cardPhone = this.normalizeText(existing.phone);
+    const cardPhoneNormalized = this.normalizePhone(existing.phoneNormalized || existing.phone);
+    const requestedPhone = this.normalizeText(dto?.phone);
+    const requestedPhoneNormalized = this.normalizePhone(requestedPhone);
+    if (cardPhoneNormalized && requestedPhoneNormalized && requestedPhoneNormalized !== cardPhoneNormalized) {
+      throw new ConflictException({
+        code: 'HBX_ASSISTED_SIGNUP_PHONE_LOCKED',
+        message: 'O WhatsApp do cadastro deve ser o telefone do card. Para trocar, edite o card antes.',
+      });
+    }
+    const phone = cardPhone || requestedPhone;
+    const phoneNormalized = cardPhoneNormalized || requestedPhoneNormalized;
+    const phoneCandidates = phoneNormalized
+      ? Array.from(
+          new Set(
+            this.buildLeadPhoneNormalizedCandidates(phoneNormalized)
+              .map((candidate) => this.customerProfileService.normalizePhone(candidate))
+              .filter((candidate): candidate is string => Boolean(candidate)),
+          ),
+        )
+      : [];
+    const phoneForHbxAccount = phoneNormalized
+      ? (phoneNormalized.startsWith('55') && phoneNormalized.length > 11 ? phoneNormalized.slice(2) : phoneNormalized).slice(0, 11)
+      : null;
+    const hbxSignupEventTypes = ['hbx_assisted_signup_created', 'hbx_signup_link_created'];
+    const existingSignupEvent = await this.prisma.vendasLeadTimelineEvent.findFirst({
+      where: {
+        leadId: existing.id,
+        eventType: { in: hbxSignupEventTypes },
+      },
+      select: { id: true, eventType: true },
+    });
+    if (
+      this.isAutomaticSaleStatus(this.normalizeSaleStatus(existing.saleStatus)) ||
+      Boolean(existing.commissionLinkedCompanyId) ||
+      Boolean(existing.commissionLinkedAt) ||
+      Boolean(existing.commissionAutoSyncedAt) ||
+      existingSignupEvent
+    ) {
+      throw new ConflictException({
+        code: 'HBX_ASSISTED_SIGNUP_LEAD_ALREADY_REGISTERED',
+        message: 'Este card ja tem cadastro/link HBX em andamento. Use o cadastro existente; nao crie outro trial.',
+      });
+    }
+
+    const duplicateLeadByPhone = phoneCandidates.length
+      ? await this.prisma.vendasLead.findFirst({
+          where: {
+            companyId: context.companyId,
+            id: { not: existing.id },
+            phoneNormalized: { in: phoneCandidates },
+          },
+          select: { id: true, name: true },
+        })
+      : null;
+    if (duplicateLeadByPhone) {
+      throw new ConflictException({
+        code: 'HBX_ASSISTED_SIGNUP_PHONE_DUPLICATED_CARD',
+        message: `Este WhatsApp ja esta no card ${String(duplicateLeadByPhone.name || duplicateLeadByPhone.id)}. Use o card existente; nao crie outro trial.`,
+      });
+    }
+
+    const duplicateLeadByEmail = await this.prisma.vendasLead.findFirst({
+      where: {
+        companyId: context.companyId,
+        id: { not: existing.id },
+        email,
+      },
+      select: { id: true, name: true },
+    });
+    if (duplicateLeadByEmail) {
+      throw new ConflictException({
+        code: 'HBX_ASSISTED_SIGNUP_EMAIL_DUPLICATED_CARD',
+        message: `Este e-mail ja esta no card ${String(duplicateLeadByEmail.name || duplicateLeadByEmail.id)}. Use o card existente; nao crie outro trial.`,
+      });
+    }
+
+    const existingHbxUserByEmail = await this.prisma.user.findFirst({
+      where: {
+        OR: [{ email }, { username: email }],
+      },
+      select: { id: true },
+    });
+    if (existingHbxUserByEmail) {
+      throw new ConflictException({
+        code: 'HBX_ASSISTED_SIGNUP_EMAIL_ALREADY_REGISTERED',
+        message: 'Este e-mail ja tem cadastro HBX. Nao e possivel criar outro trial para o mesmo cliente.',
+      });
+    }
+
+    if (phoneCandidates.length) {
+      const [existingHbxUserByPhone, existingHbxCompanyByPhone, existingTrialPhoneUsage] = await Promise.all([
+        this.prisma.user.findFirst({
+          where: { phone: { in: phoneCandidates } },
+          select: { id: true },
+        }),
+        this.prisma.company.findFirst({
+          where: { contactPhone: { in: phoneCandidates } },
+          select: { id: true, name: true },
+        }),
+        this.prisma.trialPhoneUsage.findFirst({
+          where: { phoneNormalized: { in: phoneCandidates } },
+          select: { id: true, companyId: true },
+        }),
+      ]);
+      if (existingHbxUserByPhone || existingHbxCompanyByPhone || existingTrialPhoneUsage) {
+        throw new ConflictException({
+          code: 'HBX_ASSISTED_SIGNUP_PHONE_ALREADY_REGISTERED',
+          message: 'Este WhatsApp ja tem cadastro ou trial HBX registrado. Nao e possivel criar outro trial para o mesmo cliente.',
+        });
+      }
+    }
+
     const providedPassword = this.normalizeText(dto?.password);
     const password = providedPassword || this.generateAssistedSignupPassword();
     const referralCode = `hbx-vendas-lead:${existing.id}`;
@@ -7358,6 +7494,12 @@ export class VendasService {
       referralCode,
       trialContactPhone: phone || undefined,
     });
+    const signupUser = await this.prisma.user.findFirst({
+      where: {
+        OR: [{ email }, { username: email }],
+      },
+      select: { id: true, companyId: true },
+    });
 
     await this.hbxCommissionSync.syncSalesCompanyCommissions(context.companyId, { source: 'vendas_assisted_signup' }).catch((error: any) => {
       this.logger.warn(`commission_sync_assisted_signup_failed company=${context.companyId} error=${String(error?.message || error)}`);
@@ -7373,7 +7515,16 @@ export class VendasService {
       salePlanKey: planKey,
       saleValue: getCommercialPlanMonthlyPrice(planKey),
       commissionNote: `Cadastro assistido criado para ${planLabel}. E-mail do cliente precisa ser confirmado.`,
-    }, context.userId);
+    }, context.userId, { allowAutomaticSaleStatus: true });
+    const customerProfileId =
+      (await this.ensureCustomerProfile({
+        companyId: context.companyId,
+        name: companyName,
+        phone,
+        email,
+        sourceType: existing.sourceType === 'webscraping' ? 'webscraping' : 'manual',
+        shortNote: existing.shortNote,
+      })) || existing.customerProfileId;
 
     const timelineEvents: TimelineEventRecord[] = [];
     if (saleCommissionPatch.event) timelineEvents.push(saleCommissionPatch.event);
@@ -7390,14 +7541,36 @@ export class VendasService {
     );
 
     const updated = await this.prisma.$transaction(async (tx) => {
+      if (signupUser?.id) {
+        await tx.user.update({
+          where: { id: signupUser.id },
+          data: {
+            name: contactName,
+            ...(phoneForHbxAccount ? { phone: phoneForHbxAccount } : {}),
+          },
+        });
+      }
+
+      if (signupUser?.companyId) {
+        await tx.company.update({
+          where: { id: Number(signupUser.companyId) },
+          data: {
+            primaryContactName: contactName,
+            contactEmail: email,
+            ...(phoneForHbxAccount ? { contactPhone: phoneForHbxAccount } : {}),
+          },
+        });
+      }
+
       const row = await tx.vendasLead.update({
         where: { id: existing.id },
         data: {
+          customerProfileId,
           status: 'qualificado',
           nextAction: 'Cliente precisa confirmar e-mail para ativar HBX',
           email,
           phone: phone || existing.phone,
-          phoneNormalized: phone ? this.normalizePhone(phone) : existing.phoneNormalized,
+          phoneNormalized: phoneNormalized || existing.phoneNormalized,
           lastContactAt: new Date(),
           lastResult: 'Cadastro assistido aguardando e-mail',
           ...saleCommissionPatch.data,
@@ -7430,6 +7603,7 @@ export class VendasService {
 
     const status = String(signupResult?.status || '').trim() || 'pending_email_confirmation';
     const requiresEmailConfirmation = status === 'pending_email_confirmation' || !signupResult?.access_token;
+    const deliveryFailed = Boolean(signupResult?.delivery?.failed);
     return {
       ok: true,
       status,
@@ -7438,14 +7612,18 @@ export class VendasService {
       planKey,
       planLabel,
       generatedPassword: providedPassword ? null : password,
-      message: requiresEmailConfirmation
-        ? 'Cadastro assistido criado. O cliente precisa confirmar o e-mail para ativar trial, pagamento ou implantação.'
-        : 'Cadastro assistido criado e e-mail confirmado no ambiente local.',
+      message: deliveryFailed
+        ? 'Cadastro assistido criado, mas o e-mail de confirmação não foi enviado agora.'
+        : requiresEmailConfirmation
+          ? 'Cadastro assistido criado e e-mail de confirmação enviado. O cliente precisa confirmar antes de trial, pagamento ou implantação.'
+          : 'Cadastro assistido criado e e-mail confirmado no ambiente local.',
       delivery: signupResult?.delivery
         ? {
             failed: Boolean(signupResult.delivery.failed),
             previewUrl: signupResult.delivery.previewUrl || null,
             confirmUrl: signupResult.delivery.confirmUrl || null,
+            errorCode: signupResult.delivery.errorCode || null,
+            errorMessage: signupResult.delivery.errorMessage || null,
           }
         : null,
       lead: this.buildLeadPayload(updated),

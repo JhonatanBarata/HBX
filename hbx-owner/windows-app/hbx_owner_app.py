@@ -10,6 +10,7 @@ import importlib
 import json
 import os
 import re
+import shlex
 import shutil
 import sqlite3
 import subprocess
@@ -67,6 +68,7 @@ TAB_NAMES = (
     "Kanban",
     "Git",
     "Branches",
+    "Alinhamento",
     "ChatGPT",
     "Relatórios",
     "Ops Control",
@@ -132,6 +134,15 @@ KANBAN_LANES = (
     "BLOQUEADO",
     "ARQUIVADO",
 )
+KANBAN_BOARD_LANES = (
+    "HOJE",
+    "FAZENDO",
+    "AGUARDANDO CODEX",
+    "TESTAR",
+    "REVISAR COM CHATGPT",
+    "BLOQUEADO",
+    "FEITO",
+)
 
 DEFAULT_CONFIG = {
     "repo_path": str(HBX_REPO_DIR),
@@ -153,14 +164,18 @@ DEFAULT_CONFIG = {
     "card_compiler_cli_path": "codex",
     "card_compiler_model": "5.5",
     "card_compiler_timeout_seconds": 120,
-    "usage_hud_enabled": True,
+    "usage_hud_enabled": False,
     "usage_hud_window_hours": 5,
     "owner_backend_url": "http://127.0.0.1:3000",
     "owner_tickets_secret": "",
-    "pr_lab_base_branch": "main",
+    "pr_lab_base_branch": "master",
     "pr_lab_worktree_dir": str(HBX_REPO_DIR / ".worktrees"),
     "pr_lab_localhost_url": "http://127.0.0.1:3000",
-    "codex_auto_dispatch": True,
+    "alignment_runtime_url": "http://127.0.0.1:3000",
+    "alignment_container_filter": "hbx",
+    "alignment_vps_ssh_target": "",
+    "alignment_vps_repo_path": "",
+    "codex_max_parallel_dispatches": 1,
     "codex_cli_path": "codex",
     "codex_model": "",
     "codex_model_fast": "5.5",
@@ -174,25 +189,25 @@ DEFAULT_CONFIG = {
 }
 
 THEME = {
-    "bg": "#eef3f7",
-    "panel": "#f8fafc",
+    "bg": "#f3f6fb",
+    "panel": "#f7f9fc",
     "card": "#ffffff",
-    "card_alt": "#e8eef5",
-    "lane": "#f6f8fb",
-    "lane_hover": "#e8f1ff",
-    "text": "#111827",
-    "muted": "#64748b",
-    "line": "#d7dee8",
-    "header": "#eaf1f7",
-    "brand": "#0f1f35",
-    "accent": "#2563eb",
-    "accent_hover": "#1d4ed8",
-    "success": "#15803d",
-    "warning": "#b45309",
-    "danger": "#b91c1c",
-    "soft_success": "#e7f6ee",
-    "soft_warning": "#fff5db",
-    "soft_danger": "#fdecec",
+    "card_alt": "#eef3f8",
+    "lane": "#f7f9fd",
+    "lane_hover": "#eaf3ff",
+    "text": "#1b2430",
+    "muted": "#667085",
+    "line": "#dbe4ef",
+    "header": "#edf4fb",
+    "brand": "#17233a",
+    "accent": "#2764d8",
+    "accent_hover": "#1f56bd",
+    "success": "#13795b",
+    "warning": "#b7791f",
+    "danger": "#b42318",
+    "soft_success": "#e8f6f1",
+    "soft_warning": "#fff6dd",
+    "soft_danger": "#fff0f0",
     "input": "#fbfdff",
 }
 
@@ -225,6 +240,26 @@ LANE_ACCENTS = {
     "FEITO": "#15803d",
     "BLOQUEADO": "#dc2626",
     "ARQUIVADO": "#475569",
+}
+
+LANE_TINTS = {
+    "HOJE": "#eff6ff",
+    "FAZENDO": "#ecfdf3",
+    "AGUARDANDO CODEX": "#f5f0ff",
+    "TESTAR": "#ecfeff",
+    "REVISAR COM CHATGPT": "#fff8e1",
+    "BLOQUEADO": "#fff1f2",
+    "FEITO": "#edfdf6",
+}
+
+LANE_SUBTITLES = {
+    "HOJE": "Entrada",
+    "FAZENDO": "Execução",
+    "AGUARDANDO CODEX": "Automação",
+    "TESTAR": "Validação",
+    "REVISAR COM CHATGPT": "Revisão",
+    "BLOQUEADO": "Decisão",
+    "FEITO": "Entrega",
 }
 
 FOCUS_KEYWORDS = (
@@ -358,8 +393,6 @@ CHATGPT_GAP_MARKERS = (
 
 AUTOCARD_JSON_START = "HBX_CARDS_JSON_START"
 AUTOCARD_JSON_END = "HBX_CARDS_JSON_END"
-AUTOCARD_MAX_CARDS = 12
-CHATGPT_FREEFORM_MAX_CARDS = AUTOCARD_MAX_CARDS
 PDF_TEXT_MAX_CHARS = 35000
 PDF_MIN_TEXT_CHARS = 1200
 PDF_AUTOMATION_MAX_BYTES = 25 * 1024 * 1024
@@ -812,6 +845,7 @@ class Database:
             if name not in columns:
                 self.conn.execute(f"ALTER TABLE kanban_cards ADD COLUMN {name} {definition}")
         self.conn.execute("UPDATE kanban_cards SET type = 'Operacional' WHERE lower(type) = 'modo' || ' ia'")
+        self.conn.execute("UPDATE kanban_cards SET lane = 'HOJE' WHERE lane = 'BACKLOG'")
         self.conn.execute(
             """
             UPDATE kanban_cards
@@ -829,7 +863,6 @@ class Database:
             UPDATE kanban_cards
             SET codex_model_override = ?
             WHERE codex_model_override = ''
-              AND type IN ('ChatGPT', 'Pesquisa', 'PDF', 'Bug', 'Frontend', 'Backend', 'Docs', 'Ticket cliente')
             """,
             (CARD_CODEX_MODEL_DEFAULT,),
         )
@@ -868,7 +901,7 @@ class Database:
                         GLOB '*secret*'
                     OR lower(title || ' ' || description || ' ' || module || ' ' || type || ' ' || blocked_reason)
                         GLOB '*pagamento*'
-                    THEN 'Revisão humana'
+                    THEN 'Extra high'
                 WHEN priority = 'Crítica' THEN 'Extra high'
                 WHEN priority = 'Alta' OR lane IN ('HOJE', 'AGUARDANDO CODEX') THEN 'High'
                 ELSE 'Média'
@@ -971,6 +1004,8 @@ class HbxOwnerApp(tk.Tk):
         self.kanban_card_widgets: dict[int, tk.Frame] = {}
         self.kanban_card_ids: dict[str, list[int]] = {}
         self.kanban_lane_count_vars: dict[str, tk.StringVar] = {}
+        self.kanban_lane_canvases: dict[str, tk.Canvas] = {}
+        self.kanban_summary_vars: dict[str, tk.StringVar] = {}
         self.kanban_drag: dict[str, object] | None = None
         self.selected_card_var = tk.StringVar(value="Nenhum card selecionado.")
         self.current_card_var = tk.StringVar(value="Card atual não definido.")
@@ -996,7 +1031,7 @@ class HbxOwnerApp(tk.Tk):
         self.autocard_status_var = tk.StringVar(value="Autocard pronto.")
         self.chatgpt_pdf_path_var = tk.StringVar(value="Nenhum PDF selecionado.")
         self.chatgpt_last_research_prompt = ""
-        engine_display = "5.5" if str(self.config_data.get("card_compiler_engine") or "local").lower() == "spark" else "local"
+        engine_display = "5.5" if str(self.config_data.get("card_compiler_engine") or "local").lower() in ("spark", "5.5", "55", "codex") else "local"
         self.intelligence_engine_var = tk.StringVar(value=engine_display)
         self.intelligence_model_var = tk.StringVar(value=str(self.config_data.get("card_compiler_model") or CARD_CODEX_MODEL_DEFAULT))
         self.intelligence_timeout_var = tk.StringVar(
@@ -1016,6 +1051,14 @@ class HbxOwnerApp(tk.Tk):
         self.pr_lab_tree: ttk.Treeview | None = None
         self.pr_lab_output: tk.Text | None = None
         self.pr_lab_items: dict[str, dict] = {}
+        self.alignment_status_var = tk.StringVar(value="Alinhamento: aguardando verificação.")
+        self.alignment_local_var = tk.StringVar(value="-")
+        self.alignment_worktrees_var = tk.StringVar(value="-")
+        self.alignment_remote_var = tk.StringVar(value="-")
+        self.alignment_runtime_var = tk.StringVar(value="-")
+        self.alignment_tree: ttk.Treeview | None = None
+        self.alignment_output: tk.Text | None = None
+        self.alignment_last_report = ""
         self.today_status_var = tk.StringVar(value="Sem expediente aberto.")
         self.today_elapsed_var = tk.StringVar(value="0 min")
         self.today_break_var = tk.StringVar(value="Sem pausa aberta.")
@@ -1030,7 +1073,7 @@ class HbxOwnerApp(tk.Tk):
         self.usage_hud_window: tk.Toplevel | None = None
         self.usage_hud_date_var = tk.StringVar(value=today_str())
         self.usage_hud_window_var = tk.StringVar(value="5H LOCAL")
-        self.usage_hud_counts_var = tk.StringVar(value="SPK 0  NORM 0")
+        self.usage_hud_counts_var = tk.StringVar(value="5.5 0  NORM 0")
 
         self.font_family = self.resolve_font_family()
         self.configure(bg=THEME["bg"])
@@ -1040,11 +1083,11 @@ class HbxOwnerApp(tk.Tk):
 
         self.build_app_header()
         self.notebook = ttk.Notebook(self)
-        self.notebook.grid(row=1, column=0, sticky="nsew", padx=18, pady=(0, 18))
+        self.notebook.grid(row=1, column=0, sticky="nsew", padx=14, pady=(0, 14))
 
         self.tabs: dict[str, ttk.Frame] = {}
         for name in TAB_NAMES:
-            frame = ttk.Frame(self.notebook, padding=(18, 16), style="App.TFrame")
+            frame = ttk.Frame(self.notebook, padding=(14, 12), style="App.TFrame")
             frame.columnconfigure(0, weight=1)
             self.notebook.add(frame, text=name)
             self.tabs[name] = frame
@@ -1062,6 +1105,8 @@ class HbxOwnerApp(tk.Tk):
                 self._build_git_tab(frame)
             elif name == "Branches":
                 self._build_pr_lab_tab(frame)
+            elif name == "Alinhamento":
+                self._build_alignment_tab(frame)
             elif name == "ChatGPT":
                 self._build_chatgpt_tab(frame)
             elif name == "Relatórios":
@@ -1072,13 +1117,14 @@ class HbxOwnerApp(tk.Tk):
                 self._build_placeholder_tab(frame, name)
 
         self.protocol("WM_DELETE_WINDOW", self.on_close)
-        self.build_usage_hud()
         self.refresh_today()
         self.refresh_usage_hud()
         self.after(30_000, self._tick)
 
     def resolve_font_family(self) -> str:
         families = set(tkfont.families(self))
+        if "Segoe UI Variable" in families:
+            return "Segoe UI Variable"
         return "Plus Jakarta Sans" if "Plus Jakarta Sans" in families else "Segoe UI"
 
     def apply_visual_theme(self) -> None:
@@ -1090,7 +1136,7 @@ class HbxOwnerApp(tk.Tk):
 
         body = (self.font_family, 10)
         body_bold = (self.font_family, 10, "bold")
-        title = (self.font_family, 19, "bold")
+        title = (self.font_family, 20, "bold")
         small = (self.font_family, 9)
 
         style.configure(".", font=body, background=THEME["bg"], foreground=THEME["text"])
@@ -1128,7 +1174,7 @@ class HbxOwnerApp(tk.Tk):
         style.configure("TEntry", padding=(8, 7), fieldbackground=THEME["input"], foreground=THEME["text"], bordercolor=THEME["line"])
         style.configure("TCombobox", padding=(8, 7), fieldbackground=THEME["input"], foreground=THEME["text"])
         style.configure("TNotebook", background=THEME["bg"], borderwidth=0)
-        style.configure("TNotebook.Tab", padding=(18, 10), background=THEME["panel"], foreground=THEME["muted"], font=body_bold)
+        style.configure("TNotebook.Tab", padding=(17, 9), background=THEME["panel"], foreground=THEME["muted"], font=(self.font_family, 9, "bold"))
         style.map(
             "TNotebook.Tab",
             background=[("selected", THEME["card"]), ("active", THEME["card_alt"])],
@@ -1172,31 +1218,30 @@ class HbxOwnerApp(tk.Tk):
             return
         hud = tk.Toplevel(self)
         hud.title("HBX uso")
-        hud.overrideredirect(True)
-        hud.attributes("-topmost", True)
-        hud.configure(bg="#f1f5f9", highlightthickness=1, highlightbackground="#94a3b8")
+        hud.transient(self)
+        hud.configure(bg="#f7f9fc", highlightthickness=1, highlightbackground="#dbe4ef")
         hud.resizable(False, False)
-        hud.geometry(f"112x66+{max(8, self.winfo_screenwidth() - 260)}+36")
+        hud.geometry(f"124x74+{max(8, self.winfo_screenwidth() - 280)}+72")
         hud.bind("<Double-Button-1>", lambda _event: self.refresh_usage_hud())
 
         tk.Label(
             hud,
             textvariable=self.usage_hud_date_var,
-            bg="#f1f5f9",
+            bg="#f7f9fc",
             fg="#2563eb",
             font=(self.font_family, 8),
         ).pack(fill="x", pady=(7, 1))
         tk.Label(
             hud,
             textvariable=self.usage_hud_window_var,
-            bg="#f1f5f9",
+            bg="#f7f9fc",
             fg="#0f172a",
             font=(self.font_family, 8, "bold"),
         ).pack(fill="x", pady=(0, 1))
         tk.Label(
             hud,
             textvariable=self.usage_hud_counts_var,
-            bg="#f1f5f9",
+            bg="#f7f9fc",
             fg="#334155",
             font=(self.font_family, 7, "bold"),
         ).pack(fill="x", pady=(0, 5))
@@ -1230,8 +1275,9 @@ class HbxOwnerApp(tk.Tk):
             if self.usage_hud_window:
                 self.usage_hud_window.destroy()
                 self.usage_hud_window = None
-            return
-        if not self.usage_hud_window or not self.usage_hud_window.winfo_exists():
+        elif self.usage_hud_window and not self.usage_hud_window.winfo_exists():
+            self.usage_hud_window = None
+        elif self.usage_hud_window is None:
             self.build_usage_hud()
         hours = self.usage_hud_window_hours()
         since = (datetime.now() - timedelta(hours=hours)).replace(microsecond=0).isoformat(sep=" ")
@@ -1240,12 +1286,9 @@ class HbxOwnerApp(tk.Tk):
         self.usage_hud_date_var.set(today_str())
         self.usage_hud_window_var.set(f"{hours}H LOCAL")
         self.usage_hud_counts_var.set(f"5.5 {spark_count}  NORM {normal_count}")
-        if self.usage_hud_window:
-            self.usage_hud_window.lift()
-            self.usage_hud_window.attributes("-topmost", True)
 
     def build_app_header(self) -> None:
-        header = ttk.Frame(self, style="Header.TFrame", padding=(22, 16, 22, 12))
+        header = ttk.Frame(self, style="Header.TFrame", padding=(18, 12, 18, 10))
         header.grid(row=0, column=0, sticky="ew")
         header.columnconfigure(1, weight=1)
 
@@ -1256,8 +1299,8 @@ class HbxOwnerApp(tk.Tk):
             text="HBX",
             bg=THEME["brand"],
             fg="#ffffff",
-            padx=12,
-            pady=8,
+            padx=13,
+            pady=9,
             font=(self.font_family, 11, "bold"),
         )
         mark.grid(row=0, column=0, rowspan=2, sticky="nsw", padx=(0, 12))
@@ -1267,6 +1310,11 @@ class HbxOwnerApp(tk.Tk):
             text="Recovery + P0 técnico + demo + outbound",
             style="HeaderSub.TLabel",
         ).grid(row=1, column=1, sticky="w", pady=(2, 0))
+
+        usage = ttk.Frame(header, style="Header.TFrame")
+        usage.grid(row=0, column=1, sticky="e", padx=(18, 14))
+        ttk.Label(usage, textvariable=self.usage_hud_window_var, style="HeaderSub.TLabel").grid(row=0, column=0, sticky="e")
+        ttk.Label(usage, textvariable=self.usage_hud_counts_var, style="HeaderSub.TLabel").grid(row=1, column=0, sticky="e")
 
         status = ttk.Frame(header, style="CardAlt.TFrame", padding=(12, 8))
         status.grid(row=0, column=2, sticky="e")
@@ -2772,7 +2820,7 @@ class HbxOwnerApp(tk.Tk):
             f"Prioridade: {ticket.get('priority') or '-'}\n\n"
             f"Problema:\n{ticket.get('description') or ticket.get('title') or '-'}\n\n"
             "Objetivo:\n"
-            "Investigar a menor correção segura, manter o fluxo Radar -> Vendas -> WhatsApp -> Retorno e não mexer em cobrança, auth, secrets, deploy ou migration sem aprovação explícita.\n\n"
+            "Investigar e aplicar a menor correção no worktree local, mantendo o fluxo Radar -> Vendas -> WhatsApp -> Retorno e a aprovação registrada no Owner.\n\n"
             "Entrega:\n"
             "- resumo técnico\n"
             "- arquivos alterados\n"
@@ -2910,143 +2958,247 @@ class HbxOwnerApp(tk.Tk):
         if not self.owner_tickets_cache:
             self.load_local_ticket_cards(self.owner_ticket_status_filter())
 
+    def kanban_action_button(
+        self,
+        parent: tk.Misc,
+        text: str,
+        command,
+        bg: str,
+        fg: str = "#ffffff",
+        active_bg: str | None = None,
+    ) -> tk.Button:
+        button = tk.Button(
+            parent,
+            text=text,
+            command=command,
+            bg=bg,
+            fg=fg,
+            activebackground=active_bg or bg,
+            activeforeground=fg,
+            relief="flat",
+            bd=0,
+            padx=13,
+            pady=7,
+            cursor="hand2",
+            font=(self.font_family, 9, "bold"),
+        )
+        return button
+
+    def kanban_metric_tile(
+        self,
+        parent: tk.Misc,
+        key: str,
+        label: str,
+        accent: str,
+        bg: str,
+        column: int,
+    ) -> None:
+        tile = tk.Frame(parent, bg=bg, highlightthickness=1, highlightbackground="#dbe4ef", padx=10, pady=8)
+        tile.grid(row=0, column=column, sticky="ew", padx=(0, 8))
+        tile.columnconfigure(1, weight=1)
+        self.kanban_summary_vars[key] = tk.StringVar(value="0")
+        tk.Frame(tile, bg=accent, width=3).grid(row=0, column=0, rowspan=2, sticky="ns", padx=(0, 8))
+        tk.Label(
+            tile,
+            textvariable=self.kanban_summary_vars[key],
+            bg=bg,
+            fg="#162033",
+            font=(self.font_family, 18, "bold"),
+        ).grid(row=0, column=1, sticky="w")
+        tk.Label(
+            tile,
+            text=label,
+            bg=bg,
+            fg=THEME["muted"],
+            font=(self.font_family, 8, "bold"),
+        ).grid(row=1, column=1, sticky="w", pady=(1, 0))
+
     def _build_kanban_tab(self, frame: ttk.Frame) -> None:
-        self.page_title(frame, "Kanban", "Fila operacional do dia")
+        frame.rowconfigure(1, weight=1)
+        surface = tk.Frame(frame, bg="#f7f9fc", highlightthickness=1, highlightbackground="#dbe7f3")
+        surface.grid(row=0, column=0, rowspan=2, sticky="nsew")
+        surface.columnconfigure(0, weight=1)
+        surface.rowconfigure(2, weight=1)
 
-        toolbar = ttk.Frame(frame, style="Toolbar.TFrame")
-        toolbar.grid(row=1, column=0, sticky="ew", pady=(12, 8))
-        toolbar.columnconfigure(10, weight=1)
+        header = tk.Frame(surface, bg="#f7f9fc", padx=18, pady=14)
+        header.grid(row=0, column=0, sticky="ew")
+        header.columnconfigure(1, weight=1)
 
-        buttons = (
-            ("Criar card", self.create_card, "Accent.TButton"),
-            ("Editar", self.edit_card, "TButton"),
-            ("Detalhe", self.open_selected_card_detail, "TButton"),
-            ("Mover", self.move_card, "TButton"),
-            ("Marcar feito", self.mark_card_done, "Success.TButton"),
-            ("Vincular commit", self.link_commit_to_card, "TButton"),
-            ("Adicionar nota", self.add_card_note, "TButton"),
-            ("Duplicar", self.duplicate_card, "TButton"),
-            ("Arquivar", self.archive_card, "Danger.TButton"),
-            ("Definir atual", self.set_current_card, "Accent.TButton"),
-            ("Atualizar", self.refresh_kanban, "TButton"),
-            ("Tickets", self.open_tickets_tab, "Warning.TButton"),
-            ("Disparar Codex", self.dispatch_selected_card_to_codex, "Success.TButton"),
-            ("Atualizar Codex", self.poll_codex_dispatches, "TButton"),
+        date_panel = tk.Frame(header, bg="#17233a", padx=14, pady=10, highlightthickness=1, highlightbackground="#243b64")
+        date_panel.grid(row=0, column=0, sticky="nsw", padx=(0, 14))
+        tk.Label(
+            date_panel,
+            text=datetime.now().strftime("%d").zfill(2),
+            bg="#17233a",
+            fg="#ffffff",
+            font=(self.font_family, 24, "bold"),
+        ).grid(row=0, column=0, sticky="w")
+        tk.Label(
+            date_panel,
+            text=datetime.now().strftime("%b").upper(),
+            bg="#17233a",
+            fg="#d9e8ff",
+            font=(self.font_family, 9, "bold"),
+        ).grid(row=1, column=0, sticky="w")
+
+        title_area = tk.Frame(header, bg="#f7f9fc")
+        title_area.grid(row=0, column=1, sticky="ew")
+        title_area.columnconfigure(0, weight=1)
+        tk.Label(
+            title_area,
+            text="Agenda operacional",
+            bg="#f7f9fc",
+            fg=THEME["text"],
+            font=(self.font_family, 20, "bold"),
+            anchor="w",
+        ).grid(row=0, column=0, sticky="w")
+        tk.Label(
+            title_area,
+            textvariable=self.selected_card_var,
+            bg="#f7f9fc",
+            fg=THEME["muted"],
+            font=(self.font_family, 9),
+            anchor="w",
+        ).grid(row=1, column=0, sticky="ew", pady=(3, 0))
+
+        actions = tk.Frame(header, bg="#ffffff", highlightthickness=1, highlightbackground="#dbe4ef", padx=6, pady=6)
+        actions.grid(row=0, column=2, sticky="e", padx=(14, 0))
+        self.kanban_action_button(actions, "Novo", self.create_card, THEME["accent"], active_bg=THEME["accent_hover"]).grid(row=0, column=0, padx=(0, 6))
+        self.kanban_action_button(actions, "Codex", self.dispatch_selected_card_to_codex, THEME["success"], active_bg="#0f6b4f").grid(row=0, column=1, padx=(0, 6))
+        self.kanban_action_button(actions, "Feito", self.mark_card_done, "#eef3f8", fg="#1b2430", active_bg="#e2e8f0").grid(row=0, column=2, padx=(0, 6))
+        self.kanban_action_button(actions, "Excluir", self.delete_card, THEME["danger"], active_bg="#9f1c14").grid(row=0, column=3)
+
+        metrics = tk.Frame(surface, bg="#f7f9fc", padx=18, pady=0)
+        metrics.grid(row=1, column=0, sticky="ew", pady=(0, 12))
+        metric_specs = (
+            ("HOJE", "Hoje", LANE_ACCENTS["HOJE"], LANE_TINTS["HOJE"]),
+            ("AGUARDANDO CODEX", "Codex", LANE_ACCENTS["AGUARDANDO CODEX"], LANE_TINTS["AGUARDANDO CODEX"]),
+            ("TESTAR", "Teste", LANE_ACCENTS["TESTAR"], LANE_TINTS["TESTAR"]),
+            ("BLOQUEADO", "Bloqueios", LANE_ACCENTS["BLOQUEADO"], LANE_TINTS["BLOQUEADO"]),
+            ("FEITO", "Feitos", LANE_ACCENTS["FEITO"], LANE_TINTS["FEITO"]),
         )
-        for index, (text, command, style_name) in enumerate(buttons):
-            ttk.Button(toolbar, text=text, command=command, style=style_name).grid(
-                row=index // 5, column=index % 5, padx=(0, 8), pady=(0, 8), sticky="w"
-            )
+        self.kanban_summary_vars.clear()
+        for col, (key, label, accent, bg) in enumerate(metric_specs):
+            metrics.columnconfigure(col, weight=1, uniform="kanban_metrics")
+            self.kanban_metric_tile(metrics, key, label, accent, bg, col)
 
-        context = self.card_frame(frame, padding=(12, 10))
-        context.grid(row=2, column=0, sticky="ew", pady=(0, 10))
-        context.columnconfigure(0, weight=1)
-        ttk.Label(context, textvariable=self.selected_card_var, style="Card.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(context, textvariable=self.current_card_var, style="CardMuted.TLabel").grid(
-            row=1, column=0, sticky="w", pady=(3, 0)
-        )
+        board = tk.Frame(surface, bg="#e9eff7", padx=10, pady=10)
+        board.grid(row=2, column=0, sticky="nsew")
+        board.rowconfigure(0, weight=1)
+        self.kanban_lane_frames.clear()
+        self.kanban_card_ids.clear()
+        self.kanban_lane_count_vars.clear()
+        self.kanban_lane_canvases.clear()
 
-        board_container = ttk.Frame(frame, style="App.TFrame")
-        board_container.grid(row=3, column=0, sticky="nsew")
-        board_container.columnconfigure(0, weight=1)
-        board_container.rowconfigure(0, weight=1)
-        frame.rowconfigure(3, weight=1)
-
-        canvas = tk.Canvas(board_container, highlightthickness=0, bg=THEME["bg"])
-        xscroll = ttk.Scrollbar(board_container, orient="horizontal", command=canvas.xview)
-        canvas.configure(xscrollcommand=xscroll.set)
-        canvas.grid(row=0, column=0, sticky="nsew")
-        xscroll.grid(row=1, column=0, sticky="ew")
-
-        inner = ttk.Frame(canvas, style="App.TFrame")
-        canvas.create_window((0, 0), window=inner, anchor="nw")
-        inner.bind("<Configure>", lambda _event: canvas.configure(scrollregion=canvas.bbox("all")))
-
-        for col, lane in enumerate(KANBAN_LANES):
+        for col, lane in enumerate(KANBAN_BOARD_LANES):
+            board.columnconfigure(col, weight=1, uniform="kanban_board")
+            lane_bg = LANE_TINTS.get(lane, THEME["lane"])
             lane_frame = tk.Frame(
-                inner,
-                bg=THEME["lane"],
+                board,
+                bg=lane_bg,
                 highlightthickness=1,
-                highlightbackground=THEME["line"],
-                width=286,
-                height=610,
+                highlightbackground="#d8e2ef",
             )
-            lane_frame.grid(row=0, column=col, sticky="ns", padx=(0, 12), pady=(0, 4))
-            lane_frame.grid_propagate(False)
+            lane_frame.grid(row=0, column=col, sticky="nsew", padx=(0, 8 if col < len(KANBAN_BOARD_LANES) - 1 else 0))
             lane_frame.columnconfigure(0, weight=1)
+            lane_frame.rowconfigure(2, weight=1)
             lane_frame.hbx_lane_name = lane
 
-            accent = tk.Frame(lane_frame, bg=LANE_ACCENTS.get(lane, THEME["accent"]), height=4)
-            accent.grid(row=0, column=0, sticky="ew")
+            accent_color = LANE_ACCENTS.get(lane, THEME["accent"])
+            tk.Frame(lane_frame, bg=accent_color, height=3).grid(row=0, column=0, sticky="ew")
 
-            header = tk.Frame(lane_frame, bg=THEME["lane"], padx=12, pady=10)
-            header.grid(row=1, column=0, sticky="ew")
-            header.columnconfigure(0, weight=1)
+            lane_header = tk.Frame(lane_frame, bg=lane_bg, padx=10, pady=8)
+            lane_header.grid(row=1, column=0, sticky="ew")
+            lane_header.columnconfigure(0, weight=1)
             self.kanban_lane_count_vars[lane] = tk.StringVar(value="0")
             tk.Label(
-                header,
+                lane_header,
                 text=LANE_LABELS.get(lane, lane),
-                bg=THEME["lane"],
-                fg=THEME["text"],
-                font=(self.font_family, 10, "bold"),
+                bg=lane_bg,
+                fg="#15223a",
+                font=(self.font_family, 9, "bold"),
                 anchor="w",
             ).grid(row=0, column=0, sticky="w")
             tk.Label(
-                header,
+                lane_header,
+                text=LANE_SUBTITLES.get(lane, ""),
+                bg=lane_bg,
+                fg=THEME["muted"],
+                font=(self.font_family, 8),
+                anchor="w",
+            ).grid(row=1, column=0, sticky="w", pady=(1, 0))
+            tk.Label(
+                lane_header,
                 textvariable=self.kanban_lane_count_vars[lane],
-                bg=LANE_ACCENTS.get(lane, THEME["accent"]),
-                fg="#ffffff",
+                bg="#ffffff",
+                fg="#15223a",
                 width=3,
-                font=(self.font_family, 9, "bold"),
-            ).grid(row=0, column=1, sticky="e")
+                font=(self.font_family, 8, "bold"),
+            ).grid(row=0, column=1, rowspan=2, sticky="e")
 
-            cards_shell = tk.Frame(lane_frame, bg=THEME["lane"])
-            cards_shell.grid(row=2, column=0, sticky="nsew")
-            cards_shell.columnconfigure(0, weight=1)
-            cards_shell.rowconfigure(0, weight=1)
-            cards_shell.hbx_lane_name = lane
-
-            cards_canvas = tk.Canvas(cards_shell, bg=THEME["lane"], highlightthickness=0, width=270)
-            cards_scroll = ttk.Scrollbar(cards_shell, orient="vertical", command=cards_canvas.yview)
+            cards_canvas = tk.Canvas(lane_frame, bg=lane_bg, highlightthickness=0)
+            cards_scroll = ttk.Scrollbar(lane_frame, orient="vertical", command=cards_canvas.yview)
             cards_canvas.configure(yscrollcommand=cards_scroll.set)
-            cards_canvas.grid(row=0, column=0, sticky="nsew")
-            cards_scroll.grid(row=0, column=1, sticky="ns")
+            cards_canvas.grid(row=2, column=0, sticky="nsew", padx=(0, 1), pady=(0, 8))
+            cards_scroll.grid(row=2, column=1, sticky="ns", pady=(0, 8))
             cards_canvas.hbx_lane_name = lane
+            cards_canvas.hbx_scroll_canvas = cards_canvas
 
-            cards_frame = tk.Frame(cards_canvas, bg=THEME["lane"], padx=10, pady=2)
+            cards_frame = tk.Frame(cards_canvas, bg=lane_bg, padx=8, pady=2)
             cards_frame.columnconfigure(0, weight=1)
             cards_frame.hbx_lane_name = lane
+            cards_frame.hbx_scroll_canvas = cards_canvas
             cards_window = cards_canvas.create_window((0, 0), window=cards_frame, anchor="nw")
 
             def sync_lane_scroll(event: tk.Event, canvas_widget: tk.Canvas = cards_canvas, window_id: int = cards_window) -> None:
                 canvas_widget.configure(scrollregion=canvas_widget.bbox("all"))
-                canvas_widget.itemconfigure(window_id, width=event.width)
+                canvas_widget.itemconfigure(window_id, width=max(80, event.width))
 
             cards_canvas.bind("<Configure>", sync_lane_scroll)
-            cards_frame.bind("<Configure>", lambda _event, canvas_widget=cards_canvas: canvas_widget.configure(scrollregion=canvas_widget.bbox("all")))
-            cards_frame.columnconfigure(0, weight=1)
-            cards_frame.hbx_lane_name = lane
-            lane_frame.rowconfigure(2, weight=1)
-
-            drop_zone = tk.Label(
-                lane_frame,
-                text="",
-                bg=THEME["lane"],
-                fg=THEME["muted"],
-                height=1,
+            cards_frame.bind(
+                "<Configure>",
+                lambda _event, canvas_widget=cards_canvas: canvas_widget.configure(scrollregion=canvas_widget.bbox("all")),
             )
-            drop_zone.grid(row=3, column=0, sticky="ew", padx=10, pady=(2, 10))
-            drop_zone.hbx_lane_name = lane
-            self.register_lane_drop_widgets(lane_frame, lane)
-            self.register_lane_drop_widgets(header, lane)
-            self.register_lane_drop_widgets(cards_shell, lane)
-            self.register_lane_drop_widgets(cards_canvas, lane)
-            self.register_lane_drop_widgets(cards_frame, lane)
-            self.register_lane_drop_widgets(drop_zone, lane)
+            self.bind_kanban_scroll(cards_canvas, cards_canvas)
+            self.bind_kanban_scroll(cards_frame, cards_canvas)
+
+            for widget in (lane_frame, lane_header, cards_canvas, cards_frame):
+                self.register_lane_drop_widgets(widget, lane)
             self.kanban_lane_frames[lane] = cards_frame
+            self.kanban_lane_canvases[lane] = cards_canvas
             self.kanban_card_ids[lane] = []
 
         self.refresh_kanban()
+
+    def bind_kanban_scroll(self, widget: tk.Widget, canvas: tk.Canvas) -> None:
+        widget.hbx_scroll_canvas = canvas
+        widget.bind("<MouseWheel>", self.on_kanban_mousewheel, add="+")
+        widget.bind("<Button-4>", self.on_kanban_mousewheel, add="+")
+        widget.bind("<Button-5>", self.on_kanban_mousewheel, add="+")
+
+    def kanban_scroll_canvas_for_widget(self, widget: tk.Widget) -> tk.Canvas | None:
+        current: tk.Widget | None = widget
+        while current:
+            canvas = getattr(current, "hbx_scroll_canvas", None)
+            if isinstance(canvas, tk.Canvas):
+                return canvas
+            current = current.master
+        return None
+
+    def on_kanban_mousewheel(self, event: tk.Event) -> str:
+        canvas = self.kanban_scroll_canvas_for_widget(event.widget)
+        if not canvas:
+            return "break"
+        if getattr(event, "num", None) == 4:
+            delta = -3
+        elif getattr(event, "num", None) == 5:
+            delta = 3
+        else:
+            delta = -1 * int((event.delta or 0) / 120)
+            if delta == 0:
+                delta = -1 if (event.delta or 0) > 0 else 1
+        canvas.yview_scroll(delta, "units")
+        return "break"
 
     def card_display_text(self, card: sqlite3.Row) -> str:
         commit = (card["commit_sha"] or "-")[:7]
@@ -3058,6 +3210,7 @@ class HbxOwnerApp(tk.Tk):
         if not self.kanban_lane_frames:
             return
         self.kanban_card_widgets.clear()
+        visible_counts: dict[str, int] = {}
         for lane, cards_frame in self.kanban_lane_frames.items():
             for child in cards_frame.winfo_children():
                 child.destroy()
@@ -3069,6 +3222,7 @@ class HbxOwnerApp(tk.Tk):
                 """,
                 (lane,),
             )
+            visible_counts[lane] = len(cards)
             self.kanban_card_ids[lane] = [int(card["id"]) for card in cards]
             if lane in self.kanban_lane_count_vars:
                 self.kanban_lane_count_vars[lane].set(str(len(cards)))
@@ -3078,13 +3232,18 @@ class HbxOwnerApp(tk.Tk):
                 empty = tk.Label(
                     cards_frame,
                     text="",
-                    bg=THEME["lane"],
+                    bg=LANE_TINTS.get(lane, THEME["lane"]),
                     fg=THEME["muted"],
                     height=6,
                 )
                 empty.grid(row=0, column=0, sticky="ew")
                 empty.hbx_lane_name = lane
+                canvas = self.kanban_scroll_canvas_for_widget(cards_frame)
+                if canvas:
+                    self.bind_kanban_scroll(empty, canvas)
                 self.register_lane_drop_widgets(empty, lane)
+        for key, var in self.kanban_summary_vars.items():
+            var.set(str(visible_counts.get(key, 0)))
         self.update_current_card_label()
 
     def on_card_select(self, lane: str) -> None:
@@ -3142,6 +3301,8 @@ class HbxOwnerApp(tk.Tk):
             first_line = f"iniciado {dispatch['started_at'] or dispatch['created_at']}"
         else:
             first_line = "sem detalhe registrado"
+        if len(first_line) > 120:
+            first_line = first_line[:117].rstrip() + "..."
         paths: list[str] = []
         for label, key in (("log", "output_path"), ("msg", "last_message_path"), ("prompt", "prompt_path")):
             value = str(dispatch[key] or "").strip()
@@ -3151,12 +3312,9 @@ class HbxOwnerApp(tk.Tk):
         model = str(dispatch["model"] or self.card_codex_model(card) or "padrão")
         intelligence = str(dispatch["intelligence_level"] or self.card_value(card, "intelligence_level", "") or "-")
         text = (
-            f"Codex {self.dispatch_status_label(status)} | {branch}\n"
-            f"{intelligence} | modelo {model} | commit {(commit[:7] if commit else '-')}\n"
+            f"{self.dispatch_status_label(status)} | {intelligence} | {model}\n"
             f"{first_line}"
         )
-        if details:
-            text += f"\n{details}"
         if status == "running":
             return text, THEME["lane_hover"], THEME["accent"]
         if status == "done" or commit:
@@ -3170,7 +3328,7 @@ class HbxOwnerApp(tk.Tk):
         priority = str(card["priority"] or "Média")
         accent = PRIORITY_ACCENTS.get(priority, THEME["accent"])
         module = str(card["module"] or "HBX")
-        estimate = f"{card['estimate_minutes']} min" if int(card["estimate_minutes"] or 0) else "sem estim."
+        estimate = f"{card['estimate_minutes']}m" if int(card["estimate_minutes"] or 0) else "sem hora"
         commit = (str(card["commit_sha"] or "")[:7] or "-")
         ticket_code = str(card["ticket_code"] or "")
         urgency_level = self.normalize_urgency_level(self.card_value(card, "urgency_level", ""), priority)
@@ -3181,21 +3339,22 @@ class HbxOwnerApp(tk.Tk):
         row_index = len(parent.winfo_children())
         shell = tk.Frame(
             parent,
-            bg=THEME["card"],
+            bg="#d5deeb",
             highlightthickness=1,
-            highlightbackground=THEME["line"],
+            highlightbackground="#dce6f2",
             padx=0,
             pady=0,
             cursor="hand2",
         )
-        shell.grid(row=row_index, column=0, sticky="ew", pady=(0, 10))
+        shell.grid(row=row_index, column=0, sticky="ew", pady=(0, 9))
         shell.columnconfigure(1, weight=1)
         shell.hbx_lane_name = lane
         shell.hbx_card_id = card_id
+        shell.hbx_scroll_canvas = self.kanban_scroll_canvas_for_widget(parent)
 
-        tk.Frame(shell, bg=accent, width=4).grid(row=0, column=0, rowspan=5, sticky="ns")
-        body = tk.Frame(shell, bg=THEME["card"], padx=10, pady=9)
-        body.grid(row=0, column=1, sticky="ew")
+        tk.Frame(shell, bg=accent, width=4).grid(row=0, column=0, sticky="ns", pady=(0, 2))
+        body = tk.Frame(shell, bg=THEME["card"], padx=9, pady=8)
+        body.grid(row=0, column=1, sticky="ew", padx=(0, 1), pady=(0, 2))
         body.columnconfigure(0, weight=1)
         body.hbx_lane_name = lane
         body.hbx_card_id = card_id
@@ -3203,18 +3362,19 @@ class HbxOwnerApp(tk.Tk):
         meta = tk.Frame(body, bg=THEME["card"])
         meta.grid(row=0, column=0, sticky="ew")
         meta.columnconfigure(0, weight=1)
+        meta.columnconfigure(1, weight=0)
         tk.Label(
             meta,
-            text=f"TICKET {ticket_code}" if ticket_code else priority,
-            bg=accent,
-            fg="#ffffff",
-            padx=7,
+            text=f"#{card_id}",
+            bg="#f3f6fb",
+            fg=accent,
+            padx=6,
             pady=2,
             font=(self.font_family, 8, "bold"),
         ).grid(row=0, column=0, sticky="w")
         tk.Label(
             meta,
-            text=estimate,
+            text=f"{priority}  {estimate}",
             bg=THEME["card"],
             fg=THEME["muted"],
             font=(self.font_family, 8),
@@ -3227,23 +3387,23 @@ class HbxOwnerApp(tk.Tk):
             fg=THEME["text"],
             justify="left",
             anchor="w",
-            wraplength=220,
-            font=(self.font_family, 10, "bold"),
+            wraplength=155,
+            font=(self.font_family, 9, "bold"),
         )
-        title_label.grid(row=1, column=0, sticky="ew", pady=(7, 5))
+        title_label.grid(row=1, column=0, sticky="ew", pady=(6, 3))
 
         detail = tk.Label(
             body,
             text=(
-                f"{module}  |  {card['ticket_customer'] or 'cliente'}  |  {card['ticket_status'] or card['lane']}"
+                f"{module} | {ticket_code or card['ticket_customer'] or card['ticket_status'] or lane}"
                 if ticket_code
-                else f"{module}  |  commit {commit}"
+                else f"{module} | commit {commit}"
             ),
             bg=THEME["card"],
             fg=THEME["muted"],
             justify="left",
             anchor="w",
-            wraplength=220,
+            wraplength=155,
             font=(self.font_family, 8),
         )
         detail.grid(row=2, column=0, sticky="ew")
@@ -3251,17 +3411,17 @@ class HbxOwnerApp(tk.Tk):
 
         intelligence = tk.Label(
             body,
-            text=f"{urgency_level} | {intelligence_level} | modelo {model_label}",
-            bg=THEME["card_alt"],
-            fg=THEME["text"],
+            text=f"{urgency_level} | {intelligence_level} | {model_label}",
+            bg="#f3f6fb",
+            fg="#243449",
             justify="left",
             anchor="w",
-            wraplength=220,
-            padx=7,
-            pady=4,
+            wraplength=155,
+            padx=6,
+            pady=3,
             font=(self.font_family, 8, "bold"),
         )
-        intelligence.grid(row=next_row, column=0, sticky="ew", pady=(7, 0))
+        intelligence.grid(row=next_row, column=0, sticky="ew", pady=(6, 0))
         next_row += 1
 
         if dispatch:
@@ -3273,44 +3433,47 @@ class HbxOwnerApp(tk.Tk):
                 fg=dispatch_fg,
                 justify="left",
                 anchor="w",
-                wraplength=220,
-                padx=7,
-                pady=4,
+                wraplength=155,
+                padx=6,
+                pady=3,
                 font=(self.font_family, 8, "bold"),
             )
-            dispatch_label.grid(row=next_row, column=0, sticky="ew", pady=(7, 0))
+            dispatch_label.grid(row=next_row, column=0, sticky="ew", pady=(6, 0))
             next_row += 1
 
         if card["commit_sha"]:
             commit_label = tk.Label(
                 body,
                 text=f"commit {str(card['commit_sha'])[:7]}",
-                bg=THEME["card_alt"],
+                bg="#f3f6fb",
                 fg=THEME["text"],
                 justify="left",
                 anchor="w",
-                wraplength=220,
-                padx=7,
-                pady=4,
+                wraplength=155,
+                padx=6,
+                pady=3,
                 font=(self.font_family, 8, "bold"),
             )
-            commit_label.grid(row=next_row, column=0, sticky="ew", pady=(7, 0))
+            commit_label.grid(row=next_row, column=0, sticky="ew", pady=(6, 0))
             next_row += 1
 
         if card["blocked_reason"]:
+            blocked_text = str(card["blocked_reason"])
+            if len(blocked_text) > 140:
+                blocked_text = blocked_text[:137].rstrip() + "..."
             block = tk.Label(
                 body,
-                text=str(card["blocked_reason"]),
+                text=blocked_text,
                 bg=THEME["soft_danger"],
                 fg=THEME["danger"],
                 justify="left",
                 anchor="w",
-                wraplength=220,
-                padx=7,
-                pady=4,
+                wraplength=155,
+                padx=6,
+                pady=3,
                 font=(self.font_family, 8, "bold"),
             )
-            block.grid(row=next_row, column=0, sticky="ew", pady=(7, 0))
+            block.grid(row=next_row, column=0, sticky="ew", pady=(6, 0))
 
         for widget in (shell, body, meta, title_label, detail, intelligence):
             self.register_card_drag_widgets(widget, card_id, lane)
@@ -3329,10 +3492,39 @@ class HbxOwnerApp(tk.Tk):
     def register_card_drag_widgets(self, widget: tk.Widget, card_id: int, lane: str) -> None:
         widget.hbx_card_id = card_id
         widget.hbx_lane_name = lane
+        canvas = self.kanban_scroll_canvas_for_widget(widget)
+        if canvas:
+            self.bind_kanban_scroll(widget, canvas)
         widget.bind("<ButtonPress-1>", self.start_kanban_drag, add="+")
         widget.bind("<B1-Motion>", self.move_kanban_drag, add="+")
         widget.bind("<ButtonRelease-1>", self.release_kanban_drag, add="+")
         widget.bind("<Double-Button-1>", self.open_card_detail_from_event, add="+")
+
+    def delete_card(self, card_id: int | None = None) -> None:
+        target_id = card_id or self.selected_card_id
+        card = self.get_card(target_id)
+        if not card:
+            messagebox.showwarning("Excluir card", "Selecione um card para excluir.")
+            return
+        confirmed = messagebox.askyesno(
+            "Excluir card",
+            f"Excluir definitivamente o card #{card['id']}?\n\n{card['title']}\n\n"
+            "Isso remove o card local do Kanban e limpa eventos/dispatches ligados a ele.",
+        )
+        if not confirmed:
+            return
+        deleted_id = int(card["id"])
+        self.db.execute("UPDATE chatgpt_exchanges SET card_id = NULL WHERE card_id = ?", (deleted_id,))
+        self.db.execute("DELETE FROM card_events WHERE card_id = ?", (deleted_id,))
+        self.db.execute("DELETE FROM codex_dispatches WHERE card_id = ?", (deleted_id,))
+        self.db.execute("DELETE FROM kanban_cards WHERE id = ?", (deleted_id,))
+        if self.selected_card_id == deleted_id:
+            self.selected_card_id = None
+        if self.current_card_id == deleted_id:
+            self.current_card_id = None
+        self.selected_card_var.set(f"Card #{deleted_id} excluído.")
+        self.update_current_card_label()
+        self.refresh_kanban()
 
     def start_kanban_drag(self, event: tk.Event) -> None:
         widget = event.widget
@@ -3462,8 +3654,8 @@ class HbxOwnerApp(tk.Tk):
         )
         normalized = self.normalize_card_title_key(text)
         sensitive = self.autocard_has_sensitive_terms(text)
-        if sensitive or lane == "BLOQUEADO":
-            return "Crítica", "Revisão humana"
+        if sensitive:
+            return "Crítica", "Extra high"
         if priority == "Crítica":
             return "Crítica", "Extra high"
         if any(term in normalized for term in ("multi area", "arquitetura", "worker", "fila", "integracao", "integração")):
@@ -3580,7 +3772,7 @@ class HbxOwnerApp(tk.Tk):
 
     def save_intelligence_controls(self) -> None:
         engine = str(self.intelligence_engine_var.get() or "local").strip().lower()
-        engine = "spark" if engine in ("5.5", "55", "codex", "spark") else "local"
+        engine = "5.5" if engine in ("5.5", "55", "codex", "spark") else "local"
         try:
             timeout = int(float(str(self.intelligence_timeout_var.get() or "120")))
         except ValueError:
@@ -3600,7 +3792,7 @@ class HbxOwnerApp(tk.Tk):
         ):
             if key in self.config_entries:
                 self.config_entries[key].set(str(value))
-        self.intelligence_engine_var.set("5.5" if engine == "spark" else "local")
+        self.intelligence_engine_var.set(engine)
         self.intelligence_timeout_var.set(str(timeout))
         self.refresh_intelligence_status()
         self.autocard_status_var.set("Controles de inteligência salvos.")
@@ -3775,7 +3967,7 @@ class HbxOwnerApp(tk.Tk):
             "module": self.card_value(card, "module", ""),
             "type": self.sanitize_card_type(self.card_value(card, "type", ""), "Operacional"),
             "priority": self.card_value(card, "priority", "Média"),
-            "lane": self.card_value(card, "lane", "BACKLOG"),
+            "lane": self.card_value(card, "lane", "HOJE"),
             "acceptance_criteria": self.card_value(card, "acceptance_criteria", ""),
             "test_command": self.card_value(card, "test_command", ""),
             "codex_prompt": self.card_value(card, "codex_prompt", ""),
@@ -3805,7 +3997,7 @@ class HbxOwnerApp(tk.Tk):
             "module": tk.StringVar(value=str(initial["module"] or "")),
             "type": tk.StringVar(value=str(initial["type"] or "")),
             "priority": tk.StringVar(value=str(initial["priority"] or "Média")),
-            "lane": tk.StringVar(value=str(initial["lane"] or "BACKLOG")),
+            "lane": tk.StringVar(value=str(initial["lane"] or "HOJE")),
             "urgency_level": tk.StringVar(value=str(initial["urgency_level"] or "Normal")),
             "intelligence_level": tk.StringVar(value=str(initial["intelligence_level"] or "Média")),
             "codex_model_override": tk.StringVar(value=str(initial["codex_model_override"] or CARD_CODEX_MODEL_DEFAULT)),
@@ -3824,7 +4016,7 @@ class HbxOwnerApp(tk.Tk):
             ("type", "Tipo", ttk.Combobox, {"values": ("Operacional", "Ticket cliente", "ChatGPT", "PDF", "Bug", "Frontend", "Backend", "Docs")}),
             ("priority", "Prioridade", ttk.Combobox, {"values": ("Baixa", "Média", "Alta", "Crítica")}),
             ("urgency_level", "Urgência", ttk.Combobox, {"values": URGENCY_LEVELS}),
-            ("lane", "Lane", ttk.Combobox, {"values": KANBAN_LANES, "state": "readonly"}),
+            ("lane", "Lane", ttk.Combobox, {"values": KANBAN_BOARD_LANES + ("ARQUIVADO",), "state": "readonly"}),
             ("intelligence_level", "Inteligência", ttk.Combobox, {"values": INTELLIGENCE_LEVELS, "state": "readonly"}),
             ("codex_model_override", "Modelo Codex", ttk.Entry, {}),
             ("execution_timeout_seconds", "Timeout s", ttk.Entry, {}),
@@ -3902,6 +4094,8 @@ class HbxOwnerApp(tk.Tk):
             result["estimate_minutes"] = max(0, estimate)
             result["execution_timeout_seconds"] = max(0, timeout)
             result["type"] = self.sanitize_card_type(result.get("type"), "Operacional")
+            if result.get("lane") == "BACKLOG":
+                result["lane"] = "HOJE"
             result["urgency_level"] = self.normalize_urgency_level(result.get("urgency_level"), result.get("priority"))
             result["intelligence_level"] = self.normalize_intelligence_level(result.get("intelligence_level"), result)
             result["codex_model_override"] = result.get("codex_model_override") or CARD_CODEX_MODEL_DEFAULT
@@ -4061,12 +4255,6 @@ class HbxOwnerApp(tk.Tk):
             )
         self.update_card_lane(card["id"], "FEITO", "Card marcado como feito.")
 
-    def codex_auto_dispatch_enabled(self) -> bool:
-        value = self.config_data.get("codex_auto_dispatch", DEFAULT_CONFIG["codex_auto_dispatch"])
-        if isinstance(value, bool):
-            return value
-        return str(value).strip().lower() in ("1", "true", "sim", "yes", "on")
-
     def resolve_codex_cli_path(self) -> str:
         configured = str(self.config_data.get("codex_cli_path") or DEFAULT_CONFIG["codex_cli_path"]).strip()
         candidate = configured or "codex"
@@ -4118,19 +4306,19 @@ class HbxOwnerApp(tk.Tk):
             raise RuntimeError(f"worktree Codex fora do diretório permitido: {target}")
         return target
 
-    def card_has_codex_blocker(self, card: sqlite3.Row) -> str:
-        intelligence = self.normalize_intelligence_level(self.card_value(card, "intelligence_level", ""), card)
-        if intelligence == "Revisão humana":
-            return "Dispatch Codex bloqueado: este card exige revisão humana pelo nível de inteligência."
-        text = " ".join(
-            str(card[key] or "")
-            for key in ("title", "description", "module", "type", "blocked_reason", "test_command", "research_path")
-            if key in card.keys()
-        ).lower()
-        sensitive = ("deploy", "publish", "migration", "migracao", "migração", "auth", "billing", "secrets", "pagamento")
-        if any(term in text for term in sensitive):
-            return "Dispatch Codex bloqueado: card toca deploy, migration, auth, billing, secrets ou pagamento."
-        return ""
+    def codex_max_parallel_dispatches(self) -> int:
+        try:
+            value = int(float(str(self.config_data.get("codex_max_parallel_dispatches", 1) or 1)))
+        except ValueError:
+            value = 1
+        return max(1, min(value, 20))
+
+    def codex_running_dispatch_count(self) -> int:
+        row = self.db.fetchone("SELECT COUNT(*) AS total FROM codex_dispatches WHERE status = 'running'")
+        return int(row["total"] or 0) if row else 0
+
+    def get_codex_dispatch(self, dispatch_id: int) -> sqlite3.Row | None:
+        return self.db.fetchone("SELECT * FROM codex_dispatches WHERE id = ? LIMIT 1", (dispatch_id,))
 
     def dispatch_card_to_codex(self, card_id: int, trigger: str = "lane") -> bool:
         card = self.get_card(card_id)
@@ -4139,33 +4327,9 @@ class HbxOwnerApp(tk.Tk):
         intelligence_level = self.normalize_intelligence_level(self.card_value(card, "intelligence_level", ""), card)
         model = self.card_codex_model(card)
 
-        if not self.codex_auto_dispatch_enabled():
-            prompt = self.build_codex_dispatch_prompt(card, "")
-            path = self.save_prompt_file(f"card-{card_id}-codex-dispatch", prompt)
-            self.copy_text(prompt)
-            self.db.execute(
-                "INSERT INTO card_events (card_id, event_type, message, created_at) VALUES (?, 'codex_prepared', ?, ?)",
-                (card_id, f"Prompt Codex preparado: {path}", now_iso()),
-            )
-            self.execution_status_var.set(f"Codex auto desligado. Prompt copiado para card #{card_id}.")
-            return False
-
-        blocker = self.card_has_codex_blocker(card)
-        if blocker:
-            self.db.execute(
-                "INSERT INTO card_events (card_id, event_type, message, created_at) VALUES (?, 'codex_blocked', ?, ?)",
-                (card_id, blocker, now_iso()),
-            )
-            self.db.execute(
-                "UPDATE kanban_cards SET lane = 'BLOQUEADO', blocked_reason = ?, updated_at = ? WHERE id = ?",
-                (blocker, now_iso(), card_id),
-            )
-            self.execution_status_var.set(blocker)
-            return False
-
         latest = self.latest_card_dispatch(card_id)
         if latest and str(latest["status"]) in ("queued", "running"):
-            self.execution_status_var.set(f"Codex já está em execução para card #{card_id}.")
+            self.execution_status_var.set(f"Card #{card_id} já está na fila Codex.")
             return False
 
         codex_path = self.resolve_codex_cli_path()
@@ -4232,6 +4396,50 @@ class HbxOwnerApp(tk.Tk):
             model=model,
             intelligence_level=intelligence_level,
         )
+        self.db.execute(
+            "INSERT INTO card_events (card_id, event_type, message, created_at) VALUES (?, 'codex_queued', ?, ?)",
+            (
+                card_id,
+                f"Card entrou na fila Codex por {trigger}. Paralelo: {self.codex_running_dispatch_count()}/{self.codex_max_parallel_dispatches()}.",
+                now_iso(),
+            ),
+        )
+        self.execution_status_var.set(f"Card #{card_id} entrou na fila Codex.")
+        started = self.start_queued_codex_dispatches()
+        if started == 0:
+            self.refresh_kanban()
+        return True
+
+    def start_codex_dispatch_process(self, dispatch: sqlite3.Row) -> bool:
+        card_id = int(dispatch["card_id"])
+        card = self.get_card(card_id)
+        if not card:
+            self.update_codex_dispatch(int(dispatch["id"]), status="failed", error="card não encontrado", finished_at=now_iso())
+            return False
+
+        codex_path = self.resolve_codex_cli_path()
+        if not codex_path:
+            self.update_codex_dispatch(
+                int(dispatch["id"]),
+                status="failed",
+                error="Codex CLI não encontrado ao iniciar fila",
+                finished_at=now_iso(),
+            )
+            self.execution_status_var.set("Codex CLI não encontrado para iniciar a fila.")
+            return False
+
+        worktree = Path(dispatch["worktree_path"])
+        prompt_path = Path(dispatch["prompt_path"])
+        output_path = Path(dispatch["output_path"])
+        last_message_path = Path(dispatch["last_message_path"])
+        if not worktree.exists() or not prompt_path.exists():
+            self.update_codex_dispatch(
+                int(dispatch["id"]),
+                status="failed",
+                error="worktree ou prompt não encontrado ao iniciar fila",
+                finished_at=now_iso(),
+            )
+            return False
 
         command = [
             codex_path,
@@ -4243,6 +4451,7 @@ class HbxOwnerApp(tk.Tk):
             "-o",
             str(last_message_path),
         ]
+        model = str(dispatch["model"] or self.card_codex_model(card) or "").strip()
         if model:
             command.extend(["--model", model])
         command.append("-")
@@ -4262,7 +4471,7 @@ class HbxOwnerApp(tk.Tk):
                 creationflags=self.hidden_creation_flags(),
             )
         except OSError as exc:
-            self.update_codex_dispatch(dispatch_id, status="failed", error=str(exc), finished_at=now_iso())
+            self.update_codex_dispatch(int(dispatch["id"]), status="failed", error=str(exc), finished_at=now_iso())
             self.execution_status_var.set(f"Falha ao iniciar Codex: {exc}")
             return False
         finally:
@@ -4271,19 +4480,55 @@ class HbxOwnerApp(tk.Tk):
             if output_handle:
                 output_handle.close()
 
-        self.update_codex_dispatch(dispatch_id, status="running", process_id=process.pid, started_at=now_iso())
+        intelligence_level = str(dispatch["intelligence_level"] or self.card_value(card, "intelligence_level", "") or "")
+        self.update_codex_dispatch(int(dispatch["id"]), status="running", process_id=process.pid, started_at=now_iso())
         self.record_ai_usage_event("normal", model=model or "default", context=f"card:{card_id}:{intelligence_level}")
         self.refresh_usage_hud()
+        branch = str(dispatch["branch"] or "")
         self.db.execute(
             "INSERT INTO card_events (card_id, event_type, message, created_at) VALUES (?, 'codex_started', ?, ?)",
             (
                 card_id,
-                f"Codex iniciado em {branch} por {trigger}. PID {process.pid}. Inteligência: {intelligence_level}. Modelo: {model or 'padrão'}.",
+                f"Codex iniciado em {branch} pela fila. PID {process.pid}. Inteligência: {intelligence_level}. Modelo: {model or 'padrão'}.",
                 now_iso(),
             ),
         )
         self.execution_status_var.set(f"Codex iniciado para card #{card_id}: {branch}")
         return True
+
+    def start_queued_codex_dispatches(self) -> int:
+        capacity = self.codex_max_parallel_dispatches() - self.codex_running_dispatch_count()
+        if capacity <= 0:
+            return 0
+        rows = self.db.fetchall(
+            "SELECT * FROM codex_dispatches WHERE status = 'queued' ORDER BY id ASC LIMIT ?",
+            (capacity,),
+        )
+        started = 0
+        for row in rows:
+            if self.start_codex_dispatch_process(row):
+                started += 1
+        if started:
+            self.refresh_kanban()
+        return started
+
+    def queue_waiting_codex_cards(self) -> int:
+        rows = self.db.fetchall(
+            """
+            SELECT * FROM kanban_cards
+            WHERE lane = 'AGUARDANDO CODEX'
+            ORDER BY sort_order ASC, updated_at ASC, id ASC
+            LIMIT 50
+            """
+        )
+        queued = 0
+        for card in rows:
+            latest = self.latest_card_dispatch(int(card["id"]))
+            if latest and str(latest["status"]) in ("queued", "running", "failed", "needs_review"):
+                continue
+            if self.dispatch_card_to_codex(int(card["id"]), trigger="fila automática"):
+                queued += 1
+        return queued
 
     def insert_codex_dispatch(
         self,
@@ -4352,13 +4597,13 @@ class HbxOwnerApp(tk.Tk):
             f"Critério de aceite:\n{card['acceptance_criteria'] or 'Entrega verificável registrada.'}\n\n"
             f"Teste sugerido:\n{card['test_command'] or '-'}\n\n"
             f"Prompt específico do card:\n{card['codex_prompt'] or '-'}\n\n"
-            "Regras de segurança:\n"
-            "- Não mexer em pricing, billing, payment, auth, secrets, deploy, publish ou migration.\n"
-            "- Não fazer push.\n"
-            "- Não rodar deploy nem restart de produção.\n"
-            "- Manter diff pequeno e alinhado ao fluxo Radar -> Vendas -> WhatsApp -> Retorno.\n\n"
+            "Modo dono/local:\n"
+            "- Este dispatch foi aprovado no HBX Owner local; aplique o que o card pedir no worktree.\n"
+            "- Pode editar áreas citadas pelo card quando isso for necessário para concluir a entrega.\n"
+            "- Não fazer push, deploy, publish, restart de produção, reset ou clean.\n"
+            "- Manter o trabalho alinhado ao fluxo Radar -> Vendas -> WhatsApp -> Retorno.\n\n"
             "Entrega obrigatória:\n"
-            "- aplicar a correção se for segura;\n"
+            "- aplicar a correção solicitada;\n"
             "- rodar checks locais mínimos relevantes;\n"
             "- criar um commit local nesta branch se houver alteração;\n"
             "- responder com commit, arquivos alterados, comandos rodados e risco residual.\n"
@@ -4389,6 +4634,8 @@ class HbxOwnerApp(tk.Tk):
             changed = True
         if changed:
             self.refresh_kanban()
+        self.queue_waiting_codex_cards()
+        self.start_queued_codex_dispatches()
 
     def finish_codex_dispatch(self, dispatch: sqlite3.Row) -> None:
         worktree = Path(dispatch["worktree_path"])
@@ -4428,12 +4675,45 @@ class HbxOwnerApp(tk.Tk):
             )
             return
 
-        status = "needs_review" if status_output else "failed"
-        note = (
-            f"Codex terminou sem commit. Mudanças não commitadas:\n{status_output}"
-            if status_output
-            else "Codex terminou sem commit e sem mudanças detectadas."
-        )
+        if status_output:
+            commit_title = re.sub(r"\s+", " ", str(self.get_card(card_id)["title"] if self.get_card(card_id) else "card")).strip()
+            commit_title = commit_title[:80] or "card"
+            ok_add, add_output = self.run_hidden_command(["git", "add", "-A"], worktree, timeout=60)
+            if ok_add:
+                ok_commit, commit_output = self.run_hidden_command(
+                    ["git", "commit", "-m", f"owner: card #{card_id} {commit_title}"],
+                    worktree,
+                    timeout=180,
+                )
+                if ok_commit:
+                    ok_new_head, new_head = self.run_hidden_command(["git", "rev-parse", "HEAD"], worktree, timeout=20)
+                    new_head = new_head.strip() if ok_new_head else ""
+                    self.update_codex_dispatch(
+                        int(dispatch["id"]),
+                        status="done",
+                        commit_sha=new_head,
+                        error="",
+                        finished_at=now_iso(),
+                    )
+                    self.db.execute(
+                        "UPDATE kanban_cards SET commit_sha = ?, lane = 'TESTAR', updated_at = ? WHERE id = ?",
+                        (new_head, now_iso(), card_id),
+                    )
+                    self.db.execute(
+                        "INSERT INTO card_events (card_id, event_type, message, created_at) VALUES (?, 'codex_done', ?, ?)",
+                        (card_id, f"Owner commitou mudanças do Codex em {new_head[:7]}.", now_iso()),
+                    )
+                    return
+            status = "failed"
+            note = (
+                "Codex deixou mudanças sem commit e o Owner não conseguiu commitar.\n"
+                f"Git status:\n{status_output}\n"
+                f"git add: {add_output if 'add_output' in locals() else '-'}\n"
+                f"git commit: {commit_output if 'commit_output' in locals() else '-'}"
+            )
+        else:
+            status = "failed"
+            note = "Codex terminou sem commit e sem mudanças detectadas."
         output_path = str(dispatch["output_path"] or "").strip()
         last_message_path = str(dispatch["last_message_path"] or "").strip()
         detail_note = note
@@ -4448,11 +4728,7 @@ class HbxOwnerApp(tk.Tk):
             finished_at=now_iso(),
         )
         self.db.execute(
-            "UPDATE kanban_cards SET lane = 'REVISAR COM CHATGPT', updated_at = ? WHERE id = ?",
-            (now_iso(), card_id),
-        )
-        self.db.execute(
-            "INSERT INTO card_events (card_id, event_type, message, created_at) VALUES (?, 'codex_review', ?, ?)",
+            "INSERT INTO card_events (card_id, event_type, message, created_at) VALUES (?, 'codex_failed', ?, ?)",
             (card_id, detail_note[:1000], now_iso()),
         )
 
@@ -4508,7 +4784,7 @@ class HbxOwnerApp(tk.Tk):
              codex_model_override, execution_timeout_seconds, research_path, lane, acceptance_criteria,
              test_command, codex_prompt, chatgpt_prompt, estimate_minutes, blocked_reason,
              created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'BACKLOG', ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'HOJE', ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 today_str(),
@@ -4543,7 +4819,9 @@ class HbxOwnerApp(tk.Tk):
     def insert_kanban_card(self, data: dict, source: str = "manual") -> int:
         lane = data.get("lane") or "BACKLOG"
         if lane not in KANBAN_LANES:
-            lane = "BACKLOG"
+            lane = "HOJE"
+        if lane == "BACKLOG":
+            lane = "HOJE"
         data["type"] = self.sanitize_card_type(data.get("type"), source if source != "manual" else "Operacional")
         suggested_urgency, suggested_intelligence = self.suggest_card_execution_controls(data)
         urgency_level = self.normalize_urgency_level(data.get("urgency_level") or suggested_urgency, data.get("priority"))
@@ -4784,26 +5062,44 @@ class HbxOwnerApp(tk.Tk):
 
         toolbar = ttk.Frame(frame, style="Toolbar.TFrame")
         toolbar.grid(row=2, column=0, sticky="ew", pady=(0, 10))
-        ttk.Button(toolbar, text="Listar PRs GitHub", command=self.pr_lab_list_github_prs, style="Accent.TButton").grid(
+        ttk.Button(toolbar, text="Fetch --prune", command=self.pr_lab_fetch_all, style="Accent.TButton").grid(
             row=0, column=0, sticky="w", padx=(0, 8)
         )
-        ttk.Button(toolbar, text="Listar owner/*", command=self.pr_lab_list_owner_branches).grid(
+        ttk.Button(toolbar, text="Todas branches", command=self.pr_lab_list_all_branches).grid(
             row=0, column=1, sticky="w", padx=8
         )
-        ttk.Button(toolbar, text="Criar worktree", command=self.pr_lab_create_worktree, style="Success.TButton").grid(
+        ttk.Button(toolbar, text="PRs GitHub", command=self.pr_lab_list_github_prs).grid(
             row=0, column=2, sticky="w", padx=8
         )
-        ttk.Button(toolbar, text="Rodar testes", command=self.pr_lab_run_tests, style="Warning.TButton").grid(
+        ttk.Button(toolbar, text="Owner/*", command=self.pr_lab_list_owner_branches).grid(
             row=0, column=3, sticky="w", padx=8
         )
-        ttk.Button(toolbar, text="Abrir localhost", command=self.pr_lab_open_localhost).grid(
+        ttk.Button(toolbar, text="Criar worktree", command=self.pr_lab_create_worktree, style="Success.TButton").grid(
             row=0, column=4, sticky="w", padx=8
         )
-        ttk.Button(toolbar, text="Abrir worktree", command=self.pr_lab_open_worktree_folder).grid(
+        ttk.Button(toolbar, text="Rodar testes", command=self.pr_lab_run_tests, style="Warning.TButton").grid(
             row=0, column=5, sticky="w", padx=8
         )
-        ttk.Button(toolbar, text="Merge aprovado", command=self.pr_lab_merge_approved, style="Danger.TButton").grid(
+        ttk.Button(toolbar, text="Comandos", command=self.pr_lab_copy_branch_commands).grid(
             row=0, column=6, sticky="w", padx=8
+        )
+        ttk.Button(toolbar, text="Abrir localhost", command=self.pr_lab_open_localhost).grid(
+            row=1, column=0, sticky="w", padx=(0, 8), pady=(8, 0)
+        )
+        ttk.Button(toolbar, text="Abrir worktree", command=self.pr_lab_open_worktree_folder).grid(
+            row=1, column=1, sticky="w", padx=8, pady=(8, 0)
+        )
+        ttk.Button(toolbar, text="Terminal tree", command=self.pr_lab_open_worktree_terminal).grid(
+            row=1, column=2, sticky="w", padx=8, pady=(8, 0)
+        )
+        ttk.Button(toolbar, text="Merge no master", command=self.pr_lab_merge_approved, style="Danger.TButton").grid(
+            row=1, column=3, sticky="w", padx=8, pady=(8, 0)
+        )
+        ttk.Button(toolbar, text="Push master", command=self.pr_lab_push_base, style="Danger.TButton").grid(
+            row=1, column=4, sticky="w", padx=8, pady=(8, 0)
+        )
+        ttk.Button(toolbar, text="Rejeitar branch", command=self.pr_lab_delete_rejected_branch, style="Danger.TButton").grid(
+            row=1, column=5, sticky="w", padx=8, pady=(8, 0)
         )
 
         status = self.card_frame(frame, padding=(12, 10))
@@ -4825,12 +5121,13 @@ class HbxOwnerApp(tk.Tk):
         table_panel.columnconfigure(0, weight=1)
         table_panel.rowconfigure(0, weight=1)
 
-        columns = ("tipo", "ref", "branch", "titulo", "status", "worktree")
+        columns = ("tipo", "ref", "branch", "head", "titulo", "status", "worktree")
         tree = ttk.Treeview(table_panel, columns=columns, show="headings", height=18)
         headings = {
             "tipo": "Tipo",
             "ref": "Ref",
             "branch": "Branch",
+            "head": "HEAD",
             "titulo": "Título",
             "status": "Status",
             "worktree": "Worktree",
@@ -4839,7 +5136,8 @@ class HbxOwnerApp(tk.Tk):
             "tipo": 80,
             "ref": 170,
             "branch": 170,
-            "titulo": 260,
+            "head": 110,
+            "titulo": 240,
             "status": 110,
             "worktree": 260,
         }
@@ -4865,11 +5163,12 @@ class HbxOwnerApp(tk.Tk):
         self.pr_lab_output.configure(yscrollcommand=output_scroll.set)
         self.set_pr_lab_output(
             "Fluxo seguro:\n"
-            "1. Listar PRs ou owner/*.\n"
+            "1. Fetch --prune e listar todas as branches.\n"
             "2. Criar worktree isolado.\n"
-            "3. Rodar testes no worktree.\n"
-            "4. Abrir localhost já configurado.\n"
-            "5. Fazer merge local apenas com aprovação e repo limpo.\n"
+            "3. Rodar testes e localhost só no worktree.\n"
+            "4. Se aprovado, merge local no master.\n"
+            "5. Se o master ficou aprovado, push master separado.\n"
+            "6. Se rejeitado, excluir branch com confirmação pelo nome.\n"
         )
 
     def set_pr_lab_output(self, text: str) -> None:
@@ -4940,6 +5239,7 @@ class HbxOwnerApp(tk.Tk):
                     item.get("type", "-"),
                     item.get("ref", "-"),
                     item.get("branch", "-"),
+                    item.get("head", "-"),
                     item.get("title", "-"),
                     item.get("status", "-"),
                     item.get("worktree", "-"),
@@ -4951,6 +5251,86 @@ class HbxOwnerApp(tk.Tk):
             tree.selection_set(first)
             tree.focus(first)
             self.on_pr_lab_selected()
+
+    def pr_lab_fetch_all(self) -> None:
+        try:
+            repo_path = self.pr_lab_repo_path()
+        except RuntimeError as exc:
+            self.pr_lab_status_var.set(str(exc))
+            self.set_pr_lab_output(str(exc))
+            return
+        self.pr_lab_status_var.set("Sincronizando refs remotas com fetch --all --prune...")
+
+        def worker() -> None:
+            ok, output = self.run_hidden_command(["git", "fetch", "--all", "--prune"], repo_path, timeout=120)
+            self.after(0, lambda: self.finish_pr_lab_fetch(ok, output))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def finish_pr_lab_fetch(self, ok: bool, output: str) -> None:
+        self.set_pr_lab_output(output or "Fetch concluído.")
+        if not ok:
+            self.pr_lab_status_var.set("Fetch falhou.")
+            return
+        self.pr_lab_status_var.set("Fetch concluído. Listando todas branches...")
+        self.pr_lab_list_all_branches()
+
+    def pr_lab_worktree_map(self) -> dict[str, str]:
+        ok, output = self.pr_lab_run_git(["worktree", "list", "--porcelain"], timeout=30)
+        if not ok:
+            return {}
+        result: dict[str, str] = {}
+        for item in self.parse_alignment_worktrees(output):
+            branch = str(item.get("branch") or "").replace("refs/heads/", "")
+            path = str(item.get("path") or "")
+            if branch and path:
+                result[branch] = path
+        return result
+
+    def pr_lab_list_all_branches(self) -> None:
+        worktrees = self.pr_lab_worktree_map()
+        ok, output = self.pr_lab_run_git(
+            [
+                "for-each-ref",
+                "--format=%(refname:short)\t%(objectname:short)\t%(committerdate:relative)\t%(subject)",
+                "refs/heads",
+                "refs/remotes/origin",
+            ],
+            timeout=45,
+        )
+        if not ok:
+            self.pr_lab_status_var.set("Falha ao listar branches.")
+            self.set_pr_lab_output(output)
+            return
+        items: list[dict] = []
+        for line in output.splitlines():
+            parts = line.split("\t", 3)
+            if len(parts) < 4:
+                continue
+            ref, head, updated, subject = (part.strip() for part in parts)
+            if not ref or ref == "origin/HEAD":
+                continue
+            is_remote = ref.startswith("origin/")
+            branch = ref.replace("origin/", "", 1) if is_remote else ref
+            worktree = worktrees.get(branch, "-")
+            status = "worktree" if worktree != "-" else "remoto" if is_remote else "local"
+            title = subject or f"Atualizada {updated}"
+            items.append(
+                {
+                    "id": f"{'remote' if is_remote else 'local'}:{ref}",
+                    "type": "remoto" if is_remote else "local",
+                    "ref": ref,
+                    "branch": branch,
+                    "head": head,
+                    "title": title,
+                    "status": status,
+                    "worktree": worktree,
+                    "updated": updated,
+                }
+            )
+        items.sort(key=lambda item: (0 if item.get("status") == "worktree" else 1, str(item.get("branch") or "").lower(), str(item.get("type") or "")))
+        self.pr_lab_insert_items(items, f"Branches carregadas: {len(items)}")
+        self.set_pr_lab_output(output or "Nenhuma branch encontrada.")
 
     def pr_lab_list_owner_branches(self) -> None:
         filter_value = self.pr_lab_branch_filter_var.get().strip() or "owner/"
@@ -5055,6 +5435,41 @@ class HbxOwnerApp(tk.Tk):
             return None
         return self.pr_lab_items.get(str(selected[0]))
 
+    def pr_lab_base_branch(self) -> str:
+        return str(self.config_data.get("pr_lab_base_branch") or DEFAULT_CONFIG["pr_lab_base_branch"]).strip() or "master"
+
+    def pr_lab_selected_branch_name(self, item: dict) -> str:
+        branch = str(item.get("branch") or "").strip()
+        ref = str(item.get("ref") or "").strip()
+        if branch and branch != "-":
+            return branch.replace("origin/", "", 1)
+        if ref.startswith("origin/"):
+            return ref.replace("origin/", "", 1)
+        return ref
+
+    def pr_lab_selected_ref(self, item: dict) -> str:
+        ref = str(item.get("ref") or "").strip()
+        branch = self.pr_lab_selected_branch_name(item)
+        item_type = str(item.get("type") or "").lower()
+        if ref and not ref.startswith("PR #"):
+            return ref
+        if item_type in {"remoto", "pr"} and branch:
+            return f"origin/{branch}"
+        return branch
+
+    def pr_lab_preferred_merge_ref(self, item: dict) -> str:
+        branch = self.pr_lab_selected_branch_name(item)
+        if branch:
+            ok_local, _output = self.pr_lab_run_git(["show-ref", "--verify", f"refs/heads/{branch}"], timeout=20)
+            if ok_local:
+                return branch
+        return self.pr_lab_selected_ref(item)
+
+    def pr_lab_is_protected_branch(self, branch: str) -> bool:
+        clean = branch.replace("origin/", "", 1).strip()
+        protected = {self.pr_lab_base_branch(), "master", "main"}
+        return clean in protected
+
     def pr_lab_item_ref_is_owner_branch(self, item: dict) -> bool:
         ref = str(item.get("ref") or "")
         branch = str(item.get("branch") or "")
@@ -5065,14 +5480,18 @@ class HbxOwnerApp(tk.Tk):
         if not item:
             messagebox.showwarning("Branches", "Selecione um PR ou branch.")
             return
-        if not self.pr_lab_item_ref_is_owner_branch(item):
-            message = "Por segurança, o Owner só cria worktree automático para origin/owner/*."
+        ref = self.pr_lab_preferred_merge_ref(item)
+        if not ref:
+            message = "Branch/ref inválida."
             self.pr_lab_status_var.set(message)
             self.set_pr_lab_output(message)
             return
-        ref = str(item.get("ref") or "")
-        if not ref.startswith("origin/owner/"):
-            ref = f"origin/{str(item.get('branch') or '').strip()}"
+        branch = self.pr_lab_selected_branch_name(item)
+        if self.pr_lab_is_protected_branch(branch):
+            message = "Worktree automático bloqueado para master/main. Use o repo principal para a base."
+            self.pr_lab_status_var.set(message)
+            self.set_pr_lab_output(message)
+            return
         try:
             target = self.pr_lab_default_worktree_path(item, ensure_root=True)
         except RuntimeError as exc:
@@ -5087,7 +5506,8 @@ class HbxOwnerApp(tk.Tk):
             self.set_pr_lab_output(f"Worktree já existe:\n{target}")
             self.on_pr_lab_selected()
             return
-        ok, output = self.pr_lab_run_git(["worktree", "add", str(target), ref], timeout=120)
+        add_args = self.pr_lab_worktree_add_args(ref, branch, target)
+        ok, output = self.pr_lab_run_git(add_args, timeout=120)
         if ok:
             item["worktree"] = str(target)
             if self.pr_lab_tree:
@@ -5097,6 +5517,14 @@ class HbxOwnerApp(tk.Tk):
         else:
             self.pr_lab_status_var.set("Falha ao criar worktree.")
         self.set_pr_lab_output(output or f"Worktree criado em {target}")
+
+    def pr_lab_worktree_add_args(self, ref: str, branch: str, target: Path) -> list[str]:
+        ok_local, _output = self.pr_lab_run_git(["show-ref", "--verify", f"refs/heads/{branch}"], timeout=20)
+        if ok_local:
+            return ["worktree", "add", str(target), branch]
+        if ref.startswith("origin/") and branch:
+            return ["worktree", "add", "-b", branch, str(target), ref]
+        return ["worktree", "add", str(target), ref]
 
     def pr_lab_selected_worktree_path(self, item: dict) -> Path | None:
         configured = str(item.get("worktree") or "").strip()
@@ -5186,56 +5614,1121 @@ class HbxOwnerApp(tk.Tk):
             return
         self.pr_lab_status_var.set(f"Worktree aberto: {worktree}")
 
+    def pr_lab_open_worktree_terminal(self) -> None:
+        item = self.selected_pr_lab_item()
+        if not item:
+            messagebox.showwarning("Branches", "Selecione um PR ou branch.")
+            return
+        worktree = self.pr_lab_selected_worktree_path(item)
+        if not worktree:
+            message = "Crie o worktree antes de abrir o terminal."
+            self.pr_lab_status_var.set(message)
+            self.set_pr_lab_output(message)
+            return
+        command = f"Set-Location -LiteralPath {self.powershell_quote(worktree)}"
+        try:
+            subprocess.Popen(["powershell.exe", "-NoExit", "-Command", command])
+        except OSError as exc:
+            self.pr_lab_status_var.set(f"Não consegui abrir terminal: {exc}")
+            return
+        self.pr_lab_status_var.set(f"Terminal aberto no worktree: {worktree}")
+
+    def powershell_quote(self, value: object) -> str:
+        return "'" + str(value).replace("'", "''") + "'"
+
+    def pr_lab_copy_branch_commands(self) -> None:
+        item = self.selected_pr_lab_item()
+        if not item:
+            messagebox.showwarning("Branches", "Selecione um PR ou branch.")
+            return
+        try:
+            repo = self.pr_lab_repo_path()
+            worktree = self.pr_lab_default_worktree_path(item, ensure_root=False)
+        except RuntimeError as exc:
+            self.pr_lab_status_var.set(str(exc))
+            self.set_pr_lab_output(str(exc))
+            return
+        ref = self.pr_lab_preferred_merge_ref(item)
+        branch = self.pr_lab_selected_branch_name(item)
+        base_branch = self.pr_lab_base_branch()
+        if not ref or not branch:
+            message = "Branch/ref inválida para gerar comandos."
+            self.pr_lab_status_var.set(message)
+            self.set_pr_lab_output(message)
+            return
+        frontend_dir = worktree / "frontend"
+        backend_dir = worktree / "backend"
+        owner_dir = worktree / "hbx-owner" / "windows-app"
+        lines = [
+            "# HBX Owner - roteiro branch/worktree",
+            f"# Branch alvo: {branch}",
+            f"# Ref: {ref}",
+            f"# Base aprovacao: {base_branch}",
+            "",
+            "Set-StrictMode -Version Latest",
+            f"Set-Location -LiteralPath {self.powershell_quote(repo)}",
+            "git fetch --all --prune",
+        ]
+        if worktree.exists():
+            lines.extend(["", f"Set-Location -LiteralPath {self.powershell_quote(worktree)}"])
+        else:
+            lines.extend(
+                [
+                    "",
+                    (
+                        f"if (git show-ref --verify --quiet {self.powershell_quote(f'refs/heads/{branch}')}) "
+                        f"{{ git worktree add {self.powershell_quote(worktree)} {self.powershell_quote(branch)} }} "
+                        f"else {{ git worktree add -b {self.powershell_quote(branch)} {self.powershell_quote(worktree)} {self.powershell_quote(ref)} }}"
+                    ),
+                    f"Set-Location -LiteralPath {self.powershell_quote(worktree)}",
+                ]
+            )
+        lines.extend(["git status --short", ""])
+        if owner_dir.exists():
+            lines.extend(
+                [
+                    "# Testes HBX Owner",
+                    f"Set-Location -LiteralPath {self.powershell_quote(owner_dir)}",
+                    "python -m py_compile hbx_owner_app.py",
+                    "python hbx_owner_app.py --no-gui",
+                    "",
+                ]
+            )
+        if backend_dir.exists():
+            lines.extend(
+                [
+                    "# Testes backend",
+                    f"Set-Location -LiteralPath {self.powershell_quote(backend_dir)}",
+                    "npm run prisma:validate",
+                    "npm run build",
+                    "",
+                ]
+            )
+        if frontend_dir.exists():
+            lines.extend(
+                [
+                    "# Testes frontend",
+                    f"Set-Location -LiteralPath {self.powershell_quote(frontend_dir)}",
+                    "npm run lint",
+                    "npm run build",
+                    "",
+                    "# Localhost isolado da branch (use porta separada do master)",
+                    "npm run dev -- --hostname 127.0.0.1 --port 3001",
+                    "",
+                ]
+            )
+        lines.extend(
+            [
+                "# Se aprovado: merge local na base e push separado",
+                f"Set-Location -LiteralPath {self.powershell_quote(repo)}",
+                f"git checkout {self.powershell_quote(base_branch)}",
+                f"git pull --ff-only origin {self.powershell_quote(base_branch)}",
+                f"git merge --no-ff --no-edit {self.powershell_quote(ref)}",
+                "git status --short",
+                f"git push origin {self.powershell_quote(base_branch)}",
+                "",
+            ]
+        )
+        if self.pr_lab_is_protected_branch(branch):
+            lines.append("# Rejeição bloqueada: master/main/base são protegidas no HBX Owner.")
+        else:
+            lines.extend(
+                [
+                    "# Se rejeitado: remover worktree e branch",
+                    f"git worktree remove --force {self.powershell_quote(worktree)}",
+                    f"git branch -D {self.powershell_quote(branch)}",
+                    f"git push origin --delete {self.powershell_quote(branch)}",
+                ]
+            )
+        text = "\n".join(lines)
+        self.copy_text(text)
+        self.set_pr_lab_output(text)
+        self.pr_lab_status_var.set("Comandos da branch copiados para o clipboard.")
+
     def pr_lab_merge_approved(self) -> None:
         item = self.selected_pr_lab_item()
         if not item:
             messagebox.showwarning("Branches", "Selecione um PR ou branch.")
             return
-        if not self.pr_lab_item_ref_is_owner_branch(item):
-            message = "Merge automático bloqueado: só origin/owner/* é permitido."
+        ref = self.pr_lab_preferred_merge_ref(item)
+        branch = self.pr_lab_selected_branch_name(item)
+        base_branch = self.pr_lab_base_branch()
+        if not ref or not branch:
+            message = "Branch/ref inválida para merge."
             self.pr_lab_status_var.set(message)
             self.set_pr_lab_output(message)
             return
-        ref = str(item.get("ref") or "")
-        if not ref.startswith("origin/owner/"):
-            ref = f"origin/{str(item.get('branch') or '').strip()}"
-        base_branch = str(self.config_data.get("pr_lab_base_branch") or DEFAULT_CONFIG["pr_lab_base_branch"]).strip()
-        ok, current_branch = self.pr_lab_run_git(["rev-parse", "--abbrev-ref", "HEAD"], timeout=20)
-        if not ok:
-            self.pr_lab_status_var.set("Não consegui validar a branch atual.")
-            self.set_pr_lab_output(current_branch)
-            return
-        if current_branch.strip() != base_branch:
-            message = (
-                f"Merge bloqueado: repo atual está em '{current_branch.strip()}', "
-                f"mas a base configurada é '{base_branch}'."
-            )
+        if self.pr_lab_is_protected_branch(branch):
+            message = "Merge bloqueado: não faz sentido aprovar a própria branch base."
             self.pr_lab_status_var.set(message)
             self.set_pr_lab_output(message)
             return
-        ok, status = self.pr_lab_run_git(["status", "--porcelain"], timeout=20)
-        if not ok:
-            self.pr_lab_status_var.set("Não consegui validar status do repo.")
-            self.set_pr_lab_output(status)
-            return
-        if status.strip():
-            message = "Merge bloqueado: repo principal tem mudanças locais. Limpe ou salve antes de aprovar merge."
-            self.pr_lab_status_var.set(message)
-            self.set_pr_lab_output(f"{message}\n\n{status}")
+        try:
+            repo_path = self.pr_lab_repo_path()
+        except RuntimeError as exc:
+            self.pr_lab_status_var.set(str(exc))
+            self.set_pr_lab_output(str(exc))
             return
         confirmed = messagebox.askyesno(
-            "Merge aprovado",
+            "Merge no master",
             (
                 f"Confirmar merge local de {ref} em {base_branch}?\n\n"
-                "Isso não faz push, não publica e não roda deploy."
+                "O Owner vai validar repo limpo, fazer checkout/pull --ff-only da base e só então mergear.\n"
+                "Isso não faz push e não faz deploy."
             ),
         )
         if not confirmed:
             self.pr_lab_status_var.set("Merge cancelado pelo dono.")
             return
-        ok, output = self.pr_lab_run_git(["merge", "--no-ff", "--no-edit", ref], timeout=180)
-        self.pr_lab_status_var.set(f"Merge aprovado: {'OK' if ok else 'falhou'}")
-        self.set_pr_lab_output(output or f"Merge local concluído: {ref} -> {base_branch}")
+        self.pr_lab_status_var.set(f"Merge em andamento: {ref} -> {base_branch}...")
+
+        def worker() -> None:
+            ok, report = self.pr_lab_merge_worker(repo_path, ref, base_branch)
+            self.after(0, lambda: self.finish_pr_lab_action("Merge", ok, report, refresh=True))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def pr_lab_merge_worker(self, repo_path: Path, ref: str, base_branch: str) -> tuple[bool, str]:
+        steps: list[str] = []
+
+        def run(label: str, args: list[str], timeout: int = 60) -> bool:
+            ok, output = self.run_hidden_command(["git", *args], repo_path, timeout=timeout)
+            steps.append(
+                f"{label}\nCMD: git {' '.join(args)}\nRESULTADO: {'OK' if ok else 'FALHOU'}\n{output or '-'}"
+            )
+            return ok
+
+        ok, status = self.run_hidden_command(["git", "status", "--porcelain"], repo_path, timeout=20)
+        steps.append(f"Validar repo limpo\nRESULTADO: {'OK' if ok and not status.strip() else 'FALHOU'}\n{status or '-'}")
+        if not ok or status.strip():
+            return False, "\n\n".join(steps)
+
+        ok_local, _local = self.run_hidden_command(["git", "show-ref", "--verify", f"refs/heads/{base_branch}"], repo_path, timeout=20)
+        if ok_local:
+            if not run(f"Checkout {base_branch}", ["checkout", base_branch], timeout=45):
+                return False, "\n\n".join(steps)
+        else:
+            if not run(f"Criar base local {base_branch}", ["checkout", "-B", base_branch, f"origin/{base_branch}"], timeout=60):
+                return False, "\n\n".join(steps)
+        if not run(f"Pull --ff-only {base_branch}", ["pull", "--ff-only", "origin", base_branch], timeout=120):
+            return False, "\n\n".join(steps)
+        if not run(f"Merge {ref}", ["merge", "--no-ff", "--no-edit", ref], timeout=180):
+            return False, "\n\n".join(steps)
+        run("Status pós-merge", ["status", "--short"], timeout=20)
+        return True, "\n\n".join(steps)
+
+    def pr_lab_push_base(self) -> None:
+        base_branch = self.pr_lab_base_branch()
+        try:
+            repo_path = self.pr_lab_repo_path()
+        except RuntimeError as exc:
+            self.pr_lab_status_var.set(str(exc))
+            self.set_pr_lab_output(str(exc))
+            return
+        confirmed = messagebox.askyesno(
+            "Push master",
+            (
+                f"Confirmar push de {base_branch} para origin/{base_branch}?\n\n"
+                "Use só depois dos testes e do merge local aprovado. Isso publica commits no GitHub."
+            ),
+        )
+        if not confirmed:
+            self.pr_lab_status_var.set("Push cancelado pelo dono.")
+            return
+        self.pr_lab_status_var.set(f"Push em andamento: origin/{base_branch}...")
+
+        def worker() -> None:
+            ok, report = self.pr_lab_push_worker(repo_path, base_branch)
+            self.after(0, lambda: self.finish_pr_lab_action("Push", ok, report, refresh=True))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def pr_lab_push_worker(self, repo_path: Path, base_branch: str) -> tuple[bool, str]:
+        steps: list[str] = []
+
+        def run(label: str, args: list[str], timeout: int = 60) -> tuple[bool, str]:
+            ok, output = self.run_hidden_command(["git", *args], repo_path, timeout=timeout)
+            steps.append(
+                f"{label}\nCMD: git {' '.join(args)}\nRESULTADO: {'OK' if ok else 'FALHOU'}\n{output or '-'}"
+            )
+            return ok, output
+
+        ok, current = run("Validar branch atual", ["rev-parse", "--abbrev-ref", "HEAD"], timeout=20)
+        if not ok or current.strip() != base_branch:
+            steps.append(f"Push bloqueado: branch atual é {current.strip() or '-'}, esperado {base_branch}.")
+            return False, "\n\n".join(steps)
+        ok, status = run("Validar repo limpo", ["status", "--porcelain"], timeout=20)
+        if not ok or status.strip():
+            steps.append("Push bloqueado: repo precisa estar limpo depois do merge/testes.")
+            return False, "\n\n".join(steps)
+        ok, _output = run(f"Push origin/{base_branch}", ["push", "origin", base_branch], timeout=180)
+        return ok, "\n\n".join(steps)
+
+    def pr_lab_delete_rejected_branch(self) -> None:
+        item = self.selected_pr_lab_item()
+        if not item:
+            messagebox.showwarning("Branches", "Selecione um PR ou branch.")
+            return
+        branch = self.pr_lab_selected_branch_name(item)
+        if not branch:
+            message = "Branch inválida para rejeição."
+            self.pr_lab_status_var.set(message)
+            self.set_pr_lab_output(message)
+            return
+        if self.pr_lab_is_protected_branch(branch):
+            message = "Rejeição bloqueada: master/main/base não podem ser excluídas pelo Owner."
+            self.pr_lab_status_var.set(message)
+            self.set_pr_lab_output(message)
+            return
+        typed = simpledialog.askstring(
+            "Rejeitar branch",
+            f"Para excluir a branch '{branch}', digite o nome exato da branch:",
+            parent=self,
+        )
+        if typed != branch:
+            self.pr_lab_status_var.set("Exclusão cancelada: nome não confirmado.")
+            return
+        try:
+            repo_path = self.pr_lab_repo_path()
+        except RuntimeError as exc:
+            self.pr_lab_status_var.set(str(exc))
+            self.set_pr_lab_output(str(exc))
+            return
+        worktree = self.pr_lab_selected_worktree_path(item)
+        self.pr_lab_status_var.set(f"Rejeitando branch: {branch}...")
+
+        def worker() -> None:
+            ok, report = self.pr_lab_delete_branch_worker(repo_path, branch, worktree)
+            self.after(0, lambda: self.finish_pr_lab_action("Rejeição", ok, report, refresh=True))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def pr_lab_delete_branch_worker(self, repo_path: Path, branch: str, worktree: Path | None) -> tuple[bool, str]:
+        steps: list[str] = []
+        all_ok = True
+
+        def run(label: str, args: list[str], timeout: int = 60, required: bool = True) -> bool:
+            nonlocal all_ok
+            ok, output = self.run_hidden_command(["git", *args], repo_path, timeout=timeout)
+            steps.append(
+                f"{label}\nCMD: git {' '.join(args)}\nRESULTADO: {'OK' if ok else 'FALHOU'}\n{output or '-'}"
+            )
+            if required and not ok:
+                all_ok = False
+            return ok
+
+        if worktree and worktree.exists():
+            try:
+                root = self.pr_lab_worktree_root(ensure=False)
+                resolved = worktree.resolve()
+                if resolved != root and root in resolved.parents:
+                    run("Remover worktree", ["worktree", "remove", "--force", str(resolved)], timeout=90, required=False)
+                else:
+                    steps.append(f"Worktree não removido por segurança: {resolved}")
+            except RuntimeError as exc:
+                steps.append(f"Worktree não removido: {exc}")
+
+        ok_local, _local = self.run_hidden_command(["git", "show-ref", "--verify", f"refs/heads/{branch}"], repo_path, timeout=20)
+        if ok_local:
+            run("Excluir branch local", ["branch", "-D", branch], timeout=60, required=True)
+        else:
+            steps.append(f"Branch local ausente: {branch}")
+
+        ok_remote, _remote = self.run_hidden_command(["git", "ls-remote", "--exit-code", "--heads", "origin", branch], repo_path, timeout=45)
+        if ok_remote:
+            run("Excluir branch remota", ["push", "origin", "--delete", branch], timeout=120, required=True)
+        else:
+            steps.append(f"Branch remota ausente ou não acessível: origin/{branch}")
+        return all_ok, "\n\n".join(steps)
+
+    def finish_pr_lab_action(self, action: str, ok: bool, report: str, refresh: bool = False) -> None:
+        if refresh:
+            self.pr_lab_list_all_branches()
+        self.pr_lab_status_var.set(f"{action}: {'OK' if ok else 'falhou'}.")
+        self.set_pr_lab_output(report or f"{action} concluído.")
+
+    def _build_alignment_tab(self, frame: ttk.Frame) -> None:
+        self.page_title(frame, "Alinhamento HBX", "Inventário read-only de local, GitHub, VPS e runtime")
+        frame.columnconfigure(0, weight=1)
+        frame.rowconfigure(4, weight=1)
+
+        metrics = ttk.Frame(frame, style="App.TFrame")
+        metrics.grid(row=1, column=0, sticky="ew", pady=(12, 10))
+        for column in range(4):
+            metrics.columnconfigure(column, weight=1)
+        self.ops_metric_card(metrics, 0, "Local", self.alignment_local_var, THEME["accent"])
+        self.ops_metric_card(metrics, 1, "Worktrees", self.alignment_worktrees_var, THEME["warning"])
+        self.ops_metric_card(metrics, 2, "GitHub", self.alignment_remote_var, THEME["success"])
+        self.ops_metric_card(metrics, 3, "Runtime", self.alignment_runtime_var, "#7c3aed")
+
+        controls = self.card_frame(frame, padding=(12, 10))
+        controls.grid(row=2, column=0, sticky="ew", pady=(0, 10))
+        controls.columnconfigure(1, weight=1)
+        controls.columnconfigure(3, weight=1)
+        controls.columnconfigure(5, weight=1)
+        ttk.Label(controls, text="repo", style="CardMuted.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 8))
+        ttk.Label(controls, text=str(self.repo_path()), style="Card.TLabel").grid(row=0, column=1, sticky="w", padx=(0, 18))
+        ttk.Label(controls, text="runtime", style="CardMuted.TLabel").grid(row=0, column=2, sticky="w", padx=(0, 8))
+        ttk.Label(
+            controls,
+            text=self.alignment_runtime_url_from_config(self.config_data),
+            style="Card.TLabel",
+        ).grid(row=0, column=3, sticky="w", padx=(0, 18))
+        ttk.Label(controls, text="VPS", style="CardMuted.TLabel").grid(row=0, column=4, sticky="w", padx=(0, 8))
+        ttk.Label(
+            controls,
+            text=str(self.config_data.get("alignment_vps_ssh_target") or "não configurada"),
+            style="Card.TLabel",
+        ).grid(row=0, column=5, sticky="w")
+
+        toolbar = ttk.Frame(frame, style="Toolbar.TFrame")
+        toolbar.grid(row=3, column=0, sticky="ew", pady=(0, 10))
+        ttk.Button(toolbar, text="Verificar tudo", command=self.refresh_alignment, style="Accent.TButton").grid(
+            row=0, column=0, sticky="w", padx=(0, 8)
+        )
+        ttk.Button(toolbar, text="Copiar relatório", command=self.copy_alignment_report).grid(
+            row=0, column=1, sticky="w", padx=8
+        )
+        ttk.Button(toolbar, text="Abrir runtime", command=self.open_alignment_runtime).grid(
+            row=0, column=2, sticky="w", padx=8
+        )
+        ttk.Button(toolbar, text="Ir para Branches", command=lambda: self.notebook.select(self.tabs["Branches"])).grid(
+            row=0, column=3, sticky="w", padx=8
+        )
+        ttk.Label(toolbar, textvariable=self.alignment_status_var, style="Muted.TLabel").grid(
+            row=0, column=4, sticky="w", padx=(18, 0)
+        )
+
+        body = ttk.Frame(frame, style="App.TFrame")
+        body.grid(row=4, column=0, sticky="nsew")
+        body.columnconfigure(0, weight=3)
+        body.columnconfigure(1, weight=2)
+        body.rowconfigure(0, weight=1)
+
+        table_panel = ttk.LabelFrame(body, text="Camadas", padding=8, style="Modern.TLabelframe")
+        table_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        table_panel.columnconfigure(0, weight=1)
+        table_panel.rowconfigure(0, weight=1)
+
+        columns = ("camada", "branch", "head", "status", "detalhe")
+        tree = ttk.Treeview(table_panel, columns=columns, show="headings", height=18)
+        headings = {
+            "camada": "Camada",
+            "branch": "Branch / alvo",
+            "head": "HEAD",
+            "status": "Status",
+            "detalhe": "Detalhe",
+        }
+        widths = {
+            "camada": 125,
+            "branch": 220,
+            "head": 120,
+            "status": 120,
+            "detalhe": 420,
+        }
+        for column in columns:
+            tree.heading(column, text=headings[column])
+            tree.column(column, width=widths[column], anchor="w")
+        tree.tag_configure("ok", foreground=THEME["success"])
+        tree.tag_configure("warn", foreground=THEME["warning"])
+        tree.tag_configure("fail", foreground=THEME["danger"])
+        tree.grid(row=0, column=0, sticky="nsew")
+        tree_scroll = ttk.Scrollbar(table_panel, orient="vertical", command=tree.yview)
+        tree_scroll.grid(row=0, column=1, sticky="ns")
+        tree.configure(yscrollcommand=tree_scroll.set)
+        self.alignment_tree = tree
+
+        output_panel = ttk.LabelFrame(body, text="Relatório", padding=8, style="Modern.TLabelframe")
+        output_panel.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
+        output_panel.columnconfigure(0, weight=1)
+        output_panel.rowconfigure(0, weight=1)
+        self.alignment_output = tk.Text(output_panel, height=18, wrap="word")
+        self.style_text_widget(self.alignment_output)
+        self.alignment_output.grid(row=0, column=0, sticky="nsew")
+        output_scroll = ttk.Scrollbar(output_panel, orient="vertical", command=self.alignment_output.yview)
+        output_scroll.grid(row=0, column=1, sticky="ns")
+        self.alignment_output.configure(yscrollcommand=output_scroll.set)
+        self.set_alignment_output(
+            "ALINHAMENTO HBX\n"
+            "Clique em Verificar tudo para comparar local, worktrees, heads remotos, VPS opcional e containers.\n"
+            "Este painel é somente leitura: não faz merge, push, deploy, restart ou limpeza."
+        )
+
+    def set_alignment_output(self, text: str) -> None:
+        self.alignment_last_report = text
+        if not self.alignment_output:
+            return
+        self.alignment_output.delete("1.0", tk.END)
+        self.alignment_output.insert(tk.END, text)
+
+    def alignment_runtime_url_from_config(self, config: dict) -> str:
+        url = str(
+            config.get("alignment_runtime_url")
+            or config.get("pr_lab_localhost_url")
+            or DEFAULT_CONFIG["alignment_runtime_url"]
+        ).strip()
+        if url and not re.match(r"^https?://", url, flags=re.IGNORECASE):
+            url = f"http://{url}"
+        return url
+
+    def open_alignment_runtime(self) -> None:
+        url = self.alignment_runtime_url_from_config(self.config_data)
+        if not url:
+            messagebox.showwarning("Alinhamento", "Runtime URL não configurada.")
+            return
+        webbrowser.open(url)
+        self.alignment_status_var.set(f"Runtime aberto: {url}")
+
+    def copy_alignment_report(self) -> None:
+        text = self.alignment_last_report.strip()
+        if not text and self.alignment_output:
+            text = self.alignment_output.get("1.0", tk.END).strip()
+        if not text:
+            messagebox.showwarning("Alinhamento", "Nenhum relatório para copiar.")
+            return
+        self.copy_text(text)
+        messagebox.showinfo("Alinhamento", "Relatório de alinhamento copiado.")
+
+    def refresh_alignment(self) -> None:
+        repo = self.repo_path()
+        config = dict(self.config_data)
+        self.alignment_status_var.set("Verificando local, GitHub, VPS e runtime...")
+
+        def worker() -> None:
+            snapshot = self.collect_alignment_snapshot(repo, config)
+            self.after(0, lambda: self.apply_alignment_snapshot(snapshot))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def apply_alignment_snapshot(self, snapshot: dict) -> None:
+        metrics = snapshot.get("metrics", {})
+        self.alignment_local_var.set(str(metrics.get("local") or "-"))
+        self.alignment_worktrees_var.set(str(metrics.get("worktrees") or "-"))
+        self.alignment_remote_var.set(str(metrics.get("remote") or "-"))
+        self.alignment_runtime_var.set(str(metrics.get("runtime") or "-"))
+        self.alignment_status_var.set(str(snapshot.get("status") or "Alinhamento concluído."))
+
+        if self.alignment_tree:
+            for item in self.alignment_tree.get_children():
+                self.alignment_tree.delete(item)
+            for row in snapshot.get("rows", []):
+                self.alignment_tree.insert(
+                    "",
+                    "end",
+                    values=(
+                        row.get("layer", "-"),
+                        row.get("branch", "-"),
+                        row.get("head", "-"),
+                        row.get("status", "-"),
+                        row.get("detail", "-"),
+                    ),
+                    tags=(self.alignment_row_tag(row),),
+                )
+        self.set_alignment_output(str(snapshot.get("report") or ""))
+
+    def alignment_row_tag(self, row: dict) -> str:
+        status = str(row.get("status") or "").lower()
+        detail = str(row.get("detail") or "").lower()
+        text = f"{status} {detail}"
+        if any(token in text for token in ("falha", "erro", "indisponível", "indisponivel", "ausente")):
+            return "fail"
+        if any(token in text for token in ("sujo", "divergente", "não configur", "nao configur", "sem revision", "alerta")):
+            return "warn"
+        return "ok"
+
+    def collect_alignment_snapshot(self, repo: Path, config: dict) -> dict:
+        rows: list[dict[str, str]] = []
+        sections: list[tuple[str, str]] = []
+        metrics = {"local": "-", "worktrees": "-", "remote": "-", "runtime": "-"}
+        command_cwd = repo if repo.exists() else APP_DIR
+
+        def add_row(layer: str, branch: str, head: str, status: str, detail: str) -> None:
+            rows.append(
+                {
+                    "layer": layer,
+                    "branch": self.alignment_clip(branch, 160),
+                    "head": self.alignment_short_sha(head) or "-",
+                    "status": self.alignment_clip(status, 80),
+                    "detail": self.alignment_clip(detail, 320),
+                }
+            )
+
+        local_branch = "-"
+        local_head = ""
+        local_ok = repo.exists()
+        if not repo.exists():
+            add_row("Local", str(repo), "-", "falha", "repo_path não existe")
+            sections.append(("LOCAL", f"repo_path não existe: {repo}"))
+        else:
+            ok_branch, branch_output = self.alignment_git(repo, ["rev-parse", "--abbrev-ref", "HEAD"])
+            ok_head, head_output = self.alignment_git(repo, ["rev-parse", "HEAD"])
+            ok_status, status_output = self.alignment_git(repo, ["status", "--short"])
+            local_ok = ok_branch and ok_head
+            local_branch = branch_output.strip().splitlines()[0] if ok_branch and branch_output.strip() else "-"
+            local_head = head_output.strip().splitlines()[0] if ok_head and head_output.strip() else ""
+            status_lines = [line for line in status_output.splitlines() if line.strip()] if ok_status else []
+            status = "limpo" if local_ok and ok_status and not status_lines else "sujo" if local_ok and ok_status else "falha"
+            detail = f"{len(status_lines)} mudança(s)" if status_lines else str(repo)
+            if status_lines:
+                detail = f"{detail}: " + " | ".join(status_lines[:5])
+            if not local_ok:
+                detail = branch_output or head_output or status_output or "não consegui ler HEAD local"
+            add_row("Local", local_branch, local_head, status, detail)
+            metrics["local"] = f"{local_branch} {self.alignment_short_sha(local_head)}" if local_head else "falha"
+            sections.append(
+                (
+                    "LOCAL",
+                    "\n".join(
+                        [
+                            f"Repo: {repo}",
+                            f"Branch: {local_branch}",
+                            f"HEAD: {local_head or '-'}",
+                            f"Status: {status}",
+                            status_output.strip() or "-",
+                        ]
+                    ),
+                )
+            )
+
+        worktree_count = 0
+        dirty_worktrees = 0
+        if repo.exists():
+            ok_wt, worktree_output = self.alignment_git(repo, ["worktree", "list", "--porcelain"], timeout=30)
+            if ok_wt:
+                worktrees = self.parse_alignment_worktrees(worktree_output)
+                worktree_count = len(worktrees)
+                for item in worktrees:
+                    path_text = str(item.get("path") or "")
+                    path = Path(path_text)
+                    branch = str(item.get("branch") or "detached").replace("refs/heads/", "")
+                    head = str(item.get("head") or "")
+                    ok_status, status_output = self.run_hidden_command(["git", "status", "--short"], path, timeout=20) if path.exists() else (False, "worktree path ausente")
+                    status_lines = [line for line in status_output.splitlines() if line.strip()] if ok_status else []
+                    if status_lines:
+                        dirty_worktrees += 1
+                    status = "limpo" if ok_status and not status_lines else "sujo" if ok_status else "falha"
+                    detail = path_text if not status_lines else f"{path_text} | " + " | ".join(status_lines[:3])
+                    add_row("Worktree", branch, head, status, detail)
+                sections.append(("WORKTREES", worktree_output.strip() or "-"))
+            else:
+                add_row("Worktree", "-", "-", "falha", worktree_output or "git worktree list falhou")
+                sections.append(("WORKTREES", worktree_output or "git worktree list falhou"))
+        metrics["worktrees"] = f"{worktree_count} total" + (f", {dirty_worktrees} sujo(s)" if dirty_worktrees else "")
+
+        remote_heads: dict[str, str] = {}
+        remote_url = "-"
+        if repo.exists():
+            ok_url, url_output = self.alignment_git(repo, ["remote", "get-url", "origin"], timeout=20)
+            remote_url = url_output.strip() if ok_url and url_output.strip() else "-"
+            ok_remote, remote_output = self.alignment_git(repo, ["ls-remote", "--heads", "origin"], timeout=60)
+            if ok_remote:
+                remote_heads = self.parse_alignment_remote_heads(remote_output)
+                for branch, sha in sorted(remote_heads.items(), key=lambda item: item[0].lower()):
+                    add_row("GitHub/origin", branch, sha, "remoto", remote_url)
+                sections.append(("GITHUB/ORIGIN HEADS", remote_output.strip() or "-"))
+            else:
+                add_row("GitHub/origin", "origin", "-", "falha", remote_output or "git ls-remote falhou")
+                sections.append(("GITHUB/ORIGIN HEADS", remote_output or "git ls-remote falhou"))
+        metrics["remote"] = f"{len(remote_heads)} heads" if remote_heads else "0 heads"
+
+        if local_branch not in ("-", "HEAD") and local_head and remote_heads:
+            remote_head = remote_heads.get(local_branch)
+            if remote_head:
+                compare_status = "alinhado" if remote_head == local_head else "divergente"
+                compare_detail = (
+                    f"local {self.alignment_short_sha(local_head)} | "
+                    f"origin/{local_branch} {self.alignment_short_sha(remote_head)}"
+                )
+                add_row("Comparação", local_branch, local_head, compare_status, compare_detail)
+            else:
+                add_row("Comparação", local_branch, local_head, "sem remoto", f"origin/{local_branch} não existe")
+
+        runtime_rows, runtime_text, runtime_metric = self.collect_alignment_runtime(command_cwd, config, remote_heads, local_head)
+        rows.extend(runtime_rows)
+        metrics["runtime"] = runtime_metric
+        sections.append(("RUNTIME LOCAL", runtime_text))
+
+        vps_rows, vps_text = self.collect_alignment_vps(command_cwd, config, remote_heads, local_head)
+        rows.extend(vps_rows)
+        sections.append(("VPS", vps_text))
+
+        fail_count = sum(1 for row in rows if self.alignment_row_tag(row) == "fail")
+        warn_count = sum(1 for row in rows if self.alignment_row_tag(row) == "warn")
+        status = f"Alinhamento concluído: {len(rows)} item(ns), {fail_count} falha(s), {warn_count} aviso(s)."
+        report = self.format_alignment_report(repo, rows, sections, metrics, status)
+        return {"rows": rows, "metrics": metrics, "status": status, "report": report}
+
+    def alignment_git(self, repo: Path, args: list[str], timeout: int = 30) -> tuple[bool, str]:
+        return self.run_hidden_command(["git", *args], repo, timeout=timeout)
+
+    def parse_alignment_worktrees(self, output: str) -> list[dict[str, str]]:
+        worktrees: list[dict[str, str]] = []
+        current: dict[str, str] = {}
+        for line in output.splitlines():
+            if not line.strip():
+                if current:
+                    worktrees.append(current)
+                    current = {}
+                continue
+            key, _, value = line.partition(" ")
+            if key == "worktree":
+                current["path"] = value.strip()
+            elif key == "HEAD":
+                current["head"] = value.strip()
+            elif key == "branch":
+                current["branch"] = value.strip()
+            elif key == "detached":
+                current["branch"] = "detached"
+        if current:
+            worktrees.append(current)
+        return worktrees
+
+    def parse_alignment_remote_heads(self, output: str) -> dict[str, str]:
+        heads: dict[str, str] = {}
+        prefix = "refs/heads/"
+        for line in output.splitlines():
+            parts = line.split()
+            if len(parts) < 2 or not parts[1].startswith(prefix):
+                continue
+            heads[parts[1][len(prefix) :]] = parts[0]
+        return heads
+
+    def collect_alignment_runtime(
+        self,
+        cwd: Path,
+        config: dict,
+        remote_heads: dict[str, str],
+        local_head: str,
+    ) -> tuple[list[dict[str, str]], str, str]:
+        rows: list[dict[str, str]] = []
+        lines: list[str] = []
+        runtime_url = self.alignment_runtime_url_from_config(config)
+        http_status = "sem health"
+        if runtime_url:
+            http_row, http_text = self.collect_alignment_runtime_http(runtime_url, remote_heads, local_head)
+            rows.append(http_row)
+            lines.append(http_text)
+            http_status = http_row["status"]
+        else:
+            rows.append(
+                {
+                    "layer": "Runtime HTTP",
+                    "branch": "-",
+                    "head": "-",
+                    "status": "não configurado",
+                    "detail": "alignment_runtime_url vazio",
+                }
+            )
+            lines.append("Runtime HTTP não configurado.")
+
+        container_rows, container_text = self.collect_alignment_local_containers(cwd, config, remote_heads, local_head)
+        rows.extend(container_rows)
+        lines.append(container_text)
+        container_count = len([row for row in container_rows if row.get("layer") == "Container local"])
+        return rows, "\n\n".join(lines), f"{http_status}; {container_count} cont."
+
+    def collect_alignment_runtime_http(
+        self,
+        runtime_url: str,
+        remote_heads: dict[str, str],
+        local_head: str,
+    ) -> tuple[dict[str, str], str]:
+        base = runtime_url.rstrip("/")
+        endpoints = ("/api/health", "/health", "/api/version", "/version", "")
+        last_error = ""
+        for endpoint in endpoints:
+            url = f"{base}{endpoint}"
+            ok, status_code, body = self.alignment_fetch_url(url)
+            if not ok:
+                last_error = body
+                continue
+            info = self.alignment_extract_runtime_info(body)
+            commit = str(info.get("commit") or "")
+            branch = str(info.get("branch") or url)
+            version = str(info.get("version") or info.get("build") or "")
+            compare = self.alignment_compare_revision(commit, remote_heads, local_head) if commit else "sem commit no payload"
+            detail_parts = [url, f"HTTP {status_code}", compare]
+            if version:
+                detail_parts.append(f"versão/build {version}")
+            return (
+                {
+                    "layer": "Runtime HTTP",
+                    "branch": branch,
+                    "head": commit or "-",
+                    "status": f"HTTP {status_code}",
+                    "detail": " | ".join(detail_parts),
+                },
+                f"{url}\nHTTP {status_code}\n{body[:4000] if body else '-'}",
+            )
+        return (
+            {
+                "layer": "Runtime HTTP",
+                "branch": runtime_url,
+                "head": "-",
+                "status": "indisponível",
+                "detail": last_error or "nenhum endpoint health/version respondeu",
+            },
+            f"Runtime HTTP indisponível em {runtime_url}\n{last_error or '-'}",
+        )
+
+    def collect_alignment_local_containers(
+        self,
+        cwd: Path,
+        config: dict,
+        remote_heads: dict[str, str],
+        local_head: str,
+    ) -> tuple[list[dict[str, str]], str]:
+        rows: list[dict[str, str]] = []
+        ok, output = self.run_hidden_command(
+            ["docker", "ps", "--format", "{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}"],
+            cwd,
+            timeout=25,
+        )
+        if not ok:
+            message = self.friendly_docker_error(output or "docker ps falhou")
+            return (
+                [
+                    {
+                        "layer": "Container local",
+                        "branch": "-",
+                        "head": "-",
+                        "status": "indisponível",
+                        "detail": message,
+                    }
+                ],
+                message,
+            )
+
+        filter_text = str(config.get("alignment_container_filter") or "").strip().lower()
+        containers = []
+        for line in output.splitlines():
+            parts = line.split("\t")
+            if len(parts) < 4:
+                continue
+            cid, name, image, status = parts[:4]
+            if filter_text and filter_text not in f"{name} {image}".lower():
+                continue
+            containers.append({"id": cid, "name": name, "image": image, "status": status})
+
+        if not containers:
+            detail = f"nenhum container ativo com filtro '{filter_text}'" if filter_text else "nenhum container ativo"
+            return (
+                [
+                    {
+                        "layer": "Container local",
+                        "branch": "-",
+                        "head": "-",
+                        "status": "alerta",
+                        "detail": detail,
+                    }
+                ],
+                output.strip() or detail,
+            )
+
+        report_lines = ["Containers locais:"]
+        for container in containers:
+            revision, version, project = self.alignment_container_labels(cwd, container["id"])
+            revision_source = "label"
+            if not revision:
+                revision = self.alignment_revision_from_image(container["image"])
+                revision_source = "imagem" if revision else ""
+            compare = self.alignment_compare_revision(revision, remote_heads, local_head) if revision else "sem revision label"
+            detail = f"{container['name']} | {container['status']} | {compare}"
+            if revision_source:
+                detail += f" | revision via {revision_source}"
+            if version:
+                detail += f" | version {version}"
+            if project:
+                detail += f" | compose {project}"
+            rows.append(
+                {
+                    "layer": "Container local",
+                    "branch": container["image"],
+                    "head": revision or "-",
+                    "status": "publicado" if revision else "sem revision",
+                    "detail": detail,
+                }
+            )
+            report_lines.append(
+                f"- {container['name']} | {container['image']} | {container['status']} | "
+                f"revision={revision or '-'} | fonte={revision_source or '-'} | {compare}"
+            )
+        return rows, "\n".join(report_lines)
+
+    def alignment_container_labels(self, cwd: Path, container_id: str) -> tuple[str, str, str]:
+        template = (
+            '{{ index .Config.Labels "org.opencontainers.image.revision" }}\t'
+            '{{ index .Config.Labels "org.opencontainers.image.version" }}\t'
+            '{{ index .Config.Labels "com.docker.compose.project" }}'
+        )
+        ok, output = self.run_hidden_command(["docker", "inspect", "--format", template, container_id], cwd, timeout=10)
+        if not ok:
+            return "", "", ""
+        parts = ["" if part.strip() == "<no value>" else part.strip() for part in output.split("\t")]
+        while len(parts) < 3:
+            parts.append("")
+        return parts[0], parts[1], parts[2]
+
+    def collect_alignment_vps(
+        self,
+        cwd: Path,
+        config: dict,
+        remote_heads: dict[str, str],
+        local_head: str,
+    ) -> tuple[list[dict[str, str]], str]:
+        target = str(config.get("alignment_vps_ssh_target") or "").strip()
+        repo_path = str(config.get("alignment_vps_repo_path") or "").strip()
+        if not target:
+            return (
+                [
+                    {
+                        "layer": "VPS",
+                        "branch": "-",
+                        "head": "-",
+                        "status": "não configurado",
+                        "detail": "preencha alignment_vps_ssh_target para auditar por SSH",
+                    }
+                ],
+                "VPS não configurada. Este painel não usa VPS como fonte de branch; ela serve apenas para comparar deploy/runtime.",
+            )
+
+        docker_format = "{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}"
+        inspect_template = '{{ index .Config.Labels "org.opencontainers.image.revision" }}'
+        script_parts = ['echo "__HBX_VPS_GIT__"']
+        if repo_path:
+            quoted_repo = shlex.quote(repo_path)
+            script_parts.append(
+                "if [ -d {repo} ]; then "
+                "cd {repo} && "
+                "echo \"GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)\" && "
+                "echo \"GIT_HEAD=$(git rev-parse HEAD 2>/dev/null)\" && "
+                "echo \"GIT_STATUS_COUNT=$(git status --short 2>/dev/null | wc -l)\"; "
+                "else echo \"GIT_REPO_MISSING={plain}\"; fi".format(
+                    repo=quoted_repo,
+                    plain=repo_path.replace('"', "'"),
+                )
+            )
+        else:
+            script_parts.append('echo "GIT_REPO_MISSING=alignment_vps_repo_path vazio"')
+        script_parts.append('echo "__HBX_VPS_CONTAINERS__"')
+        script_parts.append(
+            "docker ps --format {fmt} 2>/dev/null | "
+            "while IFS=\"$(printf '\\t')\" read -r cid cname cimage cstatus; do "
+            "crev=$(docker inspect --format {inspect} \"$cid\" 2>/dev/null); "
+            "printf 'CONTAINER\\t%s\\t%s\\t%s\\t%s\\n' \"$cname\" \"$cimage\" \"$cstatus\" \"$crev\"; "
+            "done".format(fmt=shlex.quote(docker_format), inspect=shlex.quote(inspect_template))
+        )
+        command = [
+            "ssh",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=8",
+            target,
+            " ; ".join(script_parts),
+        ]
+        ok, output = self.run_hidden_command(command, cwd, timeout=35)
+        if not ok:
+            return (
+                [
+                    {
+                        "layer": "VPS",
+                        "branch": target,
+                        "head": "-",
+                        "status": "falha SSH",
+                        "detail": output or "ssh não respondeu",
+                    }
+                ],
+                output or "ssh não respondeu",
+            )
+
+        branch = "-"
+        head = ""
+        status_count = ""
+        missing_repo = ""
+        container_rows: list[dict[str, str]] = []
+        for line in output.splitlines():
+            if line.startswith("GIT_BRANCH="):
+                branch = line.split("=", 1)[1].strip() or "-"
+            elif line.startswith("GIT_HEAD="):
+                head = line.split("=", 1)[1].strip()
+            elif line.startswith("GIT_STATUS_COUNT="):
+                status_count = line.split("=", 1)[1].strip()
+            elif line.startswith("GIT_REPO_MISSING="):
+                missing_repo = line.split("=", 1)[1].strip()
+            elif line.startswith("CONTAINER\t"):
+                parts = line.split("\t")
+                if len(parts) < 5:
+                    continue
+                _tag, name, image, status, revision = parts[:5]
+                revision = "" if revision.strip() == "<no value>" else revision.strip()
+                revision_source = "label"
+                if not revision:
+                    revision = self.alignment_revision_from_image(image)
+                    revision_source = "imagem" if revision else ""
+                compare = self.alignment_compare_revision(revision, remote_heads, local_head) if revision else "sem revision label"
+                container_rows.append(
+                    {
+                        "layer": "VPS container",
+                        "branch": image,
+                        "head": revision or "-",
+                        "status": "publicado" if revision else "sem revision",
+                        "detail": f"{name} | {status} | {compare}" + (f" | revision via {revision_source}" if revision_source else ""),
+                    }
+                )
+
+        rows: list[dict[str, str]] = []
+        if missing_repo:
+            rows.append(
+                {
+                    "layer": "VPS git",
+                    "branch": target,
+                    "head": "-",
+                    "status": "ausente",
+                    "detail": missing_repo,
+                }
+            )
+        else:
+            dirty = status_count and status_count != "0"
+            rows.append(
+                {
+                    "layer": "VPS git",
+                    "branch": branch,
+                    "head": head or "-",
+                    "status": "sujo" if dirty else "limpo",
+                    "detail": f"{target} | mudanças: {status_count or '?'}",
+                }
+            )
+        rows.extend(container_rows)
+        if not container_rows:
+            rows.append(
+                {
+                    "layer": "VPS container",
+                    "branch": target,
+                    "head": "-",
+                    "status": "alerta",
+                    "detail": "nenhum container retornado por docker ps na VPS",
+                }
+            )
+        return rows, output.strip() or "-"
+
+    def alignment_fetch_url(self, url: str) -> tuple[bool, int, str]:
+        request = urllib.request.Request(url, headers={"User-Agent": "HBXOwnerAlignment/1.0"})
+        try:
+            with urllib.request.urlopen(request, timeout=5) as response:
+                raw = response.read(24_000)
+                charset = response.headers.get_content_charset() or "utf-8"
+                return True, int(getattr(response, "status", 200)), raw.decode(charset, errors="replace")
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            return False, 0, str(exc)
+
+    def alignment_extract_runtime_info(self, body: str) -> dict[str, str]:
+        info: dict[str, str] = {}
+        text = body.strip()
+        if text.startswith("{") or text.startswith("["):
+            try:
+                data = json.loads(text)
+            except json.JSONDecodeError:
+                data = None
+            if data is not None:
+                self.alignment_collect_json_info(data, info)
+        if "commit" not in info:
+            match = re.search(r"\b[0-9a-f]{7,40}\b", text, flags=re.IGNORECASE)
+            if match:
+                info["commit"] = match.group(0)
+        return info
+
+    def alignment_revision_from_image(self, image: str) -> str:
+        for pattern in (r"[:@]([0-9a-fA-F]{7,40})(?:$|[^0-9a-fA-F])", r"\b([0-9a-fA-F]{12,40})\b"):
+            match = re.search(pattern, str(image or ""))
+            if match:
+                return match.group(1)
+        return ""
+
+    def alignment_collect_json_info(self, data: object, info: dict[str, str]) -> None:
+        key_map = {
+            "commit": "commit",
+            "sha": "commit",
+            "gitsha": "commit",
+            "git_sha": "commit",
+            "revision": "commit",
+            "branch": "branch",
+            "version": "version",
+            "build": "build",
+            "image": "image",
+        }
+        if isinstance(data, dict):
+            for key, value in data.items():
+                normalized = re.sub(r"[^a-z0-9_]+", "", str(key).lower())
+                target = key_map.get(normalized)
+                if target and isinstance(value, (str, int, float)) and target not in info:
+                    info[target] = str(value)[:160]
+                if isinstance(value, (dict, list)):
+                    self.alignment_collect_json_info(value, info)
+        elif isinstance(data, list):
+            for item in data[:20]:
+                self.alignment_collect_json_info(item, info)
+
+    def alignment_compare_revision(self, revision: str, remote_heads: dict[str, str], local_head: str) -> str:
+        clean = str(revision or "").strip()
+        if not clean:
+            return "sem revision"
+        if local_head and clean.startswith(local_head[: len(clean)]):
+            return "igual ao HEAD local"
+        for branch, sha in remote_heads.items():
+            if sha.startswith(clean) or clean.startswith(sha[: len(clean)]):
+                return f"igual origin/{branch}"
+        return "revision não encontrada no local/origin"
+
+    def alignment_short_sha(self, value: str) -> str:
+        text = str(value or "").strip()
+        if not text or text == "-":
+            return ""
+        if re.fullmatch(r"[0-9a-fA-F]{7,40}", text):
+            return text[:12]
+        return self.alignment_clip(text, 24)
+
+    def alignment_clip(self, value: object, limit: int) -> str:
+        text = str(value or "-").replace("\r", " ").replace("\n", " ").strip()
+        return text if len(text) <= limit else f"{text[: max(0, limit - 3)]}..."
+
+    def format_alignment_report(
+        self,
+        repo: Path,
+        rows: list[dict[str, str]],
+        sections: list[tuple[str, str]],
+        metrics: dict,
+        status: str,
+    ) -> str:
+        lines = [
+            "ALINHAMENTO HBX",
+            f"Data: {now_iso()}",
+            f"Repo local: {repo}",
+            "",
+            "RESUMO",
+            f"- Status: {status}",
+            f"- Local: {metrics.get('local', '-')}",
+            f"- Worktrees: {metrics.get('worktrees', '-')}",
+            f"- GitHub/origin: {metrics.get('remote', '-')}",
+            f"- Runtime: {metrics.get('runtime', '-')}",
+            "",
+            "CAMADAS",
+        ]
+        for row in rows:
+            lines.append(
+                "- {layer}: {branch} | {head} | {status} | {detail}".format(
+                    layer=row.get("layer", "-"),
+                    branch=row.get("branch", "-"),
+                    head=row.get("head", "-"),
+                    status=row.get("status", "-"),
+                    detail=row.get("detail", "-"),
+                )
+            )
+        lines.append("")
+        lines.append("DETALHES")
+        for title, text in sections:
+            lines.extend(["", f"[{title}]", text.strip() or "-"])
+        return "\n".join(lines)
 
     def _build_chatgpt_tab(self, frame: ttk.Frame) -> None:
         self.page_title(frame, "ChatGPT", "Pesquisa em cards")
@@ -5379,15 +6872,14 @@ class HbxOwnerApp(tk.Tk):
         self.chatgpt_last_research_prompt = prompt
         self.copy_text(prompt)
         path = self.save_prompt_file("hbx-deep-research", prompt)
-        self.open_chatgpt()
         self.set_chatgpt_text(
             f"{prompt}\n\n---\nPrompt copiado e salvo em: {path}\n"
-            "No ChatGPT: selecione Pesquisa aprofundada/Deep research, confirme o plano se a tela pedir, "
-            "marque GitHub/Jhonatanbarata/HBX em Aplicativos quando aparecer e envie o prompt copiado. "
+            "Abra o ChatGPT quando quiser. No ChatGPT: selecione Pesquisa aprofundada/Deep research, confirme o plano se a tela pedir, "
+            "marque GitHub/JhonatanBarata/HBX em Aplicativos quando aparecer e envie o prompt copiado. "
             "Quando a resposta terminar, copie o resultado e use Importar clipboard."
         )
         self.autocard_status_var.set(
-            "Pesquisa HBX preparada. Selecione Pesquisa aprofundada + GitHub no ChatGPT e cole a resposta aqui."
+            "Pesquisa HBX preparada e copiada. Abra o ChatGPT manualmente quando quiser enviar."
         )
 
     def prepare_hbx_deep_research_auto(self) -> None:
@@ -5659,7 +7151,7 @@ if ($newChat) {
 [void](Invoke-HbxByText @("Pesquisa aprofundada", "Deep research", "Pesquisa profunda"))
 [void](Invoke-HbxByText @("Ferramentas", "Tools", "Aplicativos", "Apps", "Conectores", "Connectors"))
 [void](Invoke-HbxByText @("Pesquisa aprofundada", "Deep research", "Pesquisa profunda"))
-[void](Invoke-HbxByText @("GitHub", "Jhonatanbarata/HBX", "HBX"))
+[void](Invoke-HbxByText @("GitHub", "JhonatanBarata/HBX", "HBX"))
 
 foreach ($keys in $extraKeys) {
     if (-not [string]::IsNullOrWhiteSpace([string]$keys)) {
@@ -5859,23 +7351,23 @@ exit 0
 
         return (
             "HBX OWNER - PESQUISA PERIODICA DE EVOLUCAO\n\n"
-            "Use o repositorio Jhonatanbarata/HBX, o contexto operacional abaixo e a sua pesquisa avancada. "
+            "Use o repositorio JhonatanBarata/HBX, o contexto operacional abaixo e a sua pesquisa avancada. "
             "Se a interface abrir uma etapa de planejamento, selecione Pesquisa aprofundada/Deep research; "
-            "quando GitHub aparecer em Aplicativos/Apps, use o repositorio Jhonatanbarata/HBX como fonte. "
+            "quando GitHub aparecer em Aplicativos/Apps, use o repositorio JhonatanBarata/HBX como fonte. "
             "A resposta sera copiada de volta para o HBX Owner e precisa nascer diretamente no formato "
             "que o Kanban do HBX Owner entende.\n\n"
             f"Data de hoje: {research_date}\n"
             f"Rodada curta: {research_stamp}; rodada anterior de referencia: {previous_stamp}\n"
             f"Arquivo de relatorio que o Codex deve criar/atualizar: {report_path}\n"
-            "Repositorio publico/referencia: Jhonatanbarata/HBX\n"
+            "Repositorio publico/referencia: JhonatanBarata/HBX\n"
             f"Workspace local: {self.repo_path()}\n"
             f"Branch atual: {branch}\n\n"
             "VALIDACAO OBRIGATORIA DO REPOSITORIO\n"
-            "- Antes de criar qualquer card, confirme internamente que conseguiu consultar o repositorio Jhonatanbarata/HBX.\n"
+            "- Antes de criar qualquer card, confirme internamente que conseguiu consultar o repositorio JhonatanBarata/HBX.\n"
             "- Use como referencia minima os caminhos AGENTS.md, hbx-owner/windows-app, docs, frontend/src e backend/src.\n"
             "- Se nao conseguir ler o repositorio, nao use conhecimento generico sobre SaaS, CRM, prospeccao ou kanban.\n"
             "- Se nao conseguir entender o que e o HBX Owner pelo repositorio, nao gere HBX_CARDS_JSON.\n"
-            "- Se nao houver acesso real ao repositorio, responda somente: REPOSITORIO_INDISPONIVEL - nao consegui ler Jhonatanbarata/HBX.\n"
+            "- Se nao houver acesso real ao repositorio, responda somente: REPOSITORIO_INDISPONIVEL - nao consegui ler JhonatanBarata/HBX.\n"
             "- se nao conseguir resposta do repositorio, pare agora a analise.\n\n"
             "NORTE DO PRODUTO\n"
             "HBX e uma esteira de prospeccao: Radar -> Vendas -> WhatsApp -> Retorno.\n"
@@ -5902,7 +7394,7 @@ exit 0
             "- Nao sugerir bypass de plano, pagamento, entitlement, quota, auth ou backend.\n"
             "- Nao sugerir apagar historico negativo de Radar.\n"
             "- Nao criar card generico sem empresa/oportunidade real quando falar de Radar.\n"
-            "- Deploy, publish, migration, auth, billing, secrets, pagamento ou acesso comercial devem virar card BLOQUEADO.\n"
+            "- Cards executaveis pelo Owner local devem poder ir para AGUARDANDO CODEX.\n"
             "- Publicacao e merge dependem de comando explicito do dono.\n\n"
             "SAIDA OBRIGATORIA\n"
             "1. Responda somente com HBX_CARDS_JSON_START / HBX_CARDS_JSON_END.\n"
@@ -5910,14 +7402,14 @@ exit 0
             "3. Primeiro card: criar/atualizar o relatorio datado em "
             f"{report_path}, com estado atual, evolucao, proximos passos em paralelo e riscos.\n"
             "4. Cards de execucao devem ter lane AGUARDANDO CODEX quando o Owner puder criar branch e trabalhar neles.\n"
-            "5. Use lane BLOQUEADO para deploy, publish, migration, auth, billing, secrets, pagamento ou acesso comercial.\n"
+            "5. Use AGUARDANDO CODEX quando houver trabalho aplicavel pelo Owner local.\n"
             "6. Preencha urgency_level, intelligence_level, codex_model_override, execution_timeout_seconds e research_path.\n"
-            "   intelligence_level valido: use somente Média, High, Extra high ou Revisão humana.\n"
+            "   intelligence_level valido: use somente Média, High ou Extra high.\n"
             f"   codex_model_override deve ser sempre \"{CARD_CODEX_MODEL_DEFAULT}\" em todos os cards.\n"
             "7. O codex_prompt deve ser a licao de casa: leia AGENTS.md, pesquise nos caminhos certos, "
             "trabalhe na branch criada pelo Owner, implemente a menor correcao segura, rode checks relevantes "
             "e registre o resultado.\n"
-            "8. Maximo 12 cards. Priorize problemas graves, regressao provavel e evolucao real do sistema.\n\n"
+            "8. Priorize problemas graves, regressao provavel e evolucao real do sistema, sem limite artificial de quantidade.\n\n"
             f"{AUTOCARD_JSON_START}\n"
             "[\n"
             "  {\n"
@@ -6061,11 +7553,11 @@ exit 0
                 f"PDF local: {pdf_path}\n"
                 "Tente ler o PDF pelo caminho local acima. "
                 "Se não conseguir acessar ou extrair conteúdo verificável, devolva um único card "
-                "com lane BLOQUEADO para triagem manual do PDF; não invente conteúdo.\n\n"
+                "com lane HOJE para triagem do PDF; não invente conteúdo.\n\n"
                 "Prompt operacional para fallback manual:\n"
                 f"{prompt}"
             )
-            extraction_rule = "Use o PDF local como fonte; se não for legível, crie triagem bloqueada."
+            extraction_rule = "Use o PDF local como fonte; se não for legível, crie triagem em HOJE."
 
         compiler_input = (
             f"Fonte: PDF {pdf_path.name}\n"
@@ -6165,13 +7657,13 @@ exit 0
             "5. Preserve histórico negativo, bloqueios, erros de API e falhas de atendimento como evidência; não apague nem suavize.\n"
             "6. Cards de ticket de cliente devem usar type = \"Ticket cliente\" e module = \"Retorno\", salvo quando o texto provar outro módulo.\n"
             "7. Cards derivados de resposta de API devem usar type = \"Resposta API\" e descrever endpoint, erro, payload ou comportamento observado quando existir.\n"
-            "8. Use lane \"HOJE\" só para algo urgente/cliente bloqueado; use \"BACKLOG\" para melhoria; use \"BLOQUEADO\" quando faltar dado ou depender de autorização.\n"
-            "9. Se aparecer deploy, migração, auth, billing, secrets ou pagamento, coloque lane \"BLOQUEADO\" e explique blocked_reason.\n\n"
+            "8. Use lane \"HOJE\" para triagem e \"AGUARDANDO CODEX\" para trabalho aplicável pelo Owner local.\n"
+            "9. Se faltar dado, crie card de triagem em \"HOJE\" com blocked_reason vazio.\n\n"
             "Campos de cada card:\n"
             "- title: frase curta começando com verbo ou com o ticket do cliente.\n"
             "- module: Radar, Vendas, WhatsApp, Retorno, Backend, Frontend, Owner ou HBX.\n"
             "- priority: Crítica, Alta, Média ou Baixa.\n"
-            "- lane: BACKLOG, HOJE, AGUARDANDO CODEX, TESTAR ou BLOQUEADO.\n"
+            "- lane: HOJE, AGUARDANDO CODEX, TESTAR ou BLOQUEADO.\n"
             "- type: Ticket cliente, Resposta API, Produto, Bug, Pesquisa ou Operação.\n"
             "- description: contexto, cliente/empresa, evidência do PDF/API e impacto.\n"
             "- acceptance_criteria: como saber que o card foi resolvido.\n"
@@ -6181,9 +7673,9 @@ exit 0
             "- estimate_minutes: número inteiro.\n"
             "- blocked_reason: vazio ou motivo do bloqueio.\n"
             "- urgency_level: Baixa, Normal, Alta ou Crítica.\n"
-            "- intelligence_level: use somente Média, High, Extra high ou Revisão humana.\n"
+            "- intelligence_level: use somente Média, High ou Extra high.\n"
             f"- codex_model_override: sempre \"{CARD_CODEX_MODEL_DEFAULT}\".\n"
-            "- execution_timeout_seconds: 120 para Média, 180 para High, 300 para Extra high ou Revisão humana.\n"
+            "- execution_timeout_seconds: 120 para Média, 180 para High, 300 para Extra high.\n"
             "- research_path: caminho onde o Codex deve pesquisar primeiro.\n\n"
             "Formato obrigatório:\n"
             f"{AUTOCARD_JSON_START}\n"
@@ -6670,7 +8162,7 @@ exit 0
             "3. Não explique nada fora do bloco.\n"
             "4. Um card por ação, ticket, lacuna, risco ou entrega verificável.\n"
             "5. Se o item for atendimento de cliente, use type = \"Ticket cliente\" e module = \"Retorno\".\n"
-            "6. Se citar deploy, publish, migration, auth, billing, secrets ou pagamento, use lane = \"BLOQUEADO\".\n"
+            "6. Use AGUARDANDO CODEX quando o card tiver execução aplicável pelo Owner local.\n"
             "7. Prioridade Alta para ticket, cliente, WhatsApp, p0, bug, erro, falha ou bloqueio.\n"
             "8. Defina urgency_level e intelligence_level conforme risco e complexidade.\n"
             "9. Preencha research_path com o caminho exato onde o Codex deve pesquisar primeiro.\n"
@@ -6678,18 +8170,17 @@ exit 0
             "11. Se a fonte for pesquisa periódica do HBX, preserve cards de relatório datado e lição de casa Codex.\n"
             "12. Quando a fonte já trouxer a pesquisa do Owner, preserve o formato direto de cards.\n"
             f"13. codex_model_override deve ser sempre \"{CARD_CODEX_MODEL_DEFAULT}\".\n"
-            "14. Máximo 12 cards.\n\n"
+            "14. Gere todos os cards acionáveis encontrados, sem limite artificial de quantidade.\n\n"
             "Campos obrigatórios por card:\n"
             "title, module, priority, lane, type, description, acceptance_criteria, test_command, "
             "codex_prompt, chatgpt_prompt, estimate_minutes, blocked_reason, urgency_level, "
             "intelligence_level, codex_model_override, execution_timeout_seconds, research_path.\n\n"
-            "Lanes válidas: BACKLOG, HOJE, AGUARDANDO CODEX, TESTAR, BLOQUEADO.\n"
+            "Lanes válidas: HOJE, AGUARDANDO CODEX, TESTAR, BLOQUEADO.\n"
             "Prioridades válidas: Crítica, Alta, Média, Baixa.\n\n"
             "Inteligência:\n"
             "- Média: texto, documentação, classificação simples, baixo risco.\n"
             "- High: bug, ticket, cliente ou fluxo normal com execução objetiva.\n"
             "- Extra high: multiárea, backend+frontend, worker/fila, criticidade alta.\n"
-            "- Revisão humana: deploy, publish, migration, auth, billing, secrets, pagamento.\n\n"
             f"{AUTOCARD_JSON_START}\n"
             "[\n"
             "  {\n"
@@ -6860,8 +8351,6 @@ exit 0
                 continue
             seen.add(key)
             unique_cards.append(normalized)
-            if len(unique_cards) >= AUTOCARD_MAX_CARDS:
-                break
         return unique_cards
 
     def normalize_card_title_key(self, title: str) -> str:
@@ -6880,15 +8369,8 @@ exit 0
         full_text = f"{title} {full_text}"
         priority = self.normalize_autocard_priority(raw.get("priority") or raw.get("prioridade"), full_text)
         lane = self.normalize_autocard_lane(raw.get("lane") or raw.get("status"), full_text)
-        sensitive = self.autocard_has_sensitive_terms(full_text)
-        if sensitive and lane == "FEITO":
-            lane = "BLOQUEADO"
-        elif sensitive and lane not in ("BLOQUEADO", "AGUARDANDO CODEX"):
-            lane = "BLOQUEADO"
 
         blocked_reason = str(raw.get("blocked_reason") or raw.get("bloqueio") or "").strip()
-        if sensitive and not blocked_reason:
-            blocked_reason = "Requer revisão do dono antes de qualquer ação sensível."
 
         type_value = self.sanitize_card_type(raw.get("type") or raw.get("tipo") or "ChatGPT", "ChatGPT")
         module_value = str(raw.get("module") or raw.get("modulo") or self.infer_module_from_text(full_text)).strip()[:60]
@@ -6963,8 +8445,8 @@ exit 0
             "WAITING CODEX": "AGUARDANDO CODEX",
             "AGUARDANDO": "AGUARDANDO CODEX",
             "REVISAR COM CHATGPT": "REVISAR COM CHATGPT",
-            "BACKLOG": "BACKLOG",
-            "NEW": "BACKLOG",
+            "BACKLOG": "HOJE",
+            "NEW": "HOJE",
             "TRIAGE": "HOJE",
             "HOJE": "HOJE",
             "FAZENDO": "FAZENDO",
@@ -7031,8 +8513,6 @@ exit 0
                     f"Trecho: {content[:800]}"
                 )
                 cards.append(card)
-                if len(cards) >= AUTOCARD_MAX_CARDS:
-                    return cards
         return cards
 
     def normalize_section_action_candidate(self, text: str) -> str:
@@ -7059,7 +8539,7 @@ exit 0
             return "REVISAR COM CHATGPT"
         if "HOJE" in upper or "AGORA" in upper or "PRIORIDADE IMEDIATA" in upper or "IMEDIATA" in upper or "P0" in upper:
             return "HOJE"
-        return "BACKLOG"
+        return "HOJE"
 
     def parse_card_blocks(self, text: str) -> list[dict]:
         label_map = {
@@ -7216,8 +8696,6 @@ exit 0
                 continue
             seen.add(key)
             cards.append(self.build_freeform_card(title, candidate))
-            if len(cards) >= CHATGPT_FREEFORM_MAX_CARDS:
-                break
         return cards
 
     def extract_freeform_candidates(self, line: str, in_action_section: bool) -> list[str]:
@@ -7631,7 +9109,7 @@ exit 0
         self.play_alert_sound()
         win = tk.Toplevel(self)
         win.title("Alerta HBX Owner")
-        win.attributes("-topmost", True)
+        win.transient(self)
         win.resizable(False, False)
         win.configure(padx=18, pady=18, bg=THEME["bg"])
 
@@ -8108,8 +9586,56 @@ exit 0
     def _build_config_tab(self, frame: ttk.Frame) -> None:
         self.page_title(frame, "Config", "Preferências locais")
 
-        panel = ttk.LabelFrame(frame, text="Preferências locais", padding=12, style="Modern.TLabelframe")
-        panel.grid(row=1, column=0, sticky="nsew", pady=(12, 0))
+        frame.rowconfigure(1, weight=1)
+        scroll_shell = ttk.Frame(frame, style="App.TFrame")
+        scroll_shell.grid(row=1, column=0, sticky="nsew", pady=(12, 0))
+        scroll_shell.rowconfigure(0, weight=1)
+        scroll_shell.columnconfigure(0, weight=1)
+
+        canvas = tk.Canvas(scroll_shell, bg=THEME["bg"], highlightthickness=0)
+        scrollbar = ttk.Scrollbar(scroll_shell, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.grid(row=0, column=0, sticky="nsew")
+        scrollbar.grid(row=0, column=1, sticky="ns")
+
+        content = ttk.Frame(canvas, style="App.TFrame")
+        content.columnconfigure(0, weight=1)
+        content_window = canvas.create_window((0, 0), window=content, anchor="nw")
+
+        def sync_scroll_region(_event: tk.Event | None = None) -> None:
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def sync_content_width(event: tk.Event) -> None:
+            canvas.itemconfigure(content_window, width=event.width)
+
+        def on_mousewheel(event: tk.Event) -> str:
+            if getattr(event, "num", None) == 4:
+                canvas.yview_scroll(-3, "units")
+            elif getattr(event, "num", None) == 5:
+                canvas.yview_scroll(3, "units")
+            else:
+                canvas.yview_scroll(-int(event.delta / 120), "units")
+            return "break"
+
+        def bind_config_mousewheel(_event: tk.Event) -> None:
+            canvas.bind_all("<MouseWheel>", on_mousewheel, add="+")
+            canvas.bind_all("<Button-4>", on_mousewheel, add="+")
+            canvas.bind_all("<Button-5>", on_mousewheel, add="+")
+
+        def unbind_config_mousewheel(_event: tk.Event) -> None:
+            canvas.unbind_all("<MouseWheel>")
+            canvas.unbind_all("<Button-4>")
+            canvas.unbind_all("<Button-5>")
+
+        content.bind("<Configure>", sync_scroll_region)
+        canvas.bind("<Configure>", sync_content_width)
+        canvas.bind("<Enter>", bind_config_mousewheel)
+        canvas.bind("<Leave>", unbind_config_mousewheel)
+        content.bind("<Enter>", bind_config_mousewheel)
+        content.bind("<Leave>", unbind_config_mousewheel)
+
+        panel = ttk.LabelFrame(content, text="Preferências locais", padding=12, style="Modern.TLabelframe")
+        panel.grid(row=0, column=0, sticky="ew")
         panel.columnconfigure(1, weight=1)
 
         fields = (
@@ -8136,7 +9662,11 @@ exit 0
             ("pr_lab_base_branch", "Branches base branch"),
             ("pr_lab_worktree_dir", "Branches worktree dir"),
             ("pr_lab_localhost_url", "Branches localhost URL"),
-            ("codex_auto_dispatch", "Codex auto dispatch"),
+            ("alignment_runtime_url", "Alinhamento runtime URL"),
+            ("alignment_container_filter", "Alinhamento container filtro"),
+            ("alignment_vps_ssh_target", "Alinhamento VPS SSH"),
+            ("alignment_vps_repo_path", "Alinhamento VPS repo path"),
+            ("codex_max_parallel_dispatches", "Codex paralelos"),
             ("codex_cli_path", "Codex CLI path"),
             ("codex_model", "Codex model global opcional"),
             ("codex_model_fast", "Codex model rápido"),
@@ -8163,8 +9693,8 @@ exit 0
             row=boss_row + 1, column=1, sticky="e", pady=(12, 0)
         )
 
-        windows_panel = ttk.LabelFrame(frame, text="Windows", padding=12, style="Modern.TLabelframe")
-        windows_panel.grid(row=2, column=0, sticky="ew", pady=(12, 0))
+        windows_panel = ttk.LabelFrame(content, text="Windows", padding=12, style="Modern.TLabelframe")
+        windows_panel.grid(row=1, column=0, sticky="ew", pady=(12, 0))
         for column in range(5):
             windows_panel.columnconfigure(column, weight=1)
         ttk.Label(
@@ -8217,6 +9747,7 @@ exit 0
             elif key in {
                 "card_compiler_timeout_seconds",
                 "usage_hud_window_hours",
+                "codex_max_parallel_dispatches",
                 "chatgpt_auto_focus_delay_seconds",
                 "chatgpt_auto_monitor_minutes",
                 "chatgpt_auto_poll_seconds",
@@ -8227,8 +9758,8 @@ exit 0
                     messagebox.showerror("Config", f"{key} precisa ser numérico.")
                     return
             elif key == "card_compiler_engine":
-                value = "spark" if value.lower() in ("spark", "5.5", "55", "codex") else "local"
-            elif key in {"codex_auto_dispatch", "usage_hud_enabled", "chatgpt_auto_new_chat", "chatgpt_auto_send_enter"}:
+                value = "5.5" if value.lower() in ("spark", "5.5", "55", "codex") else "local"
+            elif key in {"usage_hud_enabled", "chatgpt_auto_new_chat", "chatgpt_auto_send_enter"}:
                 value = value.lower() in ("1", "true", "sim", "yes", "on")
             self.config_data[key] = value
         self.config_data["boss_mode"] = bool(self.boss_mode_var.get())
@@ -8244,7 +9775,7 @@ exit 0
         )
         self.git_repo_var.set(str(self.config_data.get("repo_path") or APP_DIR))
         self.today_plan_var.set(self.config_data.get("unique_goal") or "Meta única não definida.")
-        self.intelligence_engine_var.set("5.5" if str(self.config_data.get("card_compiler_engine") or "local").lower() == "spark" else "local")
+        self.intelligence_engine_var.set("5.5" if str(self.config_data.get("card_compiler_engine") or "local").lower() in ("spark", "5.5", "55", "codex") else "local")
         self.intelligence_model_var.set(str(self.config_data.get("card_compiler_model") or CARD_CODEX_MODEL_DEFAULT))
         self.intelligence_timeout_var.set(str(self.config_data.get("card_compiler_timeout_seconds") or 120))
         self.codex_model_var.set(str(self.config_data.get("codex_model") or ""))
@@ -8386,7 +9917,7 @@ exit 0
         self.play_alert_sound()
         win = tk.Toplevel(self)
         win.title("Chefe chato")
-        win.attributes("-topmost", True)
+        win.transient(self)
         win.configure(bg="#9b111e", padx=24, pady=24)
         win.geometry("520x260")
 
@@ -8453,6 +9984,9 @@ def main() -> None:
             return
 
     if args.no_gui:
+        db = Database()
+        db.init_schema()
+        db.close()
         return
 
     single_instance = SingleInstanceGuard()
