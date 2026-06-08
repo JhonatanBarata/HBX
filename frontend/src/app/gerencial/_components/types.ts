@@ -8,7 +8,7 @@ export type UserItem = {
   email?: string | null;
   phone?: string | null;
   commissionPercent?: number | null;
-  canRegisterHbxSellers?: boolean | null;
+  canRecruitSellers?: boolean | null;
   sellerReferralCommissionPercent?: number | null;
   referredByUserId?: number | null;
   referredByCommissionPercentSnapshot?: number | null;
@@ -155,9 +155,9 @@ export type TeamPolicy = {
     commissionPercent: number;
     commissionDueBusinessDays: number;
   };
-  hbxNetwork: {
-    isHbxSellerNetwork: boolean;
-    canRegisterHbxSellers: boolean;
+  sellerNetwork: {
+    isSellerNetwork: boolean;
+    canRecruitSellers: boolean;
     sellerReferralCommissionPercent: number;
     referredByUserId: number | null;
     referredByCommissionPercentSnapshot: number;
@@ -192,7 +192,7 @@ export type TeamPolicy = {
   visibility: {
     sellerCanViewOwnPolicy: boolean;
     sellerCanViewCommission: boolean;
-    sellerCanViewHbxNetwork: boolean;
+    sellerCanViewSellerNetwork: boolean;
     sellerCanViewLimits: boolean;
     adminCanEditLegacyFields: boolean;
     masterCanUseUnlimited: boolean;
@@ -213,8 +213,8 @@ export type TeamPolicyPatch = {
     commissionPercent?: number;
     commissionDueBusinessDays?: number;
   };
-  hbxNetwork?: {
-    canRegisterHbxSellers?: boolean;
+  sellerNetwork?: {
+    canRecruitSellers?: boolean;
     sellerReferralCommissionPercent?: number;
     referredByUserId?: number | null;
     referredByCommissionPercentSnapshot?: number;
@@ -238,6 +238,6 @@ export type TeamPolicyPatch = {
   };
   visibility?: Pick<
     TeamPolicy["visibility"],
-    "sellerCanViewOwnPolicy" | "sellerCanViewCommission" | "sellerCanViewHbxNetwork" | "sellerCanViewLimits"
+    "sellerCanViewOwnPolicy" | "sellerCanViewCommission" | "sellerCanViewSellerNetwork" | "sellerCanViewLimits"
   >;
 };

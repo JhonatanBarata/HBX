@@ -1703,6 +1703,10 @@ export class ModulesService implements OnModuleInit {
       CREATE OR REPLACE FUNCTION public.ensure_company_modules_from_company()
       RETURNS trigger AS $$
       BEGIN
+        IF NEW."companyKind" <> 'tenant' THEN
+          RETURN NEW;
+        END IF;
+
         INSERT INTO "CompanyModule" ("companyId", "moduleId", "enabled", "createdAt", "updatedAt")
         SELECT NEW.id, sm.id, sm."defaultEnabled", NOW(), NOW()
         FROM "SystemModule" sm
@@ -1729,6 +1733,7 @@ export class ModulesService implements OnModuleInit {
           INSERT INTO "CompanyModule" ("companyId", "moduleId", "enabled", "createdAt", "updatedAt")
           SELECT c.id, NEW.id, NEW."defaultEnabled", NOW(), NOW()
           FROM "Company" c
+          WHERE c."companyKind" = 'tenant'
           ON CONFLICT ("companyId", "moduleId") DO NOTHING;
         END IF;
         RETURN NEW;
@@ -1742,6 +1747,13 @@ export class ModulesService implements OnModuleInit {
       AFTER INSERT ON "SystemModule"
       FOR EACH ROW
       EXECUTE FUNCTION public.ensure_company_modules_from_system_module();
+    `);
+
+    await this.prisma.$executeRawUnsafe(`
+      DELETE FROM "CompanyModule" cm
+      USING "Company" c
+      WHERE cm."companyId" = c."id"
+        AND c."companyKind" = 'platform_infra';
     `);
   }
 
@@ -1798,6 +1810,13 @@ export class ModulesService implements OnModuleInit {
   }
 
   private async syncCompanyModulesForAllCompanies() {
+    await this.prisma.$executeRawUnsafe(`
+      DELETE FROM "CompanyModule" cm
+      USING "Company" c
+      WHERE cm."companyId" = c."id"
+        AND c."companyKind" = 'platform_infra';
+    `);
+
     await this.prisma.$executeRawUnsafe(`
       INSERT INTO "CompanyModule" ("companyId", "moduleId", "enabled", "createdAt", "updatedAt")
       SELECT c.id, sm.id, sm."defaultEnabled", NOW(), NOW()
@@ -4940,7 +4959,7 @@ export class ModulesService implements OnModuleInit {
     return { ok: true, affected };
   }
 
-  private buildMasterRadarCardExclusionPayload(row: any) {
+  private buildRadarCardExclusionPayload(row: any) {
     const lead = row?.radarLead || {};
     const reason = this.normalizeNullableText(
       row?.complaintReason || row?.deniedReason || row?.negativeReason || lead?.complaintReason || lead?.deniedReason || lead?.rejectionReason,
@@ -4973,7 +4992,7 @@ export class ModulesService implements OnModuleInit {
     };
   }
 
-  private buildMasterRadarCardExclusionWhere(query?: { moduleKey?: string; companyId?: number; search?: string }) {
+  private buildRadarCardExclusionWhere(query?: { moduleKey?: string; companyId?: number; search?: string }) {
     const moduleKey = String(query?.moduleKey || '').trim().toLowerCase();
     const allowedModuleFilter = !moduleKey || ['radar', 'webscraping', 'bancodedados', 'vendas', 'cards'].includes(moduleKey);
     if (!allowedModuleFilter) {
@@ -5001,8 +5020,8 @@ export class ModulesService implements OnModuleInit {
     return where;
   }
 
-  private async listMasterRadarCardExclusions(query?: { moduleKey?: string; companyId?: number; search?: string }) {
-    const where = this.buildMasterRadarCardExclusionWhere(query);
+  private async listRadarCardExclusionsForMaster(query?: { moduleKey?: string; companyId?: number; search?: string }) {
+    const where = this.buildRadarCardExclusionWhere(query);
     if (!where) {
       return { items: [], summary: { total: 0, discarded: 0, complaint: 0 } };
     }
@@ -5038,7 +5057,7 @@ export class ModulesService implements OnModuleInit {
       },
     }).catch(() => []);
 
-    const items = (rows || []).map((row: any) => this.buildMasterRadarCardExclusionPayload(row));
+    const items = (rows || []).map((row: any) => this.buildRadarCardExclusionPayload(row));
     return {
       items,
       summary: {
@@ -5089,7 +5108,7 @@ export class ModulesService implements OnModuleInit {
         orderBy: { name: 'asc' },
         select: { key: true, name: true },
       }),
-      this.listMasterRadarCardExclusions(query),
+      this.listRadarCardExclusionsForMaster(query),
     ]);
 
     return {
@@ -5206,7 +5225,7 @@ export class ModulesService implements OnModuleInit {
     return { ok: true, id: deletionId };
   }
 
-  private async cleanupMasterRadarCardExclusions(
+  private async cleanupRadarCardExclusionsForMaster(
     masterUserId: number,
     filters: { moduleKey?: string; companyId?: number; search?: string },
   ) {
@@ -5218,7 +5237,7 @@ export class ModulesService implements OnModuleInit {
       emptySearchHistories: 0,
       emptySearchRuns: 0,
     };
-    const where = this.buildMasterRadarCardExclusionWhere(filters);
+    const where = this.buildRadarCardExclusionWhere(filters);
     if (!where) return empty;
 
     const [hasState, hasPool] = await Promise.all([
@@ -5386,7 +5405,7 @@ export class ModulesService implements OnModuleInit {
       take: 5000,
     });
 
-    const radarCleanup = await this.cleanupMasterRadarCardExclusions(masterUserId, filters);
+    const radarCleanup = await this.cleanupRadarCardExclusionsForMaster(masterUserId, filters);
 
     if (!rows.length) return { ok: true, affected: 0, ...radarCleanup };
 

@@ -274,7 +274,7 @@ type LeadIntelligence = {
   recommendedChannel?: "whatsapp" | "call" | "email" | "review" | "discard" | string | null;
   nextBestAction?: "whatsapp" | "call" | "email" | "review" | "discard" | string;
   lastVerifiedAt?: string | null;
-  verifiedBy?: "hbx_master" | "client_engine" | "manual" | string | null;
+  verifiedBy?: "platform_engine" | "client_engine" | "manual" | string | null;
   visibilityTier?: "candidate" | "list_basic" | "enrichment_pending" | "lead_plus_qualified" | "review_backup" | "blocked" | string | null;
   deliveryProduct?: "list" | "lead_plus" | string | null;
   debitEligible?: boolean | null;
@@ -585,7 +585,7 @@ type CommissionSummaryResponse = {
     dueBusinessDays?: number | null;
   };
   sellerNetwork?: {
-    isHbxSellerNetwork?: boolean | null;
+    isSellerNetwork?: boolean | null;
     canRegisterReferredSeller?: boolean | null;
     commissionPercent?: number | null;
     inheritedCommissionPercent?: number | null;
@@ -768,7 +768,7 @@ type HbxClosingPipelineResponse = {
   ok?: boolean;
   scope?: "seller" | "company" | string;
   canManage?: boolean | null;
-  isHbxSellerNetwork?: boolean | null;
+  isSellerNetwork?: boolean | null;
   generatedAt?: string | null;
   settings?: {
     dueBusinessDays?: number | null;
@@ -7149,11 +7149,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
           {renderCrmIntegrityPanel("mobile")}
           {renderHbxClosingPipelinePanel("mobile")}
 
-          {commissionSummary?.sellerNetwork?.isHbxSellerNetwork ? (
+          {commissionSummary?.sellerNetwork?.isSellerNetwork ? (
             <section className={`${styles.mobileVendasCommissionBlock} hbx-mobile-card`}>
               <div className={styles.mobileVendasCommissionBlockHeader}>
                 <div>
-                  <strong>Minha rede HBX</strong>
+                  <strong>Minha rede de indicação</strong>
                   <span>
                     {commissionSummary.sellerNetwork.referredSellerCount || 0} indicado(s) · herança{" "}
                     {formatPercent(commissionSummary.sellerNetwork.inheritedCommissionPercent || 0)}

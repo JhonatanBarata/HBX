@@ -49,7 +49,7 @@ class CreateCompanyUserDto {
 
 	@IsOptional()
 	@IsBoolean()
-	canRegisterHbxSellers?: boolean;
+	canRecruitSellers?: boolean;
 
 	@IsOptional()
 	@Type(() => Number)
@@ -136,7 +136,7 @@ class UpdateCompanyUserProfileDto {
 
 	@IsOptional()
 	@IsBoolean()
-	canRegisterHbxSellers?: boolean;
+	canRecruitSellers?: boolean;
 
 	@IsOptional()
 	@Type(() => Number)
@@ -191,7 +191,7 @@ class MasterCreateUserDto {
 
 	@IsOptional()
 	@IsBoolean()
-	canRegisterHbxSellers?: boolean;
+	canRecruitSellers?: boolean;
 
 	@IsOptional()
 	@Type(() => Number)
@@ -273,7 +273,7 @@ class MasterEditUserDto {
 
 	@IsOptional()
 	@IsBoolean()
-	canRegisterHbxSellers?: boolean;
+	canRecruitSellers?: boolean;
 
 	@IsOptional()
 	@Type(() => Number)
@@ -582,7 +582,7 @@ export class UsersController {
 
 	private hasSellerNetworkInput(dto: any) {
 		return (
-			dto?.canRegisterHbxSellers !== undefined ||
+			dto?.canRecruitSellers !== undefined ||
 			dto?.sellerReferralCommissionPercent !== undefined ||
 			dto?.referredByUserId !== undefined ||
 			dto?.referredByCommissionPercentSnapshot !== undefined
@@ -593,7 +593,7 @@ export class UsersController {
 		const referredByUserId = Number(dto?.referredByUserId || 0);
 		const sellerReferralCommissionPercent = Number(dto?.sellerReferralCommissionPercent || 0);
 		const referredByCommissionPercentSnapshot = Number(dto?.referredByCommissionPercentSnapshot || 0);
-		return Boolean(dto?.canRegisterHbxSellers) ||
+		return Boolean(dto?.canRecruitSellers) ||
 			referredByUserId > 0 ||
 			sellerReferralCommissionPercent > 0 ||
 			referredByCommissionPercentSnapshot > 0;
@@ -601,7 +601,7 @@ export class UsersController {
 
 	private sellerNetworkPayload(user: any) {
 		return {
-			canRegisterHbxSellers: Boolean(user.canRegisterHbxSellers),
+			canRecruitSellers: Boolean(user.canRegisterHbxSellers),
 			sellerReferralCommissionPercent: Number(user.sellerReferralCommissionPercent || 0) || 0,
 			referredByUserId: user.referredByUserId || null,
 			referredByCommissionPercentSnapshot: Number(user.referredByCommissionPercentSnapshot || 0) || 0,
@@ -642,8 +642,8 @@ export class UsersController {
 
 		if (!hasInput && !input.forCreate) return data;
 
-		if (dto.canRegisterHbxSellers !== undefined || input.forCreate) {
-			data.canRegisterHbxSellers = Boolean(dto.canRegisterHbxSellers);
+		if (dto.canRecruitSellers !== undefined || input.forCreate) {
+			data.canRegisterHbxSellers = Boolean(dto.canRecruitSellers);
 		}
 
 		const referredByUserId = normalizeOptionalPositiveInt(dto.referredByUserId);
@@ -772,7 +772,7 @@ export class UsersController {
 			dto,
 			targetUserId: id,
 		});
-		const sellerOptionsEnabled = await this.usersService.isHbxSellerNetworkCompany(companyId);
+		const sellerOptionsEnabled = await this.usersService.isSellerNetworkCompany(companyId);
 		if (
 			dto.sellerDistributionDailyLimitOverride !== undefined &&
 			['USER', 'ADMIN'].includes(String(target.role || '').toUpperCase()) &&
@@ -855,7 +855,7 @@ export class UsersController {
 
 		let welcomeEmail: Pick<MailSendResult, 'ok' | 'transport' | 'messageId' | 'errorCode' | 'errorMessage'> | null = null;
 		let confirmationEmail: (Pick<MailSendResult, 'ok' | 'transport' | 'messageId' | 'errorCode' | 'errorMessage'> & { previewUrl?: string | null; confirmUrl?: string | null }) | null = null;
-		const sellerOptionsEnabled = await this.usersService.isHbxSellerNetworkCompany(companyId);
+		const sellerOptionsEnabled = await this.usersService.isSellerNetworkCompany(companyId);
 		const isSellerOnboardingActivation =
 			sellerOptionsEnabled &&
 			String(target.role || '').toUpperCase() === 'USER' &&
@@ -923,7 +923,7 @@ export class UsersController {
 
 		const role = (dto.role === 'ADMIN' ? 'ADMIN' : 'USER') as 'USER' | 'ADMIN';
 		const seatUsage = await this.usersService.getCompanyTrialSeatUsage(companyId);
-		const sellerOptionsEnabled = await this.usersService.isHbxSellerNetworkCompany(companyId);
+		const sellerOptionsEnabled = await this.usersService.isSellerNetworkCompany(companyId);
 		if (!seatUsage.company) throw new NotFoundException('Empresa não encontrada');
 		if (seatUsage.isTrial && role === 'ADMIN' && seatUsage.activeAdmins >= seatUsage.maxAdmins) {
 			throw new BadRequestException('O free trial permite 1 admin ativo por empresa.');
@@ -1007,7 +1007,7 @@ export class UsersController {
 				declaredAddress: dto.declaredAddress,
 				commissionPercent: created.commissionPercent,
 				commissionDueBusinessDays: dto.commissionDueBusinessDays ?? seatUsage.company.commissionDueBusinessDays,
-				canRegisterHbxSellers: created.canRegisterHbxSellers,
+				canRecruitSellers: created.canRegisterHbxSellers,
 				sellerReferralCommissionPercent: created.sellerReferralCommissionPercent,
 				referredByUserId: created.referredByUserId,
 				referredByCommissionPercentSnapshot: created.referredByCommissionPercentSnapshot,
@@ -1062,7 +1062,7 @@ export class UsersController {
 		const requester = requesterId ? await this.usersService.findById(requesterId) : null;
 		if (!requester) throw new ForbiddenException('Usuário não identificado');
 		const companyId = Number(requester.companyId || 0);
-		if (!companyId || !(await this.usersService.isHbxSellerNetworkCompany(companyId))) {
+		if (!companyId || !(await this.usersService.isSellerNetworkCompany(companyId))) {
 			throw new ForbiddenException('Cadastro por indicação está disponível apenas para vendedores de empresas tenant.');
 		}
 		if (
@@ -1094,7 +1094,7 @@ export class UsersController {
 	@ModuleAccess('gerencial')
 	async listHbxReferralCandidates(@Req() req: any, @Query('status') status?: string) {
 		const companyId = Number(req?.user?.companyId || 0);
-		if (!companyId || !(await this.usersService.isHbxSellerNetworkCompany(companyId))) {
+		if (!companyId || !(await this.usersService.isSellerNetworkCompany(companyId))) {
 			return { candidates: [] };
 		}
 		const candidates = status && status !== 'pending'
@@ -1109,7 +1109,7 @@ export class UsersController {
 	@ModuleAccess('gerencial')
 	async lookupHbxReferralCandidateByPhone(@Req() req: any, @Query('phone') phone?: string) {
 		const companyId = Number(req?.user?.companyId || 0);
-		if (!companyId || !(await this.usersService.isHbxSellerNetworkCompany(companyId))) {
+		if (!companyId || !(await this.usersService.isSellerNetworkCompany(companyId))) {
 			return { found: false, candidate: null, referrer: null };
 		}
 		const candidate = await this.hbxPartnerReferrals.findCandidateByPhone(companyId, phone);
@@ -1126,7 +1126,7 @@ export class UsersController {
 	@ModuleAccess('gerencial')
 	async rejectHbxReferralCandidate(@Req() req: any, @Param('id') id: string) {
 		const companyId = Number(req?.user?.companyId || 0);
-		if (!companyId || !(await this.usersService.isHbxSellerNetworkCompany(companyId))) {
+		if (!companyId || !(await this.usersService.isSellerNetworkCompany(companyId))) {
 			throw new ForbiddenException('Aprovação de indicações está disponível apenas para empresas tenant.');
 		}
 		const candidate = await this.hbxPartnerReferrals.rejectCandidate(req.user, id, null);
@@ -1139,7 +1139,7 @@ export class UsersController {
 	@ModuleAccess('gerencial')
 	async approveHbxReferralCandidate(@Req() req: any, @Param('id') id: string) {
 		const companyId = Number(req?.user?.companyId || 0);
-		if (!companyId || !(await this.usersService.isHbxSellerNetworkCompany(companyId))) {
+		if (!companyId || !(await this.usersService.isSellerNetworkCompany(companyId))) {
 			throw new ForbiddenException('Aprovação de indicações está disponível apenas para empresas tenant.');
 		}
 		const candidate = await this.hbxPartnerReferrals.approveCandidate(req.user, id);
@@ -1178,7 +1178,7 @@ export class UsersController {
 	) {
 		const role = (dto.role === 'ADMIN' ? 'ADMIN' : 'USER') as 'USER' | 'ADMIN';
 		const seatUsage = await this.usersService.getCompanyTrialSeatUsage(companyId);
-		const sellerOptionsEnabled = await this.usersService.isHbxSellerNetworkCompany(companyId);
+		const sellerOptionsEnabled = await this.usersService.isSellerNetworkCompany(companyId);
 		if (!seatUsage.company) throw new NotFoundException('Empresa não encontrada');
 		if (seatUsage.isTrial && role === 'ADMIN' && seatUsage.activeAdmins >= seatUsage.maxAdmins) {
 			throw new BadRequestException('O free trial permite 1 admin ativo por empresa.');
@@ -1262,7 +1262,7 @@ export class UsersController {
 				declaredAddress: dto.declaredAddress,
 				commissionPercent: created.commissionPercent,
 				commissionDueBusinessDays: dto.commissionDueBusinessDays ?? seatUsage.company.commissionDueBusinessDays,
-				canRegisterHbxSellers: created.canRegisterHbxSellers,
+				canRecruitSellers: created.canRegisterHbxSellers,
 				sellerReferralCommissionPercent: created.sellerReferralCommissionPercent,
 				referredByUserId: created.referredByUserId,
 				referredByCommissionPercentSnapshot: created.referredByCommissionPercentSnapshot,
@@ -1397,7 +1397,7 @@ export class UsersController {
 		if (
 			lockedReferrerId &&
 			nextRole === 'USER' &&
-			await this.usersService.isHbxSellerNetworkCompany(Number(target.companyId || 0))
+			await this.usersService.isSellerNetworkCompany(Number(target.companyId || 0))
 		) {
 			if (changedReferrerId) {
 				const referrer = await this.usersService.getActiveSellerReferrer(Number(target.companyId || 0), lockedReferrerId);

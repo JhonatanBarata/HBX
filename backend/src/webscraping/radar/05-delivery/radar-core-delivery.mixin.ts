@@ -773,12 +773,12 @@ export class RadarCoreDeliveryMixin {
   private async buildRadarSearchRunResponse(user: any, runId: string, options?: { skipAutoImport?: boolean }) {
     const context = this.resolveContext(user);
     await this.assertSearchRunPersistence();
-    const hbxSellerScope = this.isHbxOperationSellerUser(user) ? { userId: context.userId } : {};
+    const sellerScope = this.isCompanySellerUser(user) ? { userId: context.userId } : {};
     const run = await this.prisma.webscrapingSearchRun.findFirst({
       where: {
         id: String(runId || '').trim(),
         companyId: context.companyId,
-        ...hbxSellerScope,
+        ...sellerScope,
       },
       include: {
         items: {
@@ -794,7 +794,7 @@ export class RadarCoreDeliveryMixin {
       });
     }
     const freshRun = await this.prisma.webscrapingSearchRun.findFirst({
-      where: { id: run.id, companyId: context.companyId, ...hbxSellerScope },
+      where: { id: run.id, companyId: context.companyId, ...sellerScope },
       include: {
         items: {
           orderBy: { createdAt: 'asc' },
@@ -1300,7 +1300,7 @@ export class RadarCoreDeliveryMixin {
     }
     let claimedRows = immediateRows;
     if (immediateRows.length) {
-      const assignToUserId = this.isHbxOperationSellerUser(user) ? context.userId : null;
+      const assignToUserId = this.isCompanySellerUser(user) ? context.userId : null;
       claimedRows = await this.markRadarDelivered(context.companyId, context.userId, immediateRows, {
         assignedUserId: assignToUserId,
         assignedByUserId: assignToUserId ? context.userId : null,
@@ -1411,11 +1411,11 @@ export class RadarCoreDeliveryMixin {
   async getLatestRadarSearchRunForUser(user: any) {
     const context = this.resolveContext(user);
     await this.assertSearchRunPersistence();
-    const hbxSellerScope = this.isHbxOperationSellerUser(user) ? { userId: context.userId } : {};
+    const sellerScope = this.isCompanySellerUser(user) ? { userId: context.userId } : {};
     const run = await this.prisma.webscrapingSearchRun.findFirst({
       where: {
         companyId: context.companyId,
-        ...hbxSellerScope,
+        ...sellerScope,
         engine: 'hbx',
         status: { in: ['queued', 'running', 'sleeping', 'paused'] as any },
       },
@@ -1436,11 +1436,11 @@ export class RadarCoreDeliveryMixin {
   private async findActiveRadarRunForFilters(context: SearchExecutionContext, filters: NormalizedRadarFilters) {
     const delegate = (this.prisma as any).webscrapingSearchRun;
     if (!delegate?.findMany) return null;
-    const hbxSellerScope = this.isHbxOperationSellerUser(context.user) ? { userId: context.userId } : {};
+    const sellerScope = this.isCompanySellerUser(context.user) ? { userId: context.userId } : {};
     const activeRuns = await delegate.findMany({
       where: {
         companyId: context.companyId,
-        ...hbxSellerScope,
+        ...sellerScope,
         engine: 'hbx',
         status: { in: ['queued', 'running', 'sleeping'] as any },
       },
@@ -1456,11 +1456,11 @@ export class RadarCoreDeliveryMixin {
   private async cancelIncompatibleActiveRadarRuns(context: SearchExecutionContext, filters: NormalizedRadarFilters, keepRunId?: string | null) {
     const delegate = (this.prisma as any).webscrapingSearchRun;
     if (!delegate?.findMany) return { canceledCount: 0 };
-    const hbxSellerScope = this.isHbxOperationSellerUser(context.user) ? { userId: context.userId } : {};
+    const sellerScope = this.isCompanySellerUser(context.user) ? { userId: context.userId } : {};
     const activeRuns = await delegate.findMany({
       where: {
         companyId: context.companyId,
-        ...hbxSellerScope,
+        ...sellerScope,
         engine: 'hbx',
         status: { in: ['queued', 'running', 'sleeping'] as any },
       },
@@ -1479,7 +1479,7 @@ export class RadarCoreDeliveryMixin {
         where: {
           id: runId,
           companyId: context.companyId,
-          ...hbxSellerScope,
+          ...sellerScope,
           status: { in: ['queued', 'running', 'sleeping'] as any },
         },
         data: {
@@ -1786,7 +1786,7 @@ export class RadarCoreDeliveryMixin {
     }
     
     let claimedRows = deliveredRows;
-    const assignToUserId = this.isHbxOperationSellerUser(user) ? context.userId : null;
+    const assignToUserId = this.isCompanySellerUser(user) ? context.userId : null;
     try {
       claimedRows = await this.markRadarDelivered(context.companyId, context.userId, deliveredRows, {
         assignedUserId: assignToUserId,

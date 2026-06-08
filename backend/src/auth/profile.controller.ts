@@ -28,7 +28,7 @@ class UpdateDisplayNameDto {
 export function sanitizeUser(user: any, masterContext?: any) {
   if (!user) return null;
   const role = String(user.role || '').trim().toUpperCase();
-  const isHbxPartnerSeller = false;
+  const isReferralSeller = false;
   const userKind = user.isSystemMaster
     ? 'system_master'
     : role === 'ADMIN'
@@ -50,10 +50,10 @@ export function sanitizeUser(user: any, masterContext?: any) {
     isSystemMaster: Boolean(user.isSystemMaster),
     mustChangePassword: Boolean(user.mustChangePassword),
     sellerProfile: {
-      isHbxPartnerSeller,
-      isCommonSeller: role === 'USER' && !isHbxPartnerSeller && !user.isSystemMaster,
+      isReferralSeller,
+      isCommonSeller: role === 'USER' && !isReferralSeller && !user.isSystemMaster,
       isAdmin: role === 'ADMIN' && !user.isSystemMaster,
-      canRegisterHbxSellers: Boolean(user.canRegisterHbxSellers),
+      canRecruitSellers: Boolean(user.canRegisterHbxSellers),
       sellerReferralCommissionPercent: Number(user.sellerReferralCommissionPercent || 0) || 0,
       referredByUserId: user.referredByUserId ?? null,
     },

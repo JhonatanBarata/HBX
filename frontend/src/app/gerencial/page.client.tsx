@@ -28,7 +28,7 @@ type UserItem = {
   email?: string | null;
   phone?: string | null;
   commissionPercent?: number | null;
-  canRegisterHbxSellers?: boolean | null;
+  canRecruitSellers?: boolean | null;
   sellerReferralCommissionPercent?: number | null;
   referredByUserId?: number | null;
   referredByCommissionPercentSnapshot?: number | null;
@@ -150,7 +150,7 @@ type GerencialOverview = {
   company?: {
     id: number;
     name?: string | null;
-    isHbxSellerNetwork?: boolean | null;
+    isSellerNetwork?: boolean | null;
   } | null;
   totals: {
     conversations: number;
@@ -289,7 +289,7 @@ type CreateCompanyUserResult = {
     name?: string | null;
     phone?: string | null;
     commissionPercent?: number | null;
-    canRegisterHbxSellers?: boolean | null;
+    canRecruitSellers?: boolean | null;
     sellerReferralCommissionPercent?: number | null;
     referredByUserId?: number | null;
     referredByCommissionPercentSnapshot?: number | null;
@@ -397,7 +397,7 @@ type UserProfileDraft = {
   name: string;
   phone: string;
   commissionPercent: string;
-  canRegisterHbxSellers: boolean;
+  canRecruitSellers: boolean;
   sellerReferralCommissionPercent: string;
   referredByUserId: string;
   referredByCommissionPercentSnapshot: string;
@@ -412,7 +412,7 @@ const CREATED_PASSWORD_STORAGE_KEY = "hbx.gerencial.created-password.v1";
 const INCLUDED_TEAM_USERS = 2;
 const EXTRA_USER_MONTHLY_PRICE = 24.9;
 const SELLER_LOCKED_MODULE_KEYS = new Set(["webscraping", "gerencial", "financeiro", "cadastro", "website", "master", "exclusoes"]);
-const HBX_SELLER_OPERATIONAL_MODULE_KEYS = new Set(["vendas", "webscraping"]);
+const SELLER_OPERATIONAL_MODULE_KEYS = new Set(["vendas", "webscraping"]);
 const SELLER_WORKSPACE_MODULE_KEYS = new Set(["vendas", "atendimento", "whatsapp"]);
 const SELLER_ROLE_COPY = {
   USER: {
@@ -495,7 +495,7 @@ function buildProfileDraft(user: UserItem): UserProfileDraft {
     commissionPercent: Number(user.commissionPercent || 0).toLocaleString("pt-BR", {
       maximumFractionDigits: 2,
     }),
-    canRegisterHbxSellers: Boolean(user.canRegisterHbxSellers),
+    canRecruitSellers: Boolean(user.canRecruitSellers),
     sellerReferralCommissionPercent: Number(user.sellerReferralCommissionPercent || 0).toLocaleString("pt-BR", {
       maximumFractionDigits: 2,
     }),
@@ -712,7 +712,7 @@ function stableUserOrder(previous: UserItem[] | undefined, next: UserItem[]) {
 }
 
 async function loadReferralCandidatesIfHbxNetwork(payload: GerencialOverview) {
-  if (!payload.company?.isHbxSellerNetwork) return [];
+  if (!payload.company?.isSellerNetwork) return [];
 
   try {
     const candidatesPayload = await apiFetch<HbxReferralCandidatesResult>("/gerencial/hbx-partner-referrals/pending");
@@ -871,7 +871,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     name: "",
     phone: "",
     commissionPercent: "0",
-    canRegisterHbxSellers: false,
+    canRecruitSellers: false,
     sellerReferralCommissionPercent: "0",
     referredByUserId: "",
     referredByCommissionPercentSnapshot: "0",
@@ -893,7 +893,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         apiFetch<TeamPolicyListPayload>("/team/policies").catch(() => ({ items: [], total: 0 })),
       ]);
       const referralCandidatesPayload = await loadReferralCandidatesIfHbxNetwork(payload);
-      if (payload.company?.isHbxSellerNetwork) {
+      if (payload.company?.isSellerNetwork) {
         apiFetch<SellerContractTemplatePayload>("/gerencial/hbx-partners/onboarding/contract-template")
           .then((templatePayload) => {
             setContractTemplateDraft(templatePayload.template || "");
@@ -944,7 +944,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     return startSmartPolling(load, { intervalMs: 15000, immediate: true });
   }, [hasToken, load]);
 
-  const isHbxSellerNetwork = Boolean(data?.company?.isHbxSellerNetwork);
+  const isSellerNetwork = Boolean(data?.company?.isSellerNetwork);
   const canCreateAdminUsers = true;
   const canManageCommissionSettings = Boolean(data?.currentUser?.canManageCommissionSettings);
   const commissionDueDays = normalizeCommissionDueBusinessDays(data?.commission?.settings?.dueBusinessDays);
@@ -955,7 +955,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   }, [commissionDueDays, savingCommissionSettings]);
 
   useEffect(() => {
-    if (!isHbxSellerNetwork || newUserRole !== "USER") {
+    if (!isSellerNetwork || newUserRole !== "USER") {
       setReferralPhoneMatch(null);
       return;
     }
@@ -980,7 +980,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         .catch(() => setReferralPhoneMatch(null));
     }, 450);
     return () => window.clearTimeout(timeout);
-  }, [ignoredReferralCandidateId, isHbxSellerNetwork, newUserPhone, newUserReferralCandidateId, newUserRole, referralCandidates]);
+  }, [ignoredReferralCandidateId, isSellerNetwork, newUserPhone, newUserReferralCandidateId, newUserRole, referralCandidates]);
 
   async function setRole(userId: number, role: "USER" | "ADMIN") {
     setChangingUserId(userId);
@@ -1002,7 +1002,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                   role,
                   ...(role === "ADMIN"
                     ? {
-                        canRegisterHbxSellers: false,
+                        canRecruitSellers: false,
                         sellerReferralCommissionPercent: 0,
                         referredByUserId: null,
                         referredByCommissionPercentSnapshot: 0,
@@ -1029,10 +1029,10 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
             modules: u.modules.map((m) => {
               const companyMod = prev.modules.find((cm) => cm.key === m.key);
               const moduleKey = normalizeModuleKey(m.key);
-              const hbxSellerOperationalModule = isHbxSellerNetwork && HBX_SELLER_OPERATIONAL_MODULE_KEYS.has(moduleKey);
+              const sellerOperationalModule = isSellerNetwork && SELLER_OPERATIONAL_MODULE_KEYS.has(moduleKey);
               return {
                 ...m,
-                allowed: hbxSellerOperationalModule
+                allowed: sellerOperationalModule
                   ? true
                   : SELLER_LOCKED_MODULE_KEYS.has(moduleKey)
                   ? false
@@ -1618,7 +1618,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         name: newUserName.trim(),
         phone: newUserPhone.trim(),
         commissionPercent,
-        canRegisterHbxSellers: false,
+        canRecruitSellers: false,
         sellerDistributionDailyLimitOverride: enrichmentLimit,
       };
       if (referredByUserId) {
@@ -1659,7 +1659,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                   name: updated.name ?? newUserName.trim(),
                   phone: updated.phone ?? newUserPhone.trim(),
                   commissionPercent: updated.commissionPercent ?? commissionPercent,
-                  canRegisterHbxSellers: updated.canRegisterHbxSellers ?? false,
+                  canRecruitSellers: updated.canRecruitSellers ?? false,
                   sellerReferralCommissionPercent: updated.sellerReferralCommissionPercent ?? sellerReferralCommissionPercent,
                   referredByUserId: updated.referredByUserId ?? referredByUserId ?? null,
                   referredByCommissionPercentSnapshot: updated.referredByCommissionPercentSnapshot ?? 0,
@@ -1695,8 +1695,8 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
       focusCreateAccessEmailField();
       return;
     }
-    const shouldUseHbxNetwork = isHbxSellerNetwork && newUserRole === "USER";
-    const referredByUserId = shouldUseHbxNetwork && newUserReferredByUserId
+    const shouldUseSellerNetwork = isSellerNetwork && newUserRole === "USER";
+    const referredByUserId = shouldUseSellerNetwork && newUserReferredByUserId
       ? Number(newUserReferredByUserId)
       : undefined;
     if (referredByUserId !== undefined && (!Number.isInteger(referredByUserId) || referredByUserId <= 0)) {
@@ -1717,20 +1717,20 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
       setError("Informe uma comissão entre 0 e 100.");
       return;
     }
-    const sellerReferralCommissionPercent = shouldUseHbxNetwork
+    const sellerReferralCommissionPercent = shouldUseSellerNetwork
       ? parsePercentInput(selectedReferrer ? percentInputValue(selectedReferrer.sellerReferralCommissionPercent) : newUserSellerReferralCommissionPercent)
       : 0;
     if (sellerReferralCommissionPercent === null) {
       setError("Informe uma comissão de indicação entre 0 e 100.");
       return;
     }
-    const enrichmentLimit = shouldUseHbxNetwork ? parseEnrichmentLimitInput(newUserEnrichmentLimit) : undefined;
+    const enrichmentLimit = shouldUseSellerNetwork ? parseEnrichmentLimitInput(newUserEnrichmentLimit) : undefined;
     if (enrichmentLimit === null) {
       setError("Informe enriquecimento Auto ou um limite entre 1 e 500.");
       return;
     }
     const requiresSellerOnboarding = Boolean(
-      shouldUseHbxNetwork &&
+      shouldUseSellerNetwork &&
         (newUserRequiresDocuments ||
           Object.keys(pendingOnboardingAttachments).length ||
           Object.keys(pendingDocumentRequirements).length ||
@@ -1761,11 +1761,11 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         }
         requestBody.commissionDueBusinessDays = parsedDueDays;
       }
-      if (!(shouldUseHbxNetwork && referredByUserId)) {
+      if (!(shouldUseSellerNetwork && referredByUserId)) {
         requestBody.commissionPercent = commissionPercent;
       }
-      if (shouldUseHbxNetwork) {
-        requestBody.canRegisterHbxSellers = false;
+      if (shouldUseSellerNetwork) {
+        requestBody.canRecruitSellers = false;
         requestBody.sellerDistributionDailyLimitOverride = enrichmentLimit;
         if (newUserReferralCandidateId) {
           requestBody.referralCandidateId = newUserReferralCandidateId;
@@ -1870,23 +1870,23 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
       setError("Informe uma comissão entre 0 e 100.");
       return;
     }
-    const canEditHbxNetwork = isHbxSellerNetwork && ["USER", "ADMIN"].includes(normalizeRole(user.role, user.isSystemMaster));
-    const sellerReferralCommissionPercent = canEditHbxNetwork
+    const canEditSellerNetwork = isSellerNetwork && ["USER", "ADMIN"].includes(normalizeRole(user.role, user.isSystemMaster));
+    const sellerReferralCommissionPercent = canEditSellerNetwork
       ? parsePercentInput(profileDraft.sellerReferralCommissionPercent)
       : 0;
-    const referredByCommissionPercentSnapshot = canEditHbxNetwork
+    const referredByCommissionPercentSnapshot = canEditSellerNetwork
       ? parseOptionalPercentInput(profileDraft.referredByCommissionPercentSnapshot)
       : undefined;
     if (sellerReferralCommissionPercent === null || referredByCommissionPercentSnapshot === null) {
       setError("Informe uma comissão de indicação entre 0 e 100.");
       return;
     }
-    const enrichmentLimit = canEditHbxNetwork ? parseEnrichmentLimitInput(profileDraft.enrichmentLimit) : undefined;
+    const enrichmentLimit = canEditSellerNetwork ? parseEnrichmentLimitInput(profileDraft.enrichmentLimit) : undefined;
     if (enrichmentLimit === null) {
       setError("Informe enriquecimento Auto ou um limite entre 1 e 500.");
       return;
     }
-    const referredByUserId = canEditHbxNetwork && profileDraft.referredByUserId
+    const referredByUserId = canEditSellerNetwork && profileDraft.referredByUserId
       ? Number(profileDraft.referredByUserId)
       : undefined;
     if (referredByUserId !== undefined && (!Number.isInteger(referredByUserId) || referredByUserId <= 0)) {
@@ -1902,8 +1902,8 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         phone: profileDraft.phone,
         commissionPercent,
       };
-      if (canEditHbxNetwork) {
-        requestBody.canRegisterHbxSellers = false;
+      if (canEditSellerNetwork) {
+        requestBody.canRecruitSellers = false;
         requestBody.sellerDistributionDailyLimitOverride = enrichmentLimit;
         if (referredByUserId) {
           if (referredByUserId !== Number(user.referredByUserId || 0)) {
@@ -1930,7 +1930,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                   name: updated.name ?? null,
                   phone: updated.phone ?? null,
                   commissionPercent: updated.commissionPercent ?? 0,
-                  canRegisterHbxSellers: updated.canRegisterHbxSellers ?? false,
+                  canRecruitSellers: updated.canRecruitSellers ?? false,
                   sellerReferralCommissionPercent: updated.sellerReferralCommissionPercent ?? 0,
                   referredByUserId: updated.referredByUserId ?? null,
                   referredByCommissionPercentSnapshot: updated.referredByCommissionPercentSnapshot ?? 0,
@@ -1955,9 +1955,9 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     const targetUser = data?.users.find((user) => user.id === userId);
     const role = normalizeRole(targetUser?.role, targetUser?.isSystemMaster);
     if (
-      isHbxSellerNetwork &&
+      isSellerNetwork &&
       role === "USER" &&
-      HBX_SELLER_OPERATIONAL_MODULE_KEYS.has(normalizeModuleKey(moduleKey))
+      SELLER_OPERATIONAL_MODULE_KEYS.has(normalizeModuleKey(moduleKey))
     ) {
       return;
     }
@@ -2006,11 +2006,11 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         commissionPercent: policy.compensation.commissionPercent,
         commissionDueBusinessDays: policy.compensation.commissionDueBusinessDays,
       },
-      hbxNetwork: {
-        canRegisterHbxSellers: policy.hbxNetwork.canRegisterHbxSellers,
-        sellerReferralCommissionPercent: policy.hbxNetwork.sellerReferralCommissionPercent,
-        referredByUserId: policy.hbxNetwork.referredByUserId,
-        referredByCommissionPercentSnapshot: policy.hbxNetwork.referredByCommissionPercentSnapshot,
+      sellerNetwork: {
+        canRecruitSellers: policy.sellerNetwork.canRecruitSellers,
+        sellerReferralCommissionPercent: policy.sellerNetwork.sellerReferralCommissionPercent,
+        referredByUserId: policy.sellerNetwork.referredByUserId,
+        referredByCommissionPercentSnapshot: policy.sellerNetwork.referredByCommissionPercentSnapshot,
       },
       limits: Object.fromEntries(
         Object.entries(policy.limits).map(([key, limit]) => [
@@ -2032,7 +2032,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
       visibility: {
         sellerCanViewOwnPolicy: policy.visibility.sellerCanViewOwnPolicy,
         sellerCanViewCommission: policy.visibility.sellerCanViewCommission,
-        sellerCanViewHbxNetwork: policy.visibility.sellerCanViewHbxNetwork,
+        sellerCanViewSellerNetwork: policy.visibility.sellerCanViewSellerNetwork,
         sellerCanViewLimits: policy.visibility.sellerCanViewLimits,
       },
     };
@@ -2070,11 +2070,11 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
             ? {
                 ...item,
                 commissionPercent: policy.compensation.commissionPercent,
-                canRegisterHbxSellers: policy.hbxNetwork.canRegisterHbxSellers,
-                sellerReferralCommissionPercent: policy.hbxNetwork.sellerReferralCommissionPercent,
-                referredByUserId: policy.hbxNetwork.referredByUserId,
-                referredByCommissionPercentSnapshot: policy.hbxNetwork.referredByCommissionPercentSnapshot,
-                referredByUser: policy.hbxNetwork.referredByUser,
+                canRecruitSellers: policy.sellerNetwork.canRecruitSellers,
+                sellerReferralCommissionPercent: policy.sellerNetwork.sellerReferralCommissionPercent,
+                referredByUserId: policy.sellerNetwork.referredByUserId,
+                referredByCommissionPercentSnapshot: policy.sellerNetwork.referredByCommissionPercentSnapshot,
+                referredByUser: policy.sellerNetwork.referredByUser,
                 sellerDistributionDailyLimitOverride: teamPolicyLegacyEnrichmentOverride(policy),
               }
             : item,
@@ -2376,20 +2376,20 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   }, [data?.users]);
   const hbxReferrers = useMemo(
     () =>
-      isHbxSellerNetwork
+      isSellerNetwork
         ? (data?.users || []).filter(
             (user) =>
               user.isActive &&
               normalizeRole(user.role, user.isSystemMaster) === "USER",
           )
         : [],
-    [data?.users, isHbxSellerNetwork],
+    [data?.users, isSellerNetwork],
   );
   const selectedNewUserReferrer = useMemo(
     () => hbxReferrers.find((referrer) => String(referrer.id) === newUserReferredByUserId) || null,
     [hbxReferrers, newUserReferredByUserId],
   );
-  const hbxNetworkStats = useMemo(() => {
+  const sellerNetworkStats = useMemo(() => {
     const sellers = (data?.users || []).filter((user) => normalizeRole(user.role, user.isSystemMaster) === "USER");
     return {
       authorized: sellers.filter((user) => Boolean(user.isActive)).length,
@@ -2556,7 +2556,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   }
 
   function renderReferralCandidatesPanel(surface: "mobile" | "desktop" = "desktop") {
-    if (!isHbxSellerNetwork) return null;
+    if (!isSellerNetwork) return null;
     return (
       <ReferralCandidatesPanel
         surface={surface}
@@ -2579,8 +2579,8 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         ? user.referredByUser
         : null;
     const role = normalizeRole(user.role, user.isSystemMaster);
-    const showHbxNetwork = isHbxSellerNetwork && role === "USER";
-    const profileHasReferrer = showHbxNetwork && Boolean(profileDraft.referredByUserId);
+    const showSellerNetwork = isSellerNetwork && role === "USER";
+    const profileHasReferrer = showSellerNetwork && Boolean(profileDraft.referredByUserId);
 
     return (
       <form
@@ -2601,7 +2601,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
           placeholder={profileHasReferrer ? "Comissão herdada" : "Comissão %"}
         />
 
-        {showHbxNetwork ? (
+        {showSellerNetwork ? (
           <>
             <label className="flex items-start gap-3 rounded-[14px] border border-[var(--hbx-mobile-border)] bg-[var(--hbx-mobile-surface)] p-3 text-sm">
               <span>
@@ -2682,7 +2682,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     const isAdmin = role === "ADMIN";
     const isMaster = role === "USERMASTER";
     const isSeller = role === "USER";
-    const showHbxNetwork = isHbxSellerNetwork && isSeller;
+    const showSellerNetwork = isSellerNetwork && isSeller;
     const userModules = moduleAccess?.users.find((item) => item.id === user.id)?.modules || [];
     const seatRank = activeSeatRankByUserId.get(user.id) || 0;
     const isExtraSeat = isSeller && user.isActive && seatRank > INCLUDED_TEAM_USERS;
@@ -2722,7 +2722,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
           </div>
         ) : null}
 
-        {showHbxNetwork && !options.modulesOnly ? (
+        {showSellerNetwork && !options.modulesOnly ? (
           <div className="grid grid-cols-2 gap-2 text-sm">
             <div className="rounded-[14px] border border-[var(--hbx-mobile-border)] bg-[var(--hbx-mobile-surface-soft)] p-2">
               <span className="block text-[0.66rem] text-[var(--hbx-mobile-muted)]">Indicações</span>
@@ -2739,7 +2739,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
           </div>
         ) : null}
 
-        {isEditingProfile && !options.modulesOnly && !showHbxNetwork ? renderMobileProfileForm(user) : null}
+        {isEditingProfile && !options.modulesOnly && !showSellerNetwork ? renderMobileProfileForm(user) : null}
         {!options.modulesOnly ? (
           <div className="grid grid-cols-2 gap-2">
             <button type="button" disabled={deletingUserId === user.id || changingUserId === user.id || !user.isActive || role === "USER"} onClick={() => setRole(user.id, "USER")} className="hbx-mobile-secondary-button">
@@ -2752,7 +2752,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
               type="button"
               disabled={deletingUserId === user.id || savingProfileUserId === user.id}
               onClick={() => {
-                if (showHbxNetwork) void openSellerCadastroPopup(user);
+                if (showSellerNetwork) void openSellerCadastroPopup(user);
                 else startEditingProfile(user);
               }}
               className="hbx-mobile-secondary-button"
@@ -2763,12 +2763,12 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
               type="button"
               disabled={deletingUserId === user.id || togglingActiveUserId === user.id}
               onClick={() => {
-                if (!user.isActive && showHbxNetwork) void openSellerCadastroPopup(user);
+                if (!user.isActive && showSellerNetwork) void openSellerCadastroPopup(user);
                 else toggleActive(user.id, Boolean(user.isActive));
               }}
               className={user.isActive ? "hbx-mobile-secondary-button" : "hbx-mobile-primary-button"}
             >
-              {user.isActive ? "Desativar" : isHbxSellerNetwork && isSeller ? "Liberar vendedor" : "Reativar"}
+              {user.isActive ? "Desativar" : isSellerNetwork && isSeller ? "Liberar vendedor" : "Reativar"}
             </button>
             <button type="button" disabled={deletingUserId === user.id} onClick={() => void deleteUser(user)} className="hbx-mobile-secondary-button col-span-2 text-red-700">
               {deletingUserId === user.id ? "Excluindo..." : "Excluir"}
@@ -2787,19 +2787,19 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
               {enabledModules.map((mod) => {
                 const row = userModules.find((item) => item.key === mod.key);
                 const moduleKey = normalizeModuleKey(mod.key);
-                const hbxSellerOperationalModule = showHbxNetwork && HBX_SELLER_OPERATIONAL_MODULE_KEYS.has(moduleKey);
-                const lockedForSeller = !hbxSellerOperationalModule && SELLER_LOCKED_MODULE_KEYS.has(moduleKey);
-                const allowed = hbxSellerOperationalModule || (!lockedForSeller && (row ? row.allowed : Boolean(mod.companyEnabled)));
+                const sellerOperationalModule = showSellerNetwork && SELLER_OPERATIONAL_MODULE_KEYS.has(moduleKey);
+                const lockedForSeller = !sellerOperationalModule && SELLER_LOCKED_MODULE_KEYS.has(moduleKey);
+                const allowed = sellerOperationalModule || (!lockedForSeller && (row ? row.allowed : Boolean(mod.companyEnabled)));
                 return (
                   <button
                     key={`${user.id}-mobile-${mod.key}`}
                     type="button"
-                    disabled={hbxSellerOperationalModule || lockedForSeller || savingModuleUserId === user.id || !user.isActive}
+                    disabled={sellerOperationalModule || lockedForSeller || savingModuleUserId === user.id || !user.isActive}
                     onClick={() => toggleUserModule(user.id, mod.key)}
                     className={allowed && user.isActive ? "hbx-mobile-primary-button" : "hbx-mobile-secondary-button"}
-                    title={hbxSellerOperationalModule ? "Módulo padrão do vendedor" : undefined}
+                    title={sellerOperationalModule ? "Módulo padrão do vendedor" : undefined}
                   >
-                    {moduleLabel(mod)} {hbxSellerOperationalModule ? "ON padrão" : lockedForSeller ? "bloqueado" : allowed ? "ON" : "OFF"}
+                    {moduleLabel(mod)} {sellerOperationalModule ? "ON padrão" : lockedForSeller ? "bloqueado" : allowed ? "ON" : "OFF"}
                   </button>
                 );
               })}
@@ -3328,9 +3328,9 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                 <div><strong className="block text-lg">{teamStats.admins}</strong><span className="text-xs text-[var(--hbx-mobile-muted)]">Admins</span></div>
                 <div><strong className="block text-lg">{teamStats.extraSeats}</strong><span className="text-xs text-[var(--hbx-mobile-muted)]">Extras</span></div>
               </div>
-              {isHbxSellerNetwork ? (
+              {isSellerNetwork ? (
                 <p className="rounded-[16px] border border-[var(--hbx-mobile-border)] bg-[var(--hbx-mobile-surface-soft)] p-3 text-sm">
-                  Indicações: {hbxNetworkStats.authorized} vendedor(es) indicam, {hbxNetworkStats.referred} vieram por indicação.
+                  Indicações: {sellerNetworkStats.authorized} vendedor(es) indicam, {sellerNetworkStats.referred} vieram por indicação.
                 </p>
               ) : null}
             </section>
@@ -3861,8 +3861,8 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                 const isAdmin = role === "ADMIN";
                 const isMaster = role === "USERMASTER";
                 const isSeller = role === "USER";
-                const showHbxNetwork = isHbxSellerNetwork && isSeller;
-                const profileHasReferrer = showHbxNetwork && Boolean(profileDraft.referredByUserId);
+                const showSellerNetwork = isSellerNetwork && isSeller;
+                const profileHasReferrer = showSellerNetwork && Boolean(profileDraft.referredByUserId);
                 const editableReferrers = hbxReferrers.filter((referrer) => referrer.id !== user.id);
                 const currentReferrerOption =
                   user.referredByUser && !editableReferrers.some((referrer) => referrer.id === user.referredByUser?.id)
@@ -3924,7 +3924,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                     </div>
                     ) : null}
 
-                    {showDesktopTeam && showHbxNetwork ? (
+                    {showDesktopTeam && showSellerNetwork ? (
                       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2">
                         <div className="min-w-0 rounded-[12px] border border-[var(--line)] bg-[var(--surface)] p-3">
                           <p className="text-xs text-muted">Indicações</p>
@@ -3977,18 +3977,18 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                         type="button"
                         disabled={deletingUserId === user.id || togglingActiveUserId === user.id}
                         onClick={() => {
-                          if (!user.isActive && showHbxNetwork) void openSellerCadastroPopup(user);
+                          if (!user.isActive && showSellerNetwork) void openSellerCadastroPopup(user);
                           else toggleActive(user.id, Boolean(user.isActive));
                         }}
                         className={`btn btn-sm ${user.isActive ? "btn-secondary" : "btn-primary"}`}
                       >
-                        {user.isActive ? "Desativar" : isHbxSellerNetwork && isSeller ? "Liberar vendedor" : "Reativar"}
+                        {user.isActive ? "Desativar" : isSellerNetwork && isSeller ? "Liberar vendedor" : "Reativar"}
                       </button>
                       <button
                         type="button"
                         disabled={deletingUserId === user.id || savingProfileUserId === user.id}
                         onClick={() => {
-                          if (showHbxNetwork) void openSellerCadastroPopup(user);
+                          if (showSellerNetwork) void openSellerCadastroPopup(user);
                           else startEditingProfile(user);
                         }}
                         className="btn btn-ghost btn-sm"
@@ -4014,7 +4014,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                     </div>
                     ) : null}
 
-                    {showDesktopTeam && isEditingProfile && !showHbxNetwork ? (
+                    {showDesktopTeam && isEditingProfile && !showSellerNetwork ? (
                       <form
                         onSubmit={(event) => {
                           event.preventDefault();
@@ -4053,7 +4053,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                             className="field disabled:opacity-60"
                           />
                         </label>
-                        {showHbxNetwork ? (
+                        {showSellerNetwork ? (
                           <div className="md:col-span-3 rounded-[12px] border border-[var(--line)] bg-[var(--surface-soft)] p-3">
                             <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
                               <div className="min-w-0">
@@ -4178,15 +4178,15 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                             enabledModules.map((mod) => {
                               const row = userModules.find((item) => item.key === mod.key);
                               const moduleKey = normalizeModuleKey(mod.key);
-                              const hbxSellerOperationalModule = showHbxNetwork && HBX_SELLER_OPERATIONAL_MODULE_KEYS.has(moduleKey);
-                              const lockedForSeller = !hbxSellerOperationalModule && SELLER_LOCKED_MODULE_KEYS.has(moduleKey);
+                              const sellerOperationalModule = showSellerNetwork && SELLER_OPERATIONAL_MODULE_KEYS.has(moduleKey);
+                              const lockedForSeller = !sellerOperationalModule && SELLER_LOCKED_MODULE_KEYS.has(moduleKey);
                               const workspaceModule = SELLER_WORKSPACE_MODULE_KEYS.has(moduleKey);
-                              const allowed = hbxSellerOperationalModule || (!lockedForSeller && (row ? row.allowed : Boolean(mod.companyEnabled)));
+                              const allowed = sellerOperationalModule || (!lockedForSeller && (row ? row.allowed : Boolean(mod.companyEnabled)));
                               return (
                                 <button
                                   key={`${user.id}-${mod.key}`}
                                   type="button"
-                                  disabled={hbxSellerOperationalModule || lockedForSeller || savingModuleUserId === user.id || !user.isActive}
+                                  disabled={sellerOperationalModule || lockedForSeller || savingModuleUserId === user.id || !user.isActive}
                                   onClick={() => toggleUserModule(user.id, mod.key)}
                                   className={`btn btn-sm ${
                                     lockedForSeller
@@ -4198,14 +4198,14 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                                           : "btn-ghost"
                                   }`}
                                   title={
-                                    hbxSellerOperationalModule
+                                    sellerOperationalModule
                                       ? "Módulo padrão do vendedor"
                                       : lockedForSeller
                                         ? "Perfil vendedor não acessa este módulo"
                                         : "Clique para alternar"
                                   }
                                 >
-                                  {moduleLabel(mod)}: {hbxSellerOperationalModule ? "ON padrão" : lockedForSeller ? "bloqueado" : allowed && user.isActive ? "ON" : "OFF"}
+                                  {moduleLabel(mod)}: {sellerOperationalModule ? "ON padrão" : lockedForSeller ? "bloqueado" : allowed && user.isActive ? "ON" : "OFF"}
                                 </button>
                               );
                             })

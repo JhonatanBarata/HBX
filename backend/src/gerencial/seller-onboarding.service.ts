@@ -23,7 +23,7 @@ type UpdateDraftInput = {
   commissionPercent?: unknown;
   commissionRecurring?: unknown;
   commissionDueBusinessDays?: unknown;
-  canRegisterHbxSellers?: unknown;
+  canRecruitSellers?: unknown;
   sellerReferralCommissionPercent?: unknown;
   referredByUserId?: unknown;
   referredByCommissionPercentSnapshot?: unknown;
@@ -306,7 +306,7 @@ export class SellerOnboardingService {
     const token = String(rawToken || '').trim();
     if (!token) {
       throw new BadRequestException({
-        code: 'HBX_SELLER_ONBOARDING_LINK_INVALID',
+        code: 'SELLER_ONBOARDING_LINK_INVALID',
         message: 'Link de documentos inválido.',
       });
     }
@@ -327,18 +327,18 @@ export class SellerOnboardingService {
     });
     if (!user) {
       throw new BadRequestException({
-        code: 'HBX_SELLER_ONBOARDING_LINK_INVALID',
+        code: 'SELLER_ONBOARDING_LINK_INVALID',
         message: 'Link de documentos inválido ou já utilizado.',
       });
     }
     if (!user.emailConfirmationExpiresAt || user.emailConfirmationExpiresAt.getTime() < Date.now()) {
       throw new BadRequestException({
-        code: 'HBX_SELLER_ONBOARDING_LINK_EXPIRED',
-        message: 'Link de documentos expirado. Solicite um novo envio ao HBX.',
+        code: 'SELLER_ONBOARDING_LINK_EXPIRED',
+        message: 'Link de documentos expirado. Solicite um novo envio ao responsável.',
       });
     }
     const companyId = Number(user.companyId || 0);
-    await this.assertHbxSellerNetworkCompany(companyId);
+    await this.assertSellerNetworkCompany(companyId);
     await this.requirePartnerUserInCompany(companyId, user.id);
     const onboarding = await this.getOrCreateForUser(companyId, user.id, null);
     return { user, companyId, onboarding };
@@ -484,7 +484,7 @@ export class SellerOnboardingService {
       commissionPercent: onboarding.commissionPercent,
       commissionDueBusinessDays: onboarding.commissionDueBusinessDays,
       contractDate: new Date().toLocaleDateString('pt-BR'),
-      canRegisterHbxSellers: onboarding.canRegisterHbxSellers,
+      canRecruitSellers: onboarding.canRegisterHbxSellers,
       sellerReferralCommissionPercent: onboarding.sellerReferralCommissionPercent,
       referredByName: onboarding.referredByNameSnapshot,
     };
@@ -516,7 +516,7 @@ export class SellerOnboardingService {
   }
 
   async getContractTemplate(companyId: number) {
-    await this.assertHbxSellerNetworkCompany(companyId);
+    await this.assertSellerNetworkCompany(companyId);
     return {
       template: await this.readCompanyContractTemplate(companyId),
       defaultTemplate: DEFAULT_SELLER_PARTNER_CONTRACT_TEMPLATE,
@@ -537,7 +537,7 @@ export class SellerOnboardingService {
   }
 
   async updateContractTemplate(companyId: number, dto: { template?: unknown }) {
-    await this.assertHbxSellerNetworkCompany(companyId);
+    await this.assertSellerNetworkCompany(companyId);
     const template = normalizeContractText(dto?.template, 30000);
     if (!template) throw new BadRequestException('Informe o modelo do contrato.');
     await mkdir(sellerOnboardingContractTemplateDir(), { recursive: true });
@@ -681,7 +681,7 @@ export class SellerOnboardingService {
   }
 
   async getOrCreateForUser(companyId: number, userId: number, createdByUserId?: number | null) {
-    await this.assertHbxSellerNetworkCompany(companyId);
+    await this.assertSellerNetworkCompany(companyId);
     const { user, company } = await this.requirePartnerUserInCompany(companyId, userId);
     const existing = await this.prisma.sellerOnboarding.findUnique({
       where: { companyId_userId: { companyId, userId } },
@@ -726,7 +726,7 @@ export class SellerOnboardingService {
   }
 
   async updateDraft(companyId: number, userId: number, dto: UpdateDraftInput) {
-    await this.assertHbxSellerNetworkCompany(companyId);
+    await this.assertSellerNetworkCompany(companyId);
     const onboarding = await this.getOrCreateForUser(companyId, userId, null);
     const referrerId = Number(dto.referredByUserId ?? onboarding.referredByUserId ?? 0) || null;
     const referredByNameSnapshot = referrerId
@@ -764,7 +764,9 @@ export class SellerOnboardingService {
         commissionPercent: normalizePercent(dto.commissionPercent, onboarding.commissionPercent),
         commissionRecurring: typeof dto.commissionRecurring === 'boolean' ? dto.commissionRecurring : onboarding.commissionRecurring,
         commissionDueBusinessDays: normalizeDueDays(dto.commissionDueBusinessDays, onboarding.commissionDueBusinessDays),
-        canRegisterHbxSellers: false,
+        canRegisterHbxSellers: typeof dto.canRecruitSellers === 'boolean'
+          ? dto.canRecruitSellers
+          : onboarding.canRegisterHbxSellers,
         sellerReferralCommissionPercent: normalizePercent(dto.sellerReferralCommissionPercent, onboarding.sellerReferralCommissionPercent),
         referredByUserId: referrerId,
         referredByNameSnapshot,
@@ -824,7 +826,7 @@ export class SellerOnboardingService {
       data: {
         onboardingId: onboarding.id,
         kind: GENERATED_CONTRACT_KIND,
-        originalFilename: 'contrato-parceria-hbx.pdf',
+        originalFilename: 'contrato-parceria-vendedor.pdf',
         storedFilename,
         storagePath,
         contentType: 'application/pdf',
@@ -1266,7 +1268,7 @@ export class SellerOnboardingService {
       : null;
   }
 
-  private async assertHbxSellerNetworkCompany(companyId: number) {
+  private async assertSellerNetworkCompany(companyId: number) {
     const company = await this.prisma.company.findUnique({
       where: { id: Number(companyId) },
       select: { companyKind: true },

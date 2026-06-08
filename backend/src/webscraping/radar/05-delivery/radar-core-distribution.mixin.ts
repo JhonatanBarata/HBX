@@ -382,7 +382,7 @@ export class RadarCoreDistributionMixin {
     const targetUsers = targetUserIds.length
       ? activeSellers.filter((seller) => targetSet.has(Number(seller.id || 0)))
       : activeSellers;
-    const territories = this.parseMasterRadarTerritories(row?.filtersJson);
+    const territories = this.parseRadarTerritories(row?.filtersJson);
     const territoryByUserId = new Map(territories.map((item) => [Number(item.userId || 0), item]));
     return {
       id: row?.id || null,
@@ -567,8 +567,8 @@ export class RadarCoreDistributionMixin {
     const activeSellerIds = new Set(activeSellers.map((seller) => Number(seller.id || 0)));
     const sourceTerritories = Array.isArray(input.territories)
       ? input.territories
-      : this.parseMasterRadarTerritories(existing?.filtersJson);
-    const normalizedTerritories = this.parseMasterRadarTerritories(sourceTerritories)
+      : this.parseRadarTerritories(existing?.filtersJson);
+    const normalizedTerritories = this.parseRadarTerritories(sourceTerritories)
       .filter((item) => activeSellerIds.has(Number(item.userId || 0)))
       .map((item) => ({ userId: item.userId, cities: item.cities.slice(0, 20) }))
       .filter((item) => item.cities.length > 0);
@@ -739,7 +739,7 @@ export class RadarCoreDistributionMixin {
       context.companyId,
       selectedTargetIds.length ? selectedTargetIds : undefined,
     );
-    const sellerTerritories = this.parseMasterRadarTerritories(rule?.filtersJson);
+    const sellerTerritories = this.parseRadarTerritories(rule?.filtersJson);
     const territoryModeFixed = sellerTerritories.some((territory) => territory.cities.length > 0);
     const territoryByUserId = new Map(sellerTerritories.map((territory) => [Number(territory.userId || 0), territory]));
     const selectedCityKey = `${normalizeLookupValue(rule?.preferredCity || '')}:${String(rule?.preferredState || '').trim().toUpperCase()}`;
@@ -1013,7 +1013,7 @@ export class RadarCoreDistributionMixin {
       const dueBefore = new Date(Date.now() - 2 * 60_000);
       const rules = await this.prisma.radarAutoDistributionRule.findMany({
         where: {
-          scope: { in: ['company', 'hbx_master'] },
+          scope: { in: ['company', 'tenant_distribution'] },
           status: 'active',
           OR: [
             { lastRunAt: null },
@@ -1024,14 +1024,14 @@ export class RadarCoreDistributionMixin {
         take: 8,
       }).catch(() => []);
       for (const rule of rules || []) {
-        if (String(rule?.scope || '') === 'hbx_master') {
-          const masterUser = await this.resolveMasterRadarDistributionWorkerUser(rule);
-          if (!masterUser) continue;
-          await this.executeMasterRadarAutoDistributionRule(masterUser, rule, {
+        if (String(rule?.scope || '') === 'tenant_distribution') {
+          const adminUser = await this.resolveRadarAutoDistributionAdminUser(rule);
+          if (!adminUser) continue;
+          await this.executeRadarTenantDistributionRule(this.buildRadarAutoDistributionUser(adminUser), rule, {
             limit: 40,
             triggeredBy: 'worker',
           }).catch((error: any) => {
-            this.logger.warn(`[radar-auto-distribution] execucao HBX ignorada rule=${rule?.id || '-'} company=${rule?.companyId || '-'}: ${String(error?.message || error)}`);
+            this.logger.warn(`[radar-auto-distribution] execucao tenant_distribution ignorada rule=${rule?.id || '-'} company=${rule?.companyId || '-'}: ${String(error?.message || error)}`);
           });
           continue;
         }
@@ -1049,7 +1049,7 @@ export class RadarCoreDistributionMixin {
     }
   }
 
-  private parseMasterRadarTerritories(value: unknown): Array<{ userId: number; cities: Array<{ city: string; state: string }> }> {
+  private parseRadarTerritories(value: unknown): Array<{ userId: number; cities: Array<{ city: string; state: string }> }> {
     const parsed = this.parseMaybeJsonObject(value);
     const source = Array.isArray(parsed?.territories) ? parsed.territories : Array.isArray(value) ? value : [];
     return (source as any[])
@@ -1069,54 +1069,15 @@ export class RadarCoreDistributionMixin {
       .filter((item) => item.userId > 0);
   }
 
-  private async resolveMasterRadarDistributionWorkerUser(rule: any) {
-    const companyId = Math.trunc(Number(rule?.companyId || 0));
-    if (!companyId) return null;
-    const preferredUserId = Math.trunc(Number(rule?.updatedByUserId || rule?.createdByUserId || 0)) || 0;
-    const select = {
-      id: true,
-      companyId: true,
-      role: true,
-      isSystemMaster: true,
-      isActive: true,
-    } as const;
-    const preferred = preferredUserId
-      ? await this.prisma.user.findFirst({
-          where: { id: preferredUserId, isActive: true, isSystemMaster: true },
-          select,
-        }).catch(() => null)
-      : null;
-    const user = preferred || await this.prisma.user.findFirst({
-      where: { isActive: true, isSystemMaster: true },
-      select,
-      orderBy: { id: 'asc' },
-    }).catch(() => null);
-    if (!user?.id) return null;
-    return {
-      id: Number(user.id),
-      companyId,
-      role: String(user.role || 'USERMASTER'),
-      isSystemMaster: true,
-      masterContext: {
-        active: true,
-        companyId,
-        mode: 'master_operational',
-      },
-    };
-  }
-
-  private async resolveMasterRadarDistributionCompanyId(user: any) {
+  private async resolveRadarDistributionCompanyId(user: any) {
+    const assumedCompanyId = Math.trunc(Number(user?.masterContext?.active ? user?.masterContext?.companyId : 0)) || null;
+    if (assumedCompanyId) return assumedCompanyId;
     const directCompanyId = Math.trunc(Number(user?.companyId || 0)) || null;
     if (directCompanyId) return directCompanyId;
-    const masterUser = await this.prisma.user.findFirst({
-      where: { isSystemMaster: true, companyId: { not: null } },
-      select: { companyId: true },
-      orderBy: { id: 'asc' },
-    }).catch(() => null);
-    return Math.trunc(Number(masterUser?.companyId || 0)) || 0;
+    return 0;
   }
 
-  private async listMasterRadarDistributionSellers(companyId: number): Promise<any[]> {
+  private async listRadarDistributionSellers(companyId: number): Promise<any[]> {
     const where = {
       companyId,
       isActive: true,
@@ -1160,7 +1121,7 @@ export class RadarCoreDistributionMixin {
         select: baseSelect,
         orderBy,
       }).catch((fallbackError: any) => {
-        this.logger.warn(`[radar-auto-distribution] falha ao listar vendedores HBX company=${companyId}: ${String(fallbackError?.message || fallbackError)}`);
+        this.logger.warn(`[radar-auto-distribution] falha ao listar vendedores company=${companyId}: ${String(fallbackError?.message || fallbackError)}`);
         return [];
       });
     });
@@ -1196,7 +1157,7 @@ export class RadarCoreDistributionMixin {
     return output;
   }
 
-  private async listMasterRadarCitySuggestions() {
+  private async listRadarCitySuggestions() {
     const radarLeadPool = (this.prisma as any).radarLeadPool;
     if (!radarLeadPool?.findMany) return [];
     const rows = await radarLeadPool.findMany({
@@ -1229,7 +1190,7 @@ export class RadarCoreDistributionMixin {
       .slice(0, 60);
   }
 
-  private buildMasterRadarCityBalance(
+  private buildRadarCityBalance(
     citySuggestions: Array<{ city: string; state: string; normalizedCity?: string; availableCards?: number }>,
     territories: Array<{ userId: number; cities: Array<{ city: string; state: string }> }>,
     potentialByCity: Map<string, number>,
@@ -1330,7 +1291,7 @@ export class RadarCoreDistributionMixin {
     }).slice(0, 80);
   }
 
-  private async queryMasterRadarTerritoryRows(
+  private async queryRadarTerritoryRows(
     companyId: number,
     cities: Array<{ city: string; state: string }>,
     limit: number,
@@ -1410,13 +1371,13 @@ export class RadarCoreDistributionMixin {
     ))).slice(0, safeLimit);
   }
 
-  private async executeMasterRadarAutoDistributionRule(
+  private async executeRadarTenantDistributionRule(
     user: any,
     rule: any,
     options: { limit?: number; triggeredBy?: 'manual' | 'worker' } = {},
   ) {
     if (!this.vendasService) {
-      throw new ServiceUnavailableException('Servico de Vendas indisponivel para distribuicao HBX Master.');
+      throw new ServiceUnavailableException('Servico de Vendas indisponivel para distribuicao do tenant.');
     }
     if (!(await this.supportsRadarPersistence())) {
       throw new ServiceUnavailableException('Banco do Radar ainda nao foi migrado neste ambiente.');
@@ -1424,13 +1385,13 @@ export class RadarCoreDistributionMixin {
     const context = this.resolveContext(user);
     const status = this.normalizeRadarAutoDistributionStatus(rule?.status);
     if (status !== 'active') {
-      throw new BadRequestException('DistribuiÃ§Ã£o HBX Master precisa estar ativa.');
+      throw new BadRequestException('Distribuicao do tenant precisa estar ativa.');
     }
-    const territories = this.parseMasterRadarTerritories(rule?.filtersJson).filter((item) => item.cities.length > 0);
+    const territories = this.parseRadarTerritories(rule?.filtersJson).filter((item) => item.cities.length > 0);
     if (!territories.length) {
-      throw new BadRequestException('Nenhum territÃ³rio HBX Master configurado.');
+      throw new BadRequestException('Nenhum territorio do tenant configurado.');
     }
-    const activeSellers = await this.listMasterRadarDistributionSellers(context.companyId);
+    const activeSellers = await this.listRadarDistributionSellers(context.companyId);
     const sellerById = new Map(activeSellers.map((seller) => [Number(seller.id || 0), seller]));
     const targetStockPerSeller = Math.max(1, Math.trunc(Number(rule?.targetStockPerSeller || 30) || 30));
     const dailyLimitPerSeller = this.normalizeDailyDistributionLimit((rule as any)?.dailyLimitPerSeller, 20);
@@ -1519,7 +1480,7 @@ export class RadarCoreDistributionMixin {
     if (runLimit > 0) {
       for (const recipient of recipients) {
         if (recipient.remaining <= 0) continue;
-        recipient.candidates = await this.queryMasterRadarTerritoryRows(
+        recipient.candidates = await this.queryRadarTerritoryRows(
           context.companyId,
           recipient.cities,
           Math.min(160, Math.max(recipient.remaining * 6, 24)),
@@ -1564,7 +1525,7 @@ export class RadarCoreDistributionMixin {
             } catch (error: any) {
               const reason = String(error?.response?.message || error?.message || error || 'Falha ao distribuir card HBX.');
               failures.push({ radarLeadId: leadId, target: recipient.label, error: reason });
-              this.logger.warn(`[radar-auto-distribution] HBX lead ignorado company=${context.companyId} lead=${leadId} target=${recipient.userId}: ${reason}`);
+              this.logger.warn(`[radar-auto-distribution] lead ignorado company=${context.companyId} lead=${leadId} target=${recipient.userId}: ${reason}`);
               if (this.isRadarAutoImportLimitError(error)) {
                 blockedByLimit = true;
                 break;
@@ -1589,18 +1550,18 @@ export class RadarCoreDistributionMixin {
     const dailyBlockedCount = recipients.filter((recipient) => recipient.noDeliveryReason).length;
     const message = deliveredCount > 0
       ? shortageCount > 0
-        ? `${deliveredCount} card(s) HBX distribuÃ­dos. Ainda faltam ${shortageCount} para completar os estoques.`
-        : `${deliveredCount} card(s) HBX distribuÃ­dos por cidade fixa.`
+        ? `${deliveredCount} card(s) distribuÃ­dos. Ainda faltam ${shortageCount} para completar os estoques.`
+        : `${deliveredCount} card(s) distribuÃ­dos por cidade fixa.`
       : totalNeeded <= 0
         ? dailyBlockedCount > 0
-          ? 'DistribuiÃ§Ã£o HBX nÃ£o acumulativa: vendedor(es) jÃ¡ atingiram o limite diÃ¡rio.'
-          : 'Todos os vendedores HBX jÃ¡ estÃ£o no estoque configurado.'
+          ? 'DistribuiÃ§Ã£o nÃ£o acumulativa: vendedor(es) jÃ¡ atingiram o limite diÃ¡rio.'
+          : 'Todos os vendedores jÃ¡ estÃ£o no estoque configurado.'
         : 'Sem cards disponÃ­veis nas cidades fixas agora. A fÃ¡brica pode abastecer o banco e o robÃ´ tenta novamente.';
 
     return {
       ok: true,
       ran: true,
-      mode: 'hbx_master',
+      mode: 'tenant_distribution',
       triggeredBy: options.triggeredBy || 'manual',
       requestedCount: totalNeeded,
       queuedCount: runLimit,
@@ -1628,28 +1589,28 @@ export class RadarCoreDistributionMixin {
     };
   }
 
-  async getMasterRadarAutoDistributionPanel(user: any) {
+  async getRadarTenantAutoDistributionPanel(user: any) {
     if (!user?.isSystemMaster) throw new ForbiddenException('Acesso exclusivo do MASTER.');
-    const companyId = await this.resolveMasterRadarDistributionCompanyId(user);
+    const companyId = await this.resolveRadarDistributionCompanyId(user);
     if (!companyId) throw new ServiceUnavailableException('Empresa operacional do MASTER nao encontrada.');
     const radarAutoDistributionRule = (this.prisma as any).radarAutoDistributionRule;
     const [rule, sellers, citySuggestions] = await Promise.all([
       radarAutoDistributionRule?.findUnique
         ? radarAutoDistributionRule.findUnique({
-            where: { companyId_scope: { companyId, scope: 'hbx_master' } },
+            where: { companyId_scope: { companyId, scope: 'tenant_distribution' } },
           }).catch(() => null)
         : Promise.resolve(null),
-      this.listMasterRadarDistributionSellers(companyId),
-      this.listMasterRadarCitySuggestions(),
+      this.listRadarDistributionSellers(companyId),
+      this.listRadarCitySuggestions(),
     ]);
-    const territories = this.parseMasterRadarTerritories(rule?.filtersJson);
+    const territories = this.parseRadarTerritories(rule?.filtersJson);
     const allTerritoryCities = territories.flatMap((item) => item.cities);
     const potentialByCity = await this.estimateRadarPotentialForCities(allTerritoryCities);
     const territoryByUserId = new Map(territories.map((item) => [item.userId, item]));
     const targetStockPerSeller = Math.max(1, Math.trunc(Number(rule?.targetStockPerSeller || 30) || 30));
     const dailyLimitPerSeller = this.normalizeDailyDistributionLimit((rule as any)?.dailyLimitPerSeller, 20);
     const dayKey = this.getSaoPauloDayKey();
-    const cityBalance = this.buildMasterRadarCityBalance(citySuggestions, territories, potentialByCity, targetStockPerSeller);
+    const cityBalance = this.buildRadarCityBalance(citySuggestions, territories, potentialByCity, targetStockPerSeller);
     const sellerStateEntries = await Promise.all(
       sellers.map(async (seller) => {
         const sellerId = Number(seller.id || 0);
@@ -1685,7 +1646,7 @@ export class RadarCoreDistributionMixin {
         email: seller.email || null,
         phone: seller.phone || null,
         commissionPercent: Number(seller.commissionPercent || 0) || 0,
-        canRegisterHbxSellers: Boolean(seller.canRegisterHbxSellers),
+        canRecruitSellers: Boolean(seller.canRegisterHbxSellers),
         inheritedCommissionPercent: Number(seller.sellerReferralCommissionPercent || 0) || 0,
         referredByUserId: Number(seller.referredByUserId || 0) || null,
         preferredSegmentsJson: seller.preferredSegmentsJson || null,
@@ -1709,7 +1670,7 @@ export class RadarCoreDistributionMixin {
     return {
       ok: true,
       companyId,
-      mode: 'hbx_master',
+      mode: 'tenant_distribution',
       status: this.normalizeRadarAutoDistributionStatus(rule?.status),
       segmentMode: 'free',
       territoryMode: 'fixed_cities',
@@ -1744,17 +1705,17 @@ export class RadarCoreDistributionMixin {
     };
   }
 
-  async saveMasterRadarAutoDistributionPanel(user: any, input: {
+  async saveRadarTenantAutoDistributionPanel(user: any, input: {
     status?: string;
     targetStockPerSeller?: number;
     dailyLimitPerSeller?: number;
     territories?: Array<{ userId?: number; cities?: Array<{ city?: string; state?: string }> }>;
   } = {}) {
     if (!user?.isSystemMaster) throw new ForbiddenException('Acesso exclusivo do MASTER.');
-    const companyId = await this.resolveMasterRadarDistributionCompanyId(user);
+    const companyId = await this.resolveRadarDistributionCompanyId(user);
     if (!companyId) throw new ServiceUnavailableException('Empresa operacional do MASTER nao encontrada.');
     const existing = await this.prisma.radarAutoDistributionRule.findUnique({
-      where: { companyId_scope: { companyId, scope: 'hbx_master' } },
+      where: { companyId_scope: { companyId, scope: 'tenant_distribution' } },
     }).catch(() => null);
     const status = this.normalizeRadarAutoDistributionStatus(input.status, existing?.status || 'draft');
     const targetStockPerSeller = this.normalizeRadarAutoDistributionInt(
@@ -1767,11 +1728,11 @@ export class RadarCoreDistributionMixin {
       input.dailyLimitPerSeller,
       Math.max(0, Math.trunc(Number((existing as any)?.dailyLimitPerSeller || 20) || 20)),
     );
-    const sellers = await this.listMasterRadarDistributionSellers(companyId);
+    const sellers = await this.listRadarDistributionSellers(companyId);
     const sellerIds = new Set(sellers.map((seller) => Number(seller.id || 0)));
     const territories = Array.isArray(input.territories)
       ? input.territories
-      : this.parseMasterRadarTerritories(existing?.filtersJson);
+      : this.parseRadarTerritories(existing?.filtersJson);
     const normalizedTerritories = territories.map((item) => {
       const userId = Math.trunc(Number(item?.userId || 0));
       const cities = Array.from(new Map(
@@ -1786,7 +1747,7 @@ export class RadarCoreDistributionMixin {
       return { userId, cities };
     }).filter((item) => item.userId > 0 && sellerIds.has(item.userId));
     if (status === 'active' && !normalizedTerritories.some((item) => item.cities.length > 0)) {
-      throw new BadRequestException('Defina pelo menos uma cidade fixa antes de ativar a distribuiÃ§Ã£o HBX Master.');
+      throw new BadRequestException('Defina pelo menos uma cidade fixa antes de ativar a distribuicao do tenant.');
     }
     const targetUserIds = normalizedTerritories
       .filter((item) => item.cities.length > 0)
@@ -1794,15 +1755,15 @@ export class RadarCoreDistributionMixin {
     const filtersJson = JSON.stringify({
       territoryMode: 'fixed_cities',
       segmentMode: 'free',
-      rule: 'MASTER escolhe cidades; vendedor escolhe segmento no Vendas.',
+      rule: 'Responsavel escolhe cidades; vendedor escolhe segmento no Vendas.',
       territories: normalizedTerritories,
     });
     const now = new Date();
     await this.prisma.radarAutoDistributionRule.upsert({
-      where: { companyId_scope: { companyId, scope: 'hbx_master' } },
+      where: { companyId_scope: { companyId, scope: 'tenant_distribution' } },
       create: {
         companyId,
-        scope: 'hbx_master',
+        scope: 'tenant_distribution',
         status,
         includeAdmin: false,
         adminUserId: null,
@@ -1828,35 +1789,26 @@ export class RadarCoreDistributionMixin {
         ...(status === 'active' && existing?.status !== 'active' ? { lastActivatedAt: now } : {}),
       },
     });
-    const panel = await this.getMasterRadarAutoDistributionPanel(user);
+    const panel = await this.getRadarTenantAutoDistributionPanel(user);
     return {
       ...panel,
       message: status === 'active'
-        ? 'TerritÃ³rios HBX Master ativados. As cidades ficam fixas por vendedor; os segmentos ficam livres no Vendas e o limite diÃ¡rio nÃ£o acumula.'
-        : 'TerritÃ³rios HBX Master salvos.',
+        ? 'Territorios do tenant ativados. As cidades ficam fixas por vendedor; os segmentos ficam livres no Vendas e o limite diario nao acumula.'
+        : 'Territorios do tenant salvos.',
     };
   }
 
-  async runMasterRadarAutoDistributionForUser(user: any, input: { limit?: number } = {}) {
+  async runRadarTenantDistributionForUser(user: any, input: { limit?: number } = {}) {
     if (!user?.isSystemMaster) throw new ForbiddenException('Acesso exclusivo do MASTER.');
-    const companyId = await this.resolveMasterRadarDistributionCompanyId(user);
+    const companyId = await this.resolveRadarDistributionCompanyId(user);
     if (!companyId) throw new ServiceUnavailableException('Empresa operacional do MASTER nao encontrada.');
     const rule = await this.prisma.radarAutoDistributionRule.findUnique({
-      where: { companyId_scope: { companyId, scope: 'hbx_master' } },
+      where: { companyId_scope: { companyId, scope: 'tenant_distribution' } },
     }).catch(() => null);
-    if (!rule) throw new BadRequestException('Configure os territÃ³rios HBX Master antes de alimentar vendedores.');
-    const runner = {
-      id: Number(user?.id || 0),
-      companyId,
-      role: String(user?.role || 'USERMASTER'),
-      isSystemMaster: true,
-      masterContext: {
-        active: true,
-        companyId,
-        mode: 'master_operational',
-      },
-    };
-    return this.executeMasterRadarAutoDistributionRule(runner, rule, {
+    if (!rule) throw new BadRequestException('Configure os territorios do tenant antes de alimentar vendedores.');
+    const adminUser = await this.resolveRadarAutoDistributionAdminUser(rule);
+    if (!adminUser) throw new BadRequestException('Nenhum admin ativo encontrado para executar a distribuicao do tenant.');
+    return this.executeRadarTenantDistributionRule(this.buildRadarAutoDistributionUser(adminUser), rule, {
       limit: input?.limit,
       triggeredBy: 'manual',
     });
@@ -1874,7 +1826,7 @@ export class RadarCoreDistributionMixin {
     const now = new Date();
     let updatedCount = 0;
     for (const row of rows || []) {
-      if (this.isHbxOperationSellerUser(user)) {
+      if (this.isCompanySellerUser(user)) {
         const assignedToUser = (Array.isArray(row?.companyStates) ? row.companyStates : [])
           .some((state: any) => Number(state?.assignedUserId || 0) === context.userId);
         if (!assignedToUser) continue;

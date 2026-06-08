@@ -51,7 +51,7 @@ const CHANNEL_LABELS: Array<[keyof TeamPolicy["radar"]["requiredChannels"], stri
 const SELLER_VISIBILITY_LABELS: Array<[SellerVisibilityKey, string]> = [
   ["sellerCanViewOwnPolicy", "Ver própria política"],
   ["sellerCanViewCommission", "Ver comissão"],
-  ["sellerCanViewHbxNetwork", "Ver indicações"],
+  ["sellerCanViewSellerNetwork", "Ver indicações"],
   ["sellerCanViewLimits", "Ver limites"],
 ];
 
@@ -71,7 +71,7 @@ const EMPTY_LIMIT_DRAFT: LimitDraft = {
 const EMPTY_VISIBILITY_DRAFT: NonNullable<TeamPolicyPatch["visibility"]> = {
   sellerCanViewOwnPolicy: true,
   sellerCanViewCommission: true,
-  sellerCanViewHbxNetwork: true,
+  sellerCanViewSellerNetwork: true,
   sellerCanViewLimits: true,
 };
 
@@ -281,7 +281,7 @@ function buildVisibilityDraft(policy: TeamPolicy | null): NonNullable<TeamPolicy
   return {
     sellerCanViewOwnPolicy: Boolean(policy.visibility.sellerCanViewOwnPolicy),
     sellerCanViewCommission: Boolean(policy.visibility.sellerCanViewCommission),
-    sellerCanViewHbxNetwork: Boolean(policy.visibility.sellerCanViewHbxNetwork),
+    sellerCanViewSellerNetwork: Boolean(policy.visibility.sellerCanViewSellerNetwork),
     sellerCanViewLimits: Boolean(policy.visibility.sellerCanViewLimits),
   };
 }
@@ -304,7 +304,7 @@ export default function TeamPolicyModal({
   const [moduleDraft, setModuleDraft] = useState<Record<string, boolean>>({});
   const [commissionPercent, setCommissionPercent] = useState("0");
   const [commissionDueBusinessDays, setCommissionDueBusinessDays] = useState("3");
-  const [canRegisterHbxSellers, setCanRegisterHbxSellers] = useState(false);
+  const [canRecruitSellers, setCanRecruitSellers] = useState(false);
   const [sellerReferralCommissionPercent, setSellerReferralCommissionPercent] = useState("0");
   const [referredByUserId, setReferredByUserId] = useState("");
   const [referredByCommissionPercentSnapshot, setReferredByCommissionPercentSnapshot] = useState("0");
@@ -363,10 +363,10 @@ export default function TeamPolicyModal({
       setModuleDraft(buildModuleDraft(policy, enabledModules));
       setCommissionPercent(numberDraft(policy.compensation.commissionPercent));
       setCommissionDueBusinessDays(String(policy.compensation.commissionDueBusinessDays || 3));
-      setCanRegisterHbxSellers(Boolean(policy.hbxNetwork.canRegisterHbxSellers));
-      setSellerReferralCommissionPercent(numberDraft(policy.hbxNetwork.sellerReferralCommissionPercent));
-      setReferredByUserId(policy.hbxNetwork.referredByUserId ? String(policy.hbxNetwork.referredByUserId) : "");
-      setReferredByCommissionPercentSnapshot(numberDraft(policy.hbxNetwork.referredByCommissionPercentSnapshot));
+      setCanRecruitSellers(Boolean(policy.sellerNetwork.canRecruitSellers));
+      setSellerReferralCommissionPercent(numberDraft(policy.sellerNetwork.sellerReferralCommissionPercent));
+      setReferredByUserId(policy.sellerNetwork.referredByUserId ? String(policy.sellerNetwork.referredByUserId) : "");
+      setReferredByCommissionPercentSnapshot(numberDraft(policy.sellerNetwork.referredByCommissionPercentSnapshot));
       setLimits(buildLimitDraft(policy));
       setAllowedSegments(policy.radar.allowedSegments.join("\n"));
       setBlockedSegments(policy.radar.blockedSegments.join("\n"));
@@ -412,8 +412,8 @@ export default function TeamPolicyModal({
         commissionPercent: parsedCommission,
         commissionDueBusinessDays: parsedDueDays,
       },
-      hbxNetwork: {
-        canRegisterHbxSellers,
+      sellerNetwork: {
+        canRecruitSellers,
         sellerReferralCommissionPercent: parsedReferral,
         referredByUserId: referredByUserId ? Number(referredByUserId) : null,
         referredByCommissionPercentSnapshot: parsedSnapshot,
@@ -434,7 +434,7 @@ export default function TeamPolicyModal({
     allowedSegments,
     allowedStates,
     blockedSegments,
-    canRegisterHbxSellers,
+    canRecruitSellers,
     commissionDueBusinessDays,
     commissionPercent,
     limits,
@@ -711,9 +711,9 @@ export default function TeamPolicyModal({
                     <label className="flex items-center gap-2 rounded-[12px] border border-[var(--line)] bg-[var(--surface)] p-3 text-sm">
                       <input
                         type="checkbox"
-                        checked={canRegisterHbxSellers}
-                        disabled={readOnly || saving || !policy.hbxNetwork.isHbxSellerNetwork}
-                        onChange={(event) => setCanRegisterHbxSellers(event.target.checked)}
+                        checked={canRecruitSellers}
+                        disabled={readOnly || saving || !policy.sellerNetwork.isSellerNetwork}
+                        onChange={(event) => setCanRecruitSellers(event.target.checked)}
                       />
                       <span className="font-medium">Pode indicar vendedores</span>
                     </label>
@@ -721,7 +721,7 @@ export default function TeamPolicyModal({
                       <span className="font-medium">Herança %</span>
                       <input
                         value={sellerReferralCommissionPercent}
-                        disabled={readOnly || saving || !policy.hbxNetwork.isHbxSellerNetwork}
+                        disabled={readOnly || saving || !policy.sellerNetwork.isSellerNetwork}
                         inputMode="decimal"
                         onChange={(event) => setSellerReferralCommissionPercent(event.target.value)}
                         className="field"
@@ -731,15 +731,15 @@ export default function TeamPolicyModal({
                       <span className="font-medium">Indicado por</span>
                       <select
                         value={referredByUserId}
-                        disabled={readOnly || saving || !policy.hbxNetwork.isHbxSellerNetwork}
+                        disabled={readOnly || saving || !policy.sellerNetwork.isSellerNetwork}
                         onChange={(event) => setReferredByUserId(event.target.value)}
                         className="field"
                       >
                         <option value="">Direto</option>
-                        {policy.hbxNetwork.referredByUser &&
-                        !referrerOptions.some((item) => item.id === policy.hbxNetwork.referredByUser?.id) ? (
-                          <option value={policy.hbxNetwork.referredByUser.id}>
-                            {userLabel(policy.hbxNetwork.referredByUser)}
+                        {policy.sellerNetwork.referredByUser &&
+                        !referrerOptions.some((item) => item.id === policy.sellerNetwork.referredByUser?.id) ? (
+                          <option value={policy.sellerNetwork.referredByUser.id}>
+                            {userLabel(policy.sellerNetwork.referredByUser)}
                           </option>
                         ) : null}
                         {referrerOptions.map((referrer) => (
@@ -753,7 +753,7 @@ export default function TeamPolicyModal({
                       <span className="font-medium">Herança do indicador</span>
                       <input
                         value={referredByCommissionPercentSnapshot}
-                        disabled={readOnly || saving || !policy.hbxNetwork.isHbxSellerNetwork}
+                        disabled={readOnly || saving || !policy.sellerNetwork.isSellerNetwork}
                         inputMode="decimal"
                         onChange={(event) => setReferredByCommissionPercentSnapshot(event.target.value)}
                         className="field"

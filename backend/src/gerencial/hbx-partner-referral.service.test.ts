@@ -15,7 +15,7 @@ function buildUsersController(overrides: {
 } = {}) {
   const usersService = {
     findById: async () => ({ id: 10, companyId: 1, role: 'USER', isActive: true, deactivatedAt: null, isSystemMaster: false }),
-    isHbxSellerNetworkCompany: async () => true,
+    isSellerNetworkCompany: async () => true,
     getCompanyTrialSeatUsage: async () => ({
       company: { id: 1, commissionDueBusinessDays: 3 },
       isTrial: false,
@@ -294,7 +294,7 @@ test('/users/company/create vendedor sem documentacao nao usa onboarding', async
   let onboardingCalled = false;
   const controller = buildUsersController({
     usersService: {
-      isHbxSellerNetworkCompany: async () => false,
+      isSellerNetworkCompany: async () => false,
       create: async (data: any) => {
         createdData = data;
         return { id: 201, email: data.email, username: data.username, role: data.role, isSystemMaster: false, isActive: data.isActive ?? true, ...data };
@@ -338,7 +338,7 @@ test('/users/company/create admin comum nao usa onboarding', async () => {
   let onboardingCalled = false;
   const controller = buildUsersController({
     usersService: {
-      isHbxSellerNetworkCompany: async () => false,
+      isSellerNetworkCompany: async () => false,
       create: async (data: any) => {
         createdData = data;
         return { id: 202, email: data.email, username: data.username, role: data.role, isSystemMaster: false, isActive: data.isActive ?? true, ...data };

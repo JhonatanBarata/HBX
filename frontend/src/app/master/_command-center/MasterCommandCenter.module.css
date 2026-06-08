@@ -2519,7 +2519,7 @@
   }
 }
 
-/* HBX_MASTER_PANEL_OPTION_A_START */
+/* MASTER_PANEL_OPTION_A_START */
 /* Option A: Pro Executive master panel. CSS-only patch over current TSX structure. */
 
 .masterShell {
@@ -2957,7 +2957,7 @@
     padding: 22px;
   }
 }
-/* HBX_MASTER_PANEL_OPTION_A_END */
+/* MASTER_PANEL_OPTION_A_END */
 
 .masterShell {
   --master-bg: #f6f8fb;
@@ -3203,7 +3203,7 @@
   }
 }
 
-/* HBX_MASTER_PREMIUM_V2 */
+/* MASTER_PREMIUM_V2 */
 .masterShell {
   --master-bg: #f3f5f8;
   --master-surface: #ffffff;
@@ -3771,7 +3771,7 @@
   }
 }
 
-/* HBX_MASTER_GUIDES_STANDARD */
+/* MASTER_GUIDES_STANDARD */
 .topCommandBar {
   grid-template-columns: minmax(0, 1fr) minmax(316px, 340px);
   align-items: stretch;
@@ -3924,7 +3924,7 @@
   }
 }
 
-/* HBX_MASTER_PRIMARY_GUIDE_V2 */
+/* MASTER_PRIMARY_GUIDE_V2 */
 .topCommandBar {
   grid-template-columns: 1fr;
   margin-bottom: 8px;
@@ -4055,7 +4055,7 @@
   }
 }
 
-/* HBX_MASTER_COMPACT_COMPANIES_V3 */
+/* MASTER_COMPACT_COMPANIES_V3 */
 .topCommandBar {
   display: flex;
   justify-content: center;
@@ -4202,7 +4202,7 @@
   }
 }
 
-/* HBX_MASTER_HEADER_ATTACH_V4 */
+/* MASTER_HEADER_ATTACH_V4 */
 :global(body:has(.hbx-master-shell) .app-shell) {
   padding-top: var(--topbar-total-height) !important;
 }
@@ -4253,7 +4253,7 @@
   margin-top: 0 !important;
 }
 
-/* HBX_MASTER_OPERATIONAL_SPACE_FIX_V5 */
+/* MASTER_OPERATIONAL_SPACE_FIX_V5 */
 
 .operationsSurface {
   width: 100% !important;
@@ -4300,7 +4300,7 @@
   }
 }
 
-/* HBX_MASTER_COMPANY_RAIL_PREMIUM_V1 */
+/* MASTER_COMPANY_RAIL_PREMIUM_V1 */
 .companyBoard {
   padding: 10px 8px !important;
   border-radius: 24px !important;

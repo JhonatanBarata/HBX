@@ -125,7 +125,7 @@ type HbxTerritorySeller = {
   preferredSegmentsJson?: string | null;
   commissionPercent?: number | null;
   inheritedCommissionPercent?: number | null;
-  canRegisterHbxSellers?: boolean;
+  canRecruitSellers?: boolean;
   cities: HbxTerritoryCity[];
   availableCards?: number;
   targetStock?: number;
@@ -1184,7 +1184,7 @@ function HbxTerritoryPanelView({
               <div className={styles.metaGrid}>
                 <span>Comissão: {Number(seller.commissionPercent || 0).toLocaleString("pt-BR")}%</span>
                 <span>Herdada: {Number(seller.inheritedCommissionPercent || 0).toLocaleString("pt-BR")}%</span>
-                <span>Subvendedores: {seller.canRegisterHbxSellers ? "liberado" : "bloqueado"}</span>
+                <span>Indicações: {seller.canRecruitSellers ? "liberado" : "bloqueado"}</span>
                 <span>Cidades: {metric(seller.cities.length)}</span>
               </div>
               <div className={styles.cityChips}>
@@ -1192,7 +1192,7 @@ function HbxTerritoryPanelView({
                   <button key={`${seller.id}-${city.city}-${city.state}`} type="button" onClick={() => onRemoveCity(seller.id, city)}>
                     {city.city}/{city.state} · {metric(city.availableCards)}
                   </button>
-                )) : <em>Nenhuma cidade fixa. Este vendedor ainda não entra na distribuição HBX.</em>}
+                )) : <em>Nenhuma cidade fixa. Este vendedor ainda não entra na distribuição automática.</em>}
               </div>
             </article>
           );

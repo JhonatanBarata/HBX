@@ -1633,7 +1633,7 @@ export class RadarCoreFactoryAdminMixin {
     };
   }
 
-  async listMasterRadarExportTargets() {
+  async listRadarExportTargetsForMaster() {
     const rows = await (this.prisma as any).user.findMany({
       where: {
         isActive: true,

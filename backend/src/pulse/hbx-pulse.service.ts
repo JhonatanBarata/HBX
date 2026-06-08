@@ -2,7 +2,7 @@ import { ForbiddenException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
-type HbxPulseScopeType = 'master_operation' | 'company' | 'user';
+type HbxPulseScopeType = 'company' | 'user';
 
 type HbxPulseScope = {
   type: HbxPulseScopeType;
@@ -149,10 +149,7 @@ export class HbxPulseService {
 
     const role = String(user?.role || '').trim().toUpperCase() || 'USER';
     const isSystemMaster = Boolean(user?.isSystemMaster);
-    const isMasterOperation =
-      isSystemMaster &&
-      String(masterContext?.mode || '').trim() === 'master_operacional';
-    const type: HbxPulseScopeType = isMasterOperation ? 'master_operation' : role === 'USER' && !isSystemMaster ? 'user' : 'company';
+    const type: HbxPulseScopeType = role === 'USER' && !isSystemMaster ? 'user' : 'company';
 
     return {
       type,
@@ -222,7 +219,7 @@ export class HbxPulseService {
       .slice(0, 3)
       .map((item: any) => `${item.segment} (${item.count})`)
       .join(', ');
-    const scopeText = scope.type === 'user' ? ' na sua carteira' : scope.type === 'master_operation' ? ' na operacao HBX' : ' na empresa';
+    const scopeText = scope.type === 'user' ? ' na sua carteira' : ' na empresa';
     const parts = [
       `Hoje existem ${metrics.stalledCards} oportunidades paradas${scopeText}.`,
       `Retornos vencidos: ${metrics.overdueReturns}.`,

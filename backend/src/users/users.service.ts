@@ -20,7 +20,7 @@ export class UsersService {
     return Boolean(company && isTenantCompany(company));
   }
 
-  async isHbxSellerNetworkCompany(companyId?: number | null) {
+  async isSellerNetworkCompany(companyId?: number | null) {
     const normalizedCompanyId = Number(companyId || 0);
     if (!normalizedCompanyId) return false;
     const company = await this.prisma.company.findUnique({

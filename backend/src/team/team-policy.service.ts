@@ -17,7 +17,7 @@ import type {
 type TeamPolicySellerVisibilityKey =
   | 'sellerCanViewOwnPolicy'
   | 'sellerCanViewCommission'
-  | 'sellerCanViewHbxNetwork'
+  | 'sellerCanViewSellerNetwork'
   | 'sellerCanViewLimits';
 
 type TeamPolicyPatch = {
@@ -26,8 +26,8 @@ type TeamPolicyPatch = {
     commissionPercent?: unknown;
     commissionDueBusinessDays?: unknown;
   };
-  hbxNetwork?: {
-    canRegisterHbxSellers?: unknown;
+  sellerNetwork?: {
+    canRecruitSellers?: unknown;
     sellerReferralCommissionPercent?: unknown;
     referredByUserId?: unknown;
     referredByCommissionPercentSnapshot?: unknown;
@@ -76,7 +76,7 @@ const TEAM_POLICY_PENDING_SCHEMA_FIELDS = [
 const TEAM_POLICY_SELLER_VISIBILITY_KEYS: TeamPolicySellerVisibilityKey[] = [
   'sellerCanViewOwnPolicy',
   'sellerCanViewCommission',
-  'sellerCanViewHbxNetwork',
+  'sellerCanViewSellerNetwork',
   'sellerCanViewLimits',
 ];
 
@@ -342,7 +342,7 @@ export class TeamPolicyService {
     return {
       sellerCanViewOwnPolicy: true,
       sellerCanViewCommission: true,
-      sellerCanViewHbxNetwork: true,
+      sellerCanViewSellerNetwork: true,
       sellerCanViewLimits: true,
     };
   }
@@ -617,9 +617,9 @@ export class TeamPolicyService {
           Math.min(30, Math.trunc(Number(storedPolicy?.commissionDueBusinessDays ?? target.company?.commissionDueBusinessDays ?? 3) || 3)),
         ),
       },
-      hbxNetwork: {
-        isHbxSellerNetwork: sellerNetwork,
-        canRegisterHbxSellers: Boolean(storedPolicy?.canRegisterHbxSellers ?? target.canRegisterHbxSellers),
+      sellerNetwork: {
+        isSellerNetwork: sellerNetwork,
+        canRecruitSellers: Boolean(storedPolicy?.canRegisterHbxSellers ?? target.canRegisterHbxSellers),
         sellerReferralCommissionPercent: Math.max(0, Math.min(100, Number(storedPolicy?.sellerReferralCommissionPercent ?? target.sellerReferralCommissionPercent ?? 0) || 0)),
         referredByUserId: Number(storedPolicy?.referredByUserId ?? target.referredByUserId ?? 0) || null,
         referredByCommissionPercentSnapshot: Math.max(0, Math.min(100, Number(storedPolicy?.referredByCommissionPercentSnapshot ?? target.referredByCommissionPercentSnapshot ?? 0) || 0)),
@@ -659,7 +659,7 @@ export class TeamPolicyService {
           'UserTeamPolicy.modulesJson',
           'UserTeamPolicy.commissionPercent',
           'UserTeamPolicy.commissionDueBusinessDays',
-          'UserTeamPolicy.hbxNetwork',
+          'UserTeamPolicy.sellerNetwork',
           'UserTeamPolicy.enrichmentDaily',
           'UserTeamPolicy.cardDeliveryDaily',
           'UserTeamPolicy.activeCards',
@@ -668,7 +668,7 @@ export class TeamPolicyService {
           'UserTeamPolicy.radarFilters',
           'UserTeamPolicy.visibility',
           'User.commissionPercent',
-          'User.canRegisterHbxSellers',
+          'User.canRecruitSellers (stored as canRegisterHbxSellers)',
           'User.sellerReferralCommissionPercent',
           'User.referredByUserId',
           'User.referredByCommissionPercentSnapshot',
@@ -712,7 +712,7 @@ export class TeamPolicyService {
     return { items: policies, total: policies.length };
   }
 
-  private async validateHbxNetworkData(target: any, data: any) {
+  private async validateSellerNetworkData(target: any, data: any) {
     const targetRole = this.normalizeRole(target?.role);
     const meaningful = Boolean(
       data.canRegisterHbxSellers ||
@@ -764,27 +764,27 @@ export class TeamPolicyService {
   private async buildLegacyUpdateData(requester: any, target: any, patch: TeamPolicyPatch) {
     const data: any = {};
     const compensation = patch?.compensation || {};
-    const hbxNetwork = patch?.hbxNetwork || {};
+    const sellerNetwork = patch?.sellerNetwork || {};
 
     const commissionPercent = this.normalizePercent(compensation.commissionPercent, 'Comissao');
     if (commissionPercent !== undefined) data.commissionPercent = commissionPercent;
 
-    const canRegisterHbxSellers = this.normalizeBoolean(hbxNetwork.canRegisterHbxSellers);
-    if (canRegisterHbxSellers !== undefined) data.canRegisterHbxSellers = canRegisterHbxSellers;
+    const canRecruitSellers = this.normalizeBoolean(sellerNetwork.canRecruitSellers);
+    if (canRecruitSellers !== undefined) data.canRegisterHbxSellers = canRecruitSellers;
 
     const sellerReferralCommissionPercent = this.normalizePercent(
-      hbxNetwork.sellerReferralCommissionPercent,
+      sellerNetwork.sellerReferralCommissionPercent,
       'Comissao de heranca',
     );
     if (sellerReferralCommissionPercent !== undefined) {
       data.sellerReferralCommissionPercent = sellerReferralCommissionPercent;
     }
 
-    const referredByUserId = this.normalizePositiveId(hbxNetwork.referredByUserId, 'Indicador');
+    const referredByUserId = this.normalizePositiveId(sellerNetwork.referredByUserId, 'Indicador');
     await this.applyReferrer(target, data, referredByUserId);
 
     const snapshotPercent = this.normalizePercent(
-      hbxNetwork.referredByCommissionPercentSnapshot,
+      sellerNetwork.referredByCommissionPercentSnapshot,
       'Comissao de heranca',
     );
     if (snapshotPercent !== undefined && data.referredByUserId === undefined) {
@@ -813,14 +813,14 @@ export class TeamPolicyService {
       data.sellerDistributionDailyLimitOverride = normalizedLimit.legacyValue;
     }
 
-    await this.validateHbxNetworkData(target, data);
+    await this.validateSellerNetworkData(target, data);
     return data;
   }
 
   private buildPolicyStorageUpdateData(requester: any, target: any, patch: TeamPolicyPatch) {
     const data: any = {};
     const compensation = patch?.compensation || {};
-    const hbxNetwork = patch?.hbxNetwork || {};
+    const sellerNetwork = patch?.sellerNetwork || {};
     const limits = patch?.limits || {};
     const radar = patch?.radar || {};
     const visibility = this.normalizeVisibilityPatch(patch?.visibility);
@@ -831,22 +831,22 @@ export class TeamPolicyService {
     const commissionDueBusinessDays = this.normalizeBusinessDays(compensation.commissionDueBusinessDays);
     if (commissionDueBusinessDays !== undefined) data.commissionDueBusinessDays = commissionDueBusinessDays;
 
-    const canRegisterHbxSellers = this.normalizeBoolean(hbxNetwork.canRegisterHbxSellers);
-    if (canRegisterHbxSellers !== undefined) data.canRegisterHbxSellers = canRegisterHbxSellers;
+    const canRecruitSellers = this.normalizeBoolean(sellerNetwork.canRecruitSellers);
+    if (canRecruitSellers !== undefined) data.canRegisterHbxSellers = canRecruitSellers;
 
     const sellerReferralCommissionPercent = this.normalizePercent(
-      hbxNetwork.sellerReferralCommissionPercent,
+      sellerNetwork.sellerReferralCommissionPercent,
       'Comissao de heranca',
     );
     if (sellerReferralCommissionPercent !== undefined) {
       data.sellerReferralCommissionPercent = sellerReferralCommissionPercent;
     }
 
-    const referredByUserId = this.normalizePositiveId(hbxNetwork.referredByUserId, 'Indicador');
+    const referredByUserId = this.normalizePositiveId(sellerNetwork.referredByUserId, 'Indicador');
     if (referredByUserId !== undefined) data.referredByUserId = referredByUserId;
 
     const snapshotPercent = this.normalizePercent(
-      hbxNetwork.referredByCommissionPercentSnapshot,
+      sellerNetwork.referredByCommissionPercentSnapshot,
       'Comissao de heranca',
     );
     if (snapshotPercent !== undefined) data.referredByCommissionPercentSnapshot = snapshotPercent;
@@ -906,7 +906,7 @@ export class TeamPolicyService {
       hasModules: Array.isArray(patch?.modules),
       moduleCount: Array.isArray(patch?.modules) ? patch.modules.length : 0,
       hasCompensation: Boolean(patch?.compensation && Object.keys(patch.compensation).length),
-      hasHbxNetwork: Boolean(patch?.hbxNetwork && Object.keys(patch.hbxNetwork).length),
+      hasSellerNetwork: Boolean(patch?.sellerNetwork && Object.keys(patch.sellerNetwork).length),
       hasLimits: Boolean(patch?.limits && Object.keys(patch.limits).length),
       hasRadar: Boolean(patch?.radar && Object.keys(patch.radar).length),
       hasVisibility: Boolean(patch?.visibility && Object.keys(patch.visibility).length),
@@ -945,11 +945,11 @@ export class TeamPolicyService {
       },
       modules,
       compensation: policy.compensation,
-      hbxNetwork: {
-        canRegisterHbxSellers: policy.hbxNetwork.canRegisterHbxSellers,
-        sellerReferralCommissionPercent: policy.hbxNetwork.sellerReferralCommissionPercent,
-        referredByUserId: policy.hbxNetwork.referredByUserId,
-        referredByCommissionPercentSnapshot: policy.hbxNetwork.referredByCommissionPercentSnapshot,
+      sellerNetwork: {
+        canRecruitSellers: policy.sellerNetwork.canRecruitSellers,
+        sellerReferralCommissionPercent: policy.sellerNetwork.sellerReferralCommissionPercent,
+        referredByUserId: policy.sellerNetwork.referredByUserId,
+        referredByCommissionPercentSnapshot: policy.sellerNetwork.referredByCommissionPercentSnapshot,
       },
       limits,
       radar: policy.radar,
@@ -978,7 +978,7 @@ export class TeamPolicyService {
       modulesChanged: this.diffObjectKeys(before.modules, after.modules),
       limitsChanged: this.diffObjectKeys(before.limits, after.limits),
       compensationChanged: JSON.stringify(before.compensation) !== JSON.stringify(after.compensation),
-      hbxNetworkChanged: JSON.stringify(before.hbxNetwork) !== JSON.stringify(after.hbxNetwork),
+      sellerNetworkChanged: JSON.stringify(before.sellerNetwork) !== JSON.stringify(after.sellerNetwork),
       radarChanged: JSON.stringify(before.radar) !== JSON.stringify(after.radar),
       visibilityChanged: JSON.stringify(before.visibility) !== JSON.stringify(after.visibility),
     };

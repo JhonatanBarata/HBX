@@ -1102,9 +1102,7 @@ export class VendasService {
     const rawIntelligence = buildVendasLeadIntelligence({
       lead: row,
       whatsappAvailability,
-      verifiedBy: String(whatsappAvailability?.message || '').includes('HBX Master')
-        ? 'hbx_master'
-        : whatsappAvailability?.checkedAt
+      verifiedBy: whatsappAvailability?.checkedAt
           ? 'client_engine'
           : null,
     });
@@ -2064,7 +2062,7 @@ export class VendasService {
         where: {
           companyId: context.companyId,
           status: 'active',
-          scope: { in: ['company', 'hbx_master'] },
+          scope: { in: ['company', 'tenant_distribution'] },
         },
         orderBy: [{ updatedAt: 'desc' }],
         take: 4,
@@ -2073,7 +2071,7 @@ export class VendasService {
     const sellerIds = sellers.map((seller) => Number(seller.id || 0)).filter(Boolean);
     const activeDistributionRule = (
       (user?.isSystemMaster || context.role === 'USERMASTER')
-        ? distributionRules.find((rule: any) => String(rule?.scope || '') === 'hbx_master')
+        ? distributionRules.find((rule: any) => String(rule?.scope || '') === 'tenant_distribution')
         : distributionRules.find((rule: any) => String(rule?.scope || '') === 'company')
     ) || distributionRules.find((rule: any) => String(rule?.scope || '') === 'company') || distributionRules[0] || null;
     const ruleFilters = this.parseMaybeJsonObject((activeDistributionRule as any)?.filtersJson);
@@ -2813,7 +2811,7 @@ export class VendasService {
       ok: true,
       scope: context.canManageTeam ? 'company' : 'seller',
       canManage: Boolean(context.canManageTeam),
-      isHbxSellerNetwork: Boolean(company && isTenantCompany(company)),
+      isSellerNetwork: Boolean(company && isTenantCompany(company)),
       generatedAt: now.toISOString(),
       settings: {
         dueBusinessDays,
@@ -3373,7 +3371,7 @@ export class VendasService {
     const dayKey = this.getSaoPauloDayKey(now);
     const leadWhere = this.buildLeadAccessWhere(context);
     const managerOnlyWhere = { companyId: context.companyId };
-    const distributionScope = user?.isSystemMaster || context.role === 'USERMASTER' ? ['company', 'hbx_master'] : ['company'];
+    const distributionScope = user?.isSystemMaster || context.role === 'USERMASTER' ? ['company', 'tenant_distribution'] : ['company'];
 
     const [
       totalCards,
@@ -3601,10 +3599,10 @@ export class VendasService {
         },
       }).catch(() => null),
     ]);
-    const isHbxSellerNetwork = Boolean(company && isTenantCompany(company));
+    const isSellerNetwork = Boolean(company && isTenantCompany(company));
     const currentRole = String(currentUser?.role || context.role || '').trim().toUpperCase();
     const canRegisterReferredSeller = Boolean(
-      isHbxSellerNetwork &&
+      isSellerNetwork &&
       currentRole === 'USER' &&
       currentUser?.isActive &&
       !currentUser?.deactivatedAt &&
@@ -3846,7 +3844,7 @@ export class VendasService {
         dueBusinessDays: this.normalizeCommissionDueBusinessDays(company?.commissionDueBusinessDays),
       },
       sellerNetwork: {
-        isHbxSellerNetwork,
+        isSellerNetwork,
         canRegisterReferredSeller,
         commissionPercent: this.normalizeCurrencyAmount(currentUser?.commissionPercent),
         inheritedCommissionPercent: this.normalizeCurrencyAmount(currentUser?.sellerReferralCommissionPercent),
@@ -4374,9 +4372,7 @@ export class VendasService {
 
     let availability =
       (await this.listWhatsappAvailabilityByLeadIds([String(lead.id)])).get(String(lead.id)) || null;
-    let verifiedBy: 'hbx_master' | 'client_engine' | 'manual' | null = String(availability?.message || '').includes('HBX Master')
-      ? 'hbx_master'
-      : availability?.checkedAt
+    let verifiedBy: 'platform_engine' | 'client_engine' | 'manual' | null = availability?.checkedAt
         ? 'client_engine'
         : null;
     const phoneDigits = this.normalizePhone((lead as any).phoneNormalized || (lead as any).phone);
@@ -4396,21 +4392,21 @@ export class VendasService {
           const now = new Date();
           const phoneLabel = this.buildPreferredLeadContact(phoneDigits) || `+${phoneDigits}`;
           const message = lookup.exists
-            ? `Consulta HBX Master confirmou WhatsApp para ${phoneLabel}.`
-            : `Consulta HBX Master nao encontrou WhatsApp para ${phoneLabel}.`;
+            ? `Consulta tecnica confirmou WhatsApp para ${phoneLabel}.`
+            : `Consulta tecnica nao encontrou WhatsApp para ${phoneLabel}.`;
           availability = {
             status,
             checkedAt: now.toISOString(),
             phoneDigits,
             message,
           };
-          verifiedBy = 'hbx_master';
+          verifiedBy = 'platform_engine';
           await this.prisma.vendasLeadTimelineEvent.create({
             data: {
               leadId: lead.id,
               ...this.buildTimelineEvent({
                 eventType: 'generic',
-                title: lookup.exists ? 'WhatsApp verificado pela HBX' : 'HBX nao encontrou WhatsApp',
+                title: lookup.exists ? 'WhatsApp verificado pelo motor tecnico' : 'Motor tecnico nao encontrou WhatsApp',
                 description: message,
                 sourceType: VENDAS_WHATSAPP_LOOKUP_SOURCE,
                 resultLabel: status,
@@ -4421,7 +4417,7 @@ export class VendasService {
         }
       } catch (error: any) {
         this.logger.warn(
-          `[vendas-enrichment] Falha na verificacao Master lead=${lead.id} company=${companyId}: ${String(error?.message || error)}`,
+          `[vendas-enrichment] Falha na verificacao tecnica lead=${lead.id} company=${companyId}: ${String(error?.message || error)}`,
         );
       }
     }

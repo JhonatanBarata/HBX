@@ -2562,7 +2562,7 @@ export class RadarCorePresentationMixin {
   async listRadarLeadsForUser(user: any, input: RadarFiltersInput = {}) {
     const context = this.resolveContext(user);
     const filters = this.normalizeRadarFilters({ ...input, engine: undefined });
-    const assignedUserId = this.isHbxOperationSellerUser(user) ? context.userId : null;
+    const assignedUserId = this.isCompanySellerUser(user) ? context.userId : null;
     if (!(await this.supportsRadarPersistence())) {
       return { items: [], total: 0, facets: [], meta: { available: false, message: 'Banco do Radar ainda nao foi migrado neste ambiente.' } };
     }

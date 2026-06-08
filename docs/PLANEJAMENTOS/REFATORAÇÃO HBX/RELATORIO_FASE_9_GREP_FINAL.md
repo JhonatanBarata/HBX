@@ -4,57 +4,43 @@ Data: 2026-06-08
 
 ## Objetivo
 
-Remover restos de regra antiga por slug/governador e confirmar que `System Master`, tenant comercial e infraestrutura tecnica nao voltaram a se misturar.
+Confirmar que o corte Master/tenant nao deixou vestigios runtime da arquitetura antiga:
+System Master nao vira empresa operacional automaticamente, `platform_infra` nao recebe plano/modulo comercial e HBX passa a ser tenant comum.
 
 ## Limpeza aplicada
 
-- `backend/src/common/effective-company.ts` nao resolve mais contexto por `hbx_seller_operational_company` ou `master_operational_company`.
-- `backend/src/companies/companies.controller.ts` deixou de enviar empresa operacional HBX para resolver contexto efetivo.
-- `backend/src/pulse/hbx-pulse.service.ts` deixou de tratar slug da engine como operacao master; apenas contexto explicito `master_operacional` define operacao.
-- `backend/src/commercial-plans/seat-billing.util.ts` perdeu o helper legado por slug `isMasterOperationalCompanySlug`.
-- Radar deixou de importar/reexportar `MASTER_WHATSAPP_ENGINE_COMPANY_SLUG` em massa e nao usa mais o slug da engine como empresa operacional comercial.
-- Textos publicos restantes foram normalizados de "Parceiro/Rede HBX/Master HBX" para termos genericos como vendedor, indicacoes ou responsavel.
+- `MasterContextService` agora retorna `effectiveCompanyId: null` e `master_puro` quando o System Master nao tem tenant assumido.
+- `CommercialPlansService` removeu fallback para empresa tecnica e bloqueia `platform_infra` como contexto de plano comercial.
+- Triggers de `ModulesService` inserem `CompanyModule` somente para `companyKind='tenant'` e limpam modulos de `platform_infra`.
+- Radar passou a usar regra generica de vendedor/tenant, sem `isHbxOperationSellerUser`, `hbxSellerScope` ou `scope hbx_master` em runtime.
+- Distribuicao automatica do Radar usa `tenant_distribution`; dados antigos sao tratados por migration marcada `MIGRATION_ONLY`.
+- Limites especiais de vendedor passam por policy/tenant/plano, sem constantes ou metodo HBX seller.
+- Gerencial manteve documentacao, comissao, heranca e indicacao como escolhas genericas do dono da empresa.
+- `MasterProvisioning` ganhou endpoint protegido para provisionar tenant e explicita pendencias `pending_schema/deferred`.
+- Foi criada migration de inventario nao destrutivo para dados comerciais que ainda possam estar na empresa tecnica.
 
-## Resultado do grep em runtime
+## Grep obrigatorio
 
-Comandos executados:
-
-```powershell
-rg -n 'HBX_MASTER|COMPANY_ADMIN|isHbxOperationCompany|isMasterOperationalCompany|master_operational_company|hbx_seller_operational_company|slug === ''hbx''|slug === "hbx"' backend/src frontend/src
-rg -n "isMasterOperationalCompanySlug|MASTER_WHATSAPP_ENGINE_COMPANY_SLUG|hbx-master-whatsapp-engine" backend/src frontend/src
-rg -n "hbx_partner_seller|Parceiro HBX|parceiro HBX|Rede HBX|Direto HBX|Master HBX" backend/src frontend/src
-```
-
-Classificacao:
-
-- `HBX_MASTER`, `COMPANY_ADMIN`, `isHbxOperationCompany`, `isMasterOperationalCompany`, `master_operational_company`, `hbx_seller_operational_company` e checks `slug === "hbx"` nao aparecem mais como regra runtime.
-- Restam apenas marcadores CSS `HBX_MASTER_*` em `frontend/src/app/master/_command-center/MasterCommandCenter.module.css`; sao comentarios de bloco visual, nao regra de acesso, billing ou tenant.
-- `MASTER_WHATSAPP_ENGINE_COMPANY_SLUG` e `hbx-master-whatsapp-engine` permanecem em `companies`, `master-context`, `vendas`, constante e teste dedicado para localizar/criar a infraestrutura tecnica do WhatsApp.
-- Nao restou texto publico runtime com `hbx_partner_seller`, `Parceiro HBX`, `Rede HBX`, `Direto HBX` ou `Master HBX`.
-
-## Resultado do grep em documentos
-
-Comandos executados:
+Comando executado em runtime:
 
 ```powershell
-rg -n 'HBX_MASTER|COMPANY_ADMIN|isHbxOperationCompany|isMasterOperationalCompany|master_operational_company|hbx_seller_operational_company|slug === ''hbx''|slug === "hbx"' "docs/PLANEJAMENTOS/REFATORAÇÃO HBX"
-rg -n "isMasterOperationalCompanySlug|MASTER_WHATSAPP_ENGINE_COMPANY_SLUG|hbx-master-whatsapp-engine" "docs/PLANEJAMENTOS/REFATORAÇÃO HBX"
-rg -n "hbx_partner_seller|Parceiro HBX|parceiro HBX|Rede HBX|Direto HBX|Master HBX" "docs/PLANEJAMENTOS/REFATORAÇÃO HBX"
+rg -n -F -e 'isHbxOperationSellerUser' -e 'hbxSellerScope' -e 'hbx_master' -e 'master_operacional' -e 'master_operational' -e 'MasterRadar' -e 'parseMasterRadar' -e 'listMasterRadar' -e 'executeMasterRadar' -e 'HBX_SELLER_' -e 'computeHbxSellerOperationalLimits' -e 'HBX_MASTER' -e 'COMPANY_ADMIN' -e 'slug === "hbx"' -e "slug === 'hbx'" backend/src frontend/src
 ```
 
-Classificacao:
+Resultado: zero ocorrencias em `backend/src` e `frontend/src`.
 
-- As ocorrencias em `RELATORIO_FASE_1_INVENTARIO.md`, relatorios das fases e no plano master sao historico/contexto da propria refatoracao.
-- Essas ocorrencias nao representam regra ativa e devem continuar documentadas para auditoria do corte.
+Ocorrencias permitidas:
+
+- `backend/prisma/migrations/20260608_hbx_platform_infra_inventory/migration.sql` contem `hbx_master` somente para backfill `MIGRATION_ONLY`.
+- Documentos historicos em `docs/PLANEJAMENTOS/REFATORAÇÃO HBX` podem manter termos antigos como registro da refatoracao.
 
 ## Validacao executada
 
-- `npm --prefix backend run build`
-- `node --test backend/dist/auth/auth.service.test.js backend/dist/companies/master-whatsapp-engine-company.test.js backend/dist/master-provisioning/master-provisioning.service.test.js backend/dist/pulse/hbx-pulse.service.test.js`
-- `node --test backend/dist/common/company-kind.test.js backend/dist/access/seller-access-governance.test.js backend/dist/modules/module-access-policy.test.js backend/dist/commercial-plans/commercial-usage-limits.service.test.js`
-- `node --test backend/dist/gerencial/hbx-partner-referral.service.test.js backend/dist/gerencial/seller-onboarding.service.test.js backend/dist/team/team-policy.service.test.js`
-- `npm --prefix frontend run lint`
-- `npm --prefix frontend run build`
+- `cd backend && npm run prisma:validate`
+- `cd backend && npm run build`
+- `cd backend && node --test dist/auth/auth.service.test.js dist/companies/master-whatsapp-engine-company.test.js dist/master-provisioning/master-provisioning.service.test.js dist/pulse/hbx-pulse.service.test.js dist/common/company-kind.test.js dist/access/seller-access-governance.test.js dist/modules/module-access-policy.test.js dist/commercial-plans/commercial-usage-limits.service.test.js dist/gerencial/hbx-partner-referral.service.test.js dist/gerencial/seller-onboarding.service.test.js dist/gerencial/seller-contract-template.test.js dist/team/team-policy.service.test.js`
+- `cd frontend && npm run lint`
+- `cd frontend && npm run build`
 
 Resultado: todos passaram.
 

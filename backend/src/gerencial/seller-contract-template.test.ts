@@ -12,7 +12,7 @@ test('buildSellerPartnerContract substitui variaveis e inclui regras base', () =
     commissionPercent: 20,
     commissionDueBusinessDays: 3,
     contractDate: '03/06/2026',
-    canRegisterHbxSellers: false,
+    canRecruitSellers: false,
   });
 
   assert.match(contract, /João Parceiro/);
@@ -29,7 +29,7 @@ test('buildSellerPartnerContract inclui clausulas de gestor, herança e indicado
     sellerName: 'Maria Gestora',
     commissionPercent: 20,
     commissionDueBusinessDays: 3,
-    canRegisterHbxSellers: true,
+    canRecruitSellers: true,
     sellerReferralCommissionPercent: 2,
     referredByName: 'João Indicador',
   });

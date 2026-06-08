@@ -14,12 +14,12 @@ type ApplyPolicyToUsersModalProps = {
   onApply: (targetUserIds: number[], patch: TeamPolicyPatch) => void | Promise<void>;
 };
 
-type SectionKey = "modules" | "compensation" | "hbxNetwork" | "limits" | "radar" | "visibility";
+type SectionKey = "modules" | "compensation" | "sellerNetwork" | "limits" | "radar" | "visibility";
 
 const SECTION_LABELS: Array<[SectionKey, string]> = [
   ["modules", "Módulos"],
   ["compensation", "Comissão e D+"],
-  ["hbxNetwork", "Indicações"],
+  ["sellerNetwork", "Indicações"],
   ["limits", "Limites"],
   ["radar", "Radar"],
   ["visibility", "Visibilidade"],
@@ -65,7 +65,7 @@ function buildPatchForSections(basePatch: TeamPolicyPatch, enabledSections: Reco
   const next: TeamPolicyPatch = {};
   if (enabledSections.modules && basePatch.modules) next.modules = basePatch.modules;
   if (enabledSections.compensation && basePatch.compensation) next.compensation = basePatch.compensation;
-  if (enabledSections.hbxNetwork && basePatch.hbxNetwork) next.hbxNetwork = basePatch.hbxNetwork;
+  if (enabledSections.sellerNetwork && basePatch.sellerNetwork) next.sellerNetwork = basePatch.sellerNetwork;
   if (enabledSections.limits && basePatch.limits) next.limits = basePatch.limits;
   if (enabledSections.radar && basePatch.radar) next.radar = basePatch.radar;
   if (enabledSections.visibility && basePatch.visibility) next.visibility = basePatch.visibility;
@@ -76,7 +76,7 @@ function patchHasContent(patch: TeamPolicyPatch) {
   return Boolean(
     patch.modules?.length ||
       Object.keys(patch.compensation || {}).length ||
-      Object.keys(patch.hbxNetwork || {}).length ||
+      Object.keys(patch.sellerNetwork || {}).length ||
       Object.keys(patch.limits || {}).length ||
       Object.keys(patch.radar || {}).length ||
       Object.keys(patch.visibility || {}).length,
@@ -98,7 +98,7 @@ export default function ApplyPolicyToUsersModal({
   const [sections, setSections] = useState<Record<SectionKey, boolean>>({
     modules: true,
     compensation: true,
-    hbxNetwork: true,
+    sellerNetwork: true,
     limits: true,
     radar: true,
     visibility: true,
@@ -114,7 +114,7 @@ export default function ApplyPolicyToUsersModal({
       setSections({
         modules: true,
         compensation: true,
-        hbxNetwork: true,
+        sellerNetwork: true,
         limits: true,
         radar: true,
         visibility: true,

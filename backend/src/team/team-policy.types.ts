@@ -48,9 +48,9 @@ export type TeamPolicyCompensation = {
   commissionDueBusinessDays: number;
 };
 
-export type TeamPolicyHbxNetwork = {
-  isHbxSellerNetwork: boolean;
-  canRegisterHbxSellers: boolean;
+export type TeamPolicySellerNetwork = {
+  isSellerNetwork: boolean;
+  canRecruitSellers: boolean;
   sellerReferralCommissionPercent: number;
   referredByUserId: number | null;
   referredByCommissionPercentSnapshot: number;
@@ -80,7 +80,7 @@ export type TeamPolicyRadarFilters = {
 export type TeamPolicyVisibility = {
   sellerCanViewOwnPolicy: boolean;
   sellerCanViewCommission: boolean;
-  sellerCanViewHbxNetwork: boolean;
+  sellerCanViewSellerNetwork: boolean;
   sellerCanViewLimits: boolean;
   adminCanEditLegacyFields: boolean;
   masterCanUseUnlimited: boolean;
@@ -100,7 +100,7 @@ export type TeamPolicy = {
   subject: TeamPolicySubject;
   modules: TeamPolicyModule[];
   compensation: TeamPolicyCompensation;
-  hbxNetwork: TeamPolicyHbxNetwork;
+  sellerNetwork: TeamPolicySellerNetwork;
   limits: {
     enrichmentDaily: TeamPolicyLimit;
     cardDeliveryDaily: TeamPolicyLimit;

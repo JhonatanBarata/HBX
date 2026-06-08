@@ -71,7 +71,7 @@ test('HBX Pulse resume carteira do USER e limita comissao recorrente ao vendedor
   assert.match(summary.whatsappText, /^Hoje existem 5 oportunidades paradas/);
 });
 
-test('HBX Pulse trata MASTER em contexto operacional como visao operacional', async () => {
+test('HBX Pulse trata System Master com empresa assumida como visao da empresa', async () => {
   const mock = buildPrismaMock();
   const service = new HbxPulseService(mock.prisma as any);
 
@@ -82,15 +82,15 @@ test('HBX Pulse trata MASTER em contexto operacional como visao operacional', as
     isSystemMaster: true,
     masterContext: {
       active: true,
-      mode: 'master_operacional',
+      mode: 'empresa_assumida',
       companyId: 99,
     },
   });
 
-  assert.equal(summary.scope.type, 'master_operation');
+  assert.equal(summary.scope.type, 'company');
   assert.equal(mock.receivableAggregateCalls[0].sellerUserId, undefined);
   assert.doesNotMatch(JSON.stringify(mock.countCalls[0]), /assignedUserId/);
-  assert.match(summary.whatsappText, /operacao HBX/);
+  assert.match(summary.whatsappText, /na empresa/);
 });
 
 test('HBX Pulse nao usa slug da engine para transformar System Master em operacao', async () => {

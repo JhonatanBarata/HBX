@@ -5,7 +5,7 @@ type PartnerCreateFormProps = {
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   referralCandidatesPanel?: ReactNode;
   referralMatchBox?: ReactNode;
-  isHbxSellerNetwork: boolean;
+  isSellerNetwork: boolean;
   canCreateAdminUsers: boolean;
   newUserRole: "USER" | "ADMIN";
   setNewUserRole: (role: "USER" | "ADMIN") => void;
@@ -44,7 +44,7 @@ export default function PartnerCreateForm({
   onSubmit,
   referralCandidatesPanel,
   referralMatchBox,
-  isHbxSellerNetwork,
+  isSellerNetwork,
   canCreateAdminUsers,
   newUserRole,
   setNewUserRole,
@@ -78,7 +78,7 @@ export default function PartnerCreateForm({
   percentInputValue,
   creatingUser,
 }: PartnerCreateFormProps) {
-  const showPartnerFields = isHbxSellerNetwork && newUserRole === "USER";
+  const showPartnerFields = isSellerNetwork && newUserRole === "USER";
 
   return (
     <form onSubmit={onSubmit} autoComplete="off" className="grid gap-3">
@@ -87,7 +87,7 @@ export default function PartnerCreateForm({
         <div className="flex items-center justify-between gap-2">
           <div>
             <span className="text-xs font-bold uppercase text-[var(--hbx-mobile-primary)]">Novo acesso</span>
-            <h2 className="text-lg font-semibold">{isHbxSellerNetwork ? "Cadastrar vendedor" : "Cadastrar usuário"}</h2>
+            <h2 className="text-lg font-semibold">{isSellerNetwork ? "Cadastrar vendedor" : "Cadastrar usuário"}</h2>
           </div>
           <span className="rounded-full border border-[var(--hbx-mobile-border)] px-3 py-1 text-xs font-bold">
             {newUserRole === "USER" ? "Vendedor" : "Admin"}

@@ -4,12 +4,9 @@ import {
   ForbiddenException,
   HttpException,
   HttpStatus,
-  Inject,
   Injectable,
-  forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { CompaniesService } from '../companies/companies.service';
 import { MasterContextService } from '../master-context/master-context.service';
 import { isPlatformInfraCompany } from '../common/company-kind';
 import { SelectCommercialPlanDto } from './dto/select-commercial-plan.dto';
@@ -82,18 +79,17 @@ export class CommercialPlansService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly masterContextService: MasterContextService,
-    @Inject(forwardRef(() => CompaniesService))
-    private readonly companiesService: CompaniesService,
   ) {}
 
   private async resolveUserContext(user: any) {
     const userId = Number(user?.id || 0);
     if (!userId) throw new ForbiddenException('Usuario nao identificado.');
     const runtimeContext = await this.masterContextService.resolveRuntimeContext(user);
-    let companyId = Number(runtimeContext.effectiveCompanyId || user?.companyId || user?.company?.id || 0);
+    const companyId = Boolean(user?.isSystemMaster)
+      ? Number(runtimeContext.effectiveCompanyId || 0)
+      : Number(runtimeContext.effectiveCompanyId || user?.companyId || user?.company?.id || 0);
     if (!companyId && Boolean(user?.isSystemMaster)) {
-      const company = await this.companiesService.getOrCreateMasterWhatsAppEngineCompany();
-      companyId = Number(company.id);
+      throw new ForbiddenException('Selecione/crie um tenant para configurar plano.');
     }
     if (!companyId) throw new ForbiddenException('Empresa nao identificada.');
     return {
@@ -283,6 +279,12 @@ export class CommercialPlansService {
     return isPlatformInfraCompany(company);
   }
 
+  private assertTenantCommercialPlanContext(company: any) {
+    if (this.isPlatformInfraCommercialCompany(company)) {
+      throw new ForbiddenException('Empresa tecnica da plataforma nao pode receber plano comercial.');
+    }
+  }
+
   private buildFullEntitlements(): Record<CommercialEntitlementKey, boolean> {
     return {
       vendas: true,
@@ -427,6 +429,7 @@ export class CommercialPlansService {
   async getCatalogForUser(user: any) {
     const context = await this.resolveUserContext(user);
     const company = await this.loadCompany(context.companyId);
+    this.assertTenantCommercialPlanContext(company);
     return this.buildPayload(company, user);
   }
 
@@ -735,6 +738,7 @@ export class CommercialPlansService {
         include: { commercialEntitlements: true },
       });
       if (!company) throw new BadRequestException('Empresa nao encontrada.');
+      this.assertTenantCommercialPlanContext(company);
 
       const now = new Date();
       const selectedCatalogPlan = buildCommercialPlansCatalog({ includeHidden: true })

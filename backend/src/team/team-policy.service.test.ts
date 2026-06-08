@@ -254,7 +254,7 @@ test('policy update persists seller visibility and keeps system visibility deriv
     visibility: {
       sellerCanViewOwnPolicy: true,
       sellerCanViewCommission: false,
-      sellerCanViewHbxNetwork: true,
+      sellerCanViewSellerNetwork: true,
       sellerCanViewLimits: false,
       adminCanEditLegacyFields: false,
       masterCanUseUnlimited: false,
@@ -263,14 +263,14 @@ test('policy update persists seller visibility and keeps system visibility deriv
 
   assert.equal(result.visibility.sellerCanViewOwnPolicy, true);
   assert.equal(result.visibility.sellerCanViewCommission, false);
-  assert.equal(result.visibility.sellerCanViewHbxNetwork, true);
+  assert.equal(result.visibility.sellerCanViewSellerNetwork, true);
   assert.equal(result.visibility.sellerCanViewLimits, false);
   assert.equal(result.visibility.adminCanEditLegacyFields, true);
   assert.equal(result.visibility.masterCanUseUnlimited, true);
   assert.deepEqual(JSON.parse(state.user.teamPolicy.visibilityJson), {
     sellerCanViewOwnPolicy: true,
     sellerCanViewCommission: false,
-    sellerCanViewHbxNetwork: true,
+    sellerCanViewSellerNetwork: true,
     sellerCanViewLimits: false,
   });
 

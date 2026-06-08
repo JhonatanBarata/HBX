@@ -824,7 +824,7 @@
   color: #08a64b;
 }
 
-.hbxSellerLocationLock {
+.sellerLocationLock {
   min-width: 0;
   min-height: 70px;
   display: grid;
@@ -841,7 +841,7 @@
     0 14px 30px -26px rgba(7, 87, 223, 0.46);
 }
 
-.hbxSellerLocationLock span {
+.sellerLocationLock span {
   color: #5d6f8f;
   font-size: 0.66rem;
   font-weight: 820;
@@ -850,7 +850,7 @@
   text-transform: uppercase;
 }
 
-.hbxSellerLocationLock strong {
+.sellerLocationLock strong {
   min-width: 0;
   overflow: hidden;
   color: #102652;
@@ -862,26 +862,26 @@
   white-space: nowrap;
 }
 
-.hbxSellerLocationLock small {
+.sellerLocationLock small {
   color: #687a98;
   font-size: 0.76rem;
   font-weight: 650;
   line-height: 1.18;
 }
 
-.hbxSellerLocationLock[data-ready="false"] {
+.sellerLocationLock[data-ready="false"] {
   border-color: rgba(245, 158, 11, 0.42);
   background:
     radial-gradient(circle at 12% 18%, rgba(245, 158, 11, 0.14), transparent 34%),
     linear-gradient(135deg, rgba(255, 251, 235, 0.96), rgba(255, 255, 255, 0.92));
 }
 
-.hbxSellerLocationLock[data-ready="false"] strong {
+.sellerLocationLock[data-ready="false"] strong {
   color: #8a4d00;
 }
 
-:global(html[data-theme-mode="dark"]) .hbxSellerLocationLock,
-:global(html[data-hbx-mobile-theme="dark"]) .hbxSellerLocationLock {
+:global(html[data-theme-mode="dark"]) .sellerLocationLock,
+:global(html[data-hbx-mobile-theme="dark"]) .sellerLocationLock {
   border-color: rgba(255, 214, 102, 0.22);
   background:
     radial-gradient(circle at 12% 18%, rgba(255, 214, 102, 0.1), transparent 34%),
@@ -891,23 +891,23 @@
     0 14px 30px -26px rgba(255, 214, 102, 0.28);
 }
 
-:global(html[data-theme-mode="dark"]) .hbxSellerLocationLock span,
-:global(html[data-hbx-mobile-theme="dark"]) .hbxSellerLocationLock span {
+:global(html[data-theme-mode="dark"]) .sellerLocationLock span,
+:global(html[data-hbx-mobile-theme="dark"]) .sellerLocationLock span {
   color: rgba(226, 234, 248, 0.68);
 }
 
-:global(html[data-theme-mode="dark"]) .hbxSellerLocationLock strong,
-:global(html[data-hbx-mobile-theme="dark"]) .hbxSellerLocationLock strong {
+:global(html[data-theme-mode="dark"]) .sellerLocationLock strong,
+:global(html[data-hbx-mobile-theme="dark"]) .sellerLocationLock strong {
   color: #f8fbff;
 }
 
-:global(html[data-theme-mode="dark"]) .hbxSellerLocationLock small,
-:global(html[data-hbx-mobile-theme="dark"]) .hbxSellerLocationLock small {
+:global(html[data-theme-mode="dark"]) .sellerLocationLock small,
+:global(html[data-hbx-mobile-theme="dark"]) .sellerLocationLock small {
   color: rgba(226, 234, 248, 0.72);
 }
 
-:global(html[data-theme-mode="dark"]) .hbxSellerLocationLock[data-ready="false"] strong,
-:global(html[data-hbx-mobile-theme="dark"]) .hbxSellerLocationLock[data-ready="false"] strong {
+:global(html[data-theme-mode="dark"]) .sellerLocationLock[data-ready="false"] strong,
+:global(html[data-hbx-mobile-theme="dark"]) .sellerLocationLock[data-ready="false"] strong {
   color: #ffe08a;
 }
 
