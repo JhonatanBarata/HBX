@@ -163,6 +163,7 @@ import type {
 import {
   getTeamPolicyRequiredChannelList,
   loadUserTeamPolicyRuntime,
+  resolveTeamPolicyAccessAllowed,
 } from '../../../team/team-policy-persistence';
 
 export class RadarCoreDeliveryMixin {
@@ -172,6 +173,16 @@ export class RadarCoreDeliveryMixin {
     if (!userId) return [];
     const policy = await loadUserTeamPolicyRuntime(this.prisma, userId).catch(() => null);
     return this.normalizeRadarChannels(getTeamPolicyRequiredChannelList(policy));
+  }
+
+  private async assertSellerTeamPolicyAccess(user: any, accessKey: string, message: string) {
+    if (!this.isCompanySellerUser(user)) return;
+    const userId = Math.trunc(Number(user?.id || 0));
+    if (!userId) return;
+    const policy = await loadUserTeamPolicyRuntime(this.prisma, userId).catch(() => null);
+    if (resolveTeamPolicyAccessAllowed(policy, accessKey) === false) {
+      throw new ForbiddenException(message);
+    }
   }
 
   private async applyTeamPolicyRadarFilters<T extends { requiredChannels?: any; channelMatchMode?: any }>(
@@ -1110,6 +1121,7 @@ export class RadarCoreDeliveryMixin {
 
   async startRadarSearchRunForUser(user: any, input: RadarFiltersInput = {}) {
     const context = this.resolveContext(user);
+    await this.assertSellerTeamPolicyAccess(user, 'radar.search.run', 'Busca do Radar bloqueada pela politica da equipe.');
     const filters = await this.applyTeamPolicyRadarFilters(context, this.normalizeRadarFilters(input));
     if (!filters.normalizedCity || !filters.normalizedSegment) {
       throw new BadRequestException('Cidade e segmento sao obrigatorios para pesquisar no Radar.');
@@ -1330,7 +1342,7 @@ export class RadarCoreDeliveryMixin {
           ? 'Entregue do banco Radar. O motor de busca nao foi acionado.'
           : claimedRows.length
             ? `Entreguei ${claimedRows.length} card(s) do banco. Radar trabalhando para completar a pesquisa.`
-            : 'Sem cards prontos no banco. Busca enviada para a fila HBX.',
+            : 'Sem cards prontos no banco. Busca enviada para a fila do Radar.',
         metricsJson: JSON.stringify({
           activeSearchSignature: this.buildRadarActiveSearchSignature(filters),
           vendasStockTarget,
@@ -1595,6 +1607,7 @@ export class RadarCoreDeliveryMixin {
 
   async pullRadarLeadsForUser(user: any, input: RadarFiltersInput = {}) {
     const context = this.resolveContext(user);
+    await this.assertSellerTeamPolicyAccess(user, 'radar.cards.pull', 'Puxar cards do Radar esta bloqueado pela politica da equipe.');
     const filters = await this.applyTeamPolicyRadarFilters(context, this.normalizeRadarFilters(input));
     if (!filters.normalizedCity || !filters.normalizedSegment) {
       throw new BadRequestException('Cidade e segmento sao obrigatorios para puxar cards do Radar.');
@@ -1919,6 +1932,7 @@ export class RadarCoreDeliveryMixin {
 
   async replenishRadarStockForUser(user: any, input: RadarFiltersInput = {}) {
     const context = this.resolveContext(user);
+    await this.assertSellerTeamPolicyAccess(user, 'radar.stock.replenish', 'Reposicao de estoque do Radar bloqueada pela politica da equipe.');
     const filters = await this.applyTeamPolicyRadarFilters(context, this.normalizeRadarFilters(input));
     if (!filters.normalizedCity || !filters.normalizedSegment) {
       throw new BadRequestException('Cidade e segmento sao obrigatorios para repor o estoque do Radar.');
@@ -3004,6 +3018,7 @@ export class RadarCoreDeliveryMixin {
       throw new ServiceUnavailableException('Servico de Vendas indisponivel para importacao.');
     }
     const context = this.resolveContext(user);
+    await this.assertSellerTeamPolicyAccess(user, 'radar.cards.sendToVendas', 'Envio do Radar para Vendas bloqueado pela politica da equipe.');
     if (!(await this.supportsRadarPersistence())) {
       throw new ServiceUnavailableException('Banco do Radar ainda nao foi migrado neste ambiente.');
     }

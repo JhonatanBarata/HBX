@@ -129,7 +129,7 @@ function createService(input: {
       },
     },
     userTeamPolicy: {
-      findUnique: async () => ({ id: state.user.teamPolicy.id }),
+      findUnique: async () => ({ ...state.user.teamPolicy }),
       update: async (args: any) => {
         state.user.teamPolicy = { ...state.user.teamPolicy, ...args.data };
         return state.user.teamPolicy;
@@ -279,6 +279,43 @@ test('policy update persists seller visibility and keeps system visibility deriv
   const metadata = findMetadata(teamAudit!);
   assert.equal(metadata.patch.hasVisibility, true);
   assert.equal(metadata.diff.visibilityChanged, true);
+});
+
+test('policy update persists explicit team access map over legacy modules', async () => {
+  const { service, state, requester } = createService();
+
+  const result = await service.updatePolicy(requester, 7, {
+    access: {
+      'radar.search.run': false,
+      'commission.own.configure': true,
+      'seller.documents.request': true,
+    },
+  } as any);
+
+  assert.equal(result.accessCatalog.some((item) => item.key === 'seller.documents.request'), true);
+  assert.equal(result.accessPresets.some((preset) => preset.key === 'seller_radar_limited'), true);
+  assert.equal(result.effectiveAccessMap['radar.search.run'], false);
+  assert.equal(result.effectiveAccessMap['commission.own.configure'], true);
+  assert.equal(result.effectiveAccessMap['seller.documents.request'], true);
+  assert.equal(
+    result.missingBackendEnforcement.some((item) => item.key === 'commission.own.configure'),
+    true,
+  );
+
+  const rows = JSON.parse(state.user.teamPolicy.modulesJson);
+  assert.equal(rows.some((row: any) => row.key === 'webscraping' && row.allowed === true), true);
+  assert.equal(rows.some((row: any) => row.key === 'radar.search.run' && row.allowed === false), true);
+  assert.equal(rows.some((row: any) => row.key === 'seller.documents.request' && row.allowed === true), true);
+
+  const teamAudit = findSqlCall(state, 'TeamPolicyAuditLog');
+  assert.ok(teamAudit);
+  const metadata = findMetadata(teamAudit!);
+  assert.equal(metadata.patch.hasAccess, true);
+  assert.deepEqual(metadata.accessChanged.sort(), [
+    'commission.own.configure',
+    'radar.search.run',
+    'seller.documents.request',
+  ]);
 });
 
 test('ADMIN cannot set individual enrichment above current plan cap', async () => {

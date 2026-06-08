@@ -4,7 +4,29 @@ import { CommercialUsageLimitsService } from '../commercial-plans/commercial-usa
 import { isTenantCompany } from '../common/company-kind';
 import { ModulesService } from '../modules/modules.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { ensureUserTeamPolicyForUser } from './team-policy-persistence';
+import {
+  buildDefaultTeamAccessMapForRole,
+  buildTeamAccessMapFromModuleAccess,
+  getTeamAccessCatalog,
+  getTeamAccessGroups,
+  listMissingBackendEnforcement,
+  mergeTeamAccessMaps,
+  normalizeTeamAccessMap,
+  type TeamAccessMap,
+} from './team-access-catalog';
+import {
+  buildPresetAccessMap,
+  getTeamAccessPresets,
+  resolveTeamAccessPreset,
+} from './team-access-presets';
+import {
+  ensureUserTeamPolicyForUser,
+  loadUserTeamPolicyRuntime,
+  parseTeamPolicyAccessMap,
+  parseTeamPolicyModuleAccessMap,
+  resolveTeamPolicyAccessAllowed,
+  serializeTeamPolicyModuleAndAccessRows,
+} from './team-policy-persistence';
 import type {
   TeamPolicy,
   TeamPolicyActorKind,
@@ -22,6 +44,11 @@ type TeamPolicySellerVisibilityKey =
 
 type TeamPolicyPatch = {
   modules?: Array<{ key?: unknown; allowed?: unknown }>;
+  access?: Record<string, unknown>;
+  accessMap?: Record<string, unknown>;
+  accessPresetKey?: unknown;
+  presetKey?: unknown;
+  presetId?: unknown;
   compensation?: {
     commissionPercent?: unknown;
     commissionDueBusinessDays?: unknown;
@@ -208,6 +235,65 @@ export class TeamPolicyService {
       email: Boolean(value.email),
       website: Boolean(value.website),
     };
+  }
+
+  private normalizeAccessPatch(value: unknown): TeamAccessMap | undefined {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+    const normalized = normalizeTeamAccessMap(value);
+    return Object.keys(normalized).length ? normalized : undefined;
+  }
+
+  private resolveAccessPresetKey(patch: TeamPolicyPatch | null | undefined) {
+    const requested = patch?.accessPresetKey ?? patch?.presetKey ?? patch?.presetId;
+    const preset = resolveTeamAccessPreset(requested);
+    return preset?.key || null;
+  }
+
+  private storedModuleRowsFromPolicy(storedPolicy: any, patch?: TeamPolicyPatch) {
+    if (Array.isArray(patch?.modules)) {
+      return patch.modules
+        .map((moduleItem) => ({
+          key: String(moduleItem?.key || '').trim().toLowerCase(),
+          allowed: Boolean(moduleItem?.allowed),
+        }))
+        .filter((moduleItem) => moduleItem.key);
+    }
+    return Array.from(parseTeamPolicyModuleAccessMap(storedPolicy?.modulesJson || null).entries())
+      .map(([key, allowed]) => ({ key, allowed }));
+  }
+
+  private storedAccessMapFromPolicy(storedPolicy: any): TeamAccessMap {
+    return Object.fromEntries(parseTeamPolicyAccessMap(storedPolicy?.modulesJson || null).entries());
+  }
+
+  private buildAccessMapFromModules(modules: TeamPolicyModule[] | Array<{ key?: unknown; allowed?: unknown }>) {
+    return buildTeamAccessMapFromModuleAccess(
+      (modules || []).map((moduleItem) => ({
+        key: String(moduleItem?.key || '').trim(),
+        allowed: Boolean(moduleItem?.allowed),
+      })),
+    );
+  }
+
+  private buildEffectiveAccessMap(target: any, modules: TeamPolicyModule[], storedPolicy: any): TeamAccessMap {
+    const targetKind = this.getActorKind(target, target?.company);
+    const defaults = buildDefaultTeamAccessMapForRole(targetKind);
+    const currentModuleAccess = this.buildAccessMapFromModules(modules);
+    const storedModuleAccess = buildTeamAccessMapFromModuleAccess(this.storedModuleRowsFromPolicy(storedPolicy));
+    const explicitAccess = this.storedAccessMapFromPolicy(storedPolicy);
+    return mergeTeamAccessMaps(defaults, currentModuleAccess, storedModuleAccess, explicitAccess);
+  }
+
+  private buildStoredAccessUpdate(storedPolicy: any, patch: TeamPolicyPatch) {
+    const presetKey = this.resolveAccessPresetKey(patch);
+    const presetAccess = presetKey ? buildPresetAccessMap(presetKey) : null;
+    const accessPatch = this.normalizeAccessPatch(patch?.access ?? patch?.accessMap);
+    if (!presetAccess && !accessPatch) return undefined;
+    return mergeTeamAccessMaps(
+      presetAccess ? {} : this.storedAccessMapFromPolicy(storedPolicy),
+      presetAccess || null,
+      accessPatch || null,
+    );
   }
 
   private toStoredLimitFields(prefix: string, limitPatch: unknown, actorIsMaster: boolean) {
@@ -446,7 +532,7 @@ export class TeamPolicyService {
     throw new ForbiddenException('Acesso restrito ao responsavel da equipe.');
   }
 
-  private assertCanManage(requester: any, target: any) {
+  private async assertCanManage(requester: any, target: any) {
     if (target?.isSystemMaster) {
       throw new ForbiddenException('Politica do MASTER nao e editada por este fluxo.');
     }
@@ -455,7 +541,16 @@ export class TeamPolicyService {
     const requesterRole = this.normalizeRole(requester?.role);
     const requesterCompanyId = Math.trunc(Number(requester?.companyId || 0));
     const targetCompanyId = Math.trunc(Number(target?.companyId || 0));
-    if (requesterRole === 'ADMIN' && requesterCompanyId && requesterCompanyId === targetCompanyId) return;
+    const sameCompany = Boolean(requesterCompanyId && requesterCompanyId === targetCompanyId);
+    if (!sameCompany) throw new ForbiddenException('Acesso restrito ao responsavel da equipe.');
+
+    const requesterPolicy = await loadUserTeamPolicyRuntime(this.prisma, requester?.id).catch(() => null);
+    const manageAccess = resolveTeamPolicyAccessAllowed(requesterPolicy, 'team.access.manage');
+    if (requesterRole === 'ADMIN') {
+      if (manageAccess === false) throw new ForbiddenException('Acesso ao Gerencial bloqueado pela politica da equipe.');
+      return;
+    }
+    if (manageAccess === true) return;
     throw new ForbiddenException('Acesso restrito ao responsavel da equipe.');
   }
 
@@ -595,6 +690,7 @@ export class TeamPolicyService {
     const vendasPullFallback = this.buildVendasPullLimit({ usage, activeCards });
     const storedPolicy = target?.teamPolicy || null;
     const storedReferrer = storedPolicy?.referredByUser || target.referredByUser;
+    const effectiveAccessMap = this.buildEffectiveAccessMap(target, modules, storedPolicy);
 
     return {
       version: 1,
@@ -610,6 +706,12 @@ export class TeamPolicyService {
         username: target.username || null,
       },
       modules,
+      accessCatalog: getTeamAccessCatalog(),
+      accessGroups: getTeamAccessGroups(),
+      accessPresets: getTeamAccessPresets(),
+      access: effectiveAccessMap,
+      effectiveAccessMap,
+      missingBackendEnforcement: listMissingBackendEnforcement(effectiveAccessMap),
       compensation: {
         commissionPercent: Math.max(0, Math.min(100, Number(storedPolicy?.commissionPercent ?? target.commissionPercent ?? 0) || 0)),
         commissionDueBusinessDays: Math.max(
@@ -667,6 +769,7 @@ export class TeamPolicyService {
           'UserTeamPolicy.vendasPullQuantity',
           'UserTeamPolicy.radarFilters',
           'UserTeamPolicy.visibility',
+          'UserTeamPolicy.accessMap',
           'User.commissionPercent',
           'User.canRecruitSellers (stored as canRegisterHbxSellers)',
           'User.sellerReferralCommissionPercent',
@@ -822,8 +925,14 @@ export class TeamPolicyService {
     const compensation = patch?.compensation || {};
     const sellerNetwork = patch?.sellerNetwork || {};
     const limits = patch?.limits || {};
+    const preset = resolveTeamAccessPreset(this.resolveAccessPresetKey(patch));
+    const effectiveLimits = {
+      ...(preset?.limits || {}),
+      ...limits,
+    };
     const radar = patch?.radar || {};
     const visibility = this.normalizeVisibilityPatch(patch?.visibility);
+    const accessUpdate = this.buildStoredAccessUpdate(target?.teamPolicy, patch || {});
 
     const commissionPercent = this.normalizePercent(compensation.commissionPercent, 'Comissao');
     if (commissionPercent !== undefined) data.commissionPercent = commissionPercent;
@@ -851,22 +960,22 @@ export class TeamPolicyService {
     );
     if (snapshotPercent !== undefined) data.referredByCommissionPercentSnapshot = snapshotPercent;
 
-    if (limits.enrichmentDaily !== undefined) {
-      Object.assign(data, this.toStoredLimitFields('enrichmentDaily', limits.enrichmentDaily, Boolean(requester?.isSystemMaster)));
+    if (effectiveLimits.enrichmentDaily !== undefined) {
+      Object.assign(data, this.toStoredLimitFields('enrichmentDaily', effectiveLimits.enrichmentDaily, Boolean(requester?.isSystemMaster)));
     } else if ((patch as any)?.sellerDistributionDailyLimitOverride !== undefined) {
       Object.assign(data, this.toStoredLimitFields('enrichmentDaily', (patch as any).sellerDistributionDailyLimitOverride, Boolean(requester?.isSystemMaster)));
     }
-    if (limits.cardDeliveryDaily !== undefined) {
-      Object.assign(data, this.toStoredLimitFields('cardDeliveryDaily', limits.cardDeliveryDaily, Boolean(requester?.isSystemMaster)));
+    if (effectiveLimits.cardDeliveryDaily !== undefined) {
+      Object.assign(data, this.toStoredLimitFields('cardDeliveryDaily', effectiveLimits.cardDeliveryDaily, Boolean(requester?.isSystemMaster)));
     }
-    if (limits.activeCards !== undefined) {
-      Object.assign(data, this.toStoredLimitFields('activeCards', limits.activeCards, Boolean(requester?.isSystemMaster)));
+    if (effectiveLimits.activeCards !== undefined) {
+      Object.assign(data, this.toStoredLimitFields('activeCards', effectiveLimits.activeCards, Boolean(requester?.isSystemMaster)));
     }
-    if (limits.monthlyCards !== undefined) {
-      Object.assign(data, this.toStoredLimitFields('monthlyCards', limits.monthlyCards, Boolean(requester?.isSystemMaster)));
+    if (effectiveLimits.monthlyCards !== undefined) {
+      Object.assign(data, this.toStoredLimitFields('monthlyCards', effectiveLimits.monthlyCards, Boolean(requester?.isSystemMaster)));
     }
-    if (limits.vendasPullQuantity !== undefined) {
-      Object.assign(data, this.toStoredLimitFields('vendasPullQuantity', limits.vendasPullQuantity, Boolean(requester?.isSystemMaster)));
+    if (effectiveLimits.vendasPullQuantity !== undefined) {
+      Object.assign(data, this.toStoredLimitFields('vendasPullQuantity', effectiveLimits.vendasPullQuantity, Boolean(requester?.isSystemMaster)));
     }
 
     if (radar.allowedSegments !== undefined) {
@@ -894,9 +1003,18 @@ export class TeamPolicyService {
         ...visibility,
       });
     }
+    if (accessUpdate !== undefined) {
+      data.modulesJson = serializeTeamPolicyModuleAndAccessRows({
+        modules: this.storedModuleRowsFromPolicy(target?.teamPolicy, patch),
+        access: accessUpdate,
+      });
+    }
+    if (preset?.key) {
+      data.source = `team_policy_preset:${preset.key}`;
+    }
 
     if (Object.keys(data).length) {
-      data.source = 'team_policy_update';
+      data.source = data.source || 'team_policy_update';
     }
     return data;
   }
@@ -910,6 +1028,12 @@ export class TeamPolicyService {
       hasLimits: Boolean(patch?.limits && Object.keys(patch.limits).length),
       hasRadar: Boolean(patch?.radar && Object.keys(patch.radar).length),
       hasVisibility: Boolean(patch?.visibility && Object.keys(patch.visibility).length),
+      hasAccess: Boolean(
+        (patch?.access && Object.keys(patch.access).length) ||
+          (patch?.accessMap && Object.keys(patch.accessMap).length) ||
+          this.resolveAccessPresetKey(patch),
+      ),
+      accessPresetKey: this.resolveAccessPresetKey(patch),
       batch: Boolean((patch as any)?.audit?.batch),
       batchId: (patch as any)?.audit?.batchId ? String((patch as any).audit.batchId).slice(0, 120) : null,
       sourceUserId: Math.trunc(Number((patch as any)?.audit?.sourceUserId || 0)) || null,
@@ -944,6 +1068,7 @@ export class TeamPolicyService {
         isActive: policy.subject.isActive,
       },
       modules,
+      access: policy.effectiveAccessMap || policy.access || {},
       compensation: policy.compensation,
       sellerNetwork: {
         canRecruitSellers: policy.sellerNetwork.canRecruitSellers,
@@ -954,6 +1079,7 @@ export class TeamPolicyService {
       limits,
       radar: policy.radar,
       visibility: policy.visibility,
+      missingBackendEnforcement: policy.missingBackendEnforcement || [],
       persistence: {
         mode: policy.persistence.mode,
         policyId: policy.persistence.policyId,
@@ -976,6 +1102,7 @@ export class TeamPolicyService {
   private buildPolicyAuditDiff(before: ReturnType<TeamPolicyService['buildPolicyAuditSnapshot']>, after: ReturnType<TeamPolicyService['buildPolicyAuditSnapshot']>) {
     return {
       modulesChanged: this.diffObjectKeys(before.modules, after.modules),
+      accessChanged: this.diffObjectKeys(before.access, after.access),
       limitsChanged: this.diffObjectKeys(before.limits, after.limits),
       compensationChanged: JSON.stringify(before.compensation) !== JSON.stringify(after.compensation),
       sellerNetworkChanged: JSON.stringify(before.sellerNetwork) !== JSON.stringify(after.sellerNetwork),
@@ -1015,6 +1142,7 @@ export class TeamPolicyService {
       patch: patchSummary,
       batch: patchSummary.batch,
       modulesChanged: diff.modulesChanged.map((item) => item.key),
+      accessChanged: diff.accessChanged.map((item) => item.key),
       limitsChanged: diff.limitsChanged.map((item) => item.key),
     };
     const metadataJson = JSON.stringify(metadata);
@@ -1065,7 +1193,7 @@ export class TeamPolicyService {
 
   async updatePolicy(requester: any, targetUserId: number, patch: TeamPolicyPatch) {
     const target = await this.findTargetUser(targetUserId);
-    this.assertCanManage(requester, target);
+    await this.assertCanManage(requester, target);
     const beforePolicy = await this.buildPolicy(target, requester);
 
     const data = await this.buildLegacyUpdateData(requester, target, patch || {});

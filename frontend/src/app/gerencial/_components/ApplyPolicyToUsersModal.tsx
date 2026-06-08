@@ -14,10 +14,11 @@ type ApplyPolicyToUsersModalProps = {
   onApply: (targetUserIds: number[], patch: TeamPolicyPatch) => void | Promise<void>;
 };
 
-type SectionKey = "modules" | "compensation" | "sellerNetwork" | "limits" | "radar" | "visibility";
+type SectionKey = "modules" | "access" | "compensation" | "sellerNetwork" | "limits" | "radar" | "visibility";
 
 const SECTION_LABELS: Array<[SectionKey, string]> = [
   ["modules", "Módulos"],
+  ["access", "Acessos"],
   ["compensation", "Comissão e D+"],
   ["sellerNetwork", "Indicações"],
   ["limits", "Limites"],
@@ -64,6 +65,10 @@ function matchesFilter(user: UserItem, filter: UserFilter) {
 function buildPatchForSections(basePatch: TeamPolicyPatch, enabledSections: Record<SectionKey, boolean>): TeamPolicyPatch {
   const next: TeamPolicyPatch = {};
   if (enabledSections.modules && basePatch.modules) next.modules = basePatch.modules;
+  if (enabledSections.access && basePatch.access) {
+    next.access = basePatch.access;
+    if (basePatch.accessPresetKey !== undefined) next.accessPresetKey = basePatch.accessPresetKey;
+  }
   if (enabledSections.compensation && basePatch.compensation) next.compensation = basePatch.compensation;
   if (enabledSections.sellerNetwork && basePatch.sellerNetwork) next.sellerNetwork = basePatch.sellerNetwork;
   if (enabledSections.limits && basePatch.limits) next.limits = basePatch.limits;
@@ -75,6 +80,7 @@ function buildPatchForSections(basePatch: TeamPolicyPatch, enabledSections: Reco
 function patchHasContent(patch: TeamPolicyPatch) {
   return Boolean(
     patch.modules?.length ||
+      Object.keys(patch.access || {}).length ||
       Object.keys(patch.compensation || {}).length ||
       Object.keys(patch.sellerNetwork || {}).length ||
       Object.keys(patch.limits || {}).length ||
@@ -97,6 +103,7 @@ export default function ApplyPolicyToUsersModal({
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
   const [sections, setSections] = useState<Record<SectionKey, boolean>>({
     modules: true,
+    access: true,
     compensation: true,
     sellerNetwork: true,
     limits: true,
@@ -113,6 +120,7 @@ export default function ApplyPolicyToUsersModal({
       setFilter("active");
       setSections({
         modules: true,
+        access: true,
         compensation: true,
         sellerNetwork: true,
         limits: true,

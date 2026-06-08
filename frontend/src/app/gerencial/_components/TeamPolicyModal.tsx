@@ -276,6 +276,10 @@ function buildModuleDraft(policy: TeamPolicy | null, enabledModules: CompanyModu
   return draft;
 }
 
+function buildAccessDraft(policy: TeamPolicy | null) {
+  return { ...(policy?.effectiveAccessMap || policy?.access || {}) };
+}
+
 function buildVisibilityDraft(policy: TeamPolicy | null): NonNullable<TeamPolicyPatch["visibility"]> {
   if (!policy) return EMPTY_VISIBILITY_DRAFT;
   return {
@@ -302,6 +306,8 @@ export default function TeamPolicyModal({
   onApplyBatch,
 }: TeamPolicyModalProps) {
   const [moduleDraft, setModuleDraft] = useState<Record<string, boolean>>({});
+  const [accessDraft, setAccessDraft] = useState<Record<string, boolean>>({});
+  const [selectedAccessPresetKey, setSelectedAccessPresetKey] = useState("");
   const [commissionPercent, setCommissionPercent] = useState("0");
   const [commissionDueBusinessDays, setCommissionDueBusinessDays] = useState("3");
   const [canRecruitSellers, setCanRecruitSellers] = useState(false);
@@ -361,6 +367,8 @@ export default function TeamPolicyModal({
     hydratedPolicyUserIdRef.current = policyUserId;
     const timeoutId = window.setTimeout(() => {
       setModuleDraft(buildModuleDraft(policy, enabledModules));
+      setAccessDraft(buildAccessDraft(policy));
+      setSelectedAccessPresetKey("");
       setCommissionPercent(numberDraft(policy.compensation.commissionPercent));
       setCommissionDueBusinessDays(String(policy.compensation.commissionDueBusinessDays || 3));
       setCanRecruitSellers(Boolean(policy.sellerNetwork.canRecruitSellers));
@@ -408,6 +416,8 @@ export default function TeamPolicyModal({
 
     return {
       modules: Object.entries(moduleDraft).map(([key, allowed]) => ({ key, allowed })),
+      access: accessDraft,
+      ...(selectedAccessPresetKey ? { accessPresetKey: selectedAccessPresetKey } : {}),
       compensation: {
         commissionPercent: parsedCommission,
         commissionDueBusinessDays: parsedDueDays,
@@ -433,6 +443,7 @@ export default function TeamPolicyModal({
     allowedCities,
     allowedSegments,
     allowedStates,
+    accessDraft,
     blockedSegments,
     canRecruitSellers,
     commissionDueBusinessDays,
@@ -445,6 +456,7 @@ export default function TeamPolicyModal({
     requiredChannels,
     requiresLocation,
     sellerReferralCommissionPercent,
+    selectedAccessPresetKey,
     visibilityDraft,
   ]);
 
@@ -489,6 +501,17 @@ export default function TeamPolicyModal({
         name: moduleItem.name || moduleItem.key,
         companyEnabled: Boolean(moduleItem.accessible ?? moduleItem.allowed),
       }));
+  const accessGroups = policy?.accessGroups || [];
+  const accessCatalog = policy?.accessCatalog || [];
+  const accessPresets = policy?.accessPresets || [];
+  const missingAccessSet = new Set((policy?.missingBackendEnforcement || []).map((item) => item.key));
+  const accessGroupsToRender = accessGroups.length
+    ? accessGroups
+    : Array.from(new Set(accessCatalog.map((item) => item.group))).map((group) => ({
+        key: group,
+        label: group,
+        description: "",
+      }));
 
   function handleSave() {
     if (!user || !policy || readOnly) return;
@@ -507,6 +530,26 @@ export default function TeamPolicyModal({
     }
     setLocalError(null);
     onApplyBatch(policy, patch);
+  }
+
+  function applyAccessPreset(presetKey: string) {
+    const preset = accessPresets.find((item) => item.key === presetKey);
+    if (!preset) return;
+    setSelectedAccessPresetKey(preset.key);
+    setAccessDraft({ ...preset.access });
+    if (preset.limits) {
+      setLimits((current) => {
+        const next = { ...current };
+        for (const [key, limit] of Object.entries(preset.limits || {})) {
+          if (!limit || !(key in next)) continue;
+          next[key as LimitKey] = {
+            mode: limit.mode,
+            value: limit.value == null ? "" : String(limit.value),
+          };
+        }
+        return next;
+      });
+    }
   }
 
   function openSelectionPicker(key: SelectionPickerKey) {
@@ -677,6 +720,84 @@ export default function TeamPolicyModal({
                   })}
                 </div>
               </section>
+
+              {accessCatalog.length ? (
+                <section className="rounded-[12px] border border-[var(--line)] bg-[var(--surface-soft)] p-4">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <h3 className="font-semibold">Acessos</h3>
+                      <p className="mt-1 text-sm text-muted">Escolhas operacionais do Gerencial para este usuário.</p>
+                    </div>
+                    {accessPresets.length ? (
+                      <label className="grid min-w-[260px] gap-1 text-sm">
+                        <span className="font-medium">Preset</span>
+                        <select
+                          value={selectedAccessPresetKey}
+                          disabled={readOnly || saving}
+                          onChange={(event) => applyAccessPreset(event.target.value)}
+                          className="field"
+                        >
+                          <option value="">Personalizado</option>
+                          {accessPresets.map((preset) => (
+                            <option key={preset.key} value={preset.key}>
+                              {preset.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : null}
+                  </div>
+                  <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                    {accessGroupsToRender.map((group) => {
+                      const groupItems = accessCatalog.filter((item) => item.group === group.key);
+                      if (!groupItems.length) return null;
+                      return (
+                        <div key={group.key} className="rounded-[12px] border border-[var(--line)] bg-[var(--surface)] p-3">
+                          <div className="mb-3">
+                            <h4 className="text-sm font-semibold">{group.label}</h4>
+                            {group.description ? <p className="mt-1 text-xs text-muted">{group.description}</p> : null}
+                          </div>
+                          <div className="grid gap-2">
+                            {groupItems.map((item) => {
+                              const active = Boolean(accessDraft[item.key]);
+                              const pendingBackend = missingAccessSet.has(item.key);
+                              return (
+                                <label
+                                  key={item.key}
+                                  className="flex items-start gap-3 rounded-[10px] border border-[var(--line)] bg-[var(--surface-soft)] p-3 text-sm"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={active}
+                                    disabled={readOnly || saving}
+                                    onChange={(event) =>
+                                      setAccessDraft((current) => ({
+                                        ...current,
+                                        [item.key]: event.target.checked,
+                                      }))
+                                    }
+                                    className="mt-1"
+                                  />
+                                  <span className="min-w-0 flex-1">
+                                    <span className="flex flex-wrap items-center gap-2">
+                                      <strong>{item.label}</strong>
+                                      <span className={`badge ${item.riskLevel === "critical" ? "badge-danger" : ""}`}>
+                                        {item.riskLevel === "critical" ? "Crítico" : item.riskLevel === "high" ? "Alto" : item.riskLevel === "medium" ? "Médio" : "Baixo"}
+                                      </span>
+                                      <span className="badge">{pendingBackend ? "Pendente backend" : "Backend"}</span>
+                                    </span>
+                                    <span className="mt-1 block text-xs text-muted">{item.description}</span>
+                                  </span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              ) : null}
 
               <section className="grid gap-4 rounded-[12px] border border-[var(--line)] bg-[var(--surface-soft)] p-4 lg:grid-cols-2">
                 <div>

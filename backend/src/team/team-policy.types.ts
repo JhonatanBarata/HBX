@@ -31,6 +31,56 @@ export type TeamPolicyModule = {
   source: 'module_access' | 'module_service';
 };
 
+export type TeamPolicyAccessGroupKey =
+  | 'modules'
+  | 'radar'
+  | 'vendas'
+  | 'communication'
+  | 'commission'
+  | 'sellerNetwork'
+  | 'products'
+  | 'admin';
+
+export type TeamPolicyAccessRiskLevel = 'low' | 'medium' | 'high' | 'critical';
+
+export type TeamPolicyAccessMap = Record<string, boolean>;
+
+export type TeamPolicyAccessCatalogGroup = {
+  key: TeamPolicyAccessGroupKey;
+  label: string;
+  description: string;
+};
+
+export type TeamPolicyAccessCatalogItem = {
+  key: string;
+  group: TeamPolicyAccessGroupKey;
+  label: string;
+  description: string;
+  defaultForAdmin: boolean;
+  defaultForSeller: boolean;
+  requiresModule?: string;
+  riskLevel: TeamPolicyAccessRiskLevel;
+  sellerVisible: boolean;
+  backendEnforced: boolean;
+};
+
+export type TeamPolicyAccessPreset = {
+  key: string;
+  label: string;
+  description: string;
+  access: TeamPolicyAccessMap;
+  limits?: Partial<Record<'enrichmentDaily' | 'cardDeliveryDaily' | 'activeCards' | 'monthlyCards' | 'vendasPullQuantity', {
+    mode: TeamPolicyLimitMode;
+    value: number | null;
+  }>>;
+};
+
+export type TeamPolicyMissingBackendEnforcement = {
+  key: string;
+  group: TeamPolicyAccessGroupKey;
+  label: string;
+};
+
 export type TeamPolicySubject = {
   id: number;
   companyId: number | null;
@@ -99,6 +149,12 @@ export type TeamPolicy = {
   version: 1;
   subject: TeamPolicySubject;
   modules: TeamPolicyModule[];
+  accessCatalog: TeamPolicyAccessCatalogItem[];
+  accessGroups: TeamPolicyAccessCatalogGroup[];
+  accessPresets: TeamPolicyAccessPreset[];
+  access: TeamPolicyAccessMap;
+  effectiveAccessMap: TeamPolicyAccessMap;
+  missingBackendEnforcement: TeamPolicyMissingBackendEnforcement[];
   compensation: TeamPolicyCompensation;
   sellerNetwork: TeamPolicySellerNetwork;
   limits: {

@@ -2002,6 +2002,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         key: moduleItem.key,
         allowed: Boolean(moduleItem.allowed),
       })),
+      access: { ...(policy.effectiveAccessMap || policy.access || {}) },
       compensation: {
         commissionPercent: policy.compensation.commissionPercent,
         commissionDueBusinessDays: policy.compensation.commissionDueBusinessDays,
