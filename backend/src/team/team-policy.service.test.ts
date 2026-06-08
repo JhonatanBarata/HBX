@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { TEAM_ACCESS_CATALOG } from './team-access-catalog';
 import { TeamPolicyService } from './team-policy.service';
 
 function buildStoredPolicy(overrides: Record<string, any> = {}) {
@@ -188,6 +189,78 @@ function findMetadata(call: { values: any[] }) {
   return JSON.parse(raw as string);
 }
 
+test('team access catalog contains planned canonical keys without duplicates', () => {
+  const keys = TEAM_ACCESS_CATALOG.map((item) => item.key);
+  const keySet = new Set(keys);
+  assert.equal(keySet.size, keys.length);
+  for (const key of [
+    'vendas.access',
+    'radar.access',
+    'atendimento.access',
+    'financeiro.access',
+    'cadastro.access',
+    'website.access',
+    'gerencial.access',
+    'radar.cards.assignToOthers',
+    'radar.cards.distribute',
+    'radar.filters.useSegments',
+    'radar.filters.useCities',
+    'radar.filters.useStates',
+    'radar.enrichment.manual',
+    'radar.enrichment.auto',
+    'vendas.cards.edit',
+    'vendas.cards.transfer',
+    'vendas.cards.close',
+    'vendas.cards.reopen',
+    'vendas.cards.delete',
+    'vendas.status.change',
+    'vendas.sale.markActivationPending',
+    'vendas.sale.markTrialStarted',
+    'vendas.sale.markConfirmed',
+    'vendas.sale.markInactive',
+    'communication.whatsapp.useCompanyNumber',
+    'communication.whatsapp.sendManual',
+    'communication.email.send',
+    'communication.email.useCompanyReplyTo',
+    'communication.support.contactAdmin',
+    'communication.support.viewCompanySupportChannels',
+    'products.view',
+    'products.sell',
+    'products.edit',
+    'products.discount',
+    'products.viewPrice',
+    'products.changePrice',
+    'commission.viewOwn',
+    'commission.viewTeam',
+    'commission.editPercent',
+    'commission.editDueDays',
+    'commission.markPaid',
+    'commission.cancel',
+    'commission.viewInherited',
+    'sellerNetwork.recruitSellers',
+    'sellerNetwork.viewReferrals',
+    'sellerNetwork.approveReferrals',
+    'sellerNetwork.receiveInheritedCommission',
+    'team.users.create',
+    'team.users.edit',
+    'team.users.disable',
+    'team.users.delete',
+    'team.access.manage',
+    'team.access.applyPreset',
+    'team.access.viewAudit',
+  ]) {
+    assert.equal(keySet.has(key), true, `catalog missing ${key}`);
+  }
+  assert.equal(keySet.has('cadastros.access'), false);
+  assert.equal(keySet.has('whatsapp.access'), false);
+  assert.equal(keySet.has('products.catalog.view'), false);
+  assert.equal(keySet.has('products.catalog.manage'), false);
+  assert.equal(keySet.has('team.user.create'), false);
+  assert.equal(keySet.has('team.user.deactivate'), false);
+  assert.equal(keySet.has('sellerNetwork.recruit'), false);
+  assert.equal(keySet.has('sellerNetwork.referral.receive'), false);
+});
+
 test('MASTER resolves unlimited team policy and writes team/master audit logs', async () => {
   const { service, state, requester } = createService();
 
@@ -287,7 +360,7 @@ test('policy update persists explicit team access map over legacy modules', asyn
   const result = await service.updatePolicy(requester, 7, {
     access: {
       'radar.search.run': false,
-      'commission.own.configure': true,
+      'commission.editPercent': true,
       'seller.documents.request': true,
     },
   } as any);
@@ -295,16 +368,17 @@ test('policy update persists explicit team access map over legacy modules', asyn
   assert.equal(result.accessCatalog.some((item) => item.key === 'seller.documents.request'), true);
   assert.equal(result.accessPresets.some((preset) => preset.key === 'seller_radar_limited'), true);
   assert.equal(result.effectiveAccessMap['radar.search.run'], false);
-  assert.equal(result.effectiveAccessMap['commission.own.configure'], true);
+  assert.equal(result.effectiveAccessMap['commission.editPercent'], true);
   assert.equal(result.effectiveAccessMap['seller.documents.request'], true);
   assert.equal(
-    result.missingBackendEnforcement.some((item) => item.key === 'commission.own.configure'),
+    result.missingBackendEnforcement.some((item) => item.key === 'commission.editPercent'),
     true,
   );
 
   const rows = JSON.parse(state.user.teamPolicy.modulesJson);
   assert.equal(rows.some((row: any) => row.key === 'webscraping' && row.allowed === true), true);
   assert.equal(rows.some((row: any) => row.key === 'radar.search.run' && row.allowed === false), true);
+  assert.equal(rows.some((row: any) => row.key === 'commission.editPercent' && row.allowed === true), true);
   assert.equal(rows.some((row: any) => row.key === 'seller.documents.request' && row.allowed === true), true);
 
   const teamAudit = findSqlCall(state, 'TeamPolicyAuditLog');
@@ -312,7 +386,7 @@ test('policy update persists explicit team access map over legacy modules', asyn
   const metadata = findMetadata(teamAudit!);
   assert.equal(metadata.patch.hasAccess, true);
   assert.deepEqual(metadata.accessChanged.sort(), [
-    'commission.own.configure',
+    'commission.editPercent',
     'radar.search.run',
     'seller.documents.request',
   ]);
