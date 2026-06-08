@@ -379,7 +379,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     requiresModule: 'vendas',
     riskLevel: 'medium',
     sellerVisible: true,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'vendas.cards.assign',
@@ -403,7 +403,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     requiresModule: 'vendas',
     riskLevel: 'medium',
     sellerVisible: true,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'vendas.cards.transfer',
@@ -427,7 +427,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     requiresModule: 'vendas',
     riskLevel: 'medium',
     sellerVisible: true,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'vendas.cards.reopen',
@@ -439,7 +439,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     requiresModule: 'vendas',
     riskLevel: 'medium',
     sellerVisible: true,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'vendas.cards.delete',
@@ -451,7 +451,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     requiresModule: 'vendas',
     riskLevel: 'critical',
     sellerVisible: false,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'vendas.status.change',
@@ -463,7 +463,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     requiresModule: 'vendas',
     riskLevel: 'medium',
     sellerVisible: true,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'vendas.sale.markActivationPending',
@@ -475,7 +475,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     requiresModule: 'vendas',
     riskLevel: 'high',
     sellerVisible: true,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'vendas.sale.markTrialStarted',
@@ -487,7 +487,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     requiresModule: 'vendas',
     riskLevel: 'high',
     sellerVisible: true,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'vendas.sale.markConfirmed',
@@ -499,7 +499,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     requiresModule: 'vendas',
     riskLevel: 'high',
     sellerVisible: true,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'vendas.sale.markInactive',
@@ -511,7 +511,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     requiresModule: 'vendas',
     riskLevel: 'high',
     sellerVisible: false,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'vendas.timeline.comment',
@@ -523,7 +523,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     requiresModule: 'vendas',
     riskLevel: 'low',
     sellerVisible: true,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'vendas.return.schedule',
@@ -535,7 +535,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     requiresModule: 'vendas',
     riskLevel: 'low',
     sellerVisible: true,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'vendas.complaints.view',
@@ -583,7 +583,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     requiresModule: 'vendas',
     riskLevel: 'medium',
     sellerVisible: true,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'communication.email.useCompanyReplyTo',

@@ -50,6 +50,7 @@ import {
   loadUserTeamPolicyRuntime,
   resolveTeamPolicyStoredLimit,
 } from '../team/team-policy-persistence';
+import { resolveVendasAccessContext, type VendasAccessContext } from '../team/team-access-runtime';
 
 type VendasLeadStatus = 'novo' | 'contato' | 'retorno' | 'qualificado' | 'encerrado';
 type VendasSaleStatus = 'none' | 'activation_pending' | 'trial_started' | 'sale_confirmed' | 'inactive' | 'canceled';
@@ -149,6 +150,16 @@ type VendasWhatsappAvailabilityState = {
 type VendasPlanAccess = {
   planTier: CommercialPlanTier;
   capabilities: CommercialPlanCapabilities;
+};
+
+type VendasUserContext = {
+  companyId: number;
+  userId: number;
+  role: string;
+  canManageTeam?: boolean;
+  canViewOwnCards?: boolean;
+  ownCardsOnly?: boolean;
+  access?: VendasAccessContext;
 };
 
 type CommercialContactDuplicateReason =
@@ -1206,19 +1217,79 @@ export class VendasService {
     return { companyId, userId, role, canManageTeam };
   }
 
-  private buildLeadAccessWhere(context: { companyId: number; userId: number; canManageTeam?: boolean }, extra: Record<string, any> = {}) {
+  private async resolveVendasUserContext(user: any): Promise<VendasUserContext> {
+    const access = await resolveVendasAccessContext(this.prisma, user);
+    return {
+      companyId: access.companyId,
+      userId: access.userId,
+      role: access.role,
+      canManageTeam: access.canViewCompanyCards,
+      canViewOwnCards: access.canViewOwnCards,
+      ownCardsOnly: !access.canViewCompanyCards,
+      access,
+    };
+  }
+
+  private assertVendasPermission(allowed: unknown, message: string) {
+    if (!allowed) throw new ForbiddenException(message);
+  }
+
+  private assertCanReadVendasCards(context: VendasUserContext) {
+    if (!context.access) return;
+    this.assertVendasPermission(
+      context.access.canViewOwnCards || context.access.canViewCompanyCards,
+      'Acesso aos cards do Vendas bloqueado pela politica da equipe.',
+    );
+  }
+
+  private assertCanMarkSaleStatus(context: VendasUserContext, saleStatus: VendasSaleStatus) {
+    if (!context.access || saleStatus === 'none') return;
+    if (saleStatus === 'activation_pending') {
+      this.assertVendasPermission(context.access.canMarkActivationPending, 'Acesso para marcar ativacao pendente bloqueado pela politica da equipe.');
+      return;
+    }
+    if (saleStatus === 'trial_started') {
+      this.assertVendasPermission(context.access.canMarkTrialStarted, 'Acesso para marcar trial iniciado bloqueado pela politica da equipe.');
+      return;
+    }
+    if (saleStatus === 'sale_confirmed') {
+      this.assertVendasPermission(context.access.canMarkConfirmed, 'Acesso para confirmar venda bloqueado pela politica da equipe.');
+      return;
+    }
+    this.assertVendasPermission(context.access.canMarkInactive, 'Acesso para marcar cliente inativo bloqueado pela politica da equipe.');
+  }
+
+  private assertCanRunHbxActivationAction(context: VendasUserContext) {
+    this.assertVendasPermission(context.access?.canEditCards, 'Acesso para editar card bloqueado pela politica da equipe.');
+    this.assertVendasPermission(context.access?.canChangeStatus, 'Acesso para alterar status bloqueado pela politica da equipe.');
+    this.assertCanMarkSaleStatus(context, 'activation_pending');
+  }
+
+  private assertCanSendPresentationEmail(context: VendasUserContext) {
+    this.assertVendasPermission(context.access?.canSendEmail, 'Acesso para enviar e-mail bloqueado pela politica da equipe.');
+  }
+
+  private assertCanRegisterTimeline(context: VendasUserContext) {
+    this.assertVendasPermission(context.access?.canCommentTimeline, 'Acesso para registrar timeline bloqueado pela politica da equipe.');
+  }
+
+  private buildLeadAccessWhere(context: VendasUserContext, extra: Record<string, any> = {}) {
     const scopedExtra = { ...(extra || {}) };
     const base: any = {
       companyId: context.companyId,
       ...scopedExtra,
     };
     if (context.canManageTeam) return base;
-    const access = {
-      OR: [
-        { assignedUserId: context.userId },
-        { assignedUserId: null, createdByUserId: context.userId },
-      ],
-    };
+    const access = context.canViewOwnCards === false
+      ? { id: { in: [] } }
+      : context.ownCardsOnly
+        ? { assignedUserId: context.userId }
+        : {
+            OR: [
+              { assignedUserId: context.userId },
+              { assignedUserId: null, createdByUserId: context.userId },
+            ],
+          };
     if (Object.keys(scopedExtra).length > 0) {
       return {
         companyId: context.companyId,
@@ -4814,7 +4885,8 @@ export class VendasService {
   }
 
   async previewPresentationEmailForUser(user: any, leadId: string, body?: any) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
+    this.assertCanSendPresentationEmail(context);
     const { companyId, userId } = context;
     const normalizedLeadId = this.normalizeText(leadId);
     if (!normalizedLeadId) throw new BadRequestException('Lead nao informado.');
@@ -4879,7 +4951,8 @@ export class VendasService {
   }
 
   async sendPresentationEmailForUser(user: any, leadId: string, body?: any) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
+    this.assertCanSendPresentationEmail(context);
     const { companyId, userId } = context;
     const normalizedLeadId = this.normalizeText(leadId);
     if (!normalizedLeadId) throw new BadRequestException('Lead nao informado.');
@@ -6374,7 +6447,8 @@ export class VendasService {
   }
 
   async getBoardForUser(user: any) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
+    this.assertCanReadVendasCards(context);
     const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
     const usage = await this.commercialUsageLimits.getUsageSnapshot(context.companyId, context.userId);
     const leadWithTimelineSelectWithoutAddress: any = this.buildVendasLeadSelectWithoutAddress({
@@ -6481,7 +6555,8 @@ export class VendasService {
   }
 
   async getLeadConversationSnapshotForUser(user: any, leadId: string, eventId?: string | null) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
+    this.assertCanReadVendasCards(context);
     const normalizedLeadId = String(leadId || '').trim();
     if (!normalizedLeadId) throw new BadRequestException('Lead invalido.');
 
@@ -6600,9 +6675,13 @@ export class VendasService {
   }
 
   async createManualLeadForUser(user: any, dto: CreateManualVendasLeadDto) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
+    this.assertVendasPermission(context.access?.canCreateManualCards, 'Acesso para criar card manual bloqueado pela politica da equipe.');
     const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
-    const owner = await this.resolveLeadOwnerForContext(context, null);
+    const owner = await this.resolveLeadOwnerForContext({
+      ...context,
+      canManageTeam: Boolean(context.access?.canViewCompanyCards && (context.access.isAdmin || context.access.isSystemMaster)),
+    }, null);
     if (!this.normalizeText(dto?.name) && !this.normalizeText(dto?.phone) && !this.normalizeText(dto?.email)) {
       throw new BadRequestException('Informe ao menos nome, telefone ou e-mail para criar o lead.');
     }
@@ -7102,7 +7181,8 @@ export class VendasService {
   }
 
   async updateLeadForUser(user: any, leadId: string, dto: UpdateVendasLeadDto) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
+    this.assertVendasPermission(context.access?.canEditCards, 'Acesso para editar card bloqueado pela politica da equipe.');
     const addressColumnAvailable = await this.hasVendasLeadAddressColumn();
     const leadWithTimelineSelectWithoutAddress: any = this.buildVendasLeadSelectWithoutAddress({
       timelineEvents: {
@@ -7177,6 +7257,22 @@ export class VendasService {
     const existingReturnAt = existing.returnAt instanceof Date ? existing.returnAt : null;
     const returnChanged =
       (existingReturnAt?.getTime() || 0) !== (returnAt instanceof Date ? returnAt.getTime() : 0);
+
+    if (statusChanged) {
+      this.assertVendasPermission(context.access?.canChangeStatus, 'Acesso para alterar status bloqueado pela politica da equipe.');
+    }
+    if (statusChanged && nextStatus === 'encerrado') {
+      this.assertVendasPermission(context.access?.canCloseCards, 'Acesso para encerrar card bloqueado pela politica da equipe.');
+    }
+    if (statusChanged && this.normalizeStatus(existing.status) === 'encerrado' && nextStatus !== 'encerrado') {
+      this.assertVendasPermission(context.access?.canReopenCards, 'Acesso para reabrir card bloqueado pela politica da equipe.');
+    }
+    if (returnChanged) {
+      this.assertVendasPermission(context.access?.canScheduleReturn, 'Acesso para agendar retorno bloqueado pela politica da equipe.');
+    }
+    if (dto?.saleStatus !== undefined) {
+      this.assertCanMarkSaleStatus(context, this.normalizeSaleStatus(dto.saleStatus));
+    }
 
     if (statusChanged) {
       timelineEvents.push(
@@ -7331,7 +7427,8 @@ export class VendasService {
   }
 
   async createHbxSalesHandoffForUser(user: any, leadId: string, dto: CreateHbxSalesHandoffDto) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
+    this.assertCanRunHbxActivationAction(context);
     const normalizedLeadId = String(leadId || '').trim();
     if (!normalizedLeadId) throw new BadRequestException('Lead comercial invalido.');
 
@@ -7459,7 +7556,8 @@ export class VendasService {
   }
 
   async createHbxAssistedSignupForUser(user: any, leadId: string, dto: CreateHbxAssistedSignupDto) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
+    this.assertCanRunHbxActivationAction(context);
     const normalizedLeadId = String(leadId || '').trim();
     if (!normalizedLeadId) throw new BadRequestException('Lead comercial invalido.');
 
@@ -7953,7 +8051,8 @@ export class VendasService {
     dto: BulkDeleteVendasLeadsDto,
     options: { report?: boolean; reportReason?: string | null } = {},
   ) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
+    this.assertVendasPermission(context.access?.canDeleteCards, 'Acesso para excluir card bloqueado pela politica da equipe.');
     const all = Boolean(dto?.all);
     const leadIds = Array.from(
       new Set(
@@ -8031,7 +8130,8 @@ export class VendasService {
   }
 
   async reportLeadErrorForUser(user: any, leadId: string, dto: ReportVendasLeadDto) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
+    this.assertVendasPermission(context.access?.canDeleteCards, 'Acesso para excluir card bloqueado pela politica da equipe.');
     const normalizedLeadId = String(leadId || '').trim();
     if (!normalizedLeadId) throw new BadRequestException('Card nao informado.');
     const row = await this.prisma.vendasLead.findFirst({
@@ -8087,7 +8187,8 @@ export class VendasService {
   }
 
   async registerAttemptForUser(user: any, leadId: string, dto?: { channel?: string }) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
+    this.assertCanRegisterTimeline(context);
     const existing = await this.prisma.vendasLead.findFirst({
       where: this.buildLeadAccessWhere(context, { id: String(leadId || '').trim() }),
     });

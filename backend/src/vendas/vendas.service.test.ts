@@ -2,10 +2,31 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { VendasService } from './vendas.service';
+import { serializeTeamPolicyModuleAndAccessRows } from '../team/team-policy-persistence';
 
 function normalizePhone(raw: unknown) {
   const digits = String(raw || '').replace(/\D/g, '');
   return digits ? digits.slice(-13) : null;
+}
+
+function buildRuntimePolicy(input: {
+  userId?: number;
+  companyId?: number;
+  modules?: Array<{ key: string; allowed: boolean }>;
+  access?: Record<string, boolean>;
+} = {}) {
+  return {
+    id: `policy-${input.userId || 99}`,
+    userId: input.userId || 99,
+    companyId: input.companyId || 7,
+    status: 'active',
+    subjectKind: null,
+    modulesJson: serializeTeamPolicyModuleAndAccessRows({
+      modules: input.modules || [],
+      access: input.access || {},
+    }),
+    requiredChannelsJson: '{}',
+  };
 }
 
 function createService(overrides?: Partial<Record<string, any>>) {
@@ -444,6 +465,72 @@ test('getBoardForUser hides complete intelligence for HBX List', async () => {
   assert.equal(lead.leadIntelligence.instagramUrl, null);
   assert.equal(lead.leadIntelligence.primarySocial, 'instagram');
   assert.ok(lead.leadIntelligence.premiumTeaser);
+});
+
+test('getBoardForUser filters USER without viewCompany to own assigned cards', async () => {
+  let seenWhere: any = null;
+  const { service } = createService({
+    vendasLead: {
+      findMany: async ({ where }: any) => {
+        seenWhere = where;
+        return [];
+      },
+    },
+  });
+
+  await service.getBoardForUser({ companyId: 7, id: 99, role: 'USER' });
+
+  assert.equal(seenWhere.companyId, 7);
+  assert.equal(seenWhere.assignedUserId, 99);
+  assert.equal(Boolean(seenWhere.OR), false);
+});
+
+test('getBoardForUser respects ADMIN explicit false for company card visibility', async () => {
+  let seenWhere: any = null;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          userId: 22,
+          access: { 'vendas.cards.viewCompany': false },
+        }),
+      },
+    },
+    vendasLead: {
+      findMany: async ({ where }: any) => {
+        seenWhere = where;
+        return [];
+      },
+    },
+  });
+
+  await service.getBoardForUser({ companyId: 7, id: 22, role: 'ADMIN' });
+
+  assert.equal(seenWhere.companyId, 7);
+  assert.equal(seenWhere.assignedUserId, 22);
+});
+
+test('getBoardForUser releases company cards when viewCompany is explicit true', async () => {
+  let seenWhere: any = null;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'vendas.cards.viewCompany': true },
+        }),
+      },
+    },
+    vendasLead: {
+      findMany: async ({ where }: any) => {
+        seenWhere = where;
+        return [];
+      },
+    },
+  });
+
+  await service.getBoardForUser({ companyId: 7, id: 99, role: 'USER' });
+
+  assert.deepEqual(seenWhere, { companyId: 7 });
 });
 
 test('buildLeadPayload exposes negative timeline conversation reference without raw JSON note', () => {
@@ -1004,6 +1091,271 @@ test('createManualLeadForUser blocks duplicate website before active quota', asy
   );
 
   assert.equal(activeQuotaCalls, 0);
+});
+
+test('createManualLeadForUser requires createManual access', async () => {
+  let duplicateLookupCalls = 0;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'vendas.cards.createManual': false },
+        }),
+      },
+    },
+    vendasLead: {
+      findMany: async () => {
+        duplicateLookupCalls += 1;
+        return [];
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.createManualLeadForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      { name: 'Lead bloqueado' } as any,
+    ),
+    /criar card manual bloqueado/i,
+  );
+
+  assert.equal(duplicateLookupCalls, 0);
+});
+
+test('updateLeadForUser requires edit access before loading the card', async () => {
+  let findFirstCalls = 0;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'vendas.cards.edit': false },
+        }),
+      },
+    },
+    vendasLead: {
+      findFirst: async () => {
+        findFirstCalls += 1;
+        return null;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.updateLeadForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      'lead-1',
+      { name: 'Novo nome' } as any,
+    ),
+    /editar card bloqueado/i,
+  );
+
+  assert.equal(findFirstCalls, 0);
+});
+
+test('updateLeadForUser scopes USER without viewCompany to own assigned card', async () => {
+  let seenWhere: any = null;
+  const { service } = createService({
+    vendasLead: {
+      findFirst: async ({ where }: any) => {
+        seenWhere = where;
+        return null;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.updateLeadForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      'lead-other',
+      { name: 'Tentativa' } as any,
+    ),
+    /nao encontrado/i,
+  );
+
+  assert.equal(seenWhere.companyId, 7);
+  assert.deepEqual(seenWhere.AND, [
+    { id: 'lead-other' },
+    { assignedUserId: 99 },
+  ]);
+});
+
+test('createHbxSalesHandoffForUser requires activation sale access before loading the card', async () => {
+  let findFirstCalls = 0;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'vendas.sale.markActivationPending': false },
+        }),
+      },
+    },
+    vendasLead: {
+      findFirst: async () => {
+        findFirstCalls += 1;
+        return null;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.createHbxSalesHandoffForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      'lead-1',
+      {} as any,
+    ),
+    /ativacao pendente bloqueado/i,
+  );
+
+  assert.equal(findFirstCalls, 0);
+});
+
+test('createHbxAssistedSignupForUser requires activation sale access before loading the card', async () => {
+  let findFirstCalls = 0;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'vendas.sale.markActivationPending': false },
+        }),
+      },
+    },
+    vendasLead: {
+      findFirst: async () => {
+        findFirstCalls += 1;
+        return null;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.createHbxAssistedSignupForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      'lead-1',
+      { email: 'cliente@teste.local' } as any,
+    ),
+    /ativacao pendente bloqueado/i,
+  );
+
+  assert.equal(findFirstCalls, 0);
+});
+
+test('previewPresentationEmailForUser requires email access before loading the card', async () => {
+  let findFirstCalls = 0;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'communication.email.send': false },
+        }),
+      },
+    },
+    vendasLead: {
+      findFirst: async () => {
+        findFirstCalls += 1;
+        return null;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.previewPresentationEmailForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      'lead-1',
+      {},
+    ),
+    /enviar e-mail bloqueado/i,
+  );
+
+  assert.equal(findFirstCalls, 0);
+});
+
+test('sendPresentationEmailForUser requires email access before loading the card', async () => {
+  let findFirstCalls = 0;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'communication.email.send': false },
+        }),
+      },
+    },
+    vendasLead: {
+      findFirst: async () => {
+        findFirstCalls += 1;
+        return null;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.sendPresentationEmailForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      'lead-1',
+      { subject: 'Assunto', text: 'Mensagem' } as any,
+    ),
+    /enviar e-mail bloqueado/i,
+  );
+
+  assert.equal(findFirstCalls, 0);
+});
+
+test('deleteLeadForUser requires delete access before loading cards', async () => {
+  let findManyCalls = 0;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'vendas.cards.delete': false },
+        }),
+      },
+    },
+    vendasLead: {
+      findMany: async () => {
+        findManyCalls += 1;
+        return [];
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.deleteLeadForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      'lead-1',
+    ),
+    /excluir card bloqueado/i,
+  );
+
+  assert.equal(findManyCalls, 0);
+});
+
+test('registerAttemptForUser requires timeline access before loading the card', async () => {
+  let findFirstCalls = 0;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'vendas.timeline.comment': false },
+        }),
+      },
+    },
+    vendasLead: {
+      findFirst: async () => {
+        findFirstCalls += 1;
+        return null;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.registerAttemptForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      'lead-1',
+      { channel: 'whatsapp' },
+    ),
+    /registrar timeline bloqueado/i,
+  );
+
+  assert.equal(findFirstCalls, 0);
 });
 
 test('importWebscrapingLeadsForUser reports protected Radar card without quota debit', async () => {
