@@ -16,6 +16,7 @@ import { apiFetch, type ApiFetchError } from "@/app/_lib/api";
 import { startSmartPolling } from "@/app/_lib/polling";
 import { useRequireModule } from "@/app/_lib/useRequireModule";
 import { clearTopbarProgress, dispatchTopbarProgress } from "@/lib/topbar-progress";
+import { getCurrentUserAccess } from "@/lib/currentUserAccess";
 import {
   clearStoredRadarFilters,
   clearStoredRadarRun,
@@ -2616,11 +2617,9 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     () => mobileRoute || isMobileRadarViewport(),
     [mobileRoute],
   );
-  const hbxSellerRadarRestricted = Boolean(
-    currentUser?.sellerProfile?.isHbxPartnerSeller ||
-    currentUser?.userKind === "hbx_partner_seller" ||
-    (currentUser?.company?.isHbxSellerNetwork && String(currentUser?.role || "").trim().toUpperCase() === "USER" && !currentUser?.isSystemMaster),
-  );
+  const currentUserAccess = useMemo(() => getCurrentUserAccess(currentUser), [currentUser]);
+  const radarUserCanLoadCompanyTeam = currentUserAccess.canManageTeam;
+  const hbxSellerRadarRestricted = currentUserAccess.isHbxPartnerSeller;
   const hbxSellerLocationReady = hasRadarLocationCoordinates(filters);
   const hbxSellerLocationLabel = filters.city && filters.state
     ? `${filters.city}/${filters.state}`
@@ -3006,6 +3005,11 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
 
   useEffect(() => {
     if (hasToken !== true) return;
+    if (!currentUserLoaded) return;
+    if (!radarUserCanLoadCompanyTeam) {
+      setTeamUsers([]);
+      return;
+    }
     let cancelled = false;
     apiFetch<GerencialTeamUser[]>("/users/company", {
       requireAuth: true,
@@ -3021,7 +3025,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     return () => {
       cancelled = true;
     };
-  }, [hasToken]);
+  }, [currentUserLoaded, hasToken, radarUserCanLoadCompanyTeam]);
 
   async function loadRadarAutoDistributionRule(options?: { openAfterLoad?: boolean }) {
     setAutoDistributionLoading(true);

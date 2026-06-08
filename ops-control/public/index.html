@@ -94,6 +94,7 @@
               <label class="ops-field" for="opsChannelSelect">
                 <span>Filtro</span>
                 <select id="opsChannelSelect">
+                  <option value="">Sem filtro obrigatorio</option>
                   <option value="email">Email obrigatorio</option>
                   <option value="whatsapp">WhatsApp obrigatorio</option>
                   <option value="instagram">Instagram obrigatorio</option>
@@ -107,6 +108,10 @@
               <button type="button" data-ops-action="turbo" data-ops-scope="both">Turbo ambos</button>
               <button type="button" class="secondary" data-ops-action="force-filter">Forcar filtro</button>
               <button type="button" class="danger" data-ops-action="cancel">Cancelar scraping</button>
+            </div>
+            <div id="backendConfigPanel" class="backend-config-panel backend-config-panel--idle">
+              <strong>Backends Local/VPS</strong>
+              <span>Aguardando leitura da configuracao.</span>
             </div>
             <div id="opsActionStatus" class="ops-action-status">Nenhuma acao enviada nesta sessao.</div>
           </div>

@@ -42,6 +42,13 @@ import {
 import { buildVendasLeadIntelligence } from './vendas-lead-enrichment';
 import { ensureVendasComplaintsRuntimeSchema } from './vendas-complaints-runtime';
 import { buildLeadFingerprints } from './commercial-contact-fingerprint';
+import {
+  TEAM_POLICY_UNLIMITED_LIMIT,
+  ensureUserTeamPolicyForUser,
+  getTeamPolicyRequiredChannelList,
+  loadUserTeamPolicyRuntime,
+  resolveTeamPolicyStoredLimit,
+} from '../team/team-policy-persistence';
 
 type VendasLeadStatus = 'novo' | 'contato' | 'retorno' | 'qualificado' | 'encerrado';
 type VendasSaleStatus = 'none' | 'activation_pending' | 'trial_started' | 'sale_confirmed' | 'inactive' | 'canceled';
@@ -1950,7 +1957,12 @@ export class VendasService {
     const pausedUntil = row?.sellerDistributionPausedUntil instanceof Date ? row.sellerDistributionPausedUntil : this.parseDate(row?.sellerDistributionPausedUntil);
     const pausedActive = mode === 'paused' && (!pausedUntil || pausedUntil.getTime() > Date.now());
     const rawOverride = row?.sellerDistributionDailyLimitOverride;
-    const dailyLimitOverride = rawOverride === null || rawOverride === undefined
+    const policyLimit = resolveTeamPolicyStoredLimit(row?.teamPolicy, 'cardDeliveryDaily');
+    const dailyLimitOverride = policyLimit.applies
+      ? policyLimit.mode === 'unlimited'
+        ? TEAM_POLICY_UNLIMITED_LIMIT
+        : policyLimit.configuredLimit
+      : rawOverride === null || rawOverride === undefined
       ? null
       : Math.max(0, Math.min(500, Math.trunc(Number(rawOverride || 0) || 0)));
     return {
@@ -2039,6 +2051,12 @@ export class VendasService {
           sellerDistributionNote: true,
           sellerDistributionUpdatedAt: true,
           createdAt: true,
+          teamPolicy: {
+            select: {
+              cardDeliveryDailyMode: true,
+              cardDeliveryDailyLimit: true,
+            },
+          },
         },
       }),
       this.prisma.radarAutoDistributionRule.findMany({
@@ -2437,6 +2455,12 @@ export class VendasService {
         sellerDistributionDailyLimitOverride: true,
         sellerDistributionNote: true,
         sellerDistributionUpdatedAt: true,
+        teamPolicy: {
+          select: {
+            cardDeliveryDailyMode: true,
+            cardDeliveryDailyLimit: true,
+          },
+        },
       },
     });
     if (!seller) throw new NotFoundException('Vendedor não encontrado.');
@@ -2481,8 +2505,45 @@ export class VendasService {
         sellerDistributionDailyLimitOverride: true,
         sellerDistributionNote: true,
         sellerDistributionUpdatedAt: true,
+        teamPolicy: {
+          select: {
+            cardDeliveryDailyMode: true,
+            cardDeliveryDailyLimit: true,
+          },
+        },
       },
     });
+    if (input.dailyLimitOverride !== undefined) {
+      await ensureUserTeamPolicyForUser(this.prisma, sellerId, {
+        source: 'vendas_seller_governance',
+        overwrite: false,
+      }).catch(() => null);
+      const normalizedDailyLimit = data.sellerDistributionDailyLimitOverride;
+      await (this.prisma as any).userTeamPolicy?.update?.({
+        where: { userId: sellerId },
+        data: {
+          cardDeliveryDailyMode: normalizedDailyLimit === null || normalizedDailyLimit === undefined
+            ? 'inherit'
+            : normalizedDailyLimit <= 0
+              ? 'blocked'
+              : 'limited',
+          cardDeliveryDailyLimit: normalizedDailyLimit === null || normalizedDailyLimit === undefined
+            ? null
+            : Math.max(0, Math.trunc(Number(normalizedDailyLimit || 0) || 0)),
+          source: 'vendas_seller_governance',
+        },
+      }).catch(() => null);
+      (updated as any).teamPolicy = {
+        cardDeliveryDailyMode: normalizedDailyLimit === null || normalizedDailyLimit === undefined
+          ? 'inherit'
+          : normalizedDailyLimit <= 0
+            ? 'blocked'
+            : 'limited',
+        cardDeliveryDailyLimit: normalizedDailyLimit === null || normalizedDailyLimit === undefined
+          ? null
+          : Math.max(0, Math.trunc(Number(normalizedDailyLimit || 0) || 0)),
+      };
+    }
 
     return {
       ok: true,
@@ -4724,6 +4785,37 @@ export class VendasService {
     return false;
   }
 
+  private async getTeamPolicyRequiredImportChannels(userIdRaw: unknown) {
+    const userId = Math.trunc(Number(userIdRaw || 0));
+    if (!userId) return [];
+    const policy = await loadUserTeamPolicyRuntime(this.prisma, userId).catch(() => null);
+    return getTeamPolicyRequiredChannelList(policy);
+  }
+
+  private getMissingTeamPolicyImportChannels(item: any, phoneDigits?: string | null, requiredChannels: string[] = []) {
+    const signals = item?.signals && typeof item.signals === 'object' ? item.signals : {};
+    const whatsappStatus = String(item?.whatsappStatus || item?.whatsappCheckStatus || signals.whatsappStatus || '').trim().toLowerCase();
+    const has = (channel: string) => {
+      if (channel === 'whatsapp') {
+        return Boolean(phoneDigits) || ['confirmed', 'available', 'valid', 'exists', 'true', 'likely'].includes(whatsappStatus);
+      }
+      if (channel === 'instagram') {
+        return Boolean(this.normalizeText(item?.instagramUrl || item?.primarySocial || signals.instagramUrl));
+      }
+      if (channel === 'facebook') {
+        return Boolean(this.normalizeText(item?.facebookUrl || signals.facebookUrl));
+      }
+      if (channel === 'email') {
+        return Boolean(this.normalizeEmail(item?.email || item?.emailCandidate || signals.email));
+      }
+      if (channel === 'website') {
+        return Boolean(this.normalizeText(item?.website || item?.websiteUrl || signals.website));
+      }
+      return true;
+    };
+    return requiredChannels.filter((channel) => !has(channel));
+  }
+
   async previewPresentationEmailForUser(user: any, leadId: string, body?: any) {
     const context = this.resolveUserContext(user);
     const { companyId, userId } = context;
@@ -6574,6 +6666,7 @@ export class VendasService {
     const incomingLeads = Array.isArray(dto?.leads) ? dto.leads : [];
     const debitOnImport = Boolean((dto as any)?.debitOnImport);
     const owner = await this.resolveLeadOwnerForContext(context, (dto as any)?.assignedUserId || null);
+    const requiredPolicyChannels = await this.getTeamPolicyRequiredImportChannels(owner.assignedUserId || context.userId);
     if (!incomingLeads.length) {
       throw new BadRequestException('Nenhum lead do Radar Digital foi enviado para o CRM.');
     }
@@ -6612,6 +6705,18 @@ export class VendasService {
       const itemPhone = this.normalizeText(item?.phone);
       const itemPhoneDigits = this.normalizePhone(item?.phoneDigits || item?.phone);
       const itemContact = itemPhone || itemPhoneDigits;
+      const missingPolicyChannels = this.getMissingTeamPolicyImportChannels(item, itemPhoneDigits, requiredPolicyChannels);
+      if (missingPolicyChannels.length) {
+        skippedByFilterCount += 1;
+        skippedByContactabilityCount += 1;
+        skippedWeakContactCount += 1;
+        failedImports.push({
+          name: itemName,
+          phone: itemContact,
+          error: `Lead sem canal obrigatorio pela politica do vendedor: ${missingPolicyChannels.join(', ')}. Descartados nao consomem limite.`,
+        });
+        continue;
+      }
       if (!itemName || !this.hasActionableImportChannel(item, itemPhoneDigits)) {
         failedImports.push({
           name: itemName,

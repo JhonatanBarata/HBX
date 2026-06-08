@@ -29,6 +29,7 @@ import {
 } from '../commercial-plans/commercial-plan-catalog';
 import { HbxCommissionSyncService } from '../commissions/hbx-commission-sync.service';
 import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../companies/master-whatsapp-company.constants';
+import { ensureUserTeamPolicyForUser } from '../team/team-policy-persistence';
 
 @Injectable()
 export class AuthService implements OnModuleInit {
@@ -1011,7 +1012,7 @@ export class AuthService implements OnModuleInit {
 
     const existing = await this.prisma.user.findUnique({ where: { username } });
     if (existing) {
-      await this.prisma.user.update({
+      const updated = await this.prisma.user.update({
         where: { id: existing.id },
         data: {
           isSystemMaster: true,
@@ -1024,10 +1025,11 @@ export class AuthService implements OnModuleInit {
           password: existing.password || passwordHash,
         },
       });
+      await ensureUserTeamPolicyForUser(this.prisma, updated.id, { source: 'system_master_bootstrap' });
       return;
     }
 
-    await this.prisma.user.create({
+    const created = await this.prisma.user.create({
       data: {
         username,
         email,
@@ -1038,6 +1040,7 @@ export class AuthService implements OnModuleInit {
         isActive: true,
       },
     });
+    await ensureUserTeamPolicyForUser(this.prisma, created.id, { source: 'system_master_bootstrap' });
   }
 
   async validateUserByUsername(username: string, pass: string) {
@@ -1725,6 +1728,8 @@ export class AuthService implements OnModuleInit {
 
       return { attachedToExistingCompany: false, companyId: company.id, companyName: company.name, user };
     });
+
+    await ensureUserTeamPolicyForUser(this.prisma, (created as any).user?.id, { source: 'auth_signup' });
 
     await this.syncHbxSalesReferralCompany(
       (created as any).companyId || (created as any).user?.companyId,

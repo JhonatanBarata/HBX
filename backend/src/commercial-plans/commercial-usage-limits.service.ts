@@ -3,6 +3,12 @@ import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../companies/master-whatsap
 import { PrismaService } from '../prisma/prisma.service';
 import { COMMERCIAL_PLAN_KEYS, COMMERCIAL_PLAN_QUOTAS, resolveCommercialPlanKeyForCapabilities } from './commercial-plan-catalog';
 import { resolveRadarSearchAllowance, resolveSellerCardQuota } from './seller-card-quota.util';
+import {
+  TEAM_POLICY_UNLIMITED_LIMIT,
+  loadUserTeamPolicyRuntime,
+  resolveTeamPolicyStoredLimit,
+  type RuntimeTeamPolicy,
+} from '../team/team-policy-persistence';
 
 const FALLBACK_TIMEZONE = 'America/Sao_Paulo';
 const CARD_SUCCESS_EVENTS = ['card_import_success', 'vendas_card_imported', 'radar_card_claimed', 'card_commercial_used'];
@@ -330,24 +336,35 @@ export class CommercialUsageLimitsService {
     const active = Boolean(user?.isActive && !user?.deactivatedAt);
     const paused = !active || this.isSellerPaused(user, now);
     const hbxOperationCompany = company?.slug === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG;
-    const baseLimit = await this.getSellerActiveCardBaseLimit(companyId, hbxOperationCompany);
-    const [vendasActive, radarActive, salesWonLast30, lastSeenAt] = await Promise.all([
+    const [baseLimit, teamPolicy, vendasActive, radarActive, salesWonLast30, lastSeenAt] = await Promise.all([
+      this.getSellerActiveCardBaseLimit(companyId, hbxOperationCompany),
+      loadUserTeamPolicyRuntime(this.prisma, userId),
       this.countSellerActiveVendasCards(companyId, userId),
       this.countSellerActiveRadarCards(companyId, userId),
       this.countSellerWonCardsLast30Days(companyId, userId, now),
       this.getSellerLastSeenAt(userId, this.parseDate(user?.createdAt)),
     ]);
     const activeCount = Math.max(0, Math.trunc(Number(vendasActive || 0) + Number(radarActive || 0)));
-    const quota = resolveSellerCardQuota({
-      config: {
-        baseActiveCardLimit: baseLimit,
-        minActiveCardLimit: SELLER_ACTIVE_CARD_LIMIT_MIN,
-        maxActiveCardLimit: SELLER_ACTIVE_CARD_LIMIT_MAX,
-        paused,
-      },
-      salesWonLast30,
-      inactivityDays: this.daysSince(lastSeenAt, now),
-    });
+    const activeCardsPolicy = resolveTeamPolicyStoredLimit(teamPolicy, 'activeCards');
+    const policyActiveLimit = activeCardsPolicy.applies
+      ? Math.max(0, Math.trunc(Number(activeCardsPolicy.limit || 0) || 0))
+      : null;
+    const quota = policyActiveLimit !== null
+      ? {
+          bonus: 0,
+          inactivityPenalty: 0,
+          effectiveLimit: paused ? 0 : policyActiveLimit,
+        }
+      : resolveSellerCardQuota({
+          config: {
+            baseActiveCardLimit: baseLimit,
+            minActiveCardLimit: SELLER_ACTIVE_CARD_LIMIT_MIN,
+            maxActiveCardLimit: SELLER_ACTIVE_CARD_LIMIT_MAX,
+            paused,
+          },
+          salesWonLast30,
+          inactivityDays: this.daysSince(lastSeenAt, now),
+        });
     const bonus = quota.bonus;
     const inactivityPenalty = quota.inactivityPenalty;
     const effectiveLimit = quota.effectiveLimit;
@@ -358,7 +375,7 @@ export class CommercialUsageLimitsService {
       seller: true,
       paused,
       activeCount,
-      baseLimit,
+      baseLimit: policyActiveLimit !== null ? policyActiveLimit : baseLimit,
       bonus,
       inactivityPenalty,
       effectiveLimit,
@@ -400,7 +417,10 @@ export class CommercialUsageLimitsService {
 
   async limitRequestedCardsBySellerActiveQuota(companyId: number, userId: number, requestedLimit: number) {
     const requested = Math.max(0, Math.trunc(Number(requestedLimit || 0) || 0));
-    const snapshot = await this.getSellerActiveCardQuotaSnapshot(companyId, userId);
+    const [snapshot, teamPolicy] = await Promise.all([
+      this.getSellerActiveCardQuotaSnapshot(companyId, userId),
+      loadUserTeamPolicyRuntime(this.prisma, userId),
+    ]);
     if (!snapshot.seller) return { limit: requested, quota: snapshot };
     const allowance = resolveRadarSearchAllowance({
       sellerId: userId,
@@ -409,8 +429,12 @@ export class CommercialUsageLimitsService {
       activeCount: snapshot.activeCount,
       effectiveLimit: snapshot.effectiveLimit,
     });
+    const vendasPullPolicy = resolveTeamPolicyStoredLimit(teamPolicy, 'vendasPullQuantity');
+    const policyLimitedAllowance = vendasPullPolicy.applies
+      ? Math.min(allowance.allowedLimit, Math.max(0, Math.trunc(Number(vendasPullPolicy.limit || 0) || 0)))
+      : allowance.allowedLimit;
     return {
-      limit: allowance.allowedLimit,
+      limit: policyLimitedAllowance,
       quota: snapshot,
     };
   }
@@ -422,11 +446,21 @@ export class CommercialUsageLimitsService {
 
   private async getUsageUserContext(userId?: number | null) {
     const normalizedUserId = Number(userId || 0) || null;
-    if (!normalizedUserId) return { isSystemMaster: false, role: null as string | null, enrichmentLimitOverride: null as number | null };
-    const user = await this.prisma.user.findUnique({
-      where: { id: normalizedUserId },
-      select: { isSystemMaster: true, role: true, sellerDistributionDailyLimitOverride: true },
-    }).catch(() => null);
+    if (!normalizedUserId) {
+      return {
+        isSystemMaster: false,
+        role: null as string | null,
+        enrichmentLimitOverride: null as number | null,
+        teamPolicy: null as RuntimeTeamPolicy | null,
+      };
+    }
+    const [user, teamPolicy] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: normalizedUserId },
+        select: { isSystemMaster: true, role: true, sellerDistributionDailyLimitOverride: true },
+      }).catch(() => null),
+      loadUserTeamPolicyRuntime(this.prisma, normalizedUserId),
+    ]);
     const rawOverride = (user as any)?.sellerDistributionDailyLimitOverride;
     const override = rawOverride === null || rawOverride === undefined
       ? null
@@ -435,6 +469,7 @@ export class CommercialUsageLimitsService {
       isSystemMaster: Boolean(user?.isSystemMaster),
       role: String(user?.role || '').trim().toUpperCase() || null,
       enrichmentLimitOverride: override,
+      teamPolicy,
     };
   }
 
@@ -585,6 +620,63 @@ export class CommercialUsageLimitsService {
     };
   }
 
+  private applyTeamPolicyUsageLimits(limits: any, policy: RuntimeTeamPolicy | null, options: { hbxOperationUser: boolean }) {
+    if (!policy) {
+      return {
+        dailyCardsUseUserScope: false,
+        enrichmentUseUserScope: false,
+      };
+    }
+    const allowPolicyAbovePlan = options.hbxOperationUser;
+    const bounded = (value: number, planLimit: number) => {
+      const normalized = Math.max(0, Math.trunc(Number(value || 0) || 0));
+      const plan = Math.max(0, Math.trunc(Number(planLimit || 0) || 0));
+      return allowPolicyAbovePlan ? normalized : Math.min(normalized, plan);
+    };
+
+    let dailyCardsUseUserScope = false;
+    let enrichmentUseUserScope = false;
+
+    const cardDeliveryDaily = resolveTeamPolicyStoredLimit(policy, 'cardDeliveryDaily');
+    if (cardDeliveryDaily.applies) {
+      const currentDailyLimit = Math.max(0, Math.trunc(Number(limits.cards.dailySafetyLimit || 0) || 0));
+      const dailyLimit = cardDeliveryDaily.mode === 'unlimited' && !allowPolicyAbovePlan
+        ? currentDailyLimit
+        : bounded(Number(cardDeliveryDaily.limit || 0), currentDailyLimit || TEAM_POLICY_UNLIMITED_LIMIT);
+      limits.cards.dailySafetyLimit = dailyLimit;
+      limits.cards.dailyLimitSource = 'team_policy';
+      dailyCardsUseUserScope = true;
+    }
+
+    const monthlyCards = resolveTeamPolicyStoredLimit(policy, 'monthlyCards');
+    if (monthlyCards.applies) {
+      if (monthlyCards.mode === 'unlimited') {
+        limits.cards.perUserLimit = null;
+      } else {
+        limits.cards.perUserLimit = bounded(Number(monthlyCards.limit || 0), Number(limits.cards.limit || 0));
+      }
+      limits.cards.userLimitSource = 'team_policy';
+    }
+
+    const enrichmentDaily = resolveTeamPolicyStoredLimit(policy, 'enrichmentDaily');
+    if (enrichmentDaily.applies) {
+      const currentEnrichmentLimit = Math.max(0, Math.trunc(Number(limits.enrichment.dailyLimit || 0) || 0));
+      const dailyLimit = enrichmentDaily.mode === 'unlimited' && !allowPolicyAbovePlan
+        ? currentEnrichmentLimit
+        : bounded(Number(enrichmentDaily.limit || 0), currentEnrichmentLimit || TEAM_POLICY_UNLIMITED_LIMIT);
+      limits.enrichment.dailyLimit = dailyLimit;
+      limits.enrichment.dailyLimitSource = 'team_policy';
+      limits.enrichment.configuredDailyLimit = enrichmentDaily.configuredLimit;
+      limits.enrichment.fallbackDailyLimit = currentEnrichmentLimit;
+      enrichmentUseUserScope = true;
+    }
+
+    return {
+      dailyCardsUseUserScope,
+      enrichmentUseUserScope,
+    };
+  }
+
   private async countLogs(companyId: number, eventTypes: string[], dayStart: Date, dayEnd: Date, userId?: number | null) {
     return this.prisma.companyCommercialUsageLog.count({
       where: {
@@ -618,6 +710,7 @@ export class CommercialUsageLimitsService {
     const limits = hbxOperationUser
       ? this.computeHbxSellerOperationalLimits(billableUsers, userContext.enrichmentLimitOverride)
       : this.computeLimits(company.planKey, billableUsers, company.quotaOverride);
+    const policyScope = this.applyTeamPolicyUsageLimits(limits, userContext.teamPolicy, { hbxOperationUser });
 
     const [cardsGrossUsed, cardsUserGrossUsed, cardsDailyGrossUsed, cardsDailyUserGrossUsed, cardsRefunded, cardsUserRefunded, cardsDailyRefunded, cardsDailyUserRefunded, emailAttempted, emailSent, emailFailed, emailBlocked, emailUserSent, enrichmentDailyUsed, enrichmentDailyUserUsed] = await Promise.all([
       this.countLogs(companyId, CARD_SUCCESS_EVENTS, monthStart, monthEnd),
@@ -640,9 +733,9 @@ export class CommercialUsageLimitsService {
     const cardsUserUsed = Math.max(0, cardsUserGrossUsed - cardsUserRefunded);
     const cardsDailyUsed = Math.max(0, cardsDailyGrossUsed - cardsDailyRefunded);
     const cardsDailyUserUsed = Math.max(0, cardsDailyUserGrossUsed - cardsDailyUserRefunded);
-    const cardsDailyUsedForLimit = hbxOperationUser ? cardsDailyUserUsed : cardsDailyUsed;
+    const cardsDailyUsedForLimit = hbxOperationUser || policyScope.dailyCardsUseUserScope ? cardsDailyUserUsed : cardsDailyUsed;
     const enrichmentDailyLimit = Math.max(0, Math.trunc(Number(limits.enrichment.dailyLimit || 0) || 0));
-    const enrichmentDailyUsedForLimit = hbxOperationUser ? enrichmentDailyUserUsed : enrichmentDailyUsed;
+    const enrichmentDailyUsedForLimit = hbxOperationUser || policyScope.enrichmentUseUserScope ? enrichmentDailyUserUsed : enrichmentDailyUsed;
     const enrichmentDailyRemaining = Math.max(0, enrichmentDailyLimit - Math.max(0, enrichmentDailyUsedForLimit));
     const enrichmentAutoEnabled = false;
 
@@ -660,7 +753,7 @@ export class CommercialUsageLimitsService {
         perUserLimit: limits.cards.perUserLimit,
         companyCap: limits.cards.companyCap,
         userUsed: cardsUserUsed,
-        userLimit: limits.cards.perUserLimit || limits.cards.limit,
+        userLimit: limits.cards.perUserLimit != null ? limits.cards.perUserLimit : limits.cards.limit,
         period: 'monthly',
         monthlyUsed: cardsUsed,
         monthlyLimit: limits.cards.monthlyLimit,
@@ -684,7 +777,7 @@ export class CommercialUsageLimitsService {
         perUserLimit: limits.emails.perUserLimit,
         companyCap: limits.emails.companyCap,
         userSent: emailUserSent,
-        userLimit: limits.emails.perUserLimit || limits.emails.limit,
+        userLimit: limits.emails.perUserLimit != null ? limits.emails.perUserLimit : limits.emails.limit,
       },
       enrichment: {
         used: Math.max(0, enrichmentDailyUsedForLimit),
@@ -728,15 +821,20 @@ export class CommercialUsageLimitsService {
     const snapshot = await this.getUsageSnapshot(companyId, userId);
     const userBlocked = snapshot.cards.perUserLimit != null && snapshot.cards.userUsed >= snapshot.cards.userLimit;
     const monthlyBlocked = snapshot.cards.remaining <= 0 || userBlocked;
-    if (monthlyBlocked) {
+    const dailyBlocked = Number(snapshot.cards.dailyRemaining || 0) <= 0;
+    if (monthlyBlocked || dailyBlocked) {
       await this.log(companyId, Number(userId || 0) || null, 'card_import_blocked', 'usage_limit', {
         reason: userBlocked
           ? 'monthly_user_card_limit_reached'
-          : 'monthly_card_limit_reached',
+          : monthlyBlocked
+            ? 'monthly_card_limit_reached'
+            : 'daily_card_safety_limit_reached',
       });
       throw new ConflictException({
-        code: 'MONTHLY_CARD_LIMIT_REACHED',
-        message: 'Limite mensal de cards atingido. O contador reinicia no próximo ciclo mensal.',
+        code: dailyBlocked && !monthlyBlocked ? 'DAILY_CARD_SAFETY_LIMIT_REACHED' : 'MONTHLY_CARD_LIMIT_REACHED',
+        message: dailyBlocked && !monthlyBlocked
+          ? 'Trava diária de segurança atingida. Tente novamente após o reset diário.'
+          : 'Limite mensal de cards atingido. O contador reinicia no próximo ciclo mensal.',
         usage: snapshot,
       });
     }

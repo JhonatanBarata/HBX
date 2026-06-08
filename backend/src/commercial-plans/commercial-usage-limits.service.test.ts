@@ -3,6 +3,34 @@ import assert from 'node:assert/strict';
 import { CommercialUsageLimitsService } from './commercial-usage-limits.service';
 import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../companies/master-whatsapp-company.constants';
 
+function buildTeamPolicyMock(input: Record<string, any> = {}) {
+  return {
+    id: 'policy-7',
+    userId: 7,
+    companyId: 1,
+    status: 'active',
+    subjectKind: 'hbx_partner_seller',
+    modulesJson: '[]',
+    enrichmentDailyMode: 'inherit',
+    enrichmentDailyLimit: null,
+    cardDeliveryDailyMode: 'inherit',
+    cardDeliveryDailyLimit: null,
+    activeCardsMode: 'inherit',
+    activeCardsLimit: null,
+    monthlyCardsMode: 'inherit',
+    monthlyCardsLimit: null,
+    vendasPullQuantityMode: 'inherit',
+    vendasPullQuantityLimit: null,
+    allowedSegmentsJson: '[]',
+    blockedSegmentsJson: '[]',
+    allowedCitiesJson: '[]',
+    allowedStatesJson: '[]',
+    requiresLocation: true,
+    requiredChannelsJson: '{}',
+    ...input,
+  };
+}
+
 function buildPrismaMock(input: {
   activeVendas?: number;
   activeRadar?: number;
@@ -12,6 +40,7 @@ function buildPrismaMock(input: {
   sellerPausedUntil?: Date | null;
   lastSeenAt?: Date | null;
   companySlug?: string;
+  teamPolicy?: Record<string, any> | null;
 } = {}) {
   const now = new Date();
   const lastSeenAt = input.lastSeenAt === undefined ? now : input.lastSeenAt;
@@ -32,6 +61,11 @@ function buildPrismaMock(input: {
         sellerDistributionDailyLimitOverride: input.targetStockPerSeller ?? null,
       }),
       findUnique: async () => ({ isSystemMaster: false }),
+    },
+    userTeamPolicy: {
+      findUnique: async () => input.teamPolicy === undefined
+        ? null
+        : input.teamPolicy,
     },
     radarAutoDistributionRule: {
       findFirst: async () => ({ targetStockPerSeller: input.targetStockPerSeller ?? 20 }),
@@ -85,6 +119,25 @@ test('HBX operation seller active quota is independent from fixed distribution r
   assert.equal(snapshot.availableSlots, 30);
 });
 
+test('team policy can override active card quota exactly', async () => {
+  const service = new CommercialUsageLimitsService(buildPrismaMock({
+    companySlug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
+    activeVendas: 10,
+    activeRadar: 1,
+    teamPolicy: buildTeamPolicyMock({
+      activeCardsMode: 'limited',
+      activeCardsLimit: 12,
+    }),
+  }) as any);
+
+  const snapshot = await service.getSellerActiveCardQuotaSnapshot(1, 7);
+
+  assert.equal(snapshot.baseLimit, 12);
+  assert.equal(snapshot.effectiveLimit, 12);
+  assert.equal(snapshot.activeCount, 11);
+  assert.equal(snapshot.availableSlots, 1);
+});
+
 test('HBX operation seller usage limit is daily per seller instead of master unlimited', async () => {
   const service = new CommercialUsageLimitsService({
     company: {
@@ -126,6 +179,44 @@ test('HBX operation seller usage limit is daily per seller instead of master unl
   assert.equal(snapshot.enrichment.dailyLimitSource, 'hbx_default');
   assert.equal(snapshot.enrichment.configuredDailyLimit, null);
   assert.equal(snapshot.enrichment.fallbackDailyLimit, 30);
+});
+
+test('team policy overrides HBX seller enrichment daily limit', async () => {
+  const service = new CommercialUsageLimitsService({
+    company: {
+      findUnique: async () => ({
+        timezone: 'America/Sao_Paulo',
+        slug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
+      }),
+    },
+    user: {
+      count: async () => 3,
+      findUnique: async () => ({ isSystemMaster: false, role: 'USER', sellerDistributionDailyLimitOverride: null }),
+    },
+    userTeamPolicy: {
+      findUnique: async () => buildTeamPolicyMock({
+        enrichmentDailyMode: 'limited',
+        enrichmentDailyLimit: 250,
+      }),
+    },
+    $queryRawUnsafe: async () => [],
+    companyCommercialUsageLog: {
+      count: async (args: any) => {
+        const eventTypes = args?.where?.eventType?.in || [];
+        const userScoped = Number(args?.where?.userId || 0) === 7;
+        if (eventTypes.includes('lead_enrichment_used')) return userScoped ? 15 : 90;
+        return 0;
+      },
+    },
+  } as any);
+
+  const snapshot = await service.getUsageSnapshot(1, 7);
+
+  assert.equal(snapshot.enrichment.dailyLimit, 250);
+  assert.equal(snapshot.enrichment.dailyUsed, 15);
+  assert.equal(snapshot.enrichment.dailyRemaining, 235);
+  assert.equal(snapshot.enrichment.dailyLimitSource, 'team_policy');
+  assert.equal(snapshot.enrichment.configuredDailyLimit, 250);
 });
 
 test('HBX operation seller enrichment limit can be overridden per seller', async () => {
@@ -204,6 +295,42 @@ test('HBX operation seller enrichment override zero means auto/unlimited for the
   assert.equal(snapshot.enrichment.configuredDailyLimit, 0);
   assert.equal(snapshot.enrichment.canAutoEnrich, false);
   assert.equal(snapshot.enrichment.canManualEnrich, true);
+});
+
+test('team policy card delivery daily limit blocks import when seller daily use is exhausted', async () => {
+  const service = new CommercialUsageLimitsService({
+    company: {
+      findUnique: async () => ({
+        timezone: 'America/Sao_Paulo',
+        slug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
+      }),
+    },
+    user: {
+      count: async () => 3,
+      findUnique: async () => ({ isSystemMaster: false, role: 'USER', sellerDistributionDailyLimitOverride: null }),
+    },
+    userTeamPolicy: {
+      findUnique: async () => buildTeamPolicyMock({
+        cardDeliveryDailyMode: 'limited',
+        cardDeliveryDailyLimit: 2,
+      }),
+    },
+    $queryRawUnsafe: async () => [],
+    companyCommercialUsageLog: {
+      create: async () => ({}),
+      count: async (args: any) => {
+        const eventTypes = args?.where?.eventType?.in || [];
+        const userScoped = Number(args?.where?.userId || 0) === 7;
+        if (eventTypes.includes('radar_card_claimed')) return userScoped ? 2 : 90;
+        return 0;
+      },
+    },
+  } as any);
+
+  await assert.rejects(
+    () => service.assertCanImportCard(1, 7),
+    (error: any) => error?.response?.code === 'DAILY_CARD_SAFETY_LIMIT_REACHED',
+  );
 });
 
 test('seller active card quota limits requested Radar quantity to available slots', async () => {

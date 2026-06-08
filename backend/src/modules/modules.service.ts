@@ -49,6 +49,12 @@ import {
   ROUTE_GUARDED_MODULE_KEYS,
   resolveCompanyModuleAccessPolicy,
 } from './module-access-policy';
+import {
+  loadUserTeamPolicyRuntime,
+  parseTeamPolicyModuleAccessMap,
+  resolveTeamPolicyModuleAllowed,
+  syncUserTeamPolicyModulesFromLegacyAccess,
+} from '../team/team-policy-persistence';
 
 type DefaultModuleDef = {
   key: string;
@@ -2081,6 +2087,9 @@ export class ModulesService implements OnModuleInit {
         .flat()
         .map((moduleKey) => this.normalizeRequestedModuleKey(moduleKey)),
     );
+    const teamPolicy = isSystemMaster
+      ? null
+      : await loadUserTeamPolicyRuntime(this.prisma, userId);
 
     for (const moduleItem of orderedModules) {
       const normalizedModuleKey = this.normalizeRequestedModuleKey(moduleItem.key);
@@ -2099,11 +2108,14 @@ export class ModulesService implements OnModuleInit {
               },
             },
           });
+      const policyAllowed = resolveTeamPolicyModuleAllowed(teamPolicy, moduleItem.key);
       const userAllowed = isSystemMaster
         ? true
-        : userAccess
-          ? Boolean(userAccess.allowed)
-          : this.defaultUserModuleAllowed(user, moduleItem.key, context, companyAccessSnapshot);
+        : policyAllowed !== undefined
+          ? policyAllowed
+          : userAccess
+            ? Boolean(userAccess.allowed)
+            : this.defaultUserModuleAllowed(user, moduleItem.key, context, companyAccessSnapshot);
       if (!userAllowed) continue;
 
       if (accessPolicy.moduleKeys.has(normalizedModuleKey)) {
@@ -2236,6 +2248,9 @@ export class ModulesService implements OnModuleInit {
     });
 
     const userAccessMap = new Map<number, boolean>();
+    const teamPolicy = isSystemMaster
+      ? null
+      : await loadUserTeamPolicyRuntime(this.prisma, userId);
     if (!isSystemMaster) {
       const userAccessRows = await this.prisma.userModuleAccess.findMany({
         where: { userId },
@@ -2272,11 +2287,14 @@ export class ModulesService implements OnModuleInit {
         const planManagedModule = planManagedModuleKeys.has(normalizedKey);
         const financeModule = this.isFinanceModuleKey(normalizedKey);
         const effectiveCompanyEnabled = Boolean(row?.enabled || (accessPolicy.active && planAllowsModule));
+        const policyAllowed = resolveTeamPolicyModuleAllowed(teamPolicy, moduleItem.key);
         const userAllowed = isSystemMaster
           ? true
-          : (row && userAccessMap.has(row.moduleId)
-              ? Boolean(userAccessMap.get(row.moduleId))
-              : this.defaultUserModuleAllowed(user, moduleItem.key, context, company));
+          : policyAllowed !== undefined
+            ? policyAllowed
+            : (row && userAccessMap.has(row.moduleId)
+                ? Boolean(userAccessMap.get(row.moduleId))
+                : this.defaultUserModuleAllowed(user, moduleItem.key, context, company));
         const roleEligible = this.canUseAdminOnlyModule(user, moduleItem.key, context);
         const visible =
           primaryCommercialModule ||
@@ -2407,12 +2425,22 @@ export class ModulesService implements OnModuleInit {
       where: { userId: { in: users.map((u) => u.id) } },
       select: { userId: true, moduleId: true, allowed: true },
     });
+    const policyRows = await this.prisma.userTeamPolicy.findMany({
+      where: { userId: { in: users.map((u) => u.id) } },
+      select: { userId: true, modulesJson: true },
+    }).catch(() => []);
 
     const accessByUser = new Map<number, Map<number, boolean>>();
     for (const row of accessRows) {
       const existing = accessByUser.get(row.userId) || new Map<number, boolean>();
       existing.set(row.moduleId, row.allowed);
       accessByUser.set(row.userId, existing);
+    }
+    const policyByUser = new Map<number, any>();
+    for (const row of policyRows || []) {
+      policyByUser.set(Number(row.userId), {
+        moduleAccessMap: parseTeamPolicyModuleAccessMap(row.modulesJson),
+      });
     }
 
     return {
@@ -2427,6 +2455,7 @@ export class ModulesService implements OnModuleInit {
       })),
       users: users.map((u) => {
         const userMap = accessByUser.get(u.id) || new Map<number, boolean>();
+        const policy = policyByUser.get(Number(u.id)) || null;
         return {
           id: u.id,
           username: u.username,
@@ -2437,7 +2466,11 @@ export class ModulesService implements OnModuleInit {
               key: m.key,
               allowed:
                 this.canUseAdminOnlyModule(u, m.key) &&
-                (userMap.has(m.id) ? Boolean(userMap.get(m.id)) : this.defaultUserModuleAllowed(u, m.key, undefined, company)),
+                (() => {
+                  const policyAllowed = resolveTeamPolicyModuleAllowed(policy, m.key);
+                  if (policyAllowed !== undefined) return policyAllowed;
+                  return userMap.has(m.id) ? Boolean(userMap.get(m.id)) : this.defaultUserModuleAllowed(u, m.key, undefined, company);
+                })(),
             };
           }),
         };
@@ -2497,6 +2530,9 @@ export class ModulesService implements OnModuleInit {
       }
     });
     if (targetCompanyId) await this.ensureTrialBundleForCompany(targetCompanyId);
+    await syncUserTeamPolicyModulesFromLegacyAccess(this.prisma, targetUserId, {
+      source: 'module_access_update',
+    });
 
     return { ok: true };
   }

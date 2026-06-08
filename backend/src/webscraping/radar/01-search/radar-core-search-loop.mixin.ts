@@ -946,6 +946,7 @@ export class RadarCoreSearchLoopMixin {
         incoming,
         'hbx',
         safeInteger(current.attemptCount) * batchLimit,
+        engineUrl,
       );
       if (lease) {
         await this.getEnginePool().markEngineBatchSuccess(lease.engineId).catch(() => null);

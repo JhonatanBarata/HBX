@@ -3,6 +3,7 @@ import {
   hasPoorRadarWebEnrichmentFields,
   scoreRadarWebEnrichmentCandidate,
 } from './radar-web-enrichment-priority';
+import { RadarWebEnrichmentService } from './radar-web-enrichment.service';
 import {
   BadRequestException,
   ConflictException,
@@ -1020,6 +1021,70 @@ export class RadarCoreQualityEnrichmentMixin {
     );
   }
 
+  private shouldRunFreePreSaveEnrichment(
+    normalized: NormalizedSearchInput,
+    results: Array<Omit<WebscrapingContactResult, 'placeId'> & { placeId?: string | null }>,
+  ) {
+    if (!Array.isArray(results) || !results.length) return false;
+    if (normalized.targetType !== 'pj') return false;
+    if (!this.hasRequiredEnrichmentChannelsFilter(normalized)) return false;
+    const flag = String(process.env.HBX_RADAR_PRE_SAVE_FREE_ENRICHMENT_ENABLED || 'true').trim().toLowerCase();
+    return !['false', '0', 'off', 'no'].includes(flag);
+  }
+
+  private async enrichSearchRunResultsBeforeSave(
+    normalized: NormalizedSearchInput,
+    results: Array<Omit<WebscrapingContactResult, 'placeId'> & { placeId?: string | null }>,
+    source: string | null,
+    engineUrl?: string | null,
+  ) {
+    if (!this.shouldRunFreePreSaveEnrichment(normalized, results)) return results;
+    try {
+      const maxCards = this.getRequiredChannelEnrichmentBatchLimit(normalized.quantity);
+      const enrichment = await new RadarWebEnrichmentService(this.getRadarWebsiteCrawlSource()).run({
+        normalized: {
+          ...normalized,
+          freshness: 'live',
+        },
+        currentResults: results as WebscrapingContactResult[],
+        maxCards,
+        host: {
+          logger: this.logger,
+          fetcher: globalThis.fetch,
+          engineUrl: engineUrl || this.getHbxScrapingEngineUrl(),
+          timeoutMs: this.getRadarClientRequestTimeoutMs(),
+          getRadarWebsiteCrawlSource: () => this.getRadarWebsiteCrawlSource(),
+          searchHbxEngine: (input, existing, targetEngineUrl, options) => this.searchHbxEngine(
+            {
+              ...input,
+              freshness: 'live',
+            },
+            existing,
+            targetEngineUrl || engineUrl || this.getHbxScrapingEngineUrl(),
+            options,
+          ),
+        },
+      });
+      if (!Array.isArray(enrichment?.results) || !enrichment.results.length) return results;
+      const merged = this.getRadarResultMerger().mergeSources([
+        {
+          source: String(source || 'hbx_engine') as any,
+          results: results as WebscrapingContactResult[],
+        },
+        {
+          source: 'radar_web_enrichment',
+          results: enrichment.results as WebscrapingContactResult[],
+        },
+      ]);
+      return Array.isArray(merged?.results) && merged.results.length
+        ? merged.results as Array<Omit<WebscrapingContactResult, 'placeId'> & { placeId?: string | null }>
+        : results;
+    } catch (error) {
+      this.logger?.warn?.(`[radar-free-enrichment] pre-save falhou sem bloquear lote: ${String((error as any)?.message || error)}`);
+      return results;
+    }
+  }
+
   private async saveSearchRunResults(
     context: SearchExecutionContext,
     normalized: NormalizedSearchInput,
@@ -1027,7 +1092,9 @@ export class RadarCoreQualityEnrichmentMixin {
     results: Array<Omit<WebscrapingContactResult, 'placeId'> & { placeId?: string | null }>,
     source: string | null,
     baseIndex = 0,
+    enrichmentEngineUrl?: string | null,
   ) {
+    const resultsToSave = await this.enrichSearchRunResultsBeforeSave(normalized, results, source, enrichmentEngineUrl);
     const dedup = await this.snapshotSearchRunDedup(runId);
     const counts = {
       found: 0,
@@ -1049,7 +1116,7 @@ export class RadarCoreQualityEnrichmentMixin {
       rejectedGenericName: 0,
     };
     const sourceQualityRows: Array<{ domain: string; sourceEngine: string; status: WebscrapingSearchRunItemStatus }> = [];
-    for (const [index, result] of results.entries()) {
+    for (const [index, result] of resultsToSave.entries()) {
       const resultCity = String((result as any).city || normalized.city || '').trim();
       const resultState = String((result as any).state || normalized.state || '').trim().toUpperCase();
       const resultSegment = String((result as any).segment || (result as any).businessCategory || (result as any).category || '').trim() || normalized.segment;
@@ -1224,7 +1291,7 @@ export class RadarCoreQualityEnrichmentMixin {
         });
       }
     }
-    await this.recordSourceQualityFromRunItems(results, sourceQualityRows);
+    await this.recordSourceQualityFromRunItems(resultsToSave, sourceQualityRows);
     await this.updateSearchRunMetrics(runId, { increment: metricIncrements });
     counts.savedWebEnrichmentLeadIds = counts.savedWebEnrichmentCandidates
       .filter((candidate) => candidate.score > 0)

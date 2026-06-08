@@ -370,6 +370,62 @@ button.kill:hover {
   padding: 8px 10px;
 }
 
+.backend-config-panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+}
+
+.backend-config-panel strong {
+  font-size: 14px;
+}
+
+.backend-config-panel span,
+.backend-config-panel small {
+  color: var(--muted);
+}
+
+.backend-config-panel--ok {
+  border-left-color: var(--success);
+}
+
+.backend-config-panel--warn {
+  border-left-color: var(--warning);
+}
+
+.backend-config-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.backend-config-chip {
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: inline-grid;
+  gap: 3px;
+  min-width: 210px;
+  padding: 8px 10px;
+}
+
+.backend-config-chip b {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.backend-config-chip[data-ready="true"] {
+  border-color: rgba(34, 197, 94, .45);
+}
+
+.backend-config-chip[data-ready="false"] {
+  border-color: rgba(245, 158, 11, .5);
+}
+
 .ops-action-status {
   border-left: 4px solid var(--line);
   font-size: 13px;

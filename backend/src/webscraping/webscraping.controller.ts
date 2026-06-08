@@ -7,6 +7,7 @@ import { MasterGuard } from '../auth/guards/master.guard';
 import { ModuleAccess } from '../modules/module-feature.decorator';
 import { ModuleAccessGuard } from '../modules/module-access.guard';
 import { getConfiguredHbxEngineMaxCount, HbxEnginePoolService } from './hbx-engine-pool.service';
+import { RADAR_REGION_MAX_RADIUS_KM } from './radar/shared/radar-core-shared';
 import { WebscrapingService } from './webscraping.service';
 
 @ValidatorConstraint({ name: 'MaxConfiguredHbxEngineCount', async: false })
@@ -35,7 +36,7 @@ class WebscrapingSearchDto {
   @Type(() => Number)
   @IsInt()
   @Min(0)
-  @Max(100)
+  @Max(RADAR_REGION_MAX_RADIUS_KM)
   radiusKm?: number;
 
   @IsOptional()
@@ -182,7 +183,7 @@ class RadarDatabaseQueryDto {
   @Type(() => Number)
   @IsInt()
   @Min(0)
-  @Max(100)
+  @Max(RADAR_REGION_MAX_RADIUS_KM)
   radiusKm?: number;
 
   @IsOptional()
@@ -794,7 +795,7 @@ class RadarAutoDistributionRuleDto {
   @Type(() => Number)
   @IsInt()
   @Min(0)
-  @Max(100)
+  @Max(RADAR_REGION_MAX_RADIUS_KM)
   radiusKm?: number;
 
   @IsOptional()

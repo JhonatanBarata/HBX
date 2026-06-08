@@ -21,6 +21,7 @@ export type UserItem = {
   role: string;
   isSystemMaster?: boolean | null;
   isActive: boolean;
+  sellerDistributionDailyLimitOverride?: number | null;
   deactivatedAt?: string | null;
   retentionUntil?: string | null;
   createdAt: string;
@@ -106,4 +107,134 @@ export type SellerOnboardingReadiness = {
   receivedDocuments: Array<{ kind: SellerOnboardingAttachment["kind"]; label: string; required: boolean; present: boolean }>;
   missingRequiredDocuments: Array<{ kind: SellerOnboardingAttachment["kind"]; label: string; required: boolean; present: boolean }>;
   missingActivationRequirements?: Array<{ code?: string | null; label: string }>;
+};
+
+export type TeamPolicyActorKind =
+  | "system_master"
+  | "company_admin"
+  | "common_seller"
+  | "hbx_partner_seller"
+  | "unknown";
+
+export type TeamPolicyLimitMode = "inherit" | "limited" | "unlimited" | "blocked";
+
+export type TeamPolicyLimit = {
+  mode: TeamPolicyLimitMode;
+  value: number | null;
+  used?: number | null;
+  remaining?: number | null;
+  resetAt?: string | null;
+  source: string;
+};
+
+export type TeamPolicyModule = {
+  key: string;
+  name?: string | null;
+  allowed: boolean;
+  accessible?: boolean;
+  visible?: boolean;
+  source?: string;
+};
+
+export type TeamPolicySubject = {
+  id: number;
+  companyId: number | null;
+  role: string;
+  kind: TeamPolicyActorKind;
+  isSystemMaster: boolean;
+  isActive: boolean;
+  name: string | null;
+  email: string | null;
+  username: string | null;
+};
+
+export type TeamPolicy = {
+  version: 1;
+  subject: TeamPolicySubject;
+  modules: TeamPolicyModule[];
+  compensation: {
+    commissionPercent: number;
+    commissionDueBusinessDays: number;
+  };
+  hbxNetwork: {
+    isHbxSellerNetwork: boolean;
+    canRegisterHbxSellers: boolean;
+    sellerReferralCommissionPercent: number;
+    referredByUserId: number | null;
+    referredByCommissionPercentSnapshot: number;
+    referredByUser: {
+      id: number;
+      name: string | null;
+      username: string | null;
+      email: string | null;
+    } | null;
+  };
+  limits: {
+    enrichmentDaily: TeamPolicyLimit;
+    cardDeliveryDaily: TeamPolicyLimit;
+    activeCards: TeamPolicyLimit;
+    monthlyCards: TeamPolicyLimit;
+    vendasPullQuantity: TeamPolicyLimit;
+  };
+  radar: {
+    allowedSegments: string[];
+    blockedSegments: string[];
+    allowedCities: Array<{ city: string; state: string | null }>;
+    allowedStates: string[];
+    requiresLocation: boolean;
+    requiredChannels: {
+      whatsapp: boolean;
+      instagram: boolean;
+      facebook: boolean;
+      email: boolean;
+      website: boolean;
+    };
+  };
+  visibility: {
+    sellerCanViewOwnPolicy: boolean;
+    sellerCanViewCommission: boolean;
+    sellerCanViewHbxNetwork: boolean;
+    sellerCanViewLimits: boolean;
+    adminCanEditLegacyFields: boolean;
+    masterCanUseUnlimited: boolean;
+  };
+  persistence: {
+    mode: "legacy_derived" | "persisted_with_legacy_fallback";
+    policyId?: string | null;
+    presetId?: string | null;
+    source?: string | null;
+    persistedFields: string[];
+    pendingSchemaFields: string[];
+  };
+};
+
+export type TeamPolicyPatch = {
+  modules?: Array<{ key: string; allowed: boolean }>;
+  compensation?: {
+    commissionPercent?: number;
+    commissionDueBusinessDays?: number;
+  };
+  hbxNetwork?: {
+    canRegisterHbxSellers?: boolean;
+    sellerReferralCommissionPercent?: number;
+    referredByUserId?: number | null;
+    referredByCommissionPercentSnapshot?: number;
+  };
+  limits?: Partial<
+    Record<
+      keyof TeamPolicy["limits"],
+      {
+        mode?: TeamPolicyLimitMode;
+        value?: number | null | "unlimited";
+      }
+    >
+  >;
+  radar?: {
+    allowedSegments?: string[];
+    blockedSegments?: string[];
+    allowedCities?: Array<{ city: string; state: string | null }>;
+    allowedStates?: string[];
+    requiresLocation?: boolean;
+    requiredChannels?: TeamPolicy["radar"]["requiredChannels"];
+  };
 };

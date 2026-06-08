@@ -161,9 +161,37 @@ import type {
   WebscrapingSearchRunResponse,
   WebscrapingSearchRunStatus,
 } from '../radar-core-method-imports';
+import {
+  getTeamPolicyRequiredChannelList,
+  loadUserTeamPolicyRuntime,
+} from '../../../team/team-policy-persistence';
 
 export class RadarCoreDeliveryMixin {
   [key: string]: any;
+  private async getTeamPolicyRequiredRadarChannels(userIdRaw: unknown): Promise<RadarChannelFilter[]> {
+    const userId = Math.trunc(Number(userIdRaw || 0));
+    if (!userId) return [];
+    const policy = await loadUserTeamPolicyRuntime(this.prisma, userId).catch(() => null);
+    return this.normalizeRadarChannels(getTeamPolicyRequiredChannelList(policy));
+  }
+
+  private async applyTeamPolicyRadarFilters<T extends { requiredChannels?: any; channelMatchMode?: any }>(
+    context: SearchExecutionContext,
+    filters: T,
+  ): Promise<T> {
+    const required = await this.getTeamPolicyRequiredRadarChannels(context.userId);
+    if (!required.length) return filters;
+    const mergedRequired = Array.from(new Set([
+      ...this.normalizeRadarChannels((filters as any).requiredChannels || []),
+      ...required,
+    ]));
+    return {
+      ...filters,
+      requiredChannels: mergedRequired,
+      channelMatchMode: 'all_required',
+    };
+  }
+
   private buildNormalizedSearchInputFromRadarFilters(filters: NormalizedRadarFilters): NormalizedSearchInput {
     return this.getRadarSearchInput().buildNormalizedSearchInputFromRadarFilters(filters, this.buildRadarSearchInputHost());
   }
@@ -270,7 +298,7 @@ export class RadarCoreDeliveryMixin {
 
   private async syncRadarSearchRunItemsToPool(context: SearchExecutionContext, run: any) {
     if (!(await this.supportsRadarPersistence())) return;
-    const normalized = this.normalizeSearchInput({
+    const normalized = await this.applyTeamPolicyRadarFilters(context, this.normalizeSearchInput({
       city: String(run?.city || ''),
       state: String(run?.state || ''),
       segment: String(run?.segment || ''),
@@ -282,7 +310,7 @@ export class RadarCoreDeliveryMixin {
       targetType: normalizeTargetType(run?.targetType),
       salesProfile: parseJsonObject(run?.metricsJson)?.salesProfile || null,
       ...this.buildChannelFiltersJson(parseJsonObject(parseJsonObject(run?.metricsJson)?.channelFilters || {})),
-    });
+    }));
     const qualityInput = {
       city: normalized.city,
       state: normalized.state,
@@ -551,7 +579,11 @@ export class RadarCoreDeliveryMixin {
   }
 
   private async buildPausedRadarSearchRunResponse(run: any) {
-    const filters = this.buildRadarFiltersFromSearchRun(run);
+    const filters = await this.applyTeamPolicyRadarFilters({
+      companyId: safeInteger(run?.companyId),
+      userId: safeInteger(run?.userId),
+      user: null,
+    } as SearchExecutionContext, this.buildRadarFiltersFromSearchRun(run));
     const metrics = parseJsonObject(run?.metricsJson);
     const requestedQuantity = Math.max(1, safeInteger(run?.targetQuantity));
     const stockTarget = this.getRadarRunVendasStockTarget(run);
@@ -788,7 +820,7 @@ export class RadarCoreDeliveryMixin {
       return this.buildPausedRadarSearchRunResponse(paused || effectiveRun);
     }
     const metrics = parseJsonObject(effectiveRun.metricsJson);
-    const filters = this.buildRadarFiltersFromSearchRun(effectiveRun);
+    const filters = await this.applyTeamPolicyRadarFilters(context, this.buildRadarFiltersFromSearchRun(effectiveRun));
     const requestedQuantity = Math.max(1, safeInteger(effectiveRun.targetQuantity));
     const allFoundRunItems = (effectiveRun.items || []).filter((item: any) => String(item?.status || '') === 'found');
     const primaryFoundItems = allFoundRunItems.filter((item: any) => this.isRunItemPrimaryDeliverable(item, filters));
@@ -1077,7 +1109,7 @@ export class RadarCoreDeliveryMixin {
 
   async startRadarSearchRunForUser(user: any, input: RadarFiltersInput = {}) {
     const context = this.resolveContext(user);
-    const filters = this.normalizeRadarFilters(input);
+    const filters = await this.applyTeamPolicyRadarFilters(context, this.normalizeRadarFilters(input));
     if (!filters.normalizedCity || !filters.normalizedSegment) {
       throw new BadRequestException('Cidade e segmento sao obrigatorios para pesquisar no Radar.');
     }
@@ -1551,7 +1583,7 @@ export class RadarCoreDeliveryMixin {
 
   async pullRadarLeadsForUser(user: any, input: RadarFiltersInput = {}) {
     const context = this.resolveContext(user);
-    const filters = this.normalizeRadarFilters(input);
+    const filters = await this.applyTeamPolicyRadarFilters(context, this.normalizeRadarFilters(input));
     if (!filters.normalizedCity || !filters.normalizedSegment) {
       throw new BadRequestException('Cidade e segmento sao obrigatorios para puxar cards do Radar.');
     }
@@ -1875,7 +1907,7 @@ export class RadarCoreDeliveryMixin {
 
   async replenishRadarStockForUser(user: any, input: RadarFiltersInput = {}) {
     const context = this.resolveContext(user);
-    const filters = this.normalizeRadarFilters(input);
+    const filters = await this.applyTeamPolicyRadarFilters(context, this.normalizeRadarFilters(input));
     if (!filters.normalizedCity || !filters.normalizedSegment) {
       throw new BadRequestException('Cidade e segmento sao obrigatorios para repor o estoque do Radar.');
     }
@@ -2972,6 +3004,11 @@ export class RadarCoreDeliveryMixin {
     if (this.isRadarProtectedStatus(leadRow?.companyStates?.[0]?.status || leadRow?.status)) {
       throw new BadRequestException('Card protegido nao pode ser enviado para Vendas.');
     }
+    const assignedUserId = Math.trunc(Number(options.assignedUserId || 0)) || null;
+    const assignedByUserId = assignedUserId
+      ? Math.trunc(Number(options.assignedByUserId || context.userId || 0)) || null
+      : null;
+    const requiredChannels = await this.getTeamPolicyRequiredRadarChannels(assignedUserId || context.userId);
     const quality = this.extractLeadQualityFromObject(leadRow)
       || this.extractLeadQualityFromObject(leadRow?.enrichmentJson)
       || this.extractLeadQualityFromObject(leadRow?.metadataJson)
@@ -2987,9 +3024,9 @@ export class RadarCoreDeliveryMixin {
       state: String(leadRow?.state || ''),
       segment: String(leadRow?.segment || ''),
       targetType: normalizeTargetType(metadata?.targetType),
-      requiredChannels: [],
+      requiredChannels,
       preferredChannels: [],
-      channelMatchMode: 'prefer',
+      channelMatchMode: requiredChannels.length ? 'all_required' : 'prefer',
       salesProfile: null,
     } as NormalizedRadarFilters;
     const qualityV2 = this.extractLeadQualityV2FromObject(leadRow)
@@ -3002,11 +3039,6 @@ export class RadarCoreDeliveryMixin {
     if (!this.isCardDeliveryEligibleForVendas(deliveryClassification, leadRow, qualityV2)) {
       throw new BadRequestException('Card nao esta elegivel para Vendas neste modo de qualidade.');
     }
-    const assignedUserId = Math.trunc(Number(options.assignedUserId || 0)) || null;
-    const assignedByUserId = assignedUserId
-      ? Math.trunc(Number(options.assignedByUserId || context.userId || 0)) || null
-      : null;
-
     await this.claimRadarLeadForCompany(context, leadRow, {
       poolStatus: 'in_attendance',
       companyStatus: 'in_attendance',

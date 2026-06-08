@@ -30,6 +30,7 @@ import { AdminModule } from './admin/admin.module';
 import { CommercialPlansModule } from './commercial-plans/commercial-plans.module';
 import { PulseModule } from './pulse/pulse.module';
 import { OwnerModule } from './owner/owner.module';
+import { TeamModule } from './team/team.module';
 
 @Module({
   imports: [
@@ -67,6 +68,7 @@ import { OwnerModule } from './owner/owner.module';
     CommercialPlansModule,
     PulseModule,
     OwnerModule,
+    TeamModule,
     AdminModule,
   ],
   controllers: [AppController],

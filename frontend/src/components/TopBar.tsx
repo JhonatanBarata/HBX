@@ -28,6 +28,7 @@ import {
   buildWhatsAppBootstrapKey,
 } from "@/lib/whatsapp-connection-flow";
 import { useWhatsAppLiveHealth } from "@/lib/useWhatsAppLiveHealth";
+import { getCurrentUserAccess } from "@/lib/currentUserAccess";
 import {
   MASTER_CONTEXT_CHANGED_EVENT,
   dispatchMasterContextChanged,
@@ -52,10 +53,18 @@ type User = {
   name?: string | null;
   email?: string | null;
   role?: string | null;
+  userKind?: string | null;
   isSystemMaster?: boolean;
+  sellerProfile?: {
+    isHbxPartnerSeller?: boolean | null;
+    isCommonSeller?: boolean | null;
+    isAdmin?: boolean | null;
+  } | null;
   company?: {
     id: number;
     name?: string | null;
+    slug?: string | null;
+    isHbxSellerNetwork?: boolean | null;
     onboardingStatus?: string | null;
     paymentStatus?: string | null;
     subscriptionStatus?: string | null;
@@ -2561,6 +2570,8 @@ export default function TopBar() {
   const authResolved = authenticated !== null;
   const pendingCheckoutLocked = false;
   const pendingCheckoutHref = "/pagamento?focus=payment&reason=pending_checkout";
+  const currentUserAccess = useMemo(() => getCurrentUserAccess(user), [user]);
+  const canCallWhatsAppAdminEndpoints = currentUserAccess.canCallWhatsAppAdminEndpoints;
   const dashboardHref = pendingCheckoutLocked
     ? pendingCheckoutHref
     : pathname?.startsWith("/master")
@@ -2574,7 +2585,13 @@ export default function TopBar() {
   const isRadarDigitalRoute = Boolean(pathname?.startsWith("/radar-digital") || pathname?.startsWith("/dashboard/radar-digital"));
   const isPagamentoRoute = Boolean(pathname?.startsWith("/pagamento") || pathname?.startsWith("/dashboard/financeiro"));
   const isMobileFullscreenRoute = isVendasRoute || isRadarDigitalRoute || isPagamentoRoute;
-  const hasWhatsAppLiveContext = Boolean(authenticated === true && !pendingCheckoutLocked && !isMasterWebscrapingRoute && (user?.company?.id || user?.masterContext?.active));
+  const hasWhatsAppLiveContext = Boolean(
+    authenticated === true &&
+    canCallWhatsAppAdminEndpoints &&
+    !pendingCheckoutLocked &&
+    !isMasterWebscrapingRoute &&
+    (user?.company?.id || user?.masterContext?.active),
+  );
   const whatsAppLiveHealth = useWhatsAppLiveHealth({
     enabled: hasWhatsAppLiveContext,
     intervalMs: isAtendimentoRoute ? 15000 : 30000,
@@ -2791,6 +2808,10 @@ export default function TopBar() {
 
   const loadWhatsAppCenter = React.useCallback(async (options?: { background?: boolean }) => {
     if (authenticated !== true) return null;
+    if (!canCallWhatsAppAdminEndpoints) {
+      if (!options?.background) setWhatsAppDetailError("Conexão do WhatsApp disponível para administradores.");
+      return null;
+    }
     if (pendingCheckoutLocked) {
       if (!options?.background) {
         setWhatsAppDetailError("Finalize sua contratação para liberar a conexão do WhatsApp.");
@@ -2811,10 +2832,14 @@ export default function TopBar() {
     } finally {
       if (!options?.background) setWhatsAppDetailLoading(false);
     }
-  }, [authenticated, pendingCheckoutHref, pendingCheckoutLocked, router]);
+  }, [authenticated, canCallWhatsAppAdminEndpoints, pendingCheckoutHref, pendingCheckoutLocked, router]);
 
   const loadWhatsAppModal = React.useCallback(async (options?: { background?: boolean; includeQr?: boolean }) => {
     if (authenticated !== true) return null;
+    if (!canCallWhatsAppAdminEndpoints) {
+      if (!options?.background) setWhatsAppDetailError("Conexão do WhatsApp disponível para administradores.");
+      return null;
+    }
     if (pendingCheckoutLocked) {
       if (!options?.background) {
         setWhatsAppDetailError("Finalize sua contratação para liberar a conexão do WhatsApp.");
@@ -2854,7 +2879,7 @@ export default function TopBar() {
     } finally {
       if (!options?.background) setWhatsAppModalLoading(false);
     }
-  }, [authenticated, pendingCheckoutHref, pendingCheckoutLocked, router]);
+  }, [authenticated, canCallWhatsAppAdminEndpoints, pendingCheckoutHref, pendingCheckoutLocked, router]);
 
   const waitForWhatsAppModalQr = React.useCallback(async (statusPayload: WhatsAppModalPayload) => {
     let latestPayload = statusPayload;
@@ -3420,7 +3445,7 @@ export default function TopBar() {
   ]);
 
   useEffect(() => {
-    const hasWhatsAppContext = Boolean(user?.company?.id || user?.masterContext?.active);
+    const hasWhatsAppContext = Boolean(canCallWhatsAppAdminEndpoints && (user?.company?.id || user?.masterContext?.active));
     if (authenticated !== true || pendingCheckoutLocked || isMasterWebscrapingRoute || !hasWhatsAppContext) {
       setWhatsAppCenter(null);
       setWhatsAppModal(null);
@@ -3440,6 +3465,7 @@ export default function TopBar() {
     };
   }, [
     authenticated,
+    canCallWhatsAppAdminEndpoints,
     isMasterWebscrapingRoute,
     loadWhatsAppCenter,
     loadWhatsAppModal,

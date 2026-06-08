@@ -579,11 +579,15 @@ export class RadarWebEnrichmentService {
     normalized: NormalizedSearchInput;
     currentResults: WebscrapingContactResult[];
     host?: RadarWebEnrichmentHost;
+    maxCards?: number;
   }): Promise<RadarLeadSourceResult> {
     if (envDisabled('HBX_RADAR_WEB_ENRICHMENT_ENABLED')) return this.skipped('flag_radar_web_enrichment_desativada');
     if (input.normalized.targetType !== 'pj') return this.skipped('radar_web_enrichment_apenas_pj');
 
-    const maxCards = positiveIntegerEnv('HBX_RADAR_WEB_ENRICHMENT_MAX_CARDS', 20, 50);
+    const requestedMaxCards = Number.isFinite(Number(input.maxCards)) ? Number(input.maxCards) : 0;
+    const maxCards = requestedMaxCards > 0
+      ? Math.max(1, Math.min(50, Math.trunc(requestedMaxCards)))
+      : positiveIntegerEnv('HBX_RADAR_WEB_ENRICHMENT_MAX_CARDS', 20, 50);
     const poorCards = (input.currentResults || []).filter(hasPoorFields).slice(0, maxCards);
     if (!poorCards.length) return this.skipped('sem_card_pobre_para_enriquecer');
 

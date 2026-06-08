@@ -12,6 +12,7 @@ type TeamListPanelProps = {
   userFilter: UserFilter;
   setUserFilter: (value: UserFilter) => void;
   onCreateAccess: () => void;
+  onOpenBatchPolicy?: () => void;
   referralCandidatesPanel?: ReactNode;
   children: ReactNode;
 };
@@ -35,6 +36,7 @@ export default function TeamListPanel({
   userFilter,
   setUserFilter,
   onCreateAccess,
+  onOpenBatchPolicy,
   referralCandidatesPanel,
   children,
 }: TeamListPanelProps) {
@@ -54,11 +56,18 @@ export default function TeamListPanel({
         <span className="badge badge-brand">
           {showDesktopModules ? `${enabledModulesCount} módulos` : `${usersCount} pessoas`}
         </span>
-        {showDesktopTeam ? (
-          <button type="button" onClick={onCreateAccess} className="btn btn-primary btn-sm">
-            Criar acesso
-          </button>
-        ) : null}
+        <div className="flex flex-wrap gap-2">
+          {onOpenBatchPolicy ? (
+            <button type="button" onClick={onOpenBatchPolicy} className="btn btn-secondary btn-sm">
+              Aplicar política
+            </button>
+          ) : null}
+          {showDesktopTeam ? (
+            <button type="button" onClick={onCreateAccess} className="btn btn-primary btn-sm">
+              Criar acesso
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {showDesktopTeam ? referralCandidatesPanel : null}

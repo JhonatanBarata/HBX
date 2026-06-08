@@ -177,6 +177,8 @@ model Company {
   trialPhoneUsages    TrialPhoneUsage[]
   nightFactoryRewardClaims NightFactoryRewardClaim[]
   whatsappConsentLedgers WhatsappConsentLedger[]
+  teamPolicyPresets TeamPolicyPreset[]
+  userTeamPolicies UserTeamPolicy[]
 
   @@index([currentWhatsappConnectionSessionId])
 }
@@ -957,9 +959,79 @@ model User {
   hbxReferralCandidates HbxPartnerReferralCandidate[] @relation("HbxReferralCandidateReferrer")
   reviewedHbxReferralCandidates HbxPartnerReferralCandidate[] @relation("HbxReferralCandidateReviewedBy")
   convertedHbxReferralCandidates HbxPartnerReferralCandidate[] @relation("HbxReferralCandidateConvertedUser")
+  teamPolicy UserTeamPolicy? @relation("UserTeamPolicyUser")
+  referredUserTeamPolicies UserTeamPolicy[] @relation("UserTeamPolicyReferrer")
 
   @@index([referredByUserId])
   @@index([canRegisterHbxSellers])
+}
+
+model TeamPolicyPreset {
+  id             String   @id @default(cuid())
+  company        Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId      Int?
+  key            String
+  name           String
+  description    String?
+  scope          String   @default("company")
+  status         String   @default("active")
+  policyJson     String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  userPolicies   UserTeamPolicy[]
+
+  @@unique([companyId, key])
+  @@index([companyId, status])
+  @@index([scope, status])
+}
+
+model UserTeamPolicy {
+  id                                      String   @id @default(cuid())
+  user                                    User     @relation("UserTeamPolicyUser", fields: [userId], references: [id], onDelete: Cascade)
+  userId                                  Int      @unique
+  company                                 Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId                               Int?
+  preset                                  TeamPolicyPreset? @relation(fields: [presetId], references: [id], onDelete: SetNull)
+  presetId                                String?
+  referredByUser                          User?    @relation("UserTeamPolicyReferrer", fields: [referredByUserId], references: [id], onDelete: SetNull)
+  referredByUserId                        Int?
+  policyVersion                           Int      @default(1)
+  status                                  String   @default("active")
+  source                                  String   @default("legacy_backfill")
+  roleSnapshot                            String?
+  subjectKind                             String?
+  modulesJson                             String?
+  commissionPercent                       Float    @default(0)
+  commissionDueBusinessDays               Int?
+  canRegisterHbxSellers                   Boolean  @default(false)
+  sellerReferralCommissionPercent         Float    @default(0)
+  referredByCommissionPercentSnapshot     Float    @default(0)
+  legacySellerDistributionDailyLimitOverride Int?
+  enrichmentDailyMode                     String   @default("inherit")
+  enrichmentDailyLimit                    Int?
+  cardDeliveryDailyMode                   String   @default("inherit")
+  cardDeliveryDailyLimit                  Int?
+  activeCardsMode                         String   @default("inherit")
+  activeCardsLimit                        Int?
+  monthlyCardsMode                        String   @default("inherit")
+  monthlyCardsLimit                       Int?
+  vendasPullQuantityMode                  String   @default("inherit")
+  vendasPullQuantityLimit                 Int?
+  allowedSegmentsJson                     String?
+  blockedSegmentsJson                     String?
+  allowedCitiesJson                       String?
+  allowedStatesJson                       String?
+  requiresLocation                        Boolean?
+  requiredChannelsJson                    String?
+  visibilityJson                          String?
+  createdAt                               DateTime @default(now())
+  updatedAt                               DateTime @updatedAt
+
+  @@index([companyId, status])
+  @@index([presetId])
+  @@index([referredByUserId])
+  @@index([subjectKind, status])
 }
 
 model HbxPartnerReferralCandidate {

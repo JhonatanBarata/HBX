@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreatePlanDto } from './dto/create-plan.dto';
 import { CreateFeatureDto } from './dto/create-feature.dto';
 import structuralDefaults from '../bootstrap/structural-defaults.json';
+import { ensureUserTeamPolicyForUser } from '../team/team-policy-persistence';
 
 type StructuralPlanDef = {
   name: string;
@@ -116,6 +117,7 @@ export class PlansService {
     // create admin user
     const hashed = await (await import('bcryptjs')).hash(input.adminPassword, 10);
     const user = await this.prisma.user.create({ data: { email: input.adminEmail, password: hashed, name: input.adminName || 'Admin', companyId: company.id, role: 'ADMIN' } });
+    await ensureUserTeamPolicyForUser(this.prisma, user.id, { source: 'plans_full_seed' });
 
     return { user: { id: user.id, email: user.email, name: user.name }, company: { id: company.id, name: company.name }, plan: { id: plan?.id, name: plan?.name } };
   }

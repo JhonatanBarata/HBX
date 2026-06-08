@@ -9,10 +9,13 @@ import HbxMobileDock from "@/components/mobile/HbxMobileDock";
 import HbxMobileEmptyState from "@/components/mobile/HbxMobileEmptyState";
 import HbxPulseSummaryCard from "@/components/HbxPulseSummaryCard";
 import { HbxEmptyState, HbxSection, HbxStatusBadge } from "@/components/ui";
+import ApplyPolicyToUsersModal from "./_components/ApplyPolicyToUsersModal";
 import CommissionSummaryPanel from "./_components/CommissionSummaryPanel";
 import PartnerOnboardingPanel from "./_components/PartnerOnboardingPanel";
 import ReferralCandidatesPanel from "./_components/ReferralCandidatesPanel";
 import TeamListPanel from "./_components/TeamListPanel";
+import TeamPolicyModal from "./_components/TeamPolicyModal";
+import type { TeamPolicy, TeamPolicyPatch } from "./_components/types";
 import { apiFetch, getDashboardApiBaseUrl, getToken } from "@/app/_lib/api";
 import { startSmartPolling } from "@/app/_lib/polling";
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
@@ -383,6 +386,7 @@ type ModulePermission = { key: string; allowed: boolean };
 type CompanyModule = { key: string; name: string; companyEnabled: boolean };
 type CompanyUserAccess = { id: number; modules: ModulePermission[] };
 type CompanyAccessPayload = { modules: CompanyModule[]; users: CompanyUserAccess[] };
+type TeamPolicyListPayload = { items: TeamPolicy[]; total: number };
 
 type CreatedPasswordInfo = {
   userLabel: string;
@@ -815,6 +819,14 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   const [actionInfo, setActionInfo] = useState<string | null>(null);
   const [togglingMessageId, setTogglingMessageId] = useState<number | null>(null);
   const [moduleAccess, setModuleAccess] = useState<CompanyAccessPayload | null>(null);
+  const [teamPolicies, setTeamPolicies] = useState<TeamPolicy[]>([]);
+  const [policyModalUserId, setPolicyModalUserId] = useState<number | null>(null);
+  const [loadingPolicyUserId, setLoadingPolicyUserId] = useState<number | null>(null);
+  const [savingPolicyUserId, setSavingPolicyUserId] = useState<number | null>(null);
+  const [batchPolicyOpen, setBatchPolicyOpen] = useState(false);
+  const [batchPolicySource, setBatchPolicySource] = useState<TeamPolicy | null>(null);
+  const [batchPolicyPatch, setBatchPolicyPatch] = useState<TeamPolicyPatch | null>(null);
+  const [applyingBatchPolicy, setApplyingBatchPolicy] = useState(false);
   const [referralCandidates, setReferralCandidates] = useState<HbxPartnerReferralCandidate[]>([]);
   const [reviewingCandidateId, setReviewingCandidateId] = useState<string | null>(null);
   const [createAccessOpen, setCreateAccessOpen] = useState(false);
@@ -869,14 +881,15 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   const onboardingNoticeSellerEmail = String(searchParams.get("sellerEmail") || "").trim().toLowerCase();
   const onboardingNoticeSellerId = Number(searchParams.get("sellerId") || 0) || 0;
 
-  usePopupTopbarLock(createAccessOpen);
+  usePopupTopbarLock(createAccessOpen || Boolean(policyModalUserId) || batchPolicyOpen);
 
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [payload, access] = await Promise.all([
+      const [payload, access, policiesPayload] = await Promise.all([
         apiFetch<GerencialOverview>("/gerencial/overview"),
         apiFetch<CompanyAccessPayload>("/modules/company/access"),
+        apiFetch<TeamPolicyListPayload>("/team/policies").catch(() => ({ items: [], total: 0 })),
       ]);
       const referralCandidatesPayload = await loadReferralCandidatesIfHbxNetwork(payload);
       if (payload.company?.isHbxSellerNetwork) {
@@ -892,6 +905,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         users: stableUserOrder(prev?.users, payload.users || []),
       }));
       setModuleAccess(access);
+      setTeamPolicies(Array.isArray(policiesPayload.items) ? policiesPayload.items : []);
       setReferralCandidates(referralCandidatesPayload);
       setPulseRefreshKey((current) => current + 1);
     } catch (loadError) {
@@ -1966,6 +1980,196 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
       setError(friendlyGerencialError(saveError, "Falha ao atualizar módulos do usuário."));
     } finally {
       setSavingModuleUserId(null);
+    }
+  }
+
+  function teamPolicyLegacyEnrichmentOverride(policy: TeamPolicy) {
+    const limit = policy.limits.enrichmentDaily;
+    if (limit.mode === "unlimited" || limit.mode === "blocked") return 0;
+    if (limit.mode === "limited") return limit.value ?? null;
+    return null;
+  }
+
+  function buildPatchFromTeamPolicy(policy: TeamPolicy): TeamPolicyPatch {
+    return {
+      modules: policy.modules.map((moduleItem) => ({
+        key: moduleItem.key,
+        allowed: Boolean(moduleItem.allowed),
+      })),
+      compensation: {
+        commissionPercent: policy.compensation.commissionPercent,
+        commissionDueBusinessDays: policy.compensation.commissionDueBusinessDays,
+      },
+      hbxNetwork: {
+        canRegisterHbxSellers: policy.hbxNetwork.canRegisterHbxSellers,
+        sellerReferralCommissionPercent: policy.hbxNetwork.sellerReferralCommissionPercent,
+        referredByUserId: policy.hbxNetwork.referredByUserId,
+        referredByCommissionPercentSnapshot: policy.hbxNetwork.referredByCommissionPercentSnapshot,
+      },
+      limits: Object.fromEntries(
+        Object.entries(policy.limits).map(([key, limit]) => [
+          key,
+          {
+            mode: limit.mode,
+            value: limit.mode === "unlimited" ? "unlimited" : limit.value,
+          },
+        ]),
+      ) as TeamPolicyPatch["limits"],
+      radar: {
+        allowedSegments: policy.radar.allowedSegments,
+        blockedSegments: policy.radar.blockedSegments,
+        allowedCities: policy.radar.allowedCities,
+        allowedStates: policy.radar.allowedStates,
+        requiresLocation: policy.radar.requiresLocation,
+        requiredChannels: policy.radar.requiredChannels,
+      },
+    };
+  }
+
+  function applyTeamPolicyToLocalState(policy: TeamPolicy) {
+    setTeamPolicies((prev) => {
+      const exists = prev.some((item) => item.subject.id === policy.subject.id);
+      if (exists) {
+        return prev.map((item) => (item.subject.id === policy.subject.id ? policy : item));
+      }
+      return [...prev, policy];
+    });
+
+    setModuleAccess((prev) => {
+      if (!prev) return prev;
+      const nextModules = policy.modules.map((moduleItem) => ({
+        key: moduleItem.key,
+        allowed: Boolean(moduleItem.allowed),
+      }));
+      return {
+        ...prev,
+        users: prev.users.map((item) =>
+          item.id === policy.subject.id ? { ...item, modules: nextModules } : item,
+        ),
+      };
+    });
+
+    setData((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        users: prev.users.map((item) =>
+          item.id === policy.subject.id
+            ? {
+                ...item,
+                commissionPercent: policy.compensation.commissionPercent,
+                canRegisterHbxSellers: policy.hbxNetwork.canRegisterHbxSellers,
+                sellerReferralCommissionPercent: policy.hbxNetwork.sellerReferralCommissionPercent,
+                referredByUserId: policy.hbxNetwork.referredByUserId,
+                referredByCommissionPercentSnapshot: policy.hbxNetwork.referredByCommissionPercentSnapshot,
+                referredByUser: policy.hbxNetwork.referredByUser,
+                sellerDistributionDailyLimitOverride: teamPolicyLegacyEnrichmentOverride(policy),
+              }
+            : item,
+        ),
+      };
+    });
+  }
+
+  async function loadTeamPolicyForUser(userId: number) {
+    setLoadingPolicyUserId(userId);
+    setError(null);
+    try {
+      const policy = await apiFetch<TeamPolicy>(`/team/policy/${userId}`);
+      applyTeamPolicyToLocalState(policy);
+      return policy;
+    } catch (policyError) {
+      setError(friendlyGerencialError(policyError, "Falha ao carregar política do usuário."));
+      return null;
+    } finally {
+      setLoadingPolicyUserId(null);
+    }
+  }
+
+  async function openTeamPolicy(user: UserItem) {
+    setPolicyModalUserId(user.id);
+    await loadTeamPolicyForUser(user.id);
+  }
+
+  async function saveTeamPolicy(userId: number, patch: TeamPolicyPatch) {
+    setSavingPolicyUserId(userId);
+    setError(null);
+    try {
+      const policy = await apiFetch<TeamPolicy>(`/team/policy/${userId}`, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      });
+      applyTeamPolicyToLocalState(policy);
+      setActionInfo(`Política de ${userLabel(policy.subject)} atualizada.`);
+    } catch (policyError) {
+      setError(friendlyGerencialError(policyError, "Falha ao salvar política do usuário."));
+    } finally {
+      setSavingPolicyUserId(null);
+    }
+  }
+
+  async function openBatchPolicyFromList() {
+    const sourceUser = (data?.users || []).find((user) => {
+      const role = normalizeRole(user.role, user.isSystemMaster);
+      return role !== "USERMASTER" && !user.isSystemMaster;
+    });
+    if (!sourceUser) {
+      setError("Nenhum usuário elegível para usar como fonte de política.");
+      return;
+    }
+    const policy = teamPolicies.find((item) => item.subject.id === sourceUser.id) || await loadTeamPolicyForUser(sourceUser.id);
+    if (!policy) return;
+    setBatchPolicySource(policy);
+    setBatchPolicyPatch(buildPatchFromTeamPolicy(policy));
+    setBatchPolicyOpen(true);
+  }
+
+  function openBatchPolicyFromModal(sourcePolicy: TeamPolicy, patch: TeamPolicyPatch) {
+    setBatchPolicySource(sourcePolicy);
+    setBatchPolicyPatch(patch);
+    setBatchPolicyOpen(true);
+  }
+
+  async function applyPolicyToUsers(targetUserIds: number[], patch: TeamPolicyPatch) {
+    const uniqueTargetIds = Array.from(new Set(targetUserIds)).filter((userId) => {
+      const user = data?.users.find((item) => item.id === userId);
+      const role = normalizeRole(user?.role, user?.isSystemMaster);
+      return user && role !== "USERMASTER" && !user.isSystemMaster;
+    });
+    if (!uniqueTargetIds.length) {
+      setError("Selecione ao menos um usuário que não seja USERMASTER.");
+      return;
+    }
+
+    setApplyingBatchPolicy(true);
+    setError(null);
+    const failures: string[] = [];
+    let applied = 0;
+    try {
+      for (const userId of uniqueTargetIds) {
+        try {
+          const policy = await apiFetch<TeamPolicy>(`/team/policy/${userId}`, {
+            method: "PATCH",
+            body: JSON.stringify(patch),
+          });
+          applyTeamPolicyToLocalState(policy);
+          applied += 1;
+        } catch (applyError) {
+          const label = userLabel(data?.users.find((item) => item.id === userId) || { id: userId });
+          failures.push(`${label}: ${friendlyGerencialError(applyError, "falha ao aplicar")}`);
+        }
+      }
+
+      if (applied > 0) {
+        setActionInfo(`Política aplicada em ${applied} usuário(s).`);
+      }
+      if (failures.length) {
+        setError(`Algumas políticas não foram aplicadas: ${failures.slice(0, 3).join(" | ")}`);
+      } else {
+        setBatchPolicyOpen(false);
+      }
+    } finally {
+      setApplyingBatchPolicy(false);
     }
   }
 

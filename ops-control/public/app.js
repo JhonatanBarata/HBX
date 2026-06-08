@@ -22,6 +22,7 @@ let containerSort = { key: 'memUsage', direction: 'desc' };
 let filters = { search: '', status: 'all', group: 'all' };
 let activeRadarEnv = 'vps';
 let latestRadarDiagnostic = null;
+let latestBackendConfig = null;
 
 function setStatus(message) {
   statusText.textContent = message || '';
@@ -282,7 +283,7 @@ function setOpsActionStatus(message, tone = 'idle') {
 
 async function runOpsControlAction(action, fixedScope) {
   const scope = fixedScope || document.getElementById('opsScopeSelect')?.value || 'both';
-  const requiredChannel = document.getElementById('opsChannelSelect')?.value || 'email';
+  const requiredChannel = document.getElementById('opsChannelSelect')?.value || '';
   const actionLabel = {
     turbo: 'Turbo',
     'force-filter': 'Filtro forcado',
@@ -296,13 +297,25 @@ async function runOpsControlAction(action, fixedScope) {
 
   if (!endpoint) return;
   if (action === 'cancel' && !confirm('Cancelar o scraping forcado no alvo selecionado?')) return;
+  if (action === 'force-filter' && !requiredChannel) {
+    setOpsActionStatus('Escolha um filtro obrigatorio antes de usar Forcar filtro.', 'warn');
+    return;
+  }
+  const preflight = backendConfigPreflight(scope, action);
+  if (!preflight.ok) {
+    setOpsActionStatus(preflight.message, 'warn');
+    setStatus(preflight.message);
+    return;
+  }
 
   setOpsActionStatus(`${actionLabel}: enviando para ${scopeLabel(scope)}...`, 'busy');
   const body = action === 'force-filter'
     ? { scope, requiredChannel }
     : action === 'cancel'
       ? { scope, seconds: 90, force: false }
-      : { scope };
+      : requiredChannel
+        ? { scope, requiredChannel }
+        : { scope };
   const result = await api(endpoint, {
     method: 'POST',
     body: JSON.stringify(body),
@@ -354,6 +367,76 @@ function summarizeOpsActionResult(actionLabel, result) {
   };
 }
 
+function backendConfigPreflight(scope, action) {
+  if (action === 'cancel') return { ok: true, message: '' };
+  const config = latestBackendConfig;
+  if (!config) return { ok: true, message: '' };
+  if (scope === 'both' && !config.bothReady) {
+    return {
+      ok: false,
+      message: `Backends nao configurados para Local + VPS. Configure: ${backendMissingVariables(config).join(', ')}.`,
+    };
+  }
+  const env = scope === 'vps' ? config.vps : scope === 'local' ? config.localhost : null;
+  if (env && !env.effectiveSingleReady) {
+    return {
+      ok: false,
+      message: `${scopeLabel(scope)} sem backend configurado. Configure ${env.missingSpecific?.join(', ')} ou OPS_CONTROL_BACKEND_URL com token/login.`,
+    };
+  }
+  return { ok: true, message: '' };
+}
+
+function backendMissingVariables(config) {
+  return [
+    ...(config?.localhost?.missingSpecific || []),
+    ...(config?.vps?.missingSpecific || []),
+  ];
+}
+
+function renderBackendConfigPanel(config = {}) {
+  latestBackendConfig = config;
+  const panel = document.getElementById('backendConfigPanel');
+  if (!panel) return;
+  const localReady = Boolean(config.localhost?.specificReady);
+  const vpsReady = Boolean(config.vps?.specificReady);
+  const bothReady = Boolean(config.bothReady);
+  const missing = backendMissingVariables(config);
+  panel.className = `backend-config-panel ${bothReady ? 'backend-config-panel--ok' : 'backend-config-panel--warn'}`;
+  panel.innerHTML = `
+    <strong>${bothReady ? 'Backends Local/VPS prontos' : 'Backends Local/VPS incompletos'}</strong>
+    <span>${escapeHtml(config.message || 'Configure backends por ambiente para comandos em ambos.')}</span>
+    <div class="backend-config-grid">
+      ${renderBackendConfigChip('LOCAL', config.localhost, localReady)}
+      ${renderBackendConfigChip('VPS', config.vps, vpsReady)}
+    </div>
+    ${missing.length ? `<small>Faltando para Local + VPS: ${escapeHtml(missing.join(', '))}</small>` : ''}
+  `;
+}
+
+function renderBackendConfigChip(label, item = {}, ready) {
+  const authMode = item.authMode === 'auto'
+    ? 'sessao operacional'
+    : item.authMode === 'login'
+      ? 'login Master'
+      : item.authMode === 'jwt'
+        ? 'JWT'
+        : 'sem autenticacao';
+  const fallbackMode = item.fallbackAuthMode === 'auto'
+    ? 'fallback sessao operacional'
+    : item.fallbackAuthMode === 'login'
+      ? 'fallback login'
+      : item.fallbackAuthMode === 'jwt'
+        ? 'fallback JWT'
+        : 'sem fallback';
+  return `
+    <span class="backend-config-chip" data-ready="${ready ? 'true' : 'false'}">
+      <b>${escapeHtml(label)}</b>
+      ${ready ? `ok - ${escapeHtml(authMode)} ${item.urlHost ? `- ${escapeHtml(item.urlHost)}` : ''}` : escapeHtml((item.missingSpecific || []).join(' + ') || fallbackMode)}
+    </span>
+  `;
+}
+
 function setRadarCockpitLoading() {
   document.getElementById('radarCockpitDecision').textContent = 'Coletando localhost e VPS...';
   document.getElementById('radarCockpitMeta').textContent = 'Consultando Docker, banco, campanhas, tarefas e logs.';
@@ -373,6 +456,7 @@ function setRadarCockpitLoading() {
 
 function renderRadarCockpit(data) {
   latestRadarDiagnostic = data;
+  renderBackendConfigPanel(data.backendConfig || {});
   const local = data.environments?.localhost || {};
   const vps = data.environments?.vps || {};
   renderCockpitEnvironment('local', local);

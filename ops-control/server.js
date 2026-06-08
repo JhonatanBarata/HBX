@@ -15,6 +15,7 @@ const safeNamePattern = /^[a-zA-Z0-9_.-]+$/;
 const dockerActions = new Set(['start', 'stop', 'restart', 'kill']);
 const opsScopes = new Set(['local', 'vps', 'both']);
 const radarChannels = new Set(['email', 'whatsapp', 'instagram', 'website', 'phone', 'facebook']);
+const backendLoginCache = new Map();
 
 const sshConfig = {
   host: process.env.OPS_CONTROL_SSH_HOST,
@@ -198,23 +199,99 @@ function normalizeRequiredChannel(value) {
   return channel;
 }
 
+function isEnabled(value) {
+  return ['1', 'true', 'yes', 'sim', 'on', 'auto'].includes(String(value || '').trim().toLowerCase());
+}
+
 function backendConfigForEnvironment(environment, scope) {
   const isVps = environment === 'vps';
   const prefix = isVps ? 'VPS' : 'LOCAL';
   const specificUrl = process.env[`OPS_CONTROL_${prefix}_BACKEND_URL`] || '';
   const specificToken = process.env[`OPS_CONTROL_${prefix}_BACKEND_TOKEN`] || '';
+  const specificUsername = process.env[`OPS_CONTROL_${prefix}_BACKEND_USERNAME`] || '';
+  const specificPassword = process.env[`OPS_CONTROL_${prefix}_BACKEND_PASSWORD`] || '';
+  const specificAutoSession = isEnabled(process.env[`OPS_CONTROL_${prefix}_BACKEND_AUTO_SESSION`]);
+  const specificContainer = process.env[`OPS_CONTROL_${prefix}_BACKEND_CONTAINER`] || (isVps ? 'hbx-backend' : 'backend');
   const commonUrl = process.env.OPS_CONTROL_BACKEND_URL || '';
   const commonToken = process.env.OPS_CONTROL_BACKEND_TOKEN || '';
+  const commonUsername = process.env.OPS_CONTROL_BACKEND_USERNAME || '';
+  const commonPassword = process.env.OPS_CONTROL_BACKEND_PASSWORD || '';
+  const commonAutoSession = isEnabled(process.env.OPS_CONTROL_BACKEND_AUTO_SESSION);
+  const commonContainer = process.env.OPS_CONTROL_BACKEND_CONTAINER || specificContainer;
   const allowCommonFallback = scope !== 'both';
   const baseUrl = specificUrl || (allowCommonFallback ? commonUrl : '');
   const authToken = specificToken || (allowCommonFallback ? commonToken : '');
+  const username = specificUsername || (allowCommonFallback ? commonUsername : '');
+  const password = specificPassword || (allowCommonFallback ? commonPassword : '');
+  const autoSession = specificAutoSession || (allowCommonFallback ? commonAutoSession : false);
+  const container = specificContainer || (allowCommonFallback ? commonContainer : '');
 
   return {
     baseUrl,
     authToken,
+    username,
+    password,
+    autoSession,
+    container,
     missingReason: allowCommonFallback
-      ? `Configure OPS_CONTROL_${prefix}_BACKEND_URL e OPS_CONTROL_${prefix}_BACKEND_TOKEN, ou OPS_CONTROL_BACKEND_URL e OPS_CONTROL_BACKEND_TOKEN.`
-      : `Para acionar ambos sem duplicar o mesmo backend, configure OPS_CONTROL_LOCAL_BACKEND_URL/TOKEN e OPS_CONTROL_VPS_BACKEND_URL/TOKEN.`,
+      ? `Configure OPS_CONTROL_${prefix}_BACKEND_URL e token, login Master ou sessao operacional automatica, ou use o fallback OPS_CONTROL_BACKEND_URL.`
+      : `Para acionar ambos sem duplicar o mesmo backend, configure OPS_CONTROL_LOCAL_BACKEND_URL e OPS_CONTROL_VPS_BACKEND_URL com token, login Master ou sessao operacional automatica.`,
+  };
+}
+
+function backendConfigStatusForEnvironment(environment) {
+  const isVps = environment === 'vps';
+  const prefix = isVps ? 'VPS' : 'LOCAL';
+  const specificUrl = String(process.env[`OPS_CONTROL_${prefix}_BACKEND_URL`] || '').trim();
+  const specificToken = String(process.env[`OPS_CONTROL_${prefix}_BACKEND_TOKEN`] || '').trim();
+  const specificUsername = String(process.env[`OPS_CONTROL_${prefix}_BACKEND_USERNAME`] || '').trim();
+  const specificPassword = String(process.env[`OPS_CONTROL_${prefix}_BACKEND_PASSWORD`] || '').trim();
+  const specificAutoSession = isEnabled(process.env[`OPS_CONTROL_${prefix}_BACKEND_AUTO_SESSION`]);
+  const commonUrl = String(process.env.OPS_CONTROL_BACKEND_URL || '').trim();
+  const commonToken = String(process.env.OPS_CONTROL_BACKEND_TOKEN || '').trim();
+  const commonUsername = String(process.env.OPS_CONTROL_BACKEND_USERNAME || '').trim();
+  const commonPassword = String(process.env.OPS_CONTROL_BACKEND_PASSWORD || '').trim();
+  const commonAutoSession = isEnabled(process.env.OPS_CONTROL_BACKEND_AUTO_SESSION);
+  const specificLoginReady = Boolean(specificUsername && specificPassword);
+  const specificAuthReady = Boolean(specificToken || specificLoginReady || specificAutoSession);
+  const commonLoginReady = Boolean(commonUsername && commonPassword);
+  const commonAuthReady = Boolean(commonToken || commonLoginReady || commonAutoSession);
+  const missingSpecific = [];
+  if (!specificUrl) missingSpecific.push(`OPS_CONTROL_${prefix}_BACKEND_URL`);
+  if (!specificAuthReady) missingSpecific.push(`OPS_CONTROL_${prefix}_BACKEND_TOKEN ou OPS_CONTROL_${prefix}_BACKEND_USERNAME/PASSWORD ou OPS_CONTROL_${prefix}_BACKEND_AUTO_SESSION=true`);
+  return {
+    environment,
+    label: environmentLabel(environment),
+    specificReady: Boolean(specificUrl && specificAuthReady),
+    commonFallbackReady: Boolean(commonUrl && commonAuthReady),
+    effectiveSingleReady: Boolean((specificUrl && specificAuthReady) || (commonUrl && commonAuthReady)),
+    missingSpecific,
+    urlHost: specificUrl ? redactBackendUrl(specificUrl) : null,
+    authMode: specificToken ? 'jwt' : specificLoginReady ? 'login' : specificAutoSession ? 'auto' : null,
+    fallbackAuthMode: commonToken ? 'jwt' : commonLoginReady ? 'login' : commonAutoSession ? 'auto' : null,
+  };
+}
+
+function redactBackendUrl(value) {
+  try {
+    const url = new URL(value);
+    return `${url.protocol}//${url.host}`;
+  } catch {
+    return String(value || '').replace(/([?&](?:token|password|secret)=)[^&]+/gi, '$1[redacted]');
+  }
+}
+
+function buildBackendConfigStatus() {
+  const localhost = backendConfigStatusForEnvironment('localhost');
+  const vps = backendConfigStatusForEnvironment('vps');
+  return {
+    localhost,
+    vps,
+    bothReady: Boolean(localhost.specificReady && vps.specificReady),
+    singleFallbackReady: Boolean(localhost.commonFallbackReady || vps.commonFallbackReady),
+    message: localhost.specificReady && vps.specificReady
+      ? 'Backends Local e VPS configurados para comandos em ambos.'
+      : 'Para Turbo ambos/Forcar filtro em Local + VPS, configure URL e JWT, login Master ou sessao operacional automatica especificos de LOCAL e VPS.',
   };
 }
 
@@ -237,9 +314,164 @@ function redactSensitive(value) {
   }));
 }
 
+function backendHasAuth(config) {
+  return Boolean(config.authToken || (config.username && config.password) || config.autoSession);
+}
+
+function backendLoginCacheKey(environment, config) {
+  const authKind = config.authToken ? 'jwt' : config.username ? 'login' : config.autoSession ? 'auto' : 'none';
+  return `${environment}:${String(config.baseUrl || '').trim()}:${authKind}:${String(config.username || '').trim()}:${String(config.container || '').trim()}`;
+}
+
+async function loginBackendWithCredentials(config) {
+  const response = await fetch(joinUrl(config.baseUrl, '/auth/login'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      username: config.username,
+      password: config.password,
+      forceSession: true,
+    }),
+    signal: timeoutSignal(30000),
+  });
+  const text = await response.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = null;
+  }
+  if (!response.ok || !data?.access_token) {
+    throw new Error(`Login Master do backend falhou (${response.status}).`);
+  }
+
+  return data.access_token;
+}
+
+function buildBackendAutoSessionScript() {
+  return `
+const { PrismaClient } = require('@prisma/client');
+const jwt = require('jsonwebtoken');
+const prisma = new PrismaClient();
+
+(async () => {
+  const secret = String(process.env.JWT_SECRET || '').trim();
+  if (!secret) throw new Error('JWT_SECRET ausente');
+  const now = new Date();
+  const expiresAt = new Date(Date.now() + 4 * 60 * 60 * 1000);
+
+  const master = await prisma.user.findFirst({
+    where: { isSystemMaster: true, isActive: true },
+    orderBy: { id: 'asc' },
+    select: { id: true },
+  });
+  if (!master) throw new Error('Usuario Master ativo nao encontrado');
+
+  const sessionContext = await prisma.$transaction(async (tx) => {
+    await tx.authSession.updateMany({
+      where: { userId: master.id, revokedAt: null },
+      data: { revokedAt: now, revokedReason: 'replaced_by_ops_control' },
+    });
+    const user = await tx.user.update({
+      where: { id: master.id },
+      data: { currentSessionId: null, sessionVersion: { increment: 1 } },
+      select: { id: true, email: true, companyId: true, sessionVersion: true },
+    });
+    const session = await tx.authSession.create({
+      data: {
+        userId: user.id,
+        lastSeenAt: now,
+        expiresAt,
+        userAgent: 'hbx-ops-control',
+        ipHash: null,
+      },
+      select: { id: true },
+    });
+    await tx.user.update({
+      where: { id: user.id },
+      data: { currentSessionId: session.id },
+    });
+    return { user, sessionId: session.id };
+  });
+
+  const token = jwt.sign({
+    sub: sessionContext.user.id,
+    email: sessionContext.user.email,
+    companyId: sessionContext.user.companyId || undefined,
+    sid: sessionContext.sessionId,
+    sv: sessionContext.user.sessionVersion,
+  }, secret, { expiresIn: '4h' });
+
+  console.log(token);
+})().catch((error) => {
+  console.error('ops_control_session_error:' + (error && error.message ? error.message : String(error)));
+  process.exit(1);
+}).finally(async () => {
+  await prisma.$disconnect().catch(() => {});
+});
+`;
+}
+
+async function mintBackendSessionForEnvironment(environment, config) {
+  const container = String(config.container || (environment === 'vps' ? 'hbx-backend' : 'backend')).trim();
+  if (!container) throw new Error('Container backend nao configurado para sessao operacional.');
+  const script = buildBackendAutoSessionScript();
+  const command = `docker exec ${shellQuote(container)} node -e ${shellQuote(script)}`;
+  const result = environment === 'vps'
+    ? await runSshCommand(command, { timeout: 60000, maxBuffer: 1024 * 1024 })
+    : await runLocal('docker', ['exec', container, 'node', '-e', script], { timeout: 60000, maxBuffer: 1024 * 1024 });
+  const tokenLine = String(result.stdout || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean).pop();
+  if (!result.ok || !tokenLine) {
+    throw new Error(`Sessao operacional do backend falhou: ${result.stderr || 'sem token retornado'}`);
+  }
+  return tokenLine;
+}
+
+async function resolveBackendAuthToken(environment, config, force = false) {
+  if (config.authToken) return config.authToken;
+
+  const cacheKey = backendLoginCacheKey(environment, config);
+  const cached = backendLoginCache.get(cacheKey);
+  if (!force && cached?.token && cached.expiresAt > Date.now()) return cached.token;
+
+  const token = config.username && config.password
+    ? await loginBackendWithCredentials(config)
+    : config.autoSession
+      ? await mintBackendSessionForEnvironment(environment, config)
+      : null;
+
+  if (!token) throw new Error('Autenticacao do backend nao configurada.');
+  backendLoginCache.set(cacheKey, {
+    token,
+    expiresAt: Date.now() + 60 * 1000,
+  });
+  return token;
+}
+
+async function fetchBackendWithAuth(environment, config, method, route, payload, forceLogin = false) {
+  const authToken = await resolveBackendAuthToken(environment, config, forceLogin);
+  const response = await fetch(joinUrl(config.baseUrl, route), {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${authToken}`,
+    },
+    body: payload ? JSON.stringify(payload) : undefined,
+    signal: timeoutSignal(30000),
+  });
+  const text = await response.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch (error) {
+    data = text ? { message: text.slice(0, 1000) } : null;
+  }
+  return { response, data };
+}
+
 async function callBackendForEnvironment(environment, scope, method, route, payload) {
   const config = backendConfigForEnvironment(environment, scope);
-  if (!config.baseUrl || !config.authToken) {
+  if (!config.baseUrl || !backendHasAuth(config)) {
     return {
       environment,
       label: environmentLabel(environment),
@@ -250,28 +482,17 @@ async function callBackendForEnvironment(environment, scope, method, route, payl
   }
 
   try {
-    const response = await fetch(joinUrl(config.baseUrl, route), {
-      method,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${config.authToken}`,
-      },
-      body: payload ? JSON.stringify(payload) : undefined,
-      signal: timeoutSignal(30000),
-    });
-    const text = await response.text();
-    let data = null;
-    try {
-      data = text ? JSON.parse(text) : null;
-    } catch (error) {
-      data = text ? { message: text.slice(0, 1000) } : null;
+    let result = await fetchBackendWithAuth(environment, config, method, route, payload);
+    if (!config.authToken && result.response.status === 401) {
+      backendLoginCache.delete(backendLoginCacheKey(environment, config));
+      result = await fetchBackendWithAuth(environment, config, method, route, payload, true);
     }
     return {
       environment,
       label: environmentLabel(environment),
-      ok: response.ok,
-      statusCode: response.status,
-      data: redactSensitive(data),
+      ok: result.response.ok,
+      statusCode: result.response.status,
+      data: redactSensitive(result.data),
     };
   } catch (error) {
     return {
@@ -1345,6 +1566,7 @@ async function collectRadarCockpit() {
       localhost,
       vps,
     },
+    backendConfig: buildBackendConfigStatus(),
     coordination: buildRadarCoordination({ localhost, vps }),
   };
 }
@@ -1452,16 +1674,28 @@ app.get('/api/radar-audit/:environment', async (req, res) => {
 app.post('/api/opscontrol/turbo', async (req, res) => {
   try {
     const scope = normalizeOpsScope(req.body?.scope);
+    const requiredChannel = req.body?.requiredChannel ? normalizeRequiredChannel(req.body.requiredChannel) : null;
+    const channelFilterPayload = requiredChannel
+      ? {
+          requiredChannels: [requiredChannel],
+          channelMatchMode: 'all_required',
+          freshness: 'live',
+        }
+      : {};
     const result = await runScopedBackendAction(
       scope,
       'POST',
       '/modules/master/webscraping/turbo-noturno/force-now',
-      () => buildTurboPayload(),
+      () => buildTurboPayload(channelFilterPayload),
       { coordinateBoth: true, reason: 'turbo' },
     );
     res.json({
       action: 'turbo',
-      message: 'Turbo solicitado no backend configurado.',
+      message: requiredChannel
+        ? 'Turbo com filtro solicitado no backend configurado.'
+        : 'Turbo solicitado no backend configurado.',
+      requestedFilter: requiredChannel ? channelFilterPayload : null,
+      filterForwarded: Boolean(requiredChannel),
       ...result,
     });
   } catch (error) {

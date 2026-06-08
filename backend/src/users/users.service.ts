@@ -3,6 +3,7 @@ import { unlink } from 'fs/promises';
 import { PrismaService } from '../prisma/prisma.service';
 import type { User } from '@prisma/client';
 import { isBillableUserSeatSnapshot, isMasterOperationalCompanySlug } from '../commercial-plans/seat-billing.util';
+import { ensureUserTeamPolicyForUser } from '../team/team-policy-persistence';
 
 @Injectable()
 export class UsersService {
@@ -444,6 +445,7 @@ export class UsersService {
     isActive?: boolean;
   }): Promise<User> {
     const created = await this.prisma.user.create({ data });
+    await ensureUserTeamPolicyForUser(this.prisma, created.id, { source: 'user_create' });
     if (isBillableUserSeatSnapshot(created)) {
       await this.openBillableSeatUsage({
         companyId: created.companyId,
@@ -662,6 +664,7 @@ export class UsersService {
         });
       }
     }
+    await ensureUserTeamPolicyForUser(this.prisma, updated.id, { source: 'user_update' });
     return updated;
   }
 
@@ -700,7 +703,9 @@ export class UsersService {
   }
 
   async updateRole(userId: number, role: 'USER' | 'ADMIN'): Promise<User> {
-    return this.prisma.user.update({ where: { id: userId }, data: { role } });
+    const updated = await this.prisma.user.update({ where: { id: userId }, data: { role } });
+    await ensureUserTeamPolicyForUser(this.prisma, updated.id, { source: 'user_role_update' });
+    return updated;
   }
 
   async deactivateUser(userId: number, retentionDays = 730): Promise<User> {
@@ -741,6 +746,7 @@ export class UsersService {
         source: 'user_deactivate',
       });
     }
+    await ensureUserTeamPolicyForUser(this.prisma, updated.id, { source: 'user_deactivate' });
     return updated;
   }
 
@@ -778,6 +784,7 @@ export class UsersService {
         source: 'user_reactivate',
       });
     }
+    await ensureUserTeamPolicyForUser(this.prisma, updated.id, { source: 'user_reactivate' });
     return updated;
   }
 

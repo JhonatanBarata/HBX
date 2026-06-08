@@ -97,6 +97,10 @@ import {
   minutesAgo,
   formatCityWithState,
 } from '../radar-core-method-imports';
+import {
+  TEAM_POLICY_UNLIMITED_LIMIT,
+  resolveTeamPolicyStoredLimit,
+} from '../../../team/team-policy-persistence';
 
 import type {
   AutonomousMassDataCandidate,
@@ -199,7 +203,7 @@ export class RadarCoreDistributionMixin {
   }
 
   private normalizeDailyDistributionLimit(value: unknown, fallback = 20) {
-    return this.normalizeRadarAutoDistributionInt(value, fallback, 0, 500);
+    return this.normalizeRadarAutoDistributionInt(value, fallback, 0, TEAM_POLICY_UNLIMITED_LIMIT);
   }
 
   private isSellerDistributionPaused(seller: any) {
@@ -214,6 +218,12 @@ export class RadarCoreDistributionMixin {
   }
 
   private resolveSellerDistributionDailyLimit(seller: any, fallback: number) {
+    const policyLimit = resolveTeamPolicyStoredLimit(seller?.teamPolicy, 'cardDeliveryDaily');
+    if (policyLimit.applies) {
+      return policyLimit.mode === 'unlimited'
+        ? TEAM_POLICY_UNLIMITED_LIMIT
+        : this.normalizeDailyDistributionLimit(policyLimit.limit, fallback);
+    }
     const rawOverride = seller?.sellerDistributionDailyLimitOverride;
     if (rawOverride === null || rawOverride === undefined) return this.normalizeDailyDistributionLimit(fallback, 20);
     return this.normalizeDailyDistributionLimit(rawOverride, fallback);
@@ -436,6 +446,12 @@ export class RadarCoreDistributionMixin {
         sellerDistributionPausedUntil: true,
         sellerDistributionDailyLimitOverride: true,
         sellerDistributionNote: true,
+        teamPolicy: {
+          select: {
+            cardDeliveryDailyMode: true,
+            cardDeliveryDailyLimit: true,
+          },
+        },
       },
       orderBy: [{ name: 'asc' }, { email: 'asc' }, { id: 'asc' }],
     });
@@ -1132,6 +1148,12 @@ export class RadarCoreDistributionMixin {
       sellerDistributionPausedUntil: true,
       sellerDistributionDailyLimitOverride: true,
       sellerDistributionNote: true,
+      teamPolicy: {
+        select: {
+          cardDeliveryDailyMode: true,
+          cardDeliveryDailyLimit: true,
+        },
+      },
     };
     const sellers = await (this.prisma.user as any).findMany({
       where,

@@ -20,6 +20,7 @@ import {
   CompaniesService,
   MASTER_HARD_DELETE_CONFIRMATION_INVALID_MESSAGE,
 } from './companies.service';
+import { resolveEffectiveCompanyContext } from '../common/effective-company';
 
 class MasterCreateCompanyDto {
   @IsString()
@@ -267,7 +268,21 @@ export class CompaniesController {
 
   private async resolveOperationalContext(req: any, options?: { allowMasterWhatsappEngineFallback?: boolean }) {
     const runtimeContext = await this.masterContextService.resolveRuntimeContext(req.user);
-    const effectiveCompanyId = runtimeContext.effectiveCompanyId || Number(req.user?.companyId || 0) || null;
+    const effectiveCompany = resolveEffectiveCompanyContext(
+      {
+        user: {
+          ...req.user,
+          masterContext: runtimeContext.masterContext,
+        },
+      },
+      {
+        hbxOperationalCompanyId:
+          runtimeContext.masterContext?.mode === 'master_operacional'
+            ? runtimeContext.effectiveCompanyId
+            : null,
+      },
+    );
+    const effectiveCompanyId = effectiveCompany.companyId;
 
     if (!effectiveCompanyId) {
       if (options?.allowMasterWhatsappEngineFallback && req?.user?.isSystemMaster) {
@@ -290,6 +305,7 @@ export class CompaniesController {
       effectiveCompanyId,
       company,
       masterContext: runtimeContext.masterContext,
+      effectiveCompanyMode: effectiveCompany.mode,
     };
   }
 
