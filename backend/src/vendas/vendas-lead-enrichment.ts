@@ -167,11 +167,60 @@ function extractRadarEnrichment(lead: any) {
   return {
     ...direct,
     ...nested,
-    emailStatus: normalizeText(lead?.emailStatus || fromEvent.emailStatus || nested?.signals?.emailStatus || direct?.signals?.emailStatus),
-    recommendedChannel: normalizeText(lead?.recommendedChannel || fromEvent.recommendedChannel || nested?.signals?.recommendedChannel || direct?.signals?.recommendedChannel),
-    painType: normalizeText(lead?.painType || fromEvent.painType || nested?.signals?.painType || direct?.signals?.painType),
-    painPitch: normalizeText(lead?.painPitch || fromEvent.painPitch),
-    opportunityReason: normalizeText(lead?.opportunityReason || fromEvent.opportunityReason),
+    email: normalizeText(
+      lead?.email ||
+      fromEvent.email ||
+      nested?.contact?.email ||
+      direct?.contact?.email ||
+      nested?.emailCandidate ||
+      direct?.emailCandidate ||
+      nested?.signals?.emailCandidate ||
+      direct?.signals?.emailCandidate,
+    ),
+    emailStatus: normalizeText(
+      lead?.emailStatus ||
+      fromEvent.emailStatus ||
+      nested?.contact?.emailStatus ||
+      direct?.contact?.emailStatus ||
+      nested?.signals?.emailStatus ||
+      direct?.signals?.emailStatus,
+    ),
+    emailSource: normalizeText(
+      lead?.emailSource ||
+      fromEvent.emailSource ||
+      nested?.contact?.emailSource ||
+      direct?.contact?.emailSource,
+    ),
+    emailConfidence: Number(
+      lead?.emailConfidence ||
+      fromEvent.emailConfidence ||
+      nested?.contact?.emailConfidence ||
+      direct?.contact?.emailConfidence ||
+      nested?.sourceConfidence?.email ||
+      direct?.sourceConfidence?.email ||
+      0,
+    ) || null,
+    recommendedChannel: normalizeText(
+      lead?.recommendedChannel ||
+      fromEvent.recommendedChannel ||
+      nested?.actionPlan?.recommendedChannel ||
+      direct?.actionPlan?.recommendedChannel ||
+      nested?.signals?.recommendedChannel ||
+      direct?.signals?.recommendedChannel,
+    ),
+    painType: normalizeText(
+      lead?.painType ||
+      fromEvent.painType ||
+      nested?.salesFit?.painType ||
+      direct?.salesFit?.painType ||
+      nested?.signals?.painType ||
+      direct?.signals?.painType,
+    ),
+    painPitch: normalizeText(lead?.painPitch || fromEvent.painPitch || nested?.salesFit?.painPitch || direct?.salesFit?.painPitch),
+    opportunityReason: normalizeText(lead?.opportunityReason || fromEvent.opportunityReason || nested?.actionPlan?.nextStep || direct?.actionPlan?.nextStep),
+    actionPlan: nested?.actionPlan || direct?.actionPlan || null,
+    missingData: arrayOrEmpty(nested?.missingData).concat(arrayOrEmpty(direct?.missingData)),
+    evidenceTimeline: arrayOrEmpty(nested?.evidenceTimeline).concat(arrayOrEmpty(direct?.evidenceTimeline)),
     instagramUrl: normalizeUrl(lead?.instagramUrl || fromEvent.instagramUrl || nested?.instagramUrl || direct?.instagramUrl || nested?.signals?.instagramUrl || direct?.signals?.instagramUrl),
     facebookUrl: normalizeUrl(lead?.facebookUrl || fromEvent.facebookUrl || nested?.facebookUrl || direct?.facebookUrl || nested?.signals?.facebookUrl || direct?.signals?.facebookUrl),
     socialStatus: normalizeText(lead?.socialStatus || fromEvent.socialStatus || nested?.socialStatus || direct?.socialStatus || nested?.signals?.socialStatus || direct?.signals?.socialStatus),
@@ -268,7 +317,7 @@ export function buildVendasLeadIntelligence(input: VendasLeadIntelligenceInput) 
         : normalizeText(lead?.phone || lead?.phoneNormalized).replace(/\D/g, '').length < 10
           ? 'invalid'
           : 'unverified';
-  const email = normalizeText(lead?.email);
+  const email = normalizeText(lead?.email || radarEnrichment.email);
   const domain = extractWebsiteDomain(lead?.website);
   const websiteStatus = normalizeKey(radarEnrichment.websiteStatus);
   const hasWeakOrMissingWebsite = !normalizeText(lead?.website) || ['none', 'weak', 'social_only', 'unreachable', 'missing'].includes(websiteStatus);
@@ -395,9 +444,9 @@ export function buildVendasLeadIntelligence(input: VendasLeadIntelligenceInput) 
     painType: radarEnrichment.painType || null,
     painPitch: painPitch || null,
     recommendedChannel: nextBestAction,
-    emailSource: radarEnrichment?.sourceConfidence?.email ? 'radar' : null,
+    emailSource: radarEnrichment.emailSource || (radarEnrichment?.sourceConfidence?.email ? 'radar' : null),
     confidence: {
-      email: Number(radarEnrichment?.sourceConfidence?.email || 0) || null,
+      email: Number(radarEnrichment?.emailConfidence || radarEnrichment?.sourceConfidence?.email || 0) || null,
       enrichment: Number(radarEnrichment?.sourceConfidence?.enrichment || 0) || null,
     },
     leadReasonTags: Array.from(tags),

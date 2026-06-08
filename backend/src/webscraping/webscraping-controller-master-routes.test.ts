@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { GUARDS_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { MasterGuard } from '../auth/guards/master.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { MasterWebscrapingController } from './webscraping.controller';
+import { MasterWebscrapingController, WebscrapingController } from './webscraping.controller';
 
 test('master elastic and engine lifecycle routes stay behind MasterGuard', () => {
   const controllerPath = Reflect.getMetadata(PATH_METADATA, MasterWebscrapingController);
@@ -19,4 +19,15 @@ test('master elastic and engine lifecycle routes stay behind MasterGuard', () =>
   assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.cancelForcedFactory), 'elastic/cancel-forced');
   assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.drainMasterEngine), 'engines/:id/drain');
   assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.stopMasterEngineContainer), 'engines/:id/stop-container');
+});
+
+test('lead harvest official routes stay under webscraping guards', () => {
+  const controllerPath = Reflect.getMetadata(PATH_METADATA, WebscrapingController);
+  const guards = Reflect.getMetadata(GUARDS_METADATA, WebscrapingController) || [];
+  const prototype = WebscrapingController.prototype;
+
+  assert.equal(controllerPath, 'webscraping');
+  assert.equal(guards.includes(JwtAuthGuard), true);
+  assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.importLeadHarvest), 'lead-harvest/import');
+  assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.getLeadHarvestImport), 'lead-harvest/imports/:id');
 });

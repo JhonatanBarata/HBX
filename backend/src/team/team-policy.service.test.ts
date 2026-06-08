@@ -38,6 +38,7 @@ function buildStoredPolicy(overrides: Record<string, any> = {}) {
     allowedStatesJson: '[]',
     requiresLocation: true,
     requiredChannelsJson: '{}',
+    visibilityJson: null,
     preset: null,
     referredByUser: null,
     ...overrides,
@@ -245,6 +246,40 @@ test('ADMIN cannot edit HBX operational seller policy', async () => {
     } as any),
     ForbiddenException,
   );
+});
+
+test('policy update persists seller visibility and keeps system visibility derived', async () => {
+  const { service, state, requester } = createService();
+
+  const result = await service.updatePolicy(requester, 7, {
+    visibility: {
+      sellerCanViewOwnPolicy: true,
+      sellerCanViewCommission: false,
+      sellerCanViewHbxNetwork: true,
+      sellerCanViewLimits: false,
+      adminCanEditLegacyFields: false,
+      masterCanUseUnlimited: false,
+    },
+  } as any);
+
+  assert.equal(result.visibility.sellerCanViewOwnPolicy, true);
+  assert.equal(result.visibility.sellerCanViewCommission, false);
+  assert.equal(result.visibility.sellerCanViewHbxNetwork, true);
+  assert.equal(result.visibility.sellerCanViewLimits, false);
+  assert.equal(result.visibility.adminCanEditLegacyFields, true);
+  assert.equal(result.visibility.masterCanUseUnlimited, true);
+  assert.deepEqual(JSON.parse(state.user.teamPolicy.visibilityJson), {
+    sellerCanViewOwnPolicy: true,
+    sellerCanViewCommission: false,
+    sellerCanViewHbxNetwork: true,
+    sellerCanViewLimits: false,
+  });
+
+  const teamAudit = findSqlCall(state, 'TeamPolicyAuditLog');
+  assert.ok(teamAudit);
+  const metadata = findMetadata(teamAudit!);
+  assert.equal(metadata.patch.hasVisibility, true);
+  assert.equal(metadata.diff.visibilityChanged, true);
 });
 
 test('ADMIN cannot set individual enrichment outside HBX operation', async () => {

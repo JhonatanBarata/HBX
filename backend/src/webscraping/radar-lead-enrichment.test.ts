@@ -2,12 +2,29 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildRadarLeadEnrichment } from './radar-lead-enrichment';
 
-test('radar enrichment does not invent email from website domain', () => {
-  const enrichment = buildRadarLeadEnrichment({ website: 'https://exemplo.com.br' });
+test('radar enrichment nao infere email para dominio bloqueado', () => {
+  const enrichment = buildRadarLeadEnrichment({ website: 'https://instagram.com/exemplo' });
 
   assert.equal(enrichment.emailStatus, 'missing');
   assert.equal(enrichment.emailSource, 'none');
   assert.equal(enrichment.emailCandidate, null);
+});
+
+test('radar enrichment infere email provavel por dominio oficial', () => {
+  const enrichment = buildRadarLeadEnrichment({
+    name: 'Clinica Dominio',
+    website: 'https://clinicadominio.com.br',
+    sourceUrl: 'https://clinicadominio.com.br/contato',
+  });
+  const payload = JSON.parse(enrichment.enrichmentJson);
+
+  assert.equal(enrichment.email, 'contato@clinicadominio.com.br');
+  assert.equal(enrichment.emailStatus, 'probable');
+  assert.equal(enrichment.emailSource, 'inferred');
+  assert.equal(payload.level, 'smart_free');
+  assert.equal(payload.cost.totalBrl, 0);
+  assert.equal(payload.contact.emailStatus, 'probable');
+  assert.ok(payload.evidenceTimeline.some((item: any) => item.type === 'email_probable'));
 });
 
 test('radar enrichment marks missing website as sem_site pain', () => {
@@ -28,15 +45,16 @@ test('radar enrichment prefers whatsapp when confirmed', () => {
   assert.match(enrichment.opportunityReason, /WhatsApp confirmado/);
 });
 
-test('radar enrichment recommends call when whatsapp is missing and email was not collected', () => {
+test('radar enrichment recomenda email provavel quando ha dominio oficial', () => {
   const enrichment = buildRadarLeadEnrichment({
     phone: '(19) 99999-9999',
     website: 'cliente.com.br',
     whatsappStatus: 'missing',
   });
 
-  assert.equal(enrichment.emailStatus, 'missing');
-  assert.equal(enrichment.recommendedChannel, 'call');
+  assert.equal(enrichment.emailStatus, 'probable');
+  assert.equal(enrichment.emailSource, 'inferred');
+  assert.equal(enrichment.recommendedChannel, 'email');
 });
 
 test('radar enrichment discards protected leads', () => {
@@ -62,7 +80,7 @@ test('radar enrichment keeps existing confirmed email when payload is sparse', (
   assert.ok(enrichment.enrichmentJson.includes('confirmed'));
 });
 
-test('radar enrichment drops previously inferred email on refresh', () => {
+test('radar enrichment rebaixa email inferido anterior para provavel no refresh', () => {
   const enrichment = buildRadarLeadEnrichment({
     email: 'contato@empresa.com.br',
     emailStatus: 'probable',
@@ -70,8 +88,9 @@ test('radar enrichment drops previously inferred email on refresh', () => {
     website: 'https://empresa.com.br',
   });
 
-  assert.equal(enrichment.emailStatus, 'missing');
-  assert.equal(enrichment.emailSource, 'none');
+  assert.equal(enrichment.email, 'contato@empresa.com.br');
+  assert.equal(enrichment.emailStatus, 'probable');
+  assert.equal(enrichment.emailSource, 'inferred');
 });
 
 test('radar enrichment confirms email collected from website text', () => {
@@ -79,6 +98,19 @@ test('radar enrichment confirms email collected from website text', () => {
     website: 'https://empresa.com.br',
     rawPayload: {
       contactPageText: 'Fale conosco pelo atendimento@empresa.com.br',
+    },
+  });
+
+  assert.equal(enrichment.email, 'atendimento@empresa.com.br');
+  assert.equal(enrichment.emailStatus, 'confirmed');
+  assert.equal(enrichment.emailSource, 'website');
+});
+
+test('radar enrichment confirma email publico ofuscado em texto de site', () => {
+  const enrichment = buildRadarLeadEnrichment({
+    website: 'https://empresa.com.br',
+    rawPayload: {
+      contactPageText: 'Fale conosco pelo atendimento at empresa dot com dot br',
     },
   });
 
@@ -117,6 +149,8 @@ test('radar enrichment includes LeadQualityV2 in payload', () => {
   });
   const payload = JSON.parse(enrichment.enrichmentJson);
 
+  assert.equal(payload.level, 'smart_free');
+  assert.equal(payload.cost.totalBrl, 0);
   assert.equal(payload.qualityV2.version, 'lead-quality-v2');
   assert.ok(payload.qualityV2.finalRankScore > 0);
   assert.ok(['deliver', 'review'].includes(payload.qualityV2.decision));

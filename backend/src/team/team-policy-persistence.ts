@@ -176,6 +176,7 @@ export async function loadUserTeamPolicyRuntime(prisma: any, userIdRaw: unknown)
       allowedStatesJson: true,
       requiresLocation: true,
       requiredChannelsJson: true,
+      visibilityJson: true,
     },
   }).catch(() => null);
   if (!row) return null;

@@ -237,4 +237,8 @@ export type TeamPolicyPatch = {
     requiresLocation?: boolean;
     requiredChannels?: TeamPolicy["radar"]["requiredChannels"];
   };
+  visibility?: Pick<
+    TeamPolicy["visibility"],
+    "sellerCanViewOwnPolicy" | "sellerCanViewCommission" | "sellerCanViewHbxNetwork" | "sellerCanViewLimits"
+  >;
 };

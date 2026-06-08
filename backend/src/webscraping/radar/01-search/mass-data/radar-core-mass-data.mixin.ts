@@ -1404,6 +1404,7 @@ export class RadarCoreMassDataMixin {
       const persisted = await this.persistRadarLeadPoolBatch(normalized, output.results, 'hbx_mass_data', {
         campaignId,
         strictLocalDdd: normalizeTargetType(task.targetType) === 'pf',
+        engineUrl: lease.url,
       });
       const approvedCount = safeInteger(persisted.approvedCount);
       const batchRejectedCount = persisted.rejectedCount + safeInteger(output.rejectedCount);
@@ -1616,6 +1617,7 @@ export class RadarCoreMassDataMixin {
       const persisted = await this.persistRadarLeadPoolBatch(normalized, output.results, 'hbx_campaign', {
         campaignId,
         strictLocalDdd: normalized.targetType === 'pf',
+        engineUrl: lease.url,
       });
       await this.getEnginePool().markEngineBatchSuccess(lease.engineId).catch(() => null);
       const empty = persisted.approvedCount === 0;

@@ -11,7 +11,14 @@ import type {
   TeamPolicyLimit,
   TeamPolicyLimitMode,
   TeamPolicyModule,
+  TeamPolicyVisibility,
 } from './team-policy.types';
+
+type TeamPolicySellerVisibilityKey =
+  | 'sellerCanViewOwnPolicy'
+  | 'sellerCanViewCommission'
+  | 'sellerCanViewHbxNetwork'
+  | 'sellerCanViewLimits';
 
 type TeamPolicyPatch = {
   modules?: Array<{ key?: unknown; allowed?: unknown }>;
@@ -40,6 +47,10 @@ type TeamPolicyPatch = {
     requiresLocation?: unknown;
     requiredChannels?: Record<string, unknown>;
   };
+  visibility?: Partial<Record<TeamPolicySellerVisibilityKey, unknown>> & {
+    adminCanEditLegacyFields?: unknown;
+    masterCanUseUnlimited?: unknown;
+  };
   sellerDistributionDailyLimitOverride?: unknown;
 };
 
@@ -61,6 +72,12 @@ const TEAM_POLICY_PENDING_SCHEMA_FIELDS = [
   'allowedCities',
   'allowedStates',
   'requiredRadarFilters',
+];
+const TEAM_POLICY_SELLER_VISIBILITY_KEYS: TeamPolicySellerVisibilityKey[] = [
+  'sellerCanViewOwnPolicy',
+  'sellerCanViewCommission',
+  'sellerCanViewHbxNetwork',
+  'sellerCanViewLimits',
 ];
 
 @Injectable()
@@ -321,6 +338,41 @@ export class TeamPolicyService {
     }
   }
 
+  private defaultSellerVisibility(): Pick<TeamPolicyVisibility, TeamPolicySellerVisibilityKey> {
+    return {
+      sellerCanViewOwnPolicy: true,
+      sellerCanViewCommission: true,
+      sellerCanViewHbxNetwork: true,
+      sellerCanViewLimits: true,
+    };
+  }
+
+  private parseVisibilityJson(value: unknown) {
+    const visibility = this.defaultSellerVisibility();
+    try {
+      const parsed = JSON.parse(String(value || '{}'));
+      if (!parsed || typeof parsed !== 'object') return visibility;
+      TEAM_POLICY_SELLER_VISIBILITY_KEYS.forEach((key) => {
+        if (Object.prototype.hasOwnProperty.call(parsed, key)) {
+          visibility[key] = Boolean(parsed[key]);
+        }
+      });
+      return visibility;
+    } catch {
+      return visibility;
+    }
+  }
+
+  private normalizeVisibilityPatch(value: TeamPolicyPatch['visibility'] | undefined) {
+    if (!value || typeof value !== 'object') return undefined;
+    const next: Partial<Record<TeamPolicySellerVisibilityKey, boolean>> = {};
+    TEAM_POLICY_SELLER_VISIBILITY_KEYS.forEach((key) => {
+      const normalized = this.normalizeBoolean(value[key]);
+      if (normalized !== undefined) next[key] = normalized;
+    });
+    return Object.keys(next).length ? next : undefined;
+  }
+
   private getActorKind(user: any, company?: any): TeamPolicyActorKind {
     const role = this.normalizeRole(user?.role);
     const hbxCompany = isMasterOperationalCompanySlug(company?.slug || user?.company?.slug);
@@ -504,15 +556,12 @@ export class TeamPolicyService {
     });
   }
 
-  private buildVisibility(requester: any) {
+  private buildVisibility(requester: any, storedPolicy?: any): TeamPolicyVisibility {
     const actorKind = this.getActorKind(requester, requester?.company);
     const master = actorKind === 'system_master';
     const admin = actorKind === 'company_admin';
     return {
-      sellerCanViewOwnPolicy: true,
-      sellerCanViewCommission: true,
-      sellerCanViewHbxNetwork: true,
-      sellerCanViewLimits: true,
+      ...this.parseVisibilityJson(storedPolicy?.visibilityJson),
       adminCanEditLegacyFields: admin || master,
       masterCanUseUnlimited: master,
     };
@@ -604,7 +653,7 @@ export class TeamPolicyService {
           : Boolean(storedPolicy.requiresLocation),
         requiredChannels: this.parseRequiredChannelsJson(storedPolicy?.requiredChannelsJson),
       },
-      visibility: this.buildVisibility(requester),
+      visibility: this.buildVisibility(requester, storedPolicy),
       persistence: {
         mode: storedPolicy ? 'persisted_with_legacy_fallback' : 'legacy_derived',
         policyId: storedPolicy?.id || null,
@@ -621,6 +670,7 @@ export class TeamPolicyService {
           'UserTeamPolicy.monthlyCards',
           'UserTeamPolicy.vendasPullQuantity',
           'UserTeamPolicy.radarFilters',
+          'UserTeamPolicy.visibility',
           'User.commissionPercent',
           'User.canRegisterHbxSellers',
           'User.sellerReferralCommissionPercent',
@@ -778,12 +828,13 @@ export class TeamPolicyService {
     return data;
   }
 
-  private buildPolicyStorageUpdateData(requester: any, patch: TeamPolicyPatch) {
+  private buildPolicyStorageUpdateData(requester: any, target: any, patch: TeamPolicyPatch) {
     const data: any = {};
     const compensation = patch?.compensation || {};
     const hbxNetwork = patch?.hbxNetwork || {};
     const limits = patch?.limits || {};
     const radar = patch?.radar || {};
+    const visibility = this.normalizeVisibilityPatch(patch?.visibility);
 
     const commissionPercent = this.normalizePercent(compensation.commissionPercent, 'Comissao');
     if (commissionPercent !== undefined) data.commissionPercent = commissionPercent;
@@ -848,6 +899,12 @@ export class TeamPolicyService {
     if (requiredChannels !== undefined) {
       data.requiredChannelsJson = JSON.stringify(requiredChannels);
     }
+    if (visibility !== undefined) {
+      data.visibilityJson = JSON.stringify({
+        ...this.parseVisibilityJson(target?.teamPolicy?.visibilityJson),
+        ...visibility,
+      });
+    }
 
     if (Object.keys(data).length) {
       data.source = 'team_policy_update';
@@ -863,6 +920,7 @@ export class TeamPolicyService {
       hasHbxNetwork: Boolean(patch?.hbxNetwork && Object.keys(patch.hbxNetwork).length),
       hasLimits: Boolean(patch?.limits && Object.keys(patch.limits).length),
       hasRadar: Boolean(patch?.radar && Object.keys(patch.radar).length),
+      hasVisibility: Boolean(patch?.visibility && Object.keys(patch.visibility).length),
       batch: Boolean((patch as any)?.audit?.batch),
       batchId: (patch as any)?.audit?.batchId ? String((patch as any).audit.batchId).slice(0, 120) : null,
       sourceUserId: Math.trunc(Number((patch as any)?.audit?.sourceUserId || 0)) || null,
@@ -1022,7 +1080,7 @@ export class TeamPolicyService {
     const beforePolicy = await this.buildPolicy(target, requester);
 
     const data = await this.buildLegacyUpdateData(requester, target, patch || {});
-    const policyData = this.buildPolicyStorageUpdateData(requester, patch || {});
+    const policyData = this.buildPolicyStorageUpdateData(requester, target, patch || {});
     if (Array.isArray(patch?.modules) && patch.modules.length) {
       await this.modulesService.updateCompanyUserModuleAccess(
         Number(requester.id),

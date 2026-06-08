@@ -14,7 +14,7 @@ type ApplyPolicyToUsersModalProps = {
   onApply: (targetUserIds: number[], patch: TeamPolicyPatch) => void | Promise<void>;
 };
 
-type SectionKey = "modules" | "compensation" | "hbxNetwork" | "limits" | "radar";
+type SectionKey = "modules" | "compensation" | "hbxNetwork" | "limits" | "radar" | "visibility";
 
 const SECTION_LABELS: Array<[SectionKey, string]> = [
   ["modules", "Módulos"],
@@ -22,6 +22,7 @@ const SECTION_LABELS: Array<[SectionKey, string]> = [
   ["hbxNetwork", "Rede HBX"],
   ["limits", "Limites"],
   ["radar", "Radar"],
+  ["visibility", "Visibilidade"],
 ];
 
 const FILTERS: Array<[UserFilter, string]> = [
@@ -67,6 +68,7 @@ function buildPatchForSections(basePatch: TeamPolicyPatch, enabledSections: Reco
   if (enabledSections.hbxNetwork && basePatch.hbxNetwork) next.hbxNetwork = basePatch.hbxNetwork;
   if (enabledSections.limits && basePatch.limits) next.limits = basePatch.limits;
   if (enabledSections.radar && basePatch.radar) next.radar = basePatch.radar;
+  if (enabledSections.visibility && basePatch.visibility) next.visibility = basePatch.visibility;
   return next;
 }
 
@@ -76,7 +78,8 @@ function patchHasContent(patch: TeamPolicyPatch) {
       Object.keys(patch.compensation || {}).length ||
       Object.keys(patch.hbxNetwork || {}).length ||
       Object.keys(patch.limits || {}).length ||
-      Object.keys(patch.radar || {}).length,
+      Object.keys(patch.radar || {}).length ||
+      Object.keys(patch.visibility || {}).length,
   );
 }
 
@@ -98,6 +101,7 @@ export default function ApplyPolicyToUsersModal({
     hbxNetwork: true,
     limits: true,
     radar: true,
+    visibility: true,
   });
   const [localError, setLocalError] = useState<string | null>(null);
 
@@ -113,6 +117,7 @@ export default function ApplyPolicyToUsersModal({
         hbxNetwork: true,
         limits: true,
         radar: true,
+        visibility: true,
       });
       setLocalError(null);
     }, 0);

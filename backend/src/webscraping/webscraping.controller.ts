@@ -7,6 +7,7 @@ import { MasterGuard } from '../auth/guards/master.guard';
 import { ModuleAccess } from '../modules/module-feature.decorator';
 import { ModuleAccessGuard } from '../modules/module-access.guard';
 import { getConfiguredHbxEngineMaxCount, HbxEnginePoolService } from './hbx-engine-pool.service';
+import { LeadHarvestImportService } from './lead-harvest/lead-harvest-import.service';
 import { RADAR_REGION_MAX_RADIUS_KM } from './radar/shared/radar-core-shared';
 import { WebscrapingService } from './webscraping.service';
 
@@ -873,6 +874,7 @@ export class WebscrapingController {
   constructor(
     private readonly webscrapingService: WebscrapingService,
     private readonly hbxEnginePool: HbxEnginePoolService,
+    private readonly leadHarvestImportService: LeadHarvestImportService,
   ) {}
 
   @Get('runtime')
@@ -902,6 +904,16 @@ export class WebscrapingController {
   @Post('web-search')
   webSearch(@Body() dto: WebscrapingWebSearchDto) {
     return this.webscrapingService.webSearch(dto);
+  }
+
+  @Post('lead-harvest/import')
+  importLeadHarvest(@Req() req: any, @Body() body: Record<string, any>) {
+    return this.leadHarvestImportService.importBatchForUser(req.user, body || {});
+  }
+
+  @Get('lead-harvest/imports/:id')
+  getLeadHarvestImport(@Req() req: any, @Param('id') id: string) {
+    return this.leadHarvestImportService.getImportForUser(req.user, id);
   }
 
   @Post('search-runs')

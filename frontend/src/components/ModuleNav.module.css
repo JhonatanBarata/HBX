@@ -209,8 +209,14 @@
 .moduleCardDisabledActive {
   opacity: 0.64;
   filter: saturate(0.7);
-  cursor: grab;
+  cursor: not-allowed;
   border-style: dashed;
+}
+
+.moduleCardDisabled:active,
+.moduleCardDisabledActive:active {
+  cursor: not-allowed;
+  transform: none;
 }
 
 .moduleCardBadge {
@@ -250,6 +256,14 @@
 
 .moduleCardBody small {
   display: none;
+}
+
+.moduleCardBody .moduleCardLockNotice {
+  display: none;
+  color: var(--module-nav-muted);
+  font-size: 0.58rem;
+  font-weight: 760;
+  line-height: 1.2;
 }
 
 .moduleCardDescription {
@@ -425,4 +439,22 @@
 .moduleNavWrapCompact .moduleCardMeta,
 .moduleNavWrapCompact .moduleCardArrow {
   display: none;
+}
+
+.moduleNavWrapCompact .moduleCardDisabled,
+.moduleNavWrapCompact .moduleCardDisabledActive {
+  min-height: 66px;
+}
+
+.moduleNavWrapCompact .moduleCardDisabled .moduleCardBody,
+.moduleNavWrapCompact .moduleCardDisabledActive .moduleCardBody {
+  gap: 0.16rem;
+}
+
+.moduleNavWrapCompact .moduleCardDisabled .moduleCardLockNotice,
+.moduleNavWrapCompact .moduleCardDisabledActive .moduleCardLockNotice {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }

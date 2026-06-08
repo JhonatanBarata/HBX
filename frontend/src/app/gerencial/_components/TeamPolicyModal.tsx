@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { BRAZIL_CITIES_BY_STATE, BRAZIL_STATES } from "@/lib/brazil-locations";
+import { HBX_SEGMENT_SUGGESTIONS } from "@/lib/hbx-segment-suggestions";
 import type {
   CompanyModule,
   TeamPolicy,
@@ -25,6 +27,10 @@ type TeamPolicyModalProps = {
 
 type LimitKey = keyof TeamPolicy["limits"];
 type LimitDraft = Record<LimitKey, { mode: TeamPolicyLimitMode; value: string }>;
+type SelectionPickerKey = "allowedSegments" | "blockedSegments" | "allowedCities" | "allowedStates";
+type SelectionPickerOption = { value: string; label: string; meta?: string };
+type SellerVisibilityKey = keyof NonNullable<TeamPolicyPatch["visibility"]>;
+type SystemVisibilityKey = Exclude<keyof TeamPolicy["visibility"], SellerVisibilityKey>;
 
 const LIMIT_LABELS: Record<LimitKey, string> = {
   enrichmentDaily: "Enriquecimentos por dia",
@@ -42,12 +48,85 @@ const CHANNEL_LABELS: Array<[keyof TeamPolicy["radar"]["requiredChannels"], stri
   ["website", "Site"],
 ];
 
+const SELLER_VISIBILITY_LABELS: Array<[SellerVisibilityKey, string]> = [
+  ["sellerCanViewOwnPolicy", "Ver própria política"],
+  ["sellerCanViewCommission", "Ver comissão"],
+  ["sellerCanViewHbxNetwork", "Ver rede HBX"],
+  ["sellerCanViewLimits", "Ver limites"],
+];
+
+const SYSTEM_VISIBILITY_LABELS: Array<[SystemVisibilityKey, string]> = [
+  ["adminCanEditLegacyFields", "Admin edita legado"],
+  ["masterCanUseUnlimited", "Master usa ilimitado"],
+];
+
 const EMPTY_LIMIT_DRAFT: LimitDraft = {
   enrichmentDaily: { mode: "inherit", value: "" },
   cardDeliveryDaily: { mode: "inherit", value: "" },
   activeCards: { mode: "inherit", value: "" },
   monthlyCards: { mode: "inherit", value: "" },
   vendasPullQuantity: { mode: "inherit", value: "" },
+};
+
+const EMPTY_VISIBILITY_DRAFT: NonNullable<TeamPolicyPatch["visibility"]> = {
+  sellerCanViewOwnPolicy: true,
+  sellerCanViewCommission: true,
+  sellerCanViewHbxNetwork: true,
+  sellerCanViewLimits: true,
+};
+
+const MAX_SELECTION_PREVIEW = 5;
+const MAX_PICKER_OPTIONS = 180;
+
+const SEGMENT_OPTIONS: SelectionPickerOption[] = HBX_SEGMENT_SUGGESTIONS.map((segment) => ({
+  value: segment,
+  label: segment,
+}));
+
+const STATE_OPTIONS: SelectionPickerOption[] = BRAZIL_STATES.map((state) => ({
+  value: state.uf,
+  label: state.name,
+  meta: state.uf,
+}));
+
+const CITY_OPTIONS: SelectionPickerOption[] = BRAZIL_STATES.flatMap((state) =>
+  (BRAZIL_CITIES_BY_STATE[state.uf] || []).map((city) => ({
+    value: `${city}/${state.uf}`,
+    label: city,
+    meta: state.uf,
+  })),
+);
+
+const SELECTION_PICKER_CONFIG: Record<
+  SelectionPickerKey,
+  { title: string; label: string; placeholder: string; emptyLabel: string; customEntry?: boolean }
+> = {
+  allowedSegments: {
+    title: "Selecionar segmentos permitidos",
+    label: "Permitidos",
+    placeholder: "Buscar ou adicionar segmento",
+    emptyLabel: "Nenhum segmento permitido",
+    customEntry: true,
+  },
+  blockedSegments: {
+    title: "Selecionar segmentos bloqueados",
+    label: "Bloqueados",
+    placeholder: "Buscar ou adicionar segmento",
+    emptyLabel: "Nenhum segmento bloqueado",
+    customEntry: true,
+  },
+  allowedCities: {
+    title: "Selecionar cidades",
+    label: "Cidades",
+    placeholder: "Buscar cidade ou UF",
+    emptyLabel: "Nenhuma cidade selecionada",
+  },
+  allowedStates: {
+    title: "Selecionar estados",
+    label: "Estados",
+    placeholder: "Buscar estado ou UF",
+    emptyLabel: "Nenhum estado selecionado",
+  },
 };
 
 function normalizeRole(role?: string | null, isSystemMaster?: boolean | null) {
@@ -104,8 +183,62 @@ function splitTextList(value: string) {
     .slice(0, 100);
 }
 
+function normalizeSearch(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function normalizeListKey(value: string) {
+  return normalizeSearch(value).replace(/\s+/g, " ");
+}
+
+function uniqueTextValues(values: string[], max = 100) {
+  const seen = new Set<string>();
+  const uniqueValues: string[] = [];
+  values.forEach((value) => {
+    const trimmed = value.trim();
+    const key = normalizeListKey(trimmed);
+    if (!trimmed || seen.has(key)) return;
+    seen.add(key);
+    uniqueValues.push(trimmed);
+  });
+  return uniqueValues.slice(0, max);
+}
+
+function listToText(values: string[], max = 100) {
+  return uniqueTextValues(values, max).join("\n");
+}
+
+function formatSelectionSummary(value: string, emptyLabel: string) {
+  const values = splitTextList(value);
+  if (!values.length) return emptyLabel;
+  return `${values.length} ${values.length === 1 ? "selecionado" : "selecionados"}`;
+}
+
 function citiesToText(cities: TeamPolicy["radar"]["allowedCities"]) {
   return cities.map((item) => `${item.city}${item.state ? `/${item.state}` : ""}`).join("\n");
+}
+
+function parseCityLine(line: string) {
+  const slashIndex = line.lastIndexOf("/");
+  if (slashIndex > 0) {
+    const city = line.slice(0, slashIndex).trim();
+    const state = line.slice(slashIndex + 1).trim().toUpperCase().slice(0, 2);
+    return { city: city || line, state: state || null };
+  }
+
+  const dashMatch = line.match(/^(.+?)\s+-\s*([a-zA-Z]{2})$/);
+  if (dashMatch) {
+    return {
+      city: dashMatch[1].trim(),
+      state: dashMatch[2].trim().toUpperCase().slice(0, 2),
+    };
+  }
+
+  return { city: line, state: null };
 }
 
 function parseCities(value: string) {
@@ -113,13 +246,7 @@ function parseCities(value: string) {
     .split(/\n+/g)
     .map((line) => line.trim())
     .filter(Boolean)
-    .map((line) => {
-      const [city, state] = line.split(/[/-]/).map((part) => part.trim()).filter(Boolean);
-      return {
-        city: city || line,
-        state: state ? state.toUpperCase().slice(0, 2) : null,
-      };
-    })
+    .map(parseCityLine)
     .filter((item) => item.city)
     .slice(0, 250);
 }
@@ -147,6 +274,16 @@ function buildModuleDraft(policy: TeamPolicy | null, enabledModules: CompanyModu
     if (!(moduleItem.key in draft)) draft[moduleItem.key] = Boolean(moduleItem.allowed);
   });
   return draft;
+}
+
+function buildVisibilityDraft(policy: TeamPolicy | null): NonNullable<TeamPolicyPatch["visibility"]> {
+  if (!policy) return EMPTY_VISIBILITY_DRAFT;
+  return {
+    sellerCanViewOwnPolicy: Boolean(policy.visibility.sellerCanViewOwnPolicy),
+    sellerCanViewCommission: Boolean(policy.visibility.sellerCanViewCommission),
+    sellerCanViewHbxNetwork: Boolean(policy.visibility.sellerCanViewHbxNetwork),
+    sellerCanViewLimits: Boolean(policy.visibility.sellerCanViewLimits),
+  };
 }
 
 function referrerOptionLabel(user: UserItem) {
@@ -177,6 +314,7 @@ export default function TeamPolicyModal({
   const [allowedCities, setAllowedCities] = useState("");
   const [allowedStates, setAllowedStates] = useState("");
   const [requiresLocation, setRequiresLocation] = useState(false);
+  const [visibilityDraft, setVisibilityDraft] = useState<NonNullable<TeamPolicyPatch["visibility"]>>(EMPTY_VISIBILITY_DRAFT);
   const [requiredChannels, setRequiredChannels] = useState<TeamPolicy["radar"]["requiredChannels"]>({
     whatsapp: false,
     instagram: false,
@@ -185,8 +323,11 @@ export default function TeamPolicyModal({
     website: false,
   });
   const [localError, setLocalError] = useState<string | null>(null);
+  const [selectionPicker, setSelectionPicker] = useState<SelectionPickerKey | null>(null);
+  const [selectionQuery, setSelectionQuery] = useState("");
 
   const open = Boolean(user);
+  const hydratedPolicyUserIdRef = useRef<number | null>(null);
   const role = normalizeRole(user?.role, user?.isSystemMaster);
   const readOnly = role === "USERMASTER" || Boolean(user?.isSystemMaster);
   const canUseUnlimited = Boolean(policy?.visibility.masterCanUseUnlimited);
@@ -196,7 +337,28 @@ export default function TeamPolicyModal({
   );
 
   useEffect(() => {
-    if (!policy) return;
+    if (!open) {
+      hydratedPolicyUserIdRef.current = null;
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (!selectionPicker) return;
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setSelectionPicker(null);
+        setSelectionQuery("");
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectionPicker]);
+
+  useEffect(() => {
+    if (!policy || loading) return;
+    const policyUserId = Number(policy.subject.id || 0) || null;
+    if (!policyUserId || hydratedPolicyUserIdRef.current === policyUserId) return;
+    hydratedPolicyUserIdRef.current = policyUserId;
     const timeoutId = window.setTimeout(() => {
       setModuleDraft(buildModuleDraft(policy, enabledModules));
       setCommissionPercent(numberDraft(policy.compensation.commissionPercent));
@@ -211,11 +373,12 @@ export default function TeamPolicyModal({
       setAllowedCities(citiesToText(policy.radar.allowedCities));
       setAllowedStates(policy.radar.allowedStates.join("\n"));
       setRequiresLocation(Boolean(policy.radar.requiresLocation));
+      setVisibilityDraft(buildVisibilityDraft(policy));
       setRequiredChannels(policy.radar.requiredChannels);
       setLocalError(null);
     }, 0);
     return () => window.clearTimeout(timeoutId);
-  }, [enabledModules, policy]);
+  }, [enabledModules, loading, open, policy]);
 
   const patch = useMemo<TeamPolicyPatch | null>(() => {
     if (!policy) return null;
@@ -264,6 +427,7 @@ export default function TeamPolicyModal({
         requiresLocation,
         requiredChannels,
       },
+      visibility: visibilityDraft,
     };
   }, [
     allowedCities,
@@ -281,7 +445,40 @@ export default function TeamPolicyModal({
     requiredChannels,
     requiresLocation,
     sellerReferralCommissionPercent,
+    visibilityDraft,
   ]);
+
+  const selectedValues = useMemo(() => {
+    if (!selectionPicker) return [];
+    if (selectionPicker === "allowedSegments") return splitTextList(allowedSegments);
+    if (selectionPicker === "blockedSegments") return splitTextList(blockedSegments);
+    if (selectionPicker === "allowedCities") return splitTextList(allowedCities);
+    return splitTextList(allowedStates).map((item) => item.toUpperCase().slice(0, 2));
+  }, [allowedCities, allowedSegments, allowedStates, blockedSegments, selectionPicker]);
+
+  const selectedValueSet = useMemo(() => new Set(selectedValues.map(normalizeListKey)), [selectedValues]);
+
+  const pickerOptions = useMemo(() => {
+    if (selectionPicker === "allowedSegments" || selectionPicker === "blockedSegments") return SEGMENT_OPTIONS;
+    if (selectionPicker === "allowedCities") return CITY_OPTIONS;
+    if (selectionPicker === "allowedStates") return STATE_OPTIONS;
+    return [];
+  }, [selectionPicker]);
+
+  const visiblePickerOptions = useMemo(() => {
+    const query = normalizeSearch(selectionQuery);
+    const filteredOptions = query
+      ? pickerOptions.filter((option) => normalizeSearch(`${option.label} ${option.meta || ""} ${option.value}`).includes(query))
+      : pickerOptions;
+    return filteredOptions.slice(0, selectionPicker === "allowedCities" ? MAX_PICKER_OPTIONS : 120);
+  }, [pickerOptions, selectionPicker, selectionQuery]);
+
+  const pickerConfig = selectionPicker ? SELECTION_PICKER_CONFIG[selectionPicker] : null;
+  const customQuery = selectionQuery.trim();
+  const canAddCustomSelection =
+    Boolean(pickerConfig?.customEntry && customQuery) &&
+    !selectedValueSet.has(normalizeListKey(customQuery)) &&
+    !pickerOptions.some((option) => normalizeListKey(option.value) === normalizeListKey(customQuery));
 
   if (!open || typeof document === "undefined") return null;
 
@@ -312,6 +509,113 @@ export default function TeamPolicyModal({
     onApplyBatch(policy, patch);
   }
 
+  function openSelectionPicker(key: SelectionPickerKey) {
+    setSelectionQuery("");
+    setSelectionPicker(key);
+  }
+
+  function closeSelectionPicker() {
+    setSelectionPicker(null);
+    setSelectionQuery("");
+  }
+
+  function handleCloseModal() {
+    closeSelectionPicker();
+    onClose();
+  }
+
+  function currentSelectionValues(key: SelectionPickerKey) {
+    if (key === "allowedSegments") return splitTextList(allowedSegments);
+    if (key === "blockedSegments") return splitTextList(blockedSegments);
+    if (key === "allowedCities") return splitTextList(allowedCities);
+    return splitTextList(allowedStates).map((item) => item.toUpperCase().slice(0, 2));
+  }
+
+  function updateSelectionValues(key: SelectionPickerKey, values: string[]) {
+    const max = key === "allowedCities" ? 250 : 100;
+    const nextText = listToText(values, max);
+    if (key === "allowedSegments") setAllowedSegments(nextText);
+    if (key === "blockedSegments") setBlockedSegments(nextText);
+    if (key === "allowedCities") setAllowedCities(nextText);
+    if (key === "allowedStates") setAllowedStates(nextText);
+  }
+
+  function toggleSelectionValue(key: SelectionPickerKey, value: string) {
+    const currentValues = currentSelectionValues(key);
+    const valueKey = normalizeListKey(value);
+    const exists = currentValues.some((item) => normalizeListKey(item) === valueKey);
+    const nextValues = exists ? currentValues.filter((item) => normalizeListKey(item) !== valueKey) : [...currentValues, value];
+    updateSelectionValues(key, nextValues);
+  }
+
+  function renderSelectionField(key: SelectionPickerKey, label: string, value: string, emptyLabel: string) {
+    const values = splitTextList(value);
+    const disabled = readOnly || saving;
+    return (
+      <div className="grid gap-1 text-sm">
+        <span className="font-medium">{label}</span>
+        <button
+          type="button"
+          disabled={disabled}
+          aria-haspopup="dialog"
+          onClick={() => openSelectionPicker(key)}
+          className={`field flex min-h-28 flex-col items-start justify-between gap-3 text-left ${disabled ? "" : "cursor-pointer hover:border-[var(--primary)]"}`}
+        >
+          <span className="flex w-full items-center justify-between gap-2">
+            <strong className="truncate text-sm font-semibold">{formatSelectionSummary(value, emptyLabel)}</strong>
+            <span className="badge shrink-0">{values.length || "Livre"}</span>
+          </span>
+          {values.length ? (
+            <span className="flex w-full flex-wrap gap-1.5">
+              {values.slice(0, MAX_SELECTION_PREVIEW).map((item) => (
+                <span key={item} className="max-w-full truncate rounded-full border border-[var(--line)] bg-[var(--surface-soft)] px-2 py-1 text-xs">
+                  {item}
+                </span>
+              ))}
+              {values.length > MAX_SELECTION_PREVIEW ? (
+                <span className="rounded-full border border-[var(--line)] bg-[var(--surface-soft)] px-2 py-1 text-xs">
+                  +{values.length - MAX_SELECTION_PREVIEW}
+                </span>
+              ) : null}
+            </span>
+          ) : (
+            <span className="text-sm text-muted">Livre</span>
+          )}
+        </button>
+      </div>
+    );
+  }
+
+  function renderVisibilityToggle(key: SellerVisibilityKey, label: string) {
+    const active = Boolean(visibilityDraft[key]);
+    const disabled = readOnly || saving;
+    return (
+      <div className="rounded-[12px] border border-[var(--line)] bg-[var(--surface)] p-3 text-sm">
+        <span className="block text-xs font-semibold text-muted">{label}</span>
+        <div className="mt-2 grid grid-cols-2 gap-1">
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => setVisibilityDraft((current) => ({ ...current, [key]: true }))}
+            className={`btn btn-sm ${active ? "btn-primary" : "btn-secondary"}`}
+            aria-pressed={active}
+          >
+            Sim
+          </button>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => setVisibilityDraft((current) => ({ ...current, [key]: false }))}
+            className={`btn btn-sm ${!active ? "btn-primary" : "btn-secondary"}`}
+            aria-pressed={!active}
+          >
+            Não
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return createPortal(
     <div className="fixed inset-0 z-[90] grid place-items-center bg-black/50 p-3 md:p-6" role="presentation">
       <section
@@ -331,7 +635,7 @@ export default function TeamPolicyModal({
           <div className="flex flex-wrap gap-2">
             {policy ? <span className="badge">Fonte: {policy.persistence.mode === "legacy_derived" ? "legado" : "persistida"}</span> : null}
             {readOnly ? <span className="badge badge-danger">MASTER protegido</span> : null}
-            <button type="button" onClick={onClose} className="btn btn-secondary btn-sm" aria-label="Fechar política">
+            <button type="button" onClick={handleCloseModal} className="btn btn-secondary btn-sm" aria-label="Fechar política">
               Fechar
             </button>
           </div>
@@ -512,49 +816,17 @@ export default function TeamPolicyModal({
                 <div>
                   <h3 className="font-semibold">Segmentos</h3>
                   <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                    <label className="grid gap-1 text-sm">
-                      <span className="font-medium">Permitidos</span>
-                      <textarea
-                        value={allowedSegments}
-                        disabled={readOnly || saving}
-                        onChange={(event) => setAllowedSegments(event.target.value)}
-                        className="field min-h-28"
-                      />
-                    </label>
-                    <label className="grid gap-1 text-sm">
-                      <span className="font-medium">Bloqueados</span>
-                      <textarea
-                        value={blockedSegments}
-                        disabled={readOnly || saving}
-                        onChange={(event) => setBlockedSegments(event.target.value)}
-                        className="field min-h-28"
-                      />
-                    </label>
+                    {renderSelectionField("allowedSegments", "Permitidos", allowedSegments, "Nenhum segmento permitido")}
+                    {renderSelectionField("blockedSegments", "Bloqueados", blockedSegments, "Nenhum segmento bloqueado")}
                   </div>
                 </div>
 
                 <div>
                   <h3 className="font-semibold">Cidades/localização</h3>
                   <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                    <label className="grid gap-1 text-sm">
-                      <span className="font-medium">Cidades</span>
-                      <textarea
-                        value={allowedCities}
-                        disabled={readOnly || saving}
-                        onChange={(event) => setAllowedCities(event.target.value)}
-                        className="field min-h-28"
-                      />
-                    </label>
+                    {renderSelectionField("allowedCities", "Cidades", allowedCities, "Nenhuma cidade selecionada")}
                     <div className="grid gap-3">
-                      <label className="grid gap-1 text-sm">
-                        <span className="font-medium">Estados</span>
-                        <textarea
-                          value={allowedStates}
-                          disabled={readOnly || saving}
-                          onChange={(event) => setAllowedStates(event.target.value)}
-                          className="field min-h-16"
-                        />
-                      </label>
+                      {renderSelectionField("allowedStates", "Estados", allowedStates, "Nenhum estado selecionado")}
                       <label className="flex items-center gap-2 rounded-[12px] border border-[var(--line)] bg-[var(--surface)] p-3 text-sm">
                         <input
                           type="checkbox"
@@ -590,13 +862,21 @@ export default function TeamPolicyModal({
 
                 <div>
                   <h3 className="font-semibold">Visibilidade</h3>
-                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                    {Object.entries(policy.visibility).map(([key, value]) => (
-                      <div key={key} className="rounded-[12px] border border-[var(--line)] bg-[var(--surface)] p-3 text-sm">
-                        <span className="block text-xs text-muted">{key}</span>
-                        <strong>{value ? "Sim" : "Não"}</strong>
-                      </div>
-                    ))}
+                  <div className="mt-3 grid gap-3">
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {SELLER_VISIBILITY_LABELS.map(([key, label]) => (
+                        <div key={key}>{renderVisibilityToggle(key, label)}</div>
+                      ))}
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {SYSTEM_VISIBILITY_LABELS.map(([key, label]) => (
+                        <div key={key} className="rounded-[12px] border border-[var(--line)] bg-[var(--surface)] p-3 text-sm opacity-80">
+                          <span className="block text-xs font-semibold text-muted">{label}</span>
+                          <strong className="mt-1 block">{policy.visibility[key] ? "Sim" : "Não"}</strong>
+                          <span className="mt-1 block text-xs text-muted">Sistema</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
               </section>
@@ -618,6 +898,131 @@ export default function TeamPolicyModal({
           </div>
         </footer>
       </section>
+
+      {selectionPicker && pickerConfig ? (
+        <div
+          className="fixed inset-0 z-[110] grid place-items-center bg-black/45 p-3"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeSelectionPicker();
+          }}
+        >
+          <section
+            className="panel flex max-h-[min(760px,calc(100dvh-2rem))] w-full max-w-3xl flex-col overflow-hidden rounded-[18px]"
+            role="dialog"
+            aria-modal="true"
+            aria-label={pickerConfig.title}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <header className="flex flex-col gap-3 border-b border-[var(--line)] p-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <span className="badge badge-brand">{pickerConfig.label}</span>
+                <h3 className="mt-2 truncate text-lg font-semibold">{pickerConfig.title}</h3>
+                <p className="mt-1 text-sm text-muted">
+                  {selectedValues.length ? `${selectedValues.length} selecionados` : pickerConfig.emptyLabel}
+                </p>
+              </div>
+              <button type="button" onClick={closeSelectionPicker} className="btn btn-secondary btn-sm">
+                Fechar
+              </button>
+            </header>
+
+            <div className="border-b border-[var(--line)] p-4">
+              <input
+                value={selectionQuery}
+                autoFocus
+                disabled={readOnly || saving}
+                onChange={(event) => setSelectionQuery(event.target.value)}
+                className="field"
+                placeholder={pickerConfig.placeholder}
+              />
+              {selectedValues.length ? (
+                <div className="mt-3 flex max-h-28 flex-wrap gap-2 overflow-auto">
+                  {selectedValues.map((item) => (
+                    <button
+                      key={item}
+                      type="button"
+                      disabled={readOnly || saving}
+                      onClick={() => toggleSelectionValue(selectionPicker, item)}
+                      className="rounded-full border border-[var(--line)] bg-[var(--surface-soft)] px-3 py-1.5 text-xs font-semibold"
+                      aria-label={`Remover ${item}`}
+                    >
+                      {item} <span aria-hidden="true">x</span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-auto p-4">
+              {canAddCustomSelection ? (
+                <button
+                  type="button"
+                  disabled={readOnly || saving}
+                  onClick={() => {
+                    toggleSelectionValue(selectionPicker, customQuery);
+                    setSelectionQuery("");
+                  }}
+                  className="mb-3 flex w-full items-center justify-between gap-3 rounded-[12px] border border-[var(--primary)] bg-[var(--surface)] px-3 py-2 text-left text-sm font-semibold"
+                >
+                  <span className="truncate">Adicionar {customQuery}</span>
+                  <span className="badge badge-brand">Novo</span>
+                </button>
+              ) : null}
+
+              {visiblePickerOptions.length ? (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {visiblePickerOptions.map((option) => {
+                    const active = selectedValueSet.has(normalizeListKey(option.value));
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        disabled={readOnly || saving}
+                        onClick={() => toggleSelectionValue(selectionPicker, option.value)}
+                        className={`flex min-h-12 items-center justify-between gap-3 rounded-[12px] border px-3 py-2 text-left text-sm transition ${
+                          active
+                            ? "border-[var(--primary)] bg-[var(--surface-soft)]"
+                            : "border-[var(--line)] bg-[var(--surface)] hover:border-[var(--primary)]"
+                        }`}
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate font-semibold">{option.label}</span>
+                          {option.meta ? <span className="block text-xs text-muted">{option.meta}</span> : null}
+                        </span>
+                        <span className={`badge shrink-0 ${active ? "badge-brand" : ""}`}>{active ? "ON" : "+"}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="rounded-[12px] border border-[var(--line)] bg-[var(--surface-soft)] p-4 text-sm text-muted">
+                  Nenhum item encontrado.
+                </div>
+              )}
+            </div>
+
+            <footer className="flex flex-col gap-2 border-t border-[var(--line)] p-4 sm:flex-row sm:items-center sm:justify-between">
+              <span className="text-xs text-muted">
+                {selectedValues.length ? `${selectedValues.length} selecionados` : "Sem seleção"}
+              </span>
+              <div className="flex flex-wrap justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={!selectedValues.length || readOnly || saving}
+                  onClick={() => updateSelectionValues(selectionPicker, [])}
+                  className="btn btn-secondary btn-sm"
+                >
+                  Limpar
+                </button>
+                <button type="button" onClick={closeSelectionPicker} className="btn btn-primary btn-sm">
+                  Concluir
+                </button>
+              </div>
+            </footer>
+          </section>
+        </div>
+      ) : null}
     </div>,
     document.body,
   );

@@ -9,6 +9,7 @@ import { HbxEngineDockerAdapterService } from './hbx-engine-docker-adapter.servi
 import { HbxEngineGovernorService } from './hbx-engine-governor.service';
 import { HbxEnginePoolService } from './hbx-engine-pool.service';
 import { HbxEngineTelemetryService } from './hbx-engine-telemetry.service';
+import { LeadHarvestModule } from './lead-harvest/lead-harvest.module';
 import { RadarSocialLookupService } from './radar/04-socials/radar-social-lookup.service';
 import { RadarSocialJobService } from './radar/04-socials/radar-social-job.service';
 import { RadarSocialOrchestratorService } from './radar/04-socials/radar-social-orchestrator.service';
@@ -141,7 +142,7 @@ const RADAR_SERVICES = [
 ];
 
 @Module({
-  imports: [ModulesAccessModule, MessagingModule, MailModule, CommercialPlansModule, MasterContextModule, forwardRef(() => VendasModule)],
+  imports: [ModulesAccessModule, MessagingModule, MailModule, CommercialPlansModule, MasterContextModule, LeadHarvestModule, forwardRef(() => VendasModule)],
   controllers: [WebscrapingController, MasterWebscrapingController, WebscrapingInternalRadarController],
   providers: [WebscrapingService, HbxEnginePoolService, HbxEngineDockerAdapterService, HbxEngineTelemetryService, HbxEngineGovernorService, ...RADAR_SERVICES],
   exports: [WebscrapingService, HbxEnginePoolService, HbxEngineGovernorService],

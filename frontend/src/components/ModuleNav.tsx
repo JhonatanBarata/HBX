@@ -167,8 +167,21 @@ const BASIC_NAV_SECTIONS: Array<{ key: string; title: string; hint: string; adva
   },
 ];
 
-function resolveBlockedDescription(item: NavItem, moduleItem: UserModule | null, isSystemMaster: boolean) {
+function isSellerRoleLockedModule(item: NavItem, moduleItem: UserModule | null, userRole: string | null) {
+  const normalizedRole = String(userRole || "").trim().toUpperCase();
+  const normalizedKey = normalizeUserModuleKey(item.moduleKey || item.key);
+  if (normalizedRole !== "USER" || !moduleItem || moduleItem.accessible) return false;
+  if (normalizedKey === "vendas" || normalizedKey === "webscraping") return false;
+  if (moduleItem.blockedCode && moduleItem.blockedCode !== "user_module_blocked") return false;
+  return moduleItem.userAllowed === true;
+}
+
+function resolveBlockedDescription(item: NavItem, moduleItem: UserModule | null, isSystemMaster: boolean, userRole: string | null) {
   const criticalEngine = String(moduleItem?.criticalEngine || "").trim().toLowerCase();
+
+  if (isSellerRoleLockedModule(item, moduleItem, userRole)) {
+    return "Política ON; Vendedor só abre Vendas e Radar. Troque para Admin para usar.";
+  }
 
   if (!isSystemMaster && item.category === "structural") {
     if (item.key === "financeiro") return "Disponível na próxima etapa.";
@@ -382,10 +395,14 @@ export default function ModuleNav({
       if (loading) return false;
       if (isSystemMaster) return true;
       if (item.companyOnly && !hasCompany) return false;
+      const moduleItem = item.moduleKey
+        ? modulesByKey.get(normalizeUserModuleKey(item.moduleKey)) ?? null
+        : null;
+      const sellerRoleLocked = isSellerRoleLockedModule(item, moduleItem, userRole);
       if (item.adminOnly) {
         if (item.key === "master") {
           if (!isSystemMaster) return false;
-        } else if (String(userRole || "").toUpperCase() !== "ADMIN") {
+        } else if (String(userRole || "").toUpperCase() !== "ADMIN" && !sellerRoleLocked) {
           return false;
         }
       }
@@ -394,9 +411,8 @@ export default function ModuleNav({
 
       if (!item.moduleKey) return true;
 
-      const moduleItem = modulesByKey.get(normalizeUserModuleKey(item.moduleKey));
       if (!moduleItem) return item.category === "commercial";
-      return isModuleVisible(moduleItem);
+      return isModuleVisible(moduleItem) || sellerRoleLocked;
     }).sort((left, right) => {
       const leftIndex = BASIC_NAV_ORDER.indexOf(left.key);
       const rightIndex = BASIC_NAV_ORDER.indexOf(right.key);
@@ -475,7 +491,7 @@ export default function ModuleNav({
               const shortLabel = display.shortLabel;
               const description = String(
                 blocked
-                  ? resolveBlockedDescription(item, moduleItem, isSystemMaster)
+                  ? resolveBlockedDescription(item, moduleItem, isSystemMaster, userRole)
                   : display.description,
               );
               const href = item.key === "radar_digital"
@@ -542,12 +558,14 @@ export default function ModuleNav({
                     key={item.key}
                     className={active ? styles.moduleCardDisabledActive : styles.moduleCardDisabled}
                     data-ui-slot="module-card"
-                    draggable
+                    draggable={false}
                     aria-disabled="true"
+                    title={description}
                   >
                     <span className={styles.moduleCardBadge}>{shortLabel}</span>
                     <span className={styles.moduleCardBody}>
                       <strong>{label}</strong>
+                      <small className={styles.moduleCardLockNotice}>{description}</small>
                     </span>
                     <span className={styles.moduleCardDescription}>{description}</span>
                   </div>

@@ -1011,6 +1011,73 @@ test('saveSearchRunResults com email obrigatorio enriquece gratis antes de salva
   assert.equal(service.candidateHasRequiredChannels(contact, normalized), true);
 });
 
+test('persistRadarLeadPoolBatch com email obrigatorio enriquece gratis antes do filtro duro', async () => {
+  const saved: any[] = [];
+  const service = new WebscrapingService(createPrisma({
+    radarLeadCompanyState: {},
+    radarLeadPool: {
+      findFirst: async () => null,
+      create: async ({ data }: any) => {
+        saved.push(data);
+        return { id: 'radar-email-1', ...data };
+      },
+      update: async ({ where, data }: any) => ({ id: where.id, ...data }),
+    },
+  })) as any;
+  const calls: any[] = [];
+  service.searchHbxEngine = async (input: any, existing: any, engineUrl: any, options: any) => {
+    calls.push({ input, existing, engineUrl, options });
+    return {
+      results: [{
+        name: 'Barbearia X Rio Claro',
+        phone: '(19) 99999-0001',
+        phoneDigits: '19999990001',
+        city: 'Rio Claro',
+        state: 'SP',
+        segment: 'barbearias',
+        website: 'https://barbeariax.com.br',
+        email: 'agenda@barbeariax.com.br',
+        emailStatus: 'confirmed',
+        title: 'Barbearia X Rio Claro site oficial',
+        snippet: 'Barbearia X Rio Claro contato email agenda',
+        source: 'hbx_scraping:free_pj',
+      }],
+    };
+  };
+  const normalized = service.normalizeSearchInput({
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'barbearias',
+    quantity: 10,
+    engine: 'hbx',
+    targetType: 'pj',
+    requiredChannels: ['email'],
+    channelMatchMode: 'all_required',
+    freshness: 'live',
+  });
+
+  const counts = await service.persistRadarLeadPoolBatch(normalized, [{
+    name: 'Barbearia X',
+    phone: '(19) 99999-0001',
+    phoneDigits: '19999990001',
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'barbearias',
+    source: 'hbx_scraping:free_pj',
+  }], 'hbx_mass_data', {
+    engineUrl: 'http://hbx-engine-1:8001',
+  });
+
+  assert.equal(calls.length > 0, true);
+  assert.equal(calls[0].engineUrl, 'http://hbx-engine-1:8001');
+  assert.equal(counts.approvedCount, 1);
+  assert.equal(counts.rejectedCount, 0);
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].email, 'agenda@barbeariax.com.br');
+  assert.equal(saved[0].emailStatus, 'confirmed');
+  assert.equal(service.candidateHasRequiredChannels(saved[0], normalized), true);
+});
+
 test('persistRadarLeadPoolBatch no Lead+ materializa card List fraco no Radar', async () => {
   const saved: any[] = [];
   const service = new WebscrapingService(createPrisma({

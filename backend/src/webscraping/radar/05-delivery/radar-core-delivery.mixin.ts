@@ -2053,15 +2053,16 @@ export class RadarCoreDeliveryMixin {
     input: NormalizedSearchInput,
     results: WebscrapingContactResult[],
     sourceEngine: string,
-    options: { campaignId?: string | null; strictLocalDdd?: boolean; sourceUrl?: string | null } = {},
+    options: { campaignId?: string | null; strictLocalDdd?: boolean; sourceUrl?: string | null; engineUrl?: string | null } = {},
   ) {
     if (!(await this.supportsRadarPersistence())) return { approvedCount: 0, duplicateCount: 0, rejectedCount: 0, savedCount: 0 };
+    const resultsToPersist = await this.enrichSearchRunResultsBeforeSave(input, results, sourceEngine, options.engineUrl);
     const delegate = (this.prisma as any).radarLeadPool;
     const now = new Date();
     const expectedDdds = this.buildExpectedDdds(input);
     const strictLocalDdd = options.strictLocalDdd === true;
     const counts = { approvedCount: 0, duplicateCount: 0, rejectedCount: 0, savedCount: 0 };
-    for (const result of this.mergeDedupedContacts(results)) {
+    for (const result of this.mergeDedupedContacts(resultsToPersist)) {
       const phoneDigits = normalizePhoneDigits(result.phoneDigits || result.phone);
       const ddd = this.extractDdd(phoneDigits || result.phone);
       const resultCity = String((result as any).city || input.city || '').trim();

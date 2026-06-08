@@ -2023,6 +2023,12 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         requiresLocation: policy.radar.requiresLocation,
         requiredChannels: policy.radar.requiredChannels,
       },
+      visibility: {
+        sellerCanViewOwnPolicy: policy.visibility.sellerCanViewOwnPolicy,
+        sellerCanViewCommission: policy.visibility.sellerCanViewCommission,
+        sellerCanViewHbxNetwork: policy.visibility.sellerCanViewHbxNetwork,
+        sellerCanViewLimits: policy.visibility.sellerCanViewLimits,
+      },
     };
   }
 

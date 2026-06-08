@@ -74,7 +74,7 @@ export type RadarLeadEnrichmentResult = {
   enrichmentVersion: string;
 };
 
-export const RADAR_LEAD_ENRICHMENT_VERSION = 'radar-card-v1';
+export const RADAR_LEAD_ENRICHMENT_VERSION = 'radar-card-v2';
 
 const PROTECTED_STATUSES = new Set([
   'negative',
@@ -112,6 +112,8 @@ const BLOCKED_EMAIL_DOMAINS = new Set([
   'dominio.com',
 ]);
 
+const PROBABLE_EMAIL_LOCAL_PARTS = ['contato', 'comercial', 'vendas', 'atendimento'];
+
 function normalizeText(value: unknown) {
   return String(value || '').trim();
 }
@@ -139,8 +141,16 @@ function hasUsableEmail(value: unknown) {
   return !isBlockedEmailDomain(domain);
 }
 
+function normalizeEmailSearchText(value: unknown) {
+  return normalizeText(typeof value === 'object' ? JSON.stringify(value) : value)
+    .replace(/\s*(?:\(|\[)\s*(?:arroba|at)\s*(?:\)|\])\s*/gi, '@')
+    .replace(/\s+(?:arroba|at)\s+/gi, '@')
+    .replace(/\s*(?:\(|\[)\s*(?:dot|ponto)\s*(?:\)|\])\s*/gi, '.')
+    .replace(/\s+(?:dot|ponto)\s+/gi, '.');
+}
+
 function extractFirstEmail(value: unknown) {
-  const text = normalizeText(typeof value === 'object' ? JSON.stringify(value) : value);
+  const text = normalizeEmailSearchText(value);
   const matches = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || [];
   return matches.map((match) => match.toLowerCase()).find((email) => hasUsableEmail(email)) || '';
 }
@@ -202,6 +212,69 @@ function pickCollectedEmail(input: RadarLeadEnrichmentInput) {
     }
   }
   return { email: '', source: 'none' as RadarEmailSource };
+}
+
+function inferProbableDomainEmail(input: RadarLeadEnrichmentInput) {
+  const domain = extractDomain(input.website);
+  if (!domain || isBlockedEmailDomain(domain)) return '';
+  const sourceDomain = extractDomain(input.sourceUrl);
+  if (sourceDomain && sourceDomain !== domain && !sourceDomain.endsWith(`.${domain}`)) return '';
+  return PROBABLE_EMAIL_LOCAL_PARTS.map((local) => `${local}@${domain}`).find((email) => hasUsableEmail(email)) || '';
+}
+
+function evidenceItem(type: string, label: string, confidence: number, source?: string | null, url?: string | null) {
+  return {
+    type,
+    label,
+    confidence: clampInt(confidence),
+    ...(source ? { source } : {}),
+    ...(url ? { url } : {}),
+  };
+}
+
+function buildMissingData(input: RadarLeadEnrichmentInput, data: {
+  emailStatus: RadarEmailStatus;
+  instagramUrl: string | null;
+  facebookUrl: string | null;
+  googleMapsUrl: string | null;
+}) {
+  const missing: string[] = [];
+  if (data.emailStatus === 'missing' || data.emailStatus === 'invalid') missing.push('email_publico');
+  if (normalizeKey(input.whatsappStatus) !== 'confirmed') missing.push('whatsapp_confirmado');
+  if (!normalizeText(input.website)) missing.push('site_oficial');
+  if (!data.instagramUrl && !data.facebookUrl) missing.push('rede_social');
+  if (!data.googleMapsUrl && !normalizeText(input.placeId)) missing.push('maps');
+  return missing;
+}
+
+function buildDigitalWeakness(input: RadarLeadEnrichmentInput, data: {
+  emailStatus: RadarEmailStatus;
+  socialStatus: RadarSocialStatus;
+}) {
+  const weakness: string[] = [];
+  const websiteStatus = normalizeWebsiteStatus(input);
+  if (websiteStatus === 'none') weakness.push('sem_site');
+  if (['weak', 'social_only', 'unreachable'].includes(websiteStatus)) weakness.push('site_fraco');
+  if (data.socialStatus === 'missing') weakness.push('sem_rede_social_confirmada');
+  if (data.emailStatus === 'missing') weakness.push('sem_email_publico_confirmado');
+  if (normalizeKey(input.whatsappStatus) !== 'confirmed') weakness.push('whatsapp_nao_confirmado');
+  return weakness;
+}
+
+function buildFirstMessage(input: RadarLeadEnrichmentInput, channel: RadarRecommendedChannel, pain: { type: RadarPainType; label: string }) {
+  const leadName = normalizeText(input.name) || 'sua empresa';
+  const city = normalizeText(input.city) || 'sua cidade';
+  if (channel === 'email') {
+    return `Olá, tudo bem? Vi a ${leadName} em ${city} e queria te mostrar uma forma simples de organizar contatos, retornos e oportunidades comerciais.`;
+  }
+  if (channel === 'whatsapp') {
+    return `Olá, tudo bem? Vi a ${leadName} em ${city}. A HBX ajuda a organizar conversas, retornos e oportunidades que chegam pelo WhatsApp.`;
+  }
+  if (channel === 'call') {
+    return `Validar por telefone quem cuida dos contatos comerciais da ${leadName} antes de enviar apresentação.`;
+  }
+  if (channel === 'discard') return 'Não abordar: card protegido por histórico operacional.';
+  return `Revisar canal da ${leadName}; sinal principal: ${pain.label.toLowerCase()}.`;
 }
 
 function normalizeWebsiteStatus(input: RadarLeadEnrichmentInput) {
@@ -307,17 +380,19 @@ export function buildRadarLeadEnrichment(input: RadarLeadEnrichmentInput): Radar
   const suppliedEmailIsInferred = rawEmailSource === 'inferred' || rawEmailStatus === 'probable';
   const explicitEmail = hasUsableEmail(suppliedEmail) && !suppliedEmailIsInferred ? suppliedEmail : '';
   const collectedEmail = explicitEmail ? { email: '', source: 'none' as RadarEmailSource } : pickCollectedEmail(input);
-  const domain = extractDomain(input.website);
+  const inferredEmail = explicitEmail || hasUsableEmail(collectedEmail.email) ? '' : inferProbableDomainEmail(input);
   const emailCandidate = hasUsableEmail(explicitEmail)
     ? explicitEmail
     : hasUsableEmail(collectedEmail.email)
       ? collectedEmail.email
-      : null;
+      : hasUsableEmail(inferredEmail)
+        ? inferredEmail
+        : null;
   const emailStatus: RadarEmailStatus = hasUsableEmail(explicitEmail) || hasUsableEmail(collectedEmail.email)
     ? 'confirmed'
     : rawEmailStatus === 'invalid'
       ? 'invalid'
-      : emailCandidate
+      : hasUsableEmail(inferredEmail)
         ? 'probable'
         : rawEmailStatus === 'unverified'
           ? 'unverified'
@@ -326,13 +401,13 @@ export function buildRadarLeadEnrichment(input: RadarLeadEnrichmentInput): Radar
     ? (normalizeKey(input.emailSource) === 'manual' ? 'manual' : 'website')
     : hasUsableEmail(collectedEmail.email)
       ? collectedEmail.source
-    : emailCandidate
+    : hasUsableEmail(inferredEmail)
       ? 'inferred'
       : 'none';
   const emailConfidence = emailStatus === 'confirmed'
     ? Math.max(85, clampInt(input.emailConfidence))
     : emailStatus === 'probable'
-      ? Math.max(45, clampInt(input.emailConfidence || 55))
+      ? Math.max(emailSource === 'inferred' ? 58 : 45, clampInt(input.emailConfidence || 55))
       : 0;
 
   const instagramUrl = normalizeUrl(pickRaw(input, ['instagramUrl', 'instagram', 'instagram_url']));
@@ -445,10 +520,70 @@ export function buildRadarLeadEnrichment(input: RadarLeadEnrichmentInput): Radar
   if ((instagramUrl || facebookUrl) && (pain.type === 'sem_site' || pain.type === 'site_fraco') && !/rede social|Instagram|Facebook/i.test(opportunityReason)) {
     opportunityReason = `${opportunityReason} Rede social encontrada, mas site ausente ou fraco.`;
   }
+  const evidenceTimeline = [
+    normalizeText(input.phone || input.phoneDigits) ? evidenceItem('phone', 'Telefone publico no card', 55, 'hbx') : null,
+    normalizeText(input.website) ? evidenceItem('website', 'Dominio oficial informado', 70, 'hbx', website) : null,
+    hasUsableEmail(explicitEmail) ? evidenceItem('email', 'E-mail existente preservado', emailConfidence, emailSource, input.sourceUrl || website) : null,
+    hasUsableEmail(collectedEmail.email) ? evidenceItem('email', 'E-mail encontrado em fonte publica', emailConfidence, collectedEmail.source, input.sourceUrl || website) : null,
+    hasUsableEmail(inferredEmail) ? evidenceItem('email_probable', 'E-mail provavel por dominio oficial', emailConfidence, 'domain_guess', website) : null,
+    instagramUrl ? evidenceItem('social', 'Instagram encontrado', socialConfidence, 'hbx', instagramUrl) : null,
+    facebookUrl ? evidenceItem('social', 'Facebook encontrado', socialConfidence, 'hbx', facebookUrl) : null,
+    googleMapsUrl ? evidenceItem('maps', 'Maps/sourceUrl publico disponivel', 55, 'hbx', googleMapsUrl) : null,
+  ].filter(Boolean);
+  const missingData = buildMissingData(input, { emailStatus, instagramUrl, facebookUrl, googleMapsUrl });
+  const digitalWeakness = buildDigitalWeakness(input, { emailStatus, socialStatus });
+  const costProviders = Array.from(new Set([
+    'hbx',
+    hasUsableEmail(collectedEmail.email) ? 'site_crawl' : '',
+    hasUsableEmail(inferredEmail) ? 'domain_guess' : '',
+    instagramUrl || facebookUrl ? 'social_memory' : '',
+  ].filter(Boolean)));
   const jsonPayload = {
     version: RADAR_LEAD_ENRICHMENT_VERSION,
+    level: 'smart_free',
     emailCandidate,
     whatsappStatus: normalizeText(input.whatsappStatus) || null,
+    cost: {
+      totalBrl: 0,
+      providersUsed: costProviders,
+      cacheHit: Boolean((input.rawPayload as any)?.cacheHit || (input.rawPayload as any)?.fromCache),
+    },
+    identity: {
+      confidence: qualityV2.identityScore,
+      evidence: evidenceTimeline.slice(0, 8),
+    },
+    contact: {
+      email: emailCandidate,
+      emailStatus,
+      emailConfidence,
+      emailSource,
+      phone: normalizeText(input.phone || input.phoneDigits) || null,
+      whatsappStatus: normalizeText(input.whatsappStatus) || null,
+    },
+    digitalPresence: {
+      websiteStatus: normalizeWebsiteStatus(input),
+      socialStatus,
+      instagramUrl,
+      facebookUrl,
+      weakness: digitalWeakness,
+    },
+    salesFit: {
+      score: enrichmentScore,
+      painType: pain.type,
+      painPitch: pain.pitch,
+      qualityDecision: qualityV2.decision,
+    },
+    actionPlan: {
+      recommendedChannel,
+      firstMessage: buildFirstMessage(input, recommendedChannel, pain),
+      nextStep: recommendedChannel === 'discard'
+        ? 'nao_abordar'
+        : recommendedChannel === 'review'
+          ? 'revisar_identidade_e_canal'
+          : `abordar_por_${recommendedChannel}`,
+    },
+    evidenceTimeline,
+    missingData,
     qualityV2,
     signals: {
       website,

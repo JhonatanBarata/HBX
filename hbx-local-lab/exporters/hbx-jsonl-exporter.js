@@ -1,0 +1,151 @@
+'use strict';
+
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const { compactText, normalizeDomain, normalizeEmail, normalizePhoneDigits, normalizeUrl } = require('../extractors/email.extractor');
+
+function jsonLine(value) {
+  return `${JSON.stringify(value)}\n`;
+}
+
+function normalizeState(value) {
+  return compactText(value, 2).toUpperCase() || null;
+}
+
+function normalizeLead(lead, batchId, job) {
+  const name = compactText(lead.name || lead.companyName, 300);
+  const sourceUrl = normalizeUrl(lead.sourceUrl || lead.website);
+  if (!name || !sourceUrl) return null;
+  const email = normalizeEmail(lead.email);
+  return {
+    externalId: compactText(lead.externalId, 180) || `lead:${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+    batchId,
+    name,
+    city: compactText(lead.city || job.city, 120) || null,
+    state: normalizeState(lead.state || job.state),
+    segment: compactText(lead.segment || job.segment, 180) || null,
+    website: normalizeUrl(lead.website) || null,
+    phone: normalizePhoneDigits(lead.phone) || null,
+    whatsapp: normalizePhoneDigits(lead.whatsapp) || null,
+    email: email || null,
+    emailStatus: email ? lead.emailStatus || 'probable' : 'missing',
+    emailConfidence: Number.isFinite(Number(lead.emailConfidence)) ? Math.max(0, Math.min(100, Math.round(Number(lead.emailConfidence)))) : undefined,
+    instagramUrl: normalizeUrl(lead.instagramUrl) || null,
+    facebookUrl: normalizeUrl(lead.facebookUrl) || null,
+    sourceUrl,
+    sourceProvider: compactText(lead.sourceProvider || 'local_lab', 120),
+    sourceMode: 'local_lab',
+    sourceRisk: 'experimental',
+    evidence: lead.evidence && typeof lead.evidence === 'object' ? lead.evidence : {},
+    raw: lead.raw && typeof lead.raw === 'object' ? lead.raw : {},
+  };
+}
+
+function normalizeEmailCandidate(email, batchId) {
+  const normalizedEmail = normalizeEmail(email.email);
+  const sourceUrl = normalizeUrl(email.sourceUrl);
+  if (!normalizedEmail || !sourceUrl) return null;
+  return {
+    externalId: compactText(email.externalId, 180) || `email:${normalizedEmail}`,
+    batchId,
+    email: normalizedEmail,
+    domain: normalizeDomain(email.domain || normalizedEmail) || null,
+    companyName: compactText(email.companyName, 300) || null,
+    website: normalizeUrl(email.website) || null,
+    sourceUrl,
+    confidence: Number.isFinite(Number(email.confidence)) ? Math.max(0, Math.min(100, Math.round(Number(email.confidence)))) : 0,
+    status: ['public_found', 'probable', 'invalid', 'blocked_domain'].includes(String(email.status || ''))
+      ? email.status
+      : 'probable',
+    provider: compactText(email.provider || 'local_lab', 120),
+    sourceMode: 'local_lab',
+    evidence: email.evidence && typeof email.evidence === 'object' ? email.evidence : {},
+  };
+}
+
+function dedupeLeads(leads) {
+  const seen = new Set();
+  return leads.filter((lead) => {
+    const key = [
+      lead.email ? `email:${lead.email}` : '',
+      lead.phone ? `phone:${lead.phone}` : '',
+      lead.website ? `domain:${normalizeDomain(lead.website)}` : '',
+      `namecity:${String(lead.name || '').toLowerCase()}|${String(lead.city || '').toLowerCase()}`,
+    ].filter(Boolean).find((item) => !item.endsWith(':'));
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function dedupeEmails(emails) {
+  const seen = new Set();
+  return emails.filter((email) => {
+    const key = email.email || `${email.domain}:${email.sourceUrl}`;
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function buildBatchExport(job, input = {}) {
+  const batchId = job.batchId || `local-lab-${job.id}`;
+  const leads = dedupeLeads((input.leads || []).map((lead) => normalizeLead(lead, batchId, job)).filter(Boolean));
+  const emails = dedupeEmails((input.emails || []).map((email) => normalizeEmailCandidate(email, batchId)).filter(Boolean));
+  const providers = Array.from(new Set([
+    ...(Array.isArray(job.providers) ? job.providers : []),
+    ...leads.map((lead) => lead.sourceProvider),
+    ...emails.map((email) => email.provider),
+  ].filter(Boolean)));
+  const stats = {
+    ...(input.stats || {}),
+    leads: leads.length,
+    emails: emails.length,
+  };
+  const manifest = {
+    batchId,
+    sourceMode: 'local_lab',
+    sourceName: 'HBX Local Lab',
+    createdAt: new Date(job.createdAt || Date.now()).toISOString(),
+    requestedBy: job.requestedBy || null,
+    city: job.city || null,
+    state: normalizeState(job.state),
+    segment: job.segment || null,
+    targetEmails: Number.isFinite(Number(job.targetEmails)) ? Math.trunc(Number(job.targetEmails)) : null,
+    providers,
+    stats,
+  };
+  return {
+    manifest,
+    batch: {
+      ...manifest,
+      leads,
+      emails,
+    },
+    leads,
+    emails,
+    leadsJsonl: leads.map(jsonLine).join(''),
+    emailsJsonl: emails.map(jsonLine).join(''),
+  };
+}
+
+async function writeBatchExport(job, input, outputDir) {
+  const exported = buildBatchExport(job, input);
+  await fs.mkdir(outputDir, { recursive: true });
+  await fs.writeFile(path.join(outputDir, 'batch-manifest.json'), JSON.stringify(exported.manifest, null, 2));
+  await fs.writeFile(path.join(outputDir, 'leads.jsonl'), exported.leadsJsonl);
+  await fs.writeFile(path.join(outputDir, 'emails.jsonl'), exported.emailsJsonl);
+  return {
+    ...exported,
+    files: {
+      manifest: path.join(outputDir, 'batch-manifest.json'),
+      leads: path.join(outputDir, 'leads.jsonl'),
+      emails: path.join(outputDir, 'emails.jsonl'),
+    },
+  };
+}
+
+module.exports = {
+  buildBatchExport,
+  writeBatchExport,
+};

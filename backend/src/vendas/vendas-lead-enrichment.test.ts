@@ -36,6 +36,45 @@ test('vendas intelligence preserves enriched Radar data from timeline metadata',
   assert.match(intelligence.opportunityReason, /E-mail provável/);
 });
 
+test('vendas intelligence le smart_free com email provavel e plano de acao', () => {
+  const intelligence = buildVendasLeadIntelligence({
+    lead: {
+      name: 'Clinica Smart Free',
+      phone: '19999999999',
+      website: 'https://clinicasmartfree.com.br',
+      enrichmentJson: JSON.stringify({
+        version: 'radar-card-v2',
+        level: 'smart_free',
+        cost: { totalBrl: 0, providersUsed: ['hbx', 'domain_guess'], cacheHit: false },
+        contact: {
+          email: 'contato@clinicasmartfree.com.br',
+          emailStatus: 'probable',
+          emailConfidence: 58,
+          emailSource: 'inferred',
+        },
+        salesFit: {
+          score: 71,
+          painType: 'site_fraco',
+          painPitch: 'Presença digital existe, mas precisa virar fila comercial.',
+        },
+        actionPlan: {
+          recommendedChannel: 'email',
+          firstMessage: 'Olá, tudo bem?',
+          nextStep: 'abordar_por_email',
+        },
+        sourceConfidence: { enrichment: 80 },
+      }),
+    },
+  });
+
+  assert.equal(intelligence.email, 'contato@clinicasmartfree.com.br');
+  assert.equal(intelligence.emailStatus, 'probable');
+  assert.equal(intelligence.emailSource, 'inferred');
+  assert.equal(intelligence.recommendedChannel, 'email');
+  assert.equal(intelligence.painType, 'site_fraco');
+  assert.equal(intelligence.confidence.email, 58);
+});
+
 test('vendas intelligence blocks protected Radar recommendation', () => {
   const intelligence = buildVendasLeadIntelligence({
     lead: {
