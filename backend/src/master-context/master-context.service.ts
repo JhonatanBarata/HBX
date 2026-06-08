@@ -4,6 +4,7 @@ import {
   MASTER_WHATSAPP_ENGINE_COMPANY_NAME,
   MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
 } from '../companies/master-whatsapp-company.constants';
+import { COMPANY_KIND_PLATFORM_INFRA } from '../common/company-kind';
 import { PrismaService } from '../prisma/prisma.service';
 
 type MasterContextSummary = {
@@ -334,6 +335,7 @@ export class MasterContextService implements OnModuleInit {
           data: {
             name: MASTER_WHATSAPP_ENGINE_COMPANY_NAME,
             slug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
+            companyKind: COMPANY_KIND_PLATFORM_INFRA,
             onboardingStatus: 'active_paid',
             paymentStatus: 'MANUAL',
             subscriptionStatus: 'manual',

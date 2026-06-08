@@ -3,9 +3,9 @@ export type CurrentUserAccessUser = {
   userKind?: string | null;
   isSystemMaster?: boolean | null;
   sellerProfile?: {
-    isHbxPartnerSeller?: boolean | null;
     isCommonSeller?: boolean | null;
     isAdmin?: boolean | null;
+    isHbxPartnerSeller?: boolean | null;
   } | null;
   company?: {
     id?: number | string | null;
@@ -42,12 +42,7 @@ export function getCurrentUserAccess(user?: CurrentUserAccessUser | null): Curre
     isSystemMaster && user?.masterContext?.active && masterMode === "empresa_assumida",
   );
   const isOperationalMaster = Boolean(isSystemMaster && !isAssumedCompanyMaster);
-  const isHbxPartnerSeller = Boolean(
-    !isSystemMaster &&
-      (normalizedUserKind === "hbx_partner_seller" ||
-        user?.sellerProfile?.isHbxPartnerSeller ||
-        (user?.company?.isHbxSellerNetwork && normalizedRole === "USER")),
-  );
+  const isHbxPartnerSeller = false;
   const isCompanyAdmin = Boolean(
     !isSystemMaster &&
       (normalizedRole === "ADMIN" ||

@@ -1,4 +1,4 @@
-import { isMasterOperationalCompanySlug } from '../commercial-plans/seat-billing.util';
+import { isTenantCompany } from '../common/company-kind';
 
 export const TEAM_POLICY_VERSION = 1;
 export const TEAM_POLICY_DEFAULT_REQUIRED_CHANNELS = {
@@ -198,7 +198,6 @@ export async function loadUserTeamPolicyRuntime(prisma: any, userIdRaw: unknown)
 export function resolveTeamPolicySubjectKind(user: any, company?: any) {
   const role = normalizeRole(user?.role);
   if (user?.isSystemMaster) return 'system_master';
-  if (isMasterOperationalCompanySlug(company?.slug) && role === 'USER') return 'hbx_partner_seller';
   if (role === 'ADMIN') return 'company_admin';
   if (role === 'USER') return 'common_seller';
   return 'unknown';
@@ -207,7 +206,7 @@ export function resolveTeamPolicySubjectKind(user: any, company?: any) {
 export function buildUserTeamPolicySnapshotData(user: any, options?: { source?: string }) {
   const company = user?.company || null;
   const subjectKind = resolveTeamPolicySubjectKind(user, company);
-  const hbxOperationCompany = isMasterOperationalCompanySlug(company?.slug);
+  const tenantCompany = Boolean(company && isTenantCompany(company));
   const legacyOverride = normalizeLegacyEnrichmentOverride(user?.sellerDistributionDailyLimitOverride);
   const moduleRows = Array.isArray(user?.moduleAccesses) ? user.moduleAccesses : [];
   const modules = moduleRows
@@ -217,9 +216,9 @@ export function buildUserTeamPolicySnapshotData(user: any, options?: { source?: 
     }))
     .filter((row: { key: string }) => row.key)
     .sort((a: { key: string }, b: { key: string }) => a.key.localeCompare(b.key));
-  const enrichmentDailyMode = hbxOperationCompany && legacyOverride === 0
+  const enrichmentDailyMode = tenantCompany && legacyOverride === 0
     ? 'unlimited'
-    : hbxOperationCompany && typeof legacyOverride === 'number' && legacyOverride > 0
+    : tenantCompany && typeof legacyOverride === 'number' && legacyOverride > 0
       ? 'limited'
       : 'inherit';
 
@@ -254,7 +253,7 @@ export function buildUserTeamPolicySnapshotData(user: any, options?: { source?: 
     blockedSegmentsJson: '[]',
     allowedCitiesJson: '[]',
     allowedStatesJson: '[]',
-    requiresLocation: subjectKind === 'hbx_partner_seller' ? true : null,
+    requiresLocation: null,
     requiredChannelsJson: JSON.stringify(TEAM_POLICY_DEFAULT_REQUIRED_CHANNELS),
     visibilityJson: null,
   };

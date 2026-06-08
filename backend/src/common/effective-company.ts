@@ -2,9 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 
 export type EffectiveCompanyMode =
   | 'user_company'
-  | 'hbx_seller_operational_company'
   | 'master_assumed_company'
-  | 'master_operational_company'
   | 'master_explicit_company'
   | 'unresolved';
 
@@ -12,7 +10,7 @@ export type EffectiveCompanyUnresolvedReason =
   | 'invalid_explicit_company_id'
   | 'explicit_company_not_allowed'
   | 'missing_user_company'
-  | 'missing_master_operational_company';
+  | 'missing_company_context';
 
 export type EffectiveCompanyResolution = {
   companyId: number | null;
@@ -25,8 +23,6 @@ export type EffectiveCompanyResolution = {
 export type EffectiveCompanyOptions = {
   explicitCompanyId?: unknown;
   allowMasterExplicitCompany?: boolean;
-  hbxOperationalCompanyId?: unknown;
-  allowMasterOperationalCompany?: boolean;
   errorMessage?: string;
 };
 
@@ -43,16 +39,6 @@ export function normalizeEffectiveCompanyId(value: unknown) {
 
 function getUserFromRequestLike(reqOrUser: any) {
   return reqOrUser?.user ? reqOrUser.user : reqOrUser;
-}
-
-function isHbxPartnerSeller(user: any, role: string, isSystemMaster: boolean) {
-  if (isSystemMaster) return false;
-  const userKind = String(user?.userKind || '').trim().toLowerCase();
-  return Boolean(
-    userKind === 'hbx_partner_seller' ||
-      user?.sellerProfile?.isHbxPartnerSeller ||
-      (user?.company?.isHbxSellerNetwork && role === 'USER'),
-  );
 }
 
 function unresolved(
@@ -76,11 +62,9 @@ export function resolveEffectiveCompanyContext(
   options: EffectiveCompanyOptions = {},
 ): EffectiveCompanyResolution {
   const user = getUserFromRequestLike(reqOrUser);
-  const role = String(user?.role || '').trim().toUpperCase();
   const isSystemMaster = Boolean(user?.isSystemMaster);
   const masterContext = user?.masterContext || null;
   const userCompanyId = normalizeEffectiveCompanyId(user?.companyId ?? user?.company?.id);
-  const hbxOperationalCompanyId = normalizeEffectiveCompanyId(options.hbxOperationalCompanyId);
   const explicitCompanyProvided = valueWasProvided(options.explicitCompanyId);
   const explicitCompanyId = normalizeEffectiveCompanyId(options.explicitCompanyId);
 
@@ -101,10 +85,9 @@ export function resolveEffectiveCompanyContext(
   }
 
   if (isSystemMaster) {
-    const assumedCompanyId =
-      masterContext?.active && masterContext?.mode === 'empresa_assumida'
-        ? normalizeEffectiveCompanyId(masterContext.companyId)
-        : null;
+    const assumedCompanyId = masterContext?.active
+      ? normalizeEffectiveCompanyId(masterContext.companyId)
+      : null;
     if (assumedCompanyId) {
       return {
         companyId: assumedCompanyId,
@@ -115,39 +98,13 @@ export function resolveEffectiveCompanyContext(
       };
     }
 
-    const operationalCompanyId =
-      hbxOperationalCompanyId ||
-      (masterContext?.mode === 'master_operacional'
-        ? normalizeEffectiveCompanyId(masterContext.companyId)
-        : null);
-    if (options.allowMasterOperationalCompany !== false && operationalCompanyId) {
-      return {
-        companyId: operationalCompanyId,
-        mode: 'master_operational_company',
-        isSystemMaster,
-        reason: null,
-        masterContext,
-      };
-    }
-
-    return unresolved({ isSystemMaster, masterContext, reason: 'missing_master_operational_company' });
+    return unresolved({ isSystemMaster, masterContext, reason: 'missing_company_context' });
   }
 
-  const hbxPartnerSeller = isHbxPartnerSeller(user, role, isSystemMaster);
   if (userCompanyId) {
     return {
       companyId: userCompanyId,
-      mode: hbxPartnerSeller ? 'hbx_seller_operational_company' : 'user_company',
-      isSystemMaster,
-      reason: null,
-      masterContext,
-    };
-  }
-
-  if (hbxPartnerSeller && options.allowMasterOperationalCompany !== false && hbxOperationalCompanyId) {
-    return {
-      companyId: hbxOperationalCompanyId,
-      mode: 'hbx_seller_operational_company',
+      mode: 'user_company',
       isSystemMaster,
       reason: null,
       masterContext,

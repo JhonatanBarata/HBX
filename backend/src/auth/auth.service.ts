@@ -28,7 +28,7 @@ import {
   type CommercialPlanKey,
 } from '../commercial-plans/commercial-plan-catalog';
 import { HbxCommissionSyncService } from '../commissions/hbx-commission-sync.service';
-import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../companies/master-whatsapp-company.constants';
+import { isPlatformInfraCompany } from '../common/company-kind';
 import { ensureUserTeamPolicyForUser } from '../team/team-policy-persistence';
 
 @Injectable()
@@ -387,6 +387,23 @@ export class AuthService implements OnModuleInit {
 
   private pendingTrialActivationNextPath() {
     return '/register?start=trial';
+  }
+
+  private isCommercialAccessReleased(company?: any | null) {
+    if (!company || isPlatformInfraCompany(company)) return false;
+    const subscriptionStatus = String(company.subscriptionStatus || '').trim().toLowerCase();
+    const paymentStatus = String(company.paymentStatus || '').trim().toUpperCase();
+    return (
+      ['active', 'authorized', 'manual'].includes(subscriptionStatus) ||
+      ['PAID', 'MANUAL'].includes(paymentStatus) ||
+      Boolean(company.premiumAccess)
+    );
+  }
+
+  private assertOperationalWorkspaceCompany(company?: any | null) {
+    if (isPlatformInfraCompany(company)) {
+      throw new UnauthorizedException('Empresa de infraestrutura nao possui workspace operacional.');
+    }
   }
 
   private buildEmailConfirmationPollToken(userId: number) {
@@ -1055,6 +1072,25 @@ export class AuthService implements OnModuleInit {
   async login(user: any, opts?: { companyId?: number; userAgent?: string; ip?: string }) {
     const now = new Date();
     const expiresAt = this.addSessionTtl(now);
+    const requestedCompanyId = opts?.companyId ?? user.companyId ?? undefined;
+    const isSystemMaster = Boolean(user?.isSystemMaster);
+    let company = !isSystemMaster && requestedCompanyId
+      ? await this.prisma.company.findUnique({
+          where: { id: Number(requestedCompanyId) },
+          select: {
+            companyKind: true,
+            onboardingStatus: true,
+            subscriptionStatus: true,
+            paymentStatus: true,
+            premiumAccess: true,
+            trialEndsAt: true,
+          },
+        })
+      : null;
+    if (!isSystemMaster) {
+      this.assertOperationalWorkspaceCompany(company);
+    }
+
     const sessionContext = await this.prisma.$transaction(async (tx) => {
       await tx.authSession.updateMany({
         where: {
@@ -1102,7 +1138,22 @@ export class AuthService implements OnModuleInit {
       return { user: updatedUser, sessionId: session.id };
     });
 
-    const companyId = opts?.companyId ?? sessionContext.user.companyId ?? undefined;
+    const companyId = requestedCompanyId ?? sessionContext.user.companyId ?? undefined;
+    if (!Boolean(sessionContext.user?.isSystemMaster) && !company && companyId) {
+      company = await this.prisma.company.findUnique({
+        where: { id: Number(companyId) },
+        select: {
+          companyKind: true,
+          onboardingStatus: true,
+          subscriptionStatus: true,
+          paymentStatus: true,
+          premiumAccess: true,
+          trialEndsAt: true,
+        },
+      });
+      this.assertOperationalWorkspaceCompany(company);
+    }
+
     const payload = {
       sub: sessionContext.user.id,
       email: sessionContext.user.email,
@@ -1110,28 +1161,7 @@ export class AuthService implements OnModuleInit {
       sid: sessionContext.sessionId,
       sv: sessionContext.user.sessionVersion,
     };
-    const company = !Boolean(sessionContext.user?.isSystemMaster) && companyId
-      ? await this.prisma.company.findUnique({
-          where: { id: Number(companyId) },
-          select: {
-            slug: true,
-            onboardingStatus: true,
-            subscriptionStatus: true,
-            paymentStatus: true,
-            premiumAccess: true,
-            trialEndsAt: true,
-          },
-        })
-      : null;
-    const isHbxOperationalCompany =
-      String(company?.slug || '').trim().toLowerCase() === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG;
-    const hbxOperationalNext =
-      String(sessionContext.user?.role || '').trim().toUpperCase() === 'USER' ? '/vendas' : '/gerencial';
-    const accessReleased =
-      isHbxOperationalCompany ||
-      ['active', 'authorized', 'manual'].includes(String(company?.subscriptionStatus || '').trim().toLowerCase()) ||
-      ['PAID', 'MANUAL'].includes(String(company?.paymentStatus || '').trim().toUpperCase()) ||
-      Boolean(company?.premiumAccess);
+    const accessReleased = this.isCommercialAccessReleased(company);
     const pendingTrialActivation =
       !accessReleased &&
       (
@@ -1179,8 +1209,6 @@ export class AuthService implements OnModuleInit {
       access_token: this.jwtService.sign(payload),
       next: Boolean(sessionContext.user?.isSystemMaster)
         ? '/dashboard/master'
-        : isHbxOperationalCompany
-          ? hbxOperationalNext
         : pendingTrialActivation
           ? this.pendingTrialActivationNextPath()
           : trialExpired || paymentFailed || pendingCheckout
@@ -1216,11 +1244,7 @@ export class AuthService implements OnModuleInit {
     }
 
     const onboardingStatus = String(user?.company?.onboardingStatus || '').trim().toLowerCase();
-    const isHbxOperationalLoginCompany =
-      String(user?.company?.slug || '').trim().toLowerCase() === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG;
-    const requiresEmailConfirmation = isHbxOperationalLoginCompany
-      ? !user.emailConfirmedAt
-      : onboardingStatus === 'pending_email_confirmation';
+    const requiresEmailConfirmation = onboardingStatus === 'pending_email_confirmation';
     if (!Boolean(user?.isSystemMaster) && requiresEmailConfirmation && !this.isLocalMockSignupFlow()) {
       throw new UnauthorizedException({
         code: 'EMAIL_CONFIRMATION_REQUIRED',
@@ -1249,10 +1273,12 @@ export class AuthService implements OnModuleInit {
     if (!companyId && !isSystemMaster) {
       throw new UnauthorizedException('Conta sem empresa vinculada');
     }
+    if (!isSystemMaster) {
+      this.assertOperationalWorkspaceCompany(user.company);
+    }
 
     if (
       !isSystemMaster &&
-      !isHbxOperationalLoginCompany &&
       companyId &&
       onboardingStatus === 'pending_email_confirmation' &&
       this.isLocalMockSignupFlow()
@@ -1793,7 +1819,7 @@ export class AuthService implements OnModuleInit {
         emailConfirmationExpiresAt: true,
         company: {
           select: {
-            slug: true,
+            companyKind: true,
             selectedPlanKey: true,
           },
         },
@@ -1817,15 +1843,16 @@ export class AuthService implements OnModuleInit {
     const confirmedAt = new Date();
     let trialEndsAt: Date | null = null;
     const selectedPlanKey = this.normalizeSelectedPlanKey(user.company?.selectedPlanKey || undefined);
-    const isHbxOperationalCompany =
-      String(user.company?.slug || '').trim().toLowerCase() === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG;
-    const isPendingHbxPartnerApproval =
-      isHbxOperationalCompany &&
-      String(user.role || '').trim().toUpperCase() === 'USER' &&
-      user.isActive === false;
+    const platformInfraCompany = isPlatformInfraCompany(user.company);
+    if (user.companyId && platformInfraCompany && !user.isSystemMaster) {
+      throw new BadRequestException({
+        code: 'PLATFORM_INFRA_COMPANY_NOT_COMMERCIAL',
+        message: 'Empresa de infraestrutura nao possui fluxo comercial de confirmação.',
+      });
+    }
     const requiresTrialActivation = Boolean(
       user.companyId &&
-        !isHbxOperationalCompany &&
+        !platformInfraCompany &&
         this.getPublicTrialDaysForPlan(selectedPlanKey) > 0,
     );
 
@@ -1840,7 +1867,7 @@ export class AuthService implements OnModuleInit {
         },
       });
 
-      if (user.companyId && !isHbxOperationalCompany) {
+      if (user.companyId && !platformInfraCompany) {
         if (requiresTrialActivation) {
           await tx.company.update({
             where: { id: Number(user.companyId) },
@@ -1867,7 +1894,7 @@ export class AuthService implements OnModuleInit {
       }
     });
 
-    if (user.companyId && !isPendingHbxPartnerApproval) {
+    if (user.companyId) {
       await this.hbxCommissionSync.syncActivatedCompany(Number(user.companyId), {
         source: requiresTrialActivation ? 'auth_email_confirmed_pending_trial' : 'auth_email_confirmed',
       }).catch((error: any) => {
@@ -1875,7 +1902,7 @@ export class AuthService implements OnModuleInit {
       });
     }
 
-    const loginPayload = user.companyId && !isPendingHbxPartnerApproval
+    const loginPayload = user.companyId
       ? await this.login(
           {
             id: user.id,
@@ -1887,20 +1914,12 @@ export class AuthService implements OnModuleInit {
           { companyId: Number(user.companyId), userAgent: opts?.userAgent, ip: opts?.ip },
         )
       : null;
-    const next = isPendingHbxPartnerApproval
-      ? '/login'
-      : isHbxOperationalCompany
-      ? '/vendas'
-      : loginPayload?.next || (requiresTrialActivation ? this.pendingTrialActivationNextPath() : trialEndsAt ? '/dashboard' : this.pendingCheckoutNextPath());
+    const next = loginPayload?.next || (requiresTrialActivation ? this.pendingTrialActivationNextPath() : trialEndsAt ? '/dashboard' : this.pendingCheckoutNextPath());
 
     return {
       ok: true,
       status: user.companyId
-        ? isPendingHbxPartnerApproval
-          ? 'pending_partner_approval'
-          : isHbxOperationalCompany
-          ? 'confirmed'
-          : requiresTrialActivation
+        ? requiresTrialActivation
             ? 'pending_trial_activation'
             : trialEndsAt
               ? 'active_trial'
@@ -1908,11 +1927,7 @@ export class AuthService implements OnModuleInit {
         : 'confirmed',
       email: user.email || null,
       message: user.companyId
-        ? isPendingHbxPartnerApproval
-          ? 'E-mail confirmado. Seu acesso de parceiro HBX será liberado após aprovação dos documentos e contrato.'
-          : isHbxOperationalCompany
-          ? 'E-mail confirmado. Acesso de parceiro HBX liberado para a esteira de vendas.'
-          : requiresTrialActivation
+        ? requiresTrialActivation
           ? 'E-mail confirmado. Agora ative seu trial gratuito de 14 dias.'
           : trialEndsAt
           ? `E-mail confirmado. O trial gratuito está ativo até ${trialEndsAt.toLocaleDateString('pt-BR')}.`
@@ -1924,10 +1939,6 @@ export class AuthService implements OnModuleInit {
       next,
       loginNext: loginPayload?.access_token
         ? next
-        : isPendingHbxPartnerApproval
-        ? '/login'
-        : isHbxOperationalCompany
-        ? '/login?next=/vendas'
         : requiresTrialActivation
         ? `/login?next=${encodeURIComponent(this.pendingTrialActivationNextPath())}`
         : trialEndsAt
@@ -2046,7 +2057,7 @@ export class AuthService implements OnModuleInit {
         emailConfirmedAt: true,
         company: {
           select: {
-            slug: true,
+            companyKind: true,
             onboardingStatus: true,
             subscriptionStatus: true,
             paymentStatus: true,
@@ -2064,37 +2075,35 @@ export class AuthService implements OnModuleInit {
     const onboardingStatus = String(user.company?.onboardingStatus || '').trim().toLowerCase();
     const subscriptionStatus = String(user.company?.subscriptionStatus || '').trim().toLowerCase();
     const paymentStatus = String(user.company?.paymentStatus || '').trim().toUpperCase();
-    const isHbxOperationalCompany =
-      String(user.company?.slug || '').trim().toLowerCase() === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG;
+    const platformInfraCompany = isPlatformInfraCompany(user.company);
     const pendingEmailConfirmation = !user.emailConfirmedAt || onboardingStatus === 'pending_email_confirmation';
     const pendingTrialActivation =
       !pendingEmailConfirmation &&
       (onboardingStatus === 'pending_trial_activation' || subscriptionStatus === 'pending_trial_activation');
-    const accessReleased =
-      isHbxOperationalCompany ||
-      ['active', 'authorized', 'manual'].includes(subscriptionStatus) ||
-      paymentStatus === 'PAID' ||
-      paymentStatus === 'MANUAL' ||
-      Boolean(user.company?.premiumAccess);
+    const accessReleased = this.isCommercialAccessReleased(user.company);
+    const platformInfraBlocked = !pendingEmailConfirmation && platformInfraCompany;
     const trialExpired =
       !pendingEmailConfirmation &&
+      !platformInfraBlocked &&
       !pendingTrialActivation &&
       !accessReleased &&
       (paymentStatus === 'EXPIRED' || subscriptionStatus === 'expired');
     const pendingCheckout =
       !pendingEmailConfirmation &&
+      !platformInfraBlocked &&
       !pendingTrialActivation &&
       !accessReleased &&
       (onboardingStatus === 'pending_checkout' || subscriptionStatus === 'pending_checkout' || paymentStatus === 'PENDING');
     const paymentFailed =
       !pendingEmailConfirmation &&
+      !platformInfraBlocked &&
       !pendingTrialActivation &&
       !accessReleased &&
       (onboardingStatus === 'suspended' || subscriptionStatus === 'past_due' || paymentStatus === 'DISABLED' || paymentStatus === 'OVERDUE');
     const status = pendingEmailConfirmation
       ? 'pending_email_confirmation'
-      : isHbxOperationalCompany
-        ? 'active_trial'
+      : platformInfraBlocked
+        ? 'platform_infra_company'
       : pendingTrialActivation
         ? 'pending_trial_activation'
       : trialExpired
@@ -2106,8 +2115,8 @@ export class AuthService implements OnModuleInit {
         : 'active_trial';
     const next = pendingTrialActivation
       ? this.pendingTrialActivationNextPath()
-      : isHbxOperationalCompany
-        ? '/vendas'
+      : platformInfraBlocked
+        ? '/login'
       : trialExpired
         ? this.preCheckoutNextPath('trial_expired')
       : paymentFailed
@@ -2124,8 +2133,8 @@ export class AuthService implements OnModuleInit {
       next,
       loginNext: pendingTrialActivation
         ? `/login?next=${encodeURIComponent(this.pendingTrialActivationNextPath())}`
-        : isHbxOperationalCompany
-          ? '/login?next=/vendas'
+        : platformInfraBlocked
+          ? '/login'
         : trialExpired
           ? `/login?next=${encodeURIComponent(this.preCheckoutNextPath('trial_expired'))}`
         : paymentFailed
@@ -2153,7 +2162,7 @@ export class AuthService implements OnModuleInit {
         company: {
           select: {
             name: true,
-            slug: true,
+            companyKind: true,
             onboardingStatus: true,
             entityType: true,
             trialModuleSelection: true,
@@ -2164,12 +2173,10 @@ export class AuthService implements OnModuleInit {
     });
 
     const onboardingStatus = String(user?.company?.onboardingStatus || '').trim().toLowerCase();
-    const isHbxOperationalCompany =
-      String(user?.company?.slug || '').trim().toLowerCase() === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG;
     const canResendConfirmation = Boolean(
       user &&
         !user.emailConfirmedAt &&
-        (onboardingStatus === 'pending_email_confirmation' || isHbxOperationalCompany),
+        onboardingStatus === 'pending_email_confirmation',
     );
 
     if (!canResendConfirmation) {

@@ -13,6 +13,7 @@ import {
   MASTER_WHATSAPP_ENGINE_COMPANY_NAME,
   MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
 } from './master-whatsapp-company.constants';
+import { COMPANY_KIND_PLATFORM_INFRA } from '../common/company-kind';
 
 export const MASTER_HARD_DELETE_CONFIRM_TEXT = 'EXCLUIR EMPRESA';
 export const MASTER_HARD_DELETE_CONFIRMATION_INVALID_MESSAGE = 'Confirmacao invalida para hard delete.';
@@ -419,6 +420,7 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
         data: {
           name: MASTER_WHATSAPP_ENGINE_COMPANY_NAME,
           slug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
+          companyKind: COMPANY_KIND_PLATFORM_INFRA,
           onboardingStatus: 'active_paid',
           paymentStatus: 'MANUAL',
           subscriptionStatus: 'manual',

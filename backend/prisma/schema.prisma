@@ -15,6 +15,7 @@ model Company {
   name                    String
   entityType              String    @default("PJ") // PF | PJ
   slug                    String?   @unique
+  companyKind             String    @default("tenant") // tenant | platform_infra
   trialModuleSelection    String? // vendas | recovery
   selectedPlanKey         String? // hbx_lite | hbx_padrao | hbx_melhor
   signupUsesPublicEmail   Boolean   @default(false)
@@ -182,6 +183,7 @@ model Company {
   userTeamPolicies UserTeamPolicy[]
 
   @@index([currentWhatsappConnectionSessionId])
+  @@index([companyKind])
 }
 
 model WhatsAppConnectionSession {

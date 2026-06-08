@@ -82,8 +82,8 @@ function contractVariables(input: SellerPartnerContractInput) {
   const referralPercent = Number(input.sellerReferralCommissionPercent || 0);
   const referredByName = text(input.referredByName, '');
   const networkClause = input.canRegisterHbxSellers
-    ? 'O PARCEIRO está autorizado a indicar candidatos pelo fluxo oficial da plataforma. Cadastro formal, análise de documentos, contrato e liberação de acesso são atribuições exclusivas do Master HBX.'
-    : 'O PARCEIRO pode indicar candidatos somente quando estiver autorizado a indicar pelo fluxo oficial da plataforma. Sem essa liberação, não está autorizado a cadastrar, prometer acesso ou liberar novos parceiros HBX.';
+    ? 'O PARCEIRO está autorizado a indicar candidatos pelo fluxo oficial da plataforma. Cadastro formal, análise de documentos, contrato e liberação de acesso são atribuições exclusivas do administrador responsável.'
+    : 'O PARCEIRO pode indicar candidatos somente quando estiver autorizado a indicar pelo fluxo oficial da plataforma. Sem essa liberação, não está autorizado a cadastrar, prometer acesso ou liberar novos vendedores.';
   const inheritedCommissionClause = referralPercent > 0
     ? `Comissão herdada configurada: ${percent(referralPercent)}% sobre vendas elegíveis de parceiros indicados, conforme regras do painel HBX.`
     : '';
@@ -91,7 +91,7 @@ function contractVariables(input: SellerPartnerContractInput) {
     ? `O PARCEIRO foi cadastrado por indicação de ${referredByName}.`
     : '';
   return {
-    sellerName: text(input.sellerName, 'Parceiro HBX'),
+    sellerName: text(input.sellerName, 'Vendedor'),
     sellerCpf: text(input.sellerCpf),
     sellerEmail: text(input.sellerEmail),
     sellerPhone: text(input.sellerPhone),

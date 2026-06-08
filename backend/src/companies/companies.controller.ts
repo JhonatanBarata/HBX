@@ -275,12 +275,6 @@ export class CompaniesController {
           masterContext: runtimeContext.masterContext,
         },
       },
-      {
-        hbxOperationalCompanyId:
-          runtimeContext.masterContext?.mode === 'master_operacional'
-            ? runtimeContext.effectiveCompanyId
-            : null,
-      },
     );
     const effectiveCompanyId = effectiveCompany.companyId;
 

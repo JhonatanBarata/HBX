@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
-import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../companies/master-whatsapp-company.constants';
 import { TeamPolicyService } from './team-policy.service';
 
 function buildStoredPolicy(overrides: Record<string, any> = {}) {
@@ -48,8 +47,9 @@ function buildStoredPolicy(overrides: Record<string, any> = {}) {
 function buildUser(overrides: Record<string, any> = {}) {
   const company = overrides.company || {
     id: 1,
-    name: 'HBX Operacao',
-    slug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
+    name: 'Cliente A',
+    slug: 'cliente-a',
+    companyKind: 'tenant',
     selectedPlanKey: null,
     commissionDueBusinessDays: 3,
     timezone: 'America/Sao_Paulo',
@@ -61,9 +61,9 @@ function buildUser(overrides: Record<string, any> = {}) {
     isSystemMaster: false,
     isActive: true,
     deactivatedAt: null,
-    name: 'Vendedor HBX',
-    email: 'seller@hbx.test',
-    username: 'seller-hbx',
+    name: 'Vendedor',
+    email: 'seller@cliente.test',
+    username: 'seller-cliente',
     commissionPercent: 20,
     canRegisterHbxSellers: false,
     sellerReferralCommissionPercent: 0,
@@ -173,7 +173,7 @@ function createService(input: {
     role: 'USERMASTER',
     isSystemMaster: true,
     companyId: 1,
-    company: { id: 1, slug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG },
+    company: { id: 1, slug: 'cliente-a', companyKind: 'tenant' },
   };
   return { service, state, requester };
 }
@@ -229,23 +229,22 @@ test('MASTER resolves unlimited team policy and writes team/master audit logs', 
   assert.equal(metadata.after.modules.atendimento, false);
 });
 
-test('ADMIN cannot edit HBX operational seller policy', async () => {
+test('ADMIN can edit tenant seller policy inside current plan cap', async () => {
   const { service } = createService({
     requester: {
       id: 22,
       role: 'ADMIN',
       isSystemMaster: false,
       companyId: 1,
-      company: { id: 1, slug: 'cliente-a' },
+      company: { id: 1, slug: 'cliente-a', companyKind: 'tenant' },
     },
   });
 
-  await assert.rejects(
-    () => service.updatePolicy({ id: 22, role: 'ADMIN', isSystemMaster: false, companyId: 1 }, 7, {
-      limits: { enrichmentDaily: { mode: 'limited', value: 250 } },
-    } as any),
-    ForbiddenException,
-  );
+  const result = await service.updatePolicy({ id: 22, role: 'ADMIN', isSystemMaster: false, companyId: 1 }, 7, {
+    limits: { enrichmentDaily: { mode: 'limited', value: 20 } },
+  } as any);
+
+  assert.equal(result.limits.enrichmentDaily.value, 20);
 });
 
 test('policy update persists seller visibility and keeps system visibility derived', async () => {
@@ -282,11 +281,12 @@ test('policy update persists seller visibility and keeps system visibility deriv
   assert.equal(metadata.diff.visibilityChanged, true);
 });
 
-test('ADMIN cannot set individual enrichment outside HBX operation', async () => {
+test('ADMIN cannot set individual enrichment above current plan cap', async () => {
   const company = {
     id: 10,
     name: 'Cliente A',
     slug: 'cliente-a',
+    companyKind: 'tenant',
     selectedPlanKey: 'hbx_lite',
     commissionDueBusinessDays: 3,
     timezone: 'America/Sao_Paulo',

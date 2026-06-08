@@ -15,7 +15,7 @@ import { ensureMasterBillingRuntimeSchema } from './master-runtime';
 import { buildMasterBillingSituation } from './master-billing-situation';
 import { buildMasterWhatsAppSituation } from './master-whatsapp-situation';
 import { buildWhatsAppCenterSnapshot } from '../companies/whatsapp-center.util';
-import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../companies/master-whatsapp-company.constants';
+import { COMPANY_KIND_PLATFORM_INFRA, COMPANY_KIND_TENANT, isPlatformInfraCompany } from '../common/company-kind';
 import {
   getMasterGlobalIntegrationConfig,
   normalizeMasterGlobalIntegrationConfig,
@@ -39,7 +39,6 @@ import { resolveExtraSeatMonthlyAmount } from '../commercial-plans/seat-billing.
 import { ensureVendasComplaintsRuntimeSchema } from '../vendas/vendas-complaints-runtime';
 import {
   buildModuleCapabilityKey,
-  isHbxOperationCompany,
   resolveAccessGovernor as resolveSellerAccessGovernor,
   resolveEffectiveCapability,
   type AccessGovernor,
@@ -1805,6 +1804,7 @@ export class ModulesService implements OnModuleInit {
       FROM "Company" c
       CROSS JOIN "SystemModule" sm
       WHERE sm."companyAssignable" = true
+        AND c."companyKind" = 'tenant'
       ON CONFLICT ("companyId", "moduleId") DO NOTHING;
     `);
   }
@@ -1814,6 +1814,7 @@ export class ModulesService implements OnModuleInit {
     companySnapshot?: {
       id?: number | null;
       slug?: string | null;
+      companyKind?: string | null;
       isActive?: boolean | null;
       paymentStatus?: string | null;
       subscriptionStatus?: string | null;
@@ -1827,6 +1828,7 @@ export class ModulesService implements OnModuleInit {
       ? {
           id: companyId,
           slug: companySnapshot?.slug || null,
+          companyKind: companySnapshot?.companyKind || null,
           isActive: Boolean(companySnapshot?.isActive),
           paymentStatus: companySnapshot?.paymentStatus || null,
           subscriptionStatus: companySnapshot?.subscriptionStatus || null,
@@ -1839,6 +1841,7 @@ export class ModulesService implements OnModuleInit {
           select: {
             id: true,
             slug: true,
+            companyKind: true,
             isActive: true,
             paymentStatus: true,
             subscriptionStatus: true,
@@ -1849,19 +1852,7 @@ export class ModulesService implements OnModuleInit {
         });
     if (!company) return { exists: false, active: false };
 
-    if (String((company as any).slug || '').trim().toLowerCase() === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG) {
-      if (!company.isActive || !company.premiumAccess) {
-        await this.prisma.company.update({
-          where: { id: companyId },
-          data: {
-            isActive: true,
-            deactivatedAt: null,
-            premiumAccess: true,
-          },
-        });
-      }
-      return { exists: true, active: true };
-    }
+    if (isPlatformInfraCompany(company)) return { exists: true, active: false };
 
     const now = Date.now();
     const paymentStatus = String(company.paymentStatus || '').trim().toUpperCase();
@@ -1953,10 +1944,6 @@ export class ModulesService implements OnModuleInit {
     return this.canUseSellerMobileOperationalModule(user, normalized, context);
   }
 
-  private isHbxSellerNetworkCompanySnapshot(company: any) {
-    return isHbxOperationCompany(company);
-  }
-
   private canUseAdminOnlyModule(user: any, moduleKey: string, context?: ModuleAccessContext) {
     const normalized = this.normalizeRequestedModuleKey(moduleKey);
     const role = String(user?.role || '').trim().toUpperCase();
@@ -1965,14 +1952,13 @@ export class ModulesService implements OnModuleInit {
     return !EMPLOYEE_BLOCKED_MODULE_KEYS.has(normalized);
   }
 
-  private defaultUserModuleAllowed(user: any, moduleKey: string, context?: ModuleAccessContext, company?: any) {
+  private defaultUserModuleAllowed(user: any, moduleKey: string, context?: ModuleAccessContext, _company?: any) {
     if (!this.canUseAdminOnlyModule(user, moduleKey, context)) {
       return false;
     }
     const normalized = this.normalizeRequestedModuleKey(moduleKey);
     const role = String(user?.role || '').trim().toUpperCase();
     if (role === 'USER' && this.canUseSellerOperationalModule(user, normalized, context)) {
-      if (this.isHbxSellerNetworkCompanySnapshot(company)) return true;
       if (normalized === 'vendas') return true;
       return this.canUseSellerMobileOperationalModule(user, normalized, context);
     }
@@ -2016,11 +2002,8 @@ export class ModulesService implements OnModuleInit {
     }
 
     const governor = this.resolveAccessGovernor(input.targetUser, input.targetCompany);
-    if (governor === 'HBX_MASTER') {
-      if (!input.isSystemMaster) {
-        throw new ForbiddenException('Apenas o MASTER HBX pode alterar vendedor da operacao HBX.');
-      }
-      return;
+    if (governor === COMPANY_KIND_PLATFORM_INFRA) {
+      throw new ForbiddenException('Empresa de infraestrutura nao recebe governanca de vendedores comerciais.');
     }
 
     if (input.isSystemMaster) return;
@@ -2041,7 +2024,14 @@ export class ModulesService implements OnModuleInit {
     if (key === 'master' || key === 'exclusoes') return isSystemMaster;
     if (isSystemMaster) return true;
     if (!companyId) return false;
-    if (this.isFinanceModuleKey(key)) return this.canUseAdminOnlyModule(user, key, context);
+    if (this.isFinanceModuleKey(key)) {
+      const financeCompany = await this.prisma.company.findUnique({
+        where: { id: companyId },
+        select: { companyKind: true },
+      });
+      if (isPlatformInfraCompany(financeCompany)) return false;
+      return this.canUseAdminOnlyModule(user, key, context);
+    }
     if (this.isTrialBundledModuleKey(key)) {
       await this.ensureTrialBundleForCompany(companyId);
     }
@@ -2063,6 +2053,7 @@ export class ModulesService implements OnModuleInit {
       where: { id: companyId },
       select: {
         slug: true,
+        companyKind: true,
         isActive: true,
         onboardingStatus: true,
         paymentStatus: true,
@@ -2204,6 +2195,7 @@ export class ModulesService implements OnModuleInit {
       where: { id: companyId },
       select: {
         slug: true,
+        companyKind: true,
         isActive: true,
         onboardingStatus: true,
         paymentStatus: true,
@@ -2400,6 +2392,7 @@ export class ModulesService implements OnModuleInit {
         where: { id: companyId },
         select: {
           slug: true,
+          companyKind: true,
           isActive: true,
           onboardingStatus: true,
           paymentStatus: true,
@@ -2490,7 +2483,7 @@ export class ModulesService implements OnModuleInit {
     const company = targetCompanyId
       ? await this.prisma.company.findUnique({
           where: { id: targetCompanyId },
-          select: { slug: true },
+          select: { companyKind: true, slug: true },
         })
       : null;
     this.assertCanGovernSellerAccess({
@@ -2809,12 +2802,7 @@ export class ModulesService implements OnModuleInit {
     await ensureMasterBillingRuntimeSchema(this.prisma);
 
     const companies = await this.prisma.company.findMany({
-      where: {
-        OR: [
-          { slug: null },
-          { slug: { not: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } },
-        ],
-      },
+      where: { companyKind: COMPANY_KIND_TENANT },
       include: {
         plan: {
           select: {
@@ -3455,6 +3443,7 @@ export class ModulesService implements OnModuleInit {
     const supportsEndpointTable = await this.supportsWhatsAppEndpointTable();
     const companies = supportsEndpointTable
       ? await this.prisma.company.findMany({
+          where: { companyKind: COMPANY_KIND_TENANT },
           include: {
             users: {
               select: {
@@ -3481,6 +3470,7 @@ export class ModulesService implements OnModuleInit {
           orderBy: { id: 'asc' },
         })
       : await this.prisma.company.findMany({
+          where: { companyKind: COMPANY_KIND_TENANT },
           include: {
             users: {
               select: {
@@ -3611,6 +3601,9 @@ export class ModulesService implements OnModuleInit {
 
     const company = await this.prisma.company.findUnique({ where: { id: companyId } });
     if (!company) throw new BadRequestException('Empresa nao encontrada');
+    if (isPlatformInfraCompany(company)) {
+      throw new BadRequestException('Empresa de infraestrutura nao recebe modulos comerciais.');
+    }
     const status = await this.evaluateCompanyStatus(companyId);
     if (!status.active) {
       throw new BadRequestException(
@@ -3873,6 +3866,15 @@ export class ModulesService implements OnModuleInit {
   }
 
   private async syncCompanyModulesForPlanTx(tx: any, companyId: number, planKey: ActiveCommercialPlanKey) {
+    const company = await tx.company.findUnique({
+      where: { id: companyId },
+      select: { companyKind: true },
+    });
+    if (isPlatformInfraCompany(company)) {
+      await tx.companyModule.updateMany({ where: { companyId }, data: { enabled: false } });
+      return;
+    }
+
     const moduleKeys = COMMERCIAL_PLAN_MODULE_KEYS[planKey] || [];
     const moduleRows = moduleKeys.length
       ? await tx.systemModule.findMany({

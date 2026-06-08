@@ -5,9 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch } from "@/app/_lib/api";
-import { toMobileRoute } from "@/app/_lib/mobileRoutes";
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
-import { isHbxOperationalCompany, type BillingAccessCompany } from "@/lib/billing-access";
 import styles from "./mobile-checkout.module.css";
 
 type BillingCycle = "MONTHLY" | "ANNUAL";
@@ -70,10 +68,6 @@ type PaymentProfile = {
   taxDocument: string;
   payerEmail: string;
   acceptedTerms: true;
-};
-type CurrentUser = {
-  role?: string | null;
-  company?: BillingAccessCompany | null;
 };
 type FinanceiroOverview = {
   generatedAt: string;
@@ -556,7 +550,6 @@ export default function MobilePaymentCheckoutPage() {
   const [payerTaxDocument, setPayerTaxDocument] = useState("");
   const [payerEmail, setPayerEmail] = useState("");
   const [acceptedTerms, setAcceptedTerms] = useState(false);
-  const [operationalRedirecting, setOperationalRedirecting] = useState(false);
 
   const reason = searchParams.get("reason");
   const canManageBilling = overview?.permissions?.canManageBilling !== false;
@@ -599,24 +592,6 @@ export default function MobilePaymentCheckoutPage() {
       delete document.body.dataset.hbxPaymentMobile;
     };
   }, []);
-
-  useEffect(() => {
-    if (!hasToken || isFrontMock) return;
-    let active = true;
-
-    apiFetch<CurrentUser>("/profile/current-user")
-      .then((profile) => {
-        if (!active || !isHbxOperationalCompany(profile?.company)) return;
-        setOperationalRedirecting(true);
-        const role = String(profile?.role || "").trim().toUpperCase();
-        router.replace(toMobileRoute(role === "USER" ? "/vendas" : "/gerencial"));
-      })
-      .catch(() => undefined);
-
-    return () => {
-      active = false;
-    };
-  }, [hasToken, isFrontMock, router]);
 
   const loadOverview = useCallback(async (background = false) => {
     if (isFrontMock) {
@@ -1036,8 +1011,6 @@ export default function MobilePaymentCheckoutPage() {
     }
     focusMobileBrick();
   };
-
-  if (operationalRedirecting) return null;
 
   const renderShell = (children: React.ReactNode, options?: { showSticky?: boolean }) => (
     <main className={styles.mobileShell}>

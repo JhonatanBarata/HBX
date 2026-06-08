@@ -64,11 +64,6 @@ type RecoverPasswordResponse = {
 
 type LoginCurrentUser = {
   isSystemMaster?: boolean;
-  role?: string | null;
-  userKind?: string | null;
-  company?: {
-    isHbxSellerNetwork?: boolean | null;
-  } | null;
 };
 
 type LoginParticleStyle = CSSProperties & {

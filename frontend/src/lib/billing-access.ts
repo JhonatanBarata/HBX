@@ -1,5 +1,5 @@
 export type BillingAccessCompany = {
-  slug?: string | null;
+  companyKind?: string | null;
   onboardingStatus?: string | null;
   paymentStatus?: string | null;
   subscriptionStatus?: string | null;
@@ -9,8 +9,6 @@ export type BillingAccessCompany = {
 
 export type PreCheckoutReason = "trial_expired" | "payment_failed" | "pending_checkout";
 
-const HBX_OPERATIONAL_COMPANY_SLUG = "hbx-master-whatsapp-engine";
-
 function parseTime(value?: string | Date | null) {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(value);
@@ -18,14 +16,8 @@ function parseTime(value?: string | Date | null) {
   return Number.isFinite(time) ? time : null;
 }
 
-export function isHbxOperationalCompany(company?: BillingAccessCompany | null) {
-  return String(company?.slug || "").trim().toLowerCase() === HBX_OPERATIONAL_COMPANY_SLUG;
-}
-
 export function resolvePreCheckoutReason(company?: BillingAccessCompany | null, nowMs = Date.now()): PreCheckoutReason | null {
   if (!company) return null;
-
-  if (isHbxOperationalCompany(company)) return null;
 
   const onboardingStatus = String(company.onboardingStatus || "").trim().toLowerCase();
   const paymentStatus = String(company.paymentStatus || "").trim().toUpperCase();

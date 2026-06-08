@@ -471,7 +471,7 @@ function phoneDigits(value?: string | null) {
 }
 
 function referralUserLabel(user?: UserItem["referredByUser"]) {
-  if (!user) return "Direto HBX";
+  if (!user) return "Direto";
   return user.name || user.username || user.email || `Vendedor #${user.id}`;
 }
 
@@ -718,7 +718,7 @@ async function loadReferralCandidatesIfHbxNetwork(payload: GerencialOverview) {
     const candidatesPayload = await apiFetch<HbxReferralCandidatesResult>("/gerencial/hbx-partner-referrals/pending");
     return candidatesPayload.candidates || [];
   } catch (referralError) {
-    console.warn("[HBX gerencial] Falha ao carregar indicacoes HBX.", referralError);
+    console.warn("[HBX gerencial] Falha ao carregar indicacoes de vendedores.", referralError);
     return [];
   }
 }
@@ -838,6 +838,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   const [onboardingReadiness, setOnboardingReadiness] = useState<SellerOnboardingReadiness | null>(null);
   const [pendingOnboardingAttachments, setPendingOnboardingAttachments] = useState<Record<string, PendingOnboardingAttachment>>({});
   const [pendingDocumentRequirements, setPendingDocumentRequirements] = useState<Record<string, boolean>>({});
+  const [newUserRequiresDocuments, setNewUserRequiresDocuments] = useState(false);
   const [onboardingStatusMessage, setOnboardingStatusMessage] = useState<string | null>(null);
   const [uploadingAttachmentKind, setUploadingAttachmentKind] = useState<string | null>(null);
   const [removingOnboardingAttachmentId, setRemovingOnboardingAttachmentId] = useState<string | null>(null);
@@ -944,7 +945,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   }, [hasToken, load]);
 
   const isHbxSellerNetwork = Boolean(data?.company?.isHbxSellerNetwork);
-  const canCreateAdminUsers = !isHbxSellerNetwork;
+  const canCreateAdminUsers = true;
   const canManageCommissionSettings = Boolean(data?.currentUser?.canManageCommissionSettings);
   const commissionDueDays = normalizeCommissionDueBusinessDays(data?.commission?.settings?.dueBusinessDays);
 
@@ -980,12 +981,6 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     }, 450);
     return () => window.clearTimeout(timeout);
   }, [ignoredReferralCandidateId, isHbxSellerNetwork, newUserPhone, newUserReferralCandidateId, newUserRole, referralCandidates]);
-
-  useEffect(() => {
-    if (isHbxSellerNetwork && newUserRole !== "USER") {
-      setNewUserRole("USER");
-    }
-  }, [isHbxSellerNetwork, newUserRole]);
 
   async function setRole(userId: number, role: "USER" | "ADMIN") {
     setChangingUserId(userId);
@@ -1488,13 +1483,13 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         method: "PATCH",
         body: JSON.stringify({ active: true }),
       });
-      setActionInfo(payload.message || "Parceiro criado e e-mail de boas-vindas enviado.");
+      setActionInfo(payload.message || "Vendedor liberado e e-mail de boas-vindas enviado.");
       await acknowledgeResolvedOnboardingNotice();
       await load();
       resetCreateAccessPopup();
       setCreateAccessOpen(false);
     } catch (activateError) {
-      setError(friendlyGerencialError(activateError, "Falha ao criar parceiro."));
+      setError(friendlyGerencialError(activateError, "Falha ao liberar vendedor."));
       if (onboardingUserId) await loadOnboardingAttachments(onboardingUserId).catch(() => null);
     } finally {
       setTogglingActiveUserId(null);
@@ -1525,6 +1520,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     setContractTextDraft("");
     setPendingOnboardingAttachments({});
     setPendingDocumentRequirements({});
+    setNewUserRequiresDocuments(false);
   }
 
   function renderReferralMatchBox(surface: "mobile" | "desktop") {
@@ -1699,7 +1695,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
       focusCreateAccessEmailField();
       return;
     }
-    const shouldUseHbxNetwork = isHbxSellerNetwork && ["USER", "ADMIN"].includes(newUserRole);
+    const shouldUseHbxNetwork = isHbxSellerNetwork && newUserRole === "USER";
     const referredByUserId = shouldUseHbxNetwork && newUserReferredByUserId
       ? Number(newUserReferredByUserId)
       : undefined;
@@ -1711,7 +1707,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
       ? hbxReferrers.find((referrer) => referrer.id === referredByUserId)
       : null;
     if (referredByUserId && !selectedReferrer) {
-      setError("Indicador precisa ser parceiro HBX ativo.");
+      setError("Indicador precisa ser vendedor ativo da empresa.");
       return;
     }
     const commissionPercent = parsePercentInput(
@@ -1733,6 +1729,15 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
       setError("Informe enriquecimento Auto ou um limite entre 1 e 500.");
       return;
     }
+    const requiresSellerOnboarding = Boolean(
+      shouldUseHbxNetwork &&
+        (newUserRequiresDocuments ||
+          Object.keys(pendingOnboardingAttachments).length ||
+          Object.keys(pendingDocumentRequirements).length ||
+          contractTextDraft.trim() ||
+          newUserCpf.trim() ||
+          newUserDeclaredAddress.trim()),
+    );
 
     setCreatingUser(true);
     try {
@@ -1744,8 +1749,11 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         password: newUserPassword.trim() || undefined,
       };
       if (newUserRole === "USER") {
-        requestBody.cpf = newUserCpf.trim() || undefined;
-        requestBody.declaredAddress = newUserDeclaredAddress.trim() || undefined;
+        if (requiresSellerOnboarding) {
+          requestBody.cpf = newUserCpf.trim() || undefined;
+          requestBody.declaredAddress = newUserDeclaredAddress.trim() || undefined;
+        }
+        requestBody.requiresSellerOnboarding = requiresSellerOnboarding;
         const parsedDueDays = Number(newUserCommissionDueBusinessDays || 3);
         if (!Number.isInteger(parsedDueDays) || parsedDueDays < 1 || parsedDueDays > 30) {
           setError("Informe um prazo de pagamento entre 1 e 30 dias úteis.");
@@ -1796,16 +1804,14 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         };
         setCreatedPasswordInfo(info);
         saveCreatedPasswordInfo(info);
-        setActionInfo(isHbxSellerNetwork && newUserRole === "USER"
-          ? "Parceiro HBX cadastrado. Edite o contrato, gere o PDF e use Solicitar documentos."
-          : `${roleLabel(payload.user.role)} criado. Entregue a senha temporária com segurança.`);
+        setActionInfo(`${roleLabel(payload.user.role)} criado. Entregue a senha temporária com segurança.`);
       } else {
-        setActionInfo(isHbxSellerNetwork && newUserRole === "USER"
-          ? "Parceiro HBX cadastrado em rascunho. Edite as cláusulas, gere o PDF e clique em Solicitar documentos."
+        setActionInfo(requiresSellerOnboarding
+          ? "Vendedor cadastrado em rascunho. Revise contrato/documentos antes de liberar."
           : `${roleLabel(payload.user.role)} criado com senha definida manualmente.`);
       }
 
-      if (isHbxSellerNetwork && newUserRole === "USER" && payload?.user?.id) {
+      if (requiresSellerOnboarding && payload?.user?.id) {
         setOnboardingUserId(payload.user.id);
         const pendingRequirements = { ...pendingDocumentRequirements };
         const pendingAttachments = Object.values(pendingOnboardingAttachments);
@@ -1827,7 +1833,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
           if (uploadedCount > 0) {
             setPendingOnboardingAttachments({});
             setPendingDocumentRequirements({});
-            setActionInfo(`Parceiro HBX cadastrado. ${uploadedCount} documento(s) anexado(s). Revise as pendências antes de liberar o acesso.`);
+            setActionInfo(`Vendedor cadastrado. ${uploadedCount} documento(s) anexado(s). Revise as pendências antes de liberar o acesso.`);
           }
         } catch (attachmentError) {
           setError(friendlyGerencialError(attachmentError, "Cadastro criado, mas falhou ao anexar um documento."));
@@ -2599,8 +2605,8 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
           <>
             <label className="flex items-start gap-3 rounded-[14px] border border-[var(--hbx-mobile-border)] bg-[var(--hbx-mobile-surface)] p-3 text-sm">
               <span>
-                <strong className="block">Indicação HBX</strong>
-                <small className="text-[var(--hbx-mobile-muted)]">Parceiro ativo indica; Master cadastra.</small>
+                <strong className="block">Indicação</strong>
+                <small className="text-[var(--hbx-mobile-muted)]">Vendedor ativo indica; responsável cadastra.</small>
               </span>
             </label>
             <input
@@ -2628,7 +2634,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                 }));
               }}
             >
-              <option value="">Direto HBX</option>
+              <option value="">Direto</option>
               {currentReferrerOption ? <option value={currentReferrerOption.id}>{referralUserLabel(currentReferrerOption)}</option> : null}
               {editableReferrers.map((referrer) => (
                 <option key={referrer.id} value={referrer.id}>
@@ -2719,7 +2725,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         {showHbxNetwork && !options.modulesOnly ? (
           <div className="grid grid-cols-2 gap-2 text-sm">
             <div className="rounded-[14px] border border-[var(--hbx-mobile-border)] bg-[var(--hbx-mobile-surface-soft)] p-2">
-              <span className="block text-[0.66rem] text-[var(--hbx-mobile-muted)]">Rede HBX</span>
+              <span className="block text-[0.66rem] text-[var(--hbx-mobile-muted)]">Indicações</span>
               <strong>{user.isActive ? "Indica" : "Inativo"}</strong>
             </div>
             <div className="rounded-[14px] border border-[var(--hbx-mobile-border)] bg-[var(--hbx-mobile-surface-soft)] p-2">
@@ -2762,7 +2768,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
               }}
               className={user.isActive ? "hbx-mobile-secondary-button" : "hbx-mobile-primary-button"}
             >
-              {user.isActive ? "Desativar" : isHbxSellerNetwork && isSeller ? "Liberar parceiro" : "Reativar"}
+              {user.isActive ? "Desativar" : isHbxSellerNetwork && isSeller ? "Liberar vendedor" : "Reativar"}
             </button>
             <button type="button" disabled={deletingUserId === user.id} onClick={() => void deleteUser(user)} className="hbx-mobile-secondary-button col-span-2 text-red-700">
               {deletingUserId === user.id ? "Excluindo..." : "Excluir"}
@@ -2791,7 +2797,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                     disabled={hbxSellerOperationalModule || lockedForSeller || savingModuleUserId === user.id || !user.isActive}
                     onClick={() => toggleUserModule(user.id, mod.key)}
                     className={allowed && user.isActive ? "hbx-mobile-primary-button" : "hbx-mobile-secondary-button"}
-                    title={hbxSellerOperationalModule ? "Módulo padrão do parceiro HBX" : undefined}
+                    title={hbxSellerOperationalModule ? "Módulo padrão do vendedor" : undefined}
                   >
                     {moduleLabel(mod)} {hbxSellerOperationalModule ? "ON padrão" : lockedForSeller ? "bloqueado" : allowed ? "ON" : "OFF"}
                   </button>
@@ -3113,7 +3119,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   function renderCreateAccessPopup() {
     if (!createAccessOpen) return null;
     if (typeof document === "undefined") return null;
-    const canUseDocs = Boolean(isHbxSellerNetwork && newUserRole === "USER");
+    const canUseDocs = Boolean(newUserRole === "USER" && (newUserRequiresDocuments || onboardingUserId));
     const canPersistDocs = Boolean(canUseDocs && onboardingUserId);
     const canActivatePartner = Boolean(canPersistDocs && onboardingReadiness?.complete);
 
@@ -3122,7 +3128,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         <section className="hbx-popup2 hbx-popup2--partner-access" data-tone="info" role="dialog" aria-modal="true" aria-label="Criar acesso">
           <header className="hbx-partner-popup__header">
             <div>
-              <strong>{onboardingUserId ? "Cadastro do vendedor" : isHbxSellerNetwork ? "Parceiro HBX" : "Novo acesso"}</strong>
+              <strong>{onboardingUserId ? "Cadastro do vendedor" : "Novo acesso"}</strong>
               <span>{onboardingUserId ? `#${onboardingUserId}` : "Cadastro"}</span>
             </div>
             <button
@@ -3161,7 +3167,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                 <span>WhatsApp</span>
                 <input className="field" type="tel" value={newUserPhone} onChange={(event) => setNewUserPhone(event.target.value)} />
               </label>
-              {isHbxSellerNetwork && newUserRole === "USER" ? renderReferralMatchBox("desktop") : null}
+              {newUserRole === "USER" ? renderReferralMatchBox("desktop") : null}
               <div className="hbx-partner-popup__twocol">
                 <label>
                   <span>Comissão</span>
@@ -3178,8 +3184,20 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                   <input className="field" inputMode="numeric" value={newUserCommissionDueBusinessDays} onChange={(event) => setNewUserCommissionDueBusinessDays(event.target.value)} />
                 </label>
               </div>
-              {isHbxSellerNetwork && newUserRole === "USER" ? (
+              {newUserRole === "USER" ? (
                 <>
+                  <label className="hbx-partner-popup__toggle">
+                    <input
+                      type="checkbox"
+                      checked={canUseDocs}
+                      disabled={Boolean(onboardingUserId)}
+                      onChange={(event) => setNewUserRequiresDocuments(event.target.checked)}
+                    />
+                    <span>
+                      <strong>Salvar documentação deste vendedor</strong>
+                      <small>Use quando quiser guardar documentos, contrato e liberar depois. Desmarcado cria o acesso normalmente.</small>
+                    </span>
+                  </label>
                   <div className="hbx-partner-popup__twocol">
                     <label>
                       <span>CPF</span>
@@ -3212,7 +3230,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                           if (!selectedReferrerId) setNewUserReferredByCommissionPercent("");
                         }}
                       >
-                        <option value="">Direto HBX</option>
+                        <option value="">Direto</option>
                         {hbxReferrers.map((referrer) => (
                           <option key={referrer.id} value={referrer.id}>{userLabel(referrer)}</option>
                         ))}
@@ -3236,7 +3254,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                 </>
               ) : null}
               <button type="submit" disabled={creatingUser} className="btn btn-primary btn-sm">
-                {creatingUser ? (onboardingUserId ? "Salvando..." : "Cadastrando...") : onboardingUserId ? "Salvar cadastro" : isHbxSellerNetwork ? "Cadastrar vendedor" : "Criar acesso"}
+                {creatingUser ? (onboardingUserId ? "Salvando..." : "Cadastrando...") : onboardingUserId ? "Salvar cadastro" : "Criar acesso"}
               </button>
             </div>
 
@@ -3312,7 +3330,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
               </div>
               {isHbxSellerNetwork ? (
                 <p className="rounded-[16px] border border-[var(--hbx-mobile-border)] bg-[var(--hbx-mobile-surface-soft)] p-3 text-sm">
-                  Rede HBX: {hbxNetworkStats.authorized} parceiro(s) indicam, {hbxNetworkStats.referred} vieram por indicação.
+                  Indicações: {hbxNetworkStats.authorized} vendedor(es) indicam, {hbxNetworkStats.referred} vieram por indicação.
                 </p>
               ) : null}
             </section>
@@ -3909,7 +3927,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                     {showDesktopTeam && showHbxNetwork ? (
                       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2">
                         <div className="min-w-0 rounded-[12px] border border-[var(--line)] bg-[var(--surface)] p-3">
-                          <p className="text-xs text-muted">Rede HBX</p>
+                          <p className="text-xs text-muted">Indicações</p>
                           <strong className="mt-1 block text-sm">
                             {user.isActive ? "Indica" : "Inativo"}
                           </strong>
@@ -3964,7 +3982,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                         }}
                         className={`btn btn-sm ${user.isActive ? "btn-secondary" : "btn-primary"}`}
                       >
-                        {user.isActive ? "Desativar" : isHbxSellerNetwork && isSeller ? "Liberar parceiro" : "Reativar"}
+                        {user.isActive ? "Desativar" : isHbxSellerNetwork && isSeller ? "Liberar vendedor" : "Reativar"}
                       </button>
                       <button
                         type="button"
@@ -4039,7 +4057,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                           <div className="md:col-span-3 rounded-[12px] border border-[var(--line)] bg-[var(--surface-soft)] p-3">
                             <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
                               <div className="min-w-0">
-                                <span className="badge badge-brand">Rede HBX</span>
+                                <span className="badge badge-brand">Indicações</span>
                                 <p className="mt-2 text-sm font-semibold">Indicação e comissão herdada</p>
                               </div>
                             </div>
@@ -4079,7 +4097,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                                   }}
                                   className="field"
                                 >
-                                  <option value="">Direto HBX</option>
+                                  <option value="">Direto</option>
                                   {currentReferrerOption ? (
                                     <option value={currentReferrerOption.id}>
                                       {referralUserLabel(currentReferrerOption)}
@@ -4181,7 +4199,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                                   }`}
                                   title={
                                     hbxSellerOperationalModule
-                                      ? "Módulo padrão do parceiro HBX"
+                                      ? "Módulo padrão do vendedor"
                                       : lockedForSeller
                                         ? "Perfil vendedor não acessa este módulo"
                                         : "Clique para alternar"

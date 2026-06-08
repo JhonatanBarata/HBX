@@ -1,6 +1,5 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { isMasterOperationalCompanySlug } from '../commercial-plans/seat-billing.util';
 import { PrismaService } from '../prisma/prisma.service';
 
 type HbxPulseScopeType = 'master_operation' | 'company' | 'user';
@@ -144,7 +143,7 @@ export class HbxPulseService {
 
     const company = await this.prisma.company.findUnique({
       where: { id: companyId },
-      select: { id: true, name: true, slug: true },
+      select: { id: true, name: true },
     });
     if (!company) throw new ForbiddenException('Empresa nao identificada.');
 
@@ -152,7 +151,7 @@ export class HbxPulseService {
     const isSystemMaster = Boolean(user?.isSystemMaster);
     const isMasterOperation =
       isSystemMaster &&
-      (String(masterContext?.mode || '').trim() === 'master_operacional' || isMasterOperationalCompanySlug(company.slug));
+      String(masterContext?.mode || '').trim() === 'master_operacional';
     const type: HbxPulseScopeType = isMasterOperation ? 'master_operation' : role === 'USER' && !isSystemMaster ? 'user' : 'company';
 
     return {

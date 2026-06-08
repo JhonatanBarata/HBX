@@ -1,5 +1,5 @@
 import { ConflictException, Injectable } from '@nestjs/common';
-import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../companies/master-whatsapp-company.constants';
+import { isPlatformInfraCompany } from '../common/company-kind';
 import { PrismaService } from '../prisma/prisma.service';
 import { COMMERCIAL_PLAN_KEYS, COMMERCIAL_PLAN_QUOTAS, resolveCommercialPlanKeyForCapabilities } from './commercial-plan-catalog';
 import { resolveRadarSearchAllowance, resolveSellerCardQuota } from './seller-card-quota.util';
@@ -142,7 +142,7 @@ export class CommercialUsageLimitsService {
   private async getCompanyPlan(companyId: number) {
     const company = await this.prisma.company.findUnique({
       where: { id: Number(companyId) },
-      select: { selectedPlanKey: true, premiumAccess: true, paymentStatus: true, subscriptionStatus: true, timezone: true, slug: true },
+      select: { selectedPlanKey: true, premiumAccess: true, paymentStatus: true, subscriptionStatus: true, timezone: true, companyKind: true },
     });
     const quotaOverrideRows = await this.prisma.$queryRawUnsafe<Array<{
       commercialCardsMonthlyLimitOverride: number | null;
@@ -152,13 +152,12 @@ export class CommercialUsageLimitsService {
       Number(companyId),
     ).catch(() => []);
     const quotaOverride = quotaOverrideRows[0] || null;
-    const planKey = company?.slug === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG
-      ? COMMERCIAL_PLAN_KEYS.MELHOR
-      : resolveCommercialPlanKeyForCapabilities(company || {});
+    const platformInfra = isPlatformInfraCompany(company);
+    const planKey = platformInfra ? 'platform_infra' : resolveCommercialPlanKeyForCapabilities(company || {});
     return {
       planKey,
       timezone: this.normalizeTimezone(company?.timezone),
-      isMasterOperationalCompany: company?.slug === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
+      isPlatformInfra: platformInfra,
       quotaOverride: {
         cardsPerMonth: this.normalizePositiveOverride(quotaOverride?.commercialCardsMonthlyLimitOverride),
         dailyCardSafetyLimit: this.normalizePositiveOverride(quotaOverride?.commercialCardsDailyLimitOverride),
@@ -295,7 +294,7 @@ export class CommercialUsageLimitsService {
     const [company, user] = await Promise.all([
       this.prisma.company.findUnique({
         where: { id: companyId },
-        select: { slug: true },
+        select: { companyKind: true },
       }).catch(() => null),
       this.prisma.user.findFirst({
         where: { id: userId, companyId },
@@ -335,9 +334,8 @@ export class CommercialUsageLimitsService {
     const now = new Date();
     const active = Boolean(user?.isActive && !user?.deactivatedAt);
     const paused = !active || this.isSellerPaused(user, now);
-    const hbxOperationCompany = company?.slug === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG;
     const [baseLimit, teamPolicy, vendasActive, radarActive, salesWonLast30, lastSeenAt] = await Promise.all([
-      this.getSellerActiveCardBaseLimit(companyId, hbxOperationCompany),
+      this.getSellerActiveCardBaseLimit(companyId, false),
       loadUserTeamPolicyRuntime(this.prisma, userId),
       this.countSellerActiveVendasCards(companyId, userId),
       this.countSellerActiveRadarCards(companyId, userId),
@@ -563,6 +561,70 @@ export class CommercialUsageLimitsService {
     };
   }
 
+  private buildZeroSnapshot(input: {
+    planKey: string;
+    timezone: string;
+    dayStart: Date;
+    dayEnd: Date;
+    monthStart: Date;
+    monthEnd: Date;
+  }) {
+    return {
+      planKey: input.planKey,
+      timezone: input.timezone,
+      dayStart: input.dayStart.toISOString(),
+      dayEnd: input.dayEnd.toISOString(),
+      monthStart: input.monthStart.toISOString(),
+      monthEnd: input.monthEnd.toISOString(),
+      cards: {
+        used: 0,
+        limit: 0,
+        remaining: 0,
+        perUserLimit: 0,
+        companyCap: 0,
+        userUsed: 0,
+        userLimit: 0,
+        period: 'monthly',
+        monthlyUsed: 0,
+        monthlyLimit: 0,
+        monthlyRemaining: 0,
+        dailyUsed: 0,
+        dailySafetyLimit: 0,
+        dailyRemaining: 0,
+      },
+      emails: {
+        attempted: 0,
+        sent: 0,
+        failed: 0,
+        blocked: 0,
+        limit: 0,
+        remaining: 0,
+        perUserLimit: 0,
+        companyCap: 0,
+        userSent: 0,
+        userLimit: 0,
+      },
+      enrichment: {
+        used: 0,
+        limit: 0,
+        remaining: 0,
+        dailyUsed: 0,
+        dailyLimit: 0,
+        dailyRemaining: 0,
+        dailyLimitSource: 'platform_infra',
+        configuredDailyLimit: null as number | null,
+        fallbackDailyLimit: null as number | null,
+        canAutoEnrich: false,
+        canManualEnrich: false,
+        mode: 'blocked',
+        period: 'daily',
+      },
+      billableUsers: 0,
+      resetAt: input.monthEnd.toISOString(),
+      dailyResetAt: input.dayEnd.toISOString(),
+    };
+  }
+
   private async getBillableUserCount(companyId: number) {
     return this.prisma.user.count({
       where: {
@@ -692,6 +754,16 @@ export class CommercialUsageLimitsService {
     const company = await this.getCompanyPlan(companyId);
     const { dayStart, dayEnd } = this.getDayBounds(company.timezone);
     const { monthStart, monthEnd } = this.getMonthBounds(company.timezone);
+    if (company.isPlatformInfra) {
+      return this.buildZeroSnapshot({
+        planKey: company.planKey,
+        timezone: company.timezone,
+        dayStart,
+        dayEnd,
+        monthStart,
+        monthEnd,
+      });
+    }
     const userContext = await this.getUsageUserContext(userId);
     if (userContext.isSystemMaster) {
       return this.buildUnlimitedSnapshot({
@@ -705,12 +777,9 @@ export class CommercialUsageLimitsService {
     }
     const billableUsers = await this.getBillableUserCount(companyId);
     const normalizedUserId = Number(userId || 0) || null;
-    const hbxOperationUser = Boolean(company.isMasterOperationalCompany && normalizedUserId && userContext.role !== 'USERMASTER');
-    const planKey = hbxOperationUser ? 'hbx_seller' : company.planKey;
-    const limits = hbxOperationUser
-      ? this.computeHbxSellerOperationalLimits(billableUsers, userContext.enrichmentLimitOverride)
-      : this.computeLimits(company.planKey, billableUsers, company.quotaOverride);
-    const policyScope = this.applyTeamPolicyUsageLimits(limits, userContext.teamPolicy, { hbxOperationUser });
+    const planKey = company.planKey;
+    const limits = this.computeLimits(company.planKey, billableUsers, company.quotaOverride);
+    const policyScope = this.applyTeamPolicyUsageLimits(limits, userContext.teamPolicy, { hbxOperationUser: false });
 
     const [cardsGrossUsed, cardsUserGrossUsed, cardsDailyGrossUsed, cardsDailyUserGrossUsed, cardsRefunded, cardsUserRefunded, cardsDailyRefunded, cardsDailyUserRefunded, emailAttempted, emailSent, emailFailed, emailBlocked, emailUserSent, enrichmentDailyUsed, enrichmentDailyUserUsed] = await Promise.all([
       this.countLogs(companyId, CARD_SUCCESS_EVENTS, monthStart, monthEnd),
@@ -733,9 +802,9 @@ export class CommercialUsageLimitsService {
     const cardsUserUsed = Math.max(0, cardsUserGrossUsed - cardsUserRefunded);
     const cardsDailyUsed = Math.max(0, cardsDailyGrossUsed - cardsDailyRefunded);
     const cardsDailyUserUsed = Math.max(0, cardsDailyUserGrossUsed - cardsDailyUserRefunded);
-    const cardsDailyUsedForLimit = hbxOperationUser || policyScope.dailyCardsUseUserScope ? cardsDailyUserUsed : cardsDailyUsed;
+    const cardsDailyUsedForLimit = policyScope.dailyCardsUseUserScope ? cardsDailyUserUsed : cardsDailyUsed;
     const enrichmentDailyLimit = Math.max(0, Math.trunc(Number(limits.enrichment.dailyLimit || 0) || 0));
-    const enrichmentDailyUsedForLimit = hbxOperationUser || policyScope.enrichmentUseUserScope ? enrichmentDailyUserUsed : enrichmentDailyUsed;
+    const enrichmentDailyUsedForLimit = policyScope.enrichmentUseUserScope ? enrichmentDailyUserUsed : enrichmentDailyUsed;
     const enrichmentDailyRemaining = Math.max(0, enrichmentDailyLimit - Math.max(0, enrichmentDailyUsedForLimit));
     const enrichmentAutoEnabled = false;
 

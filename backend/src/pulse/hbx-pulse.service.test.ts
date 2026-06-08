@@ -20,7 +20,6 @@ function buildPrismaMock(overrides: Record<string, any> = {}) {
         findUnique: async ({ where }: any) => ({
           id: Number(where.id),
           name: overrides.companyName || 'HBX Master WhatsApp Engine',
-          slug: overrides.companySlug || 'hbx-master-whatsapp-engine',
         }),
       },
       vendasLead: {
@@ -72,7 +71,7 @@ test('HBX Pulse resume carteira do USER e limita comissao recorrente ao vendedor
   assert.match(summary.whatsappText, /^Hoje existem 5 oportunidades paradas/);
 });
 
-test('HBX Pulse trata MASTER em workspace operacional como rede HBX', async () => {
+test('HBX Pulse trata MASTER em contexto operacional como visao operacional', async () => {
   const mock = buildPrismaMock();
   const service = new HbxPulseService(mock.prisma as any);
 
@@ -92,4 +91,19 @@ test('HBX Pulse trata MASTER em workspace operacional como rede HBX', async () =
   assert.equal(mock.receivableAggregateCalls[0].sellerUserId, undefined);
   assert.doesNotMatch(JSON.stringify(mock.countCalls[0]), /assignedUserId/);
   assert.match(summary.whatsappText, /operacao HBX/);
+});
+
+test('HBX Pulse nao usa slug da engine para transformar System Master em operacao', async () => {
+  const mock = buildPrismaMock();
+  const service = new HbxPulseService(mock.prisma as any);
+
+  const summary = await service.getSummaryForUser({
+    id: 1,
+    companyId: 99,
+    role: 'USERMASTER',
+    isSystemMaster: true,
+  });
+
+  assert.equal(summary.scope.type, 'company');
+  assert.equal(mock.receivableAggregateCalls[0].sellerUserId, undefined);
 });

@@ -18,7 +18,7 @@ const MOBILE_EMPTY_COPY: Record<HbxMobileEmptyStateKind, { title: string; descri
   },
   referral: {
     title: "Sem indicação para aprovar.",
-    description: "Indicações enviadas aparecem para aprovação do Master HBX.",
+    description: "Indicações enviadas aparecem para aprovação do responsável.",
   },
   commission: {
     title: "Sem comissão aberta.",

@@ -89,6 +89,10 @@ class CreateCompanyUserDto {
 	declaredAddress?: string;
 
 	@IsOptional()
+	@IsBoolean()
+	requiresSellerOnboarding?: boolean;
+
+	@IsOptional()
 	@Type(() => Number)
 	@IsInt()
 	@Min(0)
@@ -230,6 +234,10 @@ class MasterCreateUserDto {
 	@IsOptional()
 	@IsString()
 	declaredAddress?: string;
+
+	@IsOptional()
+	@IsBoolean()
+	requiresSellerOnboarding?: boolean;
 
 	@IsOptional()
 	@Type(() => Number)
@@ -621,7 +629,7 @@ export class UsersController {
 
 		if (input.role !== 'USER') {
 			if (this.hasMeaningfulSellerNetworkInput(dto)) {
-				throw new BadRequestException('Rede de indicação HBX só pode ser configurada para vendedores.');
+				throw new BadRequestException('Rede de indicação só pode ser configurada para vendedores.');
 			}
 			if (input.forCreate || hasInput) {
 				data.canRegisterHbxSellers = false;
@@ -633,20 +641,6 @@ export class UsersController {
 		}
 
 		if (!hasInput && !input.forCreate) return data;
-
-		const isHbxNetwork = await this.usersService.isHbxSellerNetworkCompany(input.companyId);
-		if (!isHbxNetwork) {
-			if (this.hasMeaningfulSellerNetworkInput(dto)) {
-				throw new BadRequestException('Rede de indicação de vendedores está disponível apenas para a operação HBX.');
-			}
-			if (input.forCreate) {
-				data.canRegisterHbxSellers = false;
-				data.sellerReferralCommissionPercent = 0;
-				data.referredByUserId = null;
-				data.referredByCommissionPercentSnapshot = 0;
-			}
-			return data;
-		}
 
 		if (dto.canRegisterHbxSellers !== undefined || input.forCreate) {
 			data.canRegisterHbxSellers = Boolean(dto.canRegisterHbxSellers);
@@ -663,7 +657,7 @@ export class UsersController {
 			}
 			const referrer = await this.usersService.getActiveSellerReferrer(input.companyId, referredByUserId);
 			if (!referrer) {
-				throw new BadRequestException('Indicador precisa ser parceiro ativo da operação HBX.');
+				throw new BadRequestException('Indicador precisa ser vendedor ativo da empresa.');
 			}
 			data.referredByUserId = referrer.id;
 			data.sellerReferralCommissionPercent = normalizeCommissionPercent(referrer.sellerReferralCommissionPercent) ?? 0;
@@ -778,11 +772,11 @@ export class UsersController {
 			dto,
 			targetUserId: id,
 		});
-		const isHbxSellerNetwork = await this.usersService.isHbxSellerNetworkCompany(companyId);
+		const sellerOptionsEnabled = await this.usersService.isHbxSellerNetworkCompany(companyId);
 		if (
 			dto.sellerDistributionDailyLimitOverride !== undefined &&
 			['USER', 'ADMIN'].includes(String(target.role || '').toUpperCase()) &&
-			isHbxSellerNetwork
+			sellerOptionsEnabled
 		) {
 			data.sellerDistributionDailyLimitOverride = Math.max(0, Math.min(500, Math.trunc(Number(dto.sellerDistributionDailyLimitOverride || 0) || 0)));
 		}
@@ -795,11 +789,11 @@ export class UsersController {
 		if (
 			lockedReferrerId &&
 			String(target.role || '').toUpperCase() !== 'ADMIN' &&
-			isHbxSellerNetwork
+			sellerOptionsEnabled
 		) {
 			if (changedReferrerId) {
 				const referrer = await this.usersService.getActiveSellerReferrer(companyId, lockedReferrerId);
-				if (!referrer) throw new BadRequestException('Indicador precisa ser parceiro ativo da operação HBX.');
+				if (!referrer) throw new BadRequestException('Indicador precisa ser vendedor ativo da empresa.');
 				data.commissionPercent = normalizeCommissionPercent(referrer.commissionPercent) ?? 0;
 				data.sellerReferralCommissionPercent = normalizeCommissionPercent(referrer.sellerReferralCommissionPercent) ?? 0;
 				data.referredByCommissionPercentSnapshot = normalizeCommissionPercent(referrer.sellerReferralCommissionPercent) ?? 0;
@@ -861,13 +855,14 @@ export class UsersController {
 
 		let welcomeEmail: Pick<MailSendResult, 'ok' | 'transport' | 'messageId' | 'errorCode' | 'errorMessage'> | null = null;
 		let confirmationEmail: (Pick<MailSendResult, 'ok' | 'transport' | 'messageId' | 'errorCode' | 'errorMessage'> & { previewUrl?: string | null; confirmUrl?: string | null }) | null = null;
-		const isHbxSellerNetwork = await this.usersService.isHbxSellerNetworkCompany(companyId);
-		const isHbxPartnerActivation =
-			isHbxSellerNetwork &&
+		const sellerOptionsEnabled = await this.usersService.isHbxSellerNetworkCompany(companyId);
+		const isSellerOnboardingActivation =
+			sellerOptionsEnabled &&
 			String(target.role || '').toUpperCase() === 'USER' &&
-			target.isActive === false;
+			target.isActive === false &&
+			await this.sellerOnboardingService.hasOnboardingForUser(companyId, id);
 		let finalTemporaryPassword: string | null = null;
-		if (isHbxPartnerActivation) {
+		if (isSellerOnboardingActivation) {
 			await this.sellerOnboardingService.assertCanActivatePartner(companyId, id, requesterId);
 			finalTemporaryPassword = `Hbx@${Math.random().toString(36).slice(2, 10)}A1`;
 			assertPasswordPolicy(finalTemporaryPassword);
@@ -875,14 +870,14 @@ export class UsersController {
 		}
 
 		const updated = await this.usersService.reactivateUser(id);
-		if (isHbxPartnerActivation && finalTemporaryPassword) {
+		if (isSellerOnboardingActivation && finalTemporaryPassword) {
 			welcomeEmail = await this.sendWelcomeAccessEmail({
 				email: updated.email || updated.username || '',
 				login: updated.username || updated.email || '',
 				password: finalTemporaryPassword,
 				name: updated.name,
 				role: 'USER',
-				source: 'hbx_partner_activation',
+				source: 'seller_onboarding_activation',
 				companyId,
 				commissionPercent: updated.commissionPercent,
 				sellerReferralCommissionPercent: updated.sellerReferralCommissionPercent,
@@ -894,8 +889,8 @@ export class UsersController {
 			isActive: updated.isActive,
 			deactivatedAt: updated.deactivatedAt,
 			retentionUntil: updated.retentionUntil,
-			message: isHbxPartnerActivation
-				? 'Parceiro criado e e-mail de boas-vindas enviado.'
+			message: isSellerOnboardingActivation
+				? 'Vendedor liberado e e-mail de boas-vindas enviado.'
 				: 'Usuário reativado com sucesso',
 			welcomeEmail,
 			confirmationEmail,
@@ -928,7 +923,7 @@ export class UsersController {
 
 		const role = (dto.role === 'ADMIN' ? 'ADMIN' : 'USER') as 'USER' | 'ADMIN';
 		const seatUsage = await this.usersService.getCompanyTrialSeatUsage(companyId);
-		const isHbxSellerNetwork = await this.usersService.isHbxSellerNetworkCompany(companyId);
+		const sellerOptionsEnabled = await this.usersService.isHbxSellerNetworkCompany(companyId);
 		if (!seatUsage.company) throw new NotFoundException('Empresa não encontrada');
 		if (seatUsage.isTrial && role === 'ADMIN' && seatUsage.activeAdmins >= seatUsage.maxAdmins) {
 			throw new BadRequestException('O free trial permite 1 admin ativo por empresa.');
@@ -945,18 +940,15 @@ export class UsersController {
 		const existingUsername = await this.usersService.findByUsername(email);
 		if (existingUsername) throw new BadRequestException('Username já cadastrado');
 
-		if (role === 'ADMIN' && isHbxSellerNetwork) {
-			throw new BadRequestException('Na operação HBX, o Gerencial cadastra apenas parceiros HBX.');
-		}
 		const referralCandidateId = String(dto.referralCandidateId || '').trim();
 		const referralCandidate = referralCandidateId
 			? await this.hbxPartnerReferrals.getCandidateForConversion(companyId, referralCandidateId)
 			: null;
-		if (referralCandidateId && (!referralCandidate || role !== 'USER' || !isHbxSellerNetwork)) {
-			throw new BadRequestException('Indicação inválida para cadastro de Parceiro HBX.');
+		if (referralCandidateId && (!referralCandidate || role !== 'USER' || !sellerOptionsEnabled)) {
+			throw new BadRequestException('Indicação inválida para cadastro de vendedor.');
 		}
 		if (referralCandidate && dto.referredByUserId && Number(dto.referredByUserId) !== Number(referralCandidate.referrerUserId)) {
-			throw new BadRequestException('A indicação já define outro parceiro indicador.');
+			throw new BadRequestException('A indicação já define outro vendedor indicador.');
 		}
 		const tempPassword = dto.password?.trim() || `Tmp@${Math.random().toString(36).slice(2, 10)}A1`;
 		const hashed = await bcrypt.hash(tempPassword, 10);
@@ -979,6 +971,13 @@ export class UsersController {
 			selectedReferrer = await this.usersService.getActiveSellerReferrer(companyId, sellerNetworkData.referredByUserId);
 			commissionPercent = normalizeCommissionPercent(selectedReferrer?.commissionPercent) ?? commissionPercent;
 		}
+		const requiresSellerOnboarding = Boolean(
+			role === 'USER' &&
+				(dto.requiresSellerOnboarding ||
+					referralCandidate ||
+					normalizeNullableText(dto.cpf) ||
+					normalizeNullableText(dto.declaredAddress)),
+		);
 		const created = await this.usersService.create({
 			email,
 			username: email,
@@ -990,14 +989,14 @@ export class UsersController {
 			mustChangePassword: true,
 			companyId,
 			role,
-			...((role === 'USER' || role === 'ADMIN') && isHbxSellerNetwork && dto.sellerDistributionDailyLimitOverride !== undefined
+			...((role === 'USER' || role === 'ADMIN') && sellerOptionsEnabled && dto.sellerDistributionDailyLimitOverride !== undefined
 				? { sellerDistributionDailyLimitOverride: Math.max(0, Math.min(500, Math.trunc(Number(dto.sellerDistributionDailyLimitOverride || 0) || 0))) }
 				: {}),
-			...(role === 'USER' && isHbxSellerNetwork ? { isActive: false } : {}),
+			...(requiresSellerOnboarding ? { isActive: false } : {}),
 		});
 		let welcomeEmail: Pick<MailSendResult, 'ok' | 'transport' | 'messageId' | 'errorCode' | 'errorMessage'> | null = null;
 		let onboardingEmail: any = null;
-		if (role === 'USER' && isHbxSellerNetwork) {
+		if (requiresSellerOnboarding) {
 			const createdByUserId = Number(req?.user?.id || 0) || null;
 			await this.sellerOnboardingService.getOrCreateForUser(companyId, created.id, createdByUserId);
 			await this.sellerOnboardingService.updateDraft(companyId, created.id, {
@@ -1050,7 +1049,7 @@ export class UsersController {
 				sellerDistributionDailyLimitOverride: (created as any).sellerDistributionDailyLimitOverride,
 				...this.sellerNetworkPayload(created),
 			},
-			temporaryPassword: role === 'USER' && isHbxSellerNetwork ? null : dto.password ? null : tempPassword,
+			temporaryPassword: requiresSellerOnboarding ? null : dto.password ? null : tempPassword,
 			welcomeEmail,
 			onboardingEmail,
 		};
@@ -1064,7 +1063,7 @@ export class UsersController {
 		if (!requester) throw new ForbiddenException('Usuário não identificado');
 		const companyId = Number(requester.companyId || 0);
 		if (!companyId || !(await this.usersService.isHbxSellerNetworkCompany(companyId))) {
-			throw new ForbiddenException('Cadastro por indicação está disponível apenas para parceiros HBX.');
+			throw new ForbiddenException('Cadastro por indicação está disponível apenas para vendedores de empresas tenant.');
 		}
 		if (
 			String(requester.role || '').toUpperCase() !== 'USER' ||
@@ -1072,7 +1071,7 @@ export class UsersController {
 			requester.deactivatedAt ||
 			requester.isSystemMaster
 		) {
-			throw new ForbiddenException('Seu usuário ainda não está autorizado a indicar parceiros HBX.');
+			throw new ForbiddenException('Seu usuário ainda não está autorizado a indicar vendedores.');
 		}
 
 		const candidate = await this.hbxPartnerReferrals.createCandidate(requester, {
@@ -1084,7 +1083,7 @@ export class UsersController {
 
 		return {
 			ok: true,
-			message: 'Indicação enviada para aprovação do Master HBX.',
+			message: 'Indicação enviada para aprovação do administrador.',
 			candidate,
 		};
 	}
@@ -1128,7 +1127,7 @@ export class UsersController {
 	async rejectHbxReferralCandidate(@Req() req: any, @Param('id') id: string) {
 		const companyId = Number(req?.user?.companyId || 0);
 		if (!companyId || !(await this.usersService.isHbxSellerNetworkCompany(companyId))) {
-			throw new ForbiddenException('Aprovação de indicações está disponível apenas na operação HBX.');
+			throw new ForbiddenException('Aprovação de indicações está disponível apenas para empresas tenant.');
 		}
 		const candidate = await this.hbxPartnerReferrals.rejectCandidate(req.user, id, null);
 		return { candidate };
@@ -1141,7 +1140,7 @@ export class UsersController {
 	async approveHbxReferralCandidate(@Req() req: any, @Param('id') id: string) {
 		const companyId = Number(req?.user?.companyId || 0);
 		if (!companyId || !(await this.usersService.isHbxSellerNetworkCompany(companyId))) {
-			throw new ForbiddenException('Aprovação de indicações está disponível apenas na operação HBX.');
+			throw new ForbiddenException('Aprovação de indicações está disponível apenas para empresas tenant.');
 		}
 		const candidate = await this.hbxPartnerReferrals.approveCandidate(req.user, id);
 		return { candidate };
@@ -1179,7 +1178,7 @@ export class UsersController {
 	) {
 		const role = (dto.role === 'ADMIN' ? 'ADMIN' : 'USER') as 'USER' | 'ADMIN';
 		const seatUsage = await this.usersService.getCompanyTrialSeatUsage(companyId);
-		const isHbxSellerNetwork = await this.usersService.isHbxSellerNetworkCompany(companyId);
+		const sellerOptionsEnabled = await this.usersService.isHbxSellerNetworkCompany(companyId);
 		if (!seatUsage.company) throw new NotFoundException('Empresa não encontrada');
 		if (seatUsage.isTrial && role === 'ADMIN' && seatUsage.activeAdmins >= seatUsage.maxAdmins) {
 			throw new BadRequestException('O free trial permite 1 admin ativo por empresa.');
@@ -1203,11 +1202,11 @@ export class UsersController {
 		const referralCandidate = referralCandidateId
 			? await this.hbxPartnerReferrals.getCandidateForConversion(companyId, referralCandidateId)
 			: null;
-		if (referralCandidateId && (!referralCandidate || role !== 'USER' || !isHbxSellerNetwork)) {
-			throw new BadRequestException('Indicação inválida para cadastro de Parceiro HBX.');
+		if (referralCandidateId && (!referralCandidate || role !== 'USER' || !sellerOptionsEnabled)) {
+			throw new BadRequestException('Indicação inválida para cadastro de vendedor.');
 		}
 		if (referralCandidate && dto.referredByUserId && Number(dto.referredByUserId) !== Number(referralCandidate.referrerUserId)) {
-			throw new BadRequestException('A indicação já define outro parceiro indicador.');
+			throw new BadRequestException('A indicação já define outro vendedor indicador.');
 		}
 		const attendantName = String(dto?.name || referralCandidate?.candidateName || '').trim();
 		const tempPassword = dto.password?.trim() || `Tmp@${Math.random().toString(36).slice(2, 10)}A1`;
@@ -1229,6 +1228,13 @@ export class UsersController {
 			selectedReferrer = await this.usersService.getActiveSellerReferrer(companyId, sellerNetworkData.referredByUserId);
 			commissionPercent = normalizeCommissionPercent(selectedReferrer?.commissionPercent) ?? commissionPercent;
 		}
+		const requiresSellerOnboarding = Boolean(
+			role === 'USER' &&
+				(dto.requiresSellerOnboarding ||
+					referralCandidate ||
+					normalizeNullableText(dto.cpf) ||
+					normalizeNullableText(dto.declaredAddress)),
+		);
 
 		const created = await this.usersService.create({
 			email,
@@ -1241,11 +1247,11 @@ export class UsersController {
 			mustChangePassword: true,
 			companyId,
 			role,
-			...(role === 'USER' && isHbxSellerNetwork ? { isActive: false } : {}),
+			...(requiresSellerOnboarding ? { isActive: false } : {}),
 		});
 		let welcomeEmail: Pick<MailSendResult, 'ok' | 'transport' | 'messageId' | 'errorCode' | 'errorMessage'> | null = null;
 		let onboardingEmail: any = null;
-		if (role === 'USER' && isHbxSellerNetwork) {
+		if (requiresSellerOnboarding) {
 			const createdByUserId = Number(req?.user?.id || 0) || null;
 			await this.sellerOnboardingService.getOrCreateForUser(companyId, created.id, createdByUserId);
 			await this.sellerOnboardingService.updateDraft(companyId, created.id, {
@@ -1314,7 +1320,7 @@ export class UsersController {
 				isActive: created.isActive,
 				...this.sellerNetworkPayload(created),
 			},
-			temporaryPassword: role === 'USER' && isHbxSellerNetwork ? null : dto.password ? null : tempPassword,
+			temporaryPassword: requiresSellerOnboarding ? null : dto.password ? null : tempPassword,
 			welcomeEmail,
 			onboardingEmail,
 		};
@@ -1395,7 +1401,7 @@ export class UsersController {
 		) {
 			if (changedReferrerId) {
 				const referrer = await this.usersService.getActiveSellerReferrer(Number(target.companyId || 0), lockedReferrerId);
-				if (!referrer) throw new BadRequestException('Indicador precisa ser parceiro ativo da operação HBX.');
+				if (!referrer) throw new BadRequestException('Indicador precisa ser vendedor ativo da empresa.');
 				data.commissionPercent = normalizeCommissionPercent(referrer.commissionPercent) ?? 0;
 				data.sellerReferralCommissionPercent = normalizeCommissionPercent(referrer.sellerReferralCommissionPercent) ?? 0;
 				data.referredByCommissionPercentSnapshot = normalizeCommissionPercent(referrer.sellerReferralCommissionPercent) ?? 0;
@@ -1413,8 +1419,8 @@ export class UsersController {
 				data.deactivatedAt = new Date();
 				data.retentionUntil = new Date(Date.now() + 730 * 24 * 60 * 60 * 1000);
 			} else {
-				const isHbxSellerNetwork = await this.usersService.isHbxSellerNetworkCompany(Number(target.companyId || 0));
-				if (isHbxSellerNetwork && nextRole === 'USER' && target.isActive === false) {
+				const hasSellerOnboarding = await this.sellerOnboardingService.hasOnboardingForUser(Number(target.companyId || 0), id);
+				if (hasSellerOnboarding && nextRole === 'USER' && target.isActive === false) {
 					await this.sellerOnboardingService.assertCanActivatePartner(Number(target.companyId || 0), id, Number(req.user?.id || 0) || null);
 				}
 				data.isActive = true;

@@ -25,6 +25,7 @@ import {
   MASTER_WHATSAPP_ENGINE_COMPANY_NAME,
   MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
 } from '../companies/master-whatsapp-company.constants';
+import { COMPANY_KIND_PLATFORM_INFRA, isTenantCompany } from '../common/company-kind';
 import { calculateLeadQualityV2, resolveRadarVisibilityFromQualityV2, type LeadQualityV2, type LeadQualityV2SalesProfile } from '../webscraping/lead-quality-v2';
 import {
   BulkDeleteVendasLeadsDto,
@@ -2615,7 +2616,7 @@ export class VendasService {
     const [company, leads] = await Promise.all([
       this.prisma.company.findUnique({
         where: { id: context.companyId },
-        select: { slug: true, commissionDueBusinessDays: true },
+        select: { companyKind: true, commissionDueBusinessDays: true },
       }).catch(() => null),
       this.prisma.vendasLead.findMany({
         where: this.buildLeadAccessWhere(context, {
@@ -2812,7 +2813,7 @@ export class VendasService {
       ok: true,
       scope: context.canManageTeam ? 'company' : 'seller',
       canManage: Boolean(context.canManageTeam),
-      isHbxSellerNetwork: String(company?.slug || '').trim().toLowerCase() === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
+      isHbxSellerNetwork: Boolean(company && isTenantCompany(company)),
       generatedAt: now.toISOString(),
       settings: {
         dueBusinessDays,
@@ -3579,7 +3580,7 @@ export class VendasService {
     const [company, currentUser] = await Promise.all([
       this.prisma.company.findUnique({
         where: { id: context.companyId },
-        select: { slug: true, commissionDueBusinessDays: true },
+        select: { companyKind: true, commissionDueBusinessDays: true },
       }).catch(() => null),
       this.prisma.user.findFirst({
         where: { id: context.userId, companyId: context.companyId },
@@ -3600,8 +3601,7 @@ export class VendasService {
         },
       }).catch(() => null),
     ]);
-    const isHbxSellerNetwork =
-      String(company?.slug || '').trim().toLowerCase() === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG;
+    const isHbxSellerNetwork = Boolean(company && isTenantCompany(company));
     const currentRole = String(currentUser?.role || context.role || '').trim().toUpperCase();
     const canRegisterReferredSeller = Boolean(
       isHbxSellerNetwork &&
@@ -4303,6 +4303,7 @@ export class VendasService {
           data: {
             name: MASTER_WHATSAPP_ENGINE_COMPANY_NAME,
             slug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
+            companyKind: COMPANY_KIND_PLATFORM_INFRA,
             onboardingStatus: 'active_paid',
             paymentStatus: 'MANUAL',
             subscriptionStatus: 'manual',

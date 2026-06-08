@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { isMasterOperationalCompanySlug } from '../commercial-plans/seat-billing.util';
+import { isTenantCompany } from '../common/company-kind';
 import { HbxCommissionSyncService } from '../commissions/hbx-commission-sync.service';
 import { getCommercialPlanMonthlyPrice } from '../commercial-plans/commercial-plan-catalog';
 
@@ -537,10 +537,10 @@ export class GerencialService {
       ...(isHbxSellerNetwork
         ? [{
             key: 'hbx_referral',
-            title: 'Rede HBX',
+            title: 'Indicações de vendedores',
             status: referralEnabledSellers.length || activeSellers.length === 0 ? 'ok' : 'warning',
-            value: `${referralEnabledSellers.length} parceiro(s) indicam`,
-            hint: referralEnabledSellers.length ? 'Indicação e comissão herdada disponíveis.' : 'Cadastre parceiros ativos.',
+            value: `${referralEnabledSellers.length} vendedor(es) indicam`,
+            hint: referralEnabledSellers.length ? 'Indicação e comissão herdada disponíveis.' : 'Cadastre vendedores ativos.',
           }]
         : []),
     ];
@@ -651,7 +651,7 @@ export class GerencialService {
       }),
       this.prisma.company.findUnique({
         where: { id: companyId },
-        select: { id: true, name: true, slug: true, commissionDueBusinessDays: true },
+        select: { id: true, name: true, slug: true, companyKind: true, commissionDueBusinessDays: true },
       }),
       this.prisma.companyConversation.findMany({ where: { companyId }, select: { contact: true } }),
       this.prisma.satisfactionSurvey.findMany({
@@ -683,7 +683,7 @@ export class GerencialService {
 
     const commissionDueBusinessDays = normalizeCommissionDueBusinessDays(company?.commissionDueBusinessDays);
     const commission = await this.buildCommissionOverview(companyId, companyUsers, { dueBusinessDays: commissionDueBusinessDays });
-    const isHbxSellerNetwork = company ? isMasterOperationalCompanySlug(company.slug) : false;
+    const isHbxSellerNetwork = Boolean(company && isTenantCompany(company));
     const operationAudit = await this.buildOperationAudit(companyId, companyUsers, commission, { isHbxSellerNetwork });
 
     return {

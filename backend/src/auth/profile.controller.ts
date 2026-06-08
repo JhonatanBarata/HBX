@@ -6,7 +6,7 @@ import { assertPasswordPolicy } from './password-policy';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { MasterContextService } from '../master-context/master-context.service';
 import { ThemePreferencesService } from './theme-preferences.service';
-import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../companies/master-whatsapp-company.constants';
+import { resolveCompanyKind, isPlatformInfraCompany, isTenantCompany } from '../common/company-kind';
 
 class ChangePasswordDto {
   @IsString()
@@ -25,17 +25,13 @@ class UpdateDisplayNameDto {
   name: string;
 }
 
-function sanitizeUser(user: any, masterContext?: any) {
+export function sanitizeUser(user: any, masterContext?: any) {
   if (!user) return null;
   const role = String(user.role || '').trim().toUpperCase();
-  const isHbxSellerNetwork =
-    String(user.company?.slug || '').trim().toLowerCase() === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG;
-  const isHbxPartnerSeller = isHbxSellerNetwork && role === 'USER' && !user.isSystemMaster;
+  const isHbxPartnerSeller = false;
   const userKind = user.isSystemMaster
     ? 'system_master'
-    : isHbxPartnerSeller
-      ? 'hbx_partner_seller'
-      : role === 'ADMIN'
+    : role === 'ADMIN'
         ? 'admin'
         : role === 'USER'
           ? 'seller'
@@ -67,7 +63,9 @@ function sanitizeUser(user: any, masterContext?: any) {
           id: user.company.id,
           name: user.company.name,
           slug: user.company.slug ?? null,
-          isHbxSellerNetwork,
+          companyKind: resolveCompanyKind(user.company),
+          isTenant: isTenantCompany(user.company),
+          isPlatformInfra: isPlatformInfraCompany(user.company),
           onboardingStatus: user.company.onboardingStatus ?? null,
           paymentStatus: user.company.paymentStatus ?? null,
           subscriptionStatus: user.company.subscriptionStatus ?? null,

@@ -3,7 +3,7 @@ import { createHash, randomBytes, randomUUID } from 'crypto';
 import { mkdir, readFile, unlink, writeFile } from 'fs/promises';
 import { extname, isAbsolute, join, relative, resolve, sep } from 'path';
 import PDFDocument from 'pdfkit';
-import { isMasterOperationalCompanySlug } from '../commercial-plans/seat-billing.util';
+import { isTenantCompany } from '../common/company-kind';
 import { MailService, type MailAttachment } from '../mail/mail.service';
 import { EmailTemplateService } from '../mail/email-template.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -174,7 +174,7 @@ async function buildContractPdfBuffer(contractText: string) {
   const signatureLines = signatureStart >= 0 ? lines.slice(signatureStart + 1) : [];
   const partnerSignature = [...signatureLines].reverse().find((line) => {
     return !/^assinatura\b/i.test(line) && !/^hbx system$/i.test(line) && !/^jhonatan barata$/i.test(line);
-  }) || 'Parceiro HBX';
+  }) || 'Vendedor';
 
   return new Promise<Buffer>((resolve, reject) => {
     const doc = new PDFDocument({
@@ -361,7 +361,7 @@ export class SellerOnboardingService {
     return {
       ok: true,
       partner: {
-        name: onboarding?.legalName || onboarding?.email || 'Parceiro HBX',
+        name: onboarding?.legalName || onboarding?.email || 'Vendedor',
         email: onboarding?.email || null,
       },
       documents,
@@ -379,7 +379,7 @@ export class SellerOnboardingService {
   private async createDocumentsConfirmedMasterNotice(onboarding: any) {
     const companyId = Number(onboarding?.companyId || 0);
     if (!companyId) return;
-    const partnerName = normalizeText(onboarding?.legalName || onboarding?.email, 160) || 'Parceiro HBX';
+    const partnerName = normalizeText(onboarding?.legalName || onboarding?.email, 160) || 'Vendedor';
     const partnerEmail = normalizeText(onboarding?.email, 180) || 'sem e-mail';
     const now = new Date();
     await this.prisma.masterNotice.create({
@@ -476,7 +476,7 @@ export class SellerOnboardingService {
 
   private buildContractInputFromOnboarding(onboarding: any) {
     return {
-      sellerName: onboarding.legalName || onboarding.email || 'Parceiro HBX',
+      sellerName: onboarding.legalName || onboarding.email || 'Vendedor',
       sellerCpf: onboarding.cpf || null,
       sellerEmail: onboarding.email || null,
       sellerPhone: onboarding.phone || null,
@@ -713,6 +713,16 @@ export class SellerOnboardingService {
       include: SELLER_ONBOARDING_INCLUDE,
     });
     return this.withContractDraft(created);
+  }
+
+  async hasOnboardingForUser(companyId: number, userId: number) {
+    const normalizedCompanyId = Number(companyId || 0);
+    const normalizedUserId = Number(userId || 0);
+    if (!normalizedCompanyId || !normalizedUserId) return false;
+    const count = await this.prisma.sellerOnboarding.count({
+      where: { companyId: normalizedCompanyId, userId: normalizedUserId },
+    });
+    return count > 0;
   }
 
   async updateDraft(companyId: number, userId: number, dto: UpdateDraftInput) {
@@ -1170,7 +1180,7 @@ export class SellerOnboardingService {
     if (!user.emailConfirmedAt) {
       throw new BadRequestException({
         code: 'HBX_PARTNER_EMAIL_CONFIRMATION_PENDING',
-        message: 'Parceiro ainda não pode ser liberado. Faltou confirmar o e-mail do pré-boas-vindas.',
+        message: 'Vendedor ainda não pode ser liberado. Faltou confirmar o e-mail do pré-boas-vindas.',
         missingActivationRequirements: [
           { code: 'email_confirmation', label: 'Confirmar e-mail do pré-boas-vindas' },
         ],
@@ -1185,7 +1195,7 @@ export class SellerOnboardingService {
       ].join(', ');
       throw new BadRequestException({
         code: 'HBX_PARTNER_ONBOARDING_PENDING',
-        message: `Parceiro ainda não pode ser liberado. Faltou: ${missing || 'documentação'}.`,
+        message: `Vendedor ainda não pode ser liberado. Faltou: ${missing || 'documentação'}.`,
         missingRequiredDocuments: readiness.missingRequiredDocuments,
         missingActivationRequirements: readiness.missingActivationRequirements,
       });
@@ -1259,10 +1269,10 @@ export class SellerOnboardingService {
   private async assertHbxSellerNetworkCompany(companyId: number) {
     const company = await this.prisma.company.findUnique({
       where: { id: Number(companyId) },
-      select: { slug: true },
+      select: { companyKind: true },
     });
-    if (!company || !isMasterOperationalCompanySlug(company.slug)) {
-      throw new BadRequestException('Onboarding de parceiro HBX só existe na operação HBX.');
+    if (!company || !isTenantCompany(company)) {
+      throw new BadRequestException('Onboarding de vendedor está disponível apenas para empresas tenant.');
     }
   }
 
@@ -1273,7 +1283,7 @@ export class SellerOnboardingService {
     });
     if (!user) throw new NotFoundException('Usuário não encontrado na empresa.');
     if (String(user.role || '').toUpperCase() !== 'USER') {
-      throw new BadRequestException('Onboarding de parceiro HBX é apenas para USER da operação HBX.');
+      throw new BadRequestException('Onboarding com documentos é apenas para vendedores.');
     }
     return { user, company: user.company };
   }

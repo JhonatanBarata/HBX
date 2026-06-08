@@ -10,8 +10,8 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CompaniesService } from '../companies/companies.service';
-import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../companies/master-whatsapp-company.constants';
 import { MasterContextService } from '../master-context/master-context.service';
+import { isPlatformInfraCompany } from '../common/company-kind';
 import { SelectCommercialPlanDto } from './dto/select-commercial-plan.dto';
 import {
   BOT_IA_PLAN_REQUIRED_PAYLOAD,
@@ -117,9 +117,9 @@ export class CommercialPlansService {
   async getBillableUserCount(companyId: number): Promise<number> {
     const company = await this.prisma.company.findUnique({
       where: { id: Number(companyId) },
-      select: { slug: true },
+      select: { companyKind: true },
     });
-    if (this.isMasterOperationalCompany(company)) return 0;
+    if (this.isPlatformInfraCommercialCompany(company)) return 0;
     return this.prisma.user.count({
       where: {
         companyId: Number(companyId),
@@ -189,7 +189,7 @@ export class CommercialPlansService {
   }
 
   private isCompanyCommercialAccessAllowed(company: any) {
-    if (this.isMasterOperationalCompany(company)) return true;
+    if (this.isPlatformInfraCommercialCompany(company)) return true;
 
     const paymentStatus = String(company?.paymentStatus || '').trim().toUpperCase();
     const subscriptionStatus = String(company?.subscriptionStatus || '').trim().toLowerCase();
@@ -223,11 +223,7 @@ export class CommercialPlansService {
   }
 
   private resolveEntitlements(company: any): Record<CommercialEntitlementKey, boolean> {
-    if (this.isMasterOperationalCompany(company)) {
-      return this.buildFullEntitlements();
-    }
-
-    if (!this.isCompanyCommercialAccessAllowed(company)) {
+    if (this.isPlatformInfraCommercialCompany(company) || !this.isCompanyCommercialAccessAllowed(company)) {
       return {
         vendas: false,
         atendimento_chat: false,
@@ -283,8 +279,8 @@ export class CommercialPlansService {
     };
   }
 
-  private isMasterOperationalCompany(company: any) {
-    return String(company?.slug || '').trim().toLowerCase() === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG;
+  private isPlatformInfraCommercialCompany(company: any) {
+    return isPlatformInfraCompany(company);
   }
 
   private buildFullEntitlements(): Record<CommercialEntitlementKey, boolean> {
@@ -317,9 +313,9 @@ export class CommercialPlansService {
 
   private async buildCurrentState(company: any): Promise<CommercialCurrentState> {
     const entitlements = this.resolveEntitlements(company);
-    const masterOperational = this.isMasterOperationalCompany(company);
-    const inferredPlanKey = masterOperational
-      ? COMMERCIAL_PLAN_KEYS.MELHOR
+    const platformInfra = this.isPlatformInfraCommercialCompany(company);
+    const inferredPlanKey = platformInfra
+      ? null
       : entitlements.bot_ia
       ? COMMERCIAL_PLAN_KEYS.MELHOR
       : entitlements.webscraping && entitlements.vendas && !this.isCompanyTrialingVendas(company) && this.normalizePlanKey(company?.selectedPlanKey) === COMMERCIAL_PLAN_KEYS.LITE
@@ -333,8 +329,8 @@ export class CommercialPlansService {
       String(company?.paymentStatus || '').trim().toUpperCase() === 'MANUAL' ||
       String(company?.subscriptionStatus || '').trim().toLowerCase() === 'manual',
     );
-    const selectedPlanKey = masterOperational
-      ? COMMERCIAL_PLAN_KEYS.MELHOR
+    const selectedPlanKey = platformInfra
+      ? null
       : hasExplicitCommercialPlan
         ? resolveCommercialPlanKeyForCapabilities({
             selectedPlanKey: company?.selectedPlanKey,
@@ -350,12 +346,12 @@ export class CommercialPlansService {
       ? Math.max(0, Math.ceil((billingGraceEndsAt.getTime() - Date.now()) / (60 * 60 * 1000)))
       : null;
 
-    const billingBreakdown = masterOperational
+    const billingBreakdown = platformInfra
       ? null
       : planKey
       ? await this.computeCompanyCommercialAmount(Number(company?.id || 0), planKey, company?.billingCycle)
       : null;
-    const assistedSetupRequired = masterOperational
+    const assistedSetupRequired = platformInfra
       ? false
       : Boolean(company?.assistedSetupRequired) || planKey === COMMERCIAL_PLAN_KEYS.MELHOR;
     const rawAssistedSetupStatus = String(company?.assistedSetupStatus || '').trim().toLowerCase();
@@ -375,7 +371,7 @@ export class CommercialPlansService {
       onboardingStatus: company?.onboardingStatus || null,
       subscriptionStatus: company?.subscriptionStatus || null,
       paymentStatus: company?.paymentStatus || null,
-      premiumAccess: masterOperational || Boolean(company?.premiumAccess),
+      premiumAccess: !platformInfra && Boolean(company?.premiumAccess),
       trialEndsAt: company?.trialEndsAt instanceof Date ? company.trialEndsAt.toISOString() : null,
       trialRemainingDays: this.computeTrialRemainingDays(company?.trialEndsAt),
       billingGraceEndsAt: billingGraceEndsAt ? billingGraceEndsAt.toISOString() : null,
@@ -384,12 +380,12 @@ export class CommercialPlansService {
       billingBreakdown,
       assistedSetup: {
         required: assistedSetupRequired,
-        status: masterOperational ? 'completed' : assistedSetupStatus,
+        status: platformInfra ? 'completed' : assistedSetupStatus,
         completedAt: company?.assistedSetupCompletedAt instanceof Date
           ? company.assistedSetupCompletedAt.toISOString()
           : null,
         message:
-          !masterOperational && assistedSetupRequired && assistedSetupStatus !== 'completed'
+          !platformInfra && assistedSetupRequired && assistedSetupStatus !== 'completed'
             ? 'Implantação assistida pendente. A HBX configura mensagens, limites, horários e handoff humano antes de liberar automação completa.'
             : null,
       },
@@ -485,13 +481,13 @@ export class CommercialPlansService {
     const company = await this.prisma.company.findUnique({
       where: { id: Number(companyId) },
       select: {
-        slug: true,
+        companyKind: true,
         selectedPlanKey: true,
         assistedSetupRequired: true,
         assistedSetupStatus: true,
       },
     });
-    if (this.isMasterOperationalCompany(company)) return;
+    if (this.isPlatformInfraCommercialCompany(company)) return;
     const planKey = this.normalizePlanKey(company?.selectedPlanKey);
     const required = planKey === COMMERCIAL_PLAN_KEYS.MELHOR || Boolean(company?.assistedSetupRequired);
     const rawStatus = String(company?.assistedSetupStatus || '').trim().toLowerCase();

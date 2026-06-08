@@ -2,7 +2,8 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { unlink } from 'fs/promises';
 import { PrismaService } from '../prisma/prisma.service';
 import type { User } from '@prisma/client';
-import { isBillableUserSeatSnapshot, isMasterOperationalCompanySlug } from '../commercial-plans/seat-billing.util';
+import { isBillableUserSeatSnapshot } from '../commercial-plans/seat-billing.util';
+import { isTenantCompany } from '../common/company-kind';
 import { ensureUserTeamPolicyForUser } from '../team/team-policy-persistence';
 
 @Injectable()
@@ -14,9 +15,9 @@ export class UsersService {
     if (!normalizedCompanyId) return false;
     const company = await this.prisma.company.findUnique({
       where: { id: normalizedCompanyId },
-      select: { slug: true },
+      select: { companyKind: true },
     });
-    return !isMasterOperationalCompanySlug(company?.slug);
+    return Boolean(company && isTenantCompany(company));
   }
 
   async isHbxSellerNetworkCompany(companyId?: number | null) {
@@ -24,9 +25,9 @@ export class UsersService {
     if (!normalizedCompanyId) return false;
     const company = await this.prisma.company.findUnique({
       where: { id: normalizedCompanyId },
-      select: { slug: true },
+      select: { companyKind: true },
     });
-    return isMasterOperationalCompanySlug(company?.slug);
+    return Boolean(company && isTenantCompany(company));
   }
 
   async getCompanyCommissionDueBusinessDays(companyId?: number | null) {
@@ -243,7 +244,7 @@ export class UsersService {
       referrer.deactivatedAt ||
       referrer.isSystemMaster
     ) {
-      throw new BadRequestException('Indicador precisa ser parceiro ativo da operação HBX.');
+      throw new BadRequestException('Indicador precisa ser vendedor ativo da empresa.');
     }
 
     return {

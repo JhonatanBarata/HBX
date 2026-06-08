@@ -1,12 +1,12 @@
-import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../companies/master-whatsapp-company.constants';
+import { resolveCompanyKind, type CompanyKind } from '../common/company-kind';
 
-export type AccessGovernor = 'HBX_MASTER' | 'COMPANY_ADMIN';
+export type AccessGovernor = CompanyKind;
 
 export type HbxCompanyLike = {
   id?: number | string | null;
+  companyKind?: string | null;
   slug?: string | null;
-  isHbxOperation?: boolean | null;
-  isMasterOperationalCompany?: boolean | null;
+  [key: string]: unknown;
 };
 
 export type HbxUserLike = {
@@ -40,21 +40,8 @@ export type ResolveEffectiveCapabilityInput = {
   safetyCaps?: CapabilityMap | null;
 };
 
-export function isHbxOperationCompany(company?: HbxCompanyLike | null): boolean {
-  if (!company) return false;
-  const slug = String(company.slug || '').trim().toLowerCase();
-  return Boolean(
-    company.isHbxOperation === true ||
-      company.isMasterOperationalCompany === true ||
-      slug === 'hbx' ||
-      slug === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
-  );
-}
-
 export function resolveAccessGovernor(targetUser: HbxUserLike, targetCompany?: HbxCompanyLike | null): AccessGovernor {
-  return isHbxOperationCompany(targetCompany || targetUser.company)
-    ? 'HBX_MASTER'
-    : 'COMPANY_ADMIN';
+  return resolveCompanyKind(targetCompany || targetUser.company);
 }
 
 export function resolveEffectiveCapability({

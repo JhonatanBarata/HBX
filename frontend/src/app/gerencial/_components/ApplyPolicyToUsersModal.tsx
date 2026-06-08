@@ -19,7 +19,7 @@ type SectionKey = "modules" | "compensation" | "hbxNetwork" | "limits" | "radar"
 const SECTION_LABELS: Array<[SectionKey, string]> = [
   ["modules", "Módulos"],
   ["compensation", "Comissão e D+"],
-  ["hbxNetwork", "Rede HBX"],
+  ["hbxNetwork", "Indicações"],
   ["limits", "Limites"],
   ["radar", "Radar"],
   ["visibility", "Visibilidade"],

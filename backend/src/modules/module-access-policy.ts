@@ -4,12 +4,13 @@ import {
   normalizeCommercialPlanKey,
   type ActiveCommercialPlanKey,
 } from '../commercial-plans/commercial-plan-catalog';
-import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../companies/master-whatsapp-company.constants';
+import { isPlatformInfraCompany } from '../common/company-kind';
 
 export const PRIMARY_COMMERCIAL_MODULE_KEYS = ['atendimento', 'vendas', 'webscraping'] as const;
 export const ROUTE_GUARDED_MODULE_KEYS = ['atendimento', 'vendas', 'webscraping', 'website'] as const;
 
 export type ModuleAccessCompanySnapshot = {
+  companyKind?: string | null;
   slug?: string | null;
   isActive?: boolean | null;
   onboardingStatus?: string | null;
@@ -46,17 +47,15 @@ export function resolveCompanyModuleAccessPolicy(
   company: ModuleAccessCompanySnapshot | null | undefined,
   nowMs = Date.now(),
 ): CompanyModuleAccessPolicy {
-  const companySlug = String(company?.slug || '').trim().toLowerCase();
-  if (companySlug === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG) {
-    const planKey = COMMERCIAL_PLAN_KEYS.MELHOR;
+  if (isPlatformInfraCompany(company)) {
     return {
-      accessState: 'manual',
-      active: true,
+      accessState: 'blocked',
+      active: false,
       pendingCheckout: false,
-      planKey,
-      moduleKeys: new Set<string>(COMMERCIAL_PLAN_MODULE_KEYS[planKey] || []),
-      blockedCode: null,
-      blockedReason: null,
+      planKey: COMMERCIAL_PLAN_KEYS.PADRAO,
+      moduleKeys: new Set<string>(),
+      blockedCode: 'platform_infra_company',
+      blockedReason: 'Empresa de infraestrutura nao recebe modulos comerciais.',
     };
   }
 

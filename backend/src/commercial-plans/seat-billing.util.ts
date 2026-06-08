@@ -1,4 +1,4 @@
-import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../companies/master-whatsapp-company.constants';
+import { isPlatformInfraCompany } from '../common/company-kind';
 import {
   COMMERCIAL_PLAN_KEYS,
   COMMERCIAL_PRICING,
@@ -57,10 +57,6 @@ export function canBillExtraSeatsForPlan(planKeyRaw: unknown) {
   return normalizeCommercialPlanKey(planKeyRaw) !== COMMERCIAL_PLAN_KEYS.LITE;
 }
 
-export function isMasterOperationalCompanySlug(slug: unknown) {
-  return String(slug || '').trim().toLowerCase() === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG;
-}
-
 export function isBillableSellerRole(roleRaw: unknown) {
   const role = String(roleRaw || '').trim().toUpperCase();
   return role === 'USER' || role === 'ADMIN';
@@ -68,7 +64,7 @@ export function isBillableSellerRole(roleRaw: unknown) {
 
 export function isBillableUserSeatSnapshot(user: any, company?: any) {
   if (!user) return false;
-  if (company && isMasterOperationalCompanySlug(company.slug)) return false;
+  if (company && isPlatformInfraCompany(company)) return false;
   return (
     Boolean(user?.companyId) &&
     Boolean(user?.isActive) &&
@@ -192,9 +188,9 @@ export async function computeCompanySeatBillingSnapshot(prisma: any, input: {
 
   const company = await prisma.company.findUnique({
     where: { id: companyId },
-    select: { id: true, slug: true },
+    select: { id: true, companyKind: true },
   });
-  if (!company || isMasterOperationalCompanySlug(company.slug)) {
+  if (!company || isPlatformInfraCompany(company)) {
     return buildSeatBillingFromIntervals({
       intervals: [],
       activeUsers: 0,

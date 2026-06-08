@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { CommercialUsageLimitsService } from '../commercial-plans/commercial-usage-limits.service';
-import { isMasterOperationalCompanySlug } from '../commercial-plans/seat-billing.util';
+import { isTenantCompany } from '../common/company-kind';
 import { ModulesService } from '../modules/modules.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ensureUserTeamPolicyForUser } from './team-policy-persistence';
@@ -375,9 +375,7 @@ export class TeamPolicyService {
 
   private getActorKind(user: any, company?: any): TeamPolicyActorKind {
     const role = this.normalizeRole(user?.role);
-    const hbxCompany = isMasterOperationalCompanySlug(company?.slug || user?.company?.slug);
     if (user?.isSystemMaster) return 'system_master';
-    if (hbxCompany && role === 'USER') return 'hbx_partner_seller';
     if (role === 'ADMIN') return 'company_admin';
     if (role === 'USER') return 'common_seller';
     return 'unknown';
@@ -394,6 +392,7 @@ export class TeamPolicyService {
             id: true,
             name: true,
             slug: true,
+            companyKind: true,
             selectedPlanKey: true,
             commissionDueBusinessDays: true,
             timezone: true,
@@ -456,9 +455,6 @@ export class TeamPolicyService {
     const requesterRole = this.normalizeRole(requester?.role);
     const requesterCompanyId = Math.trunc(Number(requester?.companyId || 0));
     const targetCompanyId = Math.trunc(Number(target?.companyId || 0));
-    if (isMasterOperationalCompanySlug(target?.company?.slug)) {
-      throw new ForbiddenException('Apenas o MASTER HBX pode alterar vendedor da operacao HBX.');
-    }
     if (requesterRole === 'ADMIN' && requesterCompanyId && requesterCompanyId === targetCompanyId) return;
     throw new ForbiddenException('Acesso restrito ao responsavel da equipe.');
   }
@@ -492,7 +488,7 @@ export class TeamPolicyService {
   }
 
   private buildEnrichmentLimit(target: any, usage: any): TeamPolicyLimit {
-    if (!isMasterOperationalCompanySlug(target?.company?.slug)) {
+    if (!target?.company || !isTenantCompany(target.company)) {
       const fallback = this.buildLimit({
         value: usage?.enrichment?.dailyLimit ?? null,
         used: usage?.enrichment?.dailyUsed,
@@ -574,7 +570,7 @@ export class TeamPolicyService {
     ]);
     const targetRole = this.normalizeRole(target?.role);
     const targetKind = this.getActorKind(target, target?.company);
-    const hbxNetwork = isMasterOperationalCompanySlug(target?.company?.slug);
+    const sellerNetwork = targetRole === 'USER' && Boolean(target?.company && isTenantCompany(target.company));
     const activeCardsFallback = this.buildLimit({
       value: activeCards?.effectiveLimit ?? UNLIMITED_NUMERIC_SENTINEL,
       used: activeCards?.activeCount,
@@ -622,7 +618,7 @@ export class TeamPolicyService {
         ),
       },
       hbxNetwork: {
-        isHbxSellerNetwork: hbxNetwork,
+        isHbxSellerNetwork: sellerNetwork,
         canRegisterHbxSellers: Boolean(storedPolicy?.canRegisterHbxSellers ?? target.canRegisterHbxSellers),
         sellerReferralCommissionPercent: Math.max(0, Math.min(100, Number(storedPolicy?.sellerReferralCommissionPercent ?? target.sellerReferralCommissionPercent ?? 0) || 0)),
         referredByUserId: Number(storedPolicy?.referredByUserId ?? target.referredByUserId ?? 0) || null,
@@ -649,7 +645,7 @@ export class TeamPolicyService {
         allowedCities: this.parseCitiesJson(storedPolicy?.allowedCitiesJson),
         allowedStates: this.parseStringArrayJson(storedPolicy?.allowedStatesJson),
         requiresLocation: storedPolicy?.requiresLocation === null || storedPolicy?.requiresLocation === undefined
-          ? targetKind === 'hbx_partner_seller'
+          ? false
           : Boolean(storedPolicy.requiresLocation),
         requiredChannels: this.parseRequiredChannelsJson(storedPolicy?.requiredChannelsJson),
       },
@@ -717,7 +713,6 @@ export class TeamPolicyService {
   }
 
   private async validateHbxNetworkData(target: any, data: any) {
-    const hbxCompany = isMasterOperationalCompanySlug(target?.company?.slug);
     const targetRole = this.normalizeRole(target?.role);
     const meaningful = Boolean(
       data.canRegisterHbxSellers ||
@@ -726,15 +721,12 @@ export class TeamPolicyService {
         Number(data.referredByCommissionPercentSnapshot || 0) > 0,
     );
     if (targetRole !== 'USER') {
-      if (meaningful) throw new BadRequestException('Rede HBX so pode ser configurada para vendedor.');
+      if (meaningful) throw new BadRequestException('Rede de indicação só pode ser configurada para vendedor.');
       data.canRegisterHbxSellers = false;
       data.sellerReferralCommissionPercent = 0;
       data.referredByUserId = null;
       data.referredByCommissionPercentSnapshot = 0;
       return;
-    }
-    if (!hbxCompany && meaningful) {
-      throw new BadRequestException('Rede HBX esta disponivel apenas para a operacao HBX.');
     }
   }
 
@@ -762,7 +754,7 @@ export class TeamPolicyService {
         sellerReferralCommissionPercent: true,
       },
     });
-    if (!referrer) throw new BadRequestException('Indicador precisa ser parceiro ativo da operacao HBX.');
+    if (!referrer) throw new BadRequestException('Indicador precisa ser vendedor ativo da empresa.');
     const referralPercent = this.normalizePercent(referrer.sellerReferralCommissionPercent, 'Comissao de heranca') ?? 0;
     data.referredByUserId = referrer.id;
     data.sellerReferralCommissionPercent = referralPercent;
@@ -809,9 +801,6 @@ export class TeamPolicyService {
         : { value: patch.sellerDistributionDailyLimitOverride };
       const normalizedLimit = this.normalizeLimitPatch(requestedLimit, Boolean(requester?.isSystemMaster));
       const planCap = currentPolicy.limits.enrichmentDaily.value;
-      if (!isMasterOperationalCompanySlug(target?.company?.slug) && normalizedLimit.mode !== 'inherit') {
-        throw new BadRequestException('Limite individual de enriquecimento ainda esta disponivel apenas para a operacao HBX.');
-      }
       if (
         !requester?.isSystemMaster &&
         normalizedLimit.mode === 'limited' &&

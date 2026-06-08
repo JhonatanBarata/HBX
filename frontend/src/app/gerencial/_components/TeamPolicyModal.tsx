@@ -51,7 +51,7 @@ const CHANNEL_LABELS: Array<[keyof TeamPolicy["radar"]["requiredChannels"], stri
 const SELLER_VISIBILITY_LABELS: Array<[SellerVisibilityKey, string]> = [
   ["sellerCanViewOwnPolicy", "Ver própria política"],
   ["sellerCanViewCommission", "Ver comissão"],
-  ["sellerCanViewHbxNetwork", "Ver rede HBX"],
+  ["sellerCanViewHbxNetwork", "Ver indicações"],
   ["sellerCanViewLimits", "Ver limites"],
 ];
 
@@ -706,7 +706,7 @@ export default function TeamPolicyModal({
                 </div>
 
                 <div>
-                  <h3 className="font-semibold">Herança/rede HBX</h3>
+                  <h3 className="font-semibold">Herança e indicações</h3>
                   <div className="mt-3 grid gap-3 sm:grid-cols-2">
                     <label className="flex items-center gap-2 rounded-[12px] border border-[var(--line)] bg-[var(--surface)] p-3 text-sm">
                       <input
@@ -715,7 +715,7 @@ export default function TeamPolicyModal({
                         disabled={readOnly || saving || !policy.hbxNetwork.isHbxSellerNetwork}
                         onChange={(event) => setCanRegisterHbxSellers(event.target.checked)}
                       />
-                      <span className="font-medium">Pode indicar vendedores HBX</span>
+                      <span className="font-medium">Pode indicar vendedores</span>
                     </label>
                     <label className="grid gap-1 text-sm">
                       <span className="font-medium">Herança %</span>
@@ -735,7 +735,7 @@ export default function TeamPolicyModal({
                         onChange={(event) => setReferredByUserId(event.target.value)}
                         className="field"
                       >
-                        <option value="">Direto HBX</option>
+                        <option value="">Direto</option>
                         {policy.hbxNetwork.referredByUser &&
                         !referrerOptions.some((item) => item.id === policy.hbxNetwork.referredByUser?.id) ? (
                           <option value={policy.hbxNetwork.referredByUser.id}>

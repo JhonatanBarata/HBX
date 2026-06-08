@@ -21,5 +21,4 @@ export {
 export { buildRadarLeadEnrichment, RADAR_LEAD_ENRICHMENT_VERSION } from '../radar-lead-enrichment';
 export { calculateLeadQualityV2, resolveRadarVisibilityFromQualityV2 } from '../lead-quality-v2';
 export type { LeadQualityV2, LeadQualityV2SalesProfile } from '../lead-quality-v2';
-export { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../../companies/master-whatsapp-company.constants';
 export * from './shared/radar-core-shared';

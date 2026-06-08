@@ -20,7 +20,6 @@ import {
   RADAR_LEAD_ENRICHMENT_VERSION,
   calculateLeadQualityV2,
   resolveRadarVisibilityFromQualityV2,
-  MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
   PLACES_NEW_TEXT_SEARCH_URL,
   PLACES_NEW_DETAILS_URL,
   PLACES_TEXT_SEARCH_URL,
@@ -1108,11 +1107,6 @@ export class RadarCoreDistributionMixin {
 
   private async resolveMasterRadarDistributionCompanyId(user: any) {
     const directCompanyId = Math.trunc(Number(user?.companyId || 0)) || null;
-    const masterCompany = await this.prisma.company.findFirst({
-      where: { slug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG },
-      select: { id: true },
-    }).catch(() => null);
-    if (masterCompany?.id) return Number(masterCompany.id);
     if (directCompanyId) return directCompanyId;
     const masterUser = await this.prisma.user.findFirst({
       where: { isSystemMaster: true, companyId: { not: null } },

@@ -113,7 +113,6 @@ export type TeamPolicyActorKind =
   | "system_master"
   | "company_admin"
   | "common_seller"
-  | "hbx_partner_seller"
   | "unknown";
 
 export type TeamPolicyLimitMode = "inherit" | "limited" | "unlimited" | "blocked";

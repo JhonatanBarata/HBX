@@ -869,7 +869,7 @@ function HbxTerritoryPanelView({
         <div>
           <span>HBX Master</span>
           <strong>Distribuição de Cards</strong>
-          <p>Modo tabela para o Master distribuir cards por UF, cidade e parceiro. Parceiro HBX trabalha os cards no Vendas.</p>
+          <p>Modo tabela para o Master distribuir cards por UF, cidade e vendedor. O vendedor trabalha os cards no Vendas.</p>
         </div>
         <div className={styles.territoryHeroAside}>
           <div className={styles.territoryStatus}>
@@ -952,12 +952,12 @@ function HbxTerritoryPanelView({
       ) : null}
 
       {territoryViewMode === "table" ? (
-      <section className={styles.territoryDistributionPanel} aria-label="Distribuição de Cards por UF, cidade e parceiro">
+      <section className={styles.territoryDistributionPanel} aria-label="Distribuição de Cards por UF, cidade e vendedor">
         <header className={styles.territoryTableHeader}>
           <div>
             <span>Modo tabela</span>
             <strong>{metric(filteredDistributionRows.length)} linha(s)</strong>
-            <p>UF, cidade, categoria, parceiro, preferências e limites em uma visão operacional. Segmento fica livre para o Parceiro HBX trabalhar no Vendas.</p>
+            <p>UF, cidade, categoria, vendedor, preferências e limites em uma visão operacional. Segmento fica livre para o vendedor trabalhar no Vendas.</p>
           </div>
           <div className={styles.territoryTableActions}>
             <button type="button" onClick={() => void onSave("draft")} disabled={saving}>

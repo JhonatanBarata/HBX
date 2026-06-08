@@ -7202,8 +7202,8 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
               <HbxMobileEmptyState
                 kind="referral"
                 surface="inline"
-                title="Aguardando aprovação do Master HBX."
-                description="Indicações enviadas aparecem para aprovação do Master HBX."
+                title="Aguardando aprovação do responsável."
+                description="Indicações enviadas aparecem para aprovação do responsável."
               />
             </section>
           ) : null}

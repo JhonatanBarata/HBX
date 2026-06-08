@@ -2,21 +2,20 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildModuleCapabilityKey,
-  isHbxOperationCompany,
   resolveAccessGovernor,
   resolveEffectiveCapability,
 } from './seller-access-governance';
-import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../companies/master-whatsapp-company.constants';
+import { COMPANY_KIND_PLATFORM_INFRA, COMPANY_KIND_TENANT } from '../common/company-kind';
 
-test('resolveAccessGovernor delegates HBX operation sellers to Master HBX', () => {
-  assert.equal(resolveAccessGovernor({ id: 1, companyId: 10 }, { id: 10, slug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG }), 'HBX_MASTER');
-  assert.equal(resolveAccessGovernor({ id: 2, company: { slug: 'hbx' } }), 'HBX_MASTER');
-  assert.equal(resolveAccessGovernor({ id: 3, company: { isHbxOperation: true } }), 'HBX_MASTER');
+test('resolveAccessGovernor uses companyKind instead of legacy slug or flags', () => {
+  assert.equal(resolveAccessGovernor({ id: 1, companyId: 10 }, { id: 10, companyKind: 'platform_infra' }), COMPANY_KIND_PLATFORM_INFRA);
+  assert.equal(resolveAccessGovernor({ id: 2, company: { companyKind: 'tenant', slug: 'hbx' } }), COMPANY_KIND_TENANT);
+  assert.equal(resolveAccessGovernor({ id: 3, company: { slug: 'hbx' } }), COMPANY_KIND_TENANT);
 });
 
-test('resolveAccessGovernor delegates client company sellers to their company admin', () => {
-  assert.equal(resolveAccessGovernor({ id: 1, companyId: 20 }, { id: 20, slug: 'cliente-a' }), 'COMPANY_ADMIN');
-  assert.equal(resolveAccessGovernor({ id: 2, company: null }), 'COMPANY_ADMIN');
+test('resolveAccessGovernor defaults missing companyKind to tenant', () => {
+  assert.equal(resolveAccessGovernor({ id: 1, companyId: 20 }, { id: 20, slug: 'cliente-a' }), COMPANY_KIND_TENANT);
+  assert.equal(resolveAccessGovernor({ id: 2, company: null }), COMPANY_KIND_TENANT);
 });
 
 test('resolveEffectiveCapability requires plan, user config and safety gate to allow', () => {
@@ -47,7 +46,6 @@ test('resolveEffectiveCapability requires plan, user config and safety gate to a
 });
 
 test('buildModuleCapabilityKey maps operational modules to business capabilities', () => {
-  assert.equal(isHbxOperationCompany({ slug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG }), true);
   assert.equal(buildModuleCapabilityKey('webscraping'), 'canAccessRadar');
   assert.equal(buildModuleCapabilityKey('webscraping', 'run'), 'canRunRadarSearch');
   assert.equal(buildModuleCapabilityKey('vendas'), 'canAccessVendas');

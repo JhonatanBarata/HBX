@@ -231,7 +231,7 @@ const DEFAULT_TEMPLATES: Record<EmailTemplateKind, EmailTemplate> = {
     text: [
       'Olá {vendedor}, tudo bem?',
       '',
-      'Seu cadastro como parceiro HBX foi iniciado. Para seguir, envie os documentos obrigatórios e o contrato assinado.',
+      'Seu cadastro como vendedor foi iniciado. Para seguir, envie os documentos obrigatórios e o contrato assinado.',
       '',
       '{documentosConfirmados}',
       '',

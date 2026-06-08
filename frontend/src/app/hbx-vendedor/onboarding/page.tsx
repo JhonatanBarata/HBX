@@ -244,7 +244,7 @@ function PublicSellerOnboarding() {
                 {done ? "Documentos recebidos" : "Documentos pendentes"}
               </span>
               <h1>{done ? "Documentação recebida" : showSubmitButton ? "Anexos prontos" : "Envie seus documentos"}</h1>
-              <p className={styles.lead}>{done ? "E-mail confirmado" : payload?.partner?.name || "Parceiro HBX"}</p>
+              <p className={styles.lead}>{done ? "E-mail confirmado" : payload?.partner?.name || "Vendedor"}</p>
               <p>{statusMessage}</p>
               {showSubmitButton ? (
                 <button type="button" className={styles.finalButton} onClick={() => void submitDocuments()} disabled={completing}>
