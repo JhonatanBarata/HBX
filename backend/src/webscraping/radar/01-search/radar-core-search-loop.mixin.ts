@@ -514,10 +514,41 @@ export class RadarCoreSearchLoopMixin {
     }
   }
 
-  private buildQueueUser(run: any) {
+  private async buildQueueUser(run: any) {
+    const userId = Number(run?.userId || 0);
+    const companyId = Number(run?.companyId || 0);
+    const user = userId && companyId
+      ? await this.prisma.user.findFirst({
+          where: { id: userId, companyId },
+          select: {
+            id: true,
+            companyId: true,
+            role: true,
+            isSystemMaster: true,
+            isActive: true,
+            name: true,
+            email: true,
+            username: true,
+            phone: true,
+            company: {
+              select: {
+                id: true,
+                name: true,
+                slug: true,
+              },
+            },
+          },
+        }).catch(() => null)
+      : null;
+    if (user?.id) {
+      return {
+        ...user,
+        masterContext: { active: false },
+      };
+    }
     return {
-      id: Number(run?.userId || 0),
-      companyId: Number(run?.companyId || 0),
+      id: userId,
+      companyId,
       role: 'ADMIN',
       isSystemMaster: false,
       masterContext: { active: false },
@@ -666,7 +697,7 @@ export class RadarCoreSearchLoopMixin {
           continue;
         }
 
-        const queueUser = this.buildQueueUser(run);
+        const queueUser = await this.buildQueueUser(run);
         const normalized = this.normalizeSearchInput(this.buildRunInputFromRow({ ...run, engine: 'hbx' }));
         this.scheduleSearchRunPump(0);
         setTimeout(() => {

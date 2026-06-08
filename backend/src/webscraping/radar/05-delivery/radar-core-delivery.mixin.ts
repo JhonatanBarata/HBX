@@ -774,10 +774,12 @@ export class RadarCoreDeliveryMixin {
   private async buildRadarSearchRunResponse(user: any, runId: string, options?: { skipAutoImport?: boolean }) {
     const context = this.resolveContext(user);
     await this.assertSearchRunPersistence();
+    const hbxSellerScope = this.isHbxOperationSellerUser(user) ? { userId: context.userId } : {};
     const run = await this.prisma.webscrapingSearchRun.findFirst({
       where: {
         id: String(runId || '').trim(),
         companyId: context.companyId,
+        ...hbxSellerScope,
       },
       include: {
         items: {
@@ -793,7 +795,7 @@ export class RadarCoreDeliveryMixin {
       });
     }
     const freshRun = await this.prisma.webscrapingSearchRun.findFirst({
-      where: { id: run.id, companyId: context.companyId },
+      where: { id: run.id, companyId: context.companyId, ...hbxSellerScope },
       include: {
         items: {
           orderBy: { createdAt: 'asc' },
@@ -1299,7 +1301,11 @@ export class RadarCoreDeliveryMixin {
     }
     let claimedRows = immediateRows;
     if (immediateRows.length) {
-      claimedRows = await this.markRadarDelivered(context.companyId, context.userId, immediateRows).catch((error: any) => {
+      const assignToUserId = this.isHbxOperationSellerUser(user) ? context.userId : null;
+      claimedRows = await this.markRadarDelivered(context.companyId, context.userId, immediateRows, {
+        assignedUserId: assignToUserId,
+        assignedByUserId: assignToUserId ? context.userId : null,
+      }).catch((error: any) => {
         this.logger.warn(`[radar-run] falha ao reservar estoque inicial company=${context.companyId}: ${String(error?.message || error)}`);
         return immediateRows;
       });
@@ -1406,9 +1412,11 @@ export class RadarCoreDeliveryMixin {
   async getLatestRadarSearchRunForUser(user: any) {
     const context = this.resolveContext(user);
     await this.assertSearchRunPersistence();
+    const hbxSellerScope = this.isHbxOperationSellerUser(user) ? { userId: context.userId } : {};
     const run = await this.prisma.webscrapingSearchRun.findFirst({
       where: {
         companyId: context.companyId,
+        ...hbxSellerScope,
         engine: 'hbx',
         status: { in: ['queued', 'running', 'sleeping', 'paused'] as any },
       },
@@ -1429,9 +1437,11 @@ export class RadarCoreDeliveryMixin {
   private async findActiveRadarRunForFilters(context: SearchExecutionContext, filters: NormalizedRadarFilters) {
     const delegate = (this.prisma as any).webscrapingSearchRun;
     if (!delegate?.findMany) return null;
+    const hbxSellerScope = this.isHbxOperationSellerUser(context.user) ? { userId: context.userId } : {};
     const activeRuns = await delegate.findMany({
       where: {
         companyId: context.companyId,
+        ...hbxSellerScope,
         engine: 'hbx',
         status: { in: ['queued', 'running', 'sleeping'] as any },
       },
@@ -1447,9 +1457,11 @@ export class RadarCoreDeliveryMixin {
   private async cancelIncompatibleActiveRadarRuns(context: SearchExecutionContext, filters: NormalizedRadarFilters, keepRunId?: string | null) {
     const delegate = (this.prisma as any).webscrapingSearchRun;
     if (!delegate?.findMany) return { canceledCount: 0 };
+    const hbxSellerScope = this.isHbxOperationSellerUser(context.user) ? { userId: context.userId } : {};
     const activeRuns = await delegate.findMany({
       where: {
         companyId: context.companyId,
+        ...hbxSellerScope,
         engine: 'hbx',
         status: { in: ['queued', 'running', 'sleeping'] as any },
       },
@@ -1468,6 +1480,7 @@ export class RadarCoreDeliveryMixin {
         where: {
           id: runId,
           companyId: context.companyId,
+          ...hbxSellerScope,
           status: { in: ['queued', 'running', 'sleeping'] as any },
         },
         data: {

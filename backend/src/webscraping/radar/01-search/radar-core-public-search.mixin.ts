@@ -413,10 +413,12 @@ export class RadarCorePublicSearchMixin {
   async getSearchRunForUser(user: any, runId: string): Promise<WebscrapingSearchRunResponse> {
     const context = this.resolveContext(user);
     await this.assertSearchRunPersistence();
+    const hbxSellerScope = this.isHbxOperationSellerUser(user) ? { userId: context.userId } : {};
     let run = await this.prisma.webscrapingSearchRun.findFirst({
       where: {
         id: String(runId || '').trim(),
         companyId: context.companyId,
+        ...hbxSellerScope,
       },
       include: {
         items: {
@@ -433,10 +435,12 @@ export class RadarCorePublicSearchMixin {
   async cancelSearchRunForUser(user: any, runId: string): Promise<WebscrapingSearchRunResponse> {
     const context = this.resolveContext(user);
     await this.assertSearchRunPersistence();
+    const hbxSellerScope = this.isHbxOperationSellerUser(user) ? { userId: context.userId } : {};
     const current = await this.prisma.webscrapingSearchRun.findFirst({
       where: {
         id: String(runId || '').trim(),
         companyId: context.companyId,
+        ...hbxSellerScope,
       },
       select: {
         id: true,

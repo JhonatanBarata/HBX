@@ -13,6 +13,17 @@ const TOKEN_EXPIRY_SKEW_MS = 15000;
 const AUTH_PROBE_CACHE_TTL_MS = 5000;
 const API_TRANSPORT_BACKOFF_MS = 5000;
 const SESSION_EXPIRED_MESSAGE = "Sessão expirada. Faça login novamente.";
+const PUBLIC_AUTH_ROUTES = new Set([
+  "/",
+  "/login",
+  "/mobile/login",
+  "/register",
+  "/reset-password",
+  "/confirm-email",
+  "/hbx-vendedor/onboarding",
+  "/pre-checkout",
+  "/precheckout",
+]);
 const SHELL_GET_CACHE_PATHS = new Set([
   "/profile/current-user",
   "/modules/me",
@@ -67,6 +78,10 @@ function normalizeApiBaseUrl(value: string) {
   return String(value || "").replace(/\/+$/, "");
 }
 
+function normalizePathname(value: string) {
+  return String(value || "/").replace(/\/+$/, "") || "/";
+}
+
 export function getDashboardApiBaseUrl() {
   const rawBase = normalizeApiBaseUrl(API_URL);
   if (typeof window === "undefined") return rawBase;
@@ -107,8 +122,10 @@ function queueAuthChangeEvent() {
 
 function redirectToLogin() {
   if (typeof window === "undefined") return;
+  const currentPathname = normalizePathname(window.location.pathname);
   const currentPath = `${window.location.pathname}${window.location.search}`;
-  if (window.location.pathname === "/login" || window.location.pathname === "/mobile/login") return;
+  if (currentPathname === "/login" || currentPathname === "/mobile/login") return;
+  if (PUBLIC_AUTH_ROUTES.has(currentPathname)) return;
   const shouldUseMobileLogin = shouldUseMobileRoute(window.location.pathname);
   const loginPath = shouldUseMobileLogin ? "/mobile/login" : "/login";
   window.location.assign(`${loginPath}?from=${encodeURIComponent(currentPath)}`);
