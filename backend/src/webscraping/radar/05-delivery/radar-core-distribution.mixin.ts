@@ -1459,7 +1459,7 @@ export class RadarCoreDistributionMixin {
     }
 
     if (!recipients.length) {
-      throw new BadRequestException('Nenhum vendedor HBX ativo encontrado para os territÃ³rios configurados.');
+      throw new BadRequestException('Nenhum vendedor ativo encontrado para os territorios configurados.');
     }
 
     const totalNeeded = recipients.reduce((sum, recipient) => sum + recipient.remaining, 0);

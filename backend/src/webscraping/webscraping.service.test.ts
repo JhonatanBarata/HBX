@@ -2539,7 +2539,7 @@ test('startRadarSearchRunForUser pausa quando Vendas ja esta no limite', async (
   assert.equal(queriedStock, false);
 });
 
-test('startRadarSearchRunForUser vendedor HBX ignora estoque global e usa estoque do vendedor', async () => {
+test('startRadarSearchRunForUser vendedor ignora estoque global e usa estoque do vendedor', async () => {
   const { prisma, run } = createSearchRunPrisma({
     status: 'completed',
     city: 'Rio Claro',

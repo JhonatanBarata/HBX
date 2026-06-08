@@ -314,7 +314,7 @@ export class RadarCorePublicSearchMixin {
           targetQuantity: normalized.quantity,
           startedAt: now,
           finishedAt: now,
-          errorMessage: 'Entregue do banco Radar/HBX. A frota M1-M4 nao foi acionada.',
+          errorMessage: 'Entregue do banco Radar. O motor de busca nao foi acionado.',
           metricsJson: this.buildSearchRunMetricsJson(normalized),
         },
         select: {

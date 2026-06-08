@@ -553,9 +553,9 @@ export default function BancoDeDadosClientPage({ embedded = false }: { embedded?
       });
       setTerritoryPanel(payload);
       setTerritoryDraft(payload);
-      setFeedback(payload.message || "Distribuição HBX Master salva.");
+      setFeedback(payload.message || "Distribuição automática salva.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao salvar distribuição HBX Master.");
+      setError(err instanceof Error ? err.message : "Falha ao salvar distribuição automática.");
     } finally {
       setTerritorySaving(false);
     }
@@ -860,7 +860,7 @@ function HbxTerritoryPanelView({
   }, [distributionRows, territoryFilters]);
 
   if (!panel) {
-    return <div className={styles.emptyState}>Carregando distribuição HBX Master...</div>;
+    return <div className={styles.emptyState}>Carregando distribuição automática...</div>;
   }
 
   return (
@@ -888,7 +888,7 @@ function HbxTerritoryPanelView({
         </div>
       </section>
 
-      <section className={styles.territoryInsightGrid} aria-label="Resumo operacional da distribuição HBX">
+      <section className={styles.territoryInsightGrid} aria-label="Resumo operacional da distribuição automática">
         <article>
           <span>Estoque em Vendas</span>
           <strong>{metric(summary.currentStock)}</strong>
@@ -1161,7 +1161,7 @@ function HbxTerritoryPanelView({
             <article key={seller.id} className={styles.territorySellerCard}>
               <header>
                 <div>
-                  <span>Vendedor HBX</span>
+                  <span>Vendedor</span>
                   <strong>{seller.name}</strong>
                   <small>{seller.email || seller.phone || "Sem contato salvo"}</small>
                 </div>

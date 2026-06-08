@@ -29,7 +29,7 @@ const FRONT_LINKS: LinkItem[] = [
   { key: "master-whatsapp", title: "Master WhatsApp", href: "/master/whatsapp", category: "Master", detail: "Operação WhatsApp no Master." },
   { key: "master-email", title: "Master email", href: "/master/email", category: "Master", detail: "Email comercial e transacional." },
   { key: "master-exclusoes", title: "Master exclusões", href: "/master/exclusoes", category: "Master", detail: "Exclusões e retenção." },
-  { key: "master-webscraping", title: "Master Radar", href: "/master/webscraping", category: "Master", detail: "Radar dentro do Master." },
+  { key: "master-webscraping", title: "Radar", href: "/master/webscraping", category: "Master", detail: "Radar dentro do painel Master." },
   { key: "master-night", title: "Night Factory", href: "/master/night-factory", category: "Master", detail: "Tela Night Factory." },
 
   { key: "radar", title: "Radar Digital", href: "/radar-digital", category: "Operação", detail: "Busca de oportunidades." },

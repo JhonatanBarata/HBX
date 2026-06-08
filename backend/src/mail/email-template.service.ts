@@ -202,7 +202,7 @@ const DEFAULT_TEMPLATES: Record<EmailTemplateKind, EmailTemplate> = {
     text: [
       'Olá {vendedor}, seja bem-vindo à equipe HBX.',
       '',
-      'Seu cadastro como vendedor HBX foi realizado com sucesso e seu acesso já está pronto.',
+      'Seu cadastro como vendedor foi realizado com sucesso e seu acesso já está pronto.',
       '',
       'Seu acesso é {acesso}',
       'Senha temporária: {senha}',

@@ -1327,7 +1327,7 @@ export class RadarCoreDeliveryMixin {
         startedAt: claimedRows.length ? now : null,
         finishedAt: completedFromDatabase ? now : null,
         errorMessage: completedFromDatabase
-          ? 'Entregue do banco Radar/HBX. A frota HBX nao foi acionada.'
+          ? 'Entregue do banco Radar. O motor de busca nao foi acionado.'
           : claimedRows.length
             ? `Entreguei ${claimedRows.length} card(s) do banco. Radar trabalhando para completar a pesquisa.`
             : 'Sem cards prontos no banco. Busca enviada para a fila HBX.',
