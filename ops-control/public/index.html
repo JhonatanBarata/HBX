@@ -215,6 +215,98 @@
           </details>
         </section>
 
+        <section class="panel email-lab-panel">
+          <div class="panel-title">
+            <div>
+              <h2>Email Lab</h2>
+              <span>Local Lab, export e importacao oficial para VPS</span>
+            </div>
+            <button type="button" data-email-lab-action="refresh">Atualizar status</button>
+          </div>
+
+          <div id="emailLabPreflight" class="email-lab-preflight email-lab-preflight--idle">
+            <div>
+              <strong id="emailLabPreflightTitle">Email Lab aguardando status</strong>
+              <span id="emailLabPreflightMessage">Configure Local Lab e VPS import para operar com seguranca.</span>
+            </div>
+            <div class="email-lab-status-grid">
+              <span id="emailLabLocalStatus" class="backend-config-chip" data-ready="false">Local Lab: aguardando</span>
+              <span id="emailLabVpsStatus" class="backend-config-chip" data-ready="false">VPS import: aguardando</span>
+            </div>
+          </div>
+
+          <div class="email-lab-layout">
+            <form id="emailLabForm" class="email-lab-form">
+              <label class="ops-field" for="emailLabScope">
+                <span>Alvo</span>
+                <select id="emailLabScope">
+                  <option value="local">Local</option>
+                  <option value="vps">VPS</option>
+                  <option value="both">Ambos</option>
+                </select>
+              </label>
+              <label class="ops-field" for="emailLabState">
+                <span>Estado</span>
+                <input id="emailLabState" maxlength="2" placeholder="SP" autocomplete="off">
+              </label>
+              <label class="ops-field" for="emailLabCity">
+                <span>Cidade</span>
+                <input id="emailLabCity" placeholder="Sao Paulo" autocomplete="off">
+              </label>
+              <label class="ops-field" for="emailLabSegment">
+                <span>Segmento</span>
+                <input id="emailLabSegment" placeholder="clinicas odontologicas" autocomplete="off">
+              </label>
+              <label class="ops-field" for="emailLabTargetEmails">
+                <span>Meta de e-mails</span>
+                <input id="emailLabTargetEmails" type="number" min="1" max="10000" step="1" value="50">
+              </label>
+              <label class="ops-field" for="emailLabMode">
+                <span>Modo</span>
+                <select id="emailLabMode">
+                  <option value="email_first">Priorizar e-mail</option>
+                  <option value="public_email_only">Somente e-mail publico</option>
+                  <option value="enrich_missing_email">Enriquecer cards sem e-mail</option>
+                </select>
+              </label>
+            </form>
+
+            <div class="email-lab-actions">
+              <button type="button" data-email-lab-action="local" disabled>Local</button>
+              <button type="button" data-email-lab-action="vps" disabled>VPS</button>
+              <button type="button" data-email-lab-action="both" disabled>Ambos</button>
+              <button type="button" class="secondary" data-email-lab-action="export" disabled>Exportar</button>
+              <button type="button" class="secondary" data-email-lab-action="import" disabled>Importar para VPS</button>
+              <button type="button" class="danger" data-email-lab-action="cancel" disabled>Cancelar</button>
+            </div>
+          </div>
+
+          <div id="emailLabActionStatus" class="ops-action-status">Nenhuma acao do Email Lab nesta sessao.</div>
+
+          <div class="email-lab-metrics">
+            <div><span>Sites visitados</span><strong id="emailLabSitesVisited">-</strong></div>
+            <div><span>E-mails achados</span><strong id="emailLabEmailsFound">-</strong></div>
+            <div><span>E-mails aceitos</span><strong id="emailLabEmailsAccepted">-</strong></div>
+            <div><span>Duplicados</span><strong id="emailLabDuplicates">-</strong></div>
+            <div><span>Negativos</span><strong id="emailLabNegatives">-</strong></div>
+            <div><span>Opt-outs</span><strong id="emailLabOptOuts">-</strong></div>
+            <div><span>Sem e-mail</span><strong id="emailLabNoEmail">-</strong></div>
+            <div><span>Falhas</span><strong id="emailLabFailures">-</strong></div>
+            <div><span>Local/VPS</span><strong id="emailLabEnvironment">-</strong></div>
+          </div>
+
+          <div class="email-lab-details">
+            <div>
+              <strong>Job atual</strong>
+              <span id="emailLabJobSummary">Sem job local iniciado.</span>
+            </div>
+            <div>
+              <strong>Rejeicoes por motivo</strong>
+              <div id="emailLabRejectReasons" class="email-lab-rejects">Sem importacao ainda.</div>
+            </div>
+          </div>
+        </section>
+
         <section class="panel">
           <div class="panel-title">
             <h2>Ações rápidas</h2>

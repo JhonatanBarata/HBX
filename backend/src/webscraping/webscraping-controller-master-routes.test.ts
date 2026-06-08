@@ -19,6 +19,7 @@ test('master elastic and engine lifecycle routes stay behind MasterGuard', () =>
   assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.cancelForcedFactory), 'elastic/cancel-forced');
   assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.drainMasterEngine), 'engines/:id/drain');
   assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.stopMasterEngineContainer), 'engines/:id/stop-container');
+  assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.getMasterEnrichmentCostSummary), 'enrichment-cost/summary');
 });
 
 test('lead harvest official routes stay under webscraping guards', () => {
@@ -30,4 +31,5 @@ test('lead harvest official routes stay under webscraping guards', () => {
   assert.equal(guards.includes(JwtAuthGuard), true);
   assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.importLeadHarvest), 'lead-harvest/import');
   assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.getLeadHarvestImport), 'lead-harvest/imports/:id');
+  assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.enrichmentCostSummary), 'enrichment-cost/summary');
 });

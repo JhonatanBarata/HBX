@@ -284,6 +284,27 @@ model CompanyCommercialUsageLog {
   @@index([planKey, eventType, createdAt])
 }
 
+model EnrichmentCostLedger {
+  id               String   @id @default(cuid())
+  companyId        Int?
+  leadId           String?
+  provider         String
+  sku              String
+  estimatedCostUsd Float    @default(0)
+  estimatedCostBrl Float    @default(0)
+  cacheHit         Boolean  @default(false)
+  reason           String?
+  planKey          String?
+  triggeredBy      String
+  metadataJson     String?
+  createdAt        DateTime @default(now())
+
+  @@index([companyId, createdAt])
+  @@index([provider, createdAt])
+  @@index([leadId, createdAt])
+  @@index([planKey, createdAt])
+}
+
 model TrialPhoneUsage {
   id                 String   @id @default(cuid())
   phoneNormalized    String   @unique

@@ -3,6 +3,7 @@
 import { type CSSProperties, type FocusEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
+import HbxGuide1, { type HbxGuide1Tab } from "@/components/HbxGuide1";
 import { HbxPopup2 } from "@/components/HbxPopup";
 import HbxMobileDock from "@/components/mobile/HbxMobileDock";
 import HbxMobileEmptyState from "@/components/mobile/HbxMobileEmptyState";
@@ -37,6 +38,16 @@ type RadarLeadHistory = {
   eventType: string;
   note?: string | null;
   createdAt?: string | null;
+};
+
+type RadarEvidenceItem = {
+  type?: string | null;
+  label?: string | null;
+  title?: string | null;
+  description?: string | null;
+  confidence?: number | null;
+  source?: string | null;
+  url?: string | null;
 };
 
 type RadarLead = {
@@ -91,6 +102,11 @@ type RadarLead = {
   whatsappCheckStatus?: "confirmed" | "missing" | "unverified" | string | null;
   quality?: Record<string, unknown> | null;
   qualityV2?: Record<string, unknown> | null;
+  sourceConfidence?: Record<string, unknown> | null;
+  actionPlan?: Record<string, unknown> | null;
+  evidenceTimeline?: RadarEvidenceItem[] | null;
+  firstMessage?: string | null;
+  nextBestAction?: string | null;
   visibilityTier?: "candidate" | "list_basic" | "enrichment_pending" | "lead_plus_qualified" | "review_backup" | "blocked" | string | null;
   billable?: boolean | null;
   debitEligible?: boolean | null;
@@ -129,6 +145,19 @@ type RadarEnrichmentSummary = {
   readyToCall?: number;
 };
 
+type EnrichmentCostSummary = {
+  ledgerCount?: number;
+  paidLedgerCount?: number;
+  cacheHitCount?: number;
+  estimatedCostBrl?: number;
+  estimatedCostUsd?: number;
+  budgetUsageRatio?: number;
+  status?: "ok" | "reduce_auto" | "manual_only" | "locked" | string;
+};
+
+type RadarDesktopView = "observacao" | "pesquisa";
+type RadarObservationTier = "list" | "lead_plus" | "full";
+
 type RadarQualitySummary = {
   found?: number;
   approved?: number;
@@ -137,6 +166,11 @@ type RadarQualitySummary = {
   durationMs?: number | null;
   label?: string | null;
 };
+
+const RADAR_DESKTOP_TABS: readonly HbxGuide1Tab<RadarDesktopView>[] = [
+  { key: "observacao", label: "Observação", badge: "Dossiê" },
+  { key: "pesquisa", label: "Pesquisa", badge: "Filtros" },
+];
 
 type RadarPullResponse = {
   items: RadarLead[];
@@ -1381,6 +1415,119 @@ function compactLeadReason(lead: RadarLead) {
   return "Boa oportunidade: revisar sinais e escolher o melhor canal.";
 }
 
+function parseObject(value: unknown): Record<string, unknown> {
+  if (!value) return {};
+  if (typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
+  if (typeof value !== "string") return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
+function leadEnrichmentPayload(lead: RadarLead) {
+  return parseObject(lead.enrichmentJson);
+}
+
+function leadQualityV2(lead: RadarLead) {
+  return parseObject(lead.qualityV2 || leadEnrichmentPayload(lead).qualityV2);
+}
+
+function leadEvidenceTimeline(lead: RadarLead): RadarEvidenceItem[] {
+  const enrichment = leadEnrichmentPayload(lead);
+  const evidenceJson = parseObject(lead.evidenceJson);
+  const rawTimeline = Array.isArray(lead.evidenceTimeline)
+    ? lead.evidenceTimeline
+    : Array.isArray(enrichment.evidenceTimeline)
+      ? enrichment.evidenceTimeline
+      : Array.isArray(enrichment.evidence)
+        ? enrichment.evidence
+        : Array.isArray(evidenceJson.evidence)
+          ? evidenceJson.evidence
+          : [];
+  return rawTimeline
+    .map((item) => parseObject(item))
+    .filter((item) => Object.keys(item).length > 0)
+    .slice(0, 6)
+    .map((item) => ({
+      type: String(item.type || item.kind || "").trim() || null,
+      label: String(item.label || item.title || item.type || "Sinal").trim(),
+      title: String(item.title || item.label || item.type || "Sinal").trim(),
+      description: String(item.description || item.reason || item.message || item.source || "").trim() || null,
+      confidence: Number.isFinite(Number(item.confidence)) ? Number(item.confidence) : null,
+      source: String(item.source || "").trim() || null,
+      url: String(item.url || item.href || "").trim() || null,
+    }));
+}
+
+function leadActionPlan(lead: RadarLead) {
+  const enrichment = leadEnrichmentPayload(lead);
+  return parseObject(lead.actionPlan || enrichment.actionPlan || enrichment.plan || enrichment.nextActionPlan);
+}
+
+function leadFirstMessage(lead: RadarLead) {
+  const enrichment = leadEnrichmentPayload(lead);
+  const actionPlan = leadActionPlan(lead);
+  return String(
+    lead.firstMessage ||
+    actionPlan.firstMessage ||
+    actionPlan.message ||
+    enrichment.firstMessage ||
+    enrichment.messageTemplate ||
+    "",
+  ).trim();
+}
+
+function leadNextStep(lead: RadarLead) {
+  const enrichment = leadEnrichmentPayload(lead);
+  const actionPlan = leadActionPlan(lead);
+  return String(
+    lead.nextBestAction ||
+    actionPlan.nextStep ||
+    actionPlan.nextAction ||
+    enrichment.nextStep ||
+    "",
+  ).trim();
+}
+
+function leadRiskLabel(lead: RadarLead) {
+  const quality = leadQualityV2(lead);
+  const riskScore = Number(quality.riskScore || 0);
+  if (String(lead.recommendedChannel || "").toLowerCase() === "discard") return "Protegido";
+  if (riskScore >= 70 || ownershipBadge(lead).tone === "negative") return "Alto";
+  if (riskScore >= 35) return "Médio";
+  return "Baixo";
+}
+
+function emailObservationLabel(lead: RadarLead) {
+  const status = String(lead.emailStatus || "").toLowerCase();
+  const confidence = Number(lead.emailConfidence || 0);
+  const base = lead.email || emailLabel(status);
+  if (!lead.email) return base;
+  if (confidence > 0) return `${base} · ${confidence}%`;
+  return base;
+}
+
+function costStatusLabel(status?: string | null) {
+  if (status === "locked") return "bloqueada";
+  if (status === "manual_only") return "manual";
+  if (status === "reduce_auto") return "reduzida";
+  return "ok";
+}
+
+function formatBrl(value: unknown) {
+  const amount = Number(value || 0);
+  return amount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function observationTierLabel(tier: RadarObservationTier) {
+  if (tier === "full") return "HBX Full";
+  if (tier === "lead_plus") return "HBX Lead Plus";
+  return "HBX List";
+}
+
 function uniqueStrings(values: Array<string | null | undefined>) {
   const seen = new Set<string>();
   const result: string[] = [];
@@ -2602,6 +2749,10 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   });
   const [radarFilterDraftReady, setRadarFilterDraftReady] = useState(false);
   const [enrichmentSummary, setEnrichmentSummary] = useState<RadarEnrichmentSummary | null>(null);
+  const [enrichmentCostSummary, setEnrichmentCostSummary] = useState<EnrichmentCostSummary | null>(null);
+  const [enrichmentCostUnavailable, setEnrichmentCostUnavailable] = useState(false);
+  const [desktopView, setDesktopView] = useState<RadarDesktopView>("observacao");
+  const [selectedObservationLeadId, setSelectedObservationLeadId] = useState<string | null>(null);
   const [radarAutoEnrichmentActive, setRadarAutoEnrichmentActive] = useState(readRadarAutoEnrichmentPreference);
   const [radarAutoEnrichmentRunning, setRadarAutoEnrichmentRunning] = useState(false);
   const activeRunIdRef = useRef<string | null>(null);
@@ -2728,7 +2879,26 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   );
   const showSmartLeadCards = !isHbxList;
   const currentPlanKey = commercialPlans?.current?.selectedPlanKey || commercialPlans?.current?.planKey || null;
+  const hasFullCapabilities = Boolean(
+    currentPlanKey === "hbx_melhor" ||
+    commercialPlans?.current?.entitlements?.bot_ia ||
+    commercialPlans?.current?.entitlements?.digital_audit ||
+    commercialPlans?.current?.entitlements?.recovery_intelligence,
+  );
+  const observationTier: RadarObservationTier = hasFullCapabilities ? "full" : showSmartLeadCards ? "lead_plus" : "list";
   const currentPlan = currentPlanKey ? commercialPlanByKey(commercialPlans, currentPlanKey) : null;
+  const selectedObservationLead = useMemo(
+    () => visibleItems.find((item) => item.id === selectedObservationLeadId) || null,
+    [selectedObservationLeadId, visibleItems],
+  );
+  const observationLeadPlusCount = useMemo(
+    () => visibleItems.filter((item) => !item.premiumLocked && (item.qualityV2 || item.opportunityReason || item.recommendedChannel || item.painPitch)).length,
+    [visibleItems],
+  );
+  const observationRejectedCount = useMemo(
+    () => visibleItems.filter((item) => ownershipBadge(item).tone === "negative" || String(item.recommendedChannel || "").toLowerCase() === "discard").length,
+    [visibleItems],
+  );
   const planCardsPerSearch = Math.max(0, Math.trunc(Number(currentPlan?.quotas?.cardsPerSearch || 0)));
   const dailyLimit = Math.max(0, Math.trunc(Number(vendasUsage?.cards?.dailySafetyLimit || currentPlan?.quotas?.dailyCardSafetyLimit || 0)));
   const dailyRemaining = Math.max(0, Math.trunc(Number(vendasUsage?.cards?.dailyRemaining ?? dailyLimit ?? 0)));
@@ -3186,6 +3356,34 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
       cancelled = true;
     };
   }, [hasToken, refreshVendasPendingCount]);
+
+  useEffect(() => {
+    if (hasToken !== true) return;
+    let cancelled = false;
+    apiFetch<EnrichmentCostSummary>("/webscraping/enrichment-cost/summary?days=31", {
+      requireAuth: true,
+      timeoutMs: 10000,
+    })
+      .then((payload) => {
+        if (cancelled) return;
+        setEnrichmentCostSummary(payload || null);
+        setEnrichmentCostUnavailable(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setEnrichmentCostSummary(null);
+        setEnrichmentCostUnavailable(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [hasToken]);
+
+  useEffect(() => {
+    if (!selectedObservationLeadId) return;
+    if (visibleItems.some((item) => item.id === selectedObservationLeadId)) return;
+    setSelectedObservationLeadId(null);
+  }, [selectedObservationLeadId, visibleItems]);
 
   useEffect(() => {
     if (filters.quantity >= 1 && filters.quantity <= RADAR_VENDAS_STOCK_TARGET_MAX) return;
@@ -4806,6 +5004,14 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
             {radarStoppedPopupText}
           </HbxPopup2>
         ) : null}
+        <div className={`${styles.desktopGuideSlot} hbx-guide1-slot`}>
+          <HbxGuide1
+            tabs={RADAR_DESKTOP_TABS}
+            activeKey={desktopView}
+            ariaLabel="Navegação do Radar Digital"
+            onChange={setDesktopView}
+          />
+        </div>
         <div
           ref={mobileRadarRef}
           className={`${styles.mobileRadar} hbx-mobile-page`}
@@ -5141,6 +5347,169 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
           />
         </div>
 
+        {desktopView === "observacao" ? (
+          <section className={styles.observationShell} data-tier={observationTier}>
+            <div className={styles.observationMetrics} aria-label="Métricas de observação do Radar">
+              <span><b>{Number(visibleEnrichmentSummary.cardsAnalyzed || 0).toLocaleString("pt-BR")}</b> analisados</span>
+              <span><b>{observationLeadPlusCount.toLocaleString("pt-BR")}</b> Lead Plus</span>
+              <span><b>{Number(visibleEnrichmentSummary.emailConfirmedOrProbable || 0).toLocaleString("pt-BR")}</b> e-mails</span>
+              <span><b>{enrichmentCostUnavailable ? "bloq." : Number(enrichmentCostSummary?.paidLedgerCount || 0).toLocaleString("pt-BR")}</b> API paga</span>
+              <span><b>{enrichmentCostUnavailable ? "bloqueada" : formatBrl(enrichmentCostSummary?.estimatedCostBrl || 0)}</b> custo</span>
+              <span><b>{observationRejectedCount.toLocaleString("pt-BR")}</b> rejeições</span>
+            </div>
+
+            <div className={styles.observationColumns}>
+              <aside className={styles.observationQueue} aria-label="Fila de cards do Radar">
+                <div className={styles.observationPanelHeader}>
+                  <span>Fila de cards</span>
+                  <strong>{observationTierLabel(observationTier)}</strong>
+                  <small>{observationTier === "list" ? "Lista limpa de contatos." : "Leads em observação comercial."}</small>
+                </div>
+                {loading ? (
+                  <div className={styles.observationEmpty}><strong>Carregando cards</strong><p>O Radar está atualizando a fila.</p></div>
+                ) : error ? (
+                  <div className={styles.observationEmpty} data-tone="error"><strong>Erro na observação</strong><p>{publicRadarMessage(error, hbxSellerPublicUi, "Não foi possível carregar os cards agora.")}</p></div>
+                ) : !hasSearched ? (
+                  <div className={styles.observationEmpty}><strong>Sem pesquisa ativa</strong><p>Abra a guia Pesquisa para carregar a fila do Radar.</p></div>
+                ) : !visibleItems.length ? (
+                  <div className={styles.observationEmpty}><strong>Fila vazia</strong><p>Nenhum card disponível para os filtros atuais.</p></div>
+                ) : (
+                  <div className={styles.observationQueueList}>
+                    {visibleItems.slice(0, 80).map((lead) => {
+                      const selected = selectedObservationLead?.id === lead.id;
+                      const score = leadBackendScore(lead);
+                      const ownerBadge = ownershipBadge(lead);
+                      return (
+                        <button
+                          key={lead.id}
+                          type="button"
+                          className={styles.observationQueueItem}
+                          data-active={selected ? "true" : "false"}
+                          data-tone={ownerBadge.tone}
+                          onClick={() => setSelectedObservationLeadId(lead.id)}
+                        >
+                          <span>
+                            <b>{lead.name || "Empresa sem nome"}</b>
+                            <small>{[lead.city, lead.state].filter(Boolean).join(" / ") || "Cidade não informada"} · {lead.segment || "Segmento aberto"}</small>
+                          </span>
+                          <em>{observationTier === "list" ? radarCardStatus(lead) : score}</em>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </aside>
+
+              <section className={styles.observationDossier} aria-label="Dossiê do lead">
+                <div className={styles.observationPanelHeader}>
+                  <span>Dossiê do lead</span>
+                  <strong>{selectedObservationLead ? selectedObservationLead.name || "Empresa sem nome" : "Nenhum card selecionado"}</strong>
+                  <small>{selectedObservationLead ? `${selectedObservationLead.city || "Cidade não informada"} · ${selectedObservationLead.segment || "Segmento aberto"}` : "Selecione um card na fila para observar."}</small>
+                </div>
+
+                {!selectedObservationLead ? (
+                  <div className={styles.observationEmpty}>
+                    <strong>Sem seleção</strong>
+                    <p>Escolha um card na fila para abrir a observação. A List mostra contato básico; Lead Plus e Full mostram dossiê.</p>
+                  </div>
+                ) : observationTier === "list" || selectedObservationLead.premiumLocked ? (
+                  <div className={styles.listObservation}>
+                    <div className={styles.listObservationTable}>
+                      <span><b>Empresa</b>{selectedObservationLead.name || "Não informado"}</span>
+                      <span><b>Cidade/UF</b>{[selectedObservationLead.city, selectedObservationLead.state].filter(Boolean).join(" / ") || "Não informado"}</span>
+                      <span><b>Segmento</b>{selectedObservationLead.segment || "Não informado"}</span>
+                      <span><b>Telefone</b>{formatPhone(selectedObservationLead.phone || selectedObservationLead.phoneDigits)}</span>
+                      <span><b>E-mail</b>{selectedObservationLead.email || emailLabel(selectedObservationLead.emailStatus)}</span>
+                      <span><b>Site/rede</b>{selectedObservationLead.website || selectedObservationLead.instagramUrl || selectedObservationLead.facebookUrl || "Não informado"}</span>
+                      <span><b>Origem</b>{selectedObservationLead.sourceEngine || selectedObservationLead.source || "Banco HBX"}</span>
+                      <span><b>Status</b>{radarCardStatus(selectedObservationLead)} · {statusLabel(selectedObservationLead.companyStatus || selectedObservationLead.status)}</span>
+                    </div>
+                    <div className={styles.planGate}>
+                      <strong>Inteligência bloqueada para List</strong>
+                      <p>Motivo completo, dor, evidências, canal recomendado, mensagem sugerida e timeline não são enviados completos para este plano.</p>
+                      <a href="/planos?intent=radar_premium">Ver Lead Plus</a>
+                    </div>
+                  </div>
+                ) : (
+                  <div className={styles.leadPlusDossier}>
+                    <div className={styles.dossierScoreRow}>
+                      <div className={styles.dossierScore}>
+                        <b>{leadBackendScore(selectedObservationLead)}</b>
+                        <span>{opportunityLabel(leadBackendScore(selectedObservationLead))}</span>
+                      </div>
+                      <div className={styles.dossierHighlights}>
+                        <span data-tone={String(selectedObservationLead.emailStatus || "").toLowerCase()}><b>E-mail</b>{emailObservationLabel(selectedObservationLead)}</span>
+                        <span><b>Canal</b>{channelLabel(selectedObservationLead.recommendedChannel)}</span>
+                        <span><b>Dor provável</b>{selectedObservationLead.painLabel || selectedObservationLead.painType || "Revisar"}</span>
+                      </div>
+                    </div>
+                    <p className={styles.dossierReason}><b>Motivo do score</b>{leadExplanation(selectedObservationLead)}</p>
+                    {selectedObservationLead.painPitch ? <p className={styles.dossierPitch}>{selectedObservationLead.painPitch}</p> : null}
+                    <div className={styles.evidenceTimeline}>
+                      {leadEvidenceTimeline(selectedObservationLead).length ? (
+                        leadEvidenceTimeline(selectedObservationLead).map((evidence, index) => (
+                          <span key={`${evidence.type || "evidence"}:${index}`}>
+                            <b>{evidence.title || evidence.label || "Sinal"}</b>
+                            <small>{[evidence.description, evidence.confidence != null ? `${Math.trunc(evidence.confidence)}%` : null, evidence.source].filter(Boolean).join(" · ")}</small>
+                          </span>
+                        ))
+                      ) : (
+                        <span><b>Sem timeline detalhada</b><small>O lead ainda não tem evidências suficientes para timeline.</small></span>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </section>
+
+              <aside className={styles.actionPlanPanel} aria-label="Plano de ação do Radar">
+                <div className={styles.observationPanelHeader}>
+                  <span>Plano de ação</span>
+                  <strong>{observationTier === "full" ? "Automação e IA" : observationTier === "lead_plus" ? "Abordagem" : "Próximo passo"}</strong>
+                  <small>API paga: {enrichmentCostUnavailable ? "bloqueada" : costStatusLabel(enrichmentCostSummary?.status)}</small>
+                </div>
+
+                {!selectedObservationLead ? (
+                  <div className={styles.observationEmpty}><strong>Aguardando card</strong><p>Selecione um lead para ver canal, risco e próxima ação.</p></div>
+                ) : observationTier === "list" || selectedObservationLead.premiumLocked ? (
+                  <div className={styles.listActionGate}>
+                    <strong>List entrega contato limpo</strong>
+                    <p>Use telefone, WhatsApp, site ou rede pública. O plano de abordagem fica no Lead Plus.</p>
+                    <button type="button" onClick={() => void runLeadAction(selectedObservationLead, "send")} disabled={Boolean(actionId)}>
+                      Enviar para Vendas
+                    </button>
+                  </div>
+                ) : (
+                  <div className={styles.actionPlanStack}>
+                    <span><b>Canal</b>{channelLabel(selectedObservationLead.recommendedChannel)}</span>
+                    <span><b>Risco</b>{leadRiskLabel(selectedObservationLead)}</span>
+                    <span><b>Próxima ação</b>{leadNextStep(selectedObservationLead) || `Abordar por ${channelLabel(selectedObservationLead.recommendedChannel).toLowerCase()}`}</span>
+                    <div className={styles.scriptBox}>
+                      <b>Mensagem sugerida</b>
+                      <p>{leadFirstMessage(selectedObservationLead) || selectedObservationLead.painPitch || leadExplanation(selectedObservationLead)}</p>
+                    </div>
+                    {observationTier === "full" ? (
+                      <div className={styles.fullAutomationBox}>
+                        <strong>Full habilita automação</strong>
+                        <p>Distribuição, campanhas, IA e acompanhamento em massa podem usar este dossiê como entrada operacional.</p>
+                      </div>
+                    ) : null}
+                    <div className={styles.actionPlanButtons}>
+                      <button type="button" onClick={() => void runLeadAction(selectedObservationLead, "send")} disabled={Boolean(actionId)}>
+                        Enviar para Vendas
+                      </button>
+                      <button type="button" data-variant="secondary" onClick={() => void runLeadAction(selectedObservationLead, "enrich")} disabled={Boolean(actionId)}>
+                        Atualizar dossiê
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </aside>
+            </div>
+          </section>
+        ) : null}
+
+        {desktopView === "pesquisa" ? (
+          <>
         <header className={styles.header} data-state={radarMomentState}>
           <div>
             <span>{radarHeaderEyebrow}</span>
@@ -5542,6 +5911,8 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
             </div>
           ) : null}
         </section>
+          </>
+        ) : null}
 
       </section>
     </DashboardScaffold>

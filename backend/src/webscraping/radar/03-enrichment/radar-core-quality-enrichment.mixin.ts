@@ -792,11 +792,39 @@ export class RadarCoreQualityEnrichmentMixin {
       || clean.facebookUrl
       || clean.email
       || clean.recommendedChannel
+      || clean.emailConfidence
+      || clean.emailSource
+      || clean.opportunityReason
       || clean.opportunityScore
       || clean.enrichmentScore
+      || clean.painType
+      || clean.painLabel
+      || clean.painPitch
+      || clean.evidenceJson
+      || clean.sourceConfidence
+      || clean.actionPlan
       || clean.qualityV2,
     );
-    ['score', 'enrichmentJson', 'quality', 'qualityV2'].forEach((key) => delete clean[key]);
+    [
+      'score',
+      'recommendedChannel',
+      'emailConfidence',
+      'emailSource',
+      'opportunityReason',
+      'painType',
+      'painLabel',
+      'painPitch',
+      'enrichmentJson',
+      'quality',
+      'qualityV2',
+      'evidenceJson',
+      'sourceConfidence',
+      'actionPlan',
+      'firstMessage',
+      'nextBestAction',
+      'qualityReason',
+      'rejectReasons',
+    ].forEach((key) => delete clean[key]);
     (clean as any).premiumLocked = true;
     (clean as any).premiumFeatureStatus = 'locked';
     (clean as any).premiumTeaser = hadPremiumSignal;

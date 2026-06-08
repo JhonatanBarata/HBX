@@ -6,6 +6,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { MasterGuard } from '../auth/guards/master.guard';
 import { ModuleAccess } from '../modules/module-feature.decorator';
 import { ModuleAccessGuard } from '../modules/module-access.guard';
+import { EnrichmentCostService } from './enrichment-cost/enrichment-cost.service';
 import { getConfiguredHbxEngineMaxCount, HbxEnginePoolService } from './hbx-engine-pool.service';
 import { LeadHarvestImportService } from './lead-harvest/lead-harvest-import.service';
 import { RADAR_REGION_MAX_RADIUS_KM } from './radar/shared/radar-core-shared';
@@ -875,6 +876,7 @@ export class WebscrapingController {
     private readonly webscrapingService: WebscrapingService,
     private readonly hbxEnginePool: HbxEnginePoolService,
     private readonly leadHarvestImportService: LeadHarvestImportService,
+    private readonly enrichmentCostService: EnrichmentCostService,
   ) {}
 
   @Get('runtime')
@@ -909,6 +911,11 @@ export class WebscrapingController {
   @Post('lead-harvest/import')
   importLeadHarvest(@Req() req: any, @Body() body: Record<string, any>) {
     return this.leadHarvestImportService.importBatchForUser(req.user, body || {});
+  }
+
+  @Get('enrichment-cost/summary')
+  enrichmentCostSummary(@Req() req: any, @Query('days') days?: string) {
+    return this.enrichmentCostService.getCompanyCostSummaryForUser(req.user, { days });
   }
 
   @Get('lead-harvest/imports/:id')
@@ -1136,6 +1143,7 @@ export class MasterWebscrapingController {
   constructor(
     private readonly webscrapingService: WebscrapingService,
     private readonly hbxEnginePool: HbxEnginePoolService,
+    private readonly enrichmentCostService: EnrichmentCostService,
   ) {}
 
   @Get('engines/status')
@@ -1151,6 +1159,15 @@ export class MasterWebscrapingController {
   @Get('database-cards')
   getDatabaseCards(@Req() req: any, @Query() query: MasterDatabaseCardsQueryDto) {
     return this.webscrapingService.listMasterDatabaseCards(req.user, query || {});
+  }
+
+  @Get('enrichment-cost/summary')
+  getMasterEnrichmentCostSummary(
+    @Query('companyId') companyId: string,
+    @Query('days') days?: string,
+    @Query('planKey') planKey?: string,
+  ) {
+    return this.enrichmentCostService.getCompanyCostSummary(companyId, { days, planKey });
   }
 
   @Delete('database-cards/batch')

@@ -10,6 +10,25 @@ E-mail deve morar principalmente no enriquecimento pos-descoberta, nao na busca 
 
 Busca acha empresas. Enriquecimento melhora cards. Filtro decide o que entra na fila.
 
+## Status implementado
+
+Implementado no backend sem API paga, Hunter, Google pago ou provider externo novo.
+
+O enriquecimento agora:
+
+- evolui `RADAR_LEAD_ENRICHMENT_VERSION` para `radar-card-v2`;
+- preserva compatibilidade com `signals`, `qualityV2`, `sourceConfidence` e campos antigos;
+- adiciona `level = smart_free`;
+- grava `cost.totalBrl = 0`;
+- registra `providersUsed` apenas com fontes internas/gratis (`hbx`, `site_crawl`, `domain_guess`, `social_memory`);
+- extrai e-mail publico forte de texto normal e texto ofuscado;
+- gera e-mail provavel por dominio oficial (`contato@dominio`) quando nao ha e-mail publico forte;
+- marca e-mail inferido sempre como `probable` e `emailSource = inferred`;
+- nao infere e-mail para dominios bloqueados/social/genericos;
+- adiciona `identity`, `contact`, `digitalPresence`, `salesFit`, `actionPlan`, `evidenceTimeline` e `missingData` no `enrichmentJson`;
+- mantem negativos/opt-outs protegidos via decisao `discard`;
+- expõe o `smart_free` para Vendas via `buildVendasLeadIntelligence`.
+
 ## Camadas gratis
 
 Camada 0 - cache e memoria HBX:
@@ -170,4 +189,3 @@ HBX Full:
 Implemente o Passo 17 em `docs/PLANEJAMENTOS/OPS CONTROL - NIGHT SCRAPING/17-enriquecimento-email-gratis-v2.md`.
 Melhore apenas enriquecimento gratis e estrutura de evidencias. Nao adicione Google pago, Hunter ou outro provider externo neste PR.
 ```
-

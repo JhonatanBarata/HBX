@@ -1525,15 +1525,16 @@ test('buildSearchRunResponse items preserva campos sociais do rawJson', () => {
   assert.equal(item.facebookUrl, 'https://facebook.com/autosocial');
   assert.equal(item.email, 'contato@autosocial.com.br');
   assert.equal(item.whatsappStatus, 'confirmed');
-  assert.equal(item.recommendedChannel, 'whatsapp');
+  assert.equal(item.recommendedChannel, undefined);
   assert.equal(item.opportunityScore, 82);
+  assert.equal(item.opportunityReason, undefined);
   assert.equal(item.enrichmentScore, 77);
   assert.equal(item.qualityV2, undefined);
   assert.equal(item.premiumLocked, true);
   assert.equal(item.premiumTeaser, true);
 });
 
-test('buildSearchRunResponse preserva campos ricos do rawJson mesmo em List', () => {
+test('buildSearchRunResponse preserva contato basico e mascara inteligencia em List', () => {
   const { run, items } = createSearchRunPrisma({
     foundCount: 1,
     targetQuantity: 1,
@@ -1585,7 +1586,11 @@ test('buildSearchRunResponse preserva campos ricos do rawJson mesmo em List', ()
   assert.equal(item.rating, 4.8);
   assert.equal(item.reviews, 123);
   assert.equal(item.whatsappStatus, 'missing');
-  assert.equal(item.recommendedChannel, 'email');
+  assert.equal(item.recommendedChannel, undefined);
+  assert.equal(item.opportunityScore, 74);
+  assert.equal(item.opportunityReason, undefined);
+  assert.equal(item.premiumLocked, true);
+  assert.equal(item.premiumFeatureStatus, 'locked');
 });
 
 test('mapRunItemToContact preserva social fields do rawJson', () => {

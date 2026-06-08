@@ -2045,9 +2045,15 @@ export class RadarCorePresentationMixin {
       qualityV2: null,
       quality: null,
       lastEnrichedAt: null,
-        premiumLocked: true,
-        premiumFeatureStatus: 'locked',
-        premiumTeaser: hadPremiumSignal,
+      opportunityReason: null,
+      evidenceJson: null,
+      rejectReasons: [],
+      qualityReason: null,
+      sourceConfidence: null,
+      actionPlan: null,
+      premiumLocked: true,
+      premiumFeatureStatus: 'locked',
+      premiumTeaser: hadPremiumSignal,
     };
   }
 
@@ -2125,7 +2131,7 @@ export class RadarCorePresentationMixin {
       whatsappStatus,
       whatsappCheckStatus: whatsappStatus,
     } : {
-      email: null,
+      email: safeEmail || null,
       emailStatus: safeEmail ? row?.emailStatus || enrichmentParsed?.signals?.emailStatus || 'probable' : 'missing',
       emailSource: null,
       emailConfidence: 0,
@@ -2182,14 +2188,14 @@ export class RadarCorePresentationMixin {
       sourceUrl: row?.sourceUrl || null,
       sourceEngines: parseJsonArray(row?.sourceEngines),
       opportunityScore: safeInteger(row?.opportunityScore),
-      opportunityReason: row?.opportunityReason || null,
-      evidenceJson: Object.keys(evidenceJson).length ? evidenceJson : null,
-      rejectReasons,
-      qualityReason: row?.qualityReason || null,
+      opportunityReason: includeSmartFields ? row?.opportunityReason || null : null,
+      evidenceJson: includeSmartFields && Object.keys(evidenceJson).length ? evidenceJson : null,
+      rejectReasons: includeSmartFields ? rejectReasons : [],
+      qualityReason: includeSmartFields ? row?.qualityReason || null : null,
       visibilityTier: row?.visibilityTier || null,
       deliveryProduct: row?.deliveryProduct || null,
-      qualityV2,
-      quality,
+      qualityV2: includeSmartFields ? qualityV2 : null,
+      quality: includeSmartFields ? quality : null,
       status,
       ownerCompanyId,
       claimedAt,
@@ -2229,7 +2235,12 @@ export class RadarCorePresentationMixin {
       premiumFeatureStatus: includeSmartFields ? 'available' : 'locked',
       premiumTeaser: !includeSmartFields && Boolean(safeEmail || safeInstagramUrl || safeFacebookUrl || row?.recommendedChannel || row?.enrichmentScore || qualityV2),
     };
-    return this.attachDeliveryClassification(publicLead, qualityInput, quality || null, qualityV2 || null);
+    return this.attachDeliveryClassification(
+      publicLead,
+      qualityInput,
+      includeSmartFields ? quality || null : null,
+      includeSmartFields ? qualityV2 || null : null,
+    );
   }
 
   private buildDirectRadarLeadPublic(result: Omit<WebscrapingContactResult, 'placeId'> & { placeId?: string | null }, input: NormalizedRadarFilters, index: number) {

@@ -15,6 +15,13 @@ O cockpit Local x VPS tambem tem controles seguros:
 - `Cancelar scraping`, que chama o cancelamento do modo forcado com drenagem curta.
 - Coordenacao Local x VPS para evitar que o alvo `Local + VPS` inicie duas fabricas na mesma cidade/segmento/tarefa.
 
+O painel tambem tem a area **Email Lab**, que orquestra:
+
+- job no HBX Local Lab;
+- export seguro do batch local;
+- importacao oficial para `/webscraping/lead-harvest/import` no backend VPS;
+- status de configuracao Local Lab/VPS sem exibir tokens.
+
 ## Uso
 
 ```bash
@@ -57,6 +64,22 @@ Para usar apenas um ambiente por vez, `OPS_CONTROL_BACKEND_URL` com `OPS_CONTROL
 
 Se o Ops Control estiver rodando direto no Windows, fora do Docker, o backend local normalmente fica em `http://127.0.0.1:3000`. Dentro do compose do Ops Control, use `http://host.docker.internal:3000`.
 
+Para usar o **Email Lab**, configure:
+
+```bash
+echo "OPS_CONTROL_LOCAL_LAB_URL=http://127.0.0.1:3098" >> .env.ops-control
+echo "OPS_CONTROL_VPS_BACKEND_URL=https://api.hbxsystem.com.br" >> .env.ops-control
+echo "OPS_CONTROL_VPS_BACKEND_AUTO_SESSION=true" >> .env.ops-control
+```
+
+Se o Ops Control estiver dentro do Docker, `127.0.0.1` aponta para o container. Use o host do Windows:
+
+```bash
+echo "OPS_CONTROL_LOCAL_LAB_URL=http://host.docker.internal:3098" >> .env.ops-control
+```
+
+`OPS_CONTROL_LOCAL_LAB_TOKEN` pode ser configurado se o Local Lab passar a exigir token. O valor nao aparece na UI nem nos retornos da API.
+
 Abra:
 
 ```text
@@ -70,6 +93,9 @@ http://127.0.0.1:3099
 - As acoes executam apenas comandos Docker allowlistados.
 - A auditoria do Radar le apenas Docker, logs recentes e consultas SQL fixas de diagnostico.
 - Os controles de turbo/cancelamento chamam apenas rotas master existentes no backend e exigem JWT master, login Master ou sessao operacional automatica configurada por ambiente.
+- O Email Lab chama somente wrappers allowlistados: Local Lab job/export/cancel e importacao oficial Lead Harvest no backend VPS.
+- O Email Lab nao implementa bypass de bloqueio, captcha, proxy rotativo ou shell livre.
+- O alvo `Ambos` do Email Lab exige Local Lab e VPS import configurados, bloqueia endpoint duplicado e roda a fatia local antes da importacao VPS.
 - O filtro por canal e enviado ao backend master; exige backend atualizado com o passo 6.
 - Quando `Turbo ambos` ou `Forcar filtro` usam `Local + VPS`, o Ops Control compara trabalho ativo e proxima missao dos dois ambientes. Se houver colisao resolvivel, ele chama `factory/force-next` em um lado antes de iniciar; se os dois ja estiverem no mesmo trabalho ativo, ele bloqueia o comando para evitar duplicidade.
 - A aba localhost exige Docker local acessivel pelo processo do Ops Control. No compose, isso usa `/var/run/docker.sock`.

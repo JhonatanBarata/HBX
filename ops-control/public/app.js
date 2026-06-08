@@ -23,6 +23,9 @@ let filters = { search: '', status: 'all', group: 'all' };
 let activeRadarEnv = 'vps';
 let latestRadarDiagnostic = null;
 let latestBackendConfig = null;
+let latestEmailLabStatus = null;
+let emailLabState = { job: null, exportBatch: null, importResult: null, pollTimer: null };
+const emailLabTerminalStatuses = new Set(['completed', 'completed_insufficient_results', 'failed', 'canceled']);
 
 function setStatus(message) {
   statusText.textContent = message || '';
@@ -258,6 +261,7 @@ async function loadAll() {
     const [data] = await Promise.all([
       api('/api/overview'),
       loadRadarCockpit(),
+      loadEmailLabStatus(),
     ]);
     renderOverview(data);
     await loadFolders();
@@ -272,6 +276,366 @@ async function loadRadarCockpit() {
   const data = await api('/api/radar-cockpit');
   renderRadarCockpit(data);
   return data;
+}
+
+async function loadEmailLabStatus() {
+  const data = await api('/api/email-lab/status');
+  renderEmailLabStatus(data);
+  return data;
+}
+
+function setEmailLabActionStatus(message, tone = 'idle') {
+  const box = document.getElementById('emailLabActionStatus');
+  if (!box) return;
+  box.textContent = message || 'Nenhuma acao do Email Lab nesta sessao.';
+  box.className = `ops-action-status ops-action-status--${tone}`;
+}
+
+function renderEmailLabStatus(data = {}) {
+  latestEmailLabStatus = data;
+  const localReady = Boolean(data.localLab?.configured);
+  const localAvailable = Boolean(data.localLab?.available);
+  const vpsReady = Boolean(data.vpsImport?.configured);
+  const sameEndpointBlocked = Boolean(data.coordination?.sameEndpointBlocked);
+  const panel = document.getElementById('emailLabPreflight');
+  const title = document.getElementById('emailLabPreflightTitle');
+  const message = document.getElementById('emailLabPreflightMessage');
+  if (panel && title && message) {
+    const ok = localReady && vpsReady && !sameEndpointBlocked;
+    panel.className = `email-lab-preflight ${ok ? 'email-lab-preflight--ok' : 'email-lab-preflight--warn'}`;
+    title.textContent = ok ? 'Email Lab pronto' : 'Email Lab precisa de configuracao';
+    message.textContent = sameEndpointBlocked
+      ? data.coordination.message
+      : [data.localLab?.message, data.vpsImport?.message].filter(Boolean).join(' | ') || 'Aguardando status do Email Lab.';
+  }
+  renderEmailLabChip(
+    'emailLabLocalStatus',
+    'Local Lab',
+    localReady,
+    localReady
+      ? `${localAvailable ? 'online' : 'configurado'}${data.localLab?.urlHost ? ` - ${data.localLab.urlHost}` : ''}`
+      : (data.localLab?.missing || ['OPS_CONTROL_LOCAL_LAB_URL']).join(' + '),
+  );
+  renderEmailLabChip(
+    'emailLabVpsStatus',
+    'VPS import',
+    vpsReady,
+    vpsReady
+      ? `${emailLabAuthLabel(data.vpsImport)}${data.vpsImport?.urlHost ? ` - ${data.vpsImport.urlHost}` : ''}`
+      : (data.vpsImport?.missingSpecific || ['OPS_CONTROL_VPS_BACKEND_URL']).join(' + '),
+  );
+  updateEmailLabButtons();
+  renderEmailLabOperationalState();
+}
+
+function renderEmailLabChip(id, label, ready, text) {
+  const chip = document.getElementById(id);
+  if (!chip) return;
+  chip.dataset.ready = ready ? 'true' : 'false';
+  chip.textContent = `${label}: ${text || (ready ? 'ok' : 'pendente')}`;
+}
+
+function emailLabAuthLabel(item = {}) {
+  const mode = item.authMode || item.fallbackAuthMode;
+  if (mode === 'auto') return 'sessao operacional';
+  if (mode === 'login') return 'login Master';
+  if (mode === 'jwt') return 'JWT';
+  return 'backend configurado';
+}
+
+function emailLabPayloadFromForm(scopeOverride) {
+  return {
+    scope: scopeOverride || document.getElementById('emailLabScope')?.value || 'local',
+    state: document.getElementById('emailLabState')?.value || '',
+    city: document.getElementById('emailLabCity')?.value || '',
+    segment: document.getElementById('emailLabSegment')?.value || '',
+    targetEmails: Number(document.getElementById('emailLabTargetEmails')?.value || 50),
+    mode: document.getElementById('emailLabMode')?.value || 'email_first',
+  };
+}
+
+function emailLabPreflight(action, scope = document.getElementById('emailLabScope')?.value || 'local') {
+  const status = latestEmailLabStatus || {};
+  const localConfigured = Boolean(status.localLab?.configured);
+  const vpsConfigured = Boolean(status.vpsImport?.configured);
+  const sameEndpointBlocked = Boolean(status.coordination?.sameEndpointBlocked);
+  const job = emailLabState.job || {};
+  const exportReady = Boolean(emailLabState.exportBatch || job.exportReady);
+  const hasJob = Boolean(job.id);
+  const terminal = emailLabTerminalStatuses.has(String(job.status || '').toLowerCase());
+
+  if ((action === 'local' || action === 'both' || action === 'export' || action === 'cancel') && !localConfigured) {
+    return { ok: false, message: 'Local Lab sem URL configurada. Configure OPS_CONTROL_LOCAL_LAB_URL.' };
+  }
+  if ((action === 'vps' || action === 'import' || action === 'both') && !vpsConfigured) {
+    return { ok: false, message: 'VPS import sem backend configurado. Configure OPS_CONTROL_VPS_BACKEND_URL e autenticacao operacional.' };
+  }
+  if ((scope === 'both' || action === 'both') && sameEndpointBlocked) {
+    return { ok: false, message: status.coordination?.message || 'Local Lab e VPS apontam para o mesmo endpoint.' };
+  }
+  if (action === 'export' && !hasJob) {
+    return { ok: false, message: 'Inicie um job Local antes de exportar.' };
+  }
+  if ((action === 'vps' || action === 'import') && !exportReady) {
+    return { ok: false, message: 'Aguarde o export ficar pronto antes de importar na VPS.' };
+  }
+  if (action === 'cancel' && (!hasJob || terminal)) {
+    return { ok: false, message: 'Nao ha job local ativo para cancelar.' };
+  }
+  return { ok: true, message: '' };
+}
+
+function updateEmailLabButtons() {
+  const status = latestEmailLabStatus || {};
+  const localConfigured = Boolean(status.localLab?.configured);
+  const vpsConfigured = Boolean(status.vpsImport?.configured);
+  const sameEndpointBlocked = Boolean(status.coordination?.sameEndpointBlocked);
+  const job = emailLabState.job || {};
+  const hasJob = Boolean(job.id);
+  const exportReady = Boolean(emailLabState.exportBatch || job.exportReady);
+  const terminal = emailLabTerminalStatuses.has(String(job.status || '').toLowerCase());
+  document.querySelectorAll('[data-email-lab-action]').forEach((button) => {
+    const action = button.dataset.emailLabAction;
+    let disabled = false;
+    if (action === 'local') disabled = !localConfigured;
+    if (action === 'both') disabled = !localConfigured || !vpsConfigured || sameEndpointBlocked;
+    if (action === 'vps' || action === 'import') disabled = !vpsConfigured || !exportReady;
+    if (action === 'export') disabled = !localConfigured || !hasJob || !job.exportReady;
+    if (action === 'cancel') disabled = !localConfigured || !hasJob || terminal;
+    if (action === 'refresh') disabled = false;
+    button.disabled = disabled;
+  });
+}
+
+async function runEmailLabAction(action) {
+  try {
+    if (action === 'refresh') {
+      setEmailLabActionStatus('Atualizando status do Email Lab...', 'busy');
+      await loadEmailLabStatus();
+      setEmailLabActionStatus('Status do Email Lab atualizado.', 'ok');
+      return;
+    }
+    if (action === 'local') return startEmailLabLocalJob('local');
+    if (action === 'both') return startEmailLabLocalJob('both');
+    if (action === 'vps' || action === 'import') return importEmailLabToVps();
+    if (action === 'export') return exportEmailLabJob();
+    if (action === 'cancel') return cancelEmailLabJob();
+  } catch (error) {
+    setEmailLabActionStatus(error.message || 'Falha no Email Lab.', 'error');
+    throw error;
+  }
+}
+
+async function startEmailLabLocalJob(scope) {
+  const preflight = emailLabPreflight(scope === 'both' ? 'both' : 'local', scope);
+  if (!preflight.ok) {
+    setEmailLabActionStatus(preflight.message, 'warn');
+    setStatus(preflight.message);
+    return;
+  }
+  const payload = emailLabPayloadFromForm(scope);
+  setEmailLabActionStatus(`${scope === 'both' ? 'Ambos' : 'Local'}: iniciando job no Local Lab...`, 'busy');
+  const result = await api('/api/email-lab/local/jobs', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  emailLabState.job = result.job || null;
+  emailLabState.exportBatch = null;
+  emailLabState.importResult = null;
+  renderEmailLabOperationalState();
+  updateEmailLabButtons();
+  setEmailLabActionStatus(result.message || 'Job Local Lab iniciado.', 'ok');
+  setStatus(result.message || 'Job Local Lab iniciado.');
+  if (emailLabState.job?.id) {
+    scheduleEmailLabPoll(emailLabState.job.id);
+  }
+}
+
+async function refreshEmailLabJob(jobId, options = {}) {
+  const result = await api(`/api/email-lab/local/jobs/${encodeURIComponent(jobId)}`);
+  emailLabState.job = result.job || emailLabState.job;
+  renderEmailLabOperationalState();
+  updateEmailLabButtons();
+  if (!options.silent) {
+    setEmailLabActionStatus(`Job ${emailLabState.job?.id || jobId}: ${statusToHuman(emailLabState.job?.status)}.`, 'ok');
+  }
+  return emailLabState.job;
+}
+
+function scheduleEmailLabPoll(jobId) {
+  if (emailLabState.pollTimer) clearInterval(emailLabState.pollTimer);
+  let attempts = 0;
+  emailLabState.pollTimer = setInterval(async () => {
+    attempts += 1;
+    try {
+      const job = await refreshEmailLabJob(jobId, { silent: true });
+      const status = String(job?.status || '').toLowerCase();
+      if (emailLabTerminalStatuses.has(status) || attempts >= 60) {
+        clearInterval(emailLabState.pollTimer);
+        emailLabState.pollTimer = null;
+        setEmailLabActionStatus(job?.exportReady ? 'Export pronto no Local Lab.' : `Job ${statusToHuman(status)}.`, job?.exportReady ? 'ok' : status === 'failed' ? 'error' : 'warn');
+      }
+    } catch (error) {
+      clearInterval(emailLabState.pollTimer);
+      emailLabState.pollTimer = null;
+      setEmailLabActionStatus(error.message || 'Falha ao acompanhar job local.', 'error');
+    }
+  }, 3000);
+}
+
+async function exportEmailLabJob() {
+  const preflight = emailLabPreflight('export');
+  if (!preflight.ok) {
+    setEmailLabActionStatus(preflight.message, 'warn');
+    setStatus(preflight.message);
+    return;
+  }
+  const jobId = emailLabState.job.id;
+  setEmailLabActionStatus(`Exportando batch do job ${jobId}...`, 'busy');
+  const exported = await api(`/api/email-lab/local/jobs/${encodeURIComponent(jobId)}/export`);
+  emailLabState.exportBatch = exported;
+  renderEmailLabOperationalState();
+  updateEmailLabButtons();
+  const count = emailLabExportCounts(exported);
+  setEmailLabActionStatus(`Export pronto: ${count.leads} lead(s), ${count.emails} e-mail(s).`, 'ok');
+  setStatus('Export do Email Lab pronto.');
+}
+
+async function importEmailLabToVps() {
+  const preflight = emailLabPreflight('import');
+  if (!preflight.ok) {
+    setEmailLabActionStatus(preflight.message, 'warn');
+    setStatus(preflight.message);
+    return;
+  }
+  const jobId = emailLabState.job?.id || null;
+  setEmailLabActionStatus('Importando batch do Email Lab na VPS...', 'busy');
+  const body = jobId
+    ? { jobId }
+    : { batch: emailLabState.exportBatch?.batch || emailLabState.exportBatch };
+  const result = await api('/api/email-lab/vps/import', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+  emailLabState.importResult = result;
+  renderEmailLabOperationalState();
+  updateEmailLabButtons();
+  setEmailLabActionStatus(result.message || 'Importacao enviada para VPS.', result.ok ? 'ok' : 'warn');
+  setStatus(result.message || 'Importacao enviada para VPS.');
+}
+
+async function cancelEmailLabJob() {
+  const preflight = emailLabPreflight('cancel');
+  if (!preflight.ok) {
+    setEmailLabActionStatus(preflight.message, 'warn');
+    setStatus(preflight.message);
+    return;
+  }
+  if (!confirm('Cancelar o job local do Email Lab?')) return;
+  const jobId = emailLabState.job.id;
+  setEmailLabActionStatus(`Cancelando job ${jobId}...`, 'busy');
+  const result = await api(`/api/email-lab/local/jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' });
+  emailLabState.job = result.job || emailLabState.job;
+  renderEmailLabOperationalState();
+  updateEmailLabButtons();
+  setEmailLabActionStatus(result.message || 'Cancelamento solicitado no Local Lab.', 'ok');
+  setStatus(result.message || 'Cancelamento solicitado no Local Lab.');
+}
+
+function renderEmailLabOperationalState() {
+  const job = emailLabState.job || {};
+  const exported = emailLabState.exportBatch || null;
+  const importData = emailLabImportData();
+  const counts = emailLabImportCounts(importData);
+  const exportCounts = emailLabExportCounts(exported);
+  const metrics = job.metrics || {};
+  const leadsCount = exportCounts.leads || Number(metrics.leads || 0);
+  const emailsAccepted = counts.accepted || exportCounts.emails || Number(metrics.emailsAccepted || 0);
+  const failed = counts.rejected || (String(job.status || '').toLowerCase() === 'failed' ? 1 : 0);
+
+  setText('emailLabSitesVisited', metrics.sitesVisited ?? '-');
+  setText('emailLabEmailsFound', metrics.emailsFound ?? '-');
+  setText('emailLabEmailsAccepted', emailsAccepted || '-');
+  setText('emailLabDuplicates', counts.duplicates || '-');
+  setText('emailLabNegatives', counts.negatives || '-');
+  setText('emailLabOptOuts', counts.optOuts || '-');
+  setText('emailLabNoEmail', Math.max(0, leadsCount - emailsAccepted) || '-');
+  setText('emailLabFailures', failed || '-');
+  setText('emailLabEnvironment', emailLabEnvironmentText());
+  setText('emailLabJobSummary', emailLabJobSummary(job, exported, importData));
+  renderEmailLabRejectReasons(importData);
+}
+
+function setText(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = String(value ?? '-');
+}
+
+function emailLabJobSummary(job = {}, exported, importData) {
+  if (!job.id) return 'Sem job local iniciado.';
+  const parts = [
+    `job ${job.id}`,
+    statusToHuman(job.status),
+    job.exportReady || exported ? 'export pronto' : 'export pendente',
+  ];
+  if (importData?.batchId || importData?.id) parts.push(`VPS ${importData.batchId || importData.id}`);
+  return parts.filter(Boolean).join(' - ');
+}
+
+function emailLabEnvironmentText() {
+  const local = latestEmailLabStatus?.localLab?.configured
+    ? latestEmailLabStatus.localLab.available ? 'Local ok' : 'Local cfg'
+    : 'Local pend.';
+  const vps = latestEmailLabStatus?.vpsImport?.configured ? 'VPS ok' : 'VPS pend.';
+  return `${local} / ${vps}`;
+}
+
+function emailLabExportCounts(exported) {
+  const batch = exported?.batch || exported || {};
+  return {
+    leads: Array.isArray(batch.leads) ? batch.leads.length : 0,
+    emails: Array.isArray(batch.emails) ? batch.emails.length : 0,
+  };
+}
+
+function emailLabImportData() {
+  return emailLabState.importResult?.import?.data
+    || emailLabState.importResult?.data
+    || emailLabState.importResult
+    || null;
+}
+
+function emailLabImportCounts(data) {
+  const counts = data?.counts || data?.result || {};
+  return {
+    accepted: Number(counts.accepted || 0),
+    rejected: Number(counts.rejected || 0),
+    duplicates: Number(counts.duplicates || 0),
+    negatives: Number(counts.negatives || 0),
+    optOuts: Number(counts.optOuts || 0),
+  };
+}
+
+function renderEmailLabRejectReasons(data) {
+  const box = document.getElementById('emailLabRejectReasons');
+  if (!box) return;
+  const rejected = data?.result?.rejectedItems
+    || (Array.isArray(data?.items) ? data.items.filter((item) => item.status !== 'accepted').map((item) => ({
+      reason: item.rejectReason || item.status,
+      externalId: item.externalId,
+    })) : []);
+  if (!rejected.length) {
+    box.innerHTML = 'Sem rejeicoes registradas.';
+    return;
+  }
+  const byReason = rejected.reduce((acc, item) => {
+    const reason = item.reason || item.rejectReason || 'rejeitado';
+    acc[reason] = (acc[reason] || 0) + 1;
+    return acc;
+  }, {});
+  box.innerHTML = Object.entries(byReason).map(([reason, count]) => `
+    <span>${escapeHtml(reason)}: <b>${escapeHtml(count)}</b></span>
+  `).join('');
 }
 
 function setOpsActionStatus(message, tone = 'idle') {
@@ -1118,6 +1482,7 @@ document.addEventListener('click', async (event) => {
     if (target.dataset.engineAction) await runEngineRange(target.dataset.engineAction, target.dataset.from, target.dataset.to);
     if (target.dataset.quickTarget) await runQuickAction(target.dataset.quickTarget, target.dataset.quickAction);
     if (target.dataset.opsAction) await runOpsControlAction(target.dataset.opsAction, target.dataset.opsScope);
+    if (target.dataset.emailLabAction) await runEmailLabAction(target.dataset.emailLabAction);
     if (target.dataset.radarEnv) await loadRadarAudit(target.dataset.radarEnv);
     if (target.matches('[data-radar-refresh]')) await loadRadarAudit(activeRadarEnv);
     if (target.matches('[data-radar-cockpit-refresh]')) await loadRadarCockpit();
@@ -1126,6 +1491,8 @@ document.addEventListener('click', async (event) => {
     setStatus(error.message);
   }
 });
+
+document.getElementById('emailLabScope').addEventListener('change', updateEmailLabButtons);
 
 renderEngineBlocks();
 if (token) showApp();

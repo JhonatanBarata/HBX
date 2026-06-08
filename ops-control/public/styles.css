@@ -33,7 +33,8 @@ main {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -361,13 +362,133 @@ button.kill:hover {
   text-transform: uppercase;
 }
 
-.ops-field select {
+.ops-field select,
+.ops-field input {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 6px;
   color: var(--text);
   min-height: 38px;
   padding: 8px 10px;
+}
+
+.email-lab-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.email-lab-preflight {
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  padding: 13px;
+}
+
+.email-lab-preflight > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.email-lab-preflight strong {
+  font-size: 16px;
+}
+
+.email-lab-preflight span,
+.email-lab-details span,
+.email-lab-metrics span {
+  color: var(--muted);
+}
+
+.email-lab-preflight--ok {
+  border-left-color: var(--success);
+}
+
+.email-lab-preflight--warn {
+  border-left-color: var(--warning);
+}
+
+.email-lab-status-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.email-lab-layout {
+  display: grid;
+  gap: 12px;
+}
+
+.email-lab-form {
+  align-items: end;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(130px, .7fr) minmax(86px, .45fr) minmax(150px, 1fr) minmax(190px, 1.2fr) minmax(120px, .65fr) minmax(190px, 1fr);
+}
+
+.email-lab-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.email-lab-metrics {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(9, minmax(105px, 1fr));
+}
+
+.email-lab-metrics div {
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+  min-height: 82px;
+  padding: 11px;
+}
+
+.email-lab-metrics strong {
+  font-size: 22px;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+
+.email-lab-metrics span {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.email-lab-details {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(220px, .8fr) minmax(260px, 1.2fr);
+}
+
+.email-lab-details > div {
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+  padding: 11px;
+}
+
+.email-lab-rejects {
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.email-lab-rejects span {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 8px;
 }
 
 .backend-config-panel {
@@ -1025,6 +1146,9 @@ pre {
   .radar-flow,
   .radar-audit-split,
   .cockpit-grid,
+  .email-lab-form,
+  .email-lab-metrics,
+  .email-lab-details,
   .engine-grid,
   .split {
     grid-template-columns: 1fr 1fr;
@@ -1047,6 +1171,9 @@ pre {
   .cockpit-grid,
   .cockpit-metrics,
   .cockpit-flow,
+  .email-lab-form,
+  .email-lab-metrics,
+  .email-lab-details,
   .engine-grid,
   .split {
     grid-template-columns: 1fr;
@@ -1062,7 +1189,8 @@ pre {
   }
 
   .ops-field,
-  .ops-action-toolbar button {
+  .ops-action-toolbar button,
+  .email-lab-actions button {
     width: 100%;
   }
 

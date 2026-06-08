@@ -104,6 +104,12 @@ Gate 5 - API paga:
 
 ## Comandos de verificacao
 
+Checklist rapido do pacote Email Lab/Lead Harvest:
+
+```bash
+npm run rollout:email-lab:check
+```
+
 Backend:
 
 ```bash
@@ -152,6 +158,12 @@ git diff --check
 - diffs pequenos;
 - testes relevantes rodados ou falha explicada;
 - docs atualizadas quando alterar operacao.
+
+## Artefatos implementados
+
+- `scripts/validate-email-lab-rollout.js`: checklist automatizado sem deploy, sem migracao e sem chamada externa real.
+- `npm run rollout:email-lab:check`: executa checks de docs, flags, rotas, separacao Local Lab/VPS, sintaxe do Ops Control e `git diff --check`.
+- `backend/.env.example`: mantem as flags de rollout em `false` por padrao.
 
 ## Prompts Codex completos
 
@@ -209,4 +221,3 @@ Leia `AGENTS.md` e aplique o Passo 18. Crie ledger e budget de API paga com prov
 ```text
 Leia `AGENTS.md` e os passos 18 e 21. Ligue provider externo real apenas atras de flag, ledger, budget, cache e testes com mock. Nao executar chamada real em teste automatizado.
 ```
-

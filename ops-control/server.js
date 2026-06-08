@@ -15,6 +15,10 @@ const safeNamePattern = /^[a-zA-Z0-9_.-]+$/;
 const dockerActions = new Set(['start', 'stop', 'restart', 'kill']);
 const opsScopes = new Set(['local', 'vps', 'both']);
 const radarChannels = new Set(['email', 'whatsapp', 'instagram', 'website', 'phone', 'facebook']);
+const emailLabModes = new Set(['email_first', 'public_email_only', 'enrich_missing_email']);
+const emailLabExportFiles = new Set(['batch', 'manifest', 'leads', 'emails']);
+const sensitivePayloadKeyPattern = /(authorization|cookie|jwt|password|secret|token|api[_-]?key|credential|session)/i;
+const heavyPayloadKeyPattern = /(^html$|rawhtml|bodyhtml|pagehtml|htmlcontent|raw_html|page_html)/i;
 const backendLoginCache = new Map();
 
 const sshConfig = {
@@ -312,6 +316,281 @@ function redactSensitive(value) {
     if (/token|password|secret|authorization|cookie/i.test(key)) return [key, '[redacted]'];
     return [key, redactSensitive(item)];
   }));
+}
+
+function compactText(value, maxLength = 300) {
+  return String(value ?? '').trim().replace(/\s+/g, ' ').slice(0, maxLength);
+}
+
+function clampInteger(value, fallback, min, max) {
+  const parsed = Math.trunc(Number(value));
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
+}
+
+function emailLabLocalConfig() {
+  const baseUrl = String(process.env.OPS_CONTROL_LOCAL_LAB_URL || '').trim();
+  const authToken = String(process.env.OPS_CONTROL_LOCAL_LAB_TOKEN || '').trim();
+  return {
+    baseUrl,
+    authToken,
+    configured: Boolean(baseUrl),
+    urlHost: baseUrl ? redactBackendUrl(baseUrl) : null,
+    missing: baseUrl ? [] : ['OPS_CONTROL_LOCAL_LAB_URL'],
+  };
+}
+
+function backendConfigForVpsImport() {
+  return backendConfigForEnvironment('vps', 'vps');
+}
+
+function emailLabVpsImportStatus() {
+  const status = backendConfigStatusForEnvironment('vps');
+  return {
+    ...status,
+    route: '/webscraping/lead-harvest/import',
+    configured: Boolean(status.effectiveSingleReady),
+    message: status.effectiveSingleReady
+      ? 'Importacao VPS configurada via backend oficial.'
+      : `Configure ${status.missingSpecific?.join(' + ') || 'OPS_CONTROL_VPS_BACKEND_URL e autenticacao operacional'}.`,
+  };
+}
+
+function endpointIdentity(value) {
+  if (!value) return '';
+  try {
+    const url = new URL(value);
+    const port = url.port || (url.protocol === 'https:' ? '443' : '80');
+    return `${url.protocol}//${url.hostname.toLowerCase()}:${port}`;
+  } catch {
+    return String(value || '').trim().replace(/\/+$/, '').toLowerCase();
+  }
+}
+
+function buildEmailLabCoordination(localConfig = emailLabLocalConfig(), vpsConfig = backendConfigForVpsImport()) {
+  const localIdentity = endpointIdentity(localConfig.baseUrl);
+  const vpsIdentity = endpointIdentity(vpsConfig.baseUrl);
+  const sameEndpointBlocked = Boolean(localIdentity && vpsIdentity && localIdentity === vpsIdentity);
+  return {
+    sameEndpointBlocked,
+    message: sameEndpointBlocked
+      ? 'Local Lab e VPS import apontam para o mesmo endpoint. Ajuste as URLs antes de usar Ambos.'
+      : 'Local Lab e VPS import usam endpoints separados.',
+  };
+}
+
+function normalizeEmailLabScope(value) {
+  const scope = String(value || 'local').trim().toLowerCase();
+  if (!opsScopes.has(scope)) throw createHttpError(400, 'Escopo invalido. Use local, vps ou both.');
+  return scope;
+}
+
+function normalizeEmailLabMode(value) {
+  const mode = String(value || 'email_first').trim().toLowerCase();
+  if (!emailLabModes.has(mode)) throw createHttpError(400, 'Modo invalido para Email Lab.');
+  return mode;
+}
+
+function providersForEmailLabMode(mode) {
+  if (mode === 'public_email_only') return ['site_crawl'];
+  if (mode === 'enrich_missing_email') return ['site_crawl', 'directory_probe'];
+  return ['web_query', 'site_crawl'];
+}
+
+function normalizeEmailLabJobPayload(body = {}) {
+  const scope = normalizeEmailLabScope(body.scope || 'local');
+  const state = compactText(body.state, 2).toUpperCase();
+  const city = compactText(body.city, 120);
+  const segment = compactText(body.segment, 180);
+  const mode = normalizeEmailLabMode(body.mode);
+  const targetEmails = clampInteger(body.targetEmails, 50, 1, 10000);
+  if (!/^[A-Z]{2}$/.test(state)) throw createHttpError(400, 'Informe o Estado com UF de 2 letras.');
+  if (city.length < 2) throw createHttpError(400, 'Informe a cidade do Email Lab.');
+  if (segment.length < 2) throw createHttpError(400, 'Informe o segmento do Email Lab.');
+
+  const localTargetEmails = scope === 'both' ? Math.max(1, Math.ceil(targetEmails / 2)) : targetEmails;
+  return {
+    scope,
+    requestedTargetEmails: targetEmails,
+    localTargetEmails,
+    split: scope === 'both'
+      ? { localTargetEmails, vpsImportAfterExport: true }
+      : null,
+    payload: {
+      state,
+      city,
+      segment,
+      targetEmails: localTargetEmails,
+      mode,
+      providers: providersForEmailLabMode(mode),
+      requestedBy: 'ops-control-email-lab',
+    },
+  };
+}
+
+function normalizeEmailLabExportFile(value) {
+  const file = String(value || 'batch').trim().toLowerCase();
+  if (!emailLabExportFiles.has(file)) throw createHttpError(400, 'Export invalido. Use batch, manifest, leads ou emails.');
+  return file;
+}
+
+function findUnsafePayloadPath(value, pathLabel = '$', depth = 0) {
+  if (!value || typeof value !== 'object' || depth > 8) return null;
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index += 1) {
+      const found = findUnsafePayloadPath(value[index], `${pathLabel}[${index}]`, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+  for (const [key, rawValue] of Object.entries(value)) {
+    const currentPath = `${pathLabel}.${key}`;
+    if (sensitivePayloadKeyPattern.test(key)) return currentPath;
+    if (typeof rawValue === 'string' && heavyPayloadKeyPattern.test(key) && rawValue.length > 5000) return currentPath;
+    const found = findUnsafePayloadPath(rawValue, currentPath, depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
+function assertSafeEmailLabPayload(value) {
+  const size = Buffer.byteLength(JSON.stringify(value || {}), 'utf8');
+  if (size > 512000) throw createHttpError(413, 'Payload do Email Lab muito grande.');
+  const unsafePath = findUnsafePayloadPath(value);
+  if (unsafePath) throw createHttpError(400, `Payload do Email Lab contem campo nao permitido: ${unsafePath}`);
+}
+
+function buildEmailLabImportPayload(exported, fallback = {}) {
+  const source = exported?.batch && typeof exported.batch === 'object' ? exported.batch : exported || {};
+  const manifest = exported?.manifest && typeof exported.manifest === 'object' ? exported.manifest : {};
+  const leads = Array.isArray(source.leads) ? source.leads : [];
+  const emails = Array.isArray(source.emails) ? source.emails : [];
+  if (!leads.length && !emails.length) throw createHttpError(400, 'Export sem leads ou e-mails para importar.');
+  const batchId = compactText(source.batchId || manifest.batchId || fallback.batchId, 160);
+  if (!batchId) throw createHttpError(400, 'Export sem batchId.');
+  const targetEmails = source.targetEmails ?? manifest.targetEmails ?? fallback.targetEmails;
+  return {
+    schemaVersion: 'lead-harvest.v1',
+    batchId,
+    sourceMode: 'local_lab',
+    sourceName: compactText(source.sourceName || manifest.sourceName || 'HBX Local Lab', 160),
+    createdAt: source.createdAt || manifest.createdAt || new Date().toISOString(),
+    requestedBy: 'ops-control-email-lab',
+    city: compactText(source.city || manifest.city || fallback.city, 120) || null,
+    state: compactText(source.state || manifest.state || fallback.state, 2).toUpperCase() || null,
+    segment: compactText(source.segment || manifest.segment || fallback.segment, 180) || null,
+    targetEmails: targetEmails == null ? null : clampInteger(targetEmails, 0, 0, 10000),
+    providers: Array.isArray(source.providers) ? source.providers : Array.isArray(manifest.providers) ? manifest.providers : [],
+    stats: source.stats || manifest.stats || fallback.stats || {},
+    leads,
+    emails,
+  };
+}
+
+function localLabErrorMessage(data, statusCode) {
+  const message = data?.error || data?.message || `Local Lab respondeu HTTP ${statusCode}.`;
+  return String(message).slice(0, 400);
+}
+
+async function fetchEmailLabLocal(method, route, payload, options = {}) {
+  const config = emailLabLocalConfig();
+  if (!config.configured) throw createHttpError(503, 'Local Lab nao configurado. Configure OPS_CONTROL_LOCAL_LAB_URL.');
+  const headers = { 'Content-Type': 'application/json' };
+  if (config.authToken) headers.Authorization = `Bearer ${config.authToken}`;
+  const response = await fetch(joinUrl(config.baseUrl, route), {
+    method,
+    headers,
+    body: payload == null ? undefined : JSON.stringify(payload),
+    signal: timeoutSignal(options.timeout || 30000),
+  });
+  const text = await response.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = text ? { message: text.slice(0, 1000) } : null;
+  }
+  if (!response.ok) {
+    throw createHttpError(response.status, localLabErrorMessage(data, response.status));
+  }
+  return {
+    statusCode: response.status,
+    contentType: response.headers.get('content-type') || 'application/json; charset=utf-8',
+    text,
+    data: redactSensitive(data),
+  };
+}
+
+async function fetchEmailLabLocalRaw(method, route, payload, options = {}) {
+  const config = emailLabLocalConfig();
+  if (!config.configured) throw createHttpError(503, 'Local Lab nao configurado. Configure OPS_CONTROL_LOCAL_LAB_URL.');
+  const headers = {};
+  if (payload != null) headers['Content-Type'] = 'application/json';
+  if (config.authToken) headers.Authorization = `Bearer ${config.authToken}`;
+  const response = await fetch(joinUrl(config.baseUrl, route), {
+    method,
+    headers,
+    body: payload == null ? undefined : JSON.stringify(payload),
+    signal: timeoutSignal(options.timeout || 30000),
+  });
+  const text = await response.text();
+  return {
+    ok: response.ok,
+    statusCode: response.status,
+    contentType: response.headers.get('content-type') || 'text/plain; charset=utf-8',
+    text,
+  };
+}
+
+async function collectEmailLabStatus() {
+  const localLab = emailLabLocalConfig();
+  const vpsImport = emailLabVpsImportStatus();
+  const vpsConfig = backendConfigForVpsImport();
+  const coordination = buildEmailLabCoordination(localLab, vpsConfig);
+  const blockers = [];
+  let localAvailable = false;
+  let localMessage = localLab.configured
+    ? 'Local Lab configurado; aguardando health check.'
+    : 'Configure OPS_CONTROL_LOCAL_LAB_URL para habilitar Local Lab.';
+
+  if (localLab.configured) {
+    try {
+      const health = await fetchEmailLabLocal('GET', '/health', null, { timeout: 1500 });
+      localAvailable = Boolean(health.data?.ok);
+      localMessage = localAvailable ? 'Local Lab respondeu ao health check.' : 'Local Lab respondeu sem ok=true.';
+    } catch (error) {
+      localMessage = error.message || 'Local Lab configurado, mas indisponivel.';
+    }
+  }
+
+  if (!localLab.configured) blockers.push('local_lab_not_configured');
+  if (!vpsImport.configured) blockers.push('vps_import_not_configured');
+  if (coordination.sameEndpointBlocked) blockers.push('same_endpoint_blocked');
+
+  return {
+    generatedAt: new Date().toISOString(),
+    localLab: {
+      configured: localLab.configured,
+      available: localAvailable,
+      urlHost: localLab.urlHost,
+      missing: localLab.missing,
+      message: localMessage,
+    },
+    vpsImport: {
+      configured: vpsImport.configured,
+      effectiveSingleReady: vpsImport.effectiveSingleReady,
+      specificReady: vpsImport.specificReady,
+      commonFallbackReady: vpsImport.commonFallbackReady,
+      authMode: vpsImport.authMode,
+      fallbackAuthMode: vpsImport.fallbackAuthMode,
+      urlHost: vpsImport.urlHost,
+      route: vpsImport.route,
+      missingSpecific: vpsImport.missingSpecific,
+      message: vpsImport.message,
+    },
+    coordination,
+    blockers,
+  };
 }
 
 function backendHasAuth(config) {
@@ -1760,6 +2039,143 @@ app.get('/api/radar-cockpit', async (req, res) => {
     res.json(await collectRadarCockpit());
   } catch (error) {
     res.status(error.statusCode || 500).json({ error: error.message || 'Falha ao montar cockpit Radar.' });
+  }
+});
+
+app.get('/api/email-lab/status', async (req, res) => {
+  try {
+    res.json(await collectEmailLabStatus());
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Falha ao consultar Email Lab.' });
+  }
+});
+
+app.post('/api/email-lab/local/jobs', async (req, res) => {
+  try {
+    const localConfig = emailLabLocalConfig();
+    if (!localConfig.configured) throw createHttpError(503, 'Local Lab nao configurado. Configure OPS_CONTROL_LOCAL_LAB_URL.');
+    const normalized = normalizeEmailLabJobPayload(req.body || {});
+    if (normalized.scope === 'both') {
+      const vpsImport = emailLabVpsImportStatus();
+      const coordination = buildEmailLabCoordination(localConfig, backendConfigForVpsImport());
+      if (!vpsImport.configured) throw createHttpError(503, 'Ambos exige VPS import configurado antes de iniciar.');
+      if (coordination.sameEndpointBlocked) throw createHttpError(409, coordination.message);
+    }
+
+    const created = await fetchEmailLabLocal('POST', '/local-lab/jobs', normalized.payload);
+    res.status(202).json({
+      ok: true,
+      action: 'local-job',
+      scope: normalized.scope,
+      requestedTargetEmails: normalized.requestedTargetEmails,
+      localTargetEmails: normalized.localTargetEmails,
+      split: normalized.split,
+      job: created.data,
+      message: normalized.scope === 'both'
+        ? 'Job Local Lab iniciado com fatia experimental; importe para VPS quando o export estiver pronto.'
+        : 'Job Local Lab iniciado.',
+    });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Falha ao iniciar Email Lab local.' });
+  }
+});
+
+app.get('/api/email-lab/local/jobs/:id', async (req, res) => {
+  try {
+    const id = req.params.id;
+    if (!validateName(id)) throw createHttpError(400, 'ID de job invalido.');
+    const result = await fetchEmailLabLocal('GET', `/local-lab/jobs/${encodeURIComponent(id)}`);
+    res.json({ ok: true, job: result.data });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Falha ao consultar job local.' });
+  }
+});
+
+app.get('/api/email-lab/local/jobs/:id/export', async (req, res) => {
+  try {
+    const id = req.params.id;
+    if (!validateName(id)) throw createHttpError(400, 'ID de job invalido.');
+    const file = normalizeEmailLabExportFile(req.query.file);
+    const route = file === 'batch'
+      ? `/local-lab/jobs/${encodeURIComponent(id)}/export`
+      : `/local-lab/jobs/${encodeURIComponent(id)}/export?file=${encodeURIComponent(file)}`;
+    const exported = await fetchEmailLabLocalRaw('GET', route);
+    if (!exported.ok) {
+      let data = null;
+      try {
+        data = exported.text ? JSON.parse(exported.text) : null;
+      } catch {
+        data = { message: exported.text.slice(0, 400) };
+      }
+      return res.status(exported.statusCode).json({ error: localLabErrorMessage(data, exported.statusCode) });
+    }
+    res.status(exported.statusCode).type(exported.contentType).send(exported.text);
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Falha ao exportar job local.' });
+  }
+});
+
+app.post('/api/email-lab/local/jobs/:id/cancel', async (req, res) => {
+  try {
+    const id = req.params.id;
+    if (!validateName(id)) throw createHttpError(400, 'ID de job invalido.');
+    const result = await fetchEmailLabLocal('POST', `/local-lab/jobs/${encodeURIComponent(id)}/cancel`, {});
+    res.json({ ok: true, action: 'cancel-local-job', job: result.data, message: 'Cancelamento solicitado no Local Lab.' });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Falha ao cancelar job local.' });
+  }
+});
+
+app.post('/api/email-lab/vps/import', async (req, res) => {
+  try {
+    const status = emailLabVpsImportStatus();
+    if (!status.configured) throw createHttpError(503, 'VPS import nao configurado. Configure OPS_CONTROL_VPS_BACKEND_URL e autenticacao operacional.');
+
+    let exported = null;
+    if (req.body?.jobId) {
+      const jobId = String(req.body.jobId || '');
+      if (!validateName(jobId)) throw createHttpError(400, 'ID de job invalido.');
+      const exportResult = await fetchEmailLabLocal('GET', `/local-lab/jobs/${encodeURIComponent(jobId)}/export`, null, { timeout: 30000 });
+      exported = exportResult.data;
+    } else if (req.body?.batch || req.body?.manifest || req.body?.leads || req.body?.emails) {
+      exported = req.body;
+    } else {
+      throw createHttpError(400, 'Informe jobId ou batch para importar na VPS.');
+    }
+
+    assertSafeEmailLabPayload(exported);
+    const importPayload = buildEmailLabImportPayload(exported, req.body || {});
+    assertSafeEmailLabPayload(importPayload);
+    const result = await callBackendForEnvironment('vps', 'vps', 'POST', '/webscraping/lead-harvest/import', importPayload);
+    res.json({
+      ok: Boolean(result.ok),
+      action: 'vps-import',
+      message: result.ok
+        ? 'Importacao enviada ao backend oficial da VPS.'
+        : result.reason || result.error || `Backend VPS respondeu HTTP ${result.statusCode || 'falha'}.`,
+      import: result,
+      batchId: importPayload.batchId,
+    });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Falha ao importar Email Lab na VPS.' });
+  }
+});
+
+app.get('/api/email-lab/vps/imports/:id', async (req, res) => {
+  try {
+    const id = req.params.id;
+    if (!validateName(id)) throw createHttpError(400, 'ID de importacao invalido.');
+    const status = emailLabVpsImportStatus();
+    if (!status.configured) throw createHttpError(503, 'VPS import nao configurado.');
+    const result = await callBackendForEnvironment('vps', 'vps', 'GET', `/webscraping/lead-harvest/imports/${encodeURIComponent(id)}`);
+    res.json({
+      ok: Boolean(result.ok),
+      action: 'vps-import-status',
+      message: result.ok ? 'Importacao consultada na VPS.' : result.reason || result.error || `Backend VPS respondeu HTTP ${result.statusCode || 'falha'}.`,
+      import: result,
+    });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Falha ao consultar importacao VPS.' });
   }
 });
 
