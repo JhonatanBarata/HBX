@@ -103,28 +103,32 @@ export default function ApplyPolicyToUsersModal({
 
   useEffect(() => {
     if (!open) return;
-    setSelectedIds(new Set());
-    setSearch("");
-    setFilter("active");
-    setSections({
-      modules: true,
-      compensation: true,
-      hbxNetwork: true,
-      limits: true,
-      radar: true,
-    });
-    setLocalError(null);
+    const timeoutId = window.setTimeout(() => {
+      setSelectedIds(new Set());
+      setSearch("");
+      setFilter("active");
+      setSections({
+        modules: true,
+        compensation: true,
+        hbxNetwork: true,
+        limits: true,
+        radar: true,
+      });
+      setLocalError(null);
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
   }, [open, sourcePolicy?.subject.id]);
 
+  const sourceUserId = sourcePolicy?.subject.id || 0;
   const eligibleUsers = useMemo(
     () =>
       users.filter((user) => {
         const role = normalizeRole(user.role, user.isSystemMaster);
         if (role === "USERMASTER" || user.isSystemMaster) return false;
-        if (sourcePolicy?.subject.id && user.id === sourcePolicy.subject.id) return false;
+        if (sourceUserId && user.id === sourceUserId) return false;
         return true;
       }),
-    [sourcePolicy?.subject.id, users],
+    [sourceUserId, users],
   );
 
   const visibleUsers = useMemo(() => {

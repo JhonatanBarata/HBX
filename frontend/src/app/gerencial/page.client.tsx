@@ -2145,12 +2145,20 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     setError(null);
     const failures: string[] = [];
     let applied = 0;
+    const auditedPatch = {
+      ...patch,
+      audit: {
+        batch: true,
+        batchId: `gerencial-${Date.now()}`,
+        sourceUserId: batchPolicySource?.subject.id || null,
+      },
+    };
     try {
       for (const userId of uniqueTargetIds) {
         try {
           const policy = await apiFetch<TeamPolicy>(`/team/policy/${userId}`, {
             method: "PATCH",
-            body: JSON.stringify(patch),
+            body: JSON.stringify(auditedPatch),
           });
           applyTeamPolicyToLocalState(policy);
           applied += 1;
@@ -2393,6 +2401,14 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         .some((value) => String(value).toLowerCase().includes(search));
     });
   }, [data?.users, userFilter, userSearch]);
+  const policyModalUser = useMemo(
+    () => (policyModalUserId ? (data?.users || []).find((user) => user.id === policyModalUserId) || null : null),
+    [data?.users, policyModalUserId],
+  );
+  const selectedTeamPolicy = useMemo(
+    () => (policyModalUserId ? teamPolicies.find((policy) => policy.subject.id === policyModalUserId) || null : null),
+    [policyModalUserId, teamPolicies],
+  );
 
   async function copyTemporaryPassword() {
     if (!createdPasswordInfo?.password) return;
@@ -3807,6 +3823,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
               resetCreateAccessPopup();
               setCreateAccessOpen(true);
             }}
+            onOpenBatchPolicy={() => void openBatchPolicyFromList()}
             referralCandidatesPanel={renderReferralCandidatesPanel("desktop")}
           >
 
@@ -3953,6 +3970,14 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                         className="btn btn-ghost btn-sm"
                       >
                         Editar dados
+                      </button>
+                      <button
+                        type="button"
+                        disabled={deletingUserId === user.id || loadingPolicyUserId === user.id}
+                        onClick={() => void openTeamPolicy(user)}
+                        className="btn btn-secondary btn-sm"
+                      >
+                        {loadingPolicyUserId === user.id ? "Abrindo..." : "Política"}
                       </button>
                       <button
                         type="button"
@@ -4106,7 +4131,17 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
 
                     {showDesktopModules ? (
                     <div className="grid gap-2">
-                      <p className="text-xs font-semibold uppercase text-muted">Módulos</p>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-xs font-semibold uppercase text-muted">Módulos</p>
+                        <button
+                          type="button"
+                          disabled={loadingPolicyUserId === user.id}
+                          onClick={() => void openTeamPolicy(user)}
+                          className="btn btn-secondary btn-sm"
+                        >
+                          {loadingPolicyUserId === user.id ? "Abrindo..." : "Política completa"}
+                        </button>
+                      </div>
                       {isAdmin ? (
                         <p className="rounded-[12px] border border-[var(--line)] bg-[var(--surface)] p-3 text-sm text-muted">
                           Admin tem acesso total aos módulos liberados pelo plano da empresa.
@@ -4259,6 +4294,26 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
           ) : null}
         </>
       )}
+      <TeamPolicyModal
+        user={policyModalUser}
+        policy={selectedTeamPolicy}
+        enabledModules={enabledModules}
+        hbxReferrers={hbxReferrers}
+        loading={Boolean(policyModalUserId && loadingPolicyUserId === policyModalUserId)}
+        saving={Boolean(policyModalUserId && savingPolicyUserId === policyModalUserId)}
+        onClose={() => setPolicyModalUserId(null)}
+        onSave={(userId, patch) => void saveTeamPolicy(userId, patch)}
+        onApplyBatch={openBatchPolicyFromModal}
+      />
+      <ApplyPolicyToUsersModal
+        open={batchPolicyOpen}
+        sourcePolicy={batchPolicySource}
+        basePatch={batchPolicyPatch}
+        users={data?.users || []}
+        applying={applyingBatchPolicy}
+        onClose={() => setBatchPolicyOpen(false)}
+        onApply={(targetUserIds, patch) => void applyPolicyToUsers(targetUserIds, patch)}
+      />
       {renderGerencialNoticePopups()}
     </DashboardScaffold>
   );

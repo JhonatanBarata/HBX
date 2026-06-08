@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { CommercialUsageLimitsService } from '../commercial-plans/commercial-usage-limits.service';
 import { isMasterOperationalCompanySlug } from '../commercial-plans/seat-billing.util';
@@ -854,9 +855,171 @@ export class TeamPolicyService {
     return data;
   }
 
+  private sanitizeAuditPatch(patch: TeamPolicyPatch) {
+    return {
+      hasModules: Array.isArray(patch?.modules),
+      moduleCount: Array.isArray(patch?.modules) ? patch.modules.length : 0,
+      hasCompensation: Boolean(patch?.compensation && Object.keys(patch.compensation).length),
+      hasHbxNetwork: Boolean(patch?.hbxNetwork && Object.keys(patch.hbxNetwork).length),
+      hasLimits: Boolean(patch?.limits && Object.keys(patch.limits).length),
+      hasRadar: Boolean(patch?.radar && Object.keys(patch.radar).length),
+      batch: Boolean((patch as any)?.audit?.batch),
+      batchId: (patch as any)?.audit?.batchId ? String((patch as any).audit.batchId).slice(0, 120) : null,
+      sourceUserId: Math.trunc(Number((patch as any)?.audit?.sourceUserId || 0)) || null,
+    };
+  }
+
+  private buildPolicyAuditSnapshot(policy: TeamPolicy) {
+    const modules = Object.fromEntries(
+      (policy.modules || [])
+        .map((moduleItem) => [String(moduleItem.key || '').trim(), Boolean(moduleItem.allowed)])
+        .filter(([key]) => Boolean(key)),
+    );
+    const limits = Object.fromEntries(
+      Object.entries(policy.limits || {}).map(([key, limit]) => [
+        key,
+        {
+          mode: limit.mode,
+          value: limit.value,
+          used: limit.used ?? null,
+          remaining: limit.remaining ?? null,
+          source: limit.source,
+        },
+      ]),
+    );
+    return {
+      subject: {
+        id: policy.subject.id,
+        companyId: policy.subject.companyId,
+        role: policy.subject.role,
+        kind: policy.subject.kind,
+        isSystemMaster: policy.subject.isSystemMaster,
+        isActive: policy.subject.isActive,
+      },
+      modules,
+      compensation: policy.compensation,
+      hbxNetwork: {
+        canRegisterHbxSellers: policy.hbxNetwork.canRegisterHbxSellers,
+        sellerReferralCommissionPercent: policy.hbxNetwork.sellerReferralCommissionPercent,
+        referredByUserId: policy.hbxNetwork.referredByUserId,
+        referredByCommissionPercentSnapshot: policy.hbxNetwork.referredByCommissionPercentSnapshot,
+      },
+      limits,
+      radar: policy.radar,
+      visibility: policy.visibility,
+      persistence: {
+        mode: policy.persistence.mode,
+        policyId: policy.persistence.policyId,
+        source: policy.persistence.source,
+      },
+    };
+  }
+
+  private diffObjectKeys(before: Record<string, any>, after: Record<string, any>) {
+    const keys = Array.from(new Set([...Object.keys(before || {}), ...Object.keys(after || {})])).sort();
+    return keys
+      .filter((key) => JSON.stringify(before?.[key] ?? null) !== JSON.stringify(after?.[key] ?? null))
+      .map((key) => ({
+        key,
+        before: before?.[key] ?? null,
+        after: after?.[key] ?? null,
+      }));
+  }
+
+  private buildPolicyAuditDiff(before: ReturnType<TeamPolicyService['buildPolicyAuditSnapshot']>, after: ReturnType<TeamPolicyService['buildPolicyAuditSnapshot']>) {
+    return {
+      modulesChanged: this.diffObjectKeys(before.modules, after.modules),
+      limitsChanged: this.diffObjectKeys(before.limits, after.limits),
+      compensationChanged: JSON.stringify(before.compensation) !== JSON.stringify(after.compensation),
+      hbxNetworkChanged: JSON.stringify(before.hbxNetwork) !== JSON.stringify(after.hbxNetwork),
+      radarChanged: JSON.stringify(before.radar) !== JSON.stringify(after.radar),
+      visibilityChanged: JSON.stringify(before.visibility) !== JSON.stringify(after.visibility),
+    };
+  }
+
+  private async writePolicyAuditLog(input: {
+    requester: any;
+    target: any;
+    before: TeamPolicy;
+    after: TeamPolicy;
+    patch: TeamPolicyPatch;
+  }) {
+    const actorUserId = Math.trunc(Number(input.requester?.id || 0));
+    const targetUserId = Math.trunc(Number(input.target?.id || input.after.subject.id || 0));
+    if (!actorUserId || !targetUserId) return;
+
+    const before = this.buildPolicyAuditSnapshot(input.before);
+    const after = this.buildPolicyAuditSnapshot(input.after);
+    const diff = this.buildPolicyAuditDiff(before, after);
+    const patchSummary = this.sanitizeAuditPatch(input.patch || {});
+    const companyId = Number(input.after.subject.companyId || input.target?.companyId || 0) || null;
+    const metadata = {
+      actor: {
+        userId: actorUserId,
+        role: this.normalizeRole(input.requester?.role),
+        isSystemMaster: Boolean(input.requester?.isSystemMaster),
+      },
+      companyId,
+      targetUserId,
+      target: after.subject,
+      before,
+      after,
+      diff,
+      patch: patchSummary,
+      batch: patchSummary.batch,
+      modulesChanged: diff.modulesChanged.map((item) => item.key),
+      limitsChanged: diff.limitsChanged.map((item) => item.key),
+    };
+    const metadataJson = JSON.stringify(metadata);
+    const action = patchSummary.batch ? 'TEAM_POLICY_BATCH_UPDATED' : 'TEAM_POLICY_UPDATED';
+
+    try {
+      await this.prisma.$executeRaw`
+        INSERT INTO "TeamPolicyAuditLog"
+        ("id", "actorUserId", "companyId", "targetUserId", "action", "severity", "route", "metadata", "createdAt")
+        VALUES (
+          ${randomUUID()},
+          ${actorUserId},
+          ${companyId},
+          ${targetUserId},
+          ${action},
+          ${'INFO'},
+          ${'/team/policy/:userId'},
+          ${metadataJson},
+          ${new Date()}
+        )
+      `;
+    } catch (error) {
+      console.warn('[HBX team-policy] Falha ao gravar TeamPolicyAuditLog.', error);
+    }
+
+    if (!input.requester?.isSystemMaster) return;
+    try {
+      await this.prisma.$executeRaw`
+        INSERT INTO "MasterSupportAuditLog"
+        ("id", "masterUserId", "companyId", "assumedContextSessionId", "scope", "action", "severity", "route", "metadata", "createdAt")
+        VALUES (
+          ${randomUUID()},
+          ${actorUserId},
+          ${companyId},
+          ${null},
+          ${'team_policy'},
+          ${action},
+          ${'INFO'},
+          ${'/team/policy/:userId'},
+          ${metadataJson},
+          ${new Date()}
+        )
+      `;
+    } catch (error) {
+      console.warn('[HBX team-policy] Falha ao gravar MasterSupportAuditLog.', error);
+    }
+  }
+
   async updatePolicy(requester: any, targetUserId: number, patch: TeamPolicyPatch) {
     const target = await this.findTargetUser(targetUserId);
     this.assertCanManage(requester, target);
+    const beforePolicy = await this.buildPolicy(target, requester);
 
     const data = await this.buildLegacyUpdateData(requester, target, patch || {});
     const policyData = this.buildPolicyStorageUpdateData(requester, patch || {});
@@ -888,6 +1051,14 @@ export class TeamPolicyService {
       });
     }
 
-    return this.getPolicy(requester, Number(target.id));
+    const afterPolicy = await this.getPolicy(requester, Number(target.id));
+    await this.writePolicyAuditLog({
+      requester,
+      target,
+      before: beforePolicy,
+      after: afterPolicy,
+      patch: patch || {},
+    });
+    return afterPolicy;
   }
 }

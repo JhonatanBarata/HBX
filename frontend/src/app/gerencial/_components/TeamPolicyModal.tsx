@@ -144,7 +144,7 @@ function buildModuleDraft(policy: TeamPolicy | null, enabledModules: CompanyModu
     draft[moduleItem.key] = policyModule ? Boolean(policyModule.allowed) : Boolean(moduleItem.companyEnabled);
   });
   (policy?.modules || []).forEach((moduleItem) => {
-    if (!draft[moduleItem.key]) draft[moduleItem.key] = Boolean(moduleItem.allowed);
+    if (!(moduleItem.key in draft)) draft[moduleItem.key] = Boolean(moduleItem.allowed);
   });
   return draft;
 }
@@ -197,21 +197,24 @@ export default function TeamPolicyModal({
 
   useEffect(() => {
     if (!policy) return;
-    setModuleDraft(buildModuleDraft(policy, enabledModules));
-    setCommissionPercent(numberDraft(policy.compensation.commissionPercent));
-    setCommissionDueBusinessDays(String(policy.compensation.commissionDueBusinessDays || 3));
-    setCanRegisterHbxSellers(Boolean(policy.hbxNetwork.canRegisterHbxSellers));
-    setSellerReferralCommissionPercent(numberDraft(policy.hbxNetwork.sellerReferralCommissionPercent));
-    setReferredByUserId(policy.hbxNetwork.referredByUserId ? String(policy.hbxNetwork.referredByUserId) : "");
-    setReferredByCommissionPercentSnapshot(numberDraft(policy.hbxNetwork.referredByCommissionPercentSnapshot));
-    setLimits(buildLimitDraft(policy));
-    setAllowedSegments(policy.radar.allowedSegments.join("\n"));
-    setBlockedSegments(policy.radar.blockedSegments.join("\n"));
-    setAllowedCities(citiesToText(policy.radar.allowedCities));
-    setAllowedStates(policy.radar.allowedStates.join("\n"));
-    setRequiresLocation(Boolean(policy.radar.requiresLocation));
-    setRequiredChannels(policy.radar.requiredChannels);
-    setLocalError(null);
+    const timeoutId = window.setTimeout(() => {
+      setModuleDraft(buildModuleDraft(policy, enabledModules));
+      setCommissionPercent(numberDraft(policy.compensation.commissionPercent));
+      setCommissionDueBusinessDays(String(policy.compensation.commissionDueBusinessDays || 3));
+      setCanRegisterHbxSellers(Boolean(policy.hbxNetwork.canRegisterHbxSellers));
+      setSellerReferralCommissionPercent(numberDraft(policy.hbxNetwork.sellerReferralCommissionPercent));
+      setReferredByUserId(policy.hbxNetwork.referredByUserId ? String(policy.hbxNetwork.referredByUserId) : "");
+      setReferredByCommissionPercentSnapshot(numberDraft(policy.hbxNetwork.referredByCommissionPercentSnapshot));
+      setLimits(buildLimitDraft(policy));
+      setAllowedSegments(policy.radar.allowedSegments.join("\n"));
+      setBlockedSegments(policy.radar.blockedSegments.join("\n"));
+      setAllowedCities(citiesToText(policy.radar.allowedCities));
+      setAllowedStates(policy.radar.allowedStates.join("\n"));
+      setRequiresLocation(Boolean(policy.radar.requiresLocation));
+      setRequiredChannels(policy.radar.requiredChannels);
+      setLocalError(null);
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
   }, [enabledModules, policy]);
 
   const patch = useMemo<TeamPolicyPatch | null>(() => {
@@ -342,7 +345,7 @@ export default function TeamPolicyModal({
           ) : (
             <div className="grid gap-4">
               {localError ? (
-                <div className="rounded-[12px] border border-danger/40 bg-danger/10 p-3 text-sm text-danger">
+                <div className="rounded-[12px] border border-[var(--danger)] bg-[var(--surface-soft)] p-3 text-sm text-danger">
                   {localError}
                 </div>
               ) : null}

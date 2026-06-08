@@ -813,7 +813,7 @@ export class RadarCorePresentationMixin {
     return this.getRadarSharedNormalizer().normalizeFreshness(value);
   }
 
-  private buildChannelFiltersJson(_input: {
+  private buildChannelFiltersJson(input: {
     preferredChannels?: string[];
     requiredChannels?: string[];
     channelMatchMode?: string | null;
@@ -822,10 +822,15 @@ export class RadarCorePresentationMixin {
     requiredChannels: RadarChannelFilter[];
     channelMatchMode: RadarChannelMatchMode;
   } {
+    const preferredChannels = this.normalizeRadarChannels(input?.preferredChannels || []);
+    const requiredChannels = this.normalizeRadarChannels(input?.requiredChannels || []);
+    const channelMatchMode = requiredChannels.length
+      ? this.normalizeChannelMatchMode(input?.channelMatchMode)
+      : 'prefer';
     return {
-      preferredChannels: [],
-      requiredChannels: [],
-      channelMatchMode: 'prefer',
+      preferredChannels,
+      requiredChannels,
+      channelMatchMode,
     };
   }
 

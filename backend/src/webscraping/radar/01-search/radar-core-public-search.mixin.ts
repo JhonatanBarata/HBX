@@ -570,8 +570,13 @@ export class RadarCorePublicSearchMixin {
             }
             hbxEngineUrl = acquiredLease.url;
           }
+          const engineInput: NormalizedSearchInput = {
+            ...normalized,
+            requiredChannels: [],
+            channelMatchMode: 'prefer',
+          };
           const hbxOutput = await this.searchHbxEngine(
-            normalized,
+            engineInput,
             Array.from(seenPhones),
             hbxEngineUrl,
             purpose === 'radar_pull' || purpose === 'radar_digital'
@@ -1202,7 +1207,11 @@ export class RadarCorePublicSearchMixin {
     let hbxMessage: string | null = null;
     let hbxError: unknown = null;
     try {
-      const hbxOutput = await this.searchHbxEngine(normalized, excludePhoneDigits);
+      const hbxOutput = await this.searchHbxEngine({
+        ...normalized,
+        requiredChannels: [],
+        channelMatchMode: 'prefer',
+      }, excludePhoneDigits);
       const hbxResults = hbxOutput.results;
       hbxStatus = hbxOutput.status;
       hbxMessage = hbxOutput.message;

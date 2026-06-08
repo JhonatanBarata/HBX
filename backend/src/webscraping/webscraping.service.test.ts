@@ -898,6 +898,18 @@ test('saveSearchRunResults nao corta candidato primario por social obrigatorio a
     targetQuantity: 10,
   });
   const service = new WebscrapingService(prisma) as any;
+  service.searchHbxEngine = async () => ({
+    results: [{
+      name: 'Lc Esmalteria Cabelo e Estetica Sao Paulo',
+      phone: '(11) 96429-2108',
+      phoneDigits: '11964292108',
+      website: 'https://lcesmalteria.com.br',
+      instagramUrl: 'https://instagram.com/lcesmalteria',
+      socialStatus: 'found',
+      businessCategory: 'salao de beleza',
+      source: 'hbx_scraping:free_pj',
+    }],
+  });
   const normalized = service.normalizeSearchInput({
     city: 'Sao Paulo',
     state: 'SP',
@@ -928,6 +940,75 @@ test('saveSearchRunResults nao corta candidato primario por social obrigatorio a
   assert.equal(items.length, 1);
   assert.equal(items[0].status, 'found');
   assert.equal(JSON.parse(items[0].rawJson).qualityGate.deliverable, true);
+});
+
+test('saveSearchRunResults com email obrigatorio enriquece gratis antes de salvar', async () => {
+  const { prisma, run, items } = createSearchRunPrisma({
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'barbearias',
+    targetQuantity: 10,
+  });
+  const service = new WebscrapingService(prisma) as any;
+  const calls: any[] = [];
+  service.searchHbxEngine = async (input: any, existing: any, engineUrl: any, options: any) => {
+    calls.push({ input, existing, engineUrl, options });
+    return {
+      results: [{
+        name: 'Barbearia X Rio Claro',
+        phone: '(19) 99999-0001',
+        phoneDigits: '19999990001',
+        website: 'https://barbeariax.com.br',
+        instagramUrl: 'https://instagram.com/barbeariaxrioclaro',
+        email: 'agenda@barbeariax.com.br',
+        emailStatus: 'confirmed',
+        title: 'Barbearia X Rio Claro site oficial',
+        snippet: 'Barbearia X Rio Claro contato email agenda',
+        source: 'hbx_scraping:free_pj',
+      }],
+    };
+  };
+  const normalized = service.normalizeSearchInput({
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'barbearias',
+    quantity: 10,
+    engine: 'hbx',
+    targetType: 'pj',
+    requiredChannels: ['email'],
+    channelMatchMode: 'all_required',
+    freshness: 'live',
+  });
+
+  const counts = await service.saveSearchRunResults(
+    { companyId: 7, userId: 9, user: createUser() },
+    normalized,
+    run.id,
+    [{
+      name: 'Barbearia X',
+      phone: '(19) 99999-0001',
+      phoneDigits: '19999990001',
+      city: 'Rio Claro',
+      state: 'SP',
+      segment: 'barbearias',
+      source: 'hbx_scraping:free_pj',
+    }],
+    'hbx',
+    0,
+    'http://hbx-engine-1:8001',
+  );
+
+  assert.equal(calls.length > 0, true);
+  assert.equal(calls[0].engineUrl, 'http://hbx-engine-1:8001');
+  assert.equal(counts.found, 1);
+  assert.equal(counts.skipped, 0);
+  assert.equal(items.length, 1);
+  const raw = JSON.parse(items[0].rawJson);
+  assert.equal(raw.email, 'agenda@barbeariax.com.br');
+  assert.equal(raw.emailStatus, 'confirmed');
+  assert.equal(raw.qualityGate.deliverable, true);
+  const contact = service.mapRunItemToContact(items[0]);
+  assert.equal(service.candidateHasRequiredChannels(contact, normalized), true);
 });
 
 test('persistRadarLeadPoolBatch no Lead+ materializa card List fraco no Radar', async () => {
@@ -1278,8 +1359,8 @@ test('buildRadarWhere nao usa canal obrigatorio como filtro de listagem', () => 
     channelMatchMode: 'all_required',
   });
 
-  assert.equal(JSON.stringify(service.buildRadarWhere(facebookOnly, 7, { requirePhone: true })).includes('"phoneDigits":{"not":null}'), true);
-  assert.equal(JSON.stringify(service.buildRadarWhere(phoneAndFacebook, 7, { requirePhone: true })).includes('"phoneDigits":{"not":null}'), true);
+  assert.equal(JSON.stringify(service.buildRadarWhere(facebookOnly, 7, { requirePhone: true })).includes('"phoneDigits":{"not":null}'), false);
+  assert.equal(JSON.stringify(service.buildRadarWhere(phoneAndFacebook, 7, { requirePhone: true })).includes('"phoneDigits":{"not":null}'), false);
 });
 
 test('buildHbxBatchQueries nao gera query PJ sem nicho', () => {
@@ -1300,7 +1381,7 @@ test('buildHbxBatchQueries nao gera query PJ sem nicho', () => {
   assert.equal(queries.every((query) => normalizeQueryForTest(query).includes('oficina')), true);
 });
 
-test('buildHbxBatchQueries nao usa rede social quando canal social foi pedido', () => {
+test('buildHbxBatchQueries usa rede social quando canal social foi pedido', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const normalized = service.normalizeSearchInput({
     city: 'Campinas',
@@ -1313,8 +1394,8 @@ test('buildHbxBatchQueries nao usa rede social quando canal social foi pedido', 
   });
   const queries = service.buildHbxBatchQueries(normalized) as string[];
 
-  assert.equal(queries.some((query) => /site:instagram\.com/i.test(query)), false);
-  assert.equal(queries.some((query) => /\binstagram oficial\b/i.test(query)), false);
+  assert.equal(queries.some((query) => /site:instagram\.com/i.test(query)), true);
+  assert.equal(queries.some((query) => /\binstagram oficial\b/i.test(query)), true);
 });
 
 test('buildHbxBatchQueries nao usa rede social no Lead Plus sem filtro de canal', () => {
@@ -2547,7 +2628,8 @@ test('search-run worker nao repassa requiredChannels legado para motor HBX', asy
   });
 
   const savedMetrics = JSON.parse(String((run as any).metricsJson || '{}'));
-  assert.deepEqual(savedMetrics.channelFilters.requiredChannels, []);
+  assert.deepEqual(savedMetrics.channelFilters.requiredChannels, ['instagram']);
+  assert.equal(savedMetrics.channelFilters.channelMatchMode, 'all_required');
 
   const lease = {
     engineId: 'hbx-engine-1',
@@ -2561,7 +2643,7 @@ test('search-run worker nao repassa requiredChannels legado para motor HBX', asy
   assert.deepEqual(receivedRequiredChannels, []);
 });
 
-test('Radar Direct nao repassa filtros sociais legados para searchContactsForUser', async () => {
+test('Radar Direct mantem filtros sociais no backend antes de chamar searchContactsForUser', async () => {
   const service = new WebscrapingService(createPrisma()) as any;
   let receivedInput: Record<string, any> | null = null;
   service.searchContactsForUser = async (_user: any, input: Record<string, any>) => {
@@ -2592,8 +2674,8 @@ test('Radar Direct nao repassa filtros sociais legados para searchContactsForUse
 
   await service.searchRadarDirectForUser(createUser(), filters, 'test');
 
-  assert.deepEqual(receivedInput?.requiredChannels, []);
-  assert.equal(receivedInput?.channelMatchMode, 'prefer');
+  assert.deepEqual(receivedInput?.requiredChannels, ['instagram']);
+  assert.equal(receivedInput?.channelMatchMode, 'any_required');
 });
 
 test('mapHbxContactResult aceita card social-first quando canal social e obrigatorio', () => {

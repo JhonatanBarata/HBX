@@ -163,7 +163,11 @@ export class RadarSourceExecutorService {
 
     for (const request of requests) {
       try {
-        const output = await input.host.searchHbxEngine(input.normalized, Array.from(input.seenPhones), input.options.hbxEngineUrl, {
+        const output = await input.host.searchHbxEngine({
+          ...input.normalized,
+          requiredChannels: [],
+          channelMatchMode: 'prefer',
+        }, Array.from(input.seenPhones), input.options.hbxEngineUrl, {
           queryText: request.queryText,
           batchLimit: request.limit,
           timeoutMs: request.timeoutMs || input.host.getRadarClientRequestTimeoutMs(),

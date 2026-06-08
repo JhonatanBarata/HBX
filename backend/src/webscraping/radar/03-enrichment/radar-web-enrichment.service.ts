@@ -319,9 +319,18 @@ function socialTitleLooksCompatible(lead: WebscrapingContactResult, title: strin
   return distinctiveHits >= Math.min(2, identity.distinctive.length || 2) || (distinctiveHits >= 1 && (categoryHit || weakHit));
 }
 
+function hasEnrichableIdentity(result: WebscrapingContactResult) {
+  const phone = normalizePhoneDigits(result.phoneDigits || result.phone);
+  if (phone.length >= 10) return true;
+  if (isOwnWebsite(result.website) || String(result.instagramUrl || result.facebookUrl || '').trim()) return true;
+  const name = normalizeLookupValue(result.name);
+  if (name.length < 5) return false;
+  if (/\b(perto de mim|melhores|lista telefonica|guia comercial|guia telefone|anuncie aqui)\b/i.test(name)) return false;
+  return leadNameIdentityTokens(result).distinctive.length > 0;
+}
+
 function hasPoorFields(result: WebscrapingContactResult) {
-  const hasPhone = normalizePhoneDigits(result.phoneDigits || result.phone).length >= 10;
-  if (!hasPhone) return false;
+  if (!hasEnrichableIdentity(result)) return false;
   return !isOwnWebsite(result.website)
     || !String(result.email || '').trim()
     || !String(result.instagramUrl || result.facebookUrl || '').trim();
@@ -719,6 +728,7 @@ export class RadarWebEnrichmentService {
         targetType: 'pj',
         quantity: 5,
         preferredChannels: ['instagram', 'facebook', 'email', 'website'],
+        requiredChannels: [],
         channelMatchMode: 'prefer',
       }, existing, host.engineUrl, {
         queryText: query,

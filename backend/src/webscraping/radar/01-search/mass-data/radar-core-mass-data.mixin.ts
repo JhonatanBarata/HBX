@@ -1387,7 +1387,11 @@ export class RadarCoreMassDataMixin {
       }).catch(() => []);
       const existingPhones = new Set<string>(existingLeads.map((row: any) => normalizePhoneDigits(row.phoneDigits)).filter(Boolean) as string[]);
       const output = await this.searchHbxEngine(
-        normalized,
+        {
+          ...normalized,
+          requiredChannels: [],
+          channelMatchMode: 'prefer',
+        },
         Array.from(existingPhones),
         lease.url,
         {
@@ -1595,7 +1599,11 @@ export class RadarCoreMassDataMixin {
         .map((url: any) => String(url || '').trim())
         .filter(Boolean);
       const output = await this.searchHbxEngine(
-        normalized,
+        {
+          ...normalized,
+          requiredChannels: [],
+          channelMatchMode: 'prefer',
+        },
         existingLeads.map((row: any) => row.phoneDigits).filter(Boolean),
         lease.url,
         {

@@ -149,6 +149,7 @@ model Company {
   techAssistantInteractions TechAssistantInteraction[]
   masterAssumedContextSessions MasterAssumedContextSession[]
   masterSupportAuditLogs MasterSupportAuditLog[]
+  teamPolicyAuditLogs TeamPolicyAuditLog[]
   hbxSupportTickets HbxSupportTicket[]
   hbxJobs HbxJob[]
   atendimentoCustomers AtendimentoCustomer[]
@@ -940,6 +941,8 @@ model User {
   masterContextSessions MasterAssumedContextSession[] @relation("MasterAssumedContextUser")
   masterContextEndedSessions MasterAssumedContextSession[] @relation("MasterAssumedContextEndedByUser")
   masterSupportAuditLogs MasterSupportAuditLog[] @relation("MasterSupportAuditLogUser")
+  teamPolicyAuditLogsAsActor TeamPolicyAuditLog[] @relation("TeamPolicyAuditLogActor")
+  teamPolicyAuditLogsAsTarget TeamPolicyAuditLog[] @relation("TeamPolicyAuditLogTarget")
   webscrapingSearchHistories WebscrapingSearchHistory[]
   webscrapingSearchRuns WebscrapingSearchRun[]
   webscrapingCampaigns WebscrapingCampaign[]
@@ -1032,6 +1035,26 @@ model UserTeamPolicy {
   @@index([presetId])
   @@index([referredByUserId])
   @@index([subjectKind, status])
+}
+
+model TeamPolicyAuditLog {
+  id           String   @id @default(cuid())
+  actorUser    User?    @relation("TeamPolicyAuditLogActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  actorUserId  Int?
+  company      Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  companyId    Int?
+  targetUser   User?    @relation("TeamPolicyAuditLogTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+  targetUserId Int?
+  action       String
+  severity     String   @default("INFO")
+  route        String?
+  metadata     String?
+  createdAt    DateTime @default(now())
+
+  @@index([actorUserId, createdAt])
+  @@index([companyId, createdAt])
+  @@index([targetUserId, createdAt])
+  @@index([action, createdAt])
 }
 
 model HbxPartnerReferralCandidate {

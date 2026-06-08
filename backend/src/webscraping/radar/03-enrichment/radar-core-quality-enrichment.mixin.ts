@@ -1028,6 +1028,7 @@ export class RadarCoreQualityEnrichmentMixin {
     if (!Array.isArray(results) || !results.length) return false;
     if (normalized.targetType !== 'pj') return false;
     if (!this.hasRequiredEnrichmentChannelsFilter(normalized)) return false;
+    if (!results.some((result) => !this.candidateHasRequiredChannels(result as any, normalized))) return false;
     const flag = String(process.env.HBX_RADAR_PRE_SAVE_FREE_ENRICHMENT_ENABLED || 'true').trim().toLowerCase();
     return !['false', '0', 'off', 'no'].includes(flag);
   }

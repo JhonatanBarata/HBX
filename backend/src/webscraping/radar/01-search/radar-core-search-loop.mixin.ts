@@ -911,9 +911,14 @@ export class RadarCoreSearchLoopMixin {
         ...attemptInput,
         quantity,
       };
+      const engineBatchInput: NormalizedSearchInput = {
+        ...batchInput,
+        requiredChannels: [],
+        channelMatchMode: 'prefer',
+      };
       const sendExplicitQuery = !this.hasIntentSensitiveDiscovery(batchInput) || this.isSocialDiscoveryQuery(queryUsed);
       const batchResponse = await this.searchHbxEngine(
-        batchInput,
+        engineBatchInput,
         excludePhoneDigits,
         engineUrl,
         {
