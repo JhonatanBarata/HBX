@@ -47,10 +47,16 @@ export type VendasAccessContext = EffectiveTeamAccess & {
   canMarkInactive: boolean;
   canCommentTimeline: boolean;
   canScheduleReturn: boolean;
+  canSendRadarCardsToVendas: boolean;
+  canManualEnrichRadar: boolean;
   canSendWhatsappManual: boolean;
   canSendEmail: boolean;
   canUseCompanyReplyTo: boolean;
   canUseCompanyWhatsappNumber: boolean;
+  canViewOwnCommission: boolean;
+  canViewTeamCommission: boolean;
+  canMarkCommissionPaid: boolean;
+  canCancelCommission: boolean;
 };
 
 function normalizePositiveId(value: unknown) {
@@ -283,9 +289,15 @@ export async function resolveVendasAccessContext(prisma: any, user: any): Promis
     canMarkInactive: has('vendas.sale.markInactive'),
     canCommentTimeline: has('vendas.timeline.comment'),
     canScheduleReturn: has('vendas.return.schedule'),
+    canSendRadarCardsToVendas: has('radar.cards.sendToVendas'),
+    canManualEnrichRadar: has('radar.enrichment.manual'),
     canSendWhatsappManual: has('communication.whatsapp.sendManual'),
     canSendEmail: has('communication.email.send'),
     canUseCompanyReplyTo: has('communication.email.useCompanyReplyTo'),
     canUseCompanyWhatsappNumber: has('communication.whatsapp.useCompanyNumber'),
+    canViewOwnCommission: has('commission.viewOwn'),
+    canViewTeamCommission: has('commission.viewTeam'),
+    canMarkCommissionPaid: has('commission.markPaid'),
+    canCancelCommission: has('commission.cancel'),
   };
 }

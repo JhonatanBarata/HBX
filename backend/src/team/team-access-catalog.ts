@@ -319,7 +319,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     requiresModule: 'webscraping',
     riskLevel: 'high',
     sellerVisible: true,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'radar.enrichment.auto',
@@ -571,7 +571,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     requiresModule: 'vendas',
     riskLevel: 'high',
     sellerVisible: true,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'communication.email.send',
@@ -606,7 +606,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     defaultForSeller: true,
     riskLevel: 'low',
     sellerVisible: true,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'communication.support.viewCompanySupportChannels',
@@ -628,7 +628,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     defaultForSeller: true,
     riskLevel: 'low',
     sellerVisible: true,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'commission.viewTeam',
@@ -639,7 +639,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     defaultForSeller: false,
     riskLevel: 'high',
     sellerVisible: false,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'commission.editPercent',
@@ -672,7 +672,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     defaultForSeller: false,
     riskLevel: 'critical',
     sellerVisible: false,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'commission.cancel',
@@ -683,7 +683,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     defaultForSeller: false,
     riskLevel: 'critical',
     sellerVisible: false,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'commission.viewInherited',

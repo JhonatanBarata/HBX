@@ -865,6 +865,367 @@ test('importWebscrapingLeadsForUser does not debit quota when WhatsApp is unavai
   assert.match(result.message, /Descartados nao consomem limite/);
 });
 
+test('previewWebscrapingImportForUser hides duplicate CRM details outside USER wallet', async () => {
+  const now = new Date('2026-01-10T12:00:00.000Z');
+  let seenWhere: any = null;
+  const { service } = createService({
+    vendasLead: {
+      findMany: async ({ where }: any) => {
+        seenWhere = where;
+        return [
+          {
+            id: 'lead-other',
+            companyId: 7,
+            customerProfileId: 'profile-other',
+            sourceType: 'webscraping',
+            primarySource: 'radar',
+            sourceHistoryId: 'radar:lead-other',
+            timesSeen: 4,
+            name: 'Cliente de Outro Vendedor',
+            phone: '+55 11 99887-7766',
+            phoneNormalized: '5511998877766',
+            status: 'retorno',
+            lastContactAt: now,
+            attemptCount: 3,
+            lastResult: 'respondeu depois',
+            assignedUserId: 123,
+            createdByUserId: 123,
+            createdAt: now,
+            updatedAt: now,
+            timelineEvents: [],
+          },
+        ];
+      },
+    },
+  });
+
+  const result = await service.previewWebscrapingImportForUser(
+    { companyId: 7, id: 99, role: 'USER' },
+    {
+      leads: [
+        { phone: '+55 11 99887-7766', phoneDigits: '5511998877766' },
+      ],
+    } as any,
+  );
+
+  assert.equal(seenWhere.companyId, 7);
+  assert.equal(result.items.length, 1);
+  assert.equal(result.items[0].existsInCrm, true);
+  assert.equal(result.items[0].crmDetailsRestricted, true);
+  assert.equal(result.items[0].leadId, null);
+  assert.equal(result.items[0].leadName, null);
+  assert.equal(result.items[0].status, null);
+  assert.equal(result.items[0].attemptCount, 0);
+  assert.equal(result.items[0].lastContactAt, null);
+  assert.equal(result.items[0].lastResult, null);
+  assert.equal(result.items[0].sharedProfile, null);
+  assert.equal(result.items[0].signals.alreadyExisted, true);
+});
+
+test('previewWebscrapingImportForUser shows duplicate CRM details inside USER wallet', async () => {
+  const now = new Date('2026-01-10T12:00:00.000Z');
+  const { service } = createService({
+    vendasLead: {
+      findMany: async () => [
+        {
+          id: 'lead-own',
+          companyId: 7,
+          customerProfileId: null,
+          sourceType: 'webscraping',
+          primarySource: 'radar',
+          sourceHistoryId: 'radar:lead-own',
+          timesSeen: 2,
+          name: 'Cliente do Vendedor',
+          phone: '+55 11 99887-7766',
+          phoneNormalized: '5511998877766',
+          status: 'retorno',
+          returnAt: now,
+          lastContactAt: now,
+          attemptCount: 2,
+          lastResult: 'whatsapp',
+          wasClosedBefore: false,
+          assignedUserId: 99,
+          createdByUserId: 99,
+          createdAt: now,
+          updatedAt: now,
+          timelineEvents: [],
+        },
+      ],
+    },
+  });
+
+  const result = await service.previewWebscrapingImportForUser(
+    { companyId: 7, id: 99, role: 'USER' },
+    {
+      leads: [
+        { phone: '+55 11 99887-7766', phoneDigits: '5511998877766' },
+      ],
+    } as any,
+  );
+
+  assert.equal(result.items.length, 1);
+  assert.equal(result.items[0].existsInCrm, true);
+  assert.equal(result.items[0].crmDetailsRestricted, false);
+  assert.equal(result.items[0].leadId, 'lead-own');
+  assert.equal(result.items[0].leadName, 'Cliente do Vendedor');
+  assert.equal(result.items[0].status, 'retorno');
+  assert.equal(result.items[0].attemptCount, 2);
+  assert.equal(result.items[0].lastContactAt, now.toISOString());
+  assert.equal(result.items[0].lastResult, 'whatsapp');
+});
+
+test('previewWebscrapingImportForUser requires read access before duplicate lookup', async () => {
+  let duplicateLookupCalls = 0;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: {
+            'vendas.cards.viewOwn': false,
+            'vendas.cards.viewCompany': false,
+          },
+        }),
+      },
+    },
+    vendasLead: {
+      findMany: async () => {
+        duplicateLookupCalls += 1;
+        return [];
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.previewWebscrapingImportForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      { leads: [{ phone: '+55 11 99887-7766' }] } as any,
+    ),
+    /Acesso aos cards do Vendas bloqueado/i,
+  );
+
+  assert.equal(duplicateLookupCalls, 0);
+});
+
+test('importWebscrapingLeadsForUser requires Radar-to-Vendas or manual card access', async () => {
+  let planLookupCalls = 0;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: {
+            'vendas.cards.createManual': false,
+            'radar.cards.sendToVendas': false,
+          },
+        }),
+      },
+    },
+    company: {
+      findUnique: async () => {
+        planLookupCalls += 1;
+        return { selectedPlanKey: 'hbx_padrao' };
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.importWebscrapingLeadsForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      {
+        skipWhatsappValidation: true,
+        leads: [{ name: 'Lead bloqueado', phone: '+55 11 99887-7766' }],
+      } as any,
+    ),
+    /enviar cards do Radar ao Vendas bloqueado/i,
+  );
+
+  assert.equal(planLookupCalls, 0);
+});
+
+test('importWebscrapingLeadsForUser assigns USER imports to self', async () => {
+  const { prisma, createdRows } = createImportPrismaHarness();
+  const importLeadQuality = {
+    quality: {
+      status: 'weak_contact',
+      billable: false,
+      segmentMatchScore: 85,
+      contactQualityScore: 50,
+      commercialScore: 56,
+    },
+    enrichmentJson: {
+      qualityV2: {
+        version: 'lead-quality-v2',
+        identityScore: 55,
+        segmentFitScore: 85,
+        contactabilityScore: 33,
+        commercialIntentScore: 50,
+        freshnessScore: 50,
+        riskScore: 0,
+        opportunityScore: 45,
+        finalRankScore: 35,
+        decision: 'discard',
+        reasons: ['Contato fraco.'],
+        discardReason: 'weak_contactability',
+        protectionReason: null,
+        recommendedChannel: 'call',
+        productFit: { listFit: 45, leadFit: 35, botFit: 30, recoveryFit: 20, websiteFit: 10 },
+      },
+    },
+  };
+  const { service } = createService({
+    prisma,
+    vendasLead: {
+      findFirst: async () => null,
+    },
+  });
+
+  const result = await service.importWebscrapingLeadsForUser(
+    { companyId: 7, id: 99, role: 'USER' },
+    {
+      skipWhatsappValidation: true,
+      leads: [
+        { name: 'Humanitarian Calçados', phone: '+55 19 3513-9668', phoneDigits: '1935139668', ...importLeadQuality },
+      ],
+    } as any,
+  );
+
+  assert.equal(result.createdCount, 1);
+  assert.equal(createdRows[0].assignedUserId, 99);
+  assert.equal(createdRows[0].assignedByUserId, null);
+});
+
+test('importWebscrapingLeadsForUser blocks USER assigning to another seller without company view', async () => {
+  const { prisma, createdRows } = createImportPrismaHarness();
+  const { service } = createService({
+    prisma,
+    vendasLead: {
+      findFirst: async () => null,
+    },
+  });
+
+  await assert.rejects(
+    () => service.importWebscrapingLeadsForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      {
+        assignedUserId: 123,
+        skipWhatsappValidation: true,
+        leads: [
+          { name: 'Lead de outro', phone: '+55 11 99887-7766', phoneDigits: '5511998877766' },
+        ],
+      } as any,
+    ),
+    /atribuir ou transferir card bloqueado/i,
+  );
+
+  assert.equal(createdRows.length, 0);
+});
+
+test('importWebscrapingLeadsForUser blocks ADMIN assigning when assign and transfer are explicitly false', async () => {
+  const { prisma, createdRows } = createImportPrismaHarness();
+  const { service } = createService({
+    prisma: {
+      ...prisma,
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: {
+            'vendas.cards.assign': false,
+            'vendas.cards.transfer': false,
+          },
+        }),
+      },
+    },
+    vendasLead: {
+      findFirst: async () => null,
+    },
+  });
+
+  await assert.rejects(
+    () => service.importWebscrapingLeadsForUser(
+      { companyId: 7, id: 99, role: 'ADMIN' },
+      {
+        assignedUserId: 123,
+        skipWhatsappValidation: true,
+        leads: [
+          { name: 'Lead admin bloqueado', phone: '+55 11 99887-7766', phoneDigits: '5511998877766' },
+        ],
+      } as any,
+    ),
+    /atribuir ou transferir card bloqueado/i,
+  );
+
+  assert.equal(createdRows.length, 0);
+});
+
+test('importWebscrapingLeadsForUser lets ADMIN assign to an active seller in same tenant', async () => {
+  const { prisma, createdRows } = createImportPrismaHarness();
+  const importLeadQuality = {
+    quality: {
+      status: 'weak_contact',
+      billable: false,
+      segmentMatchScore: 85,
+      contactQualityScore: 50,
+      commercialScore: 56,
+    },
+    enrichmentJson: {
+      qualityV2: {
+        version: 'lead-quality-v2',
+        identityScore: 55,
+        segmentFitScore: 85,
+        contactabilityScore: 33,
+        commercialIntentScore: 50,
+        freshnessScore: 50,
+        riskScore: 0,
+        opportunityScore: 45,
+        finalRankScore: 35,
+        decision: 'discard',
+        reasons: ['Contato fraco.'],
+        discardReason: 'weak_contactability',
+        protectionReason: null,
+        recommendedChannel: 'call',
+        productFit: { listFit: 45, leadFit: 35, botFit: 30, recoveryFit: 20, websiteFit: 10 },
+      },
+    },
+  };
+  const { service } = createService({
+    prisma,
+    vendasLead: {
+      findFirst: async () => null,
+    },
+    user: {
+      findFirst: async ({ where }: any) => {
+        assert.equal(where.id, 123);
+        assert.equal(where.companyId, 7);
+        assert.equal(where.isActive, true);
+        assert.equal(where.isSystemMaster, false);
+        return {
+          id: 123,
+          name: 'Destino',
+          email: 'destino@teste.local',
+          username: 'destino',
+          phone: null,
+          role: 'USER',
+          commissionPercent: 15,
+        };
+      },
+    },
+  });
+
+  const result = await service.importWebscrapingLeadsForUser(
+    { companyId: 7, id: 99, role: 'ADMIN' },
+    {
+      assignedUserId: 123,
+      skipWhatsappValidation: true,
+      leads: [
+        { name: 'Humanitarian Calçados', phone: '+55 19 3513-9668', phoneDigits: '1935139668', ...importLeadQuality },
+      ],
+    } as any,
+  );
+
+  assert.equal(result.createdCount, 1);
+  assert.equal(createdRows[0].assignedUserId, 123);
+  assert.equal(createdRows[0].assignedByUserId, 99);
+  assert.equal(createdRows[0].commissionPercentSnapshot, 15);
+});
+
 test('importWebscrapingLeadsForUser does not debit quota for duplicate card', async () => {
   const now = new Date();
   let assertCanImportCalls = 0;
@@ -1356,6 +1717,225 @@ test('registerAttemptForUser requires timeline access before loading the card', 
   );
 
   assert.equal(findFirstCalls, 0);
+});
+
+test('enrichLeadForUser requires manual enrichment access before loading the card', async () => {
+  let findFirstCalls = 0;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'radar.enrichment.manual': false },
+        }),
+      },
+    },
+    vendasLead: {
+      findFirst: async () => {
+        findFirstCalls += 1;
+        return null;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.enrichLeadForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      'lead-1',
+    ),
+    /enriquecer card manualmente bloqueado/i,
+  );
+
+  assert.equal(findFirstCalls, 0);
+});
+
+test('buildPresentationEmailDraftForUser requires email access before loading the card', async () => {
+  let findFirstCalls = 0;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'communication.email.send': false },
+        }),
+      },
+    },
+    vendasLead: {
+      findFirst: async () => {
+        findFirstCalls += 1;
+        return null;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.buildPresentationEmailDraftForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      'lead-1',
+    ),
+    /enviar e-mail bloqueado/i,
+  );
+
+  assert.equal(findFirstCalls, 0);
+});
+
+test('syncTodayAgendaForUser requires manual WhatsApp access before loading cards', async () => {
+  let findManyCalls = 0;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'communication.whatsapp.sendManual': false },
+        }),
+      },
+    },
+    vendasLead: {
+      findMany: async () => {
+        findManyCalls += 1;
+        return [];
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.syncTodayAgendaForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+    ),
+    /envio manual de WhatsApp bloqueado/i,
+  );
+
+  assert.equal(findManyCalls, 0);
+});
+
+test('getCommissionSummaryForUser requires commission view access before sync', async () => {
+  let syncCalls = 0;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: {
+            'commission.viewOwn': false,
+            'commission.viewTeam': false,
+          },
+        }),
+      },
+    },
+    hbxCommissionSync: {
+      syncSalesCompanyCommissions: async () => {
+        syncCalls += 1;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.getCommissionSummaryForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+    ),
+    /ver comissao bloqueado/i,
+  );
+
+  assert.equal(syncCalls, 0);
+});
+
+test('getCommissionSummaryForUser scopes own commission without team view', async () => {
+  const seenLeadWheres: any[] = [];
+  const seenReceivableWheres: any[] = [];
+  const seenPayoutWheres: any[] = [];
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: {
+            'commission.viewOwn': true,
+            'commission.viewTeam': false,
+          },
+        }),
+      },
+      vendasCommissionReceivable: {
+        findMany: async ({ where }: any) => {
+          seenReceivableWheres.push(where);
+          return [];
+        },
+      },
+      vendasCommissionPayout: {
+        findMany: async ({ where }: any) => {
+          seenPayoutWheres.push(where);
+          return [];
+        },
+      },
+    },
+    vendasLead: {
+      findMany: async ({ where }: any) => {
+        seenLeadWheres.push(where);
+        return [];
+      },
+    },
+  });
+
+  const result = await service.getCommissionSummaryForUser(
+    { companyId: 7, id: 99, role: 'USER' },
+  );
+
+  assert.equal(result.scope, 'seller');
+  assert.equal(seenLeadWheres[0].assignedUserId, 99);
+  assert.equal(seenReceivableWheres[0].sellerUserId, 99);
+  assert.equal(seenPayoutWheres[0].sellerUserId, 99);
+});
+
+test('createCommissionPayoutForUser requires markPaid access before sync', async () => {
+  let syncCalls = 0;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'commission.markPaid': false },
+        }),
+      },
+    },
+    hbxCommissionSync: {
+      syncSalesCompanyCommissions: async () => {
+        syncCalls += 1;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.createCommissionPayoutForUser(
+      { companyId: 7, id: 99, role: 'ADMIN' },
+      {},
+    ),
+    /pagamento de comissao bloqueado/i,
+  );
+
+  assert.equal(syncCalls, 0);
+});
+
+test('cancelCommissionPayoutForUser requires cancel commission access before loading payout', async () => {
+  let payoutFindCalls = 0;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'commission.cancel': false },
+        }),
+      },
+      vendasCommissionPayout: {
+        findFirst: async () => {
+          payoutFindCalls += 1;
+          return null;
+        },
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.cancelCommissionPayoutForUser(
+      { companyId: 7, id: 99, role: 'ADMIN' },
+      'payout-1',
+      {},
+    ),
+    /cancelar comissao bloqueado/i,
+  );
+
+  assert.equal(payoutFindCalls, 0);
 });
 
 test('importWebscrapingLeadsForUser reports protected Radar card without quota debit', async () => {

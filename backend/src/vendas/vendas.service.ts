@@ -334,7 +334,7 @@ export class VendasService {
   }
 
   async getUsageSnapshotForUser(user: any) {
-    const { companyId, userId } = this.resolveUserContext(user);
+    const { companyId, userId } = await this.resolveVendasUserContext(user);
     const snapshot = await this.commercialUsageLimits.getUsageSnapshot(companyId, userId);
     const sellerActiveQuota = await this.commercialUsageLimits
       .getSellerActiveCardQuotaSnapshot(companyId, userId)
@@ -376,7 +376,7 @@ export class VendasService {
   }
 
   async getPendingSummaryForUser(user: any) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
     const pendingCount = context.canManageTeam
       ? await this.getPendingVendasCardCountForCompany(context.companyId)
       : await this.prisma.vendasLead.count({
@@ -1273,6 +1273,59 @@ export class VendasService {
     this.assertVendasPermission(context.access?.canCommentTimeline, 'Acesso para registrar timeline bloqueado pela politica da equipe.');
   }
 
+  private assertCanImportRadarToVendas(context: VendasUserContext) {
+    this.assertVendasPermission(
+      context.access?.canCreateManualCards || context.access?.canSendRadarCardsToVendas,
+      'Acesso para enviar cards do Radar ao Vendas bloqueado pela politica da equipe.',
+    );
+  }
+
+  private assertCanAssignVendasCard(context: VendasUserContext) {
+    this.assertVendasPermission(
+      context.access?.canTransferCards,
+      'Acesso para atribuir ou transferir card bloqueado pela politica da equipe.',
+    );
+  }
+
+  private assertCanManualEnrichRadar(context: VendasUserContext) {
+    this.assertVendasPermission(
+      context.access?.canManualEnrichRadar,
+      'Acesso para enriquecer card manualmente bloqueado pela politica da equipe.',
+    );
+  }
+
+  private assertCanPrepareManualWhatsapp(context: VendasUserContext) {
+    this.assertVendasPermission(
+      context.access?.canSendWhatsappManual,
+      'Acesso para preparar envio manual de WhatsApp bloqueado pela politica da equipe.',
+    );
+  }
+
+  private assertCanViewCommission(context: VendasUserContext) {
+    this.assertVendasPermission(
+      context.access?.canViewOwnCommission || context.access?.canViewTeamCommission,
+      'Acesso para ver comissao bloqueado pela politica da equipe.',
+    );
+  }
+
+  private assertCanMarkCommissionPaid(context: VendasUserContext) {
+    this.assertVendasPermission(
+      context.access?.canMarkCommissionPaid,
+      'Acesso para registrar pagamento de comissao bloqueado pela politica da equipe.',
+    );
+  }
+
+  private assertCanCancelCommission(context: VendasUserContext) {
+    this.assertVendasPermission(
+      context.access?.canCancelCommission,
+      'Acesso para cancelar comissao bloqueado pela politica da equipe.',
+    );
+  }
+
+  private canUseCommissionTeamScope(context: VendasUserContext) {
+    return Boolean(context.access?.canViewTeamCommission);
+  }
+
   private buildLeadAccessWhere(context: VendasUserContext, extra: Record<string, any> = {}) {
     const scopedExtra = { ...(extra || {}) };
     const base: any = {
@@ -1628,7 +1681,7 @@ export class VendasService {
   }
 
   async getSalesProfileForUser(user: any) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
     const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
     const result = await this.getEffectiveSalesProfileForContext(context, planAccess);
     return { ok: true, ...result, capabilities: planAccess.capabilities };
@@ -1681,7 +1734,7 @@ export class VendasService {
   }
 
   async updateSalesProfileForUser(user: any, dto: UpdateSalesProfileDto) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
     const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
     if (!(await this.prisma.hasTable('SalesProfile').catch(() => false))) {
       throw new BadRequestException('Tabela SalesProfile ainda nao foi migrada.');
@@ -1844,7 +1897,7 @@ export class VendasService {
   }
 
   async getConversionReportForUser(user: any, periodRaw?: string) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
     const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
     const period = this.resolveReportPeriod(periodRaw);
     const leads = await this.prisma.vendasLead.findMany({
@@ -2092,7 +2145,7 @@ export class VendasService {
   }
 
   async getSellerAuditForUser(user: any, periodRaw?: string) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
     const period = this.resolveReportPeriod(periodRaw || 'today');
     const now = new Date();
     const dayKey = this.getSaoPauloDayKey(now);
@@ -2505,7 +2558,7 @@ export class VendasService {
     dailyLimitOverride?: number | null;
     note?: string | null;
   } = {}) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
     if (!context.canManageTeam) {
       throw new ForbiddenException('Apenas Admin/Master pode ajustar governança de vendedor.');
     }
@@ -2676,7 +2729,7 @@ export class VendasService {
   }
 
   async getHbxClosingPipelineForUser(user: any) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
     await this.hbxCommissionSync.syncSalesCompanyCommissions(context.companyId, { source: 'vendas_closing_pipeline' }).catch((error: any) => {
       this.logger.warn(`closing_pipeline_sync_failed company=${context.companyId} error=${String(error?.message || error)}`);
     });
@@ -2912,17 +2965,22 @@ export class VendasService {
   }
 
   async createCommissionPayoutForUser(user: any, dto: CreateCommissionPayoutDto = {}) {
-    const context = this.resolveUserContext(user);
-    if (!context.canManageTeam) {
-      throw new ForbiddenException('Apenas Master/Admin pode registrar pagamento de comissão.');
-    }
+    const context = await this.resolveVendasUserContext(user);
+    this.assertCanMarkCommissionPaid(context);
 
     await this.hbxCommissionSync.syncSalesCompanyCommissions(context.companyId, { source: 'vendas_commission_payout' }).catch((error: any) => {
       this.logger.warn(`commission_payout_sync_failed company=${context.companyId} error=${String(error?.message || error)}`);
     });
 
     const now = new Date();
-    const sellerUserId = Math.trunc(Number(dto?.sellerUserId || 0)) || null;
+    const requestedSellerUserId = Math.trunc(Number(dto?.sellerUserId || 0)) || null;
+    const canManageCommissionTeam = this.canUseCommissionTeamScope(context);
+    if (requestedSellerUserId && !canManageCommissionTeam && requestedSellerUserId !== context.userId) {
+      throw new ForbiddenException('Acesso para registrar pagamento de comissao de outro vendedor bloqueado pela politica da equipe.');
+    }
+    const sellerUserId = canManageCommissionTeam
+      ? requestedSellerUserId
+      : context.userId;
     if (sellerUserId) {
       const seller = await this.prisma.user.findFirst({
         where: {
@@ -3127,18 +3185,18 @@ export class VendasService {
   }
 
   async cancelCommissionPayoutForUser(user: any, payoutIdRaw: string, dto: CancelCommissionPayoutDto = {}) {
-    const context = this.resolveUserContext(user);
-    if (!context.canManageTeam) {
-      throw new ForbiddenException('Apenas Master/Admin pode cancelar fechamento de comissão.');
-    }
+    const context = await this.resolveVendasUserContext(user);
+    this.assertCanCancelCommission(context);
 
     const payoutId = String(payoutIdRaw || '').trim();
     if (!payoutId) throw new BadRequestException('Fechamento de comissão inválido.');
+    const canManageCommissionTeam = this.canUseCommissionTeamScope(context);
 
     const payout = await this.prisma.vendasCommissionPayout.findFirst({
       where: {
         id: payoutId,
         companyId: context.companyId,
+        ...(canManageCommissionTeam ? {} : { sellerUserId: context.userId }),
       },
       select: {
         id: true,
@@ -3269,15 +3327,17 @@ export class VendasService {
   }
 
   async getCommissionPayoutDetailForUser(user: any, payoutIdRaw: string) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
+    this.assertCanViewCommission(context);
     const payoutId = String(payoutIdRaw || '').trim();
     if (!payoutId) throw new BadRequestException('Fechamento de comissão inválido.');
+    const canManageCommissionTeam = this.canUseCommissionTeamScope(context);
 
     const payout = await this.prisma.vendasCommissionPayout.findFirst({
       where: {
         id: payoutId,
         companyId: context.companyId,
-        ...(context.canManageTeam ? {} : { sellerUserId: context.userId }),
+        ...(canManageCommissionTeam ? {} : { sellerUserId: context.userId }),
       },
       select: {
         id: true,
@@ -3403,7 +3463,7 @@ export class VendasService {
 
     return {
       ok: true,
-      canCancel: Boolean(context.canManageTeam && String(payout.status || '').trim().toLowerCase() !== 'canceled'),
+      canCancel: Boolean(context.access?.canCancelCommission && String(payout.status || '').trim().toLowerCase() !== 'canceled'),
       receipt: {
         id: payout.id,
         code: `HBX-${receiptDate}-${String(payout.id).slice(-6).toUpperCase()}`,
@@ -3436,7 +3496,7 @@ export class VendasService {
   }
 
   async getCrmIntegrityForUser(user: any) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
     const now = new Date();
     const staleLimit = new Date(now.getTime() - 48 * 60 * 60 * 1000);
     const dayKey = this.getSaoPauloDayKey(now);
@@ -3641,7 +3701,9 @@ export class VendasService {
   }
 
   async getCommissionSummaryForUser(user: any) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
+    this.assertCanViewCommission(context);
+    const canManageCommissionTeam = this.canUseCommissionTeamScope(context);
     await this.hbxCommissionSync.syncSalesCompanyCommissions(context.companyId, { source: 'vendas_commission_summary' }).catch((error: any) => {
       this.logger.warn(`commission_summary_sync_failed company=${context.companyId} error=${String(error?.message || error)}`);
     });
@@ -3681,13 +3743,15 @@ export class VendasService {
       currentUser?.canRegisterHbxSellers,
     );
     const leads = await this.prisma.vendasLead.findMany({
-      where: this.buildLeadAccessWhere(context, {
+      where: {
+        companyId: context.companyId,
+        ...(canManageCommissionTeam ? {} : { assignedUserId: context.userId }),
         OR: [
           { saleStatus: { not: 'none' } },
           { commissionStatus: { not: 'none' } },
           { commissionAmount: { gt: 0 } },
         ],
-      }),
+      },
       orderBy: [{ commissionDueAt: 'asc' }, { updatedAt: 'desc' }],
       take: 1000,
       select: {
@@ -3713,7 +3777,7 @@ export class VendasService {
       },
     });
     const receivables = await this.prisma.vendasCommissionReceivable.findMany({
-      where: context.canManageTeam
+      where: canManageCommissionTeam
         ? { companyId: context.companyId }
         : { companyId: context.companyId, sellerUserId: context.userId },
       orderBy: [{ dueAt: 'asc' }, { updatedAt: 'desc' }],
@@ -3750,7 +3814,7 @@ export class VendasService {
       .filter((date): date is Date => Boolean(date))
       .sort((a, b) => a.getTime() - b.getTime())[0] || null;
 
-    const payoutWhere = context.canManageTeam
+    const payoutWhere = canManageCommissionTeam
       ? { companyId: context.companyId }
       : { companyId: context.companyId, sellerUserId: context.userId };
     const payouts = await this.prisma.vendasCommissionPayout.findMany({
@@ -3908,8 +3972,8 @@ export class VendasService {
 
     return {
       ok: true,
-      scope: context.canManageTeam ? 'company' : 'seller',
-      canPayout: Boolean(context.canManageTeam),
+      scope: canManageCommissionTeam ? 'company' : 'seller',
+      canPayout: Boolean(context.access?.canMarkCommissionPaid),
       generatedAt: now.toISOString(),
       settings: {
         dueBusinessDays: this.normalizeCommissionDueBusinessDays(company?.commissionDueBusinessDays),
@@ -4019,7 +4083,7 @@ export class VendasService {
   }
 
   async listMasterNoticesForUser(user: any, audienceRaw?: string) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
     const canManage = this.canManageMasterNotices(user);
     const hasRequestedAudience = Boolean(String(audienceRaw || '').trim());
     const defaultAudience = context.role === 'ADMIN' ? 'customer' : 'seller';
@@ -4066,7 +4130,7 @@ export class VendasService {
   }
 
   async createMasterNoticeForUser(user: any, dto: CreateMasterNoticeDto) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
     if (!this.canManageMasterNotices(user)) {
       throw new ForbiddenException('Somente o UserMaster pode enviar avisos forçados.');
     }
@@ -4141,7 +4205,7 @@ export class VendasService {
   }
 
   async acknowledgeMasterNoticeForUser(user: any, noticeIdRaw: string) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
     const noticeId = String(noticeIdRaw || '').trim();
     if (!noticeId) throw new BadRequestException('Aviso inválido.');
 
@@ -4220,7 +4284,7 @@ export class VendasService {
   }
 
   async exportConversionReportPdfForUser(user: any, periodRaw?: string) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
     const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
     if (!planAccess.capabilities.canExportConversionPdf) {
       throw new ForbiddenException('Exportação PDF disponível no HBX Lead Plus.');
@@ -4275,7 +4339,7 @@ export class VendasService {
   }
 
   async suggestWeeklySalesProfileForUser(user: any) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
     const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
     if (!planAccess.capabilities.canUseWeeklyProfileSuggestions) {
       throw new ForbiddenException('Sugestão semanal disponível no HBX Lead Plus.');
@@ -4329,7 +4393,7 @@ export class VendasService {
   }
 
   async applySalesProfileSuggestionForUser(user: any) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
     const row = await (this.prisma as any).salesProfile.findFirst({
       where: { companyId: context.companyId, userId: context.userId },
       orderBy: { updatedAt: 'desc' },
@@ -4403,7 +4467,8 @@ export class VendasService {
   }
 
   async enrichLeadForUser(user: any, leadId: string, opts?: { templateOffset?: number }) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
+    this.assertCanManualEnrichRadar(context);
     const { companyId, userId } = context;
     const planAccess = await this.resolvePlanAccessForCompany(companyId);
     const normalizedLeadId = this.normalizeText(leadId);
@@ -4532,7 +4597,8 @@ export class VendasService {
   }
 
   async buildPresentationEmailDraftForUser(user: any, leadId: string) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
+    this.assertCanSendPresentationEmail(context);
     const { userId } = context;
     const normalizedLeadId = this.normalizeText(leadId);
     if (!normalizedLeadId) throw new BadRequestException('Lead nao informado.');
@@ -5750,7 +5816,9 @@ export class VendasService {
   }
 
   async syncTodayAgendaForUser(user: any, options?: { leadIds?: string[] }) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
+    this.assertCanReadVendasCards(context);
+    this.assertCanPrepareManualWhatsapp(context);
     this.logger.log(`[vendas-agenda] Iniciando espelhamento de cards de hoje para company=${context.companyId}`);
     let rows: any[] = [];
     const syncWhere = this.buildLeadAccessWhere(context);
@@ -5959,7 +6027,46 @@ export class VendasService {
     };
   }
 
-  private buildImportPreviewPayload(row: any, phoneDigits: string, sharedProfile?: any) {
+  private canExposeImportPreviewDetails(context: VendasUserContext, row: any) {
+    if (!row) return false;
+    if (context.canManageTeam) return true;
+    if (context.canViewOwnCards === false) return false;
+    const assignedUserId = Number(row?.assignedUserId || 0) || null;
+    const createdByUserId = Number(row?.createdByUserId || 0) || null;
+    if (context.ownCardsOnly) return assignedUserId === context.userId;
+    return assignedUserId === context.userId || (!assignedUserId && createdByUserId === context.userId);
+  }
+
+  private buildImportPreviewPayload(
+    row: any,
+    phoneDigits: string,
+    sharedProfile?: any,
+    options: { exposeCrmDetails?: boolean } = {},
+  ) {
+    if (row && options.exposeCrmDetails === false) {
+      return {
+        phoneDigits,
+        existsInCrm: true,
+        leadId: null,
+        leadName: null,
+        status: null,
+        statusLabel: null,
+        signals: {
+          alreadyExisted: true,
+          cameFromWebscraping: false,
+          hadPreviousContact: false,
+          wasClosedBefore: false,
+        },
+        attemptCount: 0,
+        lastContactAt: null,
+        lastResult: null,
+        timesSeen: 0,
+        sourceType: null,
+        primarySource: null,
+        sharedProfile: null,
+        crmDetailsRestricted: true,
+      };
+    }
     const payload = row ? this.buildLeadPayload(row, sharedProfile) : null;
     return {
       phoneDigits,
@@ -5981,6 +6088,7 @@ export class VendasService {
       sourceType: payload?.sourceType || null,
       primarySource: payload?.primarySource || null,
       sharedProfile: payload?.sharedProfile || sharedProfile || null,
+      crmDetailsRestricted: false,
     };
   }
 
@@ -6350,7 +6458,8 @@ export class VendasService {
   }
 
   async previewWebscrapingImportForUser(user: any, dto: ImportWebscrapingLeadsDto) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
+    this.assertCanReadVendasCards(context);
     const leadBaseSelectWithoutAddress: any = {
       id: true,
       companyId: true,
@@ -6441,7 +6550,9 @@ export class VendasService {
           row?.customerProfileId
             ? sharedMap.byProfileId.get(String(row.customerProfileId)) ?? null
             : sharedMap.byPhoneNormalized.get(String(phoneDigits)) ?? null;
-        return this.buildImportPreviewPayload(row, phoneDigits, sharedProfile);
+        return this.buildImportPreviewPayload(row, phoneDigits, sharedProfile, {
+          exposeCrmDetails: !row || this.canExposeImportPreviewDetails(context, row),
+        });
       }),
     };
   }
@@ -6735,13 +6846,30 @@ export class VendasService {
   }
 
   async importWebscrapingLeadsForUser(user: any, dto: ImportWebscrapingLeadsDto) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
+    this.assertCanImportRadarToVendas(context);
     const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
     const salesProfilePayload = await this.getEffectiveSalesProfileForContext(context, planAccess);
     const salesProfile = salesProfilePayload.effectiveProfile;
     const incomingLeads = Array.isArray(dto?.leads) ? dto.leads : [];
     const debitOnImport = Boolean((dto as any)?.debitOnImport);
-    const owner = await this.resolveLeadOwnerForContext(context, (dto as any)?.assignedUserId || null);
+    const requestedAssignedUserId = Math.trunc(Number((dto as any)?.assignedUserId || 0)) || null;
+    if (requestedAssignedUserId && requestedAssignedUserId !== context.userId) {
+      this.assertCanAssignVendasCard(context);
+    }
+    const importOwnerContext = {
+      ...context,
+      canManageTeam: Boolean(
+        context.canManageTeam ||
+        (
+          requestedAssignedUserId &&
+          requestedAssignedUserId !== context.userId &&
+          context.access?.canTransferCards &&
+          (context.access.isAdmin || context.access.isSystemMaster)
+        ),
+      ),
+    };
+    const owner = await this.resolveLeadOwnerForContext(importOwnerContext, (dto as any)?.assignedUserId || null);
     const requiredPolicyChannels = await this.getTeamPolicyRequiredImportChannels(owner.assignedUserId || context.userId);
     if (!incomingLeads.length) {
       throw new BadRequestException('Nenhum lead do Radar Digital foi enviado para o CRM.');
