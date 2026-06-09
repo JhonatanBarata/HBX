@@ -1154,7 +1154,7 @@ export class VendasService {
       ? { ...access.capabilities, canSeeLeadIntelligence: true }
       : access.capabilities;
     const leadIntelligence = this.decorateManualEnrichmentIntelligence(rawIntelligence, row);
-    const canViewProductPrice = accessContext?.canViewProductPrice !== false;
+    const canViewProductPrice = Boolean(accessContext?.canViewProductPrice);
     const productPriceCents = canViewProductPrice && row?.productPriceCentsSnapshot != null
       ? Math.max(0, Math.trunc(Number(row.productPriceCentsSnapshot) || 0))
       : null;

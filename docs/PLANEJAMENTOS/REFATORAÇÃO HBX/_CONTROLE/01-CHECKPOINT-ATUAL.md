@@ -4,13 +4,13 @@ Branch:
 refactor/master-tenant-clean-cut
 
 Último bloco analisado:
-fix(products): ajustar catalogo tenant e mascaramento de preco
+fix(vendas): fechar mascaramento de preco de produto
 
 Último commit base analisado:
-26cc1873
+e3a0798b
 
 Status:
-Aplicado ajuste fino de Produtos. Pronto para teste local após commit/push.
+Aplicado review fix do mascaramento de preço de produto em Vendas. Pronto para teste local após commit/push.
 
 Alterações extras de engine/deploy/docker/env:
 Intencionais. Não reverter neste bloco.
@@ -34,6 +34,9 @@ Concluído neste bloco:
 4. ProductsService removeu métodos legados com companyId cru.
 5. commission.viewInherited voltou para backendEnforced=false.
 6. products.* permaneceram backendEnforced=true com testes focados.
+7. buildLeadPayload agora é fail-closed para preço de produto sem accessContext.
+8. Retornos de card em Vendas passam contexto de acesso onde há usuário.
+9. Testes cobrem board, createManualLeadForUser, updateLeadForUser, importWebscrapingLeadsForUser e chamada sem accessContext.
 
 Aviso final combinado:
 HBX CHECKPOINT: pronto para teste local

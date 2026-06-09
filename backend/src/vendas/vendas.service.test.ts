@@ -663,6 +663,32 @@ test('buildLeadPayload exposes negative timeline conversation reference without 
   assert.equal(payload.timeline[0].description.startsWith('{'), false);
 });
 
+test('buildLeadPayload hides product catalog price when access context is missing', () => {
+  const { service } = createService();
+  const payload = (service as any).buildLeadPayload({
+    id: 'lead-product-no-context',
+    companyId: 7,
+    name: 'Cliente Produto',
+    status: 'novo',
+    productId: 10,
+    productKindSnapshot: 'tenant_product',
+    productNameSnapshot: 'Plano Comercial',
+    productPriceCentsSnapshot: 12345,
+    productCurrencySnapshot: 'BRL',
+    productBillingCycleSnapshot: 'MONTHLY',
+    saleValue: 123.45,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    timelineEvents: [],
+  });
+
+  assert.equal(payload.productPriceCentsSnapshot, null);
+  assert.equal(payload.product.priceCents, null);
+  assert.equal(payload.product.priceLabel, null);
+  assert.equal(payload.product.canViewPrice, false);
+  assert.equal(payload.saleValue, 123.45);
+});
+
 test('importWebscrapingLeadsForUser debits quota for new delivered card with WhatsApp available', async () => {
   const { prisma } = createImportPrismaHarness();
   let assertCanImportCalls = 0;
@@ -712,6 +738,77 @@ test('importWebscrapingLeadsForUser debits quota for new delivered card with Wha
   assert.equal(assertCanImportCalls, 1);
   assert.equal(recordCardImportCalls, 1);
   assert.equal(checkWhatsappCalls, 1);
+});
+
+test('importWebscrapingLeadsForUser hides product price when products.viewPrice=false', async () => {
+  const now = new Date();
+  const createdRows: any[] = [];
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'products.viewPrice': false },
+        }),
+      },
+      $transaction: async (fn: any) => fn({
+        vendasLead: {
+          create: async ({ data }: any) => {
+            const row = {
+              id: 'lead-import-product',
+              companyId: data.companyId,
+              ...data,
+              status: data.status || 'novo',
+              returnAt: data.returnAt || now,
+              createdAt: now,
+              updatedAt: now,
+              productId: 10,
+              productKindSnapshot: 'tenant_product',
+              productNameSnapshot: 'Plano Comercial',
+              productPriceCentsSnapshot: 12345,
+              productCurrencySnapshot: 'BRL',
+              productBillingCycleSnapshot: 'MONTHLY',
+              productCommissionPercentSnapshot: 12,
+              productPlanKeySnapshot: 'tenant_plano',
+              timelineEvents: [],
+            };
+            createdRows.push(row);
+            return row;
+          },
+          findUniqueOrThrow: async () => createdRows[0],
+        },
+        vendasLeadTimelineEvent: {
+          createMany: async () => ({ count: 0 }),
+          create: async () => ({}),
+        },
+      }),
+      hasTable: async () => false,
+      hasColumn: async () => false,
+    },
+    vendasLead: {
+      findFirst: async () => null,
+    },
+  });
+
+  const result = await service.importWebscrapingLeadsForUser(
+    { companyId: 7, id: 99, role: 'USER' },
+    {
+      skipWhatsappValidation: true,
+      leads: [
+        {
+          name: 'Cliente Importado',
+          phone: '+55 19 99999-0001',
+          phoneDigits: '5519999990001',
+        },
+      ],
+    } as any,
+  );
+
+  assert.equal(result.createdCount, 1);
+  assert.equal(createdRows[0].productPriceCentsSnapshot, 12345);
+  assert.equal(result.leads[0].productPriceCentsSnapshot, null);
+  assert.equal(result.leads[0].product.priceCents, null);
+  assert.equal(result.leads[0].product.priceLabel, null);
+  assert.equal(result.leads[0].product.canViewPrice, false);
 });
 
 test('importWebscrapingLeadsForUser no modo List importa weak_contact sem cortar', async () => {
@@ -1620,6 +1717,48 @@ test('createManualLeadForUser with productId stores product snapshots on the car
   assert.equal(createdRows[0].productPlanKeySnapshot, 'hbx_padrao');
 });
 
+test('createManualLeadForUser hides product price when products.viewPrice=false', async () => {
+  const { prisma, createdRows } = createImportPrismaHarness();
+  const { service } = createService({
+    prisma: {
+      ...prisma,
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'products.viewPrice': false },
+        }),
+      },
+    },
+    vendasLead: {
+      findMany: async () => [],
+    },
+    product: {
+      findFirst: async () => ({
+        id: 10,
+        companyId: 7,
+        status: 'active',
+        kind: 'tenant_product',
+        name: 'Plano Comercial',
+        priceCents: 9900,
+        currency: 'BRL',
+        billingCycle: 'MONTHLY',
+        defaultCommissionPercent: 12,
+        planKey: 'tenant_plano',
+      }),
+    },
+  });
+
+  const result = await service.createManualLeadForUser(
+    { companyId: 7, id: 99, role: 'USER' },
+    { name: 'Cliente Produto', productId: 10 } as any,
+  );
+
+  assert.equal(createdRows[0].productPriceCentsSnapshot, 9900);
+  assert.equal(result.lead.productPriceCentsSnapshot, null);
+  assert.equal(result.lead.product.priceCents, null);
+  assert.equal(result.lead.product.priceLabel, null);
+  assert.equal(result.lead.product.canViewPrice, false);
+});
+
 test('updateLeadForUser requires edit access before loading the card', async () => {
   let findFirstCalls = 0;
   const { service } = createService({
@@ -1675,6 +1814,70 @@ test('updateLeadForUser scopes USER without viewCompany to own assigned card', a
     { id: 'lead-other' },
     { assignedUserId: 99 },
   ]);
+});
+
+test('updateLeadForUser hides product price when products.viewPrice=false', async () => {
+  const now = new Date();
+  let row: any = {
+    id: 'lead-1',
+    companyId: 7,
+    assignedUserId: 99,
+    name: 'Cliente Produto',
+    status: 'novo',
+    returnAt: now,
+    attemptCount: 0,
+    saleStatus: 'none',
+    saleValue: 123.45,
+    commissionStatus: 'none',
+    productId: 10,
+    productKindSnapshot: 'tenant_product',
+    productNameSnapshot: 'Plano Comercial',
+    productPriceCentsSnapshot: 12345,
+    productCurrencySnapshot: 'BRL',
+    productBillingCycleSnapshot: 'MONTHLY',
+    productCommissionPercentSnapshot: 12,
+    productPlanKeySnapshot: 'tenant_plano',
+    createdAt: now,
+    updatedAt: now,
+    timelineEvents: [],
+  };
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'products.viewPrice': false },
+        }),
+      },
+      $transaction: async (fn: any) => fn({
+        vendasLead: {
+          update: async ({ data }: any) => {
+            row = { ...row, ...data, updatedAt: now };
+            return row;
+          },
+          findUniqueOrThrow: async () => row,
+        },
+        vendasLeadTimelineEvent: {
+          createMany: async () => ({ count: 0 }),
+        },
+      }),
+    },
+    vendasLead: {
+      findFirst: async () => row,
+    },
+  });
+
+  const result = await service.updateLeadForUser(
+    { companyId: 7, id: 99, role: 'USER' },
+    'lead-1',
+    { name: 'Cliente Atualizado' } as any,
+  );
+
+  assert.equal(result.lead.name, 'Cliente Atualizado');
+  assert.equal(result.lead.productPriceCentsSnapshot, null);
+  assert.equal(result.lead.product.priceCents, null);
+  assert.equal(result.lead.product.priceLabel, null);
+  assert.equal(result.lead.product.canViewPrice, false);
+  assert.equal(result.lead.saleValue, 123.45);
 });
 
 test('updateLeadForUser requires products.sell before linking catalog product', async () => {

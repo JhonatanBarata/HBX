@@ -32,3 +32,18 @@ Validação:
 
 Próxima ação:
 Comunicação por tenant.
+
+## Review fix — mascaramento fail-closed
+
+Aplicado:
+- buildLeadPayload passou a ocultar preço de produto quando não recebe accessContext.
+- Retornos de card para usuário continuam passando contexto de accessMap.
+- getLeadConversationSnapshotForUser não retorna card/preço de produto; retorna apenas conversa/mensagens.
+- Testes adicionados para chamada sem accessContext, updateLeadForUser, createManualLeadForUser e importWebscrapingLeadsForUser.
+
+Validação parcial:
+- build backend passou.
+- teste focado de Vendas passou.
+
+Próxima ação:
+Rodar validações obrigatórias completas e publicar commit.
