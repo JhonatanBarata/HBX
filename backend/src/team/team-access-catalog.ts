@@ -694,7 +694,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     defaultForSeller: true,
     riskLevel: 'medium',
     sellerVisible: true,
-    backendEnforced: true,
+    backendEnforced: false,
   },
   {
     key: 'commission.inheritance.configure',

@@ -68,6 +68,7 @@ test('buildProvisioningPlan defaults modules from selected plan and validates ad
   assert.ok(plan.modules.some((moduleItem) => moduleItem.key === 'gerencial'));
   assert.equal(plan.admin, null);
   assert.equal(plan.products[0].key, 'oferta-principal');
+  assert.equal(plan.products[0].kind, 'tenant_product');
   assert.equal(plan.products[0].status, 'draft');
 
   assert.throws(

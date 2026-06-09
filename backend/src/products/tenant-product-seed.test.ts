@@ -3,10 +3,19 @@ import assert from 'node:assert/strict';
 import { COMMERCIAL_PLAN_KEYS } from '../commercial-plans/commercial-plan-catalog';
 import {
   buildHbxTenantProductSeeds,
+  buildTenantProductSeeds,
   ensureHbxTenantProductsTx,
 } from './tenant-product-seed';
 
-test('buildHbxTenantProductSeeds creates HBX plans as tenant products', () => {
+test('buildTenantProductSeeds creates tenant_product as default product kind', () => {
+  const seeds = buildTenantProductSeeds();
+
+  assert.equal(seeds.length, 1);
+  assert.equal(seeds[0].key, 'oferta-principal');
+  assert.equal(seeds[0].kind, 'tenant_product');
+});
+
+test('buildHbxTenantProductSeeds creates HBX plans as platform_plan tenant data', () => {
   const seeds = buildHbxTenantProductSeeds();
 
   assert.equal(seeds.length, 3);

@@ -1113,6 +1113,7 @@ export class VendasService {
     whatsappAvailability?: VendasWhatsappAvailabilityState | null,
     inboxPresence?: { conversationId?: string | number | null } | null,
     planAccess?: VendasPlanAccess | null,
+    accessContext?: VendasAccessContext | null,
   ) {
     const status = this.normalizeStatus(row?.status);
     const block = this.classifyLeadBlock(row);
@@ -1153,6 +1154,13 @@ export class VendasService {
       ? { ...access.capabilities, canSeeLeadIntelligence: true }
       : access.capabilities;
     const leadIntelligence = this.decorateManualEnrichmentIntelligence(rawIntelligence, row);
+    const canViewProductPrice = accessContext?.canViewProductPrice !== false;
+    const productPriceCents = canViewProductPrice && row?.productPriceCentsSnapshot != null
+      ? Math.max(0, Math.trunc(Number(row.productPriceCentsSnapshot) || 0))
+      : null;
+    const productPriceLabel = productPriceCents == null
+      ? null
+      : `R$ ${(productPriceCents / 100).toFixed(2).replace('.', ',')}`;
     return {
       id: String(row?.id || ''),
       customerProfileId: row?.customerProfileId ? String(row.customerProfileId) : null,
@@ -1189,7 +1197,7 @@ export class VendasService {
       productId: Number(row?.productId || 0) || null,
       productKindSnapshot: row?.productKindSnapshot ? String(row.productKindSnapshot) : null,
       productNameSnapshot: row?.productNameSnapshot ? String(row.productNameSnapshot) : null,
-      productPriceCentsSnapshot: row?.productPriceCentsSnapshot == null ? null : Math.max(0, Math.trunc(Number(row.productPriceCentsSnapshot) || 0)),
+      productPriceCentsSnapshot: productPriceCents,
       productCurrencySnapshot: row?.productCurrencySnapshot ? String(row.productCurrencySnapshot) : null,
       productBillingCycleSnapshot: row?.productBillingCycleSnapshot ? String(row.productBillingCycleSnapshot) : null,
       productCommissionPercentSnapshot: row?.productCommissionPercentSnapshot == null ? null : Number(row.productCommissionPercentSnapshot),
@@ -1199,7 +1207,9 @@ export class VendasService {
             id: Number(row?.productId || 0) || null,
             kind: row?.productKindSnapshot ? String(row.productKindSnapshot) : null,
             name: row?.productNameSnapshot ? String(row.productNameSnapshot) : null,
-            priceCents: row?.productPriceCentsSnapshot == null ? null : Math.max(0, Math.trunc(Number(row.productPriceCentsSnapshot) || 0)),
+            priceCents: productPriceCents,
+            priceLabel: productPriceLabel,
+            canViewPrice: canViewProductPrice,
             currency: row?.productCurrencySnapshot ? String(row.productCurrencySnapshot) : null,
             billingCycle: row?.productBillingCycleSnapshot ? String(row.productBillingCycleSnapshot) : null,
             commissionPercent: row?.productCommissionPercentSnapshot == null ? null : Number(row.productCommissionPercentSnapshot),
@@ -1330,7 +1340,7 @@ export class VendasService {
     const priceCents = this.normalizePriceCentsFromProduct(product);
     return {
       productId: Number(product.id),
-      productKindSnapshot: this.normalizeText(product.kind) || 'service',
+      productKindSnapshot: this.normalizeText(product.kind) || 'tenant_product',
       productNameSnapshot: this.normalizeText(product.name),
       productPriceCentsSnapshot: priceCents,
       productCurrencySnapshot: this.normalizeText(product.currency)?.toUpperCase() || 'BRL',
@@ -6242,7 +6252,7 @@ export class VendasService {
     row: any,
     phoneDigits: string,
     sharedProfile?: any,
-    options: { exposeCrmDetails?: boolean } = {},
+    options: { exposeCrmDetails?: boolean; accessContext?: VendasAccessContext | null } = {},
   ) {
     if (row && options.exposeCrmDetails === false) {
       return {
@@ -6268,7 +6278,7 @@ export class VendasService {
         crmDetailsRestricted: true,
       };
     }
-    const payload = row ? this.buildLeadPayload(row, sharedProfile) : null;
+    const payload = row ? this.buildLeadPayload(row, sharedProfile, undefined, undefined, undefined, options.accessContext) : null;
     return {
       phoneDigits,
       existsInCrm: Boolean(payload),
@@ -6319,6 +6329,7 @@ export class VendasService {
     commissionPercentSnapshot?: number | null;
     productSnapshotData?: Record<string, any> | null;
     planAccess?: VendasPlanAccess | null;
+    vendasAccess?: VendasAccessContext | null;
     uniqueRetry?: boolean;
   }) {
     const leadBaseSelectWithoutAddress: any = this.buildVendasLeadSelectWithoutAddress();
@@ -6528,7 +6539,7 @@ export class VendasService {
         return {
           action: 'updated',
           reusedExisting: true,
-          lead: this.buildLeadPayload(updated, undefined, undefined, undefined, input.planAccess),
+          lead: this.buildLeadPayload(updated, undefined, undefined, undefined, input.planAccess, input.vendasAccess),
         };
       }
     }
@@ -6657,7 +6668,7 @@ export class VendasService {
     return {
       action: 'created',
       reusedExisting: false,
-      lead: this.buildLeadPayload(created, undefined, undefined, undefined, input.planAccess),
+      lead: this.buildLeadPayload(created, undefined, undefined, undefined, input.planAccess, input.vendasAccess),
     };
   }
 
@@ -6756,6 +6767,7 @@ export class VendasService {
             : sharedMap.byPhoneNormalized.get(String(phoneDigits)) ?? null;
         return this.buildImportPreviewPayload(row, phoneDigits, sharedProfile, {
           exposeCrmDetails: !row || this.canExposeImportPreviewDetails(context, row),
+          accessContext: context.access,
         });
       }),
     };
@@ -6850,6 +6862,7 @@ export class VendasService {
         whatsappAvailabilityByLeadId.get(String(row.id)) || null,
         leadInboxPresence.get(String(row.id)) || null,
         planAccess,
+        context.access,
       );
       blocks[payload.block].push(payload);
     }
@@ -7043,6 +7056,7 @@ export class VendasService {
       commissionPercentSnapshot: owner.commissionPercentSnapshot,
       productSnapshotData: productPatch?.data || null,
       planAccess,
+      vendasAccess: context.access,
     });
 
     await this.syncLeadToInboxAgenda(context.companyId, result.lead);
@@ -7314,6 +7328,7 @@ export class VendasService {
           assignedAt: owner.assignedAt,
           commissionPercentSnapshot: owner.commissionPercentSnapshot,
           planAccess,
+          vendasAccess: context.access,
         });
       } catch (error: any) {
         const errorText = String(error?.message || error || '');
@@ -7804,7 +7819,7 @@ export class VendasService {
 
     return {
       ok: true,
-      lead: this.buildLeadPayload(updated),
+      lead: this.buildLeadPayload(updated, undefined, undefined, undefined, undefined, context.access),
     };
   }
 
@@ -7939,7 +7954,7 @@ export class VendasService {
       registerPath,
       registerUrl,
       message,
-      lead: this.buildLeadPayload(updated),
+      lead: this.buildLeadPayload(updated, undefined, undefined, undefined, undefined, context.access),
       commercialUseDebit,
     };
   }
@@ -8236,7 +8251,7 @@ export class VendasService {
             errorMessage: signupResult.delivery.errorMessage || null,
           }
         : null,
-      lead: this.buildLeadPayload(updated),
+      lead: this.buildLeadPayload(updated, undefined, undefined, undefined, undefined, context.access),
     };
   }
 
@@ -8625,7 +8640,7 @@ export class VendasService {
 
     return {
       ok: true,
-      lead: this.buildLeadPayload(updated),
+      lead: this.buildLeadPayload(updated, undefined, undefined, undefined, undefined, context.access),
     };
   }
 }

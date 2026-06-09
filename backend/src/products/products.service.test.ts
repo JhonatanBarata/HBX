@@ -228,12 +228,22 @@ test('createProductForUser requires products.edit and products.changePrice for p
   const created = await allowed.service.createProductForUser(allowed.user, { name: 'Plano A', priceCents: 12990 });
 
   assert.equal(created.companyId, 1);
+  assert.equal(created.kind, 'tenant_product');
   assert.equal(created.price, 129.9);
   assert.equal(created.priceCents, 12990);
   assert.equal(created.createdByUserId, 7);
 });
 
 test('updateProductForUser blocks cross-tenant writes and protects price changes', async () => {
+  const blocked = buildHarness({
+    access: { 'products.edit': false },
+  });
+
+  await assert.rejects(
+    () => blocked.service.updateProductForUser(blocked.user, 1, { name: 'Bloqueado' }),
+    ForbiddenException,
+  );
+
   const noPriceAccess = buildHarness({
     access: { 'products.edit': true, 'products.changePrice': false },
   });

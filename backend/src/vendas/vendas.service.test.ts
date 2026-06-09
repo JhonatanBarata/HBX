@@ -471,6 +471,93 @@ test('getBoardForUser hides complete intelligence for HBX List', async () => {
   assert.ok(lead.leadIntelligence.premiumTeaser);
 });
 
+test('getBoardForUser hides product catalog price without products.viewPrice', async () => {
+  const now = new Date();
+  const rows = [
+    {
+      id: 'lead-product-hidden-price',
+      companyId: 7,
+      assignedUserId: 99,
+      name: 'Cliente Produto',
+      status: 'novo',
+      returnAt: now,
+      updatedAt: now,
+      createdAt: now,
+      productId: 10,
+      productKindSnapshot: 'tenant_product',
+      productNameSnapshot: 'Plano Comercial',
+      productPriceCentsSnapshot: 12345,
+      productCurrencySnapshot: 'BRL',
+      productBillingCycleSnapshot: 'MONTHLY',
+      productCommissionPercentSnapshot: 12,
+      productPlanKeySnapshot: 'tenant_plano',
+      saleValue: 123.45,
+      timelineEvents: [],
+    },
+  ];
+
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'products.viewPrice': false },
+        }),
+      },
+    },
+    vendasLead: {
+      findMany: async () => rows,
+    },
+  });
+
+  const result = await service.getBoardForUser({ companyId: 7, id: 99, role: 'USER' });
+  const lead = result.blocks.today[0];
+
+  assert.equal(lead.productPriceCentsSnapshot, null);
+  assert.equal(lead.product.priceCents, null);
+  assert.equal(lead.product.priceLabel, null);
+  assert.equal(lead.product.canViewPrice, false);
+  assert.equal(lead.saleValue, 123.45);
+});
+
+test('getBoardForUser exposes product catalog price with products.viewPrice', async () => {
+  const now = new Date();
+  const rows = [
+    {
+      id: 'lead-product-visible-price',
+      companyId: 7,
+      assignedUserId: 99,
+      name: 'Cliente Produto',
+      status: 'novo',
+      returnAt: now,
+      updatedAt: now,
+      createdAt: now,
+      productId: 10,
+      productKindSnapshot: 'tenant_product',
+      productNameSnapshot: 'Plano Comercial',
+      productPriceCentsSnapshot: 12345,
+      productCurrencySnapshot: 'BRL',
+      productBillingCycleSnapshot: 'MONTHLY',
+      productCommissionPercentSnapshot: 12,
+      productPlanKeySnapshot: 'tenant_plano',
+      timelineEvents: [],
+    },
+  ];
+
+  const { service } = createService({
+    vendasLead: {
+      findMany: async () => rows,
+    },
+  });
+
+  const result = await service.getBoardForUser({ companyId: 7, id: 99, role: 'USER' });
+  const lead = result.blocks.today[0];
+
+  assert.equal(lead.productPriceCentsSnapshot, 12345);
+  assert.equal(lead.product.priceCents, 12345);
+  assert.equal(lead.product.priceLabel, 'R$ 123,45');
+  assert.equal(lead.product.canViewPrice, true);
+});
+
 test('getBoardForUser filters USER without viewCompany to own assigned cards', async () => {
   let seenWhere: any = null;
   const { service } = createService({
@@ -1655,7 +1742,7 @@ test('updateLeadForUser requires products.discount for product sale below catalo
         id: 10,
         companyId: 7,
         status: 'active',
-        kind: 'service',
+        kind: 'tenant_product',
         name: 'Plano Comercial',
         priceCents: 10000,
         currency: 'BRL',
@@ -1705,7 +1792,7 @@ test('updateLeadForUser requires products.changePrice for product sale above cat
         id: 10,
         companyId: 7,
         status: 'active',
-        kind: 'service',
+        kind: 'tenant_product',
         name: 'Plano Comercial',
         priceCents: 10000,
         currency: 'BRL',

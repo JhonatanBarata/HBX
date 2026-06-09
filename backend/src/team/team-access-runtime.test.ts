@@ -8,6 +8,7 @@ import {
   resolveProductsAccessContext,
   resolveVendasAccessContext,
 } from './team-access-runtime';
+import { TEAM_ACCESS_CATALOG } from './team-access-catalog';
 import { serializeTeamPolicyModuleAndAccessRows } from './team-policy-persistence';
 
 function buildUser(overrides: Record<string, any> = {}) {
@@ -309,4 +310,20 @@ test('System Master without active tenant context cannot operate Products', asyn
     () => resolveProductsAccessContext(prisma as any, master),
     ForbiddenException,
   );
+});
+
+test('catalog marks products enforced and commission.viewInherited pending', () => {
+  const byKey = new Map(TEAM_ACCESS_CATALOG.map((item) => [item.key, item]));
+
+  assert.equal(byKey.get('commission.viewInherited')?.backendEnforced, false);
+  for (const key of [
+    'products.view',
+    'products.sell',
+    'products.edit',
+    'products.discount',
+    'products.viewPrice',
+    'products.changePrice',
+  ]) {
+    assert.equal(byKey.get(key)?.backendEnforced, true);
+  }
 });

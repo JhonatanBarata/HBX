@@ -2562,7 +2562,7 @@ model PasswordReset {
 
 model Product {
   id          Int              @id @default(autoincrement())
-  kind        String           @default("service")
+  kind        String           @default("tenant_product")
   status      String           @default("active")
   sku         String?
   name        String

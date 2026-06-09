@@ -70,7 +70,7 @@ const DEFAULT_TENANT_PRODUCT_INPUTS: TenantProductSeedInput[] = [
     key: 'oferta-principal',
     name: 'Oferta principal',
     description: 'Produto ou servico principal da empresa.',
-    kind: 'service',
+    kind: 'tenant_product',
     status: 'draft',
     category: 'Comercial',
     priceCents: 0,
@@ -217,7 +217,7 @@ export function buildTenantProductSeeds(
       const minPriceCents = normalizeInteger(product.minPriceCents, -1, 0);
       return {
         key,
-        kind: normalizeKey(product.kind, 'service', 40),
+        kind: normalizeKey(product.kind, 'tenant_product', 40),
         status: normalizeKey(product.status, statusFallback, 40),
         sku: normalizeText(product.sku || product.key || key, 80),
         name,

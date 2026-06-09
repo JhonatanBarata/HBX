@@ -145,7 +145,7 @@ export class ProductsService {
     const createdByUserId = authorId || null;
 
     return {
-      kind: normalizeKey(dto.kind, 'service', 40),
+      kind: normalizeKey(dto.kind, 'tenant_product', 40),
       status: normalizeKey(dto.status, 'active', 40),
       sku: normalizeText(dto.sku, 80),
       name,
@@ -175,7 +175,7 @@ export class ProductsService {
   private buildUpdateData(dto: UpdateProductDto, authorId?: number | null) {
     const data: Record<string, any> = {};
 
-    if (hasOwn(dto, 'kind')) data.kind = normalizeKey(dto.kind, 'service', 40);
+    if (hasOwn(dto, 'kind')) data.kind = normalizeKey(dto.kind, 'tenant_product', 40);
     if (hasOwn(dto, 'status')) data.status = normalizeKey(dto.status, 'active', 40);
     if (hasOwn(dto, 'sku')) data.sku = normalizeText(dto.sku, 80);
     if (hasOwn(dto, 'name')) {
@@ -307,42 +307,4 @@ export class ProductsService {
     return product;
   }
 
-  async createForCompany(companyId: number, createDto: CreateProductDto) {
-    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
-    if (!company) throw new NotFoundException(`Company with id ${companyId} not found`);
-
-    return this.prisma.product.create({
-      data: this.buildCreateData(companyId, createDto),
-    });
-  }
-
-  async findAllForCompany(companyId: number) {
-    return this.prisma.product.findMany({ where: { companyId }, orderBy: { id: 'asc' } });
-  }
-
-  async findOneForCompany(companyId: number, id: number) {
-    const prod = await this.prisma.product.findFirst({ where: { id, companyId } });
-    if (!prod) throw new NotFoundException(`Product with id ${id} not found`);
-    return prod;
-  }
-
-  async updateForCompany(companyId: number, id: number, updateDto: UpdateProductDto, authorId?: number) {
-    const prod = await this.assertWritable(companyId, id);
-    await this.pv.createVersion(id, prod, authorId);
-
-    return this.prisma.product.update({ where: { id }, data: this.buildUpdateData(updateDto, authorId) });
-  }
-
-  async responsiveEdit(id: number, partial: Partial<UpdateProductDto>, authorId?: number) {
-    const prod = await this.prisma.product.findUnique({ where: { id } });
-    if (!prod) throw new NotFoundException(`Product with id ${id} not found`);
-    await this.pv.createVersion(id, prod, authorId);
-    return this.prisma.product.update({ where: { id }, data: this.buildUpdateData(partial, authorId) });
-  }
-
-  async removeForCompany(companyId: number, id: number) {
-    await this.assertWritable(companyId, id);
-    await this.prisma.product.delete({ where: { id } });
-    return { success: true };
-  }
 }
