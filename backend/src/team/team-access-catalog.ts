@@ -694,7 +694,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     defaultForSeller: true,
     riskLevel: 'medium',
     sellerVisible: true,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'commission.inheritance.configure',
@@ -782,7 +782,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     defaultForSeller: true,
     riskLevel: 'low',
     sellerVisible: true,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'products.sell',
@@ -793,7 +793,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     defaultForSeller: true,
     riskLevel: 'medium',
     sellerVisible: true,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'products.edit',
@@ -804,7 +804,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     defaultForSeller: false,
     riskLevel: 'medium',
     sellerVisible: false,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'products.discount',
@@ -815,7 +815,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     defaultForSeller: false,
     riskLevel: 'high',
     sellerVisible: true,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'products.viewPrice',
@@ -826,7 +826,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     defaultForSeller: true,
     riskLevel: 'medium',
     sellerVisible: true,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'products.changePrice',
@@ -837,7 +837,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     defaultForSeller: false,
     riskLevel: 'critical',
     sellerVisible: false,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'team.access.view',
@@ -1007,6 +1007,8 @@ const MODULE_ACCESS_EQUIVALENTS: Record<string, string[]> = {
   ],
   atendimento: ['atendimento.access'],
   whatsapp: ['communication.whatsapp.useCompanyNumber', 'communication.whatsapp.sendManual'],
+  products: ['products.view', 'products.sell', 'products.viewPrice'],
+  produtos: ['products.view', 'products.sell', 'products.viewPrice'],
   cadastro: ['cadastro.access'],
   cadastros: ['cadastro.access'],
   website: ['website.access'],

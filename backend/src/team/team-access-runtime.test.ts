@@ -5,6 +5,7 @@ import {
   assertEffectiveTeamAccess,
   hasEffectiveTeamAccess,
   resolveEffectiveTeamAccess,
+  resolveProductsAccessContext,
   resolveVendasAccessContext,
 } from './team-access-runtime';
 import { serializeTeamPolicyModuleAndAccessRows } from './team-policy-persistence';
@@ -145,6 +146,10 @@ test('USER defaults to own Vendas cards and can be explicitly released for compa
   assert.equal(defaultContext.canViewOwnCards, true);
   assert.equal(defaultContext.canViewCompanyCards, false);
   assert.equal(defaultContext.isSeller, true);
+  assert.equal(defaultContext.canSellProducts, true);
+  assert.equal(defaultContext.canViewProductPrice, true);
+  assert.equal(defaultContext.canApplyProductDiscount, false);
+  assert.equal(defaultContext.canChangeProductPrice, false);
 
   const releasedContext = await resolveVendasAccessContext(buildPrisma({
     user,
@@ -227,4 +232,81 @@ test('runtime does not require company slug and normalizes old explicit access k
   assert.equal(context.companyId, 1);
   assert.equal(context.canSendWhatsappManual, false);
   assert.equal(context.explicitAccessMap['communication.whatsapp.sendManual'], false);
+});
+
+test('Products context exposes catalog permissions from role defaults and explicit overrides', async () => {
+  const user = buildUser();
+  const defaultContext = await resolveProductsAccessContext(buildPrisma({ user }) as any, user);
+
+  assert.equal(defaultContext.companyId, 1);
+  assert.equal(defaultContext.canViewProducts, true);
+  assert.equal(defaultContext.canSellProducts, true);
+  assert.equal(defaultContext.canViewProductPrice, true);
+  assert.equal(defaultContext.canEditProducts, false);
+  assert.equal(defaultContext.canApplyProductDiscount, false);
+  assert.equal(defaultContext.canChangeProductPrice, false);
+
+  const releasedContext = await resolveProductsAccessContext(buildPrisma({
+    user,
+    policy: buildPolicy({
+      access: {
+        'products.discount': true,
+        'products.changePrice': true,
+        'products.viewPrice': false,
+      },
+    }),
+  }) as any, user);
+
+  assert.equal(releasedContext.canApplyProductDiscount, true);
+  assert.equal(releasedContext.canChangeProductPrice, true);
+  assert.equal(releasedContext.canViewProductPrice, false);
+});
+
+test('products module access grants only base catalog operations', async () => {
+  const user = buildUser();
+  const prisma = buildPrisma({
+    user,
+    policy: buildPolicy({
+      modules: [{ key: 'products', allowed: true }],
+      access: {
+        'products.view': false,
+        'products.sell': false,
+        'products.viewPrice': false,
+      },
+    }),
+  });
+
+  const context = await resolveProductsAccessContext(prisma as any, user);
+
+  assert.equal(context.moduleAccessMap['products.view'], true);
+  assert.equal(context.moduleAccessMap['products.sell'], true);
+  assert.equal(context.moduleAccessMap['products.viewPrice'], true);
+  assert.equal(context.canViewProducts, false);
+  assert.equal(context.canSellProducts, false);
+  assert.equal(context.canViewProductPrice, false);
+  assert.equal(context.canEditProducts, false);
+});
+
+test('System Master without active tenant context cannot operate Products', async () => {
+  const master = buildUser({
+    id: 1,
+    role: 'USERMASTER',
+    isSystemMaster: true,
+    companyId: 99,
+    company: {
+      id: 99,
+      name: 'HBX Plataforma',
+      companyKind: 'platform_infra',
+    },
+    masterContext: { active: false },
+  });
+  const prisma = buildPrisma({
+    user: master,
+    policy: buildPolicy({ userId: 1, companyId: 99, subjectKind: 'system_master' }),
+  });
+
+  await assert.rejects(
+    () => resolveProductsAccessContext(prisma as any, master),
+    ForbiddenException,
+  );
 });

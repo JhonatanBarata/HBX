@@ -20,9 +20,19 @@ const host = String(env.HOSTINGER_SSH_HOST || '').trim();
 const user = String(env.HOSTINGER_SSH_USER || '').trim();
 const appDir = String(env.HOSTINGER_APP_DIR || '').trim();
 const rewriteEnv = ['1', 'true', 'yes', 'on'].includes(String(env.HBX_ENGINE_CLEANUP_REWRITE_ENV || '').trim().toLowerCase());
+const DEFAULT_KEEP_COUNT = 20;
 const keepCount = Math.min(
   Math.max(
-    Number.parseInt(String(env.HBX_ENGINE_CLEANUP_KEEP_COUNT || env.HBX_ENGINE_MAX_COUNT || env.HBX_ENGINE_HARD_LIMIT || '200'), 10) || 200,
+    Number.parseInt(String(
+      env.HBX_ENGINE_CLEANUP_KEEP_COUNT
+      || env.HBX_PUBLISH_ENGINE_MAX_COUNT
+      || env.HBX_ENGINE_MAX_COUNT
+      || env.HBX_ENGINE_COUNT
+      || env.HBX_ENGINE_DEFAULT_COUNT
+      || env.HBX_PUBLISH_ENGINE_COUNT
+      || env.HBX_PUBLISH_WARM_ENGINE_COUNT
+      || DEFAULT_KEEP_COUNT,
+    ), 10) || DEFAULT_KEEP_COUNT,
     1,
   ),
   200,

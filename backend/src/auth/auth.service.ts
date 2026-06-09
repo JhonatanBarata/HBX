@@ -30,6 +30,7 @@ import {
 import { HbxCommissionSyncService } from '../commissions/hbx-commission-sync.service';
 import { isPlatformInfraCompany } from '../common/company-kind';
 import { ensureUserTeamPolicyForUser } from '../team/team-policy-persistence';
+import { buildTenantProductSeeds, ensureTenantProductsTx } from '../products/tenant-product-seed';
 
 @Injectable()
 export class AuthService implements OnModuleInit {
@@ -633,6 +634,15 @@ export class AuthService implements OnModuleInit {
       })),
       skipDuplicates: true,
     });
+  }
+
+  private async seedDefaultTenantProductsTx(tx: any, companyId: number) {
+    const seeds = buildTenantProductSeeds(null, {
+      source: 'auth_signup',
+      defaultStatus: 'draft',
+    });
+    if (!seeds.length) return;
+    await ensureTenantProductsTx(tx, companyId, seeds);
   }
 
   private async syncTrialSelectedModulesTx(
@@ -1575,6 +1585,7 @@ export class AuthService implements OnModuleInit {
           },
         });
         await this.seedDefaultCompanyModulesTx(tx, company.id);
+        await this.seedDefaultTenantProductsTx(tx, company.id);
         await this.syncPlanModulesTx(tx, company.id, selectedPlanKey);
         const updated = await tx.user.update({
           where: { id: existingUsername.id },
@@ -1732,6 +1743,7 @@ export class AuthService implements OnModuleInit {
       });
 
       await this.seedDefaultCompanyModulesTx(tx, company.id);
+      await this.seedDefaultTenantProductsTx(tx, company.id);
       await this.syncPlanModulesTx(tx, company.id, selectedPlanKey);
 
       const user = await tx.user.create({

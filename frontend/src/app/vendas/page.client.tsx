@@ -810,6 +810,20 @@ type SalesProfileSuggestion = {
   diff?: string[];
 };
 
+type VendasProductCatalogItem = {
+  id: number;
+  kind?: string | null;
+  status?: string | null;
+  sku?: string | null;
+  name?: string | null;
+  price?: number | string | null;
+  priceCents?: number | string | null;
+  currency?: string | null;
+  billingCycle?: string | null;
+  planKey?: string | null;
+  defaultCommissionPercent?: number | string | null;
+};
+
 type LeadItem = {
   id: string;
   sourceType: "manual" | "webscraping";
@@ -846,6 +860,14 @@ type LeadItem = {
   saleStatusLabel?: string | null;
   saleValue?: number | null;
   salePlanKey?: string | null;
+  productId?: number | null;
+  productKindSnapshot?: string | null;
+  productNameSnapshot?: string | null;
+  productPriceCentsSnapshot?: number | string | null;
+  productCurrencySnapshot?: string | null;
+  productBillingCycleSnapshot?: string | null;
+  productCommissionPercentSnapshot?: number | string | null;
+  productPlanKeySnapshot?: string | null;
   saleConfirmedAt?: string | null;
   saleCanceledAt?: string | null;
   commissionStatus?: string | null;
@@ -885,6 +907,16 @@ type LeadItem = {
   planTier?: "list" | "lead" | "full" | string;
   capabilities?: VendasCapabilities;
   leadIntelligence?: LeadIntelligence | null;
+  product?: {
+    id?: number | null;
+    kind?: string | null;
+    name?: string | null;
+    priceCents?: number | string | null;
+    currency?: string | null;
+    billingCycle?: string | null;
+    commissionPercent?: number | string | null;
+    planKey?: string | null;
+  } | null;
   isInInbox?: boolean;
   inboxConversationId?: string | number | null;
   atendimentoConversationId?: string | number | null;
@@ -955,6 +987,7 @@ type AssistedSignupDraft = {
   email: string;
   phone: string;
   password: string;
+  productId: string;
   salePlanKey: string;
 };
 
@@ -1059,6 +1092,7 @@ type LeadDraft = {
   returnAt: string;
   shortNote: string;
   saleStatus: SaleStatus;
+  productId: string;
   salePlanKey: string;
   saleValue: string;
   commissionNote: string;
@@ -1274,6 +1308,9 @@ type LeadCardView = {
   lead: LeadItem;
   draft: LeadDraft;
   board?: BoardResponse | null;
+  productCatalog?: VendasProductCatalogItem[];
+  productCatalogLoading?: boolean;
+  productCatalogError?: string | null;
   blockKey: LeadBlockKey;
   selected: boolean;
   saving: boolean;
@@ -2945,6 +2982,108 @@ function salePlanAmountInput(value?: string | null) {
   });
 }
 
+function normalizeProductId(value?: string | number | null) {
+  const numeric = Math.trunc(Number(value || 0));
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+}
+
+function productPriceCents(value?: Pick<VendasProductCatalogItem, "price" | "priceCents"> | null) {
+  if (!value) return null;
+  const explicit = Math.trunc(Number(value.priceCents || 0));
+  if (Number.isFinite(explicit) && explicit > 0) return explicit;
+  const price = Number(value.price || 0);
+  return Number.isFinite(price) && price > 0 ? Math.round(price * 100) : null;
+}
+
+function productPriceAmount(value?: Pick<VendasProductCatalogItem, "price" | "priceCents"> | null) {
+  const cents = productPriceCents(value);
+  return cents ? cents / 100 : 0;
+}
+
+function productPriceAmountInput(value?: Pick<VendasProductCatalogItem, "price" | "priceCents"> | null) {
+  const amount = productPriceAmount(value);
+  return amount > 0
+    ? amount.toLocaleString("pt-BR", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })
+    : "";
+}
+
+function productCurrency(value?: Pick<VendasProductCatalogItem, "currency"> | null) {
+  return String(value?.currency || "BRL").trim().toUpperCase() || "BRL";
+}
+
+function formatProductPrice(value?: Pick<VendasProductCatalogItem, "price" | "priceCents" | "currency"> | null) {
+  const amount = productPriceAmount(value);
+  if (amount <= 0) return "";
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: productCurrency(value),
+  }).format(amount);
+}
+
+function productCatalogLabel(product?: VendasProductCatalogItem | null) {
+  if (!product) return "";
+  const name = String(product.name || `Produto #${product.id}`).trim();
+  const price = formatProductPrice(product);
+  return price ? `${name} - ${price}` : name;
+}
+
+function findProductCatalogItem(
+  catalog: VendasProductCatalogItem[],
+  productId?: string | number | null,
+) {
+  const id = normalizeProductId(productId);
+  return id ? catalog.find((product) => product.id === id) || null : null;
+}
+
+function leadProductId(lead?: LeadItem | null) {
+  return normalizeProductId(lead?.productId ?? lead?.product?.id ?? null);
+}
+
+function leadProductSnapshot(lead?: LeadItem | null): VendasProductCatalogItem | null {
+  const id = leadProductId(lead);
+  const name = String(lead?.productNameSnapshot || lead?.product?.name || "").trim();
+  if (!id && !name) return null;
+  return {
+    id: id || 0,
+    kind: lead?.productKindSnapshot || lead?.product?.kind || null,
+    name: name || (id ? `Produto #${id}` : "Produto selecionado"),
+    priceCents: lead?.productPriceCentsSnapshot ?? lead?.product?.priceCents ?? null,
+    currency: lead?.productCurrencySnapshot || lead?.product?.currency || "BRL",
+    billingCycle: lead?.productBillingCycleSnapshot || lead?.product?.billingCycle || null,
+    planKey: lead?.productPlanKeySnapshot || lead?.product?.planKey || null,
+    defaultCommissionPercent:
+      lead?.productCommissionPercentSnapshot ?? lead?.product?.commissionPercent ?? null,
+  };
+}
+
+function resolveSelectedProduct(
+  catalog: VendasProductCatalogItem[],
+  lead: LeadItem,
+  draft?: Pick<LeadDraft, "productId"> | null,
+) {
+  const draftHasProductId = Boolean(draft && Object.prototype.hasOwnProperty.call(draft, "productId"));
+  const selectedId = normalizeProductId(draftHasProductId ? draft?.productId : leadProductId(lead));
+  if (!selectedId) return null;
+  const catalogProduct = findProductCatalogItem(catalog, selectedId);
+  if (catalogProduct) return catalogProduct;
+  const snapshot = leadProductSnapshot(lead);
+  return snapshot?.id === selectedId ? snapshot : null;
+}
+
+function productSelectOptions(catalog: VendasProductCatalogItem[], lead?: LeadItem | null) {
+  const snapshot = leadProductSnapshot(lead);
+  if (!snapshot?.id || catalog.some((product) => product.id === snapshot.id)) return catalog;
+  return [snapshot, ...catalog];
+}
+
+function productPlanKey(product?: VendasProductCatalogItem | null) {
+  const planKey = String(product?.planKey || "").trim().toLowerCase();
+  return SALE_PLAN_OPTIONS.some((item) => item.value === planKey) ? planKey : "";
+}
+
 function commissionStatusLabel(status?: string | null) {
   const normalized = String(status || "").trim().toLowerCase();
   if (normalized === "pending") return "Aguardando ativação";
@@ -3035,6 +3174,14 @@ function leadCommissionPercent(lead: LeadItem) {
   return 0;
 }
 
+function closingCommissionPercent(lead: LeadItem, product?: VendasProductCatalogItem | null) {
+  const productPercent = Number(product?.defaultCommissionPercent || 0);
+  if (Number.isFinite(productPercent) && productPercent > 0) {
+    return Math.min(100, Math.max(0, productPercent));
+  }
+  return leadCommissionPercent(lead);
+}
+
 function closingNextAction(status: SaleStatus) {
   if (status === "activation_pending") return "Acompanhar ativação do cliente";
   if (status === "trial_started") return "Confirmar evolução do trial";
@@ -3089,6 +3236,13 @@ function setVendasCardDragLock(active: boolean) {
 }
 
 function createDraft(lead: LeadItem): LeadDraft {
+  const productSnapshot = leadProductSnapshot(lead);
+  const fallbackSaleValue = Number(
+    lead.saleValue ||
+      lead.commissionBaseAmount ||
+      productPriceAmount(productSnapshot) ||
+      0,
+  );
   return {
     name: String(lead.name || ""),
     phone: String(lead.phone || ""),
@@ -3098,9 +3252,10 @@ function createDraft(lead: LeadItem): LeadDraft {
     returnAt: toDatetimeLocal(lead.returnAt),
     shortNote: String(lead.shortNote || ""),
     saleStatus: normalizeSaleStatus(lead.saleStatus),
+    productId: leadProductId(lead) ? String(leadProductId(lead)) : "",
     salePlanKey: lead.salePlanKey ? normalizeSalePlanKey(lead.salePlanKey) : "",
-    saleValue: Number(lead.saleValue || lead.commissionBaseAmount || 0) > 0
-      ? Number(lead.saleValue || lead.commissionBaseAmount || 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 })
+    saleValue: fallbackSaleValue > 0
+      ? fallbackSaleValue.toLocaleString("pt-BR", { maximumFractionDigits: 2 })
       : "",
     commissionNote: String(lead.commissionNote || ""),
   };
@@ -3534,6 +3689,9 @@ function LeadCardView({
   lead,
   draft,
   board,
+  productCatalog = [],
+  productCatalogLoading = false,
+  productCatalogError = null,
   blockKey,
   selected,
   saving,
@@ -3565,6 +3723,7 @@ function LeadCardView({
     ),
     wasClosedBefore: Boolean(lead.wasClosedBefore),
   };
+  const selectedProduct = resolveSelectedProduct(productCatalog, lead, draft);
   const chips = [
     signals.alreadyExisted ? "Lead conhecido" : null,
     signals.cameFromWebscraping ? "Radar Digital" : null,
@@ -3573,6 +3732,7 @@ function LeadCardView({
     getLeadWhatsappStatus(lead) === "unavailable" ? "Sem WhatsApp" : null,
     lead.owner?.name ? `Resp.: ${lead.owner.name}` : null,
     lead.commissionLinkedCompanyId ? "Cadastro HBX vinculado" : null,
+    selectedProduct?.name ? `Produto: ${selectedProduct.name}` : null,
     normalizeSaleStatus(lead.saleStatus) !== "none" ? (lead.saleStatusLabel || saleStatusLabel(lead.saleStatus)) : null,
     Number(lead.commissionAmount || 0) > 0 ? `Comissão ${formatCurrency(lead.commissionAmount)}` : null,
     lead.city || null,
@@ -3592,10 +3752,33 @@ function LeadCardView({
   const channelAssets = buildLeadChannelAssets(lead);
   const premiumBadge = leadEnrichmentBadgeState(lead, board);
   const closedView = leadClosedCardView(lead);
-  const selectedSalePlanKey = normalizeSalePlanKey(draft.salePlanKey || lead.salePlanKey);
-  const closingSaleValue = parseCurrencyInput(draft.saleValue) || salePlanPrice(selectedSalePlanKey);
-  const commissionPercent = leadCommissionPercent(lead);
+  const selectedProductPlanKey = productPlanKey(selectedProduct);
+  const selectedSalePlanKey = selectedProductPlanKey || normalizeSalePlanKey(draft.salePlanKey || lead.salePlanKey);
+  const closingSaleValue =
+    parseCurrencyInput(draft.saleValue) ||
+    productPriceAmount(selectedProduct) ||
+    salePlanPrice(selectedSalePlanKey);
+  const closingProductLabel = selectedProduct
+    ? productCatalogLabel(selectedProduct)
+    : salePlanLabel(selectedSalePlanKey);
+  const availableProductOptions = productSelectOptions(productCatalog, lead);
+  const selectedProductValue = normalizeProductId(draft.productId)
+    ? String(normalizeProductId(draft.productId))
+    : "";
+  const productSelectDisabled = productCatalogLoading || Boolean(productCatalogError && !selectedProduct);
+  const commissionPercent = closingCommissionPercent(lead, selectedProduct);
   const commissionPreview = (closingSaleValue * commissionPercent) / 100;
+  function handleProductChange(productId: string) {
+    const product = findProductCatalogItem(productCatalog, productId);
+    const patch: Partial<LeadDraft> = { productId };
+    if (product) {
+      const priceInput = productPriceAmountInput(product);
+      const nextPlanKey = productPlanKey(product);
+      if (priceInput) patch.saleValue = priceInput;
+      if (nextPlanKey) patch.salePlanKey = nextPlanKey;
+    }
+    onDraftChange?.(lead.id, patch);
+  }
   const handleCardOpen = (event: { target: EventTarget | null }) => {
     const target = event.target as HTMLElement | null;
     if (target?.closest("button,a,input,textarea,select,label")) return;
@@ -3961,10 +4144,34 @@ function LeadCardView({
                 </select>
               </label>
               <label className={styles.field}>
+                <span className={styles.fieldLabel}>Produto</span>
+                <select
+                  className={styles.fieldInput}
+                  value={selectedProductValue}
+                  onChange={(e) => handleProductChange(e.target.value)}
+                  disabled={productSelectDisabled}
+                  title={productCatalogError || "Produto do catálogo comercial"}
+                >
+                  <option value="">
+                    {productCatalogLoading
+                      ? "Carregando produtos..."
+                      : productCatalogError
+                        ? "Catálogo indisponível"
+                        : "Sem produto do catálogo"}
+                  </option>
+                  {availableProductOptions.map((product) => (
+                    <option key={product.id || product.name} value={product.id || ""}>
+                      {productCatalogLabel(product)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className={styles.field}>
                 <span className={styles.fieldLabel}>Plano HBX</span>
                 <select
                   className={styles.fieldInput}
                   value={selectedSalePlanKey}
+                  disabled={Boolean(selectedProduct)}
                   onChange={(e) => {
                     const salePlanKey = normalizeSalePlanKey(e.target.value);
                     onDraftChange?.(lead.id, {
@@ -3996,7 +4203,7 @@ function LeadCardView({
                 <header>
                   <div>
                     <span>Fechamento HBX</span>
-                    <strong>{salePlanLabel(selectedSalePlanKey)} · {formatCurrency(closingSaleValue)}</strong>
+                    <strong>{closingProductLabel} · {formatCurrency(closingSaleValue)}</strong>
                   </div>
                   <b>{commissionPercent > 0 ? `${formatCurrency(commissionPreview)} comissão` : "Sem comissão definida"}</b>
                 </header>
@@ -4279,6 +4486,9 @@ function DraggableLeadCard({
   lead,
   draft,
   board,
+  productCatalog,
+  productCatalogLoading,
+  productCatalogError,
   blockKey,
   selected,
   saving,
@@ -4322,6 +4532,9 @@ function DraggableLeadCard({
         lead={lead}
         draft={draft}
         board={board}
+        productCatalog={productCatalog}
+        productCatalogLoading={productCatalogLoading}
+        productCatalogError={productCatalogError}
         blockKey={blockKey}
         selected={selected}
         saving={saving}
@@ -4450,6 +4663,9 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [board, setBoard] = useState<BoardResponse | null>(null);
+  const [productCatalog, setProductCatalog] = useState<VendasProductCatalogItem[]>([]);
+  const [productCatalogLoading, setProductCatalogLoading] = useState(false);
+  const [productCatalogError, setProductCatalogError] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, LeadDraft>>({});
   const [savingLeadId, setSavingLeadId] = useState<string | null>(null);
   const [handoffLeadId, setHandoffLeadId] = useState<string | null>(null);
@@ -4460,6 +4676,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     email: "",
     phone: "",
     password: "",
+    productId: "",
     salePlanKey: "hbx_padrao",
   });
   const [assistedSignupSaving, setAssistedSignupSaving] = useState(false);
@@ -4593,6 +4810,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     returnAt: plusDaysDatetimeLocal(0),
     shortNote: "",
     saleStatus: "none",
+    productId: "",
     salePlanKey: "",
     saleValue: "",
     commissionNote: "",
@@ -4735,6 +4953,24 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       );
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadProductCatalog() {
+    setProductCatalogLoading(true);
+    setProductCatalogError(null);
+    try {
+      const payload = await apiFetch<VendasProductCatalogItem[]>("/products?status=active");
+      setProductCatalog(Array.isArray(payload) ? payload : []);
+    } catch (catalogError) {
+      setProductCatalog([]);
+      setProductCatalogError(
+        catalogError instanceof Error
+          ? catalogError.message
+          : "Catálogo de produtos indisponível.",
+      );
+    } finally {
+      setProductCatalogLoading(false);
     }
   }
 
@@ -5445,6 +5681,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   useEffect(() => {
     if (hasToken !== true) return;
     void loadBoardRef.current();
+    void loadProductCatalog();
   }, [hasToken]);
 
   useEffect(() => {
@@ -8764,6 +9001,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         returnAt?: string;
         shortNote?: string;
         email?: string;
+        productId?: number;
       } = {
         name: manualLead.name || undefined,
         phone: manualLead.phone || undefined,
@@ -8773,6 +9011,8 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       };
       if (manualLead.email && String(manualLead.email).trim())
         body.email = manualLead.email;
+      const manualProductId = normalizeProductId(manualLead.productId);
+      if (manualProductId) body.productId = manualProductId;
 
       const payload = await apiFetch<{ ok: boolean; action: string }>(
         "/vendas/manual",
@@ -8794,6 +9034,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         returnAt: plusDaysDatetimeLocal(0),
         shortNote: "",
         saleStatus: "none",
+        productId: "",
         salePlanKey: "",
         saleValue: "",
         commissionNote: "",
@@ -8824,6 +9065,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
           returnAt: "",
           shortNote: "",
           saleStatus: "none",
+          productId: "",
           salePlanKey: "",
           saleValue: "",
           commissionNote: "",
@@ -8848,6 +9090,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         returnAt: "",
         shortNote: "",
         saleStatus: "none",
+        productId: "",
         salePlanKey: "",
         saleValue: "",
         commissionNote: "",
@@ -8858,9 +9101,15 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     const normalizedSaleStatus = normalizeSaleStatus(draft.saleStatus);
     const normalizedSalePlanKey = normalizeSalePlanKey(draft.salePlanKey);
     const parsedSaleValue = parseCurrencyInput(draft.saleValue);
+    const currentLead = leadById.get(leadId)?.lead || null;
+    const draftProductId = normalizeProductId(draft.productId);
+    const currentProductId = leadProductId(currentLead);
+    const draftProduct =
+      findProductCatalogItem(productCatalog, draftProductId) ||
+      leadProductSnapshot(currentLead);
     const saleValue =
       normalizedSaleStatus !== "none" && parsedSaleValue <= 0
-        ? salePlanPrice(normalizedSalePlanKey)
+        ? productPriceAmount(draftProduct) || salePlanPrice(normalizedSalePlanKey)
         : parsedSaleValue;
     setSavingLeadId(leadId);
     setError(null);
@@ -8877,8 +9126,13 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         saleValue,
         commissionNote: draft.commissionNote,
       };
+      if (currentLead && draftProductId !== currentProductId) {
+        body.productId = draftProductId || 0;
+      } else if (!currentLead && draftProductId) {
+        body.productId = draftProductId;
+      }
       if (normalizedSaleStatus !== "none") {
-        body.salePlanKey = normalizedSalePlanKey;
+        if (!draftProductId) body.salePlanKey = normalizedSalePlanKey;
       }
       await apiFetch(`/vendas/lead/${leadId}`, {
         method: "PATCH",
@@ -8924,17 +9178,20 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   async function createHbxSalesHandoff(lead: LeadItem) {
     const currentDraft = drafts[lead.id] || createDraft(lead);
     const salePlanKey = normalizeSalePlanKey(currentDraft.salePlanKey || lead.salePlanKey);
+    const productId = normalizeProductId(currentDraft.productId);
     setHandoffLeadId(lead.id);
     setError(null);
     try {
+      const body: Record<string, unknown> = {
+        origin: typeof window !== "undefined" ? window.location.origin : "",
+      };
+      if (productId) body.productId = productId;
+      else body.salePlanKey = salePlanKey;
       const payload = await apiFetch<HbxSalesHandoffResponse>(
         `/vendas/lead/${encodeURIComponent(lead.id)}/hbx-handoff`,
         {
           method: "POST",
-          body: JSON.stringify({
-            salePlanKey,
-            origin: typeof window !== "undefined" ? window.location.origin : "",
-          }),
+          body: JSON.stringify(body),
         },
       );
       const textToCopy = String(payload?.message || payload?.registerUrl || payload?.registerPath || "").trim();
@@ -8965,6 +9222,8 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
 
   function openAssistedSignup(lead: LeadItem) {
     const currentDraft = drafts[lead.id] || createDraft(lead);
+    const productId = normalizeProductId(currentDraft.productId);
+    const product = resolveSelectedProduct(productCatalog, lead, currentDraft);
     const salePlanKey = normalizeSalePlanKey(currentDraft.salePlanKey || lead.salePlanKey);
     const cardPhone = leadCardPhoneForAssistedSignup(lead);
     setAssistedSignupLead(lead);
@@ -8975,7 +9234,8 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       email: currentDraft.email || lead.email || "",
       phone: cardPhone || currentDraft.phone || "",
       password: "",
-      salePlanKey,
+      productId: productId ? String(productId) : "",
+      salePlanKey: productPlanKey(product) || salePlanKey,
     });
   }
 
@@ -9008,16 +9268,24 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     setError(null);
     setAssistedSignupResult(null);
     try {
+      const productId = normalizeProductId(assistedSignupDraft.productId);
+      const body: Record<string, unknown> = {
+        ...assistedSignupDraft,
+        email,
+        phone: submittedPhone,
+      };
+      if (productId) {
+        body.productId = productId;
+        delete body.salePlanKey;
+      } else {
+        delete body.productId;
+        body.salePlanKey = normalizeSalePlanKey(assistedSignupDraft.salePlanKey);
+      }
       const payload = await apiFetch<HbxAssistedSignupResponse>(
         `/vendas/lead/${encodeURIComponent(assistedSignupLead.id)}/hbx-assisted-signup`,
         {
           method: "POST",
-          body: JSON.stringify({
-            ...assistedSignupDraft,
-            email,
-            phone: submittedPhone,
-            salePlanKey: normalizeSalePlanKey(assistedSignupDraft.salePlanKey),
-          }),
+          body: JSON.stringify(body),
         },
       );
       setAssistedSignupResult(payload);
@@ -9561,6 +9829,9 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       lead,
       draft,
       board,
+      productCatalog,
+      productCatalogLoading,
+      productCatalogError,
       blockKey,
       selected: selectedLeadId === lead.id,
       saving: savingLeadId === lead.id,
@@ -11484,10 +11755,24 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
     const currentLead = leadById.get(assistedSignupLead.id)?.lead || assistedSignupLead;
     const currentDraft = drafts[currentLead.id] || createDraft(currentLead);
     const mobileSaleStatus = normalizeSaleStatus(currentDraft.saleStatus || currentLead.saleStatus);
-    const mobileSalePlanKey = normalizeSalePlanKey(assistedSignupDraft.salePlanKey || currentDraft.salePlanKey || currentLead.salePlanKey);
-    const saleValueInput = currentDraft.saleValue || salePlanAmountInput(mobileSalePlanKey);
-    const mobileSaleValue = parseCurrencyInput(saleValueInput) || salePlanPrice(mobileSalePlanKey);
-    const mobileCommissionPercent = leadCommissionPercent(currentLead);
+    const selectedSignupProduct =
+      findProductCatalogItem(productCatalog, assistedSignupDraft.productId) ||
+      resolveSelectedProduct(productCatalog, currentLead, currentDraft);
+    const mobileSalePlanKey =
+      productPlanKey(selectedSignupProduct) ||
+      normalizeSalePlanKey(assistedSignupDraft.salePlanKey || currentDraft.salePlanKey || currentLead.salePlanKey);
+    const saleValueInput =
+      currentDraft.saleValue ||
+      productPriceAmountInput(selectedSignupProduct) ||
+      salePlanAmountInput(mobileSalePlanKey);
+    const mobileSaleValue =
+      parseCurrencyInput(saleValueInput) ||
+      productPriceAmount(selectedSignupProduct) ||
+      salePlanPrice(mobileSalePlanKey);
+    const mobileProductLabel = selectedSignupProduct
+      ? productCatalogLabel(selectedSignupProduct)
+      : salePlanLabel(mobileSalePlanKey);
+    const mobileCommissionPercent = closingCommissionPercent(currentLead, selectedSignupProduct);
     const mobileCommissionPreview = (mobileSaleValue * mobileCommissionPercent) / 100;
     const isSavingClosing = savingLeadId === currentLead.id;
     const cardPhone = leadCardPhoneForAssistedSignup(currentLead);
@@ -11579,7 +11864,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                   ) : null}
                 </div>
                 <div className={styles.assistedSignupClosingMeta}>
-                  <span>{salePlanLabel(mobileSalePlanKey)}</span>
+                  <span>{mobileProductLabel}</span>
                   <span>{mobileCommissionPercent > 0 ? `${formatPercent(mobileCommissionPercent)} do vendedor` : "Comissão não definida"}</span>
                   <span>D+{commissionDueDays} úteis</span>
                 </div>
@@ -11640,10 +11925,46 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                 </small>
               </label>
               <label className={styles.field}>
+                <span className={styles.fieldLabel}>Produto</span>
+                <select
+                  className={styles.fieldInput}
+                  value={assistedSignupDraft.productId}
+                  disabled={productCatalogLoading || Boolean(productCatalogError && !selectedSignupProduct)}
+                  onChange={(event) => {
+                    const product = findProductCatalogItem(productCatalog, event.target.value);
+                    setAssistedSignupDraft((draft) => ({
+                      ...draft,
+                      productId: event.target.value,
+                      salePlanKey: productPlanKey(product) || draft.salePlanKey,
+                    }));
+                    setLeadDraft(currentLead.id, {
+                      productId: event.target.value,
+                      saleValue: productPriceAmountInput(product) || currentDraft.saleValue,
+                      salePlanKey: productPlanKey(product) || currentDraft.salePlanKey,
+                    });
+                  }}
+                  title={productCatalogError || "Produto do catálogo comercial"}
+                >
+                  <option value="">
+                    {productCatalogLoading
+                      ? "Carregando produtos..."
+                      : productCatalogError
+                        ? "Catálogo indisponível"
+                        : "Sem produto do catálogo"}
+                  </option>
+                  {productSelectOptions(productCatalog, currentLead).map((product) => (
+                    <option key={product.id || product.name} value={product.id || ""}>
+                      {productCatalogLabel(product)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className={styles.field}>
                 <span className={styles.fieldLabel}>Plano</span>
                 <select
                   className={styles.fieldInput}
                   value={normalizeSalePlanKey(assistedSignupDraft.salePlanKey)}
+                  disabled={Boolean(selectedSignupProduct)}
                   onChange={(event) => {
                     const salePlanKey = normalizeSalePlanKey(event.target.value);
                     setAssistedSignupDraft((draft) => ({
@@ -12295,6 +12616,37 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                     }
                     placeholder="Opcional"
                   />
+                </label>
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>Produto</span>
+                  <select
+                    className={styles.fieldInput}
+                    value={manualLead.productId}
+                    disabled={productCatalogLoading || Boolean(productCatalogError)}
+                    onChange={(event) => {
+                      const product = findProductCatalogItem(productCatalog, event.target.value);
+                      setManualLead((prev) => ({
+                        ...prev,
+                        productId: event.target.value,
+                        saleValue: productPriceAmountInput(product) || prev.saleValue,
+                        salePlanKey: productPlanKey(product) || prev.salePlanKey,
+                      }));
+                    }}
+                    title={productCatalogError || "Produto do catálogo comercial"}
+                  >
+                    <option value="">
+                      {productCatalogLoading
+                        ? "Carregando produtos..."
+                        : productCatalogError
+                          ? "Catálogo indisponível"
+                          : "Sem produto do catálogo"}
+                    </option>
+                    {productCatalog.map((product) => (
+                      <option key={product.id} value={product.id}>
+                        {productCatalogLabel(product)}
+                      </option>
+                    ))}
+                  </select>
                 </label>
                 <label className={styles.field}>
                   <span className={styles.fieldLabel}>Retorno</span>

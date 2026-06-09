@@ -89,6 +89,15 @@ export type HbxFactoryAllowance = {
   nextStopAt: string | null;
 };
 
+export type HbxEngineElasticSyncResult = {
+  synced: boolean;
+  configuredEngineCount: number;
+  desiredRunningCount: number;
+  updatedRunningCount: number;
+  updatedStoppingCount: number;
+  scheduler?: HbxEngineSchedulerStatus | null;
+};
+
 export type HbxEngineStatusCounts = {
   online: number;
   standby: number;
@@ -1128,6 +1137,38 @@ export class HbxEnginePoolService implements OnModuleInit {
     return this.buildSchedulerStatus(capacity || undefined);
   }
 
+  async syncElasticEngineDesiredStates(): Promise<HbxEngineElasticSyncResult> {
+    const configuredEngineCount = getConfiguredHbxEngineCount();
+    if (!(await this.prisma.hasTable('HbxEngineLock').catch(() => false))) {
+      return {
+        synced: false,
+        configuredEngineCount,
+        desiredRunningCount: this.resolveElasticWarmMinEngines(configuredEngineCount),
+        updatedRunningCount: 0,
+        updatedStoppingCount: 0,
+        scheduler: null,
+      };
+    }
+
+    await this.cleanupExpiredLocks();
+    const [capacity, rows] = await Promise.all([
+      this.getCurrentCapacityLevel(),
+      this.healthCheckEngines(),
+    ]);
+    const scheduler = await this.buildSchedulerStatus(capacity, rows).catch(() => capacity.scheduler || null);
+    const desiredRunningCount = this.resolveElasticDesiredRunningCount(capacity, scheduler);
+    const result = await this.applyElasticDesiredStates(rows, desiredRunningCount);
+
+    return {
+      synced: true,
+      configuredEngineCount,
+      desiredRunningCount,
+      updatedRunningCount: result.updatedRunningCount,
+      updatedStoppingCount: result.updatedStoppingCount,
+      scheduler,
+    };
+  }
+
   private normalizePurpose(value: unknown): HbxEnginePurpose {
     const purpose = String(value || '').trim().toLowerCase();
     if (purpose === 'radar_pull' || purpose === 'radar_digital' || purpose === 'lead_plus_enrichment' || purpose === 'vendas' || purpose === 'autonomous' || purpose === 'mass_data') {
@@ -1152,6 +1193,102 @@ export class HbxEnginePoolService implements OnModuleInit {
 
   private resolveAutonomousMinEngines() {
     return Math.max(0, parseIntegerEnv('HBX_FACTORY_MIN_ENGINES', parseIntegerEnv('HBX_AUTONOMOUS_MIN_ENGINES', 1)));
+  }
+
+  private resolveElasticWarmMinEngines(configuredCount = getConfiguredHbxEngineCount()) {
+    const configured = Math.max(1, Math.trunc(Number(configuredCount || 1)));
+    const parsed = parseIntegerEnv(
+      'HBX_ENGINE_WARM_MIN',
+      parseIntegerEnv('HBX_FACTORY_IDLE_MIN_ENGINES', 1),
+    );
+    return Math.min(Math.max(1, parsed), configured);
+  }
+
+  private resolveElasticDesiredRunningCount(
+    capacity?: CapacityLevel | null,
+    scheduler?: HbxEngineSchedulerStatus | null,
+  ) {
+    const configuredCount = getConfiguredHbxEngineCount();
+    const warmMin = this.resolveElasticWarmMinEngines(configuredCount);
+    const automaticTarget = Math.max(0, Math.trunc(Number(scheduler?.automaticAllowedEngines || 0)));
+    const activeTarget = Math.max(0, Math.trunc(Number(capacity?.activeEngineCount || 0)));
+    const manualReserve = scheduler?.clientPriorityActive
+      ? Math.max(0, Math.trunc(Number(scheduler.manualReservedEngines || 0)))
+      : 0;
+    const demandTarget = scheduler?.manualDemandActive
+      ? Math.max(manualReserve, Math.min(activeTarget, configuredCount))
+      : 0;
+    return Math.min(
+      configuredCount,
+      Math.max(warmMin, manualReserve, automaticTarget, demandTarget),
+    );
+  }
+
+  private async applyElasticDesiredStates(rows: EngineRegistryRow[], desiredRunningCount: number) {
+    const configuredCount = getConfiguredHbxEngineCount();
+    const target = Math.max(
+      this.resolveElasticWarmMinEngines(configuredCount),
+      Math.min(configuredCount, Math.trunc(Number(desiredRunningCount || 0))),
+    );
+    const nowMs = Date.now();
+    const drainTimeoutSeconds = await this.resolveEngineDrainTimeoutSeconds().catch(() => 90);
+    const drainUntil = new Date(nowMs + drainTimeoutSeconds * 1000);
+    let updatedRunningCount = 0;
+    let updatedStoppingCount = 0;
+
+    for (const row of rows) {
+      if (row.engineIndex >= configuredCount) continue;
+      if (this.isEnginePaused(row, nowMs)) continue;
+      const status = String(row.status || '').trim().toLowerCase();
+      const busy = this.isEngineCurrentlyBusy(row, nowMs);
+      const shouldRun = row.engineIndex < target;
+
+      if (shouldRun) {
+        if (['stopped', 'inactive', 'offline', 'cooldown', 'draining'].includes(status)) {
+          const nextStatus = busy ? 'busy' : row.engineIndex === 0 ? 'online' : 'standby';
+          const updated = await (this.prisma as any).hbxEngineLock.updateMany({
+            where: { id: row.id },
+            data: {
+              status: nextStatus,
+              manualPaused: false,
+              pausedUntil: null,
+              cooldownUntil: null,
+              lastError: null,
+            },
+          }).catch(() => ({ count: 0 }));
+          updatedRunningCount += Number(updated?.count || 0);
+        }
+        continue;
+      }
+
+      if (status === 'stopped' || status === 'inactive') continue;
+      const updated = await (this.prisma as any).hbxEngineLock.updateMany({
+        where: { id: row.id },
+        data: busy
+          ? {
+              status: 'draining',
+              manualPaused: false,
+              pausedUntil: drainUntil,
+              cooldownUntil: null,
+              lastError: 'Governor elastico drenando motor acima do alvo atual.',
+            }
+          : {
+              status: 'stopped',
+              manualPaused: false,
+              pausedUntil: null,
+              cooldownUntil: null,
+              lockedRunId: null,
+              lockedCompanyId: null,
+              lockedUserId: null,
+              lockedAt: null,
+              lockedUntil: null,
+              lastError: 'Governor elastico reduziu capacidade ociosa.',
+            },
+      }).catch(() => ({ count: 0 }));
+      updatedStoppingCount += Number(updated?.count || 0);
+    }
+
+    return { updatedRunningCount, updatedStoppingCount };
   }
 
   private resolveFactoryMaxEngines(configuredCount = getConfiguredHbxEngineCount()) {
@@ -1282,12 +1419,12 @@ export class HbxEnginePoolService implements OnModuleInit {
     const clientPriorityActive = this.isWithinClientPriorityWindow() || manualDemandActive;
     const manualReservedEngines = clientPriorityActive ? this.resolveManualReservedEngines(configuredCount) : 0;
     const memoryPressurePercent = this.resolveMemoryPressurePercent(operationalConfig);
-    const factoryCapacity = Math.max(0, onlineHealthyEngines - manualReservedEngines);
+    const factoryCapacity = Math.max(0, configuredCount - manualReservedEngines);
     const autonomousMin = Math.min(this.resolveAutonomousMinEngines(), factoryCapacity);
     const factoryMaxEngines = this.resolveFactoryMaxEngines(configuredCount);
     const factoryAllowance = this.resolveFactoryAllowedEngines({
       engineCount: configuredCount,
-      onlineHealthyEngines,
+      onlineHealthyEngines: configuredCount,
       manualReservedEngines,
       clientPriorityActive,
       manualDemandActive,
@@ -1296,10 +1433,11 @@ export class HbxEnginePoolService implements OnModuleInit {
       factoryMaxEngines,
     });
     const degraded = String(capacity?.operationalStatus || '') === 'degraded';
-    let automaticAllowedEngines = degraded || onlineHealthyEngines <= 0 ? 0 : factoryAllowance.allowedEngines;
-    if (!manualDemandActive && !degraded && onlineHealthyEngines > 0) {
+    const activeTarget = Math.max(0, Math.min(configuredCount, Math.trunc(Number(capacity?.activeEngineCount || configuredCount))));
+    let automaticAllowedEngines = degraded ? 0 : Math.min(factoryAllowance.allowedEngines, activeTarget);
+    if (!manualDemandActive && !degraded) {
       automaticAllowedEngines = factoryAllowance.allowedEngines > 0
-        ? Math.max(automaticAllowedEngines, Math.min(autonomousMin, factoryAllowance.allowedEngines))
+        ? Math.max(automaticAllowedEngines, Math.min(autonomousMin, factoryAllowance.allowedEngines, Math.max(activeTarget, autonomousMin)))
         : 0;
     }
     if (factoryMaxEngines != null) {
@@ -1308,7 +1446,7 @@ export class HbxEnginePoolService implements OnModuleInit {
     automaticAllowedEngines = Math.max(0, Math.min(factoryCapacity, automaticAllowedEngines));
     const productionMode: HbxEngineSchedulerStatus['productionMode'] = manualDemandActive
       ? 'protected'
-      : automaticAllowedEngines < Math.max(0, onlineHealthyEngines - manualReservedEngines)
+      : automaticAllowedEngines < factoryCapacity
         ? 'reduced'
         : 'full';
     const scheduler: HbxEngineSchedulerStatus = {

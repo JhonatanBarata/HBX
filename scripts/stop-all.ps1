@@ -3,7 +3,7 @@
 
 param(
     [switch]$KeepEngines,
-    [int]$EngineCount = 50
+    [int]$EngineCount = 0
 )
 
 $startedAt = Get-Date
@@ -59,7 +59,7 @@ function Resolve-EngineCount([int]$requested) {
     if ([int]::TryParse($fromEnv, [ref]$parsed) -and $parsed -gt 0) {
         return [Math]::Min([Math]::Max($parsed, 1), 50)
     }
-    return 50
+    return 3
 }
 
 function Format-Elapsed([datetime]$start) {

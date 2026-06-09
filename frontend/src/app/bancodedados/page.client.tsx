@@ -867,7 +867,7 @@ function HbxTerritoryPanelView({
     <div className={styles.territoryLayout}>
       <section className={styles.territoryHero}>
         <div>
-          <span>HBX Master</span>
+          <span>Painel Master</span>
           <strong>Distribuição de Cards</strong>
           <p>Modo tabela para o Master distribuir cards por UF, cidade e vendedor. O vendedor trabalha os cards no Vendas.</p>
         </div>

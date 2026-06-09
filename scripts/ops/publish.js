@@ -11,7 +11,8 @@ const {
   runStep,
 } = require('./common');
 
-const HBX_DEFAULT_PUBLISH_ENGINE_COUNT = 3;
+const HBX_DEFAULT_ENGINE_CAPACITY = 20;
+const HBX_DEFAULT_PUBLISH_WARM_ENGINE_COUNT = 3;
 const HBX_ENGINE_HARD_LIMIT = 200;
 
 function parsePositiveInteger(value, fallback) {
@@ -22,26 +23,42 @@ function parsePositiveInteger(value, fallback) {
   return Math.max(1, Math.trunc(parsed));
 }
 
-function resolvePublishEngineCount(env) {
+function resolvePublishEngineCapacity(env) {
   return Math.min(
     parsePositiveInteger(
-      env.HBX_PUBLISH_ENGINE_COUNT || env.HBX_PUBLISH_WARM_ENGINE_COUNT,
-      HBX_DEFAULT_PUBLISH_ENGINE_COUNT,
+      env.HBX_PUBLISH_ENGINE_MAX_COUNT
+        || env.HBX_ENGINE_MAX_COUNT
+        || env.HBX_ENGINE_COUNT
+        || env.HBX_ENGINE_DEFAULT_COUNT,
+      HBX_DEFAULT_ENGINE_CAPACITY,
     ),
     HBX_ENGINE_HARD_LIMIT,
   );
 }
 
+function resolvePublishWarmCount(env, capacity) {
+  return Math.min(
+    parsePositiveInteger(
+      env.HBX_PUBLISH_ENGINE_COUNT
+        || env.HBX_PUBLISH_WARM_ENGINE_COUNT
+        || env.HBX_ENGINE_WARM_MAX,
+      HBX_DEFAULT_PUBLISH_WARM_ENGINE_COUNT,
+    ),
+    capacity,
+  );
+}
+
 function printAsapSummary() {
   const env = loadOperationsEnv();
-  const engineCount = resolvePublishEngineCount(env);
+  const engineCapacity = resolvePublishEngineCapacity(env);
+  const warmCount = resolvePublishWarmCount(env, engineCapacity);
   const webwhatsEnabled = String(env.WEBWHATS_DEPLOY_ENABLED || '').trim().toLowerCase() !== 'false';
 
   logStage('Publish ASAP');
   console.log('Fluxo real: status/diff -> deploy-hostinger -> preflight local -> push -> Hostinger.');
-  console.log(`Motores HBX no publish normal: ${engineCount} warm engine(s), nao frota grande.`);
+  console.log(`Motores HBX no publish normal: capacidade ${engineCapacity}, warm inicial ${warmCount}.`);
   console.log(`Webwhats deploy: ${webwhatsEnabled ? 'habilitado se o repo estiver disponivel' : 'desabilitado por WEBWHATS_DEPLOY_ENABLED=false'}.`);
-  console.log('Para reduzir tempo sem perder cobertura do publish completo: mantenha HBX_PUBLISH_ENGINE_COUNT baixo; use npm run new quando quiser deploy seletivo.');
+  console.log('Para reduzir tempo sem perder cobertura do publish completo: mantenha HBX_PUBLISH_ENGINE_COUNT baixo e ajuste HBX_PUBLISH_ENGINE_MAX_COUNT apenas para mudar capacidade.');
 }
 
 function main() {

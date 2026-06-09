@@ -5727,7 +5727,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
                 <span>{radarOperationalLabel}</span>
                 <strong>{activeRunDelivered.toLocaleString("pt-BR")} de até {activeRunTarget.toLocaleString("pt-BR")} cards</strong>
               </div>
-              <small>{socialLookupPendingCount > 0 ? "Entregando cards" : activeRun.status === "queued" ? "Na fila HBX" : "Verificando disponibilidade real"}</small>
+              <small>{socialLookupPendingCount > 0 ? "Entregando cards" : activeRun.status === "queued" ? "Na fila do Radar" : "Verificando disponibilidade real"}</small>
             </div>
             <div className={styles.runProgressTrack} aria-hidden="true">
               <span style={{ ["--progress" as string]: `${activeRunProgress}%` }} />

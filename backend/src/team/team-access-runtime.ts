@@ -53,10 +53,24 @@ export type VendasAccessContext = EffectiveTeamAccess & {
   canSendEmail: boolean;
   canUseCompanyReplyTo: boolean;
   canUseCompanyWhatsappNumber: boolean;
+  canSellProducts: boolean;
+  canApplyProductDiscount: boolean;
+  canViewProductPrice: boolean;
+  canChangeProductPrice: boolean;
   canViewOwnCommission: boolean;
   canViewTeamCommission: boolean;
   canMarkCommissionPaid: boolean;
   canCancelCommission: boolean;
+};
+
+export type ProductsAccessContext = EffectiveTeamAccess & {
+  companyId: number;
+  canViewProducts: boolean;
+  canSellProducts: boolean;
+  canEditProducts: boolean;
+  canApplyProductDiscount: boolean;
+  canViewProductPrice: boolean;
+  canChangeProductPrice: boolean;
 };
 
 function normalizePositiveId(value: unknown) {
@@ -295,9 +309,40 @@ export async function resolveVendasAccessContext(prisma: any, user: any): Promis
     canSendEmail: has('communication.email.send'),
     canUseCompanyReplyTo: has('communication.email.useCompanyReplyTo'),
     canUseCompanyWhatsappNumber: has('communication.whatsapp.useCompanyNumber'),
+    canSellProducts: has('products.sell'),
+    canApplyProductDiscount: has('products.discount'),
+    canViewProductPrice: has('products.viewPrice'),
+    canChangeProductPrice: has('products.changePrice'),
     canViewOwnCommission: has('commission.viewOwn'),
     canViewTeamCommission: has('commission.viewTeam'),
     canMarkCommissionPaid: has('commission.markPaid'),
     canCancelCommission: has('commission.cancel'),
+  };
+}
+
+export async function resolveProductsAccessContext(prisma: any, user: any): Promise<ProductsAccessContext> {
+  const context = await resolveEffectiveTeamAccess(prisma, user);
+  const has = (key: string) => hasTeamAccess(context.accessMap, key);
+  const activeMasterContext = Boolean(context.masterContext?.active);
+
+  if (context.isSystemMaster && !activeMasterContext) {
+    throw new ForbiddenException('Contexto de tenant obrigatorio para operar Produtos.');
+  }
+  if (!activeMasterContext && isPlatformInfraCompany(context.company)) {
+    throw new ForbiddenException('Contexto de tenant obrigatorio para operar Produtos.');
+  }
+  if (!context.companyId) {
+    throw new ForbiddenException('Empresa nao identificada.');
+  }
+
+  return {
+    ...context,
+    companyId: context.companyId,
+    canViewProducts: has('products.view'),
+    canSellProducts: has('products.sell'),
+    canEditProducts: has('products.edit'),
+    canApplyProductDiscount: has('products.discount'),
+    canViewProductPrice: has('products.viewPrice'),
+    canChangeProductPrice: has('products.changePrice'),
   };
 }

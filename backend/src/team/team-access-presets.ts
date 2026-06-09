@@ -206,7 +206,10 @@ export const TEAM_ACCESS_PRESETS: TeamAccessPreset[] = [
       'sellerNetwork.receiveInheritedCommission': false,
       'products.view': false,
       'products.sell': false,
+      'products.edit': false,
+      'products.discount': false,
       'products.viewPrice': false,
+      'products.changePrice': false,
     }),
     limits: {
       enrichmentDaily: { mode: 'blocked', value: 0 },

@@ -21,7 +21,7 @@ Scripts auxiliares devem ser chamados diretamente por `node`/PowerShell quando f
 Fluxo de deploy normal:
 
 1. Detecta mudancas e mostra diff resumido.
-2. Mostra um resumo ASAP com destino, warm pool de motores e escopo pesado esperado.
+2. Mostra um resumo ASAP com destino, capacidade elastica, warm pool de motores e escopo pesado esperado.
 3. Executa o deploy Hostinger via `scripts/deploy-hostinger.js`.
 4. O deploy cria commit automatico datado se houver mudancas permitidas.
 5. O deploy roda preflight Prisma/build local uma vez, faz `git push origin master`, atualiza a VPS e sobe os containers.
@@ -29,11 +29,19 @@ Fluxo de deploy normal:
 7. Nao roda healthcheck de backend, frontend ou motores no publish normal.
 8. Mostra status final.
 
-O publish normal usa warm pool pequeno de motores HBX por padrao para nao recriar a frota inteira sem necessidade. Para publicar mais motores explicitamente, defina `HBX_PUBLISH_ENGINE_COUNT` no ambiente operacional antes do publish. `HBX_ENGINE_MAX_COUNT` representa capacidade maxima configuravel e pode ficar em 200 sem significar 200 containers ligados.
+O publish normal cria a capacidade elastica declarada de motores HBX e inicia um warm pool pequeno. Por padrao, a capacidade e 20 motores e o warm inicial e 3. O backend governor decide quantos ficam vivos conforme fila, janela noturna e pressao de memoria.
+
+Variaveis operacionais:
+
+- `HBX_PUBLISH_ENGINE_COUNT`: quantidade inicial running no publish, default 3.
+- `HBX_PUBLISH_ENGINE_MAX_COUNT`: capacidade declarada criada na VPS, default 20.
+- `HBX_ENGINE_WARM_MIN`: minimo que o governor mantem vivo, default 1.
+- `HBX_ENGINE_GOVERNOR_ENABLED`: deve ficar `true` na VPS para elasticidade.
 
 Para reduzir tempo sem perder cobertura do publish completo:
 
 - mantenha `HBX_PUBLISH_ENGINE_COUNT` baixo no publish normal;
+- use `HBX_PUBLISH_ENGINE_MAX_COUNT` quando quiser mudar a capacidade elastica;
 - use `npm run new` quando a mudanca puder ser publicada pelo fluxo seletivo;
 - reserve `npm run force` para recuperacao/rebuild completo.
 

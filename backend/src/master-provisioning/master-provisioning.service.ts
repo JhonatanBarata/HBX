@@ -11,15 +11,29 @@ import {
   type CommercialEntitlementKey,
 } from '../commercial-plans/commercial-plan-catalog';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  buildTenantProductSeeds,
+  ensureHbxTenantProductsTx,
+  ensureTenantProductsTx,
+  type EnsureTenantProductResult,
+  type TenantProductSeed,
+  type TenantProductSeedInput,
+} from '../products/tenant-product-seed';
 
 type ProvisioningStepStatus = 'ready' | 'done' | 'deferred' | 'pending_schema';
 
 export type MasterProvisioningModuleInput = string | { key: string; enabled?: boolean };
 
-export type MasterProvisioningProductInput = {
-  key?: string | null;
-  name: string;
-  description?: string | null;
+export type MasterProvisioningProductInput = TenantProductSeedInput;
+
+export type MasterProvisioningBackfillProductsInput = {
+  companyId?: number | null;
+  limit?: number | null;
+  dryRun?: boolean | null;
+};
+
+export type MasterProvisioningSeedHbxProductsInput = {
+  dryRun?: boolean | null;
 };
 
 export type MasterProvisioningInput = {
@@ -82,7 +96,7 @@ export type MasterProvisioningPlan = {
     supportWhatsapp: string | null;
     persistence: 'pending_schema';
   };
-  products: Array<{ key: string | null; name: string; description: string | null; persistence: 'deferred' }>;
+  products: Array<TenantProductSeed & { persistence: 'ready' }>;
   assistedImplementation: {
     required: boolean;
     status: 'not_required' | 'pending' | 'completed';
@@ -99,6 +113,7 @@ export type MasterProvisioningResult = {
   moduleKeys: string[];
   unresolvedModuleKeys: string[];
   entitlementKeys: CommercialEntitlementKey[];
+  products: EnsureTenantProductResult[];
   plan: MasterProvisioningPlan;
 };
 
@@ -186,19 +201,8 @@ export class MasterProvisioningService {
         ? 'pending'
         : 'not_required';
 
-    const products = (input.products || [])
-      .map((product) => {
-        const name = normalizeText(product?.name, 140);
-        if (!name) return null;
-        const key = normalizeSlug(product?.key || name) || null;
-        return {
-          key,
-          name,
-          description: normalizeText(product?.description, 500),
-          persistence: 'deferred' as const,
-        };
-      })
-      .filter((item): item is { key: string | null; name: string; description: string | null; persistence: 'deferred' } => Boolean(item));
+    const products = buildTenantProductSeeds(input.products, { source: 'master_provisioning' })
+      .map((product) => ({ ...product, persistence: 'ready' as const }));
 
     const supportChannels = {
       supportEmail: normalizeEmail(input.supportEmail),
@@ -258,7 +262,7 @@ export class MasterProvisioningService {
         { key: 'configure_limits', label: 'Configurar limites', status: 'ready' },
         { key: 'create_initial_admin', label: 'Criar admin inicial', status: input.admin ? 'ready' : 'deferred' },
         { key: 'configure_support_channels', label: 'Configurar canais de suporte', status: 'pending_schema' },
-        { key: 'prepare_initial_products', label: 'Preparar produtos iniciais', status: products.length ? 'deferred' : 'deferred' },
+        { key: 'prepare_initial_products', label: 'Preparar produtos iniciais', status: products.length ? 'ready' : 'deferred' },
         { key: 'mark_assisted_implementation', label: 'Marcar implantacao assistida', status: 'ready' },
       ],
     };
@@ -376,10 +380,15 @@ export class MasterProvisioningService {
           })
         : null;
 
+      const products = await ensureTenantProductsTx(tx, company.id, plan.products, {
+        authorId: admin?.id || null,
+      });
+
       return {
         companyId: company.id,
         adminUserId: admin?.id || null,
         resolvedModuleKeys: moduleRows.map((row) => String(row.key)),
+        products,
       };
     });
 
@@ -392,7 +401,72 @@ export class MasterProvisioningService {
       moduleKeys: result.resolvedModuleKeys,
       unresolvedModuleKeys: plan.modules.map((moduleItem) => moduleItem.key).filter((key) => !resolved.has(key)),
       entitlementKeys,
+      products: result.products,
       plan,
+    };
+  }
+
+  async backfillTenantProducts(input: MasterProvisioningBackfillProductsInput = {}) {
+    const companyId = normalizePositiveInteger(input.companyId, 1, 999999999, null);
+    const dryRun = input.dryRun !== false;
+    const limit = companyId
+      ? 1
+      : normalizePositiveInteger(input.limit, 1, 500, 100) ?? 100;
+    const companies = await this.prisma.company.findMany({
+      where: companyId
+        ? { id: companyId, companyKind: COMPANY_KIND_TENANT }
+        : { companyKind: COMPANY_KIND_TENANT },
+      select: { id: true, name: true },
+      orderBy: { id: 'asc' },
+      take: limit,
+    });
+    const seeds = buildTenantProductSeeds(null, {
+      source: 'tenant_product_backfill',
+      defaultStatus: 'draft',
+    });
+    const rows: Array<{
+      companyId: number;
+      companyName: string;
+      products: EnsureTenantProductResult[];
+    }> = [];
+
+    for (const company of companies) {
+      const products = dryRun
+        ? await ensureTenantProductsTx(this.prisma, company.id, seeds, { dryRun: true })
+        : await this.prisma.$transaction((tx) => ensureTenantProductsTx(tx, company.id, seeds));
+      rows.push({
+        companyId: company.id,
+        companyName: company.name,
+        products,
+      });
+    }
+
+    return {
+      ok: true as const,
+      dryRun,
+      companyCount: rows.length,
+      createdCount: rows.reduce(
+        (total, row) => total + row.products.filter((product) => product.created).length,
+        0,
+      ),
+      wouldCreateCount: rows.reduce(
+        (total, row) => total + row.products.filter((product) => product.wouldCreate).length,
+        0,
+      ),
+      rows,
+    };
+  }
+
+  async seedHbxTenantProducts(input: MasterProvisioningSeedHbxProductsInput = {}) {
+    const dryRun = input.dryRun !== false;
+    const result = dryRun
+      ? await ensureHbxTenantProductsTx(this.prisma, { dryRun: true })
+      : await this.prisma.$transaction((tx) => ensureHbxTenantProductsTx(tx));
+
+    return {
+      ...result,
+      createdCount: result.products.filter((product) => product.created).length,
+      wouldCreateCount: result.products.filter((product) => product.wouldCreate).length,
     };
   }
 }

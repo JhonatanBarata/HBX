@@ -12,6 +12,7 @@ import { HbxEmptyState, HbxSection, HbxStatusBadge } from "@/components/ui";
 import ApplyPolicyToUsersModal from "./_components/ApplyPolicyToUsersModal";
 import CommissionSummaryPanel from "./_components/CommissionSummaryPanel";
 import PartnerOnboardingPanel from "./_components/PartnerOnboardingPanel";
+import ProductCatalogPanel from "./_components/ProductCatalogPanel";
 import ReferralCandidatesPanel from "./_components/ReferralCandidatesPanel";
 import TeamListPanel from "./_components/TeamListPanel";
 import TeamPolicyModal from "./_components/TeamPolicyModal";
@@ -405,7 +406,7 @@ type UserProfileDraft = {
 };
 
 type GerencialRole = "USER" | "ADMIN" | "USERMASTER";
-type MobileGerencialTab = "status" | "equipe" | "comissoes" | "modulos" | "sinais";
+type MobileGerencialTab = "status" | "equipe" | "comissoes" | "modulos" | "produtos" | "sinais";
 type DesktopGerencialGuideTab = MobileGerencialTab | "atualizar";
 
 const CREATED_PASSWORD_STORAGE_KEY = "hbx.gerencial.created-password.v1";
@@ -2536,6 +2537,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     ["equipe", "Equipe"],
     ["comissoes", "Comissões"],
     ["modulos", "Módulos"],
+    ["produtos", "Produtos"],
     ["sinais", "Sinais"],
   ];
   const desktopGuideTabs: Array<HbxGuide1Tab<DesktopGerencialGuideTab>> = [
@@ -2543,6 +2545,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     { key: "equipe", label: "Equipe", badge: teamStats.active },
     { key: "comissoes", label: "Comissões", badge: formatCurrency(data?.commission?.totals.duePayableAmount || 0) },
     { key: "modulos", label: "Módulos", badge: enabledModules.length },
+    { key: "produtos", label: "Produtos" },
     { key: "sinais", label: "Sinais", badge: topMessages.length + topSurveys.length },
     { key: "atualizar", label: "Atualizar", badge: loading ? "..." : undefined },
   ];
@@ -3390,6 +3393,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                 {(data.users || []).map((user) => renderMobileUserCard(user, { modulesOnly: true }))}
               </div>
             ) : null}
+            {mobileTab === "produtos" ? <ProductCatalogPanel surface="mobile" /> : null}
             {mobileTab === "sinais" ? renderMobileSignals() : null}
           </>
         )}
@@ -3438,6 +3442,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   const showDesktopCommissions = desktopGuideTab === "comissoes";
   const showDesktopTeam = desktopGuideTab === "equipe";
   const showDesktopModules = desktopGuideTab === "modulos";
+  const showDesktopProducts = desktopGuideTab === "produtos";
   const showDesktopSignals = desktopGuideTab === "sinais";
 
   return (
@@ -4221,6 +4226,8 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
             </div>
           </TeamListPanel>
           ) : null}
+
+          {showDesktopProducts ? <ProductCatalogPanel surface="desktop" /> : null}
 
           {showDesktopSignals ? (
           <section className="metrics-grid">

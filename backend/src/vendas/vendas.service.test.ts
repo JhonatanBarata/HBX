@@ -67,6 +67,10 @@ function createService(overrides?: Partial<Record<string, any>>) {
       findUnique: async () => ({ selectedPlanKey: 'hbx_padrao' }),
       ...(overrides?.company || {}),
     },
+    product: {
+      findFirst: async () => null,
+      ...(overrides?.product || {}),
+    },
     hasTable: async () => false,
     hasColumn: async () => false,
     ...(overrides?.prisma || {}),
@@ -1483,6 +1487,52 @@ test('createManualLeadForUser requires createManual access', async () => {
   assert.equal(duplicateLookupCalls, 0);
 });
 
+test('createManualLeadForUser with productId stores product snapshots on the card', async () => {
+  const { prisma, createdRows } = createImportPrismaHarness();
+  const { service } = createService({
+    prisma,
+    vendasLead: {
+      findMany: async () => [],
+    },
+    product: {
+      findFirst: async ({ where }: any) => {
+        assert.deepEqual(where, { id: 10, companyId: 7, status: 'active' });
+        return {
+          id: 10,
+          companyId: 7,
+          status: 'active',
+          kind: 'platform_plan',
+          name: 'HBX Lead',
+          priceCents: 9900,
+          currency: 'BRL',
+          billingCycle: 'MONTHLY',
+          defaultCommissionPercent: 12,
+          planKey: 'hbx_padrao',
+        };
+      },
+    },
+  });
+
+  const result = await service.createManualLeadForUser(
+    { companyId: 7, id: 99, role: 'USER' },
+    {
+      name: 'Cliente Produto',
+      productId: 10,
+    } as any,
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(createdRows.length, 1);
+  assert.equal(createdRows[0].productId, 10);
+  assert.equal(createdRows[0].productKindSnapshot, 'platform_plan');
+  assert.equal(createdRows[0].productNameSnapshot, 'HBX Lead');
+  assert.equal(createdRows[0].productPriceCentsSnapshot, 9900);
+  assert.equal(createdRows[0].productCurrencySnapshot, 'BRL');
+  assert.equal(createdRows[0].productBillingCycleSnapshot, 'MONTHLY');
+  assert.equal(createdRows[0].productCommissionPercentSnapshot, 12);
+  assert.equal(createdRows[0].productPlanKeySnapshot, 'hbx_padrao');
+});
+
 test('updateLeadForUser requires edit access before loading the card', async () => {
   let findFirstCalls = 0;
   const { service } = createService({
@@ -1538,6 +1588,145 @@ test('updateLeadForUser scopes USER without viewCompany to own assigned card', a
     { id: 'lead-other' },
     { assignedUserId: 99 },
   ]);
+});
+
+test('updateLeadForUser requires products.sell before linking catalog product', async () => {
+  let productFindCalls = 0;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'products.sell': false },
+        }),
+      },
+    },
+    vendasLead: {
+      findFirst: async () => ({
+        id: 'lead-1',
+        companyId: 7,
+        assignedUserId: 99,
+        status: 'novo',
+        attemptCount: 0,
+      }),
+    },
+    product: {
+      findFirst: async () => {
+        productFindCalls += 1;
+        return null;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.updateLeadForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      'lead-1',
+      { productId: 10 } as any,
+    ),
+    /vender produtos bloqueado/i,
+  );
+
+  assert.equal(productFindCalls, 0);
+});
+
+test('updateLeadForUser requires products.discount for product sale below catalog price', async () => {
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'products.discount': false },
+        }),
+      },
+    },
+    vendasLead: {
+      findFirst: async () => ({
+        id: 'lead-1',
+        companyId: 7,
+        assignedUserId: 99,
+        status: 'novo',
+        attemptCount: 0,
+        saleStatus: 'none',
+        saleValue: 0,
+        commissionStatus: 'none',
+      }),
+    },
+    product: {
+      findFirst: async () => ({
+        id: 10,
+        companyId: 7,
+        status: 'active',
+        kind: 'service',
+        name: 'Plano Comercial',
+        priceCents: 10000,
+        currency: 'BRL',
+        billingCycle: 'MONTHLY',
+        allowDiscount: true,
+        maxDiscountPercent: 20,
+        minPriceCents: 8000,
+        defaultCommissionPercent: 12,
+        planKey: 'tenant_plano',
+      }),
+    },
+  });
+
+  await assert.rejects(
+    () => service.updateLeadForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      'lead-1',
+      { productId: 10, saleValue: 90 } as any,
+    ),
+    /aplicar desconto bloqueado/i,
+  );
+});
+
+test('updateLeadForUser requires products.changePrice for product sale above catalog price', async () => {
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'products.changePrice': false },
+        }),
+      },
+    },
+    vendasLead: {
+      findFirst: async () => ({
+        id: 'lead-1',
+        companyId: 7,
+        assignedUserId: 99,
+        status: 'novo',
+        attemptCount: 0,
+        saleStatus: 'none',
+        saleValue: 0,
+        commissionStatus: 'none',
+      }),
+    },
+    product: {
+      findFirst: async () => ({
+        id: 10,
+        companyId: 7,
+        status: 'active',
+        kind: 'service',
+        name: 'Plano Comercial',
+        priceCents: 10000,
+        currency: 'BRL',
+        billingCycle: 'MONTHLY',
+        allowDiscount: true,
+        maxDiscountPercent: 20,
+        minPriceCents: 8000,
+        defaultCommissionPercent: 12,
+        planKey: 'tenant_plano',
+      }),
+    },
+  });
+
+  await assert.rejects(
+    () => service.updateLeadForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      'lead-1',
+      { productId: 10, saleValue: 120 } as any,
+    ),
+    /alterar valor da venda bloqueado/i,
+  );
 });
 
 test('createHbxSalesHandoffForUser requires activation sale access before loading the card', async () => {
@@ -2243,6 +2432,38 @@ test('buildSaleCommissionPatch releases commission only after confirmed payment'
   assert.equal(result.data.commissionAmount, 19.8);
   assert.ok(result.data.commissionDueAt instanceof Date);
   assert.equal(result.data.commissionRecurring, true);
+});
+
+test('buildSaleCommissionPatch uses product snapshot price and commission when sale value is absent', async () => {
+  const { service } = createService();
+  const result = await (service as any).buildSaleCommissionPatch(
+    {
+      id: 'lead-product',
+      companyId: 7,
+      assignedUserId: 99,
+      commissionPercentSnapshot: 20,
+      productPriceCentsSnapshot: 12990,
+      productCommissionPercentSnapshot: 15,
+      productPlanKeySnapshot: 'tenant_plano',
+      saleValue: 0,
+      salePlanKey: null,
+      saleStatus: 'trial_started',
+      commissionStatus: 'pending',
+      commissionAmount: 0,
+      commissionDueAt: null,
+      commissionPaidAt: null,
+      commissionPayoutId: null,
+    },
+    { saleStatus: 'sale_confirmed' } as any,
+    99,
+    { allowAutomaticSaleStatus: true },
+  );
+
+  assert.equal(result.data.saleStatus, 'sale_confirmed');
+  assert.equal(result.data.saleValue, 129.9);
+  assert.equal(result.data.salePlanKey, 'tenant_plano');
+  assert.equal(result.data.commissionStatus, 'payable');
+  assert.equal(result.data.commissionAmount, 19.49);
 });
 
 test('buildSaleCommissionPatch rejects payable commission before confirmed payment', async () => {

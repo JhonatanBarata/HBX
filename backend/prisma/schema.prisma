@@ -957,6 +957,8 @@ model User {
   createdAt       DateTime         @default(now())
   authSessions    AuthSession[]    @relation("UserAuthSessions")
   productVersions ProductVersion[]
+  createdProducts Product[] @relation("ProductCreatedBy")
+  updatedProducts Product[] @relation("ProductUpdatedBy")
   passwordResets  PasswordReset[]
   moduleAccesses  UserModuleAccess[]
   deletionRecords        DeletionRecord[]
@@ -2063,6 +2065,15 @@ model VendasLead {
   assignedUserId    Int?
   assignedByUserId  Int?
   assignedAt        DateTime?
+  product           Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productId         Int?
+  productKindSnapshot String?
+  productNameSnapshot String?
+  productPriceCentsSnapshot Int?
+  productCurrencySnapshot String?
+  productBillingCycleSnapshot String?
+  productCommissionPercentSnapshot Float?
+  productPlanKeySnapshot String?
   commissionPercentSnapshot Float @default(0)
   saleStatus        String   @default("none") // none | activation_pending | trial_started | sale_confirmed | inactive | canceled
   saleValue         Float    @default(0)
@@ -2097,6 +2108,8 @@ model VendasLead {
   @@index([commissionLinkedCompanyId])
   @@index([commissionPayoutId])
   @@index([customerProfileId])
+  @@index([productId])
+  @@index([companyId, productId])
 }
 
 model VendasCommissionPayout {
@@ -2549,17 +2562,45 @@ model PasswordReset {
 
 model Product {
   id          Int              @id @default(autoincrement())
+  kind        String           @default("service")
+  status      String           @default("active")
+  sku         String?
   name        String
   description String?
+  category    String?
   price       Float
+  priceCents  Int?
+  currency    String           @default("BRL")
+  billingCycle String?
+  saleMode    String           @default("internal")
+  planKey     String?
+  externalUrl String?
+  allowDiscount Boolean        @default(false)
+  maxDiscountPercent Float?
+  minPriceCents Int?
+  defaultCommissionPercent Float?
+  sortOrder   Int              @default(0)
   stock       Int              @default(0)
   company     Company?         @relation(fields: [companyId], references: [id])
   companyId   Int?
-  category    Category?        @relation(fields: [categoryId], references: [id])
+  categoryRef Category?        @relation(fields: [categoryId], references: [id])
   categoryId  Int?
+  metadataJson String?
+  createdBy     User?    @relation("ProductCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdByUserId Int?
+  updatedBy     User?    @relation("ProductUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  updatedByUserId Int?
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
   versions    ProductVersion[]
+  vendasLeads VendasLead[]
+
+  @@index([companyId, status, sortOrder])
+  @@index([companyId, kind, status])
+  @@index([companyId, planKey])
+  @@index([companyId, sku])
+  @@index([createdByUserId])
+  @@index([updatedByUserId])
 }
 
 model AutoReplyRule {

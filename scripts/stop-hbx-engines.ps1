@@ -2,7 +2,7 @@
 # Stops local HBX engine containers. App, database and fallback scraping engine stay untouched.
 
 param(
-	[int]$Count = 50
+	[int]$Count = 0
 )
 
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Definition
@@ -16,7 +16,17 @@ function Invoke-ExternalOrThrow([string]$filePath, [string[]]$arguments, [string
 	}
 }
 
-$resolvedCount = [Math]::Min([Math]::Max($Count, 1), 50)
+function Resolve-EngineCount([int]$requested) {
+	if ($requested -gt 0) { return [Math]::Min([Math]::Max($requested, 1), 50) }
+	$fromEnv = [string]$env:HBX_LOCAL_ENGINE_COUNT
+	$parsed = 0
+	if ([int]::TryParse($fromEnv, [ref]$parsed) -and $parsed -gt 0) {
+		return [Math]::Min([Math]::Max($parsed, 1), 50)
+	}
+	return 3
+}
+
+$resolvedCount = Resolve-EngineCount $Count
 $services = 1..$resolvedCount | ForEach-Object { "hbx-engine-$_" }
 
 Write-Host "Stopping HBX local engines: $($services -join ', ')"

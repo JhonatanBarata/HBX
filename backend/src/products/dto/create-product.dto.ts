@@ -1,7 +1,19 @@
-import { IsString, IsNotEmpty, IsOptional, IsNumber, Min, IsInt, MinLength } from 'class-validator';
+import { IsBoolean, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Max, Min, MinLength } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CreateProductDto {
+  @IsOptional()
+  @IsString()
+  kind?: string;
+
+  @IsOptional()
+  @IsString()
+  status?: string;
+
+  @IsOptional()
+  @IsString()
+  sku?: string;
+
   @IsString()
   @IsNotEmpty()
   @MinLength(2)
@@ -11,14 +23,84 @@ export class CreateProductDto {
   @IsString()
   description?: string;
 
+  @IsOptional()
+  @IsString()
+  category?: string;
+
+  @IsOptional()
   @Type(() => Number)
   @IsNumber()
   @Min(0)
-  price: number;
+  price?: number;
+
+  @Type(() => Number)
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  priceCents?: number;
+
+  @IsOptional()
+  @IsString()
+  currency?: string;
+
+  @IsOptional()
+  @IsString()
+  billingCycle?: string;
+
+  @IsOptional()
+  @IsString()
+  saleMode?: string;
+
+  @IsOptional()
+  @IsString()
+  planKey?: string;
+
+  @IsOptional()
+  @IsString()
+  externalUrl?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  allowDiscount?: boolean;
+
+  @Type(() => Number)
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  maxDiscountPercent?: number;
+
+  @Type(() => Number)
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  minPriceCents?: number;
+
+  @Type(() => Number)
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  defaultCommissionPercent?: number;
+
+  @Type(() => Number)
+  @IsOptional()
+  @IsInt()
+  sortOrder?: number;
 
   @Type(() => Number)
   @IsOptional()
   @IsInt()
   @Min(0)
   stock?: number;
+
+  @Type(() => Number)
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  categoryId?: number;
+
+  @IsOptional()
+  @IsString()
+  metadataJson?: string;
 }

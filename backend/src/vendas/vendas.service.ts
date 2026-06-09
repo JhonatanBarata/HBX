@@ -152,6 +152,11 @@ type VendasPlanAccess = {
   capabilities: CommercialPlanCapabilities;
 };
 
+type VendasProductSnapshotPatch = {
+  product: any | null;
+  data: Record<string, any>;
+};
+
 type VendasUserContext = {
   companyId: number;
   userId: number;
@@ -610,6 +615,14 @@ export class VendasService {
       assignedUserId: true,
       assignedByUserId: true,
       assignedAt: true,
+      productId: true,
+      productKindSnapshot: true,
+      productNameSnapshot: true,
+      productPriceCentsSnapshot: true,
+      productCurrencySnapshot: true,
+      productBillingCycleSnapshot: true,
+      productCommissionPercentSnapshot: true,
+      productPlanKeySnapshot: true,
       commissionPercentSnapshot: true,
       saleStatus: true,
       saleValue: true,
@@ -763,9 +776,19 @@ export class VendasService {
     return Number(Math.max(0, numeric).toFixed(2));
   }
 
-  private resolveSaleBaseAmount(input: { saleValue?: unknown; salePlanKey?: unknown; fallbackValue?: unknown }) {
+  private calculateCommissionAmount(baseAmount: number, percent: number) {
+    const baseCents = Math.round(this.normalizeCurrencyAmount(baseAmount) * 100);
+    const safePercent = Math.min(100, Math.max(0, Number(percent || 0) || 0));
+    return this.normalizeCurrencyAmount(Math.round((baseCents * safePercent) / 100) / 100);
+  }
+
+  private resolveSaleBaseAmount(input: { saleValue?: unknown; salePlanKey?: unknown; productPriceCents?: unknown; fallbackValue?: unknown }) {
     const explicitValue = this.normalizeCurrencyAmount(input.saleValue);
     if (explicitValue > 0) return explicitValue;
+    const productPriceCents = Math.trunc(Number(input.productPriceCents || 0));
+    if (Number.isFinite(productPriceCents) && productPriceCents > 0) {
+      return this.normalizeCurrencyAmount(productPriceCents / 100);
+    }
     const normalizedPlanKey = String(input.salePlanKey || '').trim();
     if (normalizedPlanKey) return this.normalizeCurrencyAmount(getCommercialPlanMonthlyPrice(normalizedPlanKey));
     return this.normalizeCurrencyAmount(input.fallbackValue);
@@ -795,6 +818,10 @@ export class VendasService {
   }
 
   private async resolveCommissionPercentForLead(row: any) {
+    if (row?.productCommissionPercentSnapshot !== null && row?.productCommissionPercentSnapshot !== undefined) {
+      const productSnapshot = Number(row.productCommissionPercentSnapshot);
+      if (Number.isFinite(productSnapshot)) return Math.min(100, Math.max(0, productSnapshot));
+    }
     const snapshot = Number(row?.commissionPercentSnapshot || 0);
     if (Number.isFinite(snapshot) && snapshot > 0) return Math.min(100, Math.max(0, snapshot));
     const assignedUserId = Math.trunc(Number(row?.assignedUserId || 0));
@@ -833,14 +860,17 @@ export class VendasService {
         'Este status é automático. Use cadastro do cliente, confirmação de e-mail ou pagamento para atualizar.',
       );
     }
-    const salePlanKey = salePlanProvided ? this.normalizeText(dto.salePlanKey) : this.normalizeText(row?.salePlanKey);
+    const salePlanKey = salePlanProvided
+      ? this.normalizeText(dto.salePlanKey)
+      : this.normalizeText(row?.salePlanKey || row?.productPlanKeySnapshot);
     const baseAmount = this.resolveSaleBaseAmount({
       saleValue: saleValueProvided ? dto.saleValue : row?.saleValue,
       salePlanKey,
+      productPriceCents: row?.productPriceCentsSnapshot,
       fallbackValue: row?.commissionBaseAmount,
     });
     const percent = await this.resolveCommissionPercentForLead(row);
-    const projectedCommissionAmount = this.normalizeCurrencyAmount((baseAmount * percent) / 100);
+    const projectedCommissionAmount = this.calculateCommissionAmount(baseAmount, percent);
     const paidSale = nextSaleStatus === 'sale_confirmed';
     const confirmsSale = nextSaleStatus === 'trial_started' || paidSale;
     const endsSale = nextSaleStatus === 'inactive' || nextSaleStatus === 'canceled';
@@ -1156,6 +1186,26 @@ export class VendasService {
       assignedUserId: Number(row?.assignedUserId || 0) || null,
       assignedByUserId: Number(row?.assignedByUserId || 0) || null,
       assignedAt: row?.assignedAt instanceof Date ? row.assignedAt.toISOString() : null,
+      productId: Number(row?.productId || 0) || null,
+      productKindSnapshot: row?.productKindSnapshot ? String(row.productKindSnapshot) : null,
+      productNameSnapshot: row?.productNameSnapshot ? String(row.productNameSnapshot) : null,
+      productPriceCentsSnapshot: row?.productPriceCentsSnapshot == null ? null : Math.max(0, Math.trunc(Number(row.productPriceCentsSnapshot) || 0)),
+      productCurrencySnapshot: row?.productCurrencySnapshot ? String(row.productCurrencySnapshot) : null,
+      productBillingCycleSnapshot: row?.productBillingCycleSnapshot ? String(row.productBillingCycleSnapshot) : null,
+      productCommissionPercentSnapshot: row?.productCommissionPercentSnapshot == null ? null : Number(row.productCommissionPercentSnapshot),
+      productPlanKeySnapshot: row?.productPlanKeySnapshot ? String(row.productPlanKeySnapshot) : null,
+      product: row?.productId || row?.productNameSnapshot
+        ? {
+            id: Number(row?.productId || 0) || null,
+            kind: row?.productKindSnapshot ? String(row.productKindSnapshot) : null,
+            name: row?.productNameSnapshot ? String(row.productNameSnapshot) : null,
+            priceCents: row?.productPriceCentsSnapshot == null ? null : Math.max(0, Math.trunc(Number(row.productPriceCentsSnapshot) || 0)),
+            currency: row?.productCurrencySnapshot ? String(row.productCurrencySnapshot) : null,
+            billingCycle: row?.productBillingCycleSnapshot ? String(row.productBillingCycleSnapshot) : null,
+            commissionPercent: row?.productCommissionPercentSnapshot == null ? null : Number(row.productCommissionPercentSnapshot),
+            planKey: row?.productPlanKeySnapshot ? String(row.productPlanKeySnapshot) : null,
+          }
+        : null,
       commissionPercentSnapshot: Number(row?.commissionPercentSnapshot || 0) || 0,
       saleStatus: this.normalizeSaleStatus(row?.saleStatus),
       saleStatusLabel: this.formatSaleStatusLabel(this.normalizeSaleStatus(row?.saleStatus)),
@@ -1257,6 +1307,157 @@ export class VendasService {
       return;
     }
     this.assertVendasPermission(context.access.canMarkInactive, 'Acesso para marcar cliente inativo bloqueado pela politica da equipe.');
+  }
+
+  private hasDtoField(dto: unknown, key: string) {
+    return Boolean(dto && Object.prototype.hasOwnProperty.call(dto, key));
+  }
+
+  private normalizePositiveInteger(value: unknown) {
+    const parsed = Math.trunc(Number(value || 0));
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }
+
+  private normalizePriceCentsFromProduct(product: any) {
+    const explicit = Math.trunc(Number(product?.priceCents || 0));
+    if (Number.isFinite(explicit) && explicit > 0) return explicit;
+    const legacyPrice = Number(product?.price || 0);
+    if (Number.isFinite(legacyPrice) && legacyPrice > 0) return Math.round(legacyPrice * 100);
+    return null;
+  }
+
+  private buildProductSnapshotPatch(product: any) {
+    const priceCents = this.normalizePriceCentsFromProduct(product);
+    return {
+      productId: Number(product.id),
+      productKindSnapshot: this.normalizeText(product.kind) || 'service',
+      productNameSnapshot: this.normalizeText(product.name),
+      productPriceCentsSnapshot: priceCents,
+      productCurrencySnapshot: this.normalizeText(product.currency)?.toUpperCase() || 'BRL',
+      productBillingCycleSnapshot: this.normalizeText(product.billingCycle)?.toUpperCase() || null,
+      productCommissionPercentSnapshot: product.defaultCommissionPercent === null || product.defaultCommissionPercent === undefined
+        ? null
+        : Math.max(0, Math.min(100, Number(product.defaultCommissionPercent || 0) || 0)),
+      productPlanKeySnapshot: this.normalizeText(product.planKey),
+    };
+  }
+
+  private buildClearProductSnapshotPatch() {
+    return {
+      productId: null,
+      productKindSnapshot: null,
+      productNameSnapshot: null,
+      productPriceCentsSnapshot: null,
+      productCurrencySnapshot: null,
+      productBillingCycleSnapshot: null,
+      productCommissionPercentSnapshot: null,
+      productPlanKeySnapshot: null,
+    };
+  }
+
+  private async resolveVendasProductPatch(context: VendasUserContext, productIdRaw: unknown): Promise<VendasProductSnapshotPatch> {
+    const productId = this.normalizePositiveInteger(productIdRaw);
+    if (!productId) {
+      return {
+        product: null,
+        data: this.buildClearProductSnapshotPatch(),
+      };
+    }
+
+    this.assertVendasPermission(
+      context.access?.canSellProducts,
+      'Acesso para vender produtos bloqueado pela politica da equipe.',
+    );
+
+    const product = await (this.prisma as any).product.findFirst({
+      where: {
+        id: productId,
+        companyId: context.companyId,
+        status: 'active',
+      },
+    }).catch(() => null);
+    if (!product) throw new NotFoundException('Produto comercial nao encontrado.');
+
+    return {
+      product,
+      data: this.buildProductSnapshotPatch(product),
+    };
+  }
+
+  private async resolveProductForSalePolicy(context: VendasUserContext, row: any, productPatch?: VendasProductSnapshotPatch | null) {
+    if (productPatch?.product) return productPatch.product;
+    const productId = this.normalizePositiveInteger(productPatch?.data?.productId ?? row?.productId);
+    if (!productId) return null;
+    return (this.prisma as any).product.findFirst({
+      where: {
+        id: productId,
+        companyId: context.companyId,
+      },
+    }).catch(() => null);
+  }
+
+  private async assertProductSaleValuePolicy(
+    context: VendasUserContext,
+    row: any,
+    dto: UpdateVendasLeadDto | CreateHbxSalesHandoffDto | CreateHbxAssistedSignupDto,
+    productPatch?: VendasProductSnapshotPatch | null,
+  ) {
+    if (!this.hasDtoField(dto, 'saleValue')) return;
+
+    const nextProductId = productPatch?.data && this.hasDtoField(productPatch.data, 'productId')
+      ? this.normalizePositiveInteger(productPatch.data.productId)
+      : this.normalizePositiveInteger(row?.productId);
+    const hasProductSnapshot = Boolean(
+      nextProductId ||
+      productPatch?.data?.productNameSnapshot ||
+      row?.productNameSnapshot,
+    );
+    if (!hasProductSnapshot) return;
+
+    const saleAmount = this.normalizeCurrencyAmount((dto as any).saleValue);
+    const saleCents = Math.round(saleAmount * 100);
+    const product = await this.resolveProductForSalePolicy(context, row, productPatch);
+    const snapshotPriceCents = Math.trunc(Number(
+      productPatch?.data?.productPriceCentsSnapshot ??
+      row?.productPriceCentsSnapshot ??
+      0,
+    ));
+    const productPriceCents = this.normalizePriceCentsFromProduct(product) || (Number.isFinite(snapshotPriceCents) && snapshotPriceCents > 0 ? snapshotPriceCents : null);
+    if (!productPriceCents) {
+      this.assertVendasPermission(
+        context.access?.canChangeProductPrice,
+        'Acesso para alterar valor da venda bloqueado pela politica da equipe.',
+      );
+      return;
+    }
+    if (saleCents === productPriceCents) return;
+
+    if (saleCents < productPriceCents) {
+      this.assertVendasPermission(
+        context.access?.canApplyProductDiscount,
+        'Acesso para aplicar desconto bloqueado pela politica da equipe.',
+      );
+      if (product && product.allowDiscount === false) {
+        throw new BadRequestException('Este produto nao permite desconto.');
+      }
+      const minPriceCents = Math.trunc(Number(product?.minPriceCents || 0));
+      if (Number.isFinite(minPriceCents) && minPriceCents > 0 && saleCents < minPriceCents) {
+        throw new BadRequestException('Desconto abaixo do preco minimo permitido para este produto.');
+      }
+      const maxDiscountPercent = Number(product?.maxDiscountPercent);
+      if (Number.isFinite(maxDiscountPercent) && maxDiscountPercent >= 0) {
+        const discountPercent = ((productPriceCents - saleCents) / productPriceCents) * 100;
+        if (discountPercent > maxDiscountPercent + 0.001) {
+          throw new BadRequestException('Desconto acima do limite permitido para este produto.');
+        }
+      }
+      return;
+    }
+
+    this.assertVendasPermission(
+      context.access?.canChangeProductPrice,
+      'Acesso para alterar valor da venda bloqueado pela politica da equipe.',
+    );
   }
 
   private assertCanRunHbxActivationAction(context: VendasUserContext) {
@@ -6116,6 +6317,7 @@ export class VendasService {
     assignedByUserId?: number | null;
     assignedAt?: Date | null;
     commissionPercentSnapshot?: number | null;
+    productSnapshotData?: Record<string, any> | null;
     planAccess?: VendasPlanAccess | null;
     uniqueRetry?: boolean;
   }) {
@@ -6184,6 +6386,7 @@ export class VendasService {
       assignedByUserId: input.assignedByUserId || null,
       assignedAt: input.assignedAt || (input.assignedUserId ? new Date() : null),
       commissionPercentSnapshot: Math.max(0, Math.min(100, Number(input.commissionPercentSnapshot || 0) || 0)),
+      ...(input.productSnapshotData || {}),
     };
     if (phoneNormalized) {
       const phoneNormalizedCandidates = this.buildLeadPhoneNormalizedCandidates(input.phone);
@@ -6255,6 +6458,7 @@ export class VendasService {
                 commissionPercentSnapshot: Math.max(0, Math.min(100, Number(input.commissionPercentSnapshot || 0) || 0)),
               }
             : {}),
+          ...(input.productSnapshotData || {}),
         };
 
         let updated: any = null;
@@ -6814,6 +7018,9 @@ export class VendasService {
         owner.assignedUserId || context.userId,
       );
     }
+    const productPatch = this.hasDtoField(dto, 'productId')
+      ? await this.resolveVendasProductPatch(context, dto.productId)
+      : null;
 
     const result = await this.createOrUpdateLead({
       companyId: context.companyId,
@@ -6834,6 +7041,7 @@ export class VendasService {
       assignedByUserId: owner.assignedByUserId,
       assignedAt: owner.assignedAt,
       commissionPercentSnapshot: owner.commissionPercentSnapshot,
+      productSnapshotData: productPatch?.data || null,
       planAccess,
     });
 
@@ -7327,6 +7535,20 @@ export class VendasService {
       throw new NotFoundException('Lead comercial nao encontrado.');
     }
 
+    const productPatch = this.hasDtoField(dto, 'productId')
+      ? await this.resolveVendasProductPatch(context, dto.productId)
+      : null;
+    const commissionDto: UpdateVendasLeadDto = { ...(dto || {}) };
+    if (productPatch?.product?.planKey && !this.hasDtoField(commissionDto, 'salePlanKey')) {
+      commissionDto.salePlanKey = String(productPatch.product.planKey);
+    }
+    await this.assertProductSaleValuePolicy(
+      context,
+      { ...existing, ...(productPatch?.data || {}) },
+      commissionDto,
+      productPatch,
+    );
+
     const nextStatus = dto?.status ? this.normalizeStatus(dto.status) : this.normalizeStatus(existing.status);
     const returnAt = dto?.returnAt !== undefined
       ? (this.parseDate(dto.returnAt) || null)
@@ -7453,6 +7675,33 @@ export class VendasService {
       );
     }
 
+    if (productPatch) {
+      const nextProductId = this.normalizePositiveInteger(productPatch.data.productId);
+      const previousProductId = this.normalizePositiveInteger(existing.productId);
+      if (nextProductId && nextProductId !== previousProductId) {
+        timelineEvents.push(
+          this.buildTimelineEvent({
+            eventType: 'product_selected',
+            title: 'Produto vinculado',
+            description: `Produto comercial vinculado ao card: ${String(productPatch.data.productNameSnapshot || 'produto selecionado')}.`,
+            sourceType: 'products',
+            resultLabel: productPatch.data.productPlanKeySnapshot || null,
+            createdByUserId: context.userId,
+          }),
+        );
+      } else if (!nextProductId && previousProductId) {
+        timelineEvents.push(
+          this.buildTimelineEvent({
+            eventType: 'product_removed',
+            title: 'Produto removido',
+            description: 'O vinculo de produto comercial foi removido do card.',
+            sourceType: 'products',
+            createdByUserId: context.userId,
+          }),
+        );
+      }
+    }
+
     if (nextStatus === 'encerrado' && this.normalizeStatus(existing.status) !== 'encerrado') {
       timelineEvents.push(
         this.buildTimelineEvent({
@@ -7483,8 +7732,13 @@ export class VendasService {
       lastResult: nextLastResult,
       wasClosedBefore,
       closedAt: nextStatus === 'encerrado' ? existing.closedAt || new Date() : null,
+      ...(productPatch?.data || {}),
     };
-    const saleCommissionPatch = await this.buildSaleCommissionPatch(existing, dto, context.userId);
+    const saleCommissionPatch = await this.buildSaleCommissionPatch(
+      { ...existing, ...(productPatch?.data || {}) },
+      commissionDto,
+      context.userId,
+    );
     Object.assign(updateData, saleCommissionPatch.data);
     if (saleCommissionPatch.event) {
       timelineEvents.push(saleCommissionPatch.event);
@@ -7573,9 +7827,15 @@ export class VendasService {
     });
     if (!existing) throw new NotFoundException('Lead comercial nao encontrado.');
 
-    const planKey = normalizeCommercialPlanKey(dto?.salePlanKey || existing.salePlanKey || COMMERCIAL_PLAN_KEYS.PADRAO);
-    const planLabel = this.commercialPlanLabel(planKey);
-    const planAmount = this.normalizeCurrencyAmount(getCommercialPlanMonthlyPrice(planKey));
+    const productPatch = this.hasDtoField(dto, 'productId')
+      ? await this.resolveVendasProductPatch(context, dto.productId)
+      : null;
+    const planKey = normalizeCommercialPlanKey(dto?.salePlanKey || productPatch?.product?.planKey || existing.salePlanKey || COMMERCIAL_PLAN_KEYS.PADRAO);
+    const planLabel = productPatch?.product?.name ? String(productPatch.product.name) : this.commercialPlanLabel(planKey);
+    const productPriceCents = this.normalizePriceCentsFromProduct(productPatch?.product);
+    const planAmount = productPriceCents
+      ? this.normalizeCurrencyAmount(productPriceCents / 100)
+      : this.normalizeCurrencyAmount(getCommercialPlanMonthlyPrice(planKey));
     const registerPath = `/register?plan=${encodeURIComponent(planKey)}&hbxLead=${encodeURIComponent(existing.id)}`;
     const publicOrigin = this.normalizePublicOrigin(dto?.origin);
     const registerUrl = publicOrigin ? `${publicOrigin}${registerPath}` : registerPath;
@@ -7587,7 +7847,7 @@ export class VendasService {
       `Depois do cadastro, eu acompanho a implantacao do ${leadName} pelo HBX.`,
     ].join('\n');
 
-    const saleCommissionPatch = await this.buildSaleCommissionPatch(existing, {
+    const saleCommissionPatch = await this.buildSaleCommissionPatch({ ...existing, ...(productPatch?.data || {}) }, {
       saleStatus: 'activation_pending',
       salePlanKey: planKey,
       saleValue: planAmount,
@@ -7643,6 +7903,7 @@ export class VendasService {
           lastContactAt: new Date(),
           attemptCount: Math.max(existingAttemptCount + 1, existingAttemptCount),
           lastResult: 'Link HBX enviado',
+          ...(productPatch?.data || {}),
           ...saleCommissionPatch.data,
         },
       });
@@ -7702,11 +7963,14 @@ export class VendasService {
     });
     if (!existing) throw new NotFoundException('Lead comercial nao encontrado.');
 
+    const productPatch = this.hasDtoField(dto, 'productId')
+      ? await this.resolveVendasProductPatch(context, dto.productId)
+      : null;
     const email = this.normalizeEmail(dto?.email || existing.email);
     if (!email) throw new BadRequestException('Informe um e-mail valido do cliente para comprovar o cadastro.');
 
-    const planKey = normalizeCommercialPlanKey(dto?.salePlanKey || existing.salePlanKey || COMMERCIAL_PLAN_KEYS.PADRAO);
-    const planLabel = this.commercialPlanLabel(planKey);
+    const planKey = normalizeCommercialPlanKey(dto?.salePlanKey || productPatch?.product?.planKey || existing.salePlanKey || COMMERCIAL_PLAN_KEYS.PADRAO);
+    const planLabel = productPatch?.product?.name ? String(productPatch.product.name) : this.commercialPlanLabel(planKey);
     const companyName = this.normalizeText(dto?.companyName) || this.normalizeText(existing.name) || 'Cliente HBX';
     const contactName = this.normalizeText(dto?.contactName) || this.normalizeText(existing.name) || companyName;
     const cardPhone = this.normalizeText(existing.phone);
@@ -7854,10 +8118,11 @@ export class VendasService {
       ...(addressColumnAvailable ? {} : { select: this.buildVendasLeadSelectWithoutAddress() }),
     });
     const commissionSource = refreshed || existing;
-    const saleCommissionPatch = await this.buildSaleCommissionPatch(commissionSource, {
+    const productPriceCents = this.normalizePriceCentsFromProduct(productPatch?.product);
+    const saleCommissionPatch = await this.buildSaleCommissionPatch({ ...commissionSource, ...(productPatch?.data || {}) }, {
       saleStatus: 'activation_pending',
       salePlanKey: planKey,
-      saleValue: getCommercialPlanMonthlyPrice(planKey),
+      saleValue: productPriceCents ? productPriceCents / 100 : getCommercialPlanMonthlyPrice(planKey),
       commissionNote: `Cadastro assistido criado para ${planLabel}. E-mail do cliente precisa ser confirmado.`,
     }, context.userId, { allowAutomaticSaleStatus: true });
     const customerProfileId =
@@ -7917,6 +8182,7 @@ export class VendasService {
           phoneNormalized: phoneNormalized || existing.phoneNormalized,
           lastContactAt: new Date(),
           lastResult: 'Cadastro assistido aguardando e-mail',
+          ...(productPatch?.data || {}),
           ...saleCommissionPatch.data,
         },
       });

@@ -44,6 +44,8 @@ HBX_REPO_DIR = (
 )
 HBX_OWNER_WORKSPACE_DIR = APP_DIR.parent if APP_DIR.name == "windows-app" else HBX_REPO_DIR / "hbx-owner"
 OPS_CONTROL_DIR = HBX_REPO_DIR / "ops-control"
+LOCAL_LAB_DIR = HBX_REPO_DIR / "hbx-local-lab"
+LOCAL_LAB_URL = "http://127.0.0.1:3098"
 OPS_CONTROL_SCRIPT_PATH = OPS_CONTROL_DIR / "open-hbx-ops-control.ps1"
 OPS_CONTROL_ENV_PATH = HBX_REPO_DIR / ".env.ops-control"
 OPS_CONTROL_COMPOSE_PATH = HBX_REPO_DIR / "docker-compose.ops.yml"
@@ -1023,7 +1025,7 @@ class HbxOwnerApp(tk.Tk):
         self.ops_vps_cockpit_var = tk.StringVar(value="-")
         self.ops_containers_var = tk.StringVar(value="-")
         self.ops_docker_var = tk.StringVar(value="-")
-        self.ops_watchdog_var = tk.StringVar(value="-")
+        self.ops_local_lab_var = tk.StringVar(value="api local -")
         self.ops_updated_var = tk.StringVar(value="-")
         self.ops_panel_url_var = tk.StringVar(value="Painel IP: carregando...")
         self.ops_tree: ttk.Treeview | None = None
@@ -1730,25 +1732,29 @@ class HbxOwnerApp(tk.Tk):
         ttk.Button(actions, text="Iniciar painel", command=self.start_ops_control_native, style="Success.TButton").grid(
             row=0, column=1, padx=8
         )
-        ttk.Button(actions, text="Atualizar", command=self.refresh_ops_control).grid(row=0, column=2, padx=8)
-        ttk.Button(actions, text="Reiniciar", command=self.restart_ops_control_native, style="Warning.TButton").grid(
-            row=0, column=3, padx=8
+        ttk.Button(actions, text="API local", command=self.start_local_lab_api, style="Success.TButton").grid(
+            row=0, column=2, padx=8
         )
-        ttk.Button(actions, text="Logs", command=self.show_selected_ops_logs).grid(row=0, column=4, padx=8)
+        ttk.Button(actions, text="Atualizar", command=self.refresh_ops_control).grid(row=0, column=3, padx=8)
+        ttk.Button(actions, text="Reiniciar", command=self.restart_ops_control_native, style="Warning.TButton").grid(
+            row=0, column=4, padx=8
+        )
+        ttk.Button(actions, text="Logs", command=self.show_selected_ops_logs).grid(row=0, column=5, padx=8)
         ttk.Button(actions, text="Pasta", command=lambda: self.open_local_folder(OPS_CONTROL_DIR)).grid(
-            row=0, column=5, padx=(8, 0)
+            row=0, column=6, padx=(8, 0)
         )
 
         metrics = ttk.Frame(frame, style="App.TFrame")
         metrics.grid(row=2, column=0, sticky="ew", pady=(0, 12))
-        for col in range(6):
+        for col in range(7):
             metrics.columnconfigure(col, weight=1)
         self.ops_metric_card(metrics, 0, "Painel", self.ops_runtime_var, "#0e7490")
         self.ops_metric_card(metrics, 1, "Local", self.ops_local_cockpit_var, "#2563eb")
         self.ops_metric_card(metrics, 2, "VPS", self.ops_vps_cockpit_var, "#16a34a")
         self.ops_metric_card(metrics, 3, "Containers", self.ops_containers_var, "#7c3aed")
-        self.ops_metric_card(metrics, 4, "Docker", self.ops_docker_var, "#b45309")
-        self.ops_metric_card(metrics, 5, "Atualizado", self.ops_updated_var, "#64748b")
+        self.ops_metric_card(metrics, 4, "API Local", self.ops_local_lab_var, "#0f766e")
+        self.ops_metric_card(metrics, 5, "Docker", self.ops_docker_var, "#b45309")
+        self.ops_metric_card(metrics, 6, "Atualizado", self.ops_updated_var, "#64748b")
 
         table_panel = tk.Frame(frame, bg=THEME["card"], highlightthickness=1, highlightbackground=THEME["line"])
         table_panel.grid(row=3, column=0, sticky="nsew")
@@ -1951,6 +1957,76 @@ class HbxOwnerApp(tk.Tk):
             self.open_ops_control_web()
         self.refresh_ops_control()
 
+    def fetch_local_lab_status(self) -> dict:
+        request = urllib.request.Request(f"{LOCAL_LAB_URL}/health", method="GET")
+        try:
+            with urllib.request.urlopen(request, timeout=2) as response:
+                raw = response.read().decode("utf-8", errors="replace")
+            payload = json.loads(raw or "{}")
+            return {
+                "up": response.status == 200 and bool(payload.get("ok")),
+                "url": LOCAL_LAB_URL,
+                "message": "api local up" if payload.get("ok") else "api local alerta",
+            }
+        except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError):
+            return {"up": False, "url": LOCAL_LAB_URL, "message": "api local off"}
+
+    def start_local_lab_api(self) -> None:
+        current = self.fetch_local_lab_status()
+        if current.get("up"):
+            self.ops_local_lab_var.set("api local up")
+            self.ops_status_var.set("API local já está rodando.")
+            self.set_ops_events(f"API local ativa em {LOCAL_LAB_URL}.")
+            return
+        if not (LOCAL_LAB_DIR / "server.js").exists():
+            message = f"Local Lab não encontrado:\n{LOCAL_LAB_DIR}"
+            self.ops_local_lab_var.set("api local falha")
+            self.ops_status_var.set("API local não encontrada.")
+            self.set_ops_events(message)
+            messagebox.showwarning("API local", message)
+            return
+        self.ops_local_lab_var.set("subindo")
+        self.ops_status_var.set("Subindo API local 3098...")
+
+        def worker() -> None:
+            APP_DIR.joinpath("logs").mkdir(parents=True, exist_ok=True)
+            log_path = APP_DIR / "logs" / "hbx-local-lab.log"
+            try:
+                log_file = log_path.open("a", encoding="utf-8")
+                node_bin = shutil.which("node") or "node"
+                process = subprocess.Popen(
+                    [node_bin, "server.js"],
+                    cwd=LOCAL_LAB_DIR,
+                    stdout=log_file,
+                    stderr=log_file,
+                    stdin=subprocess.DEVNULL,
+                    creationflags=self.hidden_creation_flags(),
+                    env={
+                        **os.environ,
+                        "HBX_LOCAL_LAB_HOST": "127.0.0.1",
+                        "HBX_LOCAL_LAB_PORT": "3098",
+                    },
+                )
+                log_file.close()
+            except OSError as exc:
+                self.after(0, lambda: self.finish_local_lab_start(False, str(exc)))
+                return
+            time.sleep(1.2)
+            status = self.fetch_local_lab_status()
+            detail = f"pid={process.pid} log={log_path}" if status.get("up") else f"pid={process.pid}; health ainda indisponível"
+            self.after(0, lambda: self.finish_local_lab_start(bool(status.get("up")), detail))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def finish_local_lab_start(self, ok: bool, detail: str) -> None:
+        self.ops_local_lab_var.set("api local up" if ok else "api local off")
+        self.ops_status_var.set("API local 3098 ativa." if ok else "API local não respondeu ainda.")
+        self.set_ops_events(
+            f"API local: {'up' if ok else 'off'} em {LOCAL_LAB_URL}.\n{detail}\n\n"
+            "Se o cockpit já estava aberto, clique em Iniciar painel ou Reiniciar para o container reler o .env.ops-control."
+        )
+        self.refresh_ops_control()
+
     def refresh_ops_control(self) -> None:
         self.ops_status_var.set("Consultando cockpit Local x VPS...")
 
@@ -1992,7 +2068,6 @@ class HbxOwnerApp(tk.Tk):
             container["mem_percent"] = item_stats.get("mem_percent", "-")
         running = sum(1 for item in containers if item.get("state") == "running")
         ops_state = self.find_container_state(containers, ("ops-control", "hbx-owner-ops-control", "hbx-master-ops-control"))
-        watchdog_state = self.find_container_state(containers, ("watchdog", "hbx-engine-watchdog", "hbx-watchdog"))
         cockpit, cockpit_error = self.fetch_ops_radar_cockpit()
         errors = []
         if not ps_ok:
@@ -2003,12 +2078,13 @@ class HbxOwnerApp(tk.Tk):
             errors.append(".env.ops-control não encontrado na raiz do repo.")
         if cockpit_error:
             errors.append(cockpit_error)
+        local_lab = self.fetch_local_lab_status()
         return {
             "containers": containers,
             "running": running,
             "total": len(containers),
             "ops_state": ops_state,
-            "watchdog_state": watchdog_state,
+            "local_lab": local_lab,
             "docker_ok": ps_ok,
             "cockpit": cockpit,
             "errors": errors,
@@ -2103,13 +2179,13 @@ class HbxOwnerApp(tk.Tk):
             ),
         )
         ops_state = str(snapshot["ops_state"])
-        watchdog_state = str(snapshot["watchdog_state"])
         self.ops_runtime_var.set(self.state_label(ops_state))
         cockpit = snapshot.get("cockpit") if isinstance(snapshot.get("cockpit"), dict) else None
         self.apply_ops_cockpit_metrics(cockpit)
         self.ops_containers_var.set(f"{snapshot['running']} / {snapshot['total']}")
         self.ops_docker_var.set("online" if snapshot["docker_ok"] else "falha")
-        self.ops_watchdog_var.set(self.state_label(watchdog_state))
+        local_lab = snapshot.get("local_lab") if isinstance(snapshot.get("local_lab"), dict) else {}
+        self.ops_local_lab_var.set("api local up" if local_lab.get("up") else "api local off")
         self.ops_updated_var.set(str(snapshot["updated_at"]))
         if self.ops_tree:
             for item in self.ops_tree.get_children():
