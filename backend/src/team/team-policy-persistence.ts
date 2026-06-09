@@ -322,6 +322,7 @@ export async function ensureUserTeamPolicyForUser(
     },
   });
   if (!user) return null;
+  if (user.isSystemMaster) return null;
 
   const snapshot = buildUserTeamPolicySnapshotData(user, { source: options?.source });
   const syncUpdate = {

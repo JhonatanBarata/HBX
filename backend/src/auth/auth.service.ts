@@ -61,7 +61,9 @@ export class AuthService implements OnModuleInit {
   }
 
   private masterEmail() {
-    return String(process.env.SYSTEM_MASTER_EMAIL || 'master@hbx.local').trim();
+    const raw = process.env.SYSTEM_MASTER_EMAIL;
+    if (raw == null) return null;
+    return String(raw).trim() || null;
   }
 
   private masterPassword() {
@@ -1035,39 +1037,112 @@ export class AuthService implements OnModuleInit {
 
     const username = this.masterUsername();
     const email = this.masterEmail();
-    const passwordHash = await bcrypt.hash(this.masterPassword(), 12);
-
-    const existing = await this.prisma.user.findUnique({ where: { username } });
-    if (existing) {
-      const updated = await this.prisma.user.update({
-        where: { id: existing.id },
-        data: {
-          isSystemMaster: true,
-          isActive: true,
-          deactivatedAt: null,
-          retentionUntil: null,
-          role: 'USERMASTER',
-          name: existing.name || 'System Master',
-          email: existing.email || email,
-          password: existing.password || passwordHash,
-        },
-      });
-      await ensureUserTeamPolicyForUser(this.prisma, updated.id, { source: 'system_master_bootstrap' });
-      return;
+    const rawPassword = this.masterPassword();
+    if (!username) {
+      throw new Error('SYSTEM_MASTER_USERNAME is required when BOOTSTRAP_SYSTEM_MASTER=true');
     }
-
-    const created = await this.prisma.user.create({
-      data: {
-        username,
-        email,
-        password: passwordHash,
-        name: 'System Master',
-        role: 'USERMASTER',
+    const existing = await this.prisma.user.findUnique({
+      where: { username },
+      select: {
+        id: true,
+        password: true,
+        name: true,
+        companyId: true,
+        role: true,
         isSystemMaster: true,
         isActive: true,
+        currentSessionId: true,
       },
     });
-    await ensureUserTeamPolicyForUser(this.prisma, created.id, { source: 'system_master_bootstrap' });
+    const passwordMatches = existing?.password
+      ? await bcrypt.compare(rawPassword, existing.password).catch(() => false)
+      : false;
+    const passwordHash = passwordMatches ? null : await bcrypt.hash(rawPassword, 12);
+    const now = new Date();
+
+    const master = await this.prisma.$transaction(async (tx) => {
+      if (email) {
+        const emailConflict = await tx.user.findUnique({
+          where: { email },
+          select: { id: true, isSystemMaster: true, role: true },
+        });
+        if (emailConflict && emailConflict.id !== existing?.id) {
+          if (emailConflict.isSystemMaster || emailConflict.role === 'USERMASTER') {
+            await tx.user.update({
+              where: { id: emailConflict.id },
+              data: { email: null },
+            });
+          } else {
+            throw new Error('SYSTEM_MASTER_EMAIL already belongs to a non-master user');
+          }
+        }
+      }
+
+      if (existing) {
+        const shouldRevokeSessions =
+          !passwordMatches ||
+          Boolean(existing.currentSessionId) ||
+          Boolean(existing.companyId) ||
+          !existing.isSystemMaster ||
+          existing.role !== 'USERMASTER' ||
+          existing.isActive === false;
+        if (shouldRevokeSessions) {
+          await tx.authSession.updateMany({
+            where: { userId: existing.id, revokedAt: null },
+            data: { revokedAt: now, revokedReason: 'system_master_bootstrap' },
+          });
+        }
+        const updated = await tx.user.update({
+          where: { id: existing.id },
+          data: {
+            username,
+            email,
+            ...(passwordHash ? { password: passwordHash } : {}),
+            name: existing.name || 'System Master',
+            role: 'USERMASTER',
+            isSystemMaster: true,
+            isActive: true,
+            companyId: null,
+            mustChangePassword: false,
+            currentSessionId: null,
+            ...(shouldRevokeSessions ? { sessionVersion: { increment: 1 } } : {}),
+            deactivatedAt: null,
+            retentionUntil: null,
+          },
+          select: { id: true },
+        });
+        return updated;
+      }
+
+      return tx.user.create({
+        data: {
+          username,
+          email,
+          password: passwordHash as string,
+          name: 'System Master',
+          role: 'USERMASTER',
+          isSystemMaster: true,
+          isActive: true,
+          companyId: null,
+          mustChangePassword: false,
+        },
+        select: { id: true },
+      });
+    });
+
+    await this.prisma.$transaction([
+      this.prisma.user.updateMany({
+        where: {
+          id: { not: master.id },
+          OR: [{ isSystemMaster: true }, { role: 'USERMASTER' }],
+        },
+        data: {
+          isSystemMaster: false,
+          role: 'USER',
+        },
+      }),
+      this.prisma.userTeamPolicy.deleteMany({ where: { userId: master.id } }),
+    ]);
   }
 
   async validateUserByUsername(username: string, pass: string) {
@@ -1240,7 +1315,7 @@ export class AuthService implements OnModuleInit {
       throw new BadRequestException('Usuário e senha são obrigatórios');
     }
 
-    if (normalized.toLowerCase() === this.masterUsername()) {
+    if (normalized.toLowerCase() === this.masterUsername().toLowerCase()) {
       await this.ensureSystemMasterUser();
     }
 

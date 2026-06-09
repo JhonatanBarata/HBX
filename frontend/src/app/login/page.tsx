@@ -288,13 +288,10 @@ async function resolvePostLoginDestination(data: unknown, requestedDestination?:
   try {
     const currentUser = await apiFetch<LoginCurrentUser>("/profile/current-user");
     if (currentUser?.isSystemMaster) {
-      if (explicitDestination && explicitDestination !== "/master") {
-        return explicitDestination;
-      }
-      return "/boasvindas";
+      return "/dashboard/master";
     }
   } catch {
-    // Keep the login flow moving; /boasvindas still resolves the safest fallback.
+    // Keep the login flow moving; /boasvindas still resolves the tenant fallback.
   }
 
   if (explicitDestination && explicitDestination !== "/boasvindas") {

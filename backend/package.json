@@ -20,6 +20,7 @@
     "prisma:migrate": "prisma migrate dev --name init --schema=./prisma/schema.prisma",
     "prisma:migrate:deploy": "prisma migrate deploy --schema=./prisma/schema.prisma",
     "prisma:migrate:status": "prisma migrate status --schema=./prisma/schema.prisma",
+    "bootstrap:system-master": "node ./scripts/bootstrap-system-master.js",
     "seed:structural": "node ./scripts/structural-seed.js",
     "seed:dev": "node ./scripts/seed-dev.js"
   },
