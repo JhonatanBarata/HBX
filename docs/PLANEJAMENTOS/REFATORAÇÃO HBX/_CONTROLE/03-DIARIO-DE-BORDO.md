@@ -97,3 +97,26 @@ Validação:
 - testes focados de whatsapp-modal e webwhats-bridge passaram.
 - backend Docker reconstruido/reiniciado e ficou healthy.
 - HBX local verificado com whatsappModalStatus=CONNECTED, currentWhatsappConnectionSessionId preenchido e sessao Webwhats ativa no tenant.
+
+## Fix Gerencial — ultimo admin e equipe por papel
+
+Aplicado:
+- Gerencial > Equipe passou a separar a lista em subguias Administradores e Vendedores.
+- A lista operacional de equipe/modulos ignora USERMASTER/System Master.
+- O proprio usuario logado ve o aviso "Voce nao pode remover seu proprio acesso." e nao consegue usar excluir, desativar ou rebaixar ADMIN para USER.
+- UsersService passou a proteger autoexclusao, autodesativacao e autorrebaixamento perigoso.
+- UsersService passou a bloquear exclusao, desativacao ou rebaixamento que deixaria tenant sem ADMIN ativo proprio.
+- A contagem de ADMIN ativo exige role ADMIN, isActive=true, mesmo companyId do tenant e isSystemMaster=false.
+- System Master segue podendo dar suporte, mas nao conta como administrador ativo do tenant.
+- Endpoint comum de exclusao agora valida companyId do tenant antes de excluir.
+- Fluxos Master de suporte tambem passam pela guarda de ultimo admin ativo.
+- Erros do backend ao criar acesso aparecem inline no pop-up Criar acesso, incluindo limite de trial.
+
+Validação:
+- prisma:validate passou.
+- build backend passou.
+- teste backend users.service passou.
+- teste frontend gerencial-team passou.
+- frontend build passou.
+- frontend lint passou.
+- grep obrigatorio de runtime retornou zero ocorrencias.

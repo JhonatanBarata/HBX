@@ -17,7 +17,15 @@ import ReferralCandidatesPanel from "./_components/ReferralCandidatesPanel";
 import TeamListPanel from "./_components/TeamListPanel";
 import TeamPolicyModal from "./_components/TeamPolicyModal";
 import TenantCommunicationPanel from "./_components/TenantCommunicationPanel";
-import type { TeamPolicy, TeamPolicyPatch } from "./_components/types";
+import {
+  getTeamAccessActionBlockMessage,
+  isTenantTeamUser,
+  LAST_ADMIN_MESSAGE,
+  normalizeGerencialTeamError,
+  normalizeTeamRole,
+  SELF_ACCESS_MESSAGE,
+} from "./_components/team-access-guards";
+import type { TeamPolicy, TeamPolicyPatch, TeamRoleTab } from "./_components/types";
 import { apiFetch, getDashboardApiBaseUrl, getToken } from "@/app/_lib/api";
 import { startSmartPolling } from "@/app/_lib/polling";
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
@@ -436,9 +444,7 @@ const SELLER_ROLE_COPY = {
 type UserFilter = "active" | "sellers" | "admins" | "inactive" | "all";
 
 function normalizeRole(role?: string | null, isSystemMaster?: boolean | null): GerencialRole {
-  const normalized = String(role || "").toUpperCase();
-  if (isSystemMaster || normalized === "USERMASTER") return "USERMASTER";
-  return normalized === "ADMIN" ? "ADMIN" : "USER";
+  return normalizeTeamRole(role, isSystemMaster);
 }
 
 function normalizeModuleKey(key?: string | null) {
@@ -730,6 +736,10 @@ function friendlyGerencialError(error: unknown, fallback: string) {
   const message = String(raw || "").trim();
   const lower = message.toLowerCase();
   const status = typeof error === "object" && error && "status" in error ? Number((error as { status?: number }).status) : 0;
+  const teamError = normalizeGerencialTeamError(message);
+
+  if (teamError) return teamError;
+  if (message === SELF_ACCESS_MESSAGE || message === LAST_ADMIN_MESSAGE) return message;
 
   if (lower.includes("e-mail já cadastrado") || lower.includes("email já cadastrado")) {
     return "Este e-mail já está cadastrado. Use outro e-mail ou confira se o usuário já existe na lista.";
@@ -737,8 +747,10 @@ function friendlyGerencialError(error: unknown, fallback: string) {
   if (lower.includes("username já cadastrado")) {
     return "Este login já está cadastrado. Nesta tela o login segue o e-mail informado.";
   }
-  if (lower.includes("free trial") || lower.includes("máximo 2 usuários")) {
-    return "O limite do trial foi atingido: a empresa pode ter no máximo 2 usuários ativos durante o período gratuito.";
+  if (lower.includes("free trial") || lower.includes("máximo 2 vendedores") || lower.includes("máximo 2 usuários")) {
+    return lower.includes("vendedores")
+      ? "O limite do trial foi atingido: a empresa pode ter no máximo 2 vendedores ativos durante o período gratuito."
+      : "O limite do trial foi atingido: a empresa pode ter no máximo 2 usuários ativos durante o período gratuito.";
   }
   if (lower.includes("senha fraca") || lower.includes("password must be longer") || lower.includes("mínimo 8")) {
     return "Senha fraca. Use no mínimo 8 caracteres ou deixe em branco para o HBX gerar uma senha temporária.";
@@ -832,6 +844,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   const [referralCandidates, setReferralCandidates] = useState<HbxPartnerReferralCandidate[]>([]);
   const [reviewingCandidateId, setReviewingCandidateId] = useState<string | null>(null);
   const [createAccessOpen, setCreateAccessOpen] = useState(false);
+  const [createAccessError, setCreateAccessError] = useState<string | null>(null);
   const [newUserReferralCandidateId, setNewUserReferralCandidateId] = useState("");
   const [referralPhoneMatch, setReferralPhoneMatch] = useState<HbxPartnerReferralCandidate | null>(null);
   const [ignoredReferralCandidateId, setIgnoredReferralCandidateId] = useState("");
@@ -864,6 +877,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   const [savingCommissionSettings, setSavingCommissionSettings] = useState(false);
   const [userFilter, setUserFilter] = useState<UserFilter>("active");
   const [userSearch, setUserSearch] = useState("");
+  const [teamRoleTab, setTeamRoleTab] = useState<TeamRoleTab>("admins");
   const [mobileTab, setMobileTab] = useState<MobileGerencialTab>("status");
   const [desktopGuideTab, setDesktopGuideTab] = useState<DesktopGerencialGuideTab>("status");
   const [pulseRefreshKey, setPulseRefreshKey] = useState(0);
@@ -950,6 +964,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   const canCreateAdminUsers = true;
   const canManageCommissionSettings = Boolean(data?.currentUser?.canManageCommissionSettings);
   const commissionDueDays = normalizeCommissionDueBusinessDays(data?.commission?.settings?.dueBusinessDays);
+  const currentUserId = Math.trunc(Number(data?.currentUser?.id || 0)) || null;
 
   useEffect(() => {
     if (savingCommissionSettings) return;
@@ -985,6 +1000,12 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   }, [ignoredReferralCandidateId, isSellerNetwork, newUserPhone, newUserReferralCandidateId, newUserRole, referralCandidates]);
 
   async function setRole(userId: number, role: "USER" | "ADMIN") {
+    const target = data?.users.find((user) => user.id === userId);
+    const blockMessage = target ? getTeamAccessActionBlockMessage(target, currentUserId, role === "USER" ? "demote" : undefined) : null;
+    if (blockMessage) {
+      setError(blockMessage);
+      return;
+    }
     setChangingUserId(userId);
     setError(null);
     try {
@@ -1055,6 +1076,12 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   }
 
   async function toggleActive(userId: number, active: boolean) {
+    const target = data?.users.find((user) => user.id === userId);
+    const blockMessage = target && active ? getTeamAccessActionBlockMessage(target, currentUserId, "deactivate") : null;
+    if (blockMessage) {
+      setError(blockMessage);
+      return;
+    }
     setTogglingActiveUserId(userId);
     setError(null);
     setActionInfo(null);
@@ -1093,6 +1120,11 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   }
 
   async function deleteUser(user: UserItem) {
+    const blockMessage = getTeamAccessActionBlockMessage(user, currentUserId, "delete");
+    if (blockMessage) {
+      setError(blockMessage);
+      return;
+    }
     const label = userLabel(user);
     if (!window.confirm(`Excluir definitivamente ${label}? Esta ação remove o usuário da equipe e limpa os vínculos dele.`)) {
       return;
@@ -1512,6 +1544,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     setNewUserDeclaredAddress("");
     setNewUserCommissionDueBusinessDays("3");
     setNewUserEnrichmentLimit("30");
+    setCreateAccessError(null);
     setNewUserReferralCandidateId("");
     setReferralPhoneMatch(null);
     setIgnoredReferralCandidateId("");
@@ -1684,6 +1717,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   async function createCompanyUser(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
+    setCreateAccessError(null);
     setActionInfo(null);
 
     if (onboardingUserId) {
@@ -1693,7 +1727,9 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
 
     const email = newUserEmail.trim().toLowerCase();
     if (!email) {
-      setError("Informe um e-mail válido.");
+      const message = "Informe um e-mail válido.";
+      setError(message);
+      setCreateAccessError(message);
       focusCreateAccessEmailField();
       return;
     }
@@ -1702,33 +1738,43 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
       ? Number(newUserReferredByUserId)
       : undefined;
     if (referredByUserId !== undefined && (!Number.isInteger(referredByUserId) || referredByUserId <= 0)) {
-      setError("Selecione um indicador válido.");
+      const message = "Selecione um indicador válido.";
+      setError(message);
+      setCreateAccessError(message);
       return;
     }
     const selectedReferrer = referredByUserId
       ? hbxReferrers.find((referrer) => referrer.id === referredByUserId)
       : null;
     if (referredByUserId && !selectedReferrer) {
-      setError("Indicador precisa ser vendedor ativo da empresa.");
+      const message = "Indicador precisa ser vendedor ativo da empresa.";
+      setError(message);
+      setCreateAccessError(message);
       return;
     }
     const commissionPercent = parsePercentInput(
       selectedReferrer ? percentInputValue(selectedReferrer.commissionPercent) : newUserCommissionPercent,
     );
     if (commissionPercent === null) {
-      setError("Informe uma comissão entre 0 e 100.");
+      const message = "Informe uma comissão entre 0 e 100.";
+      setError(message);
+      setCreateAccessError(message);
       return;
     }
     const sellerReferralCommissionPercent = shouldUseSellerNetwork
       ? parsePercentInput(selectedReferrer ? percentInputValue(selectedReferrer.sellerReferralCommissionPercent) : newUserSellerReferralCommissionPercent)
       : 0;
     if (sellerReferralCommissionPercent === null) {
-      setError("Informe uma comissão de indicação entre 0 e 100.");
+      const message = "Informe uma comissão de indicação entre 0 e 100.";
+      setError(message);
+      setCreateAccessError(message);
       return;
     }
     const enrichmentLimit = shouldUseSellerNetwork ? parseEnrichmentLimitInput(newUserEnrichmentLimit) : undefined;
     if (enrichmentLimit === null) {
-      setError("Informe enriquecimento Auto ou um limite entre 1 e 500.");
+      const message = "Informe enriquecimento Auto ou um limite entre 1 e 500.";
+      setError(message);
+      setCreateAccessError(message);
       return;
     }
     const requiresSellerOnboarding = Boolean(
@@ -1758,7 +1804,9 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         requestBody.requiresSellerOnboarding = requiresSellerOnboarding;
         const parsedDueDays = Number(newUserCommissionDueBusinessDays || 3);
         if (!Number.isInteger(parsedDueDays) || parsedDueDays < 1 || parsedDueDays > 30) {
-          setError("Informe um prazo de pagamento entre 1 e 30 dias úteis.");
+          const message = "Informe um prazo de pagamento entre 1 e 30 dias úteis.";
+          setError(message);
+          setCreateAccessError(message);
           return;
         }
         requestBody.commissionDueBusinessDays = parsedDueDays;
@@ -1851,8 +1899,9 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     } catch (createError) {
       const message = friendlyGerencialError(createError, "Falha ao cadastrar usuário.");
       setError(message);
+      setCreateAccessError(message);
+      setCreateAccessOpen(true);
       if (isDuplicateAccessError(createError, message)) {
-        setCreateAccessOpen(true);
         focusCreateAccessEmailField();
       }
     } finally {
@@ -2342,10 +2391,14 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     () => (moduleAccess?.modules || []).filter((mod) => mod.companyEnabled),
     [moduleAccess],
   );
+  const tenantTeamUsers = useMemo(
+    () => (data?.users || []).filter((user) => isTenantTeamUser(user)),
+    [data?.users],
+  );
   const teamStats = useMemo(() => {
-    const users = data?.users || [];
-    const masters = users.filter((user) => normalizeRole(user.role, user.isSystemMaster) === "USERMASTER");
-    const teamUsers = users.filter((user) => normalizeRole(user.role, user.isSystemMaster) !== "USERMASTER");
+    const users = tenantTeamUsers;
+    const masters = (data?.users || []).filter((user) => normalizeRole(user.role, user.isSystemMaster) === "USERMASTER");
+    const teamUsers = users;
     const active = teamUsers.filter((user) => user.isActive);
     const admins = teamUsers.filter((user) => normalizeRole(user.role, user.isSystemMaster) === "ADMIN");
     const sellers = teamUsers.filter((user) => normalizeRole(user.role, user.isSystemMaster) === "USER");
@@ -2369,39 +2422,39 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
       commissionConfigured,
       averageCommission,
     };
-  }, [data?.users]);
+  }, [data?.users, tenantTeamUsers]);
   const activeSeatRankByUserId = useMemo(() => {
     const ranks = new Map<number, number>();
-    (data?.users || [])
+    tenantTeamUsers
       .filter((user) => user.isActive && normalizeRole(user.role, user.isSystemMaster) === "USER")
       .forEach((user, index) => ranks.set(user.id, index + 1));
     return ranks;
-  }, [data?.users]);
+  }, [tenantTeamUsers]);
   const hbxReferrers = useMemo(
     () =>
       isSellerNetwork
-        ? (data?.users || []).filter(
+        ? tenantTeamUsers.filter(
             (user) =>
               user.isActive &&
               normalizeRole(user.role, user.isSystemMaster) === "USER",
           )
         : [],
-    [data?.users, isSellerNetwork],
+    [isSellerNetwork, tenantTeamUsers],
   );
   const selectedNewUserReferrer = useMemo(
     () => hbxReferrers.find((referrer) => String(referrer.id) === newUserReferredByUserId) || null,
     [hbxReferrers, newUserReferredByUserId],
   );
   const sellerNetworkStats = useMemo(() => {
-    const sellers = (data?.users || []).filter((user) => normalizeRole(user.role, user.isSystemMaster) === "USER");
+    const sellers = tenantTeamUsers.filter((user) => normalizeRole(user.role, user.isSystemMaster) === "USER");
     return {
       authorized: sellers.filter((user) => Boolean(user.isActive)).length,
       referred: sellers.filter((user) => Number(user.referredByUserId || 0) > 0).length,
     };
-  }, [data?.users]);
+  }, [tenantTeamUsers]);
   const filteredUsers = useMemo(() => {
     const search = userSearch.trim().toLowerCase();
-    return (data?.users || []).filter((user) => {
+    return tenantTeamUsers.filter((user) => {
       const role = normalizeRole(user.role, user.isSystemMaster);
       const matchesFilter =
         userFilter === "all" ||
@@ -2415,7 +2468,16 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(search));
     });
-  }, [data?.users, userFilter, userSearch]);
+  }, [tenantTeamUsers, userFilter, userSearch]);
+  const filteredAdminUsers = useMemo(
+    () => filteredUsers.filter((user) => normalizeRole(user.role, user.isSystemMaster) === "ADMIN"),
+    [filteredUsers],
+  );
+  const filteredSellerUsers = useMemo(
+    () => filteredUsers.filter((user) => normalizeRole(user.role, user.isSystemMaster) === "USER"),
+    [filteredUsers],
+  );
+  const filteredTeamRoleUsers = teamRoleTab === "admins" ? filteredAdminUsers : filteredSellerUsers;
   const policyModalUser = useMemo(
     () => (policyModalUserId ? (data?.users || []).find((user) => user.id === policyModalUserId) || null : null),
     [data?.users, policyModalUserId],
@@ -2694,6 +2756,10 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     const seatRank = activeSeatRankByUserId.get(user.id) || 0;
     const isExtraSeat = isSeller && user.isActive && seatRank > INCLUDED_TEAM_USERS;
     const isEditingProfile = editingUserId === user.id;
+    const isOwnUser = currentUserId === user.id;
+    const demoteBlockMessage = getTeamAccessActionBlockMessage(user, currentUserId, "demote");
+    const deactivateBlockMessage = user.isActive ? getTeamAccessActionBlockMessage(user, currentUserId, "deactivate") : null;
+    const deleteBlockMessage = getTeamAccessActionBlockMessage(user, currentUserId, "delete");
 
     return (
       <article key={user.id} className="hbx-mobile-card grid gap-3">
@@ -2747,9 +2813,14 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         ) : null}
 
         {isEditingProfile && !options.modulesOnly && !showSellerNetwork ? renderMobileProfileForm(user) : null}
+        {isOwnUser && !options.modulesOnly ? (
+          <p className="rounded-[14px] border border-[var(--hbx-mobile-border)] bg-[var(--hbx-mobile-surface-soft)] p-3 text-sm font-semibold text-[var(--hbx-mobile-muted)]">
+            {SELF_ACCESS_MESSAGE}
+          </p>
+        ) : null}
         {!options.modulesOnly ? (
           <div className="grid grid-cols-2 gap-2">
-            <button type="button" disabled={deletingUserId === user.id || changingUserId === user.id || !user.isActive || role === "USER"} onClick={() => setRole(user.id, "USER")} className="hbx-mobile-secondary-button">
+            <button type="button" disabled={Boolean(demoteBlockMessage) || deletingUserId === user.id || changingUserId === user.id || !user.isActive || role === "USER"} title={demoteBlockMessage || undefined} onClick={() => setRole(user.id, "USER")} className="hbx-mobile-secondary-button">
               Vendedor
             </button>
             <button type="button" disabled={deletingUserId === user.id || changingUserId === user.id || !user.isActive || role === "ADMIN"} onClick={() => setRole(user.id, "ADMIN")} className="hbx-mobile-secondary-button">
@@ -2768,7 +2839,8 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
             </button>
             <button
               type="button"
-              disabled={deletingUserId === user.id || togglingActiveUserId === user.id}
+              disabled={Boolean(deactivateBlockMessage) || deletingUserId === user.id || togglingActiveUserId === user.id}
+              title={deactivateBlockMessage || undefined}
               onClick={() => {
                 if (!user.isActive && showSellerNetwork) void openSellerCadastroPopup(user);
                 else toggleActive(user.id, Boolean(user.isActive));
@@ -2777,7 +2849,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
             >
               {user.isActive ? "Desativar" : isSellerNetwork && isSeller ? "Liberar vendedor" : "Reativar"}
             </button>
-            <button type="button" disabled={deletingUserId === user.id} onClick={() => void deleteUser(user)} className="hbx-mobile-secondary-button col-span-2 text-red-700">
+            <button type="button" disabled={Boolean(deleteBlockMessage) || deletingUserId === user.id} title={deleteBlockMessage || undefined} onClick={() => void deleteUser(user)} className="hbx-mobile-secondary-button col-span-2 text-red-700">
               {deletingUserId === user.id ? "Excluindo..." : "Excluir"}
             </button>
           </div>
@@ -3152,6 +3224,12 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
           </header>
 
           <form onSubmit={createCompanyUser} autoComplete="off" className="hbx-partner-popup__grid">
+            {createAccessError ? (
+              <div className="hbx-partner-popup__alert" role="alert" aria-live="assertive">
+                <strong>Acesso não criado</strong>
+                <span>{createAccessError}</span>
+              </div>
+            ) : null}
             <div className="hbx-partner-popup__panel">
               {canCreateAdminUsers ? (
                 <div className="hbx-partner-popup__segmented">
@@ -3380,20 +3458,49 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                       ["inactive", "Inativos"],
                       ["all", "Todos"],
                     ] as Array<[UserFilter, string]>).map(([value, label]) => (
-                      <button key={value} type="button" onClick={() => setUserFilter(value)} className={userFilter === value ? "hbx-mobile-primary-button" : "hbx-mobile-secondary-button"}>
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => {
+                          setUserFilter(value);
+                          if (value === "admins") setTeamRoleTab("admins");
+                          if (value === "sellers") setTeamRoleTab("sellers");
+                        }}
+                        className={userFilter === value ? "hbx-mobile-primary-button" : "hbx-mobile-secondary-button"}
+                      >
                         {label}
                       </button>
                     ))}
                   </div>
+                  <div className="grid grid-cols-2 gap-2" role="tablist" aria-label="Subguias da equipe">
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={teamRoleTab === "admins"}
+                      onClick={() => setTeamRoleTab("admins")}
+                      className={teamRoleTab === "admins" ? "hbx-mobile-primary-button" : "hbx-mobile-secondary-button"}
+                    >
+                      Administradores {teamStats.admins}
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={teamRoleTab === "sellers"}
+                      onClick={() => setTeamRoleTab("sellers")}
+                      className={teamRoleTab === "sellers" ? "hbx-mobile-primary-button" : "hbx-mobile-secondary-button"}
+                    >
+                      Vendedores {teamStats.sellers}
+                    </button>
+                  </div>
                 </section>
-                {filteredUsers.length ? filteredUsers.map((user) => renderMobileUserCard(user)) : <div className="hbx-mobile-empty">Nenhum usuário encontrado.</div>}
+                {filteredTeamRoleUsers.length ? filteredTeamRoleUsers.map((user) => renderMobileUserCard(user)) : <div className="hbx-mobile-empty">Nenhum usuário encontrado.</div>}
               </div>
             ) : null}
 
             {mobileTab === "comissoes" ? renderMobileCommissions() : null}
             {mobileTab === "modulos" ? (
               <div className="grid gap-3">
-                {(data.users || []).map((user) => renderMobileUserCard(user, { modulesOnly: true }))}
+                {tenantTeamUsers.map((user) => renderMobileUserCard(user, { modulesOnly: true }))}
               </div>
             ) : null}
             {mobileTab === "produtos" ? <ProductCatalogPanel surface="mobile" /> : null}
@@ -3449,6 +3556,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   const showDesktopProducts = desktopGuideTab === "produtos";
   const showDesktopCommunication = desktopGuideTab === "comunicacao";
   const showDesktopSignals = desktopGuideTab === "sinais";
+  const desktopDisplayedUsers = showDesktopTeam ? filteredTeamRoleUsers : filteredUsers;
 
   return (
     <DashboardScaffold
@@ -3849,11 +3957,19 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
             showDesktopModules={showDesktopModules}
             companyId={data.companyId}
             enabledModulesCount={enabledModules.length}
-            usersCount={data.users.length}
+            usersCount={tenantTeamUsers.length}
             userSearch={userSearch}
             setUserSearch={setUserSearch}
             userFilter={userFilter}
-            setUserFilter={setUserFilter}
+            setUserFilter={(value) => {
+              setUserFilter(value);
+              if (value === "admins") setTeamRoleTab("admins");
+              if (value === "sellers") setTeamRoleTab("sellers");
+            }}
+            teamRoleTab={showDesktopTeam ? teamRoleTab : undefined}
+            setTeamRoleTab={showDesktopTeam ? setTeamRoleTab : undefined}
+            adminCount={teamStats.admins}
+            sellerCount={teamStats.sellers}
             onCreateAccess={() => {
               resetCreateAccessPopup();
               setCreateAccessOpen(true);
@@ -3863,11 +3979,11 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
           >
 
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 mt-4">
-              {filteredUsers.length === 0 ? (
+              {desktopDisplayedUsers.length === 0 ? (
                 <div className="xl:col-span-2 rounded-[16px] border border-[var(--line)] bg-[var(--surface-soft)] p-4 text-sm text-muted">
                   Nenhum usuário encontrado com estes filtros.
                 </div>
-              ) : filteredUsers.map((user) => {
+              ) : desktopDisplayedUsers.map((user) => {
                 const role = normalizeRole(user.role, user.isSystemMaster);
                 const isAdmin = role === "ADMIN";
                 const isMaster = role === "USERMASTER";
@@ -3892,6 +4008,10 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                     ? `Extra ${formatCurrency(EXTRA_USER_MONTHLY_PRICE)}/mês proporcional`
                     : "Vendedor incluído";
                 const isEditingProfile = editingUserId === user.id;
+                const isOwnUser = currentUserId === user.id;
+                const demoteBlockMessage = getTeamAccessActionBlockMessage(user, currentUserId, "demote");
+                const deactivateBlockMessage = user.isActive ? getTeamAccessActionBlockMessage(user, currentUserId, "deactivate") : null;
+                const deleteBlockMessage = getTeamAccessActionBlockMessage(user, currentUserId, "delete");
 
                 return (
                   <article
@@ -3966,11 +4086,18 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                       </div>
                     ) : null}
 
+                    {showDesktopTeam && isOwnUser ? (
+                      <div className="rounded-[12px] border border-[var(--line)] bg-[var(--surface)] p-3 text-xs font-semibold text-muted">
+                        {SELF_ACCESS_MESSAGE}
+                      </div>
+                    ) : null}
+
                     {showDesktopTeam ? (
                     <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
-                        disabled={deletingUserId === user.id || changingUserId === user.id || !user.isActive || role === "USER"}
+                        disabled={Boolean(demoteBlockMessage) || deletingUserId === user.id || changingUserId === user.id || !user.isActive || role === "USER"}
+                        title={demoteBlockMessage || undefined}
                         onClick={() => setRole(user.id, "USER")}
                         className="btn btn-secondary btn-sm"
                       >
@@ -3986,7 +4113,8 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                       </button>
                       <button
                         type="button"
-                        disabled={deletingUserId === user.id || togglingActiveUserId === user.id}
+                        disabled={Boolean(deactivateBlockMessage) || deletingUserId === user.id || togglingActiveUserId === user.id}
+                        title={deactivateBlockMessage || undefined}
                         onClick={() => {
                           if (!user.isActive && showSellerNetwork) void openSellerCadastroPopup(user);
                           else toggleActive(user.id, Boolean(user.isActive));
@@ -4016,7 +4144,8 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                       </button>
                       <button
                         type="button"
-                        disabled={deletingUserId === user.id}
+                        disabled={Boolean(deleteBlockMessage) || deletingUserId === user.id}
+                        title={deleteBlockMessage || undefined}
                         onClick={() => void deleteUser(user)}
                         className="btn btn-ghost btn-sm text-danger"
                       >

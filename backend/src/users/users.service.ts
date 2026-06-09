@@ -6,9 +6,100 @@ import { isBillableUserSeatSnapshot } from '../commercial-plans/seat-billing.uti
 import { isTenantCompany } from '../common/company-kind';
 import { ensureUserTeamPolicyForUser } from '../team/team-policy-persistence';
 
+export const SELF_ACCESS_REMOVAL_MESSAGE = 'Você não pode remover seu próprio acesso.';
+export const LAST_TENANT_ADMIN_MESSAGE = 'A empresa precisa manter pelo menos um administrador ativo.';
+
+type UserMutationGuardAction = 'delete' | 'deactivate' | 'role_update' | 'profile_update';
+
+type UserMutationGuardOptions = {
+  actorUserId?: number | null;
+  action?: UserMutationGuardAction;
+};
+
 @Injectable()
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private normalizeTeamRole(role?: string | null) {
+    const normalized = String(role || '').trim().toUpperCase();
+    return normalized === 'ADMIN' ? 'ADMIN' : normalized === 'USERMASTER' ? 'USERMASTER' : 'USER';
+  }
+
+  private isActiveTenantAdminSnapshot(user?: any) {
+    return Boolean(
+      user &&
+      Number(user.companyId || 0) > 0 &&
+      this.normalizeTeamRole(user.role) === 'ADMIN' &&
+      user.isActive === true &&
+      user.isSystemMaster === false,
+    );
+  }
+
+  private async isTenantCompanyId(companyId?: number | null) {
+    const normalizedCompanyId = Number(companyId || 0);
+    if (!normalizedCompanyId) return false;
+    const company = await this.prisma.company.findUnique({
+      where: { id: normalizedCompanyId },
+      select: { companyKind: true },
+    });
+    return Boolean(company && isTenantCompany(company));
+  }
+
+  private async countOtherActiveTenantAdmins(companyId: number, userId: number) {
+    return this.prisma.user.count({
+      where: {
+        companyId,
+        id: { not: userId },
+        role: 'ADMIN',
+        isActive: true,
+        isSystemMaster: false,
+      },
+    });
+  }
+
+  private assertSelfMutationAllowed(userId: number, before: any, next: any, options?: UserMutationGuardOptions) {
+    const actorUserId = Number(options?.actorUserId || 0);
+    if (!actorUserId || actorUserId !== Number(userId || 0)) return;
+
+    const action = options?.action;
+    if (action === 'delete' || action === 'deactivate') {
+      throw new BadRequestException(SELF_ACCESS_REMOVAL_MESSAGE);
+    }
+
+    const beforeRole = this.normalizeTeamRole(before?.role);
+    const nextRole = this.normalizeTeamRole(next?.role);
+    if (beforeRole === 'ADMIN' && nextRole === 'USER') {
+      throw new BadRequestException(SELF_ACCESS_REMOVAL_MESSAGE);
+    }
+
+    if (before?.isActive === true && next?.isActive === false) {
+      throw new BadRequestException(SELF_ACCESS_REMOVAL_MESSAGE);
+    }
+  }
+
+  private async assertTenantKeepsActiveAdmin(userId: number, before: any, next: any, options?: UserMutationGuardOptions) {
+    this.assertSelfMutationAllowed(userId, before, next, options);
+
+    if (!this.isActiveTenantAdminSnapshot(before) || this.isActiveTenantAdminSnapshot(next)) return;
+
+    const companyId = Number(before?.companyId || 0);
+    if (!companyId || !(await this.isTenantCompanyId(companyId))) return;
+
+    const otherActiveAdmins = await this.countOtherActiveTenantAdmins(companyId, Number(userId));
+    if (otherActiveAdmins <= 0) {
+      throw new BadRequestException(LAST_TENANT_ADMIN_MESSAGE);
+    }
+  }
+
+  private updateTouchesRoleOrStatus(data: any) {
+    return Boolean(
+      data &&
+      (
+        Object.prototype.hasOwnProperty.call(data, 'role') ||
+        Object.prototype.hasOwnProperty.call(data, 'isActive')
+      ),
+    );
+  }
 
   private async isBillableCompany(companyId?: number | null) {
     const normalizedCompanyId = Number(companyId || 0);
@@ -591,7 +682,7 @@ export class UsersService {
     });
   }
 
-  async updateById(userId: number, data: any): Promise<User> {
+  async updateById(userId: number, data: any, options?: UserMutationGuardOptions): Promise<User> {
     const before = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -603,6 +694,14 @@ export class UsersService {
         deactivatedAt: true,
       },
     });
+    if (this.updateTouchesRoleOrStatus(data)) {
+      await this.assertTenantKeepsActiveAdmin(
+        userId,
+        before,
+        { ...before, ...data },
+        options || { action: 'profile_update' },
+      );
+    }
     const updated = await this.prisma.user.update({
       where: { id: userId },
       data,
@@ -703,19 +802,23 @@ export class UsersService {
     });
   }
 
-  async updateRole(userId: number, role: 'USER' | 'ADMIN'): Promise<User> {
-    const updated = await this.prisma.user.update({ where: { id: userId }, data: { role } });
-    await ensureUserTeamPolicyForUser(this.prisma, updated.id, { source: 'user_role_update' });
-    return updated;
+  async updateRole(userId: number, role: 'USER' | 'ADMIN', options?: UserMutationGuardOptions): Promise<User> {
+    return this.updateById(userId, { role }, { ...options, action: options?.action || 'role_update' });
   }
 
-  async deactivateUser(userId: number, retentionDays = 730): Promise<User> {
+  async deactivateUser(userId: number, retentionDays = 730, options?: UserMutationGuardOptions): Promise<User> {
     const before = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { companyId: true, role: true, isActive: true, isSystemMaster: true, deactivatedAt: true },
     });
     const retentionUntil = new Date(Date.now() + retentionDays * 24 * 60 * 60 * 1000);
     const endedAt = new Date();
+    await this.assertTenantKeepsActiveAdmin(
+      userId,
+      before,
+      { ...before, isActive: false, deactivatedAt: endedAt, retentionUntil },
+      { ...options, action: options?.action || 'deactivate' },
+    );
     const updated = await this.prisma.user.update({
       where: { id: userId },
       data: {
@@ -789,11 +892,17 @@ export class UsersService {
     return updated;
   }
 
-  async hardDeleteUser(userId: number): Promise<void> {
+  async hardDeleteUser(userId: number, options?: UserMutationGuardOptions): Promise<void> {
     const target = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { companyId: true, role: true, isActive: true, isSystemMaster: true, deactivatedAt: true },
     });
+    await this.assertTenantKeepsActiveAdmin(
+      userId,
+      target,
+      { ...target, isActive: false },
+      { ...options, action: options?.action || 'delete' },
+    );
     const sellerOnboardingCleanup = await this.collectSellerOnboardingCleanup(userId);
     await this.deleteSellerOnboardingFiles(sellerOnboardingCleanup.attachmentPaths);
     const hasWebsiteAdminEntryToken = await this.prisma.hasTable('WebsiteAdminEntryToken');

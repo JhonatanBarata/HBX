@@ -1,5 +1,6 @@
 export type GerencialRole = "USER" | "ADMIN" | "USERMASTER";
 export type UserFilter = "active" | "sellers" | "admins" | "inactive" | "all";
+export type TeamRoleTab = "admins" | "sellers";
 
 export type UserItem = {
   id: number;

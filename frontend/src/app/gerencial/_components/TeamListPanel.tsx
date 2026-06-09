@@ -1,5 +1,5 @@
-import type { ReactNode } from "react";
-import type { UserFilter } from "./types";
+import type { CSSProperties, ReactNode } from "react";
+import type { TeamRoleTab, UserFilter } from "./types";
 
 type TeamListPanelProps = {
   showDesktopTeam: boolean;
@@ -11,6 +11,10 @@ type TeamListPanelProps = {
   setUserSearch: (value: string) => void;
   userFilter: UserFilter;
   setUserFilter: (value: UserFilter) => void;
+  teamRoleTab?: TeamRoleTab;
+  setTeamRoleTab?: (value: TeamRoleTab) => void;
+  adminCount?: number;
+  sellerCount?: number;
   onCreateAccess: () => void;
   onOpenBatchPolicy?: () => void;
   referralCandidatesPanel?: ReactNode;
@@ -35,6 +39,10 @@ export default function TeamListPanel({
   setUserSearch,
   userFilter,
   setUserFilter,
+  teamRoleTab,
+  setTeamRoleTab,
+  adminCount = 0,
+  sellerCount = 0,
   onCreateAccess,
   onOpenBatchPolicy,
   referralCandidatesPanel,
@@ -71,6 +79,33 @@ export default function TeamListPanel({
       </div>
 
       {showDesktopTeam ? referralCandidatesPanel : null}
+
+      {showDesktopTeam && teamRoleTab && setTeamRoleTab ? (
+        <nav className="mt-4 hbx-guide1 hbx-tab-glide" style={{ "--hbx-guide1-count": 2, "--hbx-guide1-index": teamRoleTab === "admins" ? 0 : 1 } as CSSProperties} aria-label="Subguias da equipe" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={teamRoleTab === "admins"}
+            data-active={teamRoleTab === "admins"}
+            onClick={() => setTeamRoleTab("admins")}
+            className="hbx-guide1__tab hbx-tab-glide__item"
+          >
+            <span>Administradores</span>
+            <b>{adminCount}</b>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={teamRoleTab === "sellers"}
+            data-active={teamRoleTab === "sellers"}
+            onClick={() => setTeamRoleTab("sellers")}
+            className="hbx-guide1__tab hbx-tab-glide__item"
+          >
+            <span>Vendedores</span>
+            <b>{sellerCount}</b>
+          </button>
+        </nav>
+      ) : null}
 
       <div className="mt-4 grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-3">
         <label className="grid gap-1 text-sm">

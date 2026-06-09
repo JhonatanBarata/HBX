@@ -729,7 +729,7 @@ export class UsersController {
 					referredByCommissionPercentSnapshot: 0,
 				}
 				: {}),
-		});
+		}, { actorUserId: Number(req?.user?.id || 0), action: 'role_update' });
 		return {
 			id: updated.id,
 			username: updated.username,
@@ -806,7 +806,7 @@ export class UsersController {
 		Object.assign(data, sellerNetworkData);
 
 		const updated = Object.keys(data).length
-			? await this.usersService.updateById(id, data)
+			? await this.usersService.updateById(id, data, { actorUserId: Number(req?.user?.id || 0), action: 'profile_update' })
 			: target;
 
 		return {
@@ -837,13 +837,13 @@ export class UsersController {
 			throw new ForbiddenException('Usuário MASTER não pode ser alterado por admin da empresa');
 		}
 		if (requesterId === id) {
-			throw new BadRequestException('Você não pode desativar sua própria conta');
+			throw new BadRequestException('Você não pode remover seu próprio acesso.');
 		}
 
 		const nextActive = typeof dto?.active === 'boolean' ? dto.active : !Boolean(target.isActive);
 
 		if (!nextActive) {
-			const updated = await this.usersService.deactivateUser(id, 730);
+			const updated = await this.usersService.deactivateUser(id, 730, { actorUserId: requesterId, action: 'deactivate' });
 			return {
 				id: updated.id,
 				isActive: updated.isActive,
@@ -901,11 +901,20 @@ export class UsersController {
 	@UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
 	@Admin()
 	@ModuleAccess('gerencial')
-	async deleteCompanyUser(@Param('id', ParseIntPipe) id: number) {
+	async deleteCompanyUser(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
+		const companyId = Number(req?.user?.companyId);
+		if (!companyId) throw new ForbiddenException('Company context required');
+
 		const target = await this.usersService.findById(id);
 		if (!target) throw new NotFoundException('Usuário não encontrado');
+		if (Number(target.companyId) !== companyId) {
+			throw new ForbiddenException('Usuário fora da sua empresa');
+		}
+		if (target.isSystemMaster) {
+			throw new ForbiddenException('Usuário MASTER não pode ser removido por admin da empresa');
+		}
 
-		await this.usersService.hardDeleteUser(id);
+		await this.usersService.hardDeleteUser(id, { actorUserId: Number(req?.user?.id || 0), action: 'delete' });
 		return {
 			ok: true,
 			id,
@@ -1153,7 +1162,7 @@ export class UsersController {
 		if (!target) throw new NotFoundException('Usuário não encontrado');
 		if (target.isSystemMaster) throw new ForbiddenException('Usuário MASTER não pode ser removido');
 
-		await this.usersService.hardDeleteUser(id);
+		await this.usersService.hardDeleteUser(id, { actorUserId: Number(req.user?.id || 0), action: 'delete' });
 		await this.masterContextService.registerSupportAction({
 			masterUserId: Number(req.user?.id),
 			companyId: Number(target.companyId || 0) || null,
@@ -1429,7 +1438,7 @@ export class UsersController {
 			}
 		}
 
-		const updated = await this.usersService.updateById(id, data);
+		const updated = await this.usersService.updateById(id, data, { actorUserId: Number(req.user?.id || 0), action: 'profile_update' });
 		await this.masterContextService.registerSupportAction({
 			masterUserId: Number(req.user?.id),
 			companyId: Number(updated.companyId || 0) || null,

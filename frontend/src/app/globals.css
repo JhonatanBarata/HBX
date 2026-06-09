@@ -960,6 +960,30 @@ textarea {
   scrollbar-width: thin;
 }
 
+.hbx-partner-popup__alert {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 0.25rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--danger) 28%, var(--line));
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+  color: var(--foreground);
+  padding: 0.78rem 1rem;
+}
+
+.hbx-partner-popup__alert strong {
+  color: color-mix(in srgb, var(--danger) 82%, var(--foreground));
+  font-size: 0.86rem;
+  font-weight: 850;
+  line-height: 1.12;
+}
+
+.hbx-partner-popup__alert span {
+  color: color-mix(in srgb, var(--danger) 52%, var(--foreground));
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
 .hbx-partner-popup__panel {
   min-width: 0;
   display: grid;
