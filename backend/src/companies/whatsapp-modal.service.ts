@@ -39,6 +39,12 @@ type CompanyModalFields = {
   whatsappModalLastError: string | null;
   whatsappModalUpdatedAt: Date | null;
   currentWhatsappConnectionSessionId: string | null;
+  currentWhatsappConnectionSession?: {
+    id: string;
+    provider: string | null;
+    tenantKey: string | null;
+    status: string | null;
+  } | null;
   paymentStatus: string | null;
   subscriptionStatus: string | null;
   onboardingStatus: string | null;
@@ -567,7 +573,7 @@ export class WhatsAppModalService {
       return availabilityResponse;
     }
 
-    const tenantKey = this.buildTenantKey(company);
+    const tenantKey = this.resolveOperationalTenantKey(company);
     this.logger.log(`Starting Modal WhatsApp session for company ${company.id} (${tenantKey}).`);
 
     let liveSnapshot: ModalSnapshot = {
@@ -678,7 +684,7 @@ export class WhatsAppModalService {
     const company = await this.loadCompany(companyId);
     const storedSnapshot = this.buildStoredSnapshot(company);
     const availabilityResponse = this.buildAvailabilityResponse(company, storedSnapshot, 'pairing');
-    const tenantKey = this.buildTenantKey(company);
+    const tenantKey = this.resolveOperationalTenantKey(company);
     if (sessionId !== tenantKey) {
       throw new NotFoundException('Sessão WhatsApp não encontrada para esta empresa.');
     }
@@ -770,7 +776,7 @@ export class WhatsAppModalService {
       return availabilityResponse;
     }
 
-    const tenantKey = this.buildTenantKey(company);
+    const tenantKey = this.resolveOperationalTenantKey(company);
     this.logger.log(`Disconnecting Modal WhatsApp session for company ${company.id} (${tenantKey}).`);
 
     try {
@@ -807,7 +813,7 @@ export class WhatsAppModalService {
       return availabilityResponse;
     }
 
-    const tenantKey = this.buildTenantKey(company);
+    const tenantKey = this.resolveOperationalTenantKey(company);
     this.logger.log(`Restarting Modal WhatsApp session for company ${company.id} (${tenantKey}).`);
 
     try {
@@ -952,7 +958,7 @@ export class WhatsAppModalService {
       whatsappModalPhone: snapshot.phone,
       connectedAt: snapshot.connectedAt instanceof Date ? snapshot.connectedAt.toISOString() : null,
       provider: snapshot.provider,
-      tenantKey: this.buildTenantKey(company),
+      tenantKey: this.resolveOperationalTenantKey(company),
       recordedAt: new Date().toISOString(),
     };
   }
@@ -1055,7 +1061,7 @@ export class WhatsAppModalService {
     snapshot: ModalSnapshot,
     reason: string,
   ) {
-    const tenantKey = this.buildTenantKey(company);
+    const tenantKey = this.resolveOperationalTenantKey(company);
     const now = new Date();
     const phoneNormalized = this.normalizeTrialPhone(snapshot.phone);
     const displayPhone = this.normalizeOptionalString(snapshot.phone);
@@ -1469,7 +1475,7 @@ export class WhatsAppModalService {
   }
 
   private async connectProviderSession(company: CompanyModalFields, fallback: ModalSnapshot) {
-    const tenantKey = this.buildTenantKey(company);
+    const tenantKey = this.resolveOperationalTenantKey(company);
     if (this.shouldThrottleConnectAttempt(tenantKey, fallback)) {
       return this.reconcileTransientSnapshot(
         tenantKey,
@@ -1619,6 +1625,19 @@ export class WhatsAppModalService {
 
   private buildTenantKey(company: Pick<CompanyModalFields, 'id'>) {
     return `company-${Number(company.id)}`;
+  }
+
+  private resolveOperationalTenantKey(company: Pick<CompanyModalFields, 'id' | 'currentWhatsappConnectionSession'>) {
+    const current = company.currentWhatsappConnectionSession;
+    if (
+      current &&
+      String(current.provider || '').trim().toLowerCase() === 'webwhats' &&
+      String(current.status || '').trim().toLowerCase() === 'active'
+    ) {
+      const tenantKey = this.normalizeOptionalString(current.tenantKey);
+      if (tenantKey) return tenantKey;
+    }
+    return this.buildTenantKey(company);
   }
 
   private buildSessionCreatePayload(tenantKey: string, phoneNumber?: string) {
@@ -2445,7 +2464,7 @@ export class WhatsAppModalService {
         companyId: Number(company.id),
         companyName: String(company.name || ''),
         companySlug: company.slug || null,
-        tenantKey: this.buildTenantKey(company),
+        tenantKey: this.resolveOperationalTenantKey(company),
         provider: 'external_modal',
         enabled: config.enabled,
         configured: config.configured,
@@ -2684,6 +2703,14 @@ export class WhatsAppModalService {
         whatsappModalLastError: true,
         whatsappModalUpdatedAt: true,
         currentWhatsappConnectionSessionId: true,
+        currentWhatsappConnectionSession: {
+          select: {
+            id: true,
+            provider: true,
+            tenantKey: true,
+            status: true,
+          },
+        },
         paymentStatus: true,
         subscriptionStatus: true,
         onboardingStatus: true,
@@ -2736,7 +2763,7 @@ export class WhatsAppModalService {
     company: CompanyModalFields,
     options?: { includeQr?: boolean },
   ) {
-    const tenantKey = this.buildTenantKey(company);
+    const tenantKey = this.resolveOperationalTenantKey(company);
     const fallback = this.buildStoredSnapshot(company);
     let payload: unknown = null;
 

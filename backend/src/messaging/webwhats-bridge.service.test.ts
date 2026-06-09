@@ -183,6 +183,66 @@ test('sendWhatsAppAudio posts Evolution voice note payload', async () => {
   }
 });
 
+test('sendText usa tenantKey da sessao ativa quando diferente do id da empresa', async () => {
+  const previousUrl = process.env.WHATSAPP_MODAL_INTERNAL_URL;
+  const previousKey = process.env.WHATSAPP_MODAL_API_KEY;
+  process.env.WHATSAPP_MODAL_INTERNAL_URL = 'http://webwhats.test';
+  process.env.WHATSAPP_MODAL_API_KEY = 'test-key';
+
+  const calls = {
+    path: null as string | null,
+    data: null as Record<string, unknown> | null,
+  };
+  const prisma = {
+    company: {
+      findUnique: async () => ({
+        id: 10,
+        whatsappModalStatus: 'connected',
+        whatsappModalPhone: '+55119997024884',
+        currentWhatsappConnectionSessionId: 'session-handoff',
+        currentWhatsappConnectionSession: {
+          id: 'session-handoff',
+          tenantKey: 'company-11',
+          provider: 'webwhats',
+          status: 'active',
+          phoneNormalized: '55119997024884',
+          displayPhone: '+55119997024884',
+          metadataJson: null,
+        },
+      }),
+    },
+    companyConversation: {
+      findFirst: async () => null,
+    },
+  };
+  const service = new WebwhatsBridgeService(prisma as any);
+
+  (service as any).requestRead = async (input: any) => {
+    calls.path = input.path;
+    calls.data = input.data;
+    return { key: { id: 'MSG-1' } };
+  };
+
+  try {
+    const result = await service.sendText(10, {
+      to: '+5511999990000',
+      text: 'Oi',
+    });
+
+    assert.equal(calls.path, '/message/sendText/company-11');
+    assert.deepEqual(calls.data, {
+      number: '+5511999990000',
+      text: 'Oi',
+    });
+    assert.equal(result.providerMessageId, 'webwhats:company-11:MSG-1');
+  } finally {
+    if (previousUrl === undefined) delete process.env.WHATSAPP_MODAL_INTERNAL_URL;
+    else process.env.WHATSAPP_MODAL_INTERNAL_URL = previousUrl;
+    if (previousKey === undefined) delete process.env.WHATSAPP_MODAL_API_KEY;
+    else process.env.WHATSAPP_MODAL_API_KEY = previousKey;
+  }
+});
+
 test('sendMedia posts sticker payload through Webwhats', async () => {
   const previousUrl = process.env.WHATSAPP_MODAL_INTERNAL_URL;
   const previousKey = process.env.WHATSAPP_MODAL_API_KEY;

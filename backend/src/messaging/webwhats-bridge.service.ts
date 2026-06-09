@@ -844,7 +844,7 @@ export class WebwhatsBridgeService {
 
   async checkWhatsappNumbers(companyId: number, numbersRaw: Array<string | null | undefined>) {
     const company = await this.requireConnectedCompany(companyId);
-    const tenantKey = this.buildTenantKey(company.id);
+    const tenantKey = company.session.tenantKey;
     const normalizedNumbers = Array.from(
       new Set(
         (Array.isArray(numbersRaw) ? numbersRaw : [])
@@ -964,7 +964,7 @@ export class WebwhatsBridgeService {
       current &&
       String(current.provider || '').trim().toLowerCase() === 'webwhats' &&
       String(current.status || '').trim().toLowerCase() === 'active' &&
-      String(current.tenantKey || '').trim() === tenantKey
+      this.normalizeOptionalString(current.tenantKey)
     ) {
       return {
         id: String(current.id),
@@ -1081,7 +1081,7 @@ export class WebwhatsBridgeService {
   async sendText(companyId: number, input: { to: string; text: string; conversationId?: number | null }) {
     const company = await this.requireConnectedCompany(companyId);
 
-    const tenantKey = this.buildTenantKey(company.id);
+    const tenantKey = company.session.tenantKey;
     const target = await this.resolveSendTarget(companyId, input);
     const response = await this.requestRead<any>({
       method: 'POST',
@@ -1116,7 +1116,7 @@ export class WebwhatsBridgeService {
   ) {
     const company = await this.requireConnectedCompany(companyId);
 
-    const tenantKey = this.buildTenantKey(company.id);
+    const tenantKey = company.session.tenantKey;
     const target = await this.resolveSendTarget(companyId, input);
     const response = await this.requestRead<any>({
       method: 'POST',
@@ -1151,7 +1151,7 @@ export class WebwhatsBridgeService {
   ) {
     const company = await this.requireConnectedCompany(companyId);
 
-    const tenantKey = this.buildTenantKey(company.id);
+    const tenantKey = company.session.tenantKey;
     const target = await this.resolveSendTarget(companyId, {
       to: input.to,
       conversationId: input.conversationId,
@@ -1185,7 +1185,7 @@ export class WebwhatsBridgeService {
   ) {
     const company = await this.requireConnectedCompany(companyId);
 
-    const tenantKey = this.buildTenantKey(company.id);
+    const tenantKey = company.session.tenantKey;
     const target = await this.resolveSendTarget(companyId, input);
     const payloadType = this.normalizeOptionalString(input.payload?.type);
 
@@ -1274,7 +1274,7 @@ export class WebwhatsBridgeService {
     },
   ) {
     const company = await this.requireConnectedCompany(companyId);
-    const tenantKey = this.buildTenantKey(company.id);
+    const tenantKey = company.session.tenantKey;
     const target = await this.resolveSendTarget(companyId, {
       to: String(input.to || ''),
       conversationId: input.conversationId ?? null,
@@ -1298,7 +1298,7 @@ export class WebwhatsBridgeService {
     },
   ) {
     const company = await this.requireConnectedCompany(companyId);
-    const tenantKey = this.buildTenantKey(company.id);
+    const tenantKey = company.session.tenantKey;
     const conversation = await this.prisma.companyConversation.findFirst({
       where: { id: Number(input.conversationId || 0), companyId, channel: 'whatsapp' },
       select: { id: true, contact: true, metadata: true },
@@ -1366,7 +1366,7 @@ export class WebwhatsBridgeService {
     },
   ) {
     const company = await this.requireConnectedCompany(companyId);
-    const tenantKey = this.buildTenantKey(company.id);
+    const tenantKey = company.session.tenantKey;
     const resolvedRemoteJid = this.normalizeRemoteJid(
       String(
         input.remoteJid ||
@@ -1410,7 +1410,7 @@ export class WebwhatsBridgeService {
     },
   ) {
     const company = await this.requireConnectedCompany(companyId);
-    const tenantKey = this.buildTenantKey(company.id);
+    const tenantKey = company.session.tenantKey;
     const fallbackRemoteJid = this.normalizeRemoteJid(
       String(
         input.remoteJid ||
@@ -1466,7 +1466,7 @@ export class WebwhatsBridgeService {
     },
   ) {
     const company = await this.requireConnectedCompany(companyId);
-    const tenantKey = this.buildTenantKey(company.id);
+    const tenantKey = company.session.tenantKey;
     const resolvedRemoteJid = this.normalizeRemoteJid(
       String(
         input.remoteJid ||

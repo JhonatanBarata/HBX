@@ -77,3 +77,23 @@ Validação:
 
 Próxima ação:
 Revisar o bloco de comunicacao por tenant antes de liberar teste local.
+
+## Handoff WhatsApp operacional HBX
+
+Aplicado:
+- Migration incremental MIGRATION_ONLY criada para transferir o WhatsApp operacional historico para o tenant HBX comum.
+- Quando ha credencial oficial configurada no Master, o tenant HBX passa a usar Token Master com masterWhatsAppCredentialKey, whatsappConnectionMode=OFFICIAL e whatsappStatus=CONNECTED.
+- A credencial do Master prioriza a entrada importada da empresa tecnica quando sourceCompanyId corresponde ao hbx-master-whatsapp-engine.
+- Se nao houver credencial Master mas houver token oficial na empresa tecnica, a migration copia o token oficial para o tenant HBX.
+- Sessao QR/modal antiga nao e renomeada por copia de banco: como a instancia do provider usa a chave criada originalmente, o runtime passa a aceitar a tenantKey da sessao ativa atual.
+- Segunda migration incremental reatribui a sessao Webwhats ativa da empresa tecnica ao tenant HBX e aponta currentWhatsappConnectionSessionId para ela.
+- WebwhatsBridge usa a tenantKey da sessao ativa para envio/controle.
+- WhatsAppModalService usa a tenantKey da sessao ativa para status/health quando ela existe.
+
+Validação:
+- prisma:validate passou.
+- build backend passou.
+- migrations 20260609_hbx_tenant_whatsapp_handoff e 20260609_hbx_tenant_whatsapp_session_handoff aplicadas no banco local.
+- testes focados de whatsapp-modal e webwhats-bridge passaram.
+- backend Docker reconstruido/reiniciado e ficou healthy.
+- HBX local verificado com whatsappModalStatus=CONNECTED, currentWhatsappConnectionSessionId preenchido e sessao Webwhats ativa no tenant.
