@@ -20,7 +20,6 @@ import {
   RADAR_LEAD_ENRICHMENT_VERSION,
   calculateLeadQualityV2,
   resolveRadarVisibilityFromQualityV2,
-  MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
   PLACES_NEW_TEXT_SEARCH_URL,
   PLACES_NEW_DETAILS_URL,
   PLACES_TEXT_SEARCH_URL,
@@ -164,6 +163,7 @@ import type {
 import {
   getTeamPolicyRequiredChannelList,
   loadUserTeamPolicyRuntime,
+  resolveTeamPolicyAccessAllowed,
 } from '../../../team/team-policy-persistence';
 
 export class RadarCoreDeliveryMixin {
@@ -173,6 +173,16 @@ export class RadarCoreDeliveryMixin {
     if (!userId) return [];
     const policy = await loadUserTeamPolicyRuntime(this.prisma, userId).catch(() => null);
     return this.normalizeRadarChannels(getTeamPolicyRequiredChannelList(policy));
+  }
+
+  private async assertSellerTeamPolicyAccess(user: any, accessKey: string, message: string) {
+    if (!this.isCompanySellerUser(user)) return;
+    const userId = Math.trunc(Number(user?.id || 0));
+    if (!userId) return;
+    const policy = await loadUserTeamPolicyRuntime(this.prisma, userId).catch(() => null);
+    if (resolveTeamPolicyAccessAllowed(policy, accessKey) === false) {
+      throw new ForbiddenException(message);
+    }
   }
 
   private async applyTeamPolicyRadarFilters<T extends { requiredChannels?: any; channelMatchMode?: any }>(
@@ -774,12 +784,12 @@ export class RadarCoreDeliveryMixin {
   private async buildRadarSearchRunResponse(user: any, runId: string, options?: { skipAutoImport?: boolean }) {
     const context = this.resolveContext(user);
     await this.assertSearchRunPersistence();
-    const hbxSellerScope = this.isHbxOperationSellerUser(user) ? { userId: context.userId } : {};
+    const sellerScope = this.isCompanySellerUser(user) ? { userId: context.userId } : {};
     const run = await this.prisma.webscrapingSearchRun.findFirst({
       where: {
         id: String(runId || '').trim(),
         companyId: context.companyId,
-        ...hbxSellerScope,
+        ...sellerScope,
       },
       include: {
         items: {
@@ -795,7 +805,7 @@ export class RadarCoreDeliveryMixin {
       });
     }
     const freshRun = await this.prisma.webscrapingSearchRun.findFirst({
-      where: { id: run.id, companyId: context.companyId, ...hbxSellerScope },
+      where: { id: run.id, companyId: context.companyId, ...sellerScope },
       include: {
         items: {
           orderBy: { createdAt: 'asc' },
@@ -1111,6 +1121,7 @@ export class RadarCoreDeliveryMixin {
 
   async startRadarSearchRunForUser(user: any, input: RadarFiltersInput = {}) {
     const context = this.resolveContext(user);
+    await this.assertSellerTeamPolicyAccess(user, 'radar.search.run', 'Busca do Radar bloqueada pela politica da equipe.');
     const filters = await this.applyTeamPolicyRadarFilters(context, this.normalizeRadarFilters(input));
     if (!filters.normalizedCity || !filters.normalizedSegment) {
       throw new BadRequestException('Cidade e segmento sao obrigatorios para pesquisar no Radar.');
@@ -1301,7 +1312,7 @@ export class RadarCoreDeliveryMixin {
     }
     let claimedRows = immediateRows;
     if (immediateRows.length) {
-      const assignToUserId = this.isHbxOperationSellerUser(user) ? context.userId : null;
+      const assignToUserId = this.isCompanySellerUser(user) ? context.userId : null;
       claimedRows = await this.markRadarDelivered(context.companyId, context.userId, immediateRows, {
         assignedUserId: assignToUserId,
         assignedByUserId: assignToUserId ? context.userId : null,
@@ -1328,10 +1339,10 @@ export class RadarCoreDeliveryMixin {
         startedAt: claimedRows.length ? now : null,
         finishedAt: completedFromDatabase ? now : null,
         errorMessage: completedFromDatabase
-          ? 'Entregue do banco Radar/HBX. A frota HBX nao foi acionada.'
+          ? 'Entregue do banco Radar. O motor de busca nao foi acionado.'
           : claimedRows.length
             ? `Entreguei ${claimedRows.length} card(s) do banco. Radar trabalhando para completar a pesquisa.`
-            : 'Sem cards prontos no banco. Busca enviada para a fila HBX.',
+            : 'Sem cards prontos no banco. Busca enviada para a fila do Radar.',
         metricsJson: JSON.stringify({
           activeSearchSignature: this.buildRadarActiveSearchSignature(filters),
           vendasStockTarget,
@@ -1412,11 +1423,11 @@ export class RadarCoreDeliveryMixin {
   async getLatestRadarSearchRunForUser(user: any) {
     const context = this.resolveContext(user);
     await this.assertSearchRunPersistence();
-    const hbxSellerScope = this.isHbxOperationSellerUser(user) ? { userId: context.userId } : {};
+    const sellerScope = this.isCompanySellerUser(user) ? { userId: context.userId } : {};
     const run = await this.prisma.webscrapingSearchRun.findFirst({
       where: {
         companyId: context.companyId,
-        ...hbxSellerScope,
+        ...sellerScope,
         engine: 'hbx',
         status: { in: ['queued', 'running', 'sleeping', 'paused'] as any },
       },
@@ -1437,11 +1448,11 @@ export class RadarCoreDeliveryMixin {
   private async findActiveRadarRunForFilters(context: SearchExecutionContext, filters: NormalizedRadarFilters) {
     const delegate = (this.prisma as any).webscrapingSearchRun;
     if (!delegate?.findMany) return null;
-    const hbxSellerScope = this.isHbxOperationSellerUser(context.user) ? { userId: context.userId } : {};
+    const sellerScope = this.isCompanySellerUser(context.user) ? { userId: context.userId } : {};
     const activeRuns = await delegate.findMany({
       where: {
         companyId: context.companyId,
-        ...hbxSellerScope,
+        ...sellerScope,
         engine: 'hbx',
         status: { in: ['queued', 'running', 'sleeping'] as any },
       },
@@ -1457,11 +1468,11 @@ export class RadarCoreDeliveryMixin {
   private async cancelIncompatibleActiveRadarRuns(context: SearchExecutionContext, filters: NormalizedRadarFilters, keepRunId?: string | null) {
     const delegate = (this.prisma as any).webscrapingSearchRun;
     if (!delegate?.findMany) return { canceledCount: 0 };
-    const hbxSellerScope = this.isHbxOperationSellerUser(context.user) ? { userId: context.userId } : {};
+    const sellerScope = this.isCompanySellerUser(context.user) ? { userId: context.userId } : {};
     const activeRuns = await delegate.findMany({
       where: {
         companyId: context.companyId,
-        ...hbxSellerScope,
+        ...sellerScope,
         engine: 'hbx',
         status: { in: ['queued', 'running', 'sleeping'] as any },
       },
@@ -1480,7 +1491,7 @@ export class RadarCoreDeliveryMixin {
         where: {
           id: runId,
           companyId: context.companyId,
-          ...hbxSellerScope,
+          ...sellerScope,
           status: { in: ['queued', 'running', 'sleeping'] as any },
         },
         data: {
@@ -1596,6 +1607,7 @@ export class RadarCoreDeliveryMixin {
 
   async pullRadarLeadsForUser(user: any, input: RadarFiltersInput = {}) {
     const context = this.resolveContext(user);
+    await this.assertSellerTeamPolicyAccess(user, 'radar.cards.pull', 'Puxar cards do Radar esta bloqueado pela politica da equipe.');
     const filters = await this.applyTeamPolicyRadarFilters(context, this.normalizeRadarFilters(input));
     if (!filters.normalizedCity || !filters.normalizedSegment) {
       throw new BadRequestException('Cidade e segmento sao obrigatorios para puxar cards do Radar.');
@@ -1787,7 +1799,7 @@ export class RadarCoreDeliveryMixin {
     }
     
     let claimedRows = deliveredRows;
-    const assignToUserId = this.isHbxOperationSellerUser(user) ? context.userId : null;
+    const assignToUserId = this.isCompanySellerUser(user) ? context.userId : null;
     try {
       claimedRows = await this.markRadarDelivered(context.companyId, context.userId, deliveredRows, {
         assignedUserId: assignToUserId,
@@ -1920,6 +1932,7 @@ export class RadarCoreDeliveryMixin {
 
   async replenishRadarStockForUser(user: any, input: RadarFiltersInput = {}) {
     const context = this.resolveContext(user);
+    await this.assertSellerTeamPolicyAccess(user, 'radar.stock.replenish', 'Reposicao de estoque do Radar bloqueada pela politica da equipe.');
     const filters = await this.applyTeamPolicyRadarFilters(context, this.normalizeRadarFilters(input));
     if (!filters.normalizedCity || !filters.normalizedSegment) {
       throw new BadRequestException('Cidade e segmento sao obrigatorios para repor o estoque do Radar.');
@@ -3005,6 +3018,7 @@ export class RadarCoreDeliveryMixin {
       throw new ServiceUnavailableException('Servico de Vendas indisponivel para importacao.');
     }
     const context = this.resolveContext(user);
+    await this.assertSellerTeamPolicyAccess(user, 'radar.cards.sendToVendas', 'Envio do Radar para Vendas bloqueado pela politica da equipe.');
     if (!(await this.supportsRadarPersistence())) {
       throw new ServiceUnavailableException('Banco do Radar ainda nao foi migrado neste ambiente.');
     }

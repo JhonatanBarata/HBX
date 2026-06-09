@@ -125,7 +125,7 @@ type HbxTerritorySeller = {
   preferredSegmentsJson?: string | null;
   commissionPercent?: number | null;
   inheritedCommissionPercent?: number | null;
-  canRegisterHbxSellers?: boolean;
+  canRecruitSellers?: boolean;
   cities: HbxTerritoryCity[];
   availableCards?: number;
   targetStock?: number;
@@ -553,9 +553,9 @@ export default function BancoDeDadosClientPage({ embedded = false }: { embedded?
       });
       setTerritoryPanel(payload);
       setTerritoryDraft(payload);
-      setFeedback(payload.message || "Distribuição HBX Master salva.");
+      setFeedback(payload.message || "Distribuição automática salva.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao salvar distribuição HBX Master.");
+      setError(err instanceof Error ? err.message : "Falha ao salvar distribuição automática.");
     } finally {
       setTerritorySaving(false);
     }
@@ -860,16 +860,16 @@ function HbxTerritoryPanelView({
   }, [distributionRows, territoryFilters]);
 
   if (!panel) {
-    return <div className={styles.emptyState}>Carregando distribuição HBX Master...</div>;
+    return <div className={styles.emptyState}>Carregando distribuição automática...</div>;
   }
 
   return (
     <div className={styles.territoryLayout}>
       <section className={styles.territoryHero}>
         <div>
-          <span>HBX Master</span>
+          <span>Painel Master</span>
           <strong>Distribuição de Cards</strong>
-          <p>Modo tabela para o Master distribuir cards por UF, cidade e parceiro. Parceiro HBX trabalha os cards no Vendas.</p>
+          <p>Modo tabela para o Master distribuir cards por UF, cidade e vendedor. O vendedor trabalha os cards no Vendas.</p>
         </div>
         <div className={styles.territoryHeroAside}>
           <div className={styles.territoryStatus}>
@@ -888,7 +888,7 @@ function HbxTerritoryPanelView({
         </div>
       </section>
 
-      <section className={styles.territoryInsightGrid} aria-label="Resumo operacional da distribuição HBX">
+      <section className={styles.territoryInsightGrid} aria-label="Resumo operacional da distribuição automática">
         <article>
           <span>Estoque em Vendas</span>
           <strong>{metric(summary.currentStock)}</strong>
@@ -952,12 +952,12 @@ function HbxTerritoryPanelView({
       ) : null}
 
       {territoryViewMode === "table" ? (
-      <section className={styles.territoryDistributionPanel} aria-label="Distribuição de Cards por UF, cidade e parceiro">
+      <section className={styles.territoryDistributionPanel} aria-label="Distribuição de Cards por UF, cidade e vendedor">
         <header className={styles.territoryTableHeader}>
           <div>
             <span>Modo tabela</span>
             <strong>{metric(filteredDistributionRows.length)} linha(s)</strong>
-            <p>UF, cidade, categoria, parceiro, preferências e limites em uma visão operacional. Segmento fica livre para o Parceiro HBX trabalhar no Vendas.</p>
+            <p>UF, cidade, categoria, vendedor, preferências e limites em uma visão operacional. Segmento fica livre para o vendedor trabalhar no Vendas.</p>
           </div>
           <div className={styles.territoryTableActions}>
             <button type="button" onClick={() => void onSave("draft")} disabled={saving}>
@@ -1161,7 +1161,7 @@ function HbxTerritoryPanelView({
             <article key={seller.id} className={styles.territorySellerCard}>
               <header>
                 <div>
-                  <span>Vendedor HBX</span>
+                  <span>Vendedor</span>
                   <strong>{seller.name}</strong>
                   <small>{seller.email || seller.phone || "Sem contato salvo"}</small>
                 </div>
@@ -1184,7 +1184,7 @@ function HbxTerritoryPanelView({
               <div className={styles.metaGrid}>
                 <span>Comissão: {Number(seller.commissionPercent || 0).toLocaleString("pt-BR")}%</span>
                 <span>Herdada: {Number(seller.inheritedCommissionPercent || 0).toLocaleString("pt-BR")}%</span>
-                <span>Subvendedores: {seller.canRegisterHbxSellers ? "liberado" : "bloqueado"}</span>
+                <span>Indicações: {seller.canRecruitSellers ? "liberado" : "bloqueado"}</span>
                 <span>Cidades: {metric(seller.cities.length)}</span>
               </div>
               <div className={styles.cityChips}>
@@ -1192,7 +1192,7 @@ function HbxTerritoryPanelView({
                   <button key={`${seller.id}-${city.city}-${city.state}`} type="button" onClick={() => onRemoveCity(seller.id, city)}>
                     {city.city}/{city.state} · {metric(city.availableCards)}
                   </button>
-                )) : <em>Nenhuma cidade fixa. Este vendedor ainda não entra na distribuição HBX.</em>}
+                )) : <em>Nenhuma cidade fixa. Este vendedor ainda não entra na distribuição automática.</em>}
               </div>
             </article>
           );

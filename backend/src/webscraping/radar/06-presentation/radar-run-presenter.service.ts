@@ -97,7 +97,7 @@ export class RadarRunPresenterService {
       return {
         state: 'funcionando',
         reason: lastBatchStatus || status,
-        message: message || (status === 'queued' ? 'Radar na fila HBX.' : 'Radar funcionando.'),
+        message: message || (status === 'queued' ? 'Radar na fila do Radar.' : 'Radar funcionando.'),
       };
     }
     return {

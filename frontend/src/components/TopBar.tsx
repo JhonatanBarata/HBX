@@ -56,7 +56,7 @@ type User = {
   userKind?: string | null;
   isSystemMaster?: boolean;
   sellerProfile?: {
-    isHbxPartnerSeller?: boolean | null;
+    isReferralSeller?: boolean | null;
     isCommonSeller?: boolean | null;
     isAdmin?: boolean | null;
   } | null;
@@ -64,7 +64,7 @@ type User = {
     id: number;
     name?: string | null;
     slug?: string | null;
-    isHbxSellerNetwork?: boolean | null;
+    isSellerNetwork?: boolean | null;
     onboardingStatus?: string | null;
     paymentStatus?: string | null;
     subscriptionStatus?: string | null;
@@ -73,7 +73,7 @@ type User = {
   } | null;
   masterContext?: {
     active: boolean;
-    mode: "master_puro" | "empresa_assumida" | "master_operacional";
+    mode: "master_puro" | "empresa_assumida";
     sessionId: string | null;
     companyId: number | null;
     companyName: string | null;
@@ -117,7 +117,7 @@ type OperationalStatusPayload = {
     available: boolean;
     companyId: number | null;
     companyName: string | null;
-    mode: "empresa" | "master_assumido" | "master_puro" | "master_operacional" | "sem_empresa";
+    mode: "empresa" | "master_assumido" | "master_puro" | "sem_empresa";
     masterContext?: User["masterContext"] | null;
   };
   statuses: OperationalStatusChip[];

@@ -20,7 +20,6 @@ import {
   RADAR_LEAD_ENRICHMENT_VERSION,
   calculateLeadQualityV2,
   resolveRadarVisibilityFromQualityV2,
-  MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
   PLACES_NEW_TEXT_SEARCH_URL,
   PLACES_NEW_DETAILS_URL,
   PLACES_TEXT_SEARCH_URL,
@@ -1634,7 +1633,7 @@ export class RadarCoreFactoryAdminMixin {
     };
   }
 
-  async listMasterRadarExportTargets() {
+  async listRadarExportTargetsForMaster() {
     const rows = await (this.prisma as any).user.findMany({
       where: {
         isActive: true,

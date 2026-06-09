@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { isMasterOperationalCompanySlug } from '../commercial-plans/seat-billing.util';
+import { isTenantCompany } from '../common/company-kind';
 import { HbxCommissionSyncService } from '../commissions/hbx-commission-sync.service';
 import { getCommercialPlanMonthlyPrice } from '../commercial-plans/commercial-plan-catalog';
 
@@ -444,7 +444,7 @@ export class GerencialService {
     };
   }
 
-  private async buildOperationAudit(companyId: number, companyUsers: any[], commission: any, options?: { isHbxSellerNetwork?: boolean }) {
+  private async buildOperationAudit(companyId: number, companyUsers: any[], commission: any, options?: { isSellerNetwork?: boolean }) {
     const roleOf = (user: any) => {
       const normalized = String(user?.role || '').trim().toUpperCase();
       if (user?.isSystemMaster || normalized === 'USERMASTER') return 'USERMASTER';
@@ -456,7 +456,7 @@ export class GerencialService {
     const masters = users.filter((user) => roleOf(user) === 'USERMASTER');
     const configuredSellers = activeSellers.filter((user) => money(user?.commissionPercent) > 0);
     const referralEnabledSellers = activeSellers;
-    const isHbxSellerNetwork = Boolean(options?.isHbxSellerNetwork);
+    const isSellerNetwork = Boolean(options?.isSellerNetwork);
     const now = new Date();
 
     const [
@@ -534,13 +534,13 @@ export class GerencialService {
         value: `Liberado R$ ${duePayableAmount.toFixed(2)}`,
         hint: duePayableAmount > 0 ? 'Pague e feche o lote no Gerencial.' : 'Nenhuma comissão liberada para baixar.',
       },
-      ...(isHbxSellerNetwork
+      ...(isSellerNetwork
         ? [{
-            key: 'hbx_referral',
-            title: 'Rede HBX',
+            key: 'seller_referral',
+            title: 'Indicações de vendedores',
             status: referralEnabledSellers.length || activeSellers.length === 0 ? 'ok' : 'warning',
-            value: `${referralEnabledSellers.length} parceiro(s) indicam`,
-            hint: referralEnabledSellers.length ? 'Indicação e comissão herdada disponíveis.' : 'Cadastre parceiros ativos.',
+            value: `${referralEnabledSellers.length} vendedor(es) indicam`,
+            hint: referralEnabledSellers.length ? 'Indicação e comissão herdada disponíveis.' : 'Cadastre vendedores ativos.',
           }]
         : []),
     ];
@@ -651,7 +651,7 @@ export class GerencialService {
       }),
       this.prisma.company.findUnique({
         where: { id: companyId },
-        select: { id: true, name: true, slug: true, commissionDueBusinessDays: true },
+        select: { id: true, name: true, slug: true, companyKind: true, commissionDueBusinessDays: true },
       }),
       this.prisma.companyConversation.findMany({ where: { companyId }, select: { contact: true } }),
       this.prisma.satisfactionSurvey.findMany({
@@ -683,8 +683,13 @@ export class GerencialService {
 
     const commissionDueBusinessDays = normalizeCommissionDueBusinessDays(company?.commissionDueBusinessDays);
     const commission = await this.buildCommissionOverview(companyId, companyUsers, { dueBusinessDays: commissionDueBusinessDays });
-    const isHbxSellerNetwork = company ? isMasterOperationalCompanySlug(company.slug) : false;
-    const operationAudit = await this.buildOperationAudit(companyId, companyUsers, commission, { isHbxSellerNetwork });
+    const isSellerNetwork = Boolean(company && isTenantCompany(company));
+    const operationAudit = await this.buildOperationAudit(companyId, companyUsers, commission, { isSellerNetwork });
+    const users = companyUsers.map((companyUser: any) => ({
+      ...companyUser,
+      canRecruitSellers: Boolean(companyUser.canRegisterHbxSellers),
+      canRegisterHbxSellers: undefined,
+    }));
 
     return {
       companyId,
@@ -698,7 +703,7 @@ export class GerencialService {
         ? {
           id: company.id,
           name: company.name,
-          isHbxSellerNetwork,
+          isSellerNetwork,
         }
         : null,
       totals: {
@@ -707,10 +712,10 @@ export class GerencialService {
         inbound: inboundCount,
         outbound: outboundCount,
         complaints: totalComplaints,
-        users: companyUsers.length,
+        users: users.length,
         surveys: companySurveys.length,
       },
-      users: companyUsers,
+      users,
       commission,
       operationAudit,
       recentMessages: recentMessages.map((m) => ({

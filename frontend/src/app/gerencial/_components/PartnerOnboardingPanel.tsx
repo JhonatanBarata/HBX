@@ -110,7 +110,7 @@ export default function PartnerOnboardingPanel({
             <header className="hbx-partner-popup__header">
               <div>
                 <strong>Modelo padrão do contrato</strong>
-                <span>Vale para os próximos contratos HBX.</span>
+                <span>Vale para os próximos contratos de vendedor.</span>
               </div>
               <button type="button" className="hbx-popup2__close" onClick={() => setTemplateEditorOpen(false)} aria-label="Fechar">
                 ×
@@ -158,7 +158,7 @@ export default function PartnerOnboardingPanel({
         <div className="hbx-partner-popup__contract-editor">
           <div className="hbx-partner-popup__contract-editor-head">
             <span>
-              <b>Contrato deste parceiro</b>
+              <b>Contrato deste vendedor</b>
               <small>{onboardingUserId ? "Texto usado no PDF gerado" : "Disponível após cadastrar"}</small>
             </span>
             <div>
@@ -286,7 +286,7 @@ export default function PartnerOnboardingPanel({
           className="btn btn-success btn-sm"
           title={!canActivatePartner && createPartnerDisabledReason ? createPartnerDisabledReason : undefined}
         >
-          {togglingActiveUserId === onboardingUserId ? "Criando..." : "Criar parceiro"}
+          {togglingActiveUserId === onboardingUserId ? "Criando..." : "Liberar vendedor"}
         </button>
       </div>
       {visibleDocumentAttachments.length || pendingAttachmentCount || onboardingIssueLabels.length ? (

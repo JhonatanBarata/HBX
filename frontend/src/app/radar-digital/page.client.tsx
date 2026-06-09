@@ -301,10 +301,10 @@ type CurrentUserProfile = {
   userKind?: string | null;
   isSystemMaster?: boolean | null;
   sellerProfile?: {
-    isHbxPartnerSeller?: boolean | null;
+    isReferralSeller?: boolean | null;
   } | null;
   company?: {
-    isHbxSellerNetwork?: boolean | null;
+    isSellerNetwork?: boolean | null;
   } | null;
 };
 
@@ -702,7 +702,7 @@ function hasRadarLocationCoordinates(filters: Pick<FilterState, "originLat" | "o
     Number.isFinite(filters.originLng);
 }
 
-function restrictHbxSellerFilters(filters: FilterState): FilterState {
+function restrictSellerFilters(filters: FilterState): FilterState {
   const hasCoordinates = hasRadarLocationCoordinates(filters);
   const radiusKm = Math.min(RADAR_MAX_RADIUS_KM, Math.max(0, Math.trunc(Number(filters.radiusKm || DEFAULT_FILTERS.radiusKm) || DEFAULT_FILTERS.radiusKm)));
   if (hasCoordinates) return { ...filters, radiusKm };
@@ -1734,15 +1734,15 @@ function compactRadarMessage(message: string | null) {
   return text;
 }
 
-function hbxSellerRadarAdjustmentActionMessage() {
+function sellerRadarAdjustmentActionMessage() {
   return "Para continuar automático, aumente o alcance, atualize sua localização ou ajuste segmentos.";
 }
 
-function hbxSellerRadarAdjustmentMessage() {
-  return `Localizei tudo que havia com os filtros atuais. ${hbxSellerRadarAdjustmentActionMessage()}`;
+function sellerRadarAdjustmentMessage() {
+  return `Localizei tudo que havia com os filtros atuais. ${sellerRadarAdjustmentActionMessage()}`;
 }
 
-function hbxSellerRadarNoCardsMessage() {
+function sellerRadarNoCardsMessage() {
   return "Não achei cards suficientes para esse filtro. Tente segmento mais amplo ou alcance maior.";
 }
 
@@ -1764,7 +1764,7 @@ function radarDeliveryDeficitMessage(message: string | null | undefined, restric
   const missingText = deficit.missing === 1 ? "faltou 1" : `faltaram ${deficit.missing.toLocaleString("pt-BR")}`;
   const base = `Vendas ficou com ${deficit.delivered.toLocaleString("pt-BR")} de ${deficit.target.toLocaleString("pt-BR")} card(s); ${missingText}.`;
   return restricted
-    ? `${base} ${hbxSellerRadarAdjustmentActionMessage()}`
+    ? `${base} ${sellerRadarAdjustmentActionMessage()}`
     : `${base} Revise alcance ou segmento para completar a meta.`;
 }
 
@@ -1802,10 +1802,10 @@ function publicRadarMessage(message: string | null | undefined, restricted: bool
     return "Use sua localização e escolha segmento para buscar cards.";
   }
   if (/cidade|cidades|cidade\s+pr[oó]xima|cidades\s+pr[oó]ximas|trocar\s+cidade|inclua\s+cidades|revise\s+cidade|ajuste\s+cidade/.test(normalized)) {
-    return hbxSellerRadarAdjustmentMessage();
+    return sellerRadarAdjustmentMessage();
   }
   if (/sem cards|no results|insufficient|empty/.test(normalized)) {
-    return hbxSellerRadarNoCardsMessage();
+    return sellerRadarNoCardsMessage();
   }
   if (radarTextLooksDiagnostic(raw)) return fallback;
   return compactRadarMessage(raw) || fallback;
@@ -2770,12 +2770,12 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   );
   const currentUserAccess = useMemo(() => getCurrentUserAccess(currentUser), [currentUser]);
   const radarUserCanLoadCompanyTeam = currentUserAccess.canManageTeam;
-  const hbxSellerRadarRestricted = currentUserAccess.isHbxPartnerSeller;
-  const hbxSellerLocationReady = hasRadarLocationCoordinates(filters);
-  const hbxSellerLocationLabel = filters.city && filters.state
+  const sellerRadarRestricted = currentUserAccess.isReferralSeller;
+  const sellerLocationReady = hasRadarLocationCoordinates(filters);
+  const sellerLocationLabel = filters.city && filters.state
     ? `${filters.city}/${filters.state}`
     : filters.city || "Use sua localização";
-  const hbxSellerLocationHelper = hbxSellerLocationReady
+  const sellerLocationHelper = sellerLocationReady
     ? "Base do vendedor capturada por localização."
     : "Toque em Localização para liberar a busca.";
 
@@ -2907,12 +2907,12 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   const sellerActiveCount = Math.max(0, Math.trunc(Number(sellerActiveQuota?.activeCount || 0)));
   const sellerActiveAvailableSource = sellerActiveQuota?.availableSlots ?? Math.max(0, sellerActiveLimit - sellerActiveCount);
   const sellerActiveAvailable = Math.max(0, Math.trunc(Number(sellerActiveAvailableSource || 0)));
-  const hbxSellerUsage = hbxSellerRadarRestricted || String(vendasUsage?.planKey || "").trim().toLowerCase() === "hbx_seller";
-  const hbxSellerPublicUi = hbxSellerUsage;
+  const sellerUsage = Boolean(sellerRadarRestricted || sellerActiveQuota);
+  const sellerPublicUi = sellerUsage;
   const quotaSnapshotLoading = Boolean(hasToken === true && (!currentUserLoaded || !vendasUsageLoaded));
-  const hbxSellerQuotaDisplay = Boolean(hbxSellerUsage && sellerActiveQuota);
-  const hbxSellerQuotaLoading = Boolean(!quotaSnapshotLoading && hbxSellerUsage && !sellerActiveQuota);
-  const quotaLoading = quotaSnapshotLoading || hbxSellerQuotaLoading;
+  const sellerQuotaDisplay = Boolean(sellerUsage && sellerActiveQuota);
+  const sellerQuotaLoading = Boolean(!quotaSnapshotLoading && sellerUsage && !sellerActiveQuota);
+  const quotaLoading = quotaSnapshotLoading || sellerQuotaLoading;
   const monthlyRemaining = Math.max(0, Math.trunc(Number(vendasUsage?.cards?.remaining ?? vendasUsage?.cards?.monthlyRemaining ?? 999999)));
   const perUserRemaining = vendasUsage?.cards?.perUserLimit != null
     ? Math.max(0, Math.trunc(Number(vendasUsage.cards.userLimit || 0) - Number(vendasUsage.cards.userUsed || 0)))
@@ -2922,7 +2922,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   );
   const fallbackSearchLimit = planCardsPerSearch || (isHbxList ? 50 : MAX_CARDS_PER_RADAR_SEARCH);
   const perSearchLimit = Math.max(1, Math.min(MAX_CARDS_PER_RADAR_SEARCH, fallbackSearchLimit));
-  const availableSpendLimit = hbxSellerQuotaDisplay
+  const availableSpendLimit = sellerQuotaDisplay
     ? sellerActiveAvailable
     : quotaLoading
       ? 0
@@ -2931,26 +2931,26 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
       : fallbackSearchLimit;
   const searchSpendLimit = Math.max(0, Math.min(perSearchLimit, availableSpendLimit));
   const radarQuantityLimit = Math.max(0, searchSpendLimit);
-  const radarCounterLimit = hbxSellerQuotaDisplay
+  const radarCounterLimit = sellerQuotaDisplay
     ? sellerActiveLimit
     : quotaLoading
       ? 0
       : dailyLimit || dailyRemaining || radarQuantityLimit;
-  const radarCounterRemaining = hbxSellerQuotaDisplay
+  const radarCounterRemaining = sellerQuotaDisplay
     ? sellerActiveAvailable
     : quotaLoading
       ? 0
       : dailyRemaining;
-  const radarCounterUsed = hbxSellerQuotaDisplay
+  const radarCounterUsed = sellerQuotaDisplay
     ? sellerActiveCount
     : quotaLoading
       ? 0
       : Math.max(0, radarCounterLimit - dailyRemaining);
-  const radarCounterLabel = hbxSellerQuotaDisplay || hbxSellerQuotaLoading ? "vagas" : "disponíveis";
-  const radarCounterTitle = hbxSellerQuotaDisplay || hbxSellerQuotaLoading ? "no Vendas" : "hoje";
-  const radarCounterUsedLabel = hbxSellerQuotaDisplay || hbxSellerQuotaLoading ? "ativos" : "usados";
+  const radarCounterLabel = sellerQuotaDisplay || sellerQuotaLoading ? "vagas" : "disponíveis";
+  const radarCounterTitle = sellerQuotaDisplay || sellerQuotaLoading ? "no Vendas" : "hoje";
+  const radarCounterUsedLabel = sellerQuotaDisplay || sellerQuotaLoading ? "ativos" : "usados";
   const radarCounterValueLabel = quotaLoading ? "--" : undefined;
-  const radarCounterMetaLimit = hbxSellerQuotaDisplay
+  const radarCounterMetaLimit = sellerQuotaDisplay
     ? Math.max(0, radarCounterLimit)
     : Math.max(1, radarCounterLimit || radarCounterRemaining || 1);
   const radarCounterMetaLabel = quotaLoading
@@ -3101,17 +3101,17 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   }, [hasToken]);
 
   useEffect(() => {
-    if (!hbxSellerRadarRestricted) return;
+    if (!sellerRadarRestricted) return;
     setMobilePicker((current) => (current === "state" || current === "city" ? null : current));
     setFilters((current) => {
-      const next = restrictHbxSellerFilters(current);
+      const next = restrictSellerFilters(current);
       return JSON.stringify(current) === JSON.stringify(next) ? current : next;
     });
     setAppliedFilters((current) => {
-      const next = restrictHbxSellerFilters(current);
+      const next = restrictSellerFilters(current);
       return JSON.stringify(current) === JSON.stringify(next) ? current : next;
     });
-  }, [hbxSellerRadarRestricted]);
+  }, [sellerRadarRestricted]);
 
   useEffect(() => {
     if (hasToken !== true || !radarFilterDraftReady) return;
@@ -3318,7 +3318,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
       const rule = payload.rule || null;
       setAutoDistributionRule(rule);
       setAutoDistributionDraft(buildRadarAutoDistributionDraft(rule, filters));
-      let activationMessage = publicRadarMessage(payload.message, hbxSellerPublicUi, "Distribuição automática ativada.");
+      let activationMessage = publicRadarMessage(payload.message, sellerPublicUi, "Distribuição automática ativada.");
       try {
         const runPayload = await apiFetch<RadarAutoDistributionRunResponse>("/webscraping/radar/auto-distribution/run", {
           method: "POST",
@@ -3326,7 +3326,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
           timeoutMs: 60000,
           body: JSON.stringify({ limit: 80 }),
         });
-        activationMessage = publicRadarMessage(runPayload.message, hbxSellerPublicUi, activationMessage);
+        activationMessage = publicRadarMessage(runPayload.message, sellerPublicUi, activationMessage);
       } catch (runError) {
         activationMessage = `${activationMessage} ${radarFriendlyError(runError) || "O robô tentará novamente em instantes."}`;
       }
@@ -3523,7 +3523,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
       { label: "High", value: highOpportunityCount.toLocaleString("pt-BR") },
       { label: "Total", value: total.toLocaleString("pt-BR") },
     ];
-    const errorMessage = publicRadarMessage(error, hbxSellerPublicUi, "");
+    const errorMessage = publicRadarMessage(error, sellerPublicUi, "");
     const activeStepIndex = Math.min(RADAR_PROGRESS_STEPS.length - 1, Math.floor(topbarProgressPercentFrom(telonProgress) / 25));
     const realCardFeed = visibleItems.slice(-4).map((item) => ({
       id: `radar:${item.id}`,
@@ -3651,7 +3651,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     filters.engine,
     filters.segment,
     hasToken,
-    hbxSellerPublicUi,
+    sellerPublicUi,
     highOpportunityCount,
     loading,
     loadingMore,
@@ -3666,7 +3666,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   useEffect(() => () => clearTopbarProgress("radar"), []);
 
   function clearFilters() {
-    const baseFilters = hbxSellerRadarRestricted && hasRadarLocationCoordinates(filtersRef.current)
+    const baseFilters = sellerRadarRestricted && hasRadarLocationCoordinates(filtersRef.current)
       ? {
           ...DEFAULT_FILTERS,
           state: filtersRef.current.state,
@@ -3722,7 +3722,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
       setActiveRun(null);
       setTerminalRunSnapshot(null);
       setSearching(false);
-      setFeedback(publicRadarMessage(payload.message, hbxSellerPublicUi, "Busca anterior encerrada. Radar pronto para uma nova pesquisa."));
+      setFeedback(publicRadarMessage(payload.message, sellerPublicUi, "Busca anterior encerrada. Radar pronto para uma nova pesquisa."));
       return;
     }
     const runId = String(payload.runId || payload.id || "");
@@ -3733,7 +3733,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
       setActiveRun(null);
       setTerminalRunSnapshot(null);
       setSearching(false);
-      setFeedback(publicRadarMessage(payload.message, hbxSellerPublicUi, "A busca foi recebida, mas o Radar não retornou progresso detalhado agora."));
+      setFeedback(publicRadarMessage(payload.message, sellerPublicUi, "A busca foi recebida, mas o Radar não retornou progresso detalhado agora."));
       return;
     }
     if (activeRunIdRef.current && runId && activeRunIdRef.current !== runId) return;
@@ -3811,7 +3811,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
       if (payload.status === "canceled") {
         clearStoredRadarRun(runId);
       }
-      const nextFeedback = publicRadarMessage(payload.message, hbxSellerPublicUi, `${nextItems.length} card(s) entregues.`);
+      const nextFeedback = publicRadarMessage(payload.message, sellerPublicUi, `${nextItems.length} card(s) entregues.`);
       setFeedback((current) => current === nextFeedback ? current : nextFeedback);
       void refreshVendasPendingCount().catch(() => null);
       return;
@@ -3820,9 +3820,9 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     setActiveRun((current) => radarRunPayloadEqual(current, payload) ? current : payload);
     setTerminalRunSnapshot(null);
     setSearching(true);
-    const nextFeedback = publicRadarMessage(payload.message, hbxSellerPublicUi, "Busca em andamento. Os cards aparecem conforme o Radar aprova novos contatos.");
+    const nextFeedback = publicRadarMessage(payload.message, sellerPublicUi, "Busca em andamento. Os cards aparecem conforme o Radar aprova novos contatos.");
     setFeedback((current) => current === nextFeedback ? current : nextFeedback);
-  }, [hbxSellerPublicUi, refreshVendasPendingCount]);
+  }, [sellerPublicUi, refreshVendasPendingCount]);
 
   useEffect(() => {
     if (hasToken !== true || queryRadarLeadId || !radarFilterDraftReady) return;
@@ -3967,7 +3967,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
       targetType: isMobileRadarSurface() ? "pj" : effectiveFilters.targetType,
       quantity: Math.max(1, Math.min(RADAR_VENDAS_STOCK_TARGET_MAX, Number(options?.quantityOverride || effectiveFilters.quantity || 1))),
     };
-    if (hbxSellerRadarRestricted && !hasRadarLocationCoordinates(nextTargetFilters)) {
+    if (sellerRadarRestricted && !hasRadarLocationCoordinates(nextTargetFilters)) {
       setMobileAutoImportPending(false);
       pendingFreshRunRef.current = false;
       setError("Use sua localização para definir a base do Radar antes de buscar.");
@@ -3996,7 +3996,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     if (hasPartialRadarSearch(nextTargetFilters)) {
       setSearching(false);
       setHasSearched(false);
-      setError(hbxSellerRadarRestricted
+      setError(sellerRadarRestricted
         ? "Use sua localização e escolha segmento para pesquisar novos cards."
         : "Preencha cidade e segmento para pesquisar novos cards. Para ver histórico salvo, limpe esses campos.");
       return;
@@ -4017,7 +4017,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
         pendingFreshRunRef.current = false;
         setTelonProgress(0);
         setFeedback(null);
-        setError(hbxSellerRadarRestricted
+        setError(sellerRadarRestricted
           ? "Para buscar novos cards, use sua localização e escolha segmento."
           : "Para buscar novos cards, escolha cidade e segmento. Para ver histórico salvo, use Ver histórico.");
         return;
@@ -4157,7 +4157,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
         setFeedback(null);
         setError(publicRadarMessage(
           lastError instanceof Error ? lastError.message : null,
-          hbxSellerPublicUi,
+          sellerPublicUi,
           "Enriquecimento pausado por limite ou liberação da conta.",
         ));
         return;
@@ -4176,7 +4176,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
       setFeedback(null);
       setError(publicRadarMessage(
         lastError instanceof Error ? lastError.message : null,
-        hbxSellerPublicUi,
+        sellerPublicUi,
         "Não foi possível enriquecer os cards visíveis agora.",
       ));
     } finally {
@@ -4199,7 +4199,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     try {
       if (action === "enrich") {
         const payload = await enrichRadarLead(lead);
-        setFeedback(publicRadarMessage(payload.message, hbxSellerPublicUi, "Card enriquecido"));
+        setFeedback(publicRadarMessage(payload.message, sellerPublicUi, "Card enriquecido"));
       }
 
       if (action === "send") {
@@ -4397,7 +4397,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
       setFeedback(
         publicRadarMessage(
           imported.message,
-          hbxSellerPublicUi,
+          sellerPublicUi,
           distributionEnabled
             ? `${leads.length} card(s) distribuídos entre vendedores.`
             : `${leads.length} lead(s) herdados para Vendas.`,
@@ -4406,13 +4406,13 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     } catch (bulkError) {
       setError(publicRadarMessage(
         bulkError instanceof Error ? bulkError.message : null,
-        hbxSellerPublicUi,
+        sellerPublicUi,
         "Não foi possível herdar leads para Vendas agora.",
       ));
     } finally {
       setBulkSending(false);
     }
-  }, [distributionEnabled, effectiveFilters.quantity, hbxSellerPublicUi, refreshVendasPendingCount, selectedDistributionUsers, visibleItems]);
+  }, [distributionEnabled, effectiveFilters.quantity, sellerPublicUi, refreshVendasPendingCount, selectedDistributionUsers, visibleItems]);
 
   if (hasToken === null || loading && items.length === 0 && hasSearched) {
     return (
@@ -4439,9 +4439,9 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   const mobileVendasBlocked = cardQuotaBlocked;
   const radarQuotaBlockedMessage = quotaSnapshotLoading
     ? "Carregando seus limites do Radar. Tente novamente em instantes."
-    : hbxSellerQuotaDisplay
+    : sellerQuotaDisplay
     ? "Seu limite de cards ativos foi atingido. Finalize ou descarte cards em Vendas para abrir espaço."
-    : hbxSellerQuotaLoading
+    : sellerQuotaLoading
       ? "Carregando seu limite de vagas no Vendas. Tente novamente em instantes."
     : "Limite diário de cards atingido. O contador reinicia após 00:00.";
   const radarPausedByStock = vendasPendingCount != null && radarVendasStockMissing <= 0 && !radarStockPauseUnlocked;
@@ -4494,7 +4494,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
       ? radarPauseView.helper || radarPauseView.description
       : hasSearched || radarTerminalByRun || radarStoppedByBackend
         ? radarBackendOperationalMessage || "Busca parada. Ajuste área, alcance ou segmentos para continuar."
-        : hbxSellerRadarRestricted
+        : sellerRadarRestricted
           ? "Use sua localização, escolha segmento e alcance para abastecer Vendas."
           : "Escolha cidade, segmento e quantidade para abastecer Vendas.";
   const mobileCanResendToVendas = Boolean(visibleItems.length && hasSearched && !mobileRadarProcessing && !radarFiltersLocked);
@@ -4563,11 +4563,11 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   const radarMotionActive = !radarCanceling && !activeRunSleeping && (radarMomentState === "searching" || radarMomentState === "receiving");
   const radarMomentDescription =
     radarStoppedWithoutCards
-      ? hbxSellerRadarRestricted
+      ? sellerRadarRestricted
         ? "Radar parado sem cards para trabalhar. Atualize localização, segmento ou alcance e volte às pesquisas."
         : "Radar parado sem cards para trabalhar. Ajuste cidade, segmento ou alcance e volte às pesquisas."
     : radarMomentState === "stopped"
-      ? publicRadarMessage(radarMomentRun?.errorMessage || radarMomentRun?.message, hbxSellerPublicUi, "Revise os filtros e rode uma nova busca.")
+      ? publicRadarMessage(radarMomentRun?.errorMessage || radarMomentRun?.message, sellerPublicUi, "Revise os filtros e rode uma nova busca.")
     : radarMomentState === "paused"
         ? radarPauseView.description
         : radarMomentState === "receiving"
@@ -4576,7 +4576,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
             ? "Encontrando empresas, cortando repetidos e separando cards que já podem ir para Vendas."
             : radarMomentState === "received"
               ? "Os aprovados já foram enviados para Vendas. O enriquecimento roda depois, em uma ação separada."
-              : hbxSellerRadarRestricted
+              : sellerRadarRestricted
                 ? "Use sua localização, escolha segmento e alcance para buscar cards elegíveis."
                 : "Escolha cidade, segmento e alcance para buscar cards elegíveis.";
   const radarMomentBadge =
@@ -4605,7 +4605,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   const scopePlace = scopeCity ? `${scopeCity}${scopeState ? `/${scopeState}` : ""}` : "";
   const searchScopeLine = [scopeSegment, scopePlace, radarRadiusLabel(filters.radiusKm ?? runFilters?.radiusKm)].filter(Boolean).join(" · ");
   const autoImportFailureLine = (radarMomentRun?.meta?.autoImport?.failures || [])
-    .map((failure) => publicRadarFailureLine(failure, hbxSellerPublicUi))
+    .map((failure) => publicRadarFailureLine(failure, sellerPublicUi))
     .filter(Boolean)
     .join(" · ");
   const preparingDelivery = hasSearched && !visibleItems.length && radarMomentDelivered > 0;
@@ -4619,9 +4619,9 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   );
   const radarStoppedPopupText = publicRadarMessage(
     radarMomentRun?.errorMessage || radarMomentRun?.message,
-    hbxSellerPublicUi,
-    hbxSellerPublicUi
-      ? hbxSellerRadarAdjustmentMessage()
+    sellerPublicUi,
+    sellerPublicUi
+      ? sellerRadarAdjustmentMessage()
       : "Localizei tudo que havia com os filtros atuais. Para continuar automático, aumente a distância, inclua cidades próximas ou adicione mais segmentos.",
   );
 
@@ -4652,7 +4652,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     setMobileAutoImportPending(false);
     setSearching(false);
     setError(null);
-    setFeedback(hbxSellerRadarRestricted
+    setFeedback(sellerRadarRestricted
       ? "Radar parado para edição. Atualize localização, segmento ou alcance."
       : "Radar parado para edição. Ajuste cidade, segmento, alcance ou quantidade.");
   }
@@ -4679,14 +4679,14 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     }
     if (radarFiltersLocked) return;
     if (activeRunPartial || activeRunFailed) {
-      setMobilePicker(hbxSellerRadarRestricted || filters.state ? "segment" : "state");
+      setMobilePicker(sellerRadarRestricted || filters.state ? "segment" : "state");
       return;
     }
     if (mobileDockCanSearch && canPullWithFilters(effectiveFilters)) {
       startMobileRadarSearch();
       return;
     }
-    setMobilePicker(hbxSellerRadarRestricted ? "segment" : filters.state ? "city" : "state");
+    setMobilePicker(sellerRadarRestricted ? "segment" : filters.state ? "city" : "state");
   }
 
   async function applyMobileSegments(value: string) {
@@ -4994,7 +4994,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
                 type="button"
                 onClick={() => {
                   setMobileRadarStoppedPopupDismissedKey(radarStoppedPopupKey);
-                  setMobilePicker(hbxSellerRadarRestricted || filters.state ? "segment" : "state");
+                  setMobilePicker(sellerRadarRestricted || filters.state ? "segment" : "state");
                 }}
               >
                 Ajustar área
@@ -5047,8 +5047,8 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
 
             <div className={styles.mobileRadarHeroStats}>
               <div className={styles.mobileRadarHeroStat}>
-              <span>{hbxSellerRadarRestricted ? "Base" : "Cidade"}</span>
-              <strong>{hbxSellerRadarRestricted ? hbxSellerLocationLabel : filters.city || "Definir"}</strong>
+              <span>{sellerRadarRestricted ? "Base" : "Cidade"}</span>
+              <strong>{sellerRadarRestricted ? sellerLocationLabel : filters.city || "Definir"}</strong>
             </div>
             <div className={styles.mobileRadarHeroStat}>
               <span>Segmento</span>
@@ -5087,11 +5087,11 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
               Localização
             </button>
 
-            {hbxSellerRadarRestricted ? (
-              <div className={styles.hbxSellerLocationLock} data-ready={hbxSellerLocationReady ? "true" : "false"}>
+            {sellerRadarRestricted ? (
+              <div className={styles.sellerLocationLock} data-ready={sellerLocationReady ? "true" : "false"}>
                 <span>Base do vendedor</span>
-                <strong>{hbxSellerLocationLabel}</strong>
-                <small>{hbxSellerLocationHelper}</small>
+                <strong>{sellerLocationLabel}</strong>
+                <small>{sellerLocationHelper}</small>
               </div>
             ) : (
               <div className={styles.mobileRadarLocationRow}>
@@ -5176,7 +5176,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
             ) : null}
             {error ? (
               <div className={`${styles.mobileRadarNotice} hbx-mobile-notice`} data-tone="error">
-                {publicRadarMessage(error, hbxSellerPublicUi, "Não foi possível concluir agora. Ajuste os filtros ou tente novamente.")}
+                {publicRadarMessage(error, sellerPublicUi, "Não foi possível concluir agora. Ajuste os filtros ou tente novamente.")}
               </div>
             ) : null}
             {feedback && !mobileRadarProcessing ? <div className={`${styles.mobileRadarNotice} hbx-mobile-notice`} data-tone="ok">{feedback}</div> : null}
@@ -5201,7 +5201,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
                   }
                   if (activeRunPartial || activeRunFailed) {
                     event.preventDefault();
-                    setMobilePicker(hbxSellerRadarRestricted || filters.state ? "segment" : "state");
+                    setMobilePicker(sellerRadarRestricted || filters.state ? "segment" : "state");
                     return;
                   }
                   if (mobileCanResendToVendas) {
@@ -5257,7 +5257,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
             </div>
           ) : null}
 
-          {!hbxSellerRadarRestricted && !radarFiltersLocked && mobilePicker === "state" ? (
+          {!sellerRadarRestricted && !radarFiltersLocked && mobilePicker === "state" ? (
             <MobileFilterSheet
               title="Estado"
               value={filters.state}
@@ -5267,7 +5267,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
               onClose={() => setMobilePicker(null)}
             />
           ) : null}
-          {!hbxSellerRadarRestricted && !radarFiltersLocked && mobilePicker === "city" ? (
+          {!sellerRadarRestricted && !radarFiltersLocked && mobilePicker === "city" ? (
             <MobileFilterSheet
               title="Cidade"
               value={filters.city}
@@ -5368,7 +5368,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
                 {loading ? (
                   <div className={styles.observationEmpty}><strong>Carregando cards</strong><p>O Radar está atualizando a fila.</p></div>
                 ) : error ? (
-                  <div className={styles.observationEmpty} data-tone="error"><strong>Erro na observação</strong><p>{publicRadarMessage(error, hbxSellerPublicUi, "Não foi possível carregar os cards agora.")}</p></div>
+                  <div className={styles.observationEmpty} data-tone="error"><strong>Erro na observação</strong><p>{publicRadarMessage(error, sellerPublicUi, "Não foi possível carregar os cards agora.")}</p></div>
                 ) : !hasSearched ? (
                   <div className={styles.observationEmpty}><strong>Sem pesquisa ativa</strong><p>Abra a guia Pesquisa para carregar a fila do Radar.</p></div>
                 ) : !visibleItems.length ? (
@@ -5587,11 +5587,11 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
           </div>
 
           <div className={styles.filterLocation}>
-            {hbxSellerRadarRestricted ? (
-              <div className={styles.hbxSellerLocationLock} data-ready={hbxSellerLocationReady ? "true" : "false"}>
+            {sellerRadarRestricted ? (
+              <div className={styles.sellerLocationLock} data-ready={sellerLocationReady ? "true" : "false"}>
                 <span>Base do vendedor</span>
-                <strong>{hbxSellerLocationLabel}</strong>
-                <small>{hbxSellerLocationHelper}</small>
+                <strong>{sellerLocationLabel}</strong>
+                <small>{sellerLocationHelper}</small>
               </div>
             ) : (
               <HbxStateCityPicker
@@ -5727,7 +5727,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
                 <span>{radarOperationalLabel}</span>
                 <strong>{activeRunDelivered.toLocaleString("pt-BR")} de até {activeRunTarget.toLocaleString("pt-BR")} cards</strong>
               </div>
-              <small>{socialLookupPendingCount > 0 ? "Entregando cards" : activeRun.status === "queued" ? "Na fila HBX" : "Verificando disponibilidade real"}</small>
+              <small>{socialLookupPendingCount > 0 ? "Entregando cards" : activeRun.status === "queued" ? "Na fila do Radar" : "Verificando disponibilidade real"}</small>
             </div>
             <div className={styles.runProgressTrack} aria-hidden="true">
               <span style={{ ["--progress" as string]: `${activeRunProgress}%` }} />
@@ -5736,14 +5736,14 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
             <p>
               {socialLookupPendingCount > 0
                 ? "Chegando cards para o Vendas. Redes sociais ficam para a etapa seguinte."
-                : publicRadarMessage(activeRun.message, hbxSellerPublicUi, "O Radar entrega primeiro os cards aprovados e encerra a busca primária.")}
+                : publicRadarMessage(activeRun.message, sellerPublicUi, "O Radar entrega primeiro os cards aprovados e encerra a busca primária.")}
             </p>
           </section>
         ) : null}
 
         {error ? (
           <div className={styles.notice} data-tone="error">
-            {publicRadarMessage(error, hbxSellerPublicUi, "Não foi possível concluir agora. Ajuste os filtros ou tente novamente.")}
+            {publicRadarMessage(error, sellerPublicUi, "Não foi possível concluir agora. Ajuste os filtros ou tente novamente.")}
           </div>
         ) : null}
         {feedback && !activeRun ? <div className={styles.notice} data-tone="ok">{feedback}</div> : null}

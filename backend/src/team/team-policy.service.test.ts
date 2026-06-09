@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
-import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../companies/master-whatsapp-company.constants';
+import { TEAM_ACCESS_CATALOG } from './team-access-catalog';
 import { TeamPolicyService } from './team-policy.service';
 
 function buildStoredPolicy(overrides: Record<string, any> = {}) {
@@ -48,8 +48,9 @@ function buildStoredPolicy(overrides: Record<string, any> = {}) {
 function buildUser(overrides: Record<string, any> = {}) {
   const company = overrides.company || {
     id: 1,
-    name: 'HBX Operacao',
-    slug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
+    name: 'Cliente A',
+    slug: 'cliente-a',
+    companyKind: 'tenant',
     selectedPlanKey: null,
     commissionDueBusinessDays: 3,
     timezone: 'America/Sao_Paulo',
@@ -61,9 +62,9 @@ function buildUser(overrides: Record<string, any> = {}) {
     isSystemMaster: false,
     isActive: true,
     deactivatedAt: null,
-    name: 'Vendedor HBX',
-    email: 'seller@hbx.test',
-    username: 'seller-hbx',
+    name: 'Vendedor',
+    email: 'seller@cliente.test',
+    username: 'seller-cliente',
     commissionPercent: 20,
     canRegisterHbxSellers: false,
     sellerReferralCommissionPercent: 0,
@@ -129,7 +130,7 @@ function createService(input: {
       },
     },
     userTeamPolicy: {
-      findUnique: async () => ({ id: state.user.teamPolicy.id }),
+      findUnique: async () => ({ ...state.user.teamPolicy }),
       update: async (args: any) => {
         state.user.teamPolicy = { ...state.user.teamPolicy, ...args.data };
         return state.user.teamPolicy;
@@ -173,7 +174,7 @@ function createService(input: {
     role: 'USERMASTER',
     isSystemMaster: true,
     companyId: 1,
-    company: { id: 1, slug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG },
+    company: { id: 1, slug: 'cliente-a', companyKind: 'tenant' },
   };
   return { service, state, requester };
 }
@@ -187,6 +188,78 @@ function findMetadata(call: { values: any[] }) {
   assert.equal(typeof raw, 'string');
   return JSON.parse(raw as string);
 }
+
+test('team access catalog contains planned canonical keys without duplicates', () => {
+  const keys = TEAM_ACCESS_CATALOG.map((item) => item.key);
+  const keySet = new Set(keys);
+  assert.equal(keySet.size, keys.length);
+  for (const key of [
+    'vendas.access',
+    'radar.access',
+    'atendimento.access',
+    'financeiro.access',
+    'cadastro.access',
+    'website.access',
+    'gerencial.access',
+    'radar.cards.assignToOthers',
+    'radar.cards.distribute',
+    'radar.filters.useSegments',
+    'radar.filters.useCities',
+    'radar.filters.useStates',
+    'radar.enrichment.manual',
+    'radar.enrichment.auto',
+    'vendas.cards.edit',
+    'vendas.cards.transfer',
+    'vendas.cards.close',
+    'vendas.cards.reopen',
+    'vendas.cards.delete',
+    'vendas.status.change',
+    'vendas.sale.markActivationPending',
+    'vendas.sale.markTrialStarted',
+    'vendas.sale.markConfirmed',
+    'vendas.sale.markInactive',
+    'communication.whatsapp.useCompanyNumber',
+    'communication.whatsapp.sendManual',
+    'communication.email.send',
+    'communication.email.useCompanyReplyTo',
+    'communication.support.contactAdmin',
+    'communication.support.viewCompanySupportChannels',
+    'products.view',
+    'products.sell',
+    'products.edit',
+    'products.discount',
+    'products.viewPrice',
+    'products.changePrice',
+    'commission.viewOwn',
+    'commission.viewTeam',
+    'commission.editPercent',
+    'commission.editDueDays',
+    'commission.markPaid',
+    'commission.cancel',
+    'commission.viewInherited',
+    'sellerNetwork.recruitSellers',
+    'sellerNetwork.viewReferrals',
+    'sellerNetwork.approveReferrals',
+    'sellerNetwork.receiveInheritedCommission',
+    'team.users.create',
+    'team.users.edit',
+    'team.users.disable',
+    'team.users.delete',
+    'team.access.manage',
+    'team.access.applyPreset',
+    'team.access.viewAudit',
+  ]) {
+    assert.equal(keySet.has(key), true, `catalog missing ${key}`);
+  }
+  assert.equal(keySet.has('cadastros.access'), false);
+  assert.equal(keySet.has('whatsapp.access'), false);
+  assert.equal(keySet.has('products.catalog.view'), false);
+  assert.equal(keySet.has('products.catalog.manage'), false);
+  assert.equal(keySet.has('team.user.create'), false);
+  assert.equal(keySet.has('team.user.deactivate'), false);
+  assert.equal(keySet.has('sellerNetwork.recruit'), false);
+  assert.equal(keySet.has('sellerNetwork.referral.receive'), false);
+});
 
 test('MASTER resolves unlimited team policy and writes team/master audit logs', async () => {
   const { service, state, requester } = createService();
@@ -229,23 +302,22 @@ test('MASTER resolves unlimited team policy and writes team/master audit logs', 
   assert.equal(metadata.after.modules.atendimento, false);
 });
 
-test('ADMIN cannot edit HBX operational seller policy', async () => {
+test('ADMIN can edit tenant seller policy inside current plan cap', async () => {
   const { service } = createService({
     requester: {
       id: 22,
       role: 'ADMIN',
       isSystemMaster: false,
       companyId: 1,
-      company: { id: 1, slug: 'cliente-a' },
+      company: { id: 1, slug: 'cliente-a', companyKind: 'tenant' },
     },
   });
 
-  await assert.rejects(
-    () => service.updatePolicy({ id: 22, role: 'ADMIN', isSystemMaster: false, companyId: 1 }, 7, {
-      limits: { enrichmentDaily: { mode: 'limited', value: 250 } },
-    } as any),
-    ForbiddenException,
-  );
+  const result = await service.updatePolicy({ id: 22, role: 'ADMIN', isSystemMaster: false, companyId: 1 }, 7, {
+    limits: { enrichmentDaily: { mode: 'limited', value: 20 } },
+  } as any);
+
+  assert.equal(result.limits.enrichmentDaily.value, 20);
 });
 
 test('policy update persists seller visibility and keeps system visibility derived', async () => {
@@ -255,7 +327,7 @@ test('policy update persists seller visibility and keeps system visibility deriv
     visibility: {
       sellerCanViewOwnPolicy: true,
       sellerCanViewCommission: false,
-      sellerCanViewHbxNetwork: true,
+      sellerCanViewSellerNetwork: true,
       sellerCanViewLimits: false,
       adminCanEditLegacyFields: false,
       masterCanUseUnlimited: false,
@@ -264,14 +336,14 @@ test('policy update persists seller visibility and keeps system visibility deriv
 
   assert.equal(result.visibility.sellerCanViewOwnPolicy, true);
   assert.equal(result.visibility.sellerCanViewCommission, false);
-  assert.equal(result.visibility.sellerCanViewHbxNetwork, true);
+  assert.equal(result.visibility.sellerCanViewSellerNetwork, true);
   assert.equal(result.visibility.sellerCanViewLimits, false);
   assert.equal(result.visibility.adminCanEditLegacyFields, true);
   assert.equal(result.visibility.masterCanUseUnlimited, true);
   assert.deepEqual(JSON.parse(state.user.teamPolicy.visibilityJson), {
     sellerCanViewOwnPolicy: true,
     sellerCanViewCommission: false,
-    sellerCanViewHbxNetwork: true,
+    sellerCanViewSellerNetwork: true,
     sellerCanViewLimits: false,
   });
 
@@ -282,11 +354,50 @@ test('policy update persists seller visibility and keeps system visibility deriv
   assert.equal(metadata.diff.visibilityChanged, true);
 });
 
-test('ADMIN cannot set individual enrichment outside HBX operation', async () => {
+test('policy update persists explicit team access map over legacy modules', async () => {
+  const { service, state, requester } = createService();
+
+  const result = await service.updatePolicy(requester, 7, {
+    access: {
+      'radar.search.run': false,
+      'commission.editPercent': true,
+      'seller.documents.request': true,
+    },
+  } as any);
+
+  assert.equal(result.accessCatalog.some((item) => item.key === 'seller.documents.request'), true);
+  assert.equal(result.accessPresets.some((preset) => preset.key === 'seller_radar_limited'), true);
+  assert.equal(result.effectiveAccessMap['radar.search.run'], false);
+  assert.equal(result.effectiveAccessMap['commission.editPercent'], true);
+  assert.equal(result.effectiveAccessMap['seller.documents.request'], true);
+  assert.equal(
+    result.missingBackendEnforcement.some((item) => item.key === 'commission.editPercent'),
+    true,
+  );
+
+  const rows = JSON.parse(state.user.teamPolicy.modulesJson);
+  assert.equal(rows.some((row: any) => row.key === 'webscraping' && row.allowed === true), true);
+  assert.equal(rows.some((row: any) => row.key === 'radar.search.run' && row.allowed === false), true);
+  assert.equal(rows.some((row: any) => row.key === 'commission.editPercent' && row.allowed === true), true);
+  assert.equal(rows.some((row: any) => row.key === 'seller.documents.request' && row.allowed === true), true);
+
+  const teamAudit = findSqlCall(state, 'TeamPolicyAuditLog');
+  assert.ok(teamAudit);
+  const metadata = findMetadata(teamAudit!);
+  assert.equal(metadata.patch.hasAccess, true);
+  assert.deepEqual(metadata.accessChanged.sort(), [
+    'commission.editPercent',
+    'radar.search.run',
+    'seller.documents.request',
+  ]);
+});
+
+test('ADMIN cannot set individual enrichment above current plan cap', async () => {
   const company = {
     id: 10,
     name: 'Cliente A',
     slug: 'cliente-a',
+    companyKind: 'tenant',
     selectedPlanKey: 'hbx_lite',
     commissionDueBusinessDays: 3,
     timezone: 'America/Sao_Paulo',

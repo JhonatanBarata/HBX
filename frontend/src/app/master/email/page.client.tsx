@@ -105,11 +105,11 @@ const VARIABLE_GROUP_LABELS: Record<TemplateVariableGroupKey, string> = {
 };
 const VARIABLE_GROUP_ORDER: TemplateVariableGroupKey[] = ["contato", "vendedor", "card", "links", "sistema"];
 const SELLER_WELCOME_BASE_DRAFT: Draft = {
-  subject: "Bem-vindo à equipe HBX, {vendedor}",
+  subject: "Bem-vindo à equipe, {vendedor}",
   text: [
-    "Olá {vendedor}, seja bem-vindo à equipe HBX.",
+    "Olá {vendedor}, seja bem-vindo à equipe comercial.",
     "",
-    "Seu cadastro como vendedor HBX foi realizado com sucesso e seu acesso já está pronto.",
+    "Seu cadastro como vendedor foi realizado com sucesso e seu acesso já está pronto.",
     "",
     "Seu acesso é {acesso}",
     "Senha temporária: {senha}",
@@ -127,7 +127,7 @@ const SELLER_WELCOME_BASE_DRAFT: Draft = {
     "",
     "Conte com a gente e boas vendas.",
     "",
-    "Equipe HBX",
+    "Equipe comercial",
   ].join("\n"),
   html: "",
 };

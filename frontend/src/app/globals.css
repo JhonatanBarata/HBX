@@ -986,6 +986,33 @@ textarea {
   font-weight: 760;
 }
 
+.hbx-partner-popup__toggle {
+  display: flex !important;
+  grid-template-columns: none !important;
+  align-items: flex-start;
+  gap: 0.62rem !important;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface-soft);
+}
+
+.hbx-partner-popup__toggle input {
+  margin-top: 0.2rem;
+}
+
+.hbx-partner-popup__toggle span {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.hbx-partner-popup__toggle small {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
 .hbx-partner-popup__twocol {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

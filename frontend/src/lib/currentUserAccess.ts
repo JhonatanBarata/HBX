@@ -3,14 +3,14 @@ export type CurrentUserAccessUser = {
   userKind?: string | null;
   isSystemMaster?: boolean | null;
   sellerProfile?: {
-    isHbxPartnerSeller?: boolean | null;
     isCommonSeller?: boolean | null;
     isAdmin?: boolean | null;
+    isReferralSeller?: boolean | null;
   } | null;
   company?: {
     id?: number | string | null;
     slug?: string | null;
-    isHbxSellerNetwork?: boolean | null;
+    isSellerNetwork?: boolean | null;
   } | null;
   masterContext?: {
     active?: boolean | null;
@@ -27,7 +27,7 @@ export type CurrentUserAccess = {
   isAssumedCompanyMaster: boolean;
   isCompanyAdmin: boolean;
   isCommonSeller: boolean;
-  isHbxPartnerSeller: boolean;
+  isReferralSeller: boolean;
   canCallAdminCompanyEndpoints: boolean;
   canCallWhatsAppAdminEndpoints: boolean;
   canManageTeam: boolean;
@@ -42,12 +42,7 @@ export function getCurrentUserAccess(user?: CurrentUserAccessUser | null): Curre
     isSystemMaster && user?.masterContext?.active && masterMode === "empresa_assumida",
   );
   const isOperationalMaster = Boolean(isSystemMaster && !isAssumedCompanyMaster);
-  const isHbxPartnerSeller = Boolean(
-    !isSystemMaster &&
-      (normalizedUserKind === "hbx_partner_seller" ||
-        user?.sellerProfile?.isHbxPartnerSeller ||
-        (user?.company?.isHbxSellerNetwork && normalizedRole === "USER")),
-  );
+  const isReferralSeller = false;
   const isCompanyAdmin = Boolean(
     !isSystemMaster &&
       (normalizedRole === "ADMIN" ||
@@ -57,7 +52,7 @@ export function getCurrentUserAccess(user?: CurrentUserAccessUser | null): Curre
   const isCommonSeller = Boolean(
     !isSystemMaster &&
       !isCompanyAdmin &&
-      !isHbxPartnerSeller &&
+      !isReferralSeller &&
       (normalizedRole === "USER" ||
         normalizedUserKind === "seller" ||
         user?.sellerProfile?.isCommonSeller),
@@ -74,7 +69,7 @@ export function getCurrentUserAccess(user?: CurrentUserAccessUser | null): Curre
     isAssumedCompanyMaster,
     isCompanyAdmin,
     isCommonSeller,
-    isHbxPartnerSeller,
+    isReferralSeller,
     canCallAdminCompanyEndpoints,
     canCallWhatsAppAdminEndpoints,
     canManageTeam,

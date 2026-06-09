@@ -8,7 +8,7 @@ export type UserItem = {
   email?: string | null;
   phone?: string | null;
   commissionPercent?: number | null;
-  canRegisterHbxSellers?: boolean | null;
+  canRecruitSellers?: boolean | null;
   sellerReferralCommissionPercent?: number | null;
   referredByUserId?: number | null;
   referredByCommissionPercentSnapshot?: number | null;
@@ -113,7 +113,6 @@ export type TeamPolicyActorKind =
   | "system_master"
   | "company_admin"
   | "common_seller"
-  | "hbx_partner_seller"
   | "unknown";
 
 export type TeamPolicyLimitMode = "inherit" | "limited" | "unlimited" | "blocked";
@@ -136,6 +135,59 @@ export type TeamPolicyModule = {
   source?: string;
 };
 
+export type TeamPolicyAccessGroupKey =
+  | "modules"
+  | "radar"
+  | "vendas"
+  | "communication"
+  | "commission"
+  | "sellerNetwork"
+  | "products"
+  | "admin";
+
+export type TeamPolicyAccessMap = Record<string, boolean>;
+
+export type TeamPolicyAccessCatalogGroup = {
+  key: TeamPolicyAccessGroupKey;
+  label: string;
+  description: string;
+};
+
+export type TeamPolicyAccessCatalogItem = {
+  key: string;
+  group: TeamPolicyAccessGroupKey;
+  label: string;
+  description: string;
+  defaultForAdmin: boolean;
+  defaultForSeller: boolean;
+  requiresModule?: string;
+  riskLevel: "low" | "medium" | "high" | "critical";
+  sellerVisible: boolean;
+  backendEnforced: boolean;
+};
+
+export type TeamPolicyAccessPreset = {
+  key: string;
+  label: string;
+  description: string;
+  access: TeamPolicyAccessMap;
+  limits?: Partial<
+    Record<
+      keyof TeamPolicy["limits"],
+      {
+        mode: TeamPolicyLimitMode;
+        value: number | null;
+      }
+    >
+  >;
+};
+
+export type TeamPolicyMissingBackendEnforcement = {
+  key: string;
+  group: TeamPolicyAccessGroupKey;
+  label: string;
+};
+
 export type TeamPolicySubject = {
   id: number;
   companyId: number | null;
@@ -152,13 +204,19 @@ export type TeamPolicy = {
   version: 1;
   subject: TeamPolicySubject;
   modules: TeamPolicyModule[];
+  accessCatalog?: TeamPolicyAccessCatalogItem[];
+  accessGroups?: TeamPolicyAccessCatalogGroup[];
+  accessPresets?: TeamPolicyAccessPreset[];
+  access?: TeamPolicyAccessMap;
+  effectiveAccessMap?: TeamPolicyAccessMap;
+  missingBackendEnforcement?: TeamPolicyMissingBackendEnforcement[];
   compensation: {
     commissionPercent: number;
     commissionDueBusinessDays: number;
   };
-  hbxNetwork: {
-    isHbxSellerNetwork: boolean;
-    canRegisterHbxSellers: boolean;
+  sellerNetwork: {
+    isSellerNetwork: boolean;
+    canRecruitSellers: boolean;
     sellerReferralCommissionPercent: number;
     referredByUserId: number | null;
     referredByCommissionPercentSnapshot: number;
@@ -193,7 +251,7 @@ export type TeamPolicy = {
   visibility: {
     sellerCanViewOwnPolicy: boolean;
     sellerCanViewCommission: boolean;
-    sellerCanViewHbxNetwork: boolean;
+    sellerCanViewSellerNetwork: boolean;
     sellerCanViewLimits: boolean;
     adminCanEditLegacyFields: boolean;
     masterCanUseUnlimited: boolean;
@@ -210,12 +268,14 @@ export type TeamPolicy = {
 
 export type TeamPolicyPatch = {
   modules?: Array<{ key: string; allowed: boolean }>;
+  access?: TeamPolicyAccessMap;
+  accessPresetKey?: string | null;
   compensation?: {
     commissionPercent?: number;
     commissionDueBusinessDays?: number;
   };
-  hbxNetwork?: {
-    canRegisterHbxSellers?: boolean;
+  sellerNetwork?: {
+    canRecruitSellers?: boolean;
     sellerReferralCommissionPercent?: number;
     referredByUserId?: number | null;
     referredByCommissionPercentSnapshot?: number;
@@ -239,6 +299,6 @@ export type TeamPolicyPatch = {
   };
   visibility?: Pick<
     TeamPolicy["visibility"],
-    "sellerCanViewOwnPolicy" | "sellerCanViewCommission" | "sellerCanViewHbxNetwork" | "sellerCanViewLimits"
+    "sellerCanViewOwnPolicy" | "sellerCanViewCommission" | "sellerCanViewSellerNetwork" | "sellerCanViewLimits"
   >;
 };

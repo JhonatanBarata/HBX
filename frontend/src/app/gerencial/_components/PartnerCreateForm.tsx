@@ -5,7 +5,7 @@ type PartnerCreateFormProps = {
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   referralCandidatesPanel?: ReactNode;
   referralMatchBox?: ReactNode;
-  isHbxSellerNetwork: boolean;
+  isSellerNetwork: boolean;
   canCreateAdminUsers: boolean;
   newUserRole: "USER" | "ADMIN";
   setNewUserRole: (role: "USER" | "ADMIN") => void;
@@ -44,7 +44,7 @@ export default function PartnerCreateForm({
   onSubmit,
   referralCandidatesPanel,
   referralMatchBox,
-  isHbxSellerNetwork,
+  isSellerNetwork,
   canCreateAdminUsers,
   newUserRole,
   setNewUserRole,
@@ -78,7 +78,7 @@ export default function PartnerCreateForm({
   percentInputValue,
   creatingUser,
 }: PartnerCreateFormProps) {
-  const showPartnerFields = isHbxSellerNetwork && newUserRole === "USER";
+  const showPartnerFields = isSellerNetwork && newUserRole === "USER";
 
   return (
     <form onSubmit={onSubmit} autoComplete="off" className="grid gap-3">
@@ -87,10 +87,10 @@ export default function PartnerCreateForm({
         <div className="flex items-center justify-between gap-2">
           <div>
             <span className="text-xs font-bold uppercase text-[var(--hbx-mobile-primary)]">Novo acesso</span>
-            <h2 className="text-lg font-semibold">{isHbxSellerNetwork ? "Cadastrar Parceiro HBX" : "Cadastrar usuário"}</h2>
+            <h2 className="text-lg font-semibold">{isSellerNetwork ? "Cadastrar vendedor" : "Cadastrar usuário"}</h2>
           </div>
           <span className="rounded-full border border-[var(--hbx-mobile-border)] px-3 py-1 text-xs font-bold">
-            {isHbxSellerNetwork ? "Parceiro HBX" : newUserRole === "USER" ? "Vendedor" : "Admin"}
+            {newUserRole === "USER" ? "Vendedor" : "Admin"}
           </span>
         </div>
         {canCreateAdminUsers ? (
@@ -108,7 +108,7 @@ export default function PartnerCreateForm({
           </div>
         ) : (
           <div className="rounded-[16px] border border-[var(--hbx-mobile-border)] bg-[var(--hbx-mobile-surface-soft)] p-3 text-sm text-[var(--hbx-mobile-muted)]">
-            USERMASTER cria Parceiro HBX. Admin fica fora da rede de parceiros HBX.
+            USERMASTER cria vendedores. Admin fica fora da rede de indicação.
           </div>
         )}
         <input className="field" value={newUserName} onChange={(event) => setNewUserName(event.target.value)} placeholder="Nome" />
@@ -145,8 +145,8 @@ export default function PartnerCreateForm({
         {showPartnerFields ? (
           <div className="grid gap-2 rounded-[16px] border border-[var(--hbx-mobile-border)] bg-[var(--hbx-mobile-surface-soft)] p-3 text-sm">
             <span>
-              <strong className="block">Parceiro HBX</strong>
-              <small className="text-[var(--hbx-mobile-muted)]">Dados iniciais para gerar o contrato de parceria HBX.</small>
+              <strong className="block">Documentação do vendedor</strong>
+              <small className="text-[var(--hbx-mobile-muted)]">Dados opcionais para guardar documentação e contrato antes da liberação.</small>
             </span>
             <input className="field" value={newUserCpf} onChange={(event) => setNewUserCpf(event.target.value)} placeholder="CPF" />
             <input className="field" value={newUserDeclaredAddress} onChange={(event) => setNewUserDeclaredAddress(event.target.value)} placeholder="Endereço declarado" />
@@ -164,7 +164,7 @@ export default function PartnerCreateForm({
       {showPartnerFields ? (
         <section className="hbx-mobile-card grid gap-3">
           <div>
-            <span className="text-xs font-bold uppercase text-[var(--hbx-mobile-primary)]">Rede HBX</span>
+            <span className="text-xs font-bold uppercase text-[var(--hbx-mobile-primary)]">Indicações</span>
             <h3 className="text-base font-semibold">Indicação e herança</h3>
           </div>
           <input
@@ -190,7 +190,7 @@ export default function PartnerCreateForm({
               if (!selectedReferrerId) setNewUserReferredByCommissionPercent("");
             }}
           >
-            <option value="">Direto HBX</option>
+            <option value="">Direto</option>
             {hbxReferrers.map((referrer) => (
               <option key={referrer.id} value={referrer.id}>
                 {userLabel(referrer)} · {formatPercent(referrer.sellerReferralCommissionPercent)}
@@ -214,7 +214,7 @@ export default function PartnerCreateForm({
       ) : null}
 
       <button type="submit" disabled={creatingUser} className="hbx-mobile-primary-button">
-        {creatingUser ? "Criando..." : isHbxSellerNetwork ? "Criar Parceiro HBX" : newUserRole === "USER" ? "Criar vendedor" : "Criar admin"}
+        {creatingUser ? "Criando..." : newUserRole === "USER" ? "Criar vendedor" : "Criar admin"}
       </button>
     </form>
   );

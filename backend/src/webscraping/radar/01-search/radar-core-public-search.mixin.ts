@@ -20,7 +20,6 @@ import {
   RADAR_LEAD_ENRICHMENT_VERSION,
   calculateLeadQualityV2,
   resolveRadarVisibilityFromQualityV2,
-  MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
   PLACES_NEW_TEXT_SEARCH_URL,
   PLACES_NEW_DETAILS_URL,
   PLACES_TEXT_SEARCH_URL,
@@ -315,7 +314,7 @@ export class RadarCorePublicSearchMixin {
           targetQuantity: normalized.quantity,
           startedAt: now,
           finishedAt: now,
-          errorMessage: 'Entregue do banco Radar/HBX. A frota M1-M4 nao foi acionada.',
+          errorMessage: 'Entregue do banco Radar. O motor de busca nao foi acionado.',
           metricsJson: this.buildSearchRunMetricsJson(normalized),
         },
         select: {
@@ -413,12 +412,12 @@ export class RadarCorePublicSearchMixin {
   async getSearchRunForUser(user: any, runId: string): Promise<WebscrapingSearchRunResponse> {
     const context = this.resolveContext(user);
     await this.assertSearchRunPersistence();
-    const hbxSellerScope = this.isHbxOperationSellerUser(user) ? { userId: context.userId } : {};
+    const sellerScope = this.isCompanySellerUser(user) ? { userId: context.userId } : {};
     let run = await this.prisma.webscrapingSearchRun.findFirst({
       where: {
         id: String(runId || '').trim(),
         companyId: context.companyId,
-        ...hbxSellerScope,
+        ...sellerScope,
       },
       include: {
         items: {
@@ -435,12 +434,12 @@ export class RadarCorePublicSearchMixin {
   async cancelSearchRunForUser(user: any, runId: string): Promise<WebscrapingSearchRunResponse> {
     const context = this.resolveContext(user);
     await this.assertSearchRunPersistence();
-    const hbxSellerScope = this.isHbxOperationSellerUser(user) ? { userId: context.userId } : {};
+    const sellerScope = this.isCompanySellerUser(user) ? { userId: context.userId } : {};
     const current = await this.prisma.webscrapingSearchRun.findFirst({
       where: {
         id: String(runId || '').trim(),
         companyId: context.companyId,
-        ...hbxSellerScope,
+        ...sellerScope,
       },
       select: {
         id: true,

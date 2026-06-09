@@ -1,4 +1,12 @@
-import { isMasterOperationalCompanySlug } from '../commercial-plans/seat-billing.util';
+import { isTenantCompany } from '../common/company-kind';
+import {
+  buildTeamAccessRows,
+  isTeamAccessKey,
+  moduleAccessRowsFromMap,
+  normalizeTeamAccessKey,
+  normalizeTeamAccessMap,
+  type TeamAccessMap,
+} from './team-access-catalog';
 
 export const TEAM_POLICY_VERSION = 1;
 export const TEAM_POLICY_DEFAULT_REQUIRED_CHANNELS = {
@@ -26,6 +34,7 @@ export type RuntimeTeamPolicy = {
   subjectKind: string | null;
   modulesJson?: string | null;
   moduleAccessMap: Map<string, boolean>;
+  accessMap: Map<string, boolean>;
   requiredChannels: typeof TEAM_POLICY_DEFAULT_REQUIRED_CHANNELS;
   requiredChannelList: string[];
   raw: any;
@@ -71,16 +80,39 @@ export function parseTeamPolicyModuleAccessMap(value: unknown) {
   const map = new Map<string, boolean>();
   for (const row of rows) {
     const key = normalizeTeamPolicyModuleKey((row as any)?.key);
-    if (!key) continue;
+    if (!key || key.includes('.')) continue;
     map.set(key, Boolean((row as any)?.allowed));
   }
   return map;
+}
+
+export function parseTeamPolicyAccessMap(value: unknown) {
+  const parsed = parseJsonValue(value, []);
+  const normalized = normalizeTeamAccessMap(parsed);
+  return new Map<string, boolean>(Object.entries(normalized));
+}
+
+export function serializeTeamPolicyModuleAndAccessRows(input: {
+  modules?: unknown;
+  access?: TeamAccessMap | null;
+}) {
+  const rows = [
+    ...moduleAccessRowsFromMap(input.modules || []),
+    ...buildTeamAccessRows(input.access || {}),
+  ].sort((a, b) => a.key.localeCompare(b.key));
+  return JSON.stringify(rows);
 }
 
 export function resolveTeamPolicyModuleAllowed(policy: RuntimeTeamPolicy | null | undefined, moduleKey: unknown) {
   const key = normalizeTeamPolicyModuleKey(moduleKey);
   if (!policy || !key || !policy.moduleAccessMap.has(key)) return undefined;
   return Boolean(policy.moduleAccessMap.get(key));
+}
+
+export function resolveTeamPolicyAccessAllowed(policy: RuntimeTeamPolicy | null | undefined, accessKey: unknown) {
+  const key = normalizeTeamAccessKey(accessKey);
+  if (!policy || !key || !isTeamAccessKey(key) || !policy.accessMap.has(key)) return undefined;
+  return Boolean(policy.accessMap.get(key));
 }
 
 export function parseTeamPolicyRequiredChannels(value: unknown) {
@@ -189,6 +221,7 @@ export async function loadUserTeamPolicyRuntime(prisma: any, userIdRaw: unknown)
     subjectKind: row.subjectKind || null,
     modulesJson: row.modulesJson || null,
     moduleAccessMap: parseTeamPolicyModuleAccessMap(row.modulesJson),
+    accessMap: parseTeamPolicyAccessMap(row.modulesJson),
     requiredChannels,
     requiredChannelList: getTeamPolicyRequiredChannelList(requiredChannels),
     raw: row,
@@ -198,7 +231,6 @@ export async function loadUserTeamPolicyRuntime(prisma: any, userIdRaw: unknown)
 export function resolveTeamPolicySubjectKind(user: any, company?: any) {
   const role = normalizeRole(user?.role);
   if (user?.isSystemMaster) return 'system_master';
-  if (isMasterOperationalCompanySlug(company?.slug) && role === 'USER') return 'hbx_partner_seller';
   if (role === 'ADMIN') return 'company_admin';
   if (role === 'USER') return 'common_seller';
   return 'unknown';
@@ -207,7 +239,7 @@ export function resolveTeamPolicySubjectKind(user: any, company?: any) {
 export function buildUserTeamPolicySnapshotData(user: any, options?: { source?: string }) {
   const company = user?.company || null;
   const subjectKind = resolveTeamPolicySubjectKind(user, company);
-  const hbxOperationCompany = isMasterOperationalCompanySlug(company?.slug);
+  const tenantCompany = Boolean(company && isTenantCompany(company));
   const legacyOverride = normalizeLegacyEnrichmentOverride(user?.sellerDistributionDailyLimitOverride);
   const moduleRows = Array.isArray(user?.moduleAccesses) ? user.moduleAccesses : [];
   const modules = moduleRows
@@ -217,9 +249,9 @@ export function buildUserTeamPolicySnapshotData(user: any, options?: { source?: 
     }))
     .filter((row: { key: string }) => row.key)
     .sort((a: { key: string }, b: { key: string }) => a.key.localeCompare(b.key));
-  const enrichmentDailyMode = hbxOperationCompany && legacyOverride === 0
+  const enrichmentDailyMode = tenantCompany && legacyOverride === 0
     ? 'unlimited'
-    : hbxOperationCompany && typeof legacyOverride === 'number' && legacyOverride > 0
+    : tenantCompany && typeof legacyOverride === 'number' && legacyOverride > 0
       ? 'limited'
       : 'inherit';
 
@@ -231,7 +263,7 @@ export function buildUserTeamPolicySnapshotData(user: any, options?: { source?: 
     source: String(options?.source || 'legacy_sync').trim() || 'legacy_sync',
     roleSnapshot: normalizeRole(user?.role) || null,
     subjectKind,
-    modulesJson: JSON.stringify(modules),
+    modulesJson: serializeTeamPolicyModuleAndAccessRows({ modules }),
     commissionPercent: clampPercent(user?.commissionPercent),
     commissionDueBusinessDays: company?.commissionDueBusinessDays == null
       ? null
@@ -254,7 +286,7 @@ export function buildUserTeamPolicySnapshotData(user: any, options?: { source?: 
     blockedSegmentsJson: '[]',
     allowedCitiesJson: '[]',
     allowedStatesJson: '[]',
-    requiresLocation: subjectKind === 'hbx_partner_seller' ? true : null,
+    requiresLocation: null,
     requiredChannelsJson: JSON.stringify(TEAM_POLICY_DEFAULT_REQUIRED_CHANNELS),
     visibilityJson: null,
   };
@@ -361,10 +393,15 @@ export async function syncUserTeamPolicyModulesFromLegacyAccess(
     source: options?.source || 'module_access_update',
     overwrite: false,
   });
+  const existing = await prisma.userTeamPolicy.findUnique({
+    where: { userId },
+    select: { modulesJson: true },
+  }).catch(() => null);
+  const access = Object.fromEntries(parseTeamPolicyAccessMap(existing?.modulesJson || null));
   return prisma.userTeamPolicy.update({
     where: { userId },
     data: {
-      modulesJson: JSON.stringify(modules),
+      modulesJson: serializeTeamPolicyModuleAndAccessRows({ modules, access }),
       source: options?.source || 'module_access_update',
     },
   }).catch(() => null);

@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CommercialUsageLimitsService } from './commercial-usage-limits.service';
-import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../companies/master-whatsapp-company.constants';
 
 function buildTeamPolicyMock(input: Record<string, any> = {}) {
   return {
@@ -9,7 +8,7 @@ function buildTeamPolicyMock(input: Record<string, any> = {}) {
     userId: 7,
     companyId: 1,
     status: 'active',
-    subjectKind: 'hbx_partner_seller',
+    subjectKind: 'common_seller',
     modulesJson: '[]',
     enrichmentDailyMode: 'inherit',
     enrichmentDailyLimit: null,
@@ -39,14 +38,14 @@ function buildPrismaMock(input: {
   sellerMode?: string;
   sellerPausedUntil?: Date | null;
   lastSeenAt?: Date | null;
-  companySlug?: string;
+  companyKind?: string;
   teamPolicy?: Record<string, any> | null;
 } = {}) {
   const now = new Date();
   const lastSeenAt = input.lastSeenAt === undefined ? now : input.lastSeenAt;
   return {
     company: {
-      findUnique: async () => ({ slug: input.companySlug || 'cliente-a' }),
+      findUnique: async () => ({ companyKind: input.companyKind || 'tenant' }),
     },
     user: {
       findFirst: async () => ({
@@ -105,23 +104,21 @@ test('seller active card quota blocks when active count reaches effective limit'
   assert.equal(snapshot.code, 'SELLER_CARD_QUOTA_REACHED');
 });
 
-test('HBX operation seller active quota is independent from fixed distribution rule', async () => {
+test('tenant seller active quota follows configured distribution rule', async () => {
   const service = new CommercialUsageLimitsService(buildPrismaMock({
-    companySlug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
     targetStockPerSeller: 80,
   }) as any);
 
   const snapshot = await service.getSellerActiveCardQuotaSnapshot(1, 7);
 
   assert.equal(snapshot.seller, true);
-  assert.equal(snapshot.baseLimit, 30);
-  assert.equal(snapshot.effectiveLimit, 30);
-  assert.equal(snapshot.availableSlots, 30);
+  assert.equal(snapshot.baseLimit, 80);
+  assert.equal(snapshot.effectiveLimit, 80);
+  assert.equal(snapshot.availableSlots, 80);
 });
 
 test('team policy can override active card quota exactly', async () => {
   const service = new CommercialUsageLimitsService(buildPrismaMock({
-    companySlug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
     activeVendas: 10,
     activeRadar: 1,
     teamPolicy: buildTeamPolicyMock({
@@ -138,7 +135,7 @@ test('team policy can override active card quota exactly', async () => {
   assert.equal(snapshot.availableSlots, 1);
 });
 
-test('HBX operation seller usage limit is daily per seller instead of master unlimited', async () => {
+test('platform_infra company has zero commercial usage limits', async () => {
   const service = new CommercialUsageLimitsService({
     company: {
       findUnique: async () => ({
@@ -147,7 +144,7 @@ test('HBX operation seller usage limit is daily per seller instead of master unl
         paymentStatus: null,
         subscriptionStatus: null,
         timezone: 'America/Sao_Paulo',
-        slug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
+        companyKind: 'platform_infra',
       }),
     },
     user: {
@@ -169,24 +166,24 @@ test('HBX operation seller usage limit is daily per seller instead of master unl
 
   const snapshot = await service.getUsageSnapshot(1, 7);
 
-  assert.equal(snapshot.planKey, 'hbx_seller');
-  assert.equal(snapshot.cards.dailySafetyLimit, 999999);
-  assert.equal(snapshot.cards.dailyUsed, 29);
-  assert.equal(snapshot.cards.dailyRemaining, 999970);
-  assert.equal(snapshot.enrichment.dailyLimit, 30);
-  assert.equal(snapshot.enrichment.dailyUsed, 30);
+  assert.equal(snapshot.planKey, 'platform_infra');
+  assert.equal(snapshot.cards.dailySafetyLimit, 0);
+  assert.equal(snapshot.cards.dailyUsed, 0);
+  assert.equal(snapshot.cards.dailyRemaining, 0);
+  assert.equal(snapshot.enrichment.dailyLimit, 0);
+  assert.equal(snapshot.enrichment.dailyUsed, 0);
   assert.equal(snapshot.enrichment.dailyRemaining, 0);
-  assert.equal(snapshot.enrichment.dailyLimitSource, 'hbx_default');
+  assert.equal(snapshot.enrichment.dailyLimitSource, 'platform_infra');
   assert.equal(snapshot.enrichment.configuredDailyLimit, null);
-  assert.equal(snapshot.enrichment.fallbackDailyLimit, 30);
+  assert.equal(snapshot.enrichment.fallbackDailyLimit, null);
 });
 
-test('team policy overrides HBX seller enrichment daily limit', async () => {
+test('team policy overrides tenant seller enrichment daily limit inside plan cap', async () => {
   const service = new CommercialUsageLimitsService({
     company: {
       findUnique: async () => ({
         timezone: 'America/Sao_Paulo',
-        slug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
+        companyKind: 'tenant',
       }),
     },
     user: {
@@ -196,7 +193,7 @@ test('team policy overrides HBX seller enrichment daily limit', async () => {
     userTeamPolicy: {
       findUnique: async () => buildTeamPolicyMock({
         enrichmentDailyMode: 'limited',
-        enrichmentDailyLimit: 250,
+        enrichmentDailyLimit: 80,
       }),
     },
     $queryRawUnsafe: async () => [],
@@ -212,19 +209,19 @@ test('team policy overrides HBX seller enrichment daily limit', async () => {
 
   const snapshot = await service.getUsageSnapshot(1, 7);
 
-  assert.equal(snapshot.enrichment.dailyLimit, 250);
+  assert.equal(snapshot.enrichment.dailyLimit, 80);
   assert.equal(snapshot.enrichment.dailyUsed, 15);
-  assert.equal(snapshot.enrichment.dailyRemaining, 235);
+  assert.equal(snapshot.enrichment.dailyRemaining, 65);
   assert.equal(snapshot.enrichment.dailyLimitSource, 'team_policy');
-  assert.equal(snapshot.enrichment.configuredDailyLimit, 250);
+  assert.equal(snapshot.enrichment.configuredDailyLimit, 80);
 });
 
-test('HBX operation seller enrichment limit can be overridden per seller', async () => {
+test('tenant usage does not become special seller quota from legacy user override alone', async () => {
   const service = new CommercialUsageLimitsService({
     company: {
       findUnique: async () => ({
         timezone: 'America/Sao_Paulo',
-        slug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
+        companyKind: 'tenant',
       }),
     },
     user: {
@@ -237,64 +234,15 @@ test('HBX operation seller enrichment limit can be overridden per seller', async
 
   const snapshot = await service.getUsageSnapshot(1, 7);
 
-  assert.equal(snapshot.enrichment.dailyLimit, 12);
-  assert.equal(snapshot.enrichment.dailyRemaining, 12);
-  assert.equal(snapshot.enrichment.dailyLimitSource, 'owner_override');
-  assert.equal(snapshot.enrichment.configuredDailyLimit, 12);
-  assert.equal(snapshot.enrichment.fallbackDailyLimit, 30);
+  assert.equal(snapshot.planKey, 'hbx_padrao');
+  assert.equal(snapshot.enrichment.dailyLimit, 100);
+  assert.equal(snapshot.enrichment.dailyRemaining, 100);
+  assert.equal(snapshot.enrichment.dailyLimitSource, 'plan');
+  assert.equal(snapshot.enrichment.configuredDailyLimit, null);
+  assert.equal(snapshot.enrichment.fallbackDailyLimit, null);
   assert.equal(snapshot.enrichment.canAutoEnrich, false);
   assert.equal(snapshot.enrichment.canManualEnrich, true);
   assert.equal(snapshot.enrichment.mode, 'manual_only');
-});
-
-test('HBX operation seller enrichment override accepts owner configured 250', async () => {
-  const service = new CommercialUsageLimitsService({
-    company: {
-      findUnique: async () => ({
-        timezone: 'America/Sao_Paulo',
-        slug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
-      }),
-    },
-    user: {
-      count: async () => 3,
-      findUnique: async () => ({ isSystemMaster: false, role: 'USER', sellerDistributionDailyLimitOverride: 250 }),
-    },
-    $queryRawUnsafe: async () => [],
-    companyCommercialUsageLog: { count: async () => 0 },
-  } as any);
-
-  const snapshot = await service.getUsageSnapshot(1, 7);
-
-  assert.equal(snapshot.enrichment.dailyLimit, 250);
-  assert.equal(snapshot.enrichment.dailyRemaining, 250);
-  assert.equal(snapshot.enrichment.dailyLimitSource, 'owner_override');
-  assert.equal(snapshot.enrichment.configuredDailyLimit, 250);
-});
-
-test('HBX operation seller enrichment override zero means auto/unlimited for the day', async () => {
-  const service = new CommercialUsageLimitsService({
-    company: {
-      findUnique: async () => ({
-        timezone: 'America/Sao_Paulo',
-        slug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
-      }),
-    },
-    user: {
-      count: async () => 3,
-      findUnique: async () => ({ isSystemMaster: false, role: 'USER', sellerDistributionDailyLimitOverride: 0 }),
-    },
-    $queryRawUnsafe: async () => [],
-    companyCommercialUsageLog: { count: async () => 0 },
-  } as any);
-
-  const snapshot = await service.getUsageSnapshot(1, 7);
-
-  assert.equal(snapshot.enrichment.dailyLimit, 999999);
-  assert.equal(snapshot.enrichment.dailyRemaining, 999999);
-  assert.equal(snapshot.enrichment.dailyLimitSource, 'owner_override_unlimited');
-  assert.equal(snapshot.enrichment.configuredDailyLimit, 0);
-  assert.equal(snapshot.enrichment.canAutoEnrich, false);
-  assert.equal(snapshot.enrichment.canManualEnrich, true);
 });
 
 test('team policy card delivery daily limit blocks import when seller daily use is exhausted', async () => {
@@ -302,7 +250,7 @@ test('team policy card delivery daily limit blocks import when seller daily use 
     company: {
       findUnique: async () => ({
         timezone: 'America/Sao_Paulo',
-        slug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
+        companyKind: 'tenant',
       }),
     },
     user: {

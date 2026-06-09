@@ -1912,12 +1912,6 @@ for (const action of dockerActions) {
   });
 }
 
-for (const action of ['start', 'stop', 'restart']) {
-  app.post(`/api/watchdog/${action}`, async (req, res) => {
-    res.json({ action, ...(await firstExistingAction(['hbx-engine-watchdog', 'hbx-watchdog', 'watchdog'], action)) });
-  });
-}
-
 const quickTargets = {
   frontend: ['hbx-frontend', 'frontend'],
   backend: ['hbx-backend', 'backend'],

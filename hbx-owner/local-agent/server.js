@@ -10,6 +10,8 @@ const TOKEN = String(process.env.HBX_OWNER_LOCAL_TOKEN || "").trim();
 const rootDir = path.resolve(__dirname, "..", "..");
 const allowlistPath = path.join(__dirname, "allowlist.json");
 const logsDir = path.join(__dirname, "logs");
+const localLabDir = path.join(rootDir, "hbx-local-lab");
+const localLabUrl = "http://127.0.0.1:3098";
 const runs = new Map();
 
 if (!TOKEN) {
@@ -254,6 +256,113 @@ function runDockerEngineAction(engineId, action, label) {
   return runCommandArray(`radar-engine-${action}`, `${label} ${engineId}`, command);
 }
 
+function requestLocalLabHealth(timeoutMs = 1200) {
+  return new Promise((resolve) => {
+    const req = http.get(`${localLabUrl}/health`, { timeout: timeoutMs }, (response) => {
+      let body = "";
+      response.on("data", (chunk) => {
+        if (body.length < 2000) body += chunk.toString("utf8");
+      });
+      response.on("end", () => {
+        let data = null;
+        try {
+          data = body ? JSON.parse(body) : null;
+        } catch {
+          data = null;
+        }
+        resolve({
+          ok: response.statusCode >= 200 && response.statusCode < 300 && data?.ok === true,
+          statusCode: response.statusCode,
+          data,
+        });
+      });
+    });
+    req.on("timeout", () => {
+      req.destroy(new Error("timeout"));
+    });
+    req.on("error", (error) => {
+      resolve({ ok: false, error: error.message });
+    });
+  });
+}
+
+function findLocalLabProcesses() {
+  if (process.platform !== "win32") return [];
+  const script = [
+    "$ErrorActionPreference = 'SilentlyContinue'",
+    "Get-CimInstance Win32_Process | Where-Object {",
+    "  $_.Name -eq 'node.exe' -and $_.CommandLine -and $_.CommandLine -match 'hbx-local-lab' -and $_.CommandLine -match 'server.js'",
+    "} | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress",
+  ].join("\n");
+  const result = spawnSync("powershell", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script], {
+    cwd: rootDir,
+    shell: false,
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  if (result.status !== 0 || !String(result.stdout || "").trim()) return [];
+  try {
+    const parsed = JSON.parse(result.stdout);
+    return (Array.isArray(parsed) ? parsed : [parsed]).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+async function readLocalLabStatus() {
+  const health = await requestLocalLabHealth();
+  const processes = findLocalLabProcesses();
+  return {
+    ok: true,
+    url: localLabUrl,
+    up: Boolean(health.ok),
+    health,
+    processes: processes.map((item) => ({ pid: item.ProcessId })),
+    message: health.ok ? "api local up" : "api local off",
+  };
+}
+
+function startLocalLab() {
+  if (!fs.existsSync(path.join(localLabDir, "server.js"))) {
+    throw new Error("hbx-local-lab/server.js nao encontrado.");
+  }
+  fs.mkdirSync(logsDir, { recursive: true });
+  const logPath = path.join(logsDir, "hbx-local-lab.log");
+  const out = fs.openSync(logPath, "a");
+  const child = spawn(process.execPath, ["server.js"], {
+    cwd: localLabDir,
+    detached: true,
+    shell: false,
+    stdio: ["ignore", out, out],
+    env: {
+      ...process.env,
+      HBX_LOCAL_LAB_HOST: "127.0.0.1",
+      HBX_LOCAL_LAB_PORT: "3098",
+    },
+    windowsHide: true,
+  });
+  child.unref();
+  return {
+    pid: child.pid,
+    logPath: relativeLogPath(logPath),
+  };
+}
+
+function stopLocalLab() {
+  const processes = findLocalLabProcesses();
+  for (const item of processes) {
+    const pid = Number(item.ProcessId);
+    if (Number.isInteger(pid) && pid > 0) {
+      try {
+        process.kill(pid);
+      } catch {
+        // Processo pode ter encerrado entre a listagem e o kill.
+      }
+    }
+  }
+  return processes.length;
+}
+
 function sendJson(res, statusCode, payload) {
   const body = JSON.stringify(payload);
   res.writeHead(statusCode, {
@@ -344,6 +453,26 @@ async function route(req, res) {
 
   if (req.method === "GET" && url.pathname === "/radar/engines/status") {
     sendJson(res, 200, readRadarEngineStatus());
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/local-lab/status") {
+    sendJson(res, 200, await readLocalLabStatus());
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/local-lab/start") {
+    const before = await requestLocalLabHealth();
+    if (!before.ok) startLocalLab();
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    sendJson(res, 202, await readLocalLabStatus());
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/local-lab/stop") {
+    const stopped = stopLocalLab();
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    sendJson(res, 200, { ...(await readLocalLabStatus()), stopped });
     return;
   }
 

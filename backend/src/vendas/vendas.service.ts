@@ -25,6 +25,7 @@ import {
   MASTER_WHATSAPP_ENGINE_COMPANY_NAME,
   MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
 } from '../companies/master-whatsapp-company.constants';
+import { COMPANY_KIND_PLATFORM_INFRA, isTenantCompany } from '../common/company-kind';
 import { calculateLeadQualityV2, resolveRadarVisibilityFromQualityV2, type LeadQualityV2, type LeadQualityV2SalesProfile } from '../webscraping/lead-quality-v2';
 import {
   BulkDeleteVendasLeadsDto,
@@ -49,6 +50,7 @@ import {
   loadUserTeamPolicyRuntime,
   resolveTeamPolicyStoredLimit,
 } from '../team/team-policy-persistence';
+import { resolveVendasAccessContext, type VendasAccessContext } from '../team/team-access-runtime';
 
 type VendasLeadStatus = 'novo' | 'contato' | 'retorno' | 'qualificado' | 'encerrado';
 type VendasSaleStatus = 'none' | 'activation_pending' | 'trial_started' | 'sale_confirmed' | 'inactive' | 'canceled';
@@ -148,6 +150,21 @@ type VendasWhatsappAvailabilityState = {
 type VendasPlanAccess = {
   planTier: CommercialPlanTier;
   capabilities: CommercialPlanCapabilities;
+};
+
+type VendasProductSnapshotPatch = {
+  product: any | null;
+  data: Record<string, any>;
+};
+
+type VendasUserContext = {
+  companyId: number;
+  userId: number;
+  role: string;
+  canManageTeam?: boolean;
+  canViewOwnCards?: boolean;
+  ownCardsOnly?: boolean;
+  access?: VendasAccessContext;
 };
 
 type CommercialContactDuplicateReason =
@@ -322,7 +339,7 @@ export class VendasService {
   }
 
   async getUsageSnapshotForUser(user: any) {
-    const { companyId, userId } = this.resolveUserContext(user);
+    const { companyId, userId } = await this.resolveVendasUserContext(user);
     const snapshot = await this.commercialUsageLimits.getUsageSnapshot(companyId, userId);
     const sellerActiveQuota = await this.commercialUsageLimits
       .getSellerActiveCardQuotaSnapshot(companyId, userId)
@@ -364,7 +381,7 @@ export class VendasService {
   }
 
   async getPendingSummaryForUser(user: any) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
     const pendingCount = context.canManageTeam
       ? await this.getPendingVendasCardCountForCompany(context.companyId)
       : await this.prisma.vendasLead.count({
@@ -598,6 +615,14 @@ export class VendasService {
       assignedUserId: true,
       assignedByUserId: true,
       assignedAt: true,
+      productId: true,
+      productKindSnapshot: true,
+      productNameSnapshot: true,
+      productPriceCentsSnapshot: true,
+      productCurrencySnapshot: true,
+      productBillingCycleSnapshot: true,
+      productCommissionPercentSnapshot: true,
+      productPlanKeySnapshot: true,
       commissionPercentSnapshot: true,
       saleStatus: true,
       saleValue: true,
@@ -751,9 +776,19 @@ export class VendasService {
     return Number(Math.max(0, numeric).toFixed(2));
   }
 
-  private resolveSaleBaseAmount(input: { saleValue?: unknown; salePlanKey?: unknown; fallbackValue?: unknown }) {
+  private calculateCommissionAmount(baseAmount: number, percent: number) {
+    const baseCents = Math.round(this.normalizeCurrencyAmount(baseAmount) * 100);
+    const safePercent = Math.min(100, Math.max(0, Number(percent || 0) || 0));
+    return this.normalizeCurrencyAmount(Math.round((baseCents * safePercent) / 100) / 100);
+  }
+
+  private resolveSaleBaseAmount(input: { saleValue?: unknown; salePlanKey?: unknown; productPriceCents?: unknown; fallbackValue?: unknown }) {
     const explicitValue = this.normalizeCurrencyAmount(input.saleValue);
     if (explicitValue > 0) return explicitValue;
+    const productPriceCents = Math.trunc(Number(input.productPriceCents || 0));
+    if (Number.isFinite(productPriceCents) && productPriceCents > 0) {
+      return this.normalizeCurrencyAmount(productPriceCents / 100);
+    }
     const normalizedPlanKey = String(input.salePlanKey || '').trim();
     if (normalizedPlanKey) return this.normalizeCurrencyAmount(getCommercialPlanMonthlyPrice(normalizedPlanKey));
     return this.normalizeCurrencyAmount(input.fallbackValue);
@@ -783,6 +818,10 @@ export class VendasService {
   }
 
   private async resolveCommissionPercentForLead(row: any) {
+    if (row?.productCommissionPercentSnapshot !== null && row?.productCommissionPercentSnapshot !== undefined) {
+      const productSnapshot = Number(row.productCommissionPercentSnapshot);
+      if (Number.isFinite(productSnapshot)) return Math.min(100, Math.max(0, productSnapshot));
+    }
     const snapshot = Number(row?.commissionPercentSnapshot || 0);
     if (Number.isFinite(snapshot) && snapshot > 0) return Math.min(100, Math.max(0, snapshot));
     const assignedUserId = Math.trunc(Number(row?.assignedUserId || 0));
@@ -821,14 +860,17 @@ export class VendasService {
         'Este status é automático. Use cadastro do cliente, confirmação de e-mail ou pagamento para atualizar.',
       );
     }
-    const salePlanKey = salePlanProvided ? this.normalizeText(dto.salePlanKey) : this.normalizeText(row?.salePlanKey);
+    const salePlanKey = salePlanProvided
+      ? this.normalizeText(dto.salePlanKey)
+      : this.normalizeText(row?.salePlanKey || row?.productPlanKeySnapshot);
     const baseAmount = this.resolveSaleBaseAmount({
       saleValue: saleValueProvided ? dto.saleValue : row?.saleValue,
       salePlanKey,
+      productPriceCents: row?.productPriceCentsSnapshot,
       fallbackValue: row?.commissionBaseAmount,
     });
     const percent = await this.resolveCommissionPercentForLead(row);
-    const projectedCommissionAmount = this.normalizeCurrencyAmount((baseAmount * percent) / 100);
+    const projectedCommissionAmount = this.calculateCommissionAmount(baseAmount, percent);
     const paidSale = nextSaleStatus === 'sale_confirmed';
     const confirmsSale = nextSaleStatus === 'trial_started' || paidSale;
     const endsSale = nextSaleStatus === 'inactive' || nextSaleStatus === 'canceled';
@@ -1071,6 +1113,7 @@ export class VendasService {
     whatsappAvailability?: VendasWhatsappAvailabilityState | null,
     inboxPresence?: { conversationId?: string | number | null } | null,
     planAccess?: VendasPlanAccess | null,
+    accessContext?: VendasAccessContext | null,
   ) {
     const status = this.normalizeStatus(row?.status);
     const block = this.classifyLeadBlock(row);
@@ -1101,9 +1144,7 @@ export class VendasService {
     const rawIntelligence = buildVendasLeadIntelligence({
       lead: row,
       whatsappAvailability,
-      verifiedBy: String(whatsappAvailability?.message || '').includes('HBX Master')
-        ? 'hbx_master'
-        : whatsappAvailability?.checkedAt
+      verifiedBy: whatsappAvailability?.checkedAt
           ? 'client_engine'
           : null,
     });
@@ -1113,6 +1154,13 @@ export class VendasService {
       ? { ...access.capabilities, canSeeLeadIntelligence: true }
       : access.capabilities;
     const leadIntelligence = this.decorateManualEnrichmentIntelligence(rawIntelligence, row);
+    const canViewProductPrice = Boolean(accessContext?.canViewProductPrice);
+    const productPriceCents = canViewProductPrice && row?.productPriceCentsSnapshot != null
+      ? Math.max(0, Math.trunc(Number(row.productPriceCentsSnapshot) || 0))
+      : null;
+    const productPriceLabel = productPriceCents == null
+      ? null
+      : `R$ ${(productPriceCents / 100).toFixed(2).replace('.', ',')}`;
     return {
       id: String(row?.id || ''),
       customerProfileId: row?.customerProfileId ? String(row.customerProfileId) : null,
@@ -1146,6 +1194,28 @@ export class VendasService {
       assignedUserId: Number(row?.assignedUserId || 0) || null,
       assignedByUserId: Number(row?.assignedByUserId || 0) || null,
       assignedAt: row?.assignedAt instanceof Date ? row.assignedAt.toISOString() : null,
+      productId: Number(row?.productId || 0) || null,
+      productKindSnapshot: row?.productKindSnapshot ? String(row.productKindSnapshot) : null,
+      productNameSnapshot: row?.productNameSnapshot ? String(row.productNameSnapshot) : null,
+      productPriceCentsSnapshot: productPriceCents,
+      productCurrencySnapshot: row?.productCurrencySnapshot ? String(row.productCurrencySnapshot) : null,
+      productBillingCycleSnapshot: row?.productBillingCycleSnapshot ? String(row.productBillingCycleSnapshot) : null,
+      productCommissionPercentSnapshot: row?.productCommissionPercentSnapshot == null ? null : Number(row.productCommissionPercentSnapshot),
+      productPlanKeySnapshot: row?.productPlanKeySnapshot ? String(row.productPlanKeySnapshot) : null,
+      product: row?.productId || row?.productNameSnapshot
+        ? {
+            id: Number(row?.productId || 0) || null,
+            kind: row?.productKindSnapshot ? String(row.productKindSnapshot) : null,
+            name: row?.productNameSnapshot ? String(row.productNameSnapshot) : null,
+            priceCents: productPriceCents,
+            priceLabel: productPriceLabel,
+            canViewPrice: canViewProductPrice,
+            currency: row?.productCurrencySnapshot ? String(row.productCurrencySnapshot) : null,
+            billingCycle: row?.productBillingCycleSnapshot ? String(row.productBillingCycleSnapshot) : null,
+            commissionPercent: row?.productCommissionPercentSnapshot == null ? null : Number(row.productCommissionPercentSnapshot),
+            planKey: row?.productPlanKeySnapshot ? String(row.productPlanKeySnapshot) : null,
+          }
+        : null,
       commissionPercentSnapshot: Number(row?.commissionPercentSnapshot || 0) || 0,
       saleStatus: this.normalizeSaleStatus(row?.saleStatus),
       saleStatusLabel: this.formatSaleStatusLabel(this.normalizeSaleStatus(row?.saleStatus)),
@@ -1207,19 +1277,311 @@ export class VendasService {
     return { companyId, userId, role, canManageTeam };
   }
 
-  private buildLeadAccessWhere(context: { companyId: number; userId: number; canManageTeam?: boolean }, extra: Record<string, any> = {}) {
+  private async resolveVendasUserContext(user: any): Promise<VendasUserContext> {
+    const access = await resolveVendasAccessContext(this.prisma, user);
+    return {
+      companyId: access.companyId,
+      userId: access.userId,
+      role: access.role,
+      canManageTeam: access.canViewCompanyCards,
+      canViewOwnCards: access.canViewOwnCards,
+      ownCardsOnly: !access.canViewCompanyCards,
+      access,
+    };
+  }
+
+  private assertVendasPermission(allowed: unknown, message: string) {
+    if (!allowed) throw new ForbiddenException(message);
+  }
+
+  private assertCanReadVendasCards(context: VendasUserContext) {
+    if (!context.access) return;
+    this.assertVendasPermission(
+      context.access.canViewOwnCards || context.access.canViewCompanyCards,
+      'Acesso aos cards do Vendas bloqueado pela politica da equipe.',
+    );
+  }
+
+  private assertCanMarkSaleStatus(context: VendasUserContext, saleStatus: VendasSaleStatus) {
+    if (!context.access || saleStatus === 'none') return;
+    if (saleStatus === 'activation_pending') {
+      this.assertVendasPermission(context.access.canMarkActivationPending, 'Acesso para marcar ativacao pendente bloqueado pela politica da equipe.');
+      return;
+    }
+    if (saleStatus === 'trial_started') {
+      this.assertVendasPermission(context.access.canMarkTrialStarted, 'Acesso para marcar trial iniciado bloqueado pela politica da equipe.');
+      return;
+    }
+    if (saleStatus === 'sale_confirmed') {
+      this.assertVendasPermission(context.access.canMarkConfirmed, 'Acesso para confirmar venda bloqueado pela politica da equipe.');
+      return;
+    }
+    this.assertVendasPermission(context.access.canMarkInactive, 'Acesso para marcar cliente inativo bloqueado pela politica da equipe.');
+  }
+
+  private hasDtoField(dto: unknown, key: string) {
+    return Boolean(dto && Object.prototype.hasOwnProperty.call(dto, key));
+  }
+
+  private normalizePositiveInteger(value: unknown) {
+    const parsed = Math.trunc(Number(value || 0));
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }
+
+  private normalizePriceCentsFromProduct(product: any) {
+    const explicit = Math.trunc(Number(product?.priceCents || 0));
+    if (Number.isFinite(explicit) && explicit > 0) return explicit;
+    const legacyPrice = Number(product?.price || 0);
+    if (Number.isFinite(legacyPrice) && legacyPrice > 0) return Math.round(legacyPrice * 100);
+    return null;
+  }
+
+  private buildProductSnapshotPatch(product: any) {
+    const priceCents = this.normalizePriceCentsFromProduct(product);
+    return {
+      productId: Number(product.id),
+      productKindSnapshot: this.normalizeText(product.kind) || 'tenant_product',
+      productNameSnapshot: this.normalizeText(product.name),
+      productPriceCentsSnapshot: priceCents,
+      productCurrencySnapshot: this.normalizeText(product.currency)?.toUpperCase() || 'BRL',
+      productBillingCycleSnapshot: this.normalizeText(product.billingCycle)?.toUpperCase() || null,
+      productCommissionPercentSnapshot: product.defaultCommissionPercent === null || product.defaultCommissionPercent === undefined
+        ? null
+        : Math.max(0, Math.min(100, Number(product.defaultCommissionPercent || 0) || 0)),
+      productPlanKeySnapshot: this.normalizeText(product.planKey),
+    };
+  }
+
+  private buildClearProductSnapshotPatch() {
+    return {
+      productId: null,
+      productKindSnapshot: null,
+      productNameSnapshot: null,
+      productPriceCentsSnapshot: null,
+      productCurrencySnapshot: null,
+      productBillingCycleSnapshot: null,
+      productCommissionPercentSnapshot: null,
+      productPlanKeySnapshot: null,
+    };
+  }
+
+  private async resolveVendasProductPatch(context: VendasUserContext, productIdRaw: unknown): Promise<VendasProductSnapshotPatch> {
+    const productId = this.normalizePositiveInteger(productIdRaw);
+    if (!productId) {
+      return {
+        product: null,
+        data: this.buildClearProductSnapshotPatch(),
+      };
+    }
+
+    this.assertVendasPermission(
+      context.access?.canSellProducts,
+      'Acesso para vender produtos bloqueado pela politica da equipe.',
+    );
+
+    const product = await (this.prisma as any).product.findFirst({
+      where: {
+        id: productId,
+        companyId: context.companyId,
+        status: 'active',
+      },
+    }).catch(() => null);
+    if (!product) throw new NotFoundException('Produto comercial nao encontrado.');
+
+    return {
+      product,
+      data: this.buildProductSnapshotPatch(product),
+    };
+  }
+
+  private async resolveProductForSalePolicy(context: VendasUserContext, row: any, productPatch?: VendasProductSnapshotPatch | null) {
+    if (productPatch?.product) return productPatch.product;
+    const productId = this.normalizePositiveInteger(productPatch?.data?.productId ?? row?.productId);
+    if (!productId) return null;
+    return (this.prisma as any).product.findFirst({
+      where: {
+        id: productId,
+        companyId: context.companyId,
+      },
+    }).catch(() => null);
+  }
+
+  private async assertProductSaleValuePolicy(
+    context: VendasUserContext,
+    row: any,
+    dto: UpdateVendasLeadDto | CreateHbxSalesHandoffDto | CreateHbxAssistedSignupDto,
+    productPatch?: VendasProductSnapshotPatch | null,
+  ) {
+    if (!this.hasDtoField(dto, 'saleValue')) return;
+
+    const nextProductId = productPatch?.data && this.hasDtoField(productPatch.data, 'productId')
+      ? this.normalizePositiveInteger(productPatch.data.productId)
+      : this.normalizePositiveInteger(row?.productId);
+    const hasProductSnapshot = Boolean(
+      nextProductId ||
+      productPatch?.data?.productNameSnapshot ||
+      row?.productNameSnapshot,
+    );
+    if (!hasProductSnapshot) return;
+
+    const saleAmount = this.normalizeCurrencyAmount((dto as any).saleValue);
+    const saleCents = Math.round(saleAmount * 100);
+    const product = await this.resolveProductForSalePolicy(context, row, productPatch);
+    const snapshotPriceCents = Math.trunc(Number(
+      productPatch?.data?.productPriceCentsSnapshot ??
+      row?.productPriceCentsSnapshot ??
+      0,
+    ));
+    const productPriceCents = this.normalizePriceCentsFromProduct(product) || (Number.isFinite(snapshotPriceCents) && snapshotPriceCents > 0 ? snapshotPriceCents : null);
+    if (!productPriceCents) {
+      this.assertVendasPermission(
+        context.access?.canChangeProductPrice,
+        'Acesso para alterar valor da venda bloqueado pela politica da equipe.',
+      );
+      return;
+    }
+    if (saleCents === productPriceCents) return;
+
+    if (saleCents < productPriceCents) {
+      this.assertVendasPermission(
+        context.access?.canApplyProductDiscount,
+        'Acesso para aplicar desconto bloqueado pela politica da equipe.',
+      );
+      if (product && product.allowDiscount === false) {
+        throw new BadRequestException('Este produto nao permite desconto.');
+      }
+      const minPriceCents = Math.trunc(Number(product?.minPriceCents || 0));
+      if (Number.isFinite(minPriceCents) && minPriceCents > 0 && saleCents < minPriceCents) {
+        throw new BadRequestException('Desconto abaixo do preco minimo permitido para este produto.');
+      }
+      const maxDiscountPercent = Number(product?.maxDiscountPercent);
+      if (Number.isFinite(maxDiscountPercent) && maxDiscountPercent >= 0) {
+        const discountPercent = ((productPriceCents - saleCents) / productPriceCents) * 100;
+        if (discountPercent > maxDiscountPercent + 0.001) {
+          throw new BadRequestException('Desconto acima do limite permitido para este produto.');
+        }
+      }
+      return;
+    }
+
+    this.assertVendasPermission(
+      context.access?.canChangeProductPrice,
+      'Acesso para alterar valor da venda bloqueado pela politica da equipe.',
+    );
+  }
+
+  private assertCanRunHbxActivationAction(context: VendasUserContext) {
+    this.assertVendasPermission(context.access?.canEditCards, 'Acesso para editar card bloqueado pela politica da equipe.');
+    this.assertVendasPermission(context.access?.canChangeStatus, 'Acesso para alterar status bloqueado pela politica da equipe.');
+    this.assertCanMarkSaleStatus(context, 'activation_pending');
+  }
+
+  private assertCanSendPresentationEmail(context: VendasUserContext) {
+    this.assertVendasPermission(context.access?.canSendEmail, 'Acesso para enviar e-mail bloqueado pela politica da equipe.');
+  }
+
+  private parseBooleanRequest(value: unknown) {
+    if (value === true) return true;
+    const normalized = String(value || '').trim().toLowerCase();
+    return ['1', 'true', 'yes', 'sim', 'on'].includes(normalized);
+  }
+
+  private async resolveCompanyReplyToForEmail(context: VendasUserContext, body?: any) {
+    const requestedCompanyReplyTo = this.parseBooleanRequest(body?.useCompanyReplyTo || body?.useTenantReplyTo);
+    if (!context.access?.canUseCompanyReplyTo) {
+      if (requestedCompanyReplyTo) {
+        throw new ForbiddenException('Acesso para usar reply-to da empresa bloqueado pela politica da equipe.');
+      }
+      return null;
+    }
+
+    const company = await (this.prisma.company as any).findUnique({
+      where: { id: context.companyId },
+      select: {
+        companyKind: true,
+        replyToEmail: true,
+        supportEmail: true,
+        contactEmail: true,
+      },
+    }).catch(() => null);
+    if (!company || !isTenantCompany(company)) return null;
+    return this.normalizeEmail(company.replyToEmail || company.supportEmail || company.contactEmail);
+  }
+
+  private assertCanRegisterTimeline(context: VendasUserContext) {
+    this.assertVendasPermission(context.access?.canCommentTimeline, 'Acesso para registrar timeline bloqueado pela politica da equipe.');
+  }
+
+  private assertCanImportRadarToVendas(context: VendasUserContext) {
+    this.assertVendasPermission(
+      context.access?.canCreateManualCards || context.access?.canSendRadarCardsToVendas,
+      'Acesso para enviar cards do Radar ao Vendas bloqueado pela politica da equipe.',
+    );
+  }
+
+  private assertCanAssignVendasCard(context: VendasUserContext) {
+    this.assertVendasPermission(
+      context.access?.canTransferCards,
+      'Acesso para atribuir ou transferir card bloqueado pela politica da equipe.',
+    );
+  }
+
+  private assertCanManualEnrichRadar(context: VendasUserContext) {
+    this.assertVendasPermission(
+      context.access?.canManualEnrichRadar,
+      'Acesso para enriquecer card manualmente bloqueado pela politica da equipe.',
+    );
+  }
+
+  private assertCanPrepareManualWhatsapp(context: VendasUserContext) {
+    this.assertVendasPermission(
+      context.access?.canSendWhatsappManual,
+      'Acesso para preparar envio manual de WhatsApp bloqueado pela politica da equipe.',
+    );
+  }
+
+  private assertCanViewCommission(context: VendasUserContext) {
+    this.assertVendasPermission(
+      context.access?.canViewOwnCommission || context.access?.canViewTeamCommission,
+      'Acesso para ver comissao bloqueado pela politica da equipe.',
+    );
+  }
+
+  private assertCanMarkCommissionPaid(context: VendasUserContext) {
+    this.assertVendasPermission(
+      context.access?.canMarkCommissionPaid,
+      'Acesso para registrar pagamento de comissao bloqueado pela politica da equipe.',
+    );
+  }
+
+  private assertCanCancelCommission(context: VendasUserContext) {
+    this.assertVendasPermission(
+      context.access?.canCancelCommission,
+      'Acesso para cancelar comissao bloqueado pela politica da equipe.',
+    );
+  }
+
+  private canUseCommissionTeamScope(context: VendasUserContext) {
+    return Boolean(context.access?.canViewTeamCommission);
+  }
+
+  private buildLeadAccessWhere(context: VendasUserContext, extra: Record<string, any> = {}) {
     const scopedExtra = { ...(extra || {}) };
     const base: any = {
       companyId: context.companyId,
       ...scopedExtra,
     };
     if (context.canManageTeam) return base;
-    const access = {
-      OR: [
-        { assignedUserId: context.userId },
-        { assignedUserId: null, createdByUserId: context.userId },
-      ],
-    };
+    const access = context.canViewOwnCards === false
+      ? { id: { in: [] } }
+      : context.ownCardsOnly
+        ? { assignedUserId: context.userId }
+        : {
+            OR: [
+              { assignedUserId: context.userId },
+              { assignedUserId: null, createdByUserId: context.userId },
+            ],
+          };
     if (Object.keys(scopedExtra).length > 0) {
       return {
         companyId: context.companyId,
@@ -1558,7 +1920,7 @@ export class VendasService {
   }
 
   async getSalesProfileForUser(user: any) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
     const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
     const result = await this.getEffectiveSalesProfileForContext(context, planAccess);
     return { ok: true, ...result, capabilities: planAccess.capabilities };
@@ -1611,7 +1973,7 @@ export class VendasService {
   }
 
   async updateSalesProfileForUser(user: any, dto: UpdateSalesProfileDto) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
     const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
     if (!(await this.prisma.hasTable('SalesProfile').catch(() => false))) {
       throw new BadRequestException('Tabela SalesProfile ainda nao foi migrada.');
@@ -1774,7 +2136,7 @@ export class VendasService {
   }
 
   async getConversionReportForUser(user: any, periodRaw?: string) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
     const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
     const period = this.resolveReportPeriod(periodRaw);
     const leads = await this.prisma.vendasLead.findMany({
@@ -2022,7 +2384,7 @@ export class VendasService {
   }
 
   async getSellerAuditForUser(user: any, periodRaw?: string) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
     const period = this.resolveReportPeriod(periodRaw || 'today');
     const now = new Date();
     const dayKey = this.getSaoPauloDayKey(now);
@@ -2063,7 +2425,7 @@ export class VendasService {
         where: {
           companyId: context.companyId,
           status: 'active',
-          scope: { in: ['company', 'hbx_master'] },
+          scope: { in: ['company', 'tenant_distribution'] },
         },
         orderBy: [{ updatedAt: 'desc' }],
         take: 4,
@@ -2072,7 +2434,7 @@ export class VendasService {
     const sellerIds = sellers.map((seller) => Number(seller.id || 0)).filter(Boolean);
     const activeDistributionRule = (
       (user?.isSystemMaster || context.role === 'USERMASTER')
-        ? distributionRules.find((rule: any) => String(rule?.scope || '') === 'hbx_master')
+        ? distributionRules.find((rule: any) => String(rule?.scope || '') === 'tenant_distribution')
         : distributionRules.find((rule: any) => String(rule?.scope || '') === 'company')
     ) || distributionRules.find((rule: any) => String(rule?.scope || '') === 'company') || distributionRules[0] || null;
     const ruleFilters = this.parseMaybeJsonObject((activeDistributionRule as any)?.filtersJson);
@@ -2435,7 +2797,7 @@ export class VendasService {
     dailyLimitOverride?: number | null;
     note?: string | null;
   } = {}) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
     if (!context.canManageTeam) {
       throw new ForbiddenException('Apenas Admin/Master pode ajustar governança de vendedor.');
     }
@@ -2606,7 +2968,7 @@ export class VendasService {
   }
 
   async getHbxClosingPipelineForUser(user: any) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
     await this.hbxCommissionSync.syncSalesCompanyCommissions(context.companyId, { source: 'vendas_closing_pipeline' }).catch((error: any) => {
       this.logger.warn(`closing_pipeline_sync_failed company=${context.companyId} error=${String(error?.message || error)}`);
     });
@@ -2615,7 +2977,7 @@ export class VendasService {
     const [company, leads] = await Promise.all([
       this.prisma.company.findUnique({
         where: { id: context.companyId },
-        select: { slug: true, commissionDueBusinessDays: true },
+        select: { companyKind: true, commissionDueBusinessDays: true },
       }).catch(() => null),
       this.prisma.vendasLead.findMany({
         where: this.buildLeadAccessWhere(context, {
@@ -2812,7 +3174,7 @@ export class VendasService {
       ok: true,
       scope: context.canManageTeam ? 'company' : 'seller',
       canManage: Boolean(context.canManageTeam),
-      isHbxSellerNetwork: String(company?.slug || '').trim().toLowerCase() === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
+      isSellerNetwork: Boolean(company && isTenantCompany(company)),
       generatedAt: now.toISOString(),
       settings: {
         dueBusinessDays,
@@ -2842,17 +3204,22 @@ export class VendasService {
   }
 
   async createCommissionPayoutForUser(user: any, dto: CreateCommissionPayoutDto = {}) {
-    const context = this.resolveUserContext(user);
-    if (!context.canManageTeam) {
-      throw new ForbiddenException('Apenas Master/Admin pode registrar pagamento de comissão.');
-    }
+    const context = await this.resolveVendasUserContext(user);
+    this.assertCanMarkCommissionPaid(context);
 
     await this.hbxCommissionSync.syncSalesCompanyCommissions(context.companyId, { source: 'vendas_commission_payout' }).catch((error: any) => {
       this.logger.warn(`commission_payout_sync_failed company=${context.companyId} error=${String(error?.message || error)}`);
     });
 
     const now = new Date();
-    const sellerUserId = Math.trunc(Number(dto?.sellerUserId || 0)) || null;
+    const requestedSellerUserId = Math.trunc(Number(dto?.sellerUserId || 0)) || null;
+    const canManageCommissionTeam = this.canUseCommissionTeamScope(context);
+    if (requestedSellerUserId && !canManageCommissionTeam && requestedSellerUserId !== context.userId) {
+      throw new ForbiddenException('Acesso para registrar pagamento de comissao de outro vendedor bloqueado pela politica da equipe.');
+    }
+    const sellerUserId = canManageCommissionTeam
+      ? requestedSellerUserId
+      : context.userId;
     if (sellerUserId) {
       const seller = await this.prisma.user.findFirst({
         where: {
@@ -3057,18 +3424,18 @@ export class VendasService {
   }
 
   async cancelCommissionPayoutForUser(user: any, payoutIdRaw: string, dto: CancelCommissionPayoutDto = {}) {
-    const context = this.resolveUserContext(user);
-    if (!context.canManageTeam) {
-      throw new ForbiddenException('Apenas Master/Admin pode cancelar fechamento de comissão.');
-    }
+    const context = await this.resolveVendasUserContext(user);
+    this.assertCanCancelCommission(context);
 
     const payoutId = String(payoutIdRaw || '').trim();
     if (!payoutId) throw new BadRequestException('Fechamento de comissão inválido.');
+    const canManageCommissionTeam = this.canUseCommissionTeamScope(context);
 
     const payout = await this.prisma.vendasCommissionPayout.findFirst({
       where: {
         id: payoutId,
         companyId: context.companyId,
+        ...(canManageCommissionTeam ? {} : { sellerUserId: context.userId }),
       },
       select: {
         id: true,
@@ -3199,15 +3566,17 @@ export class VendasService {
   }
 
   async getCommissionPayoutDetailForUser(user: any, payoutIdRaw: string) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
+    this.assertCanViewCommission(context);
     const payoutId = String(payoutIdRaw || '').trim();
     if (!payoutId) throw new BadRequestException('Fechamento de comissão inválido.');
+    const canManageCommissionTeam = this.canUseCommissionTeamScope(context);
 
     const payout = await this.prisma.vendasCommissionPayout.findFirst({
       where: {
         id: payoutId,
         companyId: context.companyId,
-        ...(context.canManageTeam ? {} : { sellerUserId: context.userId }),
+        ...(canManageCommissionTeam ? {} : { sellerUserId: context.userId }),
       },
       select: {
         id: true,
@@ -3333,7 +3702,7 @@ export class VendasService {
 
     return {
       ok: true,
-      canCancel: Boolean(context.canManageTeam && String(payout.status || '').trim().toLowerCase() !== 'canceled'),
+      canCancel: Boolean(context.access?.canCancelCommission && String(payout.status || '').trim().toLowerCase() !== 'canceled'),
       receipt: {
         id: payout.id,
         code: `HBX-${receiptDate}-${String(payout.id).slice(-6).toUpperCase()}`,
@@ -3366,13 +3735,13 @@ export class VendasService {
   }
 
   async getCrmIntegrityForUser(user: any) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
     const now = new Date();
     const staleLimit = new Date(now.getTime() - 48 * 60 * 60 * 1000);
     const dayKey = this.getSaoPauloDayKey(now);
     const leadWhere = this.buildLeadAccessWhere(context);
     const managerOnlyWhere = { companyId: context.companyId };
-    const distributionScope = user?.isSystemMaster || context.role === 'USERMASTER' ? ['company', 'hbx_master'] : ['company'];
+    const distributionScope = user?.isSystemMaster || context.role === 'USERMASTER' ? ['company', 'tenant_distribution'] : ['company'];
 
     const [
       totalCards,
@@ -3571,7 +3940,9 @@ export class VendasService {
   }
 
   async getCommissionSummaryForUser(user: any) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
+    this.assertCanViewCommission(context);
+    const canManageCommissionTeam = this.canUseCommissionTeamScope(context);
     await this.hbxCommissionSync.syncSalesCompanyCommissions(context.companyId, { source: 'vendas_commission_summary' }).catch((error: any) => {
       this.logger.warn(`commission_summary_sync_failed company=${context.companyId} error=${String(error?.message || error)}`);
     });
@@ -3579,7 +3950,7 @@ export class VendasService {
     const [company, currentUser] = await Promise.all([
       this.prisma.company.findUnique({
         where: { id: context.companyId },
-        select: { slug: true, commissionDueBusinessDays: true },
+        select: { companyKind: true, commissionDueBusinessDays: true },
       }).catch(() => null),
       this.prisma.user.findFirst({
         where: { id: context.userId, companyId: context.companyId },
@@ -3600,11 +3971,10 @@ export class VendasService {
         },
       }).catch(() => null),
     ]);
-    const isHbxSellerNetwork =
-      String(company?.slug || '').trim().toLowerCase() === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG;
+    const isSellerNetwork = Boolean(company && isTenantCompany(company));
     const currentRole = String(currentUser?.role || context.role || '').trim().toUpperCase();
     const canRegisterReferredSeller = Boolean(
-      isHbxSellerNetwork &&
+      isSellerNetwork &&
       currentRole === 'USER' &&
       currentUser?.isActive &&
       !currentUser?.deactivatedAt &&
@@ -3612,13 +3982,15 @@ export class VendasService {
       currentUser?.canRegisterHbxSellers,
     );
     const leads = await this.prisma.vendasLead.findMany({
-      where: this.buildLeadAccessWhere(context, {
+      where: {
+        companyId: context.companyId,
+        ...(canManageCommissionTeam ? {} : { assignedUserId: context.userId }),
         OR: [
           { saleStatus: { not: 'none' } },
           { commissionStatus: { not: 'none' } },
           { commissionAmount: { gt: 0 } },
         ],
-      }),
+      },
       orderBy: [{ commissionDueAt: 'asc' }, { updatedAt: 'desc' }],
       take: 1000,
       select: {
@@ -3644,7 +4016,7 @@ export class VendasService {
       },
     });
     const receivables = await this.prisma.vendasCommissionReceivable.findMany({
-      where: context.canManageTeam
+      where: canManageCommissionTeam
         ? { companyId: context.companyId }
         : { companyId: context.companyId, sellerUserId: context.userId },
       orderBy: [{ dueAt: 'asc' }, { updatedAt: 'desc' }],
@@ -3681,7 +4053,7 @@ export class VendasService {
       .filter((date): date is Date => Boolean(date))
       .sort((a, b) => a.getTime() - b.getTime())[0] || null;
 
-    const payoutWhere = context.canManageTeam
+    const payoutWhere = canManageCommissionTeam
       ? { companyId: context.companyId }
       : { companyId: context.companyId, sellerUserId: context.userId };
     const payouts = await this.prisma.vendasCommissionPayout.findMany({
@@ -3839,14 +4211,14 @@ export class VendasService {
 
     return {
       ok: true,
-      scope: context.canManageTeam ? 'company' : 'seller',
-      canPayout: Boolean(context.canManageTeam),
+      scope: canManageCommissionTeam ? 'company' : 'seller',
+      canPayout: Boolean(context.access?.canMarkCommissionPaid),
       generatedAt: now.toISOString(),
       settings: {
         dueBusinessDays: this.normalizeCommissionDueBusinessDays(company?.commissionDueBusinessDays),
       },
       sellerNetwork: {
-        isHbxSellerNetwork,
+        isSellerNetwork,
         canRegisterReferredSeller,
         commissionPercent: this.normalizeCurrencyAmount(currentUser?.commissionPercent),
         inheritedCommissionPercent: this.normalizeCurrencyAmount(currentUser?.sellerReferralCommissionPercent),
@@ -3950,7 +4322,7 @@ export class VendasService {
   }
 
   async listMasterNoticesForUser(user: any, audienceRaw?: string) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
     const canManage = this.canManageMasterNotices(user);
     const hasRequestedAudience = Boolean(String(audienceRaw || '').trim());
     const defaultAudience = context.role === 'ADMIN' ? 'customer' : 'seller';
@@ -3997,7 +4369,7 @@ export class VendasService {
   }
 
   async createMasterNoticeForUser(user: any, dto: CreateMasterNoticeDto) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
     if (!this.canManageMasterNotices(user)) {
       throw new ForbiddenException('Somente o UserMaster pode enviar avisos forçados.');
     }
@@ -4072,7 +4444,7 @@ export class VendasService {
   }
 
   async acknowledgeMasterNoticeForUser(user: any, noticeIdRaw: string) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
     const noticeId = String(noticeIdRaw || '').trim();
     if (!noticeId) throw new BadRequestException('Aviso inválido.');
 
@@ -4151,7 +4523,7 @@ export class VendasService {
   }
 
   async exportConversionReportPdfForUser(user: any, periodRaw?: string) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
     const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
     if (!planAccess.capabilities.canExportConversionPdf) {
       throw new ForbiddenException('Exportação PDF disponível no HBX Lead Plus.');
@@ -4206,7 +4578,7 @@ export class VendasService {
   }
 
   async suggestWeeklySalesProfileForUser(user: any) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
     const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
     if (!planAccess.capabilities.canUseWeeklyProfileSuggestions) {
       throw new ForbiddenException('Sugestão semanal disponível no HBX Lead Plus.');
@@ -4260,7 +4632,7 @@ export class VendasService {
   }
 
   async applySalesProfileSuggestionForUser(user: any) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
     const row = await (this.prisma as any).salesProfile.findFirst({
       where: { companyId: context.companyId, userId: context.userId },
       orderBy: { updatedAt: 'desc' },
@@ -4303,6 +4675,7 @@ export class VendasService {
           data: {
             name: MASTER_WHATSAPP_ENGINE_COMPANY_NAME,
             slug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
+            companyKind: COMPANY_KIND_PLATFORM_INFRA,
             onboardingStatus: 'active_paid',
             paymentStatus: 'MANUAL',
             subscriptionStatus: 'manual',
@@ -4333,7 +4706,8 @@ export class VendasService {
   }
 
   async enrichLeadForUser(user: any, leadId: string, opts?: { templateOffset?: number }) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
+    this.assertCanManualEnrichRadar(context);
     const { companyId, userId } = context;
     const planAccess = await this.resolvePlanAccessForCompany(companyId);
     const normalizedLeadId = this.normalizeText(leadId);
@@ -4373,9 +4747,7 @@ export class VendasService {
 
     let availability =
       (await this.listWhatsappAvailabilityByLeadIds([String(lead.id)])).get(String(lead.id)) || null;
-    let verifiedBy: 'hbx_master' | 'client_engine' | 'manual' | null = String(availability?.message || '').includes('HBX Master')
-      ? 'hbx_master'
-      : availability?.checkedAt
+    let verifiedBy: 'platform_engine' | 'client_engine' | 'manual' | null = availability?.checkedAt
         ? 'client_engine'
         : null;
     const phoneDigits = this.normalizePhone((lead as any).phoneNormalized || (lead as any).phone);
@@ -4395,21 +4767,21 @@ export class VendasService {
           const now = new Date();
           const phoneLabel = this.buildPreferredLeadContact(phoneDigits) || `+${phoneDigits}`;
           const message = lookup.exists
-            ? `Consulta HBX Master confirmou WhatsApp para ${phoneLabel}.`
-            : `Consulta HBX Master nao encontrou WhatsApp para ${phoneLabel}.`;
+            ? `Consulta tecnica confirmou WhatsApp para ${phoneLabel}.`
+            : `Consulta tecnica nao encontrou WhatsApp para ${phoneLabel}.`;
           availability = {
             status,
             checkedAt: now.toISOString(),
             phoneDigits,
             message,
           };
-          verifiedBy = 'hbx_master';
+          verifiedBy = 'platform_engine';
           await this.prisma.vendasLeadTimelineEvent.create({
             data: {
               leadId: lead.id,
               ...this.buildTimelineEvent({
                 eventType: 'generic',
-                title: lookup.exists ? 'WhatsApp verificado pela HBX' : 'HBX nao encontrou WhatsApp',
+                title: lookup.exists ? 'WhatsApp verificado pelo motor tecnico' : 'Motor tecnico nao encontrou WhatsApp',
                 description: message,
                 sourceType: VENDAS_WHATSAPP_LOOKUP_SOURCE,
                 resultLabel: status,
@@ -4420,7 +4792,7 @@ export class VendasService {
         }
       } catch (error: any) {
         this.logger.warn(
-          `[vendas-enrichment] Falha na verificacao Master lead=${lead.id} company=${companyId}: ${String(error?.message || error)}`,
+          `[vendas-enrichment] Falha na verificacao tecnica lead=${lead.id} company=${companyId}: ${String(error?.message || error)}`,
         );
       }
     }
@@ -4464,7 +4836,8 @@ export class VendasService {
   }
 
   async buildPresentationEmailDraftForUser(user: any, leadId: string) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
+    this.assertCanSendPresentationEmail(context);
     const { userId } = context;
     const normalizedLeadId = this.normalizeText(leadId);
     if (!normalizedLeadId) throw new BadRequestException('Lead nao informado.');
@@ -4817,7 +5190,8 @@ export class VendasService {
   }
 
   async previewPresentationEmailForUser(user: any, leadId: string, body?: any) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
+    this.assertCanSendPresentationEmail(context);
     const { companyId, userId } = context;
     const normalizedLeadId = this.normalizeText(leadId);
     if (!normalizedLeadId) throw new BadRequestException('Lead nao informado.');
@@ -4827,6 +5201,7 @@ export class VendasService {
     });
     if (!lead) throw new NotFoundException('Lead nao encontrado.');
     this.assertLeadAllowsManualEmail(lead);
+    const replyTo = await this.resolveCompanyReplyToForEmail(context, body);
 
     const fallbackDraft = buildHbxPresentationEmailDraft({
       leadName: lead.name,
@@ -4847,6 +5222,7 @@ export class VendasService {
       subject: body?.subject || fallbackDraft.subject,
       text: body?.text || fallbackDraft.body,
       html: body?.html,
+      replyTo,
       source: 'manual',
     });
 
@@ -4882,7 +5258,8 @@ export class VendasService {
   }
 
   async sendPresentationEmailForUser(user: any, leadId: string, body?: any) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
+    this.assertCanSendPresentationEmail(context);
     const { companyId, userId } = context;
     const normalizedLeadId = this.normalizeText(leadId);
     if (!normalizedLeadId) throw new BadRequestException('Lead nao informado.');
@@ -4911,6 +5288,7 @@ export class VendasService {
     const text = this.normalizeText(body?.text);
     if (!subject) throw new BadRequestException('Informe o assunto do e-mail.');
     if (!text) throw new BadRequestException('Informe o corpo do e-mail.');
+    const replyTo = await this.resolveCompanyReplyToForEmail(context, body);
 
     try {
       await this.commercialUsageLimits.recordPresentationEmailAttempt(companyId, userId, {
@@ -4927,6 +5305,7 @@ export class VendasService {
         subject,
         text,
         html: body?.html,
+        replyTo,
         source: 'manual',
       });
       const messageId = result.delivery?.messageId || null;
@@ -5680,7 +6059,9 @@ export class VendasService {
   }
 
   async syncTodayAgendaForUser(user: any, options?: { leadIds?: string[] }) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
+    this.assertCanReadVendasCards(context);
+    this.assertCanPrepareManualWhatsapp(context);
     this.logger.log(`[vendas-agenda] Iniciando espelhamento de cards de hoje para company=${context.companyId}`);
     let rows: any[] = [];
     const syncWhere = this.buildLeadAccessWhere(context);
@@ -5889,8 +6270,47 @@ export class VendasService {
     };
   }
 
-  private buildImportPreviewPayload(row: any, phoneDigits: string, sharedProfile?: any) {
-    const payload = row ? this.buildLeadPayload(row, sharedProfile) : null;
+  private canExposeImportPreviewDetails(context: VendasUserContext, row: any) {
+    if (!row) return false;
+    if (context.canManageTeam) return true;
+    if (context.canViewOwnCards === false) return false;
+    const assignedUserId = Number(row?.assignedUserId || 0) || null;
+    const createdByUserId = Number(row?.createdByUserId || 0) || null;
+    if (context.ownCardsOnly) return assignedUserId === context.userId;
+    return assignedUserId === context.userId || (!assignedUserId && createdByUserId === context.userId);
+  }
+
+  private buildImportPreviewPayload(
+    row: any,
+    phoneDigits: string,
+    sharedProfile?: any,
+    options: { exposeCrmDetails?: boolean; accessContext?: VendasAccessContext | null } = {},
+  ) {
+    if (row && options.exposeCrmDetails === false) {
+      return {
+        phoneDigits,
+        existsInCrm: true,
+        leadId: null,
+        leadName: null,
+        status: null,
+        statusLabel: null,
+        signals: {
+          alreadyExisted: true,
+          cameFromWebscraping: false,
+          hadPreviousContact: false,
+          wasClosedBefore: false,
+        },
+        attemptCount: 0,
+        lastContactAt: null,
+        lastResult: null,
+        timesSeen: 0,
+        sourceType: null,
+        primarySource: null,
+        sharedProfile: null,
+        crmDetailsRestricted: true,
+      };
+    }
+    const payload = row ? this.buildLeadPayload(row, sharedProfile, undefined, undefined, undefined, options.accessContext) : null;
     return {
       phoneDigits,
       existsInCrm: Boolean(payload),
@@ -5911,6 +6331,7 @@ export class VendasService {
       sourceType: payload?.sourceType || null,
       primarySource: payload?.primarySource || null,
       sharedProfile: payload?.sharedProfile || sharedProfile || null,
+      crmDetailsRestricted: false,
     };
   }
 
@@ -5938,7 +6359,9 @@ export class VendasService {
     assignedByUserId?: number | null;
     assignedAt?: Date | null;
     commissionPercentSnapshot?: number | null;
+    productSnapshotData?: Record<string, any> | null;
     planAccess?: VendasPlanAccess | null;
+    vendasAccess?: VendasAccessContext | null;
     uniqueRetry?: boolean;
   }) {
     const leadBaseSelectWithoutAddress: any = this.buildVendasLeadSelectWithoutAddress();
@@ -6006,6 +6429,7 @@ export class VendasService {
       assignedByUserId: input.assignedByUserId || null,
       assignedAt: input.assignedAt || (input.assignedUserId ? new Date() : null),
       commissionPercentSnapshot: Math.max(0, Math.min(100, Number(input.commissionPercentSnapshot || 0) || 0)),
+      ...(input.productSnapshotData || {}),
     };
     if (phoneNormalized) {
       const phoneNormalizedCandidates = this.buildLeadPhoneNormalizedCandidates(input.phone);
@@ -6077,6 +6501,7 @@ export class VendasService {
                 commissionPercentSnapshot: Math.max(0, Math.min(100, Number(input.commissionPercentSnapshot || 0) || 0)),
               }
             : {}),
+          ...(input.productSnapshotData || {}),
         };
 
         let updated: any = null;
@@ -6146,7 +6571,7 @@ export class VendasService {
         return {
           action: 'updated',
           reusedExisting: true,
-          lead: this.buildLeadPayload(updated, undefined, undefined, undefined, input.planAccess),
+          lead: this.buildLeadPayload(updated, undefined, undefined, undefined, input.planAccess, input.vendasAccess),
         };
       }
     }
@@ -6275,12 +6700,13 @@ export class VendasService {
     return {
       action: 'created',
       reusedExisting: false,
-      lead: this.buildLeadPayload(created, undefined, undefined, undefined, input.planAccess),
+      lead: this.buildLeadPayload(created, undefined, undefined, undefined, input.planAccess, input.vendasAccess),
     };
   }
 
   async previewWebscrapingImportForUser(user: any, dto: ImportWebscrapingLeadsDto) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
+    this.assertCanReadVendasCards(context);
     const leadBaseSelectWithoutAddress: any = {
       id: true,
       companyId: true,
@@ -6371,13 +6797,17 @@ export class VendasService {
           row?.customerProfileId
             ? sharedMap.byProfileId.get(String(row.customerProfileId)) ?? null
             : sharedMap.byPhoneNormalized.get(String(phoneDigits)) ?? null;
-        return this.buildImportPreviewPayload(row, phoneDigits, sharedProfile);
+        return this.buildImportPreviewPayload(row, phoneDigits, sharedProfile, {
+          exposeCrmDetails: !row || this.canExposeImportPreviewDetails(context, row),
+          accessContext: context.access,
+        });
       }),
     };
   }
 
   async getBoardForUser(user: any) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
+    this.assertCanReadVendasCards(context);
     const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
     const usage = await this.commercialUsageLimits.getUsageSnapshot(context.companyId, context.userId);
     const leadWithTimelineSelectWithoutAddress: any = this.buildVendasLeadSelectWithoutAddress({
@@ -6464,6 +6894,7 @@ export class VendasService {
         whatsappAvailabilityByLeadId.get(String(row.id)) || null,
         leadInboxPresence.get(String(row.id)) || null,
         planAccess,
+        context.access,
       );
       blocks[payload.block].push(payload);
     }
@@ -6484,7 +6915,8 @@ export class VendasService {
   }
 
   async getLeadConversationSnapshotForUser(user: any, leadId: string, eventId?: string | null) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
+    this.assertCanReadVendasCards(context);
     const normalizedLeadId = String(leadId || '').trim();
     if (!normalizedLeadId) throw new BadRequestException('Lead invalido.');
 
@@ -6603,9 +7035,13 @@ export class VendasService {
   }
 
   async createManualLeadForUser(user: any, dto: CreateManualVendasLeadDto) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
+    this.assertVendasPermission(context.access?.canCreateManualCards, 'Acesso para criar card manual bloqueado pela politica da equipe.');
     const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
-    const owner = await this.resolveLeadOwnerForContext(context, null);
+    const owner = await this.resolveLeadOwnerForContext({
+      ...context,
+      canManageTeam: Boolean(context.access?.canViewCompanyCards && (context.access.isAdmin || context.access.isSystemMaster)),
+    }, null);
     if (!this.normalizeText(dto?.name) && !this.normalizeText(dto?.phone) && !this.normalizeText(dto?.email)) {
       throw new BadRequestException('Informe ao menos nome, telefone ou e-mail para criar o lead.');
     }
@@ -6627,6 +7063,9 @@ export class VendasService {
         owner.assignedUserId || context.userId,
       );
     }
+    const productPatch = this.hasDtoField(dto, 'productId')
+      ? await this.resolveVendasProductPatch(context, dto.productId)
+      : null;
 
     const result = await this.createOrUpdateLead({
       companyId: context.companyId,
@@ -6647,7 +7086,9 @@ export class VendasService {
       assignedByUserId: owner.assignedByUserId,
       assignedAt: owner.assignedAt,
       commissionPercentSnapshot: owner.commissionPercentSnapshot,
+      productSnapshotData: productPatch?.data || null,
       planAccess,
+      vendasAccess: context.access,
     });
 
     await this.syncLeadToInboxAgenda(context.companyId, result.lead);
@@ -6659,13 +7100,30 @@ export class VendasService {
   }
 
   async importWebscrapingLeadsForUser(user: any, dto: ImportWebscrapingLeadsDto) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
+    this.assertCanImportRadarToVendas(context);
     const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
     const salesProfilePayload = await this.getEffectiveSalesProfileForContext(context, planAccess);
     const salesProfile = salesProfilePayload.effectiveProfile;
     const incomingLeads = Array.isArray(dto?.leads) ? dto.leads : [];
     const debitOnImport = Boolean((dto as any)?.debitOnImport);
-    const owner = await this.resolveLeadOwnerForContext(context, (dto as any)?.assignedUserId || null);
+    const requestedAssignedUserId = Math.trunc(Number((dto as any)?.assignedUserId || 0)) || null;
+    if (requestedAssignedUserId && requestedAssignedUserId !== context.userId) {
+      this.assertCanAssignVendasCard(context);
+    }
+    const importOwnerContext = {
+      ...context,
+      canManageTeam: Boolean(
+        context.canManageTeam ||
+        (
+          requestedAssignedUserId &&
+          requestedAssignedUserId !== context.userId &&
+          context.access?.canTransferCards &&
+          (context.access.isAdmin || context.access.isSystemMaster)
+        ),
+      ),
+    };
+    const owner = await this.resolveLeadOwnerForContext(importOwnerContext, (dto as any)?.assignedUserId || null);
     const requiredPolicyChannels = await this.getTeamPolicyRequiredImportChannels(owner.assignedUserId || context.userId);
     if (!incomingLeads.length) {
       throw new BadRequestException('Nenhum lead do Radar Digital foi enviado para o CRM.');
@@ -6902,6 +7360,7 @@ export class VendasService {
           assignedAt: owner.assignedAt,
           commissionPercentSnapshot: owner.commissionPercentSnapshot,
           planAccess,
+          vendasAccess: context.access,
         });
       } catch (error: any) {
         const errorText = String(error?.message || error || '');
@@ -7105,7 +7564,8 @@ export class VendasService {
   }
 
   async updateLeadForUser(user: any, leadId: string, dto: UpdateVendasLeadDto) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
+    this.assertVendasPermission(context.access?.canEditCards, 'Acesso para editar card bloqueado pela politica da equipe.');
     const addressColumnAvailable = await this.hasVendasLeadAddressColumn();
     const leadWithTimelineSelectWithoutAddress: any = this.buildVendasLeadSelectWithoutAddress({
       timelineEvents: {
@@ -7121,6 +7581,20 @@ export class VendasService {
     if (!existing) {
       throw new NotFoundException('Lead comercial nao encontrado.');
     }
+
+    const productPatch = this.hasDtoField(dto, 'productId')
+      ? await this.resolveVendasProductPatch(context, dto.productId)
+      : null;
+    const commissionDto: UpdateVendasLeadDto = { ...(dto || {}) };
+    if (productPatch?.product?.planKey && !this.hasDtoField(commissionDto, 'salePlanKey')) {
+      commissionDto.salePlanKey = String(productPatch.product.planKey);
+    }
+    await this.assertProductSaleValuePolicy(
+      context,
+      { ...existing, ...(productPatch?.data || {}) },
+      commissionDto,
+      productPatch,
+    );
 
     const nextStatus = dto?.status ? this.normalizeStatus(dto.status) : this.normalizeStatus(existing.status);
     const returnAt = dto?.returnAt !== undefined
@@ -7182,6 +7656,22 @@ export class VendasService {
       (existingReturnAt?.getTime() || 0) !== (returnAt instanceof Date ? returnAt.getTime() : 0);
 
     if (statusChanged) {
+      this.assertVendasPermission(context.access?.canChangeStatus, 'Acesso para alterar status bloqueado pela politica da equipe.');
+    }
+    if (statusChanged && nextStatus === 'encerrado') {
+      this.assertVendasPermission(context.access?.canCloseCards, 'Acesso para encerrar card bloqueado pela politica da equipe.');
+    }
+    if (statusChanged && this.normalizeStatus(existing.status) === 'encerrado' && nextStatus !== 'encerrado') {
+      this.assertVendasPermission(context.access?.canReopenCards, 'Acesso para reabrir card bloqueado pela politica da equipe.');
+    }
+    if (returnChanged) {
+      this.assertVendasPermission(context.access?.canScheduleReturn, 'Acesso para agendar retorno bloqueado pela politica da equipe.');
+    }
+    if (dto?.saleStatus !== undefined) {
+      this.assertCanMarkSaleStatus(context, this.normalizeSaleStatus(dto.saleStatus));
+    }
+
+    if (statusChanged) {
       timelineEvents.push(
         this.buildTimelineEvent({
           eventType: 'status_changed',
@@ -7232,6 +7722,33 @@ export class VendasService {
       );
     }
 
+    if (productPatch) {
+      const nextProductId = this.normalizePositiveInteger(productPatch.data.productId);
+      const previousProductId = this.normalizePositiveInteger(existing.productId);
+      if (nextProductId && nextProductId !== previousProductId) {
+        timelineEvents.push(
+          this.buildTimelineEvent({
+            eventType: 'product_selected',
+            title: 'Produto vinculado',
+            description: `Produto comercial vinculado ao card: ${String(productPatch.data.productNameSnapshot || 'produto selecionado')}.`,
+            sourceType: 'products',
+            resultLabel: productPatch.data.productPlanKeySnapshot || null,
+            createdByUserId: context.userId,
+          }),
+        );
+      } else if (!nextProductId && previousProductId) {
+        timelineEvents.push(
+          this.buildTimelineEvent({
+            eventType: 'product_removed',
+            title: 'Produto removido',
+            description: 'O vinculo de produto comercial foi removido do card.',
+            sourceType: 'products',
+            createdByUserId: context.userId,
+          }),
+        );
+      }
+    }
+
     if (nextStatus === 'encerrado' && this.normalizeStatus(existing.status) !== 'encerrado') {
       timelineEvents.push(
         this.buildTimelineEvent({
@@ -7262,8 +7779,13 @@ export class VendasService {
       lastResult: nextLastResult,
       wasClosedBefore,
       closedAt: nextStatus === 'encerrado' ? existing.closedAt || new Date() : null,
+      ...(productPatch?.data || {}),
     };
-    const saleCommissionPatch = await this.buildSaleCommissionPatch(existing, dto, context.userId);
+    const saleCommissionPatch = await this.buildSaleCommissionPatch(
+      { ...existing, ...(productPatch?.data || {}) },
+      commissionDto,
+      context.userId,
+    );
     Object.assign(updateData, saleCommissionPatch.data);
     if (saleCommissionPatch.event) {
       timelineEvents.push(saleCommissionPatch.event);
@@ -7329,12 +7851,13 @@ export class VendasService {
 
     return {
       ok: true,
-      lead: this.buildLeadPayload(updated),
+      lead: this.buildLeadPayload(updated, undefined, undefined, undefined, undefined, context.access),
     };
   }
 
   async createHbxSalesHandoffForUser(user: any, leadId: string, dto: CreateHbxSalesHandoffDto) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
+    this.assertCanRunHbxActivationAction(context);
     const normalizedLeadId = String(leadId || '').trim();
     if (!normalizedLeadId) throw new BadRequestException('Lead comercial invalido.');
 
@@ -7351,9 +7874,15 @@ export class VendasService {
     });
     if (!existing) throw new NotFoundException('Lead comercial nao encontrado.');
 
-    const planKey = normalizeCommercialPlanKey(dto?.salePlanKey || existing.salePlanKey || COMMERCIAL_PLAN_KEYS.PADRAO);
-    const planLabel = this.commercialPlanLabel(planKey);
-    const planAmount = this.normalizeCurrencyAmount(getCommercialPlanMonthlyPrice(planKey));
+    const productPatch = this.hasDtoField(dto, 'productId')
+      ? await this.resolveVendasProductPatch(context, dto.productId)
+      : null;
+    const planKey = normalizeCommercialPlanKey(dto?.salePlanKey || productPatch?.product?.planKey || existing.salePlanKey || COMMERCIAL_PLAN_KEYS.PADRAO);
+    const planLabel = productPatch?.product?.name ? String(productPatch.product.name) : this.commercialPlanLabel(planKey);
+    const productPriceCents = this.normalizePriceCentsFromProduct(productPatch?.product);
+    const planAmount = productPriceCents
+      ? this.normalizeCurrencyAmount(productPriceCents / 100)
+      : this.normalizeCurrencyAmount(getCommercialPlanMonthlyPrice(planKey));
     const registerPath = `/register?plan=${encodeURIComponent(planKey)}&hbxLead=${encodeURIComponent(existing.id)}`;
     const publicOrigin = this.normalizePublicOrigin(dto?.origin);
     const registerUrl = publicOrigin ? `${publicOrigin}${registerPath}` : registerPath;
@@ -7365,7 +7894,7 @@ export class VendasService {
       `Depois do cadastro, eu acompanho a implantacao do ${leadName} pelo HBX.`,
     ].join('\n');
 
-    const saleCommissionPatch = await this.buildSaleCommissionPatch(existing, {
+    const saleCommissionPatch = await this.buildSaleCommissionPatch({ ...existing, ...(productPatch?.data || {}) }, {
       saleStatus: 'activation_pending',
       salePlanKey: planKey,
       saleValue: planAmount,
@@ -7421,6 +7950,7 @@ export class VendasService {
           lastContactAt: new Date(),
           attemptCount: Math.max(existingAttemptCount + 1, existingAttemptCount),
           lastResult: 'Link HBX enviado',
+          ...(productPatch?.data || {}),
           ...saleCommissionPatch.data,
         },
       });
@@ -7456,13 +7986,14 @@ export class VendasService {
       registerPath,
       registerUrl,
       message,
-      lead: this.buildLeadPayload(updated),
+      lead: this.buildLeadPayload(updated, undefined, undefined, undefined, undefined, context.access),
       commercialUseDebit,
     };
   }
 
   async createHbxAssistedSignupForUser(user: any, leadId: string, dto: CreateHbxAssistedSignupDto) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
+    this.assertCanRunHbxActivationAction(context);
     const normalizedLeadId = String(leadId || '').trim();
     if (!normalizedLeadId) throw new BadRequestException('Lead comercial invalido.');
 
@@ -7479,11 +8010,14 @@ export class VendasService {
     });
     if (!existing) throw new NotFoundException('Lead comercial nao encontrado.');
 
+    const productPatch = this.hasDtoField(dto, 'productId')
+      ? await this.resolveVendasProductPatch(context, dto.productId)
+      : null;
     const email = this.normalizeEmail(dto?.email || existing.email);
     if (!email) throw new BadRequestException('Informe um e-mail valido do cliente para comprovar o cadastro.');
 
-    const planKey = normalizeCommercialPlanKey(dto?.salePlanKey || existing.salePlanKey || COMMERCIAL_PLAN_KEYS.PADRAO);
-    const planLabel = this.commercialPlanLabel(planKey);
+    const planKey = normalizeCommercialPlanKey(dto?.salePlanKey || productPatch?.product?.planKey || existing.salePlanKey || COMMERCIAL_PLAN_KEYS.PADRAO);
+    const planLabel = productPatch?.product?.name ? String(productPatch.product.name) : this.commercialPlanLabel(planKey);
     const companyName = this.normalizeText(dto?.companyName) || this.normalizeText(existing.name) || 'Cliente HBX';
     const contactName = this.normalizeText(dto?.contactName) || this.normalizeText(existing.name) || companyName;
     const cardPhone = this.normalizeText(existing.phone);
@@ -7631,10 +8165,11 @@ export class VendasService {
       ...(addressColumnAvailable ? {} : { select: this.buildVendasLeadSelectWithoutAddress() }),
     });
     const commissionSource = refreshed || existing;
-    const saleCommissionPatch = await this.buildSaleCommissionPatch(commissionSource, {
+    const productPriceCents = this.normalizePriceCentsFromProduct(productPatch?.product);
+    const saleCommissionPatch = await this.buildSaleCommissionPatch({ ...commissionSource, ...(productPatch?.data || {}) }, {
       saleStatus: 'activation_pending',
       salePlanKey: planKey,
-      saleValue: getCommercialPlanMonthlyPrice(planKey),
+      saleValue: productPriceCents ? productPriceCents / 100 : getCommercialPlanMonthlyPrice(planKey),
       commissionNote: `Cadastro assistido criado para ${planLabel}. E-mail do cliente precisa ser confirmado.`,
     }, context.userId, { allowAutomaticSaleStatus: true });
     const customerProfileId =
@@ -7694,6 +8229,7 @@ export class VendasService {
           phoneNormalized: phoneNormalized || existing.phoneNormalized,
           lastContactAt: new Date(),
           lastResult: 'Cadastro assistido aguardando e-mail',
+          ...(productPatch?.data || {}),
           ...saleCommissionPatch.data,
         },
       });
@@ -7747,7 +8283,7 @@ export class VendasService {
             errorMessage: signupResult.delivery.errorMessage || null,
           }
         : null,
-      lead: this.buildLeadPayload(updated),
+      lead: this.buildLeadPayload(updated, undefined, undefined, undefined, undefined, context.access),
     };
   }
 
@@ -7956,7 +8492,8 @@ export class VendasService {
     dto: BulkDeleteVendasLeadsDto,
     options: { report?: boolean; reportReason?: string | null } = {},
   ) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
+    this.assertVendasPermission(context.access?.canDeleteCards, 'Acesso para excluir card bloqueado pela politica da equipe.');
     const all = Boolean(dto?.all);
     const leadIds = Array.from(
       new Set(
@@ -8034,7 +8571,8 @@ export class VendasService {
   }
 
   async reportLeadErrorForUser(user: any, leadId: string, dto: ReportVendasLeadDto) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
+    this.assertVendasPermission(context.access?.canDeleteCards, 'Acesso para excluir card bloqueado pela politica da equipe.');
     const normalizedLeadId = String(leadId || '').trim();
     if (!normalizedLeadId) throw new BadRequestException('Card nao informado.');
     const row = await this.prisma.vendasLead.findFirst({
@@ -8090,7 +8628,8 @@ export class VendasService {
   }
 
   async registerAttemptForUser(user: any, leadId: string, dto?: { channel?: string }) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveVendasUserContext(user);
+    this.assertCanRegisterTimeline(context);
     const existing = await this.prisma.vendasLead.findFirst({
       where: this.buildLeadAccessWhere(context, { id: String(leadId || '').trim() }),
     });
@@ -8133,7 +8672,7 @@ export class VendasService {
 
     return {
       ok: true,
-      lead: this.buildLeadPayload(updated),
+      lead: this.buildLeadPayload(updated, undefined, undefined, undefined, undefined, context.access),
     };
   }
 }

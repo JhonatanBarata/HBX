@@ -3,7 +3,7 @@ type AvailabilityStatus = 'unknown' | 'available' | 'unavailable';
 export type VendasLeadIntelligenceInput = {
   lead: any;
   whatsappAvailability?: { status?: AvailabilityStatus | string | null; checkedAt?: string | null } | null;
-  verifiedBy?: 'hbx_master' | 'client_engine' | 'manual' | null;
+  verifiedBy?: 'platform_engine' | 'client_engine' | 'manual' | null;
   templateOffset?: number;
 };
 

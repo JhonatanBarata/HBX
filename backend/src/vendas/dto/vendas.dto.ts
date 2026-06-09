@@ -96,6 +96,12 @@ export class CreateManualVendasLeadDto {
   @IsInt()
   @Min(0)
   attemptCount?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  productId?: number;
 }
 
 export class UpdateVendasLeadDto {
@@ -159,6 +165,12 @@ export class UpdateVendasLeadDto {
   salePlanKey?: string;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  productId?: number;
+
+  @IsOptional()
   @IsIn(COMMISSION_STATUSES)
   commissionStatus?: (typeof COMMISSION_STATUSES)[number];
 
@@ -169,6 +181,12 @@ export class UpdateVendasLeadDto {
 }
 
 export class CreateHbxSalesHandoffDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  productId?: number;
+
   @IsOptional()
   @IsString()
   @MaxLength(64)
@@ -181,6 +199,12 @@ export class CreateHbxSalesHandoffDto {
 }
 
 export class CreateHbxAssistedSignupDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  productId?: number;
+
   @IsOptional()
   @IsString()
   @MaxLength(64)

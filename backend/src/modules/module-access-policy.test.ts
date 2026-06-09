@@ -6,6 +6,7 @@ import {
   COMMERCIAL_PLAN_KEYS,
   getCommercialPlanTitle,
 } from '../commercial-plans/commercial-plan-catalog';
+import { COMPANY_KIND_PLATFORM_INFRA, COMPANY_KIND_TENANT } from '../common/company-kind';
 import { ModulesService } from './modules.service';
 import { resolveCompanyModuleAccessPolicy } from './module-access-policy';
 
@@ -110,9 +111,9 @@ test('MANUAL/premiumAccess releases selected plan or padrao fallback', () => {
   assert.equal(fallback.moduleKeys.has('gerencial'), true);
 });
 
-test('HBX operational company is not blocked by checkout/payment status', () => {
+test('platform_infra company does not receive commercial modules', () => {
   const policy = resolveCompanyModuleAccessPolicy({
-    slug: 'hbx-master-whatsapp-engine',
+    companyKind: COMPANY_KIND_PLATFORM_INFRA,
     isActive: false,
     onboardingStatus: 'pending_checkout',
     paymentStatus: 'PENDING',
@@ -120,12 +121,31 @@ test('HBX operational company is not blocked by checkout/payment status', () => 
     selectedPlanKey: null,
   });
 
+  assert.equal(policy.accessState, 'blocked');
+  assert.equal(policy.active, false);
+  assert.equal(policy.pendingCheckout, false);
+  assert.equal(policy.moduleKeys.has('vendas'), false);
+  assert.equal(policy.moduleKeys.has('webscraping'), false);
+  assert.equal(policy.blockedCode, 'platform_infra_company');
+});
+
+test('HBX tenant follows normal manual/premium module policy without slug privilege', () => {
+  const policy = resolveCompanyModuleAccessPolicy({
+    companyKind: COMPANY_KIND_TENANT,
+    slug: 'hbx',
+    isActive: true,
+    paymentStatus: 'MANUAL',
+    subscriptionStatus: 'manual',
+    premiumAccess: true,
+    selectedPlanKey: COMMERCIAL_PLAN_KEYS.LITE,
+  });
+
   assert.equal(policy.accessState, 'manual');
   assert.equal(policy.active, true);
-  assert.equal(policy.pendingCheckout, false);
+  assert.equal(policy.planKey, COMMERCIAL_PLAN_KEYS.LITE);
   assert.equal(policy.moduleKeys.has('vendas'), true);
   assert.equal(policy.moduleKeys.has('webscraping'), true);
-  assert.equal(policy.blockedCode, null);
+  assert.equal(policy.moduleKeys.has('atendimento'), false);
 });
 
 test('expired/canceled blocks modules', () => {
@@ -157,17 +177,18 @@ test('USER seller role is desktop-eligible for Radar but legacy default only ope
   assert.equal(service.canUseAdminOnlyModule(seller, 'cadastro', { mobileRoute: true }), false);
 });
 
-test('HBX operation seller defaults to Radar and Vendas until Master config overrides it', () => {
+test('HBX tenant seller uses the same defaults as a client seller', () => {
   const service = new ModulesService({} as any, {} as any, {} as any, {} as any, {} as any, {} as any) as any;
   const seller = { role: 'USER', isSystemMaster: false };
-  const company = { slug: 'hbx-master-whatsapp-engine' };
+  const company = { companyKind: COMPANY_KIND_TENANT, slug: 'hbx' };
 
-  assert.equal(service.resolveAccessGovernor(seller, company), 'HBX_MASTER');
+  assert.equal(service.resolveAccessGovernor(seller, company), COMPANY_KIND_TENANT);
   assert.equal(service.defaultUserModuleAllowed(seller, 'vendas', {}, company), true);
-  assert.equal(service.defaultUserModuleAllowed(seller, 'webscraping', {}, company), true);
+  assert.equal(service.defaultUserModuleAllowed(seller, 'webscraping', {}, company), false);
+  assert.equal(service.defaultUserModuleAllowed(seller, 'webscraping', { mobileRoute: true }, company), true);
 });
 
-test('seller access governance separates client admin from HBX Master', () => {
+test('seller access governance blocks platform_infra and keeps tenant admin boundary', () => {
   const service = new ModulesService({} as any, {} as any, {} as any, {} as any, {} as any, {} as any) as any;
 
   assert.doesNotThrow(() => service.assertCanGovernSellerAccess({
@@ -175,7 +196,7 @@ test('seller access governance separates client admin from HBX Master', () => {
     actorCompanyId: 10,
     isSystemMaster: false,
     targetUser: { id: 2, companyId: 10, role: 'USER' },
-    targetCompany: { id: 10, slug: 'cliente-a' },
+    targetCompany: { id: 10, companyKind: COMPANY_KIND_TENANT, slug: 'cliente-a' },
   }));
 
   assert.throws(() => service.assertCanGovernSellerAccess({
@@ -183,14 +204,22 @@ test('seller access governance separates client admin from HBX Master', () => {
     actorCompanyId: 10,
     isSystemMaster: false,
     targetUser: { id: 3, companyId: 20, role: 'USER' },
-    targetCompany: { id: 20, slug: 'hbx-master-whatsapp-engine' },
+    targetCompany: { id: 20, companyKind: COMPANY_KIND_TENANT, slug: 'cliente-b' },
+  }));
+
+  assert.throws(() => service.assertCanGovernSellerAccess({
+    actor: { role: 'USERMASTER', isSystemMaster: true },
+    actorCompanyId: null,
+    isSystemMaster: true,
+    targetUser: { id: 3, companyId: 20, role: 'USER' },
+    targetCompany: { id: 20, companyKind: COMPANY_KIND_PLATFORM_INFRA, slug: 'platform-engine' },
   }));
 
   assert.doesNotThrow(() => service.assertCanGovernSellerAccess({
     actor: { role: 'USERMASTER', isSystemMaster: true },
     actorCompanyId: null,
     isSystemMaster: true,
-    targetUser: { id: 3, companyId: 20, role: 'USER' },
-    targetCompany: { id: 20, slug: 'hbx-master-whatsapp-engine' },
+    targetUser: { id: 4, companyId: 30, role: 'USER' },
+    targetCompany: { id: 30, companyKind: COMPANY_KIND_TENANT, slug: 'hbx' },
   }));
 });

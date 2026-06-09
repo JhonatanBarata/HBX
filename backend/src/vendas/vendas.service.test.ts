@@ -2,10 +2,31 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { VendasService } from './vendas.service';
+import { serializeTeamPolicyModuleAndAccessRows } from '../team/team-policy-persistence';
 
 function normalizePhone(raw: unknown) {
   const digits = String(raw || '').replace(/\D/g, '');
   return digits ? digits.slice(-13) : null;
+}
+
+function buildRuntimePolicy(input: {
+  userId?: number;
+  companyId?: number;
+  modules?: Array<{ key: string; allowed: boolean }>;
+  access?: Record<string, boolean>;
+} = {}) {
+  return {
+    id: `policy-${input.userId || 99}`,
+    userId: input.userId || 99,
+    companyId: input.companyId || 7,
+    status: 'active',
+    subjectKind: null,
+    modulesJson: serializeTeamPolicyModuleAndAccessRows({
+      modules: input.modules || [],
+      access: input.access || {},
+    }),
+    requiredChannelsJson: '{}',
+  };
 }
 
 function createService(overrides?: Partial<Record<string, any>>) {
@@ -45,6 +66,10 @@ function createService(overrides?: Partial<Record<string, any>>) {
     company: {
       findUnique: async () => ({ selectedPlanKey: 'hbx_padrao' }),
       ...(overrides?.company || {}),
+    },
+    product: {
+      findFirst: async () => null,
+      ...(overrides?.product || {}),
     },
     hasTable: async () => false,
     hasColumn: async () => false,
@@ -446,6 +471,159 @@ test('getBoardForUser hides complete intelligence for HBX List', async () => {
   assert.ok(lead.leadIntelligence.premiumTeaser);
 });
 
+test('getBoardForUser hides product catalog price without products.viewPrice', async () => {
+  const now = new Date();
+  const rows = [
+    {
+      id: 'lead-product-hidden-price',
+      companyId: 7,
+      assignedUserId: 99,
+      name: 'Cliente Produto',
+      status: 'novo',
+      returnAt: now,
+      updatedAt: now,
+      createdAt: now,
+      productId: 10,
+      productKindSnapshot: 'tenant_product',
+      productNameSnapshot: 'Plano Comercial',
+      productPriceCentsSnapshot: 12345,
+      productCurrencySnapshot: 'BRL',
+      productBillingCycleSnapshot: 'MONTHLY',
+      productCommissionPercentSnapshot: 12,
+      productPlanKeySnapshot: 'tenant_plano',
+      saleValue: 123.45,
+      timelineEvents: [],
+    },
+  ];
+
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'products.viewPrice': false },
+        }),
+      },
+    },
+    vendasLead: {
+      findMany: async () => rows,
+    },
+  });
+
+  const result = await service.getBoardForUser({ companyId: 7, id: 99, role: 'USER' });
+  const lead = result.blocks.today[0];
+
+  assert.equal(lead.productPriceCentsSnapshot, null);
+  assert.equal(lead.product.priceCents, null);
+  assert.equal(lead.product.priceLabel, null);
+  assert.equal(lead.product.canViewPrice, false);
+  assert.equal(lead.saleValue, 123.45);
+});
+
+test('getBoardForUser exposes product catalog price with products.viewPrice', async () => {
+  const now = new Date();
+  const rows = [
+    {
+      id: 'lead-product-visible-price',
+      companyId: 7,
+      assignedUserId: 99,
+      name: 'Cliente Produto',
+      status: 'novo',
+      returnAt: now,
+      updatedAt: now,
+      createdAt: now,
+      productId: 10,
+      productKindSnapshot: 'tenant_product',
+      productNameSnapshot: 'Plano Comercial',
+      productPriceCentsSnapshot: 12345,
+      productCurrencySnapshot: 'BRL',
+      productBillingCycleSnapshot: 'MONTHLY',
+      productCommissionPercentSnapshot: 12,
+      productPlanKeySnapshot: 'tenant_plano',
+      timelineEvents: [],
+    },
+  ];
+
+  const { service } = createService({
+    vendasLead: {
+      findMany: async () => rows,
+    },
+  });
+
+  const result = await service.getBoardForUser({ companyId: 7, id: 99, role: 'USER' });
+  const lead = result.blocks.today[0];
+
+  assert.equal(lead.productPriceCentsSnapshot, 12345);
+  assert.equal(lead.product.priceCents, 12345);
+  assert.equal(lead.product.priceLabel, 'R$ 123,45');
+  assert.equal(lead.product.canViewPrice, true);
+});
+
+test('getBoardForUser filters USER without viewCompany to own assigned cards', async () => {
+  let seenWhere: any = null;
+  const { service } = createService({
+    vendasLead: {
+      findMany: async ({ where }: any) => {
+        seenWhere = where;
+        return [];
+      },
+    },
+  });
+
+  await service.getBoardForUser({ companyId: 7, id: 99, role: 'USER' });
+
+  assert.equal(seenWhere.companyId, 7);
+  assert.equal(seenWhere.assignedUserId, 99);
+  assert.equal(Boolean(seenWhere.OR), false);
+});
+
+test('getBoardForUser respects ADMIN explicit false for company card visibility', async () => {
+  let seenWhere: any = null;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          userId: 22,
+          access: { 'vendas.cards.viewCompany': false },
+        }),
+      },
+    },
+    vendasLead: {
+      findMany: async ({ where }: any) => {
+        seenWhere = where;
+        return [];
+      },
+    },
+  });
+
+  await service.getBoardForUser({ companyId: 7, id: 22, role: 'ADMIN' });
+
+  assert.equal(seenWhere.companyId, 7);
+  assert.equal(seenWhere.assignedUserId, 22);
+});
+
+test('getBoardForUser releases company cards when viewCompany is explicit true', async () => {
+  let seenWhere: any = null;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'vendas.cards.viewCompany': true },
+        }),
+      },
+    },
+    vendasLead: {
+      findMany: async ({ where }: any) => {
+        seenWhere = where;
+        return [];
+      },
+    },
+  });
+
+  await service.getBoardForUser({ companyId: 7, id: 99, role: 'USER' });
+
+  assert.deepEqual(seenWhere, { companyId: 7 });
+});
+
 test('buildLeadPayload exposes negative timeline conversation reference without raw JSON note', () => {
   const { service } = createService();
   const createdAt = new Date('2026-05-28T12:00:00.000Z');
@@ -483,6 +661,32 @@ test('buildLeadPayload exposes negative timeline conversation reference without 
   assert.equal(payload.timeline[0].conversationReference.inboundMessageId, 901);
   assert.equal(payload.timeline[0].description, 'Negativo registrado: "não tenho interesse"');
   assert.equal(payload.timeline[0].description.startsWith('{'), false);
+});
+
+test('buildLeadPayload hides product catalog price when access context is missing', () => {
+  const { service } = createService();
+  const payload = (service as any).buildLeadPayload({
+    id: 'lead-product-no-context',
+    companyId: 7,
+    name: 'Cliente Produto',
+    status: 'novo',
+    productId: 10,
+    productKindSnapshot: 'tenant_product',
+    productNameSnapshot: 'Plano Comercial',
+    productPriceCentsSnapshot: 12345,
+    productCurrencySnapshot: 'BRL',
+    productBillingCycleSnapshot: 'MONTHLY',
+    saleValue: 123.45,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    timelineEvents: [],
+  });
+
+  assert.equal(payload.productPriceCentsSnapshot, null);
+  assert.equal(payload.product.priceCents, null);
+  assert.equal(payload.product.priceLabel, null);
+  assert.equal(payload.product.canViewPrice, false);
+  assert.equal(payload.saleValue, 123.45);
 });
 
 test('importWebscrapingLeadsForUser debits quota for new delivered card with WhatsApp available', async () => {
@@ -534,6 +738,77 @@ test('importWebscrapingLeadsForUser debits quota for new delivered card with Wha
   assert.equal(assertCanImportCalls, 1);
   assert.equal(recordCardImportCalls, 1);
   assert.equal(checkWhatsappCalls, 1);
+});
+
+test('importWebscrapingLeadsForUser hides product price when products.viewPrice=false', async () => {
+  const now = new Date();
+  const createdRows: any[] = [];
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'products.viewPrice': false },
+        }),
+      },
+      $transaction: async (fn: any) => fn({
+        vendasLead: {
+          create: async ({ data }: any) => {
+            const row = {
+              id: 'lead-import-product',
+              companyId: data.companyId,
+              ...data,
+              status: data.status || 'novo',
+              returnAt: data.returnAt || now,
+              createdAt: now,
+              updatedAt: now,
+              productId: 10,
+              productKindSnapshot: 'tenant_product',
+              productNameSnapshot: 'Plano Comercial',
+              productPriceCentsSnapshot: 12345,
+              productCurrencySnapshot: 'BRL',
+              productBillingCycleSnapshot: 'MONTHLY',
+              productCommissionPercentSnapshot: 12,
+              productPlanKeySnapshot: 'tenant_plano',
+              timelineEvents: [],
+            };
+            createdRows.push(row);
+            return row;
+          },
+          findUniqueOrThrow: async () => createdRows[0],
+        },
+        vendasLeadTimelineEvent: {
+          createMany: async () => ({ count: 0 }),
+          create: async () => ({}),
+        },
+      }),
+      hasTable: async () => false,
+      hasColumn: async () => false,
+    },
+    vendasLead: {
+      findFirst: async () => null,
+    },
+  });
+
+  const result = await service.importWebscrapingLeadsForUser(
+    { companyId: 7, id: 99, role: 'USER' },
+    {
+      skipWhatsappValidation: true,
+      leads: [
+        {
+          name: 'Cliente Importado',
+          phone: '+55 19 99999-0001',
+          phoneDigits: '5519999990001',
+        },
+      ],
+    } as any,
+  );
+
+  assert.equal(result.createdCount, 1);
+  assert.equal(createdRows[0].productPriceCentsSnapshot, 12345);
+  assert.equal(result.leads[0].productPriceCentsSnapshot, null);
+  assert.equal(result.leads[0].product.priceCents, null);
+  assert.equal(result.leads[0].product.priceLabel, null);
+  assert.equal(result.leads[0].product.canViewPrice, false);
 });
 
 test('importWebscrapingLeadsForUser no modo List importa weak_contact sem cortar', async () => {
@@ -778,6 +1053,367 @@ test('importWebscrapingLeadsForUser does not debit quota when WhatsApp is unavai
   assert.match(result.message, /Descartados nao consomem limite/);
 });
 
+test('previewWebscrapingImportForUser hides duplicate CRM details outside USER wallet', async () => {
+  const now = new Date('2026-01-10T12:00:00.000Z');
+  let seenWhere: any = null;
+  const { service } = createService({
+    vendasLead: {
+      findMany: async ({ where }: any) => {
+        seenWhere = where;
+        return [
+          {
+            id: 'lead-other',
+            companyId: 7,
+            customerProfileId: 'profile-other',
+            sourceType: 'webscraping',
+            primarySource: 'radar',
+            sourceHistoryId: 'radar:lead-other',
+            timesSeen: 4,
+            name: 'Cliente de Outro Vendedor',
+            phone: '+55 11 99887-7766',
+            phoneNormalized: '5511998877766',
+            status: 'retorno',
+            lastContactAt: now,
+            attemptCount: 3,
+            lastResult: 'respondeu depois',
+            assignedUserId: 123,
+            createdByUserId: 123,
+            createdAt: now,
+            updatedAt: now,
+            timelineEvents: [],
+          },
+        ];
+      },
+    },
+  });
+
+  const result = await service.previewWebscrapingImportForUser(
+    { companyId: 7, id: 99, role: 'USER' },
+    {
+      leads: [
+        { phone: '+55 11 99887-7766', phoneDigits: '5511998877766' },
+      ],
+    } as any,
+  );
+
+  assert.equal(seenWhere.companyId, 7);
+  assert.equal(result.items.length, 1);
+  assert.equal(result.items[0].existsInCrm, true);
+  assert.equal(result.items[0].crmDetailsRestricted, true);
+  assert.equal(result.items[0].leadId, null);
+  assert.equal(result.items[0].leadName, null);
+  assert.equal(result.items[0].status, null);
+  assert.equal(result.items[0].attemptCount, 0);
+  assert.equal(result.items[0].lastContactAt, null);
+  assert.equal(result.items[0].lastResult, null);
+  assert.equal(result.items[0].sharedProfile, null);
+  assert.equal(result.items[0].signals.alreadyExisted, true);
+});
+
+test('previewWebscrapingImportForUser shows duplicate CRM details inside USER wallet', async () => {
+  const now = new Date('2026-01-10T12:00:00.000Z');
+  const { service } = createService({
+    vendasLead: {
+      findMany: async () => [
+        {
+          id: 'lead-own',
+          companyId: 7,
+          customerProfileId: null,
+          sourceType: 'webscraping',
+          primarySource: 'radar',
+          sourceHistoryId: 'radar:lead-own',
+          timesSeen: 2,
+          name: 'Cliente do Vendedor',
+          phone: '+55 11 99887-7766',
+          phoneNormalized: '5511998877766',
+          status: 'retorno',
+          returnAt: now,
+          lastContactAt: now,
+          attemptCount: 2,
+          lastResult: 'whatsapp',
+          wasClosedBefore: false,
+          assignedUserId: 99,
+          createdByUserId: 99,
+          createdAt: now,
+          updatedAt: now,
+          timelineEvents: [],
+        },
+      ],
+    },
+  });
+
+  const result = await service.previewWebscrapingImportForUser(
+    { companyId: 7, id: 99, role: 'USER' },
+    {
+      leads: [
+        { phone: '+55 11 99887-7766', phoneDigits: '5511998877766' },
+      ],
+    } as any,
+  );
+
+  assert.equal(result.items.length, 1);
+  assert.equal(result.items[0].existsInCrm, true);
+  assert.equal(result.items[0].crmDetailsRestricted, false);
+  assert.equal(result.items[0].leadId, 'lead-own');
+  assert.equal(result.items[0].leadName, 'Cliente do Vendedor');
+  assert.equal(result.items[0].status, 'retorno');
+  assert.equal(result.items[0].attemptCount, 2);
+  assert.equal(result.items[0].lastContactAt, now.toISOString());
+  assert.equal(result.items[0].lastResult, 'whatsapp');
+});
+
+test('previewWebscrapingImportForUser requires read access before duplicate lookup', async () => {
+  let duplicateLookupCalls = 0;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: {
+            'vendas.cards.viewOwn': false,
+            'vendas.cards.viewCompany': false,
+          },
+        }),
+      },
+    },
+    vendasLead: {
+      findMany: async () => {
+        duplicateLookupCalls += 1;
+        return [];
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.previewWebscrapingImportForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      { leads: [{ phone: '+55 11 99887-7766' }] } as any,
+    ),
+    /Acesso aos cards do Vendas bloqueado/i,
+  );
+
+  assert.equal(duplicateLookupCalls, 0);
+});
+
+test('importWebscrapingLeadsForUser requires Radar-to-Vendas or manual card access', async () => {
+  let planLookupCalls = 0;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: {
+            'vendas.cards.createManual': false,
+            'radar.cards.sendToVendas': false,
+          },
+        }),
+      },
+    },
+    company: {
+      findUnique: async () => {
+        planLookupCalls += 1;
+        return { selectedPlanKey: 'hbx_padrao' };
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.importWebscrapingLeadsForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      {
+        skipWhatsappValidation: true,
+        leads: [{ name: 'Lead bloqueado', phone: '+55 11 99887-7766' }],
+      } as any,
+    ),
+    /enviar cards do Radar ao Vendas bloqueado/i,
+  );
+
+  assert.equal(planLookupCalls, 0);
+});
+
+test('importWebscrapingLeadsForUser assigns USER imports to self', async () => {
+  const { prisma, createdRows } = createImportPrismaHarness();
+  const importLeadQuality = {
+    quality: {
+      status: 'weak_contact',
+      billable: false,
+      segmentMatchScore: 85,
+      contactQualityScore: 50,
+      commercialScore: 56,
+    },
+    enrichmentJson: {
+      qualityV2: {
+        version: 'lead-quality-v2',
+        identityScore: 55,
+        segmentFitScore: 85,
+        contactabilityScore: 33,
+        commercialIntentScore: 50,
+        freshnessScore: 50,
+        riskScore: 0,
+        opportunityScore: 45,
+        finalRankScore: 35,
+        decision: 'discard',
+        reasons: ['Contato fraco.'],
+        discardReason: 'weak_contactability',
+        protectionReason: null,
+        recommendedChannel: 'call',
+        productFit: { listFit: 45, leadFit: 35, botFit: 30, recoveryFit: 20, websiteFit: 10 },
+      },
+    },
+  };
+  const { service } = createService({
+    prisma,
+    vendasLead: {
+      findFirst: async () => null,
+    },
+  });
+
+  const result = await service.importWebscrapingLeadsForUser(
+    { companyId: 7, id: 99, role: 'USER' },
+    {
+      skipWhatsappValidation: true,
+      leads: [
+        { name: 'Humanitarian Calçados', phone: '+55 19 3513-9668', phoneDigits: '1935139668', ...importLeadQuality },
+      ],
+    } as any,
+  );
+
+  assert.equal(result.createdCount, 1);
+  assert.equal(createdRows[0].assignedUserId, 99);
+  assert.equal(createdRows[0].assignedByUserId, null);
+});
+
+test('importWebscrapingLeadsForUser blocks USER assigning to another seller without company view', async () => {
+  const { prisma, createdRows } = createImportPrismaHarness();
+  const { service } = createService({
+    prisma,
+    vendasLead: {
+      findFirst: async () => null,
+    },
+  });
+
+  await assert.rejects(
+    () => service.importWebscrapingLeadsForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      {
+        assignedUserId: 123,
+        skipWhatsappValidation: true,
+        leads: [
+          { name: 'Lead de outro', phone: '+55 11 99887-7766', phoneDigits: '5511998877766' },
+        ],
+      } as any,
+    ),
+    /atribuir ou transferir card bloqueado/i,
+  );
+
+  assert.equal(createdRows.length, 0);
+});
+
+test('importWebscrapingLeadsForUser blocks ADMIN assigning when assign and transfer are explicitly false', async () => {
+  const { prisma, createdRows } = createImportPrismaHarness();
+  const { service } = createService({
+    prisma: {
+      ...prisma,
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: {
+            'vendas.cards.assign': false,
+            'vendas.cards.transfer': false,
+          },
+        }),
+      },
+    },
+    vendasLead: {
+      findFirst: async () => null,
+    },
+  });
+
+  await assert.rejects(
+    () => service.importWebscrapingLeadsForUser(
+      { companyId: 7, id: 99, role: 'ADMIN' },
+      {
+        assignedUserId: 123,
+        skipWhatsappValidation: true,
+        leads: [
+          { name: 'Lead admin bloqueado', phone: '+55 11 99887-7766', phoneDigits: '5511998877766' },
+        ],
+      } as any,
+    ),
+    /atribuir ou transferir card bloqueado/i,
+  );
+
+  assert.equal(createdRows.length, 0);
+});
+
+test('importWebscrapingLeadsForUser lets ADMIN assign to an active seller in same tenant', async () => {
+  const { prisma, createdRows } = createImportPrismaHarness();
+  const importLeadQuality = {
+    quality: {
+      status: 'weak_contact',
+      billable: false,
+      segmentMatchScore: 85,
+      contactQualityScore: 50,
+      commercialScore: 56,
+    },
+    enrichmentJson: {
+      qualityV2: {
+        version: 'lead-quality-v2',
+        identityScore: 55,
+        segmentFitScore: 85,
+        contactabilityScore: 33,
+        commercialIntentScore: 50,
+        freshnessScore: 50,
+        riskScore: 0,
+        opportunityScore: 45,
+        finalRankScore: 35,
+        decision: 'discard',
+        reasons: ['Contato fraco.'],
+        discardReason: 'weak_contactability',
+        protectionReason: null,
+        recommendedChannel: 'call',
+        productFit: { listFit: 45, leadFit: 35, botFit: 30, recoveryFit: 20, websiteFit: 10 },
+      },
+    },
+  };
+  const { service } = createService({
+    prisma,
+    vendasLead: {
+      findFirst: async () => null,
+    },
+    user: {
+      findFirst: async ({ where }: any) => {
+        assert.equal(where.id, 123);
+        assert.equal(where.companyId, 7);
+        assert.equal(where.isActive, true);
+        assert.equal(where.isSystemMaster, false);
+        return {
+          id: 123,
+          name: 'Destino',
+          email: 'destino@teste.local',
+          username: 'destino',
+          phone: null,
+          role: 'USER',
+          commissionPercent: 15,
+        };
+      },
+    },
+  });
+
+  const result = await service.importWebscrapingLeadsForUser(
+    { companyId: 7, id: 99, role: 'ADMIN' },
+    {
+      assignedUserId: 123,
+      skipWhatsappValidation: true,
+      leads: [
+        { name: 'Humanitarian Calçados', phone: '+55 19 3513-9668', phoneDigits: '1935139668', ...importLeadQuality },
+      ],
+    } as any,
+  );
+
+  assert.equal(result.createdCount, 1);
+  assert.equal(createdRows[0].assignedUserId, 123);
+  assert.equal(createdRows[0].assignedByUserId, 99);
+  assert.equal(createdRows[0].commissionPercentSnapshot, 15);
+});
+
 test('importWebscrapingLeadsForUser does not debit quota for duplicate card', async () => {
   const now = new Date();
   let assertCanImportCalls = 0;
@@ -1004,6 +1640,927 @@ test('createManualLeadForUser blocks duplicate website before active quota', asy
   );
 
   assert.equal(activeQuotaCalls, 0);
+});
+
+test('createManualLeadForUser requires createManual access', async () => {
+  let duplicateLookupCalls = 0;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'vendas.cards.createManual': false },
+        }),
+      },
+    },
+    vendasLead: {
+      findMany: async () => {
+        duplicateLookupCalls += 1;
+        return [];
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.createManualLeadForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      { name: 'Lead bloqueado' } as any,
+    ),
+    /criar card manual bloqueado/i,
+  );
+
+  assert.equal(duplicateLookupCalls, 0);
+});
+
+test('createManualLeadForUser with productId stores product snapshots on the card', async () => {
+  const { prisma, createdRows } = createImportPrismaHarness();
+  const { service } = createService({
+    prisma,
+    vendasLead: {
+      findMany: async () => [],
+    },
+    product: {
+      findFirst: async ({ where }: any) => {
+        assert.deepEqual(where, { id: 10, companyId: 7, status: 'active' });
+        return {
+          id: 10,
+          companyId: 7,
+          status: 'active',
+          kind: 'platform_plan',
+          name: 'HBX Lead',
+          priceCents: 9900,
+          currency: 'BRL',
+          billingCycle: 'MONTHLY',
+          defaultCommissionPercent: 12,
+          planKey: 'hbx_padrao',
+        };
+      },
+    },
+  });
+
+  const result = await service.createManualLeadForUser(
+    { companyId: 7, id: 99, role: 'USER' },
+    {
+      name: 'Cliente Produto',
+      productId: 10,
+    } as any,
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(createdRows.length, 1);
+  assert.equal(createdRows[0].productId, 10);
+  assert.equal(createdRows[0].productKindSnapshot, 'platform_plan');
+  assert.equal(createdRows[0].productNameSnapshot, 'HBX Lead');
+  assert.equal(createdRows[0].productPriceCentsSnapshot, 9900);
+  assert.equal(createdRows[0].productCurrencySnapshot, 'BRL');
+  assert.equal(createdRows[0].productBillingCycleSnapshot, 'MONTHLY');
+  assert.equal(createdRows[0].productCommissionPercentSnapshot, 12);
+  assert.equal(createdRows[0].productPlanKeySnapshot, 'hbx_padrao');
+});
+
+test('createManualLeadForUser hides product price when products.viewPrice=false', async () => {
+  const { prisma, createdRows } = createImportPrismaHarness();
+  const { service } = createService({
+    prisma: {
+      ...prisma,
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'products.viewPrice': false },
+        }),
+      },
+    },
+    vendasLead: {
+      findMany: async () => [],
+    },
+    product: {
+      findFirst: async () => ({
+        id: 10,
+        companyId: 7,
+        status: 'active',
+        kind: 'tenant_product',
+        name: 'Plano Comercial',
+        priceCents: 9900,
+        currency: 'BRL',
+        billingCycle: 'MONTHLY',
+        defaultCommissionPercent: 12,
+        planKey: 'tenant_plano',
+      }),
+    },
+  });
+
+  const result = await service.createManualLeadForUser(
+    { companyId: 7, id: 99, role: 'USER' },
+    { name: 'Cliente Produto', productId: 10 } as any,
+  );
+
+  assert.equal(createdRows[0].productPriceCentsSnapshot, 9900);
+  assert.equal(result.lead.productPriceCentsSnapshot, null);
+  assert.equal(result.lead.product.priceCents, null);
+  assert.equal(result.lead.product.priceLabel, null);
+  assert.equal(result.lead.product.canViewPrice, false);
+});
+
+test('updateLeadForUser requires edit access before loading the card', async () => {
+  let findFirstCalls = 0;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'vendas.cards.edit': false },
+        }),
+      },
+    },
+    vendasLead: {
+      findFirst: async () => {
+        findFirstCalls += 1;
+        return null;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.updateLeadForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      'lead-1',
+      { name: 'Novo nome' } as any,
+    ),
+    /editar card bloqueado/i,
+  );
+
+  assert.equal(findFirstCalls, 0);
+});
+
+test('updateLeadForUser scopes USER without viewCompany to own assigned card', async () => {
+  let seenWhere: any = null;
+  const { service } = createService({
+    vendasLead: {
+      findFirst: async ({ where }: any) => {
+        seenWhere = where;
+        return null;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.updateLeadForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      'lead-other',
+      { name: 'Tentativa' } as any,
+    ),
+    /nao encontrado/i,
+  );
+
+  assert.equal(seenWhere.companyId, 7);
+  assert.deepEqual(seenWhere.AND, [
+    { id: 'lead-other' },
+    { assignedUserId: 99 },
+  ]);
+});
+
+test('updateLeadForUser hides product price when products.viewPrice=false', async () => {
+  const now = new Date();
+  let row: any = {
+    id: 'lead-1',
+    companyId: 7,
+    assignedUserId: 99,
+    name: 'Cliente Produto',
+    status: 'novo',
+    returnAt: now,
+    attemptCount: 0,
+    saleStatus: 'none',
+    saleValue: 123.45,
+    commissionStatus: 'none',
+    productId: 10,
+    productKindSnapshot: 'tenant_product',
+    productNameSnapshot: 'Plano Comercial',
+    productPriceCentsSnapshot: 12345,
+    productCurrencySnapshot: 'BRL',
+    productBillingCycleSnapshot: 'MONTHLY',
+    productCommissionPercentSnapshot: 12,
+    productPlanKeySnapshot: 'tenant_plano',
+    createdAt: now,
+    updatedAt: now,
+    timelineEvents: [],
+  };
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'products.viewPrice': false },
+        }),
+      },
+      $transaction: async (fn: any) => fn({
+        vendasLead: {
+          update: async ({ data }: any) => {
+            row = { ...row, ...data, updatedAt: now };
+            return row;
+          },
+          findUniqueOrThrow: async () => row,
+        },
+        vendasLeadTimelineEvent: {
+          createMany: async () => ({ count: 0 }),
+        },
+      }),
+    },
+    vendasLead: {
+      findFirst: async () => row,
+    },
+  });
+
+  const result = await service.updateLeadForUser(
+    { companyId: 7, id: 99, role: 'USER' },
+    'lead-1',
+    { name: 'Cliente Atualizado' } as any,
+  );
+
+  assert.equal(result.lead.name, 'Cliente Atualizado');
+  assert.equal(result.lead.productPriceCentsSnapshot, null);
+  assert.equal(result.lead.product.priceCents, null);
+  assert.equal(result.lead.product.priceLabel, null);
+  assert.equal(result.lead.product.canViewPrice, false);
+  assert.equal(result.lead.saleValue, 123.45);
+});
+
+test('updateLeadForUser requires products.sell before linking catalog product', async () => {
+  let productFindCalls = 0;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'products.sell': false },
+        }),
+      },
+    },
+    vendasLead: {
+      findFirst: async () => ({
+        id: 'lead-1',
+        companyId: 7,
+        assignedUserId: 99,
+        status: 'novo',
+        attemptCount: 0,
+      }),
+    },
+    product: {
+      findFirst: async () => {
+        productFindCalls += 1;
+        return null;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.updateLeadForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      'lead-1',
+      { productId: 10 } as any,
+    ),
+    /vender produtos bloqueado/i,
+  );
+
+  assert.equal(productFindCalls, 0);
+});
+
+test('updateLeadForUser requires products.discount for product sale below catalog price', async () => {
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'products.discount': false },
+        }),
+      },
+    },
+    vendasLead: {
+      findFirst: async () => ({
+        id: 'lead-1',
+        companyId: 7,
+        assignedUserId: 99,
+        status: 'novo',
+        attemptCount: 0,
+        saleStatus: 'none',
+        saleValue: 0,
+        commissionStatus: 'none',
+      }),
+    },
+    product: {
+      findFirst: async () => ({
+        id: 10,
+        companyId: 7,
+        status: 'active',
+        kind: 'tenant_product',
+        name: 'Plano Comercial',
+        priceCents: 10000,
+        currency: 'BRL',
+        billingCycle: 'MONTHLY',
+        allowDiscount: true,
+        maxDiscountPercent: 20,
+        minPriceCents: 8000,
+        defaultCommissionPercent: 12,
+        planKey: 'tenant_plano',
+      }),
+    },
+  });
+
+  await assert.rejects(
+    () => service.updateLeadForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      'lead-1',
+      { productId: 10, saleValue: 90 } as any,
+    ),
+    /aplicar desconto bloqueado/i,
+  );
+});
+
+test('updateLeadForUser requires products.changePrice for product sale above catalog price', async () => {
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'products.changePrice': false },
+        }),
+      },
+    },
+    vendasLead: {
+      findFirst: async () => ({
+        id: 'lead-1',
+        companyId: 7,
+        assignedUserId: 99,
+        status: 'novo',
+        attemptCount: 0,
+        saleStatus: 'none',
+        saleValue: 0,
+        commissionStatus: 'none',
+      }),
+    },
+    product: {
+      findFirst: async () => ({
+        id: 10,
+        companyId: 7,
+        status: 'active',
+        kind: 'tenant_product',
+        name: 'Plano Comercial',
+        priceCents: 10000,
+        currency: 'BRL',
+        billingCycle: 'MONTHLY',
+        allowDiscount: true,
+        maxDiscountPercent: 20,
+        minPriceCents: 8000,
+        defaultCommissionPercent: 12,
+        planKey: 'tenant_plano',
+      }),
+    },
+  });
+
+  await assert.rejects(
+    () => service.updateLeadForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      'lead-1',
+      { productId: 10, saleValue: 120 } as any,
+    ),
+    /alterar valor da venda bloqueado/i,
+  );
+});
+
+test('createHbxSalesHandoffForUser requires activation sale access before loading the card', async () => {
+  let findFirstCalls = 0;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'vendas.sale.markActivationPending': false },
+        }),
+      },
+    },
+    vendasLead: {
+      findFirst: async () => {
+        findFirstCalls += 1;
+        return null;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.createHbxSalesHandoffForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      'lead-1',
+      {} as any,
+    ),
+    /ativacao pendente bloqueado/i,
+  );
+
+  assert.equal(findFirstCalls, 0);
+});
+
+test('createHbxAssistedSignupForUser requires activation sale access before loading the card', async () => {
+  let findFirstCalls = 0;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'vendas.sale.markActivationPending': false },
+        }),
+      },
+    },
+    vendasLead: {
+      findFirst: async () => {
+        findFirstCalls += 1;
+        return null;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.createHbxAssistedSignupForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      'lead-1',
+      { email: 'cliente@teste.local' } as any,
+    ),
+    /ativacao pendente bloqueado/i,
+  );
+
+  assert.equal(findFirstCalls, 0);
+});
+
+test('previewPresentationEmailForUser requires email access before loading the card', async () => {
+  let findFirstCalls = 0;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'communication.email.send': false },
+        }),
+      },
+    },
+    vendasLead: {
+      findFirst: async () => {
+        findFirstCalls += 1;
+        return null;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.previewPresentationEmailForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      'lead-1',
+      {},
+    ),
+    /enviar e-mail bloqueado/i,
+  );
+
+  assert.equal(findFirstCalls, 0);
+});
+
+test('sendPresentationEmailForUser requires email access before loading the card', async () => {
+  let findFirstCalls = 0;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'communication.email.send': false },
+        }),
+      },
+    },
+    vendasLead: {
+      findFirst: async () => {
+        findFirstCalls += 1;
+        return null;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.sendPresentationEmailForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      'lead-1',
+      { subject: 'Assunto', text: 'Mensagem' } as any,
+    ),
+    /enviar e-mail bloqueado/i,
+  );
+
+  assert.equal(findFirstCalls, 0);
+});
+
+test('sendPresentationEmailForUser blocks explicit company reply-to without access', async () => {
+  let sendCalls = 0;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'communication.email.useCompanyReplyTo': false },
+        }),
+      },
+    },
+    vendasLead: {
+      findFirst: async () => ({
+        id: 'lead-1',
+        companyId: 7,
+        assignedUserId: 99,
+        name: 'Cliente Email',
+        email: 'cliente@email.com',
+        status: 'novo',
+      }),
+    },
+    hbxPresentationEmails: {
+      sendPresentationToContact: async () => {
+        sendCalls += 1;
+        return {};
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.sendPresentationEmailForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      'lead-1',
+      {
+        subject: 'Assunto',
+        text: 'Mensagem',
+        useCompanyReplyTo: true,
+      } as any,
+    ),
+    /reply-to da empresa bloqueado/i,
+  );
+
+  assert.equal(sendCalls, 0);
+});
+
+test('sendPresentationEmailForUser does not use company reply-to without access', async () => {
+  let sentInput: any = null;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'communication.email.useCompanyReplyTo': false },
+        }),
+      },
+    },
+    company: {
+      findUnique: async () => ({
+        companyKind: 'tenant',
+        replyToEmail: 'responder@empresa.com',
+        supportEmail: 'suporte@empresa.com',
+        contactEmail: 'contato@empresa.com',
+      }),
+    },
+    vendasLead: {
+      findFirst: async () => ({
+        id: 'lead-1',
+        companyId: 7,
+        assignedUserId: 99,
+        name: 'Cliente Email',
+        email: 'cliente@email.com',
+        status: 'novo',
+      }),
+    },
+    hbxPresentationEmails: {
+      sendPresentationToContact: async (input: any) => {
+        sentInput = input;
+        return {
+          ok: true,
+          sentAt: '2026-06-09T12:00:00.000Z',
+          subject: input.subject,
+          attachment: null,
+          delivery: { ok: true, messageId: 'msg-1', transport: 'mock' },
+        };
+      },
+    },
+  });
+
+  await service.sendPresentationEmailForUser(
+    { companyId: 7, id: 99, role: 'USER' },
+    'lead-1',
+    { subject: 'Assunto', text: 'Mensagem' } as any,
+  );
+
+  assert.equal(sentInput.replyTo, null);
+});
+
+test('sendPresentationEmailForUser uses tenant reply-to with access', async () => {
+  let sentInput: any = null;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'communication.email.useCompanyReplyTo': true },
+        }),
+      },
+    },
+    company: {
+      findUnique: async () => ({
+        companyKind: 'tenant',
+        replyToEmail: 'Responder@Empresa.com',
+        supportEmail: 'suporte@empresa.com',
+        contactEmail: 'contato@empresa.com',
+      }),
+    },
+    vendasLead: {
+      findFirst: async () => ({
+        id: 'lead-1',
+        companyId: 7,
+        assignedUserId: 99,
+        name: 'Cliente Email',
+        email: 'cliente@email.com',
+        status: 'novo',
+      }),
+    },
+    hbxPresentationEmails: {
+      sendPresentationToContact: async (input: any) => {
+        sentInput = input;
+        return {
+          ok: true,
+          sentAt: '2026-06-09T12:00:00.000Z',
+          subject: input.subject,
+          attachment: null,
+          delivery: { ok: true, messageId: 'msg-1', transport: 'mock' },
+        };
+      },
+    },
+  });
+
+  await service.sendPresentationEmailForUser(
+    { companyId: 7, id: 99, role: 'USER' },
+    'lead-1',
+    { subject: 'Assunto', text: 'Mensagem', useCompanyReplyTo: true } as any,
+  );
+
+  assert.equal(sentInput.replyTo, 'responder@empresa.com');
+});
+
+test('deleteLeadForUser requires delete access before loading cards', async () => {
+  let findManyCalls = 0;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'vendas.cards.delete': false },
+        }),
+      },
+    },
+    vendasLead: {
+      findMany: async () => {
+        findManyCalls += 1;
+        return [];
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.deleteLeadForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      'lead-1',
+    ),
+    /excluir card bloqueado/i,
+  );
+
+  assert.equal(findManyCalls, 0);
+});
+
+test('registerAttemptForUser requires timeline access before loading the card', async () => {
+  let findFirstCalls = 0;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'vendas.timeline.comment': false },
+        }),
+      },
+    },
+    vendasLead: {
+      findFirst: async () => {
+        findFirstCalls += 1;
+        return null;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.registerAttemptForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      'lead-1',
+      { channel: 'whatsapp' },
+    ),
+    /registrar timeline bloqueado/i,
+  );
+
+  assert.equal(findFirstCalls, 0);
+});
+
+test('enrichLeadForUser requires manual enrichment access before loading the card', async () => {
+  let findFirstCalls = 0;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'radar.enrichment.manual': false },
+        }),
+      },
+    },
+    vendasLead: {
+      findFirst: async () => {
+        findFirstCalls += 1;
+        return null;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.enrichLeadForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      'lead-1',
+    ),
+    /enriquecer card manualmente bloqueado/i,
+  );
+
+  assert.equal(findFirstCalls, 0);
+});
+
+test('buildPresentationEmailDraftForUser requires email access before loading the card', async () => {
+  let findFirstCalls = 0;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'communication.email.send': false },
+        }),
+      },
+    },
+    vendasLead: {
+      findFirst: async () => {
+        findFirstCalls += 1;
+        return null;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.buildPresentationEmailDraftForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      'lead-1',
+    ),
+    /enviar e-mail bloqueado/i,
+  );
+
+  assert.equal(findFirstCalls, 0);
+});
+
+test('syncTodayAgendaForUser requires manual WhatsApp access before loading cards', async () => {
+  let findManyCalls = 0;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'communication.whatsapp.sendManual': false },
+        }),
+      },
+    },
+    vendasLead: {
+      findMany: async () => {
+        findManyCalls += 1;
+        return [];
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.syncTodayAgendaForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+    ),
+    /envio manual de WhatsApp bloqueado/i,
+  );
+
+  assert.equal(findManyCalls, 0);
+});
+
+test('getCommissionSummaryForUser requires commission view access before sync', async () => {
+  let syncCalls = 0;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: {
+            'commission.viewOwn': false,
+            'commission.viewTeam': false,
+          },
+        }),
+      },
+    },
+    hbxCommissionSync: {
+      syncSalesCompanyCommissions: async () => {
+        syncCalls += 1;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.getCommissionSummaryForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+    ),
+    /ver comissao bloqueado/i,
+  );
+
+  assert.equal(syncCalls, 0);
+});
+
+test('getCommissionSummaryForUser scopes own commission without team view', async () => {
+  const seenLeadWheres: any[] = [];
+  const seenReceivableWheres: any[] = [];
+  const seenPayoutWheres: any[] = [];
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: {
+            'commission.viewOwn': true,
+            'commission.viewTeam': false,
+          },
+        }),
+      },
+      vendasCommissionReceivable: {
+        findMany: async ({ where }: any) => {
+          seenReceivableWheres.push(where);
+          return [];
+        },
+      },
+      vendasCommissionPayout: {
+        findMany: async ({ where }: any) => {
+          seenPayoutWheres.push(where);
+          return [];
+        },
+      },
+    },
+    vendasLead: {
+      findMany: async ({ where }: any) => {
+        seenLeadWheres.push(where);
+        return [];
+      },
+    },
+  });
+
+  const result = await service.getCommissionSummaryForUser(
+    { companyId: 7, id: 99, role: 'USER' },
+  );
+
+  assert.equal(result.scope, 'seller');
+  assert.equal(seenLeadWheres[0].assignedUserId, 99);
+  assert.equal(seenReceivableWheres[0].sellerUserId, 99);
+  assert.equal(seenPayoutWheres[0].sellerUserId, 99);
+});
+
+test('createCommissionPayoutForUser requires markPaid access before sync', async () => {
+  let syncCalls = 0;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'commission.markPaid': false },
+        }),
+      },
+    },
+    hbxCommissionSync: {
+      syncSalesCompanyCommissions: async () => {
+        syncCalls += 1;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.createCommissionPayoutForUser(
+      { companyId: 7, id: 99, role: 'ADMIN' },
+      {},
+    ),
+    /pagamento de comissao bloqueado/i,
+  );
+
+  assert.equal(syncCalls, 0);
+});
+
+test('cancelCommissionPayoutForUser requires cancel commission access before loading payout', async () => {
+  let payoutFindCalls = 0;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'commission.cancel': false },
+        }),
+      },
+      vendasCommissionPayout: {
+        findFirst: async () => {
+          payoutFindCalls += 1;
+          return null;
+        },
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.cancelCommissionPayoutForUser(
+      { companyId: 7, id: 99, role: 'ADMIN' },
+      'payout-1',
+      {},
+    ),
+    /cancelar comissao bloqueado/i,
+  );
+
+  assert.equal(payoutFindCalls, 0);
 });
 
 test('importWebscrapingLeadsForUser reports protected Radar card without quota debit', async () => {
@@ -1311,6 +2868,38 @@ test('buildSaleCommissionPatch releases commission only after confirmed payment'
   assert.equal(result.data.commissionAmount, 19.8);
   assert.ok(result.data.commissionDueAt instanceof Date);
   assert.equal(result.data.commissionRecurring, true);
+});
+
+test('buildSaleCommissionPatch uses product snapshot price and commission when sale value is absent', async () => {
+  const { service } = createService();
+  const result = await (service as any).buildSaleCommissionPatch(
+    {
+      id: 'lead-product',
+      companyId: 7,
+      assignedUserId: 99,
+      commissionPercentSnapshot: 20,
+      productPriceCentsSnapshot: 12990,
+      productCommissionPercentSnapshot: 15,
+      productPlanKeySnapshot: 'tenant_plano',
+      saleValue: 0,
+      salePlanKey: null,
+      saleStatus: 'trial_started',
+      commissionStatus: 'pending',
+      commissionAmount: 0,
+      commissionDueAt: null,
+      commissionPaidAt: null,
+      commissionPayoutId: null,
+    },
+    { saleStatus: 'sale_confirmed' } as any,
+    99,
+    { allowAutomaticSaleStatus: true },
+  );
+
+  assert.equal(result.data.saleStatus, 'sale_confirmed');
+  assert.equal(result.data.saleValue, 129.9);
+  assert.equal(result.data.salePlanKey, 'tenant_plano');
+  assert.equal(result.data.commissionStatus, 'payable');
+  assert.equal(result.data.commissionAmount, 19.49);
 });
 
 test('buildSaleCommissionPatch rejects payable commission before confirmed payment', async () => {

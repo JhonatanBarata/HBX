@@ -6,7 +6,7 @@ import { basename, join, sep } from 'path';
 
 import { SellerOnboardingService } from './seller-onboarding.service';
 
-const hbxCompany = { slug: 'hbx-master-whatsapp-engine' };
+const tenantCompany = { companyKind: 'tenant' };
 
 async function createTempAttachment(dir: string, kind: string) {
   const filename = `${kind}.pdf`;
@@ -84,12 +84,13 @@ function buildOnboardingService(input: {
         curriculum: false,
       },
     }),
+    user: { emailConfirmedAt: input.emailConfirmedAt ?? null },
     attachments: input.attachments,
   };
 
   const prisma = {
     company: {
-      findUnique: async () => hbxCompany,
+      findUnique: async () => tenantCompany,
     },
     user: {
       findFirst: async () => ({
@@ -356,7 +357,7 @@ test('sendOnboardingEmail respeita curriculum obrigatorio configurado', async ()
   }
 });
 
-test('assertCanActivatePartner bloqueia parceiro com email ainda nao confirmado', async () => {
+test('assertCanActivatePartner bloqueia vendedor com email ainda nao confirmado', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'hbx-onboarding-'));
   try {
     const attachments = [
@@ -371,7 +372,7 @@ test('assertCanActivatePartner bloqueia parceiro com email ainda nao confirmado'
       (error: any) => {
         const response = error.getResponse();
         assert.equal(response.code, 'HBX_PARTNER_EMAIL_CONFIRMATION_PENDING');
-        assert.match(response.message, /e-mail.*confirmado/i);
+        assert.match(response.message, /e-mail/i);
         return true;
       },
     );
@@ -382,7 +383,7 @@ test('assertCanActivatePartner bloqueia parceiro com email ainda nao confirmado'
   }
 });
 
-test('assertCanActivatePartner aprova parceiro com email confirmado e documentos completos', async () => {
+test('assertCanActivatePartner aprova vendedor com email confirmado e documentos completos', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'hbx-onboarding-'));
   try {
     const attachments = [

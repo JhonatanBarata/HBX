@@ -493,7 +493,7 @@ function MasterCompanyInspector({
         {activeTab === "billing" ? <MasterBillingPanel company={company} actions={actions} state={state} /> : null}
         {activeTab === "users" ? <MasterUsersPanel company={company} actions={actions} /> : null}
         {activeTab === "whatsapp" ? <MasterWhatsAppPanel workspace={workspace} company={company} actions={actions} state={state} /> : null}
-        {activeTab === "radar" ? <MasterRadarPanel company={company} actions={actions} state={state} /> : null}
+        {activeTab === "radar" ? <RadarCommandPanel company={company} actions={actions} state={state} /> : null}
         {activeTab === "integrations" ? <MasterIntegrationsPanel workspace={workspace} company={company} actions={actions} state={state} /> : null}
         {activeTab === "audit" ? <MasterRiskPanel company={company} /> : null}
         {activeTab === "danger" ? <MasterDangerZone company={company} actions={actions} state={state} /> : null}
@@ -1128,7 +1128,7 @@ function MasterWhatsAppPanel({
   );
 }
 
-function MasterRadarPanel({ company, actions, state }: { company: CompanyDetailPayload["company"]; actions: CommandActions; state: CommandState }) {
+function RadarCommandPanel({ company, actions, state }: { company: CompanyDetailPayload["company"]; actions: CommandActions; state: CommandState }) {
   const usage = company.webscrapingUsage;
   const radarModule = company.modules.find((moduleItem) => moduleItem.key === "webscraping") || company.modules.find((moduleItem) => moduleItem.key === "radar_premium");
   const gerencialModule = company.modules.find((moduleItem) => moduleItem.key === "gerencial");

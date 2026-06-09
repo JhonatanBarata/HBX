@@ -5,7 +5,7 @@ import { UsersController } from '../users/users.controller';
 import { SellerOnboardingService } from './seller-onboarding.service';
 import { HbxPartnerReferralService } from './hbx-partner-referral.service';
 
-const hbxCompany = { slug: 'hbx-master-whatsapp-engine' };
+const tenantCompany = { companyKind: 'tenant' };
 const activePartner = { id: 10, companyId: 1, role: 'USER', isActive: true, deactivatedAt: null, isSystemMaster: false };
 
 function buildUsersController(overrides: {
@@ -15,7 +15,7 @@ function buildUsersController(overrides: {
 } = {}) {
   const usersService = {
     findById: async () => ({ id: 10, companyId: 1, role: 'USER', isActive: true, deactivatedAt: null, isSystemMaster: false }),
-    isHbxSellerNetworkCompany: async () => true,
+    isSellerNetworkCompany: async () => true,
     getCompanyTrialSeatUsage: async () => ({
       company: { id: 1, commissionDueBusinessDays: 3 },
       isTrial: false,
@@ -98,7 +98,7 @@ test('/users/hbx/referred-seller cria candidate e nao cria User', async () => {
 
   assert.equal(userCreateCalled, false);
   assert.equal(result.ok, true);
-  assert.equal(result.message, 'Indicação enviada para aprovação do Master HBX.');
+  assert.equal(result.message, 'Indicação enviada para aprovação do administrador.');
   assert.equal(result.candidate.status, 'pending');
   assert.equal(createCandidateInput.requester.id, 10);
   assert.equal(createCandidateInput.dto.candidateName, 'Maria Indicada');
@@ -108,7 +108,7 @@ test('/users/hbx/referred-seller cria candidate e nao cria User', async () => {
 test('createCandidate grava candidate pending com telefone normalizado', async () => {
   let createdData: any = null;
   const service = new HbxPartnerReferralService({
-    company: { findUnique: async () => hbxCompany },
+    company: { findUnique: async () => tenantCompany },
     hbxPartnerReferralCandidate: {
       findFirst: async () => null,
       create: async ({ data }: any) => {
@@ -140,7 +140,7 @@ test('createCandidate bloqueia duplicado pending ou approved por telefone normal
   let lookupWhere: any = null;
   let createCalled = false;
   const service = new HbxPartnerReferralService({
-    company: { findUnique: async () => hbxCompany },
+    company: { findUnique: async () => tenantCompany },
     hbxPartnerReferralCandidate: {
       findFirst: async ({ where }: any) => {
         lookupWhere = where;
@@ -166,7 +166,7 @@ test('createCandidate bloqueia duplicado pending ou approved por telefone normal
 
 test('approveCandidate muda status para approved', async () => {
   const service = new HbxPartnerReferralService({
-    company: { findUnique: async () => hbxCompany },
+    company: { findUnique: async () => tenantCompany },
     user: { findFirst: async () => ({ id: 10 }) },
     hbxPartnerReferralCandidate: {
       findFirst: async () => ({ id: 'cand_1', companyId: 1, referrerUserId: 10, status: 'pending' }),
@@ -184,7 +184,7 @@ test('approveCandidate muda status para approved', async () => {
 test('getCandidateForConversion aceita indicacao pending ou approved da empresa', async () => {
   let lookupWhere: any = null;
   const service = new HbxPartnerReferralService({
-    company: { findUnique: async () => hbxCompany },
+    company: { findUnique: async () => tenantCompany },
     hbxPartnerReferralCandidate: {
       findFirst: async ({ where }: any) => {
         lookupWhere = where;
@@ -204,7 +204,7 @@ test('markCandidateConverted converte indicacao pending ou approved', async () =
   let lookupWhere: any = null;
   let updateData: any = null;
   const service = new HbxPartnerReferralService({
-    company: { findUnique: async () => hbxCompany },
+    company: { findUnique: async () => tenantCompany },
     hbxPartnerReferralCandidate: {
       findFirst: async ({ where }: any) => {
         lookupWhere = where;
@@ -289,12 +289,12 @@ test('/users/company/create com referralCandidateId cria User com referredByUser
   assert.equal(convertedInput.convertedUserId, 200);
 });
 
-test('/users/company/create vendedor comum nao usa onboarding de Parceiro HBX', async () => {
+test('/users/company/create vendedor sem documentacao nao usa onboarding', async () => {
   let createdData: any = null;
   let onboardingCalled = false;
   const controller = buildUsersController({
     usersService: {
-      isHbxSellerNetworkCompany: async () => false,
+      isSellerNetworkCompany: async () => false,
       create: async (data: any) => {
         createdData = data;
         return { id: 201, email: data.email, username: data.username, role: data.role, isSystemMaster: false, isActive: data.isActive ?? true, ...data };
@@ -303,15 +303,15 @@ test('/users/company/create vendedor comum nao usa onboarding de Parceiro HBX', 
     sellerOnboardingService: {
       getOrCreateForUser: async () => {
         onboardingCalled = true;
-        throw new Error('onboarding HBX nao deve rodar para vendedor comum');
+        throw new Error('onboarding nao deve rodar para vendedor comum');
       },
       updateDraft: async () => {
         onboardingCalled = true;
-        throw new Error('draft HBX nao deve rodar para vendedor comum');
+        throw new Error('draft nao deve rodar para vendedor comum');
       },
       sendOnboardingEmail: async () => {
         onboardingCalled = true;
-        throw new Error('pre-boas-vindas HBX nao deve rodar para vendedor comum');
+        throw new Error('pre-boas-vindas nao deve rodar para vendedor comum');
       },
     },
   });
@@ -333,12 +333,12 @@ test('/users/company/create vendedor comum nao usa onboarding de Parceiro HBX', 
   assert.equal(result.onboardingEmail, null);
 });
 
-test('/users/company/create admin comum nao usa onboarding de Parceiro HBX', async () => {
+test('/users/company/create admin comum nao usa onboarding', async () => {
   let createdData: any = null;
   let onboardingCalled = false;
   const controller = buildUsersController({
     usersService: {
-      isHbxSellerNetworkCompany: async () => false,
+      isSellerNetworkCompany: async () => false,
       create: async (data: any) => {
         createdData = data;
         return { id: 202, email: data.email, username: data.username, role: data.role, isSystemMaster: false, isActive: data.isActive ?? true, ...data };
@@ -347,15 +347,15 @@ test('/users/company/create admin comum nao usa onboarding de Parceiro HBX', asy
     sellerOnboardingService: {
       getOrCreateForUser: async () => {
         onboardingCalled = true;
-        throw new Error('onboarding HBX nao deve rodar para admin comum');
+        throw new Error('onboarding nao deve rodar para admin comum');
       },
       updateDraft: async () => {
         onboardingCalled = true;
-        throw new Error('draft HBX nao deve rodar para admin comum');
+        throw new Error('draft nao deve rodar para admin comum');
       },
       sendOnboardingEmail: async () => {
         onboardingCalled = true;
-        throw new Error('pre-boas-vindas HBX nao deve rodar para admin comum');
+        throw new Error('pre-boas-vindas nao deve rodar para admin comum');
       },
     },
   });
@@ -380,7 +380,7 @@ test('/users/company/create admin comum nao usa onboarding de Parceiro HBX', asy
 test('SellerOnboarding salva herdeiro com indicador e snapshot', async () => {
   let updateData: any = null;
   const service = new SellerOnboardingService({
-    company: { findUnique: async () => hbxCompany },
+    company: { findUnique: async () => tenantCompany },
     sellerOnboarding: {
       findUnique: async () => ({
         id: 'onb_1',
@@ -427,7 +427,7 @@ test('SellerOnboarding salva herdeiro com indicador e snapshot', async () => {
 test('lookup-phone encontra indicacao por telefone normalizado', async () => {
   let lookupWhere: any = null;
   const service = new HbxPartnerReferralService({
-    company: { findUnique: async () => hbxCompany },
+    company: { findUnique: async () => tenantCompany },
     hbxPartnerReferralCandidate: {
       findFirst: async ({ where }: any) => {
         lookupWhere = where;

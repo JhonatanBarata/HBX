@@ -31,6 +31,8 @@ import { CommercialPlansModule } from './commercial-plans/commercial-plans.modul
 import { PulseModule } from './pulse/pulse.module';
 import { OwnerModule } from './owner/owner.module';
 import { TeamModule } from './team/team.module';
+import { MasterProvisioningModule } from './master-provisioning/master-provisioning.module';
+import { TenantCommunicationModule } from './tenant-communication/tenant-communication.module';
 
 @Module({
   imports: [
@@ -69,6 +71,8 @@ import { TeamModule } from './team/team.module';
     PulseModule,
     OwnerModule,
     TeamModule,
+    MasterProvisioningModule,
+    TenantCommunicationModule,
     AdminModule,
   ],
   controllers: [AppController],

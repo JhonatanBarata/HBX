@@ -37,6 +37,7 @@ export type SendHbxPresentationInput = {
   subject?: string | null;
   text?: string | null;
   html?: string | null;
+  replyTo?: string | null;
   source: 'bot' | 'master' | 'manual';
 };
 
@@ -557,6 +558,7 @@ export class HbxPresentationEmailService {
         html: renderedHtml,
         appendHtml: hasBusinessCard ? this.buildBusinessCardHtml() : null,
       }),
+      replyTo: input.replyTo || null,
       attachments,
     });
 

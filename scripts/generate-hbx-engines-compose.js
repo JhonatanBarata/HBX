@@ -19,10 +19,6 @@ const hardLimit = parseCount(process.env.HBX_ENGINE_HARD_LIMIT || process.env.HB
 const defaultCount = parseCount(process.env.HBX_ENGINE_DEFAULT_COUNT, DEFAULT_COUNT, 1, hardLimit);
 const count = parseCount(process.env.HBX_ENGINE_COUNT || process.argv[2], defaultCount, 1, hardLimit);
 const urls = Array.from({ length: count }, (_, index) => `http://hbx-engine-${index + 1}:8001`);
-const shellEngineCount = '$${HBX_ENGINE_COUNT:-' + count + '}';
-const shellWatchdogInterval = '$${HBX_WATCHDOG_INTERVAL_SECONDS:-45}';
-const shellLegacyWatchdogEnabled = '$${HBX_LEGACY_ENGINE_WATCHDOG_ENABLED:-false}';
-const dependsOn = Array.from({ length: count }, (_, index) => `      - hbx-engine-${index + 1}`).join("\n");
 const services = Array.from({ length: count }, (_, index) => {
   const n = index + 1;
   return `  hbx-engine-${n}:
@@ -61,46 +57,8 @@ services:
       HBX_ENGINE_COUNT: "${count}"
       HBX_ENGINE_MAX_COUNT: "${count}"
       HBX_ENGINE_URLS: "${urls.join(",")}"
-    depends_on:
-${dependsOn}
 
 ${services}
-  hbx-engine-watchdog:
-    image: docker:27-cli
-    container_name: hbx-engine-watchdog
-    restart: unless-stopped
-    environment:
-      HBX_ENGINE_COUNT: "${count}"
-      HBX_WATCHDOG_INTERVAL_SECONDS: \${HBX_WATCHDOG_INTERVAL_SECONDS:-45}
-      HBX_LEGACY_ENGINE_WATCHDOG_ENABLED: \${HBX_LEGACY_ENGINE_WATCHDOG_ENABLED:-false}
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    networks:
-      - hbx_net
-    command: >
-      sh -c '
-        if [ "${shellLegacyWatchdogEnabled}" != "true" ]; then
-          echo "[hbx-watchdog] disabled; backend governor owns hbx-engine-* lifecycle.";
-          tail -f /dev/null;
-        fi;
-        while true; do
-          for i in $$(seq 1 ${shellEngineCount}); do
-            name="hbx-engine-$$i";
-            status="$$(docker inspect -f "{{.State.Status}}" "$$name" 2>/dev/null || true)";
-            health="$$(docker inspect -f "{{if .State.Health}}{{.State.Health.Status}}{{else}}no-health{{end}}" "$$name" 2>/dev/null || true)";
-            if [ "$$status" != "running" ]; then
-              echo "[hbx-watchdog] starting $$name status=$$status";
-              docker start "$$name" >/dev/null 2>&1 || true;
-            elif [ "$$health" = "unhealthy" ]; then
-              echo "[hbx-watchdog] restarting $$name health=$$health";
-              docker restart "$$name" >/dev/null 2>&1 || true;
-            fi;
-          done;
-          sleep ${shellWatchdogInterval};
-        done
-      '
-    depends_on:
-${dependsOn}
 
 volumes:
 ${volumes}

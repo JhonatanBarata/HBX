@@ -20,7 +20,6 @@ import {
   RADAR_LEAD_ENRICHMENT_VERSION,
   calculateLeadQualityV2,
   resolveRadarVisibilityFromQualityV2,
-  MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
   PLACES_NEW_TEXT_SEARCH_URL,
   PLACES_NEW_DETAILS_URL,
   PLACES_TEXT_SEARCH_URL,
@@ -192,21 +191,14 @@ export class RadarCorePresentationMixin {
     return Boolean(user?.isSystemMaster) || role === 'ADMIN';
   }
 
-  private isHbxOperationSellerUser(user: any) {
+  private isCompanySellerUser(user: any) {
     const role = String(user?.role || '').trim().toUpperCase();
     if (role !== 'USER' || Boolean(user?.isSystemMaster) || Boolean(user?.masterContext?.active)) return false;
-    const company = user?.company || {};
-    const slug = String(company?.slug || '').trim().toLowerCase();
-    return Boolean(
-      company?.isHbxOperation === true ||
-        company?.isMasterOperationalCompany === true ||
-        slug === 'hbx' ||
-        slug === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
-    );
+    return Boolean(user?.companyId || user?.company?.id);
   }
 
   private assertRadarLeadVisibleForUser(user: any, context: SearchExecutionContext, row: any) {
-    if (!this.isHbxOperationSellerUser(user)) return;
+    if (!this.isCompanySellerUser(user)) return;
     const companyStates = Array.isArray(row?.companyStates) ? row.companyStates : [];
     const assignedToUser = companyStates.some((state: any) => Number(state?.assignedUserId || 0) === context.userId);
     if (!assignedToUser) throw new NotFoundException('Card do Radar nao encontrado.');
@@ -2570,7 +2562,7 @@ export class RadarCorePresentationMixin {
   async listRadarLeadsForUser(user: any, input: RadarFiltersInput = {}) {
     const context = this.resolveContext(user);
     const filters = this.normalizeRadarFilters({ ...input, engine: undefined });
-    const assignedUserId = this.isHbxOperationSellerUser(user) ? context.userId : null;
+    const assignedUserId = this.isCompanySellerUser(user) ? context.userId : null;
     if (!(await this.supportsRadarPersistence())) {
       return { items: [], total: 0, facets: [], meta: { available: false, message: 'Banco do Radar ainda nao foi migrado neste ambiente.' } };
     }

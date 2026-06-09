@@ -824,7 +824,7 @@ class RadarAutoDistributionRunDto {
   limit?: number;
 }
 
-class MasterRadarAutoDistributionDto {
+class RadarTenantAutoDistributionDto {
   @IsOptional()
   @IsIn(['draft', 'active', 'paused'])
   status?: 'draft' | 'active' | 'paused';
@@ -1177,22 +1177,22 @@ export class MasterWebscrapingController {
 
   @Get('export-targets')
   getExportTargets() {
-    return this.webscrapingService.listMasterRadarExportTargets();
+    return this.webscrapingService.listRadarExportTargetsForMaster();
   }
 
   @Get('radar-auto-distribution')
   getRadarAutoDistribution(@Req() req: any) {
-    return this.webscrapingService.getMasterRadarAutoDistributionPanel(req.user);
+    return this.webscrapingService.getRadarTenantAutoDistributionPanel(req.user);
   }
 
   @Put('radar-auto-distribution')
-  saveRadarAutoDistribution(@Req() req: any, @Body() dto: MasterRadarAutoDistributionDto) {
-    return this.webscrapingService.saveMasterRadarAutoDistributionPanel(req.user, dto || {});
+  saveRadarAutoDistribution(@Req() req: any, @Body() dto: RadarTenantAutoDistributionDto) {
+    return this.webscrapingService.saveRadarTenantAutoDistributionPanel(req.user, dto || {});
   }
 
   @Post('radar-auto-distribution/run')
   runRadarAutoDistribution(@Req() req: any, @Body() dto: RadarAutoDistributionRunDto) {
-    return this.webscrapingService.runMasterRadarAutoDistributionForUser(req.user, dto || {});
+    return this.webscrapingService.runRadarTenantDistributionForUser(req.user, dto || {});
   }
 
   @Post('export-cards')

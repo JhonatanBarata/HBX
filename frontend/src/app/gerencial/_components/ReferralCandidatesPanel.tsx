@@ -54,7 +54,7 @@ export default function ReferralCandidatesPanel({
     ) : (
       <HbxEmptyState
         title="Nenhuma indicação pendente ou aprovada."
-        description="Quando um parceiro HBX indicar nome e telefone, o pedido aparece aqui para aprovação do Master HBX."
+        description="Quando um vendedor indicar nome e telefone, o pedido aparece aqui para aprovação do administrador."
       />
     )
   ) : (

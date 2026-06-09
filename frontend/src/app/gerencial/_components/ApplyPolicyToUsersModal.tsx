@@ -14,12 +14,13 @@ type ApplyPolicyToUsersModalProps = {
   onApply: (targetUserIds: number[], patch: TeamPolicyPatch) => void | Promise<void>;
 };
 
-type SectionKey = "modules" | "compensation" | "hbxNetwork" | "limits" | "radar" | "visibility";
+type SectionKey = "modules" | "access" | "compensation" | "sellerNetwork" | "limits" | "radar" | "visibility";
 
 const SECTION_LABELS: Array<[SectionKey, string]> = [
   ["modules", "Módulos"],
+  ["access", "Acessos"],
   ["compensation", "Comissão e D+"],
-  ["hbxNetwork", "Rede HBX"],
+  ["sellerNetwork", "Indicações"],
   ["limits", "Limites"],
   ["radar", "Radar"],
   ["visibility", "Visibilidade"],
@@ -64,8 +65,12 @@ function matchesFilter(user: UserItem, filter: UserFilter) {
 function buildPatchForSections(basePatch: TeamPolicyPatch, enabledSections: Record<SectionKey, boolean>): TeamPolicyPatch {
   const next: TeamPolicyPatch = {};
   if (enabledSections.modules && basePatch.modules) next.modules = basePatch.modules;
+  if (enabledSections.access && basePatch.access) {
+    next.access = basePatch.access;
+    if (basePatch.accessPresetKey !== undefined) next.accessPresetKey = basePatch.accessPresetKey;
+  }
   if (enabledSections.compensation && basePatch.compensation) next.compensation = basePatch.compensation;
-  if (enabledSections.hbxNetwork && basePatch.hbxNetwork) next.hbxNetwork = basePatch.hbxNetwork;
+  if (enabledSections.sellerNetwork && basePatch.sellerNetwork) next.sellerNetwork = basePatch.sellerNetwork;
   if (enabledSections.limits && basePatch.limits) next.limits = basePatch.limits;
   if (enabledSections.radar && basePatch.radar) next.radar = basePatch.radar;
   if (enabledSections.visibility && basePatch.visibility) next.visibility = basePatch.visibility;
@@ -75,8 +80,9 @@ function buildPatchForSections(basePatch: TeamPolicyPatch, enabledSections: Reco
 function patchHasContent(patch: TeamPolicyPatch) {
   return Boolean(
     patch.modules?.length ||
+      Object.keys(patch.access || {}).length ||
       Object.keys(patch.compensation || {}).length ||
-      Object.keys(patch.hbxNetwork || {}).length ||
+      Object.keys(patch.sellerNetwork || {}).length ||
       Object.keys(patch.limits || {}).length ||
       Object.keys(patch.radar || {}).length ||
       Object.keys(patch.visibility || {}).length,
@@ -97,8 +103,9 @@ export default function ApplyPolicyToUsersModal({
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
   const [sections, setSections] = useState<Record<SectionKey, boolean>>({
     modules: true,
+    access: true,
     compensation: true,
-    hbxNetwork: true,
+    sellerNetwork: true,
     limits: true,
     radar: true,
     visibility: true,
@@ -113,8 +120,9 @@ export default function ApplyPolicyToUsersModal({
       setFilter("active");
       setSections({
         modules: true,
+        access: true,
         compensation: true,
-        hbxNetwork: true,
+        sellerNetwork: true,
         limits: true,
         radar: true,
         visibility: true,

@@ -275,12 +275,6 @@ export class CompaniesController {
           masterContext: runtimeContext.masterContext,
         },
       },
-      {
-        hbxOperationalCompanyId:
-          runtimeContext.masterContext?.mode === 'master_operacional'
-            ? runtimeContext.effectiveCompanyId
-            : null,
-      },
     );
     const effectiveCompanyId = effectiveCompany.companyId;
 
@@ -716,9 +710,7 @@ export class CompaniesController {
         companyId: Number(context.effectiveCompanyId),
         companyName: String(context.company?.name || '').trim() || null,
         mode:
-          context.masterContext?.mode === 'master_operacional'
-            ? 'master_operacional'
-            : context.masterContext?.active
+          context.masterContext?.active
               ? 'master_assumido'
               : 'empresa',
         masterContext: context.masterContext,

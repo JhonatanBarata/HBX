@@ -123,7 +123,11 @@ export class HbxEngineGovernorService implements OnModuleInit, OnModuleDestroy {
 
     this.running = true;
     try {
-      await this.pool.refreshEngineRegistryFromEnv().catch(() => []);
+      if (typeof (this.pool as any).syncElasticEngineDesiredStates === 'function') {
+        await (this.pool as any).syncElasticEngineDesiredStates().catch(() => null);
+      } else {
+        await this.pool.refreshEngineRegistryFromEnv().catch(() => []);
+      }
       const rows = await (this.prisma as any).hbxEngineLock.findMany({
         where: { engineIndex: { lt: getConfiguredHbxEngineCount() } },
         orderBy: { engineIndex: 'asc' },

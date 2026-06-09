@@ -2,12 +2,10 @@ const tokenKey = 'hbxOpsControlToken';
 const loginEl = document.getElementById('login');
 const appEl = document.getElementById('app');
 const statusText = document.getElementById('statusText');
-const watchdogNotice = document.getElementById('watchdogNotice');
-const confirmMessage = 'Isso vai liberar RAM derrubando os containers dos motores. O watchdog deve estar parado para eles não voltarem.';
+const confirmMessage = 'Isso vai liberar RAM derrubando containers dos motores. O governor elastico podera religar motores quando houver demanda.';
 const collator = new Intl.Collator('pt-BR', { numeric: true, sensitivity: 'base' });
 
 const quickTargets = [
-  { key: 'watchdog', label: 'Watchdog', names: ['hbx-engine-watchdog', 'hbx-watchdog', 'watchdog'], watchdog: true },
   { key: 'frontend', label: 'Frontend', names: ['hbx-frontend', 'frontend'] },
   { key: 'backend', label: 'Backend', names: ['hbx-backend', 'backend'] },
   { key: 'postgres', label: 'Postgres', names: ['hbx-postgres', 'postgres', 'hbx_postgres', 'app-db-1', 'db'] },
@@ -83,10 +81,7 @@ function renderOverview(data) {
 
 function renderQuickActions() {
   const box = document.getElementById('quickActions');
-  const watchdog = resolveContainerByCandidates(quickTargets[0].names);
   const buttons = ['<button data-refresh>Atualizar</button>'];
-
-  renderWatchdogNotice(watchdog);
 
   quickTargets.forEach((target) => {
     const resolved = resolveContainerByCandidates(target.names);
@@ -114,20 +109,6 @@ function renderQuickActions() {
     `);
   });
   box.innerHTML = buttons.join('');
-}
-
-function renderWatchdogNotice(watchdog) {
-  const state = watchdog.state;
-  watchdogNotice.className = `watchdog-notice ${statusClass(state)}`;
-  if (state === 'running') {
-    watchdogNotice.textContent = 'Watchdog ativo - motores podem religar sozinhos';
-  } else if (state === 'exited' || state === 'stopped' || state === 'created') {
-    watchdogNotice.textContent = 'Watchdog parado - seguro para desligar motores';
-  } else if (state === 'not_found') {
-    watchdogNotice.textContent = 'Watchdog não encontrado - verifique nome do container';
-  } else {
-    watchdogNotice.textContent = 'Watchdog: erro ao consultar';
-  }
 }
 
 function renderContainers() {
@@ -1355,8 +1336,7 @@ async function runQuickAction(targetKey, action) {
   if (!target) return;
   if (action === 'stop' && !confirm(`Confirmar parada de ${target.label}?`)) return;
   setStatus(`${operationProgress(action)} ${target.label}...`);
-  const path = target.watchdog ? `/api/watchdog/${action}` : `/api/quick/${target.key}/${action}`;
-  const result = await api(path, { method: 'POST' });
+  const result = await api(`/api/quick/${target.key}/${action}`, { method: 'POST' });
   const message = `${target.label}: ${operationLabel(action, result.status)}`;
   await loadAll();
   setStatus(message);

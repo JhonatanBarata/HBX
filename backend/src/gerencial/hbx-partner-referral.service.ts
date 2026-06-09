@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import type { User } from '@prisma/client';
-import { isMasterOperationalCompanySlug } from '../commercial-plans/seat-billing.util';
+import { isTenantCompany } from '../common/company-kind';
 import { PrismaService } from '../prisma/prisma.service';
 
 type RequesterUser = Pick<User, 'id' | 'companyId' | 'role' | 'isActive' | 'deactivatedAt' | 'isSystemMaster'>;
@@ -39,10 +39,10 @@ export class HbxPartnerReferralService {
     if (!normalizedCompanyId) throw new ForbiddenException('Company context required');
     const company = await this.prisma.company.findUnique({
       where: { id: normalizedCompanyId },
-      select: { slug: true },
+      select: { companyKind: true },
     });
-    if (!isMasterOperationalCompanySlug(company?.slug)) {
-      throw new ForbiddenException('Indicações de parceiros estão disponíveis apenas na operação HBX.');
+    if (!company || !isTenantCompany(company)) {
+      throw new ForbiddenException('Indicações de vendedores estão disponíveis apenas para empresas tenant.');
     }
     return normalizedCompanyId;
   }
@@ -55,7 +55,7 @@ export class HbxPartnerReferralService {
       user.deactivatedAt ||
       user.isSystemMaster
     ) {
-      throw new ForbiddenException('Seu usuário ainda não está autorizado a indicar parceiros HBX.');
+      throw new ForbiddenException('Seu usuário ainda não está autorizado a indicar vendedores.');
     }
   }
 
@@ -81,7 +81,7 @@ export class HbxPartnerReferralService {
       },
     });
     if (!referrer) {
-      throw new BadRequestException('Indicador precisa ser parceiro ativo da operação HBX.');
+      throw new BadRequestException('Indicador precisa ser vendedor ativo da empresa.');
     }
     return referrer;
   }

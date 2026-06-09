@@ -598,6 +598,63 @@ function buildEngineRows(count: number) {
   }));
 }
 
+test('elastic sync wakes stopped engines below target and stops idle engines above target', async () => {
+  await withEnv({
+    NODE_ENV: 'production',
+    HBX_ENGINE_COUNT: '5',
+    HBX_ENGINE_MAX_COUNT: '5',
+    HBX_ENGINE_WARM_MIN: '1',
+    HBX_CLIENT_RESERVED_ENGINES: '0',
+    HBX_FACTORY_MAX_ENGINES: '5',
+    HBX_FACTORY_START_HOUR: '0',
+    HBX_FACTORY_END_HOUR: '0',
+  }, async () => {
+    const rows = buildEngineRows(5);
+    rows[1].status = 'stopped';
+    rows[1].lastHealthStatus = 'offline';
+    rows[2].status = 'stopped';
+    rows[2].lastHealthStatus = 'offline';
+    const updates: any[] = [];
+    const service = createPoolForCapacity({ queuedCount: 100 }) as any;
+    service.prisma = {
+      hasTable: async (name: string) => name === 'HbxEngineLock',
+      hbxEngineLock: {
+        updateMany: async (input: any) => {
+          updates.push(input);
+          return { count: 1 };
+        },
+      },
+      webscrapingSearchRun: {
+        count: async () => 0,
+      },
+    };
+    service.healthCheckEngines = async () => rows;
+    service.getCurrentCapacityLevel = async () => ({
+      activeEngineCount: 4,
+      googleEmergencyMode: false,
+      queuedCount: 100,
+      runningCount: 0,
+      operationalStatus: 'healthy',
+      message: null,
+      completedLast10Min: 0,
+      partialLast10Min: 0,
+      oldestQueuedAgeMinutes: 0,
+      isTurboEnabled: false,
+      isTurboWindowActive: false,
+      isTurboForcedNow: false,
+      forcedUntil: null,
+      nextTurboAt: null,
+    });
+
+    const result = await service.syncElasticEngineDesiredStates();
+
+    assert.equal(result.desiredRunningCount, 4);
+    assert.equal(updates.some((input) => input.where.id === 'hbx-engine-2' && input.data.status === 'standby'), true);
+    assert.equal(updates.some((input) => input.where.id === 'hbx-engine-3' && input.data.status === 'standby'), true);
+    assert.equal(updates.some((input) => input.where.id === 'hbx-engine-5' && input.data.status === 'stopped'), true);
+  });
+});
+
 test('HBX_ENGINE_COUNT=20 with high queue activates all engines', async () => {
   await withEnv({
     NODE_ENV: 'production',
