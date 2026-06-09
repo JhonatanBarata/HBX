@@ -16,6 +16,7 @@ import ProductCatalogPanel from "./_components/ProductCatalogPanel";
 import ReferralCandidatesPanel from "./_components/ReferralCandidatesPanel";
 import TeamListPanel from "./_components/TeamListPanel";
 import TeamPolicyModal from "./_components/TeamPolicyModal";
+import TenantCommunicationPanel from "./_components/TenantCommunicationPanel";
 import type { TeamPolicy, TeamPolicyPatch } from "./_components/types";
 import { apiFetch, getDashboardApiBaseUrl, getToken } from "@/app/_lib/api";
 import { startSmartPolling } from "@/app/_lib/polling";
@@ -406,7 +407,7 @@ type UserProfileDraft = {
 };
 
 type GerencialRole = "USER" | "ADMIN" | "USERMASTER";
-type MobileGerencialTab = "status" | "equipe" | "comissoes" | "modulos" | "produtos" | "sinais";
+type MobileGerencialTab = "status" | "equipe" | "comissoes" | "modulos" | "produtos" | "comunicacao" | "sinais";
 type DesktopGerencialGuideTab = MobileGerencialTab | "atualizar";
 
 const CREATED_PASSWORD_STORAGE_KEY = "hbx.gerencial.created-password.v1";
@@ -2538,6 +2539,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     ["comissoes", "Comissões"],
     ["modulos", "Módulos"],
     ["produtos", "Produtos"],
+    ["comunicacao", "Comunicação"],
     ["sinais", "Sinais"],
   ];
   const desktopGuideTabs: Array<HbxGuide1Tab<DesktopGerencialGuideTab>> = [
@@ -2546,6 +2548,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     { key: "comissoes", label: "Comissões", badge: formatCurrency(data?.commission?.totals.duePayableAmount || 0) },
     { key: "modulos", label: "Módulos", badge: enabledModules.length },
     { key: "produtos", label: "Produtos" },
+    { key: "comunicacao", label: "Comunicação" },
     { key: "sinais", label: "Sinais", badge: topMessages.length + topSurveys.length },
     { key: "atualizar", label: "Atualizar", badge: loading ? "..." : undefined },
   ];
@@ -3394,6 +3397,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
               </div>
             ) : null}
             {mobileTab === "produtos" ? <ProductCatalogPanel surface="mobile" /> : null}
+            {mobileTab === "comunicacao" ? <TenantCommunicationPanel surface="mobile" /> : null}
             {mobileTab === "sinais" ? renderMobileSignals() : null}
           </>
         )}
@@ -3443,6 +3447,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   const showDesktopTeam = desktopGuideTab === "equipe";
   const showDesktopModules = desktopGuideTab === "modulos";
   const showDesktopProducts = desktopGuideTab === "produtos";
+  const showDesktopCommunication = desktopGuideTab === "comunicacao";
   const showDesktopSignals = desktopGuideTab === "sinais";
 
   return (
@@ -4228,6 +4233,8 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
           ) : null}
 
           {showDesktopProducts ? <ProductCatalogPanel surface="desktop" /> : null}
+
+          {showDesktopCommunication ? <TenantCommunicationPanel surface="desktop" /> : null}
 
           {showDesktopSignals ? (
           <section className="metrics-grid">

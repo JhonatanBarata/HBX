@@ -1480,6 +1480,34 @@ export class VendasService {
     this.assertVendasPermission(context.access?.canSendEmail, 'Acesso para enviar e-mail bloqueado pela politica da equipe.');
   }
 
+  private parseBooleanRequest(value: unknown) {
+    if (value === true) return true;
+    const normalized = String(value || '').trim().toLowerCase();
+    return ['1', 'true', 'yes', 'sim', 'on'].includes(normalized);
+  }
+
+  private async resolveCompanyReplyToForEmail(context: VendasUserContext, body?: any) {
+    const requestedCompanyReplyTo = this.parseBooleanRequest(body?.useCompanyReplyTo || body?.useTenantReplyTo);
+    if (!context.access?.canUseCompanyReplyTo) {
+      if (requestedCompanyReplyTo) {
+        throw new ForbiddenException('Acesso para usar reply-to da empresa bloqueado pela politica da equipe.');
+      }
+      return null;
+    }
+
+    const company = await (this.prisma.company as any).findUnique({
+      where: { id: context.companyId },
+      select: {
+        companyKind: true,
+        replyToEmail: true,
+        supportEmail: true,
+        contactEmail: true,
+      },
+    }).catch(() => null);
+    if (!company || !isTenantCompany(company)) return null;
+    return this.normalizeEmail(company.replyToEmail || company.supportEmail || company.contactEmail);
+  }
+
   private assertCanRegisterTimeline(context: VendasUserContext) {
     this.assertVendasPermission(context.access?.canCommentTimeline, 'Acesso para registrar timeline bloqueado pela politica da equipe.');
   }
@@ -5173,6 +5201,7 @@ export class VendasService {
     });
     if (!lead) throw new NotFoundException('Lead nao encontrado.');
     this.assertLeadAllowsManualEmail(lead);
+    const replyTo = await this.resolveCompanyReplyToForEmail(context, body);
 
     const fallbackDraft = buildHbxPresentationEmailDraft({
       leadName: lead.name,
@@ -5193,6 +5222,7 @@ export class VendasService {
       subject: body?.subject || fallbackDraft.subject,
       text: body?.text || fallbackDraft.body,
       html: body?.html,
+      replyTo,
       source: 'manual',
     });
 
@@ -5258,6 +5288,7 @@ export class VendasService {
     const text = this.normalizeText(body?.text);
     if (!subject) throw new BadRequestException('Informe o assunto do e-mail.');
     if (!text) throw new BadRequestException('Informe o corpo do e-mail.');
+    const replyTo = await this.resolveCompanyReplyToForEmail(context, body);
 
     try {
       await this.commercialUsageLimits.recordPresentationEmailAttempt(companyId, userId, {
@@ -5274,6 +5305,7 @@ export class VendasService {
         subject,
         text,
         html: body?.html,
+        replyTo,
         source: 'manual',
       });
       const messageId = result.delivery?.messageId || null;

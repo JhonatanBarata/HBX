@@ -47,3 +47,33 @@ Validação parcial:
 
 Próxima ação:
 Rodar validações obrigatórias completas e publicar commit.
+
+## Comunicação por tenant
+
+Aplicado:
+- Company recebeu supportEmail, replyToEmail, supportWhatsapp e communicationSettingsJson.
+- Migration incremental criada com backfill apenas para tenants.
+- TenantCommunicationModule criado com GET/PATCH /tenant-communication/settings.
+- platform_infra foi bloqueado para comunicacao comercial de tenant.
+- Leitura de canais exige communication.support.viewCompanySupportChannels.
+- Edicao de canais exige team.access.manage.
+- MasterProvisioning passou a persistir canais de suporte/reply-to/WhatsApp e mostra persistence=ready.
+- Vendas passou a usar reply-to da empresa somente quando communication.email.useCompanyReplyTo permite.
+- Pedido explicito de reply-to da empresa sem capability e bloqueado.
+- Gerencial recebeu guia Comunicacao consumindo o endpoint backend.
+- Catalogo marcou communication.email.useCompanyReplyTo e communication.support.viewCompanySupportChannels como backendEnforced=true.
+- communication.support.contactAdmin ficou backendEnforced=false porque o envio real de suporte nao foi implementado nesta fase.
+
+Validação:
+- prisma:validate passou.
+- build backend passou.
+- teste de tenant-communication passou.
+- teste de master-provisioning passou.
+- teste de vendas passou.
+- teste de team-access-runtime passou.
+- frontend lint passou.
+- frontend build passou.
+- grep obrigatorio de runtime retornou zero ocorrencias.
+
+Próxima ação:
+Revisar o bloco de comunicacao por tenant antes de liberar teste local.

@@ -32,6 +32,7 @@ import { PulseModule } from './pulse/pulse.module';
 import { OwnerModule } from './owner/owner.module';
 import { TeamModule } from './team/team.module';
 import { MasterProvisioningModule } from './master-provisioning/master-provisioning.module';
+import { TenantCommunicationModule } from './tenant-communication/tenant-communication.module';
 
 @Module({
   imports: [
@@ -71,6 +72,7 @@ import { MasterProvisioningModule } from './master-provisioning/master-provision
     OwnerModule,
     TeamModule,
     MasterProvisioningModule,
+    TenantCommunicationModule,
     AdminModule,
   ],
   controllers: [AppController],

@@ -27,6 +27,10 @@ model Company {
   primaryContactName      String?
   contactEmail            String?
   contactPhone            String?
+  supportEmail            String?
+  replyToEmail            String?
+  supportWhatsapp         String?
+  communicationSettingsJson String?
   taxDocument             String?
   whatsappNumber          String?
   whatsappPhoneNumberId   String?   @unique

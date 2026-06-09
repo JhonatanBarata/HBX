@@ -2139,6 +2139,152 @@ test('sendPresentationEmailForUser requires email access before loading the card
   assert.equal(findFirstCalls, 0);
 });
 
+test('sendPresentationEmailForUser blocks explicit company reply-to without access', async () => {
+  let sendCalls = 0;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'communication.email.useCompanyReplyTo': false },
+        }),
+      },
+    },
+    vendasLead: {
+      findFirst: async () => ({
+        id: 'lead-1',
+        companyId: 7,
+        assignedUserId: 99,
+        name: 'Cliente Email',
+        email: 'cliente@email.com',
+        status: 'novo',
+      }),
+    },
+    hbxPresentationEmails: {
+      sendPresentationToContact: async () => {
+        sendCalls += 1;
+        return {};
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.sendPresentationEmailForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      'lead-1',
+      {
+        subject: 'Assunto',
+        text: 'Mensagem',
+        useCompanyReplyTo: true,
+      } as any,
+    ),
+    /reply-to da empresa bloqueado/i,
+  );
+
+  assert.equal(sendCalls, 0);
+});
+
+test('sendPresentationEmailForUser does not use company reply-to without access', async () => {
+  let sentInput: any = null;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'communication.email.useCompanyReplyTo': false },
+        }),
+      },
+    },
+    company: {
+      findUnique: async () => ({
+        companyKind: 'tenant',
+        replyToEmail: 'responder@empresa.com',
+        supportEmail: 'suporte@empresa.com',
+        contactEmail: 'contato@empresa.com',
+      }),
+    },
+    vendasLead: {
+      findFirst: async () => ({
+        id: 'lead-1',
+        companyId: 7,
+        assignedUserId: 99,
+        name: 'Cliente Email',
+        email: 'cliente@email.com',
+        status: 'novo',
+      }),
+    },
+    hbxPresentationEmails: {
+      sendPresentationToContact: async (input: any) => {
+        sentInput = input;
+        return {
+          ok: true,
+          sentAt: '2026-06-09T12:00:00.000Z',
+          subject: input.subject,
+          attachment: null,
+          delivery: { ok: true, messageId: 'msg-1', transport: 'mock' },
+        };
+      },
+    },
+  });
+
+  await service.sendPresentationEmailForUser(
+    { companyId: 7, id: 99, role: 'USER' },
+    'lead-1',
+    { subject: 'Assunto', text: 'Mensagem' } as any,
+  );
+
+  assert.equal(sentInput.replyTo, null);
+});
+
+test('sendPresentationEmailForUser uses tenant reply-to with access', async () => {
+  let sentInput: any = null;
+  const { service } = createService({
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'communication.email.useCompanyReplyTo': true },
+        }),
+      },
+    },
+    company: {
+      findUnique: async () => ({
+        companyKind: 'tenant',
+        replyToEmail: 'Responder@Empresa.com',
+        supportEmail: 'suporte@empresa.com',
+        contactEmail: 'contato@empresa.com',
+      }),
+    },
+    vendasLead: {
+      findFirst: async () => ({
+        id: 'lead-1',
+        companyId: 7,
+        assignedUserId: 99,
+        name: 'Cliente Email',
+        email: 'cliente@email.com',
+        status: 'novo',
+      }),
+    },
+    hbxPresentationEmails: {
+      sendPresentationToContact: async (input: any) => {
+        sentInput = input;
+        return {
+          ok: true,
+          sentAt: '2026-06-09T12:00:00.000Z',
+          subject: input.subject,
+          attachment: null,
+          delivery: { ok: true, messageId: 'msg-1', transport: 'mock' },
+        };
+      },
+    },
+  });
+
+  await service.sendPresentationEmailForUser(
+    { companyId: 7, id: 99, role: 'USER' },
+    'lead-1',
+    { subject: 'Assunto', text: 'Mensagem', useCompanyReplyTo: true } as any,
+  );
+
+  assert.equal(sentInput.replyTo, 'responder@empresa.com');
+});
+
 test('deleteLeadForUser requires delete access before loading cards', async () => {
   let findManyCalls = 0;
   const { service } = createService({

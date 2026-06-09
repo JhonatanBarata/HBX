@@ -94,7 +94,7 @@ export type MasterProvisioningPlan = {
     supportEmail: string | null;
     replyToEmail: string | null;
     supportWhatsapp: string | null;
-    persistence: 'pending_schema';
+    persistence: 'ready';
   };
   products: Array<TenantProductSeed & { persistence: 'ready' }>;
   assistedImplementation: {
@@ -208,7 +208,7 @@ export class MasterProvisioningService {
       supportEmail: normalizeEmail(input.supportEmail),
       replyToEmail: normalizeEmail(input.replyToEmail),
       supportWhatsapp: normalizeText(input.supportWhatsapp, 40),
-      persistence: 'pending_schema' as const,
+      persistence: 'ready' as const,
     };
 
     return {
@@ -261,7 +261,7 @@ export class MasterProvisioningService {
         { key: 'release_modules', label: 'Liberar modulos', status: modules.length ? 'ready' : 'deferred' },
         { key: 'configure_limits', label: 'Configurar limites', status: 'ready' },
         { key: 'create_initial_admin', label: 'Criar admin inicial', status: input.admin ? 'ready' : 'deferred' },
-        { key: 'configure_support_channels', label: 'Configurar canais de suporte', status: 'pending_schema' },
+        { key: 'configure_support_channels', label: 'Configurar canais de suporte', status: 'ready' },
         { key: 'prepare_initial_products', label: 'Preparar produtos iniciais', status: products.length ? 'ready' : 'deferred' },
         { key: 'mark_assisted_implementation', label: 'Marcar implantacao assistida', status: 'ready' },
       ],
@@ -289,7 +289,7 @@ export class MasterProvisioningService {
     const entitlementKeys = COMMERCIAL_PLAN_ENTITLEMENT_KEYS[plan.commercial.planKey] || [];
 
     const result = await this.prisma.$transaction(async (tx) => {
-      const company = await tx.company.create({
+      const company = await (tx.company as any).create({
         data: {
           name: plan.tenant.name,
           slug: plan.tenant.slug,
@@ -304,6 +304,9 @@ export class MasterProvisioningService {
           billingCycle: plan.commercial.billingCycle,
           contactEmail: plan.supportChannels.supportEmail || plan.admin?.email || null,
           contactPhone: plan.supportChannels.supportWhatsapp || plan.admin?.phone || null,
+          supportEmail: plan.supportChannels.supportEmail,
+          replyToEmail: plan.supportChannels.replyToEmail || plan.supportChannels.supportEmail || plan.admin?.email || null,
+          supportWhatsapp: plan.supportChannels.supportWhatsapp,
           commercialCardsMonthlyLimitOverride: plan.limits.commercialCardsMonthlyLimitOverride,
           commercialCardsDailyLimitOverride: plan.limits.commercialCardsDailyLimitOverride,
           commissionDueBusinessDays: plan.limits.commissionDueBusinessDays,

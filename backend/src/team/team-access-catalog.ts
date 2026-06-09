@@ -595,7 +595,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     requiresModule: 'vendas',
     riskLevel: 'medium',
     sellerVisible: true,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'communication.support.contactAdmin',
@@ -617,7 +617,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     defaultForSeller: true,
     riskLevel: 'low',
     sellerVisible: true,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'commission.viewOwn',

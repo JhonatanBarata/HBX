@@ -45,12 +45,12 @@ test('buildProvisioningPlan creates tenant contract without platform infra privi
   assert.equal(plan.limits.commissionDueBusinessDays, 5);
   assert.equal(plan.admin?.email, 'dono@exemplo.com');
   assert.equal(plan.admin?.passwordProvided, false);
-  assert.equal(plan.supportChannels.persistence, 'pending_schema');
+  assert.equal(plan.supportChannels.persistence, 'ready');
   assert.equal(plan.supportChannels.replyToEmail, 'responder@cliente.com');
   assert.equal(plan.products[0].persistence, 'ready');
   assert.equal(plan.products[0].status, 'active');
   assert.equal(plan.assistedImplementation.status, 'pending');
-  assert.equal(plan.steps.find((step) => step.key === 'configure_support_channels')?.status, 'pending_schema');
+  assert.equal(plan.steps.find((step) => step.key === 'configure_support_channels')?.status, 'ready');
   assert.equal(plan.steps.find((step) => step.key === 'prepare_initial_products')?.status, 'ready');
 });
 
@@ -77,13 +77,19 @@ test('buildProvisioningPlan defaults modules from selected plan and validates ad
   );
 });
 
-test('provisionTenant persists initial products for the tenant', async () => {
+test('provisionTenant persists initial products and support channels for the tenant', async () => {
   const productCreates: any[] = [];
+  const companyCreates: any[] = [];
   const service = new MasterProvisioningService({
     company: { findUnique: async () => null },
     user: { findFirst: async () => null },
     $transaction: async (callback: any) => callback({
-      company: { create: async () => ({ id: 42 }) },
+      company: {
+        create: async ({ data }: any) => {
+          companyCreates.push(data);
+          return { id: 42 };
+        },
+      },
       systemModule: { findMany: async () => [] },
       companyModule: { upsert: async () => ({}) },
       companyCommercialEntitlement: { upsert: async () => ({}) },
@@ -106,6 +112,9 @@ test('provisionTenant persists initial products for the tenant', async () => {
       email: 'admin@produto.com',
       password: 'senha-temporaria',
     },
+    supportEmail: 'suporte@produto.com',
+    replyToEmail: 'responder@produto.com',
+    supportWhatsapp: '+55 11 97777-0000',
     products: [
       {
         key: 'consultoria',
@@ -116,6 +125,10 @@ test('provisionTenant persists initial products for the tenant', async () => {
     ],
   });
 
+  assert.equal(companyCreates.length, 1);
+  assert.equal(companyCreates[0].supportEmail, 'suporte@produto.com');
+  assert.equal(companyCreates[0].replyToEmail, 'responder@produto.com');
+  assert.equal(companyCreates[0].supportWhatsapp, '+55 11 97777-0000');
   assert.equal(productCreates.length, 1);
   assert.equal(productCreates[0].companyId, 42);
   assert.equal(productCreates[0].sku, 'consultoria');

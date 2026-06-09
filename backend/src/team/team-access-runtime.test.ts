@@ -312,10 +312,13 @@ test('System Master without active tenant context cannot operate Products', asyn
   );
 });
 
-test('catalog marks products enforced and commission.viewInherited pending', () => {
+test('catalog marks products and tenant communication enforcement honestly', () => {
   const byKey = new Map(TEAM_ACCESS_CATALOG.map((item) => [item.key, item]));
 
   assert.equal(byKey.get('commission.viewInherited')?.backendEnforced, false);
+  assert.equal(byKey.get('communication.support.contactAdmin')?.backendEnforced, false);
+  assert.equal(byKey.get('communication.email.useCompanyReplyTo')?.backendEnforced, true);
+  assert.equal(byKey.get('communication.support.viewCompanySupportChannels')?.backendEnforced, true);
   for (const key of [
     'products.view',
     'products.sell',
