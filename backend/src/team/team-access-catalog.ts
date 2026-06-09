@@ -606,7 +606,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     defaultForSeller: true,
     riskLevel: 'low',
     sellerVisible: true,
-    backendEnforced: true,
+    backendEnforced: false,
   },
   {
     key: 'communication.support.viewCompanySupportChannels',
