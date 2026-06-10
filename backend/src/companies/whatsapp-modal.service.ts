@@ -2,6 +2,7 @@ import { BadRequestException, HttpException, HttpStatus, Injectable, Logger, Not
 import axios, { AxiosError, AxiosResponse, Method } from 'axios';
 import * as QRCode from 'qrcode';
 import { COMMERCIAL_PLAN_KEYS } from '../commercial-plans/commercial-plan-catalog';
+import { resolveCompanyAccessState } from '../modules/company-access-state';
 import { ensureMasterBillingRuntimeSchema } from '../modules/master-runtime';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -45,15 +46,19 @@ type CompanyModalFields = {
     tenantKey: string | null;
     status: string | null;
   } | null;
+  status?: string | null;
   paymentStatus: string | null;
   subscriptionStatus: string | null;
   onboardingStatus: string | null;
   selectedPlanKey: string | null;
   contactPhone: string | null;
   premiumAccess: boolean | null;
+  billingExempt?: boolean | null;
   isActive: boolean | null;
   trialStartsAt: Date | null;
   trialEndsAt: Date | null;
+  billingGraceEndsAt?: Date | null;
+  courtesyEndsAt?: Date | null;
 };
 
 type ModalConfig = {
@@ -900,20 +905,14 @@ export class WhatsAppModalService {
     return digits;
   }
 
-  private isTrialingCompany(company: Pick<CompanyModalFields, 'paymentStatus' | 'subscriptionStatus' | 'onboardingStatus' | 'trialEndsAt'>) {
-    const paymentStatus = String(company.paymentStatus || '').trim().toUpperCase();
-    const subscriptionStatus = String(company.subscriptionStatus || '').trim().toLowerCase();
-    const onboardingStatus = String(company.onboardingStatus || '').trim().toLowerCase();
-    const trialEndsAt = company.trialEndsAt instanceof Date ? company.trialEndsAt : null;
-    const withinTrialWindow = !trialEndsAt || trialEndsAt.getTime() >= Date.now();
-    return withinTrialWindow && (
-      paymentStatus === 'TRIAL'
-      || subscriptionStatus === 'trialing'
-      || onboardingStatus === 'active_trial'
-    );
+  // Projecoes do estado canonico (PR-002 A.4): o motor do modal nao
+  // re-deriva mais trial/pago de campos crus.
+  private isTrialingCompany(company: Partial<CompanyModalFields>) {
+    const access = resolveCompanyAccessState(company as any);
+    return access.state === 'trial' || access.state === 'trial_ending';
   }
 
-  private isLeadTrialingCompany(company: Pick<CompanyModalFields, 'paymentStatus' | 'subscriptionStatus' | 'onboardingStatus' | 'trialEndsAt' | 'selectedPlanKey'>) {
+  private isLeadTrialingCompany(company: Partial<CompanyModalFields>) {
     const selectedPlanKey = String(company.selectedPlanKey || '').trim().toLowerCase();
     return selectedPlanKey === COMMERCIAL_PLAN_KEYS.PADRAO && this.isTrialingCompany(company);
   }
@@ -938,17 +937,9 @@ export class WhatsAppModalService {
     }
   }
 
-  private isPaidOrActiveCompany(company: Pick<CompanyModalFields, 'paymentStatus' | 'subscriptionStatus' | 'premiumAccess'>) {
-    const paymentStatus = String(company.paymentStatus || '').trim().toUpperCase();
-    const subscriptionStatus = String(company.subscriptionStatus || '').trim().toLowerCase();
-    const trialing = paymentStatus === 'TRIAL' || subscriptionStatus === 'trialing';
-    return (
-      paymentStatus === 'PAID'
-      || paymentStatus === 'MANUAL'
-      || subscriptionStatus === 'active'
-      || subscriptionStatus === 'manual'
-      || (Boolean(company.premiumAccess) && !trialing)
-    );
+  private isPaidOrActiveCompany(company: Partial<CompanyModalFields>) {
+    const access = resolveCompanyAccessState(company as any);
+    return access.state === 'paying' || access.state === 'manual' || access.state === 'exempt';
   }
 
   private buildTrialPhoneMetadata(company: CompanyModalFields, snapshot: ModalSnapshot, source: string) {
@@ -2711,15 +2702,19 @@ export class WhatsAppModalService {
             status: true,
           },
         },
+        status: true,
         paymentStatus: true,
         subscriptionStatus: true,
         onboardingStatus: true,
         selectedPlanKey: true,
         contactPhone: true,
         premiumAccess: true,
+        billingExempt: true,
         isActive: true,
         trialStartsAt: true,
         trialEndsAt: true,
+        billingGraceEndsAt: true,
+        courtesyEndsAt: true,
       },
     });
 

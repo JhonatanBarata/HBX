@@ -197,13 +197,15 @@ test('pairing-code rejeita telefone invalido', async () => {
 });
 
 test('pairing-code no trial HBX Lead Plus exige o telefone informado na ativacao', async () => {
+  // premiumAccess significa cortesia (vence trial na leitura canonica);
+  // empresa em trial real nao carrega a flag desde o PR-002 A.3.
   const service = createService(createCompany({
     paymentStatus: 'TRIAL',
     subscriptionStatus: 'trialing',
     onboardingStatus: 'active_trial',
     selectedPlanKey: 'hbx_padrao',
     contactPhone: '19997024884',
-    premiumAccess: true,
+    premiumAccess: false,
   }));
 
   await assert.rejects(
