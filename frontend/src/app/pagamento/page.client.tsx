@@ -114,6 +114,14 @@ type FinanceiroOverview = {
   company: {
     id: number;
     name: string;
+    access?: {
+      state: string;
+      statusLabel: string;
+      riskLevel: "stable" | "warning" | "critical";
+      released: boolean;
+      pendingCheckout: boolean;
+      detailCode?: string | null;
+    } | null;
     paymentStatus: string;
     paymentMethod?: string | null;
     billingCycle: BillingCycle;
@@ -258,6 +266,14 @@ const MOCK_FRONT_OVERVIEW: FinanceiroOverview = {
   company: {
     id: 0,
     name: "HBX Preview",
+    access: {
+      state: "pending_checkout",
+      statusLabel: "Checkout pendente",
+      riskLevel: "warning",
+      released: false,
+      pendingCheckout: true,
+      detailCode: null,
+    },
     paymentStatus: "PENDING",
     paymentMethod: "CARD",
     billingCycle: "MONTHLY",
@@ -434,26 +450,16 @@ function isBillingGraceActive(company?: FinanceiroOverview["company"] | null) {
 }
 
 function isPendingCheckout(overview: FinanceiroOverview | null, reason?: string | null) {
-  const paymentStatus = String(overview?.company.paymentStatus || "").trim().toUpperCase();
-  const subscriptionStatus = String(overview?.company.subscriptionStatus || "").trim().toLowerCase();
+  // Projecao do estado unico (PR-002 C.4): o gate vem do bloco `access`
+  // calculado no backend — a tela nao recombina mais campos crus.
+  const access = overview?.company.access;
+  if (!access) return false;
+  if (access.released) return false;
   const onboardingReason = String(reason || "").trim().toLowerCase();
-  if (isBillingGraceActive(overview?.company)) return false;
-  const accessReleased =
-    paymentStatus === "PAID" ||
-    paymentStatus === "MANUAL" ||
-    subscriptionStatus === "active" ||
-    subscriptionStatus === "authorized" ||
-    subscriptionStatus === "manual" ||
-    Boolean(overview?.company.premiumAccess);
-  if (accessReleased) return false;
   return (
-    paymentStatus === "PENDING" ||
-    paymentStatus === "EXPIRED" ||
-    paymentStatus === "DISABLED" ||
-    paymentStatus === "OVERDUE" ||
-    subscriptionStatus === "pending_checkout" ||
-    subscriptionStatus === "expired" ||
-    subscriptionStatus === "past_due" ||
+    access.pendingCheckout ||
+    access.state === "overdue" ||
+    access.state === "suspended" ||
     onboardingReason === "pending_checkout" ||
     onboardingReason === "trial_expired" ||
     onboardingReason === "payment_failed"
@@ -1596,7 +1602,7 @@ export default function FinanceiroClientPage() {
   const activeSubscription = overview.subscription;
   const canCancel = ["active", "authorized", "past_due"].includes(String(activeSubscription?.status || "").toLowerCase());
   const guideTabs: Array<HbxGuide1Tab<FinanceiroGuideTab>> = [
-    { key: "assinatura", label: "Assinatura", badge: subscriptionLabel(overview.company.subscriptionStatus) },
+    { key: "assinatura", label: "Assinatura", badge: overview.company.access?.statusLabel ?? subscriptionLabel(overview.company.subscriptionStatus) },
     { key: "cobranca", label: "Cobrança", badge: formatCurrency(overview.pricing.finalCycleAmount) },
     { key: "historico", label: "Histórico", badge: overview.history.length },
     { key: "cartao", label: "Cartão", badge: overview.paymentOptions.card.last4 || "-" },
@@ -1640,7 +1646,7 @@ export default function FinanceiroClientPage() {
               <div><span>ID assinatura</span><strong>{activeSubscription?.providerPreapprovalId || "-"}</strong></div>
             </div>
             <div className={styles.formActions}>
-              {overview.company.subscriptionStatus === "trialing" ? (
+              {overview.company.access?.state === "trial" || overview.company.access?.state === "trial_ending" ? (
                 <button type="button" className="btn btn-primary" onClick={() => setForceCheckout(true)}>
                   Assinar para continuar
                 </button>

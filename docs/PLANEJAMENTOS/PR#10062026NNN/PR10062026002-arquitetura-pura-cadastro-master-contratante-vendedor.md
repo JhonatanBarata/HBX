@@ -228,6 +228,14 @@ Cada fase commitada, buildada e testada antes da seguinte.
 >   isTrial do canônico. Morto: popup/localStorage de senha temporária do
 >   gerencial. Fluxo de parceiro HBX (onboarding contrato/documentos)
 >   inalterado — a ativação gera senha própria (revisar no DROP).
+> ✔ C.4 Financeira do contratante no estado único: o overview do financeiro
+>   ganha bloco `company.access` (state/statusLabel/riskLevel/released/
+>   pendingCheckout/detailCode) projetado do resolveCompanyAccessState; o gate
+>   interno do overview (companyPendingCheckout que disparava ativação por
+>   assinatura/graça) também virou projeção. As DUAS telas de pagamento
+>   (desktop e mobile) deixaram de recombinar campos crus: isPendingCheckout lê
+>   `access`, badge "Assinatura" usa statusLabel canônica, CTA de trial usa
+>   access.state. Campos crus seguem no payload só como espelho até o DROP.
 > **Pendências anotadas:**
 >   (a) branch "completar registro" de username sem e-mail no signup vive só
 >       para contas legadas — morre no DROP após censo de usuários sem e-mail
@@ -258,7 +266,7 @@ Cada fase commitada, buildada e testada antes da seguinte.
 - [x] C.3 Convite de vendedor: cadastro nome+contato → link de onboarding → vendedor
       define senha. Aviso de custo extra (R$ por vendedor além dos incluídos) ANTES de
       confirmar, com valor vindo do catálogo.
-- [ ] C.4 Tela financeira do contratante revisada para o estado único (assinatura,
+- [x] C.4 Tela financeira do contratante revisada para o estado único (assinatura,
       próximo vencimento, histórico) — sem expor campos crus.
 
 ### Fase D — Vendedor + caçada aos 403

@@ -79,6 +79,14 @@ type FinanceiroOverview = {
   company: {
     id: number;
     name: string;
+    access?: {
+      state: string;
+      statusLabel: string;
+      riskLevel: "stable" | "warning" | "critical";
+      released: boolean;
+      pendingCheckout: boolean;
+      detailCode?: string | null;
+    } | null;
     paymentStatus: string;
     paymentMethod?: string | null;
     billingCycle: BillingCycle;
@@ -210,6 +218,14 @@ const MOCK_FRONT_OVERVIEW: FinanceiroOverview = {
   company: {
     id: 0,
     name: "HBX Preview",
+    access: {
+      state: "pending_checkout",
+      statusLabel: "Checkout pendente",
+      riskLevel: "warning",
+      released: false,
+      pendingCheckout: true,
+      detailCode: null,
+    },
     paymentStatus: "PENDING",
     paymentMethod: "CARD",
     billingCycle: "MONTHLY",
@@ -361,26 +377,16 @@ function isBillingGraceActive(company?: FinanceiroOverview["company"] | null) {
 }
 
 function isPendingCheckout(overview: FinanceiroOverview | null, reason?: string | null) {
-  const paymentStatus = String(overview?.company.paymentStatus || "").trim().toUpperCase();
-  const subscriptionStatus = String(overview?.company.subscriptionStatus || "").trim().toLowerCase();
+  // Projecao do estado unico (PR-002 C.4): o gate vem do bloco `access`
+  // calculado no backend — a tela nao recombina mais campos crus.
+  const access = overview?.company.access;
+  if (!access) return false;
+  if (access.released) return false;
   const onboardingReason = String(reason || "").trim().toLowerCase();
-  if (isBillingGraceActive(overview?.company)) return false;
-  const accessReleased =
-    paymentStatus === "PAID" ||
-    paymentStatus === "MANUAL" ||
-    subscriptionStatus === "active" ||
-    subscriptionStatus === "authorized" ||
-    subscriptionStatus === "manual" ||
-    Boolean(overview?.company.premiumAccess);
-  if (accessReleased) return false;
   return (
-    paymentStatus === "PENDING" ||
-    paymentStatus === "EXPIRED" ||
-    paymentStatus === "DISABLED" ||
-    paymentStatus === "OVERDUE" ||
-    subscriptionStatus === "pending_checkout" ||
-    subscriptionStatus === "expired" ||
-    subscriptionStatus === "past_due" ||
+    access.pendingCheckout ||
+    access.state === "overdue" ||
+    access.state === "suspended" ||
     onboardingReason === "pending_checkout" ||
     onboardingReason === "trial_expired" ||
     onboardingReason === "payment_failed"

@@ -34,6 +34,7 @@ import {
   computeCompanySeatBillingSnapshot,
   resolveExtraSeatMonthlyAmount,
 } from '../commercial-plans/seat-billing.util';
+import { resolveCompanyAccessState } from '../modules/company-access-state';
 import { MailService } from '../mail/mail.service';
 import { HbxCommissionSyncService } from '../commissions/hbx-commission-sync.service';
 
@@ -2564,19 +2565,9 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
 
     if (!company) throw new BadRequestException('Empresa nao encontrada.');
 
-    const companyGraceActive = this.isBillingGraceActive(company);
-    const companyAccessReleased =
-      ['active', 'authorized', 'manual'].includes(String(company.subscriptionStatus || '').trim().toLowerCase()) ||
-      ['PAID', 'MANUAL'].includes(String(company.paymentStatus || '').trim().toUpperCase()) ||
-      Boolean(company.premiumAccess);
-    const companyPendingCheckout =
-      !companyGraceActive &&
-      !companyAccessReleased &&
-      (
-        String(company.onboardingStatus || '').trim().toLowerCase() === 'pending_checkout' ||
-        String(company.subscriptionStatus || '').trim().toLowerCase() === 'pending_checkout' ||
-        String(company.paymentStatus || '').trim().toUpperCase() === 'PENDING'
-      );
+    // Projecao do estado unico (PR-002 C.4): checkout pendente e quem o
+    // canonico diz — fim da re-derivacao de campos crus aqui.
+    const companyPendingCheckout = resolveCompanyAccessState(company).pendingCheckout;
     const latestSubscriptionAuthorized =
       latestSubscription &&
       this.normalizeProviderSubscriptionStatus(latestSubscription.status || latestSubscription.lastProviderStatus) === 'authorized';
@@ -2643,6 +2634,10 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     const visiblePricing = canManageBilling ? pricing : this.maskPricingForUser(pricing);
     const graceEndsAt = this.parseBillingGraceDate(company.billingGraceEndsAt);
     const graceActive = this.isBillingGraceActive(company);
+    // Projecao do estado unico (PR-002 C.4): a tela financeira do contratante
+    // le ESTE bloco; os campos crus continuam no payload apenas como espelho
+    // de transicao ate o DROP da fase A.4.
+    const access = resolveCompanyAccessState(company);
 
     return {
       generatedAt: new Date().toISOString(),
@@ -2656,6 +2651,14 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       company: {
         id: company.id,
         name: company.name,
+        access: {
+          state: access.state,
+          statusLabel: access.statusLabel,
+          riskLevel: access.riskLevel,
+          released: access.canUse && access.state !== 'platform_infra',
+          pendingCheckout: access.pendingCheckout,
+          detailCode: access.detailCode,
+        },
         paymentStatus: company.paymentStatus,
         paymentMethod: company.paymentMethod,
         billingCycle: pricing.billingCycle,
