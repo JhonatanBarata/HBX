@@ -158,19 +158,23 @@ Conflitos concretos encontrados:
       para trial vencido sem sinais).
 
 ### Fase 3 — Empresa HBX: tenant comum + isenção explícita
-- [ ] **3.1 Migração Prisma:** `Company.billingExempt: boolean` + `billingExemptReason`
-      (+ auditoria de quem isentou). Setável **somente** por endpoint master.
-- [ ] **3.2 Resolvedor canônico:** `exempt` → acesso pleno, nunca gera cobrança/aviso/email
-      de cobrança, `riskLevel: stable`, label "Isenta (decisão master)".
-      `MANUAL` continua existindo para liberação temporária de cliente real — são estados
-      diferentes com badges diferentes.
-- [ ] **3.3 Master UI:** ação "Isentar cobrança" no inspector (aba Cobrança) com confirmação
-      + badge própria; KPI "Isentas" separado de "Acesso manual"; isentas não entram em
-      "Em atraso"/"Atenção".
-- [ ] **3.4 Invariante:** zero referência a slug/nome "hbx" em regra de acesso (verificado
-      hoje — manter; vira regra de revisão no AGENTS.md).
-- [ ] **3.5 Aplicar na prática:** marcar a empresa HBX como `exempt` via master (operação,
-      não código) e cadastrar vendedores como qualquer cliente faria.
+- [x] **3.1 Schema + migração:** `Company.billingExempt/billingExemptReason/billingExemptAt/
+      billingExemptByUserId` (migração `20260610_company_billing_exempt` idempotente +
+      colunas garantidas em runtime via `ensureMasterBillingRuntimeSchema`). Setável apenas
+      por `PUT /modules/master/company/:id/billing-exemption` (MasterGuard), motivo
+      obrigatório ao isentar, auditoria `COMPANY_BILLING_EXEMPTION_SET/REMOVED`.
+- [x] **3.2 Resolvedor canônico:** `exempt` liberada, estável, label "Isenta (decisão
+      master)" (entregue na Fase 2); sweeps de e-mail (régua de cobrança e aviso de trial)
+      pulam `billingExempt` explicitamente em `financeiro.service.ts`.
+- [x] **3.3 Master UI:** aba Cobrança ganhou bloco de isenção (motivo + "Isentar cobrança" /
+      "Remover isenção"), InfoItem "Isenção", aviso quando isenta; KPI "Isentas" e filtro
+      "Isenta" separados de "Premium manual" (board da Fase 2).
+- [x] **3.4 Invariante mantida:** zero special-case por slug/nome; isenção é só dado.
+      Bônus: corrigido `updateCompanyProfileByMaster` que espalhava `premiumAccess` para
+      assinatura active/trialing (mesma classe do bug do evaluate).
+- [ ] **3.5 Aplicar na prática (operação do dono):** abrir Master → empresa HBX → aba
+      Cobrança → "Isentar cobrança" com motivo "Empresa interna HBX". Depois disso ela
+      aparece como "Isenta" no board e nunca recebe cobrança/aviso.
 
 ### Fase 4 — Master enxuto, organizado por módulo
 - [ ] **4.1 Superfície do master:** em `listMyModules`, system master recebe apenas

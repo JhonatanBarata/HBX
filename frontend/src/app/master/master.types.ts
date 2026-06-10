@@ -247,6 +247,8 @@ export type CompanySummary = {
   statusBucket: StatusBucket;
   accessState: CompanyAccessState;
   accessStateLabel: string;
+  billingExempt?: boolean;
+  billingExemptReason?: string | null;
   riskLevel: "stable" | "warning" | "critical";
   financialSituation: string;
   lastPayment?: LedgerEntry | null;

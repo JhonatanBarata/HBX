@@ -802,6 +802,8 @@ function MasterBillingPanel({ company, actions, state }: { company: CompanyDetai
   const includedSellers = Number(company.finance.includedActiveUsers || 0) || 0;
   const billableSellers = Number(company.finance.activeUsers || 0) || 0;
   const extraSellers = Number(company.finance.extraActiveUsers || 0) || 0;
+  const [exemptReason, setExemptReason] = useState("");
+  const exemptBusy = state.busyAction === `billing-exemption-${company.id}`;
   return (
     <section className={styles.panelSection}>
       <div className={styles.sectionTitle}>
@@ -823,7 +825,13 @@ function MasterBillingPanel({ company, actions, state }: { company: CompanyDetai
         <InfoItem label="Incluídos no plano" value={`${includedSellers} vendedor(es)`} />
         <InfoItem label="Vendedores extras" value={`${extraSellers} x ${formatCurrency(company.finance.extraSeatMonthlyAmount || 0)}`} />
         <InfoItem label="Extra no ciclo" value={formatCurrency(company.finance.extraSeatCycleAmount || 0)} />
+        <InfoItem label="Isenção" value={company.billingExempt ? (company.billingExemptReason || "Isenta de cobrança") : "Não isenta"} />
       </div>
+      {company.billingExempt ? (
+        <div className={styles.alertWarning}>
+          Empresa isenta de cobrança por decisão do master{company.billingExemptReason ? ` — ${company.billingExemptReason}` : ""}. Ela não recebe régua de cobrança nem avisos de trial.
+        </div>
+      ) : null}
       {extraSellers > 0 ? (
         <div className={styles.alertWarning}>
           Há {extraSellers} vendedor(es) extra(s). O padrão é cobrar {formatCurrency(company.finance.extraSeatMonthlyAmount || 0)} recorrente por vendedor extra no próximo ciclo. Use desconto manual para exceção permanente ou meses grátis para exceção temporária.
@@ -835,6 +843,28 @@ function MasterBillingPanel({ company, actions, state }: { company: CompanyDetai
         <ActionConsequence title="Marcar pendente" text="Mantém a cobrança em aberto." onClick={() => actions.setPaymentStatus(company.id, "PENDING", "Cliente marcado como pendente.")} />
         <ActionConsequence title="Suspender acesso" text="Bloqueia acesso e desativa módulos." tone="danger" onClick={() => actions.setPaymentStatus(company.id, "DISABLED", "Empresa suspensa no plano operacional.")} />
         <ActionConsequence title="Encerrar trial" text="Bloqueia trial sem cobrança automática." tone="danger" onClick={() => actions.runTrialAction(company.id, { action: "end" }, "Trial encerrado.")} />
+      </div>
+      <div className={styles.inlineForm}>
+        {company.billingExempt ? (
+          <MasterActionButton variant="secondary" onClick={() => void actions.setBillingExemption(false)} disabled={exemptBusy}>
+            {exemptBusy ? "Atualizando..." : "Remover isenção de cobrança"}
+          </MasterActionButton>
+        ) : (
+          <>
+            <input
+              value={exemptReason}
+              onChange={(event) => setExemptReason(event.target.value)}
+              placeholder="Motivo da isenção (ex.: empresa interna HBX)"
+            />
+            <MasterActionButton
+              variant="secondary"
+              onClick={() => void actions.setBillingExemption(true, exemptReason.trim())}
+              disabled={exemptBusy || !exemptReason.trim()}
+            >
+              {exemptBusy ? "Atualizando..." : "Isentar cobrança"}
+            </MasterActionButton>
+          </>
+        )}
       </div>
       {state.financeSettingsDraft ? (
         <div className={styles.inlineForm}>

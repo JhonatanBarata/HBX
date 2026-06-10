@@ -148,6 +148,24 @@ test('HBX tenant follows normal manual/premium module policy without slug privil
   assert.equal(policy.moduleKeys.has('atendimento'), false);
 });
 
+test('billingExempt company is released as exempt with plan modules and no billing block', () => {
+  const policy = resolveCompanyModuleAccessPolicy({
+    companyKind: COMPANY_KIND_TENANT,
+    isActive: true,
+    billingExempt: true,
+    paymentStatus: 'PENDING',
+    subscriptionStatus: 'pending_checkout',
+    selectedPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO,
+  });
+
+  assert.equal(policy.accessState, 'exempt');
+  assert.equal(policy.active, true);
+  assert.equal(policy.pendingCheckout, false);
+  assert.equal(policy.blockedCode, null);
+  assert.equal(policy.moduleKeys.has('vendas'), true);
+  assert.equal(policy.moduleKeys.has('atendimento'), true);
+});
+
 test('expired/canceled blocks modules', () => {
   const expired = resolveCompanyModuleAccessPolicy({
     isActive: false,

@@ -289,6 +289,7 @@ export function buildCommandKpis(companies: CompanySummary[]): MasterCommandKpi[
     { id: "overdue", label: "Em atraso", value: companies.filter(companyBillingPending).length, tone: "danger" },
     { id: "trial", label: "Trial vencendo", value: companies.filter(companyTrialEnding).length, tone: "warn" },
     { id: "manual", label: "Manual premium", value: companies.filter(companyManualPremium).length, tone: "warn" },
+    { id: "exempt", label: "Isentas", value: companies.filter(companyExempt).length, tone: "neutral" },
     { id: "whatsapp", label: "WhatsApp atenção", value: companies.filter(companyWhatsappAttention).length, tone: "warn" },
   ];
 }

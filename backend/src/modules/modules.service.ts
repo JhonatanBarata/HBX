@@ -1685,6 +1685,7 @@ export class ModulesService implements OnModuleInit {
           paymentStatus: true,
           subscriptionStatus: true,
           premiumAccess: true,
+          billingExempt: true,
           trialEndsAt: true,
           billingGraceEndsAt: true,
           isActive: true,
@@ -1849,6 +1850,7 @@ export class ModulesService implements OnModuleInit {
       paymentStatus?: string | null;
       subscriptionStatus?: string | null;
       premiumAccess?: boolean | null;
+      billingExempt?: boolean | null;
       trialEndsAt?: Date | string | null;
       billingGraceEndsAt?: Date | string | null;
     } | null,
@@ -1863,6 +1865,7 @@ export class ModulesService implements OnModuleInit {
           paymentStatus: companySnapshot?.paymentStatus || null,
           subscriptionStatus: companySnapshot?.subscriptionStatus || null,
           premiumAccess: Boolean(companySnapshot?.premiumAccess),
+          billingExempt: Boolean(companySnapshot?.billingExempt),
           trialEndsAt: this.parseDateValue(companySnapshot?.trialEndsAt),
           billingGraceEndsAt: this.parseDateValue(companySnapshot?.billingGraceEndsAt),
         }
@@ -1876,6 +1879,7 @@ export class ModulesService implements OnModuleInit {
             paymentStatus: true,
             subscriptionStatus: true,
             premiumAccess: true,
+            billingExempt: true,
             trialEndsAt: true,
             billingGraceEndsAt: true,
           },
@@ -2072,6 +2076,7 @@ export class ModulesService implements OnModuleInit {
         paymentStatus: true,
         subscriptionStatus: true,
         premiumAccess: true,
+        billingExempt: true,
         selectedPlanKey: true,
         trialEndsAt: true,
         billingGraceEndsAt: true,
@@ -2214,6 +2219,7 @@ export class ModulesService implements OnModuleInit {
         paymentStatus: true,
         subscriptionStatus: true,
         premiumAccess: true,
+        billingExempt: true,
         selectedPlanKey: true,
         trialEndsAt: true,
         billingGraceEndsAt: true,
@@ -2730,6 +2736,8 @@ export class ModulesService implements OnModuleInit {
       subscriptionStatus: company.subscriptionStatus,
       billingProvider: company.billingProvider,
       premiumAccess: Boolean(company.premiumAccess),
+      billingExempt: Boolean(company.billingExempt),
+      billingExemptReason: company.billingExemptReason || null,
       commercialCardQuota: this.resolveCommercialCardQuota(company),
       assistedSetup: {
         required: Boolean(company.assistedSetupRequired),
@@ -4605,7 +4613,9 @@ export class ModulesService implements OnModuleInit {
           onboardingStatus: requestedPremiumAccess ? 'active_paid' : company.onboardingStatus,
           paymentStatus: requestedPremiumAccess ? 'MANUAL' : company.paymentStatus,
           subscriptionStatus: effectiveSubscriptionStatus,
-          premiumAccess: requestedPremiumAccess || ['active', 'trialing', 'manual'].includes(effectiveSubscriptionStatus),
+          // premiumAccess significa liberacao manual: assinatura paga/trial
+          // nao pode ganhar a flag, senao o cliente vira "Acesso manual".
+          premiumAccess: requestedPremiumAccess || effectiveSubscriptionStatus === 'manual',
           isActive: requestedPremiumAccess || company.isActive,
           deactivatedAt: requestedPremiumAccess ? null : company.deactivatedAt,
         },
@@ -4629,6 +4639,69 @@ export class ModulesService implements OnModuleInit {
     });
 
     return { ok: true, companyId };
+  }
+
+  // Isencao de cobranca: decisao explicita do master (ex.: tenant interno HBX).
+  // A empresa segue tenant comum em tudo; apenas nao gera cobranca nem avisos.
+  async setCompanyBillingExemptionByMaster(
+    masterUserId: number,
+    companyId: number,
+    dto: { exempt?: boolean; reason?: string },
+  ) {
+    await this.assertMasterUser(masterUserId);
+    await ensureMasterBillingRuntimeSchema(this.prisma);
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    if (!company) throw new BadRequestException('Empresa nao encontrada');
+    if (isPlatformInfraCompany(company)) {
+      throw new BadRequestException('Empresa de infraestrutura nao participa de cobranca.');
+    }
+
+    const exempt = Boolean(dto?.exempt);
+    const reason = this.normalizeOptionalString(dto?.reason);
+    if (exempt && !reason) {
+      throw new BadRequestException('Informe o motivo da isencao (ex.: empresa interna HBX).');
+    }
+    const previousState = {
+      billingExempt: Boolean((company as any).billingExempt),
+      billingExemptReason: (company as any).billingExemptReason || null,
+    };
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const next = await tx.company.update({
+        where: { id: companyId },
+        data: {
+          billingExempt: exempt,
+          billingExemptReason: exempt ? reason : null,
+          billingExemptAt: exempt ? new Date() : null,
+          billingExemptByUserId: exempt ? masterUserId : null,
+          // Isenta precisa estar ativa para o estado canonico liberar acesso.
+          isActive: exempt ? true : company.isActive,
+          deactivatedAt: exempt ? null : company.deactivatedAt,
+        },
+      });
+      if (exempt) {
+        const planKey = normalizeCommercialPlanKey(company.selectedPlanKey || COMMERCIAL_PLAN_KEYS.PADRAO);
+        await this.syncCompanyModulesForPlanTx(tx, companyId, planKey);
+        await this.syncCompanyEntitlementsForPlanTx(tx, companyId, planKey, 'manual', 'master_billing_exemption', null, null);
+      }
+      return next;
+    });
+
+    await this.masterContextService.registerSupportAction({
+      masterUserId,
+      companyId,
+      scope: 'master_billing',
+      action: exempt ? 'COMPANY_BILLING_EXEMPTION_SET' : 'COMPANY_BILLING_EXEMPTION_REMOVED',
+      metadata: {
+        previousState,
+        currentState: {
+          billingExempt: Boolean((updated as any).billingExempt),
+          billingExemptReason: (updated as any).billingExemptReason || null,
+        },
+      },
+    });
+
+    return { ok: true, companyId, billingExempt: exempt };
   }
 
   async updateCompanyFinanceSettingsByMaster(

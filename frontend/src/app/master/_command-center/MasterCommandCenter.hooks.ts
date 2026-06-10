@@ -805,6 +805,28 @@ export function useMasterCommandCenterActions({
     }
   }
 
+  async function setBillingExemption(exempt: boolean, reason?: string) {
+    if (!activeCompany) return;
+    setBusyAction(`billing-exemption-${activeCompany.id}`);
+    setError(null);
+    try {
+      await apiFetch(`/modules/master/company/${activeCompany.id}/billing-exemption`, {
+        method: "PUT",
+        body: JSON.stringify({ exempt, reason: reason || undefined }),
+      });
+      setMessage(
+        exempt
+          ? `${activeCompany.name} marcada como isenta de cobrança.`
+          : `Isenção de cobrança removida de ${activeCompany.name}.`,
+      );
+      await refreshAll(activeCompany.id);
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "Falha ao atualizar isenção de cobrança.");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
   async function saveCompanyCardQuota() {
     if (!activeCompany || !cardQuotaDraft) return;
     setBusyAction(`card-quota-${activeCompany.id}`);
@@ -1287,6 +1309,7 @@ export function useMasterCommandCenterActions({
     saveProfile,
     saveCompanyFinanceSettings,
     saveCompanyCardQuota,
+    setBillingExemption,
     saveWebsite,
     toggleModule,
     changeCompanyPlan,

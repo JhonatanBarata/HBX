@@ -1587,6 +1587,8 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
         where: {
           billingGraceEndsAt: { not: null },
           billingGraceEmailStage: { lt: 3 },
+          // Empresa isenta (decisao master) nunca recebe regua de cobranca.
+          billingExempt: { not: true },
         },
         include: {
           users: {
@@ -1642,6 +1644,8 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
           isActive: true,
           trialEndsAt: { not: null },
           trialNoticeEmailStage: { lt: 2 },
+          // Empresa isenta (decisao master) nunca recebe aviso de trial.
+          billingExempt: { not: true },
           OR: [
             { paymentStatus: 'TRIAL' },
             { subscriptionStatus: 'trialing' },

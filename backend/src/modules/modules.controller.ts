@@ -271,6 +271,15 @@ class UpdateMasterCompanyProfileDto {
   premiumAccess?: boolean;
 }
 
+class SetBillingExemptionDto {
+  @IsBoolean()
+  exempt: boolean;
+
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
 class UpdateMasterCompanyFinanceSettingsDto {
   @IsOptional()
   @Type(() => Number)
@@ -612,6 +621,16 @@ export class ModulesController {
     @Body() dto: UpdateMasterCompanyProfileDto,
   ) {
     return this.modulesService.updateCompanyProfileByMaster(Number(req.user?.id), companyId, dto || {});
+  }
+
+  @Put('master/company/:companyId/billing-exemption')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  setCompanyBillingExemption(
+    @Req() req: any,
+    @Param('companyId', ParseIntPipe) companyId: number,
+    @Body() dto: SetBillingExemptionDto,
+  ) {
+    return this.modulesService.setCompanyBillingExemptionByMaster(Number(req.user?.id), companyId, dto || {});
   }
 
   @Put('master/company/:companyId/finance-settings')

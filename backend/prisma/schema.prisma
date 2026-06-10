@@ -82,6 +82,12 @@ model Company {
   subscriptionStatus      String    @default("trialing") // trialing | active | past_due | canceled | expired
   billingProvider         String    @default("manual") // manual | mercadopago | stripe | apple | google
   premiumAccess           Boolean   @default(false)
+  // Isencao de cobranca: decisao explicita do master (ex.: tenant interno HBX).
+  // Nunca derivar isencao de slug/nome — apenas deste campo.
+  billingExempt           Boolean   @default(false)
+  billingExemptReason     String?
+  billingExemptAt         DateTime?
+  billingExemptByUserId   Int?
   commercialCardsMonthlyLimitOverride Int?
   commercialCardsDailyLimitOverride   Int?
   commissionDueBusinessDays Int      @default(3)

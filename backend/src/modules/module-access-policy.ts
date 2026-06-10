@@ -17,6 +17,7 @@ export type ModuleAccessCompanySnapshot = {
   paymentStatus?: string | null;
   subscriptionStatus?: string | null;
   premiumAccess?: boolean | null;
+  billingExempt?: boolean | null;
   selectedPlanKey?: string | null;
   trialEndsAt?: Date | string | null;
   billingGraceEndsAt?: Date | string | null;
