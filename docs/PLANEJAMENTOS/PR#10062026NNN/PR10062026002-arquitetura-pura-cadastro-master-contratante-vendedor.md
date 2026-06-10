@@ -83,6 +83,8 @@ Cada fase commitada, buildada e testada antes da seguinte.
       Remover todas as leituras restantes (grep até zerar).
 - [ ] A.5 Remoções acordadas: tabela/sync `userModuleAccess`; listas mobile/desktop de
       vendedor; overrides de módulo por empresa fora do plano Full.
+- [ ] A.6 (diagnóstico) `RolesGuard` e `seller-access-governance` viram projeções do
+      contrato único de decisão — fim da autorização espalhada em 5 camadas.
 - [ ] Checks: prisma validate, build, matriz de testes nova, smoke de login das 3 personas.
 
 ### Fase B — Master com 5 ações e 5 abas
@@ -130,6 +132,27 @@ Cada fase commitada, buildada e testada antes da seguinte.
 - [ ] E.1 AGENTS.md e docs/ai/README.md atualizados para o estado único (vocabulário,
       campos removidos, invariantes novas).
 - [ ] E.2 Este documento marcado CONCLUÍDO com desvios anotados.
+
+### Fase F — Governança executável (ajuste do diagnóstico de 10/06)
+> "Transformar convenções implícitas em contratos executáveis." A CI atual só compila;
+> os githooks estão desativados. As invariantes do AGENTS.md ganham tooling que recusa PR.
+- [ ] F.1 `hbx-quality.yml` vira gate de verdade: lint obrigatório (front) + testes
+      focados obrigatórios (company-access-state, module-access-policy, team-policy,
+      users) por PR; falhou, não entra.
+- [ ] F.2 Reativar `.githooks` (pre-commit: lint rápido; pre-push: testes focados).
+- [ ] F.3 Scanner de secrets (gitleaks ou equivalente) no CI.
+- [ ] F.4 Checklist de endurecimento operacional: secrets fora do env plano do host
+      (documentar rotação), revisar permissões do workflow noturno do Codex,
+      `migrate deploy` no boot revisado.
+- [ ] F.5 Regras de lint que congelam os contratos: proibido comparar role por string
+      fora da camada de política; proibido preço/planKey/copy de cobrança hardcoded no
+      frontend; proibido shell de página fora do kit (entra junto com o PR-003 K.6).
+
+### Ajustes incorporados do diagnóstico (10/06)
+- Fase A ganha o item A.6: `RolesGuard` e `seller-access-governance` passam a ser
+  projeções do contrato único de decisão (ou documentados como tal), encerrando a
+  autorização espalhada em 5 camadas.
+- Manifesto de rotas canônicas + política de alias com prazo → registrado no PR-003 T.6.
 
 ---
 

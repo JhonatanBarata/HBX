@@ -39,6 +39,9 @@ para abrir no navegador).
       (`ui_kits/workspace`, `ui_kits/marketing`).
 - [ ] **T.6 Absorção das rotas legadas + limpeza final:** redirects, remoção de telas e
       CSS antigos, `HBX_THEME_PALETTES` substituído. Só depois de tudo no ar.
+      (Ajuste do diagnóstico 10/06): **manifesto de rotas canônicas** versionado + teste
+      de CI que falha se nascer rota duplicada (caso pre-checkout/precheckout) + política
+      "alias só para compatibilidade, com prazo de remoção".
 
 ## Interação com o PR10062026002 (arquitetura pura)
 - Ordem mantida: **arquitetura primeiro**. Para evitar trabalho dobrado, as fases de UI
