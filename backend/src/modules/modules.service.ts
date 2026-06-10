@@ -2720,6 +2720,8 @@ export class ModulesService implements OnModuleInit {
       premiumAccess: Boolean(company.premiumAccess),
       billingExempt: Boolean(company.billingExempt),
       billingExemptReason: company.billingExemptReason || null,
+      courtesyReason: company.courtesyReason || null,
+      courtesyEndsAt: company.courtesyEndsAt instanceof Date ? company.courtesyEndsAt.toISOString() : null,
       commercialCardQuota: this.resolveCommercialCardQuota(company),
       assistedSetup: {
         required: Boolean(company.assistedSetupRequired),
@@ -4631,12 +4633,13 @@ export class ModulesService implements OnModuleInit {
     return { ok: true, companyId };
   }
 
-  // Isencao de cobranca: decisao explicita do master (ex.: tenant interno HBX).
-  // A empresa segue tenant comum em tudo; apenas nao gera cobranca nem avisos.
-  async setCompanyBillingExemptionByMaster(
+  // Cortesia (PR-002 Fase B): UMA acao funde "liberar manual" + "isenta".
+  // Com prazo = temporaria (vence e volta a cobrar); sem prazo = permanente
+  // (ex.: tenant interno HBX). Escreve o estado unico nativamente.
+  async setCompanyCourtesyByMaster(
     masterUserId: number,
     companyId: number,
-    dto: { exempt?: boolean; reason?: string },
+    dto: { active?: boolean; reason?: string; endsAt?: string | null },
   ) {
     await this.assertMasterUser(masterUserId);
     await ensureMasterBillingRuntimeSchema(this.prisma);
@@ -4646,34 +4649,76 @@ export class ModulesService implements OnModuleInit {
       throw new BadRequestException('Empresa de infraestrutura nao participa de cobranca.');
     }
 
-    const exempt = Boolean(dto?.exempt);
+    const active = Boolean(dto?.active);
     const reason = this.normalizeOptionalString(dto?.reason);
-    if (exempt && !reason) {
-      throw new BadRequestException('Informe o motivo da isencao (ex.: empresa interna HBX).');
+    if (active && !reason) {
+      throw new BadRequestException('Informe o motivo da cortesia (ex.: empresa interna HBX).');
     }
+    const endsAt = dto?.endsAt ? this.parseDateValue(dto.endsAt) : null;
+    if (active && dto?.endsAt && !endsAt) {
+      throw new BadRequestException('Prazo da cortesia invalido.');
+    }
+    if (active && endsAt && endsAt.getTime() <= Date.now()) {
+      throw new BadRequestException('O prazo da cortesia precisa ser uma data futura.');
+    }
+
     const previousState = {
-      billingExempt: Boolean((company as any).billingExempt),
-      billingExemptReason: (company as any).billingExemptReason || null,
+      status: (company as any).status || null,
+      courtesyReason: (company as any).courtesyReason || null,
+      courtesyEndsAt: (company as any).courtesyEndsAt instanceof Date
+        ? (company as any).courtesyEndsAt.toISOString()
+        : null,
     };
+    const now = new Date();
 
     const updated = await this.prisma.$transaction(async (tx) => {
+      if (active) {
+        const next = await tx.company.update({
+          where: { id: companyId },
+          data: {
+            status: 'courtesy',
+            statusChangedAt: now,
+            statusChangedByUserId: masterUserId,
+            courtesyReason: reason,
+            courtesyEndsAt: endsAt,
+            isActive: true,
+            deactivatedAt: null,
+            // espelho legado ate o DROP (leitores de exibicao + sweeps antigos)
+            billingExempt: !endsAt,
+            billingExemptReason: !endsAt ? reason : null,
+            billingExemptAt: !endsAt ? now : null,
+            billingExemptByUserId: !endsAt ? masterUserId : null,
+            premiumAccess: true,
+          },
+        });
+        const planKey = normalizeCommercialPlanKey(company.selectedPlanKey || COMMERCIAL_PLAN_KEYS.PADRAO);
+        await this.syncCompanyModulesForPlanTx(tx, companyId, planKey);
+        await this.syncCompanyEntitlementsForPlanTx(tx, companyId, planKey, 'manual', 'master_courtesy', null, null);
+        return next;
+      }
+
+      // Encerrar cortesia = volta a cobrar: a empresa precisa contratar de
+      // novo (pending_checkout) e perde o acesso ate regularizar.
       const next = await tx.company.update({
         where: { id: companyId },
         data: {
-          billingExempt: exempt,
-          billingExemptReason: exempt ? reason : null,
-          billingExemptAt: exempt ? new Date() : null,
-          billingExemptByUserId: exempt ? masterUserId : null,
-          // Isenta precisa estar ativa para o estado canonico liberar acesso.
-          isActive: exempt ? true : company.isActive,
-          deactivatedAt: exempt ? null : company.deactivatedAt,
+          status: 'pending_checkout',
+          statusChangedAt: now,
+          statusChangedByUserId: masterUserId,
+          courtesyReason: null,
+          courtesyEndsAt: null,
+          isActive: false,
+          deactivatedAt: now,
+          billingExempt: false,
+          billingExemptReason: null,
+          billingExemptAt: null,
+          billingExemptByUserId: null,
+          premiumAccess: false,
+          paymentStatus: 'PENDING',
+          subscriptionStatus: 'pending_checkout',
         },
       });
-      if (exempt) {
-        const planKey = normalizeCommercialPlanKey(company.selectedPlanKey || COMMERCIAL_PLAN_KEYS.PADRAO);
-        await this.syncCompanyModulesForPlanTx(tx, companyId, planKey);
-        await this.syncCompanyEntitlementsForPlanTx(tx, companyId, planKey, 'manual', 'master_billing_exemption', null, null);
-      }
+      await tx.companyModule.updateMany({ where: { companyId }, data: { enabled: false } });
       return next;
     });
 
@@ -4681,17 +4726,20 @@ export class ModulesService implements OnModuleInit {
       masterUserId,
       companyId,
       scope: 'master_billing',
-      action: exempt ? 'COMPANY_BILLING_EXEMPTION_SET' : 'COMPANY_BILLING_EXEMPTION_REMOVED',
+      action: active ? 'COMPANY_COURTESY_SET' : 'COMPANY_COURTESY_REMOVED',
       metadata: {
         previousState,
         currentState: {
-          billingExempt: Boolean((updated as any).billingExempt),
-          billingExemptReason: (updated as any).billingExemptReason || null,
+          status: (updated as any).status || null,
+          courtesyReason: (updated as any).courtesyReason || null,
+          courtesyEndsAt: (updated as any).courtesyEndsAt instanceof Date
+            ? (updated as any).courtesyEndsAt.toISOString()
+            : null,
         },
       },
     });
 
-    return { ok: true, companyId, billingExempt: exempt };
+    return { ok: true, companyId, courtesy: active };
   }
 
   async updateCompanyFinanceSettingsByMaster(

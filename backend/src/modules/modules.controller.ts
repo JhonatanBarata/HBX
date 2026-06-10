@@ -271,13 +271,17 @@ class UpdateMasterCompanyProfileDto {
   premiumAccess?: boolean;
 }
 
-class SetBillingExemptionDto {
+class SetCourtesyDto {
   @IsBoolean()
-  exempt: boolean;
+  active: boolean;
 
   @IsOptional()
   @IsString()
   reason?: string;
+
+  @IsOptional()
+  @IsString()
+  endsAt?: string;
 }
 
 class UpdateMasterCompanyFinanceSettingsDto {
@@ -623,14 +627,14 @@ export class ModulesController {
     return this.modulesService.updateCompanyProfileByMaster(Number(req.user?.id), companyId, dto || {});
   }
 
-  @Put('master/company/:companyId/billing-exemption')
+  @Put('master/company/:companyId/courtesy')
   @UseGuards(JwtAuthGuard, MasterGuard)
-  setCompanyBillingExemption(
+  setCompanyCourtesy(
     @Req() req: any,
     @Param('companyId', ParseIntPipe) companyId: number,
-    @Body() dto: SetBillingExemptionDto,
+    @Body() dto: SetCourtesyDto,
   ) {
-    return this.modulesService.setCompanyBillingExemptionByMaster(Number(req.user?.id), companyId, dto || {});
+    return this.modulesService.setCompanyCourtesyByMaster(Number(req.user?.id), companyId, dto || {});
   }
 
   @Put('master/company/:companyId/finance-settings')

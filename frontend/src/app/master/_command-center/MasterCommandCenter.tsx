@@ -1001,8 +1001,10 @@ function MasterBillingPanel({ company, actions, state }: { company: CompanyDetai
   const includedSellers = Number(company.finance.includedActiveUsers || 0) || 0;
   const billableSellers = Number(company.finance.activeUsers || 0) || 0;
   const extraSellers = Number(company.finance.extraActiveUsers || 0) || 0;
-  const [exemptReason, setExemptReason] = useState("");
-  const exemptBusy = state.busyAction === `billing-exemption-${company.id}`;
+  const [courtesyReason, setCourtesyReason] = useState("");
+  const [courtesyEndsAt, setCourtesyEndsAt] = useState("");
+  const courtesyBusy = state.busyAction === `courtesy-${company.id}`;
+  const courtesyActive = company.accessState === "exempt" || company.accessState === "manual";
   return (
     <section className={styles.panelSection}>
       <div className={styles.sectionTitle}>
@@ -1024,11 +1026,20 @@ function MasterBillingPanel({ company, actions, state }: { company: CompanyDetai
         <InfoItem label="Incluídos no plano" value={`${includedSellers} vendedor(es)`} />
         <InfoItem label="Vendedores extras" value={`${extraSellers} x ${formatCurrency(company.finance.extraSeatMonthlyAmount || 0)}`} />
         <InfoItem label="Extra no ciclo" value={formatCurrency(company.finance.extraSeatCycleAmount || 0)} />
-        <InfoItem label="Isenção" value={company.billingExempt ? (company.billingExemptReason || "Isenta de cobrança") : "Não isenta"} />
+        <InfoItem
+          label="Cortesia"
+          value={
+            courtesyActive
+              ? `${company.courtesyReason || "Ativa"}${company.courtesyEndsAt ? ` · até ${formatDate(company.courtesyEndsAt)}` : " · sem prazo"}`
+              : "Não"
+          }
+        />
       </div>
-      {company.billingExempt ? (
+      {courtesyActive ? (
         <div className={styles.alertWarning}>
-          Empresa isenta de cobrança por decisão do master{company.billingExemptReason ? ` — ${company.billingExemptReason}` : ""}. Ela não recebe régua de cobrança nem avisos de trial.
+          Cortesia ativa por decisão do master{company.courtesyReason ? ` — ${company.courtesyReason}` : ""}
+          {company.courtesyEndsAt ? ` (até ${formatDate(company.courtesyEndsAt)}, depois volta a cobrar)` : " (sem prazo)"}.
+          Não recebe régua de cobrança nem avisos de trial.
         </div>
       ) : null}
       {extraSellers > 0 ? (
@@ -1044,23 +1055,30 @@ function MasterBillingPanel({ company, actions, state }: { company: CompanyDetai
         <ActionConsequence title="Encerrar trial" text="Bloqueia trial sem cobrança automática." tone="danger" onClick={() => actions.runTrialAction(company.id, { action: "end" }, "Trial encerrado.")} />
       </div>
       <div className={styles.inlineForm}>
-        {company.billingExempt ? (
-          <MasterActionButton variant="secondary" onClick={() => void actions.setBillingExemption(false)} disabled={exemptBusy}>
-            {exemptBusy ? "Atualizando..." : "Remover isenção de cobrança"}
+        {courtesyActive ? (
+          <MasterActionButton variant="secondary" onClick={() => void actions.setCourtesy(false)} disabled={courtesyBusy}>
+            {courtesyBusy ? "Atualizando..." : "Encerrar cortesia (volta a cobrar)"}
           </MasterActionButton>
         ) : (
           <>
             <input
-              value={exemptReason}
-              onChange={(event) => setExemptReason(event.target.value)}
-              placeholder="Motivo da isenção (ex.: empresa interna HBX)"
+              value={courtesyReason}
+              onChange={(event) => setCourtesyReason(event.target.value)}
+              placeholder="Motivo da cortesia (ex.: empresa interna HBX)"
+            />
+            <input
+              type="date"
+              value={courtesyEndsAt}
+              onChange={(event) => setCourtesyEndsAt(event.target.value)}
+              aria-label="Prazo da cortesia (vazio = sem prazo)"
+              title="Prazo da cortesia — vazio = sem prazo (permanente)"
             />
             <MasterActionButton
               variant="secondary"
-              onClick={() => void actions.setBillingExemption(true, exemptReason.trim())}
-              disabled={exemptBusy || !exemptReason.trim()}
+              onClick={() => void actions.setCourtesy(true, courtesyReason.trim(), courtesyEndsAt ? `${courtesyEndsAt}T12:00:00` : undefined)}
+              disabled={courtesyBusy || !courtesyReason.trim()}
             >
-              {exemptBusy ? "Atualizando..." : "Isentar cobrança"}
+              {courtesyBusy ? "Atualizando..." : "Conceder cortesia"}
             </MasterActionButton>
           </>
         )}

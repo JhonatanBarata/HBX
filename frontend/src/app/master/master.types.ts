@@ -249,6 +249,8 @@ export type CompanySummary = {
   accessStateLabel: string;
   billingExempt?: boolean;
   billingExemptReason?: string | null;
+  courtesyReason?: string | null;
+  courtesyEndsAt?: string | null;
   riskLevel: "stable" | "warning" | "critical";
   financialSituation: string;
   lastPayment?: LedgerEntry | null;

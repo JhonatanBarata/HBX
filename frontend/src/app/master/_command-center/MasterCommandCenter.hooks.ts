@@ -805,23 +805,23 @@ export function useMasterCommandCenterActions({
     }
   }
 
-  async function setBillingExemption(exempt: boolean, reason?: string) {
+  async function setCourtesy(active: boolean, reason?: string, endsAt?: string) {
     if (!activeCompany) return;
-    setBusyAction(`billing-exemption-${activeCompany.id}`);
+    setBusyAction(`courtesy-${activeCompany.id}`);
     setError(null);
     try {
-      await apiFetch(`/modules/master/company/${activeCompany.id}/billing-exemption`, {
+      await apiFetch(`/modules/master/company/${activeCompany.id}/courtesy`, {
         method: "PUT",
-        body: JSON.stringify({ exempt, reason: reason || undefined }),
+        body: JSON.stringify({ active, reason: reason || undefined, endsAt: endsAt || undefined }),
       });
       setMessage(
-        exempt
-          ? `${activeCompany.name} marcada como isenta de cobrança.`
-          : `Isenção de cobrança removida de ${activeCompany.name}.`,
+        active
+          ? `Cortesia concedida para ${activeCompany.name}.`
+          : `Cortesia encerrada para ${activeCompany.name} — volta a cobrar.`,
       );
       await refreshAll(activeCompany.id);
     } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "Falha ao atualizar isenção de cobrança.");
+      setError(actionError instanceof Error ? actionError.message : "Falha ao atualizar cortesia.");
     } finally {
       setBusyAction(null);
     }
@@ -1309,7 +1309,7 @@ export function useMasterCommandCenterActions({
     saveProfile,
     saveCompanyFinanceSettings,
     saveCompanyCardQuota,
-    setBillingExemption,
+    setCourtesy,
     saveWebsite,
     toggleModule,
     changeCompanyPlan,
