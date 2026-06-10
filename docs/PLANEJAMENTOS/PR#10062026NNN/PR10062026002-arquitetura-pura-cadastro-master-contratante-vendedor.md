@@ -131,11 +131,13 @@ Cada fase commitada, buildada e testada antes da seguinte.
 >   end → pending_checkout "fim de trial leva ao checkout").
 > ✔ B.2-5 parcial: endpoint+DTO setPaymentStatus REMOVIDOS; controles crus fora da UI
 >   (Marcar pago/pendente, Status assinatura, Premium manual); perfil = só cadastro.
-> PENDENTE: B.2-4 (setCompanyPlanByMaster projetar do canônico, sem premiumAccess);
-> B.2-5b (limpar premiumAccess/subscriptionStatus do UpdateMasterCompanyProfileDto e
-> do updateCompanyProfileByMaster — a UI já não envia); B.1 (5 abas do inspector);
-> B.6 (criação → pending_checkout + convite). Carcaça do setPaymentStatus no service
-> morre no DROP.
+> ✔ B.2-4 Mudar plano projeta do canônico — não mexe em premiumAccess (6ª praga morta)
+>   nem em estado; só troca plano e sincroniza módulos pelo estado vigente.
+> ✔ B.2-5b Perfil só-cadastro completo: DTO + service + saveProfile limpos
+>   (subscriptionStatus/premiumAccess fora dos 3 lados; whitelist estrita).
+> PENDENTE: B.1 (5 abas do inspector: Resumo | Plano & Cobrança | Equipe | Conexões |
+> Auditoria & Perigo); B.6 (criação → pending_checkout + convite por e-mail).
+> Carcaça do setPaymentStatus no service morre no DROP.
 
 > **Spec executável (checkpoint 10/06, fim da sessão A.4):**
 > **Backend (B.2/B.3):**
