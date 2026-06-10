@@ -122,12 +122,6 @@ function normalizeModuleAccessRowsFromUser(user: any) {
   return rows;
 }
 
-function hasLoadedModuleAccess(user: any) {
-  return Array.isArray(user?.moduleAccesses) ||
-    Array.isArray(user?.modules) ||
-    Boolean(user?.moduleAccessMap && typeof user.moduleAccessMap === 'object');
-}
-
 function moduleRowsFromPolicy(policy: RuntimeTeamPolicy | null) {
   return Array.from(policy?.moduleAccessMap?.entries?.() || [])
     .map(([key, allowed]) => ({ key, allowed: Boolean(allowed) }));
@@ -163,16 +157,6 @@ async function hydrateUserForTeamAccess(prisma: any, user: any) {
           companyKind: true,
         },
       },
-      moduleAccesses: {
-        select: {
-          allowed: true,
-          systemModule: {
-            select: {
-              key: true,
-            },
-          },
-        },
-      },
     },
   }).catch(() => null);
 
@@ -183,30 +167,14 @@ async function hydrateUserForTeamAccess(prisma: any, user: any) {
     company: loaded.company || user?.company
       ? { ...(loaded.company || {}), ...(user?.company || {}) }
       : null,
-    moduleAccesses: Array.isArray(user?.moduleAccesses) ? user.moduleAccesses : loaded.moduleAccesses,
   };
 }
 
-async function loadCurrentModuleAccessRows(prisma: any, user: any) {
-  const localRows = normalizeModuleAccessRowsFromUser(user);
-  if (hasLoadedModuleAccess(user)) return localRows;
-
-  const userId = normalizePositiveId(user?.id);
-  if (!userId || !prisma?.userModuleAccess?.findMany) return localRows;
-
-  const rows = await prisma.userModuleAccess.findMany({
-    where: { userId },
-    select: {
-      allowed: true,
-      systemModule: {
-        select: {
-          key: true,
-        },
-      },
-    },
-  }).catch(() => []);
-
-  return normalizeModuleAccessRowsFromUser({ moduleAccesses: rows });
+// Team policy e a unica fonte persistida de permissao (PR-002 A.5).
+// Linhas de modulo vindas do proprio payload do usuario (ex.: snapshots em
+// memoria/testes) ainda sao respeitadas; a tabela legada nao e mais lida.
+async function loadCurrentModuleAccessRows(_prisma: any, user: any) {
+  return normalizeModuleAccessRowsFromUser(user);
 }
 
 export async function resolveEffectiveTeamAccess(prisma: any, user: any): Promise<EffectiveTeamAccess> {

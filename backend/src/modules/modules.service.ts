@@ -56,10 +56,12 @@ import {
   resolveCompanyAccessState,
 } from './company-access-state';
 import {
+  ensureUserTeamPolicyForUser,
   loadUserTeamPolicyRuntime,
+  parseTeamPolicyAccessMap,
   parseTeamPolicyModuleAccessMap,
   resolveTeamPolicyModuleAllowed,
-  syncUserTeamPolicyModulesFromLegacyAccess,
+  serializeTeamPolicyModuleAndAccessRows,
 } from '../team/team-policy-persistence';
 
 type DefaultModuleDef = {
@@ -1571,14 +1573,6 @@ export class ModulesService implements OnModuleInit {
         });
       }
 
-      await tx.userModuleAccess.updateMany({
-        where: {
-          moduleId: { in: moduleRows.map((moduleRow) => moduleRow.id) },
-          user: { companyId },
-          allowed: false,
-        },
-        data: { allowed: true },
-      });
     });
   }
 
@@ -2122,24 +2116,12 @@ export class ModulesService implements OnModuleInit {
       if (planManagedModuleKeys.has(normalizedModuleKey) && !accessPolicy.moduleKeys.has(normalizedModuleKey)) continue;
       if (!this.canUseAdminOnlyModule(user, moduleItem.key, context)) continue;
 
-      const userAccess = isSystemMaster
-        ? null
-        : await this.prisma.userModuleAccess.findUnique({
-            where: {
-              userId_moduleId: {
-                userId: Number(userId),
-                moduleId: moduleItem.id,
-              },
-            },
-          });
       const policyAllowed = resolveTeamPolicyModuleAllowed(teamPolicy, moduleItem.key);
       const userAllowed = isSystemMaster
         ? true
         : policyAllowed !== undefined
           ? policyAllowed
-          : userAccess
-            ? Boolean(userAccess.allowed)
-            : this.defaultUserModuleAllowed(user, moduleItem.key, context, companyAccessSnapshot);
+          : this.defaultUserModuleAllowed(user, moduleItem.key, context, companyAccessSnapshot);
       if (!userAllowed) continue;
 
       if (accessPolicy.moduleKeys.has(normalizedModuleKey)) {
@@ -2281,19 +2263,9 @@ export class ModulesService implements OnModuleInit {
       orderBy: { name: 'asc' },
     });
 
-    const userAccessMap = new Map<number, boolean>();
     const teamPolicy = isSystemMaster
       ? null
       : await loadUserTeamPolicyRuntime(this.prisma, userId);
-    if (!isSystemMaster) {
-      const userAccessRows = await this.prisma.userModuleAccess.findMany({
-        where: { userId },
-        select: { moduleId: true, allowed: true },
-      });
-      for (const row of userAccessRows) {
-        userAccessMap.set(row.moduleId, row.allowed);
-      }
-    }
 
     const availabilityMap = await this.buildModuleAvailabilityMap(
       companyId,
@@ -2326,9 +2298,7 @@ export class ModulesService implements OnModuleInit {
           ? true
           : policyAllowed !== undefined
             ? policyAllowed
-            : (row && userAccessMap.has(row.moduleId)
-                ? Boolean(userAccessMap.get(row.moduleId))
-                : this.defaultUserModuleAllowed(user, moduleItem.key, context, company));
+            : this.defaultUserModuleAllowed(user, moduleItem.key, context, company);
         const roleEligible = this.canUseAdminOnlyModule(user, moduleItem.key, context);
         const visible =
           primaryCommercialModule ||
@@ -2462,21 +2432,11 @@ export class ModulesService implements OnModuleInit {
     const companyModuleRows = await this.prisma.companyModule.findMany({ where: { companyId } });
     const companyModuleMap = new Map<number, boolean>(companyModuleRows.map((row) => [row.moduleId, row.enabled]));
 
-    const accessRows = await this.prisma.userModuleAccess.findMany({
-      where: { userId: { in: users.map((u) => u.id) } },
-      select: { userId: true, moduleId: true, allowed: true },
-    });
     const policyRows = await this.prisma.userTeamPolicy.findMany({
       where: { userId: { in: users.map((u) => u.id) } },
       select: { userId: true, modulesJson: true },
     }).catch(() => []);
 
-    const accessByUser = new Map<number, Map<number, boolean>>();
-    for (const row of accessRows) {
-      const existing = accessByUser.get(row.userId) || new Map<number, boolean>();
-      existing.set(row.moduleId, row.allowed);
-      accessByUser.set(row.userId, existing);
-    }
     const policyByUser = new Map<number, any>();
     for (const row of policyRows || []) {
       policyByUser.set(Number(row.userId), {
@@ -2495,7 +2455,6 @@ export class ModulesService implements OnModuleInit {
           : companyModuleMap.has(moduleItem.id) ? Boolean(companyModuleMap.get(moduleItem.id)) : false,
       })),
       users: users.map((u) => {
-        const userMap = accessByUser.get(u.id) || new Map<number, boolean>();
         const policy = policyByUser.get(Number(u.id)) || null;
         return {
           id: u.id,
@@ -2510,7 +2469,7 @@ export class ModulesService implements OnModuleInit {
                 (() => {
                   const policyAllowed = resolveTeamPolicyModuleAllowed(policy, m.key);
                   if (policyAllowed !== undefined) return policyAllowed;
-                  return userMap.has(m.id) ? Boolean(userMap.get(m.id)) : this.defaultUserModuleAllowed(u, m.key, undefined, company);
+                  return this.defaultUserModuleAllowed(u, m.key, undefined, company);
                 })(),
             };
           }),
@@ -2547,33 +2506,35 @@ export class ModulesService implements OnModuleInit {
     });
     const byKey = new Map(modules.map((m) => [m.key, m]));
 
-    await this.prisma.$transaction(async (tx) => {
-      for (const permission of modulePermissions || []) {
-        const normalizedKey = this.normalizeRequestedModuleKey(permission.key);
-        const moduleItem = byKey.get(normalizedKey);
-        if (!moduleItem) continue;
-        const allowed = Boolean(permission.allowed);
-
-        await tx.userModuleAccess.upsert({
-          where: {
-            userId_moduleId: {
-              userId: targetUserId,
-              moduleId: moduleItem.id,
-            },
-          },
-          update: { allowed },
-          create: {
-            userId: targetUserId,
-            moduleId: moduleItem.id,
-            allowed,
-          },
-        });
-      }
-    });
-    if (targetCompanyId) await this.ensureTrialBundleForCompany(targetCompanyId);
-    await syncUserTeamPolicyModulesFromLegacyAccess(this.prisma, targetUserId, {
+    // Team policy e a UNICA fonte de permissao por usuario (PR-002 A.5):
+    // as permissoes pedidas entram direto no modulesJson da policy.
+    await ensureUserTeamPolicyForUser(this.prisma, targetUserId, {
       source: 'module_access_update',
+      overwrite: false,
     });
+    const existingPolicy = await this.prisma.userTeamPolicy.findUnique({
+      where: { userId: targetUserId },
+      select: { modulesJson: true },
+    });
+    const moduleMap = parseTeamPolicyModuleAccessMap(existingPolicy?.modulesJson);
+    for (const permission of modulePermissions || []) {
+      const normalizedKey = this.normalizeRequestedModuleKey(permission.key);
+      const moduleItem = byKey.get(normalizedKey);
+      if (!moduleItem) continue;
+      moduleMap.set(String(moduleItem.key).trim().toLowerCase(), Boolean(permission.allowed));
+    }
+    const accessMap = Object.fromEntries(parseTeamPolicyAccessMap(existingPolicy?.modulesJson || null));
+    const moduleRows = Array.from(moduleMap.entries())
+      .map(([key, allowed]) => ({ key, allowed: Boolean(allowed) }))
+      .sort((a, b) => a.key.localeCompare(b.key));
+    await this.prisma.userTeamPolicy.update({
+      where: { userId: targetUserId },
+      data: {
+        modulesJson: serializeTeamPolicyModuleAndAccessRows({ modules: moduleRows, access: accessMap }),
+      },
+    });
+
+    if (targetCompanyId) await this.ensureTrialBundleForCompany(targetCompanyId);
 
     return { ok: true };
   }
