@@ -174,9 +174,13 @@ class GrantTrialDto {
   reason?: string;
 }
 
-class SetPaymentStatusDto {
+class SetSuspensionDto {
+  @IsBoolean()
+  suspended: boolean;
+
+  @IsOptional()
   @IsString()
-  paymentStatus!: string;
+  reason?: string;
 }
 
 class SetCompanyPlanDto {
@@ -586,14 +590,14 @@ export class ModulesController {
     return this.modulesService.manageTrialByMaster(Number(req.user?.id), companyId, dto || {});
   }
 
-  @Put('master/company/:companyId/payment')
+  @Put('master/company/:companyId/suspension')
   @UseGuards(JwtAuthGuard, MasterGuard)
-  setPaymentStatus(
+  setCompanySuspension(
     @Req() req: any,
     @Param('companyId', ParseIntPipe) companyId: number,
-    @Body() dto: SetPaymentStatusDto,
+    @Body() dto: SetSuspensionDto,
   ) {
-    return this.modulesService.setPaymentStatus(Number(req.user?.id), companyId, dto?.paymentStatus);
+    return this.modulesService.setCompanySuspensionByMaster(Number(req.user?.id), companyId, dto || {});
   }
 
   @Post('master/company/:companyId/manual-payment')

@@ -573,19 +573,23 @@ export function useMasterCommandCenterActions({
     }
   }
 
-  async function setPaymentStatus(companyId: number, paymentStatus: string, successMessage: string) {
-    setBusyAction(`payment-${companyId}-${paymentStatus}`);
+  async function setSuspension(companyId: number, suspended: boolean, reason?: string) {
+    setBusyAction(`suspension-${companyId}`);
     setError(null);
     try {
-      await apiFetch(`/modules/master/company/${companyId}/payment`, {
+      const result = await apiFetch<{ status?: string }>(`/modules/master/company/${companyId}/suspension`, {
         method: "PUT",
-        body: JSON.stringify({ paymentStatus }),
+        body: JSON.stringify({ suspended, reason: reason || undefined }),
       });
-      setMessage(successMessage);
+      setMessage(
+        suspended
+          ? "Empresa suspensa: acesso bloqueado e módulos desligados."
+          : `Empresa reativada (estado: ${result?.status || "?"}).`,
+      );
       await refreshAll(companyId);
-      dispatchModulesChanged({ reason: "master_payment_changed" });
+      dispatchModulesChanged({ reason: "master_suspension_changed" });
     } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "Falha ao atualizar cobrança.");
+      setError(actionError instanceof Error ? actionError.message : "Falha ao atualizar suspensão.");
     } finally {
       setBusyAction(null);
     }
@@ -1298,7 +1302,7 @@ export function useMasterCommandCenterActions({
     exitContext,
     runTrialAction,
     completeAssistedSetup,
-    setPaymentStatus,
+    setSuspension,
     archiveCompany,
     hardDeleteCompany,
     openManualPayment,

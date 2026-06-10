@@ -3674,6 +3674,10 @@ export class ModulesService implements OnModuleInit {
         this.prisma.company.update({
           where: { id: companyId },
           data: {
+            // Fim de trial leva ao checkout, nao a suspensao (PR-002 B).
+            status: 'pending_checkout',
+            statusChangedAt: now,
+            statusChangedByUserId: masterUserId,
             isActive: false,
             onboardingStatus: 'pending_checkout',
             paymentStatus: 'PENDING',
@@ -3736,12 +3740,15 @@ export class ModulesService implements OnModuleInit {
           await tx.company.update({
             where: { id: companyId },
             data: {
+              status: 'trial',
+              statusChangedAt: now,
+              statusChangedByUserId: masterUserId,
               selectedPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO,
               trialModuleSelection: 'vendas',
               isActive: true,
               paymentStatus: 'TRIAL',
               subscriptionStatus: 'trialing',
-              premiumAccess: true,
+              premiumAccess: false,
               trialStartsAt,
               trialEndsAt: manualEnd,
               trialNoticeEmailStage: 0,
@@ -3812,12 +3819,17 @@ export class ModulesService implements OnModuleInit {
       await tx.company.update({
         where: { id: companyId },
         data: {
+          // Estado unico nativo (PR-002 B): trial concedido/estendido.
+          // premiumAccess significa cortesia; trial NAO carrega a flag.
+          status: 'trial',
+          statusChangedAt: now,
+          statusChangedByUserId: masterUserId,
           selectedPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO,
           trialModuleSelection: 'vendas',
           isActive: true,
           paymentStatus: 'TRIAL',
           subscriptionStatus: 'trialing',
-          premiumAccess: true,
+          premiumAccess: false,
           trialStartsAt,
           trialEndsAt,
           trialNoticeEmailStage: 0,
@@ -4740,6 +4752,104 @@ export class ModulesService implements OnModuleInit {
     });
 
     return { ok: true, companyId, courtesy: active };
+  }
+
+  // Suspender/Reativar (PR-002 Fase B): acao unica de alto nivel.
+  // Reativacao e deterministica pelas datas: cortesia vigente > assinatura
+  // vigente > trial vigente > pending_checkout (nada a reativar sem pagar —
+  // para liberar sem cobranca use Cortesia; para avaliar use Trial).
+  async setCompanySuspensionByMaster(
+    masterUserId: number,
+    companyId: number,
+    dto: { suspended?: boolean; reason?: string },
+  ) {
+    await this.assertMasterUser(masterUserId);
+    await ensureMasterBillingRuntimeSchema(this.prisma);
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    if (!company) throw new BadRequestException('Empresa nao encontrada');
+    if (isPlatformInfraCompany(company)) {
+      throw new BadRequestException('Empresa de infraestrutura nao tem estado comercial.');
+    }
+
+    const suspended = Boolean(dto?.suspended);
+    const reason = this.normalizeOptionalString(dto?.reason);
+    const now = new Date();
+    const previousState = {
+      status: (company as any).status || null,
+      isActive: Boolean(company.isActive),
+    };
+
+    let resultingStatus = 'suspended';
+    if (suspended) {
+      await this.prisma.$transaction([
+        this.prisma.company.update({
+          where: { id: companyId },
+          data: {
+            status: 'suspended',
+            statusChangedAt: now,
+            statusChangedByUserId: masterUserId,
+            isActive: false,
+            deactivatedAt: now,
+            premiumAccess: false,
+            paymentStatus: 'DISABLED',
+            onboardingStatus: 'suspended',
+          },
+        }),
+        this.prisma.companyModule.updateMany({ where: { companyId }, data: { enabled: false } }),
+      ]);
+    } else {
+      const courtesyEndsAt = (company as any).courtesyEndsAt instanceof Date ? (company as any).courtesyEndsAt : null;
+      const courtesyValid = Boolean(
+        (company as any).courtesyReason && (!courtesyEndsAt || courtesyEndsAt.getTime() >= now.getTime()),
+      );
+      const subscriptionValid = Boolean(
+        company.subscriptionCurrentPeriodEnd instanceof Date &&
+        company.subscriptionCurrentPeriodEnd.getTime() >= now.getTime(),
+      );
+      const trialValid = Boolean(company.trialEndsAt instanceof Date && company.trialEndsAt.getTime() >= now.getTime());
+
+      resultingStatus = courtesyValid ? 'courtesy' : subscriptionValid ? 'active' : trialValid ? 'trial' : 'pending_checkout';
+      const legacyMirror =
+        resultingStatus === 'courtesy'
+          ? { paymentStatus: 'MANUAL', subscriptionStatus: 'manual', onboardingStatus: 'active_paid', premiumAccess: true }
+          : resultingStatus === 'active'
+            ? { paymentStatus: 'PAID', subscriptionStatus: 'active', onboardingStatus: 'active_paid', premiumAccess: false }
+            : resultingStatus === 'trial'
+              ? { paymentStatus: 'TRIAL', subscriptionStatus: 'trialing', onboardingStatus: 'active_trial', premiumAccess: false }
+              : { paymentStatus: 'PENDING', subscriptionStatus: 'pending_checkout', onboardingStatus: 'pending_checkout', premiumAccess: false };
+
+      await this.prisma.$transaction(async (tx) => {
+        await tx.company.update({
+          where: { id: companyId },
+          data: {
+            status: resultingStatus,
+            statusChangedAt: now,
+            statusChangedByUserId: masterUserId,
+            isActive: resultingStatus !== 'pending_checkout',
+            deactivatedAt: resultingStatus !== 'pending_checkout' ? null : company.deactivatedAt || now,
+            ...legacyMirror,
+          },
+        });
+        if (resultingStatus !== 'pending_checkout') {
+          const planKey = normalizeCommercialPlanKey(company.selectedPlanKey || COMMERCIAL_PLAN_KEYS.PADRAO);
+          await this.syncCompanyModulesForPlanTx(tx, companyId, planKey);
+        }
+      });
+    }
+
+    await this.masterContextService.registerSupportAction({
+      masterUserId,
+      companyId,
+      scope: 'master_billing',
+      action: suspended ? 'COMPANY_SUSPENDED' : 'COMPANY_REACTIVATED',
+      metadata: {
+        reason,
+        previousState,
+        currentState: { status: suspended ? 'suspended' : resultingStatus },
+      },
+    });
+
+    return { ok: true, companyId, status: suspended ? 'suspended' : resultingStatus };
   }
 
   async updateCompanyFinanceSettingsByMaster(

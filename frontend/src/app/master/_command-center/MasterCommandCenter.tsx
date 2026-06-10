@@ -728,9 +728,6 @@ function MasterRealityPanel({ company, actions, state }: { company: CompanyDetai
             <MasterActionButton variant="secondary" onClick={() => actions.runTrialAction(company.id, { action: "reactivate", days: 7 }, "Trial reativado por 7 dias.")}>
               Liberar trial
             </MasterActionButton>
-            <MasterActionButton variant="secondary" onClick={() => actions.setPaymentStatus(company.id, "PAID", "Cliente marcado como pago operacionalmente.")}>
-              Marcar como pago
-            </MasterActionButton>
           </>
         ) : (
           <>
@@ -738,25 +735,35 @@ function MasterRealityPanel({ company, actions, state }: { company: CompanyDetai
             <MasterActionButton variant="secondary" onClick={() => actions.openManualPayment(company)}>Lançar pagamento manual</MasterActionButton>
           </>
         )}
-        <MasterActionButton
-          variant="danger"
-          onClick={() =>
-            actions.setConfirmAction({
-              title: "Suspender acesso",
-              description: `${company.name} terá acesso bloqueado e módulos desligados.`,
-              confirmLabel: "Suspender",
-              tone: "danger",
-              details: ["Bloqueia acesso e desativa módulos.", "Não lança caixa real."],
-              run: async () => {
-                actions.setConfirmAction(null);
-                await actions.setPaymentStatus(company.id, "DISABLED", "Empresa suspensa no plano operacional.");
-              },
-            })
-          }
-          disabled={state.busyAction === `payment-${company.id}-DISABLED`}
-        >
-          Suspender
-        </MasterActionButton>
+        {company.accessState === "suspended" ? (
+          <MasterActionButton
+            variant="secondary"
+            onClick={() => void actions.setSuspension(company.id, false)}
+            disabled={state.busyAction === `suspension-${company.id}`}
+          >
+            Reativar
+          </MasterActionButton>
+        ) : (
+          <MasterActionButton
+            variant="danger"
+            onClick={() =>
+              actions.setConfirmAction({
+                title: "Suspender acesso",
+                description: `${company.name} terá acesso bloqueado e módulos desligados.`,
+                confirmLabel: "Suspender",
+                tone: "danger",
+                details: ["Bloqueia acesso e desativa módulos.", "Não lança caixa real."],
+                run: async () => {
+                  actions.setConfirmAction(null);
+                  await actions.setSuspension(company.id, true);
+                },
+              })
+            }
+            disabled={state.busyAction === `suspension-${company.id}`}
+          >
+            Suspender
+          </MasterActionButton>
+        )}
       </div>
       <details className={styles.technicalDetails}>
         <summary>Detalhes técnicos</summary>
@@ -833,22 +840,11 @@ function MasterCompanyProfilePanel({ company, actions, state }: { company: Compa
             <option value="google">Google</option>
           </select>
         </label>
-        <label>
-          <span>Status assinatura</span>
-          <select value={draft.subscriptionStatus} onChange={(event) => actions.setProfileDraft((current) => current ? { ...current, subscriptionStatus: event.target.value } : current)}>
-            <option value="trialing">Trial</option>
-            <option value="active">Ativa</option>
-            <option value="manual">Manual</option>
-            <option value="past_due">Pendente</option>
-            <option value="canceled">Cancelada</option>
-            <option value="expired">Expirada</option>
-          </select>
-        </label>
-        <label className={styles.switchField}>
-          <input type="checkbox" checked={draft.premiumAccess} onChange={(event) => actions.setProfileDraft((current) => current ? { ...current, premiumAccess: event.target.checked } : current)} />
-          <span>Premium manual</span>
-        </label>
       </div>
+      <p className={styles.panelLead}>
+        Estado e cobrança não se editam aqui: use as ações (Mudar plano · Trial · Cortesia ·
+        Lançar pagamento · Suspender). O perfil guarda apenas dados cadastrais.
+      </p>
       <div className={styles.actionCluster}>
         <MasterActionButton onClick={actions.saveProfile} disabled={state.busyAction === `profile-${company.id}`}>
           {state.busyAction === `profile-${company.id}` ? "Salvando..." : "Salvar perfil"}
@@ -1048,11 +1044,9 @@ function MasterBillingPanel({ company, actions, state }: { company: CompanyDetai
         </div>
       ) : null}
       <div className={styles.actionCards}>
-        <ActionConsequence title="Lançar pagamento manual" text="Registra caixa real no ledger." onClick={() => actions.openManualPayment(company)} />
-        <ActionConsequence title="Marcar como pago" text="Libera acesso, mas não lança caixa real." onClick={() => actions.setPaymentStatus(company.id, "PAID", "Cliente marcado como pago operacionalmente.")} />
-        <ActionConsequence title="Marcar pendente" text="Mantém a cobrança em aberto." onClick={() => actions.setPaymentStatus(company.id, "PENDING", "Cliente marcado como pendente.")} />
-        <ActionConsequence title="Suspender acesso" text="Bloqueia acesso e desativa módulos." tone="danger" onClick={() => actions.setPaymentStatus(company.id, "DISABLED", "Empresa suspensa no plano operacional.")} />
-        <ActionConsequence title="Encerrar trial" text="Bloqueia trial sem cobrança automática." tone="danger" onClick={() => actions.runTrialAction(company.id, { action: "end" }, "Trial encerrado.")} />
+        <ActionConsequence title="Lançar pagamento manual" text="Registra caixa real no ledger e libera o ciclo." onClick={() => actions.openManualPayment(company)} />
+        <ActionConsequence title="Suspender acesso" text="Bloqueia acesso e desativa módulos." tone="danger" onClick={() => void actions.setSuspension(company.id, true)} />
+        <ActionConsequence title="Encerrar trial" text="Leva a empresa ao checkout (fim da avaliação)." tone="danger" onClick={() => actions.runTrialAction(company.id, { action: "end" }, "Trial encerrado — empresa segue para checkout.")} />
       </div>
       <div className={styles.inlineForm}>
         {courtesyActive ? (
@@ -1704,7 +1698,7 @@ function MasterDangerZone({ company, actions, state }: { company: CompanyDetailP
             tone: "danger",
             run: async () => {
               actions.setConfirmAction(null);
-              await actions.setPaymentStatus(company.id, "DISABLED", "Empresa suspensa no plano operacional.");
+              await actions.setSuspension(company.id, true);
             },
           })}
         />
