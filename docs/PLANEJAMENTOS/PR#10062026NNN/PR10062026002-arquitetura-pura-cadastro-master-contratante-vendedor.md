@@ -121,6 +121,35 @@ Cada fase commitada, buildada e testada antes da seguinte.
 - [ ] Checks: prisma validate, build, matriz de testes nova, smoke de login das 3 personas.
 
 ### Fase B — Master com 5 ações e 5 abas
+
+> **Spec executável (checkpoint 10/06, fim da sessão A.4):**
+> **Backend (B.2/B.3):**
+> 1. `PUT master/company/:id/courtesy` `{ active, reason (obrig. ao ativar), endsAt? }` —
+>    nativo: `status='courtesy'` + courtesyReason/EndsAt + statusChangedByUserId +
+>    isActive true + sync módulos/entitlements do plano (entitlement 'manual');
+>    desativar → re-deriva do legado (isActive:true) e grava o stored resultante.
+>    Substitui `billing-exemption` (atualizar hook do frontend junto). Sweeps do
+>    financeiro passam a filtrar `status != 'courtesy'` em vez de billingExempt.
+> 2. `PUT master/company/:id/suspension` `{ suspended, reason? }` — suspender:
+>    status='suspended', isActive false, módulos off, deactivatedAt; reativar: deriva
+>    legado com isActive:true → grava stored + isActive true (lógica do evaluate).
+> 3. Trial nativo em manageTrialByMaster: grant/extend → `status='trial'` + datas
+>    (legado espelhado até o DROP); **end → `status='pending_checkout'`** (fim de trial
+>    leva ao checkout, não à suspensão) + isActive false como hoje.
+> 4. setCompanyPlanByMaster: derivação interna (accessIsAvailable/entitlementStatus/
+>    nextPremiumAccess em 3970-4000) vira projeção do canônico; **não setar
+>    premiumAccess** (praga).
+> 5. **REMOVER:** endpoint+DTO `setPaymentStatus`; campos `premiumAccess`/
+>    `subscriptionStatus` do UpdateMasterCompanyProfileDto (perfil vira só cadastro).
+> 6. recordManualPayment mantém (ledger/caixa real).
+> **Frontend (B.1):** inspector → 5 abas (Resumo | Plano & Cobrança | Equipe | Conexões |
+> Auditoria & Perigo); Resumo = badge canônica + 5 ações (Cortesia com modal
+> motivo+prazo; Suspender com confirmação; Trial; Mudar plano com preview existente;
+> Lançar pagamento modal existente); remover ActionConsequence Marcar pago/pendente +
+> Suspender-via-payment + checkbox Premium manual + dropdown Status assinatura do
+> ProfilePanel; "Detalhes técnicos" colapsado e só leitura.
+> **B.6:** criação pelo master → pending_checkout + convite por e-mail (reusar mail
+> service; se faltar template, criar simples).
 - [ ] B.1 Inspector: reduzir para Resumo | Plano & Cobrança | Equipe | Conexões |
       Auditoria & Perigo. Resumo = badge única + 5 ações + perfil; "Detalhes técnicos"
       colapsado e só leitura.
