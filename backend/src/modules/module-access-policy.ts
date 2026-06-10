@@ -32,6 +32,43 @@ export type CompanyModuleAccessPolicy = {
   blockedReason: string | null;
 };
 
+export type ModuleBlockPresentation = {
+  blockedReason: string | null;
+  blockedCode: string | null;
+  criticalEngine: string | null;
+};
+
+const BILLING_BLOCKED_CODES = new Set(['pending_checkout', 'subscription_inactive']);
+
+// Cobrança é assunto exclusivo do contratante (ADMIN). Para qualquer outro
+// papel, motivo financeiro de bloqueio vira mensagem neutra: funcionário ou
+// vendedor não pode saber se o dono pagou ou não. O bloqueio em si permanece.
+export function presentModuleBlockForRole(
+  role: unknown,
+  block: ModuleBlockPresentation,
+): ModuleBlockPresentation {
+  const normalizedRole = String(role || '').trim().toUpperCase();
+  if (normalizedRole === 'ADMIN' || !block.blockedCode) return block;
+
+  if (BILLING_BLOCKED_CODES.has(block.blockedCode)) {
+    return {
+      blockedReason: 'Acesso pausado pela administracao da conta.',
+      blockedCode: 'company_access_paused',
+      criticalEngine: null,
+    };
+  }
+
+  if (block.blockedCode === 'plan_required') {
+    return {
+      blockedReason: 'Modulo nao habilitado para esta conta.',
+      blockedCode: 'module_not_enabled',
+      criticalEngine: null,
+    };
+  }
+
+  return block;
+}
+
 function parseDateTime(value: unknown) {
   if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
   if (!value) return null;

@@ -4,11 +4,22 @@ import { usePathname, useRouter } from "next/navigation";
 import React from "react";
 import { apiFetch, getToken } from "@/app/_lib/api";
 import { buildPreCheckoutPath, resolvePreCheckoutReason, type BillingAccessCompany } from "@/lib/billing-access";
+import CompanyAccessPausedScreen from "@/components/CompanyAccessPausedScreen";
 
 type CurrentUser = {
   isSystemMaster?: boolean | null;
+  userKind?: string | null;
   company?: BillingAccessCompany | null;
 };
+
+// Cobrança é assunto exclusivo do contratante: só ADMIN pode ser
+// redirecionado para pre-checkout/pagamento. Funcionário/vendedor com
+// empresa irregular vê bloqueio neutro, sem informação financeira.
+type GateState = "open" | "billing_redirect" | "access_paused";
+
+function isBillingAudience(profile?: CurrentUser | null) {
+  return String(profile?.userKind || "").trim().toLowerCase() === "admin";
+}
 
 const PUBLIC_OR_BILLING_PATHS = new Set([
   "/",
@@ -39,7 +50,7 @@ function isBypassedPath(pathname: string | null) {
 export default function PreCheckoutGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const [blocked, setBlocked] = React.useState(false);
+  const [gateState, setGateState] = React.useState<GateState>("open");
 
   React.useEffect(() => {
     let active = true;
@@ -47,7 +58,7 @@ export default function PreCheckoutGate({ children }: { children: React.ReactNod
     async function checkBillingAccess() {
       if (isBypassedPath(pathname) || !getToken()) {
         if (active) {
-          setBlocked(false);
+          setGateState("open");
         }
         return;
       }
@@ -57,24 +68,29 @@ export default function PreCheckoutGate({ children }: { children: React.ReactNod
         if (!active) return;
 
         if (profile?.isSystemMaster) {
-          setBlocked(false);
+          setGateState("open");
           return;
         }
 
         const reason = resolvePreCheckoutReason(profile?.company);
         if (!reason) {
-          setBlocked(false);
+          setGateState("open");
           return;
         }
 
-        setBlocked(true);
+        if (!isBillingAudience(profile)) {
+          setGateState("access_paused");
+          return;
+        }
+
+        setGateState("billing_redirect");
         const current = typeof window === "undefined"
           ? normalizePath(pathname)
           : `${window.location.pathname}${window.location.search}`;
         const destination = `${buildPreCheckoutPath(reason)}&from=${encodeURIComponent(current)}`;
         router.replace(destination);
       } catch {
-        if (active) setBlocked(false);
+        if (active) setGateState("open");
       }
     }
 
@@ -90,7 +106,8 @@ export default function PreCheckoutGate({ children }: { children: React.ReactNod
     };
   }, [pathname, router]);
 
-  if (blocked) return null;
+  if (gateState === "access_paused") return <CompanyAccessPausedScreen />;
+  if (gateState === "billing_redirect") return null;
 
   return <>{children}</>;
 }

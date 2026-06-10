@@ -420,15 +420,9 @@ export async function apiFetch<T>(
         ) {
           window.location.assign(data.redirectTo);
         }
-        if (
-          res.status === 403 &&
-          isApiErrorPayload(data) &&
-          data.code === "MODULE_ACCESS_DENIED" &&
-          typeof window !== "undefined" &&
-          !["/pre-checkout", "/precheckout", "/pagamento", "/checkout", "/login", "/register"].includes(window.location.pathname)
-        ) {
-          window.location.assign(`/pre-checkout?reason=payment_failed&from=${encodeURIComponent(`${window.location.pathname}${window.location.search}`)}`);
-        }
+        // 403 MODULE_ACCESS_DENIED não vira redirect de cobrança: o motivo pode
+        // ser permissão de usuário, e cobrança só pode aparecer para o admin —
+        // o PreCheckoutGate cuida disso com o papel correto.
       }
       const apiError = new Error(message) as ApiFetchError;
       apiError.status = res.status;

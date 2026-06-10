@@ -46,6 +46,7 @@ import {
 import {
   PRIMARY_COMMERCIAL_MODULE_KEYS,
   ROUTE_GUARDED_MODULE_KEYS,
+  presentModuleBlockForRole,
   resolveCompanyModuleAccessPolicy,
 } from './module-access-policy';
 import {
@@ -2341,6 +2342,12 @@ export class ModulesService implements OnModuleInit {
             (accessPolicy.active && effectiveCompanyEnabled && !planManagedModule && !availability.blockedByEngine)),
         );
 
+        const blockPresentation = presentModuleBlockForRole((user as any)?.role, {
+          blockedReason,
+          blockedCode,
+          criticalEngine,
+        });
+
         return {
           key: moduleItem.key,
           name: moduleItem.name,
@@ -2353,9 +2360,9 @@ export class ModulesService implements OnModuleInit {
           category: availability.category,
           entryEligible: normalizedKey === 'webscraping' ? false : availability.entryEligible,
           blockedByEngine: planAllowsModule ? false : availability.blockedByEngine,
-          blockedReason: visible ? blockedReason : null,
-          blockedCode: visible ? blockedCode : null,
-          criticalEngine: visible ? criticalEngine : null,
+          blockedReason: visible ? blockPresentation.blockedReason : null,
+          blockedCode: visible ? blockPresentation.blockedCode : null,
+          criticalEngine: visible ? blockPresentation.criticalEngine : null,
           sortOrder: availability.sortOrder,
         };
       });

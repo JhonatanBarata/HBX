@@ -8,7 +8,7 @@ import {
 } from '../commercial-plans/commercial-plan-catalog';
 import { COMPANY_KIND_PLATFORM_INFRA, COMPANY_KIND_TENANT } from '../common/company-kind';
 import { ModulesService } from './modules.service';
-import { resolveCompanyModuleAccessPolicy } from './module-access-policy';
+import { presentModuleBlockForRole, resolveCompanyModuleAccessPolicy } from './module-access-policy';
 
 const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
@@ -160,6 +160,61 @@ test('expired/canceled blocks modules', () => {
   assert.equal(expired.pendingCheckout, false);
   assert.equal(expired.blockedCode, 'subscription_inactive');
   assert.deepEqual([...expired.moduleKeys], []);
+});
+
+test('billing block reason is visible for ADMIN and neutral for seller, keeping the block', () => {
+  const billingBlock = {
+    blockedReason: 'Plano inativo. Regularize o acesso para liberar este modulo.',
+    blockedCode: 'subscription_inactive',
+    criticalEngine: 'payment',
+  };
+
+  const adminView = presentModuleBlockForRole('ADMIN', billingBlock);
+  assert.deepEqual(adminView, billingBlock);
+
+  const sellerView = presentModuleBlockForRole('USER', billingBlock);
+  assert.equal(sellerView.blockedCode, 'company_access_paused');
+  assert.equal(sellerView.criticalEngine, null);
+  assert.notEqual(sellerView.blockedReason, null);
+  assert.equal(/plano|pagamento|regularize|cobranca|checkout/i.test(String(sellerView.blockedReason)), false);
+});
+
+test('pending_checkout and plan_required are neutralized for sellers', () => {
+  const pendingView = presentModuleBlockForRole('USER', {
+    blockedReason: 'Finalize a contratação para liberar os módulos comerciais.',
+    blockedCode: 'pending_checkout',
+    criticalEngine: 'payment',
+  });
+  assert.equal(pendingView.blockedCode, 'company_access_paused');
+  assert.equal(pendingView.criticalEngine, null);
+
+  const planRequiredView = presentModuleBlockForRole('USER', {
+    blockedReason: 'Este modulo nao faz parte do plano atual.',
+    blockedCode: 'plan_required',
+    criticalEngine: 'payment',
+  });
+  assert.equal(planRequiredView.blockedCode, 'module_not_enabled');
+  assert.equal(planRequiredView.criticalEngine, null);
+  assert.equal(/plano|pagamento/i.test(String(planRequiredView.blockedReason)), false);
+});
+
+test('non-billing blocks pass through unchanged for sellers', () => {
+  const userBlocked = {
+    blockedReason: 'Usuario sem permissao para este modulo.',
+    blockedCode: 'user_module_blocked',
+    criticalEngine: null,
+  };
+  assert.deepEqual(presentModuleBlockForRole('USER', userBlocked), userBlocked);
+
+  const whatsappBlocked = {
+    blockedReason: 'Configure WhatsApp/Meta para liberar Atendimento.',
+    blockedCode: 'whatsapp_missing',
+    criticalEngine: 'whatsapp',
+  };
+  assert.deepEqual(presentModuleBlockForRole('USER', whatsappBlocked), whatsappBlocked);
+
+  const unblocked = { blockedReason: null, blockedCode: null, criticalEngine: null };
+  assert.deepEqual(presentModuleBlockForRole('USER', unblocked), unblocked);
 });
 
 test('USER seller role is desktop-eligible for Radar but legacy default only opens Radar on mobile', () => {
