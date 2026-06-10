@@ -40,12 +40,75 @@ export type CompanyOperationalStatus = {
   paymentActive: boolean;
   accessActive: boolean;
   accessReason: string | null;
-  accessSource: 'paid' | 'trial' | 'manual' | 'blocked';
+  accessSource: 'paid' | 'trial' | 'manual' | 'blocked' | 'released';
   overallHealth: OperationalTone;
   overallHint: string;
   overallLabel: string;
   lastCheckedAt: string | null;
 };
+
+// Cobranca e assunto do contratante (PR-002 D.4): o payload operacional que
+// chega a vendedor/funcionario perde o chip de Pagamento e troca o chip de
+// Acesso por uma leitura neutra (liberado/pausado), sem motivo financeiro,
+// sem dias de trial e sem link para o financeiro. Mesmo principio do
+// presentModuleBlockForRole (module-access-policy.ts).
+export function presentOperationalStatusForRole(
+  role: unknown,
+  status: CompanyOperationalStatus | null,
+): CompanyOperationalStatus | null {
+  const normalizedRole = String(role || '').trim().toUpperCase();
+  if (!status || normalizedRole === 'ADMIN' || normalizedRole === 'USERMASTER') return status;
+
+  const released = Boolean(status.accessActive);
+  const neutralDetail = released
+    ? 'Acesso operacional liberado para esta conta.'
+    : 'Acesso pausado pela administracao da conta.';
+  const accessChip: OperationalStatusChip = {
+    key: 'access',
+    label: 'Acesso',
+    shortLabel: 'Acesso',
+    tone: released ? 'green' : 'red',
+    value: released ? 'Liberado' : 'Pausado',
+    detail: neutralDetail,
+    hint: neutralDetail,
+    href: '',
+    quality: 'real',
+    source: ['company.access'],
+    updatedAt: null,
+    active: released,
+  };
+
+  const statuses = [
+    ...status.statuses.filter((chip) => chip.key !== 'payment' && chip.key !== 'access'),
+    accessChip,
+  ];
+  const whatsappHealthy = statuses.some(
+    (chip) => (chip.key === 'meta' || chip.key === 'webwhats') && chip.active,
+  );
+  const overall = !released
+    ? { overallHealth: 'red' as const, overallLabel: 'Bloqueado', overallHint: neutralDetail }
+    : !whatsappHealthy
+      ? {
+          overallHealth: 'yellow' as const,
+          overallLabel: 'Atenção',
+          overallHint: 'Canal de WhatsApp precisa de atenção.',
+        }
+      : {
+          overallHealth: 'green' as const,
+          overallLabel: 'Operando',
+          overallHint: 'Motores críticos e acesso estão saudáveis.',
+        };
+
+  return {
+    ...status,
+    statuses,
+    paymentActive: released,
+    accessActive: released,
+    accessReason: neutralDetail,
+    accessSource: released ? 'released' : 'blocked',
+    ...overall,
+  };
+}
 
 type PaymentValidationResult = {
   ok: boolean;

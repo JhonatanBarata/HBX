@@ -384,6 +384,29 @@ export class CommercialPlansService {
     return company;
   }
 
+  // Cobranca e assunto do contratante (PR-002 D.4): vendedor recebe so o que
+  // a UI operacional precisa (plano vigente + entitlements). Status de
+  // pagamento, valores, graca, trial e dados cadastrais do contratante NAO
+  // saem do backend para role USER.
+  private presentCurrentStateForUser(current: CommercialCurrentState, billingAudience: boolean): CommercialCurrentState {
+    if (billingAudience) return current;
+    return {
+      ...current,
+      contactName: null,
+      contactPhone: null,
+      taxDocument: null,
+      onboardingStatus: null,
+      subscriptionStatus: null,
+      paymentStatus: null,
+      premiumAccess: false,
+      trialEndsAt: null,
+      trialRemainingDays: null,
+      billingGraceEndsAt: null,
+      billingGraceRemainingHours: null,
+      billingBreakdown: null,
+    };
+  }
+
   private async buildPayload(company: any, user?: any) {
     const canSelectPlan = user ? this.canSelectPlans(user) : false;
     const plans = buildCommercialPlansCatalog().filter((plan) => !plan.hidden).map((plan) => canSelectPlan
@@ -393,8 +416,9 @@ export class CommercialPlansService {
           monthlyPrice: null,
           legalCopy: null,
         });
+    const current = await this.buildCurrentState(company);
     return {
-      current: await this.buildCurrentState(company),
+      current: this.presentCurrentStateForUser(current, canSelectPlan),
       plans,
       permissions: {
         canSelectPlan,

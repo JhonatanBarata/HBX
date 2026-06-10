@@ -1065,9 +1065,13 @@ export default function DesktopTutorialClient() {
   if (!advancedTutorial) {
     const currentPlanKey = plans?.current.selectedPlanKey || plans?.current.planKey || null;
     const currentPlanTitle = getCommercialPlanTitle(currentPlanKey);
+    // paymentStatus chega null para vendedor (cobranca e assunto do
+    // contratante) — o fato "Pagamento" so existe para quem pode ve-lo.
     const accountFacts = [
       { label: "Plano", value: currentPlanTitle },
-      { label: "Pagamento", value: plans?.current.paymentStatus || "Pendente" },
+      ...(plans?.current.paymentStatus
+        ? [{ label: "Pagamento", value: plans.current.paymentStatus }]
+        : []),
     ];
     const mobileSlides = [
       {

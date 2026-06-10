@@ -31,7 +31,11 @@ import {
 import { HbxCommissionSyncService } from '../commissions/hbx-commission-sync.service';
 import { isPlatformInfraCompany } from '../common/company-kind';
 import { resolveCompanyAccessState } from '../modules/company-access-state';
-import { ensureUserTeamPolicyForUser } from '../team/team-policy-persistence';
+import {
+  ensureUserTeamPolicyForUser,
+  loadUserTeamPolicyRuntime,
+  resolveTeamPolicyAccessAllowed,
+} from '../team/team-policy-persistence';
 import { buildTenantProductSeeds, ensureTenantProductsTx } from '../products/tenant-product-seed';
 
 @Injectable()
@@ -1263,6 +1267,22 @@ export class AuthService implements OnModuleInit {
         : access.state === 'pending_checkout'
           ? ('pending_checkout' as const)
           : ('payment_failed' as const);
+
+    // Cobranca e assunto do contratante (PR-002 D.2): vendedor nunca recebe
+    // destino nem flag de checkout — empresa irregular vira tela neutra no
+    // app. Login regular do vendedor cai direto em Vendas, a menos que a
+    // policy da equipe negue o modulo explicitamente.
+    const sessionRole = String(sessionContext.user?.role || '').trim().toUpperCase();
+    const isSeller = !Boolean(sessionContext.user?.isSystemMaster) && sessionRole === 'USER';
+    if (isSeller) {
+      const policy = await loadUserTeamPolicyRuntime(this.prisma, sessionContext.user.id).catch(() => null);
+      const vendasDenied = resolveTeamPolicyAccessAllowed(policy, 'vendas.access') === false;
+      return {
+        access_token: this.jwtService.sign(payload),
+        next: vendasDenied ? '/dashboard' : '/vendas',
+        requiresCheckout: false,
+      };
+    }
 
     return {
       access_token: this.jwtService.sign(payload),

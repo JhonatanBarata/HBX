@@ -10,16 +10,23 @@ function inDays(days: number) {
   return new Date(Date.now() + days * DAY_MS);
 }
 
-function buildAuthServiceForLogin(companySnapshot: any, options: { systemMaster?: boolean } = {}) {
+function buildAuthServiceForLogin(
+  companySnapshot: any,
+  options: { systemMaster?: boolean; role?: string; teamPolicy?: any } = {},
+) {
   const companyFindUniqueCalls: any[] = [];
   const signedPayloads: any[] = [];
   const systemMaster = Boolean(options.systemMaster);
+  const role = options.role || (systemMaster ? 'USERMASTER' : 'ADMIN');
   const prisma = {
     company: {
       findUnique: async (args: any) => {
         companyFindUniqueCalls.push(args);
         return companySnapshot;
       },
+    },
+    userTeamPolicy: {
+      findUnique: async () => options.teamPolicy ?? null,
     },
     $transaction: async (callback: any) => callback({
       authSession: {
@@ -33,7 +40,7 @@ function buildAuthServiceForLogin(companySnapshot: any, options: { systemMaster?
               id: 10,
               email: 'dono@cliente.test',
               companyId: systemMaster ? null : 77,
-              role: systemMaster ? 'USERMASTER' : 'ADMIN',
+              role,
               isSystemMaster: systemMaster,
               sessionVersion: 4,
             };
@@ -58,6 +65,16 @@ async function loginAsAdmin(service: AuthService) {
     id: 10,
     email: 'dono@cliente.test',
     role: 'ADMIN',
+    isSystemMaster: false,
+    companyId: 77,
+  });
+}
+
+async function loginAsSeller(service: AuthService) {
+  return service.login({
+    id: 11,
+    email: 'vendedor@cliente.test',
+    role: 'USER',
     isSystemMaster: false,
     companyId: 77,
   });
@@ -172,6 +189,105 @@ test('gate de login: overdue sem graca e suspended caem em payment_failed', asyn
     assert.equal(result.next, '/pre-checkout?reason=payment_failed');
     assert.equal(result.requiresCheckout, true);
   }
+});
+
+// Gate do vendedor (PR-002 D.2/D.4): login cai direto em Vendas e nunca
+// recebe destino nem flag de cobranca — empresa irregular vira tela neutra.
+test('gate de login: vendedor com empresa regular cai direto em Vendas', async () => {
+  const { service } = buildAuthServiceForLogin(
+    {
+      companyKind: 'tenant',
+      status: 'trial',
+      isActive: true,
+      trialEndsAt: inDays(10),
+    },
+    { role: 'USER' },
+  );
+  const result = await loginAsSeller(service);
+  assert.equal(result.next, '/vendas');
+  assert.equal(result.requiresCheckout, false);
+});
+
+test('gate de login: vendedor de empresa irregular NAO vai para pre-checkout', async () => {
+  for (const status of ['pending_checkout', 'overdue', 'suspended']) {
+    const { service } = buildAuthServiceForLogin(
+      {
+        companyKind: 'tenant',
+        status,
+        isActive: false,
+      },
+      { role: 'USER' },
+    );
+    const result = await loginAsSeller(service);
+    assert.equal(result.next, '/vendas');
+    assert.equal(result.requiresCheckout, false, `vendedor nao recebe requiresCheckout em ${status}`);
+  }
+});
+
+test('gate de login: vendedor com vendas.access negado na policy cai no dashboard', async () => {
+  const { service } = buildAuthServiceForLogin(
+    {
+      companyKind: 'tenant',
+      status: 'trial',
+      isActive: true,
+      trialEndsAt: inDays(10),
+    },
+    {
+      role: 'USER',
+      teamPolicy: {
+        id: 'policy-11',
+        userId: 11,
+        companyId: 77,
+        status: 'active',
+        subjectKind: 'common_seller',
+        modulesJson: JSON.stringify([{ key: 'vendas.access', allowed: false }]),
+        requiredChannelsJson: '{}',
+      },
+    },
+  );
+  const result = await loginAsSeller(service);
+  assert.equal(result.next, '/dashboard');
+  assert.equal(result.requiresCheckout, false);
+});
+
+// Vazamento de cobranca (PR-002 D.4): sanitizeUser corta status de pagamento,
+// graca, plano/preco e datas de trial para role USER; accessReleased fica.
+test('sanitizeUser: vendedor recebe payload de empresa sem campos de cobranca', () => {
+  const company = {
+    id: 77,
+    name: 'Cliente A',
+    companyKind: 'tenant',
+    isActive: true,
+    status: 'trial',
+    onboardingStatus: 'active_trial',
+    paymentStatus: 'TRIAL',
+    subscriptionStatus: 'trialing',
+    premiumAccess: false,
+    selectedPlanKey: 'hbx_padrao',
+    trialStartsAt: new Date(),
+    trialEndsAt: inDays(10),
+    billingGraceEndsAt: null,
+    billingGraceReason: null,
+    subscriptionCurrentPeriodEnd: null,
+    plan: { id: 1, name: 'Plano X', price: 199, features: [] },
+  };
+
+  const seller = sanitizeUser({ id: 11, username: 'vendedor', role: 'USER', isSystemMaster: false, company });
+  assert.equal(seller?.company?.accessReleased, true);
+  assert.equal(seller?.company?.accessState, null);
+  assert.equal(seller?.company?.paymentStatus, null);
+  assert.equal(seller?.company?.subscriptionStatus, null);
+  assert.equal(seller?.company?.premiumAccess, null);
+  assert.equal(seller?.company?.selectedPlanKey, null);
+  assert.equal(seller?.company?.trialEndsAt, null);
+  assert.equal(seller?.company?.trialRemainingDays, null);
+  assert.equal(seller?.company?.billingGraceReason, null);
+  assert.equal(seller?.company?.plan, null);
+
+  const admin = sanitizeUser({ id: 10, username: 'dono', role: 'ADMIN', isSystemMaster: false, company });
+  assert.equal(admin?.company?.accessState, 'trial');
+  assert.equal(admin?.company?.paymentStatus, 'TRIAL');
+  assert.equal(admin?.company?.plan?.price, 199);
 });
 
 // Maquina de cadastro nativa (PR-002 C.1): a confirmacao de e-mail inicia o

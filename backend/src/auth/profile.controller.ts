@@ -42,8 +42,9 @@ export function sanitizeUser(user: any, masterContext?: any) {
     ? Math.max(0, Math.ceil((trialEndsAt.getTime() - Date.now()) / (24 * 60 * 60 * 1000)))
     : null;
   const companyAccess = user.company ? resolveCompanyAccessState(user.company) : null;
-  // Estado detalhado de cobrança e assunto do contratante: vendedor recebe
-  // apenas accessReleased (liberado ou nao), sem motivo financeiro.
+  // Cobranca e assunto do contratante (PR-002 D.4): vendedor recebe apenas
+  // accessReleased (liberado ou nao). Status de pagamento, graca, plano,
+  // preco e datas de trial NAO saem do backend para role USER.
   const billingAudience = Boolean(user.isSystemMaster) || role === 'ADMIN';
   return {
     id: user.id,
@@ -74,26 +75,26 @@ export function sanitizeUser(user: any, masterContext?: any) {
           accessReleased: companyAccess ? companyAccess.canUse : null,
           accessState: billingAudience && companyAccess ? companyAccess.state : null,
           accessStateLabel: billingAudience && companyAccess ? companyAccess.statusLabel : null,
-          onboardingStatus: user.company.onboardingStatus ?? null,
-          paymentStatus: user.company.paymentStatus ?? null,
-          subscriptionStatus: user.company.subscriptionStatus ?? null,
-          premiumAccess: Boolean(user.company.premiumAccess),
-          selectedPlanKey: user.company.selectedPlanKey ?? null,
+          onboardingStatus: billingAudience ? user.company.onboardingStatus ?? null : null,
+          paymentStatus: billingAudience ? user.company.paymentStatus ?? null : null,
+          subscriptionStatus: billingAudience ? user.company.subscriptionStatus ?? null : null,
+          premiumAccess: billingAudience ? Boolean(user.company.premiumAccess) : null,
+          selectedPlanKey: billingAudience ? user.company.selectedPlanKey ?? null : null,
           contactPhone: user.company.contactPhone ?? null,
-          trialStartsAt: user.company.trialStartsAt ?? null,
-          trialEndsAt: user.company.trialEndsAt ?? null,
-          trialRemainingDays,
-          billingGraceStartedAt: user.company.billingGraceStartedAt ?? null,
-          billingGraceEndsAt: user.company.billingGraceEndsAt ?? null,
-          billingGraceReason: user.company.billingGraceReason ?? null,
-          billingGraceEmailStage: user.company.billingGraceEmailStage ?? null,
-          subscriptionCurrentPeriodStart: user.company.subscriptionCurrentPeriodStart ?? null,
-          subscriptionCurrentPeriodEnd: user.company.subscriptionCurrentPeriodEnd ?? null,
+          trialStartsAt: billingAudience ? user.company.trialStartsAt ?? null : null,
+          trialEndsAt: billingAudience ? user.company.trialEndsAt ?? null : null,
+          trialRemainingDays: billingAudience ? trialRemainingDays : null,
+          billingGraceStartedAt: billingAudience ? user.company.billingGraceStartedAt ?? null : null,
+          billingGraceEndsAt: billingAudience ? user.company.billingGraceEndsAt ?? null : null,
+          billingGraceReason: billingAudience ? user.company.billingGraceReason ?? null : null,
+          billingGraceEmailStage: billingAudience ? user.company.billingGraceEmailStage ?? null : null,
+          subscriptionCurrentPeriodStart: billingAudience ? user.company.subscriptionCurrentPeriodStart ?? null : null,
+          subscriptionCurrentPeriodEnd: billingAudience ? user.company.subscriptionCurrentPeriodEnd ?? null : null,
           trialModuleSelection: user.company.trialModuleSelection ?? null,
           whatsappConnectionMode: user.company.whatsappConnectionMode ?? null,
           whatsappTemporaryStatus: user.company.whatsappTemporaryStatus ?? null,
           whatsappMigrationInterestAt: user.company.whatsappMigrationInterestAt ?? null,
-          plan: user.company.plan
+          plan: billingAudience && user.company.plan
             ? {
                 id: user.company.plan.id,
                 name: user.company.plan.name,

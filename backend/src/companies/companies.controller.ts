@@ -13,7 +13,7 @@ import { IsArray, IsBoolean, IsNotEmpty, IsOptional, IsString, ValidateNested } 
 import { Type } from 'class-transformer';
 import { MercadoPagoClientService } from '../payments/mercado-pago-client.service';
 import { MasterContextService } from '../master-context/master-context.service';
-import { CompanyOperationalStatusService } from './company-operational-status.service';
+import { CompanyOperationalStatusService, presentOperationalStatusForRole } from './company-operational-status.service';
 import { WhatsAppModalService } from './whatsapp-modal.service';
 import { CompanyWhatsAppCustomerSyncService } from './company-whatsapp-customer-sync.service';
 import {
@@ -706,10 +706,15 @@ export class CompaniesController {
       };
     }
 
-    const payload = await this.companyOperationalStatus.getOperationalStatusForCompany(
+    const rawPayload = await this.companyOperationalStatus.getOperationalStatusForCompany(
       Number(context.effectiveCompanyId),
       { refresh: doRefresh },
     );
+
+    // Vendedor/funcionario recebe a projecao neutra (PR-002 D.4): sem chip de
+    // pagamento e sem motivo financeiro no chip de acesso.
+    const presentationRole = req?.user?.isSystemMaster ? 'USERMASTER' : req?.user?.role;
+    const payload = presentOperationalStatusForRole(presentationRole, rawPayload);
 
     return {
       generatedAt: new Date().toISOString(),

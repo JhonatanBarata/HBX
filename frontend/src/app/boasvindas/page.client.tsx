@@ -48,6 +48,8 @@ type CurrentUserPayload = {
   username?: string | null;
   email?: string | null;
   name?: string | null;
+  userKind?: string | null;
+  isSystemMaster?: boolean | null;
   mustChangePassword?: boolean | null;
 };
 
@@ -456,13 +458,24 @@ export default function BoasVindasClientPage({ mobileRoute = false }: { mobileRo
 
     async function loadWelcomeState() {
       try {
-        const [center, modal, operational, modules, vendasBoard, currentUser] = await Promise.all([
-          apiFetch<WhatsAppCenterPayload>("/companies/me/whatsapp-center").catch(() => null),
-          apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/status").catch(() => null),
+        // O diagnostico do WhatsApp (center/modal) e endpoint de ADMIN no
+        // backend: vendedor nao chama (PR-002 D.4 — zero 403 em navegacao
+        // normal). O chip de conexao do vendedor sai do operational-status.
+        const currentUser = await apiFetch<CurrentUserPayload>("/profile/current-user").catch(() => null);
+        const whatsappAdminAudience = Boolean(
+          currentUser?.isSystemMaster ||
+            String(currentUser?.userKind || "").trim().toLowerCase() === "admin",
+        );
+        const [center, modal, operational, modules, vendasBoard] = await Promise.all([
+          whatsappAdminAudience
+            ? apiFetch<WhatsAppCenterPayload>("/companies/me/whatsapp-center").catch(() => null)
+            : Promise.resolve(null),
+          whatsappAdminAudience
+            ? apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/status").catch(() => null)
+            : Promise.resolve(null),
           apiFetch<OperationalStatusPayload>("/companies/me/operational-status?refresh=true").catch(() => null),
           apiFetch<UserModule[]>("/modules/me").catch(() => []),
           apiFetch<VendasBoardPayload>("/vendas/board", { timeoutMs: 12000 }).catch(() => null),
-          apiFetch<CurrentUserPayload>("/profile/current-user").catch(() => null),
         ]);
 
         if (!mounted) return;

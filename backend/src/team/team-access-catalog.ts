@@ -80,6 +80,12 @@ export const TEAM_ACCESS_GROUPS: TeamAccessCatalogGroup[] = [
   },
 ];
 
+// Default do vendedor (PR-002 D.1): convite nasce com Vendas + Radar
+// operacionais — abrir, filtrar, buscar/puxar, assumir, enviar para Vendas e
+// enriquecer manualmente. Capacidades de GESTAO do Radar (ver sem dono,
+// atribuir a outros, distribuir, repor estoque, enriquecimento automatico)
+// continuam exclusivas do admin ate liberacao explicita. Mesma regra que
+// SELLER_DEFAULT_MODULE_KEYS (modules.service) — uma so, em qualquer superficie.
 export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
   {
     key: 'radar.access',
@@ -87,7 +93,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     label: 'Acessar Radar',
     description: 'Permite abrir o modulo Radar quando a empresa tem o modulo liberado.',
     defaultForAdmin: true,
-    defaultForSeller: false,
+    defaultForSeller: true,
     requiresModule: 'webscraping',
     riskLevel: 'medium',
     sellerVisible: true,
@@ -171,7 +177,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     label: 'Rodar busca no Radar',
     description: 'Permite iniciar buscas externas para gerar oportunidades.',
     defaultForAdmin: true,
-    defaultForSeller: false,
+    defaultForSeller: true,
     requiresModule: 'webscraping',
     riskLevel: 'high',
     sellerVisible: true,
@@ -183,7 +189,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     label: 'Puxar cards do Radar',
     description: 'Permite puxar cards prontos do banco para trabalho comercial.',
     defaultForAdmin: true,
-    defaultForSeller: false,
+    defaultForSeller: true,
     requiresModule: 'webscraping',
     riskLevel: 'high',
     sellerVisible: true,
@@ -243,7 +249,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     label: 'Enviar para Vendas',
     description: 'Permite transformar um card do Radar em card de Vendas.',
     defaultForAdmin: true,
-    defaultForSeller: false,
+    defaultForSeller: true,
     requiresModule: 'webscraping',
     riskLevel: 'high',
     sellerVisible: true,
@@ -279,7 +285,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     label: 'Usar filtro de segmentos',
     description: 'Permite filtrar ou restringir buscas do Radar por segmento.',
     defaultForAdmin: true,
-    defaultForSeller: false,
+    defaultForSeller: true,
     requiresModule: 'webscraping',
     riskLevel: 'medium',
     sellerVisible: true,
@@ -291,7 +297,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     label: 'Usar filtro de cidades',
     description: 'Permite filtrar ou restringir buscas do Radar por cidade.',
     defaultForAdmin: true,
-    defaultForSeller: false,
+    defaultForSeller: true,
     requiresModule: 'webscraping',
     riskLevel: 'medium',
     sellerVisible: true,
@@ -303,7 +309,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     label: 'Usar filtro de estados',
     description: 'Permite filtrar ou restringir buscas do Radar por estado.',
     defaultForAdmin: true,
-    defaultForSeller: false,
+    defaultForSeller: true,
     requiresModule: 'webscraping',
     riskLevel: 'medium',
     sellerVisible: true,
@@ -315,7 +321,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     label: 'Enriquecer manualmente',
     description: 'Permite acionar enriquecimento manual de oportunidade no Radar.',
     defaultForAdmin: true,
-    defaultForSeller: false,
+    defaultForSeller: true,
     requiresModule: 'webscraping',
     riskLevel: 'high',
     sellerVisible: true,

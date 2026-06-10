@@ -361,6 +361,7 @@ type VendasAccountProfile = {
   name?: string | null;
   username?: string | null;
   email?: string | null;
+  userKind?: string | null;
   company?: {
     paymentStatus?: string | null;
     subscriptionStatus?: string | null;
@@ -12271,33 +12272,39 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
           >
             {accountNameSaving ? "Salvando" : "Salvar"}
           </button>
-          <div className={styles.mobileVendasAccountBlock}>
-            <strong>Financeiro</strong>
-            <p>
-              {accountProfileLoading
-                ? "Carregando..."
-                : accountProfile?.company
-                  ? [
-                      accountProfile.company.subscriptionStatus &&
-                        `Plano: ${accountProfile.company.subscriptionStatus}`,
-                      accountProfile.company.paymentStatus &&
-                        `Pagamento: ${accountProfile.company.paymentStatus}`,
-                      accountProfile.company.premiumAccess ? "Premium ativo" : null,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ") || "Sem dados de cobrança nesta sessão."
-                  : "Não foi possível carregar agora."}
-            </p>
-          </div>
+          {String(accountProfile?.userKind || "").trim().toLowerCase() === "admin" ? (
+            // Cobranca e assunto do contratante: vendedor nao ve bloco
+            // financeiro nem CTA de upgrade nesta aba (PR-002 D.4).
+            <div className={styles.mobileVendasAccountBlock}>
+              <strong>Financeiro</strong>
+              <p>
+                {accountProfileLoading
+                  ? "Carregando..."
+                  : accountProfile?.company
+                    ? [
+                        accountProfile.company.subscriptionStatus &&
+                          `Plano: ${accountProfile.company.subscriptionStatus}`,
+                        accountProfile.company.paymentStatus &&
+                          `Pagamento: ${accountProfile.company.paymentStatus}`,
+                        accountProfile.company.premiumAccess ? "Premium ativo" : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ") || "Sem dados de cobrança nesta sessão."
+                    : "Não foi possível carregar agora."}
+              </p>
+            </div>
+          ) : null}
           <div className={styles.mobileVendasAccountBlock}>
             <strong>Configurações</strong>
             <p>Ajuste seu perfil de venda, público ideal e filtros de qualidade.</p>
           </div>
           {renderAccountSalesProfileSettings()}
           <div className={styles.mobileVendasAccountActions}>
-            <Link className="hbx-mobile-secondary-button" href={toMobileRoute("/boasvindas")} onClick={() => setAccountSheetOpen(false)}>
-              Upgrade
-            </Link>
+            {String(accountProfile?.userKind || "").trim().toLowerCase() === "admin" ? (
+              <Link className="hbx-mobile-secondary-button" href={toMobileRoute("/boasvindas")} onClick={() => setAccountSheetOpen(false)}>
+                Upgrade
+              </Link>
+            ) : null}
             <Link className="hbx-mobile-primary-button" href={toMobileRoute("/tutorial")} onClick={() => setAccountSheetOpen(false)}>
               Tutorial
             </Link>

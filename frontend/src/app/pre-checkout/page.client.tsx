@@ -5,11 +5,14 @@ import { useRouter, useSearchParams } from "next/navigation";
 import React from "react";
 import { apiFetch } from "@/app/_lib/api";
 import { buildCheckoutPath, type BillingAccessCompany } from "@/lib/billing-access";
+import CompanyAccessPausedScreen from "@/components/CompanyAccessPausedScreen";
 import styles from "./page.module.css";
 
 const REDIRECT_SECONDS = 5;
 
 type CurrentUser = {
+  isSystemMaster?: boolean | null;
+  userKind?: string | null;
   company?: (BillingAccessCompany & {
     name?: string | null;
     selectedPlanKey?: string | null;
@@ -60,14 +63,24 @@ export default function PreCheckoutClientPage() {
   const copy = reasonCopy(reason);
   const [seconds, setSeconds] = React.useState(REDIRECT_SECONDS);
   const [company, setCompany] = React.useState<CurrentUser["company"]>(null);
+  // Cobranca e assunto do contratante: vendedor/funcionario que chegar aqui
+  // ve a tela neutra de acesso pausado, nunca o funil de checkout.
+  const [audience, setAudience] = React.useState<"loading" | "billing" | "paused">("loading");
 
   React.useEffect(() => {
     let active = true;
     apiFetch<CurrentUser>("/profile/current-user")
       .then((profile) => {
-        if (active) setCompany(profile.company || null);
+        if (!active) return;
+        setCompany(profile.company || null);
+        const billingAudience =
+          Boolean(profile.isSystemMaster) ||
+          String(profile.userKind || "").trim().toLowerCase() === "admin";
+        setAudience(billingAudience ? "billing" : "paused");
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (active) setAudience("billing");
+      });
 
     return () => {
       active = false;
@@ -75,6 +88,7 @@ export default function PreCheckoutClientPage() {
   }, []);
 
   React.useEffect(() => {
+    if (audience !== "billing") return;
     const tick = window.setInterval(() => {
       setSeconds((current) => Math.max(current - 1, 0));
     }, 1000);
@@ -86,7 +100,10 @@ export default function PreCheckoutClientPage() {
       window.clearInterval(tick);
       window.clearTimeout(redirectTimer);
     };
-  }, [checkoutHref, router]);
+  }, [audience, checkoutHref, router]);
+
+  if (audience === "loading") return null;
+  if (audience === "paused") return <CompanyAccessPausedScreen />;
 
   const trialEnd = formatDate(company?.trialEndsAt);
   const trialStart = formatDate(company?.trialStartsAt);

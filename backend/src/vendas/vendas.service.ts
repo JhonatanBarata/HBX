@@ -1266,17 +1266,6 @@ export class VendasService {
     };
   }
 
-  private resolveUserContext(user: any) {
-    const masterContextCompanyId = Number(user?.masterContext?.active ? user?.masterContext?.companyId : 0);
-    const companyId = masterContextCompanyId || Number(user?.companyId || 0);
-    const userId = Number(user?.id || 0);
-    if (!companyId) throw new ForbiddenException('Empresa nao identificada.');
-    if (!userId) throw new ForbiddenException('Usuario nao identificado.');
-    const role = String(user?.role || '').trim().toUpperCase();
-    const canManageTeam = Boolean(user?.isSystemMaster || user?.masterContext?.active || role === 'ADMIN');
-    return { companyId, userId, role, canManageTeam };
-  }
-
   private async resolveVendasUserContext(user: any): Promise<VendasUserContext> {
     const access = await resolveVendasAccessContext(this.prisma, user);
     return {

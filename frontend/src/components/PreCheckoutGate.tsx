@@ -72,14 +72,16 @@ export default function PreCheckoutGate({ children }: { children: React.ReactNod
           return;
         }
 
-        const reason = resolvePreCheckoutReason(profile?.company);
-        if (!reason) {
-          setGateState("open");
+        // Vendedor/funcionario nao recebe campos de cobranca do backend
+        // (PR-002 D.4): a decisao neutra usa apenas accessReleased.
+        if (!isBillingAudience(profile)) {
+          setGateState(profile?.company?.accessReleased === false ? "access_paused" : "open");
           return;
         }
 
-        if (!isBillingAudience(profile)) {
-          setGateState("access_paused");
+        const reason = resolvePreCheckoutReason(profile?.company);
+        if (!reason) {
+          setGateState("open");
           return;
         }
 
