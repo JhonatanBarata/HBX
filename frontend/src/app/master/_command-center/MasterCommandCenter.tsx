@@ -38,6 +38,7 @@ import {
   resolveReality,
   riskTone,
   subscriptionLabel,
+  syncMasterPlanCatalog,
 } from "./MasterCommandCenter.utils";
 import styles from "./MasterCommandCenter.module.css";
 
@@ -102,6 +103,10 @@ export default function MasterCommandCenter(props: MasterCommandCenterProps) {
     setCurrentUser,
     onReload,
   });
+
+  useEffect(() => {
+    syncMasterPlanCatalog(workspace?.plansCatalog);
+  }, [workspace?.plansCatalog]);
 
   useEffect(() => {
     if (!initialCompanyId || loading) return;

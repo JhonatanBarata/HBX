@@ -60,12 +60,30 @@ export type ModuleRevenuePoint = {
 export type StatusBucket =
   | "PAYING"
   | "MANUAL_PREMIUM"
+  | "EXEMPT"
   | "TRIAL"
   | "TRIAL_ENDING"
+  | "GRACE"
+  | "PENDING_CHECKOUT"
   | "OVERDUE"
   | "SUSPENDED"
   | "NO_METHOD"
   | "UNKNOWN";
+
+// Estado canonico vindo do backend (company-access-state.ts).
+// O frontend nao re-deriva estado de paymentStatus/subscriptionStatus crus.
+export type CompanyAccessState =
+  | "platform_infra"
+  | "exempt"
+  | "manual"
+  | "paying"
+  | "trial"
+  | "trial_ending"
+  | "grace"
+  | "overdue"
+  | "pending_checkout"
+  | "suspended"
+  | "unknown";
 
 export type LedgerEntry = {
   id: string;
@@ -86,6 +104,9 @@ export type MasterBillingSituationReason =
   | "paid"
   | "trial"
   | "manual"
+  | "exempt"
+  | "grace"
+  | "pending_checkout"
   | "overdue"
   | "suspended"
   | "no_method"
@@ -224,6 +245,8 @@ export type CompanySummary = {
   daysOverdue: number;
   currentOutstandingValue: number;
   statusBucket: StatusBucket;
+  accessState: CompanyAccessState;
+  accessStateLabel: string;
   riskLevel: "stable" | "warning" | "critical";
   financialSituation: string;
   lastPayment?: LedgerEntry | null;
@@ -437,6 +460,15 @@ export type WorkspacePayload = {
     defaultEnabled: boolean;
     companyAssignable: boolean;
     serviceUrl?: string | null;
+  }>;
+  plansCatalog?: Array<{
+    key: string;
+    title: string;
+    shortTitle: string;
+    monthlyPrice: number;
+    badge?: string | null;
+    modules: string[];
+    entitlements: string[];
   }>;
 };
 

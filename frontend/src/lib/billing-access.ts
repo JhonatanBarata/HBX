@@ -5,6 +5,9 @@ export type BillingAccessCompany = {
   subscriptionStatus?: string | null;
   premiumAccess?: boolean | null;
   trialEndsAt?: string | Date | null;
+  // Estado canônico vindo de /profile/current-user (backend é a fonte).
+  accessReleased?: boolean | null;
+  accessState?: string | null;
 };
 
 export type PreCheckoutReason = "trial_expired" | "payment_failed" | "pending_checkout";
@@ -18,6 +21,14 @@ function parseTime(value?: string | Date | null) {
 
 export function resolvePreCheckoutReason(company?: BillingAccessCompany | null, nowMs = Date.now()): PreCheckoutReason | null {
   if (!company) return null;
+
+  // Quando o backend já enviou o estado canônico, ele decide primeiro.
+  // O cálculo legado abaixo segue como fallback (payloads antigos e o caso
+  // suspended/unknown, onde ainda distinguimos trial_expired de payment_failed).
+  if (company.accessReleased === true) return null;
+  const accessState = String(company.accessState || "").trim().toLowerCase();
+  if (accessState === "overdue") return "payment_failed";
+  if (accessState === "pending_checkout") return "pending_checkout";
 
   const onboardingStatus = String(company.onboardingStatus || "").trim().toLowerCase();
   const paymentStatus = String(company.paymentStatus || "").trim().toUpperCase();

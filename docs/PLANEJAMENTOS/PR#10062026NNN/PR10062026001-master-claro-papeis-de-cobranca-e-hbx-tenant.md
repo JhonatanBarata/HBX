@@ -129,28 +129,33 @@ Conflitos concretos encontrados:
       intactos). 14/14 passando; builds backend e frontend OK.
 
 ### Fase 2 — Uma única fonte de verdade para o estado do cliente
-- [ ] **2.1 Criar `backend/src/modules/company-access-state.ts`:** resolvedor canônico único
-      `resolveCompanyAccessState(company, ledger?) → { state, canUse, statusLabel, riskLevel }`
-      com vocabulário único e completo:
-      `paying | trial | trial_ending | grace | pending_checkout | overdue | suspended | manual | exempt`.
-- [ ] **2.2 Refatorar os 4 motores backend para virarem projeções do canônico** (sem mudar
-      contratos de API ainda): `resolveCompanyModuleAccessPolicy`, `companyStatusBucket`,
-      `buildMasterBillingSituation`, `evaluateCompanyStatus`. Corrigir na passagem:
-      PENDING = `pending_checkout` (não "Em atraso"); `grace` visível em todos;
-      `manual` não é warning.
-- [ ] **2.3 Expor `accessState` canônico** no `CompanySummary` do master workspace e no
-      `company` de `/profile/current-user` (campo novo, aditivo).
-- [ ] **2.4 Frontend master:** apagar `companyHasOperationalAccess`, `companyNoAccess`,
-      `companyBillingPending`, `companyManualPremium` e a re-derivação de `resolveReality`
-      em `MasterCommandCenter.utils.ts`; filtros, KPIs e badges passam a ler
-      `company.accessState` do backend.
-- [ ] **2.5 Apagar `MASTER_PLAN_CATALOG` hardcoded** (`MasterCommandCenter.utils.ts:18-56`);
-      preview de troca de plano consome o catálogo do backend (mesma fonte de
-      `commercial-plan-catalog.ts`, já servida via API de planos).
-- [ ] **2.6 `billing-access.ts`:** `resolvePreCheckoutReason` passa a preferir
-      `company.accessState` quando presente (fallback no cálculo atual durante a transição).
-- [ ] **2.7 Testes:** matriz de estados no resolvedor canônico (1 teste por estado +
-      conflitos históricos: PENDING novo ≠ overdue; grace ≠ overdue; manual ≠ warning).
+- [x] **2.1 `backend/src/modules/company-access-state.ts` criado:** `resolveCompanyAccessState`
+      com vocabulário `platform_infra | exempt | manual | paying | trial | trial_ending |
+      grace | overdue | pending_checkout | suspended | unknown` + canUse, statusLabel,
+      riskLevel, detailCode. Decisões de precedência documentadas no arquivo.
+- [x] **2.2 Os 4 motores viraram projeções** (4 commits, contratos preservados):
+      `resolveCompanyModuleAccessPolicy` (novo blockedCode `billing_overdue`, neutralizado
+      p/ vendedor), `companyStatusBucket` (novos buckets GRACE/PENDING_CHECKOUT/EXEMPT),
+      `buildMasterBillingSituation` (grace/pending_checkout/exempt no financeiro),
+      `evaluateCompanyStatus` (pergunta ao canônico; graça não ressuscita suspensão dura).
+      Corrigido na passagem: PENDING ≠ "Em atraso"; manual ≠ warning; PAID sem método ≠
+      "Sem método"; **reativação não espalha mais premiumAccess para empresa paga/trial**
+      (bug que transformava cliente pago em "Acesso manual").
+- [x] **2.3 `accessState`/`accessStateLabel` expostos** no CompanySummary (workspace e
+      detail) e em `/profile/current-user` (detalhe só para admin/master; vendedor recebe
+      apenas `accessReleased` booleano — coerente com a Fase 1).
+- [x] **2.4 Frontend master lê o canônico:** heurísticas re-derivadas substituídas por
+      leitura de `company.accessState`; `resolveReality` reescrito; filtro e label novos
+      para Isenta/Graça/Checkout pendente; trial-vencendo unificado (7d, backend decide).
+- [x] **2.5 Catálogo duplicado morto:** `MASTER_PLAN_CATALOG` virou esqueleto sem preços;
+      dados reais vêm de `workspace.plansCatalog` servido pelo backend
+      (`buildMasterPlansCatalog` → mesma fonte do checkout).
+- [x] **2.6 `billing-access.ts`** prefere `accessReleased`/`accessState` do perfil;
+      cálculo legado mantido como fallback (payloads antigos e distinção
+      trial_expired × payment_failed em suspended).
+- [x] **2.7 Matriz de testes:** 18 casos no resolvedor canônico (1 por estado + conflitos
+      históricos + precedência com empresa desativada pelo runtime + proteção de paywall
+      para trial vencido sem sinais).
 
 ### Fase 3 — Empresa HBX: tenant comum + isenção explícita
 - [ ] **3.1 Migração Prisma:** `Company.billingExempt: boolean` + `billingExemptReason`

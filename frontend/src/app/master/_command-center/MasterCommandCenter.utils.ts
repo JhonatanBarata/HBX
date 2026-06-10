@@ -1,9 +1,11 @@
 import type {
   AuditEntry,
+  CompanyAccessState,
   CompanyDetailPayload,
   CompanySummary,
   LedgerEntry,
   StatusBucket,
+  WorkspacePayload,
 } from "../master.types";
 import type {
   MasterCommandFilterId,
@@ -15,45 +17,36 @@ import type {
   MasterRealityTone,
 } from "./MasterCommandCenter.types";
 
+// Esqueleto para a primeira renderização. O catálogo real (preços, módulos,
+// entitlements) vem do backend em workspace.plansCatalog — única fonte é
+// commercial-plan-catalog.ts; o frontend não mantém cópia dos valores.
 export const MASTER_PLAN_CATALOG: MasterPlanCatalogItem[] = [
-  {
-    key: "hbx_lite",
-    title: "HBX List",
-    shortTitle: "List",
-    monthlyPrice: 45,
-    badge: "Entrada",
-    modules: ["vendas", "webscraping"],
-    entitlements: ["vendas", "webscraping", "opportunity_score"],
-  },
-  {
-    key: "hbx_padrao",
-    title: "HBX Lead Plus",
-    shortTitle: "Lead Plus",
-    monthlyPrice: 99,
-    badge: "Base comercial",
-    modules: ["atendimento", "vendas", "webscraping"],
-    entitlements: ["vendas", "atendimento_chat", "webscraping", "radar_premium", "ai_sales_scripts"],
-  },
-  {
-    key: "hbx_melhor",
-    title: "HBX Full",
-    shortTitle: "Full",
-    monthlyPrice: 149.9,
-    badge: "Bot e IA",
-    modules: ["atendimento", "vendas", "webscraping", "bot_ia"],
-    entitlements: [
-      "vendas",
-      "atendimento_chat",
-      "webscraping",
-      "bot_ia",
-      "radar_premium",
-      "recovery_intelligence",
-      "digital_audit",
-      "opportunity_score",
-      "ai_sales_scripts",
-    ],
-  },
+  { key: "hbx_lite", title: "HBX List", shortTitle: "List", monthlyPrice: 0, badge: "", modules: [], entitlements: [] },
+  { key: "hbx_padrao", title: "HBX Lead Plus", shortTitle: "Lead Plus", monthlyPrice: 0, badge: "", modules: [], entitlements: [] },
+  { key: "hbx_melhor", title: "HBX Full", shortTitle: "Full", monthlyPrice: 0, badge: "", modules: [], entitlements: [] },
 ];
+
+export function syncMasterPlanCatalog(plans?: WorkspacePayload["plansCatalog"] | null) {
+  if (!plans?.length) return;
+  const next = plans
+    .map((plan) => {
+      const key = normalizePlanKey(plan.key);
+      if (!key) return null;
+      return {
+        key,
+        title: String(plan.title || ""),
+        shortTitle: String(plan.shortTitle || plan.title || ""),
+        monthlyPrice: Number(plan.monthlyPrice || 0),
+        badge: String(plan.badge || ""),
+        modules: Array.isArray(plan.modules) ? plan.modules.map(String) : [],
+        entitlements: Array.isArray(plan.entitlements) ? plan.entitlements.map(String) : [],
+      } satisfies MasterPlanCatalogItem;
+    })
+    .filter((plan): plan is MasterPlanCatalogItem => Boolean(plan));
+  if (next.length) {
+    MASTER_PLAN_CATALOG.splice(0, MASTER_PLAN_CATALOG.length, ...next);
+  }
+}
 
 export const MASTER_COMMAND_FILTERS: Array<{ id: MasterCommandFilterId; label: string }> = [
   { id: "all", label: "Todas" },
@@ -64,7 +57,19 @@ export const MASTER_COMMAND_FILTERS: Array<{ id: MasterCommandFilterId; label: s
   { id: "whatsapp_attention", label: "WhatsApp atenção" },
   { id: "weak_activation", label: "Ativação fraca" },
   { id: "manual_premium", label: "Premium manual" },
+  { id: "exempt", label: "Isenta" },
 ];
+
+// Espelho do canUse do backend (company-access-state.ts).
+const RELEASED_ACCESS_STATES = new Set<CompanyAccessState>([
+  "exempt",
+  "manual",
+  "paying",
+  "trial",
+  "trial_ending",
+  "grace",
+  "unknown",
+]);
 
 export function formatCurrency(value?: number | null) {
   return Number(value || 0).toLocaleString("pt-BR", {
@@ -165,35 +170,25 @@ export function billingCycleLabel(value?: string | null) {
 export function statusBucketLabel(value?: StatusBucket | string | null) {
   if (value === "PAYING") return "Pagando";
   if (value === "MANUAL_PREMIUM") return "Premium manual";
+  if (value === "EXEMPT") return "Isenta";
   if (value === "TRIAL") return "Trial";
   if (value === "TRIAL_ENDING") return "Trial vencendo";
+  if (value === "GRACE") return "Período de graça";
+  if (value === "PENDING_CHECKOUT") return "Checkout pendente";
   if (value === "OVERDUE") return "Atrasado";
   if (value === "SUSPENDED") return "Suspenso";
   if (value === "NO_METHOD") return "Sem método";
   return "Indefinido";
 }
 
-export function companyHasOperationalAccess(company?: Pick<CompanySummary, "isActive" | "paymentStatus" | "subscriptionStatus"> | null) {
-  if (!company?.isActive) return false;
-  const paymentStatus = String(company.paymentStatus || "").trim().toUpperCase();
-  const subscriptionStatus = String(company.subscriptionStatus || "").trim().toLowerCase();
-  return (
-    paymentStatus === "PAID" ||
-    paymentStatus === "TRIAL" ||
-    paymentStatus === "MANUAL" ||
-    subscriptionStatus === "active" ||
-    subscriptionStatus === "trialing" ||
-    subscriptionStatus === "manual"
-  );
+export function companyHasOperationalAccess(company?: Pick<CompanySummary, "accessState"> | null) {
+  return Boolean(company?.accessState && RELEASED_ACCESS_STATES.has(company.accessState));
 }
 
 export function companyNoAccess(company: CompanySummary) {
   return Boolean(
-    !company.isActive ||
-      company.billingSituation?.canUse === false ||
-      company.operationalStatus?.accessActive === false ||
-      ["expired", "canceled"].includes(String(company.subscriptionStatus || "").trim().toLowerCase()) ||
-      ["EXPIRED", "DISABLED"].includes(String(company.paymentStatus || "").trim().toUpperCase()),
+    !companyHasOperationalAccess(company) ||
+      company.operationalStatus?.accessActive === false,
   );
 }
 
@@ -212,24 +207,17 @@ export function companyWhatsappAttention(company: CompanySummary) {
 }
 
 export function companyBillingPending(company: CompanySummary) {
-  const paymentStatus = String(company.paymentStatus || "").trim().toUpperCase();
-  const subscriptionStatus = String(company.subscriptionStatus || "").trim().toLowerCase();
   return Boolean(
-    paymentStatus === "PENDING" ||
-      paymentStatus === "OVERDUE" ||
-      paymentStatus === "EXPIRED" ||
-      subscriptionStatus === "past_due" ||
-      subscriptionStatus === "pending_checkout" ||
+    company.accessState === "overdue" ||
+      company.accessState === "pending_checkout" ||
+      company.accessState === "grace" ||
       company.finance?.pendingCount > 0 ||
-      company.finance?.failedCount > 0 ||
-      company.statusBucket === "OVERDUE" ||
-      company.statusBucket === "NO_METHOD",
+      company.finance?.failedCount > 0,
   );
 }
 
 export function companyTrialEnding(company: CompanySummary) {
-  const days = Number(company.trialRemainingDays ?? 99);
-  return company.statusBucket === "TRIAL_ENDING" || (days >= 0 && days <= 3);
+  return company.accessState === "trial_ending";
 }
 
 export function companyWeakActivation(company: CompanySummary) {
@@ -242,9 +230,11 @@ export function companyWeakActivation(company: CompanySummary) {
 }
 
 export function companyManualPremium(company: CompanySummary) {
-  const paymentStatus = String(company.paymentStatus || "").trim().toUpperCase();
-  const subscriptionStatus = String(company.subscriptionStatus || "").trim().toLowerCase();
-  return Boolean(paymentStatus === "MANUAL" || subscriptionStatus === "manual" || company.statusBucket === "MANUAL_PREMIUM");
+  return company.accessState === "manual";
+}
+
+export function companyExempt(company: CompanySummary) {
+  return company.accessState === "exempt";
 }
 
 export function companyMatchesFilter(company: CompanySummary, filter: MasterCommandFilterId) {
@@ -256,6 +246,7 @@ export function companyMatchesFilter(company: CompanySummary, filter: MasterComm
   if (filter === "whatsapp_attention") return companyWhatsappAttention(company);
   if (filter === "weak_activation") return companyWeakActivation(company);
   if (filter === "manual_premium") return companyManualPremium(company);
+  if (filter === "exempt") return companyExempt(company);
   return true;
 }
 
@@ -302,50 +293,68 @@ export function buildCommandKpis(companies: CompanySummary[]): MasterCommandKpi[
   ];
 }
 
+// Leitura única do estado do cliente para o board do master.
+// Tudo deriva de company.accessState (estado canônico do backend); nada de
+// paymentStatus/subscriptionStatus crus aqui.
 export function resolveReality(company: CompanySummary): MasterRealitySnapshot {
-  const paymentStatus = String(company.paymentStatus || "").trim().toUpperCase();
-  const subscriptionStatus = String(company.subscriptionStatus || "").trim().toLowerCase();
+  const state = company.accessState;
   const hasAccess = companyHasOperationalAccess(company);
-  const manual = companyManualPremium(company);
-  const trial = paymentStatus === "TRIAL" || subscriptionStatus === "trialing";
-  const billingPending = companyBillingPending(company);
   const whatsappAttention = companyWhatsappAttention(company);
   const assistedPending = Boolean(company.assistedSetup?.required && company.assistedSetup.status !== "completed");
 
-  let accessLabel = hasAccess ? "Liberado" : "Bloqueado";
-  let accessTone: MasterRealityTone = hasAccess ? "good" : "danger";
-  if (manual) {
-    accessLabel = "Manual";
-    accessTone = "warn";
-  } else if (trial) {
-    accessLabel = "Trial";
-    accessTone = "warn";
-  }
+  const accessLabel =
+    state === "manual"
+      ? "Manual"
+      : state === "exempt"
+        ? "Isenta"
+        : state === "trial" || state === "trial_ending"
+          ? "Trial"
+          : state === "grace"
+            ? "Graça"
+            : hasAccess
+              ? "Liberado"
+              : "Bloqueado";
+  const accessTone: MasterRealityTone =
+    company.riskLevel === "critical" || !hasAccess
+      ? "danger"
+      : company.riskLevel === "warning"
+        ? "warn"
+        : "good";
 
-  let billingLabel = paymentStatusLabel(company.paymentStatus);
-  let billingTone: MasterRealityTone = billingPending ? "danger" : "good";
-  if (manual) {
-    billingLabel = "Manual";
-    billingTone = "warn";
-  } else if (trial) {
-    billingLabel = "Trial";
-    billingTone = "warn";
-  }
+  const billingLabel = company.accessStateLabel || statusBucketLabel(company.statusBucket);
+  const billingTone: MasterRealityTone =
+    state === "overdue" || state === "suspended"
+      ? "danger"
+      : state === "paying" || state === "manual" || state === "exempt" || state === "trial"
+        ? "good"
+        : "warn";
 
   let nextAction = "Nenhuma ação crítica";
   let nextActionTone: MasterRealityTone = "good";
   let reason = company.operationalStatus?.overallHint || company.financialSituation || "Operação sem bloqueio crítico agora.";
 
-  if (!hasAccess) {
-    nextAction = billingPending ? "Regularizar pagamento" : "Revisar acesso";
-    nextActionTone = "danger";
-    reason = billingPending ? "A empresa está sem acesso por cobrança ou assinatura pendente." : "Acesso operacional bloqueado.";
-  } else if (billingPending) {
+  if (state === "overdue") {
     nextAction = "Cobrar";
     nextActionTone = "danger";
     reason = "A cobrança precisa de ação antes de afetar a operação.";
-  } else if (trial) {
-    nextAction = companyTrialEnding(company) ? "Converter trial" : "Aguardar trial";
+  } else if (state === "suspended") {
+    nextAction = "Revisar acesso";
+    nextActionTone = "danger";
+    reason = "Acesso operacional bloqueado.";
+  } else if (state === "pending_checkout") {
+    nextAction = "Acompanhar checkout";
+    nextActionTone = "warn";
+    reason = "O cliente ainda não concluiu a contratação.";
+  } else if (state === "grace") {
+    nextAction = "Cobrar antes do fim da graça";
+    nextActionTone = "warn";
+    reason = "Janela de graça ativa; regularize antes do bloqueio.";
+  } else if (state === "trial_ending") {
+    nextAction = "Converter trial";
+    nextActionTone = "warn";
+    reason = company.trialEndsAt ? `Trial até ${formatDate(company.trialEndsAt)}.` : "Trial vencendo.";
+  } else if (state === "trial") {
+    nextAction = "Aguardar trial";
     nextActionTone = "warn";
     reason = company.trialEndsAt ? `Trial até ${formatDate(company.trialEndsAt)}.` : "Trial ativo.";
   } else if (whatsappAttention) {
@@ -395,7 +404,7 @@ export function buildPlanChangePreview(company: CompanySummary, nextPlanKey: Mas
     removedModules: moduleDiff.removed,
     addedEntitlements: entitlementDiff.added,
     removedEntitlements: entitlementDiff.removed,
-    billingPreservedAs: paymentStatusLabel(company.paymentStatus),
+    billingPreservedAs: company.accessStateLabel || paymentStatusLabel(company.paymentStatus),
     accessPreservedAs: reality.accessLabel,
     manualPremiumWarning: companyManualPremium(company),
   };

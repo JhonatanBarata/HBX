@@ -30,6 +30,7 @@ import {
   COMMERCIAL_PLAN_KEYS,
   COMMERCIAL_PLAN_MODULE_KEYS,
   COMMERCIAL_PLAN_QUOTAS,
+  buildCommercialPlansCatalog,
   getCommercialPlanMonthlyPrice,
   getCommercialPlanTitle,
   normalizeCommercialPlanKey,
@@ -859,6 +860,25 @@ export class ModulesService implements OnModuleInit {
 
   // Projecao do estado canonico (company-access-state.ts) para o vocabulario
   // de buckets do master. Nao re-derivar estado aqui.
+  // Catalogo de planos servido ao master: mesma fonte do checkout
+  // (commercial-plan-catalog.ts). O frontend nao mantem copia local.
+  private buildMasterPlansCatalog() {
+    const shortTitles: Record<string, string> = {
+      [COMMERCIAL_PLAN_KEYS.LITE]: 'List',
+      [COMMERCIAL_PLAN_KEYS.PADRAO]: 'Lead Plus',
+      [COMMERCIAL_PLAN_KEYS.MELHOR]: 'Full',
+    };
+    return buildCommercialPlansCatalog({ includeHidden: true }).map((plan) => ({
+      key: plan.key,
+      title: plan.title,
+      shortTitle: shortTitles[plan.key] || plan.title,
+      monthlyPrice: this.normalizeCurrencyAmount(plan.monthlyPrice || 0),
+      badge: plan.badge || null,
+      modules: COMMERCIAL_PLAN_MODULE_KEYS[plan.key as ActiveCommercialPlanKey] || [],
+      entitlements: COMMERCIAL_PLAN_ENTITLEMENT_KEYS[plan.key as ActiveCommercialPlanKey] || [],
+    }));
+  }
+
   private companyStatusBucket(company: any) {
     const access = resolveCompanyAccessState(company);
     if (access.state === 'exempt') return 'EXEMPT';
@@ -3216,6 +3236,7 @@ export class ModulesService implements OnModuleInit {
         companyAssignable: Boolean(moduleItem.companyAssignable),
         serviceUrl: moduleItem.serviceUrl || null,
       })),
+      plansCatalog: this.buildMasterPlansCatalog(),
     };
   }
 

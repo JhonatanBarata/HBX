@@ -24,7 +24,8 @@ export type MasterCommandFilterId =
   | "trial_ending"
   | "whatsapp_attention"
   | "weak_activation"
-  | "manual_premium";
+  | "manual_premium"
+  | "exempt";
 
 export type MasterPlanKey = "hbx_lite" | "hbx_padrao" | "hbx_melhor";
 
