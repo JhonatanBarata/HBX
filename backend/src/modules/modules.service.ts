@@ -3981,35 +3981,27 @@ export class ModulesService implements OnModuleInit {
         ? COMMERCIAL_PLAN_ENTITLEMENT_KEYS[previousNormalizedPlanKey]
         : [];
 
-    const paymentStatus = String(company.paymentStatus || 'PENDING').trim().toUpperCase();
-    const subscriptionStatus = String(
-      company.subscriptionStatus || this.mapPaymentStatusToSubscriptionStatus(paymentStatus),
-    )
-      .trim()
-      .toLowerCase();
-    const isManualAccess = paymentStatus === 'MANUAL' || subscriptionStatus === 'manual';
-    const isTrialAccess = paymentStatus === 'TRIAL' || subscriptionStatus === 'trialing';
-    const isPaidAccess = paymentStatus === 'PAID' || subscriptionStatus === 'active';
-    const blockedStatuses = new Set(['PENDING', 'OVERDUE', 'EXPIRED', 'DISABLED']);
-    const blockedSubscriptionStatuses = new Set(['pending_checkout', 'past_due', 'expired', 'canceled']);
-    const isBlockedAccess =
-      blockedStatuses.has(paymentStatus) || blockedSubscriptionStatuses.has(subscriptionStatus);
-    const accessIsAvailable = isManualAccess || isTrialAccess || isPaidAccess;
+    // Projecao do estado canonico (PR-002 B.2-4): mudar plano NAO mexe em
+    // acesso nem em premiumAccess — so troca o plano e sincroniza modulos
+    // conforme o estado que a empresa JA tem.
+    const access = resolveCompanyAccessState(company);
+    const released = isCompanyAccessReleased(access.state);
+    const isManualAccess = access.state === 'manual' || access.state === 'exempt';
+    const isTrialAccess = access.state === 'trial' || access.state === 'trial_ending';
     const entitlementStatus: 'paid' | 'manual' | 'trialing' | 'pending_checkout' =
       isManualAccess
         ? 'manual'
         : isTrialAccess
           ? 'trialing'
-          : isPaidAccess
+          : access.state === 'paying' || access.state === 'grace'
             ? 'paid'
             : 'pending_checkout';
-    const nextIsActive = accessIsAvailable ? true : isBlockedAccess ? false : Boolean(company.isActive);
-    const nextPremiumAccess = isManualAccess || isTrialAccess || isPaidAccess
+    const nextIsActive = released
       ? true
-      : isBlockedAccess
+      : access.state === 'suspended' || access.state === 'overdue' || access.state === 'pending_checkout'
         ? false
-        : Boolean(company.premiumAccess);
-    const nextModuleKeys = nextIsActive && nextPremiumAccess
+        : Boolean(company.isActive);
+    const nextModuleKeys = nextIsActive && released
       ? (COMMERCIAL_PLAN_MODULE_KEYS[normalizedPlanKey] || [])
       : [];
     const currentEntitlementKeys = COMMERCIAL_PLAN_ENTITLEMENT_KEYS[normalizedPlanKey] || [];
@@ -4032,7 +4024,6 @@ export class ModulesService implements OnModuleInit {
           selectedPlanKey: normalizedPlanKey,
           trialModuleSelection: normalizedPlanKey === COMMERCIAL_PLAN_KEYS.PADRAO ? 'vendas' : null,
           isActive: nextIsActive,
-          premiumAccess: nextPremiumAccess,
           assistedSetupRequired,
           assistedSetupStatus:
             assistedSetupRequired
@@ -4051,7 +4042,7 @@ export class ModulesService implements OnModuleInit {
           deactivatedAt: nextIsActive ? null : company.deactivatedAt || new Date(),
         },
       });
-      if (nextIsActive && nextPremiumAccess) {
+      if (nextIsActive && released) {
         await this.syncCompanyModulesForPlanTx(tx, companyId, normalizedPlanKey);
       } else {
         await tx.companyModule.updateMany({ where: { companyId }, data: { enabled: false } });
@@ -4083,34 +4074,19 @@ export class ModulesService implements OnModuleInit {
       previousState.subscriptionCurrentPeriodStart === currentState.subscriptionCurrentPeriodStart &&
       previousState.subscriptionCurrentPeriodEnd === currentState.subscriptionCurrentPeriodEnd;
     const planTitle = getCommercialPlanTitle(normalizedPlanKey);
-    const billingLabel =
-      paymentStatus === 'PAID'
-        ? 'Pago'
-        : paymentStatus === 'MANUAL'
-          ? 'Manual'
-          : paymentStatus === 'TRIAL'
-            ? 'Trial'
-            : paymentStatus === 'OVERDUE'
-              ? 'Atrasado'
-              : paymentStatus === 'EXPIRED'
-                ? 'Expirado'
-                : paymentStatus === 'DISABLED'
-                  ? 'Suspenso'
-                  : 'Pendente';
+    const billingLabel = access.statusLabel;
     const warning = isManualAccess
-      ? 'Acesso manual ativo'
-      : !nextIsActive || !nextPremiumAccess
-        ? paymentStatus === 'OVERDUE'
+      ? 'Cortesia ativa'
+      : !nextIsActive || !released
+        ? access.state === 'overdue' || access.state === 'grace'
           ? 'Empresa continua sem acesso por cobrança em atraso.'
-          : paymentStatus === 'DISABLED'
+          : access.state === 'suspended'
             ? 'Empresa continua suspensa.'
-            : paymentStatus === 'EXPIRED'
-              ? 'Empresa continua sem acesso por assinatura expirada.'
-              : 'Empresa continua sem acesso por cobrança pendente.'
+            : 'Empresa continua sem acesso por cobrança pendente.'
         : null;
     const message = isManualAccess
-      ? `Plano alterado para ${planTitle}. Acesso manual continua ativo.`
-      : !nextIsActive || !nextPremiumAccess
+      ? `Plano alterado para ${planTitle}. Cortesia continua ativa.`
+      : !nextIsActive || !released
         ? `Plano alterado para ${planTitle}. ${warning}`
         : `Plano alterado para ${planTitle}. Cobrança mantida como ${billingLabel}.`;
 
@@ -4547,6 +4523,8 @@ export class ModulesService implements OnModuleInit {
     };
   }
 
+  // Perfil e SO cadastro (PR-002 B.2-5b): estado/cobranca mudam pelas 5
+  // acoes (Mudar plano · Trial · Cortesia · Lancar pagamento · Suspender).
   async updateCompanyProfileByMaster(
     masterUserId: number,
     companyId: number,
@@ -4558,8 +4536,6 @@ export class ModulesService implements OnModuleInit {
       taxDocument?: string;
       paymentMethod?: string;
       billingProvider?: string;
-      subscriptionStatus?: string;
-      premiumAccess?: boolean;
     },
   ) {
     await this.assertMasterUser(masterUserId);
@@ -4573,19 +4549,9 @@ export class ModulesService implements OnModuleInit {
     const billingProvider = String(dto?.billingProvider || company.billingProvider || 'manual')
       .trim()
       .toLowerCase();
-    const requestedPremiumAccess = typeof dto?.premiumAccess === 'boolean'
-      ? dto.premiumAccess
-      : Boolean(company.premiumAccess);
-    const subscriptionStatus = String(
-      dto?.subscriptionStatus || company.subscriptionStatus || this.mapPaymentStatusToSubscriptionStatus(company.paymentStatus),
-    )
-      .trim()
-      .toLowerCase();
-    const effectiveSubscriptionStatus = requestedPremiumAccess ? 'manual' : subscriptionStatus;
 
     const allowedPaymentMethods = ['NONE', 'CARD', 'PIX', 'BOLETO', 'MANUAL'];
     const allowedBillingProviders = ['manual', 'mercadopago', 'stripe', 'apple', 'google'];
-    const allowedSubscriptionStatuses = ['trialing', 'active', 'manual', 'past_due', 'canceled', 'expired'];
 
     if (!allowedPaymentMethods.includes(paymentMethod)) {
       throw new BadRequestException(`paymentMethod deve ser um de: ${allowedPaymentMethods.join(', ')}`);
@@ -4595,40 +4561,18 @@ export class ModulesService implements OnModuleInit {
         `billingProvider deve ser um de: ${allowedBillingProviders.join(', ')}`,
       );
     }
-    if (!allowedSubscriptionStatuses.includes(effectiveSubscriptionStatus)) {
-      throw new BadRequestException(
-        `subscriptionStatus deve ser um de: ${allowedSubscriptionStatuses.join(', ')}`,
-      );
-    }
 
-    const updated = await this.prisma.$transaction(async (tx) => {
-      const premiumPlanKey = normalizeCommercialPlanKey(company.selectedPlanKey || COMMERCIAL_PLAN_KEYS.PADRAO);
-      const next = await tx.company.update({
-        where: { id: companyId },
-        data: {
-          selectedPlanKey: requestedPremiumAccess ? premiumPlanKey : company.selectedPlanKey,
-          name: this.normalizeOptionalString(dto?.name) || company.name,
-          primaryContactName: this.normalizeOptionalString(dto?.primaryContactName),
-          contactEmail: this.normalizeOptionalString(dto?.contactEmail),
-          contactPhone: this.normalizeOptionalString(dto?.contactPhone),
-          taxDocument: this.normalizeOptionalString(dto?.taxDocument),
-          paymentMethod: requestedPremiumAccess && paymentMethod === 'NONE' ? 'MANUAL' : paymentMethod,
-          billingProvider: requestedPremiumAccess ? 'manual' : billingProvider,
-          onboardingStatus: requestedPremiumAccess ? 'active_paid' : company.onboardingStatus,
-          paymentStatus: requestedPremiumAccess ? 'MANUAL' : company.paymentStatus,
-          subscriptionStatus: effectiveSubscriptionStatus,
-          // premiumAccess significa liberacao manual: assinatura paga/trial
-          // nao pode ganhar a flag, senao o cliente vira "Acesso manual".
-          premiumAccess: requestedPremiumAccess || effectiveSubscriptionStatus === 'manual',
-          isActive: requestedPremiumAccess || company.isActive,
-          deactivatedAt: requestedPremiumAccess ? null : company.deactivatedAt,
-        },
-      });
-      if (requestedPremiumAccess) {
-        await this.syncCompanyModulesForPlanTx(tx, companyId, premiumPlanKey);
-        await this.syncCompanyEntitlementsForPlanTx(tx, companyId, premiumPlanKey, 'manual', 'master_profile_premium', null, null);
-      }
-      return next;
+    const updated = await this.prisma.company.update({
+      where: { id: companyId },
+      data: {
+        name: this.normalizeOptionalString(dto?.name) || company.name,
+        primaryContactName: this.normalizeOptionalString(dto?.primaryContactName),
+        contactEmail: this.normalizeOptionalString(dto?.contactEmail),
+        contactPhone: this.normalizeOptionalString(dto?.contactPhone),
+        taxDocument: this.normalizeOptionalString(dto?.taxDocument),
+        paymentMethod,
+        billingProvider,
+      },
     });
 
     await this.masterContextService.registerSupportAction({

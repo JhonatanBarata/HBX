@@ -766,15 +766,15 @@ export function useMasterCommandCenterActions({
       await apiFetch(`/modules/master/company/${activeCompany.id}/profile`, {
         method: "PUT",
         body: JSON.stringify({
+          // Perfil e so cadastro (PR-002 B): estado/cobranca mudam pelas
+          // 5 acoes, nunca por aqui.
           name: profileDraft.name.trim(),
           primaryContactName: profileDraft.primaryContactName.trim() || undefined,
           contactEmail: profileDraft.contactEmail.trim() || undefined,
           contactPhone: profileDraft.contactPhone.trim() || undefined,
           taxDocument: profileDraft.taxDocument.trim() || undefined,
           paymentMethod: profileDraft.paymentMethod,
-          subscriptionStatus: profileDraft.subscriptionStatus,
           billingProvider: profileDraft.billingProvider,
-          premiumAccess: profileDraft.premiumAccess,
         }),
       });
       setMessage("Perfil da empresa salvo.");

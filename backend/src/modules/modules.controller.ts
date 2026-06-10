@@ -265,14 +265,6 @@ class UpdateMasterCompanyProfileDto {
   @IsOptional()
   @IsString()
   billingProvider?: string;
-
-  @IsOptional()
-  @IsString()
-  subscriptionStatus?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  premiumAccess?: boolean;
 }
 
 class SetCourtesyDto {
