@@ -117,6 +117,30 @@ export function getCommercialPlanTrialDays(planKey: unknown) {
   return COMMERCIAL_PLAN_TRIAL_DAYS[normalized] ?? 0;
 }
 
+// Regra unica de assentos (PR10062026002 C.3): usuarios inclusos no plano e
+// preco do usuario extra. O aviso de custo do convite de vendedor le daqui.
+export const COMMERCIAL_PLAN_INCLUDED_USERS: Record<ActiveCommercialPlanKey, number> = {
+  [COMMERCIAL_PLAN_KEYS.LITE]: 1,
+  [COMMERCIAL_PLAN_KEYS.PADRAO]: 2,
+  [COMMERCIAL_PLAN_KEYS.MELHOR]: 2,
+};
+
+export const COMMERCIAL_PLAN_EXTRA_USER_MONTHLY: Record<ActiveCommercialPlanKey, number> = {
+  [COMMERCIAL_PLAN_KEYS.LITE]: 0,
+  [COMMERCIAL_PLAN_KEYS.PADRAO]: COMMERCIAL_PRICING.extraUserMonthly,
+  [COMMERCIAL_PLAN_KEYS.MELHOR]: COMMERCIAL_PRICING.extraUserMonthly,
+};
+
+export function getCommercialPlanIncludedUsers(planKey: unknown) {
+  const normalized = normalizeCommercialPlanKey(planKey);
+  return COMMERCIAL_PLAN_INCLUDED_USERS[normalized] ?? 1;
+}
+
+export function getCommercialPlanExtraUserMonthlyPrice(planKey: unknown) {
+  const normalized = normalizeCommercialPlanKey(planKey);
+  return COMMERCIAL_PLAN_EXTRA_USER_MONTHLY[normalized] ?? 0;
+}
+
 export const COMMERCIAL_PLAN_MODULE_KEYS: Record<ActiveCommercialPlanKey, string[]> = {
   [COMMERCIAL_PLAN_KEYS.LITE]: ['vendas', 'webscraping'],
   [COMMERCIAL_PLAN_KEYS.PADRAO]: ['atendimento', 'vendas', 'webscraping', 'cadastro', 'gerencial'],
@@ -274,8 +298,8 @@ export function buildCommercialPlansCatalog(options: { includeHidden?: boolean }
       monthlyPrice: COMMERCIAL_PRICING.liteMonthly,
       trialDays: COMMERCIAL_PLAN_TRIAL_DAYS[COMMERCIAL_PLAN_KEYS.LITE],
       annualDiscountPercent: COMMERCIAL_PRICING.annualDiscountPercent,
-      includedUsers: 1,
-      extraUserMonthlyPrice: 0,
+      includedUsers: COMMERCIAL_PLAN_INCLUDED_USERS[COMMERCIAL_PLAN_KEYS.LITE],
+      extraUserMonthlyPrice: COMMERCIAL_PLAN_EXTRA_USER_MONTHLY[COMMERCIAL_PLAN_KEYS.LITE],
       requiresAssistedSetup: false,
       setupFeeMode: 'none',
       hidden: false,
@@ -306,8 +330,8 @@ export function buildCommercialPlansCatalog(options: { includeHidden?: boolean }
       monthlyPrice: COMMERCIAL_PRICING.padraoMonthly,
       trialDays: COMMERCIAL_PLAN_TRIAL_DAYS[COMMERCIAL_PLAN_KEYS.PADRAO],
       annualDiscountPercent: COMMERCIAL_PRICING.annualDiscountPercent,
-      includedUsers: 2,
-      extraUserMonthlyPrice: COMMERCIAL_PRICING.extraUserMonthly,
+      includedUsers: COMMERCIAL_PLAN_INCLUDED_USERS[COMMERCIAL_PLAN_KEYS.PADRAO],
+      extraUserMonthlyPrice: COMMERCIAL_PLAN_EXTRA_USER_MONTHLY[COMMERCIAL_PLAN_KEYS.PADRAO],
       requiresAssistedSetup: false,
       setupFeeMode: 'none',
       hidden: false,
@@ -340,8 +364,8 @@ export function buildCommercialPlansCatalog(options: { includeHidden?: boolean }
       monthlyPrice: COMMERCIAL_PRICING.melhorMonthly,
       trialDays: COMMERCIAL_PLAN_TRIAL_DAYS[COMMERCIAL_PLAN_KEYS.MELHOR],
       annualDiscountPercent: COMMERCIAL_PRICING.annualDiscountPercent,
-      includedUsers: 2,
-      extraUserMonthlyPrice: COMMERCIAL_PRICING.extraUserMonthly,
+      includedUsers: COMMERCIAL_PLAN_INCLUDED_USERS[COMMERCIAL_PLAN_KEYS.MELHOR],
+      extraUserMonthlyPrice: COMMERCIAL_PLAN_EXTRA_USER_MONTHLY[COMMERCIAL_PLAN_KEYS.MELHOR],
       requiresAssistedSetup: true,
       setupFeeMode: 'negotiated',
       hidden: false,

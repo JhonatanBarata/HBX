@@ -309,7 +309,12 @@ type CreateCompanyUserResult = {
     isSystemMaster?: boolean | null;
     isActive: boolean;
   };
-  temporaryPassword?: string | null;
+  invite?: {
+    sent: boolean;
+    email: string;
+    expiresAt?: string | null;
+    error?: string | null;
+  } | null;
   onboardingEmail?: {
     ok?: boolean;
     emailStatus?: string | null;
@@ -398,11 +403,6 @@ type CompanyUserAccess = { id: number; modules: ModulePermission[] };
 type CompanyAccessPayload = { modules: CompanyModule[]; users: CompanyUserAccess[] };
 type TeamPolicyListPayload = { items: TeamPolicy[]; total: number };
 
-type CreatedPasswordInfo = {
-  userLabel: string;
-  password: string;
-};
-
 type UserProfileDraft = {
   name: string;
   phone: string;
@@ -418,7 +418,6 @@ type GerencialRole = "USER" | "ADMIN" | "USERMASTER";
 type MobileGerencialTab = "status" | "equipe" | "comissoes" | "modulos" | "produtos" | "comunicacao" | "sinais";
 type DesktopGerencialGuideTab = MobileGerencialTab | "atualizar";
 
-const CREATED_PASSWORD_STORAGE_KEY = "hbx.gerencial.created-password.v1";
 const INCLUDED_TEAM_USERS = 2;
 const EXTRA_USER_MONTHLY_PRICE = 24.9;
 const SELLER_LOCKED_MODULE_KEYS = new Set(["webscraping", "gerencial", "financeiro", "cadastro", "website", "master", "exclusoes"]);
@@ -783,28 +782,6 @@ function focusCreateAccessEmailField() {
   }, 0);
 }
 
-function loadCreatedPasswordInfo(): CreatedPasswordInfo | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(CREATED_PASSWORD_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as CreatedPasswordInfo;
-    if (!parsed?.password) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-function saveCreatedPasswordInfo(info: CreatedPasswordInfo | null) {
-  if (typeof window === "undefined") return;
-  if (!info) {
-    window.localStorage.removeItem(CREATED_PASSWORD_STORAGE_KEY);
-    return;
-  }
-  window.localStorage.setItem(CREATED_PASSWORD_STORAGE_KEY, JSON.stringify(info));
-}
-
 export default function GerencialClientPage({ mobileRoute = false }: { mobileRoute?: boolean } = {}) {
   const hasToken = useRequireAuth();
   const searchParams = useSearchParams();
@@ -822,14 +799,19 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   const [newUserReferredByUserId, setNewUserReferredByUserId] = useState("");
   const [newUserReferredByCommissionPercent, setNewUserReferredByCommissionPercent] = useState("");
   const [newUserRole, setNewUserRole] = useState<"USER" | "ADMIN">("USER");
-  const [newUserPassword, setNewUserPassword] = useState("");
+  const [seatBilling, setSeatBilling] = useState<{
+    planKey: string;
+    planTitle: string;
+    activeUsers: number;
+    includedUsers: number;
+    extraActiveUsers: number;
+    extraUserMonthlyPrice: number;
+    nextUserIsExtra: boolean;
+  } | null>(null);
   const [newUserCpf, setNewUserCpf] = useState("");
   const [newUserDeclaredAddress, setNewUserDeclaredAddress] = useState("");
   const [newUserCommissionDueBusinessDays, setNewUserCommissionDueBusinessDays] = useState("3");
   const [newUserEnrichmentLimit, setNewUserEnrichmentLimit] = useState("30");
-  const [createdPasswordInfo, setCreatedPasswordInfo] = useState<CreatedPasswordInfo | null>(() =>
-    loadCreatedPasswordInfo(),
-  );
   const [actionInfo, setActionInfo] = useState<string | null>(null);
   const [togglingMessageId, setTogglingMessageId] = useState<number | null>(null);
   const [moduleAccess, setModuleAccess] = useState<CompanyAccessPayload | null>(null);
@@ -899,6 +881,27 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   const onboardingNoticeSellerId = Number(searchParams.get("sellerId") || 0) || 0;
 
   usePopupTopbarLock(createAccessOpen || Boolean(policyModalUserId) || batchPolicyOpen);
+
+  // Assentos do plano vindos do catálogo/motor de cobrança (PR-002 C.3):
+  // alimenta o aviso de custo do convite e os contadores da equipe.
+  // Refetch quando o popup de novo acesso abre, para o aviso ficar fresco.
+  useEffect(() => {
+    if (hasToken !== true) return;
+    let cancelled = false;
+    apiFetch<typeof seatBilling>("/users/company/seat-billing")
+      .then((payload) => {
+        if (!cancelled) setSeatBilling(payload);
+      })
+      .catch(() => {
+        if (!cancelled) setSeatBilling(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [hasToken, createAccessOpen]);
+
+  const includedTeamUsers = seatBilling?.includedUsers ?? INCLUDED_TEAM_USERS;
+  const extraUserMonthlyPrice = seatBilling?.extraUserMonthlyPrice ?? EXTRA_USER_MONTHLY_PRICE;
 
   const load = useCallback(async () => {
     setError(null);
@@ -1219,7 +1222,6 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     setNewUserReferredByUserId(user.referredByUserId ? String(user.referredByUserId) : "");
     setNewUserReferredByCommissionPercent(percentInputValue(user.referredByCommissionPercentSnapshot));
     setNewUserEnrichmentLimit(user.sellerDistributionDailyLimitOverride === 0 ? "auto" : String(user.sellerDistributionDailyLimitOverride || 30));
-    setNewUserPassword("");
     setOnboardingUserId(user.id);
     setCreateAccessOpen(true);
     setError(null);
@@ -1539,7 +1541,6 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     setNewUserReferredByUserId("");
     setNewUserReferredByCommissionPercent("");
     setNewUserRole("USER");
-    setNewUserPassword("");
     setNewUserCpf("");
     setNewUserDeclaredAddress("");
     setNewUserCommissionDueBusinessDays("3");
@@ -1794,7 +1795,6 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         name: newUserName.trim() || undefined,
         phone: newUserPhone.trim() || undefined,
         role: newUserRole,
-        password: newUserPassword.trim() || undefined,
       };
       if (newUserRole === "USER") {
         if (requiresSellerOnboarding) {
@@ -1847,18 +1847,14 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         );
       }
 
-      if (payload?.temporaryPassword) {
-        const info = {
-          userLabel: userLabel({ id: payload.user.id, name: payload.user.name, username: payload.user.username, email }),
-          password: payload.temporaryPassword,
-        };
-        setCreatedPasswordInfo(info);
-        saveCreatedPasswordInfo(info);
-        setActionInfo(`${roleLabel(payload.user.role)} criado. Entregue a senha temporária com segurança.`);
+      if (payload?.invite) {
+        setActionInfo(payload.invite.sent
+          ? `Convite enviado para ${payload.invite.email}. ${roleLabel(payload.user.role)} define a própria senha pelo link (válido por 7 dias).`
+          : `Acesso criado, mas o convite NÃO foi enviado (${payload.invite.error || "falha no e-mail"}). O usuário pode usar "Esqueci minha senha" no login para definir a senha.`);
       } else {
         setActionInfo(requiresSellerOnboarding
           ? "Vendedor cadastrado em rascunho. Revise contrato/documentos antes de liberar."
-          : `${roleLabel(payload.user.role)} criado com senha definida manualmente.`);
+          : `${roleLabel(payload.user.role)} criado.`);
       }
 
       if (requiresSellerOnboarding && payload?.user?.id) {
@@ -2404,7 +2400,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     const sellers = teamUsers.filter((user) => normalizeRole(user.role, user.isSystemMaster) === "USER");
     const activeSellers = sellers.filter((user) => user.isActive);
     const inactive = teamUsers.filter((user) => !user.isActive);
-    const extraSeats = Math.max(0, activeSellers.length - INCLUDED_TEAM_USERS);
+    const extraSeats = Math.max(0, activeSellers.length - includedTeamUsers);
     const commissionConfigured = sellers.filter((user) => Number(user.commissionPercent || 0) > 0).length;
     const averageCommission =
       activeSellers.length > 0
@@ -2416,9 +2412,9 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
       sellers: sellers.length,
       masters: masters.length,
       inactive: inactive.length,
-      includedSeats: INCLUDED_TEAM_USERS,
+      includedSeats: includedTeamUsers,
       extraSeats,
-      teamMonthlyExtra: extraSeats * EXTRA_USER_MONTHLY_PRICE,
+      teamMonthlyExtra: extraSeats * extraUserMonthlyPrice,
       commissionConfigured,
       averageCommission,
     };
@@ -2487,21 +2483,6 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     [policyModalUserId, teamPolicies],
   );
 
-  async function copyTemporaryPassword() {
-    if (!createdPasswordInfo?.password) return;
-    try {
-      await navigator.clipboard.writeText(createdPasswordInfo.password);
-      setActionInfo("Senha temporária copiada.");
-    } catch {
-      setError("Não foi possível copiar automaticamente. Selecione a senha no card e copie manualmente.");
-    }
-  }
-
-  function dismissCreatedPasswordInfo() {
-    setCreatedPasswordInfo(null);
-    saveCreatedPasswordInfo(null);
-  }
-
   function renderGerencialNoticePopups() {
     const notices: Array<{
       key: string;
@@ -2544,23 +2525,6 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         title: "Gerencial",
         message: actionInfo,
         onClose: () => setActionInfo(null),
-      });
-    }
-
-    if (createdPasswordInfo) {
-      notices.push({
-        key: "password",
-        tone: "warning",
-        icon: "••",
-        title: `Senha temporária de ${createdPasswordInfo.userLabel}`,
-        message: "Copie a senha antes de fechar este aviso.",
-        onClose: dismissCreatedPasswordInfo,
-        content: <code className="hbx-popup2__secret">{createdPasswordInfo.password}</code>,
-        action: (
-          <button type="button" className="hbx-popup2__action" onClick={copyTemporaryPassword}>
-            Copiar
-          </button>
-        ),
       });
     }
 
@@ -2754,7 +2718,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     const showSellerNetwork = isSellerNetwork && isSeller;
     const userModules = moduleAccess?.users.find((item) => item.id === user.id)?.modules || [];
     const seatRank = activeSeatRankByUserId.get(user.id) || 0;
-    const isExtraSeat = isSeller && user.isActive && seatRank > INCLUDED_TEAM_USERS;
+    const isExtraSeat = isSeller && user.isActive && seatRank > includedTeamUsers;
     const isEditingProfile = editingUserId === user.id;
     const isOwnUser = currentUserId === user.id;
     const demoteBlockMessage = getTeamAccessActionBlockMessage(user, currentUserId, "demote");
@@ -3230,6 +3194,15 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                 <span>{createAccessError}</span>
               </div>
             ) : null}
+            {!onboardingUserId && seatBilling?.nextUserIsExtra ? (
+              <div className="hbx-partner-popup__alert" role="status" aria-live="polite">
+                <strong>Custo adicional no plano</strong>
+                <span>
+                  Sua equipe usa {seatBilling.activeUsers} de {seatBilling.includedUsers} acessos incluídos no {seatBilling.planTitle}.
+                  {" "}Este novo acesso adiciona {seatBilling.extraUserMonthlyPrice.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}/mês na fatura.
+                </span>
+              </div>
+            ) : null}
             <div className="hbx-partner-popup__panel">
               {canCreateAdminUsers ? (
                 <div className="hbx-partner-popup__segmented">
@@ -3283,16 +3256,10 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                       <small>Use quando quiser guardar documentos, contrato e liberar depois. Desmarcado cria o acesso normalmente.</small>
                     </span>
                   </label>
-                  <div className="hbx-partner-popup__twocol">
-                    <label>
-                      <span>CPF</span>
-                      <input className="field" value={newUserCpf} onChange={(event) => setNewUserCpf(event.target.value)} />
-                    </label>
-                    <label>
-                      <span>Senha</span>
-                      <input className="field" type="password" name="hbx-create-seller-password-popup" autoComplete="new-password" value={newUserPassword} onChange={(event) => setNewUserPassword(event.target.value)} disabled={Boolean(onboardingUserId)} />
-                    </label>
-                  </div>
+                  <label>
+                    <span>CPF</span>
+                    <input className="field" value={newUserCpf} onChange={(event) => setNewUserCpf(event.target.value)} />
+                  </label>
                   <label>
                     <span>Endereço</span>
                     <input className="field" value={newUserDeclaredAddress} onChange={(event) => setNewUserDeclaredAddress(event.target.value)} />
@@ -3997,7 +3964,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                     : null;
                 const userModules = moduleAccess?.users.find((item) => item.id === user.id)?.modules || [];
                 const seatRank = activeSeatRankByUserId.get(user.id) || 0;
-                const isExtraSeat = isSeller && user.isActive && seatRank > INCLUDED_TEAM_USERS;
+                const isExtraSeat = isSeller && user.isActive && seatRank > includedTeamUsers;
                 const seatLabel = isMaster
                   ? "Sem cobrança - USERMASTER"
                   : isAdmin
@@ -4005,7 +3972,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                   : !user.isActive
                   ? "Sem cobrança ativa"
                   : isExtraSeat
-                    ? `Extra ${formatCurrency(EXTRA_USER_MONTHLY_PRICE)}/mês proporcional`
+                    ? `Extra ${formatCurrency(extraUserMonthlyPrice)}/mês proporcional`
                     : "Vendedor incluído";
                 const isEditingProfile = editingUserId === user.id;
                 const isOwnUser = currentUserId === user.id;

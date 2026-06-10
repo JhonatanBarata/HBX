@@ -1,8 +1,19 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { unlink } from 'fs/promises';
+import * as crypto from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import type { User } from '@prisma/client';
-import { isBillableUserSeatSnapshot } from '../commercial-plans/seat-billing.util';
+import {
+  canBillExtraSeatsForPlan,
+  computeCompanySeatBillingSnapshot,
+  isBillableUserSeatSnapshot,
+} from '../commercial-plans/seat-billing.util';
+import {
+  getCommercialPlanExtraUserMonthlyPrice,
+  getCommercialPlanTitle,
+  normalizeCommercialPlanKey,
+} from '../commercial-plans/commercial-plan-catalog';
+import { resolveCompanyAccessState } from '../modules/company-access-state';
 import { isTenantCompany } from '../common/company-kind';
 import { ensureUserTeamPolicyForUser } from '../team/team-policy-persistence';
 
@@ -562,6 +573,50 @@ export class UsersService {
     return created;
   }
 
+  // Convite de definir senha (PR-002 C.1c/C.3): token unico hasheado na
+  // tabela passwordReset; quem recebe o link define a propria senha e o
+  // reset marca o e-mail como confirmado (prova de caixa).
+  async createSetPasswordInviteToken(userId: number, ttlMs = 7 * 24 * 60 * 60 * 1000) {
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const expiresAt = new Date(Date.now() + ttlMs);
+    await this.prisma.passwordReset.updateMany({
+      where: { userId: Number(userId), used: false },
+      data: { used: true },
+    });
+    await this.prisma.passwordReset.create({
+      data: { token: tokenHash, userId: Number(userId), expiresAt },
+    });
+    return { rawToken, expiresAt };
+  }
+
+  // Aviso de custo ANTES de confirmar o convite (PR-002 C.3): projeta o
+  // snapshot de assentos + valores do catalogo para a tela do gerencial.
+  async getCompanySeatBilling(companyId: number) {
+    const company = await this.prisma.company.findUnique({
+      where: { id: Number(companyId) },
+      select: { id: true, selectedPlanKey: true, companyKind: true },
+    });
+    if (!company) throw new NotFoundException('Empresa não encontrada');
+    const planKey = normalizeCommercialPlanKey(company.selectedPlanKey);
+    const seats = await computeCompanySeatBillingSnapshot(this.prisma, {
+      companyId: Number(companyId),
+      planKey,
+      extraSeatMonthlyAmount: canBillExtraSeatsForPlan(planKey)
+        ? getCommercialPlanExtraUserMonthlyPrice(planKey)
+        : 0,
+    });
+    return {
+      planKey,
+      planTitle: getCommercialPlanTitle(planKey),
+      activeUsers: seats.activeUsers,
+      includedUsers: seats.includedActiveUsers,
+      extraActiveUsers: seats.extraActiveUsers,
+      extraUserMonthlyPrice: seats.extraSeatMonthlyAmount,
+      nextUserIsExtra: seats.extraSeatMonthlyAmount > 0 && seats.activeUsers + 1 > seats.includedActiveUsers,
+    };
+  }
+
   async getCompanyTrialSeatUsage(companyId: number) {
     const [company, activeUsers, activeAdmins, activeSellers] = await Promise.all([
       this.prisma.company.findUnique({
@@ -570,9 +625,18 @@ export class UsersService {
           id: true,
           name: true,
           commissionDueBusinessDays: true,
+          companyKind: true,
+          status: true,
+          isActive: true,
           onboardingStatus: true,
           paymentStatus: true,
           subscriptionStatus: true,
+          premiumAccess: true,
+          billingExempt: true,
+          trialEndsAt: true,
+          billingGraceEndsAt: true,
+          courtesyEndsAt: true,
+          courtesyReason: true,
         },
       }),
       this.prisma.user.count({
@@ -604,14 +668,9 @@ export class UsersService {
       }),
     ]);
 
-    const onboardingStatus = String(company?.onboardingStatus || '').trim().toLowerCase();
-    const paymentStatus = String(company?.paymentStatus || '').trim().toUpperCase();
-    const subscriptionStatus = String(company?.subscriptionStatus || '').trim().toLowerCase();
-    const isTrial =
-      onboardingStatus === 'pending_email_confirmation' ||
-      onboardingStatus === 'active_trial' ||
-      paymentStatus === 'TRIAL' ||
-      subscriptionStatus === 'trialing';
+    // Projecao do estado unico (PR-002 C.3): trial e quem o canonico diz.
+    const accessState = resolveCompanyAccessState(company);
+    const isTrial = accessState.state === 'trial' || accessState.state === 'trial_ending';
 
     return {
       company,

@@ -1317,7 +1317,12 @@ export class AuthService implements OnModuleInit {
     }
 
     if (typeof user.password !== 'string' || user.password.length === 0) {
-      throw new UnauthorizedException('Senha incorreta');
+      // Conta criada por convite (PR-002 C.1c/C.3): a senha e definida pelo
+      // link enviado por e-mail, nunca aqui.
+      throw new UnauthorizedException({
+        code: 'INVITE_PASSWORD_PENDING',
+        message: 'Defina sua senha pelo link de convite enviado por e-mail antes de entrar.',
+      });
     }
 
     const match = await bcrypt.compare(pass, user.password);

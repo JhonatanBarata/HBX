@@ -77,11 +77,6 @@ class CreateCompanyUserDto {
 
 	@IsOptional()
 	@IsString()
-	@MinLength(8)
-	password?: string;
-
-	@IsOptional()
-	@IsString()
 	cpf?: string;
 
 	@IsOptional()
@@ -221,11 +216,6 @@ class MasterCreateUserDto {
 	@IsString()
 	@IsIn(['USER', 'ADMIN'])
 	role?: 'USER' | 'ADMIN';
-
-	@IsOptional()
-	@IsString()
-	@MinLength(8)
-	password?: string;
 
 	@IsOptional()
 	@IsString()
@@ -580,6 +570,57 @@ export class UsersController {
 		}
 	}
 
+	// Convite por link (PR-002 C.3): o vendedor/admin define a propria senha —
+	// nenhuma senha temporaria viaja por e-mail nem passa pela mao do admin.
+	private async sendSetPasswordInviteEmail(input: {
+		userId: number;
+		email: string;
+		name?: string | null;
+		role: 'USER' | 'ADMIN';
+	}) {
+		const { rawToken, expiresAt } = await this.usersService.createSetPasswordInviteToken(input.userId);
+		const appUrl = this.buildAppUrl();
+		const inviteLink = `${appUrl}/reset-password?token=${encodeURIComponent(rawToken)}`;
+		const displayName = String(input.name || input.email).trim();
+		const accessLabel = this.roleWelcomeLabel(input.role);
+		const subject = 'Convite HBX — defina sua senha de acesso';
+		const text = [
+			`Olá, ${displayName}!`,
+			'',
+			`Seu acesso de ${accessLabel} ao HBX System foi criado.`,
+			'Defina sua senha pelo link abaixo (válido por 7 dias):',
+			inviteLink,
+			'',
+			`Depois de definir a senha, entre em ${appUrl}/login com o e-mail ${input.email}.`,
+			'',
+			'Equipe HBX System',
+		].join('\n');
+		const html = [
+			`<p>Olá, <strong>${displayName}</strong>!</p>`,
+			`<p>Seu acesso de <strong>${accessLabel}</strong> ao HBX System foi criado.</p>`,
+			'<p>Defina sua senha pelo link abaixo (válido por 7 dias):</p>',
+			`<p><a href="${inviteLink}">${inviteLink}</a></p>`,
+			`<p>Depois de definir a senha, entre em <a href="${appUrl}/login">${appUrl}/login</a> com o e-mail ${input.email}.</p>`,
+			'<p>Equipe HBX System</p>',
+		].join('');
+		try {
+			const result = await this.mailService.sendMail({ to: input.email, subject, text, html });
+			if (!result?.ok) {
+				this.logger.warn(`seller_invite_mail_failed email=${input.email} code=${result?.errorCode || 'unknown'}`);
+			}
+			return {
+				sent: Boolean(result?.ok),
+				email: input.email,
+				expiresAt: expiresAt.toISOString(),
+				error: result?.ok ? null : result?.errorMessage || 'Falha no envio do convite.',
+			};
+		} catch (error) {
+			const message = error instanceof Error ? error.message : 'Falha no envio do convite.';
+			this.logger.warn(`seller_invite_mail_failed email=${input.email} error=${message}`);
+			return { sent: false, email: input.email, expiresAt: expiresAt.toISOString(), error: message };
+		}
+	}
+
 	private hasSellerNetworkInput(dto: any) {
 		return (
 			dto?.canRecruitSellers !== undefined ||
@@ -695,6 +736,18 @@ export class UsersController {
 		const companyId = Number(req?.user?.companyId);
 		if (!companyId) throw new ForbiddenException('Company context required');
 		return this.usersService.listByCompany(companyId);
+	}
+
+	// Aviso de custo ANTES de confirmar o convite (PR-002 C.3): a tela do
+	// gerencial mostra quantos assentos o plano inclui e quanto custa o extra.
+	@Get('company/seat-billing')
+	@UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
+	@Admin()
+	@ModuleAccess('gerencial')
+	async companySeatBilling(@Req() req: any) {
+		const companyId = Number(req?.user?.companyId);
+		if (!companyId) throw new ForbiddenException('Company context required');
+		return this.usersService.getCompanySeatBilling(companyId);
 	}
 
 	@Patch(':id/role')
@@ -959,10 +1012,6 @@ export class UsersController {
 		if (referralCandidate && dto.referredByUserId && Number(dto.referredByUserId) !== Number(referralCandidate.referrerUserId)) {
 			throw new BadRequestException('A indicação já define outro vendedor indicador.');
 		}
-		const tempPassword = dto.password?.trim() || `Tmp@${Math.random().toString(36).slice(2, 10)}A1`;
-		const hashed = await bcrypt.hash(tempPassword, 10);
-		assertPasswordPolicy(tempPassword);
-
 		const attendantName = String(dto?.name || referralCandidate?.candidateName || '').trim();
 		const phone = normalizeNullableText(dto.phone) || normalizeNullableText(referralCandidate?.candidatePhone);
 		let commissionPercent = normalizeCommissionPercent(dto.commissionPercent) ?? 0;
@@ -987,6 +1036,8 @@ export class UsersController {
 					normalizeNullableText(dto.cpf) ||
 					normalizeNullableText(dto.declaredAddress)),
 		);
+		// Convite por link (PR-002 C.3): usuario nasce SEM senha; o proprio
+		// convidado define a senha pelo link (e isso confirma o e-mail).
 		const created = await this.usersService.create({
 			email,
 			username: email,
@@ -994,8 +1045,7 @@ export class UsersController {
 			phone,
 			commissionPercent,
 			...sellerNetworkData,
-			password: hashed,
-			mustChangePassword: true,
+			password: '',
 			companyId,
 			role,
 			...((role === 'USER' || role === 'ADMIN') && sellerOptionsEnabled && dto.sellerDistributionDailyLimitOverride !== undefined
@@ -1003,7 +1053,7 @@ export class UsersController {
 				: {}),
 			...(requiresSellerOnboarding ? { isActive: false } : {}),
 		});
-		let welcomeEmail: Pick<MailSendResult, 'ok' | 'transport' | 'messageId' | 'errorCode' | 'errorMessage'> | null = null;
+		let invite: { sent: boolean; email: string; expiresAt: string; error: string | null } | null = null;
 		let onboardingEmail: any = null;
 		if (requiresSellerOnboarding) {
 			const createdByUserId = Number(req?.user?.id || 0) || null;
@@ -1030,17 +1080,11 @@ export class UsersController {
 				});
 			}
 		} else {
-			welcomeEmail = await this.sendWelcomeAccessEmail({
+			invite = await this.sendSetPasswordInviteEmail({
+				userId: created.id,
 				email,
-				login: email,
-				password: tempPassword,
 				name: attendantName || created.name,
 				role,
-				source: 'company_create',
-				companyId,
-				commissionPercent: created.commissionPercent,
-				sellerReferralCommissionPercent: created.sellerReferralCommissionPercent,
-				referredByCommissionPercentSnapshot: created.referredByCommissionPercentSnapshot,
 			});
 		}
 
@@ -1058,8 +1102,7 @@ export class UsersController {
 				sellerDistributionDailyLimitOverride: (created as any).sellerDistributionDailyLimitOverride,
 				...this.sellerNetworkPayload(created),
 			},
-			temporaryPassword: requiresSellerOnboarding ? null : dto.password ? null : tempPassword,
-			welcomeEmail,
+			invite,
 			onboardingEmail,
 		};
 	}
@@ -1218,9 +1261,6 @@ export class UsersController {
 			throw new BadRequestException('A indicação já define outro vendedor indicador.');
 		}
 		const attendantName = String(dto?.name || referralCandidate?.candidateName || '').trim();
-		const tempPassword = dto.password?.trim() || `Tmp@${Math.random().toString(36).slice(2, 10)}A1`;
-		assertPasswordPolicy(tempPassword);
-		const hashed = await bcrypt.hash(tempPassword, 10);
 		const phone = normalizeNullableText(dto.phone) || normalizeNullableText(referralCandidate?.candidatePhone);
 		let commissionPercent = normalizeCommissionPercent(dto.commissionPercent) ?? 0;
 		const sellerNetworkDto = referralCandidate
@@ -1245,6 +1285,8 @@ export class UsersController {
 					normalizeNullableText(dto.declaredAddress)),
 		);
 
+		// Convite por link (PR-002 C.3): usuario nasce SEM senha; o proprio
+		// convidado define a senha pelo link (e isso confirma o e-mail).
 		const created = await this.usersService.create({
 			email,
 			username: loginUsername,
@@ -1252,13 +1294,12 @@ export class UsersController {
 			phone,
 			commissionPercent,
 			...sellerNetworkData,
-			password: hashed,
-			mustChangePassword: true,
+			password: '',
 			companyId,
 			role,
 			...(requiresSellerOnboarding ? { isActive: false } : {}),
 		});
-		let welcomeEmail: Pick<MailSendResult, 'ok' | 'transport' | 'messageId' | 'errorCode' | 'errorMessage'> | null = null;
+		let invite: { sent: boolean; email: string; expiresAt: string; error: string | null } | null = null;
 		let onboardingEmail: any = null;
 		if (requiresSellerOnboarding) {
 			const createdByUserId = Number(req?.user?.id || 0) || null;
@@ -1285,17 +1326,11 @@ export class UsersController {
 				});
 			}
 		} else {
-			welcomeEmail = await this.sendWelcomeAccessEmail({
+			invite = await this.sendSetPasswordInviteEmail({
+				userId: created.id,
 				email,
-				login: loginUsername,
-				password: tempPassword,
 				name: attendantName || created.name,
 				role,
-				source: 'master_company_create',
-				companyId,
-				commissionPercent: created.commissionPercent,
-				sellerReferralCommissionPercent: created.sellerReferralCommissionPercent,
-				referredByCommissionPercentSnapshot: created.referredByCommissionPercentSnapshot,
 			});
 		}
 
@@ -1329,8 +1364,7 @@ export class UsersController {
 				isActive: created.isActive,
 				...this.sellerNetworkPayload(created),
 			},
-			temporaryPassword: requiresSellerOnboarding ? null : dto.password ? null : tempPassword,
-			welcomeEmail,
+			invite,
 			onboardingEmail,
 		};
 	}

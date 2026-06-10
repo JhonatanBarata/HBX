@@ -1867,7 +1867,11 @@ function UserEditorModal({ state, actions }: { state: CommandState; actions: Com
               </select>
             </>
           ) : null}
-          <input type="password" value={modal.password} onChange={(event) => actions.setUserModal((current) => current ? { ...current, password: event.target.value } : current)} placeholder={modal.mode === "reset" ? "Nova senha opcional" : "Senha opcional"} />
+          {modal.mode === "create" ? (
+            <p className={styles.helperText}>O usuário define a própria senha pelo convite enviado por e-mail (link válido por 7 dias).</p>
+          ) : (
+            <input type="password" value={modal.password} onChange={(event) => actions.setUserModal((current) => current ? { ...current, password: event.target.value } : current)} placeholder={modal.mode === "reset" ? "Nova senha opcional" : "Senha opcional"} />
+          )}
           <MasterActionButton onClick={actions.submitUserModal} disabled={state.busyAction === `user-${modal.mode}`}>
             {state.busyAction === `user-${modal.mode}` ? "Salvando..." : modal.mode === "create" ? "Criar usuário" : modal.mode === "reset" ? "Resetar senha" : "Salvar usuário"}
           </MasterActionButton>

@@ -38,6 +38,10 @@ function buildUsersController(overrides: {
     }),
     create: async (data: any) => ({ id: 200, email: data.email, username: data.username, role: data.role, isSystemMaster: false, isActive: data.isActive ?? true, ...data }),
     updateById: async (id: number, data: any) => ({ id, ...data }),
+    createSetPasswordInviteToken: async () => ({
+      rawToken: 'tok_convite_teste',
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    }),
     ...overrides.usersService,
   };
 
@@ -58,7 +62,7 @@ function buildUsersController(overrides: {
   return new UsersController(
     usersService as any,
     { registerSupportAction: async () => ({}) } as any,
-    { getConfigurationSummary: () => ({ mode: 'log' }) } as any,
+    { getConfigurationSummary: () => ({ mode: 'log' }), sendMail: async () => ({ ok: true }) } as any,
     {} as any,
     {} as any,
     sellerOnboardingService as any,
@@ -328,8 +332,10 @@ test('/users/company/create vendedor sem documentacao nao usa onboarding', async
   assert.equal(createdData.companyId, 77);
   assert.equal(createdData.role, 'USER');
   assert.equal(createdData.isActive, undefined);
+  assert.equal(createdData.password, '');
   assert.equal(result.user.isActive, true);
-  assert.equal(typeof result.temporaryPassword, 'string');
+  assert.equal(result.invite?.sent, true);
+  assert.equal(result.invite?.email, 'vendedor-comum@example.com');
   assert.equal(result.onboardingEmail, null);
 });
 
@@ -372,8 +378,10 @@ test('/users/company/create admin comum nao usa onboarding', async () => {
   assert.equal(createdData.companyId, 77);
   assert.equal(createdData.role, 'ADMIN');
   assert.equal(createdData.isActive, undefined);
+  assert.equal(createdData.password, '');
   assert.equal(result.user.isActive, true);
-  assert.equal(typeof result.temporaryPassword, 'string');
+  assert.equal(result.invite?.sent, true);
+  assert.equal(result.invite?.email, 'admin-comum@example.com');
   assert.equal(result.onboardingEmail, null);
 });
 

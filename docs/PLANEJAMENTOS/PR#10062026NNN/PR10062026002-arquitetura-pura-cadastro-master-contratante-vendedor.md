@@ -214,9 +214,29 @@ Cada fase commitada, buildada e testada antes da seguinte.
 > Matriz auth: 10 testes (gate canônico + trial nativo + degradação sem fone +
 >   List sem trial). 49 testes auth/access/catalog/policy verdes; webscraping
 >   120/0 (fix delegado commitado antes, f86df985).
-> **Pendência anotada p/ C.3:** branch de signup que completa registro de
->   username sem e-mail (takeover por username conhecido) morre quando o
->   convite por link substituir o fluxo "completar registro".
+> ✔ C.3 Convite de vendedor por link: criação no gerencial (e no master) NÃO
+>   gera mais senha temporária (nem por e-mail nem na tela) — usuário nasce sem
+>   senha + link de definir senha (TTL 7 dias, máquina do passwordReset; definir
+>   a senha confirma o e-mail). Login de conta sem senha responde
+>   INVITE_PASSWORD_PENDING com mensagem clara. Aviso de custo ANTES de
+>   confirmar: GET /users/company/seat-billing projeta o motor real de assentos
+>   (computeCompanySeatBillingSnapshot) + regra única no catálogo
+>   (COMMERCIAL_PLAN_INCLUDED_USERS / COMMERCIAL_PLAN_EXTRA_USER_MONTHLY); o
+>   popup do gerencial avisa "+R$ X/mês" quando o novo acesso excede os
+>   incluídos, e os contadores da equipe pararam de usar preço hardcoded do
+>   frontend (constante vira só fallback). getCompanyTrialSeatUsage projeta
+>   isTrial do canônico. Morto: popup/localStorage de senha temporária do
+>   gerencial. Fluxo de parceiro HBX (onboarding contrato/documentos)
+>   inalterado — a ativação gera senha própria (revisar no DROP).
+> **Pendências anotadas:**
+>   (a) branch "completar registro" de username sem e-mail no signup vive só
+>       para contas legadas — morre no DROP após censo de usuários sem e-mail
+>       (é vetor de takeover por username conhecido);
+>   (b) labels de assento da equipe divergem do motor de cobrança (ADMIN conta
+>       como assento billable no financeiro, tela diz "Admin sem cobrança") —
+>       alinhar na C.2;
+>   (c) masterResetPassword e master-provisioning ainda usam senha temporária
+>       (ferramentas de suporte do master) — revisar na Fase F.
 
 - [x] C.1 Fluxo self-service: cadastro → confirmação de e-mail → trial Lead Plus inicia
       (X dias, regra única no catálogo) → fim do trial: checkout ou suspensão.
@@ -235,7 +255,7 @@ Cada fase commitada, buildada e testada antes da seguinte.
       4. Limites moram no nó do módulo (cards/dia no nó Radar), dentro do teto do plano;
       5. Backend já pronto (team policy única); é a UI que para de falar duas línguas.
       Visual definitivo no PR-003 (tela Configurações > Equipe do handoff).
-- [ ] C.3 Convite de vendedor: cadastro nome+contato → link de onboarding → vendedor
+- [x] C.3 Convite de vendedor: cadastro nome+contato → link de onboarding → vendedor
       define senha. Aviso de custo extra (R$ por vendedor além dos incluídos) ANTES de
       confirmar, com valor vindo do catálogo.
 - [ ] C.4 Tela financeira do contratante revisada para o estado único (assinatura,

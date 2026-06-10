@@ -673,17 +673,22 @@ export function useMasterCommandCenterActions({
     setError(null);
     try {
       if (userModal.mode === "create") {
-        const payload = await apiFetch<{ temporaryPassword?: string | null }>(`/users/master/company/${userModal.companyId}/create`, {
+        const payload = await apiFetch<{ invite?: { sent: boolean; email: string; error?: string | null } | null }>(`/users/master/company/${userModal.companyId}/create`, {
           method: "POST",
           body: JSON.stringify({
             email: userModal.email.trim().toLowerCase(),
             username: userModal.username.trim() || undefined,
             name: userModal.name.trim() || undefined,
             role: userModal.role,
-            password: userModal.password.trim() || undefined,
           }),
         });
-        setMessage(payload?.temporaryPassword ? `Usuário criado. Senha temporária: ${payload.temporaryPassword}` : "Usuário criado.");
+        setMessage(
+          payload?.invite?.sent
+            ? `Usuário criado. Convite para definir senha enviado para ${payload.invite.email}.`
+            : payload?.invite
+              ? `Usuário criado, mas o convite NÃO foi enviado (${payload.invite.error || "falha no e-mail"}). O usuário pode usar "Esqueci minha senha" no login.`
+              : "Usuário criado.",
+        );
       } else if (userModal.mode === "edit" && userModal.userId) {
         await apiFetch(`/users/master/${userModal.userId}`, {
           method: "PATCH",
