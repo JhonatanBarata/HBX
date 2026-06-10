@@ -235,16 +235,20 @@ test('non-billing blocks pass through unchanged for sellers', () => {
   assert.deepEqual(presentModuleBlockForRole('USER', unblocked), unblocked);
 });
 
-test('USER seller role is desktop-eligible for Radar but legacy default only opens Radar on mobile', () => {
+test('seller has ONE rule on any surface: Vendas+Radar default, Atendimento grantable, admin areas blocked', () => {
   const service = new ModulesService({} as any, {} as any, {} as any, {} as any, {} as any, {} as any) as any;
   const seller = { role: 'USER', isSystemMaster: false };
 
-  assert.equal(service.canUseAdminOnlyModule(seller, 'vendas', {}), true);
-  assert.equal(service.canUseAdminOnlyModule(seller, 'webscraping', {}), true);
-  assert.equal(service.canUseAdminOnlyModule(seller, 'webscraping', { mobileRoute: true }), true);
+  // default ligado em qualquer superficie (desktop = mobile)
   assert.equal(service.defaultUserModuleAllowed(seller, 'vendas', {}), true);
-  assert.equal(service.defaultUserModuleAllowed(seller, 'webscraping', {}), false);
+  assert.equal(service.defaultUserModuleAllowed(seller, 'webscraping', {}), true);
   assert.equal(service.defaultUserModuleAllowed(seller, 'webscraping', { mobileRoute: true }), true);
+
+  // atendimento e elegivel (gerencial pode ligar), mas nao vem por padrao
+  assert.equal(service.canUseAdminOnlyModule(seller, 'atendimento', {}), true);
+  assert.equal(service.defaultUserModuleAllowed(seller, 'atendimento', {}), false);
+
+  // areas do contratante seguem bloqueadas para vendedor
   assert.equal(service.canUseAdminOnlyModule(seller, 'gerencial', { mobileRoute: true }), false);
   assert.equal(service.canUseAdminOnlyModule(seller, 'financeiro', { mobileRoute: true }), false);
   assert.equal(service.canUseAdminOnlyModule(seller, 'cadastro', { mobileRoute: true }), false);
@@ -257,7 +261,7 @@ test('HBX tenant seller uses the same defaults as a client seller', () => {
 
   assert.equal(service.resolveAccessGovernor(seller, company), COMPANY_KIND_TENANT);
   assert.equal(service.defaultUserModuleAllowed(seller, 'vendas', {}, company), true);
-  assert.equal(service.defaultUserModuleAllowed(seller, 'webscraping', {}, company), false);
+  assert.equal(service.defaultUserModuleAllowed(seller, 'webscraping', {}, company), true);
   assert.equal(service.defaultUserModuleAllowed(seller, 'webscraping', { mobileRoute: true }, company), true);
 });
 

@@ -109,8 +109,11 @@ const EMPLOYEE_BLOCKED_MODULE_KEYS = new Set([
   'master',
   'exclusoes',
 ]);
-const SELLER_MOBILE_OPERATIONAL_MODULE_KEYS = new Set(['vendas', 'webscraping']);
-const SELLER_DESKTOP_OPERATIONAL_MODULE_KEYS = new Set(['vendas', 'webscraping']);
+// Vendedor (PR-002 A.5/D.1): UMA regra para desktop e mobile.
+// Nasce operacional com Vendas + Radar; Atendimento e elegivel (o gerencial
+// liga por vendedor quando o plano tiver), mas nao vem ligado por padrao.
+const SELLER_ELIGIBLE_MODULE_KEYS = new Set(['vendas', 'webscraping', 'atendimento']);
+const SELLER_DEFAULT_MODULE_KEYS = new Set(['vendas', 'webscraping']);
 // Superficie do master puro (sem contexto de empresa): governo do sistema.
 // Planos, Email e Webwhats sao abas da central master; aqui ficam apenas os
 // modulos de navegacao proprios dele.
@@ -1953,25 +1956,11 @@ export class ModulesService implements OnModuleInit {
     return this.normalizeRequestedModuleKey(moduleKey) === 'financeiro';
   }
 
-  private canUseSellerMobileOperationalModule(user: any, moduleKey: string, context?: ModuleAccessContext) {
-    const normalized = this.normalizeRequestedModuleKey(moduleKey);
-    const role = String(user?.role || '').trim().toUpperCase();
-    return role === 'USER' && Boolean(context?.mobileRoute) && SELLER_MOBILE_OPERATIONAL_MODULE_KEYS.has(normalized);
-  }
-
-  private canUseSellerOperationalModule(user: any, moduleKey: string, context?: ModuleAccessContext) {
-    const normalized = this.normalizeRequestedModuleKey(moduleKey);
-    const role = String(user?.role || '').trim().toUpperCase();
-    if (role !== 'USER') return false;
-    if (SELLER_DESKTOP_OPERATIONAL_MODULE_KEYS.has(normalized)) return true;
-    return this.canUseSellerMobileOperationalModule(user, normalized, context);
-  }
-
-  private canUseAdminOnlyModule(user: any, moduleKey: string, context?: ModuleAccessContext) {
+  private canUseAdminOnlyModule(user: any, moduleKey: string, _context?: ModuleAccessContext) {
     const normalized = this.normalizeRequestedModuleKey(moduleKey);
     const role = String(user?.role || '').trim().toUpperCase();
     if (Boolean(user?.isSystemMaster) || role === 'ADMIN') return true;
-    if (this.canUseSellerOperationalModule(user, normalized, context)) return true;
+    if (role === 'USER' && SELLER_ELIGIBLE_MODULE_KEYS.has(normalized)) return true;
     return !EMPLOYEE_BLOCKED_MODULE_KEYS.has(normalized);
   }
 
@@ -1981,9 +1970,11 @@ export class ModulesService implements OnModuleInit {
     }
     const normalized = this.normalizeRequestedModuleKey(moduleKey);
     const role = String(user?.role || '').trim().toUpperCase();
-    if (role === 'USER' && this.canUseSellerOperationalModule(user, normalized, context)) {
-      if (normalized === 'vendas') return true;
-      return this.canUseSellerMobileOperationalModule(user, normalized, context);
+    if (role === 'USER') {
+      // Mesma regra em qualquer superficie: default Vendas + Radar;
+      // o que estiver fora disso e bloqueado para funcionario continua
+      // desligado ate o gerencial liberar via team policy.
+      return SELLER_DEFAULT_MODULE_KEYS.has(normalized) || !EMPLOYEE_BLOCKED_MODULE_KEYS.has(normalized);
     }
     return true;
   }
@@ -2133,6 +2124,10 @@ export class ModulesService implements OnModuleInit {
           context,
         });
       }
+
+      // Modulos travados (PR-002 A.5): fora do plano, override por empresa
+      // so vale no HBX Full.
+      if (accessPolicy.planKey !== COMMERCIAL_PLAN_KEYS.MELHOR) continue;
 
       if (isSystemMaster) {
         if (await this.isCompanyModuleEnabled(companyId, moduleItem.id)) {
@@ -2292,7 +2287,9 @@ export class ModulesService implements OnModuleInit {
         const guardedCommercialModule = ROUTE_GUARDED_MODULE_KEYS.includes(normalizedKey as any);
         const planManagedModule = planManagedModuleKeys.has(normalizedKey);
         const financeModule = this.isFinanceModuleKey(normalizedKey);
-        const effectiveCompanyEnabled = Boolean(row?.enabled || (accessPolicy.active && planAllowsModule));
+        // Modulos travados (PR-002 A.5): override por empresa so vale no Full.
+        const companyOverrideHonored = accessPolicy.planKey === COMMERCIAL_PLAN_KEYS.MELHOR && Boolean(row?.enabled);
+        const effectiveCompanyEnabled = Boolean(companyOverrideHonored || (accessPolicy.active && planAllowsModule));
         const policyAllowed = resolveTeamPolicyModuleAllowed(teamPolicy, moduleItem.key);
         const userAllowed = isSystemMaster
           ? true
@@ -2452,7 +2449,8 @@ export class ModulesService implements OnModuleInit {
         description: moduleItem.description,
         companyEnabled: planManagedModuleKeys.has(this.normalizeRequestedModuleKey(moduleItem.key))
           ? accessPolicy.moduleKeys.has(this.normalizeRequestedModuleKey(moduleItem.key))
-          : companyModuleMap.has(moduleItem.id) ? Boolean(companyModuleMap.get(moduleItem.id)) : false,
+          : accessPolicy.planKey === COMMERCIAL_PLAN_KEYS.MELHOR &&
+            (companyModuleMap.has(moduleItem.id) ? Boolean(companyModuleMap.get(moduleItem.id)) : false),
       })),
       users: users.map((u) => {
         const policy = policyByUser.get(Number(u.id)) || null;
@@ -3603,6 +3601,14 @@ export class ModulesService implements OnModuleInit {
     if (!company) throw new BadRequestException('Empresa nao encontrada');
     if (isPlatformInfraCompany(company)) {
       throw new BadRequestException('Empresa de infraestrutura nao recebe modulos comerciais.');
+    }
+    // Modulos travados (PR-002 A.5): List e Lead seguem o catalogo do plano,
+    // sempre. Ajuste fino de modulo por empresa so existe no HBX Full.
+    const accessPolicy = resolveCompanyModuleAccessPolicy(company);
+    if (accessPolicy.planKey !== COMMERCIAL_PLAN_KEYS.MELHOR) {
+      throw new BadRequestException(
+        'Modulos sao definidos pelo plano neste pacote. Ajuste fino de modulos so no HBX Full.',
+      );
     }
     const status = await this.evaluateCompanyStatus(companyId);
     if (!status.active) {
