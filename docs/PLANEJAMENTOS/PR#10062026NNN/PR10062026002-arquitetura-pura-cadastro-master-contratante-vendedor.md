@@ -90,8 +90,18 @@ Cada fase commitada, buildada e testada antes da seguinte.
       amarela mantendo acesso. **Pendência anotada p/ Fase D:** o payload do
       operational-status leva texto de cobrança e é buscado por qualquer papel
       (boasvindas/TopBar) — neutralizar para vendedor na caçada de vazamentos.
-      **Próximas fatias:** whatsapp-modal, vendas/messaging/radar-presentation,
-      gate de acesso do auth (linha ~397). **Descoberta importante:** auth.service não é conversão
+      **Fatia 3 ✔** whatsapp-modal (isTrialing/isPaidOrActive → canônico; fixture de teste
+      corrigido: trial real não carrega premiumAccess). **Fatia 4 ✔** radar-presentation
+      (morreu a cópia local do motor de acesso) + messaging (trial-vendas → canônico);
+      fixtures do Radar ganharam isActive. **PASSADA DE LEITORES DE DECISÃO COMPLETA.**
+      O que resta para o DROP (depois de B e C): serializações de exibição
+      (users/profile/companies), capability-tier (`resolveCommercialPlanKeyForCapabilities`
+      ganha assinatura nova), máquina de cadastro do auth (Fase C), ações do master
+      (Fase B), e o gate de login do auth (Fase C).
+      Falso positivo anotado: hbx-recovery `paymentStatus` é status de pagamento MP de
+      cobranças do tenant, não estado da empresa.
+      3 testes do Radar falham de forma PRÉ-EXISTENTE (regras de entrega de cards, sem
+      relação com estado) — delegados para sessão separada. **Descoberta importante:** auth.service não é conversão
       mecânica — é a máquina de cadastro inteira (estados fora do vocabulário como
       `pending_trial_activation`, register gravando `grace`); reescrever é trabalho da
       Fase C, não do A.4. **Novo sequenciamento:** A.4 converte os leitores de decisão
