@@ -1,7 +1,12 @@
+import { resolveCompanyAccessState, type CompanyAccessState } from './company-access-state';
+
 export type MasterBillingSituationReason =
   | 'paid'
   | 'trial'
   | 'manual'
+  | 'exempt'
+  | 'grace'
+  | 'pending_checkout'
   | 'overdue'
   | 'suspended'
   | 'no_method'
@@ -81,14 +86,18 @@ function normalizeCycle(value: unknown) {
   return normalized === 'ANNUAL' ? 'ANNUAL' : 'MONTHLY';
 }
 
-function statusLabel(reason: MasterBillingSituationReason) {
-  if (reason === 'paid') return 'Adimplente';
-  if (reason === 'trial') return 'Trial ativo';
-  if (reason === 'manual') return 'Premium manual';
-  if (reason === 'overdue') return 'Em atraso';
-  if (reason === 'suspended') return 'Suspenso';
-  if (reason === 'no_method') return 'Sem método';
-  return 'Sem leitura financeira';
+// Projecao do estado canonico para o vocabulario do financeiro do master.
+function reasonFromAccessState(access: CompanyAccessState): MasterBillingSituationReason {
+  if (access.state === 'paying') return 'paid';
+  if (access.state === 'trial' || access.state === 'trial_ending') return 'trial';
+  if (access.state === 'manual') return 'manual';
+  if (access.state === 'exempt') return 'exempt';
+  if (access.state === 'grace') return 'grace';
+  if (access.state === 'pending_checkout') return 'pending_checkout';
+  if (access.state === 'overdue') return 'overdue';
+  if (access.state === 'suspended') return 'suspended';
+  if (access.state === 'unknown' && access.detailCode === 'no_payment_method') return 'no_method';
+  return 'unknown';
 }
 
 function summarizeLedgerEntry(row?: MasterBillingLedgerEntryLike | null): MasterBillingLedgerSummary | null {
@@ -106,32 +115,6 @@ function summarizeLedgerEntry(row?: MasterBillingLedgerEntryLike | null): Master
   };
 }
 
-function resolveReason(input: {
-  canUse: boolean;
-  paymentStatus: string;
-  subscriptionStatus: string;
-  paymentMethod: string;
-}) {
-  const { canUse, paymentStatus, subscriptionStatus, paymentMethod } = input;
-  const paidAllowed = paymentStatus === 'PAID' || subscriptionStatus === 'active' || subscriptionStatus === 'authorized';
-  const trialAllowed = paymentStatus === 'TRIAL' || subscriptionStatus === 'trialing';
-  const manualAllowed = paymentStatus === 'MANUAL' || subscriptionStatus === 'manual';
-  const overdue = paymentStatus === 'OVERDUE' || (!paidAllowed && paymentStatus === 'PENDING') || subscriptionStatus === 'past_due';
-  const suspended =
-    paymentStatus === 'DISABLED' ||
-    paymentStatus === 'EXPIRED' ||
-    subscriptionStatus === 'canceled' ||
-    subscriptionStatus === 'expired';
-
-  if (canUse && manualAllowed) return 'manual';
-  if (canUse && paidAllowed) return 'paid';
-  if (canUse && trialAllowed) return 'trial';
-  if (overdue) return 'overdue';
-  if (suspended) return 'suspended';
-  if (!paymentMethod || paymentMethod === 'NONE') return 'no_method';
-  return 'unknown';
-}
-
 export function buildMasterBillingSituation({
   company,
   ledgerRows,
@@ -143,8 +126,6 @@ export function buildMasterBillingSituation({
   nextDueAt,
   daysOverdue,
 }: BuildMasterBillingSituationInput): MasterBillingSituation {
-  const paymentStatus = String(company?.paymentStatus || '').trim().toUpperCase();
-  const subscriptionStatus = String(company?.subscriptionStatus || '').trim().toLowerCase();
   const normalizedPaymentMethod = String(paymentMethod ?? company?.paymentMethod ?? '').trim().toUpperCase() || null;
   const normalizedProvider = String(provider ?? company?.billingProvider ?? '').trim() || null;
   const cycleAmount = normalizeAmount(currentCycleAmount);
@@ -159,12 +140,12 @@ export function buildMasterBillingSituation({
   const pendingAmount = normalizeAmount(
     pendingRows.reduce((total, row) => total + normalizeAmount(row.amount), 0),
   );
-  const reason = resolveReason({
-    canUse,
-    paymentStatus,
-    subscriptionStatus,
-    paymentMethod: normalizedPaymentMethod || '',
+  const access = resolveCompanyAccessState({
+    ...company,
+    isActive: canUse,
+    paymentMethod: normalizedPaymentMethod,
   });
+  const reason = reasonFromAccessState(access);
   const normalizedDaysOverdue = Math.max(0, Math.trunc(Number(daysOverdue || 0) || 0));
   const amountDue =
     reason === 'overdue'
@@ -174,7 +155,7 @@ export function buildMasterBillingSituation({
   return {
     canUse,
     reason,
-    statusLabel: statusLabel(reason),
+    statusLabel: access.statusLabel,
     amountDue,
     currentCycleAmount: cycleAmount,
     billingCycle: normalizeCycle(billingCycle || company?.billingCycle),
