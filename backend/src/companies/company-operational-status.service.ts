@@ -10,6 +10,7 @@ import {
   pickMasterMercadoPagoCredential,
   pickMasterWhatsAppCredential,
 } from '../modules/master-global-integrations.util';
+import { resolveCompanyAccessState } from '../modules/company-access-state';
 
 export type OperationalTone = 'green' | 'yellow' | 'red';
 export type OperationalStatusQuality = 'real' | 'partial' | 'stale';
@@ -680,8 +681,9 @@ export class CompanyOperationalStatusService {
       active: paymentTone === 'green',
     });
 
-    const paymentStatus = String(company?.paymentStatus || '').trim().toUpperCase();
-    const subscriptionStatus = String(company?.subscriptionStatus || '').trim().toLowerCase();
+    // Projecao do estado canonico (PR-002 A.4): este chip nao re-deriva mais
+    // acesso de campos crus — PENDING deixa de aparecer como "Atraso".
+    const access = resolveCompanyAccessState(company);
     const trialRemainingDays = this.mapTrialRemainingDays(company?.trialEndsAt);
     let accessTone: OperationalTone = 'red';
     let accessValue = 'Bloq.';
@@ -690,18 +692,14 @@ export class CompanyOperationalStatusService {
     let accessSource: 'paid' | 'trial' | 'manual' | 'blocked' = 'blocked';
     let accessHref = '/dashboard/financeiro?focus=payment';
 
-    if (Boolean(company?.isActive) && (paymentStatus === 'PAID' || subscriptionStatus === 'active')) {
+    if (access.state === 'paying') {
       accessTone = 'green';
       accessValue = 'Pago';
       accessDetail = 'Acesso pago ativo e liberado para operação.';
       accessHint = 'Acesso pago ativo.';
       accessSource = 'paid';
       accessHref = '/dashboard/financeiro?focus=access';
-    } else if (
-      Boolean(company?.isActive) &&
-      (paymentStatus === 'TRIAL' || subscriptionStatus === 'trialing') &&
-      (trialRemainingDays === null || trialRemainingDays >= 0)
-    ) {
+    } else if (access.state === 'trial' || access.state === 'trial_ending') {
       accessTone = 'yellow';
       accessValue = trialRemainingDays === null ? 'Trial' : `Trial ${trialRemainingDays}d`;
       accessDetail =
@@ -714,19 +712,31 @@ export class CompanyOperationalStatusService {
           : `Trial com ${trialRemainingDays} dia(s).`;
       accessSource = 'trial';
       accessHref = '/dashboard/financeiro?focus=access';
-    } else if (Boolean(company?.isActive) && (paymentStatus === 'MANUAL' || subscriptionStatus === 'manual')) {
-      accessTone = 'yellow';
-      accessValue = 'Manual';
-      accessDetail = 'Acesso premium liberado manualmente pelo MASTER, sem cobrança real gerada.';
-      accessHint = 'Acesso administrativo excepcional.';
+    } else if (access.state === 'manual' || access.state === 'exempt') {
+      accessTone = 'green';
+      accessValue = 'Cortesia';
+      accessDetail = 'Acesso liberado por cortesia do MASTER, sem cobrança gerada.';
+      accessHint = 'Cortesia ativa.';
       accessSource = 'manual';
       accessHref = '/dashboard/financeiro?focus=access';
-    } else if (paymentStatus === 'OVERDUE' || paymentStatus === 'PENDING' || subscriptionStatus === 'past_due') {
+    } else if (access.state === 'grace') {
+      accessTone = 'yellow';
+      accessValue = 'Atraso';
+      accessDetail = 'A cobrança está em atraso; o acesso segue liberado até o fim do prazo de graça.';
+      accessHint = 'Atraso em prazo de graça.';
+      accessSource = 'paid';
+      accessHref = '/dashboard/financeiro?focus=payment';
+    } else if (access.state === 'overdue') {
       accessTone = 'red';
       accessValue = 'Atraso';
-      accessDetail = 'A cobrança está pendente ou em atraso, então o acesso comercial está bloqueado.';
+      accessDetail = 'A cobrança está em atraso, então o acesso comercial está bloqueado.';
       accessHint = 'Acesso bloqueado por atraso.';
-    } else if (paymentStatus === 'EXPIRED' || paymentStatus === 'DISABLED' || subscriptionStatus === 'expired' || subscriptionStatus === 'canceled') {
+    } else if (access.state === 'pending_checkout') {
+      accessTone = 'red';
+      accessValue = 'Checkout';
+      accessDetail = 'A contratação ainda não foi concluída; finalize o checkout para liberar o acesso.';
+      accessHint = 'Checkout pendente.';
+    } else if (access.state === 'suspended') {
       accessTone = 'red';
       accessValue = 'Sem acesso';
       accessDetail = 'O trial expirou ou a empresa foi desativada.';
