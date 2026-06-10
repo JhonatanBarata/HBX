@@ -50,7 +50,11 @@ import {
   presentModuleBlockForRole,
   resolveCompanyModuleAccessPolicy,
 } from './module-access-policy';
-import { isCompanyAccessReleased, resolveCompanyAccessState } from './company-access-state';
+import {
+  deriveCompanyAccessStateFromLegacy,
+  isCompanyAccessReleased,
+  resolveCompanyAccessState,
+} from './company-access-state';
 import {
   loadUserTeamPolicyRuntime,
   parseTeamPolicyModuleAccessMap,
@@ -1686,12 +1690,15 @@ export class ModulesService implements OnModuleInit {
         where: { id: Number(companyId) },
         select: {
           id: true,
+          status: true,
           paymentStatus: true,
           subscriptionStatus: true,
           premiumAccess: true,
           billingExempt: true,
           trialEndsAt: true,
           billingGraceEndsAt: true,
+          courtesyEndsAt: true,
+          courtesyReason: true,
           isActive: true,
         },
       });
@@ -1893,10 +1900,11 @@ export class ModulesService implements OnModuleInit {
     if (isPlatformInfraCompany(company)) return { exists: true, active: false };
 
     const now = Date.now();
-    // Pergunta ao estado canonico: "se estivesse ativa, esta empresa estaria
-    // liberada?" — o evaluate e o unico fluxo que ESCREVE ativacao/desativacao;
-    // a regra de negocio mora em company-access-state.ts.
-    const access = resolveCompanyAccessState({ ...company, isActive: true }, now);
+    // Pergunta "se estivesse ativa, esta empresa estaria liberada?" usando a
+    // derivacao LEGADA de proposito: o override de isActive so faz sentido nos
+    // campos sobrepostos. O estado unico persistido e mantido pelo dual-write
+    // (PrismaService) e pelos escritores novos; este fluxo migra na fase A.3.
+    const access = deriveCompanyAccessStateFromLegacy({ ...company, isActive: true }, now);
     const shouldRemainActive = isCompanyAccessReleased(access.state);
     const trialExpired = access.state === 'suspended' && access.detailCode === 'trial_expired';
     const manualAllowed =
@@ -2075,6 +2083,7 @@ export class ModulesService implements OnModuleInit {
       select: {
         slug: true,
         companyKind: true,
+        status: true,
         isActive: true,
         onboardingStatus: true,
         paymentStatus: true,
@@ -2084,6 +2093,8 @@ export class ModulesService implements OnModuleInit {
         selectedPlanKey: true,
         trialEndsAt: true,
         billingGraceEndsAt: true,
+        courtesyEndsAt: true,
+        courtesyReason: true,
       },
     });
     const accessPolicy = resolveCompanyModuleAccessPolicy(companyAccessSnapshot);
@@ -2223,6 +2234,7 @@ export class ModulesService implements OnModuleInit {
       select: {
         slug: true,
         companyKind: true,
+        status: true,
         isActive: true,
         onboardingStatus: true,
         paymentStatus: true,
@@ -2232,6 +2244,8 @@ export class ModulesService implements OnModuleInit {
         selectedPlanKey: true,
         trialEndsAt: true,
         billingGraceEndsAt: true,
+        courtesyEndsAt: true,
+        courtesyReason: true,
       },
     });
     const accessPolicy = resolveCompanyModuleAccessPolicy(company);

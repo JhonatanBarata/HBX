@@ -81,9 +81,16 @@ model Company {
   billingCycle           String    @default("MONTHLY") // MONTHLY | ANNUAL
   subscriptionStatus      String    @default("trialing") // trialing | active | past_due | canceled | expired
   billingProvider         String    @default("manual") // manual | mercadopago | stripe | apple | google
+  // Estado unico da empresa (PR10062026002): unica fonte persistida.
+  // pending_checkout | trial | active | courtesy | overdue | suspended
+  status                  String    @default("pending_checkout")
+  statusChangedAt         DateTime?
+  statusChangedByUserId   Int?
+  // Cortesia (funde liberacao manual + isenta): prazo opcional; sem prazo = permanente.
+  courtesyEndsAt          DateTime?
+  courtesyReason          String?
+  // ---- Campos legados de transicao (morrem na fase A.4) ----
   premiumAccess           Boolean   @default(false)
-  // Isencao de cobranca: decisao explicita do master (ex.: tenant interno HBX).
-  // Nunca derivar isencao de slug/nome — apenas deste campo.
   billingExempt           Boolean   @default(false)
   billingExemptReason     String?
   billingExemptAt         DateTime?

@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { COMPANY_KIND_PLATFORM_INFRA, COMPANY_KIND_TENANT } from '../common/company-kind';
-import { resolveCompanyAccessState } from './company-access-state';
+import {
+  deriveCompanyAccessStateFromLegacy,
+  resolveCompanyAccessState,
+  storedCompanyStatusFromAccessState,
+} from './company-access-state';
 
 const NOW = Date.now();
 const inDays = (days: number) => new Date(NOW + days * 24 * 60 * 60 * 1000);
@@ -179,4 +183,94 @@ test('no signals and no payment method reads as unknown/no_payment_method', () =
   assert.equal(state.detailCode, 'no_payment_method');
   assert.equal(state.riskLevel, 'warning');
   assert.equal(state.canUse, true);
+});
+
+// ---- Estado unico persistido (Company.status) decide a leitura ----
+
+test('stored status wins over conflicting legacy fields', () => {
+  const state = resolveCompanyAccessState(
+    { isActive: true, status: 'active', paymentStatus: 'PENDING', subscriptionStatus: 'pending_checkout' },
+    NOW,
+  );
+  assert.equal(state.state, 'paying');
+  assert.equal(state.canUse, true);
+});
+
+test('stored courtesy without deadline reads as permanent (exempt view)', () => {
+  const state = resolveCompanyAccessState(
+    { isActive: true, status: 'courtesy', courtesyReason: 'Empresa interna HBX' },
+    NOW,
+  );
+  assert.equal(state.state, 'exempt');
+  assert.equal(state.canUse, true);
+  assert.equal(state.riskLevel, 'stable');
+});
+
+test('stored courtesy with future deadline is temporary; expired deadline goes back to charging', () => {
+  const temporary = resolveCompanyAccessState(
+    { isActive: true, status: 'courtesy', courtesyEndsAt: inDays(10) },
+    NOW,
+  );
+  assert.equal(temporary.state, 'manual');
+  assert.equal(temporary.canUse, true);
+
+  const expired = resolveCompanyAccessState(
+    { isActive: true, status: 'courtesy', courtesyEndsAt: inDays(-1) },
+    NOW,
+  );
+  assert.equal(expired.state, 'overdue');
+  assert.equal(expired.detailCode, 'courtesy_expired');
+  assert.equal(expired.canUse, false);
+});
+
+test('stored trial honours dates: far, ending and expired', () => {
+  const far = resolveCompanyAccessState({ status: 'trial', trialEndsAt: inDays(20) }, NOW);
+  assert.equal(far.state, 'trial');
+
+  const ending = resolveCompanyAccessState({ status: 'trial', trialEndsAt: inDays(2) }, NOW);
+  assert.equal(ending.state, 'trial_ending');
+
+  const expired = resolveCompanyAccessState({ status: 'trial', trialEndsAt: inDays(-2) }, NOW);
+  assert.equal(expired.state, 'suspended');
+  assert.equal(expired.detailCode, 'trial_expired');
+});
+
+test('stored overdue keeps access during grace window and blocks after it', () => {
+  const inGrace = resolveCompanyAccessState(
+    { status: 'overdue', billingGraceEndsAt: inDays(3) },
+    NOW,
+  );
+  assert.equal(inGrace.state, 'grace');
+  assert.equal(inGrace.canUse, true);
+
+  const blocked = resolveCompanyAccessState({ status: 'overdue' }, NOW);
+  assert.equal(blocked.state, 'overdue');
+  assert.equal(blocked.canUse, false);
+});
+
+test('stored pending_checkout and suspended map directly', () => {
+  assert.equal(resolveCompanyAccessState({ status: 'pending_checkout' }, NOW).state, 'pending_checkout');
+  assert.equal(resolveCompanyAccessState({ status: 'suspended' }, NOW).state, 'suspended');
+});
+
+test('view state projects back to the 6-state stored vocabulary', () => {
+  assert.equal(storedCompanyStatusFromAccessState('exempt'), 'courtesy');
+  assert.equal(storedCompanyStatusFromAccessState('manual'), 'courtesy');
+  assert.equal(storedCompanyStatusFromAccessState('paying'), 'active');
+  assert.equal(storedCompanyStatusFromAccessState('trial_ending'), 'trial');
+  assert.equal(storedCompanyStatusFromAccessState('grace'), 'overdue');
+  assert.equal(storedCompanyStatusFromAccessState('overdue'), 'overdue');
+  assert.equal(storedCompanyStatusFromAccessState('pending_checkout'), 'pending_checkout');
+  assert.equal(storedCompanyStatusFromAccessState('suspended'), 'suspended');
+  assert.equal(storedCompanyStatusFromAccessState('unknown'), null);
+  assert.equal(storedCompanyStatusFromAccessState('platform_infra'), null);
+});
+
+test('legacy derivation stays available for the transition write path (evaluate)', () => {
+  const state = deriveCompanyAccessStateFromLegacy(
+    { isActive: true, status: 'suspended', paymentStatus: 'PAID' },
+    NOW,
+  );
+  // deriva dos campos legados de proposito, ignorando o stored:
+  assert.equal(state.state, 'paying');
 });
