@@ -4,7 +4,7 @@ import {
   normalizeCommercialPlanKey,
   type ActiveCommercialPlanKey,
 } from '../commercial-plans/commercial-plan-catalog';
-import { isPlatformInfraCompany } from '../common/company-kind';
+import { resolveCompanyAccessState } from './company-access-state';
 
 export const PRIMARY_COMMERCIAL_MODULE_KEYS = ['atendimento', 'vendas', 'webscraping'] as const;
 export const ROUTE_GUARDED_MODULE_KEYS = ['atendimento', 'vendas', 'webscraping', 'website'] as const;
@@ -23,7 +23,7 @@ export type ModuleAccessCompanySnapshot = {
 };
 
 export type CompanyModuleAccessPolicy = {
-  accessState: 'pending_checkout' | 'trial' | 'paid' | 'manual' | 'grace' | 'open' | 'blocked';
+  accessState: 'pending_checkout' | 'trial' | 'paid' | 'manual' | 'exempt' | 'grace' | 'open' | 'blocked';
   active: boolean;
   pendingCheckout: boolean;
   planKey: ActiveCommercialPlanKey;
@@ -38,7 +38,7 @@ export type ModuleBlockPresentation = {
   criticalEngine: string | null;
 };
 
-const BILLING_BLOCKED_CODES = new Set(['pending_checkout', 'subscription_inactive']);
+const BILLING_BLOCKED_CODES = new Set(['pending_checkout', 'subscription_inactive', 'billing_overdue']);
 
 // Cobrança é assunto exclusivo do contratante (ADMIN). Para qualquer outro
 // papel, motivo financeiro de bloqueio vira mensagem neutra: funcionário ou
@@ -69,22 +69,20 @@ export function presentModuleBlockForRole(
   return block;
 }
 
-function parseDateTime(value: unknown) {
-  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
-  if (!value) return null;
-  const parsed = new Date(String(value));
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
 function hasSelectedPlan(value: unknown) {
   return Boolean(String(value || '').trim());
 }
 
+// Projecao do estado canonico (company-access-state.ts) para o contrato de
+// modulos. Nenhuma regra de cobranca e re-derivada aqui: este arquivo so
+// decide planKey/moduleKeys e traduz o vocabulario.
 export function resolveCompanyModuleAccessPolicy(
   company: ModuleAccessCompanySnapshot | null | undefined,
   nowMs = Date.now(),
 ): CompanyModuleAccessPolicy {
-  if (isPlatformInfraCompany(company)) {
+  const access = resolveCompanyAccessState(company, nowMs);
+
+  if (access.state === 'platform_infra') {
     return {
       accessState: 'blocked',
       active: false,
@@ -96,103 +94,69 @@ export function resolveCompanyModuleAccessPolicy(
     };
   }
 
-  const paymentStatus = String(company?.paymentStatus || '').trim().toUpperCase();
-  const subscriptionStatus = String(company?.subscriptionStatus || '').trim().toLowerCase();
-  const onboardingStatus = String(company?.onboardingStatus || '').trim().toLowerCase();
-  const trialEndsAt = parseDateTime(company?.trialEndsAt);
-  const billingGraceEndsAt = parseDateTime(company?.billingGraceEndsAt);
-  const isActive = Boolean(company?.isActive);
-  const trialStillValid = !trialEndsAt || trialEndsAt.getTime() >= nowMs;
-  const graceActive = Boolean(
-    isActive &&
-    subscriptionStatus === 'grace' &&
-    billingGraceEndsAt &&
-    billingGraceEndsAt.getTime() >= nowMs,
-  );
-  const trialActive = Boolean(
-    isActive &&
-    trialStillValid &&
-    (paymentStatus === 'TRIAL' || subscriptionStatus === 'trialing' || onboardingStatus === 'active_trial'),
-  );
-  const paidActive = Boolean(
-    isActive &&
-    (paymentStatus === 'PAID' || subscriptionStatus === 'active' || subscriptionStatus === 'authorized'),
-  );
-  const manualActive = Boolean(
-    isActive &&
-    (paymentStatus === 'MANUAL' || subscriptionStatus === 'manual' || Boolean(company?.premiumAccess)),
-  );
-  const premiumOverride = Boolean(company?.premiumAccess || paymentStatus === 'MANUAL' || subscriptionStatus === 'manual');
-  const expiredOrCanceled = Boolean(
-    !premiumOverride &&
-    (
-      paymentStatus === 'EXPIRED' ||
-      paymentStatus === 'DISABLED' ||
-      subscriptionStatus === 'expired' ||
-      subscriptionStatus === 'canceled' ||
-      onboardingStatus === 'suspended' ||
-      (trialEndsAt && trialEndsAt.getTime() < nowMs && !paidActive && !manualActive)
-    ),
-  );
-  const pendingCheckout = Boolean(
-    !trialActive &&
-    !paidActive &&
-    !manualActive &&
-    !graceActive &&
-    (paymentStatus === 'PENDING' || subscriptionStatus === 'pending_checkout' || onboardingStatus === 'pending_checkout'),
-  );
-  const active = Boolean(isActive && !expiredOrCanceled);
-  const planKey = trialActive
+  const trialState = access.state === 'trial' || access.state === 'trial_ending';
+  const manualLikeState = access.state === 'manual' || access.state === 'exempt';
+  const planKey = trialState
     ? COMMERCIAL_PLAN_KEYS.PADRAO
-    : manualActive && !hasSelectedPlan(company?.selectedPlanKey)
+    : manualLikeState && !hasSelectedPlan(company?.selectedPlanKey)
       ? COMMERCIAL_PLAN_KEYS.PADRAO
       : normalizeCommercialPlanKey(company?.selectedPlanKey);
-  const moduleKeys = new Set<string>(
-    active && !pendingCheckout
-      ? COMMERCIAL_PLAN_MODULE_KEYS[planKey] || []
-      : [],
-  );
 
-  if (pendingCheckout) {
+  if (access.state === 'pending_checkout') {
     return {
       accessState: 'pending_checkout',
       active: false,
       pendingCheckout: true,
       planKey,
-      moduleKeys,
+      moduleKeys: new Set<string>(),
       blockedCode: 'pending_checkout',
       blockedReason: 'Finalize a contratação para liberar os módulos comerciais.',
     };
   }
 
-  if (!active) {
+  if (access.state === 'overdue') {
     return {
       accessState: 'blocked',
       active: false,
       pendingCheckout: false,
       planKey,
-      moduleKeys,
+      moduleKeys: new Set<string>(),
+      blockedCode: 'billing_overdue',
+      blockedReason: 'Pagamento em atraso. Regularize para liberar este modulo.',
+    };
+  }
+
+  if (!access.canUse) {
+    return {
+      accessState: 'blocked',
+      active: false,
+      pendingCheckout: false,
+      planKey,
+      moduleKeys: new Set<string>(),
       blockedCode: 'subscription_inactive',
       blockedReason: 'Plano inativo. Regularize o acesso para liberar este modulo.',
     };
   }
 
-  return {
-    accessState: pendingCheckout
-      ? 'pending_checkout'
-      : trialActive
+  const accessState =
+    access.state === 'paying'
+      ? 'paid'
+      : trialState
         ? 'trial'
-        : manualActive
+        : access.state === 'manual'
           ? 'manual'
-          : graceActive
-            ? 'grace'
-            : paidActive
-              ? 'paid'
-              : 'open',
+          : access.state === 'exempt'
+            ? 'exempt'
+            : access.state === 'grace'
+              ? 'grace'
+              : 'open';
+
+  return {
+    accessState,
     active: true,
-    pendingCheckout,
+    pendingCheckout: false,
     planKey,
-    moduleKeys,
+    moduleKeys: new Set<string>(COMMERCIAL_PLAN_MODULE_KEYS[planKey] || []),
     blockedCode: null,
     blockedReason: null,
   };

@@ -111,6 +111,30 @@ test('overdue without grace is critical and blocks use', () => {
   }
 });
 
+test('runtime-deactivated overdue company still reads as overdue, not suspended', () => {
+  const state = resolveCompanyAccessState(
+    { isActive: false, paymentStatus: 'OVERDUE', paymentMethod: 'CARD' },
+    NOW,
+  );
+  assert.equal(state.state, 'overdue');
+  assert.equal(state.canUse, false);
+});
+
+test('runtime-deactivated pending client still reads as pending_checkout', () => {
+  const state = resolveCompanyAccessState(
+    {
+      isActive: false,
+      paymentStatus: 'PENDING',
+      subscriptionStatus: 'pending_checkout',
+      onboardingStatus: 'pending_checkout',
+    },
+    NOW,
+  );
+  assert.equal(state.state, 'pending_checkout');
+  assert.equal(state.pendingCheckout, true);
+  assert.equal(state.canUse, false);
+});
+
 test('new PENDING client is pending_checkout, never overdue', () => {
   const state = resolveCompanyAccessState(
     {
@@ -139,9 +163,20 @@ test('expired trial without conversion is suspended with trial_expired detail', 
   assert.equal(state.canUse, false);
 });
 
+test('stale past trialEndsAt with empty statuses still suspends (paywall protection)', () => {
+  const state = resolveCompanyAccessState(
+    { isActive: true, trialEndsAt: inDays(-30) },
+    NOW,
+  );
+  assert.equal(state.state, 'suspended');
+  assert.equal(state.detailCode, 'trial_expired');
+  assert.equal(state.canUse, false);
+});
+
 test('no signals and no payment method reads as unknown/no_payment_method', () => {
   const state = resolveCompanyAccessState({ isActive: true }, NOW);
   assert.equal(state.state, 'unknown');
   assert.equal(state.detailCode, 'no_payment_method');
   assert.equal(state.riskLevel, 'warning');
+  assert.equal(state.canUse, true);
 });

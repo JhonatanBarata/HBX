@@ -95,7 +95,10 @@ function buildResult(
 ): CompanyAccessState {
   return {
     state,
-    canUse: RELEASED_STATES.has(state),
+    // 'unknown' mantem acesso no caminho de leitura (empresa ativa sem nenhum
+    // sinal negativo); quem decide suspender e o fluxo de escrita
+    // (evaluateCompanyStatus), que usa isCompanyAccessReleased e nao canUse.
+    canUse: RELEASED_STATES.has(state) || state === 'unknown',
     pendingCheckout: state === 'pending_checkout',
     statusLabel: STATUS_LABELS[state],
     riskLevel: RISK_LEVELS[state],
@@ -105,14 +108,16 @@ function buildResult(
 
 // Precedencia (decisoes de unificacao, ver PR10062026001):
 //  1. platform_infra nunca tem estado comercial;
-//  2. empresa inativa esta suspensa, ponto — quem reativa e o fluxo de
-//     escrita (evaluateCompanyStatus), nunca a leitura;
-//  3. isencao (decisao master) > manual > pago > trial: a decisao mais
-//     explicita do master vence o sinal mais automatico;
-//  4. suspensao dura (EXPIRED/DISABLED/canceled) vence janela de graça:
+//  2. liberacao (isenta > manual > pago > trial > graça) exige isActive:
+//     a decisao mais explicita do master vence o sinal mais automatico;
+//  3. suspensao dura (EXPIRED/DISABLED/canceled) vence janela de graça:
 //     graça nao ressuscita empresa desligada pelo master;
+//  4. atraso e checkout pendente descrevem a situacao mesmo com a empresa
+//     desativada pelo runtime (o evaluate desativa inadimplente/pendente;
+//     isso nao pode transformar todo mundo em "Suspenso" na leitura);
 //  5. PENDING e cliente que nunca concluiu checkout — nunca "Em atraso";
-//  6. trial vencido sem conversao e suspensao com detalhe trial_expired.
+//  6. trial vencido sem conversao suspende, mesmo sem sinal de trial
+//     (statuses vazios + trialEndsAt no passado nao ganham acesso).
 export function resolveCompanyAccessState(
   company: CompanyAccessSnapshot | null | undefined,
   nowMs = Date.now(),
@@ -121,10 +126,9 @@ export function resolveCompanyAccessState(
     return buildResult('platform_infra', 'platform_infra_company');
   }
 
-  if (!company || company.isActive === false) {
-    return buildResult('suspended', 'inactive');
-  }
+  if (!company) return buildResult('suspended', 'inactive');
 
+  const isActive = company.isActive === true;
   const paymentStatus = String(company.paymentStatus || '').trim().toUpperCase();
   const subscriptionStatus = String(company.subscriptionStatus || '').trim().toLowerCase();
   const onboardingStatus = String(company.onboardingStatus || '').trim().toLowerCase();
@@ -132,20 +136,20 @@ export function resolveCompanyAccessState(
   const trialEndsAt = parseDateTime(company.trialEndsAt);
   const billingGraceEndsAt = parseDateTime(company.billingGraceEndsAt);
 
-  if (company.billingExempt === true) return buildResult('exempt');
+  if (isActive && company.billingExempt === true) return buildResult('exempt');
 
   const manualReleased =
     paymentStatus === 'MANUAL' || subscriptionStatus === 'manual' || Boolean(company.premiumAccess);
-  if (manualReleased) return buildResult('manual');
+  if (isActive && manualReleased) return buildResult('manual');
 
   const paidReleased =
     paymentStatus === 'PAID' || subscriptionStatus === 'active' || subscriptionStatus === 'authorized';
-  if (paidReleased) return buildResult('paying');
+  if (isActive && paidReleased) return buildResult('paying');
 
   const trialSignal =
     paymentStatus === 'TRIAL' || subscriptionStatus === 'trialing' || onboardingStatus === 'active_trial';
   const trialStillValid = !trialEndsAt || trialEndsAt.getTime() >= nowMs;
-  if (trialSignal && trialStillValid) {
+  if (isActive && trialSignal && trialStillValid) {
     const ending = Boolean(trialEndsAt && trialEndsAt.getTime() - nowMs <= TRIAL_ENDING_WINDOW_MS);
     return buildResult(ending ? 'trial_ending' : 'trial');
   }
@@ -159,7 +163,7 @@ export function resolveCompanyAccessState(
   if (hardSuspended) return buildResult('suspended');
 
   const graceActive = Boolean(billingGraceEndsAt && billingGraceEndsAt.getTime() >= nowMs);
-  if (graceActive) return buildResult('grace');
+  if (isActive && graceActive) return buildResult('grace');
 
   const overdue = paymentStatus === 'OVERDUE' || subscriptionStatus === 'past_due';
   if (overdue) return buildResult('overdue');
@@ -170,7 +174,12 @@ export function resolveCompanyAccessState(
     onboardingStatus === 'pending_checkout';
   if (pendingCheckout) return buildResult('pending_checkout');
 
-  if (trialSignal && !trialStillValid) return buildResult('suspended', 'trial_expired');
+  if (!isActive) return buildResult('suspended', 'inactive');
+
+  // Trial vencido suspende mesmo sem sinal explicito de trial: empresa com
+  // statuses vazios e trialEndsAt no passado nao pode ganhar acesso por
+  // omissao (protecao de paywall). PENDING/overdue ja foram tratados acima.
+  if (trialEndsAt && trialEndsAt.getTime() < nowMs) return buildResult('suspended', 'trial_expired');
 
   return buildResult('unknown', !paymentMethod || paymentMethod === 'NONE' ? 'no_payment_method' : null);
 }
