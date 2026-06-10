@@ -68,13 +68,15 @@ Cada fase commitada, buildada e testada antes da seguinte.
 ## Fases
 
 ### Fase A — Estado único no banco (a espinha dorsal)
-- [ ] A.1 Migração aditiva: criar `Company.status`, `courtesyEndsAt`, `courtesyReason`
-      (+ `statusChangedAt`, `statusChangedBy` para auditoria). Backfill: converter cada
-      empresa usando o resolvedor canônico atual (paying→active, manual/exempt→courtesy,
-      trial→trial, pending→pending_checkout, overdue/grace→overdue, suspended→suspended).
-- [ ] A.2 `resolveCompanyAccessState` passa a ler `status` + datas (deriva apenas:
-      trial vencido→suspended, courtesy vencida→active ou overdue, graça vencida→suspended).
-      Matriz de testes refeita para o novo contrato.
+- [x] A.1 Migração aditiva `20260610_company_unified_status`: `Company.status` +
+      `statusChangedAt/ByUserId` + `courtesyEndsAt/courtesyReason`, backfill idempotente
+      (também no ensure de runtime). **Mecanismo extra além do planejado:** dual-write
+      transicional via middleware Prisma ($use) — escritor legado que toca os campos
+      sobrepostos tem o estado único recalculado após a escrita, sem mudar ~20 call sites.
+- [x] A.2 `resolveCompanyAccessState` lê o stored primeiro (datas decidem vencimentos:
+      trial vencido→suspended, cortesia vencida→overdue "volta a cobrar", graça vencida→
+      bloqueia); derivação legada exportada como fallback p/ o evaluate na transição.
+      Matriz: 23 casos (8 novos stored-first), 46 testes verdes no total.
 - [ ] A.3 Escritores migram para o campo único: webhooks Mercado Pago, financeiro
       (ativação por pagamento, graça, bloqueio), evaluateCompanyStatus (vira apenas o
       aplicador de vencimentos: trial/cortesia/graça), ações do master.
