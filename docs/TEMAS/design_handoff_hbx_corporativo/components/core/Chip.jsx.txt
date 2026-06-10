@@ -1,0 +1,43 @@
+/* REFERÊNCIA DE HANDOFF — cópia não-compilada. Ao portar para o repo, restaure o `export`. */
+import React from "react";
+
+/**
+ * Chip — translucent rounded tag used for attributes, filters and quick facts.
+ * Set `active` to highlight a selected filter.
+ */
+function Chip({ children, active = false, iconLeft = null, onClick, style, ...rest }) {
+  const interactive = typeof onClick === "function";
+  return (
+    <span
+      role={interactive ? "button" : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      onClick={onClick}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "0.4rem",
+        padding: "0.42rem 0.66rem",
+        borderRadius: "var(--radius-pill)",
+        border: "1px solid",
+        borderColor: active
+          ? "color-mix(in srgb, var(--hbx-brand) 42%, var(--hbx-line))"
+          : "var(--border-hairline)",
+        background: active
+          ? "color-mix(in srgb, var(--hbx-brand) 14%, var(--hbx-surface))"
+          : "color-mix(in srgb, var(--hbx-surface-raised) 70%, var(--hbx-surface))",
+        color: active ? "var(--hbx-brand-strong)" : "var(--text-body)",
+        fontFamily: "var(--font-body)",
+        fontSize: "0.78rem",
+        fontWeight: 700,
+        lineHeight: 1,
+        cursor: interactive ? "pointer" : "default",
+        transition: "border-color var(--motion-fast), background var(--motion-fast)",
+        ...style,
+      }}
+      {...rest}
+    >
+      {iconLeft}
+      {children}
+    </span>
+  );
+}

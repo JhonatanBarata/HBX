@@ -1,0 +1,12 @@
+/* ============================================================
+   HBX System — Design System global entry point
+   Consumers link THIS one file. It only @imports.
+   ============================================================ */
+
+@import "./tokens/fonts.css";
+@import "./tokens/colors.css";
+@import "./tokens/typography.css";
+@import "./tokens/spacing.css";
+@import "./tokens/effects.css";
+@import "./tokens/base.css";
+@import "./tokens/theme-corporate.css";

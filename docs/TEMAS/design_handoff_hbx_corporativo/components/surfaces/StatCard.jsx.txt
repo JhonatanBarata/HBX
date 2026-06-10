@@ -1,0 +1,55 @@
+/* REFERÊNCIA DE HANDOFF — cópia não-compilada. Ao portar para o repo, restaure o `export`. */
+import React from "react";
+
+/**
+ * StatCard — a single KPI tile. Value in monospaced tabular numerals,
+ * optional delta with up/down tone.
+ */
+function StatCard({ label, value, delta, deltaTone = "success", icon, style, ...rest }) {
+  const dc =
+    deltaTone === "danger"
+      ? "color-mix(in srgb, var(--hbx-danger) 80%, var(--hbx-foreground))"
+      : deltaTone === "muted"
+      ? "var(--hbx-muted)"
+      : "color-mix(in srgb, var(--hbx-success) 76%, var(--hbx-foreground))";
+
+  return (
+    <div
+      style={{
+        padding: "0.95rem 1rem",
+        borderRadius: "calc(var(--panel-radius) - 4px)",
+        border: "1px solid var(--border-hairline)",
+        background:
+          "radial-gradient(circle at top right, color-mix(in srgb, var(--hbx-brand) 10%, transparent), transparent 48%)," +
+          "linear-gradient(180deg, color-mix(in srgb, var(--hbx-surface) 97%, var(--hbx-background)), color-mix(in srgb, var(--hbx-surface-raised) 92%, var(--hbx-background)))",
+        boxShadow: "var(--shadow-inset), var(--shadow-xs)",
+        fontFamily: "var(--font-body)",
+        ...style,
+      }}
+      {...rest}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+        <p style={{ margin: 0, fontSize: "0.74rem", fontWeight: 700, color: "var(--text-muted)" }}>{label}</p>
+        {icon}
+      </div>
+      <p
+        className="hbx-mono"
+        style={{
+          margin: "0.34rem 0 0",
+          fontFamily: "var(--font-mono)",
+          fontVariantNumeric: "tabular-nums",
+          fontSize: "clamp(1.3rem, 1.6vw, 1.8rem)",
+          lineHeight: 1.02,
+          fontWeight: 700,
+          letterSpacing: "-0.02em",
+          color: "var(--text-strong)",
+        }}
+      >
+        {value}
+      </p>
+      {delta != null && (
+        <p style={{ margin: "0.3rem 0 0", fontSize: "0.72rem", fontWeight: 800, color: dc }}>{delta}</p>
+      )}
+    </div>
+  );
+}

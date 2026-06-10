@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="corporate" data-theme-mode="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>HBX — Entrar</title>
+<link rel="stylesheet" href="../styles.css" />
+<link rel="stylesheet" href="corporate.css" />
+<style>
+  body { min-height: 100vh; }
+  .login-split { display: grid; grid-template-columns: 1.1fr 1fr; min-height: 100vh; }
+  .brand-side { position: relative; display: flex; flex-direction: column; justify-content: space-between; padding: 44px 48px; background:
+    radial-gradient(circle at 80% 10%, rgba(22,199,164,0.1), transparent 40%),
+    var(--hbx-nav-surface); border-right: 1px solid var(--border-hairline); overflow: hidden; }
+  .brand-side::before { content: ""; position: absolute; inset: 0; background-image: radial-gradient(circle, var(--border-strong) 1px, transparent 1px); background-size: 22px 22px; opacity: 0.5; }
+  .brand-side > * { position: relative; }
+  .bl { display: flex; align-items: center; gap: 10px; }
+  .bl strong { font-family: var(--font-display); font-size: 1.5rem; font-weight: 800; }
+  .pitch h1 { margin: 0 0 12px; font-family: var(--font-display); font-size: 2.1rem; font-weight: 800; letter-spacing: -0.02em; line-height: 1.15; max-width: 16ch; }
+  .pitch p { margin: 0 0 26px; color: var(--text-muted); font-size: 0.92rem; line-height: 1.6; max-width: 44ch; }
+  .feat { display: grid; gap: 12px; }
+  .feat .it { display: flex; gap: 11px; align-items: center; font-size: 0.84rem; color: var(--text-body); font-weight: 600; }
+  .feat .ic { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 9px; border: 1px solid rgba(22,199,164,0.35); color: var(--hbx-brand-strong); background: rgba(22,199,164,0.07); flex: 0 0 auto; }
+  .foot { font-size: 0.66rem; color: var(--text-muted); }
+  .form-side { display: grid; place-items: center; padding: 40px; }
+  .card { width: min(400px, 100%); display: grid; gap: 16px; padding: 30px; border-radius: var(--radius-xl); border: 1px solid var(--border-hairline); background: var(--hbx-surface); box-shadow: var(--shadow-md); }
+  .card h2 { margin: 0; font-family: var(--font-display); font-size: 1.4rem; font-weight: 800; letter-spacing: -0.01em; }
+  .card .sub { margin: -10px 0 0; font-size: 0.78rem; color: var(--text-muted); }
+  .f { display: grid; gap: 6px; }
+  .f label { font-size: 0.7rem; font-weight: 700; color: var(--text-muted); }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 0.74rem; }
+  .row label { display: inline-flex; gap: 7px; align-items: center; color: var(--text-body); cursor: pointer; }
+  .row input { accent-color: var(--hbx-brand); }
+  .alt { text-align: center; font-size: 0.74rem; color: var(--text-muted); }
+  .ok { display: none; gap: 8px; align-items: center; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid rgba(46,204,142,0.3); background: rgba(46,204,142,0.08); color: var(--hbx-brand-strong); font-size: 0.76rem; font-weight: 700; }
+  .ok.show { display: flex; }
+</style>
+</head>
+<body>
+<button id="mode" title="Alternar tema" style="position: fixed; top: 16px; right: 16px; z-index: 10; width: 36px; height: 36px; border-radius: 999px; border: 1px solid var(--border-hairline); background: var(--hbx-surface); color: var(--text-body); cursor: pointer; font-size: 0.9rem;">◐</button>
+<script>
+  (function () {
+    var KEY = "hbx:corporate-mode";
+    function apply(m) {
+      var kill = document.createElement("style");
+      kill.textContent = "* { transition: none !important; }";
+      document.head.appendChild(kill);
+      if (m === "light") document.documentElement.setAttribute("data-theme-mode", "light");
+      else document.documentElement.removeAttribute("data-theme-mode");
+      void document.documentElement.offsetHeight;
+      requestAnimationFrame(function () { requestAnimationFrame(function () { kill.remove(); }); });
+    }
+    var mode = document.documentElement.getAttribute("data-theme-mode") === "light" ? "light" : "dark";
+    document.getElementById("mode").addEventListener("click", function () {
+      mode = mode === "dark" ? "light" : "dark";
+      apply(mode);
+      try { localStorage.setItem(KEY, mode); } catch (e) {}
+    });
+  })();
+</script>
+<div class="login-split">
+  <aside class="brand-side">
+    <div class="bl">
+      <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="var(--hbx-brand)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l6 6-6 6M11 6l6 6-6 6"></path></svg>
+      <strong>HBX</strong>
+    </div>
+    <div class="pitch">
+      <h1>Sua operação comercial em um só lugar.</h1>
+      <p>Leads, vendas, atendimento e automação — conectados do primeiro contato ao fechamento.</p>
+      <div class="feat">
+        <div class="it"><span class="ic"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17l4-6 3 3 4-7"></path><path d="M3 3v18h18"></path></svg></span>Pipeline de vendas com funil em tempo real</div>
+        <div class="it"><span class="ic"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.6 8.6 0 0 1-3.8-.9L3 20l1-5.2a8.4 8.4 0 1 1 17-3.3Z"></path></svg></span>Atendimento omnichannel: WhatsApp, e-mail e Instagram</div>
+        <div class="it"><span class="ic"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6V3"></path><path d="M7 9h10a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2Z"></path><path d="M9.5 13h.01M14.5 13h.01"></path></svg></span>Bot de qualificação com construtor visual</div>
+      </div>
+    </div>
+    <div class="foot">© 2026 HBX System · Termos de uso · Política de privacidade</div>
+  </aside>
+
+  <main class="form-side">
+    <form class="card" onsubmit="event.preventDefault(); document.getElementById('ok').classList.add('show');">
+      <h2>Entrar no HBX</h2>
+      <p class="sub">Acesse sua conta para continuar de onde parou.</p>
+      <div class="f">
+        <label for="em">E-mail</label>
+        <input id="em" class="field-dark" type="email" placeholder="seu@email.com.br" required autocomplete="username" />
+      </div>
+      <div class="f">
+        <label for="pw">Senha</label>
+        <input id="pw" class="field-dark" type="password" placeholder="••••••••" required autocomplete="current-password" />
+      </div>
+      <div class="row">
+        <label><input type="checkbox" checked />Manter conectado</label>
+        <span class="link">Esqueci minha senha</span>
+      </div>
+      <div class="ok" id="ok">✓ Autenticado — redirecionando para o Dashboard…</div>
+      <button class="btn-teal" type="submit" style="min-height: 44px; font-size: 0.84rem;">Entrar</button>
+      <div class="alt">Ainda não tem conta? <span class="link">Falar com vendas</span></div>
+    </form>
+  </main>
+</div>
+</body>
+</html>

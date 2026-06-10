@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <defs>
+<linearGradient id="hbx-blue" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#38bdf8"></stop><stop offset="1" stop-color="#2563eb"></stop></linearGradient>
+<linearGradient id="hbx-gold" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fde68a"></stop><stop offset="1" stop-color="#f59e0b"></stop></linearGradient>
+<linearGradient id="hbx-instagram" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f97316"></stop><stop offset="0.45" stop-color="#ec4899"></stop><stop offset="1" stop-color="#7c3aed"></stop></linearGradient>
+  </defs>
+  <circle cx="12" cy="12" r="9" fill="none" stroke="#0ea5e9" stroke-width="2"></circle><path d="M3 12h18M12 3c2.5 2.8 3.7 5.8 3.7 9s-1.2 6.2-3.7 9c-2.5-2.8-3.7-5.8-3.7-9S9.5 5.8 12 3z" fill="none" stroke="#0ea5e9" stroke-width="1.7" stroke-linecap="round"></path>
+</svg>

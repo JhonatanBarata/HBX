@@ -1,0 +1,154 @@
+/* ============================================================
+   HBX System — Tema "Corporativo" (norte visual: mockups mai/2026)
+   Flat, sóbrio, quase-preto com tom azul-petróleo e acento teal.
+   Sem glass/blur — superfícies sólidas, bordas 1px sutis.
+
+   Ativação:  <html data-theme="corporate">            → dark (padrão)
+              <html data-theme="corporate" data-theme-mode="light"> → light (fase posterior)
+   ============================================================ */
+
+[data-theme="corporate"] {
+  /* ---- Brand / acentos ------------------------------------------------ */
+  --hbx-brand: #16C7A4;            /* teal — CTAs, item ativo, foco   */
+  --hbx-brand-strong: #2EE6A8;     /* verde-menta — sparklines, deltas */
+  --hbx-brand-soft: #0E2E29;       /* fundo de chips/seleção teal      */
+  --hbx-brand-contrast: #04110D;   /* texto sobre teal                 */
+
+  --hbx-primary: #16C7A4;          /* botão primário (teal sólido)     */
+  --hbx-secondary: #233039;        /* botão secundário (cinza-petróleo)*/
+  --hbx-success: #2ECC8E;
+  --hbx-accent: #22C77D;           /* o "+" verde do topo              */
+
+  --hbx-info: #4CC2FF;             /* links, e-mail badge              */
+  --hbx-warning: #F5B23C;          /* score médio, "Duplicado"         */
+  --hbx-danger: #F0566B;           /* "Não", rotas de erro             */
+
+  /* ---- Superfícies ----------------------------------------------------- */
+  --hbx-background: #0A0F14;       /* canvas                            */
+  --hbx-background-alt: #0A0F14;   /* sem gradiente — flat              */
+  --hbx-surface: #101820;          /* cards / painéis                   */
+  --hbx-surface-soft: #0D141B;     /* sidebar, áreas recuadas           */
+  --hbx-surface-raised: #16202A;   /* hover, inputs, chips              */
+  --hbx-header-surface: #0C1218;
+  --hbx-nav-surface: #0D1419;      /* sidebar                           */
+  --hbx-field-surface: #0E161E;
+  --hbx-table-head: #0D151D;
+
+  /* ---- Hero / spotlight (desligados — flat) ---------------------------- */
+  --hbx-hero-from: #101820;
+  --hbx-hero-to: #101820;
+  --hbx-hero-spotlight: rgba(22,199,164,0.07);
+
+  /* ---- Chat ------------------------------------------------------------ */
+  --hbx-chat-inbound: #151E27;
+  --hbx-chat-outbound: #0F3D34;    /* bolha do agente — teal escuro     */
+  --hbx-chat-system: #111A22;
+
+  /* ---- Texto ----------------------------------------------------------- */
+  --hbx-foreground: #E8F1F5;
+  --hbx-foreground-soft: #B9C8D2;
+  --hbx-muted: #7C8C99;
+
+  /* ---- Linhas / sombra ------------------------------------------------- */
+  --hbx-line: #1D2933;             /* hairline 1px                      */
+  --hbx-shadow: #000508;
+  --hbx-overlay: rgba(2,6,10,0.7);
+
+  /* ---- Aliases semânticos ---------------------------------------------- */
+  --text-strong: var(--hbx-foreground);
+  --text-body: var(--hbx-foreground-soft);
+  --text-muted: var(--hbx-muted);
+  --text-on-brand: var(--hbx-brand-contrast);
+  --surface-canvas: var(--hbx-background);
+  --surface-card: var(--hbx-surface);
+  --surface-recessed: var(--hbx-surface-soft);
+  --surface-raised: var(--hbx-surface-raised);
+  --border-hairline: #1C2832;
+  --border-strong: #2A3945;
+  --ring-brand: rgba(22,199,164,0.22);
+
+  /* ---- Efeitos: flat — sombras curtas, sem inset claro, sem blur ------- */
+  --shadow-xs: 0 1px 2px rgba(0,5,8,0.4);
+  --shadow-sm: 0 4px 14px -6px rgba(0,5,8,0.5);
+  --shadow-md: 0 10px 28px -12px rgba(0,5,8,0.6);
+  --shadow-lg: 0 20px 48px -18px rgba(0,5,8,0.7);
+  --shadow-inset: inset 0 0 0 0 transparent;
+  --panel-glow: rgba(22,199,164,0.08);
+  --hero-glow: rgba(22,199,164,0.1);
+  --soft-ring: rgba(22,199,164,0.22);
+  --blur-chrome: 0px;              /* @kind other */
+  --blur-glass: 0px;               /* @kind other */
+
+  /* ---- Raios: levemente menores que o friendly ------------------------- */
+  --radius-xs: 6px;
+  --radius-sm: 10px;
+  --radius-md: 12px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --control-radius: var(--radius-sm);
+  --panel-radius: var(--radius-lg);
+  --hero-radius: var(--radius-xl);
+
+  /* ---- Tipografia: tracking normal (não o display apertado) ------------ */
+  --tracking-display: -0.02em;     /* @kind other */
+  --tracking-tight: -0.01em;       /* @kind other */
+}
+
+/* ============================================================
+   Corporativo — modo CLARO
+   <html data-theme="corporate" data-theme-mode="light">
+   Mesma estrutura flat; teal escurecido p/ contraste em branco.
+   ============================================================ */
+[data-theme="corporate"][data-theme-mode="light"] {
+  --hbx-brand: #0FA98A;
+  --hbx-brand-strong: #0A8E73;
+  --hbx-brand-soft: #DCF3EC;
+  --hbx-brand-contrast: #FFFFFF;
+
+  --hbx-primary: #0FA98A;
+  --hbx-secondary: #E7EEF2;
+  --hbx-success: #149A66;
+  --hbx-accent: #12A368;
+
+  --hbx-info: #1180C2;
+  --hbx-warning: #B26B0F;
+  --hbx-danger: #C23A52;
+
+  --hbx-background: #F2F6F8;
+  --hbx-background-alt: #F2F6F8;
+  --hbx-surface: #FFFFFF;
+  --hbx-surface-soft: #F6F9FA;
+  --hbx-surface-raised: #E9F0F3;
+  --hbx-header-surface: #FFFFFF;
+  --hbx-nav-surface: #FBFDFD;
+  --hbx-field-surface: #FFFFFF;
+  --hbx-table-head: #F2F6F8;
+
+  --hbx-hero-from: #FFFFFF;
+  --hbx-hero-to: #FFFFFF;
+  --hbx-hero-spotlight: rgba(15,169,138,0.06);
+
+  --hbx-chat-inbound: #FFFFFF;
+  --hbx-chat-outbound: #DCF2EA;
+  --hbx-chat-system: #F0F4F3;
+
+  --hbx-foreground: #14242F;
+  --hbx-foreground-soft: #3C5260;
+  --hbx-muted: #6A7E8C;
+
+  --hbx-line: #D8E2E9;
+  --hbx-shadow: #92A8B5;
+  --hbx-overlay: rgba(20,36,47,0.35);
+
+  --text-strong: var(--hbx-foreground);
+  --text-body: var(--hbx-foreground-soft);
+  --text-muted: var(--hbx-muted);
+  --border-hairline: #DFE8EE;
+  --border-strong: #C3D2DB;
+  --ring-brand: rgba(15,169,138,0.2);
+
+  --shadow-xs: 0 1px 2px rgba(146,168,181,0.25);
+  --shadow-sm: 0 4px 14px -6px rgba(146,168,181,0.35);
+  --shadow-md: 0 10px 28px -12px rgba(146,168,181,0.45);
+  --shadow-lg: 0 20px 48px -18px rgba(146,168,181,0.55);
+}

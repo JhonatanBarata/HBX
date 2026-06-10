@@ -1,0 +1,59 @@
+/* REFERÊNCIA DE HANDOFF — cópia não-compilada. Ao portar para o repo, restaure o `export`. */
+import React from "react";
+
+/**
+ * Small pill label for status / counts / taxonomy. Tinted by tone.
+ */
+function Badge({ children, tone = "neutral", style, ...rest }) {
+  const t = TONES[tone] || TONES.neutral;
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "0.35rem",
+        minHeight: "28px",
+        padding: "0.22rem 0.58rem",
+        borderRadius: "var(--radius-pill)",
+        border: "1px solid",
+        fontFamily: "var(--font-body)",
+        fontSize: "0.68rem",
+        fontWeight: 800,
+        lineHeight: 1,
+        ...t,
+        ...style,
+      }}
+      {...rest}
+    >
+      {children}
+    </span>
+  );
+}
+
+const TONES = {
+  neutral: {
+    color: "var(--hbx-muted)",
+    borderColor: "var(--border-hairline)",
+    background: "color-mix(in srgb, var(--hbx-surface-raised) 92%, var(--hbx-background))",
+  },
+  brand: {
+    color: "var(--hbx-brand-strong)",
+    borderColor: "color-mix(in srgb, var(--hbx-brand) 26%, var(--hbx-background))",
+    background: "color-mix(in srgb, var(--hbx-brand) 12%, var(--hbx-background))",
+  },
+  success: {
+    color: "color-mix(in srgb, var(--hbx-success) 74%, var(--hbx-foreground))",
+    borderColor: "color-mix(in srgb, var(--hbx-success) 28%, var(--hbx-background))",
+    background: "color-mix(in srgb, var(--hbx-success) 12%, var(--hbx-background))",
+  },
+  warning: {
+    color: "color-mix(in srgb, var(--hbx-warning) 70%, var(--hbx-foreground))",
+    borderColor: "color-mix(in srgb, var(--hbx-warning) 30%, var(--hbx-background))",
+    background: "color-mix(in srgb, var(--hbx-warning) 14%, var(--hbx-background))",
+  },
+  danger: {
+    color: "color-mix(in srgb, var(--hbx-danger) 78%, var(--hbx-foreground))",
+    borderColor: "color-mix(in srgb, var(--hbx-danger) 28%, var(--hbx-background))",
+    background: "color-mix(in srgb, var(--hbx-danger) 12%, var(--hbx-background))",
+  },
+};

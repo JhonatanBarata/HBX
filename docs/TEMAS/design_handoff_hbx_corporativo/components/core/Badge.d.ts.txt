@@ -1,0 +1,12 @@
+import * as React from "react";
+
+/**
+ * Pill status/count label, tinted by tone.
+ */
+export interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
+  /** @default "neutral" */
+  tone?: "neutral" | "brand" | "success" | "warning" | "danger";
+  children?: React.ReactNode;
+}
+
+export function Badge(props: BadgeProps): React.JSX.Element;

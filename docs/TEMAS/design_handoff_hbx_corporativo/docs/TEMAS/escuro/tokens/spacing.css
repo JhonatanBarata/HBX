@@ -1,0 +1,44 @@
+/* ============================================================
+   HBX System — Spacing & radius tokens
+   Radii from theme chrome: 8/12/16/20/28 + pill.
+   Spacing is a compact 4px-based rhythm — the product is dense.
+   ============================================================ */
+
+:root {
+  /* ---- Radius (theme chrome) ------------------------------------------ */
+  --radius-xs: 8px;
+  --radius-sm: 12px;     /* controls: buttons, inputs            */
+  --radius-md: 16px;
+  --radius-lg: 20px;     /* panels / cards (--panel-radius)      */
+  --radius-xl: 28px;     /* hero blocks (--hero-radius)          */
+  --radius-pill: 999px;  /* badges, chips, nav links             */
+
+  /* aliases used across the product */
+  --control-radius: var(--radius-sm);
+  --panel-radius: var(--radius-lg);
+  --hero-radius: var(--radius-xl);
+
+  /* ---- Spacing scale (4px base) --------------------------------------- */
+  --space-0: 0;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* ---- Workspace shell metrics (from theme.workspace) ----------------- */
+  --rail-width: 260px;       /* primary nav rail   */
+  --context-width: 248px;    /* contextual sidebar */
+  --shell-gap: 12px;
+  --content-gutter: 12px;
+
+  /* ---- Control sizing ------------------------------------------------- */
+  --control-height: 38px;    /* default button     */
+  --control-height-sm: 32px;
+  --field-height: 42px;      /* inputs             */
+}

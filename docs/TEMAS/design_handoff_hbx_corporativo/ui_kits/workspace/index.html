@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>HBX System — Workspace</title>
+<link rel="stylesheet" href="../../styles.css" />
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { font-family: var(--font-body); color: var(--text-strong); }
+  #root { min-height: 100vh; }
+  .shell { display: grid; grid-template-columns: var(--rail-width) 1fr; gap: 12px; padding: 12px; min-height: 100vh; }
+  ::-webkit-scrollbar { width: 9px; height: 9px; }
+  ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--hbx-line) 70%, transparent); border-radius: 999px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState } = React;
+
+const glass = {
+  border: "1px solid var(--border-hairline)",
+  borderRadius: "var(--panel-radius)",
+  background:
+    "radial-gradient(circle at top right, color-mix(in srgb, var(--hbx-brand) 8%, transparent), transparent 48%)," +
+    "linear-gradient(180deg, color-mix(in srgb, var(--hbx-surface) 98%, var(--hbx-background)), color-mix(in srgb, var(--hbx-surface-soft) 92%, var(--hbx-background)))",
+  boxShadow: "var(--shadow-inset), var(--shadow-sm)",
+};
+
+const overline = { fontFamily: "var(--font-display)", fontSize: "0.6rem", fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--text-muted)", whiteSpace: "nowrap" };
+
+const WS_MODE_KEY = "hbx:friendly-mode";   // light | dark
+const WS_THEME_KEY = "hbx:ws-theme";       // friendly | corporate
+
+function applyWs(theme, mode) {
+  const kill = document.createElement("style");
+  kill.textContent = "* { transition: none !important; }";
+  document.head.appendChild(kill);
+  const html = document.documentElement;
+  if (mode === "dark") html.setAttribute("data-theme-mode", "dark");
+  else html.removeAttribute("data-theme-mode");
+  void html.offsetHeight;
+  requestAnimationFrame(() => requestAnimationFrame(() => kill.remove()));
+}
+try {
+  const savedMode = localStorage.getItem(WS_MODE_KEY);
+  if (savedMode) applyWs("friendly", savedMode);
+} catch (e) {}
+
+function ThemeToggle() {
+  const [mode, setMode] = useState(() => {
+    try { return localStorage.getItem(WS_MODE_KEY) || "light"; } catch (e) { return "light"; }
+  });
+  const [theme] = useState("friendly"); // esta página É o app Friendly
+  function flipMode() {
+    const next = mode === "light" ? "dark" : "light";
+    setMode(next);
+    applyWs(theme, next);
+    try { localStorage.setItem(WS_MODE_KEY, next); } catch (e) {}
+  }
+  function flipTheme() {
+    // navega para o app Corporativo real (painéis/shell próprios)
+    try { localStorage.setItem(WS_THEME_KEY, "corporate"); } catch (e) {}
+    window.location.href = "../corporate/Dashboard.html";
+  }
+  const corp = theme === "corporate";
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+      <button onClick={flipMode} aria-label="Alternar claro/escuro" title={mode === "light" ? "Tema escuro" : "Tema claro"}
+        style={{ display: "inline-grid", placeItems: "center", width: 38, height: 38, borderRadius: "var(--control-radius)", border: "1px solid var(--border-hairline)", cursor: "pointer", color: "var(--text-body)",
+          background: "linear-gradient(160deg, color-mix(in srgb, var(--hbx-surface) 90%, transparent), color-mix(in srgb, var(--hbx-surface-soft) 70%, transparent))", boxShadow: "var(--shadow-inset), var(--shadow-xs)" }}>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+          {mode === "light"
+            ? <path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.6 6.6 0 0 0 9.8 9.8Z" />
+            : <path d="M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10ZM12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />}
+        </svg>
+      </button>
+      <button onClick={flipTheme} role="switch" aria-checked={corp} aria-label="Alternar Friendly / Corporativo"
+        title={corp ? "Voltar ao tema Friendly" : "Ativar tema Corporativo"}
+        style={{ position: "relative", width: 46, height: 26, padding: 0, borderRadius: 999, cursor: "pointer",
+          border: "1px solid " + (corp ? "color-mix(in srgb, var(--hbx-brand) 55%, var(--hbx-line))" : "var(--border-hairline)"),
+          background: corp
+            ? "linear-gradient(140deg, color-mix(in srgb, var(--hbx-brand) 85%, transparent), color-mix(in srgb, var(--hbx-brand-strong) 75%, transparent))"
+            : "color-mix(in srgb, var(--hbx-surface-raised) 80%, var(--hbx-surface))",
+          boxShadow: "var(--shadow-inset)", transition: "background var(--motion-fast), border-color var(--motion-fast)" }}>
+        <span style={{ position: "absolute", top: "50%", left: corp ? 22 : 2, width: 20, height: 20, borderRadius: 999,
+          background: "#FFFFFF", transform: "translateY(-50%)", transition: "left var(--motion-base)",
+          boxShadow: "0 4px 10px -4px color-mix(in srgb, var(--hbx-shadow) 50%, transparent)" }} />
+      </button>
+      <span style={{ fontSize: "0.66rem", fontWeight: 800, color: corp ? "var(--hbx-brand-strong)" : "var(--text-muted)", letterSpacing: "0.04em", minWidth: 76 }}>
+        {corp ? "Corporativo" : "Friendly"}
+      </span>
+    </span>
+  );
+}
+
+function Brand() {
+  return (
+    <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+      <span style={{ display: "inline-grid", placeItems: "center", width: 44, height: 44, borderRadius: 14, color: "#fff", fontFamily: "var(--font-display)", fontWeight: 900, letterSpacing: "0.06em", fontSize: "0.8rem",
+        background: "radial-gradient(circle at 30% 20%, rgba(255,255,255,0.34), transparent 30%), linear-gradient(135deg, #18d7c4 0%, #0a5970 48%, #5b39ff 100%)",
+        boxShadow: "0 14px 30px -12px rgba(23,195,184,0.5), inset 0 1px 0 rgba(255,255,255,0.3)" }}>HBX</span>
+      <div style={{ display: "grid", gap: 1 }}>
+        <strong style={{ fontFamily: "var(--font-display)", fontSize: "0.92rem", fontWeight: 800, letterSpacing: "-0.02em", whiteSpace: "nowrap" }}>HBX System</strong>
+        <small style={{ fontSize: "0.66rem", color: "var(--text-muted)", whiteSpace: "nowrap" }}>Workspace</small>
+      </div>
+    </div>
+  );
+}
+
+const NAV = [
+  { id: "inicio", label: "Início", icon: "radar" },
+  { id: "leads", label: "Esteira de leads", icon: "lead-plus" },
+  { id: "atendimento", label: "Atendimento", icon: "channel" },
+  { id: "recovery", label: "Recovery", icon: "coins" },
+  { id: "cadastros", label: "Cadastros", icon: "cnpj" },
+];
+
+function Rail({ view, setView }) {
+  return (
+    <nav style={{ ...glass, display: "flex", flexDirection: "column", padding: 14, gap: 18 }}>
+      <Brand />
+      <div style={{ display: "grid", gap: 4 }}>
+        <span style={{ ...overline, padding: "0 8px 4px" }}>Operação</span>
+        {NAV.map((n) => {
+          const active = view === n.id;
+          return (
+            <button key={n.id} onClick={() => setView(n.id)}
+              style={{ display: "flex", alignItems: "center", gap: 11, padding: "0.6rem 0.7rem", borderRadius: "var(--control-radius)", cursor: "pointer", textAlign: "left",
+                border: "1px solid " + (active ? "color-mix(in srgb, var(--hbx-brand) 32%, var(--hbx-line))" : "transparent"),
+                background: active ? "color-mix(in srgb, var(--hbx-brand) 12%, var(--hbx-surface))" : "transparent",
+                color: active ? "var(--hbx-brand-strong)" : "var(--text-body)", fontFamily: "var(--font-body)", fontSize: "0.84rem", fontWeight: active ? 800 : 600, transition: "all .18s" }}>
+              <img src={"../../assets/icons/" + n.icon + ".svg"} width="18" height="18" alt="" style={{ opacity: active ? 1 : 0.7 }} />
+              {n.label}
+            </button>
+          );
+        })}
+      </div>
+      <div style={{ marginTop: "auto", display: "grid", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "0.6rem 0.7rem", borderRadius: "var(--control-radius)", border: "1px solid var(--border-hairline)", background: "color-mix(in srgb, var(--hbx-surface-raised) 60%, var(--hbx-surface))" }}>
+          <span style={{ display: "inline-grid", placeItems: "center", width: 30, height: 30, borderRadius: 10, color: "#fff", fontFamily: "var(--font-display)", fontWeight: 800, fontSize: "0.7rem", background: "linear-gradient(140deg, var(--hbx-brand), var(--hbx-brand-strong))" }}>MA</span>
+          <div style={{ display: "grid", gap: 0, lineHeight: 1.2 }}>
+            <strong style={{ fontSize: "0.76rem" }}>Marina Alves</strong>
+            <small style={{ fontSize: "0.64rem", color: "var(--text-muted)" }}>Auto Center Sul</small>
+          </div>
+        </div>
+      </div>
+    </nav>
+  );
+}
+
+function TopBar({ title, subtitle }) {
+  return (
+    <header style={{ ...glass, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, padding: "14px 18px", borderRadius: "var(--radius-md)" }}>
+      <div style={{ display: "grid", gap: 3 }}>
+        <span style={overline}>{subtitle}</span>
+        <strong style={{ fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, letterSpacing: "-0.03em" }}>{title}</strong>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "0.4rem 0.7rem", borderRadius: 999, border: "1px solid color-mix(in srgb, var(--hbx-success) 28%, var(--hbx-background))", background: "color-mix(in srgb, var(--hbx-success) 12%, var(--hbx-background))", color: "color-mix(in srgb, var(--hbx-success) 74%, var(--hbx-foreground))", fontSize: "0.68rem", fontWeight: 800 }}>
+          <span style={{ width: 8, height: 8, borderRadius: 999, background: "var(--hbx-success)" }} />WhatsApp conectado
+        </span>
+        <ThemeToggle />
+        <button style={btn("secondary")}>Importar lista</button>
+        <button style={btn("primary")}>+ Novo lead</button>
+      </div>
+    </header>
+  );
+}
+
+function btn(variant) {
+  const base = { minHeight: 38, padding: "0 14px", borderRadius: "calc(var(--control-radius) + 1px)", border: "1px solid", fontFamily: "var(--font-body)", fontSize: "0.78rem", fontWeight: 800, cursor: "pointer" };
+  if (variant === "primary") return { ...base, color: "#FDFDFF", borderColor: "color-mix(in srgb, var(--hbx-primary) 52%, var(--hbx-accent))",
+    background: "linear-gradient(140deg, color-mix(in srgb, var(--hbx-primary) 90%, transparent), color-mix(in srgb, var(--hbx-accent) 72%, transparent) 54%, color-mix(in srgb, var(--hbx-secondary) 78%, transparent))",
+    boxShadow: "0 18px 34px -22px color-mix(in srgb, var(--hbx-primary) 50%, transparent), inset 0 1px 0 rgba(255,255,255,0.28)" };
+  return { ...base, color: "var(--text-strong)", borderColor: "var(--border-hairline)", background: "linear-gradient(160deg, color-mix(in srgb, var(--hbx-surface) 90%, transparent), color-mix(in srgb, var(--hbx-surface-soft) 70%, transparent))", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.4)" };
+}
+
+function Stat({ label, value, delta, tone }) {
+  const dc = tone === "danger" ? "color-mix(in srgb, var(--hbx-danger) 80%, var(--hbx-foreground))" : "color-mix(in srgb, var(--hbx-success) 76%, var(--hbx-foreground))";
+  return (
+    <div style={{ ...glass, padding: "0.95rem 1rem", borderRadius: "calc(var(--panel-radius) - 4px)", boxShadow: "var(--shadow-inset), var(--shadow-xs)" }}>
+      <p style={{ margin: 0, fontSize: "0.74rem", fontWeight: 700, color: "var(--text-muted)" }}>{label}</p>
+      <p style={{ margin: "0.34rem 0 0", fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums", fontSize: "1.5rem", fontWeight: 700, letterSpacing: "-0.03em", whiteSpace: "nowrap" }}>{value}</p>
+      <p style={{ margin: "0.3rem 0 0", fontSize: "0.72rem", fontWeight: 800, color: dc }}>{delta}</p>
+    </div>
+  );
+}
+
+function LeadCard({ company, segment, channel, priority, hot, action }) {
+  return (
+    <article style={{ display: "grid", gap: 10, padding: "1rem 1.05rem", borderRadius: "var(--radius-md)",
+      border: "1px solid " + (hot ? "color-mix(in srgb, var(--hbx-brand) 36%, var(--hbx-line))" : "var(--border-hairline)"),
+      background: hot ? "radial-gradient(circle at top right, color-mix(in srgb, var(--hbx-brand-strong) 16%, transparent), transparent 44%), linear-gradient(180deg, var(--hbx-surface), var(--hbx-surface-soft))" : "linear-gradient(180deg, var(--hbx-surface), var(--hbx-surface-soft))",
+      boxShadow: "var(--shadow-inset), var(--shadow-xs)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ ...overline, color: hot ? "var(--hbx-brand-strong)" : "var(--text-muted)" }}>{hot ? "Lead quente" : "Lead"}</span>
+        <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem", fontWeight: 700, color: "var(--hbx-brand-strong)" }}>{priority}% prioridade</span>
+      </div>
+      <div style={{ display: "grid", gap: 2 }}>
+        <strong style={{ fontFamily: "var(--font-display)", fontSize: "1rem", fontWeight: 800, letterSpacing: "-0.02em" }}>{company}</strong>
+        <span style={{ fontSize: "0.76rem", color: "var(--text-muted)" }}>{segment}</span>
+      </div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <span style={{ display: "inline-flex", gap: 6, alignItems: "center", padding: "0.3rem 0.55rem", borderRadius: 999, border: "1px solid var(--border-hairline)", background: "color-mix(in srgb, var(--hbx-surface-raised) 60%, var(--hbx-surface))", fontSize: "0.72rem", fontWeight: 700 }}>
+          <img src="../../assets/icons/whatsapp.svg" width="14" height="14" alt="" />{channel}
+        </span>
+      </div>
+      {action && (
+        <button onClick={action} style={{ marginTop: 2, minHeight: 40, border: "none", borderRadius: "var(--control-radius)", cursor: "pointer", fontFamily: "var(--font-body)", fontWeight: 800, fontSize: "0.8rem", color: "#06121A", background: "linear-gradient(135deg, var(--hbx-mint) 0%, #fff 100%)", boxShadow: "0 12px 24px -16px color-mix(in srgb, var(--hbx-mint) 70%, transparent)" }}>
+          Próxima melhor ação: chamar agora
+        </button>
+      )}
+    </article>
+  );
+}
+
+function Dashboard() {
+  const [toast, setToast] = useState(null);
+  return (
+    <div style={{ display: "grid", gap: 12, alignContent: "start" }}>
+      <div style={{ ...glass, padding: "1.1rem 1.25rem", borderRadius: "var(--hero-radius)",
+        background: "radial-gradient(circle at top right, var(--hbx-hero-spotlight), transparent 32%), linear-gradient(145deg, var(--hbx-hero-from), var(--hbx-hero-to))" }}>
+        <span style={overline}>Resumo do dia</span>
+        <h1 style={{ margin: "6px 0 6px", fontFamily: "var(--font-display)", fontSize: "1.7rem", fontWeight: 900, letterSpacing: "-0.05em", lineHeight: 1 }}>Bom dia, Marina. 12 leads quentes esperando.</h1>
+        <p style={{ margin: 0, maxWidth: "66ch", fontSize: "0.84rem", lineHeight: 1.5, color: "var(--text-muted)" }}>A esteira priorizou os contatos com maior chance de fechar hoje. Comece pelos quentes e deixe o Recovery rodar a régua automática.</p>
+      </div>
+
+      <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(4, 1fr)" }}>
+        <Stat label="Leads na esteira" value="1.284" delta="+18% hoje" />
+        <Stat label="Recuperado (mês)" value="R$ 86.4k" delta="+9% vs. abril" />
+        <Stat label="Pendente" value="R$ 42.380" delta="-6% vs. ontem" tone="danger" />
+        <Stat label="Conversas abertas" value="37" delta="+4 na última hora" />
+      </div>
+
+      <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1.4fr 1fr", alignItems: "start" }}>
+        <section style={{ ...glass, padding: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <div style={{ display: "grid", gap: 2 }}><span style={overline}>Esteira mobile</span><strong style={{ fontFamily: "var(--font-display)", fontSize: "1rem", fontWeight: 800, letterSpacing: "-0.03em" }}>Próximos na fila</strong></div>
+            <button style={btn("secondary")}>Ver todos</button>
+          </div>
+          <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr 1fr" }}>
+            <LeadCard hot company="Assistência Técnica Local" segment="Eletrônicos · Campinas/SP" channel="WhatsApp provável" priority={87} action={() => setToast("Abrindo conversa com Assistência Técnica Local…")} />
+            <LeadCard company="Auto Center Sul" segment="Automotivo · Sorocaba/SP" channel="Telefone" priority={54} />
+            <LeadCard company="Padaria Pão Nosso" segment="Alimentação · Campinas/SP" channel="Instagram" priority={61} />
+            <LeadCard hot company="Studio Bella Estética" segment="Beleza · Jundiaí/SP" channel="WhatsApp provável" priority={79} action={() => setToast("Abrindo conversa com Studio Bella Estética…")} />
+          </div>
+        </section>
+
+        <section style={{ ...glass, padding: 16, background: "radial-gradient(circle at top right, color-mix(in srgb, var(--hbx-warning) 16%, transparent), transparent 44%), linear-gradient(180deg, var(--hbx-surface), var(--hbx-surface-soft))" }}>
+          <span style={overline}>Recovery</span>
+          <strong style={{ display: "block", fontFamily: "var(--font-display)", fontSize: "1rem", fontWeight: 800, letterSpacing: "-0.03em", margin: "2px 0 12px" }}>Régua de cobrança ativa</strong>
+          {[["Parcela atrasada · Auto Center Sul", "R$ 1.240", "Follow-up hoje 14h"],
+            ["Orçamento parado · Padaria Pão Nosso", "R$ 680", "Lembrete enviado"],
+            ["Cliente sumido · Studio Bella", "R$ 2.100", "Reativação agendada"]].map((r, i) => (
+            <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "0.6rem 0", borderTop: i ? "1px solid var(--border-hairline)" : "none" }}>
+              <div style={{ display: "grid", gap: 2 }}>
+                <span style={{ fontSize: "0.78rem", fontWeight: 700 }}>{r[0]}</span>
+                <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>{r[2]}</span>
+              </div>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.8rem", fontWeight: 700, color: "color-mix(in srgb, var(--hbx-warning) 64%, var(--hbx-foreground))" }}>{r[1]}</span>
+            </div>
+          ))}
+        </section>
+      </div>
+
+      {toast && (
+        <div onClick={() => setToast(null)} style={{ position: "fixed", bottom: 22, right: 22, ...glass, padding: "0.8rem 1.1rem", borderRadius: "var(--radius-md)", fontSize: "0.82rem", fontWeight: 700, cursor: "pointer", zIndex: 30 }}>
+          {toast}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const CONVOS = [
+  { id: 1, name: "Auto Center Sul", last: "Pode marcar 👍", time: "09:34", unread: 0, status: "live" },
+  { id: 2, name: "Studio Bella Estética", last: "Qual o valor da limpeza de pele?", time: "09:21", unread: 2, status: "online" },
+  { id: 3, name: "Padaria Pão Nosso", last: "Bot: transferido para humano", time: "08:58", unread: 0, status: "busy" },
+  { id: 4, name: "Mercado União", last: "Obrigado pelo atendimento!", time: "Ontem", unread: 0, status: "offline" },
+];
+
+function Inbox() {
+  const [active, setActive] = useState(1);
+  const [thread, setThread] = useState([
+    { dir: "system", text: "Bot HBX iniciou o atendimento" },
+    { dir: "in", text: "Oi, a peça que pedi já chegou?", time: "09:32", author: "Auto Center Sul" },
+    { dir: "out", text: "Chegou sim! Posso agendar a troca pra amanhã?", time: "09:33" },
+    { dir: "in", text: "Perfeito, pode marcar 👍", time: "09:34", author: "Auto Center Sul" },
+  ]);
+  const [draft, setDraft] = useState("");
+  const convo = CONVOS.find((c) => c.id === active);
+
+  function send() {
+    if (!draft.trim()) return;
+    setThread((t) => [...t, { dir: "out", text: draft.trim(), time: "agora" }]);
+    setDraft("");
+  }
+
+  const dotColor = { live: "var(--hbx-brand-strong)", online: "var(--hbx-success)", busy: "var(--hbx-warning)", offline: "var(--hbx-muted)" };
+
+  return (
+    <div style={{ ...glass, display: "grid", gridTemplateColumns: "300px 1fr", padding: 0, overflow: "hidden", height: "calc(100vh - 24px - 66px - 12px)" }}>
+      <aside style={{ borderRight: "1px solid var(--border-hairline)", display: "flex", flexDirection: "column", minHeight: 0 }}>
+        <div style={{ padding: 14, borderBottom: "1px solid var(--border-hairline)" }}>
+          <span style={overline}>Atendimento</span>
+          <input placeholder="Buscar conversa" style={{ marginTop: 8, width: "100%", minHeight: 38, borderRadius: "var(--control-radius)", border: "1px solid var(--border-hairline)", padding: "0 12px", fontFamily: "var(--font-body)", fontSize: "0.82rem", background: "var(--hbx-field-surface)", outline: "none" }} />
+        </div>
+        <div style={{ overflowY: "auto", flex: 1 }}>
+          {CONVOS.map((c) => (
+            <button key={c.id} onClick={() => setActive(c.id)} style={{ width: "100%", display: "flex", gap: 11, alignItems: "center", padding: "0.7rem 0.85rem", textAlign: "left", cursor: "pointer", border: "none", color: "var(--text-strong)", fontFamily: "var(--font-body)", borderLeft: "3px solid " + (active === c.id ? "var(--hbx-brand)" : "transparent"), background: active === c.id ? "color-mix(in srgb, var(--hbx-brand) 8%, var(--hbx-surface))" : "transparent" }}>
+              <span style={{ position: "relative", display: "inline-grid", placeItems: "center", width: 38, height: 38, borderRadius: 12, color: "#fff", fontFamily: "var(--font-display)", fontWeight: 800, fontSize: "0.74rem", flex: "0 0 auto", background: "linear-gradient(140deg, var(--hbx-brand), var(--hbx-brand-strong))" }}>
+                {c.name.split(" ").slice(0, 2).map((w) => w[0]).join("")}
+                <span style={{ position: "absolute", right: -1, bottom: -1, width: 11, height: 11, borderRadius: 999, background: dotColor[c.status], border: "2px solid var(--hbx-surface)" }} />
+              </span>
+              <span style={{ display: "grid", gap: 1, minWidth: 0, flex: 1 }}>
+                <span style={{ display: "flex", justifyContent: "space-between", gap: 6 }}>
+                  <strong style={{ fontSize: "0.8rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.name}</strong>
+                  <small style={{ fontFamily: "var(--font-mono)", fontSize: "0.6rem", color: "var(--text-muted)" }}>{c.time}</small>
+                </span>
+                <span style={{ display: "flex", justifyContent: "space-between", gap: 6, alignItems: "center" }}>
+                  <small style={{ fontSize: "0.72rem", color: "var(--text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.last}</small>
+                  {c.unread > 0 && <span style={{ flex: "0 0 auto", minWidth: 18, height: 18, borderRadius: 999, display: "grid", placeItems: "center", fontSize: "0.62rem", fontWeight: 800, color: "#fff", background: "var(--hbx-brand)" }}>{c.unread}</span>}
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+      </aside>
+
+      <section style={{ display: "flex", flexDirection: "column", minHeight: 0, background: "var(--hbx-surface-soft)" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: "1px solid var(--border-hairline)", background: "var(--hbx-surface)" }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <span style={{ display: "inline-grid", placeItems: "center", width: 36, height: 36, borderRadius: 11, color: "#fff", fontFamily: "var(--font-display)", fontWeight: 800, fontSize: "0.72rem", background: "linear-gradient(140deg, var(--hbx-brand), var(--hbx-brand-strong))" }}>
+              {convo.name.split(" ").slice(0, 2).map((w) => w[0]).join("")}
+            </span>
+            <div style={{ display: "grid", gap: 1 }}>
+              <strong style={{ fontSize: "0.88rem", fontFamily: "var(--font-display)", letterSpacing: "-0.02em" }}>{convo.name}</strong>
+              <small style={{ fontSize: "0.66rem", color: "var(--text-muted)" }}>WhatsApp · online agora</small>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button style={btn("secondary")}>Transferir</button>
+            <button style={btn("secondary")}>Recovery</button>
+          </div>
+        </div>
+
+        <div style={{ flex: 1, overflowY: "auto", padding: "16px", display: "flex", flexDirection: "column", gap: 4 }}>
+          {thread.map((m, i) => {
+            if (m.dir === "system") return <div key={i} style={{ display: "flex", justifyContent: "center", margin: "4px 0" }}><span style={{ padding: "0.3rem 0.7rem", borderRadius: 999, background: "var(--hbx-chat-system)", border: "1px solid var(--border-hairline)", fontSize: "0.7rem", fontWeight: 600, color: "var(--text-muted)" }}>{m.text}</span></div>;
+            const out = m.dir === "out";
+            return (
+              <div key={i} style={{ display: "flex", justifyContent: out ? "flex-end" : "flex-start", margin: "2px 0" }}>
+                <div style={{ maxWidth: "72%", padding: "0.55rem 0.75rem 0.4rem", borderRadius: out ? "16px 16px 4px 16px" : "16px 16px 16px 4px", background: out ? "var(--hbx-chat-outbound)" : "var(--hbx-chat-inbound)", border: "1px solid var(--border-hairline)", boxShadow: "var(--shadow-inset), var(--shadow-xs)" }}>
+                  {m.author && !out && <div style={{ fontSize: "0.66rem", fontWeight: 800, color: "var(--hbx-brand-strong)", marginBottom: 2 }}>{m.author}</div>}
+                  <div style={{ fontSize: "0.84rem", lineHeight: 1.45 }}>{m.text}</div>
+                  {m.time && <div style={{ fontFamily: "var(--font-mono)", fontSize: "0.6rem", color: "var(--text-muted)", textAlign: "right", marginTop: 2 }}>{m.time}</div>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{ display: "flex", gap: 10, padding: 14, borderTop: "1px solid var(--border-hairline)", background: "var(--hbx-surface)" }}>
+          <input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()} placeholder="Escreva uma mensagem…"
+            style={{ flex: 1, minHeight: 44, borderRadius: "var(--control-radius)", border: "1px solid var(--border-hairline)", padding: "0 14px", fontFamily: "var(--font-body)", fontSize: "0.86rem", background: "var(--hbx-field-surface)", outline: "none" }} />
+          <button onClick={send} style={btn("primary")}>Enviar</button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+const META = {
+  inicio: { title: "Início", subtitle: "Workspace · operação", view: <Dashboard /> },
+  leads: { title: "Esteira de leads", subtitle: "Prospecção · mobile", view: <Dashboard /> },
+  atendimento: { title: "Atendimento", subtitle: "Inbox · WhatsApp", view: <Inbox /> },
+  recovery: { title: "Recovery", subtitle: "Cobrança · reativação", view: <Dashboard /> },
+  cadastros: { title: "Cadastros", subtitle: "Base · empresas", view: <Dashboard /> },
+};
+
+function App() {
+  const [view, setView] = useState("inicio");
+  const m = META[view];
+  return (
+    <div className="shell">
+      <Rail view={view} setView={setView} />
+      <main style={{ display: "grid", gridTemplateRows: "auto 1fr", gap: 12, minWidth: 0 }}>
+        <TopBar title={m.title} subtitle={m.subtitle} />
+        {m.view}
+      </main>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>

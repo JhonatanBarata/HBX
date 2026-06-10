@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="corporate">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>HBX — Relatórios</title>
+<link rel="stylesheet" href="../../styles.css?v=2" />
+<link rel="stylesheet" href="corporate.css?v=2" />
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script type="text/babel" src="shell.jsx"></script>
+<style>
+  .hbar { display: grid; gap: 10px; }
+  .hbar .r { display: grid; grid-template-columns: 92px 1fr 64px; gap: 10px; align-items: center; font-size: 0.74rem; }
+  .hbar .lab { color: var(--text-body); font-weight: 600; }
+  .hbar .track { height: 10px; border-radius: 999px; background: var(--hbx-surface-raised); }
+  .hbar .fill { height: 100%; border-radius: 999px; }
+  .hbar .num { font-family: var(--font-mono); font-size: 0.68rem; color: var(--text-muted); text-align: right; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState } = React;
+const { I, ICONS, Av, Sidebar, Topbar, KpiRow } = window;
+
+const MESES = [
+  { m: "Jan", v: 1.62 }, { m: "Fev", v: 1.84 }, { m: "Mar", v: 1.71 },
+  { m: "Abr", v: 2.10 }, { m: "Mai", v: 2.33 }, { m: "Jun", v: 2.85 },
+];
+
+const CANAIS = [
+  { l: "WhatsApp", v: 564, pct: 100, c: "#22C77D" },
+  { l: "Webscraping", v: 312, pct: 55, c: "#16C7A4" },
+  { l: "E-mail", v: 218, pct: 39, c: "#4CC2FF" },
+  { l: "Instagram", v: 98, pct: 17, c: "#F0566B" },
+  { l: "Indicação", v: 56, pct: 10, c: "#9B7BFF" },
+];
+
+const EQUIPE = [
+  { n: "Juliana Costa", fech: 14, rec: "R$ 312.000", conv: "31%", pct: 86 },
+  { n: "Rafael Martins", fech: 11, rec: "R$ 248.000", conv: "27%", pct: 68 },
+  { n: "Mariana Souza", fech: 8, rec: "R$ 186.000", conv: "22%", pct: 51 },
+];
+
+function App() {
+  const [per, setPer] = useState("6 meses");
+  const max = Math.max(...MESES.map(x => x.v));
+  return (
+    <div className="app">
+      <Sidebar active="relat" />
+      <div className="main">
+        <Topbar title="Relatórios" crumbs={<React.Fragment>Home &rsaquo; <b>Relatórios</b></React.Fragment>} />
+        <div className="work" style={{ flex: 1 }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            {["30 dias", "3 meses", "6 meses", "12 meses"].map(p => (
+              <button key={p} className="btn-ghost" onClick={() => setPer(p)}
+                style={p === per ? { borderColor: "var(--hbx-brand)", color: "var(--hbx-brand-strong)", background: "var(--hbx-brand-soft)" } : {}}>
+                {p}
+              </button>
+            ))}
+            <div style={{ marginLeft: "auto", display: "flex", gap: 9 }}>
+              <button className="btn-ghost"><I d={ICONS.doc} size={13} /> Exportar PDF</button>
+              <button className="btn-teal"><I d={ICONS.doc} size={13} /> Exportar CSV</button>
+            </div>
+          </div>
+
+          <KpiRow items={[
+            { icon: "money", label: "Receita fechada", value: "R$ 746.000", delta: "+22%" },
+            { icon: "users", label: "Leads captados", value: "1.248", delta: "+18%" },
+            { icon: "check", label: "Taxa de conversão", value: "27,4%", delta: "+3,6 p.p." },
+            { icon: "clock", label: "Ciclo médio de venda", value: "18 dias", delta: "-3 dias" },
+          ]} />
+
+          <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: 14 }}>
+            <section className="panel">
+              <div className="panel-head">
+                <h2>Receita por mês</h2>
+                <div className="meta"><span>{per} · 2026</span></div>
+              </div>
+              <div style={{ padding: "10px 18px 16px" }}>
+                <div className="bars" style={{ height: 180 }}>
+                  {MESES.map(x => (
+                    <div className="b" key={x.m}>
+                      <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.6rem", color: "var(--text-muted)" }}>{x.v.toFixed(2).replace(".", ",")}M</span>
+                      <div className="bar" style={{ height: Math.round((x.v / max) * 140) }}></div>
+                      <span className="lbl">{x.m}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </section>
+
+            <section className="panel">
+              <div className="panel-head"><h2>Leads por canal</h2></div>
+              <div style={{ padding: "16px 18px 18px" }}>
+                <div className="hbar">
+                  {CANAIS.map(c => (
+                    <div className="r" key={c.l}>
+                      <span className="lab">{c.l}</span>
+                      <span className="track"><span className="fill" style={{ width: c.pct + "%", background: c.c, display: "block" }}></span></span>
+                      <span className="num">{c.v}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1.5fr", gap: 14 }}>
+            <section className="panel">
+              <div className="panel-head"><h2>Funil de conversão</h2></div>
+              <div style={{ padding: "14px 18px 18px" }}>
+                <div style={{ display: "grid", gap: 4, justifyItems: "center", padding: "4px 0 10px" }}>
+                  {[["#4CC2FF", 190], ["#16C7A4", 146], ["#2EE6A8", 102], ["#F5B23C", 62]].map(([c, w], i) => (
+                    <div key={i} style={{ width: w, height: 24, background: c, borderRadius: 4, opacity: 0.92 }}></div>
+                  ))}
+                </div>
+                <div className="fleg">
+                  {[["#4CC2FF", "Leads captados", "1.248 (100%)"], ["#16C7A4", "Propostas", "342 (27,4%)"], ["#2EE6A8", "Negociação", "78 (6,3%)"], ["#F5B23C", "Fechados", "36 (2,9%)"]].map(([c, l, v]) => (
+                    <div className="row" key={l}><span className="swatch" style={{ background: c }}></span>{l}<span style={{ marginLeft: "auto", color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: "0.64rem" }}>{v}</span></div>
+                  ))}
+                </div>
+              </div>
+            </section>
+
+            <section className="panel">
+              <div className="panel-head">
+                <h2>Desempenho por vendedor</h2>
+                <div className="meta"><span className="link">Ver detalhes</span></div>
+              </div>
+              <div className="tbl-wrap">
+                <table className="tbl">
+                  <thead>
+                    <tr><th>Vendedor</th><th>Negócios fechados</th><th>Receita</th><th>Conversão</th><th>Meta</th></tr>
+                  </thead>
+                  <tbody>
+                    {EQUIPE.map(v => (
+                      <tr key={v.n} style={{ cursor: "default" }}>
+                        <td><div style={{ display: "flex", gap: 9, alignItems: "center" }}><Av name={v.n} size={26} /><strong>{v.n}</strong></div></td>
+                        <td style={{ fontFamily: "var(--font-mono)" }}>{v.fech}</td>
+                        <td style={{ fontFamily: "var(--font-mono)" }}>{v.rec}</td>
+                        <td style={{ fontFamily: "var(--font-mono)" }}>{v.conv}</td>
+                        <td style={{ minWidth: 140 }}>
+                          <div style={{ height: 7, borderRadius: 999, background: "var(--hbx-surface-raised)" }}>
+                            <div style={{ width: v.pct + "%", height: "100%", borderRadius: 999, background: "linear-gradient(90deg, var(--hbx-brand), var(--hbx-brand-strong))" }}></div>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>

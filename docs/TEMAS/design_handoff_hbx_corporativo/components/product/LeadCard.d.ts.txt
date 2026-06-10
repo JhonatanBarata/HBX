@@ -1,0 +1,25 @@
+import * as React from "react";
+
+/**
+ * Lead/opportunity tile from the HBX esteira (mobile sales pipeline).
+ *
+ * @startingPoint section="Product" subtitle="Lead tile with priority & next action" viewport="380x260"
+ */
+export interface LeadCardProps extends React.HTMLAttributes<HTMLElement> {
+  /** Company / lead name. */
+  company: React.ReactNode;
+  /** Segment or category line. */
+  segment?: React.ReactNode;
+  /** Recommended outreach channel. @default "WhatsApp" */
+  channel?: React.ReactNode;
+  /** Priority score 0–100 (shown as "NN% prioridade"). */
+  priority?: number;
+  /** Context line for the recommended next step. */
+  nextAction?: React.ReactNode;
+  /** Highlight as a hot/high-priority lead. @default false */
+  hot?: boolean;
+  /** When set, renders the mint "next best action" CTA. */
+  onAction?: () => void;
+}
+
+export function LeadCard(props: LeadCardProps): React.JSX.Element;

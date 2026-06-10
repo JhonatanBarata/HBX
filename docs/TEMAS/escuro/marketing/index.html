@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>HBX System — Sales site</title>
+<link rel="stylesheet" href="../styles.css" />
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    min-height: 100vh;
+    font-family: var(--font-body);
+    color: #F5FBFF;
+    background:
+      radial-gradient(circle at 12% 8%, rgba(23,195,184,0.32), transparent 28%),
+      radial-gradient(circle at 86% 12%, rgba(123,92,255,0.24), transparent 30%),
+      radial-gradient(circle at 54% 58%, rgba(21,113,95,0.15), transparent 34%),
+      linear-gradient(135deg, #03080d 0%, #071724 48%, #020508 100%);
+    overflow-x: hidden;
+  }
+  body::before {
+    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px);
+    background-size: 64px 64px;
+    -webkit-mask-image: radial-gradient(circle at top, black, transparent 74%);
+    mask-image: radial-gradient(circle at top, black, transparent 74%);
+  }
+  .wrap { position: relative; z-index: 1; width: min(1180px, calc(100vw - 48px)); margin: 0 auto; }
+
+  h1, h2, h3, p { margin: 0; }
+
+  /* Topbar */
+  .topbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 20px 0 36px; }
+  .brand { display: inline-flex; gap: 14px; align-items: center; }
+  .brand-mark { display: inline-grid; place-items: center; width: 52px; height: 52px; border-radius: 18px;
+    color: #fff; font-family: var(--font-display); font-weight: 900; letter-spacing: 0.08em; font-size: 0.96rem;
+    background: radial-gradient(circle at 30% 20%, rgba(255,255,255,0.34), transparent 30%),
+                linear-gradient(135deg, #18d7c4 0%, #0a5970 48%, #5b39ff 100%);
+    box-shadow: 0 20px 44px rgba(23,195,184,0.32), inset 0 1px 0 rgba(255,255,255,0.3); }
+  .brand strong { display: block; font-family: var(--font-display); font-weight: 800; font-size: 1rem; letter-spacing: -0.01em; }
+  .brand small { display: block; color: rgba(245,251,255,0.66); font-size: 0.72rem; }
+  .nav { display: flex; gap: 6px; align-items: center; }
+  .nav a { color: rgba(245,251,255,0.72); padding: 0.55rem 0.85rem; border-radius: 999px; font-weight: 700; font-size: 0.84rem; text-decoration: none; cursor: pointer; transition: color .18s, background .18s, transform .18s; }
+  .nav a:hover { color: #fff; background: rgba(255,255,255,0.08); transform: translateY(-1px); }
+  .nav .enter { color: #06121a; background: linear-gradient(135deg, var(--hbx-mint), #fff); }
+
+  /* Hero */
+  .hero { display: grid; grid-template-columns: minmax(0,1.05fr) minmax(340px,0.95fr); gap: 40px; align-items: center; padding: 8px 0 64px; }
+  .status-pill { display: inline-flex; width: fit-content; align-items: center; padding: 0.45rem 0.8rem; border: 1px solid currentColor; border-radius: 999px; color: var(--hbx-mint); background: rgba(21,113,95,0.08); font-size: 0.7rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+  .kicker { color: var(--hbx-mint); font-weight: 900; letter-spacing: 0.12em; text-transform: uppercase; font-size: 0.78rem; margin: 18px 0 12px; }
+  .hero h1 { max-width: 12ch; font-family: var(--font-display); font-size: clamp(3rem, 5.4vw, 5.4rem); font-weight: 900; line-height: 0.86; letter-spacing: -0.07em; }
+  .hero-text { max-width: 54ch; margin-top: 18px; color: rgba(245,251,255,0.74); font-size: 1.02rem; line-height: 1.55; }
+  .audience { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 26px; }
+  .acard { display: grid; gap: 12px; padding: 18px; border-radius: 24px; border: 1px solid rgba(255,255,255,0.12);
+    background: linear-gradient(145deg, rgba(255,255,255,0.12), rgba(255,255,255,0.045));
+    box-shadow: 0 24px 70px rgba(0,0,0,0.38), inset 0 1px 0 rgba(255,255,255,0.14);
+    backdrop-filter: blur(22px); transition: transform .22s, border-color .22s, box-shadow .22s; }
+  .acard:hover { transform: translateY(-6px); border-color: rgba(110,242,216,0.42); box-shadow: 0 30px 90px rgba(0,0,0,0.48); }
+  .eyebrow { color: rgba(245,251,255,0.58); font-size: 0.66rem; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 800; }
+  .acard h2 { font-family: var(--font-display); font-size: 1.4rem; font-weight: 800; letter-spacing: -0.03em; }
+  .acard strong { color: var(--hbx-mint); font-size: 0.82rem; }
+  .acard p { color: rgba(245,251,255,0.7); font-size: 0.82rem; line-height: 1.5; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { padding: 0.4rem 0.62rem; border: 1px solid rgba(255,255,255,0.1); border-radius: 999px; color: rgba(245,251,255,0.82); background: rgba(255,255,255,0.075); font-size: 0.74rem; }
+  .cta { display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 48px; border: none; border-radius: 16px; color: #fff; font-family: var(--font-body); font-weight: 800; font-size: 0.86rem; cursor: pointer; }
+  .cta-success { color: #041016; background: linear-gradient(135deg, #10c7b3 0%, #0a6d82 100%); box-shadow: 0 18px 36px rgba(16,199,179,0.2); }
+  .cta-warning { color: #160f02; background: linear-gradient(135deg, #ffd36a 0%, #ff9d31 100%); box-shadow: 0 18px 36px rgba(255,157,49,0.2); }
+
+  /* Hero visual */
+  .visual { position: relative; min-height: 560px; display: grid; place-items: center; }
+  .orbit { position: absolute; border: 1px solid rgba(110,242,216,0.22); border-radius: 999px; box-shadow: 0 0 80px rgba(23,195,184,0.12); }
+  .orbit.one { width: 460px; aspect-ratio: 1; animation: rot 18s linear infinite; }
+  .orbit.two { width: 360px; aspect-ratio: 1; border-style: dashed; animation: rot 12s linear infinite reverse; }
+  .orbit::before { content:""; position:absolute; top:10%; left:18%; width:12px; height:12px; border-radius:999px; background: var(--hbx-mint); box-shadow: 0 0 22px var(--hbx-mint); }
+  .phone { position: relative; z-index: 1; display: grid; align-content: start; gap: 14px; width: 340px; min-height: 480px; padding: 20px; border-radius: 42px; transform: rotate(-2deg);
+    border: 1px solid rgba(255,255,255,0.12); background: linear-gradient(145deg, rgba(255,255,255,0.12), rgba(255,255,255,0.045)); box-shadow: 0 24px 70px rgba(0,0,0,0.38), inset 0 1px 0 rgba(255,255,255,0.14); backdrop-filter: blur(22px); animation: float 5.5s ease-in-out infinite; }
+  .phone::before { content:""; position:absolute; top:12px; left:50%; width:96px; height:6px; border-radius:999px; transform: translateX(-50%); background: rgba(255,255,255,0.18); }
+  .phone-top { display:flex; justify-content:space-between; align-items:center; margin-top:18px; color: rgba(245,251,255,0.72); font-size: 0.84rem; }
+  .phone-top strong { color: var(--hbx-mint); }
+  .lead { display:grid; gap:6px; padding:14px; border:1px solid rgba(255,255,255,0.1); border-radius:24px; background: rgba(255,255,255,0.08); }
+  .lead.hot { border-color: rgba(110,242,216,0.32); background: radial-gradient(circle at top right, rgba(110,242,216,0.24), transparent 36%), rgba(255,255,255,0.1); }
+  .lead span { color: var(--hbx-mint); font-size: 0.66rem; letter-spacing: 0.12em; text-transform: uppercase; }
+  .lead strong { color: #fff; font-size: 0.92rem; }
+  .lead p { color: rgba(245,251,255,0.6); font-size: 0.76rem; }
+  .lead-action { margin-top: auto; padding: 14px; border-radius: 22px; color: #041016; background: linear-gradient(135deg, var(--hbx-mint) 0%, #fff 100%); font-weight: 800; font-size: 0.84rem; }
+
+  /* Proof strip */
+  .proof { display:grid; grid-template-columns: repeat(4,1fr); gap:12px; padding: 0 0 64px; }
+  .proof span { min-height: 84px; display:grid; place-items:center; padding:16px; border:1px solid rgba(255,255,255,0.08); border-radius:24px; text-align:center; color: rgba(245,251,255,0.78); background: rgba(255,255,255,0.055); font-size: 0.82rem; line-height: 1.4; }
+
+  /* Sections */
+  .section { padding: 56px 0; }
+  .section h2 { font-family: var(--font-display); font-size: clamp(2rem, 3.6vw, 3.4rem); font-weight: 900; line-height: 0.95; letter-spacing: -0.05em; max-width: 16ch; }
+  .section > .head { max-width: 720px; margin-bottom: 24px; display: grid; gap: 12px; }
+  .section .head p { color: rgba(245,251,255,0.68); line-height: 1.55; }
+  .split { display:grid; grid-template-columns: 0.72fr 1.28fr; gap: 36px; align-items: start; }
+  .pipeline { display:grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .pcard { display:grid; gap:10px; padding:22px; border-radius:24px; border:1px solid rgba(255,255,255,0.12); background: linear-gradient(145deg, rgba(255,255,255,0.1), rgba(255,255,255,0.04)); backdrop-filter: blur(18px); }
+  .pcard .num { color: var(--hbx-mint); font-family: var(--font-mono); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+  .pcard h3 { font-family: var(--font-display); font-size: 1.05rem; font-weight: 800; letter-spacing: -0.02em; color: #fff; }
+  .pcard p { color: rgba(245,251,255,0.66); font-size: 0.84rem; line-height: 1.5; }
+
+  .plans { display:grid; grid-template-columns: repeat(3,1fr); gap: 14px; }
+  .plan { display:grid; gap:12px; align-content: start; min-height: 360px; padding: 24px; border-radius:28px; border:1px solid rgba(255,255,255,0.12); background: linear-gradient(145deg, rgba(255,255,255,0.1), rgba(255,255,255,0.04)); backdrop-filter: blur(18px); }
+  .plan.featured { border-color: rgba(110,242,216,0.42); background: radial-gradient(circle at top right, rgba(110,242,216,0.18), transparent 40%), linear-gradient(145deg, rgba(255,255,255,0.14), rgba(255,255,255,0.05)); }
+  .plan.company { border-color: rgba(255,211,106,0.36); background: radial-gradient(circle at top right, rgba(255,211,106,0.18), transparent 42%), linear-gradient(145deg, rgba(255,255,255,0.12), rgba(255,255,255,0.04)); }
+  .plan h3 { font-family: var(--font-display); font-size: 1.5rem; font-weight: 800; letter-spacing: -0.03em; color: #fff; }
+  .plan p { color: rgba(245,251,255,0.7); font-size: 0.84rem; line-height: 1.5; }
+  .plan ul { display:grid; gap: 10px; padding: 0; margin: 0; list-style: none; }
+  .plan li { position: relative; padding-left: 22px; color: rgba(245,251,255,0.74); font-size: 0.84rem; }
+  .plan li::before { content:"•"; position:absolute; left:0; color: var(--hbx-mint); }
+  .plan .cta { margin-top: auto; }
+
+  .final { display:flex; justify-content:space-between; gap:24px; align-items:center; margin: 24px 0 56px; padding: 36px; border-radius:34px; border:1px solid rgba(255,255,255,0.12); background: linear-gradient(145deg, rgba(255,255,255,0.12), rgba(255,255,255,0.045)); box-shadow: 0 24px 70px rgba(0,0,0,0.38), inset 0 1px 0 rgba(255,255,255,0.14); backdrop-filter: blur(22px); }
+  .final h2 { max-width: 18ch; }
+  .final .actions { display:flex; gap:12px; flex-wrap: wrap; justify-content: flex-end; }
+  .final .btn-dark { color:#fff; background: linear-gradient(135deg, #0a5970, #168793); min-height: 48px; padding: 0 22px; border: none; border-radius: 16px; font-weight: 800; cursor: pointer; }
+  .final .btn-white { color:#06101a; background:#fff; min-height: 48px; padding: 0 22px; border:none; border-radius: 16px; font-weight: 800; cursor: pointer; }
+
+  /* Login overlay */
+  .overlay { position: fixed; inset: 0; z-index: 50; display: none; place-items: center; padding: 24px; background: rgba(2,6,12,0.72); backdrop-filter: blur(8px); }
+  .overlay.open { display: grid; }
+  .login { width: min(420px, 100%); padding: 28px; border-radius: 28px; border:1px solid rgba(255,255,255,0.14);
+    background: linear-gradient(180deg, rgba(13,27,46,0.96), rgba(7,17,31,0.98)); box-shadow: 0 40px 100px rgba(0,0,0,0.6); }
+  .login .ov { color: var(--hbx-mint); font-size: 0.66rem; font-weight: 800; letter-spacing: 0.16em; text-transform: uppercase; }
+  .login h3 { font-family: var(--font-display); font-size: 1.9rem; font-weight: 900; letter-spacing: -0.04em; margin: 10px 0 4px; color: #fff; }
+  .login p.sub { color: rgba(245,251,255,0.62); font-size: 0.82rem; margin-bottom: 18px; }
+  .field { display:grid; gap:6px; margin-bottom: 12px; }
+  .field label { font-size: 0.74rem; font-weight: 700; color: rgba(245,251,255,0.8); }
+  .field input { min-height: 46px; border-radius: 12px; border:1px solid rgba(255,255,255,0.14); padding: 0 14px; font-family: var(--font-body); font-size: 0.9rem; color: #fff; background: rgba(8,20,36,0.8); outline: none; }
+  .field input:focus { border-color: var(--hbx-brand-strong); box-shadow: 0 0 0 3px rgba(0,194,255,0.18); }
+  .login .enter-btn { width:100%; min-height: 48px; margin-top: 6px; border:none; border-radius: 14px; color:#fff; font-weight: 800; font-size: 0.9rem; cursor:pointer;
+    background: linear-gradient(140deg, var(--hbx-primary), var(--hbx-accent) 56%, var(--hbx-secondary)); box-shadow: 0 18px 40px -18px rgba(47,107,255,0.6); }
+  .login .x { float: right; cursor: pointer; color: rgba(245,251,255,0.6); font-size: 1.2rem; line-height: 1; background:none; border:none; }
+
+  @keyframes rot { to { transform: rotate(360deg); } }
+  @keyframes float { 0%,100% { transform: translateY(0) rotate(-2deg);} 50% { transform: translateY(-14px) rotate(1deg);} }
+  @media (max-width: 1000px) {
+    .hero, .split, .plans, .proof { grid-template-columns: 1fr; }
+    .visual { min-height: 460px; }
+    .final { flex-direction: column; align-items: flex-start; }
+  }
+  @media (prefers-reduced-motion: reduce) { .orbit, .phone { animation: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">HBX</span>
+      <span><strong>HBX System</strong><small>Leads, esteira mobile e recovery</small></span>
+    </div>
+    <nav class="nav">
+      <a onclick="document.getElementById('esteira').scrollIntoView({behavior:'smooth'})">Esteira</a>
+      <a onclick="document.getElementById('planos').scrollIntoView({behavior:'smooth'})">Planos</a>
+      <a onclick="document.getElementById('recovery').scrollIntoView({behavior:'smooth'})">Recovery</a>
+      <a class="enter" onclick="openLogin()">Entrar</a>
+    </nav>
+  </header>
+
+  <section class="hero" id="entrada">
+    <div>
+      <span class="status-pill">HBX Mobile / Leads / Recovery</span>
+      <p class="kicker">O vazamento de receita está no WhatsApp.</p>
+      <h1>Escolha sua entrada antes que o lead esfrie.</h1>
+      <p class="hero-text">O HBX separa o caminho de quem vende do caminho de quem opera. Vendedor entra direto na esteira de leads. Empresa entra em Recovery e atendimento automatizado com implantação sob consulta.</p>
+      <div class="audience">
+        <article class="acard">
+          <span class="eyebrow">Entrada imediata</span>
+          <h2>Sou vendedor</h2>
+          <strong>HBX Leads + Esteira Mobile</strong>
+          <p>Entre direto na esteira: lista, lead priorizado, abordagem por WhatsApp e próxima ação no celular.</p>
+          <div class="chips"><span class="chip">Leads locais</span><span class="chip">Prioridade comercial</span><span class="chip">Pipeline mobile</span></div>
+          <button class="cta cta-success" onclick="openLogin()">Abrir esteira de leads</button>
+        </article>
+        <article class="acard">
+          <span class="eyebrow">Implantação sob consulta</span>
+          <h2>Sou empresa</h2>
+          <strong style="color:#ffd36a">HBX Recovery + Atendimento</strong>
+          <p>Comece pela dor que sangra caixa: cliente sumido, parcela atrasada, orçamento parado e follow-up esquecido.</p>
+          <div class="chips"><span class="chip">Recovery via WhatsApp</span><span class="chip">Atendimento organizado</span><span class="chip">Onboarding assistido</span></div>
+          <button class="cta cta-warning" onclick="openLogin()">Solicitar implantação</button>
+        </article>
+      </div>
+    </div>
+    <aside class="visual">
+      <div class="orbit one"></div>
+      <div class="orbit two"></div>
+      <div class="phone">
+        <div class="phone-top"><span>HBX Esteira</span><strong>ao vivo</strong></div>
+        <div class="lead hot"><span>Lead quente</span><strong>Assistência técnica local</strong><p>WhatsApp provável · 87% prioridade</p></div>
+        <div class="lead"><span>Recovery</span><strong>Parcela atrasada</strong><p>Follow-up automático em andamento</p></div>
+        <div class="lead-action">Próxima melhor ação: chamar agora</div>
+      </div>
+    </aside>
+  </section>
+
+  <section class="proof">
+    <span>Foco no que vende primeiro: Recovery, Leads e Mobile</span>
+    <span>Entrada separada para vendedor e empresa</span>
+    <span>Oferta sem distração: planos HBX List e HBX Leads</span>
+    <span>Empresas entram por implantação sob consulta</span>
+  </section>
+
+  <section class="section split" id="esteira">
+    <div class="head">
+      <span class="eyebrow">Esteira comercial</span>
+      <h2>HBX não vende tela bonita. Vende movimento.</h2>
+      <p>A home foi desenhada para assustar pelo diagnóstico e impressionar pela clareza: lead entra, vendedor age, empresa recupera e a operação para de depender de memória manual.</p>
+    </div>
+    <div class="pipeline">
+      <article class="pcard"><span class="num">01 / List</span><h3>Mapa de oportunidades</h3><p>Empresas, segmento, cidade e sinais de contato para abastecer a rotina de prospecção.</p></article>
+      <article class="pcard"><span class="num">02 / Leads</span><h3>Lead pronto para ação</h3><p>Prioridade, canal recomendado e próxima melhor abordagem para não depender de sorte.</p></article>
+      <article class="pcard"><span class="num">03 / Mobile</span><h3>Esteira no bolso</h3><p>O vendedor abre, filtra, chama e registra avanço sem precisar de CRM pesado.</p></article>
+      <article class="pcard"><span class="num">04 / Recovery</span><h3>Dinheiro parado volta para a fila</h3><p>Empresas entram em uma régua de cobrança, reativação e atendimento automatizado.</p></article>
+    </div>
+  </section>
+
+  <section class="section" id="planos">
+    <div class="head">
+      <span class="eyebrow">Planos HBX</span>
+      <h2>Só List e Leads. Sem produto inflado.</h2>
+      <p>A oferta pública fica limpa para vendedor. Empresa não compra no automático: entra por diagnóstico, Recovery e implantação sob consulta.</p>
+    </div>
+    <div class="plans">
+      <article class="plan">
+        <span class="eyebrow">Entrada para volume</span>
+        <h3>HBX List</h3>
+        <p>Para quem precisa transformar território frio em lista comercial utilizável.</p>
+        <ul><li>Listas por segmento e cidade</li><li>Dados empresariais e canais disponíveis</li><li>Fila simples para abordagem manual</li></ul>
+        <button class="cta cta-success" onclick="openLogin()">Entrar no List</button>
+      </article>
+      <article class="plan featured">
+        <span class="eyebrow">Plano foco</span>
+        <h3>HBX Leads</h3>
+        <p>Para vendedor que precisa de lead qualificado, contexto e cadência mobile.</p>
+        <ul><li>Lead priorizado e enriquecido</li><li>Esteira mobile de prospecção</li><li>Canal recomendado e próxima ação</li></ul>
+        <button class="cta cta-success" onclick="openLogin()">Entrar no Leads</button>
+      </article>
+      <article class="plan company">
+        <span class="eyebrow">Empresas</span>
+        <h3>Recovery + atendimento</h3>
+        <p>Para empresas, o HBX entra como implantação consultiva. A proposta depende do volume, nicho, canal e maturidade do atendimento.</p>
+        <button class="cta cta-warning" onclick="openLogin()">Consultar implantação</button>
+      </article>
+    </div>
+  </section>
+
+  <section class="section" id="recovery">
+    <div class="head">
+      <span class="eyebrow">HBX para empresas</span>
+      <h2>Cliente parado não é fim de funil. É fila de recuperação.</h2>
+    </div>
+    <div class="pipeline" style="grid-template-columns: repeat(3,1fr)">
+      <article class="pcard"><h3>Recovery</h3><p>Régua para cobrar, lembrar, renegociar e reativar clientes pelo WhatsApp com visão de pendente, recuperado e follow-up.</p></article>
+      <article class="pcard"><h3>Atendimento automatizado</h3><p>Entrada organizada para empresas que querem reduzir mensagens repetidas, perda de histórico e cliente sem retorno.</p></article>
+      <article class="pcard"><h3>Implantação assistida</h3><p>Configuração, importação e primeira régua entram sob consulta para encaixar no processo real da empresa.</p></article>
+    </div>
+  </section>
+
+  <section class="final">
+    <div>
+      <span class="eyebrow">Decisão inicial</span>
+      <h2 style="margin-top:12px">Vendedor entra na esteira. Empresa entra no Recovery.</h2>
+    </div>
+    <div class="actions">
+      <button class="btn-dark" onclick="openLogin()">Sou vendedor</button>
+      <button class="btn-white" onclick="openLogin()">Sou empresa</button>
+    </div>
+  </section>
+</div>
+
+<div class="overlay" id="overlay" onclick="if(event.target===this)closeLogin()">
+  <div class="login">
+    <button class="x" onclick="closeLogin()">✕</button>
+    <span class="ov">Acesso seguro HBX</span>
+    <h3>Entrar no HBX</h3>
+    <p class="sub">Acesse sua conta com segurança e continue de onde parou.</p>
+    <div class="field"><label>E-mail</label><input type="email" placeholder="Digite seu e-mail" /></div>
+    <div class="field"><label>Senha</label><input type="password" placeholder="Digite sua senha" /></div>
+    <button class="enter-btn" onclick="closeLogin()">Entrar</button>
+  </div>
+</div>
+
+<script>
+  function openLogin(){ document.getElementById('overlay').classList.add('open'); }
+  function closeLogin(){ document.getElementById('overlay').classList.remove('open'); }
+  document.addEventListener('keydown', e => { if(e.key==='Escape') closeLogin(); });
+</script>
+</body>
+</html>

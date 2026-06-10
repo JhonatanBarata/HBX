@@ -1,0 +1,21 @@
+import * as React from "react";
+
+/**
+ * HBX glass button — liquid-glass fill, intent-tinted gradient, soft shadow.
+ *
+ * @startingPoint section="Core" subtitle="Glass action button, 6 intents" viewport="700x200"
+ */
+export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  /** Visual intent. @default "primary" */
+  variant?: "primary" | "secondary" | "ghost" | "success" | "accent" | "danger";
+  /** Control height. @default "md" */
+  size?: "sm" | "md";
+  disabled?: boolean;
+  /** Optional element rendered before the label. */
+  iconLeft?: React.ReactNode;
+  /** Optional element rendered after the label. */
+  iconRight?: React.ReactNode;
+  children?: React.ReactNode;
+}
+
+export function Button(props: ButtonProps): React.JSX.Element;

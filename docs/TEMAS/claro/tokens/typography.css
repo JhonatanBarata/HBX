@@ -1,0 +1,46 @@
+/* ============================================================
+   HBX System — Typography tokens
+   Display + body: Plus Jakarta Sans  ·  Mono/data: IBM Plex Mono
+   The product sets very tight tracking on headings (-0.04 to -0.08em)
+   and uses uppercase, wide-tracked "overlines" (eyebrows).
+   ============================================================ */
+
+:root {
+  /* ---- Families ------------------------------------------------------- */
+  --font-display: "Plus Jakarta Sans", Inter, "Segoe UI", Roboto, Arial, sans-serif;
+  --font-body: "Plus Jakarta Sans", Inter, "Segoe UI", Roboto, Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+
+  /* ---- Weights -------------------------------------------------------- */
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --weight-extrabold: 800;
+  --weight-black: 900;
+
+  /* ---- Display / heading scale (tight tracking) ----------------------- */
+  --text-display: 3.5rem;     /* 56px — hero numerals / big statements */
+  --text-h1: 2.4rem;          /* 38px */
+  --text-h2: 1.9rem;          /* 30px */
+  --text-h3: 1.35rem;         /* 22px */
+  --text-h4: 1.05rem;         /* 17px */
+
+  /* ---- Body scale ----------------------------------------------------- */
+  --text-lg: 1rem;            /* 16px */
+  --text-base: 0.88rem;       /* 14px — default UI body */
+  --text-sm: 0.78rem;         /* 12.5px — controls / labels */
+  --text-xs: 0.68rem;         /* 11px — badges / captions */
+
+  /* ---- Tracking ------------------------------------------------------- */
+  --tracking-display: -0.06em;
+  --tracking-tight: -0.04em;
+  --tracking-normal: 0;
+  --tracking-overline: 0.18em;   /* eyebrowSpacing */
+
+  /* ---- Line heights --------------------------------------------------- */
+  --leading-display: 0.92;
+  --leading-heading: 0.98;
+  --leading-body: 1.52;
+  --leading-tight: 1.1;
+}

@@ -1,0 +1,61 @@
+/* REFERÊNCIA DE HANDOFF — cópia não-compilada. Ao portar para o repo, restaure o `export`. */
+import React from "react";
+
+/**
+ * Toggle — glass switch (the HBX light/dark + feature toggle).
+ * Controlled: pass `checked` and `onChange(next)`.
+ */
+function Toggle({ checked = false, onChange, label, disabled = false, style, ...rest }) {
+  const track = {
+    position: "relative",
+    width: 46,
+    height: 26,
+    flex: "0 0 auto",
+    borderRadius: "999px",
+    border: "1px solid",
+    borderColor: checked
+      ? "color-mix(in srgb, var(--hbx-brand) 50%, var(--hbx-line))"
+      : "var(--border-hairline)",
+    background: checked
+      ? "linear-gradient(140deg, color-mix(in srgb, var(--hbx-primary) 80%, transparent), color-mix(in srgb, var(--hbx-secondary) 70%, transparent))"
+      : "color-mix(in srgb, var(--hbx-surface-raised) 80%, var(--hbx-surface))",
+    boxShadow: "var(--shadow-inset)",
+    cursor: disabled ? "not-allowed" : "pointer",
+    opacity: disabled ? 0.5 : 1,
+    transition: "background var(--motion-fast), border-color var(--motion-fast)",
+  };
+  const thumb = {
+    position: "absolute",
+    top: "50%",
+    left: checked ? 22 : 2,
+    width: 20,
+    height: 20,
+    borderRadius: "999px",
+    background: "#FFFFFF",
+    transform: "translateY(-50%)",
+    boxShadow: "0 4px 10px -4px color-mix(in srgb, var(--hbx-shadow) 50%, transparent)",
+    transition: "left var(--motion-base)",
+  };
+
+  const sw = (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      disabled={disabled}
+      onClick={() => !disabled && onChange && onChange(!checked)}
+      style={{ ...track, padding: 0, ...style }}
+      {...rest}
+    >
+      <span style={thumb} />
+    </button>
+  );
+
+  if (!label) return sw;
+  return (
+    <label style={{ display: "inline-flex", alignItems: "center", gap: "0.6rem", fontFamily: "var(--font-body)", fontSize: "0.82rem", fontWeight: 600, color: "var(--text-body)", cursor: disabled ? "not-allowed" : "pointer" }}>
+      {sw}
+      {label}
+    </label>
+  );
+}

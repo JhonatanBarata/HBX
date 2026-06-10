@@ -1,0 +1,51 @@
+/* base element + helper layer for HBX System */
+
+body {
+  margin: 0;
+  color: var(--text-strong);
+  font-family: var(--font-body);
+  background:
+    radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--hero-glow) 92%, transparent), transparent 28%),
+    radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--hero-glow) 72%, transparent), transparent 24%),
+    linear-gradient(180deg, var(--hbx-background) 0%, var(--hbx-background-alt) 100%);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Uppercase, wide-tracked eyebrow used above headings everywhere */
+.hbx-overline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  font-family: var(--font-display);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-extrabold);
+  letter-spacing: var(--tracking-overline);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* Display heading helper — tight tracking, near-1 line height */
+.hbx-display {
+  font-family: var(--font-display);
+  font-weight: var(--weight-black);
+  letter-spacing: var(--tracking-display);
+  line-height: var(--leading-heading);
+  color: var(--text-strong);
+}
+
+/* Monospaced numerals / data labels */
+.hbx-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The signature liquid-glass panel */
+.hbx-glass {
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--panel-radius);
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--hbx-brand) 8%, transparent), transparent 48%),
+    linear-gradient(180deg, color-mix(in srgb, var(--hbx-surface) 98%, var(--hbx-background)), color-mix(in srgb, var(--hbx-surface-soft) 92%, var(--hbx-background)));
+  box-shadow: var(--shadow-inset), var(--shadow-sm);
+}

@@ -1,0 +1,59 @@
+/* REFERÊNCIA DE HANDOFF — cópia não-compilada. Ao portar para o repo, restaure o `export`. */
+import React from "react";
+
+/**
+ * TextField — labelled glass input with optional hint / error.
+ * Wraps a native <input>; pass any input props through.
+ */
+function TextField({ label, hint, error, id, style, wrapStyle, ...inputProps }) {
+  const fieldId = id || `hbx-f-${Math.random().toString(36).slice(2, 8)}`;
+  const borderColor = error
+    ? "color-mix(in srgb, var(--hbx-danger) 60%, var(--hbx-line))"
+    : "var(--border-hairline)";
+
+  return (
+    <div style={{ display: "grid", gap: 6, fontFamily: "var(--font-body)", ...wrapStyle }}>
+      {label && (
+        <label htmlFor={fieldId} style={{ fontSize: "0.74rem", fontWeight: 700, color: "var(--text-body)" }}>
+          {label}
+        </label>
+      )}
+      <input
+        id={fieldId}
+        style={{
+          width: "100%",
+          minHeight: "42px",
+          boxSizing: "border-box",
+          border: `1px solid ${borderColor}`,
+          borderRadius: "var(--control-radius)",
+          padding: "0.7rem 0.85rem",
+          fontFamily: "var(--font-body)",
+          fontSize: "0.88rem",
+          color: "var(--text-strong)",
+          background:
+            "linear-gradient(180deg, color-mix(in srgb, var(--hbx-field-surface) 96%, var(--hbx-background)), color-mix(in srgb, var(--hbx-surface-soft) 92%, var(--hbx-background)))",
+          boxShadow: "var(--shadow-inset), var(--shadow-xs)",
+          outline: "none",
+          transition: "border-color var(--motion-fast), box-shadow var(--motion-fast)",
+          ...style,
+        }}
+        onFocus={(e) => {
+          e.currentTarget.style.borderColor = "color-mix(in srgb, var(--hbx-brand) 42%, var(--hbx-background))";
+          e.currentTarget.style.boxShadow = "0 0 0 3px var(--soft-ring), var(--shadow-xs)";
+          inputProps.onFocus && inputProps.onFocus(e);
+        }}
+        onBlur={(e) => {
+          e.currentTarget.style.borderColor = borderColor;
+          e.currentTarget.style.boxShadow = "var(--shadow-inset), var(--shadow-xs)";
+          inputProps.onBlur && inputProps.onBlur(e);
+        }}
+        {...inputProps}
+      />
+      {(hint || error) && (
+        <span style={{ fontSize: "0.7rem", color: error ? "color-mix(in srgb, var(--hbx-danger) 80%, var(--hbx-foreground))" : "var(--text-muted)" }}>
+          {error || hint}
+        </span>
+      )}
+    </div>
+  );
+}

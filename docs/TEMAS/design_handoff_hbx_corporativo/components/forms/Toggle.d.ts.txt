@@ -1,0 +1,15 @@
+import * as React from "react";
+
+/** Glass on/off switch (theme + feature toggles). Controlled. */
+export interface ToggleProps {
+  /** On/off state. @default false */
+  checked?: boolean;
+  /** Called with the next boolean when toggled. */
+  onChange?: (next: boolean) => void;
+  /** Optional trailing label (renders a clickable row). */
+  label?: React.ReactNode;
+  disabled?: boolean;
+  style?: React.CSSProperties;
+}
+
+export function Toggle(props: ToggleProps): React.JSX.Element;

@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="corporate" data-theme-mode="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>HBX — Leads</title>
+<link rel="stylesheet" href="../styles.css" />
+<link rel="stylesheet" href="corporate.css" />
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script type="text/babel" src="shell.jsx"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState } = React;
+const { I, ICONS, Av, Sidebar, Topbar, KpiRow } = window;
+
+const LEADS = [
+  { n: "Juliana Costa", co: "Padaria Tradição", ch: "wa", chL: "WhatsApp", sc: 82, et: "Negociação", resp: "Mariana Souza", ult: "Hoje, 11:32", em: "juliana@padariatradicao.com.br", tel: "(11) 98765-4321", loc: "São Paulo, SP" },
+  { n: "Ana Paula Lima", co: "Construtora Horizonte", ch: "mail", chL: "E-mail", sc: 92, et: "Novo lead", resp: "Juliana Costa", ult: "Hoje, 10:18", em: "ana.lima@horizonte.com.br", tel: "(11) 99876-5432", loc: "São Paulo, SP" },
+  { n: "Carlos Eduardo", co: "Indústria Sul Metalúrgica", ch: "wa", chL: "WhatsApp", sc: 88, et: "Contato", resp: "Rafael Martins", ult: "Hoje, 09:40", em: "carlos.eduardo@sulmetal.com.br", tel: "(47) 98821-3344", loc: "Joinville, SC" },
+  { n: "João Victor", co: "Supermercado Economia", ch: "mail", chL: "E-mail", sc: 78, et: "Proposta", resp: "Juliana Costa", ult: "Ontem, 16:05", em: "joao@supereconomia.com.br", tel: "(11) 97654-8800", loc: "Guarulhos, SP" },
+  { n: "Lucas Andrade", co: "Andrade Fitness", ch: "ig", chL: "Instagram", sc: 64, et: "Contato", resp: "Mariana Souza", ult: "Ontem, 09:22", em: "lucas@andradefitness.com.br", tel: "(21) 99888-1122", loc: "Rio de Janeiro, RJ" },
+  { n: "Patricia Gomes", co: "Agropecuária Boa Terra", ch: "wa", chL: "WhatsApp", sc: 79, et: "Proposta", resp: "Juliana Costa", ult: "21/05", em: "patricia@boaterra.com.br", tel: "(45) 99911-2233", loc: "Cascavel, PR" },
+  { n: "Roberto Almeida", co: "Farma & Cia", ch: "mail", chL: "E-mail", sc: 85, et: "Negociação", resp: "Rafael Martins", ult: "20/05", em: "roberto@farmaecia.com.br", tel: "(31) 98444-5566", loc: "Belo Horizonte, MG" },
+  { n: "Camila Freitas", co: "Hotel Praia Azul", ch: "wa", chL: "WhatsApp", sc: 71, et: "Negociação", resp: "Rafael Martins", ult: "19/05", em: "camila@praiaazul.com.br", tel: "(85) 98777-3344", loc: "Fortaleza, CE" },
+];
+
+const ET_CLS = { "Novo lead": "tag", "Contato": "tag", "Proposta": "tag warn", "Negociação": "tag teal" };
+
+function App() {
+  const [sel, setSel] = useState(0);
+  const [etapa, setEtapa] = useState("Todas");
+  const l = LEADS[sel];
+  const rows = LEADS.filter(x => etapa === "Todas" || x.et === etapa);
+
+  return (
+    <div className="app">
+      <Sidebar active="leads" />
+      <div className="main">
+        <Topbar title="Leads" crumbs={<React.Fragment>Home &rsaquo; <b>Leads</b></React.Fragment>} />
+        <div className="content">
+          <div className="work">
+            <KpiRow items={[
+              { icon: "users", label: "Total de leads", value: "1.248", delta: "+18%" },
+              { icon: "check", label: "Leads quentes (score ≥ 75)", value: "317", delta: "+9%" },
+              { icon: "relat", label: "Score médio", value: "68", delta: "+4 pts" },
+              { icon: "plus", label: "Novos hoje", value: "42", delta: "+12%" },
+            ]} />
+
+            <section className="panel">
+              <div className="panel-head">
+                <h2>Base de leads</h2>
+                <div className="meta">
+                  {["Todas", "Novo lead", "Contato", "Proposta", "Negociação"].map(e => (
+                    <button key={e} className="btn-ghost" onClick={() => setEtapa(e)}
+                      style={e === etapa ? { borderColor: "var(--hbx-brand)", color: "var(--hbx-brand-strong)", background: "var(--hbx-brand-soft)" } : {}}>
+                      {e}
+                    </button>
+                  ))}
+                  <button className="btn-teal"><I d={ICONS.plus} size={14} /> Novo lead</button>
+                </div>
+              </div>
+              <div className="tbl-wrap">
+                <table className="tbl">
+                  <thead>
+                    <tr>
+                      <th>Lead</th><th>Empresa</th><th>Canal</th><th>Score</th><th>Etapa</th><th>Responsável</th><th>Último contato</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row) => {
+                      const i = LEADS.indexOf(row);
+                      return (
+                        <tr key={row.n} className={sel === i ? "sel" : ""} onClick={() => setSel(i)}>
+                          <td><div style={{ display: "flex", gap: 9, alignItems: "center" }}><Av name={row.n} size={28} /><strong>{row.n}</strong></div></td>
+                          <td>{row.co}</td>
+                          <td><span className={"chan " + row.ch}>{row.chL}</span></td>
+                          <td><span className={"score-ring " + (row.sc >= 75 ? "hi" : "mid")}>{row.sc}</span></td>
+                          <td><span className={ET_CLS[row.et]}>{row.et}</span></td>
+                          <td><div style={{ display: "flex", gap: 7, alignItems: "center" }}><Av name={row.resp} size={20} />{row.resp}</div></td>
+                          <td style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem", color: "var(--text-muted)" }}>{row.ult}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div className="pager">
+                Linhas por página: <span className="select-dark" style={{ minWidth: 0, minHeight: 30, padding: "0 10px" }}>25 ▾</span>
+                <span style={{ marginLeft: "auto" }}>1–25 de 1.248</span>
+                <button className="pg">‹</button>
+                {[1, 2, 3].map(p => <button key={p} className={"pg" + (p === 1 ? " on" : "")}>{p}</button>)}
+                <span>…</span><button className="pg">50</button>
+                <button className="pg">›</button>
+              </div>
+            </section>
+          </div>
+
+          <aside className="ctx">
+            <h3>Contexto do lead <span className="x">✕</span></h3>
+            <div style={{ display: "flex", gap: 11, alignItems: "center" }}>
+              <Av name={l.n} size={44} />
+              <div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <span className="company">{l.n}</span>
+                  <span className="tag teal">Lead</span>
+                </div>
+                <div className="sub">{l.co}</div>
+              </div>
+            </div>
+            <div className="kv">
+              <div className="row"><span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}><I d={ICONS.mail} size={13} /> E-mail</span><span className="v" style={{ fontWeight: 600, fontSize: "0.68rem" }}>{l.em}</span></div>
+              <div className="row"><span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}><I d={ICONS.phone} size={13} /> Telefone</span><span className="v" style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem" }}>{l.tel}</span></div>
+              <div className="row"><span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}><I d={ICONS.mapin} size={13} /> Local</span><span className="v">{l.loc}</span></div>
+            </div>
+            <div className="sep"></div>
+            <div className="kv">
+              <div className="row"><span className="k">Etapa atual</span><span className="v">{l.et} ▾</span></div>
+              <div className="row"><span className="k">Lead score</span><span className="v" style={{ display: "inline-flex", gap: 7, alignItems: "center" }}><span style={{ fontFamily: "var(--font-mono)" }}>{l.sc}</span><span className={"tag " + (l.sc >= 75 ? "teal" : "warn")} style={{ fontSize: "0.58rem" }}>{l.sc >= 75 ? "Alto" : "Médio"}</span></span></div>
+              <div className="row"><span className="k">Canal preferido</span><span className="v"><span className={"chan " + l.ch}>{l.chL}</span></span></div>
+              <div className="row"><span className="k">Responsável</span><span className="v" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}><Av name={l.resp} size={18} />{l.resp}</span></div>
+            </div>
+            <div className="sep"></div>
+            <div style={{ display: "grid", gap: 8 }}>
+              <h3>Ações rápidas</h3>
+              <button className="btn-teal"><I d={ICONS.msg} size={14} /> Iniciar conversa</button>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                <button className="btn-ghost"><I d={ICONS.arrow} size={13} /> Mover etapa</button>
+                <button className="btn-ghost"><I d={ICONS.doc} size={13} /> Enviar proposta</button>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+import * as React from "react";
+
+/** Initials-or-image avatar with the HBX brand gradient. */
+export interface AvatarProps extends React.HTMLAttributes<HTMLSpanElement> {
+  /** Full name — initials are derived from it. */
+  name?: string;
+  /** Optional image URL; overrides the initials gradient. */
+  src?: string | null;
+  /** Pixel size (square). @default 40 */
+  size?: number;
+  /** Gradient tone. @default "brand" */
+  tone?: "brand" | "accent" | "success";
+}
+
+export function Avatar(props: AvatarProps): React.JSX.Element;

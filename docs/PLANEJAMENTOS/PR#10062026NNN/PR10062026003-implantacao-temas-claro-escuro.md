@@ -1,47 +1,62 @@
-# PR10062026003 — Implantação dos 2 temas (claro e escuro selecionáveis)
+# PR10062026003 — Redesign HBX: temas Corporativo + Friendly (handoff completo)
 
-Data: 10/06/2026
+Data: 10/06/2026 (atualizado após leitura do handoff)
 Status: PLANEJADO — fila: executa DEPOIS do PR10062026002 (arquitetura pura)
-Origem: 2 temas prontos em HTML/CSS criados pelo dono (design system próprio)
+Fonte da verdade: `docs/TEMAS/design_handoff_hbx_corporativo/` (README.md = guia de
+implementação; pastas `docs/TEMAS/claro|escuro` = mesmas referências com o modo fixado
+para abrir no navegador).
 
-## Decisões do dono
-- Formato: **HTML/CSS prontos** — tokens serão extraídos direto do código dos temas.
-- Relação: **dois visuais selecionáveis, um escuro e um claro** — viram o par oficial do
-  sistema, escolhíveis pelo usuário (trilho existente: `themePreferenceConfig`).
-- Primeiras telas: **Login + Vendas** (porta de entrada + onde o vendedor vive).
-- Ordem: **arquitetura antes, tema depois** — este plano só inicia após o PR10062026002.
-- Regra para o que "não bate" (hero etc.): **o design do dono vence**; o que não tiver
-  equivalente é proposto na página de calibração ANTES de tocar a tela real, ou morre.
-- "Remover tudo do front atual" acontece NO FINAL: CSS antigo morre tela a tela, e os
-  órfãos são apagados quando a última tela migrar — nunca um big-bang no começo.
+## O que o handoff realmente é (supera o plano original)
+- **Dois temas, cada um com claro+escuro (4 combinações)**, mecanismo por atributos no
+  `<html>` (`data-theme="corporate"` / `data-theme-mode`):
+  **Corporativo** = tema principal do app (flat, near-black, acento teal; dark padrão).
+  **Friendly** = marketing/onboarding (liquid glass; light padrão).
+  Topbar ganha sol/lua + chavinha Friendly↔Corporativo.
+- **Não é só re-skin: é redesign com nova arquitetura de navegação** — o app passa a ter
+  8 seções (Dashboard · Leads · Webscraping · Vendas · Atendimento · Bot · Relatórios ·
+  Configurações); as ~20 rotas legadas são absorvidas gradualmente (nada deletado antes
+  da tela nova estar no ar).
+- Pacote inclui: `tokens/*.css` portáveis quase 1:1 (namespace `--hbx-*`, sem conflito),
+  9 telas Corporativo completas em HTML hi-fi (pixel-perfect, fonte da verdade visual),
+  `shell.jsx` de referência (sidebar 218px + topbar), primitivas React, assets, fontes
+  (Plus Jakarta Sans + IBM Plex Mono) e plano de migração próprio — compatível com o
+  método que havíamos definido.
 
-## Pré-requisito (ação do dono)
-Colocar os 2 temas em `docs/TEMAS/claro/` e `docs/TEMAS/escuro/` (HTML + CSS + assets),
-ou informar os caminhos onde estão.
+## Fases (alinhadas ao plano do handoff)
+- [ ] **T.1 Tokens:** portar `tokens/*.css` para o frontend, importados ANTES das regras
+      atuais (namespace novo não conflita). Fontes via `tokens/fonts.css`.
+- [ ] **T.2 Mecanismo de tema:** provider novo com `data-theme`/`data-theme-mode` no
+      `<html>` + kill de transições no swap (receita do README), persistência integrada
+      ao `themePreferenceConfig` existente, coexistindo com o ThemeProvider atual até o
+      fim da migração.
+- [ ] **T.3 Shell Corporativo:** sidebar (8 seções) + topbar (busca ⌘K, sol/lua,
+      chavinha, "+", sinos) como TSX, atrás de rota nova ou feature flag — referência
+      `shell.jsx` + `corporate.css`.
+- [ ] **T.4 Uma tela por PR**, validada visualmente contra o HTML de referência antes do
+      merge, na ordem do handoff: Dashboard → Vendas → Atendimento → Webscraping → Bot →
+      Leads → Relatórios → Configurações → Login.
+- [ ] **T.5 Friendly:** workspace glass (onboarding) + site público marketing
+      (`ui_kits/workspace`, `ui_kits/marketing`).
+- [ ] **T.6 Absorção das rotas legadas + limpeza final:** redirects, remoção de telas e
+      CSS antigos, `HBX_THEME_PALETTES` substituído. Só depois de tudo no ar.
 
-## Fases
-- [ ] **T.1 Extração de tokens:** ler os 2 HTML/CSS e gerar
-      `frontend/src/styles/themes/` com variáveis CSS por tema
-      (`[data-theme="hbx-claro"]` / `[data-theme="hbx-escuro"]`): cores, tipografia,
-      raios, espaçamentos, sombras. Inventário das variáveis atuais do app e mapa
-      de-para (token novo → variável existente).
-- [ ] **T.2 Página de calibração** (`/dev/tema`, atrás de guard): todos os componentes
-      compartilhados renderizados nos 2 temas lado a lado (botões, inputs, cards,
-      badges, tabs/guias, modais, tabelas). Iteração com o dono até bater pixel com o
-      design. Nada de tela real antes disso.
-- [ ] **T.3 Re-skin dos componentes compartilhados:** TopBar, HbxGuide1/4/5, painéis,
-      formulários, badges, modais — uma vez, refletindo no app inteiro.
-- [ ] **T.4 Migração Login + Vendas:** primeiras telas reais; validação do dono;
-      itens sem equivalente no design passam pela calibração primeiro.
-- [ ] **T.5 Demais telas em lotes:** gerencial → master → atendimento → radar →
-      financeiro → site/landing (hero redesenhado conforme regra acima). CSS antigo
-      apagado por tela migrada.
-- [ ] **T.6 Seletor e limpeza final:** claro/escuro novos viram os temas oficiais no
-      `themePreferenceConfig`; temas/CSS antigos e tokens órfãos removidos (aqui se
-      cumpre o "remover tudo do front atual"). Legibilidade validada nos 2 temas
-      (invariante do AGENTS.md).
+## Interação com o PR10062026002 (arquitetura pura)
+- Ordem mantida: **arquitetura primeiro**. Para evitar trabalho dobrado, as fases de UI
+  do PR-002 (master inspector, gerencial, telas do contratante) ficam **funcionais e
+  mínimas** — o visual definitivo chega aqui (ex.: gerencial do contratante = tela
+  "Configurações > Equipe/Plano" do handoff).
+- A central master NÃO está entre as 8 seções do app: continua com a central própria;
+  ganha a pele Corporativo em T.4/T.6 sem mudar a estrutura definida no PR-001/002.
 
 ## Salvaguardas
-- Nenhuma tela perde funcionalidade na troca de pele — re-skin não é refatoração de
-  comportamento (isso é assunto do PR10062026002).
-- Cada lote de telas commitado com lint + build verdes e validação visual do dono.
+- Hi-fi: valores de cor/tipo/raio/sombra são finais — normalizar para o padrão do repo
+  mantendo os MESMOS valores; nunca hex direto em componente (só `var(--hbx-*)`).
+- Nada de blur/glass no Corporativo; respeitar `prefers-reduced-motion`; declarar `color`
+  em todo `<button>` (bugs reais documentados no handoff).
+- Nenhuma tela perde funcionalidade na troca; cada tela commitada com lint+build verdes
+  e validação visual do dono contra o HTML de referência.
+
+## Observação de higiene do pacote
+- Existe uma duplicata acidental dentro do handoff
+  (`design_handoff_hbx_corporativo/docs/TEMAS/claro/...`) — inofensiva; limpar quando
+  conveniente.
