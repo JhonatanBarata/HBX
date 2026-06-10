@@ -77,9 +77,12 @@ Cada fase commitada, buildada e testada antes da seguinte.
       trial vencido→suspended, cortesia vencida→overdue "volta a cobrar", graça vencida→
       bloqueia); derivação legada exportada como fallback p/ o evaluate na transição.
       Matriz: 23 casos (8 novos stored-first), 46 testes verdes no total.
-- [ ] A.3 Escritores migram para o campo único: webhooks Mercado Pago, financeiro
-      (ativação por pagamento, graça, bloqueio), evaluateCompanyStatus (vira apenas o
-      aplicador de vencimentos: trial/cortesia/graça), ações do master.
+- [x] A.3 Escritores principais nativos: financeiro seta `status` explicitamente nas 4
+      transições reais (ativação por charge, ativação por assinatura, início de graça =
+      overdue+prazo, bloqueio pós-graça = suspended). Corrigida a 4ª ocorrência da praga
+      premiumAccess (pagamento/graça não setam mais a flag de cortesia). Ações do master
+      e cadastro seguem cobertos pelo dual-write até as Fases B (5 ações) e C (fluxo de
+      cadastro) reescreverem esses caminhos.
 - [ ] A.4 Migração destrutiva (commit separado, após smoke): DROP de `paymentStatus`,
       `subscriptionStatus`, `premiumAccess`, `onboardingStatus`, `billingExempt*`.
       Remover todas as leituras restantes (grep até zerar).
