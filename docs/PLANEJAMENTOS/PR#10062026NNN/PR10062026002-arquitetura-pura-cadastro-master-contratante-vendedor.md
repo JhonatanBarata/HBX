@@ -245,6 +245,11 @@ Cada fase commitada, buildada e testada antes da seguinte.
 >       alinhar na C.2;
 >   (c) masterResetPassword e master-provisioning ainda usam senha temporária
 >       (ferramentas de suporte do master) — revisar na Fase F.
+> **FASE C: C.1/C.1b/C.1c/C.3/C.4 ENTREGUES.** Resta só C.2 (UI da árvore
+> única papel+permissões): o backend (team policy única) já está pronto e o
+> visual definitivo é a tela Configurações > Equipe do kit do PR-003 —
+> implementar C.2 JUNTO do kit para não redesenhar a mesma tela duas vezes.
+> Próxima sessão da Fase D pode rodar em paralelo ao PR-003.
 
 - [x] C.1 Fluxo self-service: cadastro → confirmação de e-mail → trial Lead Plus inicia
       (X dias, regra única no catálogo) → fim do trial: checkout ou suspensão.
