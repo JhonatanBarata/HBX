@@ -83,8 +83,12 @@ Cada fase commitada, buildada e testada antes da seguinte.
 - [ ] A.4 Migração destrutiva (commit separado, após smoke): DROP de `paymentStatus`,
       `subscriptionStatus`, `premiumAccess`, `onboardingStatus`, `billingExempt*`.
       Remover todas as leituras restantes (grep até zerar).
-- [ ] A.5 Remoções acordadas: tabela/sync `userModuleAccess`; listas mobile/desktop de
-      vendedor; overrides de módulo por empresa fora do plano Full.
+- [x] A.5 Remoções acordadas (a tabela física cai no A.4):
+      **a)** `userModuleAccess` não é mais lido nem escrito — team policy é a única fonte
+      (gerencial grava direto no modulesJson); **b)** listas mobile/desktop removidas —
+      vendedor tem UMA regra (Vendas+Radar default em qualquer superfície; Atendimento
+      elegível via gerencial); **c)** módulos travados — override por empresa só no Full
+      (leituras + endpoint master rejeita fora dele).
 - [ ] A.6 (diagnóstico) `RolesGuard` e `seller-access-governance` viram projeções do
       contrato único de decisão — fim da autorização espalhada em 5 camadas.
 - [ ] Checks: prisma validate, build, matriz de testes nova, smoke de login das 3 personas.
