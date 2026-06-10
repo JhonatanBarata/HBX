@@ -71,6 +71,7 @@ import {
   COMMERCIAL_ENTITLEMENT_KEYS,
   isCommercialEntitlementActive,
 } from '../commercial-plans/commercial-plan-catalog';
+import { resolveCompanyAccessState } from '../modules/company-access-state';
 import { HbxPresentationEmailService, type HbxPresentationEmailResult } from '../mail/hbx-presentation-email.service';
 import {
   addBusinessHours,
@@ -492,17 +493,13 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  // Projecao do estado canonico (PR-002 A.4): nada de re-derivar trial aqui.
   private isCompanyTrialingVendas(company: any) {
-    const trialEndsAt = company?.trialEndsAt instanceof Date ? company.trialEndsAt : null;
-    if (trialEndsAt && trialEndsAt.getTime() < Date.now()) return false;
-    return (
-      String(company?.trialModuleSelection || '').trim().toLowerCase() === COMMERCIAL_ENTITLEMENT_KEYS.VENDAS &&
-      (
-        String(company?.paymentStatus || '').trim().toUpperCase() === 'TRIAL' ||
-        String(company?.subscriptionStatus || '').trim().toLowerCase() === 'trialing' ||
-        String(company?.onboardingStatus || '').trim().toLowerCase() === 'active_trial'
-      )
-    );
+    if (String(company?.trialModuleSelection || '').trim().toLowerCase() !== COMMERCIAL_ENTITLEMENT_KEYS.VENDAS) {
+      return false;
+    }
+    const access = resolveCompanyAccessState(company);
+    return access.state === 'trial' || access.state === 'trial_ending';
   }
 
   private isCommercialEntitlementUsable(row: any) {
@@ -519,10 +516,16 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       where: { id: Number(companyId) },
       select: {
         trialModuleSelection: true,
+        status: true,
+        isActive: true,
         paymentStatus: true,
         subscriptionStatus: true,
         onboardingStatus: true,
+        premiumAccess: true,
+        billingExempt: true,
         trialEndsAt: true,
+        billingGraceEndsAt: true,
+        courtesyEndsAt: true,
         commercialEntitlements: {
           select: {
             key: true,

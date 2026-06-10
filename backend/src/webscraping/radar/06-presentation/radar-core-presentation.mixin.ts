@@ -97,6 +97,7 @@ import {
   formatCityWithState,
   buildRadarStageSnapshot,
 } from '../radar-core-method-imports';
+import { resolveCompanyAccessState } from '../../../modules/company-access-state';
 
 import type {
   AutonomousMassDataCandidate,
@@ -221,27 +222,10 @@ export class RadarCorePresentationMixin {
     return COMMERCIAL_PLAN_QUOTAS[planKey]?.googleSearchesPerDay ?? COMMERCIAL_PLAN_QUOTAS[COMMERCIAL_PLAN_KEYS.PADRAO].googleSearchesPerDay;
   }
 
+  // Projecao do estado canonico (PR-002 A.4): morre a copia local do motor
+  // de acesso (tinha ate regra de graça propria divergente).
   private companyHasPaidFeatureAccess(company: any) {
-    const paymentStatus = String(company?.paymentStatus || '').trim().toUpperCase();
-    const subscriptionStatus = String(company?.subscriptionStatus || '').trim().toLowerCase();
-    const onboardingStatus = String(company?.onboardingStatus || '').trim().toLowerCase();
-    const billingGraceEndsAt = company?.billingGraceEndsAt instanceof Date ? company.billingGraceEndsAt : null;
-    const graceActive =
-      subscriptionStatus === 'grace' && billingGraceEndsAt && billingGraceEndsAt.getTime() >= Date.now();
-
-    if (paymentStatus === 'DISABLED' || paymentStatus === 'EXPIRED') return false;
-    if (subscriptionStatus === 'canceled' || subscriptionStatus === 'expired') return false;
-    if (onboardingStatus === 'suspended') return false;
-    if (graceActive) return true;
-    return (
-      paymentStatus === 'PAID' ||
-      paymentStatus === 'TRIAL' ||
-      paymentStatus === 'MANUAL' ||
-      subscriptionStatus === 'active' ||
-      subscriptionStatus === 'trialing' ||
-      subscriptionStatus === 'manual' ||
-      Boolean(company?.premiumAccess)
-    );
+    return resolveCompanyAccessState(company).canUse;
   }
 
   private async supportsUsageLogPersistence() {
@@ -261,12 +245,17 @@ export class RadarCorePresentationMixin {
     const company = await this.prisma.company.findUnique({
       where: { id: context.companyId },
       select: {
+        status: true,
+        isActive: true,
         onboardingStatus: true,
         paymentStatus: true,
         subscriptionStatus: true,
         premiumAccess: true,
+        billingExempt: true,
         selectedPlanKey: true,
+        trialEndsAt: true,
         billingGraceEndsAt: true,
+        courtesyEndsAt: true,
       },
     });
 
@@ -335,12 +324,17 @@ export class RadarCorePresentationMixin {
       where: { id: context.companyId },
       select: {
         id: true,
+        status: true,
+        isActive: true,
         onboardingStatus: true,
         paymentStatus: true,
         subscriptionStatus: true,
         premiumAccess: true,
+        billingExempt: true,
         selectedPlanKey: true,
+        trialEndsAt: true,
         billingGraceEndsAt: true,
+        courtesyEndsAt: true,
       },
     });
 
@@ -1962,12 +1956,17 @@ export class RadarCorePresentationMixin {
     const company = await this.prisma.company.findUnique({
       where: { id: Number(companyId) },
       select: {
+        status: true,
+        isActive: true,
         selectedPlanKey: true,
         premiumAccess: true,
+        billingExempt: true,
         paymentStatus: true,
         subscriptionStatus: true,
         onboardingStatus: true,
+        trialEndsAt: true,
         billingGraceEndsAt: true,
+        courtesyEndsAt: true,
       },
     }).catch(() => null);
     if (!company || !this.companyHasPaidFeatureAccess(company)) {

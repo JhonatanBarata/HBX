@@ -27,6 +27,7 @@ function createPrisma(overrides?: Record<string, any>) {
     company: {
       findUnique: async () => ({
         id: 7,
+        isActive: true,
         onboardingStatus: 'active_paid',
         paymentStatus: 'PAID',
         subscriptionStatus: 'active',
@@ -2347,6 +2348,7 @@ test('canUseRadarSmartLeadFields libera somente HBX Lead Plus ou superior', asyn
     company: {
       findUnique: async () => ({
         selectedPlanKey: 'hbx_lite',
+        isActive: true,
         premiumAccess: false,
         paymentStatus: 'PAID',
         subscriptionStatus: 'active',
@@ -2358,6 +2360,7 @@ test('canUseRadarSmartLeadFields libera somente HBX Lead Plus ou superior', asyn
     company: {
       findUnique: async () => ({
         selectedPlanKey: 'hbx_padrao',
+        isActive: true,
         premiumAccess: false,
         paymentStatus: 'PAID',
         subscriptionStatus: 'active',
@@ -4216,6 +4219,7 @@ test('pesquisa repetida reaproveita historico sem chamar Google novamente', asyn
     company: {
       findUnique: async () => ({
         id: 7,
+        isActive: true,
         onboardingStatus: 'active_trial',
         paymentStatus: 'TRIAL',
         subscriptionStatus: 'trialing',
@@ -4304,6 +4308,7 @@ test('reaproveitar historico ignora limite do trial e devolve resultado salvo', 
     company: {
       findUnique: async () => ({
         id: 7,
+        isActive: true,
         onboardingStatus: 'active_trial',
         paymentStatus: 'TRIAL',
         subscriptionStatus: 'trialing',
@@ -4456,6 +4461,7 @@ test('quota comercial bloqueia terceira busca Google do dia e registra tentativa
     company: {
       findUnique: async () => ({
         id: 7,
+        isActive: true,
         onboardingStatus: 'active_trial',
         paymentStatus: 'TRIAL',
         subscriptionStatus: 'trialing',
