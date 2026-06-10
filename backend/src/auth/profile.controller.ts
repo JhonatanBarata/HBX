@@ -7,6 +7,7 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { MasterContextService } from '../master-context/master-context.service';
 import { ThemePreferencesService } from './theme-preferences.service';
 import { resolveCompanyKind, isPlatformInfraCompany, isTenantCompany } from '../common/company-kind';
+import { resolveCompanyAccessState } from '../modules/company-access-state';
 
 class ChangePasswordDto {
   @IsString()
@@ -40,6 +41,10 @@ export function sanitizeUser(user: any, masterContext?: any) {
   const trialRemainingDays = trialEndsAt
     ? Math.max(0, Math.ceil((trialEndsAt.getTime() - Date.now()) / (24 * 60 * 60 * 1000)))
     : null;
+  const companyAccess = user.company ? resolveCompanyAccessState(user.company) : null;
+  // Estado detalhado de cobrança e assunto do contratante: vendedor recebe
+  // apenas accessReleased (liberado ou nao), sem motivo financeiro.
+  const billingAudience = Boolean(user.isSystemMaster) || role === 'ADMIN';
   return {
     id: user.id,
     username: user.username,
@@ -66,6 +71,9 @@ export function sanitizeUser(user: any, masterContext?: any) {
           companyKind: resolveCompanyKind(user.company),
           isTenant: isTenantCompany(user.company),
           isPlatformInfra: isPlatformInfraCompany(user.company),
+          accessReleased: companyAccess ? companyAccess.canUse : null,
+          accessState: billingAudience && companyAccess ? companyAccess.state : null,
+          accessStateLabel: billingAudience && companyAccess ? companyAccess.statusLabel : null,
           onboardingStatus: user.company.onboardingStatus ?? null,
           paymentStatus: user.company.paymentStatus ?? null,
           subscriptionStatus: user.company.subscriptionStatus ?? null,

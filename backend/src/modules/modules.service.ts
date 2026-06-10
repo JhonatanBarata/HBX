@@ -49,6 +49,7 @@ import {
   presentModuleBlockForRole,
   resolveCompanyModuleAccessPolicy,
 } from './module-access-policy';
+import { isCompanyAccessReleased, resolveCompanyAccessState } from './company-access-state';
 import {
   loadUserTeamPolicyRuntime,
   parseTeamPolicyModuleAccessMap,
@@ -856,31 +857,20 @@ export class ModulesService implements OnModuleInit {
     return summaries;
   }
 
+  // Projecao do estado canonico (company-access-state.ts) para o vocabulario
+  // de buckets do master. Nao re-derivar estado aqui.
   private companyStatusBucket(company: any) {
-    const paymentMethod = String(company?.paymentMethod || '').trim().toUpperCase();
-    const paymentStatus = String(company?.paymentStatus || '').trim().toUpperCase();
-    const subscriptionStatus = String(company?.subscriptionStatus || '').trim().toLowerCase();
-    const trialEndsAt = this.parseDateValue(company?.trialEndsAt);
-
-    if (company?.isActive === false) return 'SUSPENDED';
-    if (paymentStatus === 'MANUAL' || subscriptionStatus === 'manual') return 'MANUAL_PREMIUM';
-    if (subscriptionStatus === 'authorized') return 'PAYING';
-    if (paymentStatus === 'DISABLED' || paymentStatus === 'EXPIRED' || subscriptionStatus === 'canceled' || subscriptionStatus === 'expired') {
-      return 'SUSPENDED';
-    }
-    if (subscriptionStatus === 'trialing') {
-      if (trialEndsAt && trialEndsAt.getTime() - Date.now() <= 7 * 24 * 60 * 60 * 1000) {
-        return 'TRIAL_ENDING';
-      }
-      return 'TRIAL';
-    }
-    if (!paymentMethod || paymentMethod === 'NONE') return 'NO_METHOD';
-    if (paymentStatus === 'OVERDUE' || paymentStatus === 'PENDING' || subscriptionStatus === 'past_due') {
-      return 'OVERDUE';
-    }
-    if (paymentStatus === 'PAID' || subscriptionStatus === 'active') {
-      return 'PAYING';
-    }
+    const access = resolveCompanyAccessState(company);
+    if (access.state === 'exempt') return 'EXEMPT';
+    if (access.state === 'manual') return 'MANUAL_PREMIUM';
+    if (access.state === 'paying') return 'PAYING';
+    if (access.state === 'trial') return 'TRIAL';
+    if (access.state === 'trial_ending') return 'TRIAL_ENDING';
+    if (access.state === 'grace') return 'GRACE';
+    if (access.state === 'overdue') return 'OVERDUE';
+    if (access.state === 'pending_checkout') return 'PENDING_CHECKOUT';
+    if (access.state === 'suspended') return 'SUSPENDED';
+    if (access.state === 'unknown' && access.detailCode === 'no_payment_method') return 'NO_METHOD';
     return 'UNKNOWN';
   }
 
@@ -1875,36 +1865,16 @@ export class ModulesService implements OnModuleInit {
     if (isPlatformInfraCompany(company)) return { exists: true, active: false };
 
     const now = Date.now();
-    const paymentStatus = String(company.paymentStatus || '').trim().toUpperCase();
-    const subscriptionStatus = String(company.subscriptionStatus || '').trim().toLowerCase();
-    const accessReleased =
-      paymentStatus === 'PAID' ||
-      paymentStatus === 'MANUAL' ||
-      subscriptionStatus === 'active' ||
-      subscriptionStatus === 'authorized' ||
-      subscriptionStatus === 'manual' ||
-      Boolean(company.premiumAccess);
-    const graceAllowed = Boolean(
-      company.billingGraceEndsAt &&
-      company.billingGraceEndsAt.getTime() >= now &&
-      company.isActive,
-    );
-    const trialExpired = Boolean(
-      company.trialEndsAt &&
-      company.trialEndsAt.getTime() < now &&
-      paymentStatus !== 'PAID' &&
-      paymentStatus !== 'MANUAL' &&
-      subscriptionStatus !== 'active' &&
-      subscriptionStatus !== 'manual' &&
-      !Boolean(company.premiumAccess),
-    );
-    const trialAllowed =
-      (paymentStatus === 'TRIAL' || subscriptionStatus === 'trialing') &&
-      (!company.trialEndsAt || company.trialEndsAt.getTime() >= now);
-    const paidAllowed = paymentStatus === 'PAID' || subscriptionStatus === 'active' || subscriptionStatus === 'authorized';
-    const manualAllowed = paymentStatus === 'MANUAL' || subscriptionStatus === 'manual';
+    // Pergunta ao estado canonico: "se estivesse ativa, esta empresa estaria
+    // liberada?" — o evaluate e o unico fluxo que ESCREVE ativacao/desativacao;
+    // a regra de negocio mora em company-access-state.ts.
+    const access = resolveCompanyAccessState({ ...company, isActive: true }, now);
+    const shouldRemainActive = isCompanyAccessReleased(access.state);
+    const trialExpired = access.state === 'suspended' && access.detailCode === 'trial_expired';
+    const manualAllowed =
+      String(company.paymentStatus || '').trim().toUpperCase() === 'MANUAL' ||
+      String(company.subscriptionStatus || '').trim().toLowerCase() === 'manual';
     const premiumAllowed = Boolean(company.premiumAccess);
-    const shouldRemainActive = Boolean(paidAllowed || trialAllowed || manualAllowed || premiumAllowed || graceAllowed);
 
     if (trialExpired || !shouldRemainActive) {
       await this.prisma.$transaction([
@@ -1931,7 +1901,10 @@ export class ModulesService implements OnModuleInit {
         data: {
           isActive: true,
           deactivatedAt: null,
-          premiumAccess: premiumAllowed || manualAllowed || paidAllowed || trialAllowed,
+          // premiumAccess significa liberacao manual do master. Reativar uma
+          // empresa paga/trial NAO pode espalhar essa flag, senao todo mundo
+          // reativado vira "Acesso manual" na leitura canonica.
+          premiumAccess: premiumAllowed || manualAllowed,
         },
       });
     }
@@ -2578,14 +2551,9 @@ export class ModulesService implements OnModuleInit {
       companyLedgerRows,
       masterIntegrations,
     );
-    const statusBucket = this.companyStatusBucket({
-      ...company,
-      isActive: active,
-      paymentStatus:
-        active && String(company?.paymentStatus || '').trim().toUpperCase() !== 'DISABLED'
-          ? company?.paymentStatus
-          : company?.paymentStatus || 'DISABLED',
-    });
+    const accessSnapshot = { ...company, isActive: active };
+    const access = resolveCompanyAccessState(accessSnapshot);
+    const statusBucket = this.companyStatusBucket(accessSnapshot);
     const enabledModules = (company.companyModules || [])
       .filter((row: any) => row?.systemModule?.companyAssignable)
       .map((row: any) => ({
@@ -2696,10 +2664,11 @@ export class ModulesService implements OnModuleInit {
             ? 'Suspenso'
             : 'Ativo pago';
 
-    let riskLevel: 'stable' | 'warning' | 'critical' = 'stable';
-    if (['OVERDUE', 'NO_METHOD', 'SUSPENDED'].includes(statusBucket) || recentCardFailure) {
+    // Risco vem do estado canonico; sinais operacionais apenas escalam.
+    let riskLevel: 'stable' | 'warning' | 'critical' = access.riskLevel;
+    if (recentCardFailure) {
       riskLevel = 'critical';
-    } else if (statusBucket === 'TRIAL_ENDING' || statusBucket === 'MANUAL_PREMIUM' || manualPaymentPending || websiteNeedsAttention) {
+    } else if (riskLevel === 'stable' && (manualPaymentPending || websiteNeedsAttention)) {
       riskLevel = 'warning';
     }
 
@@ -2764,21 +2733,10 @@ export class ModulesService implements OnModuleInit {
       daysOverdue,
       currentOutstandingValue,
       statusBucket,
+      accessState: access.state,
+      accessStateLabel: access.statusLabel,
       riskLevel,
-      financialSituation:
-        statusBucket === 'PAYING'
-          ? 'Adimplente'
-          : statusBucket === 'MANUAL_PREMIUM'
-            ? 'Premium manual'
-          : statusBucket === 'TRIAL'
-            ? 'Em trial'
-            : statusBucket === 'TRIAL_ENDING'
-              ? 'Trial vencendo'
-              : statusBucket === 'OVERDUE'
-                ? 'Em atraso'
-                : statusBucket === 'NO_METHOD'
-                  ? 'Sem metodo'
-                  : 'Suspenso',
+      financialSituation: access.statusLabel,
       lastPayment: lastApproved ? this.normalizeLedgerEntryRow(lastApproved) : null,
       lastFailure: lastFailed ? this.normalizeLedgerEntryRow(lastFailed) : null,
       manualPaymentPending,
@@ -2951,7 +2909,7 @@ export class ModulesService implements OnModuleInit {
       .reduce((total, row) => total + this.normalizeCurrencyAmount(row.amount), 0);
 
     const projectedRevenueMonth = companySummaries
-      .filter((company) => ['PAYING', 'TRIAL', 'TRIAL_ENDING', 'OVERDUE'].includes(company.statusBucket))
+      .filter((company) => ['PAYING', 'TRIAL', 'TRIAL_ENDING', 'OVERDUE', 'GRACE'].includes(company.statusBucket))
       .reduce((total, company) => total + this.normalizeCurrencyAmount(company.monthlyValue || 0), 0);
     const currentDelinquency = companySummaries
       .filter((company) => company.statusBucket === 'OVERDUE')
@@ -3037,7 +2995,10 @@ export class ModulesService implements OnModuleInit {
       { key: 'MANUAL_PREMIUM', label: 'Premium manual', value: companySummaries.filter((company) => company.statusBucket === 'MANUAL_PREMIUM').length },
       { key: 'TRIAL', label: 'Trial', value: companySummaries.filter((company) => company.statusBucket === 'TRIAL').length },
       { key: 'TRIAL_ENDING', label: 'Trial vencendo', value: companySummaries.filter((company) => company.statusBucket === 'TRIAL_ENDING').length },
+      { key: 'GRACE', label: 'Período de graça', value: companySummaries.filter((company) => company.statusBucket === 'GRACE').length },
+      { key: 'PENDING_CHECKOUT', label: 'Checkout pendente', value: companySummaries.filter((company) => company.statusBucket === 'PENDING_CHECKOUT').length },
       { key: 'OVERDUE', label: 'Atrasado', value: companySummaries.filter((company) => company.statusBucket === 'OVERDUE').length },
+      { key: 'EXEMPT', label: 'Isenta', value: companySummaries.filter((company) => company.statusBucket === 'EXEMPT').length },
       { key: 'SUSPENDED', label: 'Suspenso', value: companySummaries.filter((company) => company.statusBucket === 'SUSPENDED').length },
       { key: 'NO_METHOD', label: 'Sem metodo', value: companySummaries.filter((company) => company.statusBucket === 'NO_METHOD').length },
     ];
