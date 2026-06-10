@@ -2125,7 +2125,6 @@ export class RadarCoreDeliveryMixin {
         ? (result as any).rejectReasons
         : parseJsonArray((result as any).rejectReasons);
       const qualityV2 = this.extractLeadQualityV2FromObject(result as any);
-      const delivery = this.classifyCardDelivery({ ...(result as any), phoneDigits }, input, quality, qualityV2);
       const existing = await delegate.findFirst({
         where: {
           OR: [
@@ -2134,7 +2133,22 @@ export class RadarCoreDeliveryMixin {
           ],
         },
       }).catch(() => null);
-      const listDeliverable = this.isListDeliverableCard({ ...(result as any), phoneDigits }, input, quality, qualityV2);
+      // O pool e a memoria do lead: a decisao de entrega considera os canais ja
+      // conhecidos do card, nao apenas o payload desta sincronizacao.
+      const channelCandidate = {
+        ...(existing || {}),
+        ...(result as any),
+        phoneDigits: phoneDigits || existing?.phoneDigits || null,
+        email: (result as any).email || existing?.email || null,
+        emailStatus: (result as any).emailStatus || existing?.emailStatus || null,
+        website: (result as any).website || existing?.website || null,
+        websiteStatus: (result as any).websiteStatus || existing?.websiteStatus || null,
+        instagramUrl: (result as any).instagramUrl || existing?.instagramUrl || null,
+        facebookUrl: (result as any).facebookUrl || existing?.facebookUrl || null,
+        whatsappStatus: (result as any).whatsappStatus || (result as any).whatsappCheckStatus || existing?.whatsappStatus || null,
+      };
+      const delivery = this.classifyCardDelivery(channelCandidate, input, quality, qualityV2);
+      const listDeliverable = this.isListDeliverableCard(channelCandidate, input, quality, qualityV2);
       if (!listDeliverable) {
         counts.rejectedCount += 1;
         if (existing?.id && !this.isRadarProtectedStatus(existing.status)) {
@@ -2167,18 +2181,6 @@ export class RadarCoreDeliveryMixin {
         }
         continue;
       }
-      const channelCandidate = {
-        ...(existing || {}),
-        ...(result as any),
-        phoneDigits: phoneDigits || existing?.phoneDigits || null,
-        email: (result as any).email || existing?.email || null,
-        emailStatus: (result as any).emailStatus || existing?.emailStatus || null,
-        website: (result as any).website || existing?.website || null,
-        websiteStatus: (result as any).websiteStatus || existing?.websiteStatus || null,
-        instagramUrl: (result as any).instagramUrl || existing?.instagramUrl || null,
-        facebookUrl: (result as any).facebookUrl || existing?.facebookUrl || null,
-        whatsappStatus: (result as any).whatsappStatus || (result as any).whatsappCheckStatus || existing?.whatsappStatus || null,
-      };
       if (!this.candidateHasRequiredChannels(channelCandidate, input, qualityV2)) {
         counts.rejectedCount += 1;
         continue;

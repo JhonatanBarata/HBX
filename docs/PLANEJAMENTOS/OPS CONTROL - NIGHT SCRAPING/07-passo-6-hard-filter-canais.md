@@ -94,3 +94,27 @@ Os testes legados que garantem compatibilidade do Radar Direct e search-run fora
 ## Proxima etapa
 
 Passo 7: remover o acesso separado aos motores no `Banco de Dados`, deixando o controle operacional concentrado no Ops Control.
+
+## Manutencao 2026-06-10 - testes legados alinhados ao hard filter
+
+Tres testes de `webscraping.service.test.ts` ainda codificavam a regra revogada de
+22/05 ("requiredChannels nao corta entrega") e falhavam desde este passo:
+
+- `Radar ignora telefone e Facebook obrigatorios como regra de corte` e
+  `Radar ignora requiredChannels na decisao backend de entrega` foram reescritos
+  para a regra vigente (`prefer` nao bloqueia; `any_required`/`all_required` cortam).
+- Os dois testes lentos (16min e 68s) vazavam rede real: o enriquecimento gratis
+  pre-save rodava com `global.fetch` verdadeiro (timeout no engine + fallback web
+  vivo). Padrao do arquivo aplicado: stub de `global.fetch` com try/finally.
+- Correcao de codigo unica em `persistRadarLeadPoolBatch`
+  (`radar-core-delivery.mixin.ts`): a decisao de entrega (`isListDeliverableCard`/
+  `classifyCardDelivery`) passou a avaliar o `channelCandidate` (payload fundido com
+  os canais ja conhecidos do pool) — o mesmo objeto que o hard filter
+  `candidateHasRequiredChannels` ja usava na linha seguinte. Antes, re-sincronizacao
+  sem social no payload rebaixava card ja enriquecido para `rejected` mesmo gravando
+  o Instagram preservado (estado inconsistente; quebrava o teste
+  `persistRadarLeadPoolBatch preserva social ja enriquecido`). Card sem canal nenhum
+  (nem no pool) continua cortado.
+
+Validacao: `webscraping.service.test.js` 120 pass / 1 skipped / 0 fail; demais
+arquivos de teste de `dist/webscraping` 215 pass / 0 fail.
