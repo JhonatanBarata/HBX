@@ -83,9 +83,17 @@ Cada fase commitada, buildada e testada antes da seguinte.
       premiumAccess (pagamento/graça não setam mais a flag de cortesia). Ações do master
       e cadastro seguem cobertos pelo dual-write até as Fases B (5 ações) e C (fluxo de
       cadastro) reescreverem esses caminhos.
-- [ ] A.4 Migração destrutiva (commit separado, após smoke): DROP de `paymentStatus`,
-      `subscriptionStatus`, `premiumAccess`, `onboardingStatus`, `billingExempt*`.
-      Remover todas as leituras restantes (grep até zerar).
+- [~] A.4 EM ANDAMENTO — re-sequenciado em 10/06 após censo dos leitores:
+      **Fatia 1 ✔** commercial-plans.service projeta do canônico (morreu a regra de graça
+      própria divergente). **Descoberta importante:** auth.service não é conversão
+      mecânica — é a máquina de cadastro inteira (estados fora do vocabulário como
+      `pending_trial_activation`, register gravando `grace`); reescrever é trabalho da
+      Fase C, não do A.4. **Novo sequenciamento:** A.4 converte os leitores de decisão
+      restantes (companies operational-status, whatsapp-modal, vendas/messaging/radar);
+      o DROP físico (`paymentStatus`, `subscriptionStatus`, `premiumAccess`,
+      `onboardingStatus`, `billingExempt*`, tabela `UserModuleAccess`) acontece DEPOIS
+      das Fases B (5 ações do master) e C (cadastro) reescreverem seus caminhos —
+      senão mexemos duas vezes nos mesmos arquivos.
 - [x] A.5 Remoções acordadas (a tabela física cai no A.4):
       **a)** `userModuleAccess` não é mais lido nem escrito — team policy é a única fonte
       (gerencial grava direto no modulesJson); **b)** listas mobile/desktop removidas —
