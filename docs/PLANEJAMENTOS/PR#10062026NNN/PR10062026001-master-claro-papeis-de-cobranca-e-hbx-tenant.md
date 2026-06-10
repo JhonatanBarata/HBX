@@ -1,7 +1,9 @@
 # PR10062026001 — Master claro, papéis de cobrança e empresa HBX como tenant comum
 
 Data: 10/06/2026
-Status: PLANEJADO (To-Do)
+Status: CONCLUÍDO em 10/06/2026 — fases 0 a 5 executadas e commitadas.
+Pendência única: 3.5 (operação do dono — isentar a empresa HBX pela UI do master).
+Desvios em relação ao plano original estão anotados nos próprios itens ("achado na execução" / "bônus").
 Escopo: backend (modules, commercial-plans, billing state), frontend (master command center, gates de cobrança), AGENTS.md
 
 ---
@@ -199,18 +201,16 @@ Conflitos concretos encontrados:
       conexão, que segue na aba WhatsApp do inspector.
 
 ### Fase 5 — Documentação pós-refatoração (não se perder)
-- [ ] **5.1 Atualizar `AGENTS.md`:**
-      - Nova seção **"Access & Billing State"**: o resolvedor canônico
-        (`company-access-state.ts`) é a única fonte de verdade; proibido re-derivar estado
-        de `paymentStatus`/`subscriptionStatus` crus em tela.
-      - Nova invariante: **vendedor nunca vê cobrança** — mensagens financeiras só para
-        admin/contratante; bloqueio de vendedor é sempre neutro.
-      - Nova invariante: **empresa HBX é tenant comum** — isenção é estado de dados
-        (`billingExempt`), nunca special-case de código.
-      - Mapa do master atualizado (abas, superfície mínima: Planos, Master, Email, Webwhats).
-      - Corrigir o índice quebrado: criar `docs/ai/` mínimo com os arquivos referenciados
-        ou remover a referência do AGENTS.md.
-- [ ] **5.2 Marcar este documento como CONCLUÍDO** com data e desvios anotados.
+- [x] **5.1 `AGENTS.md` atualizado:** novas seções "Access & Billing State (single source
+      of truth)" e "Master Surface" com as quatro invariantes (estado canônico único,
+      vendedor nunca vê cobrança, premiumAccess = liberação manual, isenção é dado);
+      Review Guidelines ganhou os riscos correspondentes; índice `docs/ai/*` quebrado
+      substituído por referências reais e `docs/ai/README.md` criado de verdade (pontos
+      de entrada do código + invariantes).
+- [x] **5.2 Documento marcado como CONCLUÍDO** (ver cabeçalho). Desvios anotados nos
+      itens: redirect 403 do api.ts (achado, removido), backend financeiro já mascarava
+      não-admin (achado), 3 ocorrências do premiumAccess espalhado (bônus corrigidos),
+      filtros do board existiam mas estavam mortos (reativados na Fase 4).
 
 ---
 
