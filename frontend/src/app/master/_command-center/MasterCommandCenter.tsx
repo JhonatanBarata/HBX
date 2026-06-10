@@ -14,10 +14,12 @@ import { MasterEmailWorkspace } from "../email/page.client";
 import { useMasterCommandCenterActions } from "./MasterCommandCenter.hooks";
 import type {
   MasterCommandCenterProps,
+  MasterCommandFilterId,
   MasterPlanKey,
   MasterRealityTone,
 } from "./MasterCommandCenter.types";
 import {
+  MASTER_COMMAND_FILTERS,
   MASTER_PLAN_CATALOG,
   activeModuleCount,
   auditTitle,
@@ -27,14 +29,16 @@ import {
   commercialPlanLabel,
   compactAuditMetadata,
   companyHasOperationalAccess,
+  companyMatchesFilter,
   companyNoAccess,
+  companyWhatsappAttention,
+  filterCompanies,
   formatCurrency,
   formatDate,
   formatDateTime,
   ledgerPaymentLabel,
   paymentMethodLabel,
   paymentStatusLabel,
-  recommendedBoardAction,
   resolveReality,
   riskTone,
   subscriptionLabel,
@@ -45,7 +49,7 @@ import styles from "./MasterCommandCenter.module.css";
 type CommandActions = ReturnType<typeof useMasterCommandCenterActions>["actions"];
 type CommandState = ReturnType<typeof useMasterCommandCenterActions>["state"];
 type MasterInspectorTabId = "overview" | "access" | "billing" | "users" | "whatsapp" | "radar" | "integrations" | "audit" | "danger";
-type MasterPrimaryTabId = "empresas" | "email" | "database" | "tokens" | "links" | "refresh" | "exit";
+type MasterPrimaryTabId = "empresas" | "planos" | "email" | "webwhats" | "database" | "tokens" | "links" | "refresh" | "exit";
 
 const MASTER_INSPECTOR_TABS: Array<{ id: MasterInspectorTabId; label: string; meta: string }> = [
   { id: "overview", label: "Resumo", meta: "estado" },
@@ -61,7 +65,9 @@ const MASTER_INSPECTOR_TABS: Array<{ id: MasterInspectorTabId; label: string; me
 
 const MASTER_PRIMARY_TABS = [
   { key: "empresas", label: "Empresas" },
+  { key: "planos", label: "Planos & Regras" },
   { key: "email", label: "Email" },
+  { key: "webwhats", label: "Webwhats" },
   { key: "database", label: "Banco de Dados" },
   { key: "tokens", label: "Tokens" },
   { key: "links", label: "Links" },
@@ -91,9 +97,27 @@ function featureLabel(value: string) {
   return labels[normalized] || normalized;
 }
 
+// Rotas legadas (/master/clientes|financeiro|operacao|whatsapp|planos)
+// chegam via ?tab=. Cada seção vira aba + filtro inicial do board.
+function resolvePrimaryTabFromSection(section?: string | null): MasterPrimaryTabId {
+  const normalized = String(section || "").trim().toLowerCase();
+  if (normalized === "planos") return "planos";
+  if (normalized === "email") return "email";
+  if (normalized === "webwhats") return "webwhats";
+  return "empresas";
+}
+
+function resolveBoardFilterFromSection(section?: string | null): MasterCommandFilterId {
+  const normalized = String(section || "").trim().toLowerCase();
+  if (normalized === "financeiro") return "billing_pending";
+  if (normalized === "whatsapp") return "whatsapp_attention";
+  return "all";
+}
+
 export default function MasterCommandCenter(props: MasterCommandCenterProps) {
-  const { workspace, currentUser, loading, refreshing, initialCompanyId, initialPanel, onReload, setWorkspace, setCurrentUser } = props;
-  const [activePrimaryTab, setActivePrimaryTab] = useState<MasterPrimaryTabId>("empresas");
+  const { workspace, currentUser, loading, refreshing, initialCompanyId, initialSection, initialPanel, onReload, setWorkspace, setCurrentUser } = props;
+  const [activePrimaryTab, setActivePrimaryTab] = useState<MasterPrimaryTabId>(() => resolvePrimaryTabFromSection(initialSection));
+  const [boardFilter, setBoardFilter] = useState<MasterCommandFilterId>(() => resolveBoardFilterFromSection(initialSection));
   const deepLinkHandled = useRef<string | null>(null);
   const initialPanelHandled = useRef<string | null>(null);
   const { state, actions } = useMasterCommandCenterActions({
@@ -156,13 +180,24 @@ export default function MasterCommandCenter(props: MasterCommandCenterProps) {
             companyHasContext={actions.companyHasActiveMasterContext}
             onCreateCompany={() => actions.setCreateCompanyOpen(true)}
             busyAction={state.busyAction}
+            boardFilter={boardFilter}
+            onBoardFilterChange={setBoardFilter}
             workspace={workspace}
             state={state}
             actions={actions}
           />
         )
       ) : (
-        <MasterPrimaryWorkspace tab={activePrimaryTab} state={state} actions={actions} />
+        <MasterPrimaryWorkspace
+          tab={activePrimaryTab}
+          state={state}
+          actions={actions}
+          workspace={workspace}
+          onOpenCompany={(companyId) => {
+            setActivePrimaryTab("empresas");
+            void actions.loadDetail(companyId);
+          }}
+        />
       )}
 
       <UserEditorModal state={state} actions={actions} />
@@ -187,6 +222,8 @@ function MasterOperationsLayout({
   companyHasContext,
   onCreateCompany,
   busyAction,
+  boardFilter,
+  onBoardFilterChange,
   workspace,
   state,
   actions,
@@ -198,6 +235,8 @@ function MasterOperationsLayout({
   companyHasContext: (companyId?: number | null) => boolean;
   onCreateCompany: () => void;
   busyAction: string | null;
+  boardFilter: MasterCommandFilterId;
+  onBoardFilterChange: (filter: MasterCommandFilterId) => void;
   workspace: MasterCommandCenterProps["workspace"];
   state: CommandState;
   actions: CommandActions;
@@ -213,6 +252,8 @@ function MasterOperationsLayout({
           companyHasContext={companyHasContext}
           onCreate={onCreateCompany}
           busyAction={busyAction}
+          filter={boardFilter}
+          onFilterChange={onBoardFilterChange}
         />
         <MasterCompanyInspector
           workspace={workspace}
@@ -281,11 +322,17 @@ function MasterPrimaryWorkspace({
   tab,
   state,
   actions,
+  workspace,
+  onOpenCompany,
 }: {
   tab: MasterPrimaryTabId;
   state: CommandState;
   actions: CommandActions;
+  workspace: MasterCommandCenterProps["workspace"];
+  onOpenCompany: (companyId: number) => void;
 }) {
+  if (tab === "planos") return <MasterPlansRulesPanel workspace={workspace} onOpenCompany={onOpenCompany} />;
+  if (tab === "webwhats") return <MasterWebwhatsPanel workspace={workspace} onOpenCompany={onOpenCompany} />;
   if (tab === "email") {
     return (
       <section className={`${styles.primaryWorkspace} hbx-page-mobile-enter`}>
@@ -322,6 +369,130 @@ function MasterPrimaryWorkspace({
   return null;
 }
 
+// Aba "Planos & Regras": catálogo vivo (mesma fonte do checkout, via
+// workspace.plansCatalog) + todas as exceções de regra ativas em um lugar só.
+// É aqui que se enxerga regra obsoleta ou competindo.
+function MasterPlansRulesPanel({
+  workspace,
+  onOpenCompany,
+}: {
+  workspace: MasterCommandCenterProps["workspace"];
+  onOpenCompany: (companyId: number) => void;
+}) {
+  const companies = workspace?.companies || [];
+  const overrideGroups: Array<{ id: string; title: string; hint: string; companies: CompanySummary[] }> = [
+    {
+      id: "exempt",
+      title: "Isentas de cobrança",
+      hint: "Decisão master (ex.: empresa interna). Nunca recebem cobrança ou aviso.",
+      companies: companies.filter((company) => company.accessState === "exempt"),
+    },
+    {
+      id: "manual",
+      title: "Acesso manual liberado",
+      hint: "Liberação manual de cliente real. Revise se ainda faz sentido.",
+      companies: companies.filter((company) => company.accessState === "manual"),
+    },
+    {
+      id: "grace",
+      title: "Em período de graça",
+      hint: "Pagamento falhou; acesso mantido por janela de graça.",
+      companies: companies.filter((company) => company.accessState === "grace"),
+    },
+    {
+      id: "pending",
+      title: "Checkout pendente",
+      hint: "Nunca concluíram a contratação.",
+      companies: companies.filter((company) => company.accessState === "pending_checkout"),
+    },
+  ];
+  const hasOverrides = overrideGroups.some((group) => group.companies.length > 0);
+
+  return (
+    <MasterInlinePanel eyebrow="Planos & Regras" title="Catálogo vivo e exceções ativas">
+      <div className={styles.billingGrid}>
+        {MASTER_PLAN_CATALOG.map((plan) => (
+          <InfoItem
+            key={plan.key}
+            label={`${plan.title}${plan.badge ? ` · ${plan.badge}` : ""}`}
+            value={`${formatCurrency(plan.monthlyPrice)}/mês · ${plan.modules.length} módulo(s) · ${plan.entitlements.length} recurso(s)`}
+          />
+        ))}
+      </div>
+      <p className={styles.panelLead}>
+        Preços, módulos e recursos vêm do catálogo do backend — a mesma fonte do checkout.
+        Abaixo, toda empresa que está fora da regra padrão de cobrança.
+      </p>
+      {!hasOverrides ? (
+        <MasterEmptyState title="Nenhuma exceção ativa" description="Todas as empresas seguem a regra padrão de plano e cobrança." />
+      ) : null}
+      {overrideGroups.filter((group) => group.companies.length > 0).map((group) => (
+        <section key={group.id} className={styles.panelSection}>
+          <div className={styles.sectionTitle}>
+            <span>{group.companies.length} empresa(s)</span>
+            <h3>{group.title}</h3>
+          </div>
+          <p className={styles.panelLead}>{group.hint}</p>
+          <div className={styles.ledgerList}>
+            {group.companies.map((company) => (
+              <article key={company.id} className={styles.ledgerItem}>
+                <strong>{company.name}</strong>
+                <span>
+                  {company.accessStateLabel}
+                  {company.billingExempt && company.billingExemptReason ? ` · ${company.billingExemptReason}` : ""}
+                  {" · "}{commercialPlanLabel(company.selectedPlanKey)}
+                  {" · "}{formatCurrency(company.monthlyValue)}/mês
+                </span>
+                <button type="button" onClick={() => onOpenCompany(company.id)}>Abrir</button>
+              </article>
+            ))}
+          </div>
+        </section>
+      ))}
+    </MasterInlinePanel>
+  );
+}
+
+// Aba "Webwhats": visão de governo do motor de WhatsApp (confirmação de
+// leads + canal interno suporte HBX ↔ clientes). Conexão por empresa fica
+// na aba WhatsApp do inspector.
+function MasterWebwhatsPanel({
+  workspace,
+  onOpenCompany,
+}: {
+  workspace: MasterCommandCenterProps["workspace"];
+  onOpenCompany: (companyId: number) => void;
+}) {
+  const companies = workspace?.companies || [];
+  const attention = companies.filter((company) => companyWhatsappAttention(company));
+  const healthy = companies.length - attention.length;
+
+  return (
+    <MasterInlinePanel eyebrow="Webwhats" title="Motor WhatsApp e comunicação com clientes">
+      <p className={styles.panelLead}>
+        O Webwhats confirma WhatsApp em leads e é o canal interno entre o suporte HBX e os clientes.
+        {` ${healthy} empresa(s) saudável(is), ${attention.length} precisando de atenção.`}
+      </p>
+      {!attention.length ? (
+        <MasterEmptyState title="Nenhuma empresa com WhatsApp em atenção" description="Todos os motores conectados e operando." />
+      ) : (
+        <div className={styles.ledgerList}>
+          {attention.map((company) => (
+            <article key={company.id} className={styles.ledgerItem}>
+              <strong>{company.name}</strong>
+              <span>
+                {company.whatsappSituation?.statusLabel || company.whatsappCenter?.statusLabel || "Sem leitura do motor"}
+                {company.whatsappSituation?.nextStepLabel ? ` · ${company.whatsappSituation.nextStepLabel}` : ""}
+              </span>
+              <button type="button" onClick={() => onOpenCompany(company.id)}>Abrir</button>
+            </article>
+          ))}
+        </div>
+      )}
+    </MasterInlinePanel>
+  );
+}
+
 function MasterInlinePanel({ eyebrow, title, children }: { eyebrow: string; title: string; children: ReactNode }) {
   return (
     <section className={`${styles.primaryWorkspace} hbx-page-mobile-enter`}>
@@ -344,6 +515,8 @@ function MasterCompanyBoard({
   companyHasContext,
   onCreate,
   busyAction,
+  filter,
+  onFilterChange,
 }: {
   companies: CompanySummary[];
   activeCompanyId: number | null;
@@ -352,14 +525,35 @@ function MasterCompanyBoard({
   companyHasContext: (companyId?: number | null) => boolean;
   onCreate: () => void;
   busyAction: string | null;
+  filter: MasterCommandFilterId;
+  onFilterChange: (filter: MasterCommandFilterId) => void;
 }) {
+  const [search, setSearch] = useState("");
+  const visibleCompanies = filterCompanies(companies, search, filter);
   return (
     <section className={styles.companyBoard} aria-label="Empresas">
       <div className={styles.companyBoardToolbar}>
         <MasterActionButton onClick={onCreate}>Nova empresa</MasterActionButton>
+        <select
+          value={filter}
+          onChange={(event) => onFilterChange(event.target.value as MasterCommandFilterId)}
+          aria-label="Filtrar empresas por estado"
+        >
+          {MASTER_COMMAND_FILTERS.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.label} ({companies.filter((company) => companyMatchesFilter(company, item.id)).length})
+            </option>
+          ))}
+        </select>
+        <input
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Buscar empresa, contato, plano..."
+          aria-label="Buscar empresas"
+        />
       </div>
       <div className={styles.companyRows}>
-        {companies.map((company) => (
+        {visibleCompanies.map((company) => (
           <MasterCompanyRow
             key={company.id}
             company={company}
@@ -370,7 +564,12 @@ function MasterCompanyBoard({
             onAssume={() => onAssume(company)}
           />
         ))}
-        {!companies.length ? <MasterEmptyState title="Nenhuma empresa encontrada" /> : null}
+        {!visibleCompanies.length ? (
+          <MasterEmptyState
+            title="Nenhuma empresa encontrada"
+            description={filter !== "all" || search ? "Ajuste o filtro ou a busca para ver outras empresas." : undefined}
+          />
+        ) : null}
       </div>
     </section>
   );
@@ -427,14 +626,14 @@ function MasterCompanyRow({
       </div>
       <span className={styles.companySignal} data-active={contextActive ? "true" : "false"} aria-hidden="true" />
       <div className={styles.rowStatus}>
-        <MasterStatusBadge tone={reality.nextActionTone}>{reality.nextAction}</MasterStatusBadge>
+        <MasterStatusBadge tone={riskTone(company)}>{company.accessStateLabel || reality.billingLabel}</MasterStatusBadge>
         <span>{commercialPlanLabel(company.selectedPlanKey)}</span>
       </div>
       <div className={styles.rowFacts}>
-        <span>Cobrança: {reality.billingLabel}</span>
+        <span>{formatCurrency(company.monthlyValue)}/mês</span>
         <span>Acesso: {reality.accessLabel}</span>
       </div>
-      <div className={styles.rowNext}>{recommendedBoardAction(company)}</div>
+      <div className={styles.rowNext}>{reality.nextAction}</div>
       <div className={styles.rowActions}>
         <button
           type="button"

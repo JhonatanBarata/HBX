@@ -105,6 +105,10 @@ const EMPLOYEE_BLOCKED_MODULE_KEYS = new Set([
 ]);
 const SELLER_MOBILE_OPERATIONAL_MODULE_KEYS = new Set(['vendas', 'webscraping']);
 const SELLER_DESKTOP_OPERATIONAL_MODULE_KEYS = new Set(['vendas', 'webscraping']);
+// Superficie do master puro (sem contexto de empresa): governo do sistema.
+// Planos, Email e Webwhats sao abas da central master; aqui ficam apenas os
+// modulos de navegacao proprios dele.
+const MASTER_SURFACE_MODULE_KEYS = new Set(['master', 'exclusoes']);
 const MODULE_DISPLAY_ORDER = [
   'atendimento',
   'vendas',
@@ -2164,18 +2168,23 @@ export class ModulesService implements OnModuleInit {
 
     const systemMasterModules = isSystemMaster
       ? await this.prisma.systemModule.findMany({
-          where: { key: { in: ['master', 'exclusoes'] } },
+          where: { key: { in: Array.from(MASTER_SURFACE_MODULE_KEYS) } },
           orderBy: { name: 'asc' },
         })
       : [];
 
     if (isSystemMaster) {
-      const allModules = await this.prisma.systemModule.findMany({
-        where: { key: { notIn: RETIRED_MODULE_KEYS } },
-        orderBy: [{ companyAssignable: 'desc' }, { name: 'asc' }, { id: 'asc' }],
-      });
+      // Master puro governa por Planos/Master/Email/Webwhats (abas da central);
+      // a navegacao de modulos dele e minima. A operacao completa de uma
+      // empresa so aparece quando ele assume contexto (companyId resolvido).
+      const masterVisibleModules = companyId
+        ? await this.prisma.systemModule.findMany({
+            where: { key: { notIn: RETIRED_MODULE_KEYS } },
+            orderBy: [{ companyAssignable: 'desc' }, { name: 'asc' }, { id: 'asc' }],
+          })
+        : systemMasterModules;
 
-      return allModules.map((moduleItem) => ({
+      return masterVisibleModules.map((moduleItem) => ({
         key: moduleItem.key,
         name: moduleItem.name,
         description: moduleItem.description,

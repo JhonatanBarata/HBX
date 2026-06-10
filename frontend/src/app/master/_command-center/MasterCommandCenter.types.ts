@@ -66,13 +66,6 @@ export type MasterPlanChangePreviewModel = {
   manualPremiumWarning: boolean;
 };
 
-export type MasterCommandKpi = {
-  id: string;
-  label: string;
-  value: number;
-  tone: MasterRealityTone;
-};
-
 export type MasterCommandCenterProps = {
   workspace: WorkspacePayload | null;
   currentUser: CurrentUser | null;

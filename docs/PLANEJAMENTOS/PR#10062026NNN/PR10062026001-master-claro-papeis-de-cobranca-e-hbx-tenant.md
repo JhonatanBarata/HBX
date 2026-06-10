@@ -177,26 +177,26 @@ Conflitos concretos encontrados:
       aparece como "Isenta" no board e nunca recebe cobrança/aviso.
 
 ### Fase 4 — Master enxuto, organizado por módulo
-- [ ] **4.1 Superfície do master:** em `listMyModules`, system master recebe apenas
-      `master`, `exclusoes` e os módulos de governo (email do sistema, webwhats, planos) —
-      não mais a lista inteira de módulos comerciais. Definir constante
-      `MASTER_SURFACE_MODULE_KEYS` ao lado de `EMPLOYEE_BLOCKED_MODULE_KEYS`.
-- [ ] **4.2 Abas primárias do Command Center** (`MasterCommandCenter.tsx`):
-      `Empresas | Planos & Regras | Email | Webwhats | Banco de Dados | Tokens | Links`.
-      Nova aba **Planos & Regras**: catálogo vivo (do backend) + lista de overrides ativos
-      (manuais, isentas, trials estendidos) — é aqui que se enxerga "regra obsoleta ou
-      competindo".
-- [ ] **4.3 Board de empresas com badge única:** mostrar só o `accessState` canônico +
-      valor mensal + próxima ação. Remover da UI os 3 rótulos concorrentes
-      (`financialSituation`, `statusBucket` cru, `billingSituation.statusLabel`).
-- [ ] **4.4 Consertar navegação fantasma:** implementar leitura de `initialSection` no
-      `MasterCommandCenter` (clientes→Empresas, financeiro→Empresas+filtro cobrança,
-      whatsapp→Empresas+filtro whatsapp, planos→Planos & Regras) **ou** apagar as rotas
-      legadas `/master/clientes|financeiro|operacao|whatsapp|planos` de vez. Decidir e não
-      deixar o meio-termo atual.
-- [ ] **4.5 Webwhats no master:** entrada única "Webwhats" (motor de confirmação de leads +
-      canal de comunicação suporte HBX ↔ clientes), apontando para a superfície do projeto
-      `Webwhats/` — sem duplicar tela.
+- [x] **4.1 Superfície do master:** `MASTER_SURFACE_MODULE_KEYS` (`master`, `exclusoes`) em
+      `listMyModules` — master puro não vê mais a lista inteira de módulos comerciais na
+      navegação. Quando assume contexto de empresa, continua vendo a operação completa.
+- [x] **4.2 Abas primárias:** `Empresas | Planos & Regras | Email | Webwhats | Banco de
+      Dados | Tokens | Links | Atualizar`. Nova aba **Planos & Regras**: catálogo vivo
+      (workspace.plansCatalog, mesma fonte do checkout) + exceções ativas agrupadas
+      (Isentas com motivo, Acesso manual, Em graça, Checkout pendente), cada uma com botão
+      "Abrir" direto na empresa.
+- [x] **4.3 Board com badge única:** linha mostra `accessStateLabel` canônico (tom = risco)
+      + plano + valor mensal + próxima ação. Removidos rótulos concorrentes e a
+      `recommendedBoardAction` duplicada. Bônus: toolbar do board ganhou filtro por estado
+      (com contagens) e busca — `MASTER_COMMAND_FILTERS`/`filterCompanies` existiam mas
+      estavam mortos, sem nenhuma UI usando.
+- [x] **4.4 Navegação fantasma consertada:** `initialSection` agora é lido —
+      clientes/empresas/operacao→Empresas, financeiro→Empresas+filtro "Cobrança pendente",
+      whatsapp→Empresas+filtro "WhatsApp atenção", planos→Planos & Regras, email/webwhats→
+      abas respectivas. As rotas legadas `/master/*` voltaram a funcionar.
+- [x] **4.5 Webwhats no master:** aba própria com visão de governo do motor (saudáveis ×
+      atenção, próximo passo por empresa, atalho para o inspector). Sem duplicar a tela de
+      conexão, que segue na aba WhatsApp do inspector.
 
 ### Fase 5 — Documentação pós-refatoração (não se perder)
 - [ ] **5.1 Atualizar `AGENTS.md`:**

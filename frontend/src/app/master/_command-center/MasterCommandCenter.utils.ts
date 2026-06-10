@@ -9,7 +9,6 @@ import type {
 } from "../master.types";
 import type {
   MasterCommandFilterId,
-  MasterCommandKpi,
   MasterPlanCatalogItem,
   MasterPlanChangePreviewModel,
   MasterPlanKey,
@@ -282,18 +281,6 @@ export function filterCompanies(companies: CompanySummary[], search: string, fil
     });
 }
 
-export function buildCommandKpis(companies: CompanySummary[]): MasterCommandKpi[] {
-  return [
-    { id: "active", label: "Empresas ativas", value: companies.filter((company) => company.isActive).length, tone: "good" },
-    { id: "no_access", label: "Sem acesso", value: companies.filter(companyNoAccess).length, tone: "danger" },
-    { id: "overdue", label: "Em atraso", value: companies.filter(companyBillingPending).length, tone: "danger" },
-    { id: "trial", label: "Trial vencendo", value: companies.filter(companyTrialEnding).length, tone: "warn" },
-    { id: "manual", label: "Manual premium", value: companies.filter(companyManualPremium).length, tone: "warn" },
-    { id: "exempt", label: "Isentas", value: companies.filter(companyExempt).length, tone: "neutral" },
-    { id: "whatsapp", label: "WhatsApp atenção", value: companies.filter(companyWhatsappAttention).length, tone: "warn" },
-  ];
-}
-
 // Leitura única do estado do cliente para o board do master.
 // Tudo deriva de company.accessState (estado canônico do backend); nada de
 // paymentStatus/subscriptionStatus crus aqui.
@@ -409,14 +396,6 @@ export function buildPlanChangePreview(company: CompanySummary, nextPlanKey: Mas
     accessPreservedAs: reality.accessLabel,
     manualPremiumWarning: companyManualPremium(company),
   };
-}
-
-export function recommendedBoardAction(company: CompanySummary) {
-  const reality = resolveReality(company);
-  if (companyNoAccess(company) || companyBillingPending(company)) return reality.nextAction;
-  if (companyWhatsappAttention(company)) return "Revisar WhatsApp";
-  if (companyWeakActivation(company)) return "Operar";
-  return reality.nextAction;
 }
 
 export function auditTitle(entry: AuditEntry) {
