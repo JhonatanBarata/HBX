@@ -135,9 +135,12 @@ Cada fase commitada, buildada e testada antes da seguinte.
 >   nem em estado; só troca plano e sincroniza módulos pelo estado vigente.
 > ✔ B.2-5b Perfil só-cadastro completo: DTO + service + saveProfile limpos
 >   (subscriptionStatus/premiumAccess fora dos 3 lados; whitelist estrita).
-> PENDENTE: B.1 (5 abas do inspector: Resumo | Plano & Cobrança | Equipe | Conexões |
-> Auditoria & Perigo); B.6 (criação → pending_checkout + convite por e-mail).
-> Carcaça do setPaymentStatus no service morre no DROP.
+> ✔ B.1 Inspector com 5 abas (Resumo | Plano & Cobrança | Equipe | Conexões |
+>   Auditoria & Perigo).
+> ✔ B.6 Criação pelo master nasce `status=pending_checkout` nativo e coerente (morreram
+>   os defaults contraditórios trialing+active_paid), com contato do contratante no modal.
+>   **Convite por e-mail → Fase C** (depende da máquina de cadastro/definir senha).
+> **FASE B CONCLUÍDA.** Carcaça do setPaymentStatus no service morre no DROP.
 
 > **Spec executável (checkpoint 10/06, fim da sessão A.4):**
 > **Backend (B.2/B.3):**
