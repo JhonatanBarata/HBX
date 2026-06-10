@@ -48,19 +48,17 @@ import styles from "./MasterCommandCenter.module.css";
 
 type CommandActions = ReturnType<typeof useMasterCommandCenterActions>["actions"];
 type CommandState = ReturnType<typeof useMasterCommandCenterActions>["state"];
-type MasterInspectorTabId = "overview" | "access" | "billing" | "users" | "whatsapp" | "radar" | "integrations" | "audit" | "danger";
+type MasterInspectorTabId = "overview" | "plan_billing" | "team" | "connections" | "audit_danger";
 type MasterPrimaryTabId = "empresas" | "planos" | "email" | "webwhats" | "database" | "tokens" | "links" | "refresh" | "exit";
 
+// 5 abas (PR-002 B.1): Resumo | Plano & Cobrança | Equipe | Conexões |
+// Auditoria & Perigo — decisao do dono na entrevista de 10/06.
 const MASTER_INSPECTOR_TABS: Array<{ id: MasterInspectorTabId; label: string; meta: string }> = [
   { id: "overview", label: "Resumo", meta: "estado" },
-  { id: "access", label: "Acesso", meta: "plano" },
-  { id: "billing", label: "Cobranca", meta: "caixa" },
-  { id: "users", label: "Usuarios", meta: "login" },
-  { id: "whatsapp", label: "WhatsApp", meta: "canal" },
-  { id: "radar", label: "Radar", meta: "cards" },
-  { id: "integrations", label: "Integracoes", meta: "tokens" },
-  { id: "audit", label: "Auditoria", meta: "risco" },
-  { id: "danger", label: "Perigo", meta: "bloqueio" },
+  { id: "plan_billing", label: "Plano & Cobrança", meta: "comercial" },
+  { id: "team", label: "Equipe", meta: "login" },
+  { id: "connections", label: "Conexões", meta: "canais" },
+  { id: "audit_danger", label: "Auditoria & Perigo", meta: "risco" },
 ];
 
 const MASTER_PRIMARY_TABS = [
@@ -688,19 +686,27 @@ function MasterCompanyInspector({
             <MasterCompanyProfilePanel company={company} actions={actions} state={state} />
           </>
         ) : null}
-        {activeTab === "access" ? (
+        {activeTab === "plan_billing" ? (
           <>
             <MasterPlanAccessPanel key={`${company.id}-${company.selectedPlanKey || "none"}`} company={company} actions={actions} state={state} />
             <MasterTrialPanel company={company} actions={actions} state={state} />
+            <MasterBillingPanel company={company} actions={actions} state={state} />
           </>
         ) : null}
-        {activeTab === "billing" ? <MasterBillingPanel company={company} actions={actions} state={state} /> : null}
-        {activeTab === "users" ? <MasterUsersPanel company={company} actions={actions} /> : null}
-        {activeTab === "whatsapp" ? <MasterWhatsAppPanel workspace={workspace} company={company} actions={actions} state={state} /> : null}
-        {activeTab === "radar" ? <RadarCommandPanel company={company} actions={actions} state={state} /> : null}
-        {activeTab === "integrations" ? <MasterIntegrationsPanel workspace={workspace} company={company} actions={actions} state={state} /> : null}
-        {activeTab === "audit" ? <MasterRiskPanel company={company} /> : null}
-        {activeTab === "danger" ? <MasterDangerZone company={company} actions={actions} state={state} /> : null}
+        {activeTab === "team" ? <MasterUsersPanel company={company} actions={actions} /> : null}
+        {activeTab === "connections" ? (
+          <>
+            <MasterWhatsAppPanel workspace={workspace} company={company} actions={actions} state={state} />
+            <RadarCommandPanel company={company} actions={actions} state={state} />
+            <MasterIntegrationsPanel workspace={workspace} company={company} actions={actions} state={state} />
+          </>
+        ) : null}
+        {activeTab === "audit_danger" ? (
+          <>
+            <MasterRiskPanel company={company} />
+            <MasterDangerZone company={company} actions={actions} state={state} />
+          </>
+        ) : null}
       </div>
     </aside>
   );
@@ -1833,6 +1839,9 @@ function CreateCompanyModal({ state, actions }: { state: CommandState; actions: 
       <div className={styles.modalForm}>
         <input value={state.createCompanyName} onChange={(event) => actions.setCreateCompanyName(event.target.value)} placeholder="Nome da empresa" />
         <input value={state.createCompanySlug} onChange={(event) => actions.setCreateCompanySlug(event.target.value)} placeholder="Slug opcional" />
+        <input value={state.createCompanyContactName} onChange={(event) => actions.setCreateCompanyContactName(event.target.value)} placeholder="Nome do contratante (opcional)" />
+        <input value={state.createCompanyContactEmail} onChange={(event) => actions.setCreateCompanyContactEmail(event.target.value)} placeholder="E-mail do contratante (opcional)" />
+        <p className={styles.panelLead}>A empresa nasce como &quot;Checkout pendente&quot; — o mesmo fluxo do cadastro normal. O convite por e-mail chega com a Fase C.</p>
         <MasterActionButton onClick={actions.submitCreateCompany} disabled={state.busyAction === "create-company"}>
           {state.busyAction === "create-company" ? "Criando..." : "Criar empresa"}
         </MasterActionButton>

@@ -238,6 +238,8 @@ export function useMasterCommandCenterActions({
   const [masterEmailOpen, setMasterEmailOpen] = useState(false);
   const [createCompanyName, setCreateCompanyName] = useState("");
   const [createCompanySlug, setCreateCompanySlug] = useState("");
+  const [createCompanyContactName, setCreateCompanyContactName] = useState("");
+  const [createCompanyContactEmail, setCreateCompanyContactEmail] = useState("");
   const [profileDraft, setProfileDraft] = useState<ReturnType<typeof buildProfileDraft> | null>(null);
   const [websiteDraft, setWebsiteDraft] = useState<ReturnType<typeof buildWebsiteDraft> | null>(null);
   const [mercadoPagoDraft, setMercadoPagoDraft] = useState<ReturnType<typeof buildMercadoPagoDraft> | null>(null);
@@ -322,12 +324,16 @@ export function useMasterCommandCenterActions({
         body: JSON.stringify({
           name: createCompanyName.trim(),
           slug: createCompanySlug.trim() || undefined,
+          contactName: createCompanyContactName.trim() || undefined,
+          contactEmail: createCompanyContactEmail.trim() || undefined,
         }),
       });
       setCreateCompanyOpen(false);
       setCreateCompanyName("");
       setCreateCompanySlug("");
-      setMessage(`Empresa criada: ${created.name}.`);
+      setCreateCompanyContactName("");
+      setCreateCompanyContactEmail("");
+      setMessage(`Empresa criada como "Checkout pendente": ${created.name}.`);
       await refreshAll(created.id);
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Falha ao criar empresa.");
@@ -1271,6 +1277,8 @@ export function useMasterCommandCenterActions({
     setCreateCompanyOpen,
     setCreateCompanyName,
     setCreateCompanySlug,
+    setCreateCompanyContactName,
+    setCreateCompanyContactEmail,
     submitCreateCompany,
     setMasterIntegrationsOpen,
     setMasterEmailOpen,
@@ -1347,6 +1355,8 @@ export function useMasterCommandCenterActions({
       createCompanyOpen,
       createCompanyName,
       createCompanySlug,
+      createCompanyContactName,
+      createCompanyContactEmail,
       masterIntegrationsOpen,
       masterEmailOpen,
       profileDraft,

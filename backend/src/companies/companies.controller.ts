@@ -30,6 +30,14 @@ class MasterCreateCompanyDto {
   @IsOptional()
   @IsString()
   slug?: string;
+
+  @IsOptional()
+  @IsString()
+  contactName?: string;
+
+  @IsOptional()
+  @IsString()
+  contactEmail?: string;
 }
 
 class MasterUpdateCompanyWhatsAppDto {

@@ -381,7 +381,7 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
     return this.sanitizeCompany(created);
   }
 
-  async createByMaster(input: { name: string; slug?: string }) {
+  async createByMaster(input: { name: string; slug?: string; contactName?: string; contactEmail?: string }) {
     const name = String(input?.name || '').trim();
     if (!name) throw new ForbiddenException('Nome da empresa obrigatorio');
 
@@ -397,11 +397,26 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
       suffix += 1;
     }
 
+    const contactName = String(input?.contactName || '').trim() || null;
+    const contactEmail = String(input?.contactEmail || '').trim().toLowerCase() || null;
+
     const created = await this.prisma.$transaction(async (tx) => {
+      // Empresa criada pelo master nasce "Checkout pendente" (PR-002 B.6):
+      // mesmo fluxo do self-service — o contratante conclui a contratacao.
+      // (Convite por e-mail entra junto com a maquina de cadastro da Fase C.)
       const company = await tx.company.create({
         data: {
           name,
           slug: candidate,
+          status: 'pending_checkout',
+          statusChangedAt: new Date(),
+          isActive: false,
+          onboardingStatus: 'pending_checkout',
+          paymentStatus: 'PENDING',
+          subscriptionStatus: 'pending_checkout',
+          premiumAccess: false,
+          primaryContactName: contactName,
+          contactEmail,
         },
       });
       return company;

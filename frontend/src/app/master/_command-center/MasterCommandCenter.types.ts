@@ -89,6 +89,8 @@ export type MasterCommandActionState = {
   createCompanyOpen: boolean;
   createCompanyName: string;
   createCompanySlug: string;
+  createCompanyContactName: string;
+  createCompanyContactEmail: string;
   masterIntegrationsOpen: boolean;
   masterEmailOpen: boolean;
   profileDraft: ProfileDraft | null;
