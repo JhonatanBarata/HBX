@@ -85,7 +85,13 @@ Cada fase commitada, buildada e testada antes da seguinte.
       cadastro) reescreverem esses caminhos.
 - [~] A.4 EM ANDAMENTO — re-sequenciado em 10/06 após censo dos leitores:
       **Fatia 1 ✔** commercial-plans.service projeta do canônico (morreu a regra de graça
-      própria divergente). **Descoberta importante:** auth.service não é conversão
+      própria divergente). **Fatia 2 ✔** operational-status (chip Acesso): PENDING ≠
+      "Atraso" (vira "Checkout"), cortesia = chip verde, graça com leitura própria
+      amarela mantendo acesso. **Pendência anotada p/ Fase D:** o payload do
+      operational-status leva texto de cobrança e é buscado por qualquer papel
+      (boasvindas/TopBar) — neutralizar para vendedor na caçada de vazamentos.
+      **Próximas fatias:** whatsapp-modal, vendas/messaging/radar-presentation,
+      gate de acesso do auth (linha ~397). **Descoberta importante:** auth.service não é conversão
       mecânica — é a máquina de cadastro inteira (estados fora do vocabulário como
       `pending_trial_activation`, register gravando `grace`); reescrever é trabalho da
       Fase C, não do A.4. **Novo sequenciamento:** A.4 converte os leitores de decisão
