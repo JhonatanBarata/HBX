@@ -1479,6 +1479,11 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
         data: {
           selectedPlanKey: planKey,
           trialModuleSelection: planKey === COMMERCIAL_PLAN_KEYS.PADRAO ? 'vendas' : null,
+          // Estado unico nativo (PR-002 A.3): graça = overdue com prazo
+          // (billingGraceEndsAt). Nada de premiumAccess para manter acesso —
+          // a leitura canonica libera enquanto a graça vale.
+          status: 'overdue',
+          statusChangedAt: now,
           onboardingStatus: 'active_grace',
           isActive: true,
           paymentStatus: failureGrace ? 'OVERDUE' : 'AUTHORIZED',
@@ -1486,7 +1491,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
           billingProvider: 'mercadopago',
           paymentMethod: 'CARD',
           billingCycle,
-          premiumAccess: true,
+          premiumAccess: false,
           subscriptionCurrentPeriodStart: graceStartedAt,
           subscriptionCurrentPeriodEnd: graceEndsAt,
           billingCardBrand: card.brand || company.billingCardBrand || null,
@@ -1548,6 +1553,9 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       await tx.company.update({
         where: { id: company.id },
         data: {
+          // Estado unico nativo (PR-002 A.3): graça vencida = suspended.
+          status: 'suspended',
+          statusChangedAt: blockedAt,
           onboardingStatus: 'suspended',
           isActive: false,
           paymentStatus: 'DISABLED',
@@ -1709,13 +1717,19 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
         data: {
           selectedPlanKey,
           trialModuleSelection: selectedPlanKey === COMMERCIAL_PLAN_KEYS.PADRAO ? 'vendas' : null,
+          // Estado unico nativo (PR-002 A.3): pagamento confirmado = active.
+          // premiumAccess significa cortesia manual; pagamento NAO seta a flag.
+          status: 'active',
+          statusChangedAt: paidAt,
+          courtesyEndsAt: null,
+          courtesyReason: null,
           isActive: true,
           onboardingStatus: 'active_paid',
           paymentStatus: 'PAID',
           subscriptionStatus: 'active',
           billingProvider: 'mercadopago',
           paymentMethod: this.normalizePaymentMethod(charge?.paymentMethod),
-          premiumAccess: true,
+          premiumAccess: false,
           subscriptionCurrentPeriodStart: paidAt,
           subscriptionCurrentPeriodEnd: periodEnd,
           ...this.billingGraceClearData(),
@@ -1771,6 +1785,11 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
         data: {
           selectedPlanKey,
           trialModuleSelection: selectedPlanKey === COMMERCIAL_PLAN_KEYS.PADRAO ? 'vendas' : null,
+          // Estado unico nativo (PR-002 A.3): assinatura ativa = active.
+          status: 'active',
+          statusChangedAt: paidAt,
+          courtesyEndsAt: null,
+          courtesyReason: null,
           isActive: true,
           onboardingStatus: 'active_paid',
           paymentStatus: 'PAID',
@@ -1778,7 +1797,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
           billingProvider: 'mercadopago',
           paymentMethod: 'CARD',
           billingCycle,
-          premiumAccess: true,
+          premiumAccess: false,
           subscriptionCurrentPeriodStart: periodStart,
           subscriptionCurrentPeriodEnd: periodEnd,
           ...this.billingGraceClearData(),
