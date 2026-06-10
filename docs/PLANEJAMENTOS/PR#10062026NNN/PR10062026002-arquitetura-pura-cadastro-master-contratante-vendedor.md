@@ -122,6 +122,21 @@ Cada fase commitada, buildada e testada antes da seguinte.
 
 ### Fase B — Master com 5 ações e 5 abas
 
+> **PROGRESSO (checkpoint):**
+> ✔ B.2-1 Cortesia nativa (`PUT .../courtesy` — motivo + prazo opcional; encerrar →
+>   pending_checkout; sweeps filtram `status != courtesy`; painel Cobrança atualizado).
+> ✔ B.2-2 Suspensão (`PUT .../suspension` — reativação determinística por datas:
+>   cortesia > assinatura > trial > pending_checkout; botão Reativar no Resumo).
+> ✔ B.2-3 Trial nativo (grant/extend → status=trial SEM premiumAccess — 5ª praga morta;
+>   end → pending_checkout "fim de trial leva ao checkout").
+> ✔ B.2-5 parcial: endpoint+DTO setPaymentStatus REMOVIDOS; controles crus fora da UI
+>   (Marcar pago/pendente, Status assinatura, Premium manual); perfil = só cadastro.
+> PENDENTE: B.2-4 (setCompanyPlanByMaster projetar do canônico, sem premiumAccess);
+> B.2-5b (limpar premiumAccess/subscriptionStatus do UpdateMasterCompanyProfileDto e
+> do updateCompanyProfileByMaster — a UI já não envia); B.1 (5 abas do inspector);
+> B.6 (criação → pending_checkout + convite). Carcaça do setPaymentStatus no service
+> morre no DROP.
+
 > **Spec executável (checkpoint 10/06, fim da sessão A.4):**
 > **Backend (B.2/B.3):**
 > 1. `PUT master/company/:id/courtesy` `{ active, reason (obrig. ao ativar), endsAt? }` —
