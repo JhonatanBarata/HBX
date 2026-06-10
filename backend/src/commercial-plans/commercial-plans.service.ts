@@ -31,6 +31,7 @@ import {
   computeCompanySeatBillingSnapshot,
   resolveExtraSeatMonthlyAmount,
 } from './seat-billing.util';
+import { resolveCompanyAccessState } from '../modules/company-access-state';
 
 type CommercialCurrentState = {
   planKey: ActiveCommercialPlanKey | null;
@@ -173,40 +174,18 @@ export class CommercialPlansService {
     };
   }
 
+  // Projecoes do estado canonico (company-access-state.ts) — este servico
+  // nao re-deriva mais acesso/trial de campos crus (PR-002 A.4).
   private isCompanyTrialingVendas(company: any) {
     const trialModule = String(company?.trialModuleSelection || '').trim().toLowerCase();
     if (trialModule !== COMMERCIAL_ENTITLEMENT_KEYS.VENDAS) return false;
-    const paymentStatus = String(company?.paymentStatus || '').trim().toUpperCase();
-    const subscriptionStatus = String(company?.subscriptionStatus || '').trim().toLowerCase();
-    const onboardingStatus = String(company?.onboardingStatus || '').trim().toLowerCase();
-    const trialEndsAt = company?.trialEndsAt instanceof Date ? company.trialEndsAt : null;
-    if (trialEndsAt && trialEndsAt.getTime() < Date.now()) return false;
-    return paymentStatus === 'TRIAL' || subscriptionStatus === 'trialing' || onboardingStatus === 'active_trial';
+    const access = resolveCompanyAccessState(company);
+    return access.state === 'trial' || access.state === 'trial_ending';
   }
 
   private isCompanyCommercialAccessAllowed(company: any) {
     if (this.isPlatformInfraCommercialCompany(company)) return true;
-
-    const paymentStatus = String(company?.paymentStatus || '').trim().toUpperCase();
-    const subscriptionStatus = String(company?.subscriptionStatus || '').trim().toLowerCase();
-    const onboardingStatus = String(company?.onboardingStatus || '').trim().toLowerCase();
-    const billingGraceEndsAt = company?.billingGraceEndsAt instanceof Date ? company.billingGraceEndsAt : null;
-    const graceActive =
-      subscriptionStatus === 'grace' && billingGraceEndsAt && billingGraceEndsAt.getTime() >= Date.now();
-
-    if (paymentStatus === 'DISABLED' || paymentStatus === 'EXPIRED') return false;
-    if (subscriptionStatus === 'canceled' || subscriptionStatus === 'expired') return false;
-    if (onboardingStatus === 'suspended') return false;
-    if (graceActive) return true;
-    return (
-      paymentStatus === 'PAID' ||
-      paymentStatus === 'TRIAL' ||
-      paymentStatus === 'MANUAL' ||
-      subscriptionStatus === 'active' ||
-      subscriptionStatus === 'trialing' ||
-      subscriptionStatus === 'manual' ||
-      Boolean(company?.premiumAccess)
-    );
+    return resolveCompanyAccessState(company).canUse;
   }
 
   private isEntitlementUsable(row: any) {
@@ -241,14 +220,14 @@ export class CommercialPlansService {
     const has = (key: CommercialEntitlementKey) =>
       entitlements.some((row: any) => String(row?.key || '').trim().toLowerCase() === key && this.isEntitlementUsable(row));
 
-    const paymentStatus = String(company?.paymentStatus || '').trim().toUpperCase();
-    const subscriptionStatus = String(company?.subscriptionStatus || '').trim().toLowerCase();
-    const manualAccess = Boolean(company?.premiumAccess) || paymentStatus === 'MANUAL' || subscriptionStatus === 'manual';
+    const access = resolveCompanyAccessState(company);
+    // Cortesia (manual/isenta) libera o fallback de entitlements do plano.
+    const manualAccess = access.state === 'manual' || access.state === 'exempt';
     const manualPlanKey = resolveCommercialPlanKeyForCapabilities({
       selectedPlanKey: company?.selectedPlanKey,
-      premiumAccess: company?.premiumAccess,
-      paymentStatus,
-      subscriptionStatus,
+      premiumAccess: manualAccess,
+      paymentStatus: manualAccess ? 'MANUAL' : String(company?.paymentStatus || ''),
+      subscriptionStatus: String(company?.subscriptionStatus || ''),
     });
     const manualPlanKeys = new Set(COMMERCIAL_PLAN_ENTITLEMENT_KEYS[manualPlanKey] || []);
     const hasWithManualFallback = (key: CommercialEntitlementKey) =>
@@ -325,11 +304,11 @@ export class CommercialPlansService {
       : entitlements.vendas
         ? COMMERCIAL_PLAN_KEYS.PADRAO
         : null;
+    const companyAccess = resolveCompanyAccessState(company);
     const hasExplicitCommercialPlan = Boolean(
       String(company?.selectedPlanKey || '').trim() ||
-      Boolean(company?.premiumAccess) ||
-      String(company?.paymentStatus || '').trim().toUpperCase() === 'MANUAL' ||
-      String(company?.subscriptionStatus || '').trim().toLowerCase() === 'manual',
+      companyAccess.state === 'manual' ||
+      companyAccess.state === 'exempt',
     );
     const selectedPlanKey = platformInfra
       ? null
