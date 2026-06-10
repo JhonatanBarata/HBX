@@ -117,6 +117,18 @@ Cada fase commitada, buildada e testada antes da seguinte.
       Remover inícios de trial paralelos/duplicados.
 - [ ] C.2 Gerencial por vendedor: módulos (do plano) + limites individuais dentro do
       teto; tudo via team policy (única fonte após A.5).
+      **Design aprovado em 10/06 (fim da "regra dupla" na tela):** modelo único
+      "Papel + árvore de permissões", inspirado em permission sets (HubSpot) e
+      simplicidade role-first (Slack/Linear):
+      1. O papel decide o teto — capacidade exclusiva de admin NEM APARECE na tela do
+         vendedor (não existe "OFF travado", existe ausência);
+      2. UMA árvore só: módulo é o nó-pai (liga/desliga), capacidades aninham embaixo;
+         pai desligado → filhos somem. Acabam as seções separadas "Módulos" × "Acessos";
+      3. Presets viram atalho que PREENCHE a árvore (Prospector/Closer/Completo) —
+         depois de aplicado, a árvore é a única fonte; preset não compete;
+      4. Limites moram no nó do módulo (cards/dia no nó Radar), dentro do teto do plano;
+      5. Backend já pronto (team policy única); é a UI que para de falar duas línguas.
+      Visual definitivo no PR-003 (tela Configurações > Equipe do handoff).
 - [ ] C.3 Convite de vendedor: cadastro nome+contato → link de onboarding → vendedor
       define senha. Aviso de custo extra (R$ por vendedor além dos incluídos) ANTES de
       confirmar, com valor vindo do catálogo.

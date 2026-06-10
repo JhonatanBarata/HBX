@@ -393,7 +393,14 @@ export default function ModuleNav({
   const navItems = useMemo(() => {
     return NAV_ITEMS.filter((item) => {
       if (loading) return false;
-      if (isSystemMaster) return true;
+      if (isSystemMaster) {
+        // Master puro navega minimo (master/exclusoes); a operacao completa
+        // so aparece quando assume contexto de empresa (/modules/me decide).
+        if (item.key === "master") return true;
+        if (!item.moduleKey) return false;
+        const masterModuleItem = modulesByKey.get(normalizeUserModuleKey(item.moduleKey)) ?? null;
+        return Boolean(masterModuleItem && isModuleVisible(masterModuleItem));
+      }
       if (item.companyOnly && !hasCompany) return false;
       const moduleItem = item.moduleKey
         ? modulesByKey.get(normalizeUserModuleKey(item.moduleKey)) ?? null

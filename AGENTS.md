@@ -9,6 +9,18 @@ newest date wins). The `Webwhats/` project has its own `AGENTS.md`.
 
 Keep this `AGENTS.md` at the repository root. Agents read this path automatically; do not move it into `docs`.
 
+## Checkpoint Discipline (context economy)
+
+Chat history is disposable; the repository is the source of truth.
+
+- When a step is done, record the final decision in the active plan under
+  `docs/PLANEJAMENTOS/` (short checkpoint), then drop intermediate details,
+  resolved errors and long logs from working context.
+- Keep only: permanent HBX rules (this file + `docs/ai/README.md`),
+  architectural decisions, and open pendências.
+- Before assuming anything about past work, read the plan/checkpoint files —
+  never rely on chat memory as the only source.
+
 ## Product Direction
 
 HBX is a prospecting pipeline:

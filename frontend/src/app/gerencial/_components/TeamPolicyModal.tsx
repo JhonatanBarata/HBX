@@ -390,20 +390,23 @@ export default function TeamPolicyModal({
 
   const patch = useMemo<TeamPolicyPatch | null>(() => {
     if (!policy) return null;
-    const parsedCommission = parsePercent(commissionPercent);
-    const parsedReferral = parsePercent(sellerReferralCommissionPercent);
-    const parsedSnapshot = parsePercent(referredByCommissionPercentSnapshot);
-    const parsedDueDays = parseInteger(commissionDueBusinessDays, 0, 30);
-    if (parsedCommission === null || parsedReferral === null || parsedSnapshot === null || parsedDueDays === null) {
-      return null;
-    }
+    // Campo numérico vazio/inválido NÃO pode anular o patch inteiro (isso
+    // travava o "Salvar política" sem nenhum aviso): cai no valor vigente.
+    const parsedCommission = parsePercent(commissionPercent) ?? parsePercent(numberDraft(policy.compensation.commissionPercent), 0) ?? 0;
+    const parsedReferral = parsePercent(sellerReferralCommissionPercent) ?? 0;
+    const parsedSnapshot = parsePercent(referredByCommissionPercentSnapshot) ?? 0;
+    const parsedDueDays = parseInteger(commissionDueBusinessDays, 0, 30) ?? Math.min(30, Math.max(0, Math.trunc(Number(policy.compensation.commissionDueBusinessDays || 3) || 3)));
 
     const limitPatch: NonNullable<TeamPolicyPatch["limits"]> = {};
     for (const key of Object.keys(limits) as LimitKey[]) {
       const limit = limits[key];
       if (limit.mode === "limited") {
         const parsedLimit = parseInteger(limit.value, 0, 500);
-        if (parsedLimit === null) return null;
+        if (parsedLimit === null) {
+          // valor em digitação/inválido: herda em vez de travar o salvar
+          limitPatch[key] = { mode: "inherit", value: null };
+          continue;
+        }
         limitPatch[key] = { mode: "limited", value: parsedLimit };
       } else if (limit.mode === "unlimited") {
         limitPatch[key] = { mode: "unlimited", value: "unlimited" };

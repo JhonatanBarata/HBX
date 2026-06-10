@@ -29,6 +29,11 @@ export class ModuleAccessGuard implements CanActivate {
       });
     }
 
+    // Master e governo do sistema: guard de modulo nunca o bloqueia
+    // (PR-002 A.6). Endpoints exclusivos de master usam MasterGuard;
+    // os que exigem empresa tratam a ausencia de contexto internamente.
+    if (user.isSystemMaster) return true;
+
     const mobileRoute = this.isMobileRouteRequest(req);
     for (const moduleKey of requiredModules) {
       const allowed = await this.modulesService.canUserAccessModule(user.id, moduleKey, { mobileRoute });
