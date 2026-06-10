@@ -275,16 +275,73 @@ Cada fase commitada, buildada e testada antes da seguinte.
       próximo vencimento, histórico) — sem expor campos crus.
 
 ### Fase D — Vendedor + caçada aos 403
-- [ ] D.1 Default Vendas + Radar no convite; regra única desktop/mobile (consequência
+
+> **PROGRESSO (checkpoint 10/06, sessão Fase D):**
+> ✔ D.1 Catálogo de team access alinhado ao A.5: default do vendedor inclui o
+>   funil operacional do Radar (radar.access, search.run, cards.pull,
+>   assignToSelf, sendToVendas, filtros×3, enrichment.manual) — mesma regra de
+>   SELLER_DEFAULT_MODULE_KEYS, em qualquer superfície. Capacidades de GESTÃO
+>   (viewUnassigned, assignToOthers, distribute, stock.replenish,
+>   enrichment.auto) seguem só do admin. Negação explícita da policy continua
+>   soberana (presets/testes inalterados). Telas validadas: gerencial mostra
+>   vendas+webscraping "ON padrão" nas duas superfícies; listas mobile/desktop
+>   continuam mortas.
+> ✔ D.2 Gate de login role-aware: vendedor cai DIRETO em /vendas (mobile:
+>   /mobile/vendas via alias) ou /dashboard se a policy negar vendas.access;
+>   vendedor NUNCA recebe next de pre-checkout nem requiresCheckout=true —
+>   empresa irregular vira tela neutra no app (PreCheckoutGate).
+> ✔ D.3 Auditoria de carteira: Vendas usa buildLeadAccessWhere em todos os
+>   leitores (board, retornos via returnAt, relatórios, comissões com escopo
+>   team/own); Radar usa sellerScope + assertRadarLeadVisibleForUser; dedupe/
+>   anti-retrabalho é company-wide por design (histórico negativo). Morto o
+>   resolveUserContext legado (role-based) do vendas.service.
+> ✔ D.4 Vazamentos de cobrança eliminados para role USER:
+>   sanitizeUser corta paymentStatus/subscriptionStatus/premiumAccess/
+>   billingGrace*/subscriptionCurrentPeriod*/trial*/selectedPlanKey/plan(price);
+>   operational-status ganha presentOperationalStatusForRole (sem chip de
+>   pagamento; acesso = Liberado/Pausado neutro, sem href de financeiro;
+>   overall sem texto de cobrança); /commercial-plans/me neutraliza current.*
+>   financeiro (mantém planKey+entitlements p/ UI operacional) e já tirava
+>   preço do catálogo; pre-checkout (página + gate) mostra
+>   CompanyAccessPausedScreen p/ não-admin e o gate decide só por
+>   accessReleased; boasvindas para de chamar whatsapp-center/modal
+>   (admin-only) como vendedor; aba conta do Vendas mobile esconde bloco
+>   "Financeiro" e CTA "Upgrade"; tutorial só mostra fato "Pagamento" quando o
+>   payload entrega (admin). TopBar já era admin-gated
+>   (canCallWhatsAppAdminEndpoints) e radar-digital já gateia /users/company
+>   por canManageTeam.
+> ✔ D.5 Gerencial varrido: todos os endpoints chamados são @Admin +
+>   ModuleAccess('gerencial'); plano List sem gerencial é POR DESIGN (List é
+>   solo, 1 usuário incluso) e a navegação não mostra o item.
+> ✔ D.6 E2E real contra o stack local (docker, PAYMENTS_PROVIDER=mock):
+>   tests/e2e/fluxo-contratante-vendedor.spec.ts — perna 1: cadastro → trial
+>   (mock confirma no 1º login) → convida vendedor (link definir senha; token
+>   injetado no Postgres = clique do e-mail) → vendedor loga em /vendas, opera
+>   board+Radar sem 403, payload sem NENHUM campo de cobrança → trial vence →
+>   admin cai em pre-checkout?reason=trial_expired, vendedor segue /vendas com
+>   bloqueio neutro (403 de módulo sem motivo financeiro) → ativação (escrita
+>   do estado único como o financeiro grava) libera os dois. Perna 2: master
+>   cria empresa (pending_checkout + convite C.1c) → contratante define senha
+>   pelo link → login cai em pre-checkout?reason=pending_checkout → ativação →
+>   /dashboard. 2/2 verdes (33s).
+> **Pendências anotadas:**
+>   (a) /companies/me/whatsapp-center é JWT-only no backend mas tratado como
+>       admin-only pela UI — revisar exposição do payload (tokens/config) na
+>       Fase F;
+>   (b) atendimento/automacao chama endpoints whatsapp-modal (admin-only) —
+>       conferir gate de papel dessa página quando ela entrar no kit do PR-003.
+> **FASE D CONCLUÍDA.**
+
+- [x] D.1 Default Vendas + Radar no convite; regra única desktop/mobile (consequência
       de A.5, validar nas telas).
-- [ ] D.2 Login do vendedor → direto em Vendas.
-- [ ] D.3 Carteira própria: auditar board de Vendas/Radar/retornos para escopo por
+- [x] D.2 Login do vendedor → direto em Vendas.
+- [x] D.3 Carteira própria: auditar board de Vendas/Radar/retornos para escopo por
       vendedor (contratante vê tudo no gerencial).
-- [ ] D.4 Caçada 403 — vendedor: mapear todos os endpoints chamados pelas telas que o
+- [x] D.4 Caçada 403 — vendedor: mapear todos os endpoints chamados pelas telas que o
       vendedor vê; cada um ou é permitido pela policy ou a UI não o chama. Zero 403 em
       navegação normal.
-- [ ] D.5 Caçada 403 — gerencial: idem para o contratante (equipe, permissões, limites).
-- [ ] D.6 Teste E2E do fluxo completo: master cria empresa → convite → contratante
+- [x] D.5 Caçada 403 — gerencial: idem para o contratante (equipe, permissões, limites).
+- [x] D.6 Teste E2E do fluxo completo: master cria empresa → convite → contratante
       confirma e-mail → trial → convida vendedor → vendedor opera → trial vence →
       checkout → ativa. Sem 403, sem tela de cobrança para o vendedor.
 
