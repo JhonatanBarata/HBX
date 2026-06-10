@@ -127,9 +127,7 @@ export class HbxCommissionSyncService {
       paymentStatus === 'PENDING' ||
       subscriptionStatus === 'pending' ||
       subscriptionStatus === 'pending_checkout' ||
-      subscriptionStatus === 'pending_trial_activation' ||
-      onboardingStatus === 'pending_checkout' ||
-      onboardingStatus === 'pending_trial_activation'
+      onboardingStatus === 'pending_checkout'
     ) {
       return { saleStatus: 'activation_pending', commissionStatus: 'pending', recurring: false, eventAt };
     }

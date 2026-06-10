@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { createPortal } from "react-dom";
 import type { PlanSelectionCard } from "@/components/PlanSelectionExperience";
 import { useRouter } from "next/navigation";
 import { useHbxTheme } from "@/components/ThemeProvider";
@@ -87,19 +86,11 @@ type EmailConfirmationSignal = {
   accessToken?: string | null;
 };
 
-type TrialActivationResponse = {
-  message?: string;
-  trialStartsAt?: string | null;
-  trialEndsAt?: string | null;
-  next?: string | null;
-};
-
 type SignupPlan = PlanSelectionCard & {
   key: CommercialPlanKey;
 };
 
 type TrialFormState = {
-  contactName: string;
   cpf: string;
   phone: string;
   acceptedTerms: boolean;
@@ -293,10 +284,6 @@ function isTrialSignupPlan(planKey?: CommercialPlanKey | null) {
   return planKey === "hbx_padrao";
 }
 
-function needsTrialActivationStatus(status?: string | null) {
-  return String(status || "").trim().toLowerCase() === "pending_trial_activation";
-}
-
 function trialDaysForPlan(planKey?: CommercialPlanKey | null) {
   return planKey === "hbx_padrao" ? 14 : 0;
 }
@@ -393,9 +380,9 @@ export default function RegisterPage() {
   const [confirmationAutoMessage, setConfirmationAutoMessage] = useState("Aguardando confirmação do e-mail...");
   const [confirmationAutoError, setConfirmationAutoError] = useState<string | null>(null);
   const [entryTransition, setEntryTransition] = useState(false);
-  const [trialModalOpen, setTrialModalOpen] = useState(false);
+  // Perfil do trial coletado no proprio cadastro (PR-002 C.1): a confirmacao
+  // de e-mail ja inicia o trial — nao existe mais etapa de ativacao separada.
   const [trialForm, setTrialForm] = useState<TrialFormState>({
-    contactName: "",
     cpf: "",
     phone: "",
     acceptedTerms: false,
@@ -404,7 +391,6 @@ export default function RegisterPage() {
   const trialPhoneDigits = normalizeBrazilPhone(trialForm.phone);
   const trialCpfDigits = onlyDigits(trialForm.cpf);
   const trialFormReady =
-    trialForm.contactName.trim().length >= 3 &&
     isValidCpf(trialCpfDigits) &&
     trialPhoneDigits.length >= 10 &&
     trialForm.acceptedTerms;
@@ -441,17 +427,12 @@ export default function RegisterPage() {
     const linkedLeadId = normalizeHbxLeadParam(params.get("hbxLead") || params.get("leadId"));
     if (linkedPlanKey) setSelectedPlanKey(linkedPlanKey);
     setSalesReferralLeadId(linkedLeadId);
-    if (params.has("from") || start === "form" || start === "plans") {
+    if (params.has("from") || start === "form" || start === "plans" || start === "trial") {
       router.replace(`/register${canonicalQuery}`);
     }
     setMobileRegisterFlow(mobileSurface);
     setRegisterStep("form");
     setRegisterTransition("idle");
-    if (start === "trial" && getToken()) {
-      setSelectedPlanKey(linkedPlanKey || PUBLIC_SIGNUP_PLAN_KEY);
-      setConfirmationPending(null);
-      setTrialModalOpen(true);
-    }
   }, [router]);
 
   useEffect(() => {
@@ -484,7 +465,6 @@ export default function RegisterPage() {
     setConfirmationAutoError(null);
 
     function resolveDestination(signal?: EmailConfirmationSignal | ConfirmationStatusResponse | null) {
-      if (needsTrialActivationStatus(signal?.status)) return "/register?start=trial";
       if (isLocalMockWelcomeEnabled()) {
         return localWelcomePath("trial");
       }
@@ -504,11 +484,7 @@ export default function RegisterPage() {
       if (cancelled || autoLoginCompletedRef.current || !matchesCurrentEmail(signal)) return;
       autoLoginCompletedRef.current = true;
       setConfirmationAutoError(null);
-      setConfirmationAutoMessage(
-        needsTrialActivationStatus(signal?.status)
-          ? "E-mail confirmado. Abrindo ativação do trial..."
-          : "E-mail confirmado. Entrando automaticamente...",
-      );
+      setConfirmationAutoMessage("E-mail confirmado. Entrando automaticamente...");
 
       const destination = resolveDestination(signal);
       const signalToken = getPayloadToken(signal);
@@ -516,14 +492,6 @@ export default function RegisterPage() {
 
       if (existingToken) {
         setToken(existingToken);
-        if (needsTrialActivationStatus(signal?.status)) {
-          setSelectedPlanKey(PUBLIC_SIGNUP_PLAN_KEY);
-          setConfirmationPending(null);
-          setTrialModalOpen(true);
-          setRegisterStep("form");
-          setRegisterTransition("idle");
-          return;
-        }
         router.replace(destination);
         return;
       }
@@ -556,14 +524,6 @@ export default function RegisterPage() {
         }
 
         setToken(token);
-        if (needsTrialActivationStatus(signal?.status) || safeInternalPath((data as { next?: string | null })?.next) === "/register?start=trial") {
-          setSelectedPlanKey(PUBLIC_SIGNUP_PLAN_KEY);
-          setConfirmationPending(null);
-          setTrialModalOpen(true);
-          setRegisterStep("form");
-          setRegisterTransition("idle");
-          return;
-        }
         router.replace(safePostSignupPath((data as { next?: string | null })?.next) || destination);
       } catch {
         setConfirmationAutoError("E-mail confirmado, mas houve falha ao conectar para entrar automaticamente.");
@@ -717,8 +677,13 @@ export default function RegisterPage() {
     try {
       const normalizedCompanyName = String(companyName || "").trim();
       const normalizedAttendantName = String(attendantName || "").trim().replace(/\s+/g, " ");
-      if (normalizedAttendantName.length < 2) {
+      if (normalizedAttendantName.length < 3) {
         setError("Informe o nome do atendente/vendedor.");
+        setLoading(false);
+        return;
+      }
+      if (isTrialSignupPlan(planKey) && !trialFormReady) {
+        setError("Informe CPF válido, telefone de contato e aceite os termos para liberar o trial.");
         setLoading(false);
         return;
       }
@@ -730,6 +695,14 @@ export default function RegisterPage() {
         username: username.trim() || email.trim().toLowerCase(),
         email,
         password,
+        ...(isTrialSignupPlan(planKey)
+          ? {
+              trialContactName: normalizedAttendantName,
+              trialTaxDocument: trialCpfDigits,
+              trialContactPhone: trialPhoneDigits,
+              acceptedTerms: trialForm.acceptedTerms,
+            }
+          : {}),
         ...(salesReferralLeadId
           ? {
               acquisitionSource: "indicacao",
@@ -758,20 +731,18 @@ export default function RegisterPage() {
         (typeof payload?.token === "string" && payload.token);
 
       if (token) {
-        setTrialModalOpen(false);
         setToken(token);
         const payloadNext = safePostSignupPath(payload?.next);
         router.push(
           payloadNext ||
           (isLocalMockWelcomeEnabled()
             ? localWelcomePath("trial")
-            : "/register?start=trial"),
+            : "/boasvindas"),
         );
         return;
       }
 
       if (payload?.status === "pending_email_confirmation") {
-        setTrialModalOpen(false);
         setConfirmationPending({
           email: String(payload.email || email),
           message:
@@ -807,42 +778,6 @@ export default function RegisterPage() {
       setError(getErrorMessage(signupData) ?? "Registro não retornou um próximo passo válido.");
     } catch {
       setError("Falha ao conectar no backend");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function submitTrialRegistration() {
-    if (!trialFormReady) {
-      setError("Informe nome, CPF válido, telefone de contato e aceite os termos para iniciar o trial.");
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await fetch(`${API_URL}/auth/activate-trial`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
-        },
-        body: JSON.stringify({
-          trialContactName: trialForm.contactName.trim(),
-          trialTaxDocument: trialCpfDigits,
-          trialContactPhone: trialPhoneDigits,
-          acceptedTerms: trialForm.acceptedTerms,
-        }),
-      });
-      const data: unknown = await response.json().catch(() => null);
-      if (!response.ok) {
-        setError(getSignupErrorMessage(response.status, data));
-        return;
-      }
-      const payload = (data as TrialActivationResponse | null) ?? null;
-      setTrialModalOpen(false);
-      router.replace(safeInternalPath(payload?.next) || "/boasvindas");
-    } catch {
-      setError("Falha ao conectar no backend.");
     } finally {
       setLoading(false);
     }
@@ -1122,6 +1057,52 @@ export default function RegisterPage() {
                     </div>
                   </div>
 
+                  {isTrialSignupPlan(selectedPlanKey) ? (
+                    <>
+                      <div className={styles.trialFormGrid}>
+                        <label className={styles.trialField} htmlFor="register-trial-cpf">
+                          <span>CPF</span>
+                          <input
+                            id="register-trial-cpf"
+                            inputMode="numeric"
+                            autoComplete="off"
+                            value={trialForm.cpf}
+                            onChange={(event) => setTrialForm((current) => ({ ...current, cpf: formatCpf(event.target.value) }))}
+                            placeholder="000.000.000-00"
+                            required
+                          />
+                        </label>
+
+                        <label className={styles.trialField} htmlFor="register-trial-contact-phone">
+                          <span>Telefone de contato</span>
+                          <input
+                            id="register-trial-contact-phone"
+                            inputMode="tel"
+                            autoComplete="tel"
+                            value={trialForm.phone}
+                            onChange={(event) => setTrialForm((current) => ({ ...current, phone: formatBrazilPhone(event.target.value) }))}
+                            placeholder="(19)9 9702-4884"
+                            required
+                          />
+                        </label>
+                      </div>
+
+                      <label className={styles.termsAccept} htmlFor="register-trial-terms">
+                        <input
+                          id="register-trial-terms"
+                          type="checkbox"
+                          checked={trialForm.acceptedTerms}
+                          onChange={(event) => setTrialForm((current) => ({ ...current, acceptedTerms: event.target.checked }))}
+                          required
+                        />
+                        <span>
+                          Aceito iniciar o trial gratuito de {trialDaysForPlan(selectedPlanKey)} dias do {planName(selectedPlanKey)} assim que confirmar meu e-mail, sem cobrança automática agora, e autorizo o uso do CPF, nome e telefone informados para contato e validação de elegibilidade do trial.
+                          Esse telefone será o único permitido para vincular o WhatsApp durante o trial.
+                        </span>
+                      </label>
+                    </>
+                  ) : null}
+
                   {error ? <div className="msg-error"><div className="text-sm">{error}</div></div> : null}
 
                   {firstAccessInfo ? (
@@ -1238,97 +1219,6 @@ export default function RegisterPage() {
           </section>
         ) : null}
       </div>
-      {trialModalOpen && typeof document !== "undefined" ? createPortal((
-        <div className={styles.dialogOverlay} role="presentation">
-          <section className={styles.trialDialog} role="dialog" aria-modal="true" aria-labelledby="register-trial-title">
-            <header className={styles.trialDialogHeader}>
-              <div>
-                <span className={styles.eyebrow}>Trial {planName(selectedPlanKey)}</span>
-                <h2 id="register-trial-title">Antes de liberar seus 14 dias</h2>
-                <p>Precisamos confirmar um contato real. Esse telefone será o único permitido para vincular o WhatsApp durante o trial.</p>
-              </div>
-              <button
-                type="button"
-                className={styles.dialogCloseButton}
-                aria-label="Fechar"
-                onClick={() => setTrialModalOpen(false)}
-              >
-                X
-              </button>
-            </header>
-
-            <div className={styles.trialFormGrid}>
-              <label className={styles.trialField} htmlFor="register-trial-contact-name">
-                <span>Nome completo</span>
-                <input
-                  id="register-trial-contact-name"
-                  autoComplete="name"
-                  value={trialForm.contactName}
-                  onChange={(event) => setTrialForm((current) => ({ ...current, contactName: event.target.value }))}
-                  placeholder="Como gostaria de ser chamado"
-                />
-              </label>
-
-              <label className={styles.trialField} htmlFor="register-trial-cpf">
-                <span>CPF</span>
-                <input
-                  id="register-trial-cpf"
-                  inputMode="numeric"
-                  autoComplete="off"
-                  value={trialForm.cpf}
-                  onChange={(event) => setTrialForm((current) => ({ ...current, cpf: formatCpf(event.target.value) }))}
-                  placeholder="000.000.000-00"
-                />
-              </label>
-
-              <label className={styles.trialField} htmlFor="register-trial-contact-phone">
-                <span>Telefone de contato</span>
-                <input
-                  id="register-trial-contact-phone"
-                  inputMode="tel"
-                  autoComplete="tel"
-                  value={trialForm.phone}
-                  onChange={(event) => setTrialForm((current) => ({ ...current, phone: formatBrazilPhone(event.target.value) }))}
-                  placeholder="(19)9 9702-4884"
-                />
-              </label>
-            </div>
-
-            <label className={styles.termsAccept} htmlFor="register-trial-terms">
-              <input
-                id="register-trial-terms"
-                type="checkbox"
-                checked={trialForm.acceptedTerms}
-                onChange={(event) => setTrialForm((current) => ({ ...current, acceptedTerms: event.target.checked }))}
-              />
-              <span>
-                Aceito iniciar o trial gratuito de {trialDaysForPlan(selectedPlanKey)} dias do {planName(selectedPlanKey)}, sem cobrança automática agora, e autorizo o uso do CPF, nome completo e telefone informado para contato e validação de elegibilidade do trial.
-                Para trocar o telefone do WhatsApp será necessário acionar o suporte.
-              </span>
-            </label>
-
-            {error ? (
-              <div className={`msg-error ${styles.trialError}`} role="alert">
-                <div className="text-sm">{error}</div>
-              </div>
-            ) : null}
-
-            <footer className={styles.trialDialogActions}>
-              <button type="button" className="btn btn-secondary" onClick={() => setTrialModalOpen(false)}>
-                Voltar
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={!trialFormReady || loading}
-                onClick={() => void submitTrialRegistration()}
-              >
-                {loading ? "Criando..." : "Iniciar 14 dias grátis"}
-              </button>
-            </footer>
-          </section>
-        </div>
-      ), document.body) : null}
     </main>
   );
 }

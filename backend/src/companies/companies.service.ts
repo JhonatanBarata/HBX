@@ -1,5 +1,7 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import * as crypto from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { ensureUserTeamPolicyForUser } from '../team/team-policy-persistence';
 import { CreateCompanyDto } from './dto/create-company.dto';
 import { UpdateCompanyDto } from './dto/update-company.dto';
 import { getMasterGlobalIntegrationConfig, pickMasterWhatsAppCredential } from '../modules/master-global-integrations.util';
@@ -399,11 +401,31 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
 
     const contactName = String(input?.contactName || '').trim() || null;
     const contactEmail = String(input?.contactEmail || '').trim().toLowerCase() || null;
+    if (contactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) {
+      throw new BadRequestException('E-mail do contratante inválido.');
+    }
+
+    // Convite por e-mail (PR-002 C.1c): com o e-mail do contratante, a empresa
+    // ja nasce com o usuario ADMIN sem senha + link de "definir senha" (mesma
+    // maquina do reset). Clicar o link prova a caixa de e-mail — o reset marca
+    // emailConfirmedAt — e o gate de login projeta o checkout pendente.
+    if (contactEmail) {
+      const existingEmail = await this.prisma.user.findUnique({ where: { email: contactEmail } });
+      if (existingEmail) {
+        throw new ConflictException('Já existe um usuário com este e-mail. Use outro e-mail para o contratante.');
+      }
+      const existingUsername = await this.prisma.user.findUnique({ where: { username: contactEmail } });
+      if (existingUsername) {
+        throw new ConflictException('Já existe um usuário com este identificador. Use outro e-mail para o contratante.');
+      }
+    }
+
+    const inviteRawToken = contactEmail ? crypto.randomBytes(32).toString('hex') : null;
+    const inviteTtlMs = 7 * 24 * 60 * 60 * 1000;
 
     const created = await this.prisma.$transaction(async (tx) => {
       // Empresa criada pelo master nasce "Checkout pendente" (PR-002 B.6):
       // mesmo fluxo do self-service — o contratante conclui a contratacao.
-      // (Convite por e-mail entra junto com a maquina de cadastro da Fase C.)
       const company = await tx.company.create({
         data: {
           name,
@@ -419,9 +441,97 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
           contactEmail,
         },
       });
-      return company;
+
+      let adminUser: any = null;
+      if (contactEmail && inviteRawToken) {
+        adminUser = await tx.user.create({
+          data: {
+            username: contactEmail,
+            email: contactEmail,
+            password: '',
+            name: contactName || name,
+            role: 'ADMIN',
+            companyId: company.id,
+            isActive: true,
+            emailConfirmedAt: null,
+          },
+        });
+        await tx.passwordReset.create({
+          data: {
+            token: crypto.createHash('sha256').update(inviteRawToken).digest('hex'),
+            userId: adminUser.id,
+            expiresAt: new Date(Date.now() + inviteTtlMs),
+          },
+        });
+      }
+      return { company, adminUser };
     });
-    return this.sanitizeCompany(created);
+
+    let invite: { sent: boolean; email: string | null; error: string | null } = {
+      sent: false,
+      email: contactEmail,
+      error: null,
+    };
+    if (created.adminUser) {
+      await ensureUserTeamPolicyForUser(this.prisma, created.adminUser.id, { source: 'master_company_invite' }).catch(() => null);
+      invite = await this.sendCompanyAdminInviteMail({
+        companyName: name,
+        contactName,
+        contactEmail: contactEmail as string,
+        rawToken: inviteRawToken as string,
+      });
+    }
+
+    return { ...this.sanitizeCompany(created.company), invite };
+  }
+
+  private async sendCompanyAdminInviteMail(input: {
+    companyName: string;
+    contactName: string | null;
+    contactEmail: string;
+    rawToken: string;
+  }) {
+    const appUrl = String(process.env.APP_URL || process.env.FRONTEND_URL || 'http://localhost:3001').replace(/\/$/, '');
+    const inviteLink = `${appUrl}/reset-password?token=${encodeURIComponent(input.rawToken)}`;
+    const greetingName = input.contactName || 'cliente';
+    const subject = `Convite HBX — conclua o cadastro da ${input.companyName}`;
+    const text = [
+      `Olá, ${greetingName}!`,
+      '',
+      `A empresa ${input.companyName} foi criada para você no HBX System.`,
+      'Defina sua senha de acesso pelo link abaixo (válido por 7 dias):',
+      inviteLink,
+      '',
+      'Depois de definir a senha, entre no HBX e conclua a contratação no Financeiro.',
+      '',
+      'Equipe HBX System',
+    ].join('\n');
+    const html = [
+      `<p>Olá, <strong>${greetingName}</strong>!</p>`,
+      `<p>A empresa <strong>${input.companyName}</strong> foi criada para você no HBX System.</p>`,
+      `<p>Defina sua senha de acesso pelo link abaixo (válido por 7 dias):</p>`,
+      `<p><a href="${inviteLink}">${inviteLink}</a></p>`,
+      '<p>Depois de definir a senha, entre no HBX e conclua a contratação no Financeiro.</p>',
+      '<p>Equipe HBX System</p>',
+    ].join('');
+
+    try {
+      const mailResult = await this.mail.sendMail({
+        to: input.contactEmail,
+        subject,
+        text,
+        html,
+      });
+      if (!mailResult?.ok) {
+        this.logger.warn(`company_invite_mail_failed email=${input.contactEmail} code=${mailResult?.errorCode || 'unknown'}`);
+        return { sent: false, email: input.contactEmail, error: mailResult?.errorMessage || 'Falha no envio do convite.' };
+      }
+      return { sent: true, email: input.contactEmail, error: null };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Falha no envio do convite.';
+      this.logger.warn(`company_invite_mail_failed email=${input.contactEmail} error=${message}`);
+      return { sent: false, email: input.contactEmail, error: message };
+    }
   }
 
   async getOrCreateMasterWhatsAppEngineCompany() {

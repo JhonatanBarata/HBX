@@ -1,6 +1,6 @@
 import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { ActivateTrialDto, ConfirmEmailDto, EmailConfirmationStatusDto, LoginDto, RecoverPasswordDto, ResendConfirmationDto, ResetPasswordDto, SignupDto } from './dto/auth.dto';
+import { ConfirmEmailDto, EmailConfirmationStatusDto, LoginDto, RecoverPasswordDto, ResendConfirmationDto, ResetPasswordDto, SignupDto } from './dto/auth.dto';
 import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
@@ -33,13 +33,6 @@ export class AuthController {
   @Throttle({ default: { limit: 3, ttl: 60 } })
   resendConfirmation(@Body() dto: ResendConfirmationDto) {
     return this.authService.resendEmailConfirmation(dto.email);
-  }
-
-  @Post('activate-trial')
-  @UseGuards(JwtAuthGuard)
-  @Throttle({ default: { limit: 5, ttl: 60 } })
-  activateTrial(@Req() req: any, @Body() dto: ActivateTrialDto) {
-    return this.authService.activateTrialAfterEmailConfirmation(req.user, dto);
   }
 
   @Post('login')

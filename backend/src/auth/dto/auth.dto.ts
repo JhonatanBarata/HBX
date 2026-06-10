@@ -98,17 +98,3 @@ export class ResendConfirmationDto {
   @IsEmail()
   email: string;
 }
-
-export class ActivateTrialDto {
-  @IsNotEmpty()
-  trialContactName: string;
-
-  @IsNotEmpty()
-  trialTaxDocument: string;
-
-  @IsNotEmpty()
-  trialContactPhone: string;
-
-  @IsBoolean()
-  acceptedTerms: boolean;
-}

@@ -104,6 +104,19 @@ export const ACTIVE_COMMERCIAL_ENTITLEMENT_STATUSES = new Set([
 
 export const PENDING_COMMERCIAL_ENTITLEMENT_STATUS = 'pending_checkout';
 
+// Regra unica de trial self-service (PR10062026002 C.1): so o Lead Plus tem
+// trial; List e Full sao contratacao direta. Quem precisa do prazo le daqui.
+export const COMMERCIAL_PLAN_TRIAL_DAYS: Record<ActiveCommercialPlanKey, number> = {
+  [COMMERCIAL_PLAN_KEYS.LITE]: 0,
+  [COMMERCIAL_PLAN_KEYS.PADRAO]: 14,
+  [COMMERCIAL_PLAN_KEYS.MELHOR]: 0,
+};
+
+export function getCommercialPlanTrialDays(planKey: unknown) {
+  const normalized = normalizeCommercialPlanKey(planKey);
+  return COMMERCIAL_PLAN_TRIAL_DAYS[normalized] ?? 0;
+}
+
 export const COMMERCIAL_PLAN_MODULE_KEYS: Record<ActiveCommercialPlanKey, string[]> = {
   [COMMERCIAL_PLAN_KEYS.LITE]: ['vendas', 'webscraping'],
   [COMMERCIAL_PLAN_KEYS.PADRAO]: ['atendimento', 'vendas', 'webscraping', 'cadastro', 'gerencial'],
@@ -259,7 +272,7 @@ export function buildCommercialPlansCatalog(options: { includeHidden?: boolean }
       title: 'HBX List',
       status: 'available',
       monthlyPrice: COMMERCIAL_PRICING.liteMonthly,
-      trialDays: 0,
+      trialDays: COMMERCIAL_PLAN_TRIAL_DAYS[COMMERCIAL_PLAN_KEYS.LITE],
       annualDiscountPercent: COMMERCIAL_PRICING.annualDiscountPercent,
       includedUsers: 1,
       extraUserMonthlyPrice: 0,
@@ -291,7 +304,7 @@ export function buildCommercialPlansCatalog(options: { includeHidden?: boolean }
       title: 'HBX Lead Plus',
       status: 'available',
       monthlyPrice: COMMERCIAL_PRICING.padraoMonthly,
-      trialDays: 14,
+      trialDays: COMMERCIAL_PLAN_TRIAL_DAYS[COMMERCIAL_PLAN_KEYS.PADRAO],
       annualDiscountPercent: COMMERCIAL_PRICING.annualDiscountPercent,
       includedUsers: 2,
       extraUserMonthlyPrice: COMMERCIAL_PRICING.extraUserMonthly,
@@ -325,7 +338,7 @@ export function buildCommercialPlansCatalog(options: { includeHidden?: boolean }
       title: 'HBX Full — Bot e IA',
       status: 'available',
       monthlyPrice: COMMERCIAL_PRICING.melhorMonthly,
-      trialDays: 0,
+      trialDays: COMMERCIAL_PLAN_TRIAL_DAYS[COMMERCIAL_PLAN_KEYS.MELHOR],
       annualDiscountPercent: COMMERCIAL_PRICING.annualDiscountPercent,
       includedUsers: 2,
       extraUserMonthlyPrice: COMMERCIAL_PRICING.extraUserMonthly,

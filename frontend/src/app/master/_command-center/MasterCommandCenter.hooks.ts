@@ -319,7 +319,11 @@ export function useMasterCommandCenterActions({
     setBusyAction("create-company");
     setError(null);
     try {
-      const created = await apiFetch<{ id: number; name: string }>("/companies/master", {
+      const created = await apiFetch<{
+        id: number;
+        name: string;
+        invite?: { sent: boolean; email: string | null; error: string | null } | null;
+      }>("/companies/master", {
         method: "POST",
         body: JSON.stringify({
           name: createCompanyName.trim(),
@@ -333,7 +337,13 @@ export function useMasterCommandCenterActions({
       setCreateCompanySlug("");
       setCreateCompanyContactName("");
       setCreateCompanyContactEmail("");
-      setMessage(`Empresa criada como "Checkout pendente": ${created.name}.`);
+      setMessage(
+        created.invite?.sent
+          ? `Empresa criada como "Checkout pendente": ${created.name}. Convite enviado para ${created.invite.email}.`
+          : created.invite?.email
+            ? `Empresa criada como "Checkout pendente": ${created.name}. Convite NÃO enviado (${created.invite.error || "falha no e-mail"}) — reenvie pelo suporte.`
+            : `Empresa criada como "Checkout pendente": ${created.name}.`,
+      );
       await refreshAll(created.id);
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Falha ao criar empresa.");

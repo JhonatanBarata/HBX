@@ -792,6 +792,13 @@ export class CommercialPlansService {
         where: { id: context.companyId },
         data: startsTrial
           ? {
+              // Estado unico nativo (PR-002 C.1): trial iniciado pelo
+              // contratante grava status='trial' explicito. premiumAccess
+              // significa cortesia; trial NAO carrega a flag (8ª praga morta —
+              // sem o status explicito o dual-write derivava 'courtesy').
+              status: 'trial',
+              statusChangedAt: now,
+              statusChangedByUserId: context.userId || null,
               selectedPlanKey: normalizedPlanKey,
               billingCycle: 'MONTHLY',
               primaryContactName: trialProfile?.contactName || company.primaryContactName,
@@ -802,7 +809,7 @@ export class CommercialPlansService {
               isActive: true,
               paymentStatus: 'TRIAL',
               subscriptionStatus: 'trialing',
-              premiumAccess: true,
+              premiumAccess: false,
               assistedSetupRequired: isAssistedSetupPlan,
               assistedSetupStatus: isAssistedSetupPlan ? 'pending' : 'not_required',
               assistedSetupCompletedAt: null,

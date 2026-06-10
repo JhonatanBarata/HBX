@@ -185,7 +185,40 @@ Cada fase commitada, buildada e testada antes da seguinte.
       pending_checkout → dispara convite.
 
 ### Fase C — Contratante: cadastro, gerencial e convites
-- [ ] C.1 Fluxo self-service: cadastro → confirmação de e-mail → trial Lead Plus inicia
+
+> **PROGRESSO (checkpoint 10/06, sessão Fase C):**
+> ✔ C.1 Máquina de cadastro nativa: empresa nasce `status='pending_checkout'`
+>   (confirmação de e-mail é fato do USUÁRIO — token pendente — não estado da
+>   empresa); confirmação inicia o trial DIRETO (`status='trial'`, relógio a
+>   partir da confirmação, **sem premiumAccess** — 7ª praga morta); perfil do
+>   trial (nome/CPF/telefone/termos) coletado no próprio formulário de cadastro
+>   (front register); MORTOS: estado `pending_trial_activation`, endpoint+DTO
+>   `/auth/activate-trial`, modal de ativação e `?start=trial`. Trial days =
+>   regra única no catálogo (`COMMERCIAL_PLAN_TRIAL_DAYS` + helper). Cadastro
+>   em voo sem telefone degrada para pending_checkout sem travar a confirmação.
+>   8ª praga morta: trial via `/commercial-plans/select` gravava só legado com
+>   premiumAccess=true (dual-write derivava CORTESIA) → agora nativo, sem flag.
+>   Bônus de segurança: reivindicar empresa 0-usuários por colisão de nome
+>   SEMPRE exige confirmação de e-mail (morreu o login instantâneo do attach).
+> ✔ C.1b Gate de login = projeção de `resolveCompanyAccessState` (trial→
+>   dashboard; trial vencido→pre-checkout trial_expired; pending_checkout→
+>   pending_checkout; overdue em graça→dashboard; overdue/suspended→
+>   payment_failed). `emailConfirmationStatus` idem. Campo
+>   `requiresTrialActivation` removido das respostas (front atualizado).
+> ✔ C.1c (era B.6 pendente) Convite por e-mail: master cria empresa →
+>   nasce com usuário ADMIN sem senha + token de definir senha (máquina do
+>   password-reset, TTL 7 dias) + e-mail simples de convite; reset de senha
+>   marca emailConfirmedAt (link no e-mail prova a caixa); toast do master
+>   mostra convite enviado/falhou. Empresa convidada tem 1 usuário → branch de
+>   colisão de nome passa a recusar (fecha o buraco de claim).
+> Matriz auth: 10 testes (gate canônico + trial nativo + degradação sem fone +
+>   List sem trial). 49 testes auth/access/catalog/policy verdes; webscraping
+>   120/0 (fix delegado commitado antes, f86df985).
+> **Pendência anotada p/ C.3:** branch de signup que completa registro de
+>   username sem e-mail (takeover por username conhecido) morre quando o
+>   convite por link substituir o fluxo "completar registro".
+
+- [x] C.1 Fluxo self-service: cadastro → confirmação de e-mail → trial Lead Plus inicia
       (X dias, regra única no catálogo) → fim do trial: checkout ou suspensão.
       Remover inícios de trial paralelos/duplicados.
 - [ ] C.2 Gerencial por vendedor: módulos (do plano) + limites individuais dentro do

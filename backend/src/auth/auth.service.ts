@@ -23,12 +23,14 @@ import {
   COMMERCIAL_PLAN_MODULE_KEYS,
   PENDING_COMMERCIAL_ENTITLEMENT_STATUS,
   buildCommercialPlansCatalog,
+  getCommercialPlanTrialDays,
   normalizeCommercialPlanKey,
   type ActiveCommercialPlanKey,
   type CommercialPlanKey,
 } from '../commercial-plans/commercial-plan-catalog';
 import { HbxCommissionSyncService } from '../commissions/hbx-commission-sync.service';
 import { isPlatformInfraCompany } from '../common/company-kind';
+import { resolveCompanyAccessState } from '../modules/company-access-state';
 import { ensureUserTeamPolicyForUser } from '../team/team-policy-persistence';
 import { buildTenantProductSeeds, ensureTenantProductsTx } from '../products/tenant-product-seed';
 
@@ -303,8 +305,8 @@ export class AuthService implements OnModuleInit {
   }
 
   private getPublicTrialDaysForPlan(planKey: ActiveCommercialPlanKey) {
-    if (planKey === COMMERCIAL_PLAN_KEYS.PADRAO) return 14;
-    return 0;
+    // Regra unica no catalogo (PR-002 C.1) — nada de prazo hardcoded aqui.
+    return getCommercialPlanTrialDays(planKey);
   }
 
   private resolveTrialEnabledModuleKeys(trialModuleSelection: 'vendas' | null) {
@@ -386,21 +388,6 @@ export class AuthService implements OnModuleInit {
 
   private pendingCheckoutNextPath() {
     return this.preCheckoutNextPath('pending_checkout');
-  }
-
-  private pendingTrialActivationNextPath() {
-    return '/register?start=trial';
-  }
-
-  private isCommercialAccessReleased(company?: any | null) {
-    if (!company || isPlatformInfraCompany(company)) return false;
-    const subscriptionStatus = String(company.subscriptionStatus || '').trim().toLowerCase();
-    const paymentStatus = String(company.paymentStatus || '').trim().toUpperCase();
-    return (
-      ['active', 'authorized', 'manual'].includes(subscriptionStatus) ||
-      ['PAID', 'MANUAL'].includes(paymentStatus) ||
-      Boolean(company.premiumAccess)
-    );
   }
 
   private assertOperationalWorkspaceCompany(company?: any | null) {
@@ -864,10 +851,20 @@ export class AuthService implements OnModuleInit {
     const selectedPlanKey = this.normalizeSelectedPlanKey(company?.selectedPlanKey || undefined);
 
     const trialDays = this.getPublicTrialDaysForPlan(selectedPlanKey);
-    if (trialDays <= 0) {
+    const trialPhone = this.normalizeBrazilPhone(company?.contactPhone);
+    // Telefone valido e pre-condicao do trial (anti-abuso por telefone) e o
+    // cadastro novo ja coleta; cadastro em voo do fluxo antigo sem telefone
+    // nao trava a confirmacao — segue para o checkout.
+    const trialEligible = trialDays > 0 && Boolean(trialPhone && trialPhone.length >= 10);
+    if (!trialEligible) {
+      if (trialDays > 0) {
+        this.logger.warn(`trial_denied_missing_phone company=${companyId} plan=${selectedPlanKey}`);
+      }
       await tx.company.update({
         where: { id: companyId },
         data: {
+          status: 'pending_checkout',
+          statusChangedAt: activatedAt,
           selectedPlanKey,
           trialModuleSelection: null,
           onboardingStatus: 'pending_checkout',
@@ -889,13 +886,6 @@ export class AuthService implements OnModuleInit {
     }
 
     const trialEndsAt = this.addDays(activatedAt, trialDays);
-    const trialPhone = this.normalizeBrazilPhone(company?.contactPhone);
-    if (!trialPhone || trialPhone.length < 10) {
-      throw new BadRequestException({
-        code: 'TRIAL_CONTACT_PHONE_REQUIRED',
-        message: 'Informe um telefone de contato válido para iniciar o trial.',
-      });
-    }
     const existingTrialPhone = await this.ensureTrialPhoneAvailableTx(tx, companyId, trialPhone, 'activate');
     const trialPhoneMetadata = {
       acceptedTerms: true,
@@ -931,13 +921,18 @@ export class AuthService implements OnModuleInit {
     await tx.company.update({
       where: { id: companyId },
       data: {
+        // Estado unico nativo (PR-002 C.1): confirmacao de e-mail inicia o
+        // trial. premiumAccess significa cortesia; trial NAO carrega a flag
+        // (7ª ocorrencia da praga, morta aqui).
+        status: 'trial',
+        statusChangedAt: activatedAt,
         selectedPlanKey,
         trialModuleSelection: this.resolveTrialModuleForPlan(selectedPlanKey),
         onboardingStatus: 'active_trial',
         isActive: true,
         paymentStatus: 'TRIAL',
         subscriptionStatus: 'trialing',
-        premiumAccess: true,
+        premiumAccess: false,
         assistedSetupRequired: selectedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR,
         assistedSetupStatus: selectedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR ? 'pending' : 'not_required',
         assistedSetupCompletedAt: null,
@@ -1164,11 +1159,17 @@ export class AuthService implements OnModuleInit {
           where: { id: Number(requestedCompanyId) },
           select: {
             companyKind: true,
+            status: true,
+            isActive: true,
             onboardingStatus: true,
             subscriptionStatus: true,
             paymentStatus: true,
             premiumAccess: true,
+            billingExempt: true,
             trialEndsAt: true,
+            billingGraceEndsAt: true,
+            courtesyEndsAt: true,
+            courtesyReason: true,
           },
         })
       : null;
@@ -1229,11 +1230,17 @@ export class AuthService implements OnModuleInit {
         where: { id: Number(companyId) },
         select: {
           companyKind: true,
+          status: true,
+          isActive: true,
           onboardingStatus: true,
           subscriptionStatus: true,
           paymentStatus: true,
           premiumAccess: true,
+          billingExempt: true,
           trialEndsAt: true,
+          billingGraceEndsAt: true,
+          courtesyEndsAt: true,
+          courtesyReason: true,
         },
       });
       this.assertOperationalWorkspaceCompany(company);
@@ -1246,61 +1253,25 @@ export class AuthService implements OnModuleInit {
       sid: sessionContext.sessionId,
       sv: sessionContext.user.sessionVersion,
     };
-    const accessReleased = this.isCommercialAccessReleased(company);
-    const pendingTrialActivation =
-      !accessReleased &&
-      (
-        String(company?.onboardingStatus || '').trim().toLowerCase() === 'pending_trial_activation' ||
-        String(company?.subscriptionStatus || '').trim().toLowerCase() === 'pending_trial_activation'
-      );
-    const pendingCheckout =
-      !accessReleased &&
-      !pendingTrialActivation &&
-      (
-        String(company?.onboardingStatus || '').trim().toLowerCase() === 'pending_checkout' ||
-        String(company?.subscriptionStatus || '').trim().toLowerCase() === 'pending_checkout' ||
-        String(company?.paymentStatus || '').trim().toUpperCase() === 'PENDING'
-      );
-    const paymentFailed =
-      !accessReleased &&
-      !pendingTrialActivation &&
-      (
-        String(company?.paymentStatus || '').trim().toUpperCase() === 'DISABLED' ||
-        String(company?.paymentStatus || '').trim().toUpperCase() === 'OVERDUE' ||
-        String(company?.subscriptionStatus || '').trim().toLowerCase() === 'past_due' ||
-        String(company?.onboardingStatus || '').trim().toLowerCase() === 'suspended'
-      );
-    const trialExpired =
-      !accessReleased &&
-      !pendingTrialActivation &&
-      (
-        String(company?.paymentStatus || '').trim().toUpperCase() === 'EXPIRED' ||
-        String(company?.subscriptionStatus || '').trim().toLowerCase() === 'expired' ||
-        (
-          company?.trialEndsAt instanceof Date &&
-          company.trialEndsAt.getTime() < Date.now() &&
-          (
-            String(company?.paymentStatus || '').trim().toUpperCase() === 'TRIAL' ||
-            String(company?.subscriptionStatus || '').trim().toLowerCase() === 'trialing' ||
-            String(company?.onboardingStatus || '').trim().toLowerCase() === 'active_trial'
-          )
-        )
-      );
-    const commercialConversionNext = this.preCheckoutNextPath(
-      trialExpired ? 'trial_expired' : paymentFailed ? 'payment_failed' : 'pending_checkout',
-    );
+    // Gate canonico (PR-002 C.1b): o destino pos-login e projecao do
+    // resolveCompanyAccessState — nada de re-derivar campos legados aqui.
+    const access = resolveCompanyAccessState(company);
+    const requiresCheckout = Boolean(company) && !access.canUse && access.state !== 'platform_infra';
+    const checkoutReason =
+      access.detailCode === 'trial_expired'
+        ? ('trial_expired' as const)
+        : access.state === 'pending_checkout'
+          ? ('pending_checkout' as const)
+          : ('payment_failed' as const);
 
     return {
       access_token: this.jwtService.sign(payload),
       next: Boolean(sessionContext.user?.isSystemMaster)
         ? '/dashboard/master'
-        : pendingTrialActivation
-          ? this.pendingTrialActivationNextPath()
-          : trialExpired || paymentFailed || pendingCheckout
-          ? commercialConversionNext
+        : requiresCheckout
+          ? this.preCheckoutNextPath(checkoutReason)
           : '/dashboard',
-      requiresCheckout: trialExpired || paymentFailed || pendingCheckout,
-      requiresTrialActivation: pendingTrialActivation,
+      requiresCheckout,
     };
   }
 
@@ -1328,8 +1299,9 @@ export class AuthService implements OnModuleInit {
       throw new UnauthorizedException('Usuário temporáriamente desativado - Contate seu Administrador');
     }
 
-    const onboardingStatus = String(user?.company?.onboardingStatus || '').trim().toLowerCase();
-    const requiresEmailConfirmation = onboardingStatus === 'pending_email_confirmation';
+    // Confirmacao de e-mail pendente e fato do USUARIO (token vivo, sem
+    // confirmacao) — nao um estado da empresa (PR-002 C.1).
+    const requiresEmailConfirmation = Boolean(user?.emailConfirmationToken) && !user?.emailConfirmedAt;
     if (!Boolean(user?.isSystemMaster) && requiresEmailConfirmation && !this.isLocalMockSignupFlow()) {
       throw new UnauthorizedException({
         code: 'EMAIL_CONFIRMATION_REQUIRED',
@@ -1362,12 +1334,9 @@ export class AuthService implements OnModuleInit {
       this.assertOperationalWorkspaceCompany(user.company);
     }
 
-    if (
-      !isSystemMaster &&
-      companyId &&
-      onboardingStatus === 'pending_email_confirmation' &&
-      this.isLocalMockSignupFlow()
-    ) {
+    if (!isSystemMaster && companyId && requiresEmailConfirmation && this.isLocalMockSignupFlow()) {
+      // Fluxo mock local: confirma na hora e segue a mesma maquina nativa
+      // (trial direto ou pending_checkout).
       const confirmedAt = new Date();
       await this.prisma.$transaction(async (tx) => {
         await tx.user.update({
@@ -1379,33 +1348,7 @@ export class AuthService implements OnModuleInit {
             emailConfirmationExpiresAt: null,
           },
         });
-        const selectedCompany = await tx.company.findUnique({
-          where: { id: companyId },
-          select: { selectedPlanKey: true },
-        });
-        const selectedPlanKey = this.normalizeSelectedPlanKey(selectedCompany?.selectedPlanKey || undefined);
-        if (this.getPublicTrialDaysForPlan(selectedPlanKey) > 0) {
-          await tx.company.update({
-            where: { id: companyId },
-            data: {
-              selectedPlanKey,
-              trialModuleSelection: this.resolveTrialModuleForPlan(selectedPlanKey),
-              onboardingStatus: 'pending_trial_activation',
-              isActive: false,
-              paymentStatus: 'PENDING',
-              subscriptionStatus: 'pending_trial_activation',
-              premiumAccess: false,
-              trialStartsAt: null,
-              trialEndsAt: null,
-              subscriptionCurrentPeriodStart: null,
-              subscriptionCurrentPeriodEnd: null,
-              deactivatedAt: confirmedAt,
-            },
-          });
-          await tx.companyModule.updateMany({ where: { companyId }, data: { enabled: false } });
-        } else {
-          await this.activateConfirmedTrialTx(tx, companyId, confirmedAt);
-        }
+        await this.activateConfirmedTrialTx(tx, companyId, confirmedAt);
       });
     }
 
@@ -1532,7 +1475,12 @@ export class AuthService implements OnModuleInit {
     const trialModuleSelection = this.getPublicTrialDaysForPlan(selectedPlanKey) > 0
       ? this.resolveTrialModuleForPlan(selectedPlanKey)
       : null;
-    const signupTrialProfile = null as { contactName: string; contactPhone: string; taxDocument: string } | null;
+    // Plano com trial exige o perfil (nome/CPF/telefone/termos) JA no cadastro:
+    // a confirmacao de e-mail inicia o trial direto, sem etapa intermediaria
+    // (PR-002 C.1 — morreu o estado pending_trial_activation).
+    const signupTrialProfile = this.getPublicTrialDaysForPlan(selectedPlanKey) > 0
+      ? this.validateSignupTrialProfile(data)
+      : null;
     const acquisitionSource = this.normalizeAcquisitionSource(data.acquisitionSource);
     const acquisitionSourceDetail = String(data.acquisitionSourceDetail || '').trim() || null;
     const referralReferrerName = String(data.referralReferrerName || '').trim() || null;
@@ -1576,11 +1524,12 @@ export class AuthService implements OnModuleInit {
       const createdPending = await this.prisma.$transaction(async (tx) => {
         const existingCompany = await this.findCompanyByDisplayNameTx(tx, displayName);
         if (existingCompany) {
-          const pendingEmailConfirmation =
-            String(existingCompany.onboardingStatus || '').trim().toLowerCase() === 'pending_email_confirmation';
           if (Number(existingCompany._count?.users || 0) > 0) {
             throw new ConflictException('Empresa já cadastrada. Usuários comuns devem ser criados pelo ADMIN no Gerencial.');
           }
+          // Reivindicar empresa existente sem usuarios SEMPRE exige confirmar
+          // o e-mail (PR-002 C.1) — sem atalho de login instantaneo por
+          // colisao de nome; o convite por token (C.1c/C.3) cobre o resto.
           const updated = await tx.user.update({
             where: { id: existingUsername.id },
             data: {
@@ -1589,10 +1538,10 @@ export class AuthService implements OnModuleInit {
               name: resolvedName,
               role: 'ADMIN',
               companyId: existingCompany.id,
-              emailConfirmedAt: pendingEmailConfirmation ? null : existingUsername.emailConfirmedAt || new Date(),
-              emailConfirmationToken: pendingEmailConfirmation ? tokenHash : null,
-              emailConfirmationSentAt: pendingEmailConfirmation ? new Date() : null,
-              emailConfirmationExpiresAt: pendingEmailConfirmation ? confirmationExpiresAt : null,
+              emailConfirmedAt: null,
+              emailConfirmationToken: tokenHash,
+              emailConfirmationSentAt: new Date(),
+              emailConfirmationExpiresAt: confirmationExpiresAt,
             },
           });
           if (signupTrialProfile) {
@@ -1621,7 +1570,7 @@ export class AuthService implements OnModuleInit {
             attachedToExistingCompany: true,
             companyId: existingCompany.id,
             companyName: existingCompany.name,
-            pendingEmailConfirmation,
+            pendingEmailConfirmation: true,
             user: updated,
           };
         }
@@ -1649,10 +1598,16 @@ export class AuthService implements OnModuleInit {
             contactEmail: email,
             contactPhone: signupTrialProfile?.contactPhone || null,
             taxDocument: signupTrialProfile?.taxDocument || null,
+            // Estado unico nativo (PR-002 C.1): empresa nasce pending_checkout;
+            // "aguardando confirmacao de e-mail" e um fato do USUARIO (token
+            // pendente), nao um estado da empresa. Espelho legado coerente
+            // ate o DROP da fase A.4.
+            status: 'pending_checkout',
+            statusChangedAt: new Date(),
             onboardingStatus: 'pending_email_confirmation',
             isActive: false,
             paymentStatus: 'PENDING',
-            subscriptionStatus: 'canceled',
+            subscriptionStatus: 'pending_checkout',
             premiumAccess: false,
             trialStartsAt: null,
             trialEndsAt: null,
@@ -1687,10 +1642,6 @@ export class AuthService implements OnModuleInit {
         'auth_signup_pending_hbx_lead',
         hasHbxSalesReferral,
       );
-
-      if ((createdPending as any).attachedToExistingCompany && !(createdPending as any).pendingEmailConfirmation) {
-        return this.login((createdPending as any).user, { companyId: (createdPending as any).companyId });
-      }
 
       if (this.isLocalMockSignupFlow()) {
         return this.confirmEmail(rawToken);
@@ -1732,11 +1683,12 @@ export class AuthService implements OnModuleInit {
     const created = await this.prisma.$transaction(async (tx) => {
       const existingCompany = await this.findCompanyByDisplayNameTx(tx, displayName);
       if (existingCompany) {
-        const pendingEmailConfirmation =
-          String(existingCompany.onboardingStatus || '').trim().toLowerCase() === 'pending_email_confirmation';
           if (Number(existingCompany._count?.users || 0) > 0) {
             throw new ConflictException('Empresa já cadastrada. Usuários comuns devem ser criados pelo ADMIN no Gerencial.');
           }
+          // Reivindicar empresa existente sem usuarios SEMPRE exige confirmar
+          // o e-mail (PR-002 C.1) — sem atalho de login instantaneo por
+          // colisao de nome; o convite por token (C.1c/C.3) cobre o resto.
           const user = await tx.user.create({
             data: {
             username,
@@ -1745,10 +1697,10 @@ export class AuthService implements OnModuleInit {
             name: resolvedName,
             role: 'ADMIN',
             companyId: existingCompany.id,
-            emailConfirmedAt: pendingEmailConfirmation ? null : new Date(),
-            emailConfirmationToken: pendingEmailConfirmation ? tokenHash : null,
-            emailConfirmationSentAt: pendingEmailConfirmation ? new Date() : null,
-            emailConfirmationExpiresAt: pendingEmailConfirmation ? confirmationExpiresAt : null,
+            emailConfirmedAt: null,
+            emailConfirmationToken: tokenHash,
+            emailConfirmationSentAt: new Date(),
+            emailConfirmationExpiresAt: confirmationExpiresAt,
           },
         });
         if (signupTrialProfile) {
@@ -1778,7 +1730,7 @@ export class AuthService implements OnModuleInit {
           attachedToExistingCompany: true,
           companyId: existingCompany.id,
           companyName: existingCompany.name,
-          pendingEmailConfirmation,
+          pendingEmailConfirmation: true,
           user,
         };
       }
@@ -1806,10 +1758,16 @@ export class AuthService implements OnModuleInit {
         contactEmail: email,
         contactPhone: signupTrialProfile?.contactPhone || null,
         taxDocument: signupTrialProfile?.taxDocument || null,
-        onboardingStatus: 'pending_email_confirmation',
+          // Estado unico nativo (PR-002 C.1): empresa nasce pending_checkout;
+          // "aguardando confirmacao de e-mail" e um fato do USUARIO (token
+          // pendente), nao um estado da empresa. Espelho legado coerente
+          // ate o DROP da fase A.4.
+          status: 'pending_checkout',
+          statusChangedAt: new Date(),
+          onboardingStatus: 'pending_email_confirmation',
           isActive: false,
           paymentStatus: 'PENDING',
-          subscriptionStatus: 'canceled',
+          subscriptionStatus: 'pending_checkout',
           premiumAccess: false,
           trialStartsAt: null,
           trialEndsAt: null,
@@ -1849,10 +1807,6 @@ export class AuthService implements OnModuleInit {
       'auth_signup_pending_hbx_lead',
       hasHbxSalesReferral,
     );
-
-    if ((created as any).attachedToExistingCompany && !(created as any).pendingEmailConfirmation) {
-      return this.login((created as any).user, { companyId: (created as any).companyId });
-    }
 
     if (this.isLocalMockSignupFlow()) {
       return this.confirmEmail(rawToken);
@@ -1929,7 +1883,6 @@ export class AuthService implements OnModuleInit {
 
     const confirmedAt = new Date();
     let trialEndsAt: Date | null = null;
-    const selectedPlanKey = this.normalizeSelectedPlanKey(user.company?.selectedPlanKey || undefined);
     const platformInfraCompany = isPlatformInfraCompany(user.company);
     if (user.companyId && platformInfraCompany && !user.isSystemMaster) {
       throw new BadRequestException({
@@ -1937,11 +1890,6 @@ export class AuthService implements OnModuleInit {
         message: 'Empresa de infraestrutura nao possui fluxo comercial de confirmação.',
       });
     }
-    const requiresTrialActivation = Boolean(
-      user.companyId &&
-        !platformInfraCompany &&
-        this.getPublicTrialDaysForPlan(selectedPlanKey) > 0,
-    );
 
     await this.prisma.$transaction(async (tx) => {
       await tx.user.update({
@@ -1955,35 +1903,15 @@ export class AuthService implements OnModuleInit {
       });
 
       if (user.companyId && !platformInfraCompany) {
-        if (requiresTrialActivation) {
-          await tx.company.update({
-            where: { id: Number(user.companyId) },
-            data: {
-              selectedPlanKey,
-              trialModuleSelection: this.resolveTrialModuleForPlan(selectedPlanKey),
-              onboardingStatus: 'pending_trial_activation',
-              isActive: false,
-              paymentStatus: 'PENDING',
-              subscriptionStatus: 'pending_trial_activation',
-              premiumAccess: false,
-              trialStartsAt: null,
-              trialEndsAt: null,
-              subscriptionCurrentPeriodStart: null,
-              subscriptionCurrentPeriodEnd: null,
-              deactivatedAt: confirmedAt,
-            },
-          });
-          await this.syncPlanModulesTx(tx, Number(user.companyId), selectedPlanKey);
-          await tx.companyModule.updateMany({ where: { companyId: Number(user.companyId) }, data: { enabled: false } });
-        } else {
-          trialEndsAt = await this.activateConfirmedTrialTx(tx, Number(user.companyId), confirmedAt);
-        }
+        // Confirmacao inicia o trial direto (PR-002 C.1). Plano sem trial —
+        // ou cadastro antigo sem telefone — segue para o checkout.
+        trialEndsAt = await this.activateConfirmedTrialTx(tx, Number(user.companyId), confirmedAt);
       }
     });
 
     if (user.companyId) {
       await this.hbxCommissionSync.syncActivatedCompany(Number(user.companyId), {
-        source: requiresTrialActivation ? 'auth_email_confirmed_pending_trial' : 'auth_email_confirmed',
+        source: 'auth_email_confirmed',
       }).catch((error: any) => {
         this.logger.warn(`commission_sync_confirm_email_failed company=${user.companyId} error=${String(error?.message || error)}`);
       });
@@ -2001,136 +1929,25 @@ export class AuthService implements OnModuleInit {
           { companyId: Number(user.companyId), userAgent: opts?.userAgent, ip: opts?.ip },
         )
       : null;
-    const next = loginPayload?.next || (requiresTrialActivation ? this.pendingTrialActivationNextPath() : trialEndsAt ? '/dashboard' : this.pendingCheckoutNextPath());
+    const next = trialEndsAt ? '/boasvindas' : loginPayload?.next || this.pendingCheckoutNextPath();
 
     return {
       ok: true,
-      status: user.companyId
-        ? requiresTrialActivation
-            ? 'pending_trial_activation'
-            : trialEndsAt
-              ? 'active_trial'
-              : 'pending_checkout'
-        : 'confirmed',
+      status: user.companyId ? (trialEndsAt ? 'active_trial' : 'pending_checkout') : 'confirmed',
       email: user.email || null,
       message: user.companyId
-        ? requiresTrialActivation
-          ? 'E-mail confirmado. Agora ative seu trial gratuito de 14 dias.'
-          : trialEndsAt
+        ? trialEndsAt
           ? `E-mail confirmado. O trial gratuito está ativo até ${trialEndsAt.toLocaleDateString('pt-BR')}.`
           : 'E-mail confirmado. Finalize o pagamento no Financeiro para liberar o plano.'
         : 'E-mail confirmado com sucesso.',
-      trialStartsAt: user.companyId ? confirmedAt.toISOString() : null,
+      trialStartsAt: trialEndsAt ? confirmedAt.toISOString() : null,
       trialEndsAt: trialEndsAt ? trialEndsAt.toISOString() : null,
       access_token: loginPayload?.access_token || null,
       next,
       loginNext: loginPayload?.access_token
         ? next
-        : requiresTrialActivation
-        ? `/login?next=${encodeURIComponent(this.pendingTrialActivationNextPath())}`
-        : trialEndsAt
-        ? '/login?next=/dashboard'
-        : `/login?next=${encodeURIComponent(this.pendingCheckoutNextPath())}`,
+        : `/login?next=${encodeURIComponent(next)}`,
       requiresCheckout: Boolean(loginPayload?.requiresCheckout),
-      requiresTrialActivation,
-    };
-  }
-
-  async activateTrialAfterEmailConfirmation(user: any, data: {
-    trialContactName?: string | null;
-    trialTaxDocument?: string | null;
-    trialContactPhone?: string | null;
-    acceptedTerms?: boolean | null;
-  }) {
-    const userId = Number(user?.id || 0);
-    const companyId = Number(user?.companyId || 0);
-    if (!userId || !companyId) {
-      throw new UnauthorizedException('Sessão inválida para ativar trial.');
-    }
-
-    const trialProfile = this.validateSignupTrialProfile(data);
-    const now = new Date();
-    let trialEndsAt: Date | null = null;
-
-    const company = await this.prisma.company.findUnique({
-      where: { id: companyId },
-      select: {
-        selectedPlanKey: true,
-        onboardingStatus: true,
-        subscriptionStatus: true,
-        paymentStatus: true,
-        premiumAccess: true,
-        trialEndsAt: true,
-        users: {
-          where: { id: userId },
-          select: { id: true, emailConfirmedAt: true },
-          take: 1,
-        },
-      },
-    });
-
-    if (!company || !company.users?.length) {
-      throw new UnauthorizedException('Empresa inválida para ativar trial.');
-    }
-    if (!company.users[0].emailConfirmedAt) {
-      throw new BadRequestException({
-        code: 'EMAIL_CONFIRMATION_REQUIRED',
-        message: 'Confirme seu e-mail antes de ativar o trial.',
-      });
-    }
-
-    const selectedPlanKey = this.normalizeSelectedPlanKey(company.selectedPlanKey || undefined);
-    if (this.getPublicTrialDaysForPlan(selectedPlanKey) <= 0) {
-      throw new BadRequestException({
-        code: 'TRIAL_NOT_AVAILABLE_FOR_PLAN',
-        message: 'Este plano nao possui trial gratuito. Finalize o pagamento para liberar o acesso.',
-      });
-    }
-
-    const subscriptionStatus = String(company.subscriptionStatus || '').trim().toLowerCase();
-    const paymentStatus = String(company.paymentStatus || '').trim().toUpperCase();
-    if (
-      company.premiumAccess &&
-      (subscriptionStatus === 'trialing' || paymentStatus === 'TRIAL') &&
-      company.trialEndsAt &&
-      company.trialEndsAt.getTime() > now.getTime()
-    ) {
-      return {
-        ok: true,
-        status: 'active_trial',
-        message: `Trial ja ativo ate ${company.trialEndsAt.toLocaleDateString('pt-BR')}.`,
-        trialStartsAt: null,
-        trialEndsAt: company.trialEndsAt.toISOString(),
-        next: '/boasvindas',
-      };
-    }
-
-    await this.prisma.$transaction(async (tx) => {
-      await tx.company.update({
-        where: { id: companyId },
-        data: {
-          selectedPlanKey,
-          primaryContactName: trialProfile.contactName,
-          contactPhone: trialProfile.contactPhone,
-          taxDocument: trialProfile.taxDocument || null,
-        },
-      });
-      trialEndsAt = await this.activateConfirmedTrialTx(tx, companyId, now);
-    });
-
-    await this.hbxCommissionSync.syncActivatedCompany(companyId, { source: 'auth_trial_started' }).catch((error: any) => {
-      this.logger.warn(`commission_sync_trial_failed company=${companyId} error=${String(error?.message || error)}`);
-    });
-
-    return {
-      ok: true,
-      status: 'active_trial',
-      message: trialEndsAt
-        ? `Trial gratuito ativo ate ${trialEndsAt.toLocaleDateString('pt-BR')}.`
-        : 'Trial ativado.',
-      trialStartsAt: now.toISOString(),
-      trialEndsAt: trialEndsAt ? trialEndsAt.toISOString() : null,
-      next: '/boasvindas',
     };
   }
 
@@ -2145,11 +1962,18 @@ export class AuthService implements OnModuleInit {
         company: {
           select: {
             companyKind: true,
+            status: true,
+            isActive: true,
             onboardingStatus: true,
-            subscriptionStatus: true,
             paymentStatus: true,
+            subscriptionStatus: true,
             premiumAccess: true,
+            billingExempt: true,
             selectedPlanKey: true,
+            trialEndsAt: true,
+            billingGraceEndsAt: true,
+            courtesyEndsAt: true,
+            courtesyReason: true,
           },
         },
       },
@@ -2159,57 +1983,30 @@ export class AuthService implements OnModuleInit {
       throw new BadRequestException({ code: 'EMAIL_CONFIRMATION_STATUS_INVALID', message: 'Acompanhamento de confirmação inválido.' });
     }
 
-    const onboardingStatus = String(user.company?.onboardingStatus || '').trim().toLowerCase();
-    const subscriptionStatus = String(user.company?.subscriptionStatus || '').trim().toLowerCase();
-    const paymentStatus = String(user.company?.paymentStatus || '').trim().toUpperCase();
-    const platformInfraCompany = isPlatformInfraCompany(user.company);
-    const pendingEmailConfirmation = !user.emailConfirmedAt || onboardingStatus === 'pending_email_confirmation';
-    const pendingTrialActivation =
-      !pendingEmailConfirmation &&
-      (onboardingStatus === 'pending_trial_activation' || subscriptionStatus === 'pending_trial_activation');
-    const accessReleased = this.isCommercialAccessReleased(user.company);
-    const platformInfraBlocked = !pendingEmailConfirmation && platformInfraCompany;
-    const trialExpired =
-      !pendingEmailConfirmation &&
-      !platformInfraBlocked &&
-      !pendingTrialActivation &&
-      !accessReleased &&
-      (paymentStatus === 'EXPIRED' || subscriptionStatus === 'expired');
-    const pendingCheckout =
-      !pendingEmailConfirmation &&
-      !platformInfraBlocked &&
-      !pendingTrialActivation &&
-      !accessReleased &&
-      (onboardingStatus === 'pending_checkout' || subscriptionStatus === 'pending_checkout' || paymentStatus === 'PENDING');
-    const paymentFailed =
-      !pendingEmailConfirmation &&
-      !platformInfraBlocked &&
-      !pendingTrialActivation &&
-      !accessReleased &&
-      (onboardingStatus === 'suspended' || subscriptionStatus === 'past_due' || paymentStatus === 'DISABLED' || paymentStatus === 'OVERDUE');
+    // Projecao do estado unico (PR-002 C.1): confirmacao pendente e fato do
+    // usuario; o destino comercial vem do resolveCompanyAccessState.
+    const pendingEmailConfirmation = !user.emailConfirmedAt;
+    const platformInfraBlocked = !pendingEmailConfirmation && isPlatformInfraCompany(user.company);
+    const access = resolveCompanyAccessState(user.company);
+    const released = access.canUse && access.state !== 'platform_infra';
+    const checkoutReason =
+      access.detailCode === 'trial_expired'
+        ? ('trial_expired' as const)
+        : access.state === 'pending_checkout'
+          ? ('pending_checkout' as const)
+          : ('payment_failed' as const);
+
     const status = pendingEmailConfirmation
       ? 'pending_email_confirmation'
       : platformInfraBlocked
         ? 'platform_infra_company'
-      : pendingTrialActivation
-        ? 'pending_trial_activation'
-      : trialExpired
-        ? 'pending_checkout'
-      : paymentFailed
-        ? 'pending_checkout'
-      : pendingCheckout
-        ? 'pending_checkout'
-        : 'active_trial';
-    const next = pendingTrialActivation
-      ? this.pendingTrialActivationNextPath()
-      : platformInfraBlocked
-        ? '/login'
-      : trialExpired
-        ? this.preCheckoutNextPath('trial_expired')
-      : paymentFailed
-        ? this.preCheckoutNextPath('payment_failed')
-      : pendingCheckout
-        ? this.pendingCheckoutNextPath()
+        : released
+          ? 'active_trial'
+          : 'pending_checkout';
+    const next = platformInfraBlocked
+      ? '/login'
+      : !pendingEmailConfirmation && !released && user.company
+        ? this.preCheckoutNextPath(checkoutReason)
         : '/dashboard';
 
     return {
@@ -2218,16 +2015,7 @@ export class AuthService implements OnModuleInit {
       confirmed: !pendingEmailConfirmation,
       email: user.email || null,
       next,
-      loginNext: pendingTrialActivation
-        ? `/login?next=${encodeURIComponent(this.pendingTrialActivationNextPath())}`
-        : platformInfraBlocked
-          ? '/login'
-        : trialExpired
-          ? `/login?next=${encodeURIComponent(this.preCheckoutNextPath('trial_expired'))}`
-        : paymentFailed
-          ? `/login?next=${encodeURIComponent(this.preCheckoutNextPath('payment_failed'))}`
-        : pendingCheckout ? `/login?next=${encodeURIComponent(this.pendingCheckoutNextPath())}` : '/login?next=/dashboard',
-      requiresTrialActivation: pendingTrialActivation,
+      loginNext: platformInfraBlocked ? '/login' : `/login?next=${encodeURIComponent(next)}`,
     };
   }
 
@@ -2417,6 +2205,12 @@ export class AuthService implements OnModuleInit {
     const hashed = await bcrypt.hash(password, 12);
     await this.prisma.$transaction([
       this.prisma.user.update({ where: { id: pr.userId }, data: { password: hashed, mustChangePassword: false } }),
+      // Receber o link no e-mail prova a caixa: vale como confirmacao para
+      // contas convidadas que ainda nao confirmaram (PR-002 C.1c).
+      this.prisma.user.updateMany({
+        where: { id: pr.userId, emailConfirmedAt: null },
+        data: { emailConfirmedAt: new Date(), emailConfirmationToken: null },
+      }),
       this.prisma.passwordReset.update({ where: { id: pr.id }, data: { used: true } }),
     ]);
 

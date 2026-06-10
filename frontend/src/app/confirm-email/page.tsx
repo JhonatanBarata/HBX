@@ -78,7 +78,6 @@ function isLocalMockWelcomeEnabled() {
 
 function localWelcomePath(status?: string | null) {
   const normalized = String(status || "").trim().toLowerCase();
-  if (normalized === "pending_trial_activation") return "/register?start=trial";
   const reason = normalized === "active_trial" ? "trial" : "pending_checkout";
   return `${LOCAL_WELCOME_PATH}?reason=${reason}`;
 }
@@ -357,11 +356,6 @@ function ConfirmEmailInner() {
                 Pode fechar esta aba. Continue no dispositivo onde o cadastro ficou em
                 <strong> aguardando confirmação de email</strong>.
               </p>
-              {confirmedStatus === "pending_trial_activation" ? (
-                <p className={styles.successHint}>
-                  A ativação do trial vai aparecer automaticamente por lá.
-                </p>
-              ) : null}
               {confirmedStatus === "pending_checkout" ? (
                 <p className={styles.successHint}>
                   O próximo passo de pagamento vai aparecer automaticamente por lá.
