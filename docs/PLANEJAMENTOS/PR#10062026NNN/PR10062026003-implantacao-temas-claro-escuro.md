@@ -48,6 +48,31 @@ para abrir no navegador).
 - A central master NÃO está entre as 8 seções do app: continua com a central própria;
   ganha a pele Corporativo em T.4/T.6 sem mudar a estrutura definida no PR-001/002.
 
+## Contrato de telas — pedido do dono em 10/06/2026 (telas FIXAS daqui pra frente)
+
+Garantia: **módulo novo nunca mais nasce do zero**. Toda tela do HBX é montagem de um
+kit fechado. Entregáveis (fazem parte deste plano, construídos junto com T.3/T.4):
+
+- [ ] **K.1 Kit de layout:** `PageShell` (grid 218px + 1fr, variante com painel de
+      contexto +300px), `Section/Panel` (header padrão), grades de KPI, tabela padrão,
+      lista padrão — os ÚNICOS layouts permitidos.
+- [ ] **K.2 Kit de sobreposição:** `Modal` (janela), `ConfirmDialog` (pop-up de decisão),
+      **`PersistentNotice`** (aviso persistente que só sai com clique do usuário —
+      não existe no handoff, será desenhado no kit com os tokens), `Toast` (efêmero),
+      `Drawer` se necessário. Um de cada — proibido criar variações locais.
+- [ ] **K.3 Escalas fixas:** espaçamento (escala única do `tokens/spacing.css`),
+      tamanhos de texto (corpo 14px, título de página 1.18rem/700, KPI 1.5rem/800,
+      meta 0.7rem — nada fora da escala), raios e sombras do token.
+- [ ] **K.4 Guia de texto (copy):** tom pt-BR direto do `design_system_readme.md` —
+      títulos, mensagens de vazio, erros, confirmações: frases-padrão reutilizáveis.
+- [ ] **K.5 Catálogo vivo:** rota interna `/dev/ui` renderizando TODAS as peças nos
+      4 visuais (Corporativo/Friendly × claro/escuro) — é onde se confere o padrão e
+      onde peça nova nasce ANTES de aparecer em tela real.
+- [ ] **K.6 Blueprint de módulo novo:** doc curto "como criar uma tela" — escolher
+      PageShell, encaixar Panels/tabelas do kit, textos pelo guia. Vira invariante no
+      AGENTS.md: **nenhuma tela nova com layout/popup/espaçamento fora do kit**;
+      revisão deve recusar tela bespoke.
+
 ## Salvaguardas
 - Hi-fi: valores de cor/tipo/raio/sombra são finais — normalizar para o padrão do repo
   mantendo os MESMOS valores; nunca hex direto em componente (só `var(--hbx-*)`).
