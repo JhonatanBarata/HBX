@@ -1331,11 +1331,6 @@ export class AuthService implements OnModuleInit {
       });
     }
 
-    // If account exists but has no email and no password, prompt to complete registration
-    if ((!user.email || user.email.length === 0) && (!user.password || user.password.length === 0)) {
-      throw new BadRequestException({ needsRegistration: true, username: normalized, message: 'Conta necessita completar registro' });
-    }
-
     if (typeof user.password !== 'string' || user.password.length === 0) {
       // Conta criada por convite (PR-002 C.1c/C.3): a senha e definida pelo
       // link enviado por e-mail, nunca aqui.
@@ -1475,14 +1470,13 @@ export class AuthService implements OnModuleInit {
 
     const username = String(data.username || email).trim().toLowerCase();
 
+    // Cadastro self-service nunca reivindica um username existente: contas sem
+    // e-mail nascem por convite (token de definir senha — C.1c/C.3) ou são o
+    // system master. Morreu o branch de "completar registro" por username
+    // conhecido (vetor de takeover) no DROP do PR-002.
     const existingUsername = await this.usersService.findByUsername(username);
-    // If username exists, allow completing registration only when there is no email yet.
     if (existingUsername) {
-      if (existingUsername.email) {
-        // User already has an email: do not change it via signup.
-        throw new ConflictException('Email já cadastrado. Envie uma solicitação para o email registrado ou entre em contato com o administrador.');
-      }
-      // existing user without email: proceed to attach email/password (below)
+      throw new ConflictException('Identificador já cadastrado. Caso seja sua conta, use a recuperação de senha.');
     }
 
     const existingEmail = await this.usersService.findByEmail(email);
@@ -1520,185 +1514,6 @@ export class AuthService implements OnModuleInit {
     // Create a non-guessable slug to avoid tenant enumeration.
     const slug = `co_${crypto.randomBytes(9).toString('hex')}`;
 
-    if (existingUsername) {
-      // existing user without email: update with provided email/password
-      // If they already belong to a company, keep it. Otherwise create a new company.
-      if (existingUsername.companyId) {
-        const companyId = Number(existingUsername.companyId);
-        const companyUsers = await this.prisma.user.count({ where: { companyId } });
-        const updated = await this.prisma.user.update({
-          where: { id: existingUsername.id },
-          data: {
-            email,
-            password: hashed,
-            name: resolvedName,
-            role: companyUsers <= 1 ? 'ADMIN' : existingUsername.role,
-            emailConfirmedAt: existingUsername.emailConfirmedAt || new Date(),
-            emailConfirmationToken: null,
-            emailConfirmationSentAt: null,
-            emailConfirmationExpiresAt: null,
-            companyId,
-          },
-        });
-        return this.login(updated, { companyId });
-      }
-
-      const rawToken = this.createEmailConfirmationToken();
-      const tokenHash = this.sha256(rawToken);
-      const confirmationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-      const createdPending = await this.prisma.$transaction(async (tx) => {
-        const existingCompany = await this.findCompanyByDisplayNameTx(tx, displayName);
-        if (existingCompany) {
-          if (Number(existingCompany._count?.users || 0) > 0) {
-            throw new ConflictException('Empresa já cadastrada. Usuários comuns devem ser criados pelo ADMIN no Gerencial.');
-          }
-          // Reivindicar empresa existente sem usuarios SEMPRE exige confirmar
-          // o e-mail (PR-002 C.1) — sem atalho de login instantaneo por
-          // colisao de nome; o convite por token (C.1c/C.3) cobre o resto.
-          const updated = await tx.user.update({
-            where: { id: existingUsername.id },
-            data: {
-              email,
-              password: hashed,
-              name: resolvedName,
-              role: 'ADMIN',
-              companyId: existingCompany.id,
-              emailConfirmedAt: null,
-              emailConfirmationToken: tokenHash,
-              emailConfirmationSentAt: new Date(),
-              emailConfirmationExpiresAt: confirmationExpiresAt,
-            },
-          });
-          if (signupTrialProfile) {
-            await tx.company.update({
-              where: { id: existingCompany.id },
-              data: {
-                primaryContactName: signupTrialProfile.contactName,
-                contactPhone: signupTrialProfile.contactPhone,
-                taxDocument: signupTrialProfile.taxDocument || null,
-              },
-            });
-            await this.reserveSignupTrialPhoneTx(tx, existingCompany.id, signupTrialProfile, selectedPlanKey, updated.id);
-          }
-          if (hasHbxSalesReferral) {
-            await tx.company.update({
-              where: { id: existingCompany.id },
-              data: {
-                acquisitionSource: acquisitionSource || 'indicacao',
-                acquisitionSourceDetail,
-                referralReferrerName,
-                referralCode,
-              },
-            });
-          }
-          return {
-            attachedToExistingCompany: true,
-            companyId: existingCompany.id,
-            companyName: existingCompany.name,
-            pendingEmailConfirmation: true,
-            user: updated,
-          };
-        }
-
-        const company = await tx.company.create({
-          data: {
-            slug,
-            name: displayName,
-            entityType: entityType || 'PJ',
-            trialModuleSelection,
-            selectedPlanKey,
-            assistedSetupRequired: selectedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR,
-            assistedSetupStatus: selectedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR ? 'pending' : 'not_required',
-            assistedSetupCompletedAt: null,
-            assistedSetupCompletedByUserId: null,
-            assistedSetupNote: selectedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR
-              ? 'Implantação assistida pendente para liberar automação completa.'
-              : null,
-            signupUsesPublicEmail: usesPublicEmail,
-            acquisitionSource,
-            acquisitionSourceDetail,
-            referralReferrerName,
-            referralCode,
-            primaryContactName: signupTrialProfile?.contactName || resolvedName,
-            contactEmail: email,
-            contactPhone: signupTrialProfile?.contactPhone || null,
-            taxDocument: signupTrialProfile?.taxDocument || null,
-            // Estado unico nativo (PR-002 C.1): empresa nasce pending_checkout;
-            // "aguardando confirmacao de e-mail" e um fato do USUARIO (token
-            // pendente), nao um estado da empresa. Espelho legado coerente
-            // ate o DROP da fase A.4.
-            status: 'pending_checkout',
-            statusChangedAt: new Date(),
-            onboardingStatus: 'pending_email_confirmation',
-            isActive: false,
-            paymentStatus: 'PENDING',
-            subscriptionStatus: 'pending_checkout',
-            premiumAccess: false,
-            trialStartsAt: null,
-            trialEndsAt: null,
-            deactivatedAt: new Date(),
-          },
-        });
-        await this.seedDefaultCompanyModulesTx(tx, company.id);
-        await this.seedDefaultTenantProductsTx(tx, company.id);
-        await this.syncPlanModulesTx(tx, company.id, selectedPlanKey);
-        const updated = await tx.user.update({
-          where: { id: existingUsername.id },
-          data: {
-            email,
-            password: hashed,
-            name: resolvedName,
-            role: 'ADMIN',
-            companyId: company.id,
-            emailConfirmedAt: null,
-            emailConfirmationToken: tokenHash,
-            emailConfirmationSentAt: new Date(),
-            emailConfirmationExpiresAt: confirmationExpiresAt,
-          },
-        });
-        if (signupTrialProfile) {
-          await this.reserveSignupTrialPhoneTx(tx, company.id, signupTrialProfile, selectedPlanKey, updated.id);
-        }
-        return { attachedToExistingCompany: false, companyId: company.id, companyName: company.name, user: updated };
-      });
-
-      await this.syncHbxSalesReferralCompany(
-        (createdPending as any).companyId || (createdPending as any).user?.companyId,
-        'auth_signup_pending_hbx_lead',
-        hasHbxSalesReferral,
-      );
-
-      if (this.isLocalMockSignupFlow()) {
-        return this.confirmEmail(rawToken);
-      }
-
-      const delivery = await this.dispatchEmailConfirmation({
-        email,
-        username,
-        companyName: createdPending.companyName,
-        rawToken,
-      });
-
-      return this.buildPendingEmailConfirmationResponse({
-        userId: Number((createdPending as any).user?.id || existingUsername.id),
-        email,
-        username,
-        companyName: createdPending.companyName,
-        entityType,
-        trialModuleSelection,
-        selectedPlanKey,
-        acquisitionSource,
-        warnings,
-        message: delivery.failed
-          ? this.emailConfirmationDeliveryFailureMessage()
-          : this.pendingConfirmationSuccessMessage(selectedPlanKey),
-        previewUrl: delivery.previewUrl,
-        confirmUrl: delivery.confirmUrl,
-        deliveryFailed: delivery.failed,
-        deliveryErrorCode: delivery.errorCode,
-        deliveryErrorMessage: delivery.errorMessage,
-      });
-    }
 
     // New account: create company + user atomically.
     const rawToken = this.createEmailConfirmationToken();
