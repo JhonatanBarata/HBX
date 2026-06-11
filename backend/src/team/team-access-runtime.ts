@@ -96,15 +96,9 @@ function resolveRuntimeCompanyId(user: any) {
 }
 
 function normalizeModuleAccessRowsFromUser(user: any) {
+  // Tabela legada UserModuleAccess removida (DROP): le so do payload do
+  // usuario (modules/moduleAccessMap) usado em memoria/testes.
   const rows: Array<{ key: string; allowed: boolean }> = [];
-  if (Array.isArray(user?.moduleAccesses)) {
-    for (const row of user.moduleAccesses) {
-      const key = String(row?.systemModule?.key ?? row?.module?.key ?? row?.key ?? '').trim();
-      if (!key) continue;
-      rows.push({ key, allowed: Boolean(row?.allowed ?? row?.userAllowed ?? row?.accessible) });
-    }
-  }
-
   if (Array.isArray(user?.modules)) {
     for (const row of user.modules) {
       const key = String(row?.key ?? row?.systemModule?.key ?? row?.module?.key ?? '').trim();

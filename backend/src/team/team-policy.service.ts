@@ -776,7 +776,6 @@ export class TeamPolicyService {
           'User.referredByUserId',
           'User.referredByCommissionPercentSnapshot',
           'User.sellerDistributionDailyLimitOverride',
-          'UserModuleAccess.allowed',
         ],
         pendingSchemaFields: storedPolicy ? [] : TEAM_POLICY_PENDING_SCHEMA_FIELDS,
       },

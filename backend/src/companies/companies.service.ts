@@ -1180,7 +1180,6 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
         await tx.webscrapingUsageLog.deleteMany({ where: { userId: { in: userIds } } });
         await tx.webscrapingSearchHistory.deleteMany({ where: { userId: { in: userIds } } });
         await tx.passwordReset.deleteMany({ where: { userId: { in: userIds } } });
-        await tx.userModuleAccess.deleteMany({ where: { userId: { in: userIds } } });
         await tx.$executeRawUnsafe(
           `UPDATE "MasterBillingLedgerEntry" SET "createdByUserId" = NULL WHERE "createdByUserId" IN (${userIds.join(',')})`,
         );

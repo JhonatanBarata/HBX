@@ -1811,7 +1811,6 @@ export class ModulesService implements OnModuleInit {
     const retiredModuleIds = retiredModules.map((moduleItem) => moduleItem.id);
 
     await this.prisma.$transaction([
-      this.prisma.userModuleAccess.deleteMany({ where: { moduleId: { in: retiredModuleIds } } }),
       this.prisma.companyModule.deleteMany({ where: { moduleId: { in: retiredModuleIds } } }),
       this.prisma.systemModule.deleteMany({ where: { id: { in: retiredModuleIds } } }),
     ]);

@@ -74,18 +74,6 @@ export class ActiveSessionsService {
                 },
               },
             },
-            moduleAccesses: {
-              where: { allowed: true },
-              select: {
-                systemModule: {
-                  select: {
-                    key: true,
-                    name: true,
-                  },
-                },
-              },
-              take: 20,
-            },
           },
         },
       },
@@ -97,10 +85,6 @@ export class ActiveSessionsService {
       const online = !session.revokedAt && session.expiresAt.getTime() >= now.getTime() && lastSeenAt.getTime() >= onlineCutoff.getTime();
       const moduleMap = new Map<string, { key: string; name: string }>();
       for (const row of session.user.company?.companyModules || []) {
-        const module = row.systemModule;
-        if (module?.key) moduleMap.set(module.key, { key: module.key, name: module.name || module.key });
-      }
-      for (const row of session.user.moduleAccesses || []) {
         const module = row.systemModule;
         if (module?.key) moduleMap.set(module.key, { key: module.key, name: module.name || module.key });
       }

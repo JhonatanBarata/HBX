@@ -241,14 +241,10 @@ export function buildUserTeamPolicySnapshotData(user: any, options?: { source?: 
   const subjectKind = resolveTeamPolicySubjectKind(user, company);
   const tenantCompany = Boolean(company && isTenantCompany(company));
   const legacyOverride = normalizeLegacyEnrichmentOverride(user?.sellerDistributionDailyLimitOverride);
-  const moduleRows = Array.isArray(user?.moduleAccesses) ? user.moduleAccesses : [];
-  const modules = moduleRows
-    .map((row: any) => ({
-      key: String(row?.systemModule?.key || '').trim(),
-      allowed: Boolean(row?.allowed),
-    }))
-    .filter((row: { key: string }) => row.key)
-    .sort((a: { key: string }, b: { key: string }) => a.key.localeCompare(b.key));
+  // Team policy e a unica fonte de permissao (PR-002 A.5 / DROP): o snapshot
+  // parte dos defaults do papel + concessoes explicitas; nada da tabela
+  // legada UserModuleAccess (removida).
+  const modules: Array<{ key: string; allowed: boolean }> = [];
   const enrichmentDailyMode = tenantCompany && legacyOverride === 0
     ? 'unlimited'
     : tenantCompany && typeof legacyOverride === 'number' && legacyOverride > 0
@@ -310,15 +306,6 @@ export async function ensureUserTeamPolicyForUser(
           commissionDueBusinessDays: true,
         },
       },
-      moduleAccesses: {
-        include: {
-          systemModule: {
-            select: {
-              key: true,
-            },
-          },
-        },
-      },
     },
   });
   if (!user) return null;
@@ -360,52 +347,6 @@ export async function ensureUserTeamPolicyForUser(
     },
     update: syncUpdate,
   });
-}
-
-export async function syncUserTeamPolicyModulesFromLegacyAccess(
-  prisma: any,
-  userIdRaw: unknown,
-  options?: { source?: string },
-) {
-  const userId = Math.trunc(Number(userIdRaw || 0));
-  if (!userId) return null;
-  if (!prisma?.userTeamPolicy?.update) return null;
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    include: {
-      moduleAccesses: {
-        include: {
-          systemModule: {
-            select: { key: true },
-          },
-        },
-      },
-    },
-  }).catch(() => null);
-  if (!user) return null;
-  const modules = (Array.isArray(user.moduleAccesses) ? user.moduleAccesses : [])
-    .map((row: any) => ({
-      key: String(row?.systemModule?.key || '').trim(),
-      allowed: Boolean(row?.allowed),
-    }))
-    .filter((row: { key: string }) => row.key)
-    .sort((a: { key: string }, b: { key: string }) => a.key.localeCompare(b.key));
-  await ensureUserTeamPolicyForUser(prisma, userId, {
-    source: options?.source || 'module_access_update',
-    overwrite: false,
-  });
-  const existing = await prisma.userTeamPolicy.findUnique({
-    where: { userId },
-    select: { modulesJson: true },
-  }).catch(() => null);
-  const access = Object.fromEntries(parseTeamPolicyAccessMap(existing?.modulesJson || null));
-  return prisma.userTeamPolicy.update({
-    where: { userId },
-    data: {
-      modulesJson: serializeTeamPolicyModuleAndAccessRows({ modules, access }),
-      source: options?.source || 'module_access_update',
-    },
-  }).catch(() => null);
 }
 
 export async function backfillMissingUserTeamPolicies(prisma: any, options?: { source?: string }) {

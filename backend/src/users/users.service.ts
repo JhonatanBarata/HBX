@@ -980,7 +980,6 @@ export class UsersService {
       });
 
       await tx.authSession.deleteMany({ where: { userId } });
-      await tx.userModuleAccess.deleteMany({ where: { userId } });
       await tx.passwordReset.deleteMany({ where: { userId } });
       await tx.masterNoticeAck.deleteMany({ where: { userId } });
 

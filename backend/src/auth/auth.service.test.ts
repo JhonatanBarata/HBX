@@ -275,9 +275,7 @@ test('sanitizeUser: vendedor recebe payload de empresa sem campos de cobranca', 
   const seller = sanitizeUser({ id: 11, username: 'vendedor', role: 'USER', isSystemMaster: false, company });
   assert.equal(seller?.company?.accessReleased, true);
   assert.equal(seller?.company?.accessState, null);
-  assert.equal(seller?.company?.paymentStatus, null);
-  assert.equal(seller?.company?.subscriptionStatus, null);
-  assert.equal(seller?.company?.premiumAccess, null);
+  assert.equal(seller?.company?.accessStateLabel, null);
   assert.equal(seller?.company?.selectedPlanKey, null);
   assert.equal(seller?.company?.trialEndsAt, null);
   assert.equal(seller?.company?.trialRemainingDays, null);
@@ -286,7 +284,7 @@ test('sanitizeUser: vendedor recebe payload de empresa sem campos de cobranca', 
 
   const admin = sanitizeUser({ id: 10, username: 'dono', role: 'ADMIN', isSystemMaster: false, company });
   assert.equal(admin?.company?.accessState, 'trial');
-  assert.equal(admin?.company?.paymentStatus, 'TRIAL');
+  assert.equal(admin?.company?.accessStateLabel, 'Trial ativo');
   assert.equal(admin?.company?.plan?.price, 199);
 });
 

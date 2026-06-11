@@ -295,12 +295,13 @@ export class MasterProvisioningService {
           slug: plan.tenant.slug,
           companyKind: COMPANY_KIND_TENANT,
           selectedPlanKey: plan.commercial.planKey,
-          onboardingStatus: plan.commercial.manualAccess ? 'active_paid' : 'pending_email_confirmation',
-          paymentStatus: plan.commercial.manualAccess ? 'MANUAL' : 'PENDING',
-          subscriptionStatus: plan.commercial.manualAccess ? 'manual' : 'trialing',
+          // Estado unico nativo (DROP): provisionamento com acesso manual nasce
+          // em cortesia; senao, trial (preserva o acesso 'trialing' anterior).
+          status: plan.commercial.manualAccess ? 'courtesy' : 'trial',
+          statusChangedAt: new Date(),
+          courtesyReason: plan.commercial.manualAccess ? 'Provisionamento master (acesso manual)' : null,
           paymentMethod: plan.commercial.manualAccess ? 'MANUAL' : 'NONE',
           billingProvider: 'manual',
-          premiumAccess: plan.commercial.manualAccess,
           billingCycle: plan.commercial.billingCycle,
           contactEmail: plan.supportChannels.supportEmail || plan.admin?.email || null,
           contactPhone: plan.supportChannels.supportWhatsapp || plan.admin?.phone || null,

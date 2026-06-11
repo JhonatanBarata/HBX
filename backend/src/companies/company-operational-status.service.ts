@@ -816,7 +816,7 @@ export class CompanyOperationalStatusService {
       hint: accessHint,
       href: accessHref,
       quality: 'real',
-      source: ['company.isActive', 'company.paymentStatus', 'company.subscriptionStatus', 'company.trialEndsAt'],
+      source: ['company.status', 'company.trialEndsAt', 'company.billingGraceEndsAt', 'company.courtesyEndsAt'],
       updatedAt: this.normalizeDate(company?.trialEndsAt),
       active: accessTone !== 'red',
     });

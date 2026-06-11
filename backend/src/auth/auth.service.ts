@@ -108,7 +108,7 @@ export class AuthService implements OnModuleInit {
       select: {
         id: true,
         name: true,
-        onboardingStatus: true,
+        status: true,
         _count: {
           select: { users: true },
         },
