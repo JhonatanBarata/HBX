@@ -66,24 +66,32 @@ mecanismo `data-theme`/`data-theme-mode`, mantendo o endpoint
 
 ## R1 — Fundação única
 
-- [ ] **R1.1 Commit da trilha paralela** solta no working tree: `app/app2`, `app/dev/ui`,
+- [x] **R1.1 Commit da trilha paralela** solta no working tree: `app/app2`, `app/dev/ui`,
       `app/hbx-theme`, `public/hbx-theme`, `components/corporate`, kit novo em
       `components/ui` (HbxDataTable/Drawer/KpiGrid/Modal/PersistentNotice), scanner
       `scripts/hbx-frontend-contract-scan.mjs` — corrigindo o erro de lint de
       `HbxCorporateShell.tsx:303` (setState dentro de effect: inicializar o modo via
       lazy initializer/`useSyncExternalStore` lendo `localStorage`, sem `setMode` no
       mount).
-- [ ] **R1.2 Shell corporativo = AppShell oficial.** `HbxCorporateShell` promovido de
+      *(11/06 madrugada: trilha já estava commitada pelo dono em 43b007bd; fix de lint
+      via `useSyncExternalStore` em e7764dca — lint do frontend com 0 erros)*
+- [x] **R1.2 Shell corporativo = AppShell oficial.** `HbxCorporateShell` promovido de
       preview a shell único do app autenticado. Ele **absorve as responsabilidades do
       TopBar** (inventário obrigatório abaixo) — o TopBar só é deletado em R3, depois
       que todas as linhas da tabela tiverem destino implementado.
+      *(11/06 madrugada: `HbxAppShell` criado em f7c12d31 — identidade, logout, avisos
+      do master com ack, chip de contexto master, tema; nav reusa `ModuleNav compact`
+      [lógica de persona intacta]. Gaps propositais no L5 do PR11062026001)*
 - [ ] **R1.3 Tema único (T.2 absorvido):** mecanismo `data-theme`/`data-theme-mode` no
       `<html>`, tokens de `docs/TEMAS` como única fonte; persistência integrada a
       `/profile/theme-preferences` (endpoint preservado); `hbx:corporate-mode` em
       localStorage vira só cache local. `HBX_THEME_PALETTES` legado morre quando a
       última tela velha morrer (R3).
-- [ ] **R1.4 Rotas:** toda tela nova nasce direto na rota canônica do manifesto
+      *(ADIADO de propósito para sessão conjunta — ver L6 do PR11062026001: risco de
+      corromper escopos company/system/user do ThemeProvider)*
+- [x] **R1.4 Rotas:** toda tela nova nasce direto na rota canônica do manifesto
       OK-PR-007. Nenhuma tela nova em `/dashboard/*`.
+      *(cumprido nas telas entregues: /pre-checkout, /boasvindas, /planos)*
 
 ### Inventário TopBar (5.326 linhas) — pré-requisito do R3
 
@@ -112,7 +120,7 @@ Ordem do menor para o maior risco. Linhas medidas em 11/06/2026.
 
 ### Contratos de preservação backend (extraídos do código real em 11/06/2026)
 
-- [ ] **R2.1 `/pre-checkout`** (170 linhas) — vira **apresentação pura**: morre a
+- [x] **R2.1 `/pre-checkout`** (170 linhas) — vira **apresentação pura**: morre a
       inteligência local de audiência; a decisão é exclusiva do `PreCheckoutGate` +
       `billing-access` (que já fazem isso hoje). A tela nova só renderiza a razão vinda
       da query string.
@@ -120,7 +128,8 @@ Ordem do menor para o maior risco. Linhas medidas em 11/06/2026.
       **Deleta:** `app/pre-checkout/*` antigo + `page.module.css`. Alias `/precheckout`
       permanece (compatibilidade permanente por produto, manifesto).
 
-- [ ] **R2.2 `/boasvindas`** (588 linhas) — renasce como **Home operacional do kit**.
+- [x] **R2.2 `/boasvindas`** (588 linhas) — renasce como **Home operacional do kit**.
+      *(11/06 madrugada: 5aca8a81 — guard D.4 preservado, fluxo mobile preservado)*
       **Contrato:** `/companies/me/operational-status?refresh=true`,
       `/companies/me/whatsapp-center`, `/companies/me/whatsapp-modal/status`,
       `/modules/me`, `/profile/current-user`, `/profile/password` (primeira troca de
@@ -128,7 +137,11 @@ Ordem do menor para o maior risco. Linhas medidas em 11/06/2026.
       **Deleta:** `app/boasvindas` legado + css. Alias `?radar=1` (ex-webscraping)
       preservado até R2.8.
 
-- [ ] **R2.3 `/planos` + `/pagamento`** (600 + 1.890 linhas) — admin-only, lendo SÓ
+- [/] **R2.3 `/planos` + `/pagamento`** (600 + 1.890 linhas) — admin-only, lendo SÓ
+      *(PARCIAL 11/06 madrugada: /planos entregue em c8ee2587 — FALLBACK_PLANS com
+      preços hardcoded MORTO, catálogo só da API, trial em HbxModal. /pagamento fica
+      para sessão conjunta: máquina Mercado Pago de 1.890 linhas é risco alto sem
+      validação ao vivo do dono)*
       accessState/catálogo da API; **nenhum preço/nome de plano hardcoded**.
       Corrige o lint `isBillingGraceActive` ×2.
       **Contrato planos:** `/commercial-plans/me`, `/commercial-plans/select`,
@@ -153,7 +166,10 @@ Ordem do menor para o maior risco. Linhas medidas em 11/06/2026.
       **Deleta:** `app/tutorial/*` + css + `mobile-tutorial` alias (vai pro lote R3 se
       ainda referenciado).
 
-- [ ] **R2.5 `/whatsapp` → redirect único** para `/atendimento/automacao?tab=connection`
+- [x] **R2.5 `/whatsapp` → redirect único** para `/atendimento/automacao?tab=connection`
+      *(11/06 madrugada: 65d5eecd — redirect já existia [43b007bd]; cadáver de 709
+      linhas + wizard deletados. Atenção: spec whatsapp-mobile.spec.ts ainda testa a
+      rota antiga — ver L7 do PR11062026001)*
       (manifesto). A tela atual (709 linhas) morre inteira.
       **Contrato:** os endpoints dela (`/companies/me/whatsapp-center`,
       `/companies/me/whatsapp-modal/bootstrap|qr|status`, `migration-interest`) **já são
