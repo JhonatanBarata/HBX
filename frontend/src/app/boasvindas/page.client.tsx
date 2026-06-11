@@ -1,15 +1,24 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { type FormEvent, useEffect, useState } from "react";
 import { apiFetch, clearApiCache } from "@/app/_lib/api";
 import { mobileDestinationFromVendasBoard } from "@/app/_lib/mobileOperationalDestination";
 import { toMobileRoute } from "@/app/_lib/mobileRoutes";
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
+import HbxAppShell from "@/components/corporate/HbxAppShell";
+import {
+  HbxFormField,
+  HbxKpiCard,
+  HbxKpiGrid,
+  HbxPageShell,
+  HbxSection,
+  HbxStandardList,
+  HbxStatusBadge,
+} from "@/components/ui";
 import { normalizeUserModuleKey, type UserModule } from "@/lib/hbx-modules";
-import styles from "./page.module.css";
 
-const PAGE_EXIT_MS = 260;
 const LOGIN_TO_WELCOME_TRANSITION_KEY = "hbx_login_to_welcome_transition";
 const TUTORIAL_COMPLETED_KEY = "hbx:onboarding:tutorial-completed:mobile:v1";
 
@@ -60,12 +69,9 @@ type WelcomeState = {
   mustChangePassword: boolean;
   whatsappConnected: boolean;
   radarReady: boolean;
-  atendimentoReady: boolean;
-  assistantOptional: boolean;
-  leadsCount: number;
-  conversationsCount: number;
-  pendingCount: number;
   vendasReady: boolean;
+  leadsCount: number;
+  pendingReturns: number;
 };
 
 const DEFAULT_WELCOME_STATE: WelcomeState = {
@@ -75,12 +81,9 @@ const DEFAULT_WELCOME_STATE: WelcomeState = {
   mustChangePassword: false,
   whatsappConnected: false,
   radarReady: false,
-  atendimentoReady: false,
-  assistantOptional: false,
-  leadsCount: 0,
-  conversationsCount: 0,
-  pendingCount: 0,
   vendasReady: false,
+  leadsCount: 0,
+  pendingReturns: 0,
 };
 
 function hasModule(modules: UserModule[], key: string) {
@@ -106,26 +109,10 @@ function isWhatsAppConnected(
 }
 
 function hasOperationalHistory(state: WelcomeState) {
-  return (
-    state.radarReady ||
-    state.atendimentoReady ||
-    state.vendasReady ||
-    state.leadsCount > 0 ||
-    state.conversationsCount > 0 ||
-    state.pendingCount > 0
-  );
+  return state.radarReady || state.vendasReady || state.leadsCount > 0 || state.pendingReturns > 0;
 }
 
-function mobileOperationStatus(state: WelcomeState) {
-  if (state.mustChangePassword) return "Primeiro acesso";
-  if (!state.loaded || !hasOperationalHistory(state)) return "";
-  return "Operação mobile";
-}
-
-function mobilePrimaryAction(state: WelcomeState, tutorialCompleted: boolean) {
-  if (state.mustChangePassword) {
-    return { label: "Troque a senha para continuar", path: "/boasvindas" };
-  }
+function primaryAction(state: WelcomeState, tutorialCompleted: boolean) {
   if (state.loaded && !tutorialCompleted && !hasOperationalHistory(state)) {
     return { label: "Abrir tutorial", path: "/tutorial" };
   }
@@ -135,15 +122,13 @@ function mobilePrimaryAction(state: WelcomeState, tutorialCompleted: boolean) {
   return { label: "Abrir Vendas", path: "/vendas" };
 }
 
-function PasswordChangePanel({
+function PasswordChangeSection({
   userName,
   userEmail,
-  disabled = false,
   onChanged,
 }: {
   userName: string;
   userEmail: string;
-  disabled?: boolean;
   onChanged: () => void;
 }) {
   const [newPassword, setNewPassword] = useState("");
@@ -171,9 +156,7 @@ function PasswordChangePanel({
     try {
       await apiFetch("/profile/password", {
         method: "PATCH",
-        body: JSON.stringify({
-          newPassword: next,
-        }),
+        body: JSON.stringify({ newPassword: next }),
       });
       clearApiCache("/profile/current-user");
       setNewPassword("");
@@ -188,216 +171,156 @@ function PasswordChangePanel({
   }
 
   return (
-    <form className={styles.passwordChangePanel} onSubmit={submitPassword} aria-label="Trocar senha do primeiro acesso">
-      <div className={styles.passwordChangeHeader}>
-        <span>{"Senha temporária"}</span>
-        <strong>{userName || "Seu acesso HBX"}</strong>
-        <small>{userEmail}</small>
-      </div>
-      <label>
-        <span>{"Nova senha"}</span>
-        <input
-          type="password"
-          value={newPassword}
-          onChange={(event) => setNewPassword(event.target.value)}
-          autoComplete="new-password"
-          disabled={disabled || saving}
-          minLength={8}
-          required
-        />
-      </label>
-      <label>
-        <span>{"Confirmar senha"}</span>
-        <input
-          type="password"
-          value={confirmPassword}
-          onChange={(event) => setConfirmPassword(event.target.value)}
-          autoComplete="new-password"
-          disabled={disabled || saving}
-          minLength={8}
-          required
-        />
-      </label>
-      {error ? <p className={styles.passwordChangeError}>{error}</p> : null}
-      {message ? <p className={styles.passwordChangeSuccess}>{message}</p> : null}
-      <button type="submit" className={styles.primaryAction} disabled={disabled || saving}>
-        {saving ? "Alterando..." : "Alterar senha e continuar"}
-      </button>
-    </form>
+    <HbxSection
+      eyebrow="Senha temporária"
+      title={userName || "Seu acesso HBX"}
+      description={userEmail}
+      aside={<HbxStatusBadge tone="warning">Primeiro acesso</HbxStatusBadge>}
+    >
+      <form onSubmit={submitPassword} aria-label="Trocar senha do primeiro acesso">
+        <HbxFormField label="Nova senha" requiredMark>
+          <input
+            type="password"
+            value={newPassword}
+            onChange={(event) => setNewPassword(event.target.value)}
+            autoComplete="new-password"
+            disabled={saving}
+            minLength={8}
+            required
+          />
+        </HbxFormField>
+        <HbxFormField label="Confirmar senha" requiredMark error={error || undefined} hint={message || undefined}>
+          <input
+            type="password"
+            value={confirmPassword}
+            onChange={(event) => setConfirmPassword(event.target.value)}
+            autoComplete="new-password"
+            disabled={saving}
+            minLength={8}
+            required
+          />
+        </HbxFormField>
+        <button type="submit" className="btn btn-primary" disabled={saving}>
+          {saving ? "Alterando..." : "Alterar senha e continuar"}
+        </button>
+      </form>
+    </HbxSection>
   );
 }
 
-function MobileDashboard({
+function WelcomeContent({
   state,
-  primaryAction,
-  leaving = false,
-  onNavigate,
+  tutorialCompleted,
   onPasswordChanged,
 }: {
   state: WelcomeState;
-  primaryAction: { label: string; path: string };
-  leaving?: boolean;
-  onNavigate?: (path: string) => void;
-  onPasswordChanged?: () => void;
+  tutorialCompleted: boolean;
+  onPasswordChanged: () => void;
 }) {
-  const disabled = leaving || !onNavigate;
-  const status = mobileOperationStatus(state) || "HBX pronto";
-  const subtitle = state.mustChangePassword
-    ? "Troque a senha temporária antes de abrir sua rotina comercial."
-    : "Busque cards no Radar, chame pelo WhatsApp e organize retornos.";
-  const loadingLabel = state.loaded
-    ? (state.mustChangePassword ? "Primeiro login protegido." : "Escolha por onde continuar.")
-    : "Preparando seu acesso.";
-  const desktopCards = [
+  const action = primaryAction(state, tutorialCompleted);
+
+  if (state.loaded && state.mustChangePassword) {
+    return (
+      <PasswordChangeSection
+        userName={state.userName}
+        userEmail={state.userEmail}
+        onChanged={onPasswordChanged}
+      />
+    );
+  }
+
+  const steps = [
     {
-      label: "Radar",
+      id: "radar",
       title: "Buscar cards",
-      text: "Escolha cidade e segmento para montar sua fila comercial.",
-      path: "/vendas",
-    },
-    {
-      label: "Vendas",
-      title: state.leadsCount > 0 ? `${state.leadsCount} cards` : "Abrir Vendas",
-      text: state.leadsCount > 0
-        ? "Abra os cards, chame pelo WhatsApp e marque retornos."
-        : "Sua mesa comercial fica aqui depois da primeira busca.",
-      path: "/vendas",
-    },
-    {
-      label: "WhatsApp",
-      title: state.whatsappConnected ? "Conectado" : "Conectar depois",
-      text: state.whatsappConnected ? "Canal pronto para acionar oportunidades." : "Você pode buscar cards antes de conectar o canal.",
-      path: state.whatsappConnected ? "/vendas" : "/atendimento/automacao?tab=connection",
-    },
-  ];
-  const desktopSteps = [
-    {
-      key: "radar",
-      marker: "01",
-      title: "Buscar cards",
-      active: state.loaded && (state.radarReady || state.leadsCount > 0),
+      description: "Escolha cidade e segmento para montar sua fila comercial.",
+      done: state.loaded && (state.radarReady || state.leadsCount > 0),
       optional: false,
+      href: "/radar-digital",
     },
     {
-      key: "vendas",
-      marker: "02",
+      id: "vendas",
       title: "Organizar retornos",
-      active: state.loaded && state.vendasReady,
+      description: "Abra os cards, chame pelo WhatsApp e marque retornos.",
+      done: state.loaded && state.vendasReady,
       optional: false,
+      href: "/vendas",
     },
     {
-      key: "whatsapp",
-      marker: "03",
+      id: "whatsapp",
       title: state.whatsappConnected ? "Canal conectado" : "Conectar depois",
-      active: state.loaded && state.whatsappConnected,
+      description: state.whatsappConnected
+        ? "Canal pronto para acionar oportunidades."
+        : "Você pode buscar cards antes de conectar o canal.",
+      done: state.loaded && state.whatsappConnected,
       optional: true,
+      href: state.whatsappConnected ? "/vendas" : "/atendimento/automacao?tab=connection",
     },
     {
-      key: "billing",
-      marker: "04",
+      id: "billing",
       title: "Cobrança depois",
-      active: false,
+      description: "Sem checkout agora. Primeiro entre, busque oportunidades e organize sua operação comercial.",
+      done: false,
       optional: true,
+      href: null,
     },
   ];
 
   return (
-    <div className={`${styles.mobileDashboard} ${styles.mobileWelcomeExperience} hbx-mobile-page`} aria-label="Boas-vindas HBX">
-      <span className={styles.statusBadge}>{status}</span>
-      <div className={styles.brandMark} aria-hidden="true">{"HBX"}</div>
-      <h1 id="welcome-title" className={styles.mobileTitle}>{"Sua operação começa aqui"}</h1>
-      <p className={styles.mobileSubtitle}>{subtitle}</p>
-      <p className={styles.loadingText}>{loadingLabel}</p>
-
-      {state.loaded && state.mustChangePassword ? (
-        <PasswordChangePanel
-          userName={state.userName}
-          userEmail={state.userEmail}
-          disabled={disabled}
-          onChanged={() => onPasswordChanged?.()}
+    <>
+      <HbxKpiGrid>
+        <HbxKpiCard
+          label="Cards"
+          value={state.loaded ? state.leadsCount : "..."}
+          description="Oportunidades na sua mesa comercial."
         />
-      ) : null}
+        <HbxKpiCard
+          label="Retornos"
+          value={state.loaded ? state.pendingReturns : "..."}
+          description="Hoje, atrasados e agendados."
+          tone={state.pendingReturns > 0 ? "warning" : "default"}
+        />
+        <HbxKpiCard
+          label="WhatsApp"
+          value={state.whatsappConnected ? "Conectado" : "Opcional"}
+          description={state.whatsappConnected ? "Canal pronto." : "Conecte quando precisar."}
+          tone={state.whatsappConnected ? "success" : "default"}
+        />
+        <HbxKpiCard label="Cobrança" value="Depois" description="Nenhuma ação financeira agora." />
+      </HbxKpiGrid>
 
-      {state.loaded && !state.mustChangePassword ? (
-        <nav className={styles.actions} aria-label="Começar">
-          <button
-            type="button"
-            className={styles.primaryAction}
-            onClick={() => onNavigate?.(primaryAction.path)}
-            disabled={disabled}
-          >
-            {primaryAction.label}
-          </button>
-        </nav>
-      ) : null}
-
-      <section className={styles.desktopWelcomeBoard} aria-label="Resumo da operação HBX">
-        <div className={styles.desktopWelcomeHero}>
-          <span>{"HBX pronto"}</span>
-          <strong>{"Comece pelo Radar."}</strong>
-          <p>{"Sem checkout agora. Primeiro entre, busque oportunidades e organize sua operação comercial."}</p>
-          {state.loaded && !state.mustChangePassword ? (
-            <button
-              type="button"
-              className={styles.desktopWelcomePrimary}
-              onClick={() => onNavigate?.("/vendas")}
-              disabled={disabled}
-            >
-              {"Buscar cards agora"}
-            </button>
-          ) : null}
-        </div>
-        <div className={styles.desktopWelcomeMetrics}>
-          <span>
-            <small>{"Cards"}</small>
-            <b>{state.loaded ? state.leadsCount : "..."}</b>
-          </span>
-          <span>
-            <small>{"WhatsApp"}</small>
-            <b>{state.whatsappConnected ? "Conectado" : "Opcional"}</b>
-          </span>
-          <span>
-            <small>{"Cobrança"}</small>
-            <b>{"Depois"}</b>
-          </span>
-        </div>
-        <section className={styles.nextStepPanel} aria-label="Rota recomendada HBX">
-          <div className={styles.nextStepHeader}>
-            <div>
-              <span>{"Rota HBX"}</span>
-              <strong>{"Do login ao primeiro contato"}</strong>
-            </div>
-          </div>
-          <div className={styles.checklist}>
-            {desktopSteps.map((step) => (
-              <div
-                key={step.key}
-                className={styles.checkItem}
-                data-active={step.active ? "true" : "false"}
-                data-optional={step.optional ? "true" : "false"}
-              >
-                <span>{step.marker}</span>
-                <strong>{step.title}</strong>
-              </div>
-            ))}
-          </div>
-        </section>
-        <div className={styles.desktopWelcomeCards}>
-          {desktopCards.map((card) => (
-            <button
-              type="button"
-              key={card.label}
-              onClick={() => onNavigate?.(card.path)}
-              disabled={disabled || !state.loaded || state.mustChangePassword}
-            >
-              <small>{card.label}</small>
-              <strong>{card.title}</strong>
-              <span>{card.text}</span>
-            </button>
-          ))}
-        </div>
-      </section>
-    </div>
+      <HbxSection
+        eyebrow="Rota HBX"
+        title="Do login ao primeiro contato"
+        description={state.loaded ? "Escolha por onde continuar." : "Preparando seu acesso."}
+        aside={
+          <Link className="btn btn-primary" href={action.path}>
+            {action.label}
+          </Link>
+        }
+      >
+        <HbxStandardList
+          loading={!state.loaded}
+          items={steps.map((step, index) => ({
+            id: step.id,
+            title: `${String(index + 1).padStart(2, "0")} · ${step.title}`,
+            description: step.description,
+            badge: step.done ? (
+              <HbxStatusBadge tone="success">Feito</HbxStatusBadge>
+            ) : step.optional ? (
+              <HbxStatusBadge tone="neutral">Opcional</HbxStatusBadge>
+            ) : (
+              <HbxStatusBadge tone="info">Próximo</HbxStatusBadge>
+            ),
+            action: step.href ? (
+              <Link className="btn" href={step.href}>
+                Abrir
+              </Link>
+            ) : undefined,
+          }))}
+        />
+      </HbxSection>
+    </>
   );
 }
 
@@ -405,8 +328,6 @@ export default function BoasVindasClientPage({ mobileRoute = false }: { mobileRo
   const router = useRouter();
   const searchParams = useSearchParams();
   const hasToken = useRequireAuth();
-  const [leaving, setLeaving] = useState(false);
-  const [masterCheckComplete, setMasterCheckComplete] = useState(false);
   const [welcomeState, setWelcomeState] = useState<WelcomeState>(DEFAULT_WELCOME_STATE);
   const [tutorialCompleted] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -421,10 +342,9 @@ export default function BoasVindasClientPage({ mobileRoute = false }: { mobileRo
     fromLoginEntryParam ||
     (typeof window !== "undefined" && window.sessionStorage.getItem(LOGIN_TO_WELCOME_TRANSITION_KEY) === "mobile-auth")
   ));
-  const [clientReady, setClientReady] = useState(false);
 
   useEffect(() => {
-    if (typeof window === "undefined") return undefined;
+    if (typeof window === "undefined") return;
     try {
       sessionStorage.removeItem(LOGIN_TO_WELCOME_TRANSITION_KEY);
     } catch {
@@ -433,15 +353,10 @@ export default function BoasVindasClientPage({ mobileRoute = false }: { mobileRo
     if (fromLoginEntryParam && window.location.search.includes("entry=mobile")) {
       window.history.replaceState(null, "", mobileRoute ? "/mobile/boas-vindas" : "/boasvindas");
     }
-    const frame = window.requestAnimationFrame(() => {
-      setClientReady(true);
-    });
-    return () => {
-      window.cancelAnimationFrame(frame);
-    };
   }, [fromLoginEntryParam, mobileRoute]);
 
-  const welcomePhase = masterCheckComplete ? "ready" : "loading";
+  // Deep-link de cobrança preservado: ?reason= encaminha o público de cobrança
+  // direto para o financeiro (a audiência é decidida pelo PreCheckoutGate).
   const reason = String(searchParams.get("reason") || "").trim().toLowerCase();
   const billingReason = reason === "pending_checkout" || reason === "trial_expired" ? reason : null;
   const billingHref = billingReason ? `/pagamento?focus=payment&reason=${encodeURIComponent(billingReason)}` : null;
@@ -458,9 +373,9 @@ export default function BoasVindasClientPage({ mobileRoute = false }: { mobileRo
 
     async function loadWelcomeState() {
       try {
-        // O diagnostico do WhatsApp (center/modal) e endpoint de ADMIN no
-        // backend: vendedor nao chama (PR-002 D.4 — zero 403 em navegacao
-        // normal). O chip de conexao do vendedor sai do operational-status.
+        // O diagnóstico do WhatsApp (center/modal) é endpoint de ADMIN no
+        // backend: vendedor não chama (PR-002 D.4 — zero 403 em navegação
+        // normal). O chip de conexão do vendedor sai do operational-status.
         const currentUser = await apiFetch<CurrentUserPayload>("/profile/current-user").catch(() => null);
         const whatsappAdminAudience = Boolean(
           currentUser?.isSystemMaster ||
@@ -483,14 +398,12 @@ export default function BoasVindasClientPage({ mobileRoute = false }: { mobileRo
         const safeModules = Array.isArray(modules) ? modules : [];
         const summary = vendasBoard?.summary || {};
         const leadsCount = Math.max(0, Math.trunc(Number(summary.total || 0)));
-        const vendasPending = Math.max(
+        const pendingReturns = Math.max(
           0,
           Math.trunc(Number(summary.today || 0)) +
             Math.trunc(Number(summary.overdue || 0)) +
             Math.trunc(Number(summary.scheduled || 0)),
         );
-        const conversationsCount = 0;
-        const pendingCount = 0;
 
         setWelcomeState({
           loaded: true,
@@ -499,23 +412,17 @@ export default function BoasVindasClientPage({ mobileRoute = false }: { mobileRo
           mustChangePassword: Boolean(currentUser?.mustChangePassword),
           whatsappConnected: isWhatsAppConnected(center, modal, operational),
           radarReady: hasModule(safeModules, "webscraping") || leadsCount > 0,
-          atendimentoReady: hasModule(safeModules, "atendimento") || conversationsCount > 0 || pendingCount > 0,
-          assistantOptional: hasModule(safeModules, "atendimento") || hasModule(safeModules, "vendas"),
+          vendasReady: leadsCount > 0 || pendingReturns > 0,
           leadsCount,
-          conversationsCount,
-          pendingCount,
-          vendasReady: leadsCount > 0 || vendasPending > 0,
+          pendingReturns,
         });
-        setMasterCheckComplete(true);
-        if (!fromLoginEntry && !currentUser?.mustChangePassword) {
-          if (mobileRoute) {
-            const destination = mobileDestinationFromVendasBoard(vendasBoard);
-            router.replace(destination);
-          }
+
+        if (!fromLoginEntry && !currentUser?.mustChangePassword && mobileRoute) {
+          router.replace(mobileDestinationFromVendasBoard(vendasBoard));
         }
       } catch {
         if (mounted) {
-          setMasterCheckComplete(true);
+          setWelcomeState((current) => ({ ...current, loaded: true }));
           if (!fromLoginEntry && mobileRoute) {
             router.replace(toMobileRoute("/radar-digital"));
           }
@@ -530,59 +437,35 @@ export default function BoasVindasClientPage({ mobileRoute = false }: { mobileRo
     };
   }, [billingHref, fromLoginEntry, hasToken, mobileRoute, router]);
 
-  function navigateWithTransition(path: string) {
-    if (leaving) return;
-    setLeaving(true);
-    window.setTimeout(() => router.push(mobileRoute ? toMobileRoute(path) : path), PAGE_EXIT_MS);
-  }
-
-  const mobilePrimary = mobilePrimaryAction(welcomeState, tutorialCompleted);
-
   function handlePasswordChanged() {
-    setWelcomeState((current) => ({
-      ...current,
-      mustChangePassword: false,
-    }));
+    setWelcomeState((current) => ({ ...current, mustChangePassword: false }));
   }
 
-  if (hasToken === null || (hasToken === true && !masterCheckComplete && !clientReady)) {
+  if (hasToken !== true) return null;
+
+  const content = (
+    <WelcomeContent
+      state={welcomeState}
+      tutorialCompleted={tutorialCompleted}
+      onPasswordChanged={handlePasswordChanged}
+    />
+  );
+
+  if (mobileRoute) {
     return (
-      <main
-        className={`${styles.page} ${styles.fromLoginTransition}`}
-        data-welcome-mode="single"
-        data-welcome-phase="loading"
-        data-welcome-path="loading"
+      <HbxPageShell
+        eyebrow="HBX pronto"
+        title="Sua operação começa aqui"
+        description="Busque cards no Radar, chame pelo WhatsApp e organize retornos."
       >
-        <section className={styles.shell} aria-live="polite">
-          <MobileDashboard
-            state={welcomeState}
-            primaryAction={mobilePrimary}
-            onNavigate={navigateWithTransition}
-            onPasswordChanged={handlePasswordChanged}
-          />
-        </section>
-      </main>
+        {content}
+      </HbxPageShell>
     );
   }
 
-  if (!hasToken) return null;
-
   return (
-    <main
-      className={`${styles.page} ${styles.fromLoginTransition}`}
-      data-welcome-mode="single"
-      data-welcome-phase={welcomePhase}
-      data-welcome-path={welcomeState.mustChangePassword ? "password" : hasOperationalHistory(welcomeState) ? "operation" : "first-access"}
-    >
-      <section className={`${styles.shell} ${leaving ? styles.shellLeaving : ""}`} aria-label="Boas-vindas HBX">
-        <MobileDashboard
-          state={welcomeState}
-          primaryAction={mobilePrimary}
-          leaving={leaving}
-          onNavigate={navigateWithTransition}
-          onPasswordChanged={handlePasswordChanged}
-        />
-      </section>
-    </main>
+    <HbxAppShell title="Boas-vindas" breadcrumb="Home › Boas-vindas">
+      {content}
+    </HbxAppShell>
   );
 }
