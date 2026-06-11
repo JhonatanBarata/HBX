@@ -1,8 +1,36 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
 import styles from "./HbxCorporateShell.module.css";
+
+type CorporateMode = "light" | "dark";
+
+const MODE_STORAGE_KEY = "hbx:corporate-mode";
+const modeListeners = new Set<() => void>();
+
+function readStoredMode(): CorporateMode {
+  if (typeof window === "undefined") return "dark";
+  return window.localStorage.getItem(MODE_STORAGE_KEY) === "light" ? "light" : "dark";
+}
+
+function readServerMode(): CorporateMode {
+  return "dark";
+}
+
+function subscribeToMode(listener: () => void) {
+  modeListeners.add(listener);
+  window.addEventListener("storage", listener);
+  return () => {
+    modeListeners.delete(listener);
+    window.removeEventListener("storage", listener);
+  };
+}
+
+function writeStoredMode(mode: CorporateMode) {
+  window.localStorage.setItem(MODE_STORAGE_KEY, mode);
+  modeListeners.forEach((listener) => listener());
+}
 
 export type HbxCorporateSection =
   | "dashboard"
@@ -294,25 +322,19 @@ export function HbxCorporateShell({
   children: ReactNode;
   context?: ReactNode;
 }) {
-  const [mode, setMode] = useState<"light" | "dark">("dark");
+  const mode = useSyncExternalStore(subscribeToMode, readStoredMode, readServerMode);
   const title = CORPORATE_LABELS[active];
 
   useEffect(() => {
-    const saved = window.localStorage.getItem("hbx:corporate-mode");
-    const initialMode = saved === "light" ? "light" : "dark";
-    setMode(initialMode);
-    applyMode(initialMode);
-    const timers = [window.setTimeout(() => applyMode(initialMode), 0), window.setTimeout(() => applyMode(initialMode), 300)];
+    applyMode(mode);
+    const timers = [window.setTimeout(() => applyMode(mode), 0), window.setTimeout(() => applyMode(mode), 300)];
     return () => {
       timers.forEach((timer) => window.clearTimeout(timer));
     };
-  }, []);
+  }, [mode]);
 
   const handleModeChange = () => {
-    const next = mode === "dark" ? "light" : "dark";
-    setMode(next);
-    applyMode(next);
-    window.localStorage.setItem("hbx:corporate-mode", next);
+    writeStoredMode(mode === "dark" ? "light" : "dark");
   };
 
   const memoContext = useMemo(() => context, [context]);
