@@ -120,6 +120,49 @@ Cada fase commitada, buildada e testada antes da seguinte.
       contrato único de decisão — fim da autorização espalhada em 5 camadas.
 - [ ] Checks: prisma validate, build, matriz de testes nova, smoke de login das 3 personas.
 
+> **DROP FÍSICO — EM ANDAMENTO (checkpoint 10/06, pós-Fase D).**
+> O DROP foi destravado (B/C/D reescreveram seus caminhos) e fatiado em 9
+> passos, cada um buildado/testado/commitado:
+> ✔ **DROP 1** Segurança: morreu o branch legado de "completar registro" por
+>   username (login `needsRegistration` + signup anexar/reivindicar — vetor de
+>   takeover). Censo: único usuário sem e-mail é o system master (com senha).
+> ✔ **DROP 2** Núcleo canônico: `resolveCommercialPlanKeyForCapabilities` lê só
+>   `selectedPlanKey` (morreu a inferência manual/premiumAccess→Full);
+>   `ModuleAccessCompanySnapshot` vira o modelo do estado único (corrige bug de
+>   tipo: não declarava `status`); fixtures do policy migrados.
+> ✔ **DROP 3** modules.service (a maior fatia, 129 refs) — escritores nativos
+>   sem espelho: DELETADO `setPaymentStatus` (carcaça morta) +
+>   `mapPaymentStatusToSubscriptionStatus` órfã; Cortesia/Suspensão/Reativação/
+>   Trial(4 ramos)/recordManualPayment gravam só o estado único;
+>   `evaluateCompanyStatus` REESCRITO stored-first (materializa só transições
+>   terminais); snapshots de auditoria projetam do `status`. **E2E real verde**
+>   (container reconstruído): paywall íntegro de ponta a ponta.
+> **RESTA do DROP (próxima sessão):**
+>   - **DROP 3 (resto)** modules.service: ~30 refs de SERIALIZAÇÃO (select
+>     clauses do master summary, payload cru de "Detalhes técnicos",
+>     `companyStatusBucket`/`master-billing-situation` que ainda decidem por
+>     `onboardingStatus`) — acopladas ao frontend (DROP 8).
+>   - **DROP 4** financeiro(54)/auth(45: signup/confirm ainda espelham, mas já
+>     setam status)/companies(39)/master-runtime(22: sweep `billingExempt` →
+>     `status='courtesy'` + schema ensures).
+>   - **DROP 5** commercial-plans/radar-presentation(19 selects)/commissions(19)/
+>     whatsapp-modal(14)/messaging/users.
+>   - **DROP 6** `UserModuleAccess` (tabela + includes `moduleAccesses`) +
+>     `billingExempt*` fora do código.
+>   - **DROP 7** (CAPSTONE) middleware dual-write (`prisma.service.$use`) +
+>     `deriveCompanyAccessStateFromLegacy` removidos; migração DESTRUTIVA do
+>     schema (drop dos 4 campos + billingExempt* + tabela UserModuleAccess).
+>     **Salvaguarda:** só roda após referências = 0 e backup do banco.
+>   - **DROP 8** frontend sem campos crus (billing-access fallback, whatsapp/
+>     planos/vendas/tutorial/master).
+>   - **DROP 9** checks completos + E2E (ajustar SQL sem colunas legadas) +
+>     smoke 3 personas.
+> **Invariante mantida em cada passo:** o dual-write ignora escritas que falam
+> `status`; como todo escritor nativo seta `status`, remover os espelhos é
+> sempre seguro. A derivação legada (`deriveCompanyAccessStateFromLegacy`) e o
+> dual-write são a rede de segurança e só caem no DROP 7, depois de zerar as
+> referências. Commits: 0fcb9cd8, a7ffcc67, 08f80288, b2f8150b, 02da1399.
+
 ### Fase B — Master com 5 ações e 5 abas
 
 > **PROGRESSO (checkpoint):**
