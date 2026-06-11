@@ -1,25 +1,5 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
-import {
-  deriveCompanyAccessStateFromLegacy,
-  normalizeStoredCompanyStatus,
-  storedCompanyStatusFromAccessState,
-} from '../modules/company-access-state';
-
-// Campos legados que ainda alimentam o estado comercial durante a transicao
-// do PR10062026002. Qualquer escrita neles dispara o dual-write do estado
-// unico (Company.status) ate a fase A.4 remover os campos de vez.
-const COMPANY_STATE_SOURCE_FIELDS = [
-  'paymentStatus',
-  'subscriptionStatus',
-  'premiumAccess',
-  'onboardingStatus',
-  'isActive',
-  'trialEndsAt',
-  'billingGraceEndsAt',
-  'billingExempt',
-  'billingExemptReason',
-] as const;
 
 function buildRuntimeDatabaseUrl() {
   return String(process.env.DATABASE_URL || '').trim();
@@ -414,7 +394,6 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       // eslint-disable-next-line no-console
       console.log('Prisma runtime target:', describeDatabaseTarget(this.runtimeDatabaseUrl || String(process.env.DATABASE_URL || '').trim()));
     } catch (e) {}
-    this.registerCompanyStatusDualWrite();
     await this.$connect();
     await this.runRuntimeSchemaEnsure('company-commission-settings-columns', () => this.ensureCompanyCommissionSettingsColumns());
     await this.runRuntimeSchemaEnsure('user-sales-profile-columns', () => this.ensureUserSalesProfileColumns());
@@ -430,90 +409,6 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
 
   async onModuleDestroy() {
     await this.$disconnect();
-  }
-
-  // Dual-write de transicao (PR10062026002 Fase A): qualquer escritor legado
-  // que toque os campos sobrepostos da Company tem o estado unico recalculado
-  // logo apos a escrita, sem precisar mudar os ~20 call sites de uma vez.
-  // Escritores que ja falam a lingua nova (setam `status`) nao sao tocados.
-  private companyStatusDualWriteRegistered = false;
-
-  private registerCompanyStatusDualWrite() {
-    if (this.companyStatusDualWriteRegistered) return;
-    this.companyStatusDualWriteRegistered = true;
-
-    this.$use(async (params: Prisma.MiddlewareParams, next: (params: Prisma.MiddlewareParams) => Promise<any>) => {
-      const result = await next(params);
-      try {
-        if (params.model !== 'Company') return result;
-        if (!['create', 'update', 'upsert'].includes(params.action)) return result;
-
-        const args: any = params.args || {};
-        const patches: any[] = params.action === 'upsert' ? [args.create, args.update] : [args.data];
-        const touchesLegacyState = patches.some(
-          (patch) => patch && COMPANY_STATE_SOURCE_FIELDS.some((field) => field in patch),
-        );
-        const speaksUnifiedStatus = patches.some(
-          (patch) => patch && ('status' in patch || 'courtesyEndsAt' in patch || 'courtesyReason' in patch),
-        );
-        if (!touchesLegacyState || speaksUnifiedStatus) return result;
-
-        const companyId = Number((result as any)?.id || args?.where?.id || 0);
-        if (companyId) await this.syncCompanyStoredStatusFromLegacy(companyId);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        this.logger.warn(`[company-status-dual-write] sync falhou: ${message}`);
-      }
-      return result;
-    });
-  }
-
-  async syncCompanyStoredStatusFromLegacy(companyId: number) {
-    const row = await this.company.findUnique({
-      where: { id: Number(companyId) },
-      select: {
-        id: true,
-        companyKind: true,
-        slug: true,
-        status: true,
-        isActive: true,
-        onboardingStatus: true,
-        paymentStatus: true,
-        subscriptionStatus: true,
-        premiumAccess: true,
-        billingExempt: true,
-        billingExemptReason: true,
-        trialEndsAt: true,
-        billingGraceEndsAt: true,
-        courtesyEndsAt: true,
-        courtesyReason: true,
-      },
-    });
-    if (!row) return;
-
-    const view = deriveCompanyAccessStateFromLegacy(row);
-    const nextStored = storedCompanyStatusFromAccessState(view.state);
-    if (!nextStored) return;
-
-    const currentStored = normalizeStoredCompanyStatus(row.status);
-    const nextCourtesyEndsAt = nextStored === 'courtesy' ? row.courtesyEndsAt ?? null : null;
-    const nextCourtesyReason =
-      nextStored === 'courtesy'
-        ? row.courtesyReason || row.billingExemptReason || 'Liberação manual (legado)'
-        : null;
-    const courtesyFieldsUnchanged =
-      (row.courtesyEndsAt ?? null) === nextCourtesyEndsAt && (row.courtesyReason ?? null) === nextCourtesyReason;
-    if (currentStored === nextStored && courtesyFieldsUnchanged) return;
-
-    await this.company.update({
-      where: { id: Number(companyId) },
-      data: {
-        status: nextStored,
-        statusChangedAt: new Date(),
-        courtesyEndsAt: nextCourtesyEndsAt,
-        courtesyReason: nextCourtesyReason,
-      },
-    });
   }
 
   private isSqliteUrl() {

@@ -74,14 +74,11 @@ model Company {
   masterMercadoPagoCredentialKey String?
   masterWhatsAppCredentialKey    String?
   timezone                String?   @default("America/Sao_Paulo")
-  onboardingStatus        String    @default("active_paid") // pending_email_confirmation | active_trial | active_paid | suspended
   isActive                Boolean   @default(true)
-  paymentStatus           String    @default("PENDING") // PENDING | TRIAL | PAID | OVERDUE | EXPIRED | DISABLED
   paymentMethod           String    @default("NONE") // NONE | CARD | PIX | BOLETO | MANUAL
   billingCycle           String    @default("MONTHLY") // MONTHLY | ANNUAL
-  subscriptionStatus      String    @default("trialing") // trialing | active | past_due | canceled | expired
   billingProvider         String    @default("manual") // manual | mercadopago | stripe | apple | google
-  // Estado unico da empresa (PR10062026002): unica fonte persistida.
+  // Estado unico da empresa (PR10062026002, pos-DROP): unica fonte persistida.
   // pending_checkout | trial | active | courtesy | overdue | suspended
   status                  String    @default("pending_checkout")
   statusChangedAt         DateTime?
@@ -89,12 +86,6 @@ model Company {
   // Cortesia (funde liberacao manual + isenta): prazo opcional; sem prazo = permanente.
   courtesyEndsAt          DateTime?
   courtesyReason          String?
-  // ---- Campos legados de transicao (morrem na fase A.4) ----
-  premiumAccess           Boolean   @default(false)
-  billingExempt           Boolean   @default(false)
-  billingExemptReason     String?
-  billingExemptAt         DateTime?
-  billingExemptByUserId   Int?
   commercialCardsMonthlyLimitOverride Int?
   commercialCardsDailyLimitOverride   Int?
   commissionDueBusinessDays Int      @default(3)
@@ -977,7 +968,6 @@ model User {
   createdProducts Product[] @relation("ProductCreatedBy")
   updatedProducts Product[] @relation("ProductUpdatedBy")
   passwordResets  PasswordReset[]
-  moduleAccesses  UserModuleAccess[]
   deletionRecords        DeletionRecord[]
   techAssistantInteractions TechAssistantInteraction[]
   masterContextSessions MasterAssumedContextSession[] @relation("MasterAssumedContextUser")
@@ -2513,7 +2503,6 @@ model SystemModule {
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
   companyModules CompanyModule[]
-  userAccesses   UserModuleAccess[]
 }
 
 model CompanyModule {
@@ -2528,20 +2517,6 @@ model CompanyModule {
 
   @@unique([companyId, moduleId])
   @@index([companyId, enabled])
-}
-
-model UserModuleAccess {
-  id           Int          @id @default(autoincrement())
-  user         User         @relation(fields: [userId], references: [id])
-  userId       Int
-  systemModule SystemModule @relation(fields: [moduleId], references: [id])
-  moduleId     Int
-  allowed      Boolean      @default(true)
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
-
-  @@unique([userId, moduleId])
-  @@index([userId, allowed])
 }
 
 model DeletionRecord {
