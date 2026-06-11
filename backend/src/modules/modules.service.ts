@@ -51,9 +51,10 @@ import {
   resolveCompanyModuleAccessPolicy,
 } from './module-access-policy';
 import {
-  deriveCompanyAccessStateFromLegacy,
   isCompanyAccessReleased,
+  normalizeStoredCompanyStatus,
   resolveCompanyAccessState,
+  storedCompanyStatusFromAccessState,
 } from './company-access-state';
 import {
   ensureUserTeamPolicyForUser,
@@ -284,16 +285,6 @@ export class ModulesService implements OnModuleInit {
         this.normalizeOptionalString(company?.whatsappDisplayNumber) ||
         this.normalizeOptionalString(company?.whatsappNumber),
     };
-  }
-
-  private mapPaymentStatusToSubscriptionStatus(paymentStatusRaw: string) {
-    const normalized = String(paymentStatusRaw || '').trim().toUpperCase();
-    if (normalized === 'PAID') return 'active';
-    if (normalized === 'TRIAL') return 'trialing';
-    if (normalized === 'MANUAL') return 'manual';
-    if (normalized === 'DISABLED') return 'canceled';
-    if (normalized === 'EXPIRED') return 'expired';
-    return 'past_due';
   }
 
   private parseDateValue(value: unknown) {
@@ -1854,13 +1845,12 @@ export class ModulesService implements OnModuleInit {
       id?: number | null;
       slug?: string | null;
       companyKind?: string | null;
+      status?: string | null;
       isActive?: boolean | null;
-      paymentStatus?: string | null;
-      subscriptionStatus?: string | null;
-      premiumAccess?: boolean | null;
-      billingExempt?: boolean | null;
       trialEndsAt?: Date | string | null;
       billingGraceEndsAt?: Date | string | null;
+      courtesyEndsAt?: Date | string | null;
+      courtesyReason?: string | null;
     } | null,
   ) {
     const normalizedSnapshotId = Number(companySnapshot?.id || 0);
@@ -1869,13 +1859,12 @@ export class ModulesService implements OnModuleInit {
           id: companyId,
           slug: companySnapshot?.slug || null,
           companyKind: companySnapshot?.companyKind || null,
+          status: companySnapshot?.status || null,
           isActive: Boolean(companySnapshot?.isActive),
-          paymentStatus: companySnapshot?.paymentStatus || null,
-          subscriptionStatus: companySnapshot?.subscriptionStatus || null,
-          premiumAccess: Boolean(companySnapshot?.premiumAccess),
-          billingExempt: Boolean(companySnapshot?.billingExempt),
           trialEndsAt: this.parseDateValue(companySnapshot?.trialEndsAt),
           billingGraceEndsAt: this.parseDateValue(companySnapshot?.billingGraceEndsAt),
+          courtesyEndsAt: this.parseDateValue(companySnapshot?.courtesyEndsAt),
+          courtesyReason: companySnapshot?.courtesyReason || null,
         }
       : await this.prisma.company.findUnique({
           where: { id: companyId },
@@ -1883,62 +1872,51 @@ export class ModulesService implements OnModuleInit {
             id: true,
             slug: true,
             companyKind: true,
+            status: true,
             isActive: true,
-            paymentStatus: true,
-            subscriptionStatus: true,
-            premiumAccess: true,
-            billingExempt: true,
             trialEndsAt: true,
             billingGraceEndsAt: true,
+            courtesyEndsAt: true,
+            courtesyReason: true,
           },
         });
     if (!company) return { exists: false, active: false };
 
     if (isPlatformInfraCompany(company)) return { exists: true, active: false };
 
+    // Reconciliacao do runtime projetada do estado unico (PR-002 DROP): le o
+    // status persistido (as datas decidem vencimentos) e materializa apenas as
+    // transicoes terminais — sem nenhuma re-derivacao de campos crus.
     const now = Date.now();
-    // Pergunta "se estivesse ativa, esta empresa estaria liberada?" usando a
-    // derivacao LEGADA de proposito: o override de isActive so faz sentido nos
-    // campos sobrepostos. O estado unico persistido e mantido pelo dual-write
-    // (PrismaService) e pelos escritores novos; este fluxo migra na fase A.3.
-    const access = deriveCompanyAccessStateFromLegacy({ ...company, isActive: true }, now);
-    const shouldRemainActive = isCompanyAccessReleased(access.state);
-    const trialExpired = access.state === 'suspended' && access.detailCode === 'trial_expired';
-    const manualAllowed =
-      String(company.paymentStatus || '').trim().toUpperCase() === 'MANUAL' ||
-      String(company.subscriptionStatus || '').trim().toLowerCase() === 'manual';
-    const premiumAllowed = Boolean(company.premiumAccess);
+    const access = resolveCompanyAccessState(company, now);
+    const released = isCompanyAccessReleased(access.state);
 
-    if (trialExpired || !shouldRemainActive) {
-      await this.prisma.$transaction([
-        this.prisma.company.update({
-          where: { id: companyId },
-          data: {
-            isActive: false,
-            paymentStatus: trialExpired ? 'EXPIRED' : (company.paymentStatus || 'DISABLED'),
-            subscriptionStatus: trialExpired
-              ? 'expired'
-              : this.mapPaymentStatusToSubscriptionStatus(company.paymentStatus || 'DISABLED'),
-            premiumAccess: false,
-            deactivatedAt: new Date(),
-          },
-        }),
-        this.prisma.companyModule.updateMany({ where: { companyId }, data: { enabled: false } }),
-      ]);
+    if (!released) {
+      // trial vencido -> suspended; graca vencida -> overdue; etc. Persiste o
+      // estado terminal so quando ha transicao (evita escrita a cada leitura).
+      const nextStored = storedCompanyStatusFromAccessState(access.state) || 'suspended';
+      const currentStored = normalizeStoredCompanyStatus(company.status);
+      if (company.isActive || currentStored !== nextStored) {
+        await this.prisma.$transaction([
+          this.prisma.company.update({
+            where: { id: companyId },
+            data: {
+              status: nextStored,
+              statusChangedAt: new Date(),
+              isActive: false,
+              deactivatedAt: new Date(),
+            },
+          }),
+          this.prisma.companyModule.updateMany({ where: { companyId }, data: { enabled: false } }),
+        ]);
+      }
       return { exists: true, active: false };
     }
 
     if (!company.isActive) {
       await this.prisma.company.update({
         where: { id: companyId },
-        data: {
-          isActive: true,
-          deactivatedAt: null,
-          // premiumAccess significa liberacao manual do master. Reativar uma
-          // empresa paga/trial NAO pode espalhar essa flag, senao todo mundo
-          // reativado vira "Acesso manual" na leitura canonica.
-          premiumAccess: premiumAllowed || manualAllowed,
-        },
+        data: { isActive: true, deactivatedAt: null },
       });
     }
 
@@ -3679,10 +3657,6 @@ export class ModulesService implements OnModuleInit {
             statusChangedAt: now,
             statusChangedByUserId: masterUserId,
             isActive: false,
-            onboardingStatus: 'pending_checkout',
-            paymentStatus: 'PENDING',
-            subscriptionStatus: 'pending_checkout',
-            premiumAccess: false,
             deactivatedAt: now,
           },
         }),
@@ -3723,13 +3697,13 @@ export class ModulesService implements OnModuleInit {
           this.prisma.company.update({
             where: { id: companyId },
             data: {
+              // Trial com data no passado = fim de trial -> checkout (PR-002 B).
+              status: 'pending_checkout',
+              statusChangedAt: now,
+              statusChangedByUserId: masterUserId,
               trialStartsAt,
               trialEndsAt: manualEnd,
               isActive: false,
-              onboardingStatus: 'pending_checkout',
-              paymentStatus: 'PENDING',
-              subscriptionStatus: 'pending_checkout',
-              premiumAccess: false,
               deactivatedAt: now,
             },
           }),
@@ -3746,9 +3720,6 @@ export class ModulesService implements OnModuleInit {
               selectedPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO,
               trialModuleSelection: 'vendas',
               isActive: true,
-              paymentStatus: 'TRIAL',
-              subscriptionStatus: 'trialing',
-              premiumAccess: false,
               trialStartsAt,
               trialEndsAt: manualEnd,
               trialNoticeEmailStage: 0,
@@ -3820,16 +3791,12 @@ export class ModulesService implements OnModuleInit {
         where: { id: companyId },
         data: {
           // Estado unico nativo (PR-002 B): trial concedido/estendido.
-          // premiumAccess significa cortesia; trial NAO carrega a flag.
           status: 'trial',
           statusChangedAt: now,
           statusChangedByUserId: masterUserId,
           selectedPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO,
           trialModuleSelection: 'vendas',
           isActive: true,
-          paymentStatus: 'TRIAL',
-          subscriptionStatus: 'trialing',
-          premiumAccess: false,
           trialStartsAt,
           trialEndsAt,
           trialNoticeEmailStage: 0,
@@ -4255,10 +4222,11 @@ export class ModulesService implements OnModuleInit {
         await tx.company.update({
           where: { id: companyId },
           data: {
+            // Pagamento manual liquida pendencia -> adimplente (estado unico).
+            status: 'active',
+            statusChangedAt: paidAt,
+            statusChangedByUserId: masterUserId,
             selectedPlanKey: planKey,
-            paymentStatus: 'PAID',
-            subscriptionStatus: 'active',
-            premiumAccess: true,
             subscriptionCurrentPeriodStart: paidAt,
             subscriptionCurrentPeriodEnd: periodEnd,
             isActive: true,
