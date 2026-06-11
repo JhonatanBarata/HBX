@@ -177,10 +177,8 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
     slug?: string | null;
     entityType?: string | null;
     createdAt?: Date | null;
-    onboardingStatus?: string | null;
+    status?: string | null;
     isActive?: boolean | null;
-    paymentStatus?: string | null;
-    subscriptionStatus?: string | null;
     deactivatedAt?: Date | null;
     primaryContactName?: string | null;
     contactEmail?: string | null;
@@ -200,10 +198,8 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
         slug: company.slug ? String(company.slug) : null,
         entityType: company.entityType ? String(company.entityType) : null,
         createdAt: company.createdAt instanceof Date ? company.createdAt.toISOString() : null,
-        onboardingStatus: company.onboardingStatus ? String(company.onboardingStatus) : null,
+        status: company.status ? String(company.status) : null,
         isActive: Boolean(company.isActive),
-        paymentStatus: company.paymentStatus ? String(company.paymentStatus) : null,
-        subscriptionStatus: company.subscriptionStatus ? String(company.subscriptionStatus) : null,
         deactivatedAt: company.deactivatedAt instanceof Date ? company.deactivatedAt.toISOString() : null,
         primaryContactName: company.primaryContactName ? String(company.primaryContactName) : null,
         contactEmail: company.contactEmail ? String(company.contactEmail) : null,
@@ -251,10 +247,8 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
         slug: true,
         entityType: true,
         createdAt: true,
-        onboardingStatus: true,
+        status: true,
         isActive: true,
-        paymentStatus: true,
-        subscriptionStatus: true,
         deactivatedAt: true,
         primaryContactName: true,
         contactEmail: true,
@@ -433,10 +427,6 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
           status: 'pending_checkout',
           statusChangedAt: new Date(),
           isActive: false,
-          onboardingStatus: 'pending_checkout',
-          paymentStatus: 'PENDING',
-          subscriptionStatus: 'pending_checkout',
-          premiumAccess: false,
           primaryContactName: contactName,
           contactEmail,
         },
@@ -546,10 +536,10 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
           name: MASTER_WHATSAPP_ENGINE_COMPANY_NAME,
           slug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
           companyKind: COMPANY_KIND_PLATFORM_INFRA,
-          onboardingStatus: 'active_paid',
-          paymentStatus: 'MANUAL',
-          subscriptionStatus: 'manual',
-          premiumAccess: true,
+          // Infra da plataforma: o resolver canonico trata platform_infra antes
+          // de ler billing, entao status aqui e so coerencia (sem espelho).
+          status: 'active',
+          statusChangedAt: new Date(),
           isActive: true,
           paymentMethod: 'MANUAL',
           billingProvider: 'manual',
@@ -682,10 +672,7 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
       company: {
         id: Number((company as any)?.id || 0),
         name: this.normalizeOptionalString((company as any)?.name),
-        onboardingStatus: this.normalizeOptionalString((company as any)?.onboardingStatus),
-        paymentStatus: this.normalizeOptionalString((company as any)?.paymentStatus),
-        subscriptionStatus: this.normalizeOptionalString((company as any)?.subscriptionStatus),
-        premiumAccess: Boolean((company as any)?.premiumAccess),
+        status: this.normalizeOptionalString((company as any)?.status),
         selectedPlanKey: this.normalizeOptionalString((company as any)?.selectedPlanKey),
         contactPhone: this.normalizeOptionalString((company as any)?.contactPhone),
         trialModuleSelection: this.normalizeOptionalString((company as any)?.trialModuleSelection),
@@ -1273,10 +1260,8 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
         select: {
           id: true,
           name: true,
+          status: true,
           isActive: true,
-          paymentStatus: true,
-          subscriptionStatus: true,
-          premiumAccess: true,
           deactivatedAt: true,
         },
       });
@@ -1307,10 +1292,9 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
             await tx.company.update({
               where: { id: companyId },
               data: {
+                status: 'suspended',
+                statusChangedAt: scheduledAt,
                 isActive: false,
-                paymentStatus: 'DISABLED',
-                subscriptionStatus: 'canceled',
-                premiumAccess: false,
                 deactivatedAt: scheduledAt,
               },
             });
@@ -1396,10 +1380,8 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
         id: true,
         name: true,
         slug: true,
+        status: true,
         isActive: true,
-        paymentStatus: true,
-        subscriptionStatus: true,
-        premiumAccess: true,
         deactivatedAt: true,
       },
     });
@@ -1412,10 +1394,9 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
       return tx.company.update({
         where: { id },
         data: {
+          status: 'suspended',
+          statusChangedAt: now,
           isActive: false,
-          paymentStatus: 'DISABLED',
-          subscriptionStatus: 'canceled',
-          premiumAccess: false,
           deactivatedAt: now,
         },
       });
@@ -1431,16 +1412,12 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
       archive: {
         previousState: {
           isActive: Boolean(company.isActive),
-          paymentStatus: company.paymentStatus,
-          subscriptionStatus: company.subscriptionStatus,
-          premiumAccess: Boolean(company.premiumAccess),
+          status: company.status,
           deactivatedAt: company.deactivatedAt ? company.deactivatedAt.toISOString() : null,
         },
         currentState: {
           isActive: Boolean(archived.isActive),
-          paymentStatus: archived.paymentStatus,
-          subscriptionStatus: archived.subscriptionStatus,
-          premiumAccess: Boolean(archived.premiumAccess),
+          status: archived.status,
           deactivatedAt: archived.deactivatedAt ? archived.deactivatedAt.toISOString() : null,
         },
         reason,
