@@ -38,10 +38,8 @@ import {
   formatDateTime,
   ledgerPaymentLabel,
   paymentMethodLabel,
-  paymentStatusLabel,
   resolveReality,
   riskTone,
-  subscriptionLabel,
   syncMasterPlanCatalog,
 } from "./MasterCommandCenter.utils";
 import styles from "./MasterCommandCenter.module.css";
@@ -774,8 +772,7 @@ function MasterRealityPanel({ company, actions, state }: { company: CompanyDetai
       <details className={styles.technicalDetails}>
         <summary>Detalhes técnicos</summary>
         <div className={styles.techGrid}>
-          <span>paymentStatus: {paymentStatusLabel(company.paymentStatus)}</span>
-          <span>subscriptionStatus: {subscriptionLabel(company.subscriptionStatus)}</span>
+          <span>status: {company.accessStateLabel || company.accessState}</span>
           <span>billingProvider: {company.billingProvider || "manual"}</span>
           <span>paymentMethod: {paymentMethodLabel(company.paymentMethod)}</span>
           <span>Valor pendente: {formatCurrency(company.currentOutstandingValue)}</span>
@@ -1014,7 +1011,7 @@ function MasterBillingPanel({ company, actions, state }: { company: CompanyDetai
         <h3>Financeiro humano</h3>
       </div>
       <div className={styles.billingGrid}>
-        <InfoItem label="Situação atual" value={company.billingSituation?.statusLabel || paymentStatusLabel(company.paymentStatus)} />
+        <InfoItem label="Situação atual" value={company.billingSituation?.statusLabel || company.accessStateLabel} />
         <InfoItem label="Valor do ciclo" value={formatCurrency(company.finance.finalCycleAmount)} />
         <InfoItem label="Próximo vencimento" value={formatDate(company.nextDueAt || company.billingSituation?.nextDueAt)} />
         <InfoItem label="Pendência atual" value={formatCurrency(company.billingSituation?.amountDue || company.currentOutstandingValue)} />
@@ -1125,7 +1122,7 @@ function MasterTrialPanel({ company, actions, state }: { company: CompanyDetailP
         <InfoItem label="Início" value={formatDate(company.trialStartsAt)} />
         <InfoItem label="Fim" value={formatDate(company.trialEndsAt)} />
         <InfoItem label="Dias restantes" value={company.trialRemainingDays == null ? "-" : String(company.trialRemainingDays)} />
-        <InfoItem label="Status" value={subscriptionLabel(company.subscriptionStatus)} />
+        <InfoItem label="Status" value={company.accessStateLabel} />
       </div>
       <div className={styles.inlineForm}>
         <input

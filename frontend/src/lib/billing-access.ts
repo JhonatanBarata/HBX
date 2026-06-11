@@ -1,73 +1,25 @@
 export type BillingAccessCompany = {
   companyKind?: string | null;
-  onboardingStatus?: string | null;
-  paymentStatus?: string | null;
-  subscriptionStatus?: string | null;
-  premiumAccess?: boolean | null;
   trialEndsAt?: string | Date | null;
-  // Estado canônico vindo de /profile/current-user (backend é a fonte).
+  // Estado canônico vindo de /profile/current-user (backend é a fonte única
+  // após o DROP do PR-002 — nada de campos crus de cobrança no frontend).
   accessReleased?: boolean | null;
   accessState?: string | null;
 };
 
 export type PreCheckoutReason = "trial_expired" | "payment_failed" | "pending_checkout";
 
-function parseTime(value?: string | Date | null) {
-  if (!value) return null;
-  const date = value instanceof Date ? value : new Date(value);
-  const time = date.getTime();
-  return Number.isFinite(time) ? time : null;
-}
-
-export function resolvePreCheckoutReason(company?: BillingAccessCompany | null, nowMs = Date.now()): PreCheckoutReason | null {
+export function resolvePreCheckoutReason(company?: BillingAccessCompany | null): PreCheckoutReason | null {
   if (!company) return null;
 
-  // Quando o backend já enviou o estado canônico, ele decide primeiro.
-  // O cálculo legado abaixo segue como fallback (payloads antigos e o caso
-  // suspended/unknown, onde ainda distinguimos trial_expired de payment_failed).
+  // Projeção do estado canônico (DROP): accessReleased e accessState vêm do
+  // backend. accessState só é enviado para o público de cobrança (ADMIN);
+  // vendedor recebe accessReleased e nunca chega a um motivo de checkout.
   if (company.accessReleased === true) return null;
   const accessState = String(company.accessState || "").trim().toLowerCase();
-  if (accessState === "overdue") return "payment_failed";
   if (accessState === "pending_checkout") return "pending_checkout";
-
-  const onboardingStatus = String(company.onboardingStatus || "").trim().toLowerCase();
-  const paymentStatus = String(company.paymentStatus || "").trim().toUpperCase();
-  const subscriptionStatus = String(company.subscriptionStatus || "").trim().toLowerCase();
-  const premiumAccess = Boolean(company.premiumAccess);
-  const accessReleased =
-    premiumAccess ||
-    paymentStatus === "PAID" ||
-    paymentStatus === "MANUAL" ||
-    subscriptionStatus === "active" ||
-    subscriptionStatus === "authorized" ||
-    subscriptionStatus === "manual";
-
-  if (accessReleased) return null;
-
-  const trialEndsAt = parseTime(company.trialEndsAt);
-  const trialExpiredByDate = Boolean(
-    trialEndsAt &&
-      trialEndsAt < nowMs &&
-      (paymentStatus === "TRIAL" || subscriptionStatus === "trialing" || onboardingStatus === "active_trial"),
-  );
-  const expiredState = paymentStatus === "EXPIRED" || subscriptionStatus === "expired";
-
-  if (trialExpiredByDate || expiredState) return "trial_expired";
-
-  const pendingCheckout =
-    paymentStatus === "PENDING" ||
-    subscriptionStatus === "pending_checkout" ||
-    onboardingStatus === "pending_checkout";
-
-  const paymentFailed =
-    paymentStatus === "DISABLED" ||
-    paymentStatus === "OVERDUE" ||
-    subscriptionStatus === "past_due" ||
-    onboardingStatus === "suspended";
-
-  if (paymentFailed) return "payment_failed";
-
-  return pendingCheckout ? "pending_checkout" : null;
+  if (accessState === "overdue" || accessState === "suspended") return "payment_failed";
+  return null;
 }
 
 export function buildPreCheckoutPath(reason: PreCheckoutReason | string | null = "pending_checkout") {

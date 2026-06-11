@@ -45,9 +45,7 @@ function buildProfileDraft(company: CompanyDetailPayload["company"]) {
     contactPhone: company.contactPhone || "",
     taxDocument: company.taxDocument || "",
     paymentMethod: company.paymentMethod || "NONE",
-    subscriptionStatus: company.subscriptionStatus || "trialing",
     billingProvider: company.billingProvider || "manual",
-    premiumAccess: Boolean(company.premiumAccess),
   };
 }
 

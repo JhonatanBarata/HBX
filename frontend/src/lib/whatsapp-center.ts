@@ -5,10 +5,7 @@ export type WhatsAppCenterPayload = {
   company: {
     id: number;
     name?: string | null;
-    onboardingStatus?: string | null;
-    paymentStatus?: string | null;
-    subscriptionStatus?: string | null;
-    premiumAccess?: boolean;
+    status?: string | null;
     selectedPlanKey?: string | null;
     contactPhone?: string | null;
     trialModuleSelection?: string | null;

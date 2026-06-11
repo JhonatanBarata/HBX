@@ -65,10 +65,8 @@ export type CommercialPlansPayload = {
     contactName?: string | null;
     contactPhone?: string | null;
     taxDocument?: string | null;
-    onboardingStatus?: string | null;
-    subscriptionStatus?: string | null;
-    paymentStatus?: string | null;
-    premiumAccess?: boolean | null;
+    accessState?: string | null;
+    accessStateLabel?: string | null;
     trialEndsAt?: string | null;
     trialRemainingDays?: number | null;
     billingGraceEndsAt?: string | null;

@@ -331,8 +331,6 @@ function planTierFromPayload(plans: CommercialPlansPayload | null, user: Current
   const key = String(plans?.current.selectedPlanKey || plans?.current.planKey || user?.company?.selectedPlanKey || "").trim();
   const entitlements = plans?.current.entitlements || ({} as CommercialPlansPayload["current"]["entitlements"]);
   if (
-    plans?.current.premiumAccess ||
-    user?.company?.premiumAccess ||
     key === "hbx_padrao" ||
     key === "hbx_melhor" ||
     entitlements.radar_premium ||

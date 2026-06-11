@@ -63,10 +63,9 @@ function isSmallWhatsAppViewport() {
 }
 
 function isTrialingCompany(payload?: WhatsAppCenterPayload | null) {
-  const paymentStatus = String(payload?.company.paymentStatus || "").trim().toUpperCase();
-  const subscriptionStatus = String(payload?.company.subscriptionStatus || "").trim().toLowerCase();
-  const onboardingStatus = String(payload?.company.onboardingStatus || "").trim().toLowerCase();
-  return paymentStatus === "TRIAL" || subscriptionStatus === "trialing" || onboardingStatus === "active_trial";
+  // Estado único (DROP): trial = company.status canônico.
+  const status = String(payload?.company.status || "").trim().toLowerCase();
+  return status === "trial";
 }
 
 function isLeadPlan(payload?: WhatsAppCenterPayload | null) {

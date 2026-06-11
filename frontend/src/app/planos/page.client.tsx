@@ -91,22 +91,22 @@ function openHbxFullSupport() {
   );
 }
 
+// Estado único (DROP): as leituras de plano projetam de current.accessState
+// (paying | manual | exempt | grace | trial | trial_ending | overdue |
+// pending_checkout | suspended). Sem campos crus de cobrança.
+function accessStateOf(payload: CommercialPlansPayload | null) {
+  return String(payload?.current.accessState || "").trim().toLowerCase();
+}
+
 function isPendingCheckout(payload: CommercialPlansPayload | null) {
-  if (isPaidOrActive(payload)) return false;
-  const subscriptionStatus = String(payload?.current.subscriptionStatus || "").trim().toLowerCase();
-  const paymentStatus = String(payload?.current.paymentStatus || "").trim().toUpperCase();
-  const onboardingStatus = String(payload?.current.onboardingStatus || "").trim().toLowerCase();
-  const billingGraceEndsAt = payload?.current.billingGraceEndsAt ? new Date(payload.current.billingGraceEndsAt).getTime() : NaN;
-  if (subscriptionStatus === "grace" && Number.isFinite(billingGraceEndsAt) && billingGraceEndsAt >= Date.now()) return false;
-  return subscriptionStatus === "pending_checkout" || paymentStatus === "PENDING" || onboardingStatus === "pending_checkout";
+  return accessStateOf(payload) === "pending_checkout";
 }
 
 function isImplementationAccess(payload: CommercialPlansPayload | null) {
-  const subscriptionStatus = String(payload?.current.subscriptionStatus || "").trim().toLowerCase();
-  const paymentStatus = String(payload?.current.paymentStatus || "").trim().toUpperCase();
   const assistedSetupRequired = Boolean(payload?.current.assistedSetup?.required);
   if (payload?.current.isTrial) return false;
-  return assistedSetupRequired || subscriptionStatus === "manual" || paymentStatus === "MANUAL";
+  const state = accessStateOf(payload);
+  return assistedSetupRequired || state === "manual" || state === "exempt";
 }
 
 function currentPlanKey(payload: CommercialPlansPayload | null): PlanKey | null {
@@ -116,13 +116,8 @@ function currentPlanKey(payload: CommercialPlansPayload | null): PlanKey | null 
 }
 
 function isPaidOrActive(payload: CommercialPlansPayload | null) {
-  const subscriptionStatus = String(payload?.current.subscriptionStatus || "").trim().toLowerCase();
-  const paymentStatus = String(payload?.current.paymentStatus || "").trim().toUpperCase();
-  const billingGraceEndsAt = payload?.current.billingGraceEndsAt ? new Date(payload.current.billingGraceEndsAt).getTime() : NaN;
-  if (subscriptionStatus === "grace" && Number.isFinite(billingGraceEndsAt) && billingGraceEndsAt >= Date.now()) return true;
-  if (subscriptionStatus === "active" || subscriptionStatus === "authorized" || subscriptionStatus === "manual") return true;
-  if (paymentStatus === "PAID" || paymentStatus === "MANUAL") return true;
-  if (payload?.current.premiumAccess && !payload?.current.isTrial) return true;
+  const state = accessStateOf(payload);
+  if (state === "paying" || state === "manual" || state === "exempt" || state === "grace") return true;
   return Boolean(payload?.current.entitlements.vendas && !payload?.current.isTrial);
 }
 

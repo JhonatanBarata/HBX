@@ -363,9 +363,8 @@ type VendasAccountProfile = {
   email?: string | null;
   userKind?: string | null;
   company?: {
-    paymentStatus?: string | null;
-    subscriptionStatus?: string | null;
-    premiumAccess?: boolean | null;
+    // Estado único (DROP): só o rótulo canônico chega ao frontend (admin).
+    accessStateLabel?: string | null;
   } | null;
 };
 
@@ -7146,9 +7145,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         activeCapabilities.canSeeLeadIntelligence ||
         activeCapabilities.canSeeOpportunityReason ||
         activeCapabilities.canSeeMessageTemplates ||
-        activeCapabilities.canSeeSocialLinks === true ||
-        accountProfile?.company?.premiumAccess ||
-        String(accountProfile?.company?.subscriptionStatus || "").toLowerCase() === "trialing",
+        activeCapabilities.canSeeSocialLinks === true,
     );
     const mobileHeroPremiumActive = Boolean(mobileHeroPremiumAvailable && mobileAutoEnrichmentActive);
     const reportMetrics = conversionReport?.metrics || {};
@@ -12281,15 +12278,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                 {accountProfileLoading
                   ? "Carregando..."
                   : accountProfile?.company
-                    ? [
-                        accountProfile.company.subscriptionStatus &&
-                          `Plano: ${accountProfile.company.subscriptionStatus}`,
-                        accountProfile.company.paymentStatus &&
-                          `Pagamento: ${accountProfile.company.paymentStatus}`,
-                        accountProfile.company.premiumAccess ? "Premium ativo" : null,
-                      ]
-                        .filter(Boolean)
-                        .join(" · ") || "Sem dados de cobrança nesta sessão."
+                    ? accountProfile.company.accessStateLabel || "Sem dados de cobrança nesta sessão."
                     : "Não foi possível carregar agora."}
               </p>
             </div>
