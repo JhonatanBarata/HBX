@@ -1,7 +1,7 @@
 # PR10062026002 — Arquitetura pura do cadastro: master → contratante → vendedor
 
 Data: 10/06/2026
-Status: PLANEJADO (aguardando "go" do dono)
+Status: **CONCLUÍDO em 11/06/2026** (desvios anotados no fim do arquivo)
 Antecessor: PR10062026001 (concluído — estado canônico, papéis de cobrança, master enxuto)
 Princípio do dono: **sem legado** — regras desnecessárias são removidas do backend, não escondidas.
 
@@ -137,34 +137,38 @@ Cada fase commitada, buildada e testada antes da seguinte.
 >   `evaluateCompanyStatus` REESCRITO stored-first (materializa só transições
 >   terminais); snapshots de auditoria projetam do `status`. **E2E real verde**
 >   (container reconstruído): paywall íntegro de ponta a ponta.
-> **RESTA do DROP (próxima sessão):**
->   - **DROP 3 (resto)** modules.service: ~30 refs de SERIALIZAÇÃO (select
->     clauses do master summary, payload cru de "Detalhes técnicos",
->     `companyStatusBucket`/`master-billing-situation` que ainda decidem por
->     `onboardingStatus`) — acopladas ao frontend (DROP 8).
->   - **DROP 4** financeiro(54)/auth(45: signup/confirm ainda espelham, mas já
->     setam status)/companies(39)/master-runtime(22: sweep `billingExempt` →
->     `status='courtesy'` + schema ensures).
->   - **DROP 5** commercial-plans/radar-presentation(19 selects)/commissions(19)/
->     whatsapp-modal(14)/messaging/users.
->   - **DROP 6** `UserModuleAccess` (tabela + includes `moduleAccesses`) +
->     `billingExempt*` fora do código.
->   - **DROP 7** (CAPSTONE) middleware dual-write (`prisma.service.$use`) +
->     `deriveCompanyAccessStateFromLegacy` removidos; migração DESTRUTIVA do
->     schema (drop dos 4 campos + billingExempt* + tabela UserModuleAccess).
->     **Salvaguarda:** só roda após referências = 0. **Backup dispensado pelo
->     dono (10/06): sem clientes em produção agora, banco local recriável do
->     zero — se quebrar, recria com seed.** A trava que permanece é só a de
->     referências = 0 (grep prova que nenhum leitor de decisão usa as colunas).
->   - **DROP 8** frontend sem campos crus (billing-access fallback, whatsapp/
->     planos/vendas/tutorial/master).
->   - **DROP 9** checks completos + E2E (ajustar SQL sem colunas legadas) +
->     smoke 3 personas.
-> **Invariante mantida em cada passo:** o dual-write ignora escritas que falam
-> `status`; como todo escritor nativo seta `status`, remover os espelhos é
-> sempre seguro. A derivação legada (`deriveCompanyAccessStateFromLegacy`) e o
-> dual-write são a rede de segurança e só caem no DROP 7, depois de zerar as
-> referências. Commits: 0fcb9cd8, a7ffcc67, 08f80288, b2f8150b, 02da1399.
+> ✔ **DROP 3-resto** modules.service zerado: summary/master sem campos crus
+>   (activationStatus pela confirmação de e-mail do USUÁRIO; accessState/Label
+>   no payload), selects enxutos — inclusive um select que nem carregava
+>   `status` e caía no fallback legado (bug corrigido). Commit 6bd0688a.
+> ✔ **DROP 4** auth (trial/signup/resend sem espelhos; DELETADO o reparo
+>   histórico repairBillingGraceCompanyStates), companies (criação master/
+>   infra/órfãs/archive nativos), financeiro ZERADO (4 escritores reais +
+>   cancelamento nativo; aviso de trial filtra `status='trial'`; overview com
+>   label canônico). Commits f82285c9, bf50064b, af65cf29.
+> ✔ **DROP 5** commercial-plans (buildCurrentState expõe accessState/Label;
+>   selectPlanForUser nativo nos 2 ramos; canStartCommercialTrial =
+>   pending_checkout), commissions (resolveClientState projeta de
+>   access.state), radar/whatsapp-modal/messaging/users/vendas enxutos.
+>   Commit f53d805e.
+> ✔ **DROP 6** tabela `UserModuleAccess` fora do código (deleteMany/includes/
+>   snapshot da team policy); profile.controller sem 4 campos crus;
+>   master-provisioning nasce courtesy/trial nativo. Commit fb844d3e.
+> ✔ **DROP 7 (CAPSTONE)** gate cumprido (grep = 0 refs); dual-write e
+>   deriveCompanyAccessStateFromLegacy REMOVIDOS; migração destrutiva
+>   `20260611_drop_legacy_company_state` (backfill defensivo final + DROP das
+>   colunas + DROP TABLE UserModuleAccess) APLICADA no banco local; resolver
+>   stored-only com proteções de paywall preservadas; matriz access-state
+>   reescrita. Backup dispensado pelo dono. Commit 29818cd5.
+> ✔ **DROP 8** frontend só nos DECISORES (critério do dono: zero cosmética;
+>   TopBar/master morrem na refatoração do PR-003/PR-004): billing-access sem
+>   cálculo legado (morto), planos/whatsapp/vendas/tutorial projetam de
+>   accessState/status; tipos sem campos crus. Diagnóstico de entropia 11/06
+>   registrado no contrato OK-PR-004. Commit 8f8c742c.
+> ✔ **DROP 9** prisma validate + builds + suíte COMPLETA do backend (795
+>   pass/0 fail, 8 skips pré-existentes) + container pós-DROP boota limpo +
+>   E2E 2/2 contra o stack real = smoke das 3 personas. Commit 9668200e.
+> **DROP FÍSICO CONCLUÍDO.**
 
 ### Fase B — Master com 5 ações e 5 abas
 
@@ -392,9 +396,35 @@ Cada fase commitada, buildada e testada antes da seguinte.
       checkout → ativa. Sem 403, sem tela de cobrança para o vendedor.
 
 ### Fase E — Documentação e fechamento
-- [ ] E.1 AGENTS.md e docs/ai/README.md atualizados para o estado único (vocabulário,
-      campos removidos, invariantes novas).
-- [ ] E.2 Este documento marcado CONCLUÍDO com desvios anotados.
+- [x] E.1 AGENTS.md e docs/ai/README.md atualizados para o estado único (vocabulário,
+      campos removidos, invariantes novas: cortesia como única liberação sem
+      cobrança, team policy como única fonte de permissão, vendedor cai em
+      /vendas, pontos de enforcement novos).
+- [x] E.2 Este documento marcado CONCLUÍDO com desvios anotados (seção final).
+
+### DESVIOS ANOTADOS NO FECHAMENTO (11/06/2026)
+
+1. **C.2 (árvore única papel+permissões)** — backend pronto (team policy);
+   a UI definitiva é a tela Configurações > Equipe do kit do PR-003.
+   **Desvio deliberado:** implementar JUNTO do kit para não redesenhar a
+   mesma tela duas vezes. Vive no PR-003.
+2. **A.6 (RolesGuard/seller-access-governance como projeções do contrato
+   único)** — item de diagnóstico não executado neste PR; segue para a
+   Fase F (F.5 cobre os lint-contracts relacionados).
+3. **Fase F (governança executável)** — fase própria, não bloqueia este
+   fechamento: CI com gates de verdade, githooks, gitleaks, lint-contracts
+   (inclui o scanner report-only do PR-004 virar gate) e endurecimento
+   operacional. Pendências herdadas: senha temporária em masterResetPassword/
+   master-provisioning; exposição do payload whatsapp-center (JWT-only);
+   gate de papel da página atendimento/automacao.
+4. **Taxonomia comercial dupla** — structural-defaults.json ainda semeia a
+   tabela `Plan` legada (prata/ouro/diamante) vs `COMMERCIAL_PLAN_KEYS`;
+   registrado no contrato OK-PR-004 (diagnóstico 11/06) como candidato a
+   DROP próprio pós-PR-002.
+5. **Mecanismos extras além do planejado** (já documentados nos checkpoints):
+   dual-write transicional (viveu da Fase A ao DROP 7), convite por link
+   substituindo senha temporária (C.1c/C.3), E2E real das 3 personas
+   (tests/e2e/fluxo-contratante-vendedor.spec.ts) como teste permanente.
 
 ### Fase F — Governança executável (ajuste do diagnóstico de 10/06)
 > "Transformar convenções implícitas em contratos executáveis." A CI atual só compila;

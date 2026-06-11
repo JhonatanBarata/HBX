@@ -26,16 +26,36 @@ e o mapa do master estão lá e valem sempre.
   Planos & Regras | Email | Webwhats | Banco de Dados | Tokens | Links).
 - Gate de cobrança do app: `frontend/src/components/PreCheckoutGate.tsx`
   (cobrança só para admin; vendedor vê `CompanyAccessPausedScreen` neutra).
+- Contrato obrigatório de frontend:
+  `docs/PLANEJAMENTOS/PR#10062026NNN/OK-PR10062026004-contrato-frontend-obrigatorio.md`
+  — shell, overlays, rotas, CSS, acesso/cobrança e catálogo comercial para
+  novas mudanças de frontend.
+- Blueprint/checklists da contenção de entropia frontend:
+  `docs/PLANEJAMENTOS/PR#10062026NNN/OK-PR10062026005-blueprint-tela-nova-frontend.md`,
+  `OK-PR10062026006-inventario-ui-legado.md`,
+  `OK-PR10062026007-manifesto-rotas-canonicas.md`,
+  `OK-PR10062026008-especificacao-kit-ui.md` e
+  `OK-PR10062026009-checklist-revisao-frontend.md`.
 
 ## Invariantes que quebram o produto se violadas
 
 1. Vendedor/funcionário (role `USER`) nunca vê cobrança, valores ou status de
-   pagamento — bloqueio sempre neutro.
-2. Estado comercial nunca é re-derivado de `paymentStatus`/`subscriptionStatus`
-   crus fora do resolvedor canônico.
-3. `premiumAccess` = liberação manual do master; nunca é efeito colateral de
-   assinatura paga/trial.
-4. Isenção de cobrança é dado (`Company.billingExempt` + motivo + auditoria),
-   nunca special-case por slug/nome de empresa.
+   pagamento — bloqueio sempre neutro; login do vendedor cai direto em Vendas
+   e nunca recebe destino de checkout.
+2. `Company.status` é o ÚNICO estado comercial persistido
+   (`pending_checkout | trial | active | courtesy | overdue | suspended`);
+   as datas (`trialEndsAt`, `courtesyEndsAt`, `billingGraceEndsAt`) decidem os
+   vencimentos na leitura. Os campos legados (`paymentStatus`,
+   `subscriptionStatus`, `premiumAccess`, `onboardingStatus`,
+   `billingExempt*`) e a tabela `UserModuleAccess` FORAM REMOVIDOS do schema
+   no DROP do PR10062026002 — não recriar, não re-derivar.
+3. Cortesia (`status='courtesy'` + motivo obrigatório + prazo opcional) é a
+   única liberação sem cobrança: funde a antiga "liberação manual" e a
+   "isenção"; sem prazo = permanente (caso do tenant interno HBX), com prazo
+   vencido volta a cobrar. Nunca special-case por slug/nome de empresa.
+4. Permissão por usuário vive SÓ na team policy (`UserTeamPolicy.modulesJson`);
+   vendedor nasce com Vendas+Radar operacionais por default do catálogo, em
+   qualquer superfície (desktop = mobile).
 5. Backend é a fonte de verdade de autorização comercial; nenhum paywall é
-   afrouxado no frontend.
+   afrouxado no frontend. O frontend consome `accessState`/`accessStateLabel`/
+   `accessReleased` — nunca calcula cobrança.

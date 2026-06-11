@@ -45,28 +45,40 @@ Never expose secrets or bypass paid access. The backend is the source of truth f
 
 ## Access & Billing State (single source of truth)
 
-`backend/src/modules/company-access-state.ts` (`resolveCompanyAccessState`) is the only
-place that decides a company's commercial/access state:
+`Company.status` is the ONLY persisted commercial state
+(`pending_checkout | trial | active | courtesy | overdue | suspended`); dates
+(`trialEndsAt`, `courtesyEndsAt`, `billingGraceEndsAt`) decide expiry at read
+time. `backend/src/modules/company-access-state.ts` (`resolveCompanyAccessState`)
+is the only place that projects it into the read vocabulary:
 `platform_infra | exempt | manual | paying | trial | trial_ending | grace | overdue | pending_checkout | suspended | unknown`.
 
 Hard rules:
 
-- Never re-derive billing/access state from raw `paymentStatus`/`subscriptionStatus`
-  in services or UI. The backend engines (`module-access-policy.ts`, `companyStatusBucket`,
+- The legacy columns (`paymentStatus`, `subscriptionStatus`, `premiumAccess`,
+  `onboardingStatus`, `billingExempt*`) and the `UserModuleAccess` table were
+  DROPPED in PR10062026002 — never recreate them, never re-derive state from
+  raw fields. The backend engines (`module-access-policy.ts`, `companyStatusBucket`,
   `master-billing-situation.ts`, `evaluateCompanyStatus`) and the master UI are
-  projections of the canonical resolver. New screens read `accessState`/`accessStateLabel`
-  from the API.
+  projections of the canonical resolver. Screens read
+  `accessState`/`accessStateLabel`/`accessReleased` from the API.
 - Billing is the contratante's business only. Users with role `USER` (sellers/employees)
   must never see billing screens, amounts, payment statuses, or billing block reasons.
-  Their blocks are always neutral (`company_access_paused` / `module_not_enabled`).
-  Enforcement points: `presentModuleBlockForRole` (backend) and `PreCheckoutGate`
-  (frontend, redirects to checkout only when `userKind === 'admin'`).
-- `premiumAccess` means manual release decided by the master. Never set it as a side
-  effect for paid or trialing subscriptions.
-- Billing exemption is data, not code: `Company.billingExempt` (+ reason and audit),
-  set only via the master endpoint `PUT /modules/master/company/:id/billing-exemption`.
-  The internal HBX company is a normal tenant with exemption — never special-case
-  access or billing rules by slug or company name.
+  Their blocks are always neutral (`company_access_paused` / `module_not_enabled`);
+  their login lands on `/vendas` and never receives a checkout destination.
+  Enforcement points: `presentModuleBlockForRole` and
+  `presentOperationalStatusForRole` (backend), seller-neutral payloads in
+  `sanitizeUser` and `commercial-plans`, and `PreCheckoutGate` (frontend,
+  redirects to checkout only when `userKind === 'admin'`).
+- Courtesy (`status='courtesy'` + mandatory reason + optional deadline) is the only
+  free-access mechanism: it merges the old "manual release" and "billing exemption".
+  No deadline = permanent (the internal HBX tenant case); an expired deadline goes
+  back to charging. Set only via the master action
+  `PUT /modules/master/company/:id/courtesy`. The internal HBX company is a normal
+  tenant with permanent courtesy — never special-case access or billing rules by
+  slug or company name.
+- Per-user permission lives ONLY in the team policy (`UserTeamPolicy.modulesJson`).
+  Sellers default to operational Vendas+Radar from `team-access-catalog.ts`,
+  same rule on any surface (desktop = mobile).
 
 ## Master Surface
 
