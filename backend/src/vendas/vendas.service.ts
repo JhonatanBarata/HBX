@@ -1671,7 +1671,7 @@ export class VendasService {
   private async resolvePlanAccessForCompany(companyId: number): Promise<VendasPlanAccess> {
     const company = await this.prisma.company.findUnique({
       where: { id: Number(companyId) },
-      select: { selectedPlanKey: true, premiumAccess: true, paymentStatus: true, subscriptionStatus: true },
+      select: { selectedPlanKey: true },
     }).catch(() => null);
     return this.buildPlanAccess(resolveCommercialPlanKeyForCapabilities(company || {}));
   }
@@ -4665,10 +4665,10 @@ export class VendasService {
             name: MASTER_WHATSAPP_ENGINE_COMPANY_NAME,
             slug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
             companyKind: COMPANY_KIND_PLATFORM_INFRA,
-            onboardingStatus: 'active_paid',
-            paymentStatus: 'MANUAL',
-            subscriptionStatus: 'manual',
-            premiumAccess: true,
+            // Infra da plataforma: resolver trata platform_infra antes do
+            // billing — status e so coerencia (sem espelho).
+            status: 'active',
+            statusChangedAt: new Date(),
             isActive: true,
             paymentMethod: 'MANUAL',
             billingProvider: 'manual',

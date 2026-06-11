@@ -40,10 +40,8 @@ type CommercialCurrentState = {
   contactName: string | null;
   contactPhone: string | null;
   taxDocument: string | null;
-  onboardingStatus: string | null;
-  subscriptionStatus: string | null;
-  paymentStatus: string | null;
-  premiumAccess: boolean;
+  accessState: string | null;
+  accessStateLabel: string | null;
   trialEndsAt: string | null;
   trialRemainingDays: number | null;
   billingGraceEndsAt: string | null;
@@ -341,10 +339,9 @@ export class CommercialPlansService {
       contactName: company?.primaryContactName || null,
       contactPhone: company?.contactPhone || null,
       taxDocument: company?.taxDocument || null,
-      onboardingStatus: company?.onboardingStatus || null,
-      subscriptionStatus: company?.subscriptionStatus || null,
-      paymentStatus: company?.paymentStatus || null,
-      premiumAccess: !platformInfra && Boolean(company?.premiumAccess),
+      // Estado de acesso projetado do canonico (DROP): sem campos crus.
+      accessState: platformInfra ? null : companyAccess.state,
+      accessStateLabel: platformInfra ? null : companyAccess.statusLabel,
       trialEndsAt: company?.trialEndsAt instanceof Date ? company.trialEndsAt.toISOString() : null,
       trialRemainingDays: this.computeTrialRemainingDays(company?.trialEndsAt),
       billingGraceEndsAt: billingGraceEndsAt ? billingGraceEndsAt.toISOString() : null,
@@ -387,10 +384,8 @@ export class CommercialPlansService {
       contactName: null,
       contactPhone: null,
       taxDocument: null,
-      onboardingStatus: null,
-      subscriptionStatus: null,
-      paymentStatus: null,
-      premiumAccess: false,
+      accessState: null,
+      accessStateLabel: null,
       trialEndsAt: null,
       trialRemainingDays: null,
       billingGraceEndsAt: null,
@@ -521,11 +516,9 @@ export class CommercialPlansService {
   private canStartCommercialTrial(company: any, planKey: ActiveCommercialPlanKey) {
     if (planKey !== COMMERCIAL_PLAN_KEYS.PADRAO) return false;
     if (company?.trialStartsAt || company?.trialEndsAt) return false;
-    const paymentStatus = String(company?.paymentStatus || '').trim().toUpperCase();
-    const subscriptionStatus = String(company?.subscriptionStatus || '').trim().toLowerCase();
-    if (paymentStatus === 'EXPIRED' || subscriptionStatus === 'expired') return false;
-    if (paymentStatus === 'PAID' || subscriptionStatus === 'active' || Boolean(company?.premiumAccess)) return false;
-    return true;
+    // So quem ainda nao concluiu a contratacao (pending_checkout) pode iniciar
+    // trial — projecao do estado unico (DROP), sem ler campos crus.
+    return resolveCompanyAccessState(company).state === 'pending_checkout';
   }
 
   private addDays(date: Date, days: number) {
@@ -770,25 +763,18 @@ export class CommercialPlansService {
           }
         }
       }
-      const currentSubscriptionStatus = String(company.subscriptionStatus || '').trim().toLowerCase();
-      const currentPaymentStatus = String(company.paymentStatus || '').trim().toUpperCase();
+      // Projecao do estado canonico (DROP): preservar acesso = mesmo plano +
+      // empresa ja liberada. Nada de re-derivar paymentStatus/subscription.
+      const currentAccess = resolveCompanyAccessState(company);
       const currentSelectedPlanKey = this.normalizePlanKey(company.selectedPlanKey);
       const preserveExistingAccess =
-        currentSelectedPlanKey === normalizedPlanKey &&
-        (currentSubscriptionStatus === 'active' ||
-          currentSubscriptionStatus === 'authorized' ||
-          currentSubscriptionStatus === 'manual' ||
-          currentSubscriptionStatus === 'trialing' ||
-          currentPaymentStatus === 'PAID' ||
-          currentPaymentStatus === 'MANUAL' ||
-          currentPaymentStatus === 'TRIAL' ||
-          Boolean(company.premiumAccess));
+        currentSelectedPlanKey === normalizedPlanKey && currentAccess.canUse;
       const selectionStatus = startsTrial
         ? 'trialing'
         : preserveExistingAccess
-          ? currentSubscriptionStatus === 'manual' || currentPaymentStatus === 'MANUAL' || Boolean(company.premiumAccess)
+          ? currentAccess.state === 'manual' || currentAccess.state === 'exempt'
             ? 'manual'
-            : currentSubscriptionStatus === 'trialing' || currentPaymentStatus === 'TRIAL'
+            : currentAccess.state === 'trial' || currentAccess.state === 'trial_ending'
             ? 'trialing'
             : 'paid'
           : PENDING_COMMERCIAL_ENTITLEMENT_STATUS;
@@ -809,9 +795,7 @@ export class CommercialPlansService {
         data: startsTrial
           ? {
               // Estado unico nativo (PR-002 C.1): trial iniciado pelo
-              // contratante grava status='trial' explicito. premiumAccess
-              // significa cortesia; trial NAO carrega a flag (8ª praga morta —
-              // sem o status explicito o dual-write derivava 'courtesy').
+              // contratante grava status='trial' explicito (sem espelho — DROP).
               status: 'trial',
               statusChangedAt: now,
               statusChangedByUserId: context.userId || null,
@@ -821,11 +805,7 @@ export class CommercialPlansService {
               contactPhone: trialProfile?.contactPhone || company.contactPhone,
               taxDocument: trialProfile?.taxDocument || company.taxDocument,
               trialModuleSelection: 'vendas',
-              onboardingStatus: 'active_trial',
               isActive: true,
-              paymentStatus: 'TRIAL',
-              subscriptionStatus: 'trialing',
-              premiumAccess: false,
               assistedSetupRequired: isAssistedSetupPlan,
               assistedSetupStatus: isAssistedSetupPlan ? 'pending' : 'not_required',
               assistedSetupCompletedAt: null,
@@ -840,28 +820,20 @@ export class CommercialPlansService {
               deactivatedAt: null,
             }
           : {
+              // Troca de plano: preserva o estado vigente quando a empresa ja
+              // tem acesso ao mesmo plano; senao volta ao checkout pendente
+              // (estado unico nativo, sem espelho — DROP).
               selectedPlanKey: normalizedPlanKey,
               trialModuleSelection: normalizedPlanKey === COMMERCIAL_PLAN_KEYS.PADRAO ? 'vendas' : null,
-              onboardingStatus:
-                preserveExistingAccess
-                  ? String(company.onboardingStatus || '').trim().toLowerCase() === 'pending_checkout'
-                    ? 'active_paid'
-                    : company.onboardingStatus
-                : String(company.onboardingStatus || '').trim().toLowerCase() === 'active_paid'
-                  ? company.onboardingStatus
-                  : 'pending_checkout',
-              paymentStatus: preserveExistingAccess ? company.paymentStatus : 'PENDING',
-              subscriptionStatus:
-                preserveExistingAccess ||
-                currentSubscriptionStatus === 'active' ||
-                currentSubscriptionStatus === 'trialing'
-                  ? company.subscriptionStatus
-                  : 'pending_checkout',
-              premiumAccess:
-                preserveExistingAccess ||
-                currentSubscriptionStatus === 'active' ||
-                currentSubscriptionStatus === 'trialing' ||
-                Boolean(company.premiumAccess),
+              ...(preserveExistingAccess
+                ? {}
+                : {
+                    status: 'pending_checkout',
+                    statusChangedAt: now,
+                    statusChangedByUserId: context.userId || null,
+                    isActive: false,
+                    deactivatedAt: now,
+                  }),
               assistedSetupRequired: isAssistedSetupPlan,
               assistedSetupStatus:
                 isAssistedSetupPlan
@@ -877,15 +849,6 @@ export class CommercialPlansService {
                 isAssistedSetupPlan
                   ? company.assistedSetupCompletedByUserId
                   : null,
-              isActive:
-                preserveExistingAccess ||
-                currentSubscriptionStatus === 'active' ||
-                currentSubscriptionStatus === 'trialing' ||
-                Boolean(company.isActive && company.premiumAccess),
-              deactivatedAt:
-                preserveExistingAccess || currentSubscriptionStatus === 'active' || currentSubscriptionStatus === 'trialing'
-                  ? company.deactivatedAt
-                  : now,
             },
       });
 

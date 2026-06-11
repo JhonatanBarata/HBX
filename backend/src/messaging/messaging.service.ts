@@ -518,14 +518,11 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         trialModuleSelection: true,
         status: true,
         isActive: true,
-        paymentStatus: true,
-        subscriptionStatus: true,
-        onboardingStatus: true,
-        premiumAccess: true,
-        billingExempt: true,
+        selectedPlanKey: true,
         trialEndsAt: true,
         billingGraceEndsAt: true,
         courtesyEndsAt: true,
+        courtesyReason: true,
         commercialEntitlements: {
           select: {
             key: true,

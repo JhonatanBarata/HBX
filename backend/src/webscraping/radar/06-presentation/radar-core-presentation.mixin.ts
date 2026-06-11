@@ -247,15 +247,11 @@ export class RadarCorePresentationMixin {
       select: {
         status: true,
         isActive: true,
-        onboardingStatus: true,
-        paymentStatus: true,
-        subscriptionStatus: true,
-        premiumAccess: true,
-        billingExempt: true,
         selectedPlanKey: true,
         trialEndsAt: true,
         billingGraceEndsAt: true,
         courtesyEndsAt: true,
+        courtesyReason: true,
       },
     });
 
@@ -326,15 +322,11 @@ export class RadarCorePresentationMixin {
         id: true,
         status: true,
         isActive: true,
-        onboardingStatus: true,
-        paymentStatus: true,
-        subscriptionStatus: true,
-        premiumAccess: true,
-        billingExempt: true,
         selectedPlanKey: true,
         trialEndsAt: true,
         billingGraceEndsAt: true,
         courtesyEndsAt: true,
+        courtesyReason: true,
       },
     });
 
@@ -1959,14 +1951,10 @@ export class RadarCorePresentationMixin {
         status: true,
         isActive: true,
         selectedPlanKey: true,
-        premiumAccess: true,
-        billingExempt: true,
-        paymentStatus: true,
-        subscriptionStatus: true,
-        onboardingStatus: true,
         trialEndsAt: true,
         billingGraceEndsAt: true,
         courtesyEndsAt: true,
+        courtesyReason: true,
       },
     }).catch(() => null);
     if (!company || !this.companyHasPaidFeatureAccess(company)) {
@@ -2363,7 +2351,7 @@ export class RadarCorePresentationMixin {
   private async canUseRadarWebwhatsCheck(companyId: number) {
     const company = await this.prisma.company.findUnique({
       where: { id: companyId },
-      select: { selectedPlanKey: true, premiumAccess: true, paymentStatus: true, subscriptionStatus: true },
+      select: { selectedPlanKey: true },
     }).catch(() => null);
     const planKey = resolveCommercialPlanKeyForCapabilities(company || {});
     return planKey !== COMMERCIAL_PLAN_KEYS.LITE;

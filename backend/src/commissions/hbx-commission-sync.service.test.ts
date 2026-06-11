@@ -6,9 +6,9 @@ import { HbxCommissionSyncService } from './hbx-commission-sync.service';
 test('resolveClientState keeps trial pending without payable commission', () => {
   const service = new HbxCommissionSyncService({} as any);
   const state = (service as any).resolveClientState({
-    paymentStatus: 'TRIAL',
-    subscriptionStatus: 'active',
-    onboardingStatus: 'active_trial',
+    status: 'trial',
+    isActive: true,
+    trialEndsAt: new Date('2026-12-31T12:00:00.000Z'),
     trialStartsAt: new Date('2026-06-07T12:00:00.000Z'),
   });
 
@@ -20,9 +20,8 @@ test('resolveClientState keeps trial pending without payable commission', () => 
 test('resolveClientState releases commission for paid customer', () => {
   const service = new HbxCommissionSyncService({} as any);
   const state = (service as any).resolveClientState({
-    paymentStatus: 'PAID',
-    subscriptionStatus: 'active',
-    onboardingStatus: 'active_paid',
+    status: 'active',
+    isActive: true,
     subscriptionCurrentPeriodStart: new Date('2026-06-07T12:00:00.000Z'),
   });
 

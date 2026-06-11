@@ -4,6 +4,7 @@ import {
   getCommercialPlanMonthlyPrice,
   normalizeCommercialPlanKey,
 } from '../commercial-plans/commercial-plan-catalog';
+import { resolveCompanyAccessState } from '../modules/company-access-state';
 
 type HbxClientState = {
   saleStatus: 'activation_pending' | 'trial_started' | 'sale_confirmed' | 'inactive' | 'canceled' | 'none';
@@ -85,9 +86,9 @@ export class HbxCommissionSyncService {
   }
 
   private resolveClientState(company: any): HbxClientState {
-    const paymentStatus = String(company?.paymentStatus || '').trim().toUpperCase();
-    const subscriptionStatus = String(company?.subscriptionStatus || '').trim().toLowerCase();
-    const onboardingStatus = String(company?.onboardingStatus || '').trim().toLowerCase();
+    // Projecao do estado canonico (DROP): a comissao do vendedor HBX deixa de
+    // ler paymentStatus/subscriptionStatus/onboardingStatus crus.
+    const access = resolveCompanyAccessState(company);
     const now = new Date();
     const eventAt =
       company?.subscriptionCurrentPeriodStart instanceof Date
@@ -98,40 +99,25 @@ export class HbxCommissionSyncService {
             ? company.createdAt
             : now;
 
-    if (paymentStatus === 'TRIAL' || subscriptionStatus === 'trialing' || onboardingStatus === 'active_trial') {
+    if (access.state === 'trial' || access.state === 'trial_ending') {
       return { saleStatus: 'trial_started', commissionStatus: 'pending', recurring: false, eventAt };
     }
 
-    if (
-      paymentStatus === 'PAID' ||
-      paymentStatus === 'MANUAL' ||
-      subscriptionStatus === 'active' ||
-      subscriptionStatus === 'authorized' ||
-      subscriptionStatus === 'manual' ||
-      onboardingStatus === 'active_paid'
-    ) {
+    // Pago e cortesia (manual/isenta) confirmam a venda e geram recorrencia.
+    if (access.state === 'paying' || access.state === 'manual' || access.state === 'exempt') {
       return { saleStatus: 'sale_confirmed', commissionStatus: 'payable', recurring: true, eventAt };
     }
 
-    if (
-      paymentStatus === 'DISABLED' ||
-      paymentStatus === 'EXPIRED' ||
-      subscriptionStatus === 'canceled' ||
-      subscriptionStatus === 'expired' ||
-      onboardingStatus === 'suspended'
-    ) {
+    if (access.state === 'suspended') {
       return { saleStatus: 'inactive', commissionStatus: 'canceled', recurring: false, eventAt: now };
     }
 
-    if (
-      paymentStatus === 'PENDING' ||
-      subscriptionStatus === 'pending' ||
-      subscriptionStatus === 'pending_checkout' ||
-      onboardingStatus === 'pending_checkout'
-    ) {
+    if (access.state === 'pending_checkout') {
       return { saleStatus: 'activation_pending', commissionStatus: 'pending', recurring: false, eventAt };
     }
 
+    // overdue/grace/unknown/platform_infra: sem evento de comissao (mantem o
+    // que ja existe sem cancelar nem confirmar).
     return { saleStatus: 'none', commissionStatus: 'none', recurring: false, eventAt };
   }
 

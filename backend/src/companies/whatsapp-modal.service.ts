@@ -47,13 +47,8 @@ type CompanyModalFields = {
     status: string | null;
   } | null;
   status?: string | null;
-  paymentStatus: string | null;
-  subscriptionStatus: string | null;
-  onboardingStatus: string | null;
   selectedPlanKey: string | null;
   contactPhone: string | null;
-  premiumAccess: boolean | null;
-  billingExempt?: boolean | null;
   isActive: boolean | null;
   trialStartsAt: Date | null;
   trialEndsAt: Date | null;
@@ -1006,11 +1001,10 @@ export class WhatsAppModalService {
       await this.prisma.company.update({
         where: { id: Number(company.id) },
         data: {
-          paymentStatus: 'EXPIRED',
-          subscriptionStatus: 'expired',
-          premiumAccess: false,
+          // Trial reusando WhatsApp ja consumido = suspended (estado unico).
+          status: 'suspended',
+          statusChangedAt: new Date(),
           isActive: false,
-          onboardingStatus: 'suspended',
           deactivatedAt: new Date(),
           whatsappModalLastError: 'Este WhatsApp já utilizou o trial HBX. Escolha um plano para continuar.',
           whatsappModalUpdatedAt: new Date(),
@@ -2703,13 +2697,8 @@ export class WhatsAppModalService {
           },
         },
         status: true,
-        paymentStatus: true,
-        subscriptionStatus: true,
-        onboardingStatus: true,
         selectedPlanKey: true,
         contactPhone: true,
-        premiumAccess: true,
-        billingExempt: true,
         isActive: true,
         trialStartsAt: true,
         trialEndsAt: true,

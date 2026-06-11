@@ -139,7 +139,7 @@ export class CommercialUsageLimitsService {
   private async getCompanyPlan(companyId: number) {
     const company = await this.prisma.company.findUnique({
       where: { id: Number(companyId) },
-      select: { selectedPlanKey: true, premiumAccess: true, paymentStatus: true, subscriptionStatus: true, timezone: true, companyKind: true },
+      select: { selectedPlanKey: true, timezone: true, companyKind: true },
     });
     const quotaOverrideRows = await this.prisma.$queryRawUnsafe<Array<{
       commercialCardsMonthlyLimitOverride: number | null;
