@@ -3,6 +3,8 @@
 @import "./mobile-system.css";
 @source "../**/*.{js,jsx,ts,tsx,mdx,css}";
 
+@import "./hbx-theme/styles.css";
+
 :root {
   --topbar-height: 100px;
   --topbar-total-height: 121px;

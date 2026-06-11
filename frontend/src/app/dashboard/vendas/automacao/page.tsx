@@ -11,7 +11,7 @@ export default async function Page({ searchParams }: LegacyRedirectProps) {
   const params = await searchParams;
   const mode = Array.isArray(params?.mode) ? params?.mode[0] : params?.mode;
   if (String(mode || "").trim().toLowerCase() === "mobile") {
-    redirect("/atendimento");
+    redirect("/app2?section=bot");
   }
-  redirect(withLegacySearchParams("/atendimento/automacao", params));
+  redirect(withLegacySearchParams("/app2?section=bot", params));
 }

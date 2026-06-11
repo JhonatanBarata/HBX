@@ -76,6 +76,22 @@ kit fechado. Entregáveis (fazem parte deste plano, construídos junto com T.3/T
       AGENTS.md: **nenhuma tela nova com layout/popup/espaçamento fora do kit**;
       revisão deve recusar tela bespoke.
 
+> **Checkpoint 11/06/2026 — passo 1 da contenção de entropia:** contrato obrigatório
+> congelado em
+> `docs/PLANEJAMENTOS/PR#10062026NNN/OK-PR10062026004-contrato-frontend-obrigatorio.md`.
+> Ele define o trilho transicional até o kit ficar pronto: shell/layout permitido,
+> overlays permitidos, política de CSS, rotas canônicas, acesso/cobrança e catálogo
+> comercial. Não altera backend.
+
+> **Checkpoint 11/06/2026 — implantação paralela do handoff `docs/TEMAS`:**
+> tokens do pacote portados para `frontend/src/app/hbx-theme`, assets copiados para
+> `frontend/public/hbx-theme`, shell Corporativo TSX criado em
+> `frontend/src/components/corporate/HbxCorporateShell.tsx`, e superfície navegável
+> disponibilizada em `/app2` e `/dev/ui`. A implantação cobre as 8 seções do handoff
+> (Dashboard, Leads, Webscraping, Vendas, Atendimento, Bot, Relatórios e Configurações)
+> mais preview de Login, com dados estáticos de referência. Nenhuma rota legada foi
+> substituída e nenhum backend foi alterado.
+
 ## Salvaguardas
 - Hi-fi: valores de cor/tipo/raio/sombra são finais — normalizar para o padrão do repo
   mantendo os MESMOS valores; nunca hex direto em componente (só `var(--hbx-*)`).

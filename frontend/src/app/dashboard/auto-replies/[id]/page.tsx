@@ -11,5 +11,5 @@ type LegacyRedirectProps = {
 export default async function Page({ params, searchParams }: LegacyRedirectProps) {
   const resolvedParams = await params;
   const id = encodeURIComponent(String(resolvedParams.id || ""));
-  redirect(withLegacySearchParams(`/auto-replies/${id}`, await searchParams));
+  redirect(withLegacySearchParams(`/app2?section=bot&autoReply=${id}`, await searchParams));
 }

@@ -32,6 +32,8 @@ const PUBLIC_OR_BILLING_PATHS = new Set([
   "/precheckout",
   "/pagamento",
   "/checkout",
+  "/app2",
+  "/dev/ui",
 ]);
 
 function normalizePath(pathname: string | null) {
