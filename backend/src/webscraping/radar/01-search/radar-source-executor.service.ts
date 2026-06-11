@@ -292,6 +292,7 @@ export class RadarSourceExecutorService {
         normalized: input.normalized,
         seeds: orchestration.expansion.cnpjSeeds,
         limit: Math.max(1, input.remainingQuantity),
+        prisma: input.host.prisma,
       });
     } catch (error) {
       input.host.logger?.warn?.(`[radar-source-executor] cnpj_public falhou sem bloquear delivery: ${String((error as any)?.message || error)}`);

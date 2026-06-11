@@ -25,6 +25,17 @@ DISCOVERY_QUERY_BACKEND = "bing"
 PJ_DISCOVERY_TIMEOUT_SECONDS = 8
 SOCIAL_DISCOVERY_TIMEOUT_SECONDS = 12
 DISCOVERY_SEARCH_TIMEOUT_SECONDS = 4
+PJ_DISCOVERY_MAX_QUERIES = 4
+
+
+def discovery_budget(name: str, default: float, minimum: float = 1, maximum: float = 900) -> float:
+    # Orcamentos configuraveis por env: night_factory/deep podem rodar com folga
+    # sem mudar o comportamento padrao da busca interativa.
+    try:
+        value = float(os.getenv(name, "") or default)
+    except ValueError:
+        value = default
+    return max(minimum, min(maximum, value))
 SocialProfileCandidate = dict[str, str]
 HEALTH_SENIOR_DISCOVERY_SEGMENTS = (
     "clínicas geriátricas",
@@ -281,10 +292,41 @@ def decode_search_result_url(raw_url: str) -> str:
     return raw
 
 
+def search_searxng_rows(query: str, deadline: float, max_results: int = 8) -> list[dict[str, str]] | None:
+    base_url = str(os.getenv("HBX_SEARXNG_URL") or "").strip().rstrip("/")
+    if not base_url or time.monotonic() >= deadline:
+        return None
+    timeout = min(discovery_budget("HBX_DISCOVERY_SEARCH_TIMEOUT_SECONDS", DISCOVERY_SEARCH_TIMEOUT_SECONDS), max(0.2, deadline - time.monotonic()))
+    try:
+        response = httpx.get(
+            f"{base_url}/search",
+            params={"q": query, "format": "json", "language": "pt-BR", "safesearch": 0},
+            timeout=httpx.Timeout(timeout, connect=min(timeout, 2.0), read=timeout, write=min(timeout, 2.0), pool=min(timeout, 2.0)),
+            headers={"accept": "application/json", "user-agent": "Mozilla/5.0"},
+        )
+        if response.status_code >= 400:
+            return None
+        data = response.json()
+    except Exception as error:
+        print(f"[discovery] searxng falhou: {query} error={error}")
+        return None
+
+    rows: list[dict[str, str]] = []
+    for row in (data.get("results") if isinstance(data, dict) else None) or []:
+        url = str(row.get("url") or "").strip()
+        title = clean_search_result_text(str(row.get("title") or ""))
+        snippet = clean_search_result_text(str(row.get("content") or ""))
+        if url:
+            rows.append({"href": url, "url": url, "title": title, "body": snippet, "snippet": snippet})
+        if len(rows) >= max_results:
+            break
+    return rows
+
+
 def search_bing_rows(query: str, deadline: float, max_results: int = 8) -> list[dict[str, str]]:
     if time.monotonic() >= deadline:
         return []
-    timeout = min(DISCOVERY_SEARCH_TIMEOUT_SECONDS, max(0.2, deadline - time.monotonic()))
+    timeout = min(discovery_budget("HBX_DISCOVERY_SEARCH_TIMEOUT_SECONDS", DISCOVERY_SEARCH_TIMEOUT_SECONDS), max(0.2, deadline - time.monotonic()))
     try:
         response = httpx.get(
             "https://www.bing.com/search",
@@ -349,6 +391,9 @@ def search_ddgs_rows(query: str, deadline: float, max_results: int = 8) -> list[
 
 
 def search_discovery_rows(query: str, deadline: float, max_results: int = 8) -> list[dict[str, str]]:
+    searx_rows = search_searxng_rows(query, deadline, max_results)
+    if searx_rows:
+        return searx_rows
     rows = search_ddgs_rows(query, deadline, max_results)
     if rows is not None and (rows or os.getenv("HBX_BING_FALLBACK_ON_EMPTY", "").lower() not in {"1", "true", "yes", "on"}):
         return rows
@@ -424,7 +469,7 @@ def discover_social_profiles(
     seen: set[str] = set()
     profiles: list[SocialProfileCandidate] = []
 
-    deadline = time.monotonic() + (6 if target_override is not None else SOCIAL_DISCOVERY_TIMEOUT_SECONDS)
+    deadline = time.monotonic() + (6 if target_override is not None else discovery_budget("HBX_SOCIAL_DISCOVERY_TIMEOUT_SECONDS", SOCIAL_DISCOVERY_TIMEOUT_SECONDS))
 
     for query in queries:
         if time.monotonic() >= deadline:
@@ -511,10 +556,10 @@ def discover_urls(
     seen: set[str] = {str(url or "").strip().rstrip("/") for url in (exclude_urls or []) if str(url or "").strip()}
     urls: list[str] = []
 
-    deadline = time.monotonic() + PJ_DISCOVERY_TIMEOUT_SECONDS
+    deadline = time.monotonic() + discovery_budget("HBX_PJ_DISCOVERY_TIMEOUT_SECONDS", PJ_DISCOVERY_TIMEOUT_SECONDS)
     query_budget = queries
     if target_type == "pj" and not social_channels:
-        query_budget = queries[:4]
+        query_budget = queries[: int(discovery_budget("HBX_PJ_DISCOVERY_MAX_QUERIES", PJ_DISCOVERY_MAX_QUERIES, 1, 50))]
 
     for query in query_budget:
         if time.monotonic() >= deadline:

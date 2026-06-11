@@ -1,6 +1,7 @@
 import { Injectable, Optional } from '@nestjs/common';
 import { buildRadarStageIssue } from '../shared/radar-stage-policy';
 import type { NormalizedSearchInput } from '../shared/radar-types';
+import { CnpjPublicDatasetService } from '../providers/cnpj-public/cnpj-public-dataset.service';
 import { CnpjPublicProviderService } from '../providers/cnpj-public/cnpj-public-provider.service';
 import type { CnpjPublicCompanyRecord } from '../providers/cnpj-public/cnpj-public-types';
 import type { RadarLeadSourceResult } from './radar-lead-source.types';
@@ -21,13 +22,17 @@ function sourceIssue(message: string) {
 
 @Injectable()
 export class RadarCnpjPublicSourceService {
-  constructor(@Optional() private readonly provider?: CnpjPublicProviderService) {}
+  constructor(
+    @Optional() private readonly provider?: CnpjPublicProviderService,
+    @Optional() private readonly dataset?: CnpjPublicDatasetService,
+  ) {}
 
   async run(input: {
     normalized: NormalizedSearchInput;
     seeds?: Array<Record<string, any>>;
     limit?: number;
     records?: CnpjPublicCompanyRecord[];
+    prisma?: any;
   }): Promise<RadarLeadSourceResult> {
     if (!envEnabled('HBX_RADAR_CNPJ_PUBLIC_ENABLED')) {
       return {
@@ -43,11 +48,19 @@ export class RadarCnpjPublicSourceService {
     }
 
     try {
+      let records = input.records;
+      if (!records?.length && input.prisma) {
+        records = await (this.dataset || new CnpjPublicDatasetService()).fetchRecords({
+          prisma: input.prisma,
+          normalized: input.normalized,
+          limit: input.limit,
+        });
+      }
       const result = await (this.provider || new CnpjPublicProviderService()).search({
         normalized: input.normalized,
         seeds: input.seeds,
         limit: input.limit,
-        records: input.records,
+        records,
       });
       return {
         source: 'cnpj_public',

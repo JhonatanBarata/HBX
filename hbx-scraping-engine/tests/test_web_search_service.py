@@ -56,6 +56,30 @@ def test_web_search_empty_response_does_not_break(tmp_path) -> None:
     assert response.cached is False
 
 
+def test_searxng_provider_parses_json_results(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("HBX_SEARXNG_URL", "http://127.0.0.1:8888/")
+    service = WebSearchService(cache_path=tmp_path / "cache.json")
+    assert service.searxng_url == "http://127.0.0.1:8888"
+
+    service._http_get_json = lambda url, params=None: {
+        "results": [
+            {"url": "https://pizzariabellamassa.com.br/contato", "title": "Pizzaria Bella Massa", "content": "Telefone e WhatsApp"},
+            {"url": "https://www.google.com/maps/place/x", "title": "Bloqueado", "content": ""},
+        ]
+    }
+    rows = service._search_searxng("pizzaria rio claro", 5, "2026-06-11T00:00:00+00:00")
+
+    assert len(rows) == 1
+    assert rows[0].source == "searxng"
+    assert rows[0].url == "https://pizzariabellamassa.com.br/contato"
+
+
+def test_searxng_disabled_without_env(tmp_path, monkeypatch) -> None:
+    monkeypatch.delenv("HBX_SEARXNG_URL", raising=False)
+    service = WebSearchService(cache_path=tmp_path / "cache.json")
+    assert service.searxng_url == ""
+
+
 def test_candidate_ranking_prefers_query_identity(tmp_path) -> None:
     service = WebSearchService(cache_path=tmp_path / "cache.json")
     weak = WebSearchResult(

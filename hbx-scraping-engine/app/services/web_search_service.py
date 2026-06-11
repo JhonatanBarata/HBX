@@ -44,6 +44,7 @@ class WebSearchService:
         self.cache_ttl_seconds = _int_env("HBX_WEB_SEARCH_CACHE_TTL_HOURS", 72, 1, 720) * 3600
         self.timeout_seconds = _int_env("HBX_WEB_SEARCH_TIMEOUT_SECONDS", 30, 3, 90)
         self.google_html_enabled = _bool_env("HBX_GOOGLE_HTML_ENABLED", False)
+        self.searxng_url = str(os.getenv("HBX_SEARXNG_URL") or "").strip().rstrip("/")
         self.user_agent = os.getenv(
             "HBX_SCRAPING_USER_AGENT",
             "HBX-Scraping/0.1 contato@hbxsystem.com.br",
@@ -93,7 +94,10 @@ class WebSearchService:
         seen: set[str] = set()
         provider_limit = max(limit * 2, 10)
 
-        providers = [self._search_duckduckgo, self._search_bing]
+        providers = []
+        if self.searxng_url:
+            providers.append(self._search_searxng)
+        providers.extend([self._search_duckduckgo, self._search_bing])
         if self.google_html_enabled:
             providers.append(self._search_google_html)
 
@@ -116,6 +120,28 @@ class WebSearchService:
         for index, item in enumerate(ranked[:limit], start=1):
             item.rank = index
         return ranked[:limit]
+
+    def _search_searxng(self, query: str, limit: int, fetched_at: str) -> list[WebSearchResult]:
+        data = self._http_get_json(
+            f"{self.searxng_url}/search",
+            params={"q": query, "format": "json", "language": "pt-BR", "safesearch": 0},
+        )
+        rows: list[WebSearchResult] = []
+        for row in data.get("results") or []:
+            result_url = str(row.get("url") or "").strip()
+            if not self._is_useful_url(result_url):
+                continue
+            rows.append(WebSearchResult(
+                title=self._clean_text(row.get("title") or result_url),
+                url=result_url,
+                snippet=self._clean_text(row.get("content") or ""),
+                rank=len(rows) + 1,
+                source="searxng",
+                fetchedAt=fetched_at,
+            ))
+            if len(rows) >= limit:
+                break
+        return rows
 
     def _search_duckduckgo(self, query: str, limit: int, fetched_at: str) -> list[WebSearchResult]:
         from ddgs import DDGS
@@ -201,6 +227,20 @@ class WebSearchService:
             response = client.get(url)
             response.raise_for_status()
             return response.text
+
+    def _http_get_json(self, url: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        with httpx.Client(
+            timeout=self.timeout_seconds,
+            headers={
+                "User-Agent": self.user_agent,
+                "Accept": "application/json",
+            },
+            follow_redirects=True,
+        ) as client:
+            response = client.get(url, params=params)
+            response.raise_for_status()
+            data = response.json()
+            return data if isinstance(data, dict) else {}
 
     async def _get_cached(self, key: str, limit: int) -> dict[str, Any] | None:
         async with self._lock:

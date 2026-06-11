@@ -1,7 +1,10 @@
 import asyncio
+import os
 from dataclasses import dataclass
 
 import httpx
+
+RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 
 @dataclass
@@ -12,14 +15,34 @@ class FetchedPage:
 
 
 class Fetcher:
-    def __init__(self, user_agent: str, timeout_seconds: float, concurrency: int, max_page_bytes: int) -> None:
+    def __init__(self, user_agent: str, timeout_seconds: float, concurrency: int, max_page_bytes: int, attempts: int | None = None) -> None:
         self.user_agent = user_agent
         self.timeout_seconds = timeout_seconds
         self.semaphore = asyncio.Semaphore(max(1, concurrency))
         self.max_page_bytes = max_page_bytes
+        if attempts is None:
+            try:
+                attempts = int(os.getenv("HBX_SCRAPING_FETCH_ATTEMPTS", "2") or 2)
+            except ValueError:
+                attempts = 2
+        self.attempts = max(1, min(4, attempts))
 
     async def _get(self, client: httpx.AsyncClient, url: str) -> FetchedPage | None:
-        response = await client.get(url)
+        response = None
+        for attempt in range(self.attempts):
+            try:
+                response = await client.get(url)
+            except (httpx.TimeoutException, httpx.TransportError):
+                if attempt + 1 >= self.attempts:
+                    raise
+                await asyncio.sleep(0.25 * (attempt + 1))
+                continue
+            if response.status_code in RETRYABLE_STATUS_CODES and attempt + 1 < self.attempts:
+                await asyncio.sleep(0.25 * (attempt + 1))
+                continue
+            break
+        if response is None:
+            return None
         content_type = response.headers.get("content-type", "").lower()
         if response.status_code >= 400 or ("text/html" not in content_type and "application/xhtml" not in content_type):
             return None

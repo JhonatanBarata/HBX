@@ -782,6 +782,7 @@ model IntegrationConnection {
   debtCases          DebtCase[]
   syncRuns           IntegrationSyncRun[]
   auvoExternalRecords AuvoExternalRecord[]
+  products           Product[]
 
   @@index([companyId, provider, isActive])
   @@index([companyId, status, lastSyncAt])
@@ -2578,6 +2579,11 @@ model Product {
   categoryRef Category?        @relation(fields: [categoryId], references: [id])
   categoryId  Int?
   metadataJson String?
+  sourceConnection   IntegrationConnection? @relation(fields: [sourceConnectionId], references: [id])
+  sourceConnectionId String?
+  externalSource     String?
+  externalProductId  String?
+  sourceUpdatedAt    DateTime?
   createdBy     User?    @relation("ProductCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
   createdByUserId Int?
   updatedBy     User?    @relation("ProductUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
@@ -2591,6 +2597,8 @@ model Product {
   @@index([companyId, kind, status])
   @@index([companyId, planKey])
   @@index([companyId, sku])
+  @@index([sourceConnectionId, externalProductId])
+  @@index([companyId, externalSource, externalProductId])
   @@index([createdByUserId])
   @@index([updatedByUserId])
 }
@@ -2818,4 +2826,38 @@ model CadastroTransitTime {
 
   @@unique([empresaId, portoOrigemId, portoDestinoId])
   @@index([empresaId])
+}
+
+// Base local de dados abertos do CNPJ (Receita Federal) que alimenta a fonte
+// cnpj_public do Radar. Importada via scripts/import-cnpj-dataset.js.
+// Descoberta apenas: contato sai daqui como dado cadastral, nunca inventado.
+model CnpjPublicCompany {
+  id              String    @id @default(cuid())
+  cnpj            String    @unique
+  razaoSocial     String
+  nomeFantasia    String?
+  situacao        String    @default("ativa")
+  cnae            String?
+  cnaeDescription String?
+  porte           String?
+  matrizFilial    String?
+  openedAt        DateTime?
+  phone           String?
+  phoneDigits     String?
+  email           String?
+  website         String?
+  address         String?
+  city            String?
+  state           String?
+  normalizedCity  String    @default("")
+  // nomeFantasia + razaoSocial + cnae normalizados (minusculo, sem acento) p/ matching de segmento
+  searchText      String    @default("")
+  rawJson         String?
+  importedAt      DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([normalizedCity, state])
+  @@index([state, cnae])
+  @@index([phoneDigits])
 }
