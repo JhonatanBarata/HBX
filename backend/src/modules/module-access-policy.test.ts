@@ -14,10 +14,7 @@ const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
 test('pending_checkout/PENDING blocks operational modules', () => {
   const policy = resolveCompanyModuleAccessPolicy({
-    isActive: false,
-    onboardingStatus: 'pending_checkout',
-    paymentStatus: 'PENDING',
-    subscriptionStatus: 'pending_checkout',
+    status: 'pending_checkout',
     selectedPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO,
   });
 
@@ -29,10 +26,7 @@ test('pending_checkout/PENDING blocks operational modules', () => {
 
 test('active_trial/TRIAL/trialing releases padrao commercial modules', () => {
   const policy = resolveCompanyModuleAccessPolicy({
-    isActive: true,
-    onboardingStatus: 'active_trial',
-    paymentStatus: 'TRIAL',
-    subscriptionStatus: 'trialing',
+    status: 'trial',
     selectedPlanKey: COMMERCIAL_PLAN_KEYS.LITE,
     trialEndsAt: future,
   });
@@ -47,9 +41,7 @@ test('active_trial/TRIAL/trialing releases padrao commercial modules', () => {
 
 test('active/PAID releases modules by selected plan', () => {
   const lite = resolveCompanyModuleAccessPolicy({
-    isActive: true,
-    paymentStatus: 'PAID',
-    subscriptionStatus: 'active',
+    status: 'active',
     selectedPlanKey: COMMERCIAL_PLAN_KEYS.LITE,
   });
   assert.equal(lite.moduleKeys.has('vendas'), true);
@@ -59,9 +51,7 @@ test('active/PAID releases modules by selected plan', () => {
   assert.equal(lite.moduleKeys.has('cadastro'), false);
 
   const melhor = resolveCompanyModuleAccessPolicy({
-    isActive: true,
-    paymentStatus: 'PAID',
-    subscriptionStatus: 'active',
+    status: 'active',
     selectedPlanKey: COMMERCIAL_PLAN_KEYS.MELHOR,
   });
   assert.equal(melhor.moduleKeys.has('atendimento'), true);
@@ -84,26 +74,23 @@ test('commercial plan catalog keeps new HBX names and premium entitlements', () 
   assert.equal(COMMERCIAL_PLAN_ENTITLEMENT_KEYS[COMMERCIAL_PLAN_KEYS.MELHOR].includes(COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA), true);
 });
 
-test('MANUAL/premiumAccess releases selected plan or padrao fallback', () => {
-  const manualLite = resolveCompanyModuleAccessPolicy({
-    isActive: true,
-    paymentStatus: 'MANUAL',
-    subscriptionStatus: 'manual',
+test('courtesy (com prazo) libera o plano escolhido; sem plano cai no Lead Plus', () => {
+  const courtesyLite = resolveCompanyModuleAccessPolicy({
+    status: 'courtesy',
+    courtesyEndsAt: future,
     selectedPlanKey: COMMERCIAL_PLAN_KEYS.LITE,
   });
-  assert.equal(manualLite.accessState, 'manual');
-  assert.equal(manualLite.moduleKeys.has('vendas'), true);
-  assert.equal(manualLite.moduleKeys.has('webscraping'), true);
-  assert.equal(manualLite.moduleKeys.has('atendimento'), false);
+  assert.equal(courtesyLite.accessState, 'manual');
+  assert.equal(courtesyLite.moduleKeys.has('vendas'), true);
+  assert.equal(courtesyLite.moduleKeys.has('webscraping'), true);
+  assert.equal(courtesyLite.moduleKeys.has('atendimento'), false);
 
+  // Cortesia permanente (sem prazo) e sem plano escolhido projeta Lead Plus.
   const fallback = resolveCompanyModuleAccessPolicy({
-    isActive: true,
-    paymentStatus: 'PENDING',
-    subscriptionStatus: 'past_due',
-    premiumAccess: true,
+    status: 'courtesy',
     selectedPlanKey: null,
   });
-  assert.equal(fallback.accessState, 'manual');
+  assert.equal(fallback.accessState, 'exempt');
   assert.equal(fallback.planKey, COMMERCIAL_PLAN_KEYS.PADRAO);
   assert.equal(fallback.moduleKeys.has('atendimento'), true);
   assert.equal(fallback.moduleKeys.has('vendas'), true);
@@ -114,10 +101,7 @@ test('MANUAL/premiumAccess releases selected plan or padrao fallback', () => {
 test('platform_infra company does not receive commercial modules', () => {
   const policy = resolveCompanyModuleAccessPolicy({
     companyKind: COMPANY_KIND_PLATFORM_INFRA,
-    isActive: false,
-    onboardingStatus: 'pending_checkout',
-    paymentStatus: 'PENDING',
-    subscriptionStatus: 'pending_checkout',
+    status: 'pending_checkout',
     selectedPlanKey: null,
   });
 
@@ -129,14 +113,12 @@ test('platform_infra company does not receive commercial modules', () => {
   assert.equal(policy.blockedCode, 'platform_infra_company');
 });
 
-test('HBX tenant follows normal manual/premium module policy without slug privilege', () => {
+test('HBX tenant follows normal courtesy module policy without slug privilege', () => {
   const policy = resolveCompanyModuleAccessPolicy({
     companyKind: COMPANY_KIND_TENANT,
     slug: 'hbx',
-    isActive: true,
-    paymentStatus: 'MANUAL',
-    subscriptionStatus: 'manual',
-    premiumAccess: true,
+    status: 'courtesy',
+    courtesyEndsAt: future,
     selectedPlanKey: COMMERCIAL_PLAN_KEYS.LITE,
   });
 
@@ -148,13 +130,10 @@ test('HBX tenant follows normal manual/premium module policy without slug privil
   assert.equal(policy.moduleKeys.has('atendimento'), false);
 });
 
-test('billingExempt company is released as exempt with plan modules and no billing block', () => {
+test('courtesy (sem prazo = isenta) is released as exempt with plan modules and no billing block', () => {
   const policy = resolveCompanyModuleAccessPolicy({
     companyKind: COMPANY_KIND_TENANT,
-    isActive: true,
-    billingExempt: true,
-    paymentStatus: 'PENDING',
-    subscriptionStatus: 'pending_checkout',
+    status: 'courtesy',
     selectedPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO,
   });
 
@@ -168,9 +147,7 @@ test('billingExempt company is released as exempt with plan modules and no billi
 
 test('expired/canceled blocks modules', () => {
   const expired = resolveCompanyModuleAccessPolicy({
-    isActive: false,
-    paymentStatus: 'EXPIRED',
-    subscriptionStatus: 'expired',
+    status: 'suspended',
     selectedPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO,
   });
 

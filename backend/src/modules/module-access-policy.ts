@@ -12,15 +12,12 @@ export const ROUTE_GUARDED_MODULE_KEYS = ['atendimento', 'vendas', 'webscraping'
 export type ModuleAccessCompanySnapshot = {
   companyKind?: string | null;
   slug?: string | null;
-  isActive?: boolean | null;
-  onboardingStatus?: string | null;
-  paymentStatus?: string | null;
-  subscriptionStatus?: string | null;
-  premiumAccess?: boolean | null;
-  billingExempt?: boolean | null;
+  status?: string | null;
   selectedPlanKey?: string | null;
   trialEndsAt?: Date | string | null;
   billingGraceEndsAt?: Date | string | null;
+  courtesyEndsAt?: Date | string | null;
+  courtesyReason?: string | null;
 };
 
 export type CompanyModuleAccessPolicy = {

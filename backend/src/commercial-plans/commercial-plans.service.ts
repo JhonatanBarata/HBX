@@ -225,9 +225,6 @@ export class CommercialPlansService {
     const manualAccess = access.state === 'manual' || access.state === 'exempt';
     const manualPlanKey = resolveCommercialPlanKeyForCapabilities({
       selectedPlanKey: company?.selectedPlanKey,
-      premiumAccess: manualAccess,
-      paymentStatus: manualAccess ? 'MANUAL' : String(company?.paymentStatus || ''),
-      subscriptionStatus: String(company?.subscriptionStatus || ''),
     });
     const manualPlanKeys = new Set(COMMERCIAL_PLAN_ENTITLEMENT_KEYS[manualPlanKey] || []);
     const hasWithManualFallback = (key: CommercialEntitlementKey) =>
@@ -313,12 +310,7 @@ export class CommercialPlansService {
     const selectedPlanKey = platformInfra
       ? null
       : hasExplicitCommercialPlan
-        ? resolveCommercialPlanKeyForCapabilities({
-            selectedPlanKey: company?.selectedPlanKey,
-            premiumAccess: company?.premiumAccess,
-            paymentStatus: company?.paymentStatus,
-            subscriptionStatus: company?.subscriptionStatus,
-          })
+        ? resolveCommercialPlanKeyForCapabilities({ selectedPlanKey: company?.selectedPlanKey })
         : null;
     const planKey = selectedPlanKey || inferredPlanKey;
     const isTrial = this.isCompanyTrialingVendas(company);

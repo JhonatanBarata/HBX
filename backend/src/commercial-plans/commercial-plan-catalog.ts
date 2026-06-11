@@ -207,23 +207,17 @@ export function normalizeCommercialPlanKey(value: unknown): ActiveCommercialPlan
   return COMMERCIAL_PLAN_KEYS.PADRAO;
 }
 
+// O plano comercial e dado autoritativo (Company.selectedPlanKey, gravado no
+// checkout/troca de plano). Cortesia/manual NAO implica Full — empresa
+// liberada sem plano escolhido projeta Lead Plus (PADRAO), igual ao
+// module-access-policy. Aceita o objeto company inteiro por conveniencia dos
+// call sites; so le selectedPlanKey (a inferencia por premiumAccess/
+// paymentStatus morreu no DROP do PR-002).
 export function resolveCommercialPlanKeyForCapabilities(input: {
   selectedPlanKey?: unknown;
-  premiumAccess?: unknown;
-  paymentStatus?: unknown;
-  subscriptionStatus?: unknown;
 }): ActiveCommercialPlanKey {
   const rawSelected = String(input.selectedPlanKey || '').trim();
-  const selected = rawSelected ? normalizeCommercialPlanKey(rawSelected) : null;
-  const paymentStatus = String(input.paymentStatus || '').trim().toUpperCase();
-  const subscriptionStatus = String(input.subscriptionStatus || '').trim().toLowerCase();
-  const manualOverride = paymentStatus === 'MANUAL' || subscriptionStatus === 'manual';
-
-  if (selected === COMMERCIAL_PLAN_KEYS.MELHOR) return COMMERCIAL_PLAN_KEYS.MELHOR;
-  if (manualOverride && Boolean(input.premiumAccess)) return COMMERCIAL_PLAN_KEYS.MELHOR;
-  if (!selected && Boolean(input.premiumAccess)) return COMMERCIAL_PLAN_KEYS.MELHOR;
-  if (selected) return selected;
-  return COMMERCIAL_PLAN_KEYS.PADRAO;
+  return rawSelected ? normalizeCommercialPlanKey(rawSelected) : COMMERCIAL_PLAN_KEYS.PADRAO;
 }
 
 export function getCommercialPlanMonthlyPrice(planKey: unknown) {
