@@ -536,12 +536,12 @@ export class ModulesService implements OnModuleInit {
 
   private buildCompanyAccessAuditSnapshot(company: any) {
     return {
+      status: this.normalizeOptionalString(company?.status),
       isActive: Boolean(company?.isActive),
-      paymentStatus: this.normalizeOptionalString(company?.paymentStatus),
-      subscriptionStatus: this.normalizeOptionalString(company?.subscriptionStatus),
-      premiumAccess: Boolean(company?.premiumAccess),
       trialStartsAt: this.toAuditIso(company?.trialStartsAt),
       trialEndsAt: this.toAuditIso(company?.trialEndsAt),
+      courtesyEndsAt: this.toAuditIso(company?.courtesyEndsAt),
+      courtesyReason: this.normalizeOptionalString(company?.courtesyReason),
       subscriptionCurrentPeriodStart: this.toAuditIso(company?.subscriptionCurrentPeriodStart),
       subscriptionCurrentPeriodEnd: this.toAuditIso(company?.subscriptionCurrentPeriodEnd),
       deactivatedAt: this.toAuditIso(company?.deactivatedAt),
@@ -550,8 +550,7 @@ export class ModulesService implements OnModuleInit {
 
   private buildCompanyBillingAuditSnapshot(company: any) {
     return {
-      paymentStatus: this.normalizeOptionalString(company?.paymentStatus),
-      subscriptionStatus: this.normalizeOptionalString(company?.subscriptionStatus),
+      status: this.normalizeOptionalString(company?.status),
       billingProvider: this.normalizeOptionalString(company?.billingProvider),
       paymentMethod: this.normalizeOptionalString(company?.paymentMethod),
     };
@@ -575,8 +574,7 @@ export class ModulesService implements OnModuleInit {
       taxDocument: this.normalizeOptionalString(company?.taxDocument),
       paymentMethod: this.normalizeOptionalString(company?.paymentMethod),
       billingProvider: this.normalizeOptionalString(company?.billingProvider),
-      subscriptionStatus: this.normalizeOptionalString(company?.subscriptionStatus),
-      premiumAccess: Boolean(company?.premiumAccess),
+      status: this.normalizeOptionalString(company?.status),
     };
   }
 
@@ -4029,13 +4027,12 @@ export class ModulesService implements OnModuleInit {
     const currentState = this.buildCompanyAccessAuditSnapshot(updatedCompany);
     const currentBillingState = this.buildCompanyBillingAuditSnapshot(updatedCompany);
     const billingPreserved =
-      previousBillingState.paymentStatus === currentBillingState.paymentStatus &&
-      previousBillingState.subscriptionStatus === currentBillingState.subscriptionStatus &&
+      previousBillingState.status === currentBillingState.status &&
       previousBillingState.billingProvider === currentBillingState.billingProvider &&
       previousBillingState.paymentMethod === currentBillingState.paymentMethod;
     const accessPreserved =
       previousState.isActive === currentState.isActive &&
-      previousState.premiumAccess === currentState.premiumAccess &&
+      previousState.status === currentState.status &&
       previousState.trialStartsAt === currentState.trialStartsAt &&
       previousState.trialEndsAt === currentState.trialEndsAt &&
       previousState.subscriptionCurrentPeriodStart === currentState.subscriptionCurrentPeriodStart &&
@@ -4065,13 +4062,9 @@ export class ModulesService implements OnModuleInit {
       metadata: {
         previousPlanKey: previousPlanKey || null,
         currentPlanKey: normalizedPlanKey,
-        previousPaymentStatus: previousState.paymentStatus,
-        previousSubscriptionStatus: previousState.subscriptionStatus,
-        previousPremiumAccess: previousState.premiumAccess,
+        previousStatus: previousState.status,
         previousIsActive: previousState.isActive,
-        currentPaymentStatus: currentState.paymentStatus,
-        currentSubscriptionStatus: currentState.subscriptionStatus,
-        currentPremiumAccess: currentState.premiumAccess,
+        currentStatus: currentState.status,
         currentIsActive: currentState.isActive,
         previousState,
         currentState,
@@ -4089,9 +4082,7 @@ export class ModulesService implements OnModuleInit {
       companyId,
       previousPlanKey: previousPlanKey || null,
       planKey: normalizedPlanKey,
-      paymentStatus: currentState.paymentStatus,
-      subscriptionStatus: currentState.subscriptionStatus,
-      premiumAccess: currentState.premiumAccess,
+      status: currentState.status,
       isActive: currentState.isActive,
       accessPreserved,
       billingPreserved,
@@ -4185,7 +4176,7 @@ export class ModulesService implements OnModuleInit {
       this.normalizeOptionalString(input?.competence) || this.monthKey(paidAt);
     const observation = this.normalizeOptionalString(input?.observation);
     const settlePending = input?.settlePending !== false;
-    const previousSubscriptionStatus = String(company.subscriptionStatus || '').trim().toLowerCase();
+    const previousStatus = normalizeStoredCompanyStatus(company.status);
     const previousState = this.buildCompanyAccessAuditSnapshot(company);
 
     await this.insertBillingLedgerEntry({
@@ -4211,7 +4202,7 @@ export class ModulesService implements OnModuleInit {
       referenceLabel: company.plan?.name || 'Mensalidade SaaS',
       metadata: {
         settlePending,
-        previousPaymentStatus: company.paymentStatus,
+        previousStatus,
       },
     });
 
@@ -4260,7 +4251,7 @@ export class ModulesService implements OnModuleInit {
         },
       });
 
-      if (settlePending && previousSubscriptionStatus === 'trialing') {
+      if (settlePending && previousStatus === 'trial') {
         await this.masterContextService.registerSupportAction({
           masterUserId,
           companyId,
