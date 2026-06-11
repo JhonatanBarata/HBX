@@ -36,6 +36,11 @@ const PUBLIC_OR_BILLING_PATHS = new Set([
   "/dev/ui",
 ]);
 
+// Superfícies de APRESENTAÇÃO de cobrança (PR-010 R2.1): a tela não decide
+// audiência — o gate decide aqui. Vendedor/funcionário autenticado que chegar
+// nelas vê o bloqueio neutro; só o público de cobrança vê o funil.
+const BILLING_PRESENTATION_PATHS = new Set(["/pre-checkout", "/precheckout"]);
+
 function normalizePath(pathname: string | null) {
   return String(pathname || "/").replace(/\/+$/, "") || "/";
 }
@@ -58,6 +63,18 @@ export default function PreCheckoutGate({ children }: { children: React.ReactNod
     let active = true;
 
     async function checkBillingAccess() {
+      if (BILLING_PRESENTATION_PATHS.has(normalizePath(pathname)) && getToken()) {
+        try {
+          const profile = await apiFetch<CurrentUser>("/profile/current-user");
+          if (!active) return;
+          const billingAudience = Boolean(profile?.isSystemMaster) || isBillingAudience(profile);
+          setGateState(billingAudience ? "open" : "access_paused");
+        } catch {
+          if (active) setGateState("open");
+        }
+        return;
+      }
+
       if (isBypassedPath(pathname) || !getToken()) {
         if (active) {
           setGateState("open");

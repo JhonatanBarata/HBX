@@ -3,21 +3,21 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import React from "react";
-import { apiFetch } from "@/app/_lib/api";
-import { buildCheckoutPath, type BillingAccessCompany } from "@/lib/billing-access";
-import CompanyAccessPausedScreen from "@/components/CompanyAccessPausedScreen";
-import styles from "./page.module.css";
+import { apiFetch, getToken } from "@/app/_lib/api";
+import { buildCheckoutPath } from "@/lib/billing-access";
+import { HbxPageShell, HbxSection, HbxStandardList, HbxStatusBadge } from "@/components/ui";
 
 const REDIRECT_SECONDS = 5;
 
+// Tela de APRESENTAÇÃO pura (PR-010 R2.1): a razão vem da query string e a
+// audiência é decidida pelo PreCheckoutGate antes desta tela renderizar.
+// Único consumo de backend: /profile/current-user (nome da conta e datas).
 type CurrentUser = {
-  isSystemMaster?: boolean | null;
-  userKind?: string | null;
-  company?: (BillingAccessCompany & {
+  company?: {
     name?: string | null;
-    selectedPlanKey?: string | null;
     trialStartsAt?: string | null;
-  }) | null;
+    trialEndsAt?: string | Date | null;
+  } | null;
 };
 
 function formatDate(value?: string | Date | null) {
@@ -27,19 +27,17 @@ function formatDate(value?: string | Date | null) {
   return date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
-function reasonCopy(reason: string | null) {
+function reasonCopy(reason: string) {
   if (reason === "trial_expired") {
     return {
-      eyebrow: "Pre-checkout HBX",
-      title: "Seu periodo free trial terminou.",
-      text: "O acesso operacional foi pausado para manter sua conta protegida. Agora vamos abrir o checkout para voce escolher a forma de pagamento e continuar usando o HBX.",
+      title: "Seu período free trial terminou.",
+      text: "O acesso operacional foi pausado para manter sua conta protegida. Agora vamos abrir o checkout para você escolher a forma de pagamento e continuar usando o HBX.",
       status: "Trial finalizado",
     };
   }
 
   if (reason === "payment_failed") {
     return {
-      eyebrow: "Pre-checkout HBX",
       title: "Seu pagamento precisa de atenção.",
       text: "A cobrança da assinatura não foi autorizada. Para evitar perda de operação, vamos abrir o checkout para você atualizar o pagamento com segurança.",
       status: "Pagamento não autorizado",
@@ -47,9 +45,8 @@ function reasonCopy(reason: string | null) {
   }
 
   return {
-    eyebrow: "Pre-checkout HBX",
-    title: "Sua contratacao esta quase pronta.",
-    text: "Antes de liberar os modulos comerciais, vamos abrir o checkout para concluir o pagamento da conta.",
+    title: "Sua contratação está quase pronta.",
+    text: "Antes de liberar os módulos comerciais, vamos abrir o checkout para concluir o pagamento da conta.",
     status: "Checkout pendente",
   };
 }
@@ -63,32 +60,23 @@ export default function PreCheckoutClientPage() {
   const copy = reasonCopy(reason);
   const [seconds, setSeconds] = React.useState(REDIRECT_SECONDS);
   const [company, setCompany] = React.useState<CurrentUser["company"]>(null);
-  // Cobranca e assunto do contratante: vendedor/funcionario que chegar aqui
-  // ve a tela neutra de acesso pausado, nunca o funil de checkout.
-  const [audience, setAudience] = React.useState<"loading" | "billing" | "paused">("loading");
 
   React.useEffect(() => {
+    if (!getToken()) return;
     let active = true;
     apiFetch<CurrentUser>("/profile/current-user")
       .then((profile) => {
-        if (!active) return;
-        setCompany(profile.company || null);
-        const billingAudience =
-          Boolean(profile.isSystemMaster) ||
-          String(profile.userKind || "").trim().toLowerCase() === "admin";
-        setAudience(billingAudience ? "billing" : "paused");
+        if (active) setCompany(profile.company || null);
       })
       .catch(() => {
-        if (active) setAudience("billing");
+        if (active) setCompany(null);
       });
-
     return () => {
       active = false;
     };
   }, []);
 
   React.useEffect(() => {
-    if (audience !== "billing") return;
     const tick = window.setInterval(() => {
       setSeconds((current) => Math.max(current - 1, 0));
     }, 1000);
@@ -100,71 +88,53 @@ export default function PreCheckoutClientPage() {
       window.clearInterval(tick);
       window.clearTimeout(redirectTimer);
     };
-  }, [audience, checkoutHref, router]);
+  }, [checkoutHref, router]);
 
-  if (audience === "loading") return null;
-  if (audience === "paused") return <CompanyAccessPausedScreen />;
-
-  const trialEnd = formatDate(company?.trialEndsAt);
   const trialStart = formatDate(company?.trialStartsAt);
+  const trialEnd = formatDate(company?.trialEndsAt);
 
   return (
-    <main className={styles.page}>
-      <section className={styles.stage} aria-labelledby="precheckout-title">
-        <div className={styles.backdrop} aria-hidden>
-          <span className={styles.signalOne} />
-          <span className={styles.signalTwo} />
-          <span className={styles.signalThree} />
-        </div>
-
-        <article className={styles.card} data-ui-reveal-target="true">
-          <div className={styles.brandRow}>
-            <div className={styles.brandMark} aria-hidden>HBX</div>
-            <div>
-              <p className={styles.eyebrow}>{copy.eyebrow}</p>
-              <strong>{company?.name || "Conta HBX"}</strong>
-            </div>
-          </div>
-
-          <div className={styles.orbit} aria-hidden>
-            <span />
-            <span />
-            <span />
-            <div className={styles.orbitCore}>R$</div>
-          </div>
-
-          <div className={styles.copy}>
-            <span className={styles.statusPill}>{copy.status}</span>
-            <h1 id="precheckout-title">{copy.title}</h1>
-            <p>{copy.text}</p>
-          </div>
-
-          <div className={styles.timeline} aria-label="Fluxo de conversao comercial">
-            <div data-state="done">
-              <span />
-              <strong>Trial</strong>
-              <small>{trialStart || "periodo gratuito"}</small>
-            </div>
-            <div data-state="current">
-              <span />
-              <strong>Pre-checkout</strong>
-              <small>{trialEnd ? `encerrado em ${trialEnd}` : "aviso de transicao"}</small>
-            </div>
-            <div>
-              <span />
-              <strong>Checkout</strong>
-              <small>abrindo em {seconds}s</small>
-            </div>
-          </div>
-
-          <div className={styles.actions}>
-            <Link className="btn btn-primary" href={checkoutHref}>
-              Ir para o checkout
-            </Link>
-            <p role="status" aria-live="polite">Encaminhamento automatico em {seconds} segundos.</p>
-          </div>
-        </article>
-      </section>
-    </main>
+    <HbxPageShell
+      eyebrow="Pré-checkout HBX"
+      title={copy.title}
+      description={copy.text}
+      actions={<HbxStatusBadge tone={reason === "payment_failed" ? "danger" : "warning"}>{copy.status}</HbxStatusBadge>}
+    >
+      <HbxSection
+        title={company?.name || "Conta HBX"}
+        description="Fluxo de contratação"
+        aside={
+          <Link className="btn btn-primary" href={checkoutHref}>
+            Ir para o checkout
+          </Link>
+        }
+      >
+        <HbxStandardList
+          items={[
+            {
+              id: "trial",
+              title: "Trial",
+              description: trialStart || "Período gratuito",
+              badge: <HbxStatusBadge tone="success">Concluído</HbxStatusBadge>,
+            },
+            {
+              id: "pre-checkout",
+              title: "Pré-checkout",
+              description: trialEnd ? `Encerrado em ${trialEnd}` : "Aviso de transição",
+              badge: <HbxStatusBadge tone="warning">Você está aqui</HbxStatusBadge>,
+            },
+            {
+              id: "checkout",
+              title: "Checkout",
+              description: `Abrindo em ${seconds}s`,
+              badge: <HbxStatusBadge tone="info">Próximo passo</HbxStatusBadge>,
+            },
+          ]}
+        />
+        <p role="status" aria-live="polite">
+          Encaminhamento automático em {seconds} segundos.
+        </p>
+      </HbxSection>
+    </HbxPageShell>
   );
 }
