@@ -1481,18 +1481,14 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
           selectedPlanKey: planKey,
           trialModuleSelection: planKey === COMMERCIAL_PLAN_KEYS.PADRAO ? 'vendas' : null,
           // Estado unico nativo (PR-002 A.3): graça = overdue com prazo
-          // (billingGraceEndsAt). Nada de premiumAccess para manter acesso —
-          // a leitura canonica libera enquanto a graça vale.
+          // (billingGraceEndsAt). A leitura canonica libera enquanto a graça
+          // vale — sem espelho legado (DROP).
           status: 'overdue',
           statusChangedAt: now,
-          onboardingStatus: 'active_grace',
           isActive: true,
-          paymentStatus: failureGrace ? 'OVERDUE' : 'AUTHORIZED',
-          subscriptionStatus: companySubscriptionStatus,
           billingProvider: 'mercadopago',
           paymentMethod: 'CARD',
           billingCycle,
-          premiumAccess: false,
           subscriptionCurrentPeriodStart: graceStartedAt,
           subscriptionCurrentPeriodEnd: graceEndsAt,
           billingCardBrand: card.brand || company.billingCardBrand || null,
@@ -1557,11 +1553,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
           // Estado unico nativo (PR-002 A.3): graça vencida = suspended.
           status: 'suspended',
           statusChangedAt: blockedAt,
-          onboardingStatus: 'suspended',
           isActive: false,
-          paymentStatus: 'DISABLED',
-          subscriptionStatus: 'past_due',
-          premiumAccess: false,
           billingGraceEmailStage: 3,
           billingGraceLastEmailAt: blockedAt,
           deactivatedAt: blockedAt,
@@ -1653,13 +1645,9 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
           isActive: true,
           trialEndsAt: { not: null },
           trialNoticeEmailStage: { lt: 2 },
-          // Cortesia (decisao master) nunca recebe aviso de trial.
-          status: { not: 'courtesy' },
-          OR: [
-            { paymentStatus: 'TRIAL' },
-            { subscriptionStatus: 'trialing' },
-            { onboardingStatus: 'active_trial' },
-          ],
+          // Estado unico: só trial recebe aviso de trial (cortesia fica de fora
+          // naturalmente, pois tem status proprio).
+          status: 'trial',
         },
         include: {
           users: {
@@ -1718,19 +1706,15 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
         data: {
           selectedPlanKey,
           trialModuleSelection: selectedPlanKey === COMMERCIAL_PLAN_KEYS.PADRAO ? 'vendas' : null,
-          // Estado unico nativo (PR-002 A.3): pagamento confirmado = active.
-          // premiumAccess significa cortesia manual; pagamento NAO seta a flag.
+          // Estado unico nativo (PR-002 A.3): pagamento confirmado = active
+          // (sem espelho legado — DROP).
           status: 'active',
           statusChangedAt: paidAt,
           courtesyEndsAt: null,
           courtesyReason: null,
           isActive: true,
-          onboardingStatus: 'active_paid',
-          paymentStatus: 'PAID',
-          subscriptionStatus: 'active',
           billingProvider: 'mercadopago',
           paymentMethod: this.normalizePaymentMethod(charge?.paymentMethod),
-          premiumAccess: false,
           subscriptionCurrentPeriodStart: paidAt,
           subscriptionCurrentPeriodEnd: periodEnd,
           ...this.billingGraceClearData(),
@@ -1786,19 +1770,16 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
         data: {
           selectedPlanKey,
           trialModuleSelection: selectedPlanKey === COMMERCIAL_PLAN_KEYS.PADRAO ? 'vendas' : null,
-          // Estado unico nativo (PR-002 A.3): assinatura ativa = active.
+          // Estado unico nativo (PR-002 A.3): assinatura ativa = active
+          // (sem espelho legado — DROP).
           status: 'active',
           statusChangedAt: paidAt,
           courtesyEndsAt: null,
           courtesyReason: null,
           isActive: true,
-          onboardingStatus: 'active_paid',
-          paymentStatus: 'PAID',
-          subscriptionStatus: 'active',
           billingProvider: 'mercadopago',
           paymentMethod: 'CARD',
           billingCycle,
-          premiumAccess: false,
           subscriptionCurrentPeriodStart: periodStart,
           subscriptionCurrentPeriodEnd: periodEnd,
           ...this.billingGraceClearData(),
@@ -2105,9 +2086,9 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       await this.prisma.company.update({
         where: { id: subscription.companyId },
         data: {
-          subscriptionStatus: 'canceled',
-          paymentStatus: 'DISABLED',
-          premiumAccess: false,
+          // Assinatura cancelada sem manter acesso = suspended (estado unico).
+          status: 'suspended',
+          statusChangedAt: now,
           isActive: false,
           deactivatedAt: now,
         },
@@ -2659,13 +2640,10 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
           pendingCheckout: access.pendingCheckout,
           detailCode: access.detailCode,
         },
-        paymentStatus: company.paymentStatus,
         paymentMethod: company.paymentMethod,
         billingCycle: pricing.billingCycle,
         billingProvider: company.billingProvider,
-        subscriptionStatus: company.subscriptionStatus,
         selectedPlanKey: company.selectedPlanKey || pricing.commercialPlan?.planKey || null,
-        premiumAccess: Boolean(company.premiumAccess),
         trialStartsAt: company.trialStartsAt instanceof Date ? company.trialStartsAt.toISOString() : null,
         trialEndsAt: company.trialEndsAt instanceof Date ? company.trialEndsAt.toISOString() : null,
         trialRemainingDays: this.computeTrialRemainingDays(company.trialEndsAt),
@@ -2714,18 +2692,23 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       },
       subscription: this.serializeSubscription(latestSubscription, canManageBilling),
       accountStatus: {
+        // Label projetado do estado canonico (sem re-derivar campos crus).
         label:
-          graceActive
+          access.state === 'grace'
             ? 'Acesso em tolerancia'
-            : String(company.subscriptionStatus || '').toLowerCase() === 'trialing'
+            : access.state === 'trial' || access.state === 'trial_ending'
             ? 'Conta em free trial'
-            : String(company.subscriptionStatus || '').toLowerCase() === 'authorized'
-              ? 'Assinatura autorizada'
-            : String(company.paymentStatus || '').toUpperCase() === 'PAID'
+            : access.state === 'paying'
               ? 'Conta paga e ativa'
-              : String(company.paymentStatus || '').toUpperCase() === 'OVERDUE'
-                ? 'Conta com pendencia'
-                : 'Conta em acompanhamento',
+              : access.state === 'manual' || access.state === 'exempt'
+                ? 'Cortesia ativa'
+                : access.state === 'overdue'
+                  ? 'Conta com pendencia'
+                  : access.state === 'pending_checkout'
+                    ? 'Checkout pendente'
+                    : access.state === 'suspended'
+                      ? 'Conta suspensa'
+                      : 'Conta em acompanhamento',
         nextDueAt:
           company.subscriptionCurrentPeriodEnd instanceof Date
             ? company.subscriptionCurrentPeriodEnd.toISOString()
