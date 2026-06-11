@@ -140,7 +140,9 @@ test.describe("fluxo completo: contratante → trial → vendedor → expiraçã
     });
     expect(radarLatest.status(), "Radar liberado por default para o vendedor").toBe(200);
 
-    // 7. Vendedor NÃO recebe nenhum campo de cobrança (D.4).
+    // 7. Vendedor NÃO recebe nenhum campo de cobrança (D.4). Pós-DROP os
+    //    campos crus nem existem no payload (undefined) — ausente ou nulo,
+    //    nunca com valor.
     const sellerProfile = await (await request.get(`${API}/profile/current-user`, {
       headers: sellerHeaders,
     })).json();
@@ -150,6 +152,7 @@ test.describe("fluxo completo: contratante → trial → vendedor → expiraçã
       "accessState",
       "paymentStatus",
       "subscriptionStatus",
+      "premiumAccess",
       "selectedPlanKey",
       "trialEndsAt",
       "trialRemainingDays",
@@ -157,7 +160,7 @@ test.describe("fluxo completo: contratante → trial → vendedor → expiraçã
       "billingGraceReason",
       "plan",
     ]) {
-      expect(sellerProfile.company[field], `company.${field} deve ser nulo para vendedor`).toBeNull();
+      expect(sellerProfile.company[field] ?? null, `company.${field} não pode chegar ao vendedor`).toBeNull();
     }
 
     const sellerOperational = await (await request.get(`${API}/companies/me/operational-status`, {
@@ -172,8 +175,9 @@ test.describe("fluxo completo: contratante → trial → vendedor → expiraçã
     const sellerPlans = await (await request.get(`${API}/commercial-plans/me`, {
       headers: sellerHeaders,
     })).json();
-    expect(sellerPlans.current.paymentStatus).toBeNull();
-    expect(sellerPlans.current.billingBreakdown).toBeNull();
+    expect(sellerPlans.current.accessState ?? null, "estado de cobrança não chega ao vendedor").toBeNull();
+    expect(sellerPlans.current.paymentStatus ?? null, "campo cru morto no DROP").toBeNull();
+    expect(sellerPlans.current.billingBreakdown ?? null).toBeNull();
     expect(sellerPlans.permissions.canSelectPlan).toBe(false);
     for (const plan of sellerPlans.plans || []) {
       expect(plan.monthlyPrice, "vendedor não vê preço de plano").toBeNull();
@@ -197,8 +201,8 @@ test.describe("fluxo completo: contratante → trial → vendedor → expiraçã
       headers: sellerExpiredHeaders,
     })).json();
     expect(sellerExpiredProfile.company.accessReleased).toBe(false);
-    expect(sellerExpiredProfile.company.accessState).toBeNull();
-    expect(sellerExpiredProfile.company.paymentStatus).toBeNull();
+    expect(sellerExpiredProfile.company.accessState ?? null).toBeNull();
+    expect(sellerExpiredProfile.company.paymentStatus ?? null).toBeNull();
 
     const sellerExpiredOperational = await (await request.get(`${API}/companies/me/operational-status`, {
       headers: sellerExpiredHeaders,
@@ -221,7 +225,6 @@ test.describe("fluxo completo: contratante → trial → vendedor → expiraçã
     //    único como o escritor nativo do financeiro — A.3).
     sql(
       `UPDATE "Company" SET "status" = 'active', "isActive" = true, ` +
-        `"paymentStatus" = 'PAID', "subscriptionStatus" = 'active', ` +
         `"statusChangedAt" = NOW() WHERE id = ${companyId}`,
     );
     sql(`UPDATE "CompanyModule" SET "enabled" = true WHERE "companyId" = ${companyId}`);
@@ -300,7 +303,6 @@ test.describe("fluxo completo: contratante → trial → vendedor → expiraçã
     // 4. Checkout concluído (escrita do estado único como o financeiro grava).
     sql(
       `UPDATE "Company" SET "status" = 'active', "isActive" = true, ` +
-        `"paymentStatus" = 'PAID', "subscriptionStatus" = 'active', ` +
         `"selectedPlanKey" = 'hbx_padrao', "statusChangedAt" = NOW() WHERE id = ${companyId}`,
     );
 
