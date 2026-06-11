@@ -54,12 +54,6 @@ export class AuthService implements OnModuleInit {
 
   async onModuleInit() {
     await this.ensureSystemMasterUser();
-    await this.repairBillingGraceCompanyStates().catch((error) => {
-      this.logger.error(
-        'Failed to repair billing grace company states',
-        error instanceof Error ? error.stack : undefined,
-      );
-    });
   }
 
   private masterUsername() {
@@ -774,73 +768,6 @@ export class AuthService implements OnModuleInit {
     }
   }
 
-  private async repairBillingGraceCompanyStates() {
-    const companies = await this.prisma.company.findMany({
-      where: {
-        billingGraceReason: 'initial_access',
-        subscriptionStatus: 'grace',
-        paymentStatus: 'PENDING',
-      },
-      select: {
-        id: true,
-        selectedPlanKey: true,
-      },
-    });
-
-    const now = new Date();
-    for (const company of companies) {
-      const selectedPlanKey = this.normalizeSelectedPlanKey(company.selectedPlanKey || undefined);
-      await this.prisma.$transaction(async (tx) => {
-        await tx.company.update({
-          where: { id: company.id },
-          data: {
-            selectedPlanKey,
-            trialModuleSelection: null,
-            onboardingStatus: 'pending_checkout',
-            isActive: false,
-            paymentStatus: 'PENDING',
-            subscriptionStatus: 'pending_checkout',
-            premiumAccess: false,
-            trialStartsAt: null,
-            trialEndsAt: null,
-            subscriptionCurrentPeriodStart: null,
-            subscriptionCurrentPeriodEnd: null,
-            billingGraceStartedAt: null,
-            billingGraceEndsAt: null,
-            billingGraceReason: null,
-            billingGraceEmailStage: 0,
-            billingGraceLastEmailAt: null,
-            billingGraceLastFailureAt: null,
-            deactivatedAt: now,
-          },
-        });
-        await this.syncPlanModulesTx(tx, company.id, selectedPlanKey);
-        await tx.companyModule.updateMany({ where: { companyId: company.id }, data: { enabled: false } });
-        await this.createPendingCheckoutEntitlementsTx(tx, company.id, selectedPlanKey, now);
-      });
-    }
-
-    if (companies.length > 0) {
-      this.logger.warn(`Reverted ${companies.length} initial access grace companies to pending checkout.`);
-    }
-
-    const providerPending = await this.prisma.company.updateMany({
-      where: {
-        billingGraceReason: 'provider_pending',
-        subscriptionStatus: 'grace',
-        paymentStatus: 'PENDING',
-        billingGraceEndsAt: { gt: now },
-      },
-      data: {
-        paymentStatus: 'AUTHORIZED',
-      },
-    });
-
-    if (providerPending.count > 0) {
-      this.logger.warn(`Normalized ${providerPending.count} provider pending grace companies for login access.`);
-    }
-  }
-
   private async activateConfirmedTrialTx(tx: any, companyId: number, activatedAt: Date): Promise<Date | null> {
     const company = await tx.company.findUnique({
       where: { id: companyId },
@@ -871,11 +798,7 @@ export class AuthService implements OnModuleInit {
           statusChangedAt: activatedAt,
           selectedPlanKey,
           trialModuleSelection: null,
-          onboardingStatus: 'pending_checkout',
           isActive: false,
-          paymentStatus: 'PENDING',
-          subscriptionStatus: 'pending_checkout',
-          premiumAccess: false,
           trialStartsAt: null,
           trialEndsAt: null,
           subscriptionCurrentPeriodStart: null,
@@ -926,17 +849,12 @@ export class AuthService implements OnModuleInit {
       where: { id: companyId },
       data: {
         // Estado unico nativo (PR-002 C.1): confirmacao de e-mail inicia o
-        // trial. premiumAccess significa cortesia; trial NAO carrega a flag
-        // (7ª ocorrencia da praga, morta aqui).
+        // trial direto, sem espelho legado (DROP).
         status: 'trial',
         statusChangedAt: activatedAt,
         selectedPlanKey,
         trialModuleSelection: this.resolveTrialModuleForPlan(selectedPlanKey),
-        onboardingStatus: 'active_trial',
         isActive: true,
-        paymentStatus: 'TRIAL',
-        subscriptionStatus: 'trialing',
-        premiumAccess: false,
         assistedSetupRequired: selectedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR,
         assistedSetupStatus: selectedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR ? 'pending' : 'not_required',
         assistedSetupCompletedAt: null,
@@ -1165,11 +1083,6 @@ export class AuthService implements OnModuleInit {
             companyKind: true,
             status: true,
             isActive: true,
-            onboardingStatus: true,
-            subscriptionStatus: true,
-            paymentStatus: true,
-            premiumAccess: true,
-            billingExempt: true,
             trialEndsAt: true,
             billingGraceEndsAt: true,
             courtesyEndsAt: true,
@@ -1236,11 +1149,6 @@ export class AuthService implements OnModuleInit {
           companyKind: true,
           status: true,
           isActive: true,
-          onboardingStatus: true,
-          subscriptionStatus: true,
-          paymentStatus: true,
-          premiumAccess: true,
-          billingExempt: true,
           trialEndsAt: true,
           billingGraceEndsAt: true,
           courtesyEndsAt: true,
@@ -1600,15 +1508,10 @@ export class AuthService implements OnModuleInit {
         taxDocument: signupTrialProfile?.taxDocument || null,
           // Estado unico nativo (PR-002 C.1): empresa nasce pending_checkout;
           // "aguardando confirmacao de e-mail" e um fato do USUARIO (token
-          // pendente), nao um estado da empresa. Espelho legado coerente
-          // ate o DROP da fase A.4.
+          // pendente), nao um estado da empresa (DROP — sem espelho legado).
           status: 'pending_checkout',
           statusChangedAt: new Date(),
-          onboardingStatus: 'pending_email_confirmation',
           isActive: false,
-          paymentStatus: 'PENDING',
-          subscriptionStatus: 'pending_checkout',
-          premiumAccess: false,
           trialStartsAt: null,
           trialEndsAt: null,
           deactivatedAt: new Date(),
@@ -1804,11 +1707,6 @@ export class AuthService implements OnModuleInit {
             companyKind: true,
             status: true,
             isActive: true,
-            onboardingStatus: true,
-            paymentStatus: true,
-            subscriptionStatus: true,
-            premiumAccess: true,
-            billingExempt: true,
             selectedPlanKey: true,
             trialEndsAt: true,
             billingGraceEndsAt: true,
@@ -1873,12 +1771,12 @@ export class AuthService implements OnModuleInit {
         username: true,
         email: true,
         emailConfirmedAt: true,
+        emailConfirmationToken: true,
         companyId: true,
         company: {
           select: {
             name: true,
             companyKind: true,
-            onboardingStatus: true,
             entityType: true,
             trialModuleSelection: true,
             acquisitionSource: true,
@@ -1887,11 +1785,10 @@ export class AuthService implements OnModuleInit {
       },
     });
 
-    const onboardingStatus = String(user?.company?.onboardingStatus || '').trim().toLowerCase();
+    // Confirmacao de e-mail pendente e fato do USUARIO (token vivo, sem
+    // confirmacao) — nao um estado da empresa (PR-002 C.1 / DROP).
     const canResendConfirmation = Boolean(
-      user &&
-        !user.emailConfirmedAt &&
-        onboardingStatus === 'pending_email_confirmation',
+      user && !user.emailConfirmedAt && user.emailConfirmationToken,
     );
 
     if (!canResendConfirmation) {

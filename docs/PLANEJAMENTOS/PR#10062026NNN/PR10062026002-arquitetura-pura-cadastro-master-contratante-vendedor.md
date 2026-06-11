@@ -152,7 +152,10 @@ Cada fase commitada, buildada e testada antes da seguinte.
 >   - **DROP 7** (CAPSTONE) middleware dual-write (`prisma.service.$use`) +
 >     `deriveCompanyAccessStateFromLegacy` removidos; migração DESTRUTIVA do
 >     schema (drop dos 4 campos + billingExempt* + tabela UserModuleAccess).
->     **Salvaguarda:** só roda após referências = 0 e backup do banco.
+>     **Salvaguarda:** só roda após referências = 0. **Backup dispensado pelo
+>     dono (10/06): sem clientes em produção agora, banco local recriável do
+>     zero — se quebrar, recria com seed.** A trava que permanece é só a de
+>     referências = 0 (grep prova que nenhum leitor de decisão usa as colunas).
 >   - **DROP 8** frontend sem campos crus (billing-access fallback, whatsapp/
 >     planos/vendas/tutorial/master).
 >   - **DROP 9** checks completos + E2E (ajustar SQL sem colunas legadas) +

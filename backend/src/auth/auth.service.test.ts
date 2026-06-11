@@ -334,7 +334,7 @@ function buildBareAuthService() {
   return new AuthService({} as any, {} as any, {} as any, {} as any, {} as any, {} as any) as any;
 }
 
-test('confirmacao inicia trial nativo: status trial, sem premiumAccess, 14 dias do catalogo', async () => {
+test('confirmacao inicia trial nativo: status trial, sem espelho legado, 14 dias do catalogo', async () => {
   const service = buildBareAuthService();
   const { tx, companyUpdates, entitlementUpserts, trialPhoneWrites } = buildTrialActivationTx({
     selectedPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO,
@@ -351,10 +351,13 @@ test('confirmacao inicia trial nativo: status trial, sem premiumAccess, 14 dias 
   assert.equal(Math.round((trialEndsAt.getTime() - activatedAt.getTime()) / DAY_MS), 14);
   const update = companyUpdates.find((data) => data.status === 'trial');
   assert.ok(update, 'esperava escrita nativa de status trial');
-  assert.equal(update.premiumAccess, false);
   assert.equal(update.isActive, true);
-  assert.equal(update.subscriptionStatus, 'trialing');
   assert.equal(update.statusChangedAt, activatedAt);
+  // DROP: sem espelhos legados na escrita nativa.
+  assert.equal('premiumAccess' in update, false);
+  assert.equal('subscriptionStatus' in update, false);
+  assert.equal('paymentStatus' in update, false);
+  assert.equal('onboardingStatus' in update, false);
   assert.ok(entitlementUpserts.length > 0);
   assert.ok(entitlementUpserts.every((args) => args.update.status === 'trialing'));
   assert.equal(trialPhoneWrites.length, 1);
@@ -375,8 +378,8 @@ test('cadastro antigo sem telefone nao trava a confirmacao: degrada para pending
   assert.equal(trialEndsAt, null);
   assert.equal(companyUpdates.length, 1);
   assert.equal(companyUpdates[0].status, 'pending_checkout');
-  assert.equal(companyUpdates[0].premiumAccess, false);
   assert.equal(companyUpdates[0].isActive, false);
+  assert.equal('premiumAccess' in companyUpdates[0], false);
   assert.ok(entitlementUpserts.length > 0);
   assert.ok(entitlementUpserts.every((args) => ['pending_checkout', 'canceled'].includes(args.update.status)));
 });
