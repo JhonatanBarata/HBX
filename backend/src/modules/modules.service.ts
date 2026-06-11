@@ -1676,11 +1676,10 @@ export class ModulesService implements OnModuleInit {
         where: { id: Number(companyId) },
         select: {
           id: true,
+          companyKind: true,
+          slug: true,
           status: true,
-          paymentStatus: true,
-          subscriptionStatus: true,
-          premiumAccess: true,
-          billingExempt: true,
+          selectedPlanKey: true,
           trialEndsAt: true,
           billingGraceEndsAt: true,
           courtesyEndsAt: true,
@@ -2046,11 +2045,6 @@ export class ModulesService implements OnModuleInit {
         companyKind: true,
         status: true,
         isActive: true,
-        onboardingStatus: true,
-        paymentStatus: true,
-        subscriptionStatus: true,
-        premiumAccess: true,
-        billingExempt: true,
         selectedPlanKey: true,
         trialEndsAt: true,
         billingGraceEndsAt: true,
@@ -2189,11 +2183,6 @@ export class ModulesService implements OnModuleInit {
         companyKind: true,
         status: true,
         isActive: true,
-        onboardingStatus: true,
-        paymentStatus: true,
-        subscriptionStatus: true,
-        premiumAccess: true,
-        billingExempt: true,
         selectedPlanKey: true,
         trialEndsAt: true,
         billingGraceEndsAt: true,
@@ -2384,14 +2373,13 @@ export class ModulesService implements OnModuleInit {
         select: {
           slug: true,
           companyKind: true,
+          status: true,
           isActive: true,
-          onboardingStatus: true,
-          paymentStatus: true,
-          subscriptionStatus: true,
-          premiumAccess: true,
           selectedPlanKey: true,
           trialEndsAt: true,
           billingGraceEndsAt: true,
+          courtesyEndsAt: true,
+          courtesyReason: true,
         },
       }),
     ]);
@@ -2596,7 +2584,7 @@ export class ModulesService implements OnModuleInit {
     );
     const manualPaymentPending = Boolean(
       String(company?.paymentMethod || '').trim().toUpperCase() === 'MANUAL' &&
-        ['PENDING', 'OVERDUE'].includes(String(company?.paymentStatus || '').trim().toUpperCase()),
+        (access.state === 'overdue' || access.state === 'pending_checkout'),
     );
     const effectiveMercadoPagoToken = this.effectiveMercadoPagoAccessToken(company, masterIntegrations);
     const effectiveWhatsApp = this.effectiveWhatsAppConfig(company, masterIntegrations);
@@ -2615,7 +2603,6 @@ export class ModulesService implements OnModuleInit {
       whatsappCenter,
       endpoints: whatsappEndpoints,
     });
-    const onboardingStatus = String(company?.onboardingStatus || '').trim().toLowerCase() || 'active_paid';
     const trialModuleSelection = this.normalizeOptionalString(company?.trialModuleSelection);
     const hasOperationalWebscraping = Boolean(webscrapingUsage?.lastSearchAt);
     const whatsappMigrationPending = Boolean(
@@ -2625,28 +2612,23 @@ export class ModulesService implements OnModuleInit {
     const hasWhatsAppSignal = Boolean(
       String(company?.whatsappConnectionMode || '').trim().toUpperCase() !== 'NONE' || whatsappMigrationPending,
     );
+    // Confirmacao de e-mail do contratante e fato do USUARIO (DROP): vem do
+    // resumo de confirmacao, nao mais de company.onboardingStatus.
+    const awaitingEmailConfirmation =
+      Number(userConfirmation?.pendingUsersCount || 0) > 0 && !userConfirmation?.confirmed;
+    const accessReleased = isCompanyAccessReleased(access.state);
     const activationNeedsAttention = Boolean(
-      ['active_trial', 'active_paid'].includes(onboardingStatus) &&
-        active &&
-        !hasOperationalWebscraping &&
-        !hasWhatsAppSignal,
+      accessReleased && active && !hasOperationalWebscraping && !hasWhatsAppSignal,
     );
     const activationStatus =
-      onboardingStatus === 'pending_email_confirmation'
+      awaitingEmailConfirmation
         ? 'pending_email_confirmation'
         : activationNeedsAttention
           ? 'needs_activation'
           : hasOperationalWebscraping || hasWhatsAppSignal
             ? 'operating'
             : 'basic_access';
-    const onboardingLabel =
-      onboardingStatus === 'pending_email_confirmation'
-        ? 'Pendente de confirmação'
-        : onboardingStatus === 'active_trial'
-          ? 'Trial ativo'
-          : onboardingStatus === 'suspended'
-            ? 'Suspenso'
-            : 'Ativo pago';
+    const onboardingLabel = awaitingEmailConfirmation ? 'Pendente de confirmação' : access.statusLabel;
 
     // Risco vem do estado canonico; sinais operacionais apenas escalam.
     let riskLevel: 'stable' | 'warning' | 'critical' = access.riskLevel;
@@ -2661,7 +2643,6 @@ export class ModulesService implements OnModuleInit {
       name: company.name,
       slug: company.slug || null,
       createdAt: company?.createdAt instanceof Date ? company.createdAt.toISOString() : null,
-      onboardingStatus,
       onboardingLabel,
       trialModuleSelection,
       emailConfirmation: userConfirmation,
@@ -2688,14 +2669,9 @@ export class ModulesService implements OnModuleInit {
       monthlyValue,
       finance,
       billingSituation,
-      paymentStatus: company.paymentStatus,
       paymentMethod: company.paymentMethod,
       billingCycle: finance.billingCycle,
-      subscriptionStatus: company.subscriptionStatus,
       billingProvider: company.billingProvider,
-      premiumAccess: Boolean(company.premiumAccess),
-      billingExempt: Boolean(company.billingExempt),
-      billingExemptReason: company.billingExemptReason || null,
       courtesyReason: company.courtesyReason || null,
       courtesyEndsAt: company.courtesyEndsAt instanceof Date ? company.courtesyEndsAt.toISOString() : null,
       commercialCardQuota: this.resolveCommercialCardQuota(company),
@@ -3498,11 +3474,9 @@ export class ModulesService implements OnModuleInit {
         contactPhone: company.contactPhone || null,
         taxDocument: company.taxDocument || null,
         isActive: status.active,
-        paymentStatus: company.paymentStatus,
+        status: company.status,
         paymentMethod: company.paymentMethod,
-        subscriptionStatus: company.subscriptionStatus,
         billingProvider: company.billingProvider,
-        premiumAccess: company.premiumAccess,
         trialStartsAt: company.trialStartsAt,
         trialEndsAt: company.trialEndsAt,
         subscriptionCurrentPeriodStart: company.subscriptionCurrentPeriodStart,
