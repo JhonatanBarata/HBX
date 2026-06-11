@@ -1,7 +1,9 @@
 # PR10062026003 — Redesign HBX: temas Corporativo + Friendly (handoff completo)
 
 Data: 10/06/2026 (atualizado após leitura do handoff)
-Status: PLANEJADO — fila: executa DEPOIS do PR10062026002 (arquitetura pura)
+Status: ABSORVIDO (11/06/2026) — o que a implantação paralela do handoff já entregou está
+marcado abaixo; todo o restante (T.2, T.4, T.5, T.6, K.3, K.4, K.6) passa a ser executado
+pelo **PR10062026010** (refatoração destrutiva do frontend). Este doc não recebe mais fases.
 Fonte da verdade: `docs/TEMAS/design_handoff_hbx_corporativo/` (README.md = guia de
 implementação; pastas `docs/TEMAS/claro|escuro` = mesmas referências com o modo fixado
 para abrir no navegador).
@@ -23,15 +25,18 @@ para abrir no navegador).
   método que havíamos definido.
 
 ## Fases (alinhadas ao plano do handoff)
-- [ ] **T.1 Tokens:** portar `tokens/*.css` para o frontend, importados ANTES das regras
+- [x] **T.1 Tokens:** portar `tokens/*.css` para o frontend, importados ANTES das regras
       atuais (namespace novo não conflita). Fontes via `tokens/fonts.css`.
+      *(entregue na implantação paralela: `frontend/src/app/hbx-theme/tokens`)*
 - [ ] **T.2 Mecanismo de tema:** provider novo com `data-theme`/`data-theme-mode` no
       `<html>` + kill de transições no swap (receita do README), persistência integrada
       ao `themePreferenceConfig` existente, coexistindo com o ThemeProvider atual até o
       fim da migração.
-- [ ] **T.3 Shell Corporativo:** sidebar (8 seções) + topbar (busca ⌘K, sol/lua,
+- [x] **T.3 Shell Corporativo:** sidebar (8 seções) + topbar (busca ⌘K, sol/lua,
       chavinha, "+", sinos) como TSX, atrás de rota nova ou feature flag — referência
       `shell.jsx` + `corporate.css`.
+      *(entregue como preview em `frontend/src/components/corporate/HbxCorporateShell.tsx`
+      + `/app2`; a promoção a AppShell oficial é o R1 do PR-010)*
 - [ ] **T.4 Uma tela por PR**, validada visualmente contra o HTML de referência antes do
       merge, na ordem do handoff: Dashboard → Vendas → Atendimento → Webscraping → Bot →
       Leads → Relatórios → Configurações → Login.
@@ -56,21 +61,26 @@ para abrir no navegador).
 Garantia: **módulo novo nunca mais nasce do zero**. Toda tela do HBX é montagem de um
 kit fechado. Entregáveis (fazem parte deste plano, construídos junto com T.3/T.4):
 
-- [ ] **K.1 Kit de layout:** `PageShell` (grid 218px + 1fr, variante com painel de
+- [x] **K.1 Kit de layout:** `PageShell` (grid 218px + 1fr, variante com painel de
       contexto +300px), `Section/Panel` (header padrão), grades de KPI, tabela padrão,
       lista padrão — os ÚNICOS layouts permitidos.
-- [ ] **K.2 Kit de sobreposição:** `Modal` (janela), `ConfirmDialog` (pop-up de decisão),
+      *(entregue: `HbxPageShell`, `HbxSection`, `HbxKpiGrid`, `HbxDataTable`,
+      `HbxStandardList` exportados em `frontend/src/components/ui`)*
+- [x] **K.2 Kit de sobreposição:** `Modal` (janela), `ConfirmDialog` (pop-up de decisão),
       **`PersistentNotice`** (aviso persistente que só sai com clique do usuário —
       não existe no handoff, será desenhado no kit com os tokens), `Toast` (efêmero),
       `Drawer` se necessário. Um de cada — proibido criar variações locais.
+      *(entregue: `HbxModal`, `HbxConfirmDialog`, `HbxPersistentNotice`, `HbxToast`,
+      `HbxDrawer` em `frontend/src/components/ui`)*
 - [ ] **K.3 Escalas fixas:** espaçamento (escala única do `tokens/spacing.css`),
       tamanhos de texto (corpo 14px, título de página 1.18rem/700, KPI 1.5rem/800,
       meta 0.7rem — nada fora da escala), raios e sombras do token.
 - [ ] **K.4 Guia de texto (copy):** tom pt-BR direto do `design_system_readme.md` —
       títulos, mensagens de vazio, erros, confirmações: frases-padrão reutilizáveis.
-- [ ] **K.5 Catálogo vivo:** rota interna `/dev/ui` renderizando TODAS as peças nos
+- [x] **K.5 Catálogo vivo:** rota interna `/dev/ui` renderizando TODAS as peças nos
       4 visuais (Corporativo/Friendly × claro/escuro) — é onde se confere o padrão e
       onde peça nova nasce ANTES de aparecer em tela real.
+      *(entregue: `frontend/src/app/dev/ui`)*
 - [ ] **K.6 Blueprint de módulo novo:** doc curto "como criar uma tela" — escolher
       PageShell, encaixar Panels/tabelas do kit, textos pelo guia. Vira invariante no
       AGENTS.md: **nenhuma tela nova com layout/popup/espaçamento fora do kit**;
