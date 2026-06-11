@@ -17,6 +17,7 @@ import {
   type UserModule,
 } from "../lib/hbx-modules";
 import styles from "./ModuleNav.module.css";
+import { HbxCorporateIcon, hbxCorporateStyles } from "./corporate/HbxCorporateShell";
 
 type NavItem = {
   key: string;
@@ -219,6 +220,23 @@ type ModuleNavProps = {
   presentationConfig?: PresentationConfig | null;
   onUpdateModulePresentation?: (href: string, patch: Partial<PresentationModuleOverride>) => void;
   compact?: boolean;
+  // "corporate" troca SÓ a renderização (sidebar do handoff docs/TEMAS); a
+  // lógica de visibilidade por persona é a mesma deste componente.
+  variant?: "default" | "corporate";
+};
+
+type CorporateNavIcon = "dash" | "leads" | "scrape" | "vendas" | "atend" | "bot" | "relat" | "config" | "users" | "money" | "check" | "search" | "send" | "mail";
+
+const CORPORATE_NAV_ICONS: Record<string, CorporateNavIcon> = {
+  inicio: "dash",
+  atendimento: "atend",
+  vendas: "vendas",
+  website: "send",
+  cadastro: "users",
+  financeiro: "money",
+  planos: "check",
+  gerencial: "config",
+  master: "search",
 };
 
 type PrefetchedDashboardPayload = {
@@ -267,6 +285,7 @@ export default function ModuleNav({
   presentationConfig,
   onUpdateModulePresentation,
   compact = false,
+  variant = "default",
 }: ModuleNavProps) {
   const pathname = usePathname();
   const authenticated = useSyncExternalStore(subscribeAuth, getAuthSnapshot, getAuthServerSnapshot);
@@ -471,6 +490,78 @@ export default function ModuleNav({
     },
     [navItems, navigationMode, presentationEditing, privilegedNavigation],
   );
+
+  if (variant === "corporate") {
+    const corporateItems = [
+      {
+        key: "inicio",
+        href: "/boasvindas",
+        label: "Início",
+        blocked: false,
+        blockedDescription: "",
+        active: (pathname || "").startsWith("/boasvindas"),
+      },
+      ...navItems.map((item) => {
+        const moduleItem = item.moduleKey
+          ? (modulesByKey.get(normalizeUserModuleKey(item.moduleKey)) ?? null)
+          : null;
+        const blocked = Boolean(moduleItem && isModuleBlocked(moduleItem));
+        const href = item.key === "radar_digital"
+          ? item.href
+          : item.moduleKey
+            ? resolveModuleHref(item.moduleKey, moduleItem?.serviceUrl || item.href)
+            : item.href;
+        return {
+          key: item.key,
+          href,
+          label: item.label,
+          blocked,
+          blockedDescription: blocked
+            ? resolveBlockedDescription(item, moduleItem, isSystemMaster, userRole)
+            : "",
+          active: item.matcher(pathname || ""),
+        };
+      }),
+    ];
+
+    return (
+      <nav style={{ display: "contents" }} aria-label="Navegação do sistema">
+        {corporateItems.map((item) => {
+          const icon = CORPORATE_NAV_ICONS[item.key] || "dash";
+          if (item.blocked) {
+            return (
+              <button
+                key={item.key}
+                type="button"
+                className={hbxCorporateStyles.navItem}
+                disabled
+                aria-disabled="true"
+                title={item.blockedDescription}
+                style={{ opacity: 0.45, cursor: "not-allowed" }}
+              >
+                <HbxCorporateIcon name={icon} />
+                {item.label}
+              </button>
+            );
+          }
+          return (
+            <Link
+              key={item.key}
+              href={item.href}
+              prefetch={false}
+              className={hbxCorporateStyles.navItem}
+              data-active={item.active}
+              aria-current={item.active ? "page" : undefined}
+              style={{ textDecoration: "none" }}
+            >
+              <HbxCorporateIcon name={icon} />
+              {item.label}
+            </Link>
+          );
+        })}
+      </nav>
+    );
+  }
 
   return (
     <nav

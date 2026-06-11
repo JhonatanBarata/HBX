@@ -5,7 +5,12 @@ import { useRouter, useSearchParams } from "next/navigation";
 import React from "react";
 import { apiFetch, getToken } from "@/app/_lib/api";
 import { buildCheckoutPath } from "@/lib/billing-access";
-import { HbxPageShell, HbxSection, HbxStandardList, HbxStatusBadge } from "@/components/ui";
+import {
+  HbxCorporatePanel,
+  HbxCorporateTag,
+  hbxCorporateStyles as cs,
+  useHbxCorporateMode,
+} from "@/components/corporate/HbxCorporateShell";
 
 const REDIRECT_SECONDS = 5;
 
@@ -54,6 +59,7 @@ function reasonCopy(reason: string) {
 export default function PreCheckoutClientPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  useHbxCorporateMode();
   const rawReason = searchParams.get("reason");
   const reason = rawReason === "trial_expired" || rawReason === "payment_failed" ? rawReason : "pending_checkout";
   const checkoutHref = buildCheckoutPath(reason);
@@ -93,48 +99,75 @@ export default function PreCheckoutClientPage() {
   const trialStart = formatDate(company?.trialStartsAt);
   const trialEnd = formatDate(company?.trialEndsAt);
 
+  const timeline = [
+    {
+      id: "trial",
+      title: "Trial",
+      description: trialStart || "Período gratuito",
+      tag: <HbxCorporateTag tone="teal">Concluído</HbxCorporateTag>,
+    },
+    {
+      id: "pre-checkout",
+      title: "Pré-checkout",
+      description: trialEnd ? `Encerrado em ${trialEnd}` : "Aviso de transição",
+      tag: <HbxCorporateTag tone="warn">Você está aqui</HbxCorporateTag>,
+    },
+    {
+      id: "checkout",
+      title: "Checkout",
+      description: `Abrindo em ${seconds}s`,
+      tag: <HbxCorporateTag tone="info">Próximo passo</HbxCorporateTag>,
+    },
+  ];
+
   return (
-    <HbxPageShell
-      eyebrow="Pré-checkout HBX"
-      title={copy.title}
-      description={copy.text}
-      actions={<HbxStatusBadge tone={reason === "payment_failed" ? "danger" : "warning"}>{copy.status}</HbxStatusBadge>}
+    <main
+      style={{
+        minHeight: "100vh",
+        display: "grid",
+        placeItems: "center",
+        padding: 24,
+        background: "var(--hbx-bg, var(--background))",
+      }}
     >
-      <HbxSection
-        title={company?.name || "Conta HBX"}
-        description="Fluxo de contratação"
-        aside={
-          <Link className="btn btn-primary" href={checkoutHref}>
-            Ir para o checkout
-          </Link>
-        }
-      >
-        <HbxStandardList
-          items={[
-            {
-              id: "trial",
-              title: "Trial",
-              description: trialStart || "Período gratuito",
-              badge: <HbxStatusBadge tone="success">Concluído</HbxStatusBadge>,
-            },
-            {
-              id: "pre-checkout",
-              title: "Pré-checkout",
-              description: trialEnd ? `Encerrado em ${trialEnd}` : "Aviso de transição",
-              badge: <HbxStatusBadge tone="warning">Você está aqui</HbxStatusBadge>,
-            },
-            {
-              id: "checkout",
-              title: "Checkout",
-              description: `Abrindo em ${seconds}s`,
-              badge: <HbxStatusBadge tone="info">Próximo passo</HbxStatusBadge>,
-            },
-          ]}
-        />
-        <p role="status" aria-live="polite">
-          Encaminhamento automático em {seconds} segundos.
-        </p>
-      </HbxSection>
-    </HbxPageShell>
+      <div style={{ width: "min(680px, 100%)", display: "grid", gap: 14 }}>
+        <div className={cs.logo} style={{ justifySelf: "start" }}>
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--hbx-brand)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 6l6 6-6 6M11 6l6 6-6 6" />
+          </svg>
+          <strong>HBX</strong>
+          <span className={cs.muted}>· {company?.name || "Conta HBX"}</span>
+        </div>
+
+        <HbxCorporatePanel
+          title={copy.title}
+          meta={<HbxCorporateTag tone={reason === "payment_failed" ? "red" : "warn"}>{copy.status}</HbxCorporateTag>}
+        >
+          <p className={cs.muted} style={{ marginTop: 0 }}>{copy.text}</p>
+
+          <div className={cs.list}>
+            {timeline.map((step) => (
+              <div key={step.id} className={cs.listItem}>
+                <span className={cs.dot} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <strong>{step.title}</strong>
+                  <p className={cs.muted} style={{ margin: 0 }}>{step.description}</p>
+                </div>
+                {step.tag}
+              </div>
+            ))}
+          </div>
+
+          <footer style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+            <Link className={cs.tealButton} style={{ textDecoration: "none" }} href={checkoutHref}>
+              Ir para o checkout
+            </Link>
+            <p className={cs.muted} role="status" aria-live="polite" style={{ margin: 0 }}>
+              Encaminhamento automático em {seconds} segundos.
+            </p>
+          </footer>
+        </HbxCorporatePanel>
+      </div>
+    </main>
   );
 }

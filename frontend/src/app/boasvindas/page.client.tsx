@@ -9,14 +9,11 @@ import { toMobileRoute } from "@/app/_lib/mobileRoutes";
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
 import HbxAppShell from "@/components/corporate/HbxAppShell";
 import {
-  HbxFormField,
-  HbxKpiCard,
-  HbxKpiGrid,
-  HbxPageShell,
-  HbxSection,
-  HbxStandardList,
-  HbxStatusBadge,
-} from "@/components/ui";
+  HbxCorporateIcon,
+  HbxCorporatePanel,
+  HbxCorporateTag,
+  hbxCorporateStyles as cs,
+} from "@/components/corporate/HbxCorporateShell";
 import { normalizeUserModuleKey, type UserModule } from "@/lib/hbx-modules";
 
 const LOGIN_TO_WELCOME_TRANSITION_KEY = "hbx_login_to_welcome_transition";
@@ -171,15 +168,15 @@ function PasswordChangeSection({
   }
 
   return (
-    <HbxSection
-      eyebrow="Senha temporária"
+    <HbxCorporatePanel
       title={userName || "Seu acesso HBX"}
-      description={userEmail}
-      aside={<HbxStatusBadge tone="warning">Primeiro acesso</HbxStatusBadge>}
+      meta={<HbxCorporateTag tone="warn">Senha temporária</HbxCorporateTag>}
     >
-      <form onSubmit={submitPassword} aria-label="Trocar senha do primeiro acesso">
-        <HbxFormField label="Nova senha" requiredMark>
+      <form onSubmit={submitPassword} aria-label="Trocar senha do primeiro acesso" className={cs.miniGrid}>
+        <label className={cs.miniCard}>
+          <span className={cs.muted}>Nova senha</span>
           <input
+            className={cs.field}
             type="password"
             value={newPassword}
             onChange={(event) => setNewPassword(event.target.value)}
@@ -188,9 +185,11 @@ function PasswordChangeSection({
             minLength={8}
             required
           />
-        </HbxFormField>
-        <HbxFormField label="Confirmar senha" requiredMark error={error || undefined} hint={message || undefined}>
+        </label>
+        <label className={cs.miniCard}>
+          <span className={cs.muted}>Confirmar senha</span>
           <input
+            className={cs.field}
             type="password"
             value={confirmPassword}
             onChange={(event) => setConfirmPassword(event.target.value)}
@@ -199,12 +198,65 @@ function PasswordChangeSection({
             minLength={8}
             required
           />
-        </HbxFormField>
-        <button type="submit" className="btn btn-primary" disabled={saving}>
-          {saving ? "Alterando..." : "Alterar senha e continuar"}
-        </button>
+        </label>
+        <div className={cs.miniCard}>
+          <span className={cs.muted}>{userEmail}</span>
+          {error ? <HbxCorporateTag tone="red">{error}</HbxCorporateTag> : null}
+          {message ? <HbxCorporateTag tone="teal">{message}</HbxCorporateTag> : null}
+          <button type="submit" className={cs.tealButton} disabled={saving}>
+            {saving ? "Alterando..." : "Alterar senha e continuar"}
+          </button>
+        </div>
       </form>
-    </HbxSection>
+    </HbxCorporatePanel>
+  );
+}
+
+function WelcomeKpis({ state }: { state: WelcomeState }) {
+  const kpis = [
+    {
+      label: "Cards",
+      value: state.loaded ? String(state.leadsCount) : "...",
+      foot: "Oportunidades na sua mesa comercial",
+      icon: "leads" as const,
+    },
+    {
+      label: "Retornos",
+      value: state.loaded ? String(state.pendingReturns) : "...",
+      foot: "Hoje, atrasados e agendados",
+      icon: "clock" as const,
+    },
+    {
+      label: "WhatsApp",
+      value: state.whatsappConnected ? "Conectado" : "Opcional",
+      foot: state.whatsappConnected ? "Canal pronto" : "Conecte quando precisar",
+      icon: "phone" as const,
+    },
+    {
+      label: "Cobrança",
+      value: "Depois",
+      foot: "Nenhuma ação financeira agora",
+      icon: "money" as const,
+    },
+  ];
+
+  return (
+    <div className={cs.kpis}>
+      {kpis.map((item) => (
+        <article key={item.label} className={cs.kpi}>
+          <span className={cs.kpiIcon}>
+            <HbxCorporateIcon name={item.icon} />
+          </span>
+          <div>
+            <div className={cs.kpiLabel}>{item.label}</div>
+            <div className={cs.kpiValue}>{item.value}</div>
+            <div className={cs.kpiFoot}>
+              <span className={cs.muted}>{item.foot}</span>
+            </div>
+          </div>
+        </article>
+      ))}
+    </div>
   );
 }
 
@@ -229,6 +281,7 @@ function WelcomeContent({
     );
   }
 
+  const firstName = state.userName.split(" ")[0] || "";
   const steps = [
     {
       id: "radar",
@@ -259,7 +312,7 @@ function WelcomeContent({
     {
       id: "billing",
       title: "Cobrança depois",
-      description: "Sem checkout agora. Primeiro entre, busque oportunidades e organize sua operação comercial.",
+      description: "Sem checkout agora. Primeiro entre, busque oportunidades e organize sua operação.",
       done: false,
       optional: true,
       href: null,
@@ -268,58 +321,53 @@ function WelcomeContent({
 
   return (
     <>
-      <HbxKpiGrid>
-        <HbxKpiCard
-          label="Cards"
-          value={state.loaded ? state.leadsCount : "..."}
-          description="Oportunidades na sua mesa comercial."
-        />
-        <HbxKpiCard
-          label="Retornos"
-          value={state.loaded ? state.pendingReturns : "..."}
-          description="Hoje, atrasados e agendados."
-          tone={state.pendingReturns > 0 ? "warning" : "default"}
-        />
-        <HbxKpiCard
-          label="WhatsApp"
-          value={state.whatsappConnected ? "Conectado" : "Opcional"}
-          description={state.whatsappConnected ? "Canal pronto." : "Conecte quando precisar."}
-          tone={state.whatsappConnected ? "success" : "default"}
-        />
-        <HbxKpiCard label="Cobrança" value="Depois" description="Nenhuma ação financeira agora." />
-      </HbxKpiGrid>
-
-      <HbxSection
-        eyebrow="Rota HBX"
-        title="Do login ao primeiro contato"
-        description={state.loaded ? "Escolha por onde continuar." : "Preparando seu acesso."}
-        aside={
-          <Link className="btn btn-primary" href={action.path}>
-            {action.label}
+      <HbxCorporatePanel
+        title={
+          state.loaded
+            ? `${firstName ? `${firstName}, sua` : "Sua"} operação começa aqui.`
+            : "Preparando seu acesso."
+        }
+        meta={
+          <Link href={action.path} prefetch={false} style={{ textDecoration: "none" }}>
+            <button type="button" className={cs.tealButton}>{action.label}</button>
           </Link>
         }
       >
-        <HbxStandardList
-          loading={!state.loaded}
-          items={steps.map((step, index) => ({
-            id: step.id,
-            title: `${String(index + 1).padStart(2, "0")} · ${step.title}`,
-            description: step.description,
-            badge: step.done ? (
-              <HbxStatusBadge tone="success">Feito</HbxStatusBadge>
-            ) : step.optional ? (
-              <HbxStatusBadge tone="neutral">Opcional</HbxStatusBadge>
-            ) : (
-              <HbxStatusBadge tone="info">Próximo</HbxStatusBadge>
-            ),
-            action: step.href ? (
-              <Link className="btn" href={step.href}>
-                Abrir
-              </Link>
-            ) : undefined,
-          }))}
-        />
-      </HbxSection>
+        <p className={cs.muted} style={{ margin: 0 }}>
+          Comece pelo Radar. Sem checkout agora — primeiro entre, busque oportunidades e organize
+          sua operação comercial.
+        </p>
+      </HbxCorporatePanel>
+
+      <WelcomeKpis state={state} />
+
+      <HbxCorporatePanel title="Do login ao primeiro contato" meta={<span className={cs.muted}>Rota HBX</span>}>
+        <div className={cs.list}>
+          {steps.map((step, index) => (
+            <div key={step.id} className={cs.listItem}>
+              <span className={cs.dot} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <strong>
+                  <span className={cs.mono}>{String(index + 1).padStart(2, "0")}</span> · {step.title}
+                </strong>
+                <p className={cs.muted} style={{ margin: 0 }}>{step.description}</p>
+              </div>
+              {step.done ? (
+                <HbxCorporateTag tone="teal">Feito</HbxCorporateTag>
+              ) : step.optional ? (
+                <HbxCorporateTag tone="info">Opcional</HbxCorporateTag>
+              ) : (
+                <HbxCorporateTag tone="warn">Próximo</HbxCorporateTag>
+              )}
+              {step.href ? (
+                <Link href={step.href} prefetch={false} style={{ textDecoration: "none" }}>
+                  <button type="button" className={cs.ghostButton}>Abrir</button>
+                </Link>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      </HbxCorporatePanel>
     </>
   );
 }
@@ -453,18 +501,14 @@ export default function BoasVindasClientPage({ mobileRoute = false }: { mobileRo
 
   if (mobileRoute) {
     return (
-      <HbxPageShell
-        eyebrow="HBX pronto"
-        title="Sua operação começa aqui"
-        description="Busque cards no Radar, chame pelo WhatsApp e organize retornos."
-      >
+      <main className="hbx-mobile-page" style={{ display: "grid", gap: 14, padding: 16 }}>
         {content}
-      </HbxPageShell>
+      </main>
     );
   }
 
   return (
-    <HbxAppShell title="Boas-vindas" breadcrumb="Home › Boas-vindas">
+    <HbxAppShell title="Início" breadcrumb="Home › Operação › Início">
       {content}
     </HbxAppShell>
   );

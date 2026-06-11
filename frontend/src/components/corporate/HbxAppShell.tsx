@@ -1,11 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { apiFetch, clearApiCache, clearToken, getToken } from "@/app/_lib/api";
 import ModuleNav from "@/components/ModuleNav";
 import HbxPersistentNotice from "@/components/ui/HbxPersistentNotice";
 import { dispatchMasterContextChanged, MASTER_CONTEXT_CHANGED_EVENT } from "@/lib/masterContextEvents";
+import { commercialPlanByKey, getCommercialPlanTitle, type CommercialPlansPayload } from "@/lib/commercial-plans";
 import {
   HbxCorporateAvatar,
   HbxCorporateIcon,
@@ -19,6 +21,7 @@ type AppShellUser = {
   username?: string | null;
   email?: string | null;
   role?: string | null;
+  userKind?: string | null;
   isSystemMaster?: boolean;
   company?: { id: number; name?: string | null } | null;
   masterContext?: {
@@ -65,6 +68,10 @@ function getAuthServerSnapshot() {
   return false;
 }
 
+function isBillingAudience(user: AppShellUser | null) {
+  return Boolean(user?.isSystemMaster) || String(user?.userKind || "").trim().toLowerCase() === "admin";
+}
+
 export type HbxAppShellProps = {
   title: string;
   breadcrumb?: string;
@@ -77,6 +84,7 @@ export default function HbxAppShell({ title, breadcrumb, children, context }: Hb
   const authenticated = useSyncExternalStore(subscribeAuth, getAuthSnapshot, getAuthServerSnapshot);
   const { mode, toggleMode } = useHbxCorporateMode();
   const [user, setUser] = useState<AppShellUser | null>(null);
+  const [planTitle, setPlanTitle] = useState<string | null>(null);
   const [notices, setNotices] = useState<MasterNotice[]>([]);
   const [contextBusy, setContextBusy] = useState(false);
   const [logoutBusy, setLogoutBusy] = useState(false);
@@ -98,6 +106,7 @@ export default function HbxAppShell({ title, breadcrumb, children, context }: Hb
     if (!authenticated) {
       setUser(null);
       setNotices([]);
+      setPlanTitle(null);
       return;
     }
     void loadProfile();
@@ -110,6 +119,29 @@ export default function HbxAppShell({ title, breadcrumb, children, context }: Hb
       window.removeEventListener(MASTER_CONTEXT_CHANGED_EVENT, handleMasterContextChanged);
     };
   }, [authenticated, loadProfile]);
+
+  // Card de plano na sidebar: assunto de cobrança — SÓ para o público de
+  // cobrança (admin/master). Vendedor nunca vê (PR-002 D.4).
+  useEffect(() => {
+    if (!authenticated || !user || !isBillingAudience(user) || !user.company?.id) {
+      setPlanTitle(null);
+      return;
+    }
+    let mounted = true;
+    apiFetch<CommercialPlansPayload>("/commercial-plans/me")
+      .then((payload) => {
+        if (!mounted) return;
+        const key = payload?.current?.planKey || payload?.current?.selectedPlanKey || null;
+        const plan = key ? commercialPlanByKey(payload, key as never) : null;
+        setPlanTitle(plan?.title || (key ? getCommercialPlanTitle(key as never) : null));
+      })
+      .catch(() => {
+        if (mounted) setPlanTitle(null);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [authenticated, user]);
 
   useEffect(() => {
     if (!authenticated || !user) return;
@@ -138,7 +170,7 @@ export default function HbxAppShell({ title, breadcrumb, children, context }: Hb
       await apiFetch(`/vendas/master-notices/${encodeURIComponent(noticeId)}/ack`, { method: "POST" });
       window.dispatchEvent(new CustomEvent("hbx:vendas-master-notices"));
     } catch {
-      // aviso volta no proximo carregamento se o ack falhou
+      // aviso volta no próximo carregamento se o ack falhou
     }
   }
 
@@ -191,8 +223,18 @@ export default function HbxAppShell({ title, breadcrumb, children, context }: Hb
           </svg>
           <strong>HBX</strong>
         </div>
-        <ModuleNav compact />
+        <ModuleNav variant="corporate" />
         <div className={styles.sideBottom}>
+          {planTitle ? (
+            <div className={styles.planCard}>
+              <div>
+                <strong>{planTitle}</strong>
+              </div>
+              <Link href="/planos" prefetch={false} style={{ textDecoration: "none" }}>
+                <button type="button">Gerenciar plano</button>
+              </Link>
+            </div>
+          ) : null}
           <div className={styles.userCard}>
             <HbxCorporateAvatar name={displayName} />
             <div>
@@ -207,6 +249,11 @@ export default function HbxAppShell({ title, breadcrumb, children, context }: Hb
           <div className={styles.pageId}>
             <h1>{title}</h1>
             <div className={styles.crumbs}>{breadcrumb || `Home › ${title}`}</div>
+          </div>
+          <div className={styles.search}>
+            <HbxCorporateIcon name="search" size={15} />
+            Buscar leads, empresas, propostas...
+            <span className={styles.kbd}>⌘ K</span>
           </div>
           <div className={styles.topActions}>
             {assumedCompany ? (
@@ -223,6 +270,23 @@ export default function HbxAppShell({ title, breadcrumb, children, context }: Hb
             <button type="button" className={styles.roundBtn} onClick={toggleMode} aria-label="Alternar claro e escuro">
               <HbxCorporateIcon name={mode === "dark" ? "sun" : "moon"} size={17} />
             </button>
+            <span className={styles.themeSwitch}>
+              <button type="button" className={styles.switchTrack} aria-label="Tema Corporativo ativo" role="switch" aria-checked="true">
+                <span className={styles.switchThumb} />
+              </button>
+              <span className={styles.themeLabel}>Corporativo</span>
+            </span>
+            {notices.length > 0 ? (
+              <button
+                type="button"
+                className={styles.roundBtn}
+                aria-label={`${notices.length} avisos do master`}
+                onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+              >
+                <HbxCorporateIcon name="bell" size={17} />
+                <span className={styles.bubble}>{notices.length}</span>
+              </button>
+            ) : null}
             <button
               type="button"
               className={styles.ghostButton}

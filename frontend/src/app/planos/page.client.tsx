@@ -13,15 +13,12 @@ import {
 import { apiFetch } from "@/app/_lib/api";
 import { toMobileRoute } from "@/app/_lib/mobileRoutes";
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
+import { HbxModal, HbxPersistentNotice } from "@/components/ui";
 import {
-  HbxEmptyState,
-  HbxFormField,
-  HbxModal,
-  HbxPageShell,
-  HbxPersistentNotice,
-  HbxSection,
-  HbxStatusBadge,
-} from "@/components/ui";
+  HbxCorporatePanel,
+  HbxCorporateTag,
+  hbxCorporateStyles as cs,
+} from "@/components/corporate/HbxCorporateShell";
 
 type NoticeState = {
   tone: "success" | "error" | "info";
@@ -392,14 +389,12 @@ export default function PlanosClientPage({ mobileRoute = false }: { mobileRoute?
 
   const content = (
     <>
-      <HbxSection
-        eyebrow="Planos HBX"
+      <HbxCorporatePanel
         title="Compare os planos sem bloquear sua operação"
-        description="Preços e condições direto do catálogo comercial da API."
-        aside={
+        meta={
           <>
-            <HbxStatusBadge tone="brand">Atual: {currentLabel}</HbxStatusBadge>
-            <button type="button" className="btn" onClick={closePlansPage}>
+            <HbxCorporateTag tone="teal">Atual: {currentLabel}</HbxCorporateTag>
+            <button type="button" className={cs.ghostButton} onClick={closePlansPage}>
               Voltar
             </button>
           </>
@@ -408,14 +403,14 @@ export default function PlanosClientPage({ mobileRoute = false }: { mobileRoute?
         <div role="tablist" aria-label="Ciclo de cobrança" style={{ display: "flex", gap: 8 }}>
           <button
             type="button"
-            className={billingCycle === "MONTHLY" ? "btn btn-primary" : "btn"}
+            className={billingCycle === "MONTHLY" ? cs.tealButton : cs.ghostButton}
             onClick={() => setBillingCycle("MONTHLY")}
           >
             Mensal
           </button>
           <button
             type="button"
-            className={billingCycle === "ANNUAL" ? "btn btn-primary" : "btn"}
+            className={billingCycle === "ANNUAL" ? cs.tealButton : cs.ghostButton}
             onClick={() => setBillingCycle("ANNUAL")}
           >
             Anual (20% OFF)
@@ -428,7 +423,7 @@ export default function PlanosClientPage({ mobileRoute = false }: { mobileRoute?
             title="Checkout pendente"
             description="Você pode trocar o plano ou finalizar o pagamento."
             action={
-              <Link className="btn btn-primary" href="/pagamento?focus=payment&reason=pending_checkout">
+              <Link className={cs.tealButton} style={{ textDecoration: "none" }} href="/pagamento?focus=payment&reason=pending_checkout">
                 Finalizar pagamento
               </Link>
             }
@@ -449,17 +444,15 @@ export default function PlanosClientPage({ mobileRoute = false }: { mobileRoute?
         {error ? <HbxPersistentNotice tone="danger" title={error} /> : null}
 
         {loading ? (
-          <p aria-live="polite">Carregando catálogo comercial...</p>
+          <p className={cs.muted} aria-live="polite">Carregando catálogo comercial...</p>
         ) : plans.length === 0 ? (
-          <HbxEmptyState
-            title="Catálogo comercial indisponível"
-            description="Não foi possível carregar os planos da API. Tente novamente."
-            actions={
-              <button type="button" className="btn btn-primary" onClick={() => void loadPlans()}>
-                Recarregar
-              </button>
-            }
-          />
+          <div className={cs.miniCard}>
+            <strong>Catálogo comercial indisponível</strong>
+            <p className={cs.muted}>Não foi possível carregar os planos da API. Tente novamente.</p>
+            <button type="button" className={cs.tealButton} onClick={() => void loadPlans()}>
+              Recarregar
+            </button>
+          </div>
         ) : (
           <PlanSelectionExperience
             plans={planCards}
@@ -476,11 +469,11 @@ export default function PlanosClientPage({ mobileRoute = false }: { mobileRoute?
         )}
 
         <footer style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-          <small>ADMIN altera planos.</small>
-          <small>Trial conforme elegibilidade.</small>
-          <small>Checkout pelo Mercado Pago.</small>
+          <small className={cs.muted}>ADMIN altera planos.</small>
+          <small className={cs.muted}>Trial conforme elegibilidade.</small>
+          <small className={cs.muted}>Checkout pelo Mercado Pago.</small>
         </footer>
-      </HbxSection>
+      </HbxCorporatePanel>
 
       <HbxModal
         open={trialModalOpen}
@@ -489,12 +482,12 @@ export default function PlanosClientPage({ mobileRoute = false }: { mobileRoute?
         onClose={() => setTrialModalOpen(false)}
         footer={
           <>
-            <button type="button" className="btn" onClick={() => setTrialModalOpen(false)}>
+            <button type="button" className={cs.ghostButton} onClick={() => setTrialModalOpen(false)}>
               Voltar
             </button>
             <button
               type="button"
-              className="btn btn-primary"
+              className={cs.tealButton}
               disabled={!trialFormReady || savingPlan === "hbx_padrao"}
               onClick={() => void submitTrial()}
             >
@@ -503,32 +496,40 @@ export default function PlanosClientPage({ mobileRoute = false }: { mobileRoute?
           </>
         }
       >
-        <HbxFormField label="Nome completo" requiredMark>
-          <input
-            autoComplete="name"
-            value={trialForm.contactName}
-            onChange={(event) => setTrialForm((current) => ({ ...current, contactName: event.target.value }))}
-            placeholder="Como gostaria de ser chamado"
-          />
-        </HbxFormField>
-        <HbxFormField label="CPF" requiredMark hint="CPF válido do responsável.">
-          <input
-            inputMode="numeric"
-            autoComplete="off"
-            value={trialForm.cpf}
-            onChange={(event) => setTrialForm((current) => ({ ...current, cpf: formatCpf(event.target.value) }))}
-            placeholder="000.000.000-00"
-          />
-        </HbxFormField>
-        <HbxFormField label="Telefone de contato" requiredMark hint="Telefone único por trial.">
-          <input
-            inputMode="tel"
-            autoComplete="tel"
-            value={trialForm.phone}
-            onChange={(event) => setTrialForm((current) => ({ ...current, phone: formatBrazilPhone(event.target.value) }))}
-            placeholder="(19)9 9702-4884"
-          />
-        </HbxFormField>
+        <div className={cs.miniGrid}>
+          <label className={cs.miniCard}>
+            <span className={cs.muted}>Nome completo</span>
+            <input
+              className={cs.field}
+              autoComplete="name"
+              value={trialForm.contactName}
+              onChange={(event) => setTrialForm((current) => ({ ...current, contactName: event.target.value }))}
+              placeholder="Como gostaria de ser chamado"
+            />
+          </label>
+          <label className={cs.miniCard}>
+            <span className={cs.muted}>CPF</span>
+            <input
+              className={cs.field}
+              inputMode="numeric"
+              autoComplete="off"
+              value={trialForm.cpf}
+              onChange={(event) => setTrialForm((current) => ({ ...current, cpf: formatCpf(event.target.value) }))}
+              placeholder="000.000.000-00"
+            />
+          </label>
+          <label className={cs.miniCard}>
+            <span className={cs.muted}>Telefone de contato</span>
+            <input
+              className={cs.field}
+              inputMode="tel"
+              autoComplete="tel"
+              value={trialForm.phone}
+              onChange={(event) => setTrialForm((current) => ({ ...current, phone: formatBrazilPhone(event.target.value) }))}
+              placeholder="(19)9 9702-4884"
+            />
+          </label>
+        </div>
         <label htmlFor="trial-terms" style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
           <input
             id="trial-terms"
@@ -548,9 +549,9 @@ export default function PlanosClientPage({ mobileRoute = false }: { mobileRoute?
 
   if (mobileRoute) {
     return (
-      <HbxPageShell eyebrow="Planos HBX" title="Planos HBX">
+      <main className="hbx-mobile-page" style={{ display: "grid", gap: 14, padding: 16 }}>
         {content}
-      </HbxPageShell>
+      </main>
     );
   }
 
