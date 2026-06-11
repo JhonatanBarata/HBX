@@ -32,6 +32,24 @@ function writeStoredMode(mode: CorporateMode) {
   modeListeners.forEach((listener) => listener());
 }
 
+export function useHbxCorporateMode() {
+  const mode = useSyncExternalStore(subscribeToMode, readStoredMode, readServerMode);
+
+  useEffect(() => {
+    applyMode(mode);
+    const timers = [window.setTimeout(() => applyMode(mode), 0), window.setTimeout(() => applyMode(mode), 300)];
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer));
+    };
+  }, [mode]);
+
+  const toggleMode = () => {
+    writeStoredMode(mode === "dark" ? "light" : "dark");
+  };
+
+  return { mode, toggleMode };
+}
+
 export type HbxCorporateSection =
   | "dashboard"
   | "leads"
@@ -322,20 +340,10 @@ export function HbxCorporateShell({
   children: ReactNode;
   context?: ReactNode;
 }) {
-  const mode = useSyncExternalStore(subscribeToMode, readStoredMode, readServerMode);
+  const { mode, toggleMode } = useHbxCorporateMode();
   const title = CORPORATE_LABELS[active];
 
-  useEffect(() => {
-    applyMode(mode);
-    const timers = [window.setTimeout(() => applyMode(mode), 0), window.setTimeout(() => applyMode(mode), 300)];
-    return () => {
-      timers.forEach((timer) => window.clearTimeout(timer));
-    };
-  }, [mode]);
-
-  const handleModeChange = () => {
-    writeStoredMode(mode === "dark" ? "light" : "dark");
-  };
+  const handleModeChange = toggleMode;
 
   const memoContext = useMemo(() => context, [context]);
 
