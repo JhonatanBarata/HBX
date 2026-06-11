@@ -3,17 +3,25 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import DashboardScaffold from "@/components/DashboardScaffold";
+import HbxAppShell from "@/components/corporate/HbxAppShell";
 import PlanSelectionExperience, { type PlanSelectionCard } from "@/components/PlanSelectionExperience";
 import {
   commercialPlanByKey,
-  type CommercialPlan,
+  getCommercialPlanTitle,
   type CommercialPlansPayload,
 } from "@/lib/commercial-plans";
 import { apiFetch } from "@/app/_lib/api";
 import { toMobileRoute } from "@/app/_lib/mobileRoutes";
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
-import styles from "./page.module.css";
+import {
+  HbxEmptyState,
+  HbxFormField,
+  HbxModal,
+  HbxPageShell,
+  HbxPersistentNotice,
+  HbxSection,
+  HbxStatusBadge,
+} from "@/components/ui";
 
 type NoticeState = {
   tone: "success" | "error" | "info";
@@ -29,58 +37,16 @@ type TrialFormState = {
   acceptedTerms: boolean;
 };
 
+// Taxonomia canônica de planos (vocabulário, não preço): preços, quotas e
+// features vêm SÓ de /commercial-plans/me — catálogo hardcoded morreu no
+// PR-010 R2.3. Sem payload, a tela mostra estado vazio com retry.
 const PLAN_ORDER: PlanKey[] = ["hbx_lite", "hbx_padrao", "hbx_melhor"];
 const HBX_SUPPORT_PHONE = "5519997024884";
 const HBX_FULL_SUPPORT_MESSAGE = "Olá, quero falar com a HBX sobre implantação assistida do HBX Full.";
 
-const FALLBACK_PLANS: Record<PlanKey, CommercialPlan> = {
-  hbx_lite: {
-    key: "hbx_lite",
-    title: "HBX List",
-    status: "available",
-    monthlyPrice: 45,
-    headline: "Cards simples para começar barato.",
-    description: "Leads/cards simples com telefone, site básico, mensagem básica e WhatsApp externo.",
-    annualDiscountPercent: 20,
-    trialDays: 0,
-    quotas: { googleSearchesPerDay: 0, cardsPerMonth: 880, dailyCardSafetyLimit: 50, cardsPerSearch: 50, searchesPerCycle: 3, totalCards: 880 },
-    features: ["Leads/cards simples", "880 cards por mês", "50 cards por pesquisa", "3 pesquisas comerciais por mês", "Telefone/site básico", "Mensagem básica", "Sem lead inteligente completo"],
-    legalCopy: "Liberação após pagamento confirmado.",
-  },
-  hbx_padrao: {
-    key: "hbx_padrao",
-    title: "HBX Lead Plus",
-    status: "available",
-    monthlyPrice: 99,
-    headline: "Card inteligente: contato, canal, motivo e mensagem.",
-    description: "Leads inteligentes com WhatsApp verificado pela HBX, e-mail confirmado/provável, prioridade, canal recomendado e mensagem pronta.",
-    annualDiscountPercent: 20,
-    recommended: true,
-    trialDays: 14,
-    quotas: { googleSearchesPerDay: 2, cardsPerMonth: 2200, dailyCardSafetyLimit: 100 },
-    features: ["Leads inteligentes", "2.200 cards por mês", "WhatsApp verificado pela HBX", "E-mail confirmado/provável", "Prioridade e motivo do lead", "Canal recomendado", "Templates comerciais", "Quem chamar hoje", "Retorno/agenda"],
-    legalCopy: "14 dias grátis, sem cartão e sem cobrança automática.",
-  },
-  hbx_melhor: {
-    key: "hbx_melhor",
-    title: "HBX Full — implantação assistida",
-    status: "available",
-    monthlyPrice: null,
-    headline: "Bot, automação e atendimento completo com configuração HBX.",
-    description: "Bot, automação e atendimento completo exigem configuração com a HBX.",
-    annualDiscountPercent: 20,
-    trialDays: 0,
-    quotas: { googleSearchesPerDay: 6, cardsPerMonth: 5000, dailyCardSafetyLimit: 250 },
-    features: ["Tudo do HBX Lead Plus", "5.000 cards por mês", "Bot IA com configuração assistida", "Automação completa com limites de segurança", "Atendimento e encaminhamento humano", "Implantação feita com a HBX"],
-    legalCopy: "Bot, automação e atendimento completo exigem configuração com a HBX.",
-  },
-};
-
-const PLAN_LABELS: Record<PlanKey, string> = {
-  hbx_lite: "HBX List",
-  hbx_padrao: "HBX Lead Plus",
-  hbx_melhor: "HBX Full — implantação assistida",
-};
+function planLabel(payload: CommercialPlansPayload | null, key: PlanKey) {
+  return commercialPlanByKey(payload, key)?.title || getCommercialPlanTitle(key) || key;
+}
 
 function openHbxFullSupport() {
   if (typeof window === "undefined") return;
@@ -122,7 +88,7 @@ function isPaidOrActive(payload: CommercialPlansPayload | null) {
 }
 
 function canStartPadraoTrial(payload: CommercialPlansPayload | null) {
-  if (!payload) return true;
+  if (!payload) return false;
   if (payload.current.isTrial || payload.current.trialEndsAt) return false;
   return !isPaidOrActive(payload);
 }
@@ -247,8 +213,12 @@ export default function PlanosClientPage({ mobileRoute = false }: { mobileRoute?
     [intent],
   );
 
+  // Catálogo SÓ da API: plano que não veio no payload não é exibido.
   const plans = useMemo(
-    () => planDisplayOrder.map((key) => commercialPlanByKey(payload, key) || FALLBACK_PLANS[key]),
+    () =>
+      planDisplayOrder
+        .map((key) => commercialPlanByKey(payload, key))
+        .filter((plan): plan is NonNullable<typeof plan> => Boolean(plan)),
     [payload, planDisplayOrder],
   );
 
@@ -259,32 +229,31 @@ export default function PlanosClientPage({ mobileRoute = false }: { mobileRoute?
         const isPadrao = key === "hbx_padrao";
         const isCurrent = key === selectedPlanKey;
         const hasFreeTrial = isPadrao && padraoTrialAvailable;
+        const trialDays = Math.max(0, Math.trunc(Number(plan.trialDays || 0)));
         return {
           key,
-          name: PLAN_LABELS[key],
+          name: planLabel(payload, key),
           badge: planBadge(key, selectedPlanKey, promotedPlanKey),
           monthlyPrice: plan.monthlyPrice,
           promoPrice: hasFreeTrial ? 0 : undefined,
-          promoLabel: hasFreeTrial ? "Após 14 dias R$ 99,00/mês" : undefined,
-          detail:
-            key === "hbx_lite"
-              ? "Para quem quer encontrar novos clientes e organizar a prospecção."
-              : key === "hbx_padrao"
-                ? hasFreeTrial
-                  ? "Teste vendas + WhatsApp conectado dentro do sistema sem pagar agora."
-                  : "Para quem quer prospectar e atender pelo WhatsApp dentro do HBX."
-                : "Bot, automação e atendimento completo exigem configuração com a HBX.",
+          promoLabel:
+            hasFreeTrial && plan.monthlyPrice != null
+              ? `Após ${trialDays || 14} dias R$ ${Number(plan.monthlyPrice).toFixed(2).replace(".", ",")}/mês`
+              : undefined,
+          detail: plan.headline || plan.description || "",
           cta: key === "hbx_melhor" ? "Falar com HBX" : isCurrent ? "Plano atual" : key === promotedPlanKey ? "Subir de plano" : "Escolher plano",
           available: plan.status !== "unavailable",
           featured: key === promotedPlanKey || (!selectedPlanKey && Boolean(plan.recommended)),
-          features: plan.features || FALLBACK_PLANS[key].features || [],
+          features: plan.features || [],
           note: key === "hbx_melhor"
             ? "Implantação assistida"
-            : hasFreeTrial ? "14 dias grátis" : plan.legalCopy || FALLBACK_PLANS[key].legalCopy || undefined,
-          trialCopy: hasFreeTrial ? "14 dias grátis" : undefined,
+            : hasFreeTrial
+              ? `${trialDays || 14} dias grátis`
+              : plan.legalCopy || undefined,
+          trialCopy: hasFreeTrial ? `${trialDays || 14} dias grátis` : undefined,
         };
       }),
-    [padraoTrialAvailable, plans, promotedPlanKey, selectedPlanKey],
+    [padraoTrialAvailable, payload, plans, promotedPlanKey, selectedPlanKey],
   );
 
   const loadPlans = useCallback(async () => {
@@ -350,12 +319,7 @@ export default function PlanosClientPage({ mobileRoute = false }: { mobileRoute?
 
     setSavingPlan(planKey);
     setError(null);
-    setNotice({
-      tone: "info",
-      text: planKey === "hbx_padrao" && padraoTrialAvailable
-        ? "Ativando o trial interno do HBX Lead Plus, sem cobrança agora."
-        : "Preparando a troca de plano.",
-    });
+    setNotice({ tone: "info", text: "Preparando a troca de plano." });
     try {
       await apiFetch("/financeiro/preferences", {
         method: "PATCH",
@@ -418,183 +382,181 @@ export default function PlanosClientPage({ mobileRoute = false }: { mobileRoute?
     }
   }
 
-  if (hasToken === null) {
+  if (hasToken !== true) return null;
+
+  const currentLabel = implementationAccess
+    ? "Implantação HBX"
+    : selectedPlanKey
+      ? planLabel(payload, selectedPlanKey)
+      : "nenhum";
+
+  const content = (
+    <>
+      <HbxSection
+        eyebrow="Planos HBX"
+        title="Compare os planos sem bloquear sua operação"
+        description="Preços e condições direto do catálogo comercial da API."
+        aside={
+          <>
+            <HbxStatusBadge tone="brand">Atual: {currentLabel}</HbxStatusBadge>
+            <button type="button" className="btn" onClick={closePlansPage}>
+              Voltar
+            </button>
+          </>
+        }
+      >
+        <div role="tablist" aria-label="Ciclo de cobrança" style={{ display: "flex", gap: 8 }}>
+          <button
+            type="button"
+            className={billingCycle === "MONTHLY" ? "btn btn-primary" : "btn"}
+            onClick={() => setBillingCycle("MONTHLY")}
+          >
+            Mensal
+          </button>
+          <button
+            type="button"
+            className={billingCycle === "ANNUAL" ? "btn btn-primary" : "btn"}
+            onClick={() => setBillingCycle("ANNUAL")}
+          >
+            Anual (20% OFF)
+          </button>
+        </div>
+
+        {pendingCheckout ? (
+          <HbxPersistentNotice
+            tone="info"
+            title="Checkout pendente"
+            description="Você pode trocar o plano ou finalizar o pagamento."
+            action={
+              <Link className="btn btn-primary" href="/pagamento?focus=payment&reason=pending_checkout">
+                Finalizar pagamento
+              </Link>
+            }
+          />
+        ) : null}
+
+        {intent === "bot_ia" ? (
+          <HbxPersistentNotice tone="info" title="Bot IA disponível no plano HBX Full — Bot e IA." />
+        ) : null}
+
+        {notice ? (
+          <HbxPersistentNotice
+            tone={notice.tone === "error" ? "danger" : notice.tone}
+            title={notice.text}
+            onDismiss={() => setNotice(null)}
+          />
+        ) : null}
+        {error ? <HbxPersistentNotice tone="danger" title={error} /> : null}
+
+        {loading ? (
+          <p aria-live="polite">Carregando catálogo comercial...</p>
+        ) : plans.length === 0 ? (
+          <HbxEmptyState
+            title="Catálogo comercial indisponível"
+            description="Não foi possível carregar os planos da API. Tente novamente."
+            actions={
+              <button type="button" className="btn btn-primary" onClick={() => void loadPlans()}>
+                Recarregar
+              </button>
+            }
+          />
+        ) : (
+          <PlanSelectionExperience
+            plans={planCards}
+            selectedPlanKey={selectedPlanKey}
+            billingCycle={billingCycle === "ANNUAL" ? "annual" : "monthly"}
+            mode="plans"
+            canSelect={canSelectPlan}
+            hidePrices={!canSelectPlan}
+            highlightPlanKey={promotedPlanKey}
+            busyPlanKey={savingPlan}
+            deniedMessage={adminDeniedMessage}
+            onSelect={(planKey) => void selectPlan(planKey)}
+          />
+        )}
+
+        <footer style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+          <small>ADMIN altera planos.</small>
+          <small>Trial conforme elegibilidade.</small>
+          <small>Checkout pelo Mercado Pago.</small>
+        </footer>
+      </HbxSection>
+
+      <HbxModal
+        open={trialModalOpen}
+        title="Liberar trial — HBX Lead Plus"
+        description="Confirme o responsável para ativar os 14 dias. Sem cobrança automática; pagamento só no checkout."
+        onClose={() => setTrialModalOpen(false)}
+        footer={
+          <>
+            <button type="button" className="btn" onClick={() => setTrialModalOpen(false)}>
+              Voltar
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={!trialFormReady || savingPlan === "hbx_padrao"}
+              onClick={() => void submitTrial()}
+            >
+              {savingPlan === "hbx_padrao" ? "Ativando trial..." : "Iniciar 14 dias grátis"}
+            </button>
+          </>
+        }
+      >
+        <HbxFormField label="Nome completo" requiredMark>
+          <input
+            autoComplete="name"
+            value={trialForm.contactName}
+            onChange={(event) => setTrialForm((current) => ({ ...current, contactName: event.target.value }))}
+            placeholder="Como gostaria de ser chamado"
+          />
+        </HbxFormField>
+        <HbxFormField label="CPF" requiredMark hint="CPF válido do responsável.">
+          <input
+            inputMode="numeric"
+            autoComplete="off"
+            value={trialForm.cpf}
+            onChange={(event) => setTrialForm((current) => ({ ...current, cpf: formatCpf(event.target.value) }))}
+            placeholder="000.000.000-00"
+          />
+        </HbxFormField>
+        <HbxFormField label="Telefone de contato" requiredMark hint="Telefone único por trial.">
+          <input
+            inputMode="tel"
+            autoComplete="tel"
+            value={trialForm.phone}
+            onChange={(event) => setTrialForm((current) => ({ ...current, phone: formatBrazilPhone(event.target.value) }))}
+            placeholder="(19)9 9702-4884"
+          />
+        </HbxFormField>
+        <label htmlFor="trial-terms" style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+          <input
+            id="trial-terms"
+            type="checkbox"
+            checked={trialForm.acceptedTerms}
+            onChange={(event) => setTrialForm((current) => ({ ...current, acceptedTerms: event.target.checked }))}
+          />
+          <span>
+            Aceito iniciar o trial gratuito de 14 dias do HBX Lead Plus, sem cobrança automática agora, e autorizo o
+            uso do CPF, Nome Completo e Telefone informado para contato, validação de elegibilidade e vínculo do
+            WhatsApp do trial. Para trocar o telefone será necessário acionar o suporte.
+          </span>
+        </label>
+      </HbxModal>
+    </>
+  );
+
+  if (mobileRoute) {
     return (
-      <DashboardScaffold title="Planos" description="Carregando planos HBX." hideHeader={true}>
-        <main className={styles.page}>
-          <section className={styles.plansSurface}>
-            <div className={styles.loadingCard}>Carregando planos HBX...</div>
-          </section>
-        </main>
-      </DashboardScaffold>
+      <HbxPageShell eyebrow="Planos HBX" title="Planos HBX">
+        {content}
+      </HbxPageShell>
     );
   }
 
-  if (!hasToken) return null;
-
   return (
-    <DashboardScaffold title="Planos" hideHeader={true}>
-      <main className={styles.page}>
-        <section className={styles.plansSurface} aria-labelledby="plans-title" data-trial-active={trialModalOpen}>
-          <header className={styles.modalHeader}>
-            <div className={styles.titleCluster}>
-              <div>
-                <span className={styles.eyebrow}>{trialModalOpen ? "Trial HBX Lead Plus" : "Planos HBX"}</span>
-                <h1 id="plans-title">{trialModalOpen ? "Liberar trial" : "Planos HBX"}</h1>
-                <p>
-                  {trialModalOpen
-                    ? "Confirme o responsável para ativar os 14 dias."
-                    : "Compare os planos sem bloquear sua operação."}
-                </p>
-              </div>
-            </div>
-
-            <div className={styles.headerActions}>
-              <span className={styles.currentPill}>
-                {trialModalOpen ? "Plano:" : "Atual:"} <strong>{trialModalOpen ? "HBX Lead Plus trial" : implementationAccess ? "Implantação HBX" : selectedPlanKey ? PLAN_LABELS[selectedPlanKey] : "nenhum"}</strong>
-              </span>
-              <button type="button" className={styles.closeButton} aria-label="Voltar" onClick={closePlansPage}>X</button>
-            </div>
-          </header>
-
-          <div className={styles.planControls}>
-            {!trialModalOpen ? (
-              <div className={styles.segmented} role="tablist" aria-label="Ciclo de cobrança">
-                <button type="button" data-active={billingCycle === "MONTHLY"} onClick={() => setBillingCycle("MONTHLY")}>Mensal</button>
-                <button type="button" data-active={billingCycle === "ANNUAL"} onClick={() => setBillingCycle("ANNUAL")}>Anual <small>20% OFF</small></button>
-              </div>
-            ) : null}
-          </div>
-
-          {pendingCheckout && !trialModalOpen ? (
-            <section className={styles.notice} data-tone="info">
-              Checkout pendente. Você pode trocar o plano ou finalizar o pagamento.
-              <Link href="/pagamento?focus=payment&reason=pending_checkout">Finalizar pagamento</Link>
-            </section>
-          ) : null}
-
-          {intent === "bot_ia" && !trialModalOpen ? (
-            <section className={styles.notice} data-tone="info">
-              Bot IA disponível no plano HBX Full — Bot e IA.
-            </section>
-          ) : null}
-
-          {notice ? <section className={styles.notice} data-tone={notice.tone}>{notice.text}</section> : null}
-          {error ? <section className={styles.notice} data-tone="error">{error}</section> : null}
-
-          {trialModalOpen ? (
-            <section className={styles.trialInline} aria-labelledby="trial-title">
-              <aside className={styles.trialSummary}>
-                <span className={styles.trialSummaryBadge}>14 dias grátis</span>
-                <h2 id="trial-title">HBX Lead Plus</h2>
-                <p>14 dias sem cobrança automática. Pagamento só no checkout.</p>
-                <dl>
-                  <div>
-                    <dt>Validação</dt>
-                    <dd>Telefone único por trial</dd>
-                  </div>
-                  <div>
-                    <dt>Documento</dt>
-                    <dd>CPF válido do responsável</dd>
-                  </div>
-                  <div>
-                    <dt>Cobrança</dt>
-                    <dd>Nenhuma cobrança automática agora</dd>
-                  </div>
-                </dl>
-              </aside>
-
-              <div className={styles.trialDialog}>
-                <div className={styles.trialFormGrid}>
-                  <label className={styles.trialField} htmlFor="trial-contact-name">
-                    <span>Nome completo</span>
-                    <input
-                      id="trial-contact-name"
-                      autoComplete="name"
-                      value={trialForm.contactName}
-                      onChange={(event) => setTrialForm((current) => ({ ...current, contactName: event.target.value }))}
-                      placeholder="Como gostaria de ser chamado"
-                    />
-                  </label>
-
-                  <label className={styles.trialField} htmlFor="trial-cpf">
-                    <span>CPF</span>
-                    <input
-                      id="trial-cpf"
-                      inputMode="numeric"
-                      autoComplete="off"
-                      value={trialForm.cpf}
-                      onChange={(event) => setTrialForm((current) => ({ ...current, cpf: formatCpf(event.target.value) }))}
-                      placeholder="000.000.000-00"
-                    />
-                  </label>
-
-                  <label className={styles.trialField} htmlFor="trial-contact-phone">
-                    <span>Telefone de contato</span>
-                    <input
-                      id="trial-contact-phone"
-                      inputMode="tel"
-                      autoComplete="tel"
-                      value={trialForm.phone}
-                      onChange={(event) => setTrialForm((current) => ({ ...current, phone: formatBrazilPhone(event.target.value) }))}
-                      placeholder="(19)9 9702-4884"
-                    />
-                  </label>
-                </div>
-
-                <label className={styles.termsAccept} htmlFor="trial-terms">
-                  <input
-                    id="trial-terms"
-                    type="checkbox"
-                    checked={trialForm.acceptedTerms}
-                    onChange={(event) => setTrialForm((current) => ({ ...current, acceptedTerms: event.target.checked }))}
-                  />
-                  <span>
-                    Aceito iniciar o trial gratuito de 14 dias do HBX Lead Plus, sem cobrança automática agora, e autorizo o uso do CPF, Nome Completo e Telefone informado para contato, validação de elegibilidade e vínculo do WhatsApp do trial. Para trocar o telefone será necessário acionar o suporte.
-                  </span>
-                </label>
-
-                <footer className={styles.trialDialogActions}>
-                  <button type="button" className="btn btn-secondary" onClick={() => setTrialModalOpen(false)}>
-                    Voltar
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    disabled={!trialFormReady || savingPlan === "hbx_padrao"}
-                    onClick={() => void submitTrial()}
-                  >
-                    {savingPlan === "hbx_padrao" ? "Ativando trial..." : "Iniciar 14 dias grátis"}
-                  </button>
-                </footer>
-              </div>
-            </section>
-          ) : loading ? (
-            <div className={styles.loadingCard}>Carregando catálogo comercial...</div>
-          ) : (
-            <div className={styles.planPicker}>
-              <PlanSelectionExperience
-                plans={planCards}
-                selectedPlanKey={selectedPlanKey}
-                billingCycle={billingCycle === "ANNUAL" ? "annual" : "monthly"}
-                mode="plans"
-                canSelect={canSelectPlan}
-                hidePrices={!canSelectPlan}
-                highlightPlanKey={promotedPlanKey}
-                busyPlanKey={savingPlan}
-                deniedMessage={adminDeniedMessage}
-                onSelect={(planKey) => void selectPlan(planKey)}
-              />
-            </div>
-          )}
-
-          {!trialModalOpen ? <footer className={styles.footerFacts}>
-            <span>ADMIN altera planos.</span>
-            <span>Trial conforme elegibilidade.</span>
-            <span>Checkout pelo Mercado Pago.</span>
-          </footer> : null}
-        </section>
-      </main>
-    </DashboardScaffold>
+    <HbxAppShell title="Planos" breadcrumb="Home › Planos">
+      {content}
+    </HbxAppShell>
   );
 }
