@@ -4175,117 +4175,6 @@ export class ModulesService implements OnModuleInit {
     };
   }
 
-  async setPaymentStatus(masterUserId: number, companyId: number, paymentStatus: string) {
-    await this.assertMasterUser(masterUserId);
-
-    const normalized = String(paymentStatus || '').trim().toUpperCase();
-    const allowed = ['PENDING', 'TRIAL', 'PAID', 'MANUAL', 'OVERDUE', 'EXPIRED', 'DISABLED'];
-    if (!allowed.includes(normalized)) {
-      throw new BadRequestException(`paymentStatus deve ser um de: ${allowed.join(', ')}`);
-    }
-
-    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
-    if (!company) throw new BadRequestException('Empresa nao encontrada');
-    const previousState = this.buildCompanyAccessAuditSnapshot(company);
-
-    const isActive = normalized === 'PAID' || normalized === 'TRIAL' || normalized === 'MANUAL';
-    const subscriptionStatus = this.mapPaymentStatusToSubscriptionStatus(normalized);
-    const now = new Date();
-    const planKey = normalizeCommercialPlanKey(company.selectedPlanKey || COMMERCIAL_PLAN_KEYS.PADRAO);
-    const periodStart = normalized === 'PAID' ? now : normalized === 'TRIAL' ? (company.trialStartsAt || now) : null;
-    const periodEnd = normalized === 'PAID'
-      ? new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
-      : normalized === 'TRIAL'
-        ? (company.trialEndsAt || this.addDays(now, 14))
-        : null;
-    await this.prisma.$transaction(async (tx) => {
-      await tx.company.update({
-        where: { id: companyId },
-        data: {
-          selectedPlanKey: normalized === 'TRIAL' ? COMMERCIAL_PLAN_KEYS.PADRAO : planKey,
-          trialModuleSelection: normalized === 'TRIAL' ? 'vendas' : company.trialModuleSelection,
-          paymentStatus: normalized,
-          subscriptionStatus,
-          onboardingStatus:
-            normalized === 'MANUAL' || normalized === 'PAID'
-              ? 'active_paid'
-              : normalized === 'TRIAL'
-                ? 'active_trial'
-                : company.onboardingStatus,
-          premiumAccess: ['active', 'trialing', 'manual'].includes(subscriptionStatus),
-          assistedSetupRequired: planKey === COMMERCIAL_PLAN_KEYS.MELHOR,
-          assistedSetupStatus:
-            planKey === COMMERCIAL_PLAN_KEYS.MELHOR
-              ? String(company.assistedSetupStatus || '').trim().toLowerCase() === 'completed'
-                ? 'completed'
-                : 'pending'
-              : 'not_required',
-          trialStartsAt: normalized === 'TRIAL' ? periodStart : normalized === 'MANUAL' ? null : company.trialStartsAt,
-          trialEndsAt: normalized === 'TRIAL' ? periodEnd : normalized === 'MANUAL' ? null : company.trialEndsAt,
-          subscriptionCurrentPeriodStart:
-            normalized === 'PAID'
-              ? periodStart
-              : normalized === 'MANUAL'
-                ? null
-                : company.subscriptionCurrentPeriodStart,
-          subscriptionCurrentPeriodEnd:
-            normalized === 'PAID'
-              ? periodEnd
-              : normalized === 'MANUAL'
-                ? null
-                : normalized === 'DISABLED' || normalized === 'EXPIRED'
-                  ? null
-                  : company.subscriptionCurrentPeriodEnd,
-          isActive,
-          deactivatedAt: isActive ? null : new Date(),
-        },
-      });
-
-      if (!isActive) {
-        await tx.companyModule.updateMany({ where: { companyId }, data: { enabled: false } });
-        await this.syncCompanyEntitlementsForPlanTx(
-          tx,
-          companyId,
-          planKey,
-          normalized === 'PENDING' ? 'pending_checkout' : 'pending_checkout',
-          'master_payment_status',
-          null,
-          null,
-        );
-      } else {
-        const effectivePlanKey = normalized === 'TRIAL' ? COMMERCIAL_PLAN_KEYS.PADRAO : planKey;
-        await this.syncCompanyModulesForPlanTx(tx, companyId, effectivePlanKey);
-        await this.syncCompanyEntitlementsForPlanTx(
-          tx,
-          companyId,
-          effectivePlanKey,
-          normalized === 'TRIAL' ? 'trialing' : normalized === 'MANUAL' ? 'manual' : 'paid',
-          'master_payment_status',
-          periodStart,
-          periodEnd,
-        );
-      }
-    });
-
-    await this.masterContextService.registerSupportAction({
-      masterUserId,
-      companyId,
-      scope: 'master_billing',
-      action: 'PAYMENT_STATUS_UPDATED',
-      metadata: {
-        previousState,
-        currentState: this.buildCompanyAccessAuditSnapshot(
-          await this.prisma.company.findUnique({ where: { id: companyId } }),
-        ),
-        paymentStatus: normalized,
-        subscriptionStatus,
-        isActive,
-      },
-    });
-
-    return { ok: true, companyId, paymentStatus: normalized, subscriptionStatus, isActive };
-  }
-
   async recordManualPayment(
     masterUserId: number,
     companyId: number,
@@ -4639,12 +4528,6 @@ export class ModulesService implements OnModuleInit {
             courtesyEndsAt: endsAt,
             isActive: true,
             deactivatedAt: null,
-            // espelho legado ate o DROP (leitores de exibicao + sweeps antigos)
-            billingExempt: !endsAt,
-            billingExemptReason: !endsAt ? reason : null,
-            billingExemptAt: !endsAt ? now : null,
-            billingExemptByUserId: !endsAt ? masterUserId : null,
-            premiumAccess: true,
           },
         });
         const planKey = normalizeCommercialPlanKey(company.selectedPlanKey || COMMERCIAL_PLAN_KEYS.PADRAO);
@@ -4665,13 +4548,6 @@ export class ModulesService implements OnModuleInit {
           courtesyEndsAt: null,
           isActive: false,
           deactivatedAt: now,
-          billingExempt: false,
-          billingExemptReason: null,
-          billingExemptAt: null,
-          billingExemptByUserId: null,
-          premiumAccess: false,
-          paymentStatus: 'PENDING',
-          subscriptionStatus: 'pending_checkout',
         },
       });
       await tx.companyModule.updateMany({ where: { companyId }, data: { enabled: false } });
@@ -4734,9 +4610,6 @@ export class ModulesService implements OnModuleInit {
             statusChangedByUserId: masterUserId,
             isActive: false,
             deactivatedAt: now,
-            premiumAccess: false,
-            paymentStatus: 'DISABLED',
-            onboardingStatus: 'suspended',
           },
         }),
         this.prisma.companyModule.updateMany({ where: { companyId }, data: { enabled: false } }),
@@ -4752,15 +4625,9 @@ export class ModulesService implements OnModuleInit {
       );
       const trialValid = Boolean(company.trialEndsAt instanceof Date && company.trialEndsAt.getTime() >= now.getTime());
 
+      // Reativacao deterministica pelas datas; o estado unico decide tudo, sem
+      // espelho legado (DROP do PR-002).
       resultingStatus = courtesyValid ? 'courtesy' : subscriptionValid ? 'active' : trialValid ? 'trial' : 'pending_checkout';
-      const legacyMirror =
-        resultingStatus === 'courtesy'
-          ? { paymentStatus: 'MANUAL', subscriptionStatus: 'manual', onboardingStatus: 'active_paid', premiumAccess: true }
-          : resultingStatus === 'active'
-            ? { paymentStatus: 'PAID', subscriptionStatus: 'active', onboardingStatus: 'active_paid', premiumAccess: false }
-            : resultingStatus === 'trial'
-              ? { paymentStatus: 'TRIAL', subscriptionStatus: 'trialing', onboardingStatus: 'active_trial', premiumAccess: false }
-              : { paymentStatus: 'PENDING', subscriptionStatus: 'pending_checkout', onboardingStatus: 'pending_checkout', premiumAccess: false };
 
       await this.prisma.$transaction(async (tx) => {
         await tx.company.update({
@@ -4771,7 +4638,6 @@ export class ModulesService implements OnModuleInit {
             statusChangedByUserId: masterUserId,
             isActive: resultingStatus !== 'pending_checkout',
             deactivatedAt: resultingStatus !== 'pending_checkout' ? null : company.deactivatedAt || now,
-            ...legacyMirror,
           },
         });
         if (resultingStatus !== 'pending_checkout') {
