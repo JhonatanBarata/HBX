@@ -556,11 +556,12 @@ async function readLeadsBank() {
   return { ok: true, configured: true, total: response.data.total ?? null, deltaToday: response.data.deltaToday ?? null, generatedAt: response.data.generatedAt };
 }
 
-// Importar: exporta JSONL do local-lab e envia ao backend (VPS).
-// Só remove a evidência local DEPOIS do import confirmar (sem perda de lead).
-async function importLocalLabToBackend(body) {
+// Exportar: envia o JSONL do local-lab para o backend (VPS).
+// Do lado da VPS o endpoint é lead-harvest/import (ela importa); aqui é exportar.
+// Só remove a evidência local DEPOIS da VPS confirmar (sem perda de lead).
+async function exportLocalLabToBackend(body) {
   if (!backendToken) {
-    return { ok: false, reason: "backend_token_ausente", message: "Configure HBX_OWNER_BACKEND_TOKEN para importar." };
+    return { ok: false, reason: "backend_token_ausente", message: "Configure HBX_OWNER_BACKEND_TOKEN para exportar." };
   }
   const exportResp = await new Promise((resolve) => {
     const req = http.get(`${localLabUrl}/local-lab/export?format=jsonl`, { timeout: 20000 }, (response) => {
@@ -710,9 +711,9 @@ async function route(req, res) {
     return;
   }
 
-  if (req.method === "POST" && url.pathname === "/owner/import") {
+  if (req.method === "POST" && url.pathname === "/owner/export") {
     const body = await readBody(req);
-    sendJson(res, 200, await importLocalLabToBackend(body));
+    sendJson(res, 200, await exportLocalLabToBackend(body));
     return;
   }
 

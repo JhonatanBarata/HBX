@@ -55,10 +55,11 @@ Bootstrap do master: produção mantém `BOOTSTRAP_SYSTEM_MASTER=false`.
   em `.owner-token`, gitignored). Painel em `http://127.0.0.1:3107`.
 - Abas: **Hoje** (ponto/foco, estado em `state/today.json` — sem banco), **Tickets**
   (fila `.md` de `docs/PLANEJAMENTOS`, fonte única versionada), **Caça** (Banco de Leads,
-  Local Lab e Importar local→VPS), **Código** (git), **Execução** (allowlist + runs), **Config**.
-- Banco de Leads e Importar usam o backend via `HBX_OWNER_BACKEND_URL` +
+  Local Lab e Exportar local→VPS), **Código** (git), **Execução** (allowlist + runs), **Config**.
+- Banco de Leads e Exportar usam o backend via `HBX_OWNER_BACKEND_URL` +
   `HBX_OWNER_BACKEND_TOKEN` (JWT do dono). Sem token, o painel degrada com aviso, não quebra.
-- Importar só remove a evidência local DEPOIS do import confirmar na VPS (sem perda de lead).
+- Exportar = enviar leads do Local Lab para a VPS (que os importa via
+  `/webscraping/lead-harvest/import`); só remove a evidência local DEPOIS da VPS confirmar.
 - Fluxo de QA de lote: dono mergeia PRs → checkout vira lote de QA → `npm run up` →
   testa em `localhost:3001` → aba Execução roda os checks do diff.
 - O Owner NUNCA: libera feature paga sem backend autorizar, expõe secrets, roda shell

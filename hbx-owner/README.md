@@ -13,7 +13,7 @@ npm run owner:app
 e lido de `HBX_OWNER_LOCAL_TOKEN` ou gerado e persistido em
 `hbx-owner/local-agent/.owner-token` (gitignored).
 
-Para a aba Caça (Banco de Leads + Importar) falar com o backend, defina antes de subir:
+Para a aba Caça (Banco de Leads + Exportar) falar com o backend, defina antes de subir:
 
 ```powershell
 $env:HBX_OWNER_BACKEND_URL="http://127.0.0.1:3000"
@@ -24,7 +24,7 @@ $env:HBX_OWNER_BACKEND_TOKEN="<jwt-do-dono>"
 
 - **Hoje** — ponto e foco (estado em `local-agent/state/today.json`, sem banco).
 - **Tickets** — fila `.md` de `docs/PLANEJAMENTOS` (fonte unica, versionada).
-- **Caca** — Banco de Leads, Local Lab e Importar local -> VPS.
+- **Caca** — Banco de Leads, Local Lab e Exportar local -> VPS.
 - **Codigo** — git status, branch, arquivos mudados.
 - **Execucao** — comandos da allowlist e ultimas execucoes.
 - **Config** — saude do agent.

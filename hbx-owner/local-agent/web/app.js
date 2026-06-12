@@ -119,12 +119,12 @@ async function renderCaca() {
   }
 }
 
-$("#btn-import").addEventListener("click", async () => {
-  const out = $("#import-result");
-  out.textContent = "importando…";
+$("#btn-export").addEventListener("click", async () => {
+  const out = $("#export-result");
+  out.textContent = "exportando…";
   out.className = "delta";
   try {
-    const r = await api("POST", "/owner/import", {});
+    const r = await api("POST", "/owner/export", {});
     if (r.ok) { out.textContent = `${r.leadsSent} leads enviados à VPS`; out.className = "delta up"; }
     else { out.textContent = r.message || r.reason; }
   } catch (err) {
