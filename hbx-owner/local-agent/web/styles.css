@@ -216,6 +216,26 @@ body {
 .ctr-row .ok { color: var(--green); } .ctr-row .bad { color: var(--red); }
 .ctr-meta { color: var(--text-muted); font-size: .74rem; }
 
+/* Form (caça de e-mail) */
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.form-grid label { display: flex; flex-direction: column; gap: 5px; font-size: .76rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .4px; }
+.form-grid input, .form-grid select {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 11px;
+  font-size: .9rem;
+  color: var(--text);
+  text-transform: none;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.form-grid input:focus, .form-grid select:focus { outline: none; border-color: var(--brand); }
+.lead-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: 10px 14px; }
+.lead-row .lead-name { font-size: .9rem; font-weight: 600; }
+.lead-row .lead-meta { font-size: .76rem; color: var(--text-muted); }
+.lead-row .lead-email { font-size: .82rem; color: var(--green); font-weight: 600; }
+
 /* Logs */
 .log-mini {
   margin: 8px 0 0;

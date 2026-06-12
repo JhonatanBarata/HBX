@@ -27,6 +27,7 @@
     <button class="tab is-active" data-tab="hoje">Hoje</button>
     <button class="tab" data-tab="tickets">Tickets</button>
     <button class="tab" data-tab="sistema">Sistema</button>
+    <button class="tab" data-tab="email">Caça de e-mail</button>
     <button class="tab" data-tab="codigo">Código</button>
     <button class="tab" data-tab="execucao">Execução</button>
     <button class="tab" data-tab="config">Config</button>
@@ -125,15 +126,40 @@
         <div id="sys-containers" class="list-mini"><div class="empty">—</div></div>
       </div>
 
+      <div class="card metric">
+        <span class="label">Banco de Leads (já na VPS)</span>
+        <strong id="sys-bank" class="big">—</strong>
+        <small id="sys-bank-delta" class="delta"></small>
+      </div>
+    </section>
+
+    <!-- CAÇA DE E-MAIL -->
+    <section class="panel" data-panel="email">
+      <div class="panel-head">
+        <h1>Caça de e-mail</h1>
+        <p>Filtra o Banco por e-mail (instantâneo) ou caça novos pelo motor — fontes grátis.</p>
+      </div>
+
+      <div class="card">
+        <div class="form-grid">
+          <label>Cidade<input id="hunt-city" placeholder="Piracicaba" /></label>
+          <label>UF<input id="hunt-state" maxlength="2" placeholder="SP" /></label>
+          <label>Segmento<input id="hunt-segment" placeholder="clínica" /></label>
+          <label>Quantidade<input id="hunt-target" type="number" min="1" max="100" value="20" /></label>
+        </div>
+        <div class="btn-row" style="margin-top:12px;">
+          <button id="btn-filter" class="btn btn-blue">Filtrar Banco</button>
+          <button id="btn-hunt" class="btn btn-green">Caçar novos</button>
+          <span id="hunt-feedback" class="delta"></span>
+        </div>
+      </div>
+
       <div class="card">
         <div class="focus-row">
-          <div><span class="label">Banco de Leads</span><strong id="sys-bank" class="big">—</strong><small id="sys-bank-delta" class="delta"></small></div>
-          <div>
-            <span class="label">Exportar local → VPS</span>
-            <button id="btn-export" class="btn btn-green">Exportar agora</button>
-            <small id="export-result" class="delta"></small>
-          </div>
+          <span class="label">E-mails encontrados</span>
+          <strong id="hunt-count" class="big">—</strong>
         </div>
+        <div id="hunt-cards" class="list" style="margin-top:12px;"><div class="empty">Filtre o Banco ou cace novos.</div></div>
       </div>
     </section>
 

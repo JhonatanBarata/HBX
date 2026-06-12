@@ -334,6 +334,46 @@ export class NightFactoryService {
     return value;
   }
 
+  // Caça de e-mail: leads do pool que JÁ têm e-mail (confirmed/probable),
+  // filtrados por segmento/cidade. Instantâneo, lê o que o motor já enriqueceu.
+  async getEmailLeads(options: { segment?: string; city?: string; take?: number } = {}) {
+    const take = clamp(options.take, 50, 1, 200);
+    if (!(await this.prisma.hasTable('RadarLeadPool').catch(() => false))) {
+      return { generatedAt: new Date().toISOString(), total: 0, items: [] };
+    }
+    const where: Record<string, any> = {
+      status: { notIn: BLOCKED_RADAR_STATUSES },
+      emailStatus: { in: ['confirmed', 'probable'] },
+      email: { not: null },
+    };
+    const seg = normalize(options.segment);
+    const city = normalize(options.city);
+    if (seg) where.normalizedSegment = { contains: seg };
+    if (city) where.normalizedCity = { contains: city };
+    const rows = await (this.prisma as any).radarLeadPool.findMany({
+      where,
+      orderBy: [{ emailConfidence: 'desc' }, { opportunityScore: 'desc' }, { updatedAt: 'desc' }],
+      take,
+    }).catch(() => []);
+    return {
+      generatedAt: new Date().toISOString(),
+      total: rows.length,
+      items: rows.map((row: any) => ({
+        id: String(row.id),
+        name: row.name || 'Lead sem nome',
+        email: row.email,
+        emailStatus: row.emailStatus,
+        emailConfidence: safeInteger(row.emailConfidence),
+        city: row.city || row.normalizedCity || null,
+        state: row.state || null,
+        segment: row.segment || row.normalizedSegment || null,
+        phone: row.phone || row.phoneDigits || null,
+        website: row.website || null,
+        painLabel: row.painLabel || row.painType || null,
+      })),
+    };
+  }
+
   async getTopOpportunities(options: { take?: number } = {}) {
     const take = clamp(options.take, 20, 1, 80);
     if (!(await this.prisma.hasTable('RadarLeadPool').catch(() => false))) {

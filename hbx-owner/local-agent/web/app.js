@@ -209,16 +209,70 @@ async function factoryAction(action) {
 $("#btn-factory-stop").addEventListener("click", () => factoryAction("stop"));
 $("#btn-factory-resume").addEventListener("click", () => factoryAction("resume"));
 
-$("#btn-export").addEventListener("click", async () => {
-  const out = $("#export-result");
-  out.textContent = "exportando…";
-  out.className = "delta";
+/* ---------- Caça de e-mail ---------- */
+function huntQuery() {
+  return {
+    city: $("#hunt-city").value.trim(),
+    state: $("#hunt-state").value.trim(),
+    segment: $("#hunt-segment").value.trim(),
+    targetEmails: Number($("#hunt-target").value) || 20,
+  };
+}
+
+function renderHuntCards(items) {
+  $("#hunt-count").textContent = items.length;
+  const cards = $("#hunt-cards");
+  if (!items.length) {
+    cards.innerHTML = `<div class="empty">Nenhum e-mail com esse filtro. Tente "Caçar novos".</div>`;
+    return;
+  }
+  cards.innerHTML = "";
+  items.forEach((lead) => {
+    const conf = lead.emailConfidence ? ` ${lead.emailConfidence}%` : "";
+    cards.appendChild(el(`<div class="lead-row">
+      <div><div class="lead-name">${esc(lead.name)}</div><div class="lead-meta">${esc(lead.city || "")} ${esc(lead.segment || "")} ${lead.phone ? "· " + esc(lead.phone) : ""}</div></div>
+      <div class="lead-email">${esc(lead.email || "—")}<span class="lead-meta"> (${esc(lead.emailStatus || "")}${conf})</span></div>
+    </div>`));
+  });
+}
+
+function renderEmailHunt() {
+  filterBank();
+}
+
+async function filterBank() {
+  const fb = $("#hunt-feedback");
+  fb.textContent = "filtrando…";
+  fb.className = "delta";
+  const q = huntQuery();
   try {
-    const r = await api("POST", "/owner/export", {});
-    if (r.ok) { out.textContent = `${r.leadsSent} leads enviados à VPS`; out.className = "delta up"; }
-    else { out.textContent = r.message || r.reason; }
+    const params = new URLSearchParams();
+    if (q.segment) params.set("segment", q.segment);
+    if (q.city) params.set("city", q.city);
+    params.set("take", "60");
+    const r = await api("GET", `/owner/email-leads?${params.toString()}`);
+    renderHuntCards(r.items || []);
+    fb.textContent = `${(r.items || []).length} no Banco`;
+    fb.className = "delta";
   } catch (err) {
-    out.textContent = err.message;
+    fb.textContent = err.message;
+  }
+}
+
+$("#btn-filter").addEventListener("click", filterBank);
+
+$("#btn-hunt").addEventListener("click", async () => {
+  const fb = $("#hunt-feedback");
+  fb.textContent = "caçando no motor (pode levar 1 min)…";
+  fb.className = "delta";
+  try {
+    const r = await api("POST", "/owner/email-hunt", huntQuery());
+    renderHuntCards(r.items || []);
+    if (r.searchOk) fb.textContent = `motor achou ${r.foundNow || 0} · ${(r.items || []).length} com e-mail no Banco`;
+    else fb.textContent = `motor: ${r.searchReason || "falhou"} · mostrando ${(r.items || []).length} do Banco`;
+    fb.className = "delta up";
+  } catch (err) {
+    fb.textContent = err.message;
   }
 });
 
@@ -301,6 +355,7 @@ function loadTab(name) {
   if (name === "hoje") renderToday();
   else if (name === "tickets") renderTickets();
   else if (name === "sistema") renderSistema();
+  else if (name === "email") renderEmailHunt();
   else if (name === "codigo") renderCodigo();
   else if (name === "execucao") renderExecucao();
   else if (name === "config") renderConfig();

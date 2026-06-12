@@ -45,6 +45,16 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function safeText(value, max = 200) {
+  return String(value == null ? "" : value).replace(/\s+/g, " ").trim().slice(0, max);
+}
+
+function clampInt(value, fallback, min, max) {
+  const parsed = Math.trunc(Number(value));
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
+}
+
 function readAllowlist() {
   const content = fs.readFileSync(allowlistPath, "utf8");
   return JSON.parse(content);
@@ -562,46 +572,6 @@ async function readLeadsBank() {
   return { ok: true, configured: true, total: response.data.total ?? null, deltaToday: response.data.deltaToday ?? null, generatedAt: response.data.generatedAt };
 }
 
-// Exportar: envia o JSONL do local-lab para o backend (VPS).
-// Do lado da VPS o endpoint é lead-harvest/import (ela importa); aqui é exportar.
-// Só remove a evidência local DEPOIS da VPS confirmar (sem perda de lead).
-async function exportLocalLabToBackend(body) {
-  if (!backendToken) {
-    return { ok: false, reason: "backend_token_ausente", message: "Configure HBX_OWNER_BACKEND_TOKEN para exportar." };
-  }
-  const exportResp = await new Promise((resolve) => {
-    const req = http.get(`${localLabUrl}/local-lab/export?format=jsonl`, { timeout: 20000 }, (response) => {
-      let raw = "";
-      response.on("data", (chunk) => (raw += chunk.toString("utf8")));
-      response.on("end", () => resolve({ statusCode: response.statusCode, raw }));
-    });
-    req.on("timeout", () => req.destroy(new Error("timeout")));
-    req.on("error", (error) => resolve({ error: error.message }));
-  });
-  if (exportResp.error || !exportResp.raw) {
-    return { ok: false, reason: "export_falhou", message: exportResp.error || "Local Lab sem export." };
-  }
-  const leads = exportResp.raw
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      try {
-        return JSON.parse(line);
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean);
-  if (!leads.length) {
-    return { ok: false, reason: "sem_leads", message: "Nenhum lead no export do Local Lab." };
-  }
-  const importResp = await backendRequest("POST", "/webscraping/lead-harvest/import", { source: "hbx-local-lab", leads });
-  if (!importResp.ok) {
-    return { ok: false, reason: "import_falhou", message: importResp.error || `http_${importResp.statusCode || "?"}`, leadsTried: leads.length };
-  }
-  return { ok: true, leadsSent: leads.length, backend: importResp.data };
-}
 
 // ---------- Sistema (motores, pressão, capacidade) ----------
 function cpuSnapshot() {
@@ -756,6 +726,55 @@ async function readSystemSnapshot() {
   };
 }
 
+// ---------- Caça de e-mail (via backend Radar — o "chefe") ----------
+const ownerCompanyId = Number(process.env.HBX_OWNER_COMPANY_ID || 2) || 2;
+
+// Filtro instantâneo: leads do Banco que já têm e-mail (segmento/cidade).
+async function emailLeadsFromBank(query) {
+  const params = new URLSearchParams();
+  if (query.segment) params.set("segment", query.segment);
+  if (query.city) params.set("city", query.city);
+  params.set("take", String(clampInt(query.take, 50, 1, 200)));
+  const response = await backendRequest("GET", `/night-factory/email-leads?${params.toString()}`);
+  if (!response.ok || !response.data) {
+    return { ok: false, reason: response.error || `http_${response.statusCode || "?"}`, items: [], total: 0 };
+  }
+  return { ok: true, total: response.data.total || 0, items: response.data.items || [] };
+}
+
+// Caçar novos: pede ao CHEFE (backend Radar) para descobrir — fontes grátis (engine hbx).
+// Depois lê do Banco os que entraram com e-mail.
+async function huntEmails(body) {
+  const segment = safeText(body.segment, 180);
+  const city = safeText(body.city, 120);
+  const state = safeText(body.state, 2).toUpperCase();
+  if (!segment) return { ok: false, reason: "sem_segmento", message: "Informe o segmento." };
+  if (!backendToken) return { ok: false, reason: "backend_token_ausente", message: "Configure HBX_OWNER_BACKEND_TOKEN." };
+
+  await backendRequest("POST", "/master-context/assume", { companyId: ownerCompanyId }).catch(() => null);
+  const quantity = clampInt(body.targetEmails, 20, 1, 100);
+  const searchResp = await backendRequest("POST", "/webscraping/search", {
+    city,
+    state,
+    segment,
+    quantity,
+    engine: "hbx",
+  });
+
+  const bank = await emailLeadsFromBank({ segment, city, take: 60 });
+  if (!searchResp.ok) {
+    return {
+      ok: bank.ok,
+      searchOk: false,
+      searchReason: searchResp.data?.message || searchResp.data?.code || searchResp.error || `http_${searchResp.statusCode || "?"}`,
+      total: bank.total,
+      items: bank.items,
+    };
+  }
+  const found = Number(searchResp.data?.count ?? (Array.isArray(searchResp.data?.results) ? searchResp.data.results.length : 0));
+  return { ok: true, searchOk: true, foundNow: found, total: bank.total, items: bank.items };
+}
+
 function sendStatic(res, pathname) {
   const requested = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
   const filePath = path.join(webDir, requested);
@@ -875,6 +894,21 @@ async function route(req, res) {
     return;
   }
 
+  // Caça de e-mail. Filtro instantâneo do Banco + "Caçar" via backend Radar.
+  if (req.method === "GET" && url.pathname === "/owner/email-leads") {
+    sendJson(res, 200, await emailLeadsFromBank({
+      segment: url.searchParams.get("segment"),
+      city: url.searchParams.get("city"),
+      take: url.searchParams.get("take"),
+    }));
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/owner/email-hunt") {
+    const body = await readBody(req);
+    sendJson(res, 200, await huntEmails(body));
+    return;
+  }
+
   // Controle da fábrica de motores (runtime, sem subir container): freio do dono.
   if (req.method === "POST" && (url.pathname === "/owner/factory/stop" || url.pathname === "/owner/factory/resume")) {
     if (!backendToken) {
@@ -889,11 +923,6 @@ async function route(req, res) {
     return;
   }
 
-  if (req.method === "POST" && url.pathname === "/owner/export") {
-    const body = await readBody(req);
-    sendJson(res, 200, await exportLocalLabToBackend(body));
-    return;
-  }
 
   if (req.method === "GET" && url.pathname === "/health") {
     sendJson(res, 200, {
