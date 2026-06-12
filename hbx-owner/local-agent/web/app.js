@@ -106,16 +106,89 @@ async function renderTickets() {
   }
 }
 
-/* ---------- Caça ---------- */
-async function renderCaca() {
-  renderBankInto("#caca-bank", "#caca-bank-delta");
+/* ---------- Sistema ---------- */
+function pressureClass(used, limit) {
+  if (used == null) return "";
+  if (used >= 90 || used >= limit + 7) return "bad";
+  if (used >= limit) return "warn";
+  return "";
+}
+
+function setPressure(prefix, p) {
+  const used = p.usedPct;
+  $(`#sys-${prefix}`).textContent = used == null ? "—" : `${used}%`;
+  const bar = $(`#sys-${prefix}-bar`);
+  bar.style.width = `${used == null ? 0 : Math.min(100, used)}%`;
+  bar.className = `bar-fill ${pressureClass(used, p.limit)}`;
+}
+
+async function renderSistema() {
+  renderBankInto("#sys-bank", "#sys-bank-delta");
+  let s;
   try {
-    const lab = await api("GET", "/local-lab/status");
-    $("#caca-lab").textContent = lab.up ? "no ar" : "off";
-    $("#lab-detail").textContent = JSON.stringify({ url: lab.url, up: lab.up, processes: lab.processes }, null, 2);
+    s = await api("GET", "/owner/system");
   } catch (err) {
-    $("#caca-lab").textContent = "erro";
-    $("#lab-detail").textContent = err.message;
+    $("#sys-resumo").textContent = `erro: ${err.message}`;
+    $("#sys-resumo").className = "resumo bad";
+    return;
+  }
+
+  const cap = s.capacity || {};
+  const ram = s.pressure.ram.usedPct;
+  const disk = s.pressure.disk.usedPct;
+  const resumo = $("#sys-resumo");
+  const motorTxt = cap.ok ? `${cap.alive}/${cap.ceiling} motores` : "motores ocultos";
+  const head = s.verdict.level === "buy" ? "Sistema no limite" : s.verdict.level === "tight" ? "Sistema apertando" : "Sistema saudável";
+  resumo.textContent = `${head} · ${motorTxt} · RAM ${ram}%` + (disk != null ? ` · disco ${disk}%` : "");
+  resumo.className = "resumo" + (s.verdict.level === "buy" ? " bad" : s.verdict.level === "tight" ? " warn" : "");
+
+  const warnBox = $("#sys-warnings");
+  warnBox.innerHTML = "";
+  (s.warnings || []).forEach((w) => {
+    warnBox.appendChild(el(`<div class="warn-band"><i class="ti ti-alert-triangle"></i><span>${esc(w)}</span></div>`));
+  });
+
+  const gov = $("#sys-governor");
+  if (cap.ok) {
+    gov.textContent = cap.elastic ? "Elástico ligado" : "Elástico desligado";
+    gov.className = "pill " + (cap.elastic ? "pill-ok" : "pill-bad");
+    const pct = cap.ceiling > 0 ? Math.round((cap.alive / cap.ceiling) * 100) : 0;
+    const bar = $("#sys-bar-alive");
+    bar.style.width = `${Math.max(6, pct)}%`;
+    bar.className = "bar-fill" + (!cap.elastic ? " bad" : cap.queue > 0 && cap.alive >= cap.ceiling ? " warn" : "");
+    $("#sys-engines-counts").textContent = `${cap.alive} vivos · teto ${cap.ceiling} · fila ${cap.queue}`;
+    $("#sys-engines-reason").textContent = cap.reason || "";
+  } else {
+    gov.textContent = "sem leitura";
+    gov.className = "pill pill-muted";
+    $("#sys-engines-counts").textContent = cap.configured ? "backend não respondeu" : "configure o token do backend";
+    $("#sys-engines-reason").textContent = "";
+  }
+
+  setPressure("ram", s.pressure.ram);
+  setPressure("cpu", s.pressure.cpu);
+  setPressure("disk", s.pressure.disk);
+  $("#sys-ram-limit").textContent = `aviso em ${s.pressure.ram.limit}% · ${s.pressure.ram.totalGb} GB`;
+  $("#sys-cpu-limit").textContent = `aviso em ${s.pressure.cpu.limit}% · ${s.pressure.cpu.cores} núcleos`;
+  $("#sys-disk-limit").textContent = s.pressure.disk.usedPct == null ? "indisponível" : `aviso em ${s.pressure.disk.limit}% · ${s.pressure.disk.freeGb} GB livres`;
+
+  $("#sys-verdict").className = `card verdict ${s.verdict.level}`;
+  $("#sys-verdict-title").textContent = `Preciso de mais servidor? — ${s.verdict.title}`;
+  $("#sys-verdict-detail").textContent = s.verdict.detail;
+
+  const box = $("#sys-containers");
+  const items = (s.containers && s.containers.items) || [];
+  if (!items.length) {
+    box.innerHTML = `<div class="empty">${s.containers && s.containers.ok ? "nenhum container HBX" : "docker indisponível"}</div>`;
+  } else {
+    box.innerHTML = "";
+    items.forEach((c) => {
+      const running = c.state === "running";
+      box.appendChild(el(`<div class="ctr-row">
+        <span>${esc(c.name)} <span class="ctr-meta">${esc(c.cpu)} · ${esc(c.mem)}</span></span>
+        <span class="${running ? "ok" : "bad"}">${running ? "rodando" : esc(c.state || "parado")}</span>
+      </div>`));
+    });
   }
 }
 
@@ -130,14 +203,6 @@ $("#btn-export").addEventListener("click", async () => {
   } catch (err) {
     out.textContent = err.message;
   }
-  renderCaca();
-});
-
-document.querySelectorAll("[data-lab]").forEach((btn) => {
-  btn.addEventListener("click", async () => {
-    try { await api("POST", `/local-lab/${btn.dataset.lab}`, {}); } catch (e) { alert(e.message); }
-    renderCaca();
-  });
 });
 
 /* ---------- Código ---------- */
@@ -218,7 +283,7 @@ async function pingAgent() {
 function loadTab(name) {
   if (name === "hoje") renderToday();
   else if (name === "tickets") renderTickets();
-  else if (name === "caca") renderCaca();
+  else if (name === "sistema") renderSistema();
   else if (name === "codigo") renderCodigo();
   else if (name === "execucao") renderExecucao();
   else if (name === "config") renderConfig();

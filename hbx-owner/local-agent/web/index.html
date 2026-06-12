@@ -26,7 +26,7 @@
   <nav class="tabs" id="tabs">
     <button class="tab is-active" data-tab="hoje">Hoje</button>
     <button class="tab" data-tab="tickets">Tickets</button>
-    <button class="tab" data-tab="caca">Caça</button>
+    <button class="tab" data-tab="sistema">Sistema</button>
     <button class="tab" data-tab="codigo">Código</button>
     <button class="tab" data-tab="execucao">Execução</button>
     <button class="tab" data-tab="config">Config</button>
@@ -80,30 +80,53 @@
       <div id="tickets-list" class="list"><div class="empty">Carregando…</div></div>
     </section>
 
-    <!-- CAÇA -->
-    <section class="panel" data-panel="caca">
+    <!-- SISTEMA -->
+    <section class="panel" data-panel="sistema">
       <div class="panel-head">
-        <h1>Caça</h1>
-        <p>Banco de Leads, Local Lab e exportação local → VPS</p>
+        <h1>Sistema</h1>
+        <p>Motores elásticos, pressão e capacidade — o que está acontecendo agora</p>
       </div>
-      <div class="grid-3">
-        <div class="card metric"><span class="label">Banco de Leads</span><strong id="caca-bank">—</strong><small id="caca-bank-delta" class="delta"></small></div>
-        <div class="card metric"><span class="label">Local Lab</span><strong id="caca-lab">—</strong></div>
-        <div class="card metric metric-action">
-          <span class="label">Exportar local → VPS</span>
-          <button id="btn-export" class="btn btn-green">Exportar agora</button>
-          <small id="export-result" class="delta"></small>
-        </div>
-      </div>
+
+      <div id="sys-resumo" class="resumo">Lendo o sistema…</div>
+      <div id="sys-warnings"></div>
+
       <div class="card">
         <div class="focus-row">
-          <span class="label">Controle do Local Lab</span>
-          <div class="btn-row">
-            <button class="btn btn-blue" data-lab="start">Subir</button>
-            <button class="btn btn-red" data-lab="stop">Parar</button>
+          <span class="label"><i class="ti"></i>Motores elásticos</span>
+          <span id="sys-governor" class="pill pill-muted">—</span>
+        </div>
+        <div class="bar"><div id="sys-bar-alive" class="bar-fill"></div></div>
+        <div class="bar-legend">
+          <span id="sys-engines-counts">—</span>
+          <span id="sys-engines-reason"></span>
+        </div>
+      </div>
+
+      <div class="grid-3">
+        <div class="card metric"><span class="label">RAM</span><strong id="sys-ram">—</strong><div class="bar sm"><div id="sys-ram-bar" class="bar-fill"></div></div><small id="sys-ram-limit" class="delta"></small></div>
+        <div class="card metric"><span class="label">CPU</span><strong id="sys-cpu">—</strong><div class="bar sm"><div id="sys-cpu-bar" class="bar-fill"></div></div><small id="sys-cpu-limit" class="delta"></small></div>
+        <div class="card metric"><span class="label">Disco</span><strong id="sys-disk">—</strong><div class="bar sm"><div id="sys-disk-bar" class="bar-fill"></div></div><small id="sys-disk-limit" class="delta"></small></div>
+      </div>
+
+      <div id="sys-verdict" class="card verdict">
+        <div class="verdict-head"><i class="ti ti-server-2"></i><strong id="sys-verdict-title">Preciso de mais servidor?</strong></div>
+        <p id="sys-verdict-detail" class="verdict-detail">—</p>
+      </div>
+
+      <div class="card">
+        <span class="label">Containers</span>
+        <div id="sys-containers" class="list-mini"><div class="empty">—</div></div>
+      </div>
+
+      <div class="card">
+        <div class="focus-row">
+          <div><span class="label">Banco de Leads</span><strong id="sys-bank" class="big">—</strong><small id="sys-bank-delta" class="delta"></small></div>
+          <div>
+            <span class="label">Exportar local → VPS</span>
+            <button id="btn-export" class="btn btn-green">Exportar agora</button>
+            <small id="export-result" class="delta"></small>
           </div>
         </div>
-        <pre id="lab-detail" class="log-mini">—</pre>
       </div>
     </section>
 

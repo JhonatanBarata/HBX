@@ -54,8 +54,13 @@ Bootstrap do master: produção mantém `BOOTSTRAP_SYSTEM_MASTER=false`.
   `npm run owner:agent` direto. Token local em `HBX_OWNER_LOCAL_TOKEN` (ou gerado/persistido
   em `.owner-token`, gitignored). Painel em `http://127.0.0.1:3107`.
 - Abas: **Hoje** (ponto/foco, estado em `state/today.json` — sem banco), **Tickets**
-  (fila `.md` de `docs/PLANEJAMENTOS`, fonte única versionada), **Caça** (Banco de Leads,
-  Local Lab e Exportar local→VPS), **Código** (git), **Execução** (allowlist + runs), **Config**.
+  (fila `.md` de `docs/PLANEJAMENTOS`, fonte única versionada), **Sistema** (motores
+  elásticos via `/webscraping/engines/status`, pressão RAM/CPU/disco da máquina,
+  veredito "preciso de mais servidor?", containers, Banco de Leads e Exportar local→VPS),
+  **Código** (git), **Execução** (allowlist + runs), **Config**.
+- A guia Sistema substitui o cockpit do Ops Control para o uso do dono (Email Lab cortado:
+  o filtro "e-mail obrigatório" na busca já cobre). O Ops Control (`:3099`) segue existindo
+  para operação SSH da VPS.
 - Banco de Leads e Exportar usam o backend via `HBX_OWNER_BACKEND_URL` +
   `HBX_OWNER_BACKEND_TOKEN` (JWT do dono). Sem token, o painel degrada com aviso, não quebra.
 - Exportar = enviar leads do Local Lab para a VPS (que os importa via

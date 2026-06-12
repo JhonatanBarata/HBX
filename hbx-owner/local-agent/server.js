@@ -1,8 +1,14 @@
 const crypto = require("crypto");
 const fs = require("fs");
+const fsp = require("fs/promises");
+const os = require("os");
 const http = require("http");
 const path = require("path");
 const { spawn, spawnSync } = require("child_process");
+
+// Limiares de aviso (alinhados aos soft limits da Night Factory).
+const PRESSURE_LIMITS = { ram: 78, cpu: 75, disk: 85 };
+const SYSTEM_CONTAINERS = ["backend", "app-db-1", "hbx-scraping-engine", "webscraping", "hbx-ops-control"];
 
 const HOST = "127.0.0.1";
 const PORT = Number(process.env.HBX_OWNER_LOCAL_AGENT_PORT || 3107);
@@ -597,6 +603,150 @@ async function exportLocalLabToBackend(body) {
   return { ok: true, leadsSent: leads.length, backend: importResp.data };
 }
 
+// ---------- Sistema (motores, pressão, capacidade) ----------
+function cpuSnapshot() {
+  let idle = 0;
+  let total = 0;
+  for (const cpu of os.cpus()) {
+    for (const value of Object.values(cpu.times)) total += value;
+    idle += cpu.times.idle;
+  }
+  return { idle, total };
+}
+
+async function readCpuPercent() {
+  const a = cpuSnapshot();
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  const b = cpuSnapshot();
+  const idle = b.idle - a.idle;
+  const total = b.total - a.total;
+  return total > 0 ? Math.round((1 - idle / total) * 100) : 0;
+}
+
+async function readDiskUsage() {
+  try {
+    const stat = await fsp.statfs(process.platform === "win32" ? "C:\\" : "/");
+    const totalBytes = Number(stat.blocks) * Number(stat.bsize);
+    const freeBytes = Number(stat.bfree) * Number(stat.bsize);
+    if (!(totalBytes > 0)) return { usedPct: null };
+    return {
+      usedPct: Math.round(((totalBytes - freeBytes) / totalBytes) * 100),
+      totalGb: Math.round(totalBytes / 1e9),
+      freeGb: Math.round(freeBytes / 1e9),
+    };
+  } catch {
+    return { usedPct: null };
+  }
+}
+
+function readContainers() {
+  const result = execRead(["docker", "ps", "-a", "--format", "{{.Names}}\t{{.State}}\t{{.Status}}"]);
+  if (!result.ok) return { ok: false, items: [], error: (result.stderr || "docker indisponivel").trim() };
+  const stats = execRead(["docker", "stats", "--no-stream", "--format", "{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}"]);
+  const statMap = new Map();
+  for (const line of String(stats.stdout || "").split(/\r?\n/)) {
+    const [name, cpu, mem] = line.split("\t");
+    if (name) statMap.set(name.trim(), { cpu: (cpu || "").trim(), mem: (mem || "").trim() });
+  }
+  const rows = String(result.stdout || "")
+    .split(/\r?\n/)
+    .map((line) => line.split("\t"))
+    .filter((parts) => parts[0]);
+  const items = rows
+    .filter((parts) => SYSTEM_CONTAINERS.includes(parts[0].trim()) || /^hbx-engine-\d+$/.test(parts[0].trim()))
+    .map((parts) => {
+      const name = parts[0].trim();
+      const stat = statMap.get(name) || {};
+      return { name, state: (parts[1] || "").trim(), status: (parts[2] || "").trim(), cpu: stat.cpu || "-", mem: stat.mem || "-" };
+    });
+  const engines = items.filter((item) => /^hbx-engine-\d+$/.test(item.name));
+  return {
+    ok: true,
+    items: items.filter((item) => !/^hbx-engine-\d+$/.test(item.name)),
+    engineContainers: { total: engines.length, running: engines.filter((e) => e.state === "running").length },
+  };
+}
+
+// Motores elásticos via backend (capacidade real: vivos, fila, status).
+async function readEngineCapacity() {
+  const response = await backendRequest("GET", "/webscraping/engines/status");
+  if (!response.ok || !response.data) {
+    return { ok: false, configured: Boolean(backendToken), reason: response.error || `http_${response.statusCode || "?"}` };
+  }
+  const data = response.data;
+  const engines = Array.isArray(data.engines) ? data.engines : [];
+  const ceiling = engines.length || Number(data.capacity?.activeEngineCount || 0) || 0;
+  const aliveStates = new Set(["online", "standby", "busy", "running", "active"]);
+  const aliveFromEngines = engines.filter((e) => aliveStates.has(String(e.status || "").toLowerCase())).length;
+  const alive = aliveFromEngines || Math.trunc(Number(data.capacity?.runningCount || data.capacity?.activeEngineCount || 0));
+  const queue = Math.trunc(Number(data.capacity?.queuedCount || 0));
+  const operationalStatus = String(data.capacity?.operationalStatus || "unknown");
+  const elastic = ceiling > 1;
+  let reason;
+  if (!elastic) reason = "Elástico desligado: teto de 1 motor nesta máquina.";
+  else if (queue > 0 && alive >= ceiling) reason = "Fila cheia e no teto — pode precisar de mais capacidade.";
+  else if (queue > 0) reason = "Fila com trabalho — o Governor sobe motores até o teto.";
+  else reason = "Fila vazia — fica no warm. Sobe sozinho quando encher.";
+  return { ok: true, alive, ceiling, queue, operationalStatus, elastic, reason };
+}
+
+function buildCapacityVerdict(pressure, capacity) {
+  const ram = Number(pressure.ram?.usedPct || 0);
+  const disk = Number(pressure.disk?.usedPct || 0);
+  const atCeiling = Boolean(capacity?.ok && capacity.elastic && capacity.alive >= capacity.ceiling && capacity.queue > 0);
+
+  const critical = [];
+  if (disk >= 90) critical.push("disco no limite");
+  if (ram >= 90) critical.push("RAM no limite");
+  if (atCeiling) critical.push("motores no teto com fila");
+  if (critical.length) {
+    return { level: "buy", title: "Hora de agir", detail: `No limite: ${critical.join(", ")}. Avalie liberar espaço ou subir capacidade.` };
+  }
+
+  const tight = [];
+  if (disk >= PRESSURE_LIMITS.disk) tight.push("disco");
+  if (ram >= PRESSURE_LIMITS.ram) tight.push("RAM");
+  if (tight.length) {
+    return { level: "tight", title: "Começando a apertar", detail: `${tight.join(" e ")} passou da faixa de aviso. Observe de perto, ainda dá.` };
+  }
+
+  return { level: "ok", title: "Ainda não", detail: "Sobra folga de recurso e capacidade. Eu aviso quando começar a bater no teto." };
+}
+
+async function readSystemSnapshot() {
+  const totalMem = os.totalmem();
+  const freeMem = os.freemem();
+  const ramUsedPct = totalMem > 0 ? Math.round(((totalMem - freeMem) / totalMem) * 100) : 0;
+  const [cpuPct, disk, capacity] = await Promise.all([
+    readCpuPercent(),
+    readDiskUsage(),
+    readEngineCapacity().catch(() => ({ ok: false, reason: "erro" })),
+  ]);
+  const containers = readContainers();
+  const pressure = {
+    ram: { usedPct: ramUsedPct, limit: PRESSURE_LIMITS.ram, totalGb: Math.round(totalMem / 1e9) },
+    cpu: { usedPct: cpuPct, limit: PRESSURE_LIMITS.cpu, cores: os.cpus().length },
+    disk: { usedPct: disk.usedPct, limit: PRESSURE_LIMITS.disk, freeGb: disk.freeGb ?? null, totalGb: disk.totalGb ?? null },
+  };
+  const verdict = buildCapacityVerdict(pressure, capacity);
+  const warnings = [];
+  if (pressure.ram.usedPct >= PRESSURE_LIMITS.ram) warnings.push(`RAM em ${pressure.ram.usedPct}% (aviso ${PRESSURE_LIMITS.ram}%)`);
+  if (pressure.disk.usedPct != null && pressure.disk.usedPct >= PRESSURE_LIMITS.disk) warnings.push(`Disco em ${pressure.disk.usedPct}%`);
+  if (capacity.ok && !capacity.elastic) warnings.push("Motores presos no teto (elástico desligado)");
+  if (!capacity.ok) warnings.push(capacity.configured ? "Sem leitura dos motores (backend)" : "Backend sem token — motores e capacidade ocultos");
+  return {
+    ok: true,
+    generatedAt: nowIso(),
+    backendUrl,
+    host: os.hostname(),
+    pressure,
+    capacity,
+    containers,
+    verdict,
+    warnings,
+  };
+}
+
 function sendStatic(res, pathname) {
   const requested = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
   const filePath = path.join(webDir, requested);
@@ -708,6 +858,11 @@ async function route(req, res) {
 
   if (req.method === "GET" && url.pathname === "/owner/leads-bank") {
     sendJson(res, 200, await readLeadsBank());
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/owner/system") {
+    sendJson(res, 200, await readSystemSnapshot());
     return;
   }
 
