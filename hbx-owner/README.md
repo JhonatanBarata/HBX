@@ -1,20 +1,35 @@
 # HBX Owner
 
-HBX Owner e o app local de comando operacional do dono do HBX.
+Cockpit local do dono = painel web servido pelo `local-agent` (Node, sem SQLite).
 
 ## Como rodar
 
 ```powershell
 npm run up
-$env:HBX_OWNER_LOCAL_TOKEN="token-local-forte"
-npm run owner:agent
+npm run owner:app
 ```
 
-Abra:
+`owner:app` sobe o agent e abre `http://127.0.0.1:3107` no navegador. O token local
+e lido de `HBX_OWNER_LOCAL_TOKEN` ou gerado e persistido em
+`hbx-owner/local-agent/.owner-token` (gitignored).
 
-```txt
-.\hbx-owner\windows-app\run-hbx-owner.cmd
+Para a aba Caça (Banco de Leads + Importar) falar com o backend, defina antes de subir:
+
+```powershell
+$env:HBX_OWNER_BACKEND_URL="http://127.0.0.1:3000"
+$env:HBX_OWNER_BACKEND_TOKEN="<jwt-do-dono>"
 ```
+
+## Abas
+
+- **Hoje** — ponto e foco (estado em `local-agent/state/today.json`, sem banco).
+- **Tickets** — fila `.md` de `docs/PLANEJAMENTOS` (fonte unica, versionada).
+- **Caca** — Banco de Leads, Local Lab e Importar local -> VPS.
+- **Codigo** — git status, branch, arquivos mudados.
+- **Execucao** — comandos da allowlist e ultimas execucoes.
+- **Config** — saude do agent.
+
+> O app desktop tkinter legado (`hbx-owner/windows-app/`, com SQLite) foi descontinuado.
 
 ## Teste de lote integrado
 
@@ -28,17 +43,11 @@ Quando o Codex Cloud criar PRs para tickets, o HBX Owner trabalha assim:
 
 Baixar PR isolado continua disponivel para diagnostico, mas nao e o caminho principal.
 
-## Modulos
+## Bridges
 
-- Morning Desk.
-- Automatizadores.
-- Windows App local em `hbx-owner/windows-app`.
-- Git / PR.
-- Testes.
-- Ops Control separado em `ops-control`.
-- Deploy Check, somente verificacao/checklist; deploy e publish continuam bloqueados.
-- Support Ops.
-- Config.
+- Ops Control separado em `ops-control` (`127.0.0.1:3099`).
+- Local Lab (`hbx-local-lab`, `127.0.0.1:3098`) controlado pela aba Caca.
+- Deploy/publish continuam bloqueados pelo Owner.
 
 ## O que nunca fazer
 

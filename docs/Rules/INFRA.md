@@ -47,16 +47,24 @@ Bootstrap do master: produção mantém `BOOTSTRAP_SYSTEM_MASTER=false`.
 - Config via `.env.ops-control` (token, SSH, backends por ambiente com JWT master
   ou auto-session no container). Sobe com `docker-compose.ops.yml`.
 
-## HBX Owner (`hbx-owner/`)
+## HBX Owner (`hbx-owner/local-agent/`)
 
-- App local de comando do dono: Local Agent (`npm run owner:agent` +
-  `HBX_OWNER_LOCAL_TOKEN`) e Windows App (`hbx-owner/windows-app/run-hbx-owner.cmd`).
+- Cockpit local do dono = **painel web servido pelo local-agent** (Node, sem SQLite).
+  Sobe com `npm run owner:app` (start-owner.ps1: sobe o agent + abre o navegador) ou
+  `npm run owner:agent` direto. Token local em `HBX_OWNER_LOCAL_TOKEN` (ou gerado/persistido
+  em `.owner-token`, gitignored). Painel em `http://127.0.0.1:3107`.
+- Abas: **Hoje** (ponto/foco, estado em `state/today.json` — sem banco), **Tickets**
+  (fila `.md` de `docs/PLANEJAMENTOS`, fonte única versionada), **Caça** (Banco de Leads,
+  Local Lab e Importar local→VPS), **Código** (git), **Execução** (allowlist + runs), **Config**.
+- Banco de Leads e Importar usam o backend via `HBX_OWNER_BACKEND_URL` +
+  `HBX_OWNER_BACKEND_TOKEN` (JWT do dono). Sem token, o painel degrada com aviso, não quebra.
+- Importar só remove a evidência local DEPOIS do import confirmar na VPS (sem perda de lead).
 - Fluxo de QA de lote: dono mergeia PRs → checkout vira lote de QA → `npm run up` →
-  testa em `localhost:3001` → painel de Testes roda o que o diff pedir.
+  testa em `localhost:3001` → aba Execução roda os checks do diff.
 - O Owner NUNCA: libera feature paga sem backend autorizar, expõe secrets, roda shell
-  livre, executa deploy/publish/new/force/migrations, apaga histórico negativo do Radar.
-- `next-day.md`, `hbx-memoria.md`, dispatches e card-compilers em
-  `hbx-owner/windows-app/` são artefatos de runtime (gitignored) — não tocar.
+  livre (só allowlist), executa deploy/publish/new/force/migrations, apaga histórico
+  negativo do Radar.
+- O app desktop tkinter legado (`hbx-owner/windows-app/`, com SQLite) foi descontinuado.
 
 ## Electron / demo
 
