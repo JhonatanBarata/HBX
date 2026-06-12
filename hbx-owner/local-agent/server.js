@@ -686,15 +686,17 @@ async function readEngineCapacity() {
   const governorOn = Boolean(config.governorEnabled);
   const queue = Math.trunc(Number(data.capacity?.queuedCount || 0));
   const operationalStatus = String(data.capacity?.operationalStatus || "unknown");
+  const factoryStopped = Boolean(config.factoryStopped);
   // Elástico de verdade = governor ligado E teto acima do warm (dá pra crescer).
   const elastic = governorOn && ceiling > Math.max(warm, alive);
   let reason;
-  if (!governorOn) reason = "Governor desligado — capacidade fixa, não cresce sozinho.";
+  if (factoryStopped) reason = "Fábrica PARADA (freio do dono) — não sobe motor até religar.";
+  else if (!governorOn) reason = "Governor desligado — capacidade fixa, não cresce sozinho.";
   else if (ceiling <= warm) reason = `Teto igual ao warm (${ceiling}) — sem folga pra crescer.`;
   else if (queue > 0 && alive >= ceiling) reason = "Fila cheia e no teto — pode precisar de mais capacidade.";
   else if (queue > 0) reason = "Fila com trabalho — o Governor está subindo motores até o teto.";
   else reason = `Fila vazia — fica no warm (${warm || alive}). Sobe sozinho até ${ceiling} quando encher.`;
-  return { ok: true, alive, warm, ceiling, queue, operationalStatus, elastic, governorOn, reason };
+  return { ok: true, alive, warm, ceiling, queue, operationalStatus, elastic, governorOn, factoryStopped, reason };
 }
 
 function buildCapacityVerdict(pressure, capacity) {
@@ -870,6 +872,20 @@ async function route(req, res) {
 
   if (req.method === "GET" && url.pathname === "/owner/system") {
     sendJson(res, 200, await readSystemSnapshot());
+    return;
+  }
+
+  // Controle da fábrica de motores (runtime, sem subir container): freio do dono.
+  if (req.method === "POST" && (url.pathname === "/owner/factory/stop" || url.pathname === "/owner/factory/resume")) {
+    if (!backendToken) {
+      sendJson(res, 200, { ok: false, reason: "backend_token_ausente", message: "Configure HBX_OWNER_BACKEND_TOKEN." });
+      return;
+    }
+    const route = url.pathname.endsWith("/stop")
+      ? "/modules/master/webscraping/factory/stop"
+      : "/modules/master/webscraping/factory/resume-schedule";
+    const response = await backendRequest("POST", route, {});
+    sendJson(res, response.ok ? 200 : 502, { ok: response.ok, action: url.pathname.endsWith("/stop") ? "stop" : "resume", backend: response.data, reason: response.error });
     return;
   }
 

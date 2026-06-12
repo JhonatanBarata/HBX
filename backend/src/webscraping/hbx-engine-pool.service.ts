@@ -196,6 +196,7 @@ export type HbxEngineCapacityConfig = {
   maxCount: number;
   warmMin: number;
   governorEnabled: boolean;
+  factoryStopped: boolean;
 };
 
 export type HbxEngineDashboardStatus = {
@@ -633,7 +634,11 @@ export class HbxEnginePoolService implements OnModuleInit {
     return result;
   }
 
-  private buildEngineCapacityConfig(): HbxEngineCapacityConfig {
+  private buildEngineCapacityConfig(operationalConfig?: any): HbxEngineCapacityConfig {
+    const metaStop = operationalConfig
+      ? this.parseOperationalMetadata(operationalConfig.metadataJson).emergencyStop
+      : false;
+    const factoryStopped = Boolean(metaStop) || this.readBooleanEnv('HBX_FACTORY_EMERGENCY_STOP', false);
     return {
       configuredCount: getConfiguredHbxEngineCount(),
       maxCount: getConfiguredHbxEngineMaxCount(),
@@ -641,6 +646,7 @@ export class HbxEnginePoolService implements OnModuleInit {
       governorEnabled: ['1', 'true', 'yes', 'sim', 'on'].includes(
         String(process.env.HBX_ENGINE_GOVERNOR_ENABLED || '').trim().toLowerCase(),
       ),
+      factoryStopped,
     };
   }
 
@@ -673,7 +679,7 @@ export class HbxEnginePoolService implements OnModuleInit {
         engines,
         enginePanels: this.buildDashboardEnginePanels(engines, fallbackCapacity),
         diagnostics: ['Tabela HbxEngineLock ausente; painel mostra apenas URLs configuradas.'],
-        capacityConfig: this.buildEngineCapacityConfig(),
+        capacityConfig: this.buildEngineCapacityConfig(operationalConfig),
       };
     }
 
@@ -692,7 +698,7 @@ export class HbxEnginePoolService implements OnModuleInit {
       engines,
       enginePanels: this.buildDashboardEnginePanels(engines, capacity),
       diagnostics: this.buildDashboardEngineDiagnostics(rows, configuredUrls, capacity),
-      capacityConfig: this.buildEngineCapacityConfig(),
+      capacityConfig: this.buildEngineCapacityConfig(operationalConfig),
     };
   }
 

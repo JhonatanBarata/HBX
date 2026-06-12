@@ -158,11 +158,16 @@ async function renderSistema() {
     bar.className = "bar-fill" + (!cap.governorOn ? " bad" : cap.queue > 0 && cap.alive >= cap.ceiling ? " warn" : "");
     $("#sys-engines-counts").textContent = `${cap.alive} vivos · warm ${cap.warm} · teto ${cap.ceiling} · fila ${cap.queue}`;
     $("#sys-engines-reason").textContent = cap.reason || "";
+    const fs = $("#sys-factory-state");
+    fs.textContent = cap.factoryStopped ? "Fábrica parada" : "Fábrica rodando";
+    fs.className = "pill " + (cap.factoryStopped ? "pill-bad" : "pill-ok");
   } else {
     gov.textContent = "sem leitura";
     gov.className = "pill pill-muted";
     $("#sys-engines-counts").textContent = cap.configured ? "backend não respondeu" : "configure o token do backend";
     $("#sys-engines-reason").textContent = "";
+    $("#sys-factory-state").textContent = "—";
+    $("#sys-factory-state").className = "pill pill-muted";
   }
 
   setPressure("ram", s.pressure.ram);
@@ -191,6 +196,18 @@ async function renderSistema() {
     });
   }
 }
+
+async function factoryAction(action) {
+  try {
+    const r = await api("POST", `/owner/factory/${action}`, {});
+    if (!r.ok) alert(r.message || r.reason || "Falhou.");
+  } catch (err) {
+    alert(err.message);
+  }
+  renderSistema();
+}
+$("#btn-factory-stop").addEventListener("click", () => factoryAction("stop"));
+$("#btn-factory-resume").addEventListener("click", () => factoryAction("resume"));
 
 $("#btn-export").addEventListener("click", async () => {
   const out = $("#export-result");
