@@ -191,12 +191,20 @@ export type HbxEngineDashboardEngine = {
   queue: number;
 };
 
+export type HbxEngineCapacityConfig = {
+  configuredCount: number;
+  maxCount: number;
+  warmMin: number;
+  governorEnabled: boolean;
+};
+
 export type HbxEngineDashboardStatus = {
   generatedAt: string;
   capacity: CapacityLevel;
   engines: HbxEngineDashboardEngine[];
   diagnostics?: string[];
   enginePanels?: HbxEngineDashboardPanel[];
+  capacityConfig?: HbxEngineCapacityConfig;
 };
 
 export type HbxEngineDashboardPanel = {
@@ -625,6 +633,17 @@ export class HbxEnginePoolService implements OnModuleInit {
     return result;
   }
 
+  private buildEngineCapacityConfig(): HbxEngineCapacityConfig {
+    return {
+      configuredCount: getConfiguredHbxEngineCount(),
+      maxCount: getConfiguredHbxEngineMaxCount(),
+      warmMin: this.resolveElasticWarmMinEngines(),
+      governorEnabled: ['1', 'true', 'yes', 'sim', 'on'].includes(
+        String(process.env.HBX_ENGINE_GOVERNOR_ENABLED || '').trim().toLowerCase(),
+      ),
+    };
+  }
+
   async getDashboardEngineStatus(): Promise<HbxEngineDashboardStatus> {
     const generatedAt = new Date();
     const fallbackCapacity: CapacityLevel = {
@@ -654,6 +673,7 @@ export class HbxEnginePoolService implements OnModuleInit {
         engines,
         enginePanels: this.buildDashboardEnginePanels(engines, fallbackCapacity),
         diagnostics: ['Tabela HbxEngineLock ausente; painel mostra apenas URLs configuradas.'],
+        capacityConfig: this.buildEngineCapacityConfig(),
       };
     }
 
@@ -672,6 +692,7 @@ export class HbxEnginePoolService implements OnModuleInit {
       engines,
       enginePanels: this.buildDashboardEnginePanels(engines, capacity),
       diagnostics: this.buildDashboardEngineDiagnostics(rows, configuredUrls, capacity),
+      capacityConfig: this.buildEngineCapacityConfig(),
     };
   }
 

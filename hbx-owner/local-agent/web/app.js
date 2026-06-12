@@ -150,13 +150,13 @@ async function renderSistema() {
 
   const gov = $("#sys-governor");
   if (cap.ok) {
-    gov.textContent = cap.elastic ? "Elástico ligado" : "Elástico desligado";
-    gov.className = "pill " + (cap.elastic ? "pill-ok" : "pill-bad");
+    gov.textContent = cap.governorOn ? "Governor ligado" : "Governor desligado";
+    gov.className = "pill " + (cap.governorOn ? "pill-ok" : "pill-bad");
     const pct = cap.ceiling > 0 ? Math.round((cap.alive / cap.ceiling) * 100) : 0;
     const bar = $("#sys-bar-alive");
-    bar.style.width = `${Math.max(6, pct)}%`;
-    bar.className = "bar-fill" + (!cap.elastic ? " bad" : cap.queue > 0 && cap.alive >= cap.ceiling ? " warn" : "");
-    $("#sys-engines-counts").textContent = `${cap.alive} vivos · teto ${cap.ceiling} · fila ${cap.queue}`;
+    bar.style.width = `${Math.max(5, Math.min(100, pct))}%`;
+    bar.className = "bar-fill" + (!cap.governorOn ? " bad" : cap.queue > 0 && cap.alive >= cap.ceiling ? " warn" : "");
+    $("#sys-engines-counts").textContent = `${cap.alive} vivos · warm ${cap.warm} · teto ${cap.ceiling} · fila ${cap.queue}`;
     $("#sys-engines-reason").textContent = cap.reason || "";
   } else {
     gov.textContent = "sem leitura";

@@ -675,19 +675,26 @@ async function readEngineCapacity() {
   }
   const data = response.data;
   const engines = Array.isArray(data.engines) ? data.engines : [];
-  const ceiling = engines.length || Number(data.capacity?.activeEngineCount || 0) || 0;
+  const config = data.capacityConfig || {};
   const aliveStates = new Set(["online", "standby", "busy", "running", "active"]);
   const aliveFromEngines = engines.filter((e) => aliveStates.has(String(e.status || "").toLowerCase())).length;
   const alive = aliveFromEngines || Math.trunc(Number(data.capacity?.runningCount || data.capacity?.activeEngineCount || 0));
+  // Teto REAL = quanto o Governor pode subir (maxCount), não os motores registrados agora.
+  // Nunca menor que os vivos (evita "teto 1 com 2 vivos" em config local inconsistente).
+  const ceiling = Math.max(1, Math.trunc(Number(config.maxCount || engines.length || 1)), alive);
+  const warm = Math.max(0, Math.trunc(Number(config.warmMin || 0)));
+  const governorOn = Boolean(config.governorEnabled);
   const queue = Math.trunc(Number(data.capacity?.queuedCount || 0));
   const operationalStatus = String(data.capacity?.operationalStatus || "unknown");
-  const elastic = ceiling > 1;
+  // Elástico de verdade = governor ligado E teto acima do warm (dá pra crescer).
+  const elastic = governorOn && ceiling > Math.max(warm, alive);
   let reason;
-  if (!elastic) reason = "Elástico desligado: teto de 1 motor nesta máquina.";
+  if (!governorOn) reason = "Governor desligado — capacidade fixa, não cresce sozinho.";
+  else if (ceiling <= warm) reason = `Teto igual ao warm (${ceiling}) — sem folga pra crescer.`;
   else if (queue > 0 && alive >= ceiling) reason = "Fila cheia e no teto — pode precisar de mais capacidade.";
-  else if (queue > 0) reason = "Fila com trabalho — o Governor sobe motores até o teto.";
-  else reason = "Fila vazia — fica no warm. Sobe sozinho quando encher.";
-  return { ok: true, alive, ceiling, queue, operationalStatus, elastic, reason };
+  else if (queue > 0) reason = "Fila com trabalho — o Governor está subindo motores até o teto.";
+  else reason = `Fila vazia — fica no warm (${warm || alive}). Sobe sozinho até ${ceiling} quando encher.`;
+  return { ok: true, alive, warm, ceiling, queue, operationalStatus, elastic, governorOn, reason };
 }
 
 function buildCapacityVerdict(pressure, capacity) {
@@ -732,7 +739,7 @@ async function readSystemSnapshot() {
   const warnings = [];
   if (pressure.ram.usedPct >= PRESSURE_LIMITS.ram) warnings.push(`RAM em ${pressure.ram.usedPct}% (aviso ${PRESSURE_LIMITS.ram}%)`);
   if (pressure.disk.usedPct != null && pressure.disk.usedPct >= PRESSURE_LIMITS.disk) warnings.push(`Disco em ${pressure.disk.usedPct}%`);
-  if (capacity.ok && !capacity.elastic) warnings.push("Motores presos no teto (elástico desligado)");
+  if (capacity.ok && !capacity.governorOn) warnings.push("Governor desligado — motores não crescem sozinhos");
   if (!capacity.ok) warnings.push(capacity.configured ? "Sem leitura dos motores (backend)" : "Backend sem token — motores e capacidade ocultos");
   return {
     ok: true,
