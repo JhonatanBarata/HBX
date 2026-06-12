@@ -1,0 +1,9 @@
+/* HBX System — Webfonts
+ * Plus Jakarta Sans = display + body (UI typeface)
+ * IBM Plex Mono     = numeric / code / data labels
+ *
+ * O @import remoto que existia aqui (igual ao handoff) é DESCARTADO pelo
+ * bundler de CSS do Next — a fonte é carregada via <link> no head do
+ * src/app/layout.tsx, com a mesma URL e pesos do handoff. Não recriar o
+ * @import aqui: ele falha em silêncio e o app cai no fallback (Segoe UI).
+ */

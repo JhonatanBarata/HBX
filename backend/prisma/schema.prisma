@@ -260,6 +260,46 @@ model NightFactoryRewardClaim {
   @@index([windowKey])
 }
 
+model NightOrder {
+  id                 String   @id @default(cuid())
+  companyId          Int
+  createdByUserId    Int?
+  segment            String
+  normalizedSegment  String
+  city               String?
+  state              String?
+  normalizedCity     String?
+  requireEmail       Boolean  @default(true)
+  requireWhatsapp    Boolean  @default(false)
+  onlyWithoutWebsite Boolean  @default(false)
+  dailyQuota         Int      @default(10)
+  status             String   @default("open") // open | paused | done | canceled
+  deliveredTotal     Int      @default(0)
+  lastDeliveryDate   String?  // YYYY-MM-DD America/Sao_Paulo
+  idempotencyKey     String?  @unique
+  metadataJson       String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([companyId, status])
+  @@index([status, updatedAt])
+}
+
+model NightOrderDelivery {
+  id           String   @id @default(cuid())
+  nightOrderId String
+  companyId    Int
+  reportDate   String // YYYY-MM-DD America/Sao_Paulo
+  quantity     Int      @default(0)
+  leadIdsJson  String
+  statsJson    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([nightOrderId, reportDate])
+  @@index([companyId, reportDate])
+}
+
 model CompanyCommercialEntitlement {
   id                 String   @id @default(cuid())
   company            Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -2100,6 +2140,14 @@ model VendasLead {
   commissionAutoSyncedAt DateTime?
   commissionSyncSource String?
   commissionPayoutId String?
+  // E5 (PLAN12062026001): caso de cancelamento — comissão só estorna com
+  // decisão do master; saldo a restituir filtra a triagem.
+  cancellationCaseStatus       String?   // open | resolved
+  cancellationCaseOpenedAt     DateTime?
+  cancellationCaseRefundAmount Float?
+  cancellationCaseResolution   String?   // kept | reversed | unlinked
+  cancellationCaseResolvedAt   DateTime?
+  cancellationCaseResolvedByUserId Int?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   timelineEvents    VendasLeadTimelineEvent[]
@@ -2115,6 +2163,7 @@ model VendasLead {
   @@index([companyId, saleStatus])
   @@index([commissionLinkedCompanyId])
   @@index([commissionPayoutId])
+  @@index([companyId, cancellationCaseStatus])
   @@index([customerProfileId])
   @@index([productId])
   @@index([companyId, productId])

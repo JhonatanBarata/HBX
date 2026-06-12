@@ -1,0 +1,381 @@
+"use client";
+
+// Tela Bot (template docs/TEMAS/*/corporate/Bot.html) ligada na config real:
+// GET /inbox/bot-config → nós mapeáveis do canvas mostram os textos reais
+// (Boas-vindas=welcomeMessage, Qualificação=mainMenuPrompt, Transferir para
+// humano=humanAckMessage, Mensagem final=closeTopicMessage) e o chat de
+// teste usa as mensagens/botões reais. O bot real é CONFIG estruturada, não
+// grafo livre — edição pelo canvas precisa de decisão de produto (doc do PR).
+// Canvas/Salvar/Publicar/tabs seguem visuais.
+// Adaptação SPA: classe extra "app-viewport" no .app (ver screens.css).
+
+import React, { useEffect, useRef, useState } from "react";
+
+import { I, ICONS, Sidebar, Topbar } from "@/components/hbx/shell";
+import { apiFetch } from "@/lib/api";
+
+type BotButton = { buttonId: string; actionId: string; title: string; nextNodeId?: string };
+
+type BotRoutingRules = {
+  globalBotEnabled?: boolean;
+  checkRecoveryBeforeReply?: boolean;
+  autoRouteDebtorsToRecovery?: boolean;
+  autoReopenClosedConversation?: boolean;
+  notifyOnNewInbound?: boolean;
+};
+
+type BotConfig = {
+  setup?: { completed?: boolean; botType?: string | null };
+  welcomeMessage?: string;
+  welcomeButtons?: BotButton[];
+  returningCustomerMessage?: string;
+  mainMenuPrompt?: string;
+  mainMenuButtons?: BotButton[];
+  postActionPrompt?: string;
+  humanAckMessage?: string;
+  closeTopicMessage?: string;
+  blockedMessage?: string;
+  routingRules?: BotRoutingRules;
+};
+
+// campos de mensagem editáveis na aba Configurações (PATCH /inbox/bot-config)
+const BOT_MSG_FIELDS: { key: keyof BotConfig; label: string; hint: string }[] = [
+  { key: "welcomeMessage", label: "Boas-vindas", hint: "Primeira mensagem para contato novo" },
+  { key: "returningCustomerMessage", label: "Cliente retornando", hint: "Quando o contato já é conhecido" },
+  { key: "mainMenuPrompt", label: "Menu principal", hint: "Pergunta com as opções do menu" },
+  { key: "postActionPrompt", label: "Pós-ação", hint: "Depois de concluir uma ação" },
+  { key: "humanAckMessage", label: "Transferência para humano", hint: "Aviso de que um atendente assume" },
+  { key: "closeTopicMessage", label: "Encerramento", hint: "Fechamento da conversa" },
+  { key: "blockedMessage", label: "Contato bloqueado", hint: "Resposta para contato bloqueado" },
+];
+
+const BOT_RULES: { key: keyof BotRoutingRules; label: string; hint: string }[] = [
+  { key: "globalBotEnabled", label: "Bot ligado", hint: "Liga/desliga o bot em todas as conversas novas" },
+  { key: "checkRecoveryBeforeReply", label: "Checar Recovery antes", hint: "Verifica pendências antes de responder" },
+  { key: "autoRouteDebtorsToRecovery", label: "Devedor vai pro Recovery", hint: "Roteia inadimplente automaticamente" },
+  { key: "autoReopenClosedConversation", label: "Reabrir conversa fechada", hint: "Nova mensagem reabre o atendimento" },
+  { key: "notifyOnNewInbound", label: "Avisar nova mensagem", hint: "Notifica a equipe a cada inbound" },
+];
+
+const BLOCKS = [
+  { t: "Mensagem", d: "Envie uma mensagem de texto", c: "#16C7A4", ic: "msg" },
+  { t: "Pergunta", d: "Faça uma pergunta ao contato", c: "#4CC2FF", ic: "atend" },
+  { t: "Condição", d: "Crie caminhos com regras", c: "#F5B23C", ic: "filter" },
+  { t: "Ação", d: "Execute uma ação no sistema", c: "#2ECC8E", ic: "check" },
+  { t: "Atraso", d: "Adicione uma pausa no fluxo", c: "#9B7BFF", ic: "clock" },
+  { t: "Integração", d: "Conecte com outras ferramentas", c: "#38BDF8", ic: "scrape" },
+];
+
+type FlowNode = { id: string; x: number; y: number; ic: string; c: string; t: string; b: string; f?: string; yn?: boolean };
+
+const NODES: FlowNode[] = [
+  { id: "boas", x: 40, y: 60, ic: "msg", c: "#16C7A4", t: "Boas-vindas", b: "👋 Olá! Bem-vindo à HBX. Como posso te ajudar hoje?", f: "Próximo passo" },
+  { id: "qual", x: 300, y: 60, ic: "atend", c: "#4CC2FF", t: "Qualificação", b: "Qual melhor descreve sua necessidade hoje?", f: "Próximo passo" },
+  { id: "cond", x: 560, y: 60, ic: "filter", c: "#F5B23C", t: "Condição", b: "Interessado em soluções comerciais?", yn: true },
+  { id: "capt", x: 170, y: 290, ic: "doc", c: "#4CC2FF", t: "Capturar interesse", b: "Qual área da sua empresa você quer melhorar?", f: "Próximo passo" },
+  { id: "agen", x: 420, y: 290, ic: "clock", c: "#2ECC8E", t: "Agendamento", b: "Posso agendar uma conversa com nosso especialista?", f: "Próximo passo" },
+  { id: "msgf", x: 670, y: 290, ic: "msg", c: "#16C7A4", t: "Mensagem", b: "Tudo bem! Se precisar de algo, estarei por aqui. 😊", f: "Fim do fluxo" },
+  { id: "ofer", x: 170, y: 480, ic: "money", c: "#2ECC8E", t: "Oferta", b: "Temos uma solução ideal para o que você precisa.", f: "Próximo passo" },
+  { id: "tran", x: 420, y: 480, ic: "users", c: "#F5B23C", t: "Transferir para humano", b: "Conectando você com um de nossos atendentes...", f: "Próximo passo" },
+];
+
+type FlowEdge = { from: [number, number]; to: [number, number]; c: string; curve?: boolean };
+
+const EDGES: FlowEdge[] = [
+  { from: [255, 130], to: [300, 130], c: "#16C7A4" },
+  { from: [515, 130], to: [560, 130], c: "#16C7A4" },
+  { from: [620, 196], to: [278, 290], c: "#16C7A4", curve: true },
+  { from: [660, 196], to: [528, 290], c: "#16C7A4", curve: true },
+  { from: [700, 196], to: [778, 290], c: "#F0566B", curve: true },
+  { from: [278, 408], to: [278, 480], c: "#16C7A4" },
+  { from: [528, 408], to: [528, 480], c: "#16C7A4" },
+];
+
+type ChatMsg = { dir: "in" | "out"; text: string; tm: string; quick?: boolean };
+
+const CHAT0: ChatMsg[] = [
+  { dir: "in", text: "👋 Olá! Bem-vindo à HBX. Como posso te ajudar hoje?", tm: "10:30" },
+  { dir: "out", text: "Quero melhorar nosso processo comercial.", tm: "10:31" },
+  { dir: "in", text: "Qual melhor descreve sua necessidade hoje?", tm: "10:31", quick: true },
+];
+
+function hhmm() {
+  return new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+
+// textos reais da config nos nós mapeáveis do canvas
+const NODE_CONFIG_FIELD: Record<string, keyof BotConfig> = {
+  boas: "welcomeMessage",
+  qual: "mainMenuPrompt",
+  tran: "humanAckMessage",
+  msgf: "closeTopicMessage",
+};
+
+export function BotClient() {
+  const [selNode, setSelNode] = useState("cond");
+  const [chat, setChat] = useState(CHAT0);
+  const [draft, setDraft] = useState("");
+  const [config, setConfig] = useState<BotConfig | null>(null);
+  const [step, setStep] = useState(0);
+  // aba ativa + editor da aba Configurações (decisão do dono 12/06/2026:
+  // a configuração do bot mora aqui; PATCH /inbox/bot-config)
+  const [tab, setTab] = useState(0);
+  const [cfgForm, setCfgForm] = useState<Partial<BotConfig>>({});
+  const [cfgRules, setCfgRules] = useState<Partial<BotRoutingRules>>({});
+  const [cfgBusy, setCfgBusy] = useState(false);
+  const [cfgMsg, setCfgMsg] = useState<string | null>(null);
+  const endRef = useRef<HTMLDivElement | null>(null);
+
+  function cfgValue(key: keyof BotConfig): string {
+    const edited = cfgForm[key];
+    if (typeof edited === "string") return edited;
+    const real = config?.[key];
+    return typeof real === "string" ? real : "";
+  }
+
+  function ruleValue(key: keyof BotRoutingRules): boolean {
+    const edited = cfgRules[key];
+    if (typeof edited === "boolean") return edited;
+    return Boolean(config?.routingRules?.[key]);
+  }
+
+  async function salvarConfig() {
+    if (cfgBusy) return;
+    setCfgBusy(true);
+    setCfgMsg(null);
+    try {
+      const body: Record<string, unknown> = {};
+      for (const f of BOT_MSG_FIELDS) {
+        const v = cfgValue(f.key);
+        if (v.trim()) body[f.key] = v;
+      }
+      body.routingRules = Object.fromEntries(BOT_RULES.map(r => [r.key, ruleValue(r.key)]));
+      const updated = await apiFetch<BotConfig>("/inbox/bot-config", {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      });
+      if (updated && typeof updated === "object") setConfig(updated);
+      setCfgForm({});
+      setCfgRules({});
+      setCfgMsg("✓ Configuração salva.");
+    } catch (err) {
+      setCfgMsg(err instanceof Error ? err.message : "Não foi possível salvar.");
+    } finally {
+      setCfgBusy(false);
+    }
+  }
+  useEffect(() => { if (endRef.current) endRef.current.scrollTop = endRef.current.scrollHeight; }, [chat]);
+
+  useEffect(() => {
+    let alive = true;
+    apiFetch<BotConfig>("/inbox/bot-config")
+      .then(cfg => {
+        if (!alive || !cfg) return;
+        setConfig(cfg);
+        if (cfg.welcomeMessage) {
+          setChat([{ dir: "in", text: cfg.welcomeMessage, tm: hhmm(), quick: true }]);
+          setStep(0);
+        }
+      })
+      .catch(() => { /* config indisponível — teste segue com texto do template */ });
+    return () => { alive = false; };
+  }, []);
+
+  function nodeBody(n: FlowNode) {
+    const field = NODE_CONFIG_FIELD[n.id];
+    const real = field && config ? config[field] : null;
+    return typeof real === "string" && real.trim() ? real : n.b;
+  }
+
+  function reply(text: string) {
+    const now = hhmm();
+    setChat(c => {
+      const next: ChatMsg[] = [...c.map(m => ({ ...m, quick: false })), { dir: "out" as const, text, tm: now }];
+      if (config) {
+        if (step === 0 && config.mainMenuPrompt) {
+          next.push({ dir: "in" as const, text: config.mainMenuPrompt, tm: now, quick: Boolean(config.mainMenuButtons?.length) });
+        } else if (config.postActionPrompt) {
+          next.push({ dir: "in" as const, text: config.postActionPrompt, tm: now });
+        }
+      } else {
+        next.push({ dir: "in" as const, text: "Perfeito! Posso agendar uma conversa com nosso especialista?", tm: now });
+      }
+      return next;
+    });
+    setStep(s => s + 1);
+  }
+  function send() { if (!draft.trim()) return; reply(draft.trim()); setDraft(""); }
+
+  const quickOptions = config
+    ? (step === 0 ? config.welcomeButtons : config.mainMenuButtons)?.map(b => b.title).filter(Boolean) || []
+    : ["Aumentar vendas", "Organizar processos", "Encontrar novos clientes", "Outro"];
+  const setupBadge = config
+    ? config.setup?.completed ? "✓ Configurado" : "Configuração pendente"
+    : "✓ Salvo";
+
+  return (
+    <div className="app app-viewport">
+      <Sidebar active="bot" />
+      <div className="main">
+        <Topbar title="Bot" crumbs={<React.Fragment>Home &rsaquo; Bot &rsaquo; <b>Construtor</b></React.Fragment>} />
+        <div className="bot-head">
+          <h1>Construtor de Bot <I d={["M12 20h9", "M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"]} size={16} /></h1>
+          <span className="saved" style={config && !config.setup?.completed ? { color: "var(--hbx-warning)" } : {}}>{setupBadge}</span>
+          <div style={{ marginLeft: "auto", display: "flex", gap: 9 }}>
+            {cfgMsg && <span style={{ alignSelf: "center", fontSize: "0.7rem", fontWeight: 700, color: cfgMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{cfgMsg}</span>}
+            <button className="btn-ghost" style={{ minWidth: 38 }}>⋯</button>
+            <button className="btn-ghost" onClick={() => setTab(0)}><I d={ICONS.send} size={13} /> Testar bot</button>
+            <button className="btn-ghost" onClick={salvarConfig} disabled={cfgBusy}>{cfgBusy ? "Salvando…" : "Salvar"}</button>
+            <button className="btn-teal">Publicar ▾</button>
+          </div>
+        </div>
+        <div className="bot-tabs">
+          {["Fluxo", "Configurações", "Integrações", "Publicação", "Análises"].map((t, i) => (
+            <button key={t} className={"bot-tab" + (tab === i ? " on" : "")} onClick={() => setTab(i)}>{t}</button>
+          ))}
+          <div className="right"><span>Versão rascunho</span><span className="saved">{setupBadge}</span></div>
+        </div>
+
+        {tab === 0 && (
+        <div className="builder">
+          <aside className="blocks">
+            <h2>Adicionar blocos</h2>
+            <p className="hint">Arraste os blocos para o fluxo</p>
+            {BLOCKS.map(b => (
+              <div className="block" key={b.t} draggable>
+                <span className="bicon" style={{ background: b.c }}><I d={ICONS[b.ic]} size={15} /></span>
+                <span><strong>{b.t}</strong><small>{b.d}</small></span>
+              </div>
+            ))}
+            <div className="tip">💡 Dica: arraste os blocos para o canvas</div>
+          </aside>
+
+          <div className="canvas">
+            <div className="canvas-tools">
+              <button className="ct on"><I d={["M4 4l7 16 2.5-6.5L20 11z"]} size={14} /></button>
+              <button className="ct"><I d={["M18 11V7a2 2 0 0 0-4 0v4M14 10V5a2 2 0 0 0-4 0v5M10 10.5V7a2 2 0 0 0-4 0v7a7 7 0 0 0 14 0v-3a2 2 0 0 0-4 0"]} size={14} /></button>
+              <button className="ct"><I d={ICONS.search} size={14} /></button>
+              <button className="ct" style={{ minWidth: 44 }}>100%</button>
+              <button className="ct"><I d={ICONS.plus} size={14} /></button>
+            </div>
+            <div style={{ position: "relative", width: 940, height: 640 }}>
+              <svg style={{ position: "absolute", inset: 0, pointerEvents: "none" }} width="940" height="640">
+                {EDGES.map((e, i) => {
+                  const [x1, y1] = e.from, [x2, y2] = e.to;
+                  const d = e.curve
+                    ? `M ${x1} ${y1} C ${x1} ${y1 + 50}, ${x2} ${y2 - 50}, ${x2} ${y2}`
+                    : `M ${x1} ${y1} L ${x2} ${y2}`;
+                  return (
+                    <g key={i}>
+                      <path d={d} stroke={e.c} strokeWidth="1.6" fill="none" opacity="0.85" />
+                      <circle cx={x2} cy={y2} r="3.5" fill={e.c} />
+                      <circle cx={x1} cy={y1} r="3.5" fill={e.c} opacity="0.6" />
+                    </g>
+                  );
+                })}
+              </svg>
+              {NODES.map(n => (
+                <article key={n.id} className={"node" + (selNode === n.id ? " sel" : "")} style={{ left: n.x, top: n.y }} onClick={() => setSelNode(n.id)}>
+                  <div className="nh">
+                    <span className="bicon" style={{ background: n.c, width: 26, height: 26 }}><I d={ICONS[n.ic]} size={13} /></span>
+                    <strong>{n.t}</strong>
+                  </div>
+                  <div className="nb">{nodeBody(n)}</div>
+                  {n.yn
+                    ? <div className="yn"><span className="y">Sim</span><span className="n">Não</span></div>
+                    : <div className="nf">{n.f}<I d={ICONS.arrow} size={11} /></div>}
+                </article>
+              ))}
+            </div>
+          </div>
+
+          <aside className="test">
+            <div className="test-head">
+              <h2>Teste seu bot</h2>
+              <span className="saved" style={{ fontSize: "0.66rem" }}>Online ●</span>
+              <button className="icon-ghost" style={{ width: 28, height: 28 }}><I d={["M21 12a9 9 0 1 1-3-6.7", "M21 3v6h-6"]} size={14} /></button>
+            </div>
+            <div className="msgs" ref={endRef} style={{ padding: 14 }}>
+              <div style={{ display: "flex", gap: 9, alignItems: "center", marginBottom: 6 }}>
+                <span className="bicon" style={{ background: "var(--hbx-brand)", width: 32, height: 32, borderRadius: 999 }}><I d={ICONS.bot} size={16} /></span>
+                <span><strong style={{ fontSize: "0.8rem" }}>HBX Bot</strong><br /><small style={{ fontSize: "0.62rem", color: "var(--hbx-brand-strong)", fontWeight: 700 }}>Online agora</small></span>
+              </div>
+              {chat.map((m, i) => (
+                <div key={i} className={"msg " + m.dir} style={{ maxWidth: "88%" }}>
+                  <div className="bubble" style={m.dir === "out" ? { background: "var(--hbx-brand)", borderColor: "var(--hbx-brand)", color: "#04110D", fontWeight: 600 } : {}}>
+                    <div style={{ whiteSpace: "pre-line" }}>{m.text}</div>
+                    <div className="tm" style={m.dir === "out" ? { color: "rgba(4,17,13,0.6)" } : {}}>{m.tm}{m.dir === "out" && <span className="ck" style={{ color: "rgba(4,17,13,0.7)" }}>✓✓</span>}</div>
+                  </div>
+                </div>
+              ))}
+              {chat[chat.length - 1].quick && quickOptions.length > 0 && (
+                <div style={{ display: "grid", gap: 7, justifyItems: "start", marginTop: 4 }}>
+                  {quickOptions.map(q => (
+                    <button key={q} className="qr" onClick={() => reply(q)}>{q}</button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="composer" style={{ padding: "10px 14px" }}>
+              <div className="row">
+                <input className="field-dark" style={{ flex: 1 }} placeholder="Digite sua mensagem..." value={draft}
+                  onChange={e => setDraft(e.target.value)} onKeyDown={e => e.key === "Enter" && send()} />
+                <button className="icon-ghost"><I d={ICONS.smile} size={16} /></button>
+                <button className="send" onClick={send}><I d={ICONS.send} size={15} /></button>
+              </div>
+            </div>
+            <div className="test-foot">⚡ Teste simulado · As respostas podem variar.</div>
+          </aside>
+        </div>
+        )}
+
+        {tab === 1 && (
+          <div className="work" style={{ flex: 1, overflowY: "auto" }}>
+            <section className="panel">
+              <div className="panel-head">
+                <h2>Mensagens do bot</h2>
+                <div className="meta">
+                  <button className="btn-teal" onClick={salvarConfig} disabled={cfgBusy}>{cfgBusy ? "Salvando…" : "Salvar alterações"}</button>
+                </div>
+              </div>
+              <div style={{ padding: 18, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+                {BOT_MSG_FIELDS.map(f => (
+                  <div key={String(f.key)} style={{ display: "grid", gap: 6 }}>
+                    <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>{f.label} <span style={{ fontWeight: 600, opacity: 0.7 }}>· {f.hint}</span></label>
+                    <textarea className="field-dark" rows={3} style={{ resize: "vertical", padding: "9px 12px", minHeight: 72 }}
+                      value={cfgValue(f.key)} onChange={e => setCfgForm(prev => ({ ...prev, [f.key]: e.target.value }))} />
+                  </div>
+                ))}
+              </div>
+            </section>
+            <section className="panel">
+              <div className="panel-head"><h2>Regras de roteamento</h2></div>
+              <div style={{ padding: "6px 18px 14px" }}>
+                {BOT_RULES.map(r => (
+                  <div className="setting" key={String(r.key)}>
+                    <div style={{ flex: 1 }}>
+                      <strong>{r.label}</strong>
+                      <small>{r.hint}</small>
+                    </div>
+                    <button className={"sw" + (ruleValue(r.key) ? " on" : "")} role="switch" aria-checked={ruleValue(r.key)}
+                      onClick={() => setCfgRules(prev => ({ ...prev, [r.key]: !ruleValue(r.key) }))}><i></i></button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </div>
+        )}
+
+        {tab >= 2 && (
+          <div className="work" style={{ flex: 1 }}>
+            <section className="panel">
+              <div style={{ padding: 18, fontSize: "0.76rem", color: "var(--text-muted)" }}>
+                {["", "", "Integrações", "Publicação", "Análises"][tab]} ainda não tem contrato no backend — entra na fase técnica.
+              </div>
+            </section>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

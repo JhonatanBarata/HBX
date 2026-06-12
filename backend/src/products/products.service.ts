@@ -13,7 +13,15 @@ type ProductListOptions = {
 type ProductMutationDto = CreateProductDto | UpdateProductDto;
 
 function hasOwn(value: unknown, key: string) {
-  return Boolean(value && Object.prototype.hasOwnProperty.call(value, key));
+  // E3 (PLAN12062026001): o ValidationPipe materializa campos opcionais do
+  // DTO como propriedade própria `undefined` — presença exige valor real,
+  // senão `priceCents: undefined` engole o `price` enviado (produto nascia
+  // com preço 0) e dispara asserts de permissão sem mutação de verdade.
+  return Boolean(
+    value &&
+    Object.prototype.hasOwnProperty.call(value, key) &&
+    (value as Record<string, unknown>)[key] !== undefined,
+  );
 }
 
 function normalizeText(value: unknown, max = 180) {

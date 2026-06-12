@@ -33,6 +33,7 @@ import { OwnerModule } from './owner/owner.module';
 import { TeamModule } from './team/team.module';
 import { MasterProvisioningModule } from './master-provisioning/master-provisioning.module';
 import { TenantCommunicationModule } from './tenant-communication/tenant-communication.module';
+import { NightFactoryModule } from './night-factory/night-factory.module';
 
 @Module({
   imports: [
@@ -73,6 +74,7 @@ import { TenantCommunicationModule } from './tenant-communication/tenant-communi
     TeamModule,
     MasterProvisioningModule,
     TenantCommunicationModule,
+    NightFactoryModule,
     AdminModule,
   ],
   controllers: [AppController],

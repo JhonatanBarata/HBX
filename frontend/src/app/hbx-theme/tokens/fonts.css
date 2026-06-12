@@ -1,7 +1,0 @@
-/* HBX System — Webfonts
- * Plus Jakarta Sans = display + body (UI typeface)
- * IBM Plex Mono     = numeric / code / data labels
- * Both shipped from Google Fonts (the product references them by family name;
- * no local binaries were committed in the source repo).
- */
-/* Google Fonts URL carregado no topo do globals.css para respeitar a ordem de @import */

@@ -21,4 +21,10 @@ export class NightFactoryPublicController {
   getMyReward(@Req() req: any) {
     return this.nightFactoryService.getMyReward(req.user);
   }
+
+  // Número global do Banco de Leads (visível a qualquer usuário autenticado).
+  @Get('leads-bank')
+  getLeadsBank() {
+    return this.nightFactoryService.getLeadsBank();
+  }
 }

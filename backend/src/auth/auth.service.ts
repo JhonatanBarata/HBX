@@ -1064,7 +1064,7 @@ export class AuthService implements OnModuleInit {
 
   async validateUserByUsername(username: string, pass: string) {
     const normalized = String(username || '').trim();
-    const user = normalized ? await this.usersService.findByUsername(normalized) : null;
+    const user = normalized ? await this.usersService.findByLoginIdentifier(normalized) : null;
     if (!user) return null;
     const match = await bcrypt.compare(pass, user.password);
     if (match) return user;
@@ -1218,7 +1218,7 @@ export class AuthService implements OnModuleInit {
       await this.ensureSystemMasterUser();
     }
 
-    const user: any = await this.usersService.findByUsername(normalized);
+    const user: any = await this.usersService.findByLoginIdentifier(normalized);
     if (!user) {
       throw new NotFoundException('Usuário inexistente');
     }
@@ -1382,7 +1382,9 @@ export class AuthService implements OnModuleInit {
     // e-mail nascem por convite (token de definir senha — C.1c/C.3) ou são o
     // system master. Morreu o branch de "completar registro" por username
     // conhecido (vetor de takeover) no DROP do PR-002.
-    const existingUsername = await this.usersService.findByUsername(username);
+    // Conflito também caixa-insensível: se "Henrique" legado existe, ninguém
+    // registra "henrique" (colidiriam no login normalizado).
+    const existingUsername = await this.usersService.findByLoginIdentifier(username);
     if (existingUsername) {
       throw new ConflictException('Identificador já cadastrado. Caso seja sua conta, use a recuperação de senha.');
     }

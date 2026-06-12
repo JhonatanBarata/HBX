@@ -497,6 +497,16 @@ export class UsersController {
 		const login = String(input.login || email).trim();
 		const password = String(input.password || '');
 		if (!email || !login || !password) return null;
+		// E2 (PLAN12062026001): o template seller_welcome fala em "equipe
+		// comercial", senha temporária e comissão — NUNCA pode ir para quem
+		// não é vendedor (role USER). Cliente/admin recebeu esse e-mail em
+		// produção (build antigo); esta trava torna o vazamento impossível.
+		if (String(input.role || '').toUpperCase() !== 'USER') {
+			this.logger.warn(
+				`seller_welcome bloqueado para role=${input.role} email=${email} source=${input.source} — fluxo de boas-vindas de cliente é a confirmação de e-mail.`,
+			);
+			return null;
+		}
 		const summary = this.mailService.getConfigurationSummary();
 		if (summary.mode === 'log') {
 			return {

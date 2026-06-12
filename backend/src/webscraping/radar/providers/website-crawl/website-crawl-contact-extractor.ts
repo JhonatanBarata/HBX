@@ -18,6 +18,55 @@ function decodeBasicEntities(value: string) {
     .replace(/&commat;/gi, '@');
 }
 
+const EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
+
+// Mesmos padrões de desofuscação do radar-lead-enrichment (consistência entre camadas).
+function deobfuscateEmailText(value: string) {
+  return String(value || '')
+    .replace(/\s*(?:\(|\[)\s*(?:arroba|at)\s*(?:\)|\])\s*/gi, '@')
+    .replace(/\s+(?:arroba|at)\s+/gi, '@')
+    .replace(/\s*(?:\(|\[)\s*(?:dot|ponto)\s*(?:\)|\])\s*/gi, '.')
+    .replace(/\s+(?:dot|ponto)\s+/gi, '.');
+}
+
+function extractJsonLdBlocks(html: string): any[] {
+  const blocks: any[] = [];
+  const pattern = /<script[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(html || ''))) {
+    try {
+      const parsed = JSON.parse(match[1].trim());
+      blocks.push(...(Array.isArray(parsed) ? parsed : [parsed]));
+    } catch {
+      // JSON-LD malformado é comum em sites pequenos; extração é best-effort.
+    }
+  }
+  return blocks;
+}
+
+function collectJsonLdContacts(blocks: any[]) {
+  const emails: string[] = [];
+  const phones: string[] = [];
+  const sameAs: string[] = [];
+  const visit = (node: any, depth: number) => {
+    if (!node || typeof node !== 'object' || depth > 6) return;
+    if (Array.isArray(node)) {
+      node.forEach((child) => visit(child, depth + 1));
+      return;
+    }
+    if (typeof node.email === 'string') {
+      const email = node.email.replace(/^mailto:/i, '').trim().toLowerCase();
+      if (/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) emails.push(email);
+    }
+    if (typeof node.telephone === 'string') phones.push(node.telephone);
+    if (typeof node.sameAs === 'string') sameAs.push(node.sameAs);
+    else if (Array.isArray(node.sameAs)) node.sameAs.forEach((value: any) => typeof value === 'string' && sameAs.push(value));
+    Object.values(node).forEach((value) => visit(value, depth + 1));
+  };
+  blocks.forEach((block) => visit(block, 0));
+  return { emails, phones, sameAs };
+}
+
 function stripHtml(html: string) {
   return decodeBasicEntities(String(html || ''))
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
@@ -89,13 +138,19 @@ export class WebsiteCrawlContactExtractor {
   extract(html: string, pageUrl: string): WebsiteCrawlExtractedFields {
     const decoded = decodeBasicEntities(html || '');
     const text = stripHtml(decoded);
-    const links = extractLinksFromHtml(decoded, pageUrl);
+    const jsonLd = collectJsonLdContacts(extractJsonLdBlocks(decoded));
+    const links = [...extractLinksFromHtml(decoded, pageUrl), ...jsonLd.sameAs];
     const formActions = extractFormActions(decoded, pageUrl);
     const emails = unique([
-      ...Array.from(decoded.matchAll(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi)).map((match) => match[0].toLowerCase()),
+      ...Array.from(decoded.matchAll(EMAIL_PATTERN)).map((match) => match[0].toLowerCase()),
+      ...Array.from(deobfuscateEmailText(text).matchAll(EMAIL_PATTERN)).map((match) => match[0].toLowerCase()),
+      ...jsonLd.emails,
       ...links.filter((link) => /^mailto:/i.test(link)).map((link) => link.replace(/^mailto:/i, '').split('?')[0].toLowerCase()),
     ]);
-    const phoneMatches = Array.from(text.matchAll(/(?:\+?55\s*)?(?:\(?\d{2}\)?\s*)?(?:9\s*)?\d{4}[-.\s]?\d{4}/g)).map((match) => match[0]);
+    const phoneMatches = [
+      ...Array.from(text.matchAll(/(?:\+?55\s*)?(?:\(?\d{2}\)?\s*)?(?:9\s*)?\d{4}[-.\s]?\d{4}/g)).map((match) => match[0]),
+      ...jsonLd.phones,
+    ];
     const telLinks = links.filter((link) => /^tel:/i.test(link)).map((link) => link.replace(/^tel:/i, ''));
     const whatsappUrls = links.filter((link) => /(?:wa\.me|api\.whatsapp\.com|web\.whatsapp\.com|whatsapp\.com\/send)/i.test(link));
     const whatsappPhoneDigits = unique(whatsappUrls.map((link) => {

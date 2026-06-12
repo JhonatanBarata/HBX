@@ -121,6 +121,18 @@ const RUNTIME_SCHEMA_ENSURES: RuntimeSchemaEnsureDefinition[] = [
     target: 'hbx_support_ticket and hbx_job tables, constraints and indexes',
     shouldBecomeMigration: true,
   },
+  {
+    key: 'vendas-cancellation-case-columns',
+    method: 'ensureVendasCancellationCaseColumns',
+    target: 'VendasLead cancellation case columns and index (E5 PLAN12062026001)',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'hbx-job-application-table',
+    method: 'ensureHbxJobApplicationTable',
+    target: 'HbxJobApplication table and indexes (Trabalhe Conosco)',
+    shouldBecomeMigration: true,
+  },
 ];
 
 const RUNTIME_SCHEMA_HEALTH_CHECKS: RuntimeSchemaHealthCheckDefinition[] = [
@@ -405,6 +417,8 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     await this.runRuntimeSchemaEnsure('radar-distribution-daily-usage-tables', () => this.ensureRadarDistributionDailyUsageTables());
     await this.runRuntimeSchemaEnsure('master-notice-tables', () => this.ensureMasterNoticeTables());
     await this.runRuntimeSchemaEnsure('hbx-support-ticket-tables', () => this.ensureHbxSupportTicketTables());
+    await this.runRuntimeSchemaEnsure('vendas-cancellation-case-columns', () => this.ensureVendasCancellationCaseColumns());
+    await this.runRuntimeSchemaEnsure('hbx-job-application-table', () => this.ensureHbxJobApplicationTable());
   }
 
   async onModuleDestroy() {
@@ -1153,6 +1167,41 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       CREATE INDEX IF NOT EXISTS "MasterNoticeAck_userId_acknowledgedAt_idx"
       ON "MasterNoticeAck"("userId", "acknowledgedAt")
     `);
+  }
+
+  private async ensureHbxJobApplicationTable() {
+    await this.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "HbxJobApplication" (
+        "id" TEXT NOT NULL,
+        "companyId" INTEGER NOT NULL,
+        "name" TEXT NOT NULL,
+        "phone" TEXT NOT NULL,
+        "phoneNormalized" TEXT,
+        "email" TEXT,
+        "city" TEXT,
+        "experience" TEXT,
+        "resumeUrl" TEXT,
+        "status" TEXT NOT NULL DEFAULT 'pending',
+        "note" TEXT,
+        "reviewedByUserId" INTEGER,
+        "reviewedAt" TIMESTAMP(3),
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "HbxJobApplication_pkey" PRIMARY KEY ("id")
+      )
+    `);
+    await this.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "HbxJobApplication_companyId_status_createdAt_idx" ON "HbxJobApplication"("companyId", "status", "createdAt")`);
+    await this.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "HbxJobApplication_companyId_phoneNormalized_idx" ON "HbxJobApplication"("companyId", "phoneNormalized")`);
+  }
+
+  private async ensureVendasCancellationCaseColumns() {
+    await this.$executeRawUnsafe(`ALTER TABLE "VendasLead" ADD COLUMN IF NOT EXISTS "cancellationCaseStatus" TEXT`);
+    await this.$executeRawUnsafe(`ALTER TABLE "VendasLead" ADD COLUMN IF NOT EXISTS "cancellationCaseOpenedAt" TIMESTAMP(3)`);
+    await this.$executeRawUnsafe(`ALTER TABLE "VendasLead" ADD COLUMN IF NOT EXISTS "cancellationCaseRefundAmount" DOUBLE PRECISION`);
+    await this.$executeRawUnsafe(`ALTER TABLE "VendasLead" ADD COLUMN IF NOT EXISTS "cancellationCaseResolution" TEXT`);
+    await this.$executeRawUnsafe(`ALTER TABLE "VendasLead" ADD COLUMN IF NOT EXISTS "cancellationCaseResolvedAt" TIMESTAMP(3)`);
+    await this.$executeRawUnsafe(`ALTER TABLE "VendasLead" ADD COLUMN IF NOT EXISTS "cancellationCaseResolvedByUserId" INTEGER`);
+    await this.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "VendasLead_companyId_cancellationCaseStatus_idx" ON "VendasLead"("companyId", "cancellationCaseStatus")`);
   }
 
   private async ensureHbxSupportTicketTables() {

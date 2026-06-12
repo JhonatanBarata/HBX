@@ -1,5 +1,8 @@
 import { ConflictException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { buildRadarLeadEnrichment } from '../webscraping/radar-lead-enrichment';
+import { checkEmailDomainMx, type EmailMxStatus } from '../webscraping/email-mx-validation';
+import { WebsiteCrawlProviderService } from '../webscraping/radar/providers/website-crawl/website-crawl-provider.service';
 import {
   DEFAULT_NIGHT_FACTORY_CONFIG,
   NightFactoryConfig,
@@ -107,7 +110,14 @@ export class NightFactoryService {
     recovery: 0,
   };
 
-  constructor(private readonly prisma: PrismaService) {}
+  // Substituível em teste; produção usa o resolver DNS local (custo zero, sem API).
+  private emailMxCheck: (email: string) => Promise<EmailMxStatus> = checkEmailDomainMx;
+  private leadsBankCache: { value: any; expiresAt: number } | null = null;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly websiteCrawlProvider: WebsiteCrawlProviderService = new WebsiteCrawlProviderService(),
+  ) {}
 
   async getConfig(): Promise<NightFactoryConfig> {
     if (!(await this.prisma.hasTable('WebscrapingOperationalConfig').catch(() => false))) {
@@ -290,6 +300,38 @@ export class NightFactoryService {
         action: premiumToday > 0 ? 'Abrir Top Oportunidades' : 'Rodar agora',
       },
     };
+  }
+
+  // "Banco de Leads": número global defensável (exclui histórico negativo/inválido)
+  // + delta do dia. Cacheado 5min. Só o número — nunca expõe contato aqui.
+  async getLeadsBank() {
+    const now = Date.now();
+    if (this.leadsBankCache && this.leadsBankCache.expiresAt > now) {
+      return this.leadsBankCache.value;
+    }
+    if (!(await this.prisma.hasTable('RadarLeadPool').catch(() => false))) {
+      const empty = { generatedAt: new Date().toISOString(), total: 0, deltaToday: 0, available: false };
+      this.leadsBankCache = { value: empty, expiresAt: now + 60_000 };
+      return empty;
+    }
+    const todayStart = startOfLocalDay();
+    const [total, deltaToday] = await Promise.all([
+      (this.prisma as any).radarLeadPool.count({
+        where: { status: { notIn: BLOCKED_RADAR_STATUSES } },
+      }).catch(() => 0),
+      (this.prisma as any).radarLeadPool.count({
+        where: { status: { notIn: BLOCKED_RADAR_STATUSES }, createdAt: { gte: todayStart } },
+      }).catch(() => 0),
+    ]);
+    const value = {
+      generatedAt: new Date().toISOString(),
+      total,
+      deltaToday,
+      available: true,
+      label: 'Banco de Leads',
+    };
+    this.leadsBankCache = { value, expiresAt: now + 5 * 60_000 };
+    return value;
   }
 
   async getTopOpportunities(options: { take?: number } = {}) {
@@ -663,7 +705,7 @@ export class NightFactoryService {
           if (!lead) continue;
           stats.processed += 1;
           try {
-            const result = await this.enrichLead(lead, options.requestedByUserId || null);
+            const result = await this.enrichLead(lead, options.requestedByUserId || null, config);
             stats.enriched += 1;
             if (result.opportunityScore >= 85) stats.premium += 1;
             if (['no_answer', 'duplicate'].includes(String(lead.status || ''))) stats.recovery += 1;
@@ -787,8 +829,160 @@ export class NightFactoryService {
     };
   }
 
-  private async enrichLead(lead: any, requestedByUserId: number | null) {
-    const enrichment = this.buildLightweightEnrichment(lead);
+  // Fetch real do site oficial (homepage + páginas de contato) dentro da janela noturna.
+  // Crawl NUNCA promove WhatsApp para confirmed (só Webwhats confirma — docs/Rules/MOTOR.md).
+  private async fetchWebsiteIntel(lead: any): Promise<{
+    enrichment: Record<string, any>;
+    cardData: Record<string, any> | null;
+    summary: Record<string, any>;
+  } | null> {
+    const website = safeText(lead?.website, 600);
+    if (!website) return null;
+
+    let crawl: any;
+    try {
+      crawl = await this.websiteCrawlProvider.crawl(website);
+    } catch (error) {
+      this.logger.warn(`Night Factory website fetch falhou (${lead?.id}): ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
+
+    const light = this.buildLightweightEnrichment(lead);
+    const summary: Record<string, any> = {
+      checkedAt: new Date().toISOString(),
+      status: safeText(crawl?.status, 40) || 'failed',
+      reason: safeText(crawl?.reason, 120) || null,
+    };
+
+    if (crawl?.status === 'skipped') {
+      if (crawl?.reason !== 'host_generico_ou_rede_social') return null;
+      return {
+        enrichment: { ...light, websiteStatus: 'social_only' },
+        cardData: null,
+        summary: { ...summary, fetchedPages: 0 },
+      };
+    }
+
+    const pages = Array.isArray(crawl?.evidence?.pages) ? crawl.evidence.pages : [];
+    const fetchedPages = pages.filter((page: any) => page?.status === 'fetched').length;
+    summary.fetchedPages = fetchedPages;
+
+    if (!fetchedPages) {
+      // Falha de rede ou bloqueio: só rebaixa para unreachable se o site nunca foi visto de pé.
+      const websiteStatus = light.websiteStatus === 'present' ? 'present' : 'unreachable';
+      return { enrichment: { ...light, websiteStatus }, cardData: null, summary };
+    }
+
+    const fields = crawl?.fields || {};
+    const websiteUrl = safeText(crawl?.evidence?.normalizedUrl, 600) || light.websiteUrl;
+    const instagramUrl = safeText(fields.instagramUrls?.[0], 400) || light.instagramUrl || null;
+    const facebookUrl = safeText(fields.facebookUrls?.[0], 400) || null;
+    const linkPool = [
+      ...(fields.contactLinks || []),
+      ...(fields.budgetLinks || []),
+      ...(fields.chatLinks || []),
+      ...(fields.formLinks || []),
+    ].join(' ');
+
+    const enrichment = {
+      ...light,
+      websiteUrl,
+      websiteStatus: 'present',
+      hasWebsite: true,
+      hasWhatsappOnSite: Boolean(fields.whatsappUrls?.length) || light.hasWhatsappOnSite,
+      whatsappFound: safeText(fields.whatsappPhoneDigits?.[0], 20) || null,
+      hasInstagram: Boolean(instagramUrl),
+      instagramUrl,
+      hasFacebook: Boolean(facebookUrl) || light.hasFacebook,
+      sslOk: String(websiteUrl || '').startsWith('https://'),
+      hasBookingLink: light.hasBookingLink || Boolean(fields.budgetLinks?.length) || Boolean(fields.hasBudgetIntent),
+      hasCatalog: light.hasCatalog || /catalog|catalogo|produto|loja/i.test(linkPool),
+      hasMenu: light.hasMenu || /cardapio|menu/i.test(linkPool),
+      hasPaymentLink: light.hasPaymentLink || /pagamento|checkout|pix|mercadopago/i.test(linkPool),
+      hasLeadCaptureForm: Boolean(fields.hasContactForm) || light.hasLeadCaptureForm,
+      formLooksBroken: false,
+    };
+
+    const card = buildRadarLeadEnrichment({
+      id: lead.id,
+      name: lead.name,
+      phone: lead.phone,
+      phoneDigits: lead.phoneDigits,
+      status: lead.status,
+      city: lead.city,
+      state: lead.state,
+      segment: lead.segment || lead.normalizedSegment,
+      website: websiteUrl,
+      websiteStatus: 'present',
+      email: lead.email,
+      emailStatus: lead.emailStatus,
+      emailSource: lead.emailSource,
+      emailConfidence: lead.emailConfidence,
+      instagramUrl,
+      facebookUrl,
+      socialStatus: lead.socialStatus,
+      socialConfidence: lead.socialConfidence,
+      googleMapsUrl: lead.googleMapsUrl,
+      placeId: lead.placeId,
+      sourceUrl: lead.sourceUrl,
+      businessCategory: lead.businessCategory,
+      openingHoursStatus: lead.openingHoursStatus,
+      rating: lead.rating,
+      reviews: lead.reviews,
+      opportunityScore: lead.opportunityScore,
+      whatsappStatus: null,
+      rawPayload: { emails: Array.isArray(fields.emails) ? fields.emails : [] },
+    });
+
+    const cardData: Record<string, any> = {
+      instagramUrl: card.instagramUrl,
+      facebookUrl: card.facebookUrl,
+      socialStatus: card.socialStatus,
+      socialConfidence: card.socialConfidence,
+      recommendedChannel: card.recommendedChannel,
+      painType: card.painType,
+      painLabel: card.painLabel,
+      painPitch: card.painPitch,
+      enrichmentScore: card.enrichmentScore,
+      enrichmentConfidence: card.enrichmentConfidence,
+      enrichmentJson: card.enrichmentJson,
+      lastEnrichedAt: card.lastEnrichedAt,
+      enrichmentVersion: card.enrichmentVersion,
+    };
+    // Nunca apagar e-mail já existente no card com um resultado vazio.
+    if (card.email || !safeText(lead?.email, 200)) {
+      cardData.email = card.email;
+      cardData.emailStatus = card.emailStatus;
+      cardData.emailSource = card.emailSource;
+      cardData.emailConfidence = card.emailConfidence;
+    }
+
+    // Validação MX local (DNS): e-mail sem MX nunca sai como confirmed/probable.
+    if (cardData.email && ['confirmed', 'probable'].includes(String(cardData.emailStatus || ''))) {
+      const mxStatus = await this.emailMxCheck(String(cardData.email)).catch(() => 'unknown' as EmailMxStatus);
+      summary.emailMx = mxStatus;
+      if (mxStatus === 'no_mx') {
+        cardData.emailStatus = 'invalid';
+        cardData.emailConfidence = 0;
+        if (cardData.recommendedChannel === 'email') {
+          cardData.recommendedChannel = safeText(lead?.phone || lead?.phoneDigits, 40) ? 'call' : 'review';
+        }
+      } else if (mxStatus === 'ok') {
+        cardData.emailConfidence = Math.min(
+          97,
+          Math.max(Number(cardData.emailConfidence) || 0, cardData.emailStatus === 'confirmed' ? 92 : 70),
+        );
+      }
+    }
+
+    summary.emailsFound = Array.isArray(fields.emails) ? fields.emails.length : 0;
+    summary.whatsappOnSite = Boolean(fields.whatsappUrls?.length);
+    return { enrichment, cardData, summary };
+  }
+
+  private async enrichLead(lead: any, requestedByUserId: number | null, config?: NightFactoryConfig) {
+    const websiteIntel = config?.allowWebsiteFetch ? await this.fetchWebsiteIntel(lead) : null;
+    const enrichment = websiteIntel?.enrichment || this.buildLightweightEnrichment(lead);
     const score = calculateHbxOpportunityScore(lead, enrichment);
     const metadata = parseJsonRecord(lead?.metadataJson);
     const now = new Date();
@@ -805,10 +999,12 @@ export class NightFactoryService {
         websiteStatus: enrichment.websiteStatus || lead.websiteStatus || 'unknown',
         opportunityScore: score.opportunityScore,
         opportunityReason: score.opportunityReason,
+        ...(websiteIntel?.cardData || {}),
         metadataJson: JSON.stringify({
           ...metadata,
           nightFactory: {
             checkedAt: now.toISOString(),
+            websiteFetch: websiteIntel?.summary || null,
             digitalPresenceScore: score.digitalPresenceScore,
             opportunityLevel: score.opportunityLevel,
             recommendedOffer: score.recommendedOffer,

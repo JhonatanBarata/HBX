@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
+import { CadastrosService } from '../cadastros/cadastros.service';
 import { CustomerProfileService } from '../customer-profile/customer-profile.service';
 import { AuthService } from '../auth/auth.service';
 import { InboxService } from '../inbox/inbox.service';
@@ -307,6 +308,7 @@ export class VendasService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly cadastrosService: CadastrosService,
     private readonly customerProfileService: CustomerProfileService,
     private readonly conversations: ConversationsService,
     private readonly inboxService: InboxService,
@@ -888,13 +890,32 @@ export class VendasService {
     } else if (nextSaleStatus === 'activation_pending') {
       commissionStatus = 'pending';
     } else if (endsSale) {
-      commissionStatus = 'canceled';
+      // E5 (PLAN12062026001): comissão NÃO estorna sozinha no cancelamento.
+      // Pendente/liberável fica como está, TRAVADA pelo caso de cancelamento
+      // aberto até a decisão do master (manter/estornar/desvincular).
+      // Pago fica pago.
     } else if (nextSaleStatus === 'none') {
       commissionStatus = 'none';
     }
+    const preservedForReview = endsSale && ['pending', 'payable', 'paid'].includes(commissionStatus);
     const commissionAmount = paidSale && ['payable', 'paid'].includes(commissionStatus)
       ? projectedCommissionAmount
-      : 0;
+      : preservedForReview
+        ? this.normalizeCurrencyAmount(row?.commissionAmount)
+        : 0;
+    const opensCancellationCase = endsSale
+      && previousSaleStatus !== nextSaleStatus
+      && !String(row?.cancellationCaseStatus || '').trim();
+    const cancellationRefundAmount = opensCancellationCase
+      ? await this.computeCancellationRefundAmount(row)
+      : null;
+    if (opensCancellationCase) {
+      // aviso imediato ao admin (sino, audiência customer); best-effort —
+      // o vendedor recebe o fato pelo timeline do card (texto neutro)
+      void this.createCancellationCaseNotice(row, cancellationRefundAmount).catch((error: any) => {
+        this.logger.warn(`cancellation_case_notice_failed lead=${row?.id} error=${String(error?.message || error)}`);
+      });
+    }
 
     const paidAt = commissionStatus === 'paid'
       ? (row?.commissionPaidAt instanceof Date ? row.commissionPaidAt : now)
@@ -923,6 +944,14 @@ export class VendasService {
       commissionRecurring: paidSale && commissionStatus !== 'canceled',
       commissionPayoutId: commissionStatus === 'paid' ? row?.commissionPayoutId || null : null,
       ...(commissionNoteProvided ? { commissionNote: this.normalizeText(dto.commissionNote) } : {}),
+      ...(opensCancellationCase ? {
+        cancellationCaseStatus: 'open',
+        cancellationCaseOpenedAt: now,
+        cancellationCaseRefundAmount: cancellationRefundAmount,
+        cancellationCaseResolution: null,
+        cancellationCaseResolvedAt: null,
+        cancellationCaseResolvedByUserId: null,
+      } : {}),
     };
 
     const event = previousSaleStatus !== nextSaleStatus || commissionStatusProvided
@@ -933,6 +962,9 @@ export class VendasService {
             `Cliente: ${this.formatSaleStatusLabel(nextSaleStatus)}.`,
             `Comissão: ${this.formatCommissionStatusLabel(commissionStatus)}.`,
             commissionAmount > 0 ? `Valor previsto: R$ ${commissionAmount.toFixed(2)}.` : null,
+            opensCancellationCase
+              ? 'Cliente cancelou: comissões futuras param e a pendente está EM REVISÃO — aguardando decisão do administrador.'
+              : null,
           ].filter(Boolean).join(' '),
           resultLabel: commissionStatus,
           createdByUserId: Number(userId || 0) || null,
@@ -940,6 +972,162 @@ export class VendasService {
       : null;
 
     return { data, event };
+  }
+
+  // E5: saldo a restituir estimado — pro-rata por dias do período pago da
+  // empresa vinculada; períodos de ~1 mês (mensal) não geram restituição.
+  private async computeCancellationRefundAmount(row: any): Promise<number> {
+    try {
+      const saleValue = this.normalizeCurrencyAmount(row?.saleValue || row?.commissionBaseAmount);
+      const linkedCompanyId = Math.trunc(Number(row?.commissionLinkedCompanyId || 0)) || 0;
+      if (!saleValue || !linkedCompanyId) return 0;
+      const company = await this.prisma.company.findUnique({
+        where: { id: linkedCompanyId },
+        select: { subscriptionCurrentPeriodStart: true, subscriptionCurrentPeriodEnd: true },
+      });
+      const start = company?.subscriptionCurrentPeriodStart instanceof Date ? company.subscriptionCurrentPeriodStart : null;
+      const end = company?.subscriptionCurrentPeriodEnd instanceof Date ? company.subscriptionCurrentPeriodEnd : null;
+      const nowMs = Date.now();
+      if (!start || !end || end.getTime() <= nowMs || end.getTime() <= start.getTime()) return 0;
+      const totalMs = end.getTime() - start.getTime();
+      if (totalMs / 86_400_000 <= 35) return 0;
+      const remainingMs = Math.max(0, end.getTime() - Math.max(nowMs, start.getTime()));
+      return this.normalizeCurrencyAmount(saleValue * Math.min(1, remainingMs / totalMs));
+    } catch {
+      return 0;
+    }
+  }
+
+  // E5: aviso imediato ao administrador da empresa (sino, audiência customer)
+  private async createCancellationCaseNotice(row: any, refundAmount: number | null) {
+    const companyId = Math.trunc(Number(row?.companyId || 0)) || 0;
+    if (!companyId) return;
+    const nome = this.normalizeText(row?.name) || this.normalizeText(row?.phone) || 'Cliente';
+    const refund = this.normalizeCurrencyAmount(refundAmount);
+    const temSaldo = refund > 0;
+    await this.prisma.masterNotice.create({
+      data: {
+        companyId,
+        audience: 'customer',
+        tone: temSaldo ? 'urgent' : 'warning',
+        title: `Cancelamento: ${nome}`,
+        body: [
+          `O cliente ${nome} cancelou/ficou inativo.`,
+          temSaldo
+            ? `Saldo a restituir estimado: R$ ${refund.toFixed(2).replace('.', ',')} — fazer a triagem ANTES de avisar o vendedor.`
+            : 'Sem saldo a restituir.',
+          'A comissão do vendedor está EM REVISÃO (payout travado). Decida no Gerencial: manter, estornar ou desvincular a venda.',
+        ].join(' '),
+      },
+    });
+  }
+
+  // E5: fila de casos de cancelamento (Admin/Master), filtrável por saldo
+  async listCancellationCasesForUser(user: any) {
+    const context = await this.resolveVendasUserContext(user);
+    this.assertVendasPermission(context.canManageTeam, 'Apenas Admin/Master vê os casos de cancelamento.');
+    const rows = await this.prisma.vendasLead.findMany({
+      where: { companyId: context.companyId, cancellationCaseStatus: 'open' },
+      orderBy: [{ cancellationCaseOpenedAt: 'desc' }],
+      take: 100,
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        assignedUserId: true,
+        saleStatus: true,
+        saleValue: true,
+        salePlanKey: true,
+        commissionStatus: true,
+        commissionAmount: true,
+        cancellationCaseOpenedAt: true,
+        cancellationCaseRefundAmount: true,
+      },
+    });
+    const sellerIds = Array.from(new Set(rows.map((r) => Number(r.assignedUserId || 0)).filter(Boolean)));
+    const sellers = sellerIds.length
+      ? await this.prisma.user.findMany({ where: { id: { in: sellerIds } }, select: { id: true, name: true, email: true } })
+      : [];
+    const sellerById = new Map(sellers.map((u) => [Number(u.id), u]));
+    return {
+      ok: true,
+      cases: rows.map((r) => ({
+        leadId: r.id,
+        name: r.name || r.phone || 'Cliente',
+        sellerName: sellerById.get(Number(r.assignedUserId || 0))?.name || sellerById.get(Number(r.assignedUserId || 0))?.email || null,
+        saleStatusLabel: this.formatSaleStatusLabel(this.normalizeSaleStatus(r.saleStatus)),
+        saleValue: this.normalizeCurrencyAmount(r.saleValue),
+        commissionStatusLabel: this.formatCommissionStatusLabel(this.normalizeCommissionStatus(r.commissionStatus)),
+        commissionAmount: this.normalizeCurrencyAmount(r.commissionAmount),
+        refundAmount: this.normalizeCurrencyAmount(r.cancellationCaseRefundAmount),
+        openedAt: r.cancellationCaseOpenedAt instanceof Date ? r.cancellationCaseOpenedAt.toISOString() : null,
+      })),
+    };
+  }
+
+  // E5: decisão do master fecha o caso (manter/estornar/desvincular) e gera
+  // o segundo aviso ao vendedor pelo timeline do card.
+  async resolveCancellationCaseForUser(user: any, leadId: string, input: { resolution?: string; notes?: string | null }) {
+    const context = await this.resolveVendasUserContext(user);
+    this.assertVendasPermission(context.canManageTeam, 'Apenas Admin/Master decide caso de cancelamento.');
+    const resolution = String(input?.resolution || '').trim().toLowerCase();
+    if (!['kept', 'reversed', 'unlinked'].includes(resolution)) {
+      throw new BadRequestException('Decisão inválida: use kept, reversed ou unlinked.');
+    }
+    const normalizedLeadId = String(leadId || '').trim();
+    const lead = await this.prisma.vendasLead.findFirst({
+      where: { id: normalizedLeadId, companyId: context.companyId },
+    });
+    if (!lead) throw new NotFoundException('Lead não encontrado.');
+    if (String((lead as any).cancellationCaseStatus || '') !== 'open') {
+      throw new BadRequestException('Este lead não tem caso de cancelamento aberto.');
+    }
+
+    const now = new Date();
+    const notes = this.normalizeText(input?.notes);
+    const data: any = {
+      cancellationCaseStatus: 'resolved',
+      cancellationCaseResolution: resolution,
+      cancellationCaseResolvedAt: now,
+      cancellationCaseResolvedByUserId: context.userId,
+      ...(notes ? { commissionNote: notes } : {}),
+    };
+    let titulo = 'Comissão mantida';
+    let descricao = 'O administrador revisou o cancelamento e MANTEVE a comissão do vendedor.';
+    if (resolution === 'reversed') {
+      data.commissionStatus = 'canceled';
+      data.commissionAmount = 0;
+      data.commissionDueAt = null;
+      data.commissionRecurring = false;
+      titulo = 'Comissão estornada';
+      descricao = 'O administrador revisou o cancelamento e ESTORNOU a comissão desta venda.';
+    } else if (resolution === 'unlinked') {
+      data.commissionStatus = 'canceled';
+      data.commissionAmount = 0;
+      data.commissionDueAt = null;
+      data.commissionRecurring = false;
+      data.assignedUserId = null;
+      titulo = 'Venda desvinculada';
+      descricao = 'O administrador desvinculou esta venda do vendedor após a revisão do cancelamento.';
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.vendasLead.update({ where: { id: lead.id }, data }),
+      this.prisma.vendasLeadTimelineEvent.create({
+        data: {
+          leadId: lead.id,
+          ...this.buildTimelineEvent({
+            eventType: 'cancellation_case_resolved',
+            title: titulo,
+            description: [descricao, notes ? `Nota: ${notes}` : null].filter(Boolean).join(' '),
+            resultLabel: resolution,
+            createdByUserId: context.userId,
+          }),
+        },
+      }),
+    ]);
+
+    return { ok: true, leadId: lead.id, resolution };
   }
 
   private formatSourceLabel(sourceType: unknown) {
@@ -1236,6 +1424,9 @@ export class VendasService {
       commissionAutoSyncedAt: row?.commissionAutoSyncedAt instanceof Date ? row.commissionAutoSyncedAt.toISOString() : null,
       commissionSyncSource: row?.commissionSyncSource ? String(row.commissionSyncSource) : null,
       commissionPayoutId: row?.commissionPayoutId ? String(row.commissionPayoutId) : null,
+      cancellationCaseStatus: row?.cancellationCaseStatus ? String(row.cancellationCaseStatus) : null,
+      cancellationCaseRefundAmount: row?.cancellationCaseRefundAmount != null ? this.normalizeCurrencyAmount(row.cancellationCaseRefundAmount) : null,
+      cancellationCaseResolution: row?.cancellationCaseResolution ? String(row.cancellationCaseResolution) : null,
       owner: row?.__owner
         ? {
             id: Number(row.__owner.id || 0) || null,
@@ -3240,6 +3431,15 @@ export class VendasService {
           ],
         };
 
+    // E5 (PLAN12062026001): caso de cancelamento ABERTO trava o payout das
+    // comissões do lead até a decisão do master.
+    const openCancellationCases = await this.prisma.vendasLead.findMany({
+      where: { companyId: context.companyId, cancellationCaseStatus: 'open' },
+      select: { id: true },
+      take: 1000,
+    });
+    const openCancellationCaseLeadIds = openCancellationCases.map((c) => c.id);
+
     const [leads, receivables] = await Promise.all([
       this.prisma.vendasLead.findMany({
         where: {
@@ -3247,6 +3447,7 @@ export class VendasService {
           commissionStatus: 'payable',
           commissionAmount: { gt: 0 },
           ...(sellerUserId ? { assignedUserId: sellerUserId } : {}),
+          ...(openCancellationCaseLeadIds.length ? { id: { notIn: openCancellationCaseLeadIds } } : {}),
           ...dueWhere,
         },
         select: {
@@ -3265,6 +3466,7 @@ export class VendasService {
           status: 'payable',
           amount: { gt: 0 },
           ...(sellerUserId ? { sellerUserId } : {}),
+          ...(openCancellationCaseLeadIds.length ? { OR: [{ leadId: null }, { leadId: { notIn: openCancellationCaseLeadIds } }] } : {}),
           ...receivableDueWhere,
         },
         select: {
@@ -5554,6 +5756,48 @@ export class VendasService {
     return profile?.id ? String(profile.id) : null;
   }
 
+  private async ensureCadastroFromVendasCard(
+    companyId: number,
+    lead: any,
+    options: { saleActive: boolean; announceOnTimeline: boolean; userId?: number | null },
+  ) {
+    const phone = this.normalizeText(lead?.phone);
+    if (!phone) return null;
+
+    try {
+      const registry = await this.cadastrosService.upsertCustomerRegistry({
+        companyId,
+        phone,
+        customerProfileId: lead?.customerProfileId ? String(lead.customerProfileId) : null,
+        name: this.normalizeText(lead?.name),
+        registrationOrigin: 'vendas',
+        registrationStatus: options.saleActive ? 'confirmed' : 'pending_confirmation',
+      });
+      if (!registry) return null;
+
+      if (options.announceOnTimeline) {
+        await this.prisma.vendasLeadTimelineEvent.create({
+          data: {
+            leadId: String(lead.id),
+            ...this.buildTimelineEvent({
+              eventType: 'customer_registered',
+              title: 'Cliente cadastrado',
+              description: options.saleActive
+                ? 'Cadastro de cliente confirmado a partir do fechamento do card.'
+                : 'Cadastro de cliente criado a partir do encerramento do card.',
+              createdByUserId: options.userId || null,
+            }),
+          },
+        }).catch(() => null);
+      }
+
+      return registry;
+    } catch (error) {
+      this.logger.warn(`Falha ao gerar cadastro do card ${String(lead?.id || '')}: ${String((error as any)?.message || error)}`);
+      return null;
+    }
+  }
+
   private buildImportedLeadNote(input: {
     city?: string | null;
     state?: string | null;
@@ -7837,6 +8081,18 @@ export class VendasService {
     });
 
     await this.syncLeadToInboxAgenda(context.companyId, updated, existing);
+
+    const previousSaleStatus = this.normalizeSaleStatus(existing.saleStatus);
+    const updatedSaleStatus = this.normalizeSaleStatus(updated.saleStatus);
+    const closedNow = statusChanged && nextStatus === 'encerrado';
+    const saleConfirmedNow = updatedSaleStatus === 'sale_confirmed' && previousSaleStatus !== 'sale_confirmed';
+    if (nextStatus === 'encerrado' || updatedSaleStatus === 'sale_confirmed') {
+      await this.ensureCadastroFromVendasCard(context.companyId, updated, {
+        saleActive: this.isAutomaticSaleStatus(updatedSaleStatus),
+        announceOnTimeline: closedNow || saleConfirmedNow,
+        userId: context.userId,
+      });
+    }
 
     return {
       ok: true,

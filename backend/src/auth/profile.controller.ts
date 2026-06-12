@@ -212,7 +212,7 @@ export class ProfileController {
   @UseGuards(JwtAuthGuard)
   async updateDisplayName(@Req() req: any, @Body() dto: UpdateDisplayNameDto) {
     const name = String(dto?.name || '').trim().replace(/\s+/g, ' ');
-    if (name.length < 2) throw new BadRequestException('Informe o nome do atendente/vendedor.');
+    if (name.length < 2) throw new BadRequestException('Informe o Como deseja ser chamado?.');
     await this.usersService.updateById(Number(req.user.id), { name });
     const updated = await this.usersService.findById(Number(req.user.id));
     const masterContext = await this.resolveMasterContext(req, updated);

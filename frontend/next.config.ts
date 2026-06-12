@@ -7,6 +7,9 @@ const DEFAULT_API_URL =
 		: "http://localhost:3000";
 
 const nextConfig: NextConfig = {
+	// NEXT_DIST_DIR permite um segundo dev server (preview do Claude) sem
+	// brigar pelo .next do dev principal — ver script dev:preview.
+	...(process.env.NEXT_DIST_DIR ? { distDir: process.env.NEXT_DIST_DIR } : {}),
 	turbopack: {
 		root: path.resolve(__dirname),
 	},

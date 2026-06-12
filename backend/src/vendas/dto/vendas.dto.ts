@@ -298,6 +298,16 @@ export class CreateCommissionPayoutDto {
   notes?: string;
 }
 
+export class ResolveCancellationCaseDto {
+  @IsIn(['kept', 'reversed', 'unlinked'])
+  resolution!: 'kept' | 'reversed' | 'unlinked';
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(280)
+  notes?: string;
+}
+
 export class CancelCommissionPayoutDto {
   @IsOptional()
   @IsString()

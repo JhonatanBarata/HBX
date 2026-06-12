@@ -84,6 +84,11 @@ function createService(overrides?: Partial<Record<string, any>>) {
     ...(overrides?.customerProfileService || {}),
   } as any;
 
+  const cadastrosService = {
+    upsertCustomerRegistry: async () => ({ id: 'registry-1' }),
+    ...(overrides?.cadastrosService || {}),
+  } as any;
+
   const conversations = {
     getOrCreateConversationForContact: async (companyId: number, contact: string) => {
       getOrCreateCalls.push({ companyId, contact });
@@ -143,6 +148,7 @@ function createService(overrides?: Partial<Record<string, any>>) {
 
   const service = new VendasService(
     prisma,
+    cadastrosService,
     customerProfileService,
     conversations,
     inboxService,
@@ -1878,6 +1884,100 @@ test('updateLeadForUser hides product price when products.viewPrice=false', asyn
   assert.equal(result.lead.product.priceLabel, null);
   assert.equal(result.lead.product.canViewPrice, false);
   assert.equal(result.lead.saleValue, 123.45);
+});
+
+function createCloseCardHarness(input: { saleStatus: string }) {
+  const now = new Date();
+  let row: any = {
+    id: 'lead-1',
+    companyId: 7,
+    assignedUserId: 99,
+    customerProfileId: 'profile-1',
+    name: 'Cliente Fechamento',
+    phone: '5511999990000',
+    phoneNormalized: '5511999990000',
+    status: 'qualificado',
+    attemptCount: 1,
+    lastContactAt: now,
+    saleStatus: input.saleStatus,
+    saleValue: 0,
+    commissionStatus: 'none',
+    createdAt: now,
+    updatedAt: now,
+    timelineEvents: [],
+  };
+  const registryCalls: Array<Record<string, unknown>> = [];
+  const { service } = createService({
+    vendasLead: {
+      findFirst: async ({ where }: any) => (where?.phoneNormalized ? null : row),
+    },
+    prisma: {
+      $transaction: async (fn: any) => fn({
+        vendasLead: {
+          update: async ({ data }: any) => {
+            row = { ...row, ...data, updatedAt: now };
+            return row;
+          },
+          findUniqueOrThrow: async () => ({ ...row, timelineEvents: [] }),
+        },
+        vendasLeadTimelineEvent: {
+          createMany: async () => ({ count: 0 }),
+        },
+      }),
+    },
+    cadastrosService: {
+      upsertCustomerRegistry: async (payload: Record<string, unknown>) => {
+        registryCalls.push(payload);
+        return { id: 'registry-1' };
+      },
+    },
+  });
+  return { service, registryCalls };
+}
+
+test('updateLeadForUser cria cadastro confirmado ao encerrar card com venda', async () => {
+  const { service, registryCalls } = createCloseCardHarness({ saleStatus: 'sale_confirmed' });
+
+  const result = await service.updateLeadForUser(
+    { companyId: 7, id: 99, role: 'USER' },
+    'lead-1',
+    { status: 'encerrado' } as any,
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(registryCalls.length, 1);
+  assert.equal(registryCalls[0].companyId, 7);
+  assert.equal(registryCalls[0].phone, '5511999990000');
+  assert.equal(registryCalls[0].customerProfileId, 'profile-1');
+  assert.equal(registryCalls[0].registrationOrigin, 'vendas');
+  assert.equal(registryCalls[0].registrationStatus, 'confirmed');
+});
+
+test('updateLeadForUser cria cadastro pendente ao encerrar card sem venda', async () => {
+  const { service, registryCalls } = createCloseCardHarness({ saleStatus: 'none' });
+
+  const result = await service.updateLeadForUser(
+    { companyId: 7, id: 99, role: 'USER' },
+    'lead-1',
+    { status: 'encerrado' } as any,
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(registryCalls.length, 1);
+  assert.equal(registryCalls[0].registrationStatus, 'pending_confirmation');
+});
+
+test('updateLeadForUser nao cria cadastro enquanto o card segue aberto', async () => {
+  const { service, registryCalls } = createCloseCardHarness({ saleStatus: 'none' });
+
+  const result = await service.updateLeadForUser(
+    { companyId: 7, id: 99, role: 'USER' },
+    'lead-1',
+    { status: 'contato' } as any,
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(registryCalls.length, 0);
 });
 
 test('updateLeadForUser requires products.sell before linking catalog product', async () => {

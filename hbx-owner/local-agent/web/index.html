@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HBX Owner</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <script>window.__HBX_OWNER_TOKEN__ = "__HBX_OWNER_TOKEN__";</script>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">HBX</span>
+      <div class="brand-text">
+        <strong>HBX Owner</strong>
+        <small>Cockpit local do dono</small>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <span id="agent-status" class="pill pill-muted">conectando…</span>
+      <button id="theme-toggle" class="icon-btn" title="Alternar tema">◐</button>
+    </div>
+  </header>
+
+  <nav class="tabs" id="tabs">
+    <button class="tab is-active" data-tab="hoje">Hoje</button>
+    <button class="tab" data-tab="tickets">Tickets</button>
+    <button class="tab" data-tab="caca">Caça</button>
+    <button class="tab" data-tab="codigo">Código</button>
+    <button class="tab" data-tab="execucao">Execução</button>
+    <button class="tab" data-tab="config">Config</button>
+  </nav>
+
+  <main class="content">
+    <!-- HOJE -->
+    <section class="panel is-active" data-panel="hoje">
+      <div class="panel-head">
+        <h1>Hoje</h1>
+        <p>Ponto, foco e execução</p>
+      </div>
+      <div class="card focus-card">
+        <div class="focus-row">
+          <div>
+            <span class="label">Status do expediente</span>
+            <strong id="today-status" class="big">—</strong>
+          </div>
+          <span id="today-health" class="pill pill-ok">saudável</span>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-green" data-today="start">Start work</button>
+          <button class="btn btn-amber" data-today="pause">Pausa</button>
+          <button class="btn btn-blue" data-today="resume">Retomar</button>
+          <button class="btn btn-red" data-today="stop">Stop work</button>
+        </div>
+      </div>
+      <div class="grid-3">
+        <div class="card metric"><span class="label">Tempo líquido</span><strong id="today-net">0 min</strong></div>
+        <div class="card metric"><span class="label">Commits hoje</span><strong id="today-commits">0</strong></div>
+        <div class="card metric"><span class="label">Banco de Leads</span><strong id="today-bank">—</strong></div>
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <span class="label">Foco permitido</span>
+          <p id="today-focus" class="focus-allow">—</p>
+        </div>
+        <div class="card">
+          <span class="label">Fuga provável</span>
+          <p id="today-distraction" class="focus-flee">—</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- TICKETS -->
+    <section class="panel" data-panel="tickets">
+      <div class="panel-head">
+        <h1>Tickets</h1>
+        <p>Fila <code>.md</code> do repositório — fonte única, versionada</p>
+      </div>
+      <div id="tickets-list" class="list"><div class="empty">Carregando…</div></div>
+    </section>
+
+    <!-- CAÇA -->
+    <section class="panel" data-panel="caca">
+      <div class="panel-head">
+        <h1>Caça</h1>
+        <p>Banco de Leads, Local Lab e importação local → VPS</p>
+      </div>
+      <div class="grid-3">
+        <div class="card metric"><span class="label">Banco de Leads</span><strong id="caca-bank">—</strong><small id="caca-bank-delta" class="delta"></small></div>
+        <div class="card metric"><span class="label">Local Lab</span><strong id="caca-lab">—</strong></div>
+        <div class="card metric metric-action">
+          <span class="label">Importar local → VPS</span>
+          <button id="btn-import" class="btn btn-green">Importar agora</button>
+          <small id="import-result" class="delta"></small>
+        </div>
+      </div>
+      <div class="card">
+        <div class="focus-row">
+          <span class="label">Controle do Local Lab</span>
+          <div class="btn-row">
+            <button class="btn btn-blue" data-lab="start">Subir</button>
+            <button class="btn btn-red" data-lab="stop">Parar</button>
+          </div>
+        </div>
+        <pre id="lab-detail" class="log-mini">—</pre>
+      </div>
+    </section>
+
+    <!-- CÓDIGO -->
+    <section class="panel" data-panel="codigo">
+      <div class="panel-head">
+        <h1>Código</h1>
+        <p>Status, branch atual e arquivos mudados vs <code>origin/master</code></p>
+      </div>
+      <div class="grid-2">
+        <div class="card"><span class="label">Branch atual</span><strong id="git-current">—</strong></div>
+        <div class="card"><span class="label">Último commit</span><pre id="git-last" class="log-mini">—</pre></div>
+      </div>
+      <div class="card"><span class="label">git status</span><pre id="git-status" class="log-mini">—</pre></div>
+      <div class="card"><span class="label">Arquivos mudados</span><pre id="git-changed" class="log-mini">—</pre></div>
+    </section>
+
+    <!-- EXECUÇÃO -->
+    <section class="panel" data-panel="execucao">
+      <div class="panel-head">
+        <h1>Execução</h1>
+        <p>Comandos da allowlist e últimas execuções</p>
+      </div>
+      <div id="commands-list" class="list"><div class="empty">Carregando…</div></div>
+      <div class="card"><span class="label">Execuções recentes</span><div id="runs-list" class="list-mini"><div class="empty">—</div></div></div>
+    </section>
+
+    <!-- CONFIG -->
+    <section class="panel" data-panel="config">
+      <div class="panel-head">
+        <h1>Config</h1>
+        <p>Saúde do agent e bridges</p>
+      </div>
+      <div class="card"><pre id="config-health" class="log-mini">—</pre></div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

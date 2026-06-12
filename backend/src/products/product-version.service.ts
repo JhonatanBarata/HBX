@@ -8,7 +8,11 @@ export class ProductVersionService {
   async createVersion(productId: number, data: any, authorId?: number) {
     const last = await this.prisma.productVersion.findFirst({ where: { productId }, orderBy: { version: 'desc' } });
     const next = last ? last.version + 1 : 1;
-    return this.prisma.productVersion.create({ data: { productId, data, authorId, version: next } });
+    // E4 (PLAN12062026001): ProductVersion.data é String no schema — o
+    // snapshot vinha como objeto e o Prisma rejeitava com 500 em todo
+    // PATCH/arquivamento de produto.
+    const snapshot = typeof data === 'string' ? data : JSON.stringify(data ?? null);
+    return this.prisma.productVersion.create({ data: { productId, data: snapshot, authorId, version: next } });
   }
 
   async listVersions(productId: number) {

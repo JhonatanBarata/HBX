@@ -2,6 +2,17 @@
 
 Leia este arquivo primeiro. Depois leia APENAS o arquivo de domínio relevante ao que vai alterar.
 
+## REGRA ZERO — SIGA O QUE O PROGRAMADOR FALAR
+
+Ordem do dono executa-se literalmente, sem reinterpretar, sem "melhorar", sem adaptar.
+
+**Telas do frontend:** a fonte é a pasta `docs/TEMAS`. Tela nova = **COPIAR o arquivo
+da pasta como está** (markup e CSS idênticos, elemento por elemento, texto por texto)
+e depois **só ligar os endpoints do backend** nos pontos dinâmicos. Não recriar, não
+redesenhar, não reaproveitar tela velha, não omitir elemento do template. Se um
+elemento do template não tem endpoint, ele fica visual como no template — registrar no
+doc do PR, nunca decidir sozinho remover.
+
 ## Mapa de domínios → `docs/Rules/`
 
 | Vai alterar | Leia |

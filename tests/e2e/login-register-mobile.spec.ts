@@ -28,7 +28,7 @@ test.describe("login e cadastro mobile", () => {
     const email = `codex-${Date.now()}@teste.com`;
     await page.getByLabel("Empresa").fill("Empresa Codex Mobile");
     await page.getByLabel("E-mail").fill(email);
-    await page.getByLabel("Nome do atendente/vendedor").fill("Atendente Codex");
+    await page.getByLabel("Como deseja ser chamado?").fill("Atendente Codex");
     await page.getByRole("textbox", { name: "Senha", exact: true }).fill("12345678");
     await page.getByRole("textbox", { name: "Confirmar senha", exact: true }).fill("12345678");
     await page.getByRole("button", { name: "Continuar para planos" }).click();

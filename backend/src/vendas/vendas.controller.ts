@@ -10,6 +10,7 @@ import {
   BulkDeleteVendasLeadsDto,
   CancelCommissionPayoutDto,
   CreateCommissionPayoutDto,
+  ResolveCancellationCaseDto,
   CreateHbxAssistedSignupDto,
   CreateHbxSalesHandoffDto,
   CreateMasterNoticeDto,
@@ -184,6 +185,17 @@ export class VendasController {
   @Get('commission/summary')
   getCommissionSummary(@Req() req: any) {
     return this.vendasService.getCommissionSummaryForUser(req.user);
+  }
+
+  // E5 (PLAN12062026001): casos de cancelamento - triagem e decisao do master
+  @Get('cancellation-cases')
+  listCancellationCases(@Req() req: any) {
+    return this.vendasService.listCancellationCasesForUser(req.user);
+  }
+
+  @Patch('lead/:leadId/cancellation-case')
+  resolveCancellationCase(@Req() req: any, @Param('leadId') leadId: string, @Body() dto: ResolveCancellationCaseDto) {
+    return this.vendasService.resolveCancellationCaseForUser(req.user, leadId, dto || ({} as ResolveCancellationCaseDto));
   }
 
   @Post('commission/payout')

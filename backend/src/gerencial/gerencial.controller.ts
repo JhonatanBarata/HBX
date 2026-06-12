@@ -9,6 +9,7 @@ import { Patch, Param, Body, BadRequestException } from '@nestjs/common';
 import { ModuleAccessGuard } from '../modules/module-access.guard';
 import { ModuleAccess } from '../modules/module-feature.decorator';
 import { SellerOnboardingService } from './seller-onboarding.service';
+import { JobApplicationService } from './job-application.service';
 import { HbxPartnerReferralService } from './hbx-partner-referral.service';
 import { Type } from 'class-transformer';
 import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
@@ -89,6 +90,7 @@ export class GerencialController {
     private readonly gerencialService: GerencialService,
     private readonly sellerOnboardingService: SellerOnboardingService,
     private readonly hbxPartnerReferrals: HbxPartnerReferralService,
+    private readonly jobApplications: JobApplicationService,
   ) {}
 
   @Get('overview')
@@ -267,6 +269,30 @@ export class GerencialController {
       allowMissingRequiredAttachments: true,
       includeConfirmationLink: true,
     });
+  }
+
+  // Trabalhe Conosco: candidatura pública aberta (tabela própria, fora do
+  // pipeline de indicações que carrega herança de comissão)
+  @Post('trabalhe-conosco/public')
+  @Throttle({ default: { limit: 10, ttl: 60 } })
+  async createPublicJobApplication(@Body() dto: any) {
+    return this.jobApplications.createPublicApplication(dto || {});
+  }
+
+  @Get('trabalhe-conosco')
+  @UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
+  @Admin()
+  @ModuleAccess('gerencial')
+  async listJobApplications(@Req() req: any) {
+    return this.jobApplications.listForAdmin(req.user);
+  }
+
+  @Post('trabalhe-conosco/:id/review')
+  @UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
+  @Admin()
+  @ModuleAccess('gerencial')
+  async reviewJobApplication(@Req() req: any, @Param('id') id: string, @Body() dto: any) {
+    return this.jobApplications.review(req.user, id, dto || {});
   }
 
   @Get('hbx-partners/onboarding/public')

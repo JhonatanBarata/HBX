@@ -41,9 +41,15 @@ function createUser(overrides: Record<string, any> = {}) {
 function createPrisma(options: { leads?: any[]; claims?: any[] } = {}) {
   const leads = options.leads || [];
   const claims = [...(options.claims || [])];
+  const radarUpdates: any[] = [];
   const prisma: any = {
+    __radarUpdates: radarUpdates,
     hasTable: async (name: string) => ['RadarLeadPool', 'NightFactoryRewardClaim'].includes(name),
     radarLeadPool: {
+      update: async (args: any = {}) => {
+        radarUpdates.push(args);
+        return args?.data || {};
+      },
       findMany: async (args: any = {}) => {
         const where = args.where || {};
         const excluded = new Set(where.id?.notIn || []);
@@ -175,6 +181,149 @@ test('selecao de recompensa nao chama Google', async () => {
   } finally {
     globalThis.fetch = previousFetch;
   }
+});
+
+function createCrawler(result: any, calls: any[] = []) {
+  return {
+    calls,
+    crawl: async (url: string) => {
+      calls.push(url);
+      return result;
+    },
+  };
+}
+
+test('enrichLead com allowWebsiteFetch grava email confirmado, social e dor no pool', async () => {
+  const lead = createLead(1, {
+    id: 'lead-site',
+    name: 'Clinica Horizonte',
+    website: 'https://clinicahorizonte.com.br',
+    websiteStatus: 'unknown',
+    email: null,
+  });
+  const prisma = createPrisma({ leads: [lead] });
+  const crawler = createCrawler({
+    status: 'completed',
+    reason: 'website_crawl_light_executado',
+    evidence: {
+      requestedUrl: 'https://clinicahorizonte.com.br',
+      normalizedUrl: 'https://clinicahorizonte.com.br/',
+      pages: [{ url: 'https://clinicahorizonte.com.br/', status: 'fetched', httpStatus: 200 }],
+    },
+    fields: {
+      emails: ['contato@clinicahorizonte.com.br'],
+      instagramUrls: ['https://instagram.com/clinicahorizonte'],
+      facebookUrls: [],
+      whatsappUrls: ['https://wa.me/5511999990001'],
+      whatsappPhoneDigits: ['5511999990001'],
+      contactLinks: [],
+      budgetLinks: [],
+      chatLinks: [],
+      formLinks: [],
+      hasContactForm: true,
+      hasBudgetIntent: false,
+    },
+  });
+  const service = new NightFactoryService(prisma, crawler as any) as any;
+  service.emailMxCheck = async () => 'ok';
+
+  await service.enrichLead(lead, null, { allowWebsiteFetch: true });
+
+  assert.equal(crawler.calls.length, 1);
+  const data = prisma.__radarUpdates[0]?.data || {};
+  assert.equal(data.email, 'contato@clinicahorizonte.com.br');
+  assert.equal(data.emailStatus, 'confirmed');
+  assert.ok(Number(data.emailConfidence) >= 92);
+  assert.equal(data.emailSource, 'website');
+  assert.equal(data.instagramUrl, 'https://instagram.com/clinicahorizonte');
+  assert.equal(data.websiteStatus, 'present');
+  assert.equal(typeof data.painType, 'string');
+  assert.ok(data.painType.length > 0);
+  // Crawl nunca promove WhatsApp: canal recomendado não pode ser whatsapp sem Webwhats.
+  assert.notEqual(data.recommendedChannel, 'whatsapp');
+  const metadata = JSON.parse(data.metadataJson || '{}');
+  assert.equal(metadata.nightFactory?.websiteFetch?.fetchedPages, 1);
+});
+
+test('email achado no site mas sem MX e rebaixado para invalid', async () => {
+  const lead = createLead(1, {
+    id: 'lead-no-mx',
+    name: 'Clinica Horizonte',
+    website: 'https://clinicahorizonte.com.br',
+    websiteStatus: 'unknown',
+    email: null,
+  });
+  const prisma = createPrisma({ leads: [lead] });
+  const crawler = createCrawler({
+    status: 'completed',
+    reason: 'website_crawl_light_executado',
+    evidence: {
+      requestedUrl: 'https://clinicahorizonte.com.br',
+      normalizedUrl: 'https://clinicahorizonte.com.br/',
+      pages: [{ url: 'https://clinicahorizonte.com.br/', status: 'fetched', httpStatus: 200 }],
+    },
+    fields: {
+      emails: ['contato@dominio-que-nao-existe-xyz.com.br'],
+      instagramUrls: [],
+      facebookUrls: [],
+      whatsappUrls: [],
+      whatsappPhoneDigits: [],
+      contactLinks: [],
+      budgetLinks: [],
+      chatLinks: [],
+      formLinks: [],
+      hasContactForm: false,
+      hasBudgetIntent: false,
+    },
+  });
+  const service = new NightFactoryService(prisma, crawler as any) as any;
+  service.emailMxCheck = async () => 'no_mx';
+
+  await service.enrichLead(lead, null, { allowWebsiteFetch: true });
+
+  const data = prisma.__radarUpdates[0]?.data || {};
+  assert.equal(data.emailStatus, 'invalid');
+  assert.equal(data.emailConfidence, 0);
+  assert.notEqual(data.recommendedChannel, 'email');
+  const metadata = JSON.parse(data.metadataJson || '{}');
+  assert.equal(metadata.nightFactory?.websiteFetch?.emailMx, 'no_mx');
+});
+
+test('falha total de fetch nao rebaixa site present nem apaga email existente', async () => {
+  const lead = createLead(1, {
+    id: 'lead-fetch-fail',
+    website: 'https://empresa.com.br',
+    websiteStatus: 'present',
+    email: 'dono@empresa.com.br',
+    emailStatus: 'confirmed',
+  });
+  const prisma = createPrisma({ leads: [lead] });
+  const crawler = createCrawler({
+    status: 'partial_error',
+    reason: 'website_crawl_fetch_failed',
+    evidence: { requestedUrl: 'https://empresa.com.br', normalizedUrl: 'https://empresa.com.br/', pages: [{ url: 'https://empresa.com.br/', status: 'error' }] },
+    fields: { emails: [], instagramUrls: [], facebookUrls: [], whatsappUrls: [], whatsappPhoneDigits: [], contactLinks: [], budgetLinks: [], chatLinks: [], formLinks: [] },
+  });
+  const service = new NightFactoryService(prisma, crawler as any) as any;
+
+  await service.enrichLead(lead, null, { allowWebsiteFetch: true });
+
+  const data = prisma.__radarUpdates[0]?.data || {};
+  assert.equal(data.websiteStatus, 'present');
+  assert.equal('email' in data, false);
+  assert.equal('emailStatus' in data, false);
+});
+
+test('allowWebsiteFetch desligado nao chama o crawler', async () => {
+  const lead = createLead(1, { id: 'lead-no-fetch', website: 'https://empresa.com.br' });
+  const prisma = createPrisma({ leads: [lead] });
+  const crawler = createCrawler({ status: 'completed', evidence: { pages: [] }, fields: {} });
+  const service = new NightFactoryService(prisma, crawler as any) as any;
+
+  await service.enrichLead(lead, null, { allowWebsiteFetch: false });
+
+  assert.equal(crawler.calls.length, 0);
+  assert.equal(prisma.__radarUpdates.length, 1);
 });
 
 test('top opportunities preferem LeadQualityV2 finalRankScore quando disponivel', async () => {

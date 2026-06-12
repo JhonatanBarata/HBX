@@ -687,6 +687,35 @@ export class UsersService {
     });
   }
 
+  // Login: o identificador (username/e-mail) é caixa-insensível — ordem do
+  // dono em 13/06/2026: a caixa do identificador não é segredo; a SENHA
+  // continua estrita. Ordem de resolução: match exato → username sem caixa →
+  // e-mail sem caixa. Ambiguidade (contas legadas diferindo só por caixa)
+  // devolve null: nunca autenticar na conta errada.
+  async findByLoginIdentifier(identifier: string): Promise<User | null> {
+    const normalized = String(identifier || '').trim();
+    if (!normalized) return null;
+    const include = { company: { include: { plan: { include: { features: true } } } } };
+
+    const exact = await this.prisma.user.findUnique({ where: { username: normalized }, include });
+    if (exact) return exact;
+
+    const byUsername = await this.prisma.user.findMany({
+      where: { username: { equals: normalized, mode: 'insensitive' } },
+      include,
+      take: 2,
+    });
+    if (byUsername.length === 1) return byUsername[0];
+    if (byUsername.length > 1) return null;
+
+    const byEmail = await this.prisma.user.findMany({
+      where: { email: { equals: normalized, mode: 'insensitive' } },
+      include,
+      take: 2,
+    });
+    return byEmail.length === 1 ? byEmail[0] : null;
+  }
+
   async findByEmail(email: string): Promise<User | null> {
     return this.prisma.user.findUnique({
       where: { email },

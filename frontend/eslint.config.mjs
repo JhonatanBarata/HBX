@@ -9,12 +9,11 @@ const eslintConfig = defineConfig([
   globalIgnores([
     // Default ignores of eslint-config-next:
     ".next/**",
+    ".next-preview/**",
     "out/**",
     "build/**",
     "next-env.d.ts",
     "public/**",
-    "server.js",
-    ".copilot-recovery-head.tsx",
   ]),
 ]);
 
