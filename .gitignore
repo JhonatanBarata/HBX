@@ -89,4 +89,12 @@ Webwhats/src/env.yml
 hbx-owner/windows-app/card-compilers/
 hbx-owner/windows-app/codex-dispatches/
 
+# HBX Owner local-agent runtime (estado de expediente, token local)
+hbx-owner/local-agent/state/
+hbx-owner/local-agent/.owner-token
+
+# Tokens temporarios de sessao (nunca versionar)
+/.tmp-*
+/.tmp_*
+
 test-results/

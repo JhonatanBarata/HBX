@@ -605,8 +605,9 @@ function sendStatic(res, pathname) {
   let content = fs.readFileSync(filePath);
   const ext = path.extname(filePath).toLowerCase();
   // Injeta o token local na shell HTML (servidor bind 127.0.0.1, uso único do dono).
+  // Placeholder distinto do identificador JS window.__HBX_OWNER_TOKEN__ para não colidir.
   if (ext === ".html") {
-    content = Buffer.from(String(content).replace(/__HBX_OWNER_TOKEN__/g, TOKEN));
+    content = Buffer.from(String(content).replace(/%%HBX_OWNER_TOKEN%%/g, TOKEN));
   }
   res.writeHead(200, { "Content-Type": STATIC_TYPES[ext] || "application/octet-stream", "Cache-Control": "no-store" });
   res.end(content);
