@@ -11,6 +11,7 @@
 // no backend); campos sem dado no Radar mostram "—".
 // Resultado negativo do Radar nunca é descartado (MOTOR.md).
 
+import { useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import { I, ICONS, Sidebar, Topbar } from "@/components/hbx/shell";
@@ -74,7 +75,8 @@ type RunResponse = {
   meta?: { progress?: number; terminal?: boolean; operationalMessage?: string };
 } | null;
 
-type LeadDetail = { item: RadarLead } | null;
+type RadarLeadEvent = { id: string; eventType: string; note: string | null; statusFrom?: string | null; statusTo?: string | null; createdAt: string | null };
+type LeadDetail = { item: RadarLead; events?: RadarLeadEvent[] } | null;
 
 const ST_LABEL: Record<string, string> = {
   available: "Novo",
@@ -94,6 +96,29 @@ const ST_CLS: Record<string, string> = {
   discarded: "tag warn",
 };
 
+// Histórico da empresa: o endpoint /webscraping/radar/leads/:id já devolve
+// `events` (criação, importação, negativação, contato…); aqui só humanizamos.
+const RADAR_EVENT_LABEL: Record<string, string> = {
+  created: "Card descoberto",
+  imported: "Importado ao CRM",
+  sent_to_vendas: "Enviado a Vendas",
+  distributed: "Distribuído ao vendedor",
+  enriched: "Enriquecido pelo motor",
+  radar_enrichment_imported: "Enriquecido pelo Radar",
+  contacted: "Contato realizado",
+  denied: "Negativado",
+  complaint: "Reclamação",
+  no_answer: "Sem resposta",
+  hidden: "Ocultado da base",
+  reused: "Card reaproveitado",
+  origin_registered: "Origem registrada",
+};
+
+function radarEventLabel(t?: string) {
+  const key = String(t || "").toLowerCase();
+  return RADAR_EVENT_LABEL[key] || key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) || "Evento";
+}
+
 const TERMINAL_RUN = new Set(["completed", "completed_insufficient_results", "canceled", "failed", "error"]);
 
 function statusLabel(status: string) {
@@ -112,6 +137,8 @@ function fmtDateTime(iso: string | null | undefined) {
 }
 
 export function WebscrapingClient() {
+  const router = useRouter();
+
   // filtros
   const [segment, setSegment] = useState("");
   const [city, setCity] = useState("");
@@ -121,6 +148,7 @@ export function WebscrapingClient() {
 
   // tabela
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(8);
   const [data, setData] = useState<LeadsResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -129,6 +157,7 @@ export function WebscrapingClient() {
   const [detail, setDetail] = useState<LeadDetail>(null);
   const [crmMsg, setCrmMsg] = useState<string | null>(null);
   const [crmBusy, setCrmBusy] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
 
   // coleta
   const [run, setRun] = useState<RunResponse>(null);
@@ -136,18 +165,16 @@ export function WebscrapingClient() {
   const [runMsg, setRunMsg] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const loadLeads = useCallback((opts?: { page?: number; filterKey?: string }) => {
+  const loadLeads = useCallback((opts?: { page?: number }) => {
     const params = new URLSearchParams();
     params.set("page", String(opts?.page ?? 1));
-    // 8 linhas/página como o template — a tela inteira cabe sem rolagem
-    // (pedido do dono, 11/06/2026); o default do backend (50) empurrava o
-    // pager para fora da dobra.
-    params.set("limit", "8");
+    // 8 linhas/página por padrão (pedido do dono, 11/06/2026: a tela inteira
+    // cabe sem rolagem); agora ajustável pelo seletor "Linhas por página".
+    params.set("limit", String(pageSize));
     if (segment) params.set("segment", segment);
     if (city) params.set("city", city);
     if (uf) params.set("state", uf);
-    const fk = opts?.filterKey ?? appliedFilterKey;
-    if (fk) params.set("filterKey", fk);
+    if (appliedFilterKey) params.set("filterKey", appliedFilterKey);
     return apiFetch<LeadsResponse>(`/webscraping/radar/leads?${params.toString()}`)
       .then(res => {
         setData(res);
@@ -160,7 +187,7 @@ export function WebscrapingClient() {
         setData(null);
         setSel(null);
       });
-  }, [segment, city, uf, appliedFilterKey]);
+  }, [segment, city, uf, appliedFilterKey, pageSize]);
 
   // carga inicial + retoma coleta ativa
   useEffect(() => {
@@ -170,6 +197,19 @@ export function WebscrapingClient() {
       .catch(() => { /* sem coleta ativa */ });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Trocar Segmento/Cidade/Estado, a busca aplicada ou o tamanho da página
+  // RECARREGA a base. Antes só "Buscar empresa" e a paginação disparavam o
+  // reload — escolher um segmento no datalist não fazia nada. Debounce de 300ms
+  // evita uma consulta por tecla; o 1º render é pulado (a carga inicial já roda
+  // no efeito acima).
+  const filtersTouched = useRef(false);
+  useEffect(() => {
+    if (!filtersTouched.current) { filtersTouched.current = true; return; }
+    const handle = setTimeout(() => { setPage(1); loadLeads({ page: 1 }); }, 300);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [segment, city, uf, appliedFilterKey, pageSize]);
 
   // contexto do lead selecionado (detalhe só é exibido se o id ainda bate)
   useEffect(() => {
@@ -271,9 +311,17 @@ export function WebscrapingClient() {
   }
 
   function aplicarBusca() {
+    // Aplica o termo digitado; o efeito de filtros recarrega a base.
     setAppliedFilterKey(filterKey);
-    setPage(1);
-    loadLeads({ page: 1, filterKey });
+  }
+
+  function limparFiltros() {
+    setSegment("");
+    setCity("");
+    setUf("");
+    setFilterKey("");
+    setAppliedFilterKey("");
+    // o efeito de filtros recarrega a base quando algum filtro de fato mudou.
   }
 
   function irParaPagina(p: number) {
@@ -302,7 +350,7 @@ export function WebscrapingClient() {
 
   const items = data?.items || [];
   const total = data?.total || 0;
-  const limit = data?.meta?.limit || 25;
+  const limit = data?.meta?.limit || pageSize;
   const lastPage = Math.max(1, Math.ceil(total / limit));
   const summary = data?.meta?.enrichmentSummary;
   const filters = data?.meta?.availableFilters;
@@ -322,6 +370,7 @@ export function WebscrapingClient() {
     : null;
 
   const d = detail?.item && detail.item.id === sel?.id ? detail.item : sel;
+  const histEvents = detail?.item && detail.item.id === sel?.id ? (detail.events || []) : [];
 
   return (
     <div className="app">
@@ -354,10 +403,6 @@ export function WebscrapingClient() {
                     <option value="">Todos os estados</option>
                     {ufOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
-                </div>
-                <div className="f">
-                  <label>Tamanho da empresa</label>
-                  <span className="select-dark">Todos os tamanhos <span style={{ opacity: 0.6 }}>▾</span></span>
                 </div>
                 <div className="f" style={{ flex: 1, minWidth: 180 }}>
                   <label>Buscar empresa ou domínio</label>
@@ -405,14 +450,14 @@ export function WebscrapingClient() {
                 <h2>{total.toLocaleString("pt-BR")} resultados encontrados</h2>
                 <div className="meta">
                   <button className="btn-ghost" onClick={exportarCsv} disabled={exportBusy}><I d={ICONS.doc} size={13} /> {exportBusy ? "Exportando…" : "Exportar ▾"}</button>
-                  <button className="icon-ghost"><I d={ICONS.filter} size={15} /></button>
+                  <button className="icon-ghost" onClick={limparFiltros} title="Limpar filtros" aria-label="Limpar filtros"><I d={ICONS.filter} size={15} /></button>
                 </div>
               </div>
               <div className="tbl-wrap">
                 <table className="tbl">
                   <thead>
                     <tr>
-                      <th><input type="checkbox" style={{ accentColor: "var(--hbx-brand)" }} /></th>
+                      <th aria-hidden="true"></th>
                       <th>Empresa</th><th>Segmento</th><th>Cidade</th><th>Contato</th><th>Telefone</th><th>E-mail</th><th>Site</th><th>Score</th><th>Status</th>
                     </tr>
                   </thead>
@@ -448,7 +493,9 @@ export function WebscrapingClient() {
                 </table>
               </div>
               <div className="pager">
-                Linhas por página: <span className="select-dark" style={{ minWidth: 0, minHeight: 30, padding: "0 10px" }}>{limit} ▾</span>
+                Linhas por página: <select className="select-dark" style={{ minWidth: 0, minHeight: 30, padding: "0 10px" }} value={pageSize} onChange={e => setPageSize(Number(e.target.value))}>
+                  {[8, 25, 50, 100].map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
                 <span style={{ marginLeft: "auto" }}>
                   {total > 0
                     ? `${((page - 1) * limit + 1).toLocaleString("pt-BR")}–${Math.min(page * limit, total).toLocaleString("pt-BR")} de ${total.toLocaleString("pt-BR")}`
@@ -466,7 +513,7 @@ export function WebscrapingClient() {
           </div>
 
           <aside className="ctx">
-            <h3>{d?.name || "Selecione um resultado"} <span className="x">✕</span></h3>
+            <h3>{d?.name || "Selecione um resultado"} <span className="x" role="button" tabIndex={0} title="Fechar" onClick={() => { setSel(null); setDetail(null); setShowHistory(false); }}>✕</span></h3>
             <div>
               <h3 style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginBottom: 8 }}>Sobre a empresa</h3>
               <div className="kv">
@@ -507,9 +554,27 @@ export function WebscrapingClient() {
               <button className="btn-teal" onClick={adicionarAoCrm} disabled={!sel?.id || crmBusy}>
                 <I d={ICONS.plus} size={14} /> {crmBusy ? "Enviando…" : "Adicionar ao CRM"}
               </button>
-              <button className="btn-ghost"><I d={ICONS.send} size={13} /> Criar abordagem</button>
-              <button className="btn-ghost"><I d={ICONS.clock} size={13} /> Ver histórico da empresa</button>
+              <button className="btn-ghost" onClick={() => router.push("/vendas")} disabled={!sel?.id}><I d={ICONS.send} size={13} /> Criar abordagem</button>
+              <button className="btn-ghost" onClick={() => setShowHistory(v => !v)} disabled={!sel?.id}><I d={ICONS.clock} size={13} /> {showHistory ? "Ocultar histórico" : "Ver histórico da empresa"}</button>
             </div>
+            {showHistory && (
+              <React.Fragment>
+                <div className="sep"></div>
+                <div style={{ display: "grid", gap: 8 }}>
+                  <h3>Histórico da empresa</h3>
+                  <div className="kv">
+                    {histEvents.length === 0 ? (
+                      <div className="row"><span className="k">Sem eventos registrados para este card.</span></div>
+                    ) : histEvents.map(ev => (
+                      <div className="row" key={ev.id}>
+                        <span className="k">{radarEventLabel(ev.eventType)}{ev.note ? ` · ${ev.note}` : ""}</span>
+                        <span className="v">{fmtDateTime(ev.createdAt)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </React.Fragment>
+            )}
           </aside>
         </div>
       </div>

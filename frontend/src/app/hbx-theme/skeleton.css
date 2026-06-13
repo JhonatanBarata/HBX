@@ -1,0 +1,169 @@
+/* ============================================================
+   HBX — ESQUELETO (base neutra de tokens, 12/06/2026)
+   Ordem do dono: peles corporate/friendly DELETADAS; o app roda
+   apenas sobre esta base cinza até as peles novas serem aprovadas.
+
+   Este arquivo é o CONTRATO DE PELE inteiro (docs/Rules/PELE.md):
+   toda variável que o kit consome nasce aqui com valor neutro.
+   Uma pele nova = arquivo theme-<nome>.css que SOBRESCREVE estes
+   tokens (e nada mais). Nenhuma classe do app pode pintar com
+   hex/rgba próprio — só var(--token).
+
+   MODO ESCURO PADRONIZADO: [data-theme-mode="dark"] escurece o
+   sistema INTEIRO trocando só esta escada de tokens — telas não
+   sabem que o dark existe.
+   ============================================================ */
+
+:root {
+  /* ---- Marca / ações (esqueleto: quase-preto neutro) ----------------- */
+  --hbx-brand: #2B2B2B;
+  --hbx-brand-strong: #000000;
+  --hbx-brand-soft: #E9E9E9;
+  --hbx-brand-contrast: #FFFFFF;
+
+  --hbx-primary: #2B2B2B;
+  --hbx-secondary: #5A5A5A;
+  --hbx-success: #3D3D3D;
+  --hbx-accent: #1F1F1F;
+
+  /* ---- Status (cinzas distintos — pele dá a cor) ---------------------- */
+  --hbx-info: #565656;
+  --hbx-warning: #6E6E6E;
+  --hbx-danger: #2F2F2F;
+
+  /* ---- Superfícies ----------------------------------------------------- */
+  --hbx-background: #F4F4F4;
+  --hbx-background-alt: #EFEFEF;
+  --hbx-surface: #FFFFFF;
+  --hbx-surface-soft: #F7F7F7;
+  --hbx-surface-raised: #ECECEC;
+  --hbx-header-surface: #FFFFFF;
+  --hbx-nav-surface: #FAFAFA;
+  --hbx-field-surface: #FFFFFF;
+  --hbx-table-head: #F1F1F1;
+
+  /* ---- Hero / destaque (esqueleto: sem brilho) ------------------------- */
+  --hbx-hero-from: #FFFFFF;
+  --hbx-hero-to: #F4F4F4;
+  --hbx-hero-spotlight: transparent;
+
+  /* ---- Chat ------------------------------------------------------------ */
+  --hbx-chat-inbound: #FFFFFF;
+  --hbx-chat-outbound: #ECECEC;
+  --hbx-chat-system: #F5F5F5;
+
+  /* ---- Texto ------------------------------------------------------------ */
+  --hbx-foreground: #1A1A1A;
+  --hbx-foreground-soft: #3D3D3D;
+  --hbx-muted: #707070;
+
+  /* ---- Linhas / sombra / véu -------------------------------------------- */
+  --hbx-line: #D9D9D9;
+  --hbx-shadow: #000000;
+  --hbx-overlay: rgba(0, 0, 0, 0.4);
+
+  /* ---- Aliases semânticos (o kit consome ESTES) ------------------------- */
+  --text-strong: var(--hbx-foreground);
+  --text-body: var(--hbx-foreground-soft);
+  --text-muted: var(--hbx-muted);
+  --text-on-brand: var(--hbx-brand-contrast);
+  --surface-canvas: var(--hbx-background);
+  --surface-card: var(--hbx-surface);
+  --surface-recessed: var(--hbx-surface-soft);
+  --surface-raised: var(--hbx-surface-raised);
+  --border-hairline: #DEDEDE;
+  --border-strong: #BFBFBF;
+  --ring-brand: rgba(0, 0, 0, 0.16);
+
+  /* ---- Tinta sobre ações preenchidas + avatar ---------------------------- */
+  --hbx-action-ink: #FFFFFF;
+  --hbx-avatar-from: #4A4A4A;
+  --hbx-avatar-to: #1F1F1F;
+
+  /* ---- Profundidade (esqueleto: NADA — pele liga sombra/vidro) ----------- */
+  --shadow-xs: 0 0 0 0 transparent;
+  --shadow-sm: 0 0 0 0 transparent;
+  --shadow-md: 0 0 0 0 transparent;
+  --shadow-lg: 0 0 0 0 transparent;
+  --shadow-inset: inset 0 0 0 0 transparent;
+  --panel-glow: transparent;
+  --hero-glow: transparent;
+  --soft-ring: transparent;
+  --blur-chrome: 0px;
+  --blur-glass: 0px;
+
+  /* ---- Movimento (esqueleto: curto e seco — pele dá a personalidade) ----- */
+  --motion-fast: 120ms ease;
+  --motion-base: 180ms ease;
+  --motion-slow: 260ms ease;
+  --ease-out-quint: ease-out;
+
+  /* ---- Estrutura de entrada de página (a pele troca os 3) --------------- */
+  --enter-name: hbx-enter-fade;        /* keyframe (transitions.css)        */
+  --enter-duration: var(--motion-base);
+  --enter-ease: var(--ease-out-quint);
+  --enter-stagger: 0ms;                /* atraso por filho (cascata)        */
+
+  /* ---- Traço dos ícones (estrutura: fino ↔ grosso por pele) ------------- */
+  --icon-stroke: 1.7;
+
+  /* ---- Acentos da landing (site público, mundo próprio — marketing.css) -- */
+  --hbx-mint: #6EF2D8;
+  --hbx-teal: #10C7B3;
+  --hbx-teal-deep: #0A6D82;
+  --hbx-ultra: #5B39FF;
+  --hbx-night-1: #03080D;
+  --hbx-night-2: #071724;
+}
+
+/* ============================================================
+   MODO ESCURO AUTOMÁTICO — um atributo escurece tudo.
+   As telas nunca sabem do dark: só a escada muda.
+   ============================================================ */
+[data-theme-mode="dark"] {
+  --hbx-brand: #E4E4E4;
+  --hbx-brand-strong: #FFFFFF;
+  --hbx-brand-soft: #2A2A2A;
+  --hbx-brand-contrast: #111111;
+
+  --hbx-primary: #E4E4E4;
+  --hbx-secondary: #A8A8A8;
+  --hbx-success: #C9C9C9;
+  --hbx-accent: #F0F0F0;
+
+  --hbx-info: #B5B5B5;
+  --hbx-warning: #9C9C9C;
+  --hbx-danger: #D6D6D6;
+
+  --hbx-background: #121212;
+  --hbx-background-alt: #0E0E0E;
+  --hbx-surface: #1B1B1B;
+  --hbx-surface-soft: #171717;
+  --hbx-surface-raised: #242424;
+  --hbx-header-surface: #161616;
+  --hbx-nav-surface: #151515;
+  --hbx-field-surface: #1A1A1A;
+  --hbx-table-head: #181818;
+
+  --hbx-hero-from: #1B1B1B;
+  --hbx-hero-to: #121212;
+
+  --hbx-chat-inbound: #1E1E1E;
+  --hbx-chat-outbound: #2A2A2A;
+  --hbx-chat-system: #191919;
+
+  --hbx-foreground: #F2F2F2;
+  --hbx-foreground-soft: #CFCFCF;
+  --hbx-muted: #9A9A9A;
+
+  --hbx-line: #333333;
+  --hbx-overlay: rgba(0, 0, 0, 0.6);
+
+  --border-hairline: #2E2E2E;
+  --border-strong: #474747;
+  --ring-brand: rgba(255, 255, 255, 0.2);
+
+  --hbx-action-ink: #111111;
+  --hbx-avatar-from: #BFBFBF;
+  --hbx-avatar-to: #8C8C8C;
+}

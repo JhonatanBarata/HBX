@@ -1,15 +1,15 @@
 /* ============================================================
-   HBX System — Typography tokens
-   Display + body: Plus Jakarta Sans  ·  Mono/data: IBM Plex Mono
-   The product sets very tight tracking on headings (-0.04 to -0.08em)
-   and uses uppercase, wide-tracked "overlines" (eyebrows).
+   HBX System — Typography tokens (ESQUELETO)
+   FAMÍLIA é PELE: o esqueleto usa a fonte do sistema; a pele
+   sobrescreve --font-display/--font-body/--font-mono.
+   Escala, pesos e leading são ESTRUTURA (ficam aqui).
    ============================================================ */
 
 :root {
-  /* ---- Families ------------------------------------------------------- */
-  --font-display: "Plus Jakarta Sans", Inter, "Segoe UI", Roboto, Arial, sans-serif;
-  --font-body: "Plus Jakarta Sans", Inter, "Segoe UI", Roboto, Arial, sans-serif;
-  --font-mono: "IBM Plex Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  /* ---- Families (esqueleto: sistema; pele sobrescreve) ----------------- */
+  --font-display: system-ui, "Segoe UI", Roboto, Arial, sans-serif;
+  --font-body: system-ui, "Segoe UI", Roboto, Arial, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 
   /* ---- Weights -------------------------------------------------------- */
   --weight-regular: 400;

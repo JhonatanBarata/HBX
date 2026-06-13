@@ -6,7 +6,12 @@
 // humano=humanAckMessage, Mensagem final=closeTopicMessage) e o chat de
 // teste usa as mensagens/botões reais. O bot real é CONFIG estruturada, não
 // grafo livre — edição pelo canvas precisa de decisão de produto (doc do PR).
-// Canvas/Salvar/Publicar/tabs seguem visuais.
+// Salvar/Publicar = PATCH real: como o backend faz FULL-REPLACE (normaliza o
+// payload do zero), mandamos a config COMPLETA carregada com as edições por
+// cima, senão campos fora do formulário (botões, actionCatalog, setup) seriam
+// zerados. ⋯ recarrega do servidor; zoom/pan do canvas, reset do chat de teste
+// e inserir emoji ligados. Os blocos levam às Configurações (onde o bot é
+// configurado); o construtor visual de grafo continua sendo decisão de produto.
 // Adaptação SPA: classe extra "app-viewport" no .app (ver screens.css).
 
 import React, { useEffect, useRef, useState } from "react";
@@ -69,37 +74,37 @@ const BOT_RULES: { key: keyof BotRoutingRules; label: string; hint: string }[] =
 ];
 
 const BLOCKS = [
-  { t: "Mensagem", d: "Envie uma mensagem de texto", c: "#16C7A4", ic: "msg" },
-  { t: "Pergunta", d: "Faça uma pergunta ao contato", c: "#4CC2FF", ic: "atend" },
-  { t: "Condição", d: "Crie caminhos com regras", c: "#F5B23C", ic: "filter" },
-  { t: "Ação", d: "Execute uma ação no sistema", c: "#2ECC8E", ic: "check" },
-  { t: "Atraso", d: "Adicione uma pausa no fluxo", c: "#9B7BFF", ic: "clock" },
-  { t: "Integração", d: "Conecte com outras ferramentas", c: "#38BDF8", ic: "scrape" },
+  { t: "Mensagem", d: "Envie uma mensagem de texto", c: "var(--hbx-brand)", ic: "msg" },
+  { t: "Pergunta", d: "Faça uma pergunta ao contato", c: "var(--hbx-info)", ic: "atend" },
+  { t: "Condição", d: "Crie caminhos com regras", c: "var(--hbx-warning)", ic: "filter" },
+  { t: "Ação", d: "Execute uma ação no sistema", c: "var(--hbx-success)", ic: "check" },
+  { t: "Atraso", d: "Adicione uma pausa no fluxo", c: "var(--hbx-secondary)", ic: "clock" },
+  { t: "Integração", d: "Conecte com outras ferramentas", c: "var(--hbx-info)", ic: "scrape" },
 ];
 
 type FlowNode = { id: string; x: number; y: number; ic: string; c: string; t: string; b: string; f?: string; yn?: boolean };
 
 const NODES: FlowNode[] = [
-  { id: "boas", x: 40, y: 60, ic: "msg", c: "#16C7A4", t: "Boas-vindas", b: "👋 Olá! Bem-vindo à HBX. Como posso te ajudar hoje?", f: "Próximo passo" },
-  { id: "qual", x: 300, y: 60, ic: "atend", c: "#4CC2FF", t: "Qualificação", b: "Qual melhor descreve sua necessidade hoje?", f: "Próximo passo" },
-  { id: "cond", x: 560, y: 60, ic: "filter", c: "#F5B23C", t: "Condição", b: "Interessado em soluções comerciais?", yn: true },
-  { id: "capt", x: 170, y: 290, ic: "doc", c: "#4CC2FF", t: "Capturar interesse", b: "Qual área da sua empresa você quer melhorar?", f: "Próximo passo" },
-  { id: "agen", x: 420, y: 290, ic: "clock", c: "#2ECC8E", t: "Agendamento", b: "Posso agendar uma conversa com nosso especialista?", f: "Próximo passo" },
-  { id: "msgf", x: 670, y: 290, ic: "msg", c: "#16C7A4", t: "Mensagem", b: "Tudo bem! Se precisar de algo, estarei por aqui. 😊", f: "Fim do fluxo" },
-  { id: "ofer", x: 170, y: 480, ic: "money", c: "#2ECC8E", t: "Oferta", b: "Temos uma solução ideal para o que você precisa.", f: "Próximo passo" },
-  { id: "tran", x: 420, y: 480, ic: "users", c: "#F5B23C", t: "Transferir para humano", b: "Conectando você com um de nossos atendentes...", f: "Próximo passo" },
+  { id: "boas", x: 40, y: 60, ic: "msg", c: "var(--hbx-brand)", t: "Boas-vindas", b: "👋 Olá! Bem-vindo à HBX. Como posso te ajudar hoje?", f: "Próximo passo" },
+  { id: "qual", x: 300, y: 60, ic: "atend", c: "var(--hbx-info)", t: "Qualificação", b: "Qual melhor descreve sua necessidade hoje?", f: "Próximo passo" },
+  { id: "cond", x: 560, y: 60, ic: "filter", c: "var(--hbx-warning)", t: "Condição", b: "Interessado em soluções comerciais?", yn: true },
+  { id: "capt", x: 170, y: 290, ic: "doc", c: "var(--hbx-info)", t: "Capturar interesse", b: "Qual área da sua empresa você quer melhorar?", f: "Próximo passo" },
+  { id: "agen", x: 420, y: 290, ic: "clock", c: "var(--hbx-success)", t: "Agendamento", b: "Posso agendar uma conversa com nosso especialista?", f: "Próximo passo" },
+  { id: "msgf", x: 670, y: 290, ic: "msg", c: "var(--hbx-brand)", t: "Mensagem", b: "Tudo bem! Se precisar de algo, estarei por aqui. 😊", f: "Fim do fluxo" },
+  { id: "ofer", x: 170, y: 480, ic: "money", c: "var(--hbx-success)", t: "Oferta", b: "Temos uma solução ideal para o que você precisa.", f: "Próximo passo" },
+  { id: "tran", x: 420, y: 480, ic: "users", c: "var(--hbx-warning)", t: "Transferir para humano", b: "Conectando você com um de nossos atendentes...", f: "Próximo passo" },
 ];
 
 type FlowEdge = { from: [number, number]; to: [number, number]; c: string; curve?: boolean };
 
 const EDGES: FlowEdge[] = [
-  { from: [255, 130], to: [300, 130], c: "#16C7A4" },
-  { from: [515, 130], to: [560, 130], c: "#16C7A4" },
-  { from: [620, 196], to: [278, 290], c: "#16C7A4", curve: true },
-  { from: [660, 196], to: [528, 290], c: "#16C7A4", curve: true },
-  { from: [700, 196], to: [778, 290], c: "#F0566B", curve: true },
-  { from: [278, 408], to: [278, 480], c: "#16C7A4" },
-  { from: [528, 408], to: [528, 480], c: "#16C7A4" },
+  { from: [255, 130], to: [300, 130], c: "var(--hbx-brand)" },
+  { from: [515, 130], to: [560, 130], c: "var(--hbx-brand)" },
+  { from: [620, 196], to: [278, 290], c: "var(--hbx-brand)", curve: true },
+  { from: [660, 196], to: [528, 290], c: "var(--hbx-brand)", curve: true },
+  { from: [700, 196], to: [778, 290], c: "var(--hbx-danger)", curve: true },
+  { from: [278, 408], to: [278, 480], c: "var(--hbx-brand)" },
+  { from: [528, 408], to: [528, 480], c: "var(--hbx-brand)" },
 ];
 
 type ChatMsg = { dir: "in" | "out"; text: string; tm: string; quick?: boolean };
@@ -109,6 +114,8 @@ const CHAT0: ChatMsg[] = [
   { dir: "out", text: "Quero melhorar nosso processo comercial.", tm: "10:31" },
   { dir: "in", text: "Qual melhor descreve sua necessidade hoje?", tm: "10:31", quick: true },
 ];
+
+const EMOJIS = ["😊", "👍", "🙏", "🎉", "❤️", "😂", "🚀", "✅"];
 
 function hhmm() {
   return new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
@@ -135,7 +142,12 @@ export function BotClient() {
   const [cfgRules, setCfgRules] = useState<Partial<BotRoutingRules>>({});
   const [cfgBusy, setCfgBusy] = useState(false);
   const [cfgMsg, setCfgMsg] = useState<string | null>(null);
+  const [zoom, setZoom] = useState(1);
+  const [canvasTool, setCanvasTool] = useState<"select" | "pan">("select");
   const endRef = useRef<HTMLDivElement | null>(null);
+  const canvasRef = useRef<HTMLDivElement | null>(null);
+  const panRef = useRef<{ x: number; y: number; sl: number; st: number } | null>(null);
+  const emojiIdx = useRef(0);
 
   function cfgValue(key: keyof BotConfig): string {
     const edited = cfgForm[key];
@@ -184,27 +196,37 @@ export function BotClient() {
 
   const acoesDisponiveis = (config?.actionCatalog || []).filter(a => a.enabled !== false);
 
-  async function salvarConfig() {
+  // PATCH /inbox/bot-config é FULL-REPLACE (o backend normaliza o payload do
+  // zero e zera o que não vier — welcomeButtons viram [], setup/actionCatalog
+  // voltam ao default). Por isso partimos da config COMPLETA carregada e só
+  // sobrepomos as edições do formulário: assim nada é perdido ao salvar.
+  function buildBody(overrides?: { globalBotEnabled?: boolean }): Record<string, unknown> {
+    const body: Record<string, unknown> = config ? { ...config } : {};
+    for (const f of BOT_MSG_FIELDS) {
+      const v = cfgValue(f.key);
+      if (v.trim()) body[f.key] = v;
+    }
+    const rules: Record<string, boolean> = Object.fromEntries(BOT_RULES.map(r => [r.key, ruleValue(r.key)]));
+    if (overrides && typeof overrides.globalBotEnabled === "boolean") rules.globalBotEnabled = overrides.globalBotEnabled;
+    body.routingRules = rules;
+    for (const g of BOT_BTN_GROUPS) {
+      const editados = cfgBotoes[g.key];
+      if (!editados) continue;
+      body[g.key] = editados.map(b => ({
+        buttonId: b.buttonId,
+        actionId: b.actionId,
+        title: b.title.trim(),
+        ...(b.nextNodeId ? { nextNodeId: b.nextNodeId } : {}),
+      }));
+    }
+    return body;
+  }
+
+  async function patchConfig(body: Record<string, unknown>, okMsg: string) {
     if (cfgBusy) return;
     setCfgBusy(true);
     setCfgMsg(null);
     try {
-      const body: Record<string, unknown> = {};
-      for (const f of BOT_MSG_FIELDS) {
-        const v = cfgValue(f.key);
-        if (v.trim()) body[f.key] = v;
-      }
-      body.routingRules = Object.fromEntries(BOT_RULES.map(r => [r.key, ruleValue(r.key)]));
-      for (const g of BOT_BTN_GROUPS) {
-        const editados = cfgBotoes[g.key];
-        if (!editados) continue;
-        body[g.key] = editados.map(b => ({
-          buttonId: b.buttonId,
-          actionId: b.actionId,
-          title: b.title.trim(),
-          ...(b.nextNodeId ? { nextNodeId: b.nextNodeId } : {}),
-        }));
-      }
       const updated = await apiFetch<BotConfig>("/inbox/bot-config", {
         method: "PATCH",
         body: JSON.stringify(body),
@@ -213,13 +235,77 @@ export function BotClient() {
       setCfgForm({});
       setCfgRules({});
       setCfgBotoes({});
-      setCfgMsg("✓ Configuração salva.");
+      setCfgMsg(okMsg);
     } catch (err) {
       setCfgMsg(err instanceof Error ? err.message : "Não foi possível salvar.");
     } finally {
       setCfgBusy(false);
     }
   }
+
+  function salvarConfig() {
+    void patchConfig(buildBody(), "✓ Configuração salva.");
+  }
+
+  // Publicar = salvar + ligar/desligar o bot em todas as conversas novas
+  // (routingRules.globalBotEnabled). O backend recusa se o setup não estiver
+  // completo — a mensagem dele aparece no cabeçalho.
+  function publicar() {
+    if (cfgBusy) return;
+    const ligar = !Boolean(config?.routingRules?.globalBotEnabled);
+    if (
+      ligar &&
+      typeof window !== "undefined" &&
+      !window.confirm("Publicar o bot? Ele passará a responder automaticamente as novas conversas do WhatsApp.")
+    ) return;
+    void patchConfig(buildBody({ globalBotEnabled: ligar }), ligar ? "✓ Bot publicado e ativo." : "✓ Bot despublicado.");
+  }
+
+  // Recarrega a config salva do servidor (botão ⋯) e descarta edições locais.
+  async function recarregar() {
+    if (cfgBusy) return;
+    setCfgMsg(null);
+    try {
+      const cfg = await apiFetch<BotConfig>("/inbox/bot-config");
+      if (!cfg) return;
+      setConfig(cfg);
+      setCfgForm({});
+      setCfgRules({});
+      setCfgBotoes({});
+      if (cfg.welcomeMessage) { setChat([{ dir: "in", text: cfg.welcomeMessage, tm: hhmm(), quick: true }]); setStep(0); }
+      setCfgMsg("✓ Configuração recarregada.");
+    } catch (err) {
+      setCfgMsg(err instanceof Error ? err.message : "Não foi possível recarregar.");
+    }
+  }
+
+  function resetChat() {
+    if (config?.welcomeMessage) setChat([{ dir: "in", text: config.welcomeMessage, tm: hhmm(), quick: true }]);
+    else setChat(CHAT0);
+    setStep(0);
+    setDraft("");
+  }
+
+  const zoomIn = () => setZoom(z => Math.min(1.5, Math.round((z + 0.1) * 10) / 10));
+  const zoomOut = () => setZoom(z => Math.max(0.5, Math.round((z - 0.1) * 10) / 10));
+
+  function addEmoji() {
+    const e = EMOJIS[emojiIdx.current % EMOJIS.length];
+    emojiIdx.current += 1;
+    setDraft(d => d + e);
+  }
+
+  // pan do canvas quando a ferramenta "mover" está ativa (arrasta o scroll)
+  function onCanvasDown(e: React.MouseEvent) {
+    if (canvasTool !== "pan" || !canvasRef.current) return;
+    panRef.current = { x: e.clientX, y: e.clientY, sl: canvasRef.current.scrollLeft, st: canvasRef.current.scrollTop };
+  }
+  function onCanvasMove(e: React.MouseEvent) {
+    if (!panRef.current || !canvasRef.current) return;
+    canvasRef.current.scrollLeft = panRef.current.sl - (e.clientX - panRef.current.x);
+    canvasRef.current.scrollTop = panRef.current.st - (e.clientY - panRef.current.y);
+  }
+  function onCanvasUp() { panRef.current = null; }
   useEffect(() => { if (endRef.current) endRef.current.scrollTop = endRef.current.scrollHeight; }, [chat]);
 
   useEffect(() => {
@@ -268,6 +354,7 @@ export function BotClient() {
   const setupBadge = config
     ? config.setup?.completed ? "✓ Configurado" : "Configuração pendente"
     : "✓ Salvo";
+  const botAtivo = Boolean(config?.routingRules?.globalBotEnabled);
 
   return (
     <div className="app app-viewport">
@@ -279,10 +366,10 @@ export function BotClient() {
           <span className="saved" style={config && !config.setup?.completed ? { color: "var(--hbx-warning)" } : {}}>{setupBadge}</span>
           <div style={{ marginLeft: "auto", display: "flex", gap: 9 }}>
             {cfgMsg && <span style={{ alignSelf: "center", fontSize: "0.7rem", fontWeight: 700, color: cfgMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{cfgMsg}</span>}
-            <button className="btn-ghost" style={{ minWidth: 38 }}>⋯</button>
+            <button className="btn-ghost" style={{ minWidth: 38 }} title="Recarregar configuração do servidor" onClick={recarregar} disabled={cfgBusy}>⋯</button>
             <button className="btn-ghost" onClick={() => setTab(0)}><I d={ICONS.send} size={13} /> Testar bot</button>
             <button className="btn-ghost" onClick={salvarConfig} disabled={cfgBusy}>{cfgBusy ? "Salvando…" : "Salvar"}</button>
-            <button className="btn-teal">Publicar ▾</button>
+            <button className="btn-teal" onClick={publicar} disabled={cfgBusy}>{botAtivo ? "Publicado ✓" : "Publicar"}</button>
           </div>
         </div>
         <div className="bot-tabs">
@@ -295,26 +382,29 @@ export function BotClient() {
         {tab === 0 && (
         <div className="builder">
           <aside className="blocks">
-            <h2>Adicionar blocos</h2>
-            <p className="hint">Arraste os blocos para o fluxo</p>
+            <h2>Tipos de bloco</h2>
+            <p className="hint">Clique para configurar o bot</p>
             {BLOCKS.map(b => (
-              <div className="block" key={b.t} draggable>
+              <div className="block" key={b.t} role="button" tabIndex={0} title="Configurar nas Configurações"
+                style={{ cursor: "pointer" }} onClick={() => setTab(1)}
+                onKeyDown={e => (e.key === "Enter" || e.key === " ") && setTab(1)}>
                 <span className="bicon" style={{ background: b.c }}><I d={ICONS[b.ic]} size={15} /></span>
                 <span><strong>{b.t}</strong><small>{b.d}</small></span>
               </div>
             ))}
-            <div className="tip">💡 Dica: arraste os blocos para o canvas</div>
+            <div className="tip">💡 O fluxo do bot é configurado na aba Configurações (mensagens, botões e regras).</div>
           </aside>
 
-          <div className="canvas">
+          <div className="canvas" ref={canvasRef} onMouseDown={onCanvasDown} onMouseMove={onCanvasMove}
+            onMouseUp={onCanvasUp} onMouseLeave={onCanvasUp} style={{ cursor: canvasTool === "pan" ? "grab" : "default" }}>
             <div className="canvas-tools">
-              <button className="ct on"><I d={["M4 4l7 16 2.5-6.5L20 11z"]} size={14} /></button>
-              <button className="ct"><I d={["M18 11V7a2 2 0 0 0-4 0v4M14 10V5a2 2 0 0 0-4 0v5M10 10.5V7a2 2 0 0 0-4 0v7a7 7 0 0 0 14 0v-3a2 2 0 0 0-4 0"]} size={14} /></button>
-              <button className="ct"><I d={ICONS.search} size={14} /></button>
-              <button className="ct" style={{ minWidth: 44 }}>100%</button>
-              <button className="ct"><I d={ICONS.plus} size={14} /></button>
+              <button className={"ct" + (canvasTool === "select" ? " on" : "")} title="Selecionar" onClick={() => setCanvasTool("select")}><I d={["M4 4l7 16 2.5-6.5L20 11z"]} size={14} /></button>
+              <button className={"ct" + (canvasTool === "pan" ? " on" : "")} title="Mover (arraste o canvas)" onClick={() => setCanvasTool("pan")}><I d={["M18 11V7a2 2 0 0 0-4 0v4M14 10V5a2 2 0 0 0-4 0v5M10 10.5V7a2 2 0 0 0-4 0v7a7 7 0 0 0 14 0v-3a2 2 0 0 0-4 0"]} size={14} /></button>
+              <button className="ct" title="Diminuir zoom" onClick={zoomOut}><I d={ICONS.search} size={14} /></button>
+              <button className="ct" style={{ minWidth: 44 }} title="Voltar a 100%" onClick={() => setZoom(1)}>{Math.round(zoom * 100)}%</button>
+              <button className="ct" title="Aumentar zoom" onClick={zoomIn}><I d={ICONS.plus} size={14} /></button>
             </div>
-            <div style={{ position: "relative", width: 940, height: 640 }}>
+            <div style={{ position: "relative", width: 940, height: 640, transform: `scale(${zoom})`, transformOrigin: "top left" }}>
               <svg style={{ position: "absolute", inset: 0, pointerEvents: "none" }} width="940" height="640">
                 {EDGES.map((e, i) => {
                   const [x1, y1] = e.from, [x2, y2] = e.to;
@@ -323,9 +413,9 @@ export function BotClient() {
                     : `M ${x1} ${y1} L ${x2} ${y2}`;
                   return (
                     <g key={i}>
-                      <path d={d} stroke={e.c} strokeWidth="1.6" fill="none" opacity="0.85" />
-                      <circle cx={x2} cy={y2} r="3.5" fill={e.c} />
-                      <circle cx={x1} cy={y1} r="3.5" fill={e.c} opacity="0.6" />
+                      <path d={d} style={{ stroke: e.c }} strokeWidth="1.6" fill="none" opacity="0.85" />
+                      <circle cx={x2} cy={y2} r="3.5" style={{ fill: e.c }} />
+                      <circle cx={x1} cy={y1} r="3.5" style={{ fill: e.c }} opacity="0.6" />
                     </g>
                   );
                 })}
@@ -349,7 +439,7 @@ export function BotClient() {
             <div className="test-head">
               <h2>Teste seu bot</h2>
               <span className="saved" style={{ fontSize: "0.66rem" }}>Online ●</span>
-              <button className="icon-ghost" style={{ width: 28, height: 28 }}><I d={["M21 12a9 9 0 1 1-3-6.7", "M21 3v6h-6"]} size={14} /></button>
+              <button className="icon-ghost" style={{ width: 28, height: 28 }} title="Reiniciar conversa de teste" onClick={resetChat}><I d={["M21 12a9 9 0 1 1-3-6.7", "M21 3v6h-6"]} size={14} /></button>
             </div>
             <div className="msgs" ref={endRef} style={{ padding: 14 }}>
               <div style={{ display: "flex", gap: 9, alignItems: "center", marginBottom: 6 }}>
@@ -358,9 +448,9 @@ export function BotClient() {
               </div>
               {chat.map((m, i) => (
                 <div key={i} className={"msg " + m.dir} style={{ maxWidth: "88%" }}>
-                  <div className="bubble" style={m.dir === "out" ? { background: "var(--hbx-brand)", borderColor: "var(--hbx-brand)", color: "#04110D", fontWeight: 600 } : {}}>
+                  <div className="bubble" style={m.dir === "out" ? { background: "var(--hbx-brand)", borderColor: "var(--hbx-brand)", color: "var(--hbx-action-ink)", fontWeight: 600 } : {}}>
                     <div style={{ whiteSpace: "pre-line" }}>{m.text}</div>
-                    <div className="tm" style={m.dir === "out" ? { color: "rgba(4,17,13,0.6)" } : {}}>{m.tm}{m.dir === "out" && <span className="ck" style={{ color: "rgba(4,17,13,0.7)" }}>✓✓</span>}</div>
+                    <div className="tm" style={m.dir === "out" ? { color: "color-mix(in srgb, var(--hbx-action-ink) 60%, transparent)" } : {}}>{m.tm}{m.dir === "out" && <span className="ck" style={{ color: "color-mix(in srgb, var(--hbx-action-ink) 70%, transparent)" }}>✓✓</span>}</div>
                   </div>
                 </div>
               ))}
@@ -376,7 +466,7 @@ export function BotClient() {
               <div className="row">
                 <input className="field-dark" style={{ flex: 1 }} placeholder="Digite sua mensagem..." value={draft}
                   onChange={e => setDraft(e.target.value)} onKeyDown={e => e.key === "Enter" && send()} />
-                <button className="icon-ghost"><I d={ICONS.smile} size={16} /></button>
+                <button className="icon-ghost" title="Inserir emoji" onClick={addEmoji}><I d={ICONS.smile} size={16} /></button>
                 <button className="send" onClick={send}><I d={ICONS.send} size={15} /></button>
               </div>
             </div>

@@ -77,7 +77,7 @@ export function ResetPasswordClient() {
           </div>
           {okMsg && <div className="ok show">{okMsg}</div>}
           {error && (
-            <div className="ok show" style={{ borderColor: "rgba(240,86,107,0.3)", background: "rgba(240,86,107,0.08)", color: "var(--hbx-danger)" }}>
+            <div className="ok show" style={{ borderColor: "color-mix(in srgb, var(--hbx-danger) 30%, transparent)", background: "color-mix(in srgb, var(--hbx-danger) 8%, transparent)", color: "var(--hbx-danger)" }}>
               {error}
             </div>
           )}
@@ -101,7 +101,7 @@ export function ResetPasswordClient() {
           </div>
           {okMsg && <div className="ok show">{okMsg}</div>}
           {error && (
-            <div className="ok show" style={{ borderColor: "rgba(240,86,107,0.3)", background: "rgba(240,86,107,0.08)", color: "var(--hbx-danger)" }}>
+            <div className="ok show" style={{ borderColor: "color-mix(in srgb, var(--hbx-danger) 30%, transparent)", background: "color-mix(in srgb, var(--hbx-danger) 8%, transparent)", color: "var(--hbx-danger)" }}>
               {error}
             </div>
           )}

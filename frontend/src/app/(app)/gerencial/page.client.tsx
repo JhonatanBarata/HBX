@@ -438,7 +438,7 @@ export function GerencialClient() {
                               <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
                                 <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.68rem" }} onClick={() => abrirEditar(p)}>Editar</button>
                                 {arquivarArm === p.id ? (
-                                  <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.68rem", color: "var(--hbx-danger)", borderColor: "rgba(240,86,107,0.4)" }} onClick={() => arquivar(p)} disabled={busy}>Confirmar</button>
+                                  <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.68rem", color: "var(--hbx-danger)", borderColor: "color-mix(in srgb, var(--hbx-danger) 40%, transparent)" }} onClick={() => arquivar(p)} disabled={busy}>Confirmar</button>
                                 ) : (
                                   <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.68rem" }} onClick={() => setArquivarArm(p.id)} disabled={p.status === "archived"}>Arquivar</button>
                                 )}
@@ -459,7 +459,7 @@ export function GerencialClient() {
                   )}
 
                   {(casos?.length ?? 0) > 0 && (
-                    <section className="panel" style={{ borderColor: "rgba(245,178,60,0.4)" }}>
+                    <section className="panel" style={{ borderColor: "color-mix(in srgb, var(--hbx-warning) 40%, transparent)" }}>
                       <div className="panel-head">
                         <h2>Casos de cancelamento — sua triagem</h2>
                         <div className="meta">
@@ -488,7 +488,7 @@ export function GerencialClient() {
                                       const armado = casoArm === `${c.leadId}:${r}`;
                                       return (
                                         <button key={r} className="btn-ghost" disabled={casoBusy}
-                                          style={{ minHeight: 26, fontSize: "0.64rem", ...(armado ? { color: "var(--hbx-danger)", borderColor: "rgba(240,86,107,0.4)" } : r === "kept" ? { color: "var(--hbx-brand-strong)" } : {}) }}
+                                          style={{ minHeight: 26, fontSize: "0.64rem", ...(armado ? { color: "var(--hbx-danger)", borderColor: "color-mix(in srgb, var(--hbx-danger) 40%, transparent)" } : r === "kept" ? { color: "var(--hbx-brand-strong)" } : {}) }}
                                           onClick={() => armado ? decidirCaso(c.leadId, r) : setCasoArm(`${c.leadId}:${r}`)}>
                                           {armado ? `Confirmar ${rotulo.toLowerCase()}` : rotulo}
                                         </button>
@@ -587,7 +587,7 @@ export function GerencialClient() {
                                 <td>
                                   {comissoes?.canPayout && p.status === "paid" && (
                                     cancelArm === p.id ? (
-                                      <button className="btn-ghost" style={{ minHeight: 26, fontSize: "0.64rem", color: "var(--hbx-danger)", borderColor: "rgba(240,86,107,0.4)" }}
+                                      <button className="btn-ghost" style={{ minHeight: 26, fontSize: "0.64rem", color: "var(--hbx-danger)", borderColor: "color-mix(in srgb, var(--hbx-danger) 40%, transparent)" }}
                                         onClick={() => cancelarPayout(p.id)} disabled={payoutBusy}>Confirmar</button>
                                     ) : (
                                       <button className="btn-ghost" style={{ minHeight: 26, fontSize: "0.64rem" }} onClick={() => setCancelArm(p.id)}>Cancelar</button>
@@ -642,7 +642,7 @@ export function GerencialClient() {
                                     const armado = candArm === `${c.id}:${a}`;
                                     return (
                                       <button key={a} className="btn-ghost" disabled={candBusy}
-                                        style={{ minHeight: 26, fontSize: "0.64rem", ...(armado ? { color: "var(--hbx-danger)", borderColor: "rgba(240,86,107,0.4)" } : a === "approve" ? { color: "var(--hbx-brand-strong)" } : {}) }}
+                                        style={{ minHeight: 26, fontSize: "0.64rem", ...(armado ? { color: "var(--hbx-danger)", borderColor: "color-mix(in srgb, var(--hbx-danger) 40%, transparent)" } : a === "approve" ? { color: "var(--hbx-brand-strong)" } : {}) }}
                                         onClick={() => armado ? revisarCandidatura(c.id, a) : setCandArm(`${c.id}:${a}`)}>
                                         {armado ? `Confirmar` : rotulo}
                                       </button>
@@ -673,9 +673,9 @@ export function GerencialClient() {
 
       {payoutOpen && (
         <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setPayoutOpen(false); }}
-          style={{ position: "fixed", inset: 0, zIndex: 45, background: "var(--hbx-overlay)", display: "grid", placeItems: "center", padding: 24 }}>
+          style={{ position: "fixed", inset: 0, zIndex: 45, display: "grid", placeItems: "center", padding: 24 }}>
           <form className="hbx-modal" onSubmit={gerarPayout}
-            style={{ width: "min(420px, 100%)", display: "grid", gap: 12, padding: 24, borderRadius: "var(--radius-xl)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface)", boxShadow: "var(--shadow-md)" }}>
+            style={{ width: "min(420px, 100%)", display: "grid", gap: 12, padding: 24 }}>
             <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               Marcar comissões como pagas
               <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setPayoutOpen(false)}>✕</span>
@@ -718,9 +718,9 @@ export function GerencialClient() {
 
       {modalOpen && (
         <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setModalOpen(false); }}
-          style={{ position: "fixed", inset: 0, zIndex: 45, background: "var(--hbx-overlay)", display: "grid", placeItems: "center", padding: 24 }}>
+          style={{ position: "fixed", inset: 0, zIndex: 45, display: "grid", placeItems: "center", padding: 24 }}>
           <form className="hbx-modal" onSubmit={salvar}
-            style={{ width: "min(440px, 100%)", display: "grid", gap: 12, padding: 24, borderRadius: "var(--radius-xl)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface)", boxShadow: "var(--shadow-md)" }}>
+            style={{ width: "min(440px, 100%)", display: "grid", gap: 12, padding: 24 }}>
             <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               {editId == null ? "Novo produto" : "Editar produto"}
               <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setModalOpen(false)}>✕</span>

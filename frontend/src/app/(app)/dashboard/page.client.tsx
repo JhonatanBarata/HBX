@@ -42,6 +42,14 @@ type Report = {
 // fazia o nome/avatar virem undefined em "Top vendedores".
 type Audit = { rows?: { seller: { id: number; name: string }; metrics: { closedCards: number; workRate: number } }[] } | null;
 
+// GET /vendas/commission/summary → no scope "seller" o backend devolve só os
+// cards do próprio vendedor (totais já em BRL). Alimenta o KPI "Comissão" e só
+// é exibido quando userKind === "seller".
+type Commission = {
+  ok?: boolean;
+  totals?: { payableAmount: number; duePayableAmount: number; duePayableCount: number; pendingAmount: number; paidAmount: number; nextDueAt?: string | null };
+} | null;
+
 const EVENT_LABEL: Record<string, string> = {
   contact_made: "Contato realizado",
   result_recorded: "Resultado registrado",
@@ -59,11 +67,11 @@ const EVENT_LABEL: Record<string, string> = {
 };
 
 const EVENT_COLOR: Record<string, string> = {
-  lead_closed: "#2EE6A8",
-  reply_received: "#16C7A4",
-  inbound_reply: "#16C7A4",
-  return_scheduled: "#4CC2FF",
-  contact_made: "#F5B23C",
+  lead_closed: "var(--hbx-brand-strong)",
+  reply_received: "var(--hbx-brand)",
+  inbound_reply: "var(--hbx-brand)",
+  return_scheduled: "var(--hbx-info)",
+  contact_made: "var(--hbx-warning)",
 };
 
 function eventLabel(t?: string) {
@@ -88,6 +96,10 @@ function fmtHora(iso?: string | null) {
   return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
 }
 
+function fmtMoney(v?: number | null) {
+  return Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
 export function DashboardClient() {
   const user = useCurrentUser();
   const [tasks, setTasks] = useState<boolean[]>([]);
@@ -96,7 +108,9 @@ export function DashboardClient() {
   const [convCount, setConvCount] = useState<number | null>(null);
   const [report, setReport] = useState<Report>(null);
   const [audit, setAudit] = useState<Audit>(null);
+  const [commission, setCommission] = useState<Commission>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const isSeller = String(user?.userKind || "") === "seller";
 
   useEffect(() => {
     let alive = true;
@@ -115,6 +129,9 @@ export function DashboardClient() {
     apiFetch<Audit>("/vendas/seller-audit")
       .then(res => { if (alive) setAudit(res); })
       .catch(() => { /* só Admin vê */ });
+    apiFetch<Commission>("/vendas/commission/summary")
+      .then(res => { if (alive) setCommission(res); })
+      .catch(() => { /* sem acesso à comissão pela política da equipe */ });
     return () => { alive = false; };
   }, []);
 
@@ -135,11 +152,12 @@ export function DashboardClient() {
   const segments = report?.rankings?.segments || [];
   const maxSeg = Math.max(1, ...segments.map(s => s.count));
   const m = report?.metrics;
+  const ct = commission?.totals;
   const funil = m ? [
-    { label: "Cards recebidos", value: m.cardsRecebidos, c: "#4CC2FF" },
-    { label: "Chamados", value: m.cardsChamados, c: "#16C7A4" },
-    { label: "Respostas", value: m.respostas, c: "#2EE6A8" },
-    { label: "Interessados", value: m.interessados, c: "#F5B23C" },
+    { label: "Cards recebidos", value: m.cardsRecebidos, c: "var(--hbx-info)" },
+    { label: "Chamados", value: m.cardsChamados, c: "var(--hbx-brand)" },
+    { label: "Respostas", value: m.respostas, c: "var(--hbx-brand-strong)" },
+    { label: "Interessados", value: m.interessados, c: "var(--hbx-warning)" },
   ] : [];
   const maxFunil = Math.max(1, ...funil.map(f => f.value));
   const vendedores = (audit?.rows || [])
@@ -170,10 +188,24 @@ export function DashboardClient() {
             <div style={{ fontSize: "0.74rem", fontWeight: 600, color: "var(--hbx-danger)" }}>{loadError}</div>
           ) : null}
           <KpiRow items={[
-            { icon: "money", label: "Cards no funil", value: summary ? String(summary.total) : "—", delta: "—" },
-            { icon: "users", label: "Leads na base (Radar)", value: radarTotal != null ? radarTotal.toLocaleString("pt-BR") : "—", delta: "—" },
-            { icon: "atend", label: "Atendimentos em aberto", value: convCount != null ? String(convCount) : "—", delta: "—" },
-            { icon: "check", label: "Taxa de conversão (7d)", value: m ? `${(m.taxaConversao * 100).toFixed(1).replace(".", ",")}%` : "—", delta: "—" },
+            { icon: "money", label: "Cards no funil", value: summary ? String(summary.total) : "—", href: "/vendas" },
+            // Vendedor vê a comissão dele (ordem do dono); demais perfis veem a base do Radar.
+            isSeller
+              ? {
+                  icon: "money",
+                  label: "Comissão a receber",
+                  value: ct ? fmtMoney(ct.payableAmount) : "—",
+                  sub: ct && ct.duePayableAmount > 0
+                    ? `${fmtMoney(ct.duePayableAmount)} liberada`
+                    : ct && ct.paidAmount > 0
+                      ? `${fmtMoney(ct.paidAmount)} já paga`
+                      : "a receber",
+                  href: "/gerencial",
+                  onClick: () => { try { sessionStorage.setItem("hbx:gerencial-aba", "Comissões"); } catch { /* sem storage */ } },
+                }
+              : { icon: "users", label: "Leads na base (Radar)", value: radarTotal != null ? radarTotal.toLocaleString("pt-BR") : "—", href: "/leads" },
+            { icon: "atend", label: "Atendimentos em aberto", value: convCount != null ? String(convCount) : "—", href: "/atendimento" },
+            { icon: "check", label: "Taxa de conversão (7d)", value: m ? `${(m.taxaConversao * 100).toFixed(1).replace(".", ",")}%` : "—", href: "/relatorios" },
           ]} />
 
           <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 14 }}>
@@ -237,14 +269,14 @@ export function DashboardClient() {
                   <p style={{ margin: "12px 0", fontSize: "0.74rem", color: "var(--text-muted)" }}>Sem eventos ainda — a atividade nasce do trabalho nos cards.</p>
                 )}
                 {atividade.map(({ card, ev }, i) => (
-                  <div className="it" key={ev.id || i}>
-                    <span className="dot" style={{ background: EVENT_COLOR[String(ev.eventType || "").toLowerCase()] || "#4CC2FF" }}></span>
+                  <Link className="it" href="/vendas" key={ev.id || i}>
+                    <span className="dot" style={{ background: EVENT_COLOR[String(ev.eventType || "").toLowerCase()] || "var(--hbx-info)" }}></span>
                     <div>
                       <div className="t">{activityLabel(ev)} — {card.name || "card"}</div>
                       <div className="d">{ev.note || ev.description || card.statusLabel || ""}</div>
                     </div>
                     <time>{fmtHora(ev.createdAt)}</time>
-                  </div>
+                  </Link>
                 ))}
               </div>
             </section>
@@ -256,23 +288,28 @@ export function DashboardClient() {
                   <p style={{ margin: "10px 0", fontSize: "0.74rem", color: "var(--text-muted)" }}>Nenhum retorno para hoje.</p>
                 )}
                 {tarefas.map((t, i) => (
-                  <label className="task" key={t.id ?? i}>
-                    <input type="checkbox" checked={Boolean(tasks[i])} onChange={() => setTasks(ts => { const next = [...ts]; next[i] = !next[i]; return next; })} />
+                  <div className="task" key={t.id ?? i}>
+                    <input type="checkbox" checked={Boolean(tasks[i])} aria-label="Marcar como visto (local)" onChange={() => setTasks(ts => { const next = [...ts]; next[i] = !next[i]; return next; })} />
                     <span>
-                      <span className="t" style={{ textDecoration: tasks[i] ? "line-through" : "none", opacity: tasks[i] ? 0.6 : 1 }}>{t.nextAction || "Retorno agendado"}</span>
+                      <Link className="t" href="/vendas" style={{ textDecoration: tasks[i] ? "line-through" : "none", opacity: tasks[i] ? 0.6 : 1 }}>{t.nextAction || "Retorno agendado"}</Link>
                       <span className="d">{t.name || "—"}</span>
                     </span>
-                  </label>
+                  </div>
                 ))}
                 <Link className="link" href="/vendas">Ver todas no Vendas</Link>
               </div>
             </section>
 
             <section className="panel">
-              <div className="panel-head"><h2>Top vendedores</h2></div>
+              <div className="panel-head">
+                <h2>{isSeller ? "Meu desempenho" : "Top vendedores"}</h2>
+                <div className="meta">
+                  <Link className="link" href="/gerencial" onClick={() => { try { sessionStorage.setItem("hbx:gerencial-aba", "Comissões"); } catch { /* sem storage */ } }}>Comissões</Link>
+                </div>
+              </div>
               <div style={{ padding: "10px 18px 16px", display: "grid", gap: 13 }}>
                 {vendedores.length === 0 && (
-                  <p style={{ margin: "10px 0", fontSize: "0.74rem", color: "var(--text-muted)" }}>Sem auditoria de vendedores no período (visível para Admin/Master).</p>
+                  <p style={{ margin: "10px 0", fontSize: "0.74rem", color: "var(--text-muted)" }}>{isSeller ? "Trabalhe e feche cards para ver seu desempenho aqui." : "Sem dados de vendedores no período ainda."}</p>
                 )}
                 {vendedores.map((v, i) => (
                   <div key={v.seller.id} style={{ display: "grid", gap: 6 }}>

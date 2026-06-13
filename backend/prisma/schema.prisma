@@ -743,6 +743,23 @@ model AtendimentoCustomer {
   @@index([customerProfileId])
 }
 
+// Respostas prontas do Atendimento ("Inserir mensagem rápida"). Por empresa;
+// companyId é escalar de propósito (sem back-relation no Company) — tabela
+// aditiva e isolada. Ordem do dono 12/06/2026.
+model AtendimentoQuickReply {
+  id              String   @id @default(cuid())
+  companyId       Int
+  createdByUserId Int?
+  title           String
+  content         String
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([companyId, sortOrder])
+  @@index([companyId, createdAt])
+}
+
 model CustomerProfile {
   id                   String   @id @default(cuid())
   company              Company  @relation(fields: [companyId], references: [id])

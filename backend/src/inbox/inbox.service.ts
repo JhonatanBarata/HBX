@@ -3883,6 +3883,65 @@ export class InboxService {
     }
   }
 
+  // KPIs da tela de Atendimento: tempo médio de 1ª resposta (últimos 7 dias)
+  // e conversões (leads com venda confirmada). Leitura agregada; sem schema novo.
+  async getInboxMetrics(user: any) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const windowDays = 7;
+    const since = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000);
+
+    const messages = await this.prisma.companyMessage.findMany({
+      where: { companyId, timestamp: { gte: since } },
+      select: { conversationId: true, direction: true, timestamp: true },
+      orderBy: { timestamp: 'desc' },
+      take: 8000,
+    });
+
+    // Agrupa por conversa; mede do PRIMEIRO inbound não respondido até o
+    // próximo outbound (tempo de 1ª resposta por "rajada").
+    const byConversation = new Map<number, Array<{ dir: string; at: number }>>();
+    for (const m of messages) {
+      const list = byConversation.get(m.conversationId) || [];
+      list.push({ dir: String(m.direction || '').toUpperCase(), at: m.timestamp.getTime() });
+      byConversation.set(m.conversationId, list);
+    }
+
+    const maxGapMs = windowDays * 24 * 60 * 60 * 1000;
+    let responseSum = 0;
+    let responseEpisodes = 0;
+    for (const list of byConversation.values()) {
+      list.sort((a, b) => a.at - b.at);
+      let pendingInboundAt: number | null = null;
+      for (const item of list) {
+        if (item.dir === 'INBOUND') {
+          if (pendingInboundAt === null) pendingInboundAt = item.at;
+        } else if (item.dir === 'OUTBOUND' && pendingInboundAt !== null) {
+          const delta = item.at - pendingInboundAt;
+          if (delta >= 0 && delta <= maxGapMs) {
+            responseSum += delta;
+            responseEpisodes += 1;
+          }
+          pendingInboundAt = null;
+        }
+      }
+    }
+
+    const avgResponseSeconds =
+      responseEpisodes > 0 ? Math.round(responseSum / responseEpisodes / 1000) : null;
+
+    let conversions = 0;
+    try {
+      conversions = await this.prisma.vendasLead.count({
+        where: { companyId, saleStatus: 'sale_confirmed' },
+      });
+    } catch {
+      // VendasLead pode não estar acessível em ambiente parcial — KPI vira 0.
+      conversions = 0;
+    }
+
+    return { windowDays, avgResponseSeconds, responseEpisodes, conversions };
+  }
+
   async listConversations(
     user: any,
     options?: {
@@ -7179,6 +7238,53 @@ export class InboxService {
 
     const publicUrl = `/uploads/inbox/${filename}`;
     return { url: publicUrl, filename, mimeType: file.mimetype, size: file.size };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Mensagens rápidas (respostas prontas do Atendimento) — por empresa
+  // ---------------------------------------------------------------------------
+
+  async listQuickReplies(user: any) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const rows = await this.prisma.atendimentoQuickReply.findMany({
+      where: { companyId },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    });
+    return rows.map((r) => ({ id: r.id, title: r.title, content: r.content, sortOrder: r.sortOrder }));
+  }
+
+  async createQuickReply(user: any, dto: { title?: string; content?: string }) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const title = String(dto?.title || '').trim();
+    const content = String(dto?.content || '').trim();
+    if (!title) throw new BadRequestException('Título obrigatório.');
+    if (!content) throw new BadRequestException('Texto da mensagem obrigatório.');
+    const last = await this.prisma.atendimentoQuickReply.findFirst({
+      where: { companyId },
+      orderBy: { sortOrder: 'desc' },
+      select: { sortOrder: true },
+    });
+    const created = await this.prisma.atendimentoQuickReply.create({
+      data: {
+        companyId,
+        createdByUserId: Number(user?.id || 0) || null,
+        title: title.slice(0, 80),
+        content: content.slice(0, 1000),
+        sortOrder: (last?.sortOrder ?? 0) + 1,
+      },
+    });
+    return { id: created.id, title: created.title, content: created.content, sortOrder: created.sortOrder };
+  }
+
+  async deleteQuickReply(user: any, id: string) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const found = await this.prisma.atendimentoQuickReply.findFirst({
+      where: { id: String(id || ''), companyId },
+      select: { id: true },
+    });
+    if (!found) throw new NotFoundException('Mensagem rápida não encontrada.');
+    await this.prisma.atendimentoQuickReply.delete({ where: { id: found.id } });
+    return { ok: true };
   }
 
   // ---------------------------------------------------------------------------

@@ -7,7 +7,7 @@
     "dev:preview": "node ./scripts/run-dev-preview.js",
     "build": "node ./scripts/run-next-build.js",
     "start": "next start -H 0.0.0.0 -p 3001",
-    "lint": "eslint"
+    "lint": "eslint && node ./scripts/check-pele.mjs"
   },
   "dependencies": {
     "next": "16.1.4",

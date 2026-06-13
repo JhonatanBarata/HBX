@@ -390,7 +390,7 @@ export function CompanyEmailSection() {
               e o envio avulso ficam disponíveis — sempre pelo remetente da SUA empresa.
             </p>
             {estado?.hbxShared ? (
-              <div style={{ padding: "10px 12px", borderRadius: "var(--radius-sm)", border: "1px solid rgba(22,199,164,0.3)", background: "var(--hbx-brand-soft)", fontSize: "0.72rem", lineHeight: 1.5 }}>
+              <div style={{ padding: "10px 12px", borderRadius: "var(--radius-sm)", border: "1px solid color-mix(in srgb, var(--hbx-brand) 30%, transparent)", background: "var(--hbx-brand-soft)", fontSize: "0.72rem", lineHeight: 1.5 }}>
                 Esta empresa usa o <b>transporte de e-mail da plataforma HBX</b>{estado?.sender?.from ? <> — remetente <b>{estado.sender.from}</b></> : null}. Não há SMTP para configurar aqui.
               </div>
             ) : (
@@ -599,9 +599,9 @@ export function CompanyEmailSection() {
 
       {novoOpen && (
         <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setNovoOpen(false); }}
-          style={{ position: "fixed", inset: 0, zIndex: 46, background: "var(--hbx-overlay)", display: "grid", placeItems: "center", padding: 24 }}>
+          style={{ position: "fixed", inset: 0, zIndex: 46, display: "grid", placeItems: "center", padding: 24 }}>
           <form className="hbx-modal" onSubmit={criarTemplate}
-            style={{ width: "min(380px, 100%)", display: "grid", gap: 12, padding: 24, borderRadius: "var(--radius-xl)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface)", boxShadow: "var(--shadow-md)" }}>
+            style={{ width: "min(380px, 100%)", display: "grid", gap: 12, padding: 24 }}>
             <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               Novo template
               <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setNovoOpen(false)}>✕</span>

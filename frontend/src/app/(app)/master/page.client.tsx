@@ -284,7 +284,7 @@ export function MasterClient() {
             <div><strong>{currentUserDisplayName(user)}</strong><small>Master</small></div>
             <span className="dots" role="button" aria-label="Menu do usuário" aria-expanded={menuOpen} onClick={() => setMenuOpen(o => !o)}>⋮</span>
             {menuOpen && (
-              <div className="hbx-pop" style={{ position: "absolute", right: 8, bottom: "calc(100% + 6px)", zIndex: 20, minWidth: 120, padding: 6, borderRadius: "var(--radius-md)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface)", boxShadow: "var(--shadow-md)" }}>
+              <div className="hbx-pop" style={{ position: "absolute", right: 8, bottom: "calc(100% + 6px)", zIndex: 20, minWidth: 120, padding: 6 }}>
                 <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "0.72rem" }} onClick={sair} disabled={signingOut}>
                   {signingOut ? "Saindo…" : "Sair"}
                 </button>
@@ -309,7 +309,7 @@ export function MasterClient() {
 
         <div className="work" style={{ flex: 1 }}>
           {(ctx?.active || ctxMsg) && (
-            <div style={{ display: "flex", gap: 10, alignItems: "center", padding: "9px 14px", borderRadius: "var(--radius-sm)", border: "1px solid var(--hbx-warning)", background: "rgba(245,178,60,0.08)", fontSize: "0.74rem" }}>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", padding: "9px 14px", borderRadius: "var(--radius-sm)", border: "1px solid var(--hbx-warning)", background: "color-mix(in srgb, var(--hbx-warning) 8%, transparent)", fontSize: "0.74rem" }}>
               {ctx?.active ? (
                 <React.Fragment>
                   <span className="tag warn">contexto assumido</span>

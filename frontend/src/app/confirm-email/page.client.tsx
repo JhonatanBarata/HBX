@@ -90,7 +90,7 @@ export function ConfirmEmailClient() {
         {state === "ok" && <div className="ok show">✓ {message}</div>}
         {state === "loading" && <div className="ok show" style={{ borderColor: "var(--border-hairline)", background: "var(--hbx-surface-soft)", color: "var(--text-body)" }}>{message}</div>}
         {state === "error" && (
-          <div className="ok show" style={{ borderColor: "rgba(240,86,107,0.3)", background: "rgba(240,86,107,0.08)", color: "var(--hbx-danger)" }}>
+          <div className="ok show" style={{ borderColor: "color-mix(in srgb, var(--hbx-danger) 30%, transparent)", background: "color-mix(in srgb, var(--hbx-danger) 8%, transparent)", color: "var(--hbx-danger)" }}>
             {message}
           </div>
         )}

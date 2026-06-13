@@ -263,8 +263,8 @@ export function NovoAcessoModal({ onClose, onDone, team }: {
 
   return (
     <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) fechar(); }}
-      style={{ position: "fixed", inset: 0, zIndex: 45, background: "var(--hbx-overlay)", display: "grid", placeItems: "center", padding: 18 }}>
-      <div className="hbx-modal" style={{ width: "min(880px, 100%)", maxHeight: "92vh", overflowY: "auto", display: "grid", gap: 14, padding: 22, borderRadius: "var(--radius-xl)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface)", boxShadow: "var(--shadow-md)" }}>
+      style={{ position: "fixed", inset: 0, zIndex: 45, display: "grid", placeItems: "center", padding: 18 }}>
+      <div className="hbx-modal" style={{ width: "min(880px, 100%)", maxHeight: "92vh", overflowY: "auto", display: "grid", gap: 14, padding: 22 }}>
         <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span>Novo acesso <small style={{ display: "block", fontSize: "0.64rem", fontWeight: 600, color: "var(--text-muted)" }}>Cadastro</small></span>
           <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={fechar}>✕</span>
@@ -400,7 +400,7 @@ export function NovoAcessoModal({ onClose, onDone, team }: {
                           onChange={e => { uploadDoc(slot.kind, e.target.files?.[0]); e.target.value = ""; }} />
                       </label>
                       <button type="button" className="btn-ghost" disabled={!painelAtivo || docBusy !== null}
-                        style={{ minHeight: 26, fontSize: "0.62rem", padding: "0 8px", ...(obrigatorio ? { color: "var(--hbx-warning)", borderColor: "rgba(245,178,60,0.4)" } : {}) }}
+                        style={{ minHeight: 26, fontSize: "0.62rem", padding: "0 8px", ...(obrigatorio ? { color: "var(--hbx-warning)", borderColor: "color-mix(in srgb, var(--hbx-warning) 40%, transparent)" } : {}) }}
                         onClick={() => alternarObrigatorio(slot.kind)}>
                         {obrigatorio ? "Obrigatório" : "Opcional"}
                       </button>
@@ -440,8 +440,8 @@ export function NovoAcessoModal({ onClose, onDone, team }: {
 
       {modeloOpen && (
         <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setModeloOpen(false); }}
-          style={{ position: "fixed", inset: 0, zIndex: 47, background: "var(--hbx-overlay)", display: "grid", placeItems: "center", padding: 24 }}>
-          <div className="hbx-modal" style={{ width: "min(640px, 100%)", maxHeight: "86vh", overflowY: "auto", display: "grid", gap: 12, padding: 22, borderRadius: "var(--radius-xl)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface)", boxShadow: "var(--shadow-md)" }}>
+          style={{ position: "fixed", inset: 0, zIndex: 47, display: "grid", placeItems: "center", padding: 24 }}>
+          <div className="hbx-modal" style={{ width: "min(640px, 100%)", maxHeight: "86vh", overflowY: "auto", display: "grid", gap: 12, padding: 22 }}>
             <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               Modelo do contrato
               <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setModeloOpen(false)}>✕</span>

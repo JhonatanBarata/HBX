@@ -113,6 +113,9 @@ export function VendasClient() {
   const [board, setBoard] = useState<BoardResponse>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [sel, setSel] = useState<VendasLead | null>(null);
+  // visão do pipeline: lista densa (padrão — varredura) × quadro kanban
+  // (arrastar entre etapas). Ordem do dono 13/06: lista padrão + quadro opcional.
+  const [view, setView] = useState<"list" | "board">("list");
   const [tasks, setTasks] = useState([true, false, false]);
   // agenda embutida (ordem do dono): painel lateral com os retornos reais
   // do board + sincronização da agenda de hoje no WhatsApp
@@ -505,6 +508,10 @@ export function VendasClient() {
                 <h2>Pipeline de vendas</h2>
                 <div className="meta">
                   <span>{board ? `${summary?.total ?? 0} cards` : loadError ? "" : "Carregando…"}</span>
+                  <span className="seg-toggle" role="group" aria-label="Visão do pipeline">
+                    <button className={"seg" + (view === "list" ? " on" : "")} onClick={() => setView("list")} aria-pressed={view === "list"}>Lista</button>
+                    <button className={"seg" + (view === "board" ? " on" : "")} onClick={() => setView("board")} aria-pressed={view === "board"}>Quadro</button>
+                  </span>
                   <button className="icon-ghost" title="Prospecção automática" aria-label="Prospecção automática" onClick={() => setProspOpen(true)}>
                     <I d={ICONS.bot} size={16} />
                   </button>
@@ -525,6 +532,41 @@ export function VendasClient() {
                   Nenhum card no funil — importe leads do Radar (Webscraping) para começar.
                 </div>
               )}
+              {/* LISTA DENSA (padrão): varredura rápida de todos os leads —
+                  tabela central do kit, clique na linha abre o detalhe lateral. */}
+              {view === "list" && board && (summary?.total ?? 0) > 0 && (
+                <div className="tbl-wrap">
+                  <table className="tbl">
+                    <thead>
+                      <tr>
+                        <th>Empresa</th><th>Segmento</th><th>Etapa</th><th>Valor</th>
+                        <th>Próximo passo</th><th>Responsável</th><th>Data</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {BLOCK_ORDER.flatMap(({ key, label }) =>
+                        (board?.blocks?.[key] || []).map(card => {
+                          const tagCls = key === "overdue" ? "tag warn" : key === "closed" ? "tag teal" : "tag";
+                          return (
+                            <tr key={card.id} className={sel?.id === card.id ? "sel" : ""} onClick={() => setSel(card)}>
+                              <td><div className="co"><strong>{card.name || "—"}</strong>{card.city && <div className="sub2">{card.city}</div>}</div></td>
+                              <td>{card.segment || "—"}</td>
+                              <td><span className={tagCls}>{label}</span>{card.saleConfirmedAt && <span className="badge-win" style={{ marginLeft: 6 }}>Ganho</span>}</td>
+                              <td className="hbx-mono">{leadValueLabel(card)}</td>
+                              <td><span className="nowrap-cell" style={{ maxWidth: 240, display: "inline-block", overflow: "hidden", textOverflow: "ellipsis", verticalAlign: "bottom" }} title={card.nextAction || card.shortNote || ""}>{card.nextAction || card.statusLabel || "—"}</span></td>
+                              <td>{card.owner?.name ? <span style={{ display: "inline-flex", gap: 7, alignItems: "center" }}><Av name={card.owner.name} size={20} />{card.owner.name}</span> : "—"}</td>
+                              <td className="hbx-mono">{fmtWhen(card.block === "closed" ? card.closedAt : card.returnAt)}</td>
+                            </tr>
+                          );
+                        }),
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* QUADRO (kanban) — opcional, para arrastar entre etapas. */}
+              {view === "board" && (
               <div className="board">
                 {BLOCK_ORDER.map(({ key, label }) => {
                   const cards = board?.blocks?.[key] || [];
@@ -555,6 +597,7 @@ export function VendasClient() {
                   );
                 })}
               </div>
+              )}
             </section>
           </div>
 
@@ -669,12 +712,12 @@ export function VendasClient() {
             <div>
               <h3 style={{ marginBottom: 10 }}>Funil de conversão (mês)</h3>
               <div style={{ display: "grid", gap: 4, justifyItems: "center", padding: "6px 0 2px" }}>
-                {([["#4CC2FF", 170], ["#16C7A4", 130], ["#2EE6A8", 92], ["#F5B23C", 56]] as [string, number][]).map(([c, w], i) => (
+                {([["var(--hbx-info)", 170], ["var(--hbx-brand)", 130], ["var(--hbx-brand-strong)", 92], ["var(--hbx-warning)", 56]] as [string, number][]).map(([c, w], i) => (
                   <div key={i} style={{ width: w, height: 22, background: c, borderRadius: 4, opacity: 0.92 }}></div>
                 ))}
               </div>
               <div className="fleg" style={{ marginTop: 8 }}>
-                {([["#4CC2FF", "Leads captados", "1.248 (100%)"], ["#16C7A4", "Propostas", "342 (27,4%)"], ["#2EE6A8", "Negociação", "78 (6,3%)"], ["#F5B23C", "Fechados", "36 (2,9%)"]] as [string, string, string][]).map(([c, l, v]) => (
+                {([["var(--hbx-info)", "Leads captados", "1.248 (100%)"], ["var(--hbx-brand)", "Propostas", "342 (27,4%)"], ["var(--hbx-brand-strong)", "Negociação", "78 (6,3%)"], ["var(--hbx-warning)", "Fechados", "36 (2,9%)"]] as [string, string, string][]).map(([c, l, v]) => (
                   <div className="row" key={l}><span className="swatch" style={{ background: c }}></span>{l}<span style={{ marginLeft: "auto", color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: "0.64rem" }}>{v}</span></div>
                 ))}
               </div>
@@ -686,9 +729,9 @@ export function VendasClient() {
 
       {novoOpen && (
         <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setNovoOpen(false); }}
-          style={{ position: "fixed", inset: 0, zIndex: 45, background: "var(--hbx-overlay)", display: "grid", placeItems: "center", padding: 24 }}>
+          style={{ position: "fixed", inset: 0, zIndex: 45, display: "grid", placeItems: "center", padding: 24 }}>
           <form className="hbx-modal" onSubmit={criarLead}
-            style={{ width: "min(400px, 100%)", display: "grid", gap: 12, padding: 24, borderRadius: "var(--radius-xl)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface)", boxShadow: "var(--shadow-md)" }}>
+            style={{ width: "min(400px, 100%)", display: "grid", gap: 12, padding: 24 }}>
             <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               Novo lead
               <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setNovoOpen(false)}>✕</span>
@@ -732,8 +775,8 @@ export function VendasClient() {
 
       {fecharOpen && (
         <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setFecharOpen(false); }}
-          style={{ position: "fixed", inset: 0, zIndex: 45, background: "var(--hbx-overlay)", display: "grid", placeItems: "center", padding: 24 }}>
-          <div className="hbx-modal" style={{ width: "min(420px, 100%)", display: "grid", gap: 12, padding: 24, borderRadius: "var(--radius-xl)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface)", boxShadow: "var(--shadow-md)" }}>
+          style={{ position: "fixed", inset: 0, zIndex: 45, display: "grid", placeItems: "center", padding: 24 }}>
+          <div className="hbx-modal" style={{ width: "min(420px, 100%)", display: "grid", gap: 12, padding: 24 }}>
             <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               Fechar venda — {sel?.name || "card"}
               <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setFecharOpen(false)}>✕</span>
@@ -801,9 +844,9 @@ export function VendasClient() {
 
       {cadOpen && (
         <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setCadOpen(false); }}
-          style={{ position: "fixed", inset: 0, zIndex: 46, background: "var(--hbx-overlay)", display: "grid", placeItems: "center", padding: 24 }}>
+          style={{ position: "fixed", inset: 0, zIndex: 46, display: "grid", placeItems: "center", padding: 24 }}>
           <form className="hbx-modal" onSubmit={cadastrarCliente}
-            style={{ width: "min(400px, 100%)", display: "grid", gap: 12, padding: 24, borderRadius: "var(--radius-xl)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface)", boxShadow: "var(--shadow-md)" }}>
+            style={{ width: "min(400px, 100%)", display: "grid", gap: 12, padding: 24 }}>
             <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               Cadastrar cliente
               <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setCadOpen(false)}>✕</span>
@@ -843,8 +886,8 @@ export function VendasClient() {
 
       {clienteOpen && (
         <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setClienteOpen(false); }}
-          style={{ position: "fixed", inset: 0, zIndex: 46, background: "var(--hbx-overlay)", display: "grid", justifyContent: "end" }}>
-          <div className="hbx-drawer" style={{ width: 330, height: "100vh", overflowY: "auto", background: "var(--hbx-surface)", borderLeft: "1px solid var(--border-hairline)", padding: "18px 16px", display: "grid", gap: 14, alignContent: "start" }}>
+          style={{ position: "fixed", inset: 0, zIndex: 46, display: "grid", justifyContent: "end" }}>
+          <div className="hbx-drawer" style={{ width: 330, height: "100vh", overflowY: "auto", padding: "18px 16px", display: "grid", gap: 14, alignContent: "start" }}>
             <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "0.9rem", fontWeight: 700, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               Card do cliente 🃏
               <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setClienteOpen(false)}>✕</span>
@@ -874,8 +917,8 @@ export function VendasClient() {
 
       {prospOpen && (
         <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setProspOpen(false); }}
-          style={{ position: "fixed", inset: 0, zIndex: 40, background: "var(--hbx-overlay)", display: "grid", justifyContent: "end" }}>
-          <div className="hbx-drawer" style={{ width: 340, height: "100vh", overflowY: "auto", background: "var(--hbx-surface)", borderLeft: "1px solid var(--border-hairline)", padding: "18px 16px", display: "grid", gap: 14, alignContent: "start" }}>
+          style={{ position: "fixed", inset: 0, zIndex: 40, display: "grid", justifyContent: "end" }}>
+          <div className="hbx-drawer" style={{ width: 340, height: "100vh", overflowY: "auto", padding: "18px 16px", display: "grid", gap: 14, alignContent: "start" }}>
             <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "0.9rem", fontWeight: 700, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               Prospecção automática
               <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setProspOpen(false)}>✕</span>
@@ -916,7 +959,7 @@ export function VendasClient() {
                   )}
                   {prosp.active && (
                     prospCancelArm ? (
-                      <button className="btn-ghost" style={{ color: "var(--hbx-danger)", borderColor: "rgba(240,86,107,0.4)" }} onClick={() => prospAcao("cancel")} disabled={prospBusy}>
+                      <button className="btn-ghost" style={{ color: "var(--hbx-danger)", borderColor: "color-mix(in srgb, var(--hbx-danger) 40%, transparent)" }} onClick={() => prospAcao("cancel")} disabled={prospBusy}>
                         Confirmar cancelamento
                       </button>
                     ) : (
@@ -935,8 +978,8 @@ export function VendasClient() {
 
       {agendaOpen && (
         <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setAgendaOpen(false); }}
-          style={{ position: "fixed", inset: 0, zIndex: 40, background: "var(--hbx-overlay)", display: "grid", justifyContent: "end" }}>
-          <div className="hbx-drawer" style={{ width: 340, height: "100vh", overflowY: "auto", background: "var(--hbx-surface)", borderLeft: "1px solid var(--border-hairline)", padding: "18px 16px", display: "grid", gap: 14, alignContent: "start" }}>
+          style={{ position: "fixed", inset: 0, zIndex: 40, display: "grid", justifyContent: "end" }}>
+          <div className="hbx-drawer" style={{ width: 340, height: "100vh", overflowY: "auto", padding: "18px 16px", display: "grid", gap: 14, alignContent: "start" }}>
             <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "0.9rem", fontWeight: 700, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               Agenda de retornos
               <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setAgendaOpen(false)}>✕</span>

@@ -8,8 +8,10 @@
 // Adaptações por dado real (doc do PR): períodos do template viraram os
 // períodos reais do contrato; "Receita por mês" virou "Top segmentos";
 // funil usa Recebidos→Chamados→Respostas→Interessados; colunas da tabela
-// de vendedores viraram os campos reais da auditoria. "Exportar CSV" segue
-// visual (sem endpoint).
+// de vendedores viraram os campos reais da auditoria. "Ver detalhes" (e o
+// clique na linha) expande os campos extras que /vendas/seller-audit já
+// devolve (situação, operação do dia, último contato, top segmento/cidade,
+// entregues/limite). "Exportar CSV" segue visual (sem endpoint).
 
 import React, { useCallback, useEffect, useState } from "react";
 
@@ -53,8 +55,18 @@ type SellerAuditRow = {
     workedCards: number;
     returnCards: number;
     closedCards: number;
+    interestedCards: number;
+    responseCards: number;
+    deliveredToday: number;
+    dailyLimit: number;
     workRate: number;
   };
+  // campos extras reais do contrato, revelados no "Ver detalhes"
+  status?: { label?: string | null } | null;
+  operation?: { label?: string | null; reason?: string | null } | null;
+  topCity?: string | null;
+  topSegment?: string | null;
+  lastActivityAt?: string | null;
 };
 
 type SellerAuditResponse = { rows?: SellerAuditRow[] } | null;
@@ -65,11 +77,18 @@ const PERIODOS: { label: string; value: string }[] = [
   { label: "30 dias", value: "30d" },
 ];
 
-const FUNIL_CORES = ["#4CC2FF", "#16C7A4", "#2EE6A8", "#F5B23C"];
-const CANAL_CORES = ["#22C77D", "#16C7A4", "#4CC2FF", "#F0566B", "#9B7BFF"];
+const FUNIL_CORES = ["var(--hbx-info)", "var(--hbx-brand)", "var(--hbx-brand-strong)", "var(--hbx-warning)"];
+const CANAL_CORES = ["var(--hbx-accent)", "var(--hbx-brand)", "var(--hbx-info)", "var(--hbx-danger)", "var(--hbx-secondary)"];
 
 function pct(value: number) {
   return `${(value * 100).toFixed(1).replace(".", ",")}%`;
+}
+
+function fmtWhen(iso?: string | null) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
 export function RelatoriosClient() {
@@ -81,6 +100,7 @@ export function RelatoriosClient() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
+  const [openSellers, setOpenSellers] = useState<Set<number>>(() => new Set());
 
   const load = useCallback((period: string) => {
     return Promise.all([
@@ -180,6 +200,16 @@ export function RelatoriosClient() {
   const maxFunil = Math.max(1, ...funil.map(f => f.value));
 
   const sellers = audit?.rows || [];
+  const allSellersOpen = sellers.length > 0 && sellers.every(s => openSellers.has(s.seller.id));
+  const toggleSeller = (id: number) => setOpenSellers(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const toggleAllSellers = () => {
+    if (sellers.length === 0) return;
+    setOpenSellers(allSellersOpen ? new Set() : new Set(sellers.map(s => s.seller.id)));
+  };
 
   return (
     <div className="app">
@@ -302,7 +332,13 @@ export function RelatoriosClient() {
             <section className="panel">
               <div className="panel-head">
                 <h2>Desempenho por vendedor</h2>
-                <div className="meta"><span className="link">Ver detalhes</span></div>
+                <div className="meta">
+                  <span className="link" role="button" tabIndex={0} aria-expanded={allSellersOpen}
+                    aria-disabled={sellers.length === 0} onClick={toggleAllSellers}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleAllSellers(); } }}>
+                    {allSellersOpen ? "Ocultar detalhes" : "Ver detalhes"}
+                  </span>
+                </div>
               </div>
               <div className="tbl-wrap">
                 <table className="tbl">
@@ -317,19 +353,50 @@ export function RelatoriosClient() {
                         </td>
                       </tr>
                     )}
-                    {sellers.map(v => (
-                      <tr key={v.seller.id} style={{ cursor: "default" }}>
-                        <td><div style={{ display: "flex", gap: 9, alignItems: "center" }}><Av name={v.seller.name} size={26} /><strong>{v.seller.name}</strong></div></td>
-                        <td style={{ fontFamily: "var(--font-mono)" }}>{v.metrics.receivedCards}</td>
-                        <td style={{ fontFamily: "var(--font-mono)" }}>{v.metrics.workedCards}</td>
-                        <td style={{ fontFamily: "var(--font-mono)" }}>{v.metrics.closedCards}</td>
-                        <td style={{ minWidth: 140 }}>
-                          <div style={{ height: 7, borderRadius: 999, background: "var(--hbx-surface-raised)" }}>
-                            <div style={{ width: `${Math.min(100, Math.round((v.metrics.workRate || 0) * 100))}%`, height: "100%", borderRadius: 999, background: "linear-gradient(90deg, var(--hbx-brand), var(--hbx-brand-strong))" }}></div>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                    {sellers.map(v => {
+                      const open = openSellers.has(v.seller.id);
+                      return (
+                        <React.Fragment key={v.seller.id}>
+                          <tr onClick={() => toggleSeller(v.seller.id)} aria-expanded={open} title="Ver detalhes do vendedor">
+                            <td>
+                              <div style={{ display: "flex", gap: 9, alignItems: "center" }}>
+                                <span aria-hidden style={{ display: "inline-block", width: 12, fontSize: "0.7rem", transform: open ? "rotate(90deg)" : "none", transition: "transform .15s" }}>▸</span>
+                                <Av name={v.seller.name} size={26} /><strong>{v.seller.name}</strong>
+                              </div>
+                            </td>
+                            <td style={{ fontFamily: "var(--font-mono)" }}>{v.metrics.receivedCards}</td>
+                            <td style={{ fontFamily: "var(--font-mono)" }}>{v.metrics.workedCards}</td>
+                            <td style={{ fontFamily: "var(--font-mono)" }}>{v.metrics.closedCards}</td>
+                            <td style={{ minWidth: 140 }}>
+                              <div style={{ height: 7, borderRadius: 999, background: "var(--hbx-surface-raised)" }}>
+                                <div style={{ width: `${Math.min(100, Math.round((v.metrics.workRate || 0) * 100))}%`, height: "100%", borderRadius: 999, background: "linear-gradient(90deg, var(--hbx-brand), var(--hbx-brand-strong))" }}></div>
+                              </div>
+                            </td>
+                          </tr>
+                          {open && (
+                            <tr>
+                              <td colSpan={5} style={{ padding: "0 12px 12px" }}>
+                                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, padding: "8px 0 2px" }}>
+                                  <div style={{ display: "grid", gap: 2 }}><span className="sub2">Situação</span><strong>{v.status?.label || "—"}</strong></div>
+                                  <div style={{ display: "grid", gap: 2 }}><span className="sub2">Operação hoje</span><strong>{v.operation?.label || "—"}</strong></div>
+                                  <div style={{ display: "grid", gap: 2 }}><span className="sub2">Último contato</span><strong>{fmtWhen(v.lastActivityAt)}</strong></div>
+                                  <div style={{ display: "grid", gap: 2 }}><span className="sub2">Cards ativos</span><strong>{v.metrics.activeCards}</strong></div>
+                                  <div style={{ display: "grid", gap: 2 }}><span className="sub2">Em retorno</span><strong>{v.metrics.returnCards}</strong></div>
+                                  <div style={{ display: "grid", gap: 2 }}><span className="sub2">Interessados</span><strong>{v.metrics.interestedCards}</strong></div>
+                                  <div style={{ display: "grid", gap: 2 }}><span className="sub2">Respostas</span><strong>{v.metrics.responseCards}</strong></div>
+                                  <div style={{ display: "grid", gap: 2 }}><span className="sub2">Entregues hoje</span><strong>{v.metrics.deliveredToday}/{v.metrics.dailyLimit || "—"}</strong></div>
+                                  <div style={{ display: "grid", gap: 2 }}><span className="sub2">Top segmento</span><strong>{v.topSegment || "—"}</strong></div>
+                                  <div style={{ display: "grid", gap: 2 }}><span className="sub2">Top cidade</span><strong>{v.topCity || "—"}</strong></div>
+                                </div>
+                                {v.operation?.reason && (
+                                  <p className="sub2" style={{ margin: "6px 0 0" }}>Observação: {v.operation.reason}</p>
+                                )}
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

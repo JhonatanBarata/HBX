@@ -16,6 +16,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 
 import { Av } from "@/components/hbx/shell";
+import { TeamPolicyEditor } from "@/components/hbx/team-policy-editor";
 import { apiFetch, getApiBase, getToken } from "@/lib/api";
 
 type CompanyUser = { id: number; name?: string | null; username?: string | null; email?: string | null; role?: string | null; isActive?: boolean };
@@ -47,14 +48,16 @@ const REQUIRED_SLOTS = ["photo_id", "curriculum", "contract_pdf", "other"];
 
 const lbl = { fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" } as const;
 
-export function GerenciarVendedorModal({ member, isSelf, onClose, onChanged, onRequestExcluir }: {
+export function GerenciarVendedorModal({ member, isSelf, team = [], onClose, onChanged, onRequestExcluir }: {
   member: CompanyUser;
   isSelf: boolean;
+  team?: CompanyUser[];
   onClose: () => void;
   onChanged: (message: string) => void;
   onRequestExcluir: (m: CompanyUser) => void;
 }) {
   const ehVendedor = String(member.role || "").toUpperCase() === "USER";
+  const [aba, setAba] = useState<"cadastro" | "acessos">("cadastro");
   const [form, setForm] = useState({
     name: member.name || "",
     phone: "",
@@ -221,8 +224,8 @@ export function GerenciarVendedorModal({ member, isSelf, onClose, onChanged, onR
 
   return (
     <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) onClose(); }}
-      style={{ position: "fixed", inset: 0, zIndex: 45, background: "var(--hbx-overlay)", display: "grid", placeItems: "center", padding: 18 }}>
-      <div className="hbx-modal" style={{ width: "min(880px, 100%)", maxHeight: "92vh", overflowY: "auto", display: "grid", gap: 14, padding: 22, borderRadius: "var(--radius-xl)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface)", boxShadow: "var(--shadow-md)" }}>
+      style={{ position: "fixed", inset: 0, zIndex: 45, display: "grid", placeItems: "center", padding: 18 }}>
+      <div className="hbx-modal" style={{ width: "min(880px, 100%)", maxHeight: "92vh", overflowY: "auto", display: "grid", gap: 14, padding: 22 }}>
         <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span style={{ display: "inline-flex", gap: 10, alignItems: "center" }}>
             <Av name={nomeMembro} size={34} />
@@ -236,6 +239,17 @@ export function GerenciarVendedorModal({ member, isSelf, onClose, onChanged, onR
           <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={onClose}>✕</span>
         </h3>
 
+        <div className="seg-toggle" style={{ width: "fit-content" }}>
+          <button type="button" className={"seg" + (aba === "cadastro" ? " on" : "")} onClick={() => setAba("cadastro")}>Cadastro</button>
+          <button type="button" className={"seg" + (aba === "acessos" ? " on" : "")} onClick={() => setAba("acessos")}>Acessos</button>
+        </div>
+
+        {aba === "acessos" && (
+          <TeamPolicyEditor userId={member.id} sellers={team} isSelf={isSelf} />
+        )}
+
+        {aba === "cadastro" && (
+        <React.Fragment>
         {msg && <div style={{ fontSize: "0.72rem", fontWeight: 700, lineHeight: 1.5, color: msg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{msg}</div>}
         {senhaTemporaria && (
           <div className="ok show" style={{ display: "grid", gap: 4 }}>
@@ -332,7 +346,7 @@ export function GerenciarVendedorModal({ member, isSelf, onClose, onChanged, onR
                   {REQUIRED_SLOTS.map(kind => {
                     const anexo = anexoPorKind.get(kind) || null;
                     return (
-                      <div key={kind} style={{ display: "flex", gap: 10, alignItems: "center", padding: "9px 11px", borderRadius: "var(--radius-sm)", border: anexo ? "1px solid rgba(22,199,164,0.35)" : "1px dashed var(--border-hairline)", background: "var(--hbx-surface-soft)" }}>
+                      <div key={kind} style={{ display: "flex", gap: 10, alignItems: "center", padding: "9px 11px", borderRadius: "var(--radius-sm)", border: anexo ? "1px solid color-mix(in srgb, var(--hbx-brand) 35%, transparent)" : "1px dashed var(--border-hairline)", background: "var(--hbx-surface-soft)" }}>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <strong style={{ fontSize: "0.74rem", display: "block" }}>{KIND_LABEL[kind] || kind}</strong>
                           <span style={{ fontSize: "0.62rem", color: anexo ? "var(--hbx-brand-strong)" : "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
@@ -381,6 +395,8 @@ export function GerenciarVendedorModal({ member, isSelf, onClose, onChanged, onR
             )}
           </div>
         </div>
+        </React.Fragment>
+        )}
       </div>
     </div>
   );

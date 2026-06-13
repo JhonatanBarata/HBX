@@ -3,73 +3,54 @@
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 
-// Mantém os atributos de tema do <html> em navegação SPA.
-// REGRA DURA (FRONTEND.md, 12/06/2026): TEMA É SÓ PELE — um app, as mesmas
-// telas; o tema é a preferência hbx:ws-theme (friendly|corporate) aplicada
-// por atributo em TODAS as rotas (app e auth):
-// - corporate: data-theme="corporate"; escuro padrão; claro via
-//   data-theme-mode="light" (persistido em hbx:corporate-mode).
-// - friendly: sem data-theme; claro padrão; escuro via
-//   data-theme-mode="dark" (persistido em hbx:friendly-mode).
-// - "/" (landing): html puro como no template de marketing.
-// O antigo app paralelo /workspace foi MORTO na unificação (12/06/2026) —
-// a rota é alias e redireciona para /dashboard.
+// ================================================================
+// PELE — fonte única de aplicação de tema (AS 5 LEIS, FRONTEND.md).
+// Pele = arquivo theme-<key>.css (tokens + camada de vestir) +
+// entrada no registry abaixo + import no globals.css. NADA MAIS.
+// Esqueleto = sem data-theme (base neutra do skeleton.css).
+// Modo claro/escuro é GLOBAL e automático (hbx:mode →
+// data-theme-mode na escada de tokens; telas não sabem do dark).
+// Boot inline do layout.tsx espelha esta lógica — manter em sincronia.
+// ================================================================
 
-function applyFriendly(html: HTMLElement) {
-  html.removeAttribute("data-theme");
-  if (localStorage.getItem("hbx:friendly-mode") === "dark") {
-    html.setAttribute("data-theme-mode", "dark");
-  } else {
-    html.removeAttribute("data-theme-mode");
-  }
-}
+// Peles selecionáveis. skeleton.css continua sendo a BASE de tokens (o
+// contrato neutro que toda pele veste) — só não é uma opção do seletor.
+export const PELES: ReadonlyArray<{ key: string; label: string }> = [
+  { key: "aurora", label: "Aurora" },
+  { key: "ember", label: "Ember" },
+  { key: "rose", label: "Rosé" },
+];
 
-function applyCorporate(html: HTMLElement) {
-  html.setAttribute("data-theme", "corporate");
-  if (localStorage.getItem("hbx:corporate-mode") === "light") {
-    html.setAttribute("data-theme-mode", "light");
-  } else {
-    html.removeAttribute("data-theme-mode");
-  }
+// Pele padrão quando não há preferência salva (mantém o boot do layout.tsx
+// em sincronia se mudar).
+export const DEFAULT_PELE = "aurora";
+
+const PELE_KEY = "hbx:pele";
+const MODE_KEY = "hbx:mode";
+
+function applyPele(html: HTMLElement, key: string | null) {
+  const valid = PELES.some(p => p.key === key) ? String(key) : DEFAULT_PELE;
+  html.setAttribute("data-theme", valid);
 }
 
 export function applyThemeForPath(pathname: string) {
   const html = document.documentElement;
-  const isMarketing = pathname === "/";
+  if (pathname === "/") {
+    // landing: html puro (site público)
+    html.removeAttribute("data-theme");
+    html.removeAttribute("data-theme-mode");
+    return;
+  }
   try {
-    if (isMarketing) {
-      html.removeAttribute("data-theme");
-      html.removeAttribute("data-theme-mode");
-    } else if (localStorage.getItem("hbx:ws-theme") === "friendly") {
-      applyFriendly(html);
-    } else {
-      applyCorporate(html);
-    }
+    applyPele(html, localStorage.getItem(PELE_KEY));
+    const mode = localStorage.getItem(MODE_KEY);
+    html.setAttribute("data-theme-mode", mode === "dark" ? "dark" : "light");
   } catch {
-    // localStorage indisponível — mantém o padrão do markup
+    html.setAttribute("data-theme-mode", "light");
   }
 }
 
-// Modo claro/escuro do tema ATIVO, com a semântica de cada tema
-// (corporate: claro = data-theme-mode="light"; friendly: escuro =
-// data-theme-mode="dark") e persistência na chave do tema. Único ponto de
-// escrita do modo — usado pelo Topbar e pelos controles de auth.
-export function setThemeMode(theme: "corporate" | "friendly", mode: "light" | "dark") {
-  const html = document.documentElement;
-  if (theme === "corporate") {
-    if (mode === "light") html.setAttribute("data-theme-mode", "light");
-    else html.removeAttribute("data-theme-mode");
-    try { localStorage.setItem("hbx:corporate-mode", mode); } catch { /* sem storage */ }
-  } else {
-    if (mode === "dark") html.setAttribute("data-theme-mode", "dark");
-    else html.removeAttribute("data-theme-mode");
-    try { localStorage.setItem("hbx:friendly-mode", mode); } catch { /* sem storage */ }
-  }
-}
-
-// Troca de tema/modo com cross-fade suave (friendly/alto nível): aplica a
-// classe temporária hbx-theme-anim e a remove sozinha — nunca deixa
-// transição pendurada.
+// Troca com cross-fade suave (classe temporária que se remove sozinha).
 export function applyThemeSoft(mutate: () => void) {
   const html = document.documentElement;
   html.classList.add("hbx-theme-anim");
@@ -77,24 +58,22 @@ export function applyThemeSoft(mutate: () => void) {
   window.setTimeout(() => html.classList.remove("hbx-theme-anim"), 500);
 }
 
-export function setFriendlyTheme(soft = true) {
-  const run = () => {
-    try {
-      localStorage.setItem("hbx:ws-theme", "friendly");
-      applyFriendly(document.documentElement);
-    } catch { /* sem storage */ }
-  };
-  if (soft) applyThemeSoft(run); else run();
+// Troca de PELE na mesma tela — nunca navega.
+export function setAppTheme(key: string) {
+  applyThemeSoft(() => {
+    try { localStorage.setItem(PELE_KEY, key); } catch { /* sem storage */ }
+    applyPele(document.documentElement, key);
+  });
 }
 
-export function setCorporateTheme(soft = true) {
-  const run = () => {
-    try {
-      localStorage.setItem("hbx:ws-theme", "corporate");
-      applyCorporate(document.documentElement);
-    } catch { /* sem storage */ }
-  };
-  if (soft) applyThemeSoft(run); else run();
+export function getActivePele(): string {
+  return document.documentElement.getAttribute("data-theme") || DEFAULT_PELE;
+}
+
+// Escrita ÚNICA do modo claro/escuro.
+export function setThemeMode(mode: "light" | "dark") {
+  document.documentElement.setAttribute("data-theme-mode", mode);
+  try { localStorage.setItem(MODE_KEY, mode); } catch { /* sem storage */ }
 }
 
 export function ThemeAttributes() {

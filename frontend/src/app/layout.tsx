@@ -9,11 +9,11 @@ export const metadata: Metadata = {
   description: "Radar → Vendas → WhatsApp → Retorno",
 };
 
-// Boot de tema antes da pintura (sem flash). REGRA DURA (FRONTEND.md):
-// TEMA É SÓ PELE — a preferência hbx:ws-theme vale em TODAS as rotas
-// (exceto a landing "/", html puro). corporate escuro padrão (claro =
-// data-theme-mode="light"); friendly claro padrão (escuro = "dark").
-const THEME_BOOT = `(function(){try{var p=location.pathname;var h=document.documentElement;var mkt=p==="/";function friendly(){h.removeAttribute("data-theme");if(localStorage.getItem("hbx:friendly-mode")==="dark"){h.setAttribute("data-theme-mode","dark");}else{h.removeAttribute("data-theme-mode");}}function corporate(){h.setAttribute("data-theme","corporate");if(localStorage.getItem("hbx:corporate-mode")==="light"){h.setAttribute("data-theme-mode","light");}else{h.removeAttribute("data-theme-mode");}}if(mkt){h.removeAttribute("data-theme");h.removeAttribute("data-theme-mode");}else if(localStorage.getItem("hbx:ws-theme")==="friendly"){friendly();}else{corporate();}}catch(e){}})();`;
+// Boot de PELE antes da pintura (sem flash) — espelho de
+// components/hbx/theme-attributes.tsx (manter os dois em sincronia).
+// hbx:pele = aurora|ember|rose (padrão aurora; skeleton.css é só a base);
+// hbx:mode = claro/escuro global automático. Landing "/" = html puro.
+const THEME_BOOT = `(function(){try{var p=location.pathname;var h=document.documentElement;h.removeAttribute("data-engine");if(p==="/"){h.removeAttribute("data-theme");h.removeAttribute("data-theme-mode");return;}var P=["aurora","ember","rose"];var k=localStorage.getItem("hbx:pele");if(P.indexOf(k)<0){k="aurora";}h.setAttribute("data-theme",k);var m=localStorage.getItem("hbx:mode");h.setAttribute("data-theme-mode",m==="dark"?"dark":"light");}catch(e){}})();`;
 
 // Faxina do PWA antigo: desregistra qualquer service worker e apaga os
 // caches do navegador em todo load. O SW "hbx-pwa-v1" do front antigo
@@ -24,7 +24,7 @@ const SW_KILL = `(function(){try{if("serviceWorker" in navigator){navigator.serv
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="pt-BR" data-theme="corporate" suppressHydrationWarning>
+    <html lang="pt-BR" suppressHydrationWarning>
       <head>
         {/* Webfonts do handoff (tokens/fonts.css): o @import remoto é
             descartado pelo bundler de CSS — carregar via <link> garante a
@@ -34,7 +34,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         {/* eslint-disable-next-line @next/next/no-page-custom-font -- app router: este layout raiz cobre TODAS as rotas */}
         <link
           rel="stylesheet"
-          href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,500&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,500&family=IBM+Plex+Mono:wght@400;500;600;700&family=Sora:wght@400;600;700;800&family=Fraunces:opsz,wght@9..144,500;9..144,700;9..144,900&family=Lora:wght@500;600;700&display=swap"
         />
         <script dangerouslySetInnerHTML={{ __html: SW_KILL }} />
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOT }} />

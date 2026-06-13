@@ -344,7 +344,7 @@ export function ConfiguracoesClient() {
                     )}
                   </div>
                   <div style={{ padding: 18, display: "grid", gap: 16 }}>
-                    <div style={{ display: "flex", gap: 14, alignItems: "center", padding: 16, borderRadius: "var(--radius-md)", border: "1px solid rgba(22,199,164,0.3)", background: "var(--hbx-brand-soft)" }}>
+                    <div style={{ display: "flex", gap: 14, alignItems: "center", padding: 16, borderRadius: "var(--radius-md)", border: "1px solid color-mix(in srgb, var(--hbx-brand) 30%, transparent)", background: "var(--hbx-brand-soft)" }}>
                       <div style={{ flex: 1 }}>
                         <strong style={{ fontSize: "0.94rem" }}>{planoAtual?.title || (current?.planKey ? current.planKey : "Sem plano ativo")}</strong>
                         <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginTop: 3 }}>
@@ -385,7 +385,7 @@ export function ConfiguracoesClient() {
                         const atual = p.key === current?.planKey;
                         return (
                           <article key={p.key} style={{ display: "grid", gap: 10, alignContent: "start", padding: 16, borderRadius: "var(--radius-md)",
-                            border: "1px solid " + (atual ? "var(--hbx-brand)" : p.recommended ? "rgba(22,199,164,0.4)" : "var(--border-hairline)"),
+                            border: "1px solid " + (atual ? "var(--hbx-brand)" : p.recommended ? "color-mix(in srgb, var(--hbx-brand) 40%, transparent)" : "var(--border-hairline)"),
                             background: atual ? "var(--hbx-brand-soft)" : "var(--hbx-surface-soft)" }}>
                             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                               <strong style={{ fontFamily: "var(--font-display)", fontSize: "0.95rem" }}>{p.title}</strong>
@@ -435,6 +435,7 @@ export function ConfiguracoesClient() {
       {gerirMembro && (
         <GerenciarVendedorModal
           member={gerirMembro}
+          team={team}
           isSelf={Boolean(user?.email && gerirMembro.email && user.email === gerirMembro.email)}
           onClose={() => setGerirMembro(null)}
           onChanged={msg => { setTeamMsg(msg); recarregarEquipe(); }}

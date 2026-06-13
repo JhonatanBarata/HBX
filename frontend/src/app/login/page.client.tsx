@@ -130,15 +130,15 @@ export function LoginClient() {
               <Link href="/reset-password" className="link" style={{ textDecoration: "none" }}>Esqueci minha senha</Link>
             </div>
             {notice && !error && !ok && (
-              <div className="ok show" style={{ borderColor: "rgba(245,178,60,0.35)", background: "rgba(245,178,60,0.08)", color: "var(--hbx-warning)" }}>
+              <div className="ok show" style={{ borderColor: "color-mix(in srgb, var(--hbx-warning) 35%, transparent)", background: "color-mix(in srgb, var(--hbx-warning) 8%, transparent)", color: "var(--hbx-warning)" }}>
                 {notice}
               </div>
             )}
             <div className={"ok" + (ok ? " show" : "")} id="ok">✓ Autenticado — redirecionando para o Dashboard…</div>
             {error && (
               <div className="ok show" style={conflict
-                ? { borderColor: "rgba(245,178,60,0.35)", background: "rgba(245,178,60,0.08)", color: "var(--hbx-warning)" }
-                : { borderColor: "rgba(240,86,107,0.3)", background: "rgba(240,86,107,0.08)", color: "var(--hbx-danger)" }}>
+                ? { borderColor: "color-mix(in srgb, var(--hbx-warning) 35%, transparent)", background: "color-mix(in srgb, var(--hbx-warning) 8%, transparent)", color: "var(--hbx-warning)" }
+                : { borderColor: "color-mix(in srgb, var(--hbx-danger) 30%, transparent)", background: "color-mix(in srgb, var(--hbx-danger) 8%, transparent)", color: "var(--hbx-danger)" }}>
                 {error}
               </div>
             )}

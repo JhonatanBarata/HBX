@@ -6,19 +6,21 @@ Leia este arquivo primeiro. Depois leia APENAS o arquivo de domínio relevante a
 
 Ordem do dono executa-se literalmente, sem reinterpretar, sem "melhorar", sem adaptar.
 
-**Telas do frontend:** a fonte é a pasta `docs/TEMAS`. Tela nova = **COPIAR o arquivo
-da pasta como está** (markup e CSS idênticos, elemento por elemento, texto por texto)
-e depois **só ligar os endpoints do backend** nos pontos dinâmicos. Não recriar, não
-redesenhar, não reaproveitar tela velha, não omitir elemento do template. Se um
-elemento do template não tem endpoint, ele fica visual como no template — registrar no
-doc do PR, nunca decidir sozinho remover.
-
-**TEMA É SÓ PELE (bloqueio absoluto, 12/06/2026):** tema muda só visual — fontes,
-cores, janelas, transições — via tokens. Tema NUNCA muda escrita, estrutura, menu ou
-navegação. Uma funcionalidade = UMA tela, UM DOM, UMA escrita; os temas vestem essa
-tela. Proibido tela/componente/app paralelo por tema. Tarefa que faria uma tela ficar
-diferente da outra entre temas = **PARAR e avisar o dono antes de editar** — só executa
-com autorização explícita dele (ou se ele deletar a REGRA DURA do FRONTEND.md).
+**Frontend — AS 5 LEIS DO DESIGN SYSTEM (ordem do dono, 12/06/2026, bloqueio absoluto):**
+1. **Tokens centrais** — todo valor visual nasce em `frontend/src/app/hbx-theme/`
+   (skeleton.css = contrato neutro; theme.css = utilities Tailwind v4 dos tokens).
+2. **Componentes centrais** — visual repetido vira classe do kit (`kit.css`) ou
+   utility; nunca se repete em tela.
+3. **Tema SÓ troca tokens** (`[data-theme]`/`[data-theme-mode]`). Tema NUNCA muda
+   escrita, estrutura, menu ou navegação — uma funcionalidade = UMA tela/DOM/escrita.
+4. **Tela é PROIBIDA de ter cor, borda, sombra, fonte ou radius próprios** — só
+   classe central/utility/token.
+5. **`check-pele.mjs` fiscaliza no lint** (hex/rgba/style visual em TSX = build
+   reprovado; styles visuais legados descem por catraca até zero).
+Detalhes e exceções: docs/Rules/FRONTEND.md. Violação das leis = PARAR e avisar o
+dono antes de editar. As telas atuais estão no ESQUELETO (peles deletadas por ordem
+dele em 12/06) até ele aprovar peles novas. `docs/TEMAS` virou REFERÊNCIA de
+estrutura/escrita — visual de lá NÃO se copia mais para dentro de tela.
 
 ## Mapa de domínios → `docs/Rules/`
 

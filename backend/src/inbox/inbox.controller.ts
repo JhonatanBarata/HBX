@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseIntPipe,
@@ -49,6 +50,11 @@ export class InboxController {
     @Query('light') light?: string,
   ) {
     return this.inboxService.getBootstrap(req.user, take, { light });
+  }
+
+  @Get('metrics')
+  getMetrics(@Req() req: any) {
+    return this.inboxService.getInboxMetrics(req.user);
   }
 
   @Post('bootstrap/full')
@@ -297,5 +303,24 @@ export class InboxController {
     @Body() dto: PromoteToRecoveryDto,
   ) {
     return this.inboxService.promoteToRecovery(req.user, id, dto);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Mensagens rápidas (respostas prontas)
+  // ---------------------------------------------------------------------------
+
+  @Get('quick-replies')
+  listQuickReplies(@Req() req: any) {
+    return this.inboxService.listQuickReplies(req.user);
+  }
+
+  @Post('quick-replies')
+  createQuickReply(@Req() req: any, @Body() dto: { title?: string; content?: string }) {
+    return this.inboxService.createQuickReply(req.user, dto || {});
+  }
+
+  @Delete('quick-replies/:id')
+  deleteQuickReply(@Req() req: any, @Param('id') id: string) {
+    return this.inboxService.deleteQuickReply(req.user, id);
   }
 }

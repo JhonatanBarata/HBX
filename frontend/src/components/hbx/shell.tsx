@@ -10,12 +10,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import React, { useEffect, useState, useSyncExternalStore } from "react";
 
-import { applyThemeSoft, setCorporateTheme, setFriendlyTheme, setThemeMode } from "@/components/hbx/theme-attributes";
+import { applyThemeSoft, DEFAULT_PELE, getActivePele, PELES, setAppTheme, setThemeMode } from "@/components/hbx/theme-attributes";
 import { apiFetch, clearToken, getToken } from "@/lib/api";
 
 export function I({ d, size = 18 }: { d: string[]; size?: number }) {
+  // strokeWidth="1.7" é só fallback SSR; em runtime a classe hbx-icon aplica
+  // o token --icon-stroke (a pele decide a espessura). Cor = currentColor.
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+    <svg className="hbx-icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
       {d.map((p, i) => <path key={i} d={p} />)}
     </svg>
   );
@@ -50,6 +52,17 @@ export const ICONS: Record<string, string[]> = {
   arrow: ["M5 12h14", "m13 6 6 6-6 6"],
   sun: ["M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10Z", "M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"],
   moon: ["M21 12.8A8.5 8.5 0 1 1 11.2 3a6.6 6.6 0 0 0 9.8 9.8Z"],
+  image: ["M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z", "M8.5 11a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z", "m21 16-5-5-7 7"],
+  play: ["M7 5v14l11-7z"],
+  pause: ["M9 5v14M15 5v14"],
+  mic: ["M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Z", "M5 11a7 7 0 0 0 14 0", "M12 18v3"],
+  stop: ["M7 7h10v10H7z"],
+  download: ["M12 4v11", "m7 11 5 5 5-5", "M5 20h14"],
+  reply: ["M9 7 4 12l5 5", "M4 12h11a5 5 0 0 1 5 5v2"],
+  x: ["M6 6 18 18M18 6 6 18"],
+  file: ["M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z", "M14 3v5h5"],
+  bolt: ["M13 3 4 14h7l-1 7 9-11h-7z"],
+  trash: ["M4 7h16", "M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2", "M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"],
 };
 
 export function Spark({ tone = "var(--hbx-brand-strong)", down = false }: { tone?: string; down?: boolean }) {
@@ -80,9 +93,9 @@ export function ConfirmDialog({ open, title, message, confirmLabel = "Confirmar"
   if (!open) return null;
   return (
     <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) onCancel(); }}
-      style={{ position: "fixed", inset: 0, zIndex: 60, background: "var(--hbx-overlay)", display: "grid", placeItems: "center", padding: 24 }}>
+      style={{ display: "grid", placeItems: "center", padding: 24 }}>
       <div className="hbx-modal" role="dialog" aria-modal="true"
-        style={{ width: "min(400px, 100%)", display: "grid", gap: 14, padding: 24, borderRadius: "var(--radius-xl)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface)", boxShadow: "var(--shadow-md)" }}>
+        style={{ width: "min(400px, 100%)", display: "grid", gap: 14, padding: 24 }}>
         <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800 }}>{title}</h3>
         <p style={{ margin: 0, fontSize: "0.82rem", color: "var(--text-muted)", lineHeight: 1.5 }}>{message}</p>
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 4 }}>
@@ -117,6 +130,12 @@ type CurrentUser = {
   userKind?: string | null;
   role?: string | null;
   isSystemMaster?: boolean | null;
+  sellerProfile?: {
+    isCommonSeller?: boolean | null;
+    // comissão de venda do próprio vendedor (GET /profile/current-user)
+    commissionPercent?: number | null;
+    sellerReferralCommissionPercent?: number | null;
+  } | null;
 };
 
 const USER_KIND_LABEL: Record<string, string> = {
@@ -200,6 +219,45 @@ export function useEntitlements() {
   return state;
 }
 
+// ---------------------------------------------------------------
+// Acesso por USUÁRIO (GET /modules/me): o plano libera o módulo para a
+// EMPRESA; isto responde se ESTE usuário pode ABRIR o módulo (papel +
+// política da equipe). Mesmo cálculo do guard real do backend
+// (modules.service.canUserAccessModule, usado pelo ModuleAccessGuard), então
+// a sidebar nunca mostra um módulo que o backend vai recusar com 403.
+// Ordem do dono (13/06/2026): o que o usuário não acessa NÃO aparece — em vez
+// de aparecer e não deixar clicar em nada.
+// ---------------------------------------------------------------
+export type MyModule = { key: string; accessible?: boolean; visible?: boolean };
+
+let myModulesCache: { at: number; data: MyModule[] } | null = null;
+
+export async function fetchMyModulesCached(): Promise<MyModule[]> {
+  if (myModulesCache && Date.now() - myModulesCache.at < 60_000) return myModulesCache.data;
+  const data = await apiFetch<MyModule[]>("/modules/me").catch(() => null);
+  const list = Array.isArray(data) ? data : [];
+  myModulesCache = { at: Date.now(), data: list };
+  return list;
+}
+
+export type MyModulesState = { loaded: boolean; byKey: Record<string, MyModule> };
+
+export function useMyModules(): MyModulesState {
+  const [state, setState] = useState<MyModulesState>({ loaded: false, byKey: {} });
+  useEffect(() => {
+    let alive = true;
+    if (!getToken()) return;
+    fetchMyModulesCached().then(list => {
+      if (!alive) return;
+      const byKey: Record<string, MyModule> = {};
+      for (const m of list) byKey[String(m.key || "").trim().toLowerCase()] = m;
+      setState({ loaded: true, byKey });
+    });
+    return () => { alive = false; };
+  }, []);
+  return state;
+}
+
 // módulo da navegação → entitlement que o libera (null = sempre visível)
 const NAV_ENTITLEMENT: Record<string, string | null> = {
   dash: null,
@@ -212,25 +270,60 @@ const NAV_ENTITLEMENT: Record<string, string | null> = {
   config: null,
 };
 
+// módulo da navegação → chave do módulo em /modules/me (null = sem gate por
+// usuário, sempre visível). Decide se ESTE usuário pode abrir a tela.
+const NAV_MODULE_KEY: Record<string, string | null> = {
+  dash: null,
+  leads: "webscraping",
+  scrape: "webscraping",
+  vendas: "vendas",
+  atend: "atendimento",
+  bot: "bot_ia",
+  relat: "vendas",
+  config: null,
+};
+
 export function isModuleVisible(
   id: string,
   ent: { loaded: boolean; entitlements: Entitlements },
   user?: { isSystemMaster?: boolean | null } | null,
+  mods?: MyModulesState,
 ) {
   // master enxerga TUDO: o backend bypassa entitlements para isSystemMaster
   // (commercial-plans.service.assertEntitlementForUser), mas /commercial-plans/me
   // falha sem empresa — sem este bypass a sidebar encolhia para o dono.
   if (user?.isSystemMaster) return true;
-  const key = NAV_ENTITLEMENT[id] ?? null;
-  if (key === null) return true;
-  // sem flash de módulo proibido: condicionais só aparecem após carregar
-  if (!ent.loaded) return false;
-  return Boolean(ent.entitlements[key]);
+
+  // 1) Gate de PLANO (entitlement da empresa).
+  const entKey = NAV_ENTITLEMENT[id] ?? null;
+  if (entKey !== null) {
+    // sem flash de módulo proibido: condicionais só aparecem após carregar
+    if (!ent.loaded) return false;
+    if (!ent.entitlements[entKey]) return false;
+  }
+
+  // 2) Gate por USUÁRIO (papel + política da equipe) via /modules/me.
+  // Regra do dono (13/06/2026, reforçada): SEM ACESSO = NÃO APARECE. O gate é
+  // fail-closed — o módulo só entra na sidebar quando o backend afirma
+  // explicitamente accessible:true (mesmo veredito do guard real
+  // canUserAccessModule, que devolve 403). Chave ausente, accessible
+  // indefinido ou /modules/me que falhou (byKey vazio) escondem o módulo, em
+  // vez de mostrá-lo e barrar no clique.
+  const modKey = NAV_MODULE_KEY[id] ?? null;
+  if (modKey !== null) {
+    // espera o /modules/me carregar para não piscar um módulo proibido.
+    if (!mods || !mods.loaded) return false;
+    const mod = mods.byKey[modKey];
+    if (!mod || mod.accessible !== true) return false;
+  }
+
+  return true;
 }
 
 export function Sidebar({ active }: { active: string }) {
   const user = useCurrentUser();
   const ent = useEntitlements();
+  const mods = useMyModules();
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
@@ -256,7 +349,7 @@ export function Sidebar({ active }: { active: string }) {
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--hbx-brand)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M4 6l6 6-6 6M11 6l6 6-6 6" /></svg>
         <strong>HBX</strong>
       </div>
-      {NAV_LINKS.filter(n => isModuleVisible(n.id, ent, user)).map(n => {
+      {NAV_LINKS.filter(n => isModuleVisible(n.id, ent, user, mods)).map(n => {
         const cls = "nav-item" + (n.id === active ? " active" : "");
         return (
           <Link key={n.id} className={cls} href={n.href}>
@@ -277,7 +370,7 @@ export function Sidebar({ active }: { active: string }) {
           <span className="dots" role="button" aria-label="Menu do usuário" aria-expanded={menuOpen}
             onClick={() => setMenuOpen(o => !o)}>⋮</span>
           {menuOpen && (
-            <div className="hbx-pop" style={{ position: "absolute", right: 8, bottom: "calc(100% + 6px)", zIndex: 20, minWidth: 120, padding: 6, borderRadius: "var(--radius-md)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface)", boxShadow: "var(--shadow-md)" }}>
+            <div className="hbx-pop" style={{ position: "absolute", right: 8, bottom: "calc(100% + 6px)", zIndex: 20, minWidth: 120, padding: 6 }}>
               <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "0.72rem" }} onClick={sair} disabled={signingOut}>
                 {signingOut ? "Saindo…" : "Sair"}
               </button>
@@ -290,22 +383,12 @@ export function Sidebar({ active }: { active: string }) {
 }
 
 // ---------------------------------------------------------------
-// Tema é SÓ PELE (REGRA DURA do FRONTEND.md, 12/06/2026): um app, as
-// mesmas telas; Friendly ⇄ Corporativo troca APENAS atributos/tokens do
-// <html> (como o claro/escuro), sem navegação. O app paralelo /workspace
-// foi morto na unificação — a rota redireciona para /dashboard.
+// ESQUELETO (docs/Rules/PELE.md, 12/06/2026): as peles corporate e
+// friendly foram DELETADAS por ordem do dono; o app veste apenas os
+// tokens neutros do skeleton.css até as peles novas serem aprovadas.
+// Fica só o modo claro/escuro AUTOMÁTICO: um atributo troca a escada
+// de tokens inteira — as telas nunca sabem que o dark existe.
 // ---------------------------------------------------------------
-
-export function applyCorpMode(mode: string) {
-  // suprime transições durante a troca de modo — transições penduradas
-  // congelam a cor antiga (diagnóstico: CSSTransition presa em currentTime 0)
-  const kill = document.createElement("style");
-  kill.textContent = "* { transition: none !important; }";
-  document.head.appendChild(kill);
-  setThemeMode("corporate", mode === "light" ? "light" : "dark");
-  void document.documentElement.offsetHeight; // força reflow com transições desligadas
-  requestAnimationFrame(() => requestAnimationFrame(() => kill.remove()));
-}
 
 export function subscribeToThemeMode(callback: () => void) {
   const obs = new MutationObserver(callback);
@@ -313,63 +396,46 @@ export function subscribeToThemeMode(callback: () => void) {
   return () => obs.disconnect();
 }
 
-export function useActiveTheme(): "corporate" | "friendly" {
-  return useSyncExternalStore(
-    subscribeToThemeMode,
-    () => (document.documentElement.getAttribute("data-theme") === "corporate" ? "corporate" : "friendly"),
-    () => "corporate",
+// Seletor de PELE (AS 5 LEIS: pele = tokens + camada de vestir; troca na
+// MESMA tela, sem navegação). Visual 100% das classes centrais.
+export function PeleSwitch() {
+  const ativa = useSyncExternalStore(subscribeToThemeMode, getActivePele, () => DEFAULT_PELE);
+  const [open, setOpen] = useState(false);
+  const label = PELES.find(p => p.key === ativa)?.label || PELES[0].label;
+  return (
+    <span style={{ position: "relative", display: "inline-flex" }}>
+      <button className="btn-ghost" style={{ minHeight: 32, gap: 6 }} onClick={() => setOpen(o => !o)}
+        aria-expanded={open} aria-label="Escolher pele" title="Pele do sistema">
+        {label} ▾
+      </button>
+      {open && (
+        <div className="hbx-pop" style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", zIndex: 30, minWidth: 150, padding: 6, display: "grid", gap: 2 }}>
+          {PELES.map(p => (
+            <button key={p.key} className={"nav-item" + (p.key === ativa ? " active" : "")} style={{ minHeight: 32 }}
+              onClick={() => { setAppTheme(p.key); setOpen(false); }}>
+              {p.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </span>
   );
 }
 
 export function ModeToggle() {
-  // estado deriva dos atributos do <html> (aplicados pelo boot de tema);
-  // semântica por tema: corporate escuro padrão, friendly claro padrão.
-  const theme = useActiveTheme();
   const modeAttr = useSyncExternalStore(
     subscribeToThemeMode,
     () => document.documentElement.getAttribute("data-theme-mode"),
     () => null,
   );
-  const corp = theme === "corporate";
-  const isDark = corp ? modeAttr !== "light" : modeAttr === "dark";
+  const isDark = modeAttr === "dark";
   function flip() {
-    const next = isDark ? "light" : "dark";
-    if (corp) applyCorpMode(next); // corporativo = troca seca (handoff)
-    else applyThemeSoft(() => setThemeMode("friendly", next)); // friendly = cross-fade
+    applyThemeSoft(() => setThemeMode(isDark ? "light" : "dark"));
   }
   return (
-    <button className="round-btn" onClick={flip} title={isDark ? "Tema claro" : "Tema escuro"} aria-label="Alternar tema">
+    <button className="round-btn" onClick={flip} title={isDark ? "Tema claro" : "Tema escuro"} aria-label="Alternar claro/escuro">
       <I d={isDark ? ICONS.sun : ICONS.moon} size={17} />
     </button>
-  );
-}
-
-export function ThemeSwitch() {
-  // chavinha Friendly ←→ Corporativo: troca de PELE na MESMA tela
-  // (setFriendlyTheme/setCorporateTheme persistem hbx:ws-theme e aplicam
-  // os atributos com cross-fade) — nunca navega.
-  const theme = useActiveTheme();
-  const corp = theme === "corporate";
-  function flip() {
-    if (corp) setFriendlyTheme();
-    else setCorporateTheme();
-  }
-  return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-      <button onClick={flip} role="switch" aria-checked={corp} aria-label="Alternar Friendly / Corporativo"
-        title={corp ? "Mudar para o tema Friendly" : "Mudar para o tema Corporativo"}
-        style={{ position: "relative", width: 46, height: 26, padding: 0, borderRadius: 999, cursor: "pointer",
-          border: "1px solid " + (corp ? "var(--hbx-brand)" : "var(--border-hairline)"),
-          background: corp
-            ? "linear-gradient(140deg, var(--hbx-brand), var(--hbx-brand-strong))"
-            : "color-mix(in srgb, var(--hbx-surface-raised) 80%, var(--hbx-surface))",
-          transition: "background var(--motion-fast), border-color var(--motion-fast)" }}>
-        <span style={{ position: "absolute", top: "50%", left: corp ? 22 : 2, width: 20, height: 20, borderRadius: 999, background: "#FFFFFF", transform: "translateY(-50%)", transition: "left var(--motion-base)" }} />
-      </button>
-      <span style={{ fontSize: "0.66rem", fontWeight: 800, color: corp ? "var(--hbx-brand-strong)" : "var(--text-muted)", letterSpacing: "0.04em", minWidth: 76 }}>
-        {corp ? "Corporativo" : "Friendly"}
-      </span>
-    </span>
   );
 }
 
@@ -429,7 +495,13 @@ async function fetchUnreadChatsCached(): Promise<number> {
 
 export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNode }) {
   const user = useCurrentUser();
+  const ent = useEntitlements();
+  const mods = useMyModules();
   const router = useRouter();
+  // atalhos do topo seguem o mesmo gate da sidebar: o que o usuário não acessa
+  // não aparece (ordem do dono 13/06/2026).
+  const podeAtendimento = isModuleVisible("atend", ent, user, mods);
+  const podeNovoLead = isModuleVisible("vendas", ent, user, mods);
   const [notices, setNotices] = useState<MasterNotice[]>([]);
   const [unreadChats, setUnreadChats] = useState(0);
   const [bellOpen, setBellOpen] = useState(false);
@@ -486,16 +558,18 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
         <span className="kbd">⌘ K</span>
       </div>
       <div className="top-actions">
+        <PeleSwitch />
         <ModeToggle />
-        <ThemeSwitch />
-        <button className="round-btn add" title="Novo lead" aria-label="Novo lead" onClick={abrirNovoLead}><I d={ICONS.plus} size={16} /></button>
+        {podeNovoLead && (
+          <button className="round-btn add" title="Novo lead" aria-label="Novo lead" onClick={abrirNovoLead}><I d={ICONS.plus} size={16} /></button>
+        )}
         <span style={{ position: "relative", display: "inline-flex" }}>
           <button className="round-btn" title="Avisos" aria-label="Avisos" onClick={() => setBellOpen(o => !o)}>
             <I d={ICONS.bell} size={17} />
             {naoLidos.length > 0 && <span className="bub">{naoLidos.length}</span>}
           </button>
           {bellOpen && (
-            <div className="hbx-pop" style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", zIndex: 30, width: 320, maxHeight: 380, overflowY: "auto", padding: 10, borderRadius: "var(--radius-md)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface)", boxShadow: "var(--shadow-md)", display: "grid", gap: 8 }}>
+            <div className="hbx-pop" style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", zIndex: 30, width: 320, maxHeight: 380, overflowY: "auto", padding: 10, display: "grid", gap: 8 }}>
               <strong style={{ fontFamily: "var(--font-display)", fontSize: "0.82rem" }}>Avisos</strong>
               {notices.length === 0 && <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Nenhum aviso no momento.</span>}
               {notices.map(n => {
@@ -530,16 +604,18 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
             </div>
           )}
         </span>
-        <button className="round-btn" title="Atendimento" aria-label="Atendimento" onClick={() => router.push("/atendimento")}>
-          <I d={ICONS.msg} size={17} />
-          {unreadChats > 0 && <span className="bub">{unreadChats}</span>}
-        </button>
+        {podeAtendimento && (
+          <button className="round-btn" title="Atendimento" aria-label="Atendimento" onClick={() => router.push("/atendimento")}>
+            <I d={ICONS.msg} size={17} />
+            {unreadChats > 0 && <span className="bub">{unreadChats}</span>}
+          </button>
+        )}
         <span style={{ position: "relative", display: "inline-flex" }}>
           <button className="round-btn" title="Conta" aria-label="Conta" style={{ width: "auto", height: "auto", padding: 0 }} onClick={() => setAvatarOpen(o => !o)}>
             <Av name={currentUserDisplayName(user)} size={34} />
           </button>
           {avatarOpen && (
-            <div className="hbx-pop" style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", zIndex: 30, minWidth: 180, padding: 8, borderRadius: "var(--radius-md)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface)", boxShadow: "var(--shadow-md)", display: "grid", gap: 6 }}>
+            <div className="hbx-pop" style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", zIndex: 30, minWidth: 180, padding: 8, display: "grid", gap: 6 }}>
               <div style={{ padding: "4px 6px" }}>
                 <strong style={{ display: "block", fontSize: "0.76rem" }}>{currentUserDisplayName(user)}</strong>
                 <small style={{ fontSize: "0.64rem", color: "var(--text-muted)" }}>{user?.email || currentUserRoleLabel(user)}</small>
@@ -562,24 +638,41 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
   );
 }
 
-export type KpiItem = { icon: string; label: string; value: string; delta: string; down?: boolean };
+// `delta` só aparece quando há comparação REAL (ex.: "+12%"); sem série
+// histórica no backend, o antigo "— vs mês anterior" + sparkline sempre-pra-cima
+// era dado fake ao lado de dado real (proibido em FRONTEND.md). `sub` mostra um
+// contexto secundário verdadeiro (ex.: comissão liberada). `href`/`onClick`
+// tornam o card clicável (vira <a> que navega para a tela da métrica).
+export type KpiItem = { icon: string; label: string; value: string; delta?: string; sub?: string; down?: boolean; href?: string; onClick?: () => void };
 
 export function KpiRow({ items }: { items: KpiItem[] }) {
   return (
     <div className="kpis">
-      {items.map(k => (
-        <div className="kpi" key={k.label}>
-          <span className="kpi-icon"><I d={ICONS[k.icon]} /></span>
-          <div>
-            <div className="kpi-label">{k.label}</div>
-            <div className="kpi-value">{k.value}</div>
-            <div className="kpi-foot">
-              <span className={"kpi-delta" + (k.down ? " down" : "")}>{k.delta} <small>vs mês anterior</small></span>
-              <Spark down={k.down} tone={k.down ? "var(--hbx-danger)" : "var(--hbx-brand-strong)"} />
+      {items.map(k => {
+        const hasDelta = Boolean(k.delta && k.delta !== "—");
+        const inner = (
+          <React.Fragment>
+            <span className="kpi-icon"><I d={ICONS[k.icon]} /></span>
+            <div>
+              <div className="kpi-label">{k.label}</div>
+              <div className="kpi-value">{k.value}</div>
+              {hasDelta ? (
+                <div className="kpi-foot">
+                  <span className={"kpi-delta" + (k.down ? " down" : "")}>{k.delta} <small>vs mês anterior</small></span>
+                  <Spark down={k.down} tone={k.down ? "var(--hbx-danger)" : "var(--hbx-brand-strong)"} />
+                </div>
+              ) : k.sub ? (
+                <div className="kpi-foot"><span className="kpi-delta"><small>{k.sub}</small></span></div>
+              ) : null}
             </div>
-          </div>
-        </div>
-      ))}
+          </React.Fragment>
+        );
+        return k.href ? (
+          <Link className="kpi" key={k.label} href={k.href} onClick={k.onClick}>{inner}</Link>
+        ) : (
+          <div className="kpi" key={k.label}>{inner}</div>
+        );
+      })}
     </div>
   );
 }

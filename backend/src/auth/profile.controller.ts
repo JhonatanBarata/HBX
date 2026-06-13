@@ -60,6 +60,9 @@ export function sanitizeUser(user: any, masterContext?: any) {
       isCommonSeller: role === 'USER' && !isReferralSeller && !user.isSystemMaster,
       isAdmin: role === 'ADMIN' && !user.isSystemMaster,
       canRecruitSellers: Boolean(user.canRegisterHbxSellers),
+      // comissao de venda do proprio vendedor (a tela /leads mostra para o
+      // vendedor; nao e cobranca/plano da empresa) — ordem do dono 13/06/2026.
+      commissionPercent: Number(user.commissionPercent || 0) || 0,
       sellerReferralCommissionPercent: Number(user.sellerReferralCommissionPercent || 0) || 0,
       referredByUserId: user.referredByUserId ?? null,
     },

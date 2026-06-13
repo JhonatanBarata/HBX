@@ -1,0 +1,96 @@
+/* ============================================================
+   HBX DESIGN SYSTEM — casa única dos tokens (Tailwind v4)
+   docs/Rules/FRONTEND.md · 12/06/2026
+
+   AS 5 LEIS:
+   1. Tokens centrais — nascem AQUI (valores neutros no skeleton.css).
+   2. Componentes centrais — kit.css + utilities geradas destes tokens.
+   3. Tema SÓ troca tokens ([data-theme]/[data-theme-mode]).
+   4. Tela é PROIBIDA de ter cor, borda, sombra, fonte ou radius
+      próprios — só classe central / utility.
+   5. check-pele.mjs barra hex, rgba e style visual em TSX no lint.
+
+   Sem preflight (reset) — só theme + utilities: a paleta default do
+   Tailwind é APAGADA (--color-*: initial), então NÃO EXISTE utility
+   de cor fora do contrato HBX. bg-[#…] (valor arbitrário) é barrado
+   pelo checker.
+   ============================================================ */
+
+@import "tailwindcss/theme" layer(theme);
+@import "tailwindcss/utilities" layer(utilities);
+
+@theme {
+  /* apaga o universo default do Tailwind — só o contrato HBX existe */
+  --color-*: initial;
+  --font-*: initial;
+  --shadow-*: initial;
+  --radius-*: initial;
+}
+
+/* Tokens HBX expostos como utilities (inline = resolve var() no uso,
+   então [data-theme]/[data-theme-mode] trocam tudo em runtime). */
+@theme inline {
+  /* ---- Cor: marca / ações ---- */
+  --color-brand: var(--hbx-brand);
+  --color-brand-strong: var(--hbx-brand-strong);
+  --color-brand-soft: var(--hbx-brand-soft);
+  --color-on-brand: var(--hbx-brand-contrast);
+  --color-action-ink: var(--hbx-action-ink);
+  --color-primary: var(--hbx-primary);
+  --color-secondary: var(--hbx-secondary);
+  --color-accent: var(--hbx-accent);
+
+  /* ---- Cor: status ---- */
+  --color-success: var(--hbx-success);
+  --color-info: var(--hbx-info);
+  --color-warning: var(--hbx-warning);
+  --color-danger: var(--hbx-danger);
+
+  /* ---- Cor: superfícies ---- */
+  --color-canvas: var(--hbx-background);
+  --color-canvas-alt: var(--hbx-background-alt);
+  --color-surface: var(--hbx-surface);
+  --color-surface-soft: var(--hbx-surface-soft);
+  --color-surface-raised: var(--hbx-surface-raised);
+  --color-header: var(--hbx-header-surface);
+  --color-nav: var(--hbx-nav-surface);
+  --color-field: var(--hbx-field-surface);
+  --color-table-head: var(--hbx-table-head);
+  --color-overlay: var(--hbx-overlay);
+  --color-chat-in: var(--hbx-chat-inbound);
+  --color-chat-out: var(--hbx-chat-outbound);
+  --color-chat-system: var(--hbx-chat-system);
+
+  /* ---- Cor: texto e linhas ---- */
+  --color-ink: var(--text-strong);
+  --color-ink-soft: var(--text-body);
+  --color-ink-muted: var(--text-muted);
+  --color-hairline: var(--border-hairline);
+  --color-line-strong: var(--border-strong);
+  --color-ring: var(--ring-brand);
+  --color-avatar-from: var(--hbx-avatar-from);
+  --color-avatar-to: var(--hbx-avatar-to);
+
+  /* ---- Fonte ---- */
+  --font-display: var(--font-display);
+  --font-body: var(--font-body);
+  --font-mono: var(--font-mono);
+
+  /* ---- Forma (janelas) ---- */
+  --radius-xs: var(--radius-xs);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+  --radius-pill: var(--radius-pill);
+  --radius-control: var(--control-radius);
+  --radius-panel: var(--panel-radius);
+  --radius-hero: var(--hero-radius);
+
+  /* ---- Profundidade ---- */
+  --shadow-xs: var(--shadow-xs);
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+  --shadow-lip: var(--shadow-inset);
+}

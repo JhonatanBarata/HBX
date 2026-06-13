@@ -1,0 +1,114 @@
+/* ============================================================
+   PELE: AURORA — violeta profundo + ciano, vidro líquido, futurista.
+   Gerada pelo PEDIDO-DE-PELE (Bloco A tokens · Bloco B vestir).
+   Escopo total: [data-theme="aurora"]. Nada fora daqui.
+   ============================================================ */
+
+/* ---- Bloco A · CLARO ---- */
+[data-theme="aurora"] {
+  --hbx-brand: #6D28D9; --hbx-brand-strong: #0891B2; --hbx-brand-soft: #EDE9FE; --hbx-brand-contrast: #FAF8FF;
+  --hbx-primary: #6D28D9; --hbx-secondary: #0891B2; --hbx-success: #0D9488; --hbx-accent: #C026D3;
+  --hbx-info: #0284C7; --hbx-warning: #D97706; --hbx-danger: #DB2777;
+  --hbx-background: #F6F4FE; --hbx-background-alt: #EDE9FB;
+  --hbx-surface: #FFFFFF; --hbx-surface-soft: #F4F1FC; --hbx-surface-raised: #E9E3FA;
+  --hbx-header-surface: rgba(248,246,255,0.82); --hbx-nav-surface: rgba(243,240,253,0.9);
+  --hbx-field-surface: #FCFBFF; --hbx-table-head: #F1EDFB;
+  --hbx-chat-inbound: #FFFFFF; --hbx-chat-outbound: #EFE9FD; --hbx-chat-system: #F5F2FD;
+  --hbx-foreground: #1E1038; --hbx-foreground-soft: #3D2B63; --hbx-muted: #6F619A;
+  --hbx-line: #CBBDF0; --hbx-shadow: #1B0A40; --hbx-overlay: rgba(27,10,64,0.34);
+  --border-hairline: #DCD2F4; --border-strong: #B5A3E5; --ring-brand: rgba(109,40,217,0.2);
+  --hbx-action-ink: #FAF8FF; --hbx-avatar-from: #6D28D9; --hbx-avatar-to: #0891B2;
+  --font-display: "Sora", system-ui, sans-serif; --font-body: "Plus Jakarta Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --radius-xs: 8px; --radius-sm: 12px; --radius-md: 16px; --radius-lg: 20px; --radius-xl: 28px;
+  --shadow-xs: 0 10px 22px -16px rgba(27,10,64,0.3); --shadow-sm: 0 18px 42px -22px rgba(27,10,64,0.35);
+  --shadow-md: 0 28px 64px -28px rgba(27,10,64,0.42); --shadow-lg: 0 42px 90px -34px rgba(27,10,64,0.5);
+  --shadow-inset: inset 0 1px 0 rgba(255,255,255,0.7);
+  --blur-chrome: 26px; --blur-glass: 20px;
+  --panel-glow: rgba(109,40,217,0.12); --hero-glow: rgba(8,145,178,0.16); --soft-ring: rgba(109,40,217,0.16);
+  --motion-fast: 160ms ease; --motion-base: 320ms cubic-bezier(0.22,1,0.36,1); --motion-slow: 560ms cubic-bezier(0.22,1,0.36,1);
+  --ease-out-quint: cubic-bezier(0.22,1,0.36,1);
+}
+
+/* ---- Bloco A · ESCURO ---- */
+[data-theme="aurora"][data-theme-mode="dark"] {
+  --hbx-brand: #8B5CF6; --hbx-brand-strong: #22D3EE; --hbx-brand-soft: #2A1A56; --hbx-brand-contrast: #F4F0FF;
+  --hbx-primary: #8B5CF6; --hbx-secondary: #22D3EE; --hbx-success: #2DD4BF; --hbx-accent: #E879F9;
+  --hbx-info: #38BDF8; --hbx-warning: #FBBF24; --hbx-danger: #F472B6;
+  --hbx-background: #0B0620; --hbx-background-alt: #120A30;
+  --hbx-surface: #170E38; --hbx-surface-soft: #1C1244; --hbx-surface-raised: #251853;
+  --hbx-header-surface: rgba(11,6,32,0.78); --hbx-nav-surface: rgba(23,14,56,0.9);
+  --hbx-field-surface: #1A1040; --hbx-table-head: #1B1145;
+  --hbx-chat-inbound: #1B1145; --hbx-chat-outbound: #2C1C63; --hbx-chat-system: #181040;
+  --hbx-foreground: #F1ECFF; --hbx-foreground-soft: #CFC3F2; --hbx-muted: #9587C4;
+  --hbx-line: #382768; --hbx-shadow: #02000F; --hbx-overlay: rgba(2,0,15,0.66);
+  --border-hairline: #2E2059; --border-strong: #4A3784; --ring-brand: rgba(139,92,246,0.3);
+  --hbx-action-ink: #0B0620; --hbx-avatar-from: #8B5CF6; --hbx-avatar-to: #22D3EE;
+  --shadow-inset: inset 0 1px 0 rgba(255,255,255,0.07);
+}
+
+/* ---- Bloco B · CAMADA DE VESTIR (vidro líquido) ---- */
+[data-theme="aurora"] .side {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--hbx-nav-surface) 94%, transparent), color-mix(in srgb, var(--hbx-surface-soft) 84%, transparent));
+  -webkit-backdrop-filter: blur(var(--blur-chrome)); backdrop-filter: blur(var(--blur-chrome));
+  box-shadow: var(--shadow-inset), var(--shadow-xs);
+}
+[data-theme="aurora"] .topbar {
+  background: color-mix(in srgb, var(--hbx-header-surface) 88%, transparent);
+  -webkit-backdrop-filter: blur(var(--blur-chrome)); backdrop-filter: blur(var(--blur-chrome));
+  box-shadow: var(--shadow-inset);
+}
+[data-theme="aurora"] .panel,
+[data-theme="aurora"] .kpi,
+[data-theme="aurora"] .plan-card,
+[data-theme="aurora"] .user-card,
+[data-theme="aurora"] .hbx-modal {
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--hbx-brand) 9%, transparent), transparent 46%),
+    linear-gradient(180deg, color-mix(in srgb, var(--hbx-surface) 98%, var(--hbx-background)), color-mix(in srgb, var(--hbx-surface-soft) 90%, var(--hbx-background)));
+  box-shadow: var(--shadow-inset), var(--shadow-sm);
+}
+[data-theme="aurora"] .nav-item { border-radius: var(--radius-pill); }
+[data-theme="aurora"] .nav-item.active {
+  background: color-mix(in srgb, var(--hbx-brand) 14%, var(--hbx-surface));
+  border: 1px solid color-mix(in srgb, var(--hbx-brand) 34%, var(--hbx-line));
+  padding-top: 8px; padding-bottom: 8px;
+  box-shadow: 0 12px 24px -16px var(--soft-ring);
+}
+[data-theme="aurora"] .btn-teal {
+  background: linear-gradient(140deg, var(--hbx-primary), var(--hbx-secondary));
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-inset), 0 16px 30px -18px color-mix(in srgb, var(--hbx-primary) 75%, transparent);
+}
+[data-theme="aurora"] .btn-teal:hover { background: linear-gradient(140deg, var(--hbx-primary), var(--hbx-primary)); }
+[data-theme="aurora"] .btn-ghost,
+[data-theme="aurora"] .field-dark,
+[data-theme="aurora"] .select-dark { border-radius: var(--radius-sm); box-shadow: var(--shadow-inset); }
+[data-theme="aurora"] .search { box-shadow: var(--shadow-inset); }
+[data-theme="aurora"] .round-btn { border: 1px solid var(--border-hairline); background: color-mix(in srgb, var(--hbx-surface) 80%, transparent); }
+[data-theme="aurora"] .bars .bar {
+  border-radius: 7px 7px 3px 3px; opacity: 1;
+  box-shadow: 0 10px 20px -12px color-mix(in srgb, var(--hbx-brand) 80%, transparent), inset 0 1px 0 rgba(255,255,255,0.3);
+}
+[data-theme="aurora"] .meter-fill { box-shadow: inset 0 1px 0 rgba(255,255,255,0.25); }
+
+/* ---- Bloco C · MOVIMENTO & ÍCONE (estrutura: vidro deslizante) ---- */
+[data-theme="aurora"] {
+  --icon-stroke: 1.6;
+  --enter-name: hbx-enter-glide;
+  --enter-duration: 520ms;
+  --enter-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --enter-stagger: 70ms;
+}
+[data-theme="aurora"] .panel,
+[data-theme="aurora"] .kpi,
+[data-theme="aurora"] .deal {
+  transition: transform var(--motion-base), box-shadow var(--motion-base), border-color var(--motion-base);
+}
+[data-theme="aurora"] .panel:hover,
+[data-theme="aurora"] .kpi:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-inset), var(--shadow-md);
+}
+[data-theme="aurora"] .btn-teal { transition: transform var(--motion-fast), background var(--motion-fast), box-shadow var(--motion-fast); }
+[data-theme="aurora"] .btn-teal:hover { transform: translateY(-1px); }

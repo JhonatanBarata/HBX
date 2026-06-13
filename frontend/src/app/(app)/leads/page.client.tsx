@@ -15,7 +15,7 @@
 import { useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useState } from "react";
 
-import { Av, I, ICONS, KpiRow, Sidebar, Topbar } from "@/components/hbx/shell";
+import { Av, I, ICONS, KpiRow, Sidebar, Topbar, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 
 type RadarLead = {
@@ -121,8 +121,15 @@ function userLabel(u: CompanyUser) {
 
 export function LeadsClient() {
   const router = useRouter();
+  const me = useCurrentUser();
+  const isSeller = me?.userKind === "seller";
+  // comissão de venda do próprio vendedor (ordem do dono 13/06/2026: mostrar
+  // a comissão dele nas ações do lead). Só aparece para vendedor e quando o
+  // backend já expõe o percentual (sellerProfile.commissionPercent).
+  const commissionPct = isSeller ? Number(me?.sellerProfile?.commissionPercent ?? 0) || 0 : 0;
   const [etapa, setEtapa] = useState("");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(8);
   const [data, setData] = useState<LeadsResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [sel, setSel] = useState<RadarLead | null>(null);
@@ -138,12 +145,13 @@ export function LeadsClient() {
   const [ruleBusy, setRuleBusy] = useState(false);
   const [ruleMsg, setRuleMsg] = useState<string | null>(null);
 
-  const loadLeads = useCallback((opts?: { page?: number; status?: string }) => {
+  const loadLeads = useCallback((opts?: { page?: number; status?: string; limit?: number }) => {
     const params = new URLSearchParams();
     params.set("page", String(opts?.page ?? 1));
     // 8 linhas/página como o template — tela cabe sem rolagem (mesmo ajuste
-    // do Radar, pedido do dono em 11/06/2026)
-    params.set("limit", "8");
+    // do Radar, pedido do dono em 11/06/2026); o seletor "Linhas por página"
+    // troca esse valor.
+    params.set("limit", String(opts?.limit ?? pageSize));
     const st = opts?.status ?? etapa;
     if (st) params.set("status", st);
     return apiFetch<LeadsResponse>(`/webscraping/radar/leads?${params.toString()}`)
@@ -158,7 +166,7 @@ export function LeadsClient() {
         setData(null);
         setSel(null);
       });
-  }, [etapa]);
+  }, [etapa, pageSize]);
 
   useEffect(() => {
     loadLeads({ page: 1 });
@@ -192,6 +200,13 @@ export function LeadsClient() {
     if (p < 1) return;
     setPage(p);
     loadLeads({ page: p });
+  }
+
+  function trocarPageSize(n: number) {
+    const size = Number(n) || 8;
+    setPageSize(size);
+    setPage(1);
+    loadLeads({ page: 1, limit: size });
   }
 
   function selecionar(row: RadarLead) {
@@ -398,7 +413,10 @@ export function LeadsClient() {
                 </table>
               </div>
               <div className="pager">
-                Linhas por página: <span className="select-dark" style={{ minWidth: 0, minHeight: 30, padding: "0 10px" }}>{limit} ▾</span>
+                Linhas por página: <select className="select-dark" style={{ minWidth: 0, minHeight: 30, padding: "0 8px" }}
+                  value={pageSize} onChange={e => trocarPageSize(Number(e.target.value))} aria-label="Linhas por página">
+                  {[8, 25, 50, 100].map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
                 <span style={{ marginLeft: "auto" }}>
                   {total > 0
                     ? `${((page - 1) * limit + 1).toLocaleString("pt-BR")}–${Math.min(page * limit, total).toLocaleString("pt-BR")} de ${total.toLocaleString("pt-BR")}`
@@ -416,7 +434,7 @@ export function LeadsClient() {
           </div>
 
           <aside className="ctx">
-            <h3>Contexto do lead <span className="x">✕</span></h3>
+            <h3>Contexto do lead <span className="x" role="button" aria-label="Fechar contexto" title="Limpar seleção" onClick={() => { setSel(null); setActionMsg(null); }}>✕</span></h3>
             <div style={{ display: "flex", gap: 11, alignItems: "center" }}>
               <Av name={l?.name || "—"} size={44} />
               <div>
@@ -457,8 +475,15 @@ export function LeadsClient() {
                   </button>
                 </React.Fragment>
               )}
+              {isSeller && commissionPct > 0 && (
+                <div className="tag teal" style={{ display: "inline-flex", gap: 6, alignItems: "center", width: "fit-content" }} title="Percentual que você recebe quando este lead fecha venda">
+                  <I d={ICONS.money} size={12} /> Sua comissão por venda: {commissionPct}%
+                </div>
+              )}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                <button className="btn-ghost" onClick={enviarParaVendas} disabled={!sel?.id || busy}><I d={ICONS.arrow} size={13} /> Enviar p/ Vendas</button>
+                <button className="btn-ghost" onClick={enviarParaVendas} disabled={!sel?.id || busy}>
+                  <I d={ICONS.arrow} size={13} /> Enviar p/ Vendas{isSeller && commissionPct > 0 ? ` · ${commissionPct}%` : ""}
+                </button>
                 <button className="btn-ghost" onClick={iniciarConversa} disabled={!sel?.phone || busy} title={sel && !sel.phone ? "Lead sem telefone" : undefined}><I d={ICONS.msg} size={13} /> Iniciar conversa</button>
               </div>
             </div>
@@ -468,8 +493,8 @@ export function LeadsClient() {
 
       {ruleOpen && (
         <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setRuleOpen(false); }}
-          style={{ position: "fixed", inset: 0, zIndex: 40, background: "var(--hbx-overlay)", display: "grid", justifyContent: "end" }}>
-          <div className="hbx-drawer" style={{ width: 360, height: "100vh", overflowY: "auto", background: "var(--hbx-surface)", borderLeft: "1px solid var(--border-hairline)", padding: "18px 16px", display: "grid", gap: 14, alignContent: "start" }}>
+          style={{ position: "fixed", inset: 0, zIndex: 40, display: "grid", justifyContent: "end" }}>
+          <div className="hbx-drawer" style={{ width: 360, height: "100vh", overflowY: "auto", padding: "18px 16px", display: "grid", gap: 14, alignContent: "start" }}>
             <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "0.9rem", fontWeight: 700, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               Distribuição automática
               <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setRuleOpen(false)}>✕</span>

@@ -1,18 +1,25 @@
 /* ============================================================
-   HBX System — entry global (mesma ordem do docs/TEMAS/styles.css)
-   styles.css (tokens) → corporate.css → screens.css (estilos
-   por-tela vindos dos <style> dos HTMLs do handoff)
+   HBX System — entry global (ESQUELETO, 12/06/2026)
+   tokens estruturais → ESQUELETO (contrato PELE neutro) → base →
+   kit (estrutura) → telas → landing → transições.
+   Pele nova = theme-<nome>.css importado DEPOIS do skeleton.css
+   (ver docs/Rules/PELE.md). Hoje: nenhuma pele instalada.
    ============================================================ */
 
+@import "./hbx-theme/theme.css";
 @import "./hbx-theme/fonts.css";
-@import "./hbx-theme/colors.css";
 @import "./hbx-theme/typography.css";
 @import "./hbx-theme/spacing.css";
-@import "./hbx-theme/effects.css";
+@import "./hbx-theme/skeleton.css";
 @import "./hbx-theme/base.css";
-@import "./hbx-theme/theme-corporate.css";
-@import "./hbx-theme/corporate.css";
-@import "./hbx-theme/theme-friendly.css";
+@import "./hbx-theme/kit.css";
 @import "./hbx-theme/screens.css";
 @import "./hbx-theme/marketing.css";
 @import "./hbx-theme/transitions.css";
+
+/* Peles instaladas (tokens + camada de vestir; sempre por último
+   para sobrescreverem o esqueleto). Pele nova = 1 arquivo + 1 linha
+   + entrada no registry de theme-attributes.tsx. */
+@import "./hbx-theme/theme-aurora.css";
+@import "./hbx-theme/theme-ember.css";
+@import "./hbx-theme/theme-rose.css";

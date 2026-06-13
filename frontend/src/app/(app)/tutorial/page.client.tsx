@@ -137,7 +137,7 @@ export function TutorialClient() {
                 </button>
               )}
               {alemDoPlano && (
-                <div style={{ display: "flex", gap: 10, alignItems: "center", padding: "12px 14px", borderRadius: "var(--radius-md)", border: "1px solid rgba(245,178,60,0.35)", background: "rgba(245,178,60,0.07)" }}>
+                <div style={{ display: "flex", gap: 10, alignItems: "center", padding: "12px 14px", borderRadius: "var(--radius-md)", border: "1px solid color-mix(in srgb, var(--hbx-warning) 35%, transparent)", background: "color-mix(in srgb, var(--hbx-warning) 7%, transparent)" }}>
                   <span style={{ fontSize: "0.76rem", lineHeight: 1.5, color: "var(--text-body)" }}>
                     Este capítulo mostra o que o <strong>{c.plano}</strong> faria pela sua operação.
                   </span>
@@ -148,7 +148,7 @@ export function TutorialClient() {
           </section>
 
           {fimDoSeu && (
-            <section className="panel" style={{ borderColor: "rgba(22,199,164,0.35)" }}>
+            <section className="panel" style={{ borderColor: "color-mix(in srgb, var(--hbx-brand) 35%, transparent)" }}>
               <div style={{ padding: 18, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
                 <span className="tag teal">✓</span>
                 <div style={{ flex: 1, minWidth: 220 }}>

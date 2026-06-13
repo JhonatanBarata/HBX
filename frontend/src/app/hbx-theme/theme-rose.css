@@ -1,0 +1,110 @@
+/* ============================================================
+   PELE: ROSÉ — feminina, elegante e suave. Rosa + lilás sobre
+   off-white rosado (escuro: ameixa profunda). Cantos bem
+   arredondados, sombras difusas rosadas, serifada delicada no
+   display, movimento macio.
+   Escopo total: [data-theme="rose"].
+   ============================================================ */
+
+/* ---- Bloco A · CLARO ---- */
+[data-theme="rose"] {
+  --hbx-brand: #DB2777; --hbx-brand-strong: #9D174D; --hbx-brand-soft: #FCE7F3; --hbx-brand-contrast: #FFF5FA;
+  --hbx-primary: #DB2777; --hbx-secondary: #8B5CF6; --hbx-success: #0F9D77; --hbx-accent: #A855F7;
+  --hbx-info: #7C3AED; --hbx-warning: #C2740C; --hbx-danger: #E11D48;
+  --hbx-background: #FDF5F8; --hbx-background-alt: #FAEDF3;
+  --hbx-surface: #FFFFFF; --hbx-surface-soft: #FBF2F6; --hbx-surface-raised: #F6E4ED;
+  --hbx-header-surface: rgba(255,250,252,0.86); --hbx-nav-surface: rgba(251,242,246,0.94);
+  --hbx-field-surface: #FFFCFD; --hbx-table-head: #FAF0F5;
+  --hbx-chat-inbound: #FFFFFF; --hbx-chat-outbound: #FBE5F0; --hbx-chat-system: #FAF2F6;
+  --hbx-foreground: #3B1226; --hbx-foreground-soft: #61304A; --hbx-muted: #99687F;
+  --hbx-line: #EDCBDC; --hbx-shadow: #4A0E2C; --hbx-overlay: rgba(74,14,44,0.32);
+  --border-hairline: #F3DCE8; --border-strong: #DFB3C9; --ring-brand: rgba(219,39,119,0.18);
+  --hbx-action-ink: #FFF5FA; --hbx-avatar-from: #DB2777; --hbx-avatar-to: #8B5CF6;
+  --font-display: "Lora", Georgia, serif; --font-body: "Plus Jakarta Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --radius-xs: 10px; --radius-sm: 14px; --radius-md: 18px; --radius-lg: 22px; --radius-xl: 30px;
+  --shadow-xs: 0 10px 24px -18px rgba(74,14,44,0.25); --shadow-sm: 0 16px 40px -22px rgba(74,14,44,0.28);
+  --shadow-md: 0 26px 60px -28px rgba(74,14,44,0.34); --shadow-lg: 0 40px 84px -32px rgba(74,14,44,0.4);
+  --shadow-inset: inset 0 1px 0 rgba(255,255,255,0.85);
+  --blur-chrome: 18px; --blur-glass: 14px;
+  --panel-glow: rgba(219,39,119,0.1); --hero-glow: rgba(168,85,247,0.12); --soft-ring: rgba(219,39,119,0.14);
+  --motion-fast: 180ms ease; --motion-base: 340ms cubic-bezier(0.25,1,0.4,1); --motion-slow: 600ms cubic-bezier(0.25,1,0.4,1);
+  --ease-out-quint: cubic-bezier(0.25,1,0.4,1);
+  --tracking-display: -0.01em;
+}
+
+/* ---- Bloco A · ESCURO (ameixa profunda) ---- */
+[data-theme="rose"][data-theme-mode="dark"] {
+  --hbx-brand: #F472B6; --hbx-brand-strong: #FBCFE8; --hbx-brand-soft: #4A1533; --hbx-brand-contrast: #2A0A1C;
+  --hbx-primary: #F472B6; --hbx-secondary: #C4B5FD; --hbx-success: #5EEAD4; --hbx-accent: #D8B4FE;
+  --hbx-info: #C4B5FD; --hbx-warning: #FCD34D; --hbx-danger: #FB7185;
+  --hbx-background: #20081A; --hbx-background-alt: #2A0C20;
+  --hbx-surface: #321026; --hbx-surface-soft: #3A142C; --hbx-surface-raised: #471A36;
+  --hbx-header-surface: rgba(32,8,26,0.8); --hbx-nav-surface: rgba(50,16,38,0.92);
+  --hbx-field-surface: #381329; --hbx-table-head: #38132B;
+  --hbx-chat-inbound: #3A142C; --hbx-chat-outbound: #531C3D; --hbx-chat-system: #331127;
+  --hbx-foreground: #FDEEF6; --hbx-foreground-soft: #EBC9DC; --hbx-muted: #BD8FA8;
+  --hbx-line: #5C2444; --hbx-shadow: #0E0009; --hbx-overlay: rgba(14,0,9,0.66);
+  --border-hairline: #4C1D39; --border-strong: #713057; --ring-brand: rgba(244,114,182,0.28);
+  --hbx-action-ink: #2A0A1C; --hbx-avatar-from: #F472B6; --hbx-avatar-to: #C4B5FD;
+  --shadow-inset: inset 0 1px 0 rgba(255,255,255,0.08);
+}
+
+/* ---- Bloco B · CAMADA DE VESTIR (suave e arredondada) ---- */
+[data-theme="rose"] .side {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--hbx-nav-surface) 96%, transparent), color-mix(in srgb, var(--hbx-surface-soft) 88%, transparent));
+  -webkit-backdrop-filter: blur(var(--blur-chrome)); backdrop-filter: blur(var(--blur-chrome));
+}
+[data-theme="rose"] .topbar {
+  background: color-mix(in srgb, var(--hbx-header-surface) 92%, transparent);
+  -webkit-backdrop-filter: blur(var(--blur-chrome)); backdrop-filter: blur(var(--blur-chrome));
+}
+[data-theme="rose"] .panel,
+[data-theme="rose"] .kpi,
+[data-theme="rose"] .plan-card,
+[data-theme="rose"] .user-card,
+[data-theme="rose"] .hbx-modal {
+  background: linear-gradient(180deg, var(--hbx-surface), color-mix(in srgb, var(--hbx-surface-soft) 88%, var(--hbx-surface)));
+  box-shadow: var(--shadow-inset), var(--shadow-sm);
+}
+[data-theme="rose"] .nav-item { border-radius: var(--radius-pill); }
+[data-theme="rose"] .nav-item.active {
+  background: linear-gradient(120deg, color-mix(in srgb, var(--hbx-brand) 14%, var(--hbx-surface)), color-mix(in srgb, var(--hbx-secondary) 12%, var(--hbx-surface)));
+  box-shadow: 0 10px 22px -16px var(--soft-ring);
+}
+[data-theme="rose"] .btn-teal {
+  background: linear-gradient(120deg, var(--hbx-primary), var(--hbx-accent));
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-inset), 0 14px 28px -18px color-mix(in srgb, var(--hbx-primary) 70%, transparent);
+}
+[data-theme="rose"] .btn-teal:hover { background: linear-gradient(120deg, var(--hbx-primary), var(--hbx-primary)); }
+[data-theme="rose"] .btn-ghost,
+[data-theme="rose"] .field-dark,
+[data-theme="rose"] .select-dark { border-radius: var(--radius-pill); }
+[data-theme="rose"] .field-dark,
+[data-theme="rose"] .select-dark { padding-left: 16px; padding-right: 16px; }
+[data-theme="rose"] .kpi-icon { box-shadow: var(--shadow-inset); }
+[data-theme="rose"] .tag { font-weight: 600; }
+[data-theme="rose"] .bars .bar {
+  border-radius: 10px 10px 4px 4px; opacity: 1;
+  background: linear-gradient(180deg, var(--hbx-accent), var(--hbx-brand));
+  box-shadow: 0 8px 18px -12px color-mix(in srgb, var(--hbx-brand) 70%, transparent);
+}
+[data-theme="rose"] .meter-fill { background: linear-gradient(90deg, var(--hbx-brand), var(--hbx-secondary)); }
+[data-theme="rose"] .avatar { box-shadow: var(--shadow-inset); }
+
+/* ---- Bloco C · MOVIMENTO & ÍCONE (estrutura: flutuar suave) ---- */
+[data-theme="rose"] {
+  --icon-stroke: 1.5;
+  --enter-name: hbx-enter-float;
+  --enter-duration: 600ms;
+  --enter-ease: cubic-bezier(0.25, 1, 0.4, 1);
+  --enter-stagger: 90ms;
+}
+[data-theme="rose"] .panel,
+[data-theme="rose"] .kpi,
+[data-theme="rose"] .deal { transition: transform var(--motion-base), box-shadow var(--motion-base); }
+[data-theme="rose"] .panel:hover,
+[data-theme="rose"] .kpi:hover { transform: translateY(-2px); box-shadow: var(--shadow-inset), var(--shadow-md); }
+[data-theme="rose"] .btn-teal { transition: transform var(--motion-base), filter var(--motion-base); }
+[data-theme="rose"] .btn-teal:hover { transform: translateY(-1px); filter: saturate(1.05); }

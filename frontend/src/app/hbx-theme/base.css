@@ -1,13 +1,11 @@
-/* base element + helper layer for HBX System */
+/* base element + helper layer for HBX System — ESQUELETO:
+   body flat pintado só por token; receitas de brilho/vidro são PELE. */
 
 body {
   margin: 0;
   color: var(--text-strong);
   font-family: var(--font-body);
-  background:
-    radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--hero-glow) 92%, transparent), transparent 28%),
-    radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--hero-glow) 72%, transparent), transparent 24%),
-    linear-gradient(180deg, var(--hbx-background) 0%, var(--hbx-background-alt) 100%);
+  background: linear-gradient(180deg, var(--hbx-background) 0%, var(--hbx-background-alt) 100%);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -38,14 +36,4 @@ body {
 .hbx-mono {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-}
-
-/* The signature liquid-glass panel */
-.hbx-glass {
-  border: 1px solid var(--border-hairline);
-  border-radius: var(--panel-radius);
-  background:
-    radial-gradient(circle at top right, color-mix(in srgb, var(--hbx-brand) 8%, transparent), transparent 48%),
-    linear-gradient(180deg, color-mix(in srgb, var(--hbx-surface) 98%, var(--hbx-background)), color-mix(in srgb, var(--hbx-surface-soft) 92%, var(--hbx-background)));
-  box-shadow: var(--shadow-inset), var(--shadow-sm);
 }

@@ -1036,9 +1036,9 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
 
       {provOpen && (
         <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setProvOpen(false); }}
-          style={{ position: "fixed", inset: 0, zIndex: 45, background: "var(--hbx-overlay)", display: "grid", placeItems: "center", padding: 24 }}>
+          style={{ position: "fixed", inset: 0, zIndex: 45, display: "grid", placeItems: "center", padding: 24 }}>
           <form className="hbx-modal" onSubmit={provisionar}
-            style={{ width: "min(480px, 100%)", maxHeight: "90vh", overflowY: "auto", display: "grid", gap: 12, padding: 24, borderRadius: "var(--radius-xl)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface)", boxShadow: "var(--shadow-md)" }}>
+            style={{ width: "min(480px, 100%)", maxHeight: "90vh", overflowY: "auto", display: "grid", gap: 12, padding: 24 }}>
             <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               Nova empresa cliente
               <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setProvOpen(false)}>✕</span>
@@ -1103,9 +1103,9 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
 
       {empOpen && (
         <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setEmpOpen(false); }}
-          style={{ position: "fixed", inset: 0, zIndex: 45, background: "var(--hbx-overlay)", display: "grid", placeItems: "center", padding: 24 }}>
+          style={{ position: "fixed", inset: 0, zIndex: 45, display: "grid", placeItems: "center", padding: 24 }}>
           <form className="hbx-modal" onSubmit={salvarEmpresa}
-            style={{ width: "min(460px, 100%)", display: "grid", gap: 12, padding: 24, borderRadius: "var(--radius-xl)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface)", boxShadow: "var(--shadow-md)" }}>
+            style={{ width: "min(460px, 100%)", display: "grid", gap: 12, padding: 24 }}>
             <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               Editar empresa
               <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setEmpOpen(false)}>✕</span>
@@ -1133,9 +1133,9 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
 
       {pagOpen && (
         <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setPagOpen(false); }}
-          style={{ position: "fixed", inset: 0, zIndex: 45, background: "var(--hbx-overlay)", display: "grid", placeItems: "center", padding: 24 }}>
+          style={{ position: "fixed", inset: 0, zIndex: 45, display: "grid", placeItems: "center", padding: 24 }}>
           <form className="hbx-modal" onSubmit={registrarPagamento}
-            style={{ width: "min(420px, 100%)", display: "grid", gap: 12, padding: 24, borderRadius: "var(--radius-xl)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface)", boxShadow: "var(--shadow-md)" }}>
+            style={{ width: "min(420px, 100%)", display: "grid", gap: 12, padding: 24 }}>
             <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               Registrar pagamento manual
               <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setPagOpen(false)}>✕</span>
@@ -1190,9 +1190,9 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
 
       {userEdit && (
         <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setUserEdit(null); }}
-          style={{ position: "fixed", inset: 0, zIndex: 45, background: "var(--hbx-overlay)", display: "grid", placeItems: "center", padding: 24 }}>
+          style={{ position: "fixed", inset: 0, zIndex: 45, display: "grid", placeItems: "center", padding: 24 }}>
           <form className="hbx-modal" onSubmit={salvarUsuario}
-            style={{ width: "min(440px, 100%)", display: "grid", gap: 12, padding: 24, borderRadius: "var(--radius-xl)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface)", boxShadow: "var(--shadow-md)" }}>
+            style={{ width: "min(440px, 100%)", display: "grid", gap: 12, padding: 24 }}>
             <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               Editar usuário #{userEdit.id}
               <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setUserEdit(null)}>✕</span>

@@ -1,81 +1,85 @@
 /* ============================================================
-   HBX — Transições (padrão único, ordem do dono 11/06/2026)
-   Corporate  → transições SIMPLES: fade curto e micro-hover.
-   Friendly e site → ALTO NÍVEL: entrada com rise+blur, stagger,
-   hover com elevação e troca de tema com cross-fade suave.
-   Todas as rotas passam por .hbx-page (src/app/template.tsx),
-   então o mesmo padrão vale do site ao login e ao app.
+   HBX — MOVIMENTO (padrão fresco, 12/06/2026)
+   Tudo tokenizado: a ESTRUTURA de entrada de página é escolhida pela
+   pele via 3 tokens (--enter-name / --enter-duration / --enter-ease) +
+   --enter-stagger. Os keyframes abaixo são o vocabulário; cada pele
+   aponta para um deles. Continuidade entre rotas (site → login →
+   sistema) pela View Transitions API: o fundo é o mesmo token e a marca
+   HBX morfa de posição — parece a mesma página atravessando.
    ============================================================ */
 
-@keyframes hbx-page-fade {
+/* ---------- vocabulário de entrada (a pele escolhe um) ---------- */
+@keyframes hbx-enter-fade {           /* neutro */
   from { opacity: 0; }
   to { opacity: 1; }
 }
-
-@keyframes hbx-page-rise {
-  from { opacity: 0; transform: translateY(14px) scale(0.992); filter: blur(8px); }
+@keyframes hbx-enter-glide {          /* aurora: vidro deslizando */
+  from { opacity: 0; transform: translateY(16px) scale(0.985); filter: blur(8px); }
   to { opacity: 1; transform: none; filter: none; }
 }
-
-/* ---------- entrada de página ---------- */
-[data-theme="corporate"] .hbx-page {
-  animation: hbx-page-fade 0.18s ease both;
+@keyframes hbx-enter-pop {            /* ember: sobe rápido com leve overshoot */
+  0% { opacity: 0; transform: translateY(24px); }
+  70% { opacity: 1; transform: translateY(-3px); }
+  100% { opacity: 1; transform: none; }
+}
+@keyframes hbx-enter-cut {            /* mono: corte editorial, quase instantâneo */
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes hbx-enter-float {          /* rosé: flutua suave */
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: none; }
 }
 
-html:not([data-theme="corporate"]) .hbx-page {
-  animation: hbx-page-rise 0.55s var(--ease-out-quint) both;
+/* ---------- entrada de página (lê os tokens da pele) ---------- */
+.hbx-page {
+  animation: var(--enter-name, hbx-enter-fade) var(--enter-duration, var(--motion-base)) var(--enter-ease, var(--ease-out-quint)) both;
+}
+/* cascata opcional: a pele que define --enter-stagger faz os filhos
+   diretos do conteúdo entrarem em sequência (sensação de montagem viva). */
+.hbx-page .work > *,
+.hbx-page main > * {
+  animation: var(--enter-name, hbx-enter-fade) var(--enter-duration, var(--motion-base)) var(--enter-ease, var(--ease-out-quint)) both;
+}
+.hbx-page .work > *:nth-child(2),
+.hbx-page main > *:nth-child(2) { animation-delay: calc(var(--enter-stagger, 0ms) * 1); }
+.hbx-page .work > *:nth-child(3),
+.hbx-page main > *:nth-child(3) { animation-delay: calc(var(--enter-stagger, 0ms) * 2); }
+.hbx-page .work > *:nth-child(4),
+.hbx-page main > *:nth-child(4) { animation-delay: calc(var(--enter-stagger, 0ms) * 3); }
+
+/* ---------- micro-transições discretas ---------- */
+button, a, .nav-item, .tag, .deal, .conv {
+  transition: background-color var(--motion-fast), border-color var(--motion-fast), color var(--motion-fast);
 }
 
-/* ---------- corporate: micro-transições discretas ---------- */
-[data-theme="corporate"] button,
-[data-theme="corporate"] a,
-[data-theme="corporate"] .nav-item,
-[data-theme="corporate"] .tag,
-[data-theme="corporate"] .deal,
-[data-theme="corporate"] .conv {
-  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
-}
-
-/* ---------- friendly/site: stagger e vida ---------- */
-html:not([data-theme="corporate"]) .shell > nav {
-  animation: hbx-page-rise 0.6s var(--ease-out-quint) both;
-}
-html:not([data-theme="corporate"]) .shell > main {
-  animation: hbx-page-rise 0.6s var(--ease-out-quint) 0.07s both;
-}
-html:not([data-theme="corporate"]) .shell main > * {
-  animation: hbx-page-rise 0.55s var(--ease-out-quint) both;
-}
-html:not([data-theme="corporate"]) .shell main > *:nth-child(2) {
-  animation-delay: 0.1s;
-}
-
-html:not([data-theme="corporate"]) .shell button,
-html:not([data-theme="corporate"]) .mkt a,
-html:not([data-theme="corporate"]) .mkt button {
+/* ---------- landing (site público) ---------- */
+.mkt a, .mkt button {
   transition: transform var(--motion-fast), box-shadow var(--motion-fast),
     background var(--motion-fast), color var(--motion-fast),
     border-color var(--motion-fast), filter var(--motion-fast);
 }
 
-html:not([data-theme="corporate"]) .shell article {
-  transition: transform var(--motion-base), box-shadow var(--motion-base), border-color var(--motion-base);
+/* ============================================================
+   CONTINUIDADE ENTRE ROTAS — View Transitions API
+   site → login → sistema: nada "fecha e abre". A raiz atravessa em
+   cross-fade no ritmo da pele; a marca .logo (=hbx-brand) morfa.
+   navigation:auto cobre cargas de documento; o wrapper React cobre a
+   navegação client-side do Next.
+   ============================================================ */
+@view-transition { navigation: auto; }
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--motion-slow);
+  animation-timing-function: var(--enter-ease, var(--ease-out-quint));
 }
-html:not([data-theme="corporate"]) .shell article:hover {
-  transform: translateY(-3px);
+::view-transition-group(hbx-brand) {
+  animation-duration: var(--motion-slow);
+  animation-timing-function: var(--enter-ease, var(--ease-out-quint));
 }
 
-/* auth (login/reset/confirm) no tema friendly: card sobe, marca cruza em fade */
-html:not([data-theme="corporate"]) .login-split .card {
-  animation: hbx-page-rise 0.6s var(--ease-out-quint) 0.05s both;
-}
-html:not([data-theme="corporate"]) .login-split .brand-side {
-  animation: hbx-page-fade 0.5s ease both;
-}
-
-/* ---------- troca suave de tema/modo (classe temporária) ----------
-   Aplicada por applyThemeSoft(); remove a si mesma em ~0,5s — nunca
-   fica transição pendurada (diagnóstico antigo do handoff). */
+/* ---------- troca de pele/modo (cross-fade que se remove sozinho) ---------- */
 html.hbx-theme-anim body,
 html.hbx-theme-anim body * {
   transition: background-color 0.45s var(--ease-out-quint),
@@ -84,77 +88,29 @@ html.hbx-theme-anim body * {
     box-shadow 0.45s var(--ease-out-quint) !important;
 }
 
-/* ---------- overlays, modais, drawers e popovers ----------
-   Classes aplicadas pelos componentes: .hbx-veil (fundo), .hbx-modal
-   (card central), .hbx-drawer (painel lateral), .hbx-pop (menu pequeno). */
-.hbx-veil {
-  animation: hbx-veil-in 0.2s ease both;
-}
-@keyframes hbx-veil-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-[data-theme="corporate"] .hbx-modal,
-[data-theme="corporate"] .hbx-pop {
-  animation: hbx-simple-in 0.16s ease both;
-}
-[data-theme="corporate"] .hbx-drawer {
-  animation: hbx-drawer-simple 0.18s ease both;
-}
-@keyframes hbx-simple-in {
-  from { opacity: 0; transform: translateY(4px); }
+/* ---------- overlays (a pele dá o ritmo via --motion-base) ---------- */
+.hbx-veil { animation: hbx-enter-fade 0.2s ease both; }
+.hbx-modal, .hbx-pop { animation: hbx-overlay-in var(--motion-base) var(--ease-out-quint) both; }
+.hbx-drawer { animation: hbx-drawer-in var(--motion-base) var(--ease-out-quint) both; }
+@keyframes hbx-overlay-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
   to { opacity: 1; transform: none; }
 }
-@keyframes hbx-drawer-simple {
-  from { opacity: 0; transform: translateX(10px); }
+@keyframes hbx-drawer-in {
+  from { opacity: 0; transform: translateX(16px); }
   to { opacity: 1; transform: none; }
 }
 
-html:not([data-theme="corporate"]) .hbx-modal {
-  animation: hbx-modal-rise 0.45s var(--ease-out-quint) both;
-}
-html:not([data-theme="corporate"]) .hbx-drawer {
-  animation: hbx-drawer-rich 0.5s var(--ease-out-quint) both;
-}
-html:not([data-theme="corporate"]) .hbx-pop {
-  animation: hbx-modal-rise 0.32s var(--ease-out-quint) both;
-}
-@keyframes hbx-modal-rise {
-  from { opacity: 0; transform: translateY(18px) scale(0.97); filter: blur(6px); }
-  to { opacity: 1; transform: none; filter: none; }
-}
-@keyframes hbx-drawer-rich {
-  from { opacity: 0; transform: translateX(36px); filter: blur(6px); }
-  to { opacity: 1; transform: none; filter: none; }
-}
-
-/* ---------- foco visível no padrão (teclado) ---------- */
-button:focus-visible,
-a:focus-visible,
-select:focus-visible,
-.select-dark:focus-visible {
+/* ---------- foco visível (teclado) ---------- */
+button:focus-visible, a:focus-visible, select:focus-visible, .select-dark:focus-visible {
   outline: none;
   box-shadow: 0 0 0 3px var(--ring-brand, color-mix(in srgb, var(--hbx-brand) 25%, transparent));
 }
 
 /* ---------- acessibilidade ---------- */
 @media (prefers-reduced-motion: reduce) {
-  .hbx-page,
-  html:not([data-theme="corporate"]) .shell > *,
-  html:not([data-theme="corporate"]) .shell main > *,
-  html:not([data-theme="corporate"]) .login-split .card,
-  html:not([data-theme="corporate"]) .login-split .brand-side {
-    animation: none !important;
-  }
-  html.hbx-theme-anim body,
-  html.hbx-theme-anim body * {
-    transition: none !important;
-  }
-  .hbx-veil,
-  .hbx-modal,
-  .hbx-drawer,
-  .hbx-pop {
-    animation: none !important;
-  }
+  .hbx-page, .hbx-page .work > *, .hbx-page main > * { animation: none !important; }
+  html.hbx-theme-anim body, html.hbx-theme-anim body * { transition: none !important; }
+  .hbx-veil, .hbx-modal, .hbx-drawer, .hbx-pop { animation: none !important; }
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
 }

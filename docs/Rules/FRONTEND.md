@@ -1,65 +1,58 @@
 # Regras — FRONTEND
 
 > Next.js (App Router) + React + TypeScript em `frontend/`.
-> Leia antes de criar ou alterar qualquer tela. Estado atual e pendências:
-> `docs/PLANEJAMENTOS/PR11062026001/FRONTEND-TEMAS-RESET.md` (Fase 13 = revisão).
+> Leia antes de criar ou alterar qualquer tela.
 
-## REGRA DURA — TEMA É SÓ PELE (bloqueio absoluto)
+## AS 5 LEIS DO DESIGN SYSTEM (ordem do dono, 12/06/2026 — bloqueio absoluto)
 
-> Gravada por ordem do dono em 12/06/2026. Só deixa de valer se o dono
-> DELETAR esta seção ou autorizar EXPLICITAMENTE, por escrito, na tarefa
-> atual, uma tela ser diferente da outra.
+> Só deixam de valer se o dono DELETAR esta seção ou autorizar exceção
+> EXPLÍCITA por escrito na tarefa atual. O fiscal automático
+> (`frontend/scripts/check-pele.mjs`, dentro do `npm run lint`) reprova o
+> build em violação — a regra não depende de memória de ninguém.
 
-- Tema muda APENAS o visual: fontes, cores, janelas/superfícies, raios,
-  sombras, transições — via tokens/CSS (`data-theme*`), exatamente como o
-  claro/escuro já faz. **Tema não tem escrita.**
-- Tema NUNCA muda escrita, estrutura, menu, navegação, elementos ou
-  comportamento. **Uma funcionalidade = UMA tela, UM DOM, UMA escrita** —
-  os temas vestem essa tela.
-- PROIBIDO criar ou manter tela, componente, texto ou app paralelo por tema
-  ("nada é aproveitado, nada é criado outro"). Trocar o tema altera o
-  sistema INTEIRO de uma vez (troca de tokens), nunca navega para outro app.
-- Qualquer tarefa que implique uma tela ficar diferente da outra entre
-  temas → **PARAR antes de qualquer edição e avisar o dono**, mesmo que o
-  pedido pareça implicar isso. Sem autorização explícita, não executa.
-- CUMPRIDA em 12/06/2026 (ordem "deixe o HBX com 2 temas, não multi app"):
-  o app paralelo `/workspace` foi **MORTO** (rota é alias → `/dashboard`).
-  O HBX é app único; Friendly e Corporativo são peles por atributo.
+1. **Tokens centrais.** Todo valor visual (cor, fonte, radius, sombra,
+   movimento) nasce em `frontend/src/app/hbx-theme/`:
+   - `skeleton.css` — o CONTRATO inteiro, em valores neutros (cinza). É a
+     lista fechada de variáveis que existe. Modo escuro é AUTOMÁTICO:
+     `[data-theme-mode="dark"]` troca a escada de tokens — tela nunca sabe
+     que o dark existe.
+   - `theme.css` — Tailwind v4 (`@theme inline`): cada token vira utility
+     (`bg-surface`, `text-ink-muted`, `rounded-panel`, `shadow-lip`…). A
+     paleta default do Tailwind foi APAGADA — não existe utility de cor
+     fora do contrato.
+2. **Componentes centrais.** Visual repetido vira classe do kit
+   (`kit.css`: panels, botões, campos, tabelas, overlays `.hbx-veil/.hbx-modal/
+   .hbx-pop/.hbx-drawer`…) ou utility. Estrutura por-tela vive em
+   `screens.css`. Nunca se repete visual em tela.
+3. **Tema SÓ troca tokens (+ camada de vestir).** Pele nova =
+   `theme-<nome>.css` (tokens claro/escuro + reestilo visual das classes
+   centrais, tudo sob `[data-theme="nome"]`) + import no `globals.css` +
+   entrada no `PELES` (theme-attributes.tsx). Como encomendar a uma IA:
+   **docs/Rules/PEDIDO-DE-PELE.md**. Julgamento: tela-prova **/dev/pele**.
+   Tema NUNCA muda escrita, estrutura, menu ou navegação — uma
+   funcionalidade = UMA tela, UM DOM, UMA escrita. Instaladas: aurora
+   (padrão), ember, rose. `skeleton.css` é a BASE de tokens (contrato
+   neutro que as peles vestem) — NÃO é uma opção do seletor.
+4. **Tela é PROIBIDA de ter visual próprio.** Nenhuma cor, borda, sombra,
+   fonte ou radius dentro de TSX — só classe central/utility/token. Inline
+   `style` é tolerado SOMENTE para layout (display/gap/padding/width…).
+5. **Fiscal no lint.** `check-pele.mjs`: cor literal em CSS fora de pele,
+   cor literal em TSX e valor arbitrário do Tailwind (`bg-[#…]`) = build
+   REPROVADO na hora. Styles visuais inline legados descem por CATRACA
+   (`scripts/pele-baseline.json` — o teto só desce; meta ZERO; subir = build
+   reprovado).
 
-## Fonte visual e padrão único
-
-- A fonte das telas é o handoff `docs/TEMAS` (REGRA ZERO do CLAUDE.md:
-  copiar, não recriar; elemento sem endpoint fica visual e registrado no doc).
-- **Padrão único**: toda tela consome só os tokens (`src/app/hbx-theme/*.css`),
-  as classes globais do handoff e o kit (`src/components/hbx/shell.tsx`:
-  Sidebar, Topbar, KpiRow, Av, I/ICONS). Nenhuma tela tem CSS próprio —
-  mudou o padrão, mudam todas as telas.
-- Webfonts via `<link>` no `src/app/layout.tsx`. **Nunca recriar o
-  `@import url()` em CSS** — o bundler descarta em silêncio (fallback Segoe UI).
-- **Proibido registrar service worker** (`public/sw.js` é kill-switch
-  permanente do PWA antigo). Não recriar PWA sem ordem do dono.
-
-## Temas, modos e transições (app ÚNICO, unificado em 12/06/2026)
-
-- O tema ativo é a preferência **`hbx:ws-theme`** (`friendly`|`corporate`),
-  aplicada por atributo em TODAS as rotas (app e auth) — landing `/` é html
-  puro. Fonte única: `components/hbx/theme-attributes.tsx` (boot inline no
-  `layout.tsx` espelha a mesma regra, sem flash).
-- Corporativo: `data-theme="corporate"`, escuro padrão, claro via
-  `data-theme-mode="light"` (persistência `hbx:corporate-mode`).
-- Friendly: sem `data-theme`, claro padrão, escuro via
-  `data-theme-mode="dark"` (persistência `hbx:friendly-mode`).
-- Chavinha Friendly⇄Corporativo (Topbar `ThemeSwitch` e auth): troca de PELE
-  na MESMA tela via `setFriendlyTheme`/`setCorporateTheme` — nunca navega.
-  Modo claro/escuro: `ModeToggle` theme-aware → `setThemeMode` (escrita
-  única de modo).
-- Transições (`hbx-theme/transitions.css` + `src/app/template.tsx`):
-  tema corporativo = simples (fade curto); friendly e site = alto nível
-  (rise, stagger, cross-fade via `applyThemeSoft`). Overlays usam as classes
-  `hbx-veil` / `hbx-modal` / `hbx-drawer` / `hbx-pop`.
-- Faxina pendente registrada: blocos CSS do antigo shell do workspace em
-  `screens.css`/`transitions.css` (seletores `.shell`) ficaram inertes —
-  remover numa passada própria com validação visual das telas de auth.
+### Estado atual e exceções registradas
+- **ESQUELETO**: as peles corporate/friendly foram DELETADAS por ordem do
+  dono (12/06/2026). O app roda na base neutra até ele aprovar peles novas.
+- `docs/TEMAS` é REFERÊNCIA de estrutura/escrita das telas — o visual de lá
+  não se copia mais para dentro de tela nem de TSX.
+- Mundo-site (visual próprio, fora do fiscal): `hbx-theme/marketing.css`,
+  `src/app/page.client.tsx` (landing) e `src/app/trabalhe-conosco/`.
+- `public/sw.js` é kill-switch permanente do PWA antigo — não remover; não
+  registrar service worker novo sem ordem do dono.
+- Webfonts via `<link>` no `src/app/layout.tsx` (nunca `@import` em CSS — o
+  bundler descarta em silêncio).
 
 ## Dados e API
 
@@ -74,20 +67,24 @@
 ## Rotas
 
 - Uma rota canônica por funcionalidade; alias só redireciona.
-- Aliases temporários ativos: `/boasvindas`, `/dashboard/master`,
-  `/pre-checkout`, `/precheckout` → destino canônico provisório `/dashboard`.
-- `/workspace` é alias permanente → `/dashboard` (app paralelo Friendly
-  morto na unificação de 12/06/2026 — REGRA DURA).
+- Aliases ativos: `/boasvindas`, `/dashboard/master`, `/pre-checkout`,
+  `/precheckout` → `/dashboard`; `/workspace` → `/dashboard` (app paralelo
+  friendly morto na unificação de 12/06/2026).
 
 ## Acesso e cobrança
 
 - Frontend NÃO decide regra comercial: consome `accessState*` e mensagens do
   backend. Vendedor (`userKind=seller`) nunca vê plano/valor/cobrança.
+- **Módulo sem acesso NÃO aparece no painel da esquerda** (ordem do dono,
+  13/06/2026). O gate é `isModuleVisible` em `components/hbx/shell.tsx` e é
+  **fail-closed**: o item da sidebar só entra quando `/modules/me` afirma
+  `accessible:true` (mesmo veredito do guard real `canUserAccessModule`).
+  Nunca mostrar um módulo e barrar no clique — sem acesso = some da navegação.
 - Preço/plano só do catálogo da API (`/commercial-plans/me`) — hardcode proibido.
-- Trilha de checkout: plano aprovável documentado no doc do PR (aguardando
-  "go checkout" do dono).
+- Trilha de checkout: aguardando "go checkout" do dono.
 
 ## Checks
 
-- `cd frontend && npm run lint` → `npm run build` antes de entregar.
-- Validação visual do dono contra o HTML do handoff fecha cada tela.
+- `cd frontend && npm run lint` (eslint + check-pele) → `npm run build`
+  antes de entregar. Lint vermelho do check-pele = a entrega está ERRADA —
+  corrigir na fonte (token/classe central), nunca contornar o fiscal.

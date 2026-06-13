@@ -5,12 +5,12 @@
    ============================================================ */
 
 :root {
-  /* ---- Radius (theme chrome) ------------------------------------------ */
-  --radius-xs: 8px;
-  --radius-sm: 12px;     /* controls: buttons, inputs            */
-  --radius-md: 16px;
-  --radius-lg: 20px;     /* panels / cards (--panel-radius)      */
-  --radius-xl: 28px;     /* hero blocks (--hero-radius)          */
+  /* ---- Radius (ESQUELETO: neutro; raio é "janela" = PELE) -------------- */
+  --radius-xs: 4px;
+  --radius-sm: 6px;      /* controls: buttons, inputs            */
+  --radius-md: 8px;
+  --radius-lg: 10px;     /* panels / cards (--panel-radius)      */
+  --radius-xl: 12px;     /* hero blocks (--hero-radius)          */
   --radius-pill: 999px;  /* badges, chips, nav links             */
 
   /* aliases used across the product */

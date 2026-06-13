@@ -124,12 +124,12 @@ export function SellerOnboardingClient() {
         </p>
 
         {!token && (
-          <div className="ok show" style={{ borderColor: "rgba(240,86,107,0.3)", background: "rgba(240,86,107,0.08)", color: "var(--hbx-danger)" }}>
+          <div className="ok show" style={{ borderColor: "color-mix(in srgb, var(--hbx-danger) 30%, transparent)", background: "color-mix(in srgb, var(--hbx-danger) 8%, transparent)", color: "var(--hbx-danger)" }}>
             Link sem código de acesso — abra o link exatamente como veio no e-mail.
           </div>
         )}
         {token && loadError && (
-          <div className="ok show" style={{ borderColor: "rgba(240,86,107,0.3)", background: "rgba(240,86,107,0.08)", color: "var(--hbx-danger)" }}>
+          <div className="ok show" style={{ borderColor: "color-mix(in srgb, var(--hbx-danger) 30%, transparent)", background: "color-mix(in srgb, var(--hbx-danger) 8%, transparent)", color: "var(--hbx-danger)" }}>
             {loadError}
           </div>
         )}
@@ -171,7 +171,7 @@ export function SellerOnboardingClient() {
             </div>
 
             {(estado.message || error) && (
-              <div className="ok show" style={error ? { borderColor: "rgba(240,86,107,0.3)", background: "rgba(240,86,107,0.08)", color: "var(--hbx-danger)" } : {}}>
+              <div className="ok show" style={error ? { borderColor: "color-mix(in srgb, var(--hbx-danger) 30%, transparent)", background: "color-mix(in srgb, var(--hbx-danger) 8%, transparent)", color: "var(--hbx-danger)" } : {}}>
                 {error || estado.message}
               </div>
             )}
