@@ -2531,7 +2531,7 @@ model MasterGlobalIntegrationConfig {
 model MasterEmailTemplate {
   kind      String   @id
   // Rótulo só dos templates personalizados (kind tpl_*); os de sistema
-  // pegam o nome fixo no código. PR13062026005 — "+"/"-" no /master e-mails.
+  // pegam o nome fixo no código. PR13062026006 — "+"/"-" no /master e-mails.
   label     String?
   subject   String
   text      String

@@ -59,9 +59,12 @@ Migração `20260613_commission_setup_seatcap` (aditiva):
 - Nota: o cap conta acessos ATIVOS na criação. Reativar um acesso inativo não passa pelo gate
   (caminho de ativação não checado) — follow-up se virar problema.
 
-### F3 — Vendedora enxerga preço + comissão antes/depois — [ ] pendente
-- [ ] tabela de preços (mensalidade por plano) visível pra vendedora ao fechar.
-- [ ] painel "minhas comissões / meus clientes indicados + status" (estende o commission summary existente).
+### F3 — Vendedora enxerga preço + comissão antes/depois — 🟡 PARCIAL (13/06)
+- [x] resumo/pipeline de comissão (`buildHbxClosingPipeline`) soma a comissão de implantação
+      no total "a receber" e expõe `setupValue/setupCommissionAmount` por item.
+- [ ] tabela de preços (mensalidade por plano) no modal de fechar — FALTA (pequeno; ler do
+      catálogo via API, sem hardcode). Hoje ela vê o valor no card depois de fechar.
+- Nota: o painel consolidado "minhas comissões" já existe (resumo de Vendas) e agora inclui setup.
 
 ## Trava (regras)
 - Migração só aditiva; edições de backend em lote (PLAN12062026001) + docker restart.

@@ -3291,13 +3291,14 @@ export class VendasService {
       const stage = this.resolveHbxClosingStage(lead);
       const seller = sellerById.get(Number(lead?.assignedUserId || 0)) || null;
       const commission = this.normalizeCurrencyAmount(lead?.commissionAmount);
+      const setupCommission = this.normalizeCurrencyAmount(lead?.setupCommissionAmount);
       const isDue = this.isDueCommission(lead, now);
       if (emailPending) waitingEmail += 1;
       if (signupLinkEvent) signupLinks += 1;
       if (assistedSignupEvent) assistedSignups += 1;
       if (linkedCompanyId) linkedCompanies += 1;
-      commissionAmount += commission;
-      if (isDue) dueCommissionAmount += commission;
+      commissionAmount += commission + setupCommission;
+      if (isDue) dueCommissionAmount += commission + setupCommission;
       const item = {
         leadId: String(lead?.id || ''),
         name: lead?.name ? String(lead.name) : lead?.phone ? String(lead.phone) : 'Cliente sem nome',
@@ -3324,6 +3325,8 @@ export class VendasService {
         commissionStatus: this.normalizeCommissionStatus(lead?.commissionStatus),
         commissionStatusLabel: this.formatCommissionStatusLabel(this.normalizeCommissionStatus(lead?.commissionStatus)),
         commissionAmount: commission,
+        setupValue: this.normalizeCurrencyAmount(lead?.setupValue),
+        setupCommissionAmount: setupCommission,
         commissionDueAt: lead?.commissionDueAt instanceof Date ? lead.commissionDueAt.toISOString() : null,
         commissionPaidAt: lead?.commissionPaidAt instanceof Date ? lead.commissionPaidAt.toISOString() : null,
         linkedCompanyId,
