@@ -776,7 +776,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                         </button>
                       </div>
                     ))}
-                    <span style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>Ajuste fino por empresa só no HBX Full — nos demais planos o catálogo do plano manda (o backend barra).</span>
+                    <span style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>Regra única: este liga/desliga vale por empresa em qualquer plano. Toda empresa nasce com o padrão master e você apara aqui; o pagamento continua barrando o acesso no app.</span>
                   </div>
                 </section>
               </div>

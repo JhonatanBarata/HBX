@@ -80,7 +80,7 @@ const TEMPLATE_PATH = join(TEMPLATE_DIR, 'templates.json');
 
 export const EMAIL_TEMPLATE_KINDS: EmailTemplateKind[] = ['normal', 'password_reset', 'email_confirmation', 'seller_onboarding_request', 'seller_welcome'];
 
-// PR13062026005: o /master e-mails passou a ter "+"/"-". Os 5 kinds acima são
+// PR13062026006: o /master e-mails passou a ter "+"/"-". Os 5 kinds acima são
 // de SISTEMA (ligados a fluxos reais: reset, confirmação, onboarding) — não
 // removem, só editam/restauram. Templates personalizados nascem com kind tpl_*.
 export const EMAIL_SYSTEM_TEMPLATE_LABELS: Record<EmailTemplateKind, string> = {
