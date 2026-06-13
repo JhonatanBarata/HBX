@@ -791,18 +791,21 @@ function parseSizeToGb(value) {
   return Math.round(num * factor);
 }
 
-function buildVpsVerdict(ramPct, diskPct, load1, cores) {
+// Usa CPU% (load÷núcleos) quando há núcleos; sem isso, cai pra load vs núcleos.
+function buildVpsVerdict(ramPct, diskPct, cpuPct, load1, cores) {
+  const cpuCritical = cpuPct != null ? cpuPct >= 90 : (cores && load1 != null && load1 >= cores * 1.5);
+  const cpuTight = cpuPct != null ? cpuPct >= PRESSURE_LIMITS.cpu : (cores && load1 != null && load1 >= cores);
   const critical = [];
   if (diskPct != null && diskPct >= 90) critical.push("disco no limite");
   if (ramPct != null && ramPct >= 90) critical.push("RAM no limite");
-  if (cores && load1 != null && load1 >= cores * 1.5) critical.push("CPU saturada (load alto)");
+  if (cpuCritical) critical.push("CPU saturada");
   if (critical.length) {
     return { level: "buy", title: "Hora de agir", detail: `VPS no limite: ${critical.join(", ")}. Avalie subir o plano da VPS ou aliviar carga.` };
   }
   const tight = [];
   if (diskPct != null && diskPct >= PRESSURE_LIMITS.disk) tight.push("disco");
   if (ramPct != null && ramPct >= PRESSURE_LIMITS.ram) tight.push("RAM");
-  if (cores && load1 != null && load1 >= cores) tight.push("CPU (load ≥ núcleos)");
+  if (cpuTight) tight.push("CPU");
   if (tight.length) {
     return { level: "tight", title: "Começando a apertar", detail: `Na VPS, ${tight.join(" e ")} passou da faixa de aviso. Observe de perto.` };
   }
@@ -831,7 +834,7 @@ function vpsContainersFrom(list) {
 
 function buildVpsResult({ ramPct, diskPct, ramTotalGb, diskFreeGb, diskTotalGb, load, cpuPct, cores, engines, containers, containersAvailable, targetHost }) {
   const load1 = Number.isFinite(load.load1) ? load.load1 : null;
-  const verdict = buildVpsVerdict(ramPct, diskPct, load1, cores);
+  const verdict = buildVpsVerdict(ramPct, diskPct, cpuPct, load1, cores);
   const warnings = [];
   if (diskPct != null && diskPct >= PRESSURE_LIMITS.disk) warnings.push(`Disco da VPS em ${diskPct}%`);
   if (ramPct != null && ramPct >= PRESSURE_LIMITS.ram) warnings.push(`RAM da VPS em ${ramPct}%`);
@@ -912,7 +915,7 @@ async function readVpsSystem() {
     return { ok: false, configured: false, reason: "ops_token_ausente", message: "Configure HBX_OWNER_OPS_TOKEN (token do Ops Control)." };
   }
   // 1) Snapshot leve (preferido). 2) Fallback overview se o Ops Control for o antigo.
-  const snap = await opsRequest("GET", "/api/host-snapshot/vps", null, 25000);
+  const snap = await opsRequest("GET", "/api/host-snapshot/vps", null, 38000);
   if (snap.ok && snap.data && snap.data.available !== false && snap.data.memory) {
     return mapSnapshot(snap.data);
   }

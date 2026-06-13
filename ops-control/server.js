@@ -27,7 +27,8 @@ const sshConfig = {
   username: process.env.OPS_CONTROL_SSH_USER || 'root',
   password: process.env.OPS_CONTROL_SSH_PASSWORD,
   privateKey: process.env.OPS_CONTROL_SSH_PRIVATE_KEY,
-  readyTimeout: 20000,
+  // Handshake SSH na VPS de CPU saturada pode passar de 20s; mais folga evita falso timeout.
+  readyTimeout: 30000,
 };
 
 if (!token) {
@@ -1224,9 +1225,11 @@ async function collectHostSnapshot(environment) {
     "echo '@@CORES@@'",
     'nproc',
     "echo '@@PS@@'",
-    "docker ps -a --format '{{.Names}}\\t{{.State}}\\t{{.Status}}' 2>/dev/null",
+    // docker pode estar lento sob carga: timeout curto pra NAO travar as leituras de
+    // pressao (free/df/loadavg/nproc ja vieram). Sem container e melhor que snapshot vazio.
+    "timeout 6 docker ps -a --format '{{.Names}}\\t{{.State}}\\t{{.Status}}' 2>/dev/null || true",
   ].join('; ');
-  const result = await runForEnvironment(environment, 'sh', ['-lc', script], { timeout: 20000, maxBuffer: 1024 * 1024 });
+  const result = await runForEnvironment(environment, 'sh', ['-lc', script], { timeout: 33000, maxBuffer: 1024 * 1024 });
   const out = String(result.stdout || '');
   const section = (marker) => {
     const start = out.indexOf(`@@${marker}@@`);
