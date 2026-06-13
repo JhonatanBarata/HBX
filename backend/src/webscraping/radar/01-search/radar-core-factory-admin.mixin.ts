@@ -592,11 +592,11 @@ export class RadarCoreFactoryAdminMixin {
           consecutiveFailureCount: nextFailureCount,
           lastError: failed ? (summary.lastError || campaign.lastErrorMessage || 'Campanha falhou.') : null,
           reasonStopped: failed
-            ? 'Ãšltima campanha falhou. A fÃ¡brica vai tentar novamente ou pular apÃ³s o limite.'
+            ? 'Última campanha falhou. A fábrica vai tentar novamente ou pular após o limite.'
             : duplicateRatio >= 0.65
-              ? 'Duplicidade alta. PrÃ³xima missÃ£o deve trocar o eixo.'
+              ? 'Duplicidade alta. Próxima missão deve trocar o eixo.'
               : empty
-                ? 'Sem cards novos. PrÃ³xima missÃ£o deve trocar cidade, segmento ou tipo.'
+                ? 'Sem cards novos. Próxima missão deve trocar cidade, segmento ou tipo.'
                 : null,
           lastWorkedAt: summary.latestAt || campaign.finishedAt || new Date(),
           nextRunAt: new Date(Date.now() + (failed && nextFailureCount < 2 ? 5 * 60_000 : 15_000)),
@@ -640,7 +640,7 @@ export class RadarCoreFactoryAdminMixin {
       if (!cursor.enabled) {
         await (this.prisma as any).radarFactoryCursor?.update?.({
           where: { key: 'main' },
-          data: { status: 'paused', reasonStopped: 'FÃ¡brica pausada manualmente.' },
+          data: { status: 'paused', reasonStopped: 'Fábrica pausada manualmente.' },
         }).catch(() => null);
         return { skipped: true, reason: 'factory_disabled' };
       }
@@ -655,7 +655,7 @@ export class RadarCoreFactoryAdminMixin {
           where: { key: 'main' },
           data: {
             status: 'idle',
-            reasonStopped: 'Fora da janela noturna. Das 08:00 Ã s 20:00 o Radar Digital do cliente tem prioridade.',
+            reasonStopped: 'Fora da janela noturna. Das 08:00 às 20:00 o Radar Digital do cliente tem prioridade.',
             nextRunAt,
           },
         }).catch(() => null);
@@ -668,7 +668,7 @@ export class RadarCoreFactoryAdminMixin {
           where: { key: 'main' },
           data: {
             status: 'idle',
-            reasonStopped: 'Sem motor disponÃ­vel para a fÃ¡brica sem afetar o Radar Digital.',
+            reasonStopped: 'Sem motor disponível para a fábrica sem afetar o Radar Digital.',
             nextRunAt: new Date(Date.now() + 60_000),
           },
         }).catch(() => null);
@@ -701,7 +701,7 @@ export class RadarCoreFactoryAdminMixin {
           created = safeInteger((refill as any)?.created);
         }
         if (automaticAllowed > 0 && safeInteger(queuedOrRunning) + created < automaticAllowed) {
-          this.logger.log(`[radar-factory] campanha ativa com pouca fila (${queuedOrRunning}+${created}/${automaticAllowed}); criando outra missÃ£o para ocupar motores.`);
+          this.logger.log(`[radar-factory] campanha ativa com pouca fila (${queuedOrRunning}+${created}/${automaticAllowed}); criando outra missão para ocupar motores.`);
         } else {
           await (this.prisma as any).radarFactoryCursor?.update?.({
             where: { key: 'main' },
@@ -728,7 +728,7 @@ export class RadarCoreFactoryAdminMixin {
           where: { key: 'main' },
           data: {
             status: 'error',
-            reasonStopped: 'NÃ£o foi possÃ­vel escolher missÃ£o ou usuÃ¡rio/empresa para a fÃ¡brica.',
+            reasonStopped: 'Não foi possível escolher missão ou usuário/empresa para a fábrica.',
             lastError: 'factory_context_unavailable',
             nextRunAt: new Date(Date.now() + 5 * 60_000),
           },
@@ -795,7 +795,7 @@ export class RadarCoreFactoryAdminMixin {
         data: {
           status: 'error',
           lastError: message,
-          reasonStopped: 'Erro ao criar a prÃ³xima missÃ£o da fÃ¡brica.',
+          reasonStopped: 'Erro ao criar a próxima missão da fábrica.',
           nextRunAt: new Date(Date.now() + 5 * 60_000),
         },
       }).catch(() => null);
@@ -852,8 +852,8 @@ export class RadarCoreFactoryAdminMixin {
     if (await this.supportsRadarFactoryPersistence()) {
       await (this.prisma as any).radarFactoryCursor.upsert({
         where: { key: 'main' },
-        create: { key: 'main', enabled: false, forcedOn: false, status: 'paused', reasonStopped: 'FÃ¡brica pausada manualmente.' },
-        update: { enabled: false, forcedOn: false, status: 'paused', reasonStopped: 'FÃ¡brica pausada manualmente.', nextRunAt: null },
+        create: { key: 'main', enabled: false, forcedOn: false, status: 'paused', reasonStopped: 'Fábrica pausada manualmente.' },
+        update: { enabled: false, forcedOn: false, status: 'paused', reasonStopped: 'Fábrica pausada manualmente.', nextRunAt: null },
       }).catch(() => null);
     }
     await this.saveOperationalConfig(Number(user?.id || 0), {
@@ -863,7 +863,7 @@ export class RadarCoreFactoryAdminMixin {
     }).catch(() => null);
     await (this.prisma as any).webscrapingCampaign.updateMany({
       where: { mode: 'mass_data', status: { in: ['queued', 'running', 'sleeping', 'partial_error'] } },
-      data: { status: 'paused', nextRunAt: null, lastErrorMessage: 'FÃ¡brica desligada manualmente.' },
+      data: { status: 'paused', nextRunAt: null, lastErrorMessage: 'Fábrica desligada manualmente.' },
     }).catch(() => null);
     await this.getEnginePool().drainFactoryEngines({ reason: 'factory_disabled' }).catch((error) => {
       this.logger.warn(`[factory-stop] falha ao drenar motores da fabrica: ${error instanceof Error ? error.message : String(error || 'erro desconhecido')}`);
@@ -906,7 +906,7 @@ export class RadarCoreFactoryAdminMixin {
       await (this.prisma as any).radarFactoryCursor.upsert({
         where: { key: 'main' },
         create: { key: 'main', enabled: true, forcedOn: true, status: 'idle', ...nextIndexes, nextRunAt: new Date() },
-        update: { enabled: true, forcedOn: true, status: 'idle', ...nextIndexes, nextRunAt: new Date(), reasonStopped: 'PrÃ³xima missÃ£o forÃ§ada pelo MASTER.' },
+        update: { enabled: true, forcedOn: true, status: 'idle', ...nextIndexes, nextRunAt: new Date(), reasonStopped: 'Próxima missão forçada pelo MASTER.' },
       }).catch(() => null);
     }
     await this.saveOperationalConfig(Number(user?.id || 0), {
@@ -1018,7 +1018,7 @@ export class RadarCoreFactoryAdminMixin {
         maxEngines: scheduler?.factory?.maxEngines ?? null,
         memoryGuardEngines: scheduler?.factory?.memoryGuardEngines ?? null,
         message: safeInteger(scheduler?.manualReservedEngines) > 0
-          ? 'Radar Digital tem motores reservados; a fÃ¡brica usa apenas o excedente.'
+          ? 'Radar Digital tem motores reservados; a fábrica usa apenas o excedente.'
           : 'Radar Digital sem reserva configurada. Ajuste HBX_CLIENT_RESERVED_ENGINES.',
       },
       generatedAt: now.toISOString(),
@@ -1043,9 +1043,9 @@ export class RadarCoreFactoryAdminMixin {
       if (input.cardsLast10Min > 0) return 'Salvando no banco';
       return 'Procurando cards';
     }
-    if (input.engine?.lastError || status === 'degraded') return 'Erro no Ãºltimo lote';
+    if (input.engine?.lastError || status === 'degraded') return 'Erro no último lote';
     if (input.hasActiveMission) return 'Aguardando fila';
-    return 'Sem missÃ£o ativa';
+    return 'Sem missão ativa';
   }
 
   async getMasterDatabaseAudit(user?: any) {
@@ -1242,16 +1242,16 @@ export class RadarCoreFactoryAdminMixin {
     };
 
     const diagnostics: string[] = [];
-    if (totalCards === 0) diagnostics.push('Nenhum card salvo no banco. Motor ligado nÃ£o significa card salvo.');
-    if (motoresOnline > 0 && cardsLast10Min === 0) diagnostics.push('Motores vivos, mas sem produÃ§Ã£o recente.');
-    if (campaignsQueued + campaignsRunning === 0) diagnostics.push('Motores acordados, mas sem missÃ£o ativa. A fÃ¡brica precisa criar a prÃ³xima campanha.');
+    if (totalCards === 0) diagnostics.push('Nenhum card salvo no banco. Motor ligado não significa card salvo.');
+    if (motoresOnline > 0 && cardsLast10Min === 0) diagnostics.push('Motores vivos, mas sem produção recente.');
+    if (campaignsQueued + campaignsRunning === 0) diagnostics.push('Motores acordados, mas sem missão ativa. A fábrica precisa criar a próxima campanha.');
     if (campaignsQueued + campaignsRunning === 0 && campaignsCompletedToday > 0) diagnostics.push('Todas as campanhas terminaram. Falta continuar automaticamente de onde parou.');
     if (searchRunsFailedToday > Math.max(3, searchRunsCompletedToday)) diagnostics.push('Muitas buscas falharam. Verificar motor, fila, timeout ou origem de scraping.');
     if (duplicatedItemsToday > Math.max(10, foundItemsToday)) diagnostics.push('Muitos duplicados. Trocar cidade, segmento ou tipo.');
-    if (foundItemsToday > 0 && cardsToday === 0) diagnostics.push('Itens encontrados, mas persistÃªncia no RadarLeadPool pode estar falhando.');
+    if (foundItemsToday > 0 && cardsToday === 0) diagnostics.push('Itens encontrados, mas persistência no RadarLeadPool pode estar falhando.');
     if (safeInteger(scheduler?.manualReservedEngines) <= 0) diagnostics.push('Radar Digital do cliente sem reserva de motor. Risco de 500/timeout.');
-    if (scheduler?.factory?.reason) diagnostics.push(`FÃ¡brica: ${scheduler.factory.reason}; permitidos=${safeInteger(scheduler.automaticAllowedEngines)}; janela=${scheduler.factory.windowStatus}; max=${scheduler.factory.maxEngines}; memÃ³ria=${scheduler.factory.memoryPressurePercent}%.`);
-    if (!diagnostics.length) diagnostics.push('Sem bloqueio crÃ­tico detectado agora.');
+    if (scheduler?.factory?.reason) diagnostics.push(`Fábrica: ${scheduler.factory.reason}; permitidos=${safeInteger(scheduler.automaticAllowedEngines)}; janela=${scheduler.factory.windowStatus}; max=${scheduler.factory.maxEngines}; memória=${scheduler.factory.memoryPressurePercent}%.`);
+    if (!diagnostics.length) diagnostics.push('Sem bloqueio crítico detectado agora.');
 
     const factoryCursor = factoryStatus?.cursor || {};
     const factory = {
@@ -1291,7 +1291,7 @@ export class RadarCoreFactoryAdminMixin {
       factoryNextStopAt: scheduler?.factory?.nextStopAt || null,
       factoryEmergencyStop: Boolean(scheduler?.factory?.emergencyStop),
       message: safeInteger(scheduler?.manualReservedEngines) > 0
-        ? 'Radar Digital protegido: a fÃ¡brica nÃ£o pode consumir os motores reservados do cliente.'
+        ? 'Radar Digital protegido: a fábrica não pode consumir os motores reservados do cliente.'
         : 'Radar Digital sem reserva configurada. Configure HBX_CLIENT_RESERVED_ENGINES=2.',
     };
 
@@ -1807,7 +1807,7 @@ export class RadarCoreFactoryAdminMixin {
           : status === 400 ? 'RADAR_INVALID_FILTER'
             : 'RADAR_TEMPORARILY_UNAVAILABLE');
     const message = code === 'MODULE_ACCESS_DENIED'
-      ? 'Acesso ao Radar Digital indisponÃ­vel para este usuÃ¡rio.'
+      ? 'Acesso ao Radar Digital indisponível para este usuário.'
       : code === 'SELLER_CARD_QUOTA_REACHED' || code === 'SELLER_QUOTA_PAUSED'
         ? String((error as any)?.response?.message || 'Seu limite de cards ativos foi atingido. Finalize, transfira ou peça mais cards ao responsável.')
       : code === 'NO_ENGINE_AVAILABLE'
@@ -1815,10 +1815,10 @@ export class RadarCoreFactoryAdminMixin {
         : code === 'RADAR_RUN_NOT_FOUND'
           ? 'Busca anterior encerrada. Radar pronto para uma nova pesquisa.'
           : code === 'RADAR_STOCK_EMPTY'
-            ? 'Sem cards prontos para esse filtro. A reposiÃ§Ã£o foi solicitada.'
+            ? 'Sem cards prontos para esse filtro. A reposição foi solicitada.'
             : status === 400
               ? (error instanceof Error ? error.message : 'Revise os filtros do Radar Digital.')
-              : 'Radar temporariamente indisponÃ­vel. Tente novamente em instantes.';
+              : 'Radar temporariamente indisponível. Tente novamente em instantes.';
     const companyId = Number(user?.masterContext?.active ? user?.masterContext?.companyId : user?.companyId || 0) || null;
     const userId = Number(user?.id || 0) || null;
     const stack = error instanceof Error ? error.stack : undefined;

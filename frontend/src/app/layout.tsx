@@ -9,10 +9,11 @@ export const metadata: Metadata = {
   description: "Radar → Vendas → WhatsApp → Retorno",
 };
 
-// Boot de tema antes da pintura (sem flash): mesma regra do handoff —
-// corporate escuro padrão (claro = data-theme-mode="light"), friendly
-// claro padrão (escuro = data-theme-mode="dark").
-const THEME_BOOT = `(function(){try{var p=location.pathname;var h=document.documentElement;var ws=p==="/workspace"||p.indexOf("/workspace/")===0;var mkt=p==="/";var auth=["/login","/register","/reset-password","/confirm-email"].some(function(r){return p===r||p.indexOf(r+"/")===0;});function friendly(){h.removeAttribute("data-theme");if(localStorage.getItem("hbx:friendly-mode")==="dark"){h.setAttribute("data-theme-mode","dark");}else{h.removeAttribute("data-theme-mode");}}function corporate(){h.setAttribute("data-theme","corporate");if(localStorage.getItem("hbx:corporate-mode")==="light"){h.setAttribute("data-theme-mode","light");}else{h.removeAttribute("data-theme-mode");}}if(mkt){h.removeAttribute("data-theme");h.removeAttribute("data-theme-mode");}else if(ws){friendly();}else if(auth){if(localStorage.getItem("hbx:ws-theme")==="friendly"){friendly();}else{corporate();}}else{corporate();}}catch(e){}})();`;
+// Boot de tema antes da pintura (sem flash). REGRA DURA (FRONTEND.md):
+// TEMA É SÓ PELE — a preferência hbx:ws-theme vale em TODAS as rotas
+// (exceto a landing "/", html puro). corporate escuro padrão (claro =
+// data-theme-mode="light"); friendly claro padrão (escuro = "dark").
+const THEME_BOOT = `(function(){try{var p=location.pathname;var h=document.documentElement;var mkt=p==="/";function friendly(){h.removeAttribute("data-theme");if(localStorage.getItem("hbx:friendly-mode")==="dark"){h.setAttribute("data-theme-mode","dark");}else{h.removeAttribute("data-theme-mode");}}function corporate(){h.setAttribute("data-theme","corporate");if(localStorage.getItem("hbx:corporate-mode")==="light"){h.setAttribute("data-theme-mode","light");}else{h.removeAttribute("data-theme-mode");}}if(mkt){h.removeAttribute("data-theme");h.removeAttribute("data-theme-mode");}else if(localStorage.getItem("hbx:ws-theme")==="friendly"){friendly();}else{corporate();}}catch(e){}})();`;
 
 // Faxina do PWA antigo: desregistra qualquer service worker e apaga os
 // caches do navegador em todo load. O SW "hbx-pwa-v1" do front antigo

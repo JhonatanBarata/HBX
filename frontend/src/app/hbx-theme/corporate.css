@@ -188,13 +188,56 @@ html, body { margin: 0; }
 .send { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 10px; border: none; background: var(--hbx-primary); color: #04110D; cursor: pointer; }
 
 /* ---------- Charts ---------- */
-.bars { display: flex; align-items: flex-end; gap: 14px; height: 150px; padding: 8px 4px 0; }
-.bars .b { flex: 1; display: grid; gap: 6px; align-content: end; justify-items: center; }
-.bars .bar { width: 100%; max-width: 38px; border-radius: 6px 6px 2px 2px; background: linear-gradient(180deg, var(--hbx-brand-strong), var(--hbx-brand)); opacity: 0.9; }
+/* Gráficos do dashboard — passe de qualidade (pendência item 2, 12/06/2026):
+   aparência + transitions/animações. As barras crescem na entrada (quando o
+   dado chega e o nó é inserido no DOM), com stagger por animation-delay
+   inline, hover e gridlines de fundo. fill-mode backwards segura o estado
+   inicial durante o delay (sem flash) e libera o transform depois. */
+@keyframes hbx-grow-up { from { transform: scaleY(0.012); opacity: 0; } 60% { opacity: 1; } to { transform: scaleY(1); opacity: 1; } }
+@keyframes hbx-grow-right { from { transform: scaleX(0); opacity: 0.25; } to { transform: scaleX(1); opacity: 1; } }
+@keyframes hbx-spark-draw { from { stroke-dashoffset: 96; } to { stroke-dashoffset: 0; } }
+
+.bars { display: flex; align-items: flex-end; gap: 14px; height: 150px; padding: 8px 4px 0; position: relative; }
+/* baseline + gridlines suaves atrás das barras (38/76/114px acima da base) */
+.bars::before { content: ""; position: absolute; left: 2px; right: 2px; bottom: 23px; height: 1px;
+  background: var(--border-hairline);
+  box-shadow: 0 -38px 0 color-mix(in srgb, var(--border-hairline) 55%, transparent),
+              0 -76px 0 color-mix(in srgb, var(--border-hairline) 55%, transparent),
+              0 -114px 0 color-mix(in srgb, var(--border-hairline) 38%, transparent); }
+.bars .b { flex: 1; display: grid; gap: 6px; align-content: end; justify-items: center; position: relative; z-index: 1; }
+.bars .bar { width: 100%; max-width: 38px; border-radius: 7px 7px 3px 3px;
+  background: linear-gradient(180deg, var(--hbx-brand-strong), var(--hbx-brand));
+  box-shadow: 0 8px 18px -10px color-mix(in srgb, var(--hbx-brand) 75%, transparent),
+              inset 0 1px 0 color-mix(in srgb, #fff 32%, transparent);
+  transform-origin: bottom center;
+  animation: hbx-grow-up 0.6s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  transition: filter 0.18s ease, transform 0.18s ease; }
+.bars .b:hover .bar { filter: brightness(1.12) saturate(1.06); transform: translateY(-3px); }
 .bars .lbl { font-family: var(--font-mono); font-size: 0.6rem; color: var(--text-muted); }
+
+/* Funil de conversão: gradiente derivado da cor (--fc), arredondado, brilho
+   e crescimento da esquerda. */
+.funnel-bar { height: 26px; border-radius: 7px; transform-origin: left center;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--fc) 100%, #fff 16%), var(--fc));
+  box-shadow: 0 6px 16px -9px color-mix(in srgb, var(--fc) 80%, transparent),
+              inset 0 1px 0 color-mix(in srgb, #fff 28%, transparent);
+  animation: hbx-grow-right 0.62s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  transition: filter 0.18s ease; }
+.funnel-bar:hover { filter: brightness(1.08) saturate(1.05); }
+
 .fleg { display: grid; gap: 7px; }
 .fleg .row { display: flex; align-items: center; gap: 8px; font-size: 0.7rem; color: var(--text-body); }
 .fleg .swatch { width: 10px; height: 10px; border-radius: 3px; }
+
+/* Medidor (Top vendedores): preenchimento cresce da esquerda na entrada. */
+.meter { height: 7px; border-radius: 999px; background: var(--hbx-surface-raised); overflow: hidden; }
+.meter-fill { height: 100%; border-radius: 999px; transform-origin: left center;
+  background: linear-gradient(90deg, var(--hbx-brand), var(--hbx-brand-strong));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 24%, transparent);
+  animation: hbx-grow-right 0.7s cubic-bezier(0.22, 1, 0.36, 1) backwards; }
+
+/* Sparklines dos KPIs: a linha "desenha" na entrada (stroke-dashoffset). */
+.hbx-spark-path { stroke-dasharray: 96; animation: hbx-spark-draw 0.95s ease-out both; }
 .activity { display: grid; }
 .activity .it { display: flex; gap: 11px; align-items: flex-start; padding: 10px 0; border-top: 1px solid var(--border-hairline); }
 .activity .it:first-child { border-top: none; }

@@ -24,6 +24,8 @@ type BotRoutingRules = {
   notifyOnNewInbound?: boolean;
 };
 
+type BotAction = { actionId: string; title?: string; enabled?: boolean };
+
 type BotConfig = {
   setup?: { completed?: boolean; botType?: string | null };
   welcomeMessage?: string;
@@ -36,7 +38,16 @@ type BotConfig = {
   closeTopicMessage?: string;
   blockedMessage?: string;
   routingRules?: BotRoutingRules;
+  actionCatalog?: BotAction[];
 };
+
+// grupos de botões editáveis (PATCH /inbox/bot-config) — o backend exige
+// buttonId estável e único e actionId existente no actionCatalog
+type BotaoGrupo = "welcomeButtons" | "mainMenuButtons";
+const BOT_BTN_GROUPS: { key: BotaoGrupo; label: string; hint: string }[] = [
+  { key: "welcomeButtons", label: "Botões de boas-vindas", hint: "aparecem na primeira mensagem" },
+  { key: "mainMenuButtons", label: "Botões do menu principal", hint: "opções do menu" },
+];
 
 // campos de mensagem editáveis na aba Configurações (PATCH /inbox/bot-config)
 const BOT_MSG_FIELDS: { key: keyof BotConfig; label: string; hint: string }[] = [
@@ -139,6 +150,40 @@ export function BotClient() {
     return Boolean(config?.routingRules?.[key]);
   }
 
+  // editor de botões: null no grupo = não editado (mostra a config real)
+  const [cfgBotoes, setCfgBotoes] = useState<Partial<Record<BotaoGrupo, BotButton[]>>>({});
+
+  function botoesDe(grupo: BotaoGrupo): BotButton[] {
+    return cfgBotoes[grupo] ?? (config?.[grupo] || []);
+  }
+
+  function editarBotao(grupo: BotaoGrupo, idx: number, patch: Partial<BotButton>) {
+    setCfgBotoes(prev => {
+      const atual = (prev[grupo] ?? (config?.[grupo] || [])).map(b => ({ ...b }));
+      if (atual[idx]) atual[idx] = { ...atual[idx], ...patch };
+      return { ...prev, [grupo]: atual };
+    });
+  }
+
+  function addBotao(grupo: BotaoGrupo) {
+    setCfgBotoes(prev => {
+      const atual = (prev[grupo] ?? (config?.[grupo] || [])).map(b => ({ ...b }));
+      // buttonId estável e único (exigência do backend)
+      const novoId = `btn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+      atual.push({ buttonId: novoId, actionId: "", title: "" });
+      return { ...prev, [grupo]: atual };
+    });
+  }
+
+  function removerBotao(grupo: BotaoGrupo, idx: number) {
+    setCfgBotoes(prev => {
+      const atual = (prev[grupo] ?? (config?.[grupo] || [])).filter((_, i) => i !== idx);
+      return { ...prev, [grupo]: atual };
+    });
+  }
+
+  const acoesDisponiveis = (config?.actionCatalog || []).filter(a => a.enabled !== false);
+
   async function salvarConfig() {
     if (cfgBusy) return;
     setCfgBusy(true);
@@ -150,6 +195,16 @@ export function BotClient() {
         if (v.trim()) body[f.key] = v;
       }
       body.routingRules = Object.fromEntries(BOT_RULES.map(r => [r.key, ruleValue(r.key)]));
+      for (const g of BOT_BTN_GROUPS) {
+        const editados = cfgBotoes[g.key];
+        if (!editados) continue;
+        body[g.key] = editados.map(b => ({
+          buttonId: b.buttonId,
+          actionId: b.actionId,
+          title: b.title.trim(),
+          ...(b.nextNodeId ? { nextNodeId: b.nextNodeId } : {}),
+        }));
+      }
       const updated = await apiFetch<BotConfig>("/inbox/bot-config", {
         method: "PATCH",
         body: JSON.stringify(body),
@@ -157,6 +212,7 @@ export function BotClient() {
       if (updated && typeof updated === "object") setConfig(updated);
       setCfgForm({});
       setCfgRules({});
+      setCfgBotoes({});
       setCfgMsg("✓ Configuração salva.");
     } catch (err) {
       setCfgMsg(err instanceof Error ? err.message : "Não foi possível salvar.");
@@ -346,6 +402,43 @@ export function BotClient() {
                       value={cfgValue(f.key)} onChange={e => setCfgForm(prev => ({ ...prev, [f.key]: e.target.value }))} />
                   </div>
                 ))}
+              </div>
+            </section>
+            <section className="panel">
+              <div className="panel-head"><h2>Botões do bot</h2></div>
+              <div style={{ padding: 18, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+                {BOT_BTN_GROUPS.map(g => (
+                  <div key={g.key} style={{ display: "grid", gap: 8, alignContent: "start" }}>
+                    <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>{g.label} <span style={{ fontWeight: 600, opacity: 0.7 }}>· {g.hint}</span></label>
+                    {botoesDe(g.key).length === 0 && (
+                      <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>Sem botões — adicione o primeiro.</span>
+                    )}
+                    {botoesDe(g.key).map((b, i) => (
+                      <div key={b.buttonId || i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 6 }}>
+                        <input className="field-dark" style={{ minHeight: 34 }} maxLength={60} placeholder="Texto do botão"
+                          value={b.title} onChange={e => editarBotao(g.key, i, { title: e.target.value })} />
+                        <select className="field-dark" style={{ minHeight: 34 }} value={b.actionId}
+                          onChange={e => editarBotao(g.key, i, { actionId: e.target.value })} aria-label="Ação do botão">
+                          <option value="">Ação…</option>
+                          {acoesDisponiveis.map(a => (
+                            <option key={a.actionId} value={a.actionId}>{a.title || a.actionId}</option>
+                          ))}
+                          {b.actionId && !acoesDisponiveis.some(a => a.actionId === b.actionId) && (
+                            <option value={b.actionId}>{b.actionId}</option>
+                          )}
+                        </select>
+                        <button className="icon-ghost" title="Remover botão" aria-label="Remover botão"
+                          onClick={() => removerBotao(g.key, i)}>✕</button>
+                      </div>
+                    ))}
+                    <button className="btn-ghost" style={{ minHeight: 30, fontSize: "0.68rem", width: "fit-content" }} onClick={() => addBotao(g.key)}>
+                      <I d={ICONS.plus} size={12} /> Adicionar botão
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <div style={{ padding: "0 18px 14px", fontSize: "0.62rem", color: "var(--text-muted)" }}>
+                Cada botão dispara uma ação do catálogo do bot. As alterações valem após “Salvar alterações”.
               </div>
             </section>
             <section className="panel">

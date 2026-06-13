@@ -236,7 +236,7 @@ export class RadarCoreMassDataMixin {
           }))
         : Promise.resolve([]),
       hasLeadPool
-        ? withDatabaseGuard('ProduÃ§Ã£o', [], () => (this.prisma as any).radarLeadPool.findMany({
+        ? withDatabaseGuard('Produção', [], () => (this.prisma as any).radarLeadPool.findMany({
             orderBy: [{ lastSeenAt: 'desc' }, { createdAt: 'desc' }],
             take: 24,
             select: {
@@ -314,7 +314,7 @@ export class RadarCoreMassDataMixin {
 
     if (!hasLeadPool || !hasBatch || !hasTask) {
       markDatabaseWarning();
-      databaseMessages.push('Algumas tabelas operacionais ainda nÃ£o estÃ£o disponÃ­veis para o painel completo.');
+      databaseMessages.push('Algumas tabelas operacionais ainda não estão disponíveis para o painel completo.');
     }
 
     const statsByEngine = new Map<string, {
@@ -356,16 +356,16 @@ export class RadarCoreMassDataMixin {
       ? this.toIso(config.forcedUntil)
       : this.nextOperationalWindowEndAt(config, now).toISOString();
     const criticalReason = allOffline
-      ? 'Todos os motores HBX estÃ£o offline.'
+      ? 'Todos os motores HBX estão offline.'
       : String(capacity?.operationalStatus || '') === 'degraded'
         ? capacity?.message || 'Campanha travada sem progresso real.'
         : (databaseStatus as string) === 'error'
-          ? 'Banco indisponÃ­vel para o dashboard operacional.'
+          ? 'Banco indisponível para o dashboard operacional.'
           : null;
     const currentMode = criticalReason
       ? 'CRÃTICO'
       : forcedTurboActive
-        ? 'TURBO FORÃ‡ADO'
+        ? 'TURBO FORÇADO'
         : scheduledTurboActive
           ? 'TURBO NOTURNO'
           : activeQueue > 0
@@ -382,9 +382,9 @@ export class RadarCoreMassDataMixin {
         ? 'warning'
         : 'ok';
     const diagnosticsMessages = [
-      activeQueue > 0 ? `Fila ativa com ${activeQueue} item(ns).` : 'Fila sem pendÃªncias.',
-      databaseStatus === 'ok' ? 'GravaÃ§Ãµes no banco acessÃ­veis.' : null,
-      engineHealthStatus === 'ok' ? 'Motores com healthcheck saudÃ¡vel.' : null,
+      activeQueue > 0 ? `Fila ativa com ${activeQueue} item(ns).` : 'Fila sem pendências.',
+      databaseStatus === 'ok' ? 'Gravações no banco acessíveis.' : null,
+      engineHealthStatus === 'ok' ? 'Motores com healthcheck saudável.' : null,
       pausedHbxEngines.length > 0 ? `${pausedHbxEngines.length} motor(es) pausado(s) pelo painel.` : null,
       ...databaseMessages,
       ...offlineHbxEngines.slice(0, getConfiguredHbxEngineCount()).map((engine: any) => `${engine.shortLabel || engine.id}: ${engine.lastError || engine.stateLabel || 'sem resposta'}`),
@@ -399,7 +399,7 @@ export class RadarCoreMassDataMixin {
       .map((engine: any) => ({
         route: engine.id || 'hbx-engine',
         statusCode: 0,
-        message: 'Motor configurado com localhost em produÃ§Ã£o. Isso quebra o Docker. Corrigir URLs dos motores.',
+        message: 'Motor configurado com localhost em produção. Isso quebra o Docker. Corrigir URLs dos motores.',
         createdAt: now.toISOString(),
       }));
 
@@ -566,8 +566,8 @@ export class RadarCoreMassDataMixin {
         forcedUntil: config.forcedUntil || null,
         operationalMessage: criticalReason
           || (forcedTurboActive
-            ? `Turbo forÃ§ado ativo atÃ© ${this.formatTimeLabel(config.endHour, config.endMinute)}.`
-            : `Turbo pronto. Ative para manter os motores atÃ© ${this.formatTimeLabel(config.endHour, config.endMinute)}.`),
+            ? `Turbo forçado ativo até ${this.formatTimeLabel(config.endHour, config.endMinute)}.`
+            : `Turbo pronto. Ative para manter os motores até ${this.formatTimeLabel(config.endHour, config.endMinute)}.`),
       },
       config: {
         ...config,
@@ -634,7 +634,7 @@ export class RadarCoreMassDataMixin {
             { city: { not: saved.factoryCity } },
           ],
         },
-        data: { status: 'canceled', finishedAt: new Date(), nextRunAt: null, lastErrorMessage: 'Substituida pela cidade fixa da fÃ¡brica.' },
+        data: { status: 'canceled', finishedAt: new Date(), nextRunAt: null, lastErrorMessage: 'Substituida pela cidade fixa da fábrica.' },
       }).catch(() => null);
     }
     await (this.prisma as any).webscrapingCampaign.updateMany({
@@ -708,7 +708,7 @@ export class RadarCoreMassDataMixin {
     }).catch(() => null);
     await (this.prisma as any).hbxEngineLock?.updateMany?.({
       where: { lockedRunId: { contains: ':mass:' } },
-      data: { lockedUntil: drainUntil, lastError: 'PARAR TUDO ativo; lock automÃ¡tico em drenagem curta.' },
+      data: { lockedUntil: drainUntil, lastError: 'PARAR TUDO ativo; lock automático em drenagem curta.' },
     }).catch(() => null);
     await this.getEnginePool().drainFactoryEngines({
       force: true,
@@ -784,7 +784,7 @@ export class RadarCoreMassDataMixin {
     }
     await (this.prisma as any).webscrapingCampaign.updateMany({
       where: { mode: 'mass_data', status: 'paused' },
-      data: { status: 'queued', nextRunAt: new Date(), lastErrorMessage: 'Agenda da fÃ¡brica retomada pelo MASTER.' },
+      data: { status: 'queued', nextRunAt: new Date(), lastErrorMessage: 'Agenda da fábrica retomada pelo MASTER.' },
     }).catch(() => null);
     this.scheduleRadarCampaignPump(0);
     return {
@@ -1093,7 +1093,7 @@ export class RadarCoreMassDataMixin {
           maxAttempts: normalized.maxAttemptsPerTask,
           lastErrorMessage: guidedByState
             ? `MASSA DE DADOS pronta: ${(taskStats as any).cityCount} cidade(s), ${(taskStats as any).segmentCount} isca(s), ${(taskStats as any).targetTypeCount} tipo(s), ${(taskStats as any).taskCount} tarefa(s).`
-            : `MASSA DE DADOS autonoma pronta: ${(taskStats as any).created} tarefa(s), ${(taskStats as any).checked} combinaÃ§Ã£o(Ãµes) avaliadas.`,
+            : `MASSA DE DADOS autonoma pronta: ${(taskStats as any).created} tarefa(s), ${(taskStats as any).checked} combinação(ões) avaliadas.`,
         },
       }).catch(() => null);
       const reloaded = await (this.prisma as any).webscrapingCampaign.findUnique({
@@ -1239,7 +1239,7 @@ export class RadarCoreMassDataMixin {
       this.logger.log(`[engine-scheduler] automatic production paused campaign=${campaign.id} reason=protected`);
       await (this.prisma as any).webscrapingCampaign.update({
         where: { id: campaign.id },
-        data: { status: 'running', nextRunAt: new Date(Date.now() + 15_000), lastErrorMessage: 'ProduÃ§Ã£o protegida: aguardando capacidade sobrar.' },
+        data: { status: 'running', nextRunAt: new Date(Date.now() + 15_000), lastErrorMessage: 'Produção protegida: aguardando capacidade sobrar.' },
       }).catch(() => null);
       return;
     }
@@ -1536,7 +1536,7 @@ export class RadarCoreMassDataMixin {
         lastErrorMessage: latestTask
           ? `${latestTask.city}/${latestTask.state}: ${latestTask.segment} -> ${latestTask.status}`
           : done && autonomousEnabled
-            ? 'Fila autonoma nÃ£o encontrou novas combinaÃ§Ãµes sem dados puxados.'
+            ? 'Fila autonoma não encontrou novas combinações sem dados puxados.'
             : null,
         nextRunAt: finalStatus === 'completed' ? null : new Date(Date.now() + 1_000),
         finishedAt: finalStatus === 'completed' ? new Date() : null,

@@ -10,12 +10,13 @@
 // "Receita (6 meses)" do template virou "Top segmentos (7 dias)" — não há
 // série mensal de receita no backend (registrado no doc do PR).
 
+import Link from "next/link";
 import React, { useEffect, useState } from "react";
 
 import { Av, KpiRow, Sidebar, Topbar, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 
-type TimelineEvent = { id?: string; eventType?: string; description?: string | null; note?: string | null; createdAt?: string | null };
+type TimelineEvent = { id?: string; eventType?: string; title?: string | null; description?: string | null; note?: string | null; createdAt?: string | null };
 
 type BoardLead = {
   id: string;
@@ -36,7 +37,10 @@ type Report = {
   rankings?: { segments: { label: string; count: number }[] };
 } | null;
 
-type Audit = { rows?: { id: number; name: string; metrics: { closedCards: number; workRate: number } }[] } | null;
+// /vendas/seller-audit aninha a identidade do vendedor em `seller` (o id/name
+// ficam em row.seller, não na raiz da row — só `metrics` é raiz). Tipar errado
+// fazia o nome/avatar virem undefined em "Top vendedores".
+type Audit = { rows?: { seller: { id: number; name: string }; metrics: { closedCards: number; workRate: number } }[] } | null;
 
 const EVENT_LABEL: Record<string, string> = {
   contact_made: "Contato realizado",
@@ -46,7 +50,12 @@ const EVENT_LABEL: Record<string, string> = {
   reply_received: "Resposta recebida",
   inbound_reply: "Resposta recebida",
   created: "Card criado",
+  lead_created: "Card criado",
   imported: "Card importado",
+  origin_registered: "Origem registrada",
+  radar_enrichment_imported: "Enriquecido pelo Radar",
+  lead_enrichment_used: "Enriquecimento aplicado",
+  lead_reused: "Card reaproveitado",
 };
 
 const EVENT_COLOR: Record<string, string> = {
@@ -60,6 +69,14 @@ const EVENT_COLOR: Record<string, string> = {
 function eventLabel(t?: string) {
   const key = String(t || "").toLowerCase();
   return EVENT_LABEL[key] || key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) || "Evento";
+}
+
+// Rótulo da atividade: tipo conhecido → título humano do backend (eventos do
+// motor trazem `title`, ex. "Numero sem WhatsApp no motor") → humanização do
+// tipo. Sem isso, tipos crus apareciam como "Generic", "Lead Created" etc.
+function activityLabel(ev: TimelineEvent) {
+  const key = String(ev.eventType || "").toLowerCase();
+  return EVENT_LABEL[key] || (ev.title || "").trim() || eventLabel(ev.eventType);
 }
 
 function fmtHora(iso?: string | null) {
@@ -125,7 +142,10 @@ export function DashboardClient() {
     { label: "Interessados", value: m.interessados, c: "#F5B23C" },
   ] : [];
   const maxFunil = Math.max(1, ...funil.map(f => f.value));
-  const vendedores = (audit?.rows || []).slice(0, 3);
+  const vendedores = (audit?.rows || [])
+    .slice()
+    .sort((a, b) => (b.metrics.closedCards - a.metrics.closedCards) || (b.metrics.workRate - a.metrics.workRate))
+    .slice(0, 3);
   const tarefas = hoje.slice(0, 3);
 
   return (
@@ -141,8 +161,9 @@ export function DashboardClient() {
                 <span style={{ fontSize: "0.74rem", color: "var(--text-muted)", lineHeight: 1.55 }}>
                   A conta master não tem empresa vinculada, e este painel mostra a operação de UMA empresa —
                   por isso as chamadas retornam erro ({loadError}). Para operar o dia a dia, entre com a conta
-                  Admin da empresa (ex.: jhonatan@hbxsystem.com.br). A tela do master é a próxima janela do padrão.
+                  Admin da empresa (ex.: jhonatan@hbxsystem.com.br). A sua casa é o painel Master.
                 </span>
+                <a className="btn-teal" href="/master" style={{ width: "fit-content", textDecoration: "none" }}>Ir para o /master</a>
               </div>
             </section>
           ) : loadError ? (
@@ -160,7 +181,7 @@ export function DashboardClient() {
               <div className="panel-head">
                 <h2>Top segmentos (7 dias)</h2>
                 <div className="meta">
-                  <span className="link">Ver relatório</span>
+                  <Link className="link" href="/relatorios">Ver relatório</Link>
                 </div>
               </div>
               <div style={{ padding: "10px 18px 16px" }}>
@@ -169,10 +190,10 @@ export function DashboardClient() {
                 )}
                 {segments.length > 0 && (
                   <div className="bars">
-                    {segments.map(s => (
-                      <div className="b" key={s.label}>
+                    {segments.map((s, i) => (
+                      <div className="b" key={s.label} title={`${s.label}: ${s.count}`}>
                         <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.6rem", color: "var(--text-muted)" }}>{s.count}</span>
-                        <div className="bar" style={{ height: Math.max(8, Math.round((s.count / maxSeg) * 118)) }}></div>
+                        <div className="bar" style={{ height: Math.max(8, Math.round((s.count / maxSeg) * 118)), animationDelay: `${i * 70}ms` }}></div>
                         <span className="lbl" style={{ maxWidth: 90, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.label}</span>
                       </div>
                     ))}
@@ -189,9 +210,9 @@ export function DashboardClient() {
                 )}
                 {funil.length > 0 && (
                   <React.Fragment>
-                    <div style={{ display: "grid", gap: 4, justifyItems: "center", padding: "4px 0 10px" }}>
-                      {funil.map(f => (
-                        <div key={f.label} style={{ width: Math.max(36, Math.round((f.value / maxFunil) * 190)), height: 24, background: f.c, borderRadius: 4, opacity: 0.92 }}></div>
+                    <div style={{ display: "grid", gap: 7, justifyItems: "center", padding: "4px 0 12px" }}>
+                      {funil.map((f, i) => (
+                        <div key={f.label} className="funnel-bar" style={{ width: Math.max(36, Math.round((f.value / maxFunil) * 190)), animationDelay: `${i * 80}ms`, ["--fc"]: f.c } as React.CSSProperties}></div>
                       ))}
                     </div>
                     <div className="fleg">
@@ -209,7 +230,7 @@ export function DashboardClient() {
             <section className="panel">
               <div className="panel-head">
                 <h2>Atividade recente</h2>
-                <div className="meta"><span className="link">Ver tudo</span></div>
+                <div className="meta"><Link className="link" href="/vendas">Ver tudo</Link></div>
               </div>
               <div className="activity" style={{ padding: "4px 18px 10px" }}>
                 {atividade.length === 0 && (
@@ -219,7 +240,7 @@ export function DashboardClient() {
                   <div className="it" key={ev.id || i}>
                     <span className="dot" style={{ background: EVENT_COLOR[String(ev.eventType || "").toLowerCase()] || "#4CC2FF" }}></span>
                     <div>
-                      <div className="t">{eventLabel(ev.eventType)} — {card.name || "card"}</div>
+                      <div className="t">{activityLabel(ev)} — {card.name || "card"}</div>
                       <div className="d">{ev.note || ev.description || card.statusLabel || ""}</div>
                     </div>
                     <time>{fmtHora(ev.createdAt)}</time>
@@ -235,7 +256,7 @@ export function DashboardClient() {
                   <p style={{ margin: "10px 0", fontSize: "0.74rem", color: "var(--text-muted)" }}>Nenhum retorno para hoje.</p>
                 )}
                 {tarefas.map((t, i) => (
-                  <label className="task" key={t.id}>
+                  <label className="task" key={t.id ?? i}>
                     <input type="checkbox" checked={Boolean(tasks[i])} onChange={() => setTasks(ts => { const next = [...ts]; next[i] = !next[i]; return next; })} />
                     <span>
                       <span className="t" style={{ textDecoration: tasks[i] ? "line-through" : "none", opacity: tasks[i] ? 0.6 : 1 }}>{t.nextAction || "Retorno agendado"}</span>
@@ -243,7 +264,7 @@ export function DashboardClient() {
                     </span>
                   </label>
                 ))}
-                <span className="link">Ver todas no Vendas</span>
+                <Link className="link" href="/vendas">Ver todas no Vendas</Link>
               </div>
             </section>
 
@@ -251,17 +272,17 @@ export function DashboardClient() {
               <div className="panel-head"><h2>Top vendedores</h2></div>
               <div style={{ padding: "10px 18px 16px", display: "grid", gap: 13 }}>
                 {vendedores.length === 0 && (
-                  <p style={{ margin: "10px 0", fontSize: "0.74rem", color: "var(--text-muted)" }}>Auditoria visível para Admin/Master.</p>
+                  <p style={{ margin: "10px 0", fontSize: "0.74rem", color: "var(--text-muted)" }}>Sem auditoria de vendedores no período (visível para Admin/Master).</p>
                 )}
-                {vendedores.map(v => (
-                  <div key={v.id} style={{ display: "grid", gap: 6 }}>
+                {vendedores.map((v, i) => (
+                  <div key={v.seller.id} style={{ display: "grid", gap: 6 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <Av name={v.name} size={22} />
-                      <span style={{ fontSize: "0.78rem", fontWeight: 600 }}>{v.name}</span>
+                      <Av name={v.seller.name} size={22} />
+                      <span style={{ fontSize: "0.78rem", fontWeight: 600 }}>{v.seller.name}</span>
                       <span style={{ marginLeft: "auto", fontFamily: "var(--font-mono)", fontSize: "0.72rem", fontWeight: 700 }}>{v.metrics.closedCards} fechados</span>
                     </div>
-                    <div style={{ height: 6, borderRadius: 999, background: "var(--hbx-surface-raised)" }}>
-                      <div style={{ width: `${Math.min(100, Math.round((v.metrics.workRate || 0) * 100))}%`, height: "100%", borderRadius: 999, background: "linear-gradient(90deg, var(--hbx-brand), var(--hbx-brand-strong))" }}></div>
+                    <div className="meter">
+                      <div className="meter-fill" style={{ width: `${Math.min(100, Math.round((v.metrics.workRate || 0) * 100))}%`, animationDelay: `${i * 90}ms` }}></div>
                     </div>
                   </div>
                 ))}

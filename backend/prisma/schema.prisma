@@ -189,6 +189,9 @@ model Company {
   whatsappConsentLedgers WhatsappConsentLedger[]
   teamPolicyPresets TeamPolicyPreset[]
   userTeamPolicies UserTeamPolicy[]
+  emailSettings CompanyEmailSettings?
+  emailTemplates CompanyEmailTemplate[]
+  emailAssets CompanyEmailAsset[]
 
   @@index([currentWhatsappConnectionSessionId])
   @@index([companyKind])
@@ -1293,6 +1296,24 @@ model MasterNoticeAck {
 
   @@unique([noticeId, userId])
   @@index([userId, acknowledgedAt])
+}
+
+// E8 (PLAN12062026001): histórico dos avisos de pagamento disparados por
+// WhatsApp (master/payment-notifications). Tabela criada em runtime pelo
+// ensureMasterPaymentNotificationLogTable; sem relation para não tocar o
+// model Company. shouldBecomeMigration=true.
+model MasterPaymentNotificationLog {
+  id                String   @id @default(cuid())
+  companyId         Int
+  target            String
+  text              String
+  status            String   @default("sent") // sent | failed
+  providerMessageId String?
+  errorMessage      String?
+  createdAt         DateTime @default(now())
+
+  @@index([companyId, createdAt])
+  @@index([createdAt])
 }
 
 model VendasCardComplaint {
@@ -2502,6 +2523,65 @@ model MasterEmailAsset {
   uploadedAt   DateTime @default(now())
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+}
+
+// PR12062026005: módulo E-mail por empresa. SMTP próprio por tenant —
+// a empresa HBX (e somente ela) usa o transporte do Master, decidido
+// internamente pelo CompanyMailerService (nunca via endpoint master).
+model CompanyEmailSettings {
+  companyId              Int      @id
+  company                Company  @relation(fields: [companyId], references: [id])
+  enabled                Boolean  @default(false)
+  smtpHost               String?
+  smtpPort               Int?
+  smtpSecure             Boolean  @default(true)
+  smtpUser               String?
+  // criptografada com IntegrationSecretsService (AES-256-GCM)
+  smtpPassEncrypted      String?
+  fromName               String?
+  fromEmail              String?
+  replyTo                String?
+  testEmail              String?
+  sampleName             String?
+  sampleCompany          String?
+  // disparos manuais do cadastro: template escolhido por empresa
+  welcomeTemplateKind    String?
+  onboardingTemplateKind String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+}
+
+model CompanyEmailTemplate {
+  id        Int      @id @default(autoincrement())
+  company   Company  @relation(fields: [companyId], references: [id])
+  companyId Int
+  kind      String
+  label     String
+  subject   String
+  text      String
+  html      String?
+  // true só nas cópias semeadas (seller_welcome/seller_onboarding_request da HBX)
+  isSeeded  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, kind])
+}
+
+model CompanyEmailAsset {
+  id           Int      @id @default(autoincrement())
+  company      Company  @relation(fields: [companyId], references: [id])
+  companyId    Int
+  key          String // presentation_pptx | business_card
+  originalName String
+  mimeType     String?
+  size         Int
+  fileData     Bytes
+  uploadedAt   DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([companyId, key])
 }
 
 model CommercialEmailMessageLog {

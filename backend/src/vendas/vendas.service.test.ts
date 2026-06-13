@@ -118,10 +118,11 @@ function createService(overrides?: Partial<Record<string, any>>) {
     ...(overrides?.commercialPlansService || {}),
   } as any;
 
-  const hbxPresentationEmails = {
-    previewPresentationToContact: async () => ({}),
-    sendPresentationToContact: async () => ({}),
-    ...(overrides?.hbxPresentationEmails || {}),
+  // PR12062026005: apresentação do Vendas sai pelo e-mail da empresa
+  const companyPresentationEmails = {
+    previewPresentationForCompany: async () => ({}),
+    sendPresentationForCompany: async () => ({}),
+    ...(overrides?.companyPresentationEmails || {}),
   } as any;
 
   const commercialUsageLimits = {
@@ -154,7 +155,7 @@ function createService(overrides?: Partial<Record<string, any>>) {
     inboxService,
     webwhatsBridge,
     commercialPlansService,
-    hbxPresentationEmails,
+    companyPresentationEmails,
     commercialUsageLimits,
     hbxCommissionSync,
     authService,
@@ -2259,8 +2260,8 @@ test('sendPresentationEmailForUser blocks explicit company reply-to without acce
         status: 'novo',
       }),
     },
-    hbxPresentationEmails: {
-      sendPresentationToContact: async () => {
+    companyPresentationEmails: {
+      sendPresentationForCompany: async () => {
         sendCalls += 1;
         return {};
       },
@@ -2311,8 +2312,8 @@ test('sendPresentationEmailForUser does not use company reply-to without access'
         status: 'novo',
       }),
     },
-    hbxPresentationEmails: {
-      sendPresentationToContact: async (input: any) => {
+    companyPresentationEmails: {
+      sendPresentationForCompany: async (_companyId: number, input: any) => {
         sentInput = input;
         return {
           ok: true,
@@ -2362,8 +2363,8 @@ test('sendPresentationEmailForUser uses tenant reply-to with access', async () =
         status: 'novo',
       }),
     },
-    hbxPresentationEmails: {
-      sendPresentationToContact: async (input: any) => {
+    companyPresentationEmails: {
+      sendPresentationForCompany: async (_companyId: number, input: any) => {
         sentInput = input;
         return {
           ok: true,

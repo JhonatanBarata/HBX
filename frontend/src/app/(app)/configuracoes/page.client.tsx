@@ -4,7 +4,15 @@
 // ligada nos contratos reais:
 //   - Perfil → GET /profile/current-user; salvar nome → PATCH /profile/display-name
 //   - Empresa → company do current-user (somente leitura; sem PATCH no contrato)
-//   - Equipe → GET /users/company (Admin; sem permissão mostra aviso)
+//   - Equipe → GET /users/company (Admin; sem permissão mostra aviso);
+//     Novo acesso → cadastro COMPLETO (components/hbx/novo-acesso-modal,
+//     PR12062026005): POST /users/company/create + onboarding de documentos/
+//     contrato do gerencial; aviso de assento via GET /users/company/seat-billing.
+//     Gerenciar → PATCH /users/:id/role e PATCH /users/:id/active
+//   - E-mail (Admin) → módulo de e-mail POR EMPRESA (PR12062026005,
+//     components/hbx/company-email-section): SMTP próprio, templates com "+",
+//     disparos manuais do cadastro. HBX admin compartilha só o transporte do
+//     Master (decidido no backend — nenhum endpoint master no front).
 //   - Plano e cobrança → GET /commercial-plans/me (ordem explícita do dono,
 //     11/06/2026): plano vigente, estado de acesso, trial, entitlements e
 //     catálogo real. PAGAMENTOS.md: vendedor NUNCA vê a seção (ocultada por
@@ -16,11 +24,14 @@
 
 import React, { useEffect, useState } from "react";
 
-import { Av, I, ICONS, Sidebar, Topbar } from "@/components/hbx/shell";
+import { CompanyEmailSection } from "@/components/hbx/company-email-section";
+import { GerenciarVendedorModal } from "@/components/hbx/gerenciar-vendedor-modal";
+import { NovoAcessoModal } from "@/components/hbx/novo-acesso-modal";
+import { Av, ConfirmDialog, I, ICONS, Sidebar, Topbar } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 
-const SECTIONS = ["Perfil", "Empresa", "Equipe", "Notificações", "Plano e cobrança"];
-const SEC_IC: Record<string, string> = { "Perfil": "users", "Empresa": "cnpj", "Equipe": "users", "Notificações": "bell", "Plano e cobrança": "money" };
+const SECTIONS = ["Perfil", "Empresa", "Equipe", "E-mail", "Notificações", "Plano e cobrança"];
+const SEC_IC: Record<string, string> = { "Perfil": "users", "Empresa": "cnpj", "Equipe": "users", "E-mail": "mail", "Notificações": "bell", "Plano e cobrança": "money" };
 
 const ROLE_LABEL: Record<string, string> = {
   ADMIN: "Administrador",
@@ -93,6 +104,20 @@ function roleLabel(role?: string | null) {
 
 export function ConfiguracoesClient() {
   const [sec, setSec] = useState("Perfil");
+
+  // aviso do sino → abre direto na seção (mesmo padrão do "+" → Novo lead)
+  useEffect(() => {
+    const t = setTimeout(() => {
+      try {
+        const dica = sessionStorage.getItem("hbx:config-sec");
+        if (dica && SECTIONS.includes(dica)) {
+          sessionStorage.removeItem("hbx:config-sec");
+          setSec(dica);
+        }
+      } catch { /* sem storage */ }
+    }, 0);
+    return () => clearTimeout(t);
+  }, []);
   const [n1, setN1] = useState(true);
   const [n2, setN2] = useState(true);
   const [n3, setN3] = useState(false);
@@ -105,6 +130,37 @@ export function ConfiguracoesClient() {
   const [team, setTeam] = useState<CompanyUser[]>([]);
   const [teamDenied, setTeamDenied] = useState(false);
   const [plansMe, setPlansMe] = useState<CommercialPlansMe>(null);
+
+  // Novo acesso (cadastro completo, PR12062026005) + gestão de membro.
+  // Gerenciar abre a tela do vendedor (gerenciar-vendedor-modal) com os
+  // documentos recebidos — ordem do dono 12/06: liberar é passo explícito.
+  const [novoAcessoOpen, setNovoAcessoOpen] = useState(false);
+  const [gerirMembro, setGerirMembro] = useState<CompanyUser | null>(null);
+  const [gerirBusy, setGerirBusy] = useState(false);
+  const [teamMsg, setTeamMsg] = useState<string | null>(null);
+  const [confirmExcluir, setConfirmExcluir] = useState<CompanyUser | null>(null);
+
+  function recarregarEquipe() {
+    return apiFetch<CompanyUser[]>("/users/company")
+      .then(res => setTeam(Array.isArray(res) ? res : []))
+      .catch(() => setTeamDenied(true));
+  }
+
+  async function excluirMembro(m: CompanyUser) {
+    if (gerirBusy) return;
+    setGerirBusy(true);
+    setTeamMsg(null);
+    try {
+      await apiFetch(`/users/${m.id}/delete`, { method: "DELETE" });
+      setTeamMsg("✓ Usuário excluído.");
+      setGerirMembro(null);
+      await recarregarEquipe();
+    } catch (err) {
+      setTeamMsg(err instanceof Error ? err.message : "Não foi possível excluir.");
+    } finally {
+      setGerirBusy(false);
+    }
+  }
 
   useEffect(() => {
     let alive = true;
@@ -145,7 +201,11 @@ export function ConfiguracoesClient() {
   const displayName = user?.name || user?.username || "—";
   // PAGAMENTOS.md: vendedor (role USER) nunca vê tela/valores de cobrança.
   const isSeller = user?.userKind === "seller";
-  const sections = SECTIONS.filter(s => s !== "Plano e cobrança" || (user != null && !isSeller));
+  // E-mail é seção do ADMIN (módulo por empresa, PR12062026005)
+  const isAdminUser = Boolean(user && (String(user.role || "").toUpperCase() === "ADMIN" || user.userKind === "system_master"));
+  const sections = SECTIONS
+    .filter(s => s !== "Plano e cobrança" || (user != null && !isSeller))
+    .filter(s => s !== "E-mail" || isAdminUser);
   const current = plansMe?.current;
   const planos = plansMe?.plans || [];
   const planoAtual = planos.find(p => p.key === current?.planKey) || null;
@@ -212,7 +272,15 @@ export function ConfiguracoesClient() {
 
             {sec === "Equipe" && (
               <section className="panel">
-                <div className="panel-head"><h2>Equipe</h2><div className="meta"><button className="btn-teal"><I d={ICONS.plus} size={13} /> Convidar membro</button></div></div>
+                <div className="panel-head">
+                  <h2>Equipe</h2>
+                  <div className="meta">
+                    <button className="btn-teal" onClick={() => setNovoAcessoOpen(true)} disabled={teamDenied}><I d={ICONS.plus} size={13} /> Novo acesso</button>
+                  </div>
+                </div>
+                {teamMsg && (
+                  <div style={{ padding: "10px 16px 0", fontSize: "0.72rem", fontWeight: 700, lineHeight: 1.5, color: teamMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{teamMsg}</div>
+                )}
                 <div className="tbl-wrap">
                   <table className="tbl">
                     <thead><tr><th>Membro</th><th>E-mail</th><th>Perfil de acesso</th><th></th></tr></thead>
@@ -233,12 +301,16 @@ export function ConfiguracoesClient() {
                       )}
                       {team.map(m => {
                         const nomeMembro = m.name || m.username || m.email || `Usuário ${m.id}`;
+                        const ehAdmin = String(m.role || "").toUpperCase() === "ADMIN";
                         return (
                           <tr key={m.id} style={{ cursor: "default" }}>
                             <td><div style={{ display: "flex", gap: 9, alignItems: "center" }}><Av name={nomeMembro} size={28} /><div><strong>{nomeMembro}</strong><div style={{ fontSize: "0.64rem", color: "var(--text-muted)" }}>{m.isActive === false ? "Inativo" : "Ativo"}</div></div></div></td>
                             <td>{m.email || "—"}</td>
-                            <td><span className={"tag" + (String(m.role || "").toUpperCase() === "ADMIN" ? " teal" : "")}>{roleLabel(m.role)}</span></td>
-                            <td><button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.68rem" }}>Gerenciar</button></td>
+                            <td><span className={"tag" + (ehAdmin ? " teal" : "")}>{roleLabel(m.role)}</span></td>
+                            <td>
+                              <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.68rem" }}
+                                onClick={() => { setGerirMembro(m); setTeamMsg(null); }}>Gerenciar</button>
+                            </td>
                           </tr>
                         );
                       })}
@@ -247,6 +319,8 @@ export function ConfiguracoesClient() {
                 </div>
               </section>
             )}
+
+            {sec === "E-mail" && isAdminUser && <CompanyEmailSection />}
 
             {sec === "Notificações" && (
               <section className="panel">
@@ -349,6 +423,35 @@ export function ConfiguracoesClient() {
           </div>
         </div>
       </div>
+
+      {novoAcessoOpen && (
+        <NovoAcessoModal
+          onClose={() => setNovoAcessoOpen(false)}
+          onDone={msg => { setTeamMsg(msg); recarregarEquipe(); }}
+          team={team}
+        />
+      )}
+
+      {gerirMembro && (
+        <GerenciarVendedorModal
+          member={gerirMembro}
+          isSelf={Boolean(user?.email && gerirMembro.email && user.email === gerirMembro.email)}
+          onClose={() => setGerirMembro(null)}
+          onChanged={msg => { setTeamMsg(msg); recarregarEquipe(); }}
+          onRequestExcluir={m => setConfirmExcluir(m)}
+        />
+      )}
+
+      <ConfirmDialog
+        open={!!confirmExcluir}
+        title="Excluir membro"
+        message={<>Excluir <strong>{confirmExcluir?.name || confirmExcluir?.email || "este usuário"}</strong> em definitivo? Esta ação não tem volta.</>}
+        confirmLabel="Excluir"
+        danger
+        busy={gerirBusy}
+        onConfirm={async () => { const m = confirmExcluir; setConfirmExcluir(null); if (m) await excluirMembro(m); }}
+        onCancel={() => setConfirmExcluir(null)}
+      />
     </div>
   );
 }

@@ -4,6 +4,10 @@ import { mkdir, readFile, unlink, writeFile } from 'fs/promises';
 import { extname, isAbsolute, join, relative, resolve, sep } from 'path';
 import PDFDocument from 'pdfkit';
 import { isTenantCompany } from '../common/company-kind';
+import { isHbxPlatformCompany } from '../common/hbx-platform-company';
+import { CompanyEmailSettingsService } from '../mail/company-email-settings.service';
+import { CompanyEmailTemplateService } from '../mail/company-email-template.service';
+import { COMPANY_EMAIL_NOT_CONFIGURED, CompanyMailerService } from '../mail/company-mailer.service';
 import { MailService, type MailAttachment } from '../mail/mail.service';
 import { EmailTemplateService } from '../mail/email-template.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -271,6 +275,9 @@ export class SellerOnboardingService {
     private readonly prisma: PrismaService,
     private readonly mailService: MailService,
     private readonly emailTemplates: EmailTemplateService,
+    private readonly companyMailer: CompanyMailerService,
+    private readonly companyEmailSettings: CompanyEmailSettingsService,
+    private readonly companyEmailTemplates: CompanyEmailTemplateService,
   ) {}
 
   private buildAppUrl() {
@@ -954,9 +961,8 @@ export class SellerOnboardingService {
     const kind = this.normalizeAttachmentKind(dto.kind);
     const originalFilename = normalizeText(file.originalname, 180) || `${kind}${extname(String(file.originalname || '')) || '.pdf'}`;
     const extension = extname(originalFilename).toLowerCase();
-    if (kind === 'contract_pdf' && extension !== '.pdf') {
-      throw new BadRequestException('Contrato assinado precisa ser PDF.');
-    }
+    // Ordem do dono (12/06/2026): contrato assinado aceita qualquer documento
+    // do conjunto permitido — sem trava especial de "só PDF".
     if (!['.pdf', '.jpg', '.jpeg', '.png'].includes(extension)) {
       throw new BadRequestException('Anexo precisa ser PDF, JPG ou PNG.');
     }
@@ -1100,8 +1106,21 @@ export class SellerOnboardingService {
       });
     }
 
-    const template = await this.emailTemplates.getTemplateSafe('seller_onboarding_request');
-    const rendered = this.emailTemplates.renderTemplate(template, {
+    // PR12062026005: o disparo sai pelo e-mail DA EMPRESA, com o template que
+    // ela escolheu em Configurações → E-mail (HBX: cópia semeada do kind).
+    const companySettings = await this.companyEmailSettings.getRaw(companyId);
+    const onboardingTemplateKind = String(companySettings?.onboardingTemplateKind || '').trim()
+      || (isHbxPlatformCompany(companyId) ? 'seller_onboarding_request' : '');
+    if (!onboardingTemplateKind) {
+      throw new BadRequestException('Escolha o template de onboarding (solicitar documentos) em Configurações → E-mail.');
+    }
+    let companyTemplateRow: { kind: string; label: string; subject: string; text: string; html: string | null };
+    try {
+      companyTemplateRow = await this.companyEmailTemplates.getSafe(companyId, onboardingTemplateKind);
+    } catch {
+      throw new BadRequestException(`Template de onboarding "${onboardingTemplateKind}" não existe mais — escolha outro em Configurações → E-mail.`);
+    }
+    const rendered = this.companyEmailTemplates.renderRow(companyTemplateRow, {
       nome: onboarding.legalName || onboarding.email,
       email: onboarding.email,
       vendedor: onboarding.legalName || onboarding.email,
@@ -1123,7 +1142,7 @@ export class SellerOnboardingService {
     });
     let result: Awaited<ReturnType<MailService['sendMail']>>;
     try {
-      result = await this.mailService.sendMail({
+      result = await this.companyMailer.sendForCompany(companyId, {
         to: onboarding.email,
         cc: normalizeText(onboarding.archiveEmail, 180) || undefined,
         subject: rendered.subject,
@@ -1141,6 +1160,13 @@ export class SellerOnboardingService {
         },
       });
       throw new BadRequestException(friendlyMailDeliveryError(mailError));
+    }
+    if (!result.ok && result.errorCode === COMPANY_EMAIL_NOT_CONFIGURED) {
+      await this.prisma.sellerOnboarding.update({
+        where: { id: onboarding.id },
+        data: { emailStatus: 'email_failed', emailMessageId: null, emailSentAt: null },
+      });
+      throw new BadRequestException(result.errorMessage || 'E-mail da empresa não configurado.');
     }
 
     const sentAt = result.ok ? new Date() : null;

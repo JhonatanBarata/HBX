@@ -164,6 +164,81 @@ export function VendasClient() {
   const [fecharBusy, setFecharBusy] = useState(false);
   const [fecharMsg, setFecharMsg] = useState<string | null>(null);
 
+  // quick actions reais do card (caminho da vendedora, 12/06/2026): marcar
+  // RESULTADO da ligação + observação (POST lead/:id/attempt grava a tentativa
+  // na timeline + contador; PATCH lead/:id {shortNote} deixa o resultado
+  // visível no card) e mover etapa/agendar retorno (PATCH lead/:id
+  // {status|returnAt}). Só endpoints existentes — sem mexer no backend.
+  const [acaoBusy, setAcaoBusy] = useState(false);
+  const [acaoMsg, setAcaoMsg] = useState<string | null>(null);
+  const [moverStatus, setMoverStatus] = useState("");
+  const [retornoData, setRetornoData] = useState("");
+  const [obs, setObs] = useState("");
+
+  async function registrarResultado(outcome: string) {
+    if (!sel?.id || acaoBusy) return;
+    setAcaoBusy(true);
+    setAcaoMsg(null);
+    const note = (obs.trim() ? `${outcome} · ${obs.trim()}` : outcome).slice(0, 280);
+    try {
+      // tentativa: incrementa contador + último contato + evento na timeline
+      await apiFetch(`/vendas/lead/${encodeURIComponent(sel.id)}/attempt`, {
+        method: "POST",
+        body: JSON.stringify({ channel: outcome }),
+      });
+      // resultado visível no card (a aside não mostra a timeline; shortNote sim)
+      await apiFetch(`/vendas/lead/${encodeURIComponent(sel.id)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ shortNote: note }),
+      });
+      setAcaoMsg(`✓ Resultado: ${outcome}.`);
+      setObs("");
+      await loadBoard();
+    } catch (err) {
+      setAcaoMsg(err instanceof Error ? err.message : "Falha ao registrar o resultado.");
+    } finally {
+      setAcaoBusy(false);
+    }
+  }
+
+  async function moverEtapa() {
+    if (!sel?.id || !moverStatus || acaoBusy) return;
+    setAcaoBusy(true);
+    setAcaoMsg(null);
+    try {
+      await apiFetch(`/vendas/lead/${encodeURIComponent(sel.id)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: moverStatus }),
+      });
+      setAcaoMsg("✓ Etapa atualizada.");
+      setMoverStatus("");
+      await loadBoard();
+    } catch (err) {
+      setAcaoMsg(err instanceof Error ? err.message : "Falha ao mover a etapa.");
+    } finally {
+      setAcaoBusy(false);
+    }
+  }
+
+  async function agendarRetorno() {
+    if (!sel?.id || !retornoData || acaoBusy) return;
+    setAcaoBusy(true);
+    setAcaoMsg(null);
+    try {
+      await apiFetch(`/vendas/lead/${encodeURIComponent(sel.id)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ returnAt: new Date(`${retornoData}T09:00:00`).toISOString() }),
+      });
+      setAcaoMsg("✓ Retorno agendado.");
+      setRetornoData("");
+      await loadBoard();
+    } catch (err) {
+      setAcaoMsg(err instanceof Error ? err.message : "Falha ao agendar o retorno.");
+    } finally {
+      setAcaoBusy(false);
+    }
+  }
+
   function precoDoProduto(p?: Produto | null) {
     if (!p) return null;
     if (p.priceCents != null && Number.isFinite(p.priceCents)) return p.priceCents / 100;
@@ -487,7 +562,16 @@ export function VendasClient() {
             <h3>Detalhes do negócio <span className="x">✕</span></h3>
             <div>
               <div className="company">{deal?.name || "Selecione um card"}</div>
-              <div className="sub">{deal?.segment || deal?.city || "—"}{deal?.phone ? <React.Fragment> · {deal.phone}</React.Fragment> : null}</div>
+              <div className="sub">{deal?.segment || deal?.city || "—"}</div>
+              {/* telefone na cara (caminho da vendedora): número grande e clicável */}
+              {deal?.phone ? (
+                <a href={`tel:${deal.phone.replace(/[^\d+]/g, "")}`}
+                  style={{ marginTop: 10, display: "inline-flex", alignItems: "center", gap: 8, padding: "9px 13px", borderRadius: "var(--radius-md)", border: "1px solid var(--hbx-brand)", background: "var(--hbx-surface-soft)", color: "var(--hbx-brand-strong)", fontFamily: "var(--font-mono)", fontSize: "0.96rem", fontWeight: 800, letterSpacing: "0.02em", textDecoration: "none" }}>
+                  <I d={ICONS.phone} size={16} /> {deal.phone}
+                </a>
+              ) : deal ? (
+                <div style={{ marginTop: 10, fontSize: "0.72rem", color: "var(--text-muted)" }}>Sem telefone neste card.</div>
+              ) : null}
               <div style={{ marginTop: 8 }}><span className="tag">{deal?.statusLabel || "—"}</span></div>
             </div>
             <div className="kv">
@@ -513,6 +597,43 @@ export function VendasClient() {
               <button className="btn-teal" onClick={abrirFechar} disabled={!deal || deal.block === "closed"}>
                 <I d={ICONS.check} size={14} /> {deal?.block === "closed" ? "Card já fechado" : "Fechar venda"}
               </button>
+              {acaoMsg && (
+                <div style={{ fontSize: "0.72rem", fontWeight: 700, color: acaoMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{acaoMsg}</div>
+              )}
+              <div style={{ display: "grid", gap: 6 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>
+                  <I d={ICONS.phone} size={13} /> Resultado da ligação
+                </label>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                  {["Atendeu", "Não atendeu", "Caixa postal", "Sem interesse"].map(o => (
+                    <button key={o} className="btn-ghost" style={{ minHeight: 34, fontSize: "0.72rem" }}
+                      onClick={() => registrarResultado(o)} disabled={!deal || acaoBusy || deal.block === "closed"}>
+                      {o}
+                    </button>
+                  ))}
+                </div>
+                <textarea className="field-dark" rows={2} maxLength={240}
+                  placeholder="Observação da ligação (opcional) — vai pro card"
+                  value={obs} onChange={e => setObs(e.target.value)} disabled={!deal || deal.block === "closed"}
+                  style={{ resize: "vertical", fontFamily: "var(--font-body)" }} />
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8 }}>
+                <select className="field-dark" style={{ minHeight: 36 }} value={moverStatus} disabled={!deal || deal.block === "closed"}
+                  onChange={e => setMoverStatus(e.target.value)} aria-label="Mover para etapa">
+                  <option value="">Mover etapa…</option>
+                  <option value="novo">Novo</option>
+                  <option value="contato">Contato</option>
+                  <option value="retorno">Retorno</option>
+                  <option value="qualificado">Qualificado</option>
+                  <option value="encerrado">Encerrado</option>
+                </select>
+                <button className="btn-ghost" onClick={moverEtapa} disabled={!deal || !moverStatus || acaoBusy}>Mover</button>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8 }}>
+                <input className="field-dark" type="date" style={{ minHeight: 36 }} value={retornoData} disabled={!deal || deal.block === "closed"}
+                  onChange={e => setRetornoData(e.target.value)} aria-label="Data do retorno" />
+                <button className="btn-ghost" onClick={agendarRetorno} disabled={!deal || !retornoData || acaoBusy}>Agendar</button>
+              </div>
               {cadMsg && (
                 <div style={{ fontSize: "0.72rem", fontWeight: 700, color: cadMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{cadMsg}</div>
               )}

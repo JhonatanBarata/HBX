@@ -7,12 +7,16 @@ import { Admin } from '../auth/admin.decorator';
 import { MasterGuard } from '../auth/guards/master.guard';
 import { Throttle } from '@nestjs/throttler';
 import { Type } from 'class-transformer';
-import { IsBoolean, IsEmail, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, Min, MinLength } from 'class-validator';
+import { IsBoolean, IsEmail, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
 import * as bcrypt from 'bcryptjs';
 import { assertPasswordPolicy } from '../auth/password-policy';
+import { isHbxPlatformCompany } from '../common/hbx-platform-company';
 import { MasterContextService } from '../master-context/master-context.service';
 import { ModuleAccessGuard } from '../modules/module-access.guard';
 import { ModuleAccess } from '../modules/module-feature.decorator';
+import { CompanyEmailSettingsService } from '../mail/company-email-settings.service';
+import { CompanyEmailTemplateService } from '../mail/company-email-template.service';
+import { CompanyMailerService } from '../mail/company-mailer.service';
 import { EmailTemplateService } from '../mail/email-template.service';
 import {
 	BUSINESS_CARD_CID,
@@ -105,6 +109,14 @@ class CreateCompanyUserDto {
 	@IsString()
 	@IsIn(['USER', 'ADMIN'])
 	role?: 'USER' | 'ADMIN';
+
+	// PR12062026005: senha opcional definida pelo admin no cadastro completo —
+	// cobre empresa sem e-mail configurado (troca obrigatória no 1º login).
+	@IsOptional()
+	@IsString()
+	@MinLength(8)
+	@MaxLength(120)
+	password?: string;
 }
 
 class ToggleActiveDto {
@@ -387,6 +399,9 @@ export class UsersController {
 		private readonly hbxPresentationEmails: HbxPresentationEmailService,
 		private readonly sellerOnboardingService: SellerOnboardingService,
 		private readonly hbxPartnerReferrals: HbxPartnerReferralService,
+		private readonly companyMailer: CompanyMailerService,
+		private readonly companyEmailSettings: CompanyEmailSettingsService,
+		private readonly companyEmailTemplates: CompanyEmailTemplateService,
 	) {}
 
 	private buildAppUrl() {
@@ -507,25 +522,62 @@ export class UsersController {
 			);
 			return null;
 		}
-		const summary = this.mailService.getConfigurationSummary();
-		if (summary.mode === 'log') {
+		// PR12062026005: boas-vindas sai pelo E-MAIL DA EMPRESA (template
+		// escolhido em Configurações → E-mail) — ninguém usa o SMTP do Master;
+		// a empresa HBX compartilha só o transporte, dentro do CompanyMailer.
+		const companyId = Math.trunc(Number(input.companyId || 0));
+		if (!companyId) {
 			return {
 				ok: false,
-				transport: 'log',
+				transport: 'smtp',
 				messageId: null,
-				errorCode: 'WELCOME_EMAIL_PROVIDER_NOT_CONFIGURED',
-				errorMessage: 'Provedor transacional não configurado. E-mail de boas-vindas não enviado.',
+				errorCode: 'WELCOME_EMAIL_COMPANY_MISSING',
+				errorMessage: 'Empresa do usuário não identificada para o envio de boas-vindas.',
+			};
+		}
+		const settings = await this.companyEmailSettings.getRaw(companyId);
+		const templateKind = String(settings?.welcomeTemplateKind || '').trim()
+			|| (isHbxPlatformCompany(companyId) ? 'seller_welcome' : '');
+		if (!templateKind) {
+			return {
+				ok: false,
+				transport: 'smtp',
+				messageId: null,
+				errorCode: 'WELCOME_TEMPLATE_NOT_CONFIGURED',
+				errorMessage: 'Escolha o template de boas-vindas em Configurações → E-mail.',
+			};
+		}
+		let templateRow: { kind: string; label: string; subject: string; text: string; html: string | null };
+		try {
+			templateRow = await this.companyEmailTemplates.getSafe(companyId, templateKind);
+		} catch {
+			return {
+				ok: false,
+				transport: 'smtp',
+				messageId: null,
+				errorCode: 'WELCOME_TEMPLATE_NOT_FOUND',
+				errorMessage: `Template de boas-vindas "${templateKind}" não existe mais — escolha outro em Configurações → E-mail.`,
+			};
+		}
+		try {
+			// boas-vindas precisa entregar credenciais: exige {acesso} e {senha}
+			this.emailTemplates.validateTemplateInput('seller_welcome', templateRow.subject, templateRow.text);
+		} catch (error) {
+			return {
+				ok: false,
+				transport: 'smtp',
+				messageId: null,
+				errorCode: 'WELCOME_TEMPLATE_INVALID',
+				errorMessage: `Template de boas-vindas inválido: ${error instanceof Error ? error.message : error}`,
 			};
 		}
 		const displayName = String(input.name || login).trim();
 		const appUrl = this.buildAppUrl();
 		const dueBusinessDays = await this.usersService.getCompanyCommissionDueBusinessDays(input.companyId);
 		const inheritancePercent = Number(input.referredByCommissionPercentSnapshot ?? input.sellerReferralCommissionPercent ?? 0) || 0;
-		const template = await this.emailTemplates.getTemplateSafe('seller_welcome');
-		const businessCardFile = await this.hbxPresentationEmails.readBusinessCardContent();
-		const businessCardMeta = businessCardFile?.meta || null;
-		const hasBusinessCard = Boolean(businessCardFile && businessCardMeta);
-		const rendered = this.emailTemplates.renderTemplate(template, {
+		const businessCardFile = await this.companyEmailSettings.readAssetContent(companyId, 'business_card');
+		const hasBusinessCard = Boolean(businessCardFile);
+		const rendered = this.companyEmailTemplates.renderRow(templateRow, {
 			nome: displayName,
 			email,
 			tipoAcesso: this.roleWelcomeLabel(input.role),
@@ -545,16 +597,16 @@ export class UsersController {
 			appendHtml: hasBusinessCard ? this.hbxPresentationEmails.buildBusinessCardHtml() : null,
 		});
 		const attachments: MailAttachment[] = [];
-		if (businessCardFile && businessCardMeta && hasBusinessCard) {
+		if (businessCardFile) {
 			attachments.push({
-				filename: businessCardMeta.originalName || 'cartao-visitas.png',
+				filename: businessCardFile.meta.originalName || 'cartao-visitas.png',
 				content: businessCardFile.content,
-				contentType: businessCardFile.contentType || businessCardMeta.mimeType || 'image/png',
+				contentType: businessCardFile.contentType || businessCardFile.meta.mimeType || 'image/png',
 				cid: BUSINESS_CARD_CID,
 			});
 		}
 		try {
-			const result = await this.mailService.sendMail({
+			const result = await this.companyMailer.sendForCompany(companyId, {
 				to: email,
 				subject: rendered.subject,
 				text: rendered.text,
@@ -569,10 +621,10 @@ export class UsersController {
 				errorMessage: result.errorMessage,
 			};
 		} catch (error) {
-			this.logger.warn(`Falha ao enviar boas-vindas HBX para user ${login} (${input.source}): ${error instanceof Error ? error.message : error}`);
+			this.logger.warn(`Falha ao enviar boas-vindas para user ${login} (${input.source}): ${error instanceof Error ? error.message : error}`);
 			return {
 				ok: false,
-				transport: this.mailService.getConfigurationSummary().mode,
+				transport: 'smtp',
 				messageId: null,
 				errorCode: 'WELCOME_EMAIL_FAILED',
 				errorMessage: error instanceof Error ? error.message : String(error),
@@ -947,16 +999,23 @@ export class UsersController {
 				referredByCommissionPercentSnapshot: updated.referredByCommissionPercentSnapshot,
 			});
 		}
+		// PR12062026005: se o e-mail da empresa não enviou as boas-vindas, a
+		// senha temporária volta na resposta para o admin entregar na mão —
+		// sem isso a credencial se perderia.
+		const welcomeFailed = isSellerOnboardingActivation && Boolean(finalTemporaryPassword) && !welcomeEmail?.ok;
 		return {
 			id: updated.id,
 			isActive: updated.isActive,
 			deactivatedAt: updated.deactivatedAt,
 			retentionUntil: updated.retentionUntil,
 			message: isSellerOnboardingActivation
-				? 'Vendedor liberado e e-mail de boas-vindas enviado.'
+				? (welcomeEmail?.ok
+					? 'Vendedor liberado e e-mail de boas-vindas enviado.'
+					: 'Vendedor liberado — o e-mail de boas-vindas NÃO saiu; entregue a senha temporária abaixo.')
 				: 'Usuário reativado com sucesso',
 			welcomeEmail,
 			confirmationEmail,
+			...(welcomeFailed ? { temporaryPassword: finalTemporaryPassword } : {}),
 		};
 	}
 
@@ -1046,8 +1105,12 @@ export class UsersController {
 					normalizeNullableText(dto.cpf) ||
 					normalizeNullableText(dto.declaredAddress)),
 		);
-		// Convite por link (PR-002 C.3): usuario nasce SEM senha; o proprio
-		// convidado define a senha pelo link (e isso confirma o e-mail).
+		// PR12062026005: senha opcional definida pelo admin (cadastro completo).
+		// Com senha → acesso imediato com troca obrigatória no 1º login.
+		// Sem senha → usuária nasce sem acesso até a liberação/boas-vindas.
+		const requestedPassword = String(dto.password || '').trim();
+		if (requestedPassword) assertPasswordPolicy(requestedPassword);
+		const hashedPassword = requestedPassword ? await bcrypt.hash(requestedPassword, 10) : '';
 		const created = await this.usersService.create({
 			email,
 			username: email,
@@ -1055,7 +1118,8 @@ export class UsersController {
 			phone,
 			commissionPercent,
 			...sellerNetworkData,
-			password: '',
+			password: hashedPassword,
+			...(requestedPassword ? { mustChangePassword: true } : {}),
 			companyId,
 			role,
 			...((role === 'USER' || role === 'ADMIN') && sellerOptionsEnabled && dto.sellerDistributionDailyLimitOverride !== undefined
@@ -1089,14 +1153,11 @@ export class UsersController {
 					reviewedByUserId: createdByUserId,
 				});
 			}
-		} else {
-			invite = await this.sendSetPasswordInviteEmail({
-				userId: created.id,
-				email,
-				name: attendantName || created.name,
-				role,
-			});
 		}
+		// PR12062026005: sem convite automático pelo SMTP da plataforma —
+		// disparo de e-mail é manual e sai pelo e-mail DA EMPRESA (boas-vindas
+		// na liberação). Sem e-mail configurado, o caminho é a senha definida
+		// no próprio cadastro. (invite mantém o shape para o front: null.)
 
 		return {
 			user: {

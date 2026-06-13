@@ -461,7 +461,7 @@ export class RadarCoreDistributionMixin {
 
   async getRadarAutoDistributionRuleForUser(user: any) {
     if (!this.canUseWebscrapingRole(user)) {
-      throw new ForbiddenException('Apenas ADMIN pode configurar distribuiÃ§Ã£o automÃ¡tica do Radar.');
+      throw new ForbiddenException('Apenas ADMIN pode configurar distribuição automática do Radar.');
     }
     const context = this.resolveContext(user);
     const [rule, activeSellers] = await Promise.all([
@@ -501,7 +501,7 @@ export class RadarCoreDistributionMixin {
     territories?: Array<{ userId?: number; cities?: Array<{ city?: string; state?: string }> }>;
   } = {}) {
     if (!this.canUseWebscrapingRole(user)) {
-      throw new ForbiddenException('Apenas ADMIN pode configurar distribuiÃ§Ã£o automÃ¡tica do Radar.');
+      throw new ForbiddenException('Apenas ADMIN pode configurar distribuição automática do Radar.');
     }
     const context = this.resolveContext(user);
     const existing = await this.prisma.radarAutoDistributionRule.findUnique({
@@ -556,13 +556,13 @@ export class RadarCoreDistributionMixin {
       this.listActiveDistributionSellers(context.companyId),
     ]);
     if (targetUserIds.length && selectedSellers.length !== targetUserIds.length) {
-      throw new BadRequestException('Um ou mais vendedores selecionados estÃ£o inativos ou nÃ£o pertencem a esta empresa.');
+      throw new BadRequestException('Um ou mais vendedores selecionados estão inativos ou não pertencem a esta empresa.');
     }
     if (status === 'active' && !includeAdmin && activeSellers.length === 0) {
       throw new BadRequestException('Cadastre pelo menos um vendedor ativo ou inclua o Admin no recebimento.');
     }
     if (status === 'active' && (!preferredState || !preferredCity || !segment)) {
-      throw new BadRequestException('Escolha estado, cidade e segmento antes de ativar a distribuiÃ§Ã£o automÃ¡tica.');
+      throw new BadRequestException('Escolha estado, cidade e segmento antes de ativar a distribuição automática.');
     }
     const activeSellerIds = new Set(activeSellers.map((seller) => Number(seller.id || 0)));
     const sourceTerritories = Array.isArray(input.territories)
@@ -578,7 +578,7 @@ export class RadarCoreDistributionMixin {
         territory.cities.some((city) => `${normalizeLookupValue(city.city)}:${String(city.state || '').trim().toUpperCase()}` === selectedCityKey),
       );
       if (!hasSellerCoveringSelectedCity) {
-        throw new BadRequestException('Nenhum vendedor cobre a cidade escolhida. Ajuste o territÃ³rio ou inclua o Admin no recebimento.');
+        throw new BadRequestException('Nenhum vendedor cobre a cidade escolhida. Ajuste o território ou inclua o Admin no recebimento.');
       }
     }
 
@@ -590,8 +590,8 @@ export class RadarCoreDistributionMixin {
       radiusKm,
       territoryMode: normalizedTerritories.length ? 'fixed_cities' : 'open',
       rule: normalizedTerritories.length
-        ? 'Vendedor sÃ³ recebe se a cidade da regra estiver no territÃ³rio dele.'
-        : 'Sem territÃ³rio fixo: todos os vendedores ativos entram no rodÃ­zio.',
+        ? 'Vendedor só recebe se a cidade da regra estiver no território dele.'
+        : 'Sem território fixo: todos os vendedores ativos entram no rodízio.',
       territories: normalizedTerritories,
     });
     const now = new Date();
@@ -628,8 +628,8 @@ export class RadarCoreDistributionMixin {
     return {
       ok: true,
       message: status === 'active'
-        ? 'DistribuiÃ§Ã£o automÃ¡tica ativada. O robÃ´ vai manter os estoques configurados.'
-        : 'ConfiguraÃ§Ã£o de distribuiÃ§Ã£o automÃ¡tica salva.',
+        ? 'Distribuição automática ativada. O robô vai manter os estoques configurados.'
+        : 'Configuração de distribuição automática salva.',
       activeSellerCount: activeSellers.length,
       rule: this.radarAutoDistributionPayload(rule, activeSellers),
     };
@@ -726,12 +726,12 @@ export class RadarCoreDistributionMixin {
     const context = this.resolveContext(user);
     const status = this.normalizeRadarAutoDistributionStatus(rule?.status);
     if (status !== 'active') {
-      throw new BadRequestException('DistribuiÃ§Ã£o automÃ¡tica precisa estar ativa.');
+      throw new BadRequestException('Distribuição automática precisa estar ativa.');
     }
     const filtersInput = this.buildRadarAutoDistributionFilterInput(rule, 1);
     const normalizedFilters = this.normalizeRadarFilters(filtersInput);
     if (!normalizedFilters.normalizedCity || !normalizedFilters.normalizedSegment) {
-      throw new BadRequestException('DistribuiÃ§Ã£o automÃ¡tica sem cidade ou segmento configurado.');
+      throw new BadRequestException('Distribuição automática sem cidade ou segmento configurado.');
     }
 
     const selectedTargetIds = this.parseRadarAutoDistributionTargetIds(rule?.targetUserIdsJson);
@@ -795,9 +795,9 @@ export class RadarCoreDistributionMixin {
       ));
       const territoryReason = territoryModeFixed
         ? !territoryCities.length
-          ? 'Sem territÃ³rio configurado'
+          ? 'Sem território configurado'
           : !territoryMatches
-            ? 'Fora do territÃ³rio desta cidade'
+            ? 'Fora do território desta cidade'
             : null
         : null;
       recipients.push({
@@ -817,7 +817,7 @@ export class RadarCoreDistributionMixin {
       });
     }
     if (!recipients.length) {
-      throw new BadRequestException('Nenhum destino ativo para distribuiÃ§Ã£o automÃ¡tica.');
+      throw new BadRequestException('Nenhum destino ativo para distribuição automática.');
     }
 
     const currentStocks = await Promise.all(
@@ -842,7 +842,7 @@ export class RadarCoreDistributionMixin {
       const blockedByReason = Boolean(recipient.noDeliveryReason);
       recipient.needed = blockedByReason ? 0 : Math.min(stockNeed, recipient.dailyRemaining, activeRemaining);
       if (!blockedByReason && stockNeed > 0 && recipient.dailyRemaining <= 0) {
-        recipient.noDeliveryReason = 'Limite diÃ¡rio atingido';
+        recipient.noDeliveryReason = 'Limite diário atingido';
         void this.recordDailyDistributionSkip(context.companyId, recipient.assignedUserId, recipient.dailyLimit, 'limite_diario_atingido', dayKey);
       } else if (!blockedByReason && stockNeed > 0 && activeQuota?.seller && activeRemaining <= 0) {
         recipient.noDeliveryReason = 'Limite de cards ativos atingido';
@@ -948,17 +948,17 @@ export class RadarCoreDistributionMixin {
     const dailyBlockedCount = recipients.filter((recipient) => recipient.noDeliveryReason).length;
     const message = deliveredCount > 0
       ? blockedByLimit
-        ? `${deliveredCount} card(s) distribuÃ­dos. Parei porque o limite do plano foi atingido.`
+        ? `${deliveredCount} card(s) distribuídos. Parei porque o limite do plano foi atingido.`
         : shortageCount > 0
-          ? `${deliveredCount} card(s) distribuÃ­dos. Ainda faltam ${shortageCount} para completar todos os estoques.`
-          : `${deliveredCount} card(s) distribuÃ­dos automaticamente.`
+          ? `${deliveredCount} card(s) distribuídos. Ainda faltam ${shortageCount} para completar todos os estoques.`
+          : `${deliveredCount} card(s) distribuídos automaticamente.`
       : totalNeeded <= 0
         ? dailyBlockedCount > 0
-          ? 'DistribuiÃ§Ã£o sem entrega: vendedor(es) bloqueados por limite diÃ¡rio ou territÃ³rio.'
-          : 'Todos os vendedores jÃ¡ estÃ£o no estoque configurado.'
+          ? 'Distribuição sem entrega: vendedor(es) bloqueados por limite diário ou território.'
+          : 'Todos os vendedores já estão no estoque configurado.'
         : blockedByLimit
-          ? 'DistribuiÃ§Ã£o automÃ¡tica pausada pelo limite do plano.'
-          : 'Sem cards disponÃ­veis agora para essa regra. O robÃ´ tentarÃ¡ novamente.';
+          ? 'Distribuição automática pausada pelo limite do plano.'
+          : 'Sem cards disponíveis agora para essa regra. O robô tentará novamente.';
 
     return {
       ok: true,
@@ -993,13 +993,13 @@ export class RadarCoreDistributionMixin {
 
   async runRadarAutoDistributionForUser(user: any, input: { limit?: number } = {}) {
     if (!this.canUseWebscrapingRole(user)) {
-      throw new ForbiddenException('Apenas ADMIN pode executar distribuiÃ§Ã£o automÃ¡tica do Radar.');
+      throw new ForbiddenException('Apenas ADMIN pode executar distribuição automática do Radar.');
     }
     const context = this.resolveContext(user);
     const rule = await this.prisma.radarAutoDistributionRule.findUnique({
       where: { companyId_scope: { companyId: context.companyId, scope: 'company' } },
     });
-    if (!rule) throw new BadRequestException('Configure a distribuiÃ§Ã£o automÃ¡tica antes de executar.');
+    if (!rule) throw new BadRequestException('Configure a distribuição automática antes de executar.');
     return this.executeRadarAutoDistributionRule(user, rule, {
       limit: input?.limit,
       triggeredBy: 'manual',
@@ -1427,7 +1427,7 @@ export class RadarCoreDistributionMixin {
       const activeRemaining = (activeQuota as any)?.seller ? Math.max(0, Math.trunc(Number((activeQuota as any).availableSlots || 0))) : stockRemaining;
       const remaining = Math.min(stockRemaining, dailyRemaining, activeRemaining);
       const noDeliveryReason = stockRemaining > 0 && dailyRemaining <= 0
-        ? 'Limite diÃ¡rio atingido'
+        ? 'Limite diário atingido'
         : stockRemaining > 0 && (activeQuota as any)?.seller && activeRemaining <= 0
           ? 'Limite de cards ativos atingido'
           : null;
@@ -1550,13 +1550,13 @@ export class RadarCoreDistributionMixin {
     const dailyBlockedCount = recipients.filter((recipient) => recipient.noDeliveryReason).length;
     const message = deliveredCount > 0
       ? shortageCount > 0
-        ? `${deliveredCount} card(s) distribuÃ­dos. Ainda faltam ${shortageCount} para completar os estoques.`
-        : `${deliveredCount} card(s) distribuÃ­dos por cidade fixa.`
+        ? `${deliveredCount} card(s) distribuídos. Ainda faltam ${shortageCount} para completar os estoques.`
+        : `${deliveredCount} card(s) distribuídos por cidade fixa.`
       : totalNeeded <= 0
         ? dailyBlockedCount > 0
-          ? 'DistribuiÃ§Ã£o nÃ£o acumulativa: vendedor(es) jÃ¡ atingiram o limite diÃ¡rio.'
-          : 'Todos os vendedores jÃ¡ estÃ£o no estoque configurado.'
-        : 'Sem cards disponÃ­veis nas cidades fixas agora. A fÃ¡brica pode abastecer o banco e o robÃ´ tenta novamente.';
+          ? 'Distribuição não acumulativa: vendedor(es) já atingiram o limite diário.'
+          : 'Todos os vendedores já estão no estoque configurado.'
+        : 'Sem cards disponíveis nas cidades fixas agora. A fábrica pode abastecer o banco e o robô tenta novamente.';
 
     return {
       ok: true,
@@ -1658,7 +1658,7 @@ export class RadarCoreDistributionMixin {
         dailyLimit: sellerDailyLimit,
         deliveredToday,
         dailyRemaining,
-        noDeliveryReason: remainingStock > 0 && dailyRemaining <= 0 ? 'Limite diÃ¡rio atingido' : null,
+        noDeliveryReason: remainingStock > 0 && dailyRemaining <= 0 ? 'Limite diário atingido' : null,
         distributionStatus: !isMapped ? 'unmapped' : remainingStock > 0 ? 'needs_cards' : 'full',
       };
     });
@@ -1926,7 +1926,7 @@ export class RadarCoreDistributionMixin {
           sourceEngine: 'vendas_automation',
           sourceEngines: JSON.stringify(['vendas_automation']),
           opportunityScore: 0,
-          opportunityReason: 'Criado para proteger histÃ³rico operacional de Vendas.',
+          opportunityReason: 'Criado para proteger histórico operacional de Vendas.',
           status: 'clean',
           firstSeenAt: now,
           lastSeenAt: now,
@@ -1938,13 +1938,13 @@ export class RadarCoreDistributionMixin {
       return this.markRadarLeadPositiveDispositionForUser(user, row.id, {
         status: dispositionStatus,
         reason: input.reason || input.status,
-        privateNotes: input.source || 'Vendas AutomaÃ§Ã£o',
+        privateNotes: input.source || 'Vendas Automação',
       });
     }
     return this.markRadarLeadNegativeForUser(user, row.id, {
       status: input.status,
       reason: input.reason || input.status,
-      privateNotes: input.source || 'Vendas AutomaÃ§Ã£o',
+      privateNotes: input.source || 'Vendas Automação',
     });
   }
 
@@ -2037,7 +2037,7 @@ export class RadarCoreDistributionMixin {
     const ownershipEnabled = await this.supportsRadarOwnershipPersistence();
     const ownerCompanyId = Math.trunc(Number(row?.ownerCompanyId || 0)) || 0;
     if (ownershipEnabled && ownerCompanyId && ownerCompanyId !== context.companyId) {
-      throw new ForbiddenException('Este card jÃ¡ estÃ¡ na carteira de outra empresa.');
+      throw new ForbiddenException('Este card já está na carteira de outra empresa.');
     }
     const normalizedStatus = String(input.status || '').trim().toLowerCase();
     const status: RadarLeadStatus =
@@ -2051,7 +2051,7 @@ export class RadarCoreDistributionMixin {
         ? 'discarded'
         : normalizedStatus === 'blocked' || normalizedStatus === 'bloqueado'
           ? 'blocked'
-          : normalizedStatus === 'opt_out' || normalizedStatus === 'optout' || normalizedStatus === 'do_not_contact' || normalizedStatus === 'nao_quer_contato' || normalizedStatus === 'nÃ£o_quer_contato'
+          : normalizedStatus === 'opt_out' || normalizedStatus === 'optout' || normalizedStatus === 'do_not_contact' || normalizedStatus === 'nao_quer_contato' || normalizedStatus === 'não_quer_contato'
             ? 'opt_out'
             : normalizedStatus === 'no_whatsapp'
               ? 'no_whatsapp'

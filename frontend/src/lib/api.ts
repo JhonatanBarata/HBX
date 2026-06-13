@@ -47,7 +47,8 @@ export function clearToken() {
 
 export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
-  if (init.body && !headers.has("Content-Type")) {
+  // FormData define o próprio Content-Type (boundary do multipart)
+  if (init.body && !(init.body instanceof FormData) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
   const token = getToken();
@@ -67,6 +68,19 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
   }
 
   if (!res.ok) {
+    // Sessão expirada/derrubada (login único): limpa o cliente e volta ao
+    // /login com aviso — sem isso a tela morria em "Carregando…" quando
+    // outra máquina assumia a sessão (relato do dono, 12/06/2026).
+    if (
+      res.status === 401 &&
+      !path.startsWith("/auth/login") &&
+      typeof window !== "undefined" &&
+      window.location.pathname !== "/login"
+    ) {
+      try { sessionStorage.setItem("hbx:session-notice", "expired"); } catch { /* sem storage */ }
+      clearToken();
+      window.location.replace("/login");
+    }
     const payload = (data ?? {}) as { message?: string | string[]; error?: string };
     const rawMessage = Array.isArray(payload.message) ? payload.message[0] : payload.message;
     const err = new Error(rawMessage || payload.error || `Erro ${res.status}`) as ApiError;

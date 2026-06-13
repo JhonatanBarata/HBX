@@ -13,6 +13,13 @@ redesenhar, não reaproveitar tela velha, não omitir elemento do template. Se u
 elemento do template não tem endpoint, ele fica visual como no template — registrar no
 doc do PR, nunca decidir sozinho remover.
 
+**TEMA É SÓ PELE (bloqueio absoluto, 12/06/2026):** tema muda só visual — fontes,
+cores, janelas, transições — via tokens. Tema NUNCA muda escrita, estrutura, menu ou
+navegação. Uma funcionalidade = UMA tela, UM DOM, UMA escrita; os temas vestem essa
+tela. Proibido tela/componente/app paralelo por tema. Tarefa que faria uma tela ficar
+diferente da outra entre temas = **PARAR e avisar o dono antes de editar** — só executa
+com autorização explícita dele (ou se ele deletar a REGRA DURA do FRONTEND.md).
+
 ## Mapa de domínios → `docs/Rules/`
 
 | Vai alterar | Leia |

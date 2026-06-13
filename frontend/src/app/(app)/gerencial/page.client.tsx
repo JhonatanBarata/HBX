@@ -115,6 +115,23 @@ export function GerencialClient() {
   const isAdmin = Boolean(user && (String(user.role || "").toUpperCase() === "ADMIN" || user.isSystemMaster));
 
   const [aba, setAba] = useState(0);
+
+  // aviso do sino → abre direto na aba (mesmo padrão do "+" → Novo lead);
+  // a dica vem por NOME da aba (ex.: "Candidaturas", "Comissões")
+  useEffect(() => {
+    const t = setTimeout(() => {
+      try {
+        const dica = sessionStorage.getItem("hbx:gerencial-aba");
+        if (dica) {
+          sessionStorage.removeItem("hbx:gerencial-aba");
+          const idx = ABAS.indexOf(dica);
+          if (idx >= 0) setAba(idx);
+        }
+      } catch { /* sem storage */ }
+    }, 0);
+    return () => clearTimeout(t);
+  }, []);
+
   const [produtos, setProdutos] = useState<Produto[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);

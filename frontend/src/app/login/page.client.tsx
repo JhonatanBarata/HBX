@@ -8,7 +8,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { AuthThemeControls } from "@/components/hbx/auth-theme-controls";
 import { apiFetch, setToken, type ApiError } from "@/lib/api";
@@ -34,11 +34,28 @@ export function LoginClient() {
   const [ok, setOk] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
+  // aviso de sessão derrubada/expirada (gravado pelo apiFetch no 401)
+  const [notice, setNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    Promise.resolve().then(() => {
+      if (!alive) return;
+      try {
+        if (sessionStorage.getItem("hbx:session-notice") === "expired") {
+          sessionStorage.removeItem("hbx:session-notice");
+          setNotice("Sua sessão expirou ou foi conectada em outro dispositivo. Entre novamente.");
+        }
+      } catch { /* sem storage */ }
+    });
+    return () => { alive = false; };
+  }, []);
 
   async function doLogin(force: boolean) {
     if (busy) return;
     setBusy(true);
     setError(null);
+    setNotice(null);
     try {
       const res = await apiFetch<LoginResponse>("/auth/login", {
         method: "POST",
@@ -112,6 +129,11 @@ export function LoginClient() {
               <label><input type="checkbox" defaultChecked />Manter conectado</label>
               <Link href="/reset-password" className="link" style={{ textDecoration: "none" }}>Esqueci minha senha</Link>
             </div>
+            {notice && !error && !ok && (
+              <div className="ok show" style={{ borderColor: "rgba(245,178,60,0.35)", background: "rgba(245,178,60,0.08)", color: "var(--hbx-warning)" }}>
+                {notice}
+              </div>
+            )}
             <div className={"ok" + (ok ? " show" : "")} id="ok">✓ Autenticado — redirecionando para o Dashboard…</div>
             {error && (
               <div className="ok show" style={conflict

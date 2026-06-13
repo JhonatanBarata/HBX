@@ -366,7 +366,7 @@ export class RadarCorePresentationMixin {
 
     const planKey = resolveCommercialPlanKeyForCapabilities(company);
     const message = planKey === COMMERCIAL_PLAN_KEYS.LITE
-      ? 'O HBX List nÃ£o inclui buscas Google diÃ¡rias. Os motores gratuitos continuam liberados. Para buscas Google, escolha o HBX Lead Plus ou HBX Full â€” Bot e IA.'
+      ? 'O HBX List não inclui buscas Google diárias. Os motores gratuitos continuam liberados. Para buscas Google, escolha o HBX Lead Plus ou HBX Full — Bot e IA.'
       : `${GOOGLE_DAILY_LIMIT_REACHED_MESSAGE} Seu plano permite ${dailyLimit} busca(s) Google por dia.`;
     await this.recordUsageLog(context, input, 'BLOCKED_DAILY_LIMIT', 0, message);
     throw new ForbiddenException({
@@ -1199,7 +1199,7 @@ export class RadarCorePresentationMixin {
     if (normalized === 'em_atendimento' || normalized === 'atendimento') return 'in_attendance';
     if (normalized === 'interessado' || normalized === 'interested') return 'interested';
     if (normalized === 'positivo' || normalized === 'positive') return 'positive';
-    if (normalized === 'disponivel' || normalized === 'disponÃ­vel' || normalized === 'available') return 'clean';
+    if (normalized === 'disponivel' || normalized === 'disponível' || normalized === 'available') return 'clean';
     if (normalized === 'won') return 'converted';
     if (normalized === 'optout' || normalized === 'do_not_contact') return 'opt_out';
     if (normalized === 'lost' || normalized === 'sem_interesse') return 'negative';
@@ -1299,7 +1299,7 @@ export class RadarCorePresentationMixin {
     const opportunityLevel: RadarOpportunityLevel =
       highOpportunity || rawOpportunityLevel === 'high' || rawOpportunityLevel === 'alta'
         ? 'high'
-        : rawOpportunityLevel === 'medium' || rawOpportunityLevel === 'media' || rawOpportunityLevel === 'mÃ©dia'
+        : rawOpportunityLevel === 'medium' || rawOpportunityLevel === 'media' || rawOpportunityLevel === 'média'
           ? 'medium'
           : rawOpportunityLevel === 'low' || rawOpportunityLevel === 'baixa'
           ? 'low'
@@ -2383,7 +2383,7 @@ export class RadarCorePresentationMixin {
         meta: {
           ...baseMeta,
           effectiveMode: 'enrich' as RadarWhatsappCheckMode,
-          message: 'ValidaÃ§Ã£o WebWhats disponÃ­vel nos planos superiores. Entreguei os cards sem bloquear a busca.',
+          message: 'Validação WebWhats disponível nos planos superiores. Entreguei os cards sem bloquear a busca.',
         },
       };
     }
@@ -2444,7 +2444,7 @@ export class RadarCorePresentationMixin {
         meta: {
           ...baseMeta,
           effectiveMode: 'enrich' as RadarWhatsappCheckMode,
-          message: 'NÃ£o consegui validar WhatsApp agora. Entreguei os cards sem bloquear a busca.',
+          message: 'Não consegui validar WhatsApp agora. Entreguei os cards sem bloquear a busca.',
         },
       };
     }
@@ -3015,7 +3015,7 @@ export class RadarCorePresentationMixin {
     if (!access.canUsePremium) {
       throw new ForbiddenException({
         code: 'RADAR_PREMIUM_PLAN_REQUIRED',
-        message: 'Enriquecimento com Instagram, Facebook, site e email estÃ¡ disponÃ­vel no HBX Lead Plus ou superior.',
+        message: 'Enriquecimento com Instagram, Facebook, site e email está disponível no HBX Lead Plus ou superior.',
         redirectTo: '/planos?intent=radar_premium',
         requiredPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO,
         currentPlanKey: access.planKey,
@@ -3181,7 +3181,7 @@ export class RadarCorePresentationMixin {
       return {
         ok: true,
         cached: true,
-        message: 'Card jÃ¡ enriquecido',
+        message: 'Card já enriquecido',
         item: this.buildRadarLeadPublic(row, { includeSmartFields: true }),
       };
     }

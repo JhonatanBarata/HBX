@@ -1,0 +1,98 @@
+/* ============================================================
+   HBX System — Pele FRIENDLY sobre o kit (app único, 12/06/2026)
+   REGRA DURA (FRONTEND.md): tema é SÓ pele — este arquivo veste as
+   MESMAS classes do kit (mesmo DOM, mesma escrita) com a identidade
+   friendly: vidro líquido (gradiente em camadas, lip interno claro,
+   sombras longas suaves, blur no chrome) usando SOMENTE os tokens de
+   colors/spacing/effects. O corporativo segue flat em corporate.css.
+   Escopo: tema friendly = html SEM data-theme="corporate", dentro do
+   .app (não toca landing nem auth).
+   ============================================================ */
+
+/* ---- Chrome: sidebar e topo translúcidos com blur ---------------- */
+html:not([data-theme="corporate"]) .app .side {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--hbx-nav-surface) 94%, transparent), color-mix(in srgb, var(--hbx-surface-soft) 86%, transparent));
+  -webkit-backdrop-filter: blur(var(--blur-chrome));
+  backdrop-filter: blur(var(--blur-chrome));
+  border-right: 1px solid var(--border-hairline);
+  box-shadow: var(--shadow-inset), var(--shadow-xs);
+}
+html:not([data-theme="corporate"]) .app .topbar {
+  background: color-mix(in srgb, var(--hbx-header-surface) 90%, transparent);
+  -webkit-backdrop-filter: blur(var(--blur-chrome));
+  backdrop-filter: blur(var(--blur-chrome));
+  box-shadow: var(--shadow-inset);
+}
+
+/* ---- Janelas: painéis/cards de vidro ------------------------------ */
+html:not([data-theme="corporate"]) .app .panel,
+html:not([data-theme="corporate"]) .app .kpi,
+html:not([data-theme="corporate"]) .app .plan-card,
+html:not([data-theme="corporate"]) .app .user-card {
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--hbx-brand) 8%, transparent), transparent 48%),
+    linear-gradient(180deg, color-mix(in srgb, var(--hbx-surface) 98%, var(--hbx-background)), color-mix(in srgb, var(--hbx-surface-soft) 92%, var(--hbx-background)));
+  border: 1px solid var(--border-hairline);
+  box-shadow: var(--shadow-inset), var(--shadow-sm);
+}
+html:not([data-theme="corporate"]) .app .panel { border-radius: var(--panel-radius); }
+html:not([data-theme="corporate"]) .app .kpi { border-radius: var(--panel-radius); }
+
+/* ---- Navegação: pills com glow de marca --------------------------- */
+html:not([data-theme="corporate"]) .app .nav-item { border-radius: var(--radius-pill); }
+html:not([data-theme="corporate"]) .app .nav-item:hover {
+  background: color-mix(in srgb, var(--hbx-surface-raised) 70%, transparent);
+}
+html:not([data-theme="corporate"]) .app .nav-item.active {
+  background: color-mix(in srgb, var(--hbx-brand) 12%, var(--hbx-surface));
+  border: 1px solid color-mix(in srgb, var(--hbx-brand) 32%, var(--hbx-line));
+  padding-top: 8px; padding-bottom: 8px; /* compensa a borda de 1px */
+  color: var(--hbx-brand-strong);
+  box-shadow: 0 10px 22px -14px var(--soft-ring);
+}
+
+/* ---- Controles ----------------------------------------------------- */
+html:not([data-theme="corporate"]) .app .btn-teal {
+  background: linear-gradient(140deg, var(--hbx-primary), var(--hbx-secondary));
+  color: var(--hbx-brand-contrast);
+  border-radius: var(--control-radius);
+  box-shadow: var(--shadow-inset), 0 14px 28px -16px color-mix(in srgb, var(--hbx-primary) 70%, transparent);
+}
+html:not([data-theme="corporate"]) .app .btn-teal:hover { background: linear-gradient(140deg, var(--hbx-primary), var(--hbx-primary)); }
+html:not([data-theme="corporate"]) .app .btn-ghost {
+  border-radius: var(--control-radius);
+  background: color-mix(in srgb, var(--hbx-surface) 70%, transparent);
+  box-shadow: var(--shadow-inset);
+}
+html:not([data-theme="corporate"]) .app .round-btn {
+  border: 1px solid var(--border-hairline);
+  background: color-mix(in srgb, var(--hbx-surface) 82%, transparent);
+  box-shadow: var(--shadow-inset), var(--shadow-xs);
+}
+html:not([data-theme="corporate"]) .app .search,
+html:not([data-theme="corporate"]) .app .field-dark,
+html:not([data-theme="corporate"]) .app .select-dark {
+  background: color-mix(in srgb, var(--hbx-field-surface) 88%, transparent);
+  box-shadow: var(--shadow-inset);
+}
+html:not([data-theme="corporate"]) .app .field-dark,
+html:not([data-theme="corporate"]) .app .select-dark { border-radius: var(--control-radius); }
+
+/* ---- Acentos que o corporate.css cravou em teal rgba() ------------- */
+html:not([data-theme="corporate"]) .app .kpi-icon {
+  border-color: color-mix(in srgb, var(--hbx-brand) 35%, transparent);
+  background: color-mix(in srgb, var(--hbx-brand) 10%, transparent);
+  color: var(--hbx-brand-strong);
+}
+html:not([data-theme="corporate"]) .app .msg.out .bubble {
+  border-color: color-mix(in srgb, var(--hbx-brand) 28%, transparent);
+}
+
+/* ---- Tabelas -------------------------------------------------------- */
+html:not([data-theme="corporate"]) .app .tbl th {
+  background: color-mix(in srgb, var(--hbx-table-head) 80%, transparent);
+}
+html:not([data-theme="corporate"]) .app .tbl tbody tr:hover td {
+  background: color-mix(in srgb, var(--hbx-surface-raised) 55%, transparent);
+}

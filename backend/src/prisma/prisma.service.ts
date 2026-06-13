@@ -133,6 +133,12 @@ const RUNTIME_SCHEMA_ENSURES: RuntimeSchemaEnsureDefinition[] = [
     target: 'HbxJobApplication table and indexes (Trabalhe Conosco)',
     shouldBecomeMigration: true,
   },
+  {
+    key: 'master-payment-notification-log-table',
+    method: 'ensureMasterPaymentNotificationLogTable',
+    target: 'MasterPaymentNotificationLog table and indexes (E8 PLAN12062026001)',
+    shouldBecomeMigration: true,
+  },
 ];
 
 const RUNTIME_SCHEMA_HEALTH_CHECKS: RuntimeSchemaHealthCheckDefinition[] = [
@@ -419,6 +425,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     await this.runRuntimeSchemaEnsure('hbx-support-ticket-tables', () => this.ensureHbxSupportTicketTables());
     await this.runRuntimeSchemaEnsure('vendas-cancellation-case-columns', () => this.ensureVendasCancellationCaseColumns());
     await this.runRuntimeSchemaEnsure('hbx-job-application-table', () => this.ensureHbxJobApplicationTable());
+    await this.runRuntimeSchemaEnsure('master-payment-notification-log-table', () => this.ensureMasterPaymentNotificationLogTable());
   }
 
   async onModuleDestroy() {
@@ -1192,6 +1199,24 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     `);
     await this.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "HbxJobApplication_companyId_status_createdAt_idx" ON "HbxJobApplication"("companyId", "status", "createdAt")`);
     await this.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "HbxJobApplication_companyId_phoneNormalized_idx" ON "HbxJobApplication"("companyId", "phoneNormalized")`);
+  }
+
+  private async ensureMasterPaymentNotificationLogTable() {
+    await this.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "MasterPaymentNotificationLog" (
+        "id" TEXT NOT NULL,
+        "companyId" INTEGER NOT NULL,
+        "target" TEXT NOT NULL,
+        "text" TEXT NOT NULL,
+        "status" TEXT NOT NULL DEFAULT 'sent',
+        "providerMessageId" TEXT,
+        "errorMessage" TEXT,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "MasterPaymentNotificationLog_pkey" PRIMARY KEY ("id")
+      )
+    `);
+    await this.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "MasterPaymentNotificationLog_companyId_createdAt_idx" ON "MasterPaymentNotificationLog"("companyId", "createdAt")`);
+    await this.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "MasterPaymentNotificationLog_createdAt_idx" ON "MasterPaymentNotificationLog"("createdAt")`);
   }
 
   private async ensureVendasCancellationCaseColumns() {

@@ -9,8 +9,10 @@
 //   - Vendedores → GET /users/company (admin; sem acesso = distribuição oculta)
 //   - Regra automática (somente leitura) → GET /webscraping/radar/auto-distribution
 // Chips de etapa viraram filtro real de status; campos sem dado mostram "—".
-// "Iniciar conversa" segue visual do template (liga com Atendimento depois).
+// "Iniciar conversa" → POST /inbox/conversations/start e abre o Atendimento
+// na conversa criada (handoff via sessionStorage hbx:abrir-conversa).
 
+import { useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useState } from "react";
 
 import { Av, I, ICONS, KpiRow, Sidebar, Topbar } from "@/components/hbx/shell";
@@ -118,6 +120,7 @@ function userLabel(u: CompanyUser) {
 }
 
 export function LeadsClient() {
+  const router = useRouter();
   const [etapa, setEtapa] = useState("");
   const [page, setPage] = useState(1);
   const [data, setData] = useState<LeadsResponse | null>(null);
@@ -284,6 +287,27 @@ export function LeadsClient() {
     }
   }
 
+  // POST /inbox/conversations/start (contrato do Atendimento) — abre a
+  // conversa criada direto na tela de Atendimento
+  async function iniciarConversa() {
+    if (!sel?.phone || busy) return;
+    setBusy(true);
+    setActionMsg(null);
+    try {
+      const res = await apiFetch<{ id?: number | string }>("/inbox/conversations/start", {
+        method: "POST",
+        body: JSON.stringify({ phone: sel.phone, ...(sel.name ? { name: sel.name } : {}) }),
+      });
+      if (res?.id != null) {
+        try { sessionStorage.setItem("hbx:abrir-conversa", String(res.id)); } catch { /* sem storage */ }
+      }
+      router.push("/atendimento");
+    } catch (err) {
+      setActionMsg(err instanceof Error ? err.message : "Não foi possível iniciar a conversa.");
+      setBusy(false);
+    }
+  }
+
   const items = data?.items || [];
   const total = data?.total || 0;
   const limit = data?.meta?.limit || 25;
@@ -435,7 +459,7 @@ export function LeadsClient() {
               )}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                 <button className="btn-ghost" onClick={enviarParaVendas} disabled={!sel?.id || busy}><I d={ICONS.arrow} size={13} /> Enviar p/ Vendas</button>
-                <button className="btn-ghost"><I d={ICONS.msg} size={13} /> Iniciar conversa</button>
+                <button className="btn-ghost" onClick={iniciarConversa} disabled={!sel?.phone || busy} title={sel && !sel.phone ? "Lead sem telefone" : undefined}><I d={ICONS.msg} size={13} /> Iniciar conversa</button>
               </div>
             </div>
           </aside>

@@ -111,10 +111,10 @@ export class RadarVendasSyncService {
     return code.includes('limit')
       || code.includes('quota')
       || message.includes('limite diario')
-      || message.includes('limite diÃ¡rio')
+      || message.includes('limite diário')
       || message.includes('limite mensal')
       || message.includes('trava diaria')
-      || message.includes('trava diÃ¡ria')
+      || message.includes('trava diária')
       || message.includes('contador reinicia')
       || message.includes('quota');
   }

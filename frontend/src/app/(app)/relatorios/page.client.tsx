@@ -45,8 +45,8 @@ type ReportResponse = {
 } | null;
 
 type SellerAuditRow = {
-  id: number;
-  name: string;
+  // identidade vem aninhada em `seller` no /vendas/seller-audit (não na raiz)
+  seller: { id: number; name: string };
   metrics: {
     activeCards: number;
     receivedCards: number;
@@ -154,7 +154,7 @@ export function RelatoriosClient() {
     if ((audit?.rows || []).length > 0) {
       linhas.push("");
       linhas.push(["Vendedor", "Recebidos", "Trabalhados", "Fechados", "Aproveitamento"].map(esc).join(";"));
-      (audit?.rows || []).forEach(v => linhas.push([v.name, v.metrics.receivedCards, v.metrics.workedCards, v.metrics.closedCards, `${Math.round((v.metrics.workRate || 0) * 100)}%`].map(esc).join(";")));
+      (audit?.rows || []).forEach(v => linhas.push([v.seller.name, v.metrics.receivedCards, v.metrics.workedCards, v.metrics.closedCards, `${Math.round((v.metrics.workRate || 0) * 100)}%`].map(esc).join(";")));
     }
     const blob = new Blob(["﻿" + linhas.join("\r\n")], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -318,8 +318,8 @@ export function RelatoriosClient() {
                       </tr>
                     )}
                     {sellers.map(v => (
-                      <tr key={v.id} style={{ cursor: "default" }}>
-                        <td><div style={{ display: "flex", gap: 9, alignItems: "center" }}><Av name={v.name} size={26} /><strong>{v.name}</strong></div></td>
+                      <tr key={v.seller.id} style={{ cursor: "default" }}>
+                        <td><div style={{ display: "flex", gap: 9, alignItems: "center" }}><Av name={v.seller.name} size={26} /><strong>{v.seller.name}</strong></div></td>
                         <td style={{ fontFamily: "var(--font-mono)" }}>{v.metrics.receivedCards}</td>
                         <td style={{ fontFamily: "var(--font-mono)" }}>{v.metrics.workedCards}</td>
                         <td style={{ fontFamily: "var(--font-mono)" }}>{v.metrics.closedCards}</td>

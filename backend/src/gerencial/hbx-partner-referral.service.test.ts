@@ -67,6 +67,10 @@ function buildUsersController(overrides: {
     {} as any,
     sellerOnboardingService as any,
     hbxPartnerReferrals as any,
+    // PR12062026005: mailer/templates por empresa
+    { sendForCompany: async () => ({ ok: true, transport: 'smtp', messageId: 'msg_1', errorCode: null, errorMessage: null }) } as any,
+    { getRaw: async () => null, readAssetContent: async () => null } as any,
+    { getSafe: async () => ({ kind: 'seller_welcome', label: 'Boas-vindas do vendedor', subject: 'Bem-vindo {acesso}', text: 'Acesso {acesso} senha {senha}', html: null }), renderRow: () => ({ subject: 's', text: 't', html: '<p>t</p>' }) } as any,
   );
 }
 
@@ -334,8 +338,8 @@ test('/users/company/create vendedor sem documentacao nao usa onboarding', async
   assert.equal(createdData.isActive, undefined);
   assert.equal(createdData.password, '');
   assert.equal(result.user.isActive, true);
-  assert.equal(result.invite?.sent, true);
-  assert.equal(result.invite?.email, 'vendedor-comum@example.com');
+  // PR12062026005: sem convite automático pelo SMTP da plataforma
+  assert.equal(result.invite, null);
   assert.equal(result.onboardingEmail, null);
 });
 
@@ -380,8 +384,8 @@ test('/users/company/create admin comum nao usa onboarding', async () => {
   assert.equal(createdData.isActive, undefined);
   assert.equal(createdData.password, '');
   assert.equal(result.user.isActive, true);
-  assert.equal(result.invite?.sent, true);
-  assert.equal(result.invite?.email, 'admin-comum@example.com');
+  // PR12062026005: sem convite automático pelo SMTP da plataforma
+  assert.equal(result.invite, null);
   assert.equal(result.onboardingEmail, null);
 });
 
@@ -419,7 +423,7 @@ test('SellerOnboarding salva herdeiro com indicador e snapshot', async () => {
         return { id: 200, companyId: 1, role: 'USER', company: { id: 1, commissionDueBusinessDays: 3 } };
       },
     },
-  } as any, {} as any, {} as any);
+  } as any, {} as any, {} as any, {} as any, {} as any, {} as any);
 
   await service.updateDraft(1, 200, {
     referredByUserId: 88,

@@ -3,9 +3,14 @@
 // Tela Atendimento (template docs/TEMAS/*/corporate/Atendimento.html) ligada
 // no inbox real (WhatsApp via Webwhats — mensageria do backend):
 //   - Conversas → GET /inbox/conversations?take=50
-//   - Thread → GET /inbox/conversations/:id/messages (polling 8s)
+//   - Tempo real → GET /inbox/events (SSE via fetch streaming; EventSource
+//     não envia Authorization). Evento "inbox" = recarrega lista + thread.
+//     Polling 8s vira FALLBACK só enquanto o stream está desconectado.
+//   - Thread → GET /inbox/conversations/:id/messages
 //   - Enviar → POST /inbox/conversations/:id/message { content }
 //   - Marcar lida → PATCH /inbox/conversations/:id/read
+//   - Nova conversa → POST /inbox/conversations/start { phone, name? }
+//     (também recebe handoff do Leads via sessionStorage hbx:abrir-conversa)
 // Tabs Todas/Não lidas/Minhas = filtro client-side (unread/humanAssigned).
 // KPIs sem contrato mostram "—" (abertos = conversas carregadas); seções do
 // painel sem endpoint seguem visuais — ver doc do PR.
@@ -15,7 +20,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import { Av, I, ICONS, KpiRow, Sidebar, Topbar } from "@/components/hbx/shell";
 import { WhatsAppConnectModal } from "@/components/hbx/whatsapp-connect-modal";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, getApiBase, getToken } from "@/lib/api";
 import { fetchWhatsAppModalStatus } from "@/lib/whatsapp-connection-flow";
 import { whatsappModalStatusLabel } from "@/lib/whatsapp-center";
 
@@ -111,6 +116,12 @@ export function AtendimentoClient() {
   const [hasMore, setHasMore] = useState(false);
   const [moreBusy, setMoreBusy] = useState(false);
 
+  // nova conversa manual (POST /inbox/conversations/start)
+  const [novaOpen, setNovaOpen] = useState(false);
+  const [novaForm, setNovaForm] = useState({ phone: "", name: "" });
+  const [novaBusy, setNovaBusy] = useState(false);
+  const [novaMsg, setNovaMsg] = useState<string | null>(null);
+
   const loadConvs = useCallback(() => {
     return apiFetch<InboxConversation[]>("/inbox/conversations?take=50")
       .then(res => {
@@ -154,9 +165,84 @@ export function AtendimentoClient() {
       .catch(() => setThread([]));
   }, []);
 
-  useEffect(() => { loadConvs(); }, [loadConvs]);
+  useEffect(() => {
+    // handoff do Leads: abre direto a conversa recém-criada
+    let alive = true;
+    let pendingId: string | null = null;
+    try {
+      pendingId = sessionStorage.getItem("hbx:abrir-conversa");
+      if (pendingId) sessionStorage.removeItem("hbx:abrir-conversa");
+    } catch { /* sem storage */ }
+    loadConvs().then(() => { if (alive && pendingId) setSelId(pendingId); });
+    return () => { alive = false; };
+  }, [loadConvs]);
 
-  // thread da conversa selecionada + marcar como lida
+  // ref espelho do selId para o stream SSE recarregar o thread aberto
+  const selIdRef = useRef<string | null>(null);
+  useEffect(() => { selIdRef.current = selId; }, [selId]);
+
+  // tempo real: GET /inbox/events (SSE). EventSource não envia o header
+  // Authorization, então o stream é lido com fetch + ReadableStream.
+  const [sseOn, setSseOn] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    let ctrl: AbortController | null = null;
+    let reloadTimer = 0;
+
+    function bump() {
+      // rajadas de eventos → um reload (debounce curto)
+      if (reloadTimer) return;
+      reloadTimer = window.setTimeout(() => {
+        reloadTimer = 0;
+        loadConvs();
+        if (selIdRef.current) loadThread(selIdRef.current);
+      }, 600);
+    }
+
+    async function connect() {
+      let retry = 0;
+      while (alive) {
+        ctrl = new AbortController();
+        try {
+          const res = await fetch(`${getApiBase()}/inbox/events`, {
+            headers: { Authorization: `Bearer ${getToken() || ""}` },
+            signal: ctrl.signal,
+          });
+          if (!res.ok || !res.body) throw new Error(`SSE ${res.status}`);
+          setSseOn(true);
+          retry = 0;
+          const reader = res.body.getReader();
+          const dec = new TextDecoder();
+          let buf = "";
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += dec.decode(value, { stream: true });
+            let cut;
+            while ((cut = buf.indexOf("\n\n")) >= 0) {
+              const chunk = buf.slice(0, cut);
+              buf = buf.slice(cut + 2);
+              if (chunk.includes("event: inbox")) bump();
+            }
+          }
+        } catch { /* desconectou — reconecta com backoff */ }
+        setSseOn(false);
+        if (!alive) break;
+        retry = Math.min(retry + 1, 6);
+        await new Promise(r => setTimeout(r, 1500 * retry));
+      }
+    }
+
+    connect();
+    return () => {
+      alive = false;
+      ctrl?.abort();
+      if (reloadTimer) clearTimeout(reloadTimer);
+    };
+  }, [loadConvs, loadThread]);
+
+  // thread da conversa selecionada + marcar como lida; polling 8s só como
+  // fallback quando o stream SSE está fora
   useEffect(() => {
     if (!selId) return;
     let alive = true;
@@ -164,13 +250,38 @@ export function AtendimentoClient() {
       if (!alive) return;
       apiFetch(`/inbox/conversations/${encodeURIComponent(selId)}/read`, { method: "PATCH", body: JSON.stringify({}) }).catch(() => { /* segue */ });
     });
+    if (sseOn) return () => { alive = false; };
     const timer = setInterval(() => { if (alive) loadThread(selId); }, 8000);
     return () => { alive = false; clearInterval(timer); };
-  }, [selId, loadThread]);
+  }, [selId, loadThread, sseOn]);
 
   useEffect(() => {
     if (endRef.current) endRef.current.scrollTop = endRef.current.scrollHeight;
   }, [thread]);
+
+  async function iniciarNovaConversa(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (novaBusy) return;
+    setNovaBusy(true);
+    setNovaMsg(null);
+    try {
+      const res = await apiFetch<{ id?: number | string }>("/inbox/conversations/start", {
+        method: "POST",
+        body: JSON.stringify({
+          phone: novaForm.phone.trim(),
+          ...(novaForm.name.trim() ? { name: novaForm.name.trim() } : {}),
+        }),
+      });
+      setNovaOpen(false);
+      setNovaForm({ phone: "", name: "" });
+      await loadConvs();
+      if (res?.id != null) setSelId(String(res.id));
+    } catch (err) {
+      setNovaMsg(err instanceof Error ? err.message : "Não foi possível iniciar a conversa.");
+    } finally {
+      setNovaBusy(false);
+    }
+  }
 
   async function send() {
     const content = draft.trim();
@@ -228,6 +339,9 @@ export function AtendimentoClient() {
                     <h2>Conversas</h2>
                     <button className="icon-ghost"><I d={ICONS.filter} size={15} /></button>
                     <button className="btn-ghost" style={{ minHeight: 32, fontSize: "0.7rem" }}>Todos os canais ▾</button>
+                    <button className="btn-teal" style={{ minHeight: 32, fontSize: "0.7rem" }} onClick={() => { setNovaOpen(true); setNovaMsg(null); }}>
+                      <I d={ICONS.plus} size={13} /> Nova
+                    </button>
                   </div>
                   <div className="row">
                     <button className={"tag" + (waStatus === "connected" ? " teal" : waStatus === "error" ? " red" : " warn")}
@@ -390,6 +504,33 @@ export function AtendimentoClient() {
         onClose={() => { setWaModalOpen(false); refreshWaStatus(); }}
         onConnected={() => { refreshWaStatus(); loadConvs(); }}
       />
+
+      {novaOpen && (
+        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setNovaOpen(false); }}
+          style={{ position: "fixed", inset: 0, zIndex: 45, background: "var(--hbx-overlay)", display: "grid", placeItems: "center", padding: 24 }}>
+          <form className="hbx-modal" onSubmit={iniciarNovaConversa}
+            style={{ width: "min(380px, 100%)", display: "grid", gap: 12, padding: 24, borderRadius: "var(--radius-xl)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface)", boxShadow: "var(--shadow-md)" }}>
+            <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              Nova conversa
+              <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setNovaOpen(false)}>✕</span>
+            </h3>
+            {novaMsg && <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--hbx-warning)", lineHeight: 1.5 }}>{novaMsg}</div>}
+            <div style={{ display: "grid", gap: 6 }}>
+              <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Telefone (com DDD) *</label>
+              <input className="field-dark" required maxLength={20} placeholder="11999990000" value={novaForm.phone}
+                onChange={e => setNovaForm(f => ({ ...f, phone: e.target.value }))} />
+            </div>
+            <div style={{ display: "grid", gap: 6 }}>
+              <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Nome (opcional)</label>
+              <input className="field-dark" maxLength={120} value={novaForm.name}
+                onChange={e => setNovaForm(f => ({ ...f, name: e.target.value }))} />
+            </div>
+            <button className="btn-teal" type="submit" disabled={novaBusy} style={{ minHeight: 42 }}>
+              {novaBusy ? "Iniciando…" : "Iniciar conversa"}
+            </button>
+          </form>
+        </div>
+      )}
     </div>
   );
 }

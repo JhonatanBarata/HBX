@@ -161,9 +161,31 @@ function buildOnboardingService(input: {
       html: '<p>Envio de documentos HBX</p>',
     }),
   };
+  // PR12062026005: disparo via e-mail da empresa — stubs espelham os reais
+  const companyMailer = {
+    sendForCompany: async (_companyId: number, mailInput: any) => mailService.sendMail(mailInput),
+  };
+  const companyEmailSettings = {
+    getRaw: async () => ({ enabled: true, onboardingTemplateKind: 'seller_onboarding_request' }),
+  };
+  const companyEmailTemplates = {
+    getSafe: async () => ({ kind: 'seller_onboarding_request', label: 'Onboarding do vendedor', subject: 'Onboarding HBX', text: 'Envio de documentos HBX', html: null }),
+    renderRow: () => ({
+      subject: 'Onboarding HBX',
+      text: 'Envio de documentos HBX',
+      html: '<p>Envio de documentos HBX</p>',
+    }),
+  };
 
   return {
-    service: new SellerOnboardingService(prisma as any, mailService as any, emailTemplates as any),
+    service: new SellerOnboardingService(
+      prisma as any,
+      mailService as any,
+      emailTemplates as any,
+      companyMailer as any,
+      companyEmailSettings as any,
+      companyEmailTemplates as any,
+    ),
     state,
   };
 }
@@ -421,7 +443,7 @@ function buildPurgeService(input: { attachments: any[] }) {
     },
   };
   return {
-    service: new SellerOnboardingService(prisma as any, {} as any, {} as any),
+    service: new SellerOnboardingService(prisma as any, {} as any, {} as any, {} as any, {} as any, {} as any),
     state,
   };
 }

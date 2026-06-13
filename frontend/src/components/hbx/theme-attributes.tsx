@@ -3,17 +3,17 @@
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 
-// Mantém os atributos de tema do <html> em navegação SPA, espelhando o
-// comportamento dos HTMLs do handoff (docs/TEMAS):
-// - rotas corporate: data-theme="corporate"; escuro padrão; claro via
+// Mantém os atributos de tema do <html> em navegação SPA.
+// REGRA DURA (FRONTEND.md, 12/06/2026): TEMA É SÓ PELE — um app, as mesmas
+// telas; o tema é a preferência hbx:ws-theme (friendly|corporate) aplicada
+// por atributo em TODAS as rotas (app e auth):
+// - corporate: data-theme="corporate"; escuro padrão; claro via
 //   data-theme-mode="light" (persistido em hbx:corporate-mode).
-// - /workspace (friendly): sem data-theme; claro padrão; escuro via
+// - friendly: sem data-theme; claro padrão; escuro via
 //   data-theme-mode="dark" (persistido em hbx:friendly-mode).
-// - rotas de auth (/login, /reset-password, /confirm-email): seguem a
-//   preferência hbx:ws-theme (friendly|corporate) — ordem do dono.
 // - "/" (landing): html puro como no template de marketing.
-
-const AUTH_ROUTES = ["/login", "/register", "/reset-password", "/confirm-email"];
+// O antigo app paralelo /workspace foi MORTO na unificação (12/06/2026) —
+// a rota é alias e redireciona para /dashboard.
 
 function applyFriendly(html: HTMLElement) {
   html.removeAttribute("data-theme");
@@ -35,23 +35,35 @@ function applyCorporate(html: HTMLElement) {
 
 export function applyThemeForPath(pathname: string) {
   const html = document.documentElement;
-  const isWorkspace = pathname === "/workspace" || pathname.startsWith("/workspace/");
   const isMarketing = pathname === "/";
-  const isAuth = AUTH_ROUTES.some(r => pathname === r || pathname.startsWith(`${r}/`));
   try {
     if (isMarketing) {
       html.removeAttribute("data-theme");
       html.removeAttribute("data-theme-mode");
-    } else if (isWorkspace) {
+    } else if (localStorage.getItem("hbx:ws-theme") === "friendly") {
       applyFriendly(html);
-    } else if (isAuth) {
-      if (localStorage.getItem("hbx:ws-theme") === "friendly") applyFriendly(html);
-      else applyCorporate(html);
     } else {
       applyCorporate(html);
     }
   } catch {
     // localStorage indisponível — mantém o padrão do markup
+  }
+}
+
+// Modo claro/escuro do tema ATIVO, com a semântica de cada tema
+// (corporate: claro = data-theme-mode="light"; friendly: escuro =
+// data-theme-mode="dark") e persistência na chave do tema. Único ponto de
+// escrita do modo — usado pelo Topbar e pelos controles de auth.
+export function setThemeMode(theme: "corporate" | "friendly", mode: "light" | "dark") {
+  const html = document.documentElement;
+  if (theme === "corporate") {
+    if (mode === "light") html.setAttribute("data-theme-mode", "light");
+    else html.removeAttribute("data-theme-mode");
+    try { localStorage.setItem("hbx:corporate-mode", mode); } catch { /* sem storage */ }
+  } else {
+    if (mode === "dark") html.setAttribute("data-theme-mode", "dark");
+    else html.removeAttribute("data-theme-mode");
+    try { localStorage.setItem("hbx:friendly-mode", mode); } catch { /* sem storage */ }
   }
 }
 

@@ -80,7 +80,7 @@ const TEMPLATE_PATH = join(TEMPLATE_DIR, 'templates.json');
 
 export const EMAIL_TEMPLATE_KINDS: EmailTemplateKind[] = ['normal', 'password_reset', 'email_confirmation', 'seller_onboarding_request', 'seller_welcome'];
 
-const EMAIL_TEMPLATE_VARIABLES: EmailTemplateVariableDefinition[] = [
+export const EMAIL_TEMPLATE_VARIABLES: EmailTemplateVariableDefinition[] = [
   { key: 'nome', token: '{nome}', label: 'Nome do contato', group: 'contato', description: 'Nome da pessoa que vai receber a mensagem.' },
   { key: 'primeironome', token: '{primeironome}', label: 'Primeiro nome', group: 'contato', description: 'Primeiro nome do contato para cumprimentos naturais.' },
   { key: 'email', token: '{email}', label: 'E-mail do contato', group: 'contato', description: 'E-mail principal do destinatário.' },

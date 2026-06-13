@@ -4,6 +4,16 @@
 > ler ESTE arquivo + CLAUDE.md + docs/Rules/ antes de qualquer código.
 > Estado geral: front novo 100% portado e ligado; funil de Ads completo;
 > /gerencial restaurado; fila de backend E1–E5 aplicada e validada.
+>
+> EXECUÇÃO (12/06/2026, mesma data, sessão seguinte):
+> - FOCO 1 (/master) CONSTRUÍDO e validado → PR12062026003-MASTER.md.
+> - Fila E6 (encoding radar) e E7 (espelho tickets) APLICADAS → PLAN12062026001.md.
+> - FOCO 2 (itens com contrato pronto) LIGADO → PR12062026004-FOCO2-PENDENCIAS.md
+>   (dashboard links, inbox start no Leads/Atendimento, SSE, quick actions
+>   do Vendas, botões do bot, convite/gestão de membro, 5 vistas friendly).
+> - Continuam pendentes: checkout (aguarda "go checkout"), decisões do dono
+>   (canvas do bot, "Manter conectado", especialista, termos/privacidade,
+>   marca TOTVS), gaps de backend listados no PR…004 e dívidas técnicas.
 
 ## REGRAS DE OURO (não negociáveis, já combinadas com o dono)
 

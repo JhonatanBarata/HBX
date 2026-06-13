@@ -10,6 +10,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import React, { useEffect, useState, useSyncExternalStore } from "react";
 
+import { applyThemeSoft, setCorporateTheme, setFriendlyTheme, setThemeMode } from "@/components/hbx/theme-attributes";
 import { apiFetch, clearToken, getToken } from "@/lib/api";
 
 export function I({ d, size = 18 }: { d: string[]; size?: number }) {
@@ -55,14 +56,43 @@ export function Spark({ tone = "var(--hbx-brand-strong)", down = false }: { tone
   const d = down ? "M2 7 L12 10 L22 8 L32 13 L42 12 L52 16 L62 15" : "M2 16 L12 12 L22 14 L32 8 L42 11 L52 5 L62 7";
   return (
     <svg width="64" height="22" viewBox="0 0 64 22" fill="none">
-      <path d={d} stroke={tone} strokeWidth="1.6" strokeLinecap="round" />
+      <path className="hbx-spark-path" d={d} stroke={tone} strokeWidth="1.6" strokeLinecap="round" />
     </svg>
   );
 }
 
-export function Av({ name, size = 20 }: { name: string; size?: number }) {
-  const ini = name.split(" ").slice(0, 2).map(w => w[0]).join("");
+export function Av({ name, size = 20 }: { name?: string; size?: number }) {
+  const ini = String(name || "?").trim().split(/\s+/).slice(0, 2).map(w => w[0]).join("") || "?";
   return <span className="avatar" style={{ width: size, height: size, fontSize: size * 0.38 }}>{ini}</span>;
+}
+
+// Confirm padrão do kit (substitui window.confirm). Mesma cara do hbx-modal.
+export function ConfirmDialog({ open, title, message, confirmLabel = "Confirmar", danger = false, busy = false, onConfirm, onCancel }: {
+  open: boolean;
+  title: string;
+  message: React.ReactNode;
+  confirmLabel?: string;
+  danger?: boolean;
+  busy?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  if (!open) return null;
+  return (
+    <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) onCancel(); }}
+      style={{ position: "fixed", inset: 0, zIndex: 60, background: "var(--hbx-overlay)", display: "grid", placeItems: "center", padding: 24 }}>
+      <div className="hbx-modal" role="dialog" aria-modal="true"
+        style={{ width: "min(400px, 100%)", display: "grid", gap: 14, padding: 24, borderRadius: "var(--radius-xl)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface)", boxShadow: "var(--shadow-md)" }}>
+        <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800 }}>{title}</h3>
+        <p style={{ margin: 0, fontSize: "0.82rem", color: "var(--text-muted)", lineHeight: 1.5 }}>{message}</p>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 4 }}>
+          <button className="btn-ghost" disabled={busy} onClick={onCancel}>Cancelar</button>
+          <button className="btn-ghost" disabled={busy} onClick={onConfirm}
+            style={{ color: danger ? "var(--hbx-danger)" : "var(--hbx-brand-strong)", fontWeight: 700 }}>{confirmLabel}</button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export const NAV_LINKS = [
@@ -85,6 +115,8 @@ type CurrentUser = {
   email?: string | null;
   username?: string | null;
   userKind?: string | null;
+  role?: string | null;
+  isSystemMaster?: boolean | null;
 };
 
 const USER_KIND_LABEL: Record<string, string> = {
@@ -180,7 +212,15 @@ const NAV_ENTITLEMENT: Record<string, string | null> = {
   config: null,
 };
 
-export function isModuleVisible(id: string, ent: { loaded: boolean; entitlements: Entitlements }) {
+export function isModuleVisible(
+  id: string,
+  ent: { loaded: boolean; entitlements: Entitlements },
+  user?: { isSystemMaster?: boolean | null } | null,
+) {
+  // master enxerga TUDO: o backend bypassa entitlements para isSystemMaster
+  // (commercial-plans.service.assertEntitlementForUser), mas /commercial-plans/me
+  // falha sem empresa — sem este bypass a sidebar encolhia para o dono.
+  if (user?.isSystemMaster) return true;
   const key = NAV_ENTITLEMENT[id] ?? null;
   if (key === null) return true;
   // sem flash de módulo proibido: condicionais só aparecem após carregar
@@ -216,7 +256,7 @@ export function Sidebar({ active }: { active: string }) {
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--hbx-brand)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M4 6l6 6-6 6M11 6l6 6-6 6" /></svg>
         <strong>HBX</strong>
       </div>
-      {NAV_LINKS.filter(n => isModuleVisible(n.id, ent)).map(n => {
+      {NAV_LINKS.filter(n => isModuleVisible(n.id, ent, user)).map(n => {
         const cls = "nav-item" + (n.id === active ? " active" : "");
         return (
           <Link key={n.id} className={cls} href={n.href}>
@@ -249,65 +289,86 @@ export function Sidebar({ active }: { active: string }) {
   );
 }
 
-const CORP_MODE_KEY = "hbx:corporate-mode";
+// ---------------------------------------------------------------
+// Tema é SÓ PELE (REGRA DURA do FRONTEND.md, 12/06/2026): um app, as
+// mesmas telas; Friendly ⇄ Corporativo troca APENAS atributos/tokens do
+// <html> (como o claro/escuro), sem navegação. O app paralelo /workspace
+// foi morto na unificação — a rota redireciona para /dashboard.
+// ---------------------------------------------------------------
 
 export function applyCorpMode(mode: string) {
-  // suprime transições durante a troca de tema — transições penduradas
+  // suprime transições durante a troca de modo — transições penduradas
   // congelam a cor antiga (diagnóstico: CSSTransition presa em currentTime 0)
   const kill = document.createElement("style");
   kill.textContent = "* { transition: none !important; }";
   document.head.appendChild(kill);
-  if (mode === "light") document.documentElement.setAttribute("data-theme-mode", "light");
-  else document.documentElement.removeAttribute("data-theme-mode");
+  setThemeMode("corporate", mode === "light" ? "light" : "dark");
   void document.documentElement.offsetHeight; // força reflow com transições desligadas
   requestAnimationFrame(() => requestAnimationFrame(() => kill.remove()));
 }
 
 export function subscribeToThemeMode(callback: () => void) {
   const obs = new MutationObserver(callback);
-  obs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme-mode"] });
+  obs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-theme-mode"] });
   return () => obs.disconnect();
 }
 
-export function useThemeModeAttr(serverFallback: "light" | "dark") {
+export function useActiveTheme(): "corporate" | "friendly" {
   return useSyncExternalStore(
     subscribeToThemeMode,
-    () => (document.documentElement.getAttribute("data-theme-mode") === "light" ? "light" : "dark"),
-    () => serverFallback,
+    () => (document.documentElement.getAttribute("data-theme") === "corporate" ? "corporate" : "friendly"),
+    () => "corporate",
   );
 }
 
 export function ModeToggle() {
-  // estado deriva do atributo do <html> (aplicado pelo boot de tema)
-  const mode = useThemeModeAttr("dark");
+  // estado deriva dos atributos do <html> (aplicados pelo boot de tema);
+  // semântica por tema: corporate escuro padrão, friendly claro padrão.
+  const theme = useActiveTheme();
+  const modeAttr = useSyncExternalStore(
+    subscribeToThemeMode,
+    () => document.documentElement.getAttribute("data-theme-mode"),
+    () => null,
+  );
+  const corp = theme === "corporate";
+  const isDark = corp ? modeAttr !== "light" : modeAttr === "dark";
   function flip() {
-    const next = mode === "dark" ? "light" : "dark";
-    applyCorpMode(next);
-    try { localStorage.setItem(CORP_MODE_KEY, next); } catch { /* sem storage */ }
+    const next = isDark ? "light" : "dark";
+    if (corp) applyCorpMode(next); // corporativo = troca seca (handoff)
+    else applyThemeSoft(() => setThemeMode("friendly", next)); // friendly = cross-fade
   }
   return (
-    <button className="round-btn" onClick={flip} title={mode === "dark" ? "Tema claro" : "Tema escuro"} aria-label="Alternar tema">
-      <I d={mode === "dark" ? ICONS.sun : ICONS.moon} size={17} />
+    <button className="round-btn" onClick={flip} title={isDark ? "Tema claro" : "Tema escuro"} aria-label="Alternar tema">
+      <I d={isDark ? ICONS.sun : ICONS.moon} size={17} />
     </button>
   );
 }
 
 export function ThemeSwitch() {
-  // chavinha Friendly ←→ Corporativo: navega entre os dois apps reais
-  const router = useRouter();
-  function toFriendly() {
-    try { localStorage.setItem("hbx:ws-theme", "friendly"); } catch { /* sem storage */ }
-    router.push("/workspace");
+  // chavinha Friendly ←→ Corporativo: troca de PELE na MESMA tela
+  // (setFriendlyTheme/setCorporateTheme persistem hbx:ws-theme e aplicam
+  // os atributos com cross-fade) — nunca navega.
+  const theme = useActiveTheme();
+  const corp = theme === "corporate";
+  function flip() {
+    if (corp) setFriendlyTheme();
+    else setCorporateTheme();
   }
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-      <button onClick={toFriendly} role="switch" aria-checked={true} aria-label="Alternar Friendly / Corporativo" title="Voltar ao tema Friendly"
+      <button onClick={flip} role="switch" aria-checked={corp} aria-label="Alternar Friendly / Corporativo"
+        title={corp ? "Mudar para o tema Friendly" : "Mudar para o tema Corporativo"}
         style={{ position: "relative", width: 46, height: 26, padding: 0, borderRadius: 999, cursor: "pointer",
-          border: "1px solid var(--hbx-brand)",
-          background: "linear-gradient(140deg, var(--hbx-brand), var(--hbx-brand-strong))" }}>
-        <span style={{ position: "absolute", top: "50%", left: 22, width: 20, height: 20, borderRadius: 999, background: "#FFFFFF", transform: "translateY(-50%)" }} />
+          border: "1px solid " + (corp ? "var(--hbx-brand)" : "var(--border-hairline)"),
+          background: corp
+            ? "linear-gradient(140deg, var(--hbx-brand), var(--hbx-brand-strong))"
+            : "color-mix(in srgb, var(--hbx-surface-raised) 80%, var(--hbx-surface))",
+          transition: "background var(--motion-fast), border-color var(--motion-fast)" }}>
+        <span style={{ position: "absolute", top: "50%", left: corp ? 22 : 2, width: 20, height: 20, borderRadius: 999, background: "#FFFFFF", transform: "translateY(-50%)", transition: "left var(--motion-base)" }} />
       </button>
-      <span style={{ fontSize: "0.66rem", fontWeight: 800, color: "var(--hbx-brand-strong)", letterSpacing: "0.04em" }}>Corporativo</span>
+      <span style={{ fontSize: "0.66rem", fontWeight: 800, color: corp ? "var(--hbx-brand-strong)" : "var(--text-muted)", letterSpacing: "0.04em", minWidth: 76 }}>
+        {corp ? "Corporativo" : "Friendly"}
+      </span>
     </span>
   );
 }
@@ -326,6 +387,24 @@ type MasterNotice = {
   acknowledged?: boolean;
   createdAt?: string | null;
 };
+
+// Aviso clicável (ordem do dono, 12/06/2026): os títulos são FIXOS no backend
+// (seller-onboarding / job-application / cancellation-case) e o próprio texto
+// já aponta a tela — aqui é só o de-para, nada inventado. A dica de seção/aba
+// usa o mesmo padrão sessionStorage do "+" (hbx:abrir-novo-lead).
+function noticeTarget(notice: MasterNotice): { href: string; hintKey?: string; hintValue?: string } | null {
+  const title = String(notice.title || "");
+  if (/^Ticket aberto: documentos confirmados/i.test(title)) {
+    return { href: "/configuracoes", hintKey: "hbx:config-sec", hintValue: "Equipe" };
+  }
+  if (/^Nova candidatura:/i.test(title)) {
+    return { href: "/gerencial", hintKey: "hbx:gerencial-aba", hintValue: "Candidaturas" };
+  }
+  if (/^Cancelamento:/i.test(title)) {
+    return { href: "/gerencial", hintKey: "hbx:gerencial-aba", hintValue: "Comissões" };
+  }
+  return null;
+}
 
 const TOPBAR_CACHE_TTL = 30_000;
 let noticesCache: { at: number; data: MasterNotice[] } | null = null;
@@ -419,18 +498,35 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
             <div className="hbx-pop" style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", zIndex: 30, width: 320, maxHeight: 380, overflowY: "auto", padding: 10, borderRadius: "var(--radius-md)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface)", boxShadow: "var(--shadow-md)", display: "grid", gap: 8 }}>
               <strong style={{ fontFamily: "var(--font-display)", fontSize: "0.82rem" }}>Avisos</strong>
               {notices.length === 0 && <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Nenhum aviso no momento.</span>}
-              {notices.map(n => (
-                <div key={n.id} style={{ display: "grid", gap: 4, padding: "9px 10px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-hairline)", background: n.acknowledged ? "transparent" : "var(--hbx-surface-soft)" }}>
-                  <div style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "space-between" }}>
-                    <strong style={{ fontSize: "0.74rem" }}>{n.title}</strong>
-                    {!n.acknowledged && (
-                      <button className="btn-ghost" style={{ minHeight: 24, fontSize: "0.62rem", padding: "0 8px" }} onClick={() => marcarLido(n)}>Marcar lido</button>
-                    )}
+              {notices.map(n => {
+                const alvo = noticeTarget(n);
+                return (
+                  <div key={n.id} role={alvo ? "button" : undefined} tabIndex={alvo ? 0 : undefined}
+                    title={alvo ? "Abrir a tela deste aviso" : undefined}
+                    onClick={() => {
+                      if (!alvo) return;
+                      if (alvo.hintKey && alvo.hintValue) {
+                        try { sessionStorage.setItem(alvo.hintKey, alvo.hintValue); } catch { /* sem storage */ }
+                      }
+                      setBellOpen(false);
+                      router.push(alvo.href);
+                    }}
+                    style={{ display: "grid", gap: 4, padding: "9px 10px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-hairline)", background: n.acknowledged ? "transparent" : "var(--hbx-surface-soft)", cursor: alvo ? "pointer" : "default" }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "space-between" }}>
+                      <strong style={{ fontSize: "0.74rem" }}>{n.title}</strong>
+                      {!n.acknowledged && (
+                        <button className="btn-ghost" style={{ minHeight: 24, fontSize: "0.62rem", padding: "0 8px" }}
+                          onClick={e => { e.stopPropagation(); marcarLido(n); }}>Marcar lido</button>
+                      )}
+                    </div>
+                    <span style={{ fontSize: "0.68rem", lineHeight: 1.45, color: "var(--text-muted)", whiteSpace: "pre-line" }}>{n.body}</span>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                      {n.createdAt ? <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.58rem", color: "var(--text-muted)" }}>{new Date(n.createdAt).toLocaleDateString("pt-BR")}</span> : <span />}
+                      {alvo && <span className="link" style={{ fontSize: "0.62rem" }}>Abrir tela →</span>}
+                    </div>
                   </div>
-                  <span style={{ fontSize: "0.68rem", lineHeight: 1.45, color: "var(--text-muted)", whiteSpace: "pre-line" }}>{n.body}</span>
-                  {n.createdAt && <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.58rem", color: "var(--text-muted)" }}>{new Date(n.createdAt).toLocaleDateString("pt-BR")}</span>}
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </span>
@@ -449,7 +545,10 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
                 <small style={{ fontSize: "0.64rem", color: "var(--text-muted)" }}>{user?.email || currentUserRoleLabel(user)}</small>
               </div>
               <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "0.72rem" }} onClick={() => router.push("/configuracoes")}>Configurações</button>
-              {(String((user as { role?: string } | null)?.role || "").toUpperCase() === "ADMIN" || (user as { isSystemMaster?: boolean } | null)?.isSystemMaster) && (
+              {user?.isSystemMaster && (
+                <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "0.72rem" }} onClick={() => router.push("/master")}>Master</button>
+              )}
+              {(String(user?.role || "").toUpperCase() === "ADMIN" || user?.isSystemMaster) && (
                 <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "0.72rem" }} onClick={() => router.push("/gerencial")}>Gerencial</button>
               )}
               <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "0.72rem", color: "var(--hbx-danger)" }} onClick={sairTopo} disabled={signingOut}>

@@ -2474,7 +2474,7 @@ export class RadarCoreDeliveryMixin {
       orderBy: { createdAt: 'desc' },
       select: { status: true },
     }).catch(() => null);
-    if (blocked) throw new BadRequestException('Este e-mail estÃ¡ marcado como nÃ£o contactar.');
+    if (blocked) throw new BadRequestException('Este e-mail está marcado como não contactar.');
     return email;
   }
 
@@ -2487,7 +2487,7 @@ export class RadarCoreDeliveryMixin {
     }).catch(() => null);
     if (!row) throw new NotFoundException('Card do Radar nao encontrado.');
     if (this.isRadarProtectedStatus(row?.companyStates?.[0]?.status || row?.status)) {
-      throw new BadRequestException('Este card estÃ¡ marcado como negativo/bloqueado e nÃ£o pode receber sugestÃ£o ativa de envio.');
+      throw new BadRequestException('Este card está marcado como negativo/bloqueado e não pode receber sugestão ativa de envio.');
     }
     const recipientEmail = String(body?.recipientEmail || this.inferCommercialEmailFromRadarLead(row) || '').trim().toLowerCase();
     const draft = buildHbxPresentationEmailDraft({
@@ -2548,7 +2548,7 @@ export class RadarCoreDeliveryMixin {
         status: 'blocked',
         reason: 'policy',
       });
-      throw new BadRequestException('Este card estÃ¡ marcado como negativo/bloqueado e nÃ£o pode receber sugestÃ£o ativa de envio.');
+      throw new BadRequestException('Este card está marcado como negativo/bloqueado e não pode receber sugestão ativa de envio.');
     }
     let recipientEmail = '';
     try {
@@ -2735,7 +2735,7 @@ export class RadarCoreDeliveryMixin {
         leadId: row.id,
         companyId: ownerCompanyId,
         eventType: 'ownership_released',
-        note: 'Reserva liberada automaticamente apÃ³s 72h sem aÃ§Ã£o.',
+        note: 'Reserva liberada automaticamente após 72h sem ação.',
         statusFrom: previousStatus,
         statusTo: 'clean',
       });
@@ -2769,7 +2769,7 @@ export class RadarCoreDeliveryMixin {
     if (ownershipEnabled) {
       const ownerCompanyId = Math.trunc(Number(row?.ownerCompanyId || 0)) || 0;
       if (ownerCompanyId && ownerCompanyId !== context.companyId) {
-        throw new ForbiddenException('Este card jÃ¡ estÃ¡ na carteira de outra empresa.');
+        throw new ForbiddenException('Este card já está na carteira de outra empresa.');
       }
       const claimed = await (this.prisma as any).radarLeadPool.updateMany({
         where: {
@@ -2863,7 +2863,7 @@ export class RadarCoreDeliveryMixin {
     const ownershipEnabled = await this.supportsRadarOwnershipPersistence();
     const ownerCompanyId = Math.trunc(Number(row?.ownerCompanyId || 0)) || 0;
     if (ownershipEnabled && ownerCompanyId && ownerCompanyId !== context.companyId) {
-      throw new ForbiddenException('Este card jÃ¡ estÃ¡ na carteira de outra empresa.');
+      throw new ForbiddenException('Este card já está na carteira de outra empresa.');
     }
 
     const eventType = String(input.eventType || '').trim().toLowerCase() as RadarLeadEventType;
@@ -3074,8 +3074,8 @@ export class RadarCoreDeliveryMixin {
       companyStatus: 'in_attendance',
       eventType: 'ownership_reserved',
       note: assignedUserId
-        ? `Card reservado para envio ao mÃ³dulo Vendas do vendedor ${assignedUserId}.`
-        : 'Card reservado para envio ao mÃ³dulo Vendas.',
+        ? `Card reservado para envio ao módulo Vendas do vendedor ${assignedUserId}.`
+        : 'Card reservado para envio ao módulo Vendas.',
       assignedUserId,
       assignedByUserId,
       countUsage: false,
@@ -3315,7 +3315,7 @@ export class RadarCoreDeliveryMixin {
         failedCount += 1;
         failures.push({
           radarLeadId,
-          error: 'Todos os vendedores atingiram limite diÃ¡rio ou limite de cards ativos.',
+          error: 'Todos os vendedores atingiram limite diário ou limite de cards ativos.',
         });
         continue;
       }
@@ -3327,7 +3327,7 @@ export class RadarCoreDeliveryMixin {
         await this.recordDailyDistributionSkip(context.companyId, Number(target.id), targetDailyLimit, 'limite_diario_atingido', dayKey);
         failures.push({
           radarLeadId,
-          error: 'Limite diÃ¡rio do vendedor atingido.',
+          error: 'Limite diário do vendedor atingido.',
         });
         continue;
       }
@@ -3374,7 +3374,7 @@ export class RadarCoreDeliveryMixin {
     }
 
     if (!distributedCount && failures.length) {
-      throw new BadRequestException(`Nenhum card foi distribuÃ­do. Primeira falha: ${failures[0]?.error || 'erro desconhecido'}`);
+      throw new BadRequestException(`Nenhum card foi distribuído. Primeira falha: ${failures[0]?.error || 'erro desconhecido'}`);
     }
 
     return {
@@ -3385,8 +3385,8 @@ export class RadarCoreDeliveryMixin {
       failures,
       message:
         failedCount > 0
-          ? `${distributedCount} card(s) distribuÃ­dos. ${failedCount} falharam ou foram protegidos.`
-          : `${distributedCount} card(s) distribuÃ­dos entre ${targets.length} vendedor(es).`,
+          ? `${distributedCount} card(s) distribuídos. ${failedCount} falharam ou foram protegidos.`
+          : `${distributedCount} card(s) distribuídos entre ${targets.length} vendedor(es).`,
     };
   }
 }

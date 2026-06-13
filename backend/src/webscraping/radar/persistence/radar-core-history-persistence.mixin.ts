@@ -570,9 +570,9 @@ export class RadarCoreHistoryPersistenceMixin {
     user: any,
   ) {
     return [
-      `Oi, tudo bem? Aqui Ã© ${this.buildSpeakerName(user)} da ${this.buildCompanyName(user)}.`,
-      `Vi a ${result.name} em ${city} e trabalho com soluÃ§Ã£o para ${segment.toLowerCase()}.`,
-      'Posso te explicar em 1 minuto e ver se faz sentido para vocÃªs?',
+      `Oi, tudo bem? Aqui é ${this.buildSpeakerName(user)} da ${this.buildCompanyName(user)}.`,
+      `Vi a ${result.name} em ${city} e trabalho com solução para ${segment.toLowerCase()}.`,
+      'Posso te explicar em 1 minuto e ver se faz sentido para vocês?',
     ].join(' ');
   }
 

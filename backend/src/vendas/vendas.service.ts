@@ -17,7 +17,7 @@ import {
   type CommercialPlanCapabilities,
   type CommercialPlanTier,
 } from '../commercial-plans/commercial-plan-catalog';
-import { HbxPresentationEmailService } from '../mail/hbx-presentation-email.service';
+import { CompanyPresentationEmailService } from '../mail/company-presentation-email.service';
 import { ConversationsService } from '../messaging/conversations.service';
 import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
 import { buildWhatsAppPhoneCandidates } from '../messaging/whatsapp-channel';
@@ -314,7 +314,8 @@ export class VendasService {
     private readonly inboxService: InboxService,
     private readonly webwhatsBridge: WebwhatsBridgeService,
     private readonly commercialPlansService: CommercialPlansService,
-    private readonly hbxPresentationEmails: HbxPresentationEmailService,
+    // PR12062026005: apresentação do Vendas sai pelo e-mail DA EMPRESA (CompanyMailer)
+    private readonly companyPresentationEmails: CompanyPresentationEmailService,
     private readonly commercialUsageLimits: CommercialUsageLimitsService,
     private readonly hbxCommissionSync: HbxCommissionSyncService,
     private readonly authService: AuthService,
@@ -5404,7 +5405,7 @@ export class VendasService {
       sellerName: user?.name || user?.displayName || user?.email || 'HBX',
       companyName: 'HBX',
     });
-    const preview = await this.hbxPresentationEmails.previewPresentationToContact({
+    const preview = await this.companyPresentationEmails.previewPresentationForCompany(companyId, {
       companyId,
       userId,
       recipientName: body?.recipientName || lead.name || 'cliente',
@@ -5487,7 +5488,7 @@ export class VendasService {
         recipientEmail,
         subject,
       });
-      const result = await this.hbxPresentationEmails.sendPresentationToContact({
+      const result = await this.companyPresentationEmails.sendPresentationForCompany(companyId, {
         companyId,
         userId,
         recipientName,

@@ -400,9 +400,9 @@ export class RadarCoreSearchRunnerMixin {
 
   private expandHbxSegmentAliases(segments: string[]) {
     const aliases = new Map<string, string[]>([
-      ['acougue', ['aÃ§ougue', 'aÃ§ougues', 'casa de carnes', 'carnes', 'boutique de carnes', 'frigorÃ­fico varejo']],
-      ['acougues', ['aÃ§ougue', 'aÃ§ougues', 'casa de carnes', 'carnes', 'boutique de carnes', 'frigorÃ­fico varejo']],
-      ['casa de carnes', ['casa de carnes', 'aÃ§ougue', 'aÃ§ougues', 'carnes']],
+      ['acougue', ['açougue', 'açougues', 'casa de carnes', 'carnes', 'boutique de carnes', 'frigorífico varejo']],
+      ['acougues', ['açougue', 'açougues', 'casa de carnes', 'carnes', 'boutique de carnes', 'frigorífico varejo']],
+      ['casa de carnes', ['casa de carnes', 'açougue', 'açougues', 'carnes']],
     ]);
     const expanded: string[] = [];
     for (const segment of segments) {
@@ -567,14 +567,14 @@ export class RadarCoreSearchRunnerMixin {
     }
     if (this.isSeniorHealthCommercialIntent(input)) {
       for (const compatible of [
-        'clÃ­nicas geriÃ¡tricas',
+        'clínicas geriátricas',
         'cuidadores de idosos',
-        'farmÃ¡cias',
-        'laboratÃ³rios',
+        'farmácias',
+        'laboratórios',
         'fisioterapia',
-        'Ã³ticas',
+        'óticas',
         'casas de repouso',
-        'associaÃ§Ãµes terceira idade',
+        'associações terceira idade',
       ]) {
         channelQueries.push(this.compactQuery([compatible, city, state, 'contato']));
       }
