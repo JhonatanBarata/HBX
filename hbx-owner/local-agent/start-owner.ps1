@@ -12,6 +12,16 @@ if (-not $env:HBX_OWNER_LOCAL_TOKEN) {
   $env:HBX_OWNER_LOCAL_TOKEN = (Get-Content $tokenFile -Raw).Trim()
 }
 
+# Ponte VPS: o agent fala com o Ops Control (que já tem SSH). Se o token não veio do
+# ambiente, lê o OPS_CONTROL_TOKEN do .env.ops-control da raiz (gitignored). Sem segredo novo.
+if (-not $env:HBX_OWNER_OPS_TOKEN) {
+  $opsEnv = Join-Path $agentDir "..\..\.env.ops-control"
+  if (Test-Path $opsEnv) {
+    $line = Select-String -Path $opsEnv -Pattern '^\s*OPS_CONTROL_TOKEN\s*=' -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($line) { $env:HBX_OWNER_OPS_TOKEN = ($line.Line -replace '^\s*OPS_CONTROL_TOKEN\s*=', '').Trim() }
+  }
+}
+
 $port = if ($env:HBX_OWNER_LOCAL_AGENT_PORT) { $env:HBX_OWNER_LOCAL_AGENT_PORT } else { "3107" }
 
 # Se já está no ar, só abre o navegador; senão, sobe o agent.

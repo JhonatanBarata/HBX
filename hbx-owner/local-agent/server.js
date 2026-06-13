@@ -26,6 +26,10 @@ const ticketsDir = path.join(rootDir, "docs", "PLANEJAMENTOS");
 // Backend do produto (para Banco de Leads e import local→VPS). Token opcional.
 const backendUrl = String(process.env.HBX_OWNER_BACKEND_URL || "http://127.0.0.1:3000").replace(/\/+$/, "");
 const backendToken = String(process.env.HBX_OWNER_BACKEND_TOKEN || "").trim();
+// Ops Control = ponte JÁ pronta pra VPS (SSH + controles). Reaproveitamos por proxy:
+// a coluna VPS da guia Sistema fala com o Ops Control (modo ssh), não duplica SSH aqui.
+const opsUrl = String(process.env.HBX_OWNER_OPS_URL || "http://127.0.0.1:3099").replace(/\/+$/, "");
+const opsToken = String(process.env.HBX_OWNER_OPS_TOKEN || "").trim();
 const runs = new Map();
 
 const STATIC_TYPES = {
@@ -726,6 +730,210 @@ async function readSystemSnapshot() {
   };
 }
 
+// ---------- VPS (via Ops Control, que já tem SSH pronto) ----------
+// Proxy fino: o agent NÃO abre SSH; conversa com o Ops Control (modo ssh → VPS).
+function opsRequest(method, route, payload, timeoutMs = 45000) {
+  return new Promise((resolve) => {
+    if (!opsToken) {
+      resolve({ ok: false, configured: false, reason: "ops_token_ausente" });
+      return;
+    }
+    let target;
+    try {
+      target = new URL(`${opsUrl}${route}`);
+    } catch (error) {
+      resolve({ ok: false, configured: true, reason: `URL ops invalida: ${error.message}` });
+      return;
+    }
+    const data = payload ? Buffer.from(JSON.stringify(payload)) : null;
+    const headers = { Accept: "application/json", Authorization: `Bearer ${opsToken}` };
+    if (data) {
+      headers["Content-Type"] = "application/json";
+      headers["Content-Length"] = data.length;
+    }
+    const req = http.request(
+      { hostname: target.hostname, port: target.port || 80, path: target.pathname + target.search, method, headers, timeout: timeoutMs },
+      (response) => {
+        let body = "";
+        response.on("data", (chunk) => {
+          if (body.length < 400000) body += chunk.toString("utf8");
+        });
+        response.on("end", () => {
+          let parsed = null;
+          try {
+            parsed = body ? JSON.parse(body) : null;
+          } catch {
+            parsed = null;
+          }
+          resolve({ ok: response.statusCode >= 200 && response.statusCode < 300, configured: true, statusCode: response.statusCode, data: parsed });
+        });
+      },
+    );
+    req.on("timeout", () => req.destroy(new Error("timeout")));
+    req.on("error", (error) => resolve({ ok: false, configured: true, reason: error.message }));
+    if (data) req.write(data);
+    req.end();
+  });
+}
+
+function parsePercentString(value) {
+  const match = String(value || "").match(/(\d+(?:\.\d+)?)/);
+  return match ? Math.round(Number(match[1])) : null;
+}
+
+function parseSizeToGb(value) {
+  const match = String(value || "").trim().match(/^([\d.]+)\s*([KMGTP])?i?B?$/i);
+  if (!match) return null;
+  const num = Number(match[1]);
+  if (!Number.isFinite(num)) return null;
+  const unit = (match[2] || "G").toUpperCase();
+  const factor = { K: 1 / 1e6, M: 1 / 1e3, G: 1, T: 1e3, P: 1e6 }[unit] ?? 1;
+  return Math.round(num * factor);
+}
+
+function buildVpsVerdict(ramPct, diskPct, load1, cores) {
+  const critical = [];
+  if (diskPct != null && diskPct >= 90) critical.push("disco no limite");
+  if (ramPct != null && ramPct >= 90) critical.push("RAM no limite");
+  if (cores && load1 != null && load1 >= cores * 1.5) critical.push("CPU saturada (load alto)");
+  if (critical.length) {
+    return { level: "buy", title: "Hora de agir", detail: `VPS no limite: ${critical.join(", ")}. Avalie subir o plano da VPS ou aliviar carga.` };
+  }
+  const tight = [];
+  if (diskPct != null && diskPct >= PRESSURE_LIMITS.disk) tight.push("disco");
+  if (ramPct != null && ramPct >= PRESSURE_LIMITS.ram) tight.push("RAM");
+  if (cores && load1 != null && load1 >= cores) tight.push("CPU (load ≥ núcleos)");
+  if (tight.length) {
+    return { level: "tight", title: "Começando a apertar", detail: `Na VPS, ${tight.join(" e ")} passou da faixa de aviso. Observe de perto.` };
+  }
+  return { level: "ok", title: "Ainda não", detail: "VPS com folga de recurso. Eu aviso quando começar a bater no teto." };
+}
+
+function parseLoadTriplet(loadStr) {
+  const parts = String(loadStr || "").trim().split(/\s+/);
+  // Number("") === 0 (não NaN), então só converte se a parte existir de verdade.
+  const num = (i) => (parts[i] ? Number(parts[i]) : NaN);
+  return { load1: num(0), load5: num(1), load15: num(2) };
+}
+
+function vpsContainersFrom(list) {
+  const isEngine = (name) => /^hbx-engine-\d+$/.test(name || "");
+  const all = Array.isArray(list) ? list : [];
+  const engineContainers = all.filter((c) => isEngine(c.name) || c.name === "hbx-scraping-engine");
+  const sysContainers = all
+    .filter((c) => SYSTEM_CONTAINERS.includes(c.name) || isEngine(c.name))
+    .map((c) => ({ name: c.name, state: c.state, status: c.status, cpu: c.cpu || "-", mem: c.memPercent || c.memUsage || "-" }));
+  return {
+    engines: { total: engineContainers.length, running: engineContainers.filter((c) => c.state === "running").length },
+    containers: sysContainers,
+  };
+}
+
+function buildVpsResult({ ramPct, diskPct, ramTotalGb, diskFreeGb, diskTotalGb, load, cpuPct, cores, engines, containers, containersAvailable, targetHost }) {
+  const load1 = Number.isFinite(load.load1) ? load.load1 : null;
+  const verdict = buildVpsVerdict(ramPct, diskPct, load1, cores);
+  const warnings = [];
+  if (diskPct != null && diskPct >= PRESSURE_LIMITS.disk) warnings.push(`Disco da VPS em ${diskPct}%`);
+  if (ramPct != null && ramPct >= PRESSURE_LIMITS.ram) warnings.push(`RAM da VPS em ${ramPct}%`);
+  if (cpuPct != null && cpuPct >= PRESSURE_LIMITS.cpu) warnings.push(`CPU da VPS em ${cpuPct}%${cores ? ` (load ${load1?.toFixed(2)} / ${cores} núcleos)` : ""}`);
+  else if (cores == null && load1 != null && load1 >= 8) warnings.push(`Carga (load 1m) da VPS alta: ${load1.toFixed(2)}`);
+  if (!containersAvailable) warnings.push("Containers da VPS não vieram (SSH/docker deu timeout sob carga)");
+  return {
+    ok: true,
+    configured: true,
+    generatedAt: nowIso(),
+    targetHost: targetHost || null,
+    pressure: {
+      ram: { usedPct: ramPct, limit: PRESSURE_LIMITS.ram, totalGb: ramTotalGb },
+      cpu: { usedPct: cpuPct, limit: PRESSURE_LIMITS.cpu, cores: cores },
+      disk: { usedPct: diskPct, limit: PRESSURE_LIMITS.disk, freeGb: diskFreeGb, totalGb: diskTotalGb },
+      load: { load1, load5: Number.isFinite(load.load5) ? load.load5 : null, load15: Number.isFinite(load.load15) ? load.load15 : null },
+    },
+    engines,
+    containers,
+    containersAvailable,
+    verdict,
+    warnings,
+  };
+}
+
+// Caminho preferido: snapshot leve (1 conexao SSH) com nproc → CPU% real.
+function mapSnapshot(data) {
+  const mem = data.memory || {};
+  const disk = data.disk || {};
+  const load = parseLoadTriplet(data.load);
+  const cores = Number.isFinite(Number(data.cores)) && Number(data.cores) > 0 ? Number(data.cores) : null;
+  const ramPct = Number.isFinite(Number(mem.usedPercent)) ? Math.round(Number(mem.usedPercent)) : null;
+  const cpuPct = cores && Number.isFinite(load.load1) ? Math.min(100, Math.round((load.load1 / cores) * 100)) : null;
+  const { engines, containers } = vpsContainersFrom(data.containers);
+  const containersAvailable = Array.isArray(data.containers) && data.containers.length > 0;
+  return buildVpsResult({
+    ramPct,
+    diskPct: parsePercentString(disk.usedPercent),
+    ramTotalGb: mem.totalMb ? Math.round(Number(mem.totalMb) / 1000) : null,
+    diskFreeGb: parseSizeToGb(disk.available),
+    diskTotalGb: parseSizeToGb(disk.size),
+    load,
+    cpuPct,
+    cores,
+    engines,
+    containers,
+    containersAvailable,
+    targetHost: data.target || null,
+  });
+}
+
+// Fallback: overview do Ops Control (8 conexoes SSH; docker costuma dar timeout sob carga).
+function mapOverview(data) {
+  const mem = data.memory || {};
+  const disk = data.disk || {};
+  const load = parseLoadTriplet(data.load);
+  const ramPct = Number.isFinite(Number(mem.usedPercent)) ? Math.round(Number(mem.usedPercent)) : null;
+  const { engines, containers } = vpsContainersFrom(data.containers);
+  const dockerTimedOut = (data.errors || []).some((e) => /timeout|docker/i.test(String(e || ""))) && containers.length === 0;
+  return buildVpsResult({
+    ramPct,
+    diskPct: parsePercentString(disk.usedPercent),
+    ramTotalGb: mem.totalMb ? Math.round(Number(mem.totalMb) / 1000) : null,
+    diskFreeGb: parseSizeToGb(disk.available),
+    diskTotalGb: parseSizeToGb(disk.size),
+    load,
+    cpuPct: null,
+    cores: null,
+    engines,
+    containers,
+    containersAvailable: !dockerTimedOut,
+    targetHost: data.targetHost || null,
+  });
+}
+
+async function readVpsSystem() {
+  if (!opsToken) {
+    return { ok: false, configured: false, reason: "ops_token_ausente", message: "Configure HBX_OWNER_OPS_TOKEN (token do Ops Control)." };
+  }
+  // 1) Snapshot leve (preferido). 2) Fallback overview se o Ops Control for o antigo.
+  const snap = await opsRequest("GET", "/api/host-snapshot/vps", null, 25000);
+  if (snap.ok && snap.data && snap.data.available !== false && snap.data.memory) {
+    return mapSnapshot(snap.data);
+  }
+  const ov = await opsRequest("GET", "/api/overview", null, 45000);
+  if (!ov.ok || !ov.data) {
+    return { ok: false, configured: true, reason: ov.reason || snap.reason || `http_${ov.statusCode || snap.statusCode || "?"}`, message: "Ops Control não respondeu (VPS pode estar sob carga)." };
+  }
+  return mapOverview(ov.data);
+}
+
+function clampEngineRange(body) {
+  const from = clampInt(body.from, 1, 1, 200);
+  const to = clampInt(body.to, from, 1, 200);
+  if (to < from) return { from, to: from };
+  if (to - from > 49) return { from, to: from + 49 };
+  return { from, to };
+}
+
+const VPS_QUICK_TARGETS = new Set(["scrapingEngine", "backend", "webscraping"]);
+const VPS_QUICK_ACTIONS = new Set(["start", "stop", "restart"]);
+
 // ---------- Caça de e-mail (via backend Radar — o "chefe") ----------
 const ownerCompanyId = Number(process.env.HBX_OWNER_COMPANY_ID || 2) || 2;
 
@@ -923,6 +1131,69 @@ async function route(req, res) {
     return;
   }
 
+  // ----- VPS (via Ops Control). Leitura assíncrona + controles que já existiam. -----
+  if (req.method === "GET" && url.pathname === "/owner/vps/system") {
+    sendJson(res, 200, await readVpsSystem());
+    return;
+  }
+
+  // Parar/Ligar frota numerada hbx-engine-N na VPS (o "parar motor" do dono).
+  const vpsEngineMatch = url.pathname.match(/^\/owner\/vps\/engines\/(stop|start)$/);
+  if (req.method === "POST" && vpsEngineMatch) {
+    const action = vpsEngineMatch[1];
+    const body = await readBody(req);
+    if (action === "stop" && body.confirm !== true && body.confirmation !== "CONFIRMAR") {
+      sendError(res, 400, "Confirmacao obrigatoria para parar motores da VPS.");
+      return;
+    }
+    const { from, to } = clampEngineRange(body);
+    const response = await opsRequest("POST", `/api/engines/${action}-range`, { from, to });
+    if (!response.configured) {
+      sendJson(res, 200, { ok: false, reason: "ops_token_ausente", message: "Configure HBX_OWNER_OPS_TOKEN." });
+      return;
+    }
+    sendJson(res, response.ok ? 200 : 502, { ok: response.ok, action, from, to, ops: response.data, reason: response.reason });
+    return;
+  }
+
+  // Parar/Ligar/Reiniciar um serviço único na VPS (motor único, backend, webscraping).
+  const vpsQuickMatch = url.pathname.match(/^\/owner\/vps\/quick\/([^/]+)\/(start|stop|restart)$/);
+  if (req.method === "POST" && vpsQuickMatch) {
+    const target = vpsQuickMatch[1];
+    const action = vpsQuickMatch[2];
+    if (!VPS_QUICK_TARGETS.has(target) || !VPS_QUICK_ACTIONS.has(action)) {
+      sendError(res, 400, "Alvo ou acao invalida para a VPS.");
+      return;
+    }
+    const body = await readBody(req);
+    if ((action === "stop" || action === "restart") && body.confirm !== true && body.confirmation !== "CONFIRMAR") {
+      sendError(res, 400, "Confirmacao obrigatoria para esta acao na VPS.");
+      return;
+    }
+    const response = await opsRequest("POST", `/api/quick/${target}/${action}`);
+    if (!response.configured) {
+      sendJson(res, 200, { ok: false, reason: "ops_token_ausente", message: "Configure HBX_OWNER_OPS_TOKEN." });
+      return;
+    }
+    sendJson(res, response.ok ? 200 : 502, { ok: response.ok, target, action, ops: response.data, reason: response.reason });
+    return;
+  }
+
+  // Cancelar scraping forçado na VPS (via backend da VPS, escopo vps).
+  if (req.method === "POST" && url.pathname === "/owner/vps/cancel") {
+    const body = await readBody(req);
+    if (body.confirm !== true && body.confirmation !== "CONFIRMAR") {
+      sendError(res, 400, "Confirmacao obrigatoria para cancelar o scraping da VPS.");
+      return;
+    }
+    const response = await opsRequest("POST", "/api/opscontrol/cancel", { scope: "vps", force: Boolean(body.force) });
+    if (!response.configured) {
+      sendJson(res, 200, { ok: false, reason: "ops_token_ausente", message: "Configure HBX_OWNER_OPS_TOKEN." });
+      return;
+    }
+    sendJson(res, response.ok ? 200 : 502, { ok: response.ok, ops: response.data, reason: response.reason });
+    return;
+  }
 
   if (req.method === "GET" && url.pathname === "/health") {
     sendJson(res, 200, {
@@ -933,6 +1204,9 @@ async function route(req, res) {
       cwd: rootDir,
       commands: Object.keys(allowlist).length,
       runs: runs.size,
+      backendConfigured: Boolean(backendToken),
+      opsConfigured: Boolean(opsToken),
+      opsUrl,
       now: nowIso(),
     });
     return;

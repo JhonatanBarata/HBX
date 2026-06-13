@@ -58,9 +58,17 @@ Bootstrap do master: produção mantém `BOOTSTRAP_SYSTEM_MASTER=false`.
   elásticos via `/webscraping/engines/status`, pressão RAM/CPU/disco da máquina,
   veredito "preciso de mais servidor?", containers, Banco de Leads e Exportar local→VPS),
   **Código** (git), **Execução** (allowlist + runs), **Config**.
-- A guia Sistema substitui o cockpit do Ops Control para o uso do dono (Email Lab cortado:
+- A guia **Sistema** tem DUAS colunas: **localhost** (pressão/motores/containers lidos
+  nativamente pelo agent) e **VPS** (lida e controlada via Ops Control). A coluna VPS NÃO
+  abre SSH próprio — proxia o Ops Control (`HBX_OWNER_OPS_URL`/`HBX_OWNER_OPS_TOKEN`, token
+  vindo do `.env.ops-control` pelo start-owner.ps1). Leitura: snapshot leve de 1 conexão
+  (`/api/host-snapshot/vps`, fallback `/api/overview`) → RAM/CPU(load÷núcleos)/disco +
+  containers + veredito. Controles VPS: parar/ligar frota `hbx-engine-N` (`engines/stop-range`/
+  `start-range`), parar motor único (`quick/scrapingEngine/stop`), cancelar scraping
+  (`opscontrol/cancel` escopo vps) — destrutivos exigem confirmação.
+- A guia Sistema cobre o cockpit do Ops Control para o uso do dono (Email Lab cortado:
   o filtro "e-mail obrigatório" na busca já cobre). O Ops Control (`:3099`) segue existindo
-  para operação SSH da VPS.
+  para operação SSH da VPS — e agora é também a ponte que alimenta a coluna VPS do Owner.
 - Banco de Leads e Exportar usam o backend via `HBX_OWNER_BACKEND_URL` +
   `HBX_OWNER_BACKEND_TOKEN` (JWT do dono). Sem token, o painel degrada com aviso, não quebra.
 - Exportar = enviar leads do Local Lab para a VPS (que os importa via

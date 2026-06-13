@@ -177,6 +177,18 @@ body {
 .cmd-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .cmd-row code { color: var(--text-muted); font-size: .76rem; }
 
+/* Sistema — duas colunas (localhost | VPS) */
+.sys-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+@media (max-width: 980px) { .sys-cols { grid-template-columns: 1fr; } }
+.env-col { min-width: 0; }
+.env-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-bottom: 10px; }
+.env-head h2 { margin: 0; font-size: 1.05rem; order: 1; }
+.env-head .env-host { color: var(--text-muted); font-weight: 400; font-size: .8rem; }
+.env-head .icon-btn { order: 2; margin-left: auto; width: 30px; height: 30px; font-size: 1rem; }
+.env-head .resumo { order: 3; flex-basis: 100%; margin: 0; }
+.env-vps { border-left: 2px solid var(--border); padding-left: 20px; }
+@media (max-width: 980px) { .env-vps { border-left: none; padding-left: 0; } }
+
 /* Sistema */
 .resumo {
   background: rgba(22, 163, 74, .10);

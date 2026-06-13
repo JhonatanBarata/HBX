@@ -85,45 +85,97 @@
     <section class="panel" data-panel="sistema">
       <div class="panel-head">
         <h1>Sistema</h1>
-        <p>Motores elásticos, pressão e capacidade — o que está acontecendo agora</p>
+        <p>Localhost (esquerda) e VPS (direita) — pressão, motores e capacidade agora</p>
       </div>
 
-      <div id="sys-resumo" class="resumo">Lendo o sistema…</div>
-      <div id="sys-warnings"></div>
+      <div class="sys-cols">
+        <!-- COLUNA LOCALHOST -->
+        <section class="env-col" data-env="local">
+          <header class="env-head">
+            <h2>Localhost</h2>
+            <span id="sys-resumo" class="resumo">Lendo o local…</span>
+          </header>
+          <div id="sys-warnings"></div>
 
-      <div class="card">
-        <div class="focus-row">
-          <span class="label"><i class="ti"></i>Motores elásticos</span>
-          <span id="sys-governor" class="pill pill-muted">—</span>
-        </div>
-        <div class="bar"><div id="sys-bar-alive" class="bar-fill"></div></div>
-        <div class="bar-legend">
-          <span id="sys-engines-counts">—</span>
-          <span id="sys-engines-reason"></span>
-        </div>
-        <div class="focus-row" style="margin-top:14px;">
-          <span id="sys-factory-state" class="pill pill-muted">—</span>
-          <div class="btn-row">
-            <button id="btn-factory-stop" class="btn btn-red">Parar tudo</button>
-            <button id="btn-factory-resume" class="btn btn-green">Ligar</button>
+          <div class="card">
+            <div class="focus-row">
+              <span class="label">Motores elásticos</span>
+              <span id="sys-governor" class="pill pill-muted">—</span>
+            </div>
+            <div class="bar"><div id="sys-bar-alive" class="bar-fill"></div></div>
+            <div class="bar-legend">
+              <span id="sys-engines-counts">—</span>
+              <span id="sys-engines-reason"></span>
+            </div>
+            <div class="focus-row" style="margin-top:14px;">
+              <span id="sys-factory-state" class="pill pill-muted">—</span>
+              <div class="btn-row">
+                <button id="btn-factory-stop" class="btn btn-red">Parar tudo</button>
+                <button id="btn-factory-resume" class="btn btn-green">Ligar</button>
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
 
-      <div class="grid-3">
-        <div class="card metric"><span class="label">RAM</span><strong id="sys-ram">—</strong><div class="bar sm"><div id="sys-ram-bar" class="bar-fill"></div></div><small id="sys-ram-limit" class="delta"></small></div>
-        <div class="card metric"><span class="label">CPU</span><strong id="sys-cpu">—</strong><div class="bar sm"><div id="sys-cpu-bar" class="bar-fill"></div></div><small id="sys-cpu-limit" class="delta"></small></div>
-        <div class="card metric"><span class="label">Disco</span><strong id="sys-disk">—</strong><div class="bar sm"><div id="sys-disk-bar" class="bar-fill"></div></div><small id="sys-disk-limit" class="delta"></small></div>
-      </div>
+          <div class="grid-3">
+            <div class="card metric"><span class="label">RAM</span><strong id="sys-ram">—</strong><div class="bar sm"><div id="sys-ram-bar" class="bar-fill"></div></div><small id="sys-ram-limit" class="delta"></small></div>
+            <div class="card metric"><span class="label">CPU</span><strong id="sys-cpu">—</strong><div class="bar sm"><div id="sys-cpu-bar" class="bar-fill"></div></div><small id="sys-cpu-limit" class="delta"></small></div>
+            <div class="card metric"><span class="label">Disco</span><strong id="sys-disk">—</strong><div class="bar sm"><div id="sys-disk-bar" class="bar-fill"></div></div><small id="sys-disk-limit" class="delta"></small></div>
+          </div>
 
-      <div id="sys-verdict" class="card verdict">
-        <div class="verdict-head"><i class="ti ti-server-2"></i><strong id="sys-verdict-title">Preciso de mais servidor?</strong></div>
-        <p id="sys-verdict-detail" class="verdict-detail">—</p>
-      </div>
+          <div id="sys-verdict" class="card verdict">
+            <div class="verdict-head"><strong id="sys-verdict-title">Preciso de mais servidor?</strong></div>
+            <p id="sys-verdict-detail" class="verdict-detail">—</p>
+          </div>
 
-      <div class="card">
-        <span class="label">Containers</span>
-        <div id="sys-containers" class="list-mini"><div class="empty">—</div></div>
+          <div class="card">
+            <span class="label">Containers</span>
+            <div id="sys-containers" class="list-mini"><div class="empty">—</div></div>
+          </div>
+        </section>
+
+        <!-- COLUNA VPS -->
+        <section class="env-col env-vps" data-env="vps">
+          <header class="env-head">
+            <h2>VPS <small id="vps-host" class="env-host"></small></h2>
+            <span id="vps-status" class="resumo">—</span>
+            <button id="btn-vps-refresh" class="icon-btn" title="Reler a VPS">⟳</button>
+          </header>
+          <div id="vps-warnings"></div>
+
+          <div class="grid-3">
+            <div class="card metric"><span class="label">RAM</span><strong id="vps-ram">—</strong><div class="bar sm"><div id="vps-ram-bar" class="bar-fill"></div></div><small id="vps-ram-limit" class="delta"></small></div>
+            <div class="card metric"><span class="label">CPU</span><strong id="vps-load">—</strong><div class="bar sm"><div id="vps-load-bar" class="bar-fill"></div></div><small id="vps-load-detail" class="delta"></small></div>
+            <div class="card metric"><span class="label">Disco</span><strong id="vps-disk">—</strong><div class="bar sm"><div id="vps-disk-bar" class="bar-fill"></div></div><small id="vps-disk-limit" class="delta"></small></div>
+          </div>
+
+          <div class="card">
+            <div class="focus-row">
+              <span class="label">Motores na VPS</span>
+              <span id="vps-engines" class="pill pill-muted">—</span>
+            </div>
+            <div class="form-grid" style="margin-top:10px;">
+              <label>De (motor nº)<input id="vps-from" type="number" min="1" max="200" value="1" /></label>
+              <label>Até (motor nº)<input id="vps-to" type="number" min="1" max="200" value="3" /></label>
+            </div>
+            <div class="btn-row" style="margin-top:12px;">
+              <button id="btn-vps-engines-stop" class="btn btn-red">Parar motores</button>
+              <button id="btn-vps-engines-start" class="btn btn-green">Ligar motores</button>
+              <button id="btn-vps-motor-stop" class="btn btn-amber">Parar motor único</button>
+              <button id="btn-vps-cancel" class="btn btn-red">Cancelar scraping</button>
+            </div>
+            <span id="vps-feedback" class="delta"></span>
+          </div>
+
+          <div id="vps-verdict" class="card verdict">
+            <div class="verdict-head"><strong id="vps-verdict-title">Preciso de mais servidor?</strong></div>
+            <p id="vps-verdict-detail" class="verdict-detail">—</p>
+          </div>
+
+          <div class="card">
+            <span class="label">Containers da VPS</span>
+            <div id="vps-containers" class="list-mini"><div class="empty">—</div></div>
+          </div>
+        </section>
       </div>
 
       <div class="card metric">

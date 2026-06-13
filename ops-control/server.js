@@ -1206,6 +1206,57 @@ async function getContainersForEnvironment(environment) {
   };
 }
 
+// Snapshot leve de pressão do host em UMA conexao SSH (free + df + loadavg + nproc +
+// docker ps sem stats). Bem mais confiavel que /api/overview (8 conexoes) sob carga.
+async function collectHostSnapshot(environment) {
+  if (!['vps', 'localhost'].includes(environment)) {
+    throw createHttpError(400, 'Ambiente invalido.');
+  }
+  if (environment === 'vps' && !hasSshConfig()) {
+    return { environment, label: environmentLabel(environment), available: false, message: 'VPS sem credenciais SSH no Ops Control.' };
+  }
+  const script = [
+    'free -m',
+    "echo '@@DF@@'",
+    'df -hP /',
+    "echo '@@LOAD@@'",
+    'cat /proc/loadavg',
+    "echo '@@CORES@@'",
+    'nproc',
+    "echo '@@PS@@'",
+    "docker ps -a --format '{{.Names}}\\t{{.State}}\\t{{.Status}}' 2>/dev/null",
+  ].join('; ');
+  const result = await runForEnvironment(environment, 'sh', ['-lc', script], { timeout: 20000, maxBuffer: 1024 * 1024 });
+  const out = String(result.stdout || '');
+  const section = (marker) => {
+    const start = out.indexOf(`@@${marker}@@`);
+    if (start === -1) return '';
+    const from = start + `@@${marker}@@`.length;
+    const rest = out.slice(from);
+    const nextMarker = rest.search(/@@[A-Z]+@@/);
+    return (nextMarker === -1 ? rest : rest.slice(0, nextMarker)).trim();
+  };
+  const memBlock = out.split('@@DF@@')[0] || '';
+  const cores = Number(String(section('CORES')).trim().split(/\s+/)[0]);
+  const containers = section('PS').split('\n').filter(Boolean).map((line) => {
+    const [name, state, status] = line.split('\t');
+    return { name, state, status };
+  });
+  return {
+    environment,
+    label: environmentLabel(environment),
+    target: environment === 'vps' ? sshConfig.host : 'localhost',
+    available: result.ok || Boolean(memBlock.trim()),
+    generatedAt: new Date().toISOString(),
+    memory: parseMemory(memBlock),
+    disk: parseDisk(section('DF')),
+    load: section('LOAD'),
+    cores: Number.isFinite(cores) ? cores : null,
+    containers,
+    errors: result.ok ? [] : [result.stderr || 'Snapshot SSH falhou.'],
+  };
+}
+
 async function dockerAction(name, action) {
   if (!validateName(name) || !dockerActions.has(action)) {
     return { status: 'rejected', stdout: '', stderr: 'Nome ou acao invalida.' };
@@ -1881,6 +1932,15 @@ app.get('/api/overview', async (req, res) => {
 
 app.get('/api/containers', async (req, res) => {
   res.json({ generatedAt: new Date().toISOString(), containers: await getContainers() });
+});
+
+// Snapshot leve (1 conexao SSH) — usado pela coluna VPS do HBX Owner.
+app.get('/api/host-snapshot/:environment', async (req, res) => {
+  try {
+    res.json(await collectHostSnapshot(req.params.environment));
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Falha ao ler snapshot do host.' });
+  }
 });
 
 app.get('/api/logs/:name', async (req, res) => {

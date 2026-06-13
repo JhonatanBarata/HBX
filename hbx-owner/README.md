@@ -24,10 +24,23 @@ $env:HBX_OWNER_BACKEND_TOKEN="<jwt-do-dono>"
 
 - **Hoje** — ponto e foco (estado em `local-agent/state/today.json`, sem banco).
 - **Tickets** — fila `.md` de `docs/PLANEJAMENTOS` (fonte unica, versionada).
-- **Caca** — Banco de Leads, Local Lab e Exportar local -> VPS.
+- **Sistema** — DUAS colunas: **localhost** (pressao/motores/containers nativos) e **VPS**
+  (via Ops Control). Pressao RAM/CPU/disco, motores elasticos, veredito "preciso de mais
+  servidor?" e controles da VPS (parar/ligar motores, parar motor unico, cancelar scraping).
+- **Caca de e-mail** — Banco de Leads + caçar novos pelo motor Radar.
 - **Codigo** — git status, branch, arquivos mudados.
 - **Execucao** — comandos da allowlist e ultimas execucoes.
-- **Config** — saude do agent.
+- **Config** — saude do agent (inclui se backend e Ops Control estao ligados).
+
+### Coluna VPS (guia Sistema)
+
+A direita da guia Sistema le e controla a VPS **reaproveitando o Ops Control** (que ja
+tem SSH pronto) — o agent nao abre SSH proprio. Leitura via snapshot leve de 1 conexao
+(`/api/host-snapshot/vps`, com fallback para `/api/overview`); controles via
+`engines/stop-range`, `start-range`, `quick/:target/:action` e `opscontrol/cancel`.
+
+Sem `HBX_OWNER_OPS_TOKEN` a coluna VPS degrada com aviso. O `start-owner.ps1` preenche
+esse token sozinho a partir do `.env.ops-control` da raiz — nao ha segredo novo.
 
 > O app desktop tkinter legado (`hbx-owner/windows-app/`, com SQLite) foi descontinuado.
 
