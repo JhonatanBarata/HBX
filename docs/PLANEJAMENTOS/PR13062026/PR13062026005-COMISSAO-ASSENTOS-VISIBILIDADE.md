@@ -5,6 +5,26 @@
 > desanima. Logo isto NÃO é desvio do foco; é o foco. Dono autorizou o build (domínio
 > PAGAMENTOS liberado nesta tarefa). 2 dias de prazo.
 
+## STATUS (13/06) — F1 ✅ · F2 ✅ · F3 🟡
+
+Entregue e testado (backend build + front lint/build; comissão 7/7, vendas 68/68). **Local, nada deployado.**
+
+### ⚠️ PRECISA ANTES DE TESTAR
+- **Reiniciar o container `hbx-backend`** — as 4 colunas novas (`setupValue`,
+  `setupCommissionAmount`, `setupCommissionStatus` no lead; `seatCap` na company) se
+  auto-criam no boot via runtime-ensure, e a lógica nova só vale após o restart.
+  Frontend já vale no `npm run up`.
+
+### PENDÊNCIAS (próxima sessão — não relido)
+1. **F3 — tabela de preço da mensalidade no modal de fechar** (pequeno): ler do catálogo
+   via API (sem hardcode) e mostrar List/Lead+/Full pra vendedora saber o valor ANTES de
+   fechar. Hoje ela vê o valor no card só DEPOIS.
+2. **Receivable `kind:'setup'` no payout** (follow-up): a comissão de implantação hoje vive
+   no lead e aparece no card + no resumo "a receber", mas NÃO vira linha formal no batch de
+   pagamento. Integrar quando for pagar comissão de verdade.
+3. **Cap na reativação** (follow-up): o teto rígido barra na CRIAÇÃO de acesso; reativar um
+   acesso inativo não passa pelo gate. Fechar se virar problema.
+
 ## Diagnóstico (o que já existe — confirmado lendo o código)
 
 - **Comissão da MENSALIDADE: ✅ funciona e é automática.** Mensalidade = preço do plano
