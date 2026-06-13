@@ -2,6 +2,9 @@
 
 // "Novo acesso" (PR12062026005) — cadastro COMPLETO de membro para TODO
 // admin (restauração da tela do front antigo, ordem do dono 12/06/2026).
+// 13/06/2026 (ordem do dono): o admin SÓ cria VENDEDOR — admin é singular/
+// pagante e quem cunha admin é o Master (/master). Por isso o seletor de papel
+// saiu daqui; role fica travado em USER.
 // Contratos:
 //   POST /users/company/create        → cria (senha opcional; "salvar
 //        documentação" = requiresSellerOnboarding → nasce inativa)
@@ -23,7 +26,7 @@ import { apiFetch } from "@/lib/api";
 
 type CompanyUser = { id: number; name?: string | null; username?: string | null; email?: string | null; role?: string | null; isActive?: boolean };
 
-type SeatBilling = { planTitle?: string; activeUsers?: number; includedUsers?: number; extraUserMonthlyPrice?: number; nextUserIsExtra?: boolean } | null;
+type SeatBilling = { planTitle?: string; activeUsers?: number; includedUsers?: number; extraUserMonthlyPrice?: number; nextUserIsExtra?: boolean; seatCap?: number | null; capReached?: boolean } | null;
 
 type OnboardingAttachment = { id: string; kind: string; status?: string | null; originalFilename?: string | null };
 
@@ -266,7 +269,7 @@ export function NovoAcessoModal({ onClose, onDone, team }: {
       style={{ position: "fixed", inset: 0, zIndex: 45, display: "grid", placeItems: "center", padding: 18 }}>
       <div className="hbx-modal" style={{ width: "min(880px, 100%)", maxHeight: "92vh", overflowY: "auto", display: "grid", gap: 14, padding: 22 }}>
         <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span>Novo acesso <small style={{ display: "block", fontSize: "0.64rem", fontWeight: 600, color: "var(--text-muted)" }}>Cadastro</small></span>
+          <span>Novo acesso <small style={{ display: "block", fontSize: "0.64rem", fontWeight: 600, color: "var(--text-muted)" }}>Cadastro de vendedor</small></span>
           <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={fechar}>✕</span>
         </h3>
 
@@ -277,6 +280,11 @@ export function NovoAcessoModal({ onClose, onDone, team }: {
             {seatInfo.nextUserIsExtra && seatInfo.extraUserMonthlyPrice
               ? ` Este acesso adiciona assento EXTRA de R$ ${Number(seatInfo.extraUserMonthlyPrice).toLocaleString("pt-BR")}/mês.`
               : ""}
+            {seatInfo.seatCap != null
+              ? (seatInfo.capReached
+                ? ` Teto de ${seatInfo.seatCap} assento(s) atingido — peça ao master para aumentar.`
+                : ` Teto rígido: ${seatInfo.seatCap} assento(s).`)
+              : ""}
           </div>
         )}
         {msg && <div style={{ fontSize: "0.72rem", fontWeight: 700, lineHeight: 1.5, color: msg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{msg}</div>}
@@ -284,15 +292,6 @@ export function NovoAcessoModal({ onClose, onDone, team }: {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18, alignItems: "start" }}>
           {/* coluna esquerda — formulário */}
           <form onSubmit={criar} style={{ display: "grid", gap: 11 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              {(["USER", "ADMIN"] as const).map(r => (
-                <button key={r} type="button" className="btn-ghost" disabled={painelAtivo}
-                  style={form.role === r ? { borderColor: "var(--hbx-brand)", color: "var(--hbx-brand-strong)", background: "var(--hbx-brand-soft)" } : {}}
-                  onClick={() => setForm(f => ({ ...f, role: r }))}>
-                  {r === "USER" ? "Vendedor" : "Admin"}
-                </button>
-              ))}
-            </div>
             <div style={{ display: "grid", gap: 6 }}>
               <label style={lbl}>Nome</label>
               <input className="field-dark" maxLength={120} value={form.name} disabled={painelAtivo}

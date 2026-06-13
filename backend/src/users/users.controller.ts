@@ -1062,6 +1062,12 @@ export class UsersController {
 		if (seatUsage.isTrial && role === 'USER' && seatUsage.activeSellers >= seatUsage.maxSellers) {
 			throw new BadRequestException('O free trial permite no máximo 2 vendedores ativos por empresa.');
 		}
+		// Teto RÍGIDO de assentos por empresa (PR13062026005): o master define
+		// quantos acessos a empresa pode ter; aqui barra a criação além do teto.
+		const seatCap = Number((seatUsage.company as any)?.seatCap || 0);
+		if (seatCap > 0 && seatUsage.activeUsers >= seatCap) {
+			throw new BadRequestException(`Esta empresa atingiu o teto de ${seatCap} assento(s). Aumente o teto de assentos no master para liberar mais acessos.`);
+		}
 
 		const email = String(dto?.email || '').trim().toLowerCase();
 		if (!email) throw new BadRequestException('email is required');
@@ -1308,6 +1314,12 @@ export class UsersController {
 		}
 		if (seatUsage.isTrial && role === 'USER' && seatUsage.activeSellers >= seatUsage.maxSellers) {
 			throw new BadRequestException('O free trial permite no máximo 2 vendedores ativos por empresa.');
+		}
+		// Teto RÍGIDO de assentos por empresa (PR13062026005): o master define
+		// quantos acessos a empresa pode ter; aqui barra a criação além do teto.
+		const seatCap = Number((seatUsage.company as any)?.seatCap || 0);
+		if (seatCap > 0 && seatUsage.activeUsers >= seatCap) {
+			throw new BadRequestException(`Esta empresa atingiu o teto de ${seatCap} assento(s). Aumente o teto de assentos no master para liberar mais acessos.`);
 		}
 
 		const email = String(dto?.email || '').trim().toLowerCase();

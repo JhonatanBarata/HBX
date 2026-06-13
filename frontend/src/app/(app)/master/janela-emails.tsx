@@ -17,12 +17,15 @@
 
 import React, { useEffect, useRef, useState } from "react";
 
+import { I, ICONS } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 
 type VariableDef = { key: string; token: string; label: string; group?: string; description?: string };
 
 type Template = {
   kind: string;
+  label?: string;
+  isSystem?: boolean;
   subject: string;
   text: string;
   html?: string | null;
@@ -32,6 +35,9 @@ type Template = {
   usesSignature?: boolean;
   usesAttachment?: boolean;
 };
+
+// rótulo de campo reutilizado (Lei 2 — visual repetido vira um único ponto)
+const lbl = { fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" } as const;
 
 type EmailState = {
   sender?: { from?: string | null; replyTo?: string | null; ready?: boolean; mode?: string; missing?: string[] };
@@ -59,6 +65,9 @@ export function JanelaEmails() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [restoreArm, setRestoreArm] = useState(false);
+  const [removerArm, setRemoverArm] = useState(false);
+  const [novoOpen, setNovoOpen] = useState(false);
+  const [novoLabel, setNovoLabel] = useState("");
   const textRef = useRef<HTMLTextAreaElement | null>(null);
 
   const [teste, setTeste] = useState({ to: "", sampleName: "", sampleCompany: "" });
@@ -118,7 +127,20 @@ export function JanelaEmails() {
     setMsg(null);
     setTesteMsg(null);
     setRestoreArm(false);
+    setRemoverArm(false);
     if (templates) aplicarTemplate(templates, k);
+  }
+
+  async function recarregarTemplates(selKind?: string) {
+    const res = await apiFetch<{ templates?: Template[] }>("/master/email/templates");
+    const lista = Array.isArray(res?.templates) ? res.templates : [];
+    setTemplates(lista);
+    const alvo = (selKind && lista.find(t => t.kind === selKind) && selKind)
+      || (lista.find(t => t.kind === kind) && kind)
+      || lista[0]?.kind
+      || "normal";
+    setKind(alvo);
+    aplicarTemplate(lista, alvo);
   }
 
   const atual = templates?.find(t => t.kind === kind) || null;
@@ -178,6 +200,43 @@ export function JanelaEmails() {
     } finally {
       setBusy(false);
       setRestoreArm(false);
+    }
+  }
+
+  async function criarTemplate(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const res = await apiFetch<{ template?: Template }>("/master/email/templates", {
+        method: "POST",
+        body: JSON.stringify({ label: novoLabel }),
+      });
+      setNovoOpen(false);
+      setNovoLabel("");
+      await recarregarTemplates(res?.template?.kind);
+      setMsg("✓ Template criado — escreva o conteúdo e salve.");
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : "Falha ao criar o template.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removerTemplate() {
+    if (busy || !atual || atual.isSystem) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      await apiFetch(`/master/email/templates/${encodeURIComponent(kind)}`, { method: "DELETE" });
+      await recarregarTemplates("normal");
+      setMsg("✓ Template removido.");
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : "Falha ao remover o template.");
+    } finally {
+      setBusy(false);
+      setRemoverArm(false);
     }
   }
 
@@ -297,9 +356,12 @@ export function JanelaEmails() {
         {(templates || []).map(t => (
           <button key={t.kind} className="btn-ghost" onClick={() => trocarKind(t.kind)}
             style={t.kind === kind ? { borderColor: "var(--hbx-brand)", color: "var(--hbx-brand-strong)", background: "var(--hbx-brand-soft)" } : {}}>
-            {KIND_LABEL[t.kind] || t.kind}
+            {t.label || KIND_LABEL[t.kind] || t.kind}
           </button>
         ))}
+        <button className="btn-teal" disabled={busy} onClick={() => { setNovoOpen(true); setNovoLabel(""); }} title="Criar template">
+          <I d={ICONS.plus} size={13} /> Novo
+        </button>
         {!templates && !loadError && <span style={{ fontSize: "0.74rem", color: "var(--text-muted)" }}>Carregando templates…</span>}
       </div>
 
@@ -307,12 +369,16 @@ export function JanelaEmails() {
         <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 14, alignItems: "start" }}>
           <section className="panel">
             <div className="panel-head">
-              <h2>{KIND_LABEL[atual.kind] || atual.kind}</h2>
+              <h2>{atual.label || KIND_LABEL[atual.kind] || atual.kind}</h2>
               <div className="meta">
-                {restoreArm ? (
-                  <button className="btn-ghost" style={{ borderColor: "var(--hbx-danger)", color: "var(--hbx-danger)" }} disabled={busy} onClick={restaurar}>
-                    Confirmar restauração
-                  </button>
+                {atual.isSystem === false ? (
+                  removerArm ? (
+                    <button className="btn-ghost btn-danger" disabled={busy} onClick={removerTemplate}>Confirmar remoção</button>
+                  ) : (
+                    <button className="btn-ghost btn-danger" disabled={busy} onClick={() => setRemoverArm(true)}>Remover</button>
+                  )
+                ) : restoreArm ? (
+                  <button className="btn-ghost btn-danger" disabled={busy} onClick={restaurar}>Confirmar restauração</button>
                 ) : (
                   <button className="btn-ghost" disabled={busy} onClick={() => setRestoreArm(true)}>Restaurar padrão</button>
                 )}
@@ -329,12 +395,12 @@ export function JanelaEmails() {
                 </span>
               )}
               <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Assunto</label>
+                <label style={lbl}>Assunto</label>
                 <input className="field-dark" maxLength={180} value={form.subject}
                   onChange={e => { setForm(f => ({ ...f, subject: e.target.value })); setDirty(true); }} />
               </div>
               <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Texto</label>
+                <label style={lbl}>Texto</label>
                 <textarea ref={textRef} className="field-dark" rows={14} maxLength={12000} value={form.text}
                   style={{ padding: "10px 12px", lineHeight: 1.55, resize: "vertical", minHeight: 260 }}
                   onChange={e => { setForm(f => ({ ...f, text: e.target.value })); setDirty(true); }} />
@@ -369,12 +435,12 @@ export function JanelaEmails() {
                 </span>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   <div style={{ display: "grid", gap: 6 }}>
-                    <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Nome do contato *</label>
+                    <label style={lbl}>Nome do contato *</label>
                     <input className="field-dark" required maxLength={120} value={envioForm.recipientName}
                       onChange={e => setEnvioForm(f => ({ ...f, recipientName: e.target.value }))} />
                   </div>
                   <div style={{ display: "grid", gap: 6 }}>
-                    <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>E-mail *</label>
+                    <label style={lbl}>E-mail *</label>
                     <input className="field-dark" type="email" required maxLength={180} value={envioForm.recipientEmail}
                       onChange={e => setEnvioForm(f => ({ ...f, recipientEmail: e.target.value }))} />
                   </div>
@@ -392,18 +458,18 @@ export function JanelaEmails() {
                   <div style={{ fontSize: "0.72rem", fontWeight: 700, color: testeMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)", lineHeight: 1.5 }}>{testeMsg}</div>
                 )}
                 <div style={{ display: "grid", gap: 6 }}>
-                  <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>E-mail de teste *</label>
+                  <label style={lbl}>E-mail de teste *</label>
                   <input className="field-dark" type="email" required maxLength={180} value={teste.to}
                     onChange={e => setTeste(t => ({ ...t, to: e.target.value }))} />
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   <div style={{ display: "grid", gap: 6 }}>
-                    <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Nome exemplo</label>
+                    <label style={lbl}>Nome exemplo</label>
                     <input className="field-dark" maxLength={120} value={teste.sampleName}
                       onChange={e => setTeste(t => ({ ...t, sampleName: e.target.value }))} />
                   </div>
                   <div style={{ display: "grid", gap: 6 }}>
-                    <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Empresa exemplo</label>
+                    <label style={lbl}>Empresa exemplo</label>
                     <input className="field-dark" maxLength={180} value={teste.sampleCompany}
                       onChange={e => setTeste(t => ({ ...t, sampleCompany: e.target.value }))} />
                   </div>
@@ -445,7 +511,7 @@ export function JanelaEmails() {
                         onChange={e => { upload("attachment", e.target.files?.[0] || null); e.target.value = ""; }} />
                     </label>
                     {estado?.attachment && (
-                      <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.64rem", color: "var(--hbx-danger)" }} disabled={uploadBusy != null}
+                      <button className="btn-ghost btn-danger" style={{ minHeight: 28, fontSize: "0.64rem" }} disabled={uploadBusy != null}
                         onClick={() => removerArquivo("attachment")}>Remover</button>
                     )}
                   </div>
@@ -460,7 +526,7 @@ export function JanelaEmails() {
                         onChange={e => { upload("business-card", e.target.files?.[0] || null); e.target.value = ""; }} />
                     </label>
                     {estado?.businessCard && (
-                      <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.64rem", color: "var(--hbx-danger)" }} disabled={uploadBusy != null}
+                      <button className="btn-ghost btn-danger" style={{ minHeight: 28, fontSize: "0.64rem" }} disabled={uploadBusy != null}
                         onClick={() => removerArquivo("business-card")}>Remover</button>
                     )}
                   </div>
@@ -468,6 +534,26 @@ export function JanelaEmails() {
               </div>
             </section>
           </div>
+        </div>
+      )}
+
+      {novoOpen && (
+        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setNovoOpen(false); }}
+          style={{ position: "fixed", inset: 0, zIndex: 46, display: "grid", placeItems: "center", padding: 24 }}>
+          <form className="hbx-modal" onSubmit={criarTemplate} style={{ width: "min(380px, 100%)", display: "grid", gap: 12, padding: 24 }}>
+            <h3 style={{ margin: 0, fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              Novo template
+              <span style={{ cursor: "pointer" }} onClick={() => setNovoOpen(false)}>✕</span>
+            </h3>
+            <div style={{ display: "grid", gap: 6 }}>
+              <label style={lbl}>Nome do template *</label>
+              <input className="field-dark" required minLength={3} maxLength={120} placeholder='Ex.: "Cobrança amigável"'
+                value={novoLabel} onChange={e => setNovoLabel(e.target.value)} />
+            </div>
+            <button className="btn-teal" type="submit" disabled={busy} style={{ minHeight: 40 }}>
+              {busy ? "Criando…" : "Criar template"}
+            </button>
+          </form>
         </div>
       )}
     </React.Fragment>

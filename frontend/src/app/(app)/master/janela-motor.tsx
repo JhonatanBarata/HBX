@@ -15,6 +15,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 
 import { apiFetch } from "@/lib/api";
+import { useTabIndex } from "@/lib/use-tab-param";
 
 import { fmtDataHora, type MasterCompany } from "./page.client";
 
@@ -115,7 +116,7 @@ function fmtBRL(v?: number | null) {
 }
 
 export function JanelaMotor({ companies }: { companies: MasterCompany[] | null }) {
-  const [sub, setSub] = useState(0);
+  const [sub, setSub] = useTabIndex("motor", 0);
 
   // auditoria
   const [audit, setAudit] = useState<Audit>(null);

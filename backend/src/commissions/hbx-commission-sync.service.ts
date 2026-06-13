@@ -354,9 +354,19 @@ export class HbxCommissionSyncService {
         ? (lead?.commissionDueAt instanceof Date ? lead.commissionDueAt : this.addBusinessDays(state.eventAt, dueBusinessDays))
         : null;
 
+    // Implantação (one-time, PR13062026005): comissão sobre o valor negociado
+    // que a vendedora gravou no card, confirmada junto com a venda. Não recorre.
+    const setupValue = this.money(lead?.setupValue);
+    const setupCommissionAmount = (nextCommissionStatus === 'payable' || nextCommissionStatus === 'paid')
+      ? this.money((setupValue * percent) / 100)
+      : 0;
+    const setupCommissionStatus = setupValue > 0 ? nextCommissionStatus : 'none';
+
     const data: any = {
       saleStatus: state.saleStatus,
       saleValue: baseAmount,
+      setupCommissionAmount,
+      setupCommissionStatus,
       salePlanKey: normalizeCommercialPlanKey(company?.selectedPlanKey),
       saleConfirmedAt: state.saleStatus === 'sale_confirmed'
         ? (lead?.saleConfirmedAt instanceof Date ? lead.saleConfirmedAt : state.eventAt)
@@ -494,6 +504,8 @@ export class HbxCommissionSyncService {
         commissionLinkedAt: true,
         commissionBaseAmount: true,
         saleValue: true,
+        setupValue: true,
+        setupCommissionAmount: true,
       },
     });
 

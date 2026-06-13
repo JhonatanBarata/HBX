@@ -83,6 +83,7 @@ type Detail = {
     selectedPlanKey?: string | null;
     commercialCardsMonthlyLimitOverride?: number | null;
     commercialCardsDailyLimitOverride?: number | null;
+    seatCap?: number | null;
     manualDiscountPercent?: number | null;
     freeMonths?: number | null;
     billingCycle?: string | null;
@@ -123,6 +124,18 @@ const DETAIL_TABS = ["Usuários", "Comercial", "Financeiro", "Auditoria"] as con
 
 function fmtBRL(v?: number | null) {
   return (v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+// WhatsApp da lista: a situacao unificada (Meta oficial por token + conexao
+// rapida QR/WebWhats + Token Master), nao so a coluna oficial crua da Meta.
+function waSituacao(emp: MasterCompany): { label: string; cls: string } {
+  const sit = emp.whatsappSituation;
+  const st = String(sit?.status || "").toLowerCase();
+  const label = sit?.statusLabel || (emp.whatsappStatus ? String(emp.whatsappStatus) : "—");
+  if (st === "connected") return { label, cls: "tag teal" };
+  if (st === "attention") return { label, cls: "tag warn" };
+  if (st === "error") return { label, cls: "tag red" };
+  return { label, cls: "tag" };
 }
 
 export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
@@ -172,7 +185,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
   const [suspReason, setSuspReason] = useState("");
   const [planoSel, setPlanoSel] = useState("");
   const [planoArm, setPlanoArm] = useState(false);
-  const [quotaForm, setQuotaForm] = useState({ monthly: "", daily: "" });
+  const [quotaForm, setQuotaForm] = useState({ monthly: "", daily: "", seatCap: "" });
   const [finForm, setFinForm] = useState({ discount: "", freeMonths: "", billingCycle: "" });
 
   // financeiro (fase 2)
@@ -207,6 +220,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
         setQuotaForm({
           monthly: c?.commercialCardsMonthlyLimitOverride != null ? String(c.commercialCardsMonthlyLimitOverride) : "",
           daily: c?.commercialCardsDailyLimitOverride != null ? String(c.commercialCardsDailyLimitOverride) : "",
+          seatCap: c?.seatCap != null ? String(c.seatCap) : "",
         });
         setFinForm({
           discount: c?.manualDiscountPercent != null ? String(c.manualDiscountPercent) : "",
@@ -342,6 +356,25 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
     }
   }
 
+  async function excluirEmpresa() {
+    if (comBusy || selId == null) return;
+    setComBusy("delete");
+    setComMsg(null);
+    try {
+      await apiFetch(`/companies/master/${selId}`, {
+        method: "DELETE",
+        body: JSON.stringify({ confirmText: "EXCLUIR EMPRESA", reason: "Limpeza de teste (master)" }),
+      });
+      setSelId(null);
+      setDetail(null);
+      await reload();
+    } catch (err) {
+      setComMsg(err instanceof Error ? err.message : "Falha ao excluir a empresa.");
+    } finally {
+      setComBusy(null);
+    }
+  }
+
   async function mudarPlano() {
     if (comBusy || selId == null || !planoSel) return;
     setComBusy("plano");
@@ -369,8 +402,9 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
       const body: Record<string, number> = {};
       if (quotaForm.monthly !== "") body.monthlyCardLimit = Math.max(0, Number(quotaForm.monthly) || 0);
       if (quotaForm.daily !== "") body.dailyCardLimit = Math.max(0, Number(quotaForm.daily) || 0);
+      body.seatCap = quotaForm.seatCap === "" ? 0 : Math.max(0, Number(quotaForm.seatCap) || 0);
       await apiFetch(`/modules/master/company/${selId}/card-quota`, { method: "PUT", body: JSON.stringify(body) });
-      setComMsg("✓ Quota de cards atualizada.");
+      setComMsg("✓ Limites atualizados.");
       await recarregarTudo();
     } catch (err) {
       setComMsg(err instanceof Error ? err.message : "Falha ao salvar a quota.");
@@ -636,7 +670,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                   </td>
                   <td>{emp.users?.length ?? 0}</td>
                   <td>{(emp.modules || []).filter(m => m.enabled).length}</td>
-                  <td>{emp.whatsappStatus || "—"}</td>
+                  <td>{(() => { const w = waSituacao(emp); return <span className={w.cls}>{w.label}</span>; })()}</td>
                 </tr>
               ))}
             </tbody>
@@ -795,10 +829,10 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                                   <button className="btn-ghost" style={{ minHeight: 26, fontSize: "0.62rem", padding: "0 8px" }} disabled={userBusy}
                                     onClick={() => { setUserEdit({ id: u.id, name: u.name || "", email: u.email || "", username: u.username || "", phone: "", role: String(u.role || "USER").toUpperCase(), isActive: u.isActive !== false }); setUserMsg(null); }}>Editar</button>
                                   {deleteArm === u.id ? (
-                                    <button className="btn-ghost" style={{ minHeight: 26, fontSize: "0.62rem", padding: "0 8px", borderColor: "var(--hbx-danger)", color: "var(--hbx-danger)" }} disabled={userBusy}
+                                    <button className="btn-ghost btn-danger" style={{ minHeight: 26, fontSize: "0.62rem", padding: "0 8px" }} disabled={userBusy}
                                       onClick={() => excluirUsuario(u.id)}>Confirmar exclusão</button>
                                   ) : (
-                                    <button className="btn-ghost" style={{ minHeight: 26, fontSize: "0.62rem", padding: "0 8px", color: "var(--hbx-danger)" }} disabled={userBusy}
+                                    <button className="btn-ghost btn-danger" style={{ minHeight: 26, fontSize: "0.62rem", padding: "0 8px" }} disabled={userBusy}
                                       onClick={() => setDeleteArm(u.id)}>Excluir</button>
                                   )}
                                 </div>
@@ -852,11 +886,24 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                             {comBusy === "susp" ? "…" : "Remover suspensão"}
                           </button>
                         ) : (
-                          <button className="btn-ghost" style={{ borderColor: "var(--hbx-danger)", color: "var(--hbx-danger)" }} disabled={comBusy != null}
+                          <button className="btn-ghost btn-danger" disabled={comBusy != null}
                             onClick={() => setSuspensao(true)}>
                             {comBusy === "susp" ? "…" : "Suspender empresa"}
                           </button>
                         )}
+                      </div>
+                    </div>
+
+                    <div style={{ borderTop: "1px solid var(--border-hairline)", paddingTop: 12, display: "grid", gap: 8 }}>
+                      <strong style={{ fontSize: "0.76rem" }}>Excluir empresa</strong>
+                      <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>
+                        Apaga a empresa e TODOS os dados (usuários, leads, mensagens) permanentemente. Sem volta. Um clique exclui.
+                      </span>
+                      <div style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap" }}>
+                        <button className="btn-ghost btn-danger"
+                          disabled={comBusy != null} onClick={() => excluirEmpresa()}>
+                          {comBusy === "delete" ? "Excluindo…" : "Excluir empresa"}
+                        </button>
                       </div>
                     </div>
 
@@ -880,20 +927,26 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                     </div>
 
                     <div style={{ borderTop: "1px solid var(--border-hairline)", paddingTop: 12, display: "grid", gap: 8 }}>
-                      <strong style={{ fontSize: "0.76rem" }}>Quota de cards (override)</strong>
+                      <strong style={{ fontSize: "0.76rem" }}>Limites por empresa (override)</strong>
+                      <span style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>Assentos = teto RÍGIDO de acessos (vazio = sem teto). Bloqueia criar acesso além do número.</span>
                       <div style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap" }}>
                         <div style={{ display: "grid", gap: 4 }}>
-                          <label style={{ fontSize: "0.64rem", fontWeight: 700, color: "var(--text-muted)" }}>Mensal</label>
+                          <label className="field-label">Cards/mês</label>
                           <input className="field-dark" type="number" min={0} style={{ width: 110 }} placeholder="padrão do plano"
                             value={quotaForm.monthly} onChange={e => setQuotaForm(f => ({ ...f, monthly: e.target.value }))} />
                         </div>
                         <div style={{ display: "grid", gap: 4 }}>
-                          <label style={{ fontSize: "0.64rem", fontWeight: 700, color: "var(--text-muted)" }}>Diária</label>
+                          <label className="field-label">Cards/dia</label>
                           <input className="field-dark" type="number" min={0} style={{ width: 110 }} placeholder="padrão do plano"
                             value={quotaForm.daily} onChange={e => setQuotaForm(f => ({ ...f, daily: e.target.value }))} />
                         </div>
+                        <div style={{ display: "grid", gap: 4 }}>
+                          <label className="field-label">Assentos (teto)</label>
+                          <input className="field-dark" type="number" min={0} style={{ width: 110 }} placeholder="sem teto"
+                            value={quotaForm.seatCap} onChange={e => setQuotaForm(f => ({ ...f, seatCap: e.target.value }))} />
+                        </div>
                         <button className="btn-ghost" disabled={comBusy != null} onClick={salvarQuota}>
-                          {comBusy === "quota" ? "Salvando…" : "Salvar quota"}
+                          {comBusy === "quota" ? "Salvando…" : "Salvar limites"}
                         </button>
                       </div>
                     </div>

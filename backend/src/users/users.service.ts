@@ -595,10 +595,11 @@ export class UsersService {
   async getCompanySeatBilling(companyId: number) {
     const company = await this.prisma.company.findUnique({
       where: { id: Number(companyId) },
-      select: { id: true, selectedPlanKey: true, companyKind: true },
+      select: { id: true, selectedPlanKey: true, companyKind: true, seatCap: true },
     });
     if (!company) throw new NotFoundException('Empresa não encontrada');
     const planKey = normalizeCommercialPlanKey(company.selectedPlanKey);
+    const seatCap = Number((company as any)?.seatCap || 0) > 0 ? Math.trunc(Number((company as any).seatCap)) : null;
     const seats = await computeCompanySeatBillingSnapshot(this.prisma, {
       companyId: Number(companyId),
       planKey,
@@ -614,6 +615,8 @@ export class UsersService {
       extraActiveUsers: seats.extraActiveUsers,
       extraUserMonthlyPrice: seats.extraSeatMonthlyAmount,
       nextUserIsExtra: seats.extraSeatMonthlyAmount > 0 && seats.activeUsers + 1 > seats.includedActiveUsers,
+      seatCap,
+      capReached: seatCap != null && seats.activeUsers >= seatCap,
     };
   }
 
@@ -633,6 +636,7 @@ export class UsersService {
           billingGraceEndsAt: true,
           courtesyEndsAt: true,
           courtesyReason: true,
+          seatCap: true,
         },
       }),
       this.prisma.user.count({

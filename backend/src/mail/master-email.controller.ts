@@ -15,10 +15,10 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { extname } from 'path';
-import { IsEmail, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsEmail, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { MasterGuard } from '../auth/guards/master.guard';
-import { EmailTemplate, EmailTemplateKind, EmailTemplateService } from './email-template.service';
+import { EmailTemplateKind, EmailTemplateService, ManagedEmailTemplate } from './email-template.service';
 import {
   BUSINESS_CARD_CID,
   HbxPresentationEmailService,
@@ -65,6 +65,28 @@ class SaveEmailTemplateDto {
   @IsString()
   @MaxLength(50000)
   html?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  label?: string;
+}
+
+class CreateMasterTemplateDto {
+  @IsString()
+  @MinLength(3)
+  @MaxLength(120)
+  label!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(180)
+  subject?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(12000)
+  text?: string;
 }
 
 class TestEmailTemplateDto {
@@ -123,15 +145,26 @@ export class MasterEmailController {
     return String(process.env.APP_URL || process.env.FRONTEND_URL || 'https://hbxsystem.com.br').replace(/\/$/, '');
   }
 
-  private formatTemplate(template: EmailTemplate) {
-    const usesSignature = template.kind === 'normal' || template.kind === 'seller_welcome' || template.kind === 'seller_onboarding_request';
+  private formatTemplate(template: ManagedEmailTemplate) {
+    const definitions = template.isSystem
+      ? this.emailTemplates.getVariableDefinitions(template.kind)
+      : this.emailTemplates.getCustomVariableDefinitions();
+    const usesSignature = template.isSystem
+      ? template.kind === 'normal' || template.kind === 'seller_welcome' || template.kind === 'seller_onboarding_request'
+      : true;
     return {
-      ...template,
-      variables: this.emailTemplates.getAvailableVariables(template.kind),
-      variableDefinitions: this.emailTemplates.getVariableDefinitions(template.kind),
-      requiredVariable: this.emailTemplates.getRequiredVariable(template.kind),
+      kind: template.kind,
+      label: template.label,
+      isSystem: template.isSystem,
+      subject: template.subject,
+      text: template.text,
+      html: template.html,
+      updatedAt: template.updatedAt,
+      variables: definitions.map((variable) => variable.token),
+      variableDefinitions: definitions,
+      requiredVariable: template.isSystem ? this.emailTemplates.getRequiredVariable(template.kind) : null,
       usesSignature,
-      usesAttachment: template.kind === 'normal',
+      usesAttachment: template.isSystem ? template.kind === 'normal' : true,
     };
   }
 
@@ -191,7 +224,7 @@ export class MasterEmailController {
 
   @Get('templates')
   async listTemplates() {
-    const templates = await this.emailTemplates.listTemplates();
+    const templates = await this.emailTemplates.listManagedTemplates();
     return {
       templates: templates.map((template) => this.formatTemplate(template)),
     };
@@ -199,33 +232,57 @@ export class MasterEmailController {
 
   @Get('templates/:kind')
   async getTemplate(@Param('kind') kindParam: string) {
-    const kind = this.emailTemplates.normalizeKind(kindParam);
-    return { template: this.formatTemplate(await this.emailTemplates.getTemplate(kind)) };
+    return { template: this.formatTemplate(await this.emailTemplates.getManagedTemplate(kindParam)) };
+  }
+
+  // "+" — cria um template personalizado do Master (kind tpl_*).
+  @Post('templates')
+  async createTemplate(@Body() dto: CreateMasterTemplateDto) {
+    const template = await this.emailTemplates.createCustomTemplate(dto || ({} as CreateMasterTemplateDto));
+    return { ok: true, template: this.formatTemplate(template) };
   }
 
   @Put('templates/:kind')
   async saveTemplate(@Param('kind') kindParam: string, @Body() dto: SaveEmailTemplateDto) {
-    const kind = this.emailTemplates.normalizeKind(kindParam);
-    const template = await this.emailTemplates.saveTemplate(kind, dto);
+    if (this.emailTemplates.isSystemKind(kindParam)) {
+      await this.emailTemplates.saveTemplate(kindParam as EmailTemplateKind, dto);
+      return { ok: true, template: this.formatTemplate(await this.emailTemplates.getManagedTemplate(kindParam)) };
+    }
+    const template = await this.emailTemplates.saveCustomTemplate(kindParam, dto);
     return { ok: true, template: this.formatTemplate(template) };
+  }
+
+  // "-" — remove um template personalizado (os de sistema não removem).
+  @Delete('templates/:kind')
+  async deleteTemplate(@Param('kind') kindParam: string) {
+    if (this.emailTemplates.isSystemKind(kindParam)) {
+      throw new BadRequestException('Template padrão do sistema não pode ser removido — use "Restaurar padrão".');
+    }
+    return this.emailTemplates.removeCustomTemplate(kindParam);
   }
 
   @Post('templates/:kind/restore')
   async restoreTemplate(@Param('kind') kindParam: string) {
+    if (!this.emailTemplates.isSystemKind(kindParam)) {
+      throw new BadRequestException('Só templates padrão têm "Restaurar" — os seus você edita ou remove.');
+    }
     const kind = this.emailTemplates.normalizeKind(kindParam);
-    const template = await this.emailTemplates.restoreTemplate(kind);
-    return { ok: true, template: this.formatTemplate(template) };
+    await this.emailTemplates.restoreTemplate(kind);
+    return { ok: true, template: this.formatTemplate(await this.emailTemplates.getManagedTemplate(kind)) };
   }
 
   @Post('templates/:kind/test')
   async sendTemplateTest(@Param('kind') kindParam: string, @Body() dto: TestEmailTemplateDto) {
-    const kind = this.emailTemplates.normalizeKind(kindParam);
     const to = String(dto.to || '').trim().toLowerCase();
     if (!to) throw new BadRequestException('Informe o e-mail de teste.');
 
-    const template = await this.emailTemplates.getTemplate(kind);
-    this.emailTemplates.validateTemplateInput(kind, template.subject, template.text);
-    const variables = this.buildSampleVariables(kind, dto);
+    const template = await this.emailTemplates.getManagedTemplate(kindParam);
+    if (template.isSystem) {
+      this.emailTemplates.validateTemplateInput(template.kind, template.subject, template.text);
+    } else if (!template.subject || !template.text) {
+      throw new BadRequestException('Preencha o assunto e o corpo do template antes de testar.');
+    }
+    const variables = this.buildSampleVariables(template.isSystem ? template.kind : 'normal', dto);
     const formatted = this.formatTemplate(template);
     const businessCardFile = formatted.usesSignature ? await this.hbxPresentationEmails.readBusinessCardContent() : null;
     const businessCardMeta = businessCardFile?.meta || null;

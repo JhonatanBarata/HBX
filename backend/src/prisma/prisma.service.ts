@@ -826,6 +826,22 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       ADD COLUMN IF NOT EXISTS "commissionPayoutId" TEXT
     `);
 
+    // Implantação (one-time) — PR13062026005
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "VendasLead"
+      ADD COLUMN IF NOT EXISTS "setupValue" DOUBLE PRECISION
+    `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "VendasLead"
+      ADD COLUMN IF NOT EXISTS "setupCommissionAmount" DOUBLE PRECISION
+    `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "VendasLead"
+      ADD COLUMN IF NOT EXISTS "setupCommissionStatus" TEXT
+    `);
+
     await this.$executeRawUnsafe(`
       CREATE INDEX IF NOT EXISTS "VendasLead_assignedUserId_status_idx" ON "VendasLead"("assignedUserId", "status")
     `);

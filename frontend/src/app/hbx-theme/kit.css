@@ -82,6 +82,9 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 .btn-teal:hover { background: var(--hbx-brand-strong); }
 .btn-ghost { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; padding: 0 12px; border: 1px solid var(--border-hairline); border-radius: var(--control-radius); background: transparent; color: var(--text-body); font-family: var(--font-body); font-size: 0.76rem; font-weight: 700; cursor: pointer; }
 .btn-ghost:hover { background: var(--hbx-surface-raised); }
+.btn-danger { border-color: var(--hbx-danger); color: var(--hbx-danger); }
+.btn-danger:hover { background: color-mix(in srgb, var(--hbx-danger) 10%, transparent); }
+.field-label { font-size: 0.7rem; font-weight: 700; color: var(--text-muted); }
 .link { font-size: 0.72rem; color: var(--hbx-brand-strong); font-weight: 700; cursor: pointer; }
 .sep { height: 1px; background: var(--border-hairline); }
 

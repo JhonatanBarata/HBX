@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { existsSync } from 'fs';
 import { mkdir, readFile, writeFile } from 'fs/promises';
 import { join } from 'path';
@@ -79,6 +79,21 @@ const TEMPLATE_DIR = join(process.cwd(), 'storage', 'master-email');
 const TEMPLATE_PATH = join(TEMPLATE_DIR, 'templates.json');
 
 export const EMAIL_TEMPLATE_KINDS: EmailTemplateKind[] = ['normal', 'password_reset', 'email_confirmation', 'seller_onboarding_request', 'seller_welcome'];
+
+// PR13062026005: o /master e-mails passou a ter "+"/"-". Os 5 kinds acima são
+// de SISTEMA (ligados a fluxos reais: reset, confirmação, onboarding) — não
+// removem, só editam/restauram. Templates personalizados nascem com kind tpl_*.
+export const EMAIL_SYSTEM_TEMPLATE_LABELS: Record<EmailTemplateKind, string> = {
+  normal: 'Apresentação',
+  password_reset: 'Recuperação de senha',
+  email_confirmation: 'Confirmação de e-mail',
+  seller_welcome: 'Boas-vindas do vendedor',
+  seller_onboarding_request: 'Onboarding do vendedor',
+};
+
+const CUSTOM_TEMPLATE_PREFIX = 'tpl_';
+
+export type ManagedEmailTemplate = EmailTemplate & { label: string; isSystem: boolean };
 
 export const EMAIL_TEMPLATE_VARIABLES: EmailTemplateVariableDefinition[] = [
   { key: 'nome', token: '{nome}', label: 'Nome do contato', group: 'contato', description: 'Nome da pessoa que vai receber a mensagem.' },
@@ -471,6 +486,131 @@ export class EmailTemplateService {
     delete stored[kind];
     await this.writeStoredTemplates(stored);
     return this.getDefaultTemplate(kind);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Templates personalizados do Master ("+"/"-") — convivem com os de sistema.
+  // ---------------------------------------------------------------------------
+
+  isSystemKind(value: unknown): value is EmailTemplateKind {
+    const kind = String(value || '').trim();
+    return (EMAIL_TEMPLATE_KINDS as string[]).includes(kind);
+  }
+
+  labelForKind(kind: string, storedLabel?: string | null) {
+    if (this.isSystemKind(kind)) return EMAIL_SYSTEM_TEMPLATE_LABELS[kind as EmailTemplateKind] || kind;
+    return String(storedLabel || '').trim() || kind;
+  }
+
+  // Personalizados não têm restrição por kind: só as variáveis genéricas.
+  getCustomVariableDefinitions() {
+    return EMAIL_TEMPLATE_VARIABLES.filter((variable) => !variable.kinds);
+  }
+
+  private slugifyLabel(label: string) {
+    const base = String(label || '')
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 60);
+    return base || 'template';
+  }
+
+  private toManaged(template: EmailTemplate, storedLabel?: string | null): ManagedEmailTemplate {
+    return {
+      ...template,
+      label: this.labelForKind(template.kind, storedLabel),
+      isSystem: this.isSystemKind(template.kind),
+    };
+  }
+
+  async listManagedTemplates(): Promise<ManagedEmailTemplate[]> {
+    const system = (await this.listTemplates()).map((template) => this.toManaged(template));
+    if (!(await this.canUseDatabaseStorage())) return system;
+    const rows = await this.prisma.masterEmailTemplate.findMany({ orderBy: { label: 'asc' } });
+    const custom = rows
+      .filter((row) => !this.isSystemKind(row.kind))
+      .map((row) =>
+        this.toManaged(
+          { kind: row.kind as EmailTemplateKind, subject: row.subject, text: row.text, html: row.html, updatedAt: row.updatedAt ? row.updatedAt.toISOString() : null },
+          row.label,
+        ),
+      );
+    return [...system, ...custom];
+  }
+
+  async getManagedTemplate(kindInput: string): Promise<ManagedEmailTemplate> {
+    if (this.isSystemKind(kindInput)) {
+      return this.toManaged(await this.getTemplate(kindInput as EmailTemplateKind));
+    }
+    const row = await this.getCustomRow(kindInput);
+    return this.toManaged(
+      { kind: row.kind as EmailTemplateKind, subject: row.subject, text: row.text, html: row.html, updatedAt: row.updatedAt ? row.updatedAt.toISOString() : null },
+      row.label,
+    );
+  }
+
+  private async getCustomRow(kindInput: string) {
+    if (!(await this.canUseDatabaseStorage())) {
+      throw new BadRequestException('Templates personalizados exigem o banco de dados.');
+    }
+    const kind = String(kindInput || '').trim();
+    if (!kind || this.isSystemKind(kind)) throw new BadRequestException('Template inválido.');
+    const row = await this.prisma.masterEmailTemplate.findUnique({ where: { kind } });
+    if (!row) throw new NotFoundException('Template não encontrado.');
+    return row;
+  }
+
+  async createCustomTemplate(input: { label?: unknown; subject?: unknown; text?: unknown }) {
+    if (!(await this.canUseDatabaseStorage())) {
+      throw new BadRequestException('Templates personalizados exigem o banco de dados.');
+    }
+    const label = String(input.label || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+    if (!label || label.length < 3) throw new BadRequestException('Dê um nome ao template (mínimo 3 letras).');
+
+    const subject = this.normalizeSubject(input.subject) || label;
+    const text = this.normalizeText(input.text)
+      || ['{saudacao}, {nome}!', '', 'Escreva aqui o corpo do seu e-mail.', '', 'Atenciosamente,', '{empresa}'].join('\n');
+    if (subject.length > 180) throw new BadRequestException('O assunto pode ter no máximo 180 caracteres.');
+    if (text.length > 12000) throw new BadRequestException('O corpo pode ter no máximo 12000 caracteres.');
+
+    const baseKind = `${CUSTOM_TEMPLATE_PREFIX}${this.slugifyLabel(label)}`;
+    let kind = baseKind;
+    for (let i = 2; i <= 50; i += 1) {
+      const clash = await this.prisma.masterEmailTemplate.findUnique({ where: { kind }, select: { kind: true } });
+      if (!clash) break;
+      kind = `${baseKind}_${i}`;
+    }
+
+    const row = await this.prisma.masterEmailTemplate.create({ data: { kind, label, subject, text } });
+    return this.getManagedTemplate(row.kind);
+  }
+
+  async saveCustomTemplate(kindInput: string, input: { subject?: unknown; text?: unknown; html?: unknown; label?: unknown }) {
+    const row = await this.getCustomRow(kindInput);
+    const subject = this.normalizeSubject(input.subject);
+    const text = this.normalizeText(input.text);
+    const html = this.sanitizeHtml(String(input.html || ''));
+    if (!subject) throw new BadRequestException('Informe o assunto do template.');
+    if (subject.length > 180) throw new BadRequestException('O assunto pode ter no máximo 180 caracteres.');
+    if (!text) throw new BadRequestException('Informe o corpo do template.');
+    if (text.length > 12000) throw new BadRequestException('O corpo pode ter no máximo 12000 caracteres.');
+    if (html.length > 50000) throw new BadRequestException('O HTML pode ter no máximo 50000 caracteres.');
+
+    const label = String(input.label ?? row.label ?? '').replace(/\s+/g, ' ').trim().slice(0, 120) || row.label || this.labelForKind(row.kind);
+    const updated = await this.prisma.masterEmailTemplate.update({
+      where: { kind: row.kind },
+      data: { subject, text, html: html || null, label },
+    });
+    return this.getManagedTemplate(updated.kind);
+  }
+
+  async removeCustomTemplate(kindInput: string) {
+    const row = await this.getCustomRow(kindInput);
+    await this.prisma.masterEmailTemplate.delete({ where: { kind: row.kind } });
+    return { ok: true };
   }
 
   renderTemplate(template: EmailTemplate, variables: EmailTemplateVariables, options?: { appendHtml?: string | null }) {

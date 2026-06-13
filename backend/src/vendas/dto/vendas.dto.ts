@@ -160,6 +160,12 @@ export class UpdateVendasLeadDto {
   saleValue?: number;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  setupValue?: number;
+
+  @IsOptional()
   @IsString()
   @MaxLength(64)
   salePlanKey?: string;

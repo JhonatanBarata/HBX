@@ -10,8 +10,12 @@
 //   PATCH /gerencial/hbx-partners/:userId/onboarding/document-requirement
 //   POST  /gerencial/hbx-partners/:userId/onboarding/generate-contract
 //   POST  /gerencial/hbx-partners/:userId/onboarding/send-email   → e-mail-gated
-//   PATCH /users/:id/profile | /users/:id/role | /users/:id/active
+//   PATCH /users/:id/profile | /users/:id/active
 // (a exclusão fica com o pai — ConfirmDialog já existente em /configuracoes)
+// 13/06/2026 (ordem do dono): admin é singular/pagante.
+//   - a aba "Acessos" (política/módulos) só aparece para alvo VENDEDOR; o que
+//     o ADMIN vê é controlado pelo MASTER (/master), nunca pelo admin aqui;
+//   - sem botão de trocar papel: quem cunha/altera admin é só o Master.
 
 import React, { useCallback, useEffect, useState } from "react";
 
@@ -113,21 +117,6 @@ export function GerenciarVendedorModal({ member, isSelf, team = [], onClose, onC
     } catch (err) {
       setMsg(err instanceof Error ? err.message : "Não foi possível salvar.");
     } finally {
-      setBusy(null);
-    }
-  }
-
-  async function mudarPapel() {
-    if (busy) return;
-    const novo = ehVendedor ? "ADMIN" : "USER";
-    setBusy("papel");
-    setMsg(null);
-    try {
-      await apiFetch(`/users/${member.id}/role`, { method: "PATCH", body: JSON.stringify({ role: novo }) });
-      onChanged("✓ Perfil de acesso atualizado.");
-      onClose();
-    } catch (err) {
-      setMsg(err instanceof Error ? err.message : "Não foi possível alterar o perfil.");
       setBusy(null);
     }
   }
@@ -239,12 +228,15 @@ export function GerenciarVendedorModal({ member, isSelf, team = [], onClose, onC
           <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={onClose}>✕</span>
         </h3>
 
-        <div className="seg-toggle" style={{ width: "fit-content" }}>
-          <button type="button" className={"seg" + (aba === "cadastro" ? " on" : "")} onClick={() => setAba("cadastro")}>Cadastro</button>
-          <button type="button" className={"seg" + (aba === "acessos" ? " on" : "")} onClick={() => setAba("acessos")}>Acessos</button>
-        </div>
+        {/* Acessos (política/módulos) só do VENDEDOR — o que o ADMIN vê é do Master */}
+        {ehVendedor && (
+          <div className="seg-toggle" style={{ width: "fit-content" }}>
+            <button type="button" className={"seg" + (aba === "cadastro" ? " on" : "")} onClick={() => setAba("cadastro")}>Cadastro</button>
+            <button type="button" className={"seg" + (aba === "acessos" ? " on" : "")} onClick={() => setAba("acessos")}>Acessos</button>
+          </div>
+        )}
 
-        {aba === "acessos" && (
+        {ehVendedor && aba === "acessos" && (
           <TeamPolicyEditor userId={member.id} sellers={team} isSelf={isSelf} />
         )}
 
@@ -309,16 +301,15 @@ export function GerenciarVendedorModal({ member, isSelf, team = [], onClose, onC
                   {busy === "ativo" ? "Aguarde…" : ativo ? "Desativar acesso" : "Reativar acesso"}
                 </button>
               )}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                <button className="btn-ghost" onClick={mudarPapel} disabled={busy !== null || isSelf}>
-                  {ehVendedor ? "Tornar Admin" : "Tornar Vendas"}
-                </button>
-                <button className="btn-ghost" style={{ color: "var(--hbx-danger)" }} disabled={busy !== null || isSelf}
-                  onClick={() => { onClose(); onRequestExcluir(member); }}>
-                  Excluir
-                </button>
-              </div>
-              {isSelf && <span style={{ fontSize: "0.64rem", color: "var(--text-muted)" }}>Você não pode alterar o próprio acesso.</span>}
+              <button className="btn-ghost" style={{ color: "var(--hbx-danger)" }} disabled={busy !== null || isSelf}
+                onClick={() => { onClose(); onRequestExcluir(member); }}>
+                Excluir
+              </button>
+              <span style={{ fontSize: "0.64rem", color: "var(--text-muted)" }}>
+                {isSelf
+                  ? "Você não pode alterar o próprio acesso."
+                  : "Perfil de acesso (admin/vendas) é definido pelo Master."}
+              </span>
             </div>
           </div>
 

@@ -29,6 +29,7 @@ import { GerenciarVendedorModal } from "@/components/hbx/gerenciar-vendedor-moda
 import { NovoAcessoModal } from "@/components/hbx/novo-acesso-modal";
 import { Av, ConfirmDialog, I, ICONS, Sidebar, Topbar } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
+import { useTabParam } from "@/lib/use-tab-param";
 
 const SECTIONS = ["Perfil", "Empresa", "Equipe", "E-mail", "Notificações", "Plano e cobrança"];
 const SEC_IC: Record<string, string> = { "Perfil": "users", "Empresa": "cnpj", "Equipe": "users", "E-mail": "mail", "Notificações": "bell", "Plano e cobrança": "money" };
@@ -103,7 +104,7 @@ function roleLabel(role?: string | null) {
 }
 
 export function ConfiguracoesClient() {
-  const [sec, setSec] = useState("Perfil");
+  const [sec, setSec] = useTabParam<string>("sec", "Perfil", SECTIONS);
 
   // aviso do sino → abre direto na seção (mesmo padrão do "+" → Novo lead)
   useEffect(() => {
@@ -117,7 +118,7 @@ export function ConfiguracoesClient() {
       } catch { /* sem storage */ }
     }, 0);
     return () => clearTimeout(t);
-  }, []);
+  }, [setSec]);
   const [n1, setN1] = useState(true);
   const [n2, setN2] = useState(true);
   const [n3, setN3] = useState(false);
@@ -130,6 +131,12 @@ export function ConfiguracoesClient() {
   const [team, setTeam] = useState<CompanyUser[]>([]);
   const [teamDenied, setTeamDenied] = useState(false);
   const [plansMe, setPlansMe] = useState<CommercialPlansMe>(null);
+  // Troca de plano (PAGAMENTOS.md): só ADMIN (canSelectPlan vem do backend).
+  // O backend é a fonte da regra — selecionar plano diferente cai em
+  // pending_checkout/desativa; o front só dispara e mostra o veredito.
+  const [planoBusy, setPlanoBusy] = useState(false);
+  const [planoMsg, setPlanoMsg] = useState<string | null>(null);
+  const [confirmPlano, setConfirmPlano] = useState<CatalogPlan | null>(null);
 
   // Novo acesso (cadastro completo, PR12062026005) + gestão de membro.
   // Gerenciar abre a tela do vendedor (gerenciar-vendedor-modal) com os
@@ -198,6 +205,25 @@ export function ConfiguracoesClient() {
     }
   }
 
+  async function selecionarPlano(plan: CatalogPlan) {
+    if (planoBusy) return;
+    setPlanoBusy(true);
+    setPlanoMsg(null);
+    try {
+      // POST /commercial-plans/select — backend decide trial/troca/checkout.
+      const res = await apiFetch<CommercialPlansMe>("/commercial-plans/select", {
+        method: "POST",
+        body: JSON.stringify({ planKey: plan.key }),
+      });
+      if (res) setPlansMe(res);
+      setPlanoMsg(`✓ Plano alterado para ${plan.title}.`);
+    } catch (err) {
+      setPlanoMsg(err instanceof Error ? err.message : "Não foi possível alterar o plano.");
+    } finally {
+      setPlanoBusy(false);
+    }
+  }
+
   const displayName = user?.name || user?.username || "—";
   // PAGAMENTOS.md: vendedor (role USER) nunca vê tela/valores de cobrança.
   const isSeller = user?.userKind === "seller";
@@ -210,6 +236,7 @@ export function ConfiguracoesClient() {
   const planos = plansMe?.plans || [];
   const planoAtual = planos.find(p => p.key === current?.planKey) || null;
   const entitlementsAtivos = Object.entries(current?.entitlements || {}).filter(([, on]) => on).map(([k]) => k);
+  const canSelectPlan = Boolean(plansMe?.permissions?.canSelectPlan);
 
   return (
     <div className="app">
@@ -339,8 +366,11 @@ export function ConfiguracoesClient() {
                 <section className="panel">
                   <div className="panel-head">
                     <h2>Plano e cobrança</h2>
-                    {current?.accessStateLabel && (
-                      <div className="meta"><span className="tag teal">{current.accessStateLabel}</span></div>
+                    {(planoMsg || current?.accessStateLabel) && (
+                      <div className="meta">
+                        {planoMsg && <span className={"tag " + (planoMsg.startsWith("✓") ? "teal" : "red")}>{planoMsg}</span>}
+                        {current?.accessStateLabel && <span className="tag teal">{current.accessStateLabel}</span>}
+                      </div>
                     )}
                   </div>
                   <div style={{ padding: 18, display: "grid", gap: 16 }}>
@@ -356,7 +386,9 @@ export function ConfiguracoesClient() {
                       {fmtPreco(planoAtual?.monthlyPrice) && (
                         <span style={{ fontFamily: "var(--font-mono)", fontSize: "1.1rem", fontWeight: 700 }}>{fmtPreco(planoAtual?.monthlyPrice)}</span>
                       )}
-                      <button className="btn-teal">Gerenciar plano</button>
+                      {canSelectPlan && planos.length > 0 && (
+                        <button className="btn-teal" onClick={() => document.getElementById("hbx-catalogo-planos")?.scrollIntoView({ behavior: "smooth", block: "start" })}>Gerenciar plano</button>
+                      )}
                     </div>
                     <div className="kv">
                       <div className="row"><span className="k">Estado do acesso</span><span className="v">{current?.accessStateLabel || "—"}</span></div>
@@ -378,7 +410,7 @@ export function ConfiguracoesClient() {
                 </section>
 
                 {planos.length > 0 && (
-                  <section className="panel">
+                  <section className="panel" id="hbx-catalogo-planos">
                     <div className="panel-head"><h2>Catálogo de planos HBX</h2></div>
                     <div style={{ padding: 18, display: "grid", gridTemplateColumns: `repeat(${Math.min(3, planos.length)}, 1fr)`, gap: 14 }}>
                       {planos.map(p => {
@@ -403,6 +435,9 @@ export function ConfiguracoesClient() {
                                   </li>
                                 ))}
                               </ul>
+                            )}
+                            {canSelectPlan && !atual && (
+                              <button className="btn-ghost" style={{ marginTop: 2 }} disabled={planoBusy} onClick={() => { setConfirmPlano(p); setPlanoMsg(null); }}>Trocar para este plano</button>
                             )}
                           </article>
                         );
@@ -452,6 +487,16 @@ export function ConfiguracoesClient() {
         busy={gerirBusy}
         onConfirm={async () => { const m = confirmExcluir; setConfirmExcluir(null); if (m) await excluirMembro(m); }}
         onCancel={() => setConfirmExcluir(null)}
+      />
+
+      <ConfirmDialog
+        open={!!confirmPlano}
+        title="Trocar de plano"
+        message={<>Trocar para <strong>{confirmPlano?.title}</strong>? Um plano diferente do atual coloca o acesso em <strong>checkout pendente</strong> e pausa a empresa até a confirmação do pagamento. A trilha de pagamento ainda não está no ar — o acesso só volta quando for reativado.</>}
+        confirmLabel="Trocar plano"
+        busy={planoBusy}
+        onConfirm={async () => { const p = confirmPlano; setConfirmPlano(null); if (p) await selecionarPlano(p); }}
+        onCancel={() => setConfirmPlano(null)}
       />
     </div>
   );

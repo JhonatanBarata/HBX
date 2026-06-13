@@ -29,6 +29,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Av, I, ICONS, KpiRow, Sidebar, Topbar } from "@/components/hbx/shell";
 import { WhatsAppConnectModal } from "@/components/hbx/whatsapp-connect-modal";
 import { apiFetch, getApiBase, getToken } from "@/lib/api";
+import { useTabIndex } from "@/lib/use-tab-param";
 import { fetchWhatsAppModalStatus } from "@/lib/whatsapp-connection-flow";
 import { whatsappModalStatusLabel } from "@/lib/whatsapp-center";
 
@@ -270,7 +271,7 @@ export function AtendimentoClient() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<{ avgResponseSeconds: number | null; conversions: number | null } | null>(null);
   const [selId, setSelId] = useState<string | null>(null);
-  const [tab, setTab] = useState(0);
+  const [tab, setTab] = useTabIndex("tab", 0);
   const [busca, setBusca] = useState("");
   const [thread, setThread] = useState<InboxMessage[]>([]);
   const [draft, setDraft] = useState("");

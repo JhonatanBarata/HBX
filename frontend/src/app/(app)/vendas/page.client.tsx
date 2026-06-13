@@ -12,6 +12,7 @@ import React, { useCallback, useEffect, useState } from "react";
 
 import { Av, I, ICONS, KpiRow, Sidebar, Topbar } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
+import { useTabParam } from "@/lib/use-tab-param";
 
 type VendasLead = {
   id: string;
@@ -37,6 +38,9 @@ type VendasLead = {
   saleValue: number | null;
   commissionStatusLabel?: string | null;
   commissionAmount?: number | null;
+  setupValue?: number | null;
+  setupCommissionAmount?: number | null;
+  setupCommissionStatusLabel?: string | null;
   commissionPercentSnapshot?: number | null;
   product: { name: string | null; priceLabel: string | null; canViewPrice?: boolean } | null;
   owner: { name: string | null } | null;
@@ -115,7 +119,7 @@ export function VendasClient() {
   const [sel, setSel] = useState<VendasLead | null>(null);
   // visão do pipeline: lista densa (padrão — varredura) × quadro kanban
   // (arrastar entre etapas). Ordem do dono 13/06: lista padrão + quadro opcional.
-  const [view, setView] = useState<"list" | "board">("list");
+  const [view, setView] = useTabParam<"list" | "board">("view", "list", ["list", "board"]);
   const [tasks, setTasks] = useState([true, false, false]);
   // agenda embutida (ordem do dono): painel lateral com os retornos reais
   // do board + sincronização da agenda de hoje no WhatsApp
@@ -164,6 +168,7 @@ export function VendasClient() {
   const [produtos, setProdutos] = useState<Produto[] | null>(null);
   const [prodId, setProdId] = useState("");
   const [valor, setValor] = useState("");
+  const [setupValor, setSetupValor] = useState("");
   const [fecharBusy, setFecharBusy] = useState(false);
   const [fecharMsg, setFecharMsg] = useState<string | null>(null);
 
@@ -253,6 +258,7 @@ export function VendasClient() {
     if (!sel?.id) return;
     setFecharMsg(null);
     setLinkInfo(null);
+    setSetupValor(deal?.setupValue ? String(deal.setupValue) : "");
     setFecharOpen(true);
     if (produtos === null) {
       apiFetch<Produto[] | { items?: Produto[] }>("/products?status=active")
@@ -282,6 +288,14 @@ export function VendasClient() {
     setFecharBusy(true);
     setFecharMsg(null);
     try {
+      // Persiste a implantação acordada antes do handoff: quando o cliente
+      // ativar pelo link, o motor calcula a comissão do setup a partir daqui.
+      if (setupValor) {
+        await apiFetch(`/vendas/lead/${encodeURIComponent(sel.id)}`, {
+          method: "PATCH",
+          body: JSON.stringify({ setupValue: Number(setupValor) }),
+        }).catch(() => {});
+      }
       const res = await apiFetch<{ ok?: boolean; registerUrl?: string; registerPath?: string; message?: string; planLabel?: string }>(
         `/vendas/lead/${encodeURIComponent(sel.id)}/hbx-handoff`,
         {
@@ -315,6 +329,7 @@ export function VendasClient() {
         body: JSON.stringify({
           ...(prodId ? { productId: Number(prodId) } : {}),
           ...(valor ? { saleValue: Number(valor) } : {}),
+          ...(setupValor ? { setupValue: Number(setupValor) } : {}),
         }),
       });
       setFecharMsg("✓ Produto e valor salvos no card.");
@@ -630,6 +645,12 @@ export function VendasClient() {
                   <div className="row"><span className="k">Venda</span><span className="v"><span className={"tag" + (deal.saleStatus === "sale_confirmed" ? " teal" : deal.saleStatus === "canceled" ? " warn" : "")}>{deal.saleStatusLabel || deal.saleStatus}</span></span></div>
                   <div className="row"><span className="k">Valor fechado</span><span className="v" style={{ fontFamily: "var(--font-mono)" }}>{fmtMoney(deal.saleValue) || "—"}</span></div>
                   <div className="row"><span className="k">Comissão</span><span className="v">{deal.commissionStatusLabel || "—"}{deal.commissionAmount != null ? <span style={{ fontFamily: "var(--font-mono)", marginLeft: 6 }}>{fmtMoney(deal.commissionAmount)}</span> : null}</span></div>
+                  {deal.setupValue ? (
+                    <React.Fragment>
+                      <div className="row"><span className="k">Implantação</span><span className="v">{fmtMoney(deal.setupValue) || "—"}</span></div>
+                      <div className="row"><span className="k">Comissão implantação</span><span className="v">{deal.setupCommissionStatusLabel || "—"}{deal.setupCommissionAmount != null ? ` · ${fmtMoney(deal.setupCommissionAmount)}` : ""}</span></div>
+                    </React.Fragment>
+                  ) : null}
                 </React.Fragment>
               )}
             </div>
@@ -785,7 +806,7 @@ export function VendasClient() {
               <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--hbx-danger)" }}>{fecharMsg}</div>
             )}
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Produto</label>
+              <label className="field-label">Produto</label>
               {produtos === null && <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Carregando produtos…</span>}
               {produtos !== null && produtos.length === 0 && (
                 <span style={{ fontSize: "0.72rem", color: "var(--hbx-warning)", lineHeight: 1.5 }}>
@@ -803,9 +824,14 @@ export function VendasClient() {
               )}
             </div>
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Valor (R$)</label>
+              <label className="field-label">Mensalidade / valor (R$)</label>
               <input className="field-dark" type="number" min={0} step="0.01" placeholder="0,00"
                 value={valor} onChange={e => setValor(e.target.value)} />
+            </div>
+            <div style={{ display: "grid", gap: 6 }}>
+              <label className="field-label">Implantação (R$) — valor acordado da instalação</label>
+              <input className="field-dark" type="number" min={0} step="0.01" placeholder="0,00"
+                value={setupValor} onChange={e => setSetupValor(e.target.value)} />
             </div>
             {!linkInfo && (
               <React.Fragment>

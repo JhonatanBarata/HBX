@@ -845,7 +845,7 @@ export class VendasService {
     const salePlanProvided = dto?.salePlanKey !== undefined;
     const commissionStatusProvided = dto?.commissionStatus !== undefined;
     const commissionNoteProvided = dto?.commissionNote !== undefined;
-    if (!saleStatusProvided && !saleValueProvided && !salePlanProvided && !commissionStatusProvided && !commissionNoteProvided) {
+    if (!saleStatusProvided && !saleValueProvided && !salePlanProvided && !commissionStatusProvided && !commissionNoteProvided && dto?.setupValue === undefined) {
       return { data: {}, event: null as TimelineEventRecord | null };
     }
 
@@ -904,6 +904,19 @@ export class VendasService {
       : preservedForReview
         ? this.normalizeCurrencyAmount(row?.commissionAmount)
         : 0;
+
+    // Implantação (one-time): valor negociado por negócio + comissão da mesma
+    // vendedora (mesmo percent). Espelha o status da venda; NÃO é recorrente.
+    const setupValueProvided = dto?.setupValue !== undefined;
+    const setupValue = this.normalizeCurrencyAmount(setupValueProvided ? dto.setupValue : row?.setupValue);
+    const hadSetup = this.normalizeCurrencyAmount(row?.setupValue) > 0;
+    const projectedSetupCommission = this.calculateCommissionAmount(setupValue, percent);
+    const setupCommissionAmount = paidSale && ['payable', 'paid'].includes(commissionStatus)
+      ? projectedSetupCommission
+      : preservedForReview
+        ? this.normalizeCurrencyAmount(row?.setupCommissionAmount)
+        : 0;
+    const setupCommissionStatus = setupValue > 0 || hadSetup ? commissionStatus : 'none';
     const opensCancellationCase = endsSale
       && previousSaleStatus !== nextSaleStatus
       && !String(row?.cancellationCaseStatus || '').trim();
@@ -934,6 +947,9 @@ export class VendasService {
     const data: any = {
       saleStatus: nextSaleStatus,
       saleValue: baseAmount,
+      setupValue,
+      setupCommissionAmount,
+      setupCommissionStatus,
       salePlanKey,
       saleConfirmedAt: confirmedAt,
       saleCanceledAt: canceledAt,
@@ -1416,6 +1432,10 @@ export class VendasService {
       commissionStatusLabel: this.formatCommissionStatusLabel(this.normalizeCommissionStatus(row?.commissionStatus)),
       commissionBaseAmount: this.normalizeCurrencyAmount(row?.commissionBaseAmount),
       commissionAmount: this.normalizeCurrencyAmount(row?.commissionAmount),
+      setupValue: this.normalizeCurrencyAmount(row?.setupValue),
+      setupCommissionAmount: this.normalizeCurrencyAmount(row?.setupCommissionAmount),
+      setupCommissionStatus: this.normalizeCommissionStatus(row?.setupCommissionStatus),
+      setupCommissionStatusLabel: this.formatCommissionStatusLabel(this.normalizeCommissionStatus(row?.setupCommissionStatus)),
       commissionDueAt: row?.commissionDueAt instanceof Date ? row.commissionDueAt.toISOString() : null,
       commissionPaidAt: row?.commissionPaidAt instanceof Date ? row.commissionPaidAt.toISOString() : null,
       commissionRecurring: Boolean(row?.commissionRecurring),
@@ -3195,6 +3215,8 @@ export class VendasService {
           commissionStatus: true,
           commissionBaseAmount: true,
           commissionAmount: true,
+          setupValue: true,
+          setupCommissionAmount: true,
           commissionDueAt: true,
           commissionPaidAt: true,
           commissionLinkedCompanyId: true,

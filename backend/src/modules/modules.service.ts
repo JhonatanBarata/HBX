@@ -2056,26 +2056,20 @@ export class ModulesService implements OnModuleInit {
       return this.isFinanceModuleKey(key);
     }
 
-    const availabilityMap = await this.buildModuleAvailabilityMap(
-      companyId,
-      orderedModules.map((moduleItem) => moduleItem.key),
-    );
-    const planManagedModuleKeys = new Set(
-      Object.values(COMMERCIAL_PLAN_MODULE_KEYS)
-        .flat()
-        .map((moduleKey) => this.normalizeRequestedModuleKey(moduleKey)),
-    );
     const teamPolicy = isSystemMaster
       ? null
       : await loadUserTeamPolicyRuntime(this.prisma, userId);
 
     for (const moduleItem of orderedModules) {
-      const normalizedModuleKey = this.normalizeRequestedModuleKey(moduleItem.key);
-      const availability = availabilityMap.get(normalizedModuleKey);
-      if (availability?.blockedByEngine && !accessPolicy.moduleKeys.has(normalizedModuleKey)) continue;
-      if (planManagedModuleKeys.has(normalizedModuleKey) && !accessPolicy.moduleKeys.has(normalizedModuleKey)) continue;
-      if (!this.canUseAdminOnlyModule(user, moduleItem.key, context)) continue;
+      // Regua unica: a verdade de "a empresa TEM o modulo" e CompanyModule.enabled
+      // (semeado do padrao master, editavel pelo master por empresa, em qualquer
+      // plano). O plano nao gata mais modulo aqui — vira so nome+preco.
+      const companyEnabled = await this.isCompanyModuleEnabled(companyId, moduleItem.id);
+      if (!companyEnabled) continue;
 
+      // Camadas que NAO sao a regua da empresa: papel duro (vendedor nao entra na
+      // area do dono) + politica/ default do usuario.
+      if (!this.canUseAdminOnlyModule(user, moduleItem.key, context)) continue;
       const policyAllowed = resolveTeamPolicyModuleAllowed(teamPolicy, moduleItem.key);
       const userAllowed = isSystemMaster
         ? true
@@ -2084,29 +2078,6 @@ export class ModulesService implements OnModuleInit {
           : this.defaultUserModuleAllowed(user, moduleItem.key, context, companyAccessSnapshot);
       if (!userAllowed) continue;
 
-      if (accessPolicy.moduleKeys.has(normalizedModuleKey)) {
-        return this.resolveModuleEffectiveCapability({
-          user,
-          moduleKey: moduleItem.key,
-          userAllowed,
-          companyAllowed: true,
-          context,
-        });
-      }
-
-      // Modulos travados (PR-002 A.5): fora do plano, override por empresa
-      // so vale no HBX Full.
-      if (accessPolicy.planKey !== COMMERCIAL_PLAN_KEYS.MELHOR) continue;
-
-      if (isSystemMaster) {
-        if (await this.isCompanyModuleEnabled(companyId, moduleItem.id)) {
-          return true;
-        }
-        continue;
-      }
-
-      const companyEnabled = await this.isCompanyModuleEnabled(companyId, moduleItem.id);
-      if (!companyEnabled) continue;
       return this.resolveModuleEffectiveCapability({
         user,
         moduleKey: moduleItem.key,
@@ -2231,7 +2202,6 @@ export class ModulesService implements OnModuleInit {
       moduleRows.map((row) => row.key),
     );
 
-    const planManagedModuleKeys = new Set<string>(Object.values(COMMERCIAL_PLAN_MODULE_KEYS).flat());
     const companyModules = moduleRows
       .filter((moduleItem) => moduleItem.companyAssignable && !this.isRetiredModuleKey(moduleItem.key))
       .map((moduleItem) => {
@@ -2246,14 +2216,13 @@ export class ModulesService implements OnModuleInit {
           blockedCode: null,
           criticalEngine: null,
         };
-        const planAllowsModule = accessPolicy.moduleKeys.has(normalizedKey);
-        const primaryCommercialModule = PRIMARY_COMMERCIAL_MODULE_KEYS.includes(normalizedKey as any);
-        const guardedCommercialModule = ROUTE_GUARDED_MODULE_KEYS.includes(normalizedKey as any);
-        const planManagedModule = planManagedModuleKeys.has(normalizedKey);
         const financeModule = this.isFinanceModuleKey(normalizedKey);
-        // Modulos travados (PR-002 A.5): override por empresa so vale no Full.
-        const companyOverrideHonored = accessPolicy.planKey === COMMERCIAL_PLAN_KEYS.MELHOR && Boolean(row?.enabled);
-        const effectiveCompanyEnabled = Boolean(companyOverrideHonored || (accessPolicy.active && planAllowsModule));
+        // Regua unica: CompanyModule.enabled e a verdade do que a empresa TEM
+        // (semeado do padrao master, master edita por empresa em qualquer plano).
+        // Financeiro e a rota-escape do contratante: sempre presente para quem tem
+        // papel, mesmo com cobranca pausada — e por onde ele paga.
+        const companyHasModule = Boolean(row?.enabled);
+        const effectiveCompanyEnabled = financeModule ? true : companyHasModule;
         const policyAllowed = resolveTeamPolicyModuleAllowed(teamPolicy, moduleItem.key);
         const userAllowed = isSystemMaster
           ? true
@@ -2261,11 +2230,11 @@ export class ModulesService implements OnModuleInit {
             ? policyAllowed
             : this.defaultUserModuleAllowed(user, moduleItem.key, context, company);
         const roleEligible = this.canUseAdminOnlyModule(user, moduleItem.key, context);
+        // Ordem do dono: SEM ACESSO = NAO APARECE. So aparece o que a empresa tem
+        // e o papel deixa (financeiro e a excecao-escape do contratante).
         const visible =
-          primaryCommercialModule ||
-          (guardedCommercialModule && Boolean(row)) ||
-          Boolean(effectiveCompanyEnabled && userAllowed && roleEligible) ||
-          Boolean(financeModule && userAllowed && roleEligible);
+          Boolean(financeModule && userAllowed && roleEligible) ||
+          Boolean(companyHasModule && userAllowed && roleEligible);
         let blockedReason: string | null = null;
         let blockedCode: string | null = null;
         let criticalEngine: string | null = null;
@@ -2277,11 +2246,7 @@ export class ModulesService implements OnModuleInit {
         } else if (!userAllowed || !roleEligible) {
           blockedReason = 'Usuario sem permissao para este modulo.';
           blockedCode = 'user_module_blocked';
-        } else if (accessPolicy.active && (primaryCommercialModule || planManagedModule) && !planAllowsModule) {
-          blockedReason = 'Este modulo nao faz parte do plano atual.';
-          blockedCode = 'plan_required';
-          criticalEngine = 'payment';
-        } else if (availability.blockedByEngine && !planAllowsModule) {
+        } else if (availability.blockedByEngine && !companyHasModule) {
           blockedReason = availability.blockedReason;
           blockedCode = availability.blockedCode;
           criticalEngine = availability.criticalEngine;
@@ -2290,9 +2255,7 @@ export class ModulesService implements OnModuleInit {
         const accessible = Boolean(
           visible &&
           !blockedReason &&
-          (financeModule ||
-            planAllowsModule ||
-            (accessPolicy.active && effectiveCompanyEnabled && !planManagedModule && !availability.blockedByEngine)),
+          (financeModule || (accessPolicy.active && companyHasModule)),
         );
 
         const blockPresentation = presentModuleBlockForRole((user as any)?.role, {
@@ -2312,7 +2275,7 @@ export class ModulesService implements OnModuleInit {
           visible,
           category: availability.category,
           entryEligible: normalizedKey === 'webscraping' ? false : availability.entryEligible,
-          blockedByEngine: planAllowsModule ? false : availability.blockedByEngine,
+          blockedByEngine: companyHasModule ? false : availability.blockedByEngine,
           blockedReason: visible ? blockPresentation.blockedReason : null,
           blockedCode: visible ? blockPresentation.blockedCode : null,
           criticalEngine: visible ? blockPresentation.criticalEngine : null,
@@ -2674,6 +2637,7 @@ export class ModulesService implements OnModuleInit {
       courtesyReason: company.courtesyReason || null,
       courtesyEndsAt: company.courtesyEndsAt instanceof Date ? company.courtesyEndsAt.toISOString() : null,
       commercialCardQuota: this.resolveCommercialCardQuota(company),
+      seatCap: Number(company?.seatCap || 0) > 0 ? Math.trunc(Number(company.seatCap)) : null,
       assistedSetup: {
         required: Boolean(company.assistedSetupRequired),
         status: String(company.assistedSetupStatus || 'not_required'),
@@ -3459,11 +3423,33 @@ export class ModulesService implements OnModuleInit {
     const operationalStatusByCompanyId = new Map(
       operationalStatuses.map((item) => [Number(item.companyId), item]),
     );
+    // Master config carregado UMA vez: a situacao do WhatsApp considera os 3
+    // trilhos (Meta oficial por token proprio/Master + conexao rapida QR/WebWhats),
+    // nao so a coluna whatsappStatus (que e somente o status oficial da Meta).
+    const masterIntegrationConfig = await getMasterGlobalIntegrationConfig(this.prisma);
 
     const result: any[] = [];
     for (const company of companies) {
       const status = await this.evaluateCompanyStatus(company.id, company);
       const websiteConfig = websiteConfigs.get(Number(company.id)) || null;
+      const whatsappEndpoints = (((company as any).whatsappEndpoints || this.buildLegacyEndpointSnapshot(company)) as any[]);
+      const selectedWhatsAppCredential = company.useMasterWhatsAppToken
+        ? pickMasterWhatsAppCredential(masterIntegrationConfig, company.masterWhatsAppCredentialKey)
+        : null;
+      const effectiveWhatsApp = this.effectiveWhatsAppConfig(company, masterIntegrationConfig);
+      const whatsappCenter = buildWhatsAppCenterSnapshot({
+        company,
+        credential: selectedWhatsAppCredential,
+        effectiveConfig: effectiveWhatsApp,
+        temporaryAvailable: false,
+      });
+      const whatsappSituation = buildMasterWhatsAppSituation({
+        company,
+        credential: selectedWhatsAppCredential,
+        effectiveConfig: effectiveWhatsApp,
+        whatsappCenter,
+        endpoints: whatsappEndpoints,
+      });
       result.push({
         id: company.id,
         name: company.name,
@@ -3493,9 +3479,12 @@ export class ModulesService implements OnModuleInit {
         whatsappStatus: company.whatsappStatus || null,
         whatsappStatusError: company.whatsappStatusError || null,
         whatsappStatusUpdatedAt: company.whatsappStatusUpdatedAt || null,
+        // Situacao unificada: a coluna da lista deve refletir QR/WebWhats e Token
+        // Master tambem, nao so o status oficial cru da Meta (que fica em whatsappStatus).
+        whatsappSituation,
         accessTokenConfigured: Boolean(company.whatsappAccessToken),
         accessTokenPreview: this.previewSecret(company.whatsappAccessToken),
-        whatsappEndpoints: (((company as any).whatsappEndpoints || this.buildLegacyEndpointSnapshot(company)) as any[]).map((endpoint) => ({
+        whatsappEndpoints: whatsappEndpoints.map((endpoint) => ({
           id: endpoint.id,
           label: endpoint.label || null,
           moduleKey: endpoint.moduleKey || null,
@@ -3553,20 +3542,9 @@ export class ModulesService implements OnModuleInit {
     if (isPlatformInfraCompany(company)) {
       throw new BadRequestException('Empresa de infraestrutura nao recebe modulos comerciais.');
     }
-    // Modulos travados (PR-002 A.5): List e Lead seguem o catalogo do plano,
-    // sempre. Ajuste fino de modulo por empresa so existe no HBX Full.
-    const accessPolicy = resolveCompanyModuleAccessPolicy(company);
-    if (accessPolicy.planKey !== COMMERCIAL_PLAN_KEYS.MELHOR) {
-      throw new BadRequestException(
-        'Modulos sao definidos pelo plano neste pacote. Ajuste fino de modulos so no HBX Full.',
-      );
-    }
-    const status = await this.evaluateCompanyStatus(companyId);
-    if (!status.active) {
-      throw new BadRequestException(
-        'Esta empresa esta sem acesso liberado. Ative pagamento ou trial antes de liberar modulos.',
-      );
-    }
+    // Regua unica: o master edita modulo de QUALQUER plano, empresa por empresa
+    // (plano virou so nome+preco). O paywall continua barrando no runtime — aqui
+    // so guardamos a config. Empresa de infra ja foi barrada acima.
 
     const result = await this.prisma.companyModule.upsert({
       where: { companyId_moduleId: { companyId, moduleId: moduleItem.id } },
@@ -3823,7 +3801,7 @@ export class ModulesService implements OnModuleInit {
     });
   }
 
-  private async syncCompanyModulesForPlanTx(tx: any, companyId: number, planKey: ActiveCommercialPlanKey) {
+  private async syncCompanyModulesForPlanTx(tx: any, companyId: number, _planKey: ActiveCommercialPlanKey) {
     const company = await tx.company.findUnique({
       where: { id: companyId },
       select: { companyKind: true },
@@ -3833,20 +3811,19 @@ export class ModulesService implements OnModuleInit {
       return;
     }
 
-    const moduleKeys = COMMERCIAL_PLAN_MODULE_KEYS[planKey] || [];
-    const moduleRows = moduleKeys.length
-      ? await tx.systemModule.findMany({
-          where: { companyAssignable: true, key: { in: moduleKeys } },
-          select: { id: true },
-        })
-      : [];
-
+    // Regua unica: todo plano nasce do PADRAO MASTER (catalogo defaultEnabled, a
+    // coluna "Padrao ON" do /master). Plano virou so nome+preco; o master apara
+    // modulo por empresa depois. Sem lista de modulo por plano.
     await tx.companyModule.updateMany({ where: { companyId }, data: { enabled: false } });
+    const moduleRows = await tx.systemModule.findMany({
+      where: { companyAssignable: true },
+      select: { id: true, defaultEnabled: true },
+    });
     for (const moduleRow of moduleRows) {
       await tx.companyModule.upsert({
         where: { companyId_moduleId: { companyId, moduleId: moduleRow.id } },
-        update: { enabled: true },
-        create: { companyId, moduleId: moduleRow.id, enabled: true },
+        update: { enabled: Boolean(moduleRow.defaultEnabled) },
+        create: { companyId, moduleId: moduleRow.id, enabled: Boolean(moduleRow.defaultEnabled) },
       });
     }
   }
@@ -4650,12 +4627,27 @@ export class ModulesService implements OnModuleInit {
     dto: {
       monthlyCardLimit?: number | null;
       dailyCardLimit?: number | null;
+      seatCap?: number | null;
     },
   ) {
     await this.assertMasterUser(masterUserId);
     await ensureMasterBillingRuntimeSchema(this.prisma);
     const company = await this.prisma.company.findUnique({ where: { id: companyId } });
     if (!company) throw new BadRequestException('Empresa nao encontrada');
+
+    // Teto rígido de assentos: atualiza só quando vier no payload (não apaga
+    // ao editar apenas a quota). 0/null = sem teto. PR13062026005.
+    if (dto?.seatCap !== undefined) {
+      const seatCapValue = Number(dto.seatCap);
+      const normalizedSeatCap = Number.isFinite(seatCapValue) && seatCapValue > 0
+        ? Math.min(999, Math.trunc(seatCapValue))
+        : null;
+      await this.prisma.$executeRawUnsafe(
+        `UPDATE "Company" SET "seatCap" = $1 WHERE "id" = $2`,
+        normalizedSeatCap,
+        companyId,
+      );
+    }
     const quotaOverrides = await this.listCompanyQuotaOverrides([companyId]);
     Object.assign(company as any, quotaOverrides.get(companyId) || {});
     const previousState = this.buildCompanyCardQuotaAuditSnapshot(company);

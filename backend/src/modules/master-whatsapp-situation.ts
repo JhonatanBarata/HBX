@@ -172,6 +172,11 @@ export function buildMasterWhatsAppSituation({
   const modeRaw = normalizeUpper(company?.whatsappConnectionMode);
   const qrStatus = normalizeUpper(company?.whatsappTemporaryStatus);
   const officialStatus = normalizeUpper(company?.whatsappStatus);
+  // WebWhats vivo: a conexao real do trilho rapido mora em whatsappModalStatus,
+  // nao em whatsappTemporaryStatus (que pode ficar em ATTENTION mesmo conectado).
+  // Mesmo criterio canonico do motor (CONNECTED/RECONNECTING = operacional).
+  const modalStatus = normalizeUpper(company?.whatsappModalStatus);
+  const modalConnected = modalStatus === 'CONNECTED' || modalStatus === 'RECONNECTING';
   const usingMasterToken = Boolean(company?.useMasterWhatsAppToken);
   const effectiveAccessToken = normalizeText(effectiveConfig?.accessToken) || normalizeText(company?.whatsappAccessToken);
   const effectivePhoneNumberId =
@@ -182,6 +187,7 @@ export function buildMasterWhatsAppSituation({
     normalizeText(credential?.displayNumber) ||
     normalizeText(company?.whatsappDisplayNumber) ||
     normalizeText(company?.whatsappTemporaryDisplayNumber) ||
+    normalizeText(company?.whatsappModalPhone) ||
     normalizeText(effectiveConfig?.whatsappNumber) ||
     normalizeText(credential?.whatsappNumber) ||
     normalizeText(company?.whatsappNumber) ||
@@ -202,6 +208,7 @@ export function buildMasterWhatsAppSituation({
     whatsappCenter?.mode === 'QR' ||
     qrStatus === 'TEMPORARY' ||
     qrStatus === 'QR' ||
+    modalConnected ||
     Boolean(company?.whatsappTemporaryQrCodeData || company?.whatsappTemporaryPairingCode);
   const officialConfigured = Boolean(effectiveAccessToken && effectivePhoneNumberId);
   const endpointConfigured = endpointsConfigured.length > 0;
@@ -247,6 +254,7 @@ export function buildMasterWhatsAppSituation({
   } else if (
     officialStatus === 'CONNECTED' ||
     whatsappCenter?.official?.connected ||
+    modalConnected ||
     qrStatus === 'TEMPORARY' ||
     qrStatus === 'QR' ||
     endpoints?.some((endpoint) => normalizeUpper(endpoint?.whatsappStatus) === 'CONNECTED')

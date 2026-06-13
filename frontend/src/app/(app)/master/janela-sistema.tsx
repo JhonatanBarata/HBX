@@ -17,6 +17,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 
 import { apiFetch } from "@/lib/api";
+import { useTabIndex } from "@/lib/use-tab-param";
 
 import { fmtDataHora } from "./page.client";
 
@@ -100,7 +101,7 @@ const COMPLAINT_STATUS = [
 ];
 
 export function JanelaSistema() {
-  const [sub, setSub] = useState(0);
+  const [sub, setSub] = useTabIndex("sistema", 0);
 
   // módulos
   const [modulos, setModulos] = useState<SystemModule[] | null>(null);

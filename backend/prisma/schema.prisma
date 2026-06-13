@@ -88,6 +88,7 @@ model Company {
   courtesyReason          String?
   commercialCardsMonthlyLimitOverride Int?
   commercialCardsDailyLimitOverride   Int?
+  seatCap                 Int?     // teto RÍGIDO de assentos por empresa (master) — PR13062026005
   commissionDueBusinessDays Int      @default(3)
   assistedSetupStatus     String    @default("not_required") // not_required | pending | completed
   assistedSetupRequired   Boolean   @default(false)
@@ -2173,6 +2174,11 @@ model VendasLead {
   commissionPaidAt  DateTime?
   commissionRecurring Boolean @default(false)
   commissionNote    String?
+  // Implantação (one-time, negociado por negócio) — PR13062026005.
+  // Paralelo ao saleValue mensal; comissão one-time, NÃO entra no recurring.
+  setupValue            Float?
+  setupCommissionAmount Float?
+  setupCommissionStatus String?  // none | pending | payable | paid | canceled
   commissionLinkedCompanyId Int?
   commissionLinkedAt DateTime?
   commissionAutoSyncedAt DateTime?
@@ -2524,6 +2530,9 @@ model MasterGlobalIntegrationConfig {
 
 model MasterEmailTemplate {
   kind      String   @id
+  // Rótulo só dos templates personalizados (kind tpl_*); os de sistema
+  // pegam o nome fixo no código. PR13062026005 — "+"/"-" no /master e-mails.
+  label     String?
   subject   String
   text      String
   html      String?

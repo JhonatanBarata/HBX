@@ -18,6 +18,7 @@ import React, { useEffect, useRef, useState } from "react";
 
 import { I, ICONS, Sidebar, Topbar } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
+import { useTabIndex } from "@/lib/use-tab-param";
 
 type BotButton = { buttonId: string; actionId: string; title: string; nextNodeId?: string };
 
@@ -137,7 +138,7 @@ export function BotClient() {
   const [step, setStep] = useState(0);
   // aba ativa + editor da aba Configurações (decisão do dono 12/06/2026:
   // a configuração do bot mora aqui; PATCH /inbox/bot-config)
-  const [tab, setTab] = useState(0);
+  const [tab, setTab] = useTabIndex("tab", 0);
   const [cfgForm, setCfgForm] = useState<Partial<BotConfig>>({});
   const [cfgRules, setCfgRules] = useState<Partial<BotRoutingRules>>({});
   const [cfgBusy, setCfgBusy] = useState(false);

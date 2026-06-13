@@ -11,6 +11,7 @@ import React, { useCallback, useEffect, useState } from "react";
 
 import { I, ICONS, Sidebar, Topbar, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
+import { useTabIndex } from "@/lib/use-tab-param";
 
 type Produto = {
   id: number;
@@ -114,7 +115,7 @@ export function GerencialClient() {
   const user = useCurrentUser() as { role?: string; isSystemMaster?: boolean } | null;
   const isAdmin = Boolean(user && (String(user.role || "").toUpperCase() === "ADMIN" || user.isSystemMaster));
 
-  const [aba, setAba] = useState(0);
+  const [aba, setAba] = useTabIndex("aba", 0);
 
   // aviso do sino → abre direto na aba (mesmo padrão do "+" → Novo lead);
   // a dica vem por NOME da aba (ex.: "Candidaturas", "Comissões")
@@ -130,7 +131,7 @@ export function GerencialClient() {
       } catch { /* sem storage */ }
     }, 0);
     return () => clearTimeout(t);
-  }, []);
+  }, [setAba]);
 
   const [produtos, setProdutos] = useState<Produto[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);

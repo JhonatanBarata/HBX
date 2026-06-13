@@ -17,6 +17,7 @@ import React, { useCallback, useEffect, useState } from "react";
 
 import { Av, I, ICONS, KpiRow, Sidebar, Topbar, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
+import { useTabParam } from "@/lib/use-tab-param";
 
 type RadarLead = {
   id: string;
@@ -127,7 +128,7 @@ export function LeadsClient() {
   // a comissão dele nas ações do lead). Só aparece para vendedor e quando o
   // backend já expõe o percentual (sellerProfile.commissionPercent).
   const commissionPct = isSeller ? Number(me?.sellerProfile?.commissionPercent ?? 0) || 0 : 0;
-  const [etapa, setEtapa] = useState("");
+  const [etapa, setEtapa] = useTabParam<string>("etapa", "");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(8);
   const [data, setData] = useState<LeadsResponse | null>(null);

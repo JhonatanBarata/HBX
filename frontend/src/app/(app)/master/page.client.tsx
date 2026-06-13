@@ -11,6 +11,7 @@ import React, { useCallback, useEffect, useState } from "react";
 
 import { Av, I, ICONS, ModeToggle, currentUserDisplayName, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch, clearToken } from "@/lib/api";
+import { useTabParam } from "@/lib/use-tab-param";
 
 import { JanelaEmails } from "./janela-emails";
 import { JanelaEmpresas } from "./janela-empresas";
@@ -39,6 +40,12 @@ export type MasterCompany = {
   subscriptionCurrentPeriodStart?: string | null;
   subscriptionCurrentPeriodEnd?: string | null;
   whatsappStatus?: string | null;
+  whatsappSituation?: {
+    mode?: string | null;
+    status?: "connected" | "attention" | "disconnected" | "error" | "unknown" | string | null;
+    statusLabel?: string | null;
+    numberLabel?: string | null;
+  } | null;
   users?: {
     id: number;
     username?: string | null;
@@ -107,7 +114,7 @@ export function MasterClient() {
   const router = useRouter();
   const isMaster = Boolean(user?.isSystemMaster);
 
-  const [janela, setJanela] = useState<JanelaId>("empresas");
+  const [janela, setJanela] = useTabParam<JanelaId>("janela", "empresas", JANELAS.map(j => j.id));
   const [signingOut, setSigningOut] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 

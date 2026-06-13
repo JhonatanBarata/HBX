@@ -312,6 +312,14 @@ class UpdateMasterCompanyQuotaDto {
   @Min(0)
   @Max(999999)
   dailyCardLimit?: number;
+
+  // Teto rígido de assentos (0/ausente = sem teto) — PR13062026005
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(999)
+  seatCap?: number;
 }
 
 class PermanentDeleteDto {

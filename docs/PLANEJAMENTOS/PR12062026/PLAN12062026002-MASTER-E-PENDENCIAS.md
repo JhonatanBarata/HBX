@@ -73,8 +73,16 @@ front para mandar isSystemMaster para /master (não mexer no next do backend).
   docs/PLANEJAMENTOS/PR11062026001/FRONTEND-TEMAS-RESET.md (seção "PLANO DA
   TRILHA DE CHECKOUT"): /pre-checkout vira tela real (hoje alias), cartão
   tokenizado Mercado Pago (reintroduzir NEXT_PUBLIC_MERCADO_PAGO_PUBLIC_KEY),
-  `/financeiro/*` (checkout, subscription create/cancel/change-card/status),
-  "Gerenciar plano" das Configurações (hoje visual), POST /commercial-plans/select.
+  `/financeiro/*` (checkout, subscription create/cancel/change-card/status).
+- ✅ FEITO (13/06/2026): "Gerenciar plano" das Configurações deixou de ser
+  visual — ligado em POST /commercial-plans/select (Configurações → Plano e
+  cobrança, só ADMIN/master via canSelectPlan). Botão rola até o catálogo da
+  própria tela; cada plano não-atual tem "Trocar para este plano" com confirm
+  honesto. Backend manda a regra: trocar p/ plano diferente cai em
+  pending_checkout + desativa a empresa (sem afrouxar paywall); "Full" volta
+  "Fale com a HBX". FALTA AINDA: a trilha de pagamento de fato (pre-checkout
+  real + Mercado Pago + /financeiro/*) para o acesso voltar sem reativação
+  manual. Cuidado: trocar plano na HBX interna derruba a cortesia.
 - PAGAMENTOS.md vale inteiro: vendedor nunca vê; preço só da API.
 
 ### Bot
