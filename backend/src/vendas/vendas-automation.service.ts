@@ -1610,6 +1610,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           : lastStatusText || (todayPending > 0 ? `${todayPending} contatos na fila hoje.` : 'Aguardando cards do Vendas com WhatsApp para continuar a Prospecção.'),
       active: campaign.status === 'running' && status !== 'dormindo',
       campaign: this.serializeCampaign(campaign),
+      triagem: this.buildTriagemState(campaign),
       counters,
       nextScheduledAt: nextScheduledAt ? nextScheduledAt.toISOString() : null,
       sentToday,
@@ -1885,14 +1886,65 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     return this.buildLiveStatus(updated);
   }
 
+  // 5º muro (PR13062026007): checklist da triagem. UMA fonte só — o gate de armar
+  // (setCampaignStatusForUser) e o painel do front leem daqui, então o que a tela
+  // mostra é exatamente o que destrava o robô.
+  private computeTriagemChecklist(campaign: any): { key: string; label: string; ok: boolean }[] {
+    return [
+      { key: 'mensagem', label: 'mensagem de abordagem', ok: Boolean(String(campaign?.messageTemplate || '').trim()) },
+      { key: 'optout', label: 'mensagem de saída (opt-out)', ok: Boolean(String(campaign?.optOutMessage || '').trim()) },
+      { key: 'limite', label: 'limite diário de envios', ok: Number(campaign?.dailyLimit || 0) > 0 },
+      {
+        key: 'horario',
+        label: 'horário de funcionamento',
+        ok: Boolean(String(campaign?.workingHoursStart || '').trim()) && Boolean(String(campaign?.workingHoursEnd || '').trim()),
+      },
+    ];
+  }
+
+  // Estado de triagem para o front: confirmado (já armou alguma vez) + itens do
+  // checklist + pendências + pronto (pode armar). NÃO arma nada; só relata.
+  private buildTriagemState(campaign: any) {
+    const itens = this.computeTriagemChecklist(campaign);
+    const pendentes = itens.filter((i) => !i.ok).map((i) => i.label);
+    const confirmedAt = campaign?.triagemConfirmedAt instanceof Date ? campaign.triagemConfirmedAt : null;
+    return {
+      confirmed: confirmedAt != null,
+      confirmedAt: confirmedAt ? confirmedAt.toISOString() : null,
+      itens,
+      pendentes,
+      pronto: pendentes.length === 0,
+    };
+  }
+
   private async setCampaignStatusForUser(user: any, status: 'running' | 'paused', text: string, type: string) {
     const context = this.resolveUserContext(user);
     await this.assertEntitlement(user);
     const campaign = await this.latestCampaign(context.companyId);
     if (!campaign) throw new BadRequestException('Nenhuma campanha de prospecção encontrada.');
+    // 5º muro fail-closed (PR13062026007): ligar a prospecção exige TRIAGEM.
+    // Só dono/gerente (ADMIN) ou master arma; vendedor (USER) NUNCA. E só com a
+    // config mínima pronta — senão o robô fala com cliente sem estar configurado.
+    if (status === 'running') {
+      const role = String(user?.role || '').trim().toUpperCase();
+      if (!user?.isSystemMaster && role !== 'ADMIN') {
+        throw new ForbiddenException('Só o dono/gerente pode ligar a prospecção automática.');
+      }
+      const faltando = this.computeTriagemChecklist(campaign).filter((i) => !i.ok).map((i) => i.label);
+      if (faltando.length) {
+        throw new BadRequestException(`Triagem incompleta: configure ${faltando.join(', ')} antes de ligar o robô.`);
+      }
+    }
     const updated = await this.prisma.vendasAutomationCampaign.update({
       where: { id: campaign.id },
-      data: { status, lastStatusText: text, lastError: null },
+      data: {
+        status,
+        lastStatusText: text,
+        lastError: null,
+        ...(status === 'running'
+          ? { triagemConfirmedAt: new Date(), triagemConfirmedByUserId: context.userId }
+          : {}),
+      },
     });
     this.publishAutomationEvent({
       companyId: context.companyId,
@@ -2780,7 +2832,9 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       where: {
         status: 'scheduled',
         scheduledAt: { lte: new Date() },
-        campaign: { status: 'running' },
+        // 5º muro fail-closed (PR13062026007): só dispara campanha com triagem
+        // CONFIRMADA. Sem triagem = nunca envia (robô não acorda sem config).
+        campaign: { status: 'running', triagemConfirmedAt: { not: null } },
         ...(blocked.length ? { companyId: { notIn: blocked } } : {}),
       },
       include: { campaign: true, lead: true },
@@ -2794,7 +2848,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         campaignId,
         status: 'scheduled',
         scheduledAt: { lte: new Date() },
-        campaign: { status: 'running' },
+        campaign: { status: 'running', triagemConfirmedAt: { not: null } },
       },
       select: { id: true },
       orderBy: [{ scheduledAt: 'asc' }, { createdAt: 'asc' }],

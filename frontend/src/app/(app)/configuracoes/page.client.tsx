@@ -46,6 +46,7 @@ type CurrentUser = {
   username?: string | null;
   role?: string | null;
   userKind?: string | null;
+  canViewBilling?: boolean | null;
   company?: { name?: string | null; contactPhone?: string | null } | null;
 } | null;
 
@@ -227,10 +228,13 @@ export function ConfiguracoesClient() {
   const displayName = user?.name || user?.username || "—";
   // PAGAMENTOS.md: vendedor (role USER) nunca vê tela/valores de cobrança.
   const isSeller = user?.userKind === "seller";
+  // Régua única P3/P5: "gerente pra baixo ninguém vê o vínculo HBX×contratante".
+  // Gerente = ADMIN com canViewBilling=false → esconde "Plano e cobrança" também.
+  const canSeeBilling = user != null && !isSeller && user.canViewBilling !== false;
   // E-mail é seção do ADMIN (módulo por empresa, PR12062026005)
   const isAdminUser = Boolean(user && (String(user.role || "").toUpperCase() === "ADMIN" || user.userKind === "system_master"));
   const sections = SECTIONS
-    .filter(s => s !== "Plano e cobrança" || (user != null && !isSeller))
+    .filter(s => s !== "Plano e cobrança" || canSeeBilling)
     .filter(s => s !== "E-mail" || isAdminUser);
   const current = plansMe?.current;
   const planos = plansMe?.plans || [];
@@ -361,7 +365,7 @@ export function ConfiguracoesClient() {
               </section>
             )}
 
-            {sec === "Plano e cobrança" && !isSeller && (
+            {sec === "Plano e cobrança" && canSeeBilling && (
               <React.Fragment>
                 <section className="panel">
                   <div className="panel-head">

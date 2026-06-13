@@ -68,6 +68,24 @@ const RUNTIME_SCHEMA_ENSURES: RuntimeSchemaEnsureDefinition[] = [
     shouldBecomeMigration: true,
   },
   {
+    key: 'regua-cargo-access-columns',
+    method: 'ensureReguaCargoAccessColumns',
+    target: 'Company.sellerCargoAccessJson + User.canViewBilling (régua única PR13062026007)',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'plan-module-config-table',
+    method: 'ensurePlanModuleConfigTable',
+    target: 'PlanModuleConfig table (módulos padrões por plano — PR13062026007)',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'vendas-automation-triagem-columns',
+    method: 'ensureVendasAutomationTriagemColumns',
+    target: 'VendasAutomationCampaign triagemConfirmedAt/By (bot fail-closed — PR13062026007)',
+    shouldBecomeMigration: true,
+  },
+  {
     key: 'user-sales-profile-columns',
     method: 'ensureUserSalesProfileColumns',
     target: 'User seller profile and distribution columns',
@@ -414,6 +432,9 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     } catch (e) {}
     await this.$connect();
     await this.runRuntimeSchemaEnsure('company-commission-settings-columns', () => this.ensureCompanyCommissionSettingsColumns());
+    await this.runRuntimeSchemaEnsure('regua-cargo-access-columns', () => this.ensureReguaCargoAccessColumns());
+    await this.runRuntimeSchemaEnsure('plan-module-config-table', () => this.ensurePlanModuleConfigTable());
+    await this.runRuntimeSchemaEnsure('vendas-automation-triagem-columns', () => this.ensureVendasAutomationTriagemColumns());
     await this.runRuntimeSchemaEnsure('user-sales-profile-columns', () => this.ensureUserSalesProfileColumns());
     await this.runRuntimeSchemaEnsure('hbx-partner-referral-candidate-tables', () => this.ensureHbxPartnerReferralCandidateTables());
     await this.runRuntimeSchemaEnsure('vendas-lead-assignment-columns', () => this.ensureVendasLeadAssignmentColumns());
@@ -499,6 +520,52 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     await this.$executeRawUnsafe(`
       ALTER TABLE "Company"
       ADD COLUMN IF NOT EXISTS "commissionDueBusinessDays" INTEGER NOT NULL DEFAULT 3
+    `);
+  }
+
+  // Régua única (PR13062026007 P1): molho de acesso do cargo Vendedor (1 por
+  // empresa) + marcador Dono/Gerente dentro do papel ADMIN.
+  private async ensureReguaCargoAccessColumns() {
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "Company"
+      ADD COLUMN IF NOT EXISTS "sellerCargoAccessJson" TEXT
+    `);
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "User"
+      ADD COLUMN IF NOT EXISTS "canViewBilling" BOOLEAN NOT NULL DEFAULT true
+    `);
+    // PF3: Central de Implantação do Full — valor de implantação + parcela acordada.
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "Company"
+      ADD COLUMN IF NOT EXISTS "setupValue" DOUBLE PRECISION
+    `);
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "Company"
+      ADD COLUMN IF NOT EXISTS "monthlyValueOverride" DOUBLE PRECISION
+    `);
+  }
+
+  // Régua única (PR13062026007 PB1): módulos padrões por plano (editáveis no Sistema).
+  private async ensurePlanModuleConfigTable() {
+    await this.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "PlanModuleConfig" (
+        "planKey" TEXT PRIMARY KEY,
+        "modulesJson" TEXT NOT NULL DEFAULT '{}',
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+  }
+
+  // Régua (PR13062026007, 5º muro): bot fail-closed — campanha só dispara com triagem.
+  private async ensureVendasAutomationTriagemColumns() {
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "VendasAutomationCampaign"
+      ADD COLUMN IF NOT EXISTS "triagemConfirmedAt" TIMESTAMP(3)
+    `);
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "VendasAutomationCampaign"
+      ADD COLUMN IF NOT EXISTS "triagemConfirmedByUserId" INTEGER
     `);
   }
 

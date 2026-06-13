@@ -546,6 +546,7 @@ export class UsersService {
     companyId?: number | null;
     role?: string;
     isActive?: boolean;
+    canViewBilling?: boolean;
   }): Promise<User> {
     const created = await this.prisma.user.create({ data });
     await ensureUserTeamPolicyForUser(this.prisma, created.id, { source: 'user_create' });

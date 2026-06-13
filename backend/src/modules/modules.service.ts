@@ -27,9 +27,12 @@ import {
 import {
   COMMERCIAL_ENTITLEMENT_KEYS,
   COMMERCIAL_PLAN_ENTITLEMENT_KEYS,
+  COMMERCIAL_PLAN_EXTRA_USER_MONTHLY,
+  COMMERCIAL_PLAN_INCLUDED_USERS,
   COMMERCIAL_PLAN_KEYS,
   COMMERCIAL_PLAN_MODULE_KEYS,
   COMMERCIAL_PLAN_QUOTAS,
+  COMMERCIAL_PLAN_TRIAL_DAYS,
   buildCommercialPlansCatalog,
   getCommercialPlanMonthlyPrice,
   getCommercialPlanTitle,
@@ -58,7 +61,6 @@ import {
 } from './company-access-state';
 import {
   ensureUserTeamPolicyForUser,
-  loadUserTeamPolicyRuntime,
   parseTeamPolicyAccessMap,
   parseTeamPolicyModuleAccessMap,
   resolveTeamPolicyModuleAllowed,
@@ -115,6 +117,12 @@ const EMPLOYEE_BLOCKED_MODULE_KEYS = new Set([
 // liga por vendedor quando o plano tiver), mas nao vem ligado por padrao.
 const SELLER_ELIGIBLE_MODULE_KEYS = new Set(['vendas', 'webscraping', 'atendimento']);
 const SELLER_DEFAULT_MODULE_KEYS = new Set(['vendas', 'webscraping']);
+// Régua única (PR13062026007 P2): ACESSO POR CARGO. O molho do cargo Vendedor
+// (Company.sellerCargoAccessJson) decide o que o USER vê; nasce com vendas+radar.
+// financeiro/gerencial sao MURO do eixo Dono/Gerente — nunca entram no molho de
+// vendedor (mesmo que o JSON tente). ADMIN/master veem tudo da empresa.
+const SELLER_CARGO_DEFAULT_ACCESS = new Set(['vendas', 'webscraping']);
+const SELLER_CARGO_WALL_MODULES = new Set(['financeiro', 'gerencial']);
 // Superficie do master puro (sem contexto de empresa): governo do sistema.
 // Planos, Email e Webwhats sao abas da central master; aqui ficam apenas os
 // modulos de navegacao proprios dele.
@@ -1926,6 +1934,77 @@ export class ModulesService implements OnModuleInit {
     return Boolean(row?.enabled);
   }
 
+  // Régua única (PR13062026007 P2): molho de ACESSO do cargo Vendedor, 1 por
+  // empresa. Aceita { key: bool } ou [{ key, allowed }]. Vazio → usa o seed.
+  private parseSellerCargoAccess(company: any): Map<string, boolean> {
+    const map = new Map<string, boolean>();
+    try {
+      const parsed = JSON.parse(String(company?.sellerCargoAccessJson || 'null'));
+      if (Array.isArray(parsed)) {
+        for (const row of parsed) {
+          const key = this.normalizeRequestedModuleKey((row as any)?.key);
+          if (key) map.set(key, Boolean((row as any)?.allowed));
+        }
+      } else if (parsed && typeof parsed === 'object') {
+        for (const [key, allowed] of Object.entries(parsed)) {
+          const norm = this.normalizeRequestedModuleKey(key);
+          if (norm) map.set(norm, Boolean(allowed));
+        }
+      }
+    } catch {
+      /* sem molho salvo → cai no seed default */
+    }
+    return map;
+  }
+
+  // Acesso por CARGO: ADMIN/master veem tudo da empresa (muro do $ é a P3, por
+  // canViewBilling). USER (Vendedor) resolve do molho do cargo; financeiro e
+  // gerencial sao muro (nunca de vendedor); o resto cai no seed (vendas+radar).
+  private resolveCargoModuleAllowed(user: any, moduleKey: string, cargoAccess: Map<string, boolean>) {
+    if (user?.isSystemMaster) return true;
+    const role = String(user?.role || '').trim().toUpperCase();
+    if (role === 'ADMIN') return true;
+    if (role !== 'USER') return false;
+    const norm = this.normalizeRequestedModuleKey(moduleKey);
+    if (SELLER_CARGO_WALL_MODULES.has(norm)) return false;
+    if (cargoAccess.has(norm)) return Boolean(cargoAccess.get(norm));
+    return SELLER_CARGO_DEFAULT_ACCESS.has(norm);
+  }
+
+  // Régua única (PR13062026007 PB1/PB2): "caixa do plano" VIVA, editável no
+  // Sistema. Base = COMMERCIAL_PLAN_MODULE_KEYS; por cima, o que o master editou
+  // em PlanModuleConfig. É o que a empresa segue quando NÃO tem post-it.
+  private async getPlanModuleDefaults(planKey: string): Promise<Map<string, boolean>> {
+    const map = new Map<string, boolean>();
+    for (const m of COMMERCIAL_PLAN_MODULE_KEYS[planKey as ActiveCommercialPlanKey] || []) {
+      map.set(this.normalizeRequestedModuleKey(m), true);
+    }
+    const cfg = await this.prisma.planModuleConfig.findUnique({ where: { planKey } }).catch(() => null);
+    if (cfg?.modulesJson) {
+      try {
+        const parsed = JSON.parse(cfg.modulesJson);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          for (const [k, v] of Object.entries(parsed)) {
+            map.set(this.normalizeRequestedModuleKey(k), Boolean(v));
+          }
+        }
+      } catch {
+        /* json ruim → fica só o padrão do catálogo */
+      }
+    }
+    return map;
+  }
+
+  // Post-it da empresa: linha em CompanyModule = exceção explícita. null = sem
+  // post-it → segue o plano. (Empresa antiga com linhas segue intocada.)
+  private async getCompanyModuleOverride(companyId: number, moduleId: number): Promise<boolean | null> {
+    const row = await this.prisma.companyModule.findUnique({
+      where: { companyId_moduleId: { companyId, moduleId } },
+      select: { enabled: true },
+    });
+    return row ? Boolean(row.enabled) : null;
+  }
+
   private isFinanceModuleKey(moduleKey: string) {
     return this.normalizeRequestedModuleKey(moduleKey) === 'financeiro';
   }
@@ -2049,6 +2128,7 @@ export class ModulesService implements OnModuleInit {
         billingGraceEndsAt: true,
         courtesyEndsAt: true,
         courtesyReason: true,
+        sellerCargoAccessJson: true,
       },
     });
     const accessPolicy = resolveCompanyModuleAccessPolicy(companyAccessSnapshot);
@@ -2056,32 +2136,26 @@ export class ModulesService implements OnModuleInit {
       return this.isFinanceModuleKey(key);
     }
 
-    const teamPolicy = isSystemMaster
-      ? null
-      : await loadUserTeamPolicyRuntime(this.prisma, userId);
+    // Acesso por CARGO (PR13062026007 P2): USER resolve do molho do cargo Vendedor
+    // (1 por empresa); ADMIN/master = tudo. Sem mais lei por-usuario no gate.
+    const sellerCargoAccess = this.parseSellerCargoAccess(companyAccessSnapshot);
+    const planDefaults = await this.getPlanModuleDefaults(accessPolicy.planKey);
 
     for (const moduleItem of orderedModules) {
-      // Regua unica: a verdade de "a empresa TEM o modulo" e CompanyModule.enabled
-      // (semeado do padrao master, editavel pelo master por empresa, em qualquer
-      // plano). O plano nao gata mais modulo aqui — vira so nome+preco.
-      const companyEnabled = await this.isCompanyModuleEnabled(companyId, moduleItem.id);
-      if (!companyEnabled) continue;
+      // Post-it (PR13062026007 PB2): override da empresa (linha em CompanyModule)
+      // manda; senão, segue a caixa do plano (ao vivo, editável no Sistema).
+      const override = await this.getCompanyModuleOverride(companyId, moduleItem.id);
+      const companyHas = override !== null
+        ? override
+        : planDefaults.get(this.normalizeRequestedModuleKey(moduleItem.key)) === true;
+      if (!companyHas) continue;
 
-      // Camadas que NAO sao a regua da empresa: papel duro (vendedor nao entra na
-      // area do dono) + politica/ default do usuario.
-      if (!this.canUseAdminOnlyModule(user, moduleItem.key, context)) continue;
-      const policyAllowed = resolveTeamPolicyModuleAllowed(teamPolicy, moduleItem.key);
-      const userAllowed = isSystemMaster
-        ? true
-        : policyAllowed !== undefined
-          ? policyAllowed
-          : this.defaultUserModuleAllowed(user, moduleItem.key, context, companyAccessSnapshot);
-      if (!userAllowed) continue;
+      if (!this.resolveCargoModuleAllowed(user, moduleItem.key, sellerCargoAccess)) continue;
 
       return this.resolveModuleEffectiveCapability({
         user,
         moduleKey: moduleItem.key,
-        userAllowed,
+        userAllowed: true,
         companyAllowed: true,
         context,
       });
@@ -2158,9 +2232,14 @@ export class ModulesService implements OnModuleInit {
         billingGraceEndsAt: true,
         courtesyEndsAt: true,
         courtesyReason: true,
+        sellerCargoAccessJson: true,
       },
     });
     const accessPolicy = resolveCompanyModuleAccessPolicy(company);
+    // Acesso por CARGO (PR13062026007 P2): molho do cargo Vendedor, 1 por empresa.
+    const sellerCargoAccess = this.parseSellerCargoAccess(company);
+    // Post-it (PB2): caixa do plano (viva) — usada quando a empresa não tem post-it.
+    const planDefaults = await this.getPlanModuleDefaults(accessPolicy.planKey);
 
     const rows = await this.prisma.companyModule.findMany({
       where: { companyId },
@@ -2193,10 +2272,6 @@ export class ModulesService implements OnModuleInit {
       orderBy: { name: 'asc' },
     });
 
-    const teamPolicy = isSystemMaster
-      ? null
-      : await loadUserTeamPolicyRuntime(this.prisma, userId);
-
     const availabilityMap = await this.buildModuleAvailabilityMap(
       companyId,
       moduleRows.map((row) => row.key),
@@ -2217,24 +2292,17 @@ export class ModulesService implements OnModuleInit {
           criticalEngine: null,
         };
         const financeModule = this.isFinanceModuleKey(normalizedKey);
-        // Regua unica: CompanyModule.enabled e a verdade do que a empresa TEM
-        // (semeado do padrao master, master edita por empresa em qualquer plano).
-        // Financeiro e a rota-escape do contratante: sempre presente para quem tem
-        // papel, mesmo com cobranca pausada — e por onde ele paga.
-        const companyHasModule = Boolean(row?.enabled);
+        // Post-it (PB2): post-it da empresa manda; senão, a caixa do plano (viva).
+        // Financeiro é a rota-escape do contratante (tratado abaixo).
+        const companyHasModule = row ? Boolean(row.enabled) : (planDefaults.get(normalizedKey) === true);
         const effectiveCompanyEnabled = financeModule ? true : companyHasModule;
-        const policyAllowed = resolveTeamPolicyModuleAllowed(teamPolicy, moduleItem.key);
-        const userAllowed = isSystemMaster
-          ? true
-          : policyAllowed !== undefined
-            ? policyAllowed
-            : this.defaultUserModuleAllowed(user, moduleItem.key, context, company);
-        const roleEligible = this.canUseAdminOnlyModule(user, moduleItem.key, context);
-        // Ordem do dono: SEM ACESSO = NAO APARECE. So aparece o que a empresa tem
-        // e o papel deixa (financeiro e a excecao-escape do contratante).
+        // Acesso por CARGO (P2): USER resolve do molho do cargo Vendedor; ADMIN/
+        // master = tudo. financeiro/gerencial = muro do eixo Dono/Gerente.
+        const userAllowed = this.resolveCargoModuleAllowed(user, moduleItem.key, sellerCargoAccess);
+        // Ordem do dono: SEM ACESSO = NAO APARECE.
         const visible =
-          Boolean(financeModule && userAllowed && roleEligible) ||
-          Boolean(companyHasModule && userAllowed && roleEligible);
+          Boolean(financeModule && userAllowed) ||
+          Boolean(companyHasModule && userAllowed);
         let blockedReason: string | null = null;
         let blockedCode: string | null = null;
         let criticalEngine: string | null = null;
@@ -2243,7 +2311,7 @@ export class ModulesService implements OnModuleInit {
           blockedReason = accessPolicy.blockedReason;
           blockedCode = accessPolicy.blockedCode;
           criticalEngine = 'payment';
-        } else if (!userAllowed || !roleEligible) {
+        } else if (!userAllowed) {
           blockedReason = 'Usuario sem permissao para este modulo.';
           blockedCode = 'user_module_blocked';
         } else if (availability.blockedByEngine && !companyHasModule) {
@@ -3270,6 +3338,9 @@ export class ModulesService implements OnModuleInit {
       generatedAt: new Date().toISOString(),
       company: {
         ...summary,
+        // PF3: Central de Implantação do Full (registro do master).
+        setupValue: (company as any).setupValue ?? null,
+        monthlyValueOverride: (company as any).monthlyValueOverride ?? null,
         operationalStatus,
         users: company.users.map((user) => ({
           id: user.id,
@@ -3523,6 +3594,120 @@ export class ModulesService implements OnModuleInit {
     }
 
     return result;
+  }
+
+  // Régua única (PR13062026007 P4): molho de ACESSO do cargo Vendedor da empresa
+  // do admin (Dono ou Gerente com gerencial). Acesso por cargo, não por pessoa.
+  async getSellerCargoAccessForAdmin(adminUserId: number) {
+    const { companyId } = await this.resolveUserContext(adminUserId);
+    if (!companyId) throw new BadRequestException('Empresa nao identificada.');
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { sellerCargoAccessJson: true },
+    });
+    const current = this.parseSellerCargoAccess(company);
+    const rows = await this.prisma.companyModule.findMany({
+      where: { companyId, enabled: true },
+      include: { systemModule: true },
+    });
+    const items = rows
+      .filter((row) => row.systemModule.companyAssignable && !this.isRetiredModuleKey(row.systemModule.key))
+      .map((row) => ({ row, key: this.normalizeRequestedModuleKey(row.systemModule.key) }))
+      .filter(({ key }) => !SELLER_CARGO_WALL_MODULES.has(key))
+      .map(({ row, key }) => ({
+        key,
+        name: row.systemModule.name,
+        allowed: current.has(key) ? Boolean(current.get(key)) : SELLER_CARGO_DEFAULT_ACCESS.has(key),
+      }));
+    return { items, total: items.length };
+  }
+
+  // Lei única (P6): só concede módulo que a EMPRESA tem; financeiro/gerencial são
+  // muro (nunca entram no molho de vendedor).
+  async setSellerCargoAccessForAdmin(adminUserId: number, accessInput: Record<string, unknown>) {
+    const { companyId } = await this.resolveUserContext(adminUserId);
+    if (!companyId) throw new BadRequestException('Empresa nao identificada.');
+    const enabledRows = await this.prisma.companyModule.findMany({
+      where: { companyId, enabled: true },
+      include: { systemModule: true },
+    });
+    const companyHas = new Set(
+      enabledRows
+        .filter((row) => row.systemModule.companyAssignable)
+        .map((row) => this.normalizeRequestedModuleKey(row.systemModule.key)),
+    );
+    const molho: Record<string, boolean> = {};
+    for (const [rawKey, value] of Object.entries(accessInput || {})) {
+      const key = this.normalizeRequestedModuleKey(rawKey);
+      if (!key) continue;
+      if (SELLER_CARGO_WALL_MODULES.has(key)) continue;
+      if (!companyHas.has(key)) continue;
+      molho[key] = Boolean(value);
+    }
+    await this.prisma.company.update({
+      where: { id: companyId },
+      data: { sellerCargoAccessJson: JSON.stringify(molho) },
+    });
+    return { ok: true, access: molho };
+  }
+
+  // Régua única (PR13062026007 PB1/PF2): Sistema → Planos. Lê/grava a "caixa do
+  // plano" (módulos padrões), editável pelo master. Vale ao vivo pra todos do
+  // plano que não têm post-it.
+  private normalizePlanKeyForConfig(raw: string): ActiveCommercialPlanKey {
+    const v = String(raw || '').trim().toLowerCase();
+    const valid: string[] = [COMMERCIAL_PLAN_KEYS.LITE, COMMERCIAL_PLAN_KEYS.PADRAO, COMMERCIAL_PLAN_KEYS.MELHOR];
+    if (valid.includes(v)) return v as ActiveCommercialPlanKey;
+    throw new BadRequestException('Plano invalido');
+  }
+
+  async getPlanModulesForMaster(masterUserId: number, rawPlanKey: string) {
+    await this.assertMasterUser(masterUserId);
+    await this.ensureDefaultSystemModules();
+    const planKey = this.normalizePlanKeyForConfig(rawPlanKey);
+    const defaults = await this.getPlanModuleDefaults(planKey);
+    const moduleRows = await this.prisma.systemModule.findMany({
+      where: { companyAssignable: true },
+      orderBy: { name: 'asc' },
+    });
+    const items = moduleRows
+      .filter((m) => !this.isRetiredModuleKey(m.key))
+      .map((m) => {
+        const key = this.normalizeRequestedModuleKey(m.key);
+        return { key, name: m.name, enabled: defaults.get(key) === true };
+      });
+    const quota = COMMERCIAL_PLAN_QUOTAS[planKey] || COMMERCIAL_PLAN_QUOTAS[COMMERCIAL_PLAN_KEYS.PADRAO];
+    const planInfo = {
+      monthlyPrice: this.normalizeCurrencyAmount(getCommercialPlanMonthlyPrice(planKey)),
+      includedUsers: COMMERCIAL_PLAN_INCLUDED_USERS[planKey] ?? 1,
+      extraUserMonthly: this.normalizeCurrencyAmount(COMMERCIAL_PLAN_EXTRA_USER_MONTHLY[planKey] ?? 0),
+      trialDays: COMMERCIAL_PLAN_TRIAL_DAYS[planKey] ?? 0,
+      deepSearchesPerDay: Number(quota.googleSearchesPerDay || 0),
+      enrichmentsPerDay: Number(quota.enrichmentsPerDay || 0),
+      cardsPerMonth: Number(quota.cardsPerMonth || 0),
+    };
+    return { planKey, items, total: items.length, planInfo };
+  }
+
+  async setPlanModulesForMaster(masterUserId: number, rawPlanKey: string, input: Record<string, unknown>) {
+    await this.assertMasterUser(masterUserId);
+    const planKey = this.normalizePlanKeyForConfig(rawPlanKey);
+    const moduleRows = await this.prisma.systemModule.findMany({
+      where: { companyAssignable: true },
+      select: { key: true },
+    });
+    const assignable = new Set(moduleRows.map((m) => this.normalizeRequestedModuleKey(m.key)));
+    const molho: Record<string, boolean> = {};
+    for (const [k, v] of Object.entries(input || {})) {
+      const key = this.normalizeRequestedModuleKey(k);
+      if (assignable.has(key)) molho[key] = Boolean(v);
+    }
+    await this.prisma.planModuleConfig.upsert({
+      where: { planKey },
+      update: { modulesJson: JSON.stringify(molho) },
+      create: { planKey, modulesJson: JSON.stringify(molho) },
+    });
+    return { ok: true, planKey, modules: molho };
   }
 
   async setCompanyModuleByMaster(masterUserId: number, companyId: number, moduleKey: string, enabled: boolean) {
@@ -3802,30 +3987,10 @@ export class ModulesService implements OnModuleInit {
   }
 
   private async syncCompanyModulesForPlanTx(tx: any, companyId: number, _planKey: ActiveCommercialPlanKey) {
-    const company = await tx.company.findUnique({
-      where: { id: companyId },
-      select: { companyKind: true },
-    });
-    if (isPlatformInfraCompany(company)) {
-      await tx.companyModule.updateMany({ where: { companyId }, data: { enabled: false } });
-      return;
-    }
-
-    // Regua unica: todo plano nasce do PADRAO MASTER (catalogo defaultEnabled, a
-    // coluna "Padrao ON" do /master). Plano virou so nome+preco; o master apara
-    // modulo por empresa depois. Sem lista de modulo por plano.
-    await tx.companyModule.updateMany({ where: { companyId }, data: { enabled: false } });
-    const moduleRows = await tx.systemModule.findMany({
-      where: { companyAssignable: true },
-      select: { id: true, defaultEnabled: true },
-    });
-    for (const moduleRow of moduleRows) {
-      await tx.companyModule.upsert({
-        where: { companyId_moduleId: { companyId, moduleId: moduleRow.id } },
-        update: { enabled: Boolean(moduleRow.defaultEnabled) },
-        create: { companyId, moduleId: moduleRow.id, enabled: Boolean(moduleRow.defaultEnabled) },
-      });
-    }
+    // Post-it (PR13062026007 PB2): trocar de plano LIMPA os post-its da empresa →
+    // ela passa a seguir a caixa do novo plano (ao vivo). O master reabre exceção
+    // depois se quiser. (Infra idem: sem post-it = segue o plano dela, que é vazio.)
+    await tx.companyModule.deleteMany({ where: { companyId } });
   }
 
   private async syncCompanyEntitlementsForPlanTx(
@@ -4578,6 +4743,8 @@ export class ModulesService implements OnModuleInit {
       manualDiscountPercent?: number;
       freeMonths?: number;
       billingCycle?: string;
+      setupValue?: number | null;
+      monthlyValueOverride?: number | null;
     },
   ) {
     await this.assertMasterUser(masterUserId);
@@ -4597,6 +4764,16 @@ export class ModulesService implements OnModuleInit {
       dto?.freeMonths !== undefined
         ? Math.max(0, Math.trunc(Number(dto.freeMonths || 0) || 0))
         : Math.max(0, Math.trunc(Number(company.freeMonths || 0) || 0));
+    // PF3: implantação + parcela acordada (registro do master; null = limpa).
+    const normMoney = (v: unknown) => v === null || v === undefined || v === ''
+      ? null
+      : Math.max(0, Math.round((Number(v) || 0) * 100) / 100);
+    const setupValue = dto?.setupValue !== undefined
+      ? normMoney(dto.setupValue)
+      : ((company as any).setupValue ?? null);
+    const monthlyValueOverride = dto?.monthlyValueOverride !== undefined
+      ? normMoney(dto.monthlyValueOverride)
+      : ((company as any).monthlyValueOverride ?? null);
 
     const updated = await this.prisma.company.update({
       where: { id: companyId },
@@ -4604,6 +4781,8 @@ export class ModulesService implements OnModuleInit {
         billingCycle,
         manualDiscountPercent,
         freeMonths,
+        setupValue,
+        monthlyValueOverride,
       },
     });
 
@@ -4618,7 +4797,7 @@ export class ModulesService implements OnModuleInit {
       },
     });
 
-    return { ok: true, companyId, billingCycle, manualDiscountPercent, freeMonths };
+    return { ok: true, companyId, billingCycle, manualDiscountPercent, freeMonths, setupValue, monthlyValueOverride };
   }
 
   async updateCompanyCardQuotaByMaster(

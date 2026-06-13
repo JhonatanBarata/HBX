@@ -1,5 +1,11 @@
 # PR13062026003 — Terminar front + analisar as telas da vendedora
 
+> **REVISÃO 13/06 (auto):** a **régua única** (PR13062026007) já entrou no ar — acesso
+> agora é **POR CARGO** (vendedora nasce com Vendas+Radar, sem cobrança, sem área do dono;
+> uniforme entre vendedoras). A análise das telas da vendedora deve assumir isso. As tarefas
+> de "terminar o front" das telas dela (Vendas/Leads/Atendimento/Relatórios) seguem válidas
+> e pendentes — é o trabalho de UI em cima da árvore já limpa.
+
 > Plano do dia 13/06/2026 (madrugada). Objetivo: **terminar o front**, **entrar no e-mail
 > da vendedora cadastrada** e **analisar TODAS as telas que ela vai trabalhar**, do ponto
 > de vista real dela.

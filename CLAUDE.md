@@ -55,6 +55,19 @@ Mantenha mudanças alinhadas a esse fluxo. Resultado negativo do Radar nunca é 
 - Backend: `cd backend && npm run prisma:validate` → `npm run build`
 - E2E (`npm run test:e2e` na raiz) só quando um caminho end-to-end mudou e o ambiente está pronto.
 
+## Planejamentos (PR)
+
+Planos (PR) vivem em `docs/PLANEJAMENTOS/`. Sempre existe **UMA** pasta de dia ativa.
+1. **Pasta do dia existe?** Se não, criar `PR{DD}{MM}{AAAA}` (ex.: `PR13062026`),
+   **migrar pra ela tudo que sobreviveu do dia anterior** (o que não está concluído)
+   e **apagar a pasta antiga**.
+2. **Ler a pasta toda.** Deletar o que já estiver concluído.
+3. **Nunca criar `.md` de algo que já existe — injetar no plano existente** e juntar
+   o que for do mesmo assunto. Um plano por assunto, não um por edição.
+
+A fila de edições pequenas de backend (`PLAN…001.md`) é o único doc persistente:
+**migra junto** a cada virada de dia e só esvazia quando os itens são aplicados.
+
 ## Webwhats
 
 `Webwhats/` é projeto separado. Leia `Webwhats/AGENTS.md` antes de tocar em qualquer arquivo lá.

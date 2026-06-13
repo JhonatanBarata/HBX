@@ -1,5 +1,10 @@
 # PR13062026001 — Aquecimento de leads (cadência tipo Apollo)
 
+> **REVISÃO 13/06 (auto):** build DEFERIDO. A cadência depende do bot/automação, que a
+> régua tornou **MURO fail-closed** (só liga com triagem completa) e que o dono decidiu
+> **NÃO impor às vendedoras na 1ª semana** (elas aprendem o HBX primeiro — árvore 3).
+> Design segue 100% válido; implementar junto do **Atendimento + Bot** (árvore 3), não antes.
+
 > Design fechado pelo dono. Decisões 12–13/06/2026. **Build agendado para 13/06 (à
 > tarde)**, depois da entrega da manhã das funcionárias (basicão funcionar, fechar uma
 > venda, tutorial TOP, PDF da apresentação). A deadline de segunda deixou de travar isto:

@@ -45,7 +45,9 @@ export function sanitizeUser(user: any, masterContext?: any) {
   // Cobranca e assunto do contratante (PR-002 D.4): vendedor recebe apenas
   // accessReleased (liberado ou nao). Status de pagamento, graca, plano,
   // preco e datas de trial NAO saem do backend para role USER.
-  const billingAudience = Boolean(user.isSystemMaster) || role === 'ADMIN';
+  // Régua única (PR13062026007 P3): "gerente pra baixo ninguém vê o vínculo
+  // HBX×contratante" — só Dono e Master. Gerente = ADMIN com canViewBilling=false.
+  const billingAudience = Boolean(user.isSystemMaster) || (role === 'ADMIN' && user.canViewBilling !== false);
   return {
     id: user.id,
     username: user.username,
@@ -54,6 +56,8 @@ export function sanitizeUser(user: any, masterContext?: any) {
     role: user.role,
     userKind,
     isSystemMaster: Boolean(user.isSystemMaster),
+    // Régua única P3: front esconde "Plano e cobrança" quando false (Gerente).
+    canViewBilling: billingAudience,
     mustChangePassword: Boolean(user.mustChangePassword),
     sellerProfile: {
       isReferralSeller,

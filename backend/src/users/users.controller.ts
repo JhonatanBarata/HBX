@@ -1128,6 +1128,9 @@ export class UsersController {
 			...(requestedPassword ? { mustChangePassword: true } : {}),
 			companyId,
 			role,
+			// Régua única (PR13062026007 P5): o Dono só cunha GERENTE (ADMIN sem ver $).
+			// Admin COM cobrança (canViewBilling=true) só o Master cria, por outro fluxo.
+			...(role === 'ADMIN' ? { canViewBilling: false } : {}),
 			...((role === 'USER' || role === 'ADMIN') && sellerOptionsEnabled && dto.sellerDistributionDailyLimitOverride !== undefined
 				? { sellerDistributionDailyLimitOverride: Math.max(0, Math.min(500, Math.trunc(Number(dto.sellerDistributionDailyLimitOverride || 0) || 0))) }
 				: {}),

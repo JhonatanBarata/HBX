@@ -44,24 +44,27 @@ export class HbxEngineDockerAdapterService {
     return String(stdout || '').trim();
   }
 
+  private parseInspectResult(name: string, parsed: any): HbxDockerEngineInspect {
+    const state = parsed?.State || {};
+    const health = state?.Health?.Status
+      ? String(state.Health.Status).toLowerCase()
+      : 'none';
+    return {
+      name,
+      exists: true,
+      running: Boolean(state.Running),
+      status: String(state.Status || (state.Running ? 'running' : 'unknown')).toLowerCase(),
+      health: ['healthy', 'unhealthy', 'starting', 'none'].includes(health)
+        ? health as HbxDockerEngineInspect['health']
+        : 'unknown',
+    };
+  }
+
   async inspectEngine(name: string): Promise<HbxDockerEngineInspect> {
     this.assertAllowedEngineName(name);
     try {
       const raw = await this.runDocker(['inspect', name, '--format', '{{json .}}']);
-      const parsed = JSON.parse(raw);
-      const state = parsed?.State || {};
-      const health = state?.Health?.Status
-        ? String(state.Health.Status).toLowerCase()
-        : 'none';
-      return {
-        name,
-        exists: true,
-        running: Boolean(state.Running),
-        status: String(state.Status || (state.Running ? 'running' : 'unknown')).toLowerCase(),
-        health: ['healthy', 'unhealthy', 'starting', 'none'].includes(health)
-          ? health as HbxDockerEngineInspect['health']
-          : 'unknown',
-      };
+      return this.parseInspectResult(name, JSON.parse(raw));
     } catch (error) {
       const message = String((error as any)?.stderr || (error as any)?.message || error || '');
       if (/no such object|no such container|not found/i.test(message)) {
@@ -69,6 +72,32 @@ export class HbxEngineDockerAdapterService {
       }
       this.logger.warn(`[hbx-engine-docker] inspect falhou container=${name}: ${message.slice(0, 180)}`);
       return { name, exists: false, running: false, status: 'unknown', health: 'unknown' };
+    }
+  }
+
+  async inspectEngines(names: string[]): Promise<Map<string, HbxDockerEngineInspect>> {
+    const uniqueNames = Array.from(new Set(names.map((name) => String(name || '').trim()).filter(Boolean)));
+    for (const name of uniqueNames) this.assertAllowedEngineName(name);
+
+    const result = new Map<string, HbxDockerEngineInspect>();
+    if (!uniqueNames.length) return result;
+
+    try {
+      const raw = await this.runDocker(['inspect', '--format', '{{json .}}', ...uniqueNames], 20_000);
+      for (const line of raw.split(/\r?\n/).map((value) => value.trim()).filter(Boolean)) {
+        const parsed = JSON.parse(line);
+        const name = String(parsed?.Name || '').replace(/^\//, '');
+        if (uniqueNames.includes(name)) result.set(name, this.parseInspectResult(name, parsed));
+      }
+      for (const name of uniqueNames) {
+        if (!result.has(name)) result.set(name, { name, exists: false, running: false, status: 'missing', health: 'unknown' });
+      }
+      return result;
+    } catch {
+      for (const name of uniqueNames) {
+        result.set(name, await this.inspectEngine(name));
+      }
+      return result;
     }
   }
 
@@ -84,6 +113,29 @@ export class HbxEngineDockerAdapterService {
     } catch {
       return { name, memoryRssMb: null };
     }
+  }
+
+  async readEnginesStats(names: string[]): Promise<Map<string, HbxDockerEngineStats>> {
+    const uniqueNames = Array.from(new Set(names.map((name) => String(name || '').trim()).filter(Boolean)));
+    for (const name of uniqueNames) this.assertAllowedEngineName(name);
+
+    const result = new Map<string, HbxDockerEngineStats>();
+    for (const name of uniqueNames) result.set(name, { name, memoryRssMb: null });
+    if (!uniqueNames.length) return result;
+
+    try {
+      const raw = await this.runDocker(['stats', '--no-stream', '--format', '{{json .}}', ...uniqueNames], 15_000);
+      for (const line of raw.split(/\r?\n/).map((value) => value.trim()).filter(Boolean)) {
+        const parsed = JSON.parse(line);
+        const name = String(parsed?.Name || '').trim();
+        if (result.has(name)) result.set(name, { name, memoryRssMb: this.parseDockerMemoryMb(parsed?.MemUsage) });
+      }
+    } catch {
+      await Promise.all(uniqueNames.map(async (name) => {
+        result.set(name, await this.readEngineStats(name));
+      }));
+    }
+    return result;
   }
 
   async startEngine(name: string) {

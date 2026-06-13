@@ -18,9 +18,19 @@ export class HbxEngineTelemetryService {
 
   async getEngineTelemetry(names: string[]) {
     const result = new Map<string, HbxEngineContainerTelemetry>();
+    const inspections = await this.docker.inspectEngines(names);
+    const runningNames = names.filter((name) => inspections.get(name)?.running);
+    const statsByName = await this.docker.readEnginesStats(runningNames);
+
     for (const name of names) {
-      const inspect = await this.docker.inspectEngine(name);
-      const stats = inspect.running ? await this.docker.readEngineStats(name) : { memoryRssMb: null };
+      const inspect = inspections.get(name) || {
+        name,
+        exists: false,
+        running: false,
+        status: 'missing',
+        health: 'unknown' as const,
+      };
+      const stats = statsByName.get(name) || { memoryRssMb: null };
       result.set(name, {
         name,
         exists: inspect.exists,

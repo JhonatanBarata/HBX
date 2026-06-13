@@ -90,6 +90,15 @@ model Company {
   commercialCardsDailyLimitOverride   Int?
   seatCap                 Int?     // teto RÍGIDO de assentos por empresa (master) — PR13062026005
   commissionDueBusinessDays Int      @default(3)
+  // Régua única (PR13062026007 P1): molho de ACESSO do cargo Vendedor (1 por
+  // empresa). USER resolve daqui (não mais por-usuário). JSON de chaves de módulo.
+  sellerCargoAccessJson   String?
+  // Régua única (PR13062026007 PF3): "Central de Implantação" do Full. Registro do
+  // master do que foi acordado com este cliente (NÃO fia em cobrança/comissão sozinho
+  // — isso é passo de dinheiro separado). setupValue = implantação (one-time);
+  // monthlyValueOverride = parcela acordada (override do preço do plano).
+  setupValue              Float?
+  monthlyValueOverride    Float?
   assistedSetupStatus     String    @default("not_required") // not_required | pending | completed
   assistedSetupRequired   Boolean   @default(false)
   assistedSetupCompletedAt DateTime?
@@ -1002,6 +1011,9 @@ model User {
   name            String?
   phone           String?
   commissionPercent Float          @default(0)
+  // Régua única (PR13062026007 P1): separa Dono (true) de Gerente (false) dentro
+  // do papel ADMIN. Gerente = ADMIN que NÃO vê cobrança/plano.
+  canViewBilling  Boolean          @default(true)
   canRegisterHbxSellers Boolean    @default(false)
   sellerReferralCommissionPercent Float @default(0)
   referredByUserId Int?
@@ -2343,6 +2355,11 @@ model VendasAutomationCampaign {
   lastScrapeAt               DateTime?
   lastStatusText             String?
   lastError                  String?
+  // Régua (PR13062026007, 5º muro fail-closed): automação que contata humano só
+  // dispara com triagem CONFIRMADA por dono/gerente. null = NUNCA dispara (default
+  // seguro). O worker (findNextDueJob) exige triagemConfirmedAt != null.
+  triagemConfirmedAt         DateTime?
+  triagemConfirmedByUserId   Int?
   createdAt                  DateTime @default(now())
   updatedAt                  DateTime @updatedAt
   jobs                       VendasAutomationJob[]
@@ -2673,6 +2690,18 @@ model CompanyModule {
 
   @@unique([companyId, moduleId])
   @@index([companyId, enabled])
+}
+
+// Régua única (PR13062026007 PB1): módulos padrões POR PLANO, editáveis no
+// /master → Sistema → Planos. 1 linha por plano (planKey), modulesJson = mapa
+// { moduleKey: bool }. É a "caixa do plano" — base viva; a empresa segue isso,
+// salvo post-it (CompanyModule) por empresa (só no Full). Semeado de
+// COMMERCIAL_PLAN_MODULE_KEYS quando vazio.
+model PlanModuleConfig {
+  planKey     String   @id
+  modulesJson String   @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 model DeletionRecord {

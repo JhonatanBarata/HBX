@@ -292,6 +292,16 @@ export function NovoAcessoModal({ onClose, onDone, team }: {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18, alignItems: "start" }}>
           {/* coluna esquerda — formulário */}
           <form onSubmit={criar} style={{ display: "grid", gap: 11 }}>
+            {/* Régua única (PR13062026007 P5): Dono cunha Vendedor ou Gerente.
+                Gerente = ADMIN sem ver cobrança/plano (vínculo HBX×contratante). */}
+            <div style={{ display: "grid", gap: 6 }}>
+              <label style={lbl}>Cargo</label>
+              <select className="field-dark" value={form.role} disabled={painelAtivo}
+                onChange={e => setForm(f => ({ ...f, role: e.target.value as "USER" | "ADMIN" }))}>
+                <option value="USER">Vendedor</option>
+                <option value="ADMIN">Gerente (não vê cobrança/plano)</option>
+              </select>
+            </div>
             <div style={{ display: "grid", gap: 6 }}>
               <label style={lbl}>Nome</label>
               <input className="field-dark" maxLength={120} value={form.name} disabled={painelAtivo}

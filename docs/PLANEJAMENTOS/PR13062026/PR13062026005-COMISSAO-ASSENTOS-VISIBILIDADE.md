@@ -1,5 +1,10 @@
 # PR13062026005 — Comissão visível, implantação e cap de assento (foco 100% vendedora)
 
+> **REVISÃO 13/06 (auto):** restart JÁ aplicado e migrations up-to-date → **F1 (cap de
+> assento) + F2 (comissão visível) LIVE**. Pendente só **F3** = tabela de preços no modal
+> de fechar (pequeno, front, ler do catálogo via API) + follow-ups deferidos (receivable
+> setup no payout; cap na reativação). NÃO concluído → mantido.
+
 > Ordem do dono (13/06/2026): foco combinado é as 2 vendedoras de segunda. A comissão
 > VISÍVEL é a motivação de dia 1 — "fechei empresa pro cara e nem vejo quanto vou ganhar"
 > desanima. Logo isto NÃO é desvio do foco; é o foco. Dono autorizou o build (domínio
@@ -9,11 +14,10 @@
 
 Entregue e testado (backend build + front lint/build; comissão 7/7, vendas 68/68). **Local, nada deployado.**
 
-### ⚠️ PRECISA ANTES DE TESTAR
-- **Reiniciar o container `hbx-backend`** — as 4 colunas novas (`setupValue`,
-  `setupCommissionAmount`, `setupCommissionStatus` no lead; `seatCap` na company) se
-  auto-criam no boot via runtime-ensure, e a lógica nova só vale após o restart.
-  Frontend já vale no `npm run up`.
+### ✅ APLICADO (13/06, restart feito)
+- Container `backend` reiniciado; as 4 colunas (`setupValue`, `setupCommissionAmount`,
+  `setupCommissionStatus` no lead; `seatCap` na company) já existem (runtime-ensure no boot)
+  e a lógica nova está valendo. Frontend já no ar.
 
 ### PENDÊNCIAS (próxima sessão — não relido)
 1. **F3 — tabela de preço da mensalidade no modal de fechar** (pequeno): ler do catálogo

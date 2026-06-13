@@ -64,12 +64,15 @@ type Produto = {
   status?: string;
 };
 
+type TriagemItem = { key: string; label: string; ok: boolean };
+type Triagem = { confirmed: boolean; confirmedAt?: string | null; itens: TriagemItem[]; pendentes: string[]; pronto: boolean };
 type LiveStatus = {
   status: string;
   text?: string | null;
   active?: boolean;
   counters?: { todayPending: number; overdue: number; future: number; sent: number; positives: number; archived: number; failed: number };
   nextScheduledAt?: string | null;
+  triagem?: Triagem | null;
 } | null;
 
 const PROSP_LABEL: Record<string, string> = {
@@ -956,7 +959,7 @@ export function VendasClient() {
               <React.Fragment>
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                   <span className={"tag" + (prosp.active ? " teal" : prosp.status === "erro" ? " red" : " warn")}>
-                    {PROSP_LABEL[prosp.status] || prosp.status}
+                    {prosp.triagem && !prosp.triagem.confirmed ? "Aguardando triagem" : (PROSP_LABEL[prosp.status] || prosp.status)}
                   </span>
                   {prosp.nextScheduledAt && (
                     <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.64rem", color: "var(--text-muted)" }}>
@@ -973,9 +976,27 @@ export function VendasClient() {
                   <div className="row"><span className="k">Positivos</span><span className="v" style={{ fontFamily: "var(--font-mono)", color: "var(--hbx-brand-strong)" }}>{prosp.counters?.positives ?? 0}</span></div>
                   <div className="row"><span className="k">Falhas</span><span className="v" style={{ fontFamily: "var(--font-mono)", color: "var(--hbx-danger)" }}>{prosp.counters?.failed ?? 0}</span></div>
                 </div>
+                {prosp.triagem && !prosp.triagem.confirmed && (
+                  <div style={{ display: "grid", gap: 8 }}>
+                    <div className="field-label">Triagem {prosp.triagem.pronto ? "completa — pronta para armar" : "pendente"}</div>
+                    <div className="kv">
+                      {prosp.triagem.itens.map(it => (
+                        <div className="row" key={it.key}>
+                          <span className="k">{it.label}</span>
+                          <span className={"tag" + (it.ok ? " teal" : " warn")}>{it.ok ? "✓ ok" : "pendente"}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-ink-muted" style={{ margin: 0, fontSize: "0.7rem", lineHeight: 1.5 }}>
+                      {prosp.triagem.pronto
+                        ? "O robô só dispara depois que o dono/gerente armar. Vendedor não liga."
+                        : "Configure os itens pendentes antes de ligar o robô. Sem triagem completa, a prospecção fica travada."}
+                    </p>
+                  </div>
+                )}
                 <div style={{ display: "grid", gap: 8 }}>
                   {prosp.status === "parado" && (
-                    <button className="btn-teal" onClick={() => prospAcao("start")} disabled={prospBusy}>{prospBusy ? "Aguarde…" : "▶ Iniciar prospecção"}</button>
+                    <button className="btn-teal" onClick={() => prospAcao("start")} disabled={prospBusy || (prosp.triagem ? !prosp.triagem.pronto : false)}>{prospBusy ? "Aguarde…" : "▶ Iniciar prospecção"}</button>
                   )}
                   {prosp.active && prosp.status !== "pausado" && (
                     <button className="btn-ghost" onClick={() => prospAcao("pause")} disabled={prospBusy}>Pausar</button>

@@ -1247,7 +1247,7 @@ export class HbxEnginePoolService implements OnModuleInit {
       : 0;
     return Math.min(
       configuredCount,
-      Math.max(warmMin, manualReserve, automaticTarget, demandTarget),
+      Math.max(warmMin, automaticTarget, demandTarget),
     );
   }
 

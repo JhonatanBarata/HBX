@@ -1,5 +1,12 @@
 # PR13062026004 — Alcance como fallback do Radar (TODO p/ amanhã)
 
+> **REVISÃO 13/06 (auto) — PULADO, depende de você:** bloqueado em 2 frentes.
+> (1) Falta sua **decisão A/B** (seção abaixo). (2) A **régua única** (PR13062026007)
+> redefiniu o Radar como **VITRINE read-only** e tirou a operação de busca da tela do
+> Radar (vai virar "demanda no Leads", que gasta quota). Logo o gap "`executarColeta` no
+> `/webscraping`" precisa ser **re-alinhado ao novo Radar** antes de codar — senão a gente
+> liga um gatilho numa tela que vai mudar. Não mexi. Reabrir quando definir o Radar novo.
+
 > Levantamento do dia 13/06/2026. **NADA foi alterado no motor** — este doc é só o
 > mapa do que JÁ existe e a decisão que falta o dono tomar antes de ligar no front.
 > Ordem do dono: "entenda o motor inteiro, não mude regra dele do nada".

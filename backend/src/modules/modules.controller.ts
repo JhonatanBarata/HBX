@@ -296,6 +296,19 @@ class UpdateMasterCompanyFinanceSettingsDto {
   @IsOptional()
   @IsString()
   billingCycle?: string;
+
+  // PF3: Central de Implantação do Full (registro do master).
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  setupValue?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  monthlyValueOverride?: number;
 }
 
 class UpdateMasterCompanyQuotaDto {
@@ -391,6 +404,24 @@ export class ModulesController {
     return this.modulesService.updateCompanyUserModuleAccess(Number(req.user?.id), userId, dto?.modules || []);
   }
 
+  // Régua única (PR13062026007 P4): molho de ACESSO do cargo Vendedor (1 por
+  // empresa). Acesso por cargo, não por pessoa.
+  @Get('company/seller-cargo-access')
+  @UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
+  @Admin()
+  @ModuleAccess('gerencial')
+  getSellerCargoAccess(@Req() req: any) {
+    return this.modulesService.getSellerCargoAccessForAdmin(Number(req.user?.id));
+  }
+
+  @Put('company/seller-cargo-access')
+  @UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
+  @Admin()
+  @ModuleAccess('gerencial')
+  setSellerCargoAccess(@Req() req: any, @Body() dto: { access?: Record<string, unknown> }) {
+    return this.modulesService.setSellerCargoAccessForAdmin(Number(req.user?.id), dto?.access || {});
+  }
+
   @Get('master/companies')
   @UseGuards(JwtAuthGuard, MasterGuard)
   listMasterCompanies(@Req() req: any) {
@@ -449,6 +480,23 @@ export class ModulesController {
     @Body() dto: UpdateSystemModuleCatalogDto,
   ) {
     return this.modulesService.updateMasterSystemModule(Number(req.user?.id), moduleKey, dto || {});
+  }
+
+  // Régua única (PR13062026007 PF2): Sistema → Planos — módulos padrões por plano.
+  @Get('master/plan/:planKey/modules')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  getMasterPlanModules(@Req() req: any, @Param('planKey') planKey: string) {
+    return this.modulesService.getPlanModulesForMaster(Number(req.user?.id), planKey);
+  }
+
+  @Put('master/plan/:planKey/modules')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  setMasterPlanModules(
+    @Req() req: any,
+    @Param('planKey') planKey: string,
+    @Body() dto: { modules?: Record<string, unknown> },
+  ) {
+    return this.modulesService.setPlanModulesForMaster(Number(req.user?.id), planKey, dto?.modules || {});
   }
 
   @Get('master/global-integrations')

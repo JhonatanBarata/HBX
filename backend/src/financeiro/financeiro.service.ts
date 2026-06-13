@@ -666,7 +666,10 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     if (!companyId) throw new ForbiddenException('Empresa nao identificada.');
     if (!userId) throw new ForbiddenException('Usuario nao identificado.');
     const role = String(user?.role || '').trim().toUpperCase();
-    const canManageBilling = Boolean(user?.isSystemMaster) || role === 'ADMIN';
+    // Régua única (PR13062026007 P3): vínculo HBX×contratante (assinatura/plano)
+    // só Dono e Master. Gerente = ADMIN com canViewBilling=false → barrado nos 12
+    // pontos de cobrança via assertCanManageBilling.
+    const canManageBilling = Boolean(user?.isSystemMaster) || (role === 'ADMIN' && user?.canViewBilling !== false);
     return { companyId, userId, role, canManageBilling };
   }
 

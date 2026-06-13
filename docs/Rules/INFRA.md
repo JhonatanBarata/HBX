@@ -27,9 +27,12 @@
 Flags úteis do `up`: `HBX_UP_BUILD=auto|always|never`, `HBX_UP_SYNC_BACKEND_DEPS=true`,
 `HBX_UP_WEBWHATS=false`, `HBX_UP_STUDIO=false`.
 
-Capacidade elástica no publish: `HBX_PUBLISH_ENGINE_COUNT` (default 3),
+Capacidade elástica no publish: `HBX_PUBLISH_ENGINE_COUNT` (default 1),
 `HBX_PUBLISH_ENGINE_MAX_COUNT` (default 20), `HBX_ENGINE_WARM_MIN` (default 1),
-`HBX_ENGINE_GOVERNOR_ENABLED=true` na VPS.
+`HBX_ENGINE_WARM_MAX=1`, `HBX_ENGINE_GOVERNOR_ENABLED=true` e
+`HBX_ENGINE_DOCKER_CLI_PATH=/usr/bin/docker` na VPS. O backend precisa receber
+`/usr/bin/docker` e `/var/run/docker.sock` montados para o governor ligar/desligar
+motores sob demanda.
 
 Env de produção: `.env.production.local` / `.env.ops.local` / `.env.operations.local`
 com `PROD_BACKEND_URL`, `PROD_FRONTEND_URL`, `HOSTINGER_SSH_HOST`, `HOSTINGER_SSH_USER`,

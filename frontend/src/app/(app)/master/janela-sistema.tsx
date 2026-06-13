@@ -18,10 +18,11 @@ import React, { useCallback, useEffect, useState } from "react";
 
 import { apiFetch } from "@/lib/api";
 import { useTabIndex } from "@/lib/use-tab-param";
+import { PlanosEditor } from "@/components/hbx/planos-editor";
 
 import { fmtDataHora } from "./page.client";
 
-const SUBTABS = ["Módulos", "Política comercial", "Credenciais", "Exclusões", "Reclamações"];
+const SUBTABS = ["Módulos", "Política comercial", "Credenciais", "Exclusões", "Reclamações", "Planos"];
 
 type SystemModule = {
   id: number;
@@ -646,6 +647,8 @@ export function JanelaSistema() {
           </div>
         </section>
       )}
+
+      {sub === 5 && <PlanosEditor />}
 
     </React.Fragment>
   );

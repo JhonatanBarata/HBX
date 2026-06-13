@@ -12,7 +12,7 @@ const remote = 'origin';
 const branch = 'master';
 const HBX_ENGINE_HARD_LIMIT = 200;
 const HBX_DEFAULT_ENGINE_CAPACITY = 20;
-const HBX_DEFAULT_PUBLISH_WARM_ENGINE_COUNT = 3;
+const HBX_DEFAULT_PUBLISH_WARM_ENGINE_COUNT = 1;
 const rawArgs = process.argv.slice(2).map((arg) => String(arg || '').trim()).filter(Boolean);
 const isDryRun = rawArgs.some((arg) => ['d', 'dry-run', '--dry-run'].includes(arg.toLowerCase()));
 
@@ -338,6 +338,7 @@ function buildRemoteReleaseScript(config, services) {
     'upsert_root_env HBX_FACTORY_MEMORY_SOFT_PRESSURE_PERCENT "${HBX_FACTORY_MEMORY_SOFT_PRESSURE_PERCENT:-82}"',
     'upsert_root_env HBX_FACTORY_MEMORY_HARD_PRESSURE_PERCENT "${HBX_FACTORY_MEMORY_HARD_PRESSURE_PERCENT:-85}"',
     'upsert_root_env HBX_FACTORY_MEMORY_PANIC_PRESSURE_PERCENT "${HBX_FACTORY_MEMORY_PANIC_PRESSURE_PERCENT:-88}"',
+    'upsert_root_env HBX_ENGINE_DOCKER_CLI_PATH "${HBX_ENGINE_DOCKER_CLI_PATH:-/usr/bin/docker}"',
     'upsert_root_env HBX_RADAR_CLIENT_PRIORITY_START_HOUR "${HBX_RADAR_CLIENT_PRIORITY_START_HOUR:-8}"',
     'upsert_root_env HBX_RADAR_CLIENT_PRIORITY_END_HOUR "${HBX_RADAR_CLIENT_PRIORITY_END_HOUR:-20}"',
     'upsert_root_env HBX_RADAR_CLIENT_REQUEST_TIMEOUT_MS "${HBX_RADAR_CLIENT_REQUEST_TIMEOUT_MS:-25000}"',
@@ -373,6 +374,10 @@ function buildRemoteReleaseScript(config, services) {
     'export HBX_ENGINE_GOVERNOR_COOLDOWN_SECONDS="$(awk -F= \'/^HBX_ENGINE_GOVERNOR_COOLDOWN_SECONDS=/{print substr($0, length("HBX_ENGINE_GOVERNOR_COOLDOWN_SECONDS")+2); exit}\' .env)"',
     'export HBX_ENGINE_DRAIN_TIMEOUT_SECONDS="$(awk -F= \'/^HBX_ENGINE_DRAIN_TIMEOUT_SECONDS=/{print substr($0, length("HBX_ENGINE_DRAIN_TIMEOUT_SECONDS")+2); exit}\' .env)"',
     'export HBX_ENGINE_DOCKER_CLI_PATH="$(awk -F= \'/^HBX_ENGINE_DOCKER_CLI_PATH=/{print substr($0, length("HBX_ENGINE_DOCKER_CLI_PATH")+2); exit}\' .env)"',
+    'if [ -z "$HBX_ENGINE_DOCKER_CLI_PATH" ]; then export HBX_ENGINE_DOCKER_CLI_PATH=/usr/bin/docker; fi',
+    'export HBX_HOST_DOCKER_CLI_PATH="$(command -v docker || true)"',
+    'if [ -z "$HBX_HOST_DOCKER_CLI_PATH" ]; then echo "ERRO: docker CLI host nao encontrado para montar no hbx-backend."; exit 1; fi',
+    'if [ ! -S /var/run/docker.sock ]; then echo "ERRO: /var/run/docker.sock nao encontrado; governor nao conseguira controlar motores."; exit 1; fi',
     'export POSTGRES_USER="$(awk -F= \'/^POSTGRES_USER=/{print substr($0, length("POSTGRES_USER")+2); exit}\' .env)"',
     'export POSTGRES_PASSWORD="$(awk -F= \'/^POSTGRES_PASSWORD=/{print substr($0, length("POSTGRES_PASSWORD")+2); exit}\' .env)"',
     'export POSTGRES_DB="$(awk -F= \'/^POSTGRES_DB=/{print substr($0, length("POSTGRES_DB")+2); exit}\' .env)"',
@@ -584,7 +589,7 @@ function buildRemoteReleaseScript(config, services) {
     '    -e HBX_ENGINE_GOVERNOR_INTERVAL_SECONDS="${HBX_ENGINE_GOVERNOR_INTERVAL_SECONDS:-30}" \\',
     '    -e HBX_ENGINE_GOVERNOR_COOLDOWN_SECONDS="${HBX_ENGINE_GOVERNOR_COOLDOWN_SECONDS:-120}" \\',
     '    -e HBX_ENGINE_DRAIN_TIMEOUT_SECONDS="${HBX_ENGINE_DRAIN_TIMEOUT_SECONDS:-90}" \\',
-    '    -e HBX_ENGINE_DOCKER_CLI_PATH="${HBX_ENGINE_DOCKER_CLI_PATH:-docker}" \\',
+    '    -e HBX_ENGINE_DOCKER_CLI_PATH="${HBX_ENGINE_DOCKER_CLI_PATH:-/usr/bin/docker}" \\',
     '    -e HBX_FACTORY_MEMORY_SOFT_PRESSURE_PERCENT="${HBX_FACTORY_MEMORY_SOFT_PRESSURE_PERCENT:-82}" \\',
     '    -e HBX_FACTORY_MEMORY_HARD_PRESSURE_PERCENT="${HBX_FACTORY_MEMORY_HARD_PRESSURE_PERCENT:-85}" \\',
     '    -e HBX_FACTORY_MEMORY_PANIC_PRESSURE_PERCENT="${HBX_FACTORY_MEMORY_PANIC_PRESSURE_PERCENT:-88}" \\',
@@ -601,6 +606,8 @@ function buildRemoteReleaseScript(config, services) {
     '    -e HBX_QUEUE_STUCK_MINUTES=10 \\',
     '    -e HBX_ENGINE_MAX_BUSY_MINUTES=15 \\',
     '    -p 3000:3000 \\',
+    '    -v "$HBX_HOST_DOCKER_CLI_PATH:/usr/bin/docker:ro" \\',
+    '    -v /var/run/docker.sock:/var/run/docker.sock \\',
     '    -v "$APP_DIR/backend/public/uploads:/app/public/uploads" \\',
     '    hbx_backend:latest',
     '}',
@@ -619,6 +626,7 @@ function buildRemoteReleaseScript(config, services) {
     '  if [ "$(docker exec hbx-backend printenv HBX_ENGINE_MAX_COUNT)" != "$HBX_ENGINE_MAX_COUNT" ]; then echo "ERRO: HBX_ENGINE_MAX_COUNT nao esta configurado no hbx-backend."; exit 1; fi',
     '  if [ "$(docker exec hbx-backend printenv HBX_ENGINE_GOVERNOR_ENABLED)" != "true" ]; then echo "ERRO: governor elastico nao esta habilitado no hbx-backend."; exit 1; fi',
     '  if [ "$(docker exec hbx-backend printenv HBX_ENGINE_URLS)" != "$(hbx_engine_urls)" ]; then echo "ERRO: HBX_ENGINE_URLS nao contem todos os motores esperados."; exit 1; fi',
+    '  docker exec hbx-backend sh -lc \'test -x "$HBX_ENGINE_DOCKER_CLI_PATH" && test -S /var/run/docker.sock && "$HBX_ENGINE_DOCKER_CLI_PATH" ps >/dev/null\' || { echo "ERRO: hbx-backend sem acesso ao Docker host; governor nao controla motores."; exit 1; }',
     '  created_count="$(docker ps -a --filter "name=^/hbx-engine-[0-9]+$" --format "{{.Names}}" | wc -l | tr -d " ")"',
     '  running_count="$(docker ps --filter "name=^/hbx-engine-[0-9]+$" --filter "status=running" --format "{{.Names}}" | wc -l | tr -d " ")"',
     '  extra_count="$(hbx_extra_engine_names | wc -l | tr -d " ")"',

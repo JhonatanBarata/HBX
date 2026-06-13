@@ -87,6 +87,8 @@ type Detail = {
     manualDiscountPercent?: number | null;
     freeMonths?: number | null;
     billingCycle?: string | null;
+    setupValue?: number | null;
+    monthlyValueOverride?: number | null;
     users?: DetailUser[];
     modules?: { key: string; name: string; enabled: boolean }[];
     plan?: { id?: number; name?: string | null } | null;
@@ -186,7 +188,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
   const [planoSel, setPlanoSel] = useState("");
   const [planoArm, setPlanoArm] = useState(false);
   const [quotaForm, setQuotaForm] = useState({ monthly: "", daily: "", seatCap: "" });
-  const [finForm, setFinForm] = useState({ discount: "", freeMonths: "", billingCycle: "" });
+  const [finForm, setFinForm] = useState({ discount: "", freeMonths: "", billingCycle: "", setupValue: "", parcela: "" });
 
   // financeiro (fase 2)
   const [pagOpen, setPagOpen] = useState(false);
@@ -226,6 +228,8 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
           discount: c?.manualDiscountPercent != null ? String(c.manualDiscountPercent) : "",
           freeMonths: c?.freeMonths != null ? String(c.freeMonths) : "",
           billingCycle: String(c?.billingCycle || ""),
+          setupValue: c?.setupValue != null ? String(c.setupValue) : "",
+          parcela: c?.monthlyValueOverride != null ? String(c.monthlyValueOverride) : "",
         });
       })
       .catch((err: unknown) => setDetailError(err instanceof Error ? err.message : "Falha ao carregar o detalhe."));
@@ -422,6 +426,8 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
       if (finForm.discount !== "") body.manualDiscountPercent = Number(finForm.discount) || 0;
       if (finForm.freeMonths !== "") body.freeMonths = Math.max(0, Number(finForm.freeMonths) || 0);
       if (finForm.billingCycle) body.billingCycle = finForm.billingCycle;
+      if (finForm.setupValue !== "") body.setupValue = Math.max(0, Number(finForm.setupValue) || 0);
+      if (finForm.parcela !== "") body.monthlyValueOverride = Math.max(0, Number(finForm.parcela) || 0);
       await apiFetch(`/modules/master/company/${selId}/finance-settings`, { method: "PUT", body: JSON.stringify(body) });
       setComMsg("✓ Condições de cobrança atualizadas.");
       await recarregarTudo();
@@ -581,6 +587,11 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
   const emCortesia = String(c?.status || "").toLowerCase() === "courtesy";
   const emTrial = String(c?.status || "").toLowerCase() === "trial";
   const suspensa = String(c?.status || "").toLowerCase() === "suspended";
+  // Régua única (PR13062026007 PF1): List/Lead = automático, painel mínimo.
+  // Controles manuais (cortesia, módulos/exceção, trial, condições, limites,
+  // suspender, registrar pagamento) só aparecem no HBX Full. Excluir = manual,
+  // fica em todos. Auditoria fica. (motor não muda — é só a tela.)
+  const isFull = String(c?.selectedPlanKey || "").toLowerCase() === "hbx_melhor";
   const ledger = c?.financeHistory || [];
   const auditoria = c?.auditTimeline || [];
   const credsWa = c?.masterIntegrations?.whatsappLibrary || [];
@@ -729,6 +740,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                   </div>
                 </section>
 
+                {isFull && (<>
                 <section className="panel">
                   <div className="panel-head"><h2>Cortesia</h2></div>
                   <div style={{ padding: "12px 16px 16px", display: "grid", gap: 10 }}>
@@ -776,14 +788,15 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                         </button>
                       </div>
                     ))}
-                    <span style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>Regra única: este liga/desliga vale por empresa em qualquer plano. Toda empresa nasce com o padrão master e você apara aqui; o pagamento continua barrando o acesso no app.</span>
+                    <span style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>Exceção desta empresa (só no HBX Full): liga/desliga módulo só nesta empresa. O pagamento continua barrando o acesso no app.</span>
                   </div>
                 </section>
+                </>)}
               </div>
 
               <section className="panel">
                 <div className="tabs">
-                  {DETAIL_TABS.map(t => (
+                  {DETAIL_TABS.filter(t => isFull || t !== "Financeiro").map(t => (
                     <button key={t} className={"tab" + (detailTab === t ? " active" : "")} onClick={() => setDetailTab(t)}
                       style={detailTab === t ? { color: "var(--hbx-brand-strong)", borderBottomColor: "var(--hbx-brand)" } : {}}>
                       {t}{t === "Usuários" ? <span className="n">{(c.users || []).length}</span> : null}{t === "Financeiro" ? <span className="n">{ledger.length}</span> : null}
@@ -851,6 +864,28 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                       <div style={{ fontSize: "0.72rem", fontWeight: 700, lineHeight: 1.5, color: comMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)" }}>{comMsg}</div>
                     )}
 
+                    {/* Régua única (PR13062026007 PF1): trial/suspensão/limites/condições/
+                        credenciais só no Full. List/Lead = automático (mantém Plano + Excluir). */}
+                    {isFull && (<>
+                    <div style={{ display: "grid", gap: 8 }}>
+                      <strong>Implantação (Full)</strong>
+                      <span className="field-label">Registro do que foi acordado com este cliente. Não altera cobrança/comissão sozinho.</span>
+                      <div style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap" }}>
+                        <div style={{ display: "grid", gap: 4 }}>
+                          <label className="field-label">Implantação (R$)</label>
+                          <input className="field-dark" type="number" min={0} step="0.01" style={{ width: 130 }}
+                            value={finForm.setupValue} onChange={e => setFinForm(f => ({ ...f, setupValue: e.target.value }))} />
+                        </div>
+                        <div style={{ display: "grid", gap: 4 }}>
+                          <label className="field-label">Parcela (R$/mês)</label>
+                          <input className="field-dark" type="number" min={0} step="0.01" style={{ width: 130 }}
+                            value={finForm.parcela} onChange={e => setFinForm(f => ({ ...f, parcela: e.target.value }))} />
+                        </div>
+                        <button className="btn-ghost" disabled={comBusy != null} onClick={salvarFinanceSettings}>
+                          {comBusy === "fin" ? "Salvando…" : "Salvar implantação"}
+                        </button>
+                      </div>
+                    </div>
                     <div style={{ display: "grid", gap: 8 }}>
                       <strong style={{ fontSize: "0.76rem" }}>Trial</strong>
                       <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>
@@ -893,6 +928,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                         )}
                       </div>
                     </div>
+                    </>)}
 
                     <div style={{ borderTop: "1px solid var(--border-hairline)", paddingTop: 12, display: "grid", gap: 8 }}>
                       <strong style={{ fontSize: "0.76rem" }}>Excluir empresa</strong>
@@ -926,6 +962,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                       <span style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>Mudar plano redefine módulos e entitlements pelo catálogo do plano.</span>
                     </div>
 
+                    {isFull && (<>
                     <div style={{ borderTop: "1px solid var(--border-hairline)", paddingTop: 12, display: "grid", gap: 8 }}>
                       <strong style={{ fontSize: "0.76rem" }}>Limites por empresa (override)</strong>
                       <span style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>Assentos = teto RÍGIDO de acessos (vazio = sem teto). Bloqueia criar acesso além do número.</span>
@@ -1013,10 +1050,11 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                         )}
                       </div>
                     </div>
+                    </>)}
                   </div>
                 )}
 
-                {detailTab === "Financeiro" && (
+                {detailTab === "Financeiro" && isFull && (
                   <React.Fragment>
                     <div style={{ padding: "10px 16px 0", display: "flex", gap: 8, alignItems: "center" }}>
                       <button className="btn-teal" style={{ minHeight: 32, fontSize: "0.7rem" }}

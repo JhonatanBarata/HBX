@@ -1519,7 +1519,7 @@ function explainSocialEnrichment(row) {
 
 async function getContainerLogsForEnvironment(environment, containerName, tail = 260) {
   if (!containerName || !validateName(containerName)) return { ok: false, stdout: '', stderr: 'Container invalido.' };
-  return runForEnvironment(environment, 'docker', ['logs', '--tail', String(tail), containerName], { timeout: 20000, maxBuffer: 1024 * 1024 * 5 });
+  return runForEnvironment(environment, 'timeout', ['16', 'docker', 'logs', '--tail', String(tail), containerName], { timeout: 20000, maxBuffer: 1024 * 1024 * 5 });
 }
 
 async function collectPostgresRadarAudit(environment, containers) {
@@ -1949,7 +1949,7 @@ app.get('/api/host-snapshot/:environment', async (req, res) => {
 app.get('/api/logs/:name', async (req, res) => {
   const { name } = req.params;
   if (!validateName(name)) return res.status(400).json({ error: 'Nome de container invalido.' });
-  const result = await run('docker', ['logs', '--tail', '200', name], { maxBuffer: 1024 * 1024 * 6 });
+  const result = await run('timeout', ['12', 'docker', 'logs', '--tail', '200', name], { timeout: 15000, maxBuffer: 1024 * 1024 * 6 });
   res.json({ name, logs: result.stdout, stderr: result.stderr, status: result.ok ? 'ok' : 'error' });
 });
 
