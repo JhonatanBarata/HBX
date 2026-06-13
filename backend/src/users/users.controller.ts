@@ -51,6 +51,19 @@ class CreateCompanyUserDto {
 	@Max(100)
 	commissionPercent?: number;
 
+	// Teto de comissão por fechamento (PR13062026007). R$, sem teto superior. Admin-only.
+	@IsOptional()
+	@Type(() => Number)
+	@IsNumber({ maxDecimalPlaces: 2 })
+	@Min(0)
+	commissionMonthlyCap?: number;
+
+	@IsOptional()
+	@Type(() => Number)
+	@IsNumber({ maxDecimalPlaces: 2 })
+	@Min(0)
+	setupCommissionCap?: number;
+
 	@IsOptional()
 	@IsBoolean()
 	canRecruitSellers?: boolean;
@@ -141,6 +154,19 @@ class UpdateCompanyUserProfileDto {
 	@Max(100)
 	commissionPercent?: number;
 
+	// Teto de comissão por fechamento (PR13062026007). R$, sem teto superior. Admin-only.
+	@IsOptional()
+	@Type(() => Number)
+	@IsNumber({ maxDecimalPlaces: 2 })
+	@Min(0)
+	commissionMonthlyCap?: number;
+
+	@IsOptional()
+	@Type(() => Number)
+	@IsNumber({ maxDecimalPlaces: 2 })
+	@Min(0)
+	setupCommissionCap?: number;
+
 	@IsOptional()
 	@IsBoolean()
 	canRecruitSellers?: boolean;
@@ -195,6 +221,19 @@ class MasterCreateUserDto {
 	@Min(0)
 	@Max(100)
 	commissionPercent?: number;
+
+	// Teto de comissão por fechamento (PR13062026007). R$, sem teto superior. Admin-only.
+	@IsOptional()
+	@Type(() => Number)
+	@IsNumber({ maxDecimalPlaces: 2 })
+	@Min(0)
+	commissionMonthlyCap?: number;
+
+	@IsOptional()
+	@Type(() => Number)
+	@IsNumber({ maxDecimalPlaces: 2 })
+	@Min(0)
+	setupCommissionCap?: number;
 
 	@IsOptional()
 	@IsBoolean()
@@ -272,6 +311,19 @@ class MasterEditUserDto {
 	@Min(0)
 	@Max(100)
 	commissionPercent?: number;
+
+	// Teto de comissão por fechamento (PR13062026007). R$, sem teto superior. Admin-only.
+	@IsOptional()
+	@Type(() => Number)
+	@IsNumber({ maxDecimalPlaces: 2 })
+	@Min(0)
+	commissionMonthlyCap?: number;
+
+	@IsOptional()
+	@Type(() => Number)
+	@IsNumber({ maxDecimalPlaces: 2 })
+	@Min(0)
+	setupCommissionCap?: number;
 
 	@IsOptional()
 	@IsBoolean()
@@ -357,6 +409,14 @@ function normalizeCommissionPercent(value: unknown) {
 	const numeric = Number(value);
 	if (!Number.isFinite(numeric)) throw new BadRequestException('Comissão inválida');
 	return Math.min(100, Math.max(0, Math.round(numeric * 100) / 100));
+}
+
+// Teto de comissão (R$) — PR13062026007. Sem teto superior; 0 = sem limite.
+function normalizeCommissionCap(value: unknown) {
+	if (value === undefined || value === null || value === '') return undefined;
+	const numeric = Number(value);
+	if (!Number.isFinite(numeric)) throw new BadRequestException('Teto de comissão inválido');
+	return Math.max(0, Math.round(numeric * 100) / 100);
 }
 
 function normalizeOptionalPositiveInt(value: unknown) {
@@ -878,9 +938,13 @@ export class UsersController {
 		const name = normalizeNullableText(dto.name);
 		const phone = normalizeNullableText(dto.phone);
 		const commissionPercent = normalizeCommissionPercent(dto.commissionPercent);
+		const commissionMonthlyCap = normalizeCommissionCap(dto.commissionMonthlyCap);
+		const setupCommissionCap = normalizeCommissionCap(dto.setupCommissionCap);
 		if (name !== undefined) data.name = name;
 		if (phone !== undefined) data.phone = phone;
 		if (commissionPercent !== undefined) data.commissionPercent = commissionPercent;
+		if (commissionMonthlyCap !== undefined) data.commissionMonthlyCap = commissionMonthlyCap;
+		if (setupCommissionCap !== undefined) data.setupCommissionCap = setupCommissionCap;
 		const sellerNetworkData = await this.buildSellerNetworkData({
 			companyId,
 			role: String(target.role || '').toUpperCase() === 'ADMIN' ? 'ADMIN' : 'USER',
@@ -929,6 +993,8 @@ export class UsersController {
 			name: updated.name,
 			phone: updated.phone,
 			commissionPercent: updated.commissionPercent,
+			commissionMonthlyCap: (updated as any).commissionMonthlyCap,
+			setupCommissionCap: (updated as any).setupCommissionCap,
 			sellerDistributionDailyLimitOverride: updated.sellerDistributionDailyLimitOverride,
 			...this.sellerNetworkPayload(updated),
 		};
@@ -1090,6 +1156,8 @@ export class UsersController {
 		const attendantName = String(dto?.name || referralCandidate?.candidateName || '').trim();
 		const phone = normalizeNullableText(dto.phone) || normalizeNullableText(referralCandidate?.candidatePhone);
 		let commissionPercent = normalizeCommissionPercent(dto.commissionPercent) ?? 0;
+		const commissionMonthlyCap = normalizeCommissionCap(dto.commissionMonthlyCap) ?? 0;
+		const setupCommissionCap = normalizeCommissionCap(dto.setupCommissionCap) ?? 0;
 		const sellerNetworkDto = referralCandidate
 			? { ...dto, referredByUserId: referralCandidate.referrerUserId }
 			: dto;
@@ -1123,6 +1191,8 @@ export class UsersController {
 			name: attendantName || undefined,
 			phone,
 			commissionPercent,
+			commissionMonthlyCap,
+			setupCommissionCap,
 			...sellerNetworkData,
 			password: hashedPassword,
 			...(requestedPassword ? { mustChangePassword: true } : {}),
@@ -1349,6 +1419,8 @@ export class UsersController {
 		const attendantName = String(dto?.name || referralCandidate?.candidateName || '').trim();
 		const phone = normalizeNullableText(dto.phone) || normalizeNullableText(referralCandidate?.candidatePhone);
 		let commissionPercent = normalizeCommissionPercent(dto.commissionPercent) ?? 0;
+		const commissionMonthlyCap = normalizeCommissionCap(dto.commissionMonthlyCap) ?? 0;
+		const setupCommissionCap = normalizeCommissionCap(dto.setupCommissionCap) ?? 0;
 		const sellerNetworkDto = referralCandidate
 			? { ...dto, referredByUserId: referralCandidate.referrerUserId }
 			: dto;
@@ -1379,6 +1451,8 @@ export class UsersController {
 			name: attendantName || undefined,
 			phone,
 			commissionPercent,
+			commissionMonthlyCap,
+			setupCommissionCap,
 			...sellerNetworkData,
 			password: '',
 			companyId,
@@ -1495,6 +1569,14 @@ export class UsersController {
 		const commissionPercent = normalizeCommissionPercent(dto.commissionPercent);
 		if (commissionPercent !== undefined) {
 			data.commissionPercent = commissionPercent;
+		}
+		const commissionMonthlyCap = normalizeCommissionCap(dto.commissionMonthlyCap);
+		if (commissionMonthlyCap !== undefined) {
+			data.commissionMonthlyCap = commissionMonthlyCap;
+		}
+		const setupCommissionCap = normalizeCommissionCap(dto.setupCommissionCap);
+		if (setupCommissionCap !== undefined) {
+			data.setupCommissionCap = setupCommissionCap;
 		}
 
 		if (typeof dto.role === 'string') {

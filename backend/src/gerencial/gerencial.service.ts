@@ -2,7 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { PrismaService } from '../prisma/prisma.service';
 import { isTenantCompany } from '../common/company-kind';
 import { HbxCommissionSyncService } from '../commissions/hbx-commission-sync.service';
-import { getCommercialPlanMonthlyPrice } from '../commercial-plans/commercial-plan-catalog';
+import { applyCommissionCap, getCommercialPlanMonthlyPrice } from '../commercial-plans/commercial-plan-catalog';
 
 function requireCompanyIdFromUser(user: any): number {
   const companyId = Number(user?.companyId);
@@ -857,7 +857,7 @@ export class GerencialService {
     const owner = assignedUserId
       ? await this.prisma.user.findFirst({
           where: { id: assignedUserId, companyId },
-          select: { commissionPercent: true },
+          select: { commissionPercent: true, commissionMonthlyCap: true },
         }).catch(() => null)
       : null;
     const percentSnapshot = Number(existing.commissionPercentSnapshot || 0);
@@ -870,7 +870,11 @@ export class GerencialService {
       money(existing.commissionBaseAmount) ||
       getCommercialPlanMonthlyPrice(existing.salePlanKey),
     );
-    const projectedCommissionAmount = money((baseAmount * commissionPercent) / 100);
+    // Teto de comissão por fechamento (PR13062026007): a projeção do admin bate com o pago.
+    const projectedCommissionAmount = applyCommissionCap(
+      money((baseAmount * commissionPercent) / 100),
+      Number(owner?.commissionMonthlyCap || 0) || 0,
+    );
     const paidSale = saleStatus === 'sale_confirmed';
     const confirmsSale = saleStatus === 'trial_started' || paidSale;
     const endsSale = ['inactive', 'canceled'].includes(saleStatus);

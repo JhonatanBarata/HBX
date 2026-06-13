@@ -181,6 +181,16 @@ export function toCommercialCurrency(value: unknown) {
   return Number(numeric.toFixed(2));
 }
 
+// Teto de comissão por fechamento (PR13062026007). cap <= 0 = sem teto. A comissão
+// SEMPRE espelha o que o vendedor recebe, então quem cria comissão (sync, recorrente,
+// projeção do gerencial) capa pelo mesmo helper. Ex.: comissão R$300, teto R$100 → R$100.
+export function applyCommissionCap(amount: unknown, cap: unknown) {
+  const value = Math.max(0, Number(amount || 0) || 0);
+  const ceiling = Math.max(0, Number(cap || 0) || 0);
+  const capped = ceiling > 0 ? Math.min(value, ceiling) : value;
+  return Number(capped.toFixed(2));
+}
+
 export function isCommercialEntitlementActive(status: unknown) {
   return ACTIVE_COMMERCIAL_ENTITLEMENT_STATUSES.has(String(status || '').trim().toLowerCase());
 }

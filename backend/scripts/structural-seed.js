@@ -170,105 +170,6 @@ async function ensureSystemModules(prisma, mode, summary) {
   }
 }
 
-async function ensurePlansAndFeatures(prisma, mode, summary) {
-  const featureMap = new Map();
-
-  for (const featureDef of structuralDefaults.featureDefinitions) {
-    const existing = await prisma.feature.findUnique({ where: { key: featureDef.key } });
-
-    if (mode === 'check') {
-      if (!existing) {
-        summary.errors.push(`Missing structural feature: ${featureDef.key}`);
-      }
-      continue;
-    }
-
-    const feature = existing
-      ? await prisma.feature.update({
-          where: { key: featureDef.key },
-          data: { description: featureDef.description || null },
-        })
-      : await prisma.feature.create({
-          data: { key: featureDef.key, description: featureDef.description || null },
-        });
-
-    featureMap.set(feature.key, feature);
-    summary.features += 1;
-  }
-
-  if (mode === 'check') {
-    for (const planDef of structuralDefaults.plans) {
-      const matches = await prisma.plan.findMany({
-        where: { name: planDef.name },
-        include: { features: true },
-      });
-
-      if (matches.length === 0) {
-        summary.errors.push(`Missing structural plan: ${planDef.name}`);
-        continue;
-      }
-
-      if (matches.length > 1) {
-        summary.errors.push(`Duplicate structural plan name detected: ${planDef.name}`);
-        continue;
-      }
-
-      const [plan] = matches;
-      if (!equalValue(plan.price, planDef.price)) {
-        summary.errors.push(`Structural plan price mismatch: ${planDef.name}`);
-      }
-
-      const featureKeys = new Set(plan.features.map((feature) => feature.key));
-      for (const featureKey of planDef.features) {
-        if (!featureKeys.has(featureKey)) {
-          summary.errors.push(`Plan ${planDef.name} is missing feature ${featureKey}`);
-        }
-      }
-    }
-    return;
-  }
-
-  for (const planDef of structuralDefaults.plans) {
-    const matches = await prisma.plan.findMany({
-      where: { name: planDef.name },
-      include: { features: true },
-      take: 2,
-    });
-
-    if (matches.length > 1) {
-      throw new Error(`Cannot safely seed plan ${planDef.name}: duplicate names already exist`);
-    }
-
-    const existing = matches[0] || null;
-    const plan = existing
-      ? await prisma.plan.update({
-          where: { id: existing.id },
-          data: { price: planDef.price },
-          include: { features: true },
-        })
-      : await prisma.plan.create({
-          data: { name: planDef.name, price: planDef.price },
-          include: { features: true },
-        });
-
-    const connectedKeys = new Set(plan.features.map((feature) => feature.key));
-    for (const featureKey of planDef.features) {
-      const feature = featureMap.get(featureKey) || await prisma.feature.findUnique({ where: { key: featureKey } });
-      if (!feature) {
-        throw new Error(`Feature ${featureKey} is missing while seeding plan ${planDef.name}`);
-      }
-      if (!connectedKeys.has(featureKey)) {
-        await prisma.plan.update({
-          where: { id: plan.id },
-          data: { features: { connect: { id: feature.id } } },
-        });
-      }
-    }
-
-    summary.plans += 1;
-  }
-}
-
 async function ensureCompanyModules(prisma, mode, summary) {
   if (mode === 'check') {
     const missingRows = await prisma.$queryRawUnsafe(`
@@ -308,8 +209,6 @@ async function runStructuralSeed(options = {}) {
   const summary = {
     mode,
     systemModules: 0,
-    features: 0,
-    plans: 0,
     companyModules: 0,
     errors: [],
   };
@@ -317,7 +216,6 @@ async function runStructuralSeed(options = {}) {
   try {
     await ensureMasterRuntimeColumns(prisma);
     await ensureSystemModules(prisma, mode, summary);
-    await ensurePlansAndFeatures(prisma, mode, summary);
     await ensureCompanyModules(prisma, mode, summary);
 
     if (summary.errors.length > 0) {

@@ -6,6 +6,9 @@ export type SellerPartnerContractInput = {
   sellerAddress?: string | null;
   commissionPercent?: string | number | null;
   commissionDueBusinessDays?: string | number | null;
+  // Teto de comissão por fechamento (PR13062026007). 0/ausente = sem teto.
+  commissionMonthlyCap?: string | number | null;
+  setupCommissionCap?: string | number | null;
   contractDate?: string | null;
   canRecruitSellers?: boolean | null;
   sellerReferralCommissionPercent?: string | number | null;
@@ -34,6 +37,7 @@ As partes reconhecem que este contrato opera sem vínculo empregatício, sem sal
 
 3. COMISSÃO
 O PARCEIRO receberá comissão de {commissionPercent}% sobre mensalidade efetivamente paga por clientes vinculados ao seu link rastreável ou cadastro assistido no HBX.
+{commissionCapClause}
 
 4. RECORRÊNCIA
 A comissão será recorrente enquanto o cliente permanecer ativo, adimplente e vinculado ao PARCEIRO no sistema HBX, salvo fraude, chargeback, cancelamento, inadimplência, violação contratual ou uso indevido da plataforma.
@@ -78,6 +82,13 @@ function percent(value: unknown, fallback = 0) {
   return numeric.toLocaleString('pt-BR', { maximumFractionDigits: 2 });
 }
 
+// Teto de comissão (PR13062026007). <= 0 = vazio (string vazia = "sem teto").
+function moneyOrEmpty(value: unknown) {
+  const numeric = Number(value || 0);
+  if (!Number.isFinite(numeric) || numeric <= 0) return '';
+  return 'R$ ' + numeric.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 function contractVariables(input: SellerPartnerContractInput) {
   const referralPercent = Number(input.sellerReferralCommissionPercent || 0);
   const referredByName = text(input.referredByName, '');
@@ -90,6 +101,17 @@ function contractVariables(input: SellerPartnerContractInput) {
   const referredByClause = referredByName
     ? `O PARCEIRO foi cadastrado por indicação de ${referredByName}.`
     : '';
+  // Teto de comissão por fechamento (PR13062026007): cláusula só aparece quando há teto.
+  const monthlyCapMoney = moneyOrEmpty(input.commissionMonthlyCap);
+  const setupCapMoney = moneyOrEmpty(input.setupCommissionCap);
+  let commissionCapClause = '';
+  if (monthlyCapMoney && setupCapMoney) {
+    commissionCapClause = `Fica estabelecido teto de comissão por cliente: a comissão recorrente mensal por cliente é limitada a ${monthlyCapMoney} e a comissão de implantação por cliente é limitada a ${setupCapMoney}. Comissões que excederem o teto serão pagas até o limite estabelecido.`;
+  } else if (monthlyCapMoney) {
+    commissionCapClause = `Fica estabelecido teto de comissão por cliente: a comissão recorrente mensal por cliente é limitada a ${monthlyCapMoney}. Comissões que excederem o teto serão pagas até o limite estabelecido.`;
+  } else if (setupCapMoney) {
+    commissionCapClause = `Fica estabelecido teto de comissão de implantação por cliente, limitada a ${setupCapMoney}. Comissões que excederem o teto serão pagas até o limite estabelecido.`;
+  }
   return {
     sellerName: text(input.sellerName, 'Vendedor'),
     sellerCpf: text(input.sellerCpf),
@@ -98,6 +120,9 @@ function contractVariables(input: SellerPartnerContractInput) {
     sellerAddress: text(input.sellerAddress),
     commissionPercent: percent(input.commissionPercent, 20),
     commissionDueBusinessDays: text(input.commissionDueBusinessDays, '3'),
+    commissionMonthlyCap: monthlyCapMoney || 'sem teto',
+    setupCommissionCap: setupCapMoney || 'sem teto',
+    commissionCapClause,
     contractDate: text(input.contractDate, new Date().toLocaleDateString('pt-BR')),
     networkClause,
     inheritedCommissionClause,
@@ -108,7 +133,7 @@ function contractVariables(input: SellerPartnerContractInput) {
 export function renderSellerPartnerContractTemplate(template: string, input: SellerPartnerContractInput) {
   const variables = contractVariables(input);
   return String(template || DEFAULT_SELLER_PARTNER_CONTRACT_TEMPLATE).replace(
-    /\{\{\s*(sellerName|sellerCpf|sellerEmail|sellerPhone|sellerAddress|commissionPercent|commissionDueBusinessDays|contractDate|networkClause|inheritedCommissionClause|referredByClause)\s*\}\}|\{\s*(sellerName|sellerCpf|sellerEmail|sellerPhone|sellerAddress|commissionPercent|commissionDueBusinessDays|contractDate|networkClause|inheritedCommissionClause|referredByClause)\s*\}/g,
+    /\{\{\s*(sellerName|sellerCpf|sellerEmail|sellerPhone|sellerAddress|commissionPercent|commissionDueBusinessDays|commissionMonthlyCap|setupCommissionCap|commissionCapClause|contractDate|networkClause|inheritedCommissionClause|referredByClause)\s*\}\}|\{\s*(sellerName|sellerCpf|sellerEmail|sellerPhone|sellerAddress|commissionPercent|commissionDueBusinessDays|commissionMonthlyCap|setupCommissionCap|commissionCapClause|contractDate|networkClause|inheritedCommissionClause|referredByClause)\s*\}/g,
     (_match, doubleKey?: string, singleKey?: string) => {
       const key = (doubleKey || singleKey) as keyof typeof variables;
       return String(variables[key] ?? '');

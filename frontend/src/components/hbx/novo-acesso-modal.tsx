@@ -51,6 +51,8 @@ const FORM_VAZIO = {
   email: "",
   phone: "",
   commissionPercent: "",
+  commissionMonthlyCap: "",
+  setupCommissionCap: "",
   commissionDueBusinessDays: "3",
   salvarDocumentacao: false,
   cpf: "",
@@ -126,6 +128,8 @@ export function NovoAcessoModal({ onClose, onDone, team }: {
         ...(form.name.trim() ? { name: form.name.trim() } : {}),
         ...(form.phone.trim() ? { phone: form.phone.trim() } : {}),
         ...(form.commissionPercent !== "" ? { commissionPercent: Number(form.commissionPercent) } : {}),
+        ...(form.commissionMonthlyCap !== "" ? { commissionMonthlyCap: Number(form.commissionMonthlyCap) } : {}),
+        ...(form.setupCommissionCap !== "" ? { setupCommissionCap: Number(form.setupCommissionCap) } : {}),
         ...(form.commissionDueBusinessDays !== "" ? { commissionDueBusinessDays: Number(form.commissionDueBusinessDays) } : {}),
         ...(form.password.trim() ? { password: form.password.trim() } : {}),
         ...(form.role === "USER" && form.salvarDocumentacao ? { requiresSellerOnboarding: true } : {}),
@@ -329,6 +333,19 @@ export function NovoAcessoModal({ onClose, onDone, team }: {
                   onChange={e => setForm(f => ({ ...f, commissionDueBusinessDays: e.target.value }))} />
               </div>
             </div>
+            {/* Teto de comissão (PR13062026007): admin-only; o vendedor nunca vê este valor. */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <div style={{ display: "grid", gap: 6 }}>
+                <label style={lbl}>Teto comissão mensal (R$)</label>
+                <input className="field-dark" type="number" min={0} step="0.01" placeholder="sem teto" value={form.commissionMonthlyCap} disabled={painelAtivo}
+                  onChange={e => setForm(f => ({ ...f, commissionMonthlyCap: e.target.value }))} />
+              </div>
+              <div style={{ display: "grid", gap: 6 }}>
+                <label style={lbl}>Teto comissão implantação (R$)</label>
+                <input className="field-dark" type="number" min={0} step="0.01" placeholder="sem teto" value={form.setupCommissionCap} disabled={painelAtivo}
+                  onChange={e => setForm(f => ({ ...f, setupCommissionCap: e.target.value }))} />
+              </div>
+            </div>
             {vendedor && (
               <label style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "10px 12px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface-soft)", cursor: painelAtivo ? "default" : "pointer" }}>
                 <input type="checkbox" checked={form.salvarDocumentacao} disabled={painelAtivo}
@@ -457,7 +474,7 @@ export function NovoAcessoModal({ onClose, onDone, team }: {
             </h3>
             {modeloMsg && <div style={{ fontSize: "0.72rem", fontWeight: 700, color: modeloMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{modeloMsg}</div>}
             <p style={{ margin: 0, fontSize: "0.66rem", lineHeight: 1.5, color: "var(--text-muted)" }}>
-              Use as variáveis {"{{sellerName}}"}, {"{{sellerCpf}}"}, {"{{sellerEmail}}"}, {"{{sellerPhone}}"}, {"{{sellerAddress}}"}, {"{{commissionPercent}}"}, {"{{commissionDueBusinessDays}}"} e {"{{contractDate}}"} — preenchidas na geração do PDF.
+              Use as variáveis {"{{sellerName}}"}, {"{{sellerCpf}}"}, {"{{sellerEmail}}"}, {"{{sellerPhone}}"}, {"{{sellerAddress}}"}, {"{{commissionPercent}}"}, {"{{commissionDueBusinessDays}}"}, {"{{commissionMonthlyCap}}"}, {"{{setupCommissionCap}}"}, {"{{commissionCapClause}}"} e {"{{contractDate}}"} — preenchidas na geração do PDF.
             </p>
             <textarea className="field-dark" rows={16} value={modeloText} disabled={modeloBusy}
               style={{ resize: "vertical", fontFamily: "var(--font-mono)", fontSize: "0.7rem", lineHeight: 1.55, padding: "10px 12px" }}

@@ -355,7 +355,7 @@ export class ModulesService implements OnModuleInit {
     if (company?.selectedPlanKey) {
       return this.normalizeCurrencyAmount(getCommercialPlanMonthlyPrice(normalizeCommercialPlanKey(company.selectedPlanKey)));
     }
-    return this.normalizeCurrencyAmount(company?.plan?.price || 0);
+    return 0;
   }
 
   private resolveExtraSeatMonthlyAmount(pricingPolicy: any) {
@@ -2688,13 +2688,6 @@ export class ModulesService implements OnModuleInit {
       taxDocument: company.taxDocument || null,
       isActive: active,
       userCount: Number(company?._count?.users || 0),
-      plan: company.plan
-        ? {
-            id: company.plan.id,
-            name: company.plan.name,
-            price: this.normalizeCurrencyAmount(company.plan.price || 0),
-          }
-        : null,
       selectedPlanKey: company.selectedPlanKey || null,
       monthlyValue,
       finance,
@@ -2783,13 +2776,6 @@ export class ModulesService implements OnModuleInit {
     const companies = await this.prisma.company.findMany({
       where: { companyKind: COMPANY_KIND_TENANT },
       include: {
-        plan: {
-          select: {
-            id: true,
-            name: true,
-            price: true,
-          },
-        },
         companyModules: {
           include: { systemModule: true },
           orderBy: { systemModule: { name: 'asc' } },
@@ -3226,13 +3212,6 @@ export class ModulesService implements OnModuleInit {
       ? await this.prisma.company.findUnique({
           where: { id: companyId },
           include: {
-            plan: {
-              select: {
-                id: true,
-                name: true,
-                price: true,
-              },
-            },
             users: {
               select: {
                 id: true,
@@ -3262,13 +3241,6 @@ export class ModulesService implements OnModuleInit {
       : await this.prisma.company.findUnique({
           where: { id: companyId },
           include: {
-            plan: {
-              select: {
-                id: true,
-                name: true,
-                price: true,
-              },
-            },
             users: {
               select: {
                 id: true,
@@ -3661,6 +3633,62 @@ export class ModulesService implements OnModuleInit {
     throw new BadRequestException('Plano invalido');
   }
 
+  // PR13062026008: VALORES do plano = base do catálogo + override editável salvo
+  // em PlanModuleConfig.planInfoJson. ISTO É A CAIXA EDITÁVEL — não reescreve o
+  // enforcement do produto (quota/cobrança seguem o catálogo até a régua de
+  // limites ser refeita). Ordem do dono: "vou remover todas as regras de
+  // limitação anterior" — a aplicação dos novos limites é passo seguinte.
+  private resolvePlanInfoBase(planKey: ActiveCommercialPlanKey) {
+    const quota = COMMERCIAL_PLAN_QUOTAS[planKey] || COMMERCIAL_PLAN_QUOTAS[COMMERCIAL_PLAN_KEYS.PADRAO];
+    return {
+      monthlyPrice: this.normalizeCurrencyAmount(getCommercialPlanMonthlyPrice(planKey)),
+      includedUsers: COMMERCIAL_PLAN_INCLUDED_USERS[planKey] ?? 1,
+      extraUserMonthly: this.normalizeCurrencyAmount(COMMERCIAL_PLAN_EXTRA_USER_MONTHLY[planKey] ?? 0),
+      trialDays: COMMERCIAL_PLAN_TRIAL_DAYS[planKey] ?? 0,
+      deepSearchesPerDay: Number(quota.googleSearchesPerDay || 0),
+      enrichmentsPerDay: Number(quota.enrichmentsPerDay || 0),
+      cardsPerMonth: Number(quota.cardsPerMonth || 0),
+    };
+  }
+
+  // Mescla um override (JSON salvo OU corpo do request) sobre a base. Tolerante a
+  // string com vírgula; campo ausente, vazio ou inválido cai na base. Regra do
+  // dono: sem assento padrão (<= 0) não existe assento extra → zera o extra.
+  private mergePlanInfo(
+    base: {
+      monthlyPrice: number; includedUsers: number; extraUserMonthly: number; trialDays: number;
+      deepSearchesPerDay: number; enrichmentsPerDay: number; cardsPerMonth: number;
+    },
+    partial: unknown,
+  ) {
+    const p = (partial && typeof partial === 'object' && !Array.isArray(partial)) ? (partial as Record<string, unknown>) : {};
+    const has = (k: string) => Object.prototype.hasOwnProperty.call(p, k);
+    const toNum = (v: unknown) => {
+      const s = String(v ?? '').replace(',', '.').trim();
+      return s === '' ? NaN : Number(s);
+    };
+    const asInt = (v: unknown, fallback: number) => {
+      const n = toNum(v);
+      return Number.isFinite(n) && n >= 0 ? Math.trunc(n) : fallback;
+    };
+    const asCur = (v: unknown, fallback: number) => {
+      const n = toNum(v);
+      return Number.isFinite(n) && n >= 0 ? this.normalizeCurrencyAmount(n) : fallback;
+    };
+    const includedUsers = has('includedUsers') ? asInt(p.includedUsers, base.includedUsers) : base.includedUsers;
+    let extraUserMonthly = has('extraUserMonthly') ? asCur(p.extraUserMonthly, base.extraUserMonthly) : base.extraUserMonthly;
+    if (includedUsers <= 0) extraUserMonthly = 0;
+    return {
+      monthlyPrice: has('monthlyPrice') ? asCur(p.monthlyPrice, base.monthlyPrice) : base.monthlyPrice,
+      includedUsers,
+      extraUserMonthly,
+      trialDays: has('trialDays') ? asInt(p.trialDays, base.trialDays) : base.trialDays,
+      deepSearchesPerDay: has('deepSearchesPerDay') ? asInt(p.deepSearchesPerDay, base.deepSearchesPerDay) : base.deepSearchesPerDay,
+      enrichmentsPerDay: has('enrichmentsPerDay') ? asInt(p.enrichmentsPerDay, base.enrichmentsPerDay) : base.enrichmentsPerDay,
+      cardsPerMonth: has('cardsPerMonth') ? asInt(p.cardsPerMonth, base.cardsPerMonth) : base.cardsPerMonth,
+    };
+  }
+
   async getPlanModulesForMaster(masterUserId: number, rawPlanKey: string) {
     await this.assertMasterUser(masterUserId);
     await this.ensureDefaultSystemModules();
@@ -3676,20 +3704,22 @@ export class ModulesService implements OnModuleInit {
         const key = this.normalizeRequestedModuleKey(m.key);
         return { key, name: m.name, enabled: defaults.get(key) === true };
       });
-    const quota = COMMERCIAL_PLAN_QUOTAS[planKey] || COMMERCIAL_PLAN_QUOTAS[COMMERCIAL_PLAN_KEYS.PADRAO];
-    const planInfo = {
-      monthlyPrice: this.normalizeCurrencyAmount(getCommercialPlanMonthlyPrice(planKey)),
-      includedUsers: COMMERCIAL_PLAN_INCLUDED_USERS[planKey] ?? 1,
-      extraUserMonthly: this.normalizeCurrencyAmount(COMMERCIAL_PLAN_EXTRA_USER_MONTHLY[planKey] ?? 0),
-      trialDays: COMMERCIAL_PLAN_TRIAL_DAYS[planKey] ?? 0,
-      deepSearchesPerDay: Number(quota.googleSearchesPerDay || 0),
-      enrichmentsPerDay: Number(quota.enrichmentsPerDay || 0),
-      cardsPerMonth: Number(quota.cardsPerMonth || 0),
-    };
+    const cfg = await this.prisma.planModuleConfig
+      .findUnique({ where: { planKey }, select: { planInfoJson: true } })
+      .catch(() => null);
+    let storedInfo: unknown = null;
+    if (cfg?.planInfoJson) {
+      try { storedInfo = JSON.parse(cfg.planInfoJson); } catch { storedInfo = null; }
+    }
+    const planInfo = this.mergePlanInfo(this.resolvePlanInfoBase(planKey), storedInfo);
     return { planKey, items, total: items.length, planInfo };
   }
 
-  async setPlanModulesForMaster(masterUserId: number, rawPlanKey: string, input: Record<string, unknown>) {
+  async setPlanModulesForMaster(
+    masterUserId: number,
+    rawPlanKey: string,
+    input: { modules?: Record<string, unknown>; planInfo?: Record<string, unknown> },
+  ) {
     await this.assertMasterUser(masterUserId);
     const planKey = this.normalizePlanKeyForConfig(rawPlanKey);
     const moduleRows = await this.prisma.systemModule.findMany({
@@ -3698,16 +3728,23 @@ export class ModulesService implements OnModuleInit {
     });
     const assignable = new Set(moduleRows.map((m) => this.normalizeRequestedModuleKey(m.key)));
     const molho: Record<string, boolean> = {};
-    for (const [k, v] of Object.entries(input || {})) {
+    const modulesInput = (input?.modules && typeof input.modules === 'object') ? input.modules : {};
+    for (const [k, v] of Object.entries(modulesInput)) {
       const key = this.normalizeRequestedModuleKey(k);
       if (assignable.has(key)) molho[key] = Boolean(v);
     }
+    const data: { modulesJson: string; planInfoJson?: string } = { modulesJson: JSON.stringify(molho) };
+    let savedInfo: Record<string, number> | null = null;
+    if (input?.planInfo && typeof input.planInfo === 'object') {
+      savedInfo = this.mergePlanInfo(this.resolvePlanInfoBase(planKey), input.planInfo);
+      data.planInfoJson = JSON.stringify(savedInfo);
+    }
     await this.prisma.planModuleConfig.upsert({
       where: { planKey },
-      update: { modulesJson: JSON.stringify(molho) },
-      create: { planKey, modulesJson: JSON.stringify(molho) },
+      update: data,
+      create: { planKey, ...data },
     });
-    return { ok: true, planKey, modules: molho };
+    return { ok: true, planKey, modules: molho, ...(savedInfo ? { planInfo: savedInfo } : {}) };
   }
 
   async setCompanyModuleByMaster(masterUserId: number, companyId: number, moduleKey: string, enabled: boolean) {
@@ -4267,15 +4304,6 @@ export class ModulesService implements OnModuleInit {
 
     const company = await this.prisma.company.findUnique({
       where: { id: companyId },
-      include: {
-        plan: {
-          select: {
-            id: true,
-            name: true,
-            price: true,
-          },
-        },
-      },
     });
     if (!company) throw new BadRequestException('Empresa nao encontrada');
 
@@ -4314,7 +4342,7 @@ export class ModulesService implements OnModuleInit {
       paidAt,
       paymentMethod,
       observation,
-      referenceLabel: company.plan?.name || 'Mensalidade SaaS',
+      referenceLabel: 'Mensalidade SaaS',
       metadata: {
         settlePending,
         previousStatus,

@@ -555,6 +555,11 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
         "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    // PR13062026008: override editável dos valores do plano (assentos/quota/parcela/trial).
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "PlanModuleConfig"
+      ADD COLUMN IF NOT EXISTS "planInfoJson" TEXT
+    `);
   }
 
   // Régua (PR13062026007, 5º muro): bot fail-closed — campanha só dispara com triagem.
@@ -644,6 +649,17 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     await this.$executeRawUnsafe(`
       ALTER TABLE "User"
       ADD COLUMN IF NOT EXISTS "commissionPercent" DOUBLE PRECISION NOT NULL DEFAULT 0
+    `);
+
+    // Teto de comissão por fechamento (PR13062026007). 0 = sem teto. Admin-only.
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "User"
+      ADD COLUMN IF NOT EXISTS "commissionMonthlyCap" DOUBLE PRECISION NOT NULL DEFAULT 0
+    `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "User"
+      ADD COLUMN IF NOT EXISTS "setupCommissionCap" DOUBLE PRECISION NOT NULL DEFAULT 0
     `);
 
     await this.$executeRawUnsafe(`

@@ -481,7 +481,22 @@ export class SellerOnboardingService {
     return `/gerencial/hbx-partners/${Number(userId)}/onboarding/attachments/${attachmentId}/download`;
   }
 
-  private buildContractInputFromOnboarding(onboarding: any) {
+  // Teto de comissão (PR13062026007): lê do VENDEDOR ao vivo (o teto é editado no
+  // gerenciar-vendedor depois do onboarding, então snapshot na criação ficaria stale).
+  private async loadSellerCapsForOnboarding(onboarding: any): Promise<{ monthlyCap: number; setupCap: number }> {
+    const userId = Math.trunc(Number(onboarding?.userId || 0));
+    if (!userId) return { monthlyCap: 0, setupCap: 0 };
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, companyId: Number(onboarding?.companyId || 0) },
+      select: { commissionMonthlyCap: true, setupCommissionCap: true },
+    }).catch(() => null);
+    return {
+      monthlyCap: Math.max(0, Number(user?.commissionMonthlyCap || 0) || 0),
+      setupCap: Math.max(0, Number(user?.setupCommissionCap || 0) || 0),
+    };
+  }
+
+  private buildContractInputFromOnboarding(onboarding: any, caps?: { monthlyCap: number; setupCap: number }) {
     return {
       sellerName: onboarding.legalName || onboarding.email || 'Vendedor',
       sellerCpf: onboarding.cpf || null,
@@ -490,6 +505,8 @@ export class SellerOnboardingService {
       sellerAddress: onboarding.declaredAddress || null,
       commissionPercent: onboarding.commissionPercent,
       commissionDueBusinessDays: onboarding.commissionDueBusinessDays,
+      commissionMonthlyCap: caps?.monthlyCap ?? 0,
+      setupCommissionCap: caps?.setupCap ?? 0,
       contractDate: new Date().toLocaleDateString('pt-BR'),
       canRecruitSellers: onboarding.canRegisterHbxSellers,
       sellerReferralCommissionPercent: onboarding.sellerReferralCommissionPercent,
@@ -508,7 +525,8 @@ export class SellerOnboardingService {
 
   private async buildContractTextFromOnboarding(onboarding: any) {
     const template = await this.readCompanyContractTemplate(Number(onboarding.companyId || 0));
-    return renderSellerPartnerContractTemplate(template, this.buildContractInputFromOnboarding(onboarding))
+    const caps = await this.loadSellerCapsForOnboarding(onboarding);
+    return renderSellerPartnerContractTemplate(template, this.buildContractInputFromOnboarding(onboarding, caps))
       .split('\n')
       .filter((line) => line.trim() !== '')
       .join('\n');

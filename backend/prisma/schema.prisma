@@ -131,8 +131,6 @@ model Company {
   users                   User[]
   sellerOnboardings       SellerOnboarding[]
   hbxPartnerReferralCandidates HbxPartnerReferralCandidate[]
-  plan                    Plan?     @relation(fields: [planId], references: [id])
-  planId                  Int?
 
   conversations CompanyConversation[]
   messages      CompanyMessage[]
@@ -1011,6 +1009,11 @@ model User {
   name            String?
   phone           String?
   commissionPercent Float          @default(0)
+  // Teto de comissão por fechamento (PR13062026007). 0 = sem teto. Admin digita no
+  // cadastro do vendedor; o VENDEDOR nunca vê o valor (só a comissão já capada).
+  // mensal = limite da comissão recorrente; setup = limite da comissão de implantação.
+  commissionMonthlyCap Float       @default(0)
+  setupCommissionCap   Float       @default(0)
   // Régua única (PR13062026007 P1): separa Dono (true) de Gerente (false) dentro
   // do papel ADMIN. Gerente = ADMIN que NÃO vê cobrança/plano.
   canViewBilling  Boolean          @default(true)
@@ -2700,6 +2703,12 @@ model CompanyModule {
 model PlanModuleConfig {
   planKey     String   @id
   modulesJson String   @default("{}")
+  // PR13062026008: override editável dos VALORES do plano (assentos inclusos,
+  // valor do assento extra, parcela, trial e quotas deep/enriquecimento/cards).
+  // null = segue o catálogo (commercial-plan-catalog). É a CAIXA editável do
+  // plano; o enforcement de quota/cobrança continua no catálogo até a régua de
+  // limites ser refeita.
+  planInfoJson String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
@@ -2903,22 +2912,6 @@ model Category {
   description String?
   products    Product[]
   createdAt   DateTime  @default(now())
-}
-
-model Plan {
-  id        Int       @id @default(autoincrement())
-  name      String
-  price     Float     @default(0)
-  features  Feature[] @relation("PlanFeatures")
-  companies Company[]
-  createdAt DateTime  @default(now())
-}
-
-model Feature {
-  id          Int     @id @default(autoincrement())
-  key         String  @unique
-  description String?
-  plans       Plan[]  @relation("PlanFeatures")
 }
 
 model ProductVersion {

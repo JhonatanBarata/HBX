@@ -538,6 +538,8 @@ export class UsersService {
     name?: string | null;
     phone?: string | null;
     commissionPercent?: number;
+    commissionMonthlyCap?: number;
+    setupCommissionCap?: number;
     canRegisterHbxSellers?: boolean;
     sellerReferralCommissionPercent?: number;
     referredByUserId?: number | null;
@@ -688,7 +690,7 @@ export class UsersService {
   async findByUsername(username: string): Promise<User | null> {
     return this.prisma.user.findUnique({
       where: { username },
-      include: { company: { include: { plan: { include: { features: true } } } } },
+      include: { company: true },
     });
   }
 
@@ -700,7 +702,7 @@ export class UsersService {
   async findByLoginIdentifier(identifier: string): Promise<User | null> {
     const normalized = String(identifier || '').trim();
     if (!normalized) return null;
-    const include = { company: { include: { plan: { include: { features: true } } } } };
+    const include = { company: true };
 
     const exact = await this.prisma.user.findUnique({ where: { username: normalized }, include });
     if (exact) return exact;
@@ -724,14 +726,14 @@ export class UsersService {
   async findByEmail(email: string): Promise<User | null> {
     return this.prisma.user.findUnique({
       where: { email },
-      include: { company: { include: { plan: { include: { features: true } } } } },
+      include: { company: true },
     });
   }
 
   async findById(id: number): Promise<User | null> {
     return this.prisma.user.findUnique({
       where: { id },
-      include: { company: { include: { plan: { include: { features: true } } } } },
+      include: { company: true },
     });
   }
 
@@ -868,6 +870,9 @@ export class UsersService {
         name: true,
         phone: true,
         commissionPercent: true,
+        // Teto de comissão (PR13062026007) — só sai aqui (lista admin @Admin()); nunca em tela de vendedor.
+        commissionMonthlyCap: true,
+        setupCommissionCap: true,
         canRegisterHbxSellers: true,
         sellerReferralCommissionPercent: true,
         referredByUserId: true,

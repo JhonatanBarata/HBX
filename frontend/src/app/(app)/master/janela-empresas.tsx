@@ -723,7 +723,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                       ["E-mail", c.contactEmail],
                       ["Telefone", c.contactPhone],
                       ["Documento", c.taxDocument],
-                      ["Plano", c.plan?.name || PLANOS.find(p => p.value === c.selectedPlanKey)?.label],
+                      ["Plano", PLANOS.find(p => p.value === c.selectedPlanKey)?.label],
                       ["Slug", c.slug],
                     ].map(([label, value]) => (
                       <div key={String(label)} style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>

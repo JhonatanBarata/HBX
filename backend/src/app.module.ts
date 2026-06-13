@@ -8,7 +8,6 @@ import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { CompaniesModule } from './companies/companies.module';
-import { PlansModule } from './plans/plans.module';
 import { MessagingModule } from './messaging/messaging.module';
 import { MailModule } from './mail/mail.module';
 import { SupportModule } from './support/support.module';
@@ -53,7 +52,6 @@ import { NightFactoryModule } from './night-factory/night-factory.module';
     AuthModule,
     CompaniesModule,
     SupportModule,
-    PlansModule,
     ProductsModule,
     CategoriesModule,
     MessagingModule,

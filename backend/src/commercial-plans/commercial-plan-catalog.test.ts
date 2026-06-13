@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   COMMERCIAL_PLAN_KEYS,
   COMMERCIAL_PRICING,
+  applyCommissionCap,
   buildCommercialPlansCatalog,
 } from './commercial-plan-catalog';
 
@@ -57,4 +58,20 @@ test('HBX commercial catalog exposes package prices and quotas', () => {
   assert.equal(melhor?.quotas?.googleSearchesPerDay, 6);
   assert.equal(melhor?.quotas?.cardsPerMonth, 5000);
   assert.equal(melhor?.quotas?.dailyCardSafetyLimit, 250);
+});
+
+test('applyCommissionCap limita a comissão por fechamento ao teto do vendedor', () => {
+  // Comissão acima do teto cai pro teto (ex. do dono: R$300 com teto R$100 → R$100).
+  assert.equal(applyCommissionCap(300, 100), 100);
+  // Abaixo do teto não muda.
+  assert.equal(applyCommissionCap(60, 100), 60);
+  // Teto 0/ausente = sem limite (comportamento atual preservado).
+  assert.equal(applyCommissionCap(300, 0), 300);
+  assert.equal(applyCommissionCap(300, null), 300);
+  assert.equal(applyCommissionCap(300, undefined), 300);
+  // Exatamente no teto.
+  assert.equal(applyCommissionCap(100, 100), 100);
+  // Arredonda pra centavos e nunca negativo.
+  assert.equal(applyCommissionCap(49.999, 100), 50);
+  assert.equal(applyCommissionCap(-5, 100), 0);
 });

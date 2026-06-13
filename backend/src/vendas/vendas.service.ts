@@ -9,6 +9,7 @@ import { CommercialUsageLimitsService } from '../commercial-plans/commercial-usa
 import { HbxCommissionSyncService } from '../commissions/hbx-commission-sync.service';
 import {
   COMMERCIAL_PLAN_KEYS,
+  applyCommissionCap,
   getCommercialPlanCapabilities,
   getCommercialPlanMonthlyPrice,
   getCommercialPlanTier,
@@ -839,6 +840,21 @@ export class VendasService {
     return Math.min(100, Math.max(0, Number(owner?.commissionPercent || 0) || 0));
   }
 
+  // Teto de comissão do vendedor (PR13062026007): a comissão exibida no card É a que
+  // ele recebe, então capa aqui também (mensal + implantação). 0 = sem teto.
+  private async resolveSellerCapsForLead(row: any): Promise<{ monthlyCap: number; setupCap: number }> {
+    const assignedUserId = Math.trunc(Number(row?.assignedUserId || 0));
+    if (!assignedUserId) return { monthlyCap: 0, setupCap: 0 };
+    const owner = await this.prisma.user.findFirst({
+      where: { id: assignedUserId, companyId: Number(row?.companyId || 0) },
+      select: { commissionMonthlyCap: true, setupCommissionCap: true },
+    }).catch(() => null);
+    return {
+      monthlyCap: Math.max(0, Number(owner?.commissionMonthlyCap || 0) || 0),
+      setupCap: Math.max(0, Number(owner?.setupCommissionCap || 0) || 0),
+    };
+  }
+
   private async buildSaleCommissionPatch(row: any, dto: UpdateVendasLeadDto, userId?: number | null, options?: { allowAutomaticSaleStatus?: boolean }) {
     const saleStatusProvided = dto?.saleStatus !== undefined;
     const saleValueProvided = dto?.saleValue !== undefined;
@@ -873,7 +889,8 @@ export class VendasService {
       fallbackValue: row?.commissionBaseAmount,
     });
     const percent = await this.resolveCommissionPercentForLead(row);
-    const projectedCommissionAmount = this.calculateCommissionAmount(baseAmount, percent);
+    const caps = await this.resolveSellerCapsForLead(row);
+    const projectedCommissionAmount = applyCommissionCap(this.calculateCommissionAmount(baseAmount, percent), caps.monthlyCap);
     const paidSale = nextSaleStatus === 'sale_confirmed';
     const confirmsSale = nextSaleStatus === 'trial_started' || paidSale;
     const endsSale = nextSaleStatus === 'inactive' || nextSaleStatus === 'canceled';
@@ -910,7 +927,7 @@ export class VendasService {
     const setupValueProvided = dto?.setupValue !== undefined;
     const setupValue = this.normalizeCurrencyAmount(setupValueProvided ? dto.setupValue : row?.setupValue);
     const hadSetup = this.normalizeCurrencyAmount(row?.setupValue) > 0;
-    const projectedSetupCommission = this.calculateCommissionAmount(setupValue, percent);
+    const projectedSetupCommission = applyCommissionCap(this.calculateCommissionAmount(setupValue, percent), caps.setupCap);
     const setupCommissionAmount = paidSale && ['payable', 'paid'].includes(commissionStatus)
       ? projectedSetupCommission
       : preservedForReview

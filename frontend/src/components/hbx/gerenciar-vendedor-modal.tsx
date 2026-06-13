@@ -23,7 +23,7 @@ import { Av } from "@/components/hbx/shell";
 import { TeamPolicyEditor } from "@/components/hbx/team-policy-editor";
 import { apiFetch, getApiBase, getToken } from "@/lib/api";
 
-type CompanyUser = { id: number; name?: string | null; username?: string | null; email?: string | null; role?: string | null; isActive?: boolean };
+type CompanyUser = { id: number; name?: string | null; username?: string | null; email?: string | null; role?: string | null; isActive?: boolean; commissionMonthlyCap?: number | null; setupCommissionCap?: number | null };
 
 type OnboardingAttachment = { id: string; kind: string; status?: string | null; originalFilename?: string | null };
 
@@ -66,6 +66,8 @@ export function GerenciarVendedorModal({ member, isSelf, team = [], onClose, onC
     name: member.name || "",
     phone: "",
     commissionPercent: "",
+    commissionMonthlyCap: member.commissionMonthlyCap != null ? String(member.commissionMonthlyCap) : "",
+    setupCommissionCap: member.setupCommissionCap != null ? String(member.setupCommissionCap) : "",
   });
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -110,6 +112,8 @@ export function GerenciarVendedorModal({ member, isSelf, team = [], onClose, onC
           ...(form.name.trim() ? { name: form.name.trim() } : {}),
           ...(form.phone.trim() ? { phone: form.phone.trim() } : {}),
           ...(form.commissionPercent !== "" ? { commissionPercent: Number(form.commissionPercent) } : {}),
+          ...(form.commissionMonthlyCap !== "" ? { commissionMonthlyCap: Number(form.commissionMonthlyCap) } : {}),
+          ...(form.setupCommissionCap !== "" ? { setupCommissionCap: Number(form.setupCommissionCap) } : {}),
         }),
       });
       setMsg("✓ Perfil salvo.");
@@ -275,6 +279,21 @@ export function GerenciarVendedorModal({ member, isSelf, team = [], onClose, onC
                   onChange={e => setForm(f => ({ ...f, commissionPercent: e.target.value }))} />
               </div>
             </div>
+            {ehVendedor && (
+              /* Teto de comissão (PR13062026007): admin-only; o vendedor nunca vê este valor. */
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div style={{ display: "grid", gap: 6 }}>
+                  <label style={lbl}>Teto comissão mensal (R$)</label>
+                  <input className="field-dark" type="number" min={0} step="0.01" placeholder="sem teto" value={form.commissionMonthlyCap}
+                    onChange={e => setForm(f => ({ ...f, commissionMonthlyCap: e.target.value }))} />
+                </div>
+                <div style={{ display: "grid", gap: 6 }}>
+                  <label style={lbl}>Teto comissão implantação (R$)</label>
+                  <input className="field-dark" type="number" min={0} step="0.01" placeholder="sem teto" value={form.setupCommissionCap}
+                    onChange={e => setForm(f => ({ ...f, setupCommissionCap: e.target.value }))} />
+                </div>
+              </div>
+            )}
             {onboarding?.commissionDueBusinessDays != null && (
               <span style={{ fontSize: "0.66rem", color: "var(--text-muted)" }}>Liberação da comissão: D+{onboarding.commissionDueBusinessDays} úteis</span>
             )}

@@ -97,20 +97,6 @@ export function sanitizeUser(user: any, masterContext?: any) {
           whatsappConnectionMode: user.company.whatsappConnectionMode ?? null,
           whatsappTemporaryStatus: user.company.whatsappTemporaryStatus ?? null,
           whatsappMigrationInterestAt: user.company.whatsappMigrationInterestAt ?? null,
-          plan: billingAudience && user.company.plan
-            ? {
-                id: user.company.plan.id,
-                name: user.company.plan.name,
-                price: user.company.plan.price,
-                features: Array.isArray(user.company.plan.features)
-                  ? user.company.plan.features.map((feature: any) => ({
-                      id: feature.id,
-                      key: feature.key,
-                      description: feature.description ?? null,
-                    }))
-                  : [],
-              }
-            : null,
         }
       : null,
     masterContext: masterContext || {

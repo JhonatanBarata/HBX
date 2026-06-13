@@ -35,7 +35,6 @@ async function main() {
 
   try {
     const companySeed = structuralDefaults.developmentSeed.company;
-    const plan = await prisma.plan.findFirst({ where: { name: companySeed.planName } });
     const now = new Date();
     const trialEndsAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
@@ -46,7 +45,6 @@ async function main() {
         isActive: true,
         paymentStatus: 'TRIAL',
         subscriptionStatus: 'trialing',
-        planId: plan ? plan.id : null,
         trialStartsAt: now,
         trialEndsAt,
         deactivatedAt: null,
@@ -57,7 +55,6 @@ async function main() {
         isActive: true,
         paymentStatus: 'TRIAL',
         subscriptionStatus: 'trialing',
-        planId: plan ? plan.id : null,
         trialStartsAt: now,
         trialEndsAt,
       },

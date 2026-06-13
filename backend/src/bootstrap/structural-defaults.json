@@ -91,91 +91,10 @@
     "cadastros",
     "hbx_recovery"
   ],
-  "featureDefinitions": [
-    {
-      "key": "product_create",
-      "description": "Criacao de produtos e catalogo base."
-    },
-    {
-      "key": "advanced_reports",
-      "description": "Relatórios avançados e análises operacionais."
-    },
-    {
-      "key": "product_edit",
-      "description": "Edição e manutenção de produtos existentes."
-    },
-    {
-      "key": "priority_support",
-      "description": "Atendimento prioritário para contas premium."
-    },
-    {
-      "key": "company_update",
-      "description": "Atualizacao de dados e configuracoes da empresa."
-    },
-    {
-      "key": "beta_features",
-      "description": "Acesso a funcionalidades beta controladas."
-    },
-    {
-      "key": "company_delete",
-      "description": "Permissao administrativa de exclusao de empresa."
-    }
-  ],
-  "plans": [
-    {
-      "name": "prata",
-      "price": 0,
-      "features": [
-        "product_create"
-      ]
-    },
-    {
-      "name": "ouro",
-      "price": 29.9,
-      "features": [
-        "product_create",
-        "advanced_reports",
-        "product_edit"
-      ]
-    },
-    {
-      "name": "diamante",
-      "price": 69.9,
-      "features": [
-        "product_create",
-        "advanced_reports",
-        "priority_support",
-        "company_update"
-      ]
-    },
-    {
-      "name": "diamante_plus",
-      "price": 199.9,
-      "features": [
-        "product_create",
-        "advanced_reports",
-        "priority_support",
-        "beta_features",
-        "company_update",
-        "company_delete"
-      ]
-    },
-    {
-      "name": "admin",
-      "price": 0,
-      "features": [
-        "product_edit",
-        "product_create",
-        "company_update",
-        "company_delete"
-      ]
-    }
-  ],
   "developmentSeed": {
     "company": {
       "name": "HBX Dev Sandbox",
-      "slug": "dev-sandbox",
-      "planName": "diamante_plus"
+      "slug": "dev-sandbox"
     },
     "users": [
       {

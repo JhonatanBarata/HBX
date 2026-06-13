@@ -494,9 +494,9 @@ export class ModulesController {
   setMasterPlanModules(
     @Req() req: any,
     @Param('planKey') planKey: string,
-    @Body() dto: { modules?: Record<string, unknown> },
+    @Body() dto: { modules?: Record<string, unknown>; planInfo?: Record<string, unknown> },
   ) {
-    return this.modulesService.setPlanModulesForMaster(Number(req.user?.id), planKey, dto?.modules || {});
+    return this.modulesService.setPlanModulesForMaster(Number(req.user?.id), planKey, dto || {});
   }
 
   @Get('master/global-integrations')

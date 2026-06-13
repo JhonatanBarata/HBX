@@ -49,16 +49,6 @@ function rand(prefix) {
   return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
-async function ensureCompanyHasAdminPlan(prisma, companyId) {
-  // Ensure plans+features exist
-  const anyPlan = await prisma.plan.findFirst();
-  assert(anyPlan, 'No plans found in DB (seed failed)');
-
-  const plan = await prisma.plan.findFirst({ where: { name: 'admin' } }) || anyPlan;
-  await prisma.company.update({ where: { id: companyId }, data: { planId: plan.id } });
-  return plan;
-}
-
 async function main() {
   const prisma = new PrismaClient();
 
@@ -82,12 +72,6 @@ async function main() {
     assert(typeof c1.json?.id === 'number', 'company #1 missing id');
     const company1Id = c1.json.id;
     console.log('   company1Id:', company1Id, 'slug:', slug1);
-
-    console.log('   Seed plans/features (required for product_create/product_edit guards)...');
-    const seed = await http('POST', '/plans/seed', {}, { Authorization: `Bearer ${token1}` });
-    assert(seed.status === 201 || seed.status === 200, `plans seed failed: HTTP ${seed.status}`);
-
-    await ensureCompanyHasAdminPlan(prisma, company1Id);
 
     // 2) Logout: discard token
     console.log('2) Logout (discard token in client)...');

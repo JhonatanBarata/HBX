@@ -523,7 +523,6 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
   private resolveChargeReferenceLabel(company: any, pricing: any) {
     return (
       this.normalizeOptionalString(pricing?.commercialPlan?.referenceLabel) ||
-      this.normalizeOptionalString(company?.plan?.name) ||
       'HBX Financeiro'
     );
   }
@@ -641,10 +640,6 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
         });
       }
     }
-  }
-
-  private resolveLegacyCompanyMonthlyValue(company: any) {
-    return this.normalizeCurrencyAmount(company?.plan?.price || 0);
   }
 
   private resolveExtraSeatMonthlyAmount(pricingPolicy: any) {
@@ -882,7 +877,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
 
   private async buildPricing(company: any, pricingPolicy: any, ledgerRows: BillingLedgerEntryRow[]) {
     const commercialPlan = this.resolveCommercialMonthlyValue(company);
-    const monthlyValue = commercialPlan?.monthlyValue ?? this.resolveLegacyCompanyMonthlyValue(company);
+    const monthlyValue = commercialPlan?.monthlyValue ?? 0;
     const billingCycle = this.normalizeBillingCycle(company?.billingCycle);
     const annualPlanDiscountPercent = commercialPlan
       ? COMMERCIAL_PRICING.annualDiscountPercent
@@ -1020,13 +1015,6 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       this.prisma.company.findUnique({
         where: { id: companyId },
         include: {
-          plan: {
-            select: {
-              id: true,
-              name: true,
-              price: true,
-            },
-          },
           companyModules: {
             include: { systemModule: true },
             orderBy: { systemModule: { name: 'asc' } },
@@ -2107,13 +2095,6 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       this.prisma.company.findUnique({
       where: { id: companyId },
       include: {
-        plan: {
-          select: {
-            id: true,
-            name: true,
-            price: true,
-          },
-        },
         companyModules: {
           include: { systemModule: true },
         },
@@ -2513,13 +2494,6 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     const context = this.resolveUserContext(user);
     await ensureMasterBillingRuntimeSchema(this.prisma);
     const companyOverviewInclude = {
-      plan: {
-        select: {
-          id: true,
-          name: true,
-          price: true,
-        },
-      },
       companyModules: {
         include: { systemModule: true },
         orderBy: { systemModule: { name: 'asc' } },
@@ -2667,13 +2641,6 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
         primaryContactName: canManageBilling ? this.normalizeOptionalString(company.primaryContactName) : null,
         contactPhone: canManageBilling ? this.normalizeOptionalString(company.contactPhone) : null,
         taxDocument: canManageBilling ? this.normalizeOptionalString(company.taxDocument) : null,
-        plan: canManageBilling && company.plan
-          ? {
-              id: company.plan.id,
-              name: company.plan.name,
-              price: this.normalizeCurrencyAmount(company.plan.price || 0),
-            }
-          : null,
       },
       modules: activeModules,
       pricing: visiblePricing,
@@ -2805,13 +2772,6 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     const company = await this.prisma.company.findUnique({
       where: { id: context.companyId },
       include: {
-        plan: {
-          select: {
-            id: true,
-            name: true,
-            price: true,
-          },
-        },
         companyModules: {
           include: { systemModule: true },
         },

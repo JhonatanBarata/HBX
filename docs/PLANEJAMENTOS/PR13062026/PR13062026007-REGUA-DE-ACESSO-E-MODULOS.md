@@ -1,5 +1,21 @@
 # PR13062026007 — Régua única de acesso + módulos (Radar/Leads/Vendas) + bot
 
+## ✅ CONCLUÍDO NA SESSÃO 13/06 (acabamento do FALTA)
+- **Item 2 (triagem do bot) — NO AR.** Live-status do `/vendas/automation` agora expõe
+  `triagem` (checklist mensagem/opt-out/limite/horário + `confirmed`/`pronto`), e o drawer da
+  Prospecção mostra o checklist + badge "Aguardando triagem" e gata o botão Iniciar. UMA fonte
+  (`computeTriagemChecklist`) serve o gate de armar e o front. Build + 36 testes + check-pele 576.
+- **Item 1 virou TETO DE COMISSÃO DO VENDEDOR (o dono descomplicou).** O plano grande de
+  parcela/setup/desconto/Mercado Pago foi DESCARTADO. Entregue: 2 tetos por vendedor
+  (`User.commissionMonthlyCap` + `setupCommissionCap`, runtime-ensure, admin-only) que o admin
+  digita no cadastro (novo-acesso + gerenciar-vendedor). Comissão por fechamento = `min(%×valor,
+  teto)`, **espelhando em TODO lugar** (card do vendedor, receivable, projeção do gerencial) via
+  helper único `applyCommissionCap`. O vendedor vê a comissão capada, NUNCA o valor do teto.
+  Build + 121 testes + check-pele 576 + colunas no ar (docker restart). Plano:
+  `~/.claude/plans/cozy-herding-rossum.md`.
+- **Itens 3 (assentos/quota editáveis) e 5 (limpeza de código morto) — ADIADOS pelo dono**
+  (opcionais; 5 é risco perto do gate de acesso, sem ganho funcional).
+
 ## 🟢 ESTADO ATUAL — HANDOFF (13/06, leia isto primeiro)
 
 **Tudo abaixo está NO AR e validado** (build backend + testes + lint check-pele 576/576 +
@@ -30,7 +46,13 @@ linha) ?? caixa do plano (viva)`. Plano = base editável; empresa segue o plano 
 **O que FALTA (tudo opcional/consciente — núcleo e segurança de segunda OK):**
 1. **Dinheiro:** fiar setup/parcela/desconto na cobrança REAL + comissão (passo deliberado).
 2. **Triagem do bot:** tela de checklist + status "aguardando triagem" no front (trava já protege).
-3. Assentos/quota **editáveis** por plano (hoje read-only do catálogo); reorg do Full numa aba própria.
+3. ✅ Assentos/quota **editáveis** por plano — FEITO (PR13062026008): parcela, trial, assentos
+   padrões, valor do assento extra e quotas (deep/enriquecimento/cards) editam e PERSISTEM em
+   `PlanModuleConfig.planInfoJson` (override do catálogo). GET/PUT `/modules/master/plan/:planKey/modules`
+   passaram a ler/gravar `planInfo`; `planos-editor.tsx` virou campos no canto direito.
+   ⚠ É a CAIXA editável — o ENFORCEMENT de quota/cobrança ainda lê o catálogo até a régua de
+   limites ser refeita (ordem do dono: "vou remover as regras de limitação anterior"). Pendente:
+   `docker restart backend` (coluna runtime-ensure `planInfoJson`) + reorg do Full numa aba própria.
 4. **C2 (entitlement)** ainda usa o catálogo hardcoded; **cadência/aquecimento** (PR13062026001) não construída.
 5. **Dívida limpeza:** consts `canUseAdminOnlyModule`/`defaultUserModuleAllowed`/`SELLER_*` +
    view master de políticas por-usuário (modules.service ~2407) ainda vivos (cosmético, não-gate).
@@ -87,8 +109,10 @@ linha) ?? caixa do plano (viva)`. Plano = base editável; empresa segue o plano 
 >   (`setCampaignStatusForUser` running) exige mensagem/opt-out/limite/horário + só ADMIN/master
 >   (vendedor não liga) + carimba triagem. Build + 36 testes automação + restart. FALTA polish:
 >   tela de triagem (checklist) + status "aguardando triagem" no front.
-> - **FALTA (acabamento opcional):** (a) assentos/quota EDITÁVEIS por plano (hoje mostro
->   read-only do catálogo — atende o "ver"); (b) fiar setup/parcela/desconto na cobrança +
+> - **FALTA (acabamento opcional):** (a) ✅ assentos/quota EDITÁVEIS por plano — FEITO
+>   (PR13062026008): editam e persistem em `PlanModuleConfig.planInfoJson` (override do catálogo);
+>   enforcement de quota/cobrança ainda no catálogo até a régua de limites ser refeita; falta só
+>   `docker restart backend` p/ subir a coluna; (b) fiar setup/parcela/desconto na cobrança +
 >   comissão de verdade (passo de DINHEIRO, deliberado, fora por enquanto); (c) reorg visual
 >   do Full numa aba "Implantação" própria (hoje o bloco vive na aba Comercial — já funciona).
 
@@ -96,6 +120,57 @@ linha) ?? caixa do plano (viva)`. Plano = base editável; empresa segue o plano 
 > a fundação agora é mais barato que em dado vivo com promessas feitas).
 > Memória do projeto: `regua-unica-acesso-junho-2026`. Backend já mexido vive na
 > fila `PR12062026/PLAN12062026001.md` (E13, E14, E16).
+
+## PR13062026008 — Valores do plano editáveis: ESTADO + PENDÊNCIAS (p/ implantar num chat só)
+
+> Ordem do dono 13/06: os assentos/quotas/parcela/trial viram CAIXA editável do plano;
+> "vou remover todas as regras de limitação anterior" — o NOVO modelo de limite é o
+> raciocínio que ele vai trazer junto com a implantação. Item 3 do "O que FALTA" deixa
+> de ser "adiado": a CAIXA editável está FEITA; falta o ENFORCEMENT + o post-it por empresa.
+
+### ✅ Feito (no ar após `docker restart backend`)
+- `PlanModuleConfig.planInfoJson` (coluna nullable; runtime-ensure em `ensurePlanModuleConfigTable`,
+  `prisma.service.ts`) = override editável dos VALORES do plano SOBRE o catálogo. `null` = catálogo.
+- `modules.service.ts`: `resolvePlanInfoBase(planKey)` (base do catálogo) + `mergePlanInfo(base, partial)`
+  (tolerante a vírgula; vazio/inválido cai na base; **assentos padrões ≤ 0 → zera o extra**).
+- `GET /modules/master/plan/:planKey/modules` devolve `planInfo` mesclado; `PUT` recebe
+  `{ modules, planInfo }` e grava `planInfoJson` (controller já passa o `dto` inteiro).
+- `planos-editor.tsx`: 7 campos no canto direito (parcela, trial, assentos padrões, valor do
+  assento extra [trava+zera se padrões=0], deep search, enriquecimento, cards) que salvam e recarregam.
+- **PENDENTE p/ ativar:** `docker restart backend` (sobe a coluna `planInfoJson`).
+
+### ⛔ Falta 1 — ENFORCEMENT (o nó): NADA lê o `planInfoJson` ainda
+Os números salvos NÃO mordem: quota/cobrança/trial seguem o catálogo hardcoded. "Valer" =
+trocar cada leitura do catálogo por **`planInfoJson (se houver) ?? catálogo`**. Anchors:
+- **Quotas (deep/enriquecimento/cards):** `commercial-plans/commercial-usage-limits.service.ts`
+  → `computeLimits()` (~604) lê `COMMERCIAL_PLAN_QUOTAS[planKey]` (cardsPerMonth ~606,
+  enrichmentsPerDay ~621). **JÁ existe um `override` por empresa aqui** (cards via
+  `commercialCardsMonthlyLimitOverride` ~159) — usar de molde p/ deep search/enriquecimento.
+  O Radar consome essa service + mixins `webscraping/radar/**` (01-search / 03-enrichment / 05-delivery).
+- **Parcela (preço):** `financeiro.service.ts` ~511/539 `getCommercialPlanMonthlyPrice(planKey)`.
+- **Trial:** `auth.service.ts` ~307 `getCommercialPlanTrialDays(planKey)`.
+- **Assento extra (custo) / assentos inclusos:** `users.service.ts` ~610
+  `getCommercialPlanExtraUserMonthlyPrice(planKey)` + `getCommercialPlanIncludedUsers` (aviso de convite).
+- ⚠ **Preço + assento extra = COBRANÇA real** (zona protegida): entram junto do passo "dinheiro"
+  (item 1 do FALTA), não antes. Quotas (não-cobrança) podem ir primeiro.
+- Sugestão de arquitetura (descomplicar): um leitor central `resolvePlanEntitlements(company)` =
+  `planInfoJson ?? catálogo`; TODOS os consumidores acima passam a ler dele (mata o catálogo
+  hardcoded por plano e converge com o C2/entitlement do item 4).
+
+### ⛔ Falta 2 — Post-it por empresa dos VALORES (editar MANUAL por empresa)
+Hoje o post-it por empresa só cobre MÓDULOS (`CompanyModule`). Estender p/ assentos/quotas/
+parcela/trial = exceção manual por empresa, **só no Full** (Central de Implantação; List/Lead =
+painel mínimo). Modelo: coluna `Company.planInfoOverrideJson` (reusa `mergePlanInfo`) OU reusar o
+`override` que `computeLimits` já aceita. Regra final de leitura:
+**`empresa (se houver) ?? plano (planInfoJson) ?? catálogo`**. Já há base financeira por empresa:
+`Company.monthlyValueOverride` / `Company.setupValue`.
+
+### Sequência recomendada (minha opinião; decisão é do dono)
+1. **Definir o novo modelo de LIMITE** (o que cada número significa daqui pra frente).
+2. **Fiar o ENFORCEMENT no `planInfoJson`** (Falta 1) — começar por QUOTAS (não-cobrança);
+   preço/assento extra ficam p/ o passo "dinheiro".
+3. **Só então o post-it por empresa** dos mesmos campos (Falta 2).
+Motivo: evita 2 telas mortas (salvar sem morder) e não encosta em cobrança antes da hora.
 
 ## Princípio: 2 árvores ortogonais + 1 lei + 5 muros
 

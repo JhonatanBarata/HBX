@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  applyCommissionCap,
   getCommercialPlanMonthlyPrice,
   normalizeCommercialPlanKey,
 } from '../commercial-plans/commercial-plan-catalog';
@@ -136,6 +137,20 @@ export class HbxCommissionSyncService {
       select: { commissionPercent: true },
     }).catch(() => null);
     return Math.min(100, Math.max(0, Number(owner?.commissionPercent || 0) || 0));
+  }
+
+  // Teto de comissão do vendedor (PR13062026007): lê do vendedor (ao vivo). 0 = sem teto.
+  private async resolveSellerCaps(lead: any): Promise<{ monthlyCap: number; setupCap: number }> {
+    const userId = Math.trunc(Number(lead?.assignedUserId || 0));
+    if (!userId) return { monthlyCap: 0, setupCap: 0 };
+    const owner = await this.prisma.user.findFirst({
+      where: { id: userId, companyId: Number(lead?.companyId || 0) },
+      select: { commissionMonthlyCap: true, setupCommissionCap: true },
+    }).catch(() => null);
+    return {
+      monthlyCap: Math.max(0, Number(owner?.commissionMonthlyCap || 0) || 0),
+      setupCap: Math.max(0, Number(owner?.setupCommissionCap || 0) || 0),
+    };
   }
 
   private async resolveReferralChain(companyId: number, sellerUserId?: number | null) {
@@ -335,8 +350,10 @@ export class HbxCommissionSyncService {
 
   private async updateLeadFromCompany(lead: any, company: any, state: HbxClientState, options: SyncOptions) {
     const percent = await this.resolveCommissionPercent(lead);
+    const caps = await this.resolveSellerCaps(lead);
     const baseAmount = this.resolvePlanAmount(company);
-    const commissionAmount = this.money((baseAmount * percent) / 100);
+    // Teto por fechamento: a comissão mensal nunca passa do teto do vendedor.
+    const commissionAmount = applyCommissionCap(this.money((baseAmount * percent) / 100), caps.monthlyCap);
     const dueBusinessDays = await this.resolveCommissionDueBusinessDays(Number(lead?.companyId || 0));
     const now = new Date();
     const currentCommissionStatus = String(lead?.commissionStatus || 'none').trim().toLowerCase();
@@ -358,7 +375,7 @@ export class HbxCommissionSyncService {
     // que a vendedora gravou no card, confirmada junto com a venda. Não recorre.
     const setupValue = this.money(lead?.setupValue);
     const setupCommissionAmount = (nextCommissionStatus === 'payable' || nextCommissionStatus === 'paid')
-      ? this.money((setupValue * percent) / 100)
+      ? applyCommissionCap(this.money((setupValue * percent) / 100), caps.setupCap)
       : 0;
     const setupCommissionStatus = setupValue > 0 ? nextCommissionStatus : 'none';
 
@@ -685,6 +702,21 @@ export class HbxCommissionSyncService {
       },
     });
 
+    // Teto de comissão (PR13062026007): pega o teto mensal de cada vendedor numa
+    // tacada só (evita 1 query por lead no loop) pra capar a recorrência.
+    const sellerIds = Array.from(
+      new Set(leads.map((lead) => Math.trunc(Number(lead.assignedUserId || 0))).filter(Boolean)),
+    );
+    const capRows = sellerIds.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: sellerIds }, companyId },
+          select: { id: true, commissionMonthlyCap: true },
+        }).catch(() => [])
+      : [];
+    const monthlyCapByUser = new Map<number, number>(
+      capRows.map((row) => [Number(row.id), Math.max(0, Number(row.commissionMonthlyCap || 0) || 0)]),
+    );
+
     let createdReceivables = 0;
     let skippedReceivables = 0;
     let createdInheritedReceivables = 0;
@@ -706,7 +738,10 @@ export class HbxCommissionSyncService {
       }
       const baseAmount = this.money(lead.commissionBaseAmount || lead.saleValue);
       const percent = Math.min(100, Math.max(0, Number(lead.commissionPercentSnapshot || 0) || 0));
-      const amount = this.money((baseAmount * percent) / 100);
+      const amount = applyCommissionCap(
+        this.money((baseAmount * percent) / 100),
+        monthlyCapByUser.get(Math.trunc(Number(lead.assignedUserId || 0))) || 0,
+      );
       if (amount <= 0) {
         skippedReceivables += 1;
         continue;

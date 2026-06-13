@@ -38,3 +38,24 @@ test('buildSellerPartnerContract inclui clausulas de gestor, herança e indicado
   assert.match(contract, /Comissão herdada configurada: 2%/);
   assert.match(contract, /indicação de João Indicador/);
 });
+
+test('buildSellerPartnerContract inclui clausula de teto de comissao quando houver teto', () => {
+  const comTeto = buildSellerPartnerContract({
+    sellerName: 'Ana Vendedora',
+    commissionPercent: 20,
+    commissionMonthlyCap: 100,
+    setupCommissionCap: 50,
+  });
+  assert.match(comTeto, /teto de comissão por cliente/i);
+  assert.match(comTeto, /R\$\s*100,00/);
+  assert.match(comTeto, /implantação por cliente é limitada a R\$\s*50,00/);
+
+  // Sem teto (0) → cláusula NÃO aparece (não deixa linha órfã no contrato).
+  const semTeto = buildSellerPartnerContract({
+    sellerName: 'Ana Vendedora',
+    commissionPercent: 20,
+    commissionMonthlyCap: 0,
+    setupCommissionCap: 0,
+  });
+  assert.doesNotMatch(semTeto, /teto de comissão/i);
+});

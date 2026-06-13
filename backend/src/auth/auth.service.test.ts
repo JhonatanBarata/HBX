@@ -269,7 +269,6 @@ test('sanitizeUser: vendedor recebe payload de empresa sem campos de cobranca', 
     billingGraceEndsAt: null,
     billingGraceReason: null,
     subscriptionCurrentPeriodEnd: null,
-    plan: { id: 1, name: 'Plano X', price: 199, features: [] },
   };
 
   const seller = sanitizeUser({ id: 11, username: 'vendedor', role: 'USER', isSystemMaster: false, company });
@@ -280,12 +279,10 @@ test('sanitizeUser: vendedor recebe payload de empresa sem campos de cobranca', 
   assert.equal(seller?.company?.trialEndsAt, null);
   assert.equal(seller?.company?.trialRemainingDays, null);
   assert.equal(seller?.company?.billingGraceReason, null);
-  assert.equal(seller?.company?.plan, null);
 
   const admin = sanitizeUser({ id: 10, username: 'dono', role: 'ADMIN', isSystemMaster: false, company });
   assert.equal(admin?.company?.accessState, 'trial');
   assert.equal(admin?.company?.accessStateLabel, 'Trial ativo');
-  assert.equal(admin?.company?.plan?.price, 199);
 });
 
 // Maquina de cadastro nativa (PR-002 C.1): a confirmacao de e-mail inicia o

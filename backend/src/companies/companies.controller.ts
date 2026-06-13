@@ -5,8 +5,6 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Admin } from '../auth/admin.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import { UsersService } from '../users/users.service';
-import { FeatureGuard } from '../plans/feature.guard';
-import { Feature } from '../plans/feature.decorator';
 import { WhatsAppStatusService } from '../messaging/whatsapp-status.service';
 import { MasterGuard } from '../auth/guards/master.guard';
 import { IsArray, IsBoolean, IsNotEmpty, IsOptional, IsString, ValidateNested } from 'class-validator';
@@ -934,16 +932,14 @@ export class CompaniesController {
   }
 
   @Patch(':id')
-  @UseGuards(JwtAuthGuard, FeatureGuard, RolesGuard)
-  @Feature('company_update')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Admin()
   update(@Req() req: any, @Param('id', ParseIntPipe) id: number, @Body() dto: UpdateCompanyDto) {
     return this.companiesService.updateForCompany(req.user?.companyId, id, dto);
   }
 
   @Delete(':id')
-  @UseGuards(JwtAuthGuard, FeatureGuard, RolesGuard)
-  @Feature('company_delete')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Admin()
   remove(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
     return this.companiesService.removeForCompany(req.user?.companyId, id);
