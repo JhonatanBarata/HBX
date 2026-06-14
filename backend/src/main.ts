@@ -105,18 +105,6 @@ async function bootstrap() {
     next();
   });
   const webscrapingTarget = resolveWebscrapingTarget();
-  const webscrapingGuard = (req: Request, res: Response, next: () => void) => {
-    if (!webscrapingTarget.configError) {
-      next();
-      return;
-    }
-
-    res.status(503).json({
-      code: webscrapingTarget.configError.code,
-      message: webscrapingTarget.configError.message,
-      status: 'offline',
-    });
-  };
   const webscrapingProxy = createProxyMiddleware({
     target: webscrapingTarget.target,
     changeOrigin: true,
