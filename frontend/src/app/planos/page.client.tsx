@@ -81,7 +81,7 @@ export function PlanosClient() {
                   "Fila simples para abordagem",
                 ]).map(f => <li key={f}>{f}</li>)}
               </ul>
-              <Link href="/register" className="cta cta-success" style={{ textDecoration: "none", textAlign: "center" }}>Começar agora</Link>
+              <Link href="/register" className="cta cta-success" style={{ textDecoration: "none", textAlign: "center" }}>Criar conta</Link>
             </article>
 
             <article className="plan featured">

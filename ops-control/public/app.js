@@ -700,7 +700,9 @@ function summarizeOpsActionResult(actionLabel, result) {
   const filterNotice = result.filterForwarded === true
     ? ' Filtro encaminhado ao backend com hard filter ativo.'
     : result.filterForwarded === false
-      ? ' Filtro nao encaminhado; verifique backend/DTO.'
+      ? (result.requestedFilter
+          ? ' Filtro solicitado, mas nao encaminhado; verifique backend/DTO.'
+          : ' Busca ampla: nenhum filtro de canal selecionado (comportamento normal).')
       : '';
   const coordinationNotice = result.coordination?.actions?.length
     ? ` Coordenacao: ${result.coordination.message || 'missao ajustada antes de iniciar ambos.'}`

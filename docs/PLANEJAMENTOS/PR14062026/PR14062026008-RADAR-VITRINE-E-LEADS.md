@@ -115,13 +115,37 @@ registrada em `RUNTIME_SCHEMA_ENSURES` → crash no `onModuleInit`. FIX: registr
 (`ensureTutorialOnboardingColumn` já existia). Backend sobe healthy. **Prova de que deploy do
 tree atual às cegas derrubaria a VPS.**
 
-### B2 — VendasLead não tem coluna de score
-`VendasLead` não persiste `opportunityScore` (o import passa, é descartado). Pra "score no card":
-coluna `VendasLead.opportunityScore` (runtime-ensure) + mapear no import + serializar no
-`GET /vendas/board`. **Schema → deploy-gated** (entra no `PLAN14062026001` → restart VPS com "go").
+### B1-front — botão "Puxar leads" = FEITO + verificado no browser ✅
+Componente isolado `components/hbx/puxar-leads-panel.tsx` na tela `/leads` só pro cargo
+vendedor (segmento + cidade/UF + **alcance** + quantidade → `POST radar/pull-to-vendas`).
+**Verificado no preview:** login vendedor → clique → POST certo → "5 leads puxados pra carteira".
 
-### 🟡 Dado: lagoa com segmento mal rotulado
-Pull de `oficina` trouxe nomes não-oficina → lixo de rótulo na `RadarLeadPool`, tratar no motor.
+### B2 — score no card do Vendas = FEITO + verificado ✅
+Coluna `VendasLead.opportunityScore Int?` (schema + runtime-ensure
+`ensureVendasLeadOpportunityScoreColumn`) + persistido no `createOrUpdateLead` + mapeado no
+import + servido no `buildLeadPayload`/`/vendas/board`. **Teste:** board mostra `score=100`.
+**Schema → deploy-gated** (coluna nasce no boot via ensure).
+
+### B4 — reveal-on-pull (lado vendedor) = JÁ ENFORÇADO ✅
+`listRadarLeadsForUser` filtra por `assignedUserId` (`buildRadarWhere`): vendedor só vê na
+lista o que puxou; a lagoa crua é invisível pra ele (verificado: radar/leads do vendedor = 0).
+A vitrine mascarada (B3) é a outra metade.
+
+### B5 — alcance no pull = FEITO + verificado ✅
+`normalizeRadarFilters`→`resolveRegionalCities`→`buildRadarWhere` já expande pras vizinhas com
+`radiusKm`+cidade. Faltava só o controle na UI (no `puxar-leads-panel`, 0/25/50/100 km).
+**Verificado:** UI envia `{"...","city":"Rio Claro","radiusKm":50}`.
+
+### B3 — Radar vira vitrine read-only = FEITO (outro agente) ✅ (cosmético pós-segunda)
+`webscraping/page.client.tsx` cargo-gated (`isSeller`): vendedor sem busca/coleta, sem
+Telefone/E-mail, sem ações CRM. Funcional/anti-exfiltração OK. O "encher o olho" animado
+(sonar/contadores) fica pra quando entrarem as peles (esqueleto + 5 Leis).
+
+### B2 — coluna de score: ⚠️ RESOLVIDO (ver acima). Texto antigo abaixo era o achado.
+
+### 🟡 Dado: lagoa com segmento mal rotulado (PENDENTE — motor)
+Pull de `oficina`/`beleza` trouxe nomes não-condizentes → lixo de rótulo na `RadarLeadPool`.
+Não é bug do pull; tratar no motor/enriquecimento. ÚNICO item aberto do pipeline.
 
 ---
 

@@ -164,7 +164,7 @@ export function RegisterClient() {
       ) : (
         <form className="card" onSubmit={onSubmit}>
           <h2>Teste grátis por 14 dias</h2>
-          <p className="sub">Crie sua conta e veja a esteira encontrar seus primeiros leads ainda hoje. Sem cartão de crédito.</p>
+          <p className="sub">Você vai testar o <strong>HBX Lead Plus</strong> por 14 dias, sem cartão de crédito. Crie sua conta e veja a esteira encontrar seus primeiros leads ainda hoje.</p>
           <div className="f">
             <label htmlFor="emp">Empresa</label>
             <input id="emp" className="field-dark" placeholder="Nome da sua empresa" required maxLength={120}

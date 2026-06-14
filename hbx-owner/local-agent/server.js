@@ -986,6 +986,23 @@ async function huntEmails(body) {
   return { ok: true, searchOk: true, foundNow: found, total: bank.total, items: bank.items };
 }
 
+// Opções selecionáveis (segmento/estado/cidade) que JÁ existem no backend: vêm do
+// meta.availableFilters da listagem do Radar. Sem endpoint dedicado → lê a listagem.
+async function radarFilters() {
+  const empty = { ok: false, segments: [], states: [], citiesByState: {} };
+  if (!backendToken) return { ...empty, reason: "backend_token_ausente" };
+  await backendRequest("POST", "/master-context/assume", { companyId: ownerCompanyId }).catch(() => null);
+  const response = await backendRequest("GET", "/webscraping/radar/leads");
+  const filters = response.ok && response.data && response.data.meta && response.data.meta.availableFilters;
+  if (!filters) return { ...empty, reason: response.error || `http_${response.statusCode || "?"}` };
+  return {
+    ok: true,
+    segments: Array.isArray(filters.segments) ? filters.segments : [],
+    states: Array.isArray(filters.states) ? filters.states : [],
+    citiesByState: (filters.citiesByState && typeof filters.citiesByState === "object") ? filters.citiesByState : {},
+  };
+}
+
 function sendStatic(res, pathname) {
   const requested = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
   const filePath = path.join(webDir, requested);
@@ -1134,6 +1151,30 @@ async function route(req, res) {
     return;
   }
 
+  // Ligar/parar a FROTA LOCAL de motores (hbx-engine-*) pelo painel — o que o dono fazia no
+  // CLI com `npm run engines:up/down`. Roda o script async; CPU/RAM e o feed mostram subindo.
+  if (req.method === "POST" && (url.pathname === "/owner/engines/local/start" || url.pathname === "/owner/engines/local/stop")) {
+    const starting = url.pathname.endsWith("/start");
+    const script = starting ? "scripts/start-hbx-engines.ps1" : "scripts/stop-hbx-engines.ps1";
+    const label = starting ? "Ligar motores locais" : "Parar motores locais";
+    try {
+      const run = runCommandArray(
+        starting ? "engines-local-start" : "engines-local-stop",
+        label,
+        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script],
+      );
+      sendJson(res, 200, {
+        ok: true,
+        action: starting ? "start" : "stop",
+        runId: run.id,
+        message: starting ? "Subindo motores locais — acompanhe CPU/RAM e o feed." : "Parando motores locais…",
+      });
+    } catch (error) {
+      sendJson(res, 200, { ok: false, message: error.message || "Falha ao acionar os motores locais." });
+    }
+    return;
+  }
+
   // ----- VPS (via Ops Control). Leitura assíncrona + controles que já existiam. -----
   if (req.method === "GET" && url.pathname === "/owner/vps/system") {
     sendJson(res, 200, await readVpsSystem());
@@ -1195,6 +1236,64 @@ async function route(req, res) {
       return;
     }
     sendJson(res, response.ok ? 200 : 502, { ok: response.ok, ops: response.data, reason: response.reason });
+    return;
+  }
+
+  // ----- Exportar local -> VPS (proxia o Email Lab do Ops Control). 3 passos: caçar lote no
+  // Local Lab -> acompanhar -> importar na VPS (dedup). Escreve na VPS = produção; degrada se
+  // OPS/VPS não configurados (o dono nunca dispara prod às cegas: é clique + creds no .env).
+  if (req.method === "POST" && url.pathname === "/owner/export") {
+    const body = await readBody(req);
+    const payload = {
+      scope: "both",
+      segment: safeText(body.segment, 80),
+      city: safeText(body.city, 80),
+      state: safeText(body.state, 2),
+      targetEmails: clampInt(body.targetEmails, 30, 1, 200),
+    };
+    const response = await opsRequest("POST", "/api/email-lab/local/jobs", payload);
+    if (!response.configured) {
+      sendJson(res, 200, { ok: false, reason: "ops_token_ausente", message: "Configure HBX_OWNER_OPS_TOKEN (ponte Ops Control)." });
+      return;
+    }
+    const data = response.data || {};
+    const job = data.job || data;
+    sendJson(res, response.ok ? 200 : 502, {
+      ok: response.ok,
+      jobId: (job && (job.id || job.jobId)) || null,
+      message: response.ok ? "Caçando lote no Local Lab — importa pra VPS quando o export ficar pronto." : null,
+      reason: response.reason || data.error,
+      ops: data,
+    });
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname.startsWith("/owner/export/status/")) {
+    const id = decodeURIComponent(url.pathname.slice("/owner/export/status/".length));
+    const response = await opsRequest("GET", `/api/email-lab/local/jobs/${encodeURIComponent(id)}`);
+    if (!response.configured) { sendJson(res, 200, { ok: false, reason: "ops_token_ausente" }); return; }
+    const data = response.data || {};
+    sendJson(res, response.ok ? 200 : 502, { ok: response.ok, job: data.job || data, reason: response.reason || data.error });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/owner/export/import") {
+    const body = await readBody(req);
+    const jobId = safeText(body.jobId, 120);
+    if (!jobId) { sendError(res, 400, "jobId obrigatorio para importar na VPS."); return; }
+    const response = await opsRequest("POST", "/api/email-lab/vps/import", { jobId });
+    if (!response.configured) {
+      sendJson(res, 200, { ok: false, reason: "ops_token_ausente", message: "Configure HBX_OWNER_OPS_TOKEN." });
+      return;
+    }
+    const data = response.data || {};
+    sendJson(res, response.ok ? 200 : 502, { ok: response.ok, result: data, reason: response.reason || data.error });
+    return;
+  }
+
+  // Opções selecionáveis (segmento/estado/cidade) do backend, pros datalists do painel.
+  if (req.method === "GET" && url.pathname === "/owner/radar-filters") {
+    sendJson(res, 200, await radarFilters());
     return;
   }
 

@@ -32,6 +32,7 @@ import {
   resolveExtraSeatMonthlyAmount,
 } from './seat-billing.util';
 import { resolveCompanyAccessState } from '../modules/company-access-state';
+import { MasterAlertService } from '../master-alert/master-alert.service';
 
 type CommercialCurrentState = {
   planKey: ActiveCommercialPlanKey | null;
@@ -78,6 +79,7 @@ export class CommercialPlansService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly masterContextService: MasterContextService,
+    private readonly masterAlert: MasterAlertService,
   ) {}
 
   private async resolveUserContext(user: any) {
@@ -897,6 +899,45 @@ export class CommercialPlansService {
       ok: true,
       selectedPlanKey: normalizedPlanKey,
       ...(await this.buildPayload(updatedCompany, user)),
+    };
+  }
+
+  // HBX Full = implantação assistida, SEM self-checkout (ordem do dono 14/06): o
+  // cliente PEDE e um especialista (o dono) entra em contato. NÃO muda o plano nem
+  // libera entitlement aqui (isso seria feature paga sem pagamento — PAGAMENTOS.md);
+  // só registra o pedido e dispara o alerta do master. O alerta é best-effort:
+  // falha de canal nunca derruba o pedido.
+  async requestFullPlan(user: any) {
+    const context = await this.resolveUserContext(user);
+    if (!context.canSelectPlan) {
+      throw new ForbiddenException({
+        code: 'USER_PLAN_UPGRADE_NOT_ALLOWED',
+        message: 'Fale com o ADMIN da empresa para contratar o HBX Full.',
+      });
+    }
+    const company = await this.prisma.company.findUnique({
+      where: { id: context.companyId },
+      select: { id: true, name: true, primaryContactName: true, contactPhone: true },
+    });
+    if (!company) throw new BadRequestException('Empresa nao encontrada.');
+
+    await this.masterAlert
+      .notifyFullPlanRequested({
+        companyId: company.id,
+        companyName: company.name,
+        contactName: company.primaryContactName,
+        contactPhone: company.contactPhone,
+        requestedByEmail: user?.email || null,
+      })
+      .catch(() => {
+        // best-effort: o alerta nunca derruba o registro do pedido
+      });
+
+    return {
+      ok: true,
+      requested: COMMERCIAL_PLAN_KEYS.MELHOR,
+      message:
+        'Recebemos seu pedido do HBX Full. Um especialista da HBX vai entrar em contato para a implantação assistida.',
     };
   }
 }

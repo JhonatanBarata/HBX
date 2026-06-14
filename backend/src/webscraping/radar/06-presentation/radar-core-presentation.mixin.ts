@@ -98,6 +98,7 @@ import {
   buildRadarStageSnapshot,
 } from '../radar-core-method-imports';
 import { resolveCompanyAccessState } from '../../../modules/company-access-state';
+import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../../../companies/master-whatsapp-company.constants';
 
 import type {
   AutonomousMassDataCandidate,
@@ -2357,6 +2358,40 @@ export class RadarCorePresentationMixin {
     return planKey !== COMMERCIAL_PLAN_KEYS.LITE;
   }
 
+  private async resolveRadarWhatsappEngineCompanyId(): Promise<number | null> {
+    try {
+      const engine = await this.prisma.company.findUnique({
+        where: { slug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG },
+        select: { id: true },
+      });
+      return engine?.id ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  // Verificacao de WhatsApp do Radar usa o MOTOR COMPARTILHADO do HBX (chip da
+  // plataforma) como verificador canonico — mesmo motor que o Vendas usa. Se o
+  // motor compartilhado nao estiver disponivel, cai (fallback) no WhatsApp da
+  // propria empresa, quando ela tem o seu conectado. A fonte do "confirmed"
+  // continua sendo o Webwhats (MOTOR.md), so muda QUAL chip faz o lookup.
+  private async radarCheckWhatsappNumbers(
+    tenantCompanyId: number,
+    numbers: Array<string | null | undefined>,
+  ) {
+    const engineId = await this.resolveRadarWhatsappEngineCompanyId();
+    if (engineId && engineId !== tenantCompanyId) {
+      try {
+        return await this.webwhatsBridge!.checkWhatsappNumbers(engineId, numbers);
+      } catch (error: any) {
+        this.logger.warn(
+          `[radar] motor WhatsApp compartilhado indisponivel, fallback p/ empresa=${tenantCompanyId}: ${String(error?.message || error)}`,
+        );
+      }
+    }
+    return await this.webwhatsBridge!.checkWhatsappNumbers(tenantCompanyId, numbers);
+  }
+
   private async applyRadarWhatsappCheck(
     context: SearchExecutionContext,
     items: any[],
@@ -2389,7 +2424,7 @@ export class RadarCorePresentationMixin {
     }
 
     try {
-      const lookupResults = await this.webwhatsBridge!.checkWhatsappNumbers(
+      const lookupResults = await this.radarCheckWhatsappNumbers(
         context.companyId,
         safeItems.map((item) => item?.phoneDigits || item?.phone || null),
       );
@@ -3196,7 +3231,7 @@ export class RadarCorePresentationMixin {
     const phoneDigits = normalizePhoneDigits(row.phoneDigits || row.phone);
     if (!protectedStatus && phoneDigits && !cacheValid && this.webwhatsBridge && (await this.canUseRadarWebwhatsCheck(context.companyId))) {
       try {
-        const [lookup] = await this.webwhatsBridge.checkWhatsappNumbers(context.companyId, [phoneDigits]);
+        const [lookup] = await this.radarCheckWhatsappNumbers(context.companyId, [phoneDigits]);
         if (lookup) {
           whatsappStatus = lookup.exists ? 'confirmed' : 'missing';
           await this.recordRadarLeadEvent({

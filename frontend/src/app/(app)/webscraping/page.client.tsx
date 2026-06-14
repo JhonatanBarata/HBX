@@ -392,19 +392,19 @@ export function WebscrapingClient() {
                   </datalist>
                 </div>
                 <div className="f">
+                  <label>UF</label>
+                  <select className="select-dark" value={uf} onChange={e => setUf(e.target.value)}>
+                    <option value="">Todos os estados</option>
+                    {ufOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+                <div className="f">
                   <label>Cidade</label>
                   <input className="field-dark" list="cidades" placeholder="Todas as cidades" style={{ minWidth: 150 }}
                     value={city} onChange={e => setCity(e.target.value)} />
                   <datalist id="cidades">
                     {cityOptions.map(o => <option key={o.value} value={o.value}>{`${o.label} (${o.count})`}</option>)}
                   </datalist>
-                </div>
-                <div className="f">
-                  <label>Estado</label>
-                  <select className="select-dark" value={uf} onChange={e => setUf(e.target.value)}>
-                    <option value="">Todos os estados</option>
-                    {ufOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                  </select>
                 </div>
                 <div className="f" style={{ flex: 1, minWidth: 180 }}>
                   <label>Buscar empresa ou domínio</label>

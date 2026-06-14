@@ -10,7 +10,7 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 
-import { Av, I, ICONS, KpiRow } from "@/components/hbx/shell";
+import { Av, I, ICONS, KpiRow, WhatsAppMark } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 import { useTabParam } from "@/lib/use-tab-param";
 
@@ -100,7 +100,7 @@ function fmtMoney(value: number | null | undefined) {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
 
-// Preço de tabela com centavos (Full = 149,90): fmtMoney corta os centavos,
+// Preço de tabela com centavos (Full = 349,90): fmtMoney corta os centavos,
 // então a vitrine de plano usa o formato cheio de moeda.
 function fmtPreco(value: number | null | undefined) {
   if (value == null || !Number.isFinite(value)) return null;
@@ -1059,7 +1059,7 @@ export function VendasClient() {
               <div style={{ fontSize: "0.72rem", fontWeight: 700, color: syncMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{syncMsg}</div>
             )}
             <button className="btn-teal" onClick={sincronizarHoje} disabled={syncBusy}>
-              <I d={ICONS.msg} size={14} /> {syncBusy ? "Sincronizando…" : "Sincronizar hoje no WhatsApp"}
+              <WhatsAppMark size={15} /> {syncBusy ? "Sincronizando…" : "Sincronizar hoje no WhatsApp"}
             </button>
             {([["Atrasados", board?.blocks?.overdue || []], ["Hoje", board?.blocks?.today || []], ["Agendados", board?.blocks?.scheduled || []]] as [string, VendasLead[]][]).map(([label, cards]) => (
               <div key={label} style={{ display: "grid", gap: 8 }}>

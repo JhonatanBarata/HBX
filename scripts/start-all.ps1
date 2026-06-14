@@ -550,6 +550,7 @@ function Assert-DockerReady() {
 $resolvedBuildMode = Resolve-BuildMode $BuildMode
 $shouldStartWebwhats = (-not $NoWebwhats.IsPresent) -and (-not (Test-EnvFalsey ([string]$env:HBX_UP_WEBWHATS)))
 $shouldStartStudio = (-not $NoStudio.IsPresent) -and (-not (Test-EnvFalsey ([string]$env:HBX_UP_STUDIO)))
+$shouldStartOwner = (-not (Test-EnvFalsey ([string]$env:HBX_UP_OWNER)))
 $backendSyncForced = $SyncBackendDeps.IsPresent -or (Test-EnvTruthy ([string]$env:HBX_UP_SYNC_BACKEND_DEPS))
 $backendSyncSuffix = if ($backendSyncForced) { ' (forcado)' } else { '' }
 $webwhatsSummary = if ($shouldStartWebwhats) { 'on' } else { 'off' }
@@ -749,14 +750,39 @@ if ($shouldStartStudio) {
 	Write-Host "5) Prisma Studio skipped by HBX_UP_STUDIO=false or -NoStudio."
 }
 
+$ownerPidToTrack = 0
+if ($shouldStartOwner) {
+	Write-Host "6) Starting HBX Owner cockpit on port 3107 ..."
+	try {
+		$ownerScript = Join-Path $scriptRoot "..\hbx-owner\local-agent\start-owner.ps1"
+		if (Test-Path -LiteralPath $ownerScript) {
+			& powershell -NoProfile -ExecutionPolicy Bypass -File $ownerScript -NoBrowser
+			$ownerPidToTrack = Wait-PortListener -port 3107 -retries 40 -delayMs 250
+			if ($ownerPidToTrack -gt 0) {
+				Write-Host "HBX Owner listening on http://127.0.0.1:3107 (pid=$ownerPidToTrack)"
+			} else {
+				Write-Host "HBX Owner did not open port 3107 in time. Continuing..."
+			}
+		} else {
+			Write-Host "Skipping HBX Owner: start-owner.ps1 not found."
+		}
+	} catch {
+		Write-Host "Skipping HBX Owner: $($_.Exception.Message)"
+	}
+} else {
+	Write-Host "6) HBX Owner skipped by HBX_UP_OWNER=false."
+}
+
 $tmpPidsFile = "${pidsFile}.tmp"
 @{
 	frontend = $frontendPidToTrack
 	studio   = $studioPidToTrack
 	webwhats = $webwhatsPidToTrack
+	owner    = $ownerPidToTrack
 } | ConvertTo-Json | Set-Content -Path $tmpPidsFile -Encoding UTF8
 Move-Item -Force $tmpPidsFile $pidsFile
 
 $studioStatus = if ($studioPidToTrack -gt 0) { 'Prisma Studio: http://localhost:5555' } else { 'Prisma Studio: skipped' }
 $webwhatsStatus = if ($webwhatsPidToTrack -gt 0) { 'Webwhats: http://localhost:8080' } else { 'Webwhats: skipped' }
-Write-Host "OK. All processes started in $(Format-Elapsed $startedAt). Backend: http://localhost:3000, $webwhatsStatus, Frontend: http://localhost:3001, $studioStatus"
+$ownerStatus = if ($ownerPidToTrack -gt 0) { 'HBX Owner: http://127.0.0.1:3107' } else { 'HBX Owner: skipped' }
+Write-Host "OK. All processes started in $(Format-Elapsed $startedAt). Backend: http://localhost:3000, $webwhatsStatus, Frontend: http://localhost:3001, $studioStatus, $ownerStatus"

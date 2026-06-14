@@ -26,7 +26,7 @@
 import { useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
-import { Av, I, ICONS, KpiRow } from "@/components/hbx/shell";
+import { Av, I, ICONS, KpiRow, WhatsAppMark } from "@/components/hbx/shell";
 import { WhatsAppConnectModal } from "@/components/hbx/whatsapp-connect-modal";
 import { apiFetch, getApiBase, getToken } from "@/lib/api";
 import { useTabIndex } from "@/lib/use-tab-param";
@@ -1061,7 +1061,7 @@ export function AtendimentoClient() {
                       </span>
                       {!loadError && waStatus !== "connected" && (
                         <button className="btn-teal" onClick={() => setWaModalOpen(true)}>
-                          <I d={ICONS.msg} size={13} /> Conectar WhatsApp
+                          <WhatsAppMark size={14} /> Conectar WhatsApp
                         </button>
                       )}
                     </div>

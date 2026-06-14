@@ -89,6 +89,17 @@ export const ICONS: Record<string, string[]> = {
   trash: ["M4 7h16", "M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2", "M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"],
 };
 
+// Logo do WhatsApp (PREENCHIDO, currentColor). O <I> é stroke = balão genérico
+// (parecia "invertido" pq não é o mark do WhatsApp); este é o de verdade, com o
+// fone e a pontinha no lado certo. Usar onde significa WhatsApp explicitamente.
+export function WhatsAppMark({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden focusable="false">
+      <path d="M19.05 4.94A9.8 9.8 0 0 0 12.06 2C6.59 2 2.13 6.46 2.13 11.93c0 1.75.46 3.46 1.32 4.97L2 22l5.27-1.38a9.9 9.9 0 0 0 4.79 1.22h.01c5.47 0 9.93-4.46 9.93-9.93a9.86 9.86 0 0 0-2.95-6.97ZM12.07 20.2h-.01a8.24 8.24 0 0 1-4.2-1.15l-.3-.18-3.13.82.84-3.05-.2-.31a8.2 8.2 0 0 1-1.26-4.4c0-4.53 3.69-8.22 8.24-8.22 2.2 0 4.27.85 5.82 2.4a8.17 8.17 0 0 1 2.4 5.82c0 4.54-3.69 8.23-8.2 8.23Zm4.5-6.15c-.25-.13-1.47-.72-1.7-.8-.23-.08-.4-.12-.57.12-.17.25-.65.8-.8.97-.15.17-.3.19-.56.06-.25-.13-1.06-.39-2.01-1.26-.74-.66-1.24-1.48-1.39-1.73-.15-.25-.02-.38.11-.5.11-.11.25-.3.38-.45.13-.15.17-.25.25-.42.08-.17.04-.31-.02-.44-.06-.13-.57-1.37-.78-1.88-.21-.5-.42-.43-.57-.44l-.49-.01c-.17 0-.44.06-.67.31-.23.25-.88.86-.88 2.1s.9 2.45 1.02 2.62c.13.17 1.77 2.7 4.3 3.79.6.26 1.08.42 1.44.54.61.19 1.16.16 1.6.1.49-.07 1.47-.6 1.68-1.18.21-.58.21-1.08.15-1.18-.06-.1-.23-.17-.48-.3Z" />
+    </svg>
+  );
+}
+
 export function Spark({ tone = "var(--hbx-brand-strong)", down = false }: { tone?: string; down?: boolean }) {
   const d = down ? "M2 7 L12 10 L22 8 L32 13 L42 12 L52 16 L62 15" : "M2 16 L12 12 L22 14 L32 8 L42 11 L52 5 L62 7";
   return (
@@ -217,7 +228,18 @@ export function currentCompanyName(user: CurrentUser | null): string {
 // ---------------------------------------------------------------
 export type Entitlements = Record<string, boolean>;
 
-type PlanMe = { current?: { planKey?: string | null; entitlements?: Entitlements } } | null;
+type PlanMe = {
+  current?: {
+    planKey?: string | null;
+    entitlements?: Entitlements;
+    // campos de cobrança: o backend já zera estes para vendedor (role USER)
+    isTrial?: boolean | null;
+    trialRemainingDays?: number | null;
+    trialEndsAt?: string | null;
+    accessStateLabel?: string | null;
+  };
+  plans?: Array<{ key: string; title?: string | null }>;
+} | null;
 
 let planMeCache: { at: number; data: PlanMe } | null = null;
 
@@ -243,6 +265,33 @@ export function useEntitlements() {
         loaded: true,
         planKey: res?.current?.planKey || null,
         entitlements: res?.current?.entitlements || {},
+      });
+    });
+    return () => { alive = false; };
+  }, []);
+  return state;
+}
+
+// Resumo do plano para o card da sidebar (GET /commercial-plans/me). Título vem
+// do catálogo da própria resposta (sem hardcode — PAGAMENTOS.md). Trial/estado o
+// backend já esconde de vendedor; mesmo assim o card só renderiza para não-vendedor.
+export type PlanSummary = { loaded: boolean; title: string | null; isTrial: boolean; trialDays: number | null; accessLabel: string | null };
+
+export function usePlanSummary(): PlanSummary {
+  const [state, setState] = useState<PlanSummary>({ loaded: false, title: null, isTrial: false, trialDays: null, accessLabel: null });
+  useEffect(() => {
+    let alive = true;
+    if (!getToken()) return;
+    fetchPlanMeCached().then(res => {
+      if (!alive) return;
+      const cur = res?.current || {};
+      const title = (res?.plans || []).find(p => p.key === cur.planKey)?.title || null;
+      setState({
+        loaded: true,
+        title,
+        isTrial: Boolean(cur.isTrial),
+        trialDays: cur.trialRemainingDays ?? null,
+        accessLabel: cur.accessStateLabel || null,
       });
     });
     return () => { alive = false; };
@@ -351,10 +400,25 @@ export function isModuleVisible(
   return true;
 }
 
+// Leva para Configurações → Plano e cobrança (mesmo padrão de "dica" dos avisos do
+// topo: a tela lê hbx:config-sec no mount e abre a seção certa).
+function abrirPlanoECobranca(router: ReturnType<typeof useRouter>) {
+  try { sessionStorage.setItem("hbx:config-sec", "Plano e cobrança"); } catch { /* sem storage */ }
+  router.push("/configuracoes");
+}
+
 export function Sidebar({ active }: { active: string }) {
   const user = useCurrentUser();
   const ent = useEntitlements();
   const mods = useMyModules();
+  const router = useRouter();
+  const plan = usePlanSummary();
+  // Vendedor (role USER) NUNCA vê plano/cobrança (PAGAMENTOS.md). O backend já
+  // zera os campos, mas aqui escondemos o card inteiro para não sobrar moldura vazia.
+  const isSeller = user?.userKind === "seller";
+  const planSub = plan.isTrial
+    ? `Teste · ${plan.trialDays != null ? `${plan.trialDays} dia(s)` : "ativo"}`
+    : (plan.accessLabel || "");
 
   return (
     <aside className="side">
@@ -365,7 +429,7 @@ export function Sidebar({ active }: { active: string }) {
       {NAV_LINKS.filter(n => isModuleVisible(n.id, ent, user, mods)).map(n => {
         const cls = "nav-item" + (n.id === active ? " active" : "");
         return (
-          <Link key={n.id} className={cls} href={n.href}>
+          <Link key={n.id} className={cls} href={n.href} data-tut={"nav-" + n.id}>
             <I d={ICONS[n.id]} />
             {n.label}
             {n.chevron && <svg className="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m6 9 6 6-6 6" /></svg>}
@@ -373,10 +437,15 @@ export function Sidebar({ active }: { active: string }) {
         );
       })}
       <div className="side-bottom">
-        <div className="plan-card">
-          <div><strong>Plano Empresarial</strong><br /><small>Válido até 30/06/2026</small></div>
-          <button>Gerenciar plano</button>
-        </div>
+        {!isSeller && (
+          <div className="plan-card">
+            <div>
+              <strong>{plan.title || "Seu plano"}</strong>
+              {planSub && <><br /><small>{planSub}</small></>}
+            </div>
+            <button onClick={() => abrirPlanoECobranca(router)}>Gerenciar plano</button>
+          </div>
+        )}
         {/* Identidade da EMPRESA (ordem do dono 14/06): o usuário/vendedor é o
             avatar do topo-direito; aqui embaixo fica a empresa, e o card é
             informativo — SEM clique. O "Sair" mora só no menu da conta, no topo. */}
@@ -416,7 +485,7 @@ export function PeleSwitch() {
   return (
     <span ref={boxRef} style={{ position: "relative", display: "inline-flex" }}>
       <button className="btn-ghost" style={{ minHeight: 32, gap: 6 }} onClick={() => setOpen(o => !o)}
-        aria-expanded={open} aria-label="Escolher pele" title="Pele do sistema">
+        aria-expanded={open} aria-label="Escolher pele" title="Pele do sistema" data-tut="pele">
         {label} ▾
       </button>
       {open && (
@@ -444,7 +513,7 @@ export function ModeToggle() {
     applyThemeSoft(() => setThemeMode(isDark ? "light" : "dark"));
   }
   return (
-    <button className="round-btn" onClick={flip} title={isDark ? "Tema claro" : "Tema escuro"} aria-label="Alternar claro/escuro">
+    <button className="round-btn" onClick={flip} title={isDark ? "Tema claro" : "Tema escuro"} aria-label="Alternar claro/escuro" data-tut="theme-mode">
       <I d={isDark ? ICONS.sun : ICONS.moon} size={17} />
     </button>
   );
@@ -582,7 +651,7 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
         <PeleSwitch />
         <ModeToggle />
         {podeNovoLead && (
-          <button className="round-btn add" title="Novo lead" aria-label="Novo lead" onClick={abrirNovoLead}><I d={ICONS.plus} size={16} /></button>
+          <button className="round-btn add" title="Novo lead" aria-label="Novo lead" onClick={abrirNovoLead} data-tut="novo-lead"><I d={ICONS.plus} size={16} /></button>
         )}
         <span ref={bellRef} style={{ position: "relative", display: "inline-flex" }}>
           <button className="round-btn" title="Avisos" aria-label="Avisos" onClick={() => setBellOpen(o => !o)}>
@@ -632,7 +701,7 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
           </button>
         )}
         <span ref={avatarRef} style={{ position: "relative", display: "inline-flex" }}>
-          <button className="round-btn" title="Conta" aria-label="Conta" style={{ width: "auto", height: "auto", padding: 0 }} onClick={() => setAvatarOpen(o => !o)}>
+          <button className="round-btn" title="Conta" aria-label="Conta" style={{ width: "auto", height: "auto", padding: 0 }} onClick={() => setAvatarOpen(o => !o)} data-tut="conta">
             <Av name={currentUserDisplayName(user)} size={34} />
           </button>
           {avatarOpen && (

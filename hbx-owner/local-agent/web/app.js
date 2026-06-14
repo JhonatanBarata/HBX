@@ -23,6 +23,53 @@ function esc(value) { return String(value == null ? "" : value).replace(/[&<>"]/
 
 const STATUS_LABEL = { working: "Em expediente", paused: "Em pausa", idle: "Sem expediente aberto.", closed: "Dia fechado." };
 
+/* ---------- Opções selecionáveis (segmento/UF/cidade) — vêm do backend ---------- */
+const UFS = ["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"];
+// Segmentos reais que o HBX mira (playbooks + comuns BR). Padrão sempre presente;
+// o backend enriquece por cima quando a listagem do Radar responde.
+const CURATED_SEGMENTS = ["clínica","clínica odontológica","dentista","médico","fisioterapia","psicologia","clínica de estética","oficina mecânica","funilaria","auto center","borracharia","restaurante","pizzaria","lanchonete","hamburgueria","bar","padaria","mercado","açougue","imobiliária","advogado","contabilidade","salão de beleza","barbearia","academia","pet shop","farmácia","ótica","escola","autoescola","loja de roupas","pousada","hotel"].map((v) => ({ value: v, label: v }));
+let radarFiltersCache = null;
+
+function optionsHtml(list) {
+  return (list || []).map((o) => `<option value="${esc(o.value)}">${esc(o.label)}${o.count != null ? ` (${o.count})` : ""}</option>`).join("");
+}
+
+function fillUfSelects() {
+  document.querySelectorAll("select.select-uf").forEach((sel) => {
+    if (sel.dataset.filled) return;
+    sel.dataset.filled = "1";
+    sel.innerHTML = ['<option value="">UF</option>'].concat(UFS.map((u) => `<option value="${u}">${u}</option>`)).join("");
+  });
+}
+
+function fillCidades(uf) {
+  const dl = $("#dl-cidades");
+  if (!dl) return;
+  const byState = (radarFiltersCache && radarFiltersCache.citiesByState) || {};
+  const list = uf && byState[uf] ? byState[uf] : Object.values(byState).flat();
+  dl.innerHTML = optionsHtml(list);
+}
+
+async function loadRadarFilters() {
+  fillUfSelects();
+  // padrão útil SEMPRE presente (curado) — nunca fica vazio
+  const dlSeg = $("#dl-segmentos");
+  if (dlSeg && !dlSeg.children.length) dlSeg.innerHTML = optionsHtml(CURATED_SEGMENTS);
+  try {
+    const f = await api("GET", "/owner/radar-filters");
+    if (f && f.ok) {
+      radarFiltersCache = f;
+      if (dlSeg && (f.segments || []).length) dlSeg.innerHTML = optionsHtml(f.segments); // backend enriquece
+      fillCidades("");
+    }
+  } catch { /* mantém o curado; campos seguem digitáveis */ }
+}
+
+// UF muda em qualquer formulário → refiltra as cidades por aquele estado.
+document.addEventListener("change", (e) => {
+  if (e.target && e.target.classList && e.target.classList.contains("select-uf")) fillCidades(e.target.value);
+});
+
 /* ---------- Tabs ---------- */
 document.getElementById("tabs").addEventListener("click", (e) => {
   const tab = e.target.closest(".tab");
@@ -78,12 +125,14 @@ async function renderBankInto(sel, deltaSel) {
         d.textContent = b.deltaToday > 0 ? `+${b.deltaToday} hoje` : "sem novos hoje";
         d.className = b.deltaToday > 0 ? "delta up" : "delta";
       }
-    } else {
-      $(sel).textContent = b.configured ? "indisponível" : "config token";
-      if (deltaSel) $(deltaSel).textContent = b.reason || "";
+      return Number(b.total);
     }
+    $(sel).textContent = b.configured ? "indisponível" : "config token";
+    if (deltaSel) $(deltaSel).textContent = b.reason || "";
+    return null;
   } catch {
     $(sel).textContent = "—";
+    return null;
   }
 }
 
@@ -106,7 +155,79 @@ async function renderTickets() {
   }
 }
 
-/* ---------- Sistema ---------- */
+/* ---------- Sistema · live + feed honesto ---------- */
+let sistemaTimer = null;
+let lastSysSnapshot = null;
+const feedItems = [];
+
+function pushFeed(text, tone = "info") {
+  const time = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  feedItems.unshift({ time, text, tone });
+  if (feedItems.length > 25) feedItems.pop();
+  renderFeed(true);
+}
+
+function renderFeed(animateFirst) {
+  const box = $("#sys-feed");
+  if (!box) return;
+  if (!feedItems.length) {
+    box.innerHTML = `<div class="empty">Ligue um motor ou o turbo e o que acontecer aparece aqui.</div>`;
+    return;
+  }
+  box.innerHTML = "";
+  feedItems.forEach((it, i) => {
+    const cls = `feed-item ${esc(it.tone)}` + (i === 0 && animateFirst ? " is-new" : "");
+    box.appendChild(el(`<div class="${cls}"><span class="feed-time">${esc(it.time)}</span><span class="feed-text">${esc(it.text)}</span></div>`));
+  });
+}
+
+function snapshotFrom(s, bankTotal) {
+  const cap = s.capacity || {};
+  return {
+    alive: cap.ok ? cap.alive : null,
+    factoryStopped: cap.ok ? cap.factoryStopped : null,
+    governorOn: cap.ok ? cap.governorOn : null,
+    reason: cap.reason || "",
+    ram: s.pressure?.ram?.usedPct ?? null,
+    cpu: s.pressure?.cpu?.usedPct ?? null,
+    verdict: s.verdict?.level || null,
+    bank: bankTotal != null ? Number(bankTotal) : null,
+  };
+}
+
+// Feed = só a VERDADE derivada de deltas reais. Nunca inventa erro.
+function diffFeed(prev, cur) {
+  const st = $("#sys-feed-status");
+  if (st) { st.textContent = "ao vivo · 5s"; st.className = "pill pill-ok"; }
+  if (!prev) return; // primeira leitura não vira ruído
+  if (cur.alive != null && prev.alive != null && cur.alive !== prev.alive) {
+    const up = cur.alive > prev.alive;
+    pushFeed(`Motores locais: ${prev.alive} → ${cur.alive} ${up ? "(subiu)" : "(cedeu)"}.`, up ? "ok" : "warn");
+  }
+  if (cur.factoryStopped != null && prev.factoryStopped != null && cur.factoryStopped !== prev.factoryStopped) {
+    pushFeed(cur.factoryStopped ? "Fábrica de motores parada." : "Fábrica de motores rodando.", cur.factoryStopped ? "warn" : "ok");
+  }
+  if (cur.governorOn != null && prev.governorOn != null && cur.governorOn !== prev.governorOn) {
+    pushFeed(cur.governorOn ? "Governor ligado (elástico)." : "Governor desligado.", cur.governorOn ? "ok" : "warn");
+  }
+  if (cur.reason && cur.reason !== prev.reason) {
+    pushFeed(`Motor: ${cur.reason}`, "info");
+  }
+  if (cur.ram != null && prev.ram != null) {
+    if (cur.ram >= 85 && prev.ram < 85) pushFeed(`RAM subiu para ${cur.ram}% — apertando.`, "warn");
+    else if (cur.ram < 78 && prev.ram >= 85) pushFeed(`RAM aliviou para ${cur.ram}%.`, "ok");
+  }
+  if (cur.verdict && prev.verdict && cur.verdict !== prev.verdict) {
+    const t = cur.verdict === "buy" ? "bad" : cur.verdict === "tight" ? "warn" : "ok";
+    const label = cur.verdict === "buy" ? "no limite" : cur.verdict === "tight" ? "apertando" : "saudável";
+    pushFeed(`Sistema ${label}.`, t);
+  }
+  if (cur.bank != null && prev.bank != null && cur.bank !== prev.bank) {
+    const d = cur.bank - prev.bank;
+    if (d > 0) pushFeed(`Banco de leads: +${d} (motor produzindo).`, "ok");
+  }
+}
+
 function pressureClass(used, limit) {
   if (used == null) return "";
   if (used >= 90 || used >= limit + 7) return "bad";
@@ -123,7 +244,7 @@ function setPressure(prefix, p) {
 }
 
 async function renderSistema() {
-  renderBankInto("#sys-bank", "#sys-bank-delta");
+  const bankPromise = renderBankInto("#sys-bank", "#sys-bank-delta");
   let s;
   try {
     s = await api("GET", "/owner/system");
@@ -195,6 +316,11 @@ async function renderSistema() {
       </div>`));
     });
   }
+
+  const bankTotal = await bankPromise.catch(() => null);
+  const snap = snapshotFrom(s, bankTotal);
+  diffFeed(lastSysSnapshot, snap);
+  lastSysSnapshot = snap;
 }
 
 async function factoryAction(action) {
@@ -208,6 +334,101 @@ async function factoryAction(action) {
 }
 $("#btn-factory-stop").addEventListener("click", () => factoryAction("stop"));
 $("#btn-factory-resume").addEventListener("click", () => factoryAction("resume"));
+
+/* ---------- Sistema · frota LOCAL de motores (engines:up/down pelo painel) ---------- */
+async function localEngines(action) {
+  const fb = $("#engines-local-feedback");
+  const starting = action === "start";
+  fb.textContent = starting ? "ligando motores locais… (pode levar ~1 min)" : "parando motores locais…";
+  fb.className = "delta";
+  try {
+    const r = await api("POST", `/owner/engines/local/${action}`, {});
+    if (r.ok) {
+      fb.textContent = r.message || "ok";
+      fb.className = "delta up";
+      pushFeed(starting ? "Você ligou a frota local de motores — vendo CPU/RAM subir…" : "Você parou a frota local de motores.", starting ? "ok" : "warn");
+    } else {
+      fb.textContent = r.message || "falhou";
+    }
+  } catch (err) {
+    fb.textContent = err.message;
+  }
+}
+$("#btn-engines-local-start").addEventListener("click", () => localEngines("start"));
+$("#btn-engines-local-stop").addEventListener("click", () => localEngines("stop"));
+
+/* ---------- Sistema · Exportar local → VPS (Email Lab via Ops Control) ---------- */
+let exportPolling = null;
+async function exportStart() {
+  if (exportPolling) { clearInterval(exportPolling); exportPolling = null; }
+  const fb = $("#export-feedback");
+  const st = $("#export-status");
+  fb.textContent = "iniciando caça no Local Lab…"; fb.className = "delta";
+  try {
+    const r = await api("POST", "/owner/export", {
+      segment: $("#export-segment").value.trim(),
+      city: $("#export-city").value.trim(),
+      state: $("#export-state").value.trim(),
+      targetEmails: Number($("#export-qty").value) || 30,
+    });
+    if (!r.ok || !r.jobId) {
+      fb.textContent = r.message || r.reason || "não foi possível iniciar (confira VPS/Ops Control configurados).";
+      st.textContent = "indisponível"; st.className = "pill pill-bad";
+      pushFeed(`Export pra VPS não iniciou: ${r.reason || r.message || "VPS/Ops não configurados"}.`, "warn");
+      return;
+    }
+    st.textContent = "caçando…"; st.className = "pill pill-muted";
+    fb.textContent = `job ${r.jobId} — caçando lote…`;
+    pushFeed("Export pra VPS: caçando lote no Local Lab…", "info");
+    exportPoll(r.jobId);
+  } catch (err) { fb.textContent = err.message; }
+}
+
+function exportPoll(jobId) {
+  let ticks = 0;
+  exportPolling = setInterval(async () => {
+    ticks += 1;
+    if (ticks > 75) { clearInterval(exportPolling); exportPolling = null; $("#export-feedback").textContent = "tempo esgotado esperando o lote ficar pronto."; return; }
+    try {
+      const s = await api("GET", `/owner/export/status/${encodeURIComponent(jobId)}`);
+      const job = s.job || {};
+      const status = String(job.status || job.state || "").toLowerCase();
+      if (["done", "completed", "ready", "finished", "exported", "success"].includes(status)) {
+        clearInterval(exportPolling); exportPolling = null;
+        await exportImport(jobId);
+      } else if (["failed", "error", "canceled", "cancelled"].includes(status)) {
+        clearInterval(exportPolling); exportPolling = null;
+        $("#export-feedback").textContent = "o lote falhou no Local Lab.";
+        $("#export-status").textContent = "falhou"; $("#export-status").className = "pill pill-bad";
+      } else {
+        $("#export-feedback").textContent = `caçando… (${status || "rodando"})`;
+      }
+    } catch (err) { /* segue tentando até o teto de ticks */ }
+  }, 4000);
+}
+
+async function exportImport(jobId) {
+  const fb = $("#export-feedback");
+  fb.textContent = "lote pronto — importando na VPS…";
+  $("#export-status").textContent = "importando…"; $("#export-status").className = "pill pill-muted";
+  try {
+    const r = await api("POST", "/owner/export/import", { jobId });
+    if (r.ok) {
+      const res = r.result || {};
+      const imported = res.imported ?? res.inserted ?? res.count ?? "?";
+      const dup = res.duplicates ?? res.skipped ?? 0;
+      fb.textContent = `pronto: ${imported} importados na VPS, ${dup} duplicados.`;
+      fb.className = "delta up";
+      $("#export-status").textContent = "enviado"; $("#export-status").className = "pill pill-ok";
+      pushFeed(`Export concluído: ${imported} leads na VPS (${dup} duplicados).`, "ok");
+    } else {
+      fb.textContent = r.message || r.reason || "falha ao importar na VPS.";
+      $("#export-status").textContent = "falhou"; $("#export-status").className = "pill pill-bad";
+    }
+  } catch (err) { fb.textContent = err.message; }
+}
+
+$("#btn-export-start").addEventListener("click", exportStart);
 
 /* ---------- Sistema · coluna VPS (via Ops Control) ---------- */
 function paintMetric(idBase, usedPct, limitPct) {
@@ -328,19 +549,19 @@ async function vpsAction(label, route, body, confirmMsg) {
 }
 
 $("#btn-vps-refresh").addEventListener("click", renderVps);
-$("#btn-vps-engines-stop").addEventListener("click", () => {
-  const { from, to } = vpsRange();
-  vpsAction("parar motores", "/owner/vps/engines/stop", { from, to, confirm: true }, `Parar motores hbx-engine-${from} a ${to} na VPS?`);
-});
 $("#btn-vps-engines-start").addEventListener("click", () => {
   const { from, to } = vpsRange();
-  vpsAction("ligar motores", "/owner/vps/engines/start", { from, to });
+  vpsAction("ligar faixa", "/owner/vps/engines/start", { from, to });
+});
+$("#btn-vps-engines-stop").addEventListener("click", () => {
+  const { from, to } = vpsRange();
+  vpsAction("parar faixa", "/owner/vps/engines/stop", { from, to, confirm: true }, `Parar a faixa de motores hbx-engine-${from} a ${to} na VPS?`);
 });
 $("#btn-vps-motor-stop").addEventListener("click", () => {
-  vpsAction("parar motor único", "/owner/vps/quick/scrapingEngine/stop", { confirm: true }, "Parar o motor único (hbx-scraping-engine) na VPS?");
+  vpsAction("parar motor base", "/owner/vps/quick/scrapingEngine/stop", { confirm: true }, "Parar o motor base (hbx-scraping-engine) na VPS?");
 });
 $("#btn-vps-cancel").addEventListener("click", () => {
-  vpsAction("cancelar scraping", "/owner/vps/cancel", { confirm: true }, "Cancelar o scraping forçado na VPS agora?");
+  vpsAction("cancelar busca", "/owner/vps/cancel", { confirm: true }, "Cancelar a busca forçada na VPS agora?");
 });
 
 /* ---------- Caça de e-mail ---------- */
@@ -486,10 +707,18 @@ async function pingAgent() {
 
 /* ---------- Router ---------- */
 function loadTab(name) {
+  if (sistemaTimer) { clearInterval(sistemaTimer); sistemaTimer = null; }
   if (name === "hoje") renderToday();
   else if (name === "tickets") renderTickets();
-  else if (name === "sistema") { renderSistema(); renderVps(); }
-  else if (name === "email") renderEmailHunt();
+  else if (name === "sistema") {
+    renderSistema();
+    renderVps();
+    renderFeed(false);
+    loadRadarFilters();
+    // CPU/RAM ao vivo: só o LOCAL (rápido). A VPS (SSH ~30s) fica sob demanda no botão ⟳.
+    sistemaTimer = setInterval(renderSistema, 5000);
+  }
+  else if (name === "email") { loadRadarFilters(); renderEmailHunt(); }
   else if (name === "codigo") renderCodigo();
   else if (name === "execucao") renderExecucao();
   else if (name === "config") renderConfig();
@@ -497,4 +726,5 @@ function loadTab(name) {
 
 pingAgent();
 renderToday();
+loadRadarFilters();
 setInterval(pingAgent, 20000);

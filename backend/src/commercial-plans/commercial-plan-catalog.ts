@@ -47,7 +47,9 @@ export type CommercialPlanCapabilities = {
 export const COMMERCIAL_PRICING = {
   liteMonthly: 45.00,
   padraoMonthly: 99.00,
-  melhorMonthly: 149.90,
+  // HBX Full (ordem do dono 14/06): R$ 349,90 — implantação assistida, sem
+  // self-checkout de cartão (o cliente pede e um especialista entra em contato).
+  melhorMonthly: 349.90,
   extraUserMonthly: 24.90,
   annualDiscountPercent: 20,
 } as const;

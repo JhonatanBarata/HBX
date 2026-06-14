@@ -50,4 +50,11 @@ export class CommercialPlansController {
   selectPlan(@Req() req: any, @Body() dto: SelectCommercialPlanDto) {
     return this.commercialPlansService.selectPlanForUser(req.user, dto);
   }
+
+  // HBX Full não tem self-checkout: o cliente pede e o master é alertado para a
+  // implantação assistida (ordem do dono 14/06). Não muda plano/entitlement.
+  @Post('request-full')
+  requestFull(@Req() req: any) {
+    return this.commercialPlansService.requestFullPlan(req.user);
+  }
 }

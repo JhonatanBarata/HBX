@@ -60,6 +60,8 @@ type CatalogPlan = {
   headline?: string | null;
   badge?: string | null;
   recommended?: boolean;
+  // Full: implantação assistida, sem self-checkout — o cliente PEDE e a HBX contata.
+  requiresAssistedSetup?: boolean;
   features?: string[];
 };
 
@@ -138,6 +140,7 @@ export function ConfiguracoesClient() {
   const [planoBusy, setPlanoBusy] = useState(false);
   const [planoMsg, setPlanoMsg] = useState<string | null>(null);
   const [confirmPlano, setConfirmPlano] = useState<CatalogPlan | null>(null);
+  const [confirmFull, setConfirmFull] = useState<CatalogPlan | null>(null);
 
   // Novo acesso (cadastro completo, PR12062026005) + gestão de membro.
   // Gerenciar abre a tela do vendedor (gerenciar-vendedor-modal) com os
@@ -253,6 +256,25 @@ export function ConfiguracoesClient() {
       setPlanoMsg(`✓ Plano alterado para ${plan.title}.`);
     } catch (err) {
       setPlanoMsg(err instanceof Error ? err.message : "Não foi possível alterar o plano.");
+    } finally {
+      setPlanoBusy(false);
+    }
+  }
+
+  // HBX Full = implantação assistida, sem self-checkout: pede e a HBX entra em
+  // contato (POST /commercial-plans/request-full). Não troca plano nem cobra.
+  async function pedirFull() {
+    if (planoBusy) return;
+    setPlanoBusy(true);
+    setPlanoMsg(null);
+    try {
+      const res = await apiFetch<{ message?: string }>("/commercial-plans/request-full", {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      setPlanoMsg(`✓ ${res?.message || "Pedido enviado. Um especialista da HBX vai entrar em contato."}`);
+    } catch (err) {
+      setPlanoMsg(err instanceof Error ? err.message : "Não foi possível enviar o pedido agora.");
     } finally {
       setPlanoBusy(false);
     }
@@ -474,7 +496,9 @@ export function ConfiguracoesClient() {
                               </ul>
                             )}
                             {canSelectPlan && !atual && (
-                              <button className="btn-ghost" style={{ marginTop: 2 }} disabled={planoBusy} onClick={() => { setConfirmPlano(p); setPlanoMsg(null); }}>Trocar para este plano</button>
+                              p.requiresAssistedSetup
+                                ? <button className="btn-ghost" style={{ marginTop: 2 }} disabled={planoBusy} onClick={() => { setConfirmFull(p); setPlanoMsg(null); }}>Falar com a HBX</button>
+                                : <button className="btn-ghost" style={{ marginTop: 2 }} disabled={planoBusy} onClick={() => { setConfirmPlano(p); setPlanoMsg(null); }}>Trocar para este plano</button>
                             )}
                           </article>
                         );
@@ -533,6 +557,16 @@ export function ConfiguracoesClient() {
         busy={planoBusy}
         onConfirm={async () => { const p = confirmPlano; setConfirmPlano(null); if (p) await selecionarPlano(p); }}
         onCancel={() => setConfirmPlano(null)}
+      />
+
+      <ConfirmDialog
+        open={!!confirmFull}
+        title="HBX Full — implantação assistida"
+        message={<>O <strong>{confirmFull?.title}</strong> é implantado pela HBX: você não paga por cartão aqui. Ao confirmar, um <strong>especialista da HBX entra em contato</strong> para configurar bot, automação e atendimento com você.</>}
+        confirmLabel="Quero falar com a HBX"
+        busy={planoBusy}
+        onConfirm={async () => { setConfirmFull(null); await pedirFull(); }}
+        onCancel={() => setConfirmFull(null)}
       />
     </React.Fragment>
   );

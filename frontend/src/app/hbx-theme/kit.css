@@ -64,7 +64,10 @@ html, body { margin: 0; }
 .top-actions { display: flex; align-items: center; gap: 12px; }
 .round-btn { position: relative; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 999px; border: none; cursor: pointer; background: transparent; color: var(--text-body); }
 .round-btn:hover { background: var(--hbx-surface-raised); }
-.round-btn.add { background: var(--hbx-accent); color: var(--hbx-action-ink); }
+/* especificidade: o `[data-theme] .round-btn` das peles empatava com `.round-btn.add`
+   e vencia por ordem de fonte, pintando o "+" com a cor de superfície (o ícone sumia).
+   `button.round-btn.add` (elemento + 2 classes) ganha sempre — o "+" reaparece. */
+button.round-btn.add { background: var(--hbx-accent); color: var(--hbx-action-ink); }
 .round-btn .bub { position: absolute; top: -2px; right: -2px; min-width: 16px; height: 16px; border-radius: 999px; display: grid; place-items: center; font-size: 0.6rem; font-weight: 800; color: var(--hbx-action-ink); background: var(--hbx-brand-strong); }
 
 /* ---------- KPIs ---------- */

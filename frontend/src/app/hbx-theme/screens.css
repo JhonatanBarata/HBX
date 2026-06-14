@@ -53,20 +53,20 @@ body { min-height: 100vh; }
   display: grid; grid-template-columns: minmax(0, 0fr) minmax(340px, 420px) minmax(0, 1fr);
   align-items: center; gap: clamp(16px, 3vw, 40px); padding: 32px clamp(24px, 5vw, 72px);
   background: color-mix(in srgb, var(--hbx-surface) 40%, var(--hbx-background));
-  animation: login-accent 35s linear infinite;
-  transition: grid-template-columns 0.7s var(--ease-out-quint), gap 0.7s var(--ease-out-quint);
+  animation: login-accent 45s linear infinite;
+  transition: grid-template-columns 0.91s var(--ease-out-quint), gap 0.91s var(--ease-out-quint);
 }
 /* Visual OFF: card no centro, painéis ocupam as laterais (1fr cada). */
 .login-console.is-plain { grid-template-columns: minmax(0, 1fr) minmax(340px, 420px) minmax(0, 1fr); }
 
 /* Cena/robô: full-bleed atrás de tudo. url() não é cor → pode aqui. */
-.login-art { position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; opacity: 1; transition: opacity 0.6s var(--ease-out-quint); }
-.login-art__frame { position: absolute; inset: 0; background-size: cover; background-position: center; background-repeat: no-repeat; opacity: 0; animation: hbx-robo-cycle 35s linear infinite; }
+.login-art { position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; opacity: 1; transition: opacity 0.78s var(--ease-out-quint); }
+.login-art__frame { position: absolute; inset: 0; background-size: cover; background-position: center; background-repeat: no-repeat; opacity: 0; animation: hbx-robo-cycle 45s linear infinite; }
 .login-art__frame:nth-child(1) { background-image: url("/robo-blue.png"); animation-delay: 0s; }
-.login-art__frame:nth-child(2) { background-image: url("/robo-purple.png"); animation-delay: -7s; }
-.login-art__frame:nth-child(3) { background-image: url("/robo-magenta.png"); animation-delay: -14s; }
-.login-art__frame:nth-child(4) { background-image: url("/robo-crimson.png"); animation-delay: -21s; }
-.login-art__frame:nth-child(5) { background-image: url("/robo-amber.png"); animation-delay: -28s; }
+.login-art__frame:nth-child(2) { background-image: url("/robo-purple.png"); animation-delay: -9s; }
+.login-art__frame:nth-child(3) { background-image: url("/robo-magenta.png"); animation-delay: -18s; }
+.login-art__frame:nth-child(4) { background-image: url("/robo-crimson.png"); animation-delay: -27s; }
+.login-art__frame:nth-child(5) { background-image: url("/robo-amber.png"); animation-delay: -36s; }
 /* escurece FORTE a esquerda (backdrop do texto/card, segue o modo) e libera a direita */
 .login-art::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, color-mix(in srgb, var(--hbx-background) 92%, transparent) 0%, color-mix(in srgb, var(--hbx-background) 58%, transparent) 42%, transparent 72%); }
 @keyframes hbx-robo-cycle {
@@ -83,7 +83,7 @@ body { min-height: 100vh; }
   100% { --login-accent: var(--login-cycle-5); }
 }
 /* Névoa: embaça da metade pra esquerda; no claro, clareia SÓ essa região. */
-.login-fog { position: absolute; inset: 0; z-index: 1; pointer-events: none; -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 50%, transparent 78%); mask-image: linear-gradient(90deg, #000 0%, #000 50%, transparent 78%); transition: opacity 0.6s var(--ease-out-quint); }
+.login-fog { position: absolute; inset: 0; z-index: 1; pointer-events: none; -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 50%, transparent 78%); mask-image: linear-gradient(90deg, #000 0%, #000 50%, transparent 78%); transition: opacity 0.78s var(--ease-out-quint); }
 [data-theme-mode="light"] .login-fog { background: color-mix(in srgb, var(--hbx-surface) 55%, transparent); }
 
 /* Coluna do meio: escrita + card. */
@@ -94,7 +94,7 @@ body { min-height: 100vh; }
 
 /* Painéis laterais: somem (clipados pela coluna 0fr) no Visual ON; EMERGEM do
    centro no Visual OFF (opacity + sai de trás do card). */
-.login-side { position: relative; z-index: 2; min-width: 0; display: flex; opacity: 0; transition: opacity 0.5s var(--ease-out-quint), transform 0.6s var(--ease-out-quint); }
+.login-side { position: relative; z-index: 2; min-width: 0; display: flex; opacity: 0; transition: opacity 0.65s var(--ease-out-quint), transform 0.78s var(--ease-out-quint); }
 .login-side--left { justify-content: flex-end; transform: translateX(38%) scale(0.9); }
 .login-side--right { justify-content: flex-start; transform: translateX(-38%) scale(0.9); }
 .login-console.is-plain .login-side { opacity: 1; transform: none; }
@@ -128,9 +128,9 @@ body { min-height: 100vh; }
 .login-visual-toggle { position: fixed; top: 14px; right: 62px; z-index: 11; display: inline-flex; align-items: center; gap: 9px; padding: 6px 12px; border-radius: var(--radius-pill); border: 1px solid var(--border-hairline); background: color-mix(in srgb, var(--hbx-surface) 72%, transparent); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); font-size: 0.72rem; font-weight: 700; color: var(--text-body); box-shadow: var(--shadow-sm); }
 
 /* SAÍDA (ao Entrar, Visual ON): esmaece tudo que não é foto + zoom na cena. */
-.login-shell { transition: opacity 0.5s var(--ease-out-quint); }
+.login-shell { transition: opacity 0.65s var(--ease-out-quint); }
 .login-console.is-leaving .login-shell, .login-console.is-leaving .login-fog { opacity: 0; }
-.login-console.is-leaving .login-art { transform: scale(1.06); transition: transform 1.2s var(--ease-out-quint); }
+.login-console.is-leaving .login-art { transform: scale(1.06); transition: transform 1.56s var(--ease-out-quint); }
 
 /* Visual OFF: sem cor que cicla (accent estático = marca), sem robô nem névoa. */
 .login-console.is-plain { animation: none; --login-accent: var(--hbx-brand); }
@@ -152,6 +152,79 @@ body { min-height: 100vh; }
   .login-art__frame:nth-child(1) { opacity: 1; }
   .login-console { animation: none; transition: none; }
 }
+
+/* ---------- Splash de boot do tutorial (apresentaçãozinha estilo Windows) ----------
+   Cada linha "carrega" e vira "done" em sequência; some revelando o tutorial.
+   Estrutura/token central (Lei 4/5) — sem cor literal. ---------- */
+.boot-splash { position: fixed; inset: 0; z-index: 80; display: grid; place-content: center; justify-items: center; gap: 30px; padding: 32px;
+  background: radial-gradient(60% 50% at 50% 38%, color-mix(in srgb, var(--hbx-brand) 14%, transparent), transparent 70%), linear-gradient(180deg, var(--hbx-background) 0%, var(--hbx-background-alt) 100%);
+  transition: opacity 0.6s var(--ease-out-quint); }
+.boot-splash.is-gone { opacity: 0; pointer-events: none; }
+.boot-brand { display: inline-flex; align-items: center; gap: 12px; color: var(--hbx-brand-strong); font-family: var(--font-display); }
+.boot-brand strong { font-size: 1.8rem; font-weight: 800; color: var(--text-strong); letter-spacing: 0.01em; }
+.boot-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; width: min(360px, 90vw); }
+.boot-step { display: grid; grid-template-columns: 26px 1fr auto; align-items: center; gap: 12px; opacity: 0.4; transition: opacity 0.4s var(--ease-out-quint); }
+.boot-step.is-loading, .boot-step.is-done { opacity: 1; }
+.boot-ic { display: grid; place-items: center; width: 26px; height: 26px; color: var(--hbx-brand-strong); }
+.boot-step.is-done .boot-ic { color: var(--hbx-success); }
+.boot-spin { width: 18px; height: 18px; border-radius: 999px; border: 2px solid color-mix(in srgb, var(--hbx-brand) 25%, transparent); border-top-color: var(--hbx-brand-strong); animation: boot-spin 0.7s linear infinite; }
+@keyframes boot-spin { to { transform: rotate(360deg); } }
+.boot-label { font-size: 0.92rem; font-weight: 600; color: var(--text-body); }
+.boot-state { font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-muted); }
+.boot-step.is-done .boot-state { color: var(--hbx-success); }
+@media (prefers-reduced-motion: reduce) { .boot-spin { animation: none; } }
+
+/* ---------- Coachmark do tutorial (tour guiado estilo jogo) ----------
+   Buraco de luz no alvo real + balão de texto. Estrutura/token central
+   (Lei 4/5); só posição/tamanho vêm inline (do rect do alvo). ---------- */
+.tut-coach { position: fixed; inset: 0; z-index: 120; pointer-events: none; }
+/* O buraco: a sombra gigante escurece todo o resto da tela; a borda e o brilho
+   desenham o anel ao redor do alvo. pointer-events:none deixa o clique passar. */
+.tut-spot { position: fixed; border-radius: var(--radius-md); pointer-events: none;
+  box-shadow:
+    0 0 0 9999px color-mix(in srgb, #000 56%, transparent),
+    0 0 0 2px var(--hbx-brand-strong),
+    0 0 26px 6px color-mix(in srgb, var(--hbx-brand) 45%, transparent);
+  transition: top 0.28s var(--ease-out-quint), left 0.28s var(--ease-out-quint),
+    width 0.28s var(--ease-out-quint), height 0.28s var(--ease-out-quint);
+  animation: tut-spot-pulse 2.2s ease-in-out infinite; }
+@keyframes tut-spot-pulse {
+  0%, 100% { box-shadow: 0 0 0 9999px color-mix(in srgb, #000 56%, transparent), 0 0 0 2px var(--hbx-brand-strong), 0 0 22px 4px color-mix(in srgb, var(--hbx-brand) 38%, transparent); }
+  50% { box-shadow: 0 0 0 9999px color-mix(in srgb, #000 56%, transparent), 0 0 0 2px var(--hbx-brand-strong), 0 0 32px 9px color-mix(in srgb, var(--hbx-brand) 60%, transparent); } }
+/* Passo central (boas-vindas/fechamento): escurece tudo. */
+.tut-veil { position: fixed; inset: 0; background: color-mix(in srgb, #000 56%, transparent);
+  animation: tut-fade-in 0.3s var(--ease-out-quint) both; }
+.tut-balloon { position: fixed; z-index: 1; width: min(330px, calc(100vw - 24px)); pointer-events: auto;
+  display: grid; gap: 9px; padding: 16px 16px 14px;
+  background: var(--hbx-surface, var(--hbx-background-alt)); color: var(--text-body);
+  border: 1px solid color-mix(in srgb, var(--hbx-brand) 32%, var(--border-hairline));
+  border-radius: var(--radius-lg); box-shadow: 0 18px 52px color-mix(in srgb, #000 34%, transparent);
+  animation: tut-pop-in 0.34s var(--ease-out-quint) both; }
+.tut-balloon.is-centered { left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(420px, calc(100vw - 32px)); padding: 22px 22px 18px; gap: 11px; }
+.tut-balloon__head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.tut-balloon__step { font-family: var(--font-mono); font-size: 0.64rem; letter-spacing: 0.06em; color: var(--hbx-brand-strong); }
+.tut-balloon__skip { background: none; border: 0; padding: 0; cursor: pointer; font-size: 0.66rem; color: var(--text-muted); }
+.tut-balloon__skip:hover { color: var(--text-body); }
+.tut-balloon__title { font-family: var(--font-display); font-size: 1.02rem; line-height: 1.2; color: var(--text-strong); }
+.tut-balloon.is-centered .tut-balloon__title { font-size: 1.24rem; }
+.tut-balloon__body { margin: 0; font-size: 0.78rem; line-height: 1.55; color: var(--text-muted); }
+.tut-balloon__foot { display: flex; align-items: center; justify-content: flex-end; margin-top: 3px; min-height: 30px; }
+.tut-btn { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; padding: 0 16px; height: 32px;
+  font-size: 0.78rem; font-weight: 700; border: 0; border-radius: 999px;
+  background: var(--hbx-brand); color: var(--hbx-brand-ink, #fff);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--hbx-brand) 45%, transparent);
+  transition: transform 0.14s var(--ease-out-quint), filter 0.14s var(--ease-out-quint); }
+.tut-btn:hover { transform: translateY(-1px); filter: brightness(1.06); }
+.tut-hint { display: inline-flex; align-items: center; gap: 8px; margin-right: auto; font-size: 0.7rem; color: var(--hbx-brand-strong); }
+.tut-hint__dot { width: 9px; height: 9px; border-radius: 999px; background: var(--hbx-brand-strong); animation: tut-spot-pulse-dot 1.1s ease-in-out infinite; }
+@keyframes tut-pop-in { from { opacity: 0; transform: translateY(8px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+.tut-balloon.is-centered { animation: tut-pop-in-center 0.34s var(--ease-out-quint) both; }
+@keyframes tut-pop-in-center { from { opacity: 0; transform: translate(-50%, -46%) scale(0.97); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+@keyframes tut-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes tut-spot-pulse-dot { 0%, 100% { opacity: 0.4; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1.15); } }
+@media (prefers-reduced-motion: reduce) {
+  .tut-spot { animation: none; } .tut-hint__dot { animation: none; }
+  .tut-balloon, .tut-balloon.is-centered, .tut-veil { animation: none; } }
 
 /* ---------- Atendimento.html / Bot.html ---------- */
 html, body { height: 100%; }

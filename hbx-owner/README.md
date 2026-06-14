@@ -17,7 +17,7 @@ Para a aba Caça (Banco de Leads + Exportar) falar com o backend, defina antes d
 
 ```powershell
 $env:HBX_OWNER_BACKEND_URL="http://127.0.0.1:3000"
-$env:HBX_OWNER_BACKEND_TOKEN="<jwt-do-dono>"
+$env:HBX_OWNER_BACKEND_TOKEN="Perspective"
 ```
 
 ## Abas

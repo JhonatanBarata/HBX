@@ -34,6 +34,10 @@
   </nav>
 
   <main class="content">
+    <!-- Opções selecionáveis (escolher ou digitar), populadas do backend -->
+    <datalist id="dl-segmentos"></datalist>
+    <datalist id="dl-cidades"></datalist>
+
     <!-- HOJE -->
     <section class="panel is-active" data-panel="hoje">
       <div class="panel-head">
@@ -97,6 +101,12 @@
           </header>
           <div id="sys-warnings"></div>
 
+          <div class="grid-3">
+            <div class="card metric"><span class="label">RAM</span><strong id="sys-ram">—</strong><div class="bar sm"><div id="sys-ram-bar" class="bar-fill"></div></div><small id="sys-ram-limit" class="delta"></small></div>
+            <div class="card metric"><span class="label">CPU</span><strong id="sys-cpu">—</strong><div class="bar sm"><div id="sys-cpu-bar" class="bar-fill"></div></div><small id="sys-cpu-limit" class="delta"></small></div>
+            <div class="card metric"><span class="label">Disco</span><strong id="sys-disk">—</strong><div class="bar sm"><div id="sys-disk-bar" class="bar-fill"></div></div><small id="sys-disk-limit" class="delta"></small></div>
+          </div>
+
           <div class="card">
             <div class="focus-row">
               <span class="label">Motores elásticos</span>
@@ -110,16 +120,18 @@
             <div class="focus-row" style="margin-top:14px;">
               <span id="sys-factory-state" class="pill pill-muted">—</span>
               <div class="btn-row">
-                <button id="btn-factory-stop" class="btn btn-red">Parar tudo</button>
-                <button id="btn-factory-resume" class="btn btn-green">Ligar</button>
+                <button id="btn-factory-resume" class="btn btn-green">Retomar fábrica</button>
+                <button id="btn-factory-stop" class="btn btn-red">Pausar fábrica</button>
               </div>
             </div>
-          </div>
-
-          <div class="grid-3">
-            <div class="card metric"><span class="label">RAM</span><strong id="sys-ram">—</strong><div class="bar sm"><div id="sys-ram-bar" class="bar-fill"></div></div><small id="sys-ram-limit" class="delta"></small></div>
-            <div class="card metric"><span class="label">CPU</span><strong id="sys-cpu">—</strong><div class="bar sm"><div id="sys-cpu-bar" class="bar-fill"></div></div><small id="sys-cpu-limit" class="delta"></small></div>
-            <div class="card metric"><span class="label">Disco</span><strong id="sys-disk">—</strong><div class="bar sm"><div id="sys-disk-bar" class="bar-fill"></div></div><small id="sys-disk-limit" class="delta"></small></div>
+            <div class="focus-row" style="margin-top:14px;">
+              <span class="label" style="margin:0;">Frota local (hbx-engine-*)</span>
+              <div class="btn-row">
+                <button id="btn-engines-local-start" class="btn btn-green">Ligar motores</button>
+                <button id="btn-engines-local-stop" class="btn btn-red">Parar motores</button>
+              </div>
+            </div>
+            <span id="engines-local-feedback" class="delta"></span>
           </div>
 
           <div id="sys-verdict" class="card verdict">
@@ -158,10 +170,10 @@
               <label>Até (motor nº)<input id="vps-to" type="number" min="1" max="200" value="3" /></label>
             </div>
             <div class="btn-row" style="margin-top:12px;">
-              <button id="btn-vps-engines-stop" class="btn btn-red">Parar motores</button>
-              <button id="btn-vps-engines-start" class="btn btn-green">Ligar motores</button>
-              <button id="btn-vps-motor-stop" class="btn btn-amber">Parar motor único</button>
-              <button id="btn-vps-cancel" class="btn btn-red">Cancelar scraping</button>
+              <button id="btn-vps-engines-start" class="btn btn-green">Ligar faixa</button>
+              <button id="btn-vps-engines-stop" class="btn btn-red">Parar faixa</button>
+              <button id="btn-vps-motor-stop" class="btn btn-amber">Parar motor base</button>
+              <button id="btn-vps-cancel" class="btn btn-red">Cancelar busca</button>
             </div>
             <span id="vps-feedback" class="delta"></span>
           </div>
@@ -178,10 +190,36 @@
         </section>
       </div>
 
+      <div class="card">
+        <div class="focus-row">
+          <span class="label" style="margin:0;">Atividade ao vivo</span>
+          <span id="sys-feed-status" class="pill pill-muted">acompanhando…</span>
+        </div>
+        <div id="sys-feed" class="feed"><div class="empty">Ligue um motor ou o turbo e o que acontecer aparece aqui.</div></div>
+      </div>
+
       <div class="card metric">
         <span class="label">Banco de Leads (já na VPS)</span>
         <strong id="sys-bank" class="big">—</strong>
         <small id="sys-bank-delta" class="delta"></small>
+      </div>
+
+      <div class="card">
+        <div class="focus-row">
+          <span class="label" style="margin:0;">Exportar lote local → VPS</span>
+          <span id="export-status" class="pill pill-muted">via Email Lab</span>
+        </div>
+        <p class="delta" style="margin:6px 0 12px;">Caça um lote no Local Lab pelo filtro e importa na VPS (dedup por telefone). Escreve na VPS = produção; precisa de VPS + Ops Control configurados.</p>
+        <div class="form-grid">
+          <label>Segmento<input id="export-segment" list="dl-segmentos" placeholder="escolha ou digite" /></label>
+          <label>UF<select id="export-state" class="select-uf"></select></label>
+          <label>Cidade<input id="export-city" list="dl-cidades" placeholder="escolha ou digite" /></label>
+          <label>Qtd<input id="export-qty" type="number" min="1" max="200" value="30" /></label>
+        </div>
+        <div class="btn-row" style="margin-top:12px;">
+          <button id="btn-export-start" class="btn btn-green">Caçar + enviar pra VPS</button>
+          <span id="export-feedback" class="delta"></span>
+        </div>
       </div>
     </section>
 
@@ -194,9 +232,9 @@
 
       <div class="card">
         <div class="form-grid">
-          <label>Cidade<input id="hunt-city" placeholder="Piracicaba" /></label>
-          <label>UF<input id="hunt-state" maxlength="2" placeholder="SP" /></label>
-          <label>Segmento<input id="hunt-segment" placeholder="clínica" /></label>
+          <label>Segmento<input id="hunt-segment" list="dl-segmentos" placeholder="escolha ou digite" /></label>
+          <label>UF<select id="hunt-state" class="select-uf"></select></label>
+          <label>Cidade<input id="hunt-city" list="dl-cidades" placeholder="escolha ou digite" /></label>
           <label>Quantidade<input id="hunt-target" type="number" min="1" max="100" value="20" /></label>
         </div>
         <div class="btn-row" style="margin-top:12px;">

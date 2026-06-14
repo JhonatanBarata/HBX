@@ -65,7 +65,7 @@ test.describe("login e cadastro mobile", () => {
     await expect(plans.getByText(/Após 14 dias/)).toHaveCount(1);
     await expect(plans.getByRole("button", { name: /^Modo empresarial/ })).toBeVisible();
     await expect(plans.getByText("Somente notebook/desktop")).toBeVisible();
-    await expect(plans.getByText("R$ 149,90")).toHaveCount(0);
+    await expect(plans.getByText("R$ 349,90")).toHaveCount(0);
     await expect(page.getByRole("link", { name: "Montar plano empresarial no WhatsApp" })).toBeVisible();
 
     await plans.getByRole("button", { name: /^HBX Lead/ }).click();

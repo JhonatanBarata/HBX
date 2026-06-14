@@ -84,11 +84,26 @@ button, a, .nav-item, .tag, .deal, .conv {
 /* ---------- troca de pele/modo (cross-fade que se remove sozinho) ---------- */
 html.hbx-theme-anim body,
 html.hbx-theme-anim body * {
-  transition: background-color 3.2s var(--ease-out-quint),
-    color 3.2s var(--ease-out-quint),
-    border-color 3.2s var(--ease-out-quint),
-    box-shadow 3.2s var(--ease-out-quint) !important;
+  transition: background-color 2.2s var(--ease-out-quint),
+    color 2.2s var(--ease-out-quint),
+    border-color 2.2s var(--ease-out-quint),
+    box-shadow 2.2s var(--ease-out-quint) !important;
 }
+/* Tema + Visual ao mesmo tempo NÃO quebra (ordem do dono 14/06): durante o
+   cross-fade de tema, o login mantém as PRÓPRIAS transições (grid/opacity/
+   transform) — senão a regra global acima atropela e o efeito "snapa". Reasserta
+   com mais especificidade, já incluindo a cor do tema onde precisa. */
+html.hbx-theme-anim .login-console {
+  transition: grid-template-columns 0.91s var(--ease-out-quint), gap 0.91s var(--ease-out-quint),
+    background-color 2.2s var(--ease-out-quint), box-shadow 2.2s var(--ease-out-quint) !important;
+}
+html.hbx-theme-anim .login-console .login-side {
+  transition: opacity 0.65s var(--ease-out-quint), transform 0.78s var(--ease-out-quint),
+    background-color 2.2s var(--ease-out-quint), border-color 2.2s var(--ease-out-quint) !important;
+}
+html.hbx-theme-anim .login-console .login-art,
+html.hbx-theme-anim .login-console .login-fog { transition: opacity 0.78s var(--ease-out-quint) !important; }
+html.hbx-theme-anim .login-console .login-shell { transition: opacity 0.65s var(--ease-out-quint) !important; }
 
 /* ---------- overlays (a pele dá o ritmo via --motion-base) ---------- */
 .hbx-veil { animation: hbx-enter-fade 0.2s ease both; }

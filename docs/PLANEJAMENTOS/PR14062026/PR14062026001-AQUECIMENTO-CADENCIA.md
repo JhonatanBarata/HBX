@@ -63,7 +63,7 @@ segurança"*. O passo WhatsApp da cadência exige **implantação assistida do W
 preço nova; é amarrar a cadência no plano que já promete a implantação.**
 
 - **Motivo do dono**: Lead Plus (R$99) é barato demais pra implantar WhatsApp
-  cliente-a-cliente na mão. Full (R$149,90 + setup negociado) tem acompanhamento.
+  cliente-a-cliente na mão. Full (R$349,90 + setup negociado) tem acompanhamento.
 - **Capacidade operacional atual**: dono aguenta ~20 clientes de implantação manual
   tranquilo → cap suave de onboarding Full por enquanto (não é trava de código, é
   realidade de operação; pode virar fila depois).

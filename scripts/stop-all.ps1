@@ -92,6 +92,7 @@ if (Test-Path $pidsFile) {
 
     if ($null -ne $pids) {
         Write-Host "Stopping frontend (pid=$($pids.frontend)), prisma-studio (pid=$($pids.studio)) and webwhats (pid=$($pids.webwhats)) if running..."
+        Stop-IfRunning -processId (Resolve-PidValue $pids.owner) -name 'hbx-owner'
         Stop-IfRunning -processId (Resolve-PidValue $pids.webwhats) -name 'webwhats'
         Stop-IfRunning -processId (Resolve-PidValue $pids.studio) -name 'prisma-studio'
         Stop-IfRunning -processId (Resolve-PidValue $pids.frontend) -name 'frontend'
@@ -128,7 +129,7 @@ if ($shouldStopEngines) {
 
 # Ports used by Webwhats, frontend (Next) and Prisma Studio
 # Ensure any remaining Node processes on these ports are stopped (be conservative)
-$ports = @(8080,3001,5555)
+$ports = @(8080,3001,5555,3107)
 foreach ($p in $ports) {
     Write-Host "Checking for processes listening on port $p ..."
     try {
