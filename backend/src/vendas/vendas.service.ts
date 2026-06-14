@@ -6988,6 +6988,88 @@ export class VendasService {
     };
   }
 
+  // Intake de lead vindo de anúncio (Meta Lead Ads e afins). Reusa o caminho
+  // oficial de criação/dedup do CRM (normaliza telefone, deduplica, cria perfil e
+  // timeline) e carimba origem + temperatura "quente" por cima. O lead já cai
+  // atribuído ao responsável de anúncio. PR14062026013.
+  async intakeAdvertisingLead(input: {
+    companyId: number;
+    assignedUserId: number;
+    name?: string | null;
+    phone?: string | null;
+    email?: string | null;
+    city?: string | null;
+    state?: string | null;
+    segment?: string | null;
+    shortNote?: string | null;
+    source?: string;
+    temperature?: string;
+    opportunityScore?: number | null;
+  }): Promise<{ leadId: string; action: string; reusedExisting: boolean }> {
+    const source = String(input.source || 'meta_lead_ads').trim() || 'meta_lead_ads';
+    const temperature = String(input.temperature || 'quente').trim() || 'quente';
+    const assignedUserId = Number(input.assignedUserId || 0) || 0;
+
+    const result: any = await this.createOrUpdateLead({
+      companyId: input.companyId,
+      userId: assignedUserId,
+      sourceType: 'manual',
+      name: input.name ?? null,
+      phone: input.phone ?? null,
+      email: input.email ?? null,
+      city: input.city ?? null,
+      state: input.state ?? null,
+      segment: input.segment ?? null,
+      shortNote: input.shortNote ?? null,
+      status: 'novo',
+      nextAction: 'Atender lead de anúncio',
+      assignedUserId: assignedUserId || null,
+      assignedByUserId: assignedUserId || null,
+      opportunityScore: input.opportunityScore ?? 80,
+    });
+
+    const leadId = String(result?.lead?.id || '');
+    if (leadId) {
+      await this.stampAdvertisingOrigin(leadId, source, temperature, assignedUserId);
+    }
+    return {
+      leadId,
+      action: String(result?.action || 'created'),
+      reusedExisting: Boolean(result?.reusedExisting),
+    };
+  }
+
+  private async stampAdvertisingOrigin(leadId: string, source: string, temperature: string, userId: number) {
+    const data: any = { primarySource: source, leadTemperature: temperature };
+    try {
+      await this.prisma.vendasLead.update({ where: { id: leadId }, data });
+    } catch {
+      // Coluna leadTemperature pode ainda não existir (migration não aplicada);
+      // grava ao menos a origem e segue.
+      try {
+        await this.prisma.vendasLead.update({ where: { id: leadId }, data: { primarySource: source } });
+      } catch {
+        // best-effort: o lead já existe; o carimbo de origem não é crítico.
+      }
+    }
+    try {
+      await this.prisma.vendasLeadTimelineEvent.create({
+        data: {
+          leadId,
+          ...this.buildTimelineEvent({
+            eventType: 'ad_lead_intake',
+            title: 'Lead veio de anúncio',
+            description: 'Lead capturado por anúncio (Meta Lead Ads). Entrou quente para atendimento imediato.',
+            sourceType: source,
+            createdByUserId: userId || undefined,
+          }),
+        },
+      });
+    } catch {
+      // timeline é best-effort no intake.
+    }
+  }
+
   async previewWebscrapingImportForUser(user: any, dto: ImportWebscrapingLeadsDto) {
     const context = await this.resolveVendasUserContext(user);
     this.assertCanReadVendasCards(context);

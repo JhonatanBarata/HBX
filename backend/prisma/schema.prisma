@@ -93,6 +93,11 @@ model Company {
   // Régua única (PR13062026007 P1): molho de ACESSO do cargo Vendedor (1 por
   // empresa). USER resolve daqui (não mais por-usuário). JSON de chaves de módulo.
   sellerCargoAccessJson   String?
+  // RAMO da empresa (dono, 14/06/2026): segmento(s)-alvo que a empresa quer
+  // PROSPECTAR (não é o ramo do próprio negócio). Perguntado no primeiro login do
+  // dono. Vira filtro padrão do Radar/Leads e desempata o que cada empresa vê
+  // primeiro — a lagoa é COMPARTILHADA, o "não repetir" é por empresa. JSON de strings.
+  prospectingSegmentsJson String?
   // Régua única (PR13062026007 PF3): "Central de Implantação" do Full. Registro do
   // master do que foi acordado com este cliente (NÃO fia em cobrança/comissão sozinho
   // — isso é passo de dinheiro separado). setupValue = implantação (one-time);

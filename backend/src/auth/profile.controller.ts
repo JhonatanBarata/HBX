@@ -48,6 +48,23 @@ export function sanitizeUser(user: any, masterContext?: any) {
   // Régua única (PR13062026007 P3): "gerente pra baixo ninguém vê o vínculo
   // HBX×contratante" — só Dono e Master. Gerente = ADMIN com canViewBilling=false.
   const billingAudience = Boolean(user.isSystemMaster) || (role === 'ADMIN' && user.canViewBilling !== false);
+  // Ramo-alvo da empresa (dono, 14/06/2026): segmento(s) que a empresa quer
+  // prospectar. Lista vazia + dono (ADMIN dono, não gerente, não vendedor, não
+  // master) ⇒ portão pergunta no primeiro login.
+  const companyProspectingSegments = (() => {
+    try {
+      const parsed = JSON.parse(String(user.company?.prospectingSegmentsJson || '[]'));
+      return Array.isArray(parsed) ? parsed.map((s: any) => String(s || '').trim()).filter(Boolean) : [];
+    } catch {
+      return [] as string[];
+    }
+  })();
+  const ramoPending =
+    role === 'ADMIN' &&
+    !user.isSystemMaster &&
+    user.canViewBilling !== false &&
+    Boolean(user.company) &&
+    companyProspectingSegments.length === 0;
   return {
     id: user.id,
     username: user.username,
@@ -60,8 +77,10 @@ export function sanitizeUser(user: any, masterContext?: any) {
     canViewBilling: billingAudience,
     mustChangePassword: Boolean(user.mustChangePassword),
     // Boas-vindas (primeiro acesso): true = ainda não viu/dispensou o tutorial.
-    // O portão (AuthGate) mostra senha → tutorial e repete a cada login até resolver.
+    // O portão (AuthGate) mostra senha → RAMO → tutorial e repete a cada login até resolver.
     tutorialPending: !user.tutorialCompletedAt,
+    // Ramo-alvo: só o dono define. true ⇒ portão pergunta antes do tutorial.
+    ramoPending,
     sellerProfile: {
       isReferralSeller,
       isCommonSeller: role === 'USER' && !isReferralSeller && !user.isSystemMaster,
@@ -82,6 +101,8 @@ export function sanitizeUser(user: any, masterContext?: any) {
           companyKind: resolveCompanyKind(user.company),
           isTenant: isTenantCompany(user.company),
           isPlatformInfra: isPlatformInfraCompany(user.company),
+          // Ramo-alvo da empresa (default do Radar/Leads). Lista vazia = não definido.
+          prospectingSegments: companyProspectingSegments,
           accessReleased: companyAccess ? companyAccess.canUse : null,
           accessState: billingAudience && companyAccess ? companyAccess.state : null,
           accessStateLabel: billingAudience && companyAccess ? companyAccess.statusLabel : null,

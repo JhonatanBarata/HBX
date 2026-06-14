@@ -33,6 +33,7 @@ import { TeamModule } from './team/team.module';
 import { MasterProvisioningModule } from './master-provisioning/master-provisioning.module';
 import { TenantCommunicationModule } from './tenant-communication/tenant-communication.module';
 import { NightFactoryModule } from './night-factory/night-factory.module';
+import { MetaLeadAdsModule } from './meta-lead-ads/meta-lead-ads.module';
 
 @Module({
   imports: [
@@ -73,6 +74,7 @@ import { NightFactoryModule } from './night-factory/night-factory.module';
     MasterProvisioningModule,
     TenantCommunicationModule,
     NightFactoryModule,
+    MetaLeadAdsModule,
     AdminModule,
   ],
   controllers: [AppController],

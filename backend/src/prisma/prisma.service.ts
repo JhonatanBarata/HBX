@@ -80,6 +80,12 @@ const RUNTIME_SCHEMA_ENSURES: RuntimeSchemaEnsureDefinition[] = [
     shouldBecomeMigration: true,
   },
   {
+    key: 'company-prospecting-segments-column',
+    method: 'ensureCompanyProspectingSegmentsColumn',
+    target: 'Company.prospectingSegmentsJson (ramo-alvo do dono — primeiro login 14/06)',
+    shouldBecomeMigration: true,
+  },
+  {
     key: 'plan-module-config-table',
     method: 'ensurePlanModuleConfigTable',
     target: 'PlanModuleConfig table (módulos padrões por plano — PR13062026007)',
@@ -446,6 +452,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     await this.runRuntimeSchemaEnsure('company-commission-settings-columns', () => this.ensureCompanyCommissionSettingsColumns());
     await this.runRuntimeSchemaEnsure('regua-cargo-access-columns', () => this.ensureReguaCargoAccessColumns());
     await this.runRuntimeSchemaEnsure('user-tutorial-onboarding-column', () => this.ensureTutorialOnboardingColumn());
+    await this.runRuntimeSchemaEnsure('company-prospecting-segments-column', () => this.ensureCompanyProspectingSegmentsColumn());
     await this.runRuntimeSchemaEnsure('plan-module-config-table', () => this.ensurePlanModuleConfigTable());
     await this.runRuntimeSchemaEnsure('vendas-automation-triagem-columns', () => this.ensureVendasAutomationTriagemColumns());
     await this.runRuntimeSchemaEnsure('user-sales-profile-columns', () => this.ensureUserSalesProfileColumns());
@@ -572,6 +579,15 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     await this.$executeRawUnsafe(`
       ALTER TABLE "User"
       ALTER COLUMN "tutorialCompletedAt" DROP DEFAULT
+    `);
+  }
+
+  // Ramo-alvo da empresa (dono, 14/06): coluna nullable simples. Empresas
+  // existentes ficam NULL → o portão pergunta no próximo login do dono.
+  private async ensureCompanyProspectingSegmentsColumn() {
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "Company"
+      ADD COLUMN IF NOT EXISTS "prospectingSegmentsJson" TEXT
     `);
   }
 
