@@ -1166,7 +1166,17 @@ export class RadarCorePresentationMixin {
     return poolTable && stateTable && statusColumn;
   }
 
+  private radarExclusiveOwnershipEnabled() {
+    // MODELO DO DONO (14/06/2026): a lagoa do Radar é COMPARTILHADA por padrão — um
+    // card que a empresa A puxa CONTINUA disponível para a empresa B. O "não repetir"
+    // é POR EMPRESA (RadarLeadCompanyState / companyStates.none), nunca posse exclusiva
+    // de 1 dono por card. A posse exclusiva (single-owner) só volta com
+    // RADAR_EXCLUSIVE_OWNERSHIP=true (rede de segurança, não o padrão).
+    return String(process.env.RADAR_EXCLUSIVE_OWNERSHIP || '').trim().toLowerCase() === 'true';
+  }
+
   private async supportsRadarOwnershipPersistence() {
+    if (!this.radarExclusiveOwnershipEnabled()) return false;
     if (!(await this.supportsRadarPersistence())) return false;
     const [ownerColumn, claimedColumn] = await Promise.all([
       this.prisma.hasColumn('RadarLeadPool', 'ownerCompanyId'),

@@ -1880,10 +1880,17 @@ export class RadarCoreDeliveryMixin {
   // (pullRadarLeadsForUser) seguem vivos e intocados.
   async pullRadarLeadsToVendasForUser(user: any, input: RadarFiltersInput = {}) {
     const context = this.resolveContext(user);
-    if (!this.isCompanySellerUser(user)) {
-      throw new ForbiddenException('Apenas o vendedor puxa cards para a propria carteira.');
+    // Modelo PULL (dono, 14/06/2026): quem puxa card para a própria carteira é o
+    // vendedor OU o admin/dono (que também trabalha leads). O "transferir p/ vendedor"
+    // (push) deixou de ser o caminho — por isso o admin precisa puxar igual ao vendedor.
+    const isSeller = this.isCompanySellerUser(user);
+    const isAdmin = this.canUseWebscrapingRole(user);
+    if (!isSeller && !isAdmin) {
+      throw new ForbiddenException('Sem permissão para puxar cards do Radar.');
     }
-    await this.assertSellerTeamPolicyAccess(user, 'radar.cards.pull', 'Puxar cards do Radar esta bloqueado pela politica da equipe.');
+    if (isSeller) {
+      await this.assertSellerTeamPolicyAccess(user, 'radar.cards.pull', 'Puxar cards do Radar esta bloqueado pela politica da equipe.');
+    }
     if (!this.vendasService) {
       throw new ServiceUnavailableException('Servico de Vendas indisponivel para puxar cards.');
     }
