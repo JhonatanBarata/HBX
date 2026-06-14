@@ -1,4 +1,4 @@
-import { Body, Controller, ForbiddenException, Get, Headers, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Headers, HttpCode, Post, Query, Req } from '@nestjs/common';
 import { MetaLeadAdsService } from './meta-lead-ads.service';
 
 // Webhook público do Meta (sem JwtAuthGuard, igual aos webhooks de Mercado Pago).
@@ -20,6 +20,7 @@ export class MetaLeadAdsWebhookController {
   // Recebimento de leads. Sempre responde 200 para o Meta não re-tentar em loop;
   // o resultado do processamento vai no corpo.
   @Post()
+  @HttpCode(200)
   async receive(
     @Req() req: any,
     @Body() body: any,

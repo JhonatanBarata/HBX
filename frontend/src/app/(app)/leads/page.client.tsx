@@ -347,7 +347,16 @@ export function LeadsClient() {
     <React.Fragment>
         <div className="content">
           <div className="work">
-            {(isSeller || canDistribute) && <PuxarLeadsPanel onPulled={() => loadLeads({ page: 1 })} />}
+            {(isSeller || canDistribute) && (
+              <PuxarLeadsPanel
+                onPulled={() => loadLeads({ page: 1 })}
+                defaultSegment={
+                  (isSeller
+                    ? me?.sellerProfile?.preferredSegments?.[0]
+                    : me?.company?.prospectingSegments?.[0]) || ""
+                }
+              />
+            )}
             <KpiRow items={[
               { icon: "users", label: "Total na base", value: data ? total.toLocaleString("pt-BR") : "—", delta: "—" },
               { icon: "check", label: "Quentes (score ≥ 70)", value: data ? quentes.toLocaleString("pt-BR") : "—", delta: "—" },

@@ -166,12 +166,21 @@ type CurrentUser = {
   isSystemMaster?: boolean | null;
   // Empresa do usuário (GET /profile/current-user). null para não-master = órfão
   // de uma empresa excluída (AuthGate detecta e faz saída limpa).
-  company?: { id?: number | null; name?: string | null; slug?: string | null; contactPhone?: string | null } | null;
+  company?: {
+    id?: number | null;
+    name?: string | null;
+    slug?: string | null;
+    contactPhone?: string | null;
+    // Ramo-alvo da empresa (default do Radar/Leads) — 14/06.
+    prospectingSegments?: string[] | null;
+  } | null;
   sellerProfile?: {
     isCommonSeller?: boolean | null;
     // comissão de venda do próprio vendedor (GET /profile/current-user)
     commissionPercent?: number | null;
     sellerReferralCommissionPercent?: number | null;
+    // preferência de segmento do vendedor (default do "Puxar leads") — 14/06.
+    preferredSegments?: string[] | null;
   } | null;
 };
 

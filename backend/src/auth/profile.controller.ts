@@ -91,6 +91,16 @@ export function sanitizeUser(user: any, masterContext?: any) {
       commissionPercent: Number(user.commissionPercent || 0) || 0,
       sellerReferralCommissionPercent: Number(user.sellerReferralCommissionPercent || 0) || 0,
       referredByUserId: user.referredByUserId ?? null,
+      // Preferência de segmento do vendedor (14/06): vira o default do "Puxar leads".
+      // Estava salva no cadastro mas nunca chegava na tela — agora chega.
+      preferredSegments: (() => {
+        try {
+          const parsed = JSON.parse(String((user as any).preferredSegmentsJson || '[]'));
+          return Array.isArray(parsed) ? parsed.map((s: any) => String(s || '').trim()).filter(Boolean) : [];
+        } catch {
+          return [] as string[];
+        }
+      })(),
     },
     createdAt: user.createdAt,
     company: user.company

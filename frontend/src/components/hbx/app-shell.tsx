@@ -40,8 +40,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // Gaveta do menu no celular (data-mobile-nav no .app). No desktop o atributo
   // existe mas o CSS que reage a ele mora em @media — então não muda NADA lá.
   const [navOpen, setNavOpen] = React.useState(false);
-  // Fecha a gaveta ao navegar (clicar num item do menu troca o pathname).
-  React.useEffect(() => { setNavOpen(false); }, [pathname]);
 
   // /master tem chrome PRÓPRIO (janelas do master + topbar própria): passa direto,
   // sem o shell padrão por cima (senão viraria menu duplicado).
@@ -51,7 +49,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="app" data-mobile-nav={navOpen ? "open" : "closed"}>
-      <Sidebar active={meta.active} />
+      {/* Tocar em qualquer item do menu fecha a gaveta (o <Link> navega; o wrapper
+          é display:contents, não cria caixa nem altera o grid). No desktop é inócuo. */}
+      <div style={{ display: "contents" }} onClick={() => setNavOpen(false)}>
+        <Sidebar active={meta.active} />
+      </div>
       {/* Véu da gaveta — só renderiza aberto; no desktop é display:none (responsive.css). */}
       {navOpen && <button className="mobile-nav-veil" aria-label="Fechar menu" onClick={() => setNavOpen(false)} />}
       <div className="main">
