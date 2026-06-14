@@ -36,7 +36,7 @@ Raciocínio do dono:
 
 | # | Onde gastar | ROI | Quem paga | Estado |
 |---|---|---|---|---|
-| 1 | **Captura de intenção** (Meta/Insta Lead Ads, Google Local → lead que levantou a mão cai no Vendas/Atendimento como 🔥) | ALTÍSSIMO | **Cliente** (verba de ads) + HBX gerencia/marca up | BUILD barato (webhook Lead Ads → VendasLead) |
+| 1 | **Captura de intenção** (Meta/Insta Lead Ads, Google Local → lead que levantou a mão cai no Vendas/Atendimento como 🔥) | ALTÍSSIMO | **Cliente** (verba de ads) + HBX gerencia/marca up | ✅ **CONSTRUÍDO 14/06** (ver §A) |
 | 2 | **WhatsApp oficial (Meta Cloud API)** — template profissional, remetente verificado, sem ban; reservado a quem JÁ mostrou intenção | MÉDIO/situacional | **Cliente** (créditos pré-pagos) | BUILD (path de envio oficial gated por intenção) |
 | 3 | **Verificação "esse número atende?"** (Webwhats, já existe) — filtra número morto antes de gastar toque | ALTO (custo ~0) | HBX (infra) | JÁ EXISTE — manter/expandir |
 | 4 | **Dado pago (decisor: nome+cargo+WhatsApp do dono)** — só em B2B ticket alto, gated a lead de score alto | BAIXO | Cliente, pay-per-hit | NÃO agora (scraper + CNPJ público pega quase tudo de graça) |
@@ -99,6 +99,40 @@ marca up o gasto. O caro é dele.
 2. Confirmar: 🔥 nunca antes da cadência/intake existir.
 3. Confirmar ordem: Fase 1 (motor) antes de tocar `commercial-plan-catalog.ts`.
 4. Primeiro cano a ligar: Lead Ads intake (🔥 barato) ou carteira pré-paga? (recomendo intake)
+
+## §A. Intake de Meta Lead Ads — CONSTRUÍDO (14/06, ordem do dono "pode implantar")
+
+Módulo self-contained `backend/src/meta-lead-ads/` (não invadiu o vendas.service além de
+1 método público). Lead de anúncio entra pelo caminho oficial do CRM (dedup por telefone,
+perfil, timeline) e é carimbado `primarySource='meta_lead_ads'` + `leadTemperature='quente'`.
+
+**Arquivos:**
+- `meta-graph.client.ts` — busca o lead pelo `leadgen_id` no Graph + `mapMetaLeadFields`
+  (full_name/first+last, phone, email, city/state, com variantes pt).
+- `meta-lead-ads.service.ts` — handshake, assinatura HMAC-SHA256 (fail-closed sem secret),
+  dedupe via `ExternalWebhookLedgerService`, resolve empresa por `pageId`, fetch, intake,
+  e CRUD admin das conexões (token cifrado por `IntegrationSecretsService`).
+- `meta-lead-ads.webhook.controller.ts` — **público** (sem JWT, igual webhooks MP):
+  `GET /webhooks/meta/leadgen` (handshake) + `POST` (recebe, sempre 200).
+- `meta-lead-ads-admin.controller.ts` — `GET/POST/DELETE /integrations/meta/connections`
+  (JWT; só ADMIN da empresa, vendedor barrado).
+- `VendasService.intakeAdvertisingLead()` — reusa `createOrUpdateLead`.
+
+**Schema (aditivo):** `VendasLead.leadTemperature String?` + model `MetaLeadConnection`
+(pageId @unique → empresa, token cifrado, defaultAssignedUserId, status).
+Migration `20260614_meta_lead_ads_intake`.
+
+**Verificado 14/06:** prisma:validate ✓, build ✓, 8/8 testes (`meta-lead-ads.service.test.js`),
+migration aplicada no dev (tabela+coluna vivas), rotas no ar — handshake 403 (token errado),
+POST 200 fail-closed sem assinatura, admin 401 sem JWT.
+
+**Falta pra ligar de verdade (lado do dono, NÃO mexer em secret de prod por conta):**
+1. Env do backend: `META_APP_SECRET`, `META_VERIFY_TOKEN` (e opcional `META_GRAPH_VERSION`).
+2. No Meta: webhook do app → `https://<host>/webhooks/meta/leadgen`, campo `leadgen`,
+   mesmo verify token; inscrever a página no evento leadgen.
+3. `POST /integrations/meta/connections` (logado como ADMIN): `{ pageId, accessToken
+   (page token), defaultAssignedUserId, pageName }`.
+4. Disparar um lead de teste do formulário → cai no Vendas do vendedor como 🔥.
 
 ## Checks quando virar build
 
