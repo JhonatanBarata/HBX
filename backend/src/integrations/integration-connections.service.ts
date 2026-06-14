@@ -12,7 +12,7 @@ import {
   resolvePrimaryIntegrationSecret,
   serializeIntegrationCredentialEnvelope,
 } from './integration-credentials.util';
-import { getIntegrationProviderModel, IntegrationProviderId, normalizeIntegrationProvider } from './integration-provider.types';
+import { getIntegrationProviderModel, normalizeIntegrationProvider } from './integration-provider.types';
 import { IntegrationSecretsService } from './integration-secrets.service';
 import { TagPlusIntegrationService } from './tagplus/tagplus.integration.service';
 

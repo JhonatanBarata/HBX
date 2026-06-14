@@ -2,7 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundEx
 import { PrismaService } from '../prisma/prisma.service';
 import axios from 'axios';
 import crypto from 'crypto';
-import { AutoReplyMatchTypeDto, CreateAutoReplyRuleDto, UpdateAutoReplyRuleDto } from './dto/auto-reply.dto';
+import { CreateAutoReplyRuleDto, UpdateAutoReplyRuleDto } from './dto/auto-reply.dto';
 import { ConversationSessionsService } from './conversation-sessions.service';
 import { MessageOrchestratorService } from './message-orchestrator.service';
 import { OrderDraftsService } from './order-drafts.service';
@@ -39,7 +39,6 @@ import {
   sanitizeAtendimentoBotConfigForTenant,
   type AtendimentoAgendaConfig,
   type AtendimentoAgendaGroup,
-  type AtendimentoBotActionGuide,
   type AtendimentoBotButton,
   type AtendimentoBotConfig,
   type ProviderCapabilities,
