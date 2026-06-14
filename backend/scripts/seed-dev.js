@@ -43,8 +43,6 @@ async function main() {
       update: {
         name: companySeed.name,
         isActive: true,
-        paymentStatus: 'TRIAL',
-        subscriptionStatus: 'trialing',
         trialStartsAt: now,
         trialEndsAt,
         deactivatedAt: null,
@@ -53,8 +51,6 @@ async function main() {
         name: companySeed.name,
         slug: companySeed.slug,
         isActive: true,
-        paymentStatus: 'TRIAL',
-        subscriptionStatus: 'trialing',
         trialStartsAt: now,
         trialEndsAt,
       },
