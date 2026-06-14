@@ -18,8 +18,17 @@ type Flags = {
   name?: string | null;
   email?: string | null;
   mustChangePassword?: boolean;
+  ramoPending?: boolean;
   tutorialPending?: boolean;
 };
+
+// Ramos-alvo sugeridos no primeiro acesso do dono. Lista enxuta e genérica —
+// o dono ajusta/expande depois no Radar. Texto livre cobre o resto.
+const RAMOS_SUGERIDOS = [
+  "Clínicas e consultórios", "Odontologia", "Estética e beleza", "Academias",
+  "Oficinas e autopeças", "Restaurantes e bares", "Comércio e varejo",
+  "Imobiliárias", "Advocacia", "Contabilidade", "Pet shops", "Construção e reformas",
+];
 
 export function BoasVindasGate() {
   const [flags, setFlags] = useState<Flags | null>(null);

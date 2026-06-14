@@ -234,6 +234,28 @@ export class ProfileController {
     return { ok: true };
   }
 
+  // Ramo-alvo da empresa (primeiro acesso do dono, 14/06/2026): salva os segmentos
+  // que a empresa quer prospectar. Só o DONO (ADMIN com cobrança, não master/gerente/
+  // vendedor) define — vira filtro padrão do Radar/Leads.
+  @Post('prospecting-segments')
+  @UseGuards(JwtAuthGuard)
+  async saveProspectingSegments(@Req() req: any, @Body() body: { segments?: string[] }) {
+    const user = await this.usersService.findById(req.user.id);
+    if (!user) throw new BadRequestException('Usuario invalido');
+    const role = String(user.role || '').trim().toUpperCase();
+    if (user.isSystemMaster || role !== 'ADMIN' || (user as any).canViewBilling === false) {
+      throw new BadRequestException('Apenas o dono define o ramo da empresa.');
+    }
+    const companyId = Number((user as any).companyId || 0);
+    if (!companyId) throw new BadRequestException('Empresa nao encontrada.');
+    const segments = Array.isArray(body?.segments) ? body.segments : [];
+    if (!segments.some((s) => String(s || '').trim())) {
+      throw new BadRequestException('Escolha pelo menos um ramo.');
+    }
+    const saved = await this.usersService.saveCompanyProspectingSegments(companyId, segments);
+    return { ok: true, prospectingSegments: saved };
+  }
+
   @Patch('display-name')
   @UseGuards(JwtAuthGuard)
   async updateDisplayName(@Req() req: any, @Body() dto: UpdateDisplayNameDto) {

@@ -445,6 +445,9 @@ html, body { height: 100%; }
 .bv-field > label { font-size: 0.72rem; font-weight: 700; color: var(--text-muted); }
 .bv-row { display: flex; gap: 8px; align-items: center; }
 .bv-row .field-dark { flex: 1; }
+/* Ramo no primeiro acesso (14/06): grade de chips do kit (btn-ghost/btn-teal). */
+.bv-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.bv-chips > button { min-height: 34px; padding: 6px 12px; font-size: 0.74rem; }
 .bv-msg { font-size: 0.74rem; font-weight: 700; line-height: 1.5; }
 .bv-msg.bad { color: var(--hbx-danger); }
 .bv-foot { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding-top: 2px; }
