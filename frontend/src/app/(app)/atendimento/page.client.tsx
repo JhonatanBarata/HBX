@@ -1056,8 +1056,17 @@ export function AtendimentoClient() {
                 </div>
                 <div className="conv-list">
                   {filtered.length === 0 && (
-                    <div style={{ padding: "18px 14px", fontSize: "0.72rem", color: "var(--text-muted)" }}>
-                      {loadError || "Nenhuma conversa — conecte o WhatsApp e aguarde mensagens."}
+                    <div style={{ padding: "18px 14px", display: "grid", gap: 10, justifyItems: "start" }}>
+                      <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
+                        {loadError || (waStatus === "connected"
+                          ? "Nenhuma conversa ainda — as mensagens aparecem aqui."
+                          : "WhatsApp ainda não conectado. Vincule o número para receber e responder no Atendimento.")}
+                      </span>
+                      {!loadError && waStatus !== "connected" && (
+                        <button className="btn-teal" onClick={() => setWaModalOpen(true)}>
+                          <I d={ICONS.msg} size={13} /> Conectar WhatsApp
+                        </button>
+                      )}
                     </div>
                   )}
                   {filtered.map(c => {

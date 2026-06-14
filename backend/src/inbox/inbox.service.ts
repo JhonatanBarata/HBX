@@ -3348,7 +3348,10 @@ export class InboxService {
     },
   ) {
     const sessionScope = options?.sessionScope || await this.resolveInboxWhatsappSessionScope(companyId);
-    this.assertInboxWhatsappAccessible(sessionScope);
+    // Sem WhatsApp vinculado: lista vazia (200) em vez de 503 (mesma razao do
+    // listConversations). As linhas ja seriam filtradas por isRowVisible..., aqui
+    // e so nao gritar 503 tambem no caminho interno.
+    if (!sessionScope.accessible) return [];
     const take = this.normalizeConversationTakeLimit(options?.take, 200) || 200;
     const visibleSkip = this.normalizeConversationSkip(options?.skip);
     const queueFilter = this.normalizeConversationQueueFilter(options?.queue);
@@ -3952,7 +3955,10 @@ export class InboxService {
   ) {
     const companyId = this.requireCompanyIdFromUser(user);
     const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId);
-    this.assertInboxWhatsappAccessible(sessionScope);
+    // Sem WhatsApp vinculado: Atendimento vazio (200), NAO 503. O front mostra o
+    // estado "conecte o WhatsApp" + o modal de conexao; nada de erro gritando no
+    // console a cada load do Dashboard/Topbar/Atendimento (ordem do dono 14/06/2026).
+    if (!sessionScope.accessible) return [];
     if (
       String(sessionScope.reason || '') === 'webwhats_status_only' &&
       !sessionScope.currentSessionId
