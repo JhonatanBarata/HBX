@@ -405,7 +405,7 @@ function buildRemoteDeployScript(config, mode) {
     '  echo "Preflight runtime HBX..."',
     '  docker ps --format "table {{.Names}}\\t{{.Status}}\\t{{.Ports}}" | grep -E "NAMES|hbx-backend|hbx-postgres" || true',
     '  if ! docker inspect -f "{{.State.Running}}" hbx-postgres 2>/dev/null | grep -q true; then echo "ERRO: hbx-postgres nao esta running antes do deploy."; exit 1; fi',
-    '  if ! docker inspect -f "{{.State.Running}}" hbx-backend 2>/dev/null | grep -q true; then echo "ERRO: hbx-backend nao esta running antes do deploy. Abortando para evitar deploy sobre API offline."; exit 1; fi',
+    '  if ! docker inspect -f "{{.State.Running}}" hbx-backend 2>/dev/null | grep -q true; then echo "Aviso: hbx-backend nao esta running antes do deploy; seguindo em modo recuperacao para reconstruir a API."; return 0; fi',
     '  echo "Preflight rapido: containers essenciais running; sem chamada HTTP."',
     '}',
     'final_runtime_summary() {',

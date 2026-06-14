@@ -37,6 +37,11 @@ const META: Record<string, Meta> = {
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || "";
+  // Gaveta do menu no celular (data-mobile-nav no .app). No desktop o atributo
+  // existe mas o CSS que reage a ele mora em @media — então não muda NADA lá.
+  const [navOpen, setNavOpen] = React.useState(false);
+  // Fecha a gaveta ao navegar (clicar num item do menu troca o pathname).
+  React.useEffect(() => { setNavOpen(false); }, [pathname]);
 
   // /master tem chrome PRÓPRIO (janelas do master + topbar própria): passa direto,
   // sem o shell padrão por cima (senão viraria menu duplicado).
@@ -45,10 +50,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const meta = META[pathname] || { active: "", title: "HBX", crumbs: crumb("HBX") };
 
   return (
-    <div className="app">
+    <div className="app" data-mobile-nav={navOpen ? "open" : "closed"}>
       <Sidebar active={meta.active} />
+      {/* Véu da gaveta — só renderiza aberto; no desktop é display:none (responsive.css). */}
+      {navOpen && <button className="mobile-nav-veil" aria-label="Fechar menu" onClick={() => setNavOpen(false)} />}
       <div className="main">
-        <Topbar title={meta.title} crumbs={meta.crumbs} />
+        <Topbar title={meta.title} crumbs={meta.crumbs} onMenu={() => setNavOpen(o => !o)} />
         <div className="app-page" key={pathname}>{children}</div>
       </div>
       {/* Tour guiado (coachmark) — vive aqui pra sobreviver à navegação entre

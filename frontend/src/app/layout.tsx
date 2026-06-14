@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 
 import "./globals.css";
 
@@ -7,6 +7,15 @@ import { ThemeAttributes } from "@/components/hbx/theme-attributes";
 export const metadata: Metadata = {
   title: "HBX System",
   description: "Radar → Vendas → WhatsApp → Retorno",
+};
+
+// Viewport mobile: encaixa em telas com notch (viewport-fit=cover) e mantém
+// o zoom liberado (acessibilidade). width/initial-scale o Next já injeta; aqui
+// só reforçamos + cover. Não muda nada no desktop.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 // Boot de PELE antes da pintura (sem flash) — espelho de

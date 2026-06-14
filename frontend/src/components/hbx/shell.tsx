@@ -582,7 +582,7 @@ async function fetchUnreadChatsCached(): Promise<number> {
   return count;
 }
 
-export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNode }) {
+export function Topbar({ title, crumbs, onMenu }: { title: string; crumbs: React.ReactNode; onMenu?: () => void }) {
   const user = useCurrentUser();
   const ent = useEntitlements();
   const mods = useMyModules();
@@ -640,7 +640,7 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
 
   return (
     <header className="topbar">
-      <button className="burger" aria-label="Menu"><span></span><span></span><span></span></button>
+      <button className="burger" aria-label="Menu" onClick={onMenu}><span></span><span></span><span></span></button>
       <div className="page-id">
         <h1>{title}</h1>
         <div className="crumbs">{crumbs}</div>
