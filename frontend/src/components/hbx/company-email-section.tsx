@@ -146,6 +146,7 @@ export function CompanyEmailSection() {
   const [tplMsg, setTplMsg] = useState<string | null>(null);
   const [novoOpen, setNovoOpen] = useState(false);
   const [novoLabel, setNovoLabel] = useState("");
+  const [varsOpen, setVarsOpen] = useState(false);
   const [removerArm, setRemoverArm] = useState(false);
   const [restoreArm, setRestoreArm] = useState(false);
   const textRef = useRef<HTMLTextAreaElement | null>(null);
@@ -432,14 +433,9 @@ export function CompanyEmailSection() {
           <div style={{ padding: 18, display: "grid", gap: 12 }}>
             {atual ? (
               <React.Fragment>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-                  <span style={lbl}>Variáveis (clique para inserir):</span>
-                  {(atual.variableDefinitions || []).map(v => (
-                    <button key={v.key} className="btn-ghost" style={{ minHeight: 24, padding: "0 8px", fontSize: "0.62rem", fontFamily: "var(--font-mono)" }}
-                      title={`${GROUP_LABEL[v.group] || v.group} — ${v.description}`} onClick={() => inserirVariavel(v.token)}>
-                      {v.token}
-                    </button>
-                  ))}
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                  <button className="btn-ghost" onClick={() => setVarsOpen(true)} title="Inserir variável no corpo">Variáveis</button>
+                  <span style={lbl}>{(atual.variableDefinitions || []).length} disponíveis — clique para abrir</span>
                 </div>
                 {atual.requiredVariable && (
                   <span style={{ fontSize: "0.66rem", color: "var(--hbx-warning)", fontWeight: 700 }}>Este template precisa conter {atual.requiredVariable}.</span>
@@ -615,6 +611,23 @@ export function CompanyEmailSection() {
               {tplBusy ? "Criando…" : "Criar template"}
             </button>
           </form>
+        </div>
+      )}
+
+      {varsOpen && (
+        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setVarsOpen(false); }}>
+          <div className="hbx-modal" style={{ width: "min(560px, 100%)", display: "grid", gap: 12, padding: 24 }}>
+            <h3>Variáveis<span className="hbx-x" onClick={() => setVarsOpen(false)}>✕</span></h3>
+            <span style={lbl}>Clique para inserir no corpo, na posição do cursor.</span>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {(atual?.variableDefinitions || []).map(v => (
+                <button key={v.key} className="btn-ghost" style={{ minHeight: 26, padding: "0 8px", fontSize: "0.62rem", fontFamily: "var(--font-mono)" }}
+                  title={`${GROUP_LABEL[v.group] || v.group} — ${v.description}`} onClick={() => inserirVariavel(v.token)}>
+                  {v.token}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       )}
     </React.Fragment>

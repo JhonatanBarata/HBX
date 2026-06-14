@@ -90,7 +90,7 @@ export class CompanyEmailTemplateService {
   // semeia as cópias da HBX a partir do template ATUAL do Master (com as
   // personalizações dele), uma única vez; restaurar volta ao padrão do kind
   async ensureSeeded(companyId: number) {
-    if (!isHbxPlatformCompany(companyId)) return;
+    if (!(await isHbxPlatformCompany(this.prisma, companyId))) return;
     for (const kind of HBX_SEEDED_TEMPLATE_KINDS) {
       const existing = await this.prisma.companyEmailTemplate.findUnique({
         where: { companyId_kind: { companyId, kind } },

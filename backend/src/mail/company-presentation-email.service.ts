@@ -179,8 +179,15 @@ export class CompanyPresentationEmailService {
       },
     ];
     if (businessCardFile) {
+      const businessCardName = businessCardFile.meta.originalName || 'cartao-visitas.png';
+      // O cartão vai DUAS vezes: como anexo de verdade (paperclip) e inline (CID) na assinatura do HTML.
       attachments.push({
-        filename: businessCardFile.meta.originalName || 'cartao-visitas.png',
+        filename: businessCardName,
+        content: businessCardFile.content,
+        contentType: businessCardFile.contentType,
+      });
+      attachments.push({
+        filename: businessCardName,
         content: businessCardFile.content,
         contentType: businessCardFile.contentType,
         cid: BUSINESS_CARD_CID,

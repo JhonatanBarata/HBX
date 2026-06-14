@@ -10,7 +10,6 @@ import { Type } from 'class-transformer';
 import { IsBoolean, IsEmail, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
 import * as bcrypt from 'bcryptjs';
 import { assertPasswordPolicy } from '../auth/password-policy';
-import { isHbxPlatformCompany } from '../common/hbx-platform-company';
 import { MasterContextService } from '../master-context/master-context.service';
 import { ModuleAccessGuard } from '../modules/module-access.guard';
 import { ModuleAccess } from '../modules/module-feature.decorator';
@@ -597,7 +596,7 @@ export class UsersController {
 		}
 		const settings = await this.companyEmailSettings.getRaw(companyId);
 		const templateKind = String(settings?.welcomeTemplateKind || '').trim()
-			|| (isHbxPlatformCompany(companyId) ? 'seller_welcome' : '');
+			|| (await this.companyEmailSettings.isHbxSharedCompany(companyId) ? 'seller_welcome' : '');
 		if (!templateKind) {
 			return {
 				ok: false,

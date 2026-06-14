@@ -167,6 +167,30 @@ export class GerencialController {
     return this.sellerOnboardingService.updateContractTemplate(Number(req.user?.companyId), dto || {});
   }
 
+  @Get('hbx-partners/onboarding/company-signature')
+  @UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
+  @Admin()
+  @ModuleAccess('gerencial')
+  async getSellerOnboardingCompanySignature(@Req() req: any) {
+    return this.sellerOnboardingService.getCompanySignature(Number(req.user?.companyId));
+  }
+
+  @Post('hbx-partners/onboarding/company-signature')
+  @UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
+  @Admin()
+  @ModuleAccess('gerencial')
+  async saveSellerOnboardingCompanySignature(@Req() req: any, @Body() dto: any) {
+    return this.sellerOnboardingService.saveCompanySignature(Number(req.user?.companyId), dto?.dataUrl);
+  }
+
+  @Delete('hbx-partners/onboarding/company-signature')
+  @UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
+  @Admin()
+  @ModuleAccess('gerencial')
+  async deleteSellerOnboardingCompanySignature(@Req() req: any) {
+    return this.sellerOnboardingService.deleteCompanySignature(Number(req.user?.companyId));
+  }
+
   @Get('hbx-partners/:userId/onboarding')
   @UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
   @Admin()
@@ -318,6 +342,14 @@ export class GerencialController {
   @Throttle({ default: { limit: 10, ttl: 60 } })
   async completePublicSellerOnboarding(@Body() dto: any) {
     return this.sellerOnboardingService.completePublicOnboarding(dto?.token);
+  }
+
+  @Post('hbx-partners/onboarding/public/sign')
+  @Throttle({ default: { limit: 10, ttl: 60 } })
+  async signPublicSellerOnboardingContract(@Req() req: any, @Body() dto: any) {
+    const fwd = String(req.headers?.['x-forwarded-for'] || '').split(',')[0]?.trim();
+    const ip = fwd || req.ip || req.socket?.remoteAddress || '-';
+    return this.sellerOnboardingService.signContractPublic(dto?.token, dto || {}, ip);
   }
 
   @Post('hbx-partners/onboarding/purge-expired-attachments')

@@ -98,9 +98,13 @@ test('sendPresentationForCompany envia pelo mailer da empresa com anexos da empr
   assert.equal(message.cc, undefined);
   assert.equal(message.replyTo, 'responder@empresa.com');
   assert.equal(message.subject, 'Apresentação para Maria Souza');
-  assert.equal(message.attachments.length, 2);
+  assert.equal(message.attachments.length, 3);
   assert.equal(message.attachments[0].filename, 'apresentacao-empresa.pptx');
-  assert.equal(message.attachments[1].cid, 'hbx-business-card');
+  // cartão vai como anexo de verdade (paperclip, sem cid) e também inline (cid) na assinatura
+  assert.equal(message.attachments[1].filename, 'cartao-empresa.png');
+  assert.equal(message.attachments[1].cid, undefined);
+  assert.equal(message.attachments[2].filename, 'cartao-empresa.png');
+  assert.equal(message.attachments[2].cid, 'hbx-business-card');
 
   assert.equal(result.ok, true);
   assert.deepEqual(result.copyRecipients, []);

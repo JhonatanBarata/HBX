@@ -362,6 +362,18 @@ export function JanelaEmails() {
         <button className="btn-teal" disabled={busy} onClick={() => { setNovoOpen(true); setNovoLabel(""); }} title="Criar template">
           <I d={ICONS.plus} size={13} /> Novo
         </button>
+        {atual && atual.isSystem === false && (
+          removerArm ? (
+            <button className="btn-ghost btn-danger" disabled={busy} onClick={removerTemplate} title="Confirmar remoção">
+              <I d={ICONS.minus} size={13} /> Confirmar remoção
+            </button>
+          ) : (
+            <button className="btn-ghost btn-danger" disabled={busy} onClick={() => setRemoverArm(true)}
+              title={`Remover "${atual.label || KIND_LABEL[atual.kind] || atual.kind}"`}>
+              <I d={ICONS.minus} size={13} /> Remover
+            </button>
+          )
+        )}
         {!templates && !loadError && <span style={{ fontSize: "0.74rem", color: "var(--text-muted)" }}>Carregando templates…</span>}
       </div>
 
@@ -371,16 +383,12 @@ export function JanelaEmails() {
             <div className="panel-head">
               <h2>{atual.label || KIND_LABEL[atual.kind] || atual.kind}</h2>
               <div className="meta">
-                {atual.isSystem === false ? (
-                  removerArm ? (
-                    <button className="btn-ghost btn-danger" disabled={busy} onClick={removerTemplate}>Confirmar remoção</button>
+                {atual.isSystem !== false && (
+                  restoreArm ? (
+                    <button className="btn-ghost btn-danger" disabled={busy} onClick={restaurar}>Confirmar restauração</button>
                   ) : (
-                    <button className="btn-ghost btn-danger" disabled={busy} onClick={() => setRemoverArm(true)}>Remover</button>
+                    <button className="btn-ghost" disabled={busy} onClick={() => setRestoreArm(true)}>Restaurar padrão</button>
                   )
-                ) : restoreArm ? (
-                  <button className="btn-ghost btn-danger" disabled={busy} onClick={restaurar}>Confirmar restauração</button>
-                ) : (
-                  <button className="btn-ghost" disabled={busy} onClick={() => setRestoreArm(true)}>Restaurar padrão</button>
                 )}
                 <button className="btn-teal" disabled={busy || !dirty} onClick={salvar}>{busy ? "Salvando…" : "Salvar"}</button>
               </div>

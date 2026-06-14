@@ -1,5 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { isHbxPlatformCompany } from '../common/hbx-platform-company';
 import { CompanyEmailSettingsService } from './company-email-settings.service';
 import { MailAttachment, MailSendResult, MailService } from './mail.service';
 
@@ -32,14 +31,14 @@ export class CompanyMailerService {
 
   async isReadyForCompany(companyId: number) {
     const settings = await this.settingsService.getRaw(companyId);
-    const sender = this.settingsService.buildSenderSummary(companyId, settings);
+    const sender = await this.settingsService.buildSenderSummary(companyId, settings);
     const enabled = Boolean(settings?.enabled);
     return { enabled, ready: sender.ready, usable: enabled && sender.ready, sender };
   }
 
   async sendForCompany(companyId: number, message: CompanyMailMessage): Promise<MailSendResult> {
     const settings = await this.settingsService.getRaw(companyId);
-    const sender = this.settingsService.buildSenderSummary(companyId, settings);
+    const sender = await this.settingsService.buildSenderSummary(companyId, settings);
 
     if (!settings?.enabled || !sender.ready) {
       return {
@@ -57,7 +56,7 @@ export class CompanyMailerService {
       };
     }
 
-    if (isHbxPlatformCompany(companyId)) {
+    if (await this.settingsService.isHbxSharedCompany(companyId)) {
       // único privilégio do HBX admin: o transporte do Master
       return this.mailService.sendMail({
         to: message.to,

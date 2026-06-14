@@ -24,6 +24,12 @@
    (`kit.css`: panels, botões, campos, tabelas, overlays `.hbx-veil/.hbx-modal/
    .hbx-pop/.hbx-drawer`…) ou utility. Estrutura por-tela vive em
    `screens.css`. Nunca se repete visual em tela.
+   - **Pop-up = SEMPRE no centro, pela central.** `.hbx-veil` já centraliza
+     (`position:fixed; inset:0; grid; place-items:center; padding; z-index`).
+     TODA tela só põe `className="hbx-veil"` + `.hbx-modal` e dimensiona a
+     moldura (width). É PROIBIDO re-centralizar, re-posicionar ou re-empilhar
+     (`z-index`) inline na tela. Pop-up fora do centro / "não aparece" = a tela
+     está furando isto — o conserto é na classe central, NUNCA na página.
 3. **Tema SÓ troca tokens (+ camada de vestir).** Pele nova =
    `theme-<nome>.css` (tokens claro/escuro + reestilo visual das classes
    centrais, tudo sob `[data-theme="nome"]`) + import no `globals.css` +

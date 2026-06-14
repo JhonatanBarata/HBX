@@ -40,6 +40,7 @@ export const ICONS: Record<string, string[]> = {
   check: ["M20 6 9 17l-5-5"],
   money: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z", "M12 7v10M15 9.5c0-1.1-1.3-2-3-2s-3 .9-3 2 1 1.8 3 2.2 3 1.1 3 2.3-1.3 2-3 2-3-.9-3-2"],
   plus: ["M12 5v14M5 12h14"],
+  minus: ["M5 12h14"],
   clock: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z", "M12 7v5l3 2"],
   filter: ["M4 5h16l-6.5 7.5V19l-3 2v-8.5z"],
   send: ["m4 12 16-7-4 16-4.5-6.5z", "M20 5 11.5 14.5"],
@@ -130,6 +131,9 @@ type CurrentUser = {
   userKind?: string | null;
   role?: string | null;
   isSystemMaster?: boolean | null;
+  // Empresa do usuário (GET /profile/current-user). null para não-master = órfão
+  // de uma empresa excluída (AuthGate detecta e faz saída limpa).
+  company?: { id?: number | null } | null;
   sellerProfile?: {
     isCommonSeller?: boolean | null;
     // comissão de venda do próprio vendedor (GET /profile/current-user)

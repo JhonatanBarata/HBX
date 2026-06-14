@@ -209,6 +209,20 @@ export function GerenciarVendedorModal({ member, isSelf, team = [], onClose, onC
     }
   }
 
+  async function removerAnexo(att: OnboardingAttachment) {
+    if (busy) return;
+    setBusy(`remover:${att.id}`);
+    setMsg(null);
+    try {
+      await apiFetch(`/gerencial/hbx-partners/${member.id}/onboarding/attachments/${encodeURIComponent(att.id)}`, { method: "DELETE" });
+      await carregarOnboarding();
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : "Não foi possível remover o anexo.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const nomeMembro = member.name || member.username || member.email || `Usuário ${member.id}`;
   const ativo = member.isActive !== false;
   const anexos = (onboarding?.attachments || []).filter(a => a.status !== "deleted");
@@ -364,10 +378,14 @@ export function GerenciarVendedorModal({ member, isSelf, team = [], onClose, onC
                           </span>
                         </div>
                         {anexo && (
-                          <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.66rem" }} disabled={busy !== null}
-                            onClick={() => baixarAnexo(anexo)}>
-                            {busy === `baixar:${anexo.id}` ? "Baixando…" : "Baixar"}
-                          </button>
+                          <React.Fragment>
+                            <button className="btn-ghost btn-xs" disabled={busy !== null} onClick={() => baixarAnexo(anexo)}>
+                              {busy === `baixar:${anexo.id}` ? "Baixando…" : "Baixar"}
+                            </button>
+                            <button className="btn-ghost btn-danger btn-xs" disabled={busy !== null} onClick={() => removerAnexo(anexo)}>
+                              {busy === `remover:${anexo.id}` ? "Removendo…" : "Remover"}
+                            </button>
+                          </React.Fragment>
                         )}
                       </div>
                     );
@@ -380,16 +398,20 @@ export function GerenciarVendedorModal({ member, isSelf, team = [], onClose, onC
                           {anexoPorKind.get("generated_contract")?.originalFilename || "gerado pelo sistema"}
                         </span>
                       </div>
-                      <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.66rem" }} disabled={busy !== null}
+                      <button className="btn-ghost btn-xs" disabled={busy !== null}
                         onClick={() => baixarAnexo(anexoPorKind.get("generated_contract")!)}>
                         {busy === `baixar:${anexoPorKind.get("generated_contract")!.id}` ? "Baixando…" : "Baixar"}
+                      </button>
+                      <button className="btn-ghost btn-danger btn-xs" disabled={busy !== null}
+                        onClick={() => removerAnexo(anexoPorKind.get("generated_contract")!)}>
+                        {busy === `remover:${anexoPorKind.get("generated_contract")!.id}` ? "Removendo…" : "Remover"}
                       </button>
                     </div>
                   )}
                 </div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <button className="btn-ghost" onClick={gerarContrato} disabled={busy !== null}>
-                    {busy === "contrato" ? "Gerando…" : "Gerar contrato PDF"}
+                    {busy === "contrato" ? "Gerando…" : "Gerar contrato LINK"}
                   </button>
                   {emailUsable ? (
                     <button className="btn-ghost" onClick={solicitarDocumentos} disabled={busy !== null}>

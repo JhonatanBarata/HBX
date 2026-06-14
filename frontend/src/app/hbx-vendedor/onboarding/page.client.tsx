@@ -11,10 +11,11 @@
 // Ao completar os obrigatórios e Enviar, o e-mail é confirmado — o usuário e
 // a senha chegam depois, quando o admin liberar o acesso (boas-vindas).
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { AuthSplit } from "@/components/hbx/auth-split";
+import { SignaturePad, type SignaturePadHandle } from "@/components/hbx/signature-pad";
 import { apiFetch } from "@/lib/api";
 
 type PublicDocument = {
@@ -31,6 +32,7 @@ type PublicOnboarding = {
   documents?: PublicDocument[];
   documentsComplete?: boolean;
   emailConfirmed?: boolean;
+  contract?: { text?: string; companySignature?: string | null; signed?: boolean };
   message?: string | null;
 } | null;
 
@@ -42,6 +44,11 @@ export function SellerOnboardingClient() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busyKind, setBusyKind] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [cpf, setCpf] = useState("");
+  const [aceito, setAceito] = useState(false);
+  const [copia, setCopia] = useState(false);
+  const [assinando, setAssinando] = useState(false);
+  const padRef = useRef<SignaturePadHandle | null>(null);
 
   useEffect(() => {
     if (!token) return;
@@ -109,6 +116,29 @@ export function SellerOnboardingClient() {
     }
   }
 
+  async function assinar() {
+    if (assinando) return;
+    if (padRef.current?.isEmpty()) { setError("Desenhe sua assinatura antes de assinar."); return; }
+    if (!aceito) { setError("Marque que leu e aceita os termos do contrato."); return; }
+    const cpfDigits = cpf.replace(/\D/g, "");
+    if (cpfDigits.length !== 11) { setError("Informe um CPF válido (11 dígitos)."); return; }
+    const signatureDataUrl = padRef.current?.toDataUrl() || null;
+    setAssinando(true);
+    setError(null);
+    try {
+      await apiFetch("/gerencial/hbx-partners/onboarding/public/sign", {
+        method: "POST",
+        body: JSON.stringify({ token, signatureDataUrl, cpf: cpfDigits, accepted: true, wantsCopy: copia }),
+      });
+      const res = await apiFetch<PublicOnboarding>(`/gerencial/hbx-partners/onboarding/public?token=${encodeURIComponent(token)}`);
+      setEstado(res);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível assinar o contrato.");
+    } finally {
+      setAssinando(false);
+    }
+  }
+
   const documentos = estado?.documents || [];
   const confirmado = Boolean(estado?.emailConfirmed);
   const completo = Boolean(estado?.documentsComplete);
@@ -169,6 +199,43 @@ export function SellerOnboardingClient() {
                 <p className="sub" style={{ margin: 0 }}>Nenhum documento obrigatório pendente neste link.</p>
               )}
             </div>
+
+            {estado.contract?.text && (
+              <div style={{ display: "grid", gap: 8 }}>
+                <h3>Contrato de parceria</h3>
+                {estado.contract.signed ? (
+                  <div className="ok show">✓ Contrato assinado. Obrigado!</div>
+                ) : (
+                  <>
+                    <div className="doc-slot" style={{ maxHeight: 220, overflow: "auto", whiteSpace: "pre-wrap" }}>
+                      {estado.contract.text}
+                    </div>
+                    {estado.contract.companySignature && (
+                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        <p className="sub" style={{ margin: 0 }}>Assinatura HBX:</p>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={estado.contract.companySignature} alt="Assinatura HBX" style={{ height: 38, width: "auto" }} />
+                      </div>
+                    )}
+                    <p className="sub" style={{ margin: 0 }}>Desenhe sua assinatura abaixo:</p>
+                    <SignaturePad ref={padRef} />
+                    <input className="field-dark" inputMode="numeric" maxLength={14} placeholder="Seu CPF (só números)"
+                      value={cpf} onChange={e => setCpf(e.target.value)} />
+                    <label style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                      <input type="checkbox" checked={aceito} onChange={e => setAceito(e.target.checked)} />
+                      <span>Li e aceito os termos do contrato acima.</span>
+                    </label>
+                    <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <input type="checkbox" checked={copia} onChange={e => setCopia(e.target.checked)} />
+                      <span>Gostaria de receber uma cópia por e-mail.</span>
+                    </label>
+                    <button className="btn-teal" type="button" disabled={assinando || busyKind !== null} onClick={assinar} style={{ minHeight: 42 }}>
+                      {assinando ? "Assinando…" : "Assinar contrato"}
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
 
             {(estado.message || error) && (
               <div className="ok show" style={error ? { borderColor: "color-mix(in srgb, var(--hbx-danger) 30%, transparent)", background: "color-mix(in srgb, var(--hbx-danger) 8%, transparent)", color: "var(--hbx-danger)" } : {}}>

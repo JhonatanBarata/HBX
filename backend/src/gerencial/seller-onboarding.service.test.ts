@@ -236,7 +236,10 @@ test('sendOnboardingEmail envia com arquivo, agenda limpeza e nao ativa parceiro
     assert.deepEqual(result.missingRequiredAttachments, []);
     assert.equal(state.mailInput.to, 'parceiro@example.com');
     assert.equal(state.mailInput.cc, 'arquivo@example.com');
-    assert.equal(state.mailInput.attachments.length, 3);
+    // O contrato gerado NÃO vai mais como anexo (vai pelo LINK de assinatura, pra
+    // não cair no spam/bloqueio do Outlook) — só os documentos reais seguem
+    // anexados: photo_id + contract_pdf = 2 (generated_contract é pulado).
+    assert.equal(state.mailInput.attachments.length, 2);
     assert.equal(state.userUpdateData, null);
     assert.equal(state.onboardingUpdateData.emailStatus, 'sent');
     assert.equal(state.onboardingUpdateData.status, 'sent');

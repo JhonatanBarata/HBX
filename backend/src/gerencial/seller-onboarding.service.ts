@@ -4,7 +4,6 @@ import { mkdir, readFile, unlink, writeFile } from 'fs/promises';
 import { extname, isAbsolute, join, relative, resolve, sep } from 'path';
 import PDFDocument from 'pdfkit';
 import { isTenantCompany } from '../common/company-kind';
-import { isHbxPlatformCompany } from '../common/hbx-platform-company';
 import { CompanyEmailSettingsService } from '../mail/company-email-settings.service';
 import { CompanyEmailTemplateService } from '../mail/company-email-template.service';
 import { COMPANY_EMAIL_NOT_CONFIGURED, CompanyMailerService } from '../mail/company-mailer.service';
@@ -50,6 +49,12 @@ const ONBOARDING_DOCUMENT_SLOTS = [
 ] as const;
 
 const GENERATED_CONTRACT_KIND = 'generated_contract';
+const SIGNED_CONTRACT_KIND = 'signed_contract';
+
+function formatCpf(value: string) {
+  const d = String(value || '').replace(/\D/g, '').slice(0, 11);
+  return d.length === 11 ? `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}` : d;
+}
 const CONTRACT_SIGNATURE_INSTRUCTION = 'Assine pelo gov.br ou por assinatura digital de sua preferência.';
 const ONBOARDING_ATTACHMENT_RETENTION_DAYS = 7;
 const SELLER_ONBOARDING_LINK_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -121,6 +126,14 @@ function sellerOnboardingContractTemplatePath(companyId: number) {
   return join(sellerOnboardingContractTemplateDir(), `company-${Number(companyId)}.json`);
 }
 
+function sellerOnboardingCompanySignatureDir() {
+  return process.env.SELLER_ONBOARDING_COMPANY_SIGNATURE_DIR || join(process.cwd(), 'storage', 'seller-onboarding-company-signatures');
+}
+
+function sellerOnboardingCompanySignaturePath(companyId: number) {
+  return join(sellerOnboardingCompanySignatureDir(), `company-${Number(companyId)}.png`);
+}
+
 function sellerOnboardingAllowedUploadDirs() {
   return Array.from(new Set([
     resolve(sellerOnboardingUploadDir()),
@@ -167,7 +180,13 @@ function addContractParagraph(doc: PDFKit.PDFDocument, line: string) {
   doc.moveDown(0.36);
 }
 
-async function buildContractPdfBuffer(contractText: string) {
+type ContractSignatureOptions = {
+  companySignaturePng?: Buffer | null;
+  partnerSignaturePng?: Buffer | null;
+  consent?: { name: string; cpf: string; signedAt: string; ip: string; contractSha: string } | null;
+};
+
+async function buildContractPdfBuffer(contractText: string, options?: ContractSignatureOptions) {
   const lines = contractText
     .split('\n')
     .map((line) => line.trim())
@@ -208,13 +227,20 @@ async function buildContractPdfBuffer(contractText: string) {
       addContractParagraph(doc, line);
     }
 
-    if (doc.y > doc.page.height - 170) doc.addPage();
-    doc.moveDown(2.1);
+    if (doc.y > doc.page.height - 200) doc.addPage();
+    doc.moveDown(2.4);
     const startY = doc.y;
     const gap = 34;
     const columnWidth = (doc.page.width - doc.page.margins.left - doc.page.margins.right - gap) / 2;
     const leftX = doc.page.margins.left;
     const rightX = leftX + columnWidth + gap;
+    // assinaturas desenhadas (quando houver), por cima da linha
+    const drawSig = (png: Buffer | null | undefined, x: number) => {
+      if (!png || !png.length) return;
+      try { doc.image(png, x + columnWidth * 0.15, startY - 40, { fit: [columnWidth * 0.7, 36] }); } catch { /* png invalido: segue sem desenho */ }
+    };
+    drawSig(options?.companySignaturePng, leftX);
+    drawSig(options?.partnerSignaturePng, rightX);
     doc.strokeColor('#111827').lineWidth(0.8);
     doc.moveTo(leftX, startY).lineTo(leftX + columnWidth, startY).stroke();
     doc.moveTo(rightX, startY).lineTo(rightX + columnWidth, startY).stroke();
@@ -224,6 +250,16 @@ async function buildContractPdfBuffer(contractText: string) {
     doc.font('Helvetica').fontSize(9.4).fillColor('#4b5563');
     doc.text('Contratante', leftX, startY + 23, { width: columnWidth, align: 'center' });
     doc.text('Parceiro Comercial', rightX, startY + 23, { width: columnWidth, align: 'center' });
+    if (options?.consent) {
+      const c = options.consent;
+      doc.moveDown(3);
+      doc.font('Helvetica').fontSize(7.6).fillColor('#6b7280').text(
+        `Assinado eletronicamente por ${c.name} — CPF ${c.cpf} — em ${c.signedAt} (IP ${c.ip}). Integridade do contrato: SHA-256 ${c.contractSha}. Validade juridica nos termos da Lei 14.063/2020 e MP 2.200-2/2001.`,
+        doc.page.margins.left,
+        doc.y,
+        { width: doc.page.width - doc.page.margins.left - doc.page.margins.right, align: 'center', lineGap: 1.5 },
+      );
+    }
 
     doc.end();
   });
@@ -404,8 +440,85 @@ export class SellerOnboardingService {
   }
 
   async getPublicOnboarding(rawToken: unknown) {
-    const { onboarding } = await this.resolvePublicOnboardingToken(rawToken);
-    return this.buildPublicOnboardingPayload(onboarding);
+    const { companyId, onboarding } = await this.resolvePublicOnboardingToken(rawToken);
+    const payload = this.buildPublicOnboardingPayload(onboarding);
+    const contractText = normalizeContractText(onboarding?.contractTextSnapshot)
+      || await this.buildContractTextFromOnboarding(onboarding).catch(() => '');
+    let companySignature: string | null = null;
+    try {
+      const sig = await readFile(sellerOnboardingCompanySignaturePath(companyId));
+      if (sig.length) companySignature = `data:image/png;base64,${sig.toString('base64')}`;
+    } catch { /* empresa ainda nao desenhou a assinatura */ }
+    const signed = (onboarding?.attachments || []).some((a: any) => a.status !== 'deleted' && a.kind === SIGNED_CONTRACT_KIND);
+    return { ...payload, contract: { text: contractText || '', companySignature, signed } };
+  }
+
+  // Vendedor assina o contrato pelo link publico (token): desenho + consentimento
+  // (CPF + aceite + IP + data) -> PDF assinado com as DUAS assinaturas, salvo no
+  // backend. Cópia opcional por e-mail. Validade pela trilha de consentimento.
+  async signContractPublic(rawToken: unknown, body: { signatureDataUrl?: unknown; cpf?: unknown; accepted?: unknown; wantsCopy?: unknown }, ip?: string) {
+    const { companyId, onboarding } = await this.resolvePublicOnboardingToken(rawToken);
+    if (!body?.accepted) throw new BadRequestException('Marque que leu e aceita os termos do contrato.');
+    const cpfDigits = String(body?.cpf || '').replace(/\D/g, '');
+    if (cpfDigits.length !== 11) throw new BadRequestException('Informe um CPF valido (11 digitos).');
+    const sigMatch = String(body?.signatureDataUrl || '').trim().match(/^data:image\/png;base64,([A-Za-z0-9+/=]+)$/);
+    if (!sigMatch) throw new BadRequestException('Desenhe sua assinatura antes de assinar.');
+    const partnerSig = Buffer.from(sigMatch[1], 'base64');
+    if (!partnerSig.length || partnerSig.length > 2 * 1024 * 1024) throw new BadRequestException('Assinatura invalida.');
+
+    const contractText = normalizeContractText(onboarding.contractTextSnapshot) || await this.buildContractTextFromOnboarding(onboarding);
+    if (!contractText) throw new BadRequestException('Contrato indisponivel para assinatura — avise o responsavel.');
+    let companySig: Buffer | null = null;
+    try { companySig = await readFile(sellerOnboardingCompanySignaturePath(companyId)); } catch { /* empresa ainda nao assinou */ }
+
+    const signedAt = new Date();
+    const consent = {
+      name: normalizeText(onboarding.legalName || onboarding.email, 160) || 'Vendedor',
+      cpf: formatCpf(cpfDigits),
+      signedAt: signedAt.toLocaleString('pt-BR'),
+      ip: String(ip || '-').slice(0, 60),
+      contractSha: sha256Text(contractText).slice(0, 16),
+    };
+    const buffer = await buildContractPdfBuffer(contractText, { companySignaturePng: companySig, partnerSignaturePng: partnerSig, consent });
+
+    const uploadDir = sellerOnboardingUploadDir();
+    await mkdir(uploadDir, { recursive: true });
+    for (const att of ((onboarding.attachments || []) as any[]).filter((a) => a.status !== 'deleted' && a.kind === SIGNED_CONTRACT_KIND)) {
+      try { if (att.storagePath) await unlink(att.storagePath); } catch { /* ok */ }
+      await this.prisma.sellerOnboardingAttachment.update({ where: { id: att.id }, data: { status: 'deleted', deletedAt: new Date() } });
+    }
+    const storedFilename = `${onboarding.id}-${SIGNED_CONTRACT_KIND}-${randomUUID()}.pdf`;
+    const storagePath = join(uploadDir, storedFilename);
+    await writeFile(storagePath, buffer);
+    await this.prisma.sellerOnboardingAttachment.create({
+      data: {
+        onboardingId: onboarding.id,
+        kind: SIGNED_CONTRACT_KIND,
+        originalFilename: 'contrato-assinado.pdf',
+        storedFilename,
+        storagePath,
+        contentType: 'application/pdf',
+        byteSize: buffer.length,
+        sha256: sha256Buffer(buffer),
+        required: false,
+        status: 'permanent',
+      },
+    });
+
+    let copySent = false;
+    if (body?.wantsCopy && onboarding.email) {
+      try {
+        await this.companyMailer.sendForCompany(companyId, {
+          to: onboarding.email,
+          subject: 'Sua copia do contrato de parceria assinado — HBX',
+          text: `Ola ${consent.name},\n\nSegue em anexo a sua copia do contrato de parceria assinado eletronicamente em ${consent.signedAt}.\n\nEquipe HBX`,
+          attachments: [{ filename: 'contrato-assinado.pdf', content: buffer, contentType: 'application/pdf' }],
+        });
+        copySent = true;
+      } catch { /* a copia e conveniencia: nao derruba a assinatura */ }
+    }
+
+    return { ok: true, signedAt: signedAt.toISOString(), copySent };
   }
 
   async uploadPublicAttachment(rawToken: unknown, file: any, dto: { kind?: unknown }) {
@@ -538,6 +651,40 @@ export class SellerOnboardingService {
       ...onboarding,
       contractTextDraft: normalizeContractText(onboarding.contractTextSnapshot) || await this.buildContractTextFromOnboarding(onboarding),
     };
+  }
+
+  // Assinatura da PRÓPRIA empresa no contrato (PNG desenhado pelo admin, 1 por
+  // empresa). Reusada em todo contrato gerado — "só falta a do vendedor".
+  async getCompanySignature(companyId: number) {
+    await this.assertSellerNetworkCompany(companyId);
+    try {
+      const buffer = await readFile(sellerOnboardingCompanySignaturePath(companyId));
+      return { hasSignature: buffer.length > 0, dataUrl: `data:image/png;base64,${buffer.toString('base64')}` };
+    } catch {
+      return { hasSignature: false, dataUrl: null as string | null };
+    }
+  }
+
+  async saveCompanySignature(companyId: number, dataUrl: unknown) {
+    await this.assertSellerNetworkCompany(companyId);
+    const match = String(dataUrl || '').trim().match(/^data:image\/png;base64,([A-Za-z0-9+/=]+)$/);
+    if (!match) throw new BadRequestException('Assinatura invalida — desenhe e envie um PNG.');
+    const buffer = Buffer.from(match[1], 'base64');
+    if (!buffer.length) throw new BadRequestException('Assinatura vazia.');
+    if (buffer.length > 2 * 1024 * 1024) throw new BadRequestException('Assinatura muito grande (max 2MB).');
+    await mkdir(sellerOnboardingCompanySignatureDir(), { recursive: true });
+    await writeFile(sellerOnboardingCompanySignaturePath(companyId), buffer);
+    return { ok: true, hasSignature: true };
+  }
+
+  async deleteCompanySignature(companyId: number) {
+    await this.assertSellerNetworkCompany(companyId);
+    try {
+      await unlink(sellerOnboardingCompanySignaturePath(companyId));
+    } catch {
+      /* ja nao existe */
+    }
+    return { ok: true, hasSignature: false };
   }
 
   async getContractTemplate(companyId: number) {
@@ -1117,6 +1264,9 @@ export class SellerOnboardingService {
 
     const attachments: MailAttachment[] = [];
     for (const attachment of activeAttachments as any[]) {
+      // O contrato vai pelo LINK de assinatura (não anexo): anexo de remetente
+      // novo é bloqueado/spam (Outlook). O vendedor lê e assina no link.
+      if (attachment.kind === GENERATED_CONTRACT_KIND || attachment.kind === SIGNED_CONTRACT_KIND) continue;
       attachments.push({
         filename: attachment.originalFilename,
         content: await readFile(attachment.storagePath),
@@ -1128,7 +1278,7 @@ export class SellerOnboardingService {
     // ela escolheu em Configurações → E-mail (HBX: cópia semeada do kind).
     const companySettings = await this.companyEmailSettings.getRaw(companyId);
     const onboardingTemplateKind = String(companySettings?.onboardingTemplateKind || '').trim()
-      || (isHbxPlatformCompany(companyId) ? 'seller_onboarding_request' : '');
+      || (await this.companyEmailSettings.isHbxSharedCompany(companyId) ? 'seller_onboarding_request' : '');
     if (!onboardingTemplateKind) {
       throw new BadRequestException('Escolha o template de onboarding (solicitar documentos) em Configurações → E-mail.');
     }

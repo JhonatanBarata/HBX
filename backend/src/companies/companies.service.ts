@@ -25,6 +25,7 @@ export function buildMasterHardDeleteConfirmText(companyName: string) {
 }
 
 const MASTER_COMPANY_HARD_DELETE_MODULE_KEY = 'master_company_hard_delete';
+const ADMIN_COMPANY_DELETE_MODULE_KEY = 'company_admin_self_delete';
 const ORPHAN_COMPANY_CLEANUP_MODULE_KEY = 'company_orphan_cleanup';
 const ORPHAN_COMPANY_CLEANUP_REASON = 'Empresa sem usuarios agendada para remocao permanente apos 7 dias.';
 const ORPHAN_COMPANY_DELETED_REASON = 'Empresa sem usuarios removida automaticamente apos 7 dias.';
@@ -185,7 +186,7 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
     users?: Array<{ id: number; username?: string | null; email?: string | null; isSystemMaster?: boolean | null }>;
     _count?: Record<string, number>;
   }, input: {
-    mode: 'master_hard_delete' | 'orphan_cleanup';
+    mode: 'master_hard_delete' | 'orphan_cleanup' | 'admin_self_delete';
     reason?: string | null;
     deletedByUserId?: number | null;
     deletedAt: Date;
@@ -1049,7 +1050,7 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
     deletedByUserId?: number | null;
     reason?: string | null;
     historyModuleKey: string;
-    mode: 'master_hard_delete' | 'orphan_cleanup';
+    mode: 'master_hard_delete' | 'orphan_cleanup' | 'admin_self_delete';
     scheduleRecordId?: number | null;
     scheduledAt?: Date | null;
   }) {
@@ -1453,17 +1454,26 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
     return this.sanitizeCompany(updated);
   }
 
-  async removeForCompany(companyId: number | null | undefined, id: number) {
+  async removeForCompany(
+    companyId: number | null | undefined,
+    id: number,
+    actingUserId?: number | null,
+  ) {
     if (!companyId) throw new ForbiddenException('Missing company context');
     if (id !== companyId) throw new ForbiddenException('Forbidden');
 
-    const company = await this.prisma.company.findUnique({ where: { id } });
-    if (!company) throw new NotFoundException('Company not found');
-
-    await this.prisma.$transaction(async (tx) => {
-      await tx.trialPhoneUsage.deleteMany({ where: { companyId: id } });
-      await tx.company.delete({ where: { id } });
+    // Exclusao COMPLETA e consistente — mesma cascata do master
+    // (permanentlyDeleteCompanyInternal): remove dados, sessoes de WhatsApp e os
+    // USUARIOS da empresa. Antes esta rota fazia `company.delete()` direto; como a
+    // relacao User->Company tem onDelete default SetNull, os usuarios ficavam
+    // ORFAOS (companyId nulo / JWT apontando para empresa inexistente) presos em
+    // 503 no /inbox. Delegar para o caminho completo elimina o estado orfao.
+    return this.permanentlyDeleteCompanyInternal({
+      companyId: id,
+      deletedByUserId: Number(actingUserId || 0) || null,
+      reason: 'Exclusao da empresa pelo administrador.',
+      historyModuleKey: ADMIN_COMPANY_DELETE_MODULE_KEY,
+      mode: 'admin_self_delete',
     });
-    return { success: true };
   }
 }

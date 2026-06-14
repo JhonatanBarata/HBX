@@ -942,6 +942,6 @@ export class CompaniesController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Admin()
   remove(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
-    return this.companiesService.removeForCompany(req.user?.companyId, id);
+    return this.companiesService.removeForCompany(req.user?.companyId, id, req.user?.id);
   }
 }

@@ -42,9 +42,13 @@ export function LoginClient() {
     Promise.resolve().then(() => {
       if (!alive) return;
       try {
-        if (sessionStorage.getItem("hbx:session-notice") === "expired") {
+        const sessionNotice = sessionStorage.getItem("hbx:session-notice");
+        if (sessionNotice === "expired") {
           sessionStorage.removeItem("hbx:session-notice");
           setNotice("Sua sessão expirou ou foi conectada em outro dispositivo. Entre novamente.");
+        } else if (sessionNotice === "company-removed") {
+          sessionStorage.removeItem("hbx:session-notice");
+          setNotice("Sua empresa foi removida. Se isso não era esperado, fale com o suporte HBX.");
         }
       } catch { /* sem storage */ }
     });

@@ -61,8 +61,12 @@ export class CompanyEmailSettingsService {
     return fromName ? `${fromName} <${fromEmail}>` : fromEmail;
   }
 
-  buildSenderSummary(companyId: number, settings: Awaited<ReturnType<CompanyEmailSettingsService['getRaw']>>): CompanySenderSummary {
-    if (isHbxPlatformCompany(companyId)) {
+  async isHbxSharedCompany(companyId: number) {
+    return isHbxPlatformCompany(this.prisma, companyId);
+  }
+
+  async buildSenderSummary(companyId: number, settings: Awaited<ReturnType<CompanyEmailSettingsService['getRaw']>>): Promise<CompanySenderSummary> {
+    if (await this.isHbxSharedCompany(companyId)) {
       const platform = this.mailService.getConfigurationSummary();
       return {
         mode: 'hbx_shared',
@@ -92,8 +96,8 @@ export class CompanyEmailSettingsService {
 
   async getPublicState(companyId: number) {
     const settings = await this.getRaw(companyId);
-    const sender = this.buildSenderSummary(companyId, settings);
-    const hbxShared = isHbxPlatformCompany(companyId);
+    const hbxShared = await this.isHbxSharedCompany(companyId);
+    const sender = await this.buildSenderSummary(companyId, settings);
     return {
       enabled: Boolean(settings?.enabled),
       hbxShared,

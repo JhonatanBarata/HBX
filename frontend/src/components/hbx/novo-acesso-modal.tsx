@@ -20,9 +20,10 @@
 //   POST /gerencial/hbx-partners/:userId/onboarding/send-email  → Solicitar
 //        documentos (template de onboarding escolhido em Configurações → E-mail)
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
-import { apiFetch } from "@/lib/api";
+import { SignaturePad, type SignaturePadHandle } from "@/components/hbx/signature-pad";
+import { apiFetch, getApiBase, getToken } from "@/lib/api";
 
 type CompanyUser = { id: number; name?: string | null; username?: string | null; email?: string | null; role?: string | null; isActive?: boolean };
 
@@ -88,6 +89,9 @@ export function NovoAcessoModal({ onClose, onDone, team }: {
   const [modeloText, setModeloText] = useState("");
   const [modeloBusy, setModeloBusy] = useState(false);
   const [modeloMsg, setModeloMsg] = useState<string | null>(null);
+  const [sigUrl, setSigUrl] = useState<string | null>(null);
+  const [sigBusy, setSigBusy] = useState(false);
+  const padRef = useRef<SignaturePadHandle | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -214,6 +218,44 @@ export function NovoAcessoModal({ onClose, onDone, team }: {
     }
   }
 
+  async function baixarAnexo(att: OnboardingAttachment) {
+    if (!createdUserId || docBusy) return;
+    setDocBusy(`baixar:${att.id}`);
+    setMsg(null);
+    try {
+      const res = await fetch(
+        `${getApiBase()}/gerencial/hbx-partners/${createdUserId}/onboarding/attachments/${encodeURIComponent(att.id)}/download`,
+        { headers: { Authorization: `Bearer ${getToken() || ""}` } },
+      );
+      if (!res.ok) throw new Error("Não foi possível baixar o arquivo.");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = att.originalFilename || "documento";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : "Falha no download.");
+    } finally {
+      setDocBusy(null);
+    }
+  }
+
+  async function removerDoc(att: OnboardingAttachment) {
+    if (!createdUserId || docBusy) return;
+    setDocBusy(`remover:${att.id}`);
+    setMsg(null);
+    try {
+      await apiFetch(`/gerencial/hbx-partners/${createdUserId}/onboarding/attachments/${encodeURIComponent(att.id)}`, { method: "DELETE" });
+      await refreshOnboarding(createdUserId);
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : "Não foi possível remover o anexo.");
+    } finally {
+      setDocBusy(null);
+    }
+  }
+
   async function solicitarDocumentos() {
     if (!createdUserId || docBusy) return;
     setDocBusy("email");
@@ -239,10 +281,46 @@ export function NovoAcessoModal({ onClose, onDone, team }: {
     try {
       const res = await apiFetch<{ template?: string; contractTemplate?: string; text?: string }>("/gerencial/hbx-partners/onboarding/contract-template");
       setModeloText(String(res?.template ?? res?.contractTemplate ?? res?.text ?? ""));
+      apiFetch<{ dataUrl?: string | null }>("/gerencial/hbx-partners/onboarding/company-signature")
+        .then(r => setSigUrl(r?.dataUrl || null)).catch(() => setSigUrl(null));
     } catch (err) {
       setModeloMsg(err instanceof Error ? err.message : "Não foi possível carregar o modelo.");
     } finally {
       setModeloBusy(false);
+    }
+  }
+
+  async function salvarAssinatura() {
+    if (sigBusy) return;
+    if (padRef.current?.isEmpty()) { setModeloMsg("Desenhe a assinatura antes de salvar."); return; }
+    const dataUrl = padRef.current?.toDataUrl();
+    if (!dataUrl) { setModeloMsg("Não foi possível ler a assinatura."); return; }
+    setSigBusy(true);
+    setModeloMsg(null);
+    try {
+      await apiFetch("/gerencial/hbx-partners/onboarding/company-signature", { method: "POST", body: JSON.stringify({ dataUrl }) });
+      setSigUrl(dataUrl);
+      setModeloMsg("✓ Assinatura salva — entra automática nos contratos.");
+    } catch (err) {
+      setModeloMsg(err instanceof Error ? err.message : "Não foi possível salvar a assinatura.");
+    } finally {
+      setSigBusy(false);
+    }
+  }
+
+  async function removerAssinatura() {
+    if (sigBusy) return;
+    setSigBusy(true);
+    setModeloMsg(null);
+    try {
+      await apiFetch("/gerencial/hbx-partners/onboarding/company-signature", { method: "DELETE" });
+      setSigUrl(null);
+      padRef.current?.clear();
+      setModeloMsg("✓ Assinatura removida.");
+    } catch (err) {
+      setModeloMsg(err instanceof Error ? err.message : "Não foi possível remover a assinatura.");
+    } finally {
+      setSigBusy(false);
     }
   }
 
@@ -430,15 +508,39 @@ export function NovoAcessoModal({ onClose, onDone, team }: {
                         onClick={() => alternarObrigatorio(slot.kind)}>
                         {obrigatorio ? "Obrigatório" : "Opcional"}
                       </button>
+                      {anexo && (
+                        <button type="button" className="btn-ghost btn-danger btn-xs" disabled={docBusy !== null}
+                          onClick={() => removerDoc(anexo)}>
+                          {docBusy === `remover:${anexo.id}` ? "Removendo…" : "Remover"}
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
               })}
             </div>
+            {(() => {
+              const gc = anexoDe("generated_contract");
+              if (!gc) return null;
+              return (
+                <div className="doc-slot filled" style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <strong>Contrato gerado (PDF)</strong>
+                    <small className="ok">{gc.originalFilename || "gerado — vai junto no e-mail de onboarding"}</small>
+                  </div>
+                  <button type="button" className="btn-ghost btn-xs" disabled={docBusy !== null} onClick={() => baixarAnexo(gc)}>
+                    {docBusy === `baixar:${gc.id}` ? "Baixando…" : "Baixar"}
+                  </button>
+                  <button type="button" className="btn-ghost btn-danger btn-xs" disabled={docBusy !== null} onClick={() => removerDoc(gc)}>
+                    {docBusy === `remover:${gc.id}` ? "Removendo…" : "Remover"}
+                  </button>
+                </div>
+              );
+            })()}
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button type="button" className="btn-ghost" onClick={abrirModelo} disabled={!vendedor}>Editar modelo</button>
               <button type="button" className="btn-ghost" onClick={gerarContrato} disabled={!painelAtivo || docBusy !== null}>
-                {docBusy === "contrato" ? "Gerando…" : "Gerar contrato PDF"}
+                {docBusy === "contrato" ? "Gerando…" : "Gerar contrato LINK"}
               </button>
               {emailUsable ? (
                 <button type="button" className="btn-teal" onClick={solicitarDocumentos} disabled={!painelAtivo || docBusy !== null}>
@@ -482,6 +584,21 @@ export function NovoAcessoModal({ onClose, onDone, team }: {
             <button className="btn-teal" onClick={salvarModelo} disabled={modeloBusy} style={{ minHeight: 40 }}>
               {modeloBusy ? "Salvando…" : "Salvar modelo"}
             </button>
+            <div className="sep"></div>
+            <div style={{ display: "grid", gap: 8 }}>
+              <strong>Sua assinatura no contrato</strong>
+              <span style={lbl}>Desenhe sua assinatura uma vez — ela entra automática em todo contrato gerado. Só falta a do vendedor.</span>
+              <SignaturePad ref={padRef} value={sigUrl} />
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button type="button" className="btn-teal" disabled={sigBusy} onClick={salvarAssinatura}>
+                  {sigBusy ? "Salvando…" : "Salvar assinatura"}
+                </button>
+                <button type="button" className="btn-ghost" disabled={sigBusy} onClick={() => padRef.current?.clear()}>Limpar</button>
+                {sigUrl && (
+                  <button type="button" className="btn-ghost btn-danger" disabled={sigBusy} onClick={removerAssinatura}>Remover salva</button>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}

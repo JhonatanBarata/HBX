@@ -231,14 +231,18 @@ export class CompanyEmailController {
 
   private async buildBusinessCardAttachment(companyId: number) {
     const asset = await this.settingsService.readAssetContent(companyId, 'business_card');
-    if (!asset) return { attachment: null as MailAttachment | null, appendHtml: null as string | null };
+    if (!asset) return { attachments: [] as MailAttachment[], appendHtml: null as string | null };
+    const base = {
+      filename: asset.meta.originalName || 'cartao-visitas.png',
+      content: asset.content,
+      contentType: asset.contentType,
+    };
+    // O cartão vai DUAS vezes: como anexo de verdade (paperclip) e inline (CID) na assinatura do HTML.
     return {
-      attachment: {
-        filename: asset.meta.originalName || 'cartao-visitas.png',
-        content: asset.content,
-        contentType: asset.contentType,
-        cid: BUSINESS_CARD_CID,
-      } satisfies MailAttachment,
+      attachments: [
+        { ...base } satisfies MailAttachment,
+        { ...base, cid: BUSINESS_CARD_CID } satisfies MailAttachment,
+      ] as MailAttachment[],
       appendHtml: this.hbxPresentationEmails.buildBusinessCardHtml(),
     };
   }
@@ -305,7 +309,7 @@ export class CompanyEmailController {
     const card = await this.buildBusinessCardAttachment(companyId);
     const rendered = this.templatesService.renderRow(row, variables, { appendHtml: card.appendHtml });
 
-    const attachments: MailAttachment[] = card.attachment ? [card.attachment] : [];
+    const attachments: MailAttachment[] = [...card.attachments];
     const delivery = await this.companyMailer.sendForCompany(companyId, {
       to,
       subject: rendered.subject,
@@ -393,7 +397,7 @@ export class CompanyEmailController {
         contentType: pptx.contentType,
       });
     }
-    if (card.attachment) attachments.push(card.attachment);
+    attachments.push(...card.attachments);
 
     const delivery = await this.companyMailer.sendForCompany(companyId, {
       to: dto.recipientEmail.toLowerCase(),
