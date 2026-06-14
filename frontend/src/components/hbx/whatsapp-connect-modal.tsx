@@ -250,8 +250,8 @@ export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnecte
             )}
             {connected && (
               confirmDisconnect ? (
-                <button className="btn-ghost" style={{ color: "var(--hbx-danger)", borderColor: "color-mix(in srgb, var(--hbx-danger) 40%, transparent)" }} disabled={busy}
-                  onClick={() => { setConfirmDisconnect(false); run(disconnectWhatsAppModalSession); }}>
+                <button className="btn-ghost danger" disabled={busy}
+                  onClick={() => { setConfirmDisconnect(false); disconnectAndNotify(); }}>
                   Confirmar desconexão
                 </button>
               ) : (

@@ -237,6 +237,9 @@ type PlanMe = {
     trialRemainingDays?: number | null;
     trialEndsAt?: string | null;
     accessStateLabel?: string | null;
+    accessState?: string | null;
+    // NEUTRO (sobrevive p/ vendedor): empresa não pode operar.
+    accessPaused?: boolean | null;
   };
   plans?: Array<{ key: string; title?: string | null }>;
 } | null;

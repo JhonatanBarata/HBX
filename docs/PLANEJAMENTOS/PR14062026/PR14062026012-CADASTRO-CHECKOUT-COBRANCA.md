@@ -15,7 +15,11 @@
   (e-mail já cai no system_master). Item 4 (fila dedicada no /master) DEFERIDO — o alerta já
   grava em MasterPaymentNotificationLog (janela Pagamentos do /master). **VPS = no publish do
   dono** (item E-S2 em PLAN…001 é o checklist dele: preço, módulo novo, env).
-- Sprints 3–5 abaixo. Única dependência externa: **credenciais Mercado Pago + decisão
+- ✅ **Sprint 3 (telas de bloqueio, paywall mansa) APLICADO e RODANDO EM DEV** — gate
+  `bloqueio-gate.tsx` no AuthGate (reusa classes `.bv-*`, zero CSS novo); backend ganhou
+  sinal NEUTRO `accessPaused` no `/commercial-plans/me` (sobrevive p/ vendedor). Boot dev
+  limpo; front lint (catraca 560) + build verdes. Falta só o item 5 (nudges D-7/3/1).
+- Sprints 4–5 abaixo. Única dependência externa: **credenciais Mercado Pago + decisão
   recorrente/Pix** (Sprint 4).
 
 ---
@@ -76,13 +80,17 @@
 > com o usuário system_master. Checks feitos: prisma validate + build + catalog test +
 > front lint/build (todos verdes).
 
-### 🟡 SPRINT 3 — Telas de BLOQUEIO (paywall mansa, papel-aware)
-1. Bloqueio **fim de trial** (admin): tela full-screen suave + escolher plano + CTA pagar.
-2. Bloqueio **`pending_checkout`** (List direto): "pague para liberar".
-3. **`overdue`/`grace`**: "regularize até DD/MM"; **`suspended`**: tela final + suporte.
-4. **Vendedor**: sempre "acesso pausado" (zero valor/cobrança — PAGAMENTOS.md).
-5. **Avisos de fim de trial** D-7/D-3/D-1 (e-mail + sino) — job leve.
-> Vive no AuthGate/shell. Front + 1 leitura de estado; sem afrouxar paywall.
+### ✅ SPRINT 3 — Telas de BLOQUEIO (paywall mansa, papel-aware) — APLICADO (falta item 5)
+1. ✅ Bloqueio **fim de trial** (admin, `suspended`+trial vencido): "Seu teste terminou" + "Ver planos".
+2. ✅ Bloqueio **`pending_checkout`** (admin): "Ative seu plano HBX" + "Ver planos".
+3. ✅ **`overdue`** "Pagamento em atraso" / **`suspended`** "Acesso suspenso" (admin).
+4. ✅ **Vendedor**: "Acesso pausado — fale com o administrador" (neutro, zero valor — via
+   `accessPaused`, que o backend NÃO zera p/ vendedor; `accessState` continua nulo p/ ele).
+5. ⏳ **Avisos de fim de trial** D-7/D-3/D-1 (e-mail + sino) — DEFERIDO (job leve).
+> Implementado: `frontend/src/components/hbx/bloqueio-gate.tsx` (montado em `auth-gate.tsx`,
+> reusa `.bv-*`); backend `accessPaused` neutro em `/commercial-plans/me`. O gate NÃO cobre
+> `/configuracoes` (admin precisa chegar no plano pra resolver) nem o master. Enforcement
+> real segue no backend (gate é só UX). Restart dev feito; tudo verde.
 
 ### 🔴 SPRINT 4 — Checkout / gateway (Mercado Pago) — precisa do dono
 1. **Decisão D-PAGAMENTO:** cartão recorrente (assinatura/preapproval), Pix mensal, ou os

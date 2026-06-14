@@ -93,6 +93,9 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 .btn-teal:hover { background: var(--hbx-brand-strong); }
 .btn-ghost { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; padding: 0 12px; border: 1px solid var(--border-hairline); border-radius: var(--control-radius); background: transparent; color: var(--text-body); font-family: var(--font-body); font-size: 0.76rem; font-weight: 700; cursor: pointer; }
 .btn-ghost:hover { background: var(--hbx-surface-raised); }
+/* Variante de risco (desconectar / apagar): só recolore o ghost via token. */
+.btn-ghost.danger { color: var(--hbx-danger); border-color: color-mix(in srgb, var(--hbx-danger) 40%, transparent); }
+.btn-ghost.danger:hover { background: color-mix(in srgb, var(--hbx-danger) 10%, transparent); }
 .btn-danger { border-color: var(--hbx-danger); color: var(--hbx-danger); }
 .btn-danger:hover { background: color-mix(in srgb, var(--hbx-danger) 10%, transparent); }
 .btn-xs { min-height: 26px; padding: 0 8px; gap: 5px; font-size: 0.62rem; }
@@ -342,6 +345,8 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 .hbx-x { color: var(--text-muted); font-weight: 400; cursor: pointer; }
 .hbx-pop { border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-surface); box-shadow: var(--shadow-md); }
 .hbx-drawer { border-left: 1px solid var(--border-hairline); background: var(--hbx-surface); box-shadow: var(--shadow-lg); }
+/* Aviso transitório (canto inferior). Empilha acima das veils (z 60). */
+.hbx-toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 70; max-width: min(420px, calc(100% - 32px)); padding: 11px 16px; border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-surface); box-shadow: var(--shadow-lg); color: var(--text-strong); font-size: 0.76rem; font-weight: 700; line-height: 1.45; text-align: center; }
 
 /* ---------- Tabela de dados (Webscraping) ---------- */
 .tbl-wrap { overflow-x: auto; }

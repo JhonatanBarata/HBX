@@ -277,7 +277,7 @@ async function renderSistema() {
     const bar = $("#sys-bar-alive");
     bar.style.width = `${Math.max(5, Math.min(100, pct))}%`;
     bar.className = "bar-fill" + (!cap.governorOn ? " bad" : cap.queue > 0 && cap.alive >= cap.ceiling ? " warn" : "");
-    $("#sys-engines-counts").textContent = `${cap.alive} vivos · warm ${cap.warm} · teto ${cap.ceiling} · fila ${cap.queue}`;
+    $("#sys-engines-counts").textContent = `${cap.alive} ${cap.alive === 1 ? "motor ligado" : "motores ligados"} · liga sozinho até ${cap.ceiling} quando precisa`;
     $("#sys-engines-reason").textContent = cap.reason || "";
     const fs = $("#sys-factory-state");
     fs.textContent = cap.factoryStopped ? "Fábrica parada" : "Fábrica rodando";
@@ -321,6 +321,21 @@ async function renderSistema() {
   const snap = snapshotFrom(s, bankTotal);
   diffFeed(lastSysSnapshot, snap);
   lastSysSnapshot = snap;
+
+  // Status grande "de relance", em português claro (semáforo verde/amarelo/vermelho).
+  const hero = $("#sys-hero");
+  if (hero) {
+    const lvl = s.verdict.level;
+    const tone = lvl === "buy" ? "bad" : lvl === "tight" ? "warn" : "ok";
+    hero.className = `hero ${tone}`;
+    $("#sys-hero-icon").textContent = lvl === "buy" ? "▲" : lvl === "tight" ? "◆" : "●";
+    $("#sys-hero-title").textContent = lvl === "buy" ? "Precisa de atenção" : lvl === "tight" ? "Começando a apertar" : "Tudo rodando bem";
+    const parts = [];
+    if (cap.ok) parts.push(`${cap.alive} ${cap.alive === 1 ? "motor trabalhando" : "motores trabalhando"}`);
+    if (bankTotal != null) parts.push(`${Number(bankTotal).toLocaleString("pt-BR")} leads no banco`);
+    if (ram != null) parts.push(`memória ${ram}%`);
+    $("#sys-hero-sub").textContent = parts.join(" · ") || s.verdict.detail || "";
+  }
 }
 
 async function factoryAction(action) {

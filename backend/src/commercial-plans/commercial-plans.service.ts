@@ -43,6 +43,9 @@ type CommercialCurrentState = {
   taxDocument: string | null;
   accessState: string | null;
   accessStateLabel: string | null;
+  // Sinal NEUTRO de bloqueio (sobrevive para vendedor — não é valor financeiro):
+  // true quando a empresa não pode operar (pending_checkout/overdue/suspended).
+  accessPaused: boolean;
   trialEndsAt: string | null;
   trialRemainingDays: number | null;
   billingGraceEndsAt: string | null;
@@ -344,6 +347,9 @@ export class CommercialPlansService {
       // Estado de acesso projetado do canonico (DROP): sem campos crus.
       accessState: platformInfra ? null : companyAccess.state,
       accessStateLabel: platformInfra ? null : companyAccess.statusLabel,
+      // Neutro: só "pode operar ou não". Mantido para vendedor (não revela motivo
+      // financeiro). platform_infra nunca bloqueia.
+      accessPaused: platformInfra ? false : !companyAccess.canUse,
       trialEndsAt: company?.trialEndsAt instanceof Date ? company.trialEndsAt.toISOString() : null,
       trialRemainingDays: this.computeTrialRemainingDays(company?.trialEndsAt),
       billingGraceEndsAt: billingGraceEndsAt ? billingGraceEndsAt.toISOString() : null,
