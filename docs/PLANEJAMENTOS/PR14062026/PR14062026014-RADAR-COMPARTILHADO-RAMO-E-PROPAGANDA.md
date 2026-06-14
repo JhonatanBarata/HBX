@@ -76,28 +76,29 @@ A disponibilidade agora vem só do estado por-empresa. Resultado:
 
 ---
 
-## 3. PROPAGANDA — Meta Lead Ads como TORNEIRA da lagoa (IDEIA)
+## 3. PROPAGANDA — Meta Lead Ads (JÁ CONSTRUÍDO — falta o dono ligar)
 
-> Conceito do dono: a propaganda (Meta/Facebook/Instagram Lead Ads) também **despeja lead na
-> lagoa**, igual às torneiras LOCAL e VPS do feeder (ver PR…008 §7). Lead de anúncio é
-> **inbound quentíssimo** (a pessoa pediu contato) — entra na lagoa e é distribuído/puxado
-> pelo mesmo cano de sempre.
+> ⚠️ Repasse importante: o Meta Lead Ads **NÃO ficou só na conversa — está implementado**.
+> Confirmado lendo o código (14/06): módulo `backend/src/meta-lead-ads/` (webhook controller +
+> admin controller + Graph client + service + 8 testes) e schema (`model MetaLeadConnection`
+> + `VendasLead.leadTemperature` frio/morno/quente). Doc de origem: PR14062026013 §A.
 
-**Arquitetura proposta (a construir, não começado):**
-1. **Conector Meta Lead Ads** em `backend/src/integrations/` (clonar o padrão TagPlus): OAuth
-   da Página + assinatura do webhook `leadgen`.
-2. **Webhook** `POST /integrations/meta/leadgen` → busca o lead na Graph API → normaliza
-   (nome/telefone/e-mail/cidade/segmento do formulário) → entra na lagoa pelo **portão único**
-   `lead-harvest/import` (já deduplica por telefone/placeId), com `source = 'meta_lead_ads'`,
-   `recommendedChannel = whatsapp`, score alto (inbound).
-3. **Atribuição:** lead de anúncio de uma empresa específica entra com preferência pra ela
-   (campanha → companyId), mas continua na lagoa compartilhada (a dona puxa primeiro).
-4. **Cockpit:** card de campanha (gasto, leads, custo por lead) — encaixa no `/master` e no
-   relatório de funil. Liga com o "valor no motor e gasto" (PR…013).
-5. **Privacidade/consentimento:** Lead Ads já tem consentimento; logar origem + opt-out.
+**O que já existe:**
+- **Webhook público** Meta `leadgen` com **HMAC fail-closed** (assinatura obrigatória).
+- **Admin por empresa** (conectar página/conta, VERIFY_TOKEN por empresa).
+- **Lead de anúncio cai no Vendas como 🔥 quente** (`leadTemperature`) — inbound (a pessoa
+  pediu contato), entra direto no funil.
+- Build + testes + rotas **verificados no dev**.
 
-Por que entra na lagoa e não num inbox separado: **um cano só** (Radar → Vendas → WhatsApp →
-Retorno). Propaganda é mais uma torneira, não um fluxo paralelo.
+**Falta (é do dono, é env/registro — não código):**
+- [ ] Ligar `META_APP_SECRET` + `META_VERIFY_TOKEN` no ambiente.
+- [ ] Registrar o app/página no Meta e apontar o webhook pra `…/meta-lead-ads/webhook`.
+
+**Casamento com a lagoa (evolução opcional):** hoje o lead de anúncio entra direto no Vendas
+da empresa dona da campanha. Se um dia quiser tratar como **mais uma torneira da lagoa
+compartilhada** (igual feeder LOCAL/VPS do PR…008 §7), é só despejar pelo portão único
+`lead-harvest/import` com `source='meta_lead_ads'`. Não é necessário pro fluxo atual — é uma
+escolha de "inbound direto no dono" vs. "inbound na lagoa de todos".
 
 ---
 
