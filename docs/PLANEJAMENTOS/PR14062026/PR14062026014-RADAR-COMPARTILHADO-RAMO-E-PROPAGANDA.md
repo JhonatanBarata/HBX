@@ -12,39 +12,56 @@
 
 ---
 
-## 1. A DECISÃO DE MODELO — lagoa COMPARTILHADA, dedup POR EMPRESA
+## 1. A DECISÃO DE MODELO — compartilhada NO TEMPO (um de cada vez + recircula)
 
-A lagoa (`RadarLeadPool`) é **única e global** (`companyId NULL`). O schema **já tinha** a
-peça certa: `RadarLeadCompanyState` com `@@unique([companyId, radarLeadId])` — cada empresa
-tem o **seu próprio estado** de cada card da lagoa. Tinha, porém, **dois modelos brigando**:
+> **Correção do dono (14/06, à noite):** o modelo NÃO é "todo mundo vê o mesmo lead ao mesmo
+> tempo". É **um de cada vez, e recircula por motivo.** "O mesmo lead pode aparecer em mais de
+> uma empresa, mas NÃO simultaneamente. Quem negativou nunca mais vê. A pessoa pode não querer
+> refrigerante, mas topar a ligação da cerveja. Por isso tem que selecionar o motivo: se for
+> 'número não existe / não atende', some de vez."
 
-1. **Posse exclusiva** (`ownerCompanyId` + `claimedAt`; `availableOnly ⇒ ownerCompanyId null`)
-   → o **primeiro** que pega vira **dono único** e o card **some pra todo mundo**. ❌ era isso
-   que fazia o card NÃO repetir entre empresas (e estourava "card já está na carteira de outra
-   empresa" no transferir/distribuir).
-2. **Estado por empresa** (`companyStates.none`) → lagoa **compartilhada**; o card só some
-   **pra quem já o trabalhou**. ✅ é o modelo que o dono pediu.
+A lagoa (`RadarLeadPool`) é **única e global** (`companyId NULL`). As regras:
 
-**O que mudou (núcleo):** a posse exclusiva passou a ser OPCIONAL e DESLIGADA por padrão.
-A disponibilidade agora vem só do estado por-empresa. Resultado:
+1. **Um de cada vez (posse-no-tempo):** enquanto a empresa A segura o lead X (`ownerCompanyId=A`),
+   ele **não aparece** pra B. `availableOnly ⇒ ownerCompanyId null`. (Era isso; eu tinha
+   desligado por engano de manhã achando que o dono queria simultâneo — **religado**.)
+2. **Recircula quando A solta:**
+   - **72h sem ação** → `releaseExpiredRadarReservations` devolve pra lagoa (anti-acúmulo).
+   - **descarte no Vendas** → `vendas.service` já solta o card de volta (`ownerCompanyId=null,
+     status=clean`).
+   - **recusa LEVE** ("sem interesse") → bloqueia só A (`RadarLeadCompanyState`) **e devolve pra
+     lagoa** pros outros.
+3. **Quem negativou nunca mais vê:** `companyStates.none` exclui qualquer status negativo da
+   empresa (bloqueio permanente por empresa).
+4. **Recusa DURA mata pra todos:** "número não existe / não atende / sem WhatsApp / inválido /
+   opt-out / reclamação" → status global protegido → some da lagoa inteira.
 
-- Empresa A puxa o card X → cria `RadarLeadCompanyState(A,X)` → some **só pra A**.
-- Empresa B continua vendo e podendo puxar X. ✅ (repete entre empresas)
-- A não puxa X de novo (o `companyStates.none` exclui). ✅ (não repete por empresa)
-- `sent_to_vendas`/`in_attendance` **não** são status "protegidos" (`RADAR_PROTECTED_STATUSES`),
-  então não escondem o card globalmente — só os negativados (denied/complaint/opt-out…) somem
-  pra todos, que é o certo (do-not-contact é global).
+**Mapa de motivo → destino (proposto — confirmar com o dono):**
 
-`RADAR_EXCLUSIVE_OWNERSHIP=true` (env) restaura a posse exclusiva, se um dia precisar.
+| Motivo da recusa | status | Destino |
+|---|---|---|
+| Sem interesse / não é o momento / recusou a oferta | `negative` | LEVE — bloqueia A, volta pra lagoa |
+| Vendedor descartou / escondeu | `discarded`/`hidden` | LEVE — bloqueia A, volta pra lagoa |
+| Não atende / número não existe / inválido | `no_answer`/`invalid_phone` | **DURA — some pra todos** |
+| Sem WhatsApp | `no_whatsapp` | **DURA — some pra todos** |
+| Pediu pra não receber contato (opt-out) | `opt_out` | **DURA — some pra todos** |
+| Reclamou | `complaint` | **DURA — some pra todos** |
+
+`RADAR_EXCLUSIVE_OWNERSHIP=false` (env) volta ao modo simultâneo (só debug).
 
 ---
 
 ## 2. O QUE FOI IMPLEMENTADO (14/06, working tree — dev)
 
 ### 2.1 Backend
-- **Pool compartilhado:** `radarExclusiveOwnershipEnabled()` (novo) + `supportsRadarOwnershipPersistence()`
-  retorna `false` por padrão → posse exclusiva off → dedup só por empresa.
-  `radar-core-presentation.mixin.ts`.
+- **Posse-no-tempo (um de cada vez):** `radarExclusiveOwnershipEnabled()` LIGADO por padrão →
+  `supportsRadarOwnershipPersistence()` ativa posse + reserva 72h + recirculação.
+  `radar-core-presentation.mixin.ts`. (Religado à noite — de manhã eu tinha desligado por ler
+  errado "compartilhado" como simultâneo.)
+- **Recusa LEVE × DURA:** `markRadarLeadNegativeForUser` agora separa — `isRadarGlobalKillStatus`
+  decide: dura (número/contato ruim) marca status global protegido (some pra todos); leve
+  (sem interesse) bloqueia só a empresa (`RadarLeadCompanyState`) e **libera o card pra lagoa**
+  (`ownerCompanyId=null, status=clean`, sem ressuscitar morto global). `radar-core-distribution.mixin.ts`.
 - **Admin/dono puxa card:** `pullRadarLeadsToVendasForUser` aceita ADMIN além de vendedor
   (`isCompanySellerUser || canUseWebscrapingRole`). Antes era vendedor-only → o dono (ADMIN)
   ficava SEM jeito de encher a carteira e só via o "Distribuir para vendedor" (push) que dava
@@ -65,11 +82,14 @@ A disponibilidade agora vem só do estado por-empresa. Resultado:
   senha, antes do tutorial), só pro dono, com chips sugeridos + texto livre, classes `.bv-*`
   (Lei 5). Repete a cada login até resolver.
 
-### 2.3 Falta (camada "organizar", próximo passo, sem risco pro núcleo)
-- [ ] **Mix empresa+vendedores no default do backend** (`listRadarLeadsForUser` sem segmento
-      cair no ramo da empresa ∪ preferências dos vendedores). Hoje o default é por-tela (front).
-- [ ] **Vendedor editar a própria preferência** (self-service). Hoje quem grava é o admin no
-      cadastro/gerenciar. O default já USA a preferência; falta a tela do vendedor mexer nela.
+### 2.3 Camada "organizar" — estado
+- [x] **Mix empresa+vendedores no Radar/Leads** — `listRadarLeadsForUser` agora aplica um
+      BOOST de ordenação (não filtro) quando não vem segmento: sobe pro topo o que casa com o
+      ramo da empresa ∪ a preferência de todos os vendedores ativos (vendedor = a dele).
+      `resolveRadarPreferenceSegments` + `boostRadarRowsByPreference`. Não esconde nada.
+- [x] **Vendedor edita a própria preferência (self-service)** — `PATCH /profile/preferred-segments`
+      + util `preferred-segments.util.ts` (shape canônico {segments,cityRegion}, tolerante ao
+      bare-array legado) + painel `minha-preferencia-panel.tsx` no /leads. (sessão paralela)
 - [ ] **Rótulo cross-empresa:** empresa B pode ver um card que A marcou `sent_to_vendas` com
       esse rótulo (cosmético; ela ainda PODE puxar). Ajuste no presenter (status por-empresa).
 - [ ] **Sinal de depleção por ramo** → realimentar a lagoa nos segmentos que esvaziam.

@@ -180,7 +180,10 @@ type CurrentUser = {
     commissionPercent?: number | null;
     sellerReferralCommissionPercent?: number | null;
     // preferência de segmento do vendedor (default do "Puxar leads") — 14/06.
+    // Self-service: o vendedor edita em /leads (PATCH /profile/preferred-segments).
     preferredSegments?: string[] | null;
+    // cidade/região preferida (opcional) — round-trip da mesma tela.
+    preferredCityRegion?: string | null;
   } | null;
 };
 

@@ -8,6 +8,7 @@ import { MasterContextService } from '../master-context/master-context.service';
 import { ThemePreferencesService } from './theme-preferences.service';
 import { resolveCompanyKind, isPlatformInfraCompany, isTenantCompany } from '../common/company-kind';
 import { resolveCompanyAccessState } from '../modules/company-access-state';
+import { parsePreferredSegments } from '../users/preferred-segments.util';
 
 class ChangePasswordDto {
   @IsString()
@@ -65,6 +66,9 @@ export function sanitizeUser(user: any, masterContext?: any) {
     user.canViewBilling !== false &&
     Boolean(user.company) &&
     companyProspectingSegments.length === 0;
+  // Preferência do vendedor (self-service 14/06): leitor tolerante a object
+  // {segments,cityRegion} e ao bare-array legado. Vira o default do "Puxar leads".
+  const sellerPreferred = parsePreferredSegments((user as any).preferredSegmentsJson);
   return {
     id: user.id,
     username: user.username,
@@ -92,15 +96,10 @@ export function sanitizeUser(user: any, masterContext?: any) {
       sellerReferralCommissionPercent: Number(user.sellerReferralCommissionPercent || 0) || 0,
       referredByUserId: user.referredByUserId ?? null,
       // Preferência de segmento do vendedor (14/06): vira o default do "Puxar leads".
-      // Estava salva no cadastro mas nunca chegava na tela — agora chega.
-      preferredSegments: (() => {
-        try {
-          const parsed = JSON.parse(String((user as any).preferredSegmentsJson || '[]'));
-          return Array.isArray(parsed) ? parsed.map((s: any) => String(s || '').trim()).filter(Boolean) : [];
-        } catch {
-          return [] as string[];
-        }
-      })(),
+      // O vendedor edita por self-service (PATCH /profile/preferred-segments).
+      preferredSegments: sellerPreferred.segments,
+      // Cidade/região preferida (opcional) — round-trip da mesma tela.
+      preferredCityRegion: sellerPreferred.cityRegion,
     },
     createdAt: user.createdAt,
     company: user.company
@@ -264,6 +263,35 @@ export class ProfileController {
     }
     const saved = await this.usersService.saveCompanyProspectingSegments(companyId, segments);
     return { ok: true, prospectingSegments: saved };
+  }
+
+  // Preferência de segmento/região do PRÓPRIO vendedor (self-service 14/06):
+  // grava em User.preferredSegmentsJson do usuário logado. Vira o default do
+  // "Puxar leads". Lista vazia ⇒ limpa a preferência (cai no ramo da empresa).
+  // Qualquer usuário autenticado edita a SUA preferência; o master não tem
+  // contexto de vendedor próprio.
+  @Patch('preferred-segments')
+  @UseGuards(JwtAuthGuard)
+  async savePreferredSegments(
+    @Req() req: any,
+    @Body() body: { segments?: string[]; cityRegion?: string | null },
+  ) {
+    const user = await this.usersService.findById(req.user.id);
+    if (!user) throw new BadRequestException('Usuario invalido');
+    if (user.isSystemMaster) {
+      throw new BadRequestException('O master nao possui preferencia de vendedor.');
+    }
+    const segments = Array.isArray(body?.segments) ? body.segments : [];
+    const saved = await this.usersService.saveUserPreferredSegments(
+      Number(user.id),
+      segments,
+      body?.cityRegion ?? null,
+    );
+    return {
+      ok: true,
+      preferredSegments: saved.segments,
+      preferredCityRegion: saved.cityRegion,
+    };
   }
 
   @Patch('display-name')

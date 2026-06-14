@@ -2025,6 +2025,16 @@ export class RadarCoreDistributionMixin {
     };
   }
 
+  // Recusa DURA = o contato é ruim pra TODO MUNDO (número não existe/não atende,
+  // sem WhatsApp, número inválido, opt-out, reclamação, bloqueio) → o lead some da
+  // lagoa pra todas as empresas. Recusa LEVE ("sem interesse", recusou a oferta,
+  // descartou, escondeu) é só desta empresa → o lead VOLTA pra lagoa pros outros.
+  // Dono 14/06: "pode não querer refrigerante mas topar a ligação da cerveja".
+  private isRadarGlobalKillStatus(status: string): boolean {
+    return ['no_whatsapp', 'invalid_whatsapp', 'invalid_phone', 'no_answer', 'opt_out', 'do_not_contact', 'complaint', 'blocked']
+      .includes(String(status || '').trim().toLowerCase());
+  }
+
   async markRadarLeadNegativeForUser(user: any, radarLeadId: string, input: { status?: string; reason?: string; privateNotes?: string } = {}) {
     const context = this.resolveContext(user);
     if (!(await this.supportsRadarPersistence())) {
@@ -2094,19 +2104,38 @@ export class RadarCoreDistributionMixin {
       },
     });
     if (!this.isRadarProtectedStatus(existing?.status)) {
-      await (this.prisma as any).radarLeadPool.update({
-        where: { id: row.id },
-        data: {
-          ...(ownershipEnabled ? { ownerCompanyId: context.companyId, claimedAt: now } : {}),
-          status,
-          deniedReason: ['negative', 'denied', 'opt_out', 'blocked'].includes(status) ? String(input.reason || '').trim() || null : undefined,
-          complaintReason: status === 'complaint' ? String(input.reason || '').trim() || null : undefined,
-          recommendedChannel: 'discard',
-          enrichmentScore: 0,
-          globalNegativeCount: { increment: 1 },
-          lastSeenAt: now,
-        },
-      }).catch(() => null);
+      if (this.isRadarGlobalKillStatus(status)) {
+        // DURA: morre pra todos. Marca o status global protegido — o buildRadarWhere
+        // exclui da lagoa inteira (número/contato ruim não serve pra ninguém).
+        await (this.prisma as any).radarLeadPool.update({
+          where: { id: row.id },
+          data: {
+            ...(ownershipEnabled ? { ownerCompanyId: context.companyId, claimedAt: now } : {}),
+            status,
+            deniedReason: ['denied', 'opt_out', 'blocked'].includes(status) ? String(input.reason || '').trim() || null : undefined,
+            complaintReason: status === 'complaint' ? String(input.reason || '').trim() || null : undefined,
+            recommendedChannel: 'discard',
+            enrichmentScore: 0,
+            globalNegativeCount: { increment: 1 },
+            lastSeenAt: now,
+          },
+        }).catch(() => null);
+      } else {
+        // LEVE: bloqueia só ESTA empresa (companyState já gravado acima) e LIBERA o
+        // card de volta pra lagoa pros outros. Não toca canal/score (opinião de A não
+        // vale pra B) e NUNCA ressuscita um lead já morto globalmente por outra empresa.
+        const globallyDead = this.isRadarProtectedStatus(row?.status)
+          || ['rejected', 'duplicate'].includes(String(row?.status || '').trim().toLowerCase());
+        await (this.prisma as any).radarLeadPool.update({
+          where: { id: row.id },
+          data: {
+            ...(ownershipEnabled ? { ownerCompanyId: null, claimedAt: null } : {}),
+            ...(globallyDead ? {} : { status: 'clean' }),
+            globalNegativeCount: { increment: 1 },
+            lastSeenAt: now,
+          },
+        }).catch(() => null);
+      }
     }
     await this.recordRadarLeadEvent({
       leadId: row.id,

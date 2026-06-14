@@ -1167,12 +1167,15 @@ export class RadarCorePresentationMixin {
   }
 
   private radarExclusiveOwnershipEnabled() {
-    // MODELO DO DONO (14/06/2026): a lagoa do Radar é COMPARTILHADA por padrão — um
-    // card que a empresa A puxa CONTINUA disponível para a empresa B. O "não repetir"
-    // é POR EMPRESA (RadarLeadCompanyState / companyStates.none), nunca posse exclusiva
-    // de 1 dono por card. A posse exclusiva (single-owner) só volta com
-    // RADAR_EXCLUSIVE_OWNERSHIP=true (rede de segurança, não o padrão).
-    return String(process.env.RADAR_EXCLUSIVE_OWNERSHIP || '').trim().toLowerCase() === 'true';
+    // MODELO DO DONO (refinado 14/06/2026): a lagoa é compartilhada NO TEMPO, NÃO
+    // simultaneamente. Enquanto a empresa A segura o lead ele NÃO aparece pra B
+    // (posse exclusiva via ownerCompanyId). Quando A solta — recusa LEVE ("sem
+    // interesse"), 72h sem ação, ou descarte — o lead VOLTA pra lagoa e a B pode
+    // pegar (o cara recusou refrigerante, mas pode topar a cerveja). Quem negativou
+    // NUNCA mais vê (bloqueio por empresa via RadarLeadCompanyState). Só recusa DURA
+    // ("número não existe / não atende") mata pra todos. Ligado por padrão; desligar
+    // só com RADAR_EXCLUSIVE_OWNERSHIP=false (debug do modelo simultâneo).
+    return String(process.env.RADAR_EXCLUSIVE_OWNERSHIP ?? 'true').trim().toLowerCase() !== 'false';
   }
 
   private async supportsRadarOwnershipPersistence() {
@@ -2591,6 +2594,67 @@ export class RadarCorePresentationMixin {
     return this.getRadarLeadPresenter().buildRadarEnrichmentSummary(rows, this.buildRadarLeadPresenterHost());
   }
 
+  // Lê a lista de segmentos preferidos de um JSON tolerante: object canônico
+  // { segments, cityRegion } OU bare-array legado (["dentista"]). Usado pra montar
+  // o "mix" de preferências (empresa + vendedores) — 14/06.
+  private extractPreferredSegmentList(json: any): string[] {
+    const obj = this.parseMaybeJsonObject(json);
+    if (obj && Array.isArray((obj as any).segments)) {
+      return (obj as any).segments.map((s: any) => String(s || '').trim()).filter(Boolean);
+    }
+    const arr = parseJsonArray(json);
+    return Array.isArray(arr) ? arr.map((s: any) => String(s || '').trim()).filter(Boolean) : [];
+  }
+
+  // MIX de preferências (dono, 14/06): o Radar/Leads exibe "misturadas" as
+  // preferências da EMPRESA (ramo-alvo) + dos VENDEDORES. Devolve o conjunto
+  // normalizado de segmentos preferidos pra usar como BOOST (não filtro — não
+  // esconde nada; só sobe o relevante). Vendedor = a preferência dele; admin/dono
+  // = a da empresa ∪ a de todos os vendedores ativos.
+  private async resolveRadarPreferenceSegments(user: any, context: SearchExecutionContext): Promise<Set<string>> {
+    const set = new Set<string>();
+    const add = (seg: any) => { const n = normalizeLookupValue(String(seg || '')); if (n) set.add(n); };
+    try {
+      const company = await this.prisma.company.findUnique({
+        where: { id: context.companyId },
+        select: { prospectingSegmentsJson: true } as any,
+      }).catch(() => null);
+      for (const s of this.extractPreferredSegmentList((company as any)?.prospectingSegmentsJson)) add(s);
+      if (this.isCompanySellerUser(user)) {
+        const me = await this.prisma.user.findUnique({
+          where: { id: context.userId },
+          select: { preferredSegmentsJson: true },
+        }).catch(() => null);
+        for (const s of this.extractPreferredSegmentList((me as any)?.preferredSegmentsJson)) add(s);
+      } else {
+        const sellers = await this.prisma.user.findMany({
+          where: { companyId: context.companyId, isActive: true, isSystemMaster: false },
+          select: { preferredSegmentsJson: true },
+          take: 200,
+        }).catch(() => []);
+        for (const row of sellers || []) {
+          for (const s of this.extractPreferredSegmentList((row as any)?.preferredSegmentsJson)) add(s);
+        }
+      }
+    } catch {
+      // preferência é só boost de ordenação; falha aqui nunca quebra a lista.
+    }
+    return set;
+  }
+
+  // Partição estável: leads do(s) segmento(s) preferido(s) primeiro, o resto
+  // depois, preservando a ordem comercial já calculada dentro de cada grupo.
+  private boostRadarRowsByPreference(rows: any[], preferenceSet: Set<string>) {
+    if (!preferenceSet.size) return rows;
+    const preferred: any[] = [];
+    const rest: any[] = [];
+    for (const row of rows) {
+      const seg = normalizeLookupValue(String(row?.normalizedSegment || row?.segment || ''));
+      (seg && preferenceSet.has(seg) ? preferred : rest).push(row);
+    }
+    return preferred.concat(rest);
+  }
+
   async listRadarLeadsForUser(user: any, input: RadarFiltersInput = {}) {
     const context = this.resolveContext(user);
     const filters = this.normalizeRadarFilters({ ...input, engine: undefined });
@@ -2621,8 +2685,15 @@ export class RadarCorePresentationMixin {
     const filteredRows = filters.filterKey || filters.status || filters.ddd || filters.source || filters.scoreRange
       ? this.filterRadarRowsInMemory(allRows, filters)
       : allRows;
+    // MIX de preferências (dono 14/06): quando o usuário NÃO pediu um segmento
+    // específico, sobe pro topo o que casa com o ramo da empresa ∪ a preferência
+    // dos vendedores. É BOOST (reordena), não filtro — não esconde nada.
+    const preferenceSet = filters.normalizedSegment
+      ? new Set<string>()
+      : await this.resolveRadarPreferenceSegments(user, context);
+    const orderedRows = this.boostRadarRowsByPreference(filteredRows, preferenceSet);
     const offset = (filters.page - 1) * filters.limit;
-    const pageRows = filteredRows.slice(offset, offset + filters.limit);
+    const pageRows = orderedRows.slice(offset, offset + filters.limit);
     const includeSmartFields = await this.canUseRadarSmartLeadFields(context.companyId);
     return {
       items: pageRows.map((row) => this.buildRadarLeadPublic(row, { includeSmartFields })),
@@ -2633,6 +2704,7 @@ export class RadarCorePresentationMixin {
         page: filters.page,
         limit: filters.limit,
         filterKey: filters.filterKey || null,
+        preferenceBoostApplied: preferenceSet.size > 0,
         availableFilters: this.buildRadarAvailableFilters(availableRows),
         enrichmentSummary: this.buildRadarEnrichmentSummary(allRows),
       },

@@ -19,6 +19,7 @@ import { Av, I, ICONS, KpiRow, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 import { useTabParam } from "@/lib/use-tab-param";
 import { PuxarLeadsPanel } from "@/components/hbx/puxar-leads-panel";
+import { MinhaPreferenciaPanel } from "@/components/hbx/minha-preferencia-panel";
 
 type RadarLead = {
   id: string;
@@ -129,6 +130,9 @@ export function LeadsClient() {
   // a comissão dele nas ações do lead). Só aparece para vendedor e quando o
   // backend já expõe o percentual (sellerProfile.commissionPercent).
   const commissionPct = isSeller ? Number(me?.sellerProfile?.commissionPercent ?? 0) || 0 : 0;
+  // Preferência do vendedor (self-service): null até salvar — enquanto isso o
+  // default do "Puxar leads" cai no perfil; ao salvar, reflete na hora.
+  const [prefSegments, setPrefSegments] = useState<string[] | null>(null);
   const [etapa, setEtapa] = useTabParam<string>("etapa", "");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(8);
@@ -342,19 +346,29 @@ export function LeadsClient() {
   };
   const l = sel;
   const ruleStatus = String(autoRule?.rule?.status || "");
+  // Default do "Puxar leads": vendedor usa a própria preferência (prefSegments
+  // reflete a edição self-service na hora); admin/dono usa o ramo da empresa.
+  const pullDefaultSegment =
+    (isSeller
+      ? (prefSegments?.[0] ?? me?.sellerProfile?.preferredSegments?.[0])
+      : me?.company?.prospectingSegments?.[0]) || "";
 
   return (
     <React.Fragment>
         <div className="content">
           <div className="work">
+            {isSeller && me?.sellerProfile && (
+              <MinhaPreferenciaPanel
+                initialSegments={me.sellerProfile.preferredSegments ?? []}
+                initialCityRegion={me.sellerProfile.preferredCityRegion ?? ""}
+                onSaved={segs => setPrefSegments(segs)}
+              />
+            )}
             {(isSeller || canDistribute) && (
               <PuxarLeadsPanel
+                key={`pull-${pullDefaultSegment || "none"}`}
                 onPulled={() => loadLeads({ page: 1 })}
-                defaultSegment={
-                  (isSeller
-                    ? me?.sellerProfile?.preferredSegments?.[0]
-                    : me?.company?.prospectingSegments?.[0]) || ""
-                }
+                defaultSegment={pullDefaultSegment}
               />
             )}
             <KpiRow items={[

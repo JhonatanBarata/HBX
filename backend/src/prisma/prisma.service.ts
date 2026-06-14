@@ -762,6 +762,13 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       ADD COLUMN IF NOT EXISTS "sellerDistributionUpdatedAt" TIMESTAMP(3)
     `);
 
+    // Preferência de segmento/região do vendedor (self-service 14/06). Nullable;
+    // existentes ficam NULL → default cai no ramo da empresa. Idempotente.
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "User"
+      ADD COLUMN IF NOT EXISTS "preferredSegmentsJson" TEXT
+    `);
+
     await this.$executeRawUnsafe(
       'CREATE INDEX IF NOT EXISTS "User_referredByUserId_idx" ON "User"("referredByUserId")',
     );

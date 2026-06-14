@@ -16,6 +16,11 @@ import {
 import { resolveCompanyAccessState } from '../modules/company-access-state';
 import { isTenantCompany } from '../common/company-kind';
 import { ensureUserTeamPolicyForUser } from '../team/team-policy-persistence';
+import {
+  buildPreferredSegmentsJsonValue,
+  parsePreferredSegments,
+  type PreferredSegments,
+} from './preferred-segments.util';
 
 export const SELF_ACCESS_REMOVAL_MESSAGE = 'Você não pode remover seu próprio acesso.';
 export const LAST_TENANT_ADMIN_MESSAGE = 'A empresa precisa manter pelo menos um administrador ativo.';
@@ -800,6 +805,22 @@ export class UsersService {
       data: { prospectingSegmentsJson: clean.length ? JSON.stringify(clean) : null } as any,
     });
     return clean;
+  }
+
+  // Preferência de segmento/região do PRÓPRIO vendedor (self-service 14/06):
+  // grava User.preferredSegmentsJson no shape canônico { segments, cityRegion }.
+  // Lista vazia + sem cidade ⇒ limpa (volta a cair no ramo da empresa).
+  async saveUserPreferredSegments(
+    userId: number,
+    segments: string[],
+    cityRegion?: string | null,
+  ): Promise<PreferredSegments> {
+    const json = buildPreferredSegmentsJsonValue(segments, cityRegion);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { preferredSegmentsJson: json } as any,
+    });
+    return parsePreferredSegments(json);
   }
 
   async updateById(userId: number, data: any, options?: UserMutationGuardOptions): Promise<User> {
