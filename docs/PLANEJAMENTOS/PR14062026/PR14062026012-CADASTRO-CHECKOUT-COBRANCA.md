@@ -19,8 +19,13 @@
   `bloqueio-gate.tsx` no AuthGate (reusa classes `.bv-*`, zero CSS novo); backend ganhou
   sinal NEUTRO `accessPaused` no `/commercial-plans/me` (sobrevive p/ vendedor). Boot dev
   limpo; front lint (catraca 560) + build verdes. Falta só o item 5 (nudges D-7/3/1).
-- Sprints 4–5 abaixo. Única dependência externa: **credenciais Mercado Pago + decisão
-  recorrente/Pix** (Sprint 4).
+- ✅ **Sprint 4 (checkout recorrente) CONSOLIDADO no motor existente** — descobri que o
+  `FinanceiroService` JÁ é o motor HBX→empresa completo (assinatura preapproval, cancel,
+  change-card, status, webhook→active, sweeps de trial/graça, modo mock). Eu tinha construído
+  um `HbxBillingService` duplicado → **removido**. Agora o front (modal Card Brick) consome
+  `/financeiro/subscription/create`. **Testável em dev pelo modo MOCK** (PAYMENTS_PROVIDER=mock
+  já setado). Live precisa do dono: **MERCADO_PAGO_PUBLIC_KEY (test)** + token no master.
+- Sprint 5 abaixo.
 
 ---
 
@@ -92,9 +97,21 @@
 > `/configuracoes` (admin precisa chegar no plano pra resolver) nem o master. Enforcement
 > real segue no backend (gate é só UX). Restart dev feito; tudo verde.
 
-### 🔴 SPRINT 4 — Checkout recorrente (Mercado Pago) — DECIDIDO, pronto p/ construir
-**Decisão do dono (14/06):** **cartão recorrente (assinatura)** via **Mercado Pago**.
-Construo no SANDBOX; dono troca chave de produção no publish.
+### ✅ SPRINT 4 — Checkout recorrente (Mercado Pago) — CONSOLIDADO no motor existente
+**Decisão do dono (14/06):** cartão recorrente via Mercado Pago, **Card Brick** (in-app).
+**Achado-chave:** o motor já existia (`FinanceiroService`): `POST /financeiro/subscription/create`
+(preapproval com `cardTokenId` → autoriza na hora, libera sem esperar liquidar),
+`/subscription/cancel|change-card|status`, webhook→`activateCompanyFromCharge`, sweeps de
+trial+graça, **modo mock** em dev. **Eu havia duplicado num `HbxBillingService` — removido.**
+- Front: `subscribe-card-modal.tsx` (reusa `.bv-*`) → mock em dev / Card Brick (SDK v2) em
+  live; `GET /financeiro/payments-config` diz o modo + chave pública. Cancelar → financeiro.
+- Catálogo: "Assinar este plano" abre o modal; "Cancelar assinatura" quando `accessState=paying`.
+- **Dev (mock) testável já.** **Live precisa do dono:** `MERCADO_PAGO_PUBLIC_KEY` (test) +
+  access token de teste no master global integrations. Webhook (renovação) só fecha na VPS.
+- Trial/dunning e-mails: o sweep do financeiro já existe (2 estágios). Escalada extra
+  (cópia HBX/vendedora no último dia) = melhoria futura no sweep.
+
+**(histórico do que eu tinha planejado antes de achar o motor — mantido por contexto):**
 
 **Acelerador:** quase tudo já existe —
 - `payments/mercado-pago-client.service.ts` é completo e stateless (recebe o token por

@@ -25,7 +25,8 @@ const localLabUrl = "http://127.0.0.1:3098";
 const ticketsDir = path.join(rootDir, "docs", "PLANEJAMENTOS");
 // Backend do produto (para Banco de Leads e import local→VPS). Token opcional.
 const backendUrl = String(process.env.HBX_OWNER_BACKEND_URL || "http://127.0.0.1:3000").replace(/\/+$/, "");
-const backendToken = String(process.env.HBX_OWNER_BACKEND_TOKEN || "").trim();
+let backendToken = String(process.env.HBX_OWNER_BACKEND_TOKEN || "").trim();
+let backendTokenRefreshPromise = null;
 // Ops Control = ponte JÁ pronta pra VPS (SSH + controles). Reaproveitamos por proxy:
 // a coluna VPS da guia Sistema fala com o Ops Control (modo ssh), não duplica SSH aqui.
 const opsUrl = String(process.env.HBX_OWNER_OPS_URL || "http://127.0.0.1:3099").replace(/\/+$/, "");
@@ -62,6 +63,22 @@ function clampInt(value, fallback, min, max) {
 function readAllowlist() {
   const content = fs.readFileSync(allowlistPath, "utf8");
   return JSON.parse(content);
+}
+
+function readDotenvValue(filePath, key) {
+  try {
+    const raw = fs.readFileSync(filePath, "utf8");
+    const escaped = String(key).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const match = raw.match(new RegExp(`^\\s*${escaped}\\s*=\\s*(.*)\\s*$`, "m"));
+    if (!match) return "";
+    let value = String(match[1] || "").trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    return value.trim();
+  } catch {
+    return "";
+  }
 }
 
 function resolveExecutable(binary) {
@@ -527,7 +544,7 @@ function readTickets() {
 }
 
 // ---------- Backend bridge (Banco de Leads + import) ----------
-function backendRequest(method, route, payload) {
+function backendRequestOnce(method, route, payload, token, options = {}) {
   return new Promise((resolve) => {
     let target;
     try {
@@ -538,13 +555,13 @@ function backendRequest(method, route, payload) {
     }
     const data = payload ? Buffer.from(JSON.stringify(payload)) : null;
     const headers = { Accept: "application/json" };
-    if (backendToken) headers.Authorization = `Bearer ${backendToken}`;
+    if (token) headers.Authorization = `Bearer ${token}`;
     if (data) {
       headers["Content-Type"] = "application/json";
       headers["Content-Length"] = data.length;
     }
     const req = http.request(
-      { hostname: target.hostname, port: target.port || 80, path: target.pathname + target.search, method, headers, timeout: 15000 },
+      { hostname: target.hostname, port: target.port || 80, path: target.pathname + target.search, method, headers, timeout: options.timeoutMs || 15000 },
       (response) => {
         let body = "";
         response.on("data", (chunk) => {
@@ -566,6 +583,88 @@ function backendRequest(method, route, payload) {
     if (data) req.write(data);
     req.end();
   });
+}
+
+function refreshBackendToken() {
+  if (backendTokenRefreshPromise) return backendTokenRefreshPromise;
+  backendTokenRefreshPromise = new Promise((resolve) => {
+    const backendEnv = path.join(rootDir, "backend", ".env");
+    const username = String(process.env.SYSTEM_MASTER_USERNAME || readDotenvValue(backendEnv, "SYSTEM_MASTER_USERNAME") || "").trim();
+    const password = String(process.env.SYSTEM_MASTER_PASSWORD || readDotenvValue(backendEnv, "SYSTEM_MASTER_PASSWORD") || "").trim();
+    if (!username || !password) {
+      resolve({ ok: false, error: "credenciais_master_ausentes" });
+      return;
+    }
+
+    let target;
+    try {
+      target = new URL(`${backendUrl}/auth/login`);
+    } catch (error) {
+      resolve({ ok: false, error: `URL backend invalida: ${error.message}` });
+      return;
+    }
+
+    const body = Buffer.from(JSON.stringify({ username, password, forceSession: true }));
+    const req = http.request(
+      {
+        hostname: target.hostname,
+        port: target.port || 80,
+        path: target.pathname + target.search,
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          "Content-Length": body.length,
+        },
+        timeout: 8000,
+      },
+      (response) => {
+        let raw = "";
+        response.on("data", (chunk) => {
+          if (raw.length < 20000) raw += chunk.toString("utf8");
+        });
+        response.on("end", () => {
+          let parsed = null;
+          try {
+            parsed = raw ? JSON.parse(raw) : null;
+          } catch {
+            parsed = null;
+          }
+          const token = String(parsed?.access_token || "").trim();
+          if (response.statusCode >= 200 && response.statusCode < 300 && token) {
+            backendToken = token;
+            process.env.HBX_OWNER_BACKEND_TOKEN = token;
+            resolve({ ok: true });
+            return;
+          }
+          resolve({ ok: false, statusCode: response.statusCode, error: parsed?.message || parsed?.error || `http_${response.statusCode || "?"}` });
+        });
+      },
+    );
+    req.on("timeout", () => req.destroy(new Error("timeout")));
+    req.on("error", (error) => resolve({ ok: false, error: error.message }));
+    req.write(body);
+    req.end();
+  }).finally(() => {
+    backendTokenRefreshPromise = null;
+  });
+  return backendTokenRefreshPromise;
+}
+
+async function backendRequest(method, route, payload, options = {}) {
+  let response = await backendRequestOnce(method, route, payload, backendToken, options);
+  if (response.statusCode !== 401) return response;
+
+  const refreshed = await refreshBackendToken();
+  if (!refreshed.ok || !backendToken) {
+    return {
+      ...response,
+      error: refreshed.error || response.data?.message || response.error || "backend_token_invalido",
+      refresh: refreshed,
+    };
+  }
+  response = await backendRequestOnce(method, route, payload, backendToken, options);
+  return response;
 }
 
 async function readLeadsBank() {
@@ -939,6 +1038,56 @@ const VPS_QUICK_ACTIONS = new Set(["start", "stop", "restart"]);
 
 // ---------- Caça de e-mail (via backend Radar — o "chefe") ----------
 const ownerCompanyId = Number(process.env.HBX_OWNER_COMPANY_ID || 2) || 2;
+let brazilCityOptionsCache = null;
+
+function readBrazilCityOptionsByState() {
+  if (brazilCityOptionsCache) return brazilCityOptionsCache;
+  const byState = {};
+  const sourcePath = path.join(rootDir, "backend", "src", "webscraping", "brazil-city-coordinates.ts");
+  try {
+    const source = fs.readFileSync(sourcePath, "utf8");
+    const matcher = /\["([A-Z]{2})",\s*"((?:[^"\\]|\\.)*)",\s*-?\d+(?:\.\d+)?,\s*-?\d+(?:\.\d+)?\]/g;
+    let match;
+    while ((match = matcher.exec(source))) {
+      const state = match[1];
+      const city = match[2].replace(/\\"/g, '"').trim();
+      if (!city) continue;
+      if (!byState[state]) byState[state] = new Set();
+      byState[state].add(city);
+    }
+    brazilCityOptionsCache = Object.fromEntries(
+      Object.entries(byState).map(([state, cities]) => [
+        state,
+        Array.from(cities)
+          .sort((left, right) => left.localeCompare(right, "pt-BR"))
+          .map((city) => ({ value: city, label: city })),
+      ]),
+    );
+  } catch {
+    brazilCityOptionsCache = {};
+  }
+  return brazilCityOptionsCache;
+}
+
+function mergeCityOptionsByState(primary) {
+  const fallback = readBrazilCityOptionsByState();
+  const states = new Set([...Object.keys(fallback), ...Object.keys(primary || {})]);
+  const merged = {};
+  for (const state of states) {
+    const seen = new Set();
+    const items = [];
+    for (const option of [...((primary && primary[state]) || []), ...(fallback[state] || [])]) {
+      const value = String(option?.value || option?.label || "").trim();
+      if (!value) continue;
+      const key = value.toLocaleLowerCase("pt-BR");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      items.push({ ...option, value, label: String(option.label || value) });
+    }
+    if (items.length) merged[state] = items;
+  }
+  return merged;
+}
 
 // Filtro instantâneo: leads do Banco que já têm e-mail (segmento/cidade).
 async function emailLeadsFromBank(query) {
@@ -960,7 +1109,10 @@ async function huntEmails(body) {
   const city = safeText(body.city, 120);
   const state = safeText(body.state, 2).toUpperCase();
   if (!segment) return { ok: false, reason: "sem_segmento", message: "Informe o segmento." };
-  if (!backendToken) return { ok: false, reason: "backend_token_ausente", message: "Configure HBX_OWNER_BACKEND_TOKEN." };
+  if (!backendToken) {
+    const refreshed = await refreshBackendToken();
+    if (!refreshed.ok) return { ok: false, reason: "backend_token_ausente", message: "Configure HBX_OWNER_BACKEND_TOKEN." };
+  }
 
   await backendRequest("POST", "/master-context/assume", { companyId: ownerCompanyId }).catch(() => null);
   const quantity = clampInt(body.targetEmails, 20, 1, 100);
@@ -970,7 +1122,7 @@ async function huntEmails(body) {
     segment,
     quantity,
     engine: "hbx",
-  });
+  }, { timeoutMs: 120000 });
 
   const bank = await emailLeadsFromBank({ segment, city, take: 60 });
   if (!searchResp.ok) {
@@ -990,16 +1142,36 @@ async function huntEmails(body) {
 // meta.availableFilters da listagem do Radar. Sem endpoint dedicado → lê a listagem.
 async function radarFilters() {
   const empty = { ok: false, segments: [], states: [], citiesByState: {} };
-  if (!backendToken) return { ...empty, reason: "backend_token_ausente" };
+  const fallbackCitiesByState = mergeCityOptionsByState({});
+  if (!backendToken) {
+    await refreshBackendToken().catch(() => null);
+    if (!backendToken) {
+      return {
+        ok: Object.keys(fallbackCitiesByState).length > 0,
+        segments: [],
+        states: Object.keys(fallbackCitiesByState).sort().map((state) => ({ value: state, label: state })),
+        citiesByState: fallbackCitiesByState,
+        reason: "backend_token_ausente",
+      };
+    }
+  }
   await backendRequest("POST", "/master-context/assume", { companyId: ownerCompanyId }).catch(() => null);
   const response = await backendRequest("GET", "/webscraping/radar/leads");
   const filters = response.ok && response.data && response.data.meta && response.data.meta.availableFilters;
-  if (!filters) return { ...empty, reason: response.error || `http_${response.statusCode || "?"}` };
+  if (!filters) {
+    return {
+      ok: Object.keys(fallbackCitiesByState).length > 0,
+      segments: [],
+      states: Object.keys(fallbackCitiesByState).sort().map((state) => ({ value: state, label: state })),
+      citiesByState: fallbackCitiesByState,
+      reason: response.error || `http_${response.statusCode || "?"}`,
+    };
+  }
   return {
     ok: true,
     segments: Array.isArray(filters.segments) ? filters.segments : [],
     states: Array.isArray(filters.states) ? filters.states : [],
-    citiesByState: (filters.citiesByState && typeof filters.citiesByState === "object") ? filters.citiesByState : {},
+    citiesByState: mergeCityOptionsByState((filters.citiesByState && typeof filters.citiesByState === "object") ? filters.citiesByState : {}),
   };
 }
 
@@ -1140,14 +1312,30 @@ async function route(req, res) {
   // Controle da fábrica de motores (runtime, sem subir container): freio do dono.
   if (req.method === "POST" && (url.pathname === "/owner/factory/stop" || url.pathname === "/owner/factory/resume")) {
     if (!backendToken) {
-      sendJson(res, 200, { ok: false, reason: "backend_token_ausente", message: "Configure HBX_OWNER_BACKEND_TOKEN." });
-      return;
+      const refreshed = await refreshBackendToken();
+      if (!refreshed.ok) {
+        sendJson(res, 200, { ok: false, reason: "backend_token_ausente", message: "Configure HBX_OWNER_BACKEND_TOKEN." });
+        return;
+      }
     }
     const route = url.pathname.endsWith("/stop")
       ? "/modules/master/webscraping/factory/stop"
       : "/modules/master/webscraping/factory/resume-schedule";
     const response = await backendRequest("POST", route, {});
-    sendJson(res, response.ok ? 200 : 502, { ok: response.ok, action: url.pathname.endsWith("/stop") ? "stop" : "resume", backend: response.data, reason: response.error });
+    const backendMessage = Array.isArray(response.data?.message)
+      ? response.data.message.join(" · ")
+      : response.data?.message;
+    const reason = response.error || backendMessage || response.data?.error || `http_${response.statusCode || "?"}`;
+    const payload = {
+      ok: response.ok,
+      action: url.pathname.endsWith("/stop") ? "stop" : "resume",
+      backend: response.data,
+    };
+    if (!response.ok) {
+      payload.reason = reason;
+      payload.error = reason;
+    }
+    sendJson(res, response.ok ? 200 : 502, payload);
     return;
   }
 

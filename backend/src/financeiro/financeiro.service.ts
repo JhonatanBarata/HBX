@@ -2753,6 +2753,19 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     return this.getOverviewForUser(user);
   }
 
+  // Config que o front precisa pra renderizar o cartão da assinatura (Sprint 4
+  // PR14062026012): modo (mock em dev / live) + chave PÚBLICA do Mercado Pago
+  // (NUNCA o access token — esse é secreto e fica só no backend). Em mock, o front
+  // assina sem SDK; em live, renderiza o Card Brick com a publicKey.
+  getPaymentsConfigForUser(user: any) {
+    const context = this.resolveUserContext(user);
+    this.assertCanManageBilling(context);
+    return {
+      mode: this.isMockPaymentsProvider() ? 'mock' : 'live',
+      publicKey: String(process.env.MERCADO_PAGO_PUBLIC_KEY || '').trim() || null,
+    };
+  }
+
   async createCheckoutForUser(user: any, dto: {
     paymentMethod?: string;
     planKey?: string;

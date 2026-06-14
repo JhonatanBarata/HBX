@@ -10,9 +10,9 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 
-import { fetchPlanMeCached } from "@/components/hbx/shell";
+import { BootSplash } from "@/components/hbx/boot-splash";
 import { apiFetch, getToken } from "@/lib/api";
-import { CAPITULOS, limiteDoPlano } from "@/lib/tutorial-chapters";
+import { startTutorialCoach } from "@/lib/tutorial-coach-store";
 
 type Flags = {
   name?: string | null;
@@ -40,15 +40,18 @@ export function BoasVindasGate() {
   const precisaTutorial = !precisaSenha && Boolean(flags.tutorialPending);
   if (!precisaSenha && !precisaTutorial) return null;
 
-  return (
-    <div className="bv-veil" role="dialog" aria-modal="true">
-      <div className="bv-card">
-        {precisaSenha
-          ? <PassoSenha flags={flags} onResolved={carregar} />
-          : <PassoTutorial onResolved={carregar} />}
+  // Senha definitiva: portão clássico. Tutorial: NÃO mostra mais o leitor estático
+  // — dispara o TOUR INTERATIVO (boot → coach que vive no app-shell). Um só tutorial.
+  if (precisaSenha) {
+    return (
+      <div className="bv-veil" role="dialog" aria-modal="true">
+        <div className="bv-card">
+          <PassoSenha flags={flags} onResolved={carregar} />
+        </div>
       </div>
-    </div>
-  );
+    );
+  }
+  return <PassoTutorialLauncher onResolved={carregar} />;
 }
 
 function primeiroNome(nome?: string | null) {
@@ -118,74 +121,22 @@ function PassoSenha({ flags, onResolved }: { flags: Flags; onResolved: () => voi
   );
 }
 
-function PassoTutorial({ onResolved }: { onResolved: () => void }) {
-  const [planKey, setPlanKey] = useState<string | null>(null);
-  const [cap, setCap] = useState(0);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+// Primeiro acesso → TOUR INTERATIVO. Mostra o boot estilo Windows e, ao terminar,
+// liga o coach (que vive no app-shell e roda por cima do app real), marca o
+// tutorial como concluído no backend (pra não re-disparar) e some o portão. Se a
+// pessoa pular o tour depois, ele cai no /dashboard (tratado no próprio coach).
+function PassoTutorialLauncher({ onResolved }: { onResolved: () => void }) {
+  const [fired, setFired] = useState(false);
 
-  useEffect(() => {
-    let alive = true;
-    fetchPlanMeCached().then(d => { if (alive) setPlanKey(d?.current?.planKey || null); }).catch(() => { /* sem plano → default */ });
-    return () => { alive = false; };
-  }, []);
-
-  const limite = limiteDoPlano(planKey);
-  const visiveis = CAPITULOS.slice(0, Math.min(CAPITULOS.length, Math.max(1, limite + 1)));
-  const idx = Math.min(cap, visiveis.length - 1);
-  const c = visiveis[idx];
-  const ultimo = idx >= visiveis.length - 1;
-
-  async function resolver() {
-    if (busy) return;
-    setBusy(true);
-    setErr(null);
+  async function lancar() {
+    if (fired) return;
+    setFired(true);
+    startTutorialCoach();
     try {
       await apiFetch("/profile/tutorial-done", { method: "POST", body: JSON.stringify({}) });
-      onResolved();
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Não foi possível concluir agora.");
-      setBusy(false);
-    }
+    } catch { /* o flag re-tenta no próximo login; o tour já está rodando */ }
+    onResolved(); // recarrega flags → tutorialPending=false → portão some
   }
 
-  return (
-    <React.Fragment>
-      <div className="bv-hero">
-        <span className="orb" />
-        <span className="bv-tag">{c.plano}</span>
-        <h2>{c.titulo}</h2>
-        <p>{c.resumo}</p>
-      </div>
-      <div className="bv-body">
-        <div className="bv-steps">
-          {c.passos.map((p, i) => (
-            <div key={p.t} className="bv-step">
-              <span className="n">{i + 1}</span>
-              <span className="tx">
-                <strong>{p.t}</strong>
-                <small>{p.d}</small>
-              </span>
-            </div>
-          ))}
-        </div>
-        {err && <div className="bv-msg bad">{err}</div>}
-        <div className="bv-foot">
-          <span className="bv-dots">
-            {visiveis.map((x, i) => <i key={x.id} className={i === idx ? "on" : ""} />)}
-          </span>
-          {idx > 0 && (
-            <button type="button" className="bv-link" onClick={() => setCap(idx - 1)} disabled={busy}>← Voltar</button>
-          )}
-          {!ultimo
-            ? <button type="button" className="btn-ghost grow" onClick={() => setCap(idx + 1)} disabled={busy}>Próximo →</button>
-            : <span className="grow" />}
-          <button type="button" className="bv-link" onClick={resolver} disabled={busy}>Não exibir mais</button>
-          <button type="button" className="btn-teal" onClick={resolver} disabled={busy}>
-            {busy ? "Concluindo…" : ultimo ? "Começar a usar ✓" : "Começar a usar"}
-          </button>
-        </div>
-      </div>
-    </React.Fragment>
-  );
+  return <BootSplash onDone={lancar} />;
 }

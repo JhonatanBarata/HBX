@@ -129,6 +129,7 @@ model Company {
   createdAt               DateTime  @default(now())
   products                Product[]
   users                   User[]
+  metaLeadConnections     MetaLeadConnection[]
   sellerOnboardings       SellerOnboarding[]
   hbxPartnerReferralCandidates HbxPartnerReferralCandidate[]
 
@@ -902,6 +903,28 @@ model ExternalWebhookEvent {
   @@index([companyId, provider, createdAt])
   @@index([provider, status, createdAt])
   @@index([payloadHash])
+}
+
+// Conexão de página Meta (Facebook/Instagram) → empresa, para intake de Lead Ads.
+// 1 página = 1 empresa (pageId @unique). O token da página fica cifrado
+// (IntegrationSecretsService). PR14062026013 — primeiro cano de gasto-com-retorno.
+model MetaLeadConnection {
+  id                    String   @id @default(cuid())
+  company               Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId             Int
+  pageId                String   @unique
+  pageName              String?
+  accessTokenCiphertext String?
+  accessTokenPreview    String?
+  defaultAssignedUserId Int?
+  status                String   @default("active") // active | paused
+  lastEventAt           DateTime?
+  lastLeadAt            DateTime?
+  lastError             String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([companyId])
 }
 
 model AuvoExternalRecord {
@@ -2156,6 +2179,7 @@ model VendasLead {
   rating            Float?
   reviews           Int      @default(0)
   opportunityScore  Int?     // score de oportunidade herdado do Radar (snapshot p/ card do Vendas — B2 PR13062026008)
+  leadTemperature   String?  // frio | morno | quente — grau de calor do lead (Fase 1 PR14062026013)
   city              String?
   state             String?
   segment           String?

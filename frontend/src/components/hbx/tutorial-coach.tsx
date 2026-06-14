@@ -107,7 +107,9 @@ export function TutorialCoach({
     }, prefersReducedMotion() ? 0 : LEAVE_MS);
   }
   function advance() { go(isLast ? "done" : Math.min(steps.length - 1, i + 1)); }
-  function skip() { (onSkip || onDone)?.(); }
+  // Sair do tour (Pular/ESC) nunca deixa a pessoa numa /tutorial vazia: leva pro
+  // Dashboard. Os botões do passo final fazem a própria navegação.
+  function skip() { router.push("/dashboard"); (onSkip || onDone)?.(); }
 
   // ESC encerra o tour.
   useEffect(() => {

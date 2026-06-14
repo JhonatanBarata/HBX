@@ -13,6 +13,7 @@ import { useState } from "react";
 
 import { I, ICONS } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
+import { BRAZIL_UF_OPTIONS, brazilCityOptionsForUf } from "@/lib/brazil-cities";
 
 type PullResult = {
   ok?: boolean;
@@ -33,6 +34,7 @@ export function PuxarLeadsPanel({ onPulled, defaultSegment = "" }: { onPulled?: 
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<PullResult>(null);
   const [error, setError] = useState<string | null>(null);
+  const cityOptions = brazilCityOptionsForUf(uf);
 
   async function puxar() {
     if (busy) return;
@@ -76,12 +78,17 @@ export function PuxarLeadsPanel({ onPulled, defaultSegment = "" }: { onPulled?: 
         </div>
         <div className="f">
           <label>Cidade (opcional)</label>
-          <input className="field-dark" placeholder="Todas" value={city} onChange={e => setCity(e.target.value)} />
+          <input className="field-dark" list="puxar-cidades" placeholder={uf ? `Digite uma cidade de ${uf}` : "Todas"} value={city} onChange={e => setCity(e.target.value)} />
+          <datalist id="puxar-cidades">
+            {cityOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </datalist>
         </div>
         <div className="f">
           <label>UF (opcional)</label>
-          <input className="field-dark" placeholder="SP" maxLength={2} value={uf}
-            onChange={e => setUf(e.target.value.toUpperCase())} />
+          <select className="select-dark" value={uf} onChange={e => { setUf(e.target.value); setCity(""); }}>
+            <option value="">Todos</option>
+            {BRAZIL_UF_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
         </div>
         <div className="f">
           <label>Alcance</label>

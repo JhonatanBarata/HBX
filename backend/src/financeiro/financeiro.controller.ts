@@ -19,6 +19,11 @@ export class FinanceiroController {
     return this.financeiroService.getOverviewForUser(req.user);
   }
 
+  @Get('payments-config')
+  getPaymentsConfig(@Req() req: any) {
+    return this.financeiroService.getPaymentsConfigForUser(req.user);
+  }
+
   @Patch('preferences')
   updatePreferences(@Req() req: any, @Body() dto: UpdateFinanceiroPreferencesDto) {
     return this.financeiroService.updatePreferencesForUser(req.user, dto || {});

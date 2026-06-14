@@ -27,6 +27,7 @@ import React, { useEffect, useState } from "react";
 import { CargoAcessosEditor } from "@/components/hbx/cargo-acessos-editor";
 import { CompanyEmailSection } from "@/components/hbx/company-email-section";
 import { NovoAcessoModal } from "@/components/hbx/novo-acesso-modal";
+import { SubscribeCardModal } from "@/components/hbx/subscribe-card-modal";
 import { Av, ConfirmDialog, I, ICONS } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 import { useTabParam } from "@/lib/use-tab-param";
@@ -139,7 +140,8 @@ export function ConfiguracoesClient() {
   // pending_checkout/desativa; o front só dispara e mostra o veredito.
   const [planoBusy, setPlanoBusy] = useState(false);
   const [planoMsg, setPlanoMsg] = useState<string | null>(null);
-  const [confirmPlano, setConfirmPlano] = useState<CatalogPlan | null>(null);
+  const [subscribePlan, setSubscribePlan] = useState<CatalogPlan | null>(null);
+  const [confirmCancelar, setConfirmCancelar] = useState(false);
   const [confirmFull, setConfirmFull] = useState<CatalogPlan | null>(null);
 
   // Novo acesso (cadastro completo, PR12062026005) + gestão de membro.
@@ -242,20 +244,27 @@ export function ConfiguracoesClient() {
     }
   }
 
-  async function selecionarPlano(plan: CatalogPlan) {
+  // Assinatura recorrente (cartão) — abre o modal de cartão (Card Brick do Mercado
+  // Pago), que consome o motor existente /financeiro/subscription/create. A
+  // liberação acontece na autorização do cartão (sem esperar o valor liquidar).
+  async function recarregarPlano() {
+    const me = await apiFetch<CommercialPlansMe>("/commercial-plans/me").catch(() => null);
+    if (me) setPlansMe(me);
+  }
+
+  async function cancelarAssinatura() {
     if (planoBusy) return;
     setPlanoBusy(true);
     setPlanoMsg(null);
     try {
-      // POST /commercial-plans/select — backend decide trial/troca/checkout.
-      const res = await apiFetch<CommercialPlansMe>("/commercial-plans/select", {
+      const res = await apiFetch<{ message?: string }>("/financeiro/subscription/cancel", {
         method: "POST",
-        body: JSON.stringify({ planKey: plan.key }),
+        body: JSON.stringify({}),
       });
-      if (res) setPlansMe(res);
-      setPlanoMsg(`✓ Plano alterado para ${plan.title}.`);
+      setPlanoMsg(`✓ ${res?.message || "Assinatura cancelada. O acesso continua até o fim do período já pago."}`);
+      await recarregarPlano();
     } catch (err) {
-      setPlanoMsg(err instanceof Error ? err.message : "Não foi possível alterar o plano.");
+      setPlanoMsg(err instanceof Error ? err.message : "Não foi possível cancelar agora.");
     } finally {
       setPlanoBusy(false);
     }
@@ -445,8 +454,16 @@ export function ConfiguracoesClient() {
                       {fmtPreco(planoAtual?.monthlyPrice) && (
                         <span style={{ fontFamily: "var(--font-mono)", fontSize: "1.1rem", fontWeight: 700 }}>{fmtPreco(planoAtual?.monthlyPrice)}</span>
                       )}
+                      {/* Trial/checkout pendente no plano atual (pago): "Assinar agora" abre o
+                          cartão direto pro plano vigente — a conversão mais comum (Lead→pago). */}
+                      {canSelectPlan && planoAtual && !planoAtual.requiresAssistedSetup && current?.accessState !== "paying" && (
+                        <button className="btn-teal" disabled={planoBusy} onClick={() => { setSubscribePlan(planoAtual); setPlanoMsg(null); }}>Assinar agora</button>
+                      )}
                       {canSelectPlan && planos.length > 0 && (
-                        <button className="btn-teal" onClick={() => document.getElementById("hbx-catalogo-planos")?.scrollIntoView({ behavior: "smooth", block: "start" })}>Gerenciar plano</button>
+                        <button className="btn-ghost" onClick={() => document.getElementById("hbx-catalogo-planos")?.scrollIntoView({ behavior: "smooth", block: "start" })}>Gerenciar plano</button>
+                      )}
+                      {canSelectPlan && current?.accessState === "paying" && (
+                        <button className="btn-ghost" disabled={planoBusy} onClick={() => { setConfirmCancelar(true); setPlanoMsg(null); }}>Cancelar assinatura</button>
                       )}
                     </div>
                     <div className="kv">
@@ -498,7 +515,7 @@ export function ConfiguracoesClient() {
                             {canSelectPlan && !atual && (
                               p.requiresAssistedSetup
                                 ? <button className="btn-ghost" style={{ marginTop: 2 }} disabled={planoBusy} onClick={() => { setConfirmFull(p); setPlanoMsg(null); }}>Falar com a HBX</button>
-                                : <button className="btn-ghost" style={{ marginTop: 2 }} disabled={planoBusy} onClick={() => { setConfirmPlano(p); setPlanoMsg(null); }}>Trocar para este plano</button>
+                                : <button className="btn-ghost" style={{ marginTop: 2 }} disabled={planoBusy} onClick={() => { setSubscribePlan(p); setPlanoMsg(null); }}>Assinar este plano</button>
                             )}
                           </article>
                         );
@@ -549,14 +566,23 @@ export function ConfiguracoesClient() {
         onCancel={() => setConfirmExcluir(null)}
       />
 
+      {subscribePlan && (
+        <SubscribeCardModal
+          plan={{ key: subscribePlan.key, title: subscribePlan.title, monthlyPrice: subscribePlan.monthlyPrice }}
+          onClose={() => setSubscribePlan(null)}
+          onDone={async (msg) => { setSubscribePlan(null); setPlanoMsg(msg); await recarregarPlano(); }}
+        />
+      )}
+
       <ConfirmDialog
-        open={!!confirmPlano}
-        title="Trocar de plano"
-        message={<>Trocar para <strong>{confirmPlano?.title}</strong>? Um plano diferente do atual coloca o acesso em <strong>checkout pendente</strong> e pausa a empresa até a confirmação do pagamento. A trilha de pagamento ainda não está no ar — o acesso só volta quando for reativado.</>}
-        confirmLabel="Trocar plano"
+        open={confirmCancelar}
+        title="Cancelar assinatura"
+        message={<>Cancelar a assinatura recorrente? A cobrança automática para, e o acesso continua até o fim do período já pago.</>}
+        confirmLabel="Cancelar assinatura"
+        danger
         busy={planoBusy}
-        onConfirm={async () => { const p = confirmPlano; setConfirmPlano(null); if (p) await selecionarPlano(p); }}
-        onCancel={() => setConfirmPlano(null)}
+        onConfirm={async () => { setConfirmCancelar(false); await cancelarAssinatura(); }}
+        onCancel={() => setConfirmCancelar(false)}
       />
 
       <ConfirmDialog

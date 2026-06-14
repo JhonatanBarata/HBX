@@ -10,7 +10,12 @@ async function api(method, route, body) {
   if (!res.ok) {
     let detail = `http_${res.status}`;
     try {
-      detail = (await res.json()).error || detail;
+      const data = await res.json();
+      const backendMessage = Array.isArray(data?.backend?.message)
+        ? data.backend.message.join(" · ")
+        : data?.backend?.message;
+      const message = Array.isArray(data?.message) ? data.message.join(" · ") : data?.message;
+      detail = data?.error || message || data?.reason || backendMessage || data?.backend?.error || detail;
     } catch {}
     throw new Error(detail);
   }

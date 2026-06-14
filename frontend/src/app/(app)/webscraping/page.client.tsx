@@ -16,6 +16,9 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
+import { BRAZIL_UF_OPTIONS, mergeBrazilCityOptions } from "@/lib/brazil-cities";
+
+type FilterOption = { value: string; label: string; count?: number };
 
 type RadarLead = {
   id: string;
@@ -49,9 +52,9 @@ type LeadsResponse = {
     page?: number;
     limit?: number;
     availableFilters?: {
-      states?: { value: string; label: string; count: number }[];
-      segments?: { value: string; label: string; count: number }[];
-      citiesByState?: Record<string, { value: string; label: string; count: number }[]>;
+      states?: FilterOption[];
+      segments?: FilterOption[];
+      citiesByState?: Record<string, FilterOption[]>;
     };
     enrichmentSummary?: {
       cardsAnalyzed: number;
@@ -120,6 +123,18 @@ function radarEventLabel(t?: string) {
 }
 
 const TERMINAL_RUN = new Set(["completed", "completed_insufficient_results", "canceled", "failed", "error"]);
+
+function mergeFilterOptions(primary: FilterOption[] | undefined, fallback: FilterOption[]) {
+  const seen = new Set<string>();
+  const merged: FilterOption[] = [];
+  for (const option of [...(primary || []), ...fallback]) {
+    const value = String(option.value || option.label || "").trim();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    merged.push({ ...option, value, label: option.label || value });
+  }
+  return merged;
+}
 
 function statusLabel(status: string) {
   return ST_LABEL[status] || status || "—";
@@ -361,9 +376,9 @@ export function WebscrapingClient() {
   const summary = data?.meta?.enrichmentSummary;
   const filters = data?.meta?.availableFilters;
   const segOptions = filters?.segments || [];
-  const ufOptions = filters?.states || [];
-  const cityOptions = uf && filters?.citiesByState?.[uf]
-    ? filters.citiesByState[uf]
+  const ufOptions = mergeFilterOptions(filters?.states, BRAZIL_UF_OPTIONS);
+  const cityOptions = uf
+    ? mergeBrazilCityOptions(uf, filters?.citiesByState?.[uf])
     : Object.values(filters?.citiesByState || {}).flat();
 
   const runActive = Boolean((run?.id || run?.runId) && !TERMINAL_RUN.has(String(run?.status || "")));
@@ -393,17 +408,17 @@ export function WebscrapingClient() {
                 </div>
                 <div className="f">
                   <label>UF</label>
-                  <select className="select-dark" value={uf} onChange={e => setUf(e.target.value)}>
+                  <select className="select-dark" value={uf} onChange={e => { setUf(e.target.value); setCity(""); }}>
                     <option value="">Todos os estados</option>
                     {ufOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                 </div>
                 <div className="f">
                   <label>Cidade</label>
-                  <input className="field-dark" list="cidades" placeholder="Todas as cidades" style={{ minWidth: 150 }}
+                  <input className="field-dark" list="cidades" placeholder={uf ? `Digite uma cidade de ${uf}` : "Todas as cidades"} style={{ minWidth: 150 }}
                     value={city} onChange={e => setCity(e.target.value)} />
                   <datalist id="cidades">
-                    {cityOptions.map(o => <option key={o.value} value={o.value}>{`${o.label} (${o.count})`}</option>)}
+                    {cityOptions.map(o => <option key={o.value} value={o.value}>{o.count ? `${o.label} (${o.count})` : o.label}</option>)}
                   </datalist>
                 </div>
                 <div className="f" style={{ flex: 1, minWidth: 180 }}>
