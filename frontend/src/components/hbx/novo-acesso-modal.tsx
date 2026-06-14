@@ -1,31 +1,35 @@
 "use client";
 
-// "Novo acesso" (PR12062026005) — cadastro COMPLETO de membro para TODO
-// admin (restauração da tela do front antigo, ordem do dono 12/06/2026).
-// 13/06/2026 (ordem do dono): o admin SÓ cria VENDEDOR — admin é singular/
-// pagante e quem cunha admin é o Master (/master). Por isso o seletor de papel
-// saiu daqui; role fica travado em USER.
+// Tela ÚNICA do vendedor (ordem do dono, 14/06/2026): a MESMA tela cria e
+// gerencia — antes eram dois modais divergentes (Novo acesso × Gerenciar) e isso
+// era a bagunça. Agora `member` ausente = criar; `member` presente = gerenciar
+// (mesma cara, mesmos campos, upload de documento sempre disponível).
+//
+// PR12062026005 (cadastro completo) + 13/06 (admin singular: dono cunha Vendedor
+// ou Gerente; quem cunha admin-pagante é o Master). Acesso por CARGO mora em
+// Configurações → Equipe → "Acesso do cargo Vendedor" (cargo-acessos-editor),
+// NÃO mais aqui — a antiga aba "Acessos" por pessoa saiu.
 // Contratos:
-//   POST /users/company/create        → cria (senha opcional; "salvar
-//        documentação" = requiresSellerOnboarding → nasce inativa)
-//   GET  /users/company/seat-billing  → aviso de custo do assento
-//   GET  /company-email               → gate do disparo de e-mail (manual;
-//        só aparece com módulo ativo + envio pronto — ninguém usa o SMTP
-//        do Master; HBX admin compartilha só o transporte, via backend)
-//   GET  /gerencial/hbx-partners/:userId/onboarding            → estado
-//   POST /gerencial/hbx-partners/:userId/onboarding/attachments (file+kind)
-//   PATCH /gerencial/hbx-partners/:userId/onboarding/document-requirement
+//   POST  /users/company/create        → cria (senha opcional; "salvar
+//         documentação" = requiresSellerOnboarding → nasce inativa)
+//   PATCH /users/:id/profile           → salva dados do vendedor existente
+//   PATCH /users/:id/active            → liberar/ativar (boas-vindas) ou desativar
+//   GET   /users/company/seat-billing  → aviso de custo do assento (só ao criar)
+//   GET   /company-email               → gate do disparo de e-mail manual
+//   GET   /gerencial/hbx-partners/:id/onboarding             → estado + anexos
+//   POST  /gerencial/hbx-partners/:id/onboarding/attachments (file+kind) → upload
+//   PATCH /gerencial/hbx-partners/:id/onboarding/document-requirement
 //   GET/PATCH /gerencial/hbx-partners/onboarding/contract-template
-//   POST /gerencial/hbx-partners/:userId/onboarding/generate-contract
-//   POST /gerencial/hbx-partners/:userId/onboarding/send-email  → Solicitar
-//        documentos (template de onboarding escolhido em Configurações → E-mail)
+//   POST  /gerencial/hbx-partners/:id/onboarding/generate-contract
+//   POST  /gerencial/hbx-partners/:id/onboarding/send-email  → Solicitar documentos
 
 import React, { useEffect, useRef, useState } from "react";
 
+import { Av } from "@/components/hbx/shell";
 import { SignaturePad, type SignaturePadHandle } from "@/components/hbx/signature-pad";
 import { apiFetch, getApiBase, getToken } from "@/lib/api";
 
-type CompanyUser = { id: number; name?: string | null; username?: string | null; email?: string | null; role?: string | null; isActive?: boolean };
+type CompanyUser = { id: number; name?: string | null; username?: string | null; email?: string | null; role?: string | null; isActive?: boolean; commissionMonthlyCap?: number | null; setupCommissionCap?: number | null };
 
 type SeatBilling = { planTitle?: string; activeUsers?: number; includedUsers?: number; extraUserMonthlyPrice?: number; nextUserIsExtra?: boolean; seatCap?: number | null; capReached?: boolean } | null;
 
@@ -35,8 +39,14 @@ type Onboarding = {
   id?: string;
   status?: string | null;
   emailStatus?: string | null;
+  phone?: string | null;
+  cpf?: string | null;
+  declaredAddress?: string | null;
+  commissionPercent?: number | null;
+  commissionDueBusinessDays?: number | null;
   attachments?: OnboardingAttachment[];
   documentRequirements?: Record<string, boolean> | null;
+  user?: { emailConfirmedAt?: string | null } | null;
 } | null;
 
 const DOC_SLOTS: { kind: string; label: string; defaultRequired: boolean }[] = [
@@ -63,23 +73,56 @@ const FORM_VAZIO = {
   dailyLimit: "30",
 };
 
+// Rascunho do cadastro em andamento (ordem do dono 14/06: F5 não pode perder o
+// que está aberto). Só no modo CRIAR. Guarda o necessário pra reabrir — NUNCA a
+// senha. Some ao concluir/fechar; abertura por clique começa limpa (o pai apaga).
+const DRAFT_KEY = "hbx:novo-acesso-draft";
+type Draft = { form?: Partial<typeof FORM_VAZIO>; createdUserId?: number | null };
+function lerRascunho(): Draft | null {
+  if (typeof window === "undefined") return null;
+  try { return JSON.parse(window.localStorage.getItem(DRAFT_KEY) || "null"); } catch { return null; }
+}
+function limparRascunho() {
+  try { window.localStorage.removeItem(DRAFT_KEY); } catch { /* sem storage */ }
+}
+
 const lbl = { fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" } as const;
 
-// O componente monta APENAS aberto (o pai condiciona a renderização) — assim
-// cada abertura nasce com estado limpo, sem reset síncrono em effect.
-export function NovoAcessoModal({ onClose, onDone, team }: {
+// member ausente = criar; presente = gerenciar (mesma tela). O componente monta
+// APENAS aberto (o pai condiciona a renderização).
+export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf = false, onRequestExcluir }: {
   onClose: () => void;
   onDone: (message: string) => void;
   team: CompanyUser[];
+  member?: CompanyUser | null;
+  isSelf?: boolean;
+  onRequestExcluir?: (m: CompanyUser) => void;
 }) {
-  const [form, setForm] = useState({ ...FORM_VAZIO });
+  const isEdit = Boolean(member);
+
+  // restaura o rascunho UMA vez no mount (só CRIAR). No modo gerenciar o estado
+  // nasce do `member` + onboarding do servidor.
+  const rascunho0 = useRef<Draft | null | undefined>(undefined);
+  if (rascunho0.current === undefined) rascunho0.current = isEdit ? null : lerRascunho();
+  const [form, setForm] = useState(() => (isEdit
+    ? {
+        ...FORM_VAZIO,
+        role: (String(member?.role || "").toUpperCase() === "ADMIN" ? "ADMIN" : "USER") as "USER" | "ADMIN",
+        name: member?.name || "",
+        email: member?.email || "",
+        commissionMonthlyCap: member?.commissionMonthlyCap != null ? String(member.commissionMonthlyCap) : "",
+        setupCommissionCap: member?.setupCommissionCap != null ? String(member.setupCommissionCap) : "",
+      }
+    : { ...FORM_VAZIO, ...(rascunho0.current?.form || {}) }));
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [seatInfo, setSeatInfo] = useState<SeatBilling>(null);
   const [emailUsable, setEmailUsable] = useState(false);
-  const [createdUserId, setCreatedUserId] = useState<number | null>(null);
+  const [createdUserId, setCreatedUserId] = useState<number | null>(() => member?.id ?? rascunho0.current?.createdUserId ?? null);
   const [onboarding, setOnboarding] = useState<Onboarding>(null);
   const [docBusy, setDocBusy] = useState<string | null>(null);
+  const [liberarArm, setLiberarArm] = useState(false);
+  const [senhaTemporaria, setSenhaTemporaria] = useState<string | null>(null);
   const [reqState, setReqState] = useState<Record<string, boolean>>(
     () => Object.fromEntries(DOC_SLOTS.map(s => [s.kind, s.defaultRequired])),
   );
@@ -95,17 +138,36 @@ export function NovoAcessoModal({ onClose, onDone, team }: {
 
   useEffect(() => {
     let alive = true;
-    apiFetch<SeatBilling>("/users/company/seat-billing")
-      .then(res => { if (alive) setSeatInfo(res); })
-      .catch(() => { if (alive) setSeatInfo(null); });
+    if (!isEdit) {
+      apiFetch<SeatBilling>("/users/company/seat-billing")
+        .then(res => { if (alive) setSeatInfo(res); })
+        .catch(() => { if (alive) setSeatInfo(null); });
+    }
     apiFetch<{ enabled?: boolean; sender?: { ready?: boolean } }>("/company-email")
       .then(res => { if (alive) setEmailUsable(Boolean(res?.enabled && res?.sender?.ready)); })
       .catch(() => { if (alive) setEmailUsable(false); });
+    // gerenciar (ou F5 com cadastro já criado): recarrega documentos do servidor.
+    const alvo = member?.id ?? rascunho0.current?.createdUserId;
+    if (alvo) refreshOnboarding(alvo);
     return () => { alive = false; };
+    // montagem única (carrega assento/e-mail + documentos do alvo). Reagir a
+    // member/isEdit aqui reabriria fetch a cada render — intencionalmente fora.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // persiste o rascunho a cada mudança (só CRIAR; sem a senha).
+  useEffect(() => {
+    if (isEdit || typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(DRAFT_KEY, JSON.stringify({ form: { ...form, password: "" }, createdUserId }));
+    } catch { /* sem storage */ }
+  }, [form, createdUserId, isEdit]);
+
   function fechar() {
-    if (createdUserId) onDone("✓ Acesso criado — documentação salva no cadastro do vendedor.");
+    if (!isEdit) {
+      limparRascunho();
+      if (createdUserId) onDone("✓ Acesso criado — documentação salva no cadastro do vendedor.");
+    }
     onClose();
   }
 
@@ -113,15 +175,25 @@ export function NovoAcessoModal({ onClose, onDone, team }: {
     try {
       const res = await apiFetch<Onboarding>(`/gerencial/hbx-partners/${userId}/onboarding`);
       setOnboarding(res);
-      const reqs = (res as { documentRequirements?: Record<string, boolean> | null } | null)?.documentRequirements;
-      if (reqs && typeof reqs === "object") {
-        setReqState(prev => ({ ...prev, ...reqs }));
+      const reqs = res?.documentRequirements;
+      if (reqs && typeof reqs === "object") setReqState(prev => ({ ...prev, ...reqs }));
+      // gerenciar: completa os dados que só vêm do onboarding (não estão no member).
+      if (isEdit) {
+        setForm(f => ({
+          ...f,
+          phone: f.phone || res?.phone || "",
+          commissionPercent: f.commissionPercent || (res?.commissionPercent != null ? String(res.commissionPercent) : ""),
+          commissionDueBusinessDays: res?.commissionDueBusinessDays != null ? String(res.commissionDueBusinessDays) : f.commissionDueBusinessDays,
+          cpf: f.cpf || res?.cpf || "",
+          declaredAddress: f.declaredAddress || res?.declaredAddress || "",
+        }));
       }
     } catch { /* painel segue com o estado local */ }
   }
 
   async function criar(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (isEdit) { salvarEdicao(); return; }
     if (busy || createdUserId) return;
     setBusy(true);
     setMsg(null);
@@ -153,15 +225,69 @@ export function NovoAcessoModal({ onClose, onDone, team }: {
         setMsg("✓ Acesso criado — agora anexe a documentação e gere o contrato.");
         await refreshOnboarding(userId);
       } else {
+        limparRascunho();
         onDone(form.password.trim()
           ? "✓ Acesso criado com senha definida (troca obrigatória no 1º login)."
-          : "✓ Acesso criado. Sem senha definida — libere o acesso pelo Gerenciar (boas-vindas) ou edite e defina a senha.");
+          : "✓ Acesso criado. Sem senha definida — libere o acesso (boas-vindas) ou edite e defina a senha.");
         onClose();
       }
     } catch (err) {
       setMsg(err instanceof Error ? err.message : "Não foi possível criar o acesso.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function salvarEdicao() {
+    if (!member || busy) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      await apiFetch(`/users/${member.id}/profile`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          ...(form.name.trim() ? { name: form.name.trim() } : {}),
+          ...(form.phone.trim() ? { phone: form.phone.trim() } : {}),
+          ...(form.commissionPercent !== "" ? { commissionPercent: Number(form.commissionPercent) } : {}),
+          ...(form.commissionMonthlyCap !== "" ? { commissionMonthlyCap: Number(form.commissionMonthlyCap) } : {}),
+          ...(form.setupCommissionCap !== "" ? { setupCommissionCap: Number(form.setupCommissionCap) } : {}),
+          ...(form.referredByUserId ? { referredByUserId: Number(form.referredByUserId) } : {}),
+          ...(form.dailyLimit !== "" ? { sellerDistributionDailyLimitOverride: Number(form.dailyLimit) } : {}),
+        }),
+      });
+      setMsg("✓ Dados salvos.");
+      onDone("✓ Perfil do vendedor atualizado.");
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : "Não foi possível salvar.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function alternarAtivo() {
+    if (!member || busy) return;
+    setBusy(true);
+    setMsg(null);
+    setSenhaTemporaria(null);
+    try {
+      const res = await apiFetch<{ message?: string; temporaryPassword?: string | null }>(`/users/${member.id}/active`, {
+        method: "PATCH",
+        body: JSON.stringify({ active: member.isActive === false }),
+      });
+      if (res?.temporaryPassword) {
+        // e-mail de boas-vindas falhou — credencial fica na tela pra entrega na mão
+        setSenhaTemporaria(res.temporaryPassword);
+        setMsg(`✓ ${res?.message || "Acesso liberado."}`);
+        onDone(`✓ ${res?.message || "Acesso liberado."}`);
+      } else {
+        onDone(`✓ ${res?.message || "Status atualizado."}`);
+        onClose();
+      }
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : "Não foi possível alterar o status.");
+    } finally {
+      setBusy(false);
+      setLiberarArm(false);
     }
   }
 
@@ -343,15 +469,35 @@ export function NovoAcessoModal({ onClose, onDone, team }: {
 
   const vendedor = form.role === "USER";
   const indicador = team.find(m => String(m.id) === form.referredByUserId) || null;
-  const sellers = team.filter(m => String(m.role || "").toUpperCase() === "USER" && m.isActive !== false);
+  const sellers = team.filter(m => String(m.role || "").toUpperCase() === "USER" && m.isActive !== false && m.id !== member?.id);
   const painelAtivo = Boolean(createdUserId);
+  // CRIAR: trava o formulário depois que o acesso foi criado. GERENCIAR: campos
+  // editáveis sempre; o que é só-de-cadastro (cargo/e-mail/CPF/senha/endereço/D+)
+  // fica travado porque o backend não deixa editar depois.
+  const travaForm = painelAtivo && !isEdit;
+  const soCadastro = travaForm || isEdit;
+  const ativo = member?.isActive !== false;
+  const emailConfirmado = Boolean(onboarding?.user?.emailConfirmedAt);
+  const nomeMembro = member?.name || member?.username || member?.email || (member ? `Usuário ${member.id}` : "");
 
   return (
     <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) fechar(); }}
       style={{ position: "fixed", inset: 0, zIndex: 45, display: "grid", placeItems: "center", padding: 18 }}>
       <div className="hbx-modal" style={{ width: "min(880px, 100%)", maxHeight: "92vh", overflowY: "auto", display: "grid", gap: 14, padding: 22 }}>
         <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span>Novo acesso <small style={{ display: "block", fontSize: "0.64rem", fontWeight: 600, color: "var(--text-muted)" }}>Cadastro de vendedor</small></span>
+          {isEdit ? (
+            <span style={{ display: "inline-flex", gap: 10, alignItems: "center" }}>
+              <Av name={nomeMembro} size={34} />
+              <span>
+                {nomeMembro}
+                <small style={{ display: "block", fontSize: "0.64rem", fontWeight: 600, color: "var(--text-muted)" }}>
+                  {vendedor ? "Vendedor" : "Gerente"} · {ativo ? "Ativo" : "Inativo"}
+                </small>
+              </span>
+            </span>
+          ) : (
+            <span>Novo acesso <small style={{ display: "block", fontSize: "0.64rem", fontWeight: 600, color: "var(--text-muted)" }}>Cadastro de vendedor</small></span>
+          )}
           <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={fechar}>✕</span>
         </h3>
 
@@ -370,15 +516,22 @@ export function NovoAcessoModal({ onClose, onDone, team }: {
           </div>
         )}
         {msg && <div style={{ fontSize: "0.72rem", fontWeight: 700, lineHeight: 1.5, color: msg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{msg}</div>}
+        {senhaTemporaria && (
+          <div className="ok show" style={{ display: "grid", gap: 4 }}>
+            <strong style={{ fontSize: "0.74rem" }}>O e-mail de boas-vindas NÃO saiu — entregue a credencial na mão:</strong>
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.8rem" }}>{member?.email} · {senhaTemporaria}</span>
+            <span style={{ fontSize: "0.64rem", color: "var(--text-muted)" }}>Troca obrigatória no primeiro login.</span>
+          </div>
+        )}
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18, alignItems: "start" }}>
           {/* coluna esquerda — formulário */}
           <form onSubmit={criar} style={{ display: "grid", gap: 11 }}>
             {/* Régua única (PR13062026007 P5): Dono cunha Vendedor ou Gerente.
-                Gerente = ADMIN sem ver cobrança/plano (vínculo HBX×contratante). */}
+                Cargo só no cadastro — quem troca papel depois é o Master. */}
             <div style={{ display: "grid", gap: 6 }}>
               <label style={lbl}>Cargo</label>
-              <select className="field-dark" value={form.role} disabled={painelAtivo}
+              <select className="field-dark" value={form.role} disabled={soCadastro}
                 onChange={e => setForm(f => ({ ...f, role: e.target.value as "USER" | "ADMIN" }))}>
                 <option value="USER">Vendedor</option>
                 <option value="ADMIN">Gerente (não vê cobrança/plano)</option>
@@ -386,28 +539,28 @@ export function NovoAcessoModal({ onClose, onDone, team }: {
             </div>
             <div style={{ display: "grid", gap: 6 }}>
               <label style={lbl}>Nome</label>
-              <input className="field-dark" maxLength={120} value={form.name} disabled={painelAtivo}
+              <input className="field-dark" maxLength={120} value={form.name} disabled={travaForm}
                 onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
             </div>
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={lbl}>E-mail *</label>
-              <input className="field-dark" type="email" required maxLength={180} value={form.email} disabled={painelAtivo}
+              <label style={lbl}>E-mail{isEdit ? " (login)" : " *"}</label>
+              <input className="field-dark" type="email" required={!isEdit} maxLength={180} value={form.email} disabled={soCadastro}
                 onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
             </div>
             <div style={{ display: "grid", gap: 6 }}>
               <label style={lbl}>WhatsApp</label>
-              <input className="field-dark" maxLength={30} placeholder="(11) 99999-9999" value={form.phone} disabled={painelAtivo}
+              <input className="field-dark" maxLength={30} placeholder="(11) 99999-9999" value={form.phone} disabled={travaForm}
                 onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div style={{ display: "grid", gap: 6 }}>
                 <label style={lbl}>Comissão (%)</label>
-                <input className="field-dark" type="number" min={0} max={100} step="0.01" value={form.commissionPercent} disabled={painelAtivo}
+                <input className="field-dark" type="number" min={0} max={100} step="0.01" value={form.commissionPercent} disabled={travaForm}
                   onChange={e => setForm(f => ({ ...f, commissionPercent: e.target.value }))} />
               </div>
               <div style={{ display: "grid", gap: 6 }}>
                 <label style={lbl}>D+ (dias úteis)</label>
-                <input className="field-dark" type="number" min={0} max={30} value={form.commissionDueBusinessDays} disabled={painelAtivo}
+                <input className="field-dark" type="number" min={0} max={30} value={form.commissionDueBusinessDays} disabled={soCadastro}
                   onChange={e => setForm(f => ({ ...f, commissionDueBusinessDays: e.target.value }))} />
               </div>
             </div>
@@ -415,18 +568,18 @@ export function NovoAcessoModal({ onClose, onDone, team }: {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div style={{ display: "grid", gap: 6 }}>
                 <label style={lbl}>Teto comissão mensal (R$)</label>
-                <input className="field-dark" type="number" min={0} step="0.01" placeholder="sem teto" value={form.commissionMonthlyCap} disabled={painelAtivo}
+                <input className="field-dark" type="number" min={0} step="0.01" placeholder="sem teto" value={form.commissionMonthlyCap} disabled={travaForm}
                   onChange={e => setForm(f => ({ ...f, commissionMonthlyCap: e.target.value }))} />
               </div>
               <div style={{ display: "grid", gap: 6 }}>
                 <label style={lbl}>Teto comissão implantação (R$)</label>
-                <input className="field-dark" type="number" min={0} step="0.01" placeholder="sem teto" value={form.setupCommissionCap} disabled={painelAtivo}
+                <input className="field-dark" type="number" min={0} step="0.01" placeholder="sem teto" value={form.setupCommissionCap} disabled={travaForm}
                   onChange={e => setForm(f => ({ ...f, setupCommissionCap: e.target.value }))} />
               </div>
             </div>
-            {vendedor && (
-              <label style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "10px 12px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface-soft)", cursor: painelAtivo ? "default" : "pointer" }}>
-                <input type="checkbox" checked={form.salvarDocumentacao} disabled={painelAtivo}
+            {vendedor && !isEdit && (
+              <label style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "10px 12px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface-soft)", cursor: travaForm ? "default" : "pointer" }}>
+                <input type="checkbox" checked={form.salvarDocumentacao} disabled={travaForm}
                   onChange={e => setForm(f => ({ ...f, salvarDocumentacao: e.target.checked }))} style={{ marginTop: 2 }} />
                 <span style={{ fontSize: "0.7rem", lineHeight: 1.5 }}>
                   <strong>Salvar documentação deste vendedor</strong>
@@ -440,20 +593,22 @@ export function NovoAcessoModal({ onClose, onDone, team }: {
               {vendedor && (
                 <div style={{ display: "grid", gap: 6 }}>
                   <label style={lbl}>CPF</label>
-                  <input className="field-dark" maxLength={20} value={form.cpf} disabled={painelAtivo}
+                  <input className="field-dark" maxLength={20} value={form.cpf} disabled={soCadastro}
                     onChange={e => setForm(f => ({ ...f, cpf: e.target.value }))} />
                 </div>
               )}
-              <div style={{ display: "grid", gap: 6, gridColumn: vendedor ? undefined : "1 / -1" }}>
-                <label style={lbl}>Senha</label>
-                <input className="field-dark" type="password" minLength={8} maxLength={120} placeholder="opcional — mín. 8" value={form.password} disabled={painelAtivo}
-                  onChange={e => setForm(f => ({ ...f, password: e.target.value }))} autoComplete="new-password" />
-              </div>
+              {!isEdit && (
+                <div style={{ display: "grid", gap: 6, gridColumn: vendedor ? undefined : "1 / -1" }}>
+                  <label style={lbl}>Senha</label>
+                  <input className="field-dark" type="password" minLength={8} maxLength={120} placeholder="opcional — mín. 8" value={form.password} disabled={travaForm}
+                    onChange={e => setForm(f => ({ ...f, password: e.target.value }))} autoComplete="new-password" />
+                </div>
+              )}
             </div>
             {vendedor && (
               <div style={{ display: "grid", gap: 6 }}>
                 <label style={lbl}>Endereço</label>
-                <input className="field-dark" maxLength={280} value={form.declaredAddress} disabled={painelAtivo}
+                <input className="field-dark" maxLength={280} value={form.declaredAddress} disabled={soCadastro}
                   onChange={e => setForm(f => ({ ...f, declaredAddress: e.target.value }))} />
               </div>
             )}
@@ -461,7 +616,7 @@ export function NovoAcessoModal({ onClose, onDone, team }: {
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <div style={{ display: "grid", gap: 6 }}>
                   <label style={lbl}>Indicado por</label>
-                  <select className="field-dark" value={form.referredByUserId} disabled={painelAtivo}
+                  <select className="field-dark" value={form.referredByUserId} disabled={travaForm}
                     onChange={e => setForm(f => ({ ...f, referredByUserId: e.target.value }))}>
                     <option value="">Direto</option>
                     {sellers.map(s => <option key={s.id} value={String(s.id)}>{s.name || s.username || s.email || `Usuário ${s.id}`}</option>)}
@@ -475,92 +630,150 @@ export function NovoAcessoModal({ onClose, onDone, team }: {
             )}
             <div style={{ display: "grid", gap: 6 }}>
               <label style={lbl}>Enriquecimentos/dia</label>
-              <input className="field-dark" type="number" min={0} max={500} value={form.dailyLimit} disabled={painelAtivo}
+              <input className="field-dark" type="number" min={0} max={500} value={form.dailyLimit} disabled={travaForm}
                 onChange={e => setForm(f => ({ ...f, dailyLimit: e.target.value }))} />
             </div>
-            {!painelAtivo && (
-              <button className="btn-teal" type="submit" disabled={busy} style={{ minHeight: 42 }}>
-                {busy ? "Criando…" : "Criar acesso"}
-              </button>
+
+            {isEdit ? (
+              <React.Fragment>
+                <button className="btn-teal" type="submit" disabled={busy} style={{ minHeight: 40 }}>
+                  {busy ? "Salvando…" : "Salvar dados"}
+                </button>
+                <div className="sep"></div>
+                <div style={{ display: "grid", gap: 8 }}>
+                  {!ativo && vendedor ? (
+                    liberarArm ? (
+                      <button type="button" className="btn-teal" onClick={alternarAtivo} disabled={busy || isSelf} style={{ minHeight: 40 }}>
+                        {busy ? "Liberando…" : "Confirmar liberação (envia usuário e senha)"}
+                      </button>
+                    ) : (
+                      <button type="button" className="btn-teal" onClick={() => setLiberarArm(true)} disabled={busy || isSelf} style={{ minHeight: 40 }}
+                        title="Confira os documentos recebidos ao lado antes de liberar">
+                        Liberar acesso → envia boas-vindas com credenciais
+                      </button>
+                    )
+                  ) : (
+                    <button type="button" className="btn-ghost" onClick={alternarAtivo} disabled={busy || isSelf}
+                      style={{ color: ativo ? "var(--hbx-danger)" : "var(--hbx-brand-strong)" }}>
+                      {busy ? "Aguarde…" : ativo ? "Desativar acesso" : "Reativar acesso"}
+                    </button>
+                  )}
+                  {onRequestExcluir && member && (
+                    <button type="button" className="btn-ghost btn-danger" disabled={busy || isSelf}
+                      onClick={() => { onClose(); onRequestExcluir(member); }}>
+                      Excluir
+                    </button>
+                  )}
+                  <span style={{ fontSize: "0.64rem", color: "var(--text-muted)" }}>
+                    {isSelf
+                      ? "Você não pode alterar o próprio acesso."
+                      : "Perfil de acesso (admin/vendas) é definido pelo Master."}
+                  </span>
+                </div>
+              </React.Fragment>
+            ) : (
+              !painelAtivo && (
+                <button className="btn-teal" type="submit" disabled={busy} style={{ minHeight: 42 }}>
+                  {busy ? "Criando…" : "Criar acesso"}
+                </button>
+              )
             )}
           </form>
 
-          {/* coluna direita — documentação */}
+          {/* coluna direita — documentação (mesmo painel para criar e gerenciar) */}
           <div style={{ display: "grid", gap: 10, alignContent: "start", opacity: vendedor ? 1 : 0.45 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              {DOC_SLOTS.map(slot => {
-                const anexo = anexoDe(slot.kind);
-                const obrigatorio = Boolean(reqState[slot.kind]);
-                return (
-                  <div key={slot.kind} style={{ display: "grid", gap: 6, padding: "10px 12px", borderRadius: "var(--radius-sm)", border: "1px dashed var(--border-hairline)", background: "var(--hbx-surface-soft)" }}>
-                    <strong style={{ fontSize: "0.74rem" }}>{slot.label}</strong>
-                    <span style={{ fontSize: "0.62rem", color: anexo ? "var(--hbx-brand-strong)" : "var(--text-muted)" }}>
-                      {anexo ? `✓ ${anexo.originalFilename || "anexado"}` : obrigatorio ? "Obrigatório pendente" : "Opcional"}
+            {!vendedor ? (
+              <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Gerentes não têm fluxo de documentação.</span>
+            ) : (
+              <React.Fragment>
+                {isEdit && (
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    <span className={"tag" + (emailConfirmado ? " teal" : " warn")}>
+                      {emailConfirmado ? "E-mail confirmado" : "E-mail não confirmado"}
                     </span>
-                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                      <label className="btn-ghost" style={{ minHeight: 26, fontSize: "0.62rem", padding: "0 8px", display: "inline-flex", alignItems: "center", cursor: painelAtivo ? "pointer" : "not-allowed", opacity: painelAtivo ? 1 : 0.55 }}>
-                        {docBusy === slot.kind ? "Enviando…" : "Escolher arquivo"}
-                        <input type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} disabled={!painelAtivo || docBusy !== null}
-                          onChange={e => { uploadDoc(slot.kind, e.target.files?.[0]); e.target.value = ""; }} />
-                      </label>
-                      <button type="button" className="btn-ghost" disabled={!painelAtivo || docBusy !== null}
-                        style={{ minHeight: 26, fontSize: "0.62rem", padding: "0 8px", ...(obrigatorio ? { color: "var(--hbx-warning)", borderColor: "color-mix(in srgb, var(--hbx-warning) 40%, transparent)" } : {}) }}
-                        onClick={() => alternarObrigatorio(slot.kind)}>
-                        {obrigatorio ? "Obrigatório" : "Opcional"}
-                      </button>
-                      {anexo && (
-                        <button type="button" className="btn-ghost btn-danger btn-xs" disabled={docBusy !== null}
-                          onClick={() => removerDoc(anexo)}>
-                          {docBusy === `remover:${anexo.id}` ? "Removendo…" : "Remover"}
-                        </button>
-                      )}
-                    </div>
+                    {onboarding?.emailStatus && (
+                      <span className={"tag" + (onboarding.emailStatus === "sent" ? " teal" : onboarding.emailStatus === "email_failed" ? " red" : "")}>
+                        Onboarding: {onboarding.emailStatus === "sent" ? "enviado" : onboarding.emailStatus === "email_failed" ? "falhou" : onboarding.emailStatus}
+                      </span>
+                    )}
                   </div>
-                );
-              })}
-            </div>
-            {(() => {
-              const gc = anexoDe("generated_contract");
-              if (!gc) return null;
-              return (
-                <div className="doc-slot filled" style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <strong>Contrato gerado (PDF)</strong>
-                    <small className="ok">{gc.originalFilename || "gerado — vai junto no e-mail de onboarding"}</small>
-                  </div>
-                  <button type="button" className="btn-ghost btn-xs" disabled={docBusy !== null} onClick={() => baixarAnexo(gc)}>
-                    {docBusy === `baixar:${gc.id}` ? "Baixando…" : "Baixar"}
-                  </button>
-                  <button type="button" className="btn-ghost btn-danger btn-xs" disabled={docBusy !== null} onClick={() => removerDoc(gc)}>
-                    {docBusy === `remover:${gc.id}` ? "Removendo…" : "Remover"}
-                  </button>
+                )}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  {DOC_SLOTS.map(slot => {
+                    const anexo = anexoDe(slot.kind);
+                    const obrigatorio = Boolean(reqState[slot.kind]);
+                    return (
+                      <div key={slot.kind} style={{ display: "grid", gap: 6, padding: "10px 12px", borderRadius: "var(--radius-sm)", border: "1px dashed var(--border-hairline)", background: "var(--hbx-surface-soft)" }}>
+                        <strong style={{ fontSize: "0.74rem" }}>{slot.label}</strong>
+                        <span style={{ fontSize: "0.62rem", color: anexo ? "var(--hbx-brand-strong)" : "var(--text-muted)" }}>
+                          {anexo ? `✓ ${anexo.originalFilename || "anexado"}` : obrigatorio ? "Obrigatório pendente" : "Opcional"}
+                        </span>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          <label className="btn-ghost" style={{ minHeight: 26, fontSize: "0.62rem", padding: "0 8px", display: "inline-flex", alignItems: "center", cursor: painelAtivo ? "pointer" : "not-allowed", opacity: painelAtivo ? 1 : 0.55 }}>
+                            {docBusy === slot.kind ? "Enviando…" : "Escolher arquivo"}
+                            <input type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} disabled={!painelAtivo || docBusy !== null}
+                              onChange={e => { uploadDoc(slot.kind, e.target.files?.[0]); e.target.value = ""; }} />
+                          </label>
+                          <button type="button" className="btn-ghost" disabled={!painelAtivo || docBusy !== null}
+                            style={{ minHeight: 26, fontSize: "0.62rem", padding: "0 8px", ...(obrigatorio ? { color: "var(--hbx-warning)", borderColor: "color-mix(in srgb, var(--hbx-warning) 40%, transparent)" } : {}) }}
+                            onClick={() => alternarObrigatorio(slot.kind)}>
+                            {obrigatorio ? "Obrigatório" : "Opcional"}
+                          </button>
+                          {anexo && (
+                            <button type="button" className="btn-ghost btn-danger btn-xs" disabled={docBusy !== null}
+                              onClick={() => removerDoc(anexo)}>
+                              {docBusy === `remover:${anexo.id}` ? "Removendo…" : "Remover"}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              );
-            })()}
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button type="button" className="btn-ghost" onClick={abrirModelo} disabled={!vendedor}>Editar modelo</button>
-              <button type="button" className="btn-ghost" onClick={gerarContrato} disabled={!painelAtivo || docBusy !== null}>
-                {docBusy === "contrato" ? "Gerando…" : "Gerar contrato LINK"}
-              </button>
-              {emailUsable ? (
-                <button type="button" className="btn-teal" onClick={solicitarDocumentos} disabled={!painelAtivo || docBusy !== null}>
-                  {docBusy === "email" ? "Enviando…" : "Solicitar documentos"}
-                </button>
-              ) : (
-                <span style={{ fontSize: "0.64rem", color: "var(--text-muted)", alignSelf: "center", lineHeight: 1.4 }}>
-                  Disparo de e-mail indisponível — ative e configure em Configurações → E-mail.
-                </span>
-              )}
-            </div>
-            {painelAtivo && (
-              <button type="button" className="btn-teal" onClick={fechar} style={{ minHeight: 40 }}>
-                Concluir cadastro
-              </button>
-            )}
-            {!painelAtivo && vendedor && (
-              <span style={{ fontSize: "0.64rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
-                Crie o acesso para habilitar uploads, contrato e solicitação de documentos.
-              </span>
+                {(() => {
+                  const gc = anexoDe("generated_contract");
+                  if (!gc) return null;
+                  return (
+                    <div className="doc-slot filled" style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <strong>Contrato gerado (PDF)</strong>
+                        <small className="ok">{gc.originalFilename || "gerado — vai junto no e-mail de onboarding"}</small>
+                      </div>
+                      <button type="button" className="btn-ghost btn-xs" disabled={docBusy !== null} onClick={() => baixarAnexo(gc)}>
+                        {docBusy === `baixar:${gc.id}` ? "Baixando…" : "Baixar"}
+                      </button>
+                      <button type="button" className="btn-ghost btn-danger btn-xs" disabled={docBusy !== null} onClick={() => removerDoc(gc)}>
+                        {docBusy === `remover:${gc.id}` ? "Removendo…" : "Remover"}
+                      </button>
+                    </div>
+                  );
+                })()}
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button type="button" className="btn-ghost" onClick={abrirModelo}>Editar modelo</button>
+                  <button type="button" className="btn-ghost" onClick={gerarContrato} disabled={!painelAtivo || docBusy !== null}>
+                    {docBusy === "contrato" ? "Gerando…" : "Gerar contrato LINK"}
+                  </button>
+                  {emailUsable ? (
+                    <button type="button" className="btn-teal" onClick={solicitarDocumentos} disabled={!painelAtivo || docBusy !== null}>
+                      {docBusy === "email" ? "Enviando…" : "Solicitar documentos"}
+                    </button>
+                  ) : (
+                    <span style={{ fontSize: "0.64rem", color: "var(--text-muted)", alignSelf: "center", lineHeight: 1.4 }}>
+                      Disparo de e-mail indisponível — ative e configure em Configurações → E-mail.
+                    </span>
+                  )}
+                </div>
+                {!isEdit && painelAtivo && (
+                  <button type="button" className="btn-teal" onClick={fechar} style={{ minHeight: 40 }}>
+                    Concluir cadastro
+                  </button>
+                )}
+                {!isEdit && !painelAtivo && (
+                  <span style={{ fontSize: "0.64rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
+                    Crie o acesso para habilitar uploads, contrato e solicitação de documentos.
+                  </span>
+                )}
+              </React.Fragment>
             )}
           </div>
         </div>

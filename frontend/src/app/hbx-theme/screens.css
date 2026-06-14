@@ -25,6 +25,8 @@ body { min-height: 100vh; }
 .foot { font-size: 0.66rem; color: var(--text-muted); }
 .form-side { display: grid; place-items: center; padding: 40px; }
 .login-split .card { width: min(400px, 100%); display: grid; gap: 16px; padding: 30px; border-radius: var(--radius-xl); border: 1px solid var(--border-hairline); background: var(--hbx-surface); box-shadow: var(--shadow-md); }
+/* Variante opt-in p/ telas com leitura longa (contrato/onboarding) — não afeta login */
+.login-split.is-wide .card { width: min(720px, 100%); }
 .login-split .card h2 { margin: 0; font-family: var(--font-display); font-size: 1.4rem; font-weight: 800; letter-spacing: -0.01em; }
 .login-split .card .sub { margin: -10px 0 0; font-size: 0.78rem; color: var(--text-muted); }
 .login-split .f { display: grid; gap: 6px; }

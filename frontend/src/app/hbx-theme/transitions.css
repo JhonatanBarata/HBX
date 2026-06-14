@@ -32,21 +32,23 @@
 }
 
 /* ---------- entrada de página (lê os tokens da pele) ---------- */
+/* Telas simples / login / site: o wrapper inteiro entra. */
 .hbx-page {
   animation: var(--enter-name, hbx-enter-fade) var(--enter-duration, var(--motion-base)) var(--enter-ease, var(--ease-out-quint)) both;
 }
-/* cascata opcional: a pele que define --enter-stagger faz os filhos
-   diretos do conteúdo entrarem em sequência (sensação de montagem viva). */
-.hbx-page .work > *,
-.hbx-page main > * {
+
+/* CARA DE SISTEMA (ordem do dono 14/06): dentro do app, o chrome — menu lateral
+   e barra de topo — NUNCA pode piscar ao trocar de módulo. Então o wrapper da
+   tela do app não anima (:has(.app) zera a animação dele); só a ÁREA DE CONTEÚDO
+   (.work/.content/.a-content) desliza pra dentro. O menu não pisca mais com a
+   pele; trocar de módulo parece o mesmo sistema respirando, não um reload. */
+.hbx-page:has(.app) { animation: none; }
+.hbx-page .work,
+.hbx-page .content,
+.hbx-page .a-content {
   animation: var(--enter-name, hbx-enter-fade) var(--enter-duration, var(--motion-base)) var(--enter-ease, var(--ease-out-quint)) both;
+  will-change: transform, opacity, filter;
 }
-.hbx-page .work > *:nth-child(2),
-.hbx-page main > *:nth-child(2) { animation-delay: calc(var(--enter-stagger, 0ms) * 1); }
-.hbx-page .work > *:nth-child(3),
-.hbx-page main > *:nth-child(3) { animation-delay: calc(var(--enter-stagger, 0ms) * 2); }
-.hbx-page .work > *:nth-child(4),
-.hbx-page main > *:nth-child(4) { animation-delay: calc(var(--enter-stagger, 0ms) * 3); }
 
 /* ---------- micro-transições discretas ---------- */
 button, a, .nav-item, .tag, .deal, .conv {

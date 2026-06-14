@@ -7,11 +7,11 @@
 
 import { AuthThemeControls } from "@/components/hbx/auth-theme-controls";
 
-export function AuthSplit({ children }: { children: React.ReactNode }) {
+export function AuthSplit({ children, wide = false }: { children: React.ReactNode; wide?: boolean }) {
   return (
     <>
       <AuthThemeControls />
-      <div className="login-split">
+      <div className={wide ? "login-split is-wide" : "login-split"}>
         <aside className="brand-side">
           <div className="bl">
             <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="var(--hbx-brand)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M4 6l6 6-6 6M11 6l6 6-6 6"></path></svg>

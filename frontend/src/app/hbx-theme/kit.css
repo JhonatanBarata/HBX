@@ -15,10 +15,13 @@ html, body { margin: 0; }
    controlada por token (a pele decide fino/grosso). A cor já é currentColor. */
 .hbx-icon { stroke-width: var(--icon-stroke); }
 
-.app { display: grid; grid-template-columns: 218px 1fr; min-height: 100vh; }
+/* Viewport-lock GLOBAL (ordem do dono 14/06): a janela nunca rola; quem rola é
+   o conteúdo, por dentro. Toda tela "encaixa" na altura — sem barra de rolagem
+   da página inteira. O antigo .app.app-viewport (Atendimento/Bot) virou o padrão. */
+.app { display: grid; grid-template-columns: 218px 1fr; height: 100dvh; overflow: hidden; }
 
 /* ---------- Sidebar ---------- */
-.side { display: flex; flex-direction: column; gap: 4px; padding: 18px 12px 14px; background: var(--hbx-nav-surface); border-right: 1px solid var(--border-hairline); }
+.side { display: flex; flex-direction: column; gap: 4px; padding: 18px 12px 14px; background: var(--hbx-nav-surface); border-right: 1px solid var(--border-hairline); min-height: 0; overflow-y: auto; }
 /* marca persistente entre rotas (View Transitions): a logo MORFA de
    posição em vez de piscar — site → login → sistema parece a mesma página. */
 .logo { display: flex; align-items: center; gap: 8px; padding: 2px 10px 18px; view-transition-name: hbx-brand; }
@@ -41,11 +44,11 @@ html, body { margin: 0; }
 .avatar { display: inline-grid; place-items: center; border-radius: 999px; color: var(--hbx-brand-contrast); font-weight: 700; background: linear-gradient(140deg, var(--hbx-avatar-from), var(--hbx-avatar-to)); flex: 0 0 auto; }
 
 /* ---------- Topbar ---------- */
-.main { display: flex; flex-direction: column; min-width: 0; }
+.main { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
 /* position+z-index: o topbar e seus dropdowns flutuam ACIMA do conteúdo —
    sem isto, painéis com transform (peles que levantam card no hover/entrada)
    criam stacking context e pintam por cima do menu. */
-.topbar { display: flex; align-items: center; gap: 18px; padding: 12px 22px; border-bottom: 1px solid var(--border-hairline); background: var(--hbx-header-surface); position: relative; z-index: 20; }
+.topbar { flex: 0 0 auto; display: flex; align-items: center; gap: 18px; padding: 10px 20px; border-bottom: 1px solid var(--border-hairline); background: var(--hbx-header-surface); position: relative; z-index: 20; }
 .burger { display: grid; gap: 4px; background: none; border: none; cursor: pointer; padding: 6px; }
 .burger span { width: 18px; height: 2px; border-radius: 2px; background: var(--text-body); }
 .page-id h1 { margin: 0; font-family: var(--font-display); font-size: 1.18rem; font-weight: 700; letter-spacing: var(--tracking-tight); }
@@ -60,8 +63,8 @@ html, body { margin: 0; }
 .round-btn .bub { position: absolute; top: -2px; right: -2px; min-width: 16px; height: 16px; border-radius: 999px; display: grid; place-items: center; font-size: 0.6rem; font-weight: 800; color: var(--hbx-action-ink); background: var(--hbx-brand-strong); }
 
 /* ---------- KPIs ---------- */
-.kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
-.kpi { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: start; padding: 16px; border-radius: var(--panel-radius); border: 1px solid var(--border-hairline); background: var(--hbx-surface); box-shadow: var(--shadow-inset), var(--shadow-xs); }
+.kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.kpi { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: start; padding: 14px; border-radius: var(--panel-radius); border: 1px solid var(--border-hairline); background: var(--hbx-surface); box-shadow: var(--shadow-inset), var(--shadow-xs); }
 /* KPI clicável: o card vira <a> que leva à tela da métrica (mesma cara do card). */
 a.kpi { color: inherit; text-decoration: none; cursor: pointer; transition: border-color var(--motion-fast), box-shadow var(--motion-fast); }
 a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset), var(--shadow-md); }
@@ -90,6 +93,8 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 .doc-slot strong { font-size: 0.74rem; display: block; }
 .doc-slot small { font-size: 0.62rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
 .doc-slot small.ok { color: var(--hbx-brand-strong); }
+/* Leitor de contrato — papel largo, denso e legível (onboarding/assinatura) */
+.contract-reader { padding: 16px 20px; border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-surface-soft); max-height: min(56vh, 520px); overflow: auto; white-space: pre-wrap; font-size: 0.78rem; line-height: 1.7; color: var(--text-body); }
 .sig-pad { --sig-ink: var(--text-body); display: block; width: 100%; height: 160px; border-radius: var(--radius-sm); border: 1px dashed var(--border-hairline); background: var(--hbx-surface); touch-action: none; cursor: crosshair; }
 .field-label { font-size: 0.7rem; font-weight: 700; color: var(--text-muted); }
 .link { font-size: 0.72rem; color: var(--hbx-brand-strong); font-weight: 700; cursor: pointer; }
@@ -121,8 +126,11 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 
 /* ---------- Context panel (right) ---------- */
 .content { display: grid; grid-template-columns: 1fr 300px; gap: 0; flex: 1; min-height: 0; }
-.work { padding: 18px 22px; display: grid; gap: 16px; align-content: start; min-width: 0; }
-.ctx { border-left: 1px solid var(--border-hairline); background: var(--hbx-surface-soft); padding: 18px 16px; display: grid; gap: 18px; align-content: start; overflow-y: auto; }
+/* .work é o container de rolagem padrão: enche a altura sobrando e rola por
+   dentro (a página nunca rola). Vale para tela só-conteúdo e para a coluna
+   esquerda das telas com painel de contexto. */
+.work { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px; display: grid; gap: 14px; align-content: start; min-width: 0; }
+.ctx { border-left: 1px solid var(--border-hairline); background: var(--hbx-surface-soft); padding: 16px 16px; display: grid; gap: 16px; align-content: start; min-height: 0; overflow-y: auto; }
 .ctx h3 { margin: 0; font-family: var(--font-display); font-size: 0.9rem; font-weight: 700; display: flex; justify-content: space-between; align-items: center; }
 .ctx h3 .x { color: var(--text-muted); cursor: pointer; font-weight: 400; }
 .ctx .company { font-family: var(--font-display); font-size: 1.02rem; font-weight: 700; }

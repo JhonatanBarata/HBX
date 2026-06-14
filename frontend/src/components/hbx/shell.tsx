@@ -460,18 +460,24 @@ type MasterNotice = {
 
 // Aviso clicável (ordem do dono, 12/06/2026): os títulos são FIXOS no backend
 // (seller-onboarding / job-application / cancellation-case) e o próprio texto
-// já aponta a tela — aqui é só o de-para, nada inventado. A dica de seção/aba
-// usa o mesmo padrão sessionStorage do "+" (hbx:abrir-novo-lead).
-function noticeTarget(notice: MasterNotice): { href: string; hintKey?: string; hintValue?: string } | null {
+// já aponta a tela — aqui é só o de-para, nada inventado. As dicas de seção/aba
+// usam o mesmo padrão sessionStorage do "+" (hbx:abrir-novo-lead).
+// Ordem do dono 14/06: o aviso tem que abrir DIRETO onde é (a ficha do vendedor),
+// não só "até a aba Equipe" — o corpo do aviso traz o e-mail, então mandamos ele
+// junto e a tela de Configurações casa com o membro e abre o Gerenciar dele.
+function noticeTarget(notice: MasterNotice): { href: string; hints?: Record<string, string> } | null {
   const title = String(notice.title || "");
   if (/^Ticket aberto: documentos confirmados/i.test(title)) {
-    return { href: "/configuracoes", hintKey: "hbx:config-sec", hintValue: "Equipe" };
+    const email = (String(notice.body || "").match(/[\w.+-]+@[\w-]+\.[\w.-]+/) || [])[0];
+    const hints: Record<string, string> = { "hbx:config-sec": "Equipe" };
+    if (email) hints["hbx:config-membro-email"] = email;
+    return { href: "/configuracoes", hints };
   }
   if (/^Nova candidatura:/i.test(title)) {
-    return { href: "/gerencial", hintKey: "hbx:gerencial-aba", hintValue: "Candidaturas" };
+    return { href: "/gerencial", hints: { "hbx:gerencial-aba": "Candidaturas" } };
   }
   if (/^Cancelamento:/i.test(title)) {
-    return { href: "/gerencial", hintKey: "hbx:gerencial-aba", hintValue: "Comissões" };
+    return { href: "/gerencial", hints: { "hbx:gerencial-aba": "Comissões" } };
   }
   return null;
 }
@@ -583,9 +589,9 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
                     title={alvo ? "Abrir a tela deste aviso" : undefined}
                     onClick={() => {
                       if (!alvo) return;
-                      if (alvo.hintKey && alvo.hintValue) {
-                        try { sessionStorage.setItem(alvo.hintKey, alvo.hintValue); } catch { /* sem storage */ }
-                      }
+                      try {
+                        for (const [k, v] of Object.entries(alvo.hints || {})) sessionStorage.setItem(k, v);
+                      } catch { /* sem storage */ }
                       setBellOpen(false);
                       router.push(alvo.href);
                     }}

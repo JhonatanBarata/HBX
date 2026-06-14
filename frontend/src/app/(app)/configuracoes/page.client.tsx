@@ -24,8 +24,8 @@
 
 import React, { useEffect, useState } from "react";
 
+import { CargoAcessosEditor } from "@/components/hbx/cargo-acessos-editor";
 import { CompanyEmailSection } from "@/components/hbx/company-email-section";
-import { GerenciarVendedorModal } from "@/components/hbx/gerenciar-vendedor-modal";
 import { NovoAcessoModal } from "@/components/hbx/novo-acesso-modal";
 import { Av, ConfirmDialog, I, ICONS, Sidebar, Topbar } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
@@ -142,9 +142,28 @@ export function ConfiguracoesClient() {
   // Novo acesso (cadastro completo, PR12062026005) + gestão de membro.
   // Gerenciar abre a tela do vendedor (gerenciar-vendedor-modal) com os
   // documentos recebidos — ordem do dono 12/06: liberar é passo explícito.
-  const [novoAcessoOpen, setNovoAcessoOpen] = useState(false);
-  const [gerirMembro, setGerirMembro] = useState<CompanyUser | null>(null);
+  //
+  // Ordem do dono 14/06: qual JANELA está aberta é estado de NAVEGAÇÃO, igual o
+  // `sec` — então vive na URL (mesma regra do use-tab-param). Assim o F5 reabre a
+  // janela que estava aberta, não só a aba. `?novo=1` = Novo acesso; `?membro=<id>`
+  // = Gerenciar daquele vendedor. (O "sem perder" do Novo acesso é o rascunho em
+  // localStorage dentro do próprio modal.)
+  const [novoParam, setNovoParam] = useTabParam<string>("novo", "");
+  const [membroParam, setMembroParam] = useTabParam<string>("membro", "");
+  const novoAcessoOpen = novoParam === "1";
+  const gerirMembro = team.find(m => String(m.id) === membroParam) || null;
   const [gerirBusy, setGerirBusy] = useState(false);
+
+  function abrirNovoAcesso() {
+    // abertura por clique = começa limpa (não ressuscita rascunho de outra vez)
+    try { localStorage.removeItem("hbx:novo-acesso-draft"); } catch { /* sem storage */ }
+    setMembroParam("");
+    setNovoParam("1");
+  }
+  function abrirGerir(m: CompanyUser) {
+    setNovoParam("");
+    setMembroParam(String(m.id));
+  }
   const [teamMsg, setTeamMsg] = useState<string | null>(null);
   const [confirmExcluir, setConfirmExcluir] = useState<CompanyUser | null>(null);
 
@@ -161,7 +180,7 @@ export function ConfiguracoesClient() {
     try {
       await apiFetch(`/users/${m.id}/delete`, { method: "DELETE" });
       setTeamMsg("✓ Usuário excluído.");
-      setGerirMembro(null);
+      setMembroParam("");
       await recarregarEquipe();
     } catch (err) {
       setTeamMsg(err instanceof Error ? err.message : "Não foi possível excluir.");
@@ -187,6 +206,20 @@ export function ConfiguracoesClient() {
       .catch(() => { /* sem acesso comercial — seção fica oculta/limitada */ });
     return () => { alive = false; };
   }, []);
+
+  // aviso "documentos confirmados" → abre DIRETO a ficha do vendedor, não só a aba
+  // (ordem do dono 14/06). O sino mandou o e-mail do vendedor em sessionStorage;
+  // quando a equipe carrega, casamos o e-mail com o membro e abrimos o Gerenciar.
+  useEffect(() => {
+    if (team.length === 0) return;
+    let alvo: string | null = null;
+    try { alvo = sessionStorage.getItem("hbx:config-membro-email"); } catch { /* sem storage */ }
+    if (!alvo) return;
+    try { sessionStorage.removeItem("hbx:config-membro-email"); } catch { /* sem storage */ }
+    const email = alvo.trim().toLowerCase();
+    const m = team.find(x => (x.email || "").trim().toLowerCase() === email);
+    if (m) setMembroParam(String(m.id));
+  }, [team, setMembroParam]);
 
   async function salvarPerfil() {
     if (saveBusy) return;
@@ -302,11 +335,12 @@ export function ConfiguracoesClient() {
             )}
 
             {sec === "Equipe" && (
+              <React.Fragment>
               <section className="panel">
                 <div className="panel-head">
                   <h2>Equipe</h2>
                   <div className="meta">
-                    <button className="btn-teal" onClick={() => setNovoAcessoOpen(true)} disabled={teamDenied}><I d={ICONS.plus} size={13} /> Novo acesso</button>
+                    <button className="btn-teal" onClick={abrirNovoAcesso} disabled={teamDenied}><I d={ICONS.plus} size={13} /> Novo acesso</button>
                   </div>
                 </div>
                 {teamMsg && (
@@ -340,7 +374,7 @@ export function ConfiguracoesClient() {
                             <td><span className={"tag" + (ehAdmin ? " teal" : "")}>{roleLabel(m.role)}</span></td>
                             <td>
                               <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.68rem" }}
-                                onClick={() => { setGerirMembro(m); setTeamMsg(null); }}>Gerenciar</button>
+                                onClick={() => { setTeamMsg(null); abrirGerir(m); }}>Gerenciar</button>
                             </td>
                           </tr>
                         );
@@ -349,6 +383,8 @@ export function ConfiguracoesClient() {
                   </table>
                 </div>
               </section>
+              {!teamDenied && <CargoAcessosEditor />}
+              </React.Fragment>
             )}
 
             {sec === "E-mail" && isAdminUser && <CompanyEmailSection />}
@@ -465,19 +501,19 @@ export function ConfiguracoesClient() {
 
       {novoAcessoOpen && (
         <NovoAcessoModal
-          onClose={() => setNovoAcessoOpen(false)}
+          onClose={() => setNovoParam("")}
           onDone={msg => { setTeamMsg(msg); recarregarEquipe(); }}
           team={team}
         />
       )}
 
       {gerirMembro && (
-        <GerenciarVendedorModal
+        <NovoAcessoModal
           member={gerirMembro}
           team={team}
           isSelf={Boolean(user?.email && gerirMembro.email && user.email === gerirMembro.email)}
-          onClose={() => setGerirMembro(null)}
-          onChanged={msg => { setTeamMsg(msg); recarregarEquipe(); }}
+          onClose={() => setMembroParam("")}
+          onDone={msg => { setTeamMsg(msg); recarregarEquipe(); }}
           onRequestExcluir={m => setConfirmExcluir(m)}
         />
       )}

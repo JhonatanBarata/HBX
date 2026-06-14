@@ -144,7 +144,7 @@ export function SellerOnboardingClient() {
   const completo = Boolean(estado?.documentsComplete);
 
   return (
-    <AuthSplit>
+    <AuthSplit wide>
       <div className="card">
         <h2>Documentos do cadastro</h2>
         <p className="sub">
@@ -207,7 +207,7 @@ export function SellerOnboardingClient() {
                   <div className="ok show">✓ Contrato assinado. Obrigado!</div>
                 ) : (
                   <>
-                    <div className="doc-slot" style={{ maxHeight: 220, overflow: "auto", whiteSpace: "pre-wrap" }}>
+                    <div className="contract-reader">
                       {estado.contract.text}
                     </div>
                     {estado.contract.companySignature && (

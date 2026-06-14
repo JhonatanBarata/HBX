@@ -290,11 +290,20 @@ dossiê do lead do lado + histórico que fica com a EMPRESA + tudo virando venda
   FALTA: front esconder "Plano e cobrança" por `!canViewBilling` (cosmético — backend
   já mascara o dado; sem gerente criado ainda, não vaza). Vai junto com o P5.
   Comissão/preço/venda CONTINUAM com o gerente (só a assinatura HBX é muro).
-- **P4 — Editor por cargo: ✅ BACKEND no ar.** Endpoints `GET/PUT
+- **P4 — Editor por cargo: ✅ COMPLETO (back + front, 14/06).** Endpoints `GET/PUT
   /modules/company/seller-cargo-access` (Admin + gerencial) →
   `getSellerCargoAccessForAdmin`/`setSellerCargoAccessForAdmin`. Grava
-  `Company.sellerCargoAccessJson`. **FALTA: a TELA** (aba Acessos consumir o
-  endpoint) — hoje o seed (vendas+radar) já funciona; o molho é editável via API.
+  `Company.sellerCargoAccessJson`. TELA: `components/hbx/cargo-acessos-editor.tsx`
+  em Configurações → Equipe → "Acesso do cargo Vendedor" (liga módulo por cargo
+  p/ TODOS os vendedores; gerente herda tudo da empresa). A antiga aba "Acessos"
+  por PESSOA (`team-policy-editor`) foi REMOVIDA do front (gravava em
+  `UserTeamPolicy.modulesJson`, que o runtime IGNORA p/ vendedor — era a
+  contradição "Acessar X marcado / módulo OFF"). Backend team-policy mantido.
+  14/06 tbm: `Novo acesso` e `Gerenciar` viraram UM modal só
+  (`novo-acesso-modal` serve os dois via prop `member`; doc upload disponível no
+  gerenciar; `gerenciar-vendedor-modal` apagado). CPF/Endereço/Senha/Cargo/D+ são
+  só-de-cadastro (PATCH /users/:id/profile não edita) → travados no gerenciar;
+  editar depois = fila de backend.
 - **P5 — Criação: ✅ APLICADO (back + front).** `createCompanyUser`: ADMIN criado
   pelo dono nasce com `canViewBilling=false` (Gerente); admin-com-$ só Master por
   outro fluxo. Front: `novo-acesso-modal` ganhou seletor **Cargo (Vendedor/Gerente)**;

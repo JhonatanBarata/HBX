@@ -96,9 +96,11 @@
 [data-theme="aurora"] {
   --icon-stroke: 1.6;
   --enter-name: hbx-enter-glide;
-  --enter-duration: 520ms;
+  /* Conteúdo desliza rápido a cada troca de módulo (o chrome não anima — ver
+     transitions.css). Curto pra parecer instantâneo, não um reload. */
+  --enter-duration: 360ms;
   --enter-ease: cubic-bezier(0.22, 1, 0.36, 1);
-  --enter-stagger: 70ms;
+  --enter-stagger: 0ms;
 }
 [data-theme="aurora"] .panel,
 [data-theme="aurora"] .kpi,
@@ -112,3 +114,20 @@
 }
 [data-theme="aurora"] .btn-teal { transition: transform var(--motion-fast), background var(--motion-fast), box-shadow var(--motion-fast); }
 [data-theme="aurora"] .btn-teal:hover { transform: translateY(-1px); }
+
+/* Micro-interações que dão vida sem custar layout (ordem do dono 14/06:
+   "mais efeitos / cara de sistema"). Tudo em token; nada por tela. */
+[data-theme="aurora"] .nav-item { transition: background var(--motion-fast), color var(--motion-fast), transform var(--motion-fast); }
+[data-theme="aurora"] .nav-item:hover { transform: translateX(2px); }
+[data-theme="aurora"] .round-btn { transition: background var(--motion-fast), transform var(--motion-fast), box-shadow var(--motion-fast); }
+[data-theme="aurora"] .round-btn:hover { transform: translateY(-1px); box-shadow: var(--shadow-xs); }
+[data-theme="aurora"] .deal:hover { transform: translateY(-2px); box-shadow: var(--shadow-sm); }
+[data-theme="aurora"] .conv, [data-theme="aurora"] .tbl tbody tr { transition: background var(--motion-fast); }
+[data-theme="aurora"] .seg.on { box-shadow: var(--shadow-xs), 0 0 0 1px color-mix(in srgb, var(--hbx-brand) 18%, transparent); }
+/* barra de rolagem fininha e na cor da marca — detalhe de produto acabado */
+[data-theme="aurora"] ::-webkit-scrollbar { width: 10px; height: 10px; }
+[data-theme="aurora"] ::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--hbx-brand) 38%, transparent);
+  border: 3px solid transparent; background-clip: padding-box; border-radius: 999px;
+}
+[data-theme="aurora"] ::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--hbx-brand) 60%, transparent); background-clip: padding-box; }

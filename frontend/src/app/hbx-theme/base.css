@@ -1,6 +1,11 @@
 /* base element + helper layer for HBX System — ESQUELETO:
    body flat pintado só por token; receitas de brilho/vidro são PELE. */
 
+/* Escala global um pouco menor (ordem do dono 14/06): tudo no kit é rem,
+   então baixar a raiz encolhe a tipografia inteira de forma proporcional e
+   "encaixa melhor" sem mexer tela por tela. Espaçamentos em px não mudam. */
+html { font-size: 15px; }
+
 body {
   margin: 0;
   color: var(--text-strong);
@@ -8,6 +13,7 @@ body {
   background: linear-gradient(180deg, var(--hbx-background) 0%, var(--hbx-background-alt) 100%);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 /* Uppercase, wide-tracked eyebrow used above headings everywhere */

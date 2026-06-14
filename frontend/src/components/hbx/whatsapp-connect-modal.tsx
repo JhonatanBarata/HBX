@@ -137,10 +137,13 @@ export function WhatsAppConnectModal({ open, onClose, onConnected }: {
         )}
 
         {connected && (
-          <div className="kv">
-            <div className="row"><span className="k">Conectado em</span><span className="v" style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem" }}>{formatWhatsAppDateTime(payload?.data?.connectedAt)}</span></div>
-            <div className="row"><span className="k">Atualizado em</span><span className="v" style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem" }}>{formatWhatsAppDateTime(payload?.data?.updatedAt)}</span></div>
-          </div>
+          <>
+            <span className="badge-win">✓ WhatsApp conectado — pronto para receber e responder aqui</span>
+            <div className="kv">
+              <div className="row"><span className="k">Conectado em</span><span className="v" style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem" }}>{formatWhatsAppDateTime(payload?.data?.connectedAt)}</span></div>
+              <div className="row"><span className="k">Atualizado em</span><span className="v" style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem" }}>{formatWhatsAppDateTime(payload?.data?.updatedAt)}</span></div>
+            </div>
+          </>
         )}
 
         {payload?.data?.lastError && !connected && (
@@ -153,8 +156,10 @@ export function WhatsAppConnectModal({ open, onClose, onConnected }: {
               <I d={ICONS.msg} size={14} /> {busy ? "Iniciando…" : "Conectar / gerar QR"}
             </button>
           )}
-          <div style={{ display: "grid", gridTemplateColumns: connected ? "1fr 1fr" : canRestart ? "1fr 1fr" : "1fr", gap: 8 }}>
-            <button className="btn-ghost" disabled={busy} onClick={() => refresh()}>Atualizar status</button>
+          <div style={{ display: "grid", gridTemplateColumns: (!connected && canRestart) ? "1fr 1fr" : "1fr", gap: 8 }}>
+            {!connected && (
+              <button className="btn-ghost" disabled={busy} onClick={() => refresh()}>Atualizar status</button>
+            )}
             {canRestart && (
               <button className="btn-ghost" disabled={busy} onClick={() => run(restartWhatsAppModalSession)}>Reiniciar sessão</button>
             )}
