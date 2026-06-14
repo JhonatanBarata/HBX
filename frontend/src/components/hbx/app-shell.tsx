@@ -11,6 +11,7 @@ import { usePathname } from "next/navigation";
 import React from "react";
 
 import { Sidebar, Topbar } from "@/components/hbx/shell";
+import { TutorialCoachHost } from "@/components/hbx/tutorial-coach-host";
 
 type Meta = { active: string; title: string; crumbs: React.ReactNode };
 
@@ -50,6 +51,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <Topbar title={meta.title} crumbs={meta.crumbs} />
         <div className="app-page" key={pathname}>{children}</div>
       </div>
+      {/* Tour guiado (coachmark) — vive aqui pra sobreviver à navegação entre
+          módulos; portala pro <body> e só aparece quando a store está ligada. */}
+      <TutorialCoachHost />
     </div>
   );
 }

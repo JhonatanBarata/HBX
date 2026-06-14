@@ -92,13 +92,39 @@
 > `/configuracoes` (admin precisa chegar no plano pra resolver) nem o master. Enforcement
 > real segue no backend (gate é só UX). Restart dev feito; tudo verde.
 
-### 🔴 SPRINT 4 — Checkout / gateway (Mercado Pago) — precisa do dono
-1. **Decisão D-PAGAMENTO:** cartão recorrente (assinatura/preapproval), Pix mensal, ou os
-   dois ofertados. (Default sugerido: recorrente + Pix.)
-2. **Credenciais MP** (access token/produção) — só o dono fornece.
-3. Checkout + **webhook** que move `Company.status`; ligar `requiresCheckout`.
-4. Config → Plano e cobrança: **método salvo + faturas/próxima cobrança + cancelar**.
-> Checkout/webhook **com teste** obrigatório.
+### 🔴 SPRINT 4 — Checkout recorrente (Mercado Pago) — DECIDIDO, pronto p/ construir
+**Decisão do dono (14/06):** **cartão recorrente (assinatura)** via **Mercado Pago**.
+Construo no SANDBOX; dono troca chave de produção no publish.
+
+**Acelerador:** quase tudo já existe —
+- `payments/mercado-pago-client.service.ts` é completo e stateless (recebe o token por
+  chamada) e JÁ tem **preapproval/assinatura** (`createPreapproval`, `getPreapproval`,
+  `cancelPreapproval`, `searchPreapproval` + `init_point`/`sandbox_init_point`).
+- Token da PLATAFORMA (HBX→empresa) mora no master global integrations
+  (`getMasterGlobalIntegrationConfig` + `pickMasterMercadoPagoCredential`); fallback env
+  `HBX_MP_ACCESS_TOKEN`. (NÃO é o token por-tenant do `resolveCompanyMercadoPagoAccess`.)
+- `PaymentsModule` exporta o client e **não tem imports** → CommercialPlans pode importar
+  sem ciclo.
+
+**Build (incrementos verificados, sem afobar — é a zona mais sensível):**
+1. **Schema:** `Company.mpSubscriptionId` + `mpSubscriptionStatus` (via runtime-ensure, padrão
+   do projeto — sem migration que conflite com o outro agente).
+2. **HbxBillingService** (novo, na pasta payments ou commercial-plans): resolve token da
+   plataforma → `createPreapproval({ reason, external_reference:"hbx-{companyId}-{plan}",
+   payer_email, auto_recurring:{frequency:1, frequency_type:'months', transaction_amount:
+   preço do catálogo, currency_id:'BRL'}, back_url, status:'pending' })` → grava
+   `mpSubscriptionId` → devolve `initPoint`.
+3. **Endpoint** `POST /commercial-plans/subscribe` (admin only) → `{ initPoint }`.
+4. **Webhook** `POST /billing/mp-webhook` → on `preapproval`/`subscription_authorized_payment`
+   → `getPreapproval` (confia na API, não no payload) → `authorized`/pago ⇒ `Company.status=
+   active` + período; falha ⇒ overdue/grace. Idempotência + verificação de assinatura.
+5. **Front:** plano pago no catálogo → `subscribe` → `window.location = initPoint`; página de
+   retorno (back_url) lê status. Liga `requiresCheckout` onde fizer sentido.
+6. **Config → Plano e cobrança:** próxima cobrança, cancelar assinatura.
+> ⚠️ **CONSTRAINT REAL:** o webhook do MP **não alcança o backend em localhost**. O fluxo
+> criar-assinatura+redirect dá pra ver em dev (sandbox), mas a **confirmação por webhook só
+> testa de verdade na VPS** (ou via túnel tipo ngrok). Lógica do handler testável por unit.
+> Checkout/webhook **com teste** obrigatório (PAGAMENTOS.md).
 
 ### 🔵 SPRINT 5 — Cockpit de cobrança no `/master`
 Assinaturas ativas, inadimplência, implantações Full pendentes, ações (ativar/cobrar/cortesia).

@@ -11,23 +11,20 @@ import { useRouter } from "next/navigation";
 import React, { useState } from "react";
 
 import { BootSplash } from "@/components/hbx/boot-splash";
-import { TutorialCoach } from "@/components/hbx/tutorial-coach";
 import { I, ICONS, useEntitlements } from "@/components/hbx/shell";
 import { CAPITULOS, limiteDoPlano } from "@/lib/tutorial-chapters";
-import { buildCoachSteps } from "@/lib/tutorial-coach-steps";
+import { startTutorialCoach } from "@/lib/tutorial-coach-store";
 
 export function TutorialClient() {
   const router = useRouter();
   const ent = useEntitlements();
   const [cap, setCap] = useState(0);
-  // Splash de boot abre o tutorial (ordem do dono 14/06). Por ora na /tutorial
-  // pra você ver; vai pro fluxo de 1º acesso quando montarmos o tutorial novo.
+  // Splash de boot abre o tutorial (ordem do dono 14/06). Depois do boot, dispara
+  // o TOUR GUIADO (coachmark) — que VIVE no app-shell e sobrevive à navegação
+  // (Leads → Vendas → Atendimento → resumos → planos). Por isso aqui só ligamos a
+  // store; o leitor de capítulos abaixo continua como conteúdo da rota /tutorial.
   const [booted, setBooted] = useState(false);
-  // F2 (14/06): depois do boot roda o TOUR GUIADO (coachmark) por cima do shell
-  // real — destaca a PELE e o claro/escuro no topo. Ao terminar/pular, cai no
-  // leitor de capítulos (que F4 vira typewriter + tela de planos).
-  const [coachDone, setCoachDone] = useState(false);
-  const coachSteps = buildCoachSteps({ planKey: ent.planKey });
+  function onBooted() { setBooted(true); startTutorialCoach(); }
 
   const limite = limiteDoPlano(ent.planKey);
   const c = CAPITULOS[cap];
@@ -41,14 +38,7 @@ export function TutorialClient() {
 
   return (
     <>
-      {!booted && <BootSplash onDone={() => setBooted(true)} />}
-      {booted && !coachDone && (
-        <TutorialCoach
-          steps={coachSteps}
-          onDone={() => setCoachDone(true)}
-          onSkip={() => setCoachDone(true)}
-        />
-      )}
+      {!booted && <BootSplash onDone={onBooted} />}
       <div className="work" style={{ flex: 1, maxWidth: 860, width: "100%", margin: "0 auto" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             {CAPITULOS.map((x, i) => (

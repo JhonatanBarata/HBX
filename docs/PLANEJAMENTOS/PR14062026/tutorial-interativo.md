@@ -85,9 +85,30 @@
   - Lint + catraca 561/561 + build verdes.
   - **Decisão:** soft-guide (dim `pointer-events:none`, não bloqueia clique fora do alvo) pra
     não tampar o popover da pele. Hard-block (treme no clique errado) fica pra F3 se o dono pedir.
-- **F3:** Leads → Vendas → Atendimento (com você, ícone por ícone). **Exige** subir o coach
-  pro `app-shell` (persistir entre rotas, pois clicar num nav navega) + ramificar
-  `buildCoachSteps` por cargo/plano + passos navegáveis. Atendimento desligado → mostra QR/Meta.
-- **F4:** typewriter Dashboard/Relatórios + tela final (planos "Sim/Fechar").
-- **F5:** "ficou dúvida" → `POST /support/contact-admin` (já existe; sai pro WhatsApp ATIVO +
-  e-mail + ticket, sem wa.me externo).
+- **F3 (FEITO 14/06):** Leads → Vendas → Atendimento clique-a-clique.
+  - Coach SUBIU pro `app-shell` (`tutorial-coach-host.tsx` mont. em `app-shell.tsx`),
+    **persiste entre rotas** (clicar num nav navega, o coach segue). Store
+    `lib/tutorial-coach-store.ts` (`start/stop/subscribe`, `useSyncExternalStore`).
+  - Coach virou **route-aware** (`usePathname`/`useRouter`): passo com `route` navega ao
+    entrar (exceto passo de clique-no-menu, onde o clique já navega). `buildCoachSteps`
+    ramifica por **cargo** (seller/manager/owner) e **plano** (`isModuleVisible` p/
+    leads/vendas/atend/relat). Atendimento DESLIGADO → passo central com `meta.webp` +
+    menção a QR/Meta. Gerente+ ganha passo "cadastrar cliente"; Dono ganha passo "Planos".
+  - **Bug corrigido:** target do Atendimento é `nav-atend` (id do NAV_LINKS), não `nav-atendimento`.
+- **F4 (FEITO):** Dashboard/Relatórios = passo `plain` (NÃO escurece a tela, balão no
+  rodapé) com `typewriter` (componente `<Typewriter key=step.id>`, respeita reduced-motion).
+- **F5 (FEITO):** passo `final` — "Ver planos avançados →" (push /planos) + "Fechar"
+  (push /dashboard) + "Ficou com dúvida? Falar com a HBX" → `POST /support/contact-admin`
+  (host monta o body com `companySlug`/`username`/`phone` do current-user; sai pro WhatsApp
+  ATIVO da empresa + e-mail + ticket/sino, sem wa.me externo). Estados idle/enviando/enviado.
+- **LEI "uma coisa sai pra outra entrar":** balão antigo SAI (`is-leaving`, fade 200ms) →
+  novo ENTRA (re-monta por `key=step.id`, pop-in). Holofote DESLIZA entre alvos; veil/plain
+  com suas transições; `.app-page` já desliza por rota. Tudo cai em reduced-motion.
+- Lint + catraca **560/560** + build verdes.
+
+### Falta (decisão do dono)
+- **Conectar no PRIMEIRO ACESSO:** `boas-vindas-gate.tsx` ainda usa o leitor estático
+  (`tutorial-chapters`). Trocar pelo coach (gate chama `startTutorialCoach()`) é decisão de
+  UX — NÃO rewirei sem ordem. Hoje o tour roda na `/tutorial` (e no menu da conta → Tutorial).
+- **Feel/timing:** dono confere no browser (não vejo movimento; não entro na conta).
+- **Textos** dos resumos/passos: dono revisa e ajusta.

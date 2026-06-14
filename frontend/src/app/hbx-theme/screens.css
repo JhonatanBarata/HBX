@@ -222,9 +222,51 @@ body { min-height: 100vh; }
 @keyframes tut-pop-in-center { from { opacity: 0; transform: translate(-50%, -46%) scale(0.97); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
 @keyframes tut-fade-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes tut-spot-pulse-dot { 0%, 100% { opacity: 0.4; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1.15); } }
+
+/* Passo "limpo" (resumo de Dashboard/Relatórios): NÃO escurece a tela — balão no
+   rodapé-centro, mais largo, pra você ver o painel atrás enquanto o resumo "digita". */
+.tut-balloon.is-plain { left: 50%; bottom: 26px; top: auto; transform: translateX(-50%);
+  width: min(560px, calc(100vw - 32px)); padding: 18px 20px 16px;
+  animation: tut-pop-in-plain 0.36s var(--ease-out-quint) both; }
+@keyframes tut-pop-in-plain { from { opacity: 0; transform: translateX(-50%) translateY(16px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+
+/* LEI "uma coisa sai pra outra entrar": ao trocar de passo o balão antigo SAI
+   (fade/escala) e só então o novo ENTRA (re-monta pelo key=step.id → roda o pop-in
+   de novo). animation:none aqui pra a transição de saída valer sobre o preenchimento. */
+.tut-balloon.is-leaving { animation: none; opacity: 0; transform: translateY(8px) scale(0.98);
+  transition: opacity 0.2s var(--ease-out-quint), transform 0.2s var(--ease-out-quint); }
+.tut-balloon.is-centered.is-leaving { transform: translate(-50%, -47%) scale(0.98); }
+.tut-balloon.is-plain.is-leaving { transform: translateX(-50%) translateY(12px); }
+.tut-veil.is-leaving { animation: none; opacity: 0; transition: opacity 0.2s var(--ease-out-quint); }
+
+/* Caret do typewriter. */
+.tut-caret { display: inline-block; width: 2px; height: 1em; margin-left: 1px; vertical-align: text-bottom;
+  background: var(--hbx-brand-strong); animation: tut-caret-blink 0.9s steps(1) infinite; }
+@keyframes tut-caret-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+
+/* Imagem ilustrativa (ex.: Meta no passo do Atendimento desligado). */
+.tut-img { width: 100%; max-height: 168px; object-fit: contain; border-radius: var(--radius-md);
+  background: var(--hbx-surface-soft); border: 1px solid var(--border-hairline); padding: 10px; }
+
+/* Passo final: planos + "ficou dúvida". */
+.tut-final { display: grid; gap: 12px; margin-top: 4px; }
+.tut-final__row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.tut-final__help { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding-top: 11px; border-top: 1px solid var(--border-hairline); }
+.tut-final__help-q { font-size: 0.74rem; color: var(--text-muted); }
+.tut-help-btn { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; padding: 0 13px; height: 30px;
+  font-size: 0.74rem; font-weight: 700; border-radius: 999px;
+  background: transparent; color: var(--hbx-brand-strong);
+  border: 1px solid color-mix(in srgb, var(--hbx-brand) 45%, transparent);
+  transition: background 0.14s var(--ease-out-quint), filter 0.14s var(--ease-out-quint); }
+.tut-help-btn:hover:not(:disabled) { background: var(--hbx-brand-soft); }
+.tut-help-btn:disabled { cursor: default; opacity: 0.75; }
+.tut-final__note { font-size: 0.72rem; color: var(--hbx-success); }
+
 @media (prefers-reduced-motion: reduce) {
-  .tut-spot { animation: none; } .tut-hint__dot { animation: none; }
-  .tut-balloon, .tut-balloon.is-centered, .tut-veil { animation: none; } }
+  .tut-spot { animation: none; } .tut-hint__dot { animation: none; } .tut-caret { animation: none; }
+  .tut-balloon, .tut-balloon.is-centered, .tut-balloon.is-plain, .tut-veil { animation: none; }
+  .tut-balloon.is-leaving, .tut-veil.is-leaving { transition: none; } }
 
 /* ---------- Atendimento.html / Bot.html ---------- */
 html, body { height: 100%; }
