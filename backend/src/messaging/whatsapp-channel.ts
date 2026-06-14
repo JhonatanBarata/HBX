@@ -11,32 +11,6 @@ export type WhatsAppNormalizedMessageType =
   | 'reaction'
   | 'deleted';
 
-export type WhatsAppTemplateNormalized = {
-  name: string;
-  language: string;
-  category: string;
-  status: string;
-  header: {
-    type: 'NONE' | 'TEXT' | 'IMAGE' | 'DOCUMENT' | 'VIDEO';
-    text: string | null;
-    mediaUrl: string | null;
-  };
-  body: {
-    text: string;
-    variables: string[];
-    examples: Record<string, string>;
-  };
-  footer: {
-    text: string | null;
-  };
-  buttons: Array<{
-    type: string;
-    text: string | null;
-    url: string | null;
-    phoneNumber: string | null;
-  }>;
-};
-
 export type WhatsAppInboundNormalized = {
   companyId: number;
   customerPhone: string;
@@ -53,17 +27,6 @@ export type WhatsAppInboundNormalized = {
   receivedOnDisplayNumber?: string | null;
   receivedOnModuleKey?: string | null;
   receivedOnEndpointLabel?: string | null;
-};
-
-export type WhatsAppOutboundNormalized = {
-  conversationId: number | null;
-  companyId: number;
-  to: string;
-  messageType: 'text' | 'template' | 'interactive';
-  payload: Record<string, unknown>;
-  providerResponse: Record<string, unknown> | null;
-  status: 'pending' | 'sent' | 'delivered' | 'failed';
-  externalMessageId: string | null;
 };
 
 export function normalizeWhatsAppDigits(valueRaw: string | null | undefined) {

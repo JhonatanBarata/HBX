@@ -1,5 +1,3 @@
-export type NightFactoryStatus = 'dormindo' | 'rodando' | 'pausado' | 'erro';
-
 export type NightFactoryConfig = {
   enabled: boolean;
   startHour: number;
