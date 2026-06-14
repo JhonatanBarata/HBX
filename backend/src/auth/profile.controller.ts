@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Patch, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator';
 import * as bcrypt from 'bcryptjs';
 import { UsersService } from '../users/users.service';
@@ -59,6 +59,9 @@ export function sanitizeUser(user: any, masterContext?: any) {
     // Régua única P3: front esconde "Plano e cobrança" quando false (Gerente).
     canViewBilling: billingAudience,
     mustChangePassword: Boolean(user.mustChangePassword),
+    // Boas-vindas (primeiro acesso): true = ainda não viu/dispensou o tutorial.
+    // O portão (AuthGate) mostra senha → tutorial e repete a cada login até resolver.
+    tutorialPending: !user.tutorialCompletedAt,
     sellerProfile: {
       isReferralSeller,
       isCommonSeller: role === 'USER' && !isReferralSeller && !user.isSystemMaster,
@@ -198,6 +201,15 @@ export class ProfileController {
 
     const hashed = await bcrypt.hash(nextPassword, 10);
     await this.usersService.setPassword(user.id, hashed);
+    return { ok: true };
+  }
+
+  // Boas-vindas (primeiro acesso): "Começar a usar" OU "Não exibir mais" no portão
+  // resolvem o tutorial. Sem corpo — só marca tutorialCompletedAt do próprio usuário.
+  @Post('tutorial-done')
+  @UseGuards(JwtAuthGuard)
+  async markTutorialDone(@Req() req: any) {
+    await this.usersService.markTutorialCompleted(Number(req.user?.id));
     return { ok: true };
   }
 

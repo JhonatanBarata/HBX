@@ -19,6 +19,7 @@ export const PELES: ReadonlyArray<{ key: string; label: string }> = [
   { key: "aurora", label: "Aurora" },
   { key: "ember", label: "Ember" },
   { key: "rose", label: "Rosé" },
+  { key: "hbx-cyber", label: "Tema HBX" },
 ];
 
 // Pele padrão quando não há preferência salva (mantém o boot do layout.tsx

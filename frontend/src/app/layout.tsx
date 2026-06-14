@@ -13,7 +13,7 @@ export const metadata: Metadata = {
 // components/hbx/theme-attributes.tsx (manter os dois em sincronia).
 // hbx:pele = aurora|ember|rose (padrão aurora; skeleton.css é só a base);
 // hbx:mode = claro/escuro global automático. Landing "/" = html puro.
-const THEME_BOOT = `(function(){try{var p=location.pathname;var h=document.documentElement;h.removeAttribute("data-engine");if(p==="/"){h.removeAttribute("data-theme");h.removeAttribute("data-theme-mode");return;}var P=["aurora","ember","rose"];var k=localStorage.getItem("hbx:pele");if(P.indexOf(k)<0){k="aurora";}h.setAttribute("data-theme",k);var m=localStorage.getItem("hbx:mode");h.setAttribute("data-theme-mode",m==="dark"?"dark":"light");}catch(e){}})();`;
+const THEME_BOOT = `(function(){try{var p=location.pathname;var h=document.documentElement;h.removeAttribute("data-engine");if(p==="/"){h.removeAttribute("data-theme");h.removeAttribute("data-theme-mode");return;}var P=["aurora","ember","rose","hbx-cyber"];var k=localStorage.getItem("hbx:pele");if(P.indexOf(k)<0){k="aurora";}h.setAttribute("data-theme",k);var m=localStorage.getItem("hbx:mode");h.setAttribute("data-theme-mode",m==="dark"?"dark":"light");}catch(e){}})();`;
 
 // Faxina do PWA antigo: desregistra qualquer service worker e apaga os
 // caches do navegador em todo load. O SW "hbx-pwa-v1" do front antigo

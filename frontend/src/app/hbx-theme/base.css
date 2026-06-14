@@ -16,6 +16,30 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+/* ============================================================
+   CURSOR POR PAPEL (ordem do dono 14/06): a barrinha "I" (cursor:text)
+   só aparece onde se DIGITA. Em todo o resto — títulos, menus, labels,
+   texto solto — fica a setinha normal. NÃO mexe em user-select: continuar
+   selecionando/copiando e-mail e telefone do lead segue valendo.
+   Central aqui (Lei 1/4): nenhuma tela precisa saber disto.
+   ============================================================ */
+body { cursor: default; }
+
+input:where(
+  [type="text"], [type="email"], [type="password"], [type="search"],
+  [type="tel"], [type="url"], [type="number"], [type="date"],
+  [type="datetime-local"], [type="month"], [type="time"], [type="week"],
+  :not([type])
+),
+textarea,
+[contenteditable="true"], [contenteditable=""] { cursor: text; }
+
+a[href], button, select, summary,
+[role="button"], [role="tab"], [role="link"], [role="menuitem"], [role="switch"],
+input[type="checkbox"], input[type="radio"] { cursor: pointer; }
+
+button:disabled, [disabled], [aria-disabled="true"] { cursor: not-allowed; }
+
 /* Uppercase, wide-tracked eyebrow used above headings everywhere */
 .hbx-overline {
   display: inline-flex;

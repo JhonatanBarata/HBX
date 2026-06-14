@@ -13,10 +13,13 @@ import {
   disconnectWhatsAppModalSession,
   fetchWhatsAppModalQr,
   fetchWhatsAppModalStatus,
+  requestWhatsAppPairingCode,
   restartWhatsAppModalSession,
   startWhatsAppModalSession,
 } from "@/lib/whatsapp-connection-flow";
-import { formatWhatsAppDateTime, whatsappModalStatusLabel, type WhatsAppModalPayload } from "@/lib/whatsapp-center";
+import { formatWhatsAppDateTime, whatsappModalStatusLabel, type WhatsAppModalPayload, type WhatsAppPairingCodePayload } from "@/lib/whatsapp-center";
+
+const PAIRING_PHONE_RE = /^\+[1-9]\d{7,14}$/;
 
 export function WhatsAppConnectModal({ open, onClose, onConnected }: {
   open: boolean;
@@ -28,13 +31,18 @@ export function WhatsAppConnectModal({ open, onClose, onConnected }: {
   const [error, setError] = useState<string | null>(null);
   const [bootstrapMsg, setBootstrapMsg] = useState<string | null>(null);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+  const [method, setMethod] = useState<"qr" | "code">("qr");
+  const [phone, setPhone] = useState("");
+  const [pairing, setPairing] = useState<WhatsAppPairingCodePayload | null>(null);
   const bootstrappedKey = useRef<string | null>(null);
 
   const refresh = useCallback(() => {
     return fetchWhatsAppModalStatus()
       .then(async res => {
         let next = res;
-        if (res?.status === "waiting_qr" && !res?.data?.qrCodeDataUrl) {
+        // Só puxa QR automaticamente no modo QR — no modo código isso
+        // regeraria a sessão e invalidaria o pairingCode em uso.
+        if (method === "qr" && res?.status === "waiting_qr" && !res?.data?.qrCodeDataUrl) {
           next = await fetchWhatsAppModalQr().catch(() => res);
         }
         setPayload(next);
@@ -45,7 +53,7 @@ export function WhatsAppConnectModal({ open, onClose, onConnected }: {
         setError(err instanceof Error ? err.message : "Falha ao consultar o status do WhatsApp.");
         return null;
       });
-  }, []);
+  }, [method]);
 
   // abre → consulta status; enquanto starting/waiting_qr/reconnecting, poll 4s
   useEffect(() => {
@@ -82,6 +90,8 @@ export function WhatsAppConnectModal({ open, onClose, onConnected }: {
   const canStart = !busy && ["offline", "disconnected", "error"].includes(status);
   const canRestart = !busy && ["error", "reconnecting", "waiting_qr", "starting"].includes(status);
   const connected = status === "connected";
+  const sessionId = payload?.data?.tenantKey || "";
+  const phoneOk = PAIRING_PHONE_RE.test(phone.trim());
 
   async function run(action: () => Promise<WhatsAppModalPayload>) {
     if (busy) return;
@@ -98,9 +108,29 @@ export function WhatsAppConnectModal({ open, onClose, onConnected }: {
     }
   }
 
+  async function generatePairing() {
+    if (busy) return;
+    if (!sessionId) { setError("Sessão WhatsApp ainda não carregou — clique em Atualizar status."); return; }
+    if (!phoneOk) { setError("Informe o telefone com DDI, ex.: +5519999999999."); return; }
+    setBusy(true);
+    setError(null);
+    setBootstrapMsg(null);
+    try {
+      const res = await requestWhatsAppPairingCode(sessionId, phone.trim());
+      setPairing(res);
+      if (!res.success || !res.code) {
+        setError(res.message || "Não foi possível gerar o código de pareamento.");
+      }
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao gerar o código de pareamento.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
-    <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) onClose(); }}
-      style={{ position: "fixed", inset: 0, zIndex: 50, display: "grid", placeItems: "center", padding: 24 }}>
+    <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="hbx-modal" style={{ width: "min(420px, 100%)", display: "grid", gap: 14, padding: 24 }}>
         <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           Conexão WhatsApp
@@ -114,6 +144,13 @@ export function WhatsAppConnectModal({ open, onClose, onConnected }: {
           {payload?.data?.phone && <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.74rem" }}>{payload.data.phone}</span>}
         </div>
 
+        {!connected && (
+          <div className="seg-toggle" style={{ justifySelf: "start" }} role="tablist" aria-label="Forma de conexão">
+            <button className={"seg" + (method === "qr" ? " on" : "")} onClick={() => { setMethod("qr"); setError(null); }}>QR Code</button>
+            <button className={"seg" + (method === "code" ? " on" : "")} onClick={() => { setMethod("code"); setError(null); setPairing(null); }}>Código</button>
+          </div>
+        )}
+
         {payload?.message && (
           <p style={{ margin: 0, fontSize: "0.76rem", color: "var(--text-muted)", lineHeight: 1.5 }}>{payload.message}</p>
         )}
@@ -124,7 +161,7 @@ export function WhatsAppConnectModal({ open, onClose, onConnected }: {
           <p style={{ margin: 0, fontSize: "0.74rem", fontWeight: 700, color: bootstrapMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{bootstrapMsg}</p>
         )}
 
-        {status === "waiting_qr" && (
+        {method === "qr" && status === "waiting_qr" && (
           <div style={{ display: "grid", justifyItems: "center", gap: 8, padding: 12, borderRadius: "var(--radius-md)", border: "1px dashed var(--border-strong)", background: "var(--hbx-surface-soft)" }}>
             {qr
               // eslint-disable-next-line @next/next/no-img-element
@@ -133,6 +170,34 @@ export function WhatsAppConnectModal({ open, onClose, onConnected }: {
             <span style={{ fontSize: "0.68rem", color: "var(--text-muted)", textAlign: "center" }}>
               Abra o WhatsApp no celular → Aparelhos conectados → Conectar aparelho.
             </span>
+          </div>
+        )}
+
+        {method === "code" && !connected && (
+          <div style={{ display: "grid", gap: 8 }}>
+            <input
+              className="field-dark"
+              inputMode="tel"
+              placeholder="Telefone com DDI, ex.: +5519999999999"
+              value={phone}
+              onChange={e => setPhone(e.target.value)}
+            />
+            {pairing?.code ? (
+              <div style={{ display: "grid", justifyItems: "center", gap: 6, padding: 8 }}>
+                <span style={{ fontSize: "1.7rem", fontWeight: 800, letterSpacing: "0.2em" }}>{pairing.code}</span>
+                <span className="badge-win">Código válido por {pairing.expiresInSeconds}s</span>
+                <span className="hint" style={{ textAlign: "center" }}>
+                  No celular: WhatsApp → Aparelhos conectados → Conectar aparelho → Conectar com número de telefone, e digite este código.
+                </span>
+              </div>
+            ) : (
+              <span className="hint">
+                Geramos um código para você digitar no WhatsApp do celular — sem precisar da câmera.
+              </span>
+            )}
+            <button className="btn-teal" disabled={busy || !phoneOk} onClick={generatePairing}>
+              <I d={ICONS.msg} size={14} /> {busy ? "Gerando…" : pairing?.code ? "Gerar novo código" : "Gerar código de pareamento"}
+            </button>
           </div>
         )}
 
@@ -151,7 +216,7 @@ export function WhatsAppConnectModal({ open, onClose, onConnected }: {
         )}
 
         <div style={{ display: "grid", gap: 8 }}>
-          {canStart && (
+          {method === "qr" && canStart && (
             <button className="btn-teal" disabled={busy} onClick={() => run(startWhatsAppModalSession)}>
               <I d={ICONS.msg} size={14} /> {busy ? "Iniciando…" : "Conectar / gerar QR"}
             </button>

@@ -29,6 +29,18 @@ export type WhatsAppModalPayload = {
   };
 };
 
+export type WhatsAppPairingCodePayload = {
+  success: boolean;
+  sessionId: string;
+  status: "waiting_code" | "code_generated" | "connected" | "expired" | "error" | "disconnected";
+  code: string | null;
+  expiresInSeconds: number;
+  providerSupported: boolean;
+  message: string;
+  errorCode?: string | null;
+  nextAllowedAt?: string | null;
+};
+
 export type WhatsAppBootstrapPayload = {
   success: boolean;
   connected: boolean;

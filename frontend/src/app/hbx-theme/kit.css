@@ -45,6 +45,11 @@ html, body { margin: 0; }
 
 /* ---------- Topbar ---------- */
 .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+/* Slot de conteúdo do shell persistente (components/hbx/app-shell.tsx): o menu e
+   o topo vivem no layout e NÃO remontam; só este slot troca a cada navegação
+   (key=pathname) e desliza pra dentro (transitions.css). Enche a altura que sobra
+   e deixa o conteúdo rolar por dentro. */
+.app-page { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 /* position+z-index: o topbar e seus dropdowns flutuam ACIMA do conteúdo —
    sem isto, painéis com transform (peles que levantam card no hover/entrada)
    criam stacking context e pintam por cima do menu. */
@@ -97,6 +102,7 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 .contract-reader { padding: 16px 20px; border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-surface-soft); max-height: min(56vh, 520px); overflow: auto; white-space: pre-wrap; font-size: 0.78rem; line-height: 1.7; color: var(--text-body); }
 .sig-pad { --sig-ink: var(--text-body); display: block; width: 100%; height: 160px; border-radius: var(--radius-sm); border: 1px dashed var(--border-hairline); background: var(--hbx-surface); touch-action: none; cursor: crosshair; }
 .field-label { font-size: 0.7rem; font-weight: 700; color: var(--text-muted); }
+.hint { font-size: 0.68rem; line-height: 1.5; color: var(--text-muted); }
 .link { font-size: 0.72rem; color: var(--hbx-brand-strong); font-weight: 700; cursor: pointer; }
 .sep { height: 1px; background: var(--border-hairline); }
 
@@ -324,6 +330,10 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
    className e dimensiona o .hbx-modal (width); NUNCA re-centraliza, re-posiciona
    nem re-empilha inline. transitions.css anima as mesmas classes. */
 .hbx-veil { position: fixed; inset: 0; z-index: 60; background: var(--hbx-overlay); display: grid; place-items: center; padding: 24px; overflow: auto; }
+/* Variante GAVETA central (Lei 2): o pop-up encosta à direita, altura cheia.
+   A tela só põe `className="hbx-veil to-right"` + `.hbx-drawer` (dimensiona a
+   largura) — NUNCA re-posiciona inline. Par do keyframe hbx-drawer-in. */
+.hbx-veil.to-right { place-items: stretch; justify-content: end; padding: 0; }
 .hbx-modal { border-radius: var(--radius-xl); border: 1px solid var(--border-hairline); background: var(--hbx-surface); box-shadow: var(--shadow-md); }
 .hbx-modal > h3 { margin: 0; font-family: var(--font-display); font-size: 1.05rem; font-weight: 800; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .hbx-x { color: var(--text-muted); font-weight: 400; cursor: pointer; }

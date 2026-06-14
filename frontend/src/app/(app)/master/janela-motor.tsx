@@ -879,8 +879,7 @@ export function JanelaMotor({ companies }: { companies: MasterCompany[] | null }
           </section>
 
           {terrEdit && (
-            <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setTerrEdit(null); }}
-              style={{ position: "fixed", inset: 0, zIndex: 45, display: "grid", placeItems: "center", padding: 24 }}>
+            <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setTerrEdit(null); }}>
               <form className="hbx-modal" onSubmit={salvarTerritorios}
                 style={{ width: "min(440px, 100%)", maxHeight: "85vh", overflowY: "auto", display: "grid", gap: 12, padding: 24 }}>
                 <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>

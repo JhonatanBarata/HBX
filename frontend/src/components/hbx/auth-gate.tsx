@@ -3,11 +3,13 @@
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
-import { clearToken, getToken } from "@/lib/api";
+import { BoasVindasGate } from "@/components/hbx/boas-vindas-gate";
 import { useCurrentUser } from "@/components/hbx/shell";
+import { clearToken, getToken } from "@/lib/api";
 
-// Guarda mínima das rotas autenticadas: sem token → /login.
-// Regra comercial continua 100% no backend (FRONTEND.md).
+// Guarda das rotas autenticadas: sem token → /login. Além disso monta o portão
+// de boas-vindas (primeiro acesso: troca de senha + tutorial), que se sobrepõe
+// ao app até resolver. Regra comercial continua 100% no backend (FRONTEND.md).
 export function AuthGate() {
   const router = useRouter();
   // Reusa o fetch cacheado do shell (sem request extra) — só dispara com token.
@@ -32,5 +34,5 @@ export function AuthGate() {
     }
   }, [user, router]);
 
-  return null;
+  return <BoasVindasGate />;
 }

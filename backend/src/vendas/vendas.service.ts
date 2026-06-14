@@ -603,6 +603,7 @@ export class VendasService {
       website: true,
       rating: true,
       reviews: true,
+      opportunityScore: true,
       city: true,
       state: true,
       segment: true,
@@ -1399,6 +1400,7 @@ export class VendasService {
       website: row?.website ? String(row.website) : null,
       rating: row?.rating == null ? null : Number(row.rating),
       reviews: Math.max(0, Math.trunc(Number(row?.reviews || 0) || 0)),
+      opportunityScore: row?.opportunityScore == null ? null : Math.max(0, Math.min(100, Math.trunc(Number(row.opportunityScore) || 0))),
       city: row?.city ? String(row.city) : null,
       state: row?.state ? String(row.state) : null,
       segment: row?.segment ? String(row.segment) : null,
@@ -6624,6 +6626,7 @@ export class VendasService {
     website?: string | null;
     rating?: number | null;
     reviews?: number | null;
+    opportunityScore?: number | null;
     city?: string | null;
     state?: string | null;
     segment?: string | null;
@@ -6660,6 +6663,10 @@ export class VendasService {
     const reviews = input.reviews == null || !Number.isFinite(Number(input.reviews))
       ? 0
       : Math.max(0, Math.trunc(Number(input.reviews)));
+    // Score de oportunidade herdado do Radar (snapshot pro card do Vendas — B2 PR13062026008).
+    const opportunityScore = input.opportunityScore == null || !Number.isFinite(Number(input.opportunityScore))
+      ? null
+      : Math.max(0, Math.min(100, Math.trunc(Number(input.opportunityScore))));
     const shortNote = this.normalizeText(input.shortNote);
     const nextAction = this.normalizeText(input.nextAction) || 'Primeiro contato';
     const status = this.normalizeStatus(input.status);
@@ -6688,6 +6695,7 @@ export class VendasService {
       website,
       rating,
       reviews,
+      opportunityScore,
       city: this.normalizeText(input.city),
       state: this.normalizeText(input.state)?.toUpperCase().slice(0, 2) || null,
       segment: this.normalizeText(input.segment),
@@ -7624,6 +7632,7 @@ export class VendasService {
           website: item?.website || null,
           rating: item?.rating ?? null,
           reviews: item?.reviews ?? null,
+          opportunityScore: Number((item as any)?.opportunityScore || 0) || null,
           city: item?.city || null,
           state: item?.state || null,
           segment: item?.segment || null,

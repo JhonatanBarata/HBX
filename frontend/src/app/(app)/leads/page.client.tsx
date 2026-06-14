@@ -15,9 +15,10 @@
 import { useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useState } from "react";
 
-import { Av, I, ICONS, KpiRow, Sidebar, Topbar, useCurrentUser } from "@/components/hbx/shell";
+import { Av, I, ICONS, KpiRow, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 import { useTabParam } from "@/lib/use-tab-param";
+import { PuxarLeadsPanel } from "@/components/hbx/puxar-leads-panel";
 
 type RadarLead = {
   id: string;
@@ -343,12 +344,10 @@ export function LeadsClient() {
   const ruleStatus = String(autoRule?.rule?.status || "");
 
   return (
-    <div className="app">
-      <Sidebar active="leads" />
-      <div className="main">
-        <Topbar title="Leads" crumbs={<React.Fragment>Home &rsaquo; <b>Leads</b></React.Fragment>} />
+    <React.Fragment>
         <div className="content">
           <div className="work">
+            {isSeller && <PuxarLeadsPanel onPulled={() => loadLeads({ page: 1 })} />}
             <KpiRow items={[
               { icon: "users", label: "Total na base", value: data ? total.toLocaleString("pt-BR") : "—", delta: "—" },
               { icon: "check", label: "Quentes (score ≥ 70)", value: data ? quentes.toLocaleString("pt-BR") : "—", delta: "—" },
@@ -490,11 +489,9 @@ export function LeadsClient() {
             </div>
           </aside>
         </div>
-      </div>
 
       {ruleOpen && (
-        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setRuleOpen(false); }}
-          style={{ position: "fixed", inset: 0, zIndex: 40, display: "grid", justifyContent: "end" }}>
+        <div className="hbx-veil to-right" onClick={e => { if (e.target === e.currentTarget) setRuleOpen(false); }}>
           <div className="hbx-drawer" style={{ width: 360, height: "100vh", overflowY: "auto", padding: "18px 16px", display: "grid", gap: 14, alignContent: "start" }}>
             <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "0.9rem", fontWeight: 700, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               Distribuição automática
@@ -576,6 +573,6 @@ export function LeadsClient() {
           </div>
         </div>
       )}
-    </div>
+    </React.Fragment>
   );
 }

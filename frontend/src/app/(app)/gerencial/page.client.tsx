@@ -9,7 +9,7 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 
-import { I, ICONS, Sidebar, Topbar, useCurrentUser } from "@/components/hbx/shell";
+import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 import { useTabIndex } from "@/lib/use-tab-param";
 
@@ -376,10 +376,7 @@ export function GerencialClient() {
   }
 
   return (
-    <div className="app">
-      <Sidebar active="gerencial" />
-      <div className="main">
-        <Topbar title="Gerencial" crumbs={<React.Fragment>Home &rsaquo; <b>Gerencial</b></React.Fragment>} />
+    <React.Fragment>
         <div className="work" style={{ flex: 1 }}>
           {user && !isAdmin && (
             <section className="panel">
@@ -670,11 +667,9 @@ export function GerencialClient() {
             </React.Fragment>
           )}
         </div>
-      </div>
 
       {payoutOpen && (
-        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setPayoutOpen(false); }}
-          style={{ position: "fixed", inset: 0, zIndex: 45, display: "grid", placeItems: "center", padding: 24 }}>
+        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setPayoutOpen(false); }}>
           <form className="hbx-modal" onSubmit={gerarPayout}
             style={{ width: "min(420px, 100%)", display: "grid", gap: 12, padding: 24 }}>
             <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -718,8 +713,7 @@ export function GerencialClient() {
       )}
 
       {modalOpen && (
-        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setModalOpen(false); }}
-          style={{ position: "fixed", inset: 0, zIndex: 45, display: "grid", placeItems: "center", padding: 24 }}>
+        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setModalOpen(false); }}>
           <form className="hbx-modal" onSubmit={salvar}
             style={{ width: "min(440px, 100%)", display: "grid", gap: 12, padding: 24 }}>
             <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -762,6 +756,6 @@ export function GerencialClient() {
           </form>
         </div>
       )}
-    </div>
+    </React.Fragment>
   );
 }

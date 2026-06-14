@@ -15,7 +15,7 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 
-import { Av, I, ICONS, KpiRow, Sidebar, Topbar, useCurrentUser } from "@/components/hbx/shell";
+import { Av, I, ICONS, KpiRow, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch, getApiBase, getToken } from "@/lib/api";
 
 type Ranking = { label: string; count: number };
@@ -212,11 +212,7 @@ export function RelatoriosClient() {
   };
 
   return (
-    <div className="app">
-      <Sidebar active="relat" />
-      <div className="main">
-        <Topbar title="Relatórios" crumbs={<React.Fragment>Home &rsaquo; <b>Relatórios</b></React.Fragment>} />
-        <div className="work" style={{ flex: 1 }}>
+    <div className="work" style={{ flex: 1 }}>
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
             {PERIODOS.map(p => (
               <button key={p.value} className="btn-ghost" onClick={() => setPer(p.value)}
@@ -403,7 +399,5 @@ export function RelatoriosClient() {
             </section>
           </div>
         </div>
-      </div>
-    </div>
   );
 }

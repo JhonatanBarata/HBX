@@ -3,7 +3,7 @@
 // antigo, adaptada ao client de API novo.
 
 import { apiFetch } from "@/lib/api";
-import type { WhatsAppBootstrapPayload, WhatsAppModalPayload } from "@/lib/whatsapp-center";
+import type { WhatsAppBootstrapPayload, WhatsAppModalPayload, WhatsAppPairingCodePayload } from "@/lib/whatsapp-center";
 
 export function buildWhatsAppBootstrapKey(payload: WhatsAppModalPayload) {
   return [
@@ -45,4 +45,13 @@ export function disconnectWhatsAppModalSession() {
 
 export function restartWhatsAppModalSession() {
   return apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/restart", { method: "POST" });
+}
+
+// Conexão por código (sem QR / sem câmera): o backend cria a instância com o
+// número e devolve o pairingCode do Webwhats/Baileys. sessionId = data.tenantKey.
+export function requestWhatsAppPairingCode(sessionId: string, phoneNumber: string) {
+  return apiFetch<WhatsAppPairingCodePayload>(
+    `/whatsapp/sessions/${encodeURIComponent(sessionId)}/pairing-code`,
+    { method: "POST", body: JSON.stringify({ phoneNumber }) },
+  );
 }

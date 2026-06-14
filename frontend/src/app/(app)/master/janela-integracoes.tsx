@@ -226,8 +226,7 @@ export function JanelaIntegracoes({ companies }: { companies: MasterCompany[] | 
       </section>
 
       {modalOpen && (
-        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setModalOpen(false); }}
-          style={{ position: "fixed", inset: 0, zIndex: 45, display: "grid", placeItems: "center", padding: 24 }}>
+        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setModalOpen(false); }}>
           <form className="hbx-modal" onSubmit={salvar}
             style={{ width: "min(440px, 100%)", display: "grid", gap: 12, padding: 24 }}>
             <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>

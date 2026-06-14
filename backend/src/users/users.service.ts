@@ -758,6 +758,9 @@ export class UsersService {
           data: {
             password: hashedPassword,
             mustChangePassword,
+            // Primeiro acesso (boas-vindas): liberar acesso / resetar senha re-arma
+            // o tutorial junto da troca obrigatória de senha. [[tutorial-onboarding]]
+            tutorialCompletedAt: null,
             currentSessionId: null,
             sessionVersion: { increment: 1 },
           },
@@ -770,6 +773,15 @@ export class UsersService {
         password: hashedPassword,
         mustChangePassword,
       },
+    });
+  }
+
+  // Boas-vindas (primeiro acesso): marca o tutorial como resolvido — "Começar a
+  // usar" OU "Não exibir mais" no portão chamam isto (POST /profile/tutorial-done).
+  async markTutorialCompleted(userId: number): Promise<void> {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { tutorialCompletedAt: new Date() },
     });
   }
 

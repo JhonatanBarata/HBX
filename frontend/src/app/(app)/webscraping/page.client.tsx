@@ -14,7 +14,7 @@
 import { useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
-import { I, ICONS, Sidebar, Topbar } from "@/components/hbx/shell";
+import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 
 type RadarLead = {
@@ -138,6 +138,12 @@ function fmtDateTime(iso: string | null | undefined) {
 
 export function WebscrapingClient() {
   const router = useRouter();
+  const me = useCurrentUser();
+  // Modelo B (PR14062026008 §2/§4/D5): pro cargo VENDEDOR o Radar é VITRINE
+  // read-only — sem operação de coleta (busca), sem contato (tel/e-mail),
+  // sem export e sem ações que jogam o lead pra Vendas. Admin/gerente/master
+  // seguem com a tela cheia. O vendedor pega lead pelo /leads (pull), não aqui.
+  const isSeller = me?.userKind === "seller";
 
   // filtros
   const [segment, setSegment] = useState("");
@@ -373,11 +379,7 @@ export function WebscrapingClient() {
   const histEvents = detail?.item && detail.item.id === sel?.id ? (detail.events || []) : [];
 
   return (
-    <div className="app">
-      <Sidebar active="scrape" />
-      <div className="main">
-        <Topbar title="Radar" crumbs={<React.Fragment>Home &rsaquo; <b>Radar</b></React.Fragment>} />
-        <div className="content">
+    <div className="content">
           <div className="work">
             <section className="panel">
               <div className="filters">
@@ -409,9 +411,11 @@ export function WebscrapingClient() {
                   <input className="field-dark" placeholder="Ex.: hbx.com.br" value={filterKey}
                     onChange={e => setFilterKey(e.target.value)} onKeyDown={e => e.key === "Enter" && aplicarBusca()} onBlur={aplicarBusca} />
                 </div>
-                <button className="btn-teal" style={{ minHeight: 38 }} onClick={executarColeta} disabled={runBusy || runActive}>
-                  {runActive ? "Coletando…" : runBusy ? "Iniciando…" : "▶ Executar coleta"}
-                </button>
+                {!isSeller && (
+                  <button className="btn-teal" style={{ minHeight: 38 }} onClick={executarColeta} disabled={runBusy || runActive}>
+                    {runActive ? "Coletando…" : runBusy ? "Iniciando…" : "▶ Executar coleta"}
+                  </button>
+                )}
               </div>
               {(runMsg || run?.errorMessage) && (
                 <div style={{ padding: "0 16px 12px", fontSize: "0.72rem", fontWeight: 600, color: "var(--text-muted)" }}>
@@ -449,7 +453,9 @@ export function WebscrapingClient() {
               <div className="panel-head">
                 <h2>{total.toLocaleString("pt-BR")} resultados encontrados</h2>
                 <div className="meta">
-                  <button className="btn-ghost" onClick={exportarCsv} disabled={exportBusy}><I d={ICONS.doc} size={13} /> {exportBusy ? "Exportando…" : "Exportar ▾"}</button>
+                  {!isSeller && (
+                    <button className="btn-ghost" onClick={exportarCsv} disabled={exportBusy}><I d={ICONS.doc} size={13} /> {exportBusy ? "Exportando…" : "Exportar ▾"}</button>
+                  )}
                   <button className="icon-ghost" onClick={limparFiltros} title="Limpar filtros" aria-label="Limpar filtros"><I d={ICONS.filter} size={15} /></button>
                 </div>
               </div>
@@ -458,13 +464,13 @@ export function WebscrapingClient() {
                   <thead>
                     <tr>
                       <th aria-hidden="true"></th>
-                      <th>Empresa</th><th>Segmento</th><th>Cidade</th><th>Contato</th><th>Telefone</th><th>E-mail</th><th>Site</th><th>Score</th><th>Status</th>
+                      <th>Empresa</th><th>Segmento</th><th>Cidade</th><th>Contato</th>{!isSeller && <th>Telefone</th>}{!isSeller && <th>E-mail</th>}<th>Site</th><th>Score</th><th>Status</th>
                     </tr>
                   </thead>
                   <tbody>
                     {items.length === 0 && (
                       <tr style={{ cursor: "default" }}>
-                        <td colSpan={10} style={{ textAlign: "center", color: "var(--text-muted)", padding: "26px 12px" }}>
+                        <td colSpan={isSeller ? 8 : 10} style={{ textAlign: "center", color: "var(--text-muted)", padding: "26px 12px" }}>
                           {loadError
                             ? loadError
                             : data?.meta?.available === false
@@ -480,8 +486,8 @@ export function WebscrapingClient() {
                         <td>{row.segment || "—"}</td>
                         <td>{row.city ? `${row.city}${row.state ? ", " + row.state : ""}` : "—"}</td>
                         <td><div className="co"><strong style={{ fontWeight: 600 }}>{row.businessCategory || "—"}</strong><span className="sub2">{row.recommendedChannel ? `canal: ${row.recommendedChannel}` : ""}</span></div></td>
-                        <td style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem" }}>{row.phone || "—"}</td>
-                        <td>{row.email || "—"} {row.email && row.emailStatus === "confirmed" ? <span style={{ color: "var(--hbx-brand-strong)" }}>✓</span> : row.email && row.emailStatus === "probable" ? <span style={{ color: "var(--hbx-warning)" }}>⚠</span> : null}</td>
+                        {!isSeller && <td style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem" }}>{row.phone || "—"}</td>}
+                        {!isSeller && <td>{row.email || "—"} {row.email && row.emailStatus === "confirmed" ? <span style={{ color: "var(--hbx-brand-strong)" }}>✓</span> : row.email && row.emailStatus === "probable" ? <span style={{ color: "var(--hbx-warning)" }}>⚠</span> : null}</td>}
                         <td>{row.website
                           ? <a href={row.website.startsWith("http") ? row.website : `https://${row.website}`} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}>{row.website.replace(/^https?:\/\//, "")} ↗</a>
                           : "—"}</td>
@@ -526,15 +532,19 @@ export function WebscrapingClient() {
                   : "—"}</span></div>
               </div>
             </div>
-            <div className="sep"></div>
-            <div>
-              <h3 style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginBottom: 8 }}>Contato</h3>
-              <div className="kv" style={{ marginTop: 10 }}>
-                <div className="row"><span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}><I d={ICONS.mail} size={13} /> E-mail</span><span className="v" style={{ fontWeight: 600, fontSize: "0.68rem" }}>{d?.email || "—"} {d?.email && d?.emailStatus === "confirmed" ? <span style={{ color: "var(--hbx-brand-strong)" }}>✓</span> : null}</span></div>
-                <div className="row"><span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}><I d={ICONS.phone} size={13} /> Telefone</span><span className="v" style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem" }}>{d?.phone || "—"}</span></div>
-                <div className="row"><span className="k">Canal recomendado</span><span className="v">{d?.recommendedChannel || "—"}</span></div>
-              </div>
-            </div>
+            {!isSeller && (
+              <React.Fragment>
+                <div className="sep"></div>
+                <div>
+                  <h3 style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginBottom: 8 }}>Contato</h3>
+                  <div className="kv" style={{ marginTop: 10 }}>
+                    <div className="row"><span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}><I d={ICONS.mail} size={13} /> E-mail</span><span className="v" style={{ fontWeight: 600, fontSize: "0.68rem" }}>{d?.email || "—"} {d?.email && d?.emailStatus === "confirmed" ? <span style={{ color: "var(--hbx-brand-strong)" }}>✓</span> : null}</span></div>
+                    <div className="row"><span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}><I d={ICONS.phone} size={13} /> Telefone</span><span className="v" style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem" }}>{d?.phone || "—"}</span></div>
+                    <div className="row"><span className="k">Canal recomendado</span><span className="v">{d?.recommendedChannel || "—"}</span></div>
+                  </div>
+                </div>
+              </React.Fragment>
+            )}
             <div className="sep"></div>
             <div>
               <h3 style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginBottom: 8 }}>Origem dos dados</h3>
@@ -548,13 +558,17 @@ export function WebscrapingClient() {
             <div className="sep"></div>
             <div style={{ display: "grid", gap: 8 }}>
               <h3>Ações</h3>
-              {crmMsg && (
+              {!isSeller && crmMsg && (
                 <div style={{ fontSize: "0.72rem", fontWeight: 700, color: crmMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{crmMsg}</div>
               )}
-              <button className="btn-teal" onClick={adicionarAoCrm} disabled={!sel?.id || crmBusy}>
-                <I d={ICONS.plus} size={14} /> {crmBusy ? "Enviando…" : "Adicionar ao CRM"}
-              </button>
-              <button className="btn-ghost" onClick={() => router.push("/vendas")} disabled={!sel?.id}><I d={ICONS.send} size={13} /> Criar abordagem</button>
+              {!isSeller && (
+                <button className="btn-teal" onClick={adicionarAoCrm} disabled={!sel?.id || crmBusy}>
+                  <I d={ICONS.plus} size={14} /> {crmBusy ? "Enviando…" : "Adicionar ao CRM"}
+                </button>
+              )}
+              {!isSeller && (
+                <button className="btn-ghost" onClick={() => router.push("/vendas")} disabled={!sel?.id}><I d={ICONS.send} size={13} /> Criar abordagem</button>
+              )}
               <button className="btn-ghost" onClick={() => setShowHistory(v => !v)} disabled={!sel?.id}><I d={ICONS.clock} size={13} /> {showHistory ? "Ocultar histórico" : "Ver histórico da empresa"}</button>
             </div>
             {showHistory && (
@@ -577,8 +591,6 @@ export function WebscrapingClient() {
             )}
           </aside>
         </div>
-      </div>
-    </div>
   );
 }
 

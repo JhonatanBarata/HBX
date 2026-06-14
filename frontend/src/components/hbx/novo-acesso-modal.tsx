@@ -481,8 +481,7 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
   const nomeMembro = member?.name || member?.username || member?.email || (member ? `Usuário ${member.id}` : "");
 
   return (
-    <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) fechar(); }}
-      style={{ position: "fixed", inset: 0, zIndex: 45, display: "grid", placeItems: "center", padding: 18 }}>
+    <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) fechar(); }}>
       <div className="hbx-modal" style={{ width: "min(880px, 100%)", maxHeight: "92vh", overflowY: "auto", display: "grid", gap: 14, padding: 22 }}>
         <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           {isEdit ? (
@@ -780,8 +779,7 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
       </div>
 
       {modeloOpen && (
-        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setModeloOpen(false); }}
-          style={{ position: "fixed", inset: 0, zIndex: 47, display: "grid", placeItems: "center", padding: 24 }}>
+        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setModeloOpen(false); }}>
           <div className="hbx-modal" style={{ width: "min(640px, 100%)", maxHeight: "86vh", overflowY: "auto", display: "grid", gap: 12, padding: 22 }}>
             <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               Modelo do contrato

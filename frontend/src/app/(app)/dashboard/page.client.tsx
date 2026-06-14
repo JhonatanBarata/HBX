@@ -13,7 +13,7 @@
 import Link from "next/link";
 import React, { useEffect, useState } from "react";
 
-import { Av, KpiRow, Sidebar, Topbar, useCurrentUser } from "@/components/hbx/shell";
+import { Av, KpiRow, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 
 type TimelineEvent = { id?: string; eventType?: string; title?: string | null; description?: string | null; note?: string | null; createdAt?: string | null };
@@ -167,11 +167,7 @@ export function DashboardClient() {
   const tarefas = hoje.slice(0, 3);
 
   return (
-    <div className="app">
-      <Sidebar active="dash" />
-      <div className="main">
-        <Topbar title="Dashboard" crumbs={<React.Fragment>Home &rsaquo; <b>Dashboard</b></React.Fragment>} />
-        <div className="work" style={{ flex: 1 }}>
+    <div className="work" style={{ flex: 1 }}>
           {loadError && (user as { isSystemMaster?: boolean } | null)?.isSystemMaster ? (
             <section className="panel">
               <div style={{ padding: 18, display: "grid", gap: 8 }}>
@@ -327,7 +323,5 @@ export function DashboardClient() {
             </section>
           </div>
         </div>
-      </div>
-    </div>
   );
 }

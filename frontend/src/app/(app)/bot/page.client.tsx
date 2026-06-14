@@ -16,7 +16,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 
-import { I, ICONS, Sidebar, Topbar } from "@/components/hbx/shell";
+import { I, ICONS } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 import { useTabIndex } from "@/lib/use-tab-param";
 
@@ -358,10 +358,7 @@ export function BotClient() {
   const botAtivo = Boolean(config?.routingRules?.globalBotEnabled);
 
   return (
-    <div className="app app-viewport">
-      <Sidebar active="bot" />
-      <div className="main">
-        <Topbar title="Bot" crumbs={<React.Fragment>Home &rsaquo; Bot &rsaquo; <b>Construtor</b></React.Fragment>} />
+    <React.Fragment>
         <div className="bot-head">
           <h1>Construtor de Bot <I d={["M12 20h9", "M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"]} size={16} /></h1>
           <span className="saved" style={config && !config.setup?.completed ? { color: "var(--hbx-warning)" } : {}}>{setupBadge}</span>
@@ -559,7 +556,6 @@ export function BotClient() {
             </section>
           </div>
         )}
-      </div>
-    </div>
+    </React.Fragment>
   );
 }

@@ -19,10 +19,12 @@ import React, { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { useTabIndex } from "@/lib/use-tab-param";
 import { PlanosEditor } from "@/components/hbx/planos-editor";
+import { MetaWhatsAppEditor } from "@/components/hbx/meta-whatsapp-editor";
+import { MetaTemplatesEditor } from "@/components/hbx/meta-templates-editor";
 
 import { fmtDataHora } from "./page.client";
 
-const SUBTABS = ["Módulos", "Política comercial", "Credenciais", "Exclusões", "Reclamações", "Planos"];
+const SUBTABS = ["Módulos", "Política comercial", "Credenciais", "Exclusões", "Reclamações", "Planos", "WhatsApp (Meta)"];
 
 type SystemModule = {
   id: number;
@@ -649,6 +651,8 @@ export function JanelaSistema() {
       )}
 
       {sub === 5 && <PlanosEditor />}
+
+      {sub === 6 && (<><MetaWhatsAppEditor /><MetaTemplatesEditor /></>)}
 
     </React.Fragment>
   );

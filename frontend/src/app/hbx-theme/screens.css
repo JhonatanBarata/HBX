@@ -24,19 +24,51 @@ body { min-height: 100vh; }
 .feat .ic { display: grid; place-items: center; width: 32px; height: 32px; border-radius: var(--radius-sm); border: 1px solid color-mix(in srgb, var(--hbx-brand) 35%, transparent); color: var(--hbx-brand-strong); background: color-mix(in srgb, var(--hbx-brand) 8%, transparent); flex: 0 0 auto; }
 .foot { font-size: 0.66rem; color: var(--text-muted); }
 .form-side { display: grid; place-items: center; padding: 40px; }
-.login-split .card { width: min(400px, 100%); display: grid; gap: 16px; padding: 30px; border-radius: var(--radius-xl); border: 1px solid var(--border-hairline); background: var(--hbx-surface); box-shadow: var(--shadow-md); }
+/* O card de auth (e seus campos) vale nos DOIS shells: .login-split (2 colunas:
+   register/reset) e .login-console (3 painéis: login restaurada 14/06). */
+:is(.login-split, .login-console) .card { width: min(400px, 100%); display: grid; gap: 16px; padding: 30px; border-radius: var(--radius-xl); border: 1px solid var(--border-hairline); background: var(--hbx-surface); box-shadow: var(--shadow-md); }
 /* Variante opt-in p/ telas com leitura longa (contrato/onboarding) — não afeta login */
 .login-split.is-wide .card { width: min(720px, 100%); }
-.login-split .card h2 { margin: 0; font-family: var(--font-display); font-size: 1.4rem; font-weight: 800; letter-spacing: -0.01em; }
-.login-split .card .sub { margin: -10px 0 0; font-size: 0.78rem; color: var(--text-muted); }
-.login-split .f { display: grid; gap: 6px; }
-.login-split .f label { font-size: 0.7rem; font-weight: 700; color: var(--text-muted); }
-.login-split .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 0.74rem; }
-.login-split .row label { display: inline-flex; gap: 7px; align-items: center; color: var(--text-body); cursor: pointer; }
-.login-split .row input { accent-color: var(--hbx-brand); }
+:is(.login-split, .login-console) .card h2 { margin: 0; font-family: var(--font-display); font-size: 1.4rem; font-weight: 800; letter-spacing: -0.01em; }
+:is(.login-split, .login-console) .card .sub { margin: -10px 0 0; font-size: 0.78rem; color: var(--text-muted); }
+:is(.login-split, .login-console) .f { display: grid; gap: 6px; }
+:is(.login-split, .login-console) .f label { font-size: 0.7rem; font-weight: 700; color: var(--text-muted); }
+:is(.login-split, .login-console) .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 0.74rem; }
+:is(.login-split, .login-console) .row label { display: inline-flex; gap: 7px; align-items: center; color: var(--text-body); cursor: pointer; }
+:is(.login-split, .login-console) .row input { accent-color: var(--hbx-brand); }
 .alt { text-align: center; font-size: 0.74rem; color: var(--text-muted); }
 .ok { display: none; gap: 8px; align-items: center; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid color-mix(in srgb, var(--hbx-success) 30%, transparent); background: color-mix(in srgb, var(--hbx-success) 8%, transparent); color: var(--hbx-brand-strong); font-size: 0.76rem; font-weight: 700; }
 .ok.show { display: flex; }
+/* Variantes de aviso/erro do card (substituem o style inline na tela). */
+.ok.warn { border-color: color-mix(in srgb, var(--hbx-warning) 35%, transparent); background: color-mix(in srgb, var(--hbx-warning) 8%, transparent); color: var(--hbx-warning); }
+.ok.bad { border-color: color-mix(in srgb, var(--hbx-danger) 30%, transparent); background: color-mix(in srgb, var(--hbx-danger) 8%, transparent); color: var(--hbx-danger); }
+
+/* ---------- Login — CONSOLE de 3 painéis (restaurada 14/06; estrutura neutra/
+   por token, todas as peles vestem. Esquerda "Soluções integradas", centro o
+   card, direita "Confiança e tecnologia". O ROBÔ é decorativo via pele
+   (.login-art) — só o Tema HBX preenche). ---------- */
+.login-console { position: relative; min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 460px) minmax(0, 1fr); align-items: center; gap: 28px; padding: 32px clamp(20px, 4vw, 64px); overflow: hidden; }
+/* Slot de arte (robô/fundo): vazio por padrão; a pele preenche o background. */
+.login-art { position: absolute; inset: 0 0 0 auto; width: 46%; z-index: 0; pointer-events: none; background-repeat: no-repeat; background-position: right bottom; background-size: contain; opacity: 0; }
+.login-side { position: relative; z-index: 1; display: flex; }
+.login-side--left { justify-content: flex-end; }
+.login-side--right { justify-content: flex-start; }
+.login-shell { position: relative; z-index: 1; display: grid; place-items: center; }
+.login-side__panel { width: min(320px, 100%); display: grid; gap: 12px; padding: 20px; border-radius: var(--radius-xl); border: 1px solid var(--border-hairline); background: var(--hbx-surface); box-shadow: var(--shadow-md); }
+.login-side__header { font-family: var(--font-display); font-size: 0.72rem; font-weight: 800; letter-spacing: var(--tracking-overline); text-transform: uppercase; color: var(--text-muted); }
+.login-microcard { display: flex; gap: 11px; align-items: flex-start; padding: 12px; border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-surface-soft); }
+.login-microcard .ic { display: grid; place-items: center; width: 34px; height: 34px; flex: 0 0 auto; border-radius: var(--radius-sm); border: 1px solid color-mix(in srgb, var(--hbx-brand) 30%, transparent); color: var(--hbx-brand-strong); background: color-mix(in srgb, var(--hbx-brand) 8%, transparent); }
+.login-microcard .tx { display: grid; gap: 2px; min-width: 0; flex: 1; }
+.login-microcard .tx strong { font-size: 0.8rem; }
+.login-microcard .tx span { font-size: 0.68rem; color: var(--text-muted); line-height: 1.4; }
+.login-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--hbx-success); flex: 0 0 auto; align-self: center; box-shadow: 0 0 0 3px color-mix(in srgb, var(--hbx-success) 18%, transparent); }
+.login-side__footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 0.68rem; font-weight: 700; color: var(--text-body); }
+.login-side__footer svg { color: var(--hbx-brand-strong); }
+@media (max-width: 1080px) {
+  .login-console { grid-template-columns: 1fr; justify-items: center; }
+  .login-side { display: none; }
+  .login-art { width: 70%; opacity: 0.5; }
+}
 
 /* ---------- Atendimento.html / Bot.html ---------- */
 html, body { height: 100%; }
@@ -172,3 +204,64 @@ html, body { height: 100%; }
 
 .tp-foot { display: flex; gap: 10px; align-items: center; justify-content: flex-end; flex-wrap: wrap; }
 .tp-foot .grow { margin-right: auto; }
+
+/* ============================================================
+   Boas-vindas / primeiro acesso — portão do AuthGate (14/06).
+   LINDO mas 100% régua: nenhuma cor/sombra/raio/fonte fora de var().
+   Passos: senha (mustChangePassword) → tutorial (tutorialPending).
+   ============================================================ */
+.bv-veil {
+  position: fixed; inset: 0; z-index: 80;
+  display: grid; place-items: center; padding: 24px; overflow-y: auto;
+  background:
+    radial-gradient(110% 90% at 12% -8%, color-mix(in srgb, var(--hbx-brand) 26%, transparent), transparent 56%),
+    radial-gradient(110% 90% at 106% 108%, color-mix(in srgb, var(--hbx-brand-strong) 24%, transparent), transparent 52%),
+    color-mix(in srgb, var(--hbx-background) 80%, var(--hbx-overlay));
+  -webkit-backdrop-filter: blur(var(--blur-glass)); backdrop-filter: blur(var(--blur-glass));
+  animation: hbx-bv-fade var(--motion-base) var(--ease-out-quint);
+}
+.bv-card {
+  width: min(620px, 100%); overflow: hidden;
+  border-radius: var(--radius-xl);
+  border: 1px solid color-mix(in srgb, var(--hbx-brand) 18%, var(--border-hairline));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--hbx-surface) 98%, var(--hbx-background)), color-mix(in srgb, var(--hbx-surface-soft) 92%, var(--hbx-background)));
+  box-shadow: var(--shadow-inset), var(--shadow-lg);
+  animation: hbx-bv-rise var(--motion-slow) var(--ease-out-quint);
+}
+.bv-hero {
+  position: relative; overflow: hidden; padding: 28px 30px 24px;
+  color: var(--hbx-action-ink);
+  background:
+    radial-gradient(120% 150% at 100% 0%, color-mix(in srgb, var(--hbx-brand-strong) 38%, transparent), transparent 58%),
+    linear-gradient(135deg, var(--hbx-primary), var(--hbx-secondary));
+  box-shadow: var(--shadow-inset);
+}
+.bv-hero .orb { position: absolute; right: -38px; top: -46px; width: 168px; height: 168px; border-radius: var(--radius-pill); background: radial-gradient(circle, color-mix(in srgb, var(--hbx-brand-contrast) 28%, transparent), transparent 70%); pointer-events: none; }
+.bv-hero .kicker { position: relative; font-family: var(--font-mono); font-size: 0.64rem; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; opacity: 0.85; }
+.bv-hero .bv-tag { position: relative; display: inline-flex; align-items: center; padding: 4px 11px; border-radius: var(--radius-pill); background: color-mix(in srgb, var(--hbx-brand-contrast) 20%, transparent); font-size: 0.66rem; font-weight: 700; }
+.bv-hero h2 { position: relative; margin: 10px 0 0; font-family: var(--font-display); font-size: 1.48rem; font-weight: 800; letter-spacing: -0.01em; line-height: 1.14; }
+.bv-hero p { position: relative; margin: 9px 0 0; font-size: 0.84rem; line-height: 1.55; opacity: 0.93; max-width: 48ch; }
+.bv-body { padding: 22px 30px 26px; display: grid; gap: 15px; }
+.bv-hint { font-size: 0.71rem; line-height: 1.5; color: var(--text-muted); }
+.bv-field { display: grid; gap: 6px; }
+.bv-field > label { font-size: 0.72rem; font-weight: 700; color: var(--text-muted); }
+.bv-row { display: flex; gap: 8px; align-items: center; }
+.bv-row .field-dark { flex: 1; }
+.bv-msg { font-size: 0.74rem; font-weight: 700; line-height: 1.5; }
+.bv-msg.bad { color: var(--hbx-danger); }
+.bv-foot { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding-top: 2px; }
+.bv-foot .grow { margin-left: auto; }
+.bv-foot .btn-teal { min-height: 42px; }
+.bv-steps { display: grid; gap: 9px; }
+.bv-step { display: flex; gap: 12px; align-items: flex-start; padding: 11px 13px; border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-surface-soft); }
+.bv-step .n { flex: 0 0 auto; width: 25px; height: 25px; display: grid; place-items: center; border-radius: var(--radius-pill); background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); font-family: var(--font-mono); font-size: 0.72rem; font-weight: 700; }
+.bv-step .tx { display: grid; gap: 2px; min-width: 0; }
+.bv-step .tx strong { font-size: 0.79rem; }
+.bv-step .tx small { font-size: 0.72rem; line-height: 1.5; color: var(--text-muted); }
+.bv-dots { display: inline-flex; gap: 6px; align-items: center; }
+.bv-dots i { width: 7px; height: 7px; border-radius: var(--radius-pill); background: var(--border-strong); transition: width var(--motion-fast), background var(--motion-fast); }
+.bv-dots i.on { width: 20px; background: var(--hbx-brand); }
+.bv-link { background: transparent; border: none; padding: 6px 4px; color: var(--text-muted); font-family: var(--font-body); font-size: 0.72rem; font-weight: 700; cursor: pointer; }
+.bv-link:hover { color: var(--text-strong); }
+@keyframes hbx-bv-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes hbx-bv-rise { from { opacity: 0; transform: translateY(14px) scale(0.985); } to { opacity: 1; transform: none; } }

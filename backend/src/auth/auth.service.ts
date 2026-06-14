@@ -1663,7 +1663,10 @@ export class AuthService implements OnModuleInit {
           { companyId: Number(user.companyId), userAgent: opts?.userAgent, ip: opts?.ip },
         )
       : null;
-    const next = trialEndsAt ? '/boasvindas' : loginPayload?.next || this.pendingCheckoutNextPath();
+    // Boas-vindas/tutorial NÃO se amarra mais ao trial (List/Full nem têm trial) —
+    // virou portão por PRIMEIRO LOGIN (flag tutorialPending no AuthGate). Aqui o
+    // pós-confirmação só segue o destino normal do papel.
+    const next = loginPayload?.next || this.pendingCheckoutNextPath();
 
     return {
       ok: true,

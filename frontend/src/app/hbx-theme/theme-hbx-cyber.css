@@ -1,0 +1,167 @@
+/* ============================================================
+   PELE: TEMA HBX — azul-elétrico, vidro escuro, "cyber" (ordem do dono
+   14/06/2026, baseada na foto de exibição do sistema/robô). Mais UMA
+   opção do seletor (não vira padrão). Escopo total: [data-theme="hbx-cyber"].
+   A estrela é o MODO ESCURO (igual à foto); o claro é a versão limpa.
+   Nada fora daqui — só tokens + camada de vestir (Leis 1/2/3).
+   ============================================================ */
+
+/* ---- Bloco A · CLARO ---- */
+[data-theme="hbx-cyber"] {
+  --hbx-brand: #1565E0; --hbx-brand-strong: #0A4FC0; --hbx-brand-soft: #E2EDFF; --hbx-brand-contrast: #F4F9FF;
+  --hbx-primary: #1565E0; --hbx-secondary: #0EA5E9; --hbx-success: #0FB981; --hbx-accent: #3B82F6;
+  --hbx-info: #0284C7; --hbx-warning: #D97706; --hbx-danger: #E11D5C;
+  --hbx-background: #EEF4FF; --hbx-background-alt: #E2ECFB;
+  --hbx-surface: #FFFFFF; --hbx-surface-soft: #F2F7FF; --hbx-surface-raised: #E6EEFB;
+  --hbx-header-surface: rgba(244,248,255,0.82); --hbx-nav-surface: rgba(238,244,255,0.9);
+  --hbx-field-surface: #FBFDFF; --hbx-table-head: #EAF1FD;
+  --hbx-chat-inbound: #FFFFFF; --hbx-chat-outbound: #E2EDFF; --hbx-chat-system: #F2F7FF;
+  --hbx-foreground: #0A1A33; --hbx-foreground-soft: #2B3F63; --hbx-muted: #5E7196;
+  --hbx-line: #CFE0F7; --hbx-shadow: #0A2A5E; --hbx-overlay: rgba(8,24,56,0.34);
+  --border-hairline: #D4E2F7; --border-strong: #A9C4EC; --ring-brand: rgba(21,101,224,0.22);
+  --hbx-action-ink: #F4F9FF; --hbx-avatar-from: #1565E0; --hbx-avatar-to: #0EA5E9;
+  --font-display: "Sora", system-ui, sans-serif; --font-body: "Plus Jakarta Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --radius-xs: 6px; --radius-sm: 10px; --radius-md: 14px; --radius-lg: 18px; --radius-xl: 24px;
+  --shadow-xs: 0 10px 22px -16px rgba(10,42,94,0.3); --shadow-sm: 0 18px 40px -22px rgba(10,42,94,0.35);
+  --shadow-md: 0 26px 60px -28px rgba(10,42,94,0.42); --shadow-lg: 0 40px 86px -34px rgba(10,42,94,0.5);
+  --shadow-inset: inset 0 1px 0 rgba(255,255,255,0.7);
+  --blur-chrome: 24px; --blur-glass: 18px;
+  --panel-glow: rgba(21,101,224,0.14); --hero-glow: rgba(14,165,233,0.18); --soft-ring: rgba(21,101,224,0.16);
+  --motion-fast: 150ms ease; --motion-base: 340ms cubic-bezier(0.22,1,0.36,1); --motion-slow: 560ms cubic-bezier(0.22,1,0.36,1);
+  --ease-out-quint: cubic-bezier(0.22,1,0.36,1);
+}
+
+/* ---- Bloco A · ESCURO (a foto) ---- */
+[data-theme="hbx-cyber"][data-theme-mode="dark"] {
+  --hbx-brand: #2E8BFF; --hbx-brand-strong: #5FB2FF; --hbx-brand-soft: #11243F; --hbx-brand-contrast: #EAF4FF;
+  --hbx-primary: #2E8BFF; --hbx-secondary: #36C6FF; --hbx-success: #22D3A0; --hbx-accent: #4F8BFF;
+  --hbx-info: #38BDF8; --hbx-warning: #FBBF24; --hbx-danger: #FF5C7A;
+  --hbx-background: #050A16; --hbx-background-alt: #020611;
+  --hbx-surface: #0A1426; --hbx-surface-soft: #0D1930; --hbx-surface-raised: #13233F;
+  --hbx-header-surface: rgba(6,12,26,0.72); --hbx-nav-surface: rgba(8,15,30,0.86);
+  --hbx-field-surface: #0B1830; --hbx-table-head: #0D1A33;
+  --hbx-chat-inbound: #0D1930; --hbx-chat-outbound: #15315C; --hbx-chat-system: #0A1426;
+  --hbx-foreground: #EAF2FF; --hbx-foreground-soft: #B7C8E6; --hbx-muted: #7488AE;
+  --hbx-line: #1A2F54; --hbx-shadow: #00030B; --hbx-overlay: rgba(1,4,12,0.7);
+  --border-hairline: #162A4C; --border-strong: #27497F; --ring-brand: rgba(46,139,255,0.4);
+  --hbx-action-ink: #EAF4FF; --hbx-avatar-from: #2E8BFF; --hbx-avatar-to: #36C6FF;
+  --shadow-inset: inset 0 1px 0 rgba(120,170,255,0.09);
+  --panel-glow: rgba(46,139,255,0.22); --hero-glow: rgba(54,198,255,0.22); --soft-ring: rgba(46,139,255,0.28);
+}
+
+/* ---- Bloco B · CAMADA DE VESTIR (vidro azul + glow) ---- */
+[data-theme="hbx-cyber"] .side {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--hbx-nav-surface) 94%, transparent), color-mix(in srgb, var(--hbx-surface-soft) 86%, transparent));
+  -webkit-backdrop-filter: blur(var(--blur-chrome)); backdrop-filter: blur(var(--blur-chrome));
+  box-shadow: var(--shadow-inset), var(--shadow-xs);
+}
+[data-theme="hbx-cyber"] .topbar {
+  background: color-mix(in srgb, var(--hbx-header-surface) 86%, transparent);
+  -webkit-backdrop-filter: blur(var(--blur-chrome)); backdrop-filter: blur(var(--blur-chrome));
+  box-shadow: var(--shadow-inset);
+}
+[data-theme="hbx-cyber"] .panel,
+[data-theme="hbx-cyber"] .kpi,
+[data-theme="hbx-cyber"] .plan-card,
+[data-theme="hbx-cyber"] .user-card,
+[data-theme="hbx-cyber"] .hbx-modal {
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--hbx-brand) 10%, transparent), transparent 48%),
+    linear-gradient(180deg, color-mix(in srgb, var(--hbx-surface) 98%, var(--hbx-background)), color-mix(in srgb, var(--hbx-surface-soft) 90%, var(--hbx-background)));
+  box-shadow: var(--shadow-inset), var(--shadow-sm);
+}
+[data-theme="hbx-cyber"] .nav-item.active {
+  background: color-mix(in srgb, var(--hbx-brand) 16%, var(--hbx-surface));
+  border: 1px solid color-mix(in srgb, var(--hbx-brand) 40%, var(--hbx-line));
+  box-shadow: 0 12px 26px -16px var(--soft-ring), inset 0 0 0 1px color-mix(in srgb, var(--hbx-brand) 14%, transparent);
+}
+[data-theme="hbx-cyber"] .btn-teal {
+  background: linear-gradient(135deg, var(--hbx-primary), var(--hbx-secondary));
+  box-shadow: var(--shadow-inset), 0 16px 30px -18px color-mix(in srgb, var(--hbx-primary) 80%, transparent);
+}
+[data-theme="hbx-cyber"] .btn-teal:hover { background: linear-gradient(135deg, var(--hbx-brand-strong), var(--hbx-secondary)); }
+[data-theme="hbx-cyber"] .btn-ghost,
+[data-theme="hbx-cyber"] .field-dark,
+[data-theme="hbx-cyber"] .select-dark { box-shadow: var(--shadow-inset); }
+[data-theme="hbx-cyber"] .search { box-shadow: var(--shadow-inset); }
+[data-theme="hbx-cyber"] .round-btn { border: 1px solid var(--border-hairline); background: color-mix(in srgb, var(--hbx-surface) 78%, transparent); }
+[data-theme="hbx-cyber"] .kpi-icon,
+[data-theme="hbx-cyber"] .feat .ic {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--hbx-brand) 22%, transparent), 0 8px 20px -12px var(--soft-ring);
+}
+[data-theme="hbx-cyber"] .bars .bar {
+  border-radius: 6px 6px 2px 2px; opacity: 1;
+  box-shadow: 0 10px 22px -12px color-mix(in srgb, var(--hbx-brand) 85%, transparent), inset 0 1px 0 rgba(120,170,255,0.35);
+}
+[data-theme="hbx-cyber"] .meter-fill { box-shadow: inset 0 1px 0 rgba(120,170,255,0.3); }
+
+/* ---- Bloco B · LOGIN cyber: navy profundo + grade + brilho; o ROBÔ da foto
+   entra no slot decorativo .login-art (só nesta pele). Vale pros dois shells:
+   .login-split (register/reset) e .login-console (login de 3 painéis). ---- */
+[data-theme="hbx-cyber"] :is(.login-split, .login-console) {
+  background:
+    radial-gradient(38% 52% at 7% 92%, color-mix(in srgb, var(--hbx-secondary) 24%, transparent), transparent 70%),
+    radial-gradient(40% 50% at 96% 6%, color-mix(in srgb, var(--hbx-brand) 24%, transparent), transparent 72%),
+    radial-gradient(30% 42% at 64% 52%, color-mix(in srgb, var(--hbx-brand) 8%, transparent), transparent 70%),
+    linear-gradient(180deg, var(--hbx-background) 0%, var(--hbx-background-alt) 100%);
+}
+/* grade de circuito sutil sobre o fundo do console */
+[data-theme="hbx-cyber"] .login-console::before {
+  content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--hbx-brand) 10%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--hbx-brand) 10%, transparent) 1px, transparent 1px);
+  background-size: 38px 38px; opacity: 0.4;
+  -webkit-mask-image: radial-gradient(circle at 50% 40%, #000, transparent 75%);
+  mask-image: radial-gradient(circle at 50% 40%, #000, transparent 75%);
+}
+/* O ROBÔ (foto da cena, cropada na direita): peça decorativa atrás dos painéis. */
+[data-theme="hbx-cyber"] .login-art {
+  background-image: url("/robo-hbx.png");
+  background-size: cover; background-position: right center;
+  opacity: 0.5;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 52%);
+  mask-image: linear-gradient(90deg, transparent 0%, #000 52%);
+}
+[data-theme="hbx-cyber"] .brand-side {
+  background:
+    radial-gradient(circle at 80% 12%, color-mix(in srgb, var(--hbx-brand) 14%, transparent), transparent 42%),
+    color-mix(in srgb, var(--hbx-nav-surface) 90%, transparent);
+  -webkit-backdrop-filter: blur(var(--blur-glass)); backdrop-filter: blur(var(--blur-glass));
+}
+[data-theme="hbx-cyber"] :is(.login-split, .login-console) .card,
+[data-theme="hbx-cyber"] .login-side__panel {
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--hbx-brand) 13%, transparent), transparent 48%),
+    linear-gradient(180deg, color-mix(in srgb, var(--hbx-surface) 74%, transparent), color-mix(in srgb, var(--hbx-surface-soft) 60%, transparent));
+  border-color: color-mix(in srgb, var(--hbx-brand) 24%, var(--border-hairline));
+  -webkit-backdrop-filter: blur(var(--blur-glass)); backdrop-filter: blur(var(--blur-glass));
+  box-shadow: var(--shadow-inset), var(--shadow-md), 0 0 0 1px color-mix(in srgb, var(--hbx-brand) 16%, transparent);
+}
+[data-theme="hbx-cyber"] .login-microcard {
+  background: color-mix(in srgb, var(--hbx-surface-soft) 55%, transparent);
+  border-color: color-mix(in srgb, var(--hbx-brand) 16%, var(--border-hairline));
+}
+
+/* ---- Bloco C · MOVIMENTO & ÍCONE ---- */
+[data-theme="hbx-cyber"] {
+  --icon-stroke: 1.6;
+  --enter-name: hbx-enter-glide;
+  --enter-duration: 360ms;
+  --enter-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --enter-stagger: 0ms;
+}
+[data-theme="hbx-cyber"] .panel,
+[data-theme="hbx-cyber"] .kpi,
+[data-theme="hbx-cyber"] .deal {
+  transition: transform var(--motion-base), box-shadow var(--motion-base), border-color var(--motion-base);
+}
+[data-theme="hbx-cyber"] .panel:hover,
+[data-theme="hbx-cyber"] .kpi:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-inset), var(--shadow-md), 0 0 0 1px color-mix(in srgb, var(--hbx-brand) 18%, transparent);
+}
+[data-theme="hbx-cyber"] .nav-item:hover { transform: translateX(2px); }
+[data-theme="hbx-cyber"] .btn-teal { transition: transform var(--motion-fast), background var(--motion-fast), box-shadow var(--motion-fast); }
+[data-theme="hbx-cyber"] .btn-teal:hover { transform: translateY(-1px); }

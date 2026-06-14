@@ -1006,6 +1006,10 @@ model User {
   emailConfirmationExpiresAt DateTime?
   password        String
   mustChangePassword Boolean     @default(false)
+  // Boas-vindas (primeiro acesso, 14/06): null = ainda não viu/dispensou o
+  // tutorial; preenchido = resolvido. Existentes nascem resolvidos (backfill no
+  // runtime-ensure); novos nascem null = pendentes. Re-armado na troca de senha.
+  tutorialCompletedAt DateTime?
   name            String?
   phone           String?
   commissionPercent Float          @default(0)
@@ -2151,6 +2155,7 @@ model VendasLead {
   website           String?
   rating            Float?
   reviews           Int      @default(0)
+  opportunityScore  Int?     // score de oportunidade herdado do Radar (snapshot p/ card do Vendas — B2 PR13062026008)
   city              String?
   state             String?
   segment           String?

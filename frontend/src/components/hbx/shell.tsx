@@ -8,10 +8,33 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import React, { useEffect, useState, useSyncExternalStore } from "react";
+import React, { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { applyThemeSoft, DEFAULT_PELE, getActivePele, PELES, setAppTheme, setThemeMode } from "@/components/hbx/theme-attributes";
 import { apiFetch, clearToken, getToken } from "@/lib/api";
+
+// Fecha um popover ao clicar fora dele ou apertar Esc (ordem do dono 14/06: os
+// menus do topo — temas, avisos, conta — ficavam abertos ao clicar no meio da
+// tela). Devolve o ref que vai no container do popover (botão + balão juntos).
+function useClickAway<T extends HTMLElement>(open: boolean, onClose: () => void) {
+  const ref = useRef<T | null>(null);
+  const cb = useRef(onClose);
+  useEffect(() => { cb.current = onClose; }, [onClose]);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) cb.current();
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") cb.current(); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+  return ref;
+}
 
 export function I({ d, size = 18 }: { d: string[]; size?: number }) {
   // strokeWidth="1.7" é só fallback SSR; em runtime a classe hbx-icon aplica
@@ -93,8 +116,7 @@ export function ConfirmDialog({ open, title, message, confirmLabel = "Confirmar"
 }) {
   if (!open) return null;
   return (
-    <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) onCancel(); }}
-      style={{ display: "grid", placeItems: "center", padding: 24 }}>
+    <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) onCancel(); }}>
       <div className="hbx-modal" role="dialog" aria-modal="true"
         style={{ width: "min(400px, 100%)", display: "grid", gap: 14, padding: 24 }}>
         <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800 }}>{title}</h3>
@@ -133,7 +155,7 @@ type CurrentUser = {
   isSystemMaster?: boolean | null;
   // Empresa do usuário (GET /profile/current-user). null para não-master = órfão
   // de uma empresa excluída (AuthGate detecta e faz saída limpa).
-  company?: { id?: number | null } | null;
+  company?: { id?: number | null; name?: string | null } | null;
   sellerProfile?: {
     isCommonSeller?: boolean | null;
     // comissão de venda do próprio vendedor (GET /profile/current-user)
@@ -181,6 +203,11 @@ export function currentUserDisplayName(user: CurrentUser | null): string {
 export function currentUserRoleLabel(user: CurrentUser | null): string {
   if (!user) return "Gerente Comercial";
   return USER_KIND_LABEL[String(user.userKind || "")] || "Usuário";
+}
+
+// Nome da empresa do usuário (GET /profile/current-user → company.name).
+export function currentCompanyName(user: CurrentUser | null): string {
+  return user?.company?.name || "Sua empresa";
 }
 
 // ---------------------------------------------------------------
@@ -328,24 +355,6 @@ export function Sidebar({ active }: { active: string }) {
   const user = useCurrentUser();
   const ent = useEntitlements();
   const mods = useMyModules();
-  const router = useRouter();
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [signingOut, setSigningOut] = useState(false);
-
-  // Logout no "⋮" do user-card (ordem do dono, 11/06/2026) —
-  // POST /auth/logout, limpa o token e volta para /login.
-  async function sair() {
-    if (signingOut) return;
-    setSigningOut(true);
-    try {
-      await apiFetch("/auth/logout", { method: "POST" });
-    } catch {
-      // sessão já inválida no backend — segue limpando o cliente
-    }
-    currentUserPromise = null;
-    clearToken();
-    router.replace("/login");
-  }
 
   return (
     <aside className="side">
@@ -368,18 +377,15 @@ export function Sidebar({ active }: { active: string }) {
           <div><strong>Plano Empresarial</strong><br /><small>Válido até 30/06/2026</small></div>
           <button>Gerenciar plano</button>
         </div>
-        <div className="user-card" style={{ position: "relative" }}>
-          <Av name={currentUserDisplayName(user)} size={32} />
-          <div><strong>{currentUserDisplayName(user)}</strong><small>{currentUserRoleLabel(user)}</small></div>
-          <span className="dots" role="button" aria-label="Menu do usuário" aria-expanded={menuOpen}
-            onClick={() => setMenuOpen(o => !o)}>⋮</span>
-          {menuOpen && (
-            <div className="hbx-pop" style={{ position: "absolute", right: 8, bottom: "calc(100% + 6px)", zIndex: 20, minWidth: 120, padding: 6 }}>
-              <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "0.72rem" }} onClick={sair} disabled={signingOut}>
-                {signingOut ? "Saindo…" : "Sair"}
-              </button>
-            </div>
-          )}
+        {/* Identidade da EMPRESA (ordem do dono 14/06): o usuário/vendedor é o
+            avatar do topo-direito; aqui embaixo fica a empresa, e o card é
+            informativo — SEM clique. O "Sair" mora só no menu da conta, no topo. */}
+        <div className="user-card" aria-label="Empresa" title={currentCompanyName(user)}>
+          <Av name={currentCompanyName(user)} size={32} />
+          <div style={{ minWidth: 0 }}>
+            <strong style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{currentCompanyName(user)}</strong>
+            <small>Empresa</small>
+          </div>
         </div>
       </div>
     </aside>
@@ -405,9 +411,10 @@ export function subscribeToThemeMode(callback: () => void) {
 export function PeleSwitch() {
   const ativa = useSyncExternalStore(subscribeToThemeMode, getActivePele, () => DEFAULT_PELE);
   const [open, setOpen] = useState(false);
+  const boxRef = useClickAway<HTMLSpanElement>(open, () => setOpen(false));
   const label = PELES.find(p => p.key === ativa)?.label || PELES[0].label;
   return (
-    <span style={{ position: "relative", display: "inline-flex" }}>
+    <span ref={boxRef} style={{ position: "relative", display: "inline-flex" }}>
       <button className="btn-ghost" style={{ minHeight: 32, gap: 6 }} onClick={() => setOpen(o => !o)}
         aria-expanded={open} aria-label="Escolher pele" title="Pele do sistema">
         {label} ▾
@@ -518,6 +525,10 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
   // logoff também pelo avatar (pedido do dono: o "⋮" da sidebar estava escondido)
   const [avatarOpen, setAvatarOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  // fecham ao clicar fora / Esc (o topbar agora é persistente, então também
+  // fechamos no clique de cada ação — senão o menu ficaria aberto após navegar).
+  const bellRef = useClickAway<HTMLSpanElement>(bellOpen, () => setBellOpen(false));
+  const avatarRef = useClickAway<HTMLSpanElement>(avatarOpen, () => setAvatarOpen(false));
 
   async function sairTopo() {
     if (signingOut) return;
@@ -573,7 +584,7 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
         {podeNovoLead && (
           <button className="round-btn add" title="Novo lead" aria-label="Novo lead" onClick={abrirNovoLead}><I d={ICONS.plus} size={16} /></button>
         )}
-        <span style={{ position: "relative", display: "inline-flex" }}>
+        <span ref={bellRef} style={{ position: "relative", display: "inline-flex" }}>
           <button className="round-btn" title="Avisos" aria-label="Avisos" onClick={() => setBellOpen(o => !o)}>
             <I d={ICONS.bell} size={17} />
             {naoLidos.length > 0 && <span className="bub">{naoLidos.length}</span>}
@@ -620,23 +631,25 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
             {unreadChats > 0 && <span className="bub">{unreadChats}</span>}
           </button>
         )}
-        <span style={{ position: "relative", display: "inline-flex" }}>
+        <span ref={avatarRef} style={{ position: "relative", display: "inline-flex" }}>
           <button className="round-btn" title="Conta" aria-label="Conta" style={{ width: "auto", height: "auto", padding: 0 }} onClick={() => setAvatarOpen(o => !o)}>
             <Av name={currentUserDisplayName(user)} size={34} />
           </button>
           {avatarOpen && (
-            <div className="hbx-pop" style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", zIndex: 30, minWidth: 180, padding: 8, display: "grid", gap: 6 }}>
+            <div className="hbx-pop" style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", zIndex: 30, minWidth: 200, padding: 8, display: "grid", gap: 6 }}>
               <div style={{ padding: "4px 6px" }}>
                 <strong style={{ display: "block", fontSize: "0.76rem" }}>{currentUserDisplayName(user)}</strong>
                 <small style={{ fontSize: "0.64rem", color: "var(--text-muted)" }}>{user?.email || currentUserRoleLabel(user)}</small>
               </div>
-              <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "0.72rem" }} onClick={() => router.push("/configuracoes")}>Configurações</button>
-              {user?.isSystemMaster && (
-                <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "0.72rem" }} onClick={() => router.push("/master")}>Master</button>
-              )}
+              <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "0.72rem" }} onClick={() => { setAvatarOpen(false); router.push("/configuracoes"); }}>Configurações</button>
+              <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "0.72rem" }} onClick={() => { setAvatarOpen(false); router.push("/tutorial"); }}>Tutorial</button>
               {(String(user?.role || "").toUpperCase() === "ADMIN" || user?.isSystemMaster) && (
-                <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "0.72rem" }} onClick={() => router.push("/gerencial")}>Gerencial</button>
+                <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "0.72rem" }} onClick={() => { setAvatarOpen(false); router.push("/gerencial"); }}>Gerencial</button>
               )}
+              {user?.isSystemMaster && (
+                <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "0.72rem" }} onClick={() => { setAvatarOpen(false); router.push("/master"); }}>Master</button>
+              )}
+              <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "0.72rem" }} onClick={() => { setAvatarOpen(false); router.push("/reset-password"); }}>Reset de senha</button>
               <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "0.72rem", color: "var(--hbx-danger)" }} onClick={sairTopo} disabled={signingOut}>
                 {signingOut ? "Saindo…" : "Sair"}
               </button>

@@ -1039,6 +1039,17 @@ export class WebscrapingController {
     }
   }
 
+  // Pull do vendedor (modelo B / PR13062026008): o vendedor puxa cards da lagoa
+  // pela preferencia dele e eles caem direto na carteira em Vendas.
+  @Post('radar/pull-to-vendas')
+  async radarPullToVendas(@Req() req: any, @Body() dto: RadarPullDto) {
+    try {
+      return await this.webscrapingService.pullRadarLeadsToVendasForUser(req.user, dto || {});
+    } catch (error) {
+      return this.webscrapingService.buildRadarClientErrorResponse(req.user, '/webscraping/radar/pull-to-vendas', error);
+    }
+  }
+
   @Post('radar/search-runs')
   async radarSearchRun(@Req() req: any, @Body() dto: RadarPullDto) {
     try {

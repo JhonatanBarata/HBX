@@ -32,22 +32,22 @@
 }
 
 /* ---------- entrada de página (lê os tokens da pele) ---------- */
-/* Telas simples / login / site: o wrapper inteiro entra. */
+/* Telas fora do app (login / site / fluxos soltos): o wrapper inteiro entra. */
 .hbx-page {
   animation: var(--enter-name, hbx-enter-fade) var(--enter-duration, var(--motion-base)) var(--enter-ease, var(--ease-out-quint)) both;
 }
 
-/* CARA DE SISTEMA (ordem do dono 14/06): dentro do app, o chrome — menu lateral
-   e barra de topo — NUNCA pode piscar ao trocar de módulo. Então o wrapper da
-   tela do app não anima (:has(.app) zera a animação dele); só a ÁREA DE CONTEÚDO
-   (.work/.content/.a-content) desliza pra dentro. O menu não pisca mais com a
-   pele; trocar de módulo parece o mesmo sistema respirando, não um reload. */
-.hbx-page:has(.app) { animation: none; }
-.hbx-page .work,
-.hbx-page .content,
-.hbx-page .a-content {
+/* CARA DE SISTEMA (ordem do dono 14/06): dentro do app o chrome — menu lateral e
+   barra de topo — é PERSISTENTE (vive no layout, não remonta). A cada troca de
+   módulo só ESTE slot de conteúdo é remontado (key=pathname em app-shell.tsx) e
+   desliza pra dentro. O menu fica cravado no lugar; navegar parece o mesmo
+   sistema respirando, nunca um reload que pisca. */
+/* Sem will-change/transform persistente de propósito: transform/filter só
+   existem DURANTE a animação (360ms) e voltam a none (fill: both). Assim o slot
+   NÃO vira containing-block de position:fixed depois da entrada — os modais
+   (.hbx-veil) seguem cobrindo a tela inteira, como antes. */
+.app-page {
   animation: var(--enter-name, hbx-enter-fade) var(--enter-duration, var(--motion-base)) var(--enter-ease, var(--ease-out-quint)) both;
-  will-change: transform, opacity, filter;
 }
 
 /* ---------- micro-transições discretas ---------- */
@@ -111,7 +111,7 @@ button:focus-visible, a:focus-visible, select:focus-visible, .select-dark:focus-
 
 /* ---------- acessibilidade ---------- */
 @media (prefers-reduced-motion: reduce) {
-  .hbx-page, .hbx-page .work > *, .hbx-page main > * { animation: none !important; }
+  .hbx-page, .app-page { animation: none !important; }
   html.hbx-theme-anim body, html.hbx-theme-anim body * { transition: none !important; }
   .hbx-veil, .hbx-modal, .hbx-drawer, .hbx-pop { animation: none !important; }
   ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }

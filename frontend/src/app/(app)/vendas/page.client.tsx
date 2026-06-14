@@ -10,7 +10,7 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 
-import { Av, I, ICONS, KpiRow, Sidebar, Topbar } from "@/components/hbx/shell";
+import { Av, I, ICONS, KpiRow } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 import { useTabParam } from "@/lib/use-tab-param";
 
@@ -64,6 +64,13 @@ type Produto = {
   status?: string;
 };
 
+// Vitrine de preço do catálogo comercial (GET /commercial-plans/public-catalog):
+// a vendedora vê a mensalidade por plano ANTES de fechar. Preço SÓ do catálogo
+// (PAGAMENTOS.md/FRONTEND.md) — nunca hardcode. /me e /catalog zeram o preço
+// para role USER; a vitrine pública entrega o valor de tabela (sem cobrança do
+// cliente). Vendedor vê PREÇO do plano (ok), nunca a cobrança do cliente.
+type CatalogPreco = { key: string; title: string; monthlyPrice: number | null };
+
 type TriagemItem = { key: string; label: string; ok: boolean };
 type Triagem = { confirmed: boolean; confirmedAt?: string | null; itens: TriagemItem[]; pendentes: string[]; pronto: boolean };
 type LiveStatus = {
@@ -91,6 +98,13 @@ const BLOCK_ORDER: { key: keyof NonNullable<BoardResponse>["blocks"]; label: str
 function fmtMoney(value: number | null | undefined) {
   if (value == null || !Number.isFinite(value)) return null;
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 0, maximumFractionDigits: 0 });
+}
+
+// Preço de tabela com centavos (Full = 149,90): fmtMoney corta os centavos,
+// então a vitrine de plano usa o formato cheio de moeda.
+function fmtPreco(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return null;
+  return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
 function leadValueLabel(lead: VendasLead) {
@@ -169,6 +183,7 @@ export function VendasClient() {
   // assistido). Produtos vêm de GET /products (cadastro da empresa).
   const [fecharOpen, setFecharOpen] = useState(false);
   const [produtos, setProdutos] = useState<Produto[] | null>(null);
+  const [planosPreco, setPlanosPreco] = useState<CatalogPreco[] | null>(null);
   const [prodId, setProdId] = useState("");
   const [valor, setValor] = useState("");
   const [setupValor, setSetupValor] = useState("");
@@ -270,6 +285,12 @@ export function VendasClient() {
           setProdutos(list);
         })
         .catch(() => setProdutos([]));
+    }
+    if (planosPreco === null) {
+      // Vitrine pública do catálogo: List/Lead+/Full com a mensalidade de tabela.
+      apiFetch<{ plans?: CatalogPreco[] }>("/commercial-plans/public-catalog")
+        .then(res => setPlanosPreco(Array.isArray(res?.plans) ? res.plans : []))
+        .catch(() => setPlanosPreco([]));
     }
   }
 
@@ -508,10 +529,7 @@ export function VendasClient() {
   const deal = sel;
 
   return (
-    <div className="app">
-      <Sidebar active="vendas" />
-      <div className="main">
-        <Topbar title="Vendas" crumbs={<React.Fragment>Home &rsaquo; Vendas &rsaquo; <b>Pipeline</b></React.Fragment>} />
+    <React.Fragment>
         <div className="content">
           <div className="work">
             <KpiRow items={[
@@ -749,11 +767,9 @@ export function VendasClient() {
             </div>
           </aside>
         </div>
-      </div>
 
       {novoOpen && (
-        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setNovoOpen(false); }}
-          style={{ position: "fixed", inset: 0, zIndex: 45, display: "grid", placeItems: "center", padding: 24 }}>
+        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setNovoOpen(false); }}>
           <form className="hbx-modal" onSubmit={criarLead}
             style={{ width: "min(400px, 100%)", display: "grid", gap: 12, padding: 24 }}>
             <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -798,8 +814,7 @@ export function VendasClient() {
       )}
 
       {fecharOpen && (
-        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setFecharOpen(false); }}
-          style={{ position: "fixed", inset: 0, zIndex: 45, display: "grid", placeItems: "center", padding: 24 }}>
+        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setFecharOpen(false); }}>
           <div className="hbx-modal" style={{ width: "min(420px, 100%)", display: "grid", gap: 12, padding: 24 }}>
             <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               Fechar venda — {sel?.name || "card"}
@@ -826,6 +841,19 @@ export function VendasClient() {
                 </select>
               )}
             </div>
+            {planosPreco && planosPreco.some(p => fmtPreco(p.monthlyPrice)) && (
+              <div className="doc-slot" style={{ display: "grid", gap: 6 }}>
+                <span className="field-label">Mensalidade por plano (referência)</span>
+                <div className="kv">
+                  {planosPreco.filter(p => fmtPreco(p.monthlyPrice)).map(p => (
+                    <div className="row" key={p.key}>
+                      <span className="k">{p.title}</span>
+                      <span className="v">{fmtPreco(p.monthlyPrice)}/mês</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div style={{ display: "grid", gap: 6 }}>
               <label className="field-label">Mensalidade / valor (R$)</label>
               <input className="field-dark" type="number" min={0} step="0.01" placeholder="0,00"
@@ -872,8 +900,7 @@ export function VendasClient() {
       )}
 
       {cadOpen && (
-        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setCadOpen(false); }}
-          style={{ position: "fixed", inset: 0, zIndex: 46, display: "grid", placeItems: "center", padding: 24 }}>
+        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setCadOpen(false); }}>
           <form className="hbx-modal" onSubmit={cadastrarCliente}
             style={{ width: "min(400px, 100%)", display: "grid", gap: 12, padding: 24 }}>
             <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -914,8 +941,7 @@ export function VendasClient() {
       )}
 
       {clienteOpen && (
-        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setClienteOpen(false); }}
-          style={{ position: "fixed", inset: 0, zIndex: 46, display: "grid", justifyContent: "end" }}>
+        <div className="hbx-veil to-right" onClick={e => { if (e.target === e.currentTarget) setClienteOpen(false); }}>
           <div className="hbx-drawer" style={{ width: 330, height: "100vh", overflowY: "auto", padding: "18px 16px", display: "grid", gap: 14, alignContent: "start" }}>
             <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "0.9rem", fontWeight: 700, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               Card do cliente 🃏
@@ -945,8 +971,7 @@ export function VendasClient() {
       )}
 
       {prospOpen && (
-        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setProspOpen(false); }}
-          style={{ position: "fixed", inset: 0, zIndex: 40, display: "grid", justifyContent: "end" }}>
+        <div className="hbx-veil to-right" onClick={e => { if (e.target === e.currentTarget) setProspOpen(false); }}>
           <div className="hbx-drawer" style={{ width: 340, height: "100vh", overflowY: "auto", padding: "18px 16px", display: "grid", gap: 14, alignContent: "start" }}>
             <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "0.9rem", fontWeight: 700, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               Prospecção automática
@@ -1024,8 +1049,7 @@ export function VendasClient() {
       )}
 
       {agendaOpen && (
-        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setAgendaOpen(false); }}
-          style={{ position: "fixed", inset: 0, zIndex: 40, display: "grid", justifyContent: "end" }}>
+        <div className="hbx-veil to-right" onClick={e => { if (e.target === e.currentTarget) setAgendaOpen(false); }}>
           <div className="hbx-drawer" style={{ width: 340, height: "100vh", overflowY: "auto", padding: "18px 16px", display: "grid", gap: 14, alignContent: "start" }}>
             <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "0.9rem", fontWeight: 700, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               Agenda de retornos
@@ -1062,6 +1086,6 @@ export function VendasClient() {
           </div>
         </div>
       )}
-    </div>
+    </React.Fragment>
   );
 }

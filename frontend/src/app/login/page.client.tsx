@@ -1,10 +1,12 @@
 "use client";
 
-// Porta fiel de docs/TEMAS/*/corporate/Login.html.
-// Pontos dinâmicos ligados: submit → POST /auth/login (token + rota next);
-// sessão concorrente (SESSION_ALREADY_ACTIVE) oferece "Conectar aqui mesmo"
-// → reenvio com forceSession; "Esqueci minha senha" → /reset-password.
-// "Manter conectado" e "Falar com vendas" seguem visuais (ver doc do PR).
+// Login — CONSOLE de 3 painéis (restaurada 14/06 a partir do front antigo, mas
+// reconstruída LIMPA: estrutura/escrita neutra por token, sem a firula de
+// partículas/vídeo do original). Esquerda "Soluções integradas", centro o card,
+// direita "Confiança e tecnologia". O robô/azul é da PELE Tema HBX (.login-art).
+// Auth intacto: submit → POST /auth/login (token + rota next); sessão concorrente
+// (SESSION_ALREADY_ACTIVE) oferece "Conectar aqui mesmo"; "Esqueci minha senha"
+// → /reset-password.
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -25,6 +27,52 @@ type LoginErrorPayload = {
   forceAvailable?: boolean;
   activeSession?: { lastSeenAt?: string | null; userAgent?: string | null };
 };
+
+type SideIconName = "headset" | "recovery" | "website" | "shield" | "building" | "pulse";
+
+const SIDE_ICON: Record<SideIconName, string[]> = {
+  headset: ["M4.5 13.8v-2.2a7.5 7.5 0 0 1 15 0v2.2", "M7.5 17.5h-1a2 2 0 0 1-2-2v-1.1a2 2 0 0 1 2-2h1v5.1Z", "M16.5 17.5h1a2 2 0 0 0 2-2v-1.1a2 2 0 0 0-2-2h-1v5.1Z"],
+  recovery: ["M20 12a8 8 0 0 1-13.5 5.8", "M4 12A8 8 0 0 1 17.5 6.2", "M17.5 2.8v3.4h-3.4", "M6.5 21.2v-3.4h3.4"],
+  website: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z", "M3.5 12h17", "M12 3a14 14 0 0 1 0 18", "M12 3a14 14 0 0 0 0 18"],
+  shield: ["M12 21s7-3.4 7-9.4V5.8L12 3 5 5.8v5.8c0 6 7 9.4 7 9.4Z", "m9.2 12 1.9 1.9 4-4.2"],
+  building: ["M4.5 20.5h15", "M6 20.5V7l6-2.5 6 2.5v13.5", "M9 10h.1M12 10h.1M15 10h.1M9 14h.1M12 14h.1M15 14h.1"],
+  pulse: ["M3 13h4l2.2-5.5L14 18l2.5-5H21"],
+};
+
+function SideIcon({ name, size = 18 }: { name: SideIconName; size?: number }) {
+  return (
+    <svg className="hbx-icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      {SIDE_ICON[name].map((d, i) => <path key={i} d={d} />)}
+    </svg>
+  );
+}
+
+const SOLUTIONS: { icon: SideIconName; title: string; desc: string }[] = [
+  { icon: "headset", title: "Atendimento", desc: "Suporte rápido e humanizado sempre que precisar." },
+  { icon: "recovery", title: "Recovery", desc: "Recuperação de dados ágil e segura." },
+  { icon: "website", title: "Website", desc: "Acesse informações e novidades online." },
+];
+
+const TRUST: { icon: SideIconName; title: string; desc: string }[] = [
+  { icon: "shield", title: "Modo seguro ativo", desc: "Seus dados protegidos 24/7 com criptografia." },
+  { icon: "building", title: "Multiempresa", desc: "Gerencie múltiplas empresas em um único ambiente." },
+  { icon: "pulse", title: "Tempo real", desc: "Informações sempre atualizadas para decisões." },
+];
+
+function SidePanel({ title, items }: { title: string; items: { icon: SideIconName; title: string; desc: string }[] }) {
+  return (
+    <div className="login-side__panel">
+      <div className="login-side__header">{title}</div>
+      {items.map(it => (
+        <article key={it.title} className="login-microcard">
+          <span className="ic"><SideIcon name={it.icon} size={17} /></span>
+          <span className="tx"><strong>{it.title}</strong><span>{it.desc}</span></span>
+          <span className="login-dot" aria-hidden />
+        </article>
+      ))}
+    </div>
+  );
+}
 
 export function LoginClient() {
   const router = useRouter();
@@ -95,28 +143,28 @@ export function LoginClient() {
   return (
     <>
       <AuthThemeControls />
-      <div className="login-split">
-        <aside className="brand-side">
-          <div className="bl">
-            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="var(--hbx-brand)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M4 6l6 6-6 6M11 6l6 6-6 6"></path></svg>
-            <strong>HBX</strong>
+      <div className="login-console">
+        <div className="login-art" aria-hidden />
+
+        <aside className="login-side login-side--left" aria-label="Soluções integradas">
+          <div className="login-side__panel">
+            <div className="login-side__header">Soluções integradas</div>
+            {SOLUTIONS.map(it => (
+              <article key={it.title} className="login-microcard">
+                <span className="ic"><SideIcon name={it.icon} size={17} /></span>
+                <span className="tx"><strong>{it.title}</strong><span>{it.desc}</span></span>
+                <span className="login-dot" aria-hidden />
+              </article>
+            ))}
+            <div className="login-side__footer"><span>Todos os serviços operacionais</span><SideIcon name="shield" size={16} /></div>
           </div>
-          <div className="pitch">
-            <h1>Sua operação comercial em um só lugar.</h1>
-            <p>Leads, vendas, atendimento e automação — conectados do primeiro contato ao fechamento.</p>
-            <div className="feat">
-              <div className="it"><span className="ic"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M7 17l4-6 3 3 4-7"></path><path d="M3 3v18h18"></path></svg></span>Pipeline de vendas com funil em tempo real</div>
-              <div className="it"><span className="ic"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.6 8.6 0 0 1-3.8-.9L3 20l1-5.2a8.4 8.4 0 1 1 17-3.3Z"></path></svg></span>Atendimento omnichannel: WhatsApp, e-mail e Instagram</div>
-              <div className="it"><span className="ic"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M12 6V3"></path><path d="M7 9h10a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2Z"></path><path d="M9.5 13h.01M14.5 13h.01"></path></svg></span>Bot de qualificação com construtor visual</div>
-            </div>
-          </div>
-          <div className="foot">© 2026 HBX System · Termos de uso · Política de privacidade</div>
         </aside>
 
-        <main className="form-side">
+        <main className="login-shell">
           <form className="card" onSubmit={onSubmit}>
+            <div className="bl"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--hbx-brand)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M4 6l6 6-6 6M11 6l6 6-6 6" /></svg><strong>HBX</strong></div>
             <h2>Entrar no HBX</h2>
-            <p className="sub">Acesse sua conta para continuar de onde parou.</p>
+            <p className="sub">Acesse sua conta com segurança e continue de onde parou.</p>
             <div className="f">
               <label htmlFor="em">E-mail</label>
               {/* type=text: o backend autentica por username OU e-mail —
@@ -134,17 +182,11 @@ export function LoginClient() {
               <Link href="/reset-password" className="link" style={{ textDecoration: "none" }}>Esqueci minha senha</Link>
             </div>
             {notice && !error && !ok && (
-              <div className="ok show" style={{ borderColor: "color-mix(in srgb, var(--hbx-warning) 35%, transparent)", background: "color-mix(in srgb, var(--hbx-warning) 8%, transparent)", color: "var(--hbx-warning)" }}>
-                {notice}
-              </div>
+              <div className="ok show warn">{notice}</div>
             )}
             <div className={"ok" + (ok ? " show" : "")} id="ok">✓ Autenticado — redirecionando para o Dashboard…</div>
             {error && (
-              <div className="ok show" style={conflict
-                ? { borderColor: "color-mix(in srgb, var(--hbx-warning) 35%, transparent)", background: "color-mix(in srgb, var(--hbx-warning) 8%, transparent)", color: "var(--hbx-warning)" }
-                : { borderColor: "color-mix(in srgb, var(--hbx-danger) 30%, transparent)", background: "color-mix(in srgb, var(--hbx-danger) 8%, transparent)", color: "var(--hbx-danger)" }}>
-                {error}
-              </div>
+              <div className={"ok show " + (conflict ? "warn" : "bad")}>{error}</div>
             )}
             {conflict && (
               <button className="btn-ghost" type="button" disabled={busy} style={{ minHeight: 40, fontSize: "0.78rem" }}
@@ -158,6 +200,10 @@ export function LoginClient() {
             <div className="alt">Ainda não tem conta? <Link href="/register" className="link" style={{ textDecoration: "none" }}>Criar Conta</Link></div>
           </form>
         </main>
+
+        <aside className="login-side login-side--right" aria-label="Confiança e tecnologia">
+          <SidePanel title="Confiança e tecnologia" items={TRUST} />
+        </aside>
       </div>
     </>
   );

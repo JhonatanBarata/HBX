@@ -1,4 +1,8 @@
-# PR13062026003 — Terminar front + analisar as telas da vendedora
+# PR14062026003 — Terminar front + analisar as telas da vendedora
+
+> Migrado do PR13062026003. Tarefas ainda PENDENTES (UI das telas dela em cima da árvore já
+> limpa por cargo): terminar Vendas/Leads/Atendimento/Relatórios, percorrer o e-mail real da
+> vendedora ponta a ponta, mapear cada tela (o que funciona / cru / falta pra rodar).
 
 > **REVISÃO 13/06 (auto):** a **régua única** (PR13062026007) já entrou no ar — acesso
 > agora é **POR CARGO** (vendedora nasce com Vendas+Radar, sem cobrança, sem área do dono;
@@ -65,7 +69,7 @@ escala — em volume humano de chip não se aplica. Mantém o 1º toque por e-ma
    onde houver contrato. Respeitar as 5 Leis (classe central/token, sem visual inline).
 2. **Entrar no e-mail da vendedora cadastrada** e percorrer o fluxo real dela ponta a ponta.
 3. **Mapear cada tela** que ela toca: o que funciona, o que está cru, o que falta pra ela
-   trabalhar no dia 1. Devolver a lista pro dono decidir prioridade.
+   trabalhar. Devolver a lista pro dono decidir prioridade.
 
 ## Não-objetivos
 

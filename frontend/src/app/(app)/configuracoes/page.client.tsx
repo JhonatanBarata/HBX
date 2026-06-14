@@ -27,7 +27,7 @@ import React, { useEffect, useState } from "react";
 import { CargoAcessosEditor } from "@/components/hbx/cargo-acessos-editor";
 import { CompanyEmailSection } from "@/components/hbx/company-email-section";
 import { NovoAcessoModal } from "@/components/hbx/novo-acesso-modal";
-import { Av, ConfirmDialog, I, ICONS, Sidebar, Topbar } from "@/components/hbx/shell";
+import { Av, ConfirmDialog, I, ICONS } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 import { useTabParam } from "@/lib/use-tab-param";
 
@@ -276,10 +276,7 @@ export function ConfiguracoesClient() {
   const canSelectPlan = Boolean(plansMe?.permissions?.canSelectPlan);
 
   return (
-    <div className="app">
-      <Sidebar active="config" />
-      <div className="main">
-        <Topbar title="Configurações" crumbs={<React.Fragment>Home &rsaquo; <b>Configurações</b></React.Fragment>} />
+    <React.Fragment>
         <div className="work" style={{ flex: 1, gridTemplateColumns: "210px 1fr", display: "grid", alignItems: "start" }}>
           <nav className="set-nav panel" style={{ padding: 10 }}>
             {sections.map(s => (
@@ -497,7 +494,6 @@ export function ConfiguracoesClient() {
             )}
           </div>
         </div>
-      </div>
 
       {novoAcessoOpen && (
         <NovoAcessoModal
@@ -538,6 +534,6 @@ export function ConfiguracoesClient() {
         onConfirm={async () => { const p = confirmPlano; setConfirmPlano(null); if (p) await selecionarPlano(p); }}
         onCancel={() => setConfirmPlano(null)}
       />
-    </div>
+    </React.Fragment>
   );
 }

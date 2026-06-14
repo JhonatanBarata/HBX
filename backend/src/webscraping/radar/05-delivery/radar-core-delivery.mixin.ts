@@ -1870,6 +1870,148 @@ export class RadarCoreDeliveryMixin {
     };
   }
 
+  // Pull do vendedor (modelo B / PR13062026008): o PRÓPRIO vendedor puxa cards
+  // da lagoa compartilhada (RadarLeadPool, companyId null) filtrando por
+  // preferencia (segmento obrigatorio; cidade/UF opcionais) e eles caem DIRETO
+  // na carteira dele em Vendas. Reaproveita o encanamento testado do push
+  // (importRadarLeadToVendasForUser, assignedUserId=self), so que disparado pelo
+  // vendedor para si mesmo, respeitando quota de cards ativos + teto diario.
+  // O push (distributeRadarLeadsToVendedoresForUser) e o radar/pull reserve-only
+  // (pullRadarLeadsForUser) seguem vivos e intocados.
+  async pullRadarLeadsToVendasForUser(user: any, input: RadarFiltersInput = {}) {
+    const context = this.resolveContext(user);
+    if (!this.isCompanySellerUser(user)) {
+      throw new ForbiddenException('Apenas o vendedor puxa cards para a propria carteira.');
+    }
+    await this.assertSellerTeamPolicyAccess(user, 'radar.cards.pull', 'Puxar cards do Radar esta bloqueado pela politica da equipe.');
+    if (!this.vendasService) {
+      throw new ServiceUnavailableException('Servico de Vendas indisponivel para puxar cards.');
+    }
+    if (!(await this.supportsRadarPersistence())) {
+      throw new ServiceUnavailableException('Banco do Radar ainda nao foi migrado neste ambiente.');
+    }
+
+    const filters = await this.applyTeamPolicyRadarFilters(context, this.normalizeRadarFilters(input));
+    if (!filters.normalizedSegment) {
+      throw new BadRequestException('Escolha um segmento para puxar cards do Radar.');
+    }
+
+    const requested = Math.max(1, Math.min(Math.trunc(Number(filters.quantity || 1)) || 1, 50));
+    const dayKey = this.getSaoPauloDayKey();
+    const seller = await this.prisma.user.findUnique({
+      where: { id: context.userId },
+      select: {
+        id: true,
+        name: true,
+        username: true,
+        email: true,
+        commissionPercent: true,
+        sellerDistributionDailyLimitOverride: true,
+        teamPolicy: { select: { cardDeliveryDailyMode: true, cardDeliveryDailyLimit: true } },
+      },
+    }).catch(() => null);
+    const dailyLimit = this.resolveSellerDistributionDailyLimit(seller, 20);
+    const dailySnapshot = await this.getDailyDistributionSnapshot(context.companyId, context.userId, dailyLimit, dayKey);
+    const activeQuota = this.commercialUsageLimits
+      ? await this.commercialUsageLimits.getSellerActiveCardQuotaSnapshot(context.companyId, context.userId).catch(() => null)
+      : null;
+
+    const dailyRemaining = Math.max(0, Math.trunc(Number(dailySnapshot?.remainingToday ?? requested)) || 0);
+    const activeRemaining = activeQuota?.seller ? Math.max(0, Math.trunc(Number(activeQuota.availableSlots || 0))) : requested;
+    const allowed = Math.max(0, Math.min(requested, dailyRemaining, activeRemaining));
+    if (allowed <= 0) {
+      throw new ConflictException({
+        ok: false,
+        code: activeRemaining <= 0 ? 'SELLER_CARD_QUOTA_REACHED' : 'SELLER_DAILY_LIMIT_REACHED',
+        message: activeRemaining <= 0
+          ? 'Seu limite de cards ativos foi atingido. Finalize ou transfira cards antes de puxar mais.'
+          : 'Voce atingiu o limite diario de cards. Tente novamente amanha.',
+        dailyRemaining,
+        activeRemaining,
+      });
+    }
+
+    // O import tem portao de visibilidade do vendedor (so importa lead JA dele).
+    // No pull o vendedor reivindica leads novos, entao executamos o import na
+    // pele do ADMIN da empresa (mesma semantica do push), atribuindo ao vendedor.
+    const adminRow = await this.prisma.user.findFirst({
+      where: { companyId: context.companyId, role: 'ADMIN', isActive: true, isSystemMaster: false },
+      select: { id: true, companyId: true, role: true, isSystemMaster: true },
+      orderBy: [{ id: 'asc' }],
+    }).catch(() => null);
+    if (!adminRow) {
+      throw new ServiceUnavailableException('Empresa sem administrador ativo para liberar o pull de leads.');
+    }
+    const importAsAdmin = { id: adminRow.id, companyId: adminRow.companyId, role: 'ADMIN', isSystemMaster: false };
+
+    const queryLimit = Math.max(allowed * 3, 60);
+    let rows = await this.queryRadarRowsForCompany(context.companyId, filters, { limit: queryLimit, requirePhone: false, availableOnly: true });
+    let replenish: any = { ran: false, cleanStockBefore: rows.length };
+    if (rows.length < allowed && filters.normalizedCity) {
+      try {
+        replenish = await this.replenishRadarStockForUser(user, {
+          ...input,
+          city: filters.city,
+          state: filters.state,
+          segment: filters.segment,
+        });
+      } catch (error: any) {
+        replenish = { ran: true, reason: 'replenish_failed_using_database', errorMessage: this.extractHbxErrorMessage(error) };
+      }
+      rows = await this.queryRadarRowsForCompany(context.companyId, filters, { limit: queryLimit, requirePhone: false, availableOnly: true });
+    }
+
+    const assignments: Array<{ radarLeadId: string; vendasLeadId: string | null; name: string | null; city: string | null; state: string | null; segment: string | null; opportunityScore: number | null }> = [];
+    const failures: Array<{ radarLeadId: string | null; error: string }> = [];
+    let pulled = 0;
+    for (const row of rows) {
+      if (pulled >= allowed) break;
+      try {
+        const result = await this.importRadarLeadToVendasForUser(importAsAdmin, row.id, {
+          skipWhatsappValidation: true,
+          debitOnImport: true,
+          assignedUserId: context.userId,
+          assignedByUserId: context.userId,
+        });
+        await this.incrementDailyDistributionDelivery(context.companyId, context.userId, dailyLimit, dayKey);
+        pulled += 1;
+        assignments.push({
+          radarLeadId: row.id,
+          vendasLeadId: result?.vendasLeadId || null,
+          name: row.name || null,
+          city: row.city || null,
+          state: row.state || null,
+          segment: row.segment || null,
+          opportunityScore: row.opportunityScore ?? null,
+        });
+      } catch (error: any) {
+        failures.push({ radarLeadId: row?.id || null, error: String(error?.response?.message || error?.message || error || 'Falha ao puxar card.') });
+        if (this.isRadarAutoImportLimitError && this.isRadarAutoImportLimitError(error)) break;
+      }
+    }
+
+    const commissionPercent = Math.max(0, Math.min(100, Number(seller?.commissionPercent || 0) || 0));
+    return {
+      ok: pulled > 0,
+      pulledCount: pulled,
+      requestedCount: requested,
+      allowedCount: allowed,
+      failedCount: failures.length,
+      commissionPercent,
+      dailyRemainingAfter: Math.max(0, dailyRemaining - pulled),
+      activeRemainingAfter: activeQuota?.seller ? Math.max(0, activeRemaining - pulled) : null,
+      assignments,
+      failures: failures.slice(0, 8),
+      replenish,
+      filters: { segment: filters.segment, city: filters.city, state: filters.state },
+      message: pulled > 0
+        ? `${pulled} lead(s) puxado(s) para a sua carteira em Vendas.`
+        : failures.length
+          ? `Nenhum lead puxado. ${failures[0]?.error || ''}`.trim()
+          : 'Sem leads disponiveis na lagoa para esse filtro agora. Tente outro segmento ou cidade.',
+    };
+  }
+
   private async getRadarStockConfig(filters: NormalizedRadarFilters) {
     if (filters.stockOverride) {
       return {

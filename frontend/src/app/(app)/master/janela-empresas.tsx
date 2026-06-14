@@ -23,6 +23,7 @@
 import React, { useState } from "react";
 
 import { apiFetch } from "@/lib/api";
+import { useTabParam } from "@/lib/use-tab-param";
 
 import { fmtData, fmtDataHora, statusLabel, statusTagClass, type MasterCompany } from "./page.client";
 
@@ -122,7 +123,7 @@ type UserEditForm = { id: number; name: string; email: string; username: string;
 const EMP_VAZIO = { name: "", primaryContactName: "", contactEmail: "", contactPhone: "", taxDocument: "", paymentMethod: "", billingProvider: "" };
 const PAG_VAZIO = { value: "", competence: "", paidAt: "", paymentMethod: "PIX", observation: "", settlePending: true };
 
-const DETAIL_TABS = ["Usuários", "Comercial", "Financeiro", "Auditoria"] as const;
+const DETAIL_TABS = ["Usuários", "Comercial", "Financeiro", "Implantação", "Auditoria"] as const;
 
 function fmtBRL(v?: number | null) {
   return (v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -149,7 +150,8 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
   const [selId, setSelId] = useState<number | null>(null);
   const [detail, setDetail] = useState<Detail>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
-  const [detailTab, setDetailTab] = useState<(typeof DETAIL_TABS)[number]>("Usuários");
+  // Aba ativa do detalhe persiste na URL (?emp=…), padrão do projeto (use-tab-param).
+  const [detailTab, setDetailTab] = useTabParam<(typeof DETAIL_TABS)[number]>("emp", "Usuários", DETAIL_TABS);
 
   // provisioning
   const [provOpen, setProvOpen] = useState(false);
@@ -796,7 +798,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
 
               <section className="panel">
                 <div className="tabs">
-                  {DETAIL_TABS.filter(t => isFull || t !== "Financeiro").map(t => (
+                  {DETAIL_TABS.filter(t => isFull || (t !== "Financeiro" && t !== "Implantação")).map(t => (
                     <button key={t} className={"tab" + (detailTab === t ? " active" : "")} onClick={() => setDetailTab(t)}
                       style={detailTab === t ? { color: "var(--hbx-brand-strong)", borderBottomColor: "var(--hbx-brand)" } : {}}>
                       {t}{t === "Usuários" ? <span className="n">{(c.users || []).length}</span> : null}{t === "Financeiro" ? <span className="n">{ledger.length}</span> : null}
@@ -867,25 +869,6 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                     {/* Régua única (PR13062026007 PF1): trial/suspensão/limites/condições/
                         credenciais só no Full. List/Lead = automático (mantém Plano + Excluir). */}
                     {isFull && (<>
-                    <div style={{ display: "grid", gap: 8 }}>
-                      <strong>Implantação (Full)</strong>
-                      <span className="field-label">Registro do que foi acordado com este cliente. Não altera cobrança/comissão sozinho.</span>
-                      <div style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap" }}>
-                        <div style={{ display: "grid", gap: 4 }}>
-                          <label className="field-label">Implantação (R$)</label>
-                          <input className="field-dark" type="number" min={0} step="0.01" style={{ width: 130 }}
-                            value={finForm.setupValue} onChange={e => setFinForm(f => ({ ...f, setupValue: e.target.value }))} />
-                        </div>
-                        <div style={{ display: "grid", gap: 4 }}>
-                          <label className="field-label">Parcela (R$/mês)</label>
-                          <input className="field-dark" type="number" min={0} step="0.01" style={{ width: 130 }}
-                            value={finForm.parcela} onChange={e => setFinForm(f => ({ ...f, parcela: e.target.value }))} />
-                        </div>
-                        <button className="btn-ghost" disabled={comBusy != null} onClick={salvarFinanceSettings}>
-                          {comBusy === "fin" ? "Salvando…" : "Salvar implantação"}
-                        </button>
-                      </div>
-                    </div>
                     <div style={{ display: "grid", gap: 8 }}>
                       <strong style={{ fontSize: "0.76rem" }}>Trial</strong>
                       <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>
@@ -1107,6 +1090,30 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                   </React.Fragment>
                 )}
 
+                {detailTab === "Implantação" && isFull && (
+                  <div style={{ padding: "12px 16px 16px", display: "grid", gap: 14 }}>
+                    <div style={{ display: "grid", gap: 8 }}>
+                      <strong>Central de Implantação (Full)</strong>
+                      <span className="field-label">Registro do que foi acordado com este cliente. Não altera cobrança/comissão sozinho.</span>
+                      <div style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap" }}>
+                        <div style={{ display: "grid", gap: 4 }}>
+                          <label className="field-label">Implantação (R$)</label>
+                          <input className="field-dark" type="number" min={0} step="0.01" style={{ width: 130 }}
+                            value={finForm.setupValue} onChange={e => setFinForm(f => ({ ...f, setupValue: e.target.value }))} />
+                        </div>
+                        <div style={{ display: "grid", gap: 4 }}>
+                          <label className="field-label">Parcela (R$/mês)</label>
+                          <input className="field-dark" type="number" min={0} step="0.01" style={{ width: 130 }}
+                            value={finForm.parcela} onChange={e => setFinForm(f => ({ ...f, parcela: e.target.value }))} />
+                        </div>
+                        <button className="btn-ghost" disabled={comBusy != null} onClick={salvarFinanceSettings}>
+                          {comBusy === "fin" ? "Salvando…" : "Salvar implantação"}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {detailTab === "Auditoria" && (
                   <div style={{ padding: "12px 16px 16px", display: "grid", gap: 8, maxHeight: 480, overflowY: "auto" }}>
                     {auditoria.length === 0 && <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Sem eventos de auditoria.</span>}
@@ -1126,8 +1133,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
       )}
 
       {provOpen && (
-        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setProvOpen(false); }}
-          style={{ position: "fixed", inset: 0, zIndex: 45, display: "grid", placeItems: "center", padding: 24 }}>
+        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setProvOpen(false); }}>
           <form className="hbx-modal" onSubmit={provisionar}
             style={{ width: "min(480px, 100%)", maxHeight: "90vh", overflowY: "auto", display: "grid", gap: 12, padding: 24 }}>
             <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -1193,8 +1199,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
       )}
 
       {empOpen && (
-        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setEmpOpen(false); }}
-          style={{ position: "fixed", inset: 0, zIndex: 45, display: "grid", placeItems: "center", padding: 24 }}>
+        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setEmpOpen(false); }}>
           <form className="hbx-modal" onSubmit={salvarEmpresa}
             style={{ width: "min(460px, 100%)", display: "grid", gap: 12, padding: 24 }}>
             <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -1223,8 +1228,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
       )}
 
       {pagOpen && (
-        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setPagOpen(false); }}
-          style={{ position: "fixed", inset: 0, zIndex: 45, display: "grid", placeItems: "center", padding: 24 }}>
+        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setPagOpen(false); }}>
           <form className="hbx-modal" onSubmit={registrarPagamento}
             style={{ width: "min(420px, 100%)", display: "grid", gap: 12, padding: 24 }}>
             <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -1280,8 +1284,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
       )}
 
       {userEdit && (
-        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setUserEdit(null); }}
-          style={{ position: "fixed", inset: 0, zIndex: 45, display: "grid", placeItems: "center", padding: 24 }}>
+        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setUserEdit(null); }}>
           <form className="hbx-modal" onSubmit={salvarUsuario}
             style={{ width: "min(440px, 100%)", display: "grid", gap: 12, padding: 24 }}>
             <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>

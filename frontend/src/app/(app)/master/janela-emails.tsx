@@ -546,8 +546,7 @@ export function JanelaEmails() {
       )}
 
       {novoOpen && (
-        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setNovoOpen(false); }}
-          style={{ position: "fixed", inset: 0, zIndex: 46, display: "grid", placeItems: "center", padding: 24 }}>
+        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setNovoOpen(false); }}>
           <form className="hbx-modal" onSubmit={criarTemplate} style={{ width: "min(380px, 100%)", display: "grid", gap: 12, padding: 24 }}>
             <h3 style={{ margin: 0, fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               Novo template

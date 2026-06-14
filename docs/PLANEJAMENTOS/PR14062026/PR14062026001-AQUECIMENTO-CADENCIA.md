@@ -1,14 +1,16 @@
-# PR13062026001 — Aquecimento de leads (cadência tipo Apollo)
+# PR14062026001 — Aquecimento de leads (cadência tipo Apollo) — DIFERIDO
+
+> Migrado do PR13062026001. **Build DIFERIDO de propósito:** depende do bot/Atendimento
+> (árvore 3) e o dono decidiu NÃO impor a cadência às vendedoras na 1ª semana. Design 100%
+> válido; implementar junto do Atendimento+Bot, não antes. Diferido por dependência, não por data.
 
 > **REVISÃO 13/06 (auto):** build DEFERIDO. A cadência depende do bot/automação, que a
 > régua tornou **MURO fail-closed** (só liga com triagem completa) e que o dono decidiu
 > **NÃO impor às vendedoras na 1ª semana** (elas aprendem o HBX primeiro — árvore 3).
 > Design segue 100% válido; implementar junto do **Atendimento + Bot** (árvore 3), não antes.
 
-> Design fechado pelo dono. Decisões 12–13/06/2026. **Build agendado para 13/06 (à
-> tarde)**, depois da entrega da manhã das funcionárias (basicão funcionar, fechar uma
-> venda, tutorial TOP, PDF da apresentação). A deadline de segunda deixou de travar isto:
-> o cadastro das funcionárias já está completo.
+> Design fechado pelo dono. Decisões 12–13/06/2026. **Build diferido por dependência**
+> (Atendimento + Bot, árvore 3) — ordem por dependência, não por calendário.
 
 ## 1. O que já existe (nada nasce do zero)
 

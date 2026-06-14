@@ -26,7 +26,7 @@
 import { useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
-import { Av, I, ICONS, KpiRow, Sidebar, Topbar } from "@/components/hbx/shell";
+import { Av, I, ICONS, KpiRow } from "@/components/hbx/shell";
 import { WhatsAppConnectModal } from "@/components/hbx/whatsapp-connect-modal";
 import { apiFetch, getApiBase, getToken } from "@/lib/api";
 import { useTabIndex } from "@/lib/use-tab-param";
@@ -999,10 +999,7 @@ export function AtendimentoClient() {
   }
 
   return (
-    <div className="app app-viewport">
-      <Sidebar active="atend" />
-      <div className="main">
-        <Topbar title="Atendimento" crumbs={<React.Fragment>Home &rsaquo; <b>Atendimento</b></React.Fragment>} />
+    <React.Fragment>
         <div className="a-content">
           <div className="a-left">
             <KpiRow items={[
@@ -1359,7 +1356,6 @@ export function AtendimentoClient() {
             )}
           </aside>
         </div>
-      </div>
 
       <WhatsAppConnectModal
         open={waModalOpen}
@@ -1368,16 +1364,14 @@ export function AtendimentoClient() {
       />
 
       {lightbox && (
-        <div className="hbx-veil" onClick={() => setLightbox(null)}
-          style={{ position: "fixed", inset: 0, zIndex: 70, display: "grid", placeItems: "center", padding: 24 }}>
+        <div className="hbx-veil" onClick={() => setLightbox(null)}>
           {/* eslint-disable-next-line @next/next/no-img-element -- mídia do WhatsApp em tela cheia */}
           <img className="lightbox-img" src={lightbox} alt="" onClick={e => e.stopPropagation()} />
         </div>
       )}
 
       {novaOpen && (
-        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setNovaOpen(false); }}
-          style={{ position: "fixed", inset: 0, zIndex: 45, display: "grid", placeItems: "center", padding: 24 }}>
+        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setNovaOpen(false); }}>
           <form className="hbx-modal" onSubmit={iniciarNovaConversa}
             style={{ width: "min(380px, 100%)", display: "grid", gap: 12, padding: 24 }}>
             <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -1401,6 +1395,6 @@ export function AtendimentoClient() {
           </form>
         </div>
       )}
-    </div>
+    </React.Fragment>
   );
 }

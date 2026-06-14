@@ -74,6 +74,12 @@ const RUNTIME_SCHEMA_ENSURES: RuntimeSchemaEnsureDefinition[] = [
     shouldBecomeMigration: true,
   },
   {
+    key: 'user-tutorial-onboarding-column',
+    method: 'ensureTutorialOnboardingColumn',
+    target: 'User.tutorialCompletedAt (boas-vindas/tutorial 14/06 — existentes backfillados resolvidos)',
+    shouldBecomeMigration: true,
+  },
+  {
     key: 'plan-module-config-table',
     method: 'ensurePlanModuleConfigTable',
     target: 'PlanModuleConfig table (módulos padrões por plano — PR13062026007)',
@@ -101,6 +107,12 @@ const RUNTIME_SCHEMA_ENSURES: RuntimeSchemaEnsureDefinition[] = [
     key: 'vendas-lead-assignment-columns',
     method: 'ensureVendasLeadAssignmentColumns',
     target: 'VendasLead assignment, sale and commission columns',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'vendas-lead-opportunity-score-column',
+    method: 'ensureVendasLeadOpportunityScoreColumn',
+    target: 'VendasLead.opportunityScore (score no card do Vendas — B2 PR13062026008)',
     shouldBecomeMigration: true,
   },
   {
@@ -433,11 +445,13 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     await this.$connect();
     await this.runRuntimeSchemaEnsure('company-commission-settings-columns', () => this.ensureCompanyCommissionSettingsColumns());
     await this.runRuntimeSchemaEnsure('regua-cargo-access-columns', () => this.ensureReguaCargoAccessColumns());
+    await this.runRuntimeSchemaEnsure('user-tutorial-onboarding-column', () => this.ensureTutorialOnboardingColumn());
     await this.runRuntimeSchemaEnsure('plan-module-config-table', () => this.ensurePlanModuleConfigTable());
     await this.runRuntimeSchemaEnsure('vendas-automation-triagem-columns', () => this.ensureVendasAutomationTriagemColumns());
     await this.runRuntimeSchemaEnsure('user-sales-profile-columns', () => this.ensureUserSalesProfileColumns());
     await this.runRuntimeSchemaEnsure('hbx-partner-referral-candidate-tables', () => this.ensureHbxPartnerReferralCandidateTables());
     await this.runRuntimeSchemaEnsure('vendas-lead-assignment-columns', () => this.ensureVendasLeadAssignmentColumns());
+    await this.runRuntimeSchemaEnsure('vendas-lead-opportunity-score-column', () => this.ensureVendasLeadOpportunityScoreColumn());
     await this.runRuntimeSchemaEnsure('vendas-commission-payout-tables', () => this.ensureVendasCommissionPayoutTables());
     await this.runRuntimeSchemaEnsure('vendas-commission-receivable-tables', () => this.ensureVendasCommissionReceivableTables());
     await this.runRuntimeSchemaEnsure('radar-auto-distribution-rule-tables', () => this.ensureRadarAutoDistributionRuleTables());
@@ -542,6 +556,31 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     await this.$executeRawUnsafe(`
       ALTER TABLE "Company"
       ADD COLUMN IF NOT EXISTS "monthlyValueOverride" DOUBLE PRECISION
+    `);
+  }
+
+  // Boas-vindas (primeiro acesso, 14/06): tutorialCompletedAt no User. O ADD com
+  // DEFAULT NOW() backfilla os EXISTENTES como resolvidos (não veem o tutorial);
+  // o DROP DEFAULT logo em seguida faz os NOVOS nascerem null = pendentes (veem).
+  // Idempotente: nos boots seguintes ADD IF NOT EXISTS e DROP DEFAULT são no-op,
+  // então quem foi criado depois (pendente) NÃO é re-resolvido por engano.
+  private async ensureTutorialOnboardingColumn() {
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "User"
+      ADD COLUMN IF NOT EXISTS "tutorialCompletedAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP
+    `);
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "User"
+      ALTER COLUMN "tutorialCompletedAt" DROP DEFAULT
+    `);
+  }
+
+  // Score de oportunidade no card do Vendas (B2 PR13062026008): snapshot herdado
+  // do Radar no import. Aditivo/nullable; idempotente.
+  private async ensureVendasLeadOpportunityScoreColumn() {
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "VendasLead"
+      ADD COLUMN IF NOT EXISTS "opportunityScore" INTEGER
     `);
   }
 
