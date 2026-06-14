@@ -3,7 +3,13 @@
 // antigo, adaptada ao client de API novo.
 
 import { apiFetch } from "@/lib/api";
-import type { WhatsAppBootstrapPayload, WhatsAppModalPayload, WhatsAppPairingCodePayload } from "@/lib/whatsapp-center";
+import type {
+  WhatsAppBootstrapPayload,
+  WhatsAppModalPayload,
+  WhatsAppPairingCodePayload,
+  WhatsAppSessionCleanupResult,
+  WhatsAppSessionDiagnostics,
+} from "@/lib/whatsapp-center";
 
 export function buildWhatsAppBootstrapKey(payload: WhatsAppModalPayload) {
   return [
@@ -45,6 +51,29 @@ export function disconnectWhatsAppModalSession() {
 
 export function restartWhatsAppModalSession() {
   return apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/restart", { method: "POST" });
+}
+
+// Limpeza de histórico ao trocar de número (docs/Rules/WHATSAPP.md): cada número
+// conectado é uma sessão; conversas ficam amarradas a ela. Estes três endpoints já
+// existem no backend e fecham o fluxo "reaproveitar ou começar limpo":
+//   - diagnostics: quanto sobrou do número anterior + qual era o número.
+//   - cleanup(merge): traz o histórico antigo para a sessão atual.
+//   - cleanup(discard): apaga de vez as conversas antigas (reset total da cache).
+//   - rebootstrap: re-espelha as conversas do número conectado AGORA (usado após
+//     o discard, que zera também a cache da sessão atual).
+export function fetchWhatsAppSessionDiagnostics() {
+  return apiFetch<WhatsAppSessionDiagnostics>("/inbox/whatsapp-session");
+}
+
+export function cleanupWhatsAppSessions(mode: "merge" | "discard") {
+  return apiFetch<WhatsAppSessionCleanupResult>("/inbox/whatsapp-sessions/cleanup", {
+    method: "POST",
+    body: JSON.stringify({ mode }),
+  });
+}
+
+export function rebootstrapWhatsAppConversations() {
+  return apiFetch<WhatsAppBootstrapPayload>("/companies/me/whatsapp-modal/bootstrap", { method: "POST" });
 }
 
 // Conexão por código (sem QR / sem câmera): o backend cria a instância com o

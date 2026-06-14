@@ -69,8 +69,25 @@
   numa fonte única (estende tutorial-chapters.ts).
 
 ## Faseamento
-- **F1 (feito):** splash.
-- **F2:** boas-vindas + TEMAS + engine de coachmark (1 passo de prova).
-- **F3:** Leads → Vendas → Atendimento (com você, ícone por ícone).
-- **F4:** typewriter Dashboard/Relatórios + tela final (planos).
-- **F5:** "ficou dúvida" → WhatsApp do dono (backend; precisa nº + canal).
+- **F1 (feito):** splash (`boot-splash.tsx` + `.boot-*`).
+- **F2 (FEITO 14/06):** motor de coachmark + boas-vindas + TEMAS (pele + claro/escuro).
+  - `components/hbx/tutorial-coach.tsx` — portal pro `<body>`, holofote (`box-shadow 9999px`)
+    no alvo REAL, balão posicionado ao lado, avança quando clica no alvo (listener `{once}`);
+    rAF segue o `getBoundingClientRect` e o holofote DESLIZA entre alvos; passo central
+    (boas-vindas/fim) = veil + card centralizado; alvo ausente (cargo/plano) = pula sozinho;
+    ESC fecha.
+  - Âncoras `data-tut` no `shell.tsx`: `nav-*` (dashboard/leads/webscraping/vendas/atendimento/
+    bot/relatorios/configuracoes), `pele`, `theme-mode`, `novo-lead`, `conta` — atributo de
+    dado, NÃO conta na catraca nem viola as Leis.
+  - CSS `.tut-*` central em `screens.css` (token/color-mix, reduced-motion). Conteúdo = FONTE
+    ÚNICA `lib/tutorial-coach-steps.ts` (`buildCoachSteps({role,planKey,hasAtendimento})`).
+  - Roda na `/tutorial` pós-boot, por cima do leitor; ao terminar/pular cai no leitor.
+  - Lint + catraca 561/561 + build verdes.
+  - **Decisão:** soft-guide (dim `pointer-events:none`, não bloqueia clique fora do alvo) pra
+    não tampar o popover da pele. Hard-block (treme no clique errado) fica pra F3 se o dono pedir.
+- **F3:** Leads → Vendas → Atendimento (com você, ícone por ícone). **Exige** subir o coach
+  pro `app-shell` (persistir entre rotas, pois clicar num nav navega) + ramificar
+  `buildCoachSteps` por cargo/plano + passos navegáveis. Atendimento desligado → mostra QR/Meta.
+- **F4:** typewriter Dashboard/Relatórios + tela final (planos "Sim/Fechar").
+- **F5:** "ficou dúvida" → `POST /support/contact-admin` (já existe; sai pro WhatsApp ATIVO +
+  e-mail + ticket, sem wa.me externo).

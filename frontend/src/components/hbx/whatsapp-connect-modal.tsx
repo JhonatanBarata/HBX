@@ -21,10 +21,11 @@ import { formatWhatsAppDateTime, whatsappModalStatusLabel, type WhatsAppModalPay
 
 const PAIRING_PHONE_RE = /^\+[1-9]\d{7,14}$/;
 
-export function WhatsAppConnectModal({ open, onClose, onConnected }: {
+export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnected }: {
   open: boolean;
   onClose: () => void;
   onConnected?: () => void;
+  onDisconnected?: () => void;
 }) {
   const [payload, setPayload] = useState<WhatsAppModalPayload | null>(null);
   const [busy, setBusy] = useState(false);
@@ -101,6 +102,25 @@ export function WhatsAppConnectModal({ open, onClose, onConnected }: {
     try {
       const res = await action();
       setPayload(res);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Operação falhou.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Desconectar avisa a tela (onDisconnected) para limpar a lista na hora — o
+  // chat do número que saiu não deve ficar pendurado por trás do modal.
+  async function disconnectAndNotify() {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    setBootstrapMsg(null);
+    try {
+      const res = await disconnectWhatsAppModalSession();
+      setPayload(res);
+      bootstrappedKey.current = null;
+      onDisconnected?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Operação falhou.");
     } finally {

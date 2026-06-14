@@ -52,6 +52,52 @@ export type WhatsAppBootstrapPayload = {
   error?: string | null;
 };
 
+// Diagnóstico de sessão do inbox (GET /inbox/whatsapp-session): diz qual número
+// está conectado agora e quanto sobrou do número anterior — base para decidir
+// se reaproveita (merge) ou começa limpo (discard) o histórico.
+export type WhatsAppSessionDiagnostics = {
+  providerWarning: { code: string; message: string } | null;
+  whatsappSession: {
+    accessible: boolean;
+    reason: string;
+    mode: "current" | "all";
+    currentSessionId: string | null;
+    currentSession: {
+      id: string;
+      provider: string;
+      phoneNormalized: string | null;
+      displayPhone: string | null;
+      connectedAt: string | null;
+    } | null;
+  };
+  whatsappSessionCleanup: {
+    required: boolean;
+    currentSessionId: string | null;
+    oldSessionCount: number;
+    oldConversationCount: number;
+    oldMessageCount: number;
+    latestOldSession: {
+      id: string;
+      phoneNormalized: string | null;
+      displayPhone: string | null;
+      status: string | null;
+      connectedAt: string | null;
+      disconnectedAt: string | null;
+      createdAt: string | null;
+    } | null;
+  };
+};
+
+export type WhatsAppSessionCleanupResult = {
+  success: boolean;
+  mode: "merge" | "discard" | string;
+  merged: number;
+  deletedConversations: number;
+  deletedMessages: number;
+  deletedSessions?: number;
+  message: string;
+};
+
 export function whatsappModalStatusLabel(value?: string | null) {
   const normalized = String(value || "").trim().toLowerCase();
   if (normalized === "starting") return "Iniciando";
