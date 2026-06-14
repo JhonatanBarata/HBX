@@ -84,10 +84,10 @@ button, a, .nav-item, .tag, .deal, .conv {
 /* ---------- troca de pele/modo (cross-fade que se remove sozinho) ---------- */
 html.hbx-theme-anim body,
 html.hbx-theme-anim body * {
-  transition: background-color 0.45s var(--ease-out-quint),
-    color 0.45s var(--ease-out-quint),
-    border-color 0.45s var(--ease-out-quint),
-    box-shadow 0.45s var(--ease-out-quint) !important;
+  transition: background-color 3.2s var(--ease-out-quint),
+    color 3.2s var(--ease-out-quint),
+    border-color 3.2s var(--ease-out-quint),
+    box-shadow 3.2s var(--ease-out-quint) !important;
 }
 
 /* ---------- overlays (a pele dá o ritmo via --motion-base) ---------- */

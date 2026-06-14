@@ -96,65 +96,9 @@
 }
 [data-theme="hbx-cyber"] .meter-fill { box-shadow: inset 0 1px 0 rgba(120,170,255,0.3); }
 
-/* ---- Bloco B · LOGIN cyber: navy profundo + grade + brilho; o ROBÔ da foto
-   entra no slot decorativo .login-art (só nesta pele). Vale pros dois shells:
-   .login-split (register/reset) e .login-console (login de 3 painéis). ---- */
-[data-theme="hbx-cyber"] :is(.login-split, .login-console) {
-  background:
-    radial-gradient(38% 52% at 7% 92%, color-mix(in srgb, var(--hbx-secondary) 24%, transparent), transparent 70%),
-    radial-gradient(40% 50% at 96% 6%, color-mix(in srgb, var(--hbx-brand) 24%, transparent), transparent 72%),
-    radial-gradient(30% 42% at 64% 52%, color-mix(in srgb, var(--hbx-brand) 8%, transparent), transparent 70%),
-    linear-gradient(180deg, var(--hbx-background) 0%, var(--hbx-background-alt) 100%);
-}
-/* grade de circuito sutil sobre o fundo do console */
-[data-theme="hbx-cyber"] .login-console::before {
-  content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none;
-  background-image:
-    linear-gradient(color-mix(in srgb, var(--hbx-brand) 10%, transparent) 1px, transparent 1px),
-    linear-gradient(90deg, color-mix(in srgb, var(--hbx-brand) 10%, transparent) 1px, transparent 1px);
-  background-size: 38px 38px; opacity: 0.4;
-  -webkit-mask-image: radial-gradient(circle at 50% 40%, #000, transparent 75%);
-  mask-image: radial-gradient(circle at 50% 40%, #000, transparent 75%);
-}
-/* O ROBÔ (foto da cena, cropada na direita): peça decorativa atrás dos painéis. */
-/* CENA CINEMATOGRÁFICA que TRANSMUXA pelas 5 cores (só nesta pele). Cross-fade
-   puro CSS: 5 quadros, ciclo de 35s, defasados em -7s — sempre em transição. */
-[data-theme="hbx-cyber"] .login-art { opacity: 0.9; }
-[data-theme="hbx-cyber"] .login-art__frame { animation: hbx-robo-cycle 35s linear infinite; }
-[data-theme="hbx-cyber"] .login-art__frame:nth-child(1) { background-image: url("/robo-blue.png"); animation-delay: 0s; }
-[data-theme="hbx-cyber"] .login-art__frame:nth-child(2) { background-image: url("/robo-purple.png"); animation-delay: -7s; }
-[data-theme="hbx-cyber"] .login-art__frame:nth-child(3) { background-image: url("/robo-magenta.png"); animation-delay: -14s; }
-[data-theme="hbx-cyber"] .login-art__frame:nth-child(4) { background-image: url("/robo-crimson.png"); animation-delay: -21s; }
-[data-theme="hbx-cyber"] .login-art__frame:nth-child(5) { background-image: url("/robo-amber.png"); animation-delay: -28s; }
-/* leve escurecimento sobre a cena (legibilidade dos painéis; o vidro cuida do resto) */
-[data-theme="hbx-cyber"] .login-art::after { content: ""; position: absolute; inset: 0; background: radial-gradient(120% 100% at 72% 50%, transparent 28%, color-mix(in srgb, var(--hbx-background) 62%, transparent) 100%); }
-/* MODO CLARO: tenta clarear — véu claro forte deixa as cenas em ghost pastel.
-   Se virar lama, basta zerar .login-art (fundo azul limpo). */
-[data-theme="hbx-cyber"][data-theme-mode="light"] .login-art { opacity: 0.4; }
-[data-theme="hbx-cyber"][data-theme-mode="light"] .login-art::after { background: color-mix(in srgb, var(--hbx-background) 58%, transparent); }
-@media (prefers-reduced-motion: reduce) {
-  [data-theme="hbx-cyber"] .login-art__frame { animation: none; }
-  [data-theme="hbx-cyber"] .login-art__frame:nth-child(1) { opacity: 1; }
-}
-[data-theme="hbx-cyber"] .brand-side {
-  background:
-    radial-gradient(circle at 80% 12%, color-mix(in srgb, var(--hbx-brand) 14%, transparent), transparent 42%),
-    color-mix(in srgb, var(--hbx-nav-surface) 90%, transparent);
-  -webkit-backdrop-filter: blur(var(--blur-glass)); backdrop-filter: blur(var(--blur-glass));
-}
-[data-theme="hbx-cyber"] :is(.login-split, .login-console) .card,
-[data-theme="hbx-cyber"] .login-side__panel {
-  background:
-    radial-gradient(circle at top right, color-mix(in srgb, var(--hbx-brand) 13%, transparent), transparent 48%),
-    linear-gradient(180deg, color-mix(in srgb, var(--hbx-surface) 74%, transparent), color-mix(in srgb, var(--hbx-surface-soft) 60%, transparent));
-  border-color: color-mix(in srgb, var(--hbx-brand) 24%, var(--border-hairline));
-  -webkit-backdrop-filter: blur(var(--blur-glass)); backdrop-filter: blur(var(--blur-glass));
-  box-shadow: var(--shadow-inset), var(--shadow-md), 0 0 0 1px color-mix(in srgb, var(--hbx-brand) 16%, transparent);
-}
-[data-theme="hbx-cyber"] .login-microcard {
-  background: color-mix(in srgb, var(--hbx-surface-soft) 55%, transparent);
-  border-color: color-mix(in srgb, var(--hbx-brand) 16%, var(--border-hairline));
-}
+/* ---- LOGIN saiu da pele: agora é UNIVERSAL (ordem do dono 14/06) e vive em
+   screens.css (robô transmux + cor que cicla via --login-accent) + skeleton.css
+   (os 5 tons). A pele NÃO veste mais o login. ---- */
 
 /* ---- Bloco C · MOVIMENTO & ÍCONE ---- */
 [data-theme="hbx-cyber"] {

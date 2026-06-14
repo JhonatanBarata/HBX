@@ -167,3 +167,25 @@
   --hbx-avatar-from: #BFBFBF;
   --hbx-avatar-to: #8C8C8C;
 }
+
+/* ============================================================
+   LOGIN — COR PREDOMINANTE QUE CICLA (ordem do dono 14/06)
+   O login é UNIVERSAL (mesma cara em todas as peles) e o chrome
+   (card, botão, links, logo) acompanha a cor da foto visível,
+   morfando suave (sem choque). Os 5 tons literais vivem aqui
+   (skeleton = base de tokens, isenta do fiscal); a animação e a
+   estrutura ficam em screens.css. @property permite interpolar a
+   cor do custom property de verdade (sem pulo).
+   ============================================================ */
+@property --login-accent {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #4DA3FF;
+}
+:root {
+  --login-cycle-1: #4DA3FF; /* azul    */
+  --login-cycle-2: #FFB04D; /* âmbar   */
+  --login-cycle-3: #FF6A85; /* carmesim*/
+  --login-cycle-4: #FF5FD0; /* magenta */
+  --login-cycle-5: #A06BFF; /* roxo    */
+}

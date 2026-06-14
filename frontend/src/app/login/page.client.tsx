@@ -1,12 +1,15 @@
 "use client";
 
-// Login — CONSOLE de 3 painéis (restaurada 14/06 a partir do front antigo, mas
-// reconstruída LIMPA: estrutura/escrita neutra por token, sem a firula de
-// partículas/vídeo do original). Esquerda "Soluções integradas", centro o card,
-// direita "Confiança e tecnologia". O robô/azul é da PELE Tema HBX (.login-art).
-// Auth intacto: submit → POST /auth/login (token + rota next); sessão concorrente
-// (SESSION_ALREADY_ACTIVE) oferece "Conectar aqui mesmo"; "Esqueci minha senha"
-// → /reset-password.
+// Login — DOIS modos no mesmo DOM, alternados pelo toggle "Visual" (topo-direito):
+//  • Visual ON  (padrão): card à ESQUERDA + cena/robô que transmuxa (cinematográfico).
+//  • Visual OFF (.is-plain): card CENTRALIZADO + painéis "Soluções integradas" e
+//    "Confiança e tecnologia" voltam, EMERGINDO de dentro; sem robô/efeitos.
+// A troca anima via grid-template-columns (screens.css). Escolha persiste
+// (hbx:login-plain). Auth intacto (POST /auth/login, sessão concorrente, etc.).
+//
+// >>> TROCAR FOTOS: substituir os arquivos em frontend/public/ com os mesmos
+//     nomes — robo-blue/purple/magenta/crimson/amber.png. A ordem/tempo do
+//     transmux e a cor que cicla ficam em screens.css + skeleton.css.
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -15,21 +18,10 @@ import { useEffect, useState } from "react";
 import { AuthThemeControls } from "@/components/hbx/auth-theme-controls";
 import { apiFetch, setToken, type ApiError } from "@/lib/api";
 
-type LoginResponse = {
-  access_token?: string;
-  next?: string;
-  requiresCheckout?: boolean;
-};
-
-type LoginErrorPayload = {
-  code?: string;
-  message?: string;
-  forceAvailable?: boolean;
-  activeSession?: { lastSeenAt?: string | null; userAgent?: string | null };
-};
+type LoginResponse = { access_token?: string; next?: string; requiresCheckout?: boolean };
+type LoginErrorPayload = { code?: string; message?: string; forceAvailable?: boolean; activeSession?: { lastSeenAt?: string | null; userAgent?: string | null } };
 
 type SideIconName = "headset" | "recovery" | "website" | "shield" | "building" | "pulse";
-
 const SIDE_ICON: Record<SideIconName, string[]> = {
   headset: ["M4.5 13.8v-2.2a7.5 7.5 0 0 1 15 0v2.2", "M7.5 17.5h-1a2 2 0 0 1-2-2v-1.1a2 2 0 0 1 2-2h1v5.1Z", "M16.5 17.5h1a2 2 0 0 0 2-2v-1.1a2 2 0 0 0-2-2h-1v5.1Z"],
   recovery: ["M20 12a8 8 0 0 1-13.5 5.8", "M4 12A8 8 0 0 1 17.5 6.2", "M17.5 2.8v3.4h-3.4", "M6.5 21.2v-3.4h3.4"],
@@ -38,41 +30,23 @@ const SIDE_ICON: Record<SideIconName, string[]> = {
   building: ["M4.5 20.5h15", "M6 20.5V7l6-2.5 6 2.5v13.5", "M9 10h.1M12 10h.1M15 10h.1M9 14h.1M12 14h.1M15 14h.1"],
   pulse: ["M3 13h4l2.2-5.5L14 18l2.5-5H21"],
 };
-
-function SideIcon({ name, size = 18 }: { name: SideIconName; size?: number }) {
+function SideIcon({ name, size = 17 }: { name: SideIconName; size?: number }) {
   return (
     <svg className="hbx-icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
       {SIDE_ICON[name].map((d, i) => <path key={i} d={d} />)}
     </svg>
   );
 }
-
 const SOLUTIONS: { icon: SideIconName; title: string; desc: string }[] = [
   { icon: "headset", title: "Atendimento", desc: "Suporte rápido e humanizado sempre que precisar." },
   { icon: "recovery", title: "Recovery", desc: "Recuperação de dados ágil e segura." },
   { icon: "website", title: "Website", desc: "Acesse informações e novidades online." },
 ];
-
 const TRUST: { icon: SideIconName; title: string; desc: string }[] = [
   { icon: "shield", title: "Modo seguro ativo", desc: "Seus dados protegidos 24/7 com criptografia." },
   { icon: "building", title: "Multiempresa", desc: "Gerencie múltiplas empresas em um único ambiente." },
   { icon: "pulse", title: "Tempo real", desc: "Informações sempre atualizadas para decisões." },
 ];
-
-function SidePanel({ title, items }: { title: string; items: { icon: SideIconName; title: string; desc: string }[] }) {
-  return (
-    <div className="login-side__panel">
-      <div className="login-side__header">{title}</div>
-      {items.map(it => (
-        <article key={it.title} className="login-microcard">
-          <span className="ic"><SideIcon name={it.icon} size={17} /></span>
-          <span className="tx"><strong>{it.title}</strong><span>{it.desc}</span></span>
-          <span className="login-dot" aria-hidden />
-        </article>
-      ))}
-    </div>
-  );
-}
 
 export function LoginClient() {
   const router = useRouter();
@@ -82,8 +56,9 @@ export function LoginClient() {
   const [ok, setOk] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
-  // aviso de sessão derrubada/expirada (gravado pelo apiFetch no 401)
   const [notice, setNotice] = useState<string | null>(null);
+  // "Visual" off: card centraliza + painéis voltam, sem efeitos. Persiste.
+  const [plain, setPlain] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -98,10 +73,19 @@ export function LoginClient() {
           sessionStorage.removeItem("hbx:session-notice");
           setNotice("Sua empresa foi removida. Se isso não era esperado, fale com o suporte HBX.");
         }
+        setPlain(localStorage.getItem("hbx:login-plain") === "1");
       } catch { /* sem storage */ }
     });
     return () => { alive = false; };
   }, []);
+
+  function toggleVisual() {
+    setPlain(p => {
+      const next = !p;
+      try { localStorage.setItem("hbx:login-plain", next ? "1" : "0"); } catch { /* sem storage */ }
+      return next;
+    });
+  }
 
   async function doLogin(force: boolean) {
     if (busy) return;
@@ -113,13 +97,13 @@ export function LoginClient() {
         method: "POST",
         body: JSON.stringify({ username: email, password, ...(force ? { forceSession: true } : {}) }),
       });
-      if (!res?.access_token) {
-        throw new Error("Resposta de login sem token.");
-      }
+      if (!res?.access_token) throw new Error("Resposta de login sem token.");
       setToken(res.access_token);
       setOk(true);
       setConflict(false);
-      router.replace(res.next || "/dashboard");
+      // Visual on = saída cinematográfica (fade); Visual off = entra direto.
+      if (plain) router.replace(res.next || "/dashboard");
+      else window.setTimeout(() => router.replace(res.next || "/dashboard"), 750);
     } catch (err) {
       const apiErr = err as ApiError;
       const payload = (apiErr?.payload ?? {}) as LoginErrorPayload;
@@ -143,7 +127,15 @@ export function LoginClient() {
   return (
     <>
       <AuthThemeControls />
-      <div className="login-console">
+      <div className="login-visual-toggle">
+        <span>Visual</span>
+        <button type="button" className={"sw" + (!plain ? " on" : "")} role="switch" aria-checked={!plain}
+          aria-label="Ligar ou desligar os efeitos visuais do login" title="Liga/desliga os efeitos do login" onClick={toggleVisual}>
+          <i />
+        </button>
+      </div>
+
+      <div className={"login-console" + (ok && !plain ? " is-leaving" : "") + (plain ? " is-plain" : "")}>
         <div className="login-art" aria-hidden>
           <i className="login-art__frame" />
           <i className="login-art__frame" />
@@ -151,13 +143,14 @@ export function LoginClient() {
           <i className="login-art__frame" />
           <i className="login-art__frame" />
         </div>
+        <div className="login-fog" aria-hidden />
 
         <aside className="login-side login-side--left" aria-label="Soluções integradas">
           <div className="login-side__panel">
             <div className="login-side__header">Soluções integradas</div>
             {SOLUTIONS.map(it => (
               <article key={it.title} className="login-microcard">
-                <span className="ic"><SideIcon name={it.icon} size={17} /></span>
+                <span className="ic"><SideIcon name={it.icon} /></span>
                 <span className="tx"><strong>{it.title}</strong><span>{it.desc}</span></span>
                 <span className="login-dot" aria-hidden />
               </article>
@@ -167,14 +160,17 @@ export function LoginClient() {
         </aside>
 
         <main className="login-shell">
+          <div className="login-intro">
+            <h1 className="login-intro__title">Seu próximo cliente já está lá fora.</h1>
+            <p className="login-intro__sub">Radar encontra, vendas trabalha, WhatsApp fecha. Tudo num fluxo só.</p>
+          </div>
           <form className="card" onSubmit={onSubmit}>
-            <div className="bl"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--hbx-brand)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M4 6l6 6-6 6M11 6l6 6-6 6" /></svg><strong>HBX</strong></div>
+            <div className="bl"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--login-accent, var(--hbx-brand))" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M4 6l6 6-6 6M11 6l6 6-6 6" /></svg><strong>HBX</strong></div>
             <h2>Entrar no HBX</h2>
             <p className="sub">Acesse sua conta com segurança e continue de onde parou.</p>
             <div className="f">
               <label htmlFor="em">E-mail</label>
-              {/* type=text: o backend autentica por username OU e-mail —
-                  type=email travaria login por usuário (ex.: henrique_lua) */}
+              {/* type=text: o backend autentica por username OU e-mail */}
               <input id="em" className="field-dark" type="text" placeholder="seu@email.com.br" required autoComplete="username"
                 value={email} onChange={e => setEmail(e.target.value)} />
             </div>
@@ -187,16 +183,11 @@ export function LoginClient() {
               <label><input type="checkbox" defaultChecked />Manter conectado</label>
               <Link href="/reset-password" className="link" style={{ textDecoration: "none" }}>Esqueci minha senha</Link>
             </div>
-            {notice && !error && !ok && (
-              <div className="ok show warn">{notice}</div>
-            )}
+            {notice && !error && !ok && (<div className="ok show warn">{notice}</div>)}
             <div className={"ok" + (ok ? " show" : "")} id="ok">✓ Autenticado — redirecionando para o Dashboard…</div>
-            {error && (
-              <div className={"ok show " + (conflict ? "warn" : "bad")}>{error}</div>
-            )}
+            {error && (<div className={"ok show " + (conflict ? "warn" : "bad")}>{error}</div>)}
             {conflict && (
-              <button className="btn-ghost" type="button" disabled={busy} style={{ minHeight: 40, fontSize: "0.78rem" }}
-                onClick={() => doLogin(true)}>
+              <button className="btn-ghost" type="button" disabled={busy} style={{ minHeight: 40, fontSize: "0.78rem" }} onClick={() => doLogin(true)}>
                 Conectar aqui mesmo (desconecta a outra máquina)
               </button>
             )}
@@ -208,7 +199,16 @@ export function LoginClient() {
         </main>
 
         <aside className="login-side login-side--right" aria-label="Confiança e tecnologia">
-          <SidePanel title="Confiança e tecnologia" items={TRUST} />
+          <div className="login-side__panel">
+            <div className="login-side__header">Confiança e tecnologia</div>
+            {TRUST.map(it => (
+              <article key={it.title} className="login-microcard">
+                <span className="ic"><SideIcon name={it.icon} /></span>
+                <span className="tx"><strong>{it.title}</strong><span>{it.desc}</span></span>
+                <span className="login-dot" aria-hidden />
+              </article>
+            ))}
+          </div>
         </aside>
       </div>
     </>

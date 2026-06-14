@@ -56,7 +56,7 @@ export function applyThemeSoft(mutate: () => void) {
   const html = document.documentElement;
   html.classList.add("hbx-theme-anim");
   mutate();
-  window.setTimeout(() => html.classList.remove("hbx-theme-anim"), 500);
+  window.setTimeout(() => html.classList.remove("hbx-theme-anim"), 3300);
 }
 
 // Troca de PELE na mesma tela — nunca navega.

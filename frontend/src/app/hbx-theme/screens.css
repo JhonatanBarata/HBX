@@ -43,38 +43,114 @@ body { min-height: 100vh; }
 .ok.warn { border-color: color-mix(in srgb, var(--hbx-warning) 35%, transparent); background: color-mix(in srgb, var(--hbx-warning) 8%, transparent); color: var(--hbx-warning); }
 .ok.bad { border-color: color-mix(in srgb, var(--hbx-danger) 30%, transparent); background: color-mix(in srgb, var(--hbx-danger) 8%, transparent); color: var(--hbx-danger); }
 
-/* ---------- Login — CONSOLE de 3 painéis (restaurada 14/06; estrutura neutra/
-   por token, todas as peles vestem. Esquerda "Soluções integradas", centro o
-   card, direita "Confiança e tecnologia". O ROBÔ é decorativo via pele
-   (.login-art) — só o Tema HBX preenche). ---------- */
-.login-console { position: relative; min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 460px) minmax(0, 1fr); align-items: center; gap: 28px; padding: 32px clamp(20px, 4vw, 64px); overflow: hidden; }
-/* Slot de arte (cena/robô): full-bleed atrás dos painéis. Empilha N quadros
-   (.login-art__frame) que a PELE preenche e faz transmuxar (cross-fade). Vazio
-   por padrão (opacity 0) — só a pele que tiver imagens acende. */
-.login-art { position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; opacity: 0; }
-.login-art__frame { position: absolute; inset: 0; background-size: cover; background-position: center; background-repeat: no-repeat; opacity: 0; }
-/* Cross-fade em loop: cada quadro fica visível ~1/5 do ciclo e some no resto;
-   a pele dá a imagem e o atraso (animation-delay) que defasa os quadros. */
+/* ---------- Login — DOIS estados no mesmo DOM, via grid de 3 colunas que ANIMA
+   (ordem do dono 14/06). Visual ON: card à ESQUERDA + cena/robô à direita.
+   Visual OFF (.is-plain): card CENTRALIZADO + painéis laterais EMERGINDO, sem
+   robô/efeitos. grid-template-columns interpola → a troca desliza. Login é
+   UNIVERSAL (mesma cara em toda pele). Fundo segue a cor do tema, +claro. ---------- */
+.login-console {
+  position: relative; min-height: 100vh; overflow: hidden;
+  display: grid; grid-template-columns: minmax(0, 0fr) minmax(340px, 420px) minmax(0, 1fr);
+  align-items: center; gap: clamp(16px, 3vw, 40px); padding: 32px clamp(24px, 5vw, 72px);
+  background: color-mix(in srgb, var(--hbx-surface) 40%, var(--hbx-background));
+  animation: login-accent 35s linear infinite;
+  transition: grid-template-columns 0.7s var(--ease-out-quint), gap 0.7s var(--ease-out-quint);
+}
+/* Visual OFF: card no centro, painéis ocupam as laterais (1fr cada). */
+.login-console.is-plain { grid-template-columns: minmax(0, 1fr) minmax(340px, 420px) minmax(0, 1fr); }
+
+/* Cena/robô: full-bleed atrás de tudo. url() não é cor → pode aqui. */
+.login-art { position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; opacity: 1; transition: opacity 0.6s var(--ease-out-quint); }
+.login-art__frame { position: absolute; inset: 0; background-size: cover; background-position: center; background-repeat: no-repeat; opacity: 0; animation: hbx-robo-cycle 35s linear infinite; }
+.login-art__frame:nth-child(1) { background-image: url("/robo-blue.png"); animation-delay: 0s; }
+.login-art__frame:nth-child(2) { background-image: url("/robo-purple.png"); animation-delay: -7s; }
+.login-art__frame:nth-child(3) { background-image: url("/robo-magenta.png"); animation-delay: -14s; }
+.login-art__frame:nth-child(4) { background-image: url("/robo-crimson.png"); animation-delay: -21s; }
+.login-art__frame:nth-child(5) { background-image: url("/robo-amber.png"); animation-delay: -28s; }
+/* escurece FORTE a esquerda (backdrop do texto/card, segue o modo) e libera a direita */
+.login-art::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, color-mix(in srgb, var(--hbx-background) 92%, transparent) 0%, color-mix(in srgb, var(--hbx-background) 58%, transparent) 42%, transparent 72%); }
 @keyframes hbx-robo-cycle {
   0% { opacity: 0; } 4% { opacity: 1; } 20% { opacity: 1; } 24% { opacity: 0; } 100% { opacity: 0; }
 }
-.login-side { position: relative; z-index: 1; display: flex; }
-.login-side--left { justify-content: flex-end; }
-.login-side--right { justify-content: flex-start; }
-.login-shell { position: relative; z-index: 1; display: grid; place-items: center; }
-.login-side__panel { width: min(320px, 100%); display: grid; gap: 12px; padding: 20px; border-radius: var(--radius-xl); border: 1px solid var(--border-hairline); background: var(--hbx-surface); box-shadow: var(--shadow-md); }
+/* CHROME acompanha a COR PREDOMINANTE da foto (cicla junto, suave; @property interpola). */
+@keyframes login-accent {
+  0% { --login-accent: var(--login-cycle-5); }
+  12% { --login-accent: var(--login-cycle-1); }
+  31% { --login-accent: var(--login-cycle-2); }
+  51% { --login-accent: var(--login-cycle-3); }
+  71% { --login-accent: var(--login-cycle-4); }
+  91% { --login-accent: var(--login-cycle-5); }
+  100% { --login-accent: var(--login-cycle-5); }
+}
+/* Névoa: embaça da metade pra esquerda; no claro, clareia SÓ essa região. */
+.login-fog { position: absolute; inset: 0; z-index: 1; pointer-events: none; -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 50%, transparent 78%); mask-image: linear-gradient(90deg, #000 0%, #000 50%, transparent 78%); transition: opacity 0.6s var(--ease-out-quint); }
+[data-theme-mode="light"] .login-fog { background: color-mix(in srgb, var(--hbx-surface) 55%, transparent); }
+
+/* Coluna do meio: escrita + card. */
+.login-shell { position: relative; z-index: 2; width: 100%; display: grid; gap: 18px; align-content: center; justify-items: start; }
+.login-intro { display: grid; gap: 8px; }
+.login-intro__title { margin: 0; font-family: var(--font-display); font-size: 1.9rem; font-weight: 800; line-height: 1.1; letter-spacing: -0.02em; color: var(--text-strong); max-width: 18ch; text-shadow: 0 2px 20px color-mix(in srgb, #000 60%, transparent); }
+.login-intro__sub { margin: 0; font-size: 0.88rem; line-height: 1.5; color: var(--text-body); max-width: 36ch; text-shadow: 0 1px 12px color-mix(in srgb, #000 50%, transparent); }
+
+/* Painéis laterais: somem (clipados pela coluna 0fr) no Visual ON; EMERGEM do
+   centro no Visual OFF (opacity + sai de trás do card). */
+.login-side { position: relative; z-index: 2; min-width: 0; display: flex; opacity: 0; transition: opacity 0.5s var(--ease-out-quint), transform 0.6s var(--ease-out-quint); }
+.login-side--left { justify-content: flex-end; transform: translateX(38%) scale(0.9); }
+.login-side--right { justify-content: flex-start; transform: translateX(-38%) scale(0.9); }
+.login-console.is-plain .login-side { opacity: 1; transform: none; }
+.login-side__panel { width: min(300px, 100%); display: grid; gap: 12px; padding: 20px; border-radius: var(--radius-xl); border: 1px solid var(--border-hairline); background: color-mix(in srgb, var(--hbx-surface) 86%, transparent); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); box-shadow: var(--shadow-md); }
 .login-side__header { font-family: var(--font-display); font-size: 0.72rem; font-weight: 800; letter-spacing: var(--tracking-overline); text-transform: uppercase; color: var(--text-muted); }
 .login-microcard { display: flex; gap: 11px; align-items: flex-start; padding: 12px; border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-surface-soft); }
 .login-microcard .ic { display: grid; place-items: center; width: 34px; height: 34px; flex: 0 0 auto; border-radius: var(--radius-sm); border: 1px solid color-mix(in srgb, var(--hbx-brand) 30%, transparent); color: var(--hbx-brand-strong); background: color-mix(in srgb, var(--hbx-brand) 8%, transparent); }
 .login-microcard .tx { display: grid; gap: 2px; min-width: 0; flex: 1; }
 .login-microcard .tx strong { font-size: 0.8rem; }
-.login-microcard .tx span { font-size: 0.68rem; color: var(--text-muted); line-height: 1.4; }
+.login-microcard .tx span { font-size: 0.68rem; color: var(--text-body); line-height: 1.4; }
 .login-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--hbx-success); flex: 0 0 auto; align-self: center; box-shadow: 0 0 0 3px color-mix(in srgb, var(--hbx-success) 18%, transparent); }
 .login-side__footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 0.68rem; font-weight: 700; color: var(--text-body); }
 .login-side__footer svg { color: var(--hbx-brand-strong); }
-@media (max-width: 1080px) {
-  .login-console { grid-template-columns: 1fr; justify-items: center; }
+
+/* card, botão, links e foco seguem a COR predominante (var(--login-accent)). */
+.login-console .card {
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--login-accent) 12%, transparent), transparent 50%),
+    linear-gradient(180deg, color-mix(in srgb, var(--hbx-surface) 84%, transparent), color-mix(in srgb, var(--hbx-surface-soft) 70%, transparent));
+  border-color: color-mix(in srgb, var(--login-accent) 26%, var(--border-hairline));
+  -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+  box-shadow: var(--shadow-inset), var(--shadow-md), 0 0 0 1px color-mix(in srgb, var(--login-accent) 30%, transparent), 0 26px 64px -22px color-mix(in srgb, var(--login-accent) 42%, transparent);
+}
+.login-console .card .sub, .login-console .card .f label, .login-console .card .row label { color: var(--text-body); }
+.login-console .card .btn-teal { background: linear-gradient(135deg, var(--login-accent), color-mix(in srgb, var(--login-accent) 58%, var(--hbx-surface))); box-shadow: var(--shadow-inset), 0 16px 32px -18px color-mix(in srgb, var(--login-accent) 75%, transparent); }
+.login-console .link { color: var(--login-accent); }
+.login-console .field-dark:focus { border-color: var(--login-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--login-accent) 26%, transparent); }
+.login-console .row input { accent-color: var(--login-accent); }
+
+/* Toggle "Visual" (topo-direito, ao lado do tema): pílula de vidro + switch .sw. */
+.login-visual-toggle { position: fixed; top: 14px; right: 62px; z-index: 11; display: inline-flex; align-items: center; gap: 9px; padding: 6px 12px; border-radius: var(--radius-pill); border: 1px solid var(--border-hairline); background: color-mix(in srgb, var(--hbx-surface) 72%, transparent); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); font-size: 0.72rem; font-weight: 700; color: var(--text-body); box-shadow: var(--shadow-sm); }
+
+/* SAÍDA (ao Entrar, Visual ON): esmaece tudo que não é foto + zoom na cena. */
+.login-shell { transition: opacity 0.5s var(--ease-out-quint); }
+.login-console.is-leaving .login-shell, .login-console.is-leaving .login-fog { opacity: 0; }
+.login-console.is-leaving .login-art { transform: scale(1.06); transition: transform 1.2s var(--ease-out-quint); }
+
+/* Visual OFF: sem cor que cicla (accent estático = marca), sem robô nem névoa. */
+.login-console.is-plain { animation: none; --login-accent: var(--hbx-brand); }
+.login-console.is-plain .login-art, .login-console.is-plain .login-fog { opacity: 0; }
+.alt button { background: none; border: none; padding: 0; font: inherit; cursor: pointer; }
+
+@media (max-width: 1000px) {
+  .login-console, .login-console.is-plain { grid-template-columns: 1fr; justify-items: center; }
   .login-side { display: none; }
+  .login-shell { justify-items: center; text-align: center; }
+}
+@media (max-width: 720px) {
+  .login-console { padding: 24px; }
+  .login-fog { -webkit-mask-image: none; mask-image: none; }
+  .login-visual-toggle { right: 58px; padding: 5px 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .login-art__frame { animation: none; }
+  .login-art__frame:nth-child(1) { opacity: 1; }
+  .login-console { animation: none; transition: none; }
 }
 
 /* ---------- Atendimento.html / Bot.html ---------- */
