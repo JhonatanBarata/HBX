@@ -28,6 +28,7 @@ export function PuxarLeadsPanel({ onPulled, defaultSegment = "" }: { onPulled?: 
   const [segment, setSegment] = useState(defaultSegment);
   const [city, setCity] = useState("");
   const [uf, setUf] = useState("");
+  const [radiusKm, setRadiusKm] = useState(0);
   const [quantity, setQuantity] = useState(5);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<PullResult>(null);
@@ -46,6 +47,9 @@ export function PuxarLeadsPanel({ onPulled, defaultSegment = "" }: { onPulled?: 
           segment: segment.trim(),
           city: city.trim() || undefined,
           state: uf.trim() || undefined,
+          // Alcance (B5): raio só faz sentido com cidade; o backend resolve as
+          // cidades vizinhas e a lagoa transborda pra elas (cidade primeiro).
+          radiusKm: city.trim() && radiusKm > 0 ? radiusKm : undefined,
           quantity,
         }),
       });
@@ -78,6 +82,16 @@ export function PuxarLeadsPanel({ onPulled, defaultSegment = "" }: { onPulled?: 
           <label>UF (opcional)</label>
           <input className="field-dark" placeholder="SP" maxLength={2} value={uf}
             onChange={e => setUf(e.target.value.toUpperCase())} />
+        </div>
+        <div className="f">
+          <label>Alcance</label>
+          <select className="select-dark" value={radiusKm} onChange={e => setRadiusKm(Number(e.target.value))}
+            disabled={!city.trim()} title={city.trim() ? "Inclui cidades vizinhas no raio" : "Informe uma cidade para usar o alcance"}>
+            <option value={0}>Só a cidade</option>
+            <option value={25}>+ 25 km</option>
+            <option value={50}>+ 50 km</option>
+            <option value={100}>+ 100 km</option>
+          </select>
         </div>
         <div className="f">
           <label>Quantidade</label>

@@ -48,8 +48,16 @@ body { min-height: 100vh; }
    card, direita "Confiança e tecnologia". O ROBÔ é decorativo via pele
    (.login-art) — só o Tema HBX preenche). ---------- */
 .login-console { position: relative; min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 460px) minmax(0, 1fr); align-items: center; gap: 28px; padding: 32px clamp(20px, 4vw, 64px); overflow: hidden; }
-/* Slot de arte (robô/fundo): vazio por padrão; a pele preenche o background. */
-.login-art { position: absolute; inset: 0 0 0 auto; width: 46%; z-index: 0; pointer-events: none; background-repeat: no-repeat; background-position: right bottom; background-size: contain; opacity: 0; }
+/* Slot de arte (cena/robô): full-bleed atrás dos painéis. Empilha N quadros
+   (.login-art__frame) que a PELE preenche e faz transmuxar (cross-fade). Vazio
+   por padrão (opacity 0) — só a pele que tiver imagens acende. */
+.login-art { position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; opacity: 0; }
+.login-art__frame { position: absolute; inset: 0; background-size: cover; background-position: center; background-repeat: no-repeat; opacity: 0; }
+/* Cross-fade em loop: cada quadro fica visível ~1/5 do ciclo e some no resto;
+   a pele dá a imagem e o atraso (animation-delay) que defasa os quadros. */
+@keyframes hbx-robo-cycle {
+  0% { opacity: 0; } 4% { opacity: 1; } 20% { opacity: 1; } 24% { opacity: 0; } 100% { opacity: 0; }
+}
 .login-side { position: relative; z-index: 1; display: flex; }
 .login-side--left { justify-content: flex-end; }
 .login-side--right { justify-content: flex-start; }
@@ -67,7 +75,6 @@ body { min-height: 100vh; }
 @media (max-width: 1080px) {
   .login-console { grid-template-columns: 1fr; justify-items: center; }
   .login-side { display: none; }
-  .login-art { width: 70%; opacity: 0.5; }
 }
 
 /* ---------- Atendimento.html / Bot.html ---------- */

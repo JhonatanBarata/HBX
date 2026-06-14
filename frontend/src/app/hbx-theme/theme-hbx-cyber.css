@@ -117,12 +117,24 @@
   mask-image: radial-gradient(circle at 50% 40%, #000, transparent 75%);
 }
 /* O ROBÔ (foto da cena, cropada na direita): peça decorativa atrás dos painéis. */
-[data-theme="hbx-cyber"] .login-art {
-  background-image: url("/robo-hbx.png");
-  background-size: cover; background-position: right center;
-  opacity: 0.5;
-  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 52%);
-  mask-image: linear-gradient(90deg, transparent 0%, #000 52%);
+/* CENA CINEMATOGRÁFICA que TRANSMUXA pelas 5 cores (só nesta pele). Cross-fade
+   puro CSS: 5 quadros, ciclo de 35s, defasados em -7s — sempre em transição. */
+[data-theme="hbx-cyber"] .login-art { opacity: 0.9; }
+[data-theme="hbx-cyber"] .login-art__frame { animation: hbx-robo-cycle 35s linear infinite; }
+[data-theme="hbx-cyber"] .login-art__frame:nth-child(1) { background-image: url("/robo-blue.png"); animation-delay: 0s; }
+[data-theme="hbx-cyber"] .login-art__frame:nth-child(2) { background-image: url("/robo-purple.png"); animation-delay: -7s; }
+[data-theme="hbx-cyber"] .login-art__frame:nth-child(3) { background-image: url("/robo-magenta.png"); animation-delay: -14s; }
+[data-theme="hbx-cyber"] .login-art__frame:nth-child(4) { background-image: url("/robo-crimson.png"); animation-delay: -21s; }
+[data-theme="hbx-cyber"] .login-art__frame:nth-child(5) { background-image: url("/robo-amber.png"); animation-delay: -28s; }
+/* leve escurecimento sobre a cena (legibilidade dos painéis; o vidro cuida do resto) */
+[data-theme="hbx-cyber"] .login-art::after { content: ""; position: absolute; inset: 0; background: radial-gradient(120% 100% at 72% 50%, transparent 28%, color-mix(in srgb, var(--hbx-background) 62%, transparent) 100%); }
+/* MODO CLARO: tenta clarear — véu claro forte deixa as cenas em ghost pastel.
+   Se virar lama, basta zerar .login-art (fundo azul limpo). */
+[data-theme="hbx-cyber"][data-theme-mode="light"] .login-art { opacity: 0.4; }
+[data-theme="hbx-cyber"][data-theme-mode="light"] .login-art::after { background: color-mix(in srgb, var(--hbx-background) 58%, transparent); }
+@media (prefers-reduced-motion: reduce) {
+  [data-theme="hbx-cyber"] .login-art__frame { animation: none; }
+  [data-theme="hbx-cyber"] .login-art__frame:nth-child(1) { opacity: 1; }
 }
 [data-theme="hbx-cyber"] .brand-side {
   background:

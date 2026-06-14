@@ -144,7 +144,13 @@ export function LoginClient() {
     <>
       <AuthThemeControls />
       <div className="login-console">
-        <div className="login-art" aria-hidden />
+        <div className="login-art" aria-hidden>
+          <i className="login-art__frame" />
+          <i className="login-art__frame" />
+          <i className="login-art__frame" />
+          <i className="login-art__frame" />
+          <i className="login-art__frame" />
+        </div>
 
         <aside className="login-side login-side--left" aria-label="Soluções integradas">
           <div className="login-side__panel">
