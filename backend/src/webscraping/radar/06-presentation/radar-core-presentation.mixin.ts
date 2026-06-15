@@ -1381,6 +1381,11 @@ export class RadarCorePresentationMixin {
   private normalizeRadarWhatsappCheckMode(value: unknown): RadarWhatsappCheckMode {
     const normalized = String(value || '').trim().toLowerCase();
     if (normalized === 'enrich' || normalized === 'only_valid') return normalized;
+    // Default configuravel: liga a verificacao de existencia nos runs SEM mode explicito
+    // (a fabrica nao manda mode -> cai aqui). 'enrich' anota whatsappStatus sem derrubar;
+    // 'only_valid' filtra os nao-confirmados. Inocuo enquanto o chip do motor nao conectar.
+    const envDefault = String(process.env.HBX_RADAR_WHATSAPP_CHECK_MODE || '').trim().toLowerCase();
+    if (envDefault === 'enrich' || envDefault === 'only_valid') return envDefault as RadarWhatsappCheckMode;
     return 'off';
   }
 

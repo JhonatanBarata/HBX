@@ -16,6 +16,12 @@
       "autoPort": false
     },
     {
+      "name": "preview",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:preview", "--prefix", "frontend"],
+      "autoPort": true
+    },
+    {
       "name": "hbx-owner",
       "runtimeExecutable": "powershell",
       "runtimeArgs": ["-NoProfile", "-Command", "$env:HBX_OWNER_LOCAL_TOKEN=(Get-Content 'hbx-owner/local-agent/.owner-token' -Raw).Trim(); $l=Select-String -Path '.env.ops-control' -Pattern 'OPS_CONTROL_TOKEN' | Select-Object -First 1; $env:HBX_OWNER_OPS_TOKEN=($l.Line -replace '.*OPS_CONTROL_TOKEN[ ]*=','').Trim(); node 'hbx-owner/local-agent/server.js'"],
