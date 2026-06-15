@@ -394,7 +394,7 @@ export function LeadsClient() {
 
             <section className="panel">
               <div className="panel-head">
-                <h2>Base de leads</h2>
+                <h2>Leads do Radar</h2>
                 <div className="meta">
                   {canDistribute && (
                     <button className={"tag" + (ruleStatus === "active" ? " teal" : ruleStatus === "paused" ? " warn" : "")}

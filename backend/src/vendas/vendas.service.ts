@@ -4996,8 +4996,14 @@ export class VendasService {
 
     if (phoneDigits && shouldRefreshWhatsapp) {
       try {
-        const masterCompanyId = await this.getOrCreateMasterWhatsappEngineCompanyId();
-        const [lookup] = await this.webwhatsBridge.checkWhatsappNumbers(masterCompanyId, [phoneDigits]);
+        // Regra IGUAL SMTP/MP: chip do MASTER só se a empresa marcou useMasterWhatsAppToken; senão o dela.
+        const tenant = await this.prisma.company
+          .findUnique({ where: { id: Number(companyId) }, select: { useMasterWhatsAppToken: true } })
+          .catch(() => null);
+        const engineCompanyId = tenant?.useMasterWhatsAppToken
+          ? await this.getOrCreateMasterWhatsappEngineCompanyId()
+          : companyId;
+        const [lookup] = await this.webwhatsBridge.checkWhatsappNumbers(engineCompanyId, [phoneDigits]);
         if (lookup) {
           const status: VendasWhatsappAvailabilityStatus = lookup.exists ? 'available' : 'unavailable';
           const now = new Date();

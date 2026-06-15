@@ -22,6 +22,7 @@ import { PlanosEditor } from "@/components/hbx/planos-editor";
 import { MetaWhatsAppEditor } from "@/components/hbx/meta-whatsapp-editor";
 import { MetaTemplatesEditor } from "@/components/hbx/meta-templates-editor";
 
+import { MasterWhatsappChip } from "./master-whatsapp-chip";
 import { fmtDataHora } from "./page.client";
 
 const SUBTABS = ["Módulos", "Política comercial", "Credenciais", "Exclusões", "Reclamações", "Planos", "WhatsApp (Meta)"];
@@ -442,6 +443,7 @@ export function JanelaSistema() {
       )}
 
       {sub === 2 && (
+        <React.Fragment>
         <section className="panel">
           <div className="panel-head">
             <h2>Bibliotecas de credenciais master</h2>
@@ -505,6 +507,8 @@ export function JanelaSistema() {
             </div>
           </div>
         </section>
+        <MasterWhatsappChip />
+        </React.Fragment>
       )}
 
       {sub === 3 && (
