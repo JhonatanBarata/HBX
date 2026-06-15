@@ -5,7 +5,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { runWebQueryProvider } = require('./providers/web-query.provider');
-const { runSiteCrawlProvider } = require('./providers/site-crawl.provider');
+const { runSiteCrawlProvider, configurePacing, getPacingStats } = require('./providers/site-crawl.provider');
 const { runDirectoryProbeProvider } = require('./providers/directory-probe.provider');
 const { runSocialProbeProvider } = require('./providers/social-probe.provider');
 const { writeBatchExport, buildBatchExport } = require('./exporters/hbx-jsonl-exporter');
@@ -116,6 +116,10 @@ function normalizeJobInput(body) {
   const maxDiscoveredLinks = clampInteger(body.maxDiscoveredLinks || process.env.HBX_LOCAL_LAB_MAX_DISCOVERED_LINKS, aggressive ? 1000 : 80, 0, 1000);
   const maxDirectoryUrls = clampInteger(body.maxDirectoryUrls || process.env.HBX_LOCAL_LAB_MAX_DIRECTORY_URLS, aggressive ? 5000 : 300, 0, 5000);
   const maxSocialUrls = clampInteger(body.maxSocialUrls || process.env.HBX_LOCAL_LAB_MAX_SOCIAL_URLS, aggressive ? 5000 : 300, 0, 5000);
+  // Ritmo (protege o IP): pausa entre GETs + backoff em bloqueio. Volume infinito, velocidade lenta.
+  const minDelayMs = clampInteger(body.minDelayMs ?? process.env.HBX_LOCAL_LAB_MIN_DELAY_MS, 1500, 0, 60_000);
+  const maxDelayMs = clampInteger(body.maxDelayMs ?? process.env.HBX_LOCAL_LAB_MAX_DELAY_MS, 4000, minDelayMs, 120_000);
+  const blockBackoffMs = clampInteger(body.blockBackoffMs ?? process.env.HBX_LOCAL_LAB_BLOCK_BACKOFF_MS, 60_000, 0, 600_000);
   return {
     city: compactText(body.city, 120),
     state: compactText(body.state, 2).toUpperCase(),
@@ -137,6 +141,9 @@ function normalizeJobInput(body) {
     maxDiscoveredLinks,
     maxDirectoryUrls,
     maxSocialUrls,
+    minDelayMs,
+    maxDelayMs,
+    blockBackoffMs,
   };
 }
 
@@ -155,6 +162,9 @@ function serializeJob(job) {
     maxCandidates: job.maxCandidates,
     maxPagesPerSite: job.maxPagesPerSite,
     maxDiscoveredLinks: job.maxDiscoveredLinks,
+    minDelayMs: job.minDelayMs,
+    maxDelayMs: job.maxDelayMs,
+    blockBackoffMs: job.blockBackoffMs,
     metrics: job.metrics,
     warnings: job.warnings,
     error: job.error,
@@ -195,6 +205,7 @@ async function processJob(job) {
   const leads = [];
   const emails = [];
   const providerStats = {};
+  configurePacing(job);
   try {
     for (const provider of job.providers) {
       if (job.status === 'canceled') break;
@@ -209,6 +220,7 @@ async function processJob(job) {
       job.metrics.sitesVisited += Number(result.stats?.pagesVisited || 0);
       job.metrics.emailsFound += Number(result.stats?.emailsFound || 0);
     }
+    job.metrics.pacing = getPacingStats();
     if (job.status === 'canceled') {
       job.finishedAt = new Date().toISOString();
       await persistJob(job);

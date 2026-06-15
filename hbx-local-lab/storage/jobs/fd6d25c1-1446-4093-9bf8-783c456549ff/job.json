@@ -1,0 +1,48 @@
+{
+  "id": "fd6d25c1-1446-4093-9bf8-783c456549ff",
+  "batchId": "local-lab-fd6d25c1-1446-4093-9bf8-783c456549ff",
+  "status": "completed",
+  "city": "Teste",
+  "state": "SP",
+  "segment": "teste",
+  "targetEmails": 1,
+  "mode": "email_first",
+  "aggressive": false,
+  "providers": [
+    "site_crawl"
+  ],
+  "maxCandidates": 500,
+  "maxPagesPerSite": 40,
+  "maxDiscoveredLinks": 80,
+  "minDelayMs": 0,
+  "maxDelayMs": 0,
+  "blockBackoffMs": 0,
+  "metrics": {
+    "sitesVisited": 0,
+    "emailsFound": 0,
+    "emailsAccepted": 0,
+    "leads": 1,
+    "pacing": {
+      "fetches": 33,
+      "blocks": 0,
+      "backoffMs": 0,
+      "minDelayMs": 0,
+      "maxDelayMs": 0,
+      "blockBackoffMs": 0
+    },
+    "providerStats": {
+      "site_crawl": {
+        "provider": "site_crawl",
+        "candidates": 1,
+        "pagesVisited": 0,
+        "emailsFound": 0
+      }
+    }
+  },
+  "warnings": [],
+  "error": null,
+  "exportReady": true,
+  "createdAt": "2026-06-15T01:26:12.345Z",
+  "startedAt": "2026-06-15T01:26:12.348Z",
+  "finishedAt": "2026-06-15T01:26:12.382Z"
+}

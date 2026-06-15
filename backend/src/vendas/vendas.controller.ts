@@ -303,6 +303,12 @@ export class VendasController {
     return this.vendasService.deleteLeadForUser(req.user, leadId);
   }
 
+  // Negativar com MOTIVO (dono 14/06): leve volta pra lagoa, dura some pra todos.
+  @Post('lead/:leadId/negativar')
+  negativarLead(@Req() req: any, @Param('leadId') leadId: string, @Body() body?: { status?: string; note?: string }) {
+    return this.vendasService.negativarLeadForUser(req.user, leadId, body || {});
+  }
+
   @Post('leads/:leadId/report-error')
   reportLeadError(@Req() req: any, @Param('leadId') leadId: string, @Body() dto: ReportVendasLeadDto) {
     return this.vendasService.reportLeadErrorForUser(req.user, leadId, dto || {});

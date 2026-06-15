@@ -6,7 +6,7 @@ Leia este arquivo primeiro. Depois leia APENAS o arquivo de domínio relevante a
 
 Ordem do dono executa-se literalmente, sem reinterpretar, sem "melhorar", sem adaptar.
 
-**Frontend — AS 5 LEIS DO DESIGN SYSTEM (ordem do dono, 12/06/2026, bloqueio absoluto):**
+**Frontend — AS 5 LEIS DO DESIGN SYSTEM (ordem do dono, 12/06/2026) — MÉTODO, não freio:**
 1. **Tokens centrais** — todo valor visual nasce em `frontend/src/app/hbx-theme/`
    (skeleton.css = contrato neutro; theme.css = utilities Tailwind v4 dos tokens).
 2. **Componentes centrais** — visual repetido vira classe do kit (`kit.css`) ou
@@ -17,10 +17,12 @@ Ordem do dono executa-se literalmente, sem reinterpretar, sem "melhorar", sem ad
    classe central/utility/token.
 5. **`check-pele.mjs` fiscaliza no lint** (hex/rgba/style visual em TSX = build
    reprovado; styles visuais legados descem por catraca até zero).
-Detalhes e exceções: docs/Rules/FRONTEND.md. Violação das leis = PARAR e avisar o
-dono antes de editar. As telas atuais estão no ESQUELETO (peles deletadas por ordem
-dele em 12/06) até ele aprovar peles novas. `docs/TEMAS` virou REFERÊNCIA de
-estrutura/escrita — visual de lá NÃO se copia mais para dentro de tela.
+Detalhes e exceções: docs/Rules/FRONTEND.md. As 5 Leis valem como MÉTODO (todo
+visual nasce em token/classe central; check-pele reprova hex/inline). **FREEZE
+LEVANTADO pelo dono em 14/06/2026: refatorar aparência/peles está AUTORIZADO — não
+parar pra perguntar, não usar as Leis pra recusar trabalho de aparência. Acabou o
+"esqueleto até aprovar peles".** `docs/TEMAS` segue como REFERÊNCIA de
+estrutura/escrita — visual de lá NÃO se copia inline para dentro de tela (vira token/classe).
 
 ## Mapa de domínios → `docs/Rules/`
 

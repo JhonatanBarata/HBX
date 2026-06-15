@@ -14,6 +14,7 @@ import { useState } from "react";
 import { I, ICONS } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 import { BRAZIL_UF_OPTIONS, brazilCityOptionsForUf } from "@/lib/brazil-cities";
+import { RADAR_SEGMENTS_FLAT, categoryOfSegment } from "@/lib/radar-segments";
 
 type PullResult = {
   ok?: boolean;
@@ -67,14 +68,17 @@ export function PuxarLeadsPanel({ onPulled, defaultSegment = "" }: { onPulled?: 
   return (
     <section className="panel">
       <div className="panel-head">
-        <h2><I d={ICONS.plus} size={14} /> Puxar leads da lagoa</h2>
+        <h2><I d={ICONS.plus} size={14} /> Puxar leads</h2>
         <div className="meta"><small>Os leads que você puxar vão direto para a sua carteira em Vendas.</small></div>
       </div>
       <div className="filters">
         <div className="f">
           <label>Segmento</label>
-          <input className="field-dark" placeholder="Ex.: dentista, oficina" value={segment}
+          <input className="field-dark" list="puxar-segmentos" placeholder="Escolha ou digite (ex.: dentistas)" value={segment}
             onChange={e => setSegment(e.target.value)} onKeyDown={e => e.key === "Enter" && puxar()} />
+          <datalist id="puxar-segmentos">
+            {RADAR_SEGMENTS_FLAT.map(s => <option key={s} value={s}>{categoryOfSegment(s) || ""}</option>)}
+          </datalist>
         </div>
         <div className="f">
           <label>Cidade (opcional)</label>

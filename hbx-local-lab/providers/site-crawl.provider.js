@@ -5,6 +5,49 @@ const { buildContactUrls, extractLikelyCompanyName, extractPublicLinks, extractS
 
 const MAX_PAGE_BYTES = 350_000;
 
+// --- Ritmo humano (protege o IP) -------------------------------------------
+// A caça é serial; o que faltava era PAUSA entre requisições e BACKOFF quando o
+// alvo bloqueia (429/403/503). O volume pode ser infinito; a velocidade é lenta.
+function clampMs(value, fallback) {
+  const n = Math.trunc(Number(value));
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+const PACING = {
+  minDelayMs: clampMs(process.env.HBX_LOCAL_LAB_MIN_DELAY_MS, 1500),
+  maxDelayMs: clampMs(process.env.HBX_LOCAL_LAB_MAX_DELAY_MS, 4000),
+  blockBackoffMs: clampMs(process.env.HBX_LOCAL_LAB_BLOCK_BACKOFF_MS, 60_000),
+};
+const BLOCK_STATUSES = new Set([429, 403, 503]);
+let lastFetchAt = 0;
+let blockStreak = 0;
+const pacingStats = { fetches: 0, blocks: 0, backoffMs: 0 };
+
+function sleep(ms) {
+  return ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve();
+}
+
+// O orquestrador ajusta o ritmo por job e zera o estado entre jobs.
+function configurePacing(job = {}) {
+  if (job.minDelayMs != null) PACING.minDelayMs = clampMs(job.minDelayMs, PACING.minDelayMs);
+  if (job.maxDelayMs != null) PACING.maxDelayMs = clampMs(job.maxDelayMs, PACING.maxDelayMs);
+  if (job.blockBackoffMs != null) PACING.blockBackoffMs = clampMs(job.blockBackoffMs, PACING.blockBackoffMs);
+  lastFetchAt = 0;
+  blockStreak = 0;
+  pacingStats.fetches = 0;
+  pacingStats.blocks = 0;
+  pacingStats.backoffMs = 0;
+}
+
+function getPacingStats() {
+  return { ...pacingStats, minDelayMs: PACING.minDelayMs, maxDelayMs: PACING.maxDelayMs, blockBackoffMs: PACING.blockBackoffMs };
+}
+
+function nextDelayMs() {
+  const lo = Math.min(PACING.minDelayMs, PACING.maxDelayMs);
+  const hi = Math.max(PACING.minDelayMs, PACING.maxDelayMs);
+  return Math.round(lo + Math.random() * (hi - lo));
+}
+
 function normalizeSeedCandidate(seed, job) {
   if (!seed) return null;
   if (typeof seed === 'string') {
@@ -55,6 +98,13 @@ function collectSeedCandidates(job) {
 async function fetchPublicPage(url, signal, fetcher = globalThis.fetch) {
   const target = normalizeUrl(url);
   if (!target || typeof fetcher !== 'function') return { ok: false, error: 'fetch_unavailable', url: target || url };
+
+  // Pausa humana antes do GET (jitter), respeitando o intervalo mínimo desde o último.
+  const gap = nextDelayMs();
+  const since = Date.now() - lastFetchAt;
+  if (lastFetchAt > 0 && since < gap) await sleep(gap - since);
+
+  let page;
   try {
     const response = await fetcher(target, {
       method: 'GET',
@@ -65,17 +115,37 @@ async function fetchPublicPage(url, signal, fetcher = globalThis.fetch) {
         'user-agent': 'HBX-Local-Lab/0.1 public-contact-check',
       },
     });
-    if (!response.ok) return { ok: false, error: `http_${response.status}`, url: target };
-    const contentType = String(response.headers.get('content-type') || '').toLowerCase();
-    if (contentType && !/text\/html|text\/plain|text\/xml|application\/xml|application\/xhtml\+xml/.test(contentType)) {
-      return { ok: false, error: 'unsupported_content_type', url: target };
+    if (!response.ok) {
+      page = { ok: false, error: `http_${response.status}`, status: response.status, url: target };
+    } else {
+      const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+      if (contentType && !/text\/html|text\/plain|text\/xml|application\/xml|application\/xhtml\+xml/.test(contentType)) {
+        page = { ok: false, error: 'unsupported_content_type', status: response.status, url: target };
+      } else {
+        const raw = await response.text();
+        page = { ok: true, url: target, status: response.status, html: raw.slice(0, MAX_PAGE_BYTES) };
+      }
     }
-    const raw = await response.text();
-    const html = raw.slice(0, MAX_PAGE_BYTES);
-    return { ok: true, url: target, html };
   } catch (error) {
-    return { ok: false, error: String(error && error.name === 'AbortError' ? 'aborted' : error?.message || error), url: target };
+    page = { ok: false, error: String(error && error.name === 'AbortError' ? 'aborted' : error?.message || error), url: target };
   }
+
+  lastFetchAt = Date.now();
+  pacingStats.fetches += 1;
+
+  // Backoff: se o alvo bloqueou (429/403/503), dorme (crescente) e segue — não insiste, não toma ban.
+  if (page && page.status && BLOCK_STATUSES.has(page.status) && PACING.blockBackoffMs > 0) {
+    blockStreak += 1;
+    const backoff = PACING.blockBackoffMs * Math.min(blockStreak, 5);
+    pacingStats.blocks += 1;
+    pacingStats.backoffMs += backoff;
+    await sleep(backoff);
+    lastFetchAt = Date.now();
+  } else {
+    blockStreak = 0;
+  }
+
+  return page;
 }
 
 function buildLeadFromCandidate(candidate, emails, pages, job) {
@@ -181,4 +251,6 @@ module.exports = {
   collectSeedCandidates,
   fetchPublicPage,
   runSiteCrawlProvider,
+  configurePacing,
+  getPacingStats,
 };

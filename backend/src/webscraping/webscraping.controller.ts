@@ -169,6 +169,12 @@ class RadarDatabaseQueryDto {
   @Min(1)
   page?: number;
 
+  // VITRINE (carrossel do Radar): scope=vitrine mostra a lagoa compartilhada (todos),
+  // contato mascarado. Sem isso = tela Leads (filtra pelo que o vendedor puxou).
+  @IsOptional()
+  @IsString()
+  scope?: string;
+
   @IsOptional()
   @IsString()
   filterKey?: string;

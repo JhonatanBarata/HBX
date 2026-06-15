@@ -67,23 +67,38 @@ body { min-height: 100vh; }
 .login-art__frame:nth-child(3) { background-image: url("/robo-magenta.png"); animation-delay: -18s; }
 .login-art__frame:nth-child(4) { background-image: url("/robo-crimson.png"); animation-delay: -27s; }
 .login-art__frame:nth-child(5) { background-image: url("/robo-amber.png"); animation-delay: -36s; }
+/* MODO CLARO: cada quadro ganha uma CAMADA clara por cima (::after) que faz
+   CROSS-FADE ao trocar de modo — background-image não anima, então uso camada +
+   opacity. As fotos claras PRECISAM ter o robô no MESMO lugar/tamanho das
+   escuras (mesmo enquadramento; só muda luz/céu) — senão o robô "desliza" no
+   fade. Mesma ordem dos quadros: 1 azul · 2 roxo · 3 magenta · 4 carmesim · 5 âmbar. */
+.login-art__frame::after { content: ""; position: absolute; inset: 0; background-size: cover; background-position: center; background-repeat: no-repeat; opacity: 0; transition: opacity 0.9s var(--ease-out-quint); }
+[data-theme-mode="light"] .login-art__frame::after { opacity: 1; }
+.login-art__frame:nth-child(1)::after { background-image: url("/blue light.png"); }
+.login-art__frame:nth-child(2)::after { background-image: url("/purple light.png"); }
+.login-art__frame:nth-child(3)::after { background-image: url("/magenta light.png"); }
+.login-art__frame:nth-child(4)::after { background-image: url("/crimson light.png"); }
+.login-art__frame:nth-child(5)::after { background-image: url("/amber light.png"); }
 /* escurece FORTE a esquerda (backdrop do texto/card, segue o modo) e libera a direita */
 .login-art::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, color-mix(in srgb, var(--hbx-background) 92%, transparent) 0%, color-mix(in srgb, var(--hbx-background) 58%, transparent) 42%, transparent 72%); }
 @keyframes hbx-robo-cycle {
   0% { opacity: 0; } 4% { opacity: 1; } 20% { opacity: 1; } 24% { opacity: 0; } 100% { opacity: 0; }
 }
-/* CHROME acompanha a COR PREDOMINANTE da foto (cicla junto, suave; @property interpola). */
+/* CHROME acompanha a COR PREDOMINANTE da foto (@property interpola sem pulo).
+   As janelas SEGURAM a cor enquanto o robô daquela cor está 100% na tela
+   (op1 do hbx-robo-cycle) e só MORFAM durante o cross-fade — assim a cor
+   nunca foge do robô visível. Janelas op1: azul 4–20%, âmbar 24–40%,
+   carmesim 44–60%, magenta 64–80%, roxo 84–100% (volta pro azul em 0–4%). */
 @keyframes login-accent {
-  0% { --login-accent: var(--login-cycle-5); }
-  12% { --login-accent: var(--login-cycle-1); }
-  31% { --login-accent: var(--login-cycle-2); }
-  51% { --login-accent: var(--login-cycle-3); }
-  71% { --login-accent: var(--login-cycle-4); }
-  91% { --login-accent: var(--login-cycle-5); }
-  100% { --login-accent: var(--login-cycle-5); }
+  0% { --login-accent: var(--login-cycle-5); }            /* roxo (fim do hold) */
+  4%, 20% { --login-accent: var(--login-cycle-1); }       /* azul    */
+  24%, 40% { --login-accent: var(--login-cycle-2); }      /* âmbar   */
+  44%, 60% { --login-accent: var(--login-cycle-3); }      /* carmesim*/
+  64%, 80% { --login-accent: var(--login-cycle-4); }      /* magenta */
+  84%, 100% { --login-accent: var(--login-cycle-5); }     /* roxo    */
 }
 /* Névoa: embaça da metade pra esquerda; no claro, clareia SÓ essa região. */
-.login-fog { position: absolute; inset: 0; z-index: 1; pointer-events: none; -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 50%, transparent 78%); mask-image: linear-gradient(90deg, #000 0%, #000 50%, transparent 78%); transition: opacity 0.78s var(--ease-out-quint); }
+.login-fog { position: absolute; inset: 0; z-index: 1; pointer-events: none; -webkit-backdrop-filter: blur(10.4px); backdrop-filter: blur(10.4px); -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 30%, transparent 58%); mask-image: linear-gradient(90deg, #000 0%, #000 30%, transparent 58%); transition: opacity 0.78s var(--ease-out-quint); }
 [data-theme-mode="light"] .login-fog { background: color-mix(in srgb, var(--hbx-surface) 55%, transparent); }
 
 /* Coluna do meio: escrita + card. */
@@ -132,8 +147,10 @@ body { min-height: 100vh; }
 .login-console.is-leaving .login-shell, .login-console.is-leaving .login-fog { opacity: 0; }
 .login-console.is-leaving .login-art { transform: scale(1.06); transition: transform 1.56s var(--ease-out-quint); }
 
-/* Visual OFF: sem cor que cicla (accent estático = marca), sem robô nem névoa. */
-.login-console.is-plain { animation: none; --login-accent: var(--hbx-brand); }
+/* Visual OFF: esconde só o robô + a névoa, mas MANTÉM a cor do login ciclando
+   (mais leve). O importante: as DUAS animações (cor + robô) NUNCA param nem
+   reiniciam ao ligar/desligar o Visual, então nunca dessincronizam. Por isso a
+   cor do login é PRÓPRIA/universal e NÃO segue a marca do tema — ordem do dono. */
 .login-console.is-plain .login-art, .login-console.is-plain .login-fog { opacity: 0; }
 .alt button { background: none; border: none; padding: 0; font: inherit; cursor: pointer; }
 
@@ -453,6 +470,70 @@ html, body { height: 100%; }
 .chip-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 0 16px 12px; }
 .chip-row .tag { display: inline-flex; gap: 6px; align-items: center; }
 .chip-x { cursor: pointer; display: inline-flex; }
+/* Negativar lead com motivo (Vendas, 14/06) — classes centrais, sem inline na tela. */
+.vendas-neg { display: grid; gap: 6px; }
+.vendas-neg > label { font-size: 0.7rem; font-weight: 700; color: var(--text-muted); }
+.vendas-neg .neg-row { display: flex; gap: 8px; align-items: center; }
+.vendas-neg .neg-row .field-dark { flex: 1; }
+
+/* Radar VITRINE — carrossel de leads da lagoa (dono 14/06): cards ricos com
+   presença digital (Instagram/Facebook/site) e sinais (✓WhatsApp/✓e-mail),
+   contato mascarado (revela ao puxar). Só tokens centrais (5 Leis). */
+.radar-vitrine { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 12px; padding: 2px; }
+.radar-vitrine-empty { grid-column: 1 / -1; text-align: center; color: var(--text-muted); padding: 34px 12px; font-size: 0.8rem; }
+.vlead { display: grid; gap: 10px; text-align: left; padding: 14px; border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-surface); cursor: pointer; transition: transform .15s ease, border-color .15s ease; animation: vlead-in .34s ease both; }
+.vlead:hover { transform: translateY(-2px); border-color: var(--hbx-brand); }
+.vlead.on { border-color: var(--hbx-brand); }
+.vlead-top { display: flex; gap: 10px; align-items: center; }
+.vlead-id { display: grid; gap: 2px; min-width: 0; flex: 1; }
+.vlead-id strong { font-size: 0.84rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vlead-id span { font-size: 0.7rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vlead-score { flex: 0 0 auto; font-family: var(--font-mono); font-size: 0.74rem; font-weight: 700; padding: 3px 9px; border-radius: var(--radius-pill); background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); }
+.vlead-score.mid { background: var(--hbx-surface-soft); color: var(--text-muted); }
+.vlead-sig, .vlead-soc { display: flex; flex-wrap: wrap; gap: 6px; }
+.vlead .sig { display: inline-flex; align-items: center; gap: 5px; font-size: 0.63rem; font-weight: 700; padding: 2px 8px; border-radius: var(--radius-pill); background: var(--hbx-surface-soft); color: var(--text-muted); }
+.vlead .sig.ok { background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); }
+.vlead .soc { display: inline-flex; align-items: center; gap: 5px; font-size: 0.66rem; font-weight: 600; padding: 3px 9px; border-radius: var(--radius-pill); border: 1px solid var(--border-hairline); color: var(--hbx-brand-strong); text-decoration: none; }
+.vlead .soc:hover { border-color: var(--hbx-brand); }
+.vlead .soc.none { color: var(--text-muted); border-style: dashed; }
+@keyframes vlead-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+/* Ícones de CANAL — PADRÃO CENTRAL (dono 14/06): imagem real de /Icones, troca
+   claro↔escuro sozinho. Default = claro (name.webp); modo escuro = name_dark.webp.
+   url() não é cor → permitido. Tamanho por classe (sm 14 / md 16 / lg 20). */
+.chan-ico { display: inline-block; flex: 0 0 auto; width: 16px; height: 16px; background-size: contain; background-repeat: no-repeat; background-position: center; vertical-align: -2px; }
+.chan-ico--sm { width: 14px; height: 14px; vertical-align: -2px; }
+.chan-ico--lg { width: 20px; height: 20px; vertical-align: -4px; }
+/* Alinha ícone de canal + texto (chip/linha) sem inline na tela. */
+.with-ico { display: inline-flex; align-items: center; gap: 5px; }
+
+/* Funil VAZIO no Vendas (dono 14/06): deixa CLARO o porquê + o caminho
+   (Radar→Leads→Vendas) + quantos leads esperam + botão. Só tokens centrais. */
+.funil-empty { display: grid; gap: 18px; justify-items: center; text-align: center; padding: 30px 18px 36px; }
+.funil-empty-why { display: grid; gap: 6px; max-width: 48ch; }
+.funil-empty-why h3 { margin: 0; font-family: var(--font-display); font-size: 1.05rem; font-weight: 800; }
+.funil-empty-why p { margin: 0; font-size: 0.82rem; line-height: 1.55; color: var(--text-muted); }
+.funil-flow { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; justify-content: center; }
+.funil-flow .step { display: grid; gap: 2px; justify-items: center; padding: 10px 16px; border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-surface-soft); color: var(--text-muted); }
+.funil-flow .step-h { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8rem; font-weight: 700; }
+.funil-flow .step small { font-size: 0.62rem; font-weight: 600; color: var(--text-muted); }
+.funil-flow .step.on { border-color: var(--hbx-brand); background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); }
+.funil-flow .arrow { align-self: center; color: var(--text-muted); font-weight: 700; }
+.funil-cta { display: grid; gap: 12px; justify-items: center; }
+.funil-cta-count { font-size: 0.86rem; color: var(--text-body); }
+.funil-cta-acts { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+.chan-ico--whatsapp { background-image: url("/Icones/whatsapp.webp"); }
+.chan-ico--telefone { background-image: url("/Icones/telefone.webp"); }
+.chan-ico--email { background-image: url("/Icones/email.webp"); }
+.chan-ico--instagram { background-image: url("/Icones/instagram.webp"); }
+.chan-ico--facebook { background-image: url("/Icones/facebook.webp"); }
+.chan-ico--site { background-image: url("/Icones/site_globe.webp"); }
+[data-theme-mode="dark"] .chan-ico--whatsapp { background-image: url("/Icones/whatsapp_dark.webp"); }
+[data-theme-mode="dark"] .chan-ico--telefone { background-image: url("/Icones/telefone_dark.webp"); }
+[data-theme-mode="dark"] .chan-ico--email { background-image: url("/Icones/email_dark.webp"); }
+[data-theme-mode="dark"] .chan-ico--instagram { background-image: url("/Icones/instagram_dark.webp"); }
+[data-theme-mode="dark"] .chan-ico--facebook { background-image: url("/Icones/facebook_dark.webp"); }
+[data-theme-mode="dark"] .chan-ico--site { background-image: url("/Icones/site_globe_dark.webp"); }
 .bv-msg { font-size: 0.74rem; font-weight: 700; line-height: 1.5; }
 .bv-msg.bad { color: var(--hbx-danger); }
 .bv-foot { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding-top: 2px; }

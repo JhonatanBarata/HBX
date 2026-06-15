@@ -90,9 +90,20 @@ A lagoa (`RadarLeadPool`) é **única e global** (`companyId NULL`). As regras:
 - [x] **Vendedor edita a própria preferência (self-service)** — `PATCH /profile/preferred-segments`
       + util `preferred-segments.util.ts` (shape canônico {segments,cityRegion}, tolerante ao
       bare-array legado) + painel `minha-preferencia-panel.tsx` no /leads. (sessão paralela)
-- [ ] **Rótulo cross-empresa:** empresa B pode ver um card que A marcou `sent_to_vendas` com
-      esse rótulo (cosmético; ela ainda PODE puxar). Ajuste no presenter (status por-empresa).
-- [ ] **Sinal de depleção por ramo** → realimentar a lagoa nos segmentos que esvaziam.
+- [x] **Rótulo cross-empresa (presenter por-empresa)** — `resolveRadarLeadStatus` não cai mais
+      no status de workflow de OUTRA empresa quando a empresa atual não tem `companyState`:
+      mostra neutro. Negativados globais seguem globais. `radar-core-presentation.mixin.ts`.
+- [x] **Radar = VITRINE** — removidos o filtro/Executar coleta e o Exportar do
+      `webscraping/page.client.tsx` (ordem do dono: "não é pra existir isso").
+- [x] **Leads = dados concretos** — removido o KPI "Quentes (score ≥ 70)" e o rótulo Alto/Médio;
+      KPI vira "Com WhatsApp" (enrichmentSummary). `leads/page.client.tsx`.
+- [x] **Seletor de MOTIVO ao negativar** — card do Vendas ganhou "Negativar lead" com motivo
+      (leve = volta pra lagoa; dura = some pra todos), 2 cliques. `POST /vendas/lead/:id/negativar`
+      → `negativarLeadForUser` → `releaseRadarLeadBackToPool` (leve/dura). `vendas.service.ts` +
+      `vendas.controller.ts` + `vendas/page.client.tsx` (classes `.vendas-neg`).
+- [ ] **Sinal de depleção por ramo** → realimentar a lagoa nos segmentos que esvaziam (único aberto).
+- [x] **FREEZE de aparência LEVANTADO** — memória + CLAUDE.md atualizados (refatorar aparência
+      autorizado; 5 Leis seguem como método, não freio).
 
 ---
 

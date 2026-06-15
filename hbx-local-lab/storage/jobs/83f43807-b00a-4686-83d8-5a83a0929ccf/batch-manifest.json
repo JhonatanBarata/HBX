@@ -1,0 +1,22 @@
+{
+  "batchId": "local-lab-83f43807-b00a-4686-83d8-5a83a0929ccf",
+  "sourceMode": "local_lab",
+  "sourceName": "HBX Local Lab",
+  "createdAt": "2026-06-15T01:25:34.327Z",
+  "requestedBy": null,
+  "city": "Teste",
+  "state": "SP",
+  "segment": "teste",
+  "targetEmails": 1,
+  "providers": [
+    "site_crawl"
+  ],
+  "stats": {
+    "sitesVisited": 0,
+    "emailsFound": 0,
+    "emailsAccepted": 0,
+    "leads": 1,
+    "providers": 1,
+    "emails": 0
+  }
+}

@@ -276,6 +276,10 @@ export function AtendimentoClient() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<{ avgResponseSeconds: number | null; conversions: number | null } | null>(null);
   const [selId, setSelId] = useState<string | null>(null);
+  // Mestre-detalhe SÓ no celular: lista (false) ou conversa aberta (true). No
+  // desktop a classe é ignorada (CSS de .a-shell.mobile-thread-open vive em
+  // @media). Abre ao tocar numa conversa; o botão "voltar" da thread fecha.
+  const [mobileThread, setMobileThread] = useState(false);
   const [tab, setTab] = useTabIndex("tab", 0);
   const [busca, setBusca] = useState("");
   const [thread, setThread] = useState<InboxMessage[]>([]);
@@ -674,6 +678,7 @@ export function AtendimentoClient() {
 
   // troca de conversa (handler de clique — reset de UI fica fora de efeito)
   function openConv(id: string) {
+    setMobileThread(true); // celular: tocar numa conversa abre a thread (mesmo a já selecionada)
     if (id === selId) return;
     setSelId(id);
     setReplyTo(null);
@@ -1090,7 +1095,7 @@ export function AtendimentoClient() {
               { icon: "money", label: "Conversões", value: metrics?.conversions != null ? String(metrics.conversions) : "—", delta: "—" },
             ]} />
 
-            <div className="a-shell">
+            <div className={"a-shell" + (mobileThread ? " mobile-thread-open" : "")}>
               <div className="convs">
                 <div className="convs-head">
                   <div className="row">
@@ -1174,6 +1179,10 @@ export function AtendimentoClient() {
 
               <div className="thread">
                 <div className="thread-head">
+                  {/* Voltar para a lista — só aparece no celular (.chat-back é display:none no desktop). */}
+                  <button className="chat-back" aria-label="Voltar para conversas" onClick={() => setMobileThread(false)}>
+                    <I d={["M15 6l-6 6 6 6"]} size={20} />
+                  </button>
                   <Av name={convo ? convName(convo) : "—"} size={36} />
                   <div style={{ display: "grid", gap: 2 }}>
                     <span style={{ display: "flex", alignItems: "center", gap: 8 }}>

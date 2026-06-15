@@ -7,11 +7,17 @@ import { ThemeAttributes } from "@/components/hbx/theme-attributes";
 export const metadata: Metadata = {
   title: "HBX System",
   description: "Radar → Vendas → WhatsApp → Retorno",
+  // PWA: manifest (instalável) + identidade de app no iOS (abre em tela cheia,
+  // ícone na home). Ícone Apple reaproveita o /icon.png (192²) já existente.
+  manifest: "/manifest.webmanifest",
+  appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "HBX" },
+  icons: { icon: "/icon.png", apple: "/icon.png" },
 };
 
 // Viewport mobile: encaixa em telas com notch (viewport-fit=cover) e mantém
-// o zoom liberado (acessibilidade). width/initial-scale o Next já injeta; aqui
-// só reforçamos + cover. Não muda nada no desktop.
+// o zoom liberado (acessibilidade). Não muda nada no desktop.
+// A cor da barra do sistema (theme_color) vive no manifest.webmanifest (JSON),
+// não aqui — hex em TSX é reprovado pela catraca check-pele (5 Leis).
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
@@ -24,12 +30,13 @@ export const viewport: Viewport = {
 // hbx:mode = claro/escuro global automático. Landing "/" = html puro.
 const THEME_BOOT = `(function(){try{var p=location.pathname;var h=document.documentElement;h.removeAttribute("data-engine");if(p==="/"){h.removeAttribute("data-theme");h.removeAttribute("data-theme-mode");return;}var P=["aurora","ember","rose","hbx-cyber"];var k=localStorage.getItem("hbx:pele");if(P.indexOf(k)<0){k="aurora";}h.setAttribute("data-theme",k);var m=localStorage.getItem("hbx:mode");h.setAttribute("data-theme-mode",m==="dark"?"dark":"light");}catch(e){}})();`;
 
-// Faxina do PWA antigo: desregistra qualquer service worker e apaga os
-// caches do navegador em todo load. O SW "hbx-pwa-v1" do front antigo
-// cacheava páginas inteiras e ressuscitava telas velhas (login Firebase,
-// landing desbotada) mesmo sem servidor rodando. Par do kill-switch em
-// public/sw.js. Não registrar SW novo sem ordem do dono.
-const SW_KILL = `(function(){try{if("serviceWorker" in navigator){navigator.serviceWorker.getRegistrations().then(function(rs){rs.forEach(function(r){r.unregister();});}).catch(function(){});}if(window.caches&&caches.keys){caches.keys().then(function(keys){keys.forEach(function(k){caches.delete(k);});}).catch(function(){});}}catch(e){}})();`;
+// PWA (ordem do dono 14/06: "Responsivo + PWA"). Substitui o kill-switch antigo:
+// (1) APAGA todos os caches do navegador a cada load — defesa contra o PWA velho
+//     "hbx-pwa-v1", que cacheava páginas e ressuscitava telas (o SW novo é
+//     sem-cache, então isso só remove lixo antigo);
+// (2) DESREGISTRA qualquer SW que NÃO seja o nosso (some o kill-switch /sw.js);
+// (3) REGISTRA o /hbx-sw.js (sem cache de página) — torna o app instalável.
+const SW_REGISTER = `(function(){try{if(!("serviceWorker" in navigator))return;if(window.caches&&caches.keys){caches.keys().then(function(keys){keys.forEach(function(k){caches.delete(k);});}).catch(function(){});}navigator.serviceWorker.getRegistrations().then(function(rs){rs.forEach(function(r){var u=(r.active&&r.active.scriptURL)||"";if(u.indexOf("/hbx-sw.js")<0){r.unregister();}});}).catch(function(){});window.addEventListener("load",function(){navigator.serviceWorker.register("/hbx-sw.js").catch(function(){});});}catch(e){}})();`;
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
@@ -45,7 +52,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           rel="stylesheet"
           href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,500&family=IBM+Plex+Mono:wght@400;500;600;700&family=Sora:wght@400;600;700;800&family=Fraunces:opsz,wght@9..144,500;9..144,700;9..144,900&family=Lora:wght@500;600;700&display=swap"
         />
-        <script dangerouslySetInnerHTML={{ __html: SW_KILL }} />
+        <script dangerouslySetInnerHTML={{ __html: SW_REGISTER }} />
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOT }} />
       </head>
       <body>

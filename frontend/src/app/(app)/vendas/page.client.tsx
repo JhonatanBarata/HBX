@@ -8,9 +8,11 @@
 // Seções sem endpoint (Próximas tarefas, Funil de conversão) permanecem
 // visuais como no template — registrado no doc do PR.
 
+import { useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useState } from "react";
 
 import { Av, I, ICONS, KpiRow, WhatsAppMark } from "@/components/hbx/shell";
+import { CanalIcon } from "@/components/hbx/canal-icon";
 import { apiFetch } from "@/lib/api";
 import { useTabParam } from "@/lib/use-tab-param";
 
@@ -131,9 +133,13 @@ function fmtDate(iso: string | null) {
 }
 
 export function VendasClient() {
+  const router = useRouter();
   const [board, setBoard] = useState<BoardResponse>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [sel, setSel] = useState<VendasLead | null>(null);
+  // Quantos leads estão esperando na lagoa do Radar agora (pra deixar CLARO,
+  // no funil vazio, por que está vazio e o que fazer). Conta real da vitrine.
+  const [poolDisponivel, setPoolDisponivel] = useState<number | null>(null);
   // visão do pipeline: lista densa (padrão — varredura) × quadro kanban
   // (arrastar entre etapas). Ordem do dono 13/06: lista padrão + quadro opcional.
   const [view, setView] = useTabParam<"list" | "board">("view", "list", ["list", "board"]);
@@ -177,6 +183,13 @@ export function VendasClient() {
 
   useEffect(() => { loadBoard(); }, [loadBoard]);
 
+  // Conta os leads disponíveis na lagoa (vitrine) — só pra mostrar no funil vazio.
+  useEffect(() => {
+    apiFetch<{ total?: number }>("/webscraping/radar/leads?scope=vitrine&limit=1")
+      .then(res => setPoolDisponivel(Math.max(0, Math.trunc(Number(res?.total || 0)) || 0)))
+      .catch(() => setPoolDisponivel(null));
+  }, []);
+
   // Fechamento de venda com produto (trilha Produtos & Comissão, item 1):
   // PATCH /vendas/lead/:id {productId, saleValue, saleStatus} para venda
   // direta; POST .../hbx-handoff para produto sob consulta (fechamento
@@ -200,6 +213,31 @@ export function VendasClient() {
   const [moverStatus, setMoverStatus] = useState("");
   const [retornoData, setRetornoData] = useState("");
   const [obs, setObs] = useState("");
+  const [negMotivo, setNegMotivo] = useState("");
+  const [negArm, setNegArm] = useState(false); // confirma em 2 cliques (padrão do kit)
+
+  // Negativar com MOTIVO (dono 14/06): leve volta pra lagoa pros outros; dura some
+  // pra todos. Tira o card da carteira. POST /vendas/lead/:id/negativar { status, note }.
+  async function negativarLead() {
+    if (!sel?.id || !negMotivo || acaoBusy) return;
+    setAcaoBusy(true);
+    setAcaoMsg(null);
+    try {
+      const res = await apiFetch<{ message?: string }>(`/vendas/lead/${encodeURIComponent(sel.id)}/negativar`, {
+        method: "POST",
+        body: JSON.stringify({ status: negMotivo, note: obs.trim() || undefined }),
+      });
+      setAcaoMsg(`✓ ${res?.message || "Lead negativado."}`);
+      setNegMotivo("");
+      setObs("");
+      await loadBoard();
+    } catch (err) {
+      setAcaoMsg(err instanceof Error ? err.message : "Não foi possível negativar o lead.");
+    } finally {
+      setAcaoBusy(false);
+      setNegArm(false);
+    }
+  }
 
   async function registrarResultado(outcome: string) {
     if (!sel?.id || acaoBusy) return;
@@ -564,8 +602,31 @@ export function VendasClient() {
                 </div>
               )}
               {!loadError && board && (summary?.total ?? 0) === 0 && (
-                <div style={{ padding: "16px", fontSize: "0.76rem", color: "var(--text-muted)" }}>
-                  Nenhum card no funil — importe leads do Radar (Webscraping) para começar.
+                <div className="funil-empty">
+                  <div className="funil-empty-why">
+                    <h3>Seu funil está vazio</h3>
+                    <p>Card só nasce aqui quando você <strong>puxa</strong> um lead pra sua carteira — e você ainda não puxou nenhum.</p>
+                  </div>
+                  <div className="funil-flow" aria-hidden="true">
+                    <span className="step"><span className="step-h"><I d={ICONS.scrape} size={16} /> Radar</span><small>acha</small></span>
+                    <span className="arrow">→</span>
+                    <span className="step on"><span className="step-h"><I d={ICONS.leads} size={16} /> Leads</span><small>você puxa</small></span>
+                    <span className="arrow">→</span>
+                    <span className="step"><span className="step-h"><I d={ICONS.vendas} size={16} /> Vendas</span><small>trabalha e fecha</small></span>
+                  </div>
+                  <div className="funil-cta">
+                    <span className="funil-cta-count">
+                      {poolDisponivel == null
+                        ? "Tem leads esperando no Radar."
+                        : poolDisponivel > 0
+                          ? <React.Fragment>Tem <strong>{poolDisponivel.toLocaleString("pt-BR")} leads disponíveis</strong> no Radar agora.</React.Fragment>
+                          : "A lagoa está sendo reabastecida — volte em instantes."}
+                    </span>
+                    <div className="funil-cta-acts">
+                      <button className="btn-teal" onClick={() => router.push("/leads")}>Puxar leads →</button>
+                      <button className="btn-ghost" onClick={() => router.push("/webscraping")}>Ver o Radar</button>
+                    </div>
+                  </div>
                 </div>
               )}
               {/* LISTA DENSA (padrão): varredura rápida de todos os leads —
@@ -646,7 +707,7 @@ export function VendasClient() {
               {deal?.phone ? (
                 <a href={`tel:${deal.phone.replace(/[^\d+]/g, "")}`}
                   style={{ marginTop: 10, display: "inline-flex", alignItems: "center", gap: 8, padding: "9px 13px", borderRadius: "var(--radius-md)", border: "1px solid var(--hbx-brand)", background: "var(--hbx-surface-soft)", color: "var(--hbx-brand-strong)", fontFamily: "var(--font-mono)", fontSize: "0.96rem", fontWeight: 800, letterSpacing: "0.02em", textDecoration: "none" }}>
-                  <I d={ICONS.phone} size={16} /> {deal.phone}
+                  <CanalIcon canal="telefone" /> {deal.phone}
                 </a>
               ) : deal ? (
                 <div style={{ marginTop: 10, fontSize: "0.72rem", color: "var(--text-muted)" }}>Sem telefone neste card.</div>
@@ -701,6 +762,24 @@ export function VendasClient() {
                   placeholder="Observação da ligação (opcional) — vai pro card"
                   value={obs} onChange={e => setObs(e.target.value)} disabled={!deal || deal.block === "closed"}
                   style={{ resize: "vertical", fontFamily: "var(--font-body)" }} />
+              </div>
+              <div className="vendas-neg">
+                <label>Negativar lead (sai da carteira)</label>
+                <div className="neg-row">
+                  <select className="field-dark" value={negMotivo} disabled={!deal || acaoBusy || deal.block === "closed"}
+                    onChange={e => { setNegMotivo(e.target.value); setNegArm(false); }} aria-label="Motivo da negativação">
+                    <option value="">Motivo…</option>
+                    <option value="negative">Sem interesse — volta pra lagoa</option>
+                    <option value="no_answer">Não atende / número não existe — some de vez</option>
+                    <option value="no_whatsapp">Sem WhatsApp — some de vez</option>
+                    <option value="opt_out">Pediu pra não receber — some de vez</option>
+                    <option value="complaint">Reclamou — some de vez</option>
+                  </select>
+                  <button className="btn-ghost" onClick={() => (negArm ? negativarLead() : setNegArm(true))}
+                    disabled={!deal || !negMotivo || acaoBusy}>
+                    {negArm ? "Confirmar" : "Negativar"}
+                  </button>
+                </div>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8 }}>
                 <select className="field-dark" style={{ minHeight: 36 }} value={moverStatus} disabled={!deal || deal.block === "closed"}

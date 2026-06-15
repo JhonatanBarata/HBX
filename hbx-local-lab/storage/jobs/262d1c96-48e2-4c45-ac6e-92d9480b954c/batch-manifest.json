@@ -1,0 +1,30 @@
+{
+  "batchId": "local-lab-262d1c96-48e2-4c45-ac6e-92d9480b954c",
+  "sourceMode": "local_lab",
+  "sourceName": "HBX Local Lab",
+  "createdAt": "2026-06-15T01:25:03.675Z",
+  "requestedBy": null,
+  "city": "Rio Claro",
+  "state": "SP",
+  "segment": "clinicas",
+  "targetEmails": 2,
+  "providers": [
+    "web_query"
+  ],
+  "stats": {
+    "sitesVisited": 0,
+    "emailsFound": 0,
+    "emailsAccepted": 0,
+    "leads": 1,
+    "pacing": {
+      "fetches": 0,
+      "blocks": 0,
+      "backoffMs": 0,
+      "minDelayMs": 1500,
+      "maxDelayMs": 4000,
+      "blockBackoffMs": 60000
+    },
+    "providers": 1,
+    "emails": 0
+  }
+}

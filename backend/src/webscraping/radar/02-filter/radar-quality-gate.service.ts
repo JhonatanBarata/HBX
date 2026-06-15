@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { LeadQualityV2 } from '../../lead-quality-v2';
+import { looksLikeNonBusinessName, isRealisticBrPhone } from '../shared/radar-core-shared';
 import type { LeadQualityResult } from '../shared/radar-core-shared';
 import type { NormalizedRadarFilters, NormalizedSearchInput } from '../shared/radar-types';
 
@@ -206,6 +207,10 @@ export class RadarQualityGateService {
       hardBlockers.push('generic_directory');
       return buildReject({ reason: 'Resultado generico ou diretorio.', qualityScore: 0, missing, hardBlockers, positiveSignals, weakSignals });
     }
+    if (looksLikeNonBusinessName(name)) {
+      hardBlockers.push('non_business_name');
+      return buildReject({ reason: 'Nome nao parece empresa (titulo de pagina/portal global/idioma estrangeiro).', qualityScore: 0, missing, hardBlockers, positiveSignals, weakSignals });
+    }
     if (requestedSegment && input.host.nameConflictsWithRequestedSegment(name, requestedSegment)) {
       hardBlockers.push('segment_mismatch');
       return buildReject({ reason: 'Nome indica outro segmento comercial.', qualityScore, missing, hardBlockers, positiveSignals, weakSignals });
@@ -220,8 +225,9 @@ export class RadarQualityGateService {
       }
     }
 
-    const phoneValid = isLikelyValidBrPhone(phoneDigits);
-    const whatsappValid = ['confirmed', 'available', 'valid', 'exists', 'true'].includes(whatsappStatus) || isLikelyWhatsapp(phoneDigits);
+    const phoneValid = isRealisticBrPhone(phoneDigits);
+    const whatsappValid = (['confirmed', 'available', 'valid', 'exists', 'true'].includes(whatsappStatus) && isRealisticBrPhone(phoneDigits))
+      || (isLikelyWhatsapp(phoneDigits) && isRealisticBrPhone(phoneDigits));
     const websiteValid = Boolean(
       website
       && websiteStatus === 'present'

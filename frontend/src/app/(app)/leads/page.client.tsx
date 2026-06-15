@@ -20,6 +20,7 @@ import { apiFetch } from "@/lib/api";
 import { useTabParam } from "@/lib/use-tab-param";
 import { PuxarLeadsPanel } from "@/components/hbx/puxar-leads-panel";
 import { MinhaPreferenciaPanel } from "@/components/hbx/minha-preferencia-panel";
+import { CanalIcon, toCanal } from "@/components/hbx/canal-icon";
 
 type RadarLead = {
   id: string;
@@ -56,6 +57,13 @@ type LeadsResponse = {
     availableFilters?: {
       statuses?: FilterOption[];
       scoreRanges?: FilterOption[];
+    };
+    // Dados CONCRETOS do funil (não score): o que o motor confirmou de verdade.
+    enrichmentSummary?: {
+      cardsAnalyzed?: number;
+      whatsappVerified?: number;
+      emailConfirmedOrProbable?: number;
+      readyToCall?: number;
     };
   };
 };
@@ -150,6 +158,9 @@ export function LeadsClient() {
   const [ruleForm, setRuleForm] = useState<AutoRuleFields>({});
   const [ruleBusy, setRuleBusy] = useState(false);
   const [ruleMsg, setRuleMsg] = useState<string | null>(null);
+  // Quantos leads a lagoa tem disponíveis AGORA (vitrine) — pra a tela não
+  // parecer morta quando a carteira está vazia. É o que dá pra PUXAR.
+  const [poolDisponivel, setPoolDisponivel] = useState<number | null>(null);
 
   const loadLeads = useCallback((opts?: { page?: number; status?: string; limit?: number }) => {
     const params = new URLSearchParams();
@@ -176,6 +187,9 @@ export function LeadsClient() {
 
   useEffect(() => {
     loadLeads({ page: 1 });
+    apiFetch<{ total?: number }>("/webscraping/radar/leads?scope=vitrine&limit=1")
+      .then(res => setPoolDisponivel(Math.max(0, Math.trunc(Number(res?.total || 0)) || 0)))
+      .catch(() => setPoolDisponivel(null));
     apiFetch<CompanyUser[]>("/users/company")
       .then(res => {
         const list = Array.isArray(res) ? res : [];
@@ -334,9 +348,9 @@ export function LeadsClient() {
   const limit = data?.meta?.limit || 25;
   const lastPage = Math.max(1, Math.ceil(total / limit));
   const statuses = data?.meta?.availableFilters?.statuses || [];
-  const scoreRanges = data?.meta?.availableFilters?.scoreRanges || [];
   const countOf = (opts: FilterOption[], value: string) => opts.find(o => o.value === value)?.count ?? 0;
-  const quentes = countOf(scoreRanges, "high");
+  // Dados concretos (ordem do dono 14/06: "não quero quentes, nenhum é — dados concretos").
+  const summary = data?.meta?.enrichmentSummary;
   const disponiveis = countOf(statuses, "available");
   const enviados = countOf(statuses, "sent_to_vendas") + countOf(statuses, "in_attendance");
   const sellerName = (id: number | null) => {
@@ -373,8 +387,8 @@ export function LeadsClient() {
             )}
             <KpiRow items={[
               { icon: "users", label: "Total na base", value: data ? total.toLocaleString("pt-BR") : "—", delta: "—" },
-              { icon: "check", label: "Quentes (score ≥ 70)", value: data ? quentes.toLocaleString("pt-BR") : "—", delta: "—" },
-              { icon: "plus", label: "Disponíveis", value: data ? disponiveis.toLocaleString("pt-BR") : "—", delta: "—" },
+              { icon: "msg", label: "Com WhatsApp", value: summary ? (summary.whatsappVerified ?? 0).toLocaleString("pt-BR") : "—", delta: "—" },
+              { icon: "plus", label: "Disponíveis na lagoa", value: poolDisponivel != null ? poolDisponivel.toLocaleString("pt-BR") : "—", delta: "—" },
               { icon: "relat", label: "Em atendimento / Vendas", value: data ? enviados.toLocaleString("pt-BR") : "—", delta: "—" },
             ]} />
 
@@ -412,7 +426,7 @@ export function LeadsClient() {
                             ? loadError
                             : data?.meta?.available === false
                               ? data?.meta?.message || "Banco do Radar indisponível neste ambiente."
-                              : "Nenhum lead na base — execute uma coleta no Radar."}
+                              : <React.Fragment>Nada aqui ainda. Use <strong>Puxar leads</strong> aqui em cima pra trazer leads da lagoa pra sua carteira{poolDisponivel ? ` — tem ${poolDisponivel.toLocaleString("pt-BR")} esperando` : ""}.</React.Fragment>}
                         </td>
                       </tr>
                     )}
@@ -424,7 +438,7 @@ export function LeadsClient() {
                           <td><div style={{ display: "flex", gap: 9, alignItems: "center" }}><Av name={row.name || "—"} size={28} /><strong>{row.name || "—"}</strong></div></td>
                           <td>{row.segment || "—"}</td>
                           <td>{row.city ? `${row.city}${row.state ? ", " + row.state : ""}` : "—"}</td>
-                          <td>{ch ? <span className={ch.cls}>{ch.label}</span> : "—"}</td>
+                          <td>{ch ? <span className={ch.cls + " with-ico"}>{toCanal(row.recommendedChannel) ? <CanalIcon canal={toCanal(row.recommendedChannel)!} size="sm" /> : null}{ch.label}</span> : "—"}</td>
                           <td><span className={"score-ring " + (row.opportunityScore >= 70 ? "hi" : "mid")}>{row.opportunityScore}</span></td>
                           <td><span className={ST_CLS[row.status] || "tag"}>{ST_LABEL[row.status] || row.status}</span></td>
                           <td>{resp ? <div style={{ display: "flex", gap: 7, alignItems: "center" }}><Av name={resp} size={20} />{resp}</div> : "—"}</td>
@@ -469,15 +483,15 @@ export function LeadsClient() {
               </div>
             </div>
             <div className="kv">
-              <div className="row"><span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}><I d={ICONS.mail} size={13} /> E-mail</span><span className="v" style={{ fontWeight: 600, fontSize: "0.68rem" }}>{l?.email || "—"}</span></div>
-              <div className="row"><span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}><I d={ICONS.phone} size={13} /> Telefone</span><span className="v" style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem" }}>{l?.phone || "—"}</span></div>
+              <div className="row"><span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}><CanalIcon canal="email" size="sm" /> E-mail</span><span className="v" style={{ fontWeight: 600, fontSize: "0.68rem" }}>{l?.email || "—"}</span></div>
+              <div className="row"><span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}><CanalIcon canal="telefone" size="sm" /> Telefone</span><span className="v" style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem" }}>{l?.phone || "—"}</span></div>
               <div className="row"><span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}><I d={ICONS.mapin} size={13} /> Local</span><span className="v">{l?.city ? `${l.city}${l.state ? ", " + l.state : ""}` : "—"}</span></div>
             </div>
             <div className="sep"></div>
             <div className="kv">
               <div className="row"><span className="k">Etapa atual</span><span className="v">{l ? (ST_LABEL[l.status] || l.status) : "—"}</span></div>
-              <div className="row"><span className="k">Lead score</span><span className="v" style={{ display: "inline-flex", gap: 7, alignItems: "center" }}><span style={{ fontFamily: "var(--font-mono)" }}>{l ? l.opportunityScore : "—"}</span>{l && <span className={"tag " + (l.opportunityScore >= 70 ? "teal" : "warn")} style={{ fontSize: "0.58rem" }}>{l.opportunityScore >= 70 ? "Alto" : "Médio"}</span>}</span></div>
-              <div className="row"><span className="k">Canal recomendado</span><span className="v">{l?.recommendedChannel ? (CH_LABEL[l.recommendedChannel]?.label || l.recommendedChannel) : "—"}</span></div>
+              <div className="row"><span className="k">Lead score</span><span className="v" style={{ fontFamily: "var(--font-mono)" }}>{l ? l.opportunityScore : "—"}</span></div>
+              <div className="row"><span className="k">Canal recomendado</span><span className="v with-ico">{l?.recommendedChannel && toCanal(l.recommendedChannel) ? <CanalIcon canal={toCanal(l.recommendedChannel)!} size="sm" /> : null}{l?.recommendedChannel ? (CH_LABEL[l.recommendedChannel]?.label || l.recommendedChannel) : "—"}</span></div>
               <div className="row"><span className="k">Responsável</span><span className="v" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>{l && sellerName(l.assignedUserId) ? <React.Fragment><Av name={sellerName(l.assignedUserId)!} size={18} />{sellerName(l.assignedUserId)}</React.Fragment> : "—"}</span></div>
               <div className="row"><span className="k">Origem</span><span className="v">{l?.sourceEngine || l?.source || "—"}</span></div>
             </div>

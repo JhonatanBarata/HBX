@@ -248,112 +248,116 @@ function setPressure(prefix, p) {
   bar.className = `bar-fill ${pressureClass(used, p.limit)}`;
 }
 
+// Pinta um "check" de estado: verde (on), vermelho (off) ou âmbar (pendente/sem leitura).
+function paintChk(sel, on, pending) {
+  const e = $(sel);
+  if (!e) return;
+  e.className = "chk " + (pending ? "warn" : on ? "on" : "off");
+}
+
+// Banco LOCAL (real, do backend local). Devolve {total, delta} pro feed e pros cards.
+async function renderLocalBank() {
+  try {
+    const b = await api("GET", "/owner/leads-bank");
+    if (b.ok && b.total != null) {
+      const total = Number(b.total);
+      const delta = Number(b.deltaToday || 0);
+      $("#sys-bank-local").textContent = total.toLocaleString("pt-BR");
+      $("#sys-bank-local-delta").textContent = delta > 0 ? `+${delta} hoje` : "sem novos hoje";
+      $("#sys-bank-local-delta").className = delta > 0 ? "delta up" : "delta";
+      $("#sys-cards-unique").textContent = delta > 0 ? `+${delta}` : "0";
+      $("#sys-leads-falling").textContent = delta > 0 ? `▲ +${delta} caindo hoje` : "parado hoje";
+      return { total, delta };
+    }
+    $("#sys-bank-local").textContent = b.configured ? "indisponível" : "config token";
+    $("#sys-bank-local-delta").textContent = b.reason || "";
+    return { total: null, delta: 0 };
+  } catch {
+    $("#sys-bank-local").textContent = "—";
+    return { total: null, delta: 0 };
+  }
+}
+
+// Banco/leads/fábrica da VPS (radar-audit cacheado no agente, SSH ~30s).
+// Guard + janela de 60s pro ciclo de 5s não disparar SSH em cascata.
+let vpsBankLoading = false;
+let vpsBankAt = 0;
+async function refreshVpsBank(force) {
+  if (vpsBankLoading) return;
+  if (!force && vpsBankAt && Date.now() - vpsBankAt < 60000) return;
+  vpsBankLoading = true;
+  const delta = $("#sys-bank-vps-delta");
+  if (delta && (!vpsBankAt || force)) delta.textContent = "lendo a VPS…";
+  try {
+    const d = await api("GET", "/owner/vps/leads");
+    if (d.ok && d.total != null) {
+      $("#sys-bank-vps").textContent = Number(d.total).toLocaleString("pt-BR");
+      if (delta) {
+        delta.textContent = d.today > 0 ? `+${d.today} em 24h` : "sem novos 24h";
+        delta.className = d.today > 0 ? "delta up" : "delta";
+      }
+      const lf = $("#vps-leads-falling");
+      if (lf) lf.textContent = d.today != null ? `▲ +${d.today} em 24h` : "";
+      const st = String(d.factoryStatus || "").toLowerCase();
+      const facActive = Boolean(st) && !["paused", "stopped", "idle", "off"].includes(st);
+      paintChk("#chk-vps-factory", facActive);
+      paintChk("#chk-vps-elastic", facActive && Boolean(d.engines && d.engines.total > 1));
+      vpsBankAt = Date.now();
+    } else {
+      $("#sys-bank-vps").textContent = d.configured === false ? "config Ops" : "—";
+      if (delta) delta.textContent = d.reason || "VPS indisponível";
+    }
+  } catch {
+    if (delta) delta.textContent = "erro lendo VPS";
+  } finally {
+    vpsBankLoading = false;
+  }
+}
+
 async function renderSistema() {
-  const bankPromise = renderBankInto("#sys-bank", "#sys-bank-delta");
+  refreshLabState();
+  const bankPromise = renderLocalBank();
+  refreshVpsBank();
+
   let s;
   try {
     s = await api("GET", "/owner/system");
   } catch (err) {
-    $("#sys-resumo").textContent = `erro: ${err.message}`;
-    $("#sys-resumo").className = "resumo bad";
+    $("#sys-engines-counts").textContent = `erro: ${err.message}`;
     return;
   }
 
   const cap = s.capacity || {};
-  const ram = s.pressure.ram.usedPct;
-  const disk = s.pressure.disk.usedPct;
-  const resumo = $("#sys-resumo");
-  const motorTxt = cap.ok ? `${cap.alive}/${cap.ceiling} motores` : "motores ocultos";
-  const head = s.verdict.level === "buy" ? "Sistema no limite" : s.verdict.level === "tight" ? "Sistema apertando" : "Sistema saudável";
-  resumo.textContent = `${head} · ${motorTxt} · RAM ${ram}%` + (disk != null ? ` · disco ${disk}%` : "");
-  resumo.className = "resumo" + (s.verdict.level === "buy" ? " bad" : s.verdict.level === "tight" ? " warn" : "");
-
-  const warnBox = $("#sys-warnings");
-  warnBox.innerHTML = "";
-  (s.warnings || []).forEach((w) => {
-    warnBox.appendChild(el(`<div class="warn-band"><i class="ti ti-alert-triangle"></i><span>${esc(w)}</span></div>`));
-  });
-
-  const gov = $("#sys-governor");
-  if (cap.ok) {
-    gov.textContent = cap.governorOn ? "Governor ligado" : "Governor desligado";
-    gov.className = "pill " + (cap.governorOn ? "pill-ok" : "pill-bad");
-    const pct = cap.ceiling > 0 ? Math.round((cap.alive / cap.ceiling) * 100) : 0;
-    const bar = $("#sys-bar-alive");
-    bar.style.width = `${Math.max(5, Math.min(100, pct))}%`;
-    bar.className = "bar-fill" + (!cap.governorOn ? " bad" : cap.queue > 0 && cap.alive >= cap.ceiling ? " warn" : "");
-    $("#sys-engines-counts").textContent = `${cap.alive} ${cap.alive === 1 ? "motor ligado" : "motores ligados"} · liga sozinho até ${cap.ceiling} quando precisa`;
-    $("#sys-engines-reason").textContent = cap.reason || "";
-    const fs = $("#sys-factory-state");
-    fs.textContent = cap.factoryStopped ? "Fábrica parada" : "Fábrica rodando";
-    fs.className = "pill " + (cap.factoryStopped ? "pill-bad" : "pill-ok");
-  } else {
-    gov.textContent = "sem leitura";
-    gov.className = "pill pill-muted";
-    $("#sys-engines-counts").textContent = cap.configured ? "backend não respondeu" : "configure o token do backend";
-    $("#sys-engines-reason").textContent = "";
-    $("#sys-factory-state").textContent = "—";
-    $("#sys-factory-state").className = "pill pill-muted";
-  }
-
   setPressure("ram", s.pressure.ram);
   setPressure("cpu", s.pressure.cpu);
   setPressure("disk", s.pressure.disk);
-  $("#sys-ram-limit").textContent = `aviso em ${s.pressure.ram.limit}% · ${s.pressure.ram.totalGb} GB`;
-  $("#sys-cpu-limit").textContent = `aviso em ${s.pressure.cpu.limit}% · ${s.pressure.cpu.cores} núcleos`;
-  $("#sys-disk-limit").textContent = s.pressure.disk.usedPct == null ? "indisponível" : `aviso em ${s.pressure.disk.limit}% · ${s.pressure.disk.freeGb} GB livres`;
+  $("#sys-ram-limit").textContent = s.pressure.ram.totalGb ? `${s.pressure.ram.totalGb} GB` : "";
+  $("#sys-cpu-limit").textContent = s.pressure.cpu.cores ? `${s.pressure.cpu.cores} núcleos` : "";
+  $("#sys-disk-limit").textContent = s.pressure.disk.freeGb != null ? `${s.pressure.disk.freeGb} GB livres` : "";
 
-  $("#sys-verdict").className = `card verdict ${s.verdict.level}`;
-  $("#sys-verdict-title").textContent = `Preciso de mais servidor? — ${s.verdict.title}`;
-  $("#sys-verdict-detail").textContent = s.verdict.detail;
-
-  const box = $("#sys-containers");
-  const items = (s.containers && s.containers.items) || [];
-  if (!items.length) {
-    box.innerHTML = `<div class="empty">${s.containers && s.containers.ok ? "nenhum container HBX" : "docker indisponível"}</div>`;
+  if (cap.ok) {
+    $("#sys-engines-big").textContent = `${cap.alive}/${cap.ceiling}`;
+    const pct = cap.ceiling > 0 ? Math.round((cap.alive / cap.ceiling) * 100) : 0;
+    const bar = $("#sys-bar-alive");
+    bar.style.width = `${Math.max(5, Math.min(100, pct))}%`;
+    bar.className = "bar-fill" + (cap.queue > 0 && cap.alive >= cap.ceiling ? " warn" : "");
+    $("#sys-engines-counts").textContent = `${cap.alive} ${cap.alive === 1 ? "ligado" : "ligados"} · teto ${cap.ceiling}`;
+    paintChk("#chk-elastic", cap.elastic);
+    paintChk("#chk-factory", !cap.factoryStopped);
+    paintChk("#chk-turbo", cap.turboActive);
   } else {
-    box.innerHTML = "";
-    items.forEach((c) => {
-      const running = c.state === "running";
-      box.appendChild(el(`<div class="ctr-row">
-        <span>${esc(c.name)} <span class="ctr-meta">${esc(c.cpu)} · ${esc(c.mem)}</span></span>
-        <span class="${running ? "ok" : "bad"}">${running ? "rodando" : esc(c.state || "parado")}</span>
-      </div>`));
-    });
+    $("#sys-engines-big").textContent = "—";
+    $("#sys-engines-counts").textContent = cap.configured ? "backend não respondeu" : "sem token do backend";
+    paintChk("#chk-elastic", false);
+    paintChk("#chk-factory", false);
+    paintChk("#chk-turbo", false);
   }
 
-  const bankTotal = await bankPromise.catch(() => null);
-  const snap = snapshotFrom(s, bankTotal);
+  const bank = await bankPromise.catch(() => ({ total: null }));
+  const snap = snapshotFrom(s, bank.total);
   diffFeed(lastSysSnapshot, snap);
   lastSysSnapshot = snap;
-
-  // Status grande "de relance", em português claro (semáforo verde/amarelo/vermelho).
-  const hero = $("#sys-hero");
-  if (hero) {
-    const lvl = s.verdict.level;
-    const tone = lvl === "buy" ? "bad" : lvl === "tight" ? "warn" : "ok";
-    hero.className = `hero ${tone}`;
-    $("#sys-hero-icon").textContent = lvl === "buy" ? "▲" : lvl === "tight" ? "◆" : "●";
-    $("#sys-hero-title").textContent = lvl === "buy" ? "Precisa de atenção" : lvl === "tight" ? "Começando a apertar" : "Tudo rodando bem";
-    const parts = [];
-    if (cap.ok) parts.push(`${cap.alive} ${cap.alive === 1 ? "motor trabalhando" : "motores trabalhando"}`);
-    if (bankTotal != null) parts.push(`${Number(bankTotal).toLocaleString("pt-BR")} leads no banco`);
-    if (ram != null) parts.push(`memória ${ram}%`);
-    $("#sys-hero-sub").textContent = parts.join(" · ") || s.verdict.detail || "";
-  }
 }
-
-async function factoryAction(action) {
-  try {
-    const r = await api("POST", `/owner/factory/${action}`, {});
-    if (!r.ok) alert(r.message || r.reason || "Falhou.");
-  } catch (err) {
-    alert(err.message);
-  }
-  renderSistema();
-}
-$("#btn-factory-stop").addEventListener("click", () => factoryAction("stop"));
-$("#btn-factory-resume").addEventListener("click", () => factoryAction("resume"));
 
 /* ---------- Sistema · frota LOCAL de motores (engines:up/down pelo painel) ---------- */
 async function localEngines(action) {
@@ -377,78 +381,153 @@ async function localEngines(action) {
 $("#btn-engines-local-start").addEventListener("click", () => localEngines("start"));
 $("#btn-engines-local-stop").addEventListener("click", () => localEngines("stop"));
 
-/* ---------- Sistema · Exportar local → VPS (Email Lab via Ops Control) ---------- */
-let exportPolling = null;
-async function exportStart() {
-  if (exportPolling) { clearInterval(exportPolling); exportPolling = null; }
+/* ---------- Sistema · Exportar TODOS os leads locais -> VPS + limpa o local (#2) ---------- */
+async function exportAllLeads() {
   const fb = $("#export-feedback");
   const st = $("#export-status");
-  fb.textContent = "iniciando caça no Local Lab…"; fb.className = "delta";
+  const btn = $("#btn-export-all");
+  fb.className = "delta";
+  fb.textContent = "conferindo o banco local…";
+  st.textContent = "—"; st.className = "pill pill-muted";
   try {
-    const r = await api("POST", "/owner/export", {
-      segment: $("#export-segment").value.trim(),
-      city: $("#export-city").value.trim(),
-      state: $("#export-state").value.trim(),
-      targetEmails: Number($("#export-qty").value) || 30,
-    });
-    if (!r.ok || !r.jobId) {
-      fb.textContent = r.message || r.reason || "não foi possível iniciar (confira VPS/Ops Control configurados).";
-      st.textContent = "indisponível"; st.className = "pill pill-bad";
-      pushFeed(`Export pra VPS não iniciou: ${r.reason || r.message || "VPS/Ops não configurados"}.`, "warn");
+    // 1) Preview — não manda nem limpa.
+    const prev = await api("POST", "/owner/export-all-leads", {});
+    if (prev.empty || !prev.count) {
+      fb.textContent = prev.message || "Nenhum lead local pra exportar.";
       return;
     }
-    st.textContent = "caçando…"; st.className = "pill pill-muted";
-    fb.textContent = `job ${r.jobId} — caçando lote…`;
-    pushFeed("Export pra VPS: caçando lote no Local Lab…", "info");
-    exportPoll(r.jobId);
-  } catch (err) { fb.textContent = err.message; }
-}
-
-function exportPoll(jobId) {
-  let ticks = 0;
-  exportPolling = setInterval(async () => {
-    ticks += 1;
-    if (ticks > 75) { clearInterval(exportPolling); exportPolling = null; $("#export-feedback").textContent = "tempo esgotado esperando o lote ficar pronto."; return; }
-    try {
-      const s = await api("GET", `/owner/export/status/${encodeURIComponent(jobId)}`);
-      const job = s.job || {};
-      const status = String(job.status || job.state || "").toLowerCase();
-      if (["done", "completed", "ready", "finished", "exported", "success"].includes(status)) {
-        clearInterval(exportPolling); exportPolling = null;
-        await exportImport(jobId);
-      } else if (["failed", "error", "canceled", "cancelled"].includes(status)) {
-        clearInterval(exportPolling); exportPolling = null;
-        $("#export-feedback").textContent = "o lote falhou no Local Lab.";
-        $("#export-status").textContent = "falhou"; $("#export-status").className = "pill pill-bad";
-      } else {
-        $("#export-feedback").textContent = `caçando… (${status || "rodando"})`;
-      }
-    } catch (err) { /* segue tentando até o teto de ticks */ }
-  }, 4000);
-}
-
-async function exportImport(jobId) {
-  const fb = $("#export-feedback");
-  fb.textContent = "lote pronto — importando na VPS…";
-  $("#export-status").textContent = "importando…"; $("#export-status").className = "pill pill-muted";
-  try {
-    const r = await api("POST", "/owner/export/import", { jobId });
+    const ok = confirm(`Exportar ${prev.count} leads locais pro VPS e LIMPAR o banco local?\n\nOs e-mails ficam no PC. Não dá pra desfazer.`);
+    if (!ok) { fb.textContent = "cancelado."; return; }
+    // 2) Executa de verdade (manda -> só depois limpa).
+    if (btn) btn.disabled = true;
+    st.textContent = "enviando…"; st.className = "pill pill-muted";
+    fb.textContent = `mandando ${prev.count} leads pro VPS…`;
+    pushFeed(`Export: mandando ${prev.count} leads locais pro VPS…`, "info");
+    const r = await api("POST", "/owner/export-all-leads", { confirm: true });
     if (r.ok) {
-      const res = r.result || {};
-      const imported = res.imported ?? res.inserted ?? res.count ?? "?";
-      const dup = res.duplicates ?? res.skipped ?? 0;
-      fb.textContent = `pronto: ${imported} importados na VPS, ${dup} duplicados.`;
+      fb.textContent = `pronto: ${r.exported} enviados pro VPS, ${r.cleared} limpos do local.`;
       fb.className = "delta up";
-      $("#export-status").textContent = "enviado"; $("#export-status").className = "pill pill-ok";
-      pushFeed(`Export concluído: ${imported} leads na VPS (${dup} duplicados).`, "ok");
+      st.textContent = "enviado"; st.className = "pill pill-ok";
+      pushFeed(`Export concluído: ${r.exported} pro VPS, ${r.cleared} limpos do local.`, "ok");
+      renderLocalBank();
+      refreshVpsBank(true);
     } else {
-      fb.textContent = r.message || r.reason || "falha ao importar na VPS.";
-      $("#export-status").textContent = "falhou"; $("#export-status").className = "pill pill-bad";
+      fb.textContent = r.message || r.reason || "falha ao exportar.";
+      st.textContent = "falhou"; st.className = "pill pill-bad";
+      pushFeed(`Export falhou: ${r.reason || r.message || "erro"}.`, "warn");
     }
-  } catch (err) { fb.textContent = err.message; }
+  } catch (err) {
+    fb.textContent = err.message;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+{
+  const b = $("#btn-export-all");
+  if (b) b.addEventListener("click", exportAllLeads);
 }
 
-$("#btn-export-start").addEventListener("click", exportStart);
+async function cleanJunkLeads() {
+  const fb = $("#export-feedback");
+  const btn = $("#btn-clean-junk");
+  fb.className = "delta";
+  fb.textContent = "varrendo o banco local…";
+  try {
+    const prev = await api("POST", "/owner/clean-junk-leads", {});
+    if (!prev.junk) { fb.textContent = prev.message || "Nenhum lixo de nome encontrado."; return; }
+    const ok = confirm(`Apagar ${prev.junk} cards-lixo do banco local (de ${prev.scanned} varridos)?\n\nEx.: ${(prev.sample || []).slice(0, 3).join(" · ")}\n\nNão dá pra desfazer.`);
+    if (!ok) { fb.textContent = "cancelado."; return; }
+    if (btn) btn.disabled = true;
+    fb.textContent = `apagando ${prev.junk} cards-lixo…`;
+    pushFeed(`Limpeza: apagando ${prev.junk} cards-lixo do banco local…`, "info");
+    const r = await api("POST", "/owner/clean-junk-leads", { confirm: true });
+    if (r.ok) {
+      fb.textContent = `pronto: ${r.cleared} cards-lixo apagados.`;
+      fb.className = "delta up";
+      pushFeed(`Limpeza concluída: ${r.cleared} cards-lixo fora do banco local.`, "ok");
+      renderLocalBank();
+    } else {
+      fb.textContent = r.message || r.reason || "falha ao limpar.";
+    }
+  } catch (err) {
+    fb.textContent = err.message;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+{
+  const c = $("#btn-clean-junk");
+  if (c) c.addEventListener("click", cleanJunkLeads);
+}
+
+/* ---------- Sistema · Local Lab on/off (pré-requisito do export) ---------- */
+async function labStatus() {
+  try { return await api("GET", "/local-lab/status"); }
+  catch { return { ok: false, up: false }; }
+}
+// Pinta as DUAS luzes do Lab: a do topo (lab-dot2) e a do card de export (lab-dot).
+function paintLab(up, busy) {
+  const spots = [
+    { dot: $("#lab-dot"), txt: $("#lab-text"), btn: $("#btn-lab-start"), full: true },
+    { dot: $("#lab-dot2"), txt: $("#lab-text2"), btn: null, full: false },
+  ];
+  for (const s of spots) {
+    if (!s.dot) continue;
+    if (busy) {
+      s.dot.className = "lab-dot checking";
+      if (s.txt) s.txt.textContent = s.full ? "Local Lab: ligando…" : "Lab de leads: ligando…";
+      if (s.btn) s.btn.hidden = true;
+      continue;
+    }
+    s.dot.className = "lab-dot " + (up ? "on" : "off");
+    if (s.txt) {
+      s.txt.textContent = s.full
+        ? (up ? "Local Lab: ligado (pronto pra caçar)" : "Local Lab: desligado — precisa ligar pra exportar")
+        : (up ? "Lab de leads: ligado" : "Lab de leads: desligado");
+    }
+    if (s.btn) { s.btn.hidden = up; s.btn.disabled = false; }
+  }
+}
+async function refreshLabState() {
+  const s = await labStatus();
+  paintLab(Boolean(s.up), false);
+  return Boolean(s.up);
+}
+// Garante o Local Lab no ar: liga e espera o health responder (até ~7s). Devolve true/false.
+async function ensureLabUp() {
+  let s = await labStatus();
+  if (s.up) { paintLab(true, false); return true; }
+  paintLab(false, true);
+  try { await api("POST", "/local-lab/start", {}); } catch {}
+  for (let i = 0; i < 8; i += 1) {
+    await new Promise((r) => setTimeout(r, 900));
+    s = await labStatus();
+    if (s.up) { paintLab(true, false); return true; }
+  }
+  paintLab(false, false);
+  return false;
+}
+async function labStartClick() {
+  const btn = $("#btn-lab-start");
+  if (btn) btn.disabled = true;
+  paintLab(false, true);
+  const up = await ensureLabUp();
+  pushFeed(up ? "Local Lab ligado — pode caçar e exportar." : "Não consegui ligar o Local Lab (veja logs/hbx-local-lab.log).", up ? "ok" : "warn");
+}
+async function labStop() {
+  paintLab(false, true);
+  try { await api("POST", "/local-lab/stop", {}); } catch {}
+  const up = await refreshLabState();
+  pushFeed(up ? "Lab ainda no ar." : "Lab de leads desligado.", up ? "warn" : "ok");
+}
+{
+  const labBtn = $("#btn-lab-start");
+  if (labBtn) labBtn.addEventListener("click", labStartClick);
+  const labOn = $("#btn-lab-toggle-start");
+  if (labOn) labOn.addEventListener("click", labStartClick);
+  const labOff = $("#btn-lab-toggle-stop");
+  if (labOff) labOff.addEventListener("click", labStop);
+}
 
 /* ---------- Sistema · coluna VPS (via Ops Control) ---------- */
 function paintMetric(idBase, usedPct, limitPct) {
@@ -463,8 +542,12 @@ function paintMetric(idBase, usedPct, limitPct) {
 
 async function renderVps() {
   const status = $("#vps-status");
-  status.textContent = "lendo a VPS (pode levar ~30s)…";
+  status.textContent = "lendo a VPS…";
   status.className = "resumo";
+  $("#vps-leads-falling").textContent = "lendo VPS…";
+  paintChk("#chk-vps-elastic", false, true);
+  paintChk("#chk-vps-factory", false, true);
+  refreshVpsBank();
   let v;
   try {
     v = await api("GET", "/owner/vps/system");
@@ -475,38 +558,27 @@ async function renderVps() {
   }
 
   if (!v.ok) {
-    status.textContent = v.configured === false ? "configure o token do Ops Control" : (v.message || v.reason || "VPS indisponível");
+    status.textContent = v.configured === false ? "configure o Ops Control" : (v.message || v.reason || "VPS indisponível");
     status.className = "resumo warn";
+    paintChk("#chk-vps-elastic", false, true);
+    paintChk("#chk-vps-factory", false, true);
     return;
   }
 
   $("#vps-host").textContent = v.targetHost ? `· ${v.targetHost}` : "";
+  status.textContent = "";
   const ram = v.pressure.ram.usedPct;
   const disk = v.pressure.disk.usedPct;
   const load1 = v.pressure.load.load1;
-  const head = v.verdict.level === "buy" ? "VPS no limite" : v.verdict.level === "tight" ? "VPS apertando" : "VPS saudável";
-  status.textContent = `${head} · ${v.engines.running}/${v.engines.total} motores`
-    + (ram != null ? ` · RAM ${ram}%` : "")
-    + (disk != null ? ` · disco ${disk}%` : "")
-    + (load1 != null ? ` · load ${load1.toFixed(2)}` : "");
-  status.className = "resumo" + (v.verdict.level === "buy" ? " bad" : v.verdict.level === "tight" ? " warn" : "");
-
-  const warnBox = $("#vps-warnings");
-  warnBox.innerHTML = "";
-  (v.warnings || []).forEach((w) => {
-    warnBox.appendChild(el(`<div class="warn-band"><span>${esc(w)}</span></div>`));
-  });
 
   paintMetric("#vps-ram", ram, v.pressure.ram.limit);
   paintMetric("#vps-disk", disk, v.pressure.disk.limit);
   const cpu = (v.pressure.cpu && v.pressure.cpu.usedPct != null) ? v.pressure.cpu : null;
   const cores = v.pressure.cpu ? v.pressure.cpu.cores : null;
   if (cpu) {
-    // CPU% real (load/núcleos) quando o snapshot trouxe nproc.
     paintMetric("#vps-load", cpu.usedPct, cpu.limit);
     $("#vps-load-detail").textContent = `load 1m ${load1 != null ? load1.toFixed(2) : "—"}` + (cores ? ` · ${cores} núcleos` : "");
   } else {
-    // Fallback: sem núcleos, mostra load 1m cru e escala a barra contra ~8 de referência.
     $("#vps-load").textContent = load1 == null ? "—" : load1.toFixed(2);
     const loadBar = $("#vps-load-bar");
     loadBar.style.width = `${load1 == null ? 0 : Math.min(100, Math.round((load1 / 8) * 100))}%`;
@@ -514,31 +586,14 @@ async function renderVps() {
     $("#vps-load-detail").textContent = load1 == null ? "sem leitura"
       : `load 1m/5m/15m: ${load1.toFixed(2)} · ${(v.pressure.load.load5 ?? 0).toFixed(2)} · ${(v.pressure.load.load15 ?? 0).toFixed(2)}`;
   }
-  $("#vps-ram-limit").textContent = ram == null ? "sem leitura" : `aviso em ${v.pressure.ram.limit}%` + (v.pressure.ram.totalGb ? ` · ${v.pressure.ram.totalGb} GB` : "");
-  $("#vps-disk-limit").textContent = disk == null ? "sem leitura" : `aviso em ${v.pressure.disk.limit}%` + (v.pressure.disk.freeGb != null ? ` · ${v.pressure.disk.freeGb} GB livres` : "");
+  $("#vps-ram-limit").textContent = ram == null ? "sem leitura" : (v.pressure.ram.totalGb ? `${v.pressure.ram.totalGb} GB` : "");
+  $("#vps-disk-limit").textContent = disk == null ? "sem leitura" : (v.pressure.disk.freeGb != null ? `${v.pressure.disk.freeGb} GB livres` : "");
 
-  const eng = $("#vps-engines");
-  eng.textContent = v.containersAvailable ? `${v.engines.running}/${v.engines.total} rodando` : "containers sob carga";
-  eng.className = "pill " + (v.containersAvailable ? (v.engines.running > 0 ? "pill-ok" : "pill-muted") : "pill-muted");
-
-  $("#vps-verdict").className = `card verdict ${v.verdict.level}`;
-  $("#vps-verdict-title").textContent = `Preciso de mais servidor? — ${v.verdict.title}`;
-  $("#vps-verdict-detail").textContent = v.verdict.detail;
-
-  const box = $("#vps-containers");
-  const items = v.containers || [];
-  if (!items.length) {
-    box.innerHTML = `<div class="empty">${v.containersAvailable ? "nenhum container HBX na VPS" : "containers indisponíveis (VPS sob carga)"}</div>`;
-  } else {
-    box.innerHTML = "";
-    items.forEach((c) => {
-      const running = c.state === "running";
-      box.appendChild(el(`<div class="ctr-row">
-        <span>${esc(c.name)} <span class="ctr-meta">${esc(c.cpu)} · ${esc(c.mem)}</span></span>
-        <span class="${running ? "ok" : "bad"}">${running ? "rodando" : esc(c.state || "parado")}</span>
-      </div>`));
-    });
-  }
+  const running = v.engines ? v.engines.running : 0;
+  const total = v.engines ? v.engines.total : 0;
+  $("#vps-engines-big").textContent = v.containersAvailable ? `${running}/${total}` : "—";
+  $("#vps-engines").textContent = v.containersAvailable ? `${running} de ${total} rodando` : "containers sob carga";
+  // Leads/elástico/fábrica da VPS: leitura real entra no rebuild do Ops Control (passo #1.b).
 }
 
 function vpsRange() {
@@ -568,7 +623,7 @@ async function vpsAction(label, route, body, confirmMsg) {
   setTimeout(renderVps, 1500);
 }
 
-$("#btn-vps-refresh").addEventListener("click", renderVps);
+$("#btn-vps-refresh").addEventListener("click", () => { renderVps(); refreshVpsBank(true); });
 $("#btn-vps-engines-start").addEventListener("click", () => {
   const { from, to } = vpsRange();
   vpsAction("ligar faixa", "/owner/vps/engines/start", { from, to });

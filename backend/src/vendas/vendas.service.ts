@@ -8785,7 +8785,7 @@ export class VendasService {
   private async releaseRadarLeadBackToPool(
     context: { companyId: number; userId: number },
     row: any,
-    options: { status: 'discarded' | 'complaint'; reason?: string | null },
+    options: { status: string; reason?: string | null },
   ) {
     const [hasPool, hasState, hasEvent, hasOwnerColumn, hasClaimedColumn] = await Promise.all([
       this.prisma.hasTable('RadarLeadPool').catch(() => false),
@@ -8838,12 +8838,17 @@ export class VendasService {
 
     if (poolRow) {
       const ownerCompanyId = Math.trunc(Number(poolRow.ownerCompanyId || 0)) || 0;
+      // Recusa LEVE (sem interesse) → libera pra lagoa (clean): outra empresa pode
+      // pegar. Recusa DURA (número não existe/não atende/sem WhatsApp/opt-out/
+      // reclamação) → status global protegido = some pra TODAS as empresas.
+      const globalKill = ['no_whatsapp', 'invalid_whatsapp', 'invalid_phone', 'no_answer', 'opt_out', 'do_not_contact', 'complaint', 'blocked'].includes(status);
       await (this.prisma as any).radarLeadPool.update({
         where: { id: radarLeadId },
         data: {
           ...(hasOwnerColumn && (!ownerCompanyId || ownerCompanyId === context.companyId) ? { ownerCompanyId: null } : {}),
           ...(hasClaimedColumn && (!ownerCompanyId || ownerCompanyId === context.companyId) ? { claimedAt: null } : {}),
-          status: 'clean',
+          status: globalKill ? status : 'clean',
+          ...(globalKill ? { recommendedChannel: 'discard', enrichmentScore: 0, globalNegativeCount: { increment: 1 } } : {}),
           lastSeenAt: now,
         },
       }).catch((error: any) => {
@@ -8869,7 +8874,7 @@ export class VendasService {
   private async deleteVendasRowsForUser(
     user: any,
     dto: BulkDeleteVendasLeadsDto,
-    options: { report?: boolean; reportReason?: string | null } = {},
+    options: { report?: boolean; reportReason?: string | null; radarStatus?: string | null; radarReason?: string | null } = {},
   ) {
     const context = await this.resolveVendasUserContext(user);
     this.assertVendasPermission(context.access?.canDeleteCards, 'Acesso para excluir card bloqueado pela politica da equipe.');
@@ -8922,8 +8927,8 @@ export class VendasService {
       }
       try {
         await this.releaseRadarLeadBackToPool(context, row, {
-          status: options.report ? 'complaint' : 'discarded',
-          reason: options.report ? options.reportReason || 'Card reclamado com erro no Vendas.' : 'Card ocultado do Vendas.',
+          status: options.radarStatus || (options.report ? 'complaint' : 'discarded'),
+          reason: options.radarReason || (options.report ? options.reportReason || 'Card reclamado com erro no Vendas.' : 'Card ocultado do Vendas.'),
         });
       } catch (error: any) {
         this.logger.warn(`[vendas-delete] Falha ao devolver card ao Radar lead=${row.id}: ${error?.message || error}`);
@@ -8947,6 +8952,34 @@ export class VendasService {
       leadIds: [String(leadId || '').trim()],
     });
     return { ok: true, deletedCount: result.deletedCount };
+  }
+
+  // Negativar lead do Vendas COM MOTIVO (dono 14/06): tira o card da carteira e
+  // decide o destino na lagoa pelo motivo. LEVE ("sem interesse") → volta pra lagoa
+  // pros outros; DURA ("não atende/número não existe/sem WhatsApp/opt-out/reclamou")
+  // → some pra todas as empresas. Quem negativou nunca mais vê (estado por empresa).
+  async negativarLeadForUser(user: any, leadId: string, dto: { status?: string; note?: string } = {}) {
+    const allowed = ['negative', 'no_answer', 'no_whatsapp', 'opt_out', 'complaint'];
+    const status = String(dto?.status || '').trim().toLowerCase();
+    if (!allowed.includes(status)) {
+      throw new BadRequestException('Motivo de negativacao invalido.');
+    }
+    const reason = this.normalizeText(dto?.note) || null;
+    const result = await this.deleteVendasRowsForUser(user, {
+      leadIds: [String(leadId || '').trim()],
+    }, {
+      radarStatus: status,
+      radarReason: reason,
+    });
+    const hard = ['no_answer', 'no_whatsapp', 'opt_out', 'complaint'].includes(status);
+    return {
+      ok: true,
+      deletedCount: result.deletedCount,
+      kind: hard ? 'global' : 'company',
+      message: hard
+        ? 'Lead negativado e removido da lagoa para todas as empresas.'
+        : 'Lead negativado — saiu da sua carteira e voltou para a lagoa.',
+    };
   }
 
   async reportLeadErrorForUser(user: any, leadId: string, dto: ReportVendasLeadDto) {

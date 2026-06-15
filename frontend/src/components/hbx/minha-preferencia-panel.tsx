@@ -11,12 +11,21 @@ import { useState } from "react";
 
 import { I, ICONS } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
+import { BRAZIL_UF_OPTIONS, brazilCityOptionsForUf } from "@/lib/brazil-cities";
+import { RADAR_SEGMENTS_FLAT, categoryOfSegment } from "@/lib/radar-segments";
 
 type SaveResult = {
   ok?: boolean;
   preferredSegments?: string[];
   preferredCityRegion?: string | null;
 } | null;
+
+// "Campinas, SP" → { city: "Campinas", uf: "SP" }. Tolerante (só cidade, ou vazio).
+function parseCityRegion(value: string): { city: string; uf: string } {
+  const m = String(value || "").trim().match(/^(.*?)[,\s]+([A-Za-z]{2})$/);
+  if (m) return { city: m[1].trim(), uf: m[2].toUpperCase() };
+  return { city: String(value || "").trim(), uf: "" };
+}
 
 export function MinhaPreferenciaPanel({
   initialSegments = [],
@@ -29,10 +38,12 @@ export function MinhaPreferenciaPanel({
 }) {
   const [segments, setSegments] = useState<string[]>(initialSegments);
   const [draft, setDraft] = useState("");
-  const [cityRegion, setCityRegion] = useState(initialCityRegion);
+  const [prefCity, setPrefCity] = useState(() => parseCityRegion(initialCityRegion).city);
+  const [prefUf, setPrefUf] = useState(() => parseCityRegion(initialCityRegion).uf);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const cityOptions = brazilCityOptionsForUf(prefUf);
 
   function addSegment() {
     const value = draft.trim().replace(/\s+/g, " ");
@@ -53,14 +64,17 @@ export function MinhaPreferenciaPanel({
     setError(null);
     setMsg(null);
     try {
+      const cityRegion = [prefCity.trim(), prefUf.trim()].filter(Boolean).join(", ");
       const res = await apiFetch<SaveResult>("/profile/preferred-segments", {
         method: "PATCH",
-        body: JSON.stringify({ segments, cityRegion: cityRegion.trim() || null }),
+        body: JSON.stringify({ segments, cityRegion: cityRegion || null }),
       });
       const savedSegments = res?.preferredSegments ?? segments;
       const savedCity = res?.preferredCityRegion ?? "";
       setSegments(savedSegments);
-      setCityRegion(savedCity);
+      const parsed = parseCityRegion(savedCity);
+      setPrefCity(parsed.city);
+      setPrefUf(parsed.uf);
       setMsg(savedSegments.length ? "Preferência salva." : "Preferência limpa — usando o ramo da empresa.");
       onSaved?.(savedSegments, savedCity);
     } catch (err) {
@@ -79,18 +93,30 @@ export function MinhaPreferenciaPanel({
       <div className="filters">
         <div className="f">
           <label>Adicionar segmento</label>
-          <input className="field-dark" placeholder="Ex.: dentista, oficina" value={draft}
+          <input className="field-dark" list="pref-segmentos" placeholder="Escolha ou digite (ex.: dentistas)" value={draft}
             onChange={e => setDraft(e.target.value)}
             onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addSegment(); } }} />
+          <datalist id="pref-segmentos">
+            {RADAR_SEGMENTS_FLAT.map(s => <option key={s} value={s}>{categoryOfSegment(s) || ""}</option>)}
+          </datalist>
         </div>
         <button className="btn-ghost" onClick={addSegment} disabled={!draft.trim()}>
           <I d={ICONS.plus} size={13} /> Adicionar
         </button>
         <div className="f">
-          <label>Cidade/região preferida (opcional)</label>
-          <input className="field-dark" placeholder="Ex.: Campinas, SP" value={cityRegion}
-            onChange={e => setCityRegion(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && salvar()} />
+          <label>Estado (opcional)</label>
+          <select className="select-dark" value={prefUf} onChange={e => { setPrefUf(e.target.value); setPrefCity(""); }}>
+            <option value="">Todos</option>
+            {BRAZIL_UF_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </div>
+        <div className="f">
+          <label>Cidade (opcional)</label>
+          <input className="field-dark" list="pref-cidades" placeholder={prefUf ? `Cidade de ${prefUf}` : "Selecione o estado"} value={prefCity}
+            onChange={e => setPrefCity(e.target.value)} onKeyDown={e => e.key === "Enter" && salvar()} />
+          <datalist id="pref-cidades">
+            {cityOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </datalist>
         </div>
         <button className="btn-teal" onClick={salvar} disabled={busy}>
           {busy ? "Salvando…" : "Salvar preferência"}

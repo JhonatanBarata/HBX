@@ -49,6 +49,7 @@ import {
   GENERIC_DIRECTORY_PREFIXES,
   GENERIC_DIRECTORY_CONTAINS,
   GENERIC_CATEGORY_HEADS,
+  looksLikeNonBusinessName,
   VERTICAL_TOKEN_GROUPS,
   GooglePlacesApiError,
   HbxBatchError,
@@ -1080,6 +1081,7 @@ export class RadarCorePresentationMixin {
     seenPhones: Set<string>,
   ) {
     if (candidate.phoneDigits && seenPhones.has(candidate.phoneDigits)) return false;
+    if (looksLikeNonBusinessName(candidate.name)) return false;
     if (!this.hasUsablePublicContactChannel(candidate as any)) return false;
     const seenKeys = new Set<string>();
     for (const item of existing) {
@@ -1233,7 +1235,13 @@ export class RadarCorePresentationMixin {
 
   private resolveRadarLeadStatus(row: any): RadarLeadStatus {
     const companyState = Array.isArray(row?.companyStates) && row.companyStates.length ? row.companyStates[0] : null;
-    return this.normalizeRadarLeadStatus(companyState?.status || row?.status || 'clean');
+    if (companyState?.status) return this.normalizeRadarLeadStatus(companyState.status);
+    // Sem estado DESTA empresa: status de WORKFLOW (atendimento/enviado) é por-empresa
+    // e pode ter sido deixado por OUTRA empresa — não vaza o rótulo cross-empresa.
+    // Mostra neutro (a regra de disponibilidade já usa companyStates, não o rótulo).
+    const globalStatus = this.normalizeRadarLeadStatus(row?.status || 'clean');
+    if (['sent_to_vendas', 'in_attendance', 'imported_to_vendas'].includes(globalStatus)) return 'clean';
+    return globalStatus;
   }
 
   private resolveRadarLeadTargetType(row: any): HbxTargetType {
@@ -2050,7 +2058,12 @@ export class RadarCorePresentationMixin {
     };
   }
 
-  private buildRadarLeadPublic(row: any, options: { includeSmartFields?: boolean } = {}) {
+  private buildRadarLeadPublic(row: any, options: { includeSmartFields?: boolean; maskContact?: boolean } = {}) {
+    // VITRINE (carrossel do Radar): mostra a empresa e a presença digital (site,
+    // Instagram, Facebook) pra encher o olho, mas MASCARA o contato direto
+    // (telefone/e-mail) — revela só quando o lead é PUXADO no Leads. Sinais de
+    // presença viram booleanos (hasPhone/hasEmail/hasWhatsapp) sem o valor cru.
+    const maskContact = options.maskContact === true;
     const companyState = Array.isArray(row?.companyStates) && row.companyStates.length ? row.companyStates[0] : null;
     const status = this.resolveRadarLeadStatus(row);
     const ownerCompanyId = Math.trunc(Number(row?.ownerCompanyId || 0)) || null;
@@ -2224,6 +2237,12 @@ export class RadarCorePresentationMixin {
       lastSeenAt: row?.lastSeenAt instanceof Date ? row.lastSeenAt.toISOString() : null,
       companyStatus: companyState?.status || status,
       vendasLeadId: companyState?.vendasLeadId || null,
+      // Sinais de presença (sempre): a vitrine mostra ✓ sem o valor cru.
+      hasPhone: Boolean(row?.phoneDigits || row?.phone),
+      hasEmail: Boolean(safeEmail),
+      hasWhatsapp: whatsappStatus === 'confirmed',
+      // Máscara do contato direto na vitrine (revela ao puxar).
+      ...(maskContact ? { phone: '', phoneDigits: '', email: null, emailSource: null } : {}),
       premiumLocked: !includeSmartFields,
       premiumFeatureStatus: includeSmartFields ? 'available' : 'locked',
       premiumTeaser: !includeSmartFields && Boolean(safeEmail || safeInstagramUrl || safeFacebookUrl || row?.recommendedChannel || row?.enrichmentScore || qualityV2),
@@ -2658,7 +2677,12 @@ export class RadarCorePresentationMixin {
   async listRadarLeadsForUser(user: any, input: RadarFiltersInput = {}) {
     const context = this.resolveContext(user);
     const filters = this.normalizeRadarFilters({ ...input, engine: undefined });
-    const assignedUserId = this.isCompanySellerUser(user) ? context.userId : null;
+    // VITRINE (carrossel do Radar, dono 14/06): mostra a LAGOA compartilhada pra
+    // TODOS — inclusive o vendedor (que antes via tela branca por causa do filtro
+    // "atribuído a você"). Só leads disponíveis (availableOnly) e contato mascarado.
+    // Sem vitrine (tela Leads), segue por assignedUserId pro vendedor (o que ele puxou).
+    const vitrine = String((input as any).scope || '').trim().toLowerCase() === 'vitrine';
+    const assignedUserId = (!vitrine && this.isCompanySellerUser(user)) ? context.userId : null;
     if (!(await this.supportsRadarPersistence())) {
       return { items: [], total: 0, facets: [], meta: { available: false, message: 'Banco do Radar ainda nao foi migrado neste ambiente.' } };
     }
@@ -2676,11 +2700,13 @@ export class RadarCorePresentationMixin {
       limit: 2000,
       includeHidden: filters.includeHidden,
       assignedUserId,
+      availableOnly: vitrine,
     });
     const allRows = await this.queryRadarRowsForCompany(context.companyId, baseFilters, {
       limit: 2000,
       includeHidden: filters.includeHidden,
       assignedUserId,
+      availableOnly: vitrine,
     });
     const filteredRows = filters.filterKey || filters.status || filters.ddd || filters.source || filters.scoreRange
       ? this.filterRadarRowsInMemory(allRows, filters)
@@ -2696,11 +2722,12 @@ export class RadarCorePresentationMixin {
     const pageRows = orderedRows.slice(offset, offset + filters.limit);
     const includeSmartFields = await this.canUseRadarSmartLeadFields(context.companyId);
     return {
-      items: pageRows.map((row) => this.buildRadarLeadPublic(row, { includeSmartFields })),
+      items: pageRows.map((row) => this.buildRadarLeadPublic(row, { includeSmartFields, maskContact: vitrine })),
       total: filteredRows.length,
       facets: this.buildRadarFacets(allRows),
       meta: {
         available: true,
+        vitrine,
         page: filters.page,
         limit: filters.limit,
         filterKey: filters.filterKey || null,

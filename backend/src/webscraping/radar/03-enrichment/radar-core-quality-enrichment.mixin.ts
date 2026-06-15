@@ -59,6 +59,7 @@ import {
   HbxBatchError,
   normalizePhoneDigits,
   isLikelyValidBrPhone,
+  isRealisticBrPhone,
   isLikelyWhatsapp,
   toNumberOrNull,
   clampQuantity,
@@ -887,11 +888,10 @@ export class RadarCoreQualityEnrichmentMixin {
     if (channel === 'facebook') return facebookUsable;
     if (channel === 'website') return websiteUsable;
     if (channel === 'email') return qualityValue !== false && Boolean(businessEmail) && !['missing', 'invalid'].includes(emailStatus);
-    if (channel === 'phone') return qualityValue === true && isLikelyValidBrPhone(phoneValue) || isLikelyValidBrPhone(phoneValue);
+    if (channel === 'phone') return isRealisticBrPhone(phoneValue);
     if (channel === 'whatsapp') {
-      return (qualityValue === true && isLikelyValidBrPhone(phoneValue))
-        || (['confirmed', 'available', 'valid', 'exists', 'true'].includes(whatsappStatus) && isLikelyValidBrPhone(phoneValue))
-        || isLikelyWhatsapp(phoneValue);
+      return (['confirmed', 'available', 'valid', 'exists', 'true'].includes(whatsappStatus) && isRealisticBrPhone(phoneValue))
+        || (isLikelyWhatsapp(phoneValue) && isRealisticBrPhone(phoneValue));
     }
     return false;
   }
@@ -912,7 +912,7 @@ export class RadarCoreQualityEnrichmentMixin {
       ...this.parseMaybeJsonObject(candidate?.metadataJson),
     };
     const phoneDigits = normalizePhoneDigits(merged.phoneDigits || merged.phone || merged.phoneNormalized);
-    if (isLikelyValidBrPhone(phoneDigits)) return true;
+    if (isRealisticBrPhone(phoneDigits)) return true;
     const instagramUrl = String(merged.instagramUrl || merged.signals?.instagramUrl || '').trim();
     if (instagramUrl && !looksLikeThirdPartySocialProfile(instagramUrl) && socialProfileLooksCompatibleWithLead(merged, instagramUrl)) return true;
     const facebookUrl = String(merged.facebookUrl || merged.signals?.facebookUrl || '').trim();

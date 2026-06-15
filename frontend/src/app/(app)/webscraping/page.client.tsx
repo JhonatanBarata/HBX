@@ -14,7 +14,8 @@
 import { useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
-import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
+import { Av, I, ICONS, useCurrentUser } from "@/components/hbx/shell";
+import { CanalIcon } from "@/components/hbx/canal-icon";
 import { apiFetch } from "@/lib/api";
 import { BRAZIL_UF_OPTIONS, mergeBrazilCityOptions } from "@/lib/brazil-cities";
 
@@ -41,6 +42,12 @@ type RadarLead = {
   firstSeenAt: string | null;
   recommendedChannel: string | null;
   whatsappStatus?: string;
+  // Presença digital (vitrine/carrossel) — social aparece, contato fica mascarado.
+  instagramUrl?: string | null;
+  facebookUrl?: string | null;
+  hasPhone?: boolean;
+  hasEmail?: boolean;
+  hasWhatsapp?: boolean;
 };
 
 type LeadsResponse = {
@@ -189,9 +196,10 @@ export function WebscrapingClient() {
   const loadLeads = useCallback((opts?: { page?: number }) => {
     const params = new URLSearchParams();
     params.set("page", String(opts?.page ?? 1));
-    // 8 linhas/página por padrão (pedido do dono, 11/06/2026: a tela inteira
-    // cabe sem rolagem); agora ajustável pelo seletor "Linhas por página".
     params.set("limit", String(pageSize));
+    // VITRINE (dono 14/06): o Radar mostra a LAGOA compartilhada (todos veem,
+    // inclusive o vendedor), com contato mascarado — revela só ao puxar no Leads.
+    params.set("scope", "vitrine");
     if (segment) params.set("segment", segment);
     if (city) params.set("city", city);
     if (uf) params.set("state", uf);
@@ -396,49 +404,9 @@ export function WebscrapingClient() {
   return (
     <div className="content">
           <div className="work">
-            <section className="panel">
-              <div className="filters">
-                <div className="f">
-                  <label>Segmento</label>
-                  <input className="field-dark" list="segmentos" placeholder="Todos os segmentos" style={{ minWidth: 150 }}
-                    value={segment} onChange={e => setSegment(e.target.value)} />
-                  <datalist id="segmentos">
-                    {segOptions.map(o => <option key={o.value} value={o.value}>{`${o.label} (${o.count})`}</option>)}
-                  </datalist>
-                </div>
-                <div className="f">
-                  <label>UF</label>
-                  <select className="select-dark" value={uf} onChange={e => { setUf(e.target.value); setCity(""); }}>
-                    <option value="">Todos os estados</option>
-                    {ufOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                  </select>
-                </div>
-                <div className="f">
-                  <label>Cidade</label>
-                  <input className="field-dark" list="cidades" placeholder={uf ? `Digite uma cidade de ${uf}` : "Todas as cidades"} style={{ minWidth: 150 }}
-                    value={city} onChange={e => setCity(e.target.value)} />
-                  <datalist id="cidades">
-                    {cityOptions.map(o => <option key={o.value} value={o.value}>{o.count ? `${o.label} (${o.count})` : o.label}</option>)}
-                  </datalist>
-                </div>
-                <div className="f" style={{ flex: 1, minWidth: 180 }}>
-                  <label>Buscar empresa ou domínio</label>
-                  <input className="field-dark" placeholder="Ex.: hbx.com.br" value={filterKey}
-                    onChange={e => setFilterKey(e.target.value)} onKeyDown={e => e.key === "Enter" && aplicarBusca()} onBlur={aplicarBusca} />
-                </div>
-                {!isSeller && (
-                  <button className="btn-teal" style={{ minHeight: 38 }} onClick={executarColeta} disabled={runBusy || runActive}>
-                    {runActive ? "Coletando…" : runBusy ? "Iniciando…" : "▶ Executar coleta"}
-                  </button>
-                )}
-              </div>
-              {(runMsg || run?.errorMessage) && (
-                <div style={{ padding: "0 16px 12px", fontSize: "0.72rem", fontWeight: 600, color: "var(--text-muted)" }}>
-                  {runMsg || run?.errorMessage}
-                </div>
-              )}
-            </section>
-
+            {/* Radar = VITRINE read-only (ordem do dono 14/06): SEM filtro, SEM
+                "Executar coleta" e SEM Exportar. A lagoa enche sozinha (feeder
+                local/VPS); quem trabalha lead vai pro /leads (puxar) e /vendas. */}
             <section className="panel stats-strip">
               <div className="cell">
                 <span className="lbl">{runActive ? "Coleta em andamento" : "Última coleta"}</span>
@@ -467,51 +435,45 @@ export function WebscrapingClient() {
             <section className="panel">
               <div className="panel-head">
                 <h2>{total.toLocaleString("pt-BR")} resultados encontrados</h2>
-                <div className="meta">
-                  {!isSeller && (
-                    <button className="btn-ghost" onClick={exportarCsv} disabled={exportBusy}><I d={ICONS.doc} size={13} /> {exportBusy ? "Exportando…" : "Exportar ▾"}</button>
-                  )}
-                  <button className="icon-ghost" onClick={limparFiltros} title="Limpar filtros" aria-label="Limpar filtros"><I d={ICONS.filter} size={15} /></button>
-                </div>
               </div>
-              <div className="tbl-wrap">
-                <table className="tbl">
-                  <thead>
-                    <tr>
-                      <th aria-hidden="true"></th>
-                      <th>Empresa</th><th>Segmento</th><th>Cidade</th><th>Contato</th>{!isSeller && <th>Telefone</th>}{!isSeller && <th>E-mail</th>}<th>Site</th><th>Score</th><th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {items.length === 0 && (
-                      <tr style={{ cursor: "default" }}>
-                        <td colSpan={isSeller ? 8 : 10} style={{ textAlign: "center", color: "var(--text-muted)", padding: "26px 12px" }}>
-                          {loadError
-                            ? loadError
-                            : data?.meta?.available === false
-                              ? data?.meta?.message || "Banco do Radar indisponível neste ambiente."
-                              : "Nenhum resultado para os filtros atuais — execute uma coleta."}
-                        </td>
-                      </tr>
-                    )}
-                    {items.map((row) => (
-                      <tr key={row.id} className={sel?.id === row.id ? "sel" : ""} onClick={() => selecionar(row)}>
-                        <td><input type="checkbox" checked={sel?.id === row.id} readOnly style={{ accentColor: "var(--hbx-brand)" }} /></td>
-                        <td><div className="co"><strong>{row.name || "—"}</strong><span className={statusCls(row.status)} style={{ fontSize: "0.56rem", padding: "1px 8px" }}>{statusLabel(row.status)}</span></div></td>
-                        <td>{row.segment || "—"}</td>
-                        <td>{row.city ? `${row.city}${row.state ? ", " + row.state : ""}` : "—"}</td>
-                        <td><div className="co"><strong style={{ fontWeight: 600 }}>{row.businessCategory || "—"}</strong><span className="sub2">{row.recommendedChannel ? `canal: ${row.recommendedChannel}` : ""}</span></div></td>
-                        {!isSeller && <td style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem" }}>{row.phone || "—"}</td>}
-                        {!isSeller && <td>{row.email || "—"} {row.email && row.emailStatus === "confirmed" ? <span style={{ color: "var(--hbx-brand-strong)" }}>✓</span> : row.email && row.emailStatus === "probable" ? <span style={{ color: "var(--hbx-warning)" }}>⚠</span> : null}</td>}
-                        <td>{row.website
-                          ? <a href={row.website.startsWith("http") ? row.website : `https://${row.website}`} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}>{row.website.replace(/^https?:\/\//, "")} ↗</a>
-                          : "—"}</td>
-                        <td><span className={"score-ring " + (row.opportunityScore >= 75 ? "hi" : "mid")}>{row.opportunityScore}</span></td>
-                        <td><span className={statusCls(row.status)}>{statusLabel(row.status)}</span></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="radar-vitrine">
+                {items.length === 0 && (
+                  <div className="radar-vitrine-empty">
+                    {loadError
+                      ? loadError
+                      : data?.meta?.available === false
+                        ? data?.meta?.message || "Banco do Radar indisponível neste ambiente."
+                        : "Lagoa vazia para esses filtros."}
+                  </div>
+                )}
+                {items.map((row) => {
+                  const href = (u: string) => (u.startsWith("http") ? u : `https://${u}`);
+                  return (
+                    <div key={row.id} role="button" tabIndex={0} className={"vlead" + (sel?.id === row.id ? " on" : "")}
+                      onClick={() => selecionar(row)} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selecionar(row); } }}>
+                      <div className="vlead-top">
+                        <Av name={row.name || "—"} size={38} />
+                        <div className="vlead-id">
+                          <strong>{row.name || "—"}</strong>
+                          <span>{row.segment || row.businessCategory || "—"}{row.city ? ` · ${row.city}${row.state ? "/" + row.state : ""}` : ""}</span>
+                        </div>
+                        <span className={"vlead-score " + (row.opportunityScore >= 75 ? "hi" : "mid")}>{row.opportunityScore}</span>
+                      </div>
+                      <div className="vlead-sig">
+                        {row.hasWhatsapp && <span className="sig ok"><CanalIcon canal="whatsapp" size="sm" /> WhatsApp</span>}
+                        {row.hasEmail && <span className="sig ok"><CanalIcon canal="email" size="sm" /> E-mail</span>}
+                        {row.hasPhone && !row.hasWhatsapp && <span className="sig"><CanalIcon canal="telefone" size="sm" /> Telefone</span>}
+                        {!row.hasWhatsapp && !row.hasEmail && !row.hasPhone && <span className="sig">Sem contato</span>}
+                      </div>
+                      <div className="vlead-soc">
+                        {row.instagramUrl && <a className="soc" href={href(row.instagramUrl)} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}><CanalIcon canal="instagram" size="sm" /> Instagram</a>}
+                        {row.facebookUrl && <a className="soc" href={href(row.facebookUrl)} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}><CanalIcon canal="facebook" size="sm" /> Facebook</a>}
+                        {row.website && <a className="soc" href={href(row.website)} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}><CanalIcon canal="site" size="sm" /> Site</a>}
+                        {!row.instagramUrl && !row.facebookUrl && !row.website && <span className="soc none">Sem presença web</span>}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
               <div className="pager">
                 Linhas por página: <select className="select-dark" style={{ minWidth: 0, minHeight: 30, padding: "0 10px" }} value={pageSize} onChange={e => setPageSize(Number(e.target.value))}>

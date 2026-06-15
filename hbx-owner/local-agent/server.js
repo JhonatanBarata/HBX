@@ -560,12 +560,13 @@ function backendRequestOnce(method, route, payload, token, options = {}) {
       headers["Content-Type"] = "application/json";
       headers["Content-Length"] = data.length;
     }
+    const maxBytes = options.maxBytes || 200000;
     const req = http.request(
       { hostname: target.hostname, port: target.port || 80, path: target.pathname + target.search, method, headers, timeout: options.timeoutMs || 15000 },
       (response) => {
         let body = "";
         response.on("data", (chunk) => {
-          if (body.length < 200000) body += chunk.toString("utf8");
+          if (body.length < maxBytes) body += chunk.toString("utf8");
         });
         response.on("end", () => {
           let parsed = null;
@@ -769,7 +770,10 @@ async function readEngineCapacity() {
   else if (queue > 0 && alive >= ceiling) reason = "Fila cheia e no teto — pode precisar de mais capacidade.";
   else if (queue > 0) reason = "Fila com trabalho — o Governor está subindo motores até o teto.";
   else reason = `Fila vazia — fica no warm (${warm || alive}). Sobe sozinho até ${ceiling} quando encher.`;
-  return { ok: true, alive, warm, ceiling, queue, operationalStatus, elastic, governorOn, factoryStopped, reason };
+  // Turbo (modo agressivo) vem no MESMO payload do dashboard de motores — só surfaçar.
+  const turboEnabled = Boolean(data.isTurboEnabled);
+  const turboActive = Boolean(data.isTurboWindowActive || data.isTurboForcedNow);
+  return { ok: true, alive, warm, ceiling, queue, operationalStatus, elastic, governorOn, factoryStopped, turboEnabled, turboActive, reason };
 }
 
 function buildCapacityVerdict(pressure, capacity) {
@@ -1023,6 +1027,111 @@ async function readVpsSystem() {
     return { ok: false, configured: true, reason: ov.reason || snap.reason || `http_${ov.statusCode || snap.statusCode || "?"}`, message: "Ops Control não respondeu (VPS pode estar sob carga)." };
   }
   return mapOverview(ov.data);
+}
+
+// Total/leads/fábrica da VPS pela rota radar-audit que o Ops Control JÁ tem (SSH+psql, ~30s).
+// Cache de 90s pra não martelar SSH no ciclo do painel.
+let vpsLeadsCache = { at: 0, data: null };
+async function readVpsLeads() {
+  if (!opsToken) return { ok: false, configured: false, reason: "ops_token_ausente" };
+  if (vpsLeadsCache.data && Date.now() - vpsLeadsCache.at < 90_000) return vpsLeadsCache.data;
+  const r = await opsRequest("GET", "/api/radar-audit/vps", null, 70000);
+  if (!r.configured) return { ok: false, configured: false, reason: "ops_token_ausente" };
+  const d = r.data || {};
+  const ss = d.socialSummary || {};
+  const ls = d.leadStock || {};
+  const fc = d.factoryCursor || {};
+  const eng = d.engineSummary || {};
+  const out = {
+    ok: r.ok,
+    configured: true,
+    total: ss.totalLeads ?? null,
+    today: ls.total24h ?? null,
+    factoryStatus: fc.status || null,
+    factoryWhere: [fc.currentSegment, fc.currentCity, fc.currentState].filter(Boolean).join(" · ") || null,
+    engines: { total: eng.total ?? null, running: eng.running ?? null },
+    reason: r.reason || d.error,
+  };
+  if (r.ok && out.total != null) vpsLeadsCache = { at: Date.now(), data: out };
+  return out;
+}
+
+// Espelha o looksLikeNonBusinessName do backend (radar-core-shared) pra limpar o banco local
+// pelo MESMO critério do filtro: script estrangeiro, título de página, frase em inglês, nome comprido.
+const NON_BIZ_EN_STOPWORDS = new Set(["the", "of", "to", "for", "and", "that", "this", "with", "your", "you", "in", "on", "at", "by", "from", "into", "about", "their", "they", "what", "how", "why", "when", "where", "which", "are", "was", "were", "will", "would", "can", "could", "should", "has", "have", "had", "does", "did", "its"]);
+function looksLikeNonBusinessName(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return false;
+  if (/[Ͱ-ϿЀ-ӿ֐-׿؀-ۿ฀-๿　-ヿ㐀-鿿가-힯]/.test(raw)) return true;
+  if (raw.includes("|") || /\s[–—]\s/.test(raw)) return true;
+  if (raw.includes("?")) return true;
+  const words = raw.toLowerCase().split(/[^a-zà-ÿ0-9+]+/i).filter(Boolean);
+  if (words.length > 9) return true;
+  const hits = new Set(words.filter((w) => NON_BIZ_EN_STOPWORDS.has(w)));
+  return hits.size >= 2;
+}
+
+// Espelha isRealisticBrPhone do backend: DDD real + celular(9)/fixo(2-5) + sem repetição.
+const VALID_BR_DDDS = new Set([11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 24, 27, 28, 31, 32, 33, 34, 35, 37, 38, 41, 42, 43, 44, 45, 46, 47, 48, 49, 51, 53, 54, 55, 61, 62, 63, 64, 65, 66, 67, 68, 69, 71, 73, 74, 75, 77, 79, 81, 82, 83, 84, 85, 86, 87, 88, 89, 91, 92, 93, 94, 95, 96, 97, 98, 99]);
+function isRealisticBrPhone(raw) {
+  let d = String(raw || "").replace(/\D/g, "");
+  if (d.startsWith("55") && d.length > 11) d = d.slice(2);
+  if (d.length !== 10 && d.length !== 11) return false;
+  if (!VALID_BR_DDDS.has(Number(d.slice(0, 2)))) return false;
+  const sub = d.slice(2);
+  if (/^(\d)\1+$/.test(sub)) return false;
+  if (d.length === 11) return sub.length === 9 && sub[0] === "9";
+  return sub.length === 8 && "2345".includes(sub[0]);
+}
+// "limpa tudo": lixo = nome não parece empresa OU não tem contato ÚTIL (telefone real
+// OU e-mail válido). Site/social sozinho NÃO segura (o lixo global tem site/sourceUrl).
+function isJunkLead(row) {
+  if (looksLikeNonBusinessName(row && row.name)) return true;
+  if (isRealisticBrPhone(row && (row.phone || row.phoneDigits))) return false;
+  const email = String((row && row.email) || "").trim();
+  const emailStatus = String((row && row.emailStatus) || "").toLowerCase();
+  if (email && !["missing", "invalid"].includes(emailStatus)) return false;
+  return true; // sem telefone real E sem e-mail válido = lixo
+}
+
+// ----- Exportar TODOS os leads locais -> VPS + limpar o local (#2). Reusa endpoints existentes:
+// lê via master/database-cards, manda inline pelo Ops Control, limpa por leadIds. SÓ leads (e-mails ficam).
+async function readLocalCardsForExport(maxLeads = 5000) {
+  const leads = [];
+  const ids = [];
+  const limit = 500;
+  for (let page = 1; page <= 12 && leads.length < maxLeads; page += 1) {
+    // maxBytes alto: cada card é JSON gordo (80+ campos); o default de 200KB truncava e quebrava o parse.
+    const r = await backendRequest("GET", `/modules/master/webscraping/database-cards?limit=${limit}&page=${page}`, null, { timeoutMs: 30000, maxBytes: 16_000_000 });
+    if (!r.ok || !r.data) break;
+    const items = Array.isArray(r.data.items) ? r.data.items : [];
+    if (!items.length) break;
+    for (const row of items) {
+      const id = String(row.id || "").trim();
+      const name = safeText(row.name || row.companyName, 300);
+      if (!id || !name) continue; // sem nome o VPS rejeita; não manda nem limpa (fica local)
+      const website = row.website || null;
+      leads.push({
+        externalId: id,
+        name,
+        phone: row.phone || row.phoneDigits || null,
+        whatsapp: row.whatsapp || null,
+        website,
+        email: row.email || null,
+        emailStatus: row.emailStatus || (row.email ? "found_on_site" : "missing"),
+        city: row.city || null,
+        state: row.state || null,
+        segment: row.segment || null,
+        sourceProvider: safeText(row.source, 60) || "local_lab",
+        sourceUrl: website || row.sourceUrl || row.mapsUrl || `radar:${id}`,
+        sourceMode: "local_lab",
+        evidence: { method: "owner_export_all", origin: "local_radar_pool" },
+      });
+      ids.push(id);
+    }
+    if (items.length < limit) break;
+  }
+  return { leads: leads.slice(0, maxLeads), ids: ids.slice(0, maxLeads) };
 }
 
 function clampEngineRange(body) {
@@ -1366,6 +1475,89 @@ async function route(req, res) {
   // ----- VPS (via Ops Control). Leitura assíncrona + controles que já existiam. -----
   if (req.method === "GET" && url.pathname === "/owner/vps/system") {
     sendJson(res, 200, await readVpsSystem());
+    return;
+  }
+
+  // Total/leads/fábrica da VPS (radar-audit do Ops Control, cacheado). Sem rebuild.
+  if (req.method === "GET" && url.pathname === "/owner/vps/leads") {
+    sendJson(res, 200, await readVpsLeads());
+    return;
+  }
+
+  // Limpar o LIXO do banco local (#3): cards com nome que não é empresa. Preview por padrão; confirm:true apaga.
+  if (req.method === "POST" && url.pathname === "/owner/clean-junk-leads") {
+    const body = await readBody(req);
+    const junkIds = [];
+    const sample = [];
+    let scanned = 0;
+    const limit = 500;
+    for (let page = 1; page <= 40 && junkIds.length < 20000; page += 1) {
+      const r = await backendRequest("GET", `/modules/master/webscraping/database-cards?limit=${limit}&page=${page}`, null, { timeoutMs: 30000, maxBytes: 16_000_000 });
+      if (!r.ok || !r.data) break;
+      const items = Array.isArray(r.data.items) ? r.data.items : [];
+      if (!items.length) break;
+      for (const row of items) {
+        scanned += 1;
+        const id = String(row.id || "").trim();
+        const name = String(row.name || "");
+        if (id && isJunkLead(row)) {
+          junkIds.push(id);
+          if (sample.length < 8) sample.push(name || "(sem nome)");
+        }
+      }
+      if (items.length < limit) break;
+    }
+    if (!junkIds.length) {
+      sendJson(res, 200, { ok: true, scanned, junk: 0, message: "Nenhum lixo de nome encontrado no banco local." });
+      return;
+    }
+    if (body.confirm !== true) {
+      sendJson(res, 200, { ok: true, preview: true, scanned, junk: junkIds.length, sample });
+      return;
+    }
+    let cleared = 0;
+    const errors = [];
+    for (let i = 0; i < junkIds.length; i += 2000) {
+      const chunk = junkIds.slice(i, i + 2000);
+      const del = await backendRequest("DELETE", "/modules/master/webscraping/database-cards/batch", { leadIds: chunk }, { timeoutMs: 30000 });
+      if (del.ok) cleared += Number(del.data?.affected ?? chunk.length) || 0;
+      else errors.push(del.error || del.data?.message || `http_${del.statusCode || "?"}`);
+    }
+    sendJson(res, 200, { ok: true, scanned, junk: junkIds.length, cleared, errors });
+    return;
+  }
+
+  // Exportar TODOS os leads locais -> VPS e limpar o local (#2). Preview por padrão; confirm:true executa.
+  if (req.method === "POST" && url.pathname === "/owner/export-all-leads") {
+    const body = await readBody(req);
+    const cap = clampInt(body.limit, 5000, 1, 5000);
+    const { leads, ids } = await readLocalCardsForExport(cap);
+    if (!leads.length) {
+      sendJson(res, 200, { ok: true, empty: true, count: 0, message: "Nenhum lead local válido pra exportar." });
+      return;
+    }
+    if (body.confirm !== true) {
+      sendJson(res, 200, { ok: true, preview: true, count: leads.length, sample: leads.slice(0, 6).map((l) => l.name) });
+      return;
+    }
+    // 1) Manda pro VPS (inline, SÓ leads — e-mails ficam no PC).
+    const imp = await opsRequest("POST", "/api/email-lab/vps/import", { leads, sourceMode: "imported_lab", requestedBy: "hbx-owner-export-all" });
+    if (!imp.configured) { sendJson(res, 200, { ok: false, reason: "ops_token_ausente", message: "Configure HBX_OWNER_OPS_TOKEN." }); return; }
+    if (!imp.ok || !(imp.data && imp.data.ok)) {
+      sendJson(res, 502, { ok: false, stage: "import", count: leads.length, reason: imp.reason || imp.data?.error || imp.data?.message || "falha ao importar na VPS", import: imp.data });
+      return;
+    }
+    // 2) Limpa o local SÓ depois do import OK, por leadIds, em lotes de 2000.
+    let cleared = 0;
+    const errors = [];
+    for (let i = 0; i < ids.length; i += 2000) {
+      const chunk = ids.slice(i, i + 2000);
+      const del = await backendRequest("DELETE", "/modules/master/webscraping/database-cards/batch", { leadIds: chunk }, { timeoutMs: 30000 });
+      if (del.ok) cleared += Number(del.data?.affected ?? chunk.length) || 0;
+      else errors.push(del.error || del.data?.message || `http_${del.statusCode || "?"}`);
+    }
+    vpsLeadsCache = { at: 0, data: null };
+    sendJson(res, 200, { ok: true, exported: leads.length, cleared, errors, import: imp.data });
     return;
   }
 

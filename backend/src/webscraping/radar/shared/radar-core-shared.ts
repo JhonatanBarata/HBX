@@ -565,6 +565,39 @@ export const GENERIC_DIRECTORY_CONTAINS = [
   'gastronomia completo',
 ];
 
+// Palavras GRAMATICAIS do inglês que não existem em nome de empresa brasileira.
+// 2+ distintas no nome = é frase/título em inglês, não um negócio local.
+export const NON_BUSINESS_ENGLISH_STOPWORDS = new Set([
+  'the', 'of', 'to', 'for', 'and', 'that', 'this', 'with', 'your', 'you',
+  'in', 'on', 'at', 'by', 'from', 'into', 'about', 'their', 'they', 'what',
+  'how', 'why', 'when', 'where', 'which', 'are', 'was', 'were', 'will', 'would',
+  'can', 'could', 'should', 'has', 'have', 'had', 'does', 'did', 'its',
+]);
+
+// Lixo de scraping que os filtros PT NÃO pegam: títulos de página, portais GLOBAIS e idioma
+// estrangeiro (ex.: "8 deaths that rocked the NASCAR world", "Official Site of the NHL",
+// "30 Best Things to Do in Vancouver", "IBEXエアラインズ"). ALTA PRECISÃO: só marca sinais
+// que jamais aparecem em nome de empresa local brasileira — não derruba negócio real.
+export function looksLikeNonBusinessName(value: unknown) {
+  const raw = String(value || '').trim();
+  if (!raw) return false;
+  // 1) Script estrangeiro (grego, cirílico, hebraico, árabe, tailandês, CJK, coreano).
+  if (/[Ͱ-ϿЀ-ӿ֐-׿؀-ۿ฀-๿　-ヿ㐀-鿿가-힯]/.test(raw)) {
+    return true;
+  }
+  // 2) Separador de título de página da web (pipe / travessão entre partes).
+  if (raw.includes('|') || /\s[–—]\s/.test(raw)) return true;
+  // 3) Pergunta = título/artigo, não empresa.
+  if (raw.includes('?')) return true;
+  const words = raw.toLowerCase().split(/[^a-zà-ÿ0-9+]+/i).filter(Boolean);
+  // 4) Nome comprido demais = título de página (empresa local tem nome curto).
+  if (words.length > 9) return true;
+  // 5) Frase em inglês: 2+ palavras gramaticais que não existem em nome de empresa BR.
+  const englishHits = new Set(words.filter((word) => NON_BUSINESS_ENGLISH_STOPWORDS.has(word)));
+  if (englishHits.size >= 2) return true;
+  return false;
+}
+
 export const GENERIC_CATEGORY_HEADS = [
   'academias',
   'acessorios automotivos',
@@ -1289,6 +1322,32 @@ export function normalizePhoneDigits(raw: string | null | undefined) {
 export function isLikelyValidBrPhone(raw: string | null | undefined) {
   const digits = normalizePhoneDigits(raw);
   return digits.length === 10 || digits.length === 11;
+}
+
+// DDDs que existem de verdade no Brasil (Anatel). Fora dessa lista = telefone falso.
+export const VALID_BR_DDDS = new Set([
+  11, 12, 13, 14, 15, 16, 17, 18, 19,
+  21, 22, 24, 27, 28,
+  31, 32, 33, 34, 35, 37, 38,
+  41, 42, 43, 44, 45, 46, 47, 48, 49,
+  51, 53, 54, 55,
+  61, 62, 63, 64, 65, 66, 67, 68, 69,
+  71, 73, 74, 75, 77, 79,
+  81, 82, 83, 84, 85, 86, 87, 88, 89,
+  91, 92, 93, 94, 95, 96, 97, 98, 99,
+]);
+
+// Telefone BR que PODE existir — não só contagem de dígitos (isLikelyValidBrPhone só
+// conta 10/11). Exige DDD real, prefixo de celular (9) ou fixo (2-5) e rejeita repetição
+// óbvia (0000…, 9999…). É o que barra os "telefones que não existem" que o scraping pega.
+export function isRealisticBrPhone(raw: string | null | undefined) {
+  const digits = normalizePhoneDigits(raw);
+  if (digits.length !== 10 && digits.length !== 11) return false;
+  if (!VALID_BR_DDDS.has(Number(digits.slice(0, 2)))) return false;
+  const subscriber = digits.slice(2);
+  if (/^(\d)\1+$/.test(subscriber)) return false; // assinante todo repetido = falso
+  if (digits.length === 11) return subscriber.length === 9 && subscriber[0] === '9';
+  return subscriber.length === 8 && '2345'.includes(subscriber[0]);
 }
 
 export function isLikelyWhatsapp(raw: string | null | undefined) {
