@@ -6284,12 +6284,12 @@ export class InboxService {
         data: {
           metadataJson: JSON.stringify({
             ...currentSessionMetadata,
-            ...(mode === 'merge'
-              ? {
-                  inboxResetAt: resetAt.toISOString(),
-                  webwhatsResetAt: resetAt.toISOString(),
-                }
-              : {}),
+            // #3 (15/06): grava o floor em AMBOS os modos. O discard ("limpar 100%")
+            // PRECISA do inboxResetAt pra o ingestor (webwhats-bridge) ignorar o histórico
+            // que o WhatsApp re-sincroniza ao reconectar o MESMO chip. Antes só o merge
+            // setava → no discard o lixo (foto/@lint) voltava. Mensagem NOVA (> reset) passa.
+            inboxResetAt: resetAt.toISOString(),
+            webwhatsResetAt: resetAt.toISOString(),
             popup2CleanupMode: mode,
             popup2CleanupAt: resetAt.toISOString(),
           }),

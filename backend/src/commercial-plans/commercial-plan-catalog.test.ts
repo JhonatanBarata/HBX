@@ -9,18 +9,19 @@ import {
 } from './commercial-plan-catalog';
 
 test('HBX commercial catalog exposes package prices and quotas', () => {
-  assert.equal(COMMERCIAL_PRICING.liteMonthly, 45.00);
+  assert.equal(COMMERCIAL_PRICING.liteMonthly, 49.00);
   assert.equal(COMMERCIAL_PRICING.padraoMonthly, 99.00);
-  assert.equal(COMMERCIAL_PRICING.melhorMonthly, 349.90);
+  assert.equal(COMMERCIAL_PRICING.proMonthly, 249.00);
+  assert.equal(COMMERCIAL_PRICING.melhorMonthly, 445.90);
   assert.equal(COMMERCIAL_PRICING.extraUserMonthly, 24.90);
   assert.equal(COMMERCIAL_PRICING.annualDiscountPercent, 20);
 
   const catalog = buildCommercialPlansCatalog();
-  assert.equal(catalog.length, 3);
+  assert.equal(catalog.length, 4);
 
   const lite = catalog.find((plan) => plan.key === COMMERCIAL_PLAN_KEYS.LITE);
   assert.equal(lite?.title, 'HBX List');
-  assert.equal(lite?.monthlyPrice, 45.00);
+  assert.equal(lite?.monthlyPrice, 49.00);
   assert.equal(lite?.status, 'available');
   assert.equal(lite?.trialDays, 0);
   assert.equal(lite?.includedUsers, 1);
@@ -46,11 +47,20 @@ test('HBX commercial catalog exposes package prices and quotas', () => {
   assert.equal(padrao?.quotas?.cardsPerMonth, 2200);
   assert.equal(padrao?.quotas?.dailyCardSafetyLimit, 100);
 
+  const pro = catalog.find((plan) => plan.key === COMMERCIAL_PLAN_KEYS.PRO);
+  assert.equal(pro?.title, 'HBX Pro');
+  assert.equal(pro?.monthlyPrice, 249.00);
+  assert.equal(pro?.trialDays, 0);
+  assert.equal(pro?.includedUsers, 3);
+  assert.equal(pro?.requiresAssistedSetup, false);
+  assert.equal(pro?.quotas?.cardsPerMonth, 3500);
+
   const melhor = catalog.find((plan) => plan.key === COMMERCIAL_PLAN_KEYS.MELHOR);
-  assert.equal(melhor?.title, 'HBX Full — Bot e IA');
-  assert.equal(melhor?.monthlyPrice, 349.90);
+  assert.equal(melhor?.title, 'HBX Company');
+  assert.equal(melhor?.monthlyPrice, 445.90);
+  assert.equal((melhor as { priceFrom?: boolean })?.priceFrom, true);
   assert.equal(melhor?.trialDays, 0);
-  assert.equal(melhor?.includedUsers, 2);
+  assert.equal(melhor?.includedUsers, 5);
   assert.equal(melhor?.extraUserMonthlyPrice, 24.90);
   assert.equal(melhor?.requiresAssistedSetup, true);
   assert.equal(melhor?.setupFeeMode, 'negotiated');

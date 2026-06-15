@@ -97,13 +97,13 @@ export const COMMERCIAL_PLAN_QUOTAS: Record<ActiveCommercialPlanKey, {
 };
 
 export const GOOGLE_DAILY_LIMIT_REACHED_MESSAGE =
-  'Você atingiu suas buscas Google de hoje. Os motores gratuitos continuam liberados. Para mais buscas por dia, escolha o HBX Full — Bot e IA.';
+  'Você atingiu suas buscas Google de hoje. Os motores gratuitos continuam liberados. Para mais buscas por dia, escolha o HBX Pro ou o HBX Company.';
 
 export const BOT_IA_PLAN_REQUIRED_PAYLOAD = {
   code: 'BOT_IA_PLAN_REQUIRED',
-  message: 'Bot de atendimento está disponível no plano HBX Full — Bot e IA.',
+  message: 'Bot de atendimento está disponível a partir do HBX Pro.',
   redirectTo: '/planos?intent=bot_ia',
-  requiredPlanKey: COMMERCIAL_PLAN_KEYS.MELHOR,
+  requiredPlanKey: COMMERCIAL_PLAN_KEYS.PRO,
 } as const;
 
 export const ACTIVE_COMMERCIAL_ENTITLEMENT_STATUSES = new Set([
