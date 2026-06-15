@@ -1,6 +1,7 @@
 export const COMMERCIAL_PLAN_KEYS = {
   LITE: 'hbx_lite',
   PADRAO: 'hbx_padrao',
+  PRO: 'hbx_pro',
   MELHOR: 'hbx_melhor',
   LEGACY_VENDAS: 'hbx_vendas',
   LEGACY_VENDAS_IA: 'hbx_vendas_ia',
@@ -25,6 +26,7 @@ export type CommercialPlanKey = (typeof COMMERCIAL_PLAN_KEYS)[keyof typeof COMME
 export type ActiveCommercialPlanKey =
   | typeof COMMERCIAL_PLAN_KEYS.LITE
   | typeof COMMERCIAL_PLAN_KEYS.PADRAO
+  | typeof COMMERCIAL_PLAN_KEYS.PRO
   | typeof COMMERCIAL_PLAN_KEYS.MELHOR;
 export type CommercialEntitlementKey =
   (typeof COMMERCIAL_ENTITLEMENT_KEYS)[keyof typeof COMMERCIAL_ENTITLEMENT_KEYS];
@@ -45,11 +47,13 @@ export type CommercialPlanCapabilities = {
 };
 
 export const COMMERCIAL_PRICING = {
-  liteMonthly: 45.00,
+  liteMonthly: 49.00,
   padraoMonthly: 99.00,
-  // HBX Full (ordem do dono 14/06): R$ 349,90 — implantação assistida, sem
-  // self-checkout de cartão (o cliente pede e um especialista entra em contato).
-  melhorMonthly: 349.90,
+  proMonthly: 249.00,
+  // HBX Company (ordem do dono 15/06): a partir de R$ 445,90/mês + implantação a
+  // partir de R$ 300. Mensalidade E implantação são negociadas (o dono conversa com
+  // a empresa); "a partir de" é EXCLUSIVO do Company. Sem self-checkout de cartão.
+  melhorMonthly: 445.90,
   extraUserMonthly: 24.90,
   annualDiscountPercent: 20,
 } as const;
@@ -77,6 +81,12 @@ export const COMMERCIAL_PLAN_QUOTAS: Record<ActiveCommercialPlanKey, {
     cardsPerMonth: 2200,
     dailyCardSafetyLimit: 100,
     enrichmentsPerDay: 100,
+  },
+  [COMMERCIAL_PLAN_KEYS.PRO]: {
+    googleSearchesPerDay: 4,
+    cardsPerMonth: 3500,
+    dailyCardSafetyLimit: 150,
+    enrichmentsPerDay: 150,
   },
   [COMMERCIAL_PLAN_KEYS.MELHOR]: {
     googleSearchesPerDay: 6,
@@ -111,6 +121,7 @@ export const PENDING_COMMERCIAL_ENTITLEMENT_STATUS = 'pending_checkout';
 export const COMMERCIAL_PLAN_TRIAL_DAYS: Record<ActiveCommercialPlanKey, number> = {
   [COMMERCIAL_PLAN_KEYS.LITE]: 0,
   [COMMERCIAL_PLAN_KEYS.PADRAO]: 14,
+  [COMMERCIAL_PLAN_KEYS.PRO]: 0,
   [COMMERCIAL_PLAN_KEYS.MELHOR]: 0,
 };
 
@@ -124,12 +135,14 @@ export function getCommercialPlanTrialDays(planKey: unknown) {
 export const COMMERCIAL_PLAN_INCLUDED_USERS: Record<ActiveCommercialPlanKey, number> = {
   [COMMERCIAL_PLAN_KEYS.LITE]: 1,
   [COMMERCIAL_PLAN_KEYS.PADRAO]: 2,
-  [COMMERCIAL_PLAN_KEYS.MELHOR]: 2,
+  [COMMERCIAL_PLAN_KEYS.PRO]: 3,
+  [COMMERCIAL_PLAN_KEYS.MELHOR]: 5,
 };
 
 export const COMMERCIAL_PLAN_EXTRA_USER_MONTHLY: Record<ActiveCommercialPlanKey, number> = {
   [COMMERCIAL_PLAN_KEYS.LITE]: 0,
   [COMMERCIAL_PLAN_KEYS.PADRAO]: COMMERCIAL_PRICING.extraUserMonthly,
+  [COMMERCIAL_PLAN_KEYS.PRO]: COMMERCIAL_PRICING.extraUserMonthly,
   [COMMERCIAL_PLAN_KEYS.MELHOR]: COMMERCIAL_PRICING.extraUserMonthly,
 };
 
@@ -146,6 +159,7 @@ export function getCommercialPlanExtraUserMonthlyPrice(planKey: unknown) {
 export const COMMERCIAL_PLAN_MODULE_KEYS: Record<ActiveCommercialPlanKey, string[]> = {
   [COMMERCIAL_PLAN_KEYS.LITE]: ['vendas', 'webscraping'],
   [COMMERCIAL_PLAN_KEYS.PADRAO]: ['atendimento', 'vendas', 'webscraping', 'cadastro', 'gerencial'],
+  [COMMERCIAL_PLAN_KEYS.PRO]: ['atendimento', 'vendas', 'webscraping', 'cadastro', 'gerencial', 'bot_ia'],
   [COMMERCIAL_PLAN_KEYS.MELHOR]: ['atendimento', 'vendas', 'webscraping', 'cadastro', 'gerencial', 'bot_ia'],
 };
 
@@ -161,6 +175,16 @@ export const COMMERCIAL_PLAN_ENTITLEMENT_KEYS: Record<ActiveCommercialPlanKey, C
     COMMERCIAL_ENTITLEMENT_KEYS.WEBSCRAPING,
     COMMERCIAL_ENTITLEMENT_KEYS.NIGHT_FACTORY,
     COMMERCIAL_ENTITLEMENT_KEYS.RADAR_PREMIUM,
+    COMMERCIAL_ENTITLEMENT_KEYS.AI_SALES_SCRIPTS,
+  ],
+  [COMMERCIAL_PLAN_KEYS.PRO]: [
+    COMMERCIAL_ENTITLEMENT_KEYS.VENDAS,
+    COMMERCIAL_ENTITLEMENT_KEYS.ATENDIMENTO_CHAT,
+    COMMERCIAL_ENTITLEMENT_KEYS.WEBSCRAPING,
+    COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA,
+    COMMERCIAL_ENTITLEMENT_KEYS.NIGHT_FACTORY,
+    COMMERCIAL_ENTITLEMENT_KEYS.RADAR_PREMIUM,
+    COMMERCIAL_ENTITLEMENT_KEYS.OPPORTUNITY_SCORE,
     COMMERCIAL_ENTITLEMENT_KEYS.AI_SALES_SCRIPTS,
   ],
   [COMMERCIAL_PLAN_KEYS.MELHOR]: [
@@ -213,6 +237,7 @@ export function parseCommercialMetadata(raw: unknown): Record<string, any> {
 export function normalizeCommercialPlanKey(value: unknown): ActiveCommercialPlanKey {
   const normalized = String(value || '').trim().toLowerCase();
   if (normalized === COMMERCIAL_PLAN_KEYS.LITE) return COMMERCIAL_PLAN_KEYS.LITE;
+  if (normalized === COMMERCIAL_PLAN_KEYS.PRO) return COMMERCIAL_PLAN_KEYS.PRO;
   if (normalized === COMMERCIAL_PLAN_KEYS.MELHOR || normalized === COMMERCIAL_PLAN_KEYS.LEGACY_VENDAS_IA) {
     return COMMERCIAL_PLAN_KEYS.MELHOR;
   }
@@ -235,6 +260,7 @@ export function resolveCommercialPlanKeyForCapabilities(input: {
 export function getCommercialPlanMonthlyPrice(planKey: unknown) {
   const normalized = normalizeCommercialPlanKey(planKey);
   if (normalized === COMMERCIAL_PLAN_KEYS.LITE) return COMMERCIAL_PRICING.liteMonthly;
+  if (normalized === COMMERCIAL_PLAN_KEYS.PRO) return COMMERCIAL_PRICING.proMonthly;
   if (normalized === COMMERCIAL_PLAN_KEYS.MELHOR) return COMMERCIAL_PRICING.melhorMonthly;
   return COMMERCIAL_PRICING.padraoMonthly;
 }
@@ -242,13 +268,15 @@ export function getCommercialPlanMonthlyPrice(planKey: unknown) {
 export function getCommercialPlanTitle(planKey: unknown) {
   const normalized = normalizeCommercialPlanKey(planKey);
   if (normalized === COMMERCIAL_PLAN_KEYS.LITE) return 'HBX List';
-  if (normalized === COMMERCIAL_PLAN_KEYS.MELHOR) return 'HBX Full — Bot e IA';
+  if (normalized === COMMERCIAL_PLAN_KEYS.PRO) return 'HBX Pro';
+  if (normalized === COMMERCIAL_PLAN_KEYS.MELHOR) return 'HBX Company';
   return 'HBX Lead Plus';
 }
 
 export function getCommercialPlanTier(planKey: unknown): CommercialPlanTier {
   const normalized = normalizeCommercialPlanKey(planKey);
   if (normalized === COMMERCIAL_PLAN_KEYS.LITE) return 'list';
+  if (normalized === COMMERCIAL_PLAN_KEYS.PRO) return 'full';
   if (normalized === COMMERCIAL_PLAN_KEYS.MELHOR) return 'full';
   return 'lead';
 }

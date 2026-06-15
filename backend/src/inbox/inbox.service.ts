@@ -4147,7 +4147,11 @@ export class InboxService {
   ) {
     const companyId = this.requireCompanyIdFromUser(user);
     const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId);
-    this.assertInboxWhatsappAccessible(sessionScope);
+    // Sem WhatsApp vinculado: devolve VAZIO (200), nao 503 (ordem do dono "503->manso").
+    // Mata o loop de erro do front ao pollar uma conversa morta da sessao antiga (#3).
+    if (!sessionScope.accessible) {
+      return { messages: [], hasMore: false, nextBefore: null };
+    }
     const before = this.normalizeBeforeDate(options?.before || null);
     if (!before && sessionScope.mode === 'current') {
       void this.syncLatestInboxConversationWindow(companyId, id);
