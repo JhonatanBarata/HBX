@@ -17,7 +17,6 @@ import React, { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { useTabIndex } from "@/lib/use-tab-param";
 
-import { MasterWhatsappEngine } from "./master-whatsapp-engine";
 import { fmtDataHora, type MasterCompany } from "./page.client";
 
 type Audit = {
@@ -483,8 +482,6 @@ export function JanelaMotor({ companies }: { companies: MasterCompany[] | null }
           </button>
         )}
       </div>
-
-      <MasterWhatsappEngine />
 
       {sub === 0 && (
         <React.Fragment>

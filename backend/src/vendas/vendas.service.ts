@@ -28,6 +28,7 @@ import {
   MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
 } from '../companies/master-whatsapp-company.constants';
 import { COMPANY_KIND_PLATFORM_INFRA, isTenantCompany } from '../common/company-kind';
+import { resolveHbxPlatformCompanyId } from '../common/hbx-platform-company';
 import { calculateLeadQualityV2, resolveRadarVisibilityFromQualityV2, type LeadQualityV2, type LeadQualityV2SalesProfile } from '../webscraping/lead-quality-v2';
 import {
   BulkDeleteVendasLeadsDto,
@@ -4996,7 +4997,9 @@ export class VendasService {
 
     if (phoneDigits && shouldRefreshWhatsapp) {
       try {
-        const masterCompanyId = await this.getOrCreateMasterWhatsappEngineCompanyId();
+        // #5 (15/06): central de verificação = empresa do HBX admin (igual SMTP); fallback na infra antiga.
+        const masterCompanyId = (await resolveHbxPlatformCompanyId(this.prisma as any))
+          || await this.getOrCreateMasterWhatsappEngineCompanyId();
         const [lookup] = await this.webwhatsBridge.checkWhatsappNumbers(masterCompanyId, [phoneDigits]);
         if (lookup) {
           const status: VendasWhatsappAvailabilityStatus = lookup.exists ? 'available' : 'unavailable';

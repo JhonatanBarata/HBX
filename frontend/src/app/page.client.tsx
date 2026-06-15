@@ -11,6 +11,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
+import { AuthThemeControls } from "@/components/hbx/auth-theme-controls";
+
 const STATIONS = [
   { k: "01", v: "Acha", t: "Radar", d: "Acha o cliente na sua cidade.", icon: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z", "M12 12l5-3", "M12 12v5"] },
   { k: "02", v: "Organiza", t: "Vendas", d: "Carteira viva, nada se perde.", icon: ["M4 7h16", "M4 12h16", "M4 17h10", "M18 15l2 2-2 2"] },
@@ -42,6 +44,7 @@ export function MarketingClient() {
 
   return (
     <div className="site hbx-page">
+      <AuthThemeControls />
       <section className="site-scene">
         <div className="login-art" aria-hidden>
           <i className="login-art__frame" />

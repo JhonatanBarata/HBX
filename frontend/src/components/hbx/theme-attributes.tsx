@@ -34,14 +34,11 @@ function applyPele(html: HTMLElement, key: string | null) {
   html.setAttribute("data-theme", valid);
 }
 
-export function applyThemeForPath(pathname: string) {
+export function applyThemeForPath(_pathname: string) {
+  // 15/06: a landing "/" agora É o login (usa tokens + robô do tema), então
+  // NÃO é mais "html puro" — herda data-theme + data-theme-mode como o resto,
+  // senão o robô não sincroniza com o modo (fumaça branca sobre robô preto).
   const html = document.documentElement;
-  if (pathname === "/") {
-    // landing: html puro (site público)
-    html.removeAttribute("data-theme");
-    html.removeAttribute("data-theme-mode");
-    return;
-  }
   try {
     applyPele(html, localStorage.getItem(PELE_KEY));
     const mode = localStorage.getItem(MODE_KEY);

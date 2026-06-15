@@ -564,9 +564,14 @@ html, body { height: 100%; }
 
 /* HERO = a cena do robô (reusa .login-art). É a ÚNICA parte sobre a foto; o texto
    mora na divisão escurecida (.login-art::after) — igual ao login. */
-.site-scene { position: relative; min-height: 100svh; overflow: hidden; display: grid; grid-template-rows: auto 1fr; }
-.site-scene > .login-art { position: absolute; }
+.site-scene { position: relative; min-height: 100svh; display: grid; grid-template-rows: auto 1fr; }
+/* robô FIXO na viewport (não cresce com o conteúdo) = mesmo tamanho/posição do
+   /login (lá é inset:0 de um console 100vh) → o morph não dá choque. O corpo
+   sólido rola por cima. */
+.site-scene > .login-art { position: fixed; }
 .site-scene > .site-top, .site-scene > .site-hero { position: relative; z-index: 1; }
+/* scrim no TOPO pra nav/marca contrastarem sobre a foto, nos dois temas */
+.site-scene > .site-top { background: linear-gradient(180deg, color-mix(in srgb, var(--hbx-background) 72%, transparent), transparent); }
 /* TODO O RESTO em fundo SÓLIDO do tema: escuro é escuro, claro é claro (sem foto atrás). */
 .site-body { position: relative; z-index: 1; background: var(--hbx-background); }
 

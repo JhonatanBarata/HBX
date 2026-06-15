@@ -99,7 +99,7 @@ import {
   buildRadarStageSnapshot,
 } from '../radar-core-method-imports';
 import { resolveCompanyAccessState } from '../../../modules/company-access-state';
-import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../../../companies/master-whatsapp-company.constants';
+import { resolveHbxPlatformCompanyId } from '../../../common/hbx-platform-company';
 
 import type {
   AutonomousMassDataCandidate,
@@ -2397,11 +2397,10 @@ export class RadarCorePresentationMixin {
 
   private async resolveRadarWhatsappEngineCompanyId(): Promise<number | null> {
     try {
-      const engine = await this.prisma.company.findUnique({
-        where: { slug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG },
-        select: { id: true },
-      });
-      return engine?.id ?? null;
+      // #5 (15/06): a verificacao "esse numero existe?" usa o WhatsApp da empresa do
+      // HBX admin (a "HBX") como central, igual ao SMTP do master. Os tenants herdam
+      // (fallback no proprio). Acabou a empresa-infra dedicada hbx-master-whatsapp-engine.
+      return await resolveHbxPlatformCompanyId(this.prisma as any);
     } catch {
       return null;
     }
