@@ -8,7 +8,11 @@
 
 /* ---------- Login.html ---------- */
 body { min-height: 100vh; }
-.login-split { display: grid; grid-template-columns: 1.1fr 1fr; min-height: 100vh; }
+/* Auth (criar conta/reset/confirmar) = MESMA cena do login: robô full-bleed (fixo) +
+   cor ciclando (.hbx-scene), card opaco por cima. NÃO é mais o split legado de pitch. */
+.login-split { position: relative; min-height: 100vh; overflow-x: hidden; background: color-mix(in srgb, var(--hbx-surface) 40%, var(--hbx-background)); }
+.login-split .login-art { position: fixed; }
+.login-split__brand { position: fixed; top: clamp(18px, 4vh, 36px); left: clamp(20px, 5vw, 56px); z-index: 2; }
 .brand-side { position: relative; display: flex; flex-direction: column; justify-content: space-between; padding: 44px 48px; background:
   radial-gradient(circle at 80% 10%, color-mix(in srgb, var(--hbx-brand) 10%, transparent), transparent 40%),
   var(--hbx-nav-surface); border-right: 1px solid var(--border-hairline); overflow: hidden; }
@@ -23,19 +27,19 @@ body { min-height: 100vh; }
 .feat .it { display: flex; gap: 11px; align-items: center; font-size: 0.84rem; color: var(--text-body); font-weight: 600; }
 .feat .ic { display: grid; place-items: center; width: 32px; height: 32px; border-radius: var(--radius-sm); border: 1px solid color-mix(in srgb, var(--hbx-brand) 35%, transparent); color: var(--hbx-brand-strong); background: color-mix(in srgb, var(--hbx-brand) 8%, transparent); flex: 0 0 auto; }
 .foot { font-size: 0.66rem; color: var(--text-muted); }
-.form-side { display: grid; place-items: center; padding: 40px; }
+.form-side { position: relative; z-index: 1; min-height: 100vh; display: grid; place-items: center; padding: clamp(72px, 10vh, 104px) clamp(20px, 5vw, 64px) 48px; }
 /* O card de auth (e seus campos) vale nos DOIS shells: .login-split (2 colunas:
    register/reset) e .login-console (3 painéis: login restaurada 14/06). */
-:is(.login-split, .login-console) .card { width: min(400px, 100%); display: grid; gap: 16px; padding: 30px; border-radius: var(--radius-xl); border: 1px solid var(--border-hairline); background: var(--hbx-surface); box-shadow: var(--shadow-md); }
+.hbx-scene .card { width: min(400px, 100%); display: grid; gap: 16px; padding: 30px; border-radius: var(--radius-xl); border: 1px solid var(--border-hairline); background: var(--hbx-surface); box-shadow: var(--shadow-md); }
 /* Variante opt-in p/ telas com leitura longa (contrato/onboarding) — não afeta login */
-.login-split.is-wide .card { width: min(720px, 100%); }
-:is(.login-split, .login-console) .card h2 { margin: 0; font-family: var(--font-display); font-size: 1.4rem; font-weight: 800; letter-spacing: -0.01em; }
-:is(.login-split, .login-console) .card .sub { margin: -10px 0 0; font-size: 0.78rem; color: var(--text-muted); }
-:is(.login-split, .login-console) .f { display: grid; gap: 6px; }
-:is(.login-split, .login-console) .f label { font-size: 0.7rem; font-weight: 700; color: var(--text-muted); }
-:is(.login-split, .login-console) .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 0.74rem; }
-:is(.login-split, .login-console) .row label { display: inline-flex; gap: 7px; align-items: center; color: var(--text-body); cursor: pointer; }
-:is(.login-split, .login-console) .row input { accent-color: var(--hbx-brand); }
+.hbx-scene .is-wide .card { width: min(720px, 100%); }
+.hbx-scene .card h2 { margin: 0; font-family: var(--font-display); font-size: 1.4rem; font-weight: 800; letter-spacing: -0.01em; }
+.hbx-scene .card .sub { margin: -10px 0 0; font-size: 0.78rem; color: var(--text-muted); }
+.hbx-scene .f { display: grid; gap: 6px; }
+.hbx-scene .f label { font-size: 0.7rem; font-weight: 700; color: var(--text-muted); }
+.hbx-scene .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 0.74rem; }
+.hbx-scene .row label { display: inline-flex; gap: 7px; align-items: center; color: var(--text-body); cursor: pointer; }
+.hbx-scene .row input { accent-color: var(--hbx-brand); }
 .alt { text-align: center; font-size: 0.74rem; color: var(--text-muted); }
 .ok { display: none; gap: 8px; align-items: center; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid color-mix(in srgb, var(--hbx-success) 30%, transparent); background: color-mix(in srgb, var(--hbx-success) 8%, transparent); color: var(--hbx-brand-strong); font-size: 0.76rem; font-weight: 700; }
 .ok.show { display: flex; }
@@ -53,7 +57,6 @@ body { min-height: 100vh; }
   display: grid; grid-template-columns: minmax(0, 0fr) minmax(340px, 420px) minmax(0, 1fr);
   align-items: center; gap: clamp(16px, 3vw, 40px); padding: 32px clamp(24px, 5vw, 72px);
   background: color-mix(in srgb, var(--hbx-surface) 40%, var(--hbx-background));
-  animation: login-accent 45s linear infinite;
   transition: grid-template-columns 0.91s var(--ease-out-quint), gap 0.91s var(--ease-out-quint);
 }
 /* Visual OFF: card no centro, painéis ocupam as laterais (1fr cada). */
@@ -61,12 +64,12 @@ body { min-height: 100vh; }
 
 /* Cena/robô: full-bleed atrás de tudo. url() não é cor → pode aqui. */
 .login-art { position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; opacity: 1; transition: opacity 0.78s var(--ease-out-quint); }
-.login-art__frame { position: absolute; inset: 0; background-size: cover; background-position: center; background-repeat: no-repeat; opacity: 0; animation: hbx-robo-cycle 45s linear infinite; }
+.login-art__frame { position: absolute; inset: 0; background-size: cover; background-position: center; background-repeat: no-repeat; opacity: 0; animation: hbx-robo-cycle 90s linear infinite; }
 .login-art__frame:nth-child(1) { background-image: url("/robo-blue.png"); animation-delay: 0s; }
-.login-art__frame:nth-child(2) { background-image: url("/robo-purple.png"); animation-delay: -9s; }
-.login-art__frame:nth-child(3) { background-image: url("/robo-magenta.png"); animation-delay: -18s; }
-.login-art__frame:nth-child(4) { background-image: url("/robo-crimson.png"); animation-delay: -27s; }
-.login-art__frame:nth-child(5) { background-image: url("/robo-amber.png"); animation-delay: -36s; }
+.login-art__frame:nth-child(2) { background-image: url("/robo-purple.png"); animation-delay: -18s; }
+.login-art__frame:nth-child(3) { background-image: url("/robo-magenta.png"); animation-delay: -36s; }
+.login-art__frame:nth-child(4) { background-image: url("/robo-crimson.png"); animation-delay: -54s; }
+.login-art__frame:nth-child(5) { background-image: url("/robo-amber.png"); animation-delay: -72s; }
 /* MODO CLARO: cada quadro ganha uma CAMADA clara por cima (::after) que faz
    CROSS-FADE ao trocar de modo — background-image não anima, então uso camada +
    opacity. As fotos claras PRECISAM ter o robô no MESMO lugar/tamanho das
@@ -80,9 +83,11 @@ body { min-height: 100vh; }
 .login-art__frame:nth-child(4)::after { background-image: url("/crimson light.png"); }
 .login-art__frame:nth-child(5)::after { background-image: url("/amber light.png"); }
 /* escurece FORTE a esquerda (backdrop do texto/card, segue o modo) e libera a direita */
-.login-art::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, color-mix(in srgb, var(--hbx-background) 92%, transparent) 0%, color-mix(in srgb, var(--hbx-background) 58%, transparent) 42%, transparent 72%); }
+.login-art::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, color-mix(in srgb, var(--hbx-background) 100%, transparent) 0%, color-mix(in srgb, var(--hbx-background) 94%, transparent) 42%, transparent 71%); }
 @keyframes hbx-robo-cycle {
-  0% { opacity: 0; } 4% { opacity: 1; } 20% { opacity: 1; } 24% { opacity: 0; } 100% { opacity: 0; }
+  /* troca LIMPA: cada robô segura opacidade 1 até o PRÓXIMO já estar 100% por cima,
+     e só então some (por trás dele) — nunca abre brecha pro fundo vazar ("wash" na transição). */
+  0% { opacity: 0; } 5% { opacity: 1; } 25% { opacity: 1; } 30% { opacity: 0; } 100% { opacity: 0; }
 }
 /* CHROME acompanha a COR PREDOMINANTE da foto (@property interpola sem pulo).
    As janelas SEGURAM a cor enquanto o robô daquela cor está 100% na tela
@@ -90,13 +95,34 @@ body { min-height: 100vh; }
    nunca foge do robô visível. Janelas op1: azul 4–20%, âmbar 24–40%,
    carmesim 44–60%, magenta 64–80%, roxo 84–100% (volta pro azul em 0–4%). */
 @keyframes login-accent {
-  0% { --login-accent: var(--login-cycle-5); }            /* roxo (fim do hold) */
-  4%, 20% { --login-accent: var(--login-cycle-1); }       /* azul    */
-  24%, 40% { --login-accent: var(--login-cycle-2); }      /* âmbar   */
-  44%, 60% { --login-accent: var(--login-cycle-3); }      /* carmesim*/
-  64%, 80% { --login-accent: var(--login-cycle-4); }      /* magenta */
-  84%, 100% { --login-accent: var(--login-cycle-5); }     /* roxo    */
+  /* janelas ALINHADAS às do robô (hbx-robo-cycle): azul 5-25, âmbar 25-45,
+     carmesim 45-65, magenta 65-85, roxo 85-100 — robô e cor mudam JUNTOS. */
+  0% { --login-accent: var(--login-cycle-5); }            /* roxo    */
+  5%, 23% { --login-accent: var(--login-cycle-1); }       /* azul    */
+  25%, 43% { --login-accent: var(--login-cycle-2); }      /* âmbar   */
+  45%, 63% { --login-accent: var(--login-cycle-3); }      /* carmesim*/
+  65%, 83% { --login-accent: var(--login-cycle-4); }      /* magenta */
+  85%, 100% { --login-accent: var(--login-cycle-5); }     /* roxo    */
 }
+
+/* ============================================================
+   PRINCIPAL da CENA COMPARTILHADA (regra absoluta do CLAUDE.md / 5 Leis:
+   visual repetido = classe central, NUNCA espalhado por tela). A COR que
+   cicla (var(--login-accent)) é ligada AQUI, num só lugar. Toda superfície
+   que usa o MESMO fundo/cena DERIVA daqui só recebendo a classe .hbx-scene:
+   login, cadastro/reset, site — e planos/checkout/pagamentos quando entrarem.
+   Proibido redeclarar a animação por tela. ATENÇÃO: aplicar na CENA (container do
+   robô/accent), NUNCA no mesmo elemento que tem .hbx-page (page-enter) — os dois usam
+   `animation` e colidem, matando o ciclo. Por isso no site a classe fica em .site-scene
+   (não em .site). ============================================================ */
+.hbx-scene { animation: login-accent 90s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .hbx-scene { animation: none; } }
+
+/* CONTRASTE do texto direto SOBRE a cena (robô): halo de sombra pra legibilidade
+   nos 2 temas. Regra ÚNICA aqui — vale em toda .hbx-scene: login (.login-intro__*)
+   e site (.site-eyebrow/.site-title/.site-sub). Não repetir por tela. */
+.hbx-scene :is(.login-intro__title, .site-title) { text-shadow: 0 2px 20px color-mix(in srgb, #000 60%, transparent); }
+.hbx-scene :is(.login-intro__sub, .site-eyebrow, .site-sub) { text-shadow: 0 1px 12px color-mix(in srgb, #000 50%, transparent); }
 /* Névoa: embaça da metade pra esquerda; no claro, clareia SÓ essa região. */
 .login-fog { position: absolute; inset: 0; z-index: 1; pointer-events: none; -webkit-backdrop-filter: blur(10.4px); backdrop-filter: blur(10.4px); -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 30%, transparent 58%); mask-image: linear-gradient(90deg, #000 0%, #000 30%, transparent 58%); transition: opacity 0.78s var(--ease-out-quint); }
 [data-theme-mode="light"] .login-fog { background: color-mix(in srgb, var(--hbx-surface) 55%, transparent); }
@@ -104,8 +130,8 @@ body { min-height: 100vh; }
 /* Coluna do meio: escrita + card. */
 .login-shell { position: relative; z-index: 2; width: 100%; display: grid; gap: 18px; align-content: center; justify-items: start; }
 .login-intro { display: grid; gap: 8px; }
-.login-intro__title { margin: 0; font-family: var(--font-display); font-size: 1.9rem; font-weight: 800; line-height: 1.1; letter-spacing: -0.02em; color: var(--text-strong); max-width: 18ch; text-shadow: 0 2px 20px color-mix(in srgb, #000 60%, transparent); }
-.login-intro__sub { margin: 0; font-size: 0.88rem; line-height: 1.5; color: var(--text-body); max-width: 36ch; text-shadow: 0 1px 12px color-mix(in srgb, #000 50%, transparent); }
+.login-intro__title { margin: 0; font-family: var(--font-display); font-size: 1.9rem; font-weight: 800; line-height: 1.1; letter-spacing: -0.02em; color: var(--text-strong); max-width: 18ch; }
+.login-intro__sub { margin: 0; font-size: 0.88rem; line-height: 1.5; color: var(--text-body); max-width: 36ch; }
 
 /* Painéis laterais: somem (clipados pela coluna 0fr) no Visual ON; EMERGEM do
    centro no Visual OFF (opacity + sai de trás do card). */
@@ -124,8 +150,10 @@ body { min-height: 100vh; }
 .login-side__footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 0.68rem; font-weight: 700; color: var(--text-body); }
 .login-side__footer svg { color: var(--hbx-brand-strong); }
 
-/* card, botão, links e foco seguem a COR predominante (var(--login-accent)). */
-.login-console .card {
+/* card, botão, links e foco seguem a COR que cicla (var(--login-accent)).
+   Chaveado pelo PRINCIPAL .hbx-scene: vale em TODA superfície que receba a
+   classe (login, cadastro/reset, site, planos/checkout…) — nada por tela. */
+.hbx-scene .card {
   background:
     radial-gradient(circle at top right, color-mix(in srgb, var(--login-accent) 12%, transparent), transparent 50%),
     linear-gradient(180deg, color-mix(in srgb, var(--hbx-surface) 84%, transparent), color-mix(in srgb, var(--hbx-surface-soft) 70%, transparent));
@@ -133,11 +161,11 @@ body { min-height: 100vh; }
   -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
   box-shadow: var(--shadow-inset), var(--shadow-md), 0 0 0 1px color-mix(in srgb, var(--login-accent) 30%, transparent), 0 26px 64px -22px color-mix(in srgb, var(--login-accent) 42%, transparent);
 }
-.login-console .card .sub, .login-console .card .f label, .login-console .card .row label { color: var(--text-body); }
-.login-console .card .btn-teal { background: linear-gradient(135deg, var(--login-accent), color-mix(in srgb, var(--login-accent) 58%, var(--hbx-surface))); box-shadow: var(--shadow-inset), 0 16px 32px -18px color-mix(in srgb, var(--login-accent) 75%, transparent); }
-.login-console .link { color: var(--login-accent); }
-.login-console .field-dark:focus { border-color: var(--login-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--login-accent) 26%, transparent); }
-.login-console .row input { accent-color: var(--login-accent); }
+.hbx-scene .card .sub, .hbx-scene .card .f label, .hbx-scene .card .row label { color: var(--text-body); }
+.hbx-scene .card .btn-teal { background: linear-gradient(135deg, var(--login-accent), color-mix(in srgb, var(--login-accent) 58%, var(--hbx-surface))); box-shadow: var(--shadow-inset), 0 16px 32px -18px color-mix(in srgb, var(--login-accent) 75%, transparent); }
+.hbx-scene .link { color: var(--login-accent); }
+.hbx-scene .field-dark:focus { border-color: var(--login-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--login-accent) 26%, transparent); }
+.hbx-scene .row input { accent-color: var(--login-accent); }
 
 /* Toggle "Visual" (topo-direito, ao lado do tema): pílula de vidro + switch .sw. */
 .login-visual-toggle { position: fixed; top: 14px; right: 62px; z-index: 11; display: inline-flex; align-items: center; gap: 9px; padding: 6px 12px; border-radius: var(--radius-pill); border: 1px solid var(--border-hairline); background: color-mix(in srgb, var(--hbx-surface) 72%, transparent); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); font-size: 0.72rem; font-weight: 700; color: var(--text-body); box-shadow: var(--shadow-sm); }
@@ -579,22 +607,43 @@ html, body { height: 100%; }
 .site-top { display: flex; justify-content: space-between; align-items: center; padding: 22px clamp(20px, 5vw, 64px); }
 .site-brand { display: inline-flex; align-items: center; gap: 9px; font-family: var(--font-display); font-weight: 800; font-size: 1.15rem; letter-spacing: 0.04em; color: var(--text-body); view-transition-name: hbx-brand; }
 .site-brand svg { color: var(--login-accent, var(--hbx-brand)); }
-.site-nav { display: flex; align-items: center; gap: 6px; }
-.site-nav a { color: var(--text-body); padding: 0.5rem 0.9rem; border-radius: 999px; font-weight: 600; font-size: 0.9rem; text-decoration: none; cursor: pointer; transition: color .2s, background .2s; }
+.site-nav { position: absolute; left: clamp(20px, 5vw, 64px); bottom: clamp(20px, 4vh, 48px); z-index: 1; display: flex; align-items: center; gap: 6px; }
+/* SEM transition de color/background aqui: o ciclo da cor é o relógio único
+   (@property --login-accent interpola sozinho). Transition por elemento criava
+   lag diferente → robô numa cor e o texto/botão em outra. */
+.site-nav a { color: var(--text-body); padding: 0.5rem 0.9rem; border-radius: 999px; font-weight: 600; font-size: 0.9rem; text-decoration: none; cursor: pointer; }
 .site-nav a:hover { background: color-mix(in srgb, var(--text-body) 10%, transparent); }
-.site-enter { color: var(--hbx-background) !important; background: var(--login-accent, var(--hbx-brand)); }
+/* marcador da TELA ATUAL: item ativo colore na cor que cicla (Início ↔ Esteira). */
+.site-nav a.is-current { color: var(--login-accent, var(--hbx-brand)); font-weight: 800; background-color: color-mix(in srgb, var(--login-accent, var(--hbx-brand)) 14%, transparent); }
+/* background-COLOR (longhand) de propósito: o shorthand background: NÃO substitui o
+   @property --login-accent animado (cai no fallback --hbx-brand) — só o longhand cicla. */
+.site-enter { color: var(--hbx-background) !important; background-color: var(--login-accent, var(--hbx-brand)); transition: none; }
 
 .site-hero { align-self: center; padding: clamp(20px, 4vh, 60px) clamp(20px, 5vw, 64px) clamp(40px, 8vh, 90px); max-width: 920px; }
-.site-eyebrow { display: inline-block; font-family: var(--font-mono); font-size: 0.74rem; letter-spacing: 0.22em; text-transform: uppercase; color: var(--login-accent, var(--hbx-brand)); margin-bottom: 16px; }
+.site-eyebrow { display: inline-block; font-family: var(--font-mono); font-size: 0.86rem; letter-spacing: 0.22em; text-transform: uppercase; color: var(--login-accent, var(--hbx-brand)); margin-bottom: 16px; }
 .site-title { font-family: var(--font-display); font-weight: 900; font-size: clamp(3rem, 9.5vw, 7.5rem); line-height: 0.92; letter-spacing: -0.045em; margin: 0; color: var(--text-body); }
-.site-accent { color: var(--login-accent, var(--hbx-brand)); transition: color 0.9s var(--ease-out-quint); }
+.site-accent { color: var(--login-accent, var(--hbx-brand)); }
 .site-sub { max-width: 42ch; margin: 22px 0 0; font-size: clamp(1rem, 1.6vw, 1.3rem); line-height: 1.5; color: var(--text-body); opacity: 0.86; }
 .site-cta { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 30px; }
-.site-btn { display: inline-flex; align-items: center; justify-content: center; min-height: 54px; padding: 0 30px; border-radius: 16px; font-family: var(--font-display); font-weight: 700; font-size: 1rem; cursor: pointer; text-decoration: none; border: 1px solid transparent; transition: transform .2s, filter .2s, border-color .2s; }
-.site-btn--solid { color: var(--hbx-background); background: var(--login-accent, var(--hbx-brand)); }
+.site-btn { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 54px; padding: 0 30px; border-radius: 16px; font-family: var(--font-display); font-weight: 700; font-size: 1rem; cursor: pointer; text-decoration: none; border: 1px solid transparent; transition: transform .2s, filter .2s, border-color .2s; }
+.site-btn .site-ic { width: 18px; height: 18px; flex: none; }
+.site-btn--solid { color: var(--hbx-background); background-color: var(--login-accent, var(--hbx-brand)); }
 .site-btn--solid:hover { transform: translateY(-2px); filter: brightness(1.08); }
 .site-btn--ghost { color: var(--text-body); border-color: color-mix(in srgb, var(--text-body) 32%, transparent); background: color-mix(in srgb, var(--hbx-background) 40%, transparent); }
 .site-btn--ghost:hover { border-color: var(--login-accent, var(--hbx-brand)); }
+
+/* Selos de propaganda do herói (3): ícone em caixa + frase curta, com divisória
+   fina entre eles (igual referência). Token-only (check-pele fiscaliza screens.css). */
+.site-feats { display: flex; flex-wrap: wrap; align-items: center; gap: 16px 24px; margin-top: 34px; }
+.site-feat { display: inline-flex; align-items: center; gap: 11px; max-width: 30ch; }
+.site-feat + .site-feat { padding-left: 24px; border-left: 1px solid var(--border-hairline); }
+.site-feat__ic { width: 38px; height: 38px; flex: none; display: grid; place-items: center; border-radius: 11px; color: var(--login-accent, var(--hbx-brand)); background-color: color-mix(in srgb, var(--login-accent, var(--hbx-brand)) 14%, var(--hbx-background)); }
+.site-feat__ic svg { width: 20px; height: 20px; }
+.site-feat__tx { font-size: 0.92rem; line-height: 1.3; font-weight: 600; color: var(--text-body); opacity: 0.85; }
+@media (max-width: 700px) {
+  .site-feat { max-width: none; }
+  .site-feat + .site-feat { padding-left: 0; border-left: none; }
+}
 
 /* seções do corpo: respiro + título de seção contido */
 .site-sec { padding: clamp(48px, 9vh, 110px) clamp(20px, 5vw, 64px); }
@@ -605,18 +654,14 @@ html, body { height: 100%; }
 /* ESTEIRA — estrela, em fundo sólido (legível) */
 .site-esteira { position: relative; display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; }
 .site-esteira::before { content: ""; position: absolute; left: 4%; right: 4%; top: 54px; height: 2px; background: linear-gradient(90deg, transparent, var(--login-accent, var(--hbx-brand)), transparent); opacity: 0.45; }
-.site-station { position: relative; display: grid; gap: 8px; padding: 22px 18px; border-radius: 20px; border: 1px solid var(--border-hairline); background: color-mix(in srgb, var(--text-body) 5%, var(--hbx-background)); animation: site-slide-r 0.7s var(--ease-out-quint) both; }
-.site-station:nth-child(even) { animation-name: site-slide-l; }
-.site-station:nth-child(1) { animation-delay: 0.05s; }
-.site-station:nth-child(2) { animation-delay: 0.16s; }
-.site-station:nth-child(3) { animation-delay: 0.27s; }
-.site-station:nth-child(4) { animation-delay: 0.38s; }
-.site-station:nth-child(5) { animation-delay: 0.49s; }
-.site-station__ic { width: 46px; height: 46px; display: grid; place-items: center; border-radius: 13px; color: var(--login-accent, var(--hbx-brand)); background: color-mix(in srgb, var(--login-accent, var(--hbx-brand)) 16%, var(--hbx-background)); }
-.site-station__ic svg { width: 24px; height: 24px; }
-.site-station__k { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--login-accent, var(--hbx-brand)); }
-.site-station__t { font-family: var(--font-display); font-size: 1.35rem; font-weight: 800; color: var(--text-body); }
-.site-station__d { font-size: 0.88rem; color: var(--text-muted); line-height: 1.45; }
+/* cards CLICÁVEIS (button): mesma classe, agora interativos. Entrada via .is-revealed. */
+.site-station { position: relative; display: grid; gap: 9px; justify-items: center; text-align: center; padding: 24px 18px; border-radius: 20px; border: 1px solid var(--border-hairline); background-color: color-mix(in srgb, var(--text-body) 5%, var(--hbx-background)); color: var(--text-body); font: inherit; cursor: pointer; -webkit-appearance: none; appearance: none; transition: transform .2s var(--ease-out-quint), border-color .2s var(--ease-out-quint), box-shadow .2s var(--ease-out-quint); }
+.site-station:hover, .site-station.is-active { transform: translateY(-5px); border-color: var(--login-accent, var(--hbx-brand)); box-shadow: 0 0 0 1px var(--login-accent, var(--hbx-brand)), 0 22px 46px -22px color-mix(in srgb, var(--login-accent, var(--hbx-brand)) 65%, transparent); }
+.site-station__ic { width: 56px; height: 56px; display: grid; place-items: center; border-radius: 999px; color: var(--login-accent, var(--hbx-brand)); border: 1px solid color-mix(in srgb, var(--login-accent, var(--hbx-brand)) 42%, transparent); background-color: color-mix(in srgb, var(--login-accent, var(--hbx-brand)) 14%, var(--hbx-background)); }
+.site-station__ic svg { width: 26px; height: 26px; }
+.site-station__k { font-family: var(--font-mono); font-size: 0.9rem; font-weight: 700; letter-spacing: 0.1em; color: var(--login-accent, var(--hbx-brand)); }
+.site-station__t { font-family: var(--font-display); font-size: 1.3rem; font-weight: 800; color: var(--text-strong); }
+.site-station__d { font-size: 0.85rem; color: var(--text-muted); line-height: 1.45; max-width: 22ch; }
 @keyframes site-slide-r { from { opacity: 0; transform: translateX(44px); } to { opacity: 1; transform: none; } }
 @keyframes site-slide-l { from { opacity: 0; transform: translateX(-44px); } to { opacity: 1; transform: none; } }
 
@@ -649,6 +694,115 @@ html, body { height: 100%; }
 .site-phrase--big { font-size: clamp(1.8rem, 4.4vw, 3.2rem); font-weight: 900; letter-spacing: -0.035em; max-width: 18ch; }
 
 .site-foot { padding: clamp(56px, 11vh, 130px) clamp(20px, 5vw, 64px) clamp(70px, 13vh, 150px); }
+
+/* ===== REMOVE-VISUAL → ESTEIRA: "Conhecer o HBX" liga .site-scene.is-revealed.
+   Robô + herói saem, a esteira ESCREVE por cima. MESMA cena/cor (.hbx-scene), só
+   tokens → claro e escuro. A marca "HBX" vira "voltar". Sem tela nova, sem duplicar. ===== */
+.site-scene > .site-top { z-index: 3; }                 /* marca/voltar acima do overlay */
+.site-nav { z-index: 3; }                                /* nav clicável sobre o overlay */
+.site-brand { background: none; border: none; padding: 0; cursor: pointer; }
+
+.site-hero { transition: opacity 0.4s var(--ease-out-quint), transform 0.5s var(--ease-out-quint); }
+.site-scene.is-revealed .login-art { opacity: 0; }
+.site-scene.is-revealed .site-hero { opacity: 0; transform: translateY(-14px); pointer-events: none; }
+
+.site-esteira-view { position: absolute; inset: 0; z-index: 2; display: grid; align-content: center; justify-items: center; gap: 14px; padding: clamp(64px, 11vh, 104px) clamp(20px, 5vw, 64px) clamp(28px, 5vh, 56px); text-align: center; opacity: 0; pointer-events: none; transition: opacity 0.4s var(--ease-out-quint); }
+.site-scene.is-revealed .site-esteira-view { opacity: 1; pointer-events: auto; }
+.site-esteira-view .site-eyebrow { margin: 0; }
+.site-esteira-title { margin: 0; font-family: var(--font-display); font-weight: 900; font-size: clamp(2.2rem, 6vw, 4.4rem); line-height: 0.96; letter-spacing: -0.04em; color: var(--text-strong); }
+.site-esteira-view .site-sub { text-align: center; }
+.site-esteira-view .site-esteira { width: min(1180px, 100%); margin-top: 16px; }
+
+.site-metrics { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px 22px; margin-top: 22px; padding: 16px 22px; border-radius: 18px; border: 1px solid var(--border-hairline); background-color: color-mix(in srgb, var(--text-body) 4%, var(--hbx-background)); width: min(1180px, 100%); }
+.site-metrics__lead { display: inline-flex; align-items: center; gap: 10px; font-family: var(--font-display); font-weight: 700; font-size: 1rem; color: var(--text-body); }
+.site-metrics__lead svg { width: 22px; height: 22px; color: var(--login-accent, var(--hbx-brand)); flex: none; }
+.site-metrics__tags { display: inline-flex; flex-wrap: wrap; gap: 10px; }
+.site-metric { padding: 7px 14px; border-radius: 999px; font-weight: 700; font-size: 0.84rem; color: var(--login-accent, var(--hbx-brand)); background-color: color-mix(in srgb, var(--login-accent, var(--hbx-brand)) 12%, var(--hbx-background)); border: 1px solid color-mix(in srgb, var(--login-accent, var(--hbx-brand)) 30%, transparent); }
+
+/* ============================================================
+   CASCA ÚNICA (.scene = HbxScene): UM dono do fundo. Robô fixo + cor ciclando
+   (.hbx-scene) + marca » + nav com marcador. Toda tela só entrega o conteúdo
+   em .scene-body (herói à esquerda, ou centrado). Mexeu aqui = mexeu em todas.
+   ============================================================ */
+.scene { position: relative; min-height: 100dvh; overflow-x: hidden; color: var(--text-body); background: color-mix(in srgb, var(--hbx-surface) 40%, var(--hbx-background)); }
+.scene .login-art { position: fixed; }               /* robô cobre a viewport; conteúdo rola por cima */
+.scene.is-plain .login-art { opacity: 0; }            /* remove-visual: robô some */
+
+.scene-top { position: fixed; top: clamp(18px, 4vh, 36px); left: clamp(20px, 5vw, 56px); z-index: 4; }
+.scene-top .site-brand { background: none; border: none; padding: 0; cursor: pointer; }
+
+.scene-nav { position: fixed; left: clamp(20px, 5vw, 56px); bottom: clamp(18px, 4vh, 40px); z-index: 4; display: flex; align-items: center; gap: 6px; }
+.scene-nav__item { font: inherit; border: none; background: none; cursor: pointer; color: var(--text-body); padding: 0.5rem 0.9rem; border-radius: 999px; font-weight: 600; font-size: 0.9rem; }
+.scene-nav__item:hover { background-color: color-mix(in srgb, var(--text-body) 10%, transparent); }
+.scene-nav__item.is-current { color: var(--login-accent, var(--hbx-brand)); font-weight: 800; background-color: color-mix(in srgb, var(--login-accent, var(--hbx-brand)) 14%, transparent); }
+.scene-nav__item.site-enter { color: var(--hbx-background); background-color: var(--login-accent, var(--hbx-brand)); padding: 0.5rem 1.1rem; transition: none; }
+
+.scene-body { position: relative; z-index: 1; }
+/* páginas de rota (planos/register…) ENTRAM ao montar e SAEM antes de navegar —
+   a regra da casca. A landing tem .scene-view próprio, então não duplica aqui. */
+.scene-body:not(:has(.scene-view)) { animation: scene-view-in 0.42s var(--ease-out-quint) both; }
+.scene-body.is-leaving { animation: scene-view-out 0.34s var(--ease-out-quint) both; }
+@media (prefers-reduced-motion: reduce) { .scene-body { animation: none !important; } }
+.scene-hero { min-height: 100dvh; display: grid; align-content: center; max-width: 920px; padding: clamp(80px, 12vh, 120px) clamp(20px, 5vw, 64px); }
+.scene-center { min-height: 100dvh; display: grid; align-content: center; justify-items: center; gap: 14px; padding: clamp(88px, 13vh, 128px) clamp(20px, 5vw, 64px) clamp(48px, 9vh, 80px); text-align: center; }
+.scene-center > * { width: 100%; max-width: 1180px; }
+.scene-form > * { max-width: 460px; }
+
+/* esteira: ESCREVE ao montar (só monta no remove-visual) */
+.scene-esteira .site-eyebrow { margin: 0; }
+.scene-esteira .site-esteira { width: min(1180px, 100%); margin-top: 16px; }
+.scene-esteira :is(.site-eyebrow, .site-esteira-title, .site-sub, .site-station, .site-metrics) { animation: site-write-in 0.5s var(--ease-out-quint) both; }
+.scene-esteira .site-esteira-title { animation-delay: .1s; }
+.scene-esteira .site-sub { animation-delay: .18s; }
+.scene-esteira .site-station:nth-child(1) { animation-delay: .28s; }
+.scene-esteira .site-station:nth-child(2) { animation-delay: .38s; }
+.scene-esteira .site-station:nth-child(3) { animation-delay: .48s; }
+.scene-esteira .site-station:nth-child(4) { animation-delay: .58s; }
+.scene-esteira .site-station:nth-child(5) { animation-delay: .68s; }
+.scene-esteira .site-metrics { animation-delay: .8s; }
+@media (prefers-reduced-motion: reduce) {
+  .scene-esteira :is(.site-eyebrow, .site-esteira-title, .site-sub, .site-station, .site-metrics) { animation: none; }
+}
+@media (max-width: 980px) { .scene-center, .scene-hero { align-content: start; } }
+
+/* DECK da casca: a MESMA transição em TODA troca de tela (sai → troca → entra).
+   Regra da casca: nada parte seco — sai, e a próxima entra depois. */
+.scene-view.is-in { animation: scene-view-in 0.42s var(--ease-out-quint) both; }
+.scene-view.is-out { animation: scene-view-out 0.34s var(--ease-out-quint) both; }
+@keyframes scene-view-in { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: none; } }
+@keyframes scene-view-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(-18px); } }
+@media (prefers-reduced-motion: reduce) { .scene-view.is-in, .scene-view.is-out { animation: none; } }
+
+/* ">" grande do fim da tela: transparente, tamanho de card, avança com transição. */
+.scene-next { display: grid; place-items: center; width: 116px; height: 116px; margin: 26px auto 0; border-radius: 26px; border: 1px solid color-mix(in srgb, var(--login-accent, var(--hbx-brand)) 38%, transparent); background-color: color-mix(in srgb, var(--login-accent, var(--hbx-brand)) 7%, transparent); color: var(--login-accent, var(--hbx-brand)); cursor: pointer; transition: transform .2s var(--ease-out-quint), background-color .2s var(--ease-out-quint); }
+.scene-next:hover { transform: scale(1.06); background-color: color-mix(in srgb, var(--login-accent, var(--hbx-brand)) 16%, transparent); }
+.scene-next .site-ic { width: 52px; height: 52px; }
+.scene-next__hint { margin-top: 6px; font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-muted); }
+
+/* integrações: grid de 3 (reusa o card .site-station). */
+.site-integra { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; width: min(960px, 100%); margin-top: 16px; }
+@media (max-width: 760px) { .site-integra { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 460px) { .site-integra { grid-template-columns: 1fr; } }
+
+/* "escrevendo": kicker → título → sub → cards → métricas entram em sequência ao revelar */
+.site-scene.is-revealed :is(.site-esteira-view .site-eyebrow, .site-esteira-title, .site-esteira-view .site-sub, .site-station, .site-metrics) { animation: site-write-in 0.5s var(--ease-out-quint) both; }
+.site-scene.is-revealed .site-esteira-title { animation-delay: .1s; }
+.site-scene.is-revealed .site-esteira-view .site-sub { animation-delay: .18s; }
+.site-scene.is-revealed .site-station:nth-child(1) { animation-delay: .28s; }
+.site-scene.is-revealed .site-station:nth-child(2) { animation-delay: .38s; }
+.site-scene.is-revealed .site-station:nth-child(3) { animation-delay: .48s; }
+.site-scene.is-revealed .site-station:nth-child(4) { animation-delay: .58s; }
+.site-scene.is-revealed .site-station:nth-child(5) { animation-delay: .68s; }
+.site-scene.is-revealed .site-metrics { animation-delay: .8s; }
+@keyframes site-write-in { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+
+@media (max-width: 980px) {
+  .site-esteira-view { align-content: start; overflow-y: auto; }
+  .site-metrics { flex-direction: column; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .site-scene.is-revealed :is(.site-esteira-view .site-eyebrow, .site-esteira-title, .site-esteira-view .site-sub, .site-station, .site-metrics) { animation: none; }
+}
 
 @media (max-width: 980px) {
   .site-esteira, .site-plan-strip { grid-template-columns: 1fr 1fr; }

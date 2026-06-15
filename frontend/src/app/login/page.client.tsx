@@ -16,6 +16,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { AuthThemeControls } from "@/components/hbx/auth-theme-controls";
+import { SceneMenu } from "@/components/hbx/hbx-scene";
 import { apiFetch, setToken, type ApiError } from "@/lib/api";
 
 type LoginResponse = { access_token?: string; next?: string; requiresCheckout?: boolean };
@@ -135,7 +136,9 @@ export function LoginClient() {
         </button>
       </div>
 
-      <div className={"login-console" + (ok && !plain ? " is-leaving" : "") + (plain ? " is-plain" : "")}>
+      <SceneMenu active="entrar" />
+
+      <div className={"hbx-scene login-console" + (ok && !plain ? " is-leaving" : "") + (plain ? " is-plain" : "")}>
         <div className="login-art" aria-hidden>
           <i className="login-art__frame" />
           <i className="login-art__frame" />

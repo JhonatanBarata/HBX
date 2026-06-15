@@ -136,6 +136,13 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
   const [sigBusy, setSigBusy] = useState(false);
   const padRef = useRef<SignaturePadHandle | null>(null);
 
+  // Fechar SÓ quando o clique NASCE e TERMINA no fundo escuro. Sem isso, começar o
+  // clique dentro do formulário (selecionar texto) e soltar o mouse fora fechava o
+  // modal e perdia tudo o que estava preenchido. (ordem do dono 15/06). Um ref por
+  // veil — o submodal "Editar modelo" fica aninhado neste e não pode dividir o ref.
+  const veilDownRef = useRef(false);
+  const modeloDownRef = useRef(false);
+
   useEffect(() => {
     let alive = true;
     if (!isEdit) {
@@ -481,7 +488,9 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
   const nomeMembro = member?.name || member?.username || member?.email || (member ? `Usuário ${member.id}` : "");
 
   return (
-    <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) fechar(); }}>
+    <div className="hbx-veil"
+      onMouseDown={e => { veilDownRef.current = e.target === e.currentTarget; }}
+      onClick={e => { const ok = e.target === e.currentTarget && veilDownRef.current; veilDownRef.current = false; if (ok) fechar(); }}>
       <div className="hbx-modal" style={{ width: "min(880px, 100%)", maxHeight: "92vh", overflowY: "auto", display: "grid", gap: 14, padding: 22 }}>
         <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           {isEdit ? (
@@ -779,7 +788,9 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
       </div>
 
       {modeloOpen && (
-        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setModeloOpen(false); }}>
+        <div className="hbx-veil"
+          onMouseDown={e => { modeloDownRef.current = e.target === e.currentTarget; }}
+          onClick={e => { const ok = e.target === e.currentTarget && modeloDownRef.current; modeloDownRef.current = false; if (ok) setModeloOpen(false); }}>
           <div className="hbx-modal" style={{ width: "min(640px, 100%)", maxHeight: "86vh", overflowY: "auto", display: "grid", gap: 12, padding: 22 }}>
             <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               Modelo do contrato

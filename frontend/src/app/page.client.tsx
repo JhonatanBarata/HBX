@@ -1,32 +1,46 @@
 "use client";
 
-// Landing pública (hbxsystem.com.br) — PR15062026001. Baseada 100% no /login:
-// HERO = a MESMA cena do robô (.login-art, transmux + cor que cicla), e o texto
-// na divisão escurecida (igual ao login) → contraste correto. TODO o resto fica
-// em FUNDO SÓLIDO do tema (escuro é escuro, claro é claro). Tema dark/light herdado;
-// morfa pro /login via View Transitions. Tipografia grande (sem coleira). Sem "a gente".
-// Cards de plano RICOS (selo, nome, tagline, features, CTA, cor por tier). Preço NÃO
-// se hardcoda (PAGAMENTOS.md) — aparece via catálogo quando o slice de cobrança subir.
+// Landing = conteúdo dentro da CASCA ÚNICA (HbxScene). A casca dá o fundo (robô +
+// cor ciclando), a marca » e os 4 guias. Aqui vive um DECK de telas com a MESMA
+// transição (sai → troca → entra): Início → Esteira → Integrações → (rota) Planos.
+// Avança pelo ">" grande no fim de cada tela. Tudo remove-visual (robô some), mesma
+// cor ciclando. É tudo a mesma coisa.
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useEffect, useState, useSyncExternalStore } from "react";
 
-import { AuthThemeControls } from "@/components/hbx/auth-theme-controls";
+import { HbxScene, type SceneNav } from "@/components/hbx/hbx-scene";
+import { subscribeToThemeMode } from "@/components/hbx/shell";
+import { applyThemeSoft, setThemeMode } from "@/components/hbx/theme-attributes";
 
+const FEATURES = [
+  { ic: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z", "M12 16.5a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9Z", "M12 12h.01"], tx: "Mais clientes" },
+  { ic: ["M13 2 3 14h9l-1 8 10-12h-9l1-8Z"], tx: "Atendimento até 100% automático" },
+  { ic: ["M12 3 19 6v5c0 4.6-3 7.7-7 9-4-1.3-7-4.4-7-9V6l7-3Z", "M9.3 12l1.9 1.9 3.6-3.7"], tx: "Cobrança facilitada" },
+];
 const STATIONS = [
-  { k: "01", v: "Acha", t: "Radar", d: "Acha o cliente na sua cidade.", icon: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z", "M12 12l5-3", "M12 12v5"] },
-  { k: "02", v: "Organiza", t: "Vendas", d: "Carteira viva, nada se perde.", icon: ["M4 7h16", "M4 12h16", "M4 17h10", "M18 15l2 2-2 2"] },
-  { k: "03", v: "Conecta", t: "ERP", d: "Plugado no seu sistema.", icon: ["M9 12a3 3 0 0 1 3-3h3a3 3 0 0 1 0 6h-1", "M15 12a3 3 0 0 1-3 3H9a3 3 0 0 1 0-6h1"] },
-  { k: "04", v: "Automatiza", t: "Bot", d: "Atende e filtra sozinho, 24h.", icon: ["M9 4h6v3H9z", "M5 7h14v11H5z", "M9 12h.01M15 12h.01", "M9 15h6"] },
-  { k: "05", v: "Cobra", t: "Recovery", d: "Cobra quem some.", icon: ["M12 3v18", "M16 7a3 3 0 0 0-3-2H10a2.5 2.5 0 0 0 0 5h4a2.5 2.5 0 0 1 0 5h-3a3 3 0 0 1-3-2"] },
+  { k: "01", t: "Acha", d: "Encontramos empresas com o perfil ideal pro seu negócio, todo dia.", ic: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z", "M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z", "M12 12h.01"] },
+  { k: "02", t: "Organiza", d: "Validamos e enriquecemos os dados pra você falar com as pessoas certas.", ic: ["M3 5h18l-7 8v6l-4 2v-8L3 5Z"] },
+  { k: "03", t: "Conecta", d: "Conversas no WhatsApp e em outros canais, no automático e com a sua cara.", ic: ["M20 11.5a8 8 0 0 1-11.9 7L4 20l1.5-4.1A8 8 0 1 1 20 11.5Z", "M8.5 11h.01", "M12 11h.01", "M15.5 11h.01"] },
+  { k: "04", t: "Automatiza", d: "Follow-up inteligente: respostas, objeções e agendamentos, 24/7.", ic: ["M13 2 4 14h7l-1 8 10-12h-9l1-8Z"] },
+  { k: "05", t: "Cobra", d: "Cobramos quem some e aumentamos suas chances de receber.", ic: ["M3 6.5h18a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1Z", "M2 10h20", "M6 14.5h4"] },
 ];
-
-const PLANS = [
-  { key: "list", cls: "site-plan--list", badge: "Entrada", name: "HBX List", tag: "É básico que resolve.", cta: "Criar conta", go: "/register", feats: ["Radar + Vendas, cards simples", "Telefone, cidade, segmento", "Instagram/e-mail quando achados"] },
-  { key: "lead", cls: "site-plan--lead", hot: true, badge: "14 dias grátis · sem cartão", name: "HBX Lead Plus", tag: "Leads enriquecidos.", cta: "Testar grátis", go: "/register", feats: ["Tudo do List", "WhatsApp verificado", "Score, canal e mensagem pronta"] },
-  { key: "pro", cls: "site-plan--pro", badge: "Mais forte", name: "HBX Pro", tag: "Forte na prospecção.", cta: "Criar conta", go: "/register", feats: ["Atendimento automático", "Bot configurado", "Acessos full"] },
-  { key: "company", cls: "site-plan--company", badge: "Empresas", name: "HBX Company", tag: "Tudo acima + cobrança no seu ERP.", cta: "Falar com a equipe", go: "/planos", feats: ["Recovery de inadimplentes", "Integração com seu ERP", "Implantação feita pela HBX"] },
+const METRICS = ["Mais conversas", "Menos trabalho manual", "Mais recebimentos"];
+// Integrações (2ª tela da esteira). Ícones de linha no padrão — logos reais o dono
+// sobe no /public depois e a gente troca por imagem.
+const INTEGRATIONS = [
+  { n: "WhatsApp", d: "Converse, responda e venda no automático.", ic: ["M20 11.5a8 8 0 0 1-11.9 7L4 20l1.5-4.1A8 8 0 1 1 20 11.5Z", "M8.5 11h.01", "M12 11h.01", "M15.5 11h.01"] },
+  { n: "Mercado Pago", d: "Cobranças, links de pagamento e conciliação.", ic: ["M3 6.5h18a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1Z", "M2 10h20", "M6 14.5h4"] },
+  { n: "HubSpot", d: "Leads, oportunidades e pipeline sempre atualizados.", ic: ["M12 9V4", "M12 16a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z", "M18.5 6.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z", "M16.7 5.6 14 8.4"] },
+  { n: "Pipedrive", d: "Atividades, negócios e follow-ups sincronizados.", ic: ["M5 5h6v14H5z", "M14 5h5v9h-5z"] },
+  { n: "Google Agenda", d: "Agendamentos e lembretes sem falhas.", ic: ["M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z", "M4 9h16", "M9 3v4", "M15 3v4"] },
+  { n: "SAP / ERP", d: "Dados e processos integrados ao seu ERP.", ic: ["M4 5h16v6H4z", "M4 14h16v5H4z", "M8 8h.01", "M8 16.5h.01"] },
 ];
+const BARS = ["M4 19V5", "M4 19h16", "M8 19v-6", "M13 19V9", "M18 19v-4"];
+const CHEVRON = ["M9 5l7 7-7 7"];
+const PLUG = ["M9 7V3", "M15 7V3", "M7 7h10v4a5 5 0 0 1-10 0V7Z", "M12 16v5"];
+const SUN = ["M12 3v2.2", "M12 18.8V21", "M4.6 4.6l1.6 1.6", "M17.8 17.8l1.6 1.6", "M3 12h2.2", "M18.8 12H21", "M4.6 19.4l1.6-1.6", "M17.8 6.2l1.6-1.6", "M12 8.2a3.8 3.8 0 1 0 0 7.6 3.8 3.8 0 0 0 0-7.6Z"];
+const MOON = ["M20.5 14.4A8.3 8.3 0 0 1 9.6 3.5a6.6 6.6 0 1 0 10.9 10.9Z"];
 
 function Ic({ paths }: { paths: string[] }) {
   return (
@@ -36,100 +50,149 @@ function Ic({ paths }: { paths: string[] }) {
   );
 }
 
+function DiaNoite() {
+  const mode = useSyncExternalStore(
+    subscribeToThemeMode,
+    () => document.documentElement.getAttribute("data-theme-mode"),
+    () => null,
+  );
+  const isDark = mode === "dark";
+  return (
+    <button type="button" className="site-btn site-btn--ghost"
+      onClick={() => applyThemeSoft(() => setThemeMode(isDark ? "light" : "dark"))}
+      aria-label={isDark ? "Tema escuro (Noite) — tocar para Dia" : "Tema claro (Dia) — tocar para Noite"}>
+      <Ic paths={isDark ? MOON : SUN} />
+      {isDark ? "Noite" : "Dia"}
+    </button>
+  );
+}
+
+// O ">" grande do fim da tela (transparente, do tamanho de um card) que avança.
+function Next({ hint, onClick }: { hint: string; onClick: () => void }) {
+  return (
+    <button type="button" className="scene-next" onClick={onClick} aria-label={hint}>
+      <Ic paths={CHEVRON} />
+      <span className="scene-next__hint">{hint}</span>
+    </button>
+  );
+}
+
+type View = "inicio" | "esteira" | "integra";
+
 export function MarketingClient() {
   const router = useRouter();
-  const criarConta = () => router.push("/register");
-  const verPlanos = () => router.push("/planos");
-  const scrollEsteira = () => document.getElementById("esteira")?.scrollIntoView({ behavior: "smooth" });
+  const [view, setView] = useState<View>("inicio");
+  const [phase, setPhase] = useState<"in" | "out">("in");
+  const [activeCard, setActiveCard] = useState<string | null>(null);
+
+  // vindo de outra tela (?ver=esteira): abre na esteira. Deferido (igual login).
+  useEffect(() => {
+    let alive = true;
+    Promise.resolve().then(() => {
+      if (!alive) return;
+      try { if (new URLSearchParams(window.location.search).get("ver") === "esteira") setView("esteira"); } catch { /* sem window */ }
+    });
+    return () => { alive = false; };
+  }, []);
+
+  // REGRA DA CASCA: nada troca seco. Sai (out) → troca → entra (in). Vale pra
+  // trocar de tela do deck E pra sair pra outra rota (some, depois navega).
+  function transition(action: () => void) {
+    setPhase("out");
+    window.setTimeout(() => { action(); setPhase("in"); }, 360);
+  }
+  const goView = (v: View) => { if (v !== view) transition(() => setView(v)); };
+  const goRoute = (href: string) => transition(() => router.push(href));
+
+  const onNav = (k: SceneNav) => {
+    if (k === "inicio") goView("inicio");
+    else if (k === "esteira") goView("esteira");
+    else if (k === "planos") goRoute("/planos");
+    else if (k === "entrar") goRoute("/login");
+  };
 
   return (
-    <div className="site hbx-page">
-      <AuthThemeControls />
-      <section className="site-scene">
-        <div className="login-art" aria-hidden>
-          <i className="login-art__frame" />
-          <i className="login-art__frame" />
-          <i className="login-art__frame" />
-          <i className="login-art__frame" />
-          <i className="login-art__frame" />
-        </div>
-
-        <header className="site-top">
-          <span className="site-brand">
-            <Ic paths={["M4 6l6 6-6 6", "M11 6l6 6-6 6"]} />
-            HBX
-          </span>
-          <nav className="site-nav">
-            <a onClick={scrollEsteira}>A esteira</a>
-            <a onClick={verPlanos}>Planos</a>
-            <Link href="/login" className="site-enter">Entrar</Link>
-          </nav>
-        </header>
-
-        <div className="site-hero">
-          <span className="site-eyebrow">Radar · Vendas · Atendimento · Recovery</span>
-          <h1 className="site-title">Do anúncio<br />à <span className="site-accent">cobrança</span>.</h1>
-          <p className="site-sub">Tudo num fluxo só. Nós achamos o cliente, atendemos no automático e cobramos quem some. Você fecha.</p>
-          <div className="site-cta">
-            <button className="site-btn site-btn--solid" onClick={criarConta}>Criar conta</button>
-            <Link href="/login" className="site-btn site-btn--ghost">Entrar</Link>
+    <HbxScene
+      active={view === "inicio" ? "inicio" : "esteira"}
+      plain={view !== "inicio"}
+      themeControls={false}
+      onBrand={() => goView("inicio")}
+      onNav={onNav}
+    >
+      <div className={"scene-view is-" + phase}>
+        {view === "inicio" && (
+          <div className="scene-hero">
+            <span className="site-eyebrow">Radar · Vendas · Atendimento · Recovery</span>
+            <h1 className="site-title">Do anúncio<br />à <span className="site-accent">cobrança</span>.</h1>
+            <p className="site-sub">Tudo num fluxo só. Nós achamos o cliente, atendemos no automático e cobramos quem some. Você fecha.</p>
+            <div className="site-cta">
+              <button className="site-btn site-btn--solid" onClick={() => goView("esteira")}>Conhecer o HBX</button>
+              <DiaNoite />
+            </div>
+            <div className="site-feats">
+              {FEATURES.map((f) => (
+                <div key={f.tx} className="site-feat">
+                  <span className="site-feat__ic"><Ic paths={f.ic} /></span>
+                  <span className="site-feat__tx">{f.tx}</span>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
-      </section>
+        )}
 
-      <div className="site-body">
-        <section className="site-sec" id="esteira">
-          <h2 className="site-h2">A vida do lead, do “oi” ao “tá pago”.</h2>
-          <p className="site-lead">Cinco estações. O lead entra de um lado e sai cliente do outro.</p>
-          <div className="site-esteira">
-            {STATIONS.map((s) => (
-              <article key={s.k} className="site-station">
-                <span className="site-station__ic"><Ic paths={s.icon} /></span>
-                <span className="site-station__k">{s.k} · {s.v}</span>
-                <strong className="site-station__t">{s.t}</strong>
-                <span className="site-station__d">{s.d}</span>
-              </article>
-            ))}
+        {view === "esteira" && (
+          <div className="scene-center scene-esteira">
+            <span className="site-eyebrow">Como funciona</span>
+            <h2 className="site-esteira-title">A esteira <span className="site-accent">HBX</span>.</h2>
+            <p className="site-sub">Do primeiro contato até a cobrança. Tudo no automático.</p>
+            <div className="site-esteira">
+              {STATIONS.map((s) => (
+                <button key={s.t} type="button"
+                  className={"site-station" + (activeCard === s.t ? " is-active" : "")}
+                  aria-pressed={activeCard === s.t}
+                  onClick={() => setActiveCard(activeCard === s.t ? null : s.t)}>
+                  <span className="site-station__ic"><Ic paths={s.ic} /></span>
+                  <span className="site-station__k">{s.k}</span>
+                  <strong className="site-station__t">{s.t}</strong>
+                  <span className="site-station__d">{s.d}</span>
+                </button>
+              ))}
+            </div>
+            <div className="site-metrics">
+              <span className="site-metrics__lead"><Ic paths={BARS} />Menos trabalho manual. Mais conversas, reuniões e vendas.</span>
+              <span className="site-metrics__tags">
+                {METRICS.map((m) => <span key={m} className="site-metric">{m}</span>)}
+              </span>
+            </div>
+            <Next hint="Integrações" onClick={() => goView("integra")} />
           </div>
-        </section>
+        )}
 
-        <section className="site-sec" id="planos">
-          <h2 className="site-h2">Básico que resolve, ou tudo no automático.</h2>
-          <p className="site-lead">Três planos self-service e o Company com implantação feita pela HBX.</p>
-          <div className="site-plan-strip">
-            {PLANS.map((p) => (
-              <article key={p.key} className={"site-plan " + p.cls + (p.hot ? " site-plan--hot" : "")}>
-                <span className="site-plan__badge">{p.badge}</span>
-                <strong className="site-plan__name">{p.name}</strong>
-                <span className="site-plan__tag">{p.tag}</span>
-                <ul className="site-plan__feats">
-                  {p.feats.map((f) => (
-                    <li key={f}><Ic paths={["M4 12l5 5L20 6"]} />{f}</li>
-                  ))}
-                </ul>
-                <button className="site-plan__cta" onClick={() => router.push(p.go)}>{p.cta}</button>
-              </article>
-            ))}
+        {view === "integra" && (
+          <div className="scene-center scene-esteira">
+            <span className="site-eyebrow">Tudo conectado</span>
+            <h2 className="site-esteira-title">Integra, sincroniza e <span className="site-accent">entrega resultado</span>.</h2>
+            <p className="site-sub">Conectamos os canais e sistemas que seu negócio já usa — os dados fluem, as tarefas acontecem e o resultado aparece.</p>
+            <div className="site-integra">
+              {INTEGRATIONS.map((it) => (
+                <div key={it.n} className="site-station">
+                  <span className="site-station__ic"><Ic paths={it.ic} /></span>
+                  <strong className="site-station__t">{it.n}</strong>
+                  <span className="site-station__d">{it.d}</span>
+                </div>
+              ))}
+            </div>
+            <div className="site-metrics">
+              <span className="site-metrics__lead"><Ic paths={PLUG} />APIs abertas e flexíveis — integre o que faz sentido pro seu negócio.</span>
+              <span className="site-metrics__tags">
+                <span className="site-metric">+50 integrações</span>
+                <span className="site-metric">Novas conexões sempre</span>
+              </span>
+            </div>
+            <Next hint="Ver planos" onClick={() => goRoute("/planos")} />
           </div>
-          <button className="site-annual" onClick={verPlanos}>Contrato anual: <b>20% de desconto</b> · ver planos →</button>
-        </section>
-
-        <section className="site-sec site-panel">
-          <p className="site-phrase">Respondeu às 23h? Temos um bot para não deixar o cliente esperando.</p>
-          <p className="site-phrase">Tem produto cadastrado? O próprio bot envia a cotação.</p>
-          <p className="site-phrase site-phrase--big">Do “oi” ao “tá pago” — sem trocar de aba.</p>
-          <p className="site-phrase">O atendimento robô não enrosca o cliente: detecta dificuldade e direciona.</p>
-          <p className="site-phrase site-phrase--big">Nós achamos. Você fecha.</p>
-        </section>
-
-        <footer className="site-foot">
-          <h2 className="site-h2">Encha a carteira. Feche mais.</h2>
-          <div className="site-cta">
-            <button className="site-btn site-btn--solid" onClick={criarConta}>Criar conta</button>
-            <Link href="/login" className="site-btn site-btn--ghost">Entrar</Link>
-          </div>
-        </footer>
+        )}
       </div>
-    </div>
+    </HbxScene>
   );
 }

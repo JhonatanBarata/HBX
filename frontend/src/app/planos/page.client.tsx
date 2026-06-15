@@ -1,14 +1,14 @@
 "use client";
 
-// Página pública /planos — REFEITA 15/06 (PR15062026001): mesmo visual da landing
-// (.site, fundo sólido do tema, cards ricos com cor por tier) e LÊ o catálogo
-// (4 planos: List/Lead Plus/Pro/Company). Preço NÃO se hardcoda (PAGAMENTOS.md):
-// vem de /commercial-plans/public-catalog. Trial só no Lead. Company = "a partir de".
+// /planos — agora dentro da CASCA ÚNICA (HbxScene): mesmo fundo (robô + cor
+// ciclando) e a mesma nav com o marcador em "Planos". Aqui só vive o CONTEÚDO
+// (os cards). Preço NÃO se hardcoda (PAGAMENTOS.md): vem do catálogo público.
+// "Criar conta" leva ao /register (um dos processos dos planos).
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { AuthThemeControls } from "@/components/hbx/auth-theme-controls";
+import { HbxScene } from "@/components/hbx/hbx-scene";
 import { apiFetch } from "@/lib/api";
 
 type CatalogPlan = {
@@ -22,8 +22,6 @@ type CatalogPlan = {
   features?: string[];
 };
 
-// Ordem + cor por tier + CTA. List/Pro = checkout self-service; Lead = trial;
-// Company = falar com a equipe (implantação).
 const ORDER: { key: string; cls: string; cta: string }[] = [
   { key: "hbx_lite", cls: "site-plan--list", cta: "Criar conta" },
   { key: "hbx_padrao", cls: "site-plan--lead", cta: "Testar grátis" },
@@ -56,47 +54,33 @@ export function PlanosClient() {
   const byKey = (k: string) => catalogo.find(p => p.key === k) || null;
 
   return (
-    <div className="site hbx-page">
-      <AuthThemeControls />
-      <div className="site-body">
-        <header className="site-top">
-          <Link href="/" className="site-brand">
-            <svg className="site-ic" width="24" height="24" viewBox="0 0 24 24"><path d="M4 6l6 6-6 6M11 6l6 6-6 6" /></svg>
-            HBX
-          </Link>
-          <nav className="site-nav">
-            <Link href="/">Início</Link>
-            <Link href="/login" className="site-enter">Entrar</Link>
-          </nav>
-        </header>
-
-        <section className="site-sec" id="planos">
-          <h2 className="site-h2">Comece grátis. Pague quando a esteira provar o valor.</h2>
-          <p className="site-lead">Três planos self-service e o Company com implantação feita pela HBX. 14 dias grátis no Lead Plus, sem cartão.</p>
-          <div className="site-plan-strip">
-            {ORDER.map(({ key, cls, cta }) => {
-              const p = byKey(key);
-              const preco = precoLabel(p);
-              const isLead = key === "hbx_padrao";
-              return (
-                <article key={key} className={"site-plan " + cls + (isLead ? " site-plan--hot" : "")}>
-                  <span className="site-plan__badge">{p?.badge || (isLead ? "14 dias grátis" : "Plano")}</span>
-                  <strong className="site-plan__name">{p?.title || key}</strong>
-                  {preco && <span className="site-plan__price">{preco}<span className="site-plan__per">/mês</span></span>}
-                  <span className="site-plan__tag">{p?.headline || ""}</span>
-                  <ul className="site-plan__feats">
-                    {(p?.features || []).slice(0, 4).map(f => (
-                      <li key={f}><svg className="site-ic" viewBox="0 0 24 24"><path d="M4 12l5 5L20 6" /></svg>{f}</li>
-                    ))}
-                  </ul>
-                  <Link href={`/register?plan=${key}`} className="site-plan__cta site-plan__cta--link">{cta}</Link>
-                </article>
-              );
-            })}
-          </div>
-          <p className="site-annual">Contrato anual: <b>20% de desconto</b>. Cancele quando quiser.</p>
-        </section>
+    <HbxScene active="planos">
+      <div className="scene-center scene-planos">
+        <h2 className="site-h2">Comece grátis. Pague quando a esteira provar o valor.</h2>
+        <p className="site-lead">Três planos self-service e o Company com implantação feita pela HBX. 14 dias grátis no Lead Plus, sem cartão.</p>
+        <div className="site-plan-strip">
+          {ORDER.map(({ key, cls, cta }) => {
+            const p = byKey(key);
+            const preco = precoLabel(p);
+            const isLead = key === "hbx_padrao";
+            return (
+              <article key={key} className={"site-plan " + cls + (isLead ? " site-plan--hot" : "")}>
+                <span className="site-plan__badge">{p?.badge || (isLead ? "14 dias grátis" : "Plano")}</span>
+                <strong className="site-plan__name">{p?.title || key}</strong>
+                {preco && <span className="site-plan__price">{preco}<span className="site-plan__per">/mês</span></span>}
+                <span className="site-plan__tag">{p?.headline || ""}</span>
+                <ul className="site-plan__feats">
+                  {(p?.features || []).slice(0, 4).map(f => (
+                    <li key={f}><svg className="site-ic" viewBox="0 0 24 24"><path d="M4 12l5 5L20 6" /></svg>{f}</li>
+                  ))}
+                </ul>
+                <Link href={`/register?plan=${key}`} className="site-plan__cta site-plan__cta--link">{cta}</Link>
+              </article>
+            );
+          })}
+        </div>
+        <p className="site-annual">Contrato anual: <b>20% de desconto</b>. Cancele quando quiser.</p>
       </div>
-    </div>
+    </HbxScene>
   );
 }

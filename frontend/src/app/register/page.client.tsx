@@ -142,7 +142,7 @@ export function RegisterClient() {
   );
 
   return (
-    <AuthSplit>
+    <AuthSplit active="planos">
       {done ? (
         <div className="card">
           <h2>{done.access_token ? "Tudo pronto ✓" : "Conta criada ✓"}</h2>
