@@ -40,15 +40,15 @@ export function buildCoachSteps(audience: Partial<CoachAudience> = {}): CoachSte
     id: "pele",
     target: '[data-tut="pele"]',
     title: "Troque a cor do sistema",
-    body: "Aqui em cima você muda a PELE — a cor e o clima de tudo. Clique pra abrir e escolher a que te agrada.",
-    gate: "click",
+    body: "Aqui em cima você muda a PELE — a cor e o clima de tudo. Clique pra abrir e escolher a que te agrada; quando gostar, toque em Próximo.",
+    gate: "next",
   });
   steps.push({
     id: "theme-mode",
     target: '[data-tut="theme-mode"]',
     title: "Claro ou escuro",
-    body: "Este botão escurece ou clareia o sistema inteiro. Clique pra experimentar — ele lembra da sua escolha.",
-    gate: "click",
+    body: "Este botão escurece ou clareia o sistema inteiro. Experimente à vontade — ele lembra da sua escolha. Toque em Próximo quando quiser seguir.",
+    gate: "next",
   });
 
   // 2) Tour pelo coração do sistema (clique-a-clique nos importantes).
