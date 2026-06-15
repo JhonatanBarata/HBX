@@ -1,29 +1,41 @@
 "use client";
 
-// Página pública /planos (ordem do dono 12/06/2026: entrada trial-first,
-// coerente com a landing e o /register). Linguagem .mkt da landing.
-// Preços: SEM hardcode (PAGAMENTOS.md) — consome o catálogo da API quando
-// disponível (vitrine pública está na fila do backend, PLAN12062026001);
-// até lá os cards vendem o teste grátis e o empresarial sob consulta.
+// Página pública /planos — REFEITA 15/06 (PR15062026001): mesmo visual da landing
+// (.site, fundo sólido do tema, cards ricos com cor por tier) e LÊ o catálogo
+// (4 planos: List/Lead Plus/Pro/Company). Preço NÃO se hardcoda (PAGAMENTOS.md):
+// vem de /commercial-plans/public-catalog. Trial só no Lead. Company = "a partir de".
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { AuthThemeControls } from "@/components/hbx/auth-theme-controls";
 import { apiFetch } from "@/lib/api";
 
 type CatalogPlan = {
   key: string;
   title: string;
   monthlyPrice: number | null;
+  priceFrom?: boolean;
   headline?: string | null;
   badge?: string | null;
   trialDays?: number | null;
   features?: string[];
 };
 
-function preco(p?: CatalogPlan | null) {
+// Ordem + cor por tier + CTA. List/Pro = checkout self-service; Lead = trial;
+// Company = falar com a equipe (implantação).
+const ORDER: { key: string; cls: string; cta: string }[] = [
+  { key: "hbx_lite", cls: "site-plan--list", cta: "Criar conta" },
+  { key: "hbx_padrao", cls: "site-plan--lead", cta: "Testar grátis" },
+  { key: "hbx_pro", cls: "site-plan--pro", cta: "Criar conta" },
+  { key: "hbx_melhor", cls: "site-plan--company", cta: "Falar com a equipe" },
+];
+
+function precoLabel(p?: CatalogPlan | null) {
   if (!p || p.monthlyPrice == null || !Number.isFinite(p.monthlyPrice)) return null;
-  return `R$ ${p.monthlyPrice.toLocaleString("pt-BR", { minimumFractionDigits: 0 })}/mês`;
+  const casas = p.monthlyPrice % 1 ? 2 : 0;
+  const valor = `R$ ${p.monthlyPrice.toLocaleString("pt-BR", { minimumFractionDigits: casas, maximumFractionDigits: casas })}`;
+  return p.priceFrom ? `a partir de ${valor}` : valor;
 }
 
 export function PlanosClient() {
@@ -31,104 +43,58 @@ export function PlanosClient() {
 
   useEffect(() => {
     let alive = true;
-    // vitrine pública (fila E1 aplicada); fallback para o catálogo
-    // autenticado caso o backend ainda seja um build antigo (VPS)
     apiFetch<{ plans?: CatalogPlan[] }>("/commercial-plans/public-catalog")
       .then(res => { if (alive && Array.isArray(res?.plans)) setCatalogo(res.plans); })
       .catch(() => {
         apiFetch<{ plans?: CatalogPlan[] }>("/commercial-plans/catalog")
           .then(res => { if (alive && Array.isArray(res?.plans)) setCatalogo(res.plans); })
-          .catch(() => { /* segue vitrine sem preço */ });
+          .catch(() => { /* vitrine sem preço */ });
       });
     return () => { alive = false; };
   }, []);
 
   const byKey = (k: string) => catalogo.find(p => p.key === k) || null;
-  const list = byKey("hbx_lite");
-  const lead = byKey("hbx_padrao");
 
   return (
-    <div className="mkt">
-      <div className="wrap">
-        <header className="topbar">
-          <div className="brand">
-            <span className="brand-mark">HBX</span>
-            <span><strong>HBX System</strong><small>Leads, esteira mobile e recovery</small></span>
-          </div>
-          <nav className="nav">
+    <div className="site hbx-page">
+      <AuthThemeControls />
+      <div className="site-body">
+        <header className="site-top">
+          <Link href="/" className="site-brand">
+            <svg className="site-ic" width="24" height="24" viewBox="0 0 24 24"><path d="M4 6l6 6-6 6M11 6l6 6-6 6" /></svg>
+            HBX
+          </Link>
+          <nav className="site-nav">
             <Link href="/">Início</Link>
-            <Link href="/register">Criar conta</Link>
-            <Link href="/login" className="enter">Entrar</Link>
+            <Link href="/login" className="site-enter">Entrar</Link>
           </nav>
         </header>
 
-        <section className="section" style={{ paddingTop: 28 }}>
-          <div className="head">
-            <span className="eyebrow">Planos HBX</span>
-            <h2>Comece grátis. Pague quando a esteira provar o valor.</h2>
-            <p>14 dias de teste no plano Lead, sem cartão. Você cria a conta, a esteira busca leads do seu segmento e da sua cidade — e aí você decide.</p>
+        <section className="site-sec" id="planos">
+          <h2 className="site-h2">Comece grátis. Pague quando a esteira provar o valor.</h2>
+          <p className="site-lead">Três planos self-service e o Company com implantação feita pela HBX. 14 dias grátis no Lead Plus, sem cartão.</p>
+          <div className="site-plan-strip">
+            {ORDER.map(({ key, cls, cta }) => {
+              const p = byKey(key);
+              const preco = precoLabel(p);
+              const isLead = key === "hbx_padrao";
+              return (
+                <article key={key} className={"site-plan " + cls + (isLead ? " site-plan--hot" : "")}>
+                  <span className="site-plan__badge">{p?.badge || (isLead ? "14 dias grátis" : "Plano")}</span>
+                  <strong className="site-plan__name">{p?.title || key}</strong>
+                  {preco && <span className="site-plan__price">{preco}<span className="site-plan__per">/mês</span></span>}
+                  <span className="site-plan__tag">{p?.headline || ""}</span>
+                  <ul className="site-plan__feats">
+                    {(p?.features || []).slice(0, 4).map(f => (
+                      <li key={f}><svg className="site-ic" viewBox="0 0 24 24"><path d="M4 12l5 5L20 6" /></svg>{f}</li>
+                    ))}
+                  </ul>
+                  <Link href={`/register?plan=${key}`} className="site-plan__cta site-plan__cta--link">{cta}</Link>
+                </article>
+              );
+            })}
           </div>
-          <div className="plans">
-            <article className="plan">
-              <span className="eyebrow">{list?.badge || "Entrada para volume"}</span>
-              <h3>{list?.title || "HBX List"}</h3>
-              {preco(list) && <p style={{ fontFamily: "var(--font-mono)", fontSize: "1.2rem", fontWeight: 700, margin: "4px 0" }}>{preco(list)}</p>}
-              <p>{list?.headline || "Listas de empresas por segmento e cidade, com os canais de contato encontrados."}</p>
-              <ul>
-                {(list?.features?.slice(0, 4) || [
-                  "Listas por segmento e cidade",
-                  "Telefone, site e redes encontrados",
-                  "Fila simples para abordagem",
-                ]).map(f => <li key={f}>{f}</li>)}
-              </ul>
-              <Link href="/register" className="cta cta-success" style={{ textDecoration: "none", textAlign: "center" }}>Criar conta</Link>
-            </article>
-
-            <article className="plan featured">
-              <span className="eyebrow">14 dias grátis · sem cartão</span>
-              <h3>{lead?.title || "HBX Lead"}</h3>
-              {preco(lead) && <p style={{ fontFamily: "var(--font-mono)", fontSize: "1.2rem", fontWeight: 700, margin: "4px 0" }}>{preco(lead)}</p>}
-              <p>{lead?.headline || "Lead qualificado com prioridade, canal recomendado e mensagem pronta — direto na sua esteira."}</p>
-              <ul>
-                {(lead?.features?.slice(0, 4) || [
-                  "Leads priorizados e enriquecidos",
-                  "WhatsApp verificado pela HBX",
-                  "Esteira mobile de prospecção",
-                  "Canal recomendado e próxima ação",
-                ]).map(f => <li key={f}>{f}</li>)}
-              </ul>
-              <Link href="/register" className="cta cta-success" style={{ textDecoration: "none", textAlign: "center" }}>Testar grátis por 14 dias</Link>
-            </article>
-
-            <article className="plan company">
-              <span className="eyebrow">Empresas · sob consulta</span>
-              <h3>Recovery + Atendimento</h3>
-              <p>Cliente sumido, parcela atrasada, orçamento parado: a HBX entra com régua de cobrança, atendimento automatizado e implantação assistida — desenhados para a sua operação.</p>
-              <ul>
-                <li>Recovery via WhatsApp</li>
-                <li>Bot de atendimento com handoff humano</li>
-                <li>Implantação acompanhada pela equipe HBX</li>
-              </ul>
-              <Link href="/register" className="cta cta-warning" style={{ textDecoration: "none", textAlign: "center" }}>Criar conta e falar com a equipe</Link>
-            </article>
-          </div>
-        </section>
-
-        <section className="proof">
-          <span>Teste de 14 dias sem cartão de crédito</span>
-          <span>Leads do seu segmento, na sua cidade</span>
-          <span>Cancele quando quiser</span>
-          <span>Empresas entram por implantação sob consulta</span>
-        </section>
-
-        <section className="final">
-          <div>
-            <span className="eyebrow">Sem enrolação</span>
-            <h2 style={{ marginTop: 12 }}>Entre, peça leads do seu segmento e veja com seus olhos.</h2>
-          </div>
-          <div className="actions">
-            <Link href="/register" className="btn-white" style={{ textDecoration: "none" }}>Começar teste grátis</Link>
-          </div>
+          <p className="site-annual">Contrato anual: <b>20% de desconto</b>. Cancele quando quiser.</p>
         </section>
       </div>
     </div>

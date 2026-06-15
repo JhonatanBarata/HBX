@@ -58,15 +58,22 @@ export function TutorialCoachHost() {
   }
 
   async function askHelp() {
-    await apiFetch("/support/contact-admin", {
-      method: "POST",
-      body: JSON.stringify({
-        companySlug: user?.company?.slug || "",
-        username: currentUserDisplayName(user),
-        phone: user?.company?.contactPhone || user?.email || "—",
-        message: "Tutorial — a pessoa ficou com dúvida e pediu ajuda da HBX.",
-      }),
-    });
+    // Best-effort: o backend cria ticket/sino do dono + registra a mensagem de
+    // suporte. NUNCA estourar (era o bug do "falar com a HBX") — se a rede falhar,
+    // o tutorial segue normal.
+    try {
+      await apiFetch("/support/contact-admin", {
+        method: "POST",
+        body: JSON.stringify({
+          companySlug: user?.company?.slug || "",
+          username: currentUserDisplayName(user),
+          phone: user?.company?.contactPhone || user?.email || "—",
+          message: "Tutorial — a pessoa ficou com dúvida e pediu ajuda da HBX.",
+        }),
+      });
+    } catch {
+      /* falha de rede não pode quebrar o tutorial */
+    }
   }
 
   return <TutorialCoach steps={steps} onDone={finish} onSkip={finish} onAskHelp={askHelp} />;

@@ -35,7 +35,15 @@ function formatWhatsapp(value: string) {
   return `(${digits.slice(0, 2)})${digits.slice(2, 7)}-${digits.slice(7)}`;
 }
 
-const PLANOS_VALIDOS = new Set(["hbx_lite", "hbx_padrao", "hbx_melhor"]);
+const PLANOS_VALIDOS = new Set(["hbx_lite", "hbx_padrao", "hbx_pro", "hbx_melhor"]);
+// Trial é SÓ do Lead Plus (catálogo: COMMERCIAL_PLAN_TRIAL_DAYS). Os outros são
+// contratação direta — a copy NÃO pode prometer "14 dias" pra List/Pro/Company.
+const PLANO_NOME: Record<string, string> = {
+  hbx_lite: "HBX List",
+  hbx_padrao: "HBX Lead Plus",
+  hbx_pro: "HBX Pro",
+  hbx_melhor: "HBX Company",
+};
 
 export function RegisterClient() {
   const router = useRouter();
@@ -60,6 +68,10 @@ export function RegisterClient() {
   const [done, setDone] = useState<SignupResponse | null>(null);
   const [resendMsg, setResendMsg] = useState<string | null>(null);
 
+  const selectedPlan = planFromLink || "hbx_padrao";
+  const isTrial = selectedPlan === "hbx_padrao";
+  const planoNome = PLANO_NOME[selectedPlan] || "HBX Lead Plus";
+
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (busy) return;
@@ -81,7 +93,7 @@ export function RegisterClient() {
           name: nome,
           password: senha,
           acceptedTerms: true,
-          selectedPlanKey: planFromLink || "hbx_padrao",
+          selectedPlanKey: selectedPlan,
           trialModuleSelection: "vendas",
           trialContactName: nome,
           trialContactPhone: whats,
@@ -136,8 +148,12 @@ export function RegisterClient() {
           <h2>{done.access_token ? "Tudo pronto ✓" : "Conta criada ✓"}</h2>
           <p className="sub">
             {done.access_token
-              ? "Seu teste grátis de 14 dias está ativo. Bora ver a esteira encontrar seus primeiros leads."
-              : "Falta um passo: confirme seu e-mail para ativar o teste grátis."}
+              ? (isTrial
+                ? "Seu teste grátis de 14 dias está ativo. Bora ver a esteira encontrar seus primeiros leads."
+                : `Sua conta do ${planoNome} está ativa. Bora ver a esteira encontrar seus primeiros leads.`)
+              : (isTrial
+                ? "Falta um passo: confirme seu e-mail para ativar o teste grátis."
+                : "Falta um passo: confirme seu e-mail para ativar sua conta.")}
           </p>
           <div className="ok show">{done.message || `Enviamos um link de confirmação para ${done.email || email}.`}</div>
           {resendMsg && <div className="ok show">{resendMsg}</div>}
@@ -163,8 +179,10 @@ export function RegisterClient() {
         </div>
       ) : (
         <form className="card" onSubmit={onSubmit}>
-          <h2>Teste grátis por 14 dias</h2>
-          <p className="sub">Você vai testar o <strong>HBX Lead Plus</strong> por 14 dias, sem cartão de crédito. Crie sua conta e veja a esteira encontrar seus primeiros leads ainda hoje.</p>
+          <h2>{isTrial ? "Teste grátis por 14 dias" : "Criar sua conta"}</h2>
+          <p className="sub">{isTrial
+            ? (<>Você vai testar o <strong>HBX Lead Plus</strong> por 14 dias, sem cartão de crédito. Crie sua conta e veja a esteira encontrar seus primeiros leads ainda hoje.</>)
+            : (<>Você está criando a conta do <strong>{planoNome}</strong>. Crie sua conta e veja a esteira encontrar seus primeiros leads ainda hoje.</>)}</p>
           <div className="f">
             <label htmlFor="emp">Empresa</label>
             <input id="emp" className="field-dark" placeholder="Nome da sua empresa" required maxLength={120}
@@ -187,7 +205,7 @@ export function RegisterClient() {
           </div>
           <div className="f">
             <label htmlFor="doc">CPF ou CNPJ</label>
-            <input id="doc" className="field-dark" placeholder="Ativa o teste grátis — sem cobrança" required maxLength={20}
+            <input id="doc" className="field-dark" placeholder={isTrial ? "Ativa o teste grátis — sem cobrança" : "CPF ou CNPJ"} required maxLength={20}
               value={doc} onChange={e => setDoc(e.target.value)} />
           </div>
           <div className="f">

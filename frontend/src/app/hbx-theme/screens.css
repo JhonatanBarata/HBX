@@ -636,6 +636,9 @@ html, body { height: 100%; }
 .site-plan__feats svg { width: 16px; height: 16px; color: var(--tier); flex: none; margin-top: 1px; }
 .site-plan__cta { margin-top: auto; min-height: 46px; border-radius: 13px; border: 1px solid var(--tier); background: transparent; color: var(--tier); font-family: var(--font-display); font-weight: 700; font-size: 0.92rem; cursor: pointer; transition: background .2s, color .2s; }
 .site-plan__cta:hover, .site-plan--hot .site-plan__cta { background: var(--tier); color: var(--hbx-background); }
+.site-plan__cta--link { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+.site-plan__price { font-family: var(--font-display); font-size: 1.7rem; font-weight: 800; color: var(--tier); margin-top: 2px; }
+.site-plan__per { font-size: 0.8rem; font-weight: 500; color: var(--text-muted); margin-left: 4px; }
 .site-annual { margin-top: 22px; background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 0.95rem; }
 .site-annual b { color: var(--login-accent, var(--hbx-brand)); }
 
