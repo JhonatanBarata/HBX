@@ -373,18 +373,20 @@ model EnrichmentCostLedger {
 }
 
 model TrialPhoneUsage {
-  id                 String   @id @default(cuid())
-  phoneNormalized    String   @unique
-  company            Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  companyId          Int?
-  firstTrialStartsAt DateTime?
-  firstTrialEndsAt   DateTime?
-  firstSeenAt        DateTime @default(now())
-  lastSeenAt         DateTime @updatedAt
-  source             String   @default("qr_pair")
-  metadataJson       String?
+  id                    String   @id @default(cuid())
+  phoneNormalized       String   @unique
+  taxDocumentNormalized String?
+  company               Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  companyId             Int?
+  firstTrialStartsAt    DateTime?
+  firstTrialEndsAt      DateTime?
+  firstSeenAt           DateTime @default(now())
+  lastSeenAt            DateTime @updatedAt
+  source                String   @default("qr_pair")
+  metadataJson          String?
 
   @@index([companyId])
+  @@index([taxDocumentNormalized])
 }
 
 model CompanyWhatsAppEndpoint {

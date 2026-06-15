@@ -74,6 +74,12 @@ const RUNTIME_SCHEMA_ENSURES: RuntimeSchemaEnsureDefinition[] = [
     shouldBecomeMigration: true,
   },
   {
+    key: 'trial-identity-columns',
+    method: 'ensureTrialIdentityColumns',
+    target: 'TrialPhoneUsage.taxDocumentNormalized (anti-abuso de trial por CPF — 15/06)',
+    shouldBecomeMigration: true,
+  },
+  {
     key: 'user-tutorial-onboarding-column',
     method: 'ensureTutorialOnboardingColumn',
     target: 'User.tutorialCompletedAt (boas-vindas/tutorial 14/06 — existentes backfillados resolvidos)',
@@ -468,6 +474,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     await this.runRuntimeSchemaEnsure('vendas-cancellation-case-columns', () => this.ensureVendasCancellationCaseColumns());
     await this.runRuntimeSchemaEnsure('hbx-job-application-table', () => this.ensureHbxJobApplicationTable());
     await this.runRuntimeSchemaEnsure('master-payment-notification-log-table', () => this.ensureMasterPaymentNotificationLogTable());
+    await this.runRuntimeSchemaEnsure('trial-identity-columns', () => this.ensureTrialIdentityColumns());
   }
 
   async onModuleDestroy() {
@@ -563,6 +570,20 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     await this.$executeRawUnsafe(`
       ALTER TABLE "Company"
       ADD COLUMN IF NOT EXISTS "monthlyValueOverride" DOUBLE PRECISION
+    `);
+  }
+
+  // Anti-abuso de trial por CPF (15/06): coluna nulável + índice na MESMA tabela do
+  // telefone. O onDelete:SetNull do companyId já libera o CPF quando a conta é apagada
+  // (mesmo padrão do phoneNormalized) — sem tabela nova, sem bagunçar a árvore.
+  private async ensureTrialIdentityColumns() {
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "TrialPhoneUsage"
+      ADD COLUMN IF NOT EXISTS "taxDocumentNormalized" TEXT
+    `);
+    await this.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "TrialPhoneUsage_taxDocumentNormalized_idx"
+      ON "TrialPhoneUsage" ("taxDocumentNormalized")
     `);
   }
 

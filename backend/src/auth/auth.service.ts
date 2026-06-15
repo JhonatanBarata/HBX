@@ -216,6 +216,33 @@ export class AuthService implements OnModuleInit {
     });
   }
 
+  // Anti-abuso de trial por CPF (15/06): mesmo critério do telefone — bloqueia se o CPF
+  // pertence a OUTRA empresa viva. Conta apagada (companyId SetNull) libera sozinho.
+  private async ensureTrialDocumentAvailableTx(
+    tx: any,
+    companyId: number,
+    taxDocumentNormalized: string | null,
+  ) {
+    if (!taxDocumentNormalized) return;
+    const existing = await tx.trialPhoneUsage.findFirst({
+      where: {
+        taxDocumentNormalized,
+        AND: [{ companyId: { not: null } }, { companyId: { not: Number(companyId) } }],
+      },
+      select: { companyId: true },
+    });
+    if (!existing?.companyId) return;
+    const trialCompany = await tx.company.findUnique({
+      where: { id: Number(existing.companyId) },
+      select: { id: true },
+    });
+    if (!trialCompany) return;
+    throw new ConflictException({
+      code: 'TRIAL_TAX_DOCUMENT_ALREADY_USED',
+      message: 'Este CPF já utilizou o trial HBX. Use outro CPF ou escolha um plano pago para continuar.',
+    });
+  }
+
   private async reserveSignupTrialPhoneTx(
     tx: any,
     companyId: number,
@@ -225,8 +252,10 @@ export class AuthService implements OnModuleInit {
   ) {
     const now = new Date();
     const existing = await this.ensureTrialPhoneAvailableTx(tx, companyId, profile.contactPhone, 'reserve');
+    await this.ensureTrialDocumentAvailableTx(tx, companyId, profile.taxDocument || null);
     const data = {
       companyId,
+      taxDocumentNormalized: profile.taxDocument || null,
       firstTrialStartsAt: null,
       firstTrialEndsAt: null,
       source: 'signup_pending',
