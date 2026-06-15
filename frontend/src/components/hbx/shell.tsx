@@ -144,8 +144,9 @@ export function ConfirmDialog({ open, title, message, confirmLabel = "Confirmar"
 
 export const NAV_LINKS = [
   { id: "dash", label: "Dashboard", href: "/dashboard" },
-  { id: "leads", label: "Leads", href: "/leads" },
-  { id: "scrape", label: "Radar", href: "/webscraping" },
+  // 15/06 (#5): Radar+Leads viram UMA entrada "Radar" → /leads (achar+puxar+distribuir
+  // no mesmo lugar). A busca crua /webscraping segue roteável (admin), fora do menu.
+  { id: "leads", label: "Radar", href: "/leads" },
   { id: "vendas", label: "Vendas", href: "/vendas", chevron: true },
   { id: "atend", label: "Atendimento", href: "/atendimento" },
   { id: "bot", label: "Bot", href: "/bot" },
