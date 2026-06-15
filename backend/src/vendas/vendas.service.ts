@@ -1269,8 +1269,12 @@ export class VendasService {
     }
 
     try {
+      // Verificacao "esse numero existe?" usa SEMPRE o chip do Master (company motor),
+      // nao o WhatsApp da propria empresa (que pode nem estar conectado). Fallback p/ a
+      // empresa so se o motor nao resolver. Mesmo criterio do enrichLeadForUser/radar.
+      const engineCompanyId = (await this.getOrCreateMasterWhatsappEngineCompanyId()) || companyId;
       const lookupResults = await this.webwhatsBridge.checkWhatsappNumbers(
-        companyId,
+        engineCompanyId,
         pendingRows.map((row) => row?.phoneNormalized || row?.phone || null),
       );
       const now = new Date();

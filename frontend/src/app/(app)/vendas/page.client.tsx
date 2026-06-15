@@ -769,11 +769,11 @@ export function VendasClient() {
                   <select className="field-dark" value={negMotivo} disabled={!deal || acaoBusy || deal.block === "closed"}
                     onChange={e => { setNegMotivo(e.target.value); setNegArm(false); }} aria-label="Motivo da negativação">
                     <option value="">Motivo…</option>
-                    <option value="negative">Sem interesse — volta pra lagoa</option>
-                    <option value="no_answer">Não atende / número não existe — some de vez</option>
-                    <option value="no_whatsapp">Sem WhatsApp — some de vez</option>
-                    <option value="opt_out">Pediu pra não receber — some de vez</option>
-                    <option value="complaint">Reclamou — some de vez</option>
+                    <option value="negative">Sem interesse</option>
+                    <option value="no_answer">Não atende / não existe</option>
+                    <option value="no_whatsapp">Sem WhatsApp</option>
+                    <option value="opt_out">Pediu pra não receber</option>
+                    <option value="complaint">Reclamou</option>
                   </select>
                   <button className="btn-ghost" onClick={() => (negArm ? negativarLead() : setNegArm(true))}
                     disabled={!deal || !negMotivo || acaoBusy}>

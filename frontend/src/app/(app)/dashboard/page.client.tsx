@@ -225,7 +225,7 @@ export function DashboardClient() {
               </div>
               <div style={{ padding: "10px 18px 16px" }}>
                 {segments.length === 0 && (
-                  <p style={{ margin: "12px 0", fontSize: "0.74rem", color: "var(--text-muted)" }}>Sem dados no período — trabalhe cards para o ranking aparecer.</p>
+                  <p className="muted-note">Sem dados no período — trabalhe cards para o ranking aparecer.</p>
                 )}
                 {segments.length > 0 && (
                   <div className="bars">
@@ -245,7 +245,7 @@ export function DashboardClient() {
               <div className="panel-head"><h2>Funil de conversão (7 dias)</h2></div>
               <div style={{ padding: "14px 18px 18px" }}>
                 {funil.length === 0 && (
-                  <p style={{ margin: 0, fontSize: "0.74rem", color: "var(--text-muted)" }}>Sem dados no período.</p>
+                  <p className="muted-note">Sem dados no período.</p>
                 )}
                 {funil.length > 0 && (
                   <React.Fragment>
@@ -273,7 +273,7 @@ export function DashboardClient() {
               </div>
               <div className="activity" style={{ padding: "4px 18px 10px" }}>
                 {atividade.length === 0 && (
-                  <p style={{ margin: "12px 0", fontSize: "0.74rem", color: "var(--text-muted)" }}>Sem eventos ainda — a atividade nasce do trabalho nos cards.</p>
+                  <p className="muted-note">Sem eventos ainda — a atividade nasce do trabalho nos cards.</p>
                 )}
                 {atividade.map(({ card, ev }, i) => (
                   <Link className="it" href="/vendas" key={ev.id || i}>
@@ -292,7 +292,7 @@ export function DashboardClient() {
               <div className="panel-head"><h2>Tarefas de hoje</h2></div>
               <div style={{ padding: "8px 18px 14px" }}>
                 {tarefas.length === 0 && (
-                  <p style={{ margin: "10px 0", fontSize: "0.74rem", color: "var(--text-muted)" }}>Nenhum retorno para hoje.</p>
+                  <p className="muted-note">Nenhum retorno para hoje.</p>
                 )}
                 {tarefas.map((t, i) => (
                   <div className="task" key={t.id ?? i}>
@@ -316,7 +316,7 @@ export function DashboardClient() {
               </div>
               <div style={{ padding: "10px 18px 16px", display: "grid", gap: 13 }}>
                 {vendedores.length === 0 && (
-                  <p style={{ margin: "10px 0", fontSize: "0.74rem", color: "var(--text-muted)" }}>{isSeller ? "Trabalhe e feche cards para ver seu desempenho aqui." : "Sem dados de vendedores no período ainda."}</p>
+                  <p className="muted-note">{isSeller ? "Trabalhe e feche cards para ver seu desempenho aqui." : "Sem dados de vendedores no período ainda."}</p>
                 )}
                 {vendedores.map((v, i) => (
                   <div key={v.seller.id} style={{ display: "grid", gap: 6 }}>

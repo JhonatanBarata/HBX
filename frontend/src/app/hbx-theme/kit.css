@@ -154,6 +154,8 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 .kv .row:last-child { border-bottom: none; padding-bottom: 0; }
 .kv .k { color: var(--text-muted); }
 .kv .v { font-weight: 700; text-align: right; }
+/* nota discreta de estado vazio (substitui style inline repetido — 5 Leis, 15/06) */
+.muted-note { margin: 12px 0; font-size: 0.74rem; color: var(--text-muted); }
 .task { display: flex; gap: 9px; align-items: flex-start; padding: 7px 0; }
 .task input { margin-top: 2px; accent-color: var(--hbx-brand); }
 .task .t { font-size: 0.76rem; font-weight: 600; }
