@@ -154,6 +154,8 @@ body { min-height: 100vh; }
    Chaveado pelo PRINCIPAL .hbx-scene: vale em TODA superfície que receba a
    classe (login, cadastro/reset, site, planos/checkout…) — nada por tela. */
 .hbx-scene .card {
+  position: relative;
+  z-index: 5;
   background:
     radial-gradient(circle at top right, color-mix(in srgb, var(--login-accent) 12%, transparent), transparent 50%),
     linear-gradient(180deg, color-mix(in srgb, var(--hbx-surface) 84%, transparent), color-mix(in srgb, var(--hbx-surface-soft) 70%, transparent));
@@ -164,6 +166,7 @@ body { min-height: 100vh; }
 .hbx-scene .card .sub, .hbx-scene .card .f label, .hbx-scene .card .row label { color: var(--text-body); }
 .hbx-scene .card .btn-teal { background: linear-gradient(135deg, var(--login-accent), color-mix(in srgb, var(--login-accent) 58%, var(--hbx-surface))); box-shadow: var(--shadow-inset), 0 16px 32px -18px color-mix(in srgb, var(--login-accent) 75%, transparent); }
 .hbx-scene .link { color: var(--login-accent); }
+.hbx-scene .card .field-dark { position: relative; z-index: 6; pointer-events: auto; cursor: text; }
 .hbx-scene .field-dark:focus { border-color: var(--login-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--login-accent) 26%, transparent); }
 .hbx-scene .row input { accent-color: var(--login-accent); }
 
@@ -779,10 +782,63 @@ html, body { height: 100%; }
 .scene-next .site-ic { width: 52px; height: 52px; }
 .scene-next__hint { margin-top: 6px; font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-muted); }
 
-/* integrações: grid de 3 (reusa o card .site-station). */
-.site-integra { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; width: min(960px, 100%); margin-top: 16px; }
+/* integrações: grid de 3 (reusa o card .site-station), COMPACTO pra caber sem rolar. */
+.site-integra { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; width: min(960px, 100%); margin-top: 12px; }
+.site-integra .site-station { padding: 14px 14px; gap: 5px; }
+.site-integra .site-station__ic { width: 42px; height: 42px; }
+.site-integra .site-station__ic svg { width: 21px; height: 21px; }
+.site-integra .site-station__t { font-size: 1.05rem; }
+.site-integra .site-station__d { font-size: 0.78rem; line-height: 1.35; }
 @media (max-width: 760px) { .site-integra { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 460px) { .site-integra { grid-template-columns: 1fr; } }
+
+/* PLANOS (foto 1): cards no MESMO fundo do card, accent ciclando, Lead destacado. */
+.site-plans { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; width: min(1240px, 100%); margin-top: 20px; align-items: stretch; }
+.site-plan2 { position: relative; display: grid; gap: 10px; justify-items: center; text-align: center; padding: 28px 22px; border-radius: 22px; border: 1px solid var(--border-hairline); background-color: color-mix(in srgb, var(--text-body) 5%, var(--hbx-background)); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
+.site-plan2.is-hot { border-color: var(--login-accent, var(--hbx-brand)); box-shadow: 0 0 0 1px var(--login-accent, var(--hbx-brand)), 0 24px 60px -28px color-mix(in srgb, var(--login-accent, var(--hbx-brand)) 70%, transparent); }
+.site-plan2__badge { position: absolute; top: -12px; left: 50%; transform: translateX(-50%); padding: 5px 14px; border-radius: 999px; font-family: var(--font-mono); font-size: 0.62rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--hbx-background); background-color: var(--login-accent, var(--hbx-brand)); white-space: nowrap; }
+.site-plan2__ic { width: 62px; height: 62px; display: grid; place-items: center; border-radius: 999px; color: var(--login-accent, var(--hbx-brand)); border: 1px solid color-mix(in srgb, var(--login-accent, var(--hbx-brand)) 40%, transparent); background-color: color-mix(in srgb, var(--login-accent, var(--hbx-brand)) 12%, var(--hbx-background)); }
+.site-plan2__ic svg { width: 30px; height: 30px; }
+.site-plan2__name { font-family: var(--font-display); font-size: 1.45rem; font-weight: 800; color: var(--text-strong); }
+.site-plan2__tag { font-size: 0.86rem; line-height: 1.4; color: var(--text-muted); min-height: 2.4em; }
+.site-plan2__score { display: inline-flex; align-items: center; gap: 8px; padding: 6px 13px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--login-accent, var(--hbx-brand)) 30%, transparent); background-color: color-mix(in srgb, var(--login-accent, var(--hbx-brand)) 10%, var(--hbx-background)); font-size: 0.82rem; font-weight: 600; color: var(--text-body); }
+.site-plan2__score svg { width: 17px; height: 17px; color: var(--login-accent, var(--hbx-brand)); }
+.site-plan2__score b { color: var(--login-accent, var(--hbx-brand)); font-size: 1rem; }
+.site-plan2__feats { list-style: none; margin: 4px 0; padding: 0; display: grid; gap: 9px; width: 100%; }
+.site-plan2__feats li { display: flex; align-items: center; gap: 9px; font-size: 0.84rem; color: var(--text-body); text-align: left; }
+.site-plan2__feats svg { width: 18px; height: 18px; flex: none; color: var(--login-accent, var(--hbx-brand)); }
+.site-plan2__logos { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.site-plan2__logos span { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 9px; color: var(--login-accent, var(--hbx-brand)); border: 1px solid var(--border-hairline); background-color: color-mix(in srgb, var(--text-body) 6%, var(--hbx-background)); }
+.site-plan2__logos svg { width: 18px; height: 18px; }
+.site-plan2__cta { margin-top: auto; width: 100%; min-height: 48px; border-radius: 14px; border: 1px solid color-mix(in srgb, var(--text-body) 24%, transparent); background: none; color: var(--text-body); font-family: var(--font-display); font-weight: 700; font-size: 0.92rem; cursor: pointer; transition: border-color .2s, transform .2s; }
+.site-plan2__cta:hover { border-color: var(--login-accent, var(--hbx-brand)); transform: translateY(-2px); }
+.site-plan2.is-hot .site-plan2__cta { background-color: var(--login-accent, var(--hbx-brand)); color: var(--hbx-background); border-color: transparent; }
+@media (max-width: 980px) { .site-plans { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 560px) { .site-plans { grid-template-columns: 1fr; } }
+
+/* REGISTER 2-colunas (foto 2): resumo do plano escolhido à esquerda + form à direita.
+   robô some (HbxScene plain); tudo na casca, accent ciclando. */
+.scene-register { min-height: 100dvh; display: grid; grid-template-columns: minmax(280px, 0.82fr) minmax(0, 1.18fr); gap: clamp(20px, 4vw, 56px); align-items: center; padding: clamp(80px, 11vh, 112px) clamp(20px, 5vw, 72px) clamp(40px, 6vh, 64px); width: min(1180px, 100%); margin: 0 auto; }
+.reg-plan { display: grid; gap: 12px; justify-items: center; text-align: center; padding: 32px 26px; border-radius: 24px; border: 1px solid var(--login-accent, var(--hbx-brand)); background-color: color-mix(in srgb, var(--text-body) 5%, var(--hbx-background)); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); box-shadow: 0 0 0 1px color-mix(in srgb, var(--login-accent, var(--hbx-brand)) 38%, transparent), 0 26px 64px -30px color-mix(in srgb, var(--login-accent, var(--hbx-brand)) 60%, transparent); }
+.reg-plan__badge { display: inline-flex; align-items: center; gap: 6px; padding: 5px 14px; border-radius: 999px; font-family: var(--font-mono); font-size: 0.62rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--hbx-background); background-color: var(--login-accent, var(--hbx-brand)); }
+.reg-plan__badge svg { width: 14px; height: 14px; }
+.reg-plan__ic { width: 62px; height: 62px; display: grid; place-items: center; border-radius: 999px; color: var(--login-accent, var(--hbx-brand)); border: 1px solid color-mix(in srgb, var(--login-accent, var(--hbx-brand)) 40%, transparent); background-color: color-mix(in srgb, var(--login-accent, var(--hbx-brand)) 12%, var(--hbx-background)); }
+.reg-plan__ic svg { width: 30px; height: 30px; }
+.reg-plan__name { font-family: var(--font-display); font-size: 1.55rem; font-weight: 800; color: var(--text-strong); }
+.reg-plan__tag { margin: 0; font-size: 0.9rem; line-height: 1.45; color: var(--text-muted); max-width: 28ch; }
+.reg-plan__score { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--login-accent, var(--hbx-brand)) 30%, transparent); background-color: color-mix(in srgb, var(--login-accent, var(--hbx-brand)) 10%, var(--hbx-background)); font-size: 0.84rem; font-weight: 600; color: var(--text-body); }
+.reg-plan__score svg { width: 18px; height: 18px; color: var(--login-accent, var(--hbx-brand)); }
+.reg-plan__score b { color: var(--login-accent, var(--hbx-brand)); font-size: 1rem; }
+.reg-plan__feats { list-style: none; margin: 4px 0; padding: 0; display: grid; gap: 9px; }
+.reg-plan__feats li { display: flex; align-items: center; gap: 9px; font-size: 0.85rem; color: var(--text-body); text-align: left; }
+.reg-plan__feats svg { width: 18px; height: 18px; flex: none; color: var(--login-accent, var(--hbx-brand)); }
+.reg-plan__note { font-size: 0.74rem; color: var(--text-muted); }
+.reg-form { display: grid; place-items: center; min-width: 0; }
+.reg-form .card { width: min(480px, 100%); }
+@media (max-width: 880px) {
+  .scene-register { grid-template-columns: 1fr; align-content: center; gap: 24px; }
+  .reg-plan { max-width: 460px; margin: 0 auto; }
+}
 
 /* "escrevendo": kicker → título → sub → cards → métricas entram em sequência ao revelar */
 .site-scene.is-revealed :is(.site-esteira-view .site-eyebrow, .site-esteira-title, .site-esteira-view .site-sub, .site-station, .site-metrics) { animation: site-write-in 0.5s var(--ease-out-quint) both; }

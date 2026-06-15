@@ -10,7 +10,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import React, { useState } from "react";
 
-import { AuthSplit } from "@/components/hbx/auth-split";
+import { HbxScene } from "@/components/hbx/hbx-scene";
 import { apiFetch, setToken } from "@/lib/api";
 
 type SignupResponse = {
@@ -45,6 +45,25 @@ const PLANO_NOME: Record<string, string> = {
   hbx_melhor: "HBX Company",
 };
 
+// Resumo do plano escolhido (coluna esquerda) — espelha o /planos. Copy minha.
+const SNOW = ["M12 2v20", "M3.34 7l17.32 10", "M20.66 7L3.34 17", "M2 12h20"];
+const TARGET = ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z", "M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z", "M12 12h.01"];
+const BOLT = ["M13 2 4 14h7l-1 8 10-12h-9l1-8Z"];
+const CUBE = ["M12 2 21 7v10l-9 5-9-5V7l9-5Z", "M3.3 7.2 12 12l8.7-4.8", "M12 12v10"];
+const CHECK = ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z", "M8.4 12l2.4 2.4 4.8-5"];
+const BARS = ["M4 19V5", "M4 19h16", "M8 19v-6", "M13 19V9", "M18 19v-4"];
+const SPARK = ["M12 3l1.7 5.1L19 10l-5.3 1.9L12 17l-1.7-5.1L5 10l5.3-1.9L12 3Z"];
+const PLAN_INFO: Record<string, { accent: string; tag: string; feats: string[]; ic: string[]; score?: string }> = {
+  hbx_lite: { accent: "List", tag: "Leads frios pra você esquentar e prospectar.", feats: ["Leads frios para prospecção", "Telefone, cidade e segmento", "Base simples para começar"], ic: SNOW },
+  hbx_padrao: { accent: "Lead Plus", tag: "Leads enriquecidos com mais contexto pra você vender melhor.", feats: ["Enriquecimento de leads avançado", "Score e análise inteligente", "Mais contexto para vender melhor"], ic: TARGET, score: "85" },
+  hbx_pro: { accent: "Full", tag: "Aquecimento moderado e integrações automáticas.", feats: ["Aquecimento de lead moderado", "Integrações automáticas", "Fluxos e follow-ups"], ic: BOLT },
+  hbx_melhor: { accent: "Company", tag: "Você monta do seu jeito, com a HBX junto.", feats: ["Negociamos e montamos com você", "Integrações sob medida", "Implantação feita pela HBX"], ic: CUBE },
+};
+
+function Ic({ paths }: { paths: string[] }) {
+  return <svg className="site-ic" viewBox="0 0 24 24" aria-hidden>{paths.map((d, i) => <path key={i} d={d} />)}</svg>;
+}
+
 export function RegisterClient() {
   const router = useRouter();
   // link de contratação do vendedor (/register?plan=X&hbxLead=...): o plano
@@ -71,6 +90,7 @@ export function RegisterClient() {
   const selectedPlan = planFromLink || "hbx_padrao";
   const isTrial = selectedPlan === "hbx_padrao";
   const planoNome = PLANO_NOME[selectedPlan] || "HBX Lead Plus";
+  const info = PLAN_INFO[selectedPlan] || PLAN_INFO.hbx_padrao;
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -142,7 +162,20 @@ export function RegisterClient() {
   );
 
   return (
-    <AuthSplit active="planos">
+    <HbxScene active="planos" plain>
+      <div className="scene-register">
+        <aside className="reg-plan">
+          {isTrial && <span className="reg-plan__badge"><Ic paths={SPARK} />14 dias grátis</span>}
+          <span className="reg-plan__ic"><Ic paths={info.ic} /></span>
+          <strong className="reg-plan__name">HBX <span className="site-accent">{info.accent}</span></strong>
+          <p className="reg-plan__tag">{info.tag}</p>
+          {info.score && <span className="reg-plan__score"><Ic paths={BARS} />Score médio <b>{info.score}</b></span>}
+          <ul className="reg-plan__feats">
+            {info.feats.map((f) => <li key={f}><Ic paths={CHECK} />{f}</li>)}
+          </ul>
+          {isTrial && <span className="reg-plan__note">Sem cobrança nos 14 primeiros dias.</span>}
+        </aside>
+        <main className="reg-form">
       {done ? (
         <div className="card">
           <h2>{done.access_token ? "Tudo pronto ✓" : "Conta criada ✓"}</h2>
@@ -250,6 +283,8 @@ export function RegisterClient() {
           </div>
         </form>
       )}
-    </AuthSplit>
+        </main>
+      </div>
+    </HbxScene>
   );
 }
