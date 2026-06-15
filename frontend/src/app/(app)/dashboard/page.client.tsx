@@ -82,6 +82,17 @@ function eventLabel(t?: string) {
 // Rótulo da atividade: tipo conhecido → título humano do backend (eventos do
 // motor trazem `title`, ex. "Numero sem WhatsApp no motor") → humanização do
 // tipo. Sem isso, tipos crus apareciam como "Generic", "Lead Created" etc.
+// Defesa universal: NUNCA renderizar payload cru na tela. Se a descrição/nota
+// vier JSON-like (ex.: bug do radar_enrichment_imported que vazava o paredão),
+// some — cai no fallback (statusLabel). Garante que "nada tenha isso" mesmo se
+// algum evento futuro escorregar um stringify pra um campo de texto.
+function cleanDesc(s?: string | null) {
+  const t = String(s || "").trim();
+  if (!t) return "";
+  if ((t.startsWith("{") && t.endsWith("}")) || (t.startsWith("[") && t.endsWith("]"))) return "";
+  return t;
+}
+
 function activityLabel(ev: TimelineEvent) {
   const key = String(ev.eventType || "").toLowerCase();
   return EVENT_LABEL[key] || (ev.title || "").trim() || eventLabel(ev.eventType);
@@ -269,7 +280,7 @@ export function DashboardClient() {
                     <span className="dot" style={{ background: EVENT_COLOR[String(ev.eventType || "").toLowerCase()] || "var(--hbx-info)" }}></span>
                     <div>
                       <div className="t">{activityLabel(ev)} — {card.name || "card"}</div>
-                      <div className="d">{ev.note || ev.description || card.statusLabel || ""}</div>
+                      <div className="d">{cleanDesc(ev.note) || cleanDesc(ev.description) || card.statusLabel || ""}</div>
                     </div>
                     <time>{fmtHora(ev.createdAt)}</time>
                   </Link>
