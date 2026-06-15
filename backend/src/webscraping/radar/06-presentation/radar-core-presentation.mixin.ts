@@ -2416,21 +2416,17 @@ export class RadarCorePresentationMixin {
     tenantCompanyId: number,
     numbers: Array<string | null | undefined>,
   ) {
-    // Regra IGUAL SMTP/Mercado Pago: a empresa só usa o chip do MASTER se marcou o toggle
-    // useMasterWhatsAppToken; senão usa o WhatsApp dela. Reaproveita a mesma chavinha.
-    const tenant = await this.prisma.company
-      .findUnique({ where: { id: Number(tenantCompanyId) }, select: { useMasterWhatsAppToken: true } })
-      .catch(() => null);
-    if (tenant?.useMasterWhatsAppToken) {
-      const engineId = await this.resolveRadarWhatsappEngineCompanyId();
-      if (engineId && engineId !== tenantCompanyId) {
-        try {
-          return await this.webwhatsBridge!.checkWhatsappNumbers(engineId, numbers);
-        } catch (error: any) {
-          this.logger.warn(
-            `[radar] chip do Master indisponivel, fallback p/ empresa=${tenantCompanyId}: ${String(error?.message || error)}`,
-          );
-        }
+    // Verificacao "esse numero existe?" usa SEMPRE o chip do Master (todos herdam,
+    // automatico, sem toggle). Se o chip do Master cair, faz fallback no chip da
+    // propria empresa. Sem amarrar no token Meta (useMasterWhatsAppToken e' de mensagem).
+    const engineId = await this.resolveRadarWhatsappEngineCompanyId();
+    if (engineId && engineId !== tenantCompanyId) {
+      try {
+        return await this.webwhatsBridge!.checkWhatsappNumbers(engineId, numbers);
+      } catch (error: any) {
+        this.logger.warn(
+          `[radar] chip do Master indisponivel, fallback p/ empresa=${tenantCompanyId}: ${String(error?.message || error)}`,
+        );
       }
     }
     return await this.webwhatsBridge!.checkWhatsappNumbers(tenantCompanyId, numbers);

@@ -4996,14 +4996,10 @@ export class VendasService {
 
     if (phoneDigits && shouldRefreshWhatsapp) {
       try {
-        // Regra IGUAL SMTP/MP: chip do MASTER só se a empresa marcou useMasterWhatsAppToken; senão o dela.
-        const tenant = await this.prisma.company
-          .findUnique({ where: { id: Number(companyId) }, select: { useMasterWhatsAppToken: true } })
-          .catch(() => null);
-        const engineCompanyId = tenant?.useMasterWhatsAppToken
-          ? await this.getOrCreateMasterWhatsappEngineCompanyId()
-          : companyId;
-        const [lookup] = await this.webwhatsBridge.checkWhatsappNumbers(engineCompanyId, [phoneDigits]);
+        // Verificacao "esse numero existe?" usa SEMPRE o chip do Master (todos herdam,
+        // automatico, sem toggle). useMasterWhatsAppToken e' de MENSAGEM (Meta), nao disto.
+        const engineCompanyId = await this.getOrCreateMasterWhatsappEngineCompanyId();
+        const [lookup] = await this.webwhatsBridge.checkWhatsappNumbers(engineCompanyId || companyId, [phoneDigits]);
         if (lookup) {
           const status: VendasWhatsappAvailabilityStatus = lookup.exists ? 'available' : 'unavailable';
           const now = new Date();
@@ -7797,14 +7793,25 @@ export class VendasService {
         deliveryProduct: this.normalizeText((item as any)?.deliveryProduct),
         qualityReason: this.normalizeText((item as any)?.qualityReason),
       };
+      // Resumo HUMANO pra timeline / "Atividade recente" do Dashboard. ANTES a
+      // description recebia JSON.stringify(metadata) cru e vazava o paredão na tela.
+      // Os dados completos seguem no lead (score/canal/etc.) e no registro do Radar;
+      // aqui fica só um texto legível com os sinais-chave.
+      const radarEnrichmentResumo = [
+        radarEnrichmentMetadata.opportunityScore ? `score ${radarEnrichmentMetadata.opportunityScore}` : null,
+        radarEnrichmentMetadata.recommendedChannel ? `canal ${radarEnrichmentMetadata.recommendedChannel}` : null,
+        radarEnrichmentMetadata.opportunityReason || null,
+      ].filter(Boolean).join(' · ');
       if (Object.values(radarEnrichmentMetadata).some((value) => Boolean(value))) {
         await this.prisma.vendasLeadTimelineEvent.create({
           data: {
             leadId: result.lead?.id,
             ...this.buildTimelineEvent({
               eventType: 'radar_enrichment_imported',
-              title: 'Inteligencia do Radar preservada',
-              description: JSON.stringify(radarEnrichmentMetadata),
+              title: 'Inteligência do Radar preservada',
+              description: radarEnrichmentResumo
+                ? `Inteligência do Radar preservada: ${radarEnrichmentResumo}.`
+                : 'Inteligência do Radar preservada.',
               sourceType: 'radar_enrichment',
               resultLabel: radarEnrichmentMetadata.recommendedChannel || null,
               createdByUserId: context.userId,

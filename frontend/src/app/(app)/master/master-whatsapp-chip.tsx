@@ -1,9 +1,8 @@
 "use client";
 
-// Chip de WhatsApp do MASTER (WebWhats) — a "biblioteca" do verificador, no mesmo lugar
-// que SMTP/Mercado Pago. O master conecta UMA vez aqui; a empresa que marca o toggle
-// "usar WhatsApp do master" (useMasterWhatsAppToken) verifica número por este chip.
-// Igual ao SMTP/MP: master guarda, empresa puxa pela chavinha. Endpoints já existentes:
+// Chip de WhatsApp do MASTER (WebWhats) — o verificador "esse número existe?".
+// O master conecta UMA vez aqui; a verificação de número de TODAS as empresas passa
+// por este chip, automático (sem toggle). Endpoints já existentes:
 // /companies/master/whatsapp-modal/{status,start,qr,disconnect}.
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -63,7 +62,7 @@ export function MasterWhatsappChip() {
 
   async function desconectar() {
     if (busy) return;
-    if (!window.confirm("Desconectar o chip do Master? As empresas que usam o WhatsApp do master param de verificar número até reconectar.")) return;
+    if (!window.confirm("Desconectar o chip do Master? A verificação de número para pra todas as empresas até reconectar.")) return;
     setBusy(true); setMsg(null);
     stopPoll();
     try { setPayload(await chipDisconnect()); }
@@ -93,8 +92,8 @@ export function MasterWhatsappChip() {
       </div>
       <div style={{ padding: "12px 16px 16px", display: "grid", gap: 12 }}>
         <span style={{ fontSize: "0.7rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
-          Chip do WebWhats que valida se o número existe. As empresas que marcam <strong>usar WhatsApp do master</strong>
-          {" "}(toggle em Empresas) verificam por aqui — igual ao SMTP e ao Mercado Pago. Conecte uma vez.
+          Chip do WebWhats que valida se o número existe. A verificação de número de <strong>todas as empresas</strong>
+          {" "}passa por este chip — automático, ninguém precisa marcar nada. Conecte uma vez.
         </span>
         {msg && <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--hbx-warning)" }}>{msg}</div>}
         {!connected && qr && (
