@@ -259,7 +259,8 @@ async function verifyBasicHealth(env = loadOperationsEnv()) {
   console.log(`> GET ${loginUrl}`);
   const login = await requestWithRetry(loginUrl, { method: 'GET' });
   const loginHtml = await login.text();
-  if (!loginHtml.includes('login-card') || loginHtml.includes('Ocorreu um erro')) {
+  const loginMarkupOk = loginHtml.includes('login-console') || loginHtml.includes('Entrar no HBX');
+  if (!loginMarkupOk || loginHtml.includes('Ocorreu um erro')) {
     throw new Error(`Login check failed: /login respondeu HTTP ${login.status}, mas nao renderizou o markup esperado.`);
   }
   console.log(`Login OK: HTTP ${login.status}`);
