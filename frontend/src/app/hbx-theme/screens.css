@@ -971,7 +971,7 @@ button.site-plan2:hover { transform: translateY(-4px); border-color: var(--login
 .legal__foot { margin-top: 22px; padding-top: 12px; border-top: 1px solid var(--border-hairline); font-size: 0.76rem; color: var(--text-muted); }
 
 /* Links legais no rodapé da home — ponto de acesso plugado no front. */
-.site-legal-links { position: fixed; left: 50%; transform: translateX(-50%); bottom: 8px; z-index: 4; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.site-legal-links { position: fixed; left: 50%; transform: translateX(-50%); bottom: 8px; z-index: 4; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; background: color-mix(in srgb, var(--hbx-background) 80%, transparent); backdrop-filter: blur(8px); padding: 5px 14px; border-radius: 999px; border: 1px solid var(--border-hairline); }
 .site-legal-link { font-family: var(--font-body); font-size: 0.82rem; font-weight: 700; color: var(--text-strong); background: none; border: none; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 .site-legal-link:hover { color: var(--login-accent, var(--hbx-brand)); }
 .site-legal-sep { color: var(--text-strong); opacity: 0.5; }
