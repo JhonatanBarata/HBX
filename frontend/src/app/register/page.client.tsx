@@ -8,11 +8,15 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import { CheckoutPanel } from "@/components/hbx/checkout-panel";
 import { HbxScene } from "@/components/hbx/hbx-scene";
 import { apiFetch, setToken } from "@/lib/api";
+
+const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
+type GisApi = { initialize: (cfg: object) => void; renderButton: (el: HTMLElement, cfg: object) => void };
+type WinG = typeof window & { google?: { accounts?: { id?: GisApi } } };
 
 type SignupResponse = {
   ok?: boolean;
@@ -22,8 +26,10 @@ type SignupResponse = {
   previewUrl?: string | null;
   confirmUrl?: string | null;
   deliveryFailed?: boolean;
-  // fluxo local/mock confirma na hora e pode devolver sessão + trial
+  // fluxo local/mock confirma na hora e devolve sessão completa
   access_token?: string | null;
+  // fluxo produção: sessão restrita ao checkout (empresa em pending_checkout)
+  checkout_token?: string | null;
   next?: string | null;
   trialEndsAt?: string | null;
 };
@@ -107,6 +113,7 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<SignupResponse | null>(null);
   const [resendMsg, setResendMsg] = useState<string | null>(null);
+  const googleBtnRef = useRef<HTMLDivElement>(null);
 
   const selectedPlan = selectedPlanKey && PLANOS_VALIDOS.has(selectedPlanKey) ? selectedPlanKey : planFromLink || "hbx_padrao";
   const isTrial = selectedPlan === "hbx_padrao";
@@ -116,7 +123,50 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
   // (Plano B — trial com cartão, 1ª cobrança só no X+14, o backend adia). Company
   // não tem self-checkout (falar com especialista).
   const needsCheckout = selectedPlan !== "hbx_melhor";
-  const showCheckout = Boolean(done?.access_token) && needsCheckout;
+  // checkout_token = sessão de escopo restrito gerada no signup (produção).
+  // access_token = sessão completa (mock/local que auto-confirma o e-mail).
+  // Qualquer um dos dois habilita o CheckoutPanel na mesma cena.
+  const showCheckout = Boolean(done?.access_token || done?.checkout_token) && needsCheckout;
+
+  const handleGoogleCredential = useCallback(async (response: { credential: string }) => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await apiFetch<SignupResponse>("/auth/google", {
+        method: "POST",
+        body: JSON.stringify({ idToken: response.credential, selectedPlanKey: selectedPlan }),
+      });
+      if (res?.access_token) setToken(res.access_token);
+      else if (res?.checkout_token) setToken(res.checkout_token);
+      setDone(res || { ok: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível entrar com Google. Tente novamente.");
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, selectedPlan]);
+
+  useEffect(() => {
+    if (!GOOGLE_CLIENT_ID || !googleBtnRef.current) return;
+    let scriptTag: HTMLScriptElement | null = null;
+    function initGoogle() {
+      if (!(window as WinG).google?.accounts?.id || !googleBtnRef.current) return;
+      (window as WinG).google!.accounts!.id!.initialize({ client_id: GOOGLE_CLIENT_ID, callback: handleGoogleCredential });
+      (window as WinG).google!.accounts!.id!.renderButton(googleBtnRef.current, { theme: "outline", size: "large", width: "100%", text: "signup_with", locale: "pt-BR" });
+    }
+    if ((window as WinG).google?.accounts?.id) {
+      initGoogle();
+    } else {
+      scriptTag = document.createElement("script");
+      scriptTag.src = "https://accounts.google.com/gsi/client";
+      scriptTag.async = true;
+      scriptTag.defer = true;
+      scriptTag.onload = initGoogle;
+      document.head.appendChild(scriptTag);
+    }
+    return () => { if (scriptTag) scriptTag.remove(); };
+  }, [handleGoogleCredential]);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -146,9 +196,14 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
           trialTaxDocument: doc,
         }),
       });
-      // Sessão na mão (dev/mock confirma na hora) + plano com checkout → já autentica
-      // pra o passo de pagamento na casca poder chamar /financeiro logado.
-      if (res?.access_token && selectedPlan !== "hbx_melhor") setToken(res.access_token);
+      // Sessão na mão: dev/mock devolve access_token (e-mail auto-confirmado);
+      // produção devolve checkout_token (sessão restrita a /financeiro).
+      // Em ambos os casos, o CheckoutPanel pode chamar a API autenticado.
+      if (res?.access_token && selectedPlan !== "hbx_melhor") {
+        setToken(res.access_token);
+      } else if (res?.checkout_token && selectedPlan !== "hbx_melhor") {
+        setToken(res.checkout_token);
+      }
       setDone(res || { ok: true });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Não foi possível criar a conta. Tente novamente.";
@@ -208,24 +263,38 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
     <main className={"reg-form" + (embedded ? " reg-form--embedded" : "")}>
       {done ? (
         showCheckout ? (
-          <CheckoutPanel
-            planKey={selectedPlan}
-            phone={whats}
-            email={email}
-            taxDoc={doc}
-            name={nome}
-            trialEndsAt={done.trialEndsAt}
-            onSuccess={() => router.replace(done.next || "/dashboard")}
-          />
+          <>
+            {done.checkout_token && !done.access_token && (
+              <div className="ok show" style={{ marginBottom: 8 }}>
+                Confirmação enviada para {done.email || email}. Finalize o pagamento agora — você confirma depois.
+                {done.previewUrl && (
+                  <a className="link" href={done.previewUrl} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 6, fontSize: "0.72rem" }}>
+                    Ver e-mail (teste) ↗
+                  </a>
+                )}
+              </div>
+            )}
+            <CheckoutPanel
+              planKey={selectedPlan}
+              phone={whats}
+              email={email}
+              taxDoc={doc}
+              name={nome}
+              trialEndsAt={done.trialEndsAt}
+              onSuccess={() => router.replace(done.next || "/dashboard")}
+            />
+          </>
         ) : (
         <div className="card">
           <h2>{done.access_token ? "Tudo pronto ✓" : selectedPlan === "hbx_melhor" ? "Recebido ✓" : "Conta criada ✓"}</h2>
           <p className="sub">
             {done.access_token
               ? copy.doneSub
-              : (isTrial
-                ? "Falta um passo: confirme seu e-mail para ativar o teste grátis."
-                : "Falta um passo: confirme seu e-mail para ativar sua conta.")}
+              : selectedPlan === "hbx_melhor"
+                ? copy.doneSub
+                : (isTrial
+                  ? "Falta um passo: confirme seu e-mail para ativar o teste grátis."
+                  : "Falta um passo: confirme seu e-mail para ativar sua conta.")}
           </p>
           <div className="ok show">{done.message || `Enviamos um link de confirmação para ${done.email || email}.`}</div>
           {resendMsg && <div className="ok show">{resendMsg}</div>}
@@ -254,6 +323,12 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
         <form className="card" onSubmit={onSubmit}>
           <h2>{copy.formTitle}</h2>
           <p className="sub">{copy.formSub}</p>
+          {GOOGLE_CLIENT_ID && selectedPlan !== "hbx_melhor" && (
+            <>
+              <div ref={googleBtnRef} style={{ display: "flex", justifyContent: "center" }} />
+              <div className="login-or"><span>ou preencha abaixo</span></div>
+            </>
+          )}
           <div className="f">
             <label htmlFor="emp">Empresa</label>
             <input id="emp" className="field-dark" placeholder="Nome da sua empresa" required maxLength={120}

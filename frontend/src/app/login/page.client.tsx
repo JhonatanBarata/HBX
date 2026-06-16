@@ -13,7 +13,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AuthThemeControls } from "@/components/hbx/auth-theme-controls";
 import { SceneMenu } from "@/components/hbx/hbx-scene";
@@ -49,6 +49,10 @@ const TRUST: { icon: SideIconName; title: string; desc: string }[] = [
   { icon: "pulse", title: "Tempo real", desc: "Informações sempre atualizadas para decisões." },
 ];
 
+const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
+type GisApi = { initialize: (cfg: object) => void; renderButton: (el: HTMLElement, cfg: object) => void };
+type WinG = typeof window & { google?: { accounts?: { id?: GisApi } } };
+
 export function LoginClient() {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -58,8 +62,30 @@ export function LoginClient() {
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  // "Visual" off: card centraliza + painéis voltam, sem efeitos. Persiste.
   const [plain, setPlain] = useState(false);
+  const googleBtnRef = useRef<HTMLDivElement>(null);
+
+  const handleGoogleCredential = useCallback(async (response: { credential: string }) => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await apiFetch<LoginResponse>("/auth/google", {
+        method: "POST",
+        body: JSON.stringify({ idToken: response.credential }),
+      });
+      if (!res?.access_token) throw new Error("Resposta sem token.");
+      setToken(res.access_token);
+      setOk(true);
+      setConflict(false);
+      if (plain) router.replace(res.next || "/dashboard");
+      else window.setTimeout(() => router.replace(res.next || "/dashboard"), 750);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível entrar com Google. Tente novamente.");
+      setBusy(false);
+    }
+  }, [busy, plain, router]);
 
   useEffect(() => {
     let alive = true;
@@ -79,6 +105,27 @@ export function LoginClient() {
     });
     return () => { alive = false; };
   }, []);
+
+  useEffect(() => {
+    if (!GOOGLE_CLIENT_ID || !googleBtnRef.current) return;
+    let scriptTag: HTMLScriptElement | null = null;
+    function initGoogle() {
+      if (!(window as WinG).google?.accounts?.id || !googleBtnRef.current) return;
+      (window as WinG).google!.accounts!.id!.initialize({ client_id: GOOGLE_CLIENT_ID, callback: handleGoogleCredential });
+      (window as WinG).google!.accounts!.id!.renderButton(googleBtnRef.current, { theme: "outline", size: "large", width: "100%", text: "continue_with", locale: "pt-BR" });
+    }
+    if ((window as WinG).google?.accounts?.id) {
+      initGoogle();
+    } else {
+      scriptTag = document.createElement("script");
+      scriptTag.src = "https://accounts.google.com/gsi/client";
+      scriptTag.async = true;
+      scriptTag.defer = true;
+      scriptTag.onload = initGoogle;
+      document.head.appendChild(scriptTag);
+    }
+    return () => { if (scriptTag) scriptTag.remove(); };
+  }, [handleGoogleCredential]);
 
   function toggleVisual() {
     setPlain(p => {
@@ -197,6 +244,12 @@ export function LoginClient() {
             <button className="btn-teal" type="submit" disabled={busy} style={{ minHeight: 44, fontSize: "0.84rem" }}>
               {busy ? "Entrando…" : "Entrar"}
             </button>
+            {GOOGLE_CLIENT_ID && (
+              <>
+                <div className="login-or"><span>ou</span></div>
+                <div ref={googleBtnRef} style={{ display: "flex", justifyContent: "center" }} />
+              </>
+            )}
             <div className="alt">Ainda não tem conta? <Link href="/register" className="link" style={{ textDecoration: "none" }}>Criar Conta</Link></div>
           </form>
         </main>

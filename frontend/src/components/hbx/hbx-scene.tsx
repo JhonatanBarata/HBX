@@ -19,7 +19,7 @@ const NAV: { key: SceneNav; label: string; href: string; cta?: boolean }[] = [
   { key: "esteira", label: "Esteira", href: "/?ver=esteira" },
   { key: "modulos", label: "Módulos", href: "/?ver=modulos" },
   { key: "planos", label: "Planos", href: "/?ver=planos" },
-  { key: "entrar", label: "Entrar", href: "/?ver=entrar", cta: true },
+  { key: "entrar", label: "Entrar", href: "/login", cta: true },
 ];
 
 // Os 4 guias (marcador da tela atual). Sem onNav = navega por rota; com onNav,
@@ -68,7 +68,7 @@ export function HbxScene({
   // (a próxima entra ao montar via CSS). A landing passa onNav/onBrand próprios
   // (deck in-place) e NÃO usa isto.
   const navTo = (href: string) => { setLeaving(true); window.setTimeout(() => router.push(href), 340); };
-  const HREF: Record<SceneNav, string> = { inicio: "/", esteira: "/?ver=esteira", modulos: "/?ver=modulos", planos: "/?ver=planos", entrar: "/?ver=entrar" };
+  const HREF: Record<SceneNav, string> = { inicio: "/", esteira: "/?ver=esteira", modulos: "/?ver=modulos", planos: "/?ver=planos", entrar: "/login" };
   const handleNav = onNav ?? ((k: SceneNav) => navTo(HREF[k]));
   const handleBrand = onBrand ?? (() => navTo("/"));
 

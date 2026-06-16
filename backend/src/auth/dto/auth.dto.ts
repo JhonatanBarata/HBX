@@ -98,3 +98,15 @@ export class ResendConfirmationDto {
   @IsEmail()
   email: string;
 }
+
+export class GoogleOAuthDto {
+  @IsNotEmpty()
+  idToken: string;
+
+  @IsOptional()
+  @IsIn([COMMERCIAL_PLAN_KEYS.LITE, COMMERCIAL_PLAN_KEYS.PADRAO, COMMERCIAL_PLAN_KEYS.MELHOR])
+  selectedPlanKey?: CommercialPlanKey;
+
+  @IsOptional()
+  companyName?: string;
+}

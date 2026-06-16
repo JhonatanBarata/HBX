@@ -244,6 +244,7 @@ export type Entitlements = Record<string, boolean>;
 type PlanMe = {
   current?: {
     planKey?: string | null;
+    selectedPlanKey?: string | null;
     entitlements?: Entitlements;
     // campos de cobrança: o backend já zera estes para vendedor (role USER)
     isTrial?: boolean | null;
@@ -254,7 +255,7 @@ type PlanMe = {
     // NEUTRO (sobrevive p/ vendedor): empresa não pode operar.
     accessPaused?: boolean | null;
   };
-  plans?: Array<{ key: string; title?: string | null }>;
+  plans?: Array<{ key: string; title?: string | null; monthlyPrice?: number | null }>;
 } | null;
 
 let planMeCache: { at: number; data: PlanMe } | null = null;

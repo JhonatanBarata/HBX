@@ -1,6 +1,6 @@
 import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { ConfirmEmailDto, EmailConfirmationStatusDto, LoginDto, RecoverPasswordDto, ResendConfirmationDto, ResetPasswordDto, SignupDto } from './dto/auth.dto';
+import { ConfirmEmailDto, EmailConfirmationStatusDto, GoogleOAuthDto, LoginDto, RecoverPasswordDto, ResendConfirmationDto, ResetPasswordDto, SignupDto } from './dto/auth.dto';
 import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
@@ -61,5 +61,16 @@ export class AuthController {
   @Throttle({ default: { limit: 5, ttl: 60 } })
   async resetPassword(@Body() dto: ResetPasswordDto) {
     return this.authService.resetPasswordWithToken(dto.token, dto.password);
+  }
+
+  @Post('google')
+  @Throttle({ default: { limit: 10, ttl: 60 } })
+  async googleOAuth(@Body() dto: GoogleOAuthDto, @Req() req: any) {
+    return this.authService.googleLoginOrSignup(dto.idToken, {
+      selectedPlanKey: dto.selectedPlanKey,
+      companyName: dto.companyName,
+      userAgent: req?.headers?.['user-agent'],
+      ip: req?.ip || req?.headers?.['x-forwarded-for'] || req?.socket?.remoteAddress,
+    });
   }
 }

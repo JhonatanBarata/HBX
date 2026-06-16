@@ -601,6 +601,7 @@ export class AuthService implements OnModuleInit {
     deliveryFailed?: boolean;
     deliveryErrorCode?: string | null;
     deliveryErrorMessage?: string | null;
+    checkoutToken?: string | null;
   }) {
     return {
       ok: true,
@@ -616,6 +617,10 @@ export class AuthService implements OnModuleInit {
       warnings: input.warnings,
       confirmationPollToken: this.buildEmailConfirmationPollToken(input.userId),
       canResendConfirmation: true,
+      // Sessão de escopo restrito (pending_checkout): permite que o front mostre
+      // o checkout na mesma cena sem aguardar confirmação de e-mail. A empresa fica
+      // em pending_checkout; nenhum módulo é liberado até o checkout com cartão.
+      checkout_token: input.checkoutToken || null,
       delivery: {
         previewUrl: input.previewUrl || null,
         confirmUrl: input.confirmUrl || null,
@@ -1284,6 +1289,122 @@ export class AuthService implements OnModuleInit {
     return { ok: true };
   }
 
+  // GOOGLE OAUTH — verifica id_token, acha/cria user+empresa, devolve JWT
+  async googleLoginOrSignup(idToken: string, opts?: { selectedPlanKey?: CommercialPlanKey; companyName?: string; userAgent?: string; ip?: string }) {
+    const clientId = String(process.env.GOOGLE_CLIENT_ID || '').trim();
+    if (!clientId) throw new ServiceUnavailableException('Login com Google não está configurado neste ambiente.');
+
+    let payload: { sub: string; email: string; name?: string; email_verified?: boolean };
+    try {
+      const { OAuth2Client } = await import('google-auth-library');
+      const client = new OAuth2Client(clientId);
+      const ticket = await client.verifyIdToken({ idToken, audience: clientId });
+      const p = ticket.getPayload();
+      if (!p) throw new Error('Payload vazio');
+      payload = { sub: p.sub, email: p.email || '', name: p.name, email_verified: p.email_verified };
+    } catch {
+      throw new UnauthorizedException('Token Google inválido ou expirado. Tente novamente.');
+    }
+
+    const googleId = payload.sub;
+    const email = payload.email.toLowerCase().trim();
+    if (!email) throw new BadRequestException('Google não retornou e-mail válido.');
+
+    // 1. Busca por googleId
+    let user: any = await this.prisma.user.findUnique({ where: { googleId }, include: { company: true } });
+
+    // 2. Busca por e-mail e vincula
+    if (!user) {
+      user = await this.prisma.user.findFirst({ where: { email: { equals: email, mode: 'insensitive' } }, include: { company: true } });
+      if (user) {
+        user = await this.prisma.user.update({
+          where: { id: user.id },
+          data: { googleId, emailConfirmedAt: user.emailConfirmedAt || new Date() },
+          include: { company: true },
+        });
+      }
+    }
+
+    // 3. Login da conta existente
+    if (user) {
+      if (user.isActive === false) throw new UnauthorizedException('Conta desativada. Contate seu Administrador.');
+      if (!user.companyId && !user.isSystemMaster) throw new UnauthorizedException('Conta sem empresa vinculada.');
+      return this.login(user, { companyId: user.companyId || undefined, userAgent: opts?.userAgent, ip: opts?.ip });
+    }
+
+    // 4. Cadastro novo via Google
+    return this.signupWithGoogle({ email, name: payload.name || email, googleId, selectedPlanKey: opts?.selectedPlanKey, companyName: opts?.companyName });
+  }
+
+  private async signupWithGoogle(data: { email: string; name: string; googleId: string; selectedPlanKey?: CommercialPlanKey; companyName?: string }) {
+    const { email, name, googleId } = data;
+    const username = email;
+    const normalizedCompanyName = String(data.companyName || '').trim();
+    const displayName = this.companyDisplayName(normalizedCompanyName || name, username);
+    const slug = `co_${crypto.randomBytes(9).toString('hex')}`;
+    const selectedPlanKey = this.normalizePublicSelectedPlanKey(data.selectedPlanKey);
+    const trialModuleSelection = this.getPublicTrialDaysForPlan(selectedPlanKey) > 0
+      ? this.resolveTrialModuleForPlan(selectedPlanKey)
+      : null;
+    const randomPassword = crypto.randomBytes(32).toString('hex');
+    const hashed = await bcrypt.hash(randomPassword, 12);
+    const now = new Date();
+
+    const created = await this.prisma.$transaction(async (tx) => {
+      const company = await tx.company.create({
+        data: {
+          slug,
+          name: displayName,
+          entityType: 'PF',
+          trialModuleSelection,
+          selectedPlanKey,
+          assistedSetupRequired: selectedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR,
+          assistedSetupStatus: selectedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR ? 'pending' : 'not_required',
+          assistedSetupCompletedAt: null,
+          assistedSetupCompletedByUserId: null,
+          assistedSetupNote: selectedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR
+            ? 'Implantação assistida pendente para liberar automação completa.'
+            : null,
+          signupUsesPublicEmail: false,
+          status: 'pending_checkout',
+          statusChangedAt: now,
+          isActive: false,
+          contactEmail: email,
+          primaryContactName: name,
+          deactivatedAt: now,
+          trialStartsAt: null,
+          trialEndsAt: null,
+        },
+      });
+
+      await this.seedDefaultCompanyModulesTx(tx, company.id);
+      await this.seedDefaultTenantProductsTx(tx, company.id);
+      await this.syncPlanModulesTx(tx, company.id, selectedPlanKey);
+
+      const user = await tx.user.create({
+        data: {
+          username,
+          email,
+          password: hashed,
+          googleId,
+          name,
+          role: 'ADMIN',
+          companyId: company.id,
+          emailConfirmedAt: now,
+          emailConfirmationToken: null,
+          emailConfirmationSentAt: null,
+          emailConfirmationExpiresAt: null,
+        },
+      });
+
+      return { company, user };
+    });
+
+    await ensureUserTeamPolicyForUser(this.prisma, created.user.id, { source: 'auth_google_signup' });
+
+    return this.login(created.user, { companyId: created.company.id });
+  }
+
   // SIGNUP (SaaS)
   // Decision: for this product we auto-create a dedicated Company per signup.
   // Rationale: prevents exposing competitor tenants and avoids "choose company" flows.
@@ -1499,6 +1620,28 @@ export class AuthService implements OnModuleInit {
       rawToken,
     });
 
+    // Cria sessão de checkout antes de devolver o pending_email_confirmation.
+    // Permite que o front mostre o CheckoutPanel na mesma cena sem parede de e-mail.
+    // A empresa fica em pending_checkout — sem acesso a módulos até o checkout.
+    let checkoutToken: string | null = null;
+    if (selectedPlanKey !== 'hbx_melhor') {
+      try {
+        const checkoutSession = await this.login(
+          {
+            id: (created as any).user?.id,
+            email,
+            companyId: created.companyId,
+            role: (created as any).user?.role || 'ADMIN',
+            isSystemMaster: false,
+          },
+          { companyId: created.companyId },
+        );
+        checkoutToken = checkoutSession?.access_token || null;
+      } catch {
+        // Não bloqueia o cadastro se a sessão de checkout falhar
+      }
+    }
+
     return this.buildPendingEmailConfirmationResponse({
       userId: Number((created as any).user?.id || 0),
       email,
@@ -1517,6 +1660,7 @@ export class AuthService implements OnModuleInit {
       deliveryFailed: delivery.failed,
       deliveryErrorCode: delivery.errorCode,
       deliveryErrorMessage: delivery.errorMessage,
+      checkoutToken,
     });
   }
 
