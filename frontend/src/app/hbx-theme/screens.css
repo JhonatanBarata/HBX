@@ -951,3 +951,25 @@ button.site-plan2:hover { transform: translateY(-4px); border-color: var(--login
 @media (prefers-reduced-motion: reduce) {
   .site-station { animation: none !important; }
 }
+
+/* ============================================================
+   Documento legal (Política / Termos) — corpo do pop-up central da casca
+   (.hbx-veil + .hbx-modal, Lei 2). Estrutura e tamanho AQUI; toda pintura
+   por token. Acesso plugado: rotas /politicas e /termos + rodapé da home.
+   ============================================================ */
+.legal { max-height: min(70vh, 620px); overflow-y: auto; padding-right: 6px; text-align: left; }
+.legal__meta { margin: 0 0 6px; font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-muted); }
+.legal h4 { margin: 18px 0 0; font-family: var(--font-display); font-size: 0.95rem; font-weight: 800; color: var(--text-strong); }
+.legal p { margin: 7px 0 0; font-size: 0.85rem; line-height: 1.62; color: var(--text-body); }
+.legal ul { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 6px; }
+.legal li { font-size: 0.85rem; line-height: 1.5; color: var(--text-body); }
+.legal strong { color: var(--text-strong); font-weight: 700; }
+.legal__link { font: inherit; font-weight: 700; color: var(--login-accent, var(--hbx-brand-strong)); background: none; border: none; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.legal__link:hover { color: var(--text-strong); }
+.legal__foot { margin-top: 22px; padding-top: 12px; border-top: 1px solid var(--border-hairline); font-size: 0.76rem; color: var(--text-muted); }
+
+/* Links legais no rodapé da home — ponto de acesso plugado no front. */
+.site-legal-links { display: flex; align-items: center; gap: 12px; margin-top: 26px; flex-wrap: wrap; }
+.site-legal-link { font-family: var(--font-body); font-size: 0.82rem; font-weight: 600; color: var(--text-muted); background: none; border: none; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.site-legal-link:hover { color: var(--text-strong); }
+.site-legal-sep { color: var(--text-muted); opacity: 0.5; }

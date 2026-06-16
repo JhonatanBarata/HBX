@@ -1,12 +1,8 @@
-import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 
-import { PoliticasClient } from "./page.client";
-
-export const metadata: Metadata = {
-  title: "HBX — Política de Privacidade",
-  description: "Como a HBX System coleta, usa, armazena e protege seus dados pessoais, conforme a LGPD (Lei 13.709/2018).",
-};
-
+// /politicas mantém o link plugado no front, mas a Política vive como pop-up
+// CENTRAL na casca (Lei 2). A rota só redireciona pra landing com ?ver=politicas,
+// que abre o pop-up — mesmo padrão de /planos. Sem página/casca duplicada.
 export default function PoliticasPage() {
-  return <PoliticasClient />;
+  redirect("/?ver=politicas");
 }

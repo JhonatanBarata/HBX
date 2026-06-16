@@ -13,6 +13,7 @@ import { HbxScene, type SceneNav } from "@/components/hbx/hbx-scene";
 import { subscribeToThemeMode } from "@/components/hbx/shell";
 import { applyThemeSoft, setThemeMode } from "@/components/hbx/theme-attributes";
 import { ImplantacaoContato } from "@/components/hbx/implantacao-contato";
+import { LegalModal, type LegalKind } from "@/components/hbx/legal-modal";
 import { RegisterPanel } from "@/app/register/page.client";
 import {
   FALLBACK_PLANS, PLAN_ORDER, PLAN_STATIC, IC_BARS, IC_CHECK, IC_LOGOS,
@@ -122,6 +123,9 @@ export function MarketingClient() {
   const [intruderVisible, setIntruderVisible] = useState(false);
   const [intruder2Visible, setIntruder2Visible] = useState(false);
   const [livePlans, setLivePlans] = useState<PublicPlan[]>(FALLBACK_PLANS);
+  // Documento legal aberto como pop-up central (Lei 2). Plugado nas rotas
+  // /politicas e /termos (redirect → ?ver=) e nos links do rodapé da home.
+  const [legal, setLegal] = useState<LegalKind | null>(null);
 
   useEffect(() => { fetchPublicPlans().then(setLivePlans); }, []);
 
@@ -139,6 +143,8 @@ export function MarketingClient() {
         // Login saiu da casca (16/06): /?ver=entrar legado redireciona pro /login
         // (lá o aviso de sessão expirada/empresa removida já é tratado).
         if (ver === "entrar") { router.replace("/login"); return; }
+        // Documento legal por deep-link/rota: abre o pop-up sobre a home.
+        if (ver === "politicas" || ver === "termos") { setLegal(ver); return; }
         // /register consolidado (16/06): a rota /register e os links de contratação
         // do vendedor (hbx-handoff) chegam como ?plan=X — abre o plano direto no
         // funil único, sem a animação de escolha (deep-link já decidiu o plano).
@@ -177,6 +183,18 @@ export function MarketingClient() {
   };
 
   const goRoute = (href: string) => transition(() => router.push(href));
+
+  // Pop-up legal: abre sem trocar de view (fica sobre o fundo atual) e reflete
+  // a rota na URL (/politicas | /termos) sem recarregar. Fechar volta à view.
+  const openLegal = (k: LegalKind) => {
+    setLegal(k);
+    try { window.history.replaceState(null, "", `/${k}`); } catch { /* no-op */ }
+  };
+  const closeLegal = () => {
+    setLegal(null);
+    const param = view === "inicio" ? "" : `?ver=${view}`;
+    try { window.history.replaceState(null, "", `/${param}`); } catch { /* no-op */ }
+  };
 
   function choosePlan(key: string) {
     if (planMode !== "list") return;
@@ -273,6 +291,11 @@ export function MarketingClient() {
                   <span className="site-feat__tx">{f.tx}</span>
                 </div>
               ))}
+            </div>
+            <div className="site-legal-links">
+              <button type="button" className="site-legal-link" onClick={() => openLegal("politicas")}>Política de Privacidade</button>
+              <span className="site-legal-sep" aria-hidden>·</span>
+              <button type="button" className="site-legal-link" onClick={() => openLegal("termos")}>Termos de Serviço</button>
             </div>
           </div>
         )}
@@ -429,6 +452,8 @@ export function MarketingClient() {
         )}
 
       </div>
+
+      {legal && <LegalModal kind={legal} onClose={closeLegal} onSwitch={openLegal} />}
     </HbxScene>
   );
 }

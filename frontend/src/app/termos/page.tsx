@@ -1,11 +1,8 @@
-import type { Metadata } from "next";
-import { TermosClient } from "./page.client";
+import { redirect } from "next/navigation";
 
-export const metadata: Metadata = {
-  title: "Termos de Serviço — HBX System",
-  description: "Termos e condições de uso da plataforma HBX System.",
-};
-
+// /termos mantém o link plugado no front, mas os Termos vivem como pop-up
+// CENTRAL na casca (Lei 2). A rota só redireciona pra landing com ?ver=termos,
+// que abre o pop-up — mesmo padrão de /planos. Sem página/casca duplicada.
 export default function TermosPage() {
-  return <TermosClient />;
+  redirect("/?ver=termos");
 }
