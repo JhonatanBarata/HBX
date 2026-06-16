@@ -26,6 +26,7 @@ import {
   computeCommercialPlanCycleAmount,
   getCommercialPlanMonthlyPrice,
   getCommercialPlanTitle,
+  getCommercialPlanTrialDays,
   isCommercialEntitlementActive,
   normalizeCommercialPlanKey as normalizeCatalogCommercialPlanKey,
   type ActiveCommercialPlanKey,
@@ -547,6 +548,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       reason: 'HBX System',
       frequency: billingCycle === 'ANNUAL' ? 12 : 1,
       frequencyType: 'months' as const,
+      trialDays: getCommercialPlanTrialDays(planKey),
     };
   }
 
@@ -1079,6 +1081,11 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
           frequency_type: snapshot.frequencyType,
           transaction_amount: snapshot.amount,
           currency_id: snapshot.currency,
+          // Plano B: trial com cartão. O free_trial autoriza o cartão agora e adia a
+          // 1ª cobrança pro fim do período gratuito (X+14). Só nos planos com trial.
+          ...(snapshot.trialDays > 0
+            ? { free_trial: { frequency: snapshot.trialDays, frequency_type: 'days' } }
+            : {}),
         },
         payment_methods_allowed: {
           payment_types: [{ id: 'credit_card' }],
@@ -1885,7 +1892,15 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     companyContactData?: Record<string, unknown> | null;
   }) {
     const now = new Date();
-    const periodEnd = this.computePeriodEnd(now, input.plan.billingCycle);
+    const trialDays = Math.max(0, Math.trunc(Number(input.plan.trialDays) || 0));
+    const isTrialSub = trialDays > 0;
+    const existingTrialEnd = input.company?.trialEndsAt instanceof Date
+      ? input.company.trialEndsAt
+      : this.parseDate(input.company?.trialEndsAt);
+    const trialEnd = existingTrialEnd && existingTrialEnd.getTime() > now.getTime()
+      ? existingTrialEnd
+      : new Date(now.getTime() + trialDays * 86400000);
+    const periodEnd = isTrialSub ? trialEnd : this.computePeriodEnd(now, input.plan.billingCycle);
     const existing = await this.prisma.companySubscription.findFirst({
       where: {
         companyId: input.context.companyId,
@@ -1958,6 +1973,42 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
             createdByUserId: input.context.userId,
           },
         });
+
+    if (isTrialSub) {
+      // Plano B (trial com cartão): o cartão fica autorizado, mas a 1ª cobrança é só
+      // no fim do trial (X+14) — NADA é cobrado agora (sem charge, sem ledger). A
+      // empresa segue em 'trial' com o cartão na ficha pra cobrar quando vencer.
+      await this.prisma.companySubscription.update({
+        where: { id: subscription.id },
+        data: { status: 'trialing', lastProviderStatus: 'authorized' },
+      });
+      await this.prisma.company.update({
+        where: { id: input.context.companyId },
+        data: {
+          status: 'trial',
+          isActive: true,
+          trialEndsAt: periodEnd,
+          subscriptionCurrentPeriodStart: now,
+          subscriptionCurrentPeriodEnd: periodEnd,
+          billingProvider: 'mock',
+          paymentMethod: 'CARD',
+          billingCardBrand: 'Mock',
+          billingCardLast4: '4242',
+          billingCardUpdatedAt: now,
+          ...(input.companyContactData || {}),
+        },
+      });
+      const refreshedTrial = await this.prisma.companySubscription.findUnique({ where: { id: subscription.id } });
+      return {
+        ok: true,
+        mock: true,
+        trial: true,
+        status: 'trialing',
+        providerPreapprovalId,
+        subscription: this.serializeSubscription(refreshedTrial || subscription),
+        overview: await this.getOverviewForUser(input.user),
+      };
+    }
 
     const charge = await this.prisma.financeiroCharge.create({
       data: {
@@ -3294,7 +3345,44 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       });
 
       if (providerStatus === 'authorized') {
-        await this.activateCompanyFromSubscription(updated, new Date(), provider);
+        if (plan.trialDays > 0) {
+          // Plano B em live: o free_trial autorizou o cartão, mas a 1ª cobrança é só
+          // no fim do trial — a empresa SEGUE 'trial' (não vira 'active'/paga), com o
+          // cartão na ficha pra cobrar quando o período gratuito vencer.
+          const liveNow = new Date();
+          const liveTrialEnd =
+            this.parseDate(provider?.next_payment_date) ||
+            (company.trialEndsAt instanceof Date ? company.trialEndsAt : this.parseDate(company.trialEndsAt)) ||
+            new Date(liveNow.getTime() + plan.trialDays * 86400000);
+          const liveCard = this.subscriptionCardSnapshot(provider, updated);
+          await this.prisma.companySubscription.update({
+            where: { id: updated.id },
+            data: {
+              status: 'trialing',
+              currentPeriodStart: liveNow,
+              currentPeriodEnd: liveTrialEnd,
+              nextBillingAt: liveTrialEnd,
+            },
+          });
+          await this.prisma.company.update({
+            where: { id: context.companyId },
+            data: {
+              status: 'trial',
+              isActive: true,
+              trialEndsAt: liveTrialEnd,
+              subscriptionCurrentPeriodStart: liveNow,
+              subscriptionCurrentPeriodEnd: liveTrialEnd,
+              billingProvider: 'mercadopago',
+              paymentMethod: 'CARD',
+              billingCardBrand: liveCard.brand || undefined,
+              billingCardLast4: liveCard.last4 || undefined,
+              billingCardUpdatedAt: liveNow,
+              ...(companyContactData || {}),
+            },
+          });
+        } else {
+          await this.activateCompanyFromSubscription(updated, new Date(), provider);
+        }
       } else {
         const grace = await this.startBillingGraceForSubscription({
           subscription: updated,

@@ -10,6 +10,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import React, { useState } from "react";
 
+import { CheckoutPanel } from "@/components/hbx/checkout-panel";
 import { HbxScene } from "@/components/hbx/hbx-scene";
 import { apiFetch, setToken } from "@/lib/api";
 
@@ -36,14 +37,6 @@ function formatWhatsapp(value: string) {
 }
 
 const PLANOS_VALIDOS = new Set(["hbx_lite", "hbx_padrao", "hbx_pro", "hbx_melhor"]);
-// Trial é SÓ do Lead Plus (catálogo: COMMERCIAL_PLAN_TRIAL_DAYS). Os outros são
-// contratação direta — a copy NÃO pode prometer "14 dias" pra List/Pro/Company.
-const PLANO_NOME: Record<string, string> = {
-  hbx_lite: "HBX List",
-  hbx_padrao: "HBX Lead Plus",
-  hbx_pro: "HBX Pro",
-  hbx_melhor: "HBX Company",
-};
 
 // Resumo do plano escolhido (coluna esquerda) — espelha o /planos. Copy minha.
 const SNOW = ["M12 2v20", "M3.34 7l17.32 10", "M20.66 7L3.34 17", "M2 12h20"];
@@ -54,17 +47,45 @@ const CHECK = ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z", "M8.4 12l2.4 2.4 4.8-5"]
 const BARS = ["M4 19V5", "M4 19h16", "M8 19v-6", "M13 19V9", "M18 19v-4"];
 const SPARK = ["M12 3l1.7 5.1L19 10l-5.3 1.9L12 17l-1.7-5.1L5 10l5.3-1.9L12 3Z"];
 const PLAN_INFO: Record<string, { accent: string; tag: string; feats: string[]; ic: string[]; score?: string }> = {
-  hbx_lite: { accent: "List", tag: "Leads frios pra você esquentar e prospectar.", feats: ["Leads frios para prospecção", "Telefone, cidade e segmento", "Base simples para começar"], ic: SNOW },
-  hbx_padrao: { accent: "Lead Plus", tag: "Leads enriquecidos com mais contexto pra você vender melhor.", feats: ["Enriquecimento de leads avançado", "Score e análise inteligente", "Mais contexto para vender melhor"], ic: TARGET, score: "85" },
-  hbx_pro: { accent: "Full", tag: "Aquecimento moderado e integrações automáticas.", feats: ["Aquecimento de lead moderado", "Integrações automáticas", "Fluxos e follow-ups"], ic: BOLT },
-  hbx_melhor: { accent: "Company", tag: "Você monta do seu jeito, com a HBX junto.", feats: ["Negociamos e montamos com você", "Integrações sob medida", "Implantação feita pela HBX"], ic: CUBE },
+  hbx_lite: { accent: "List", tag: "Você pede, o Radar entrega. Cards crus pra você esquentar e prospectar.", feats: ["Telefone, cidade, segmento e site", "Redes sociais quando encontradas", "880 leads por mês"], ic: SNOW },
+  hbx_padrao: { accent: "Lead", tag: "Leads inteligentes: você já sabe quem ligar e o que dizer.", feats: ["WhatsApp verificado pela HBX", "Score, motivo e canal recomendado", "Mensagem pronta por segmento", "2.200 leads por mês"], ic: TARGET, score: "Score e motivo em cada lead" },
+  hbx_pro: { accent: "Full", tag: "Atendimento no painel e Bot IA prospectando por você.", feats: ["Tudo do Lead", "Atendimento interno pelo painel", "Bot IA + prospecção pós-resposta", "3.500 leads por mês"], ic: BOLT },
+  hbx_melhor: { accent: "Company", tag: "Tudo do Full + Recovery e integração com o seu ERP, montado pela HBX.", feats: ["Recovery de inadimplentes", "Cobrança integrada ao seu ERP", "Implantação feita pela HBX"], ic: CUBE },
+};
+
+const PLANO_COPY: Record<string, { formTitle: string; formSub: React.ReactNode; doneSub: string }> = {
+  hbx_lite: {
+    formTitle: "Criar sua conta",
+    formSub: <>Você está ativando o <strong>HBX List</strong>. Cards com telefone, cidade, segmento e site para você esquentar e prospectar.</>,
+    doneSub: "Sua conta HBX List está ativa. Acesse e peça sua primeira lista de leads no Radar.",
+  },
+  hbx_padrao: {
+    formTitle: "Comece seu teste de 14 dias",
+    formSub: <>Você está ativando o <strong>HBX Lead</strong>. Não cobramos nada por 14 dias — cancele quando quiser.</>,
+    doneSub: "Seu teste de 14 dias está ativo. Acesse e veja seus primeiros leads inteligentes.",
+  },
+  hbx_pro: {
+    formTitle: "Criar sua conta",
+    formSub: <>Você está ativando o <strong>HBX Full</strong>. Atendimento no painel, Bot IA e prospecção automática na sua operação.</>,
+    doneSub: "Sua conta HBX Full está ativa. Configure seu Bot IA e comece a prospectar no automático.",
+  },
+  hbx_melhor: {
+    formTitle: "Falar com especialista",
+    formSub: <>Deixe seus dados e um especialista HBX entra em contato pra montar o <strong>Company</strong> com você — Recovery, ERP e implantação.</>,
+    doneSub: "Dados recebidos. Um especialista HBX vai falar com você pra montar seu plano.",
+  },
 };
 
 function Ic({ paths }: { paths: string[] }) {
   return <svg className="site-ic" viewBox="0 0 24 24" aria-hidden>{paths.map((d, i) => <path key={i} d={d} />)}</svg>;
 }
 
-export function RegisterClient() {
+type RegisterPanelProps = {
+  selectedPlanKey?: string | null;
+  embedded?: boolean;
+};
+
+export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPanelProps) {
   const router = useRouter();
   // link de contratação do vendedor (/register?plan=X&hbxLead=...): o plano
   // do link entra no cadastro; o hbxLead fica na URL para rastreio.
@@ -87,10 +108,15 @@ export function RegisterClient() {
   const [done, setDone] = useState<SignupResponse | null>(null);
   const [resendMsg, setResendMsg] = useState<string | null>(null);
 
-  const selectedPlan = planFromLink || "hbx_padrao";
+  const selectedPlan = selectedPlanKey && PLANOS_VALIDOS.has(selectedPlanKey) ? selectedPlanKey : planFromLink || "hbx_padrao";
   const isTrial = selectedPlan === "hbx_padrao";
-  const planoNome = PLANO_NOME[selectedPlan] || "HBX Lead Plus";
   const info = PLAN_INFO[selectedPlan] || PLAN_INFO.hbx_padrao;
+  const copy = PLANO_COPY[selectedPlan] || PLANO_COPY.hbx_padrao;
+  // Checkout na casca: List/Full cobram na hora; Lead salva o cartão e NÃO cobra
+  // (Plano B — trial com cartão, 1ª cobrança só no X+14, o backend adia). Company
+  // não tem self-checkout (falar com especialista).
+  const needsCheckout = selectedPlan !== "hbx_melhor";
+  const showCheckout = Boolean(done?.access_token) && needsCheckout;
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -120,6 +146,9 @@ export function RegisterClient() {
           trialTaxDocument: doc,
         }),
       });
+      // Sessão na mão (dev/mock confirma na hora) + plano com checkout → já autentica
+      // pra o passo de pagamento na casca poder chamar /financeiro logado.
+      if (res?.access_token && selectedPlan !== "hbx_melhor") setToken(res.access_token);
       setDone(res || { ok: true });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Não foi possível criar a conta. Tente novamente.";
@@ -161,29 +190,39 @@ export function RegisterClient() {
     </button>
   );
 
-  return (
-    <HbxScene active="planos" plain>
-      <div className="scene-register">
-        <aside className="reg-plan">
+  const planAside = (
+    <aside className="reg-plan">
           {isTrial && <span className="reg-plan__badge"><Ic paths={SPARK} />14 dias grátis</span>}
           <span className="reg-plan__ic"><Ic paths={info.ic} /></span>
           <strong className="reg-plan__name">HBX <span className="site-accent">{info.accent}</span></strong>
           <p className="reg-plan__tag">{info.tag}</p>
-          {info.score && <span className="reg-plan__score"><Ic paths={BARS} />Score médio <b>{info.score}</b></span>}
+          {info.score && <span className="reg-plan__score"><Ic paths={BARS} />{info.score}</span>}
           <ul className="reg-plan__feats">
             {info.feats.map((f) => <li key={f}><Ic paths={CHECK} />{f}</li>)}
           </ul>
-          {isTrial && <span className="reg-plan__note">Sem cobrança nos 14 primeiros dias.</span>}
-        </aside>
-        <main className="reg-form">
+          {isTrial && <span className="reg-plan__note">Não cobramos nada por 14 dias. Cancele quando quiser.</span>}
+    </aside>
+  );
+
+  const formContent = (
+    <main className={"reg-form" + (embedded ? " reg-form--embedded" : "")}>
       {done ? (
+        showCheckout ? (
+          <CheckoutPanel
+            planKey={selectedPlan}
+            phone={whats}
+            email={email}
+            taxDoc={doc}
+            name={nome}
+            trialEndsAt={done.trialEndsAt}
+            onSuccess={() => router.replace(done.next || "/dashboard")}
+          />
+        ) : (
         <div className="card">
-          <h2>{done.access_token ? "Tudo pronto ✓" : "Conta criada ✓"}</h2>
+          <h2>{done.access_token ? "Tudo pronto ✓" : selectedPlan === "hbx_melhor" ? "Recebido ✓" : "Conta criada ✓"}</h2>
           <p className="sub">
             {done.access_token
-              ? (isTrial
-                ? "Seu teste grátis de 14 dias está ativo. Bora ver a esteira encontrar seus primeiros leads."
-                : `Sua conta do ${planoNome} está ativa. Bora ver a esteira encontrar seus primeiros leads.`)
+              ? copy.doneSub
               : (isTrial
                 ? "Falta um passo: confirme seu e-mail para ativar o teste grátis."
                 : "Falta um passo: confirme seu e-mail para ativar sua conta.")}
@@ -210,12 +249,11 @@ export function RegisterClient() {
             </React.Fragment>
           )}
         </div>
+        )
       ) : (
         <form className="card" onSubmit={onSubmit}>
-          <h2>{isTrial ? "Teste grátis por 14 dias" : "Criar sua conta"}</h2>
-          <p className="sub">{isTrial
-            ? (<>Você vai testar o <strong>HBX Lead Plus</strong> por 14 dias, sem cartão de crédito. Crie sua conta e veja a esteira encontrar seus primeiros leads ainda hoje.</>)
-            : (<>Você está criando a conta do <strong>{planoNome}</strong>. Crie sua conta e veja a esteira encontrar seus primeiros leads ainda hoje.</>)}</p>
+          <h2>{copy.formTitle}</h2>
+          <p className="sub">{copy.formSub}</p>
           <div className="f">
             <label htmlFor="emp">Empresa</label>
             <input id="emp" className="field-dark" placeholder="Nome da sua empresa" required maxLength={120}
@@ -268,23 +306,38 @@ export function RegisterClient() {
             </div>
           )}
           <button className="btn-teal" type="submit" disabled={busy} style={{ minHeight: 44, fontSize: "0.84rem" }}>
-            {busy ? "Criando…" : "Criar Conta"}
+            {busy ? "Enviando…" : selectedPlan === "hbx_melhor" ? "Falar com especialista" : isTrial ? "Começar teste grátis" : "Criar conta"}
           </button>
           <p style={{ margin: "2px 0 0", fontSize: "0.62rem", lineHeight: 1.5, color: "var(--text-muted)", textAlign: "center" }}>
             Ao criar a conta, você concorda com os Termos de uso e a Política de privacidade do HBX.
           </p>
           <div className="alt">Já tem conta? <Link href="/login" className="link" style={{ textDecoration: "none" }}>Entrar</Link></div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 4 }}>
-            {["Dados protegidos 24/7 com criptografia", "Conformidade LGPD", "Infraestrutura segura e estável"].map(t => (
-              <div key={t} style={{ padding: "9px 10px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface-soft)", fontSize: "0.62rem", fontWeight: 700, lineHeight: 1.4, color: "var(--text-muted)", textAlign: "center" }}>
-                {t}
-              </div>
-            ))}
-          </div>
+          {!embedded && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 4 }}>
+              {["Dados protegidos 24/7 com criptografia", "Conformidade LGPD", "Infraestrutura segura e estável"].map(t => (
+                <div key={t} style={{ padding: "9px 10px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface-soft)", fontSize: "0.62rem", fontWeight: 700, lineHeight: 1.4, color: "var(--text-muted)", textAlign: "center" }}>
+                  {t}
+                </div>
+              ))}
+            </div>
+          )}
         </form>
       )}
-        </main>
+    </main>
+  );
+
+  if (embedded) return formContent;
+
+  return (
+    <HbxScene active="planos" plain>
+      <div className="scene-register">
+        {planAside}
+        {formContent}
       </div>
     </HbxScene>
   );
+}
+
+export function RegisterClient() {
+  return <RegisterPanel />;
 }

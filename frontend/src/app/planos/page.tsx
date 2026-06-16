@@ -1,12 +1,10 @@
-import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 
-import { PlanosClient } from "./page.client";
-
-export const metadata: Metadata = {
-  title: "HBX — Planos",
-  description: "Comece grátis por 14 dias. Leads qualificados na sua esteira, WhatsApp integrado e recovery para empresas.",
-};
-
+// /planos CONSOLIDADO na casca única (16/06): a apresentação de planos vive em
+// MarketingClient (/?ver=planos) — fonte ÚNICA dos dados de plano. Esta rota só
+// redireciona pra lá, pra não voltar a duplicar card/preço/feature em dois lugares
+// (foi o que gerou o card velho "Aquecimento" enquanto o form já estava novo).
+// Links legados (upsell bot_ia, tutorial, master) continuam funcionando.
 export default function PlanosPage() {
-  return <PlanosClient />;
+  redirect("/?ver=planos");
 }

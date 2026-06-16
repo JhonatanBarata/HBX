@@ -23,7 +23,7 @@ export class CreateFinanceiroCheckoutDto {
 
   @IsOptional()
   @IsString()
-  @IsIn(['hbx_lite', 'hbx_padrao', 'hbx_melhor'])
+  @IsIn(['hbx_lite', 'hbx_padrao', 'hbx_pro', 'hbx_melhor'])
   planKey?: string;
 
   @IsOptional()
@@ -53,7 +53,7 @@ export class CreateFinanceiroCheckoutDto {
 
 export class CreateFinanceiroSubscriptionDto {
   @IsString()
-  @IsIn(['hbx_lite', 'hbx_padrao', 'hbx_melhor'])
+  @IsIn(['hbx_lite', 'hbx_padrao', 'hbx_pro', 'hbx_melhor'])
   planKey!: string;
 
   @IsString()

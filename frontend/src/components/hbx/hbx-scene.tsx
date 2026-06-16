@@ -12,25 +12,15 @@ import { useState } from "react";
 
 import { AuthThemeControls } from "@/components/hbx/auth-theme-controls";
 
-const BRAND = ["M4 6l6 6-6 6", "M11 6l6 6-6 6"];
-const BACK = ["M14 6l-6 6 6 6"];
-
-export type SceneNav = "inicio" | "esteira" | "planos" | "entrar";
+export type SceneNav = "inicio" | "esteira" | "modulos" | "planos" | "entrar";
 
 const NAV: { key: SceneNav; label: string; href: string; cta?: boolean }[] = [
   { key: "inicio", label: "Início", href: "/" },
   { key: "esteira", label: "Esteira", href: "/?ver=esteira" },
-  { key: "planos", label: "Planos", href: "/planos" },
-  { key: "entrar", label: "Entrar", href: "/login", cta: true },
+  { key: "modulos", label: "Módulos", href: "/?ver=modulos" },
+  { key: "planos", label: "Planos", href: "/?ver=planos" },
+  { key: "entrar", label: "Entrar", href: "/?ver=entrar", cta: true },
 ];
-
-function Glyph({ paths }: { paths: string[] }) {
-  return (
-    <svg className="site-ic" viewBox="0 0 24 24" aria-hidden>
-      {paths.map((d, i) => <path key={i} d={d} />)}
-    </svg>
-  );
-}
 
 // Os 4 guias (marcador da tela atual). Sem onNav = navega por rota; com onNav,
 // a tela controla in-place (ex.: a landing alterna Início↔Esteira sem trocar de rota).
@@ -78,7 +68,7 @@ export function HbxScene({
   // (a próxima entra ao montar via CSS). A landing passa onNav/onBrand próprios
   // (deck in-place) e NÃO usa isto.
   const navTo = (href: string) => { setLeaving(true); window.setTimeout(() => router.push(href), 340); };
-  const HREF: Record<SceneNav, string> = { inicio: "/", esteira: "/?ver=esteira", planos: "/planos", entrar: "/login" };
+  const HREF: Record<SceneNav, string> = { inicio: "/", esteira: "/?ver=esteira", modulos: "/?ver=modulos", planos: "/?ver=planos", entrar: "/?ver=entrar" };
   const handleNav = onNav ?? ((k: SceneNav) => navTo(HREF[k]));
   const handleBrand = onBrand ?? (() => navTo("/"));
 
@@ -96,8 +86,8 @@ export function HbxScene({
 
         <header className="scene-top">
           <button type="button" className="site-brand" onClick={handleBrand} aria-label={isBack ? "Voltar ao início" : "HBX — início"}>
-            <Glyph paths={isBack ? BACK : BRAND} />
-            HBX
+            <span className="site-brand__arrow" aria-hidden>&gt;&gt;</span>
+            <span>HBX</span>
           </button>
         </header>
 
