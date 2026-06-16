@@ -586,7 +586,10 @@ export function ConfiguracoesClient() {
             accessState={current?.accessState}
             trialRemainingDays={current?.trialRemainingDays}
             onClose={() => setTrocarPlano(null)}
-            onConfirmUpgrade={plan => { setTrocarPlano(null); setSubscribePlan(plan); }}
+            onConfirmUpgrade={plan => {
+              setTrocarPlano(null);
+              setSubscribePlan({ ...plan, monthlyPrice: plan.monthlyPrice ?? null });
+            }}
             onDoneDowngrade={msg => { setTrocarPlano(null); setPlanoMsg(msg); recarregarPlano(); }}
           />
         );
