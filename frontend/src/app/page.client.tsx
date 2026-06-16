@@ -12,6 +12,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { HbxScene, type SceneNav } from "@/components/hbx/hbx-scene";
 import { subscribeToThemeMode } from "@/components/hbx/shell";
 import { applyThemeSoft, setThemeMode } from "@/components/hbx/theme-attributes";
+import { ImplantacaoContato } from "@/components/hbx/implantacao-contato";
 import { RegisterPanel } from "@/app/register/page.client";
 
 // ── types ──────────────────────────────────────────────────────────────────────
@@ -78,12 +79,13 @@ const LOGOS = [
   ["M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z", "M4 9h16", "M9 3v4", "M15 3v4"],
   ["M21 12a9 9 0 1 1-3-6.7", "M21 4v5h-5"],
 ];
-type Plan = { key: string; accent: string; ic: string[]; tag: string; price: string; pricePrefix?: string; feats: string[]; cta: string; hot?: boolean; badge?: string; score?: string; trial?: string; logos?: boolean };
+type Plan = { key: string; accent: string; ic: string[]; tag: string; price?: string; pricePrefix?: string; contactOnly?: boolean; feats: string[]; cta: string; hot?: boolean; badge?: string; score?: string; trial?: string; logos?: boolean };
 const PLANS: Plan[] = [
   { key: "hbx_lite", accent: "List", ic: SNOW, tag: "Você pede, o Radar entrega. Cards crus pra você esquentar e prospectar.", price: "R$ 49,00", feats: ["Telefone, cidade, segmento e site", "Redes sociais quando encontradas", "880 leads por mês"], cta: "Escolher plano" },
   { key: "hbx_padrao", accent: "Lead", ic: TARGET, hot: true, badge: "Mais escolhido", trial: "14 dias grátis", tag: "Leads inteligentes: você já sabe quem ligar e o que dizer.", price: "R$ 99,00", feats: ["WhatsApp verificado pela HBX", "Score, motivo e canal recomendado", "Mensagem pronta por segmento", "2.200 leads por mês"], cta: "Testar 14 dias grátis" },
   { key: "hbx_pro", accent: "Full", ic: BOLT, tag: "Atendimento no painel e Bot IA prospectando por você.", price: "R$ 249,00", feats: ["Tudo do Lead", "Atendimento interno pelo painel", "Bot IA + prospecção pós-resposta", "3.500 leads por mês"], cta: "Escolher plano" },
-  { key: "hbx_melhor", accent: "Company", ic: CUBE, tag: "Tudo do Full + Recovery e integração com o seu ERP.", pricePrefix: "A partir de", price: "R$ 445,90", feats: ["Recovery de inadimplentes", "Cobrança integrada ao seu ERP", "Implantação feita pela HBX"], logos: true, cta: "Falar com especialista" },
+  // hbx_melhor: contactOnly=true → sem preço exibido, CTA abre tela de contato.
+  { key: "hbx_melhor", accent: "Implantação", ic: CUBE, tag: "Tudo do Pro + Recovery e integração com o seu ERP, montado pela HBX.", contactOnly: true, feats: ["Recovery de inadimplentes", "Cobrança integrada ao seu ERP", "Implantação feita pela HBX"], logos: true, cta: "Quero implantação" },
 ];
 
 // Detalhes do plano (painel que desliza ao escolher) — NÃO repete o card: expande
@@ -224,6 +226,18 @@ export function MarketingClient() {
         // Login saiu da casca (16/06): /?ver=entrar legado redireciona pro /login
         // (lá o aviso de sessão expirada/empresa removida já é tratado).
         if (ver === "entrar") { router.replace("/login"); return; }
+        // /register consolidado (16/06): a rota /register e os links de contratação
+        // do vendedor (hbx-handoff) chegam como ?plan=X — abre o plano direto no
+        // funil único, sem a animação de escolha (deep-link já decidiu o plano).
+        const plan = params.get("plan");
+        if (plan && PLANS.some(p => p.key === plan)) {
+          setView("planos");
+          setSelectedPlan(plan);
+          setIntruderVisible(true);
+          if (plan === "hbx_melhor") setIntruder2Visible(true);
+          setPlanMode("register");
+          return;
+        }
         if (ver === "esteira" || ver === "modulos" || ver === "planos") setView(ver);
       } catch { /* sem storage */ }
     });
@@ -420,7 +434,9 @@ export function MarketingClient() {
                     <strong className="site-plan2__name">HBX <span className="site-accent">{p.accent}</span></strong>
                     {p.trial
                       ? <span className="site-plan2__trial-wrap"><span className="site-plan2__trial">{p.trial}</span><span className="site-plan2__trial-price">{p.price}<em>/mês</em></span></span>
-                      : <span className="site-plan2__price">{p.pricePrefix && <small>{p.pricePrefix}</small>}<b>{p.price}</b><em>/mês</em></span>}
+                      : !p.contactOnly && p.price
+                        ? <span className="site-plan2__price">{p.pricePrefix && <small>{p.pricePrefix}</small>}<b>{p.price}</b><em>/mês</em></span>
+                        : null}
                     <span className="site-plan2__tag">{p.tag}</span>
                     {p.score && <span className="site-plan2__score"><Ic paths={PLAN_BARS} />{p.score}</span>}
                     <ul className="site-plan2__feats">
@@ -468,8 +484,8 @@ export function MarketingClient() {
                   );
                 })()}
                 {intruder2Visible && selectedPlan === "hbx_melhor" && (
-                  <aside className="site-plan-intruder site-plan-intruder--second card" aria-label="Por que o Company é o mais forte">
-                    <h2 className="site-plan-intruder__type">Por que o Company é o mais forte</h2>
+                  <aside className="site-plan-intruder site-plan-intruder--second card" aria-label="Por que a Implantação é o mais forte">
+                    <h2 className="site-plan-intruder__type">Por que a Implantação é o mais forte</h2>
                     <div className="site-plan-intruder__body">
                       <p className="site-plan-intruder__tag">O lead quente é o que te dá menos trabalho e mais fechamento. O Company existe pra isso.</p>
                       <ul className="site-plan-intruder__feats">
@@ -482,7 +498,9 @@ export function MarketingClient() {
                     <p className="sub site-plan-intruder__safe">Um especialista monta tudo com você</p>
                   </aside>
                 )}
-                <RegisterPanel selectedPlanKey={selectedPlan} embedded />
+                {selectedPlan === "hbx_melhor"
+                  ? <ImplantacaoContato asModal={false} onClose={voltarPlanos} />
+                  : <RegisterPanel selectedPlanKey={selectedPlan} embedded />}
               </div>
             )}
           </div>

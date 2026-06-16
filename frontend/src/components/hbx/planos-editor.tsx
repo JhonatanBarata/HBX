@@ -20,7 +20,7 @@ import { apiFetch } from "@/lib/api";
 const PLANOS = [
   { key: "hbx_lite", label: "HBX List" },
   { key: "hbx_padrao", label: "HBX Lead Plus" },
-  { key: "hbx_melhor", label: "HBX Full" },
+  { key: "hbx_melhor", label: "Implantação" },
 ];
 
 type ModItem = { key: string; name: string; enabled: boolean };

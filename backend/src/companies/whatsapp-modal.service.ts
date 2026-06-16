@@ -2467,7 +2467,7 @@ export class WhatsAppModalService {
       redirectTo:
         options?.redirectTo
         || (options?.errorCode === 'TRIAL_PHONE_ALREADY_USED'
-          ? '/dashboard/planos?intent=trial_phone_used'
+          ? '/planos?intent=trial_phone_used'
           : null),
     };
   }

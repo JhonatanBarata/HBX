@@ -250,7 +250,7 @@ export function LoginClient() {
                 <div ref={googleBtnRef} style={{ display: "flex", justifyContent: "center" }} />
               </>
             )}
-            <div className="alt">Ainda não tem conta? <Link href="/register" className="link" style={{ textDecoration: "none" }}>Criar Conta</Link></div>
+            <div className="alt">Ainda não tem conta? <Link href="/?ver=planos" className="link" style={{ textDecoration: "none" }}>Criar Conta</Link></div>
           </form>
         </main>
 

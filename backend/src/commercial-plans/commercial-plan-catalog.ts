@@ -3,9 +3,6 @@ export const COMMERCIAL_PLAN_KEYS = {
   PADRAO: 'hbx_padrao',
   PRO: 'hbx_pro',
   MELHOR: 'hbx_melhor',
-  LEGACY_VENDAS: 'hbx_vendas',
-  LEGACY_VENDAS_IA: 'hbx_vendas_ia',
-  LEGACY_RECOVERY: 'hbx_recovery',
 } as const;
 
 export const COMMERCIAL_ENTITLEMENT_KEYS = {
@@ -238,7 +235,9 @@ export function normalizeCommercialPlanKey(value: unknown): ActiveCommercialPlan
   const normalized = String(value || '').trim().toLowerCase();
   if (normalized === COMMERCIAL_PLAN_KEYS.LITE) return COMMERCIAL_PLAN_KEYS.LITE;
   if (normalized === COMMERCIAL_PLAN_KEYS.PRO) return COMMERCIAL_PLAN_KEYS.PRO;
-  if (normalized === COMMERCIAL_PLAN_KEYS.MELHOR || normalized === COMMERCIAL_PLAN_KEYS.LEGACY_VENDAS_IA) {
+  // 'hbx_vendas_ia' é chave legada (removida do catálogo): normaliza p/ MELHOR para
+  // não quebrar registros históricos que migration não alcançou.
+  if (normalized === COMMERCIAL_PLAN_KEYS.MELHOR || normalized === 'hbx_vendas_ia') {
     return COMMERCIAL_PLAN_KEYS.MELHOR;
   }
   return COMMERCIAL_PLAN_KEYS.PADRAO;
@@ -269,7 +268,7 @@ export function getCommercialPlanTitle(planKey: unknown) {
   const normalized = normalizeCommercialPlanKey(planKey);
   if (normalized === COMMERCIAL_PLAN_KEYS.LITE) return 'HBX List';
   if (normalized === COMMERCIAL_PLAN_KEYS.PRO) return 'HBX Pro';
-  if (normalized === COMMERCIAL_PLAN_KEYS.MELHOR) return 'HBX Company';
+  if (normalized === COMMERCIAL_PLAN_KEYS.MELHOR) return 'Implantação';
   return 'HBX Lead Plus';
 }
 
@@ -315,6 +314,30 @@ export function getCommercialPlanCapabilities(planKey: unknown): CommercialPlanC
   };
 }
 
+// Ranking de preço dos planos self-service (bloco PR16062026026).
+// List=1 < Lead=2 < Pro=3. Implantação (MELHOR) não entra no ranking (-1).
+export function getCommercialPlanRank(planKey: unknown): number {
+  const normalized = normalizeCommercialPlanKey(planKey);
+  if (normalized === COMMERCIAL_PLAN_KEYS.LITE) return 1;
+  if (normalized === COMMERCIAL_PLAN_KEYS.PADRAO) return 2;
+  if (normalized === COMMERCIAL_PLAN_KEYS.PRO) return 3;
+  return -1; // MELHOR não é self-service
+}
+
+// Classifica a direção da troca de plano.
+// 'contact' = destino é Implantação (não é troca, é contato via 024).
+export function classifyPlanChange(
+  fromKey: unknown,
+  toKey: unknown,
+): 'upgrade' | 'downgrade' | 'same' | 'contact' {
+  const toNormalized = normalizeCommercialPlanKey(toKey);
+  if (toNormalized === COMMERCIAL_PLAN_KEYS.MELHOR) return 'contact';
+  const fromRank = getCommercialPlanRank(fromKey);
+  const toRank = getCommercialPlanRank(toKey);
+  if (fromRank === toRank) return 'same';
+  return toRank > fromRank ? 'upgrade' : 'downgrade';
+}
+
 export function computeCommercialPlanCycleAmount(planKey: unknown, billingCycleRaw: unknown) {
   const monthly = getCommercialPlanMonthlyPrice(planKey);
   const billingCycle = String(billingCycleRaw || '').trim().toUpperCase() === 'ANNUAL' ? 'ANNUAL' : 'MONTHLY';
@@ -329,6 +352,7 @@ export function buildCommercialPlansCatalog(options: { includeHidden?: boolean }
       key: COMMERCIAL_PLAN_KEYS.LITE,
       title: 'HBX List',
       status: 'available',
+      contactOnly: false,
       monthlyPrice: COMMERCIAL_PRICING.liteMonthly,
       trialDays: COMMERCIAL_PLAN_TRIAL_DAYS[COMMERCIAL_PLAN_KEYS.LITE],
       annualDiscountPercent: COMMERCIAL_PRICING.annualDiscountPercent,
@@ -361,6 +385,7 @@ export function buildCommercialPlansCatalog(options: { includeHidden?: boolean }
       key: COMMERCIAL_PLAN_KEYS.PADRAO,
       title: 'HBX Lead Plus',
       status: 'available',
+      contactOnly: false,
       monthlyPrice: COMMERCIAL_PRICING.padraoMonthly,
       trialDays: COMMERCIAL_PLAN_TRIAL_DAYS[COMMERCIAL_PLAN_KEYS.PADRAO],
       annualDiscountPercent: COMMERCIAL_PRICING.annualDiscountPercent,
@@ -395,6 +420,7 @@ export function buildCommercialPlansCatalog(options: { includeHidden?: boolean }
       key: COMMERCIAL_PLAN_KEYS.PRO,
       title: 'HBX Pro',
       status: 'available',
+      contactOnly: false,
       monthlyPrice: COMMERCIAL_PRICING.proMonthly,
       trialDays: COMMERCIAL_PLAN_TRIAL_DAYS[COMMERCIAL_PLAN_KEYS.PRO],
       annualDiscountPercent: COMMERCIAL_PRICING.annualDiscountPercent,
@@ -423,8 +449,11 @@ export function buildCommercialPlansCatalog(options: { includeHidden?: boolean }
     },
     {
       key: COMMERCIAL_PLAN_KEYS.MELHOR,
-      title: 'HBX Company',
+      title: 'Implantação',
       status: 'available',
+      // contactOnly: true → preço NÃO é exibido ao cliente; o número interno
+      // (melhorMonthly) continua alimentando billing de quem já é Company.
+      contactOnly: true,
       monthlyPrice: COMMERCIAL_PRICING.melhorMonthly,
       priceFrom: true,
       trialDays: COMMERCIAL_PLAN_TRIAL_DAYS[COMMERCIAL_PLAN_KEYS.MELHOR],
@@ -434,8 +463,8 @@ export function buildCommercialPlansCatalog(options: { includeHidden?: boolean }
       requiresAssistedSetup: true,
       setupFeeMode: 'negotiated',
       hidden: false,
-      headline: 'Tudo do Pro + cobrança integrada ao seu ERP. A HBX monta com você.',
-      description: 'WhatsApp comercial completo com Atendimento, Bot IA, Radar, Vendas, Recovery de inadimplentes e integração com seu ERP. Implantação feita pela HBX.',
+      headline: 'Implantação completa pela HBX: Recovery, ERP e bot IA montados com você.',
+      description: 'A HBX estuda sua empresa, monta o WhatsApp, configura o Bot IA, integra ao seu ERP e ativa o Recovery de inadimplentes. Sem self-checkout — o processo começa com um especialista.',
       badge: 'Empresas',
       recommended: true,
       requiresCheckout: false,
@@ -451,7 +480,7 @@ export function buildCommercialPlansCatalog(options: { includeHidden?: boolean }
         'Regras de segurança para automação',
         'Implantação feita pela HBX',
       ],
-      legalCopy: 'Mensalidade e implantação a partir dos valores informados, definidas na conversa com a HBX. Liberação após pagamento confirmado.',
+      legalCopy: 'Mensalidade e implantação negociadas na conversa com a HBX.',
     },
   ];
 

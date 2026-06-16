@@ -19,6 +19,8 @@ import {
   COMMERCIAL_PRICING,
   PENDING_COMMERCIAL_ENTITLEMENT_STATUS,
   buildCommercialPlansCatalog,
+  classifyPlanChange,
+  getCommercialPlanMonthlyPrice,
   isCommercialEntitlementActive,
   normalizeCommercialPlanKey,
   resolveCommercialPlanKeyForCapabilities,
@@ -33,6 +35,7 @@ import {
 } from './seat-billing.util';
 import { resolveCompanyAccessState } from '../modules/company-access-state';
 import { MasterAlertService } from '../master-alert/master-alert.service';
+import { MailService } from '../mail/mail.service';
 
 type CommercialCurrentState = {
   planKey: ActiveCommercialPlanKey | null;
@@ -83,6 +86,7 @@ export class CommercialPlansService {
     private readonly prisma: PrismaService,
     private readonly masterContextService: MasterContextService,
     private readonly masterAlert: MasterAlertService,
+    private readonly mail: MailService,
   ) {}
 
   private async resolveUserContext(user: any) {
@@ -287,9 +291,10 @@ export class CommercialPlansService {
 
   private isSupportedPlanKey(value: unknown): value is ActiveCommercialPlanKey {
     const normalized = String(value || '').trim().toLowerCase();
+    // MELHOR (Implantação) barrado — é contato, não self-checkout (bloco 026).
     return normalized === COMMERCIAL_PLAN_KEYS.LITE ||
       normalized === COMMERCIAL_PLAN_KEYS.PADRAO ||
-      normalized === COMMERCIAL_PLAN_KEYS.MELHOR;
+      normalized === COMMERCIAL_PLAN_KEYS.PRO;
   }
 
   private async buildCurrentState(company: any): Promise<CommercialCurrentState> {
@@ -461,7 +466,7 @@ export class CommercialPlansService {
       {
         code: 'COMMERCIAL_PLAN_REQUIRED',
         message: 'Este recurso precisa de um plano HBX ativo.',
-        redirectTo: '/dashboard/planos',
+        redirectTo: '/configuracoes?sec=Plano+e+cobran%C3%A7a',
         currentEntitlements: current.entitlements,
       },
       HttpStatus.PAYMENT_REQUIRED,
@@ -720,13 +725,16 @@ export class CommercialPlansService {
       });
     }
     const normalizedPlanKey = normalizeCommercialPlanKey(dto.planKey);
-    const isAssistedSetupPlan = normalizedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR;
-    if (isAssistedSetupPlan) {
+    // Implantação (MELHOR) é contactOnly — não tem self-checkout (bloco 026).
+    if (normalizedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR) {
       throw new BadRequestException({
-        code: 'ASSISTED_SETUP_REQUIRED',
-        message: 'HBX Full exige implantação assistida. Fale com a HBX para configurar bot, automação e atendimento completo.',
+        code: 'CONTACT_ONLY_PLAN',
+        message: 'Implantação exige contato com a HBX. Use a tela de seleção de contato.',
       });
     }
+    // Sempre false aqui: MELHOR foi barrado acima. Mantido para o branch de
+    // trial (dead code; limpeza em 031/032).
+    const isAssistedSetupPlan = false;
 
     const updatedCompany = await this.prisma.$transaction(async (tx) => {
       const company = await tx.company.findUnique({
@@ -834,35 +842,11 @@ export class CommercialPlansService {
               deactivatedAt: null,
             }
           : {
-              // Troca de plano: preserva o estado vigente quando a empresa ja
-              // tem acesso ao mesmo plano; senao volta ao checkout pendente
-              // (estado unico nativo, sem espelho — DROP).
+              // Regra de Ouro (bloco 026): só registra intenção — NÃO corta
+              // acesso. Status/isActive só mudam após confirmação de pagamento
+              // (028=upgrade) ou de crédito (029=downgrade).
               selectedPlanKey: normalizedPlanKey,
               trialModuleSelection: normalizedPlanKey === COMMERCIAL_PLAN_KEYS.PADRAO ? 'vendas' : null,
-              ...(preserveExistingAccess
-                ? {}
-                : {
-                    status: 'pending_checkout',
-                    statusChangedAt: now,
-                    statusChangedByUserId: context.userId || null,
-                    isActive: false,
-                    deactivatedAt: now,
-                  }),
-              assistedSetupRequired: isAssistedSetupPlan,
-              assistedSetupStatus:
-                isAssistedSetupPlan
-                  ? String(company.assistedSetupStatus || '').trim().toLowerCase() === 'completed'
-                    ? 'completed'
-                    : 'pending'
-                  : 'not_required',
-              assistedSetupCompletedAt:
-                isAssistedSetupPlan
-                  ? company.assistedSetupCompletedAt
-                  : null,
-              assistedSetupCompletedByUserId:
-                isAssistedSetupPlan
-                  ? company.assistedSetupCompletedByUserId
-                  : null,
             },
       });
 
@@ -889,28 +873,42 @@ export class CommercialPlansService {
         });
       }
 
-      await this.syncPlanModulesTx(tx, context.companyId, normalizedPlanKey, startsTrial || preserveExistingAccess);
-      await this.syncEntitlementsTx(
-        tx,
-        context.companyId,
-        normalizedPlanKey,
-        selectionStatus,
-        selectionSource,
-        periodStart,
-        periodEnd,
-        selectionMetadata,
-      );
+      // Regra de Ouro (bloco 026): só sincroniza módulos/entitlements quando
+      // o acesso existente é preservado (mesmo plano + empresa já ativa).
+      // Troca efetiva (com cobrança ou crédito) acontece nos blocos 028/029.
+      if (startsTrial || preserveExistingAccess) {
+        await this.syncPlanModulesTx(tx, context.companyId, normalizedPlanKey, true);
+        await this.syncEntitlementsTx(
+          tx,
+          context.companyId,
+          normalizedPlanKey,
+          selectionStatus,
+          selectionSource,
+          periodStart,
+          periodEnd,
+          selectionMetadata,
+        );
+      }
 
-      return tx.company.findUniqueOrThrow({
+      const updatedCo = await tx.company.findUniqueOrThrow({
         where: { id: context.companyId },
         include: { commercialEntitlements: true },
       });
+      return { company: updatedCo, fromPlanKey: currentSelectedPlanKey };
     });
+
+    const direction = classifyPlanChange(updatedCompany.fromPlanKey, normalizedPlanKey);
 
     return {
       ok: true,
       selectedPlanKey: normalizedPlanKey,
-      ...(await this.buildPayload(updatedCompany, user)),
+      direction,
+      preview: {
+        direction,
+        currentMonthly: getCommercialPlanMonthlyPrice(updatedCompany.fromPlanKey),
+        newMonthly: getCommercialPlanMonthlyPrice(normalizedPlanKey),
+      },
+      ...(await this.buildPayload(updatedCompany.company, user)),
     };
   }
 
@@ -919,12 +917,15 @@ export class CommercialPlansService {
   // libera entitlement aqui (isso seria feature paga sem pagamento — PAGAMENTOS.md);
   // só registra o pedido e dispara o alerta do master. O alerta é best-effort:
   // falha de canal nunca derruba o pedido.
-  async requestFullPlan(user: any) {
+  // Pedido de Implantação com mensagem livre (bloco PR16062026025).
+  // Envia e-mail para jhonatan@hbxsystem.com.br + alerta in-app do master.
+  // Best-effort: falha de canal nunca derruba a resposta.
+  async requestImplantacaoContact(user: any, dto: { message?: string }) {
     const context = await this.resolveUserContext(user);
     if (!context.canSelectPlan) {
       throw new ForbiddenException({
         code: 'USER_PLAN_UPGRADE_NOT_ALLOWED',
-        message: 'Fale com o ADMIN da empresa para contratar o HBX Full.',
+        message: 'Fale com o ADMIN da empresa para solicitar Implantação.',
       });
     }
     const company = await this.prisma.company.findUnique({
@@ -933,7 +934,29 @@ export class CommercialPlansService {
     });
     if (!company) throw new BadRequestException('Empresa nao encontrada.');
 
-    await this.masterAlert
+    const msg = String(dto?.message || '').slice(0, 2000).trim();
+    const subject = `Pedido de Implantação — ${company.name || 'empresa'}`;
+    const text = [
+      `Empresa: ${company.name || '—'}`,
+      `Contato: ${company.primaryContactName || '—'}`,
+      `Telefone: ${company.contactPhone || '—'}`,
+      `E-mail: ${user?.email || '—'}`,
+      '',
+      msg ? `Mensagem:\n${msg}` : '(sem mensagem adicional)',
+    ].join('\n');
+
+    this.mail
+      .sendMail({
+        to: 'jhonatan@hbxsystem.com.br',
+        subject,
+        text,
+        html: `<pre style="font-family:sans-serif;white-space:pre-wrap">${text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>`,
+      })
+      .catch(() => {
+        // best-effort: falha de SMTP não derruba a resposta
+      });
+
+    this.masterAlert
       .notifyFullPlanRequested({
         companyId: company.id,
         companyName: company.name,
@@ -942,14 +965,12 @@ export class CommercialPlansService {
         requestedByEmail: user?.email || null,
       })
       .catch(() => {
-        // best-effort: o alerta nunca derruba o registro do pedido
+        // best-effort: falha de alerta não derruba a resposta
       });
 
     return {
       ok: true,
-      requested: COMMERCIAL_PLAN_KEYS.MELHOR,
-      message:
-        'Recebemos seu pedido do HBX Full. Um especialista da HBX vai entrar em contato para a implantação assistida.',
+      message: 'Recebemos seu pedido de Implantação. A HBX vai te chamar.',
     };
   }
 }

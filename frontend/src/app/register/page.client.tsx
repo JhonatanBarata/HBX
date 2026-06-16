@@ -1,17 +1,16 @@
 "use client";
 
-// Criar conta (/register) — ordem do dono 12/06/2026: o "Falar com vendas"
-// do login vira "Criar Conta" e aponta para cá. Campos da referência do
-// dono (Empresa, E-mail, Como deseja ser chamado?, Senha, Confirmar),
-// reconstruídos no PADRÃO novo (moldura do Login) — visual antigo não volta.
-// Fluxo: POST /auth/signup → pendência de confirmação de e-mail → /confirm-email.
+// Formulário de cadastro EMBUTIDO no funil de planos (casca /?ver=planos).
+// NÃO é mais uma tela própria: a rota /register só redireciona pra casca
+// (register/page.tsx). Aqui mora SÓ o form — o resumo do plano (cards, preço,
+// feature) é da casca, fonte única; este arquivo nunca mais duplica plano.
+// Fluxo: POST /auth/signup → confirmação de e-mail → CheckoutPanel na mesma cena.
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import { CheckoutPanel } from "@/components/hbx/checkout-panel";
-import { HbxScene } from "@/components/hbx/hbx-scene";
 import { apiFetch, setToken } from "@/lib/api";
 
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
@@ -44,21 +43,6 @@ function formatWhatsapp(value: string) {
 
 const PLANOS_VALIDOS = new Set(["hbx_lite", "hbx_padrao", "hbx_pro", "hbx_melhor"]);
 
-// Resumo do plano escolhido (coluna esquerda) — espelha o /planos. Copy minha.
-const SNOW = ["M12 2v20", "M3.34 7l17.32 10", "M20.66 7L3.34 17", "M2 12h20"];
-const TARGET = ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z", "M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z", "M12 12h.01"];
-const BOLT = ["M13 2 4 14h7l-1 8 10-12h-9l1-8Z"];
-const CUBE = ["M12 2 21 7v10l-9 5-9-5V7l9-5Z", "M3.3 7.2 12 12l8.7-4.8", "M12 12v10"];
-const CHECK = ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z", "M8.4 12l2.4 2.4 4.8-5"];
-const BARS = ["M4 19V5", "M4 19h16", "M8 19v-6", "M13 19V9", "M18 19v-4"];
-const SPARK = ["M12 3l1.7 5.1L19 10l-5.3 1.9L12 17l-1.7-5.1L5 10l5.3-1.9L12 3Z"];
-const PLAN_INFO: Record<string, { accent: string; tag: string; feats: string[]; ic: string[]; score?: string }> = {
-  hbx_lite: { accent: "List", tag: "Você pede, o Radar entrega. Cards crus pra você esquentar e prospectar.", feats: ["Telefone, cidade, segmento e site", "Redes sociais quando encontradas", "880 leads por mês"], ic: SNOW },
-  hbx_padrao: { accent: "Lead", tag: "Leads inteligentes: você já sabe quem ligar e o que dizer.", feats: ["WhatsApp verificado pela HBX", "Score, motivo e canal recomendado", "Mensagem pronta por segmento", "2.200 leads por mês"], ic: TARGET, score: "Score e motivo em cada lead" },
-  hbx_pro: { accent: "Full", tag: "Atendimento no painel e Bot IA prospectando por você.", feats: ["Tudo do Lead", "Atendimento interno pelo painel", "Bot IA + prospecção pós-resposta", "3.500 leads por mês"], ic: BOLT },
-  hbx_melhor: { accent: "Company", tag: "Tudo do Full + Recovery e integração com o seu ERP, montado pela HBX.", feats: ["Recovery de inadimplentes", "Cobrança integrada ao seu ERP", "Implantação feita pela HBX"], ic: CUBE },
-};
-
 const PLANO_COPY: Record<string, { formTitle: string; formSub: React.ReactNode; doneSub: string }> = {
   hbx_lite: {
     formTitle: "Criar sua conta",
@@ -82,10 +66,6 @@ const PLANO_COPY: Record<string, { formTitle: string; formSub: React.ReactNode; 
   },
 };
 
-function Ic({ paths }: { paths: string[] }) {
-  return <svg className="site-ic" viewBox="0 0 24 24" aria-hidden>{paths.map((d, i) => <path key={i} d={d} />)}</svg>;
-}
-
 type RegisterPanelProps = {
   selectedPlanKey?: string | null;
   embedded?: boolean;
@@ -93,14 +73,6 @@ type RegisterPanelProps = {
 
 export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPanelProps) {
   const router = useRouter();
-  // link de contratação do vendedor (/register?plan=X&hbxLead=...): o plano
-  // do link entra no cadastro; o hbxLead fica na URL para rastreio.
-  const [planFromLink] = useState(() => {
-    try {
-      const p = new URLSearchParams(window.location.search).get("plan") || "";
-      return PLANOS_VALIDOS.has(p) ? p : null;
-    } catch { return null; }
-  });
   const [empresa, setEmpresa] = useState("");
   const [email, setEmail] = useState("");
   const [nome, setNome] = useState("");
@@ -115,9 +87,8 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
   const [resendMsg, setResendMsg] = useState<string | null>(null);
   const googleBtnRef = useRef<HTMLDivElement>(null);
 
-  const selectedPlan = selectedPlanKey && PLANOS_VALIDOS.has(selectedPlanKey) ? selectedPlanKey : planFromLink || "hbx_padrao";
+  const selectedPlan = selectedPlanKey && PLANOS_VALIDOS.has(selectedPlanKey) ? selectedPlanKey : "hbx_padrao";
   const isTrial = selectedPlan === "hbx_padrao";
-  const info = PLAN_INFO[selectedPlan] || PLAN_INFO.hbx_padrao;
   const copy = PLANO_COPY[selectedPlan] || PLANO_COPY.hbx_padrao;
   // Checkout na casca: List/Full cobram na hora; Lead salva o cartão e NÃO cobra
   // (Plano B — trial com cartão, 1ª cobrança só no X+14, o backend adia). Company
@@ -243,20 +214,6 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
       style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", border: 0, background: "transparent", color: "var(--text-muted)", cursor: "pointer", fontSize: "0.85rem" }}>
       {on ? "🙈" : "👁"}
     </button>
-  );
-
-  const planAside = (
-    <aside className="reg-plan">
-          {isTrial && <span className="reg-plan__badge"><Ic paths={SPARK} />14 dias grátis</span>}
-          <span className="reg-plan__ic"><Ic paths={info.ic} /></span>
-          <strong className="reg-plan__name">HBX <span className="site-accent">{info.accent}</span></strong>
-          <p className="reg-plan__tag">{info.tag}</p>
-          {info.score && <span className="reg-plan__score"><Ic paths={BARS} />{info.score}</span>}
-          <ul className="reg-plan__feats">
-            {info.feats.map((f) => <li key={f}><Ic paths={CHECK} />{f}</li>)}
-          </ul>
-          {isTrial && <span className="reg-plan__note">Não cobramos nada por 14 dias. Cancele quando quiser.</span>}
-    </aside>
   );
 
   const formContent = (
@@ -401,18 +358,5 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
     </main>
   );
 
-  if (embedded) return formContent;
-
-  return (
-    <HbxScene active="planos" plain>
-      <div className="scene-register">
-        {planAside}
-        {formContent}
-      </div>
-    </HbxScene>
-  );
-}
-
-export function RegisterClient() {
-  return <RegisterPanel />;
+  return formContent;
 }

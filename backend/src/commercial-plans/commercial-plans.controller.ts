@@ -18,7 +18,9 @@ export class CommercialPlansPublicController {
       .map((plan) => ({
         key: plan.key,
         title: plan.title,
-        monthlyPrice: plan.monthlyPrice,
+        // contactOnly: preço interno não é exibido; o número vive só no billing.
+        monthlyPrice: plan.contactOnly ? null : plan.monthlyPrice,
+        contactOnly: plan.contactOnly,
         trialDays: plan.trialDays,
         includedUsers: plan.includedUsers,
         headline: plan.headline,
@@ -51,10 +53,10 @@ export class CommercialPlansController {
     return this.commercialPlansService.selectPlanForUser(req.user, dto);
   }
 
-  // HBX Full não tem self-checkout: o cliente pede e o master é alertado para a
-  // implantação assistida (ordem do dono 14/06). Não muda plano/entitlement.
-  @Post('request-full')
-  requestFull(@Req() req: any) {
-    return this.commercialPlansService.requestFullPlan(req.user);
+  // Pedido de Implantação com mensagem livre (bloco PR16062026025).
+  // Envia e-mail para jhonatan@hbxsystem.com.br + alerta in-app do master.
+  @Post('implantacao/contact')
+  requestImplantacaoContact(@Req() req: any, @Body() body: { message?: string }) {
+    return this.commercialPlansService.requestImplantacaoContact(req.user, body);
   }
 }

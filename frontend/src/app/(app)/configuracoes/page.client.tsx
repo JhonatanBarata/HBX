@@ -26,7 +26,9 @@ import React, { useEffect, useState } from "react";
 
 import { CargoAcessosEditor } from "@/components/hbx/cargo-acessos-editor";
 import { CompanyEmailSection } from "@/components/hbx/company-email-section";
+import { ImplantacaoContato } from "@/components/hbx/implantacao-contato";
 import { NovoAcessoModal } from "@/components/hbx/novo-acesso-modal";
+import { TrocarPlanoModal, type TrocarPlanoDirection } from "@/components/hbx/trocar-plano-modal";
 import { SubscribeCardModal } from "@/components/hbx/subscribe-card-modal";
 import { Av, ConfirmDialog, I, ICONS } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
@@ -63,6 +65,7 @@ type CatalogPlan = {
   recommended?: boolean;
   // Full: implantação assistida, sem self-checkout — o cliente PEDE e a HBX contata.
   requiresAssistedSetup?: boolean;
+  contactOnly?: boolean;
   features?: string[];
 };
 
@@ -142,7 +145,8 @@ export function ConfiguracoesClient() {
   const [planoMsg, setPlanoMsg] = useState<string | null>(null);
   const [subscribePlan, setSubscribePlan] = useState<CatalogPlan | null>(null);
   const [confirmCancelar, setConfirmCancelar] = useState(false);
-  const [confirmFull, setConfirmFull] = useState<CatalogPlan | null>(null);
+  const [implantacaoOpen, setImplantacaoOpen] = useState(false);
+  const [trocarPlano, setTrocarPlano] = useState<CatalogPlan | null>(null);
 
   // Novo acesso (cadastro completo, PR12062026005) + gestão de membro.
   // Gerenciar abre a tela do vendedor (gerenciar-vendedor-modal) com os
@@ -265,25 +269,6 @@ export function ConfiguracoesClient() {
       await recarregarPlano();
     } catch (err) {
       setPlanoMsg(err instanceof Error ? err.message : "Não foi possível cancelar agora.");
-    } finally {
-      setPlanoBusy(false);
-    }
-  }
-
-  // HBX Full = implantação assistida, sem self-checkout: pede e a HBX entra em
-  // contato (POST /commercial-plans/request-full). Não troca plano nem cobra.
-  async function pedirFull() {
-    if (planoBusy) return;
-    setPlanoBusy(true);
-    setPlanoMsg(null);
-    try {
-      const res = await apiFetch<{ message?: string }>("/commercial-plans/request-full", {
-        method: "POST",
-        body: JSON.stringify({}),
-      });
-      setPlanoMsg(`✓ ${res?.message || "Pedido enviado. Um especialista da HBX vai entrar em contato."}`);
-    } catch (err) {
-      setPlanoMsg(err instanceof Error ? err.message : "Não foi possível enviar o pedido agora.");
     } finally {
       setPlanoBusy(false);
     }
@@ -463,7 +448,10 @@ export function ConfiguracoesClient() {
                         <button className="btn-ghost" onClick={() => document.getElementById("hbx-catalogo-planos")?.scrollIntoView({ behavior: "smooth", block: "start" })}>Gerenciar plano</button>
                       )}
                       {canSelectPlan && current?.accessState === "paying" && (
-                        <button className="btn-ghost" disabled={planoBusy} onClick={() => { setConfirmCancelar(true); setPlanoMsg(null); }}>Cancelar assinatura</button>
+                        <>
+                          <button className="btn-ghost" disabled={planoBusy} onClick={() => { setConfirmCancelar(true); setPlanoMsg(null); }}>Cancelar assinatura</button>
+                          <small><a href="https://wa.me/5519997024884" target="_blank" rel="noopener noreferrer">Reclamação ou reembolso? Fale com a gente</a></small>
+                        </>
                       )}
                     </div>
                     <div className="kv">
@@ -513,9 +501,9 @@ export function ConfiguracoesClient() {
                               </ul>
                             )}
                             {canSelectPlan && !atual && (
-                              p.requiresAssistedSetup
-                                ? <button className="btn-ghost" style={{ marginTop: 2 }} disabled={planoBusy} onClick={() => { setConfirmFull(p); setPlanoMsg(null); }}>Falar com a HBX</button>
-                                : <button className="btn-ghost" style={{ marginTop: 2 }} disabled={planoBusy} onClick={() => { setSubscribePlan(p); setPlanoMsg(null); }}>Assinar este plano</button>
+                              (p.requiresAssistedSetup || p.contactOnly)
+                                ? <button className="btn-ghost" style={{ marginTop: 2 }} onClick={() => { setImplantacaoOpen(true); setPlanoMsg(null); }}>Quero implantação</button>
+                                : <button className="btn-ghost" style={{ marginTop: 2 }} disabled={planoBusy} onClick={() => { setTrocarPlano(p); setPlanoMsg(null); }}>Assinar este plano</button>
                             )}
                           </article>
                         );
@@ -577,7 +565,7 @@ export function ConfiguracoesClient() {
       <ConfirmDialog
         open={confirmCancelar}
         title="Cancelar assinatura"
-        message={<>Cancelar a assinatura recorrente? A cobrança automática para, e o acesso continua até o fim do período já pago.</>}
+        message={<>Cancelar a assinatura recorrente? A cobrança automática para, e o acesso continua até o fim do período já pago.<br /><br /><small>Precisa de reembolso ou tem uma reclamação? <a href="https://wa.me/5519997024884" target="_blank" rel="noopener noreferrer">Fale com a gente pelo WhatsApp</a>.</small></>}
         confirmLabel="Cancelar assinatura"
         danger
         busy={planoBusy}
@@ -585,15 +573,26 @@ export function ConfiguracoesClient() {
         onCancel={() => setConfirmCancelar(false)}
       />
 
-      <ConfirmDialog
-        open={!!confirmFull}
-        title="HBX Full — implantação assistida"
-        message={<>O <strong>{confirmFull?.title}</strong> é implantado pela HBX: você não paga por cartão aqui. Ao confirmar, um <strong>especialista da HBX entra em contato</strong> para configurar bot, automação e atendimento com você.</>}
-        confirmLabel="Quero falar com a HBX"
-        busy={planoBusy}
-        onConfirm={async () => { setConfirmFull(null); await pedirFull(); }}
-        onCancel={() => setConfirmFull(null)}
-      />
+      {trocarPlano && (() => {
+        const fromMonthly = planoAtual?.monthlyPrice ?? 0;
+        const toMonthly = trocarPlano.monthlyPrice ?? 0;
+        const dir: TrocarPlanoDirection =
+          toMonthly > fromMonthly ? "upgrade" : toMonthly < fromMonthly ? "downgrade" : "same";
+        return (
+          <TrocarPlanoModal
+            fromPlan={planoAtual}
+            toPlan={trocarPlano}
+            direction={dir}
+            accessState={current?.accessState}
+            trialRemainingDays={current?.trialRemainingDays}
+            onClose={() => setTrocarPlano(null)}
+            onConfirmUpgrade={plan => { setTrocarPlano(null); setSubscribePlan(plan); }}
+            onDoneDowngrade={msg => { setTrocarPlano(null); setPlanoMsg(msg); recarregarPlano(); }}
+          />
+        );
+      })()}
+
+      {implantacaoOpen && <ImplantacaoContato onClose={() => setImplantacaoOpen(false)} asModal />}
     </React.Fragment>
   );
 }

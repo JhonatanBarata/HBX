@@ -576,7 +576,7 @@ html, body { height: 100%; }
 .bv-foot .grow { margin-left: auto; }
 .bv-foot .btn-teal { min-height: 42px; }
 .bv-steps { display: grid; gap: 9px; }
-.bv-step { display: flex; gap: 12px; align-items: flex-start; padding: 11px 13px; border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-surface-soft); }
+.bv-step { display: flex; gap: 12px; align-items: flex-start; padding: 11px 13px; border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-surface-soft); text-decoration: none; cursor: pointer; text-align: left; font: inherit; color: inherit; width: 100%; box-sizing: border-box; }
 .bv-step .n { flex: 0 0 auto; width: 25px; height: 25px; display: grid; place-items: center; border-radius: var(--radius-pill); background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); font-family: var(--font-mono); font-size: 0.72rem; font-weight: 700; }
 .bv-step .tx { display: grid; gap: 2px; min-width: 0; }
 .bv-step .tx strong { font-size: 0.79rem; }
@@ -895,24 +895,6 @@ button.site-plan2:hover { transform: translateY(-4px); border-color: var(--login
   to { opacity: 1; clip-path: inset(0 0 0 0); }
 }
 
-/* REGISTER 2-colunas (foto 2): resumo do plano escolhido à esquerda + form à direita.
-   robô some (HbxScene plain); tudo na casca, accent ciclando. */
-.scene-register { min-height: 100dvh; display: grid; grid-template-columns: minmax(280px, 0.82fr) minmax(0, 1.18fr); gap: clamp(20px, 4vw, 56px); align-items: center; padding: clamp(80px, 11vh, 112px) clamp(20px, 5vw, 72px) clamp(40px, 6vh, 64px); width: min(1180px, 100%); margin: 0 auto; }
-.reg-plan { display: grid; gap: 12px; justify-items: center; text-align: center; padding: 32px 26px; border-radius: 24px; border: 1px solid var(--login-accent, var(--hbx-brand)); background-color: color-mix(in srgb, var(--text-body) 5%, var(--hbx-background)); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); box-shadow: 0 0 0 1px color-mix(in srgb, var(--login-accent, var(--hbx-brand)) 38%, transparent), 0 26px 64px -30px color-mix(in srgb, var(--login-accent, var(--hbx-brand)) 60%, transparent); }
-.reg-plan__badge { display: inline-flex; align-items: center; gap: 6px; padding: 5px 14px; border-radius: 999px; font-family: var(--font-mono); font-size: 0.62rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--hbx-background); background-color: var(--login-accent, var(--hbx-brand)); }
-.reg-plan__badge svg { width: 14px; height: 14px; }
-.reg-plan__ic { width: 62px; height: 62px; display: grid; place-items: center; border-radius: 999px; color: var(--login-accent, var(--hbx-brand)); border: 1px solid color-mix(in srgb, var(--login-accent, var(--hbx-brand)) 40%, transparent); background-color: color-mix(in srgb, var(--login-accent, var(--hbx-brand)) 12%, var(--hbx-background)); }
-.reg-plan__ic svg { width: 30px; height: 30px; }
-.reg-plan__name { font-family: var(--font-display); font-size: 1.55rem; font-weight: 800; color: var(--text-strong); }
-.reg-plan__tag { margin: 0; font-size: 0.9rem; line-height: 1.45; color: var(--text-muted); max-width: 28ch; }
-.reg-plan__score { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--login-accent, var(--hbx-brand)) 30%, transparent); background-color: color-mix(in srgb, var(--login-accent, var(--hbx-brand)) 10%, var(--hbx-background)); font-size: 0.84rem; font-weight: 600; color: var(--text-body); }
-.reg-plan__score svg { width: 18px; height: 18px; color: var(--login-accent, var(--hbx-brand)); }
-.reg-plan__score b { color: var(--login-accent, var(--hbx-brand)); font-size: 1rem; }
-.reg-plan__feats { list-style: none; margin: 4px 0; padding: 0; display: grid; gap: 9px; }
-.reg-plan__feats li { display: flex; align-items: center; gap: 9px; font-size: 0.85rem; color: var(--text-body); text-align: left; }
-.reg-plan__feats svg { width: 18px; height: 18px; flex: none; color: var(--login-accent, var(--hbx-brand)); }
-.reg-plan__note { font-size: 0.74rem; color: var(--text-muted); }
-
 /* Checkout na casca (passo de pagamento embutido após o cadastro) */
 .reg-checkout { gap: 12px; }
 .reg-checkout__summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
@@ -930,10 +912,6 @@ button.site-plan2:hover { transform: translateY(-4px); border-color: var(--login
 .reg-checkout__safe { margin: 2px 0 0; font-size: 0.66rem; line-height: 1.5; color: var(--text-muted); text-align: center; }
 .reg-form { display: grid; place-items: center; min-width: 0; }
 .reg-form .card { width: min(480px, 100%); }
-@media (max-width: 880px) {
-  .scene-register { grid-template-columns: 1fr; align-content: center; gap: 24px; }
-  .reg-plan { max-width: 460px; margin: 0 auto; }
-}
 
 /* "escrevendo": kicker → título → sub → cards → métricas entram em sequência ao revelar */
 .site-scene.is-revealed :is(.site-esteira-view .site-eyebrow, .site-esteira-title, .site-esteira-view .site-sub, .site-station, .site-metrics) { animation: site-write-in 0.5s var(--ease-out-quint) both; }
