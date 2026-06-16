@@ -22,10 +22,46 @@ const NAV: { key: SceneNav; label: string; href: string; cta?: boolean }[] = [
   { key: "entrar", label: "Entrar", href: "/login", cta: true },
 ];
 
+function SceneWorldIcon() {
+  return (
+    <span className="scene-world" aria-hidden>
+      <svg className="scene-world__globe" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.55" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z" />
+        <path d="M3.6 9h16.8M3.6 15h16.8" />
+        <path d="M12 3c2.2 2.4 3.3 5.4 3.3 9S14.2 18.6 12 21" />
+        <path d="M12 3C9.8 5.4 8.7 8.4 8.7 12s1.1 6.6 3.3 9" />
+      </svg>
+      <i className="scene-world__orbit" />
+    </span>
+  );
+}
+
 // Os 4 guias (marcador da tela atual). Sem onNav = navega por rota; com onNav,
 // a tela controla in-place (ex.: a landing alterna Início↔Esteira sem trocar de rota).
-export function SceneMenu({ active = null, onNav }: { active?: SceneNav | null; onNav?: (key: SceneNav) => void }) {
+export function SceneMenu({ active = null, onNav, mode = "tabs" }: { active?: SceneNav | null; onNav?: (key: SceneNav) => void; mode?: "tabs" | "world" }) {
   const router = useRouter();
+  const goWebHome = () => {
+    if (onNav) return onNav("inicio");
+    const host = window.location.hostname;
+    window.location.assign(host === "localhost" || host === "127.0.0.1" ? "/" : "https://www.hbxsystem.com.br/");
+  };
+
+  if (mode === "world") {
+    return (
+      <nav className="scene-nav scene-nav--world hbx-scene" aria-label="Navegação">
+        <button
+          type="button"
+          className="scene-nav__world"
+          aria-label="Voltar ao mundo HBX"
+          title="Mundo HBX"
+          onClick={goWebHome}
+        >
+          <SceneWorldIcon />
+        </button>
+      </nav>
+    );
+  }
+
   return (
     <nav className="scene-nav" aria-label="Navegação">
       {NAV.map((it) => (

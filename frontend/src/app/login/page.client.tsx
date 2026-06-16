@@ -111,8 +111,9 @@ export function LoginClient() {
     let scriptTag: HTMLScriptElement | null = null;
     function initGoogle() {
       if (!(window as WinG).google?.accounts?.id || !googleBtnRef.current) return;
+      const buttonWidth = Math.round(Math.min(400, Math.max(220, googleBtnRef.current.getBoundingClientRect().width || 320)));
       (window as WinG).google!.accounts!.id!.initialize({ client_id: GOOGLE_CLIENT_ID, callback: handleGoogleCredential });
-      (window as WinG).google!.accounts!.id!.renderButton(googleBtnRef.current, { theme: "outline", size: "large", width: "100%", text: "continue_with", locale: "pt-BR" });
+      (window as WinG).google!.accounts!.id!.renderButton(googleBtnRef.current, { theme: "outline", size: "large", width: buttonWidth, text: "continue_with", locale: "pt-BR" });
     }
     if ((window as WinG).google?.accounts?.id) {
       initGoogle();
@@ -183,7 +184,7 @@ export function LoginClient() {
         </button>
       </div>
 
-      <SceneMenu active="entrar" />
+      <SceneMenu active="entrar" mode="world" />
 
       <div className={"hbx-scene login-console" + (ok && !plain ? " is-leaving" : "") + (plain ? " is-plain" : "")}>
         <div className="login-art" aria-hidden>
