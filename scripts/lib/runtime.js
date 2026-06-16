@@ -167,19 +167,29 @@ function run(command, args, options = {}) {
   let spawnCommand = executable;
   let spawnArgs = args;
   const shouldUseShell = options.shell === true;
+  const hasStdin = options.stdin != null;
 
   if (process.platform === 'win32' && /\.cmd$/i.test(executable) && !shouldUseShell) {
     spawnCommand = process.env.comspec || 'cmd.exe';
     spawnArgs = ['/d', '/s', '/c', executable, ...args];
   }
 
-  const result = spawnSync(spawnCommand, spawnArgs, {
+  const stdinChannel = hasStdin ? 'pipe' : 'inherit';
+  const stdio = options.captureOutput
+    ? [stdinChannel, 'pipe', 'pipe']
+    : [stdinChannel, 'inherit', 'inherit'];
+
+  const spawnOpts = {
     cwd: options.cwd || repoRoot,
     env: options.env || process.env,
     encoding: 'utf8',
     shell: shouldUseShell,
-    stdio: options.captureOutput ? ['inherit', 'pipe', 'pipe'] : 'inherit',
-  });
+    stdio,
+  };
+
+  if (hasStdin) spawnOpts.input = options.stdin;
+
+  const result = spawnSync(spawnCommand, spawnArgs, spawnOpts);
 
   if (result.error) {
     throw result.error;

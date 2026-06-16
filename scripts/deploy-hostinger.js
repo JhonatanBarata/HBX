@@ -823,8 +823,9 @@ function printDryRun(config, mode) {
 function deployOnHostinger(config, mode) {
   const sshTarget = `${config.sshUser}@${config.sshHost}`;
   const remoteScript = buildRemoteDeployScript(config, mode);
-  runStep('ssh', [sshTarget, 'bash', '-lc', shellSingleQuote(remoteScript)], {
+  runStep('ssh', [sshTarget, 'bash', '-ls'], {
     label: `ssh ${sshTarget} Hostinger deploy (${mode})`,
+    stdin: remoteScript,
   });
 }
 
