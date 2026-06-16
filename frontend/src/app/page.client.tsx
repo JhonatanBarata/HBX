@@ -15,6 +15,22 @@ import { applyThemeSoft, setThemeMode } from "@/components/hbx/theme-attributes"
 import { RegisterPanel } from "@/app/register/page.client";
 import { apiFetch, setToken, type ApiError } from "@/lib/api";
 
+// ── utils ─────────────────────────────────────────────────────────────────────
+function formatCpfCnpj(v: string): string {
+  const d = v.replace(/\D/g, "").slice(0, 14);
+  if (d.length <= 11) {
+    if (d.length <= 3) return d;
+    if (d.length <= 6) return `${d.slice(0, 3)}.${d.slice(3)}`;
+    if (d.length <= 9) return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6)}`;
+    return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
+  }
+  if (d.length <= 2) return d;
+  if (d.length <= 5) return `${d.slice(0, 2)}.${d.slice(2)}`;
+  if (d.length <= 8) return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5)}`;
+  if (d.length <= 12) return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8)}`;
+  return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`;
+}
+
 // ── types ──────────────────────────────────────────────────────────────────────
 type View = "inicio" | "esteira" | "modulos" | "planos" | "entrar";
 type LoginResponse = { access_token?: string; next?: string; requiresCheckout?: boolean };
@@ -79,10 +95,10 @@ const LOGOS = [
   ["M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z", "M4 9h16", "M9 3v4", "M15 3v4"],
   ["M21 12a9 9 0 1 1-3-6.7", "M21 4v5h-5"],
 ];
-type Plan = { key: string; accent: string; ic: string[]; tag: string; price: string; pricePrefix?: string; feats: string[]; cta: string; hot?: boolean; badge?: string; score?: string; logos?: boolean };
+type Plan = { key: string; accent: string; ic: string[]; tag: string; price: string; pricePrefix?: string; feats: string[]; cta: string; hot?: boolean; badge?: string; score?: string; trial?: string; logos?: boolean };
 const PLANS: Plan[] = [
   { key: "hbx_lite", accent: "List", ic: SNOW, tag: "Você pede, o Radar entrega. Cards crus pra você esquentar e prospectar.", price: "R$ 49,00", feats: ["Telefone, cidade, segmento e site", "Redes sociais quando encontradas", "880 leads por mês"], cta: "Escolher plano" },
-  { key: "hbx_padrao", accent: "Lead", ic: TARGET, hot: true, badge: "Mais escolhido", score: "Score e motivo em cada lead", tag: "Leads inteligentes: você já sabe quem ligar e o que dizer.", price: "R$ 99,00", feats: ["WhatsApp verificado pela HBX", "Score, motivo e canal recomendado", "Mensagem pronta por segmento", "2.200 leads por mês"], cta: "Testar 14 dias grátis" },
+  { key: "hbx_padrao", accent: "Lead", ic: TARGET, hot: true, badge: "Mais escolhido", trial: "14 dias grátis", tag: "Leads inteligentes: você já sabe quem ligar e o que dizer.", price: "R$ 99,00", feats: ["WhatsApp verificado pela HBX", "Score, motivo e canal recomendado", "Mensagem pronta por segmento", "2.200 leads por mês"], cta: "Testar 14 dias grátis" },
   { key: "hbx_pro", accent: "Full", ic: BOLT, tag: "Atendimento no painel e Bot IA prospectando por você.", price: "R$ 249,00", feats: ["Tudo do Lead", "Atendimento interno pelo painel", "Bot IA + prospecção pós-resposta", "3.500 leads por mês"], cta: "Escolher plano" },
   { key: "hbx_melhor", accent: "Company", ic: CUBE, tag: "Tudo do Full + Recovery e integração com o seu ERP.", pricePrefix: "A partir de", price: "R$ 445,90", feats: ["Recovery de inadimplentes", "Cobrança integrada ao seu ERP", "Implantação feita pela HBX"], logos: true, cta: "Falar com especialista" },
 ];
@@ -520,7 +536,9 @@ export function MarketingClient() {
                     {p.key !== "hbx_melhor" && <span className="site-plan2__annual">2 meses grátis no anual</span>}
                     <span className="site-plan2__ic"><Ic paths={p.ic} /></span>
                     <strong className="site-plan2__name">HBX <span className="site-accent">{p.accent}</span></strong>
-                    <span className="site-plan2__price">{p.pricePrefix && <small>{p.pricePrefix}</small>}<b>{p.price}</b><em>/mês</em></span>
+                    {p.trial
+                      ? <span className="site-plan2__trial-wrap"><span className="site-plan2__trial">{p.trial}</span><span className="site-plan2__trial-price">{p.price}<em>/mês</em></span></span>
+                      : <span className="site-plan2__price">{p.pricePrefix && <small>{p.pricePrefix}</small>}<b>{p.price}</b><em>/mês</em></span>}
                     <span className="site-plan2__tag">{p.tag}</span>
                     {p.score && <span className="site-plan2__score"><Ic paths={PLAN_BARS} />{p.score}</span>}
                     <ul className="site-plan2__feats">
@@ -623,9 +641,9 @@ export function MarketingClient() {
                 <h2>Entrar no HBX</h2>
                 <p className="sub">Acesse sua conta com segurança e continue de onde parou.</p>
                 <div className="f">
-                  <label htmlFor="em">E-mail</label>
-                  <input id="em" className="field-dark" type="text" placeholder="seu@email.com.br" required autoComplete="username"
-                    value={loginEmail} onChange={e => setLoginEmail(e.target.value)} />
+                  <label htmlFor="em">CPF ou CNPJ</label>
+                  <input id="em" className="field-dark" type="text" placeholder="000.000.000-00" required autoComplete="username"
+                    value={loginEmail} onChange={e => setLoginEmail(formatCpfCnpj(e.target.value))} />
                 </div>
                 <div className="f">
                   <label htmlFor="pw">Senha</label>
@@ -650,7 +668,7 @@ export function MarketingClient() {
                 </button>
                 <div className="alt">Ainda não tem conta?{" "}
                   <button type="button" className="link" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer" }}
-                    onClick={() => goRoute("/register")}>Criar Conta</button>
+                    onClick={() => goRoute("/?ver=planos")}>Criar Conta</button>
                 </div>
               </form>
             </main>

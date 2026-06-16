@@ -812,6 +812,11 @@ button.site-plan2:hover { transform: translateY(-4px); border-color: var(--login
 .site-plan2__price small { align-self: center; color: var(--text-muted); font-family: var(--font-body); font-size: 0.68rem; font-weight: 700; }
 .site-plan2__price b { color: var(--login-accent, var(--hbx-brand)); font-size: 1.22rem; font-weight: 800; }
 .site-plan2__price em { color: var(--text-muted); font-family: var(--font-body); font-size: 0.74rem; font-style: normal; font-weight: 700; }
+.site-plan2__trial-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.site-plan2__trial { display: inline-flex; align-items: center; justify-content: center; min-height: 32px; padding: 5px 18px; border-radius: 999px; background-color: var(--login-accent, var(--hbx-brand)); color: var(--hbx-background); font-family: var(--font-display); font-size: 1.08rem; font-weight: 800; letter-spacing: 0.01em; animation: trial-glow 2.2s ease-in-out infinite; }
+.site-plan2__trial-price { font-family: var(--font-body); font-size: 0.72rem; font-weight: 600; color: var(--text-muted); }
+.site-plan2__trial-price em { font-style: normal; }
+@keyframes trial-glow { 0%, 100% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--login-accent, var(--hbx-brand)) 32%, transparent); } 50% { box-shadow: 0 0 0 7px color-mix(in srgb, var(--login-accent, var(--hbx-brand)) 14%, transparent), 0 4px 18px color-mix(in srgb, var(--login-accent, var(--hbx-brand)) 40%, transparent); } }
 .site-plan2__tag { font-size: 0.86rem; line-height: 1.4; color: var(--text-muted); min-height: 2.4em; }
 .site-plan2__score { display: inline-flex; align-items: center; gap: 8px; padding: 6px 13px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--login-accent, var(--hbx-brand)) 30%, transparent); background-color: color-mix(in srgb, var(--login-accent, var(--hbx-brand)) 10%, var(--hbx-background)); font-size: 0.82rem; font-weight: 600; color: var(--text-body); }
 .site-plan2__score svg { width: 17px; height: 17px; color: var(--login-accent, var(--hbx-brand)); }
