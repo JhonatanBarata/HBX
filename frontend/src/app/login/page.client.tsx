@@ -212,7 +212,7 @@ export function LoginClient() {
 
         <main className="login-shell">
           <div className="login-intro">
-            <h1 className="login-intro__title">Seu próximo cliente já está lá fora.</h1>
+            <h1 className="login-intro__title">Sua Esteira de Leads até Vendas</h1>
             <p className="login-intro__sub">Radar encontra, vendas trabalha, WhatsApp fecha. Tudo num fluxo só.</p>
           </div>
           <form className="card" onSubmit={onSubmit}>
