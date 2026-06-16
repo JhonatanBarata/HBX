@@ -14,6 +14,11 @@ import { subscribeToThemeMode } from "@/components/hbx/shell";
 import { applyThemeSoft, setThemeMode } from "@/components/hbx/theme-attributes";
 import { ImplantacaoContato } from "@/components/hbx/implantacao-contato";
 import { RegisterPanel } from "@/app/register/page.client";
+import {
+  FALLBACK_PLANS, PLAN_ORDER, PLAN_STATIC, IC_BARS, IC_CHECK, IC_LOGOS,
+  fetchPublicPlans, getPlanFallback, formatBRL,
+  type PublicPlan,
+} from "@/lib/plans";
 
 // ── types ──────────────────────────────────────────────────────────────────────
 // Login saiu da casca (16/06): a view "entrar" foi removida — "Entrar" agora abre
@@ -65,106 +70,7 @@ const INTEGRATIONS = [
   { n: "SAP / ERP", d: "Dados e processos integrados ao seu ERP.", ic: ["M4 5h16v6H4z", "M4 14h16v5H4z", "M8 8h.01", "M8 16.5h.01"] },
 ];
 
-// ── dados de planos ────────────────────────────────────────────────────────────
-const SNOW = ["M12 2v20", "M3.34 7l17.32 10", "M20.66 7L3.34 17", "M2 12h20"];
-const TARGET = ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z", "M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z", "M12 12h.01"];
-const BOLT = ["M13 2 4 14h7l-1 8 10-12h-9l1-8Z"];
-const CUBE = ["M12 2 21 7v10l-9 5-9-5V7l9-5Z", "M3.3 7.2 12 12l8.7-4.8", "M12 12v10"];
-const CHECK = ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z", "M8.4 12l2.4 2.4 4.8-5"];
-const PLAN_BARS = ["M4 19V5", "M4 19h16", "M8 19v-6", "M13 19V9", "M18 19v-4"];
-const LOGOS = [
-  ["M20 11.5a8 8 0 0 1-11.9 7L4 20l1.5-4.1A8 8 0 1 1 20 11.5Z"],
-  ["M7 3h10a4 4 0 0 1 4 4v10a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V7a4 4 0 0 1 4-4Z", "M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z", "M17 7h.01"],
-  ["M3 16c0-5 2-9 4.5-9S11 16 12 16s2-9 4.5-9S21 11 21 16"],
-  ["M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z", "M4 9h16", "M9 3v4", "M15 3v4"],
-  ["M21 12a9 9 0 1 1-3-6.7", "M21 4v5h-5"],
-];
-type Plan = { key: string; accent: string; ic: string[]; tag: string; price?: string; pricePrefix?: string; contactOnly?: boolean; feats: string[]; cta: string; hot?: boolean; badge?: string; score?: string; trial?: string; logos?: boolean };
-const PLANS: Plan[] = [
-  { key: "hbx_lite", accent: "List", ic: SNOW, tag: "Você pede, o Radar entrega. Cards crus pra você esquentar e prospectar.", price: "R$ 49,00", feats: ["Telefone, cidade, segmento e site", "Redes sociais quando encontradas", "880 leads por mês"], cta: "Escolher plano" },
-  { key: "hbx_padrao", accent: "Lead", ic: TARGET, hot: true, badge: "Mais escolhido", trial: "14 dias grátis", tag: "Leads inteligentes: você já sabe quem ligar e o que dizer.", price: "R$ 99,00", feats: ["WhatsApp verificado pela HBX", "Score, motivo e canal recomendado", "Mensagem pronta por segmento", "2.200 leads por mês"], cta: "Testar 14 dias grátis" },
-  { key: "hbx_pro", accent: "Full", ic: BOLT, tag: "Atendimento no painel e Bot IA prospectando por você.", price: "R$ 249,00", feats: ["Tudo do Lead", "Atendimento interno pelo painel", "Bot IA + prospecção pós-resposta", "3.500 leads por mês"], cta: "Escolher plano" },
-  // hbx_melhor: contactOnly=true → sem preço exibido, CTA abre tela de contato.
-  { key: "hbx_melhor", accent: "Implantação", ic: CUBE, tag: "Tudo do Pro + Recovery e integração com o seu ERP, montado pela HBX.", contactOnly: true, feats: ["Recovery de inadimplentes", "Cobrança integrada ao seu ERP", "Implantação feita pela HBX"], logos: true, cta: "Quero implantação" },
-];
-
-// Detalhes do plano (painel que desliza ao escolher) — NÃO repete o card: expande
-// a história e VENDE. Espinha = temperatura (Fria→Morna→Quente). Ordem do dono:
-// NUNCA "CRM"/"SAAS" — fala "sistema integrado", "painel", "central de clientes".
-type PlanDetail = { temp: string; pitch: string; how: string[]; points: string[]; forWho: string; foot: string };
-const DETAILS: Record<string, PlanDetail> = {
-  hbx_lite: {
-    temp: "Lista Fria",
-    pitch: "Pare de garimpar empresa no Google. Você escolhe o filtro — cidade, segmento, raio — e o HBX localiza empresas no perfil e te entrega prontas pra abordar.",
-    how: [
-      "Você define o alvo: cidade, segmento e até onde quer alcançar",
-      "O HBX localiza empresas reais no seu perfil e abastece a sua lista",
-      "Você toca o card e o WhatsApp ou a ligação já abrem prontos, sem copiar número",
-    ],
-    points: [
-      "Seus contatos em cards, com agenda e aviso de retorno pra não perder a hora",
-      "Telefone, endereço e segmento de cada empresa encontrada",
-      "1 acesso, sem custos extras",
-      "Lista crua e barata — score e mensagem pronta ficam no Lead",
-    ],
-    forWho: "Pra quem precisa de volume de contato barato e faz a abordagem no braço.",
-    foot: "Lista nova sempre · Você no controle",
-  },
-  hbx_padrao: {
-    temp: "Lista Fria enriquecida",
-    pitch: "Tudo do List, mas o HBX vai além do telefone: enriquece cada empresa e lê a oportunidade pra você saber por quem começar.",
-    how: [
-      "O HBX acha a empresa e ainda cava redes, CNPJ, e-mail e site",
-      "A IA lê a oportunidade: te dá um score e o motivo por trás dele",
-      "Você começa pelos melhores, com a mensagem pronta do segmento na mão",
-    ],
-    points: [
-      "Contexto que abre conversa: o que a empresa faz e por onde falar com ela",
-      "Canal recomendado pra cada contato: ligar, WhatsApp ou rede social",
-      "Painel com administrador + 1 funcionário",
-      "Dado de sobra pra quem trabalha marketing e precisa segmentar",
-    ],
-    forWho: "Pra quem cansou de ligar no escuro e quer priorizar quem realmente vale.",
-    foot: "14 dias grátis · Não cobramos nada antes",
-  },
-  hbx_pro: {
-    temp: "Lista Morna",
-    pitch: "Tudo do Lead, e o WhatsApp passa pra dentro do HBX. Em até 7 dias a gente configura um Bot IA pra você (com acesso remoto).",
-    how: [
-      "Você conecta seu chip e o HBX lê suas conversas recentes de clientes",
-      "A IA monta a árvore de respostas (URA) — ou você desenha do seu jeito",
-      "O bot responde e qualifica sozinho, e passa pro humano quando aperta",
-    ],
-    points: [
-      "Prospecção e atendimento rodando dentro de um lugar só",
-      "O bot reaquece quem respondeu antes do lead chegar em você",
-      "Painel com gerencial e administrador + 5 funcionários",
-      "Configuração assistida: a HBX deixa tudo de pé com você",
-    ],
-    forWho: "Pra equipe que já não dá conta de responder todo mundo na mão.",
-    foot: "Bot IA configurado em até 7 dias",
-  },
-  hbx_melhor: {
-    temp: "Lista Quente",
-    pitch: "Pro cliente que quer do jeito dele. A HBX estuda a sua empresa, integra ao que você já usa e traz lead QUENTE: quem te procurou nas redes e deixou o telefone.",
-    how: [
-      "A gente estuda sua empresa: altos, baixos, público e perfil de quem você atende",
-      "Integra ao que você já tem: planilha do Google, Outlook ou ERP (TOTVS, SAP…)",
-      "O inbound do Insta e Face vira conversa: o sistema fala, desenrola e passa pro humano",
-    ],
-    points: [
-      "Lead que já te procurou: você entra pra fechar, não pra convencer",
-      "Recovery de inadimplentes e cobrança ligada ao seu ERP",
-      "Método montado com você, por um especialista de verdade",
-      "Foco em cortar custo: menos tempo perdido, menos lead frio",
-    ],
-    forWho: "Pra quem quer escala e topa investir pra receber lead pronto pra fechar.",
-    foot: "A partir de R$ 445,90/mês · Falar com especialista",
-  },
-};
-
-// ── paths compartilhados ───────────────────────────────────────────────────────
-const BARS = ["M4 19V5", "M4 19h16", "M8 19v-6", "M13 19V9", "M18 19v-4"];
+// ── paths locais ──────────────────────────────────────────────────────────────
 const CHEVRON = ["M9 5l7 7-7 7"];
 const PLUG = ["M9 7V3", "M15 7V3", "M7 7h10v4a5 5 0 0 1-10 0V7Z", "M12 16v5"];
 const SUN = ["M12 3v2.2", "M12 18.8V21", "M4.6 4.6l1.6 1.6", "M17.8 17.8l1.6 1.6", "M3 12h2.2", "M18.8 12H21", "M4.6 19.4l1.6-1.6", "M17.8 6.2l1.6-1.6", "M12 8.2a3.8 3.8 0 1 0 0 7.6 3.8 3.8 0 0 0 0-7.6Z"];
@@ -215,6 +121,13 @@ export function MarketingClient() {
   const [planMode, setPlanMode] = useState<"list" | "choosing" | "register" | "detailReturning" | "detail2Returning" | "returning" | "restoring">("list");
   const [intruderVisible, setIntruderVisible] = useState(false);
   const [intruder2Visible, setIntruder2Visible] = useState(false);
+  const [livePlans, setLivePlans] = useState<PublicPlan[]>(FALLBACK_PLANS);
+
+  useEffect(() => { fetchPublicPlans().then(setLivePlans); }, []);
+
+  function getLivePlan(key: string): PublicPlan {
+    return livePlans.find((p) => p.key === key) ?? getPlanFallback(key);
+  }
 
   useEffect(() => {
     let alive = true;
@@ -230,7 +143,7 @@ export function MarketingClient() {
         // do vendedor (hbx-handoff) chegam como ?plan=X — abre o plano direto no
         // funil único, sem a animação de escolha (deep-link já decidiu o plano).
         const plan = params.get("plan");
-        if (plan && PLANS.some(p => p.key === plan)) {
+        if (plan && (plan in PLAN_STATIC)) {
           setView("planos");
           setSelectedPlan(plan);
           setIntruderVisible(true);
@@ -384,7 +297,7 @@ export function MarketingClient() {
               ))}
             </div>
             <div className="site-metrics">
-              <span className="site-metrics__lead"><Ic paths={BARS} />Menos trabalho manual. Mais conversas, reuniões e vendas.</span>
+              <span className="site-metrics__lead"><Ic paths={IC_BARS} />Menos trabalho manual. Mais conversas, reuniões e vendas.</span>
               <span className="site-metrics__tags">
                 {METRICS.map((m) => <span key={m} className="site-metric">{m}</span>)}
               </span>
@@ -426,30 +339,39 @@ export function MarketingClient() {
             <h2 className="site-esteira-title">O plano certo para <span className="site-accent">o seu momento</span>.</h2>
             <p className="site-sub">Do frio ao automatizado: escolha como a HBX entra na sua operação.</p>
             <div className={"site-plans" + (planMode !== "list" ? " is-choosing is-" + planMode : "")}>
-                {PLANS.map((p) => (
-                  <button key={p.key} type="button" className={"site-plan2" + (p.hot ? " is-hot" : "") + (selectedPlan === p.key ? " is-selected" : "") + (selectedPlan && selectedPlan !== p.key ? " is-exiting" : "")} onClick={() => choosePlan(p.key)}>
-                    {p.badge && <span className="site-plan2__badge">{p.badge}</span>}
-                    {p.key !== "hbx_melhor" && <span className="site-plan2__annual">2 meses grátis no anual</span>}
-                    <span className="site-plan2__ic"><Ic paths={p.ic} /></span>
-                    <strong className="site-plan2__name">HBX <span className="site-accent">{p.accent}</span></strong>
-                    {p.trial
-                      ? <span className="site-plan2__trial-wrap"><span className="site-plan2__trial">{p.trial}</span><span className="site-plan2__trial-price">{p.price}<em>/mês</em></span></span>
-                      : !p.contactOnly && p.price
-                        ? <span className="site-plan2__price">{p.pricePrefix && <small>{p.pricePrefix}</small>}<b>{p.price}</b><em>/mês</em></span>
-                        : null}
-                    <span className="site-plan2__tag">{p.tag}</span>
-                    {p.score && <span className="site-plan2__score"><Ic paths={PLAN_BARS} />{p.score}</span>}
-                    <ul className="site-plan2__feats">
-                      {p.feats.map((f) => <li key={f}><Ic paths={CHECK} />{f}</li>)}
-                    </ul>
-                    {p.logos && (
-                      <div className="site-plan2__logos">
-                        {LOGOS.map((l, i) => <span key={i}><Ic paths={l} /></span>)}
-                      </div>
-                    )}
-                    <div className="site-plan2__cta">{p.cta}</div>
-                  </button>
-                ))}
+                {PLAN_ORDER.map((key) => {
+                  const s = PLAN_STATIC[key];
+                  const lp = getLivePlan(key);
+                  const trialText = lp.trialDays > 0 ? `${lp.trialDays} dias grátis` : undefined;
+                  const price = lp.monthlyPrice !== null ? formatBRL(lp.monthlyPrice) : null;
+                  const discountMonths = Math.floor(12 * (lp.annualDiscountPercent / 100));
+                  const allFeats = lp.contactOnly
+                    ? s.feats
+                    : [...s.feats, ...(lp.cardsPerMonth ? [`${lp.cardsPerMonth.toLocaleString("pt-BR")} leads por mês`] : [])];
+                  return (
+                    <button key={key} type="button" className={"site-plan2" + (s.hot ? " is-hot" : "") + (selectedPlan === key ? " is-selected" : "") + (selectedPlan && selectedPlan !== key ? " is-exiting" : "")} onClick={() => choosePlan(key)}>
+                      {s.badge && <span className="site-plan2__badge">{s.badge}</span>}
+                      {!lp.contactOnly && <span className="site-plan2__annual">{discountMonths} meses grátis no anual</span>}
+                      <span className="site-plan2__ic"><Ic paths={s.ic} /></span>
+                      <strong className="site-plan2__name">HBX <span className="site-accent">{s.accent}</span></strong>
+                      {trialText
+                        ? <span className="site-plan2__trial-wrap"><span className="site-plan2__trial">{trialText}</span><span className="site-plan2__trial-price">{price}<em>/mês</em></span></span>
+                        : !lp.contactOnly && price
+                          ? <span className="site-plan2__price"><b>{price}</b><em>/mês</em></span>
+                          : null}
+                      <span className="site-plan2__tag">{s.tag}</span>
+                      <ul className="site-plan2__feats">
+                        {allFeats.map((f) => <li key={f}><Ic paths={IC_CHECK} />{f}</li>)}
+                      </ul>
+                      {s.logos && (
+                        <div className="site-plan2__logos">
+                          {IC_LOGOS.map((l, i) => <span key={i}><Ic paths={l} /></span>)}
+                        </div>
+                      )}
+                      <div className="site-plan2__cta">{s.cta}</div>
+                    </button>
+                  );
+                })}
             </div>
             {selectedPlan && (planMode === "register" || planMode === "detailReturning" || planMode === "detail2Returning" || planMode === "returning") && (
               <div className="site-plan-register">
@@ -457,29 +379,29 @@ export function MarketingClient() {
                   <Ic paths={CHEVRON} />
                   <span className="scene-next__hint">Voltar</span>
                 </button>
-                {intruderVisible && (() => {
-                  const d = DETAILS[selectedPlan || ""] || DETAILS.hbx_lite;
-                  const accent = PLANS.find(p => p.key === selectedPlan)?.accent || "";
+                {intruderVisible && selectedPlan && (() => {
+                  const s = PLAN_STATIC[selectedPlan] ?? PLAN_STATIC.hbx_lite;
+                  const lp = getLivePlan(selectedPlan);
                   return (
                     <aside className="site-plan-intruder card" aria-label="Detalhes do plano">
-                      <h2 className="site-plan-intruder__type">HBX {accent} · {d.temp}</h2>
+                      <h2 className="site-plan-intruder__type">HBX {s.accent} · {s.temp}</h2>
                       <div className="site-plan-intruder__body">
-                        <p className="site-plan-intruder__tag">{d.pitch}</p>
+                        <p className="site-plan-intruder__tag">{s.pitch}</p>
                         <div className="site-plan-intruder__sec">
                           <span className="site-plan-intruder__label">Como funciona</span>
                           <ol className="site-plan-intruder__how">
-                            {d.how.map(s => <li key={s}>{s}</li>)}
+                            {s.how.map(step => <li key={step}>{step}</li>)}
                           </ol>
                         </div>
                         <div className="site-plan-intruder__sec">
                           <span className="site-plan-intruder__label">No plano</span>
                           <ul className="site-plan-intruder__feats">
-                            {d.points.map(f => <li key={f}><Ic paths={CHECK} />{f}</li>)}
+                            {s.points(lp.includedUsers, lp.cardsPerMonth || 0).map(f => <li key={f}><Ic paths={IC_CHECK} />{f}</li>)}
                           </ul>
                         </div>
-                        <p className="site-plan-intruder__for">{d.forWho}</p>
+                        <p className="site-plan-intruder__for">{s.forWho}</p>
                       </div>
-                      <p className="sub site-plan-intruder__safe">{d.foot}</p>
+                      <p className="sub site-plan-intruder__safe">{s.foot}</p>
                     </aside>
                   );
                 })()}
@@ -489,10 +411,10 @@ export function MarketingClient() {
                     <div className="site-plan-intruder__body">
                       <p className="site-plan-intruder__tag">O lead quente é o que te dá menos trabalho e mais fechamento. O Company existe pra isso.</p>
                       <ul className="site-plan-intruder__feats">
-                        <li><Ic paths={CHECK} />Resposta na hora, 24/7 — ninguém fica no vácuo, nem de madrugada</li>
-                        <li><Ic paths={CHECK} />Fala com a sua cara: parece você no WhatsApp, não um robô</li>
-                        <li><Ic paths={CHECK} />Escala sem contratar — o sistema segura o primeiro contato</li>
-                        <li><Ic paths={CHECK} />Quando esquenta de verdade, cai no colo do vendedor certo</li>
+                        <li><Ic paths={IC_CHECK} />Resposta na hora, 24/7 — ninguém fica no vácuo, nem de madrugada</li>
+                        <li><Ic paths={IC_CHECK} />Fala com a sua cara: parece você no WhatsApp, não um robô</li>
+                        <li><Ic paths={IC_CHECK} />Escala sem contratar — o sistema segura o primeiro contato</li>
+                        <li><Ic paths={IC_CHECK} />Quando esquenta de verdade, cai no colo do vendedor certo</li>
                       </ul>
                     </div>
                     <p className="sub site-plan-intruder__safe">Um especialista monta tudo com você</p>

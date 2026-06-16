@@ -23,6 +23,8 @@ export class CommercialPlansPublicController {
         contactOnly: plan.contactOnly,
         trialDays: plan.trialDays,
         includedUsers: plan.includedUsers,
+        annualDiscountPercent: plan.annualDiscountPercent,
+        cardsPerMonth: plan.quotas?.cardsPerMonth ?? 0,
         headline: plan.headline,
         description: plan.description,
         badge: plan.badge,

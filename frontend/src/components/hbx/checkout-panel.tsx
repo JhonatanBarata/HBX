@@ -11,14 +11,10 @@
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 
 import { apiFetch } from "@/lib/api";
-
-const PRICE: Record<string, { name: string; monthly: number }> = {
-  hbx_lite: { name: "List", monthly: 49 },
-  hbx_padrao: { name: "Lead", monthly: 99 },
-  hbx_pro: { name: "Full", monthly: 249 },
-};
-
-const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+import {
+  FALLBACK_PLANS, PLAN_STATIC, fetchPublicPlans, getPlanFallback, formatBRL,
+  type PublicPlan,
+} from "@/lib/plans";
 
 const onlyDigits = (v: string) => v.replace(/\D/g, "");
 const fmtCardNumber = (v: string) => onlyDigits(v).slice(0, 19).replace(/(\d{4})(?=\d)/g, "$1 ");
@@ -54,8 +50,10 @@ export function CheckoutPanel({
   trialEndsAt?: string | null;
   onSuccess: () => void;
 }) {
-  const plan = PRICE[planKey] || PRICE.hbx_padrao;
-  const isTrial = planKey === "hbx_padrao";
+  const [livePlans, setLivePlans] = useState<PublicPlan[]>(FALLBACK_PLANS);
+  const plan = livePlans.find((p) => p.key === planKey) ?? getPlanFallback(planKey);
+  const planName = PLAN_STATIC[planKey]?.accent ?? plan.title;
+  const isTrial = plan.trialDays > 0;
   const [cycle, setCycle] = useState<"MONTHLY" | "ANNUAL">("MONTHLY");
   const [cfg, setCfg] = useState<PayConfig | null>(null);
   const [card, setCard] = useState({ number: "", holder: "", exp: "", cvv: "" });
@@ -63,6 +61,7 @@ export function CheckoutPanel({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    fetchPublicPlans().then(setLivePlans);
     apiFetch<PayConfig>("/financeiro/payments-config").then(setCfg).catch(() => setCfg({ mode: "mock" }));
   }, []);
 
@@ -78,7 +77,9 @@ export function CheckoutPanel({
     document.head.appendChild(s);
   }, [cfg]);
 
-  const total = useMemo(() => (cycle === "ANNUAL" ? plan.monthly * 12 * 0.8 : plan.monthly), [cycle, plan.monthly]);
+  const monthly = plan.monthlyPrice ?? 0;
+  const discount = plan.annualDiscountPercent;
+  const total = useMemo(() => (cycle === "ANNUAL" ? monthly * 12 * (1 - discount / 100) : monthly), [cycle, monthly, discount]);
   const trialDate = useMemo(() => {
     if (!trialEndsAt) return null;
     try { return new Date(trialEndsAt).toLocaleDateString("pt-BR"); } catch { return null; }
@@ -136,17 +137,17 @@ export function CheckoutPanel({
 
   return (
     <form className="card reg-checkout" onSubmit={pay}>
-      <h2>Ativar o HBX {plan.name}</h2>
+      <h2>Ativar o HBX {planName}</h2>
       <div className="reg-checkout__summary">
         <div className="reg-checkout__cycle" role="tablist" aria-label="Ciclo de cobrança">
           <button type="button" role="tab" aria-selected={cycle === "MONTHLY"} className={cycle === "MONTHLY" ? "is-on" : ""} onClick={() => setCycle("MONTHLY")}>Mensal</button>
-          <button type="button" role="tab" aria-selected={cycle === "ANNUAL"} className={cycle === "ANNUAL" ? "is-on" : ""} onClick={() => setCycle("ANNUAL")}>Anual <span>-20%</span></button>
+          <button type="button" role="tab" aria-selected={cycle === "ANNUAL"} className={cycle === "ANNUAL" ? "is-on" : ""} onClick={() => setCycle("ANNUAL")}>Anual <span>-{discount}%</span></button>
         </div>
-        <div className="reg-checkout__total"><b>{brl(total)}</b><em>{cycle === "ANNUAL" ? "/ano" : "/mês"}</em></div>
+        <div className="reg-checkout__total"><b>{formatBRL(total)}</b><em>{cycle === "ANNUAL" ? "/ano" : "/mês"}</em></div>
       </div>
       {isTrial && (
         <div className="reg-checkout__trial">
-          Não cobramos nada por 14 dias.{trialDate ? ` Sua 1ª cobrança é só em ${trialDate}.` : ""} Cancele quando quiser.
+          Não cobramos nada por {plan.trialDays} dias.{trialDate ? ` Sua 1ª cobrança é só em ${trialDate}.` : ""} Cancele quando quiser.
         </div>
       )}
       <div className="f">
@@ -176,7 +177,7 @@ export function CheckoutPanel({
       )}
       {error && <div className="reg-checkout__err">{error}</div>}
       <button className="btn-teal" type="submit" disabled={busy}>
-        {busy ? "Processando…" : isTrial ? "Começar trial sem cobrança" : `Pagar ${brl(total)}`}
+        {busy ? "Processando…" : isTrial ? "Começar trial sem cobrança" : `Pagar ${formatBRL(total)}`}
       </button>
       <p className="reg-checkout__safe">Pagamento seguro · seu cartão é protegido pelo gateway e nunca fica com a HBX.</p>
     </form>

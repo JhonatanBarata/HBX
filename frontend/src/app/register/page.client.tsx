@@ -12,6 +12,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import { CheckoutPanel } from "@/components/hbx/checkout-panel";
 import { apiFetch, setToken } from "@/lib/api";
+import { PLAN_STATIC } from "@/lib/plans";
 
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
 type GisApi = { initialize: (cfg: object) => void; renderButton: (el: HTMLElement, cfg: object) => void };
@@ -41,30 +42,7 @@ function formatWhatsapp(value: string) {
   return `(${digits.slice(0, 2)})${digits.slice(2, 7)}-${digits.slice(7)}`;
 }
 
-const PLANOS_VALIDOS = new Set(["hbx_lite", "hbx_padrao", "hbx_pro", "hbx_melhor"]);
-
-const PLANO_COPY: Record<string, { formTitle: string; formSub: React.ReactNode; doneSub: string }> = {
-  hbx_lite: {
-    formTitle: "Criar sua conta",
-    formSub: <>Você está ativando o <strong>HBX List</strong>. Cards com telefone, cidade, segmento e site para você esquentar e prospectar.</>,
-    doneSub: "Sua conta HBX List está ativa. Acesse e peça sua primeira lista de leads no Radar.",
-  },
-  hbx_padrao: {
-    formTitle: "Comece seu teste de 14 dias",
-    formSub: <>Você está ativando o <strong>HBX Lead</strong>. Não cobramos nada por 14 dias — cancele quando quiser.</>,
-    doneSub: "Seu teste de 14 dias está ativo. Acesse e veja seus primeiros leads inteligentes.",
-  },
-  hbx_pro: {
-    formTitle: "Criar sua conta",
-    formSub: <>Você está ativando o <strong>HBX Full</strong>. Atendimento no painel, Bot IA e prospecção automática na sua operação.</>,
-    doneSub: "Sua conta HBX Full está ativa. Configure seu Bot IA e comece a prospectar no automático.",
-  },
-  hbx_melhor: {
-    formTitle: "Falar com especialista",
-    formSub: <>Deixe seus dados e um especialista HBX entra em contato pra montar o <strong>Company</strong> com você — Recovery, ERP e implantação.</>,
-    doneSub: "Dados recebidos. Um especialista HBX vai falar com você pra montar seu plano.",
-  },
-};
+const PLANOS_VALIDOS = new Set(Object.keys(PLAN_STATIC));
 
 type RegisterPanelProps = {
   selectedPlanKey?: string | null;
@@ -89,7 +67,7 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
 
   const selectedPlan = selectedPlanKey && PLANOS_VALIDOS.has(selectedPlanKey) ? selectedPlanKey : "hbx_padrao";
   const isTrial = selectedPlan === "hbx_padrao";
-  const copy = PLANO_COPY[selectedPlan] || PLANO_COPY.hbx_padrao;
+  const copy = PLAN_STATIC[selectedPlan] ?? PLAN_STATIC.hbx_padrao;
   // Checkout na casca: List/Full cobram na hora; Lead salva o cartão e NÃO cobra
   // (Plano B — trial com cartão, 1ª cobrança só no X+14, o backend adia). Company
   // não tem self-checkout (falar com especialista).
