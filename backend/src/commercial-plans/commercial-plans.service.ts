@@ -740,7 +740,13 @@ export class CommercialPlansService {
       const selectedCatalogPlan = buildCommercialPlansCatalog({ includeHidden: true })
         .find((plan) => plan.key === normalizedPlanKey);
       const selectedTrialDays = Number(selectedCatalogPlan?.trialDays || 0);
-      const startsTrial = selectedTrialDays > 0 && this.canStartCommercialTrial(company, normalizedPlanKey);
+      // SEGURANCA / regra travada do dono (16/06): o TRIAL EXIGE CARTAO. Selecionar
+      // um plano por aqui NUNCA concede trial sem cartao — o trial so nasce no
+      // checkout (/financeiro/subscription/create, que captura o cartao). Antes
+      // este caminho liberava 14 dias sem cartao (mesmo furo do cadastro). NUNCA
+      // reativar startsTrial aqui sem passar pelo checkout. (canStartCommercialTrial
+      // fica reservado para quando o checkout decidir a elegibilidade do trial.)
+      const startsTrial = false;
       const trialProfile = startsTrial ? this.validateTrialProfile(dto) : null;
       const selectionMetadata = this.buildSelectionMetadata(normalizedPlanKey, context.userId, {
         selectedAt: now,

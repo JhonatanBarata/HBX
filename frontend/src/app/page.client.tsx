@@ -27,11 +27,31 @@ const FEATURES = [
   { ic: ["M12 3 19 6v5c0 4.6-3 7.7-7 9-4-1.3-7-4.4-7-9V6l7-3Z", "M9.3 12l1.9 1.9 3.6-3.7"], tx: "Cobrança facilitada" },
 ];
 const STATIONS = [
-  { k: "01", t: "Acha", d: "Encontramos empresas com o perfil ideal pro seu negócio, todo dia.", ic: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z", "M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z", "M12 12h.01"] },
-  { k: "02", t: "Organiza", d: "Validamos e enriquecemos os dados pra você falar com as pessoas certas.", ic: ["M3 5h18l-7 8v6l-4 2v-8L3 5Z"] },
-  { k: "03", t: "Conecta", d: "Conversas no WhatsApp e em outros canais, no automático e com a sua cara.", ic: ["M20 11.5a8 8 0 0 1-11.9 7L4 20l1.5-4.1A8 8 0 1 1 20 11.5Z", "M8.5 11h.01", "M12 11h.01", "M15.5 11h.01"] },
-  { k: "04", t: "Automatiza", d: "Follow-up inteligente: respostas, objeções e agendamentos, 24/7.", ic: ["M13 2 4 14h7l-1 8 10-12h-9l1-8Z"] },
-  { k: "05", t: "Cobra", d: "Cobramos quem some e aumentamos suas chances de receber.", ic: ["M3 6.5h18a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1Z", "M2 10h20", "M6 14.5h4"] },
+  { k: "01", t: "Acha", d: "Encontramos empresas com o perfil ideal pro seu negócio, todo dia.", ic: [
+    "M12 16v5", "M9 21h6",
+    "M12 12h.01",
+    "M8.5 12a3.5 3.5 0 0 1 7 0",
+    "M5 12a7 7 0 0 1 14 0",
+    "M2 12a10 10 0 0 1 20 0",
+  ]},
+  { k: "02", t: "Organiza", d: "Validamos e enriquecemos os dados pra você falar com as pessoas certas.", ic: [
+    "M3 4.5h18L13 13.5v6l-2 1.5V13.5L3 4.5Z",
+    "M7.5 8.5h9", "M9.5 11.5h5",
+  ]},
+  { k: "03", t: "Conecta", d: "Conversas no WhatsApp e em outros canais, no automático e com a sua cara.", ic: [
+    "M20 11.5a8 8 0 0 1-11.9 7L4 20l1.5-4.1A8 8 0 1 1 20 11.5Z",
+    "M8.5 11h.01", "M12 11h.01", "M15.5 11h.01",
+  ]},
+  { k: "04", t: "Automatiza", d: "Follow-up inteligente: respostas, objeções e agendamentos, 24/7.", ic: [
+    "M21 12a9 9 0 1 1-4.6-7.9",
+    "M21 3.5v5h-5",
+    "M12 8v4l2.5 2.5",
+  ]},
+  { k: "05", t: "Cobra", d: "Cobramos quem some e aumentamos suas chances de receber.", ic: [
+    "M4 3h12l4 4v15a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z",
+    "M16 3v4h4",
+    "M8 14l2.5 2.5 5.5-5.5",
+  ]},
 ];
 const METRICS = ["Mais conversas", "Menos trabalho manual", "Mais recebimentos"];
 

@@ -787,124 +787,40 @@ export class AuthService implements OnModuleInit {
   }
 
   private async activateConfirmedTrialTx(tx: any, companyId: number, activatedAt: Date): Promise<Date | null> {
+    // SEGURANCA / regra travada do dono (16/06): o TRIAL EXIGE CARTAO. A
+    // confirmacao de e-mail NAO concede mais trial nenhum — ela so confirma o
+    // e-mail e deixa a empresa em `pending_checkout`. O trial (e qualquer
+    // acesso) so nasce no checkout, quando o cartao e capturado
+    // (financeiro.service.createSubscriptionForUser / createMockSubscriptionForUser,
+    // que exigem cardTokenId). Antes daqui se liberava trial SEM cartao —
+    // furo que vazou pra VPS. NUNCA reintroduzir a concessao de trial neste
+    // ponto sem passar pelo checkout. (Nome mantido por compatibilidade dos
+    // chamadores; hoje so prepara o pending_checkout.)
     const company = await tx.company.findUnique({
       where: { id: companyId },
-      select: {
-        selectedPlanKey: true,
-        trialModuleSelection: true,
-        primaryContactName: true,
-        contactPhone: true,
-        taxDocument: true,
-      },
+      select: { selectedPlanKey: true },
     });
     const selectedPlanKey = this.normalizeSelectedPlanKey(company?.selectedPlanKey || undefined);
 
-    const trialDays = this.getPublicTrialDaysForPlan(selectedPlanKey);
-    const trialPhone = this.normalizeBrazilPhone(company?.contactPhone);
-    // Telefone valido e pre-condicao do trial (anti-abuso por telefone) e o
-    // cadastro novo ja coleta; cadastro em voo do fluxo antigo sem telefone
-    // nao trava a confirmacao — segue para o checkout.
-    const trialEligible = trialDays > 0 && Boolean(trialPhone && trialPhone.length >= 10);
-    if (!trialEligible) {
-      if (trialDays > 0) {
-        this.logger.warn(`trial_denied_missing_phone company=${companyId} plan=${selectedPlanKey}`);
-      }
-      await tx.company.update({
-        where: { id: companyId },
-        data: {
-          status: 'pending_checkout',
-          statusChangedAt: activatedAt,
-          selectedPlanKey,
-          trialModuleSelection: null,
-          isActive: false,
-          trialStartsAt: null,
-          trialEndsAt: null,
-          subscriptionCurrentPeriodStart: null,
-          subscriptionCurrentPeriodEnd: null,
-          deactivatedAt: activatedAt,
-        },
-      });
-      await this.syncPlanModulesTx(tx, companyId, selectedPlanKey);
-      await tx.companyModule.updateMany({ where: { companyId }, data: { enabled: false } });
-      await this.createPendingCheckoutEntitlementsTx(tx, companyId, selectedPlanKey, activatedAt);
-      return null;
-    }
-
-    const trialEndsAt = this.addDays(activatedAt, trialDays);
-    const existingTrialPhone = await this.ensureTrialPhoneAvailableTx(tx, companyId, trialPhone, 'activate');
-    const trialPhoneMetadata = {
-      acceptedTerms: true,
-      activatedBy: 'email_confirmation',
-      activatedAt: activatedAt.toISOString(),
-      contactName: this.normalizeText(company?.primaryContactName),
-      taxDocumentProvided: Boolean(this.normalizeDigits(company?.taxDocument)),
-      selectedPlanKey,
-    };
-    if (existingTrialPhone) {
-      await tx.trialPhoneUsage.update({
-        where: { id: existingTrialPhone.id },
-        data: {
-          companyId,
-          firstTrialStartsAt: activatedAt,
-          firstTrialEndsAt: trialEndsAt,
-          source: 'signup_trial',
-          metadataJson: JSON.stringify(trialPhoneMetadata),
-        },
-      });
-    } else {
-      await tx.trialPhoneUsage.create({
-        data: {
-          phoneNormalized: trialPhone,
-          companyId,
-          firstTrialStartsAt: activatedAt,
-          firstTrialEndsAt: trialEndsAt,
-          source: 'signup_trial',
-          metadataJson: JSON.stringify(trialPhoneMetadata),
-        },
-      });
-    }
     await tx.company.update({
       where: { id: companyId },
       data: {
-        // Estado unico nativo (PR-002 C.1): confirmacao de e-mail inicia o
-        // trial direto, sem espelho legado (DROP).
-        status: 'trial',
+        status: 'pending_checkout',
         statusChangedAt: activatedAt,
         selectedPlanKey,
-        trialModuleSelection: this.resolveTrialModuleForPlan(selectedPlanKey),
-        isActive: true,
-        assistedSetupRequired: selectedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR,
-        assistedSetupStatus: selectedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR ? 'pending' : 'not_required',
-        assistedSetupCompletedAt: null,
-        assistedSetupCompletedByUserId: null,
-        assistedSetupNote: selectedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR
-          ? 'Implantação assistida pendente para liberar automação completa.'
-          : null,
-        trialStartsAt: activatedAt,
-        trialEndsAt,
+        trialModuleSelection: null,
+        isActive: false,
+        trialStartsAt: null,
+        trialEndsAt: null,
         subscriptionCurrentPeriodStart: null,
         subscriptionCurrentPeriodEnd: null,
-        deactivatedAt: null,
+        deactivatedAt: activatedAt,
       },
     });
     await this.syncPlanModulesTx(tx, companyId, selectedPlanKey);
-    for (const entitlementKey of COMMERCIAL_PLAN_ENTITLEMENT_KEYS[selectedPlanKey]) {
-      await this.upsertEntitlementTx(
-        tx,
-        companyId,
-        entitlementKey,
-        'trialing',
-        'trial',
-        activatedAt,
-        trialEndsAt,
-        {
-          selectedPlanKey,
-          activatedBy: 'email_confirmation',
-          activatedAt: activatedAt.toISOString(),
-        },
-      );
-    }
-    return trialEndsAt;
+    await tx.companyModule.updateMany({ where: { companyId }, data: { enabled: false } });
+    await this.createPendingCheckoutEntitlementsTx(tx, companyId, selectedPlanKey, activatedAt);
+    return null;
   }
 
   private async sendEmailConfirmationMail(input: {
@@ -1422,9 +1338,10 @@ export class AuthService implements OnModuleInit {
     const trialModuleSelection = this.getPublicTrialDaysForPlan(selectedPlanKey) > 0
       ? this.resolveTrialModuleForPlan(selectedPlanKey)
       : null;
-    // Plano com trial exige o perfil (nome/CPF/telefone/termos) JA no cadastro:
-    // a confirmacao de e-mail inicia o trial direto, sem etapa intermediaria
-    // (PR-002 C.1 — morreu o estado pending_trial_activation).
+    // Plano com trial coleta o perfil (nome/CPF/telefone/termos) JA no cadastro
+    // para alimentar o checkout (pagador/cartao). O trial em si so e ativado no
+    // checkout, com cartao (regra do dono 16/06) — a confirmacao de e-mail nao
+    // libera mais nada sozinha.
     const signupTrialProfile = this.getPublicTrialDaysForPlan(selectedPlanKey) > 0
       ? this.validateSignupTrialProfile(data)
       : null;
@@ -1666,8 +1583,10 @@ export class AuthService implements OnModuleInit {
       });
 
       if (user.companyId && !platformInfraCompany) {
-        // Confirmacao inicia o trial direto (PR-002 C.1). Plano sem trial —
-        // ou cadastro antigo sem telefone — segue para o checkout.
+        // Confirmacao de e-mail NAO ativa trial (regra travada do dono 16/06:
+        // trial exige cartao). So confirma o e-mail e deixa a empresa em
+        // pending_checkout; o trial nasce no checkout (financeiro). trialEndsAt
+        // permanece null aqui de proposito.
         trialEndsAt = await this.activateConfirmedTrialTx(tx, Number(user.companyId), confirmedAt);
       }
     });

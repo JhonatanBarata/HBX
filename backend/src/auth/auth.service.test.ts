@@ -285,8 +285,9 @@ test('sanitizeUser: vendedor recebe payload de empresa sem campos de cobranca', 
   assert.equal(admin?.company?.accessStateLabel, 'Trial ativo');
 });
 
-// Maquina de cadastro nativa (PR-002 C.1): a confirmacao de e-mail inicia o
-// trial direto a partir do perfil coletado no cadastro.
+// Maquina de cadastro nativa: a confirmacao de e-mail confirma o e-mail e deixa
+// a empresa em pending_checkout. O trial EXIGE cartao e so nasce no checkout
+// (regra travada do dono 16/06) — nunca na confirmacao.
 function buildTrialActivationTx(company: any) {
   const companyUpdates: any[] = [];
   const entitlementUpserts: any[] = [];
@@ -329,7 +330,10 @@ function buildBareAuthService() {
   return new AuthService({} as any, {} as any, {} as any, {} as any, {} as any, {} as any) as any;
 }
 
-test('confirmacao inicia trial nativo: status trial, sem espelho legado, 14 dias do catalogo', async () => {
+test('SEGURANCA: confirmacao de e-mail NAO concede trial sem cartao (vai para pending_checkout)', async () => {
+  // Regra travada do dono (16/06): o trial EXIGE cartao. Mesmo o plano Lead
+  // (PADRAO, 14 dias) com telefone valido NAO pode ser liberado na confirmacao
+  // de e-mail — isso era o furo que vazou pra VPS. O trial so nasce no checkout.
   const service = buildBareAuthService();
   const { tx, companyUpdates, entitlementUpserts, trialPhoneWrites } = buildTrialActivationTx({
     selectedPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO,
@@ -342,20 +346,23 @@ test('confirmacao inicia trial nativo: status trial, sem espelho legado, 14 dias
   const activatedAt = new Date();
   const trialEndsAt = await service.activateConfirmedTrialTx(tx, 7, activatedAt);
 
-  assert.ok(trialEndsAt instanceof Date);
-  assert.equal(Math.round((trialEndsAt.getTime() - activatedAt.getTime()) / DAY_MS), 14);
-  const update = companyUpdates.find((data) => data.status === 'trial');
-  assert.ok(update, 'esperava escrita nativa de status trial');
-  assert.equal(update.isActive, true);
-  assert.equal(update.statusChangedAt, activatedAt);
+  assert.equal(trialEndsAt, null);
+  assert.equal(companyUpdates.length, 1);
+  assert.equal(companyUpdates[0].status, 'pending_checkout');
+  assert.equal(companyUpdates[0].isActive, false);
+  assert.equal(companyUpdates[0].trialEndsAt, null);
+  // nenhum status 'trial' deve ser escrito na confirmacao.
+  assert.equal(companyUpdates.some((data) => data.status === 'trial'), false);
+  // sem reserva de trial-phone na confirmacao — o trial (e o anti-abuso) so no checkout.
+  assert.equal(trialPhoneWrites.length, 0);
   // DROP: sem espelhos legados na escrita nativa.
-  assert.equal('premiumAccess' in update, false);
-  assert.equal('subscriptionStatus' in update, false);
-  assert.equal('paymentStatus' in update, false);
-  assert.equal('onboardingStatus' in update, false);
+  assert.equal('premiumAccess' in companyUpdates[0], false);
+  assert.equal('subscriptionStatus' in companyUpdates[0], false);
+  assert.equal('paymentStatus' in companyUpdates[0], false);
+  assert.equal('onboardingStatus' in companyUpdates[0], false);
+  // entitlements ficam pendentes de checkout, nunca 'trialing'.
   assert.ok(entitlementUpserts.length > 0);
-  assert.ok(entitlementUpserts.every((args) => args.update.status === 'trialing'));
-  assert.equal(trialPhoneWrites.length, 1);
+  assert.ok(entitlementUpserts.every((args) => ['pending_checkout', 'canceled'].includes(args.update.status)));
 });
 
 test('cadastro antigo sem telefone nao trava a confirmacao: degrada para pending_checkout', async () => {

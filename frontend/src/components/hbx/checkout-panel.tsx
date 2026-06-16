@@ -20,6 +20,27 @@ const PRICE: Record<string, { name: string; monthly: number }> = {
 
 const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
+const onlyDigits = (v: string) => v.replace(/\D/g, "");
+const fmtCardNumber = (v: string) => onlyDigits(v).slice(0, 19).replace(/(\d{4})(?=\d)/g, "$1 ");
+const fmtExp = (v: string) => {
+  const d = onlyDigits(v).slice(0, 4);
+  return d.length >= 3 ? `${d.slice(0, 2)}/${d.slice(2)}` : d;
+};
+
+// O Mercado Pago rejeita a tokenização com um objeto/array de causas (não um Error).
+// Mostramos a causa real em vez de engolir num "tente de novo" genérico.
+function readMpError(err: unknown): string {
+  const e = err as { message?: string; cause?: Array<{ description?: string; code?: string | number }> };
+  if (Array.isArray(e?.cause) && e.cause.length) {
+    const d = e.cause.map(c => c?.description).filter(Boolean).join(" · ");
+    if (d) return d;
+  }
+  if (err instanceof Error) return err.message;
+  if (e?.message) return String(e.message);
+  if (typeof err === "string") return err;
+  try { return `Erro: ${JSON.stringify(err)}`; } catch { return "Não foi possível concluir. Tente novamente."; }
+}
+
 type PayConfig = { mode?: "mock" | "live"; publicKey?: string | null };
 
 export function CheckoutPanel({
@@ -107,7 +128,8 @@ export function CheckoutPanel({
       });
       onSuccess();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Não foi possível concluir. Tente novamente.");
+      console.error("[checkout] falha ao ativar assinatura:", err);
+      setError(readMpError(err));
       setBusy(false);
     }
   }
@@ -129,8 +151,8 @@ export function CheckoutPanel({
       )}
       <div className="f">
         <label htmlFor="cc">Número do cartão</label>
-        <input id="cc" className="field-dark" inputMode="numeric" placeholder="0000 0000 0000 0000" required
-          value={card.number} onChange={e => setCard(c => ({ ...c, number: e.target.value }))} />
+        <input id="cc" className="field-dark" inputMode="numeric" placeholder="0000 0000 0000 0000" required maxLength={23}
+          value={card.number} onChange={e => setCard(c => ({ ...c, number: fmtCardNumber(e.target.value) }))} />
       </div>
       <div className="f">
         <label htmlFor="cn">Nome impresso no cartão</label>
@@ -140,13 +162,13 @@ export function CheckoutPanel({
       <div className="reg-checkout__row">
         <div className="f">
           <label htmlFor="ce">Validade</label>
-          <input id="ce" className="field-dark" placeholder="MM/AA" required
-            value={card.exp} onChange={e => setCard(c => ({ ...c, exp: e.target.value }))} />
+          <input id="ce" className="field-dark" inputMode="numeric" placeholder="MM/AA" required maxLength={5}
+            value={card.exp} onChange={e => setCard(c => ({ ...c, exp: fmtExp(e.target.value) }))} />
         </div>
         <div className="f">
           <label htmlFor="cv">CVV</label>
-          <input id="cv" className="field-dark" inputMode="numeric" placeholder="000" required
-            value={card.cvv} onChange={e => setCard(c => ({ ...c, cvv: e.target.value }))} />
+          <input id="cv" className="field-dark" inputMode="numeric" placeholder="000" required maxLength={4}
+            value={card.cvv} onChange={e => setCard(c => ({ ...c, cvv: onlyDigits(e.target.value).slice(0, 4) }))} />
         </div>
       </div>
       {cfg?.mode === "mock" && (
