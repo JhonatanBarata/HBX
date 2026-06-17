@@ -1,87 +1,70 @@
-# PR16062026035 — MASTER COM MAIS DECISÕES SOBRE AS EMPRESAS
+# PR16062026035 — MASTER: DEGUSTAÇÃO DE PLANO (taste pré-venda com volta automática)
 
-> **Ordem do dono (16/06):** "preciso q ele [o Master] tenha mais decisões nas empresas,
-> não vou palpitar, quero q vc leia e responda para onde seguimos, ficou seco, não consigo
-> um monte de acesso." Análise feita lendo o /master inteiro (front + endpoints). **Nada de
-> código aplicado** — o dono pediu só o plano escrito.
+> **Ordem do dono (16/06):** "eu queria acesso a editar planos, não módulos list/lead. Um
+> cliente plano barato entra em contato e informa que quer subir pro empresarial — eu deveria
+> ter acesso total de dar um 'taste' pro cara por uns dias, até fechar a compra. Colocar o dia
+> que volta ao normal." **É uma ideia, não uma recap.** Nada aplicado — só o plano.
 
-## DIAGNÓSTICO (o "seco" não é falta de poder no backend — é o painel estrangulado)
+## A IDEIA (o que ele quer, em uma frase)
+O Master dá **degustação temporária de um plano superior** a uma empresa de plano barato:
+liga as features do plano cheio **agora**, **de graça**, com **data marcada pra voltar ao
+normal**. Se a venda fechar antes, vira upgrade pago de verdade. Se não fechar, **volta sozinho**
+no dia. É a ponte de venda — não cobra nada durante o taste.
 
-O backend já expõe, por empresa, um baralho grande de decisões
-(`backend/src/modules/modules.controller.ts:425-702`): plano, cortesia, módulos por exceção,
-trial, suspensão, limites de cards, **teto de assentos (`seatCap`)**, condições de cobrança,
-credenciais master (WA/MP), pagamento manual, perfil cadastral, excluir, assumir contexto.
+## POR QUE ISSO NÃO EXISTE (e não confundir com o que já tem)
+Três coisas parecidas existem e **nenhuma** é isto:
+1. **Trial de cadastro** — Lead + cartão, vira `pending_checkout`. É funil de signup, não upsell.
+2. **Mudar plano** (`PUT modules/master/company/:id/plan`, `modules.controller.ts:591`) —
+   **permanente**, redefine entitlements pra sempre. Não tem volta automática nem data.
+3. **Upgrade pago** (trilha 028, `PR16062026000-INDEX.md`) — **cobra a diferença** e sobe.
+   É o que acontece *quando a venda fecha*, não o "taste" antes.
 
-**Por que "ficou seco":** o painel esconde quase tudo atrás da régua única (PR13062026007).
-Em `frontend/src/app/(app)/master/janela-empresas.tsx:596`:
+O novo é um **override TEMPORÁRIO de tier, grátis, reversível por data**. Catálogo de planos
+já é editável em Sistema → Planos; isto é diferente: é elevação por EMPRESA com prazo.
 
-```ts
-const isFull = String(c?.selectedPlanKey || "").toLowerCase() === "hbx_melhor";
-```
+## COMO CONSTRUIR (reaproveita trilhos que já existem — não inventa)
 
-Cortesia (`:745`), Módulos (`:745`), Trial/Suspensão (`:871`), Limites/Assentos +
-Condições + Credenciais (`:948`), aba Financeiro (`:1040`), aba Implantação (`:1093`) e o
-filtro das abas (`:801`) **só aparecem no Full**. Para List/Lead (a maioria, o self-service)
-sobra: editar perfil, usuários, excluir, plano, auditoria. Daí a sensação de painel vazio.
+### 1. Estado (migration)
+Campos novos em `Company`: `tastePlanKey` (plano elevado), `tasteRevertsAt` (data da volta),
+`tastePreviousPlanKey` (pra onde cai de volta), `tasteReason`, `tasteGrantedByUserId`.
 
-**Por que "não consigo um monte de acesso" (literal, dois travamentos):**
-1. **O Master não cria acesso.** O único caminho de nascer usuário numa empresa é
-   `POST users/company/create` — `@Admin()` amarrado ao `req.user.companyId`
-   (`backend/src/users/users.controller.ts:1112`). Ou seja, **só o admin da própria empresa**.
-   Do /master só dá pra editar / resetar senha / excluir (`/users/master/:id*`). Não existe
-   "dar mais um acesso pra empresa X".
-2. **O teto de assentos barra e está escondido.** `users.controller.ts:1133` bloqueia criar
-   acesso além do `seatCap`; o campo que sobe esse teto vive dentro do bloco `isFull`
-   (`janela-empresas.tsx:948`) → em List/Lead nem se enxerga o teto pra levantar. O setter
-   já existe: `PUT modules/master/company/:id/card-quota` → `modules.service.ts:4847`.
+### 2. Conceder (backend, endpoint master novo)
+`POST modules/master/company/:companyId/plan-taste { planKey, revertsAt, reason }` (`MasterGuard`):
+- guarda `tastePreviousPlanKey = selectedPlanKey` atual e os campos `taste*`;
+- eleva `selectedPlanKey = planKey` **reaproveitando o mesmo caminho de entitlements do "mudar
+  plano"** (não duplicar — extrair o miolo que o `PUT .../plan` já usa pra acender módulos);
+- **não cria cobrança** — a empresa segue na cobrança do plano barato, ganha as features do cheio
+  de graça até o dia da volta;
+- audita (cai na `auditTimeline` que o detalhe já mostra).
 
-## BLOCOS (ordem do mais barato → caro; recomendo 1 → 2 → 3)
+### 3. Voltar automático (o "dia que volta ao normal")
+- **Sweep periódico** no mesmo padrão que já roda: `setInterval` tipo o `billingGraceSweep`
+  (`financeiro.service.ts:88`) / `orphanCleanup` (`companies.service.ts:51`). No tick: empresas
+  com `tasteRevertsAt <= now` → restaura `selectedPlanKey = tastePreviousPlanKey`, limpa os
+  `taste*`, **reaplica entitlements**, audita, avisa o dono (e-mail/alerta master).
+- **Reforço lazy:** o `company-operational-status.service` já deriva estado de datas
+  (`:819` lista `trialEndsAt`/`courtesyEndsAt`/…); incluir `tasteRevertsAt` ali pra a volta
+  valer no próximo acesso mesmo se o sweep atrasar.
 
-### Bloco 1 — Soltar acesso + assentos (ataca o reclamo direto)
-**Resolve:** "não consigo um monte de acesso."
-- **Backend (novo):** endpoint master-only pra criar acesso em QUALQUER empresa, ex.
-  `POST modules/master/company/:companyId/access` (ou `users/master/company/:companyId`),
-  com `MasterGuard`. Reusa `usersService.create({...,, companyId})` — NÃO duplicar a lógica
-  do `createCompanyUser`; extrair o miolo se preciso. Body mínimo: `{ role: 'ADMIN'|'USER',
-  email|username, name?, phone?, password? }`. Espelha o padrão senha-opcional do
-  `users.controller.ts:1181` (com senha = troca no 1º login; sem senha = nasce sem acesso).
-- **Assentos:** expor o controle de `seatCap` (e cards/mês, cards/dia) **fora** do `isFull`.
-  O endpoint `PUT .../card-quota` já aceita qualquer empresa; é só tirar o gate no front.
-  Decisão do Master ao criar acesso acima do teto: ou **sobe o teto junto** (1 clique) ou
-  barra com a mensagem que já existe (`users.controller.ts:1134`).
-- **Invariante:** backend é a verdade da autorização; ação auditada (cai na `auditTimeline`
-  que o detalhe já mostra). Toca auth → **só com ordem do dono na tarefa** (regra
-  PAGAMENTOS.md). Relacionado, mas distinto, do bloco **034** (cadastro simples/completo do
-  lado da EMPRESA) — aqui é o lado MASTER.
+### 4. Painel Master (front)
+- Bloco **"Degustação de plano"** na aba Comercial de `janela-empresas.tsx`: escolher o plano
+  a degustar, **data de volta**, motivo; banner "degustando Full até DD/MM"; botão "encerrar
+  agora"; **tag "degustação"** na lista de empresas.
+- **Pré-requisito de tela:** esse bloco precisa aparecer numa empresa List/Lead — que é
+  justamente quem está atrás da régua `isFull` hoje (`janela-empresas.tsx:596`). Então
+  **soltar o painel do Master da régua** (mostrar os controles comerciais em qualquer plano)
+  é o que destrava dar taste pra quem está no plano barato. Sem isso, a tela do alvo está vazia.
 
-### Bloco 2 — Tirar a régua do painel (conserta o "seco" inteiro)
-**Resolve:** painel vazio em List/Lead.
-- **Front-only** (`janela-empresas.tsx`): mostrar **cortesia, suspensão, módulos, limites e
-  assentos em toda empresa**, não só no Full. O backend desses controles já é plano-neutro;
-  é remover/relaxar o `isFull` nos blocos `:745`, `:871`, `:948` e no filtro de abas `:801`.
-- **Manter no Full** (não é decisão genérica de acesso): aba **Financeiro** (`:1040`) e aba
-  **Implantação** (`:1093`) e "Condições de cobrança" — ou mostrar read-only fora do Full.
-  Decidir caso a caso ao implementar; default = manter no Full.
-- **Invariante crítico:** isto reabre **só o painel do Master**. NÃO desfaz a régua
-  "List/Lead = automático" do lado do CLIENTE (o que a empresa vê nas próprias telas). É o
-  dono reabrindo o que ele mesmo enxugou — mas só pra ele, no /master.
-
-### Bloco 3 — Decisões novas (maior, depois)
-**Resolve:** ampliar o que o Master decide além do que já existe no backend.
-- **WhatsApp por empresa pelo Master:** forçar desconectar / reatar / resetar conexão a
-  partir do /master (hoje o controle vive nas telas da empresa). Ver
-  `backend/src/companies/whatsapp-modal.service.ts` + `master-whatsapp-situation.ts`.
-- **Falar com o admin:** mandar e-mail/mensagem pro admin da empresa de dentro do painel
-  (reusa `CompanyMailer` / templates do `/master`).
-- **Cobrança:** resetar carência/dunning, pausar cobrança (encosta em PAGAMENTOS — só com
-  ordem; backend com teste).
-- **Travar telas/módulos** além do plano (override fino por empresa).
+### 5. Fechar a venda
+Quando o cliente paga, o Master faz o **upgrade real** (trilha 028) — permanente + cobra. O
+taste é só a ponte: ou converte em venda, ou expira e volta ao plano barato.
 
 ## RESTRIÇÕES (PAGAMENTOS.md — valem mesmo com autorização)
-Backend é a verdade da autorização; criar acesso = auth/autorização (Bloco 1 e 3 tocam isso);
-assentos/cobrança encostam em $; tudo auditado; vendedor (role USER) nunca vê valor/cobrança;
-**não reintroduzir trial sem cartão**; nada em PRODUÇÃO sem ordem na hora; visual só em
-token/classe central (5 Leis).
+Backend é a verdade da autorização; tudo auditado; **o taste NÃO cobra** e NÃO mexe na cobrança
+do plano atual; reversão determinística por data; **não reintroduzir trial sem cartão** (isto
+não é trial de signup — é override de tier numa empresa existente); vendedor (role USER) nunca
+vê valor/cobrança; visual só em token/classe central (5 Leis). Toca plano/entitlements →
+**construir só com ordem do dono na tarefa**.
 
 ## ESTADO
-Planejado. Nada aplicado. Esperando o dono dizer qual bloco travar primeiro.
+Planejado. Nada aplicado. Esperando o "go".
