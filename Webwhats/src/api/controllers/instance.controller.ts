@@ -391,10 +391,12 @@ export class InstanceController {
   }
 
   public async connectionState({ instanceName }: InstanceDto) {
+    const wa = this.waMonitor.waInstances[instanceName];
     return {
       instance: {
         instanceName: instanceName,
-        state: this.waMonitor.waInstances[instanceName]?.connectionStatus?.state,
+        state: wa?.connectionStatus?.state,
+        ownerJid: wa?.ownerJid ?? null,
       },
     };
   }

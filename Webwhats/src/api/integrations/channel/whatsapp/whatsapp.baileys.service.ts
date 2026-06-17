@@ -774,6 +774,14 @@ export class BaileysStartupService extends ChannelStartupService {
 
   private readonly chatHandle = {
     'chats.upsert': async (chats: Chat[]) => {
+      // D-fix-1: normalize @lid chat ids before dedup/insert to prevent duplicate conversations
+      const normalizedChats = chats.map((chat) => {
+        if (typeof chat.id === 'string' && chat.id.includes('@lid')) {
+          return { ...chat, id: chat.id.replace(/:\d+@lid$/i, '@lid') };
+        }
+        return chat;
+      });
+
       const existingChatIds = await this.prismaRepository.chat.findMany({
         where: { instanceId: this.instanceId },
         select: { remoteJid: true },
@@ -781,7 +789,7 @@ export class BaileysStartupService extends ChannelStartupService {
 
       const existingChatIdSet = new Set(existingChatIds.map((chat) => chat.remoteJid));
 
-      const chatsToInsert = chats
+      const chatsToInsert = normalizedChats
         .filter((chat) => !existingChatIdSet?.has(chat.id))
         .map((chat) => ({
           remoteJid: chat.id,
@@ -1194,6 +1202,33 @@ export class BaileysStartupService extends ChannelStartupService {
 
             if (Long.isLong(received.messageTimestamp)) {
               received.messageTimestamp = received.messageTimestamp?.toNumber();
+            }
+
+            // D-fix-1 + D2: normalize @lid remoteJid before any lookup or save.
+            // D-fix-1: strip :NN device suffix (e.g. 75471266001032:12@lid → 75471266001032@lid)
+            //          prevents duplicate chats when the same contact messages from different devices.
+            // D2: resolve LID→PN so contacts are stored with the real phone number.
+            if (received.key?.remoteJid?.includes('@lid')) {
+              received.key.remoteJid = received.key.remoteJid.replace(/:\d+@lid$/i, '@lid');
+              const existingAlt: string | null = (received.key as any).remoteJidAlt ?? null;
+              const pnFromBaileys =
+                typeof existingAlt === 'string' && existingAlt.trim().endsWith('@s.whatsapp.net')
+                  ? existingAlt.trim()
+                  : null;
+              let resolvedPn = pnFromBaileys;
+              if (!resolvedPn) {
+                try {
+                  const mapping = (this.client as any)?.signalRepository?.lidMapping;
+                  const pn = await mapping?.getPNForLID?.(received.key.remoteJid);
+                  resolvedPn = typeof pn === 'string' && pn.trim().endsWith('@s.whatsapp.net') ? pn.trim() : null;
+                } catch {
+                  // best-effort: @lid stays as-is
+                }
+              }
+              if (resolvedPn) {
+                (received.key as any).remoteJidAlt = received.key.remoteJid; // keep LID as alt
+                received.key.remoteJid = resolvedPn;
+              }
             }
 
             if (settings?.groupsIgnore && received.key.remoteJid.includes('@g.us')) {

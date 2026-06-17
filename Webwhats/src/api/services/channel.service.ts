@@ -140,6 +140,12 @@ export class ChannelStartupService {
     return this.instance.wuid;
   }
 
+  // In-memory wuid (set on 'open') falls back to DB-backed ownerJid (loaded at startup).
+  // Exposes the phone/JID even while reconnecting, so connectionState can return it.
+  public get ownerJid(): string | null {
+    return (this.instance.wuid || this.instance.ownerJid) ?? null;
+  }
+
   public async loadWebhook() {
     const data = await this.prismaRepository.webhook.findUnique({
       where: {
@@ -760,8 +766,11 @@ export class ChannelStartupService {
       const mapping = (this.client as any)?.signalRepository?.lidMapping;
       const pn = await mapping?.getPNForLID?.(jid);
       const normalized = typeof pn === 'string' ? pn.trim() : '';
-      return normalized.toLowerCase().endsWith('@s.whatsapp.net') ? normalized : null;
-    } catch {
+      const result = normalized.toLowerCase().endsWith('@s.whatsapp.net') ? normalized : null;
+      this.logger.log(`[D1] resolveLidToPn lid=${jid} pn=${pn ?? 'null'} result=${result ?? 'null'}`);
+      return result;
+    } catch (err) {
+      this.logger.warn(`[D1] resolveLidToPn lid=${jid} error=${(err as any)?.message ?? String(err)}`);
       return null;
     }
   }
