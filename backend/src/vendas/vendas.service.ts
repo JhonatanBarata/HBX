@@ -1269,10 +1269,8 @@ export class VendasService {
     }
 
     try {
-      // Verificacao "esse numero existe?" usa SEMPRE o chip do Master (company motor),
-      // nao o WhatsApp da propria empresa (que pode nem estar conectado). Fallback p/ a
-      // empresa so se o motor nao resolver. Mesmo criterio do enrichLeadForUser/radar.
-      const engineCompanyId = (await this.getOrCreateMasterWhatsappEngineCompanyId()) || companyId;
+      const engineCompanyId = await this.getOrCreateMasterWhatsappEngineCompanyId();
+      if (!engineCompanyId) return availabilityByLeadId;
       const lookupResults = await this.webwhatsBridge.checkWhatsappNumbers(
         engineCompanyId,
         pendingRows.map((row) => row?.phoneNormalized || row?.phone || null),
@@ -1372,7 +1370,7 @@ export class VendasService {
       lead: row,
       whatsappAvailability,
       verifiedBy: whatsappAvailability?.checkedAt
-          ? 'client_engine'
+          ? 'platform_engine'
           : null,
     });
     const access = planAccess || this.buildPlanAccess(COMMERCIAL_PLAN_KEYS.PADRAO);
@@ -4987,8 +4985,8 @@ export class VendasService {
 
     let availability =
       (await this.listWhatsappAvailabilityByLeadIds([String(lead.id)])).get(String(lead.id)) || null;
-    let verifiedBy: 'platform_engine' | 'client_engine' | 'manual' | null = availability?.checkedAt
-        ? 'client_engine'
+    let verifiedBy: 'platform_engine' | 'manual' | null = availability?.checkedAt
+        ? 'platform_engine'
         : null;
     const phoneDigits = this.normalizePhone((lead as any).phoneNormalized || (lead as any).phone);
     const availabilityCheckedAt = availability?.checkedAt ? new Date(availability.checkedAt).getTime() : 0;
@@ -5000,10 +4998,9 @@ export class VendasService {
 
     if (phoneDigits && shouldRefreshWhatsapp) {
       try {
-        // Verificacao "esse numero existe?" usa SEMPRE o chip do Master (todos herdam,
-        // automatico, sem toggle). useMasterWhatsAppToken e' de MENSAGEM (Meta), nao disto.
         const engineCompanyId = await this.getOrCreateMasterWhatsappEngineCompanyId();
-        const [lookup] = await this.webwhatsBridge.checkWhatsappNumbers(engineCompanyId || companyId, [phoneDigits]);
+        if (!engineCompanyId) return null;
+        const [lookup] = await this.webwhatsBridge.checkWhatsappNumbers(engineCompanyId, [phoneDigits]);
         if (lookup) {
           const status: VendasWhatsappAvailabilityStatus = lookup.exists ? 'available' : 'unavailable';
           const now = new Date();
