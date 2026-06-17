@@ -312,3 +312,12 @@ body {
 .feed-item.info { border-left-color: var(--blue); }
 .feed-item.is-new { animation: feedIn .25s ease; }
 @keyframes feedIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+
+/* Infra (containers + logs + top processos) */
+.infra-summary { display: flex; align-items: center; gap: 10px; cursor: pointer; list-style: none; }
+.infra-summary::-webkit-details-marker { display: none; }
+.infra-h3 { font-size: 12px; font-weight: 600; color: var(--text-muted); margin: 0 0 8px; text-transform: uppercase; letter-spacing: .04em; }
+.infra-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.infra-table th { text-align: left; padding: 4px 8px; color: var(--text-muted); font-weight: 600; border-bottom: 1px solid var(--border); }
+.infra-table td { padding: 5px 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.infra-table tr:last-child td { border-bottom: none; }

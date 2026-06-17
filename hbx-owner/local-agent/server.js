@@ -1343,6 +1343,36 @@ async function route(req, res) {
     return;
   }
 
+  // GET /owner/containers — containers local (docker) + VPS (via Ops Control) + top processos
+  if (req.method === "GET" && url.pathname === "/owner/containers") {
+    const local = readContainers();
+    const [vpsCtrs, vpsOv] = await Promise.all([
+      opsRequest("GET", "/api/containers", null, 20000),
+      opsRequest("GET", "/api/overview", null, 40000),
+    ]);
+    sendJson(res, 200, {
+      ok: true,
+      local: local.ok ? local.items : [],
+      localEngines: local.ok ? local.engineContainers : null,
+      localError: local.ok ? null : local.error,
+      vps: vpsCtrs.ok ? (vpsCtrs.data?.containers || []) : [],
+      vpsAvailable: vpsCtrs.ok && Boolean(opsToken),
+      vpsReason: vpsCtrs.ok ? null : (vpsCtrs.reason || `http_${vpsCtrs.statusCode || "?"}`),
+      topProcesses: vpsOv.ok ? (vpsOv.data?.topProcesses || []) : [],
+    });
+    return;
+  }
+
+  // GET /owner/logs/:name — logs de container na VPS via Ops Control
+  if (req.method === "GET" && url.pathname.startsWith("/owner/logs/")) {
+    const name = decodeURIComponent(url.pathname.slice("/owner/logs/".length));
+    if (!name || !/^[a-zA-Z0-9_\-.]+$/.test(name)) { sendError(res, 400, "Nome de container invalido."); return; }
+    const response = await opsRequest("GET", `/api/logs/${encodeURIComponent(name)}`);
+    if (!response.configured) { sendJson(res, 200, { ok: false, reason: "ops_token_ausente", logs: "" }); return; }
+    sendJson(res, response.ok ? 200 : 502, response.data || { ok: false, reason: response.reason, logs: "" });
+    return;
+  }
+
   sendError(res, 404, "Endpoint nao encontrado.");
 }
 

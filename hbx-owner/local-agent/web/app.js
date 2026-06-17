@@ -700,6 +700,103 @@ $("#btn-el-hunt").addEventListener("click", huntEmail);
 $("#btn-el-import").addEventListener("click", importEmailLabToVps);
 $("#btn-el-cancel").addEventListener("click", cancelHunt);
 
+/* ---------- Containers + logs + Top processos (recolhido) ---------- */
+let infraLoaded = false;
+
+async function renderInfra() {
+  if (infraLoaded) return;
+  infraLoaded = true;
+  const body = $("#infra-body");
+  const pill = $("#infra-pill");
+  if (!body) return;
+  if (pill) { pill.textContent = "carregando…"; pill.className = "pill pill-muted"; }
+  body.innerHTML = `<p class="delta">Buscando containers…</p>`;
+  let d;
+  try {
+    d = await api("GET", "/owner/containers");
+  } catch (e) {
+    body.innerHTML = `<p class="delta warn">Erro ao carregar: ${esc(e.message)}</p>`;
+    if (pill) { pill.textContent = "erro"; pill.className = "pill pill-bad"; }
+    infraLoaded = false;
+    return;
+  }
+  const totalCtrs = (d.local || []).length + (d.vps || []).length;
+  if (pill) { pill.textContent = `${totalCtrs} containers`; pill.className = "pill pill-ok"; }
+
+  let html = "";
+
+  html += `<h3 class="infra-h3">Sua máquina · Docker</h3>`;
+  if (d.localError) {
+    html += `<p class="delta warn">${esc(d.localError)}</p>`;
+  } else if (!(d.local || []).length) {
+    html += `<p class="delta">Nenhum container relevante.</p>`;
+  } else {
+    html += `<table class="infra-table"><thead><tr><th>Container</th><th>Estado</th><th>CPU</th><th>Mem</th><th></th></tr></thead><tbody>`;
+    for (const c of d.local) {
+      const stCls = c.state === "running" ? "pill-ok" : "pill-bad";
+      html += `<tr><td>${esc(c.name)}</td><td><span class="pill ${stCls}" style="font-size:11px;">${esc(c.state)}</span></td><td>${esc(c.cpu)}</td><td>${esc(c.mem)}</td><td><button class="btn btn-sm btn-log" data-name="${esc(c.name)}">logs</button></td></tr>`;
+    }
+    html += `</tbody></table>`;
+  }
+  if (d.localEngines) {
+    html += `<p class="delta" style="margin-top:6px;">Motores: ${d.localEngines.running}/${d.localEngines.total} rodando</p>`;
+  }
+
+  html += `<h3 class="infra-h3" style="margin-top:16px;">VPS · Docker</h3>`;
+  if (!d.vpsAvailable) {
+    html += `<p class="delta warn">VPS indisponível${d.vpsReason ? ` — ${esc(d.vpsReason)}` : ""}.</p>`;
+  } else if (!(d.vps || []).length) {
+    html += `<p class="delta">Nenhum container retornado.</p>`;
+  } else {
+    html += `<table class="infra-table"><thead><tr><th>Container</th><th>Estado</th><th>CPU</th><th>Mem</th><th></th></tr></thead><tbody>`;
+    for (const c of d.vps) {
+      const name = c.name || c.Names || "";
+      const state = c.state || c.State || "";
+      const stCls = state === "running" ? "pill-ok" : "pill-bad";
+      html += `<tr><td>${esc(name)}</td><td><span class="pill ${stCls}" style="font-size:11px;">${esc(state)}</span></td><td>${esc(c.cpu || "")}</td><td>${esc(c.memUsage || c.mem || "")}</td><td><button class="btn btn-sm btn-log" data-name="${esc(name)}">logs</button></td></tr>`;
+    }
+    html += `</tbody></table>`;
+  }
+
+  if (d.topProcesses && d.topProcesses.length) {
+    html += `<h3 class="infra-h3" style="margin-top:16px;">Top processos · VPS</h3>`;
+    html += `<table class="infra-table"><thead><tr><th>PID</th><th>CPU%</th><th>Mem%</th><th>RSS MB</th><th>Cmd</th></tr></thead><tbody>`;
+    for (const p of d.topProcesses.slice(0, 10)) {
+      html += `<tr><td>${esc(p.pid || "")}</td><td>${esc(p.cpu || "")}</td><td>${esc(p.ram || "")}</td><td>${esc(p.rssMb || "")}</td><td style="font-family:monospace;font-size:11px;">${esc(String(p.command || "").slice(0, 60))}</td></tr>`;
+    }
+    html += `</tbody></table>`;
+  }
+
+  html += `<div id="infra-log-box" style="display:none;margin-top:14px;"><div class="focus-row"><strong id="infra-log-name" style="font-size:13px;"></strong><button id="infra-log-close" class="btn btn-sm btn-amber">Fechar</button></div><pre id="infra-log-content" style="font-size:11px;max-height:300px;overflow:auto;background:var(--color-bg-alt,#f5f5f5);padding:10px;border-radius:6px;margin-top:8px;white-space:pre-wrap;word-break:break-all;">…</pre></div>`;
+
+  body.innerHTML = html;
+
+  body.querySelectorAll(".btn-log").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const name = btn.dataset.name;
+      const logBox = $("#infra-log-box");
+      const logName = $("#infra-log-name");
+      const logContent = $("#infra-log-content");
+      if (!logBox) return;
+      logBox.style.display = "block";
+      if (logName) logName.textContent = name;
+      if (logContent) logContent.textContent = "Carregando logs…";
+      try {
+        const r = await api("GET", `/owner/logs/${encodeURIComponent(name)}`);
+        if (logContent) { logContent.textContent = r.logs || "(vazio)"; logContent.scrollTop = logContent.scrollHeight; }
+      } catch (e) {
+        if (logContent) logContent.textContent = `Erro: ${e.message}`;
+      }
+    });
+  });
+
+  const closeBtn = $("#infra-log-close");
+  if (closeBtn) closeBtn.addEventListener("click", () => { const b = $("#infra-log-box"); if (b) b.style.display = "none"; });
+}
+
+const infraDetails = $("#infra-details");
+if (infraDetails) infraDetails.addEventListener("toggle", () => { if (infraDetails.open) renderInfra(); });
+
 /* ---------- Boot ---------- */
 fillUfSelects();
 pingStatus();
