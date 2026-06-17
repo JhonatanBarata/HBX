@@ -30,5 +30,4 @@ OPS_CONTROL_TOKEN=troque-por-um-token-grande
 
 docker compose --env-file $envFile -f $composeFile up -d --build
 
-Start-Sleep -Seconds 2
-Start-Process 'http://127.0.0.1:3099'
+Write-Host 'Ops Control headless no ar em http://127.0.0.1:3099 (so API). A tela e o HBX Owner: http://127.0.0.1:3107'

@@ -14,257 +14,219 @@
       <span class="brand-mark">HBX</span>
       <div class="brand-text">
         <strong>HBX Owner</strong>
-        <small>Cockpit local do dono</small>
+        <small>Cockpit — sua máquina × VPS, numa tela só</small>
       </div>
     </div>
-    <div class="topbar-right">
-      <span id="agent-status" class="pill pill-muted">conectando…</span>
+    <div class="topbar-right status-pills">
+      <span id="st-agent" class="pill pill-muted" title="Local agent">agent…</span>
+      <span id="st-backend" class="pill pill-muted" title="Backend do produto :3000">backend…</span>
+      <span id="st-ops" class="pill pill-muted" title="Ops Control (motor SSH) :3099">ops…</span>
+      <span id="st-vps" class="pill pill-muted" title="VPS de produção">vps…</span>
       <button id="theme-toggle" class="icon-btn" title="Alternar tema">◐</button>
     </div>
   </header>
 
-  <nav class="tabs" id="tabs">
-    <button class="tab is-active" data-tab="hoje">Hoje</button>
-    <button class="tab" data-tab="tickets">Tickets</button>
-    <button class="tab" data-tab="sistema">Sistema</button>
-    <button class="tab" data-tab="email">Caça de e-mail</button>
-    <button class="tab" data-tab="codigo">Código</button>
-    <button class="tab" data-tab="execucao">Execução</button>
-    <button class="tab" data-tab="config">Config</button>
-  </nav>
-
   <main class="content">
-    <!-- Opções selecionáveis (escolher ou digitar), populadas do backend -->
-    <datalist id="dl-segmentos"></datalist>
-    <datalist id="dl-cidades"></datalist>
 
-    <!-- HOJE -->
-    <section class="panel is-active" data-panel="hoje">
-      <div class="panel-head">
-        <h1>Hoje</h1>
-        <p>Ponto, foco e execução</p>
-      </div>
-      <div class="card focus-card">
-        <div class="focus-row">
-          <div>
-            <span class="label">Status do expediente</span>
-            <strong id="today-status" class="big">—</strong>
-          </div>
-          <span id="today-health" class="pill pill-ok">saudável</span>
+    <!-- ============ PRESSÃO: sua máquina × VPS ============ -->
+    <div class="sys-cols">
+      <!-- LOCAL -->
+      <section class="env-col" data-env="local">
+        <header class="env-head"><h2>Sua máquina</h2></header>
+        <div class="grid-3">
+          <div class="card metric"><span class="label">RAM</span><strong id="sys-ram">—</strong><div class="bar sm"><div id="sys-ram-bar" class="bar-fill"></div></div><small id="sys-ram-limit" class="delta"></small></div>
+          <div class="card metric"><span class="label">CPU</span><strong id="sys-cpu">—</strong><div class="bar sm"><div id="sys-cpu-bar" class="bar-fill"></div></div><small id="sys-cpu-limit" class="delta"></small></div>
+          <div class="card metric"><span class="label">Disco</span><strong id="sys-disk">—</strong><div class="bar sm"><div id="sys-disk-bar" class="bar-fill"></div></div><small id="sys-disk-limit" class="delta"></small></div>
         </div>
-        <div class="btn-row">
-          <button class="btn btn-green" data-today="start">Start work</button>
-          <button class="btn btn-amber" data-today="pause">Pausa</button>
-          <button class="btn btn-blue" data-today="resume">Retomar</button>
-          <button class="btn btn-red" data-today="stop">Stop work</button>
+        <div id="sys-verdict" class="card verdict">
+          <div class="verdict-head"><span id="sys-verdict-icon">•</span><strong id="sys-verdict-title">Lendo…</strong></div>
+          <p id="sys-verdict-detail" class="verdict-detail">—</p>
         </div>
-      </div>
-      <div class="grid-3">
-        <div class="card metric"><span class="label">Tempo líquido</span><strong id="today-net">0 min</strong></div>
-        <div class="card metric"><span class="label">Commits hoje</span><strong id="today-commits">0</strong></div>
-        <div class="card metric"><span class="label">Banco de Leads</span><strong id="today-bank">—</strong></div>
-      </div>
-      <div class="grid-2">
+      </section>
+
+      <!-- VPS -->
+      <section class="env-col env-vps" data-env="vps">
+        <header class="env-head">
+          <h2>VPS <small id="vps-host" class="env-host"></small></h2>
+          <span id="vps-status" class="resumo"></span>
+          <button id="btn-vps-refresh" class="icon-btn" title="Reler a VPS">⟳</button>
+        </header>
+        <div class="grid-3">
+          <div class="card metric"><span class="label">RAM</span><strong id="vps-ram">—</strong><div class="bar sm"><div id="vps-ram-bar" class="bar-fill"></div></div><small id="vps-ram-limit" class="delta"></small></div>
+          <div class="card metric"><span class="label">CPU</span><strong id="vps-load">—</strong><div class="bar sm"><div id="vps-load-bar" class="bar-fill"></div></div><small id="vps-load-detail" class="delta"></small></div>
+          <div class="card metric"><span class="label">Disco</span><strong id="vps-disk">—</strong><div class="bar sm"><div id="vps-disk-bar" class="bar-fill"></div></div><small id="vps-disk-limit" class="delta"></small></div>
+        </div>
+        <div id="vps-verdict" class="card verdict">
+          <div class="verdict-head"><span id="vps-verdict-icon">•</span><strong id="vps-verdict-title">Lendo…</strong></div>
+          <p id="vps-verdict-detail" class="verdict-detail">—</p>
+        </div>
+      </section>
+    </div>
+
+    <!-- ============ MOTORES & FÁBRICA: sua máquina × VPS ============ -->
+    <div class="sys-cols">
+      <!-- LOCAL -->
+      <section class="env-col" data-env="local">
         <div class="card">
-          <span class="label">Foco permitido</span>
-          <p id="today-focus" class="focus-allow">—</p>
+          <div class="focus-row"><span class="label" style="margin:0;">Motores · sua máquina</span><strong id="sys-engines-big" class="big">—</strong></div>
+          <div class="bar"><div id="sys-bar-alive" class="bar-fill"></div></div>
+          <div class="bar-legend"><span id="sys-engines-counts">—</span><span id="sys-leads-falling"></span></div>
+          <div class="chk-row">
+            <span id="chk-elastic" class="chk">Elasticidade</span>
+            <span id="chk-factory" class="chk">Fábrica</span>
+            <span id="chk-turbo" class="chk">Turbo</span>
+          </div>
+          <div class="lab-row">
+            <span class="lab-state"><span id="lab-dot2" class="lab-dot checking"></span><span id="lab-text2">Lab de leads: verificando…</span></span>
+          </div>
+          <div class="btn-row" style="margin-top:10px;">
+            <button id="btn-engines-local-start" class="btn btn-green btn-sm">Ligar motores</button>
+            <button id="btn-engines-local-stop" class="btn btn-red btn-sm">Parar motores</button>
+            <button id="btn-lab-toggle-start" class="btn btn-blue btn-sm">Ligar Lab</button>
+            <button id="btn-lab-toggle-stop" class="btn btn-amber btn-sm">Desligar Lab</button>
+          </div>
+          <span id="engines-local-feedback" class="delta"></span>
         </div>
+      </section>
+
+      <!-- VPS -->
+      <section class="env-col env-vps" data-env="vps">
         <div class="card">
-          <span class="label">Fuga provável</span>
-          <p id="today-distraction" class="focus-flee">—</p>
-        </div>
-      </div>
-    </section>
-
-    <!-- TICKETS -->
-    <section class="panel" data-panel="tickets">
-      <div class="panel-head">
-        <h1>Tickets</h1>
-        <p>Fila <code>.md</code> do repositório — fonte única, versionada</p>
-      </div>
-      <div id="tickets-list" class="list"><div class="empty">Carregando…</div></div>
-    </section>
-
-    <!-- SISTEMA -->
-    <section class="panel" data-panel="sistema">
-      <div class="panel-head">
-        <h1>Sistema</h1>
-        <p>Como está o motor do HBX, em português claro.</p>
-      </div>
-
-      <div class="grid-2">
-        <div class="card metric">
-          <span class="label">Banco de leads · LOCALHOST</span>
-          <strong id="sys-bank-local" class="big">—</strong>
-          <small id="sys-bank-local-delta" class="delta"></small>
-        </div>
-        <div class="card metric">
-          <span class="label">Banco de leads · VPS</span>
-          <strong id="sys-bank-vps" class="big">—</strong>
-          <small id="sys-bank-vps-delta" class="delta"></small>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="focus-row" style="flex-wrap:wrap; gap:10px;">
-          <span class="lab-state"><span id="lab-dot2" class="lab-dot checking"></span><span id="lab-text2">Lab de leads: verificando…</span></span>
-          <div class="btn-row">
-            <button id="btn-engines-local-start" class="btn btn-green">Ligar motores</button>
-            <button id="btn-engines-local-stop" class="btn btn-red">Parar motores</button>
-            <button id="btn-lab-toggle-start" class="btn btn-blue">Ligar Lab</button>
-            <button id="btn-lab-toggle-stop" class="btn btn-amber">Desligar Lab</button>
+          <div class="focus-row"><span class="label" style="margin:0;">Motores · VPS</span><strong id="vps-engines-big" class="big">—</strong></div>
+          <div class="bar-legend"><span id="vps-engines">—</span><span id="vps-leads-falling"></span></div>
+          <div class="chk-row">
+            <span id="chk-vps-elastic" class="chk">Elasticidade</span>
+            <span id="chk-vps-factory" class="chk">Fábrica</span>
           </div>
-        </div>
-        <span id="engines-local-feedback" class="delta"></span>
-      </div>
-
-      <div class="sys-cols">
-        <!-- COLUNA LOCALHOST -->
-        <section class="env-col" data-env="local">
-          <header class="env-head"><h2>Localhost</h2></header>
-
-          <div class="grid-3">
-            <div class="card metric"><span class="label">RAM</span><strong id="sys-ram">—</strong><div class="bar sm"><div id="sys-ram-bar" class="bar-fill"></div></div><small id="sys-ram-limit" class="delta"></small></div>
-            <div class="card metric"><span class="label">CPU</span><strong id="sys-cpu">—</strong><div class="bar sm"><div id="sys-cpu-bar" class="bar-fill"></div></div><small id="sys-cpu-limit" class="delta"></small></div>
-            <div class="card metric"><span class="label">Disco</span><strong id="sys-disk">—</strong><div class="bar sm"><div id="sys-disk-bar" class="bar-fill"></div></div><small id="sys-disk-limit" class="delta"></small></div>
+          <div class="form-grid" style="margin-top:14px;">
+            <label>De (motor nº)<input id="vps-from" type="number" min="1" max="200" value="1" /></label>
+            <label>Até (motor nº)<input id="vps-to" type="number" min="1" max="200" value="3" /></label>
           </div>
-
-          <div class="card">
-            <div class="focus-row"><span class="label" style="margin:0;">Motores ativos</span><strong id="sys-engines-big" class="big">—</strong></div>
-            <div class="bar"><div id="sys-bar-alive" class="bar-fill"></div></div>
-            <div class="bar-legend"><span id="sys-engines-counts">—</span><span id="sys-leads-falling"></span></div>
-            <div class="chk-row">
-              <span id="chk-elastic" class="chk">Elasticidade</span>
-              <span id="chk-factory" class="chk">Fábrica</span>
-              <span id="chk-turbo" class="chk">Turbo (perigoso)</span>
-            </div>
-            <div class="focus-row" style="margin-top:14px;">
-              <span class="label" style="margin:0;">Cards diferenciados (hoje)</span>
-              <strong id="sys-cards-unique">—</strong>
-            </div>
+          <div class="btn-row" style="margin-top:12px;">
+            <button id="btn-vps-engines-start" class="btn btn-green btn-sm">Ligar faixa</button>
+            <button id="btn-vps-engines-stop" class="btn btn-red btn-sm">Parar faixa</button>
+            <button id="btn-vps-motor-stop" class="btn btn-amber btn-sm">Parar motor base</button>
+            <button id="btn-vps-cancel" class="btn btn-red btn-sm">Cancelar busca</button>
           </div>
-        </section>
-
-        <!-- COLUNA VPS -->
-        <section class="env-col env-vps" data-env="vps">
-          <header class="env-head">
-            <h2>VPS <small id="vps-host" class="env-host"></small></h2>
-            <span id="vps-status" class="resumo"></span>
-            <button id="btn-vps-refresh" class="icon-btn" title="Reler a VPS">⟳</button>
-          </header>
-
-          <div class="grid-3">
-            <div class="card metric"><span class="label">RAM</span><strong id="vps-ram">—</strong><div class="bar sm"><div id="vps-ram-bar" class="bar-fill"></div></div><small id="vps-ram-limit" class="delta"></small></div>
-            <div class="card metric"><span class="label">CPU</span><strong id="vps-load">—</strong><div class="bar sm"><div id="vps-load-bar" class="bar-fill"></div></div><small id="vps-load-detail" class="delta"></small></div>
-            <div class="card metric"><span class="label">Disco</span><strong id="vps-disk">—</strong><div class="bar sm"><div id="vps-disk-bar" class="bar-fill"></div></div><small id="vps-disk-limit" class="delta"></small></div>
-          </div>
-
-          <div class="card">
-            <div class="focus-row"><span class="label" style="margin:0;">Motores ativos</span><strong id="vps-engines-big" class="big">—</strong></div>
-            <div class="bar-legend"><span id="vps-engines">—</span><span id="vps-leads-falling"></span></div>
-            <div class="chk-row">
-              <span id="chk-vps-elastic" class="chk">Elasticidade</span>
-              <span id="chk-vps-factory" class="chk">Fábrica</span>
-            </div>
-            <div class="form-grid" style="margin-top:14px;">
-              <label>De (motor nº)<input id="vps-from" type="number" min="1" max="200" value="1" /></label>
-              <label>Até (motor nº)<input id="vps-to" type="number" min="1" max="200" value="3" /></label>
-            </div>
-            <div class="btn-row" style="margin-top:12px;">
-              <button id="btn-vps-engines-start" class="btn btn-green">Ligar faixa</button>
-              <button id="btn-vps-engines-stop" class="btn btn-red">Parar faixa</button>
-              <button id="btn-vps-motor-stop" class="btn btn-amber">Parar motor base</button>
-              <button id="btn-vps-cancel" class="btn btn-red">Cancelar busca</button>
-            </div>
-            <span id="vps-feedback" class="delta"></span>
-          </div>
-        </section>
-      </div>
-
-      <div class="card">
-        <div class="focus-row">
-          <span class="label" style="margin:0;">Atividade ao vivo</span>
-          <span id="sys-feed-status" class="pill pill-muted">acompanhando…</span>
+          <span id="vps-feedback" class="delta"></span>
         </div>
-        <div id="sys-feed" class="feed"><div class="empty">Ligue um motor ou o turbo e o que acontecer aparece aqui.</div></div>
-      </div>
+      </section>
+    </div>
 
-      <div class="card">
-        <div class="focus-row">
-          <span class="label" style="margin:0;">Exportar leads → VPS</span>
-          <span id="export-status" class="pill pill-muted">local → produção</span>
+    <!-- ============ RADAR AO VIVO: o que cada ambiente raspa AGORA ============ -->
+    <div class="card">
+      <div class="focus-row" style="flex-wrap:wrap; gap:10px;">
+        <span class="label" style="margin:0;">Radar ao vivo — controle de scraping</span>
+        <button id="btn-rad-refresh" class="icon-btn" title="Reler o radar (SSH, ~30s)">⟳</button>
+      </div>
+      <div class="form-grid" style="margin-top:10px;">
+        <label>Alvo<select id="rad-scope">
+          <option value="both">Sua máquina + VPS</option>
+          <option value="local">Só sua máquina</option>
+          <option value="vps">Só VPS</option>
+        </select></label>
+        <label>Filtro de canal<select id="rad-channel">
+          <option value="">Sem filtro</option>
+          <option value="email">E-mail</option>
+          <option value="whatsapp">WhatsApp</option>
+          <option value="instagram">Instagram</option>
+          <option value="website">Site</option>
+          <option value="phone">Telefone</option>
+          <option value="facebook">Facebook</option>
+        </select></label>
+      </div>
+      <div class="btn-row" style="margin-top:12px;">
+        <button id="btn-rad-turbo" class="btn btn-green btn-sm">Turbo</button>
+        <button id="btn-rad-force" class="btn btn-blue btn-sm">Forçar filtro</button>
+        <button id="btn-rad-cancel" class="btn btn-red btn-sm">Cancelar scraping</button>
+        <span id="rad-feedback" class="delta"></span>
+      </div>
+    </div>
+
+    <div class="sys-cols">
+      <section class="env-col" data-env="local">
+        <div class="card">
+          <div class="focus-row"><span class="label" style="margin:0;">Raspando agora · sua máquina</span><span id="rad-local-status" class="pill pill-muted">—</span></div>
+          <strong id="rad-local-now" class="big">—</strong>
+          <p id="rad-local-query" class="delta" style="margin-top:4px;">—</p>
+          <div class="bar-legend" style="margin-top:8px;"><span id="rad-local-engines">motores —</span></div>
+          <p id="rad-local-decision" class="verdict-detail" style="margin-top:10px;">—</p>
         </div>
-        <p class="delta" style="margin:6px 0 12px;">Manda <strong>todos os leads locais</strong> pro VPS (dedup por telefone) e <strong>limpa o banco local</strong>. Sem filtro, sem caçar — só os leads que já estão aqui. Os e-mails ficam no PC.</p>
-        <div class="btn-row" style="margin-top:4px;">
-          <button id="btn-export-all" class="btn btn-green">Exportar todos os leads → VPS</button>
-          <button id="btn-clean-junk" class="btn btn-amber">Limpar lixo do banco</button>
-          <span id="export-feedback" class="delta"></span>
+      </section>
+      <section class="env-col env-vps" data-env="vps">
+        <div class="card">
+          <div class="focus-row"><span class="label" style="margin:0;">Raspando agora · VPS</span><span id="rad-vps-status" class="pill pill-muted">—</span></div>
+          <strong id="rad-vps-now" class="big">—</strong>
+          <p id="rad-vps-query" class="delta" style="margin-top:4px;">—</p>
+          <div class="bar-legend" style="margin-top:8px;"><span id="rad-vps-engines">motores —</span></div>
+          <p id="rad-vps-decision" class="verdict-detail" style="margin-top:10px;">—</p>
         </div>
-      </div>
-    </section>
+      </section>
+    </div>
 
-    <!-- CAÇA DE E-MAIL -->
-    <section class="panel" data-panel="email">
-      <div class="panel-head">
-        <h1>Caça de e-mail</h1>
-        <p>Filtra o Banco por e-mail (instantâneo) ou caça novos pelo motor — fontes grátis.</p>
+    <!-- ============ LEADS ============ -->
+    <div class="card">
+      <span class="label">Banco de leads</span>
+      <div class="grid-2" style="margin-top:6px;">
+        <div class="metric"><span class="label">Sua máquina</span><strong id="sys-bank-local" class="big">—</strong><small id="sys-bank-local-delta" class="delta"></small></div>
+        <div class="metric"><span class="label">VPS</span><strong id="sys-bank-vps" class="big">—</strong><small id="sys-bank-vps-delta" class="delta"></small></div>
       </div>
+    </div>
 
-      <div class="card">
-        <div class="form-grid">
-          <label>Segmento<input id="hunt-segment" list="dl-segmentos" placeholder="escolha ou digite" /></label>
-          <label>UF<select id="hunt-state" class="select-uf"></select></label>
-          <label>Cidade<input id="hunt-city" list="dl-cidades" placeholder="escolha ou digite" /></label>
-          <label>Quantidade<input id="hunt-target" type="number" min="1" max="100" value="20" /></label>
-        </div>
-        <div class="btn-row" style="margin-top:12px;">
-          <button id="btn-filter" class="btn btn-blue">Filtrar Banco</button>
-          <button id="btn-hunt" class="btn btn-green">Caçar novos</button>
-          <span id="hunt-feedback" class="delta"></span>
-        </div>
+    <div class="card">
+      <div class="focus-row">
+        <span class="label" style="margin:0;">Exportar leads → VPS</span>
+        <span id="export-status" class="pill pill-muted">sua máquina → produção</span>
       </div>
+      <p class="delta" style="margin:6px 0 12px;">Manda <strong>todos os leads locais</strong> pro VPS (dedup por telefone) e <strong>limpa o banco local</strong>. Os e-mails ficam no PC.</p>
+      <div class="btn-row" style="margin-top:4px;">
+        <button id="btn-export-all" class="btn btn-green">Exportar todos os leads → VPS</button>
+        <button id="btn-clean-junk" class="btn btn-amber">Limpar lixo do banco</button>
+        <span id="export-feedback" class="delta"></span>
+      </div>
+    </div>
 
-      <div class="card">
-        <div class="focus-row">
-          <span class="label">E-mails encontrados</span>
-          <strong id="hunt-count" class="big">—</strong>
-        </div>
-        <div id="hunt-cards" class="list" style="margin-top:12px;"><div class="empty">Filtre o Banco ou cace novos.</div></div>
+    <!-- ============ CAÇAR E-MAIL (Email Lab) ============ -->
+    <div class="card">
+      <div class="focus-row" style="flex-wrap:wrap; gap:10px;">
+        <span class="label" style="margin:0;">Caçar e-mail (Email Lab)</span>
+        <span id="el-status" class="pill pill-muted">verificando…</span>
       </div>
-    </section>
+      <p class="delta" style="margin:6px 0 10px;">Roda no Local Lab: visita sites e extrai e-mails. Acompanhe as métricas; quando terminar, mande pra VPS.</p>
+      <div class="form-grid">
+        <label>Segmento<input id="el-segment" placeholder="ex.: clínica odontológica" /></label>
+        <label>UF<select id="el-state" class="select-uf"></select></label>
+        <label>Cidade<input id="el-city" placeholder="ex.: São Paulo" /></label>
+        <label>Meta de e-mails<input id="el-target" type="number" min="1" max="2000" value="50" /></label>
+        <label>Modo<select id="el-mode">
+          <option value="email_first">Priorizar e-mail</option>
+          <option value="public_email_only">Só e-mail público</option>
+          <option value="enrich_missing_email">Enriquecer sem e-mail</option>
+        </select></label>
+      </div>
+      <div class="btn-row" style="margin-top:12px;">
+        <button id="btn-el-hunt" class="btn btn-green btn-sm">Caçar e-mail</button>
+        <button id="btn-el-import" class="btn btn-blue btn-sm" disabled>Importar pra VPS</button>
+        <button id="btn-el-cancel" class="btn btn-amber btn-sm" disabled>Cancelar caça</button>
+        <span id="el-feedback" class="delta"></span>
+      </div>
+      <div class="grid-3" style="margin-top:12px;">
+        <div class="metric"><span class="label">Sites visitados</span><strong id="el-sites">—</strong></div>
+        <div class="metric"><span class="label">E-mails achados</span><strong id="el-found">—</strong></div>
+        <div class="metric"><span class="label">Aceitos</span><strong id="el-accepted">—</strong></div>
+      </div>
+      <p id="el-summary" class="delta" style="margin-top:8px;">Sem caça iniciada.</p>
+    </div>
 
-    <!-- CÓDIGO -->
-    <section class="panel" data-panel="codigo">
-      <div class="panel-head">
-        <h1>Código</h1>
-        <p>Status, branch atual e arquivos mudados vs <code>origin/master</code></p>
+    <!-- ============ FEED HONESTO ============ -->
+    <div class="card">
+      <div class="focus-row">
+        <span class="label" style="margin:0;">Atividade ao vivo</span>
+        <span id="sys-feed-status" class="pill pill-muted">acompanhando…</span>
       </div>
-      <div class="grid-2">
-        <div class="card"><span class="label">Branch atual</span><strong id="git-current">—</strong></div>
-        <div class="card"><span class="label">Último commit</span><pre id="git-last" class="log-mini">—</pre></div>
-      </div>
-      <div class="card"><span class="label">git status</span><pre id="git-status" class="log-mini">—</pre></div>
-      <div class="card"><span class="label">Arquivos mudados</span><pre id="git-changed" class="log-mini">—</pre></div>
-    </section>
+      <div id="sys-feed" class="feed"><div class="empty">Ligue um motor ou o turbo e o que acontecer aparece aqui.</div></div>
+    </div>
 
-    <!-- EXECUÇÃO -->
-    <section class="panel" data-panel="execucao">
-      <div class="panel-head">
-        <h1>Execução</h1>
-        <p>Comandos da allowlist e últimas execuções</p>
-      </div>
-      <div id="commands-list" class="list"><div class="empty">Carregando…</div></div>
-      <div class="card"><span class="label">Execuções recentes</span><div id="runs-list" class="list-mini"><div class="empty">—</div></div></div>
-    </section>
-
-    <!-- CONFIG -->
-    <section class="panel" data-panel="config">
-      <div class="panel-head">
-        <h1>Config</h1>
-        <p>Saúde do agent e bridges</p>
-      </div>
-      <div class="card"><pre id="config-health" class="log-mini">—</pre></div>
-    </section>
   </main>
 
   <script src="/app.js"></script>

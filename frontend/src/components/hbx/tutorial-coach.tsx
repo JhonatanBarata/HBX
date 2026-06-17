@@ -187,7 +187,6 @@ export function TutorialCoach({
     try { await onAskHelp(); setHelp("sent"); }
     catch { setHelp("error"); }
   }
-  function goPlanos() { router.push("/planos"); onDone?.(); }
   function closeFinal() { router.push("/dashboard"); onDone?.(); }
 
   const PAD = 8;
@@ -249,19 +248,15 @@ export function TutorialCoach({
         {step.final ? (
           <div className="tut-final">
             <div className="tut-final__row">
-              <button className="tut-btn" onClick={goPlanos} type="button">Ver planos avançados →</button>
-              <button className="tut-balloon__skip" onClick={closeFinal} type="button">Fechar</button>
-            </div>
-            <div className="tut-final__help">
-              <span className="tut-final__help-q">Ficou com alguma dúvida?</span>
               <button
                 className="tut-help-btn"
                 onClick={ask}
                 type="button"
                 disabled={help === "sending" || help === "sent"}
               >
-                {help === "sent" ? "Recado enviado ✓" : help === "sending" ? "Enviando…" : help === "error" ? "Tentar de novo" : "Falar com a HBX"}
+                {help === "sent" ? "Recado enviado ✓" : help === "sending" ? "Enviando…" : help === "error" ? "Tentar de novo" : "Falar com suporte"}
               </button>
+              <button className="tut-balloon__skip" onClick={closeFinal} type="button">Finalizar</button>
             </div>
             {help === "sent" && <span className="tut-final__note">A HBX vai te chamar. Pode fechar e usar o sistema. 🙂</span>}
           </div>

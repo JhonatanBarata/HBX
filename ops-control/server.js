@@ -42,7 +42,8 @@ if (targetMode === 'ssh' && (!sshConfig.host || (!sshConfig.password && !sshConf
 }
 
 app.use(express.json({ limit: '32kb' }));
-app.use(express.static(path.join(__dirname, 'public')));
+// Headless: o Ops Control nao serve tela propria. O HBX Owner (:3107) e a unica cara;
+// aqui sobra so a API (SSH -> VPS) que o Owner consome.
 
 app.use('/api', (req, res, next) => {
   const expected = `Bearer ${token}`;

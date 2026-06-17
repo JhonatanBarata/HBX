@@ -153,11 +153,11 @@ export function buildCoachSteps(audience: Partial<CoachAudience> = {}): CoachSte
     });
   }
 
-  // 6) Fim — planos avançados + falar com a HBX.
+  // 6) Fim — suporte e fechar.
   steps.push({
     id: "final",
     title: "Prontinho! 🎉",
-    body: "Você já sabe o caminho das pedras. Quer ver tudo que o sistema faz nos planos mais avançados?",
+    body: "Agora vc já sabe o básico do HBX, ficou mais alguma dúvida?",
     final: true,
   });
 

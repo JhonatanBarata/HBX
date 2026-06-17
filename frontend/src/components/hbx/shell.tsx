@@ -705,7 +705,12 @@ export function Topbar({ title, crumbs, onMenu }: { title: string; crumbs: React
 
   function abrirNovoLead() {
     try { sessionStorage.setItem("hbx:abrir-novo-lead", "1"); } catch { /* sem storage */ }
-    router.push("/vendas");
+    if (typeof window !== "undefined" && window.location.pathname === "/vendas") {
+      // já está na tela — evento direto, sem remount
+      try { window.dispatchEvent(new Event("hbx:abrir-novo-lead")); } catch { /* */ }
+    } else {
+      router.push("/vendas");
+    }
   }
 
   return (

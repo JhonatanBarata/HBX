@@ -480,17 +480,23 @@ export function VendasClient() {
   const [novoBusy, setNovoBusy] = useState(false);
   const [novoMsg, setNovoMsg] = useState<string | null>(null);
 
-  // "+" da topbar: abre o Novo lead ao chegar nesta tela (flag de sessão)
+  // "+" da topbar: abre o Novo lead — via sessionStorage (vindo de outra tela)
+  // ou via evento direto (já estava em /vendas e o shell disparou sem remount)
   useEffect(() => {
+    const openModal = () => {
+      try { sessionStorage.removeItem("hbx:abrir-novo-lead"); } catch { /* */ }
+      setNovoOpen(true);
+    };
+    window.addEventListener("hbx:abrir-novo-lead", openModal);
     const t = setTimeout(() => {
       try {
-        if (sessionStorage.getItem("hbx:abrir-novo-lead") === "1") {
-          sessionStorage.removeItem("hbx:abrir-novo-lead");
-          setNovoOpen(true);
-        }
+        if (sessionStorage.getItem("hbx:abrir-novo-lead") === "1") openModal();
       } catch { /* sem storage */ }
     }, 0);
-    return () => clearTimeout(t);
+    return () => {
+      window.removeEventListener("hbx:abrir-novo-lead", openModal);
+      clearTimeout(t);
+    };
   }, []);
 
   // Prospecção automática (GET /vendas/automation/live-status + controles;

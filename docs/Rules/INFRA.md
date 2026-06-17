@@ -41,14 +41,15 @@ Bootstrap do master: produção mantém `BOOTSTRAP_SYSTEM_MASTER=false`.
 
 ## Ops Control (`ops-control/`)
 
-- Painel local em `127.0.0.1:3099` que controla a VPS via SSH.
-- Áreas: Auditoria do Radar (abas VPS / localhost), cockpit Local x VPS
-  (Turbo LOCAL/VPS/ambos, filtro de canal, Forçar filtro, Cancelar scraping,
-  coordenação para não abrir duas fábricas na mesma cidade/segmento),
-  e Email Lab (job no Local Lab → export → import oficial via
-  `/webscraping/lead-harvest/import` na VPS).
+- **Headless** (desde 17/06): só API em `127.0.0.1:3099`, controla a VPS via SSH. **Não tem
+  mais tela própria** (`public/` removido + sem `express.static`) — o HBX Owner (`:3107`) é a
+  única cara; o Ops Control é o motor SSH que ele consome por proxy.
+- API: pressão/containers (`/api/host-snapshot`, `/api/overview`, `/api/containers`), cockpit
+  Local×VPS (`/api/radar-cockpit`, `/api/radar-audit/:env`), Turbo/Forçar/Cancelar
+  (`/api/opscontrol/*`), Email Lab (`/api/email-lab/*` → import oficial
+  `/webscraping/lead-harvest/import`), motores (`/api/engines/*`, `/api/quick/*`).
 - Config via `.env.ops-control` (token, SSH, backends por ambiente com JWT master
-  ou auto-session no container). Sobe com `docker-compose.ops.yml`.
+  ou auto-session no container). Sobe com `docker compose -f docker-compose.ops.yml up -d`.
 
 ## HBX Owner (`hbx-owner/local-agent/`)
 
@@ -56,22 +57,19 @@ Bootstrap do master: produção mantém `BOOTSTRAP_SYSTEM_MASTER=false`.
   Sobe com `npm run owner:app` (start-owner.ps1: sobe o agent + abre o navegador) ou
   `npm run owner:agent` direto. Token local em `HBX_OWNER_LOCAL_TOKEN` (ou gerado/persistido
   em `.owner-token`, gitignored). Painel em `http://127.0.0.1:3107`.
-- Abas: **Hoje** (ponto/foco, estado em `state/today.json` — sem banco), **Tickets**
-  (fila `.md` de `docs/PLANEJAMENTOS`, fonte única versionada), **Sistema** (motores
-  elásticos via `/webscraping/engines/status`, pressão RAM/CPU/disco da máquina,
-  veredito "preciso de mais servidor?", containers, Banco de Leads e Exportar local→VPS),
-  **Código** (git), **Execução** (allowlist + runs), **Config**.
-- A guia **Sistema** tem DUAS colunas: **localhost** (pressão/motores/containers lidos
-  nativamente pelo agent) e **VPS** (lida e controlada via Ops Control). A coluna VPS NÃO
-  abre SSH próprio — proxia o Ops Control (`HBX_OWNER_OPS_URL`/`HBX_OWNER_OPS_TOKEN`, token
-  vindo do `.env.ops-control` pelo start-owner.ps1). Leitura: snapshot leve de 1 conexão
-  (`/api/host-snapshot/vps`, fallback `/api/overview`) → RAM/CPU(load÷núcleos)/disco +
-  containers + veredito. Controles VPS: parar/ligar frota `hbx-engine-N` (`engines/stop-range`/
-  `start-range`), parar motor único (`quick/scrapingEngine/stop`), cancelar scraping
-  (`opscontrol/cancel` escopo vps) — destrutivos exigem confirmação.
-- A guia Sistema cobre o cockpit do Ops Control para o uso do dono (Email Lab cortado:
-  o filtro "e-mail obrigatório" na busca já cobre). O Ops Control (`:3099`) segue existindo
-  para operação SSH da VPS — e agora é também a ponte que alimenta a coluna VPS do Owner.
+- **Página única (sem abas)** — a única tela do dono, de cima pra baixo: pills de status
+  (agent/backend/Ops/VPS), **Pressão** sua máquina × VPS (com veredito), **Motores & fábrica**
+  dos dois lados, **Radar ao vivo** (o que cada ambiente raspa agora + Turbo/filtro/Forçar/Cancelar),
+  **Leads** (banco local×VPS, Exportar→VPS, Limpar lixo, Caçar e-mail via Email Lab) e o **Feed honesto**.
+- A página tem DUAS colunas em todo bloco: **sua máquina** (pressão/motores/containers lidos
+  nativamente pelo agent + banco/fábrica via backend `:3000`) e **VPS** (lida e controlada via
+  Ops Control). A coluna VPS NÃO abre SSH próprio — proxia o Ops Control
+  (`HBX_OWNER_OPS_URL`/`HBX_OWNER_OPS_TOKEN`, token vindo do `.env.ops-control` pelo start-owner.ps1).
+  Leitura: snapshot leve (`/api/host-snapshot/vps`, fallback `/api/overview`) e cockpit
+  (`/api/radar-cockpit`, cacheado). Controles VPS: parar/ligar frota `hbx-engine-N`, parar motor
+  único, Turbo/Forçar/Cancelar (`/api/opscontrol/*`) — destrutivos exigem confirmação.
+- O Owner cobre 100% do uso do Ops Control pelo dono; o Ops Control (`:3099`) virou **headless**
+  (só API) e é a ponte SSH que alimenta a coluna VPS / radar / email-lab do Owner.
 - Banco de Leads e Exportar usam o backend via `HBX_OWNER_BACKEND_URL` +
   `HBX_OWNER_BACKEND_TOKEN` (JWT do dono). Sem token, o painel degrada com aviso, não quebra.
 - Exportar = enviar leads do Local Lab para a VPS (que os importa via

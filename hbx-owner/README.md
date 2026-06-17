@@ -1,6 +1,7 @@
 # HBX Owner
 
-Cockpit local do dono = painel web servido pelo `local-agent` (Node, sem SQLite).
+Cockpit local do dono = **uma página só** (sem abas) servida pelo `local-agent` (Node, sem
+SQLite). É a **única tela**: junta a sua máquina e a VPS num lugar.
 
 ## Como rodar
 
@@ -9,75 +10,45 @@ npm run up
 npm run owner:app
 ```
 
-`owner:app` sobe o agent e abre `http://127.0.0.1:3107` no navegador. O token local
-e lido de `HBX_OWNER_LOCAL_TOKEN` ou gerado e persistido em
-`hbx-owner/local-agent/.owner-token` (gitignored).
+`owner:app` sobe o agent e abre `http://127.0.0.1:3107`. O token local é lido de
+`HBX_OWNER_LOCAL_TOKEN` ou gerado/persistido em `hbx-owner/local-agent/.owner-token`
+(gitignored).
 
-Para a aba Caça (Banco de Leads + Exportar) falar com o backend, defina antes de subir:
+Pra falar com o backend do produto (banco de leads, export, fábrica) e com a VPS (Ops
+Control), o `start-owner.ps1` já injeta os tokens. Manualmente:
 
 ```powershell
 $env:HBX_OWNER_BACKEND_URL="http://127.0.0.1:3000"
-$env:HBX_OWNER_BACKEND_TOKEN="Perspective"
+$env:HBX_OWNER_BACKEND_TOKEN="<jwt do master>"
+$env:HBX_OWNER_OPS_TOKEN="<OPS_CONTROL_TOKEN do .env.ops-control>"
 ```
 
-## Abas
+## O que a tela mostra (de cima pra baixo)
 
-- **Hoje** — ponto e foco (estado em `local-agent/state/today.json`, sem banco).
-- **Tickets** — fila `.md` de `docs/PLANEJAMENTOS` (fonte unica, versionada).
-- **Sistema** — DUAS colunas: **localhost** (pressao/motores/containers nativos) e **VPS**
-  (via Ops Control). Pressao RAM/CPU/disco, motores elasticos, veredito "preciso de mais
-  servidor?" e controles da VPS (parar/ligar motores, parar motor unico, cancelar scraping).
-- **Caca de e-mail** — Banco de Leads + caçar novos pelo motor Radar.
-- **Codigo** — git status, branch, arquivos mudados.
-- **Execucao** — comandos da allowlist e ultimas execucoes.
-- **Config** — saude do agent (inclui se backend e Ops Control estao ligados).
+- **Topo** — pills de status: agent · backend · Ops · VPS + tema.
+- **Pressão** — sua máquina (RAM/CPU/disco nativo) × VPS (via Ops Control), cada lado com veredito.
+- **Motores & fábrica** — sua máquina (ligar/parar frota, Lab on/off, checks elástico/fábrica/turbo)
+  × VPS (ligar/parar faixa, parar motor base, cancelar busca).
+- **Radar ao vivo** — o que cada ambiente raspa AGORA (cidade/segmento/modo) + controles
+  Turbo / filtro de canal / Forçar filtro / Cancelar.
+- **Leads** — banco local × VPS, Exportar→VPS, Limpar lixo, e Caçar e-mail (Email Lab).
+- **Feed honesto** — só a verdade derivada de deltas reais.
 
-### Coluna VPS (guia Sistema)
+## Bridges (bastidores — você não abre nenhum)
 
-A direita da guia Sistema le e controla a VPS **reaproveitando o Ops Control** (que ja
-tem SSH pronto) — o agent nao abre SSH proprio. Leitura via snapshot leve de 1 conexao
-(`/api/host-snapshot/vps`, com fallback para `/api/overview`); controles via
-`engines/stop-range`, `start-range`, `quick/:target/:action` e `opscontrol/cancel`.
+- **Backend do produto** (`:3000`) — banco de leads, fábrica, export, clean.
+- **Ops Control** (`:3099`) — **headless**, só API: SSH → VPS (pressão, motores, radar-cockpit,
+  email-lab, cancelar). Não tem mais tela própria; o Owner é a única cara. Sobe com
+  `docker compose -f docker-compose.ops.yml up -d`.
+- **Local Lab** (`:3098`) — caça de e-mail local (ligado pelo botão "Ligar Lab").
+- **VPS** (`187.77.47.18`) — produção, lida/controlada via Ops Control.
 
-Sem `HBX_OWNER_OPS_TOKEN` a coluna VPS degrada com aviso. O `start-owner.ps1` preenche
-esse token sozinho a partir do `.env.ops-control` da raiz — nao ha segredo novo.
+Sem `HBX_OWNER_OPS_TOKEN` (ou com `:3099` fora do ar), a coluna VPS / radar / email-lab
+degradam com aviso — não quebram.
 
-> O app desktop tkinter legado (`hbx-owner/windows-app/`, com SQLite) foi descontinuado.
+## O que o Owner NUNCA faz
 
-## Teste de lote integrado
-
-Quando o Codex Cloud criar PRs para tickets, o HBX Owner trabalha assim:
-
-1. O dono revisa e mergeia manualmente os PRs que quer aplicar em paralelo.
-2. O checkout atual passa a ser o lote de QA.
-3. O Local Agent roda `npm run up` nessa mesma pasta.
-4. O dono abre `http://localhost:3001` e testa o ticket no sistema real.
-5. O painel local de Testes roda frontend, backend, Webwhats ou E2E conforme o diff.
-
-Baixar PR isolado continua disponivel para diagnostico, mas nao e o caminho principal.
-
-## Bridges
-
-- Ops Control separado em `ops-control` (`127.0.0.1:3099`).
-- Local Lab (`hbx-local-lab`, `127.0.0.1:3098`) controlado pela aba Caca.
-- Deploy/publish continuam bloqueados pelo Owner.
-
-## O que nunca fazer
-
-- Nao liberar feature paga sem backend autorizar.
-- Nao expor secrets.
-- Nao rodar shell livre.
-- Nao executar deploy, publish, new, force ou migrations nesta fase.
-- Nao apagar historico negativo do Radar.
-
-## Comandos principais
-
-```powershell
-npm run owner:agent
-npm run owner:agent:health
-npm run owner:app
-npm run owner:self-check
-npm run up
-npm run down
-npm run verify:prod
-```
+- Liberar feature paga sem o backend autorizar.
+- Expor secrets ou rodar shell livre.
+- Deploy, publish, new, force ou migrations.
+- Apagar histórico negativo do Radar.

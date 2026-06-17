@@ -14,15 +14,10 @@ const HOST = "127.0.0.1";
 const PORT = Number(process.env.HBX_OWNER_LOCAL_AGENT_PORT || 3107);
 const TOKEN = String(process.env.HBX_OWNER_LOCAL_TOKEN || "").trim();
 const rootDir = path.resolve(__dirname, "..", "..");
-const allowlistPath = path.join(__dirname, "allowlist.json");
 const logsDir = path.join(__dirname, "logs");
 const webDir = path.join(__dirname, "web");
-const stateDir = path.join(__dirname, "state");
-const todayStatePath = path.join(stateDir, "today.json");
 const localLabDir = path.join(rootDir, "hbx-local-lab");
 const localLabUrl = "http://127.0.0.1:3098";
-// Fila de tickets = arquivos .md do repo (sem SQLite). Fonte única, versionada.
-const ticketsDir = path.join(rootDir, "docs", "PLANEJAMENTOS");
 // Backend do produto (para Banco de Leads e import local→VPS). Token opcional.
 const backendUrl = String(process.env.HBX_OWNER_BACKEND_URL || "http://127.0.0.1:3000").replace(/\/+$/, "");
 let backendToken = String(process.env.HBX_OWNER_BACKEND_TOKEN || "").trim();
@@ -60,11 +55,6 @@ function clampInt(value, fallback, min, max) {
   return Math.max(min, Math.min(max, parsed));
 }
 
-function readAllowlist() {
-  const content = fs.readFileSync(allowlistPath, "utf8");
-  return JSON.parse(content);
-}
-
 function readDotenvValue(filePath, key) {
   try {
     const raw = fs.readFileSync(filePath, "utf8");
@@ -95,16 +85,6 @@ function assertSafeCommand(command) {
     if (typeof part !== "string" || !part.trim()) throw new Error("Comando contem parte invalida.");
     if (/[;&|><]/.test(part)) throw new Error("Comando contem operador de shell bloqueado.");
   }
-}
-
-function publicCommand(id, item) {
-  return {
-    id,
-    label: item.label,
-    command: item.command,
-    risk: item.risk,
-    confirm: Boolean(item.confirm),
-  };
 }
 
 function relativeLogPath(logPath) {
@@ -167,46 +147,6 @@ function runCommandArray(commandId, label, command, onDone) {
   return run;
 }
 
-function runSequence(commandId, label, commands) {
-  for (const command of commands) assertSafeCommand(command);
-  const { run, logPath } = createRun(commandId, label, commands);
-  let index = 0;
-
-  function next() {
-    if (index >= commands.length) {
-      finishRun(run, "passed", 0);
-      appendLog(logPath, "\n[fim] sequencia concluida\n");
-      return;
-    }
-    const command = commands[index];
-    index += 1;
-    const [binary, ...args] = command;
-    appendLog(logPath, `\n$ ${command.join(" ")}\n`);
-    const child = spawn(resolveExecutable(binary), args, {
-      cwd: rootDir,
-      shell: false,
-      env: process.env,
-    });
-    child.stdout.on("data", (chunk) => appendLog(logPath, chunk));
-    child.stderr.on("data", (chunk) => appendLog(logPath, chunk));
-    child.on("error", (error) => {
-      appendLog(logPath, `\n[erro] ${error.message}\n`);
-      finishRun(run, "failed", 1);
-    });
-    child.on("close", (code) => {
-      appendLog(logPath, `\n[comando] exitCode=${code}\n`);
-      if (code !== 0) {
-        finishRun(run, "failed", code);
-        return;
-      }
-      next();
-    });
-  }
-
-  next();
-  return run;
-}
-
 function execRead(command) {
   assertSafeCommand(command);
   const [binary, ...args] = command;
@@ -222,91 +162,6 @@ function execRead(command) {
     stderr: result.stderr || "",
     ok: result.status === 0,
   };
-}
-
-function isAllowedHbxEngineName(name) {
-  return /^hbx-engine-\d+$/.test(String(name || "").trim());
-}
-
-function parseDockerRows(output) {
-  return String(output || "")
-    .split(/\r?\n/)
-    .map((line) => line.trimEnd())
-    .filter(Boolean)
-    .map((line) => {
-      const [name, image, status, state, ports = ""] = line.split("\t");
-      return { name, image, status, state, ports };
-    })
-    .filter((item) => isAllowedHbxEngineName(item.name));
-}
-
-function parseDockerStats(output) {
-  const stats = new Map();
-  for (const line of String(output || "").split(/\r?\n/)) {
-    const [name, cpu, memory, memPercent, pids] = line.split("\t");
-    if (!isAllowedHbxEngineName(name)) continue;
-    stats.set(name, { cpu, memory, memPercent, pids });
-  }
-  return stats;
-}
-
-function engineNumber(name) {
-  const match = String(name || "").match(/^hbx-engine-(\d+)$/);
-  return match ? Number(match[1]) : 0;
-}
-
-function readRadarEngineStatus() {
-  const ps = execRead([
-    "docker",
-    "ps",
-    "-a",
-    "--format",
-    "{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.State}}\t{{.Ports}}",
-  ]);
-  const stats = execRead([
-    "docker",
-    "stats",
-    "--no-stream",
-    "--format",
-    "{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}\t{{.PIDs}}",
-  ]);
-  const statRows = parseDockerStats(stats.stdout);
-  const engines = parseDockerRows(ps.stdout)
-    .sort((left, right) => engineNumber(left.name) - engineNumber(right.name))
-    .map((engine) => {
-      const itemStats = statRows.get(engine.name) || {};
-      return {
-        ...engine,
-        cpu: itemStats.cpu || "-",
-        memory: itemStats.memory || "-",
-        memPercent: itemStats.memPercent || "-",
-        pids: itemStats.pids || "-",
-      };
-    });
-  return {
-    ok: ps.ok,
-    dockerOk: ps.ok,
-    statsOk: stats.ok,
-    generatedAt: nowIso(),
-    summary: {
-      total: engines.length,
-      running: engines.filter((engine) => engine.state === "running").length,
-      stopped: engines.filter((engine) => engine.state !== "running").length,
-    },
-    engines,
-    errors: [
-      ps.ok ? "" : (ps.stderr || ps.stdout || "docker ps falhou.").trim(),
-      stats.ok ? "" : (stats.stderr || stats.stdout || "docker stats indisponivel.").trim(),
-    ].filter(Boolean),
-  };
-}
-
-function runDockerEngineAction(engineId, action, label) {
-  if (!isAllowedHbxEngineName(engineId)) {
-    throw new Error("Motor invalido. Use apenas hbx-engine-N.");
-  }
-  const command = ["docker", action, engineId];
-  return runCommandArray(`radar-engine-${action}`, `${label} ${engineId}`, command);
 }
 
 function requestLocalLabHealth(timeoutMs = 1200) {
@@ -414,133 +269,6 @@ function stopLocalLab() {
     }
   }
   return processes.length;
-}
-
-// ---------- Hoje / foco (estado em JSON, sem SQLite) ----------
-function readTodayState() {
-  try {
-    const raw = fs.readFileSync(todayStatePath, "utf8");
-    const parsed = JSON.parse(raw);
-    if (parsed && parsed.dayKey === localDayKey()) return parsed;
-  } catch {
-    // sem estado ainda: começa o dia limpo
-  }
-  return { dayKey: localDayKey(), status: "idle", startedAt: null, pausedAt: null, accumulatedMs: 0, sessions: [] };
-}
-
-function writeTodayState(state) {
-  fs.mkdirSync(stateDir, { recursive: true });
-  fs.writeFileSync(todayStatePath, JSON.stringify(state, null, 2), "utf8");
-  return state;
-}
-
-function localDayKey(now = new Date()) {
-  try {
-    return new Intl.DateTimeFormat("en-CA", {
-      timeZone: "America/Sao_Paulo",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }).format(now);
-  } catch {
-    return now.toISOString().slice(0, 10);
-  }
-}
-
-function liveNetMs(state) {
-  let total = Number(state.accumulatedMs || 0);
-  if (state.status === "working" && state.startedAt) {
-    total += Date.now() - new Date(state.startedAt).getTime();
-  }
-  return total;
-}
-
-function todaySnapshot() {
-  const state = readTodayState();
-  const commits = execRead([
-    "git",
-    "log",
-    "--since=midnight",
-    "--pretty=format:%h",
-  ]);
-  const commitsToday = commits.ok
-    ? String(commits.stdout || "").split(/\r?\n/).filter(Boolean).length
-    : 0;
-  return {
-    ok: true,
-    dayKey: state.dayKey,
-    status: state.status,
-    netMinutes: Math.round(liveNetMs(state) / 60000),
-    commitsToday,
-    startedAt: state.startedAt,
-    pausedAt: state.pausedAt,
-    focus: "Recovery / P0 técnico / demo / outbound",
-    distraction: "Feature nova, Radar por curiosidade, refactor bonito ou marketing amplo",
-  };
-}
-
-function applyTodayAction(action) {
-  const state = readTodayState();
-  const now = new Date().toISOString();
-  if (action === "start" || action === "resume") {
-    if (state.status !== "working") {
-      state.status = "working";
-      state.startedAt = now;
-      state.pausedAt = null;
-    }
-  } else if (action === "pause") {
-    if (state.status === "working" && state.startedAt) {
-      state.accumulatedMs = Number(state.accumulatedMs || 0) + (Date.now() - new Date(state.startedAt).getTime());
-      state.status = "paused";
-      state.pausedAt = now;
-      state.startedAt = null;
-    }
-  } else if (action === "stop" || action === "close") {
-    if (state.status === "working" && state.startedAt) {
-      state.accumulatedMs = Number(state.accumulatedMs || 0) + (Date.now() - new Date(state.startedAt).getTime());
-    }
-    state.status = action === "close" ? "closed" : "idle";
-    state.startedAt = null;
-  } else {
-    throw new Error("Acao de expediente invalida.");
-  }
-  writeTodayState(state);
-  return todaySnapshot();
-}
-
-// ---------- Tickets (fila .md do repo) ----------
-function readTickets() {
-  if (!fs.existsSync(ticketsDir)) return { ok: true, dir: relativeLogPath(ticketsDir), items: [] };
-  const items = [];
-  const walk = (dir) => {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        walk(full);
-      } else if (entry.isFile() && entry.name.toLowerCase().endsWith(".md")) {
-        let title = entry.name.replace(/\.md$/i, "");
-        let firstLine = "";
-        try {
-          const content = fs.readFileSync(full, "utf8");
-          const heading = content.split(/\r?\n/).find((line) => line.trim().startsWith("#"));
-          if (heading) title = heading.replace(/^#+\s*/, "").trim().slice(0, 140);
-          firstLine = content.split(/\r?\n/).map((l) => l.trim()).find((l) => l && !l.startsWith("#")) || "";
-        } catch {
-          // arquivo ilegível: mantém o nome como título
-        }
-        const stat = fs.statSync(full);
-        items.push({
-          id: path.relative(ticketsDir, full).replace(/\\/g, "/"),
-          title,
-          excerpt: firstLine.slice(0, 180),
-          updatedAt: stat.mtime.toISOString(),
-        });
-      }
-    }
-  };
-  walk(ticketsDir);
-  items.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
-  return { ok: true, dir: relativeLogPath(ticketsDir), count: items.length, items };
 }
 
 // ---------- Backend bridge (Banco de Leads + import) ----------
@@ -1056,6 +784,26 @@ async function readVpsLeads() {
   return out;
 }
 
+// Cockpit Radar Local×VPS (radar-cockpit do Ops Control): o que cada ambiente raspa AGORA,
+// motores, serviços e decisão. SSH+psql nos dois lados = pesado → cache de 60s.
+let radarCockpitCache = { at: 0, data: null };
+async function readRadarCockpit(force) {
+  if (!opsToken) return { ok: false, configured: false, reason: "ops_token_ausente" };
+  if (!force && radarCockpitCache.data && Date.now() - radarCockpitCache.at < 60_000) return radarCockpitCache.data;
+  const r = await opsRequest("GET", "/api/radar-cockpit", null, 75000);
+  if (!r.configured) return { ok: false, configured: false, reason: "ops_token_ausente" };
+  if (!r.ok || !r.data) return { ok: false, configured: true, reason: r.reason || r.data?.error || `http_${r.statusCode || "?"}` };
+  const out = {
+    ok: true,
+    configured: true,
+    generatedAt: r.data.generatedAt || nowIso(),
+    environments: r.data.environments || {},
+    coordination: r.data.coordination || null,
+  };
+  radarCockpitCache = { at: Date.now(), data: out };
+  return out;
+}
+
 // Espelha o looksLikeNonBusinessName do backend (radar-core-shared) pra limpar o banco local
 // pelo MESMO critério do filtro: script estrangeiro, título de página, frase em inglês, nome comprido.
 const NON_BIZ_EN_STOPWORDS = new Set(["the", "of", "to", "for", "and", "that", "this", "with", "your", "you", "in", "on", "at", "by", "from", "into", "about", "their", "they", "what", "how", "why", "when", "where", "which", "are", "was", "were", "will", "would", "can", "could", "should", "has", "have", "had", "does", "did", "its"]);
@@ -1144,145 +892,9 @@ function clampEngineRange(body) {
 
 const VPS_QUICK_TARGETS = new Set(["scrapingEngine", "backend", "webscraping"]);
 const VPS_QUICK_ACTIONS = new Set(["start", "stop", "restart"]);
-
-// ---------- Caça de e-mail (via backend Radar — o "chefe") ----------
-const ownerCompanyId = Number(process.env.HBX_OWNER_COMPANY_ID || 2) || 2;
-let brazilCityOptionsCache = null;
-
-function readBrazilCityOptionsByState() {
-  if (brazilCityOptionsCache) return brazilCityOptionsCache;
-  const byState = {};
-  const sourcePath = path.join(rootDir, "backend", "src", "webscraping", "brazil-city-coordinates.ts");
-  try {
-    const source = fs.readFileSync(sourcePath, "utf8");
-    const matcher = /\["([A-Z]{2})",\s*"((?:[^"\\]|\\.)*)",\s*-?\d+(?:\.\d+)?,\s*-?\d+(?:\.\d+)?\]/g;
-    let match;
-    while ((match = matcher.exec(source))) {
-      const state = match[1];
-      const city = match[2].replace(/\\"/g, '"').trim();
-      if (!city) continue;
-      if (!byState[state]) byState[state] = new Set();
-      byState[state].add(city);
-    }
-    brazilCityOptionsCache = Object.fromEntries(
-      Object.entries(byState).map(([state, cities]) => [
-        state,
-        Array.from(cities)
-          .sort((left, right) => left.localeCompare(right, "pt-BR"))
-          .map((city) => ({ value: city, label: city })),
-      ]),
-    );
-  } catch {
-    brazilCityOptionsCache = {};
-  }
-  return brazilCityOptionsCache;
-}
-
-function mergeCityOptionsByState(primary) {
-  const fallback = readBrazilCityOptionsByState();
-  const states = new Set([...Object.keys(fallback), ...Object.keys(primary || {})]);
-  const merged = {};
-  for (const state of states) {
-    const seen = new Set();
-    const items = [];
-    for (const option of [...((primary && primary[state]) || []), ...(fallback[state] || [])]) {
-      const value = String(option?.value || option?.label || "").trim();
-      if (!value) continue;
-      const key = value.toLocaleLowerCase("pt-BR");
-      if (seen.has(key)) continue;
-      seen.add(key);
-      items.push({ ...option, value, label: String(option.label || value) });
-    }
-    if (items.length) merged[state] = items;
-  }
-  return merged;
-}
-
-// Filtro instantâneo: leads do Banco que já têm e-mail (segmento/cidade).
-async function emailLeadsFromBank(query) {
-  const params = new URLSearchParams();
-  if (query.segment) params.set("segment", query.segment);
-  if (query.city) params.set("city", query.city);
-  params.set("take", String(clampInt(query.take, 50, 1, 200)));
-  const response = await backendRequest("GET", `/night-factory/email-leads?${params.toString()}`);
-  if (!response.ok || !response.data) {
-    return { ok: false, reason: response.error || `http_${response.statusCode || "?"}`, items: [], total: 0 };
-  }
-  return { ok: true, total: response.data.total || 0, items: response.data.items || [] };
-}
-
-// Caçar novos: pede ao CHEFE (backend Radar) para descobrir — fontes grátis (engine hbx).
-// Depois lê do Banco os que entraram com e-mail.
-async function huntEmails(body) {
-  const segment = safeText(body.segment, 180);
-  const city = safeText(body.city, 120);
-  const state = safeText(body.state, 2).toUpperCase();
-  if (!segment) return { ok: false, reason: "sem_segmento", message: "Informe o segmento." };
-  if (!backendToken) {
-    const refreshed = await refreshBackendToken();
-    if (!refreshed.ok) return { ok: false, reason: "backend_token_ausente", message: "Configure HBX_OWNER_BACKEND_TOKEN." };
-  }
-
-  await backendRequest("POST", "/master-context/assume", { companyId: ownerCompanyId }).catch(() => null);
-  const quantity = clampInt(body.targetEmails, 20, 1, 100);
-  const searchResp = await backendRequest("POST", "/webscraping/search", {
-    city,
-    state,
-    segment,
-    quantity,
-    engine: "hbx",
-  }, { timeoutMs: 120000 });
-
-  const bank = await emailLeadsFromBank({ segment, city, take: 60 });
-  if (!searchResp.ok) {
-    return {
-      ok: bank.ok,
-      searchOk: false,
-      searchReason: searchResp.data?.message || searchResp.data?.code || searchResp.error || `http_${searchResp.statusCode || "?"}`,
-      total: bank.total,
-      items: bank.items,
-    };
-  }
-  const found = Number(searchResp.data?.count ?? (Array.isArray(searchResp.data?.results) ? searchResp.data.results.length : 0));
-  return { ok: true, searchOk: true, foundNow: found, total: bank.total, items: bank.items };
-}
-
-// Opções selecionáveis (segmento/estado/cidade) que JÁ existem no backend: vêm do
-// meta.availableFilters da listagem do Radar. Sem endpoint dedicado → lê a listagem.
-async function radarFilters() {
-  const empty = { ok: false, segments: [], states: [], citiesByState: {} };
-  const fallbackCitiesByState = mergeCityOptionsByState({});
-  if (!backendToken) {
-    await refreshBackendToken().catch(() => null);
-    if (!backendToken) {
-      return {
-        ok: Object.keys(fallbackCitiesByState).length > 0,
-        segments: [],
-        states: Object.keys(fallbackCitiesByState).sort().map((state) => ({ value: state, label: state })),
-        citiesByState: fallbackCitiesByState,
-        reason: "backend_token_ausente",
-      };
-    }
-  }
-  await backendRequest("POST", "/master-context/assume", { companyId: ownerCompanyId }).catch(() => null);
-  const response = await backendRequest("GET", "/webscraping/radar/leads");
-  const filters = response.ok && response.data && response.data.meta && response.data.meta.availableFilters;
-  if (!filters) {
-    return {
-      ok: Object.keys(fallbackCitiesByState).length > 0,
-      segments: [],
-      states: Object.keys(fallbackCitiesByState).sort().map((state) => ({ value: state, label: state })),
-      citiesByState: fallbackCitiesByState,
-      reason: response.error || `http_${response.statusCode || "?"}`,
-    };
-  }
-  return {
-    ok: true,
-    segments: Array.isArray(filters.segments) ? filters.segments : [],
-    states: Array.isArray(filters.states) ? filters.states : [],
-    citiesByState: mergeCityOptionsByState((filters.citiesByState && typeof filters.citiesByState === "object") ? filters.citiesByState : {}),
-  };
-}
+// Escopos e canais do controle de scraping (espelham o Ops Control: opsScopes / radarChannels).
+const OPS_SCOPES = new Set(["local", "vps", "both"]);
+const RADAR_CHANNELS = new Set(["email", "whatsapp", "instagram", "website", "phone", "facebook"]);
 
 function sendStatic(res, pathname) {
   const requested = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
@@ -1342,21 +954,6 @@ function readBody(req) {
   });
 }
 
-function requireConfirmation(command, body) {
-  if (!command.confirm) return;
-  if (body.confirm !== true && body.confirmation !== "CONFIRMAR") {
-    throw new Error("Confirmacao obrigatoria para este comando.");
-  }
-}
-
-function testCommands(area, allowlist) {
-  if (area === "frontend") return [allowlist["frontend-lint"].command, allowlist["frontend-build"].command];
-  if (area === "backend") return [allowlist["backend-prisma-validate"].command, allowlist["backend-build"].command];
-  if (area === "webwhats") return [allowlist["webwhats-typecheck"].command, allowlist["webwhats-build"].command];
-  if (area === "e2e") return [allowlist.e2e.command];
-  return null;
-}
-
 async function route(req, res) {
   if (req.method === "OPTIONS") {
     sendJson(res, 200, { ok: true });
@@ -1366,30 +963,14 @@ async function route(req, res) {
   const url = new URL(req.url, `http://${HOST}:${PORT}`);
 
   // Shell estática (HTML/CSS/JS) servida sem token: é só a casca; os dados exigem token.
+  // Tenta servir arquivo; se NÃO for arquivo, cai through pro roteamento de API (os
+  // endpoints GET do Owner — /health, /owner/*, /git/* — não começam com /api).
   if (req.method === "GET" && !url.pathname.startsWith("/api") && sendStatic(res, url.pathname)) {
     return;
   }
 
   if (!isAuthorized(req)) {
     sendError(res, 401, "Token local invalido ou ausente.");
-    return;
-  }
-
-  const allowlist = readAllowlist();
-
-  if (req.method === "GET" && url.pathname === "/owner/today") {
-    sendJson(res, 200, todaySnapshot());
-    return;
-  }
-
-  const todayActionMatch = url.pathname.match(/^\/owner\/today\/(start|pause|resume|stop|close)$/);
-  if (req.method === "POST" && todayActionMatch) {
-    sendJson(res, 200, applyTodayAction(todayActionMatch[1]));
-    return;
-  }
-
-  if (req.method === "GET" && url.pathname === "/owner/tickets") {
-    sendJson(res, 200, readTickets());
     return;
   }
 
@@ -1400,21 +981,6 @@ async function route(req, res) {
 
   if (req.method === "GET" && url.pathname === "/owner/system") {
     sendJson(res, 200, await readSystemSnapshot());
-    return;
-  }
-
-  // Caça de e-mail. Filtro instantâneo do Banco + "Caçar" via backend Radar.
-  if (req.method === "GET" && url.pathname === "/owner/email-leads") {
-    sendJson(res, 200, await emailLeadsFromBank({
-      segment: url.searchParams.get("segment"),
-      city: url.searchParams.get("city"),
-      take: url.searchParams.get("take"),
-    }));
-    return;
-  }
-  if (req.method === "POST" && url.pathname === "/owner/email-hunt") {
-    const body = await readBody(req);
-    sendJson(res, 200, await huntEmails(body));
     return;
   }
 
@@ -1481,6 +1047,12 @@ async function route(req, res) {
   // Total/leads/fábrica da VPS (radar-audit do Ops Control, cacheado). Sem rebuild.
   if (req.method === "GET" && url.pathname === "/owner/vps/leads") {
     sendJson(res, 200, await readVpsLeads());
+    return;
+  }
+
+  // Cockpit Radar Local×VPS: o que cada ambiente raspa AGORA + decisão. Cacheado (SSH pesado).
+  if (req.method === "GET" && url.pathname === "/owner/radar-cockpit") {
+    sendJson(res, 200, await readRadarCockpit(url.searchParams.get("force") === "1"));
     return;
   }
 
@@ -1619,19 +1191,70 @@ async function route(req, res) {
     return;
   }
 
-  // ----- Exportar local -> VPS (proxia o Email Lab do Ops Control). 3 passos: caçar lote no
-  // Local Lab -> acompanhar -> importar na VPS (dedup). Escreve na VPS = produção; degrada se
-  // OPS/VPS não configurados (o dono nunca dispara prod às cegas: é clique + creds no .env).
+  // Turbo (modo agressivo de scraping) — escopo local/vps/both, filtro de canal opcional.
+  if (req.method === "POST" && url.pathname === "/owner/ops/turbo") {
+    const body = await readBody(req);
+    const scope = String(body.scope || "both").toLowerCase();
+    if (!OPS_SCOPES.has(scope)) { sendError(res, 400, "Escopo invalido. Use local, vps ou both."); return; }
+    const channel = body.channel ? String(body.channel).toLowerCase() : null;
+    if (channel && !RADAR_CHANNELS.has(channel)) { sendError(res, 400, "Canal invalido para filtro."); return; }
+    const payload = { scope };
+    if (channel) payload.requiredChannel = channel;
+    const response = await opsRequest("POST", "/api/opscontrol/turbo", payload, 60000);
+    if (!response.configured) { sendJson(res, 200, { ok: false, reason: "ops_token_ausente", message: "Configure HBX_OWNER_OPS_TOKEN." }); return; }
+    sendJson(res, response.ok ? 200 : 502, { ok: response.ok, scope, channel, ops: response.data, reason: response.reason || response.data?.error });
+    return;
+  }
+
+  // Forçar filtro de canal (hard filter no backend) — escopo + canal obrigatório.
+  if (req.method === "POST" && url.pathname === "/owner/ops/force-filter") {
+    const body = await readBody(req);
+    const scope = String(body.scope || "both").toLowerCase();
+    if (!OPS_SCOPES.has(scope)) { sendError(res, 400, "Escopo invalido. Use local, vps ou both."); return; }
+    const channel = String(body.channel || "").toLowerCase();
+    if (!RADAR_CHANNELS.has(channel)) { sendError(res, 400, "Canal invalido para filtro."); return; }
+    const response = await opsRequest("POST", "/api/opscontrol/force-filter", { scope, requiredChannel: channel }, 60000);
+    if (!response.configured) { sendJson(res, 200, { ok: false, reason: "ops_token_ausente", message: "Configure HBX_OWNER_OPS_TOKEN." }); return; }
+    sendJson(res, response.ok ? 200 : 502, { ok: response.ok, scope, channel, ops: response.data, reason: response.reason || response.data?.error });
+    return;
+  }
+
+  // Cancelar scraping forçado — escopo local/vps/both (confirmação exigida; destrutivo do fluxo).
+  if (req.method === "POST" && url.pathname === "/owner/ops/cancel") {
+    const body = await readBody(req);
+    if (body.confirm !== true && body.confirmation !== "CONFIRMAR") { sendError(res, 400, "Confirmacao obrigatoria para cancelar o scraping."); return; }
+    const scope = String(body.scope || "both").toLowerCase();
+    if (!OPS_SCOPES.has(scope)) { sendError(res, 400, "Escopo invalido. Use local, vps ou both."); return; }
+    const response = await opsRequest("POST", "/api/opscontrol/cancel", { scope, force: Boolean(body.force) });
+    if (!response.configured) { sendJson(res, 200, { ok: false, reason: "ops_token_ausente", message: "Configure HBX_OWNER_OPS_TOKEN." }); return; }
+    sendJson(res, response.ok ? 200 : 502, { ok: response.ok, scope, ops: response.data, reason: response.reason || response.data?.error });
+    return;
+  }
+
+  // Status do Email Lab (Local Lab pronto? VPS import pronto?) — pro card de caça de e-mail.
+  if (req.method === "GET" && url.pathname === "/owner/email-lab/status") {
+    const response = await opsRequest("GET", "/api/email-lab/status", null, 8000);
+    if (!response.configured) { sendJson(res, 200, { ok: false, configured: false, reason: "ops_token_ausente" }); return; }
+    sendJson(res, response.ok ? 200 : 502, { ok: response.ok, configured: true, ...(response.data || {}), reason: response.reason });
+    return;
+  }
+
+  // ----- Caçar e-mail via Email Lab (Local Lab). Inicia o job; "Importar pra VPS" é passo
+  // separado (escreve na VPS = produção; degrada se OPS/VPS não configurados — clique + creds).
+  const EMAIL_LAB_MODES = new Set(["email_first", "public_email_only", "enrich_missing_email"]);
   if (req.method === "POST" && url.pathname === "/owner/export") {
     const body = await readBody(req);
+    const scope = OPS_SCOPES.has(String(body.scope || "local").toLowerCase()) ? String(body.scope).toLowerCase() : "local";
+    const mode = EMAIL_LAB_MODES.has(String(body.mode || "")) ? String(body.mode) : "email_first";
     const payload = {
-      scope: "both",
-      segment: safeText(body.segment, 80),
-      city: safeText(body.city, 80),
-      state: safeText(body.state, 2),
-      targetEmails: clampInt(body.targetEmails, 30, 1, 200),
+      scope,
+      segment: safeText(body.segment, 180),
+      city: safeText(body.city, 120),
+      state: safeText(body.state, 2).toUpperCase(),
+      targetEmails: clampInt(body.targetEmails, 50, 1, 2000),
+      mode,
     };
-    const response = await opsRequest("POST", "/api/email-lab/local/jobs", payload);
+    const response = await opsRequest("POST", "/api/email-lab/local/jobs", payload, 30000);
     if (!response.configured) {
       sendJson(res, 200, { ok: false, reason: "ops_token_ausente", message: "Configure HBX_OWNER_OPS_TOKEN (ponte Ops Control)." });
       return;
@@ -1641,8 +1264,9 @@ async function route(req, res) {
     sendJson(res, response.ok ? 200 : 502, {
       ok: response.ok,
       jobId: (job && (job.id || job.jobId)) || null,
-      message: response.ok ? "Caçando lote no Local Lab — importa pra VPS quando o export ficar pronto." : null,
-      reason: response.reason || data.error,
+      scope,
+      message: response.ok ? "Caçando e-mail no Local Lab — acompanhe as métricas." : null,
+      reason: response.reason || data.error || data.message,
       ops: data,
     });
     return;
@@ -1671,9 +1295,15 @@ async function route(req, res) {
     return;
   }
 
-  // Opções selecionáveis (segmento/estado/cidade) do backend, pros datalists do painel.
-  if (req.method === "GET" && url.pathname === "/owner/radar-filters") {
-    sendJson(res, 200, await radarFilters());
+  // Cancelar a caça (job do Local Lab) em andamento.
+  if (req.method === "POST" && url.pathname === "/owner/export/cancel") {
+    const body = await readBody(req);
+    const jobId = safeText(body.jobId, 120);
+    if (!jobId) { sendError(res, 400, "jobId obrigatorio para cancelar a caça."); return; }
+    const response = await opsRequest("POST", `/api/email-lab/local/jobs/${encodeURIComponent(jobId)}/cancel`, {});
+    if (!response.configured) { sendJson(res, 200, { ok: false, reason: "ops_token_ausente", message: "Configure HBX_OWNER_OPS_TOKEN." }); return; }
+    const data = response.data || {};
+    sendJson(res, response.ok ? 200 : 502, { ok: response.ok, job: data.job || data, reason: response.reason || data.error });
     return;
   }
 
@@ -1684,23 +1314,12 @@ async function route(req, res) {
       host: HOST,
       port: PORT,
       cwd: rootDir,
-      commands: Object.keys(allowlist).length,
       runs: runs.size,
       backendConfigured: Boolean(backendToken),
       opsConfigured: Boolean(opsToken),
       opsUrl,
       now: nowIso(),
     });
-    return;
-  }
-
-  if (req.method === "GET" && url.pathname === "/commands") {
-    sendJson(res, 200, { ok: true, commands: Object.entries(allowlist).map(([id, item]) => publicCommand(id, item)) });
-    return;
-  }
-
-  if (req.method === "GET" && url.pathname === "/radar/engines/status") {
-    sendJson(res, 200, readRadarEngineStatus());
     return;
   }
 
@@ -1721,126 +1340,6 @@ async function route(req, res) {
     const stopped = stopLocalLab();
     await new Promise((resolve) => setTimeout(resolve, 400));
     sendJson(res, 200, { ...(await readLocalLabStatus()), stopped });
-    return;
-  }
-
-  const radarEngineLogsMatch = url.pathname.match(/^\/radar\/engines\/([^/]+)\/logs$/);
-  if (req.method === "GET" && radarEngineLogsMatch) {
-    const engineId = radarEngineLogsMatch[1];
-    if (!isAllowedHbxEngineName(engineId)) {
-      sendError(res, 400, "Motor invalido. Use apenas hbx-engine-N.");
-      return;
-    }
-    const result = execRead(["docker", "logs", "--tail", "160", engineId]);
-    sendJson(res, 200, {
-      ok: result.ok,
-      engineId,
-      log: `${result.stdout || ""}${result.stderr || ""}`.slice(-30000),
-      result,
-    });
-    return;
-  }
-
-  const radarEngineActionMatch = url.pathname.match(/^\/radar\/engines\/([^/]+)\/(start|stop)$/);
-  if (req.method === "POST" && radarEngineActionMatch) {
-    const engineId = radarEngineActionMatch[1];
-    const action = radarEngineActionMatch[2];
-    const body = await readBody(req);
-    if (action === "stop" && body.confirm !== true && body.confirmation !== "CONFIRMAR") {
-      sendError(res, 400, "Confirmacao obrigatoria para parar motor.");
-      return;
-    }
-    const run = runDockerEngineAction(engineId, action, action === "start" ? "Iniciar motor" : "Parar motor");
-    sendJson(res, 202, { ok: true, run });
-    return;
-  }
-
-  const commandRunMatch = url.pathname.match(/^\/commands\/([^/]+)\/run$/);
-  if (req.method === "POST" && commandRunMatch) {
-    const commandId = commandRunMatch[1];
-    const command = allowlist[commandId];
-    if (!command) {
-      sendError(res, 404, "Comando nao encontrado na allowlist.");
-      return;
-    }
-    const body = await readBody(req);
-    requireConfirmation(command, body);
-    const run = runCommandArray(commandId, command.label, command.command);
-    sendJson(res, 202, { ok: true, run });
-    return;
-  }
-
-  if (req.method === "GET" && url.pathname === "/runs") {
-    sendJson(res, 200, { ok: true, runs: Array.from(runs.values()).reverse() });
-    return;
-  }
-
-  const runMatch = url.pathname.match(/^\/runs\/([^/]+)$/);
-  if (req.method === "GET" && runMatch) {
-    const run = runs.get(runMatch[1]);
-    if (!run) {
-      sendError(res, 404, "Execucao nao encontrada.");
-      return;
-    }
-    const absoluteLogPath = path.join(rootDir, run.logPath);
-    const log = fs.existsSync(absoluteLogPath) ? fs.readFileSync(absoluteLogPath, "utf8").slice(-20000) : "";
-    sendJson(res, 200, { ok: true, run, log });
-    return;
-  }
-
-  const gitRoutes = {
-    "/git/status": ["git", "status", "--short"],
-    "/git/branches": ["git", "branch", "--all"],
-    "/git/current": ["git", "branch", "--show-current"],
-    "/git/remotes": ["git", "remote", "-v"],
-    "/git/last-commit": ["git", "log", "-1", "--pretty=format:%H%n%s%n%cd"],
-    "/git/changed-files": ["git", "diff", "--name-only", "origin/master...HEAD"],
-  };
-  if (req.method === "GET" && gitRoutes[url.pathname]) {
-    const result = execRead(gitRoutes[url.pathname]);
-    sendJson(res, 200, { ok: result.ok, result });
-    return;
-  }
-
-  if (req.method === "POST" && url.pathname === "/git/checkout-pr") {
-    const body = await readBody(req);
-    const prNumber = Number(body.prNumber);
-    if (!Number.isInteger(prNumber) || prNumber <= 0) {
-      sendError(res, 400, "Informe um numero de PR valido.");
-      return;
-    }
-    const status = execRead(["git", "status", "--short"]);
-    if (status.stdout.trim()) {
-      sendError(res, 409, "Workspace sujo. Revise ou salve as alteracoes antes de baixar PR.");
-      return;
-    }
-    const gh = execRead(["gh", "--version"]);
-    if (!gh.ok) {
-      sendError(res, 424, "GitHub CLI nao encontrado ou indisponivel.");
-      return;
-    }
-    const run = runCommandArray("git-checkout-pr", `Baixar PR ${prNumber}`, ["gh", "pr", "checkout", String(prNumber)]);
-    sendJson(res, 202, { ok: true, run });
-    return;
-  }
-
-  const testMatch = url.pathname.match(/^\/test\/(frontend|backend|webwhats|e2e)$/);
-  if (req.method === "POST" && testMatch) {
-    const commands = testCommands(testMatch[1], allowlist);
-    if (!commands) {
-      sendError(res, 404, "Area de teste invalida.");
-      return;
-    }
-    const run = runSequence(`test-${testMatch[1]}`, `Testes ${testMatch[1]}`, commands);
-    sendJson(res, 202, { ok: true, run });
-    return;
-  }
-
-  if (req.method === "POST" && url.pathname === "/deploy/verify-prod") {
-    const body = await readBody(req);
-    requireConfirmation(allowlist["verify-prod"], body);
-    const run = runCommandArray("verify-prod", allowlist["verify-prod"].label, allowlist["verify-prod"].command);
-    sendJson(res, 202, { ok: true, run });
     return;
   }
 

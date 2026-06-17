@@ -8,7 +8,6 @@ COPY package*.json ./
 RUN npm install --omit=dev
 
 COPY server.js ./server.js
-COPY public ./public
 
 ENV OPS_CONTROL_PORT=3099
 EXPOSE 3099
