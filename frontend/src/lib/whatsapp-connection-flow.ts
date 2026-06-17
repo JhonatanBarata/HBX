@@ -53,19 +53,18 @@ export function restartWhatsAppModalSession() {
   return apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/restart", { method: "POST" });
 }
 
-// Limpeza de histórico ao trocar de número (docs/Rules/WHATSAPP.md): cada número
-// conectado é uma sessão; conversas ficam amarradas a ela. Estes três endpoints já
-// existem no backend e fecham o fluxo "reaproveitar ou começar limpo":
+// Histórico ao trocar de número (docs/Rules/WHATSAPP.md): a sessão é POR NÚMERO no
+// backend, então cada número tem suas conversas e o inbox atual nunca mostra as do
+// número anterior (isolamento por construção). Estes endpoints decidem o histórico:
 //   - diagnostics: quanto sobrou do número anterior + qual era o número.
-//   - cleanup(merge): traz o histórico antigo para a sessão atual.
-//   - cleanup(discard): apaga de vez as conversas antigas (reset total da cache).
-//   - rebootstrap: re-espelha as conversas do número conectado AGORA (usado após
-//     o discard, que zera também a cache da sessão atual).
+//   - cleanup(keep): arquiva o histórico anterior (preservado, fora do inbox atual).
+//   - cleanup(discard): apaga só o histórico do número anterior (chip atual intacto).
+//   - cleanup(merge): legado — funde o anterior na sessão atual (não usado pelo popup).
 export function fetchWhatsAppSessionDiagnostics() {
   return apiFetch<WhatsAppSessionDiagnostics>("/inbox/whatsapp-session");
 }
 
-export function cleanupWhatsAppSessions(mode: "merge" | "discard") {
+export function cleanupWhatsAppSessions(mode: "keep" | "merge" | "discard") {
   return apiFetch<WhatsAppSessionCleanupResult>("/inbox/whatsapp-sessions/cleanup", {
     method: "POST",
     body: JSON.stringify({ mode }),

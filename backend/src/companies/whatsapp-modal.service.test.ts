@@ -258,6 +258,64 @@ test('snapshot connected reutiliza sessao existente em vez de duplicar', async (
   assert.equal(companyUpdates.at(-1).currentWhatsappConnectionSessionId, 'session-existing');
 });
 
+test('snapshot connected com número DIFERENTE cria sessão NOVA (não relabela a anterior)', async () => {
+  // O CASO DO DONO: trocou de chip e carregava os chats do anterior. Agora número novo
+  // = sessão nova; a anterior vira disconnected e MANTÉM o próprio número (sem relabel).
+  const connectedAt = new Date('2026-05-09T10:00:00.000Z');
+  const company = createCompany({ whatsappModalStatus: 'CONNECTED', currentWhatsappConnectionSessionId: 'session-old' });
+  const { prisma, sessions, companyUpdates } = createSessionPrisma(company, [
+    {
+      id: 'session-old',
+      companyId: 7,
+      provider: 'webwhats',
+      tenantKey: 'company-7',
+      phoneNormalized: '5519998877766',
+      displayPhone: '+5519998877766',
+      status: 'active',
+      connectedAt,
+      createdAt: connectedAt,
+    },
+  ]);
+  const service = new WhatsAppModalService(prisma) as any;
+
+  await service.persistSnapshot(company, createSnapshot({ phone: '+5519920121720' }), 'test_new_number');
+
+  assert.equal(sessions.length, 2);
+  const old = sessions.find((s) => s.id === 'session-old');
+  const fresh = sessions.find((s) => s.id !== 'session-old');
+  assert.equal(old.phoneNormalized, '5519998877766');
+  assert.equal(old.status, 'disconnected');
+  assert.equal(fresh.phoneNormalized, '5519920121720');
+  assert.equal(fresh.status, 'active');
+  assert.equal(companyUpdates.at(-1).currentWhatsappConnectionSessionId, fresh.id);
+});
+
+test('snapshot connected do MESMO número reativa a sessão dele (preserva histórico no reconnect)', async () => {
+  const connectedAt = new Date('2026-05-09T10:00:00.000Z');
+  const company = createCompany({ whatsappModalStatus: 'DISCONNECTED', currentWhatsappConnectionSessionId: null });
+  const { prisma, sessions, companyUpdates } = createSessionPrisma(company, [
+    {
+      id: 'session-mine',
+      companyId: 7,
+      provider: 'webwhats',
+      tenantKey: 'company-7',
+      phoneNormalized: '5519999999999',
+      displayPhone: '+5519999999999',
+      status: 'disconnected',
+      connectedAt,
+      createdAt: connectedAt,
+    },
+  ]);
+  const service = new WhatsAppModalService(prisma) as any;
+
+  await service.persistSnapshot(company, createSnapshot(), 'test_same_number_reconnect');
+
+  assert.equal(sessions.length, 1);
+  assert.equal(sessions[0].id, 'session-mine');
+  assert.equal(sessions[0].status, 'active');
+  assert.equal(companyUpdates.at(-1).currentWhatsappConnectionSessionId, 'session-mine');
+});
+
 test('snapshot connected cria sessao mesmo sem whatsappModalPhone', async () => {
   const company = createCompany({ whatsappModalStatus: 'DISCONNECTED', whatsappModalPhone: null });
   const { prisma, sessions, companyUpdates } = createSessionPrisma(company);

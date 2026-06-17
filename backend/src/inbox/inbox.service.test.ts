@@ -437,7 +437,9 @@ test('inbox classifier keeps automatic prospection outbound neutral without manu
   assert.match(context.routeReason, /neutra/i);
 });
 
-test('listConversations repara Company CONNECTED sem sessao antes de listar Atendimento', async () => {
+test('listConversations é READ-ONLY ao resolver sessão (não cria/relabela — isolamento por número)', async () => {
+  // O inbox só LÊ a sessão atual. Era a 3ª cópia do bug que criava/relabelava sessão e
+  // vazava chat entre chips. CONNECTED sem sessão ativa = inbox vazio, jamais fabricar.
   const sessions: any[] = [];
   const companyUpdates: any[] = [];
   const { service } = createService({
@@ -458,16 +460,10 @@ test('listConversations repara Company CONNECTED sem sessao antes de listar Aten
         },
       },
       whatsAppConnectionSession: {
-        findFirst: async ({ where }: any) => sessions.find((session) => {
-          if (where?.companyId !== undefined && Number(session.companyId) !== Number(where.companyId)) return false;
-          if (where?.provider !== undefined && session.provider !== where.provider) return false;
-          if (where?.tenantKey !== undefined && session.tenantKey !== where.tenantKey) return false;
-          if (where?.status !== undefined && session.status !== where.status) return false;
-          return true;
-        }) || null,
+        findFirst: async () => null,
         findMany: async () => [],
         create: async ({ data }: any) => {
-          const session = { id: 'session-repaired', ...data };
+          const session = { id: 'session-should-not-be-created', ...data };
           sessions.push(session);
           return session;
         },
@@ -477,13 +473,15 @@ test('listConversations repara Company CONNECTED sem sessao antes de listar Aten
     },
   });
 
-  await service.listConversations({ companyId: 7 }, { take: 10 });
+  // CONNECTED sem sessão = recusa segura (503 "revalide"), NUNCA fabrica sessão nem
+  // mostra tudo. Provar read-only: nada criado, ponteiro não escrito.
+  await assert.rejects(
+    () => service.listConversations({ companyId: 7 }, { take: 10 }),
+    /sessão operacional do Atendimento não foi criada/,
+  );
 
-  assert.equal(sessions.length, 1);
-  assert.equal(sessions[0].tenantKey, 'company-7');
-  assert.equal(sessions[0].status, 'active');
-  assert.equal(sessions[0].phoneNormalized, null);
-  assert.equal(companyUpdates.at(-1).currentWhatsappConnectionSessionId, 'session-repaired');
+  assert.equal(sessions.length, 0);
+  assert.equal(companyUpdates.length, 0);
 });
 
 test('inbox classifier keeps prospection with customer inbound in Prospecção', async () => {
@@ -1367,7 +1365,10 @@ test('deleteConversation ignores disconnected WhatsApp session and archives loca
   assert.equal(auditCalls.length, 0);
 });
 
-test('cleanupOldWhatsappSessions discard resets history and preferences for the WhatsApp number', async () => {
+test('cleanupOldWhatsappSessions discard apaga SÓ o número anterior, intacta o chip novo', async () => {
+  // DEFINITIVO: discard remove o histórico do número ANTERIOR (chip OUTRO). O número
+  // ATUAL (chip novo) não é apagado, NÃO leva floor de reset (senão sumiria o histórico
+  // legítimo dele) e o motor Webwhats não é tocado.
   const deletedMessages: number[] = [];
   const deletedConversations: number[] = [];
   const sessionUpdates: any[] = [];
@@ -1387,14 +1388,15 @@ test('cleanupOldWhatsappSessions discard resets history and preferences for the 
     companyId: 7,
     provider: 'webwhats',
     tenantKey: 'company-7',
-    phoneNormalized: '5519998877766',
-    displayPhone: '+5519998877766',
+    // CHIP NOVO — número diferente do anterior.
+    phoneNormalized: '5519920121720',
+    displayPhone: '+5519920121720',
     status: 'active',
     connectedAt: new Date('2026-03-18T09:00:00.000Z'),
     disconnectedAt: null,
     createdAt: new Date('2026-03-18T09:00:00.000Z'),
     updatedAt: new Date('2026-03-18T09:00:00.000Z'),
-    metadataJson: JSON.stringify({ oldPreference: true, botOff: true }),
+    metadataJson: JSON.stringify({ keepThis: true }),
   };
   const { service, auditCalls } = createService({
     prisma: {
@@ -1402,7 +1404,7 @@ test('cleanupOldWhatsappSessions discard resets history and preferences for the 
         findUnique: async () => ({
           id: 7,
           whatsappModalStatus: 'CONNECTED',
-          whatsappModalPhone: '+5519998877766',
+          whatsappModalPhone: '+5519920121720',
           whatsappModalConnectedAt: new Date('2026-03-18T09:00:00.000Z'),
           whatsappStatus: null,
           currentWhatsappConnectionSessionId: 'session-7',
@@ -1423,9 +1425,9 @@ test('cleanupOldWhatsappSessions discard resets history and preferences for the 
         },
       },
       companyConversation: {
+        // No mundo real o discard mira só a sessão anterior; o mock devolve só ela.
         findMany: async () => [
           { id: 42, contact: '+5519998877766', whatsappConnectionSessionId: 'old-session-7' },
-          { id: 43, contact: '+5519998877766', whatsappConnectionSessionId: 'session-7' },
         ],
         delete: async (input: any) => {
           deletedConversations.push(Number(input.where.id));
@@ -1473,24 +1475,96 @@ test('cleanupOldWhatsappSessions discard resets history and preferences for the 
 
   assert.equal(result.mode, 'discard');
   assert.equal(result.deletedMessages, 2);
-  assert.equal(result.deletedConversations, 2);
-  assert.equal(result.deletedAtendimentoCustomers, 1);
-  assert.equal(result.deletedVendasLeads, 1);
-  assert.equal(result.resetCustomerProfiles, 1);
-  assert.equal(result.deletedCustomerProfiles, 1);
+  assert.equal(result.deletedConversations, 1);
   assert.deepEqual(deletedMessages, [901, 902]);
-  assert.deepEqual(deletedConversations, [42, 43]);
+  assert.deepEqual(deletedConversations, [42]);
+  // Só a sessão ANTERIOR é apagada; a ATUAL (chip novo) nunca.
   assert.equal(sessionDeletes[0].where.id.in.includes('old-session-7'), true);
   assert.equal(sessionDeletes[0].where.id.in.includes('session-7'), false);
-  const metadata = JSON.parse(sessionUpdates[0].data.metadataJson);
-  assert.equal(metadata.oldPreference, undefined);
-  assert.equal(metadata.botOff, undefined);
-  assert.equal(metadata.popup2CleanupMode, 'discard');
+  // NENHUM floor/escrita na sessão atual: o histórico do número novo é preservado.
+  assert.equal(sessionUpdates.length, 0);
+  // O purge mira o número ANTERIOR; o número ATUAL nunca entra nos candidatos.
+  const purgePhones = customerDeletes[0].where.phoneNormalized.in;
+  assert.equal(purgePhones.includes('5519920121720'), false);
+  assert.equal(purgePhones.includes('5519998877766'), true);
   assert.equal(customerDeletes.length, 1);
   assert.equal(leadDeletes.length, 1);
   assert.equal(profileResets.length, 1);
   assert.equal(profileDeletes.length, 1);
   assert.equal(auditCalls[0].event, 'whatsapp_old_sessions_cleaned');
+});
+
+test('cleanupOldWhatsappSessions keep arquiva o histórico anterior sem apagar nada', async () => {
+  const sessionUpdateMany: any[] = [];
+  const sessionDeletes: any[] = [];
+  const conversationDeletes: any[] = [];
+  const oldSession = {
+    id: 'old-session-7',
+    phoneNormalized: '5519998877766',
+    displayPhone: '+55 19 99887-7766',
+    metadataJson: null,
+  };
+  const currentSession = {
+    id: 'session-7',
+    companyId: 7,
+    provider: 'webwhats',
+    tenantKey: 'company-7',
+    phoneNormalized: '5519920121720',
+    displayPhone: '+5519920121720',
+    status: 'active',
+    connectedAt: new Date('2026-03-18T09:00:00.000Z'),
+    disconnectedAt: null,
+    createdAt: new Date('2026-03-18T09:00:00.000Z'),
+    updatedAt: new Date('2026-03-18T09:00:00.000Z'),
+    metadataJson: null,
+  };
+  const { service, auditCalls } = createService({
+    prisma: {
+      company: {
+        findUnique: async () => ({
+          id: 7,
+          whatsappModalStatus: 'CONNECTED',
+          whatsappModalPhone: '+5519920121720',
+          whatsappModalConnectedAt: new Date('2026-03-18T09:00:00.000Z'),
+          whatsappStatus: null,
+          currentWhatsappConnectionSessionId: 'session-7',
+          currentWhatsappConnectionSession: currentSession,
+        }),
+      },
+      whatsAppConnectionSession: {
+        updateMany: async (input: any) => {
+          sessionUpdateMany.push(input);
+          return { count: 1 };
+        },
+        findMany: async () => [oldSession],
+        findFirst: async () => null,
+        deleteMany: async (input: any) => {
+          sessionDeletes.push(input);
+          return { count: 0 };
+        },
+        update: async (input: any) => ({ id: input.where.id, ...input.data }),
+      },
+      companyConversation: {
+        findMany: async () => [],
+        delete: async (input: any) => {
+          conversationDeletes.push(input);
+          return { id: input.where.id };
+        },
+      },
+    },
+  });
+
+  const result = await service.cleanupOldWhatsappSessions({ companyId: 7, role: 'ADMIN' }, 'keep');
+
+  assert.equal(result.mode, 'keep');
+  assert.equal(result.deletedConversations, 0);
+  assert.equal(result.deletedMessages, 0);
+  // 'keep' só ARQUIVA a sessão anterior; nada apagado.
+  assert.equal(sessionUpdateMany[0].data.status, 'archived');
+  assert.equal(sessionUpdateMany[0].where.id.in.includes('old-session-7'), true);
+  assert.equal(sessionDeletes.length, 0);
+  assert.equal(conversationDeletes.length, 0);
+  assert.equal(auditCalls[0].event, 'whatsapp_old_sessions_kept');
 });
 
 test('purgeConversationFromTrash is disabled', async () => {

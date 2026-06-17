@@ -49,12 +49,14 @@ function createBareWebwhatsBridgeService() {
   return Object.create(WebwhatsBridgeService.prototype) as any;
 }
 
-test('resolveCurrentWebwhatsSession repara Company CONNECTED sem sessao operacional', async () => {
+test('resolveCurrentWebwhatsSession é READ-ONLY: sem sessão ativa retorna null (não cria, não escreve)', async () => {
   const previousUrl = process.env.WHATSAPP_MODAL_INTERNAL_URL;
   const previousKey = process.env.WHATSAPP_MODAL_API_KEY;
   process.env.WHATSAPP_MODAL_INTERNAL_URL = 'http://webwhats.test';
   process.env.WHATSAPP_MODAL_API_KEY = 'test-key';
 
+  // O ciclo de vida da sessão é do connect (whatsapp-modal.service). O bridge só LÊ —
+  // jamais cria/relabela (era a cópia do bug que vazava chat entre chips).
   const sessions: any[] = [];
   const companyUpdates: any[] = [];
   const prisma = {
@@ -73,32 +75,14 @@ test('resolveCurrentWebwhatsSession repara Company CONNECTED sem sessao operacio
       },
     },
     whatsAppConnectionSession: {
-      findFirst: async ({ where }: any) => sessions.find((session) => {
-        if (where?.companyId !== undefined && Number(session.companyId) !== Number(where.companyId)) return false;
-        if (where?.provider !== undefined && session.provider !== where.provider) return false;
-        if (where?.tenantKey !== undefined && session.tenantKey !== where.tenantKey) return false;
-        if (where?.status !== undefined && session.status !== where.status) return false;
-        return true;
-      }) || null,
+      findFirst: async () => null,
       create: async ({ data }: any) => {
-        const session = { id: 'session-repaired', ...data };
+        const session = { id: 'session-should-not-be-created', ...data };
         sessions.push(session);
         return session;
       },
-      update: async ({ where, data }: any) => {
-        const session = sessions.find((item) => String(item.id) === String(where.id));
-        Object.assign(session, data);
-        return session;
-      },
-      updateMany: async ({ where, data }: any) => {
-        let count = 0;
-        for (const session of sessions) {
-          if (where?.NOT?.id !== undefined && String(session.id) === String(where.NOT.id)) continue;
-          Object.assign(session, data);
-          count += 1;
-        }
-        return { count };
-      },
+      update: async ({ where, data }: any) => ({ id: where.id, ...data }),
+      updateMany: async () => ({ count: 0 }),
     },
   };
   const service = new WebwhatsBridgeService(prisma as any) as any;
@@ -106,13 +90,69 @@ test('resolveCurrentWebwhatsSession repara Company CONNECTED sem sessao operacio
   try {
     const session = await service.resolveCurrentWebwhatsSession(66);
 
-    assert.equal(session.id, 'session-repaired');
+    assert.equal(session, null);
+    assert.equal(sessions.length, 0);
+    assert.equal(companyUpdates.length, 0);
+  } finally {
+    if (previousUrl === undefined) delete process.env.WHATSAPP_MODAL_INTERNAL_URL;
+    else process.env.WHATSAPP_MODAL_INTERNAL_URL = previousUrl;
+    if (previousKey === undefined) delete process.env.WHATSAPP_MODAL_API_KEY;
+    else process.env.WHATSAPP_MODAL_API_KEY = previousKey;
+  }
+});
+
+test('resolveCurrentWebwhatsSession retorna a sessão atual sem reescrever (read-only)', async () => {
+  const previousUrl = process.env.WHATSAPP_MODAL_INTERNAL_URL;
+  const previousKey = process.env.WHATSAPP_MODAL_API_KEY;
+  process.env.WHATSAPP_MODAL_INTERNAL_URL = 'http://webwhats.test';
+  process.env.WHATSAPP_MODAL_API_KEY = 'test-key';
+
+  const sessions: any[] = [];
+  const companyUpdates: any[] = [];
+  const prisma = {
+    company: {
+      findUnique: async () => ({
+        id: 66,
+        whatsappModalStatus: 'CONNECTED',
+        whatsappModalPhone: '+5511999998888',
+        whatsappModalConnectedAt: new Date('2026-05-09T12:00:00.000Z'),
+        currentWhatsappConnectionSessionId: 'session-66',
+        currentWhatsappConnectionSession: {
+          id: 'session-66',
+          provider: 'webwhats',
+          tenantKey: 'company-66',
+          phoneNormalized: '5511999998888',
+          displayPhone: '+5511999998888',
+          metadataJson: null,
+          status: 'active',
+        },
+      }),
+      update: async ({ data }: any) => {
+        companyUpdates.push(data);
+        return { id: 66, ...data };
+      },
+    },
+    whatsAppConnectionSession: {
+      findFirst: async () => null,
+      create: async ({ data }: any) => {
+        const session = { id: 'session-should-not-be-created', ...data };
+        sessions.push(session);
+        return session;
+      },
+      update: async ({ where, data }: any) => ({ id: where.id, ...data }),
+      updateMany: async () => ({ count: 0 }),
+    },
+  };
+  const service = new WebwhatsBridgeService(prisma as any) as any;
+
+  try {
+    const session = await service.resolveCurrentWebwhatsSession(66);
+
+    assert.equal(session.id, 'session-66');
     assert.equal(session.tenantKey, 'company-66');
-    assert.equal(sessions.length, 1);
-    assert.equal(sessions[0].provider, 'webwhats');
-    assert.equal(sessions[0].status, 'active');
-    assert.equal(sessions[0].phoneNormalized, null);
-    assert.equal(companyUpdates.at(-1).currentWhatsappConnectionSessionId, 'session-repaired');
+    assert.equal(session.phoneNormalized, '5511999998888');
+    assert.equal(sessions.length, 0);
+    assert.equal(companyUpdates.length, 0);
   } finally {
     if (previousUrl === undefined) delete process.env.WHATSAPP_MODAL_INTERNAL_URL;
     else process.env.WHATSAPP_MODAL_INTERNAL_URL = previousUrl;

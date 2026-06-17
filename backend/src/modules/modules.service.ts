@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { CreateIntegrationConnectionDto, UpdateIntegrationConnectionDto } from '../integrations/dto/integration-connection.dto';
@@ -193,7 +193,10 @@ type ModuleAccessContext = {
 };
 
 @Injectable()
-export class ModulesService implements OnModuleInit {
+export class ModulesService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(ModulesService.name);
+  private tasteSweepHandle: ReturnType<typeof setInterval> | null = null;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly integrationConnectionsService: IntegrationConnectionsService,
@@ -1516,6 +1519,16 @@ export class ModulesService implements OnModuleInit {
     await this.ensureDatabaseAutomation();
     await this.syncCompanyModulesForAllCompanies();
     await this.ensureTrialBundleForAllCompanies();
+    // Sweep de degustação: reverte taste expirados a cada 30 min.
+    this.tasteSweepHandle = setInterval(() => { void this.runTasteSweep(); }, 30 * 60 * 1000);
+    setTimeout(() => { void this.runTasteSweep(); }, 8000);
+  }
+
+  onModuleDestroy() {
+    if (this.tasteSweepHandle) {
+      clearInterval(this.tasteSweepHandle);
+      this.tasteSweepHandle = null;
+    }
   }
 
   private normalizeKey(key: string) {
@@ -2697,6 +2710,10 @@ export class ModulesService implements OnModuleInit {
       billingProvider: company.billingProvider,
       courtesyReason: company.courtesyReason || null,
       courtesyEndsAt: company.courtesyEndsAt instanceof Date ? company.courtesyEndsAt.toISOString() : null,
+      tastePlanKey: company.tastePlanKey || null,
+      tasteRevertsAt: company.tasteRevertsAt instanceof Date ? company.tasteRevertsAt.toISOString() : null,
+      tastePreviousPlanKey: company.tastePreviousPlanKey || null,
+      tasteReason: company.tasteReason || null,
       commercialCardQuota: this.resolveCommercialCardQuota(company),
       seatCap: Number(company?.seatCap || 0) > 0 ? Math.trunc(Number(company.seatCap)) : null,
       assistedSetup: {
@@ -3558,6 +3575,8 @@ export class ModulesService implements OnModuleInit {
         webscrapingUsage:
           webscrapingUsageByCompany.get(Number(company.id)) || this.buildDefaultWebscrapingUsageSummary(),
         operationalStatus: operationalStatusByCompanyId.get(Number(company.id)) || null,
+        tastePlanKey: company.tastePlanKey || null,
+        tasteRevertsAt: company.tasteRevertsAt instanceof Date ? company.tasteRevertsAt.toISOString() : null,
         users: company.users,
         modules: company.companyModules
           .filter((row) => row.systemModule.companyAssignable)
@@ -5109,6 +5128,142 @@ export class ModulesService implements OnModuleInit {
 
     return { ok: true, affected };
   }
+
+  // ── Degustação temporária de plano (PR16062026035) ─────────────────────────
+
+  async grantPlanTasteByMaster(
+    masterUserId: number,
+    companyId: number,
+    planKey: string,
+    revertsAt: Date,
+    reason?: string,
+  ) {
+    await this.assertMasterUser(masterUserId);
+    const normalizedPlanKey = normalizeCommercialPlanKey(planKey);
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    if (!company) throw new BadRequestException('Empresa nao encontrada');
+    if (revertsAt <= new Date()) throw new BadRequestException('A data de retorno precisa ser futura');
+
+    const previousPlanKey = this.normalizeOptionalString(company.selectedPlanKey) || COMMERCIAL_PLAN_KEYS.LITE;
+
+    // Aplica o plano elevado via mesma trilha do setCompanyPlanByMaster.
+    // Guarda o plano original nos campos taste* para reverter depois.
+    await this.prisma.company.update({
+      where: { id: companyId },
+      data: {
+        tastePlanKey: normalizedPlanKey,
+        tasteRevertsAt: revertsAt,
+        tastePreviousPlanKey: previousPlanKey,
+        tasteReason: reason ? String(reason).trim().slice(0, 400) : null,
+        tasteGrantedByUserId: masterUserId,
+        selectedPlanKey: normalizedPlanKey,
+      },
+    });
+
+    // Sincroniza módulos/entitlements pelo novo plano.
+    const updated = await this.prisma.company.findUnique({ where: { id: companyId } });
+    if (updated) {
+      const access = resolveCompanyAccessState(updated);
+      const released = isCompanyAccessReleased(access.state);
+      await this.prisma.$transaction(async (tx) => {
+        if (released) {
+          await this.syncCompanyModulesForPlanTx(tx, companyId, normalizedPlanKey);
+        }
+        await this.syncCompanyEntitlementsForPlanTx(tx, companyId, normalizedPlanKey, 'manual', 'master_plan_taste', null, null);
+      });
+    }
+
+    await this.masterContextService.registerSupportAction({
+      masterUserId,
+      companyId,
+      scope: 'master_plan',
+      action: 'PLAN_TASTE_GRANTED',
+      metadata: {
+        previousPlanKey,
+        tastePlanKey: normalizedPlanKey,
+        tasteRevertsAt: revertsAt.toISOString(),
+        reason: reason || null,
+      },
+    });
+
+    return { ok: true, companyId, tastePlanKey: normalizedPlanKey, previousPlanKey, tasteRevertsAt: revertsAt.toISOString() };
+  }
+
+  async revokePlanTasteByMaster(masterUserId: number, companyId: number) {
+    await this.assertMasterUser(masterUserId);
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    if (!company) throw new BadRequestException('Empresa nao encontrada');
+    if (!company.tastePlanKey) throw new BadRequestException('Empresa nao esta em degustacao');
+
+    const revertedPlanKey = await this.revertTasteForCompany(companyId, 'master_manual');
+
+    await this.masterContextService.registerSupportAction({
+      masterUserId,
+      companyId,
+      scope: 'master_plan',
+      action: 'PLAN_TASTE_REVOKED',
+      metadata: { revertedPlanKey },
+    });
+
+    return { ok: true, companyId, revertedPlanKey };
+  }
+
+  private async revertTasteForCompany(companyId: number, trigger: string) {
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    if (!company?.tastePlanKey) return null;
+
+    const tastePlanKey = company.tastePlanKey;
+    const previousPlanKey = this.normalizeOptionalString(company.tastePreviousPlanKey) || COMMERCIAL_PLAN_KEYS.LITE;
+    const normalizedPrev = normalizeCommercialPlanKey(previousPlanKey);
+
+    await this.prisma.company.update({
+      where: { id: companyId },
+      data: {
+        selectedPlanKey: normalizedPrev,
+        tastePlanKey: null,
+        tasteRevertsAt: null,
+        tastePreviousPlanKey: null,
+        tasteReason: null,
+        tasteGrantedByUserId: null,
+      },
+    });
+
+    const updated = await this.prisma.company.findUnique({ where: { id: companyId } });
+    if (updated) {
+      const access = resolveCompanyAccessState(updated);
+      const released = isCompanyAccessReleased(access.state);
+      await this.prisma.$transaction(async (tx) => {
+        if (released) {
+          await this.syncCompanyModulesForPlanTx(tx, companyId, normalizedPrev);
+        }
+        await this.syncCompanyEntitlementsForPlanTx(tx, companyId, normalizedPrev, 'manual', `master_plan_taste_revert_${trigger}`, null, null);
+      });
+    }
+
+    this.logger.log(`Taste revertido: empresa ${companyId} ${tastePlanKey} → ${normalizedPrev} (${trigger})`);
+    return normalizedPrev;
+  }
+
+  private async runTasteSweep() {
+    try {
+      const now = new Date();
+      const expired = await this.prisma.company.findMany({
+        where: { tastePlanKey: { not: null }, tasteRevertsAt: { lte: now } },
+        select: { id: true },
+      });
+      for (const { id } of expired) {
+        try {
+          await this.revertTasteForCompany(id, 'sweep');
+        } catch (err) {
+          this.logger.error(`Erro ao reverter taste empresa ${id}: ${err}`);
+        }
+      }
+    } catch (err) {
+      this.logger.error(`Erro no tasteSweep: ${err}`);
+    }
+  }
+
+  // ── fim Degustação ──────────────────────────────────────────────────────────
 
   private buildRadarCardExclusionPayload(row: any) {
     const lead = row?.radarLead || {};

@@ -34,7 +34,6 @@ import {
   cleanupWhatsAppSessions,
   fetchWhatsAppModalStatus,
   fetchWhatsAppSessionDiagnostics,
-  rebootstrapWhatsAppConversations,
 } from "@/lib/whatsapp-connection-flow";
 import { whatsappModalStatusLabel } from "@/lib/whatsapp-center";
 
@@ -296,10 +295,11 @@ export function AtendimentoClient() {
   const [waStatus, setWaStatus] = useState<string | null>(null);
   const [waModalOpen, setWaModalOpen] = useState(false);
 
-  // troca de número: ao conectar, o backend separa as conversas por sessão. Se
-  // sobrou histórico do número ANTERIOR, decidimos o que fazer:
-  //  - mesmo número  → popup pergunta reaproveitar (merge) ou começar limpo (discard);
-  //  - número novo   → começa limpo automático (discard) + re-espelha o número atual.
+  // troca de número (DEFINITIVO): a sessão é POR NÚMERO no backend, então o inbox atual
+  // NUNCA mostra os chats do número anterior — isolamento por construção. Se o backend
+  // detectar histórico de outro número, abrimos um popup pra o dono DECIDIR:
+  //  - Manter (keep)    → arquiva o histórico anterior (preservado, fora do inbox);
+  //  - Deletar (discard)→ apaga só o histórico do número anterior (chip atual intacto).
   const [cleanupPrompt, setCleanupPrompt] = useState<{ conversations: number; oldPhone: string | null } | null>(null);
   const [cleanupBusy, setCleanupBusy] = useState(false);
   const [cleanupMsg, setCleanupMsg] = useState<string | null>(null);
@@ -385,50 +385,40 @@ export function AtendimentoClient() {
       });
   }, []);
 
-  // Aplica a decisão de histórico ao trocar de número. 'discard' zera também a
-  // cache da sessão atual no backend, então re-espelhamos o número conectado AGORA
-  // para o inbox novo não ficar vazio.
-  const runSessionCleanup = useCallback(async (mode: "merge" | "discard") => {
+  // Aplica a DECISÃO do dono sobre o histórico do número anterior. Nenhum dos modos
+  // toca no número ATUAL nem no motor Webwhats: 'keep' arquiva o anterior, 'discard'
+  // apaga só o anterior. O inbox atual já está isolado (sessão por número).
+  const runSessionCleanup = useCallback(async (mode: "keep" | "discard") => {
     setCleanupBusy(true);
     try {
       const res = await cleanupWhatsAppSessions(mode);
-      if (mode === "discard") {
-        setConvs([]); setSelId(null); setThread([]); setCard(null);
-        await rebootstrapWhatsAppConversations().catch(() => { /* re-espelha no próximo ciclo do SSE */ });
-      }
       await loadConvs();
       setCleanupMsg(
-        mode === "merge"
-          ? "Conversas do número anterior reaproveitadas nesta sessão."
-          : `Começando limpo — ${res.deletedConversations} conversa(s) do número anterior removida(s).`,
+        mode === "keep"
+          ? "Histórico do número anterior mantido (arquivado, fora deste atendimento)."
+          : `Histórico do número anterior removido — ${res.deletedConversations} conversa(s) apagada(s).`,
       );
     } catch (err) {
-      setCleanupMsg(err instanceof Error ? err.message : "Falha ao limpar o histórico anterior.");
+      setCleanupMsg(err instanceof Error ? err.message : "Falha ao tratar o histórico anterior.");
     } finally {
       setCleanupBusy(false);
       setCleanupPrompt(null);
     }
   }, [loadConvs]);
 
-  // Após conectar: o backend separa conversas por número (sessão). Se sobrou
-  // histórico de OUTRO número, número diferente começa limpo sozinho; mesmo número
-  // (ou anterior desconhecido) abre o popup — nunca apaga sem o dono mandar.
+  // Após conectar: o isolamento já é por construção (sessão por número) — o inbox novo
+  // nunca carrega chat do número antigo. Se o backend detectar histórico de OUTRO número,
+  // abrimos o popup pra o dono escolher manter ou deletar. NUNCA apaga sozinho.
   const checkSessionCleanupAfterConnect = useCallback(async () => {
     const diag = await fetchWhatsAppSessionDiagnostics().catch(() => null);
     const cleanup = diag?.whatsappSessionCleanup;
-    if (!diag?.whatsappSession?.currentSession || !cleanup?.required) return;
+    if (!cleanup?.required) return;
     if (cleanup.oldConversationCount <= 0 && cleanup.oldMessageCount <= 0) return;
-    const current = (diag.whatsappSession.currentSession.phoneNormalized || "").replace(/\D+/g, "");
-    const old = (cleanup.latestOldSession?.phoneNormalized || "").replace(/\D+/g, "");
-    if (current && old && current !== old) {
-      await runSessionCleanup("discard");
-      return;
-    }
     setCleanupPrompt({
       conversations: cleanup.oldConversationCount,
       oldPhone: cleanup.latestOldSession?.displayPhone || cleanup.latestOldSession?.phoneNormalized || null,
     });
-  }, [runSessionCleanup]);
+  }, []);
 
   // Conectou: atualiza chip, recarrega lista e checa histórico do número anterior.
   const handleWhatsAppConnected = useCallback(() => {
@@ -1487,25 +1477,26 @@ export function AtendimentoClient() {
         </div>
       )}
 
-      {/* Troca de número, mesmo telefone: pergunta reaproveitar ou começar limpo. */}
+      {/* Histórico de OUTRO número detectado: o dono escolhe manter ou deletar. O inbox
+          atual já está isolado (sessão por número) — isto é só a decisão sobre o passado. */}
       {cleanupPrompt && (
         <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget && !cleanupBusy) setCleanupPrompt(null); }}>
           <div className="hbx-modal" style={{ width: "min(420px, 100%)", display: "grid", gap: 14, padding: 24 }}>
             <h3>
-              Histórico do número anterior
+              Histórico de outro número detectado
               <span className="hbx-x" onClick={() => { if (!cleanupBusy) setCleanupPrompt(null); }}>✕</span>
             </h3>
             <p className="hint" style={{ margin: 0 }}>
-              Você reconectou o mesmo número{cleanupPrompt.oldPhone ? ` (${cleanupPrompt.oldPhone})` : ""} e sobraram{" "}
-              <strong>{cleanupPrompt.conversations}</strong> conversa(s) da sessão anterior. Quer trazer esse histórico para o
-              atendimento atual ou começar limpo?
+              Encontramos <strong>{cleanupPrompt.conversations}</strong> conversa(s) do número anterior
+              {cleanupPrompt.oldPhone ? ` (${cleanupPrompt.oldPhone})` : ""}. Elas <strong>não</strong> aparecem
+              neste atendimento. O que deseja fazer com esse histórico?
             </p>
             <div style={{ display: "grid", gap: 8 }}>
-              <button className="btn-teal" disabled={cleanupBusy} onClick={() => runSessionCleanup("merge")}>
-                {cleanupBusy ? "Aplicando…" : "Reaproveitar conversas"}
+              <button className="btn-teal" disabled={cleanupBusy} onClick={() => runSessionCleanup("keep")}>
+                {cleanupBusy ? "Aplicando…" : "Manter (arquivar)"}
               </button>
               <button className="btn-ghost danger" disabled={cleanupBusy} onClick={() => runSessionCleanup("discard")}>
-                {cleanupBusy ? "Limpando…" : "Começar limpo (apagar histórico)"}
+                {cleanupBusy ? "Apagando…" : "Deletar histórico do número anterior"}
               </button>
             </div>
           </div>

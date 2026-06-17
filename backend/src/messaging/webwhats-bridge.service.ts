@@ -975,13 +975,11 @@ export class WebwhatsBridgeService {
       };
     }
 
-    const phoneNormalized = this.normalizeConnectionPhone(company.whatsappModalPhone);
-    const displayPhone = this.normalizeOptionalString(company.whatsappModalPhone);
-
-    const now = new Date();
-    const connectedAt = company.whatsappModalConnectedAt || now;
-
-    let session = await this.prisma.whatsAppConnectionSession.findFirst({
+    // READ-ONLY: o ciclo de vida da sessão é do connect (whatsapp-modal.service). Aqui
+    // NÃO se cria/relabela/repara sessão — só se LÊ. Fallback read-only: a última sessão
+    // ativa por tenantKey (que, com o escritor único, É a sessão atual). Sem sessão = null
+    // (os chamadores tratam: ingest no-op). Isso elimina o relabel que vazava chat entre chips.
+    const fallback = await this.prisma.whatsAppConnectionSession.findFirst({
       where: {
         companyId,
         provider: 'webwhats',
@@ -997,84 +995,14 @@ export class WebwhatsBridgeService {
         metadataJson: true,
       },
     });
-
-    if (session?.id) {
-      const sessionMetadata = this.parseMetadata(session.metadataJson);
-      const data: any = {
-        tenantKey,
-        status: 'active',
-        connectedAt,
-        disconnectedAt: null,
-        metadataJson: JSON.stringify({
-          ...sessionMetadata,
-          source: 'webwhats_bridge_session_repair',
-          recordedAt: now.toISOString(),
-        }),
-      };
-      if (phoneNormalized) data.phoneNormalized = phoneNormalized;
-      if (displayPhone) data.displayPhone = displayPhone;
-      session = await this.prisma.whatsAppConnectionSession.update({
-        where: { id: String(session.id) },
-        data,
-        select: {
-          id: true,
-          tenantKey: true,
-          phoneNormalized: true,
-          displayPhone: true,
-          metadataJson: true,
-        },
-      });
-    } else {
-      session = await this.prisma.whatsAppConnectionSession.create({
-        data: {
-          companyId,
-          provider: 'webwhats',
-          tenantKey,
-          phoneNormalized: phoneNormalized || null,
-          displayPhone,
-          status: 'active',
-          connectedAt,
-          metadataJson: JSON.stringify({
-            source: 'webwhats_bridge_session_repair',
-            recordedAt: now.toISOString(),
-          }),
-        },
-        select: {
-          id: true,
-          tenantKey: true,
-          phoneNormalized: true,
-          displayPhone: true,
-          metadataJson: true,
-        },
-      });
-    }
-
-    await this.prisma.whatsAppConnectionSession.updateMany({
-      where: {
-        companyId,
-        provider: 'webwhats',
-        status: 'active',
-        NOT: { id: String(session.id) },
-      },
-      data: {
-        status: 'disconnected',
-        disconnectedAt: now,
-      },
-    });
-
-    if (String(company.currentWhatsappConnectionSessionId || '') !== String(session.id)) {
-      await this.prisma.company.update({
-        where: { id: companyId },
-        data: { currentWhatsappConnectionSessionId: String(session.id) },
-      });
-    }
+    if (!fallback?.id) return null;
 
     return {
-      id: String(session.id),
-      tenantKey: String(session.tenantKey || tenantKey),
-      phoneNormalized: this.normalizeConnectionPhone(session.phoneNormalized),
-      displayPhone: this.normalizeOptionalString(session.displayPhone),
-      metadataJson: this.normalizeOptionalString(session.metadataJson),
+      id: String(fallback.id),
+      tenantKey: String(fallback.tenantKey || tenantKey),
+      phoneNormalized: this.normalizeConnectionPhone(fallback.phoneNormalized),
+      displayPhone: this.normalizeOptionalString(fallback.displayPhone),
+      metadataJson: this.normalizeOptionalString(fallback.metadataJson),
     };
   }
 

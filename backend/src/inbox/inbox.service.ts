@@ -102,7 +102,7 @@ type InboxWhatsappSessionScope = {
   reason: 'webwhats_active' | 'webwhats_reconnecting' | 'webwhats_status_only' | 'meta_active' | 'no_whatsapp';
   currentSessionId: string | null;
   currentSession: any | null;
-  mode: 'current' | 'all';
+  mode: 'current' | 'meta' | 'none';
   providerHealth?: WhatsAppProviderHealth | null;
 };
 
@@ -493,6 +493,9 @@ export class InboxService {
     }
 
     const tenantKey = `company-${Number(company.id)}`;
+    // READ-ONLY: o ciclo de vida da sessão é do connect (whatsapp-modal.service). O inbox
+    // só LÊ a sessão atual — não cria, não relabela, não repara (era a 3ª cópia do bug que
+    // sobrescrevia o telefone e vazava chat entre chips). Sem sessão ativa = null.
     const existingActiveSession = await this.prisma.whatsAppConnectionSession.findFirst({
       where: {
         companyId: Number(company.id),
@@ -502,61 +505,7 @@ export class InboxService {
       },
       orderBy: [{ connectedAt: 'desc' }, { createdAt: 'desc' }],
     });
-
-    const phoneNormalized = this.normalizeConnectionPhone(company?.whatsappModalPhone);
-    const displayPhone = String(company?.whatsappModalPhone || '').trim() || null;
-    const now = new Date();
-    let session = existingActiveSession;
-    if (session?.id) {
-      const data: any = {
-        tenantKey,
-        status: 'active',
-        connectedAt: company.whatsappModalConnectedAt || now,
-        disconnectedAt: null,
-        metadataJson: JSON.stringify({
-          source: 'inbox_session_repair',
-          recordedAt: now.toISOString(),
-        }),
-      };
-      if (phoneNormalized) data.phoneNormalized = phoneNormalized;
-      if (displayPhone) data.displayPhone = displayPhone;
-      session = await this.prisma.whatsAppConnectionSession.update({
-        where: { id: String(session.id) },
-        data,
-      });
-    } else {
-      session = await this.prisma.whatsAppConnectionSession.create({
-        data: {
-          companyId: Number(company.id),
-          provider: 'webwhats',
-          tenantKey,
-          phoneNormalized: phoneNormalized || null,
-          displayPhone,
-          status: 'active',
-          connectedAt: company.whatsappModalConnectedAt || now,
-          metadataJson: JSON.stringify({
-            source: 'inbox_session_repair',
-            recordedAt: now.toISOString(),
-          }),
-        },
-      });
-    }
-    await this.prisma.whatsAppConnectionSession.updateMany({
-      where: {
-        companyId: Number(company.id),
-        provider: 'webwhats',
-        status: 'active',
-        NOT: { id: String(session.id) },
-      },
-      data: { status: 'disconnected', disconnectedAt: now },
-    });
-    if (String(company.currentWhatsappConnectionSessionId || '') !== String(session.id)) {
-      await this.prisma.company.update({
-        where: { id: Number(company.id) },
-        data: { currentWhatsappConnectionSessionId: String(session.id) },
-      });
-    }
-    return session;
+    return existingActiveSession || null;
   }
 
   private async resolveInboxWhatsappSessionScope(companyId: number): Promise<InboxWhatsappSessionScope> {
@@ -592,7 +541,10 @@ export class InboxService {
           : 'no_whatsapp',
       currentSessionId: currentSession?.id ? String(currentSession.id) : null,
       currentSession,
-      mode: currentSession?.id ? 'current' : 'all',
+      // Nunca mais 'all' (mostrava TODAS as sessões = 2º vetor de vazamento). Sessão
+      // webwhats atual = 'current' (só ela); só Meta = 'meta' (conversas sem sessão);
+      // nada conectado = 'none' (inbox vazio, jamais "mostra tudo").
+      mode: currentSession?.id ? 'current' : (metaActive ? 'meta' : 'none'),
     };
   }
 
@@ -603,9 +555,12 @@ export class InboxService {
 
   private isRowVisibleForWhatsappSessionScope(row: any, scope: InboxWhatsappSessionScope) {
     if (!scope.accessible) return false;
-    if (scope.mode === 'all') return true;
     const rowSessionId = row?.whatsappConnectionSessionId ? String(row.whatsappConnectionSessionId) : null;
-    return Boolean(scope.currentSessionId) && rowSessionId === scope.currentSessionId;
+    // Sessão webwhats atual → SÓ as conversas dela (isolamento por número).
+    if (scope.mode === 'current') return Boolean(scope.currentSessionId) && rowSessionId === scope.currentSessionId;
+    // Só Meta (Cloud API, sem webwhats) → conversas sem sessão webwhats (id null).
+    if (scope.mode === 'meta') return rowSessionId === null;
+    return false;
   }
 
   private buildWhatsappSessionMetadata(scope: InboxWhatsappSessionScope) {
@@ -642,6 +597,8 @@ export class InboxService {
       where: {
         companyId,
         provider: 'webwhats',
+        // 'archived' = o dono já decidiu MANTER esse histórico → não reabre o popup.
+        status: { not: 'archived' },
         NOT: { id: String(scope.currentSessionId) },
       },
       orderBy: [{ connectedAt: 'desc' }, { createdAt: 'desc' }],
@@ -6034,8 +5991,8 @@ export class InboxService {
     this.assertAdministrativeAction(user);
     const companyId = this.requireCompanyIdFromUser(user);
     const mode = String(modeRaw || '').trim().toLowerCase();
-    if (!['merge', 'discard'].includes(mode)) {
-      throw new BadRequestException('Informe se deseja mesclar ou descartar sessões antigas.');
+    if (!['merge', 'discard', 'keep'].includes(mode)) {
+      throw new BadRequestException('Informe se deseja manter, mesclar ou descartar sessões antigas.');
     }
     const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId);
     this.assertInboxWhatsappAccessible(sessionScope);
@@ -6053,6 +6010,37 @@ export class InboxService {
       select: { id: true, phoneNormalized: true, displayPhone: true, metadataJson: true },
     });
     const oldSessionIds = oldSessions.map((session) => String(session.id));
+
+    // MANTER (popup): o dono escolheu guardar o histórico do número anterior. Só
+    // arquiva as sessões antigas (data preservada, fora do inbox atual por construção) e
+    // para de perguntar. NÃO apaga nada, NÃO toca no motor Webwhats.
+    if (mode === 'keep') {
+      if (oldSessionIds.length) {
+        await this.prisma.whatsAppConnectionSession.updateMany({
+          where: { companyId, id: { in: oldSessionIds }, status: { not: 'archived' } },
+          data: { status: 'archived' },
+        });
+      }
+      await this.logInboxEvent({
+        companyId,
+        event: 'whatsapp_old_sessions_kept',
+        message: 'Histórico do número anterior mantido (arquivado, fora do inbox atual).',
+        result: 'keep',
+        extra: { currentSessionId, keptSessionIds: oldSessionIds },
+      });
+      return {
+        success: true,
+        mode,
+        merged: 0,
+        deletedConversations: 0,
+        deletedMessages: 0,
+        deletedSessions: 0,
+        message: oldSessionIds.length
+          ? 'Histórico do número anterior mantido.'
+          : 'Nenhum histórico anterior para manter.',
+      };
+    }
+
     if (!oldSessionIds.length && mode === 'merge') {
       return {
         success: true,
@@ -6083,18 +6071,20 @@ export class InboxService {
     });
     const recoverableSessionIds = mode === 'merge' ? oldSessionIds.slice(0, 1) : [];
     const discardSessionIds = mode === 'merge' ? oldSessionIds.slice(1) : oldSessionIds;
-    const discardCacheSessionIds =
-      mode === 'discard'
-        ? Array.from(new Set([...discardSessionIds, currentSessionId]))
-        : discardSessionIds;
+    // NÃO inclui a sessão ATUAL: discard agora apaga SÓ o número ANTERIOR (o chip novo
+    // fica intacto). Incluir a atual apagaria/floorearia o histórico do número novo.
+    const discardCacheSessionIds = discardSessionIds;
     const currentSession = sessionScope.currentSession || {};
+    // Variantes do número ATUAL nunca entram no purge (blinda o chip novo, mesmo se
+    // algum dado coincidir de telefone).
+    const currentPhoneVariants = new Set(
+      this.buildWhatsappResetPhoneVariants(currentSession.phoneNormalized, currentSession.displayPhone),
+    );
     const resetPhoneCandidates =
       mode === 'discard'
         ? this.buildWhatsappResetPhoneVariants(
-            currentSession.phoneNormalized,
-            currentSession.displayPhone,
             ...(oldSessions.flatMap((session) => [session.phoneNormalized, session.displayPhone])),
-          )
+          ).filter((candidate) => !currentPhoneVariants.has(candidate))
         : [];
     const recoverableConversations = oldConversations.filter((conversation) =>
       recoverableSessionIds.includes(String(conversation.whatsappConnectionSessionId || '')),
@@ -6269,32 +6259,29 @@ export class InboxService {
           id: { in: oldSessionIds },
         },
       });
-      const currentSession = await tx.whatsAppConnectionSession.findFirst({
-        where: { companyId, id: currentSessionId },
-        select: { metadataJson: true },
-      });
-      const currentSessionMetadata = this.parseConversationMetadata(currentSession?.metadataJson);
-      if (mode === 'discard') {
-        for (const key of Object.keys(currentSessionMetadata)) {
-          delete currentSessionMetadata[key];
-        }
+      // Floor de re-sync SÓ no merge (mesmo chip dobrando histórico na sessão atual:
+      // o ingestor ignora o que o WhatsApp re-sincroniza < floor). No DISCARD apagamos
+      // o número ANTERIOR (chip OUTRO) → NÃO floor a sessão atual, senão suprimiríamos
+      // o histórico legítimo do número NOVO.
+      if (mode === 'merge') {
+        const currentSessionRow = await tx.whatsAppConnectionSession.findFirst({
+          where: { companyId, id: currentSessionId },
+          select: { metadataJson: true },
+        });
+        const currentSessionMetadata = this.parseConversationMetadata(currentSessionRow?.metadataJson);
+        await tx.whatsAppConnectionSession.update({
+          where: { id: currentSessionId },
+          data: {
+            metadataJson: JSON.stringify({
+              ...currentSessionMetadata,
+              inboxResetAt: resetAt.toISOString(),
+              webwhatsResetAt: resetAt.toISOString(),
+              popup2CleanupMode: mode,
+              popup2CleanupAt: resetAt.toISOString(),
+            }),
+          },
+        });
       }
-      await tx.whatsAppConnectionSession.update({
-        where: { id: currentSessionId },
-        data: {
-          metadataJson: JSON.stringify({
-            ...currentSessionMetadata,
-            // #3 (15/06): grava o floor em AMBOS os modos. O discard ("limpar 100%")
-            // PRECISA do inboxResetAt pra o ingestor (webwhats-bridge) ignorar o histórico
-            // que o WhatsApp re-sincroniza ao reconectar o MESMO chip. Antes só o merge
-            // setava → no discard o lixo (foto/@lint) voltava. Mensagem NOVA (> reset) passa.
-            inboxResetAt: resetAt.toISOString(),
-            webwhatsResetAt: resetAt.toISOString(),
-            popup2CleanupMode: mode,
-            popup2CleanupAt: resetAt.toISOString(),
-          }),
-        },
-      });
     });
 
     await this.logInboxEvent({

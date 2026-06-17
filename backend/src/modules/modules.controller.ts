@@ -189,6 +189,19 @@ class SetCompanyPlanDto {
   planKey!: string;
 }
 
+class GrantPlanTasteDto {
+  @IsString()
+  @IsIn([COMMERCIAL_PLAN_KEYS.LITE, COMMERCIAL_PLAN_KEYS.PADRAO, COMMERCIAL_PLAN_KEYS.MELHOR])
+  planKey!: string;
+
+  @IsString()
+  revertsAt!: string; // ISO date string
+
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
 class CompleteAssistedSetupDto {
   @IsOptional()
   @IsString()
@@ -596,6 +609,27 @@ export class ModulesController {
     @Body() dto: SetCompanyPlanDto,
   ) {
     return this.modulesService.setCompanyPlanByMaster(Number(req.user?.id), companyId, dto?.planKey);
+  }
+
+  @Post('master/company/:companyId/plan-taste')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  grantPlanTaste(
+    @Req() req: any,
+    @Param('companyId', ParseIntPipe) companyId: number,
+    @Body() dto: GrantPlanTasteDto,
+  ) {
+    const revertsAt = new Date(dto?.revertsAt);
+    if (isNaN(revertsAt.getTime())) throw new Error('revertsAt invalido');
+    return this.modulesService.grantPlanTasteByMaster(Number(req.user?.id), companyId, dto?.planKey, revertsAt, dto?.reason);
+  }
+
+  @Delete('master/company/:companyId/plan-taste')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  revokePlanTaste(
+    @Req() req: any,
+    @Param('companyId', ParseIntPipe) companyId: number,
+  ) {
+    return this.modulesService.revokePlanTasteByMaster(Number(req.user?.id), companyId);
   }
 
   @Post('master/company/:companyId/assisted-setup/complete')

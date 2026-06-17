@@ -1053,58 +1053,78 @@ export class WhatsAppModalService {
 
     if (snapshot.status === 'connected') {
       const connectedAt = snapshot.connectedAt || company.whatsappModalConnectedAt || now;
-      let session = await this.prisma.whatsAppConnectionSession.findFirst({
-        where: {
-          companyId: Number(company.id),
-          provider: 'webwhats',
-          tenantKey,
-          status: 'active',
-        },
+
+      // IDENTIDADE DA SESSÃO É POR NÚMERO (não por empresa). Este é o ÚNICO escritor do
+      // ciclo de vida da sessão (ingest/inbox só leem). Regra definitiva (mata o vazamento
+      // de chat entre chips):
+      //   - número conhecido → reusa a sessão DESTE número (qualquer status) e reativa →
+      //     mesmo chip reconectando preserva o histórico;
+      //   - número conhecido sem sessão própria → CRIA sessão nova (nunca relabela a do
+      //     número anterior — telefone grava UMA vez e jamais é sobrescrito);
+      //   - número ainda desconhecido (status conecta antes do número chegar) → não churn:
+      //     mantém a sessão atual ou cria placeholder que recebe o número no próximo status
+      //     (write-once a partir de null).
+      const buildMeta = (prev?: unknown) =>
+        JSON.stringify({
+          ...this.parseSessionMetadataJson(prev),
+          source: reason,
+          rawStatus: snapshot.rawStatus,
+          recordedAt: now.toISOString(),
+        });
+
+      const currentActive = await this.prisma.whatsAppConnectionSession.findFirst({
+        where: { companyId: Number(company.id), provider: 'webwhats', tenantKey, status: 'active' },
         orderBy: [{ connectedAt: 'desc' }, { createdAt: 'desc' }],
-        select: { id: true, metadataJson: true },
+        select: { id: true, phoneNormalized: true, displayPhone: true, metadataJson: true },
       });
 
-      if (session?.id) {
-        const sessionMetadata = this.parseSessionMetadataJson(session.metadataJson);
-        const data: any = {
-          tenantKey,
-          status: 'active',
-          connectedAt,
-          disconnectedAt: null,
-          metadataJson: JSON.stringify({
-            ...sessionMetadata,
-            source: reason,
-            rawStatus: snapshot.rawStatus,
-            recordedAt: now.toISOString(),
-          }),
-        };
-        if (phoneNormalized) data.phoneNormalized = phoneNormalized;
-        if (displayPhone) data.displayPhone = displayPhone;
-        session = await this.prisma.whatsAppConnectionSession.update({
-          where: { id: String(session.id) },
-          data,
-          select: { id: true, metadataJson: true },
-        });
+      let session: { id: string };
+
+      if (!phoneNormalized) {
+        if (currentActive?.id) {
+          session = await this.prisma.whatsAppConnectionSession.update({
+            where: { id: String(currentActive.id) },
+            data: { tenantKey, status: 'active', connectedAt, disconnectedAt: null, metadataJson: buildMeta(currentActive.metadataJson) },
+            select: { id: true },
+          });
+        } else {
+          session = await this.prisma.whatsAppConnectionSession.create({
+            data: { companyId: Number(company.id), provider: 'webwhats', tenantKey, phoneNormalized: null, displayPhone: null, status: 'active', connectedAt, metadataJson: buildMeta() },
+            select: { id: true },
+          });
+        }
       } else {
-        session = await this.prisma.whatsAppConnectionSession.create({
-          data: {
-            companyId: Number(company.id),
-            provider: 'webwhats',
-            tenantKey,
-            phoneNormalized: phoneNormalized || null,
-            displayPhone,
-            status: 'active',
-            connectedAt,
-            metadataJson: JSON.stringify({
-              source: reason,
-              rawStatus: snapshot.rawStatus,
-              recordedAt: now.toISOString(),
-            }),
-          },
-          select: { id: true, metadataJson: true },
+        const byPhone = await this.prisma.whatsAppConnectionSession.findFirst({
+          where: { companyId: Number(company.id), provider: 'webwhats', tenantKey, phoneNormalized },
+          orderBy: [{ connectedAt: 'desc' }, { createdAt: 'desc' }],
+          select: { id: true, displayPhone: true, metadataJson: true },
         });
+        if (byPhone?.id) {
+          const data: any = { tenantKey, status: 'active', connectedAt, disconnectedAt: null, metadataJson: buildMeta(byPhone.metadataJson) };
+          if (displayPhone && !byPhone.displayPhone) data.displayPhone = displayPhone;
+          session = await this.prisma.whatsAppConnectionSession.update({
+            where: { id: String(byPhone.id) },
+            data,
+            select: { id: true },
+          });
+        } else if (currentActive?.id && !currentActive.phoneNormalized) {
+          // Placeholder sem número → primeira atribuição (write-once a partir de null).
+          session = await this.prisma.whatsAppConnectionSession.update({
+            where: { id: String(currentActive.id) },
+            data: { tenantKey, status: 'active', connectedAt, disconnectedAt: null, phoneNormalized, displayPhone, metadataJson: buildMeta(currentActive.metadataJson) },
+            select: { id: true },
+          });
+        } else {
+          // Número NOVO → sessão NOVA. Nunca toca na sessão do número anterior.
+          session = await this.prisma.whatsAppConnectionSession.create({
+            data: { companyId: Number(company.id), provider: 'webwhats', tenantKey, phoneNormalized, displayPhone, status: 'active', connectedAt, metadataJson: buildMeta() },
+            select: { id: true },
+          });
+        }
       }
 
+      // Só UMA sessão ativa por vez: fecha as demais (não apaga — vira histórico
+      // detectável pelo popup manter/deletar; o motor Webwhats NÃO é tocado).
       await this.prisma.whatsAppConnectionSession.updateMany({
         where: {
           companyId: Number(company.id),

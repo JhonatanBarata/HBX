@@ -1615,7 +1615,7 @@ export class AuthService implements OnModuleInit {
 
     const delivery = await this.dispatchEmailConfirmation({
       email,
-      username,
+      username: resolvedName,
       companyName: created.companyName,
       rawToken,
     });
@@ -1854,6 +1854,7 @@ export class AuthService implements OnModuleInit {
       where: { email: normalizedEmail },
       select: {
         id: true,
+        name: true,
         username: true,
         email: true,
         emailConfirmedAt: true,
@@ -1900,7 +1901,7 @@ export class AuthService implements OnModuleInit {
 
     const delivery = await this.dispatchEmailConfirmation({
       email: normalizedEmail,
-      username: user.username || normalizedEmail,
+      username: user.name || user.username || normalizedEmail,
       companyName: user.company?.name || user.username || normalizedEmail,
       rawToken,
     });

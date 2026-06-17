@@ -79,6 +79,10 @@ type Detail = {
     billingProvider?: string | null;
     courtesyReason?: string | null;
     courtesyEndsAt?: string | null;
+    tastePlanKey?: string | null;
+    tasteRevertsAt?: string | null;
+    tastePreviousPlanKey?: string | null;
+    tasteReason?: string | null;
     trialStartsAt?: string | null;
     trialEndsAt?: string | null;
     selectedPlanKey?: string | null;
@@ -191,6 +195,10 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
   const [planoArm, setPlanoArm] = useState(false);
   const [quotaForm, setQuotaForm] = useState({ monthly: "", daily: "", seatCap: "" });
   const [finForm, setFinForm] = useState({ discount: "", freeMonths: "", billingCycle: "", setupValue: "", parcela: "" });
+
+  // degustação de plano
+  const [tasteForm, setTasteForm] = useState({ planKey: "", revertsAt: "", reason: "" });
+  const [tasteBusy, setTasteBusy] = useState(false);
 
   // financeiro (fase 2)
   const [pagOpen, setPagOpen] = useState(false);
@@ -500,6 +508,41 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
     }
   }
 
+  async function concederTaste(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (tasteBusy || selId == null) return;
+    setTasteBusy(true);
+    setComMsg(null);
+    try {
+      await apiFetch(`/modules/master/company/${selId}/plan-taste`, {
+        method: "POST",
+        body: JSON.stringify({ planKey: tasteForm.planKey, revertsAt: new Date(tasteForm.revertsAt).toISOString(), reason: tasteForm.reason.trim() || undefined }),
+      });
+      setComMsg("✓ Degustação concedida.");
+      setTasteForm({ planKey: "", revertsAt: "", reason: "" });
+      await recarregarTudo();
+    } catch (err) {
+      setComMsg(err instanceof Error ? err.message : "Falha ao conceder degustação.");
+    } finally {
+      setTasteBusy(false);
+    }
+  }
+
+  async function revogarTaste() {
+    if (tasteBusy || selId == null) return;
+    setTasteBusy(true);
+    setComMsg(null);
+    try {
+      await apiFetch(`/modules/master/company/${selId}/plan-taste`, { method: "DELETE", body: JSON.stringify({}) });
+      setComMsg("✓ Degustação encerrada.");
+      await recarregarTudo();
+    } catch (err) {
+      setComMsg(err instanceof Error ? err.message : "Falha ao encerrar degustação.");
+    } finally {
+      setTasteBusy(false);
+    }
+  }
+
   async function resetSenha(u: DetailUser) {
     if (userBusy) return;
     setUserBusy(true);
@@ -672,7 +715,10 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                       <span className="sub2">#{emp.id}{emp.slug ? ` · ${emp.slug}` : ""}</span>
                     </div>
                   </td>
-                  <td><span className={statusTagClass(emp.status, emp.isActive)}>{statusLabel(emp.status)}</span></td>
+                  <td>
+                    <span className={statusTagClass(emp.status, emp.isActive)}>{statusLabel(emp.status)}</span>
+                    {emp.tastePlanKey && <span className="tag warn" style={{ marginLeft: 4, fontSize: "0.6rem" }}>DEGUST.</span>}
+                  </td>
                   <td>{emp.paymentMethod || emp.billingProvider || "—"}</td>
                   <td>
                     {String(emp.status || "").toLowerCase() === "trial"
@@ -924,6 +970,54 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                           {comBusy === "delete" ? "Excluindo…" : "Excluir empresa"}
                         </button>
                       </div>
+                    </div>
+
+                    <div style={{ paddingTop: 12, display: "grid", gap: 8 }}>
+                      <strong style={{ fontSize: "0.76rem" }}>Degustação de plano</strong>
+                      {c.tastePlanKey ? (
+                        <React.Fragment>
+                          <div style={{ fontSize: "0.72rem", lineHeight: 1.5 }}>
+                            <span className="tag warn" style={{ marginRight: 6 }}>EM DEGUSTAÇÃO</span>
+                            {PLANOS.find(p => p.value === c.tastePlanKey)?.label || c.tastePlanKey}
+                            {" até "}
+                            <strong>{fmtData(c.tasteRevertsAt)}</strong>
+                            {c.tasteReason && <span className="bv-hint" style={{ marginLeft: 6 }}>— {c.tasteReason}</span>}
+                          </div>
+                          <div>
+                            <button className="btn-ghost btn-danger" disabled={tasteBusy} style={{ minHeight: 26, fontSize: "0.62rem" }}
+                              onClick={revogarTaste}>
+                              {tasteBusy ? "…" : "Encerrar agora"}
+                            </button>
+                          </div>
+                        </React.Fragment>
+                      ) : (
+                        <form onSubmit={concederTaste} style={{ display: "grid", gap: 8 }}>
+                          <div style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap" }}>
+                            <div style={{ display: "grid", gap: 4 }}>
+                              <label className="field-label">Plano a degustar</label>
+                              <select className="field-dark" style={{ minWidth: 140 }} required value={tasteForm.planKey}
+                                onChange={e => setTasteForm(f => ({ ...f, planKey: e.target.value }))}>
+                                <option value="">Escolha…</option>
+                                {PLANOS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+                              </select>
+                            </div>
+                            <div style={{ display: "grid", gap: 4 }}>
+                              <label className="field-label">Volta em</label>
+                              <input className="field-dark" type="date" required style={{ width: 140 }} value={tasteForm.revertsAt}
+                                onChange={e => setTasteForm(f => ({ ...f, revertsAt: e.target.value }))} />
+                            </div>
+                            <div style={{ display: "grid", gap: 4, flex: 1, minWidth: 140 }}>
+                              <label className="field-label">Motivo (opcional)</label>
+                              <input className="field-dark" maxLength={200} placeholder="Ex.: negociação em andamento"
+                                value={tasteForm.reason} onChange={e => setTasteForm(f => ({ ...f, reason: e.target.value }))} />
+                            </div>
+                            <button className="btn-teal" type="submit" disabled={tasteBusy || !tasteForm.planKey || !tasteForm.revertsAt}>
+                              {tasteBusy ? "…" : "Conceder taste"}
+                            </button>
+                          </div>
+                          <span className="bv-hint">Liga as features do plano agora, de graça. Na data marcada o sistema reverte automaticamente para o plano atual da empresa.</span>
+                        </form>
+                      )}
                     </div>
 
                     <div style={{ borderTop: "1px solid var(--border-hairline)", paddingTop: 12, display: "grid", gap: 8 }}>

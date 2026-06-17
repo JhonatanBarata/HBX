@@ -56,6 +56,8 @@ export type MasterCompany = {
     createdAt?: string | null;
   }[];
   modules?: { key: string; name: string; enabled: boolean }[];
+  tastePlanKey?: string | null;
+  tasteRevertsAt?: string | null;
 };
 
 export const STATUS_LABEL: Record<string, string> = {

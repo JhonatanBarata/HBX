@@ -86,6 +86,11 @@ model Company {
   // Cortesia (funde liberacao manual + isenta): prazo opcional; sem prazo = permanente.
   courtesyEndsAt          DateTime?
   courtesyReason          String?
+  tastePlanKey            String?   // degustação temporária (master concede)
+  tasteRevertsAt          DateTime? // data em que volta ao plano original automaticamente
+  tastePreviousPlanKey    String?   // plano real da empresa antes do taste
+  tasteReason             String?
+  tasteGrantedByUserId    Int?
   commercialCardsMonthlyLimitOverride Int?
   commercialCardsDailyLimitOverride   Int?
   seatCap                 Int?     // teto RÍGIDO de assentos por empresa (master) — PR13062026005

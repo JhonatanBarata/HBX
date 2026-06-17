@@ -60,7 +60,7 @@ export type WhatsAppSessionDiagnostics = {
   whatsappSession: {
     accessible: boolean;
     reason: string;
-    mode: "current" | "all";
+    mode: "current" | "meta" | "none";
     currentSessionId: string | null;
     currentSession: {
       id: string;
@@ -90,7 +90,7 @@ export type WhatsAppSessionDiagnostics = {
 
 export type WhatsAppSessionCleanupResult = {
   success: boolean;
-  mode: "merge" | "discard" | string;
+  mode: "keep" | "merge" | "discard" | string;
   merged: number;
   deletedConversations: number;
   deletedMessages: number;

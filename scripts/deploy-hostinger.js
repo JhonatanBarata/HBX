@@ -84,6 +84,7 @@ function runStep(command, args, options = {}) {
     captureOutput: options.captureOutput,
     allowFailure: options.allowFailure,
     env: options.env,
+    stdin: options.stdin,
   });
 }
 
