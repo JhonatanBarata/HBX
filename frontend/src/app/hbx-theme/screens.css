@@ -501,8 +501,8 @@ html, body { height: 100%; }
 /* Ramo no primeiro acesso (14/06): grade de chips do kit (btn-ghost/btn-teal). */
 .bv-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .bv-chips > button { min-height: 34px; padding: 6px 12px; font-size: 0.74rem; }
-/* Linha de chips de rodapé de painel (preferência/resultado) — kit central, sem
-   inline na tela (Lei 5). Usada por minha-preferencia-panel e afins. */
+/* Linha de chips de rodapé de painel (resultado/avisos) — kit central, sem
+   inline na tela (Lei 5). Usada por puxar-leads-panel e afins. */
 .chip-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 0 16px 12px; }
 .chip-row .tag { display: inline-flex; gap: 6px; align-items: center; }
 .chip-x { cursor: pointer; display: inline-flex; }

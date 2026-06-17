@@ -593,13 +593,15 @@ export class InboxService {
         latestOldSession: null,
       };
     }
+    const currentSessionId = String(scope.currentSessionId);
+    // (1) Sessões SEPARADAS do número anterior (caso pós-fix: número novo = sessão nova).
     const oldSessions = await this.prisma.whatsAppConnectionSession.findMany({
       where: {
         companyId,
         provider: 'webwhats',
         // 'archived' = o dono já decidiu MANTER esse histórico → não reabre o popup.
         status: { not: 'archived' },
-        NOT: { id: String(scope.currentSessionId) },
+        NOT: { id: currentSessionId },
       },
       orderBy: [{ connectedAt: 'desc' }, { createdAt: 'desc' }],
       select: {
@@ -613,42 +615,65 @@ export class InboxService {
       },
     });
     const oldSessionIds = oldSessions.map((session) => String(session.id));
-    if (!oldSessionIds.length) {
-      return {
-        required: false,
-        currentSessionId: String(scope.currentSessionId),
-        oldSessionCount: 0,
-        oldConversationCount: 0,
-        oldMessageCount: 0,
-        latestOldSession: null,
-      };
-    }
-    const [oldConversationCount, oldMessageCount] = await Promise.all([
-      this.prisma.companyConversation.count({
-        where: { companyId, whatsappConnectionSessionId: { in: oldSessionIds } },
-      }),
-      this.prisma.companyMessage.count({
-        where: { companyId, whatsappConnectionSessionId: { in: oldSessionIds } },
-      }),
-    ]);
-    const latest = oldSessions[0] || null;
+    const [separateConversationCount, separateMessageCount] = oldSessionIds.length
+      ? await Promise.all([
+          this.prisma.companyConversation.count({
+            where: { companyId, whatsappConnectionSessionId: { in: oldSessionIds } },
+          }),
+          this.prisma.companyMessage.count({
+            where: { companyId, whatsappConnectionSessionId: { in: oldSessionIds } },
+          }),
+        ])
+      : [0, 0];
+
+    // (2) CONTAMINAÇÃO dentro da sessão atual (caso legado: o relabel pré-fix mesclou os
+    // chats do número anterior na sessão de agora). Detecta pela origem real da conversa.
+    const foreignConversations = await this.resolveForeignSessionConversations(
+      companyId,
+      currentSessionId,
+      scope.currentSession || {},
+    );
+    const foreignConversationIds = foreignConversations.map((conversation) => conversation.id);
+    const foreignMessageCount = foreignConversationIds.length
+      ? await this.prisma.companyMessage.count({
+          where: { companyId, conversationId: { in: foreignConversationIds } },
+        })
+      : 0;
+
+    const oldConversationCount = separateConversationCount + foreignConversations.length;
+    const oldMessageCount = separateMessageCount + foreignMessageCount;
+
+    const latestSeparate = oldSessions[0] || null;
+    const predominantForeignPhone = foreignConversations.find((conversation) => conversation.sourcePhoneNormalized)?.sourcePhoneNormalized || null;
+    const latestOldSession = latestSeparate
+      ? {
+          id: String(latestSeparate.id),
+          phoneNormalized: latestSeparate.phoneNormalized || null,
+          displayPhone: latestSeparate.displayPhone || null,
+          status: latestSeparate.status || null,
+          connectedAt: latestSeparate.connectedAt || null,
+          disconnectedAt: latestSeparate.disconnectedAt || null,
+          createdAt: latestSeparate.createdAt || null,
+        }
+      : predominantForeignPhone
+        ? {
+            id: '',
+            phoneNormalized: predominantForeignPhone,
+            displayPhone: predominantForeignPhone,
+            status: 'relabeled',
+            connectedAt: null,
+            disconnectedAt: null,
+            createdAt: null,
+          }
+        : null;
+
     return {
       required: oldConversationCount > 0 || oldMessageCount > 0,
-      currentSessionId: String(scope.currentSessionId),
+      currentSessionId,
       oldSessionCount: oldSessions.length,
       oldConversationCount,
       oldMessageCount,
-      latestOldSession: latest
-        ? {
-            id: String(latest.id),
-            phoneNormalized: latest.phoneNormalized || null,
-            displayPhone: latest.displayPhone || null,
-            status: latest.status || null,
-            connectedAt: latest.connectedAt || null,
-            disconnectedAt: latest.disconnectedAt || null,
-            createdAt: latest.createdAt || null,
-          }
-        : null,
+      latestOldSession,
     };
   }
 
@@ -5987,6 +6012,48 @@ export class InboxService {
     return Array.from(variants);
   }
 
+  // Telefones que o dono já mandou MANTER (popup → "Manter") dentro da sessão atual,
+  // para a detecção de contaminação não reabrir o popup toda hora.
+  private resolveAcknowledgedForeignPhones(metadataJson: unknown): string[] {
+    const meta = this.parseConversationMetadata((metadataJson ?? null) as string | null);
+    const raw = Array.isArray(meta?.acknowledgedForeignPhones) ? meta.acknowledgedForeignPhones : [];
+    return raw.map((value: any) => String(value || '').replace(/\D+/g, '')).filter(Boolean);
+  }
+
+  // Conversas LEGADAS de um número anterior que ficaram CARIMBADAS na sessão atual por
+  // causa do bug de relabel (pré-fix sessão-por-número). Sinal: a conversa nasceu sob
+  // OUTRO número — `sourcePhoneNormalized` != telefone da sessão atual. Esse campo é
+  // gravado no create e nunca sobrescrito, então marca a origem real do chip.
+  private async resolveForeignSessionConversations(
+    companyId: number,
+    currentSessionId: string,
+    currentSession: any,
+  ): Promise<Array<{ id: number; sourcePhoneNormalized: string | null; lastMessageAt: Date | null }>> {
+    const exclude = new Set(
+      this.buildWhatsappResetPhoneVariants(currentSession?.phoneNormalized, currentSession?.displayPhone).filter(Boolean),
+    );
+    for (const phone of this.resolveAcknowledgedForeignPhones(currentSession?.metadataJson)) exclude.add(phone);
+    const excludeList = Array.from(exclude);
+    // Sessão atual sem telefone resolvido = não dá pra distinguir origem → não acusa nada.
+    if (!this.normalizeConnectionPhone(currentSession?.phoneNormalized)) return [];
+    const rows = await this.prisma.companyConversation.findMany({
+      where: {
+        companyId,
+        channel: 'whatsapp',
+        whatsappConnectionSessionId: currentSessionId,
+        sourcePhoneNormalized: { not: null },
+        ...(excludeList.length ? { NOT: [{ sourcePhoneNormalized: { in: excludeList } }] } : {}),
+      },
+      select: { id: true, sourcePhoneNormalized: true, lastMessageAt: true },
+      orderBy: [{ lastMessageAt: 'desc' }],
+    });
+    return rows.map((row) => ({
+      id: Number(row.id),
+      sourcePhoneNormalized: row.sourcePhoneNormalized || null,
+      lastMessageAt: row.lastMessageAt || null,
+    }));
+  }
+
   async cleanupOldWhatsappSessions(user: any, modeRaw?: string | null) {
     this.assertAdministrativeAction(user);
     const companyId = this.requireCompanyIdFromUser(user);
@@ -6011,9 +6078,11 @@ export class InboxService {
     });
     const oldSessionIds = oldSessions.map((session) => String(session.id));
 
-    // MANTER (popup): o dono escolheu guardar o histórico do número anterior. Só
-    // arquiva as sessões antigas (data preservada, fora do inbox atual por construção) e
-    // para de perguntar. NÃO apaga nada, NÃO toca no motor Webwhats.
+    // MANTER (popup): o dono escolheu guardar o histórico do número anterior. NÃO apaga
+    // nada, NÃO toca no motor Webwhats. Dois casos:
+    //  - sessões SEPARADAS → arquiva (fora do inbox atual por construção);
+    //  - CONTAMINAÇÃO na sessão atual (relabel legado) → registra os telefones de origem
+    //    como "acknowledged" pra o popup parar de perguntar (as conversas continuam ali).
     if (mode === 'keep') {
       if (oldSessionIds.length) {
         await this.prisma.whatsAppConnectionSession.updateMany({
@@ -6021,12 +6090,29 @@ export class InboxService {
           data: { status: 'archived' },
         });
       }
+      const foreignConversations = await this.resolveForeignSessionConversations(
+        companyId,
+        currentSessionId,
+        sessionScope.currentSession || {},
+      );
+      const foreignPhones = Array.from(
+        new Set(foreignConversations.map((conversation) => conversation.sourcePhoneNormalized).filter(Boolean) as string[]),
+      );
+      if (foreignPhones.length) {
+        const meta = this.parseConversationMetadata((sessionScope.currentSession as any)?.metadataJson);
+        const prevAck = this.resolveAcknowledgedForeignPhones((sessionScope.currentSession as any)?.metadataJson);
+        const nextAck = Array.from(new Set([...prevAck, ...foreignPhones]));
+        await this.prisma.whatsAppConnectionSession.update({
+          where: { id: currentSessionId },
+          data: { metadataJson: JSON.stringify({ ...meta, acknowledgedForeignPhones: nextAck }) },
+        });
+      }
       await this.logInboxEvent({
         companyId,
         event: 'whatsapp_old_sessions_kept',
-        message: 'Histórico do número anterior mantido (arquivado, fora do inbox atual).',
+        message: 'Histórico do número anterior mantido (arquivado/reconhecido, fora do inbox atual).',
         result: 'keep',
-        extra: { currentSessionId, keptSessionIds: oldSessionIds },
+        extra: { currentSessionId, keptSessionIds: oldSessionIds, acknowledgedForeignPhones: foreignPhones },
       });
       return {
         success: true,
@@ -6035,7 +6121,7 @@ export class InboxService {
         deletedConversations: 0,
         deletedMessages: 0,
         deletedSessions: 0,
-        message: oldSessionIds.length
+        message: oldSessionIds.length || foreignPhones.length
           ? 'Histórico do número anterior mantido.'
           : 'Nenhum histórico anterior para manter.',
       };
@@ -6080,10 +6166,21 @@ export class InboxService {
     const currentPhoneVariants = new Set(
       this.buildWhatsappResetPhoneVariants(currentSession.phoneNormalized, currentSession.displayPhone),
     );
+    // Contaminação legada: conversas do número anterior CARIMBADAS na sessão atual pelo
+    // relabel pré-fix. Some os telefones de origem delas no purge (a query de discard já
+    // casa por `sourcePhoneNormalized`), sempre excluindo o número ATUAL.
+    const foreignConversations =
+      mode === 'discard'
+        ? await this.resolveForeignSessionConversations(companyId, currentSessionId, currentSession)
+        : [];
+    const foreignPhones = Array.from(
+      new Set(foreignConversations.map((conversation) => conversation.sourcePhoneNormalized).filter(Boolean) as string[]),
+    );
     const resetPhoneCandidates =
       mode === 'discard'
         ? this.buildWhatsappResetPhoneVariants(
             ...(oldSessions.flatMap((session) => [session.phoneNormalized, session.displayPhone])),
+            ...foreignPhones,
           ).filter((candidate) => !currentPhoneVariants.has(candidate))
         : [];
     const recoverableConversations = oldConversations.filter((conversation) =>
@@ -6321,7 +6418,7 @@ export class InboxService {
       deletedCustomerProfiles,
       message: mode === 'merge'
         ? 'Última sessão antiga mesclada na sessão atual. Demais sessões antigas descartadas.'
-        : 'Histórico e configurações do número descartados. A conta iniciou do zero para este WhatsApp.',
+        : 'Histórico do número anterior removido. O número conectado agora segue intacto.',
     };
   }
 

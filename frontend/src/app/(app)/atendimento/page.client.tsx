@@ -303,6 +303,9 @@ export function AtendimentoClient() {
   const [cleanupPrompt, setCleanupPrompt] = useState<{ conversations: number; oldPhone: string | null } | null>(null);
   const [cleanupBusy, setCleanupBusy] = useState(false);
   const [cleanupMsg, setCleanupMsg] = useState<string | null>(null);
+  // Roda a checagem de histórico UMA vez por conexão (não a cada poll de status). Reseta
+  // ao desconectar, pra a próxima conexão checar de novo.
+  const cleanupCheckedRef = useRef(false);
 
   // fidelidade: citação, lightbox, reação, popovers, presença, gravação
   const [replyTo, setReplyTo] = useState<InboxMessage | null>(null);
@@ -422,6 +425,7 @@ export function AtendimentoClient() {
 
   // Conectou: atualiza chip, recarrega lista e checa histórico do número anterior.
   const handleWhatsAppConnected = useCallback(() => {
+    cleanupCheckedRef.current = true; // checagem feita aqui; evita o efeito de load duplicar.
     refreshWaStatus();
     loadConvs();
     checkSessionCleanupAfterConnect();
@@ -432,9 +436,24 @@ export function AtendimentoClient() {
   const handleWhatsAppDisconnected = useCallback(() => {
     setConvs([]); setSelId(null); setThread([]); setCard(null);
     setCleanupPrompt(null);
+    cleanupCheckedRef.current = false;
     setCleanupMsg("WhatsApp desconectado — conversas ocultadas. Conecte um número para continuar.");
     refreshWaStatus();
   }, [refreshWaStatus]);
+
+  // Histórico de outro número também é checado no LOAD (não só ao conectar pelo modal):
+  // quem já estava conectado e só recarregou a página continua vendo o popup. Uma vez por
+  // conexão (ref), pra não reabrir a cada poll de status.
+  useEffect(() => {
+    if (cleanupCheckedRef.current) return;
+    const st = String(waStatus || "").toUpperCase();
+    if (st !== "CONNECTED" && st !== "RECONNECTING") return;
+    cleanupCheckedRef.current = true;
+    // Defere pra fora do efeito (mesmo padrão do toast abaixo): a checagem é assíncrona
+    // e não deve disparar setState síncrono dentro do efeito.
+    const t = window.setTimeout(() => { void checkSessionCleanupAfterConnect(); }, 0);
+    return () => window.clearTimeout(t);
+  }, [waStatus, checkSessionCleanupAfterConnect]);
 
   // O aviso de limpeza some sozinho depois de alguns segundos.
   useEffect(() => {

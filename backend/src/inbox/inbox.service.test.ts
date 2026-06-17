@@ -1567,6 +1567,99 @@ test('cleanupOldWhatsappSessions keep arquiva o histórico anterior sem apagar n
   assert.equal(auditCalls[0].event, 'whatsapp_old_sessions_kept');
 });
 
+test('cleanupOldWhatsappSessions discard limpa CONTAMINAÇÃO da sessão atual (caso legado relabel)', async () => {
+  // O CASO REAL DO DONO PÓS-DEPLOY: NÃO há sessão separada — o relabel pré-fix mesclou os
+  // chats do número anterior na sessão de agora. Detectamos pela origem (sourcePhoneNormalized
+  // != número atual) e o discard apaga só esses, sem tocar no chip novo.
+  const deletedConversations: number[] = [];
+  const deletedMessages: number[] = [];
+  const sessionDeletes: any[] = [];
+  const customerDeletes: any[] = [];
+  const contaminatedConv = {
+    id: 50,
+    contact: '+5519998877766',
+    sourcePhoneNormalized: '5519998877766', // número ANTERIOR, carimbado no create
+    whatsappConnectionSessionId: 'session-7',
+    lastMessageAt: new Date('2026-03-17T09:00:00.000Z'),
+  };
+  const currentSession = {
+    id: 'session-7',
+    companyId: 7,
+    provider: 'webwhats',
+    tenantKey: 'company-7',
+    phoneNormalized: '5519920121720', // chip NOVO
+    displayPhone: '+5519920121720',
+    status: 'active',
+    metadataJson: null,
+  };
+  const { service, auditCalls } = createService({
+    prisma: {
+      company: {
+        findUnique: async () => ({
+          id: 7,
+          whatsappModalStatus: 'CONNECTED',
+          whatsappModalPhone: '+5519920121720',
+          whatsappModalConnectedAt: new Date('2026-03-18T09:00:00.000Z'),
+          whatsappStatus: null,
+          currentWhatsappConnectionSessionId: 'session-7',
+          currentWhatsappConnectionSession: currentSession,
+        }),
+      },
+      whatsAppConnectionSession: {
+        updateMany: async () => ({ count: 0 }),
+        findMany: async () => [], // SEM sessão separada
+        findFirst: async () => null,
+        deleteMany: async (input: any) => {
+          sessionDeletes.push(input);
+          return { count: 0 };
+        },
+        update: async (input: any) => ({ id: input.where.id, ...input.data }),
+      },
+      companyConversation: {
+        findMany: async () => [contaminatedConv],
+        delete: async (input: any) => {
+          deletedConversations.push(Number(input.where.id));
+          return { id: input.where.id };
+        },
+      },
+      companyMessage: {
+        findMany: async () => [{ id: 701 }],
+        delete: async (input: any) => {
+          deletedMessages.push(Number(input.where.id));
+          return { id: input.where.id };
+        },
+        updateMany: async () => ({ count: 0 }),
+      },
+      atendimentoAppointment: { updateMany: async () => ({ count: 0 }) },
+      atendimentoCustomer: {
+        deleteMany: async (input: any) => {
+          customerDeletes.push(input);
+          return { count: 1 };
+        },
+      },
+      vendasLead: { deleteMany: async () => ({ count: 0 }) },
+      customerProfile: {
+        updateMany: async () => ({ count: 0 }),
+        deleteMany: async () => ({ count: 0 }),
+      },
+      $transaction: async (callback: (tx: any) => Promise<unknown>) => callback((service as any).prisma),
+    },
+  });
+
+  const result = await service.cleanupOldWhatsappSessions({ companyId: 7, role: 'ADMIN' }, 'discard');
+
+  assert.equal(result.mode, 'discard');
+  assert.deepEqual(deletedConversations, [50]); // a conversa contaminada foi apagada
+  assert.deepEqual(deletedMessages, [701]);
+  // Nenhuma sessão deletada (a atual fica): sem sessão separada, a atual nunca entra.
+  assert.equal((sessionDeletes[0]?.where?.id?.in || []).length, 0);
+  // O purge mira o número ANTERIOR; nunca o número ATUAL.
+  const purgePhones = customerDeletes[0].where.phoneNormalized.in;
+  assert.equal(purgePhones.includes('5519998877766'), true);
+  assert.equal(purgePhones.includes('5519920121720'), false);
+  assert.equal(auditCalls[0].event, 'whatsapp_old_sessions_cleaned');
+});
+
 test('purgeConversationFromTrash is disabled', async () => {
   const messageDeleteCalls: Array<Record<string, unknown>> = [];
   const conversationDeleteCalls: Array<Record<string, unknown>> = [];

@@ -1,12 +1,14 @@
 "use client";
 
-// Painel "Puxar leads" do vendedor (B1-front, PR14062026008).
-// O vendedor puxa cards da lagoa compartilhada pela preferência dele
-// (segmento obrigatório + cidade/UF opcionais + quantidade) e eles caem
-// DIRETO na carteira em Vendas. POST /webscraping/radar/pull-to-vendas.
-// Componente isolado de propósito (baixo acoplamento com a tela /leads).
+// Card único "Puxar leads" do vendedor (PR16062026020 — repaginação 16/06).
+// Funde a antiga "Minha preferência" aqui dentro: o vendedor escolhe o tipo de
+// cliente + cidade/UF + quantidade e os cards caem DIRETO na carteira em Vendas
+// (POST /webscraping/radar/pull-to-vendas). A "preferência" virou plumbing
+// invisível — ao puxar com sucesso gravamos o segmento (rememberOnPull) via
+// PATCH /profile/preferred-segments, que alimenta o boost de ordenação da lista.
+// Linguagem de vendedora: "Tipo de cliente" / "Quantos" / "Puxar N leads".
 // Só classes centrais do kit (5 Leis): panel, filters, f, field-dark,
-// select-dark, btn-teal, btn-ghost, tag. Sem visual inline próprio.
+// select-dark, btn-teal, btn-ghost, tag, chip-row. Sem visual inline próprio.
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -25,7 +27,19 @@ type PullResult = {
   message?: string;
 } | null;
 
-export function PuxarLeadsPanel({ onPulled, defaultSegment = "" }: { onPulled?: () => void; defaultSegment?: string }) {
+export function PuxarLeadsPanel({
+  onPulled,
+  defaultSegment = "",
+  poolDisponivel = null,
+  rememberOnPull = false,
+}: {
+  onPulled?: () => void;
+  defaultSegment?: string;
+  // Quantos leads a lagoa tem agora — vira convite dentro do próprio card.
+  poolDisponivel?: number | null;
+  // Vendedor: ao puxar, lembra o tipo de cliente como preferência (boost da lista).
+  rememberOnPull?: boolean;
+}) {
   const router = useRouter();
   const [segment, setSegment] = useState(defaultSegment);
   const [city, setCity] = useState("");
@@ -39,7 +53,7 @@ export function PuxarLeadsPanel({ onPulled, defaultSegment = "" }: { onPulled?: 
 
   async function puxar() {
     if (busy) return;
-    if (!segment.trim()) { setError("Escolha um segmento para puxar."); return; }
+    if (!segment.trim()) { setError("Escolha o tipo de cliente que você quer."); return; }
     setBusy(true);
     setError(null);
     setResult(null);
@@ -57,7 +71,17 @@ export function PuxarLeadsPanel({ onPulled, defaultSegment = "" }: { onPulled?: 
         }),
       });
       setResult(res);
-      if (res?.pulledCount && res.pulledCount > 0) onPulled?.();
+      if (res?.pulledCount && res.pulledCount > 0) {
+        onPulled?.();
+        // Preferência invisível: lembra o tipo de cliente puxado (alimenta o
+        // boost de ordenação). Fire-and-forget — nunca atrapalha o puxar.
+        if (rememberOnPull) {
+          apiFetch("/profile/preferred-segments", {
+            method: "PATCH",
+            body: JSON.stringify({ segments: [segment.trim()] }),
+          }).catch(() => { /* preferência é só boost; falha aqui é silenciosa */ });
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível puxar leads agora.");
     } finally {
@@ -65,16 +89,22 @@ export function PuxarLeadsPanel({ onPulled, defaultSegment = "" }: { onPulled?: 
     }
   }
 
+  const podeColher = poolDisponivel != null && poolDisponivel > 0;
+
   return (
     <section className="panel">
       <div className="panel-head">
-        <h2><I d={ICONS.plus} size={14} /> Puxar leads</h2>
-        <div className="meta"><small>Os leads que você puxar vão direto para a sua carteira em Vendas.</small></div>
+        <h2><I d={ICONS.plus} size={14} /> Puxar leads pra minha carteira</h2>
+        <div className="meta">
+          {podeColher
+            ? <span className="tag teal">{poolDisponivel!.toLocaleString("pt-BR")} esperando na lagoa</span>
+            : <small>Escolha o tipo de cliente e quantos você quer — eles caem direto no seu Vendas.</small>}
+        </div>
       </div>
       <div className="filters">
         <div className="f">
-          <label>Segmento</label>
-          <input className="field-dark" list="puxar-segmentos" placeholder="Escolha ou digite (ex.: dentistas)" value={segment}
+          <label>Tipo de cliente</label>
+          <input className="field-dark" list="puxar-segmentos" placeholder="Ex.: dentistas, oficinas, pizzarias" value={segment}
             onChange={e => setSegment(e.target.value)} onKeyDown={e => e.key === "Enter" && puxar()} />
           <datalist id="puxar-segmentos">
             {RADAR_SEGMENTS_FLAT.map(s => <option key={s} value={s}>{categoryOfSegment(s) || ""}</option>)}
@@ -88,7 +118,7 @@ export function PuxarLeadsPanel({ onPulled, defaultSegment = "" }: { onPulled?: 
           </datalist>
         </div>
         <div className="f">
-          <label>UF (opcional)</label>
+          <label>Estado (opcional)</label>
           <select className="select-dark" value={uf} onChange={e => { setUf(e.target.value); setCity(""); }}>
             <option value="">Todos</option>
             {BRAZIL_UF_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -105,17 +135,17 @@ export function PuxarLeadsPanel({ onPulled, defaultSegment = "" }: { onPulled?: 
           </select>
         </div>
         <div className="f">
-          <label>Quantidade</label>
+          <label>Quantos</label>
           <select className="select-dark" value={quantity} onChange={e => setQuantity(Number(e.target.value))}>
             {[1, 3, 5, 10, 20].map(n => <option key={n} value={n}>{n}</option>)}
           </select>
         </div>
         <button className="btn-teal" onClick={puxar} disabled={busy}>
-          {busy ? "Puxando…" : "Puxar leads"}
+          {busy ? "Puxando…" : `Puxar ${quantity} ${quantity === 1 ? "lead" : "leads"}`}
         </button>
       </div>
       {(error || result) && (
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", padding: "0 16px 12px" }}>
+        <div className="chip-row">
           {error && <span className="tag warn">{error}</span>}
           {result && (
             <span className={result.pulledCount ? "tag teal" : "tag"}>
