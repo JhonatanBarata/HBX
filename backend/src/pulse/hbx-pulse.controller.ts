@@ -1,4 +1,4 @@
-import { Controller, Get, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ModuleAccess } from '../modules/module-feature.decorator';
 import { ModuleAccessGuard } from '../modules/module-access.guard';
@@ -13,5 +13,20 @@ export class HbxPulseController {
   @Get('summary')
   getSummary(@Req() req: any) {
     return this.hbxPulseService.getSummaryForUser(req.user);
+  }
+
+  @Post('nudge')
+  nudge(@Req() req: any) {
+    return this.hbxPulseService.generateNudgeForUser(req.user);
+  }
+
+  @Post('push-mute')
+  mute(@Req() req: any) {
+    return this.hbxPulseService.setPushMuted(req.user, true);
+  }
+
+  @Post('push-unmute')
+  unmute(@Req() req: any) {
+    return this.hbxPulseService.setPushMuted(req.user, false);
   }
 }

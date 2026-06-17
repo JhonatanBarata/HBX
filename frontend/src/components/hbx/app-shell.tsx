@@ -12,6 +12,7 @@ import React from "react";
 
 import { Sidebar, Topbar } from "@/components/hbx/shell";
 import { TutorialCoachHost } from "@/components/hbx/tutorial-coach-host";
+import { SellersBrainsHost } from "@/components/hbx/sellers-brains-host";
 
 type Meta = { active: string; title: string; crumbs: React.ReactNode };
 
@@ -63,6 +64,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* Tour guiado (coachmark) — vive aqui pra sobreviver à navegação entre
           módulos; portala pro <body> e só aparece quando a store está ligada. */}
       <TutorialCoachHost />
+      {/* Sellers Brains (17/06): escurece a tela e dispara recados vivos pro vendedor. */}
+      <SellersBrainsHost />
     </div>
   );
 }

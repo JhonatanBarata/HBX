@@ -3,12 +3,13 @@
 > Next.js (App Router) + React + TypeScript em `frontend/`.
 > Leia antes de criar ou alterar qualquer tela.
 
-## AS 5 LEIS DO DESIGN SYSTEM (ordem do dono, 12/06/2026 — bloqueio absoluto)
+## As 5 Leis do Design System (MÉTODO — todo visual nasce centralizado)
 
-> Só deixam de valer se o dono DELETAR esta seção ou autorizar exceção
-> EXPLÍCITA por escrito na tarefa atual. O fiscal automático
+> Não são freio: refatorar aparência e criar peles está AUTORIZADO. São o
+> método pra todo valor visual nascer em token/classe central. O fiscal
 > (`frontend/scripts/check-pele.mjs`, dentro do `npm run lint`) reprova o
-> build em violação — a regra não depende de memória de ninguém.
+> build se um hex/inline vazar pra dentro de tela — a disciplina não depende
+> de memória de ninguém.
 
 1. **Tokens centrais.** Todo valor visual (cor, fonte, radius, sombra,
    movimento) nasce em `frontend/src/app/hbx-theme/`:
@@ -49,10 +50,11 @@
    reprovado).
 
 ### Estado atual e exceções registradas
-- **ESQUELETO**: as peles corporate/friendly foram DELETADAS por ordem do
-  dono (12/06/2026). O app roda na base neutra até ele aprovar peles novas.
+- Peles instaladas (aurora padrão, ember, rose) vestem o contrato neutro de
+  tokens; criar/refatorar pele é trabalho autorizado (ver PEDIDO-DE-PELE.md).
+  `skeleton.css` é a base de tokens, não uma opção do seletor.
 - `docs/TEMAS` é REFERÊNCIA de estrutura/escrita das telas — o visual de lá
-  não se copia mais para dentro de tela nem de TSX.
+  não se copia para dentro de tela nem de TSX (vira token/classe).
 - Mundo-site (visual próprio, fora do fiscal): `hbx-theme/marketing.css`,
   `src/app/page.client.tsx` (landing) e `src/app/trabalhe-conosco/`.
 - `public/sw.js` é kill-switch permanente do PWA antigo — não remover; não
@@ -75,14 +77,14 @@
 - Uma rota canônica por funcionalidade; alias só redireciona.
 - Aliases ativos: `/boasvindas`, `/dashboard/master`, `/pre-checkout`,
   `/precheckout` → `/dashboard`; `/workspace` → `/dashboard` (app paralelo
-  friendly morto na unificação de 12/06/2026).
+  friendly morto na unificação).
 
 ## Acesso e cobrança
 
 - Frontend NÃO decide regra comercial: consome `accessState*` e mensagens do
   backend. Vendedor (`userKind=seller`) nunca vê plano/valor/cobrança.
-- **Módulo sem acesso NÃO aparece no painel da esquerda** (ordem do dono,
-  13/06/2026). O gate é `isModuleVisible` em `components/hbx/shell.tsx` e é
+- **Módulo sem acesso NÃO aparece no painel da esquerda.** O gate é
+  `isModuleVisible` em `components/hbx/shell.tsx` e é
   **fail-closed**: o item da sidebar só entra quando `/modules/me` afirma
   `accessible:true` (mesmo veredito do guard real `canUserAccessModule`).
   Nunca mostrar um módulo e barrar no clique — sem acesso = some da navegação.

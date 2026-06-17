@@ -56,7 +56,7 @@ test('HBX commercial catalog exposes package prices and quotas', () => {
   assert.equal(pro?.quotas?.cardsPerMonth, 3500);
 
   const melhor = catalog.find((plan) => plan.key === COMMERCIAL_PLAN_KEYS.MELHOR);
-  assert.equal(melhor?.title, 'HBX Company');
+  assert.equal(melhor?.title, 'Implantação');
   assert.equal(melhor?.monthlyPrice, 445.90);
   assert.equal((melhor as { priceFrom?: boolean })?.priceFrom, true);
   assert.equal(melhor?.trialDays, 0);

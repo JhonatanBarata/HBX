@@ -14,7 +14,7 @@
   `platform_infra | exempt | manual | paying | trial | trial_ending | grace | overdue | pending_checkout | suspended | unknown`.
 - Os campos legados (`paymentStatus`, `subscriptionStatus`, `premiumAccess`,
   `onboardingStatus`, `billingExempt*`) e a tabela `UserModuleAccess` foram DROPADOS
-  do schema (PR10062026002). **Nunca recriar, nunca re-derivar estado de campo cru.**
+  do schema. **Nunca recriar, nunca re-derivar estado de campo cru.**
 
 ## Cortesia — única liberação grátis
 
@@ -53,10 +53,10 @@
 
 ## Proibido sem ordem explícita do dono
 
-- Mexer em preço, plano, paywall, quota, entitlement, billing, reembolso.
-- Mexer em provedor de pagamento, checkout, webhook, assinatura ou dado de produção.
-- O backend é a fonte de verdade de autorização comercial; nenhum paywall é
-  afrouxado no frontend.
+Preço, plano, paywall, quota, entitlement, billing, reembolso, provedor de pagamento,
+checkout, webhook, assinatura — só com ordem na tarefa (lista única no
+[CLAUDE.md](../../CLAUDE.md)). O backend é a fonte de verdade comercial; nenhum paywall
+é afrouxado no frontend.
 
 ## Red flags em revisão (prioridade máxima)
 

@@ -79,6 +79,7 @@ type InboxConversation = {
     name: string | null;
     phone: string | null;
     email: string | null;
+    avatarUrl?: string | null;
   } | null;
   messages?: InboxMessage[];
 };
@@ -129,21 +130,37 @@ const FILAS: { key: string; label: string }[] = [
   { key: "recovery", label: "Recuperação" },
   { key: "scheduled", label: "Agendadas" },
   { key: "bot", label: "Bot" },
-  { key: "groups", label: "Grupos" },
   { key: "blocked", label: "Bloqueadas" },
 ];
 
 const EMOJIS = ["😀", "😁", "😂", "🤣", "😊", "😍", "😘", "😎", "🤔", "😅", "🙏", "👍", "👏", "🙌", "💪", "🔥", "✅", "❌", "❤️", "💯", "🎉", "👋", "🤝", "😇", "😉", "😢", "😭", "😡", "🥳", "🤩", "😴", "📎"];
 const QUICK_RX = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
 
+// Nunca deixar um JID técnico chegar na tela. @lid NÃO é número (ordem do dono 17/06:
+// "não existe número lid, eu nunca vi isso"); @s.whatsapp.net/@g.us/@broadcast/@newsletter
+// também não. Devolve null quando o valor for um JID cru, pra cair no rótulo neutro.
+function cleanContact(value: string | null | undefined): string | null {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  if (/@(lid|s\.whatsapp\.net|c\.us|g\.us|broadcast|newsletter)/i.test(raw)) return null;
+  return raw;
+}
+
 function convName(c: InboxConversation) {
-  return c.customer?.name || c.customer?.phone || c.contact || "—";
+  return c.customer?.name || c.customer?.phone || cleanContact(c.contact) || "Contato WhatsApp";
 }
 
 function convUnread(c: InboxConversation) {
   const raw = (c.metadata as Record<string, unknown> | null | undefined)?.["whatsappUnreadCount"];
   const n = Number(raw ?? 0);
   return Number.isFinite(n) && n > 0 ? Math.trunc(n) : 0;
+}
+
+// Foto de perfil real do WhatsApp (backend já manda em customer.avatarUrl —
+// URL do CDN pps.whatsapp.net ou /uploads). O <Av> cai pras iniciais se faltar/expirar.
+function convAvatar(c: InboxConversation | null | undefined) {
+  const u = c?.customer?.avatarUrl;
+  return u ? resolveMediaUrl(u) : undefined;
 }
 
 function fmtConvTime(iso: string | null) {
@@ -993,7 +1010,7 @@ export function AtendimentoClient() {
       if (convo) {
         sessionStorage.setItem("hbx:lead-contato", JSON.stringify({
           name: convName(convo),
-          phone: convo.customer?.phone || convo.contact || "",
+          phone: convo.customer?.phone || cleanContact(convo.contact) || "",
           email: convo.customer?.email || "",
         }));
       }
@@ -1035,7 +1052,7 @@ export function AtendimentoClient() {
   });
 
   function presenceNode() {
-    const phone = convo?.customer?.phone || convo?.contact || "—";
+    const phone = convo?.customer?.phone || cleanContact(convo?.contact) || "—";
     if (!presence) return <small>{phone}</small>;
     if (presence.typing) return <small><span className="typing"><i /><i /><i /></span> digitando…</small>;
     if (presence.recording) return <small>gravando áudio…</small>;
@@ -1166,7 +1183,7 @@ export function AtendimentoClient() {
                     const lastMsg = (c.messages || [])[(c.messages || []).length - 1] || null;
                     return (
                       <button key={c.id} className={"conv" + (selId === c.id ? " sel" : "")} onClick={() => openConv(c.id)}>
-                        <Av name={convName(c)} size={36} />
+                        <Av name={convName(c)} src={convAvatar(c)} size={36} />
                         <span style={{ display: "grid", minWidth: 0, flex: 1 }}>
                           <span className="nm"><strong>{convName(c)}</strong><time>{fmtConvTime(c.lastMessageAt)}</time></span>
                           <span className="pv">
@@ -1192,7 +1209,7 @@ export function AtendimentoClient() {
                   <button className="chat-back" aria-label="Voltar para conversas" onClick={() => setMobileThread(false)}>
                     <I d={["M15 6l-6 6 6 6"]} size={20} />
                   </button>
-                  <Av name={convo ? convName(convo) : "—"} size={36} />
+                  <Av name={convo ? convName(convo) : "—"} src={convAvatar(convo)} online={Boolean(presence?.online) && Boolean(convo)} size={36} />
                   <div style={{ display: "grid", gap: 2 }}>
                     <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <strong>{convo ? convName(convo) : "Selecione uma conversa"}</strong>
@@ -1234,7 +1251,7 @@ export function AtendimentoClient() {
                       <React.Fragment key={m.id}>
                         {showDay && <span className="day">{day}</span>}
                         <div className={"msg " + (out ? "out" : "in")}>
-                          {!out && convo && <Av name={convName(convo)} size={26} />}
+                          {!out && convo && <Av name={convName(convo)} src={convAvatar(convo)} size={26} />}
                           <div style={{ display: "grid", minWidth: 0 }}>
                             <div className={"bubble" + (meta.isDeleted ? " deleted" : "") + (["image", "video", "audio", "document", "sticker"].includes(msgType(m)) && !meta.isDeleted ? " has-media" : "")}>
                               {meta.quotedPreview && (
@@ -1344,7 +1361,7 @@ export function AtendimentoClient() {
             </div>
 
             <div style={{ display: "flex", gap: 11, alignItems: "center" }}>
-              <Av name={convo ? convName(convo) : "—"} size={44} />
+              <Av name={convo ? convName(convo) : "—"} src={convAvatar(convo)} online={Boolean(presence?.online) && Boolean(convo)} size={44} />
               <div>
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                   <span className="company">{convo ? convName(convo) : "—"}</span>
@@ -1352,7 +1369,7 @@ export function AtendimentoClient() {
                     ? <span className="tag red">Não ligar</span>
                     : <span className="tag teal">{card?.lead?.statusLabel || "Lead"}</span>}
                 </div>
-                <div className="sub">{convo?.customer?.phone || convo?.contact || "—"}</div>
+                <div className="sub">{convo?.customer?.phone || cleanContact(convo?.contact) || "—"}</div>
               </div>
             </div>
 
@@ -1360,7 +1377,7 @@ export function AtendimentoClient() {
               <>
                 <div className="kv">
                   <div className="row"><span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}><I d={ICONS.mail} size={13} /> E-mail</span><span className="v">{convo?.customer?.email || "—"}</span></div>
-                  <div className="row"><span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}><I d={ICONS.phone} size={13} /> Telefone</span><span className="v">{convo?.customer?.phone || convo?.contact || "—"}</span></div>
+                  <div className="row"><span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}><I d={ICONS.phone} size={13} /> Telefone</span><span className="v">{convo?.customer?.phone || cleanContact(convo?.contact) || "—"}</span></div>
                   <div className="row"><span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}><I d={ICONS.msg} size={13} /> Canal</span><span className="v"><span className="chan wa">WhatsApp</span></span></div>
                 </div>
                 <div className="sep"></div>

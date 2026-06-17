@@ -123,6 +123,9 @@ model Company {
   billingCardUpdatedAt    DateTime?
   manualDiscountPercent   Float     @default(0)
   freeMonths              Int       @default(0)
+  // Crédito proporcional (em centavos) gerado por DOWNGRADE (PR17062026043 B6):
+  // sobra do plano maior já pago. Saldo positivo abate na próxima fatura. Aditivo.
+  billingCreditCents      Int       @default(0)
   trialStartsAt           DateTime?
   trialEndsAt             DateTime?
   trialNoticeEmailStage   Int       @default(0)
@@ -1071,6 +1074,11 @@ model User {
   // leads". JSON canônico = { "segments": string[], "cityRegion": string|null };
   // o leitor tolera também o formato bare-array legado. Aditivo/nullable.
   preferredSegmentsJson String?
+  // Afinidade observada (17/06): contador de ações por segmento { "<seg>": N }.
+  // Só alimenta o boost ao atingir 3 ações — nunca é "preferência" com 1 ou 2.
+  segmentAffinityJson String?
+  // Sellers Brains (17/06): null = push ligado; preenchido = push mutado (sino vermelho).
+  brainPushMutedAt DateTime?
   referredByUser  User?            @relation("UserSellerReferralNetwork", fields: [referredByUserId], references: [id], onDelete: SetNull)
   referredUsers   User[]           @relation("UserSellerReferralNetwork")
   company         Company?         @relation(fields: [companyId], references: [id])
@@ -1356,12 +1364,17 @@ model MasterNotice {
   expiresAt       DateTime?
   createdBy       User?    @relation("MasterNoticeCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
   createdByUserId Int?
+  targetUserId    Int?     // null = broadcast (master); preenchido = recado pessoal (brain)
+  source          String   @default("master") // master | brain
+  nudgeKey        String?  // ângulo/dedup do brain (ex.: "overdue-returns", "lead:123")
+  payloadJson     String?  // CTA do recado (ex.: { kind:"lead", poolId, name, city, href })
   acknowledgements MasterNoticeAck[]
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   @@index([companyId, audience, startsAt, expiresAt])
   @@index([companyId, createdAt])
+  @@index([companyId, targetUserId, source, createdAt])
 }
 
 model MasterNoticeAck {

@@ -19,6 +19,8 @@ import {
   MASTER_HARD_DELETE_CONFIRMATION_INVALID_MESSAGE,
 } from './companies.service';
 import { resolveEffectiveCompanyContext } from '../common/effective-company';
+import { ModuleAccessGuard } from '../modules/module-access.guard';
+import { ModuleAccess } from '../modules/module-feature.decorator';
 
 class MasterCreateCompanyDto {
   @IsString()
@@ -812,7 +814,8 @@ export class CompaniesController {
 
 
   @Post('me/customer-registry/sync-whatsapp')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, ModuleAccessGuard)
+  @ModuleAccess('atendimento')
   async syncMyCustomerRegistryFromWhatsApp(@Req() req: any) {
     const companyId = await this.resolveOperationalCompanyIdOrThrow(req);
     return this.companyWhatsAppCustomerSync.syncCompanyCustomers(companyId);
@@ -832,7 +835,8 @@ export class CompaniesController {
   }
 
   @Patch('me/whatsapp-center')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, ModuleAccessGuard)
+  @ModuleAccess('atendimento')
   async updateMyWhatsAppCenter(@Req() req: any, @Body() dto: UpdateMyWhatsAppCenterDto) {
     const companyId = await this.resolveOperationalCompanyIdOrThrow(req, { allowMasterWhatsappEngineFallback: true });
     return this.companiesService.updateWhatsAppCenterForCompany(companyId, dto || {});
@@ -846,14 +850,16 @@ export class CompaniesController {
   }
 
   @Post('me/whatsapp-modal/start')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, ModuleAccessGuard)
+  @ModuleAccess('atendimento')
   async startMyWhatsAppModalSession(@Req() req: any) {
     const companyId = await this.resolveMyWhatsAppModalCompanyIdOrThrow(req);
     return this.whatsappModalService.startCompanySession(companyId);
   }
 
   @Get('me/whatsapp-modal/qr')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, ModuleAccessGuard)
+  @ModuleAccess('atendimento')
   async getMyWhatsAppModalQrCode(@Req() req: any) {
     const companyId = await this.resolveMyWhatsAppModalCompanyIdOrThrow(req);
     return this.whatsappModalService.getCompanyQrCode(companyId);
@@ -867,14 +873,16 @@ export class CompaniesController {
   }
 
   @Post('me/whatsapp-modal/restart')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, ModuleAccessGuard)
+  @ModuleAccess('atendimento')
   async restartMyWhatsAppModalSession(@Req() req: any) {
     const companyId = await this.resolveMyWhatsAppModalCompanyIdOrThrow(req);
     return this.whatsappModalService.restartCompanySession(companyId);
   }
 
   @Post('me/whatsapp-modal/bootstrap')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, ModuleAccessGuard)
+  @ModuleAccess('atendimento')
   async bootstrapMyWhatsAppModalSession(@Req() req: any) {
     const companyId = await this.resolveMyWhatsAppModalCompanyIdOrThrow(req);
     return this.companyWhatsAppCustomerSync.bootstrapAfterWhatsappConnect(companyId);

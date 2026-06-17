@@ -705,6 +705,40 @@ class RadarPullDto extends RadarDatabaseQueryDto {
   @IsOptional()
   @IsObject()
   declare negativeRules?: Record<string, any>;
+
+  @IsOptional()
+  @Transform(({ value }) => value == null || value === '' ? undefined : Array.isArray(value) ? value : [value])
+  @IsArray()
+  @IsString({ each: true })
+  leadIds?: string[];
+}
+
+class RadarPullPreviewQueryDto {
+  @IsOptional()
+  @IsString()
+  segment?: string;
+
+  @IsOptional()
+  @IsString()
+  city?: string;
+
+  @IsOptional()
+  @IsString()
+  state?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(50)
+  quantity?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(RADAR_REGION_MAX_RADIUS_KM)
+  radiusKm?: number;
 }
 
 class RadarNegativeDto {
@@ -981,6 +1015,11 @@ export class WebscrapingController {
     }
   }
 
+  @Get('radar/preference-suggestions')
+  radarPreferenceSuggestions(@Req() req: any) {
+    return this.webscrapingService.getPreferenceSuggestionsForUser(req.user);
+  }
+
   @Get('radar/leads/:id')
   radarLeadDetails(@Req() req: any, @Param('id') id: string) {
     return this.webscrapingService.getRadarLeadForUser(req.user, id);
@@ -1042,6 +1081,17 @@ export class WebscrapingController {
       return await this.webscrapingService.pullRadarLeadsForUser(req.user, dto || {});
     } catch (error) {
       return this.webscrapingService.buildRadarClientErrorResponse(req.user, '/webscraping/radar/pull', error);
+    }
+  }
+
+  // Preview do pull para vendedor: retorna candidatos que casam com o pedido
+  // enriquecidos (nome/cidade/score/sinal) mas com contato mascarado. Sem gravar.
+  @Get('radar/pull-preview')
+  async radarPullPreview(@Req() req: any, @Query() query: RadarPullPreviewQueryDto) {
+    try {
+      return await this.webscrapingService.previewRadarLeadsForVendedor(req.user, query || {});
+    } catch (error) {
+      return this.webscrapingService.buildRadarClientErrorResponse(req.user, '/webscraping/radar/pull-preview', error);
     }
   }
 

@@ -45,6 +45,10 @@ function buildPrismaMock(overrides: Record<string, any> = {}) {
           return { _count: { _all: 1 }, _sum: { amount: 40 } };
         },
       },
+      user: {
+        findUnique: async () => ({ brainPushMutedAt: overrides.mutedAt ?? null }),
+        update: async () => ({}),
+      },
     },
   };
 }
@@ -106,4 +110,33 @@ test('HBX Pulse nao usa slug da engine para transformar System Master em operaca
 
   assert.equal(summary.scope.type, 'company');
   assert.equal(mock.receivableAggregateCalls[0].sellerUserId, undefined);
+});
+
+test('HBX Pulse nudge NAO dispara para System Master (so vendedor recebe recado)', async () => {
+  const mock = buildPrismaMock();
+  const service = new HbxPulseService(mock.prisma as any);
+
+  const res = await service.generateNudgeForUser({
+    id: 1,
+    companyId: 99,
+    role: 'USERMASTER',
+    isSystemMaster: true,
+  });
+
+  assert.equal(res.notice, null);
+});
+
+test('HBX Pulse nudge respeita o mute do vendedor (push desativado)', async () => {
+  const mock = buildPrismaMock({ mutedAt: new Date() });
+  const service = new HbxPulseService(mock.prisma as any);
+
+  const res = await service.generateNudgeForUser({
+    id: 7,
+    companyId: 11,
+    role: 'USER',
+    isSystemMaster: false,
+  });
+
+  assert.equal(res.notice, null);
+  assert.equal((res as any).muted, true);
 });

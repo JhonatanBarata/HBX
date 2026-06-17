@@ -41,10 +41,9 @@
 
 ## Proibido sem ordem explícita do dono
 
-- Reescrever autenticação/autorização.
-- Tocar em secrets, keys, tokens, env de produção ou rotação de credencial.
-- Rodar deploy, publish, release ou restart de produção.
-- Refactor amplo fora do escopo pedido.
+Vale a lista única de segurança do [CLAUDE.md](../../CLAUDE.md): auth/autorização,
+secrets, env de produção, deploy/publish/restart, migration destrutiva e refactor
+amplo fora de escopo.
 
 ## Checks padrão (menor conjunto relevante aos arquivos tocados)
 

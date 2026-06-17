@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Param, Post, Put, Patch, Req, UseGuards 
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { FinanceiroService } from './financeiro.service';
 import {
+  ChangeFinanceiroPlanDto,
   ChangeFinanceiroSubscriptionCardDto,
   CreateFinanceiroCheckoutDto,
   CreateFinanceiroSubscriptionDto,
@@ -52,6 +53,12 @@ export class FinanceiroController {
   @Post('subscription/cancel')
   cancelSubscription(@Req() req: any) {
     return this.financeiroService.cancelSubscriptionForUser(req.user);
+  }
+
+  // Troca de plano de assinatura ativa (upgrade proporcional / downgrade com crédito).
+  @Post('subscription/change-plan')
+  changePlan(@Req() req: any, @Body() dto: ChangeFinanceiroPlanDto) {
+    return this.financeiroService.changePlanForUser(req.user, dto);
   }
 
   @Post('subscription/change-card')

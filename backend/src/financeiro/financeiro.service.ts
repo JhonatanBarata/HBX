@@ -23,6 +23,7 @@ import {
   COMMERCIAL_PLAN_MODULE_KEYS,
   COMMERCIAL_PLAN_KEYS,
   COMMERCIAL_PRICING,
+  classifyPlanChange,
   computeCommercialPlanCycleAmount,
   getCommercialPlanMonthlyPrice,
   getCommercialPlanTitle,
@@ -31,6 +32,10 @@ import {
   normalizeCommercialPlanKey as normalizeCatalogCommercialPlanKey,
   type ActiveCommercialPlanKey,
 } from '../commercial-plans/commercial-plan-catalog';
+import {
+  computePlanProration,
+  remainingDays as prorationRemainingDays,
+} from '../commercial-plans/plan-proration.util';
 import {
   computeCompanySeatBillingSnapshot,
   resolveExtraSeatMonthlyAmount,
@@ -958,6 +963,10 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       failedCount,
       refundCount,
       refundAmount: this.normalizeCurrencyAmount(refundAmount),
+      // Saldo de crédito de downgrade (B6) — abate na próxima fatura (honrado pelo master).
+      billingCreditBalance: this.normalizeCurrencyAmount(
+        Math.max(0, Math.trunc(Number(company?.billingCreditCents || 0))) / 100,
+      ),
       cardConfigured: Boolean(company?.billingCardLast4),
       pixAvailable: true,
     };
@@ -3567,6 +3576,327 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     } catch (error: any) {
       throw new BadRequestException(`Falha ao trocar cartão no Mercado Pago: ${String(error?.message || 'erro desconhecido')}`);
     }
+  }
+
+  // Troca de plano de uma assinatura ATIVA (B6 — PR17062026043). Upgrade cobra a
+  // diferença proporcional aos dias restantes e libera na hora; downgrade NÃO cobra,
+  // mantém o acesso até o fim do período já pago e gera crédito proporcional. A regra
+  // de direção é o RANK do catálogo (igual ao front), nunca o preço. Cálculo puro em
+  // commercial-plans/plan-proration.util (testado). dryRun=true só devolve o preview.
+  //
+  // LIVE Mercado Pago: o ajuste do valor recorrente (updatePreapproval) e a cobrança
+  // avulsa da diferença (createPayment) ficam ligados mas precisam de validação com
+  // credenciais de teste na VPS — não dá pra provar live aqui. O consumo do crédito na
+  // próxima fatura é ato do master (MP não abate parcial de cobrança recorrente fixa).
+  async changePlanForUser(
+    user: any,
+    dto: { planKey?: string; billingCycle?: string; cardTokenId?: string; dryRun?: boolean },
+  ) {
+    const context = this.resolveUserContext(user);
+    this.assertCanManageBilling(context);
+    await ensureMasterBillingRuntimeSchema(this.prisma);
+
+    const company = await this.prisma.company.findUnique({ where: { id: context.companyId } });
+    if (!company) throw new BadRequestException('Empresa nao encontrada.');
+
+    const targetPlanKey = normalizeCatalogCommercialPlanKey(dto?.planKey);
+    if (targetPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR) {
+      throw new BadRequestException({
+        code: 'CONTACT_ONLY_PLAN',
+        message: 'Implantação é montada com a HBX, não pela troca automática. Use o contato.',
+      });
+    }
+    const currentPlanKey = company.selectedPlanKey
+      ? normalizeCatalogCommercialPlanKey(company.selectedPlanKey)
+      : null;
+    const direction = classifyPlanChange(currentPlanKey, targetPlanKey);
+    if (direction === 'same') {
+      return { ok: true, noop: true, direction, message: 'Você já está neste plano.' };
+    }
+
+    const billingCycle = this.normalizeBillingCycle(dto?.billingCycle || company.billingCycle);
+    const fromCycleAmount = currentPlanKey ? computeCommercialPlanCycleAmount(currentPlanKey, billingCycle) : 0;
+    const toCycleAmount = computeCommercialPlanCycleAmount(targetPlanKey, billingCycle);
+    const periodStart = company.subscriptionCurrentPeriodStart instanceof Date ? company.subscriptionCurrentPeriodStart : null;
+    const periodEnd = company.subscriptionCurrentPeriodEnd instanceof Date ? company.subscriptionCurrentPeriodEnd : null;
+    const now = new Date();
+    const proration = computePlanProration({ fromCycleAmount, toCycleAmount, periodStart, periodEnd, now });
+    const access = resolveCompanyAccessState(company);
+    const isPaying = access.state === 'paying';
+
+    const preview = {
+      direction,
+      fromPlanKey: currentPlanKey,
+      toPlanKey: targetPlanKey,
+      fromPlanTitle: currentPlanKey ? getCommercialPlanTitle(currentPlanKey) : null,
+      toPlanTitle: getCommercialPlanTitle(targetPlanKey),
+      billingCycle,
+      fromCycleAmount,
+      toCycleAmount,
+      chargeNow: proration.chargeNow,
+      creditGenerated: proration.creditGenerated,
+      remainingDays: prorationRemainingDays(periodEnd, now),
+      effectiveAt:
+        direction === 'downgrade'
+          ? (periodEnd ? periodEnd.toISOString() : null)
+          : now.toISOString(),
+      isPaying,
+    };
+
+    if (dto?.dryRun) return { ok: true, dryRun: true, preview };
+
+    // Sem assinatura ativa (trial/pending/cortesia): não há o que proratar/creditar.
+    // Upgrade exige checkout; downgrade só registra a intenção (igual commercial-plans/select).
+    if (!isPaying) {
+      if (direction === 'upgrade') {
+        return {
+          ok: false,
+          code: 'NEEDS_CHECKOUT',
+          direction,
+          preview,
+          message: 'Sua empresa ainda não tem assinatura ativa. Conclua a assinatura para liberar este plano.',
+        };
+      }
+      await this.prisma.company.update({
+        where: { id: context.companyId },
+        data: {
+          selectedPlanKey: targetPlanKey,
+          trialModuleSelection: targetPlanKey === COMMERCIAL_PLAN_KEYS.PADRAO ? 'vendas' : null,
+        },
+      });
+      return { ok: true, direction, applied: 'intent', preview, overview: await this.getOverviewForUser(user) };
+    }
+
+    const subscription = await this.findCurrentCompanySubscription(context.companyId);
+    const mockMode = this.isMockPaymentsProvider();
+
+    if (direction === 'upgrade') {
+      return this.applyUpgradePlanChange({
+        user, context, company, subscription, targetPlanKey, billingCycle,
+        toCycleAmount, chargeNow: proration.chargeNow, preview,
+        cardTokenId: this.normalizeCardToken(dto?.cardTokenId), mockMode, periodStart, periodEnd, now,
+      });
+    }
+    return this.applyDowngradePlanChange({
+      user, context, company, subscription, targetPlanKey, billingCycle,
+      toCycleAmount, creditGenerated: proration.creditGenerated, preview, mockMode, now,
+    });
+  }
+
+  private async applyUpgradePlanChange(input: {
+    user: any;
+    context: { companyId: number; userId: number };
+    company: any;
+    subscription: any;
+    targetPlanKey: ActiveCommercialPlanKey;
+    billingCycle: string;
+    toCycleAmount: number;
+    chargeNow: number;
+    preview: Record<string, unknown>;
+    cardTokenId: string | null;
+    mockMode: boolean;
+    periodStart: Date | null;
+    periodEnd: Date | null;
+    now: Date;
+  }) {
+    const { context, company, subscription, targetPlanKey, billingCycle, toCycleAmount, chargeNow, mockMode, now } = input;
+    const periodStart = input.periodStart || now;
+    const periodEnd = input.periodEnd || this.computePeriodEnd(periodStart, billingCycle);
+    const planTitle = getCommercialPlanTitle(targetPlanKey);
+
+    // LIVE: cobrar a diferença é um pagamento avulso de cartão de verdade (token +
+    // installments), que o motor de pagamento atual não monta e que não dá pra validar
+    // aqui. NÃO troca o plano sem o pagamento confirmado (Regra de Ouro): devolve um
+    // código sinalizado, sem mexer em nada. No MOCK o fluxo roda ponta a ponta.
+    if (!mockMode && chargeNow > 0) {
+      return {
+        ok: false,
+        code: 'LIVE_PRORATION_TODO',
+        direction: 'upgrade',
+        preview: input.preview,
+        message: `Upgrade para ${planTitle} cobra a diferença proporcional no cartão. A cobrança avulsa no Mercado Pago real ainda precisa ser validada com credenciais de teste na VPS.`,
+      };
+    }
+
+    // 1) Cobra a diferença AGORA (mock — Regra de Ouro: só libera com pagamento ok).
+    if (mockMode && chargeNow > 0) {
+      await this.recordProrationCharge({
+        context, billingCycle, amount: chargeNow, planTitle,
+        entryType: 'PLAN_UPGRADE_PRORATION_MOCK',
+        observation: `Diferença proporcional do upgrade para ${planTitle} (mock).`,
+        metadata: { targetPlanKey, fromPlanKey: company.selectedPlanKey, source: 'plan_change_upgrade' },
+      });
+    }
+
+    // 2) Ajusta o valor recorrente pro novo plano no próximo ciclo (LIVE, best-effort).
+    if (!mockMode && subscription?.providerPreapprovalId) {
+      try {
+        const { accessToken } = await this.resolveFinanceContext(context.companyId);
+        await this.mercadoPagoClient.updatePreapproval(accessToken, subscription.providerPreapprovalId, {
+          auto_recurring: { transaction_amount: this.normalizeCurrencyAmount(toCycleAmount) },
+        } as any);
+      } catch (error: any) {
+        this.logger.warn(`plan_change_upgrade_preapproval_update_failed company=${context.companyId} error=${String(error?.message || error)}`);
+      }
+    }
+
+    // 3) Libera o plano AGORA, preservando o período já pago (não reinicia o ciclo).
+    await this.prisma.$transaction(async (tx) => {
+      if (subscription?.id) {
+        await tx.companySubscription.update({
+          where: { id: subscription.id },
+          data: { planKey: targetPlanKey, billingCycle },
+        });
+      }
+      await tx.company.update({
+        where: { id: context.companyId },
+        data: {
+          selectedPlanKey: targetPlanKey,
+          billingCycle,
+          trialModuleSelection: targetPlanKey === COMMERCIAL_PLAN_KEYS.PADRAO ? 'vendas' : null,
+        },
+      });
+      await this.syncPaidPlanModulesTx(tx, context.companyId, targetPlanKey);
+      await this.syncPaidCommercialEntitlementsTx(tx, context.companyId, targetPlanKey, periodStart, periodEnd);
+    });
+
+    return {
+      ok: true,
+      direction: 'upgrade',
+      charged: this.normalizeCurrencyAmount(chargeNow),
+      preview: input.preview,
+      liveProrationPending: false,
+      overview: await this.getOverviewForUser(input.user),
+    };
+  }
+
+  private async applyDowngradePlanChange(input: {
+    user: any;
+    context: { companyId: number; userId: number };
+    company: any;
+    subscription: any;
+    targetPlanKey: ActiveCommercialPlanKey;
+    billingCycle: string;
+    toCycleAmount: number;
+    creditGenerated: number;
+    preview: Record<string, unknown>;
+    mockMode: boolean;
+    now: Date;
+  }) {
+    const { context, company, subscription, targetPlanKey, billingCycle, toCycleAmount, creditGenerated, mockMode, now } = input;
+    const planTitle = getCommercialPlanTitle(targetPlanKey);
+    const creditCents = Math.max(0, Math.round(this.normalizeCurrencyAmount(creditGenerated) * 100));
+
+    // 1) Crédito proporcional — NÃO cobra nada. Saldo abate na próxima fatura.
+    if (creditCents > 0) {
+      await this.prisma.company.update({
+        where: { id: context.companyId },
+        data: { billingCreditCents: { increment: creditCents } },
+      });
+      await this.insertBillingLedgerEntry({
+        companyId: context.companyId,
+        createdByUserId: context.userId,
+        entryType: 'PLAN_DOWNGRADE_CREDIT',
+        entryGroup: 'credit',
+        status: 'APPROVED',
+        origin: 'plan_change_downgrade',
+        competence: this.monthKey(now),
+        amount: this.normalizeCurrencyAmount(creditGenerated),
+        paidAt: now,
+        paymentMethod: 'CREDIT',
+        referenceLabel: `Crédito de redução para ${planTitle}`,
+        observation: `Sobra proporcional do plano atual ao reduzir para ${planTitle}. Abate na próxima fatura.`,
+        metadata: { targetPlanKey, fromPlanKey: company.selectedPlanKey, source: 'plan_change_downgrade', creditCents },
+      });
+    }
+
+    // 2) Agenda o plano menor pro PRÓXIMO ciclo (renovação aplica via activate).
+    //    O acesso ao plano atual continua até o fim do período já pago (NÃO reativa
+    //    agora — Regra de Ouro: o que está pago é usado até vencer).
+    if (subscription?.id) {
+      await this.prisma.companySubscription.update({
+        where: { id: subscription.id },
+        data: {
+          planKey: targetPlanKey,
+          billingCycle,
+          providerPayloadJson: this.providerJson({
+            scheduledDowngradeTo: targetPlanKey,
+            scheduledAt: now.toISOString(),
+            keepsAccessUntil: company.subscriptionCurrentPeriodEnd || null,
+          }),
+        },
+      });
+    }
+
+    // 3) LIVE: baixa o valor recorrente pro próximo ciclo.
+    if (!mockMode && subscription?.providerPreapprovalId) {
+      try {
+        const { accessToken } = await this.resolveFinanceContext(context.companyId);
+        await this.mercadoPagoClient.updatePreapproval(accessToken, subscription.providerPreapprovalId, {
+          auto_recurring: { transaction_amount: this.normalizeCurrencyAmount(toCycleAmount) },
+        } as any);
+      } catch (error: any) {
+        this.logger.warn(`plan_change_downgrade_preapproval_update_failed company=${context.companyId} error=${String(error?.message || error)}`);
+      }
+    }
+
+    return {
+      ok: true,
+      direction: 'downgrade',
+      creditGenerated: this.normalizeCurrencyAmount(creditGenerated),
+      effectiveAt: company.subscriptionCurrentPeriodEnd instanceof Date ? company.subscriptionCurrentPeriodEnd.toISOString() : null,
+      preview: input.preview,
+      overview: await this.getOverviewForUser(input.user),
+    };
+  }
+
+  private async recordProrationCharge(input: {
+    context: { companyId: number; userId: number };
+    billingCycle: string;
+    amount: number;
+    planTitle: string;
+    entryType: string;
+    observation: string;
+    status?: string;
+    paidAt?: Date | null;
+    metadata?: Record<string, unknown>;
+  }) {
+    const now = new Date();
+    const status = input.status || 'APPROVED';
+    const paidAt = input.paidAt !== undefined ? input.paidAt : now;
+    const charge = await this.prisma.financeiroCharge.create({
+      data: {
+        companyId: input.context.companyId,
+        amount: this.normalizeCurrencyAmount(input.amount),
+        description: `${input.planTitle} — diferença proporcional`,
+        billingCycle: input.billingCycle,
+        paymentMethod: 'CARD',
+        status: status === 'APPROVED' ? 'approved' : 'pending',
+        lifecycle: status === 'APPROVED' ? 'paid' : 'pending',
+        competence: this.monthKey(now),
+        externalReference: `hbx-proration-${input.context.companyId}-${Date.now()}`,
+        paidAt,
+        createdByUserId: input.context.userId,
+        providerPayload: this.json({ source: input.entryType }),
+      },
+    });
+    const ledgerEntryId = await this.insertBillingLedgerEntry({
+      companyId: input.context.companyId,
+      createdByUserId: input.context.userId,
+      entryType: input.entryType,
+      entryGroup: 'revenue',
+      status,
+      origin: 'financeiro_plan_change',
+      competence: this.monthKey(now),
+      amount: this.normalizeCurrencyAmount(input.amount),
+      paidAt,
+      paymentMethod: 'CARD',
+      referenceLabel: input.planTitle,
+      observation: input.observation,
+      metadata: { chargeId: charge.id, ...(input.metadata || {}) },
+    });
+    await this.prisma.financeiroCharge.update({ where: { id: charge.id }, data: { ledgerEntryId } });
+    return charge;
   }
 
   async getSubscriptionStatusForUser(user: any) {

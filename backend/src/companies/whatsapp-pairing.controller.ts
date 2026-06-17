@@ -2,6 +2,8 @@ import { Body, Controller, ForbiddenException, Param, Post, Req, UseGuards } fro
 import { IsString, Matches } from 'class-validator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { WhatsAppModalService } from './whatsapp-modal.service';
+import { ModuleAccessGuard } from '../modules/module-access.guard';
+import { ModuleAccess } from '../modules/module-feature.decorator';
 
 class WhatsAppPairingCodeDto {
   @IsString()
@@ -26,6 +28,8 @@ export class WhatsAppPairingController {
   }
 
   @Post('sessions/:sessionId/pairing-code')
+  @UseGuards(ModuleAccessGuard)
+  @ModuleAccess('atendimento')
   requestPairingCode(
     @Req() req: any,
     @Param('sessionId') sessionId: string,

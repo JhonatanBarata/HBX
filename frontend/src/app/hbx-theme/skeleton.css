@@ -30,6 +30,7 @@
   --hbx-info: #565656;
   --hbx-warning: #6E6E6E;
   --hbx-danger: #2F2F2F;
+  --hbx-danger-soft: #EBEBEB;
 
   /* ---- Superfícies ----------------------------------------------------- */
   --hbx-background: #F4F4F4;
@@ -134,6 +135,7 @@
   --hbx-info: #B5B5B5;
   --hbx-warning: #9C9C9C;
   --hbx-danger: #D6D6D6;
+  --hbx-danger-soft: #2E2E2E;
 
   --hbx-background: #121212;
   --hbx-background-alt: #0E0E0E;

@@ -8,7 +8,7 @@
 //   POST  /profile/tutorial-done                ("Começar a usar" OU "Não exibir mais" resolvem)
 // Lei 5: todo visual em classe central (.bv-* no screens.css). Zero estilo inline.
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import { BootSplash } from "@/components/hbx/boot-splash";
 import { apiFetch, getToken } from "@/lib/api";
@@ -142,26 +142,111 @@ function PassoSenha({ flags, onResolved }: { flags: Flags; onResolved: () => voi
   );
 }
 
+type SegmentCard = { name: string; city: string; ddd: string; phoneMasked: string };
+
 // Ramo-alvo no primeiro acesso do DONO (14/06): a lagoa do Radar é compartilhada e
 // enorme; perguntar o que a empresa quer prospectar enche o olho com o que importa e
 // desempata o que cada empresa vê (o "não repetir" é por empresa, no backend).
 // POST /profile/prospecting-segments { segments }.
+// Vitrine (PR17062026038): ao tocar um ramo, cards de empresas reais entram com
+// telefone mascarado e contador animado. Botão some por ~12s ("segurar a pessoa").
 function PassoRamo({ flags, onResolved }: { flags: Flags; onResolved: () => void }) {
   const [selecionados, setSelecionados] = useState<string[]>([]);
   const [livre, setLivre] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [btnState, setBtnState] = useState<"normal" | "searching" | "ready">("normal");
+  const [vitrineItems, setVitrineItems] = useState<SegmentCard[]>([]);
+  const [targetCount, setTargetCount] = useState(0);
+  const [displayCount, setDisplayCount] = useState(0);
+
+  const vitrineCache = useRef<Map<string, { count: number; sample: SegmentCard[] }>>(new Map());
+  const fetchingSegs = useRef(new Set<string>());
+  const selecionadosRef = useRef<string[]>([]);
+  const btnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const animRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const todos = Array.from(new Set([...RAMOS_SUGERIDOS, ...selecionados]));
 
-  function toggle(r: string) {
-    setSelecionados(prev => (prev.includes(r) ? prev.filter(x => x !== r) : [...prev, r]));
+  // Animated counter: eases from 0 to targetCount on each change.
+  // FRAMES=1 when target=0 so the interval sets displayCount in its first tick
+  // (avoids calling setState synchronously in the effect body).
+  useEffect(() => {
+    if (animRef.current) clearInterval(animRef.current);
+    let frame = 0;
+    const FRAMES = targetCount > 0 ? 40 : 1;
+    animRef.current = setInterval(() => {
+      frame++;
+      if (frame >= FRAMES) { setDisplayCount(targetCount); clearInterval(animRef.current!); return; }
+      const t = frame / FRAMES;
+      setDisplayCount(Math.round(targetCount * (1 - Math.pow(1 - t, 3))));
+    }, 16);
+    return () => { if (animRef.current) clearInterval(animRef.current); };
+  }, [targetCount]);
+
+  // Cleanup btn timer on unmount
+  useEffect(() => () => { if (btnTimerRef.current) clearTimeout(btnTimerRef.current); }, []);
+
+  function recomputeVitrine(selected: string[]) {
+    const allItems: SegmentCard[] = [];
+    let total = 0;
+    const seenNames = new Set<string>();
+    for (const seg of selected) {
+      const data = vitrineCache.current.get(seg);
+      if (!data) continue;
+      total += data.count;
+      for (const item of data.sample) {
+        const k = item.name.toLowerCase();
+        if (!seenNames.has(k)) { seenNames.add(k); allItems.push(item); }
+      }
+    }
+    setVitrineItems(allItems.slice(0, 18));
+    setTargetCount(total);
   }
+
+  function fetchSegment(seg: string, currentSels: string[]) {
+    if (vitrineCache.current.has(seg)) { recomputeVitrine(currentSels); return; }
+    if (fetchingSegs.current.has(seg)) return;
+    fetchingSegs.current.add(seg);
+    apiFetch<{ count: number; sample: SegmentCard[] }>(
+      `/onboarding/segment-preview?segment=${encodeURIComponent(seg)}`
+    )
+      .then(d => { vitrineCache.current.set(seg, d || { count: 0, sample: [] }); })
+      .catch(() => { vitrineCache.current.set(seg, { count: 0, sample: [] }); })
+      .finally(() => {
+        fetchingSegs.current.delete(seg);
+        recomputeVitrine(selecionadosRef.current);
+      });
+  }
+
+  function triggerBtnState() {
+    setBtnState(prev => {
+      if (prev !== "normal") return prev;
+      btnTimerRef.current = setTimeout(() => setBtnState("ready"), 12000);
+      return "searching";
+    });
+  }
+
+  function toggle(r: string) {
+    const isRemoving = selecionados.includes(r);
+    const newSels = isRemoving ? selecionados.filter(x => x !== r) : [...selecionados, r];
+    setSelecionados(newSels);
+    selecionadosRef.current = newSels;
+    if (!isRemoving) { fetchSegment(r, newSels); triggerBtnState(); }
+    else { recomputeVitrine(newSels); }
+  }
+
   function addLivre() {
     const v = livre.trim();
     if (!v) return;
-    setSelecionados(prev => (prev.includes(v) ? prev : [...prev, v]));
+    const isNew = !selecionados.includes(v);
+    const newSels = isNew ? [...selecionados, v] : selecionados;
+    setSelecionados(newSels);
+    selecionadosRef.current = newSels;
+    if (isNew) { fetchSegment(v, newSels); triggerBtnState(); }
     setLivre("");
   }
+
   async function salvar(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (busy) return;
@@ -210,11 +295,35 @@ function PassoRamo({ flags, onResolved }: { flags: Flags; onResolved: () => void
         {err && <div className="bv-msg bad">{err}</div>}
         <div className="bv-foot">
           <span className="bv-hint grow">Isso fica salvo na sua empresa e vira o filtro inicial do Radar.</span>
-          <button className="btn-teal" type="submit" disabled={busy}>
-            {busy ? "Salvando…" : "Salvar e continuar →"}
-          </button>
+          {btnState === "searching" ? (
+            <span className="vitrine-searching">Procurando empresas perto de você…</span>
+          ) : (
+            <button className="btn-teal" type="submit" disabled={busy}>
+              {busy ? "Salvando…" : btnState === "ready" ? "Ver meu Radar →" : "Salvar e continuar →"}
+            </button>
+          )}
         </div>
       </form>
+      {vitrineItems.length > 0 && (
+        <div className="vitrine-section">
+          <p className="vitrine-counter">
+            <i className="ti ti-building-community" />
+            <strong>{displayCount.toLocaleString("pt-BR")}</strong>
+            {" "}empresas do ramo na base
+          </p>
+          <div className="vitrine-grid">
+            {vitrineItems.map((item) => (
+              <div key={`${item.name}-${item.city}`} className="vitrine-card">
+                <span className="vitrine-card__name">{item.name}</span>
+                <span className="vitrine-card__city">{item.city}</span>
+                <span className="vitrine-card__phone">
+                  <i className="ti ti-lock" />{item.phoneMasked}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </React.Fragment>
   );
 }

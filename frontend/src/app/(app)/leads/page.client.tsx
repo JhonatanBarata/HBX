@@ -13,7 +13,7 @@
 // na conversa criada (handoff via sessionStorage hbx:abrir-conversa).
 
 import { useRouter } from "next/navigation";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import { Av, I, ICONS, KpiRow, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
@@ -157,6 +157,41 @@ export function LeadsClient() {
   // Quantos leads a lagoa tem disponíveis AGORA (vitrine) — pra a tela não
   // parecer morta quando a carteira está vazia. É o que dá pra PUXAR.
   const [poolDisponivel, setPoolDisponivel] = useState<number | null>(null);
+  const prevPoolRef = useRef<number | null>(null);
+  const [poolRising, setPoolRising] = useState(false);
+  const [justPulled, setJustPulled] = useState(false);
+  const [suggestions, setSuggestions] = useState<{ segment: string; available: number }[]>([]);
+  // segmento escolhido pelo clique na faixa de sugestões — pré-preenche o PuxarLeadsPanel
+  const [pickedSegment, setPickedSegment] = useState("");
+  // Nudge do sino plugado na tela (B3 — PR037 B3/B4): mostra o aviso mais recente.
+  const [recentNotice, setRecentNotice] = useState<{ id: string; title: string; body: string; payload?: { href?: string } | null } | null>(null);
+  const puxarRef = useRef<HTMLDivElement>(null);
+
+  const loadSuggestions = useCallback(() => {
+    if (!isSeller) return;
+    apiFetch<{ suggestions?: { segment: string; available: number }[] }>("/webscraping/radar/preference-suggestions")
+      .then(res => setSuggestions(Array.isArray(res?.suggestions) ? res.suggestions : []))
+      .catch(() => setSuggestions([]));
+  }, [isSeller]);
+
+  // Pool cresce → animação suave nos KPIs (B2).
+  useEffect(() => {
+    if (poolDisponivel === null) return;
+    if (prevPoolRef.current !== null && poolDisponivel > prevPoolRef.current) {
+      setPoolRising(true);
+      const t = setTimeout(() => setPoolRising(false), 700);
+      prevPoolRef.current = poolDisponivel;
+      return () => clearTimeout(t);
+    }
+    prevPoolRef.current = poolDisponivel;
+  }, [poolDisponivel]);
+
+  // Novo lead chegou (após pull): pisca a primeira linha por 2s (B2).
+  useEffect(() => {
+    if (!justPulled) return;
+    const t = setTimeout(() => setJustPulled(false), 2000);
+    return () => clearTimeout(t);
+  }, [justPulled]);
 
   const loadLeads = useCallback((opts?: { page?: number; status?: string; limit?: number }) => {
     const params = new URLSearchParams();
@@ -186,6 +221,7 @@ export function LeadsClient() {
     apiFetch<{ total?: number }>("/webscraping/radar/leads?scope=vitrine&limit=1")
       .then(res => setPoolDisponivel(Math.max(0, Math.trunc(Number(res?.total || 0)) || 0)))
       .catch(() => setPoolDisponivel(null));
+    loadSuggestions();
     apiFetch<CompanyUser[]>("/users/company")
       .then(res => {
         const list = Array.isArray(res) ? res : [];
@@ -202,8 +238,16 @@ export function LeadsClient() {
         if (res?.rule) setRuleForm(res.rule);
       })
       .catch(() => setAutoRule(null));
+    // Nudge do sino na tela de Leads (B3 — plug PR037 B3/B4; graceful).
+    apiFetch<{ items?: { id: string; title: string; body: string; source?: string; payload?: { href?: string } | null }[] }>("/vendas/master-notices")
+      .then(res => {
+        const items = res?.items || [];
+        const latest = items.find(n => n.source === "brain") || items[0] || null;
+        setRecentNotice(latest);
+      })
+      .catch(() => setRecentNotice(null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [loadSuggestions]);
 
   function trocarEtapa(status: string) {
     setEtapa(status);
@@ -356,36 +400,80 @@ export function LeadsClient() {
   };
   const l = sel;
   const ruleStatus = String(autoRule?.rule?.status || "");
-  // Default do "Puxar leads": vendedor usa a própria preferência salva (gravada
-  // de forma invisível ao puxar); admin/dono usa o ramo da empresa.
+  // Default do "Puxar leads": vendedor usa o segmento de maior afinidade observada;
+  // admin/dono usa o ramo da empresa.
   const pullDefaultSegment =
     (isSeller
-      ? me?.sellerProfile?.preferredSegments?.[0]
+      ? me?.sellerProfile?.topSegment
       : me?.company?.prospectingSegments?.[0]) || "";
+
+  // Segmentos sugeridos visíveis: exclui o que já está pré-preenchido no card de puxar.
+  const normalizeForCompare = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+  const currentPanelSeg = normalizeForCompare(pickedSegment || pullDefaultSegment);
+  const visibleSuggestions = isSeller && !canDistribute
+    ? suggestions.filter(s => normalizeForCompare(s.segment) !== currentPanelSeg)
+    : [];
+
+  function handlePickSuggestion(segment: string) {
+    setPickedSegment(segment);
+    setTimeout(() => puxarRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  }
 
   return (
     <React.Fragment>
         <div className="content">
           <div className="work">
             {(isSeller || canDistribute) && (
-              <PuxarLeadsPanel
-                key={`pull-${pullDefaultSegment || "none"}`}
-                onPulled={() => loadLeads({ page: 1 })}
-                defaultSegment={pullDefaultSegment}
-                poolDisponivel={poolDisponivel}
-                rememberOnPull={isSeller}
-              />
+              <div ref={puxarRef}>
+                <PuxarLeadsPanel
+                  key={`pull-${pickedSegment || pullDefaultSegment || "none"}`}
+                  onPulled={() => { setJustPulled(true); loadLeads({ page: 1 }); loadSuggestions(); setPickedSegment(""); }}
+                  defaultSegment={pickedSegment || pullDefaultSegment}
+                  poolDisponivel={poolDisponivel}
+                />
+              </div>
             )}
-            <KpiRow items={[
-              { icon: "users", label: "Total na base", value: data ? total.toLocaleString("pt-BR") : "—", delta: "—" },
-              { icon: "msg", label: "Com WhatsApp", value: summary ? (summary.whatsappVerified ?? 0).toLocaleString("pt-BR") : "—", delta: "—" },
-              { icon: "plus", label: "Disponíveis na lagoa", value: poolDisponivel != null ? poolDisponivel.toLocaleString("pt-BR") : "—", delta: "—" },
-              { icon: "relat", label: "Em atendimento / Vendas", value: data ? enviados.toLocaleString("pt-BR") : "—", delta: "—" },
-            ]} />
+            {/* B1 — Cards acabando: aviso quente quando a lagoa está baixa */}
+            {isSeller && poolDisponivel !== null && poolDisponivel < 10 && (
+              <div className="hbx-pool-warn">
+                <span className="msg">
+                  {poolDisponivel === 0
+                    ? `Sua lagoa de ${pullDefaultSegment || "leads"} está vazia — peça mais ao Radar`
+                    : `Seus cards de ${pullDefaultSegment || "leads"} estão acabando (${poolDisponivel} restante${poolDisponivel !== 1 ? "s" : ""}) — peça mais ao Radar`}
+                </span>
+                <button className="btn-ghost btn-xs" onClick={() => puxarRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>
+                  <I d={ICONS.plus} size={12} /> Puxar mais
+                </button>
+              </div>
+            )}
+
+            {/* B3 — Nudge do sino plugado na tela (PR037 B3/B4) */}
+            {isSeller && recentNotice && (
+              <div className="hbx-nudge">
+                <div className="tx">
+                  <span className="title">{recentNotice.title}</span>
+                  <span className="body-txt">{recentNotice.body}</span>
+                </div>
+                {recentNotice.payload?.href && (
+                  <button className="btn-ghost btn-xs" onClick={() => router.push(recentNotice!.payload!.href!)}>
+                    <I d={ICONS.arrow} size={12} /> Abrir
+                  </button>
+                )}
+              </div>
+            )}
+
+            <div className={poolRising ? "hbx-pool-rise" : undefined}>
+              <KpiRow items={[
+                { icon: "users", label: "Total na base", value: data ? total.toLocaleString("pt-BR") : "—", delta: "—" },
+                { icon: "msg", label: "Com WhatsApp", value: summary ? (summary.whatsappVerified ?? 0).toLocaleString("pt-BR") : "—", delta: "—" },
+                { icon: "plus", label: "Disponíveis", value: poolDisponivel != null ? poolDisponivel.toLocaleString("pt-BR") : "—", delta: "—" },
+                { icon: "relat", label: "Em atendimento / Vendas", value: data ? enviados.toLocaleString("pt-BR") : "—", delta: "—" },
+              ]} />
+            </div>
 
             <section className="panel">
               <div className="panel-head">
-                <h2>{isSeller && !canDistribute ? "Leads disponíveis" : "Leads do Radar"}</h2>
+                <h2>{isSeller && !canDistribute ? "Meus leads" : "Leads do Radar"}</h2>
                 <div className="meta">
                   {canDistribute && (
                     <button className={"tag" + (ruleStatus === "active" ? " teal" : ruleStatus === "paused" ? " warn" : "")}
@@ -402,6 +490,20 @@ export function LeadsClient() {
                   ))}
                 </div>
               </div>
+              {visibleSuggestions.length > 0 && (
+                <div className="chip-row">
+                  {visibleSuggestions.map(s => (
+                    <React.Fragment key={s.segment}>
+                      <span className="tag teal">
+                        Novos leads baseados na sua preferência: {s.segment} ({s.available} disponíveis)
+                      </span>
+                      <button className="btn-ghost" onClick={() => handlePickSuggestion(s.segment)}>
+                        Puxar {s.segment}
+                      </button>
+                    </React.Fragment>
+                  ))}
+                </div>
+              )}
               <div className="tbl-wrap">
                 <table className="tbl">
                   <thead>
@@ -417,15 +519,19 @@ export function LeadsClient() {
                             ? loadError
                             : data?.meta?.available === false
                               ? data?.meta?.message || "Banco do Radar indisponível neste ambiente."
-                              : <React.Fragment>Nada aqui ainda. Use <strong>Puxar leads</strong> aqui em cima pra trazer leads da lagoa pra sua carteira{poolDisponivel ? ` — tem ${poolDisponivel.toLocaleString("pt-BR")} esperando` : ""}.</React.Fragment>}
+                              : isSeller && !canDistribute
+                            ? <React.Fragment>Você ainda não puxou nenhum lead. Use <strong>Puxar leads</strong> aqui em cima para trazer da lagoa para a sua carteira{poolDisponivel ? ` — tem ${poolDisponivel.toLocaleString("pt-BR")} disponíveis.` : "."}</React.Fragment>
+                            : <React.Fragment>Nada aqui ainda. Use <strong>Puxar leads</strong> aqui em cima pra trazer leads da lagoa pra sua carteira{poolDisponivel ? ` — tem ${poolDisponivel.toLocaleString("pt-BR")} esperando` : ""}.</React.Fragment>}
                         </td>
                       </tr>
                     )}
-                    {items.map(row => {
+                    {items.map((row, idx) => {
                       const ch = row.recommendedChannel ? CH_LABEL[row.recommendedChannel] : null;
                       const resp = sellerName(row.assignedUserId);
+                      // B2: primeira linha pisca quando acabou de puxar leads novos.
+                      const isNew = justPulled && idx === 0;
                       return (
-                        <tr key={row.id} className={sel?.id === row.id ? "sel" : ""} onClick={() => selecionar(row)}>
+                        <tr key={row.id} className={(sel?.id === row.id ? "sel" : "") + (isNew ? " hbx-lead-new" : "")} onClick={() => selecionar(row)}>
                           <td><div style={{ display: "flex", gap: 9, alignItems: "center" }}><Av name={row.name || "—"} size={28} /><strong>{row.name || "—"}</strong></div></td>
                           <td>{row.segment || "—"}</td>
                           <td>{row.city ? `${row.city}${row.state ? ", " + row.state : ""}` : "—"}</td>
@@ -463,56 +569,92 @@ export function LeadsClient() {
 
           <aside className="ctx">
             <h3>Contexto do lead <span className="x" role="button" aria-label="Fechar contexto" title="Limpar seleção" onClick={() => { setSel(null); setActionMsg(null); }}>✕</span></h3>
-            <div style={{ display: "flex", gap: 11, alignItems: "center" }}>
-              <Av name={l?.name || "—"} size={44} />
-              <div>
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <span className="company">{l?.name || "Selecione um lead"}</span>
-                  <span className="tag teal">Lead</span>
+
+            <div key={l?.id ?? "empty"} className="ctx-body">
+              {/* Hero: avatar + nome + segmento + localização */}
+              <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
+                <Av name={l?.name || "—"} size={56} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <span className="company">{l?.name || "Selecione um lead"}</span>
+                    <span className="tag teal" style={{ flexShrink: 0 }}>Lead</span>
+                  </div>
+                  <div className="sub">{l?.segment || l?.businessCategory || "—"}</div>
+                  {l?.city && (
+                    <div className="sub" style={{ marginTop: 3, display: "inline-flex", gap: 4, alignItems: "center" }}>
+                      <I d={ICONS.mapin} size={11} /> {l.city}{l.state ? `, ${l.state}` : ""}
+                    </div>
+                  )}
                 </div>
-                <div className="sub">{l?.segment || l?.businessCategory || "—"}</div>
               </div>
-            </div>
-            <div className="kv">
-              <div className="row"><span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}><CanalIcon canal="email" size="sm" /> E-mail</span><span className="v" style={{ fontWeight: 600, fontSize: "0.68rem" }}>{l?.email || "—"}</span></div>
-              <div className="row"><span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}><CanalIcon canal="telefone" size="sm" /> Telefone</span><span className="v" style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem" }}>{l?.phone || "—"}</span></div>
-              <div className="row"><span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}><I d={ICONS.mapin} size={13} /> Local</span><span className="v">{l?.city ? `${l.city}${l.state ? ", " + l.state : ""}` : "—"}</span></div>
-            </div>
-            <div className="sep"></div>
-            <div className="kv">
-              <div className="row"><span className="k">Etapa atual</span><span className="v">{l ? (ST_LABEL[l.status] || l.status) : "—"}</span></div>
-              <div className="row"><span className="k">Lead score</span><span className="v" style={{ fontFamily: "var(--font-mono)" }}>{l ? l.opportunityScore : "—"}</span></div>
-              <div className="row"><span className="k">Canal recomendado</span><span className="v with-ico">{l?.recommendedChannel && toCanal(l.recommendedChannel) ? <CanalIcon canal={toCanal(l.recommendedChannel)!} size="sm" /> : null}{l?.recommendedChannel ? (CH_LABEL[l.recommendedChannel]?.label || l.recommendedChannel) : "—"}</span></div>
-              <div className="row"><span className="k">Responsável</span><span className="v" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>{l && sellerName(l.assignedUserId) ? <React.Fragment><Av name={sellerName(l.assignedUserId)!} size={18} />{sellerName(l.assignedUserId)}</React.Fragment> : "—"}</span></div>
-              <div className="row"><span className="k">Origem</span><span className="v">{l?.sourceEngine || l?.source || "—"}</span></div>
-            </div>
-            <div className="sep"></div>
-            <div style={{ display: "grid", gap: 8 }}>
-              <h3>Ações rápidas</h3>
-              {actionMsg && (
-                <div style={{ fontSize: "0.72rem", fontWeight: 700, color: actionMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{actionMsg}</div>
-              )}
-              {canDistribute && (
-                <React.Fragment>
-                  <select className="select-dark" value={sellerId} onChange={e => setSellerId(e.target.value)} style={{ width: "100%" }}>
-                    <option value="">Escolher vendedor…</option>
-                    {sellers.map(s => <option key={s.id} value={String(s.id)}>{userLabel(s)}</option>)}
-                  </select>
-                  <button className="btn-teal" onClick={distribuir} disabled={!sel?.id || !sellerId || busy}>
-                    <I d={ICONS.users} size={14} /> {busy ? "Distribuindo…" : "Distribuir para vendedor"}
-                  </button>
-                </React.Fragment>
-              )}
-              {isSeller && commissionPct > 0 && (
-                <div className="tag teal" style={{ display: "inline-flex", gap: 6, alignItems: "center", width: "fit-content" }} title="Percentual que você recebe quando este lead fecha venda">
-                  <I d={ICONS.money} size={12} /> Sua comissão por venda: {commissionPct}%
+
+              {/* Telefone em destaque — clicável */}
+              {l?.phone ? (
+                <a href={`tel:${l.phone.replace(/[^\d+]/g, "")}`} className="ctx-phone">
+                  <CanalIcon canal="telefone" /> {l.phone}
+                </a>
+              ) : l ? (
+                <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Sem telefone neste lead.</div>
+              ) : null}
+
+              {/* Lead score visual */}
+              {l && (
+                <div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                    <span className="ctx-score-label">Lead score</span>
+                    <span className="ctx-score-num" style={{ color: l.opportunityScore >= 70 ? "var(--hbx-success)" : l.opportunityScore >= 40 ? "var(--hbx-warning)" : "var(--hbx-danger)" }}>{l.opportunityScore}</span>
+                  </div>
+                  <div className="ctx-score-track">
+                    <div className="ctx-score-fill" style={{ width: `${l.opportunityScore}%`, background: l.opportunityScore >= 70 ? "var(--hbx-success)" : l.opportunityScore >= 40 ? "var(--hbx-warning)" : "var(--hbx-danger)" }} />
+                  </div>
                 </div>
               )}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                <button className="btn-ghost" onClick={enviarParaVendas} disabled={!sel?.id || busy}>
-                  <I d={ICONS.arrow} size={13} /> Enviar p/ Vendas{isSeller && commissionPct > 0 ? ` · ${commissionPct}%` : ""}
-                </button>
-                <button className="btn-ghost" onClick={iniciarConversa} disabled={!sel?.phone || busy} title={sel && !sel.phone ? "Lead sem telefone" : undefined}><I d={ICONS.msg} size={13} /> Iniciar conversa</button>
+
+              {/* Contato */}
+              <div className="kv">
+                <div className="row"><span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}><CanalIcon canal="email" size="sm" /> E-mail</span><span className="v" style={{ fontWeight: 600, fontSize: "0.68rem" }}>{l?.email || "—"}</span></div>
+                <div className="row"><span className="k">Canal recomendado</span><span className="v with-ico">{l?.recommendedChannel && toCanal(l.recommendedChannel) ? <CanalIcon canal={toCanal(l.recommendedChannel)!} size="sm" /> : null}{l?.recommendedChannel ? (CH_LABEL[l.recommendedChannel]?.label || l.recommendedChannel) : "—"}</span></div>
+              </div>
+
+              <div className="sep"></div>
+
+              {/* Pipeline */}
+              <div className="kv">
+                <div className="row"><span className="k">Etapa atual</span><span className="v">{l ? (ST_LABEL[l.status] || l.status) : "—"}</span></div>
+                <div className="row"><span className="k">Responsável</span><span className="v" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>{l && sellerName(l.assignedUserId) ? <React.Fragment><Av name={sellerName(l.assignedUserId)!} size={18} />{sellerName(l.assignedUserId)}</React.Fragment> : "—"}</span></div>
+                <div className="row"><span className="k">Origem</span><span className="v">{l?.sourceEngine || l?.source || "—"}</span></div>
+              </div>
+
+              <div className="sep"></div>
+
+              {/* Ações rápidas */}
+              <div style={{ display: "grid", gap: 8 }}>
+                <h3>Ações rápidas</h3>
+                {actionMsg && (
+                  <div style={{ fontSize: "0.72rem", fontWeight: 700, color: actionMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{actionMsg}</div>
+                )}
+                {canDistribute && (
+                  <React.Fragment>
+                    <select className="select-dark" value={sellerId} onChange={e => setSellerId(e.target.value)} style={{ width: "100%" }}>
+                      <option value="">Escolher vendedor…</option>
+                      {sellers.map(s => <option key={s.id} value={String(s.id)}>{userLabel(s)}</option>)}
+                    </select>
+                    <button className="btn-teal" onClick={distribuir} disabled={!sel?.id || !sellerId || busy}>
+                      <I d={ICONS.users} size={14} /> {busy ? "Distribuindo…" : "Distribuir para vendedor"}
+                    </button>
+                  </React.Fragment>
+                )}
+                {isSeller && commissionPct > 0 && (
+                  <div className="tag teal" style={{ display: "inline-flex", gap: 6, alignItems: "center", width: "fit-content" }} title="Percentual que você recebe quando este lead fecha venda">
+                    <I d={ICONS.money} size={12} /> Sua comissão por venda: {commissionPct}%
+                  </div>
+                )}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  <button className="btn-ghost" onClick={enviarParaVendas} disabled={!sel?.id || busy}>
+                    <I d={ICONS.arrow} size={13} /> Enviar p/ Vendas{isSeller && commissionPct > 0 ? ` · ${commissionPct}%` : ""}
+                  </button>
+                  <button className="btn-ghost" onClick={iniciarConversa} disabled={!sel?.phone || busy} title={sel && !sel.phone ? "Lead sem telefone" : undefined}><I d={ICONS.msg} size={13} /> Iniciar conversa</button>
+                </div>
               </div>
             </div>
           </aside>

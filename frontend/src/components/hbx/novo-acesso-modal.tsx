@@ -129,6 +129,8 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
   const [docBusy, setDocBusy] = useState<string | null>(null);
   const [liberarArm, setLiberarArm] = useState(false);
   const [senhaTemporaria, setSenhaTemporaria] = useState<string | null>(null);
+  const [novaSenha, setNovaSenha] = useState('');
+  const [busySenha, setBusySenha] = useState(false);
   const [reqState, setReqState] = useState<Record<string, boolean>>(
     () => Object.fromEntries(DOC_SLOTS.map(s => [s.kind, s.defaultRequired])),
   );
@@ -296,6 +298,24 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
       setMsg(err instanceof Error ? err.message : "Não foi possível salvar.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function redefinirSenha() {
+    if (!member || busySenha || novaSenha.trim().length < 8) return;
+    setBusySenha(true);
+    setMsg(null);
+    try {
+      await apiFetch(`/users/${member.id}/reset-password`, {
+        method: "PATCH",
+        body: JSON.stringify({ password: novaSenha.trim() }),
+      });
+      setNovaSenha("");
+      setMsg("✓ Senha redefinida — vendedor troca no próximo login.");
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : "Não foi possível redefinir a senha.");
+    } finally {
+      setBusySenha(false);
     }
   }
 
@@ -714,6 +734,19 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
                 <button className="btn-teal" type="submit" disabled={busy} style={{ minHeight: 40 }}>
                   {busy ? "Salvando…" : "Salvar dados"}
                 </button>
+                <div className="sep"></div>
+                <div style={{ display: "grid", gap: 6 }}>
+                  <label style={lbl}>Redefinir senha</label>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <input className="field-dark" type="password" minLength={8} maxLength={120}
+                      placeholder="nova senha (mín. 8)" value={novaSenha} autoComplete="new-password"
+                      onChange={e => setNovaSenha(e.target.value)} style={{ flex: 1 }} />
+                    <button type="button" className="btn-ghost" disabled={busySenha || novaSenha.trim().length < 8}
+                      onClick={redefinirSenha}>
+                      {busySenha ? "Definindo…" : "Definir"}
+                    </button>
+                  </div>
+                </div>
                 <div className="sep"></div>
                 <div style={{ display: "grid", gap: 8 }}>
                   {!ativo && vendedor ? (

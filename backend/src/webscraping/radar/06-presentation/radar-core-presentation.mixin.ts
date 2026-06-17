@@ -100,6 +100,7 @@ import {
 } from '../radar-core-method-imports';
 import { resolveCompanyAccessState } from '../../../modules/company-access-state';
 import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../../../companies/master-whatsapp-company.constants';
+import { confirmedSegments } from '../../../users/segment-affinity.util';
 
 import type {
   AutonomousMassDataCandidate,
@@ -2632,17 +2633,17 @@ export class RadarCorePresentationMixin {
       if (this.isCompanySellerUser(user)) {
         const me = await this.prisma.user.findUnique({
           where: { id: context.userId },
-          select: { preferredSegmentsJson: true },
+          select: { segmentAffinityJson: true } as any,
         }).catch(() => null);
-        for (const s of this.extractPreferredSegmentList((me as any)?.preferredSegmentsJson)) add(s);
+        for (const s of confirmedSegments((me as any)?.segmentAffinityJson, 3)) add(s);
       } else {
         const sellers = await this.prisma.user.findMany({
           where: { companyId: context.companyId, isActive: true, isSystemMaster: false },
-          select: { preferredSegmentsJson: true },
+          select: { segmentAffinityJson: true } as any,
           take: 200,
         }).catch(() => []);
         for (const row of sellers || []) {
-          for (const s of this.extractPreferredSegmentList((row as any)?.preferredSegmentsJson)) add(s);
+          for (const s of confirmedSegments((row as any)?.segmentAffinityJson, 3)) add(s);
         }
       }
     } catch {
@@ -3533,5 +3534,56 @@ export class RadarCorePresentationMixin {
         },
       },
     };
+  }
+
+  // Bloco 4 (PR17062026020-4): sugestões de segmentos com novos leads disponíveis
+  // baseadas na afinidade confirmada (≥3 ações) do vendedor logado. Barato: só count,
+  // sem join caro. Falha → { suggestions: [] } (nunca 500).
+  async getPreferenceSuggestionsForUser(user: any) {
+    try {
+      if (!this.isCompanySellerUser(user)) return { suggestions: [] };
+      const context = this.resolveContext(user);
+      if (!(await this.supportsRadarPersistence())) return { suggestions: [] };
+
+      const me = await this.prisma.user.findUnique({
+        where: { id: context.userId },
+        select: { segmentAffinityJson: true } as any,
+      }).catch(() => null);
+
+      const segments = confirmedSegments((me as any)?.segmentAffinityJson, 3);
+      if (!segments.length) return { suggestions: [] };
+
+      const ownershipEnabled = await this.supportsRadarOwnershipPersistence();
+      const suggestions: Array<{ segment: string; available: number }> = [];
+
+      for (const seg of segments) {
+        const baseWhere: any = {
+          normalizedSegment: seg,
+          status: { notIn: ['rejected', 'duplicate', ...RADAR_PROTECTED_STATUSES] },
+          AND: [
+            {
+              companyStates: {
+                none: {
+                  companyId: context.companyId,
+                  status: { in: [...RADAR_PROTECTED_STATUSES, 'imported_to_vendas', 'sent_to_vendas'] },
+                },
+              },
+            },
+          ],
+        };
+        if (ownershipEnabled) baseWhere.ownerCompanyId = null;
+
+        const available: number = await (this.prisma as any).radarLeadPool.count({
+          where: baseWhere,
+        }).catch(() => 0);
+
+        if (available > 0) suggestions.push({ segment: seg, available });
+      }
+
+      suggestions.sort((a, b) => b.available - a.available);
+      return { suggestions: suggestions.slice(0, 3) };
+    } catch {
+      return { suggestions: [] };
+    }
   }
 }

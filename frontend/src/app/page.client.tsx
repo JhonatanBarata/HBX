@@ -16,10 +16,11 @@ import { ImplantacaoContato } from "@/components/hbx/implantacao-contato";
 import { LegalModal, type LegalKind } from "@/components/hbx/legal-modal";
 import { RegisterPanel } from "@/app/register/page.client";
 import {
-  FALLBACK_PLANS, PLAN_ORDER, PLAN_STATIC, IC_BARS, IC_CHECK, IC_LOGOS,
-  fetchPublicPlans, getPlanFallback, formatBRL,
+  FALLBACK_PLANS, PLAN_ORDER, PLAN_STATIC, IC_BARS, IC_CHECK,
+  fetchPublicPlans, getPlanFallback,
   type PublicPlan,
 } from "@/lib/plans";
+import { PlanCard } from "@/components/hbx/plan-card";
 
 // ── types ──────────────────────────────────────────────────────────────────────
 // Login saiu da casca (16/06): a view "entrar" foi removida — "Entrar" agora abre
@@ -365,34 +366,20 @@ export function MarketingClient() {
                 {PLAN_ORDER.map((key) => {
                   const s = PLAN_STATIC[key];
                   const lp = getLivePlan(key);
-                  const trialText = lp.trialDays > 0 ? `${lp.trialDays} dias grátis` : undefined;
-                  const price = lp.monthlyPrice !== null ? formatBRL(lp.monthlyPrice) : null;
-                  const discountMonths = Math.floor(12 * (lp.annualDiscountPercent / 100));
-                  const allFeats = lp.contactOnly
-                    ? s.feats
-                    : [...s.feats, ...(lp.cardsPerMonth ? [`${lp.cardsPerMonth.toLocaleString("pt-BR")} leads por mês`] : [])];
                   return (
-                    <button key={key} type="button" className={"site-plan2" + (s.hot ? " is-hot" : "") + (selectedPlan === key ? " is-selected" : "") + (selectedPlan && selectedPlan !== key ? " is-exiting" : "")} onClick={() => choosePlan(key)}>
-                      {s.badge && <span className="site-plan2__badge">{s.badge}</span>}
-                      {!lp.contactOnly && <span className="site-plan2__annual">{discountMonths} meses grátis no anual</span>}
-                      <span className="site-plan2__ic"><Ic paths={s.ic} /></span>
-                      <strong className="site-plan2__name">HBX <span className="site-accent">{s.accent}</span></strong>
-                      {trialText
-                        ? <span className="site-plan2__trial-wrap"><span className="site-plan2__trial">{trialText}</span><span className="site-plan2__trial-price">{price}<em>/mês</em></span></span>
-                        : !lp.contactOnly && price
-                          ? <span className="site-plan2__price"><b>{price}</b><em>/mês</em></span>
-                          : null}
-                      <span className="site-plan2__tag">{s.tag}</span>
-                      <ul className="site-plan2__feats">
-                        {allFeats.map((f) => <li key={f}><Ic paths={IC_CHECK} />{f}</li>)}
-                      </ul>
-                      {s.logos && (
-                        <div className="site-plan2__logos">
-                          {IC_LOGOS.map((l, i) => <span key={i}><Ic paths={l} /></span>)}
-                        </div>
-                      )}
-                      <div className="site-plan2__cta">{s.cta}</div>
-                    </button>
+                    <PlanCard
+                      key={key}
+                      planKey={key}
+                      live={lp}
+                      as="button"
+                      onClick={() => choosePlan(key)}
+                      className={[
+                        s.hot ? "is-hot" : "",
+                        selectedPlan === key ? "is-selected" : "",
+                        selectedPlan && selectedPlan !== key ? "is-exiting" : "",
+                      ].filter(Boolean).join(" ")}
+                      cta={<div className="site-plan2__cta">{s.cta}</div>}
+                    />
                   );
                 })}
             </div>

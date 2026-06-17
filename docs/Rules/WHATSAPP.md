@@ -25,6 +25,6 @@
 
 - O fluxo completo de conexão (modal QR / start / status / disconnect) vive em
   `frontend/src/lib/whatsapp-connection-flow.ts`; o overlay no shell novo entra
-  junto com a tela de Atendimento (R2.9 do PR-010).
+  junto com a tela de Atendimento.
 - Rota `/whatsapp` é redirect para `/atendimento/automacao?tab=connection`.
 - O master administra Webwhats pela aba `Webwhats` do command center.

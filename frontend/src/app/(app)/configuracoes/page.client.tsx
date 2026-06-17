@@ -30,8 +30,11 @@ import { ImplantacaoContato } from "@/components/hbx/implantacao-contato";
 import { NovoAcessoModal } from "@/components/hbx/novo-acesso-modal";
 import { TrocarPlanoModal, type TrocarPlanoDirection } from "@/components/hbx/trocar-plano-modal";
 import { SubscribeCardModal } from "@/components/hbx/subscribe-card-modal";
+import { PlanCard } from "@/components/hbx/plan-card";
 import { Av, ConfirmDialog, I, ICONS } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
+import { PLAN_ORDER, FALLBACK_PLANS, fetchPublicPlans, type PublicPlan } from "@/lib/plans";
+import { classifyPlanChange } from "@/lib/plan-rank";
 import { useTabParam } from "@/lib/use-tab-param";
 
 const SECTIONS = ["Perfil", "Empresa", "Equipe", "E-mail", "Notificações", "Plano e cobrança"];
@@ -138,15 +141,18 @@ export function ConfiguracoesClient() {
   const [team, setTeam] = useState<CompanyUser[]>([]);
   const [teamDenied, setTeamDenied] = useState(false);
   const [plansMe, setPlansMe] = useState<CommercialPlansMe>(null);
+  // Números (preço/trial/volume) da MESMA fonte da casca (/commercial-plans/public-catalog).
+  // Copy/ícone vêm de lib/plans (PLAN_STATIC) via <PlanCard> — nada duplicado em tela.
+  const [livePlans, setLivePlans] = useState<PublicPlan[]>(FALLBACK_PLANS);
   // Troca de plano (PAGAMENTOS.md): só ADMIN (canSelectPlan vem do backend).
   // O backend é a fonte da regra — selecionar plano diferente cai em
   // pending_checkout/desativa; o front só dispara e mostra o veredito.
   const [planoBusy, setPlanoBusy] = useState(false);
   const [planoMsg, setPlanoMsg] = useState<string | null>(null);
-  const [subscribePlan, setSubscribePlan] = useState<CatalogPlan | null>(null);
+  const [subscribePlan, setSubscribePlan] = useState<{ key: string; title: string; monthlyPrice: number | null } | null>(null);
   const [confirmCancelar, setConfirmCancelar] = useState(false);
   const [implantacaoOpen, setImplantacaoOpen] = useState(false);
-  const [trocarPlano, setTrocarPlano] = useState<CatalogPlan | null>(null);
+  const [trocarPlano, setTrocarPlano] = useState<PublicPlan | null>(null);
 
   // Novo acesso (cadastro completo, PR12062026005) + gestão de membro.
   // Gerenciar abre a tela do vendedor (gerenciar-vendedor-modal) com os
@@ -213,6 +219,9 @@ export function ConfiguracoesClient() {
     apiFetch<CommercialPlansMe>("/commercial-plans/me")
       .then(res => { if (alive) setPlansMe(res); })
       .catch(() => { /* sem acesso comercial — seção fica oculta/limitada */ });
+    fetchPublicPlans()
+      .then(res => { if (alive && Array.isArray(res) && res.length) setLivePlans(res); })
+      .catch(() => { /* mantém FALLBACK_PLANS */ });
     return () => { alive = false; };
   }, []);
 
@@ -286,8 +295,9 @@ export function ConfiguracoesClient() {
     .filter(s => s !== "Plano e cobrança" || canSeeBilling)
     .filter(s => s !== "E-mail" || isAdminUser);
   const current = plansMe?.current;
-  const planos = plansMe?.plans || [];
-  const planoAtual = planos.find(p => p.key === current?.planKey) || null;
+  // Catálogo visível = cards lindos (PLAN_ORDER) com número da API pública.
+  // Estado do contratante (plano atual, acesso, permissão) vem do /me.
+  const planoAtual = livePlans.find(p => p.key === current?.planKey) || null;
   const entitlementsAtivos = Object.entries(current?.entitlements || {}).filter(([, on]) => on).map(([k]) => k);
   const canSelectPlan = Boolean(plansMe?.permissions?.canSelectPlan);
 
@@ -441,10 +451,10 @@ export function ConfiguracoesClient() {
                       )}
                       {/* Trial/checkout pendente no plano atual (pago): "Assinar agora" abre o
                           cartão direto pro plano vigente — a conversão mais comum (Lead→pago). */}
-                      {canSelectPlan && planoAtual && !planoAtual.requiresAssistedSetup && current?.accessState !== "paying" && (
+                      {canSelectPlan && planoAtual && !planoAtual.contactOnly && current?.accessState !== "paying" && (
                         <button className="btn-teal" disabled={planoBusy} onClick={() => { setSubscribePlan(planoAtual); setPlanoMsg(null); }}>Assinar agora</button>
                       )}
-                      {canSelectPlan && planos.length > 0 && (
+                      {canSelectPlan && livePlans.length > 0 && (
                         <button className="btn-ghost" onClick={() => document.getElementById("hbx-catalogo-planos")?.scrollIntoView({ behavior: "smooth", block: "start" })}>Gerenciar plano</button>
                       )}
                       {canSelectPlan && current?.accessState === "paying" && (
@@ -473,39 +483,39 @@ export function ConfiguracoesClient() {
                   </div>
                 </section>
 
-                {planos.length > 0 && (
+                {livePlans.length > 0 && (
                   <section className="panel" id="hbx-catalogo-planos">
-                    <div className="panel-head"><h2>Catálogo de planos HBX</h2></div>
-                    <div style={{ padding: 18, display: "grid", gridTemplateColumns: `repeat(${Math.min(3, planos.length)}, 1fr)`, gap: 14 }}>
-                      {planos.map(p => {
-                        const atual = p.key === current?.planKey;
+                    <div className="panel-head">
+                      <h2>Catálogo de planos HBX</h2>
+                      <div className="meta"><span className="tag">Upgrade na hora · Downgrade sem perder o pago</span></div>
+                    </div>
+                    <div className="plan-grid">
+                      {PLAN_ORDER.map((key) => {
+                        const live = livePlans.find(p => p.key === key);
+                        if (!live) return null;
+                        const isCurrent = key === current?.planKey;
+                        // Direção pela MESMA régua do backend (rank), não por preço.
+                        const dir = classifyPlanChange(current?.planKey, key);
+                        let cta: React.ReactNode;
+                        if (isCurrent) {
+                          cta = <div className="site-plan2__cta is-muted">Plano atual</div>;
+                        } else if (!canSelectPlan) {
+                          cta = <div className="site-plan2__cta is-muted">Falar com o ADMIN</div>;
+                        } else if (dir === "contact" || live.contactOnly) {
+                          cta = <button type="button" className="site-plan2__cta" onClick={() => { setImplantacaoOpen(true); setPlanoMsg(null); }}>Quero implantação</button>;
+                        } else if (dir === "downgrade") {
+                          cta = <button type="button" className="site-plan2__cta" disabled={planoBusy} onClick={() => { setTrocarPlano(live); setPlanoMsg(null); }}>Reduzir plano</button>;
+                        } else {
+                          cta = <button type="button" className="site-plan2__cta is-primary" disabled={planoBusy} onClick={() => { setTrocarPlano(live); setPlanoMsg(null); }}>{dir === "upgrade" ? "Fazer upgrade" : "Assinar"}</button>;
+                        }
                         return (
-                          <article key={p.key} style={{ display: "grid", gap: 10, alignContent: "start", padding: 16, borderRadius: "var(--radius-md)",
-                            border: "1px solid " + (atual ? "var(--hbx-brand)" : p.recommended ? "color-mix(in srgb, var(--hbx-brand) 40%, transparent)" : "var(--border-hairline)"),
-                            background: atual ? "var(--hbx-brand-soft)" : "var(--hbx-surface-soft)" }}>
-                            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                              <strong style={{ fontFamily: "var(--font-display)", fontSize: "0.95rem" }}>{p.title}</strong>
-                              {atual ? <span className="tag teal">Plano atual</span> : p.badge ? <span className="tag">{p.badge}</span> : null}
-                            </div>
-                            {fmtPreco(p.monthlyPrice) && (
-                              <span style={{ fontFamily: "var(--font-mono)", fontSize: "1.05rem", fontWeight: 700 }}>{fmtPreco(p.monthlyPrice)}</span>
-                            )}
-                            {p.headline && <p style={{ margin: 0, fontSize: "0.72rem", lineHeight: 1.5, color: "var(--text-muted)" }}>{p.headline}</p>}
-                            {Array.isArray(p.features) && p.features.length > 0 && (
-                              <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "grid", gap: 5 }}>
-                                {p.features.slice(0, 5).map(f => (
-                                  <li key={f} style={{ position: "relative", paddingLeft: 16, fontSize: "0.7rem", lineHeight: 1.45, color: "var(--text-body)" }}>
-                                    <span style={{ position: "absolute", left: 0, color: "var(--hbx-brand-strong)" }}>•</span>{f}
-                                  </li>
-                                ))}
-                              </ul>
-                            )}
-                            {canSelectPlan && !atual && (
-                              (p.requiresAssistedSetup || p.contactOnly)
-                                ? <button className="btn-ghost" style={{ marginTop: 2 }} onClick={() => { setImplantacaoOpen(true); setPlanoMsg(null); }}>Quero implantação</button>
-                                : <button className="btn-ghost" style={{ marginTop: 2 }} disabled={planoBusy} onClick={() => { setTrocarPlano(p); setPlanoMsg(null); }}>Assinar este plano</button>
-                            )}
-                          </article>
+                          <PlanCard
+                            key={key}
+                            planKey={key}
+                            live={live}
+                            className={[live.recommended ? "is-hot" : "", isCurrent ? "is-current" : ""].filter(Boolean).join(" ")}
+                            cta={cta}
+                          />
                         );
                       })}
                     </div>
@@ -574,10 +584,9 @@ export function ConfiguracoesClient() {
       />
 
       {trocarPlano && (() => {
-        const fromMonthly = planoAtual?.monthlyPrice ?? 0;
-        const toMonthly = trocarPlano.monthlyPrice ?? 0;
-        const dir: TrocarPlanoDirection =
-          toMonthly > fromMonthly ? "upgrade" : toMonthly < fromMonthly ? "downgrade" : "same";
+        // Direção pela régua de rank (espelha o backend) — não por preço (anual/trial enganam).
+        const raw = classifyPlanChange(current?.planKey, trocarPlano.key);
+        const dir: TrocarPlanoDirection = raw === "contact" ? "upgrade" : raw;
         return (
           <TrocarPlanoModal
             fromPlan={planoAtual}
@@ -590,7 +599,7 @@ export function ConfiguracoesClient() {
               setTrocarPlano(null);
               setSubscribePlan({ ...plan, monthlyPrice: plan.monthlyPrice ?? null });
             }}
-            onDoneDowngrade={msg => { setTrocarPlano(null); setPlanoMsg(msg); recarregarPlano(); }}
+            onApplied={msg => { setTrocarPlano(null); setPlanoMsg(msg); recarregarPlano(); }}
           />
         );
       })()}

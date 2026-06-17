@@ -408,6 +408,13 @@ class MasterResetPasswordDto {
 	password?: string;
 }
 
+class AdminResetPasswordDto {
+	@IsOptional()
+	@IsString()
+	@MinLength(8)
+	password?: string;
+}
+
 function normalizeNullableText(value: unknown) {
 	if (typeof value !== 'string') return undefined;
 	const trimmed = value.trim().replace(/\s+/g, ' ');
@@ -1010,6 +1017,27 @@ export class UsersController {
 		};
 	}
 
+	@Patch(':id/reset-password')
+	@UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
+	@Admin()
+	@ModuleAccess('gerencial')
+	async adminResetPassword(@Req() req: any, @Param('id', ParseIntPipe) id: number, @Body() dto: AdminResetPasswordDto) {
+		const companyId = Number(req?.user?.companyId);
+		if (!companyId) throw new ForbiddenException('Company context required');
+
+		const target = await this.usersService.findById(id);
+		if (!target) throw new NotFoundException('Usuário não encontrado');
+		if (Number(target.companyId) !== companyId) throw new ForbiddenException('Usuário fora da sua empresa');
+		if (target.isSystemMaster) throw new ForbiddenException('Usuário MASTER não pode ter senha alterada aqui');
+
+		const newPassword = dto.password?.trim() || `Hbx@${Math.random().toString(36).slice(2, 10)}A1`;
+		assertPasswordPolicy(newPassword);
+		const hashed = await bcrypt.hash(newPassword, 10);
+		await this.usersService.setPassword(id, hashed, { mustChangePassword: true });
+
+		return { ok: true, temporaryPassword: newPassword };
+	}
+
 	@Patch(':id/active')
 	@UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
 	@Admin()
@@ -1058,6 +1086,14 @@ export class UsersController {
 			finalTemporaryPassword = `Hbx@${Math.random().toString(36).slice(2, 10)}A1`;
 			assertPasswordPolicy(finalTemporaryPassword);
 			await this.usersService.setPassword(id, await bcrypt.hash(finalTemporaryPassword, 10), { mustChangePassword: true });
+		}
+
+		// Teto rígido de assentos (PR13062026005): também bloqueia reativação de
+		// acesso inativo quando a empresa já atingiu o seatCap.
+		const seatUsageForReactivation = await this.usersService.getCompanyTrialSeatUsage(companyId);
+		const seatCapForReactivation = Number((seatUsageForReactivation.company as any)?.seatCap || 0);
+		if (seatCapForReactivation > 0 && seatUsageForReactivation.activeUsers >= seatCapForReactivation) {
+			throw new BadRequestException(`Esta empresa atingiu o teto de ${seatCapForReactivation} assento(s). Aumente o teto de assentos no master para liberar mais acessos.`);
 		}
 
 		const updated = await this.usersService.reactivateUser(id);

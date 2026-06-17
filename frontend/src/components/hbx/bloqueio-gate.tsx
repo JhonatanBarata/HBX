@@ -34,6 +34,15 @@ export function BloqueioGate() {
   const [saindo, setSaindo] = useState(false);
   const [showCheckout, setShowCheckout] = useState(false);
 
+  // B1 de 040: puxar-leads-panel e outros pontos de "esticar a mão" disparam
+  // este evento quando o usuário está em pending_checkout. O gate responde
+  // mostrando o checkout inline sem bloquear a navegação.
+  useEffect(() => {
+    function onNeedCheckout() { setShowCheckout(true); }
+    window.addEventListener("hbx:need-checkout", onNeedCheckout);
+    return () => window.removeEventListener("hbx:need-checkout", onNeedCheckout);
+  }, []);
+
   useEffect(() => {
     let alive = true;
     if (!getToken()) return;
@@ -71,8 +80,21 @@ export function BloqueioGate() {
   const trialEnded = state.trialEnded;
   const isPendingCheckout = state.accessState === "pending_checkout";
 
-  // Checkout inline: substitui o gate por completo (sem aninhamento de bv-veil).
-  // onDone recarrega a página — backend já atualizou o acesso sincrono.
+  // B2 de 040: pending_checkout NÃO bloqueia o app — eles veem a vitrine read-only.
+  // O checkout só aparece quando a mão se estica (evento hbx:need-checkout do B1).
+  if (isPendingCheckout) {
+    const activePlan = state.plan ?? { key: "hbx_lite", title: "HBX List", monthlyPrice: 49 };
+    if (!showCheckout) return null;
+    return (
+      <SubscribeCardModal
+        plan={activePlan}
+        onClose={() => setShowCheckout(false)}
+        onDone={() => { window.location.reload(); }}
+      />
+    );
+  }
+
+  // Checkout inline para demais estados bloqueados (overdue, suspended…).
   if (showCheckout && state.plan) {
     return (
       <SubscribeCardModal

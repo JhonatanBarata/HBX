@@ -749,6 +749,43 @@ export class ChannelStartupService {
     return `${Math.floor(timestamp)}:${remoteJid}`;
   }
 
+  // HBX: @lid (LID) NÃO é telefone — é um id interno opaco do WhatsApp. O número real (PN,
+  // @s.whatsapp.net) vem do mapa LID↔PN que o Baileys mantém (signalRepository.lidMapping).
+  // Espelha o rewrite que já existe no messages.upsert do Baileys. Best-effort: em qualquer
+  // falha devolve null e o chat segue como veio (a listagem nunca quebra por causa disto).
+  private async resolveLidToPn(remoteJid: string | null | undefined): Promise<string | null> {
+    const jid = String(remoteJid || '').trim();
+    if (!jid.toLowerCase().endsWith('@lid')) return null;
+    try {
+      const mapping = (this.client as any)?.signalRepository?.lidMapping;
+      const pn = await mapping?.getPNForLID?.(jid);
+      const normalized = typeof pn === 'string' ? pn.trim() : '';
+      return normalized.toLowerCase().endsWith('@s.whatsapp.net') ? normalized : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // Para cada chat com remoteJid @lid, resolve o PN e reescreve remoteJid=PN, guardando o @lid
+  // original em remoteJidAlt (o backend já consome remoteJidAlt p/ casar/dedup). Mantém o @lid
+  // quando não há mapa (aí o front cai no rótulo neutro "Contato WhatsApp").
+  private async enrichChatsWithLidPn<T extends { remoteJid?: string | null; remoteJidAlt?: string | null }>(
+    records: T[],
+  ): Promise<T[]> {
+    if (!Array.isArray(records) || records.length === 0) return records;
+    await Promise.all(
+      records.map(async (record) => {
+        const lid = String(record?.remoteJid || '').trim();
+        if (!lid.toLowerCase().endsWith('@lid')) return;
+        const pn = await this.resolveLidToPn(lid);
+        if (!pn) return;
+        record.remoteJid = pn;
+        if (!record.remoteJidAlt) record.remoteJidAlt = lid;
+      }),
+    );
+    return records;
+  }
+
   public async fetchChats(query: any) {
     const pagination = normalizePagination<Contact>(query, {
       take: 50,
@@ -849,6 +886,7 @@ export class ChannelStartupService {
         return {
           id: contact.contactId || null,
           remoteJid: contact.remoteJid,
+          remoteJidAlt: null as string | null,
           pushName: contact.displayName || contact.chatName || null,
           profilePicUrl: contact.profilePicUrl,
           updatedAt: contact.updatedAt,
@@ -861,7 +899,8 @@ export class ChannelStartupService {
         };
       });
 
-      return mappedResults;
+      // HBX: troca @lid pelo telefone real (PN) antes de responder ao inbox.
+      return this.enrichChatsWithLidPn(mappedResults);
     }
 
     return [];
@@ -968,6 +1007,7 @@ export class ChannelStartupService {
       const displayName = contact.displayName || contact.pushName || null;
       return {
         remoteJid: contact.remoteJid,
+        remoteJidAlt: null as string | null,
         pushName: contact.pushName || displayName,
         displayName,
         profilePicUrl: contact.profilePicUrl || null,
@@ -982,6 +1022,8 @@ export class ChannelStartupService {
         archived: contact.archived ?? null,
       };
     });
+    // HBX: troca @lid pelo telefone real (PN) antes de responder ao inbox.
+    await this.enrichChatsWithLidPn(records);
     const nextCursor = rows.length > pagination.take ? this.buildChatListCursor(pageRows[pageRows.length - 1]) : null;
 
     return {

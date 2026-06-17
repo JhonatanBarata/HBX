@@ -812,6 +812,60 @@ export class HbxCommissionSyncService {
       canceledInheritedReceivables += Number(inherited.canceledInheritedReceivables || 0) || 0;
     }
 
+    // Receivables de implantação (kind:'setup') — one-time por lead; idempotente
+    // via @@unique([leadId, cycleKey, kind]) com cycleKey fixo 'setup'.
+    let createdSetupReceivables = 0;
+    let skippedSetupReceivables = 0;
+    const setupLeads = await this.prisma.vendasLead.findMany({
+      where: {
+        companyId,
+        assignedUserId: { not: null },
+        saleStatus: 'sale_confirmed',
+        setupCommissionStatus: 'payable',
+        setupCommissionAmount: { gt: 0 },
+      },
+      select: {
+        id: true,
+        assignedUserId: true,
+        assignedByUserId: true,
+        createdByUserId: true,
+        commissionLinkedCompanyId: true,
+        setupValue: true,
+        setupCommissionAmount: true,
+        commissionPercentSnapshot: true,
+      },
+      take: 2000,
+    });
+    for (const lead of setupLeads) {
+      const amount = this.money(lead.setupCommissionAmount);
+      if (amount <= 0) { skippedSetupReceivables += 1; continue; }
+      await this.prisma.vendasCommissionReceivable.create({
+        data: {
+          companyId,
+          leadId: lead.id,
+          sellerUserId: Number(lead.assignedUserId || 0) || null,
+          linkedCompanyId: Number(lead.commissionLinkedCompanyId || 0) || null,
+          cycleKey: 'setup',
+          kind: 'setup',
+          status: 'payable',
+          baseAmount: this.money(lead.setupValue),
+          commissionPercent: Math.min(100, Math.max(0, Number(lead.commissionPercentSnapshot || 0) || 0)),
+          amount,
+          dueAt: this.addBusinessDays(now, dueBusinessDays),
+          source: String(options.source || 'hbx_setup').slice(0, 120),
+          createdByUserId: Number(lead.assignedByUserId || lead.createdByUserId || 0) || null,
+        },
+      }).then(() => {
+        createdSetupReceivables += 1;
+      }).catch((error) => {
+        if (String((error as any)?.code || '') === 'P2002') {
+          skippedSetupReceivables += 1;
+          return;
+        }
+        throw error;
+      });
+    }
+
     return {
       createdReceivables,
       skippedReceivables,
@@ -820,6 +874,8 @@ export class HbxCommissionSyncService {
       updatedInheritedReceivables,
       skippedInheritedReceivables,
       canceledInheritedReceivables,
+      createdSetupReceivables,
+      skippedSetupReceivables,
     };
   }
 }

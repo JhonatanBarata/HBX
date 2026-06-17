@@ -2,27 +2,19 @@
 
 Leia este arquivo primeiro. Depois leia APENAS o arquivo de domínio relevante ao que vai alterar.
 
-## REGRA ZERO — SIGA O QUE O PROGRAMADOR FALAR
+## REGRA ZERO — SIGA O QUE O DONO FALAR
 
-Ordem do dono executa-se literalmente, sem reinterpretar, sem "melhorar", sem adaptar.
+Ordem do dono executa-se literalmente, sem reinterpretar nem "melhorar". Mas literal
+não é burro: pense a **feature inteira** — o backend e a tela que ele serve nascem
+juntos, nunca um sem o outro. Proponha, traga ideia, seja criativo no COMO; não vire
+executor de checklist.
 
-**Frontend — AS 5 LEIS DO DESIGN SYSTEM (ordem do dono, 12/06/2026) — MÉTODO, não freio:**
-1. **Tokens centrais** — todo valor visual nasce em `frontend/src/app/hbx-theme/`
-   (skeleton.css = contrato neutro; theme.css = utilities Tailwind v4 dos tokens).
-2. **Componentes centrais** — visual repetido vira classe do kit (`kit.css`) ou
-   utility; nunca se repete em tela.
-3. **Tema SÓ troca tokens** (`[data-theme]`/`[data-theme-mode]`). Tema NUNCA muda
-   escrita, estrutura, menu ou navegação — uma funcionalidade = UMA tela/DOM/escrita.
-4. **Tela é PROIBIDA de ter cor, borda, sombra, fonte ou radius próprios** — só
-   classe central/utility/token.
-5. **`check-pele.mjs` fiscaliza no lint** (hex/rgba/style visual em TSX = build
-   reprovado; styles visuais legados descem por catraca até zero).
-Detalhes e exceções: docs/Rules/FRONTEND.md. As 5 Leis valem como MÉTODO (todo
-visual nasce em token/classe central; check-pele reprova hex/inline). **FREEZE
-LEVANTADO pelo dono em 14/06/2026: refatorar aparência/peles está AUTORIZADO — não
-parar pra perguntar, não usar as Leis pra recusar trabalho de aparência. Acabou o
-"esqueleto até aprovar peles".** `docs/TEMAS` segue como REFERÊNCIA de
-estrutura/escrita — visual de lá NÃO se copia inline para dentro de tela (vira token/classe).
+## Frontend — 5 Leis do Design System (MÉTODO, não freio)
+
+Todo visual nasce em token/classe central (`frontend/src/app/hbx-theme/`); nada de cor,
+borda, sombra, fonte ou radius solto em tela; tema só troca tokens; `check-pele.mjs`
+reprova hex/inline no lint. Detalhe e exceções: [docs/Rules/FRONTEND.md](docs/Rules/FRONTEND.md).
+**Refatorar aparência/peles está AUTORIZADO — não usar as Leis pra recusar trabalho de aparência.**
 
 ## Mapa de domínios → `docs/Rules/`
 

@@ -4096,16 +4096,17 @@ export class WebwhatsBridgeService {
   private isSyncableChat(remoteJidRaw: string | null | undefined) {
     const remoteJid = String(remoteJidRaw || '').trim().toLowerCase();
     if (!remoteJid) return false;
+    // Inbox 1:1 só (ordem do dono 17/06/2026): grupo (@g.us), transmissão/status
+    // (@broadcast) e canal/newsletter (@newsletter) NUNCA entram no espelhamento nem
+    // no banco. Só conversa pessoa-a-pessoa (@s.whatsapp.net / @lid 1:1).
     if (remoteJid.includes('@broadcast')) return false;
     if (remoteJid === 'status@broadcast') return false;
+    if (remoteJid.includes('@g.us')) return false;
+    if (remoteJid.includes('@newsletter')) return false;
     if (remoteJid.includes('@s.whatsapp.net')) return this.isPhoneRemoteJid(remoteJid);
     if (remoteJid.includes('@lid')) {
       const left = remoteJid.split('@')[0] || '';
       return left.length >= 5 && !/^0+$/.test(left);
-    }
-    if (remoteJid.includes('@g.us')) {
-      const left = remoteJid.split('@')[0] || '';
-      return Boolean(left) && !/^0+$/.test(left);
     }
     return false;
   }

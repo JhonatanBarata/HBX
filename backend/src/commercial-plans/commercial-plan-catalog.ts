@@ -326,12 +326,15 @@ export function getCommercialPlanRank(planKey: unknown): number {
 
 // Classifica a direção da troca de plano.
 // 'contact' = destino é Implantação (não é troca, é contato via 024).
+// from Implantação → self-service = sempre 'downgrade' (rank -1 é inferior numericamente mas Implantação é o topo).
 export function classifyPlanChange(
   fromKey: unknown,
   toKey: unknown,
 ): 'upgrade' | 'downgrade' | 'same' | 'contact' {
+  const fromNormalized = normalizeCommercialPlanKey(fromKey);
   const toNormalized = normalizeCommercialPlanKey(toKey);
   if (toNormalized === COMMERCIAL_PLAN_KEYS.MELHOR) return 'contact';
+  if (fromNormalized === COMMERCIAL_PLAN_KEYS.MELHOR) return 'downgrade';
   const fromRank = getCommercialPlanRank(fromKey);
   const toRank = getCommercialPlanRank(toKey);
   if (fromRank === toRank) return 'same';

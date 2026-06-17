@@ -14,6 +14,7 @@ import { WhatsAppPairingController } from './whatsapp-pairing.controller';
 import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
 import { MailModule } from '../mail/mail.module';
 import { MessagingModule } from '../messaging/messaging.module';
+import { ModulesAccessModule } from '../modules/modules.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { MessagingModule } from '../messaging/messaging.module';
     CadastrosModule,
     MailModule,
     forwardRef(() => MessagingModule),
+    forwardRef(() => ModulesAccessModule),
   ],
   providers: [
     CompaniesService,

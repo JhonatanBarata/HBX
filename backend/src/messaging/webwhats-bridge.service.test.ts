@@ -1178,6 +1178,18 @@ test('WebwhatsBridgeService rejects invalid WhatsApp phone JIDs', () => {
   assert.equal(service.isSyncableChat('5519996197927@s.whatsapp.net'), true);
 });
 
+test('WebwhatsBridgeService keeps the inbox 1:1 only (no groups/broadcast/newsletter)', () => {
+  const service = createBareWebwhatsBridgeService();
+
+  // Grupo, transmissão/status e canal nunca são espelhados (ordem do dono 17/06/2026).
+  assert.equal(service.isSyncableChat('120363025343298765@g.us'), false);
+  assert.equal(service.isSyncableChat('status@broadcast'), false);
+  assert.equal(service.isSyncableChat('123456@broadcast'), false);
+  assert.equal(service.isSyncableChat('0123456789@newsletter'), false);
+  // 1:1 continua passando.
+  assert.equal(service.isSyncableChat('5519996197927@s.whatsapp.net'), true);
+});
+
 test('WebwhatsBridgeService treats proxy timeout statuses as transient read errors', () => {
   const service = createBareWebwhatsBridgeService();
 

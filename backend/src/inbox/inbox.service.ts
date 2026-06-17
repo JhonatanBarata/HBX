@@ -3392,6 +3392,11 @@ export class InboxService {
         if (this.parseBooleanMetadataFlag(metadata.whatsappConversationDeleted || metadata.inboxWhatsAppDeleted)) {
           continue;
         }
+        // Inbox 1:1 só: grupos legados que já entraram no banco não aparecem mais
+        // (o espelhamento novo já bloqueia na origem — ver isSyncableChat no bridge).
+        if (this.isConversationGroup(row, metadata)) {
+          continue;
+        }
         if (visibleSeen < visibleSkip) {
           visibleSeen += 1;
           continue;
@@ -3415,6 +3420,11 @@ export class InboxService {
         }
         const metadata = this.parseConversationMetadata(row.metadata);
         if (this.parseBooleanMetadataFlag(metadata.whatsappConversationDeleted || metadata.inboxWhatsAppDeleted)) {
+          continue;
+        }
+        // Inbox 1:1 só: grupos legados que já entraram no banco não aparecem mais
+        // (o espelhamento novo já bloqueia na origem — ver isSyncableChat no bridge).
+        if (this.isConversationGroup(row, metadata)) {
           continue;
         }
         rows.push(row);
@@ -6198,6 +6208,11 @@ export class InboxService {
     let resetCustomerProfiles = 0;
     let deletedCustomerProfiles = 0;
     const resetAt = new Date();
+    const discardedForSuppression: Array<{
+      contact: string | null;
+      metadata: unknown;
+      sourcePhoneNormalized: string | null;
+    }> = [];
 
     await this.prisma.$transaction(async (tx) => {
       if (mode === 'merge') {
@@ -6266,8 +6281,23 @@ export class InboxService {
                     : []),
                 ],
               },
-              select: { id: true, whatsappConnectionSessionId: true, contact: true },
+              select: {
+                id: true,
+                whatsappConnectionSessionId: true,
+                contact: true,
+                metadata: true,
+                sourcePhoneNormalized: true,
+              },
             });
+      // Guarda os contatos descartados pra registrar a SUPRESSÃO de reimportação
+      // depois do commit (ver recordDiscardedConversationSuppressions).
+      discardedForSuppression.push(
+        ...conversationsToDiscard.map((conversation: any) => ({
+          contact: conversation.contact ?? null,
+          metadata: conversation.metadata ?? null,
+          sourcePhoneNormalized: conversation.sourcePhoneNormalized ?? null,
+        })),
+      );
       const sessionIdsToDiscard = discardCacheSessionIds;
       if (sessionIdsToDiscard.length || conversationsToDiscard.length || resetPhoneCandidates.length) {
         const messages = await tx.companyMessage.findMany({
@@ -6381,6 +6411,15 @@ export class InboxService {
       }
     });
 
+    // Bloqueia a REIMPORTAÇÃO do número anterior: o espelhamento lê o audit
+    // (event=conversation_backend_deleted) e suprime chats apagados cujo registro é
+    // mais novo que a última mensagem. Sem isto o "apagar" não segurava e o número
+    // anterior reaparecia no próximo mirror (bug "não limpa"). Só o passado — se o
+    // número NOVO falar com o mesmo contato depois, a mensagem nova reabre a conversa.
+    if (mode !== 'keep' && discardedForSuppression.length) {
+      await this.recordDiscardedConversationSuppressions(companyId, currentSessionId, discardedForSuppression);
+    }
+
     await this.logInboxEvent({
       companyId,
       event: 'whatsapp_old_sessions_cleaned',
@@ -6420,6 +6459,50 @@ export class InboxService {
         ? 'Última sessão antiga mesclada na sessão atual. Demais sessões antigas descartadas.'
         : 'Histórico do número anterior removido. O número conectado agora segue intacto.',
     };
+  }
+
+  // Registra no audit (scope inbox / event conversation_backend_deleted) cada contato
+  // 1:1 descartado, no formato que o bridge usa pra suprimir reimportação
+  // (isLocallyDeletedChatSuppressed): o metadata em JSON precisa CONTER os tokens
+  // (telefone/remoteJid) que a checagem procura via `contains`.
+  private async recordDiscardedConversationSuppressions(
+    companyId: number,
+    currentSessionId: string,
+    entries: Array<{ contact: string | null; metadata: unknown; sourcePhoneNormalized: string | null }>,
+  ) {
+    const discardedAt = new Date().toISOString();
+    const seen = new Set<string>();
+    for (const entry of entries) {
+      const metadata = this.parseConversationMetadata(entry.metadata as any);
+      const remoteJid = this.normalizeMessageMetadataText(metadata.whatsappRemoteJid) || null;
+      const remoteJidAlt = this.normalizeMessageMetadataText(metadata.whatsappRemoteJidAlt) || null;
+      const contact = entry.contact ? String(entry.contact).trim() : null;
+      const sourcePhone = entry.sourcePhoneNormalized ? String(entry.sourcePhoneNormalized).trim() : null;
+      const phoneDigits = String(contact || sourcePhone || remoteJid || '').replace(/\D/g, '');
+      if (!contact && !remoteJid && !sourcePhone && !phoneDigits) continue;
+      // Grupos nunca entram (inbox 1:1) — e a supressão do bridge já os ignora.
+      if (String(remoteJid || contact || '').toLowerCase().includes('@g.us')) continue;
+      const dedupeKey = `${phoneDigits}|${remoteJid || ''}|${contact || ''}`;
+      if (seen.has(dedupeKey)) continue;
+      seen.add(dedupeKey);
+      await this.whatsappAudit.log({
+        companyId,
+        scope: 'inbox',
+        event: 'conversation_backend_deleted',
+        message: 'Conversa do número anterior descartada — bloqueada para reimportação.',
+        metadata: {
+          reason: 'old_session_discard',
+          currentSessionId,
+          discardedAt,
+          contact,
+          remoteJid,
+          remoteJidAlt,
+          sourcePhoneNormalized: sourcePhone,
+          phoneDigits: phoneDigits || null,
+          ...(phoneDigits.startsWith('55') ? { phoneDigitsLocal: phoneDigits.slice(2) } : {}),
+        },
+      });
+    }
   }
 
   async purgeConversationFromTrash(user: any, conversationId: number) {

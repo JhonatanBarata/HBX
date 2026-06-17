@@ -4543,6 +4543,10 @@ export class VendasService {
 
   private buildMasterNoticePayload(row: any) {
     const forceSeconds = Math.max(0, Math.min(120, Math.trunc(Number(row?.forceSeconds || 0) || 0)));
+    let payload: any = null;
+    try {
+      if (row?.payloadJson) payload = JSON.parse(String(row.payloadJson));
+    } catch { /* payload inválido → null */ }
     return {
       id: String(row?.id || ''),
       audience: this.normalizeMasterNoticeAudience(row?.audience),
@@ -4556,6 +4560,9 @@ export class VendasService {
       createdByUserId: Number(row?.createdByUserId || 0) || null,
       acknowledged: Boolean(row?.acknowledged),
       acknowledgedAt: row?.acknowledgedAt instanceof Date ? row.acknowledgedAt.toISOString() : row?.acknowledgedAt ? new Date(row.acknowledgedAt).toISOString() : null,
+      source: String(row?.source || 'master'),
+      nudgeKey: row?.nudgeKey ?? null,
+      payload,
     };
   }
 
@@ -4585,6 +4592,10 @@ export class VendasService {
         n."expiresAt",
         n."createdAt",
         n."createdByUserId",
+        n."targetUserId",
+        n."source",
+        n."nudgeKey",
+        n."payloadJson",
         CASE WHEN a."id" IS NULL THEN false ELSE true END AS "acknowledged",
         a."acknowledgedAt" AS "acknowledgedAt"
       FROM "MasterNotice" n
@@ -4594,6 +4605,7 @@ export class VendasService {
         AND n."audience" = ${audience}
         AND n."startsAt" <= ${now}
         AND (n."expiresAt" IS NULL OR n."expiresAt" >= ${now})
+        AND (n."targetUserId" IS NULL OR n."targetUserId" = ${context.userId})
       ORDER BY n."createdAt" DESC
       LIMIT 40
     `;

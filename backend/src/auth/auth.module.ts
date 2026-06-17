@@ -4,7 +4,7 @@ import { AuthController } from './auth.controller';
 import { UsersModule } from '../users/users.module';
 import { JwtModule } from '@nestjs/jwt';
 import { JwtStrategy } from './jwt.strategy';
-import { ProfileController } from './profile.controller';
+import { ProfileController, OnboardingController } from './profile.controller';
 import { RolesGuard } from './roles.guard';
 import { InternalController } from './internal.controller';
 import { MailModule } from '../mail/mail.module';
@@ -17,7 +17,7 @@ const jwtSecret = String(process.env.JWT_SECRET || '').trim();
 @Module({
   imports: [UsersModule, MailModule, MasterContextModule, CommissionsModule, JwtModule.register({ secret: jwtSecret, signOptions: { expiresIn: '1d' } })],
   providers: [AuthService, JwtStrategy, RolesGuard, ThemePreferencesService],
-  controllers: [AuthController, ProfileController, InternalController],
+  controllers: [AuthController, ProfileController, InternalController, OnboardingController],
   exports: [AuthService],
 })
 export class AuthModule {}

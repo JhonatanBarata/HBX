@@ -95,6 +95,29 @@ export class CreateFinanceiroSubscriptionDto {
   issuerId?: string;
 }
 
+// Troca de plano de assinatura ATIVA (upgrade/downgrade com proração/crédito — B6).
+// cardTokenId é opcional: só é exigido quando o upgrade precisa cobrar a diferença
+// no live e não há cartão reaproveitável. dryRun=true só calcula o preview.
+export class ChangeFinanceiroPlanDto {
+  @IsString()
+  @IsIn(['hbx_lite', 'hbx_padrao', 'hbx_pro', 'hbx_melhor'])
+  planKey!: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['MONTHLY', 'ANNUAL'])
+  billingCycle?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(8, 200)
+  cardTokenId?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  dryRun?: boolean;
+}
+
 export class ChangeFinanceiroSubscriptionCardDto {
   @IsString()
   @Length(8, 200)

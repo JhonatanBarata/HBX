@@ -1,4 +1,5 @@
-import { BadRequestException, Body, Controller, Get, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
 import { IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator';
 import * as bcrypt from 'bcryptjs';
 import { UsersService } from '../users/users.service';
@@ -9,6 +10,7 @@ import { ThemePreferencesService } from './theme-preferences.service';
 import { resolveCompanyKind, isPlatformInfraCompany, isTenantCompany } from '../common/company-kind';
 import { resolveCompanyAccessState } from '../modules/company-access-state';
 import { parsePreferredSegments } from '../users/preferred-segments.util';
+import { topSegment } from '../users/segment-affinity.util';
 
 class ChangePasswordDto {
   @IsString()
@@ -100,6 +102,10 @@ export function sanitizeUser(user: any, masterContext?: any) {
       preferredSegments: sellerPreferred.segments,
       // Cidade/região preferida (opcional) — round-trip da mesma tela.
       preferredCityRegion: sellerPreferred.cityRegion,
+      // Segmento mais tocado pela afinidade observada (17/06): default do "Puxar leads".
+      topSegment: topSegment((user as any).segmentAffinityJson),
+      // Sellers Brains (17/06): push mutado = true quando o vendedor clicou "Não exibir mais".
+      brainPushMuted: Boolean((user as any).brainPushMutedAt),
     },
     createdAt: user.createdAt,
     company: user.company
@@ -307,5 +313,68 @@ export class ProfileController {
       ? { ...updated, company: req.user.company }
       : updated;
     return sanitizeUser(runtimeUser, masterContext);
+  }
+}
+
+// Vitrine de onboarding (PR17062026038): preview de leads reais com telefone mascarado.
+// Serve pending_checkout — sem @ModuleAccess intencionalmente (é a isca pré-pagamento).
+function normalizeForSearch(value: string): string {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+function maskPhoneDigits(digits: string | null | undefined): string {
+  const d = String(digits || '').replace(/\D/g, '');
+  if (d.length < 10) return '(XX) XXXX-XXXX';
+  const ddd = d.slice(0, 2);
+  const local = d.slice(2);
+  const last2 = local.slice(-2);
+  if (local.length >= 9) return `(${ddd}) ${local[0]}XXXX-XX${last2}`;
+  return `(${ddd}) XXXX-XX${last2}`;
+}
+
+const VITRINE_EXCLUDED = ['rejected', 'duplicate', 'opt_out', 'blocked', 'complaint', 'negative', 'discarded', 'hidden', 'no_whatsapp', 'invalid_whatsapp'];
+
+@Controller('onboarding')
+export class OnboardingController {
+  constructor(private readonly prisma: PrismaService) {}
+
+  @Get('segment-preview')
+  @UseGuards(JwtAuthGuard)
+  async segmentPreview(@Query('segment') segment: string) {
+    try {
+      const pool = (this.prisma as any).radarLeadPool;
+      if (!pool?.findMany || !pool?.count) return { count: 0, sample: [] };
+      const normalized = normalizeForSearch(segment);
+      const keyword = normalized.split(/\s+/).find((w: string) => w.length > 2) || normalized.split(/\s+/)[0] || '';
+      if (!keyword) return { count: 0, sample: [] };
+      const where = {
+        normalizedSegment: { contains: keyword },
+        status: { notIn: VITRINE_EXCLUDED },
+        phoneDigits: { not: null },
+      };
+      const [count, rows] = await Promise.all([
+        pool.count({ where }),
+        pool.findMany({
+          where,
+          select: { name: true, city: true, ddd: true, phoneDigits: true },
+          take: 18,
+          orderBy: { opportunityScore: 'desc' },
+        }),
+      ]);
+      const sample = (rows as any[]).map((row) => ({
+        name: String(row.name || '').trim(),
+        city: String(row.city || '').trim(),
+        ddd: String(row.ddd || String(row.phoneDigits || '').slice(0, 2)),
+        phoneMasked: maskPhoneDigits(row.phoneDigits),
+      }));
+      return { count, sample };
+    } catch {
+      return { count: 0, sample: [] };
+    }
   }
 }

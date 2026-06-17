@@ -96,6 +96,7 @@ import {
   minutesAgo,
   formatCityWithState,
 } from '../radar-core-method-imports';
+import { incrementAffinity } from '../../../users/segment-affinity.util';
 
 import type {
   AutonomousMassDataCandidate,
@@ -1878,6 +1879,20 @@ export class RadarCoreDeliveryMixin {
   // vendedor para si mesmo, respeitando quota de cards ativos + teto diario.
   // O push (distributeRadarLeadsToVendedoresForUser) e o radar/pull reserve-only
   // (pullRadarLeadsForUser) seguem vivos e intocados.
+  private async _bumpSegmentAffinity(userId: number, segment: string): Promise<void> {
+    const n = normalizeLookupValue(String(segment || ''));
+    if (!n || !userId) return;
+    const row = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { segmentAffinityJson: true } as any,
+    }).catch(() => null);
+    const next = incrementAffinity((row as any)?.segmentAffinityJson, n);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { segmentAffinityJson: next } as any,
+    }).catch(() => null);
+  }
+
   async pullRadarLeadsToVendasForUser(user: any, input: RadarFiltersInput = {}) {
     const context = this.resolveContext(user);
     // Modelo PULL (dono, 14/06/2026): quem puxa card para a própria carteira é o
@@ -1952,9 +1967,27 @@ export class RadarCoreDeliveryMixin {
     const importAsAdmin = { id: adminRow.id, companyId: adminRow.companyId, role: 'ADMIN', isSystemMaster: false };
 
     const queryLimit = Math.max(allowed * 3, 60);
-    let rows = await this.queryRadarRowsForCompany(context.companyId, filters, { limit: queryLimit, requirePhone: false, availableOnly: true });
+    const requestedLeadIds = Array.isArray((input as any).leadIds) && (input as any).leadIds.length > 0
+      ? (input as any).leadIds.slice(0, allowed * 2)
+      : null;
+    let rows = requestedLeadIds
+      ? await (this.prisma as any).radarLeadPool.findMany({
+          where: { id: { in: requestedLeadIds } },
+          include: {
+            companyStates: {
+              where: { companyId: context.companyId }, take: 1,
+              select: { status: true, vendasLeadId: true, lastActionAt: true, noAnswerCount: true, contactedCount: true, lastContactAt: true, complaintReason: true, deniedReason: true, assignedUserId: true, assignedByUserId: true, assignedAt: true },
+            },
+            events: {
+              where: { OR: [{ companyId: context.companyId }, { companyId: null }] },
+              orderBy: { createdAt: 'desc' }, take: 3,
+              select: { id: true, eventType: true, note: true, createdAt: true },
+            },
+          },
+        }).catch(() => [])
+      : await this.queryRadarRowsForCompany(context.companyId, filters, { limit: queryLimit, requirePhone: false, availableOnly: true });
     let replenish: any = { ran: false, cleanStockBefore: rows.length };
-    if (rows.length < allowed && filters.normalizedCity) {
+    if (!requestedLeadIds && rows.length < allowed && filters.normalizedCity) {
       try {
         replenish = await this.replenishRadarStockForUser(user, {
           ...input,
@@ -1998,6 +2031,7 @@ export class RadarCoreDeliveryMixin {
     }
 
     const commissionPercent = Math.max(0, Math.min(100, Number(seller?.commissionPercent || 0) || 0));
+    if (pulled > 0) this._bumpSegmentAffinity(context.userId, filters.normalizedSegment).catch(() => null);
     return {
       ok: pulled > 0,
       pulledCount: pulled,
@@ -2016,6 +2050,73 @@ export class RadarCoreDeliveryMixin {
         : failures.length
           ? `Nenhum lead puxado. ${failures[0]?.error || ''}`.trim()
           : 'Sem leads disponiveis na lagoa para esse filtro agora. Tente outro segmento ou cidade.',
+    };
+  }
+
+  async previewRadarLeadsForVendedor(user: any, input: RadarFiltersInput = {}) {
+    const context = this.resolveContext(user);
+    const isSeller = this.isCompanySellerUser(user);
+    const isAdmin = this.canUseWebscrapingRole(user);
+    if (!isSeller && !isAdmin) {
+      throw new ForbiddenException('Sem permissão para visualizar leads do Radar.');
+    }
+    if (isSeller) {
+      await this.assertSellerTeamPolicyAccess(user, 'radar.cards.pull', 'Puxar cards do Radar está bloqueado pela política da equipe.');
+    }
+    if (!(await this.supportsRadarPersistence())) {
+      throw new ServiceUnavailableException('Banco do Radar ainda não foi migrado neste ambiente.');
+    }
+
+    const filters = await this.applyTeamPolicyRadarFilters(context, this.normalizeRadarFilters(input));
+    if (!filters.normalizedSegment) {
+      throw new BadRequestException('Escolha um segmento para visualizar leads do Radar.');
+    }
+
+    const requested = Math.max(1, Math.min(Math.trunc(Number(filters.quantity || 5)) || 5, 50));
+    const dayKey = this.getSaoPauloDayKey();
+    const seller = await this.prisma.user.findUnique({
+      where: { id: context.userId },
+      select: { id: true, sellerDistributionDailyLimitOverride: true, teamPolicy: { select: { cardDeliveryDailyMode: true, cardDeliveryDailyLimit: true } } },
+    }).catch(() => null);
+    const dailyLimit = this.resolveSellerDistributionDailyLimit(seller, 20);
+    const dailySnapshot = await this.getDailyDistributionSnapshot(context.companyId, context.userId, dailyLimit, dayKey);
+    const activeQuota = this.commercialUsageLimits
+      ? await this.commercialUsageLimits.getSellerActiveCardQuotaSnapshot(context.companyId, context.userId).catch(() => null)
+      : null;
+
+    const dailyRemaining = Math.max(0, Math.trunc(Number(dailySnapshot?.remainingToday ?? requested)) || 0);
+    const activeRemaining = activeQuota?.seller ? Math.max(0, Math.trunc(Number(activeQuota.availableSlots || 0))) : requested;
+    const canPull = Math.max(0, Math.min(requested, dailyRemaining, activeRemaining));
+
+    if (canPull <= 0) {
+      return {
+        ok: false,
+        canPull: 0,
+        code: activeRemaining <= 0 ? 'SELLER_CARD_QUOTA_REACHED' : 'SELLER_DAILY_LIMIT_REACHED',
+        message: activeRemaining <= 0
+          ? 'Seu limite de cards ativos foi atingido. Finalize ou transfira cards antes de puxar mais.'
+          : 'Você atingiu o limite diário de cards. Tente novamente amanhã.',
+        leads: [],
+      };
+    }
+
+    const queryLimit = Math.max(canPull * 3, 60);
+    const rows = await this.queryRadarRowsForCompany(context.companyId, filters, {
+      limit: queryLimit,
+      requirePhone: false,
+      availableOnly: true,
+    });
+
+    const leads = rows
+      .slice(0, canPull)
+      .map((row: any) => this.buildRadarLeadPublic(row, { maskContact: true }));
+
+    return {
+      ok: true,
+      canPull,
+      dailyRemaining,
+      leads,
+      filters: { segment: filters.segment, city: filters.city, state: filters.state },
     };
   }
 
@@ -3359,6 +3460,9 @@ export class RadarCoreDeliveryMixin {
       statusFrom: this.normalizeRadarLeadStatus(leadRow.status),
       statusTo: 'sent_to_vendas',
     });
+    if (!assignedUserId && leadRow?.segment) {
+      this._bumpSegmentAffinity(context.userId, String(leadRow.segment)).catch(() => null);
+    }
     return {
       ok: true,
       radarLeadId: leadRow.id,

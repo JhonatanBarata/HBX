@@ -699,21 +699,33 @@ export function VendasClient() {
           </div>
 
           <aside className="ctx">
-            <h3>Detalhes do negócio <span className="x">✕</span></h3>
-            <div>
-              <div className="company">{deal?.name || "Selecione um card"}</div>
-              <div className="sub">{deal?.segment || deal?.city || "—"}</div>
-              {/* telefone na cara (caminho da vendedora): número grande e clicável */}
-              {deal?.phone ? (
-                <a href={`tel:${deal.phone.replace(/[^\d+]/g, "")}`}
-                  style={{ marginTop: 10, display: "inline-flex", alignItems: "center", gap: 8, padding: "9px 13px", borderRadius: "var(--radius-md)", border: "1px solid var(--hbx-brand)", background: "var(--hbx-surface-soft)", color: "var(--hbx-brand-strong)", fontFamily: "var(--font-mono)", fontSize: "0.96rem", fontWeight: 800, letterSpacing: "0.02em", textDecoration: "none" }}>
-                  <CanalIcon canal="telefone" /> {deal.phone}
-                </a>
-              ) : deal ? (
-                <div style={{ marginTop: 10, fontSize: "0.72rem", color: "var(--text-muted)" }}>Sem telefone neste card.</div>
-              ) : null}
-              <div style={{ marginTop: 8 }}><span className="tag">{deal?.statusLabel || "—"}</span></div>
+            <h3>Detalhes do negócio <span className="x" onClick={() => setSel(null)}>✕</span></h3>
+
+            <div key={deal?.id ?? "empty"} className="ctx-body">
+            {/* Hero: avatar + nome + segmento + etapa */}
+            <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
+              <Av name={deal?.name || "—"} size={56} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <span className="company">{deal?.name || "Selecione um card"}</span>
+                <div className="sub">{deal?.segment || deal?.city || "—"}</div>
+                {deal?.city && deal?.segment && (
+                  <div className="sub" style={{ marginTop: 3, display: "inline-flex", gap: 4, alignItems: "center" }}>
+                    <I d={ICONS.mapin} size={11} /> {deal.city}{deal.state ? `, ${deal.state}` : ""}
+                  </div>
+                )}
+                <div style={{ marginTop: 6 }}><span className="tag">{deal?.statusLabel || "—"}</span></div>
+              </div>
             </div>
+
+            {/* Telefone em destaque */}
+            {deal?.phone ? (
+              <a href={`tel:${deal.phone.replace(/[^\d+]/g, "")}`} className="ctx-phone">
+                <CanalIcon canal="telefone" /> {deal.phone}
+              </a>
+            ) : deal ? (
+              <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Sem telefone neste card.</div>
+            ) : null}
+
             <div className="kv">
               <div className="row"><span className="k">Valor</span><span className="v" style={{ fontFamily: "var(--font-mono)" }}>{deal ? leadValueLabel(deal) : "—"}</span></div>
               <div className="row"><span className="k">Produto</span><span className="v">{deal?.product?.name || "—"}</span></div>
@@ -844,6 +856,8 @@ export function VendasClient() {
               </div>
               <div style={{ marginTop: 10 }}><span className="link">Ver relatório completo</span></div>
             </div>
+
+            </div>{/* /ctx-body */}
           </aside>
         </div>
 
