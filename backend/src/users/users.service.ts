@@ -538,7 +538,7 @@ export class UsersService {
 
   async create(data: {
     username?: string | null;
-    email: string;
+    email?: string | null;
     password: string;
     name?: string | null;
     phone?: string | null;

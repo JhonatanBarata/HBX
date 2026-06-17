@@ -3,7 +3,7 @@ type AvailabilityStatus = 'unknown' | 'available' | 'unavailable';
 export type VendasLeadIntelligenceInput = {
   lead: any;
   whatsappAvailability?: { status?: AvailabilityStatus | string | null; checkedAt?: string | null } | null;
-  verifiedBy?: 'platform_engine' | 'client_engine' | 'manual' | null;
+  verifiedBy?: 'platform_engine' | 'manual' | null;
   templateOffset?: number;
 };
 
@@ -452,7 +452,7 @@ export function buildVendasLeadIntelligence(input: VendasLeadIntelligenceInput) 
     leadReasonTags: Array.from(tags),
     nextBestAction,
     lastVerifiedAt: input.whatsappAvailability?.checkedAt || null,
-    verifiedBy: input.verifiedBy || (input.whatsappAvailability?.checkedAt ? 'client_engine' : null),
+    verifiedBy: input.verifiedBy || (input.whatsappAvailability?.checkedAt ? 'platform_engine' : null),
     visibilityTier: radarEnrichment.visibilityTier || null,
     deliveryProduct: radarEnrichment.deliveryProduct || null,
     debitEligible: typeof radarEnrichment.debitEligible === 'boolean' ? radarEnrichment.debitEligible : null,

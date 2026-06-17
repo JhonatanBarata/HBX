@@ -19,7 +19,7 @@ function buildPrismaMock(overrides: Record<string, any> = {}) {
       company: {
         findUnique: async ({ where }: any) => ({
           id: Number(where.id),
-          name: overrides.companyName || 'HBX Infra WhatsApp Engine',
+          name: overrides.companyName || 'WhatsApp do Master',
         }),
       },
       vendasLead: {

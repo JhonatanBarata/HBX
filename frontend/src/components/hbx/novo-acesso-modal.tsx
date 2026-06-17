@@ -58,6 +58,7 @@ const DOC_SLOTS: { kind: string; label: string; defaultRequired: boolean }[] = [
 
 const FORM_VAZIO = {
   role: "USER" as "USER" | "ADMIN",
+  username: "",
   name: "",
   email: "",
   phone: "",
@@ -116,6 +117,11 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
     : { ...FORM_VAZIO, ...(rascunho0.current?.form || {}) }));
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  // Cadastro simples (usuário+senha) é o padrão ao CRIAR; "Cadastro completo"
+  // revela o formulário inteiro de hoje. Gerenciar não tem modo simples.
+  const [modoCompleto, setModoCompleto] = useState(false);
+  // Aviso ao vivo: o usuário já existe? (único GLOBAL). O create revalida no servidor.
+  const [usernameCheck, setUsernameCheck] = useState<"" | "checking" | "free" | "taken">("");
   const [seatInfo, setSeatInfo] = useState<SeatBilling>(null);
   const [emailUsable, setEmailUsable] = useState(false);
   const [createdUserId, setCreatedUserId] = useState<number | null>(() => member?.id ?? rascunho0.current?.createdUserId ?? null);
@@ -170,6 +176,22 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
     } catch { /* sem storage */ }
   }, [form, createdUserId, isEdit]);
 
+  // Aviso "esse usuário já existe?" enquanto digita (debounce). Só ao CRIAR.
+  // setState fica DENTRO do timeout (assíncrono) — não pode ser síncrono no corpo.
+  useEffect(() => {
+    if (isEdit) return;
+    const u = form.username.trim().toLowerCase();
+    const valido = u.length >= 2 && !u.includes("@");
+    const t = setTimeout(() => {
+      if (!valido) { setUsernameCheck(""); return; }
+      setUsernameCheck("checking");
+      apiFetch<{ available?: boolean }>(`/users/company/username-available?u=${encodeURIComponent(u)}`)
+        .then(r => setUsernameCheck(r?.available ? "free" : "taken"))
+        .catch(() => setUsernameCheck(""));
+    }, valido ? 400 : 0);
+    return () => clearTimeout(t);
+  }, [form.username, isEdit]);
+
   function fechar() {
     if (!isEdit) {
       limparRascunho();
@@ -202,11 +224,17 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
     e.preventDefault();
     if (isEdit) { salvarEdicao(); return; }
     if (busy || createdUserId) return;
+    const usuario = form.username.trim();
+    const temEmail = Boolean(form.email.trim());
+    if (!usuario && !temEmail) { setMsg("Informe um usuário (ou um e-mail no cadastro completo)."); return; }
+    if (usernameCheck === "taken") { setMsg("Esse usuário já existe — escolha outro."); return; }
+    if (!temEmail && !form.password.trim()) { setMsg("Sem e-mail, defina uma senha — ela é o acesso do vendedor."); return; }
     setBusy(true);
     setMsg(null);
     try {
       const body: Record<string, unknown> = {
-        email: form.email.trim(),
+        ...(usuario ? { username: usuario } : {}),
+        ...(temEmail ? { email: form.email.trim() } : {}),
         role: form.role,
         ...(form.name.trim() ? { name: form.name.trim() } : {}),
         ...(form.phone.trim() ? { phone: form.phone.trim() } : {}),
@@ -486,6 +514,13 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
   const ativo = member?.isActive !== false;
   const emailConfirmado = Boolean(onboarding?.user?.emailConfirmedAt);
   const nomeMembro = member?.name || member?.username || member?.email || (member ? `Usuário ${member.id}` : "");
+  const avisoUsuario = !isEdit && usernameCheck ? (
+    usernameCheck === "checking"
+      ? <span className="hint">Verificando…</span>
+      : <span className={"tag " + (usernameCheck === "taken" ? "red" : "teal")}>
+          {usernameCheck === "taken" ? "Esse usuário já existe — escolha outro." : "✓ Disponível"}
+        </span>
+  ) : null;
 
   return (
     <div className="hbx-veil"
@@ -535,6 +570,38 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18, alignItems: "start" }}>
           {/* coluna esquerda — formulário */}
           <form onSubmit={criar} style={{ display: "grid", gap: 11 }}>
+            {!isEdit && !modoCompleto ? (
+              /* ===== CADASTRO SIMPLES: usuário + senha. Acabou. ===== */
+              <React.Fragment>
+                <div style={{ display: "grid", gap: 6 }}>
+                  <label style={lbl}>Usuário (login)</label>
+                  <input className="field-dark" maxLength={60} autoFocus placeholder="ex.: joao.silva" value={form.username}
+                    onChange={e => setForm(f => ({ ...f, username: e.target.value }))} />
+                  {avisoUsuario}
+                </div>
+                <div style={{ display: "grid", gap: 6 }}>
+                  <label style={lbl}>Senha</label>
+                  <input className="field-dark" type="password" minLength={8} maxLength={120} placeholder="mín. 8" value={form.password}
+                    onChange={e => setForm(f => ({ ...f, password: e.target.value }))} autoComplete="new-password" />
+                </div>
+                <button className="btn-teal" type="submit" disabled={busy || usernameCheck === "taken" || !form.username.trim() || !form.password.trim()} style={{ minHeight: 42 }}>
+                  {busy ? "Criando…" : "Criar acesso"}
+                </button>
+                <button type="button" className="btn-ghost" onClick={() => setModoCompleto(true)}>Cadastro completo ▸</button>
+                <span className="hint">
+                  Só usuário e senha — ele entra digitando o usuário. E-mail, comissão, documentos e contrato ficam no cadastro completo.
+                </span>
+              </React.Fragment>
+            ) : (
+              <React.Fragment>
+            {!isEdit && (
+              <div style={{ display: "grid", gap: 6 }}>
+                <label style={lbl}>Usuário (login)</label>
+                <input className="field-dark" maxLength={60} placeholder="ex.: joao.silva" value={form.username} disabled={travaForm}
+                  onChange={e => setForm(f => ({ ...f, username: e.target.value }))} />
+                {avisoUsuario}
+              </div>
+            )}
             {/* Régua única (PR13062026007 P5): Dono cunha Vendedor ou Gerente.
                 Cargo só no cadastro — quem troca papel depois é o Master. */}
             <div style={{ display: "grid", gap: 6 }}>
@@ -551,8 +618,8 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
                 onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
             </div>
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={lbl}>E-mail{isEdit ? " (login)" : " *"}</label>
-              <input className="field-dark" type="email" required={!isEdit} maxLength={180} value={form.email} disabled={soCadastro}
+              <label style={lbl}>E-mail{isEdit ? " (login)" : " (opcional)"}</label>
+              <input className="field-dark" type="email" maxLength={180} value={form.email} disabled={soCadastro}
                 onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
             </div>
             <div style={{ display: "grid", gap: 6 }}>
@@ -681,10 +748,15 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
               </React.Fragment>
             ) : (
               !painelAtivo && (
-                <button className="btn-teal" type="submit" disabled={busy} style={{ minHeight: 42 }}>
+                <button className="btn-teal" type="submit" disabled={busy || usernameCheck === "taken"} style={{ minHeight: 42 }}>
                   {busy ? "Criando…" : "Criar acesso"}
                 </button>
               )
+            )}
+            {!isEdit && (
+              <button type="button" className="btn-ghost" onClick={() => setModoCompleto(false)}>‹ Cadastro simples</button>
+            )}
+              </React.Fragment>
             )}
           </form>
 

@@ -174,7 +174,11 @@ function ensureRequiredEnv(env) {
     hbxEngineWarmCount,
     hbxEngineMaxCount,
     hbxClientReservedEngines,
-    googleClientId: String(env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '').trim(),
+    googleClientId: String(
+      env.NEXT_PUBLIC_GOOGLE_CLIENT_ID
+      || loadEnvFromFiles([path.join(repoRoot, '.env')]).NEXT_PUBLIC_GOOGLE_CLIENT_ID
+      || '',
+    ).trim(),
     webwhatsAppDir: String(env.WEBWHATS_APP_DIR || `${env.HOSTINGER_APP_DIR}/Webwhats`).trim(),
     webwhatsSystemdService: String(env.WEBWHATS_SYSTEMD_SERVICE || 'webwhats').trim(),
   };

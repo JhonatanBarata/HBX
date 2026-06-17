@@ -32,8 +32,19 @@ class UpdateRoleDto {
 }
 
 class CreateCompanyUserDto {
+	// Login do vendedor (cadastro simples = usuário + senha). Identificador próprio,
+	// não precisa de e-mail — o login resolve por username antes de e-mail
+	// (findByLoginIdentifier). Único GLOBAL na tabela User.
+	@IsOptional()
+	@IsString()
+	@MaxLength(60)
+	username?: string;
+
+	// E-mail agora OPCIONAL: o simples dispensa. Segue necessário só pras funções
+	// que dependem dele (onboarding/boas-vindas), todas no cadastro completo.
+	@IsOptional()
 	@IsEmail()
-	email!: string;
+	email?: string;
 
 	@IsOptional()
 	@IsString()
@@ -1135,12 +1146,25 @@ export class UsersController {
 		}
 
 		const email = String(dto?.email || '').trim().toLowerCase();
-		if (!email) throw new BadRequestException('email is required');
+		// Cadastro simples = usuário + senha (sem e-mail). O username é o login;
+		// cai pro e-mail quando não vier (back-compat de quem só manda e-mail).
+		const username = String(dto?.username || '').trim().toLowerCase() || email;
+		if (!username) throw new BadRequestException('Informe um usuário ou e-mail.');
+		if (username.includes('@') && username !== email) {
+			throw new BadRequestException('O usuário não pode conter "@". Use o campo de e-mail.');
+		}
+		// Sem e-mail não há boas-vindas pra entregar credencial — a senha (que é o
+		// próprio login do vendedor) passa a ser obrigatória.
+		if (!email && !String(dto?.password || '').trim()) {
+			throw new BadRequestException('Sem e-mail, defina uma senha — ela é o acesso do vendedor.');
+		}
 
-		const existing = await this.usersService.findByEmail(email);
-		if (existing) throw new BadRequestException('E-mail já cadastrado');
-		const existingUsername = await this.usersService.findByUsername(email);
-		if (existingUsername) throw new BadRequestException('Username já cadastrado');
+		const existingUsername = await this.usersService.findByUsername(username);
+		if (existingUsername) throw new BadRequestException('Esse usuário já existe — escolha outro.');
+		if (email) {
+			const existing = await this.usersService.findByEmail(email);
+			if (existing) throw new BadRequestException('E-mail já cadastrado');
+		}
 
 		const referralCandidateId = String(dto.referralCandidateId || '').trim();
 		const referralCandidate = referralCandidateId
@@ -1185,8 +1209,8 @@ export class UsersController {
 		if (requestedPassword) assertPasswordPolicy(requestedPassword);
 		const hashedPassword = requestedPassword ? await bcrypt.hash(requestedPassword, 10) : '';
 		const created = await this.usersService.create({
-			email,
-			username: email,
+			email: email || null,
+			username,
 			name: attendantName || undefined,
 			phone,
 			commissionPercent,
@@ -1254,6 +1278,21 @@ export class UsersController {
 			invite,
 			onboardingEmail,
 		};
+	}
+
+	// Aviso ao vivo do cadastro simples: "esse usuário já existe?". Único GLOBAL —
+	// se existir em qualquer empresa, colide no login. Backstop é o 400 do create.
+	@Get('company/username-available')
+	@UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
+	@Admin()
+	@ModuleAccess('gerencial')
+	async usernameAvailable(@Query('u') u?: string) {
+		const username = String(u || '').trim().toLowerCase();
+		if (!username || username.length < 2 || username.includes('@')) {
+			return { available: false };
+		}
+		const existing = await this.usersService.findByUsername(username);
+		return { available: !existing };
 	}
 
 	@Post('hbx/referred-seller')

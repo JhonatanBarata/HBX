@@ -4997,42 +4997,43 @@ export class VendasService {
         Date.now() - availabilityCheckedAt > 30 * 24 * 60 * 60 * 1000);
 
     if (phoneDigits && shouldRefreshWhatsapp) {
-      try {
-        const engineCompanyId = await this.getOrCreateMasterWhatsappEngineCompanyId();
-        if (!engineCompanyId) return null;
-        const [lookup] = await this.webwhatsBridge.checkWhatsappNumbers(engineCompanyId, [phoneDigits]);
-        if (lookup) {
-          const status: VendasWhatsappAvailabilityStatus = lookup.exists ? 'available' : 'unavailable';
-          const now = new Date();
-          const phoneLabel = this.buildPreferredLeadContact(phoneDigits) || `+${phoneDigits}`;
-          const message = lookup.exists
-            ? `Consulta tecnica confirmou WhatsApp para ${phoneLabel}.`
-            : `Consulta tecnica nao encontrou WhatsApp para ${phoneLabel}.`;
-          availability = {
-            status,
-            checkedAt: now.toISOString(),
-            phoneDigits,
-            message,
-          };
-          verifiedBy = 'platform_engine';
-          await this.prisma.vendasLeadTimelineEvent.create({
-            data: {
-              leadId: lead.id,
-              ...this.buildTimelineEvent({
-                eventType: 'generic',
-                title: lookup.exists ? 'WhatsApp verificado pelo motor tecnico' : 'Motor tecnico nao encontrou WhatsApp',
-                description: message,
-                sourceType: VENDAS_WHATSAPP_LOOKUP_SOURCE,
-                resultLabel: status,
-                createdByUserId: userId,
-              }),
-            },
-          }).catch(() => null);
+      const engineCompanyId = await this.getOrCreateMasterWhatsappEngineCompanyId();
+      if (engineCompanyId) {
+        try {
+          const [lookup] = await this.webwhatsBridge.checkWhatsappNumbers(engineCompanyId, [phoneDigits]);
+          if (lookup) {
+            const status: VendasWhatsappAvailabilityStatus = lookup.exists ? 'available' : 'unavailable';
+            const now = new Date();
+            const phoneLabel = this.buildPreferredLeadContact(phoneDigits) || `+${phoneDigits}`;
+            const message = lookup.exists
+              ? `Consulta tecnica confirmou WhatsApp para ${phoneLabel}.`
+              : `Consulta tecnica nao encontrou WhatsApp para ${phoneLabel}.`;
+            availability = {
+              status,
+              checkedAt: now.toISOString(),
+              phoneDigits,
+              message,
+            };
+            verifiedBy = 'platform_engine';
+            await this.prisma.vendasLeadTimelineEvent.create({
+              data: {
+                leadId: lead.id,
+                ...this.buildTimelineEvent({
+                  eventType: 'generic',
+                  title: lookup.exists ? 'WhatsApp verificado pelo motor tecnico' : 'Motor tecnico nao encontrou WhatsApp',
+                  description: message,
+                  sourceType: VENDAS_WHATSAPP_LOOKUP_SOURCE,
+                  resultLabel: status,
+                  createdByUserId: userId,
+                }),
+              },
+            }).catch(() => null);
+          }
+        } catch (error: any) {
+          this.logger.warn(
+            `[vendas-enrichment] Falha na verificacao tecnica lead=${lead.id} company=${companyId}: ${String(error?.message || error)}`,
+          );
         }
-      } catch (error: any) {
-        this.logger.warn(
-          `[vendas-enrichment] Falha na verificacao tecnica lead=${lead.id} company=${companyId}: ${String(error?.message || error)}`,
-        );
       }
     }
 
