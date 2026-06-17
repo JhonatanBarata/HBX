@@ -386,7 +386,7 @@ export function BotClient() {
               <div className="block" key={b.t} role="button" tabIndex={0} title="Configurar nas Configurações"
                 style={{ cursor: "pointer" }} onClick={() => setTab(1)}
                 onKeyDown={e => (e.key === "Enter" || e.key === " ") && setTab(1)}>
-                <span className="bicon" style={{ background: b.c }}><I d={ICONS[b.ic]} size={15} /></span>
+                <span className="bicon" style={{ background: b.c }}><I d={ICONS[b.ic]} size={17} /></span>
                 <span><strong>{b.t}</strong><small>{b.d}</small></span>
               </div>
             ))}
@@ -403,17 +403,22 @@ export function BotClient() {
               <button className="ct" title="Aumentar zoom" onClick={zoomIn}><I d={ICONS.plus} size={14} /></button>
             </div>
             <div style={{ position: "relative", width: 940, height: 640, transform: `scale(${zoom})`, transformOrigin: "top left" }}>
-              <svg style={{ position: "absolute", inset: 0, pointerEvents: "none" }} width="940" height="640">
+              <svg style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "visible" }} width="940" height="640">
                 {EDGES.map((e, i) => {
                   const [x1, y1] = e.from, [x2, y2] = e.to;
                   const d = e.curve
                     ? `M ${x1} ${y1} C ${x1} ${y1 + 50}, ${x2} ${y2 - 50}, ${x2} ${y2}`
                     : `M ${x1} ${y1} L ${x2} ${y2}`;
                   return (
-                    <g key={i}>
-                      <path d={d} style={{ stroke: e.c }} strokeWidth="1.6" fill="none" opacity="0.85" />
-                      <circle cx={x2} cy={y2} r="3.5" style={{ fill: e.c }} />
-                      <circle cx={x1} cy={y1} r="3.5" style={{ fill: e.c }} opacity="0.6" />
+                    <g key={i} className="edge-group" style={{ color: e.c }}>
+                      <path d={d} className="wire-base" stroke="currentColor" strokeWidth="2.4" fill="none" />
+                      <path d={d} className="wire-flow"  stroke="currentColor" strokeWidth="1.8" fill="none"
+                        style={{ animationDelay: `-${(i * 0.31).toFixed(2)}s` }} />
+                      <path d={d} className="wire-spark" stroke="currentColor" strokeWidth="5" fill="none"
+                        style={{ animationDelay: `${(i * 1.3).toFixed(1)}s` }} />
+                      <circle cx={x2} cy={y2} r="5" fill="currentColor" className="wire-dot"
+                        style={{ animationDelay: `${(i * 0.6).toFixed(1)}s` }} />
+                      <circle cx={x1} cy={y1} r="3.5" fill="currentColor" opacity="0.45" />
                     </g>
                   );
                 })}
@@ -421,7 +426,7 @@ export function BotClient() {
               {NODES.map(n => (
                 <article key={n.id} className={"node" + (selNode === n.id ? " sel" : "")} style={{ left: n.x, top: n.y }} onClick={() => setSelNode(n.id)}>
                   <div className="nh">
-                    <span className="bicon" style={{ background: n.c, width: 26, height: 26 }}><I d={ICONS[n.ic]} size={13} /></span>
+                    <span className="bicon" style={{ background: n.c, width: 34, height: 34 }}><I d={ICONS[n.ic]} size={16} /></span>
                     <strong>{n.t}</strong>
                   </div>
                   <div className="nb">{nodeBody(n)}</div>
@@ -547,15 +552,25 @@ export function BotClient() {
           </div>
         )}
 
-        {tab >= 2 && (
-          <div className="work" style={{ flex: 1 }}>
-            <section className="panel">
-              <div style={{ padding: 18, fontSize: "0.76rem", color: "var(--text-muted)" }}>
-                {["", "", "Integrações", "Publicação", "Análises"][tab]} ainda não tem contrato no backend — entra na fase técnica.
+        {tab >= 2 && (() => {
+          const slots: Record<number, { icon: string[]; title: string; desc: string; color: string }> = {
+            2: { icon: ICONS.scrape, title: "Conecte suas ferramentas", desc: "Zapier, webhooks, API própria e muito mais — disponível na fase técnica.", color: "var(--hbx-info)" },
+            3: { icon: ICONS.send,   title: "Publique com controle total", desc: "Ambientes, versionamento e rollback instantâneo do bot — chegando em breve.", color: "var(--hbx-brand)" },
+            4: { icon: ICONS.relat,  title: "Veja o bot em ação", desc: "Taxa de conclusão, pontos de abandono e funil de conversão em tempo real.", color: "var(--hbx-success)" },
+          };
+          const s = slots[tab];
+          if (!s) return null;
+          return (
+            <div className="bot-empty">
+              <div className="bot-empty-ring" style={{ "--ec": s.color } as React.CSSProperties}>
+                <span className="bicon" style={{ background: s.color }}><I d={s.icon} size={26} /></span>
               </div>
-            </section>
-          </div>
-        )}
+              <strong className="bot-empty-title">{s.title}</strong>
+              <p className="bot-empty-desc">{s.desc}</p>
+              <span className="bot-empty-badge">Em breve</span>
+            </div>
+          );
+        })()}
     </React.Fragment>
   );
 }

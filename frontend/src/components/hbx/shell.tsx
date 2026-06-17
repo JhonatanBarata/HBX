@@ -52,7 +52,7 @@ export const ICONS: Record<string, string[]> = {
   scrape: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z", "M3.5 12h17", "M12 3a14 14 0 0 1 0 18"],
   vendas: ["M7 17l4-6 3 3 4-7", "M3 3v18h18"],
   atend: ["M4.5 13.8v-2.2a7.5 7.5 0 0 1 15 0v2.2", "M7.5 17.5h-1a2 2 0 0 1-2-2v-1.1a2 2 0 0 1 2-2h1v5.1Z", "M16.5 17.5h1a2 2 0 0 0 2-2v-1.1a2 2 0 0 0-2-2h-1v5.1Z"],
-  bot: ["M12 6V3", "M7 9h10a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2Z", "M9.5 13h.01M14.5 13h.01"],
+  bot: ["M8 4L7 7M16 4L17 7", "M7 7h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z", "M9 11l2 2M11 11l-2 2M13 11l2 2M15 11l-2 2", "M9.5 15c1-1.5 4-1.5 5 0", "M9 17v2M15 17v2"],
   relat: ["M5 20V10M12 20V4M19 20v-7"],
   config: ["M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z", "M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3 1a7 7 0 0 0-2.1-1.2L14 3h-4l-.5 2.7a7 7 0 0 0-2.1 1.2l-2.3-1-2 3.4 2 1.5A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.4 2.3-1c.6.5 1.3.9 2.1 1.2L10 21h4l.5-2.7a7 7 0 0 0 2.1-1.2l2.3 1 2-3.4-2-1.5c.1-.4.1-.8.1-1.2Z"],
   bell: ["M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9", "M10.3 21a2 2 0 0 0 3.4 0"],
@@ -109,9 +109,22 @@ export function Spark({ tone = "var(--hbx-brand-strong)", down = false }: { tone
   );
 }
 
-export function Av({ name, size = 20 }: { name?: string; size?: number }) {
+// Avatar: foto real do WhatsApp quando houver (src), com queda pras iniciais
+// se a URL falhar/expirar (CDN pps.whatsapp.net expira). Ponto verde "online"
+// opcional. Visual (círculo/cor/ponto) vem do kit (.avatar / .avatar-*); aqui só
+// layout (tamanho). onError esconde a <img> via DOM → as iniciais por baixo aparecem.
+export function Av({ name, size = 20, src, online }: { name?: string; size?: number; src?: string | null; online?: boolean }) {
   const ini = String(name || "?").trim().split(/\s+/).slice(0, 2).map(w => w[0]).join("") || "?";
-  return <span className="avatar" style={{ width: size, height: size, fontSize: size * 0.38 }}>{ini}</span>;
+  return (
+    <span className="avatar" style={{ width: size, height: size, fontSize: size * 0.38 }}>
+      <span className="avatar-ini">{ini}</span>
+      {src
+        // eslint-disable-next-line @next/next/no-img-element -- foto de perfil do WhatsApp (URL externa/dinâmica do CDN)
+        ? <img className="avatar-img" src={src} alt="" loading="lazy" onError={e => { e.currentTarget.style.display = "none"; }} />
+        : null}
+      {online ? <i className="avatar-dot" aria-hidden="true" /> : null}
+    </span>
+  );
 }
 
 // Confirm padrão do kit (substitui window.confirm). Mesma cara do hbx-modal.
@@ -185,6 +198,10 @@ type CurrentUser = {
     preferredSegments?: string[] | null;
     // cidade/região preferida (opcional) — round-trip da mesma tela.
     preferredCityRegion?: string | null;
+    // segmento com maior afinidade observada (≥1 ação) — default do "Puxar leads" — 17/06.
+    topSegment?: string | null;
+    // Sellers Brains (17/06): push mutado = true quando o vendedor clicou "Não exibir mais".
+    brainPushMuted?: boolean | null;
   } | null;
 };
 
@@ -549,6 +566,9 @@ type MasterNotice = {
   tone?: string | null;
   acknowledged?: boolean;
   createdAt?: string | null;
+  source?: string | null;
+  nudgeKey?: string | null;
+  payload?: { kind?: string; poolId?: string; href?: string; name?: string; city?: string } | null;
 };
 
 // Aviso clicável (ordem do dono, 12/06/2026): os títulos são FIXOS no backend
@@ -626,15 +646,51 @@ export function Topbar({ title, crumbs, onMenu }: { title: string; crumbs: React
     }
     currentUserPromise = null;
     clearToken();
+    try { localStorage.removeItem("hbx:brain:session-start"); } catch { /* sem storage */ }
     router.replace("/login");
   }
+
+  const prevNaoLidosRef = React.useRef(0);
+  const [bellPulse, setBellPulse] = React.useState(false);
+  // localUnmuted: true = o usuário clicou "reativar" nesta sessão (override local do perfil)
+  const [localUnmuted, setLocalUnmuted] = React.useState(false);
+  // localMuted: true = o host disparou o mute nesta sessão (sino fica vermelho na hora,
+  // sem esperar o refetch do usuário). O servidor já foi atualizado pelo host.
+  const [localMuted, setLocalMuted] = React.useState(false);
+  const bellMuted = (localMuted || Boolean(user?.sellerProfile?.brainPushMuted)) && !localUnmuted;
+
+  // O SellersBrainsHost avisa por evento quando o vendedor clica "Não exibir mais".
+  useEffect(() => {
+    function onPushChanged(e: Event) {
+      const muted = Boolean((e as CustomEvent)?.detail?.muted);
+      if (muted) { setLocalMuted(true); setLocalUnmuted(false); }
+      else { setLocalUnmuted(true); setLocalMuted(false); }
+    }
+    window.addEventListener("hbx:brain-push-changed", onPushChanged);
+    return () => window.removeEventListener("hbx:brain-push-changed", onPushChanged);
+  }, []);
 
   useEffect(() => {
     let alive = true;
     if (!getToken()) return;
     fetchNoticesCached().then(data => { if (alive) setNotices(data); });
     fetchUnreadChatsCached().then(count => { if (alive) setUnreadChats(count); });
-    return () => { alive = false; };
+    const interval = setInterval(() => {
+      if (!alive) return;
+      fetchNoticesCached(true).then(data => {
+        if (!alive) return;
+        const prev = prevNaoLidosRef.current;
+        const next = data.filter(n => !n.acknowledged).length;
+        setNotices(data);
+        if (next > prev) {
+          setBellPulse(true);
+          setTimeout(() => setBellPulse(false), 600);
+        }
+        prevNaoLidosRef.current = next;
+      });
+      fetchUnreadChatsCached().then(count => { if (alive) setUnreadChats(count); });
+    }, 60_000);
+    return () => { alive = false; clearInterval(interval); };
   }, []);
 
   const naoLidos = notices.filter(n => !n.acknowledged);
@@ -671,16 +727,38 @@ export function Topbar({ title, crumbs, onMenu }: { title: string; crumbs: React
           <button className="round-btn add" title="Novo lead" aria-label="Novo lead" onClick={abrirNovoLead} data-tut="novo-lead"><I d={ICONS.plus} size={16} /></button>
         )}
         <span ref={bellRef} style={{ position: "relative", display: "inline-flex" }}>
-          <button className="round-btn" title="Avisos" aria-label="Avisos" onClick={() => setBellOpen(o => !o)}>
+          <button
+            className="round-btn"
+            title="Avisos"
+            aria-label="Avisos"
+            data-hbx-bell
+            data-bell-muted={bellMuted ? "true" : undefined}
+            onClick={() => setBellOpen(o => !o)}
+            style={bellMuted ? { color: "var(--hbx-danger)" } : bellPulse ? { transform: "scale(1.18)", transition: "transform .18s" } : undefined}
+          >
             <I d={ICONS.bell} size={17} />
             {naoLidos.length > 0 && <span className="bub">{naoLidos.length}</span>}
           </button>
           {bellOpen && (
             <div className="hbx-pop" style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", zIndex: 30, width: 320, maxHeight: 380, overflowY: "auto", padding: 10, display: "grid", gap: 8 }}>
               <strong style={{ fontFamily: "var(--font-display)", fontSize: "0.82rem" }}>Avisos</strong>
+              {bellMuted && (
+                <button
+                  style={{ textAlign: "left", background: "var(--hbx-danger-soft)", borderRadius: "var(--radius-sm)", border: "none", padding: "8px 10px", fontSize: "0.7rem", color: "var(--hbx-danger)", cursor: "pointer", lineHeight: 1.4 }}
+                  onClick={async () => {
+                    try {
+                      await apiFetch("/pulse/push-unmute", { method: "POST" });
+                      setLocalUnmuted(true);
+                    } catch { /* mantém estado */ }
+                  }}
+                >
+                  Push de Novidades desativado — tocar p/ reativar
+                </button>
+              )}
               {notices.length === 0 && <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Nenhum aviso no momento.</span>}
               {notices.map(n => {
                 const alvo = noticeTarget(n);
+                const isLeadNotice = n.source === "brain" && n.payload?.kind === "lead";
                 return (
                   <div key={n.id} role={alvo ? "button" : undefined} tabIndex={alvo ? 0 : undefined}
                     title={alvo ? "Abrir a tela deste aviso" : undefined}
@@ -701,6 +779,23 @@ export function Topbar({ title, crumbs, onMenu }: { title: string; crumbs: React
                       )}
                     </div>
                     <span style={{ fontSize: "0.68rem", lineHeight: 1.45, color: "var(--text-muted)", whiteSpace: "pre-line" }}>{n.body}</span>
+                    {isLeadNotice && n.payload?.poolId && (
+                      <button
+                        className="btn-ghost"
+                        style={{ width: "100%", minHeight: 28, fontSize: "0.66rem", marginTop: 2 }}
+                        onClick={async e => {
+                          e.stopPropagation();
+                          try {
+                            await apiFetch("/webscraping/radar/pull-to-vendas", { method: "POST", body: JSON.stringify({ leadIds: [n.payload!.poolId] }) });
+                            await marcarLido(n);
+                            setBellOpen(false);
+                            router.push("/vendas");
+                          } catch { /* falha silenciosa */ }
+                        }}
+                      >
+                        Puxar pra carteira
+                      </button>
+                    )}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                       {n.createdAt ? <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.58rem", color: "var(--text-muted)" }}>{new Date(n.createdAt).toLocaleDateString("pt-BR")}</span> : <span />}
                       {alvo && <span className="link" style={{ fontSize: "0.62rem" }}>Abrir tela →</span>}
