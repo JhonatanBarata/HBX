@@ -21,6 +21,7 @@ import {
   type RecoveryRoutingRules,
 } from '../hbx-recovery/recovery-bot-config';
 import { buildStructuredWhatsAppLog, normalizeWhatsAppPhone } from '../messaging/whatsapp-channel';
+import { isModalSessionAvailable, isMetaConnected } from '../messaging/whatsapp-connection-state';
 import {
   ATENDIMENTO_AGENDA_CONFIG_CHANNEL,
   ATENDIMENTO_AGENDA_CONFIG_TITLE,
@@ -479,8 +480,7 @@ export class InboxService {
   }
 
   private async ensureWebwhatsSessionFromCompany(company: any) {
-    const modalStatus = String(company?.whatsappModalStatus || '').trim().toUpperCase();
-    const sessionAvailable = modalStatus === 'CONNECTED' || modalStatus === 'RECONNECTING';
+    const sessionAvailable = isModalSessionAvailable(company?.whatsappModalStatus);
     if (!sessionAvailable) return null;
     const current = company?.currentWhatsappConnectionSession;
     if (
@@ -522,9 +522,9 @@ export class InboxService {
       },
     });
     const currentSession = company ? await this.ensureWebwhatsSessionFromCompany(company) : null;
-    const metaActive = String(company?.whatsappStatus || '').trim().toUpperCase() === 'CONNECTED';
+    const metaActive = isMetaConnected(company?.whatsappStatus);
     const modalStatus = String(company?.whatsappModalStatus || '').trim().toUpperCase();
-    const modalSessionAvailable = modalStatus === 'CONNECTED' || modalStatus === 'RECONNECTING';
+    const modalSessionAvailable = isModalSessionAvailable(company?.whatsappModalStatus);
     const accessible = Boolean(currentSession?.id || modalSessionAvailable || metaActive);
     return {
       accessible,

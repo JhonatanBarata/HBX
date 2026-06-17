@@ -42,11 +42,15 @@
    passam a chamar a função única.
 
 ## BLOCO C — Front: inbox limpo + estado de conexão VISÍVEL
-1. `frontend/src/app/(app)/atendimento/page.client.tsx`: tirar os fallbacks espalhados (linhas ~140, 1003,
-   1045, 1362, 1370) — o campo já vem limpo do backend (Bloco B). `cleanContact` vira só rede de segurança.
-2. Estado de conexão na cara (regra "ferramenta sem estado visível irrita o dono"): luz/badge de
-   conectado + botão **reconectar** ali no Atendimento, lendo o health do Bloco A.
-3. Repaginar o visual na casca/tokens (`frontend/src/app/hbx-theme/`) — 5 Leis, zero cor/hex solto.
+> Auditoria 17/06: o estado de conexão JÁ era visível e acionável — selo "● WhatsApp: {status}"
+> colorido (`page.client.tsx:1149`) que abre o `whatsapp-connect-modal` (poll 4s + botão reconectar).
+> O buraco real era o selo ser **estático** (status só no mount → mentia "Conectado" após queda).
+1. ✅ **FEITO 17/06 — selo VIVO:** `page.client.tsx:362` agora faz poll leve (20s) de `refreshWaStatus`,
+   independente de conversa aberta. Selo passa a refletir queda/reconexão sem recarregar. Lint+build verdes.
+2. **PENDENTE (pós-044):** tirar os fallbacks de contato/nome espalhados (linhas ~140, 1003, 1045, 1362,
+   1370) — colide com o 044 não-deployado; é par do Bloco B. `cleanContact` vira só rede de segurança.
+3. **PENDENTE (precisa do olho do dono):** repaginar o visual na casca/tokens (`frontend/src/app/hbx-theme/`)
+   — 5 Leis, zero cor/hex solto. Não fiz unilateral pra não chutar direção visual.
 
 ## BLOCO D — Motor (só se o Bloco 0 não resolver o nome)  ⚠️ LER `Webwhats/AGENTS.md`; commit separado
 1. Garantir `enrichChatsWithLidPn` também em `fetchContacts` (`Webwhats/src/api/services/channel.service.ts:512`).

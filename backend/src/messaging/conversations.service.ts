@@ -5,6 +5,7 @@ import {
   normalizeWhatsAppPhone,
 } from './whatsapp-channel';
 import { resolveWhatsAppCredentials } from './whatsapp-credentials.util';
+import { isModalSendReady } from './whatsapp-connection-state';
 import { applyMasterWhatsAppCredentials } from '../modules/master-global-integrations.util';
 import {
   META_TEMPLATES_REQUIRED_MESSAGE,
@@ -499,10 +500,7 @@ export class ConversationsService {
         undefined,
       sourceModule,
     });
-    const modalConnected =
-      String((company as any)?.whatsappModalStatus || '')
-        .trim()
-        .toUpperCase() === 'CONNECTED';
+    const modalConnected = isModalSendReady((company as any)?.whatsappModalStatus);
     const hasMetaCredentials = Boolean(resolvedCreds.phoneNumberId);
     const evolutionChannel = providerCapabilities.provider === 'evolution';
 

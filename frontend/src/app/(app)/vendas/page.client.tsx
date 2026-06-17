@@ -137,7 +137,7 @@ export function VendasClient() {
   const [board, setBoard] = useState<BoardResponse>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [sel, setSel] = useState<VendasLead | null>(null);
-  // Quantos leads estão esperando na lagoa do Radar agora (pra deixar CLARO,
+  // Quantos leads estão esperando no pool do Radar agora (pra deixar CLARO,
   // no funil vazio, por que está vazio e o que fazer). Conta real da vitrine.
   const [poolDisponivel, setPoolDisponivel] = useState<number | null>(null);
   // visão do pipeline: lista densa (padrão — varredura) × quadro kanban
@@ -183,7 +183,7 @@ export function VendasClient() {
 
   useEffect(() => { loadBoard(); }, [loadBoard]);
 
-  // Conta os leads disponíveis na lagoa (vitrine) — só pra mostrar no funil vazio.
+  // Conta os leads disponíveis no pool (vitrine) — só pra mostrar no funil vazio.
   useEffect(() => {
     apiFetch<{ total?: number; meta?: { totalAvailable?: number } }>("/webscraping/radar/leads?scope=vitrine&limit=1")
       .then(res => setPoolDisponivel(Math.max(0, Math.trunc(Number(res?.meta?.totalAvailable ?? res?.total ?? 0)) || 0)))
@@ -216,7 +216,7 @@ export function VendasClient() {
   const [negMotivo, setNegMotivo] = useState("");
   const [negArm, setNegArm] = useState(false); // confirma em 2 cliques (padrão do kit)
 
-  // Negativar com MOTIVO (dono 14/06): leve volta pra lagoa pros outros; dura some
+  // Negativar com MOTIVO (dono 14/06): leve volta pro pool pros outros; dura some
   // pra todos. Tira o card da carteira. POST /vendas/lead/:id/negativar { status, note }.
   async function negativarLead() {
     if (!sel?.id || !negMotivo || acaoBusy) return;
@@ -626,11 +626,11 @@ export function VendasClient() {
                         ? "Tem leads esperando no Radar."
                         : poolDisponivel > 0
                           ? <React.Fragment>Tem <strong>{poolDisponivel.toLocaleString("pt-BR")} leads disponíveis</strong> no Radar agora.</React.Fragment>
-                          : "A lagoa está sendo reabastecida — volte em instantes."}
+                          : "O pool está sendo reabastecido — volte em instantes."}
                     </span>
                     <div className="funil-cta-acts">
                       <button className="btn-teal" onClick={() => router.push("/leads")}>Puxar leads →</button>
-                      <button className="btn-ghost" onClick={() => router.push("/webscraping")}>Ver o Radar</button>
+                      <button className="btn-ghost" onClick={() => router.push("/leads")}>Ver o Radar</button>
                     </div>
                   </div>
                 </div>

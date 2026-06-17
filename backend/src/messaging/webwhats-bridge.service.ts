@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { extname, join } from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { buildWhatsAppPhoneCandidates, normalizeWhatsAppPhone } from './whatsapp-channel';
+import { isModalSendReady, isModalSessionAvailable } from './whatsapp-connection-state';
 
 type WebwhatsMediaType = 'image' | 'video' | 'document' | 'audio' | 'sticker';
 
@@ -1455,14 +1456,13 @@ export class WebwhatsBridgeService {
   private canUseConnectedInstance(company: { whatsappModalStatus?: string | null }) {
     const config = this.readConfig();
     if (!config.available) return false;
-    return String(company?.whatsappModalStatus || '').trim().toLowerCase() === 'connected';
+    return isModalSendReady(company?.whatsappModalStatus);
   }
 
   private canUseOperationalSession(company: { whatsappModalStatus?: string | null }) {
     const config = this.readConfig();
     if (!config.available) return false;
-    const status = String(company?.whatsappModalStatus || '').trim().toLowerCase();
-    return status === 'connected' || status === 'reconnecting';
+    return isModalSessionAvailable(company?.whatsappModalStatus);
   }
 
   private resolveOutboundMediaInput(raw: string) {

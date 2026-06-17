@@ -77,7 +77,13 @@
 - Uma rota canônica por funcionalidade; alias só redireciona.
 - Aliases ativos: `/boasvindas`, `/dashboard/master`, `/pre-checkout`,
   `/precheckout` → `/dashboard`; `/workspace` → `/dashboard` (app paralelo
-  friendly morto na unificação).
+  friendly morto na unificação); `/webscraping` → `/leads` (Radar unificada).
+- **Sem legado (regra dura, dono 17/06).** Merge/substituição de tela apaga a velha NO
+  MESMO passo — ela vira alias `redirect()` (ex.: `/workspace`→`/dashboard`,
+  `/webscraping`→`/leads`) ou é deletada; e saem JUNTOS os botões/links que apontavam pra
+  ela, a entrada `META` em `app-shell.tsx` e o CSS de `screens.css` que só ela usava. Duas
+  telas vivas pra mesma função = legado proibido. Antes de editar, confirme que a tela é a
+  CANÔNICA (a que o menu abre) — editar a homônima morta é trabalho jogado fora.
 
 ## Acesso e cobrança
 

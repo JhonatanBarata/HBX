@@ -7,13 +7,15 @@
 // Radar VIVO (PR17062026042): id para scroll-into-view; celebração ao importar.
 
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Av, I, ICONS, fetchPlanMeCached } from "@/components/hbx/shell";
 import { CanalIcon } from "@/components/hbx/canal-icon";
 import { apiFetch } from "@/lib/api";
 import { BRAZIL_UF_OPTIONS, brazilCityOptionsForUf } from "@/lib/brazil-cities";
 import { RADAR_SEGMENTS_FLAT, categoryOfSegment } from "@/lib/radar-segments";
+
+const TERMINAL_RUN = new Set(["completed", "completed_insufficient_results", "canceled", "failed", "error"]);
 
 type PreviewLead = {
   id: string;
@@ -72,6 +74,29 @@ export function PuxarLeadsPanel({
   const [importResult, setImportResult] = useState<ImportResult>(null);
   const [celebrating, setCelebrating] = useState(false);
   const celebrateTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Search-on-miss (A — PR046): prateleira vazia + cidade → varre o motor (search-runs) + polling vivo.
+  const [runId, setRunId] = useState<string | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [runFound, setRunFound] = useState(0);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (!runId) { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } return; }
+    pollRef.current = setInterval(async () => {
+      try {
+        const res = await apiFetch<{ status?: string; foundCount?: number; meta?: { terminal?: boolean } }>(`/webscraping/radar/search-runs/${encodeURIComponent(runId)}`);
+        setRunFound(Number(res?.foundCount || 0));
+        if (TERMINAL_RUN.has(String(res?.status || "")) || res?.meta?.terminal) {
+          if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+          setRunId(null);
+          setSearching(false);
+          verLeads();
+        }
+      } catch { /* mantém o estado; a próxima volta tenta de novo */ }
+    }, 4000);
+    return () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runId]);
 
   const cityOptions = brazilCityOptionsForUf(uf);
 
@@ -104,6 +129,33 @@ export function PuxarLeadsPanel({
       setError(err instanceof Error ? err.message : "Não foi possível carregar leads agora.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  // Search-on-miss (A): a prateleira veio vazia → em vez de beco, varre o motor de verdade.
+  async function buscarNoMotor() {
+    if (searching) return;
+    if (!segment.trim()) { setError("Escolha o tipo de cliente."); return; }
+    if (!city.trim()) { setError("Pra varrer o motor eu preciso da cidade."); return; }
+    setSearching(true);
+    setError(null);
+    setRunFound(0);
+    try {
+      const res = await apiFetch<{ id?: string; runId?: string; foundCount?: number; message?: string }>(
+        "/webscraping/radar/search-runs",
+        { method: "POST", body: JSON.stringify({ segment: segment.trim(), city: city.trim(), state: uf.trim() || undefined }) },
+      );
+      setRunFound(Number(res?.foundCount || 0));
+      const rid = res?.id || res?.runId || null;
+      if (rid) {
+        setRunId(String(rid));
+      } else {
+        setSearching(false);
+        if (res?.message) setError(res.message);
+      }
+    } catch (err) {
+      setSearching(false);
+      setError(err instanceof Error ? err.message : "Não consegui iniciar a busca no motor.");
     }
   }
 
@@ -214,13 +266,26 @@ export function PuxarLeadsPanel({
             {[1, 3, 5, 10, 20].map(n => <option key={n} value={n}>{n}</option>)}
           </select>
         </div>
-        <button className="btn-teal" onClick={verLeads} disabled={busy}>
+        <button className="btn-teal" onClick={verLeads} disabled={busy || searching}>
           {busy ? "Buscando…" : `Ver ${quantity} ${quantity === 1 ? "lead" : "leads"} disponíveis`}
         </button>
       </div>
-      {error && (
+      {searching && (
+        <div className="chip-row">
+          <span className="tag teal">Varrendo {city || "o motor"}… {runFound > 0 ? `${runFound} ${runFound === 1 ? "achado" : "achados"}` : "aguarde"}</span>
+        </div>
+      )}
+      {error && !searching && (
         <div className="chip-row">
           <span className="tag warn">{error}</span>
+          {segment.trim() && city.trim() && (
+            <button className="btn-teal btn-xs" onClick={buscarNoMotor}>
+              <I d={ICONS.search} size={12} /> Buscar no motor em {city}
+            </button>
+          )}
+          {segment.trim() && !city.trim() && (
+            <span className="tag">Quer que eu vá atrás no motor? Informe a cidade.</span>
+          )}
         </div>
       )}
     </section>

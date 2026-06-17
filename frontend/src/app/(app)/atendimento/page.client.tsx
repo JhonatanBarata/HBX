@@ -359,7 +359,15 @@ export function AtendimentoClient() {
       .catch(() => setWaStatus(null));
   }, []);
 
-  useEffect(() => { refreshWaStatus(); }, [refreshWaStatus]);
+  // Estado de conexão VIVO no selo do inbox (PR17062026047 Bloco C): o status era
+  // buscado só no mount, então se o número caísse com o vendedor na tela o selo seguia
+  // mentindo "Conectado" até recarregar. Poll leve (independe de conversa aberta) mantém
+  // o selo verdadeiro; o clique já abre o modal que faz poll de 4s e oferece reconectar.
+  useEffect(() => {
+    refreshWaStatus();
+    const t = setInterval(refreshWaStatus, 20000);
+    return () => clearInterval(t);
+  }, [refreshWaStatus]);
 
   const [hasMore, setHasMore] = useState(false);
   const [moreBusy, setMoreBusy] = useState(false);

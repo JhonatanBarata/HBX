@@ -154,9 +154,12 @@ export function LeadsClient() {
   const [ruleForm, setRuleForm] = useState<AutoRuleFields>({});
   const [ruleBusy, setRuleBusy] = useState(false);
   const [ruleMsg, setRuleMsg] = useState<string | null>(null);
-  // Quantos leads a lagoa tem disponíveis AGORA (vitrine) — pra a tela não
-  // parecer morta quando a carteira está vazia. É o que dá pra PUXAR.
+  // Quantos leads o pool tem disponíveis AGORA pra ESTA empresa (vitrine) — pra a
+  // tela não parecer morta quando a carteira está vazia. É o que dá pra PUXAR.
   const [poolDisponivel, setPoolDisponivel] = useState<number | null>(null);
+  // POOL NACIONAL (B): o Brasil inteiro no banco (abundância na vista). leads-bank é count real.
+  const [poolNacional, setPoolNacional] = useState<number | null>(null);
+  const [poolNacionalDelta, setPoolNacionalDelta] = useState(0);
   const prevPoolRef = useRef<number | null>(null);
   const [poolRising, setPoolRising] = useState(false);
   const [justPulled, setJustPulled] = useState(false);
@@ -221,6 +224,9 @@ export function LeadsClient() {
     apiFetch<{ total?: number; meta?: { totalAvailable?: number } }>("/webscraping/radar/leads?scope=vitrine&limit=1")
       .then(res => setPoolDisponivel(Math.max(0, Math.trunc(Number(res?.meta?.totalAvailable ?? res?.total ?? 0)) || 0)))
       .catch(() => setPoolDisponivel(null));
+    apiFetch<{ total?: number; deltaToday?: number }>("/night-factory/leads-bank")
+      .then(res => { setPoolNacional(Math.max(0, Math.trunc(Number(res?.total || 0)) || 0)); setPoolNacionalDelta(Math.max(0, Math.trunc(Number(res?.deltaToday || 0)) || 0)); })
+      .catch(() => setPoolNacional(null));
     loadSuggestions();
     apiFetch<CompanyUser[]>("/users/company")
       .then(res => {
@@ -423,6 +429,19 @@ export function LeadsClient() {
     <React.Fragment>
         <div className="content">
           <div className="work">
+            {/* POOL nacional (B): abundância na vista — o Brasil inteiro no pool. */}
+            <section className="panel pool-bar">
+              <span className="ico"><I d={ICONS.search} size={18} /></span>
+              <div className="id">
+                <span className="lbl">Pool nacional</span>
+                <span className="big">
+                  <span className="num">{poolNacional != null ? poolNacional.toLocaleString("pt-BR") : "—"}</span>
+                  <span className="unit">empresas no Brasil</span>
+                  {poolNacionalDelta > 0 && <span className="delta">+{poolNacionalDelta.toLocaleString("pt-BR")} hoje</span>}
+                </span>
+              </div>
+              <span className="cap">É o Brasil inteiro no pool. O que você puxa pra sua carteira é o de baixo.</span>
+            </section>
             {(isSeller || canDistribute) && (
               <div ref={puxarRef}>
                 <PuxarLeadsPanel
@@ -433,12 +452,12 @@ export function LeadsClient() {
                 />
               </div>
             )}
-            {/* B1 — Cards acabando: aviso quente quando a lagoa está baixa */}
+            {/* B1 — Cards acabando: aviso quente quando o pool está baixo */}
             {isSeller && poolDisponivel !== null && poolDisponivel < 10 && (
               <div className="hbx-pool-warn">
                 <span className="msg">
                   {poolDisponivel === 0
-                    ? `Sua lagoa de ${pullDefaultSegment || "leads"} está vazia — peça mais ao Radar`
+                    ? `Seu pool de ${pullDefaultSegment || "leads"} está vazio — peça mais ao Radar`
                     : `Seus cards de ${pullDefaultSegment || "leads"} estão acabando (${poolDisponivel} restante${poolDisponivel !== 1 ? "s" : ""}) — peça mais ao Radar`}
                 </span>
                 <button className="btn-ghost btn-xs" onClick={() => puxarRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>
@@ -520,8 +539,8 @@ export function LeadsClient() {
                             : data?.meta?.available === false
                               ? data?.meta?.message || "Banco do Radar indisponível neste ambiente."
                               : isSeller && !canDistribute
-                            ? <React.Fragment>Você ainda não puxou nenhum lead. Use <strong>Puxar leads</strong> aqui em cima para trazer da lagoa para a sua carteira{poolDisponivel ? ` — tem ${poolDisponivel.toLocaleString("pt-BR")} disponíveis.` : "."}</React.Fragment>
-                            : <React.Fragment>Nada aqui ainda. Use <strong>Puxar leads</strong> aqui em cima pra trazer leads da lagoa pra sua carteira{poolDisponivel ? ` — tem ${poolDisponivel.toLocaleString("pt-BR")} esperando` : ""}.</React.Fragment>}
+                            ? <React.Fragment>Você ainda não puxou nenhum lead. Use <strong>Puxar leads</strong> aqui em cima para trazer do pool para a sua carteira{poolDisponivel ? ` — tem ${poolDisponivel.toLocaleString("pt-BR")} disponíveis.` : "."}</React.Fragment>
+                            : <React.Fragment>Nada aqui ainda. Use <strong>Puxar leads</strong> aqui em cima pra trazer leads do pool pra sua carteira{poolDisponivel ? ` — tem ${poolDisponivel.toLocaleString("pt-BR")} esperando` : ""}.</React.Fragment>}
                         </td>
                       </tr>
                     )}

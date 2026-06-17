@@ -26,7 +26,6 @@ function crumb(last: string, mid?: string): React.ReactNode {
 const META: Record<string, Meta> = {
   "/dashboard": { active: "dash", title: "Dashboard", crumbs: crumb("Dashboard") },
   "/leads": { active: "leads", title: "Leads", crumbs: crumb("Leads") },
-  "/webscraping": { active: "scrape", title: "Radar", crumbs: crumb("Radar") },
   "/vendas": { active: "vendas", title: "Vendas", crumbs: crumb("Pipeline", "Vendas") },
   "/atendimento": { active: "atend", title: "Atendimento", crumbs: crumb("Atendimento") },
   "/bot": { active: "bot", title: "Bot", crumbs: crumb("Construtor", "Bot") },

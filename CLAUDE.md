@@ -43,6 +43,15 @@ Não fazer nada abaixo sem ordem explícita do dono na tarefa atual:
 
 Mantenha mudanças alinhadas a esse fluxo. Resultado negativo do Radar nunca é descartado casualmente.
 
+## Sem legado (ordem do dono 17/06)
+
+Código morto não fica. Tela/rota/feature unificada ou substituída → a versão antiga sai
+**no mesmo passo**: apagada, ou **alias que só redireciona** (`redirect("/canônica")` na
+`page.tsx`, ex.: `/workspace`→`/dashboard`, `/webscraping`→`/leads`). Junto vão os
+botões/links, a entrada no `app-shell.tsx` (META) e o CSS (`screens.css`) que só ela usava.
+Duas coisas vivas pra mesma função = proibido. O dono **raramente reverte CÓDIGO** — o que
+se versiona/reverte é REGRA. Antes de editar uma tela, confirme que é a CANÔNICA (a do menu).
+
 ## Checks mínimos (menor conjunto relevante ao que foi tocado)
 
 - Frontend: `cd frontend && npm run lint` → `npm run build`

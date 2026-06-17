@@ -15,6 +15,7 @@ import { ensureMasterBillingRuntimeSchema } from './master-runtime';
 import { buildMasterBillingSituation } from './master-billing-situation';
 import { buildMasterWhatsAppSituation } from './master-whatsapp-situation';
 import { buildWhatsAppCenterSnapshot } from '../companies/whatsapp-center.util';
+import { isModalSessionAvailable, isMetaConnected } from '../messaging/whatsapp-connection-state';
 import { COMPANY_KIND_PLATFORM_INFRA, COMPANY_KIND_TENANT, isPlatformInfraCompany } from '../common/company-kind';
 import {
   getMasterGlobalIntegrationConfig,
@@ -1640,14 +1641,11 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
       : null;
     const effectiveWhatsApp = company ? this.effectiveWhatsAppConfig(company, masterIntegrations) : null;
     const officialConfigured = Boolean(effectiveWhatsApp?.accessToken && effectiveWhatsApp?.phoneNumberId);
-    const officialConnected =
-      officialConfigured && String(company?.whatsappStatus || '').trim().toUpperCase() === 'CONNECTED';
+    const officialConnected = officialConfigured && isMetaConnected(company?.whatsappStatus);
     const modalConfigured = ['1', 'true', 'yes', 'on'].includes(
       String(process.env.WHATSAPP_MODAL_ENABLED || '').trim().toLowerCase(),
     ) && Boolean(String(process.env.WHATSAPP_MODAL_INTERNAL_URL || '').trim());
-    const modalConnected = ['CONNECTED', 'RECONNECTING'].includes(
-      String(company?.whatsappModalStatus || '').trim().toUpperCase(),
-    );
+    const modalConnected = isModalSessionAvailable(company?.whatsappModalStatus);
     const hasOperationalWhatsAppEngine = officialConnected || modalConnected;
     for (const moduleKey of normalizedKeys) {
       const category = this.getModuleCategory(moduleKey);
