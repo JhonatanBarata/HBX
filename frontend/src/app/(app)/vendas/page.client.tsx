@@ -185,8 +185,8 @@ export function VendasClient() {
 
   // Conta os leads disponíveis na lagoa (vitrine) — só pra mostrar no funil vazio.
   useEffect(() => {
-    apiFetch<{ total?: number }>("/webscraping/radar/leads?scope=vitrine&limit=1")
-      .then(res => setPoolDisponivel(Math.max(0, Math.trunc(Number(res?.total || 0)) || 0)))
+    apiFetch<{ total?: number; meta?: { totalAvailable?: number } }>("/webscraping/radar/leads?scope=vitrine&limit=1")
+      .then(res => setPoolDisponivel(Math.max(0, Math.trunc(Number(res?.meta?.totalAvailable ?? res?.total ?? 0)) || 0)))
       .catch(() => setPoolDisponivel(null));
   }, []);
 

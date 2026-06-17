@@ -1,20 +1,20 @@
 "use client";
 
-// Tela Webscraping (template docs/TEMAS/*/corporate/Webscraping.html) ligada
-// no motor Radar real:
-//   - Executar coleta → POST /webscraping/radar/search-runs (+ polling)
-//   - Tabela/paginação → GET /webscraping/radar/leads
-//   - Contexto → GET /webscraping/radar/leads/:id
-//   - Adicionar ao CRM → POST /webscraping/radar/leads/:id/send-to-vendas
-// Adaptações registradas no doc do PR: selects visuais viraram controles
-// reais nos filtros ligados; "Tamanho da empresa" segue visual (sem filtro
-// no backend); campos sem dado no Radar mostram "—".
-// Resultado negativo do Radar nunca é descartado (MOTOR.md).
+// Tela RADAR — MODELO LIMPO (PR17062026046). Três camadas, uma história só:
+//   LAGO NACIONAL  → número do Brasil (GET /night-factory/leads-bank), enche o olho.
+//   PRATELEIRA     → disponíveis pra você, contato MASCARADO, listada e navegável
+//                    (GET /webscraping/radar/leads?scope=vitrine). Buscar dispara o
+//                    motor quando a prateleira está fina (POST .../search-runs + polling).
+//   CARTEIRA       → o que você puxou, contato revelado (GET .../radar/leads sem scope).
+// Regra de ouro: abundância na VISTA, escassez na AÇÃO. As ÚNICAS travas que sobrevivem
+// são mascarar o contato + a cota (medidor único, GET /vendas/usage). Puxar = revela +
+// debita: POST /webscraping/radar/leads/:id/send-to-vendas. Histórico negativo nunca é
+// apagado (MOTOR.md). Visual 100% em classe/token central (5 Leis).
 
 import { useRouter } from "next/navigation";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import { Av, I, ICONS, useCurrentUser } from "@/components/hbx/shell";
+import { I, ICONS } from "@/components/hbx/shell";
 import { CanalIcon } from "@/components/hbx/canal-icon";
 import { apiFetch } from "@/lib/api";
 import { BRAZIL_UF_OPTIONS, mergeBrazilCityOptions } from "@/lib/brazil-cities";
@@ -25,26 +25,12 @@ type RadarLead = {
   id: string;
   name: string;
   phone: string;
-  ddd: string;
-  address: string | null;
+  email: string | null;
   city: string | null;
   state: string | null;
   segment: string | null;
-  website: string | null;
-  email: string | null;
-  emailStatus: string;
   businessCategory: string | null;
   opportunityScore: number;
-  status: string;
-  source: string | null;
-  sourceEngine: string | null;
-  lastSeenAt: string | null;
-  firstSeenAt: string | null;
-  recommendedChannel: string | null;
-  whatsappStatus?: string;
-  // Presença digital (vitrine/carrossel) — social aparece, contato fica mascarado.
-  instagramUrl?: string | null;
-  facebookUrl?: string | null;
   hasPhone?: boolean;
   hasEmail?: boolean;
   hasWhatsapp?: boolean;
@@ -56,21 +42,12 @@ type LeadsResponse = {
   meta?: {
     available?: boolean;
     message?: string;
-    page?: number;
+    totalAvailable?: number;
     limit?: number;
     availableFilters?: {
       states?: FilterOption[];
       segments?: FilterOption[];
       citiesByState?: Record<string, FilterOption[]>;
-    };
-    enrichmentSummary?: {
-      cardsAnalyzed: number;
-      whatsappVerified: number;
-      emailConfirmedOrProbable: number;
-      noWebsite: number;
-      highPriority: number;
-      discardedOrBlocked: number;
-      readyToCall: number;
     };
   };
 };
@@ -81,53 +58,26 @@ type RunResponse = {
   status?: string;
   message?: string;
   foundCount?: number;
-  errorMessage?: string | null;
-  meta?: { progress?: number; terminal?: boolean; operationalMessage?: string };
+  meta?: { progress?: number; terminal?: boolean };
 } | null;
 
-type RadarLeadEvent = { id: string; eventType: string; note: string | null; statusFrom?: string | null; statusTo?: string | null; createdAt: string | null };
-type LeadDetail = { item: RadarLead; events?: RadarLeadEvent[] } | null;
+type BankResponse = { total?: number; deltaToday?: number; available?: boolean } | null;
 
-const ST_LABEL: Record<string, string> = {
-  available: "Novo",
-  in_attendance: "Em atendimento",
-  sent_to_vendas: "Enviado a Vendas",
-  imported: "No CRM",
-  negative: "Negativado",
-  discarded: "Descartado",
-};
+type SellerActiveQuota = {
+  seller?: boolean;
+  paused?: boolean;
+  activeCount?: number;
+  effectiveLimit?: number;
+  availableSlots?: number;
+  code?: string | null;
+} | null;
 
-const ST_CLS: Record<string, string> = {
-  available: "tag",
-  in_attendance: "tag teal",
-  sent_to_vendas: "tag teal",
-  imported: "tag teal",
-  negative: "tag warn",
-  discarded: "tag warn",
-};
+type UsageResponse = {
+  cards?: { used?: number; limit?: number; remaining?: number };
+  sellerActiveQuota?: SellerActiveQuota;
+} | null;
 
-// Histórico da empresa: o endpoint /webscraping/radar/leads/:id já devolve
-// `events` (criação, importação, negativação, contato…); aqui só humanizamos.
-const RADAR_EVENT_LABEL: Record<string, string> = {
-  created: "Card descoberto",
-  imported: "Importado ao CRM",
-  sent_to_vendas: "Enviado a Vendas",
-  distributed: "Distribuído ao vendedor",
-  enriched: "Enriquecido pelo motor",
-  radar_enrichment_imported: "Enriquecido pelo Radar",
-  contacted: "Contato realizado",
-  denied: "Negativado",
-  complaint: "Reclamação",
-  no_answer: "Sem resposta",
-  hidden: "Ocultado da base",
-  reused: "Card reaproveitado",
-  origin_registered: "Origem registrada",
-};
-
-function radarEventLabel(t?: string) {
-  const key = String(t || "").toLowerCase();
-  return RADAR_EVENT_LABEL[key] || key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) || "Evento";
-}
+type Tab = "shelf" | "carteira";
 
 const TERMINAL_RUN = new Set(["completed", "completed_insufficient_results", "canceled", "failed", "error"]);
 
@@ -143,119 +93,101 @@ function mergeFilterOptions(primary: FilterOption[] | undefined, fallback: Filte
   return merged;
 }
 
-function statusLabel(status: string) {
-  return ST_LABEL[status] || status || "—";
-}
-
-function statusCls(status: string) {
-  return ST_CLS[status] || "tag";
-}
-
-function fmtDateTime(iso: string | null | undefined) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("pt-BR") + ", " + d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+function fmtInt(n: number | null | undefined) {
+  return Number(n || 0).toLocaleString("pt-BR");
 }
 
 export function WebscrapingClient() {
   const router = useRouter();
-  const me = useCurrentUser();
-  // Modelo B (PR14062026008 §2/§4/D5): pro cargo VENDEDOR o Radar é VITRINE
-  // read-only — sem operação de coleta (busca), sem contato (tel/e-mail),
-  // sem export e sem ações que jogam o lead pra Vendas. Admin/gerente/master
-  // seguem com a tela cheia. O vendedor pega lead pelo /leads (pull), não aqui.
-  const isSeller = me?.userKind === "seller";
 
-  // filtros
-  const [segment, setSegment] = useState("");
-  const [city, setCity] = useState("");
+  // filtros (lago → prateleira)
   const [uf, setUf] = useState("");
-  const [filterKey, setFilterKey] = useState("");
-  const [appliedFilterKey, setAppliedFilterKey] = useState("");
+  const [city, setCity] = useState("");
+  const [segment, setSegment] = useState("");
 
-  // tabela
+  // navegação
+  const [tab, setTab] = useState<Tab>("shelf");
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(8);
+  const pageSize = 15;
+
+  // dados
+  const [bank, setBank] = useState<BankResponse>(null);
+  const [usage, setUsage] = useState<UsageResponse>(null);
   const [data, setData] = useState<LeadsResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [counts, setCounts] = useState<{ shelf: number | null; carteira: number | null }>({ shelf: null, carteira: null });
 
-  // contexto
-  const [sel, setSel] = useState<RadarLead | null>(null);
-  const [detail, setDetail] = useState<LeadDetail>(null);
-  const [crmMsg, setCrmMsg] = useState<string | null>(null);
-  const [crmBusy, setCrmBusy] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
+  // seleção (puxar em lote)
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [pullBusyId, setPullBusyId] = useState<string | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [pullMsg, setPullMsg] = useState<string | null>(null);
 
-  // coleta
+  // busca ao vivo (search-on-miss)
   const [run, setRun] = useState<RunResponse>(null);
   const [runBusy, setRunBusy] = useState(false);
-  const [runMsg, setRunMsg] = useState<string | null>(null);
+  const [searchMsg, setSearchMsg] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const loadLeads = useCallback((opts?: { page?: number }) => {
+  const loadBank = useCallback(() => {
+    apiFetch<BankResponse>("/night-factory/leads-bank").then(setBank).catch(() => setBank(null));
+  }, []);
+
+  const loadUsage = useCallback(() => {
+    apiFetch<UsageResponse>("/vendas/usage")
+      .then(res => {
+        setUsage(res);
+        const active = res?.sellerActiveQuota?.activeCount;
+        if (typeof active === "number") setCounts(c => ({ ...c, carteira: active }));
+      })
+      .catch(() => setUsage(null));
+  }, []);
+
+  const loadList = useCallback((which: Tab, opts?: { page?: number }) => {
     const params = new URLSearchParams();
     params.set("page", String(opts?.page ?? 1));
     params.set("limit", String(pageSize));
-    // VITRINE (dono 14/06): o Radar mostra a LAGOA compartilhada (todos veem,
-    // inclusive o vendedor), com contato mascarado — revela só ao puxar no Leads.
-    params.set("scope", "vitrine");
+    // PRATELEIRA = lago mascarado (scope=vitrine, todos veem). CARTEIRA = sem scope
+    // (o vendedor vê o que puxou, contato revelado). Mesma estrutura, muda o que se pode.
+    if (which === "shelf") params.set("scope", "vitrine");
     if (segment) params.set("segment", segment);
     if (city) params.set("city", city);
     if (uf) params.set("state", uf);
-    if (appliedFilterKey) params.set("filterKey", appliedFilterKey);
     return apiFetch<LeadsResponse>(`/webscraping/radar/leads?${params.toString()}`)
       .then(res => {
         setData(res);
         setLoadError(null);
-        const first = res?.items?.[0] || null;
-        setSel(prev => (prev && res?.items?.some(i => i.id === prev.id) ? prev : first));
+        // badge = contagem REAL (totalAvailable, sem teto) na prateleira; carteira usa o total lido.
+        const badge = which === "shelf" ? (res?.meta?.totalAvailable ?? res?.total ?? 0) : (res?.total ?? 0);
+        setCounts(c => ({ ...c, [which]: badge }));
       })
       .catch((err: unknown) => {
-        setLoadError(err instanceof Error ? err.message : "Falha ao carregar a base do Radar.");
         setData(null);
-        setSel(null);
+        setLoadError(err instanceof Error ? err.message : "Falha ao carregar o Radar.");
       });
-  }, [segment, city, uf, appliedFilterKey, pageSize]);
+  }, [segment, city, uf]);
 
-  // carga inicial + retoma coleta ativa
+  // carga inicial: número nacional + cota + prateleira + retomar busca ativa
   useEffect(() => {
-    loadLeads({ page: 1 });
+    loadBank();
+    loadUsage();
+    loadList("shelf", { page: 1 });
     apiFetch<RunResponse>("/webscraping/radar/search-runs/latest")
       .then(res => { if (res && (res.id || res.runId)) setRun(res); })
-      .catch(() => { /* sem coleta ativa */ });
+      .catch(() => { /* sem busca ativa */ });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Trocar Segmento/Cidade/Estado, a busca aplicada ou o tamanho da página
-  // RECARREGA a base. Antes só "Buscar empresa" e a paginação disparavam o
-  // reload — escolher um segmento no datalist não fazia nada. Debounce de 300ms
-  // evita uma consulta por tecla; o 1º render é pulado (a carga inicial já roda
-  // no efeito acima).
+  // troca de filtros recarrega a aba atual (debounce 300ms; pula o 1º render)
   const filtersTouched = useRef(false);
   useEffect(() => {
     if (!filtersTouched.current) { filtersTouched.current = true; return; }
-    const handle = setTimeout(() => { setPage(1); loadLeads({ page: 1 }); }, 300);
+    const handle = setTimeout(() => { setPage(1); setSelected(new Set()); loadList(tab, { page: 1 }); }, 300);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [segment, city, uf, appliedFilterKey, pageSize]);
+  }, [segment, city, uf]);
 
-  // contexto do lead selecionado (detalhe só é exibido se o id ainda bate)
-  useEffect(() => {
-    if (!sel?.id) return;
-    let alive = true;
-    apiFetch<LeadDetail>(`/webscraping/radar/leads/${encodeURIComponent(sel.id)}`)
-      .then(res => { if (alive) setDetail(res); })
-      .catch(() => { if (alive) setDetail(null); });
-    return () => { alive = false; };
-  }, [sel?.id]);
-
-  function selecionar(row: RadarLead) {
-    setSel(row);
-    setCrmMsg(null);
-  }
-
-  // polling da coleta ativa
+  // polling da busca ao vivo
   useEffect(() => {
     const runId = run?.id || run?.runId;
     const status = String(run?.status || "");
@@ -268,120 +200,115 @@ export function WebscrapingClient() {
       try {
         const res = await apiFetch<RunResponse>(`/webscraping/radar/search-runs/${encodeURIComponent(runId)}`);
         setRun(res);
-        const st = String(res?.status || "");
-        if (TERMINAL_RUN.has(st) || res?.meta?.terminal) {
+        if (TERMINAL_RUN.has(String(res?.status || "")) || res?.meta?.terminal) {
           if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
-          loadLeads({ page: 1 });
+          loadList("shelf", { page: 1 });
+          loadBank();
+          setTab("shelf");
           setPage(1);
         }
       } catch {
-        // mantém o último estado conhecido; próxima volta tenta de novo
+        // mantém o último estado; a próxima volta tenta de novo
       }
     }, 4000);
     return () => {
       if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
     };
-  }, [run, loadLeads]);
+  }, [run, loadList, loadBank]);
 
-  async function executarColeta() {
-    if (runBusy) return;
+  function switchTab(next: Tab) {
+    if (next === tab) return;
+    setTab(next);
+    setPage(1);
+    setSelected(new Set());
+    setPullMsg(null);
+    loadList(next, { page: 1 });
+  }
+
+  function irParaPagina(p: number) {
+    if (p < 1) return;
+    setPage(p);
+    loadList(tab, { page: p });
+  }
+
+  function toggleSel(id: string) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  async function executarBusca() {
+    if (runBusy || runActive) return;
+    if (!city.trim()) { setSearchMsg("Me diz a cidade — o motor não varre sem ela."); return; }
+    if (!segment.trim()) { setSearchMsg("Escolha um segmento pra eu varrer."); return; }
+    setSearchMsg(null);
     setRunBusy(true);
-    setRunMsg(null);
     try {
       const res = await apiFetch<RunResponse>("/webscraping/radar/search-runs", {
         method: "POST",
         body: JSON.stringify({ city, state: uf || undefined, segment }),
       });
       setRun(res);
-      if (res?.message) setRunMsg(res.message);
+      if (res?.message) setSearchMsg(res.message);
     } catch (err) {
-      setRunMsg(err instanceof Error ? err.message : "Não foi possível iniciar a coleta.");
+      setSearchMsg(err instanceof Error ? err.message : "Não consegui iniciar a busca.");
     } finally {
       setRunBusy(false);
     }
   }
 
-  const [exportBusy, setExportBusy] = useState(false);
-
-  // Exporta a BASE atual (leitura pura, até 2000 linhas) em CSV — não usa
-  // POST /webscraping/export porque aquele endpoint dispara uma busca nova
-  // (gasta quota do motor); ver doc do PR.
-  async function exportarCsv() {
-    if (exportBusy) return;
-    setExportBusy(true);
+  async function puxar(id: string) {
+    if (pullBusyId || bulkBusy) return;
+    setPullBusyId(id);
+    setPullMsg(null);
     try {
-      const params = new URLSearchParams();
-      params.set("page", "1");
-      params.set("limit", "2000");
-      if (segment) params.set("segment", segment);
-      if (city) params.set("city", city);
-      if (uf) params.set("state", uf);
-      if (appliedFilterKey) params.set("filterKey", appliedFilterKey);
-      const res = await apiFetch<LeadsResponse>(`/webscraping/radar/leads?${params.toString()}`);
-      const rows = res?.items || [];
-      const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-      const header = ["Nome", "Segmento", "Cidade", "UF", "Telefone", "E-mail", "Site", "Score", "Status", "Canal recomendado"];
-      const csv = [
-        header.join(";"),
-        ...rows.map(r => [r.name, r.segment, r.city, r.state, r.phone, r.email, r.website, r.opportunityScore, statusLabel(r.status), r.recommendedChannel].map(esc).join(";")),
-      ].join("\r\n");
-      const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "radar-base.csv";
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch {
-      // sem dados/erro de rede — botão volta ao normal
-    } finally {
-      setExportBusy(false);
-    }
-  }
-
-  function aplicarBusca() {
-    // Aplica o termo digitado; o efeito de filtros recarrega a base.
-    setAppliedFilterKey(filterKey);
-  }
-
-  function limparFiltros() {
-    setSegment("");
-    setCity("");
-    setUf("");
-    setFilterKey("");
-    setAppliedFilterKey("");
-    // o efeito de filtros recarrega a base quando algum filtro de fato mudou.
-  }
-
-  function irParaPagina(p: number) {
-    if (p < 1) return;
-    setPage(p);
-    loadLeads({ page: p });
-  }
-
-  async function adicionarAoCrm() {
-    if (!sel?.id || crmBusy) return;
-    setCrmBusy(true);
-    setCrmMsg(null);
-    try {
-      await apiFetch(`/webscraping/radar/leads/${encodeURIComponent(sel.id)}/send-to-vendas`, {
+      await apiFetch(`/webscraping/radar/leads/${encodeURIComponent(id)}/send-to-vendas`, {
         method: "POST",
         body: JSON.stringify({}),
       });
-      setCrmMsg("✓ Card enviado para Vendas.");
-      loadLeads({ page });
+      setSelected(prev => { const n = new Set(prev); n.delete(id); return n; });
+      setPullMsg("✓ Puxado pra sua carteira (Vendas).");
+      loadList("shelf", { page });
+      loadUsage();
+      loadBank();
     } catch (err) {
-      setCrmMsg(err instanceof Error ? err.message : "Não foi possível enviar para Vendas.");
+      setPullMsg(err instanceof Error ? err.message : "Não consegui puxar este lead.");
     } finally {
-      setCrmBusy(false);
+      setPullBusyId(null);
     }
   }
 
+  async function puxarSelecionados() {
+    if (bulkBusy || selected.size === 0) return;
+    setBulkBusy(true);
+    setPullMsg(null);
+    let ok = 0;
+    let stopMsg: string | null = null;
+    for (const id of Array.from(selected)) {
+      try {
+        await apiFetch(`/webscraping/radar/leads/${encodeURIComponent(id)}/send-to-vendas`, {
+          method: "POST",
+          body: JSON.stringify({}),
+        });
+        ok += 1;
+      } catch (err) {
+        stopMsg = err instanceof Error ? err.message : "Cota atingida — parei aqui.";
+        break;
+      }
+    }
+    setSelected(new Set());
+    setPullMsg(`${ok > 0 ? `✓ ${ok} puxado(s). ` : ""}${stopMsg || ""}`.trim() || "Nada puxado.");
+    setBulkBusy(false);
+    loadList("shelf", { page: 1 });
+    loadUsage();
+    loadBank();
+    setPage(1);
+  }
+
   const items = data?.items || [];
-  const total = data?.total || 0;
   const limit = data?.meta?.limit || pageSize;
-  const lastPage = Math.max(1, Math.ceil(total / limit));
-  const summary = data?.meta?.enrichmentSummary;
   const filters = data?.meta?.availableFilters;
   const segOptions = filters?.segments || [];
   const ufOptions = mergeFilterOptions(filters?.states, BRAZIL_UF_OPTIONS);
@@ -391,197 +318,186 @@ export function WebscrapingClient() {
 
   const runActive = Boolean((run?.id || run?.runId) && !TERMINAL_RUN.has(String(run?.status || "")));
   const runProgress = run?.meta?.progress;
-  const pctEmail = summary && summary.cardsAnalyzed > 0
-    ? Math.round((summary.emailConfirmedOrProbable / summary.cardsAnalyzed) * 1000) / 10
-    : null;
-  const pctEnriquecimento = summary && summary.cardsAnalyzed > 0
-    ? Math.round((summary.readyToCall / summary.cardsAnalyzed) * 1000) / 10
-    : null;
 
-  const d = detail?.item && detail.item.id === sel?.id ? detail.item : sel;
-  const histEvents = detail?.item && detail.item.id === sel?.id ? (detail.events || []) : [];
+  // Paginador usa o total LIDO (capado) pra nunca oferecer página vazia; o badge da aba
+  // mostra a contagem real (totalAvailable). Os dois podem divergir: "X disponíveis · página dos lidos".
+  const pageTotal = data?.total || 0;
+  const lastPage = Math.max(1, Math.ceil(pageTotal / limit));
+
+  // medidor único de cota (regra #6 colapsada): vendedor vê "em mãos"; admin vê o pote da empresa.
+  const saq = usage?.sellerActiveQuota;
+  const isSeller = Boolean(saq?.seller);
+  const meterLabel = isSeller ? "Em mãos" : "Cota da empresa (mês)";
+  const meterValue = isSeller
+    ? `${fmtInt(saq?.activeCount)} / ${fmtInt(saq?.effectiveLimit)}`
+    : usage?.cards
+      ? `${fmtInt(usage.cards.used)} / ${fmtInt(usage.cards.limit)}`
+      : "—";
+  const meterBlocked = isSeller
+    ? Boolean(saq?.paused) || Number(saq?.availableSlots ?? 1) <= 0
+    : Boolean(usage?.cards) && Number(usage?.cards?.remaining ?? 1) <= 0;
+
+  const emptyMsg = loadError
+    ? loadError
+    : data?.meta?.available === false
+      ? data?.meta?.message || "Banco do Radar indisponível neste ambiente."
+      : tab === "carteira"
+        ? "Você ainda não puxou nenhum lead. Pegue um na aba Disponíveis."
+        : city
+          ? `Prateleira vazia pra ${city}. Clique Buscar — o motor varre e traz fresquinhos.`
+          : "Escolha cidade + segmento e clique Buscar.";
+
+  function contatoMascarado(row: RadarLead) {
+    const has = row.hasWhatsapp || row.hasPhone || row.hasEmail;
+    return (
+      <span className="radar2-locked">
+        {row.hasWhatsapp && <CanalIcon canal="whatsapp" size="sm" />}
+        {row.hasEmail && <CanalIcon canal="email" size="sm" />}
+        {row.hasPhone && !row.hasWhatsapp && <CanalIcon canal="telefone" size="sm" />}
+        <span>{has ? "revela no Puxar" : "sem contato"}</span>
+      </span>
+    );
+  }
 
   return (
     <div className="content">
-          <div className="work">
-            {/* Radar = VITRINE read-only (ordem do dono 14/06): SEM filtro, SEM
-                "Executar coleta" e SEM Exportar. A lagoa enche sozinha (feeder
-                local/VPS); quem trabalha lead vai pro /leads (puxar) e /vendas. */}
-            <section className="panel stats-strip">
-              <div className="cell">
-                <span className="lbl">{runActive ? "Coleta em andamento" : "Última coleta"}</span>
-                <span style={{ fontWeight: 700, fontSize: "0.86rem" }}>
-                  {runActive
-                    ? `${run?.foundCount ?? 0} encontrados${runProgress != null ? ` · ${runProgress}%` : ""}`
-                    : run ? statusRunLabel(String(run?.status || "")) : "—"}
-                </span>
-                {runActive
-                  ? <span className="tag warn" style={{ marginTop: 2 }}>● Em execução</span>
-                  : run && TERMINAL_RUN.has(String(run?.status || ""))
-                    ? <span className="tag teal" style={{ marginTop: 2 }}>✓ Concluída</span>
-                    : <span className="tag" style={{ marginTop: 2 }}>Sem coleta ativa</span>}
-              </div>
-              <div className="cell"><span className="lbl">Leads na base</span><span className="big">{total.toLocaleString("pt-BR")}</span><span className="d"><small>resultado dos filtros atuais</small></span></div>
-              <div className="cell"><span className="lbl">E-mails validados</span><span className="big">{summary ? summary.emailConfirmedOrProbable.toLocaleString("pt-BR") : "—"}</span><span className="d"><small>{pctEmail != null ? `${String(pctEmail).replace(".", ",")}% do total` : ""}</small></span></div>
-              <div className="cell"><span className="lbl">WhatsApp verificados</span><span className="big">{summary ? summary.whatsappVerified.toLocaleString("pt-BR") : "—"}</span><span className="d"><small>confirmados pelo motor</small></span></div>
-              <div className="cell"><span className="lbl">Taxa de enriquecimento</span><span className="big">{pctEnriquecimento != null ? `${String(pctEnriquecimento).replace(".", ",")}%` : "—"}</span><span className="d"><small>prontos para contato</small></span></div>
-              <div className="cell" style={{ minWidth: 170 }}>
-                <span className="lbl">Fonte de pesquisa</span>
-                <span style={{ fontWeight: 700, fontSize: "0.8rem" }}>Radar HBX</span>
-                <span className="lbl" style={{ fontFamily: "var(--font-mono)" }}>{fmtDateTime(items[0]?.lastSeenAt)}</span>
-              </div>
-            </section>
+      <div className="work">
+        {/* LAGO NACIONAL — enche o olho, não promete puxar tudo */}
+        <section className="panel" style={{ padding: "14px 16px" }}>
+          <div className="radar2-bank">
+            <span className="ttl"><I d={ICONS.search} size={18} /> Radar</span>
+            <span className="nat">
+              <span className="num">{bank ? fmtInt(bank.total) : "—"}</span>
+              <span className="lbl">empresas no Brasil</span>
+              {bank && Number(bank.deltaToday || 0) > 0 && <span className="delta">+{fmtInt(bank.deltaToday)} hoje</span>}
+            </span>
+          </div>
+          <p className="radar2-cap">Número nacional — o que existe no Brasil. O que você pode puxar agora é o de baixo.</p>
+        </section>
 
-            <section className="panel">
-              <div className="panel-head">
-                <h2>{total.toLocaleString("pt-BR")} resultados encontrados</h2>
-              </div>
-              <div className="radar-vitrine">
-                {items.length === 0 && (
-                  <div className="radar-vitrine-empty">
-                    {loadError
-                      ? loadError
-                      : data?.meta?.available === false
-                        ? data?.meta?.message || "Banco do Radar indisponível neste ambiente."
-                        : "Lagoa vazia para esses filtros."}
-                  </div>
-                )}
-                {items.map((row) => {
-                  const href = (u: string) => (u.startsWith("http") ? u : `https://${u}`);
-                  return (
-                    <div key={row.id} role="button" tabIndex={0} className={"vlead" + (sel?.id === row.id ? " on" : "")}
-                      onClick={() => selecionar(row)} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selecionar(row); } }}>
-                      <div className="vlead-top">
-                        <Av name={row.name || "—"} size={38} />
-                        <div className="vlead-id">
-                          <strong>{row.name || "—"}</strong>
-                          <span>{row.segment || row.businessCategory || "—"}{row.city ? ` · ${row.city}${row.state ? "/" + row.state : ""}` : ""}</span>
-                        </div>
-                        <span className={"vlead-score " + (row.opportunityScore >= 75 ? "hi" : "mid")}>{row.opportunityScore}</span>
-                      </div>
-                      <div className="vlead-sig">
-                        {row.hasWhatsapp && <span className="sig ok"><CanalIcon canal="whatsapp" size="sm" /> WhatsApp</span>}
-                        {row.hasEmail && <span className="sig ok"><CanalIcon canal="email" size="sm" /> E-mail</span>}
-                        {row.hasPhone && !row.hasWhatsapp && <span className="sig"><CanalIcon canal="telefone" size="sm" /> Telefone</span>}
-                        {!row.hasWhatsapp && !row.hasEmail && !row.hasPhone && <span className="sig">Sem contato</span>}
-                      </div>
-                      <div className="vlead-soc">
-                        {row.instagramUrl && <a className="soc" href={href(row.instagramUrl)} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}><CanalIcon canal="instagram" size="sm" /> Instagram</a>}
-                        {row.facebookUrl && <a className="soc" href={href(row.facebookUrl)} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}><CanalIcon canal="facebook" size="sm" /> Facebook</a>}
-                        {row.website && <a className="soc" href={href(row.website)} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}><CanalIcon canal="site" size="sm" /> Site</a>}
-                        {!row.instagramUrl && !row.facebookUrl && !row.website && <span className="soc none">Sem presença web</span>}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="pager">
-                Linhas por página: <select className="select-dark" style={{ minWidth: 0, minHeight: 30, padding: "0 10px" }} value={pageSize} onChange={e => setPageSize(Number(e.target.value))}>
-                  {[8, 25, 50, 100].map(n => <option key={n} value={n}>{n}</option>)}
+        {/* PRATELEIRA + CARTEIRA */}
+        <section className="panel" style={{ padding: 0 }}>
+          <div className="radar2-shell">
+            {/* rail de filtros + Buscar (search-on-miss) */}
+            <div className="radar2-rail">
+              <div className="f">
+                <label htmlFor="radar2-uf">Estado</label>
+                <select id="radar2-uf" className="field-dark" value={uf} onChange={e => { setCity(""); setUf(e.target.value); }}>
+                  <option value="">Todos</option>
+                  {ufOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
+              </div>
+              <div className="f">
+                <label htmlFor="radar2-city">Cidade</label>
+                <input id="radar2-city" className="field-dark" list="radar2-cities" value={city} placeholder="Cidade" onChange={e => setCity(e.target.value)} />
+                <datalist id="radar2-cities">{cityOptions.map(o => <option key={o.value} value={o.label} />)}</datalist>
+              </div>
+              <div className="f">
+                <label htmlFor="radar2-seg">Segmento</label>
+                <input id="radar2-seg" className="field-dark" list="radar2-segs" value={segment} placeholder="Ex.: Odontologia" onChange={e => setSegment(e.target.value)} />
+                <datalist id="radar2-segs">{segOptions.map(o => <option key={o.value} value={o.label} />)}</datalist>
+              </div>
+              <button className="btn-teal" onClick={executarBusca} disabled={runBusy || runActive}>
+                <I d={ICONS.search} size={14} /> {runActive ? "Varrendo…" : runBusy ? "Iniciando…" : "Buscar"}
+              </button>
+              <p className="hint">Prateleira fina? Com cidade + segmento, o Buscar varre o motor e traz fresquinhos.</p>
+              {searchMsg && <p className="hint">{searchMsg}</p>}
+            </div>
+
+            {/* prateleira / carteira */}
+            <div className="radar2-main">
+              <div className="tabs">
+                <button className={"tab" + (tab === "shelf" ? " active" : "")} onClick={() => switchTab("shelf")}>
+                  Disponíveis pra você <span className="n">{counts.shelf == null ? "—" : fmtInt(counts.shelf)}</span>
+                </button>
+                <button className={"tab" + (tab === "carteira" ? " active" : "")} onClick={() => switchTab("carteira")}>
+                  Minha carteira <span className="n">{counts.carteira == null ? "—" : fmtInt(counts.carteira)}</span>
+                </button>
+              </div>
+
+              {runActive && (
+                <div className="radar2-live">
+                  <span className="dot" /> Varrendo {city || "…"} · {fmtInt(run?.foundCount)} achados{runProgress != null ? ` · ${runProgress}%` : ""}
+                </div>
+              )}
+
+              <div className="tbl-wrap">
+                <table className="tbl">
+                  <thead>
+                    <tr>
+                      {tab === "shelf" && <th style={{ width: 34 }} aria-label="Selecionar" />}
+                      <th>Empresa</th>
+                      <th>Cidade</th>
+                      <th>Contato</th>
+                      <th style={{ width: 96 }} />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.length === 0 && (
+                      <tr><td colSpan={tab === "shelf" ? 5 : 4}><div className="radar2-empty">{emptyMsg}</div></td></tr>
+                    )}
+                    {items.map(row => (
+                      <tr key={row.id}>
+                        {tab === "shelf" && (
+                          <td><input type="checkbox" checked={selected.has(row.id)} onChange={() => toggleSel(row.id)} aria-label={`Selecionar ${row.name || "lead"}`} /></td>
+                        )}
+                        <td>
+                          <div className="co">
+                            <strong>{row.name || "—"}</strong>
+                            <span className="sub2">{row.segment || row.businessCategory || "—"}</span>
+                          </div>
+                        </td>
+                        <td>{row.city ? `${row.city}${row.state ? "/" + row.state : ""}` : "—"}</td>
+                        <td>
+                          {tab === "shelf"
+                            ? contatoMascarado(row)
+                            : <span>{row.phone || row.email || "—"}</span>}
+                        </td>
+                        <td>
+                          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                            {tab === "shelf"
+                              ? <button className="btn-teal btn-xs" onClick={() => puxar(row.id)} disabled={pullBusyId === row.id || bulkBusy || meterBlocked}>{pullBusyId === row.id ? "Puxando…" : "Puxar"}</button>
+                              : <button className="btn-ghost btn-xs" onClick={() => router.push("/vendas")}>Abrir</button>}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {tab === "shelf" && (
+                <div className={"radar2-meter" + (meterBlocked ? " blocked" : "")}>
+                  <span className="side"><I d={ICONS.bolt} size={15} /> {meterLabel} <span className="lvl">{meterValue}</span></span>
+                  <button className="btn-teal" onClick={puxarSelecionados} disabled={selected.size === 0 || meterBlocked || bulkBusy}>
+                    <I d={ICONS.check} size={14} /> {bulkBusy ? "Puxando…" : `Puxar selecionados${selected.size ? ` (${selected.size})` : ""}`}
+                  </button>
+                </div>
+              )}
+              {pullMsg && <p className="radar2-cap" style={{ margin: "0 16px 10px" }}>{pullMsg}</p>}
+
+              <div className="pager">
                 <span style={{ marginLeft: "auto" }}>
-                  {total > 0
-                    ? `${((page - 1) * limit + 1).toLocaleString("pt-BR")}–${Math.min(page * limit, total).toLocaleString("pt-BR")} de ${total.toLocaleString("pt-BR")}`
+                  {pageTotal > 0
+                    ? `${fmtInt((page - 1) * limit + 1)}–${fmtInt(Math.min(page * limit, pageTotal))} de ${fmtInt(pageTotal)}`
                     : "0 de 0"}
                 </span>
                 <button className="pg" onClick={() => irParaPagina(page - 1)} disabled={page <= 1}>‹</button>
                 {[page - 1, page, page + 1].filter(p => p >= 1 && p <= lastPage).map(p => (
                   <button key={p} className={"pg" + (p === page ? " on" : "")} onClick={() => irParaPagina(p)}>{p}</button>
                 ))}
-                {page + 1 < lastPage && <span>…</span>}
-                {page + 1 < lastPage && <button className="pg" onClick={() => irParaPagina(lastPage)}>{lastPage}</button>}
                 <button className="pg" onClick={() => irParaPagina(page + 1)} disabled={page >= lastPage}>›</button>
               </div>
-            </section>
+            </div>
           </div>
+        </section>
 
-          <aside className="ctx">
-            <h3>{d?.name || "Selecione um resultado"} <span className="x" role="button" tabIndex={0} title="Fechar" onClick={() => { setSel(null); setDetail(null); setShowHistory(false); }}>✕</span></h3>
-            <div>
-              <h3 style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginBottom: 8 }}>Sobre a empresa</h3>
-              <div className="kv">
-                <div className="row"><span className="k">Segmento</span><span className="v">{d?.segment || "—"}</span></div>
-                <div className="row"><span className="k">Categoria</span><span className="v">{d?.businessCategory || "—"}</span></div>
-                <div className="row"><span className="k">Endereço</span><span className="v" style={{ fontSize: "0.68rem" }}>{d?.address || "—"}</span></div>
-                <div className="row"><span className="k">Cidade / UF</span><span className="v">{d?.city ? `${d.city}${d.state ? ", " + d.state : ""}` : "—"}</span></div>
-                <div className="row"><span className="k">Site</span><span className="v">{d?.website
-                  ? <a href={d.website.startsWith("http") ? d.website : `https://${d.website}`} target="_blank" rel="noopener noreferrer" style={{ color: "var(--hbx-info)" }}>{d.website.replace(/^https?:\/\//, "")} ↗</a>
-                  : "—"}</span></div>
-              </div>
-            </div>
-            {!isSeller && (
-              <React.Fragment>
-                <div className="sep"></div>
-                <div>
-                  <h3 style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginBottom: 8 }}>Contato</h3>
-                  <div className="kv" style={{ marginTop: 10 }}>
-                    <div className="row"><span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}><I d={ICONS.mail} size={13} /> E-mail</span><span className="v" style={{ fontWeight: 600, fontSize: "0.68rem" }}>{d?.email || "—"} {d?.email && d?.emailStatus === "confirmed" ? <span style={{ color: "var(--hbx-brand-strong)" }}>✓</span> : null}</span></div>
-                    <div className="row"><span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}><I d={ICONS.phone} size={13} /> Telefone</span><span className="v" style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem" }}>{d?.phone || "—"}</span></div>
-                    <div className="row"><span className="k">Canal recomendado</span><span className="v">{d?.recommendedChannel || "—"}</span></div>
-                  </div>
-                </div>
-              </React.Fragment>
-            )}
-            <div className="sep"></div>
-            <div>
-              <h3 style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginBottom: 8 }}>Origem dos dados</h3>
-              <div className="kv">
-                <div className="row"><span className="k">Fonte</span><span className="v">{d?.sourceEngine || d?.source || "—"}</span></div>
-                <div className="row"><span className="k">Coleta em</span><span className="v" style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem" }}>{fmtDateTime(d?.lastSeenAt || d?.firstSeenAt)}</span></div>
-                <div className="row"><span className="k">Palavra-chave</span><span className="v">{d?.segment || "—"}</span></div>
-                <div className="row"><span className="k">Localização</span><span className="v">{d?.city ? `${d.city}, Brasil` : "—"}</span></div>
-              </div>
-            </div>
-            <div className="sep"></div>
-            <div style={{ display: "grid", gap: 8 }}>
-              <h3>Ações</h3>
-              {!isSeller && crmMsg && (
-                <div style={{ fontSize: "0.72rem", fontWeight: 700, color: crmMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{crmMsg}</div>
-              )}
-              {!isSeller && (
-                <button className="btn-teal" onClick={adicionarAoCrm} disabled={!sel?.id || crmBusy}>
-                  <I d={ICONS.plus} size={14} /> {crmBusy ? "Enviando…" : "Adicionar ao CRM"}
-                </button>
-              )}
-              {!isSeller && (
-                <button className="btn-ghost" onClick={() => router.push("/vendas")} disabled={!sel?.id}><I d={ICONS.send} size={13} /> Criar abordagem</button>
-              )}
-              <button className="btn-ghost" onClick={() => setShowHistory(v => !v)} disabled={!sel?.id}><I d={ICONS.clock} size={13} /> {showHistory ? "Ocultar histórico" : "Ver histórico da empresa"}</button>
-            </div>
-            {showHistory && (
-              <React.Fragment>
-                <div className="sep"></div>
-                <div style={{ display: "grid", gap: 8 }}>
-                  <h3>Histórico da empresa</h3>
-                  <div className="kv">
-                    {histEvents.length === 0 ? (
-                      <div className="row"><span className="k">Sem eventos registrados para este card.</span></div>
-                    ) : histEvents.map(ev => (
-                      <div className="row" key={ev.id}>
-                        <span className="k">{radarEventLabel(ev.eventType)}{ev.note ? ` · ${ev.note}` : ""}</span>
-                        <span className="v">{fmtDateTime(ev.createdAt)}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </React.Fragment>
-            )}
-          </aside>
-        </div>
+        {!isSeller && (
+          <p className="radar2-cap" style={{ padding: "0 4px" }}>
+            Você vê o lago todo mascarado (admin). O vendedor vê a mesma tela — só muda quantos cabem na carteira dele.
+          </p>
+        )}
+      </div>
+    </div>
   );
-}
-
-function statusRunLabel(status: string) {
-  const map: Record<string, string> = {
-    completed: "Concluída",
-    completed_insufficient_results: "Concluída (resultados insuficientes)",
-    canceled: "Cancelada",
-    failed: "Falhou",
-    error: "Erro",
-    queued: "Na fila",
-    running: "Em execução",
-    sleeping: "Pausada",
-    paused: "Pausada",
-  };
-  return map[status] || status || "—";
 }

@@ -2702,6 +2702,23 @@ export class RadarCorePresentationMixin {
     const filteredRows = filters.filterKey || filters.status || filters.ddd || filters.source || filters.scoreRange
       ? this.filterRadarRowsInMemory(allRows, filters)
       : allRows;
+    // CONTAGEM REAL (PR17062026046-C): o total exibido vinha de filteredRows.length, mas o
+    // read é capado em 1000 linhas (top score) — então o número TRAVAVA e não subia quando a
+    // lagoa crescia (import). Quando NÃO há filtro só-em-memória (filterKey/status/ddd/source/
+    // scoreRange), conta de verdade no SQL (sem teto). A página exibida segue lida/capada;
+    // só o total honesto (meta.totalAvailable) vira count. Falha de count → cai no length.
+    const ownershipEnabled = await this.supportsRadarOwnershipPersistence();
+    const hasInMemoryOnlyFilter = Boolean(filters.filterKey || filters.status || filters.ddd || filters.source || filters.scoreRange);
+    const totalAvailable = hasInMemoryOnlyFilter
+      ? filteredRows.length
+      : await (this.prisma as any).radarLeadPool.count({
+          where: this.buildRadarWhere(baseFilters, context.companyId, {
+            availableOnly: vitrine,
+            ownershipEnabled,
+            assignedUserId,
+            requirePhone: false,
+          }),
+        }).catch(() => filteredRows.length);
     // MIX de preferências (dono 14/06): quando o usuário NÃO pediu um segmento
     // específico, sobe pro topo o que casa com o ramo da empresa ∪ a preferência
     // dos vendedores. É BOOST (reordena), não filtro — não esconde nada.
@@ -2719,6 +2736,7 @@ export class RadarCorePresentationMixin {
       meta: {
         available: true,
         vitrine,
+        totalAvailable,
         page: filters.page,
         limit: filters.limit,
         filterKey: filters.filterKey || null,

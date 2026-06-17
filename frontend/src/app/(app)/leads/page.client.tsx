@@ -218,8 +218,8 @@ export function LeadsClient() {
 
   useEffect(() => {
     loadLeads({ page: 1 });
-    apiFetch<{ total?: number }>("/webscraping/radar/leads?scope=vitrine&limit=1")
-      .then(res => setPoolDisponivel(Math.max(0, Math.trunc(Number(res?.total || 0)) || 0)))
+    apiFetch<{ total?: number; meta?: { totalAvailable?: number } }>("/webscraping/radar/leads?scope=vitrine&limit=1")
+      .then(res => setPoolDisponivel(Math.max(0, Math.trunc(Number(res?.meta?.totalAvailable ?? res?.total ?? 0)) || 0)))
       .catch(() => setPoolDisponivel(null));
     loadSuggestions();
     apiFetch<CompanyUser[]>("/users/company")
