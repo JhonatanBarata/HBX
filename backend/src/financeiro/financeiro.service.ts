@@ -505,11 +505,10 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     const findEntitlement = (key: string) =>
       entitlements.find((row: any) => String(row?.key || '').trim().toLowerCase() === key && this.isCommercialEntitlementUsable(row));
     const vendas = findEntitlement(COMMERCIAL_ENTITLEMENT_KEYS.VENDAS);
-    const botIa = findEntitlement(COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA);
-    const hasCommercialState = Boolean(company?.selectedPlanKey || vendas || botIa);
+    const hasCommercialState = Boolean(company?.selectedPlanKey || vendas);
     if (!hasCommercialState) return null;
 
-    const planKey = botIa && !company?.selectedPlanKey ? COMMERCIAL_PLAN_KEYS.MELHOR : selectedPlanKey;
+    const planKey = selectedPlanKey;
     const title = getCommercialPlanTitle(planKey);
     return {
       planKey,
@@ -634,7 +633,6 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       COMMERCIAL_ENTITLEMENT_KEYS.VENDAS,
       COMMERCIAL_ENTITLEMENT_KEYS.ATENDIMENTO_CHAT,
       COMMERCIAL_ENTITLEMENT_KEYS.WEBSCRAPING,
-      COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA,
     ];
 
     for (const key of allKeys) {
@@ -1238,7 +1236,6 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       COMMERCIAL_ENTITLEMENT_KEYS.VENDAS,
       COMMERCIAL_ENTITLEMENT_KEYS.ATENDIMENTO_CHAT,
       COMMERCIAL_ENTITLEMENT_KEYS.WEBSCRAPING,
-      COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA,
     ];
 
     for (const key of allKeys) {

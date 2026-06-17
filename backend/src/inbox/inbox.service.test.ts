@@ -218,7 +218,6 @@ function createService(overrides?: Partial<Record<string, any>>) {
   } as any;
 
   const commercialPlansService = {
-    assertBotAiEntitlementForCompany: async () => true,
     ...(overrides?.commercialPlansService || {}),
   } as any;
 

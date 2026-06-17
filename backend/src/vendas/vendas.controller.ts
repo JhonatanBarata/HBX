@@ -1,9 +1,8 @@
 import { Body, Controller, Get, Headers, Param, Patch, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { UpdateAtendimentoBotConfigDto } from '../inbox/dto/update-atendimento-bot-config.dto';
-import { CommercialEntitlement } from '../commercial-plans/commercial-entitlement.decorator';
-import { CommercialEntitlementGuard } from '../commercial-plans/commercial-entitlement.guard';
-import { COMMERCIAL_ENTITLEMENT_KEYS } from '../commercial-plans/commercial-plan-catalog';
+import { BotArmed } from '../modules/bot-armed.decorator';
+import { BotArmedGuard } from '../modules/bot-armed.guard';
 import { ModuleAccess } from '../modules/module-feature.decorator';
 import { ModuleAccessGuard } from '../modules/module-access.guard';
 import {
@@ -35,15 +34,13 @@ export class VendasController {
   ) {}
 
   @Get('automation/bot-config')
-  @UseGuards(CommercialEntitlementGuard)
-  @CommercialEntitlement(COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA)
   getAutomationBotConfig(@Req() req: any) {
     return this.vendasService.getAutomationBotConfigForUser(req.user);
   }
 
   @Patch('automation/bot-config')
-  @UseGuards(CommercialEntitlementGuard)
-  @CommercialEntitlement(COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA)
+  @UseGuards(BotArmedGuard)
+  @BotArmed()
   updateAutomationBotConfig(@Req() req: any, @Body() dto: UpdateAtendimentoBotConfigDto) {
     return this.vendasService.updateAutomationBotConfigForUser(req.user, dto);
   }
@@ -54,43 +51,41 @@ export class VendasController {
   }
 
   @Get('automation/live-status')
-  @UseGuards(CommercialEntitlementGuard)
-  @CommercialEntitlement(COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA)
+  @UseGuards(BotArmedGuard)
+  @BotArmed()
   getAutomationLiveStatus(@Req() req: any) {
     return this.vendasAutomationService.getLiveStatusForUser(req.user);
   }
 
   @Post('automation/prospecting/start')
-  @UseGuards(CommercialEntitlementGuard)
-  @CommercialEntitlement(COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA)
+  @UseGuards(BotArmedGuard)
+  @BotArmed()
   startProspecting(@Req() req: any, @Body() dto: StartVendasProspectingDto) {
     return this.vendasAutomationService.startProspectingForUser(req.user, dto || {});
   }
 
   @Post('automation/prospecting/pause')
-  @UseGuards(CommercialEntitlementGuard)
-  @CommercialEntitlement(COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA)
+  @UseGuards(BotArmedGuard)
+  @BotArmed()
   pauseProspecting(@Req() req: any) {
     return this.vendasAutomationService.pauseProspectingForUser(req.user);
   }
 
   @Post('automation/prospecting/resume')
-  @UseGuards(CommercialEntitlementGuard)
-  @CommercialEntitlement(COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA)
+  @UseGuards(BotArmedGuard)
+  @BotArmed()
   resumeProspecting(@Req() req: any) {
     return this.vendasAutomationService.resumeProspectingForUser(req.user);
   }
 
   @Post('automation/prospecting/cancel')
-  @UseGuards(CommercialEntitlementGuard)
-  @CommercialEntitlement(COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA)
+  @UseGuards(BotArmedGuard)
+  @BotArmed()
   cancelProspecting(@Req() req: any) {
     return this.vendasAutomationService.cancelProspectingForUser(req.user);
   }
 
   @Patch('automation/prospecting/config')
-  @UseGuards(CommercialEntitlementGuard)
-  @CommercialEntitlement(COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA)
   updateProspectingConfig(@Req() req: any, @Body() dto: UpdateVendasProspectingConfigDto) {
     return this.vendasAutomationService.patchProspectingConfigForUser(req.user, dto || {});
   }

@@ -59,7 +59,7 @@ test('active/PAID releases modules by selected plan', () => {
   assert.equal(melhor.moduleKeys.has('webscraping'), true);
   assert.equal(melhor.moduleKeys.has('gerencial'), true);
   assert.equal(melhor.moduleKeys.has('cadastro'), true);
-  assert.equal(melhor.moduleKeys.has('bot_ia'), true);
+  assert.equal(melhor.moduleKeys.has('bot_ia'), false);
 });
 
 test('commercial plan catalog keeps new HBX names and premium entitlements', () => {
@@ -70,8 +70,8 @@ test('commercial plan catalog keeps new HBX names and premium entitlements', () 
   assert.equal(COMMERCIAL_PLAN_ENTITLEMENT_KEYS[COMMERCIAL_PLAN_KEYS.LITE].includes(COMMERCIAL_ENTITLEMENT_KEYS.NIGHT_FACTORY), false);
   assert.equal(COMMERCIAL_PLAN_ENTITLEMENT_KEYS[COMMERCIAL_PLAN_KEYS.PADRAO].includes(COMMERCIAL_ENTITLEMENT_KEYS.NIGHT_FACTORY), true);
   assert.equal(COMMERCIAL_PLAN_ENTITLEMENT_KEYS[COMMERCIAL_PLAN_KEYS.MELHOR].includes(COMMERCIAL_ENTITLEMENT_KEYS.NIGHT_FACTORY), true);
-  assert.equal(COMMERCIAL_PLAN_ENTITLEMENT_KEYS[COMMERCIAL_PLAN_KEYS.PADRAO].includes(COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA), false);
-  assert.equal(COMMERCIAL_PLAN_ENTITLEMENT_KEYS[COMMERCIAL_PLAN_KEYS.MELHOR].includes(COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA), true);
+  assert.equal(COMMERCIAL_PLAN_ENTITLEMENT_KEYS[COMMERCIAL_PLAN_KEYS.PADRAO].includes(COMMERCIAL_ENTITLEMENT_KEYS.RECOVERY_INTELLIGENCE), false);
+  assert.equal(COMMERCIAL_PLAN_ENTITLEMENT_KEYS[COMMERCIAL_PLAN_KEYS.MELHOR].includes(COMMERCIAL_ENTITLEMENT_KEYS.RECOVERY_INTELLIGENCE), true);
 });
 
 test('courtesy (com prazo) libera o plano escolhido; sem plano cai no Lead Plus', () => {

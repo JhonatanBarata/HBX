@@ -5,6 +5,7 @@ import { UsersModule } from '../users/users.module';
 import { ModulesController } from './modules.controller';
 import { ModulesService } from './modules.service';
 import { ModuleAccessGuard } from './module-access.guard';
+import { BotArmedGuard } from './bot-armed.guard';
 import { MasterGuard } from '../auth/guards/master.guard';
 import { MasterContextModule } from '../master-context/master-context.module';
 import { CompaniesModule } from '../companies/companies.module';
@@ -12,8 +13,8 @@ import { CommercialPlansModule } from '../commercial-plans/commercial-plans.modu
 
 @Module({
   imports: [PrismaModule, forwardRef(() => UsersModule), MasterContextModule, IntegrationsModule, forwardRef(() => CompaniesModule), CommercialPlansModule],
-  providers: [ModulesService, ModuleAccessGuard, MasterGuard],
+  providers: [ModulesService, ModuleAccessGuard, BotArmedGuard, MasterGuard],
   controllers: [ModulesController],
-  exports: [ModulesService, ModuleAccessGuard],
+  exports: [ModulesService, ModuleAccessGuard, BotArmedGuard],
 })
 export class ModulesAccessModule {}

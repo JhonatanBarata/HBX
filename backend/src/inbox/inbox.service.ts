@@ -2,6 +2,8 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
   Logger,
   NotFoundException,
@@ -54,6 +56,7 @@ import {
 } from '../messaging/webwhats-bridge.service';
 import { InboxRealtimeService } from '../messaging/inbox-realtime.service';
 import { resolveBackendPublicAssetPath } from '../public-assets';
+import { isBotArmedForCompany } from '../modules/bot-activation-state';
 import type { Request, Response } from 'express';
 
 type TrashPurgeDetectedReason =
@@ -4701,7 +4704,6 @@ export class InboxService {
 
   async getBotConfig(user: any) {
     const companyId = this.requireCompanyIdFromUser(user);
-    await this.commercialPlansService.assertBotAiEntitlementForCompany(companyId);
     return this.getBotConfigByCompanyId(companyId);
   }
 
@@ -4772,7 +4774,16 @@ export class InboxService {
 
   async updateBotConfig(user: any, payload: unknown) {
     const companyId = this.requireCompanyIdFromUser(user);
-    await this.commercialPlansService.assertBotAiEntitlementForCompany(companyId);
+    const companyForBot = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { botArmedAt: true, botArmChannel: true },
+    });
+    if (!isBotArmedForCompany(companyForBot)) {
+      throw new HttpException(
+        { code: 'BOT_NOT_ARMED', message: 'Acione o suporte para ativar o bot.' },
+        HttpStatus.PAYMENT_REQUIRED,
+      );
+    }
     const requested = normalizeAtendimentoBotConfig(payload || {});
     if (requested.routingRules.globalBotEnabled) {
       await this.commercialPlansService.assertAssistedSetupCompleteForCompany(companyId);
@@ -4824,7 +4835,16 @@ export class InboxService {
   async bulkSetBotActive(user: any, dto: { ids?: number[]; enabled?: boolean }) {
     const companyId = this.requireCompanyIdFromUser(user);
     if (dto?.enabled !== false) {
-      await this.commercialPlansService.assertBotAiEntitlementForCompany(companyId);
+      const companyForBot = await this.prisma.company.findUnique({
+        where: { id: companyId },
+        select: { botArmedAt: true, botArmChannel: true },
+      });
+      if (!isBotArmedForCompany(companyForBot)) {
+        throw new HttpException(
+          { code: 'BOT_NOT_ARMED', message: 'Acione o suporte para ativar o bot.' },
+          HttpStatus.PAYMENT_REQUIRED,
+        );
+      }
       await this.commercialPlansService.assertAssistedSetupCompleteForCompany(companyId);
       const config = await this.getBotConfigByCompanyId(companyId);
       if (!isAtendimentoBotSetupComplete(config)) {

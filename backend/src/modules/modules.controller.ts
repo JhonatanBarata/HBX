@@ -293,6 +293,19 @@ class SetCourtesyDto {
   endsAt?: string;
 }
 
+class SetBotActivationDto {
+  @IsBoolean()
+  armed: boolean;
+
+  @IsOptional()
+  @IsIn(['webwhats', 'meta'])
+  channel?: string;
+
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
 class UpdateMasterCompanyFinanceSettingsDto {
   @IsOptional()
   @Type(() => Number)
@@ -721,6 +734,16 @@ export class ModulesController {
     @Body() dto: SetCourtesyDto,
   ) {
     return this.modulesService.setCompanyCourtesyByMaster(Number(req.user?.id), companyId, dto || {});
+  }
+
+  @Put('master/company/:companyId/bot-activation')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  setCompanyBotActivation(
+    @Req() req: any,
+    @Param('companyId', ParseIntPipe) companyId: number,
+    @Body() dto: SetBotActivationDto,
+  ) {
+    return this.modulesService.setCompanyBotActivationByMaster(Number(req.user?.id), companyId, dto || {});
   }
 
   @Put('master/company/:companyId/finance-settings')

@@ -131,7 +131,6 @@ const MASTER_SURFACE_MODULE_KEYS = new Set(['master', 'exclusoes']);
 const MODULE_DISPLAY_ORDER = [
   'atendimento',
   'vendas',
-  'bot_ia',
   'website',
   'webscraping',
   'cadastro',
@@ -5370,6 +5369,60 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
         complaint: items.filter((item: any) => item.status === 'complaint').length,
       },
     };
+  }
+
+  async setCompanyBotActivationByMaster(
+    masterUserId: number,
+    companyId: number,
+    dto: { armed?: boolean; channel?: string; reason?: string },
+  ) {
+    await this.assertMasterUser(masterUserId);
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    if (!company) throw new BadRequestException('Empresa nao encontrada');
+
+    const armed = Boolean(dto?.armed);
+    const channel = ['webwhats', 'meta'].includes(String(dto?.channel || '')) ? dto!.channel! : 'webwhats';
+    const reason = String(dto?.reason || '').trim() || null;
+    if (armed && !reason) throw new BadRequestException('Informe o motivo ao armar o bot.');
+
+    const previousState = {
+      botArmedAt: (company as any).botArmedAt ? String((company as any).botArmedAt) : null,
+      botArmChannel: (company as any).botArmChannel || null,
+    };
+
+    const updated = await this.prisma.company.update({
+      where: { id: companyId },
+      data: armed
+        ? {
+            botArmedAt: new Date(),
+            botArmChannel: channel,
+            botArmedByUserId: masterUserId,
+            botArmReason: reason,
+          }
+        : {
+            botArmedAt: null,
+            botArmChannel: null,
+            botArmedByUserId: null,
+            botArmReason: null,
+          },
+    });
+
+    await this.masterContextService.registerSupportAction({
+      masterUserId,
+      companyId,
+      scope: 'master_company',
+      action: armed ? 'BOT_ARMED' : 'BOT_DISARMED',
+      metadata: {
+        previousState,
+        currentState: {
+          botArmedAt: (updated as any).botArmedAt ? String((updated as any).botArmedAt) : null,
+          botArmChannel: (updated as any).botArmChannel || null,
+          reason,
+        },
+      },
+    });
+
+    return { ok: true, companyId, armed };
   }
 
   async listMasterExclusoes(

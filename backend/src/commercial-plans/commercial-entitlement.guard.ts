@@ -4,7 +4,6 @@ import {
   COMMERCIAL_ENTITLEMENT_KEY,
 } from './commercial-entitlement.decorator';
 import {
-  COMMERCIAL_ENTITLEMENT_KEYS,
   type CommercialEntitlementKey,
 } from './commercial-plan-catalog';
 import { CommercialPlansService } from './commercial-plans.service';
@@ -27,10 +26,6 @@ export class CommercialEntitlementGuard implements CanActivate {
     const user = req.user;
 
     for (const entitlement of required) {
-      if (entitlement === COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA) {
-        await this.commercialPlansService.assertBotAiEntitlementForUser(user);
-        continue;
-      }
       await this.commercialPlansService.assertEntitlementForUser(user, entitlement);
     }
 

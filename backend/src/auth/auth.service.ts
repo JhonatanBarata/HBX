@@ -784,9 +784,7 @@ export class AuthService implements OnModuleInit {
         activeKeys.has(key) ? 'checkout' : 'plan_change',
         null,
         null,
-        key === COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA
-          ? { ...metadata, botRelease: 'after_payment' }
-          : metadata,
+        metadata,
       );
     }
   }

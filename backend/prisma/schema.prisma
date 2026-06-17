@@ -139,6 +139,10 @@ model Company {
   billingGraceLastEmailAt DateTime?
   billingGraceLastFailureAt DateTime?
   deactivatedAt           DateTime?
+  botArmedAt            DateTime?
+  botArmChannel         String?   // 'webwhats' | 'meta'
+  botArmedByUserId      Int?
+  botArmReason          String?
   createdAt               DateTime  @default(now())
   products                Product[]
   users                   User[]
@@ -1079,6 +1083,7 @@ model User {
   segmentAffinityJson String?
   // Sellers Brains (17/06): null = push ligado; preenchido = push mutado (sino vermelho).
   brainPushMutedAt DateTime?
+  botAccessEnabled  Boolean  @default(false)
   referredByUser  User?            @relation("UserSellerReferralNetwork", fields: [referredByUserId], references: [id], onDelete: SetNull)
   referredUsers   User[]           @relation("UserSellerReferralNetwork")
   company         Company?         @relation(fields: [companyId], references: [id])

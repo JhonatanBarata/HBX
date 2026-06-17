@@ -11,7 +11,6 @@ import { MasterContextService } from '../master-context/master-context.service';
 import { isPlatformInfraCompany } from '../common/company-kind';
 import { SelectCommercialPlanDto } from './dto/select-commercial-plan.dto';
 import {
-  BOT_IA_PLAN_REQUIRED_PAYLOAD,
   COMMERCIAL_ENTITLEMENT_KEYS,
   COMMERCIAL_PLAN_MODULE_KEYS,
   COMMERCIAL_PLAN_ENTITLEMENT_KEYS,
@@ -210,7 +209,6 @@ export class CommercialPlansService {
         vendas: false,
         atendimento_chat: false,
         webscraping: false,
-        bot_ia: false,
         recovery: false,
         night_factory: false,
         radar_premium: false,
@@ -238,7 +236,6 @@ export class CommercialPlansService {
       has(key) || (manualAccess && manualPlanKeys.has(key));
 
     const vendas = hasWithManualFallback(COMMERCIAL_ENTITLEMENT_KEYS.VENDAS) || this.isCompanyTrialingVendas(company);
-    const botIa = vendas && hasWithManualFallback(COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA);
     const radarPremium = hasWithManualFallback(COMMERCIAL_ENTITLEMENT_KEYS.RADAR_PREMIUM);
     const nightFactory = hasWithManualFallback(COMMERCIAL_ENTITLEMENT_KEYS.NIGHT_FACTORY);
     const recoveryIntelligence = hasWithManualFallback(COMMERCIAL_ENTITLEMENT_KEYS.RECOVERY_INTELLIGENCE);
@@ -247,14 +244,13 @@ export class CommercialPlansService {
       vendas,
       atendimento_chat: hasWithManualFallback(COMMERCIAL_ENTITLEMENT_KEYS.ATENDIMENTO_CHAT) || this.isCompanyTrialingVendas(company),
       webscraping: hasWithManualFallback(COMMERCIAL_ENTITLEMENT_KEYS.WEBSCRAPING) || this.isCompanyTrialingVendas(company),
-      bot_ia: botIa,
       recovery: hasWithManualFallback(COMMERCIAL_ENTITLEMENT_KEYS.RECOVERY),
       night_factory: nightFactory,
       radar_premium: radarPremium,
       recovery_intelligence: recoveryIntelligence,
-      digital_audit: botIa && hasWithManualFallback(COMMERCIAL_ENTITLEMENT_KEYS.DIGITAL_AUDIT),
+      digital_audit: hasWithManualFallback(COMMERCIAL_ENTITLEMENT_KEYS.DIGITAL_AUDIT),
       opportunity_score: hasWithManualFallback(COMMERCIAL_ENTITLEMENT_KEYS.OPPORTUNITY_SCORE) || vendas,
-      ai_sales_scripts: hasWithManualFallback(COMMERCIAL_ENTITLEMENT_KEYS.AI_SALES_SCRIPTS) || radarPremium || botIa,
+      ai_sales_scripts: hasWithManualFallback(COMMERCIAL_ENTITLEMENT_KEYS.AI_SALES_SCRIPTS) || radarPremium,
     };
   }
 
@@ -273,7 +269,6 @@ export class CommercialPlansService {
       vendas: true,
       atendimento_chat: true,
       webscraping: true,
-      bot_ia: true,
       recovery: true,
       night_factory: true,
       radar_premium: true,
@@ -302,8 +297,6 @@ export class CommercialPlansService {
     const platformInfra = this.isPlatformInfraCommercialCompany(company);
     const inferredPlanKey = platformInfra
       ? null
-      : entitlements.bot_ia
-      ? COMMERCIAL_PLAN_KEYS.MELHOR
       : entitlements.webscraping && entitlements.vendas && !this.isCompanyTrialingVendas(company) && this.normalizePlanKey(company?.selectedPlanKey) === COMMERCIAL_PLAN_KEYS.LITE
         ? COMMERCIAL_PLAN_KEYS.LITE
       : entitlements.vendas
@@ -441,11 +434,6 @@ export class CommercialPlansService {
     return this.buildCurrentState(company);
   }
 
-  async hasBotAiForCompany(companyId: number) {
-    const current = await this.getCurrentStateForCompany(companyId);
-    return Boolean(current.entitlements.vendas && current.entitlements.bot_ia);
-  }
-
   async assertEntitlementForUser(user: any, entitlement: CommercialEntitlementKey) {
     if (Boolean(user?.isSystemMaster)) {
       return {
@@ -458,10 +446,6 @@ export class CommercialPlansService {
     const current = await this.getCurrentStateForCompany(context.companyId);
     if (current.entitlements[entitlement]) return current;
 
-    if (entitlement === COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA) {
-      this.throwBotAiRequired(current);
-    }
-
     throw new HttpException(
       {
         code: 'COMMERCIAL_PLAN_REQUIRED',
@@ -471,16 +455,6 @@ export class CommercialPlansService {
       },
       HttpStatus.PAYMENT_REQUIRED,
     );
-  }
-
-  async assertBotAiEntitlementForUser(user: any) {
-    return this.assertEntitlementForUser(user, COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA);
-  }
-
-  async assertBotAiEntitlementForCompany(companyId: number) {
-    const current = await this.getCurrentStateForCompany(companyId);
-    if (current.entitlements.vendas && current.entitlements.bot_ia) return current;
-    this.throwBotAiRequired(current);
   }
 
   async assertAssistedSetupCompleteForCompany(companyId: number) {
@@ -509,16 +483,6 @@ export class CommercialPlansService {
         },
       },
       HttpStatus.CONFLICT,
-    );
-  }
-
-  private throwBotAiRequired(current: CommercialCurrentState): never {
-    throw new HttpException(
-      {
-        ...BOT_IA_PLAN_REQUIRED_PAYLOAD,
-        currentEntitlements: current.entitlements,
-      },
-      HttpStatus.PAYMENT_REQUIRED,
     );
   }
 

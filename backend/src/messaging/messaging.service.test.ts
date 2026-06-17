@@ -707,9 +707,9 @@ test('handleAtendimentoInbound enters the Vendas agenda bot gate and opens the m
           subscriptionStatus: 'active',
           onboardingStatus: 'active_paid',
           trialEndsAt: null,
+          botArmedAt: new Date(),
           commercialEntitlements: [
             { key: 'vendas', status: 'active', currentPeriodEnd: null },
-            { key: 'bot_ia', status: 'active', currentPeriodEnd: null },
           ],
         }),
       },
@@ -818,9 +818,9 @@ test('handleAtendimentoInbound asks for the name first when the Vendas agenda re
           subscriptionStatus: 'active',
           onboardingStatus: 'active_paid',
           trialEndsAt: null,
+          botArmedAt: new Date(),
           commercialEntitlements: [
             { key: 'vendas', status: 'active', currentPeriodEnd: null },
-            { key: 'bot_ia', status: 'active', currentPeriodEnd: null },
           ],
         }),
       },
@@ -933,9 +933,9 @@ test('handleAtendimentoInbound handles Recovery menu actions inside Atendimento'
           subscriptionStatus: 'active',
           onboardingStatus: 'active_paid',
           trialEndsAt: null,
+          botArmedAt: new Date(),
           commercialEntitlements: [
             { key: 'vendas', status: 'active', currentPeriodEnd: null },
-            { key: 'bot_ia', status: 'active', currentPeriodEnd: null },
           ],
         }),
       },

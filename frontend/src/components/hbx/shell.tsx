@@ -379,7 +379,7 @@ const NAV_ENTITLEMENT: Record<string, string | null> = {
   scrape: "webscraping",
   vendas: "vendas",
   atend: "atendimento_chat",
-  bot: "bot_ia",
+  bot: null,
   relat: "vendas",
   config: null,
 };
@@ -392,7 +392,7 @@ const NAV_MODULE_KEY: Record<string, string | null> = {
   scrape: "webscraping",
   vendas: "vendas",
   atend: "atendimento",
-  bot: "bot_ia",
+  bot: null,
   relat: "vendas",
   config: null,
 };

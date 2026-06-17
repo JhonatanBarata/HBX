@@ -323,12 +323,10 @@ export class VendasService {
   ) {}
 
   async getAutomationBotConfigForUser(user: any) {
-    await this.commercialPlansService.assertBotAiEntitlementForUser(user);
     return this.inboxService.getBotConfig(user);
   }
 
   async updateAutomationBotConfigForUser(user: any, payload: unknown) {
-    await this.commercialPlansService.assertBotAiEntitlementForUser(user);
     const companyId = Number(user?.masterContext?.active ? user?.masterContext?.companyId : user?.companyId || 0);
     const requested = payload && typeof payload === 'object' ? payload as any : {};
     const globalBotEnabled = Boolean(requested?.routingRules?.globalBotEnabled);
@@ -3018,6 +3016,7 @@ export class VendasService {
     pausedDays?: number | null;
     dailyLimitOverride?: number | null;
     note?: string | null;
+    botAccess?: boolean | null;
   } = {}) {
     const context = await this.resolveVendasUserContext(user);
     if (!context.canManageTeam) {
@@ -3077,6 +3076,9 @@ export class VendasService {
     }
     if (input.note !== undefined) {
       data.sellerDistributionNote = this.normalizeText(input.note)?.slice(0, 240) || null;
+    }
+    if (input.botAccess !== undefined && input.botAccess !== null) {
+      data.botAccessEnabled = Boolean(input.botAccess);
     }
 
     const updated = await (this.prisma.user as any).update({

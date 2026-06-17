@@ -513,31 +513,9 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
   private async hasCommercialBotAiEntitlementForCompany(companyId: number) {
     const company = await this.prisma.company.findUnique({
       where: { id: Number(companyId) },
-      select: {
-        trialModuleSelection: true,
-        status: true,
-        isActive: true,
-        selectedPlanKey: true,
-        trialEndsAt: true,
-        billingGraceEndsAt: true,
-        courtesyEndsAt: true,
-        courtesyReason: true,
-        commercialEntitlements: {
-          select: {
-            key: true,
-            status: true,
-            currentPeriodEnd: true,
-          },
-        },
-      },
+      select: { botArmedAt: true },
     });
-    const entitlements = Array.isArray(company?.commercialEntitlements)
-      ? company.commercialEntitlements
-      : [];
-    const has = (key: string) =>
-      entitlements.some((row: any) => String(row?.key || '').trim().toLowerCase() === key && this.isCommercialEntitlementUsable(row));
-    const vendas = has(COMMERCIAL_ENTITLEMENT_KEYS.VENDAS) || this.isCompanyTrialingVendas(company);
-    return vendas && has(COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA);
+    return Boolean(company?.botArmedAt);
   }
 
   private computeWebhookSignature(rawBody: Buffer): string {

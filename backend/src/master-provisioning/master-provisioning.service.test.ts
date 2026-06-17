@@ -16,7 +16,7 @@ test('buildProvisioningPlan creates tenant contract without platform infra privi
     planKey: 'hbx_melhor',
     manualAccess: true,
     billingCycle: 'ANNUAL',
-    modules: ['vendas', 'webscraping', 'bot_ia'],
+    modules: ['vendas', 'webscraping'],
     limits: {
       commercialCardsMonthlyLimitOverride: 5000,
       commercialCardsDailyLimitOverride: 250,
@@ -41,7 +41,7 @@ test('buildProvisioningPlan creates tenant contract without platform infra privi
   assert.equal(plan.commercial.planKey, 'hbx_melhor');
   assert.equal(plan.commercial.manualAccess, true);
   assert.equal(plan.commercial.entitlementStatus, 'manual');
-  assert.deepEqual(plan.modules.map((moduleItem) => moduleItem.key), ['vendas', 'webscraping', 'bot_ia']);
+  assert.deepEqual(plan.modules.map((moduleItem) => moduleItem.key), ['vendas', 'webscraping']);
   assert.equal(plan.limits.commissionDueBusinessDays, 5);
   assert.equal(plan.admin?.email, 'dono@exemplo.com');
   assert.equal(plan.admin?.passwordProvided, false);

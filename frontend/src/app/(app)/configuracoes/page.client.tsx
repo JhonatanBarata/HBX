@@ -92,7 +92,6 @@ const ENTITLEMENT_LABEL: Record<string, string> = {
   radar: "Radar",
   webscraping: "Radar",
   atendimento: "Atendimento",
-  bot_ia: "Bot IA",
   recovery: "Recovery",
 };
 

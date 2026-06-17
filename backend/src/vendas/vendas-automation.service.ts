@@ -15,6 +15,7 @@ import { buildWhatsAppPhoneCandidates } from '../messaging/whatsapp-channel';
 import { PrismaService } from '../prisma/prisma.service';
 import { WebscrapingService, type WebscrapingContactResult, type WebscrapingSearchResponse } from '../webscraping/webscraping.service';
 import { StartVendasProspectingDto, UpdateVendasProspectingConfigDto } from './dto/vendas.dto';
+import { resolveBotActivation } from '../modules/bot-activation-state';
 import {
   SAFE_FIRST_CONTACT_TEMPLATE,
   SAFE_FIRST_CONTACT_VARIANTS,
@@ -527,7 +528,18 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async assertEntitlement(user: any) {
-    await this.commercialPlansService.assertBotAiEntitlementForUser(user);
+    const companyId = Number(
+      user?.masterContext?.active ? user?.masterContext?.companyId : user?.companyId || 0,
+    );
+    if (!companyId) throw new ForbiddenException('Empresa nao identificada.');
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { botArmedAt: true, botArmChannel: true },
+    });
+    const activation = resolveBotActivation(company);
+    if (!activation.armed) {
+      throw new ForbiddenException('Acione o suporte para ativar o bot.');
+    }
   }
 
   private publishAutomationEvent(input: {
