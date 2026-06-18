@@ -456,8 +456,10 @@ export function LeadsClient() {
               </div>
               <div className="f">
                 <label htmlFor="radar2-city">Cidade</label>
-                <input id="radar2-city" className="field-dark" list="radar2-cities" value={city} placeholder="Cidade" onChange={e => { setAlcance(""); setCity(e.target.value); }} />
-                <datalist id="radar2-cities">{cityOptions.map(o => <option key={o.value} value={o.label} />)}</datalist>
+                <select id="radar2-city" className="select-dark" value={city} onChange={e => { setAlcance(""); setCity(e.target.value); }}>
+                  <option value="">Cidade</option>
+                  {cityOptions.map(o => <option key={o.value} value={o.label}>{o.label}</option>)}
+                </select>
               </div>
               <div className="f">
                 <label htmlFor="radar2-alcance">Alcance</label>
@@ -470,8 +472,10 @@ export function LeadsClient() {
               </div>
               <div className="f">
                 <label htmlFor="radar2-seg">Segmento</label>
-                <input id="radar2-seg" className="field-dark" list="radar2-segs" value={segment} placeholder="Ex.: Odontologia" onChange={e => setSegment(e.target.value)} />
-                <datalist id="radar2-segs">{segOptions.map(o => <option key={o.value} value={o.label} />)}</datalist>
+                <select id="radar2-seg" className="select-dark" value={segment} onChange={e => setSegment(e.target.value)}>
+                  <option value="">Ex.: Odontologia</option>
+                  {segOptions.map(o => <option key={o.value} value={o.label}>{o.label}</option>)}
+                </select>
               </div>
               <div className="f">
                 <label htmlFor="radar2-quantos">Quantos</label>
