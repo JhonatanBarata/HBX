@@ -1438,7 +1438,7 @@ export class WebwhatsBridgeService {
   public async wipeMotorInstance(companyId: number): Promise<{ loggedOut: boolean; deleted: boolean; recreated: boolean }> {
     const config = this.readConfig();
     if (!config.available) return { loggedOut: false, deleted: false, recreated: false };
-    const tenantKey = this.buildTenantKey(companyId);
+    const tenantKey = await this.resolveMotorTenantKey(companyId);
     let loggedOut = false;
     let deleted = false;
     let recreated = false;
@@ -1537,6 +1537,22 @@ export class WebwhatsBridgeService {
 
   private buildTenantKey(companyId: number) {
     return `company-${companyId}`;
+  }
+
+  // 050: as chamadas ao MOTOR (sync de chats/contatos/mensagens, foto, mídia, presença e
+  // wipe) precisam mirar a instância da SESSÃO ATIVA. Com WhatsApp por-usuário a chave é
+  // `company-{id}-user-{userId}` (escrita no connect), não a legada `company-{id}`. O envio
+  // já resolve via `company.session.tenantKey`; aqui centralizamos pro resto do bridge.
+  // Sem sessão ativa (automação/bot) cai na chave legada `company-{id}`.
+  private async resolveMotorTenantKey(companyId: number): Promise<string> {
+    try {
+      const session = await this.resolveCurrentWebwhatsSession(companyId);
+      return this.normalizeOptionalString(session?.tenantKey) || this.buildTenantKey(companyId);
+    } catch {
+      // Resolução da sessão indisponível (DB hiccup) — não derruba a chamada ao motor;
+      // cai na chave legada company-{id}.
+      return this.buildTenantKey(companyId);
+    }
   }
 
   private canUseConnectedInstance(company: { whatsappModalStatus?: string | null }) {
@@ -2095,7 +2111,7 @@ export class WebwhatsBridgeService {
     if (!mediaPayload) return null;
 
     try {
-      const tenantKey = this.buildTenantKey(companyId);
+      const tenantKey = await this.resolveMotorTenantKey(companyId);
       const response = await this.requestRead<any>({
         method: 'POST',
         path: `/chat/getBase64FromMediaMessage/${encodeURIComponent(tenantKey)}`,
@@ -2392,7 +2408,7 @@ export class WebwhatsBridgeService {
     const cached = this.getCachedChatList(cacheKey);
     if (cached) return cached;
 
-    const tenantKey = this.buildTenantKey(companyId);
+    const tenantKey = await this.resolveMotorTenantKey(companyId);
 
     try {
       const response = await this.requestRead<any>({
@@ -2425,7 +2441,7 @@ export class WebwhatsBridgeService {
   }
 
   private async fetchChats(companyId: number, limit: number) {
-    const tenantKey = this.buildTenantKey(companyId);
+    const tenantKey = await this.resolveMotorTenantKey(companyId);
     const response = await this.requestRead<any>({
       method: 'POST',
       path: `/chat/findChats/${encodeURIComponent(tenantKey)}`,
@@ -2444,7 +2460,7 @@ export class WebwhatsBridgeService {
     if (cached) return cached;
 
     try {
-      const tenantKey = this.buildTenantKey(companyId);
+      const tenantKey = await this.resolveMotorTenantKey(companyId);
       const response = await this.requestRead<any>({
         method: 'GET',
         path: `/chat/presence/${encodeURIComponent(tenantKey)}?remoteJid=${encodeURIComponent(remoteJid)}`,
@@ -2690,7 +2706,7 @@ export class WebwhatsBridgeService {
   }
 
   private async fetchContacts(companyId: number) {
-    const tenantKey = this.buildTenantKey(companyId);
+    const tenantKey = await this.resolveMotorTenantKey(companyId);
     const response = await this.requestRead<any>({
       method: 'POST',
       path: `/chat/findContacts/${encodeURIComponent(tenantKey)}`,
@@ -2730,7 +2746,7 @@ export class WebwhatsBridgeService {
       matchRemoteJidAlt?: boolean;
     },
   ) {
-    const tenantKey = this.buildTenantKey(companyId);
+    const tenantKey = await this.resolveMotorTenantKey(companyId);
     const response = await this.requestRead<any>({
       method: 'POST',
       path: `/chat/findMessages/${encodeURIComponent(tenantKey)}`,
@@ -2837,7 +2853,7 @@ export class WebwhatsBridgeService {
   }
 
   private async fetchProfilePicture(companyId: number, remoteJid: string) {
-    const tenantKey = this.buildTenantKey(companyId);
+    const tenantKey = await this.resolveMotorTenantKey(companyId);
     return this.requestRead<any>({
       method: 'POST',
       path: `/chat/fetchProfilePictureUrl/${encodeURIComponent(tenantKey)}`,
