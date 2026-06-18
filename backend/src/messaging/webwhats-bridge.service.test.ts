@@ -223,11 +223,9 @@ test('sendWhatsAppAudio posts Evolution voice note payload', async () => {
   }
 });
 
-// UM SOCKET POR NÚMERO (18/06): o motor é SEMPRE falado pela chave canônica
-// `company-{id}`. Mesmo que o banco ainda tenha uma sessão com tenantKey divergente
-// (resíduo do desenho per-vendedor `company-{id}-user-{n}`), o envio a IGNORA — não
-// pode voltar a falar com um socket-fantasma que briga pelo número.
-test('sendText usa SEMPRE a chave canonica company-{id}, ignorando tenantKey divergente de sessao antiga', async () => {
+// POR USUÁRIO: o envio usa o tenantKey da SESSÃO ATIVA (per-user `company-{id}-user-{n}`),
+// não o id da empresa — cada usuário fala com a SUA instância no motor.
+test('sendText usa tenantKey da sessao ativa quando diferente do id da empresa', async () => {
   const previousUrl = process.env.WHATSAPP_MODAL_INTERNAL_URL;
   const previousKey = process.env.WHATSAPP_MODAL_API_KEY;
   process.env.WHATSAPP_MODAL_INTERNAL_URL = 'http://webwhats.test';
@@ -273,12 +271,12 @@ test('sendText usa SEMPRE a chave canonica company-{id}, ignorando tenantKey div
       text: 'Oi',
     });
 
-    assert.equal(calls.path, '/message/sendText/company-10');
+    assert.equal(calls.path, '/message/sendText/company-11');
     assert.deepEqual(calls.data, {
       number: '+5511999990000',
       text: 'Oi',
     });
-    assert.equal(result.providerMessageId, 'webwhats:company-10:MSG-1');
+    assert.equal(result.providerMessageId, 'webwhats:company-11:MSG-1');
   } finally {
     if (previousUrl === undefined) delete process.env.WHATSAPP_MODAL_INTERNAL_URL;
     else process.env.WHATSAPP_MODAL_INTERNAL_URL = previousUrl;

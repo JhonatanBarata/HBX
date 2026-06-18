@@ -316,9 +316,11 @@ test('snapshot connected do MESMO número reativa a sessão dele (preserva hist�
   assert.equal(companyUpdates.at(-1).currentWhatsappConnectionSessionId, 'session-mine');
 });
 
-test('persistSnapshot BLOQUEIA número já ativo em outra empresa (1 número = 1 empresa)', async () => {
-  // Regra do dono 17/06: ninguém compartilha WhatsApp. company-7 tenta conectar um número
-  // que já é a sessão ativa da company 99 → recusa, desconecta o chip e lança 409.
+test('persistSnapshot NÃO bloqueia número já ativo em outra empresa (regra 1 número = 1 empresa REMOVIDA)', async () => {
+  // Decisão do dono 18/06: WhatsApp é POR USUÁRIO; a regra "1 número = 1 empresa/usuário"
+  // foi removida de vez — ela fazia logout+DELETE da instância (wipe) que quebrava o envio
+  // ("recebe mas não envia"). company-7 conecta um número já ativo na company 99 → NÃO
+  // recusa, NÃO derruba o chip; cria a própria sessão normalmente.
   const company = createCompany({ whatsappModalStatus: 'DISCONNECTED' });
   const { prisma, sessions, companyUpdates } = createSessionPrisma(company, [
     {
@@ -340,21 +342,15 @@ test('persistSnapshot BLOQUEIA número já ativo em outra empresa (1 número = 1
     return {};
   };
 
-  await assert.rejects(
-    () => service.persistSnapshot(company, createSnapshot(), 'test_cross_company'),
-    (error: any) => {
-      assert.equal(error.code, 'WHATSAPP_NUMBER_OWNED_BY_OTHER_COMPANY');
-      assert.equal(error.statusCode, 409);
-      return true;
-    },
-  );
+  // Não lança mais — a regra de bloqueio foi removida.
+  await service.persistSnapshot(company, createSnapshot(), 'test_cross_company');
 
-  // Tirou o chip da company-7 da briga no motor.
-  assert.ok(providerPaths.includes('/instance/logout/company-7'));
-  assert.ok(providerPaths.includes('/instance/delete/company-7'));
-  // Não criou sessão para company-7 e marcou erro.
-  assert.equal(sessions.some((s) => Number(s.companyId) === 7), false);
-  assert.equal(companyUpdates.at(-1).whatsappModalStatus, 'ERROR');
+  // NÃO derrubou o chip da company-7 (sem logout/delete pós-bloqueio).
+  assert.equal(providerPaths.includes('/instance/logout/company-7'), false);
+  assert.equal(providerPaths.includes('/instance/delete/company-7'), false);
+  // Criou a sessão da company-7 normalmente; status NÃO virou ERROR.
+  assert.equal(sessions.some((s) => Number(s.companyId) === 7), true);
+  assert.notEqual(companyUpdates.at(-1).whatsappModalStatus, 'ERROR');
   // A sessão da outra empresa permanece intacta.
   assert.equal(sessions.find((s) => s.id === 'session-outra').status, 'active');
 });

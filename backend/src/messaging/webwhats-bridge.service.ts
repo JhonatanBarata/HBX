@@ -974,9 +974,9 @@ export class WebwhatsBridgeService {
     ) {
       return {
         id: String(current.id),
-        // UM SOCKET POR NÚMERO (18/06): o motor é sempre falado pela chave canônica
-        // `company-{id}`, mesmo que a sessão gravada tenha um tenantKey por-vendedor velho.
-        tenantKey,
+        // POR USUÁRIO: usa o tenantKey da sessão ativa (per-user `company-{id}-user-{n}`
+        // quando é a sessão do usuário; senão a da empresa).
+        tenantKey: String(current.tenantKey || tenantKey),
         phoneNormalized: this.normalizeConnectionPhone(current.phoneNormalized),
         displayPhone: this.normalizeOptionalString(current.displayPhone),
         metadataJson: this.normalizeOptionalString(current.metadataJson),
@@ -1009,7 +1009,7 @@ export class WebwhatsBridgeService {
 
     return {
       id: String(fallback.id),
-      tenantKey,
+      tenantKey: String(fallback.tenantKey || tenantKey),
       phoneNormalized: this.normalizeConnectionPhone(fallback.phoneNormalized),
       displayPhone: this.normalizeOptionalString(fallback.displayPhone),
       metadataJson: this.normalizeOptionalString(fallback.metadataJson),

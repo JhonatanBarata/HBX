@@ -975,78 +975,20 @@ export class WhatsAppModalService {
     };
   }
 
-  // Número único — ninguém compartilha WhatsApp (regra do dono; docs/Rules/WHATSAPP.md).
-  // 050-5: estendido de "1 número = 1 empresa" para "1 número = 1 usuário".
-  // Se o número já é sessão ativa de OUTRO usuário (qualquer empresa) → bloqueia.
-  // Se o número é da mesma empresa sem userId (legado) mas outra empresa → bloqueia.
+  // POR USUÁRIO (decisão do dono 18/06): a regra "1 número = 1 empresa / 1 usuário" foi
+  // REMOVIDA DE VEZ. Ela fazia logout + DELETE da instância do número sempre que o número
+  // já tinha sessão ativa — derrubando o número quando outro vendedor/contexto tocava
+  // nele. Esse wipe era a causa do "recebe mas não envia" reincidente (status caía de
+  // connected -> error -> offline). Cada usuário liga o SEU próprio número e tem a SUA
+  // instância (`company-{id}-user-{userId}`); o motor já garante 1 socket por número.
+  // Mantida como no-op (assinatura preservada) pra não quebrar os chamadores.
   private async enforceNumberNotSharedAcrossCompaniesOrBlock(
-    company: CompanyModalFields,
-    snapshot: ModalSnapshot,
-    source: string,
-    userId?: number,
-  ) {
-    const phoneNormalized = this.normalizeTrialPhone(snapshot.phone);
-    if (!phoneNormalized) return;
-
-    const activeForNumber = await this.prisma.whatsAppConnectionSession.findFirst({
-      where: { provider: 'webwhats', status: 'active', phoneNormalized },
-      select: { companyId: true, userId: true },
-    });
-    if (!activeForNumber) return;
-
-    let shouldBlock = false;
-    let errorCode: WhatsAppModalErrorCode = 'WHATSAPP_NUMBER_OWNED_BY_OTHER_COMPANY';
-    let message = 'Este WhatsApp já está vinculado a outra empresa. Use um número exclusivo desta conta.';
-
-    if (userId) {
-      // 050-5: mesmo usuário reconectando o próprio número → OK.
-      if (Number(activeForNumber.userId) === Number(userId)) return;
-      // Número ativo para outro usuário (mesma ou outra empresa) → bloqueia.
-      if (activeForNumber.userId !== null) {
-        shouldBlock = true;
-        errorCode = 'WHATSAPP_NUMBER_OWNED_BY_OTHER_USER';
-        message = 'Este WhatsApp já está conectado por outro vendedor.';
-      } else if (Number(activeForNumber.companyId) !== Number(company.id)) {
-        // Sessão legada (userId=null) em outra empresa → bloqueia pela regra de empresa.
-        shouldBlock = true;
-      }
-    } else {
-      // Contexto sem userId: regra de empresa (legado).
-      if (Number(activeForNumber.companyId) !== Number(company.id)) {
-        shouldBlock = true;
-      }
-    }
-
-    if (!shouldBlock) return;
-
-    const tenantKey = this.resolveOperationalTenantKey(company);
-    this.logger.warn(
-      `Número compartilhado bloqueado: company ${company.id} userId ${userId ?? 'N/A'} tentou conectar ${phoneNormalized} ` +
-        `já ativo na company ${activeForNumber.companyId} userId ${activeForNumber.userId ?? 'N/A'} (${source}).`,
-    );
-
-    // Tira esta instância da briga no motor (best-effort — não pode mascarar o bloqueio).
-    try {
-      await this.logoutProviderSession(tenantKey);
-    } catch (error) {
-      this.logger.warn(`logout pos-bloqueio falhou para ${tenantKey}: ${this.toProviderError(error).message}`);
-    }
-    try {
-      await this.deleteProviderInstance(tenantKey);
-    } catch (error) {
-      this.logger.warn(`delete pos-bloqueio falhou para ${tenantKey}: ${this.toProviderError(error).message}`);
-    }
-
-    await this.prisma.company.update({
-      where: { id: Number(company.id) },
-      data: {
-        whatsappModalStatus: 'ERROR',
-        whatsappModalLastError: message,
-        whatsappModalUpdatedAt: new Date(),
-      },
-    });
-
-    throw new WhatsAppModalProviderError(errorCode, message, 409);
+    _company: CompanyModalFields,
+    _snapshot: ModalSnapshot,
+    _source: string,
+    _userId?: number,
+  ): Promise<void> {
+    return;
   }
 
   private async registerTrialPhoneUsageOrBlock(company: CompanyModalFields, phone: string | null, snapshot: ModalSnapshot, source: string) {
@@ -1743,15 +1685,15 @@ export class WhatsAppModalService {
     return `company-${Number(company.id)}`;
   }
 
-  // UM SOCKET POR NÚMERO (18/06): a chave do motor é SEMPRE `company-{id}`.
-  // O desenho "050" de instância por-vendedor (`company-{id}-user-{userId}`) era
-  // impossível: WhatsApp só permite UM socket por número, então N instâncias Baileys
-  // no MESMO número brigavam em loop (conflict: replaced -> device_removed) e o socket
-  // caía antes de transmitir — daí "recebe mas não envia". A divisão entre vendedores
-  // é atribuição LÓGICA de conversa no Atendimento, não conexão física separada.
-  // userId continua chegando aqui (auditoria/persistSnapshot), mas NÃO vira instância.
-  private buildUserTenantKey(company: Pick<CompanyModalFields, 'id'>, _userId?: number | null | undefined) {
-    return this.buildTenantKey(company);
+  // WhatsApp é POR USUÁRIO (decisão do dono 18/06): cada vendedor/admin liga o SEU
+  // próprio número, então cada usuário tem a SUA instância no motor —
+  // `company-{id}-user-{userId}`. Sem userId (automação/sistema/legado) usa a chave da
+  // empresa `company-{id}`. Compartilhar UM número entre admin e vendedores é REGRESSÃO
+  // (vira N sockets no mesmo número brigando = "recebe mas não envia"); por isso cada
+  // usuário liga o próprio número e tem a própria sessão.
+  private buildUserTenantKey(company: Pick<CompanyModalFields, 'id'>, userId: number | null | undefined) {
+    if (!userId) return this.buildTenantKey(company);
+    return `company-${Number(company.id)}-user-${Number(userId)}`;
   }
 
   // Sobrepõe o currentWhatsappConnectionSession da empresa com uma sessão virtual
@@ -1770,11 +1712,18 @@ export class WhatsAppModalService {
     };
   }
 
-  // UM SOCKET POR NÚMERO (18/06): a instância operacional é SEMPRE a canônica
-  // `company-{id}`. Sessões por-vendedor antigas (tenantKey `company-{id}-user-{n}`)
-  // ainda gravadas no banco são IGNORADAS aqui — qualquer chave per-user colapsa pra
-  // canônica, pra não voltar a falar com um socket-fantasma que briga pelo número.
+  // POR USUÁRIO: a instância operacional é a da SESSÃO ATIVA (per-user
+  // `company-{id}-user-{userId}` quando o contexto tem userId; senão a da empresa).
   private resolveOperationalTenantKey(company: Pick<CompanyModalFields, 'id' | 'currentWhatsappConnectionSession'>) {
+    const current = company.currentWhatsappConnectionSession;
+    if (
+      current &&
+      String(current.provider || '').trim().toLowerCase() === 'webwhats' &&
+      String(current.status || '').trim().toLowerCase() === 'active'
+    ) {
+      const tenantKey = this.normalizeOptionalString(current.tenantKey);
+      if (tenantKey) return tenantKey;
+    }
     return this.buildTenantKey(company);
   }
 
