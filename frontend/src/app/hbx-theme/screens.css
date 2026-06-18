@@ -598,6 +598,7 @@ html, body { height: 100%; }
 .chan-ico { display: inline-block; flex: 0 0 auto; width: 16px; height: 16px; background-size: contain; background-repeat: no-repeat; background-position: center; vertical-align: -2px; }
 .chan-ico--sm { width: 14px; height: 14px; vertical-align: -2px; }
 .chan-ico--lg { width: 20px; height: 20px; vertical-align: -4px; }
+.chan-ico--xl { width: 28px; height: 28px; vertical-align: -6px; }
 /* Alinha ícone de canal + texto (chip/linha) sem inline na tela. */
 .with-ico { display: inline-flex; align-items: center; gap: 5px; }
 

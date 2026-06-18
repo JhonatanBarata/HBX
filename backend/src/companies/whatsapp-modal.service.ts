@@ -1743,11 +1743,15 @@ export class WhatsAppModalService {
     return `company-${Number(company.id)}`;
   }
 
-  // 050-1: chave por usuário — cada vendedor tem a sua própria instância no motor.
-  // Automação/sistema (userId=null) usa a chave legada company-{id} (050-7 opção 1).
-  private buildUserTenantKey(company: Pick<CompanyModalFields, 'id'>, userId: number | null | undefined) {
-    if (!userId) return this.buildTenantKey(company);
-    return `company-${Number(company.id)}-user-${Number(userId)}`;
+  // UM SOCKET POR NÚMERO (18/06): a chave do motor é SEMPRE `company-{id}`.
+  // O desenho "050" de instância por-vendedor (`company-{id}-user-{userId}`) era
+  // impossível: WhatsApp só permite UM socket por número, então N instâncias Baileys
+  // no MESMO número brigavam em loop (conflict: replaced -> device_removed) e o socket
+  // caía antes de transmitir — daí "recebe mas não envia". A divisão entre vendedores
+  // é atribuição LÓGICA de conversa no Atendimento, não conexão física separada.
+  // userId continua chegando aqui (auditoria/persistSnapshot), mas NÃO vira instância.
+  private buildUserTenantKey(company: Pick<CompanyModalFields, 'id'>, _userId?: number | null | undefined) {
+    return this.buildTenantKey(company);
   }
 
   // Sobrepõe o currentWhatsappConnectionSession da empresa com uma sessão virtual
@@ -1766,16 +1770,11 @@ export class WhatsAppModalService {
     };
   }
 
+  // UM SOCKET POR NÚMERO (18/06): a instância operacional é SEMPRE a canônica
+  // `company-{id}`. Sessões por-vendedor antigas (tenantKey `company-{id}-user-{n}`)
+  // ainda gravadas no banco são IGNORADAS aqui — qualquer chave per-user colapsa pra
+  // canônica, pra não voltar a falar com um socket-fantasma que briga pelo número.
   private resolveOperationalTenantKey(company: Pick<CompanyModalFields, 'id' | 'currentWhatsappConnectionSession'>) {
-    const current = company.currentWhatsappConnectionSession;
-    if (
-      current &&
-      String(current.provider || '').trim().toLowerCase() === 'webwhats' &&
-      String(current.status || '').trim().toLowerCase() === 'active'
-    ) {
-      const tenantKey = this.normalizeOptionalString(current.tenantKey);
-      if (tenantKey) return tenantKey;
-    }
     return this.buildTenantKey(company);
   }
 

@@ -223,7 +223,11 @@ test('sendWhatsAppAudio posts Evolution voice note payload', async () => {
   }
 });
 
-test('sendText usa tenantKey da sessao ativa quando diferente do id da empresa', async () => {
+// UM SOCKET POR NÚMERO (18/06): o motor é SEMPRE falado pela chave canônica
+// `company-{id}`. Mesmo que o banco ainda tenha uma sessão com tenantKey divergente
+// (resíduo do desenho per-vendedor `company-{id}-user-{n}`), o envio a IGNORA — não
+// pode voltar a falar com um socket-fantasma que briga pelo número.
+test('sendText usa SEMPRE a chave canonica company-{id}, ignorando tenantKey divergente de sessao antiga', async () => {
   const previousUrl = process.env.WHATSAPP_MODAL_INTERNAL_URL;
   const previousKey = process.env.WHATSAPP_MODAL_API_KEY;
   process.env.WHATSAPP_MODAL_INTERNAL_URL = 'http://webwhats.test';
@@ -269,12 +273,12 @@ test('sendText usa tenantKey da sessao ativa quando diferente do id da empresa',
       text: 'Oi',
     });
 
-    assert.equal(calls.path, '/message/sendText/company-11');
+    assert.equal(calls.path, '/message/sendText/company-10');
     assert.deepEqual(calls.data, {
       number: '+5511999990000',
       text: 'Oi',
     });
-    assert.equal(result.providerMessageId, 'webwhats:company-11:MSG-1');
+    assert.equal(result.providerMessageId, 'webwhats:company-10:MSG-1');
   } finally {
     if (previousUrl === undefined) delete process.env.WHATSAPP_MODAL_INTERNAL_URL;
     else process.env.WHATSAPP_MODAL_INTERNAL_URL = previousUrl;
@@ -506,7 +510,9 @@ test('upsertConversationStateFromChat preserves group chats with group metadata'
   assert.equal(metadata.whatsappUnreadCount, 2);
 });
 
-test('syncRecentChats mirrors individual and group chats into conversations', async () => {
+// Inbox 1:1 só (ordem do dono 17/06): grupo (@g.us), transmissão/status (@broadcast)
+// e canal (@newsletter) NUNCA entram no espelhamento. Só conversa pessoa-a-pessoa.
+test('syncRecentChats espelha SÓ conversas 1:1 (ignora grupo e status@broadcast)', async () => {
   const createdContacts: string[] = [];
   const prisma = {
     company: {
@@ -554,10 +560,9 @@ test('syncRecentChats mirrors individual and group chats into conversations', as
     failOnError: true,
   });
 
-  assert.equal(synced, 2);
+  assert.equal(synced, 1);
   assert.deepEqual(createdContacts, [
     '+5511999998888',
-    '120363401234567890@g.us',
   ]);
 });
 

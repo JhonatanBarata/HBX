@@ -29,7 +29,7 @@ export function toCanal(value: string | null | undefined): Canal | null {
   return null;
 }
 
-export function CanalIcon({ canal, size = "md", label }: { canal: Canal; size?: "sm" | "md" | "lg"; label?: string }) {
-  const cls = "chan-ico chan-ico--" + canal + (size === "sm" ? " chan-ico--sm" : size === "lg" ? " chan-ico--lg" : "");
+export function CanalIcon({ canal, size = "md", label }: { canal: Canal; size?: "sm" | "md" | "lg" | "xl"; label?: string }) {
+  const cls = "chan-ico chan-ico--" + canal + (size === "sm" ? " chan-ico--sm" : size === "lg" ? " chan-ico--lg" : size === "xl" ? " chan-ico--xl" : "");
   return <span className={cls} role="img" aria-label={label ?? CANAL_LABEL[canal]} />;
 }

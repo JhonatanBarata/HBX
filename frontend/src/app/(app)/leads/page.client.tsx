@@ -696,31 +696,31 @@ export function LeadsClient() {
             </div>
 
             {/* Canais disponíveis */}
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", padding: "12px 0 4px", alignItems: "center" }}>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", padding: "12px 0 4px", alignItems: "center" }}>
               {selLead.hasWhatsapp && (
                 tab === "carteira" && selLead.phone
-                  ? <a href={`https://wa.me/55${selLead.phone.replace(/\D/g, "")}`} target="_blank" rel="noopener noreferrer" aria-label="WhatsApp"><CanalIcon canal="whatsapp" size="lg" /></a>
-                  : <CanalIcon canal="whatsapp" size="lg" />
+                  ? <a href={`https://wa.me/55${selLead.phone.replace(/\D/g, "")}`} target="_blank" rel="noopener noreferrer" aria-label="WhatsApp"><CanalIcon canal="whatsapp" size="xl" /></a>
+                  : <CanalIcon canal="whatsapp" size="xl" />
               )}
               {selLead.hasPhone && !selLead.hasWhatsapp && (
                 tab === "carteira" && selLead.phone
-                  ? <a href={`tel:${selLead.phone.replace(/[^\d+]/g, "")}`} aria-label="Telefone"><CanalIcon canal="telefone" size="lg" /></a>
-                  : <CanalIcon canal="telefone" size="lg" />
+                  ? <a href={`tel:${selLead.phone.replace(/[^\d+]/g, "")}`} aria-label="Telefone"><CanalIcon canal="telefone" size="xl" /></a>
+                  : <CanalIcon canal="telefone" size="xl" />
               )}
-              {selLead.hasEmail && <CanalIcon canal="email" size="lg" />}
+              {selLead.hasEmail && <CanalIcon canal="email" size="xl" />}
               {selLead.instagramUrl && (
                 <a href={selLead.instagramUrl} target="_blank" rel="noopener noreferrer" aria-label="Instagram">
-                  <CanalIcon canal="instagram" size="lg" />
+                  <CanalIcon canal="instagram" size="xl" />
                 </a>
               )}
               {selLead.facebookUrl && (
                 <a href={selLead.facebookUrl} target="_blank" rel="noopener noreferrer" aria-label="Facebook">
-                  <CanalIcon canal="facebook" size="lg" />
+                  <CanalIcon canal="facebook" size="xl" />
                 </a>
               )}
               {selLead.website && (
                 <a href={selLead.website.startsWith("http") ? selLead.website : `https://${selLead.website}`} target="_blank" rel="noopener noreferrer" aria-label="Site">
-                  <CanalIcon canal="site" size="lg" />
+                  <CanalIcon canal="site" size="xl" />
                 </a>
               )}
             </div>

@@ -305,18 +305,23 @@ export class WAMonitoringService {
 
   /**
    * Escolhe a instância canônica dentre várias amarradas no mesmo número:
-   * aberta > conectando; por-vendedor (`-user-`) > legado; mais recente por último update.
+   * aberta > conectando; CANÔNICA (`company-{id}`) > por-vendedor (`-user-`, legado morto);
+   * mais recente por último update.
+   * UM SOCKET POR NÚMERO (18/06): o backend só fala com `company-{id}`; a instância
+   * por-vendedor é resíduo do desenho antigo e deve PERDER, pra ser reapada.
    */
   private pickCanonicalForNumber(
     group: Array<{ id: string; name: string; connectionStatus: string | null; updatedAt: Date | null }>,
   ) {
     return [...group].sort((a, b) => {
+      // CANÔNICA domina QUALQUER status: uma `-user-` marcada "open" é resíduo do
+      // desenho morto e jamais deve ser eleita sobrevivente (senão volta o conflito).
+      const au = a.name.includes('-user-') ? 1 : 0;
+      const bu = b.name.includes('-user-') ? 1 : 0;
+      if (au !== bu) return au - bu;
       const ao = a.connectionStatus === 'open' ? 0 : 1;
       const bo = b.connectionStatus === 'open' ? 0 : 1;
       if (ao !== bo) return ao - bo;
-      const au = a.name.includes('-user-') ? 0 : 1;
-      const bu = b.name.includes('-user-') ? 0 : 1;
-      if (au !== bu) return au - bu;
       return (b.updatedAt?.getTime?.() || 0) - (a.updatedAt?.getTime?.() || 0);
     })[0];
   }

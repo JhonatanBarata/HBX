@@ -31,6 +31,34 @@ import { formatWhatsAppDateTime, whatsappModalStatusLabel, type WhatsAppModalPay
 
 const PAIRING_PHONE_RE = /^\+[1-9]\d{7,14}$/;
 
+// Nunca deixar um JID técnico (5519920121720@s.whatsapp.net, @lid, @g.us...) vazar pra tela.
+// De um JID/telefone, extrai os dígitos e formata bonito (+55 (DD) XXXXX-XXXX). JID técnico
+// (lid/grupo/broadcast) vira null — não é número.
+function prettyPhone(raw: string | null | undefined): string | null {
+  const s = String(raw || "").trim();
+  if (!s) return null;
+  if (/@(lid|g\.us|broadcast|newsletter)/i.test(s)) return null;
+  const m = s.match(/^\+?(\d{8,15})(?:@(?:s\.whatsapp\.net|c\.us))?$/i);
+  const digits = m ? m[1] : s.replace(/\D/g, "");
+  if (digits.length < 8) return null;
+  if (digits.startsWith("55") && (digits.length === 12 || digits.length === 13)) {
+    const ddd = digits.slice(2, 4);
+    const rest = digits.slice(4);
+    const mid = rest.length === 9 ? `${rest.slice(0, 5)}-${rest.slice(5)}` : `${rest.slice(0, 4)}-${rest.slice(4)}`;
+    return `+55 (${ddd}) ${mid}`;
+  }
+  return `+${digits}`;
+}
+
+// Limpa JIDs crus de dentro das mensagens vindas do backend ("Sessão conectada ao número
+// 5519920121720@s.whatsapp.net" → "...ao número +55 (19) 92012-1720").
+function sanitizeJidsInText(text: string | null | undefined): string {
+  return String(text || "")
+    .replace(/\+?(\d{8,15})@(?:s\.whatsapp\.net|c\.us)/gi, (_full, d: string) => prettyPhone(d) || `+${d}`)
+    .replace(/\s*\S+@(?:lid|g\.us|broadcast|newsletter)/gi, "")
+    .trim();
+}
+
 export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnected }: {
   open: boolean;
   onClose: () => void;
@@ -221,7 +249,7 @@ export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnecte
           <span className={"tag" + (connected ? " teal" : status === "error" ? " red" : " warn")}>
             {whatsappModalStatusLabel(status)}
           </span>
-          {payload?.data?.phone && <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.74rem" }}>{payload.data.phone}</span>}
+          {prettyPhone(payload?.data?.phone) && <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.74rem" }}>{prettyPhone(payload?.data?.phone)}</span>}
         </div>
 
         {!connected && (
@@ -232,7 +260,7 @@ export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnecte
         )}
 
         {payload?.message && (
-          <p style={{ margin: 0, fontSize: "0.76rem", color: "var(--text-muted)", lineHeight: 1.5 }}>{payload.message}</p>
+          <p style={{ margin: 0, fontSize: "0.76rem", color: "var(--text-muted)", lineHeight: 1.5 }}>{sanitizeJidsInText(payload.message)}</p>
         )}
         {error && (
           <p style={{ margin: 0, fontSize: "0.74rem", fontWeight: 700, color: "var(--hbx-danger)" }}>{error}</p>
