@@ -53,6 +53,7 @@ import {
   WebwhatsLiveChatSnapshot,
   WebwhatsLiveConversationSnapshot,
   WebwhatsProviderError,
+  WebwhatsSessionSelector,
 } from '../messaging/webwhats-bridge.service';
 import { InboxRealtimeService } from '../messaging/inbox-realtime.service';
 import { resolveBackendPublicAssetPath } from '../public-assets';
@@ -120,7 +121,7 @@ const METICULOUS_TRASH_NOTE_MARKER = 'SEM INTERESSE / NEGATIVO';
 export class InboxService {
   private readonly logger = new Logger(InboxService.name);
   private readonly backgroundInboxSyncAt = new Map<number | string, number>();
-  private readonly fullMirrorJobs = new Map<number, Promise<unknown>>();
+  private readonly fullMirrorJobs = new Map<string, Promise<unknown>>();
   private readonly meticulousTrashTimers = new Map<string, NodeJS.Timeout>();
   private readonly serviceStartedAt = new Date();
 
@@ -342,6 +343,7 @@ export class InboxService {
     opts?: {
       take?: string | number | null;
     },
+    selector?: WebwhatsSessionSelector,
   ) {
     try {
       const requestedTake = Number(opts?.take);
@@ -352,7 +354,7 @@ export class InboxService {
       await this.webwhatsBridge.syncRecentChats(companyId, {
         limit,
         failOnError: false,
-      });
+      }, selector);
       return null;
     } catch (error: any) {
       const message = String(error?.message || error || 'Falha ao sincronizar indice do WhatsApp.');
@@ -363,12 +365,18 @@ export class InboxService {
     }
   }
 
-  private triggerBackgroundInboxIndexSync(companyId: number, opts?: { take?: string | number | null }) {
-    const key = `index:${companyId}`;
+  private triggerBackgroundInboxIndexSync(
+    companyId: number,
+    opts?: { take?: string | number | null },
+    selector?: WebwhatsSessionSelector,
+  ) {
+    // POR USUÁRIO: throttle por sessão (selector) — o sync de um vendedor não trava o do outro.
+    const scopeKey = selector?.sessionId || (selector?.userId ? `user-${selector.userId}` : 'company');
+    const key = `index:${companyId}:${scopeKey}`;
     const lastRunAt = Number(this.backgroundInboxSyncAt.get(key) || 0);
     if (Date.now() - lastRunAt < 30000) return;
     this.backgroundInboxSyncAt.set(key, Date.now());
-    void this.syncPersistedInboxIndex(companyId, opts).catch((error: any) => {
+    void this.syncPersistedInboxIndex(companyId, opts, selector).catch((error: any) => {
       const message = String(error?.message || error || 'Falha ao atualizar indice da Inbox em background.');
       this.logger.warn(`Inbox background index sync falhou company=${companyId}: ${message}`);
     });
@@ -376,12 +384,13 @@ export class InboxService {
 
   private async syncPersistedInboxConversation(companyId: number, conversationId: number) {
     try {
+      const selector = await this.buildWebwhatsConversationSelector(companyId, conversationId);
       await this.webwhatsBridge.syncConversationMessagesDetailed(companyId, conversationId, {
         limit: 20,
         fullSync: true,
         maxPages: 1,
         force: false,
-      });
+      }, selector);
       return null;
     } catch (error: any) {
       const message = String(error?.message || error || 'Falha ao sincronizar conversa do WhatsApp.');
@@ -398,12 +407,13 @@ export class InboxService {
     if (Date.now() - lastRunAt < 8000) return null;
     this.backgroundInboxSyncAt.set(key, Date.now());
     try {
+      const selector = await this.buildWebwhatsConversationSelector(companyId, conversationId);
       await this.webwhatsBridge.syncConversationMessagesDetailed(companyId, conversationId, {
         limit: 20,
         fullSync: false,
         maxPages: 1,
         force: true,
-      });
+      }, selector);
       return null;
     } catch (error: any) {
       const message = String(error?.message || error || 'Falha ao sincronizar janela recente da conversa.');
@@ -480,6 +490,22 @@ export class InboxService {
       return `55${digits}`;
     }
     return digits;
+  }
+
+  // Ops de CONVERSA falam com a instância DONA da conversa (a sessão gravada nela),
+  // independente do papel — admin respondendo no chat de um vendedor sai pelo número dele.
+  private async buildWebwhatsConversationSelector(
+    companyId: number,
+    conversationId: number,
+  ): Promise<WebwhatsSessionSelector | undefined> {
+    const conversation = await this.prisma.companyConversation.findFirst({
+      where: { id: Number(conversationId || 0), companyId: Number(companyId) },
+      select: { whatsappConnectionSessionId: true },
+    });
+    const sessionId = conversation?.whatsappConnectionSessionId
+      ? String(conversation.whatsappConnectionSessionId)
+      : null;
+    return sessionId ? { sessionId } : undefined;
   }
 
   private async ensureWebwhatsSessionFromCompany(company: any, userId?: number) {
@@ -2921,11 +2947,12 @@ export class InboxService {
     opts?: {
       limit?: number;
     },
+    selector?: WebwhatsSessionSelector,
   ) {
     try {
       return await this.webwhatsBridge.listLiveChats(companyId, {
         limit: opts?.limit,
-      });
+      }, selector);
     } catch (error) {
       throw this.mapInboxProviderReadError(error, 'Falha ao carregar conversas do WhatsApp.');
     }
@@ -2939,10 +2966,11 @@ export class InboxService {
     },
   ) {
     try {
+      const selector = await this.buildWebwhatsConversationSelector(companyId, conversationId);
       const conversation = await this.webwhatsBridge.getLiveConversation(companyId, {
         conversationId,
         limit: opts?.limit,
-      });
+      }, selector);
       if (!conversation) {
         throw new NotFoundException('Conversation not found');
       }
@@ -3633,7 +3661,11 @@ export class InboxService {
       };
     }
     if (sessionScope.mode === 'current') {
-      this.triggerBackgroundInboxIndexSync(companyId, { take });
+      this.triggerBackgroundInboxIndexSync(
+        companyId,
+        { take },
+        sessionScope.currentSessionId ? { sessionId: sessionScope.currentSessionId } : undefined,
+      );
     }
     const loadTake = Math.min(requestedTake + 1, 200);
     const loadedConversations = await this.listPersistedConversationSummariesForCompany(companyId, {
@@ -3671,13 +3703,16 @@ export class InboxService {
     const companyId = this.requireCompanyIdFromUser(user);
     const takeLimit = Math.max(1, Math.min(Number(this.normalizeConversationTakeLimit(take, 120) || 120), 120));
 
-    return this.runBootstrapFullMirror(companyId, takeLimit);
+    return this.runBootstrapFullMirror(companyId, takeLimit, Number(user?.id || 0) || undefined);
   }
 
   async bootstrapFullMirrorBackground(user: any, take?: string | number) {
     const companyId = this.requireCompanyIdFromUser(user);
     const takeLimit = Math.max(1, Math.min(Number(this.normalizeConversationTakeLimit(take, 120) || 120), 120));
-    const currentJob = this.fullMirrorJobs.get(companyId);
+    const userId = Number(user?.id || 0) || undefined;
+    // POR USUÁRIO: dedup do job por user (cada vendedor espelha a SUA sessão), não por empresa.
+    const jobKey = `${companyId}:${userId ?? 'company'}`;
+    const currentJob = this.fullMirrorJobs.get(jobKey);
 
     if (currentJob) {
       return {
@@ -3691,16 +3726,16 @@ export class InboxService {
       };
     }
 
-    const job = this.runBootstrapFullMirror(companyId, takeLimit)
+    const job = this.runBootstrapFullMirror(companyId, takeLimit, userId)
       .catch((error: any) => {
         const message = String(error?.message || error || 'Falha ao espelhar Inbox em background.');
         this.logger.error(`Inbox bootstrap background falhou company=${companyId}: ${message}`);
       })
       .finally(() => {
-        this.fullMirrorJobs.delete(companyId);
+        this.fullMirrorJobs.delete(jobKey);
       });
 
-    this.fullMirrorJobs.set(companyId, job);
+    this.fullMirrorJobs.set(jobKey, job);
 
     return {
       success: true,
@@ -3713,21 +3748,23 @@ export class InboxService {
     };
   }
 
-  private async runBootstrapFullMirror(companyId: number, takeLimit: number) {
-    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId);
+  private async runBootstrapFullMirror(companyId: number, takeLimit: number, userId?: number) {
+    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId, userId);
     this.assertInboxWhatsappAccessible(sessionScope);
     if (sessionScope.mode !== 'current' || !sessionScope.currentSessionId) {
       throw new ServiceUnavailableException('WhatsApp sem sessão ativa');
     }
+    // POR USUÁRIO: espelha a instância da sessão DESTE user (não o ponteiro da empresa).
+    const selector: WebwhatsSessionSelector = { sessionId: sessionScope.currentSessionId };
     this.logger.log(
-      `Inbox bootstrap inicial iniciado company=${companyId} limit=${takeLimit}.`,
+      `Inbox bootstrap inicial iniciado company=${companyId} session=${sessionScope.currentSessionId} limit=${takeLimit}.`,
     );
 
     try {
       const contacts = await this.webwhatsBridge.listContacts(companyId, {
         force: true,
         failOnError: true,
-      });
+      }, selector);
       this.logger.log(
         `Inbox bootstrap contatos sincronizados company=${companyId} count=${contacts.length}.`,
       );
@@ -3736,7 +3773,7 @@ export class InboxService {
         force: true,
         limit: takeLimit,
         failOnError: true,
-      });
+      }, selector);
       this.logger.log(
         `Inbox bootstrap chats sincronizados company=${companyId} count=${chatsSynced}.`,
       );
@@ -3783,6 +3820,7 @@ export class InboxService {
                 downloadMedia: false,
                 failOnError: true,
               },
+              selector,
             );
             chunkResults.push({
               ok: true,
@@ -3979,7 +4017,11 @@ export class InboxService {
       );
     }
     if (sessionScope.mode === 'current') {
-      this.triggerBackgroundInboxIndexSync(companyId, { take: options?.take });
+      this.triggerBackgroundInboxIndexSync(
+        companyId,
+        { take: options?.take },
+        sessionScope.currentSessionId ? { sessionId: sessionScope.currentSessionId } : undefined,
+      );
     }
     return this.listPersistedConversationSummariesForCompany(companyId, {
       ...options,
@@ -4113,13 +4155,21 @@ export class InboxService {
       return this.buildUnknownConversationPresence(null);
     }
 
-    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId);
+    const sessionScope = await this.resolveInboxWhatsappSessionScope(
+      companyId,
+      Number(user?.id || 0) || undefined,
+    );
     if (!sessionScope.accessible || sessionScope.mode !== 'current') {
       return this.buildUnknownConversationPresence(remoteJid);
     }
 
     try {
-      const presence = await this.webwhatsBridge.fetchPresence(companyId, remoteJid);
+      // POR USUÁRIO: presença pela instância da sessão atual do user (não pelo ponteiro da empresa).
+      const presence = await this.webwhatsBridge.fetchPresence(
+        companyId,
+        remoteJid,
+        sessionScope.currentSession?.tenantKey,
+      );
       return {
         remoteJid: presence.remoteJid || remoteJid,
         presence: presence.presence || 'unknown',
@@ -5322,15 +5372,16 @@ export class InboxService {
       });
     }
     try {
+      const selector = await this.buildWebwhatsConversationSelector(companyId, conversation.id);
       await this.webwhatsBridge.updateBlockStatus(companyId, {
         conversationId: conversation.id,
         to: String(conversation.contact || ''),
         status: 'block',
-      });
+      }, selector);
       await this.webwhatsBridge.archiveChat(companyId, {
         conversationId: conversation.id,
         archive: true,
-      });
+      }, selector);
     } catch (error) {
       await this.logInboxEvent({
         companyId,
@@ -5401,15 +5452,16 @@ export class InboxService {
       });
     }
     try {
+      const selector = await this.buildWebwhatsConversationSelector(companyId, conversation.id);
       await this.webwhatsBridge.updateBlockStatus(companyId, {
         conversationId: conversation.id,
         to: String(conversation.contact || ''),
         status: 'unblock',
-      });
+      }, selector);
       await this.webwhatsBridge.archiveChat(companyId, {
         conversationId: conversation.id,
         archive: false,
-      });
+      }, selector);
     } catch (error) {
       await this.logInboxEvent({
         companyId,
@@ -7198,6 +7250,7 @@ export class InboxService {
       .filter(Boolean);
 
     if (webwhatsReadMessages.length > 0) {
+      const readSelector = await this.buildWebwhatsConversationSelector(companyId, conversation.id);
       this.webwhatsBridge.markMessagesAsRead(companyId, {
         conversationId: conversation.id,
         remoteJid: this.normalizeMessageMetadataText(metadata?.whatsappRemoteJid) || null,
@@ -7207,7 +7260,7 @@ export class InboxService {
           remoteJid: string | null;
           participant: string | null;
         }>,
-      }).catch((error) => {
+      }, readSelector).catch((error) => {
         const message = String(error?.message || error || 'Falha ao marcar conversa como lida no Webwhats.');
         this.logger.warn(`Inbox mark read via Webwhats falhou company=${companyId} conversation=${conversation.id}: ${message}`);
       });
@@ -7264,7 +7317,7 @@ export class InboxService {
           ? String(message.direction || '').trim().toUpperCase() === 'OUTBOUND'
           : Boolean(rawPayload?.key?.fromMe),
       reaction,
-    });
+    }, await this.buildWebwhatsConversationSelector(companyId, conversation.id));
     return this.getConversationByIdForCompany(companyId, conversation.id);
   }
 

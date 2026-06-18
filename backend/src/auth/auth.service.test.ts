@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as bcrypt from 'bcryptjs';
 import { AuthService } from './auth.service';
 import { sanitizeUser } from './profile.controller';
 import { COMMERCIAL_PLAN_KEYS } from '../commercial-plans/commercial-plan-catalog';
@@ -91,7 +92,7 @@ test('System Master sem contexto assumido entra no master puro e nao vira empres
     companyId: null,
   });
 
-  assert.equal(result.next, '/dashboard/master');
+  assert.equal(result.next, '/master');
   assert.equal(result.requiresCheckout, false);
   assert.equal(companyFindUniqueCalls.length, 0);
   assert.equal(signedPayloads[0].companyId, undefined);
@@ -108,6 +109,166 @@ test('System Master sem contexto assumido entra no master puro e nao vira empres
   assert.equal(currentUser?.company, null);
   assert.equal(currentUser?.masterContext.active, false);
   assert.equal(currentUser?.masterContext.mode, 'master_puro');
+});
+
+test('bootstrap do System Master preserva sessao ativa quando usuario ja esta correto', async () => {
+  const previousEnv = {
+    BOOTSTRAP_SYSTEM_MASTER: process.env.BOOTSTRAP_SYSTEM_MASTER,
+    SYSTEM_MASTER_USERNAME: process.env.SYSTEM_MASTER_USERNAME,
+    SYSTEM_MASTER_PASSWORD: process.env.SYSTEM_MASTER_PASSWORD,
+    SYSTEM_MASTER_EMAIL: process.env.SYSTEM_MASTER_EMAIL,
+  };
+  process.env.BOOTSTRAP_SYSTEM_MASTER = 'true';
+  process.env.SYSTEM_MASTER_USERNAME = 'Jhonatan';
+  process.env.SYSTEM_MASTER_PASSWORD = 'master-secret';
+  delete process.env.SYSTEM_MASTER_EMAIL;
+
+  const revocationCalls: any[] = [];
+  const userUpdateData: any[] = [];
+  const existingPassword = await bcrypt.hash('master-secret', 4);
+  const tx = {
+    authSession: {
+      updateMany: async (args: any) => {
+        revocationCalls.push(args);
+        return { count: 1 };
+      },
+    },
+    user: {
+      update: async (args: any) => {
+        userUpdateData.push(args.data);
+        return { id: 35 };
+      },
+      create: async () => {
+        throw new Error('nao deveria criar master existente');
+      },
+    },
+  };
+  const prisma = {
+    user: {
+      findUnique: async () => ({
+        id: 35,
+        password: existingPassword,
+        name: 'Jhonatan',
+        companyId: null,
+        role: 'USERMASTER',
+        isSystemMaster: true,
+        isActive: true,
+        currentSessionId: 'sessao_ativa',
+      }),
+      updateMany: async () => ({ count: 0 }),
+    },
+    userTeamPolicy: {
+      deleteMany: async () => ({ count: 0 }),
+    },
+    $transaction: async (input: any) => (
+      typeof input === 'function' ? input(tx) : Promise.all(input)
+    ),
+  };
+
+  try {
+    const service = new AuthService({} as any, {} as any, prisma as any, {} as any, {} as any, {} as any) as any;
+    await service.ensureSystemMasterUser();
+
+    assert.equal(revocationCalls.length, 0);
+    assert.equal(userUpdateData.length, 1);
+    assert.equal(Object.prototype.hasOwnProperty.call(userUpdateData[0], 'currentSessionId'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(userUpdateData[0], 'sessionVersion'), false);
+  } finally {
+    for (const key of Object.keys(previousEnv) as Array<keyof typeof previousEnv>) {
+      const value = previousEnv[key];
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
+test('login do System Master substitui a propria sessao ativa no mesmo cliente', async () => {
+  const password = await bcrypt.hash('master-secret', 4);
+  const authSessionFinds: any[] = [];
+  const revokedSessions: any[] = [];
+  const createdSessions: any[] = [];
+  const usersService = {
+    findByLoginIdentifier: async () => ({
+      id: 35,
+      username: 'Jhonatan',
+      email: 'master@hbx.local',
+      password,
+      role: 'USERMASTER',
+      isSystemMaster: true,
+      isActive: true,
+      companyId: null,
+      currentSessionId: 'sessao_ativa',
+      sessionVersion: 9,
+    }),
+  };
+  let service: AuthService;
+  const prisma = {
+    authSession: {
+      findFirst: async (args: any) => {
+        authSessionFinds.push(args);
+        return {
+          id: 'sessao_ativa',
+          createdAt: new Date(),
+          lastSeenAt: new Date(),
+          expiresAt: inDays(1),
+          userAgent: null,
+          ipHash: (service as any).hashIp('127.0.0.1'),
+        };
+      },
+    },
+    company: { findUnique: async () => null },
+    userTeamPolicy: { findUnique: async () => null },
+    $transaction: async (callback: any) => callback({
+      authSession: {
+        updateMany: async (args: any) => {
+          revokedSessions.push(args);
+          return { count: 1 };
+        },
+        create: async (args: any) => {
+          createdSessions.push(args);
+          return { id: 'sessao_nova' };
+        },
+      },
+      user: {
+        update: async (args: any) => {
+          if (args?.select) {
+            return {
+              id: 35,
+              email: 'master@hbx.local',
+              companyId: null,
+              role: 'USERMASTER',
+              isSystemMaster: true,
+              sessionVersion: 10,
+            };
+          }
+          return { id: 35 };
+        },
+      },
+    }),
+  };
+  const signedPayloads: any[] = [];
+  const jwtService = {
+    sign: (payload: any) => {
+      signedPayloads.push(payload);
+      return 'signed-token';
+    },
+  };
+  const previousMasterUsername = process.env.SYSTEM_MASTER_USERNAME;
+  process.env.SYSTEM_MASTER_USERNAME = 'OutroMaster';
+  try {
+    service = new AuthService(usersService as any, jwtService as any, prisma as any, {} as any, {} as any, {} as any);
+    const result = await service.loginWithUsername('Jhonatan', 'master-secret', { userAgent: 'Local Browser', ip: '127.0.0.1' });
+
+    assert.equal(result.next, '/master');
+    assert.equal(result.access_token, 'signed-token');
+    assert.equal(authSessionFinds.length, 1);
+    assert.equal(revokedSessions.length, 1);
+    assert.equal(createdSessions.length, 1);
+    assert.equal(signedPayloads[0].sid, 'sessao_nova');
+  } finally {
+    if (previousMasterUsername === undefined) delete process.env.SYSTEM_MASTER_USERNAME;
+    else process.env.SYSTEM_MASTER_USERNAME = previousMasterUsername;
+  }
 });
 
 test('login de tenant manual premium legado (sem stored status) segue fluxo normal', async () => {

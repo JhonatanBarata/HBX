@@ -161,6 +161,124 @@ test('resolveCurrentWebwhatsSession retorna a sessão atual sem reescrever (read
   }
 });
 
+// POR USUÁRIO (18/06): a verdade da sessão é a LINHA WhatsAppConnectionSession (userId/tenantKey/
+// active), NÃO `company.whatsappModalStatus`. O connect per-user de propósito não seta o status da
+// empresa; mesmo assim o envio/recebimento têm que achar a sessão do user.
+function setPerUserModalEnv() {
+  const prev = {
+    enabled: process.env.WHATSAPP_MODAL_ENABLED,
+    url: process.env.WHATSAPP_MODAL_INTERNAL_URL,
+    key: process.env.WHATSAPP_MODAL_API_KEY,
+  };
+  process.env.WHATSAPP_MODAL_ENABLED = 'true';
+  process.env.WHATSAPP_MODAL_INTERNAL_URL = 'http://webwhats.test';
+  process.env.WHATSAPP_MODAL_API_KEY = 'test-key';
+  return prev;
+}
+function restorePerUserModalEnv(prev: { enabled?: string; url?: string; key?: string }) {
+  const set = (k: string, v?: string) => (v === undefined ? delete (process.env as any)[k] : (process.env[k] = v));
+  set('WHATSAPP_MODAL_ENABLED', prev.enabled);
+  set('WHATSAPP_MODAL_INTERNAL_URL', prev.url);
+  set('WHATSAPP_MODAL_API_KEY', prev.key);
+}
+
+test('POR USUÁRIO: resolveCurrentWebwhatsSession({userId}) acha a sessão do user mesmo com empresa != CONNECTED', async () => {
+  const prev = setPerUserModalEnv();
+  const prisma = {
+    company: {
+      findUnique: async () => {
+        throw new Error('company.findUnique NÃO deve ser chamado no caminho per-user (independe do status/ponteiro da empresa)');
+      },
+    },
+    whatsAppConnectionSession: {
+      findFirst: async ({ where }: any) => {
+        if (where.userId === 6 && where.status === 'active' && where.provider === 'webwhats' && where.companyId === 5) {
+          return {
+            id: 'session-c5-u6',
+            tenantKey: 'company-5-user-6',
+            phoneNormalized: '5519920121720',
+            displayPhone: '+5519920121720',
+            metadataJson: null,
+            wipedAt: null,
+          };
+        }
+        return null;
+      },
+    },
+  };
+  const service = new WebwhatsBridgeService(prisma as any) as any;
+  try {
+    const session = await service.resolveCurrentWebwhatsSession(5, { userId: 6 });
+    assert.equal(session?.id, 'session-c5-u6');
+    assert.equal(session?.tenantKey, 'company-5-user-6');
+  } finally {
+    restorePerUserModalEnv(prev);
+  }
+});
+
+test('POR USUÁRIO: resolveCurrentWebwhatsSession({tenantKey}) mira a instância do webhook (company-{id}-user-{n})', async () => {
+  const prev = setPerUserModalEnv();
+  const prisma = {
+    whatsAppConnectionSession: {
+      findFirst: async ({ where }: any) => {
+        if (where.tenantKey === 'company-5-user-6' && where.status === 'active') {
+          return {
+            id: 'session-c5-u6',
+            tenantKey: 'company-5-user-6',
+            phoneNormalized: '5519920121720',
+            displayPhone: '+5519920121720',
+            metadataJson: null,
+            wipedAt: null,
+          };
+        }
+        return null;
+      },
+    },
+  };
+  const service = new WebwhatsBridgeService(prisma as any) as any;
+  try {
+    const session = await service.resolveCurrentWebwhatsSession(5, { tenantKey: 'company-5-user-6' });
+    assert.equal(session?.id, 'session-c5-u6');
+    assert.equal(session?.tenantKey, 'company-5-user-6');
+  } finally {
+    restorePerUserModalEnv(prev);
+  }
+});
+
+test('POR USUÁRIO: sendText com selector {sessionId} envia pela instância da sessão (per-user)', async () => {
+  const prev = setPerUserModalEnv();
+  const calls = { path: null as string | null, data: null as Record<string, unknown> | null };
+  const prisma = {
+    whatsAppConnectionSession: {
+      findFirst: async ({ where }: any) =>
+        where.id === 'session-c5-u6' && where.status === 'active'
+          ? {
+              id: 'session-c5-u6',
+              tenantKey: 'company-5-user-6',
+              phoneNormalized: '5519920121720',
+              displayPhone: '+5519920121720',
+              metadataJson: null,
+              wipedAt: null,
+            }
+          : null,
+    },
+    companyConversation: { findFirst: async () => null },
+  };
+  const service = new WebwhatsBridgeService(prisma as any) as any;
+  (service as any).requestRead = async (input: any) => {
+    calls.path = input.path;
+    calls.data = input.data;
+    return { key: { id: 'MSG-7' } };
+  };
+  try {
+    const result = await service.sendText(5, { to: '+5511999990000', text: 'Oi' }, { sessionId: 'session-c5-u6' });
+    assert.equal(calls.path, '/message/sendText/company-5-user-6');
+    assert.equal(result.providerMessageId, 'webwhats:company-5-user-6:MSG-7');
+  } finally {
+    restorePerUserModalEnv(prev);
+  }
+});
+
 test('sendWhatsAppAudio posts Evolution voice note payload', async () => {
   const previousUrl = process.env.WHATSAPP_MODAL_INTERNAL_URL;
   const previousKey = process.env.WHATSAPP_MODAL_API_KEY;

@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { extname, join } from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { buildWhatsAppPhoneCandidates, normalizeWhatsAppPhone } from './whatsapp-channel';
-import { isModalSendReady, isModalSessionAvailable } from './whatsapp-connection-state';
+import { isModalSendReady } from './whatsapp-connection-state';
 
 type WebwhatsMediaType = 'image' | 'video' | 'document' | 'audio' | 'sticker';
 
@@ -69,6 +69,15 @@ type WebwhatsConnectionSessionContext = {
   displayPhone: string | null;
   metadataJson?: string | null;
   wipedAt?: Date | null;
+};
+
+// POR USUÁRIO (18/06): quem está agindo. A ponte resolve a SESSÃO (e o tenantKey do motor) a
+// partir disto, nunca do status da empresa. sessionId = sessão da conversa; tenantKey =
+// instanceName cru do webhook (`company-{id}-user-{n}`); userId = ação de um vendedor/admin.
+export type WebwhatsSessionSelector = {
+  userId?: number | null;
+  sessionId?: string | null;
+  tenantKey?: string | null;
 };
 
 export class WebwhatsProviderError extends Error {
@@ -235,18 +244,25 @@ type WebwhatsInboundRelayInput = {
 @Injectable()
 export class WebwhatsBridgeService {
   private readonly logger = new Logger(WebwhatsBridgeService.name);
-  private readonly listSyncAt = new Map<number, number>();
+  // POR USUÁRIO: caches/throttles que podem vazar entre números são chaveados por tenantKey
+  // (`company-{id}-user-{n}`), NÃO por companyId — senão o contato/chat de um vendedor aparece
+  // pro outro. detailSyncAt é por conversa (já isolada por sessão), segue por companyId:conversa.
+  private readonly listSyncAt = new Map<string, number>();
   private readonly detailSyncAt = new Map<string, number>();
-  private readonly contactSyncAt = new Map<number, number>();
-  private readonly contactCache = new Map<number, WebwhatsContactSummary[]>();
+  private readonly contactSyncAt = new Map<string, number>();
+  private readonly contactCache = new Map<string, WebwhatsContactSummary[]>();
   private readonly chatListCache = new Map<string, { expiresAt: number; value: WebwhatsFastChatListResult }>();
   private readonly presenceCache = new Map<string, { expiresAt: number; value: WebwhatsPresenceSnapshot }>();
   private inboundRelay: ((input: WebwhatsInboundRelayInput) => Promise<void>) | null = null;
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async syncRecentChats(companyId: number, opts?: { force?: boolean; limit?: number; failOnError?: boolean }) {
-    const session = await this.resolveCurrentWebwhatsSession(companyId);
+  async syncRecentChats(
+    companyId: number,
+    opts?: { force?: boolean; limit?: number; failOnError?: boolean },
+    selector?: WebwhatsSessionSelector,
+  ) {
+    const session = await this.resolveCurrentWebwhatsSession(companyId, selector);
     if (!session) {
       if (opts?.failOnError) {
         throw new WebwhatsProviderError(
@@ -256,12 +272,12 @@ export class WebwhatsBridgeService {
       }
       return 0;
     }
-    if (!opts?.force && this.isThrottled(this.listSyncAt, companyId, 15000)) return 0;
+    if (!opts?.force && this.isThrottled(this.listSyncAt, session.tenantKey, 15000)) return 0;
 
     try {
       const [chats, contacts] = await Promise.all([
-        this.fetchChats(companyId, opts?.limit ?? 60),
-        this.getCachedContacts(companyId),
+        this.fetchChats(companyId, opts?.limit ?? 60, session.tenantKey),
+        this.getCachedContacts(companyId, session.tenantKey),
       ]);
       const contactsByJid = this.indexContactsByJid(contacts);
       const inboxResetFloor = this.resolveSessionInboxResetFloor(session);
@@ -286,8 +302,8 @@ export class WebwhatsBridgeService {
         if (!conversation?.id) continue;
         synced += 1;
       }
-      this.listSyncAt.set(companyId, Date.now());
-      this.logger.log(`Webwhats chats sincronizados para company ${companyId}: ${synced}.`);
+      this.listSyncAt.set(session.tenantKey, Date.now());
+      this.logger.log(`Webwhats chats sincronizados para company ${companyId} (${session.tenantKey}): ${synced}.`);
       return synced;
     } catch (error: any) {
       const message = String(error?.message || error || 'Falha ao sincronizar chats recentes do WebWhats.');
@@ -305,8 +321,13 @@ export class WebwhatsBridgeService {
     }
   }
 
-  async syncConversationMessages(companyId: number, conversationId: number, opts?: { force?: boolean; limit?: number }) {
-    const result = await this.syncConversationMessagesDetailed(companyId, conversationId, opts);
+  async syncConversationMessages(
+    companyId: number,
+    conversationId: number,
+    opts?: { force?: boolean; limit?: number },
+    selector?: WebwhatsSessionSelector,
+  ) {
+    const result = await this.syncConversationMessagesDetailed(companyId, conversationId, opts, selector);
     return result.syncedMessages;
   }
 
@@ -321,8 +342,9 @@ export class WebwhatsBridgeService {
       failOnError?: boolean;
       downloadMedia?: boolean;
     },
+    selector?: WebwhatsSessionSelector,
   ): Promise<WebwhatsConversationSyncResult> {
-    const session = await this.resolveCurrentWebwhatsSession(companyId);
+    const session = await this.resolveCurrentWebwhatsSession(companyId, selector);
     if (!session) {
       if (opts?.failOnError) {
         throw new WebwhatsProviderError(
@@ -387,8 +409,8 @@ export class WebwhatsBridgeService {
       null;
 
     const [contacts, chats] = await Promise.all([
-      this.getCachedContacts(companyId),
-      this.fetchChats(companyId, 120),
+      this.getCachedContacts(companyId, session.tenantKey),
+      this.fetchChats(companyId, 120, session.tenantKey),
     ]);
     const contactsByJid = this.indexContactsByJid(contacts);
     const conversationKeys = Array.from(
@@ -443,12 +465,12 @@ export class WebwhatsBridgeService {
               fullSync: opts?.fullSync,
               maxPages: opts?.maxPages,
               matchRemoteJidAlt,
-            }),
+            }, session.tenantKey),
           ),
         ),
         metadata.whatsappAvatarUrl
           ? Promise.resolve(null)
-          : this.fetchProfilePicture(companyId, syncableRemoteJids[0]),
+          : this.fetchProfilePicture(companyId, syncableRemoteJids[0], session.tenantKey),
       ]);
       const messages = messageGroups.flatMap((group) => group.records);
       const pagesFetched = messageGroups.reduce(
@@ -571,11 +593,12 @@ export class WebwhatsBridgeService {
     }
   }
 
-  async listLiveChats(companyId: number, opts?: { limit?: number }) {
-    const company = await this.requireConnectedCompany(companyId);
+  async listLiveChats(companyId: number, opts?: { limit?: number }, selector?: WebwhatsSessionSelector) {
+    const company = await this.requireConnectedCompany(companyId, selector);
+    const sessionTenantKey = company.session.tenantKey;
     const [chatList, contacts] = await Promise.all([
-      this.fetchChatsFast(company.id, { limit: opts?.limit ?? 60 }),
-      this.getCachedContacts(company.id),
+      this.fetchChatsFast(company.id, { limit: opts?.limit ?? 60 }, sessionTenantKey),
+      this.getCachedContacts(company.id, sessionTenantKey),
     ]);
     const chats = chatList.records;
     const contactsByJid = this.indexContactsByJid(contacts);
@@ -636,7 +659,7 @@ export class WebwhatsBridgeService {
       return rightTime - leftTime;
     });
 
-    return this.enrichLiveChatsWithPresence(company.id, sortedSnapshots);
+    return this.enrichLiveChatsWithPresence(company.id, sortedSnapshots, sessionTenantKey);
   }
 
   async getLiveConversation(
@@ -645,8 +668,10 @@ export class WebwhatsBridgeService {
       conversationId: number;
       limit?: number;
     },
+    selector?: WebwhatsSessionSelector,
   ): Promise<WebwhatsLiveConversationSnapshot | null> {
-    const company = await this.requireConnectedCompany(companyId);
+    const company = await this.requireConnectedCompany(companyId, selector);
+    const sessionTenantKey = company.session.tenantKey;
     const conversation = await this.prisma.companyConversation.findFirst({
       where: {
         id: Number(input.conversationId || 0),
@@ -679,8 +704,8 @@ export class WebwhatsBridgeService {
     let remoteJidAlt = this.normalizeOptionalString(metadata.whatsappRemoteJidAlt) || null;
 
     const [contacts, chats] = await Promise.all([
-      this.getCachedContacts(company.id),
-      this.fetchChats(company.id, 120),
+      this.getCachedContacts(company.id, sessionTenantKey),
+      this.fetchChats(company.id, 120, sessionTenantKey),
     ]);
     const contactsByJid = this.indexContactsByJid(contacts);
     const conversationKeys = Array.from(
@@ -721,10 +746,10 @@ export class WebwhatsBridgeService {
           this.fetchMessagesWindow(company.id, jid, {
             limit: input.limit ?? 120,
             matchRemoteJidAlt,
-          }),
+          }, sessionTenantKey),
         ),
       ),
-      this.fetchProfilePicture(company.id, syncableRemoteJids[0]),
+      this.fetchProfilePicture(company.id, syncableRemoteJids[0], sessionTenantKey),
     ]);
     const messagesByKey = new Map<string, WebwhatsFetchedMessage>();
     for (const message of messageGroups.flatMap((group) => group.records)) {
@@ -814,19 +839,18 @@ export class WebwhatsBridgeService {
       messages: orderedMessages,
     };
 
-    return this.enrichLiveChatWithPresence(company.id, snapshot);
+    return this.enrichLiveChatWithPresence(company.id, snapshot, sessionTenantKey);
   }
 
-  async listContacts(companyId: number, opts?: { force?: boolean; failOnError?: boolean }) {
-    const company = await this.prisma.company.findUnique({
-      where: { id: companyId },
-      select: {
-        id: true,
-        name: true,
-        whatsappModalStatus: true,
-      },
-    });
-    if (!company || !this.canUseConnectedInstance(company)) {
+  async listContacts(
+    companyId: number,
+    opts?: { force?: boolean; failOnError?: boolean },
+    selector?: WebwhatsSessionSelector,
+  ) {
+    // POR USUÁRIO: gate pela SESSÃO resolvida (não pelo status da empresa) e contatos do tenantKey
+    // do user. Sem sessão viva = sem contatos.
+    const session = await this.resolveCurrentWebwhatsSession(companyId, selector);
+    if (!session) {
       if (opts?.failOnError) {
         throw new WebwhatsProviderError(
           'WEBWHATS_NOT_CONNECTED',
@@ -837,18 +861,22 @@ export class WebwhatsBridgeService {
     }
 
     if (opts?.force) {
-      const contacts = await this.fetchContacts(company.id);
-      this.contactSyncAt.set(companyId, Date.now());
-      this.contactCache.set(companyId, contacts);
-      this.logger.log(`Webwhats contatos sincronizados para company ${companyId}: ${contacts.length}.`);
+      const contacts = await this.fetchContacts(companyId, session.tenantKey);
+      this.contactSyncAt.set(session.tenantKey, Date.now());
+      this.contactCache.set(session.tenantKey, contacts);
+      this.logger.log(`Webwhats contatos sincronizados para company ${companyId} (${session.tenantKey}): ${contacts.length}.`);
       return contacts;
     }
 
-    return this.getCachedContacts(companyId);
+    return this.getCachedContacts(companyId, session.tenantKey);
   }
 
-  async checkWhatsappNumbers(companyId: number, numbersRaw: Array<string | null | undefined>) {
-    const company = await this.requireConnectedCompany(companyId);
+  async checkWhatsappNumbers(
+    companyId: number,
+    numbersRaw: Array<string | null | undefined>,
+    selector?: WebwhatsSessionSelector,
+  ) {
+    const company = await this.requireConnectedCompany(companyId, selector);
     const tenantKey = company.session.tenantKey;
     const normalizedNumbers = Array.from(
       new Set(
@@ -918,8 +946,16 @@ export class WebwhatsBridgeService {
     return this.canUseConnectedInstance({ whatsappModalStatus: status });
   }
 
-  private async requireConnectedCompany(companyId: number) {
-    const session = await this.resolveCurrentWebwhatsSession(companyId);
+  // POR USUÁRIO: existe sessão webwhats VIVA p/ este selector? Gate de dispatch independente do
+  // `company.whatsappModalStatus` — o connect per-user não seta o status da empresa, então o
+  // dispatch precisa olhar a LINHA da sessão (sessionId/tenantKey/userId), não o status global.
+  async hasOperationalSession(companyId: number, selector?: WebwhatsSessionSelector): Promise<boolean> {
+    const session = await this.resolveCurrentWebwhatsSession(companyId, selector);
+    return Boolean(session);
+  }
+
+  private async requireConnectedCompany(companyId: number, selector?: WebwhatsSessionSelector) {
+    const session = await this.resolveCurrentWebwhatsSession(companyId, selector);
     if (!session) {
       throw new WebwhatsProviderError(
         'WEBWHATS_NOT_CONNECTED',
@@ -939,15 +975,90 @@ export class WebwhatsBridgeService {
     return digits;
   }
 
-  private async resolveCurrentWebwhatsSession(companyId: number): Promise<WebwhatsConnectionSessionContext | null> {
+  private static readonly WEBWHATS_SESSION_CONTEXT_SELECT = {
+    id: true,
+    tenantKey: true,
+    phoneNormalized: true,
+    displayPhone: true,
+    metadataJson: true,
+    wipedAt: true,
+  } as const;
+
+  private toWebwhatsSessionContext(
+    row: {
+      id: string;
+      tenantKey: string | null;
+      phoneNormalized: string | null;
+      displayPhone: string | null;
+      metadataJson: string | null;
+      wipedAt: Date | null;
+    },
+    fallbackTenantKey: string,
+  ): WebwhatsConnectionSessionContext {
+    return {
+      id: String(row.id),
+      tenantKey: String(row.tenantKey || fallbackTenantKey),
+      phoneNormalized: this.normalizeConnectionPhone(row.phoneNormalized),
+      displayPhone: this.normalizeOptionalString(row.displayPhone),
+      metadataJson: this.normalizeOptionalString(row.metadataJson),
+      wipedAt: row.wipedAt ?? null,
+    };
+  }
+
+  // POR USUÁRIO (18/06): a verdade da sessão é a LINHA WhatsAppConnectionSession (status=active +
+  // userId/tenantKey), NÃO `company.whatsappModalStatus` — o connect per-user de propósito não
+  // seta o status da empresa (senão o número/status de um vendedor vaza pros outros). Resolve por:
+  //   sessionId (sessão da conversa) > tenantKey (instanceName cru do webhook) > userId (vendedor)
+  //   > ponteiro/última sessão active da empresa (admin/automação/legado).
+  // READ-ONLY: nunca cria/relabela/repara sessão — só LÊ. Sem sessão viva = null (chamadores tratam).
+  private async resolveCurrentWebwhatsSession(
+    companyId: number,
+    selector?: WebwhatsSessionSelector,
+  ): Promise<WebwhatsConnectionSessionContext | null> {
+    const config = this.readConfig();
+    if (!config.available) return null;
+
+    const fallbackTenantKey = this.buildTenantKey(companyId);
+    const sessionId = this.normalizeOptionalString(selector?.sessionId);
+    const selectorTenantKey = this.normalizeOptionalString(selector?.tenantKey);
+    const userId = Number(selector?.userId || 0) || null;
+
+    // 1) Sessão explícita (sessão da conversa). Se informada e não-active → sem sessão; NÃO cai
+    //    pro ponteiro da empresa (evita vazar conversa entre números).
+    if (sessionId) {
+      const byId = await this.prisma.whatsAppConnectionSession.findFirst({
+        where: { id: sessionId, companyId, provider: 'webwhats', status: 'active' },
+        select: WebwhatsBridgeService.WEBWHATS_SESSION_CONTEXT_SELECT,
+      });
+      return byId?.id ? this.toWebwhatsSessionContext(byId, fallbackTenantKey) : null;
+    }
+
+    // 2) tenantKey explícito (instanceName cru do webhook → `company-{id}-user-{n}`).
+    if (selectorTenantKey) {
+      const byTenant = await this.prisma.whatsAppConnectionSession.findFirst({
+        where: { companyId, provider: 'webwhats', status: 'active', tenantKey: selectorTenantKey },
+        orderBy: [{ connectedAt: 'desc' }, { createdAt: 'desc' }],
+        select: WebwhatsBridgeService.WEBWHATS_SESSION_CONTEXT_SELECT,
+      });
+      return byTenant?.id ? this.toWebwhatsSessionContext(byTenant, fallbackTenantKey) : null;
+    }
+
+    // 3) Per-user: a sessão active DESTE usuário (independe do status da empresa).
+    if (userId) {
+      const byUser = await this.prisma.whatsAppConnectionSession.findFirst({
+        where: { companyId, provider: 'webwhats', status: 'active', userId },
+        orderBy: [{ connectedAt: 'desc' }, { createdAt: 'desc' }],
+        select: WebwhatsBridgeService.WEBWHATS_SESSION_CONTEXT_SELECT,
+      });
+      return byUser?.id ? this.toWebwhatsSessionContext(byUser, fallbackTenantKey) : null;
+    }
+
+    // 4) Sem identidade (admin/automação/legado): ponteiro atual; senão a última sessão active da
+    //    empresa (QUALQUER tenantKey — inclui per-user; não filtra só o canônico `company-{id}`).
     const company = await this.prisma.company.findUnique({
       where: { id: companyId },
       select: {
         id: true,
-        whatsappModalStatus: true,
-        whatsappModalPhone: true,
-        whatsappModalConnectedAt: true,
-        currentWhatsappConnectionSessionId: true,
         currentWhatsappConnectionSession: {
           select: {
             id: true,
@@ -962,63 +1073,30 @@ export class WebwhatsBridgeService {
         },
       },
     });
-    if (!company || !this.canUseOperationalSession(company)) return null;
-
-    const tenantKey = this.buildTenantKey(companyId);
-    const current = company.currentWhatsappConnectionSession;
+    const current = company?.currentWhatsappConnectionSession;
     if (
       current &&
       String(current.provider || '').trim().toLowerCase() === 'webwhats' &&
       String(current.status || '').trim().toLowerCase() === 'active' &&
       this.normalizeOptionalString(current.tenantKey)
     ) {
-      return {
-        id: String(current.id),
-        // POR USUÁRIO: usa o tenantKey da sessão ativa (per-user `company-{id}-user-{n}`
-        // quando é a sessão do usuário; senão a da empresa).
-        tenantKey: String(current.tenantKey || tenantKey),
-        phoneNormalized: this.normalizeConnectionPhone(current.phoneNormalized),
-        displayPhone: this.normalizeOptionalString(current.displayPhone),
-        metadataJson: this.normalizeOptionalString(current.metadataJson),
-        wipedAt: current.wipedAt ?? null,
-      };
+      return this.toWebwhatsSessionContext(current, fallbackTenantKey);
     }
 
-    // READ-ONLY: o ciclo de vida da sessão é do connect (whatsapp-modal.service). Aqui
-    // NÃO se cria/relabela/repara sessão — só se LÊ. Fallback read-only: a última sessão
-    // ativa por tenantKey (que, com o escritor único, É a sessão atual). Sem sessão = null
-    // (os chamadores tratam: ingest no-op). Isso elimina o relabel que vazava chat entre chips.
     const fallback = await this.prisma.whatsAppConnectionSession.findFirst({
-      where: {
-        companyId,
-        provider: 'webwhats',
-        tenantKey,
-        status: 'active',
-      },
+      where: { companyId, provider: 'webwhats', status: 'active' },
       orderBy: [{ connectedAt: 'desc' }, { createdAt: 'desc' }],
-      select: {
-        id: true,
-        tenantKey: true,
-        phoneNormalized: true,
-        displayPhone: true,
-        metadataJson: true,
-        wipedAt: true,
-      },
+      select: WebwhatsBridgeService.WEBWHATS_SESSION_CONTEXT_SELECT,
     });
-    if (!fallback?.id) return null;
-
-    return {
-      id: String(fallback.id),
-      tenantKey: String(fallback.tenantKey || tenantKey),
-      phoneNormalized: this.normalizeConnectionPhone(fallback.phoneNormalized),
-      displayPhone: this.normalizeOptionalString(fallback.displayPhone),
-      metadataJson: this.normalizeOptionalString(fallback.metadataJson),
-      wipedAt: fallback.wipedAt ?? null,
-    };
+    return fallback?.id ? this.toWebwhatsSessionContext(fallback, fallbackTenantKey) : null;
   }
 
-  async sendText(companyId: number, input: { to: string; text: string; conversationId?: number | null }) {
-    const company = await this.requireConnectedCompany(companyId);
+  async sendText(
+    companyId: number,
+    input: { to: string; text: string; conversationId?: number | null },
+    selector?: WebwhatsSessionSelector,
+  ) {
+    const company = await this.requireConnectedCompany(companyId, selector);
 
     const tenantKey = company.session.tenantKey;
     const target = await this.resolveSendTarget(companyId, input);
@@ -1052,8 +1130,9 @@ export class WebwhatsBridgeService {
       fileName?: string | null;
       mimeType?: string | null;
     },
+    selector?: WebwhatsSessionSelector,
   ) {
-    const company = await this.requireConnectedCompany(companyId);
+    const company = await this.requireConnectedCompany(companyId, selector);
 
     const tenantKey = company.session.tenantKey;
     const target = await this.resolveSendTarget(companyId, input);
@@ -1087,8 +1166,9 @@ export class WebwhatsBridgeService {
       audio: string;
       conversationId?: number | null;
     },
+    selector?: WebwhatsSessionSelector,
   ) {
-    const company = await this.requireConnectedCompany(companyId);
+    const company = await this.requireConnectedCompany(companyId, selector);
 
     const tenantKey = company.session.tenantKey;
     const target = await this.resolveSendTarget(companyId, {
@@ -1121,8 +1201,9 @@ export class WebwhatsBridgeService {
       payload: Record<string, any>;
       conversationId?: number | null;
     },
+    selector?: WebwhatsSessionSelector,
   ) {
-    const company = await this.requireConnectedCompany(companyId);
+    const company = await this.requireConnectedCompany(companyId, selector);
 
     const tenantKey = company.session.tenantKey;
     const target = await this.resolveSendTarget(companyId, input);
@@ -1211,8 +1292,9 @@ export class WebwhatsBridgeService {
       conversationId?: number | null;
       status: 'block' | 'unblock';
     },
+    selector?: WebwhatsSessionSelector,
   ) {
-    const company = await this.requireConnectedCompany(companyId);
+    const company = await this.requireConnectedCompany(companyId, selector);
     const tenantKey = company.session.tenantKey;
     const target = await this.resolveSendTarget(companyId, {
       to: String(input.to || ''),
@@ -1235,8 +1317,9 @@ export class WebwhatsBridgeService {
       conversationId: number;
       archive: boolean;
     },
+    selector?: WebwhatsSessionSelector,
   ) {
-    const company = await this.requireConnectedCompany(companyId);
+    const company = await this.requireConnectedCompany(companyId, selector);
     const tenantKey = company.session.tenantKey;
     const conversation = await this.prisma.companyConversation.findFirst({
       where: { id: Number(input.conversationId || 0), companyId, channel: 'whatsapp' },
@@ -1303,8 +1386,9 @@ export class WebwhatsBridgeService {
       fromMe: boolean;
       reaction: string;
     },
+    selector?: WebwhatsSessionSelector,
   ) {
-    const company = await this.requireConnectedCompany(companyId);
+    const company = await this.requireConnectedCompany(companyId, selector);
     const tenantKey = company.session.tenantKey;
     const resolvedRemoteJid = this.normalizeRemoteJid(
       String(
@@ -1347,8 +1431,9 @@ export class WebwhatsBridgeService {
         participant?: string | null;
       }>;
     },
+    selector?: WebwhatsSessionSelector,
   ) {
-    const company = await this.requireConnectedCompany(companyId);
+    const company = await this.requireConnectedCompany(companyId, selector);
     const tenantKey = company.session.tenantKey;
     const fallbackRemoteJid = this.normalizeRemoteJid(
       String(
@@ -1403,8 +1488,9 @@ export class WebwhatsBridgeService {
       fromMe: boolean;
       participant?: string | null;
     },
+    selector?: WebwhatsSessionSelector,
   ) {
-    const company = await this.requireConnectedCompany(companyId);
+    const company = await this.requireConnectedCompany(companyId, selector);
     const tenantKey = company.session.tenantKey;
     const resolvedRemoteJid = this.normalizeRemoteJid(
       String(
@@ -1561,12 +1647,6 @@ export class WebwhatsBridgeService {
     const config = this.readConfig();
     if (!config.available) return false;
     return isModalSendReady(company?.whatsappModalStatus);
-  }
-
-  private canUseOperationalSession(company: { whatsappModalStatus?: string | null }) {
-    const config = this.readConfig();
-    if (!config.available) return false;
-    return isModalSessionAvailable(company?.whatsappModalStatus);
   }
 
   private resolveOutboundMediaInput(raw: string) {
@@ -2103,6 +2183,7 @@ export class WebwhatsBridgeService {
     message: WebwhatsFetchedMessage,
     messageType: string,
     existingVariables?: Record<string, any>,
+    tenantKeyHint?: string,
   ): Promise<ResolvedWebwhatsMediaAttachment | null> {
     if (!['image', 'video', 'document', 'audio', 'sticker'].includes(messageType)) return null;
 
@@ -2113,7 +2194,7 @@ export class WebwhatsBridgeService {
     if (!mediaPayload) return null;
 
     try {
-      const tenantKey = await this.resolveMotorTenantKey(companyId);
+      const tenantKey = this.normalizeOptionalString(tenantKeyHint) || (await this.resolveMotorTenantKey(companyId));
       const response = await this.requestRead<any>({
         method: 'POST',
         path: `/chat/getBase64FromMediaMessage/${encodeURIComponent(tenantKey)}`,
@@ -2403,14 +2484,14 @@ export class WebwhatsBridgeService {
   public async fetchChatsFast(
     companyId: number,
     opts?: { limit?: number; cursor?: string | null },
+    tenantKeyHint?: string,
   ): Promise<WebwhatsFastChatListResult> {
     const limit = this.clamp(Number(opts?.limit || 60), 1, 120);
     const cursor = this.normalizeOptionalString(opts?.cursor);
-    const cacheKey = `${companyId}:${limit}:${cursor || ''}`;
+    const tenantKey = this.normalizeOptionalString(tenantKeyHint) || (await this.resolveMotorTenantKey(companyId));
+    const cacheKey = `${tenantKey}:${limit}:${cursor || ''}`;
     const cached = this.getCachedChatList(cacheKey);
     if (cached) return cached;
-
-    const tenantKey = await this.resolveMotorTenantKey(companyId);
 
     try {
       const response = await this.requestRead<any>({
@@ -2430,7 +2511,7 @@ export class WebwhatsBridgeService {
       this.logger.warn(
         `Webwhats chat list fast indisponivel company=${companyId}; fallback=legacy code=${providerError?.code || 'unknown'} status=${providerError?.statusCode ?? 'na'}`,
       );
-      const records = await this.fetchChats(companyId, limit);
+      const records = await this.fetchChats(companyId, limit, tenantKey);
       const result: WebwhatsFastChatListResult = {
         records,
         nextCursor: null,
@@ -2442,8 +2523,8 @@ export class WebwhatsBridgeService {
     }
   }
 
-  private async fetchChats(companyId: number, limit: number) {
-    const tenantKey = await this.resolveMotorTenantKey(companyId);
+  private async fetchChats(companyId: number, limit: number, tenantKeyHint?: string) {
+    const tenantKey = this.normalizeOptionalString(tenantKeyHint) || (await this.resolveMotorTenantKey(companyId));
     const response = await this.requestRead<any>({
       method: 'POST',
       path: `/chat/findChats/${encodeURIComponent(tenantKey)}`,
@@ -2453,16 +2534,20 @@ export class WebwhatsBridgeService {
     return Array.isArray(response) ? (response as WebwhatsChatSummary[]) : [];
   }
 
-  public async fetchPresence(companyId: number, remoteJidRaw: string): Promise<WebwhatsPresenceSnapshot> {
+  public async fetchPresence(
+    companyId: number,
+    remoteJidRaw: string,
+    tenantKeyHint?: string,
+  ): Promise<WebwhatsPresenceSnapshot> {
     const remoteJid = this.normalizeRemoteJid(String(remoteJidRaw || ''));
     if (!remoteJid) return this.buildUnknownPresenceSnapshot('');
 
-    const cacheKey = `${companyId}:${remoteJid}`;
+    const tenantKey = this.normalizeOptionalString(tenantKeyHint) || (await this.resolveMotorTenantKey(companyId));
+    const cacheKey = `${tenantKey}:${remoteJid}`;
     const cached = this.getCachedPresence(cacheKey);
     if (cached) return cached;
 
     try {
-      const tenantKey = await this.resolveMotorTenantKey(companyId);
       const response = await this.requestRead<any>({
         method: 'GET',
         path: `/chat/presence/${encodeURIComponent(tenantKey)}?remoteJid=${encodeURIComponent(remoteJid)}`,
@@ -2634,13 +2719,21 @@ export class WebwhatsBridgeService {
     };
   }
 
-  private async enrichLiveChatsWithPresence<T extends WebwhatsLiveChatSnapshot>(companyId: number, snapshots: T[]) {
-    return Promise.all(snapshots.map((snapshot) => this.enrichLiveChatWithPresence(companyId, snapshot)));
+  private async enrichLiveChatsWithPresence<T extends WebwhatsLiveChatSnapshot>(
+    companyId: number,
+    snapshots: T[],
+    tenantKeyHint?: string,
+  ) {
+    return Promise.all(snapshots.map((snapshot) => this.enrichLiveChatWithPresence(companyId, snapshot, tenantKeyHint)));
   }
 
-  private async enrichLiveChatWithPresence<T extends WebwhatsLiveChatSnapshot>(companyId: number, snapshot: T) {
+  private async enrichLiveChatWithPresence<T extends WebwhatsLiveChatSnapshot>(
+    companyId: number,
+    snapshot: T,
+    tenantKeyHint?: string,
+  ) {
     if (!snapshot?.remoteJid) return snapshot;
-    const presence = await this.fetchPresence(companyId, snapshot.remoteJid);
+    const presence = await this.fetchPresence(companyId, snapshot.remoteJid, tenantKeyHint);
     return this.withPresenceMetadata({
       ...snapshot,
       presence,
@@ -2707,8 +2800,8 @@ export class WebwhatsBridgeService {
     };
   }
 
-  private async fetchContacts(companyId: number) {
-    const tenantKey = await this.resolveMotorTenantKey(companyId);
+  private async fetchContacts(companyId: number, tenantKeyHint?: string) {
+    const tenantKey = this.normalizeOptionalString(tenantKeyHint) || (await this.resolveMotorTenantKey(companyId));
     const response = await this.requestRead<any>({
       method: 'POST',
       path: `/chat/findContacts/${encodeURIComponent(tenantKey)}`,
@@ -2718,14 +2811,15 @@ export class WebwhatsBridgeService {
     return Array.isArray(response) ? (response as WebwhatsContactSummary[]) : [];
   }
 
-  private async getCachedContacts(companyId: number) {
+  private async getCachedContacts(companyId: number, tenantKeyHint?: string) {
+    const tenantKey = this.normalizeOptionalString(tenantKeyHint) || (await this.resolveMotorTenantKey(companyId));
     const cacheAgeMs = 5 * 60 * 1000;
-    if (this.isThrottled(this.contactSyncAt, companyId, cacheAgeMs)) {
-      return this.contactCache.get(companyId) || [];
+    if (this.isThrottled(this.contactSyncAt, tenantKey, cacheAgeMs)) {
+      return this.contactCache.get(tenantKey) || [];
     }
-    const contacts = await this.fetchContacts(companyId);
-    this.contactSyncAt.set(companyId, Date.now());
-    this.contactCache.set(companyId, contacts);
+    const contacts = await this.fetchContacts(companyId, tenantKey);
+    this.contactSyncAt.set(tenantKey, Date.now());
+    this.contactCache.set(tenantKey, contacts);
     return contacts;
   }
 
@@ -2747,8 +2841,9 @@ export class WebwhatsBridgeService {
       page: number;
       matchRemoteJidAlt?: boolean;
     },
+    tenantKeyHint?: string,
   ) {
-    const tenantKey = await this.resolveMotorTenantKey(companyId);
+    const tenantKey = this.normalizeOptionalString(tenantKeyHint) || (await this.resolveMotorTenantKey(companyId));
     const response = await this.requestRead<any>({
       method: 'POST',
       path: `/chat/findMessages/${encodeURIComponent(tenantKey)}`,
@@ -2794,9 +2889,11 @@ export class WebwhatsBridgeService {
       maxPages?: number;
       matchRemoteJidAlt?: boolean;
     },
+    tenantKeyHint?: string,
   ) {
     const limit = this.clamp(Number(opts.limit || 120), 1, 120);
     const maxPages = this.clamp(Number(opts.maxPages || (opts.fullSync ? 80 : 1)), 1, 120);
+    const tenantKey = this.normalizeOptionalString(tenantKeyHint) || (await this.resolveMotorTenantKey(companyId));
     const messageByKey = new Map<string, WebwhatsFetchedMessage>();
     let pagesFetched = 0;
     let discoveredTotalPages: number | null = null;
@@ -2806,7 +2903,7 @@ export class WebwhatsBridgeService {
         limit,
         page,
         matchRemoteJidAlt: opts.matchRemoteJidAlt,
-      });
+      }, tenantKey);
       pagesFetched += 1;
       if (Number.isFinite(Number(pagePayload.totalPages || 0)) && Number(pagePayload.totalPages || 0) > 0) {
         discoveredTotalPages = Number(pagePayload.totalPages || 0);
@@ -2854,8 +2951,8 @@ export class WebwhatsBridgeService {
     };
   }
 
-  private async fetchProfilePicture(companyId: number, remoteJid: string) {
-    const tenantKey = await this.resolveMotorTenantKey(companyId);
+  private async fetchProfilePicture(companyId: number, remoteJid: string, tenantKeyHint?: string) {
+    const tenantKey = this.normalizeOptionalString(tenantKeyHint) || (await this.resolveMotorTenantKey(companyId));
     return this.requestRead<any>({
       method: 'POST',
       path: `/chat/fetchProfilePictureUrl/${encodeURIComponent(tenantKey)}`,
@@ -3329,9 +3426,16 @@ export class WebwhatsBridgeService {
       remoteJidAlt?: string | null;
       displayName?: string | null;
       profilePicUrl?: string | null;
+      // POR USUÁRIO: instanceName cru do webhook (`company-{id}-user-{n}`) p/ atribuir o inbound
+      // à sessão do user DONO do número — não à sessão genérica da empresa.
+      tenantKey?: string | null;
+      userId?: number | null;
     },
   ) {
-    const session = await this.resolveCurrentWebwhatsSession(companyId);
+    const session = await this.resolveCurrentWebwhatsSession(companyId, {
+      tenantKey: opts?.tenantKey ?? null,
+      userId: opts?.userId ?? null,
+    });
     if (!session) {
       throw new WebwhatsProviderError(
         'WEBWHATS_NOT_CONNECTED',
@@ -4040,6 +4144,7 @@ export class WebwhatsBridgeService {
           message,
           messageType,
           existingVariables,
+          session.tenantKey,
         );
     const incomingNormalization =
       normalizedIncoming.kind === 'interactive_received' || normalizedIncoming.kind === 'unknown'

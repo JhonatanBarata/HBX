@@ -55,6 +55,24 @@
       "serviceUrl": "/dashboard/cadastros"
     },
     {
+      "key": "bot",
+      "name": "Bot IA",
+      "description": "Automacao de atendimento e prospecção via bot configurado pela empresa.",
+      "monthlyPrice": 0,
+      "defaultEnabled": false,
+      "companyAssignable": true,
+      "serviceUrl": null
+    },
+    {
+      "key": "email",
+      "name": "E-mail",
+      "description": "Envio e recepcao de mensagens comerciais e automaticas por e-mail.",
+      "monthlyPrice": 0,
+      "defaultEnabled": false,
+      "companyAssignable": true,
+      "serviceUrl": null
+    },
+    {
       "key": "website",
       "name": "Website",
       "description": "Acesso ao site da empresa e entrada segura no admin do website.",
@@ -70,7 +88,7 @@
       "monthlyPrice": 0,
       "defaultEnabled": false,
       "companyAssignable": false,
-      "serviceUrl": "/dashboard/master"
+      "serviceUrl": "/master"
     },
     {
       "key": "exclusoes",
@@ -79,7 +97,7 @@
       "monthlyPrice": 0,
       "defaultEnabled": false,
       "companyAssignable": false,
-      "serviceUrl": "/dashboard/master/exclusoes"
+      "serviceUrl": "/master?janela=sistema&sistema=3"
     }
   ],
   "legacyModuleKeys": [

@@ -70,7 +70,7 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
   if (!res.ok) {
     // Sessão expirada/derrubada (login único): limpa o cliente e volta ao
     // /login com aviso — sem isso a tela morria em "Carregando…" quando
-    // outra máquina assumia a sessão (relato do dono, 12/06/2026).
+    // outra sessão substituía a atual (relato do dono, 12/06/2026).
     if (
       res.status === 401 &&
       !path.startsWith("/auth/login") &&

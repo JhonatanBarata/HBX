@@ -935,7 +935,6 @@ export class AuthService implements OnModuleInit {
       if (existing) {
         const shouldRevokeSessions =
           !passwordMatches ||
-          Boolean(existing.currentSessionId) ||
           Boolean(existing.companyId) ||
           !existing.isSystemMaster ||
           existing.role !== 'USERMASTER' ||
@@ -958,8 +957,10 @@ export class AuthService implements OnModuleInit {
             isActive: true,
             companyId: null,
             mustChangePassword: false,
-            currentSessionId: null,
-            ...(shouldRevokeSessions ? { sessionVersion: { increment: 1 } } : {}),
+            ...(shouldRevokeSessions ? {
+              currentSessionId: null,
+              sessionVersion: { increment: 1 },
+            } : {}),
             deactivatedAt: null,
             retentionUntil: null,
           },
@@ -1132,7 +1133,7 @@ export class AuthService implements OnModuleInit {
     return {
       access_token: this.jwtService.sign(payload),
       next: Boolean(sessionContext.user?.isSystemMaster)
-        ? '/dashboard/master'
+        ? '/master'
         : requiresCheckout
           ? this.preCheckoutNextPath(checkoutReason)
           : '/dashboard',
@@ -1231,13 +1232,27 @@ export class AuthService implements OnModuleInit {
           lastSeenAt: true,
           expiresAt: true,
           userAgent: true,
+          ipHash: true,
         },
       });
 
       if (activeSession) {
+        const requestUserAgent = this.normalizeUserAgent(opts?.userAgent);
+        const requestIpHash = this.hashIp(opts?.ip);
+        const sameUserAgent = Boolean(requestUserAgent && activeSession.userAgent && activeSession.userAgent === requestUserAgent);
+        const sameIpHash = Boolean(requestIpHash && activeSession.ipHash && activeSession.ipHash === requestIpHash);
+        const userAgentCompatible = !requestUserAgent || !activeSession.userAgent || sameUserAgent;
+        const ipHashCompatible = !requestIpHash || !activeSession.ipHash || sameIpHash;
+        const sameClient =
+          (sameUserAgent || sameIpHash) &&
+          userAgentCompatible &&
+          ipHashCompatible;
+        if (sameClient) {
+          return this.login(user, { companyId: companyId || undefined, userAgent: opts?.userAgent, ip: opts?.ip });
+        }
         throw new ConflictException({
           code: 'SESSION_ALREADY_ACTIVE',
-          message: 'Usuário conectado em outra máquina.',
+          message: 'Já existe uma sessão ativa para este usuário.',
           forceAvailable: true,
           activeSession: {
             createdAt: activeSession.createdAt,

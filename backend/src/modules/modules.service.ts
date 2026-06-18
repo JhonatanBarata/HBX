@@ -110,6 +110,8 @@ const EMPLOYEE_BLOCKED_MODULE_KEYS = new Set([
   'financeiro',
   'gerencial',
   'website',
+  'bot',
+  'email',
   'master',
   'exclusoes',
 ]);
@@ -131,6 +133,8 @@ const MASTER_SURFACE_MODULE_KEYS = new Set(['master', 'exclusoes']);
 const MODULE_DISPLAY_ORDER = [
   'atendimento',
   'vendas',
+  'bot',
+  'email',
   'website',
   'webscraping',
   'cadastro',

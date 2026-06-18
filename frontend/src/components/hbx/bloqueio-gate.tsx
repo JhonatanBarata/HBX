@@ -45,7 +45,7 @@ export function BloqueioGate() {
 
   useEffect(() => {
     let alive = true;
-    if (!getToken()) return;
+    if (!getToken() || !user || user.isSystemMaster) return;
     fetchPlanMeCached().then(res => {
       if (!alive) return;
       const cur = res?.current || {};
@@ -66,7 +66,7 @@ export function BloqueioGate() {
       });
     });
     return () => { alive = false; };
-  }, []);
+  }, [user]);
 
   // Master nunca é bloqueado; sem dados ou empresa operante → sem portão.
   if (!user || user.isSystemMaster) return null;

@@ -1167,6 +1167,46 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     return null;
   }
 
+  // POR USUÁRIO: extrai o instanceName cru do webhook (`company-{id}` ou `company-{id}-user-{n}`)
+  // p/ atribuir o inbound à sessão do user DONO do número — não à sessão genérica da empresa.
+  private findWebwhatsTenantKey(payload: any, query?: Record<string, any>): string | null {
+    const isTenantKey = (value: unknown) =>
+      /^company-\d+(?:-user-\d+)?$/i.test(String(value || '').trim());
+    const direct = [
+      payload?.instance,
+      payload?.instanceName,
+      payload?.session,
+      payload?.data?.instance,
+      payload?.data?.instanceName,
+      payload?.data?.session,
+      query?.instance,
+      query?.instanceName,
+    ];
+    for (const candidate of direct) {
+      const normalized = String(candidate || '').trim();
+      if (isTenantKey(normalized)) return normalized;
+    }
+
+    const stack: unknown[] = [payload];
+    let inspected = 0;
+    while (stack.length && inspected < 160) {
+      inspected += 1;
+      const current = stack.shift();
+      if (!current || typeof current !== 'object') continue;
+      if (Array.isArray(current)) {
+        stack.push(...current.slice(0, 20));
+        continue;
+      }
+      for (const [key, value] of Object.entries(current as Record<string, unknown>)) {
+        if (/instance|session/i.test(key) && isTenantKey(value)) {
+          return String(value).trim();
+        }
+        if (value && typeof value === 'object') stack.push(value);
+      }
+    }
+    return null;
+  }
+
   private normalizeWebwhatsJid(value: unknown) {
     const normalized = String(value || '').trim();
     if (!normalized) return null;
@@ -7594,6 +7634,10 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
             conversationId: true,
             senderType: true,
             variablesJson: true,
+            // POR USUÁRIO: a sessão/instância DONA desta saída — o envio fala com o número
+            // certo (do vendedor/admin), não com o ponteiro genérico da empresa.
+            whatsappConnectionSessionId: true,
+            sourceTenantKey: true,
           },
         },
       },
@@ -7613,6 +7657,13 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       let messageType = String(msg.messageType || 'text').toLowerCase();
       let dispatchBody = String(msg.body || '');
       const conversationId = Number(msg.message?.conversationId || 0) || null;
+      // POR USUÁRIO: o envio mira a SESSÃO dona desta mensagem (gravada na criação do
+      // companyMessage), não o ponteiro genérico da empresa — senão a resposta de um vendedor
+      // sairia pelo número de outro. Sem sessão (automação/legado) cai no ponteiro da empresa.
+      const webwhatsSelector = {
+        sessionId: msg.message?.whatsappConnectionSessionId ?? null,
+        tenantKey: msg.message?.sourceTenantKey ?? null,
+      };
       const dispatchVariables = this.parseJsonPayload<Record<string, any>>(msg.message?.variablesJson, {});
       const suppressionReason = await this.resolveDispatchBotSuppression({
         companyId: msg.companyId,
@@ -7637,9 +7688,15 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       }
       const attachment = this.extractWebwhatsAttachment(dispatchVariables);
       const providerCapabilities = resolveProviderCapabilitiesFromCompany(company);
+      // POR USUÁRIO: webwhats está disponível se o status da empresa diz CONNECTED (legado/admin)
+      // OU se há sessão viva p/ ESTE selector (per-user — connect per-user não seta o status
+      // da empresa, então o gate por status sozinho barraria o envio do vendedor).
       const webwhatsAvailable =
         providerCapabilities.provider === 'evolution' &&
-        this.webwhatsBridge.isDispatchAvailable((company as any)?.whatsappModalStatus);
+        (
+          this.webwhatsBridge.isDispatchAvailable((company as any)?.whatsappModalStatus) ||
+          (await this.webwhatsBridge.hasOperationalSession(msg.companyId, webwhatsSelector))
+        );
       if (messageType === 'template' && !providerCapabilities.canUseTemplates) {
         throw new Error(META_TEMPLATES_REQUIRED_MESSAGE);
       }
@@ -7719,7 +7776,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
                 to: msg.to,
                 conversationId,
                 audio: attachment.url,
-              })
+              }, webwhatsSelector)
             : await this.webwhatsBridge.sendMedia(msg.companyId, {
                 to: msg.to,
                 conversationId,
@@ -7728,7 +7785,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
                 caption,
                 fileName: attachment.fileName,
                 mimeType: attachment.mimeType,
-              });
+              }, webwhatsSelector);
           await markWebwhatsSent({
             requestBody: {
               number: webwhatsResult.target,
@@ -7759,7 +7816,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
             to: msg.to,
             text: dispatchBody,
             conversationId,
-          });
+          }, webwhatsSelector);
           await markWebwhatsSent({
             requestBody: { number: webwhatsResult.target, text: dispatchBody },
             response: webwhatsResult.response,
@@ -7786,7 +7843,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
             to: msg.to,
             conversationId,
             payload: interactivePayload,
-          });
+          }, webwhatsSelector);
           await markWebwhatsSent({
             requestBody: webwhatsResult.requestBody || { number: webwhatsResult.target, interactive: interactivePayload },
             response: webwhatsResult.response,
@@ -8170,12 +8227,17 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
+    // POR USUÁRIO: tenantKey cru do webhook (`company-{id}-user-{n}`) → o inbound entra na sessão
+    // do user dono do número, não na sessão genérica da empresa.
+    const webwhatsTenantKey = this.findWebwhatsTenantKey(payload, opts.query);
+
     for (const message of messages) {
       try {
         const result = await this.webwhatsBridge.ingestWebhookMessage(company.id, message, {
           remoteJid: message.key?.remoteJid || null,
           remoteJidAlt: message.key?.remoteJidAlt || null,
           displayName: message.pushName || null,
+          tenantKey: webwhatsTenantKey,
         });
         messagesHandled++;
         this.inboxRealtime.publish({

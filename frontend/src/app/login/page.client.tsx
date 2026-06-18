@@ -64,9 +64,11 @@ export function LoginClient() {
   const [notice, setNotice] = useState<string | null>(null);
   const [plain, setPlain] = useState(false);
   const googleBtnRef = useRef<HTMLDivElement>(null);
+  const loginInFlightRef = useRef(false);
 
   const handleGoogleCredential = useCallback(async (response: { credential: string }) => {
-    if (busy) return;
+    if (loginInFlightRef.current) return;
+    loginInFlightRef.current = true;
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -83,9 +85,10 @@ export function LoginClient() {
       else window.setTimeout(() => router.replace(res.next || "/dashboard"), 750);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível entrar com Google. Tente novamente.");
+      loginInFlightRef.current = false;
       setBusy(false);
     }
-  }, [busy, plain, router]);
+  }, [plain, router]);
 
   useEffect(() => {
     let alive = true;
@@ -95,7 +98,7 @@ export function LoginClient() {
         const sessionNotice = sessionStorage.getItem("hbx:session-notice");
         if (sessionNotice === "expired") {
           sessionStorage.removeItem("hbx:session-notice");
-          setNotice("Sua sessão expirou ou foi conectada em outro dispositivo. Entre novamente.");
+          setNotice("Sua sessão expirou ou foi substituída por um novo login. Entre novamente.");
         } else if (sessionNotice === "company-removed") {
           sessionStorage.removeItem("hbx:session-notice");
           setNotice("Sua empresa foi removida. Se isso não era esperado, fale com o suporte HBX.");
@@ -137,7 +140,8 @@ export function LoginClient() {
   }
 
   async function doLogin(force: boolean) {
-    if (busy) return;
+    if (loginInFlightRef.current) return;
+    loginInFlightRef.current = true;
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -159,11 +163,12 @@ export function LoginClient() {
       setOk(false);
       if (payload?.code === "SESSION_ALREADY_ACTIVE" && payload?.forceAvailable) {
         setConflict(true);
-        setError(payload?.message || "Você já está conectado em outra máquina.");
+        setError(payload?.message || "Já existe uma sessão ativa para este usuário.");
       } else {
         setConflict(false);
         setError(err instanceof Error ? err.message : "Não foi possível entrar. Tente novamente.");
       }
+      loginInFlightRef.current = false;
       setBusy(false);
     }
   }
@@ -239,7 +244,7 @@ export function LoginClient() {
             {error && (<div className={"ok show " + (conflict ? "warn" : "bad")}>{error}</div>)}
             {conflict && (
               <button className="btn-ghost" type="button" disabled={busy} style={{ minHeight: 40, fontSize: "0.78rem" }} onClick={() => doLogin(true)}>
-                Conectar aqui mesmo (desconecta a outra máquina)
+                Conectar aqui mesmo (encerra a sessão ativa)
               </button>
             )}
             <button className="btn-teal" type="submit" disabled={busy} style={{ minHeight: 44, fontSize: "0.84rem" }}>

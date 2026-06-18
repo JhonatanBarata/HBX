@@ -172,6 +172,30 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     backendEnforced: true,
   },
   {
+    key: 'bot.access',
+    group: 'modules',
+    label: 'Acessar Bot IA',
+    description: 'Permite usar e configurar o bot de atendimento quando o modulo estiver habilitado.',
+    defaultForAdmin: true,
+    defaultForSeller: false,
+    requiresModule: 'bot',
+    riskLevel: 'high',
+    sellerVisible: false,
+    backendEnforced: true,
+  },
+  {
+    key: 'email.access',
+    group: 'modules',
+    label: 'Acessar E-mail',
+    description: 'Permite enviar e receber mensagens por e-mail quando o modulo estiver habilitado.',
+    defaultForAdmin: true,
+    defaultForSeller: true,
+    requiresModule: 'email',
+    riskLevel: 'medium',
+    sellerVisible: true,
+    backendEnforced: true,
+  },
+  {
     key: 'radar.search.run',
     group: 'radar',
     label: 'Rodar busca no Radar',
@@ -1029,6 +1053,8 @@ const MODULE_ACCESS_EQUIVALENTS: Record<string, string[]> = {
     'team.users.disable',
   ],
   financeiro: ['financeiro.access'],
+  bot: ['bot.access'],
+  email: ['email.access'],
 };
 
 function normalizeAccessKey(value: unknown) {
