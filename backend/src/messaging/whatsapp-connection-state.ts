@@ -2,17 +2,17 @@
 //
 // Antes, o "tá conectado?" era redecidido com comparações de string soltas em ~4 lugares
 // (inbox.service, modules.service, conversations.service, e o espelho em whatsapp-modal.service),
-// cada um com sua própria régua — fácil divergir. Aqui ficam as DUAS noções que de fato existem,
+// cada um com sua própria régua — fácil divergir. Aqui ficam as noções que de fato existem,
 // nomeadas e separadas, sem mudar comportamento:
 //
-//   - sessão DISPONÍVEL (ler/operar): CONNECTED ou RECONNECTING — o motor ainda tem sessão viva.
-//   - pronta para ENVIAR agora:        só CONNECTED (estrito) — RECONNECTING não envia.
+//   - sessão DISPONÍVEL (ler/operar/enviar): CONNECTED ou RECONNECTING — motor ainda tem sessão viva.
+//     RECONNECTING = erro transiente no receive, não desconexão real; Webwhats decide se consegue enviar.
+//   - sessão INATIVA (não enviar/operar): qualquer outro status (DISCONNECTED, null, etc.)
 //
 // O canal oficial (Meta Cloud) é binário: CONNECTED.
 // Funções puras, sem I/O — seguras para qualquer camada importar.
 
 const MODAL_SESSION_STATES = new Set(['CONNECTED', 'RECONNECTING']);
-const MODAL_SEND_READY_STATE = 'CONNECTED';
 const META_CONNECTED_STATE = 'CONNECTED';
 
 export function normalizeWaStatus(value: unknown): string {
@@ -26,9 +26,9 @@ export function isModalSessionAvailable(modalStatus: unknown): boolean {
   return MODAL_SESSION_STATES.has(normalizeWaStatus(modalStatus));
 }
 
-/** Sessão Webwhats pronta para ENVIAR agora (estrito: RECONNECTING não envia). */
+/** Sessão Webwhats disponível para ENVIAR — CONNECTED ou RECONNECTING (motor ainda tem sessão viva). */
 export function isModalSendReady(modalStatus: unknown): boolean {
-  return normalizeWaStatus(modalStatus) === MODAL_SEND_READY_STATE;
+  return MODAL_SESSION_STATES.has(normalizeWaStatus(modalStatus));
 }
 
 /** Canal oficial Meta Cloud conectado. */
