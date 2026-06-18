@@ -6481,6 +6481,52 @@ export class InboxService {
     };
   }
 
+  // DEBUG — apaga TODAS as mensagens e conversas WhatsApp da company, mantendo audit.
+  // Não desconecta a sessão Webwhats; só limpa o banco local.
+  async wipeAllWhatsAppData(user: any) {
+    this.assertAdministrativeAction(user);
+    const companyId = this.requireCompanyIdFromUser(user);
+
+    let deletedMessages = 0;
+    let deletedConversations = 0;
+
+    await this.prisma.$transaction(async (tx) => {
+      // Nulifica referência antes de apagar conversas (FK nullable sem onDelete).
+      await tx.atendimentoAppointment.updateMany({
+        where: { companyId, conversation: { companyId, channel: 'whatsapp' } },
+        data: { conversationId: null },
+      });
+
+      const convIds = await tx.companyConversation.findMany({
+        where: { companyId, channel: 'whatsapp' },
+        select: { id: true },
+      });
+      const ids = convIds.map((c) => c.id);
+
+      if (ids.length) {
+        const msgResult = await tx.companyMessage.deleteMany({
+          where: { companyId, conversationId: { in: ids } },
+        });
+        deletedMessages = msgResult.count;
+
+        const convResult = await tx.companyConversation.deleteMany({
+          where: { companyId, id: { in: ids } },
+        });
+        deletedConversations = convResult.count;
+      }
+    });
+
+    await this.logInboxEvent({
+      companyId,
+      event: 'whatsapp_data_wiped_debug',
+      message: `[DEBUG] Todos os dados WhatsApp apagados: ${deletedMessages} mensagens, ${deletedConversations} conversas. Sessão mantida.`,
+      result: 'wipe_all',
+      extra: { deletedMessages, deletedConversations },
+    });
+
+    return { success: true, deletedMessages, deletedConversations };
+  }
+
   // Registra no audit (scope inbox / event conversation_backend_deleted) cada contato
   // 1:1 descartado, no formato que o bridge usa pra suprimir reimportação
   // (isLocallyDeletedChatSuppressed): o metadata em JSON precisa CONTER os tokens

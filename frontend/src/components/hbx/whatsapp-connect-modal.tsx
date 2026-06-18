@@ -3,19 +3,29 @@
 // Modal de conexão WhatsApp (R2.9 — entra junto com a tela de Atendimento).
 // Usa o fluxo canônico de src/lib/whatsapp-connection-flow.ts:
 // status → start (gera QR) → leitura → connected → bootstrap (espelha
-// conversas/contatos) → onConnected(). Desconectar é em duas etapas.
+// conversas/contatos) → LEI: pergunta limpar ou aproveitar → onConnected().
+//
+// LEI DA RECONEXÃO: toda conexão bem-sucedida verifica histórico de outro número.
+// Se houver, mostra o diálogo DENTRO do modal (não na página de fundo) antes de
+// disparar onConnected(). NUNCA limpa automaticamente.
+//
+// BOTÃO DEBUG "Limpar dados": apaga TODAS as mensagens/conversas da company,
+// mantendo sessão ativa e dados de audit. Chama /inbox/whatsapp-sessions/wipe-all.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { I, ICONS } from "@/components/hbx/shell";
 import {
   bootstrapWhatsAppAfterConnect,
+  cleanupWhatsAppSessions,
   disconnectWhatsAppModalSession,
   fetchWhatsAppModalQr,
   fetchWhatsAppModalStatus,
+  fetchWhatsAppSessionDiagnostics,
   requestWhatsAppPairingCode,
   restartWhatsAppModalSession,
   startWhatsAppModalSession,
+  wipeAllWhatsAppData,
 } from "@/lib/whatsapp-connection-flow";
 import { formatWhatsAppDateTime, whatsappModalStatusLabel, type WhatsAppModalPayload, type WhatsAppPairingCodePayload } from "@/lib/whatsapp-center";
 
@@ -37,12 +47,19 @@ export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnecte
   const [pairing, setPairing] = useState<WhatsAppPairingCodePayload | null>(null);
   const bootstrappedKey = useRef<string | null>(null);
 
+  // LEI DA RECONEXÃO — estado do diálogo inline
+  const [cleanupNeeded, setCleanupNeeded] = useState<{ conversations: number; oldPhone: string | null } | null>(null);
+  const [cleanupBusy, setCleanupBusy] = useState(false);
+
+  // DEBUG — confirmação antes de limpar tudo
+  const [confirmWipe, setConfirmWipe] = useState(false);
+  const [wipeBusy, setWipeBusy] = useState(false);
+  const [wipeMsg, setWipeMsg] = useState<string | null>(null);
+
   const refresh = useCallback(() => {
     return fetchWhatsAppModalStatus()
       .then(async res => {
         let next = res;
-        // Só puxa QR automaticamente no modo QR — no modo código isso
-        // regeraria a sessão e invalidaria o pairingCode em uso.
         if (method === "qr" && res?.status === "waiting_qr" && !res?.data?.qrCodeDataUrl) {
           next = await fetchWhatsAppModalQr().catch(() => res);
         }
@@ -71,9 +88,23 @@ export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnecte
           bootstrappedKey.current = key;
           try {
             const boot = await bootstrapWhatsAppAfterConnect(res);
-            if (alive && boot) {
+            if (!alive) return;
+            if (boot) {
               setBootstrapMsg(`✓ Conectado — ${boot.syncedConversations} conversas e ${boot.syncedContacts} contatos espelhados.`);
-              onConnected?.();
+
+              // LEI DA RECONEXÃO: verifica histórico de outro número.
+              // Mostra diálogo AQUI dentro; só dispara onConnected() após a decisão.
+              const diag = await fetchWhatsAppSessionDiagnostics().catch(() => null);
+              const cleanup = diag?.whatsappSessionCleanup;
+              if (cleanup?.required && (cleanup.oldConversationCount > 0 || cleanup.oldMessageCount > 0)) {
+                setCleanupNeeded({
+                  conversations: cleanup.oldConversationCount,
+                  oldPhone: cleanup.latestOldSession?.displayPhone || cleanup.latestOldSession?.phoneNormalized || null,
+                });
+                // onConnected() só dispara depois que o usuário escolher (ver runCleanup).
+              } else {
+                onConnected?.();
+              }
             }
           } catch (err) {
             if (alive) setBootstrapMsg(err instanceof Error ? err.message : "Conectado, mas o espelhamento falhou.");
@@ -109,8 +140,6 @@ export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnecte
     }
   }
 
-  // Desconectar avisa a tela (onDisconnected) para limpar a lista na hora — o
-  // chat do número que saiu não deve ficar pendurado por trás do modal.
   async function disconnectAndNotify() {
     if (busy) return;
     setBusy(true);
@@ -120,6 +149,7 @@ export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnecte
       const res = await disconnectWhatsAppModalSession();
       setPayload(res);
       bootstrappedKey.current = null;
+      setCleanupNeeded(null);
       onDisconnected?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Operação falhou.");
@@ -146,6 +176,36 @@ export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnecte
       setError(err instanceof Error ? err.message : "Falha ao gerar o código de pareamento.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  // LEI DA RECONEXÃO — aplica a decisão do usuário sobre o número anterior
+  async function runCleanup(mode: "keep" | "discard") {
+    setCleanupBusy(true);
+    try {
+      await cleanupWhatsAppSessions(mode);
+    } catch {
+      // Erro silencioso: a sessão já está conectada; o cleanup é best-effort.
+    } finally {
+      setCleanupBusy(false);
+      setCleanupNeeded(null);
+      onConnected?.();
+    }
+  }
+
+  // DEBUG — limpa tudo (mensagens + conversas) e avisa o parent para recarregar
+  async function handleWipeAll() {
+    setWipeBusy(true);
+    setWipeMsg(null);
+    setConfirmWipe(false);
+    try {
+      const res = await wipeAllWhatsAppData();
+      setWipeMsg(`✓ Dados limpos — ${res.deletedMessages} msgs, ${res.deletedConversations} conversas. Sessão continua ativa.`);
+      onConnected?.(); // recarrega lista no parent (aparecerá vazia)
+    } catch (err) {
+      setWipeMsg(err instanceof Error ? err.message : "Falha ao limpar dados.");
+    } finally {
+      setWipeBusy(false);
     }
   }
 
@@ -177,7 +237,7 @@ export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnecte
         {error && (
           <p style={{ margin: 0, fontSize: "0.74rem", fontWeight: 700, color: "var(--hbx-danger)" }}>{error}</p>
         )}
-        {bootstrapMsg && (
+        {bootstrapMsg && !cleanupNeeded && (
           <p style={{ margin: 0, fontSize: "0.74rem", fontWeight: 700, color: bootstrapMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{bootstrapMsg}</p>
         )}
 
@@ -221,7 +281,26 @@ export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnecte
           </div>
         )}
 
-        {connected && (
+        {/* LEI DA RECONEXÃO — diálogo inline, exige decisão antes de continuar */}
+        {cleanupNeeded && (
+          <div style={{ display: "grid", gap: 10, padding: 14, borderRadius: "var(--radius-md)", border: "1px solid var(--border-strong)", background: "var(--hbx-surface-soft)" }}>
+            <p style={{ margin: 0, fontSize: "0.8rem", fontWeight: 700 }}>Histórico de outro número detectado</p>
+            <p style={{ margin: 0, fontSize: "0.74rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
+              Encontramos <strong>{cleanupNeeded.conversations}</strong> conversa(s) do número anterior
+              {cleanupNeeded.oldPhone ? ` (${cleanupNeeded.oldPhone})` : ""}. O que deseja fazer?
+            </p>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <button className="btn-teal" disabled={cleanupBusy} onClick={() => runCleanup("keep")}>
+                {cleanupBusy ? "Aplicando…" : "Aproveitar"}
+              </button>
+              <button className="btn-ghost danger" disabled={cleanupBusy} onClick={() => runCleanup("discard")}>
+                {cleanupBusy ? "Limpando…" : "Limpar anterior"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {connected && !cleanupNeeded && (
           <>
             <span className="badge-win">✓ WhatsApp conectado — pronto para receber e responder aqui</span>
             <div className="kv">
@@ -248,7 +327,7 @@ export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnecte
             {canRestart && (
               <button className="btn-ghost" disabled={busy} onClick={() => run(restartWhatsAppModalSession)}>Reiniciar sessão</button>
             )}
-            {connected && (
+            {connected && !cleanupNeeded && (
               confirmDisconnect ? (
                 <button className="btn-ghost danger" disabled={busy}
                   onClick={() => { setConfirmDisconnect(false); disconnectAndNotify(); }}>
@@ -259,6 +338,29 @@ export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnecte
               )
             )}
           </div>
+
+          {/* DEBUG — visível apenas quando conectado */}
+          {connected && !cleanupNeeded && (
+            <div style={{ marginTop: 4, paddingTop: 10, borderTop: "1px dashed var(--border-strong)", display: "grid", gap: 6 }}>
+              <span style={{ fontSize: "0.65rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-muted)" }}>debug</span>
+              {wipeMsg && (
+                <p style={{ margin: 0, fontSize: "0.72rem", color: wipeMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{wipeMsg}</p>
+              )}
+              {confirmWipe ? (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  <button className="btn-ghost danger" disabled={wipeBusy} onClick={handleWipeAll}>
+                    {wipeBusy ? "Limpando…" : "Confirmar — apagar tudo"}
+                  </button>
+                  <button className="btn-ghost" disabled={wipeBusy} onClick={() => setConfirmWipe(false)}>Cancelar</button>
+                </div>
+              ) : (
+                <button className="btn-ghost" disabled={wipeBusy} onClick={() => { setWipeMsg(null); setConfirmWipe(true); }}
+                  style={{ color: "var(--hbx-danger)", borderColor: "var(--hbx-danger)" }}>
+                  Limpar dados
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

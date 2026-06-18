@@ -75,6 +75,13 @@ export function rebootstrapWhatsAppConversations() {
   return apiFetch<WhatsAppBootstrapPayload>("/companies/me/whatsapp-modal/bootstrap", { method: "POST" });
 }
 
+export function wipeAllWhatsAppData() {
+  return apiFetch<{ success: boolean; deletedMessages: number; deletedConversations: number }>(
+    "/inbox/whatsapp-sessions/wipe-all",
+    { method: "POST" },
+  );
+}
+
 // Conexão por código (sem QR / sem câmera): o backend cria a instância com o
 // número e devolve o pairingCode do Webwhats/Baileys. sessionId = data.tenantKey.
 export function requestWhatsAppPairingCode(sessionId: string, phoneNumber: string) {

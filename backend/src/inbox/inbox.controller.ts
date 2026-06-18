@@ -75,6 +75,11 @@ export class InboxController {
     return this.inboxService.cleanupOldWhatsappSessions(req.user, dto?.mode);
   }
 
+  @Post('whatsapp-sessions/wipe-all')
+  wipeAllWhatsAppData(@Req() req: any) {
+    return this.inboxService.wipeAllWhatsAppData(req.user);
+  }
+
   @Get('whatsapp-session')
   getWhatsappSession(@Req() req: any) {
     return this.inboxService.getWhatsappSessionDiagnostics(req.user);
