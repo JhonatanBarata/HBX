@@ -548,7 +548,7 @@ export class WhatsAppModalService {
   async getCompanyStatus(companyId: number, userId?: number): Promise<WhatsAppModalResponse> {
     const baseCompany = await this.loadCompany(companyId);
     const company = userId ? this.patchCompanyWithTenantKey(baseCompany, this.buildUserTenantKey(baseCompany, userId)) : baseCompany;
-    const storedSnapshot = this.buildStoredSnapshot(baseCompany);
+    const storedSnapshot = await this.resolveStoredSnapshot(baseCompany, userId);
     const availabilityResponse = this.buildAvailabilityResponse(baseCompany, storedSnapshot, 'status');
     if (availabilityResponse) {
       return availabilityResponse;
@@ -574,7 +574,7 @@ export class WhatsAppModalService {
     const userTenantKey = userId ? this.buildUserTenantKey(baseCompany, userId) : null;
     const company = userTenantKey ? this.patchCompanyWithTenantKey(baseCompany, userTenantKey) : baseCompany;
 
-    const storedSnapshot = this.buildStoredSnapshot(baseCompany);
+    const storedSnapshot = await this.resolveStoredSnapshot(baseCompany, userId);
     const availabilityResponse = this.buildAvailabilityResponse(baseCompany, storedSnapshot, 'start');
     if (availabilityResponse) {
       return availabilityResponse;
@@ -668,7 +668,7 @@ export class WhatsAppModalService {
   async getCompanyQrCode(companyId: number, userId?: number): Promise<WhatsAppModalResponse> {
     const baseCompany = await this.loadCompany(companyId);
     const company = userId ? this.patchCompanyWithTenantKey(baseCompany, this.buildUserTenantKey(baseCompany, userId)) : baseCompany;
-    const storedSnapshot = this.buildStoredSnapshot(baseCompany);
+    const storedSnapshot = await this.resolveStoredSnapshot(baseCompany, userId);
     const availabilityResponse = this.buildAvailabilityResponse(baseCompany, storedSnapshot, 'qr');
     if (availabilityResponse) {
       return availabilityResponse;
@@ -795,7 +795,7 @@ export class WhatsAppModalService {
   async disconnectCompanySession(companyId: number, userId?: number): Promise<WhatsAppModalResponse> {
     const baseCompany = await this.loadCompany(companyId);
     const company = userId ? this.patchCompanyWithTenantKey(baseCompany, this.buildUserTenantKey(baseCompany, userId)) : baseCompany;
-    const storedSnapshot = this.buildStoredSnapshot(baseCompany);
+    const storedSnapshot = await this.resolveStoredSnapshot(baseCompany, userId);
     const availabilityResponse = this.buildAvailabilityResponse(baseCompany, storedSnapshot, 'disconnect');
     if (availabilityResponse) {
       return availabilityResponse;
@@ -809,6 +809,18 @@ export class WhatsAppModalService {
     } catch (error) {
       if (!this.isMissingInstanceError(error)) {
         return this.buildFailureResponse(baseCompany, storedSnapshot, error, 'Falha ao desconectar a sessão do Modal WhatsApp.');
+      }
+    }
+
+    // SUMIR VESTÍGIOS (18/06): desconectar APAGA a instância do motor (não só logout).
+    // Sem isso, sobrava uma instância órfã "connecting/Iniciando" que o poll de status
+    // ficava reanimando — o dono via o número antigo voltar e o backend "tentando
+    // reconectar". Deletar na raiz garante que desconectou = não há mais rastro no motor.
+    try {
+      await this.deleteProviderInstance(tenantKey);
+    } catch (error) {
+      if (!this.isMissingInstanceError(error)) {
+        this.logger.warn(`delete pos-disconnect falhou para ${tenantKey}: ${this.toProviderError(error).message}`);
       }
     }
 
@@ -833,7 +845,7 @@ export class WhatsAppModalService {
   async restartCompanySession(companyId: number, userId?: number): Promise<WhatsAppModalResponse> {
     const baseCompany = await this.loadCompany(companyId);
     const company = userId ? this.patchCompanyWithTenantKey(baseCompany, this.buildUserTenantKey(baseCompany, userId)) : baseCompany;
-    const storedSnapshot = this.buildStoredSnapshot(baseCompany);
+    const storedSnapshot = await this.resolveStoredSnapshot(baseCompany, userId);
     const availabilityResponse = this.buildAvailabilityResponse(baseCompany, storedSnapshot, 'restart');
     if (availabilityResponse) {
       return availabilityResponse;
@@ -2188,6 +2200,37 @@ export class WhatsAppModalService {
     };
   }
 
+  // POR USUÁRIO (18/06): o estado MOSTRADO no modal de um usuário vem da SESSÃO DELE
+  // (`WhatsAppConnectionSession` do tenantKey `company-{id}-user-{userId}`), NÃO da linha
+  // da empresa. Sem isso, o número/status de quem conectou vazava pra TODOS os usuários
+  // (o dono viu o mesmo "+55 (19) 9..." e "Aguardando reconexão" no admin e no vendedor).
+  // Usuário sem sessão própria = offline limpo (sem número). É o que separa de verdade.
+  private async buildUserStoredSnapshot(company: CompanyModalFields, userId: number): Promise<ModalSnapshot> {
+    const tenantKey = this.buildUserTenantKey(company, userId);
+    const session = await this.prisma.whatsAppConnectionSession.findFirst({
+      where: { companyId: Number(company.id), provider: 'webwhats', tenantKey },
+      orderBy: [{ connectedAt: 'desc' }, { createdAt: 'desc' }],
+      select: { status: true, displayPhone: true, connectedAt: true, updatedAt: true },
+    });
+    const active = session?.status === 'active';
+    return {
+      status: active ? 'connected' : session?.status === 'disconnected' ? 'disconnected' : 'offline',
+      phone: active ? this.normalizeOptionalString(session?.displayPhone) : null,
+      connectedAt: active ? session?.connectedAt || null : null,
+      lastError: null,
+      updatedAt: session?.updatedAt || null,
+      provider: 'external_modal',
+      qrCodeDataUrl: null,
+      rawStatus: null,
+    };
+  }
+
+  // Resolve o snapshot gravado conforme o contexto: por-usuário quando há userId,
+  // senão o legado da empresa (sistema/automação).
+  private async resolveStoredSnapshot(company: CompanyModalFields, userId?: number): Promise<ModalSnapshot> {
+    return userId ? this.buildUserStoredSnapshot(company, userId) : this.buildStoredSnapshot(company);
+  }
+
   private buildHeaders(apiKey: string | null) {
     const headers: Record<string, string> = {
       Accept: 'application/json',
@@ -2832,6 +2875,24 @@ export class WhatsAppModalService {
     }
     const currentSessionId = await this.reconcileWebwhatsConnectionSession(company, snapshot, origin, userId);
 
+    if (userId) {
+      // PER-USER (18/06): o estado vive na SESSÃO do usuário (reconcile acima). NÃO
+      // sobrescreve o estado da EMPRESA com o de UM usuário — senão o número/status de
+      // quem conectou vaza pros outros e o poll de um user derruba o status do outro
+      // (foi o "erro compartilhado" entre admin e vendedor). Só aponta o currentSession
+      // (usado pela bridge company-scoped) quando ESTE usuário está conectado.
+      if (snapshot.status === 'connected' && currentSessionId) {
+        await this.prisma.company.update({
+          where: { id: Number(company.id) },
+          data: {
+            whatsappModalProvider: 'external_modal',
+            currentWhatsappConnectionSessionId: currentSessionId,
+          },
+        });
+      }
+      return;
+    }
+
     await this.prisma.company.update({
       where: { id: Number(company.id) },
       data: {
@@ -2852,7 +2913,7 @@ export class WhatsAppModalService {
     userId?: number,
   ) {
     const tenantKey = this.resolveOperationalTenantKey(company);
-    const fallback = this.buildStoredSnapshot(company);
+    const fallback = await this.resolveStoredSnapshot(company, userId);
     let payload: unknown = null;
 
     try {
