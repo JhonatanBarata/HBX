@@ -28,6 +28,20 @@ Drift de config achado de passagem: `backend/.env` tem
 [docker-compose.yml:68](../../../docker-compose.yml) sobrepõe com `host.docker.internal:8080`
 (esse é o que vale). Dois valores pra mesma coisa = frágil.
 
+## 0.1) VALIDAÇÃO 18/06 (lousa limpa) — REORDENA O PLANO
+
+Reset manual de verdade (motor + DB zerados) e **conectado do zero**. Resultado:
+- Motor criou **`company-2-user-36` (open)** — nome canônico por-usuário, **certo**.
+- Sessão DB nasceu casando 1:1 (userId=36, tenantKey, phone, active); empresa `CONNECTED` + ponteiro.
+- 100 conversas sincronizadas, **todas** no `whatsappConnectionSessionId` do user 36; 22 com foto.
+
+**Conclusão:** o fluxo de *connect/ingest/sync* está fundamentalmente **correto**. O sintoma
+(inbox vazio) vinha do **lixo legado + reset que não zera**, não do connect. Logo a prioridade
+de execução vira: **P4 (reset real) → P5 (matar legado) → P3 (remover self-heal/boot-dedup, que
+só existiam pra lutar com o lixo)**. P1 (nome) já está certo no caminho feliz — só consolidar a
+função única e cobrir com teste. Drift extra confirmado: `@@map` Prisma
+(`CompanyConversation`→`Conversation`, `CompanyMessage`→`Message`) confunde quem lê o banco cru.
+
 ## 1) Os 4 problemas-raiz (não são bugs — é arquitetura)
 
 1. **Dois nomes de instância convivem.** `company-{id}` (legado por-empresa) e
