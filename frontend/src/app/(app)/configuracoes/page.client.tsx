@@ -53,7 +53,7 @@ type CurrentUser = {
   role?: string | null;
   userKind?: string | null;
   canViewBilling?: boolean | null;
-  company?: { name?: string | null; contactPhone?: string | null } | null;
+  company?: { name?: string | null; contactPhone?: string | null; prospectingSegments?: string[] | null } | null;
 } | null;
 
 type CompanyUser = { id: number; name?: string | null; username?: string | null; email?: string | null; role?: string | null; isActive?: boolean };
@@ -135,6 +135,9 @@ export function ConfiguracoesClient() {
 
   const [user, setUser] = useState<CurrentUser>(null);
   const [nome, setNome] = useState("");
+  const [nichoInput, setNichoInput] = useState("");
+  const [nichoBusy, setNichoBusy] = useState(false);
+  const [nichoMsg, setNichoMsg] = useState<string | null>(null);
   const [saveBusy, setSaveBusy] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [team, setTeam] = useState<CompanyUser[]>([]);
@@ -210,6 +213,7 @@ export function ConfiguracoesClient() {
         if (!alive || !res) return;
         setUser(res);
         setNome(res.name || res.username || "");
+        setNichoInput((res.company?.prospectingSegments || []).join(", "));
       })
       .catch(() => { /* sem sessão — AuthGate cuida */ });
     apiFetch<CompanyUser[]>("/users/company")
@@ -349,9 +353,45 @@ export function ConfiguracoesClient() {
                   <div className="frow">
                     <div className="f"><label>Razão social</label><input className="field-dark" value={user?.company?.name || ""} readOnly placeholder="—" /></div>
                     <div className="f"><label>CNPJ</label><input className="field-dark" value="" readOnly placeholder="—" /></div>
-                    <div className="f"><label>Segmento</label><span className="select-dark">— <span style={{ opacity: 0.6 }}>▾</span></span></div>
                     <div className="f"><label>Telefone de contato</label><input className="field-dark" value={user?.company?.contactPhone || ""} readOnly placeholder="—" /></div>
                   </div>
+                  {(user?.role === "ADMIN" || user?.userKind === "owner") && (
+                    <div className="cfg-nicho">
+                      <p className="ttl">Nicho da empresa (alimenta o Radar e os sinais de oportunidade)</p>
+                      <p className="dica">Segmentos que a empresa quer prospectar, separados por vírgula. Ex.: Odontologia, Estética, Advocacia.</p>
+                      <div className="row">
+                        <input
+                          className="field-dark"
+                          value={nichoInput}
+                          placeholder="Odontologia, Estética…"
+                          onChange={e => setNichoInput(e.target.value)}
+                        />
+                        <button
+                          className="btn-teal"
+                          disabled={nichoBusy || !nichoInput.trim()}
+                          onClick={async () => {
+                            setNichoBusy(true);
+                            setNichoMsg(null);
+                            try {
+                              const segments = nichoInput.split(",").map(s => s.trim()).filter(Boolean);
+                              await apiFetch("/profile/prospecting-segments", {
+                                method: "POST",
+                                body: JSON.stringify({ segments }),
+                              });
+                              setNichoMsg("✓ Nicho salvo.");
+                            } catch (err) {
+                              setNichoMsg(err instanceof Error ? err.message : "Não foi possível salvar.");
+                            } finally {
+                              setNichoBusy(false);
+                            }
+                          }}
+                        >
+                          {nichoBusy ? "Salvando…" : "Salvar nicho"}
+                        </button>
+                      </div>
+                      {nichoMsg && <p className="msg">{nichoMsg}</p>}
+                    </div>
+                  )}
                 </div>
               </section>
             )}

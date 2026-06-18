@@ -227,6 +227,9 @@ model WhatsAppConnectionSession {
   id              String    @id @default(cuid())
   company         Company   @relation("CompanyWhatsappConnectionSessions", fields: [companyId], references: [id], onDelete: Cascade)
   companyId       Int
+  // userId: quem conectou este WhatsApp (050-2). Null = legado/automação (conexão de sistema).
+  user            User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId          Int?
   provider        String    @default("webwhats") // webwhats | meta
   tenantKey       String
   phoneNormalized String?
@@ -234,6 +237,7 @@ model WhatsAppConnectionSession {
   status          String    @default("active") // active | disconnected | archived
   connectedAt     DateTime  @default(now())
   disconnectedAt  DateTime?
+  wipedAt         DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   metadataJson    String?
@@ -245,6 +249,7 @@ model WhatsAppConnectionSession {
   @@index([companyId, status])
   @@index([companyId, provider, phoneNormalized, status])
   @@index([companyId, tenantKey, status])
+  @@index([userId, status])
 }
 
 model WhatsappConsentLedger {
@@ -1083,6 +1088,9 @@ model User {
   segmentAffinityJson String?
   // Sellers Brains (17/06): null = push ligado; preenchido = push mutado (sino vermelho).
   brainPushMutedAt DateTime?
+  // Radar Automático (18/06): JSON = { active, city, state, segment, alcance, quantos }.
+  // null = nunca configurado (botão apagado). Persiste mesmo offline — "reserva no estoque".
+  radarSellerStandingOrderJson String?
   botAccessEnabled  Boolean  @default(false)
   referredByUser  User?            @relation("UserSellerReferralNetwork", fields: [referredByUserId], references: [id], onDelete: SetNull)
   referredUsers   User[]           @relation("UserSellerReferralNetwork")
@@ -1131,6 +1139,7 @@ model User {
   convertedHbxReferralCandidates HbxPartnerReferralCandidate[] @relation("HbxReferralCandidateConvertedUser")
   teamPolicy UserTeamPolicy? @relation("UserTeamPolicyUser")
   referredUserTeamPolicies UserTeamPolicy[] @relation("UserTeamPolicyReferrer")
+  whatsappConnectionSessions WhatsAppConnectionSession[]
 
   @@index([referredByUserId])
   @@index([canRegisterHbxSellers])
@@ -1726,6 +1735,7 @@ model RadarLeadPool {
   painLabel            String?
   painPitch            String?
   enrichmentJson       String?
+  signalsJson          String?
   enrichmentScore      Int?     @default(0)
   enrichmentConfidence Int?     @default(0)
   lastEnrichedAt       DateTime?

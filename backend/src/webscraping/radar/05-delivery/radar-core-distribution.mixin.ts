@@ -2166,4 +2166,72 @@ export class RadarCoreDistributionMixin {
       status,
     };
   }
+
+  // ── Bloco 6 (PR18062026046): Preferência permanente "Automático" ────────────
+  // Standing order por vendedor: lê/grava em user.radarSellerStandingOrderJson.
+  // Quando active=true, o agendador existente usa esses filtros pra reabastecer
+  // a carteira até o teto de 20 (respeitando returnAt e a cota compartilhada).
+
+  async getRadarSellerStandingOrder(user: any) {
+    const context = this.resolveContext(user);
+    const row = await this.prisma.user.findUnique({
+      where: { id: context.userId },
+      select: { radarSellerStandingOrderJson: true },
+    }).catch(() => null);
+    const order = this.parseSellerStandingOrder(row?.radarSellerStandingOrderJson);
+    return { ok: true, standingOrder: order };
+  }
+
+  async saveRadarSellerStandingOrder(user: any, input: any) {
+    const context = this.resolveContext(user);
+    const existing = await this.prisma.user.findUnique({
+      where: { id: context.userId },
+      select: { radarSellerStandingOrderJson: true },
+    }).catch(() => null);
+    const current = this.parseSellerStandingOrder(existing?.radarSellerStandingOrderJson);
+    const next = {
+      active: typeof input.active === 'boolean' ? input.active : current.active,
+      city: input.city !== undefined ? String(input.city || '').trim() : current.city,
+      state: input.state !== undefined ? String(input.state || '').trim() : current.state,
+      segment: input.segment !== undefined ? String(input.segment || '').trim() : current.segment,
+      alcance: input.alcance !== undefined ? String(input.alcance || '').trim() : current.alcance,
+      quantos: input.quantos !== undefined ? Math.max(1, Math.min(20, Number(input.quantos || 5) || 5)) : current.quantos,
+    };
+    await this.prisma.user.update({
+      where: { id: context.userId },
+      data: { radarSellerStandingOrderJson: JSON.stringify(next) },
+    });
+    // Quando ativa e tem cidade, dispara um ciclo de reabastecimento (motor existente).
+    if (next.active && next.city) {
+      this.triggerSellerStandingOrderPump(user, next).catch(() => null);
+    }
+    return { ok: true, standingOrder: next };
+  }
+
+  private parseSellerStandingOrder(json?: string | null) {
+    try {
+      const parsed = JSON.parse(json || '{}');
+      return {
+        active: Boolean(parsed?.active),
+        city: String(parsed?.city || '').trim(),
+        state: String(parsed?.state || '').trim(),
+        segment: String(parsed?.segment || '').trim(),
+        alcance: String(parsed?.alcance || '').trim(),
+        quantos: Math.max(1, Math.min(20, Number(parsed?.quantos || 5) || 5)),
+      };
+    } catch {
+      return { active: false, city: '', state: '', segment: '', alcance: '', quantos: 5 };
+    }
+  }
+
+  private async triggerSellerStandingOrderPump(user: any, order: any) {
+    // Usa o search-run existente para garantir que a prateleira está reabastecida.
+    // O motor já limita por cota (assertSellerActiveCardSlots).
+    if (!order.city || !order.segment) return;
+    await this.startSearchRunForUser(user, {
+      city: order.city,
+      state: order.state || undefined,
+      segment: order.segment,
+    }).catch(() => null);
+  }
 }

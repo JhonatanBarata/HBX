@@ -8256,6 +8256,22 @@ export class VendasService {
         userId: context.userId,
       });
     }
+    // 048-2D: re-treino ICP — grava no radarLead que este lead fechou (aditivo, nunca bloqueia)
+    if (saleConfirmedNow) {
+      const radarLeadIdForIcp = this.extractRadarLeadId((updated as any).sourceHistoryId);
+      if (radarLeadIdForIcp) {
+        this.prisma.radarLeadPool.update({
+          where: { id: radarLeadIdForIcp },
+          data: { metadataJson: (() => {
+            try {
+              const m = JSON.parse((updated as any).metadataJson || '{}');
+              m.icpWonAt = new Date().toISOString();
+              return JSON.stringify(m);
+            } catch { return (updated as any).metadataJson || null; }
+          })() },
+        }).catch(() => {/* aditivo */});
+      }
+    }
 
     return {
       ok: true,

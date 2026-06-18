@@ -345,6 +345,20 @@ export class CompaniesController {
     return companyId;
   }
 
+  // 050-6: qualquer usuário autenticado da empresa pode gerenciar o SEU WhatsApp.
+  // O acesso Admin-only fica reservado para `:id/whatsapp-modal/*` (gestão da empresa).
+  private async resolveMyWhatsAppModalCompanyIdForAnyUserOrThrow(req: any, options?: { allowPendingCheckout?: boolean }) {
+    return this.resolveOperationalCompanyIdOrThrow(req, {
+      ...options,
+      allowMasterWhatsappEngineFallback: true,
+    });
+  }
+
+  private resolveRequestUserId(req: any): number | undefined {
+    const id = Number(req?.user?.id || 0);
+    return id > 0 ? id : undefined;
+  }
+
   private resolveParamWhatsAppModalCompanyIdOrThrow(req: any, companyId: number) {
     this.assertWhatsAppModalAdminAccess(req, companyId);
     return Number(companyId);
@@ -845,46 +859,46 @@ export class CompaniesController {
   @Get('me/whatsapp-modal/status')
   @UseGuards(JwtAuthGuard)
   async getMyWhatsAppModalStatus(@Req() req: any) {
-    const companyId = await this.resolveMyWhatsAppModalCompanyIdOrThrow(req, { allowPendingCheckout: true });
-    return this.whatsappModalService.getCompanyStatus(companyId);
+    const companyId = await this.resolveMyWhatsAppModalCompanyIdForAnyUserOrThrow(req, { allowPendingCheckout: true });
+    return this.whatsappModalService.getCompanyStatus(companyId, this.resolveRequestUserId(req));
   }
 
   @Post('me/whatsapp-modal/start')
   @UseGuards(JwtAuthGuard, ModuleAccessGuard)
   @ModuleAccess('atendimento')
   async startMyWhatsAppModalSession(@Req() req: any) {
-    const companyId = await this.resolveMyWhatsAppModalCompanyIdOrThrow(req);
-    return this.whatsappModalService.startCompanySession(companyId);
+    const companyId = await this.resolveMyWhatsAppModalCompanyIdForAnyUserOrThrow(req);
+    return this.whatsappModalService.startCompanySession(companyId, this.resolveRequestUserId(req));
   }
 
   @Get('me/whatsapp-modal/qr')
   @UseGuards(JwtAuthGuard, ModuleAccessGuard)
   @ModuleAccess('atendimento')
   async getMyWhatsAppModalQrCode(@Req() req: any) {
-    const companyId = await this.resolveMyWhatsAppModalCompanyIdOrThrow(req);
-    return this.whatsappModalService.getCompanyQrCode(companyId);
+    const companyId = await this.resolveMyWhatsAppModalCompanyIdForAnyUserOrThrow(req);
+    return this.whatsappModalService.getCompanyQrCode(companyId, this.resolveRequestUserId(req));
   }
 
   @Post('me/whatsapp-modal/disconnect')
   @UseGuards(JwtAuthGuard)
   async disconnectMyWhatsAppModalSession(@Req() req: any) {
-    const companyId = await this.resolveMyWhatsAppModalCompanyIdOrThrow(req);
-    return this.whatsappModalService.disconnectCompanySession(companyId);
+    const companyId = await this.resolveMyWhatsAppModalCompanyIdForAnyUserOrThrow(req);
+    return this.whatsappModalService.disconnectCompanySession(companyId, this.resolveRequestUserId(req));
   }
 
   @Post('me/whatsapp-modal/restart')
   @UseGuards(JwtAuthGuard, ModuleAccessGuard)
   @ModuleAccess('atendimento')
   async restartMyWhatsAppModalSession(@Req() req: any) {
-    const companyId = await this.resolveMyWhatsAppModalCompanyIdOrThrow(req);
-    return this.whatsappModalService.restartCompanySession(companyId);
+    const companyId = await this.resolveMyWhatsAppModalCompanyIdForAnyUserOrThrow(req);
+    return this.whatsappModalService.restartCompanySession(companyId, this.resolveRequestUserId(req));
   }
 
   @Post('me/whatsapp-modal/bootstrap')
   @UseGuards(JwtAuthGuard, ModuleAccessGuard)
   @ModuleAccess('atendimento')
   async bootstrapMyWhatsAppModalSession(@Req() req: any) {
-    const companyId = await this.resolveMyWhatsAppModalCompanyIdOrThrow(req);
+    const companyId = await this.resolveMyWhatsAppModalCompanyIdForAnyUserOrThrow(req);
     return this.companyWhatsAppCustomerSync.bootstrapAfterWhatsappConnect(companyId);
   }
 

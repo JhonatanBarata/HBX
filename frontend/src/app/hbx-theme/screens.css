@@ -1085,3 +1085,61 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .site-legal-link { font-family: var(--font-body); font-size: 0.82rem; font-weight: 700; color: var(--text-strong); background: none; border: none; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 .site-legal-link:hover { color: var(--login-accent, var(--hbx-brand)); }
 .site-legal-sep { color: var(--text-strong); opacity: 0.5; }
+
+/* ============================================================
+   Radar — tela limpa 3 camadas: LAGO → PRATELEIRA → CARTEIRA
+   (PR18062026046, Bloco 0). Visual 100% em token/classe central.
+   ============================================================ */
+.radar2-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.radar2-kpi { display: flex; flex-direction: column; gap: 4px; padding: 10px 13px; border-radius: var(--radius-md); background: var(--hbx-surface-raised); }
+.radar2-kpi .lbl { font-size: 0.64rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.radar2-kpi .num { font-family: var(--font-display); font-size: 1.14rem; font-weight: 800; color: var(--text-strong); }
+.radar2-kpi .delta { font-size: 0.68rem; font-weight: 700; color: var(--hbx-brand-strong); }
+.radar2-kpi .sub2 { font-size: 0.62rem; color: var(--text-muted); }
+.radar2-quota-note { font-size: 0.6rem; color: var(--text-muted); margin-left: 4px; }
+@media (max-width: 760px) { .radar2-kpis { grid-template-columns: repeat(2, 1fr); } }
+.radar2-cap { font-size: 0.66rem; color: var(--text-muted); margin: 4px 2px 0; }
+.radar2-shell { display: grid; grid-template-columns: 210px 1fr; align-items: start; }
+.radar2-rail { display: grid; gap: 10px; align-content: start; padding: 14px 16px; border-right: 1px solid var(--border-hairline); }
+.radar2-rail .f { display: grid; gap: 5px; }
+.radar2-rail label { font-size: 0.66rem; font-weight: 700; color: var(--text-muted); }
+.radar2-rail .hint { font-size: 0.66rem; color: var(--text-muted); line-height: 1.45; }
+.radar2-rail .select-dark { width: 100%; min-width: 0; }
+.radar2-rail .field-dark { width: 100%; min-width: 0; }
+.radar2-main { min-width: 0; }
+.radar2-live { display: flex; align-items: center; gap: 8px; margin: 12px 16px 0; padding: 9px 13px; border-radius: var(--radius-md); background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); font-size: 0.74rem; font-weight: 700; }
+.radar2-live .dot { width: 8px; height: 8px; border-radius: 999px; background: var(--hbx-brand-strong); animation: radar2-pulse 1.3s ease-in-out infinite; }
+@keyframes radar2-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .radar2-live .dot { animation: none; } }
+.radar2-locked { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 0.68rem; }
+.radar2-empty { text-align: center; color: var(--text-muted); padding: 30px 12px; font-size: 0.8rem; }
+.radar2-sel-all { padding: 8px 16px 0; }
+.radar2-meter { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 14px 16px; padding: 11px 14px; border-radius: var(--radius-md); background: var(--hbx-surface-raised); }
+.radar2-meter .side { display: inline-flex; align-items: center; gap: 9px; font-size: 0.74rem; color: var(--text-muted); }
+.radar2-meter .lvl { font-family: var(--font-mono); font-size: 0.84rem; font-weight: 800; color: var(--text-strong); }
+.radar2-meter.blocked { background: var(--hbx-danger-soft, var(--hbx-surface-raised)); }
+.radar2-meter.blocked .lvl { color: var(--hbx-danger); }
+@media (max-width: 760px) { .radar2-shell { grid-template-columns: 1fr; } .radar2-rail { border-right: none; border-bottom: 1px solid var(--border-hairline); } }
+.radar2-auto { position: relative; overflow: hidden; }
+.radar2-auto--on { animation: radar2-auto-pulse 2s ease-in-out infinite; }
+@keyframes radar2-auto-pulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--hbx-brand-strong) 40%, transparent); } 50% { box-shadow: 0 0 0 6px transparent; } }
+@media (prefers-reduced-motion: reduce) { .radar2-auto--on { animation: none; } }
+/* 048: gêmeos + sinais de oportunidade */
+.radar2-gemeos { margin: 12px 16px 0; padding: 10px 14px; border-radius: var(--radius-md); background: color-mix(in srgb, var(--hbx-brand) 8%, transparent); border: 1px solid color-mix(in srgb, var(--hbx-brand) 20%, transparent); font-size: 0.76rem; font-weight: 600; color: var(--hbx-brand-strong); line-height: 1.5; }
+.radar2-gemeos strong { font-weight: 800; }
+.radar2-signals { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.radar2-sig { display: inline-flex; align-items: center; gap: 3px; font-size: 0.58rem; font-weight: 700; padding: 2px 7px; border-radius: 999px; background: var(--hbx-surface-raised); color: var(--text-muted); white-space: nowrap; }
+.radar2-sig--hot { color: var(--hbx-brand-strong); background: color-mix(in srgb, var(--hbx-brand) 12%, transparent); }
+.radar2-sig--warn { color: var(--hbx-warning); background: color-mix(in srgb, var(--hbx-warning) 12%, transparent); }
+.radar2-sig--danger { color: var(--hbx-danger); background: color-mix(in srgb, var(--hbx-danger) 10%, transparent); }
+.radar2-reason { display: block; font-size: 0.6rem; color: var(--text-muted); margin-top: 3px; font-style: italic; line-height: 1.35; }
+.radar2-fit { font-family: var(--font-mono); font-size: 0.58rem; font-weight: 800; padding: 1px 6px; border-radius: 999px; background: var(--hbx-surface-raised); color: var(--text-muted); margin-left: 5px; vertical-align: middle; }
+.radar2-fit--hi { color: var(--hbx-brand-strong); background: color-mix(in srgb, var(--hbx-brand) 12%, transparent); }
+.radar2-cap--danger { font-size: 0.66rem; color: var(--hbx-danger); margin: 0 16px 10px; }
+.cfg-nicho { margin-top: 18px; border-top: 1px solid var(--border-hairline); padding-top: 18px; }
+.cfg-nicho .ttl { font-size: 0.78rem; font-weight: 700; color: var(--text-strong); margin-bottom: 6px; }
+.cfg-nicho .dica { font-size: 0.68rem; color: var(--text-muted); margin-bottom: 10px; }
+.cfg-nicho .row { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; }
+.cfg-nicho .row .field-dark { flex: 1; min-width: 220px; }
+.cfg-nicho .msg { font-size: 0.7rem; color: var(--text-muted); margin-top: 6px; }
+.radar2-pull-msg { font-size: 0.66rem; color: var(--text-muted); margin: 0 16px 10px; }

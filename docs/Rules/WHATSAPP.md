@@ -14,26 +14,24 @@
   proibido.
 - Não commitar nada no `Webwhats/` como efeito colateral de tarefa do app principal.
 
-## Número único — ninguém compartilha WhatsApp (ordem do dono 17/06)
+## Número único — 1 número = 1 usuário (ordem do dono 18/06)
 
-Um número de WhatsApp pertence a **UMA empresa**. É proibido o mesmo número (o telefone /
-`ownerJid` que escaneia o QR) estar conectado em mais de uma instância `company-{id}`.
-Compartilhar o WhatsApp do admin entre empresas foi o que gerou o loop `conflict/replaced`
-(sessões do mesmo número se derrubando, `bad-mac`, reconexão infinita) — **não repetir**.
+Um número de WhatsApp pertence a **UM vendedor**. Cada vendedor escaneia o **seu próprio**
+número — ninguém compartilha. Regra mais forte que a anterior ("por empresa"): cobre tanto
+o caso entre empresas quanto o caso dentro da mesma empresa.
 
-- Uma instância por empresa (`company-{id}`) continua certo. O proibido é o **mesmo
-  telefone** conectar em N `company-{id}`.
-- O backend **recusa** a conexão quando o número já é a sessão ativa de outra empresa:
-  desconecta/`logout`+`delete` da instância desta empresa e grava erro claro
-  ("Este WhatsApp já está vinculado a outra empresa").
-- Enforcement vive no escritor único de estado de conexão: `whatsapp-modal.service.ts`
-  → `persistSnapshot` (no `connected` com telefone), junto de
-  `registerTrialPhoneUsageOrBlock`/`reconcileWebwhatsConnectionSession`.
-- Limpeza operacional já feita na VPS (17/06): o número do admin tinha 6 instâncias →
-  reduzido a 1. A trava de código está APLICADA em
-  `backend/src/companies/whatsapp-modal.service.ts`
-  (`enforceNumberNotSharedAcrossCompaniesOrBlock`, erro 409
-  `WHATSAPP_NUMBER_OWNED_BY_OTHER_COMPANY`). Falta só deploy.
+- Chave de instância no motor: **`company-{id}-user-{userId}`** (por-vendedor).
+  Automação/sistema usa `company-{id}` (sem userId) — ver decisão 050-7.
+- O backend **recusa** a conexão quando o número já é a sessão ativa de outro usuário:
+  desconecta/`logout`+`delete` da instância, grava erro claro e retorna 409.
+  - Outro usuário (qualquer empresa) → `WHATSAPP_NUMBER_OWNED_BY_OTHER_USER`
+    ("Este WhatsApp já está conectado por outro vendedor.")
+  - Sessão legada (userId=null) em outra empresa → `WHATSAPP_NUMBER_OWNED_BY_OTHER_COMPANY`
+    ("Este WhatsApp já está vinculado a outra empresa.")
+- Enforcement: `whatsapp-modal.service.ts` → `enforceNumberNotSharedAcrossCompaniesOrBlock`
+  (chamado em `persistSnapshot` ao `connected` com telefone).
+- Inbox: vendedor (role USER) vê só as conversas da **sua** sessão
+  (`WhatsAppConnectionSession.userId = req.user.id`). Admin/Master mantém visão da empresa.
 
 ## Backend (mensageria)
 

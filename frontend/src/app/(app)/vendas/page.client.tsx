@@ -140,6 +140,9 @@ export function VendasClient() {
   // Quantos leads estão esperando no pool do Radar agora (pra deixar CLARO,
   // no funil vazio, por que está vazio e o que fazer). Conta real da vitrine.
   const [poolDisponivel, setPoolDisponivel] = useState<number | null>(null);
+  // Automático — standing order compartilhado com /leads
+  const [autoAtivo, setAutoAtivo] = useState(false);
+  const [autoBusy, setAutoBusy] = useState(false);
   // visão do pipeline: lista densa (padrão — varredura) × quadro kanban
   // (arrastar entre etapas). Ordem do dono 13/06: lista padrão + quadro opcional.
   const [view, setView] = useTabParam<"list" | "board">("view", "list", ["list", "board"]);
@@ -188,6 +191,9 @@ export function VendasClient() {
     apiFetch<{ total?: number; meta?: { totalAvailable?: number } }>("/webscraping/radar/leads?scope=vitrine&limit=1")
       .then(res => setPoolDisponivel(Math.max(0, Math.trunc(Number(res?.meta?.totalAvailable ?? res?.total ?? 0)) || 0)))
       .catch(() => setPoolDisponivel(null));
+    apiFetch<{ standingOrder?: { active?: boolean } }>("/webscraping/radar/standing-order")
+      .then(res => { if (typeof res?.standingOrder?.active === "boolean") setAutoAtivo(res.standingOrder.active); })
+      .catch(() => null);
   }, []);
 
   // Fechamento de venda com produto (trilha Produtos & Comissão, item 1):
@@ -630,6 +636,23 @@ export function VendasClient() {
                     </span>
                     <div className="funil-cta-acts">
                       <button className="btn-teal" onClick={() => router.push("/leads")}>Puxar leads →</button>
+                      <button
+                        className={"btn-teal radar2-auto" + (autoAtivo ? " radar2-auto--on" : "")}
+                        disabled={autoBusy}
+                        aria-pressed={autoAtivo}
+                        onClick={async () => {
+                          setAutoBusy(true);
+                          try {
+                            const res = await apiFetch<{ standingOrder?: { active?: boolean } }>("/webscraping/radar/standing-order", {
+                              method: "PUT",
+                              body: JSON.stringify({ active: !autoAtivo }),
+                            });
+                            if (typeof res?.standingOrder?.active === "boolean") setAutoAtivo(res.standingOrder.active);
+                          } catch { /**/ } finally { setAutoBusy(false); }
+                        }}
+                      >
+                        {autoAtivo ? "◉ Automático" : "◎ Automático"}
+                      </button>
                       <button className="btn-ghost" onClick={() => router.push("/leads")}>Ver o Radar</button>
                     </div>
                   </div>

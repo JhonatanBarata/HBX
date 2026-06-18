@@ -213,12 +213,15 @@ export class CommercialUsageLimitsService {
   }
 
   private async countSellerActiveVendasCards(companyId: number, userId: number) {
+    const now = new Date();
     return this.prisma.vendasLead.count({
       where: {
         companyId,
         assignedUserId: userId,
         status: { in: ACTIVE_VENDAS_CARD_STATUSES },
         closedAt: null,
+        // cards com retorno agendado pro futuro NÃO ocupam vaga (voltam quando returnAt passar)
+        OR: [{ returnAt: null }, { returnAt: { lte: now } }],
       },
     }).catch(() => 0);
   }

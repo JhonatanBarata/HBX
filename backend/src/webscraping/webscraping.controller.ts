@@ -864,6 +864,35 @@ class RadarAutoDistributionRunDto {
   limit?: number;
 }
 
+class RadarSellerStandingOrderDto {
+  @IsOptional()
+  @IsBoolean()
+  active?: boolean;
+
+  @IsOptional()
+  @IsString()
+  city?: string;
+
+  @IsOptional()
+  @IsString()
+  state?: string;
+
+  @IsOptional()
+  @IsString()
+  segment?: string;
+
+  @IsOptional()
+  @IsString()
+  alcance?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(20)
+  quantos?: number;
+}
+
 class RadarTenantAutoDistributionDto {
   @IsOptional()
   @IsIn(['draft', 'active', 'paused'])
@@ -1058,6 +1087,16 @@ export class WebscrapingController {
   @Post('radar/auto-distribution/run')
   runRadarAutoDistribution(@Req() req: any, @Body() dto: RadarAutoDistributionRunDto) {
     return this.webscrapingService.runRadarAutoDistributionForUser(req.user, dto || {});
+  }
+
+  @Get('radar/standing-order')
+  getSellerStandingOrder(@Req() req: any) {
+    return this.webscrapingService.getRadarSellerStandingOrder(req.user);
+  }
+
+  @Put('radar/standing-order')
+  saveSellerStandingOrder(@Req() req: any, @Body() dto: RadarSellerStandingOrderDto) {
+    return this.webscrapingService.saveRadarSellerStandingOrder(req.user, dto || {});
   }
 
   @Post('radar/leads/:id/event')

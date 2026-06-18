@@ -165,6 +165,9 @@ import type {
   WebscrapingSearchRunResponse,
   WebscrapingSearchRunStatus,
 } from '../radar-core-method-imports';
+import { deriveRowSignals } from '../03-enrichment/lead-signals.util';
+import { RadarPublicDataService } from '../03-enrichment/radar-public-data.service';
+import { IcpFingerprintService } from '../../icp/icp-fingerprint.service';
 
 let cityCache: {
   loadedAt: number;
@@ -173,6 +176,14 @@ let cityCache: {
 
 export class RadarCorePresentationMixin {
   [key: string]: any;
+  private _radarPublicData?: RadarPublicDataService;
+  private _icpFingerprint?: IcpFingerprintService;
+  private getRadarPublicData(): RadarPublicDataService {
+    return this._radarPublicData || (this._radarPublicData = new RadarPublicDataService());
+  }
+  private getIcpFingerprint(): IcpFingerprintService {
+    return this._icpFingerprint || (this._icpFingerprint = new IcpFingerprintService());
+  }
   private mapRunItemToContact(item: any): WebscrapingContactResult {
     return this.getRadarRunPresenter().mapRunItemToContact(item, this.buildRadarRunPresenterHost());
   }
@@ -2201,6 +2212,7 @@ export class RadarCorePresentationMixin {
       sourceEngines: parseJsonArray(row?.sourceEngines),
       opportunityScore: safeInteger(row?.opportunityScore),
       opportunityReason: includeSmartFields ? row?.opportunityReason || null : null,
+      opportunitySignals: includeSmartFields ? deriveRowSignals(row) : [],
       evidenceJson: includeSmartFields && Object.keys(evidenceJson).length ? evidenceJson : null,
       rejectReasons: includeSmartFields ? rejectReasons : [],
       qualityReason: includeSmartFields ? row?.qualityReason || null : null,
@@ -2729,6 +2741,7 @@ export class RadarCorePresentationMixin {
     const offset = (filters.page - 1) * filters.limit;
     const pageRows = orderedRows.slice(offset, offset + filters.limit);
     const includeSmartFields = await this.canUseRadarSmartLeadFields(context.companyId);
+    const enrichmentSummary = this.buildRadarEnrichmentSummary(allRows);
     return {
       items: pageRows.map((row) => this.buildRadarLeadPublic(row, { includeSmartFields, maskContact: vitrine })),
       total: filteredRows.length,
@@ -2742,7 +2755,9 @@ export class RadarCorePresentationMixin {
         filterKey: filters.filterKey || null,
         preferenceBoostApplied: preferenceSet.size > 0,
         availableFilters: this.buildRadarAvailableFilters(availableRows),
-        enrichmentSummary: this.buildRadarEnrichmentSummary(allRows),
+        enrichmentSummary,
+        whatsappVerified: enrichmentSummary.whatsappVerified,
+        filteredOut: enrichmentSummary.discardedOrBlocked,
       },
     };
   }
@@ -3491,6 +3506,10 @@ export class RadarCorePresentationMixin {
       note: `Card enriquecido (${RADAR_LEAD_ENRICHMENT_VERSION}).`,
     });
     await this.syncVendasLeadAfterRadarEnrichment(context, baseRow, data, enrichment, leadPlus);
+    // 048-1B: waterfall de dados públicos (CNPJ) → grava sinais de hora/intenção
+    if (this.getRadarPublicData().needsRefresh(baseRow)) {
+      this.getRadarPublicData().enrichSignals(this.prisma, baseRow).catch(() => {/* aditivo */});
+    }
     const updated = await (this.prisma as any).radarLeadPool.findUnique({
       where: { id: baseRow.id },
       include: {
@@ -3529,12 +3548,23 @@ export class RadarCorePresentationMixin {
       limit: filters.limit,
       includeHidden: filters.includeHidden,
     });
-    const includeSmartFields = await this.canUseRadarSmartLeadFields(context.companyId);
+    const [includeSmartFields, fingerprint] = await Promise.all([
+      this.canUseRadarSmartLeadFields(context.companyId),
+      this.getIcpFingerprint().getFingerprint(this.prisma, context.companyId).catch(() => null),
+    ]);
+    const gemeosInsight = await this.getIcpFingerprint()
+      .getGemeosInsight(this.prisma, context.companyId, fingerprint)
+      .catch(() => null);
+    const icpSvc = this.getIcpFingerprint();
     return {
-      items: rows.map((row) => this.buildRadarLeadPublic(row, { includeSmartFields })),
+      items: rows.map((row) => ({
+        ...this.buildRadarLeadPublic(row, { includeSmartFields }),
+        fitScore: includeSmartFields ? icpSvc.computeFit(row, fingerprint) : null,
+      })),
       total: rows.length,
       meta: {
         available: true,
+        gemeosInsight: gemeosInsight || null,
         filters: {
           city: filters.city,
           state: filters.state,

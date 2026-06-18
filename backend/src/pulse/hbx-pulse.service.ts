@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { parsePreferredSegments } from '../users/preferred-segments.util';
+import { IcpFingerprintService } from '../webscraping/icp/icp-fingerprint.service';
 
 type HbxPulseScopeType = 'company' | 'user';
 
@@ -45,6 +46,8 @@ function normalizeSegment(value: unknown) {
 
 @Injectable()
 export class HbxPulseService {
+  private readonly icpFingerprint = new IcpFingerprintService();
+
   constructor(private readonly prisma: PrismaService) {}
 
   async getSummaryForUser(user: any) {
@@ -312,6 +315,43 @@ export class HbxPulseService {
       }
     }
 
+    // 048-1D: signal-batch — lote com sinal no segmento preferido
+    if (prefs.segments.length > 0) {
+      const signalBatch = await this.findSignalBatchLead(scope.companyId, prefs);
+      if (signalBatch && signalBatch.count > 0) {
+        const day = new Date().toISOString().slice(0, 10);
+        const batchKey = `signal-batch:${signalBatch.normalizedSegment}:${day}`;
+        if (!recentKeys.has(batchKey)) {
+          candidates.push({
+            nudgeKey: batchKey,
+            tone: 'success',
+            title: `${signalBatch.count} novos leads com sinal em ${signalBatch.normalizedSegment}`,
+            body: `Enchemos **${signalBatch.normalizedSegment}** em ${signalBatch.normalizedCity || 'vários municípios'}: **${signalBatch.count}** novos, todos com motivo de abordagem.`,
+            payloadFn: async () => ({
+              payload: { kind: 'signal', segment: signalBatch.normalizedSegment, city: signalBatch.normalizedCity, href: '/leads' },
+            }),
+          });
+        }
+      }
+    }
+
+    // 048-3B: caçador — resultado noturno Fit×Intent
+    const hunterResult = await this.icpFingerprint.runHunterForCompany(this.prisma, scope.companyId).catch(() => null);
+    if (hunterResult && hunterResult.found > 0) {
+      const hunterKey = `cacador:${scope.companyId}:${new Date().toISOString().slice(0, 10)}`;
+      if (!recentKeys.has(hunterKey)) {
+        candidates.push({
+          nudgeKey: hunterKey,
+          tone: 'success',
+          title: `Caçador achou ${hunterResult.found} gêmeos hoje`,
+          body: `O Caçador rodou e selecionou **${hunterResult.found}** lead${hunterResult.found > 1 ? 's' : ''} que parecem seus melhores clientes${hunterResult.segment ? ` em **${hunterResult.segment}**` : ''}.`,
+          payloadFn: async () => ({
+            payload: { kind: 'cacador', found: hunterResult.found, segment: hunterResult.segment, href: '/leads' },
+          }),
+        });
+      }
+    }
+
     // demais ângulos
     if (metrics.overdueReturns > 0 && !recentKeys.has('overdue-returns')) {
       candidates.push({ nudgeKey: 'overdue-returns', tone: 'warning', title: 'Retornos vencidos esperando você', body: `Você tem **${metrics.overdueReturns}** retorno${metrics.overdueReturns > 1 ? 's' : ''} vencido${metrics.overdueReturns > 1 ? 's' : ''}. Bora reativar?` });
@@ -386,6 +426,42 @@ export class HbxPulseService {
         nudgeKey: chosen.nudgeKey,
         payload: payloadObj,
       },
+    };
+  }
+
+  private async findSignalBatchLead(companyId: number, prefs: { segments: string[]; cityRegion: string | null }) {
+    const segs = prefs.segments;
+    const city = prefs.cityRegion;
+    const sinceHours = 48;
+    const since = new Date(Date.now() - sinceHours * 60 * 60 * 1000);
+
+    const rows = await this.prisma.$queryRaw<Array<{
+      normalizedSegment: string;
+      normalizedCity: string;
+      count: bigint;
+    }>>`
+      SELECT p."normalizedSegment", p."normalizedCity", COUNT(*) AS "count"
+      FROM "RadarLeadPool" p
+      WHERE p."lastSeenAt" >= ${since}
+        AND p."opportunityScore" > 0
+        AND p."status" = 'clean'
+        ${segs.length > 0 ? Prisma.sql`AND p."normalizedSegment" = ANY(${segs}::text[])` : Prisma.sql``}
+        ${city ? Prisma.sql`AND p."normalizedCity" ILIKE ${'%' + city + '%'}` : Prisma.sql``}
+        AND NOT EXISTS (
+          SELECT 1 FROM "RadarLeadCompanyState" s
+          WHERE s."radarLeadId" = p."id"
+            AND s."companyId" = ${companyId}
+        )
+      GROUP BY p."normalizedSegment", p."normalizedCity"
+      ORDER BY "count" DESC
+      LIMIT 1
+    `;
+    const row = rows[0];
+    if (!row || Number(row.count) === 0) return null;
+    return {
+      normalizedSegment: row.normalizedSegment,
+      normalizedCity: row.normalizedCity,
+      count: Number(row.count),
     };
   }
 

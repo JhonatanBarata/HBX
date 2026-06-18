@@ -68,6 +68,7 @@ type WebwhatsConnectionSessionContext = {
   phoneNormalized: string | null;
   displayPhone: string | null;
   metadataJson?: string | null;
+  wipedAt?: Date | null;
 };
 
 export class WebwhatsProviderError extends Error {
@@ -264,13 +265,16 @@ export class WebwhatsBridgeService {
       ]);
       const contactsByJid = this.indexContactsByJid(contacts);
       const inboxResetFloor = this.resolveSessionInboxResetFloor(session);
+      const wipedAt = session.wipedAt ? new Date(session.wipedAt) : null;
       let synced = 0;
       for (const chat of chats) {
         if (!this.isSyncableChat(chat?.remoteJid)) continue;
+        const chatAt = this.resolveMessageDate(chat?.lastMessage?.messageTimestamp || chat?.updatedAt);
         if (inboxResetFloor) {
-          const chatAt = this.resolveMessageDate(chat?.lastMessage?.messageTimestamp || chat?.updatedAt);
           if (!chatAt || chatAt.getTime() < inboxResetFloor.getTime()) continue;
         }
+        // Bloco 2: nada anterior ao wipe reimporta — evita a ressurreição pós-apagar-tudo.
+        if (wipedAt && chatAt && chatAt.getTime() < wipedAt.getTime()) continue;
         const remoteJidAlt = this.getChatRemoteJidAlt(chat);
         const conversation = await this.upsertConversationFromChat(
           companyId,
@@ -952,6 +956,7 @@ export class WebwhatsBridgeService {
             phoneNormalized: true,
             displayPhone: true,
             metadataJson: true,
+            wipedAt: true,
             status: true,
           },
         },
@@ -973,6 +978,7 @@ export class WebwhatsBridgeService {
         phoneNormalized: this.normalizeConnectionPhone(current.phoneNormalized),
         displayPhone: this.normalizeOptionalString(current.displayPhone),
         metadataJson: this.normalizeOptionalString(current.metadataJson),
+        wipedAt: current.wipedAt ?? null,
       };
     }
 
@@ -994,6 +1000,7 @@ export class WebwhatsBridgeService {
         phoneNormalized: true,
         displayPhone: true,
         metadataJson: true,
+        wipedAt: true,
       },
     });
     if (!fallback?.id) return null;
@@ -1004,6 +1011,7 @@ export class WebwhatsBridgeService {
       phoneNormalized: this.normalizeConnectionPhone(fallback.phoneNormalized),
       displayPhone: this.normalizeOptionalString(fallback.displayPhone),
       metadataJson: this.normalizeOptionalString(fallback.metadataJson),
+      wipedAt: fallback.wipedAt ?? null,
     };
   }
 
@@ -1425,15 +1433,15 @@ export class WebwhatsBridgeService {
     });
   }
 
-  // Apaga a instância company-{id} no MOTOR (logout + delete). Usado pelo "apagar tudo":
-  // sem matar no motor, o bootstrap reimporta os chats e eles "ressuscitam". O dono decidiu
-  // desconectar + re-scan QR. Best-effort — backend + supressão cobrem se o motor estiver fora.
-  public async wipeMotorInstance(companyId: number): Promise<{ loggedOut: boolean; deleted: boolean }> {
+  // Apaga a instância company-{id} no MOTOR e a recria vazia aguardando QR.
+  // Sem recriar, o motor mantém a instância em memória órfã (sem linha no DB) → P2025 loop.
+  public async wipeMotorInstance(companyId: number): Promise<{ loggedOut: boolean; deleted: boolean; recreated: boolean }> {
     const config = this.readConfig();
-    if (!config.available) return { loggedOut: false, deleted: false };
+    if (!config.available) return { loggedOut: false, deleted: false, recreated: false };
     const tenantKey = this.buildTenantKey(companyId);
     let loggedOut = false;
     let deleted = false;
+    let recreated = false;
     try {
       await this.request<any>({
         method: 'DELETE',
@@ -1454,8 +1462,53 @@ export class WebwhatsBridgeService {
     } catch (error) {
       this.logger.warn(`wipe motor: delete falhou para ${tenantKey}: ${String((error as any)?.message || error)}`);
     }
-    this.logger.warn(`wipe motor company=${companyId}: logout=${loggedOut} delete=${deleted}`);
-    return { loggedOut, deleted };
+    // Recria instância vazia — sem isso o motor a mantém em memória órfã e o
+    // próximo reconnect bate no "já existe" e segue conectando numa instância sem
+    // linha no banco → P2025 em loop.
+    try {
+      await this.request<any>({
+        method: 'POST',
+        path: '/instance/create',
+        purpose: 'recriar instancia vazia pos-wipe',
+        data: { instanceName: tenantKey, qrcode: true, integration: 'WHATSAPP-BAILEYS' },
+      });
+      recreated = true;
+    } catch (error) {
+      this.logger.warn(`wipe motor: recriar instancia falhou para ${tenantKey}: ${String((error as any)?.message || error)}`);
+    }
+    if (recreated) {
+      const webhookUrl = this.buildWipeWebhookUrl();
+      if (webhookUrl) {
+        try {
+          await this.request<any>({
+            method: 'POST',
+            path: `/webhook/set/${encodeURIComponent(tenantKey)}`,
+            purpose: 'webhook pos-wipe',
+            data: {
+              webhook: {
+                enabled: true,
+                url: webhookUrl,
+                events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'MESSAGES_DELETE', 'SEND_MESSAGE', 'CONNECTION_UPDATE', 'LOGOUT_INSTANCE'],
+                byEvents: false,
+                base64: false,
+              },
+            },
+          });
+        } catch (error) {
+          this.logger.warn(`wipe motor: webhook config falhou para ${tenantKey}: ${String((error as any)?.message || error)}`);
+        }
+      }
+    }
+    this.logger.warn(`wipe motor company=${companyId}: logout=${loggedOut} delete=${deleted} recreated=${recreated}`);
+    return { loggedOut, deleted, recreated };
+  }
+
+  private buildWipeWebhookUrl() {
+    const base = this.normalizeOptionalString(process.env.PUBLIC_API_BASE_URL)
+      || this.normalizeOptionalString(process.env.API_PUBLIC_URL)
+      || this.normalizeOptionalString(process.env.BACKEND_PUBLIC_URL);
+    if (!base) return this.normalizeOptionalString(process.env.WHATSAPP_MODAL_WEBHOOK_URL || process.env.WEBWHATS_WEBHOOK_URL);
+    return `${base.replace(/\/+$/, '')}/webhooks/webwhats/events`;
   }
 
   private readConfig(): WebwhatsConfig {

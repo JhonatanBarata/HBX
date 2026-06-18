@@ -27,6 +27,7 @@ type WhatsAppModalErrorCode =
   | 'WHATSAPP_MODAL_PAIRING_RATE_LIMITED'
   | 'WHATSAPP_MODAL_ALREADY_CONNECTED'
   | 'WHATSAPP_NUMBER_OWNED_BY_OTHER_COMPANY'
+  | 'WHATSAPP_NUMBER_OWNED_BY_OTHER_USER'
   | 'TRIAL_PHONE_ALREADY_USED';
 type ProviderHealth = 'disabled' | 'misconfigured' | 'healthy' | 'unavailable' | 'unknown';
 
@@ -544,32 +545,37 @@ export class WhatsAppModalService {
     return payload;
   }
 
-  async getCompanyStatus(companyId: number): Promise<WhatsAppModalResponse> {
-    const company = await this.loadCompany(companyId);
-    const storedSnapshot = this.buildStoredSnapshot(company);
-    const availabilityResponse = this.buildAvailabilityResponse(company, storedSnapshot, 'status');
+  async getCompanyStatus(companyId: number, userId?: number): Promise<WhatsAppModalResponse> {
+    const baseCompany = await this.loadCompany(companyId);
+    const company = userId ? this.patchCompanyWithTenantKey(baseCompany, this.buildUserTenantKey(baseCompany, userId)) : baseCompany;
+    const storedSnapshot = this.buildStoredSnapshot(baseCompany);
+    const availabilityResponse = this.buildAvailabilityResponse(baseCompany, storedSnapshot, 'status');
     if (availabilityResponse) {
       return availabilityResponse;
     }
 
     try {
-      const snapshot = await this.fetchLiveSnapshot(company, { includeQr: false });
-      return this.buildResponse(company, snapshot, {
+      const snapshot = await this.fetchLiveSnapshot(company, { includeQr: false }, userId);
+      return this.buildResponse(baseCompany, snapshot, {
         success: true,
         providerHealth: 'healthy',
       });
     } catch (error) {
       if (this.isTransientProviderError(error)) {
-        return this.buildTransientFailureResponse(company, storedSnapshot, error, { success: true });
+        return this.buildTransientFailureResponse(baseCompany, storedSnapshot, error, { success: true });
       }
-      return this.buildFailureResponse(company, storedSnapshot, error, 'Falha ao consultar o Modal WhatsApp.');
+      return this.buildFailureResponse(baseCompany, storedSnapshot, error, 'Falha ao consultar o Modal WhatsApp.');
     }
   }
 
-  async startCompanySession(companyId: number): Promise<WhatsAppModalResponse> {
-    const company = await this.loadCompany(companyId);
-    const storedSnapshot = this.buildStoredSnapshot(company);
-    const availabilityResponse = this.buildAvailabilityResponse(company, storedSnapshot, 'start');
+  async startCompanySession(companyId: number, userId?: number): Promise<WhatsAppModalResponse> {
+    const baseCompany = await this.loadCompany(companyId);
+    // 050-1: sobrepõe tenantKey para a chave por-vendedor quando userId presente.
+    const userTenantKey = userId ? this.buildUserTenantKey(baseCompany, userId) : null;
+    const company = userTenantKey ? this.patchCompanyWithTenantKey(baseCompany, userTenantKey) : baseCompany;
+
+    const storedSnapshot = this.buildStoredSnapshot(baseCompany);
+    const availabilityResponse = this.buildAvailabilityResponse(baseCompany, storedSnapshot, 'start');
     if (availabilityResponse) {
       return availabilityResponse;
     }
@@ -584,13 +590,29 @@ export class WhatsAppModalService {
       updatedAt: new Date(),
       qrCodeDataUrl: null,
     };
-    await this.persistSnapshot(company, liveSnapshot, 'start');
+    await this.persistSnapshot(company, liveSnapshot, 'start', userId);
 
     try {
       await this.createProviderInstance(tenantKey);
     } catch (error) {
-      if (!this.isExistingInstanceError(error) && !this.isTransientProviderError(error)) {
-        return this.buildFailureResponse(company, storedSnapshot, error, 'Falha ao iniciar a sessão do Modal WhatsApp.');
+      if (this.isExistingInstanceError(error)) {
+        // "Já existe" não garante que está sã — pode ser instância órfã (sem linha no banco
+        // do motor) que causa P2025 em loop. Verifica o estado real; se quebrado, reseta e recria.
+        const state = await this.fetchProviderConnectionStateForPairing(tenantKey).catch(() => null);
+        const rawState = String((state as any)?.instance?.state || (state as any)?.state || '').trim().toLowerCase();
+        if (!state || (rawState !== 'open' && rawState !== 'connecting')) {
+          this.logger.warn(`Modal WhatsApp start: instancia ${tenantKey} existe mas estado invalido (${rawState || 'null'}) — resetando e recriando.`);
+          await this.resetProviderInstanceForPairing(tenantKey);
+          try {
+            await this.createProviderInstance(tenantKey);
+          } catch (recreateError) {
+            if (!this.isExistingInstanceError(recreateError) && !this.isTransientProviderError(recreateError)) {
+              return this.buildFailureResponse(baseCompany, storedSnapshot, recreateError, 'Falha ao recriar sessão do Modal WhatsApp.');
+            }
+          }
+        }
+      } else if (!this.isTransientProviderError(error)) {
+        return this.buildFailureResponse(baseCompany, storedSnapshot, error, 'Falha ao iniciar a sessão do Modal WhatsApp.');
       }
     }
     await this.tryConfigureProviderWebhook(tenantKey, 'start');
@@ -599,8 +621,8 @@ export class WhatsAppModalService {
       const connectSnapshot = await this.connectProviderSession(company, liveSnapshot);
       if (connectSnapshot) {
         liveSnapshot = connectSnapshot;
-        await this.persistSnapshot(company, liveSnapshot, 'start_connect');
-        return this.buildResponse(company, liveSnapshot, {
+        await this.persistSnapshot(company, liveSnapshot, 'start_connect', userId);
+        return this.buildResponse(baseCompany, liveSnapshot, {
           success: true,
           providerHealth: 'healthy',
           message: this.buildSessionActionMessage(liveSnapshot, {
@@ -611,17 +633,17 @@ export class WhatsAppModalService {
       }
     } catch (error) {
       if (!this.isTransientProviderError(error)) {
-        return this.buildFailureResponse(company, storedSnapshot, error, 'Falha ao iniciar a sessão do Modal WhatsApp.');
+        return this.buildFailureResponse(baseCompany, storedSnapshot, error, 'Falha ao iniciar a sessão do Modal WhatsApp.');
       }
       this.logger.warn(`Modal WhatsApp start connect pending for company ${company.id}: ${this.toProviderError(error).message}`);
     }
 
     try {
-      const immediateSnapshot = await this.fetchLiveSnapshot(company, { includeQr: true });
+      const immediateSnapshot = await this.fetchLiveSnapshot(company, { includeQr: true }, userId);
       liveSnapshot = this.isSessionReady(immediateSnapshot)
         ? immediateSnapshot
-        : await this.waitForSessionReady(company, immediateSnapshot);
-      return this.buildResponse(company, liveSnapshot, {
+        : await this.waitForSessionReady(company, immediateSnapshot, userId);
+      return this.buildResponse(baseCompany, liveSnapshot, {
         success: true,
         providerHealth: 'healthy',
         message: this.buildSessionActionMessage(liveSnapshot, {
@@ -632,9 +654,9 @@ export class WhatsAppModalService {
     } catch (error) {
       this.logger.warn(`Modal WhatsApp start confirmation failed for company ${company.id}: ${this.toProviderError(error).message}`);
       if (!this.isTransientProviderError(error)) {
-        return this.buildFailureResponse(company, storedSnapshot, error, 'Falha ao iniciar a sessão do Modal WhatsApp.');
+        return this.buildFailureResponse(baseCompany, storedSnapshot, error, 'Falha ao iniciar a sessão do Modal WhatsApp.');
       }
-      return this.buildResponse(company, liveSnapshot, {
+      return this.buildResponse(baseCompany, liveSnapshot, {
         success: true,
         providerHealth: 'unknown',
         message: this.buildPendingSessionMessage('start'),
@@ -643,24 +665,25 @@ export class WhatsAppModalService {
     }
   }
 
-  async getCompanyQrCode(companyId: number): Promise<WhatsAppModalResponse> {
-    const company = await this.loadCompany(companyId);
-    const storedSnapshot = this.buildStoredSnapshot(company);
-    const availabilityResponse = this.buildAvailabilityResponse(company, storedSnapshot, 'qr');
+  async getCompanyQrCode(companyId: number, userId?: number): Promise<WhatsAppModalResponse> {
+    const baseCompany = await this.loadCompany(companyId);
+    const company = userId ? this.patchCompanyWithTenantKey(baseCompany, this.buildUserTenantKey(baseCompany, userId)) : baseCompany;
+    const storedSnapshot = this.buildStoredSnapshot(baseCompany);
+    const availabilityResponse = this.buildAvailabilityResponse(baseCompany, storedSnapshot, 'qr');
     if (availabilityResponse) {
       return availabilityResponse;
     }
 
     try {
       const connectSnapshot = await this.connectProviderSession(company, storedSnapshot);
-      const liveSnapshot = connectSnapshot || await this.fetchLiveSnapshot(company, { includeQr: false });
+      const liveSnapshot = connectSnapshot || await this.fetchLiveSnapshot(company, { includeQr: false }, userId);
 
       if (connectSnapshot) {
-        await this.persistSnapshot(company, liveSnapshot, 'qr');
+        await this.persistSnapshot(company, liveSnapshot, 'qr', userId);
       }
 
       if (!liveSnapshot.qrCodeDataUrl) {
-        return this.buildResponse(company, liveSnapshot, {
+        return this.buildResponse(baseCompany, liveSnapshot, {
           success: false,
           providerHealth: 'healthy',
           errorCode: 'WHATSAPP_MODAL_QR_UNAVAILABLE',
@@ -668,16 +691,16 @@ export class WhatsAppModalService {
         });
       }
 
-      return this.buildResponse(company, liveSnapshot, {
+      return this.buildResponse(baseCompany, liveSnapshot, {
         success: true,
         providerHealth: 'healthy',
         message: 'QR code atualizado com sucesso.',
       });
     } catch (error) {
       if (this.isTransientProviderError(error)) {
-        return this.buildTransientFailureResponse(company, storedSnapshot, error, { success: false });
+        return this.buildTransientFailureResponse(baseCompany, storedSnapshot, error, { success: false });
       }
-      return this.buildFailureResponse(company, storedSnapshot, error, 'Falha ao obter o QR code do Modal WhatsApp.');
+      return this.buildFailureResponse(baseCompany, storedSnapshot, error, 'Falha ao obter o QR code do Modal WhatsApp.');
     }
   }
 
@@ -769,10 +792,11 @@ export class WhatsAppModalService {
     }
   }
 
-  async disconnectCompanySession(companyId: number): Promise<WhatsAppModalResponse> {
-    const company = await this.loadCompany(companyId);
-    const storedSnapshot = this.buildStoredSnapshot(company);
-    const availabilityResponse = this.buildAvailabilityResponse(company, storedSnapshot, 'disconnect');
+  async disconnectCompanySession(companyId: number, userId?: number): Promise<WhatsAppModalResponse> {
+    const baseCompany = await this.loadCompany(companyId);
+    const company = userId ? this.patchCompanyWithTenantKey(baseCompany, this.buildUserTenantKey(baseCompany, userId)) : baseCompany;
+    const storedSnapshot = this.buildStoredSnapshot(baseCompany);
+    const availabilityResponse = this.buildAvailabilityResponse(baseCompany, storedSnapshot, 'disconnect');
     if (availabilityResponse) {
       return availabilityResponse;
     }
@@ -784,7 +808,7 @@ export class WhatsAppModalService {
       await this.logoutProviderSession(tenantKey);
     } catch (error) {
       if (!this.isMissingInstanceError(error)) {
-        return this.buildFailureResponse(company, storedSnapshot, error, 'Falha ao desconectar a sessão do Modal WhatsApp.');
+        return this.buildFailureResponse(baseCompany, storedSnapshot, error, 'Falha ao desconectar a sessão do Modal WhatsApp.');
       }
     }
 
@@ -797,19 +821,20 @@ export class WhatsAppModalService {
       updatedAt: new Date(),
       qrCodeDataUrl: null,
     };
-    await this.persistSnapshot(company, optimisticSnapshot, 'disconnect');
+    await this.persistSnapshot(company, optimisticSnapshot, 'disconnect', userId);
 
-    return this.buildResponse(company, optimisticSnapshot, {
+    return this.buildResponse(baseCompany, optimisticSnapshot, {
       success: true,
       providerHealth: 'healthy',
       message: 'Sessão desconectada do Modal WhatsApp.',
     });
   }
 
-  async restartCompanySession(companyId: number): Promise<WhatsAppModalResponse> {
-    const company = await this.loadCompany(companyId);
-    const storedSnapshot = this.buildStoredSnapshot(company);
-    const availabilityResponse = this.buildAvailabilityResponse(company, storedSnapshot, 'restart');
+  async restartCompanySession(companyId: number, userId?: number): Promise<WhatsAppModalResponse> {
+    const baseCompany = await this.loadCompany(companyId);
+    const company = userId ? this.patchCompanyWithTenantKey(baseCompany, this.buildUserTenantKey(baseCompany, userId)) : baseCompany;
+    const storedSnapshot = this.buildStoredSnapshot(baseCompany);
+    const availabilityResponse = this.buildAvailabilityResponse(baseCompany, storedSnapshot, 'restart');
     if (availabilityResponse) {
       return availabilityResponse;
     }
@@ -821,10 +846,10 @@ export class WhatsAppModalService {
       await this.restartProviderSession(tenantKey);
     } catch (error) {
       if (this.isMissingInstanceError(error)) {
-        return this.startCompanySession(companyId);
+        return this.startCompanySession(companyId, userId);
       }
       if (!this.isTransientProviderError(error)) {
-        return this.buildFailureResponse(company, storedSnapshot, error, 'Falha ao reiniciar a sessão do Modal WhatsApp.');
+        return this.buildFailureResponse(baseCompany, storedSnapshot, error, 'Falha ao reiniciar a sessão do Modal WhatsApp.');
       }
     }
     await this.tryConfigureProviderWebhook(tenantKey, 'restart');
@@ -836,14 +861,14 @@ export class WhatsAppModalService {
       updatedAt: new Date(),
       qrCodeDataUrl: null,
     };
-    await this.persistSnapshot(company, optimisticSnapshot, 'restart');
+    await this.persistSnapshot(company, optimisticSnapshot, 'restart', userId);
 
     try {
       const connectSnapshot = await this.connectProviderSession(company, optimisticSnapshot);
       if (connectSnapshot) {
         optimisticSnapshot = connectSnapshot;
-        await this.persistSnapshot(company, optimisticSnapshot, 'restart_connect');
-        return this.buildResponse(company, optimisticSnapshot, {
+        await this.persistSnapshot(company, optimisticSnapshot, 'restart_connect', userId);
+        return this.buildResponse(baseCompany, optimisticSnapshot, {
           success: true,
           providerHealth: 'healthy',
           message: this.buildSessionActionMessage(optimisticSnapshot, {
@@ -854,17 +879,17 @@ export class WhatsAppModalService {
       }
     } catch (error) {
       if (!this.isTransientProviderError(error)) {
-        return this.buildFailureResponse(company, storedSnapshot, error, 'Falha ao reiniciar a sessão do Modal WhatsApp.');
+        return this.buildFailureResponse(baseCompany, storedSnapshot, error, 'Falha ao reiniciar a sessão do Modal WhatsApp.');
       }
       this.logger.warn(`Modal WhatsApp restart connect pending for company ${company.id}: ${this.toProviderError(error).message}`);
     }
 
     try {
-      const immediateSnapshot = await this.fetchLiveSnapshot(company, { includeQr: true });
+      const immediateSnapshot = await this.fetchLiveSnapshot(company, { includeQr: true }, userId);
       optimisticSnapshot = this.isSessionReady(immediateSnapshot)
         ? immediateSnapshot
-        : await this.waitForSessionReady(company, immediateSnapshot);
-      return this.buildResponse(company, optimisticSnapshot, {
+        : await this.waitForSessionReady(company, immediateSnapshot, userId);
+      return this.buildResponse(baseCompany, optimisticSnapshot, {
         success: true,
         providerHealth: 'healthy',
         message: this.buildSessionActionMessage(optimisticSnapshot, {
@@ -875,9 +900,9 @@ export class WhatsAppModalService {
     } catch (error) {
       this.logger.warn(`Modal WhatsApp restart confirmation failed for company ${company.id}: ${this.toProviderError(error).message}`);
       if (!this.isTransientProviderError(error)) {
-        return this.buildFailureResponse(company, storedSnapshot, error, 'Falha ao reiniciar a sessão do Modal WhatsApp.');
+        return this.buildFailureResponse(baseCompany, storedSnapshot, error, 'Falha ao reiniciar a sessão do Modal WhatsApp.');
       }
-      return this.buildResponse(company, optimisticSnapshot, {
+      return this.buildResponse(baseCompany, optimisticSnapshot, {
         success: true,
         providerHealth: 'unknown',
         message: this.buildPendingSessionMessage('restart'),
@@ -950,32 +975,54 @@ export class WhatsAppModalService {
     };
   }
 
-  // Número único — ninguém compartilha WhatsApp (regra do dono 17/06; docs/Rules/WHATSAPP.md).
-  // Um número (o telefone/ownerJid que escaneia o QR) pertence a UMA empresa. Se o número que
-  // acabou de conectar já é a sessão ATIVA de OUTRA empresa, recusa esta conexão: tira o chip
-  // desta empresa da briga no motor (logout+delete), grava erro e NÃO deixa virar conectado.
-  // Sem isso, o mesmo número em N instâncias volta ao loop conflict/replaced.
+  // Número único — ninguém compartilha WhatsApp (regra do dono; docs/Rules/WHATSAPP.md).
+  // 050-5: estendido de "1 número = 1 empresa" para "1 número = 1 usuário".
+  // Se o número já é sessão ativa de OUTRO usuário (qualquer empresa) → bloqueia.
+  // Se o número é da mesma empresa sem userId (legado) mas outra empresa → bloqueia.
   private async enforceNumberNotSharedAcrossCompaniesOrBlock(
     company: CompanyModalFields,
     snapshot: ModalSnapshot,
     source: string,
+    userId?: number,
   ) {
     const phoneNormalized = this.normalizeTrialPhone(snapshot.phone);
     if (!phoneNormalized) return;
 
     const activeForNumber = await this.prisma.whatsAppConnectionSession.findFirst({
       where: { provider: 'webwhats', status: 'active', phoneNormalized },
-      select: { companyId: true },
+      select: { companyId: true, userId: true },
     });
-    if (!activeForNumber || Number(activeForNumber.companyId) === Number(company.id)) {
-      return;
+    if (!activeForNumber) return;
+
+    let shouldBlock = false;
+    let errorCode: WhatsAppModalErrorCode = 'WHATSAPP_NUMBER_OWNED_BY_OTHER_COMPANY';
+    let message = 'Este WhatsApp já está vinculado a outra empresa. Use um número exclusivo desta conta.';
+
+    if (userId) {
+      // 050-5: mesmo usuário reconectando o próprio número → OK.
+      if (Number(activeForNumber.userId) === Number(userId)) return;
+      // Número ativo para outro usuário (mesma ou outra empresa) → bloqueia.
+      if (activeForNumber.userId !== null) {
+        shouldBlock = true;
+        errorCode = 'WHATSAPP_NUMBER_OWNED_BY_OTHER_USER';
+        message = 'Este WhatsApp já está conectado por outro vendedor.';
+      } else if (Number(activeForNumber.companyId) !== Number(company.id)) {
+        // Sessão legada (userId=null) em outra empresa → bloqueia pela regra de empresa.
+        shouldBlock = true;
+      }
+    } else {
+      // Contexto sem userId: regra de empresa (legado).
+      if (Number(activeForNumber.companyId) !== Number(company.id)) {
+        shouldBlock = true;
+      }
     }
 
+    if (!shouldBlock) return;
+
     const tenantKey = this.resolveOperationalTenantKey(company);
-    const message = 'Este WhatsApp já está vinculado a outra empresa. Use um número exclusivo desta conta.';
     this.logger.warn(
-      `Número compartilhado bloqueado: company ${company.id} tentou conectar ${phoneNormalized} ` +
-        `já ativo na company ${activeForNumber.companyId} (${source}).`,
+      `Número compartilhado bloqueado: company ${company.id} userId ${userId ?? 'N/A'} tentou conectar ${phoneNormalized} ` +
+        `já ativo na company ${activeForNumber.companyId} userId ${activeForNumber.userId ?? 'N/A'} (${source}).`,
     );
 
     // Tira esta instância da briga no motor (best-effort — não pode mascarar o bloqueio).
@@ -999,7 +1046,7 @@ export class WhatsAppModalService {
       },
     });
 
-    throw new WhatsAppModalProviderError('WHATSAPP_NUMBER_OWNED_BY_OTHER_COMPANY', message, 409);
+    throw new WhatsAppModalProviderError(errorCode, message, 409);
   }
 
   private async registerTrialPhoneUsageOrBlock(company: CompanyModalFields, phone: string | null, snapshot: ModalSnapshot, source: string) {
@@ -1072,11 +1119,11 @@ export class WhatsAppModalService {
   }
 
   private async hasActiveWebwhatsConnectionSession(companyId: number) {
+    // 050-1: checa qualquer sessão ativa da empresa (legado company-{id} ou por-user).
     const session = await this.prisma.whatsAppConnectionSession.findFirst({
       where: {
         companyId: Number(companyId),
         provider: 'webwhats',
-        tenantKey: this.buildTenantKey({ id: Number(companyId) }),
         status: 'active',
       },
       select: { id: true },
@@ -1098,8 +1145,11 @@ export class WhatsAppModalService {
     company: CompanyModalFields,
     snapshot: ModalSnapshot,
     reason: string,
+    userId?: number,
   ) {
-    const tenantKey = this.resolveOperationalTenantKey(company);
+    const tenantKey = userId
+      ? this.buildUserTenantKey(company, userId)
+      : this.resolveOperationalTenantKey(company);
     const now = new Date();
     const phoneNormalized = this.normalizeTrialPhone(snapshot.phone);
     const displayPhone = this.normalizeOptionalString(snapshot.phone);
@@ -1128,21 +1178,24 @@ export class WhatsAppModalService {
       const currentActive = await this.prisma.whatsAppConnectionSession.findFirst({
         where: { companyId: Number(company.id), provider: 'webwhats', tenantKey, status: 'active' },
         orderBy: [{ connectedAt: 'desc' }, { createdAt: 'desc' }],
-        select: { id: true, phoneNormalized: true, displayPhone: true, metadataJson: true },
+        select: { id: true, phoneNormalized: true, displayPhone: true, metadataJson: true, userId: true },
       });
 
       let session: { id: string };
 
       if (!phoneNormalized) {
         if (currentActive?.id) {
+          const data: any = { tenantKey, status: 'active', connectedAt, disconnectedAt: null, metadataJson: buildMeta(currentActive.metadataJson) };
+          // 050-2: carimba dono se a sessão legada ainda não tem userId.
+          if (userId && !(currentActive as any).userId) data.userId = userId;
           session = await this.prisma.whatsAppConnectionSession.update({
             where: { id: String(currentActive.id) },
-            data: { tenantKey, status: 'active', connectedAt, disconnectedAt: null, metadataJson: buildMeta(currentActive.metadataJson) },
+            data,
             select: { id: true },
           });
         } else {
           session = await this.prisma.whatsAppConnectionSession.create({
-            data: { companyId: Number(company.id), provider: 'webwhats', tenantKey, phoneNormalized: null, displayPhone: null, status: 'active', connectedAt, metadataJson: buildMeta() },
+            data: { companyId: Number(company.id), provider: 'webwhats', tenantKey, phoneNormalized: null, displayPhone: null, status: 'active', connectedAt, metadataJson: buildMeta(), userId: userId ?? null },
             select: { id: true },
           });
         }
@@ -1150,11 +1203,12 @@ export class WhatsAppModalService {
         const byPhone = await this.prisma.whatsAppConnectionSession.findFirst({
           where: { companyId: Number(company.id), provider: 'webwhats', tenantKey, phoneNormalized },
           orderBy: [{ connectedAt: 'desc' }, { createdAt: 'desc' }],
-          select: { id: true, displayPhone: true, metadataJson: true },
+          select: { id: true, displayPhone: true, metadataJson: true, userId: true },
         });
         if (byPhone?.id) {
           const data: any = { tenantKey, status: 'active', connectedAt, disconnectedAt: null, metadataJson: buildMeta(byPhone.metadataJson) };
           if (displayPhone && !byPhone.displayPhone) data.displayPhone = displayPhone;
+          if (userId && !byPhone.userId) data.userId = userId;
           session = await this.prisma.whatsAppConnectionSession.update({
             where: { id: String(byPhone.id) },
             data,
@@ -1162,27 +1216,30 @@ export class WhatsAppModalService {
           });
         } else if (currentActive?.id && !currentActive.phoneNormalized) {
           // Placeholder sem número → primeira atribuição (write-once a partir de null).
+          const data: any = { tenantKey, status: 'active', connectedAt, disconnectedAt: null, phoneNormalized, displayPhone, metadataJson: buildMeta(currentActive.metadataJson) };
+          if (userId && !(currentActive as any).userId) data.userId = userId;
           session = await this.prisma.whatsAppConnectionSession.update({
             where: { id: String(currentActive.id) },
-            data: { tenantKey, status: 'active', connectedAt, disconnectedAt: null, phoneNormalized, displayPhone, metadataJson: buildMeta(currentActive.metadataJson) },
+            data,
             select: { id: true },
           });
         } else {
           // Número NOVO → sessão NOVA. Nunca toca na sessão do número anterior.
           session = await this.prisma.whatsAppConnectionSession.create({
-            data: { companyId: Number(company.id), provider: 'webwhats', tenantKey, phoneNormalized, displayPhone, status: 'active', connectedAt, metadataJson: buildMeta() },
+            data: { companyId: Number(company.id), provider: 'webwhats', tenantKey, phoneNormalized, displayPhone, status: 'active', connectedAt, metadataJson: buildMeta(), userId: userId ?? null },
             select: { id: true },
           });
         }
       }
 
-      // Só UMA sessão ativa por vez: fecha as demais (não apaga — vira histórico
-      // detectável pelo popup manter/deletar; o motor Webwhats NÃO é tocado).
+      // 050-1: Uma sessão ativa por TENANTKEY (= por usuário quando userId presente).
+      // Não fecha sessões de OUTROS usuários — cada um mantém a sua.
       await this.prisma.whatsAppConnectionSession.updateMany({
         where: {
           companyId: Number(company.id),
           provider: 'webwhats',
           status: 'active',
+          tenantKey,
           NOT: { id: String(session.id) },
         },
         data: {
@@ -1205,6 +1262,7 @@ export class WhatsAppModalService {
           companyId: Number(company.id),
           provider: 'webwhats',
           status: 'active',
+          tenantKey,
         },
         data: {
           status: 'disconnected',
@@ -1683,6 +1741,29 @@ export class WhatsAppModalService {
 
   private buildTenantKey(company: Pick<CompanyModalFields, 'id'>) {
     return `company-${Number(company.id)}`;
+  }
+
+  // 050-1: chave por usuário — cada vendedor tem a sua própria instância no motor.
+  // Automação/sistema (userId=null) usa a chave legada company-{id} (050-7 opção 1).
+  private buildUserTenantKey(company: Pick<CompanyModalFields, 'id'>, userId: number | null | undefined) {
+    if (!userId) return this.buildTenantKey(company);
+    return `company-${Number(company.id)}-user-${Number(userId)}`;
+  }
+
+  // Sobrepõe o currentWhatsappConnectionSession da empresa com uma sessão virtual
+  // de tenantKey específico. Permite que métodos internos que usam
+  // resolveOperationalTenantKey(company) enxerguem a chave correta sem precisar
+  // repassar userId por toda a cadeia privada.
+  private patchCompanyWithTenantKey(company: CompanyModalFields, tenantKey: string): CompanyModalFields {
+    return {
+      ...company,
+      currentWhatsappConnectionSession: {
+        id: String(company.currentWhatsappConnectionSessionId || '_virtual'),
+        provider: 'webwhats',
+        tenantKey,
+        status: 'active',
+      },
+    };
   }
 
   private resolveOperationalTenantKey(company: Pick<CompanyModalFields, 'id' | 'currentWhatsappConnectionSession'>) {
@@ -2391,7 +2472,7 @@ export class WhatsAppModalService {
     };
   }
 
-  private async waitForSessionReady(company: CompanyModalFields, fallback: ModalSnapshot) {
+  private async waitForSessionReady(company: CompanyModalFields, fallback: ModalSnapshot, userId?: number) {
     const delaysMs = [0, 750, 1500, 2500, 4000, 6000];
     let latest = fallback;
 
@@ -2400,7 +2481,7 @@ export class WhatsAppModalService {
         await this.sleep(delayMs);
       }
 
-      latest = await this.fetchLiveSnapshot(company, { includeQr: true });
+      latest = await this.fetchLiveSnapshot(company, { includeQr: true }, userId);
       if (latest.status === 'waiting_qr' || latest.status === 'connected') {
         return latest;
       }
@@ -2787,7 +2868,7 @@ export class WhatsAppModalService {
     return company as CompanyModalFields;
   }
 
-  private async persistSnapshot(company: CompanyModalFields, snapshot: ModalSnapshot, origin: string) {
+  private async persistSnapshot(company: CompanyModalFields, snapshot: ModalSnapshot, origin: string, userId?: number) {
     const previousStatus = this.normalizeStoredStatus(company.whatsappModalStatus);
     if (previousStatus !== snapshot.status) {
       this.logger.log(
@@ -2798,10 +2879,10 @@ export class WhatsAppModalService {
       this.logger.log(`QR conectado para company ${company.id}.`);
     }
     if (snapshot.status === 'connected' && snapshot.phone) {
-      await this.enforceNumberNotSharedAcrossCompaniesOrBlock(company, snapshot, origin);
+      await this.enforceNumberNotSharedAcrossCompaniesOrBlock(company, snapshot, origin, userId);
       await this.registerTrialPhoneUsageOrBlock(company, snapshot.phone, snapshot, origin);
     }
-    const currentSessionId = await this.reconcileWebwhatsConnectionSession(company, snapshot, origin);
+    const currentSessionId = await this.reconcileWebwhatsConnectionSession(company, snapshot, origin, userId);
 
     await this.prisma.company.update({
       where: { id: Number(company.id) },
@@ -2820,6 +2901,7 @@ export class WhatsAppModalService {
   private async fetchLiveSnapshotWithMeta(
     company: CompanyModalFields,
     options?: { includeQr?: boolean },
+    userId?: number,
   ) {
     const tenantKey = this.resolveOperationalTenantKey(company);
     const fallback = this.buildStoredSnapshot(company);
@@ -2897,7 +2979,7 @@ export class WhatsAppModalService {
       }
     }
 
-    await this.persistSnapshot(company, snapshot, 'status_sync');
+    await this.persistSnapshot(company, snapshot, 'status_sync', userId);
     return {
       snapshot,
       instanceExists,
@@ -2909,8 +2991,9 @@ export class WhatsAppModalService {
   private async fetchLiveSnapshot(
     company: CompanyModalFields,
     options?: { includeQr?: boolean },
+    userId?: number,
   ) {
-    const result = await this.fetchLiveSnapshotWithMeta(company, options);
+    const result = await this.fetchLiveSnapshotWithMeta(company, options, userId);
     return result.snapshot;
   }
 

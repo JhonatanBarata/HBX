@@ -482,36 +482,46 @@ export class InboxService {
     return digits;
   }
 
-  private async ensureWebwhatsSessionFromCompany(company: any) {
+  private async ensureWebwhatsSessionFromCompany(company: any, userId?: number) {
+    // 050-4: quando userId presente, busca a sessão DESTE usuário (não da empresa).
+    if (userId) {
+      return this.prisma.whatsAppConnectionSession.findFirst({
+        where: {
+          companyId: Number(company.id),
+          provider: 'webwhats',
+          status: 'active',
+          userId: Number(userId),
+        },
+        orderBy: [{ connectedAt: 'desc' }, { createdAt: 'desc' }],
+      });
+    }
+
     const sessionAvailable = isModalSessionAvailable(company?.whatsappModalStatus);
     if (!sessionAvailable) return null;
     const current = company?.currentWhatsappConnectionSession;
+    // 050-1: aceita qualquer tenantKey válido (company-{id} legado ou company-{id}-user-{uid}).
     if (
       current &&
       String(current.provider || '').trim().toLowerCase() === 'webwhats' &&
       String(current.status || '').trim().toLowerCase() === 'active' &&
-      String(current.tenantKey || '').trim() === `company-${Number(company.id)}`
+      String(current.tenantKey || '').trim().startsWith(`company-${Number(company.id)}`)
     ) {
       return current;
     }
 
-    const tenantKey = `company-${Number(company.id)}`;
     // READ-ONLY: o ciclo de vida da sessão é do connect (whatsapp-modal.service). O inbox
-    // só LÊ a sessão atual — não cria, não relabela, não repara (era a 3ª cópia do bug que
-    // sobrescrevia o telefone e vazava chat entre chips). Sem sessão ativa = null.
-    const existingActiveSession = await this.prisma.whatsAppConnectionSession.findFirst({
+    // só LÊ a sessão atual — não cria, não relabela, não repara.
+    return this.prisma.whatsAppConnectionSession.findFirst({
       where: {
         companyId: Number(company.id),
         provider: 'webwhats',
-        tenantKey,
         status: 'active',
       },
       orderBy: [{ connectedAt: 'desc' }, { createdAt: 'desc' }],
     });
-    return existingActiveSession || null;
   }
 
-  private async resolveInboxWhatsappSessionScope(companyId: number): Promise<InboxWhatsappSessionScope> {
+  private async resolveInboxWhatsappSessionScope(companyId: number, userId?: number): Promise<InboxWhatsappSessionScope> {
     const company = await this.prisma.company.findUnique({
       where: { id: companyId },
       select: {
@@ -524,11 +534,15 @@ export class InboxService {
         currentWhatsappConnectionSession: true,
       },
     });
-    const currentSession = company ? await this.ensureWebwhatsSessionFromCompany(company) : null;
+    const currentSession = company ? await this.ensureWebwhatsSessionFromCompany(company, userId) : null;
     const metaActive = isMetaConnected(company?.whatsappStatus);
     const modalStatus = String(company?.whatsappModalStatus || '').trim().toUpperCase();
     const modalSessionAvailable = isModalSessionAvailable(company?.whatsappModalStatus);
-    const accessible = Boolean(currentSession?.id || modalSessionAvailable || metaActive);
+    // 050-4: per-user scope → acessível só se ESTE usuário tiver sessão (ou Meta ativo).
+    // Sem userId (admin/empresa): comportamento legado (status da empresa conta).
+    const accessible = userId
+      ? Boolean(currentSession?.id || metaActive)
+      : Boolean(currentSession?.id || modalSessionAvailable || metaActive);
     return {
       accessible,
       reason: currentSession?.id
@@ -3599,7 +3613,8 @@ export class InboxService {
     const lightMode = this.parseBooleanMetadataFlag(options?.light);
     const requestedTake = this.normalizeConversationTakeLimit(take, 200) || 200;
     const bootstrapMode = lightMode ? 'light' : 'full';
-    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId);
+    const userId = Number(user?.id || 0) || undefined;
+    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId, userId);
     sessionScope.providerHealth = await this.getWhatsAppProviderHealth(companyId);
     if (!sessionScope.accessible) {
       return {
@@ -3949,7 +3964,8 @@ export class InboxService {
     },
   ) {
     const companyId = this.requireCompanyIdFromUser(user);
-    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId);
+    const userId = Number(user?.id || 0) || undefined;
+    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId, userId);
     // Sem WhatsApp vinculado: Atendimento vazio (200), NAO 503. O front mostra o
     // estado "conecte o WhatsApp" + o modal de conexao; nada de erro gritando no
     // console a cada load do Dashboard/Topbar/Atendimento (ordem do dono 14/06/2026).
@@ -3973,7 +3989,7 @@ export class InboxService {
 
   async startConversation(user: any, input: { phone?: string; name?: string | null }) {
     const companyId = this.requireCompanyIdFromUser(user);
-    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId);
+    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId, Number(user?.id || 0) || undefined);
     this.assertInboxWhatsappAccessible(sessionScope);
     const normalized = this.normalizeManualConversationContact(input?.phone);
     if (!normalized) {
@@ -6481,8 +6497,8 @@ export class InboxService {
     };
   }
 
-  // DEBUG — apaga TODAS as mensagens e conversas WhatsApp da company, mantendo audit.
-  // Não desconecta a sessão Webwhats; só limpa o banco local.
+  // Apaga TODAS as mensagens e conversas WhatsApp da company e recria a instância vazia.
+  // O dono re-escaneia o QR para reconectar limpo.
   async wipeAllWhatsAppData(user: any) {
     this.assertAdministrativeAction(user);
     const companyId = this.requireCompanyIdFromUser(user);
@@ -6544,13 +6560,14 @@ export class InboxService {
     // motor mantém os chats e eles ressuscitam no próximo sync. (Dono escolheu desconectar + QR.)
     const motorWipe = await this.webwhatsBridge.wipeMotorInstance(companyId).catch((error) => {
       this.logger.warn(`wipe-all: falha ao apagar instância no motor: ${String((error as any)?.message || error)}`);
-      return { loggedOut: false, deleted: false };
+      return { loggedOut: false, deleted: false, recreated: false };
     });
 
     // A conexão morreu junto com a instância → reflete desconectado (usuário re-escaneia o QR).
+    const wipedAt = new Date();
     await this.prisma.whatsAppConnectionSession.updateMany({
       where: { companyId, provider: 'webwhats', status: 'active' },
-      data: { status: 'disconnected', disconnectedAt: new Date() },
+      data: { status: 'disconnected', disconnectedAt: wipedAt, wipedAt },
     });
     await this.prisma.company.update({
       where: { id: companyId },
@@ -6565,8 +6582,8 @@ export class InboxService {
 
     await this.logInboxEvent({
       companyId,
-      event: 'whatsapp_data_wiped_debug',
-      message: `[WIPE] WhatsApp apagado de vez: ${deletedMessages} msgs, ${deletedConversations} conversas, supressões=${suppressionEntries.length}, motor(logout=${motorWipe.loggedOut},delete=${motorWipe.deleted}). Reconecte pelo QR.`,
+      event: 'whatsapp_data_wiped',
+      message: `[WIPE] WhatsApp apagado de vez: ${deletedMessages} msgs, ${deletedConversations} conversas, supressões=${suppressionEntries.length}, motor(logout=${motorWipe.loggedOut},delete=${motorWipe.deleted},recreated=${motorWipe.recreated}). Reconecte pelo QR.`,
       result: 'wipe_all',
       extra: { deletedMessages, deletedConversations, suppressions: suppressionEntries.length, motorWipe },
     });

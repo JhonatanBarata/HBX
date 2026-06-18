@@ -1,49 +1,43 @@
 "use client";
 
-// Tela Leads (template docs/TEMAS/*/corporate/Leads.html) = DISTRIBUIDOR
-// (arquitetura aprovada pelo dono em 11/06/2026: Radar acha → Leads
-// distribui → Vendas trabalha).
-//   - Base → GET /webscraping/radar/leads (mesma base do Radar)
-//   - Distribuir manual → POST /webscraping/radar/leads/distribute-to-vendedores
-//   - Enviar para Vendas → POST /webscraping/radar/leads/:id/send-to-vendas
-//   - Vendedores → GET /users/company (admin; sem acesso = distribuição oculta)
-//   - Regra automática (somente leitura) → GET /webscraping/radar/auto-distribution
-// Chips de etapa viraram filtro real de status; campos sem dado mostram "—".
-// "Iniciar conversa" → POST /inbox/conversations/start e abre o Atendimento
-// na conversa criada (handoff via sessionStorage hbx:abrir-conversa).
+// Tela RADAR — MODELO LIMPO (PR18062026046). Três camadas, uma história só:
+//   LAGO NACIONAL  → número do Brasil (GET /night-factory/leads-bank), enche o olho.
+//   PRATELEIRA     → disponíveis pra você, contato MASCARADO, listada e navegável
+//                    (GET /webscraping/radar/leads?scope=vitrine). Buscar dispara o
+//                    motor quando a prateleira está fina (POST .../search-runs + polling).
+//   CARTEIRA       → o que você puxou, contato revelado (GET .../radar/leads sem scope).
+// Regra de ouro: abundância na VISTA, escassez na AÇÃO. As ÚNICAS travas que sobrevivem
+// são mascarar o contato + a cota (medidor único, GET /vendas/usage). Puxar = revela +
+// debita: POST /webscraping/radar/leads/:id/send-to-vendas. Histórico negativo nunca é
+// apagado (MOTOR.md). Visual 100% em classe/token central (5 Leis).
 
 import { useRouter } from "next/navigation";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import { Av, I, ICONS, KpiRow, useCurrentUser } from "@/components/hbx/shell";
+import { I, ICONS } from "@/components/hbx/shell";
+import { CanalIcon } from "@/components/hbx/canal-icon";
 import { apiFetch } from "@/lib/api";
-import { useTabParam } from "@/lib/use-tab-param";
-import { PuxarLeadsPanel } from "@/components/hbx/puxar-leads-panel";
-import { CanalIcon, toCanal } from "@/components/hbx/canal-icon";
+import { BRAZIL_UF_OPTIONS, mergeBrazilCityOptions } from "@/lib/brazil-cities";
+
+type FilterOption = { value: string; label: string; count?: number };
 
 type RadarLead = {
   id: string;
   name: string;
   phone: string;
   email: string | null;
-  emailStatus: string;
   city: string | null;
   state: string | null;
   segment: string | null;
   businessCategory: string | null;
-  website: string | null;
-  address: string | null;
   opportunityScore: number;
-  status: string;
-  recommendedChannel: string | null;
-  assignedUserId: number | null;
-  lastContactAt: string | null;
-  lastSeenAt: string | null;
-  source: string | null;
-  sourceEngine: string | null;
+  opportunityReason?: string | null;
+  opportunitySignals?: string[] | null;
+  fitScore?: number | null;
+  hasPhone?: boolean;
+  hasEmail?: boolean;
+  hasWhatsapp?: boolean;
 };
-
-type FilterOption = { value: string; label: string; count: number };
 
 type LeadsResponse = {
   items: RadarLead[];
@@ -51,717 +45,609 @@ type LeadsResponse = {
   meta?: {
     available?: boolean;
     message?: string;
-    page?: number;
+    totalAvailable?: number;
     limit?: number;
+    filteredOut?: number;
+    whatsappVerified?: number;
     availableFilters?: {
-      statuses?: FilterOption[];
-      scoreRanges?: FilterOption[];
+      states?: FilterOption[];
+      segments?: FilterOption[];
+      citiesByState?: Record<string, FilterOption[]>;
     };
-    // Dados CONCRETOS do funil (não score): o que o motor confirmou de verdade.
-    enrichmentSummary?: {
-      cardsAnalyzed?: number;
-      whatsappVerified?: number;
-      emailConfirmedOrProbable?: number;
-      readyToCall?: number;
-    };
+    gemeosInsight?: {
+      dominantSegment: string | null;
+      gemeos: number;
+      comSinal: number;
+    } | null;
   };
 };
 
-type CompanyUser = { id: number; name?: string | null; username?: string | null; email?: string | null; role?: string | null };
-
-type AutoRuleFields = {
+type RunResponse = {
+  id?: string;
+  runId?: string;
   status?: string;
-  includeAdmin?: boolean;
-  adminTargetStock?: number;
-  targetStockPerSeller?: number;
-  adminDailyLimit?: number;
-  dailyLimitPerSeller?: number;
-  preferredState?: string | null;
-  preferredCity?: string | null;
-  segment?: string | null;
-};
+  message?: string;
+  foundCount?: number;
+  meta?: { progress?: number; terminal?: boolean };
+} | null;
 
-// GET /webscraping/radar/auto-distribution → { ok, activeSellerCount, rule }
-type AutoRuleResponse = { ok?: boolean; activeSellerCount?: number; rule?: AutoRuleFields } | null;
+type BankResponse = { total?: number; deltaToday?: number; available?: boolean } | null;
 
-const ST_LABEL: Record<string, string> = {
-  available: "Novo",
-  in_attendance: "Em atendimento",
-  sent_to_vendas: "Enviado a Vendas",
-  imported: "No CRM",
-  negative: "Negativado",
-  discarded: "Descartado",
-};
+type SellerActiveQuota = {
+  seller?: boolean;
+  paused?: boolean;
+  activeCount?: number;
+  effectiveLimit?: number;
+  availableSlots?: number;
+  code?: string | null;
+} | null;
 
-const ST_CLS: Record<string, string> = {
-  available: "tag",
-  in_attendance: "tag teal",
-  sent_to_vendas: "tag teal",
-  imported: "tag teal",
-  negative: "tag warn",
-  discarded: "tag warn",
-};
+type UsageResponse = {
+  cards?: { used?: number; limit?: number; remaining?: number };
+  sellerActiveQuota?: SellerActiveQuota;
+} | null;
 
-// chips do template viraram filtro real de status da base
-const ETAPAS: { label: string; status: string }[] = [
-  { label: "Todas", status: "" },
-  { label: "Novo", status: "available" },
-  { label: "Em atendimento", status: "in_attendance" },
-  { label: "Enviado a Vendas", status: "sent_to_vendas" },
-  { label: "Negativado", status: "negative" },
-];
+type Tab = "shelf" | "carteira";
 
-const CH_LABEL: Record<string, { label: string; cls: string }> = {
-  whatsapp: { label: "WhatsApp", cls: "chan wa" },
-  email: { label: "E-mail", cls: "chan mail" },
-  instagram: { label: "Instagram", cls: "chan ig" },
-  call: { label: "Ligação", cls: "tag" },
-  discard: { label: "Descartar", cls: "tag warn" },
-};
+const TERMINAL_RUN = new Set(["completed", "completed_insufficient_results", "canceled", "failed", "error"]);
 
-function fmtDate(iso: string | null | undefined) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString("pt-BR");
+function mergeFilterOptions(primary: FilterOption[] | undefined, fallback: FilterOption[]) {
+  const seen = new Set<string>();
+  const merged: FilterOption[] = [];
+  for (const option of [...(primary || []), ...fallback]) {
+    const value = String(option.value || option.label || "").trim();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    merged.push({ ...option, value, label: option.label || value });
+  }
+  return merged;
 }
 
-function userLabel(u: CompanyUser) {
-  return u.name || u.username || u.email || `Usuário ${u.id}`;
+function fmtInt(n: number | null | undefined) {
+  return Number(n || 0).toLocaleString("pt-BR");
 }
+
+const SIGNAL_META: Record<string, { label: string; tone: "hot" | "warn" | "danger" }> = {
+  recem_aberto: { label: "🆕 Abriu recente", tone: "hot" },
+  contratando: { label: "📈 Contratando", tone: "hot" },
+  sem_site: { label: "🌐 Sem site", tone: "warn" },
+  instagram_parado: { label: "📵 Instagram parado", tone: "warn" },
+  avaliacoes_em_queda: { label: "⭐ Nota caindo", tone: "warn" },
+  poucas_avaliacoes_novo: { label: "🌱 Recente", tone: "hot" },
+  cnpj_baixado: { label: "⚠️ CNPJ baixado", tone: "danger" },
+};
+
+type StandingOrder = {
+  active: boolean;
+  city: string;
+  state: string;
+  segment: string;
+  alcance: string;
+  quantos: number;
+};
 
 export function LeadsClient() {
   const router = useRouter();
-  const me = useCurrentUser();
-  const isSeller = me?.userKind === "seller";
-  // comissão de venda do próprio vendedor (ordem do dono 13/06/2026: mostrar
-  // a comissão dele nas ações do lead). Só aparece para vendedor e quando o
-  // backend já expõe o percentual (sellerProfile.commissionPercent).
-  const commissionPct = isSeller ? Number(me?.sellerProfile?.commissionPercent ?? 0) || 0 : 0;
-  const [etapa, setEtapa] = useTabParam<string>("etapa", "");
+
+  // filtros (lago → prateleira)
+  const [uf, setUf] = useState("");
+  const [city, setCity] = useState("");
+  const [segment, setSegment] = useState("");
+  const [alcance, setAlcance] = useState("");
+  const [quantos, setQuantos] = useState(5);
+
+  // navegação
+  const [tab, setTab] = useState<Tab>("shelf");
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(8);
+  const pageSize = 15;
+
+  // dados
+  const [bank, setBank] = useState<BankResponse>(null);
+  const [usage, setUsage] = useState<UsageResponse>(null);
   const [data, setData] = useState<LeadsResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [sel, setSel] = useState<RadarLead | null>(null);
-  const [sellers, setSellers] = useState<CompanyUser[]>([]);
-  const [canDistribute, setCanDistribute] = useState(false);
-  const [sellerId, setSellerId] = useState("");
-  const [autoRule, setAutoRule] = useState<AutoRuleResponse>(null);
-  const [actionMsg, setActionMsg] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  // editor da regra de auto-distribuição (decisão D do dono: edição neste PR)
-  const [ruleOpen, setRuleOpen] = useState(false);
-  const [ruleForm, setRuleForm] = useState<AutoRuleFields>({});
-  const [ruleBusy, setRuleBusy] = useState(false);
-  const [ruleMsg, setRuleMsg] = useState<string | null>(null);
-  // Quantos leads o pool tem disponíveis AGORA pra ESTA empresa (vitrine) — pra a
-  // tela não parecer morta quando a carteira está vazia. É o que dá pra PUXAR.
-  const [poolDisponivel, setPoolDisponivel] = useState<number | null>(null);
-  // POOL NACIONAL (B): o Brasil inteiro no banco (abundância na vista). leads-bank é count real.
-  const [poolNacional, setPoolNacional] = useState<number | null>(null);
-  const [poolNacionalDelta, setPoolNacionalDelta] = useState(0);
-  const prevPoolRef = useRef<number | null>(null);
-  const [poolRising, setPoolRising] = useState(false);
-  const [justPulled, setJustPulled] = useState(false);
-  const [suggestions, setSuggestions] = useState<{ segment: string; available: number }[]>([]);
-  // segmento escolhido pelo clique na faixa de sugestões — pré-preenche o PuxarLeadsPanel
-  const [pickedSegment, setPickedSegment] = useState("");
-  // Nudge do sino plugado na tela (B3 — PR037 B3/B4): mostra o aviso mais recente.
-  const [recentNotice, setRecentNotice] = useState<{ id: string; title: string; body: string; payload?: { href?: string } | null } | null>(null);
-  const puxarRef = useRef<HTMLDivElement>(null);
+  const [counts, setCounts] = useState<{ shelf: number | null; carteira: number | null }>({ shelf: null, carteira: null });
 
-  const loadSuggestions = useCallback(() => {
-    if (!isSeller) return;
-    apiFetch<{ suggestions?: { segment: string; available: number }[] }>("/webscraping/radar/preference-suggestions")
-      .then(res => setSuggestions(Array.isArray(res?.suggestions) ? res.suggestions : []))
-      .catch(() => setSuggestions([]));
-  }, [isSeller]);
+  // seleção (puxar em lote)
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [pullBusyId, setPullBusyId] = useState<string | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [pullMsg, setPullMsg] = useState<string | null>(null);
 
-  // Pool cresce → animação suave nos KPIs (B2).
-  useEffect(() => {
-    if (poolDisponivel === null) return;
-    if (prevPoolRef.current !== null && poolDisponivel > prevPoolRef.current) {
-      setPoolRising(true);
-      const t = setTimeout(() => setPoolRising(false), 700);
-      prevPoolRef.current = poolDisponivel;
-      return () => clearTimeout(t);
-    }
-    prevPoolRef.current = poolDisponivel;
-  }, [poolDisponivel]);
+  // busca ao vivo (search-on-miss)
+  const [run, setRun] = useState<RunResponse>(null);
+  const [runBusy, setRunBusy] = useState(false);
+  const [searchMsg, setSearchMsg] = useState<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Novo lead chegou (após pull): pisca a primeira linha por 2s (B2).
-  useEffect(() => {
-    if (!justPulled) return;
-    const t = setTimeout(() => setJustPulled(false), 2000);
-    return () => clearTimeout(t);
-  }, [justPulled]);
+  // Automático (standing order)
+  const [standingOrder, setStandingOrder] = useState<StandingOrder | null>(null);
+  const [autoBusy, setAutoBusy] = useState(false);
 
-  const loadLeads = useCallback((opts?: { page?: number; status?: string; limit?: number }) => {
+  const loadBank = useCallback(() => {
+    apiFetch<BankResponse>("/night-factory/leads-bank").then(setBank).catch(() => setBank(null));
+  }, []);
+
+  const loadUsage = useCallback(() => {
+    apiFetch<UsageResponse>("/vendas/usage")
+      .then(res => {
+        setUsage(res);
+        const active = res?.sellerActiveQuota?.activeCount;
+        if (typeof active === "number") setCounts(c => ({ ...c, carteira: active }));
+      })
+      .catch(() => setUsage(null));
+  }, []);
+
+  const loadList = useCallback((which: Tab, opts?: { page?: number; quantosOverride?: number }) => {
     const params = new URLSearchParams();
     params.set("page", String(opts?.page ?? 1));
-    // 8 linhas/página como o template — tela cabe sem rolagem (mesmo ajuste
-    // do Radar, pedido do dono em 11/06/2026); o seletor "Linhas por página"
-    // troca esse valor.
-    params.set("limit", String(opts?.limit ?? pageSize));
-    const st = opts?.status ?? etapa;
-    if (st) params.set("status", st);
+    const limit = which === "shelf" ? (opts?.quantosOverride ?? quantos) : pageSize;
+    params.set("limit", String(limit));
+    if (which === "shelf") params.set("scope", "vitrine");
+    if (segment) params.set("segment", segment);
+    if (city) params.set("city", city);
+    if (uf) params.set("state", uf);
+    if (which === "shelf" && alcance) params.set("radius", alcance);
     return apiFetch<LeadsResponse>(`/webscraping/radar/leads?${params.toString()}`)
       .then(res => {
         setData(res);
         setLoadError(null);
-        const first = res?.items?.[0] || null;
-        setSel(prev => (prev && res?.items?.some(i => i.id === prev.id) ? prev : first));
+        const badge = which === "shelf" ? (res?.meta?.totalAvailable ?? res?.total ?? 0) : (res?.total ?? 0);
+        setCounts(c => ({ ...c, [which]: badge }));
       })
       .catch((err: unknown) => {
-        setLoadError(err instanceof Error ? err.message : "Falha ao carregar a base de leads.");
         setData(null);
-        setSel(null);
+        setLoadError(err instanceof Error ? err.message : "Falha ao carregar o Radar.");
       });
-  }, [etapa, pageSize]);
+  }, [segment, city, uf, alcance, quantos]);
 
   useEffect(() => {
-    loadLeads({ page: 1 });
-    apiFetch<{ total?: number; meta?: { totalAvailable?: number } }>("/webscraping/radar/leads?scope=vitrine&limit=1")
-      .then(res => setPoolDisponivel(Math.max(0, Math.trunc(Number(res?.meta?.totalAvailable ?? res?.total ?? 0)) || 0)))
-      .catch(() => setPoolDisponivel(null));
-    apiFetch<{ total?: number; deltaToday?: number }>("/night-factory/leads-bank")
-      .then(res => { setPoolNacional(Math.max(0, Math.trunc(Number(res?.total || 0)) || 0)); setPoolNacionalDelta(Math.max(0, Math.trunc(Number(res?.deltaToday || 0)) || 0)); })
-      .catch(() => setPoolNacional(null));
-    loadSuggestions();
-    apiFetch<CompanyUser[]>("/users/company")
-      .then(res => {
-        const list = Array.isArray(res) ? res : [];
-        setSellers(list);
-        setCanDistribute(true);
-      })
-      .catch(() => {
-        // sem permissão de gerencial — distribuição fica oculta
-        setCanDistribute(false);
-      });
-    apiFetch<AutoRuleResponse>("/webscraping/radar/auto-distribution")
-      .then(res => {
-        setAutoRule(res);
-        if (res?.rule) setRuleForm(res.rule);
-      })
-      .catch(() => setAutoRule(null));
-    // Nudge do sino na tela de Leads (B3 — plug PR037 B3/B4; graceful).
-    apiFetch<{ items?: { id: string; title: string; body: string; source?: string; payload?: { href?: string } | null }[] }>("/vendas/master-notices")
-      .then(res => {
-        const items = res?.items || [];
-        const latest = items.find(n => n.source === "brain") || items[0] || null;
-        setRecentNotice(latest);
-      })
-      .catch(() => setRecentNotice(null));
+    loadBank();
+    loadUsage();
+    loadList("shelf", { page: 1 });
+    apiFetch<RunResponse>("/webscraping/radar/search-runs/latest")
+      .then(res => { if (res && (res.id || res.runId)) setRun(res); })
+      .catch(() => { /* sem busca ativa */ });
+    apiFetch<{ standingOrder: StandingOrder }>("/webscraping/radar/standing-order")
+      .then(res => { if (res?.standingOrder) setStandingOrder(res.standingOrder); })
+      .catch(() => null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadSuggestions]);
+  }, []);
 
-  function trocarEtapa(status: string) {
-    setEtapa(status);
+  const filtersTouched = useRef(false);
+  useEffect(() => {
+    if (!filtersTouched.current) { filtersTouched.current = true; return; }
+    const handle = setTimeout(() => { setPage(1); setSelected(new Set()); loadList(tab, { page: 1 }); }, 300);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [segment, city, uf]);
+
+  useEffect(() => {
+    const runId = run?.id || run?.runId;
+    const status = String(run?.status || "");
+    if (!runId || TERMINAL_RUN.has(status)) {
+      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+      return;
+    }
+    if (pollRef.current) return;
+    pollRef.current = setInterval(async () => {
+      try {
+        const res = await apiFetch<RunResponse>(`/webscraping/radar/search-runs/${encodeURIComponent(runId)}`);
+        setRun(res);
+        if (TERMINAL_RUN.has(String(res?.status || "")) || res?.meta?.terminal) {
+          if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+          loadList("shelf", { page: 1 });
+          loadBank();
+          setTab("shelf");
+          setPage(1);
+        }
+      } catch {
+        // mantém o último estado; a próxima volta tenta de novo
+      }
+    }, 4000);
+    return () => {
+      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+    };
+  }, [run, loadList, loadBank]);
+
+  function switchTab(next: Tab) {
+    if (next === tab) return;
+    setTab(next);
     setPage(1);
-    setActionMsg(null);
-    loadLeads({ page: 1, status });
+    setSelected(new Set());
+    setPullMsg(null);
+    loadList(next, { page: 1 });
   }
 
   function irParaPagina(p: number) {
     if (p < 1) return;
     setPage(p);
-    loadLeads({ page: p });
+    loadList(tab, { page: p });
   }
 
-  function trocarPageSize(n: number) {
-    const size = Number(n) || 8;
-    setPageSize(size);
-    setPage(1);
-    loadLeads({ page: 1, limit: size });
+  function toggleSel(id: string) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
   }
 
-  function selecionar(row: RadarLead) {
-    setSel(row);
-    setActionMsg(null);
-  }
-
-  async function distribuir() {
-    if (!sel?.id || !sellerId || busy) return;
-    setBusy(true);
-    setActionMsg(null);
+  async function toggleAutomatico() {
+    if (autoBusy) return;
+    setAutoBusy(true);
+    const nextActive = !(standingOrder?.active ?? false);
     try {
-      await apiFetch("/webscraping/radar/leads/distribute-to-vendedores", {
-        method: "POST",
-        body: JSON.stringify({ leadIds: [sel.id], userIds: [Number(sellerId)] }),
-      });
-      const seller = sellers.find(s => String(s.id) === sellerId);
-      setActionMsg(`✓ Lead distribuído para ${seller ? userLabel(seller) : "o vendedor"}.`);
-      loadLeads({ page });
-    } catch (err) {
-      setActionMsg(err instanceof Error ? err.message : "Não foi possível distribuir o lead.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function salvarRegra() {
-    if (ruleBusy) return;
-    setRuleBusy(true);
-    setRuleMsg(null);
-    try {
-      const body: AutoRuleFields = {
-        status: (ruleForm.status as AutoRuleFields["status"]) || "draft",
-        includeAdmin: Boolean(ruleForm.includeAdmin),
-        targetStockPerSeller: Number(ruleForm.targetStockPerSeller || 30),
-        dailyLimitPerSeller: Number(ruleForm.dailyLimitPerSeller || 20),
-        adminTargetStock: Number(ruleForm.adminTargetStock || 0),
-        adminDailyLimit: Number(ruleForm.adminDailyLimit || 0),
-        preferredState: ruleForm.preferredState || undefined,
-        preferredCity: ruleForm.preferredCity || undefined,
-        segment: ruleForm.segment || undefined,
-      };
-      await apiFetch("/webscraping/radar/auto-distribution", {
+      const res = await apiFetch<{ standingOrder: StandingOrder }>("/webscraping/radar/standing-order", {
         method: "PUT",
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          active: nextActive,
+          city: city || standingOrder?.city || "",
+          state: uf || standingOrder?.state || "",
+          segment: segment || standingOrder?.segment || "",
+          alcance: alcance || standingOrder?.alcance || "",
+          quantos,
+        }),
       });
-      setRuleMsg("✓ Regra salva.");
-      const res = await apiFetch<AutoRuleResponse>("/webscraping/radar/auto-distribution").catch(() => null);
-      if (res) {
-        setAutoRule(res);
-        if (res.rule) setRuleForm(res.rule);
-      }
-    } catch (err) {
-      setRuleMsg(err instanceof Error ? err.message : "Não foi possível salvar a regra.");
+      if (res?.standingOrder) setStandingOrder(res.standingOrder);
+    } catch {
+      // silencia — o estado local já atualiza via setStandingOrder
     } finally {
-      setRuleBusy(false);
+      setAutoBusy(false);
     }
   }
 
-  async function executarRegra() {
-    if (ruleBusy) return;
-    setRuleBusy(true);
-    setRuleMsg(null);
+  async function executarBusca() {
+    if (runBusy || runActive) return;
+    if (!city.trim()) { setSearchMsg("Me diz a cidade — o motor não varre sem ela."); return; }
+    if (!segment.trim()) { setSearchMsg("Escolha um segmento pra eu varrer."); return; }
+    setSearchMsg(null);
+    setRunBusy(true);
     try {
-      await apiFetch("/webscraping/radar/auto-distribution/run", {
+      const res = await apiFetch<RunResponse>("/webscraping/radar/search-runs", {
+        method: "POST",
+        body: JSON.stringify({ city, state: uf || undefined, segment }),
+      });
+      setRun(res);
+      if (res?.message) setSearchMsg(res.message);
+    } catch (err) {
+      setSearchMsg(err instanceof Error ? err.message : "Não consegui iniciar a busca.");
+    } finally {
+      setRunBusy(false);
+    }
+  }
+
+  async function puxar(id: string) {
+    if (pullBusyId || bulkBusy) return;
+    setPullBusyId(id);
+    setPullMsg(null);
+    try {
+      await apiFetch(`/webscraping/radar/leads/${encodeURIComponent(id)}/send-to-vendas`, {
         method: "POST",
         body: JSON.stringify({}),
       });
-      setRuleMsg("✓ Distribuição executada.");
-      loadLeads({ page });
+      setSelected(prev => { const n = new Set(prev); n.delete(id); return n; });
+      setPullMsg("✓ Puxado pra sua carteira (Vendas).");
+      loadList("shelf", { page });
+      loadUsage();
+      loadBank();
     } catch (err) {
-      setRuleMsg(err instanceof Error ? err.message : "Não foi possível executar a distribuição.");
+      setPullMsg(err instanceof Error ? err.message : "Não consegui puxar este lead.");
     } finally {
-      setRuleBusy(false);
+      setPullBusyId(null);
     }
   }
 
-  async function enviarParaVendas() {
-    if (!sel?.id || busy) return;
-    setBusy(true);
-    setActionMsg(null);
-    try {
-      await apiFetch(`/webscraping/radar/leads/${encodeURIComponent(sel.id)}/send-to-vendas`, {
-        method: "POST",
-        body: JSON.stringify({}),
-      });
-      setActionMsg("✓ Lead enviado para Vendas.");
-      loadLeads({ page });
-    } catch (err) {
-      setActionMsg(err instanceof Error ? err.message : "Não foi possível enviar para Vendas.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  // POST /inbox/conversations/start (contrato do Atendimento) — abre a
-  // conversa criada direto na tela de Atendimento
-  async function iniciarConversa() {
-    if (!sel?.phone || busy) return;
-    setBusy(true);
-    setActionMsg(null);
-    try {
-      const res = await apiFetch<{ id?: number | string }>("/inbox/conversations/start", {
-        method: "POST",
-        body: JSON.stringify({ phone: sel.phone, ...(sel.name ? { name: sel.name } : {}) }),
-      });
-      if (res?.id != null) {
-        try { sessionStorage.setItem("hbx:abrir-conversa", String(res.id)); } catch { /* sem storage */ }
+  async function puxarSelecionados() {
+    if (bulkBusy || selected.size === 0) return;
+    setBulkBusy(true);
+    setPullMsg(null);
+    let ok = 0;
+    let stopMsg: string | null = null;
+    for (const id of Array.from(selected)) {
+      try {
+        await apiFetch(`/webscraping/radar/leads/${encodeURIComponent(id)}/send-to-vendas`, {
+          method: "POST",
+          body: JSON.stringify({}),
+        });
+        ok += 1;
+      } catch (err) {
+        stopMsg = err instanceof Error ? err.message : "Cota atingida — parei aqui.";
+        break;
       }
-      router.push("/atendimento");
-    } catch (err) {
-      setActionMsg(err instanceof Error ? err.message : "Não foi possível iniciar a conversa.");
-      setBusy(false);
     }
+    setSelected(new Set());
+    setPullMsg(`${ok > 0 ? `✓ ${ok} puxado(s). ` : ""}${stopMsg || ""}`.trim() || "Nada puxado.");
+    setBulkBusy(false);
+    loadList("shelf", { page: 1 });
+    loadUsage();
+    loadBank();
+    setPage(1);
   }
 
   const items = data?.items || [];
-  const total = data?.total || 0;
-  const limit = data?.meta?.limit || 25;
-  const lastPage = Math.max(1, Math.ceil(total / limit));
-  const statuses = data?.meta?.availableFilters?.statuses || [];
-  const countOf = (opts: FilterOption[], value: string) => opts.find(o => o.value === value)?.count ?? 0;
-  // Dados concretos (ordem do dono 14/06: "não quero quentes, nenhum é — dados concretos").
-  const summary = data?.meta?.enrichmentSummary;
-  const disponiveis = countOf(statuses, "available");
-  const enviados = countOf(statuses, "sent_to_vendas") + countOf(statuses, "in_attendance");
-  const sellerName = (id: number | null) => {
-    if (!id) return null;
-    const s = sellers.find(u => u.id === id);
-    return s ? userLabel(s) : `Usuário ${id}`;
-  };
-  const l = sel;
-  const ruleStatus = String(autoRule?.rule?.status || "");
-  // Default do "Puxar leads": vendedor usa o segmento de maior afinidade observada;
-  // admin/dono usa o ramo da empresa.
-  const pullDefaultSegment =
-    (isSeller
-      ? me?.sellerProfile?.topSegment
-      : me?.company?.prospectingSegments?.[0]) || "";
+  const limit = data?.meta?.limit || pageSize;
+  const filters = data?.meta?.availableFilters;
+  const segOptions = filters?.segments || [];
+  const ufOptions = mergeFilterOptions(filters?.states, BRAZIL_UF_OPTIONS);
+  const cityOptions = uf
+    ? mergeBrazilCityOptions(uf, filters?.citiesByState?.[uf])
+    : Object.values(filters?.citiesByState || {}).flat();
 
-  // Segmentos sugeridos visíveis: exclui o que já está pré-preenchido no card de puxar.
-  const normalizeForCompare = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
-  const currentPanelSeg = normalizeForCompare(pickedSegment || pullDefaultSegment);
-  const visibleSuggestions = isSeller && !canDistribute
-    ? suggestions.filter(s => normalizeForCompare(s.segment) !== currentPanelSeg)
-    : [];
+  const runActive = Boolean((run?.id || run?.runId) && !TERMINAL_RUN.has(String(run?.status || "")));
+  const runProgress = run?.meta?.progress;
 
-  function handlePickSuggestion(segment: string) {
-    setPickedSegment(segment);
-    setTimeout(() => puxarRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  const pageTotal = data?.total || 0;
+  const lastPage = Math.max(1, Math.ceil(pageTotal / limit));
+
+  const saq = usage?.sellerActiveQuota;
+  const isSeller = Boolean(saq?.seller);
+  const meterLabel = isSeller ? "Em mãos" : "Cota da empresa (mês)";
+  const meterValue = isSeller
+    ? `${fmtInt(saq?.activeCount)} / ${fmtInt(saq?.effectiveLimit)}`
+    : usage?.cards
+      ? `${fmtInt(usage.cards.used)} / ${fmtInt(usage.cards.limit)}`
+      : "—";
+  const meterBlocked = isSeller
+    ? Boolean(saq?.paused) || Number(saq?.availableSlots ?? 1) <= 0
+    : Boolean(usage?.cards) && Number(usage?.cards?.remaining ?? 1) <= 0;
+
+  const emptyMsg = loadError
+    ? loadError
+    : data?.meta?.available === false
+      ? data?.meta?.message || "Banco do Radar indisponível neste ambiente."
+      : tab === "carteira"
+        ? "Você ainda não puxou nenhum lead. Pegue um na aba Disponíveis."
+        : city
+          ? `Prateleira vazia pra ${city}. Clique Buscar — o motor varre e traz fresquinhos.`
+          : "Escolha cidade + segmento e clique Buscar.";
+
+  function contatoMascarado(row: RadarLead) {
+    const has = row.hasWhatsapp || row.hasPhone || row.hasEmail;
+    return (
+      <span className="radar2-locked">
+        {row.hasWhatsapp && <CanalIcon canal="whatsapp" size="sm" />}
+        {row.hasEmail && <CanalIcon canal="email" size="sm" />}
+        {row.hasPhone && !row.hasWhatsapp && <CanalIcon canal="telefone" size="sm" />}
+        <span>{has ? "revela no Puxar" : "sem contato"}</span>
+      </span>
+    );
   }
 
   return (
-    <React.Fragment>
-        <div className="content">
-          <div className="work">
-            {/* POOL nacional (B): abundância na vista — o Brasil inteiro no pool. */}
-            <section className="panel pool-bar">
-              <span className="ico"><I d={ICONS.search} size={18} /></span>
-              <div className="id">
-                <span className="lbl">Pool nacional</span>
-                <span className="big">
-                  <span className="num">{poolNacional != null ? poolNacional.toLocaleString("pt-BR") : "—"}</span>
-                  <span className="unit">empresas no Brasil</span>
-                  {poolNacionalDelta > 0 && <span className="delta">+{poolNacionalDelta.toLocaleString("pt-BR")} hoje</span>}
-                </span>
-              </div>
-              <span className="cap">É o Brasil inteiro no pool. O que você puxa pra sua carteira é o de baixo.</span>
-            </section>
-            {(isSeller || canDistribute) && (
-              <div ref={puxarRef}>
-                <PuxarLeadsPanel
-                  key={`pull-${pickedSegment || pullDefaultSegment || "none"}`}
-                  onPulled={() => { setJustPulled(true); loadLeads({ page: 1 }); loadSuggestions(); setPickedSegment(""); }}
-                  defaultSegment={pickedSegment || pullDefaultSegment}
-                  poolDisponivel={poolDisponivel}
-                />
-              </div>
-            )}
-            {/* B1 — Cards acabando: aviso quente quando o pool está baixo */}
-            {isSeller && poolDisponivel !== null && poolDisponivel < 10 && (
-              <div className="hbx-pool-warn">
-                <span className="msg">
-                  {poolDisponivel === 0
-                    ? `Seu pool de ${pullDefaultSegment || "leads"} está vazio — peça mais ao Radar`
-                    : `Seus cards de ${pullDefaultSegment || "leads"} estão acabando (${poolDisponivel} restante${poolDisponivel !== 1 ? "s" : ""}) — peça mais ao Radar`}
-                </span>
-                <button className="btn-ghost btn-xs" onClick={() => puxarRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>
-                  <I d={ICONS.plus} size={12} /> Puxar mais
-                </button>
-              </div>
-            )}
+    <div className="content">
+      <div className="work">
+        {/* 4 KPIs do topo */}
+        <section className="panel" style={{ padding: "14px 16px" }}>
+          <div className="radar2-kpis">
+            <div className="radar2-kpi">
+              <span className="lbl">Total no Brasil</span>
+              <span className="num">{bank ? fmtInt(bank.total) : "—"}</span>
+              {bank && Number(bank.deltaToday || 0) > 0 && <span className="delta">+{fmtInt(bank.deltaToday)} hoje</span>}
+            </div>
+            <div className="radar2-kpi">
+              <span className="lbl">Filtrados (removidos)</span>
+              <span className="num">{data?.meta?.filteredOut != null ? fmtInt(data.meta.filteredOut) : "—"}</span>
+              {data?.meta?.filteredOut == null && <span className="sub2">ligando o motor…</span>}
+            </div>
+            <div className="radar2-kpi">
+              <span className="lbl">Com WhatsApp</span>
+              <span className="num">{data?.meta?.whatsappVerified != null ? fmtInt(data.meta.whatsappVerified) : "—"}</span>
+              {data?.meta?.whatsappVerified == null && <span className="sub2">ligando o motor…</span>}
+            </div>
+            <div className="radar2-kpi">
+              <span className="lbl">Em atendimento</span>
+              <span className="num">{usage?.sellerActiveQuota?.activeCount != null ? fmtInt(usage.sellerActiveQuota.activeCount) : "—"}</span>
+            </div>
+          </div>
+        </section>
 
-            {/* B3 — Nudge do sino plugado na tela (PR037 B3/B4) */}
-            {isSeller && recentNotice && (
-              <div className="hbx-nudge">
-                <div className="tx">
-                  <span className="title">{recentNotice.title}</span>
-                  <span className="body-txt">{recentNotice.body}</span>
-                </div>
-                {recentNotice.payload?.href && (
-                  <button className="btn-ghost btn-xs" onClick={() => router.push(recentNotice!.payload!.href!)}>
-                    <I d={ICONS.arrow} size={12} /> Abrir
-                  </button>
-                )}
+        {/* PRATELEIRA + CARTEIRA */}
+        <section className="panel" style={{ padding: 0 }}>
+          <div className="radar2-shell">
+            {/* rail de filtros */}
+            <div className="radar2-rail">
+              <div className="f">
+                <label htmlFor="radar2-uf">Estado</label>
+                <select id="radar2-uf" className="select-dark" value={uf} onChange={e => { setCity(""); setAlcance(""); setUf(e.target.value); }}>
+                  <option value="">Todos</option>
+                  {ufOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
               </div>
-            )}
-
-            <div className={poolRising ? "hbx-pool-rise" : undefined}>
-              <KpiRow items={[
-                { icon: "users", label: "Total na base", value: data ? total.toLocaleString("pt-BR") : "—", delta: "—" },
-                { icon: "msg", label: "Com WhatsApp", value: summary ? (summary.whatsappVerified ?? 0).toLocaleString("pt-BR") : "—", delta: "—" },
-                { icon: "plus", label: "Disponíveis", value: poolDisponivel != null ? poolDisponivel.toLocaleString("pt-BR") : "—", delta: "—" },
-                { icon: "relat", label: "Em atendimento / Vendas", value: data ? enviados.toLocaleString("pt-BR") : "—", delta: "—" },
-              ]} />
+              <div className="f">
+                <label htmlFor="radar2-city">Cidade</label>
+                <input id="radar2-city" className="field-dark" list="radar2-cities" value={city} placeholder="Cidade" onChange={e => { setAlcance(""); setCity(e.target.value); }} />
+                <datalist id="radar2-cities">{cityOptions.map(o => <option key={o.value} value={o.label} />)}</datalist>
+              </div>
+              <div className="f">
+                <label htmlFor="radar2-alcance">Alcance</label>
+                <select id="radar2-alcance" className="select-dark" value={alcance} disabled={!city.trim()} onChange={e => setAlcance(e.target.value)}>
+                  <option value="">Só a cidade</option>
+                  <option value="25">+ 25 km</option>
+                  <option value="50">+ 50 km</option>
+                  <option value="100">+ 100 km</option>
+                </select>
+              </div>
+              <div className="f">
+                <label htmlFor="radar2-seg">Segmento</label>
+                <input id="radar2-seg" className="field-dark" list="radar2-segs" value={segment} placeholder="Ex.: Odontologia" onChange={e => setSegment(e.target.value)} />
+                <datalist id="radar2-segs">{segOptions.map(o => <option key={o.value} value={o.label} />)}</datalist>
+              </div>
+              <div className="f">
+                <label htmlFor="radar2-quantos">Quantos</label>
+                <select id="radar2-quantos" className="select-dark" value={quantos} onChange={e => setQuantos(Number(e.target.value))}>
+                  {[1, 3, 5, 10, 20].map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </div>
+              <button className="btn-teal" onClick={() => { setPage(1); setSelected(new Set()); loadList("shelf", { page: 1, quantosOverride: quantos }); }}>
+                <I d={ICONS.search} size={14} /> Ver {quantos} leads disponíveis
+              </button>
+              <button className="btn-ghost btn-xs" onClick={executarBusca} disabled={runBusy || runActive}>
+                {runActive ? "Varrendo…" : runBusy ? "Iniciando…" : "Buscar (motor)"}
+              </button>
+              <button
+                className={"btn-teal radar2-auto" + (standingOrder?.active ? " radar2-auto--on" : "")}
+                onClick={toggleAutomatico}
+                disabled={autoBusy}
+                aria-pressed={standingOrder?.active}
+              >
+                {standingOrder?.active ? "◉ Automático" : "◎ Automático"}
+              </button>
+              <p className="hint">Prateleira fina? Buscar (motor) varre a internet com cidade + segmento.</p>
+              {searchMsg && <p className="hint">{searchMsg}</p>}
             </div>
 
-            <section className="panel">
-              <div className="panel-head">
-                <h2>{isSeller && !canDistribute ? "Meus leads" : "Leads do Radar"}</h2>
-                <div className="meta">
-                  {canDistribute && (
-                    <button className={"tag" + (ruleStatus === "active" ? " teal" : ruleStatus === "paused" ? " warn" : "")}
-                      style={{ cursor: "pointer", background: "transparent" }}
-                      onClick={() => setRuleOpen(true)} title="Configurar distribuição automática">
-                      Distribuição automática: {ruleStatus === "active" ? "ativa" : ruleStatus === "paused" ? "pausada" : "rascunho"} ⚙
-                    </button>
-                  )}
-                  {ETAPAS.map(e => (
-                    <button key={e.label} className="btn-ghost" onClick={() => trocarEtapa(e.status)}
-                      style={e.status === etapa ? { borderColor: "var(--hbx-brand)", color: "var(--hbx-brand-strong)", background: "var(--hbx-brand-soft)" } : {}}>
-                      {e.label}
-                    </button>
-                  ))}
-                </div>
+            {/* prateleira / carteira */}
+            <div className="radar2-main">
+              <div className="tabs">
+                <button className={"tab" + (tab === "shelf" ? " active" : "")} onClick={() => switchTab("shelf")}>
+                  Disponíveis pra você <span className="n">{counts.shelf == null ? "—" : fmtInt(counts.shelf)}</span>
+                </button>
+                <button className={"tab" + (tab === "carteira" ? " active" : "")} onClick={() => switchTab("carteira")}>
+                  Minha carteira <span className="n">{counts.carteira == null ? "—" : fmtInt(counts.carteira)}</span>
+                </button>
               </div>
-              {visibleSuggestions.length > 0 && (
-                <div className="chip-row">
-                  {visibleSuggestions.map(s => (
-                    <React.Fragment key={s.segment}>
-                      <span className="tag teal">
-                        Novos leads baseados na sua preferência: {s.segment} ({s.available} disponíveis)
-                      </span>
-                      <button className="btn-ghost" onClick={() => handlePickSuggestion(s.segment)}>
-                        Puxar {s.segment}
-                      </button>
-                    </React.Fragment>
-                  ))}
+
+              {runActive && (
+                <div className="radar2-live">
+                  <span className="dot" /> Varrendo {city || "…"} · {fmtInt(run?.foundCount)} achados{runProgress != null ? ` · ${runProgress}%` : ""}
                 </div>
               )}
+
+              {tab === "shelf" && data?.meta?.gemeosInsight && (() => {
+                const g = data.meta.gemeosInsight!;
+                return (
+                  <div className="radar2-gemeos">
+                    Seus melhores clientes são <strong>{g.dominantSegment || "seu segmento"}</strong> — achei <strong>{fmtInt(g.gemeos)}</strong> gêmeos, <strong>{fmtInt(g.comSinal)}</strong> deram sinal.
+                  </div>
+                );
+              })()}
+
               <div className="tbl-wrap">
                 <table className="tbl">
                   <thead>
                     <tr>
-                      <th>Lead</th><th>Segmento</th><th>Cidade</th><th>Canal</th><th>Score</th><th>Etapa</th><th>Responsável</th><th>Último contato</th>
+                      {tab === "shelf" && <th style={{ width: 34 }} aria-label="Selecionar" />}
+                      <th>Empresa</th>
+                      <th>Cidade</th>
+                      <th>Contato</th>
+                      <th style={{ width: 96 }} />
                     </tr>
                   </thead>
                   <tbody>
                     {items.length === 0 && (
-                      <tr style={{ cursor: "default" }}>
-                        <td colSpan={8} style={{ textAlign: "center", color: "var(--text-muted)", padding: "26px 12px" }}>
-                          {loadError
-                            ? loadError
-                            : data?.meta?.available === false
-                              ? data?.meta?.message || "Banco do Radar indisponível neste ambiente."
-                              : isSeller && !canDistribute
-                            ? <React.Fragment>Você ainda não puxou nenhum lead. Use <strong>Puxar leads</strong> aqui em cima para trazer do pool para a sua carteira{poolDisponivel ? ` — tem ${poolDisponivel.toLocaleString("pt-BR")} disponíveis.` : "."}</React.Fragment>
-                            : <React.Fragment>Nada aqui ainda. Use <strong>Puxar leads</strong> aqui em cima pra trazer leads do pool pra sua carteira{poolDisponivel ? ` — tem ${poolDisponivel.toLocaleString("pt-BR")} esperando` : ""}.</React.Fragment>}
+                      <tr><td colSpan={tab === "shelf" ? 5 : 4}><div className="radar2-empty">{emptyMsg}</div></td></tr>
+                    )}
+                    {items.map(row => (
+                      <tr
+                        key={row.id}
+                        role={tab === "shelf" ? "button" : undefined}
+                        style={tab === "shelf" ? { cursor: "pointer" } : undefined}
+                        onClick={tab === "shelf" ? () => toggleSel(row.id) : undefined}
+                      >
+                        {tab === "shelf" && (
+                          <td onClick={e => e.stopPropagation()}>
+                            <input type="checkbox" checked={selected.has(row.id)} onChange={() => toggleSel(row.id)} aria-label={`Selecionar ${row.name || "lead"}`} />
+                          </td>
+                        )}
+                        <td>
+                          <div className="co">
+                            <strong>
+                              {row.name || "—"}
+                              {row.fitScore != null && row.fitScore > 0 && (
+                                <span className={`radar2-fit${row.fitScore >= 60 ? " radar2-fit--hi" : ""}`}>Fit {row.fitScore}</span>
+                              )}
+                            </strong>
+                            <span className="sub2">{row.segment || row.businessCategory || "—"}</span>
+                            {row.opportunitySignals && row.opportunitySignals.length > 0 && (
+                              <div className="radar2-signals">
+                                {row.opportunitySignals.slice(0, 4).map(sig => {
+                                  const m = SIGNAL_META[sig];
+                                  if (!m) return null;
+                                  return <span key={sig} className={`radar2-sig radar2-sig--${m.tone}`}>{m.label}</span>;
+                                })}
+                              </div>
+                            )}
+                            {row.opportunityReason && (
+                              <span className="radar2-reason">{row.opportunityReason}</span>
+                            )}
+                          </div>
+                        </td>
+                        <td>{row.city ? `${row.city}${row.state ? "/" + row.state : ""}` : "—"}</td>
+                        <td>
+                          {tab === "shelf"
+                            ? contatoMascarado(row)
+                            : <span>{row.phone || row.email || "—"}</span>}
+                        </td>
+                        <td onClick={e => e.stopPropagation()}>
+                          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                            {tab === "shelf"
+                              ? <button className="btn-teal btn-xs" onClick={() => puxar(row.id)} disabled={pullBusyId === row.id || bulkBusy || meterBlocked}>{pullBusyId === row.id ? "Puxando…" : "Puxar"}</button>
+                              : <button className="btn-ghost btn-xs" onClick={() => router.push("/vendas")}>Abrir</button>}
+                          </div>
                         </td>
                       </tr>
-                    )}
-                    {items.map((row, idx) => {
-                      const ch = row.recommendedChannel ? CH_LABEL[row.recommendedChannel] : null;
-                      const resp = sellerName(row.assignedUserId);
-                      // B2: primeira linha pisca quando acabou de puxar leads novos.
-                      const isNew = justPulled && idx === 0;
-                      return (
-                        <tr key={row.id} className={(sel?.id === row.id ? "sel" : "") + (isNew ? " hbx-lead-new" : "")} onClick={() => selecionar(row)}>
-                          <td><div style={{ display: "flex", gap: 9, alignItems: "center" }}><Av name={row.name || "—"} size={28} /><strong>{row.name || "—"}</strong></div></td>
-                          <td>{row.segment || "—"}</td>
-                          <td>{row.city ? `${row.city}${row.state ? ", " + row.state : ""}` : "—"}</td>
-                          <td>{ch ? <span className={ch.cls + " with-ico"}>{toCanal(row.recommendedChannel) ? <CanalIcon canal={toCanal(row.recommendedChannel)!} size="sm" /> : null}{ch.label}</span> : "—"}</td>
-                          <td><span className={"score-ring " + (row.opportunityScore >= 70 ? "hi" : "mid")}>{row.opportunityScore}</span></td>
-                          <td><span className={ST_CLS[row.status] || "tag"}>{ST_LABEL[row.status] || row.status}</span></td>
-                          <td>{resp ? <div style={{ display: "flex", gap: 7, alignItems: "center" }}><Av name={resp} size={20} />{resp}</div> : "—"}</td>
-                          <td style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem", color: "var(--text-muted)" }}>{fmtDate(row.lastContactAt)}</td>
-                        </tr>
-                      );
-                    })}
+                    ))}
                   </tbody>
                 </table>
               </div>
+
+              {tab === "shelf" && (
+                <>
+                  <div className="radar2-sel-all">
+                    <button
+                      className="btn-ghost btn-xs"
+                      onClick={() => {
+                        if (selected.size === items.length && items.length > 0) {
+                          setSelected(new Set());
+                        } else {
+                          setSelected(new Set(items.map(r => r.id)));
+                        }
+                      }}
+                    >
+                      {selected.size === items.length && items.length > 0 ? "Desmarcar todos" : "Selecionar todos"}
+                    </button>
+                  </div>
+                  <div className={"radar2-meter" + (meterBlocked ? " blocked" : "")}>
+                    <span className="side">
+                      <I d={ICONS.bolt} size={15} /> {meterLabel} <span className="lvl">{meterValue}</span>
+                      {isSeller && <span className="radar2-quota-note">os 20 são compartilhados com o Vendas</span>}
+                    </span>
+                    <button className="btn-teal" onClick={puxarSelecionados} disabled={selected.size === 0 || meterBlocked || bulkBusy}>
+                      <I d={ICONS.check} size={14} /> {bulkBusy ? "Puxando…" : `Puxar selecionados${selected.size ? ` (${selected.size})` : ""}`}
+                    </button>
+                  </div>
+                </>
+              )}
+              {meterBlocked && isSeller && (
+                <p className="radar2-cap--danger">
+                  Carteira cheia — feche ou agende um retorno pra liberar vaga.
+                </p>
+              )}
+              {pullMsg && <p className="radar2-pull-msg">{pullMsg}</p>}
+
               <div className="pager">
-                Linhas por página: <select className="select-dark" style={{ minWidth: 0, minHeight: 30, padding: "0 8px" }}
-                  value={pageSize} onChange={e => trocarPageSize(Number(e.target.value))} aria-label="Linhas por página">
-                  {[8, 25, 50, 100].map(n => <option key={n} value={n}>{n}</option>)}
-                </select>
                 <span style={{ marginLeft: "auto" }}>
-                  {total > 0
-                    ? `${((page - 1) * limit + 1).toLocaleString("pt-BR")}–${Math.min(page * limit, total).toLocaleString("pt-BR")} de ${total.toLocaleString("pt-BR")}`
+                  {pageTotal > 0
+                    ? `${fmtInt((page - 1) * limit + 1)}–${fmtInt(Math.min(page * limit, pageTotal))} de ${fmtInt(pageTotal)}`
                     : "0 de 0"}
                 </span>
                 <button className="pg" onClick={() => irParaPagina(page - 1)} disabled={page <= 1}>‹</button>
                 {[page - 1, page, page + 1].filter(p => p >= 1 && p <= lastPage).map(p => (
                   <button key={p} className={"pg" + (p === page ? " on" : "")} onClick={() => irParaPagina(p)}>{p}</button>
                 ))}
-                {page + 1 < lastPage && <span>…</span>}
-                {page + 1 < lastPage && <button className="pg" onClick={() => irParaPagina(lastPage)}>{lastPage}</button>}
                 <button className="pg" onClick={() => irParaPagina(page + 1)} disabled={page >= lastPage}>›</button>
               </div>
-            </section>
-          </div>
-
-          <aside className="ctx">
-            <h3>Contexto do lead <span className="x" role="button" aria-label="Fechar contexto" title="Limpar seleção" onClick={() => { setSel(null); setActionMsg(null); }}>✕</span></h3>
-
-            <div key={l?.id ?? "empty"} className="ctx-body">
-              {/* Hero: avatar + nome + segmento + localização */}
-              <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
-                <Av name={l?.name || "—"} size={56} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                    <span className="company">{l?.name || "Selecione um lead"}</span>
-                    <span className="tag teal" style={{ flexShrink: 0 }}>Lead</span>
-                  </div>
-                  <div className="sub">{l?.segment || l?.businessCategory || "—"}</div>
-                  {l?.city && (
-                    <div className="sub" style={{ marginTop: 3, display: "inline-flex", gap: 4, alignItems: "center" }}>
-                      <I d={ICONS.mapin} size={11} /> {l.city}{l.state ? `, ${l.state}` : ""}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Telefone em destaque — clicável */}
-              {l?.phone ? (
-                <a href={`tel:${l.phone.replace(/[^\d+]/g, "")}`} className="ctx-phone">
-                  <CanalIcon canal="telefone" /> {l.phone}
-                </a>
-              ) : l ? (
-                <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Sem telefone neste lead.</div>
-              ) : null}
-
-              {/* Lead score visual */}
-              {l && (
-                <div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                    <span className="ctx-score-label">Lead score</span>
-                    <span className="ctx-score-num" style={{ color: l.opportunityScore >= 70 ? "var(--hbx-success)" : l.opportunityScore >= 40 ? "var(--hbx-warning)" : "var(--hbx-danger)" }}>{l.opportunityScore}</span>
-                  </div>
-                  <div className="ctx-score-track">
-                    <div className="ctx-score-fill" style={{ width: `${l.opportunityScore}%`, background: l.opportunityScore >= 70 ? "var(--hbx-success)" : l.opportunityScore >= 40 ? "var(--hbx-warning)" : "var(--hbx-danger)" }} />
-                  </div>
-                </div>
-              )}
-
-              {/* Contato */}
-              <div className="kv">
-                <div className="row"><span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}><CanalIcon canal="email" size="sm" /> E-mail</span><span className="v" style={{ fontWeight: 600, fontSize: "0.68rem" }}>{l?.email || "—"}</span></div>
-                <div className="row"><span className="k">Canal recomendado</span><span className="v with-ico">{l?.recommendedChannel && toCanal(l.recommendedChannel) ? <CanalIcon canal={toCanal(l.recommendedChannel)!} size="sm" /> : null}{l?.recommendedChannel ? (CH_LABEL[l.recommendedChannel]?.label || l.recommendedChannel) : "—"}</span></div>
-              </div>
-
-              <div className="sep"></div>
-
-              {/* Pipeline */}
-              <div className="kv">
-                <div className="row"><span className="k">Etapa atual</span><span className="v">{l ? (ST_LABEL[l.status] || l.status) : "—"}</span></div>
-                <div className="row"><span className="k">Responsável</span><span className="v" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>{l && sellerName(l.assignedUserId) ? <React.Fragment><Av name={sellerName(l.assignedUserId)!} size={18} />{sellerName(l.assignedUserId)}</React.Fragment> : "—"}</span></div>
-                <div className="row"><span className="k">Origem</span><span className="v">{l?.sourceEngine || l?.source || "—"}</span></div>
-              </div>
-
-              <div className="sep"></div>
-
-              {/* Ações rápidas */}
-              <div style={{ display: "grid", gap: 8 }}>
-                <h3>Ações rápidas</h3>
-                {actionMsg && (
-                  <div style={{ fontSize: "0.72rem", fontWeight: 700, color: actionMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{actionMsg}</div>
-                )}
-                {canDistribute && (
-                  <React.Fragment>
-                    <select className="select-dark" value={sellerId} onChange={e => setSellerId(e.target.value)} style={{ width: "100%" }}>
-                      <option value="">Escolher vendedor…</option>
-                      {sellers.map(s => <option key={s.id} value={String(s.id)}>{userLabel(s)}</option>)}
-                    </select>
-                    <button className="btn-teal" onClick={distribuir} disabled={!sel?.id || !sellerId || busy}>
-                      <I d={ICONS.users} size={14} /> {busy ? "Distribuindo…" : "Distribuir para vendedor"}
-                    </button>
-                  </React.Fragment>
-                )}
-                {isSeller && commissionPct > 0 && (
-                  <div className="tag teal" style={{ display: "inline-flex", gap: 6, alignItems: "center", width: "fit-content" }} title="Percentual que você recebe quando este lead fecha venda">
-                    <I d={ICONS.money} size={12} /> Sua comissão por venda: {commissionPct}%
-                  </div>
-                )}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                  <button className="btn-ghost" onClick={enviarParaVendas} disabled={!sel?.id || busy}>
-                    <I d={ICONS.arrow} size={13} /> Enviar p/ Vendas{isSeller && commissionPct > 0 ? ` · ${commissionPct}%` : ""}
-                  </button>
-                  <button className="btn-ghost" onClick={iniciarConversa} disabled={!sel?.phone || busy} title={sel && !sel.phone ? "Lead sem telefone" : undefined}><I d={ICONS.msg} size={13} /> Iniciar conversa</button>
-                </div>
-              </div>
-            </div>
-          </aside>
-        </div>
-
-      {ruleOpen && (
-        <div className="hbx-veil to-right" onClick={e => { if (e.target === e.currentTarget) setRuleOpen(false); }}>
-          <div className="hbx-drawer" style={{ width: 360, height: "100vh", overflowY: "auto", padding: "18px 16px", display: "grid", gap: 14, alignContent: "start" }}>
-            <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "0.9rem", fontWeight: 700, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              Distribuição automática
-              <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setRuleOpen(false)}>✕</span>
-            </h3>
-            <p style={{ margin: 0, fontSize: "0.7rem", lineHeight: 1.5, color: "var(--text-muted)" }}>
-              Reabastece o estoque de cards dos vendedores automaticamente.
-              Vendedores ativos: <strong>{autoRule?.activeSellerCount ?? "—"}</strong>
-            </p>
-            {ruleMsg && (
-              <div style={{ fontSize: "0.72rem", fontWeight: 700, color: ruleMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{ruleMsg}</div>
-            )}
-            <div className="f" style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Status da regra</label>
-              <select className="select-dark" value={ruleForm.status || "draft"} onChange={e => setRuleForm(f => ({ ...f, status: e.target.value }))}>
-                <option value="draft">Rascunho (não roda)</option>
-                <option value="active">Ativa</option>
-                <option value="paused">Pausada</option>
-              </select>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              <div className="f" style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Estoque por vendedor</label>
-                <input className="field-dark" type="number" min={1} max={500} value={ruleForm.targetStockPerSeller ?? 30}
-                  onChange={e => setRuleForm(f => ({ ...f, targetStockPerSeller: Number(e.target.value) }))} />
-              </div>
-              <div className="f" style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Limite diário/vendedor</label>
-                <input className="field-dark" type="number" min={0} max={500} value={ruleForm.dailyLimitPerSeller ?? 20}
-                  onChange={e => setRuleForm(f => ({ ...f, dailyLimitPerSeller: Number(e.target.value) }))} />
-              </div>
-            </div>
-            <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-              <div style={{ flex: 1 }}>
-                <strong style={{ fontSize: "0.78rem" }}>Incluir administrador</strong>
-                <div style={{ fontSize: "0.66rem", color: "var(--text-muted)" }}>O admin também recebe cards na distribuição.</div>
-              </div>
-              <button className={"sw" + (ruleForm.includeAdmin ? " on" : "")} role="switch" aria-checked={Boolean(ruleForm.includeAdmin)}
-                onClick={() => setRuleForm(f => ({ ...f, includeAdmin: !f.includeAdmin }))}><i></i></button>
-            </div>
-            {ruleForm.includeAdmin && (
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <div className="f" style={{ display: "grid", gap: 6 }}>
-                  <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Estoque do admin</label>
-                  <input className="field-dark" type="number" min={0} max={500} value={ruleForm.adminTargetStock ?? 0}
-                    onChange={e => setRuleForm(f => ({ ...f, adminTargetStock: Number(e.target.value) }))} />
-                </div>
-                <div className="f" style={{ display: "grid", gap: 6 }}>
-                  <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Limite diário do admin</label>
-                  <input className="field-dark" type="number" min={0} max={500} value={ruleForm.adminDailyLimit ?? 0}
-                    onChange={e => setRuleForm(f => ({ ...f, adminDailyLimit: Number(e.target.value) }))} />
-                </div>
-              </div>
-            )}
-            <div className="f" style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Segmento preferido</label>
-              <input className="field-dark" placeholder="Ex.: clínica" value={ruleForm.segment || ""}
-                onChange={e => setRuleForm(f => ({ ...f, segment: e.target.value }))} />
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1.4fr 0.6fr", gap: 10 }}>
-              <div className="f" style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Cidade preferida</label>
-                <input className="field-dark" placeholder="Ex.: Campinas" value={ruleForm.preferredCity || ""}
-                  onChange={e => setRuleForm(f => ({ ...f, preferredCity: e.target.value }))} />
-              </div>
-              <div className="f" style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>UF</label>
-                <input className="field-dark" placeholder="SP" maxLength={2} value={ruleForm.preferredState || ""}
-                  onChange={e => setRuleForm(f => ({ ...f, preferredState: e.target.value.toUpperCase() }))} />
-              </div>
-            </div>
-            <div style={{ display: "grid", gap: 8, marginTop: 4 }}>
-              <button className="btn-teal" onClick={salvarRegra} disabled={ruleBusy}>{ruleBusy ? "Salvando…" : "Salvar regra"}</button>
-              <button className="btn-ghost" onClick={executarRegra} disabled={ruleBusy || ruleStatus !== "active"}
-                title={ruleStatus !== "active" ? "Ative a regra para executar" : "Distribuir agora"}>
-                {ruleBusy ? "Aguarde…" : "Executar agora"}
-              </button>
             </div>
           </div>
-        </div>
-      )}
-    </React.Fragment>
+        </section>
+
+        {!isSeller && (
+          <p className="radar2-cap" style={{ padding: "0 4px" }}>
+            Você vê o lago todo mascarado (admin). O vendedor vê a mesma tela — só muda quantos cabem na carteira dele.
+          </p>
+        )}
+      </div>
+    </div>
   );
 }

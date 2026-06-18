@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { WebscrapingContactResult } from '../shared/radar-core-shared';
 import type { NormalizedSearchInput, RadarWebsiteStatus } from '../shared/radar-types';
+import { deriveRowSignals } from './lead-signals.util';
 
 export type RadarOpportunitySignalHost = {
   parseMaybeJsonObject: (value: unknown) => Record<string, any>;
@@ -94,6 +95,7 @@ export class RadarOpportunitySignalService {
       Array.isArray(item.opportunitySignals) ? item.opportunitySignals : [],
       Array.isArray(websiteIntelligence.opportunitySignals) ? websiteIntelligence.opportunitySignals : [],
       Array.isArray(evidence.enrichmentJson?.signals?.opportunitySignals) ? evidence.enrichmentJson.signals.opportunitySignals : [],
+      deriveRowSignals(item),
     );
     const websiteStatus = host.inferWebsiteStatus(item.website);
     const social = hasConfirmedSocial(item);
@@ -177,6 +179,12 @@ export class RadarOpportunitySignalService {
     if (input.social) score += 7;
     if (input.sourceCount >= 2) score += 8;
     if (input.opportunitySignals.includes('pouca_presenca_digital')) score -= 8;
+    if (input.opportunitySignals.includes('recem_aberto')) score += 12;
+    if (input.opportunitySignals.includes('contratando')) score += 10;
+    if (input.opportunitySignals.includes('avaliacoes_em_queda')) score += 7;
+    if (input.opportunitySignals.includes('poucas_avaliacoes_novo')) score += 5;
+    if (input.opportunitySignals.includes('instagram_parado')) score += 4;
+    if (input.opportunitySignals.includes('cnpj_baixado')) score -= 40;
     return clampScore(score);
   }
 
@@ -197,6 +205,13 @@ export class RadarOpportunitySignalService {
       multi_fonte_empresa_poucos_canais: 'multiplas fontes confirmam a empresa, mas poucos canais convertem',
       social_confiavel_encontrado: 'social confiavel encontrado',
       website_crawl_form_orcamento: 'site indica formulario ou pedido de orcamento',
+      recem_aberto: 'abriu ha menos de 6 meses',
+      sem_site: 'sem site identificado',
+      instagram_parado: 'Instagram com engajamento fraco ou sem atualizacoes recentes',
+      avaliacoes_em_queda: 'nota no Google abaixo de 3,5',
+      poucas_avaliacoes_novo: 'negocio recente com poucas avaliacoes',
+      contratando: 'expansao detectada — esta contratando',
+      cnpj_baixado: 'CNPJ baixado ou inativo',
     };
     const picked = signals.map((signal) => labels[signal]).filter(Boolean).slice(0, 3);
     if (!picked.length) {
@@ -217,6 +232,12 @@ export class RadarOpportunitySignalService {
   }
 
   private pitchHint(signals: string[], channel: string) {
+    if (signals.includes('recem_aberto')) {
+      return 'Empresa recente em crescimento — ideal para oferecer presenca digital desde o comeco certo.';
+    }
+    if (signals.includes('avaliacoes_em_queda') || signals.includes('poucas_avaliacoes_novo')) {
+      return 'A reputacao digital pode ser o ponto de dor — usar as avaliacoes como gancho comercial.';
+    }
     if (signals.includes('instagram_sem_whatsapp_claro') || signals.includes('social_sem_link_atendimento')) {
       return 'Abrir conversa mostrando que a empresa ja atrai interesse, mas pode perder atendimento sem canal direto.';
     }
