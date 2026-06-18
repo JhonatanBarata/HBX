@@ -272,19 +272,27 @@ export class WAMonitoringService {
       // 1) derruba o socket em memória LOCALMENTE (sem client.logout → aparelho do sobrevivente intacto)
       try {
         live?.client?.ws?.close?.();
-      } catch {}
+      } catch {
+        /* best-effort: socket pode já estar fechado */
+      }
       try {
         live?.client?.end?.(new Error('reaped duplicate number'));
-      } catch {}
+      } catch {
+        /* best-effort */
+      }
       try {
         if (live?.stateConnection) live.stateConnection.state = 'close';
-      } catch {}
+      } catch {
+        /* best-effort */
+      }
       delete this.waInstances[dup.name];
 
       // 2) avisa o app que a instância saiu (limpa ponteiros de sessão no backend)
       try {
         await live?.sendDataWebhook?.(Events.REMOVE_INSTANCE, null);
-      } catch {}
+      } catch {
+        /* best-effort: webhook pode falhar, a limpeza segue */
+      }
 
       // 3) limpeza local completa (sessions/chats/contacts/messages/integrações/linha da instância)
       try {
@@ -467,7 +475,9 @@ export class WAMonitoringService {
             where: { id: instance.id },
             data: { connectionStatus: 'close' },
           });
-        } catch {}
+        } catch {
+          /* best-effort: marcar close não pode travar o boot */
+        }
       }
     }
 

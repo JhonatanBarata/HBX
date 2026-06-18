@@ -731,21 +731,19 @@ export function LeadsClient() {
                 <CanalIcon canal={selLead.hasWhatsapp ? "whatsapp" : "telefone"} /> {selLead.phone}
               </a>
             ) : tab === "shelf" ? (
-              <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", padding: "6px 0 8px" }}>
-                Contato revelado ao puxar este lead.
-              </div>
+              <div className="sub">Contato revelado ao puxar este lead.</div>
             ) : null}
 
             <div className="kv">
               {selLead.segment && <div className="row"><span className="k">Segmento</span><span className="v">{selLead.segment}</span></div>}
               {selLead.city && <div className="row"><span className="k">Cidade</span><span className="v">{selLead.city}{selLead.state ? `/${selLead.state}` : ""}</span></div>}
               {selLead.opportunityScore > 0 && (
-                <div className="row"><span className="k">Score</span><span className="v" style={{ fontFamily: "var(--font-mono)" }}>{selLead.opportunityScore}</span></div>
+                <div className="row"><span className="k">Score</span><span className="v hbx-mono">{selLead.opportunityScore}</span></div>
               )}
             </div>
 
             {selLead.opportunityReason && (
-              <p style={{ margin: "8px 0 0", fontSize: "0.72rem", lineHeight: 1.5, color: "var(--text-body)" }}>
+              <p style={{ margin: "8px 0 0", fontSize: "0.72rem", lineHeight: 1.5 }}>
                 {selLead.opportunityReason}
               </p>
             )}
