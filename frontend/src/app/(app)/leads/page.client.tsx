@@ -14,7 +14,7 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { I, ICONS } from "@/components/hbx/shell";
+import { Av, I, ICONS } from "@/components/hbx/shell";
 import { CanalIcon } from "@/components/hbx/canal-icon";
 import { apiFetch } from "@/lib/api";
 import { BRAZIL_UF_OPTIONS, mergeBrazilCityOptions } from "@/lib/brazil-cities";
@@ -37,6 +37,9 @@ type RadarLead = {
   hasPhone?: boolean;
   hasEmail?: boolean;
   hasWhatsapp?: boolean;
+  instagramUrl?: string | null;
+  facebookUrl?: string | null;
+  website?: string | null;
 };
 
 type LeadsResponse = {
@@ -148,6 +151,9 @@ export function LeadsClient() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [counts, setCounts] = useState<{ shelf: number | null; carteira: number | null }>({ shelf: null, carteira: null });
 
+  // lead selecionado no painel de detalhe
+  const [selLead, setSelLead] = useState<RadarLead | null>(null);
+
   // seleção (puxar em lote)
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pullBusyId, setPullBusyId] = useState<string | null>(null);
@@ -256,6 +262,7 @@ export function LeadsClient() {
     setPage(1);
     setSelected(new Set());
     setPullMsg(null);
+    setSelLead(null);
     loadList(next, { page: 1 });
   }
 
@@ -327,6 +334,7 @@ export function LeadsClient() {
         body: JSON.stringify({}),
       });
       setSelected(prev => { const n = new Set(prev); n.delete(id); return n; });
+      if (selLead?.id === id) setSelLead(null);
       setPullMsg("✓ Puxado pra sua carteira (Vendas).");
       loadList("shelf", { page });
       loadUsage();
@@ -368,11 +376,12 @@ export function LeadsClient() {
   const items = data?.items || [];
   const limit = data?.meta?.limit || pageSize;
   const filters = data?.meta?.availableFilters;
-  const segOptions = filters?.segments || [];
-  const ufOptions = mergeFilterOptions(filters?.states, BRAZIL_UF_OPTIONS);
+  const byLabel = (a: { label: string }, b: { label: string }) => a.label.localeCompare(b.label, "pt-BR");
+  const segOptions = (filters?.segments || []).sort(byLabel);
+  const ufOptions = mergeFilterOptions(filters?.states, BRAZIL_UF_OPTIONS).sort(byLabel);
   const cityOptions = uf
-    ? mergeBrazilCityOptions(uf, filters?.citiesByState?.[uf])
-    : Object.values(filters?.citiesByState || {}).flat();
+    ? mergeBrazilCityOptions(uf, filters?.citiesByState?.[uf]).sort(byLabel)
+    : [];
 
   const runActive = Boolean((run?.id || run?.runId) && !TERMINAL_RUN.has(String(run?.status || "")));
   const runProgress = run?.meta?.progress;
@@ -403,12 +412,16 @@ export function LeadsClient() {
           : "Escolha cidade + segmento e clique Buscar.";
 
   function contatoMascarado(row: RadarLead) {
-    const has = row.hasWhatsapp || row.hasPhone || row.hasEmail;
+    const has = row.hasWhatsapp || row.hasPhone || row.hasEmail
+      || Boolean(row.instagramUrl) || Boolean(row.facebookUrl) || Boolean(row.website);
     return (
       <span className="radar2-locked">
         {row.hasWhatsapp && <CanalIcon canal="whatsapp" size="sm" />}
         {row.hasEmail && <CanalIcon canal="email" size="sm" />}
         {row.hasPhone && !row.hasWhatsapp && <CanalIcon canal="telefone" size="sm" />}
+        {row.instagramUrl && <CanalIcon canal="instagram" size="sm" />}
+        {row.facebookUrl && <CanalIcon canal="facebook" size="sm" />}
+        {row.website && !row.instagramUrl && !row.facebookUrl && <CanalIcon canal="site" size="sm" />}
         <span>{has ? "revela no Puxar" : "sem contato"}</span>
       </span>
     );
