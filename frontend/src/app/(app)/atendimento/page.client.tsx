@@ -146,8 +146,24 @@ function cleanContact(value: string | null | undefined): string | null {
   return raw;
 }
 
+// De um JID cru de número real (5519920121720@s.whatsapp.net / @c.us) extrai os dígitos
+// pra mostrar como telefone; @lid e demais JIDs técnicos continuam virando null (não são
+// número). Nunca deixa o `@s.whatsapp.net` cru vazar pra tela.
+function phoneFromContact(value: string | null | undefined): string | null {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const m = raw.match(/^\+?(\d{8,15})@(?:s\.whatsapp\.net|c\.us)$/i);
+  if (m) return m[1];
+  return cleanContact(raw);
+}
+
 function convName(c: InboxConversation) {
-  return c.customer?.name || c.customer?.phone || cleanContact(c.contact) || "Contato WhatsApp";
+  return (
+    cleanContact(c.customer?.name) ||
+    phoneFromContact(c.customer?.phone) ||
+    phoneFromContact(c.contact) ||
+    "Contato WhatsApp"
+  );
 }
 
 function convUnread(c: InboxConversation) {
@@ -1018,7 +1034,7 @@ export function AtendimentoClient() {
       if (convo) {
         sessionStorage.setItem("hbx:lead-contato", JSON.stringify({
           name: convName(convo),
-          phone: convo.customer?.phone || cleanContact(convo.contact) || "",
+          phone: phoneFromContact(convo.customer?.phone) || phoneFromContact(convo.contact) || "",
           email: convo.customer?.email || "",
         }));
       }
@@ -1060,7 +1076,7 @@ export function AtendimentoClient() {
   });
 
   function presenceNode() {
-    const phone = convo?.customer?.phone || cleanContact(convo?.contact) || "—";
+    const phone = phoneFromContact(convo?.customer?.phone) || phoneFromContact(convo?.contact) || "—";
     if (!presence) return <small>{phone}</small>;
     if (presence.typing) return <small><span className="typing"><i /><i /><i /></span> digitando…</small>;
     if (presence.recording) return <small>gravando áudio…</small>;
@@ -1377,7 +1393,7 @@ export function AtendimentoClient() {
                     ? <span className="tag red">Não ligar</span>
                     : <span className="tag teal">{card?.lead?.statusLabel || "Lead"}</span>}
                 </div>
-                <div className="sub">{convo?.customer?.phone || cleanContact(convo?.contact) || "—"}</div>
+                <div className="sub">{phoneFromContact(convo?.customer?.phone) || phoneFromContact(convo?.contact) || "—"}</div>
               </div>
             </div>
 
@@ -1385,7 +1401,7 @@ export function AtendimentoClient() {
               <>
                 <div className="kv">
                   <div className="row"><span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}><I d={ICONS.mail} size={13} /> E-mail</span><span className="v">{convo?.customer?.email || "—"}</span></div>
-                  <div className="row"><span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}><I d={ICONS.phone} size={13} /> Telefone</span><span className="v">{convo?.customer?.phone || cleanContact(convo?.contact) || "—"}</span></div>
+                  <div className="row"><span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}><I d={ICONS.phone} size={13} /> Telefone</span><span className="v">{phoneFromContact(convo?.customer?.phone) || phoneFromContact(convo?.contact) || "—"}</span></div>
                   <div className="row"><span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}><I d={ICONS.msg} size={13} /> Canal</span><span className="v"><span className="chan wa">WhatsApp</span></span></div>
                 </div>
                 <div className="sep"></div>

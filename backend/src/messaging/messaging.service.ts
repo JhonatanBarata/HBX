@@ -5233,10 +5233,12 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         payload?.display_phone_number ||
         payload?.owner ||
         payload?.ownerJid ||
+        payload?.wuid ||
         payload?.data?.displayPhone ||
         payload?.data?.display_phone_number ||
         payload?.data?.owner ||
         payload?.data?.ownerJid ||
+        payload?.data?.wuid ||
         '',
     ).trim();
     if (displayPhone) {

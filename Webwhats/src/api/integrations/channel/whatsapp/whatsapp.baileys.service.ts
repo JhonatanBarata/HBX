@@ -521,6 +521,15 @@ export class BaileysStartupService extends ChannelStartupService {
         },
       });
 
+      // NÚMERO ÚNICO: ao abrir, despeja qualquer outra instância amarrada neste mesmo
+      // número (legado/zumbi/scan duplicado). Sem isso, sockets concorrentes se derrubam
+      // em loop (conflict: replaced) e o número recebe mas não envia.
+      try {
+        await waMonitor.reapDuplicateNumberSessions(this.instance.wuid, this.instance.name);
+      } catch (error) {
+        this.logger.error(`[NUMERO-UNICO] reap falhou: ${error?.toString()}`);
+      }
+
       if (this.configService.get<Chatwoot>('CHATWOOT').ENABLED && this.localChatwoot?.enabled) {
         this.chatwootService.eventWhatsapp(
           Events.CONNECTION_UPDATE,

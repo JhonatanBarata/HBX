@@ -224,6 +224,95 @@ export class WAMonitoringService {
     await this.prismaRepository.instance.delete({ where: { name: instanceName } });
   }
 
+  /**
+   * NÚMERO ÚNICO (regra do dono 18/06): 1 número = 1 sessão viva.
+   * Quando uma instância abre conexão com um ownerJid, despeja LOCALMENTE qualquer
+   * OUTRA instância amarrada no MESMO número — sem logout remoto, então o aparelho
+   * do sobrevivente fica intacto mesmo quando as credenciais foram clonadas
+   * (caso clássico do `conflict: replaced`). É o que mata o storm de socket na raiz:
+   * em vez de N sockets brigando pelo mesmo número (recebe mas não envia), sobra um só.
+   */
+  public async reapDuplicateNumberSessions(ownerJid: string, keepInstanceName: string) {
+    const normalized = (ownerJid || '').replace(/:\d+/, '').trim();
+    if (!normalized || !keepInstanceName) return;
+
+    let clientName: string;
+    try {
+      clientName = await this.configService.get<Database>('DATABASE').CONNECTION.CLIENT_NAME;
+    } catch {
+      clientName = undefined;
+    }
+
+    const duplicates = await this.prismaRepository.instance.findMany({
+      where: {
+        ownerJid: normalized,
+        name: { not: keepInstanceName },
+        ...(clientName ? { clientName } : {}),
+      },
+      select: { id: true, name: true },
+    });
+
+    for (const dup of duplicates) {
+      const live = this.waInstances[dup.name];
+
+      // Guarda anti-aniquilação: se o peer ESTÁ mesmo aberto na memória, o WhatsApp
+      // teria me derrubado — logo eu não estaria aberto. Se chegamos aqui os dois
+      // "abertos", é corrida; adia o reap e deixa o WhatsApp resolver o conflito.
+      if (live?.connectionStatus?.state === 'open') {
+        this.logger.warn(
+          `[NUMERO-UNICO] peer "${dup.name}" também aberto no número ${normalized}; reap adiado p/ evitar aniquilação mútua`,
+        );
+        continue;
+      }
+
+      this.logger.warn(
+        `[NUMERO-UNICO] reapando sessão duplicada "${dup.name}" no número ${normalized}; mantendo "${keepInstanceName}"`,
+      );
+
+      // 1) derruba o socket em memória LOCALMENTE (sem client.logout → aparelho do sobrevivente intacto)
+      try {
+        live?.client?.ws?.close?.();
+      } catch {}
+      try {
+        live?.client?.end?.(new Error('reaped duplicate number'));
+      } catch {}
+      try {
+        if (live?.stateConnection) live.stateConnection.state = 'close';
+      } catch {}
+      delete this.waInstances[dup.name];
+
+      // 2) avisa o app que a instância saiu (limpa ponteiros de sessão no backend)
+      try {
+        await live?.sendDataWebhook?.(Events.REMOVE_INSTANCE, null);
+      } catch {}
+
+      // 3) limpeza local completa (sessions/chats/contacts/messages/integrações/linha da instância)
+      try {
+        await this.cleaningStoreData(dup.name);
+      } catch (error) {
+        this.logger.error(`[NUMERO-UNICO] falha limpando duplicada "${dup.name}": ${error?.toString()}`);
+      }
+    }
+  }
+
+  /**
+   * Escolhe a instância canônica dentre várias amarradas no mesmo número:
+   * aberta > conectando; por-vendedor (`-user-`) > legado; mais recente por último update.
+   */
+  private pickCanonicalForNumber(
+    group: Array<{ id: string; name: string; connectionStatus: string | null; updatedAt: Date | null }>,
+  ) {
+    return [...group].sort((a, b) => {
+      const ao = a.connectionStatus === 'open' ? 0 : 1;
+      const bo = b.connectionStatus === 'open' ? 0 : 1;
+      if (ao !== bo) return ao - bo;
+      const au = a.name.includes('-user-') ? 0 : 1;
+      const bu = b.name.includes('-user-') ? 0 : 1;
+      if (au !== bu) return au - bu;
+      return (b.updatedAt?.getTime?.() || 0) - (a.updatedAt?.getTime?.() || 0);
+    })[0];
+  }
+
   public async loadInstance() {
     try {
       if (this.providerSession?.ENABLED) {
@@ -352,6 +441,36 @@ export class WAMonitoringService {
       return;
     }
 
+    // NÚMERO ÚNICO (boot): se várias instâncias dividem o mesmo número, auto-conecta
+    // só a canônica. As demais sobem suspensas (status close) e o reap em runtime
+    // (reapDuplicateNumberSessions) as remove quando a canônica abrir — sem deixar
+    // 2+ sockets brigarem já na largada.
+    const demoted = new Set<string>();
+    const byNumber = new Map<string, typeof instances>();
+    for (const instance of instances) {
+      const jid = (instance.ownerJid || '').replace(/:\d+/, '').trim();
+      if (!jid) continue;
+      if (!byNumber.has(jid)) byNumber.set(jid, []);
+      byNumber.get(jid).push(instance);
+    }
+    for (const [jid, group] of byNumber) {
+      if (group.length < 2) continue;
+      const keep = this.pickCanonicalForNumber(group);
+      for (const instance of group) {
+        if (instance.id === keep.id) continue;
+        demoted.add(instance.id);
+        this.logger.warn(
+          `[NUMERO-UNICO] boot: número ${jid} tem ${group.length} instâncias; auto-conectando só "${keep.name}", suspendendo "${instance.name}"`,
+        );
+        try {
+          await this.prismaRepository.instance.update({
+            where: { id: instance.id },
+            data: { connectionStatus: 'close' },
+          });
+        } catch {}
+      }
+    }
+
     await Promise.all(
       instances.map(async (instance) => {
         await this.setInstance({
@@ -362,7 +481,7 @@ export class WAMonitoringService {
           number: instance.number,
           businessId: instance.businessId,
           ownerJid: instance.ownerJid,
-          connectionStatus: instance.connectionStatus as any, // Pass connection status
+          connectionStatus: (demoted.has(instance.id) ? 'close' : instance.connectionStatus) as any,
         });
       }),
     );
