@@ -558,9 +558,9 @@ export function LeadsClient() {
                     {items.map(row => (
                       <tr
                         key={row.id}
-                        role={tab === "shelf" ? "button" : undefined}
-                        style={tab === "shelf" ? { cursor: "pointer" } : undefined}
-                        onClick={tab === "shelf" ? () => toggleSel(row.id) : undefined}
+                        className={selLead?.id === row.id ? "sel" : ""}
+                        style={{ cursor: "pointer" }}
+                        onClick={() => setSelLead(selLead?.id === row.id ? null : row)}
                       >
                         {tab === "shelf" && (
                           <td onClick={e => e.stopPropagation()}>
@@ -671,6 +671,112 @@ export function LeadsClient() {
           </p>
         )}
       </div>
+
+      {selLead && (
+        <aside className="ctx">
+          <h3>Detalhes do lead <span className="x" onClick={() => setSelLead(null)}>✕</span></h3>
+          <div key={selLead.id} className="ctx-body">
+            {/* Hero */}
+            <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
+              <Av name={selLead.name || "—"} size={56} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <span className="company">{selLead.name || "—"}</span>
+                <div className="sub">{selLead.segment || selLead.businessCategory || "—"}</div>
+                {selLead.city && (
+                  <div className="sub" style={{ marginTop: 3, display: "inline-flex", gap: 4, alignItems: "center" }}>
+                    <I d={ICONS.mapin} size={11} /> {selLead.city}{selLead.state ? `, ${selLead.state}` : ""}
+                  </div>
+                )}
+                {selLead.fitScore != null && selLead.fitScore > 0 && (
+                  <div style={{ marginTop: 6 }}>
+                    <span className={`radar2-fit${selLead.fitScore >= 60 ? " radar2-fit--hi" : ""}`}>Fit {selLead.fitScore}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Canais disponíveis */}
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", padding: "12px 0 4px", alignItems: "center" }}>
+              {selLead.hasWhatsapp && (
+                tab === "carteira" && selLead.phone
+                  ? <a href={`https://wa.me/55${selLead.phone.replace(/\D/g, "")}`} target="_blank" rel="noopener noreferrer" aria-label="WhatsApp"><CanalIcon canal="whatsapp" size="lg" /></a>
+                  : <CanalIcon canal="whatsapp" size="lg" />
+              )}
+              {selLead.hasPhone && !selLead.hasWhatsapp && (
+                tab === "carteira" && selLead.phone
+                  ? <a href={`tel:${selLead.phone.replace(/[^\d+]/g, "")}`} aria-label="Telefone"><CanalIcon canal="telefone" size="lg" /></a>
+                  : <CanalIcon canal="telefone" size="lg" />
+              )}
+              {selLead.hasEmail && <CanalIcon canal="email" size="lg" />}
+              {selLead.instagramUrl && (
+                <a href={selLead.instagramUrl} target="_blank" rel="noopener noreferrer" aria-label="Instagram">
+                  <CanalIcon canal="instagram" size="lg" />
+                </a>
+              )}
+              {selLead.facebookUrl && (
+                <a href={selLead.facebookUrl} target="_blank" rel="noopener noreferrer" aria-label="Facebook">
+                  <CanalIcon canal="facebook" size="lg" />
+                </a>
+              )}
+              {selLead.website && (
+                <a href={selLead.website.startsWith("http") ? selLead.website : `https://${selLead.website}`} target="_blank" rel="noopener noreferrer" aria-label="Site">
+                  <CanalIcon canal="site" size="lg" />
+                </a>
+              )}
+            </div>
+
+            {/* Contato principal */}
+            {tab === "carteira" && selLead.phone ? (
+              <a href={`tel:${selLead.phone.replace(/[^\d+]/g, "")}`} className="ctx-phone">
+                <CanalIcon canal={selLead.hasWhatsapp ? "whatsapp" : "telefone"} /> {selLead.phone}
+              </a>
+            ) : tab === "shelf" ? (
+              <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", padding: "6px 0 8px" }}>
+                Contato revelado ao puxar este lead.
+              </div>
+            ) : null}
+
+            <div className="kv">
+              {selLead.segment && <div className="row"><span className="k">Segmento</span><span className="v">{selLead.segment}</span></div>}
+              {selLead.city && <div className="row"><span className="k">Cidade</span><span className="v">{selLead.city}{selLead.state ? `/${selLead.state}` : ""}</span></div>}
+              {selLead.opportunityScore > 0 && (
+                <div className="row"><span className="k">Score</span><span className="v" style={{ fontFamily: "var(--font-mono)" }}>{selLead.opportunityScore}</span></div>
+              )}
+            </div>
+
+            {selLead.opportunityReason && (
+              <p style={{ margin: "8px 0 0", fontSize: "0.72rem", lineHeight: 1.5, color: "var(--text-body)" }}>
+                {selLead.opportunityReason}
+              </p>
+            )}
+
+            {selLead.opportunitySignals && selLead.opportunitySignals.length > 0 && (
+              <div className="radar2-signals" style={{ marginTop: 10 }}>
+                {selLead.opportunitySignals.slice(0, 6).map(sig => {
+                  const m = SIGNAL_META[sig];
+                  if (!m) return null;
+                  return <span key={sig} className={`radar2-sig radar2-sig--${m.tone}`}>{m.label}</span>;
+                })}
+              </div>
+            )}
+
+            <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
+              {tab === "shelf" && (
+                <button className="btn-teal"
+                  onClick={() => puxar(selLead.id)}
+                  disabled={pullBusyId === selLead.id || bulkBusy || meterBlocked}>
+                  {pullBusyId === selLead.id ? "Puxando…" : "Puxar lead →"}
+                </button>
+              )}
+              {tab === "carteira" && (
+                <button className="btn-ghost" onClick={() => router.push("/vendas")}>
+                  Ver em Vendas →
+                </button>
+              )}
+            </div>
+          </div>
+        </aside>
+      )}
     </div>
   );
 }

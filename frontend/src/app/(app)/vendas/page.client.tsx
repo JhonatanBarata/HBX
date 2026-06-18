@@ -23,6 +23,7 @@ type VendasLead = {
   phone: string | null;
   email: string | null;
   address?: string | null;
+  website?: string | null;
   city: string | null;
   state: string | null;
   segment: string | null;
@@ -746,7 +747,7 @@ export function VendasClient() {
               </div>
             </div>
 
-            {/* Telefone em destaque */}
+            {/* Canais de contato */}
             {deal?.phone ? (
               <a href={`tel:${deal.phone.replace(/[^\d+]/g, "")}`} className="ctx-phone">
                 <CanalIcon canal="telefone" /> {deal.phone}
@@ -754,6 +755,11 @@ export function VendasClient() {
             ) : deal ? (
               <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Sem telefone neste card.</div>
             ) : null}
+            {deal?.website && (
+              <a href={deal.website.startsWith("http") ? deal.website : `https://${deal.website}`} target="_blank" rel="noopener noreferrer" className="ctx-phone" style={{ marginTop: 4 }}>
+                <CanalIcon canal="site" /> {deal.website}
+              </a>
+            )}
 
             <div className="kv">
               <div className="row"><span className="k">Valor</span><span className="v" style={{ fontFamily: "var(--font-mono)" }}>{deal ? leadValueLabel(deal) : "—"}</span></div>
