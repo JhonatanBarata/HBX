@@ -14,6 +14,27 @@
   proibido.
 - Não commitar nada no `Webwhats/` como efeito colateral de tarefa do app principal.
 
+## Número único — ninguém compartilha WhatsApp (ordem do dono 17/06)
+
+Um número de WhatsApp pertence a **UMA empresa**. É proibido o mesmo número (o telefone /
+`ownerJid` que escaneia o QR) estar conectado em mais de uma instância `company-{id}`.
+Compartilhar o WhatsApp do admin entre empresas foi o que gerou o loop `conflict/replaced`
+(sessões do mesmo número se derrubando, `bad-mac`, reconexão infinita) — **não repetir**.
+
+- Uma instância por empresa (`company-{id}`) continua certo. O proibido é o **mesmo
+  telefone** conectar em N `company-{id}`.
+- O backend **recusa** a conexão quando o número já é a sessão ativa de outra empresa:
+  desconecta/`logout`+`delete` da instância desta empresa e grava erro claro
+  ("Este WhatsApp já está vinculado a outra empresa").
+- Enforcement vive no escritor único de estado de conexão: `whatsapp-modal.service.ts`
+  → `persistSnapshot` (no `connected` com telefone), junto de
+  `registerTrialPhoneUsageOrBlock`/`reconcileWebwhatsConnectionSession`.
+- Limpeza operacional já feita na VPS (17/06): o número do admin tinha 6 instâncias →
+  reduzido a 1. A trava de código está APLICADA em
+  `backend/src/companies/whatsapp-modal.service.ts`
+  (`enforceNumberNotSharedAcrossCompaniesOrBlock`, erro 409
+  `WHATSAPP_NUMBER_OWNED_BY_OTHER_COMPANY`). Falta só deploy.
+
 ## Backend (mensageria)
 
 - Envio via WhatsApp Cloud API com padrão Outbox: retry com backoff exponencial +

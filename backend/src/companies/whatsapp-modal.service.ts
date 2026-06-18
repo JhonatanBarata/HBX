@@ -26,6 +26,7 @@ type WhatsAppModalErrorCode =
   | 'WHATSAPP_MODAL_PAIRING_CODE_EMPTY'
   | 'WHATSAPP_MODAL_PAIRING_RATE_LIMITED'
   | 'WHATSAPP_MODAL_ALREADY_CONNECTED'
+  | 'WHATSAPP_NUMBER_OWNED_BY_OTHER_COMPANY'
   | 'TRIAL_PHONE_ALREADY_USED';
 type ProviderHealth = 'disabled' | 'misconfigured' | 'healthy' | 'unavailable' | 'unknown';
 
@@ -947,6 +948,58 @@ export class WhatsAppModalService {
       tenantKey: this.resolveOperationalTenantKey(company),
       recordedAt: new Date().toISOString(),
     };
+  }
+
+  // Número único — ninguém compartilha WhatsApp (regra do dono 17/06; docs/Rules/WHATSAPP.md).
+  // Um número (o telefone/ownerJid que escaneia o QR) pertence a UMA empresa. Se o número que
+  // acabou de conectar já é a sessão ATIVA de OUTRA empresa, recusa esta conexão: tira o chip
+  // desta empresa da briga no motor (logout+delete), grava erro e NÃO deixa virar conectado.
+  // Sem isso, o mesmo número em N instâncias volta ao loop conflict/replaced.
+  private async enforceNumberNotSharedAcrossCompaniesOrBlock(
+    company: CompanyModalFields,
+    snapshot: ModalSnapshot,
+    source: string,
+  ) {
+    const phoneNormalized = this.normalizeTrialPhone(snapshot.phone);
+    if (!phoneNormalized) return;
+
+    const activeForNumber = await this.prisma.whatsAppConnectionSession.findFirst({
+      where: { provider: 'webwhats', status: 'active', phoneNormalized },
+      select: { companyId: true },
+    });
+    if (!activeForNumber || Number(activeForNumber.companyId) === Number(company.id)) {
+      return;
+    }
+
+    const tenantKey = this.resolveOperationalTenantKey(company);
+    const message = 'Este WhatsApp já está vinculado a outra empresa. Use um número exclusivo desta conta.';
+    this.logger.warn(
+      `Número compartilhado bloqueado: company ${company.id} tentou conectar ${phoneNormalized} ` +
+        `já ativo na company ${activeForNumber.companyId} (${source}).`,
+    );
+
+    // Tira esta instância da briga no motor (best-effort — não pode mascarar o bloqueio).
+    try {
+      await this.logoutProviderSession(tenantKey);
+    } catch (error) {
+      this.logger.warn(`logout pos-bloqueio falhou para ${tenantKey}: ${this.toProviderError(error).message}`);
+    }
+    try {
+      await this.deleteProviderInstance(tenantKey);
+    } catch (error) {
+      this.logger.warn(`delete pos-bloqueio falhou para ${tenantKey}: ${this.toProviderError(error).message}`);
+    }
+
+    await this.prisma.company.update({
+      where: { id: Number(company.id) },
+      data: {
+        whatsappModalStatus: 'ERROR',
+        whatsappModalLastError: message,
+        whatsappModalUpdatedAt: new Date(),
+      },
+    });
+
+    throw new WhatsAppModalProviderError('WHATSAPP_NUMBER_OWNED_BY_OTHER_COMPANY', message, 409);
   }
 
   private async registerTrialPhoneUsageOrBlock(company: CompanyModalFields, phone: string | null, snapshot: ModalSnapshot, source: string) {
@@ -2745,6 +2798,7 @@ export class WhatsAppModalService {
       this.logger.log(`QR conectado para company ${company.id}.`);
     }
     if (snapshot.status === 'connected' && snapshot.phone) {
+      await this.enforceNumberNotSharedAcrossCompaniesOrBlock(company, snapshot, origin);
       await this.registerTrialPhoneUsageOrBlock(company, snapshot.phone, snapshot, origin);
     }
     const currentSessionId = await this.reconcileWebwhatsConnectionSession(company, snapshot, origin);

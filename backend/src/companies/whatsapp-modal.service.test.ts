@@ -316,6 +316,49 @@ test('snapshot connected do MESMO número reativa a sessão dele (preserva hist�
   assert.equal(companyUpdates.at(-1).currentWhatsappConnectionSessionId, 'session-mine');
 });
 
+test('persistSnapshot BLOQUEIA número já ativo em outra empresa (1 número = 1 empresa)', async () => {
+  // Regra do dono 17/06: ninguém compartilha WhatsApp. company-7 tenta conectar um número
+  // que já é a sessão ativa da company 99 → recusa, desconecta o chip e lança 409.
+  const company = createCompany({ whatsappModalStatus: 'DISCONNECTED' });
+  const { prisma, sessions, companyUpdates } = createSessionPrisma(company, [
+    {
+      id: 'session-outra',
+      companyId: 99,
+      provider: 'webwhats',
+      tenantKey: 'company-99',
+      phoneNormalized: '5519999999999',
+      displayPhone: '+5519999999999',
+      status: 'active',
+      connectedAt: new Date('2026-05-09T10:00:00.000Z'),
+      createdAt: new Date('2026-05-09T10:00:00.000Z'),
+    },
+  ]);
+  const service = new WhatsAppModalService(prisma) as any;
+  const providerPaths: string[] = [];
+  service.requestProvider = async ({ path }: any) => {
+    providerPaths.push(path);
+    return {};
+  };
+
+  await assert.rejects(
+    () => service.persistSnapshot(company, createSnapshot(), 'test_cross_company'),
+    (error: any) => {
+      assert.equal(error.code, 'WHATSAPP_NUMBER_OWNED_BY_OTHER_COMPANY');
+      assert.equal(error.statusCode, 409);
+      return true;
+    },
+  );
+
+  // Tirou o chip da company-7 da briga no motor.
+  assert.ok(providerPaths.includes('/instance/logout/company-7'));
+  assert.ok(providerPaths.includes('/instance/delete/company-7'));
+  // Não criou sessão para company-7 e marcou erro.
+  assert.equal(sessions.some((s) => Number(s.companyId) === 7), false);
+  assert.equal(companyUpdates.at(-1).whatsappModalStatus, 'ERROR');
+  // A sessão da outra empresa permanece intacta.
+  assert.equal(sessions.find((s) => s.id === 'session-outra').status, 'active');
+});
+
 test('snapshot connected cria sessao mesmo sem whatsappModalPhone', async () => {
   const company = createCompany({ whatsappModalStatus: 'DISCONNECTED', whatsappModalPhone: null });
   const { prisma, sessions, companyUpdates } = createSessionPrisma(company);
