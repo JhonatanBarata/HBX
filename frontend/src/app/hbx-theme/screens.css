@@ -1114,11 +1114,15 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .radar2-locked { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 0.68rem; }
 .radar2-empty { text-align: center; color: var(--text-muted); padding: 30px 12px; font-size: 0.8rem; }
 .radar2-sel-all { padding: 8px 16px 0; }
-.radar2-meter { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 14px 16px; padding: 11px 14px; border-radius: var(--radius-md); background: var(--hbx-surface-raised); }
-.radar2-meter .side { display: inline-flex; align-items: center; gap: 9px; font-size: 0.74rem; color: var(--text-muted); }
-.radar2-meter .lvl { font-family: var(--font-mono); font-size: 0.84rem; font-weight: 800; color: var(--text-strong); }
+.radar2-meter { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin: 14px 16px; padding: 14px 18px; border-radius: var(--radius-md); background: var(--hbx-surface-raised); }
+.radar2-meter-card { display: flex; flex-direction: column; gap: 1px; }
+.radar2-meter-lbl { display: inline-flex; align-items: center; gap: 5px; font-size: 0.6rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; }
+.radar2-meter-val { font-family: var(--font-display); font-size: 1.5rem; font-weight: 800; color: var(--text-strong); letter-spacing: -0.02em; line-height: 1.15; margin-top: 1px; }
+.radar2-bar { height: 3px; border-radius: 99px; background: var(--border-hairline); margin-top: 7px; width: 160px; overflow: hidden; }
+.radar2-bar-fill { height: 100%; border-radius: 99px; background: var(--hbx-primary); transition: width 0.6s ease; }
 .radar2-meter.blocked { background: var(--hbx-danger-soft, var(--hbx-surface-raised)); }
-.radar2-meter.blocked .lvl { color: var(--hbx-danger); }
+.radar2-meter.blocked .radar2-meter-val { color: var(--hbx-danger); }
+.radar2-meter.blocked .radar2-bar-fill { background: var(--hbx-danger); }
 @media (max-width: 760px) { .radar2-shell { grid-template-columns: 1fr; } .radar2-rail { border-right: none; border-bottom: 1px solid var(--border-hairline); } }
 .radar2-auto { position: relative; overflow: hidden; }
 .radar2-auto--on { animation: radar2-auto-pulse 2s ease-in-out infinite; }

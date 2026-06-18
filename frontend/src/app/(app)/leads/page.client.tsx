@@ -613,10 +613,16 @@ export function LeadsClient() {
                     </button>
                   </div>
                   <div className={"radar2-meter" + (meterBlocked ? " blocked" : "")}>
-                    <span className="side">
-                      <I d={ICONS.bolt} size={15} /> {meterLabel} <span className="lvl">{meterValue}</span>
+                    <div className="radar2-meter-card">
+                      <span className="radar2-meter-lbl">
+                        <I d={ICONS.bolt} size={11} /> {meterLabel}
+                      </span>
+                      <span className="radar2-meter-val">{meterValue}</span>
+                      <div className="radar2-bar">
+                        <div className="radar2-bar-fill" style={{ width: `${Math.min(100, Math.round(isSeller ? ((saq?.activeCount ?? 0) / (saq?.effectiveLimit || 1)) * 100 : ((usage?.cards?.used ?? 0) / (usage?.cards?.limit || 1)) * 100))}%` }} />
+                      </div>
                       {isSeller && <span className="radar2-quota-note">os 20 são compartilhados com o Vendas</span>}
-                    </span>
+                    </div>
                     <button className="btn-teal" onClick={puxarSelecionados} disabled={selected.size === 0 || meterBlocked || bulkBusy}>
                       <I d={ICONS.check} size={14} /> {bulkBusy ? "Puxando…" : `Puxar selecionados${selected.size ? ` (${selected.size})` : ""}`}
                     </button>
