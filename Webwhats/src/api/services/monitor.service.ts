@@ -461,10 +461,18 @@ export class WAMonitoringService {
     const demoted = new Set<string>();
     const byNumber = new Map<string, typeof instances>();
     for (const instance of instances) {
+      // Agrupa pela company-key DERIVADA DO NOME (`company-{id}` em `company-{id}` e
+      // em `company-{id}-user-{n}`), com fallback no ownerJid. Crucial: a canônica
+      // `company-{id}` que ainda não abriu (status "connecting") tem ownerJid vazio —
+      // agrupar só por ownerJid deixava ela FORA do grupo e as duas auto-conectavam,
+      // brigando pelo número (o bug do recebe-mas-não-envia). Pelo nome elas sempre
+      // caem no mesmo grupo e a canônica vence (pickCanonicalForNumber).
+      const nameKey = (instance.name || '').match(/^(company-\d+)(?:-user-\d+)?$/i)?.[1] || null;
       const jid = (instance.ownerJid || '').replace(/:\d+/, '').trim();
-      if (!jid) continue;
-      if (!byNumber.has(jid)) byNumber.set(jid, []);
-      byNumber.get(jid).push(instance);
+      const groupKey = nameKey || jid;
+      if (!groupKey) continue;
+      if (!byNumber.has(groupKey)) byNumber.set(groupKey, []);
+      byNumber.get(groupKey).push(instance);
     }
     for (const [jid, group] of byNumber) {
       if (group.length < 2) continue;
