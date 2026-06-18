@@ -7771,7 +7771,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           this.logger.warn(
             `Webwhats send fallback acionado para messageId=${msg.id}: ${this.normalizeProviderDispatchError(webwhatsError, 'Falha ao enviar via Webwhats')}`,
           );
-          if (!this.enabled) {
+          if (!this.enabled || providerCapabilities.provider === 'evolution') {
             throw webwhatsError;
           }
         }
@@ -7798,10 +7798,14 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           this.logger.warn(
             `Webwhats interactive send fallback acionado para messageId=${msg.id}: ${this.normalizeProviderDispatchError(webwhatsError, 'Falha ao enviar interacao via Webwhats')}`,
           );
-          if (!this.enabled) {
+          if (!this.enabled || providerCapabilities.provider === 'evolution') {
             throw webwhatsError;
           }
         }
+      }
+
+      if (providerCapabilities.provider === 'evolution') {
+        throw new Error('WEBWHATS_NOT_CONNECTED');
       }
 
       if (!this.enabled) {
