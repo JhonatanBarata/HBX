@@ -1364,6 +1364,51 @@ test('deleteConversation ignores disconnected WhatsApp session and archives loca
   assert.equal(auditCalls.length, 0);
 });
 
+test('wipeAllWhatsAppData apaga de vez: grava supressão, mata o motor e desconecta (não ressuscita)', async () => {
+  const motorCalls: number[] = [];
+  const sessionUpdateMany: any[] = [];
+  const companyUpdates: any[] = [];
+  const { service, auditCalls } = createService({
+    prisma: {
+      atendimentoAppointment: { updateMany: async () => ({ count: 0 }) },
+      companyConversation: {
+        findMany: async () => [
+          { id: 1, contact: '+5519998877766', metadata: JSON.stringify({ whatsappRemoteJid: '5519998877766@s.whatsapp.net' }) },
+          { id: 2, contact: '+5519920121720', metadata: null },
+        ],
+        deleteMany: async () => ({ count: 2 }),
+      },
+      companyMessage: { deleteMany: async () => ({ count: 9 }) },
+      whatsAppConnectionSession: {
+        updateMany: async (input: any) => { sessionUpdateMany.push(input); return { count: 1 }; },
+      },
+      company: {
+        findUnique: async () => ({ currentWhatsappConnectionSessionId: 'session-7' }),
+        update: async ({ data }: any) => { companyUpdates.push(data); return { id: 7, ...data }; },
+      },
+    },
+    webwhatsBridge: {
+      wipeMotorInstance: async (companyId: number) => { motorCalls.push(companyId); return { loggedOut: true, deleted: true }; },
+    },
+  });
+
+  const result = await service.wipeAllWhatsAppData({ companyId: 7, role: 'ADMIN' });
+
+  // Apagou o backend.
+  assert.equal(result.deletedConversations, 2);
+  assert.equal(result.deletedMessages, 9);
+  // Matou a instância no MOTOR (arrancar o câncer — sem isso ressuscita).
+  assert.deepEqual(motorCalls, [7]);
+  assert.equal(result.motorWiped, true);
+  assert.equal(result.requiresReconnect, true);
+  // Gravou supressão de cada conversa (bloqueia reimport pelo bootstrap).
+  assert.equal(result.suppressed, 2);
+  assert.ok(auditCalls.some((c) => c.event === 'conversation_backend_deleted'));
+  // Refletiu desconectado (usuário re-escaneia o QR).
+  assert.equal(sessionUpdateMany.length, 1);
+  assert.equal(companyUpdates.at(-1).whatsappModalStatus, 'DISCONNECTED');
+});
+
 test('cleanupOldWhatsappSessions discard apaga SÓ o número anterior, intacta o chip novo', async () => {
   // DEFINITIVO: discard remove o histórico do número ANTERIOR (chip OUTRO). O número
   // ATUAL (chip novo) não é apagado, NÃO leva floor de reset (senão sumiria o histórico

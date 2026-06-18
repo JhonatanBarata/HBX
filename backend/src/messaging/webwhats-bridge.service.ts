@@ -1425,6 +1425,39 @@ export class WebwhatsBridgeService {
     });
   }
 
+  // Apaga a instância company-{id} no MOTOR (logout + delete). Usado pelo "apagar tudo":
+  // sem matar no motor, o bootstrap reimporta os chats e eles "ressuscitam". O dono decidiu
+  // desconectar + re-scan QR. Best-effort — backend + supressão cobrem se o motor estiver fora.
+  public async wipeMotorInstance(companyId: number): Promise<{ loggedOut: boolean; deleted: boolean }> {
+    const config = this.readConfig();
+    if (!config.available) return { loggedOut: false, deleted: false };
+    const tenantKey = this.buildTenantKey(companyId);
+    let loggedOut = false;
+    let deleted = false;
+    try {
+      await this.request<any>({
+        method: 'DELETE',
+        path: `/instance/logout/${encodeURIComponent(tenantKey)}`,
+        purpose: 'logout da instancia (apagar tudo)',
+      });
+      loggedOut = true;
+    } catch (error) {
+      this.logger.warn(`wipe motor: logout falhou para ${tenantKey}: ${String((error as any)?.message || error)}`);
+    }
+    try {
+      await this.request<any>({
+        method: 'DELETE',
+        path: `/instance/delete/${encodeURIComponent(tenantKey)}`,
+        purpose: 'delete da instancia (apagar tudo)',
+      });
+      deleted = true;
+    } catch (error) {
+      this.logger.warn(`wipe motor: delete falhou para ${tenantKey}: ${String((error as any)?.message || error)}`);
+    }
+    this.logger.warn(`wipe motor company=${companyId}: logout=${loggedOut} delete=${deleted}`);
+    return { loggedOut, deleted };
+  }
+
   private readConfig(): WebwhatsConfig {
     const enabled = String(process.env.WHATSAPP_MODAL_ENABLED || 'false').trim().toLowerCase() === 'true';
     const internalUrl = this.normalizeOptionalString(process.env.WHATSAPP_MODAL_INTERNAL_URL);

@@ -6487,8 +6487,18 @@ export class InboxService {
     this.assertAdministrativeAction(user);
     const companyId = this.requireCompanyIdFromUser(user);
 
+    // Sessão atual: marca a supressão como "deste número" (bloqueia reimport do antigo).
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { currentWhatsappConnectionSessionId: true },
+    });
+    const currentSessionId = company?.currentWhatsappConnectionSessionId
+      ? String(company.currentWhatsappConnectionSessionId)
+      : 'wipe-all';
+
     let deletedMessages = 0;
     let deletedConversations = 0;
+    let suppressionEntries: Array<{ contact: string | null; metadata: unknown; sourcePhoneNormalized: string | null }> = [];
 
     await this.prisma.$transaction(async (tx) => {
       // Nulifica referência antes de apagar conversas (FK nullable sem onDelete).
@@ -6497,11 +6507,18 @@ export class InboxService {
         data: { conversationId: null },
       });
 
-      const convIds = await tx.companyConversation.findMany({
+      const convs = await tx.companyConversation.findMany({
         where: { companyId, channel: 'whatsapp' },
-        select: { id: true },
+        select: { id: true, contact: true, metadata: true },
       });
-      const ids = convIds.map((c) => c.id);
+      const ids = convs.map((c) => c.id);
+      // Guarda contato/metadata ANTES de apagar — vira a supressão que segura o reimport.
+      // (o telefone normalizado é derivado do contact dentro de recordDiscarded...)
+      suppressionEntries = convs.map((c) => ({
+        contact: c.contact ?? null,
+        metadata: c.metadata ?? null,
+        sourcePhoneNormalized: null,
+      }));
 
       if (ids.length) {
         const msgResult = await tx.companyMessage.deleteMany({
@@ -6516,15 +6533,52 @@ export class InboxService {
       }
     });
 
+    // BLOCO 2 — trava de reimportação: grava supressão de TUDO que foi apagado, pra o bootstrap
+    // (isLocallyDeletedChatSuppressed) nunca reimportar o que já existia. Só bloqueia o passado;
+    // mensagem nova depois do wipe entra normal.
+    if (suppressionEntries.length) {
+      await this.recordDiscardedConversationSuppressions(companyId, currentSessionId, suppressionEntries);
+    }
+
+    // BLOCO 1 — arrancar o câncer no MOTOR: apaga a instância company-{id} no webwhats. Sem isso o
+    // motor mantém os chats e eles ressuscitam no próximo sync. (Dono escolheu desconectar + QR.)
+    const motorWipe = await this.webwhatsBridge.wipeMotorInstance(companyId).catch((error) => {
+      this.logger.warn(`wipe-all: falha ao apagar instância no motor: ${String((error as any)?.message || error)}`);
+      return { loggedOut: false, deleted: false };
+    });
+
+    // A conexão morreu junto com a instância → reflete desconectado (usuário re-escaneia o QR).
+    await this.prisma.whatsAppConnectionSession.updateMany({
+      where: { companyId, provider: 'webwhats', status: 'active' },
+      data: { status: 'disconnected', disconnectedAt: new Date() },
+    });
+    await this.prisma.company.update({
+      where: { id: companyId },
+      data: {
+        whatsappModalStatus: 'DISCONNECTED',
+        whatsappModalPhone: null,
+        whatsappModalConnectedAt: null,
+        currentWhatsappConnectionSessionId: null,
+        whatsappModalUpdatedAt: new Date(),
+      },
+    });
+
     await this.logInboxEvent({
       companyId,
       event: 'whatsapp_data_wiped_debug',
-      message: `[DEBUG] Todos os dados WhatsApp apagados: ${deletedMessages} mensagens, ${deletedConversations} conversas. Sessão mantida.`,
+      message: `[WIPE] WhatsApp apagado de vez: ${deletedMessages} msgs, ${deletedConversations} conversas, supressões=${suppressionEntries.length}, motor(logout=${motorWipe.loggedOut},delete=${motorWipe.deleted}). Reconecte pelo QR.`,
       result: 'wipe_all',
-      extra: { deletedMessages, deletedConversations },
+      extra: { deletedMessages, deletedConversations, suppressions: suppressionEntries.length, motorWipe },
     });
 
-    return { success: true, deletedMessages, deletedConversations };
+    return {
+      success: true,
+      deletedMessages,
+      deletedConversations,
+      suppressed: suppressionEntries.length,
+      motorWiped: motorWipe.deleted,
+      requiresReconnect: true,
+    };
   }
 
   // Registra no audit (scope inbox / event conversation_backend_deleted) cada contato
