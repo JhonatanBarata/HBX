@@ -454,13 +454,20 @@ export class WAMonitoringService {
       return;
     }
 
+    // SELF-HEAL do legado per-vendedor: corrige o estado herdado em que a credencial
+    // VIVA do número ficou numa `company-{id}-user-{n}` enquanto a canônica
+    // `company-{id}` está vazia (sem ownerJid). Promove a viva ao nome canônico
+    // (a credencial segue o Instance.id — Session é id-keyed, sem store por nome),
+    // pra o backend (que só fala `company-{id}`) achar o socket certo. Idempotente.
+    const healed = await this.selfHealLegacyUserInstances(instances);
+
     // NÚMERO ÚNICO (boot): se várias instâncias dividem o mesmo número, auto-conecta
     // só a canônica. As demais sobem suspensas (status close) e o reap em runtime
     // (reapDuplicateNumberSessions) as remove quando a canônica abrir — sem deixar
     // 2+ sockets brigarem já na largada.
     const demoted = new Set<string>();
-    const byNumber = new Map<string, typeof instances>();
-    for (const instance of instances) {
+    const byNumber = new Map<string, typeof healed>();
+    for (const instance of healed) {
       // Agrupa pela company-key DERIVADA DO NOME (`company-{id}` em `company-{id}` e
       // em `company-{id}-user-{n}`), com fallback no ownerJid. Crucial: a canônica
       // `company-{id}` que ainda não abriu (status "connecting") tem ownerJid vazio —
@@ -495,7 +502,7 @@ export class WAMonitoringService {
     }
 
     await Promise.all(
-      instances.map(async (instance) => {
+      healed.map(async (instance) => {
         await this.setInstance({
           instanceId: instance.id,
           instanceName: instance.name,
@@ -508,6 +515,73 @@ export class WAMonitoringService {
         });
       }),
     );
+  }
+
+  /**
+   * SELF-HEAL do legado per-vendedor (18/06). O desenho antigo criava uma instância
+   * por vendedor (`company-{id}-user-{n}`); quando o número foi pareado por uma dessas,
+   * a credencial VIVA ficou nesse nome e a canônica `company-{id}` ficou vazia
+   * (ownerJid nulo, presa em "connecting"). O backend só fala `company-{id}`, então o
+   * envio falhava. Aqui, no boot, se a canônica está ausente/vazia e existe EXATAMENTE
+   * uma `-user-` viva (com ownerJid), renomeia a viva para o nome canônico. Seguro: a
+   * credencial (Session) e todos os dados são chaveados por Instance.id, não pelo nome,
+   * e não há store de auth por nome no disco — o id não muda, só o name. Ambíguo
+   * (2+ vivas) é pulado. Idempotente: quando a canônica já está viva, não faz nada.
+   */
+  private async selfHealLegacyUserInstances<T extends { id: string; name: string; ownerJid: string | null }>(
+    instances: T[],
+  ): Promise<T[]> {
+    const ownerOf = (jid: string | null | undefined) => (jid || '').replace(/:\d+/, '').trim();
+    const groups = new Map<string, T[]>();
+    for (const inst of instances) {
+      const key = (inst.name || '').match(/^(company-\d+)(?:-user-\d+)?$/i)?.[1];
+      if (!key) continue;
+      const canonical = `company-${key.split('-')[1]}`;
+      if (!groups.has(canonical)) groups.set(canonical, []);
+      groups.get(canonical).push(inst);
+    }
+
+    let result = instances;
+    for (const [canonicalName, group] of groups) {
+      const canonical = group.find((i) => i.name.toLowerCase() === canonicalName.toLowerCase());
+      if (canonical && ownerOf(canonical.ownerJid)) continue; // canônica já viva — nada a corrigir
+      const liveUsers = group.filter(
+        (i) => i.name.toLowerCase() !== canonicalName.toLowerCase() && ownerOf(i.ownerJid),
+      );
+      if (liveUsers.length !== 1) {
+        if (liveUsers.length > 1) {
+          this.logger.warn(
+            `[NUMERO-UNICO] self-heal pulado p/ ${canonicalName}: ${liveUsers.length} instâncias per-user vivas (ambíguo).`,
+          );
+        }
+        continue;
+      }
+      const live = liveUsers[0];
+      try {
+        // ordem importa: apaga a canônica VAZIA primeiro pra liberar o nome (unique),
+        // depois promove a viva. Se a canônica não existe, só renomeia.
+        if (canonical) {
+          await this.prismaRepository.instance.delete({ where: { id: canonical.id } });
+        }
+        await this.prismaRepository.instance.update({
+          where: { id: live.id },
+          data: { name: canonicalName },
+        });
+        this.logger.warn(
+          `[NUMERO-UNICO] self-heal: credencial viva (${ownerOf(live.ownerJid)}) estava em "${live.name}"; ` +
+            `promovida ao nome canônico "${canonicalName}"` +
+            `${canonical ? ` e canônica vazia removida` : ''}.`,
+        );
+        result = result
+          .filter((i) => !canonical || i.id !== canonical.id)
+          .map((i) => (i.id === live.id ? { ...i, name: canonicalName } : i));
+      } catch (error) {
+        this.logger.error(
+          `[NUMERO-UNICO] self-heal falhou p/ ${canonicalName}: ${String((error as any)?.message || error)}`,
+        );
+      }
+    }
+    return result;
   }
 
   private async loadInstancesFromProvider() {
