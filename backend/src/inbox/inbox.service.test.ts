@@ -1952,3 +1952,123 @@ test('promoteToRecovery creates debt case and propagates customerProfileId into 
   assert.equal(syncCalls.length, 1);
   assert.equal(syncCalls[0].companyId, 7);
 });
+
+// ── Fase B: visão empresa ────────────────────────────────────────────────────
+
+test('Fase B (a): ADMIN resolve scope como company agregando todas as sessões ativas', async () => {
+  const sessions = [
+    {
+      id: 'session-vendedor-1',
+      phoneNormalized: '5511999990001',
+      displayPhone: '+5511999990001',
+      user: { id: 101, name: 'João' },
+    },
+    {
+      id: 'session-vendedor-2',
+      phoneNormalized: '5511999990002',
+      displayPhone: '+5511999990002',
+      user: { id: 102, name: 'Maria' },
+    },
+  ];
+  const { service } = createService({
+    prisma: {
+      company: {
+        findUnique: async ({ select }: any) => {
+          // aggregate branch só pede whatsappStatus
+          if (Object.keys(select || {}).length === 1 && 'whatsappStatus' in select) {
+            return { whatsappStatus: null };
+          }
+          return { id: 7, whatsappModalStatus: 'CONNECTED', whatsappStatus: null, currentWhatsappConnectionSessionId: null, currentWhatsappConnectionSession: null };
+        },
+      },
+      whatsAppConnectionSession: {
+        findFirst: async () => null,
+        findMany: async ({ where }: any) => {
+          if (where?.provider === 'webwhats' && where?.status === 'active') return sessions;
+          return [];
+        },
+        updateMany: async () => ({ count: 0 }),
+      },
+    },
+  });
+
+  const scope: any = await (service as any).resolveInboxWhatsappSessionScope(7, { aggregate: true });
+
+  assert.equal(scope.mode, 'company');
+  assert.equal(scope.accessible, true);
+  assert.deepEqual(scope.sessionIds, ['session-vendedor-1', 'session-vendedor-2']);
+  assert.equal(scope.sessions.length, 2);
+  assert.equal(scope.sessions[0].sellerName, 'João');
+  assert.equal(scope.sessions[1].sellerName, 'Maria');
+  assert.equal(scope.currentSessionId, null);
+});
+
+test('Fase B (b): USER (aggregate=false) vê apenas a sua sessão — regressão Fase A', async () => {
+  const { service } = createService({
+    prisma: {
+      company: {
+        findUnique: async () => ({
+          id: 7,
+          whatsappModalStatus: 'CONNECTED',
+          whatsappStatus: null,
+          currentWhatsappConnectionSessionId: 'session-7',
+          currentWhatsappConnectionSession: {
+            id: 'session-7',
+            provider: 'webwhats',
+            tenantKey: 'company-7-user-55',
+            status: 'active',
+            connectedAt: new Date(),
+          },
+        }),
+      },
+      whatsAppConnectionSession: {
+        findFirst: async ({ where }: any) => {
+          if (where?.userId === 55) {
+            return { id: 'session-user-55', companyId: 7, provider: 'webwhats', tenantKey: 'company-7-user-55', status: 'active', connectedAt: new Date() };
+          }
+          return null;
+        },
+        findMany: async () => [],
+        updateMany: async () => ({ count: 0 }),
+      },
+    },
+  });
+
+  // USER com userId=55 e aggregate=false → scope per-user (mode:'current', só a sessão dele)
+  const scope: any = await (service as any).resolveInboxWhatsappSessionScope(7, { userId: 55, aggregate: false });
+
+  assert.equal(scope.mode, 'current');
+  assert.equal(scope.currentSessionId, 'session-user-55');
+  assert.equal(scope.sessionIds, undefined, 'USER não deve ter sessionIds — isolamento Fase A');
+});
+
+test('Fase B (c): ADMIN company mode inclui conversa só-Meta quando metaActive', async () => {
+  const { service } = createService({
+    prisma: {
+      company: {
+        findUnique: async () => ({ whatsappStatus: 'connected' }),
+      },
+      whatsAppConnectionSession: {
+        findFirst: async () => null,
+        findMany: async ({ where }: any) => {
+          if (where?.provider === 'webwhats' && where?.status === 'active') return [];
+          return [];
+        },
+        updateMany: async () => ({ count: 0 }),
+      },
+    },
+  });
+
+  const scope: any = await (service as any).resolveInboxWhatsappSessionScope(7, { aggregate: true });
+
+  assert.equal(scope.mode, 'company');
+  assert.equal(scope.metaActive, true);
+  assert.equal(scope.accessible, true);
+  assert.deepEqual(scope.sessionIds, []);
+
+  // Conversa só-Meta (sessionId=null) deve ser visível
+  const rowMeta = { whatsappConnectionSessionId: null };
+  const rowWebwhats = { whatsappConnectionSessionId: 'some-session' };
+  assert.equal((service as any).isRowVisibleForWhatsappSessionScope(rowMeta, scope), true);
+  assert.equal((service as any).isRowVisibleForWhatsappSessionScope(rowWebwhats, scope), false);
+});

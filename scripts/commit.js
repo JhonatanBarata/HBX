@@ -209,13 +209,17 @@ function commitRepository(config) {
     statusBefore = printGitStatus(`Status before commit sem dados locais (${config.label})`, config.cwd);
   }
 
+  // NÃO dar .trim() no join: isso comeria o espaço inicial da PRIMEIRA linha do
+  // `git status --short` (` M path`), e o slice(3) fixo de normalizeStatusPath passaria a
+  // engolir um caractere do caminho (`backend/...` -> `ackend/...`). Resultado: a primeira
+  // migration `.sql` (allowlist `backend/prisma/migrations/`) era bloqueada como `.sql` proibido.
+  // Mantém as linhas cruas (prefixo XY+espaço intacto) e usa .trim() só para checar vazio.
   const currentChanges = statusBefore
     .split(/\r?\n/)
     .filter((line) => line && !line.startsWith('##'))
-    .join('\n')
-    .trim();
+    .join('\n');
 
-  if (!currentChanges) {
+  if (!currentChanges.trim()) {
     console.log(`\nNenhuma mudanca local para commitar em ${config.label}.`);
     return false;
   }

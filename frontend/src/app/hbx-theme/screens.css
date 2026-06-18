@@ -562,6 +562,27 @@ html, body { height: 100%; }
 .vendas-neg > label { font-size: 0.7rem; font-weight: 700; color: var(--text-muted); }
 .vendas-neg .neg-row { display: flex; gap: 8px; align-items: center; }
 .vendas-neg .neg-row .field-dark { flex: 1; }
+/* F5 — seletor de modo de retorno (bot-módulo) e aviso de chave ausente. */
+.retorno-mode { display: grid; gap: 6px; padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border-hairline); background: var(--hbx-surface-soft); }
+.retorno-mode > .lbl { font-size: 0.7rem; font-weight: 600; color: var(--text-strong); }
+.retorno-mode .radios { display: grid; gap: 4px; }
+.retorno-mode .radio-lbl { display: flex; align-items: center; gap: 6px; font-size: 0.72rem; cursor: pointer; }
+.retorno-mode .radio-lbl input[type="radio"] { accent-color: var(--hbx-brand); }
+.retorno-mode .collision { font-size: 0.66rem; color: var(--hbx-warning); font-weight: 600; }
+.bot-warn { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: var(--radius-sm); border: 1px solid color-mix(in srgb, var(--hbx-warning) 40%, transparent); background: color-mix(in srgb, var(--hbx-warning) 6%, transparent); font-size: 0.7rem; }
+.bot-warn .warn-lbl { color: var(--hbx-warning); font-weight: 600; }
+.bot-warn .btn-ghost { font-size: 0.68rem; padding: 2px 8px; }
+
+/* provisioning wizard (multi-step) */
+.prov-step { font-size: 0.64rem; font-weight: 400; color: var(--text-muted); }
+.prov-step.is-active { font-weight: 800; color: var(--hbx-brand-strong); }
+.prov-step.is-done { opacity: 0.5; }
+.prov-step-arrow { font-size: 0.64rem; color: var(--text-muted); opacity: 0.4; margin: 0 2px; }
+.prov-radio-card { display: flex; gap: 10px; align-items: center; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border-hairline); cursor: pointer; }
+.prov-radio-card.is-sel { border-color: var(--hbx-brand); }
+.prov-option-desc { font-size: 0.66rem; color: var(--text-muted); }
+.prov-fld-adv-lbl { font-size: 0.7rem; font-weight: 700; color: var(--text-muted); }
+.prov-warn-msg { font-size: 0.72rem; font-weight: 700; color: var(--hbx-warning); line-height: 1.5; }
 
 /* Cards de lead do PuxarLeadsPanel (prévia mascarada do pool): cards ricos com
    sinais (✓WhatsApp/✓e-mail), contato mascarado (revela ao puxar). Só tokens (5 Leis). */

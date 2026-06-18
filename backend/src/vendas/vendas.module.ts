@@ -10,12 +10,13 @@ import { CommissionsModule } from '../commissions/commissions.module';
 import { WebscrapingModule } from '../webscraping/webscraping.module';
 import { MailModule } from '../mail/mail.module';
 import { AuthModule } from '../auth/auth.module';
+import { MasterAlertModule } from '../master-alert/master-alert.module';
 import { VendasController } from './vendas.controller';
 import { VendasAutomationService } from './vendas-automation.service';
 import { VendasService } from './vendas.service';
 
 @Module({
-  imports: [PrismaModule, CadastrosModule, CustomerProfileModule, ModulesAccessModule, MessagingModule, InboxModule, CommercialPlansModule, CommissionsModule, MailModule, AuthModule, forwardRef(() => WebscrapingModule)],
+  imports: [PrismaModule, CadastrosModule, CustomerProfileModule, ModulesAccessModule, MessagingModule, InboxModule, CommercialPlansModule, CommissionsModule, MailModule, AuthModule, MasterAlertModule, forwardRef(() => WebscrapingModule)],
   controllers: [VendasController],
   providers: [VendasService, VendasAutomationService],
   exports: [VendasService, VendasAutomationService],

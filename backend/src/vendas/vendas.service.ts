@@ -53,6 +53,8 @@ import {
   resolveTeamPolicyStoredLimit,
 } from '../team/team-policy-persistence';
 import { resolveVendasAccessContext, type VendasAccessContext } from '../team/team-access-runtime';
+import { isBotArmedForCompany } from '../modules/bot-activation-state';
+import { MasterAlertService } from '../master-alert/master-alert.service';
 
 type VendasLeadStatus = 'novo' | 'contato' | 'retorno' | 'qualificado' | 'encerrado';
 type VendasSaleStatus = 'none' | 'activation_pending' | 'trial_started' | 'sale_confirmed' | 'inactive' | 'canceled';
@@ -320,6 +322,7 @@ export class VendasService {
     private readonly commercialUsageLimits: CommercialUsageLimitsService,
     private readonly hbxCommissionSync: HbxCommissionSyncService,
     private readonly authService: AuthService,
+    private readonly masterAlert: MasterAlertService,
   ) {}
 
   async getAutomationBotConfigForUser(user: any) {
@@ -338,6 +341,52 @@ export class VendasService {
 
   async getAutomationAgendaForUser(user: any) {
     return this.inboxService.getAgendaConfig(user);
+  }
+
+  // Retorna status do bot para a empresa: módulo habilitado + chave-mestra armada.
+  // Usado pelo frontend ao agendar retorno (F5) para decidir se oferece automático.
+  async getBotStatusForUser(user: any) {
+    const context = await this.resolveVendasUserContext(user);
+    const [botModule, company] = await Promise.all([
+      this.prisma.companyModule?.findFirst
+        ? this.prisma.companyModule.findFirst({
+            where: { companyId: context.companyId, enabled: true, systemModule: { key: 'bot' } },
+            select: { id: true },
+          }).catch(() => null)
+        : Promise.resolve(null),
+      this.prisma.company.findUnique({
+        where: { id: context.companyId },
+        select: { botArmedAt: true },
+      }).catch(() => null),
+    ]);
+    return {
+      botModuleEnabled: Boolean(botModule?.id),
+      botArmed: isBotArmedForCompany(company),
+    };
+  }
+
+  // Notifica o master que bot-módulo está habilitado mas sem chave-mestra configurada.
+  // Chamado uma vez por sessão quando o vendedor tenta usar retorno automático.
+  async notifyBotConfigMissingForUser(user: any) {
+    const context = await this.resolveVendasUserContext(user);
+    const [company, userRecord] = await Promise.all([
+      this.prisma.company.findUnique({
+        where: { id: context.companyId },
+        select: { id: true, name: true },
+      }).catch(() => null),
+      this.prisma.user.findUnique({
+        where: { id: context.userId },
+        select: { name: true, phone: true, email: true },
+      }).catch(() => null),
+    ]);
+    await this.masterAlert.notifyBotConfigMissing({
+      companyId: context.companyId,
+      companyName: company?.name || null,
+      requestedByName: userRecord?.name || null,
+      requestedByPhone: (userRecord as any)?.phone || null,
+      requestedByEmail: userRecord?.email || null,
+    });
+    return { ok: true, message: 'Suporte notificado. Aguarde a ativação do bot.' };
   }
 
   async getUsageSnapshotForUser(user: any) {
@@ -8105,13 +8154,20 @@ export class VendasService {
     }
 
     if (returnChanged && returnAt) {
+      const retornoMode = dto?.retornoMode && dto.retornoMode !== 'manual' ? dto.retornoMode : null;
+      const retornoModeLabel: Record<string, string> = {
+        auto_email: 'e-mail automático',
+        auto_whatsapp: 'WhatsApp automático',
+        auto_both: 'e-mail e WhatsApp automáticos',
+      };
+      const modeDesc = retornoMode ? ` (${retornoModeLabel[retornoMode] || retornoMode})` : '';
       timelineEvents.push(
         this.buildTimelineEvent({
           eventType: 'return_scheduled',
           title: 'Retorno agendado',
           description: nextAction
-            ? `Retorno reposicionado com a acao "${nextAction}".`
-            : 'A agenda deste lead recebeu um novo retorno.',
+            ? `Retorno reposicionado com a acao "${nextAction}"${modeDesc}.`
+            : `A agenda deste lead recebeu um novo retorno${modeDesc}.`,
           returnAt,
           createdByUserId: context.userId,
         }),

@@ -133,6 +133,9 @@ function fmtDate(iso: string | null) {
   return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString("pt-BR");
 }
 
+type BotStatus = { botModuleEnabled: boolean; botArmed: boolean } | null;
+type RetornoMode = 'manual' | 'auto_email' | 'auto_whatsapp' | 'auto_both';
+
 export function VendasClient() {
   const router = useRouter();
   const [board, setBoard] = useState<BoardResponse>(null);
@@ -144,6 +147,11 @@ export function VendasClient() {
   // Automático — standing order compartilhado com /leads
   const [autoAtivo, setAutoAtivo] = useState(false);
   const [autoBusy, setAutoBusy] = useState(false);
+  // Status do bot para a empresa (F5): bot-módulo habilitado + chave-mestra armada.
+  // Carregado uma vez na montagem; null = ainda consultando.
+  const [botStatus, setBotStatus] = useState<BotStatus>(null);
+  const [masterNotified, setMasterNotified] = useState(false);
+  const [retornoMode, setRetornoMode] = useState<RetornoMode>('manual');
   // visão do pipeline: lista densa (padrão — varredura) × quadro kanban
   // (arrastar entre etapas). Ordem do dono 13/06: lista padrão + quadro opcional.
   const [view, setView] = useTabParam<"list" | "board">("view", "list", ["list", "board"]);
@@ -195,6 +203,9 @@ export function VendasClient() {
     apiFetch<{ standingOrder?: { active?: boolean } }>("/webscraping/radar/standing-order")
       .then(res => { if (typeof res?.standingOrder?.active === "boolean") setAutoAtivo(res.standingOrder.active); })
       .catch(() => null);
+    apiFetch<BotStatus>("/vendas/bot-status")
+      .then(res => setBotStatus(res))
+      .catch(() => setBotStatus({ botModuleEnabled: false, botArmed: false }));
   }, []);
 
   // Fechamento de venda com produto (trilha Produtos & Comissão, item 1):
@@ -291,17 +302,27 @@ export function VendasClient() {
     }
   }
 
+  async function notifyBotMaster() {
+    if (masterNotified) return;
+    setMasterNotified(true);
+    apiFetch("/vendas/notify-bot-config-missing", { method: "POST", body: JSON.stringify({}) }).catch(() => null);
+  }
+
   async function agendarRetorno() {
     if (!sel?.id || !retornoData || acaoBusy) return;
     setAcaoBusy(true);
     setAcaoMsg(null);
     try {
+      const effectiveMode = botStatus?.botModuleEnabled && botStatus?.botArmed ? retornoMode : 'manual';
+      const body: Record<string, unknown> = { returnAt: new Date(`${retornoData}T09:00:00`).toISOString() };
+      if (effectiveMode !== 'manual') body.retornoMode = effectiveMode;
       await apiFetch(`/vendas/lead/${encodeURIComponent(sel.id)}`, {
         method: "PATCH",
-        body: JSON.stringify({ returnAt: new Date(`${retornoData}T09:00:00`).toISOString() }),
+        body: JSON.stringify(body),
       });
       setAcaoMsg("✓ Retorno agendado.");
       setRetornoData("");
+      setRetornoMode("manual");
       await loadBoard();
     } catch (err) {
       setAcaoMsg(err instanceof Error ? err.message : "Falha ao agendar o retorno.");
@@ -842,9 +863,34 @@ export function VendasClient() {
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8 }}>
                 <input className="field-dark" type="date" style={{ minHeight: 36 }} value={retornoData} disabled={!deal || deal.block === "closed"}
-                  onChange={e => setRetornoData(e.target.value)} aria-label="Data do retorno" />
+                  onChange={e => { setRetornoData(e.target.value); setRetornoMode("manual"); }} aria-label="Data do retorno" />
                 <button className="btn-ghost" onClick={agendarRetorno} disabled={!deal || !retornoData || acaoBusy}>Agendar</button>
               </div>
+              {retornoData && deal && deal.block !== "closed" && botStatus?.botModuleEnabled && botStatus?.botArmed && (
+                <div className="retorno-mode">
+                  <span className="lbl">Tipo de retorno</span>
+                  <div className="radios">
+                    {(["manual", ...(deal.email ? ["auto_email"] : []), ...(deal.phone ? ["auto_whatsapp"] : []), ...(deal.email && deal.phone ? ["auto_both"] : [])] as RetornoMode[]).map(mode => {
+                      const labels: Record<RetornoMode, string> = { manual: "Manual", auto_email: "E-mail automático", auto_whatsapp: "WhatsApp automático", auto_both: "E-mail + WhatsApp" };
+                      return (
+                        <label key={mode} className="radio-lbl">
+                          <input type="radio" name="retorno-mode" value={mode} checked={retornoMode === mode} onChange={() => setRetornoMode(mode)} />
+                          {labels[mode]}
+                        </label>
+                      );
+                    })}
+                  </div>
+                  {retornoMode === "auto_both" && <span className="collision">⚠ E-mail e WhatsApp agendados para o mesmo dia.</span>}
+                </div>
+              )}
+              {retornoData && deal && deal.block !== "closed" && botStatus?.botModuleEnabled && !botStatus?.botArmed && (
+                <div className="bot-warn">
+                  <span className="warn-lbl">Bot sem configuração.</span>
+                  <button className="btn-ghost" onClick={notifyBotMaster} disabled={masterNotified}>
+                    {masterNotified ? "✓ Suporte avisado" : "Contate o suporte"}
+                  </button>
+                </div>
+              )}
               {cadMsg && (
                 <div style={{ fontSize: "0.72rem", fontWeight: 700, color: cadMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{cadMsg}</div>
               )}

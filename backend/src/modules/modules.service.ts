@@ -2496,7 +2496,17 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     const company = targetCompanyId
       ? await this.prisma.company.findUnique({
           where: { id: targetCompanyId },
-          select: { companyKind: true, slug: true },
+          select: {
+            companyKind: true,
+            slug: true,
+            status: true,
+            isActive: true,
+            selectedPlanKey: true,
+            trialEndsAt: true,
+            billingGraceEndsAt: true,
+            courtesyEndsAt: true,
+            courtesyReason: true,
+          },
         })
       : null;
     this.assertCanGovernSellerAccess({
@@ -2511,6 +2521,36 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
       where: { companyAssignable: true, key: { notIn: RETIRED_MODULE_KEYS } },
     });
     const byKey = new Map(modules.map((m) => [m.key, m]));
+
+    // Delegação descendente: só libera o que a empresa possui.
+    if (!isSystemMaster && targetCompanyId) {
+      const companyPolicy = resolveCompanyModuleAccessPolicy(company);
+      const planManagedKeys = new Set(
+        Object.values(COMMERCIAL_PLAN_MODULE_KEYS)
+          .flat()
+          .map((k) => this.normalizeRequestedModuleKey(k)),
+      );
+      const companyModuleRows = await this.prisma.companyModule.findMany({
+        where: { companyId: targetCompanyId },
+      });
+      const companyModuleById = new Map<number, boolean>(
+        companyModuleRows.map((r) => [r.moduleId, r.enabled]),
+      );
+      for (const permission of modulePermissions || []) {
+        if (!permission.allowed) continue;
+        const normalizedKey = this.normalizeRequestedModuleKey(permission.key);
+        const moduleItem = byKey.get(normalizedKey);
+        if (!moduleItem) continue;
+        const companyHas = planManagedKeys.has(normalizedKey)
+          ? companyPolicy.moduleKeys.has(normalizedKey)
+          : Boolean(companyModuleById.get(moduleItem.id));
+        if (!companyHas) {
+          throw new BadRequestException(
+            `Módulo '${permission.key}' não está habilitado para a empresa — só é possível conceder o que a empresa possui.`,
+          );
+        }
+      }
+    }
 
     // Team policy e a UNICA fonte de permissao por usuario (PR-002 A.5):
     // as permissoes pedidas entram direto no modulesJson da policy.

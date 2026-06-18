@@ -184,6 +184,10 @@ export class UpdateVendasLeadDto {
   @IsString()
   @MaxLength(280)
   commissionNote?: string;
+
+  @IsOptional()
+  @IsIn(['manual', 'auto_email', 'auto_whatsapp', 'auto_both'])
+  retornoMode?: 'manual' | 'auto_email' | 'auto_whatsapp' | 'auto_both';
 }
 
 export class CreateHbxSalesHandoffDto {

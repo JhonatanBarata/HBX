@@ -50,6 +50,16 @@ export class VendasController {
     return this.vendasService.getAutomationAgendaForUser(req.user);
   }
 
+  @Get('bot-status')
+  getBotStatus(@Req() req: any) {
+    return this.vendasService.getBotStatusForUser(req.user);
+  }
+
+  @Post('notify-bot-config-missing')
+  notifyBotConfigMissing(@Req() req: any) {
+    return this.vendasService.notifyBotConfigMissingForUser(req.user);
+  }
+
   @Get('automation/live-status')
   @UseGuards(BotArmedGuard)
   @BotArmed()

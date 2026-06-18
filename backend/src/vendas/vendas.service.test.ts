@@ -146,6 +146,11 @@ function createService(overrides?: Partial<Record<string, any>>) {
     ...(overrides?.authService || {}),
   } as any;
 
+  const masterAlert = {
+    notify: async () => undefined,
+    ...(overrides?.masterAlert || {}),
+  } as any;
+
   const service = new VendasService(
     prisma,
     cadastrosService,
@@ -158,6 +163,7 @@ function createService(overrides?: Partial<Record<string, any>>) {
     commercialUsageLimits,
     hbxCommissionSync,
     authService,
+    masterAlert,
   );
   return { service, getOrCreateCalls, updateConversationStateCalls };
 }

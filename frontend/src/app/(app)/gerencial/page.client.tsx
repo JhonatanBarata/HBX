@@ -32,7 +32,7 @@ const CICLOS: { value: string; label: string }[] = [
   { value: "YEARLY", label: "Anual" },
 ];
 
-const ABAS = ["Produtos", "Comissões", "Candidaturas", "Visão geral"];
+const ABAS = ["Produtos", "Comissões", "Candidaturas", "Visão geral", "Equipe"];
 
 type Candidatura = {
   id: string;
@@ -57,6 +57,20 @@ type ComissaoCliente = {
   commissionDueAt?: string | null;
   commissionPaidAt?: string | null;
 };
+
+type CompanyAccessUser = {
+  id: number;
+  username?: string | null;
+  email?: string | null;
+  role?: string | null;
+  modules: { key: string; allowed: boolean }[];
+};
+
+type CompanyAccess = {
+  companyId: number;
+  modules: { key: string; name: string; companyEnabled: boolean }[];
+  users: CompanyAccessUser[];
+} | null;
 
 type ComissaoSummary = {
   ok?: boolean;
@@ -283,6 +297,37 @@ export function GerencialClient() {
     } finally {
       setCandBusy(false);
       setCandArm(null);
+    }
+  }
+
+  // aba Equipe: acesso de módulo por usuário
+  const [companyAccess, setCompanyAccess] = useState<CompanyAccess>(null);
+  const [acessoMsg, setAcessoMsg] = useState<string | null>(null);
+  const [acessoBusy, setAcessoBusy] = useState(false);
+
+  useEffect(() => {
+    if (aba !== 4 || companyAccess) return;
+    let alive = true;
+    apiFetch<Exclude<CompanyAccess, null>>("/modules/company/access")
+      .then(res => { if (alive) setCompanyAccess(res); })
+      .catch(() => { if (alive) setCompanyAccess({ companyId: 0, modules: [], users: [] }); });
+    return () => { alive = false; };
+  }, [aba, companyAccess]);
+
+  async function toggleModuleAccess(userId: number, moduleKey: string, allowed: boolean) {
+    if (acessoBusy) return;
+    setAcessoBusy(true);
+    setAcessoMsg(null);
+    try {
+      await apiFetch(`/modules/company/user/${userId}/access`, {
+        method: "PUT",
+        body: JSON.stringify({ modules: [{ key: moduleKey, allowed }] }),
+      });
+      setCompanyAccess(null);
+    } catch (err) {
+      setAcessoMsg(err instanceof Error ? err.message : "Não foi possível atualizar o acesso.");
+    } finally {
+      setAcessoBusy(false);
     }
   }
 
@@ -664,6 +709,92 @@ export function GerencialClient() {
                   </div>
                 </section>
               )}
+
+              {aba === 4 && (() => {
+                const visibleModules = (companyAccess?.modules || []).filter(m => m.companyEnabled);
+                const teamUsers = (companyAccess?.users || []);
+                return (
+                  <section className="panel">
+                    <div className="panel-head">
+                      <h2>Acesso de módulos — equipe</h2>
+                      <div className="meta">
+                        {acessoMsg && (
+                          <span className={acessoMsg.startsWith("✓") ? "tag teal" : "tag warn"} style={{ fontWeight: 700 }}>
+                            {acessoMsg}
+                          </span>
+                        )}
+                        <button className="btn-ghost"
+                          onClick={() => { setCompanyAccess(null); setAcessoMsg(null); }}
+                          disabled={acessoBusy}>
+                          Recarregar
+                        </button>
+                      </div>
+                    </div>
+                    {companyAccess === null && (
+                      <div style={{ padding: 20, textAlign: "center" }} className="sub2">Carregando…</div>
+                    )}
+                    {companyAccess !== null && visibleModules.length === 0 && (
+                      <div style={{ padding: 20, textAlign: "center" }} className="sub2">
+                        Nenhum módulo habilitado para a empresa.
+                      </div>
+                    )}
+                    {companyAccess !== null && visibleModules.length > 0 && (
+                      <div className="tbl-wrap">
+                        <table className="tbl">
+                          <thead>
+                            <tr>
+                              <th>Usuário</th>
+                              {visibleModules.map(m => (
+                                <th key={m.key} style={{ textAlign: "center", whiteSpace: "nowrap" }}>
+                                  {m.name || m.key}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {teamUsers.map(u => {
+                              const modMap = new Map((u.modules || []).map(m => [m.key, m.allowed]));
+                              const isSellerRow = String(u.role || "").toUpperCase() === "USER";
+                              return (
+                                <tr key={u.id} style={{ cursor: "default" }}>
+                                  <td>
+                                    <div className="co">
+                                      <strong>{u.username || u.email || `ID ${u.id}`}</strong>
+                                      <span className="sub2">{isSellerRow ? "Vendedor" : "Admin"}</span>
+                                    </div>
+                                  </td>
+                                  {visibleModules.map(m => {
+                                    const allowed = Boolean(modMap.get(m.key));
+                                    return (
+                                      <td key={m.key} style={{ textAlign: "center" }}>
+                                        <button
+                                          className={"sw" + (allowed ? " on" : "")}
+                                          role="switch"
+                                          aria-checked={allowed}
+                                          disabled={acessoBusy}
+                                          title={allowed ? `Revogar ${m.name || m.key}` : `Liberar ${m.name || m.key}`}
+                                          onClick={() => toggleModuleAccess(u.id, m.key, !allowed)}
+                                        ><i></i></button>
+                                      </td>
+                                    );
+                                  })}
+                                </tr>
+                              );
+                            })}
+                            {teamUsers.length === 0 && (
+                              <tr style={{ cursor: "default" }}>
+                                <td colSpan={visibleModules.length + 1} style={{ textAlign: "center", padding: 18 }} className="sub2">
+                                  Nenhum usuário na equipe.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </section>
+                );
+              })()}
             </React.Fragment>
           )}
         </div>

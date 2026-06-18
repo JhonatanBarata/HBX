@@ -107,7 +107,11 @@ type InboxWhatsappSessionScope = {
   reason: 'webwhats_active' | 'webwhats_reconnecting' | 'webwhats_status_only' | 'meta_active' | 'no_whatsapp';
   currentSessionId: string | null;
   currentSession: any | null;
-  mode: 'current' | 'meta' | 'none';
+  mode: 'current' | 'meta' | 'none' | 'company';
+  // company mode only
+  sessionIds?: string[];
+  sessions?: Array<{ id: string; phone: string | null; sellerName: string | null }>;
+  metaActive?: boolean;
   providerHealth?: WhatsAppProviderHealth | null;
 };
 
@@ -180,6 +184,11 @@ export class InboxService {
   private assertSystemMasterAction(user: any) {
     if (Boolean(user?.isSystemMaster)) return;
     throw new ForbiddenException('Somente o suporte HBX pode executar esta ação.');
+  }
+
+  private isAggregateUser(user: any): boolean {
+    const role = String(user?.role || '').trim().toUpperCase();
+    return Boolean(user?.isSystemMaster) || role === 'ADMIN';
   }
 
   private normalizeVendasPhone(value: unknown) {
@@ -547,7 +556,49 @@ export class InboxService {
     });
   }
 
-  private async resolveInboxWhatsappSessionScope(companyId: number, userId?: number): Promise<InboxWhatsappSessionScope> {
+  private async resolveInboxWhatsappSessionScope(
+    companyId: number,
+    opts?: { userId?: number; aggregate?: boolean },
+  ): Promise<InboxWhatsappSessionScope> {
+    // ADMIN/master → visão agregada: todas as sessões webwhats ativas da empresa.
+    // Gate de role aqui: aggregate só chega como true quando o caller verificou a role.
+    if (opts?.aggregate) {
+      const company = await this.prisma.company.findUnique({
+        where: { id: companyId },
+        select: { whatsappStatus: true },
+      });
+      const metaActive = isMetaConnected(company?.whatsappStatus);
+      const activeSessions = await this.prisma.whatsAppConnectionSession.findMany({
+        where: { companyId, provider: 'webwhats', status: 'active' },
+        orderBy: [{ connectedAt: 'desc' }, { createdAt: 'desc' }],
+        select: {
+          id: true,
+          phoneNormalized: true,
+          displayPhone: true,
+          user: { select: { id: true, name: true } },
+        },
+      });
+      const sessionIds = activeSessions.map((s) => String(s.id));
+      const sessions = activeSessions.map((s) => ({
+        id: String(s.id),
+        phone: s.displayPhone || s.phoneNormalized || null,
+        sellerName: (s.user as any)?.name || null,
+      }));
+      const accessible = sessionIds.length > 0 || metaActive;
+      return {
+        accessible,
+        reason: sessionIds.length > 0 ? 'webwhats_active' : (metaActive ? 'meta_active' : 'no_whatsapp'),
+        currentSessionId: null,
+        currentSession: null,
+        mode: 'company',
+        sessionIds,
+        sessions,
+        metaActive,
+      };
+    }
+
+    // USER/default: escopo da sessão do usuário (ou empresa se sem userId).
+    const userId = opts?.userId;
     const company = await this.prisma.company.findUnique({
       where: { id: companyId },
       select: {
@@ -603,6 +654,11 @@ export class InboxService {
     if (scope.mode === 'current') return Boolean(scope.currentSessionId) && rowSessionId === scope.currentSessionId;
     // Só Meta (Cloud API, sem webwhats) → conversas sem sessão webwhats (id null).
     if (scope.mode === 'meta') return rowSessionId === null;
+    // Visão agregada do ADMIN: qualquer sessão listada OU conversa só-Meta (id null e Meta ativo).
+    if (scope.mode === 'company') {
+      if (rowSessionId !== null) return scope.sessionIds?.includes(rowSessionId) ?? false;
+      return Boolean(scope.metaActive);
+    }
     return false;
   }
 
@@ -622,6 +678,8 @@ export class InboxService {
             connectedAt: scope.currentSession.connectedAt || null,
         }
         : null,
+      // company mode: lista de sessões ativas para o front rotular de quem é cada conversa.
+      sessions: scope.mode === 'company' ? (scope.sessions ?? []) : undefined,
     };
   }
 
@@ -722,7 +780,7 @@ export class InboxService {
 
   async getWhatsappSessionDiagnostics(user: any) {
     const companyId = this.requireCompanyIdFromUser(user);
-    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId);
+    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId, { aggregate: this.isAggregateUser(user) });
     sessionScope.providerHealth = await this.getWhatsAppProviderHealth(companyId);
     const providerWarning = sessionScope.accessible
       ? null
@@ -3642,7 +3700,7 @@ export class InboxService {
     const requestedTake = this.normalizeConversationTakeLimit(take, 200) || 200;
     const bootstrapMode = lightMode ? 'light' : 'full';
     const userId = Number(user?.id || 0) || undefined;
-    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId, userId);
+    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId, { userId, aggregate: this.isAggregateUser(user) });
     sessionScope.providerHealth = await this.getWhatsAppProviderHealth(companyId);
     if (!sessionScope.accessible) {
       return {
@@ -3749,7 +3807,7 @@ export class InboxService {
   }
 
   private async runBootstrapFullMirror(companyId: number, takeLimit: number, userId?: number) {
-    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId, userId);
+    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId, { userId });
     this.assertInboxWhatsappAccessible(sessionScope);
     if (sessionScope.mode !== 'current' || !sessionScope.currentSessionId) {
       throw new ServiceUnavailableException('WhatsApp sem sessão ativa');
@@ -4003,7 +4061,7 @@ export class InboxService {
   ) {
     const companyId = this.requireCompanyIdFromUser(user);
     const userId = Number(user?.id || 0) || undefined;
-    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId, userId);
+    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId, { userId, aggregate: this.isAggregateUser(user) });
     // Sem WhatsApp vinculado: Atendimento vazio (200), NAO 503. O front mostra o
     // estado "conecte o WhatsApp" + o modal de conexao; nada de erro gritando no
     // console a cada load do Dashboard/Topbar/Atendimento (ordem do dono 14/06/2026).
@@ -4031,7 +4089,7 @@ export class InboxService {
 
   async startConversation(user: any, input: { phone?: string; name?: string | null }) {
     const companyId = this.requireCompanyIdFromUser(user);
-    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId, Number(user?.id || 0) || undefined);
+    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId, { userId: Number(user?.id || 0) || undefined });
     this.assertInboxWhatsappAccessible(sessionScope);
     const normalized = this.normalizeManualConversationContact(input?.phone);
     if (!normalized) {
@@ -4157,7 +4215,7 @@ export class InboxService {
 
     const sessionScope = await this.resolveInboxWhatsappSessionScope(
       companyId,
-      Number(user?.id || 0) || undefined,
+      { userId: Number(user?.id || 0) || undefined, aggregate: this.isAggregateUser(user) },
     );
     if (!sessionScope.accessible || sessionScope.mode !== 'current') {
       return this.buildUnknownConversationPresence(remoteJid);
@@ -4190,7 +4248,7 @@ export class InboxService {
 
   async getConversationById(user: any, id: number) {
     const companyId = this.requireCompanyIdFromUser(user);
-    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId);
+    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId, { aggregate: this.isAggregateUser(user) });
     this.assertInboxWhatsappAccessible(sessionScope);
     if (sessionScope.mode === 'current') {
       void this.syncLatestInboxConversationWindow(companyId, id);
@@ -4207,7 +4265,7 @@ export class InboxService {
     options?: { limit?: string | number | null; before?: string | null },
   ) {
     const companyId = this.requireCompanyIdFromUser(user);
-    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId);
+    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId, { aggregate: this.isAggregateUser(user) });
     // Sem WhatsApp vinculado: devolve VAZIO (200), nao 503 (ordem do dono "503->manso").
     // Mata o loop de erro do front ao pollar uma conversa morta da sessao antiga (#3).
     if (!sessionScope.accessible) {

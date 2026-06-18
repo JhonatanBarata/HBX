@@ -20,6 +20,14 @@ export type FullPlanRequestInput = {
   requestedByEmail?: string | null;
 };
 
+export type BotConfigMissingInput = {
+  companyId: number;
+  companyName?: string | null;
+  requestedByName?: string | null;
+  requestedByPhone?: string | null;
+  requestedByEmail?: string | null;
+};
+
 @Injectable()
 export class MasterAlertService {
   private readonly logger = new Logger(MasterAlertService.name);
@@ -142,6 +150,62 @@ export class MasterAlertService {
       }
     } catch (error) {
       this.logger.warn(`master_alert_full_whatsapp_falhou: ${String((error as Error)?.message || error)}`);
+      await this.recordLog({ companyId, target: 'whatsapp', text, status: 'failed', errorMessage: String((error as Error)?.message || error) });
+    }
+
+    return { email: emailOk, whatsapp: whatsappOk };
+  }
+
+  // Alerta ao master quando bot-módulo está habilitado para a empresa mas a
+  // chave-mestra (botArmedAt) ainda não foi configurada — vendedor pediu retorno
+  // automático e o fluxo não pode rodar sem a ativação.
+  async notifyBotConfigMissing(input: BotConfigMissingInput): Promise<{ email: boolean; whatsapp: boolean }> {
+    const companyId = Number(input.companyId || 0);
+    const company = String(input.companyName || '').trim() || `empresa #${companyId}`;
+    const seller = String(input.requestedByName || '').trim();
+    const phone = String(input.requestedByPhone || '').trim();
+    const email = String(input.requestedByEmail || '').trim();
+
+    const linhas = [
+      '⚠️ Bot IA sem chave-mestra — vendedor pediu retorno automático',
+      `Empresa: ${company}`,
+      seller ? `Vendedor: ${seller}` : '',
+      phone ? `Telefone: ${phone}` : '',
+      email ? `E-mail: ${email}` : '',
+      '',
+      'Ative o bot desta empresa no painel Master para liberar o retorno automático.',
+    ].filter(Boolean);
+    const text = linhas.join('\n');
+
+    let emailOk = false;
+    let whatsappOk = false;
+
+    try {
+      const to = await this.resolveMasterEmail();
+      if (to) {
+        const res = await this.mail.sendMail({
+          to,
+          subject: `Bot IA sem configuração — ${company}`,
+          text,
+        });
+        emailOk = Boolean(res?.ok);
+        await this.recordLog({ companyId, target: `email:${to}`, text, status: emailOk ? 'sent' : 'failed', errorMessage: emailOk ? null : (res?.errorMessage || 'email não confirmado') });
+      }
+    } catch (error) {
+      this.logger.warn(`master_alert_bot_config_email_falhou: ${String((error as Error)?.message || error)}`);
+      await this.recordLog({ companyId, target: 'email', text, status: 'failed', errorMessage: String((error as Error)?.message || error) });
+    }
+
+    try {
+      const to = this.normalizeWhatsAppTarget(process.env.MASTER_ALERT_WHATSAPP_TO || '19997024884');
+      const senderCompanyId = Number(process.env.MASTER_ALERT_WA_COMPANY_ID || 0) || 0;
+      if (to && senderCompanyId > 0) {
+        const sent = await this.webwhats.sendText(senderCompanyId, { to, text });
+        whatsappOk = true;
+        await this.recordLog({ companyId, target: sent.target, text, status: 'sent', providerMessageId: sent.providerMessageId });
+      }
+    } catch (error) {
+      this.logger.warn(`master_alert_bot_config_whatsapp_falhou: ${String((error as Error)?.message || error)}`);
       await this.recordLog({ companyId, target: 'whatsapp', text, status: 'failed', errorMessage: String((error as Error)?.message || error) });
     }
 

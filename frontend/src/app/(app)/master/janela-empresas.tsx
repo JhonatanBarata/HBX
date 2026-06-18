@@ -110,20 +110,24 @@ type Detail = {
 } | null;
 
 const PLANOS = [
-  { value: "hbx_lite", label: "HBX Lite" },
-  { value: "hbx_padrao", label: "HBX Padrão" },
-  { value: "hbx_melhor", label: "HBX Full" },
+  { value: "hbx_lite", label: "HBX List", desc: "Leads básicos, 1 usuário incluso" },
+  { value: "hbx_padrao", label: "HBX Lead Plus", desc: "Leads inteligentes + trial 14d, 2 usuários inclusos" },
+  { value: "hbx_pro", label: "HBX Pro", desc: "Bot IA + atendimento, 3 usuários inclusos" },
+  { value: "hbx_melhor", label: "Implantação", desc: "Empresa, setup assistido, negociado" },
 ];
 
 const PROV_VAZIO = {
   companyName: "",
   slug: "",
+  taxDocument: "",
   planKey: "hbx_padrao",
   billingCycle: "MONTHLY",
   manualAccess: false,
   adminName: "",
   adminEmail: "",
   adminPhone: "",
+  seatCap: "",
+  monthlyValueOverride: "",
 };
 
 type UserEditForm = { id: number; name: string; email: string; username: string; phone: string; role: string; isActive: boolean };
@@ -163,6 +167,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
 
   // provisioning
   const [provOpen, setProvOpen] = useState(false);
+  const [provStep, setProvStep] = useState(1);
   const [provForm, setProvForm] = useState(PROV_VAZIO);
   const [provBusy, setProvBusy] = useState(false);
   const [provMsg, setProvMsg] = useState<string | null>(null);
@@ -266,8 +271,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
   // empresa selecionada sumiu da lista (ex.: recarga) → detalhe some junto
   const selVisivel = selId != null && (!companies || companies.some(c => c.id === selId));
 
-  async function provisionar(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  async function provisionar() {
     if (provBusy) return;
     setProvBusy(true);
     setProvMsg(null);
@@ -279,12 +283,17 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
         manualAccess: provForm.manualAccess,
       };
       if (provForm.slug.trim()) body.slug = provForm.slug.trim();
+      if (provForm.taxDocument.trim()) body.taxDocument = provForm.taxDocument.trim();
       if (provForm.adminEmail.trim()) {
         body.admin = {
           email: provForm.adminEmail.trim(),
           ...(provForm.adminName.trim() ? { name: provForm.adminName.trim() } : {}),
           ...(provForm.adminPhone.trim() ? { phone: provForm.adminPhone.trim() } : {}),
         };
+      }
+      if (provForm.seatCap.trim()) body.seatCap = Math.max(0, Number(provForm.seatCap) || 0);
+      if (provForm.monthlyValueOverride.trim() !== "") {
+        body.monthlyValueOverride = Math.max(0, Number(String(provForm.monthlyValueOverride).replace(",", ".")) || 0);
       }
       const res = await apiFetch<{ ok?: boolean; companyId?: number; temporaryPassword?: string | null }>(
         "/master/provisioning/tenants",
@@ -293,6 +302,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
       setProvResult(res || null);
       setProvForm(PROV_VAZIO);
       setProvOpen(false);
+      setProvStep(1);
       await reload();
       if (res?.companyId) carregarDetail(res.companyId);
     } catch (err) {
@@ -300,6 +310,21 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
     } finally {
       setProvBusy(false);
     }
+  }
+
+  function avancarPasso() {
+    if (provStep === 1) {
+      if (!provForm.companyName.trim()) { setProvMsg("Nome da empresa é obrigatório."); return; }
+      const digits = provForm.taxDocument.replace(/\D/g, "");
+      if (digits && digits.length !== 11 && digits.length !== 14) {
+        setProvMsg("CPF deve ter 11 dígitos e CNPJ 14 dígitos."); return;
+      }
+    }
+    if (provStep === 4 && provForm.adminEmail.trim() && !provForm.adminEmail.includes("@")) {
+      setProvMsg("E-mail do admin inválido."); return;
+    }
+    setProvMsg(null);
+    setProvStep(s => s + 1);
   }
 
   async function armarBot(armed: boolean) {
@@ -666,11 +691,6 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
   const emCortesia = String(c?.status || "").toLowerCase() === "courtesy";
   const emTrial = String(c?.status || "").toLowerCase() === "trial";
   const suspensa = String(c?.status || "").toLowerCase() === "suspended";
-  // Régua única (PR13062026007 PF1): List/Lead = automático, painel mínimo.
-  // Controles manuais (cortesia, módulos/exceção, trial, condições, limites,
-  // suspender, registrar pagamento) só aparecem no HBX Full. Excluir = manual,
-  // fica em todos. Auditoria fica. (motor não muda — é só a tela.)
-  const isFull = String(c?.selectedPlanKey || "").toLowerCase() === "hbx_melhor";
   const ledger = c?.financeHistory || [];
   const auditoria = c?.auditTimeline || [];
   const credsWa = c?.masterIntegrations?.whatsappLibrary || [];
@@ -718,7 +738,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
         <div className="panel-head">
           <h2>Empresas clientes</h2>
           <div className="meta">
-            <button className="btn-teal" onClick={() => { setProvOpen(true); setProvMsg(null); }}>+ Nova empresa</button>
+            <button className="btn-teal" onClick={() => { setProvOpen(true); setProvMsg(null); setProvStep(1); }}>+ Nova empresa</button>
           </div>
         </div>
         <div className="tbl-wrap">
@@ -822,7 +842,6 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                   </div>
                 </section>
 
-                {isFull && (<>
                 <section className="panel">
                   <div className="panel-head"><h2>Cortesia</h2></div>
                   <div style={{ padding: "12px 16px 16px", display: "grid", gap: 10 }}>
@@ -870,15 +889,14 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                         </button>
                       </div>
                     ))}
-                    <span style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>Exceção desta empresa (só no HBX Full): liga/desliga módulo só nesta empresa. O pagamento continua barrando o acesso no app.</span>
+                    <span style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>Liga/desliga módulo desta empresa. O pagamento continua barrando o acesso no app.</span>
                   </div>
                 </section>
-                </>)}
               </div>
 
               <section className="panel">
                 <div className="tabs">
-                  {DETAIL_TABS.filter(t => isFull || (t !== "Financeiro" && t !== "Implantação")).map(t => (
+                  {DETAIL_TABS.map(t => (
                     <button key={t} className={"tab" + (detailTab === t ? " active" : "")} onClick={() => setDetailTab(t)}
                       style={detailTab === t ? { color: "var(--hbx-brand-strong)", borderBottomColor: "var(--hbx-brand)" } : {}}>
                       {t}{t === "Usuários" ? <span className="n">{(c.users || []).length}</span> : null}{t === "Financeiro" ? <span className="n">{ledger.length}</span> : null}
@@ -946,9 +964,6 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                       <div style={{ fontSize: "0.72rem", fontWeight: 700, lineHeight: 1.5, color: comMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)" }}>{comMsg}</div>
                     )}
 
-                    {/* Régua única (PR13062026007 PF1): trial/suspensão/limites/condições/
-                        credenciais só no Full. List/Lead = automático (mantém Plano + Excluir). */}
-                    {isFull && (<>
                     <div style={{ display: "grid", gap: 8 }}>
                       <strong style={{ fontSize: "0.76rem" }}>Trial</strong>
                       <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>
@@ -991,7 +1006,6 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                         )}
                       </div>
                     </div>
-                    </>)}
 
                     <div style={{ borderTop: "1px solid var(--border-hairline)", paddingTop: 12, display: "grid", gap: 8 }}>
                       <strong style={{ fontSize: "0.76rem" }}>Excluir empresa</strong>
@@ -1073,7 +1087,6 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                       <span style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>Mudar plano redefine módulos e entitlements pelo catálogo do plano.</span>
                     </div>
 
-                    {isFull && (<>
                     <div style={{ borderTop: "1px solid var(--border-hairline)", paddingTop: 12, display: "grid", gap: 8 }}>
                       <strong style={{ fontSize: "0.76rem" }}>Limites por empresa (override)</strong>
                       <span style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>Assentos = teto RÍGIDO de acessos (vazio = sem teto). Bloqueia criar acesso além do número.</span>
@@ -1161,7 +1174,6 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                         )}
                       </div>
                     </div>
-                    </>)}
 
                     {/* Bot — chave-mestra */}
                     <div style={{ paddingTop: 12, display: "grid", gap: 8 }}>
@@ -1206,7 +1218,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                   </div>
                 )}
 
-                {detailTab === "Financeiro" && isFull && (
+                {detailTab === "Financeiro" && (
                   <React.Fragment>
                     <div style={{ padding: "10px 16px 0", display: "flex", gap: 8, alignItems: "center" }}>
                       <button className="btn-teal" style={{ minHeight: 32, fontSize: "0.7rem" }}
@@ -1259,7 +1271,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                   </React.Fragment>
                 )}
 
-                {detailTab === "Implantação" && isFull && (
+                {detailTab === "Implantação" && (
                   <div style={{ padding: "12px 16px 16px", display: "grid", gap: 14 }}>
                     <div style={{ display: "grid", gap: 8 }}>
                       <strong>Central de Implantação (Full)</strong>
@@ -1302,68 +1314,154 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
       )}
 
       {provOpen && (
-        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setProvOpen(false); }}>
-          <form className="hbx-modal" onSubmit={provisionar}
-            style={{ width: "min(480px, 100%)", maxHeight: "90vh", overflowY: "auto", display: "grid", gap: 12, padding: 24 }}>
-            <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              Nova empresa cliente
-              <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setProvOpen(false)}>✕</span>
-            </h3>
+        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) { setProvOpen(false); setProvStep(1); setProvMsg(null); } }}>
+          <div className="hbx-modal" style={{ width: "min(520px, 100%)", maxHeight: "90vh", overflowY: "auto", display: "grid", gap: 16, padding: 24 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800 }}>Nova empresa cliente</h3>
+              <span style={{ color: "var(--text-muted)", cursor: "pointer" }} onClick={() => { setProvOpen(false); setProvStep(1); setProvMsg(null); }}>✕</span>
+            </div>
+
+            <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
+              {["Empresa", "Plano", "Ciclo", "Admin", "Avançado"].map((label, i) => (
+                <React.Fragment key={label}>
+                  <span className={`prov-step${provStep === i + 1 ? " is-active" : ""}${provStep > i + 1 ? " is-done" : ""}`}>
+                    {i + 1}. {label}
+                  </span>
+                  {i < 4 && <span className="prov-step-arrow">›</span>}
+                </React.Fragment>
+              ))}
+            </div>
+
             {provMsg && <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--hbx-warning)", lineHeight: 1.5 }}>{provMsg}</div>}
-            <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Nome da empresa *</label>
-              <input className="field-dark" required maxLength={140} value={provForm.companyName}
-                onChange={e => setProvForm(f => ({ ...f, companyName: e.target.value }))} />
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Plano</label>
-                <select className="field-dark" value={provForm.planKey} onChange={e => setProvForm(f => ({ ...f, planKey: e.target.value }))}>
-                  {PLANOS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-                </select>
-              </div>
-              <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Ciclo</label>
-                <select className="field-dark" value={provForm.billingCycle} onChange={e => setProvForm(f => ({ ...f, billingCycle: e.target.value }))}>
-                  <option value="MONTHLY">Mensal</option>
-                  <option value="ANNUAL">Anual</option>
-                </select>
-              </div>
-            </div>
-            <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Slug (opcional)</label>
-              <input className="field-dark" maxLength={80} placeholder="gerado do nome se vazio" value={provForm.slug}
-                onChange={e => setProvForm(f => ({ ...f, slug: e.target.value }))} />
-            </div>
-            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.74rem", fontWeight: 600 }}>
-              <input type="checkbox" checked={provForm.manualAccess} onChange={e => setProvForm(f => ({ ...f, manualAccess: e.target.checked }))} />
-              Acesso manual (cortesia desde o início)
-            </label>
-            <div style={{ borderTop: "1px solid var(--border-hairline)", paddingTop: 10, display: "grid", gap: 10 }}>
-              <strong style={{ fontSize: "0.74rem" }}>Admin inicial (opcional)</strong>
-              <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>E-mail do admin</label>
-                <input className="field-dark" type="email" maxLength={180} value={provForm.adminEmail}
-                  onChange={e => setProvForm(f => ({ ...f, adminEmail: e.target.value }))} />
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+
+            {provStep === 1 && (
+              <div style={{ display: "grid", gap: 10 }}>
                 <div style={{ display: "grid", gap: 6 }}>
-                  <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Nome</label>
-                  <input className="field-dark" maxLength={120} value={provForm.adminName}
-                    onChange={e => setProvForm(f => ({ ...f, adminName: e.target.value }))} />
+                  <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Nome da empresa *</label>
+                  <input className="field-dark" maxLength={140} autoFocus value={provForm.companyName}
+                    onChange={e => setProvForm(f => ({ ...f, companyName: e.target.value }))} />
                 </div>
                 <div style={{ display: "grid", gap: 6 }}>
-                  <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Telefone</label>
-                  <input className="field-dark" maxLength={30} value={provForm.adminPhone}
-                    onChange={e => setProvForm(f => ({ ...f, adminPhone: e.target.value }))} />
+                  <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Slug (opcional)</label>
+                  <input className="field-dark" maxLength={80} placeholder="gerado do nome se vazio" value={provForm.slug}
+                    onChange={e => setProvForm(f => ({ ...f, slug: e.target.value }))} />
+                </div>
+                <div style={{ display: "grid", gap: 6 }}>
+                  <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>CNPJ / CPF (opcional)</label>
+                  <input className="field-dark" maxLength={20} placeholder="apenas dígitos ou com pontuação" value={provForm.taxDocument}
+                    onChange={e => setProvForm(f => ({ ...f, taxDocument: e.target.value }))} />
+                  <span style={{ fontSize: "0.64rem", color: "var(--text-muted)" }}>Opcional agora — exigido no caminho de cobrança (F6).</span>
                 </div>
               </div>
-              <span style={{ fontSize: "0.64rem", color: "var(--text-muted)" }}>Com e-mail preenchido o backend cria o admin com senha temporária (mostrada uma única vez).</span>
+            )}
+
+            {provStep === 2 && (
+              <div style={{ display: "grid", gap: 8 }}>
+                <strong style={{ fontSize: "0.76rem" }}>Plano</strong>
+                {PLANOS.map(p => (
+                  <label key={p.value} className={`prov-radio-card${provForm.planKey === p.value ? " is-sel" : ""}`}>
+                    <input type="radio" name="provPlanKey" value={p.value} checked={provForm.planKey === p.value}
+                      onChange={() => setProvForm(f => ({ ...f, planKey: p.value }))} />
+                    <div>
+                      <div style={{ fontSize: "0.78rem", fontWeight: 700 }}>{p.label}</div>
+                      <div className="prov-option-desc">{p.desc}</div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            )}
+
+            {provStep === 3 && (
+              <div style={{ display: "grid", gap: 8 }}>
+                <strong style={{ fontSize: "0.76rem" }}>Ciclo de cobrança</strong>
+                {[{ value: "MONTHLY", label: "Mensal" }, { value: "ANNUAL", label: "Anual (20% off)" }].map(opt => (
+                  <label key={opt.value} className={`prov-radio-card${provForm.billingCycle === opt.value ? " is-sel" : ""}`}>
+                    <input type="radio" name="provCycle" value={opt.value} checked={provForm.billingCycle === opt.value}
+                      onChange={() => setProvForm(f => ({ ...f, billingCycle: opt.value }))} />
+                    <span style={{ fontSize: "0.78rem", fontWeight: 600 }}>{opt.label}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+
+            {provStep === 4 && (
+              <div style={{ display: "grid", gap: 10 }}>
+                <strong style={{ fontSize: "0.76rem" }}>Admin inicial</strong>
+                <span style={{ fontSize: "0.68rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
+                  Com e-mail preenchido o backend cria o admin com senha temporária (mostrada uma única vez).
+                  Deixe vazio para criar a empresa sem usuário.
+                </span>
+                <div style={{ display: "grid", gap: 6 }}>
+                  <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>E-mail do admin</label>
+                  <input className="field-dark" type="email" maxLength={180} value={provForm.adminEmail}
+                    onChange={e => setProvForm(f => ({ ...f, adminEmail: e.target.value }))} />
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div style={{ display: "grid", gap: 6 }}>
+                    <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Nome</label>
+                    <input className="field-dark" maxLength={120} value={provForm.adminName}
+                      onChange={e => setProvForm(f => ({ ...f, adminName: e.target.value }))} />
+                  </div>
+                  <div style={{ display: "grid", gap: 6 }}>
+                    <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Telefone</label>
+                    <input className="field-dark" maxLength={30} value={provForm.adminPhone}
+                      onChange={e => setProvForm(f => ({ ...f, adminPhone: e.target.value }))} />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {provStep === 5 && (
+              <div style={{ display: "grid", gap: 10 }}>
+                <strong style={{ fontSize: "0.76rem" }}>Avançado</strong>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.74rem", fontWeight: 600 }}>
+                  <input type="checkbox" checked={provForm.manualAccess} onChange={e => setProvForm(f => ({ ...f, manualAccess: e.target.checked }))} />
+                  Acesso manual (cortesia desde o início)
+                </label>
+                <div style={{ display: "grid", gap: 6 }}>
+                  <label className="prov-fld-adv-lbl">Assentos / teto de acessos (vazio = sem teto)</label>
+                  <input className="field-dark" type="number" min={0} style={{ width: 140 }} value={provForm.seatCap}
+                    onChange={e => setProvForm(f => ({ ...f, seatCap: e.target.value }))} />
+                </div>
+                <div style={{ display: "grid", gap: 6 }}>
+                  <label className="prov-fld-adv-lbl">Preço/mês override (R$) — vazio = padrão do plano</label>
+                  <input className="field-dark" type="number" min={0} step="0.01" style={{ width: 160 }} placeholder="padrão do plano"
+                    value={provForm.monthlyValueOverride} onChange={e => setProvForm(f => ({ ...f, monthlyValueOverride: e.target.value }))} />
+                  <span style={{ fontSize: "0.64rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
+                    Override = exceção marcada no registro. Preço 0 → empresa criada em <b>pending_checkout</b> (sem acesso, aguarda contato comercial).
+                  </span>
+                  {provForm.monthlyValueOverride.trim() === "0" && (
+                    <div className="prov-warn-msg">
+                      Preço 0: empresa criada em pending_checkout — aguarda contato comercial.
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
+              <div>
+                {provStep > 1 && (
+                  <button className="btn-ghost" style={{ minHeight: 38 }} disabled={provBusy}
+                    onClick={() => { setProvMsg(null); setProvStep(s => s - 1); }}>
+                    ← Voltar
+                  </button>
+                )}
+              </div>
+              <div>
+                {provStep < 5 && (
+                  <button className="btn-teal" style={{ minHeight: 38 }} onClick={avancarPasso}>
+                    Próximo →
+                  </button>
+                )}
+                {provStep === 5 && (
+                  <button className="btn-teal" style={{ minHeight: 38 }} disabled={provBusy} onClick={provisionar}>
+                    {provBusy ? "Criando…" : "Criar empresa"}
+                  </button>
+                )}
+              </div>
             </div>
-            <button className="btn-teal" type="submit" disabled={provBusy} style={{ minHeight: 42 }}>
-              {provBusy ? "Criando…" : "Criar empresa"}
-            </button>
-          </form>
+          </div>
         </div>
       )}
 

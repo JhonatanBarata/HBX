@@ -459,6 +459,11 @@ export class TeamPolicyService {
     return Object.keys(next).length ? next : undefined;
   }
 
+  private isGerente(requester: any): boolean {
+    const role = this.normalizeRole(requester?.role);
+    return !requester?.isSystemMaster && role === 'ADMIN' && requester?.canViewBilling === false;
+  }
+
   private getActorKind(user: any, company?: any): TeamPolicyActorKind {
     const role = this.normalizeRole(user?.role);
     if (user?.isSystemMaster) return 'system_master';
@@ -1193,6 +1198,26 @@ export class TeamPolicyService {
   async updatePolicy(requester: any, targetUserId: number, patch: TeamPolicyPatch) {
     const target = await this.findTargetUser(targetUserId);
     await this.assertCanManage(requester, target);
+
+    if (this.isGerente(requester)) {
+      const hasNonModulePatch =
+        patch?.access !== undefined ||
+        patch?.accessMap !== undefined ||
+        patch?.accessPresetKey !== undefined ||
+        patch?.presetKey !== undefined ||
+        patch?.presetId !== undefined ||
+        patch?.compensation !== undefined ||
+        patch?.sellerNetwork !== undefined ||
+        patch?.limits !== undefined ||
+        patch?.radar !== undefined ||
+        patch?.visibility !== undefined;
+      if (hasNonModulePatch) {
+        throw new ForbiddenException(
+          'Gerente pode conceder apenas módulos — cobrança, limites e acessos granulares são exclusivos do responsável.',
+        );
+      }
+    }
+
     const beforePolicy = await this.buildPolicy(target, requester);
 
     const data = await this.buildLegacyUpdateData(requester, target, patch || {});

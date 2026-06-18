@@ -42,6 +42,9 @@ export type MasterProvisioningInput = {
   planKey?: string | null;
   manualAccess?: boolean | null;
   billingCycle?: 'MONTHLY' | 'ANNUAL' | string | null;
+  seatCap?: number | null;
+  monthlyValueOverride?: number | null;
+  taxDocument?: string | null;
   modules?: MasterProvisioningModuleInput[] | null;
   limits?: {
     commercialCardsMonthlyLimitOverride?: number | null;
@@ -76,6 +79,10 @@ export type MasterProvisioningPlan = {
     manualAccess: boolean;
     billingCycle: 'MONTHLY' | 'ANNUAL';
     entitlementStatus: 'manual' | 'pending_configuration';
+    seatCap: number | null;
+    monthlyValueOverride: number | null;
+    taxDocument: string | null;
+    priceIsZero: boolean;
   };
   modules: Array<{ key: string; enabled: boolean; source: 'input' | 'plan_default' }>;
   limits: {
@@ -171,6 +178,21 @@ export class MasterProvisioningService {
       ? 'ANNUAL'
       : 'MONTHLY';
 
+    const taxDocument = normalizeText(input.taxDocument, 40); // TODO F6: exigir quando billingProvider !== 'manual'
+
+    const seatCap = (() => {
+      if (input.seatCap == null) return null;
+      const n = Math.trunc(Number(input.seatCap));
+      return Number.isFinite(n) && n >= 0 ? n : null;
+    })();
+
+    const monthlyValueOverride = (() => {
+      if (input.monthlyValueOverride == null) return null;
+      const n = Number(input.monthlyValueOverride);
+      return Number.isFinite(n) && n >= 0 ? Number(n.toFixed(2)) : null;
+    })();
+    const priceIsZero = monthlyValueOverride === 0;
+
     const explicitModules = Array.isArray(input.modules) && input.modules.length > 0;
     const moduleInputs = explicitModules
       ? input.modules || []
@@ -221,7 +243,11 @@ export class MasterProvisioningService {
         planKey,
         manualAccess,
         billingCycle,
-        entitlementStatus: manualAccess ? 'manual' : 'pending_configuration',
+        entitlementStatus: (!priceIsZero && manualAccess) ? 'manual' : 'pending_configuration',
+        seatCap,
+        monthlyValueOverride,
+        taxDocument,
+        priceIsZero,
       },
       modules,
       limits: {
@@ -297,10 +323,16 @@ export class MasterProvisioningService {
           selectedPlanKey: plan.commercial.planKey,
           // Estado unico nativo (DROP): provisionamento com acesso manual nasce
           // em cortesia; senao, trial (preserva o acesso 'trialing' anterior).
-          status: plan.commercial.manualAccess ? 'courtesy' : 'trial',
+          status: plan.commercial.priceIsZero ? 'pending_checkout'
+            : plan.commercial.manualAccess ? 'courtesy'
+            : 'trial',
           statusChangedAt: new Date(),
-          courtesyReason: plan.commercial.manualAccess ? 'Provisionamento master (acesso manual)' : null,
-          paymentMethod: plan.commercial.manualAccess ? 'MANUAL' : 'NONE',
+          courtesyReason: (!plan.commercial.priceIsZero && plan.commercial.manualAccess)
+            ? 'Provisionamento master (acesso manual)' : null,
+          paymentMethod: (!plan.commercial.priceIsZero && plan.commercial.manualAccess) ? 'MANUAL' : 'NONE',
+          seatCap: plan.commercial.seatCap,
+          monthlyValueOverride: plan.commercial.monthlyValueOverride,
+          taxDocument: plan.commercial.taxDocument,
           billingProvider: 'manual',
           billingCycle: plan.commercial.billingCycle,
           contactEmail: plan.supportChannels.supportEmail || plan.admin?.email || null,
@@ -340,7 +372,7 @@ export class MasterProvisioningService {
         });
       }
 
-      if (plan.commercial.manualAccess) {
+      if (plan.commercial.manualAccess && !plan.commercial.priceIsZero) {
         const now = new Date();
         for (const key of entitlementKeys) {
           await tx.companyCommercialEntitlement.upsert({
