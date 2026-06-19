@@ -56,6 +56,18 @@ type RegisterPanelProps = {
   embedded?: boolean;
 };
 
+// Resposta do endpoint /auth/onboarding/whatsapp/start
+type WaStartResponse = {
+  ok?: boolean;
+  challengeToken?: string | null;
+  phone?: string | null;
+  sentVia?: string | null;
+  liveDispatch?: string | null;
+  previewCode?: string | null;
+  message?: string | null;
+  alreadyConfirmed?: boolean;
+};
+
 export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPanelProps) {
   const router = useRouter();
   const [empresa, setEmpresa] = useState("");
@@ -70,6 +82,16 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
   const [resendMsg, setResendMsg] = useState<string | null>(null);
   const [resendCooldown, setResendCooldown] = useState(0);
   const googleBtnRef = useRef<HTMLDivElement>(null);
+
+  // F6 — Confirmação por WhatsApp (3 estados: idle → phone → code)
+  const [waStep, setWaStep] = useState<"idle" | "phone" | "code">("idle");
+  const [waPhone, setWaPhone] = useState("");
+  const [waCode, setWaCode] = useState("");
+  const [waBusy, setWaBusy] = useState(false);
+  const [waError, setWaError] = useState<string | null>(null);
+  const [waMsg, setWaMsg] = useState<string | null>(null);
+  const [waChallengeToken, setWaChallengeToken] = useState<string | null>(null);
+  const [waPreviewCode, setWaPreviewCode] = useState<string | null>(null);
 
   const selectedPlan = selectedPlanKey && PLANOS_VALIDOS.has(selectedPlanKey) ? selectedPlanKey : "hbx_padrao";
   const isTrial = selectedPlan === "hbx_padrao";
@@ -258,6 +280,64 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
     return () => window.clearTimeout(t);
   }, [resendCooldown]);
 
+  // F6 — envia o código de confirmação via WhatsApp
+  async function waSendCode() {
+    if (waBusy) return;
+    setWaBusy(true);
+    setWaError(null);
+    setWaMsg(null);
+    try {
+      const pollToken =
+        done?.confirmationPollToken ||
+        (() => { try { return sessionStorage.getItem(ONBOARDING_POLL_KEY); } catch { return null; } })();
+      const res = await apiFetch<WaStartResponse>("/auth/onboarding/whatsapp/start", {
+        method: "POST",
+        body: JSON.stringify({ pollToken, phone: waPhone }),
+      });
+      if (res?.alreadyConfirmed) {
+        setWaMsg(res.message || "Identidade já confirmada — entre pelo login.");
+        return;
+      }
+      if (res?.challengeToken) {
+        setWaChallengeToken(res.challengeToken);
+        setWaPreviewCode(res.previewCode || null);
+        setWaMsg(res.message || null);
+        setWaStep("code");
+      } else {
+        setWaError(res?.message || "Não foi possível enviar o código. Tente novamente.");
+      }
+    } catch (err) {
+      setWaError(err instanceof Error ? err.message : "Não foi possível enviar o código. Tente novamente.");
+    } finally {
+      setWaBusy(false);
+    }
+  }
+
+  // F6 — confirma o código digitado
+  async function waConfirmCode() {
+    if (waBusy || !waChallengeToken) return;
+    setWaBusy(true);
+    setWaError(null);
+    try {
+      const res = await apiFetch<SignupResponse>("/auth/onboarding/whatsapp/confirm", {
+        method: "POST",
+        body: JSON.stringify({ challengeToken: waChallengeToken, code: waCode }),
+      });
+      if (res?.access_token) {
+        setToken(res.access_token);
+        clearOnboardingHint();
+        router.replace(res.next || "/dashboard");
+        return;
+      }
+      // Confirmado mas sem access_token ainda (ex.: awaiting_payment)
+      setDone(res || { ok: true });
+    } catch (err) {
+      setWaError(err instanceof Error ? err.message : "Código inválido. Tente novamente.");
+    } finally {
+      setWaBusy(false);
+    }
+  }
+
   const eyeBtn = (on: boolean, toggle: () => void) => (
     <button type="button" onClick={toggle} aria-label={on ? "Ocultar senha" : "Mostrar senha"}
       style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", border: 0, background: "transparent", color: "var(--text-muted)", cursor: "pointer", fontSize: "0.85rem" }}>
@@ -307,6 +387,59 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
               <Link href="/login" className="btn-teal" style={{ minHeight: 44, fontSize: "0.84rem", textDecoration: "none" }}>
                 Ir para o login
               </Link>
+              {/* F6 — Confirmação por WhatsApp */}
+              {waStep === "idle" && (
+                <button className="btn-ghost" type="button" onClick={() => { setWaStep("phone"); setWaError(null); setWaMsg(null); }} style={{ minHeight: 40, fontSize: "0.78rem" }}>
+                  Confirmar pelo WhatsApp
+                </button>
+              )}
+              {waStep === "phone" && (
+                <React.Fragment>
+                  <div className="f">
+                    <label htmlFor="wa-phone">WhatsApp com DDD</label>
+                    <input
+                      id="wa-phone"
+                      className="field-dark"
+                      type="tel"
+                      placeholder="WhatsApp com DDD"
+                      value={waPhone}
+                      onChange={e => setWaPhone(e.target.value)}
+                      disabled={waBusy}
+                    />
+                  </div>
+                  <button className="btn-teal" type="button" onClick={waSendCode} disabled={waBusy || !waPhone.trim()} style={{ minHeight: 40, fontSize: "0.78rem" }}>
+                    {waBusy ? "Enviando…" : "Enviar código"}
+                  </button>
+                </React.Fragment>
+              )}
+              {waStep === "code" && (
+                <React.Fragment>
+                  {waPreviewCode && (
+                    <div className="ok show">
+                      Código (ambiente de teste): <b>{waPreviewCode}</b>
+                    </div>
+                  )}
+                  {waMsg && !waPreviewCode && <div className="ok show">{waMsg}</div>}
+                  <div className="f">
+                    <label htmlFor="wa-code">Código de 6 dígitos</label>
+                    <input
+                      id="wa-code"
+                      className="field-dark"
+                      inputMode="numeric"
+                      maxLength={6}
+                      placeholder="______"
+                      value={waCode}
+                      onChange={e => setWaCode(e.target.value.replace(/\D/g, ""))}
+                      disabled={waBusy}
+                    />
+                  </div>
+                  <button className="btn-teal" type="button" onClick={waConfirmCode} disabled={waBusy || waCode.length < 6} style={{ minHeight: 40, fontSize: "0.78rem" }}>
+                    {waBusy ? "Confirmando…" : "Confirmar código"}
+                  </button>
+                </React.Fragment>
+              )}
+              {waError && <div className="ok show bad">{waError}</div>}
+              {waMsg && waStep !== "code" && <div className="ok show">{waMsg}</div>}
             </React.Fragment>
           )}
         </div>
