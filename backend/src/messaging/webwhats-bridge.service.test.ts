@@ -1426,3 +1426,139 @@ test('WebwhatsBridgeService reuses prospection stub without session before creat
     ),
   );
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BUG "conectado mas inbox vazio": supressão cross-session
+// Ao trocar de número (A→B), a supressão do nº A bloqueava sync do nº B porque
+// os contatos são os mesmos clientes. A correção: supressão de sourcePhone != do
+// número atual é ignorada.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('isLocallyDeletedChatSuppressed NÃO suprime quando sourcePhoneNormalized do log é diferente do número da sessão atual', async () => {
+  // Cenário: log gravado pelo nº A (5519997024884), sessão atual é nº B (5519920121720).
+  // O cliente +5511943171224 foi suprimido pelo nº A — mas o nº B pode reimportá-lo.
+  const logEntry = {
+    createdAt: new Date('2026-06-18T10:00:00.000Z'),
+    metadata: JSON.stringify({
+      reason: 'old_session_discard',
+      currentSessionId: 'session-b',
+      sourcePhoneNormalized: '5519997024884',  // número A (o que fez o discard)
+      contact: '5511943171224@s.whatsapp.net',
+      remoteJid: '5511943171224@s.whatsapp.net',
+      phoneDigits: '5511943171224',
+    }),
+  };
+  const prisma = {
+    whatsAppAuditLog: {
+      findFirst: async () => logEntry,
+    },
+  };
+  const service = new WebwhatsBridgeService(prisma as any);
+
+  // lastMessageAt ANTES do log — sem a correção, seria suprimido (log >= lastMessage).
+  const lastMessageAt = new Date('2026-06-17T08:00:00.000Z');
+  const sessionPhoneNormalizedB = '5519920121720';
+
+  const suppressed = await (service as any).isLocallyDeletedChatSuppressed(
+    2,
+    '5511943171224@s.whatsapp.net',
+    null,
+    '+5511943171224',
+    lastMessageAt,
+    sessionPhoneNormalizedB,  // número B: diferente do sourcePhone do log
+  );
+
+  assert.equal(suppressed, false, 'Supressão do nº A não deve bloquear sync do nº B');
+});
+
+test('isLocallyDeletedChatSuppressed SUPRIME quando sourcePhoneNormalized do log bate com a sessão atual', async () => {
+  // Cenário: o nº B (5519920121720) fez discard de um cliente e quer que ele não volte.
+  const logEntry = {
+    createdAt: new Date('2026-06-18T10:00:00.000Z'),
+    metadata: JSON.stringify({
+      reason: 'old_session_discard',
+      currentSessionId: 'session-b',
+      sourcePhoneNormalized: '5519920121720',  // número B (o que fez o discard)
+      contact: '5511943171224@s.whatsapp.net',
+      remoteJid: '5511943171224@s.whatsapp.net',
+      phoneDigits: '5511943171224',
+    }),
+  };
+  const prisma = {
+    whatsAppAuditLog: {
+      findFirst: async () => logEntry,
+    },
+  };
+  const service = new WebwhatsBridgeService(prisma as any);
+
+  // lastMessageAt ANTES do log → supressão deve bloquear (mesmo número).
+  const lastMessageAt = new Date('2026-06-17T08:00:00.000Z');
+  const sessionPhoneNormalizedB = '5519920121720';
+
+  const suppressed = await (service as any).isLocallyDeletedChatSuppressed(
+    2,
+    '5511943171224@s.whatsapp.net',
+    null,
+    '+5511943171224',
+    lastMessageAt,
+    sessionPhoneNormalizedB,
+  );
+
+  assert.equal(suppressed, true, 'Supressão do mesmo número deve bloquear reimporte');
+});
+
+test('isLocallyDeletedChatSuppressed NÃO suprime quando NÃO há log de supressão', async () => {
+  const prisma = {
+    whatsAppAuditLog: {
+      findFirst: async () => null,
+    },
+  };
+  const service = new WebwhatsBridgeService(prisma as any);
+
+  const suppressed = await (service as any).isLocallyDeletedChatSuppressed(
+    2,
+    '5511943171224@s.whatsapp.net',
+    null,
+    '+5511943171224',
+    new Date('2026-06-17T08:00:00.000Z'),
+    '5519920121720',
+  );
+
+  assert.equal(suppressed, false, 'Sem log de supressão: importação deve prosseguir');
+});
+
+test('isLocallyDeletedChatSuppressed: log sem sourcePhoneNormalized mantém comportamento legado (data-driven)', async () => {
+  // Log antigo (antes da correção) não tem sourcePhoneNormalized — mantém o
+  // comportamento original (suprime por data), não "abre" a supressão.
+  const logEntry = {
+    createdAt: new Date('2026-06-18T10:00:00.000Z'),
+    metadata: JSON.stringify({
+      reason: 'old_session_discard',
+      currentSessionId: 'session-old',
+      contact: '5511943171224@s.whatsapp.net',
+      // sem sourcePhoneNormalized
+    }),
+  };
+  const prisma = {
+    whatsAppAuditLog: {
+      findFirst: async () => logEntry,
+    },
+  };
+  const service = new WebwhatsBridgeService(prisma as any);
+
+  // lastMessageAt antes do log → deve suprimir (legado sem sourcePhone)
+  const lastMessageBefore = new Date('2026-06-17T08:00:00.000Z');
+  const suppressedBefore = await (service as any).isLocallyDeletedChatSuppressed(
+    2, '5511943171224@s.whatsapp.net', null, '+5511943171224',
+    lastMessageBefore, '5519920121720',
+  );
+  assert.equal(suppressedBefore, true, 'Log legado sem sourcePhone: suprime quando data-driven');
+
+  // lastMessageAt depois do log → NÃO suprime (mensagem nova após discard)
+  const lastMessageAfter = new Date('2026-06-18T12:00:00.000Z');
+  const suppressedAfter = await (service as any).isLocallyDeletedChatSuppressed(
+    2, '5511943171224@s.whatsapp.net', null, '+5511943171224',
+    lastMessageAfter, '5519920121720',
+  );
+  assert.equal(suppressedAfter, false, 'Log legado sem sourcePhone: não suprime quando msg nova');
+});

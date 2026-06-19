@@ -896,3 +896,76 @@ test('live health nao preserva reconectando quando provider confirma desconectad
   assert.equal(updates[updates.length - 1].whatsappModalStatus, 'DISCONNECTED');
   assert.equal(updates[updates.length - 1].currentWhatsappConnectionSessionId, null);
 });
+
+// FIX: sessão com wipedAt setado → ao reconciliar connected com phone → wipedAt deve ser null.
+// Causa: inbox vazio com sessão conectada. Prova ao vivo 18/06: limpando wipedAt na mão a
+// conversa real apareceu (0→1). Repro: trocar de número reusa sessão com wipedAt de contexto
+// anterior → bootstrap do syncRecentChats floorava TODOS os chats → inbox vazio.
+
+test('reconcile connected limpa wipedAt da sessao do mesmo numero (reativacao nao herda wipe anterior)', async () => {
+  const wipedAt = new Date('2026-06-01T10:00:00.000Z');
+  const connectedAt = new Date('2026-06-18T10:00:00.000Z');
+  const company = createCompany({ whatsappModalStatus: 'DISCONNECTED', currentWhatsappConnectionSessionId: null });
+  const { prisma, sessions, companyUpdates } = createSessionPrisma(company, [
+    {
+      id: 'session-with-wipe',
+      companyId: 7,
+      provider: 'webwhats',
+      tenantKey: 'company-7',
+      phoneNormalized: '5519920121720',
+      displayPhone: '+5519920121720',
+      status: 'disconnected',
+      connectedAt: new Date('2026-05-01T10:00:00.000Z'),
+      createdAt: new Date('2026-05-01T10:00:00.000Z'),
+      wipedAt,
+    },
+  ]);
+  const service = new WhatsAppModalService(prisma) as any;
+
+  await service.persistSnapshot(
+    company,
+    createSnapshot({ phone: '+5519920121720', connectedAt }),
+    'test_wipedAt_cleared_on_reconnect',
+  );
+
+  // Deve reutilizar a sessão existente do mesmo número (não criar nova).
+  assert.equal(sessions.length, 1);
+  assert.equal(sessions[0].id, 'session-with-wipe');
+  assert.equal(sessions[0].status, 'active');
+  // wipedAt DEVE ser null — senão o syncRecentChats nasce floorado e o inbox fica vazio.
+  assert.equal(sessions[0].wipedAt, null);
+  assert.equal(companyUpdates.at(-1).currentWhatsappConnectionSessionId, 'session-with-wipe');
+});
+
+test('reconcile connected limpa wipedAt de placeholder sem numero (write-once com wipe antigo)', async () => {
+  const wipedAt = new Date('2026-06-01T10:00:00.000Z');
+  const company = createCompany({ whatsappModalStatus: 'DISCONNECTED', currentWhatsappConnectionSessionId: null });
+  const { prisma, sessions, companyUpdates } = createSessionPrisma(company, [
+    {
+      id: 'session-placeholder',
+      companyId: 7,
+      provider: 'webwhats',
+      tenantKey: 'company-7',
+      phoneNormalized: null,
+      displayPhone: null,
+      status: 'active',
+      connectedAt: new Date('2026-06-18T09:00:00.000Z'),
+      createdAt: new Date('2026-06-18T09:00:00.000Z'),
+      wipedAt,
+    },
+  ]);
+  const service = new WhatsAppModalService(prisma) as any;
+
+  // Snapshot com número novo chega depois do placeholder ser criado (write-once a partir de null).
+  await service.persistSnapshot(
+    company,
+    createSnapshot({ phone: '+5519920121720' }),
+    'test_wipedAt_cleared_on_placeholder_write_once',
+  );
+
+  assert.equal(sessions.length, 1);
+  assert.equal(sessions[0].id, 'session-placeholder');
+  assert.equal(sessions[0].phoneNormalized, '5519920121720');
+  assert.equal(sessions[0].wipedAt, null);
+  assert.equal(companyUpdates.at(-1).currentWhatsappConnectionSessionId, 'session-placeholder');
+});

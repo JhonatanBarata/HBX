@@ -3304,7 +3304,7 @@ export class WebwhatsBridgeService {
     const lastMessageAt =
       this.resolveMessageDate(chat?.lastMessage?.messageTimestamp || chat?.updatedAt)
       || null;
-    if (await this.isLocallyDeletedChatSuppressed(companyId, remoteJid, remoteJidAlt, preferredContact, lastMessageAt)) {
+    if (await this.isLocallyDeletedChatSuppressed(companyId, remoteJid, remoteJidAlt, preferredContact, lastMessageAt, session.phoneNormalized)) {
       return null;
     }
     const existing = await this.findConversation(companyId, session.id, remoteJid, remoteJidAlt, preferredContact);
@@ -4356,6 +4356,10 @@ export class WebwhatsBridgeService {
     remoteJidAlt: string | null,
     preferredContact: string | null,
     lastMessageAt: Date | null,
+    // Número da sessão de sync atual (vendedor). Supressões de OUTROS números não
+    // bloqueiam esta sessão: o cliente X foi apagado pelo nº A, mas o nº B pode
+    // reimportá-lo normalmente (são chips distintos, a supressão é por número de origem).
+    sessionPhoneNormalized?: string | null,
   ) {
     if (this.isGroupRemoteJid(remoteJid) || this.isGroupRemoteJid(remoteJidAlt)) return false;
     const tokens = this.buildSuppressionLookupTokens(remoteJid, remoteJidAlt, preferredContact);
@@ -4369,9 +4373,20 @@ export class WebwhatsBridgeService {
         OR: tokens.map((token) => ({ metadata: { contains: token } })),
       },
       orderBy: { createdAt: 'desc' },
-      select: { createdAt: true },
+      select: { createdAt: true, metadata: true },
     });
     if (!log) return false;
+    // Se a sessão atual tem número conhecido, verificar se a supressão foi gerada por
+    // esse mesmo número. Supressão de número DIFERENTE não bloqueia esta sessão:
+    // o cliente do nº A foi descartado, mas o nº B deve reimportá-lo normalmente.
+    if (sessionPhoneNormalized) {
+      const logMeta = this.parseMetadata(log.metadata as string | null);
+      const logSourcePhone = this.normalizeOptionalString(logMeta?.sourcePhoneNormalized);
+      if (logSourcePhone && logSourcePhone !== sessionPhoneNormalized) {
+        // Supressão veio de outro número → não suprimir para esta sessão.
+        return false;
+      }
+    }
     if (!lastMessageAt) return true;
     return log.createdAt.getTime() >= lastMessageAt.getTime();
   }

@@ -31,9 +31,7 @@ import { WhatsAppConnectModal } from "@/components/hbx/whatsapp-connect-modal";
 import { apiFetch, getApiBase, getToken } from "@/lib/api";
 import { useTabIndex } from "@/lib/use-tab-param";
 import {
-  cleanupWhatsAppSessions,
   fetchWhatsAppModalStatus,
-  fetchWhatsAppSessionDiagnostics,
 } from "@/lib/whatsapp-connection-flow";
 import { whatsappModalStatusLabel } from "@/lib/whatsapp-center";
 
@@ -328,18 +326,6 @@ export function AtendimentoClient() {
   const [waStatus, setWaStatus] = useState<string | null>(null);
   const [waModalOpen, setWaModalOpen] = useState(false);
 
-  // troca de número (DEFINITIVO): a sessão é POR NÚMERO no backend, então o inbox atual
-  // NUNCA mostra os chats do número anterior — isolamento por construção. Se o backend
-  // detectar histórico de outro número, abrimos um popup pra o dono DECIDIR:
-  //  - Manter (keep)    → arquiva o histórico anterior (preservado, fora do inbox);
-  //  - Deletar (discard)→ apaga só o histórico do número anterior (chip atual intacto).
-  const [cleanupPrompt, setCleanupPrompt] = useState<{ conversations: number; oldPhone: string | null } | null>(null);
-  const [cleanupBusy, setCleanupBusy] = useState(false);
-  const [cleanupMsg, setCleanupMsg] = useState<string | null>(null);
-  // Roda a checagem de histórico UMA vez por conexão (não a cada poll de status). Reseta
-  // ao desconectar, pra a próxima conexão checar de novo.
-  const cleanupCheckedRef = useRef(false);
-
   // fidelidade: citação, lightbox, reação, popovers, presença, gravação
   const [replyTo, setReplyTo] = useState<InboxMessage | null>(null);
   const [lightbox, setLightbox] = useState<string | null>(null);
@@ -429,79 +415,20 @@ export function AtendimentoClient() {
       });
   }, []);
 
-  // Aplica a DECISÃO do dono sobre o histórico do número anterior. Nenhum dos modos
-  // toca no número ATUAL nem no motor Webwhats: 'keep' arquiva o anterior, 'discard'
-  // apaga só o anterior. O inbox atual já está isolado (sessão por número).
-  const runSessionCleanup = useCallback(async (mode: "keep" | "discard") => {
-    setCleanupBusy(true);
-    try {
-      const res = await cleanupWhatsAppSessions(mode);
-      await loadConvs();
-      setCleanupMsg(
-        mode === "keep"
-          ? "Histórico do número anterior mantido (arquivado, fora deste atendimento)."
-          : `Histórico do número anterior removido — ${res.deletedConversations} conversa(s) apagada(s).`,
-      );
-    } catch (err) {
-      setCleanupMsg(err instanceof Error ? err.message : "Falha ao tratar o histórico anterior.");
-    } finally {
-      setCleanupBusy(false);
-      setCleanupPrompt(null);
-    }
-  }, [loadConvs]);
-
-  // Após conectar: o isolamento já é por construção (sessão por número) — o inbox novo
-  // nunca carrega chat do número antigo. Se o backend detectar histórico de OUTRO número,
-  // abrimos o popup pra o dono escolher manter ou deletar. NUNCA apaga sozinho.
-  const checkSessionCleanupAfterConnect = useCallback(async () => {
-    const diag = await fetchWhatsAppSessionDiagnostics().catch(() => null);
-    const cleanup = diag?.whatsappSessionCleanup;
-    if (!cleanup?.required) return;
-    if (cleanup.oldConversationCount <= 0 && cleanup.oldMessageCount <= 0) return;
-    setCleanupPrompt({
-      conversations: cleanup.oldConversationCount,
-      oldPhone: cleanup.latestOldSession?.displayPhone || cleanup.latestOldSession?.phoneNormalized || null,
-    });
-  }, []);
-
-  // Conectou: atualiza chip, recarrega lista e checa histórico do número anterior.
+  // Conectou: atualiza chip e recarrega lista. O prompt de histórico de outro número
+  // (BUG 2 FIX) está centralizado no WhatsAppConnectModal — era duplicado aqui
+  // (modal inline + popup nesta tela = duas coisas vivas para a mesma função).
   const handleWhatsAppConnected = useCallback(() => {
-    cleanupCheckedRef.current = true; // checagem feita aqui; evita o efeito de load duplicar.
     refreshWaStatus();
     loadConvs();
-    checkSessionCleanupAfterConnect();
-  }, [refreshWaStatus, loadConvs, checkSessionCleanupAfterConnect]);
+  }, [refreshWaStatus, loadConvs]);
 
   // Desconectou: limpa a lista na hora — o chat do número que saiu não fica
   // pendurado por trás do modal.
   const handleWhatsAppDisconnected = useCallback(() => {
     setConvs([]); setSelId(null); setThread([]); setCard(null);
-    setCleanupPrompt(null);
-    cleanupCheckedRef.current = false;
-    setCleanupMsg("WhatsApp desconectado — conversas ocultadas. Conecte um número para continuar.");
     refreshWaStatus();
   }, [refreshWaStatus]);
-
-  // Histórico de outro número também é checado no LOAD (não só ao conectar pelo modal):
-  // quem já estava conectado e só recarregou a página continua vendo o popup. Uma vez por
-  // conexão (ref), pra não reabrir a cada poll de status.
-  useEffect(() => {
-    if (cleanupCheckedRef.current) return;
-    const st = String(waStatus || "").toUpperCase();
-    if (st !== "CONNECTED" && st !== "RECONNECTING") return;
-    cleanupCheckedRef.current = true;
-    // Defere pra fora do efeito (mesmo padrão do toast abaixo): a checagem é assíncrona
-    // e não deve disparar setState síncrono dentro do efeito.
-    const t = window.setTimeout(() => { void checkSessionCleanupAfterConnect(); }, 0);
-    return () => window.clearTimeout(t);
-  }, [waStatus, checkSessionCleanupAfterConnect]);
-
-  // O aviso de limpeza some sozinho depois de alguns segundos.
-  useEffect(() => {
-    if (!cleanupMsg) return;
-    const t = window.setTimeout(() => setCleanupMsg(null), 7000);
-    return () => window.clearTimeout(t);
-  }, [cleanupMsg]);
 
   // KPIs (GET /inbox/metrics) — fallback silencioso até o backend subir
   const loadMetrics = useCallback(() => {
@@ -1537,36 +1464,6 @@ export function AtendimentoClient() {
         </div>
       )}
 
-      {/* Histórico de OUTRO número detectado: o dono escolhe manter ou deletar. O inbox
-          atual já está isolado (sessão por número) — isto é só a decisão sobre o passado. */}
-      {cleanupPrompt && (
-        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget && !cleanupBusy) setCleanupPrompt(null); }}>
-          <div className="hbx-modal" style={{ width: "min(420px, 100%)", display: "grid", gap: 14, padding: 24 }}>
-            <h3>
-              Histórico de outro número detectado
-              <span className="hbx-x" onClick={() => { if (!cleanupBusy) setCleanupPrompt(null); }}>✕</span>
-            </h3>
-            <p className="hint" style={{ margin: 0 }}>
-              Encontramos <strong>{cleanupPrompt.conversations}</strong> conversa(s) do número anterior
-              {cleanupPrompt.oldPhone ? ` (${cleanupPrompt.oldPhone})` : ""}. Elas <strong>não</strong> aparecem
-              neste atendimento. O que deseja fazer com esse histórico?
-            </p>
-            <div style={{ display: "grid", gap: 8 }}>
-              <button className="btn-teal" disabled={cleanupBusy} onClick={() => runSessionCleanup("keep")}>
-                {cleanupBusy ? "Aplicando…" : "Manter (arquivar)"}
-              </button>
-              <button className="btn-ghost danger" disabled={cleanupBusy} onClick={() => runSessionCleanup("discard")}>
-                {cleanupBusy ? "Apagando…" : "Deletar histórico do número anterior"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Aviso transitório do resultado da limpeza/desconexão. */}
-      {cleanupMsg && !cleanupPrompt && (
-        <div className="hbx-toast" role="status">{cleanupMsg}</div>
-      )}
     </React.Fragment>
   );
 }

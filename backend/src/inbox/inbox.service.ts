@@ -3724,6 +3724,13 @@ export class InboxService {
         { take },
         sessionScope.currentSessionId ? { sessionId: sessionScope.currentSessionId } : undefined,
       );
+    } else if (sessionScope.mode === 'company' && sessionScope.sessionIds?.length) {
+      // ADMIN (visão agregada): dispara sync em background para cada sessão ativa.
+      // Sem isto o inbox do admin fica vazio até que algum vendedor faça um bootstrap
+      // individual e dispare o sync de sua sessão.
+      for (const sessionId of sessionScope.sessionIds) {
+        this.triggerBackgroundInboxIndexSync(companyId, { take }, { sessionId });
+      }
     }
     const loadTake = Math.min(requestedTake + 1, 200);
     const loadedConversations = await this.listPersistedConversationSummariesForCompany(companyId, {
@@ -6635,15 +6642,17 @@ export class InboxService {
 
       const convs = await tx.companyConversation.findMany({
         where: { companyId, channel: 'whatsapp' },
-        select: { id: true, contact: true, metadata: true },
+        select: { id: true, contact: true, metadata: true, sourcePhoneNormalized: true },
       });
       const ids = convs.map((c) => c.id);
-      // Guarda contato/metadata ANTES de apagar — vira a supressão que segura o reimport.
-      // (o telefone normalizado é derivado do contact dentro de recordDiscarded...)
+      // Guarda contato/metadata/sourcePhone ANTES de apagar — vira a supressão que
+      // segura o reimport. sourcePhoneNormalized é o número do vendedor (sessão de
+      // origem): com ele, o bridge pode diferenciar supressões de números distintos e
+      // não bloquear o nº novo de reimportar seus próprios clientes.
       suppressionEntries = convs.map((c) => ({
         contact: c.contact ?? null,
         metadata: c.metadata ?? null,
-        sourcePhoneNormalized: null,
+        sourcePhoneNormalized: (c as any).sourcePhoneNormalized ?? null,
       }));
 
       if (ids.length) {

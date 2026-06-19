@@ -1400,6 +1400,9 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
             candidate?.message_id ||
             candidate?.key?.id ||
             candidate?.message?.key?.id ||
+            candidate?.keyId ||
+            candidate?.data?.keyId ||
+            candidate?.update?.keyId ||
             '',
         ).trim();
         const status = String(candidate?.status || candidate?.deliveryStatus || candidate?.update?.status || '').trim().toLowerCase();
@@ -5289,13 +5292,20 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     return { company: null, source: 'unresolved', endpoint: null };
   }
 
-  private buildWebwhatsProviderMessageIdCandidates(companyId: number, providerMessageId: string) {
+  private buildWebwhatsProviderMessageIdCandidates(companyId: number, providerMessageId: string, tenantKey?: string | null) {
     const normalized = String(providerMessageId || '').trim();
     if (!normalized) return [];
     const candidates = new Set<string>();
     candidates.add(normalized);
     if (!normalized.toLowerCase().startsWith('webwhats:')) {
+      // Always add the canonical company-scoped id (legacy sessions / company-{id} tenantKey).
       candidates.add(`webwhats:company-${companyId}:${normalized}`);
+      // Also add the per-user tenantKey variant (company-{id}-user-{userId}) when available,
+      // since OUTBOUNDs are stored with the exact tenantKey that was active at send time.
+      const normalizedTenantKey = String(tenantKey || '').trim();
+      if (normalizedTenantKey && normalizedTenantKey !== `company-${companyId}`) {
+        candidates.add(`webwhats:${normalizedTenantKey}:${normalized}`);
+      }
     }
     return Array.from(candidates);
   }
@@ -5316,9 +5326,10 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     timestamp: Date;
     rawPayload: any;
     scope: string;
+    tenantKey?: string | null;
   }) {
     const status = this.normalizeProviderDeliveryStatus(input.status);
-    const providerIds = this.buildWebwhatsProviderMessageIdCandidates(input.companyId, input.providerMessageId);
+    const providerIds = this.buildWebwhatsProviderMessageIdCandidates(input.companyId, input.providerMessageId, input.tenantKey);
     if (!providerIds.length) {
       return { updatedMessages: 0, updatedOutbound: 0, status, conversationIds: [] as number[] };
     }
@@ -8188,6 +8199,11 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     let messagesHandled = 0;
     let failures = 0;
 
+    // POR USUÁRIO: extraído antes do loop de status para que o casamento de id use o
+    // tenantKey cru do webhook (`company-{id}-user-{n}`), que é o mesmo prefixo com que
+    // o providerMessageId das OUTBOUNDs foi salvo em `buildProviderMessageId`.
+    const webwhatsTenantKey = this.findWebwhatsTenantKey(payload, opts.query);
+
     for (const status of statuses) {
       try {
         const statusResult = await this.applyProviderDeliveryStatus({
@@ -8197,6 +8213,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           timestamp: status.timestamp,
           rawPayload: status.rawPayload,
           scope: 'webwhats_webhook',
+          tenantKey: webwhatsTenantKey,
         });
         statusesHandled++;
         for (const conversationId of statusResult.conversationIds) {
@@ -8226,10 +8243,6 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         });
       }
     }
-
-    // POR USUÁRIO: tenantKey cru do webhook (`company-{id}-user-{n}`) → o inbound entra na sessão
-    // do user dono do número, não na sessão genérica da empresa.
-    const webwhatsTenantKey = this.findWebwhatsTenantKey(payload, opts.query);
 
     for (const message of messages) {
       try {

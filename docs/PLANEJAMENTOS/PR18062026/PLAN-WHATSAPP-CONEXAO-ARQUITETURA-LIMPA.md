@@ -42,6 +42,25 @@ só existiam pra lutar com o lixo)**. P1 (nome) já está certo no caminho feliz
 função única e cobrir com teste. Drift extra confirmado: `@@map` Prisma
 (`CompanyConversation`→`Conversation`, `CompanyMessage`→`Message`) confunde quem lê o banco cru.
 
+## 0.2) VALIDAÇÃO AO VIVO 18/06 (pós-fix agentes) — o que ficou provado
+
+Testado em local com connect real:
+- **Connect/ingest/envio: OK.** `company-2-user-36` canônico; ida e volta gravada no banco
+  (INBOUND `DELIVERED` + OUTBOUND `SENT`, ambos com providerMessageId via motor); foto OK.
+- **Inbox vazio com sessão conectada → causa REAL = `wipedAt` herdado na sessão reusada.** O sync
+  só roda no CONNECT (bootstrap do modal) e descarta todo chat anterior ao `wipedAt`. A sessão
+  reusada (troca de número) carregou um `wipedAt` de wipe/contexto anterior → floorou os chats →
+  0 conversas. **Provado:** limpando `wipedAt` da sessão, a conversa real apareceu (0→1).
+- **Supressão cross-session: o fix do agente 2 está certo** (supressão do nº antigo 997024884 não
+  bloqueia o nº atual 920121720). Não era o bloqueador final.
+- **"Só 1 conversa" é CORRETO** para 920121720: dos 5 "chats" do motor, 1 é real (1:1) e 4 são
+  self/sistema/device-dupe (`:0`, `@lid` "Você", `0@s.whatsapp.net` "WhatsApp").
+
+**Conserto pendente (código, não na mão):** ao (re)conectar/reativar um número, a sessão NÃO pode
+herdar `wipedAt` de outro contexto/número — senão o bootstrap do connect nasce floorado. Preservar
+a proteção de wipe do MESMO número via supressão por-contato (já number-aware, agente 2).
+Falta também verificar Bug 1 (disconnect/logout do aparelho) ao vivo.
+
 ## 1) Os 4 problemas-raiz (não são bugs — é arquitetura)
 
 1. **Dois nomes de instância convivem.** `company-{id}` (legado por-empresa) e

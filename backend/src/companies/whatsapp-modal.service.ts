@@ -1139,7 +1139,11 @@ export class WhatsAppModalService {
 
       if (!phoneNormalized) {
         if (currentActive?.id) {
-          const data: any = { tenantKey, status: 'active', connectedAt, disconnectedAt: null, metadataJson: buildMeta(currentActive.metadataJson) };
+          // wipedAt: null — ao reativar, apaga o wipe anterior. O wipe legítimo do MESMO
+          // número é protegido pela supressão por-contato (WhatsAppAuditLog, number-aware),
+          // que independe deste campo. Sem isso, o bootstrap do connect nasce floorado e o
+          // inbox aparece vazio com sessão conectada.
+          const data: any = { tenantKey, status: 'active', connectedAt, disconnectedAt: null, wipedAt: null, metadataJson: buildMeta(currentActive.metadataJson) };
           // 050-2: carimba dono se a sessão legada ainda não tem userId.
           if (userId && !(currentActive as any).userId) data.userId = userId;
           session = await this.prisma.whatsAppConnectionSession.update({
@@ -1160,7 +1164,10 @@ export class WhatsAppModalService {
           select: { id: true, displayPhone: true, metadataJson: true, userId: true },
         });
         if (byPhone?.id) {
-          const data: any = { tenantKey, status: 'active', connectedAt, disconnectedAt: null, metadataJson: buildMeta(byPhone.metadataJson) };
+          // wipedAt: null — mesmo número reconectando: apaga wipe antigo para que o sync
+          // do bootstrap não flore os chats. Proteção real é a supressão por-contato
+          // (WhatsAppAuditLog) que continua ativa e é number-aware.
+          const data: any = { tenantKey, status: 'active', connectedAt, disconnectedAt: null, wipedAt: null, metadataJson: buildMeta(byPhone.metadataJson) };
           if (displayPhone && !byPhone.displayPhone) data.displayPhone = displayPhone;
           if (userId && !byPhone.userId) data.userId = userId;
           session = await this.prisma.whatsAppConnectionSession.update({
@@ -1170,7 +1177,9 @@ export class WhatsAppModalService {
           });
         } else if (currentActive?.id && !currentActive.phoneNormalized) {
           // Placeholder sem número → primeira atribuição (write-once a partir de null).
-          const data: any = { tenantKey, status: 'active', connectedAt, disconnectedAt: null, phoneNormalized, displayPhone, metadataJson: buildMeta(currentActive.metadataJson) };
+          // wipedAt: null pelo mesmo motivo: qualquer wipe anterior não deve floorar o
+          // bootstrap do número recém-atribuído.
+          const data: any = { tenantKey, status: 'active', connectedAt, disconnectedAt: null, wipedAt: null, phoneNormalized, displayPhone, metadataJson: buildMeta(currentActive.metadataJson) };
           if (userId && !(currentActive as any).userId) data.userId = userId;
           session = await this.prisma.whatsAppConnectionSession.update({
             where: { id: String(currentActive.id) },
@@ -2888,6 +2897,20 @@ export class WhatsAppModalService {
             whatsappModalProvider: 'external_modal',
             currentWhatsappConnectionSessionId: currentSessionId,
           },
+        });
+      } else if (
+        (snapshot.status === 'disconnected' || snapshot.status === 'offline') &&
+        company.currentWhatsappConnectionSessionId
+      ) {
+        // BUG 1 FIX (disconnect por usuário): quando o vendedor desconecta, o ponteiro
+        // currentWhatsappConnectionSessionId da empresa ficava apontando para a sessão que
+        // acabou de virar `disconnected`. Ao próxima operação company-scoped (sem userId),
+        // resolveOperationalTenantKey recaía para company-{id} em vez de company-{id}-user-{n},
+        // e o status_sync ou start operava na instância errada. Limpar o ponteiro garante
+        // que a empresa só aponte para sessões realmente ativas.
+        await this.prisma.company.update({
+          where: { id: Number(company.id) },
+          data: { currentWhatsappConnectionSessionId: null },
         });
       }
       return;

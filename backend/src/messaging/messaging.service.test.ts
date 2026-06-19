@@ -1104,3 +1104,167 @@ test('Agenda simples offers business-day 09-13 slots and skips occupied days', a
   assert.notEqual(options[0].isoDate, '2026-05-11');
   assert.ok(options.every((option: any) => !['6', '0'].includes(String(new Date(`${option.isoDate}T12:00:00`).getDay()))));
 });
+
+// ---------------------------------------------------------------------------
+// Webwhats status update (messages.update with keyId) — Bug fix regression tests
+// ---------------------------------------------------------------------------
+
+function createServiceForStatusTest() {
+  const outboundUpdateCalls: Array<Record<string, unknown>> = [];
+  const messageUpdateCalls: Array<Record<string, unknown>> = [];
+  const webhookEventCalls: Array<Record<string, unknown>> = [];
+
+  const prisma = {
+    hasTable: async () => false,
+    hasColumn: async () => false,
+    company: {
+      findUnique: async ({ where }: any) => {
+        if (where?.id === 2) return { id: 2, name: 'Empresa Dois', timezone: 'America/Sao_Paulo' };
+        return null;
+      },
+      findFirst: async () => null,
+    },
+    whatsAppWebhookEvent: {
+      create: async ({ data }: any) => {
+        webhookEventCalls.push(data);
+        return { id: 1, ...data };
+      },
+    },
+    companyMessage: {
+      count: async () => 0,
+      findFirst: async () => null,
+      findMany: async ({ where }: any) => {
+        // Simulate that the outbound message lives in conversationId 10
+        const providerIds: string[] = where?.providerMessageId?.in ?? [];
+        const hit = providerIds.some(
+          (id) =>
+            id === 'webwhats:company-2-user-36:3EB077C40CDBE832E3CDE3' ||
+            id === 'webwhats:company-2:3EB077C40CDBE832E3CDE3',
+        );
+        return hit ? [{ conversationId: 10 }] : [];
+      },
+      create: async ({ data }: any) => ({ id: 501, ...data }),
+      update: async (input: Record<string, unknown>) => input,
+      updateMany: async (input: Record<string, unknown>) => {
+        messageUpdateCalls.push(input);
+        return { count: 1 };
+      },
+    },
+    companyConversation: {
+      findFirst: async () => null,
+    },
+    atendimentoCustomer: {
+      findUnique: async () => null,
+    },
+    atendimentoAppointment: {
+      findFirst: async () => null,
+      findMany: async () => [],
+      count: async () => 0,
+      create: async ({ data }: any) => ({ id: 1, ...data }),
+      update: async ({ where, data }: any) => ({ id: where.id, ...data }),
+    },
+    hbxRecoveryFlowStage: {
+      findFirst: async () => null,
+    },
+    outboundMessage: {
+      updateMany: async (input: Record<string, unknown>) => {
+        outboundUpdateCalls.push(input);
+        return { count: 1 };
+      },
+    },
+    whatsAppLog: {
+      create: async () => null,
+    },
+  } as any;
+
+  const conversations = {
+    queueOutboundForCompany: async () => ({ outboundMessageId: 999, conversationId: 42 }),
+    updateConversationState: async () => null,
+  } as any;
+
+  const audit = { log: async () => undefined } as any;
+
+  const inboxRealtime = {
+    publish: () => undefined,
+    subscribe: () => () => undefined,
+  } as any;
+
+  const service = new MessagingService(
+    prisma,
+    {} as any,
+    {} as any,
+    {} as any,
+    conversations,
+    audit,
+    {} as any,
+    {} as any,
+    {} as any,
+    { sendText: async () => undefined } as any,
+    inboxRealtime,
+    undefined as any,
+  );
+
+  return { service, outboundUpdateCalls, messageUpdateCalls, webhookEventCalls };
+}
+
+test('webwhats messages.update with keyId sets OUTBOUND to FAILED (Bug fix: keyId was ignored)', async () => {
+  const { service, outboundUpdateCalls, messageUpdateCalls } = createServiceForStatusTest();
+
+  // Real payload shape observed live: keyId at data-level, status at data-level
+  const payload = {
+    event: 'messages.update',
+    instance: 'company-2-user-36',
+    data: {
+      keyId: '3EB077C40CDBE832E3CDE3',
+      remoteJid: '5519997024884@s.whatsapp.net',
+      fromMe: true,
+      status: 'ERROR',
+    },
+  };
+
+  await (service as any).handleWebwhatsWebhookEvent(payload, {});
+
+  // outboundMessage.updateMany must have been called with FAILED status
+  assert.ok(outboundUpdateCalls.length >= 1, 'outboundMessage.updateMany should have been called');
+  const outboundCall = outboundUpdateCalls[0] as any;
+  assert.equal(outboundCall.data?.status, 'FAILED', 'OUTBOUND status should be FAILED');
+  assert.ok(outboundCall.data?.failedAt instanceof Date, 'OUTBOUND failedAt should be set');
+
+  // The providerMessageId candidates must include the per-user tenantKey variant
+  const providerIds: string[] = outboundCall.where?.providerMessageId?.in ?? [];
+  assert.ok(
+    providerIds.includes('webwhats:company-2-user-36:3EB077C40CDBE832E3CDE3'),
+    `Expected per-user tenantKey candidate in ${JSON.stringify(providerIds)}`,
+  );
+
+  // companyMessage.updateMany must also reflect FAILED
+  assert.ok(messageUpdateCalls.length >= 1, 'companyMessage.updateMany should have been called');
+  const msgCall = messageUpdateCalls[0] as any;
+  assert.equal(msgCall.data?.status, 'FAILED', 'Message status should be FAILED');
+});
+
+test('webwhats messages.update with keyId sets OUTBOUND to DELIVERED', async () => {
+  const { service, outboundUpdateCalls, messageUpdateCalls } = createServiceForStatusTest();
+
+  const payload = {
+    event: 'messages.update',
+    instance: 'company-2-user-36',
+    data: {
+      keyId: '3EB077C40CDBE832E3CDE3',
+      remoteJid: '5519997024884@s.whatsapp.net',
+      fromMe: true,
+      status: 'DELIVERY_ACK',
+    },
+  };
+
+  await (service as any).handleWebwhatsWebhookEvent(payload, {});
+
+  assert.ok(outboundUpdateCalls.length >= 1, 'outboundMessage.updateMany should have been called');
+  const outboundCall = outboundUpdateCalls[0] as any;
+  assert.equal(outboundCall.data?.status, 'DELIVERED', 'OUTBOUND status should be DELIVERED');
+  assert.ok(outboundCall.data?.deliveredAt instanceof Date, 'OUTBOUND deliveredAt should be set');
+
+  assert.ok(messageUpdateCalls.length >= 1, 'companyMessage.updateMany should have been called');
+  const msgCall = messageUpdateCalls[0] as any;
+  assert.equal(msgCall.data?.status, 'DELIVERED', 'Message status should be DELIVERED');
+});
