@@ -5,7 +5,7 @@ import { CommercialEntitlementGuard } from '../commercial-plans/commercial-entit
 import { COMMERCIAL_ENTITLEMENT_KEYS } from '../commercial-plans/commercial-plan-catalog';
 import { NightFactoryService } from './night-factory.service';
 
-@Controller('modules/master/night-factory')
+@Controller('modules/owner/night-factory')
 @UseGuards(JwtAuthGuard, CommercialEntitlementGuard)
 @CommercialEntitlement(COMMERCIAL_ENTITLEMENT_KEYS.NIGHT_FACTORY)
 export class NightFactoryController {

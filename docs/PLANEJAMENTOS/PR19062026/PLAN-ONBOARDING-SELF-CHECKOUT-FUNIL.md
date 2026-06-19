@@ -87,6 +87,45 @@ A tela de "aguardando confirmação" **persiste**: mesmo e-mail sempre cai nela 
 
 ---
 
+## Status da aplicação (19/06 — orquestrador)
+
+**Slice 1 FEITO e verificado** (worker Sonnet no F1 + Opus no resto):
+- **F1 ✅** — `plans.tsx`: "Lista Fria" → **"Lista Unitária"**; escada de temperatura reescrita
+  (Lead "Lista Enriquecida", Pro "Operação no Painel", Implantação "Sob Medida"). Lint verde.
+- **F2 ✅** — cadastro enxuto: WhatsApp e CPF saíram do form (`register/page.client.tsx`); backend
+  `validateSignupTrialProfile` com telefone/CPF **opcionais**; reserva anti-abuso guardada por
+  presença de telefone (relocada pro checkout/F6). DTO já era opcional.
+- **F3 (parte) ✅** — matou o "cobra antes de confirmar": removida a copy *"Finalize o pagamento
+  agora — você confirma depois"* e o `showCheckout` agora exige `access_token` (e-mail confirmado).
+  Produção pré-confirmação cai na tela "aguardando confirmação" (versão rudimentar do F5).
+- **F7-CPF ✅** — CPF/CNPJ do pagador agora é pedido **no `CheckoutPanel`** (campo central, sem hex),
+  não mais no cadastro.
+- **Checks verdes:** front `lint` (0 errors, check-pele 510/510) + `build`; back `prisma:validate` +
+  `build` + `auth.service.test.ts` **16/16**.
+
+**Slice 2 FEITO e verificado** (Opus + worker Sonnet no F7):
+- **F5 ✅** (tela) — tela de espera virou **"HBX {plano} — Aguardando confirmação"** + **reenviar com
+  cooldown de 60s** (`register/page.client.tsx`). *(Falta a coreografia detalhe-retrai — Slice 3.)*
+- **F4 (beco/anexo2) ✅** — login não confirmado deixou de ser string morta: vira **"continue seu
+  cadastro"** com **reenviar** + **voltar pro funil** (`login/page.client.tsx`). *(Falta o resume
+  server-side pro passo EXATO — Slice 3.)*
+- **F7 + F7.1 ✅** (worker) — `CheckoutPanel` ganhou **cartão mock que preenche ao digitar** (bandeira
+  por BIN, vira no CVV) + **o momento da aprovação**: fases `paying/approved/declined`, cartão herói,
+  **wash verde que respira / vermelho que treme**, **"V" que se desenha** (reusa `hbx-spark-draw`),
+  anéis expandindo — tudo em `kit.css` por token, `prefers-reduced-motion` tratado.
+- **Prévia dev `/dev/checkout` ✅** — harness removível (gancho `demoOutcome` dev-only no painel) pra
+  ver o cartão mock + o efeito verde/vermelho **sem backend e sem andar o funil**.
+- **Checks verdes:** front `lint` (0 errors, check-pele **437/437** inalterado) + `build` (todas as rotas).
+
+**Aberto (Slice 3 — fechar):** **F4-deep** (resume server-side: `GET /auth/onboarding/resume` + login
+devolve destino do passo exato + parar de emitir `checkout_token` no signup; ~4 testes a ajustar) →
+**F6** (confirmação por WhatsApp do Master, live **gated** como `LIVE_*_TODO`) → **F5-animação**
+(detalhe-retrai) → **F8** (telefone por risco: hook + doc). **Dívida ainda aberta:** religar
+`ensureTrialPhoneAvailable`/`...Document` no `/financeiro/subscription/create`.
+**Dívida rastreada:** religar `ensureTrialPhoneAvailable`/`ensureTrialDocumentAvailable` no
+`/financeiro/subscription/create` (onde o trial nasce) quando F6/F7 trouxerem telefone/CPF — hoje o
+cartão obrigatório é a trava primária na janela entre slices.
+
 ## Frentes (ordem de build)
 
 ### F1 — Matar a escada de temperatura (copy) — **rápido, Opus direto**
@@ -198,6 +237,42 @@ Sequência visual (o dono descreveu exatamente):
 - **Sem tocar na lógica de cobrança** (mock/live, tokenização MP) — é só pele + o campo CPF. A
   validação live do MP segue como o outro plano (F6 lá): VPS + chaves de teste.
 - **Checks:** `lint`+`build` (check-pele verde) + zero-scroll + mobile.
+
+#### F7.1 — O MOMENTO DA APROVAÇÃO (o efeito "fresco" — ordem do dono 19/06)
+> "Quero efeito de fresco mesmo. Seja muito, MUITO mais criativo." O cartão que a pessoa digitou
+> é o herói; quando aprova, ele sobe e o mundo atrás reage. Verde dá certo, vermelho não dá.
+
+Estados novos no `CheckoutPanel`: `idle → paying → approved | declined`. O cenário é **uma cena só**
+(não troca de tela) — o cartão mock do F7 é o ator central o tempo todo.
+
+1. **`paying` (suspense):** ao confirmar, o **form recolhe** (campos dissolvem) e **o cartão mock
+   centraliza e flutua** — um anel girando em volta (processando), leve tilt 3D. Tira o "spinner seco".
+2. **`approved` (VERDE):** o cartão **sobe pro centro como herói**; todo o resto — resumo, ciclo,
+   campos, e até os **cards de plano atrás** — **voa/dissolve** (reusa a saída `is-exiting` que o funil
+   já usa em `page.client.tsx:379`). **Atrás do cartão acende um wash VERDE que respira**
+   (`--hbx-success`) + **anéis expandindo** a partir dele. Sobre o cartão, dentro de um disco, um
+   **"V" que se desenha sozinho** (traço por `stroke-dashoffset`). Microcopy **"Aprovado ✓"**.
+   Segura ~1,2s saboreando e funde pro app (`onSuccess`).
+3. **`declined` (VERMELHO):** mesmo palco, **wash VERMELHO** (`--hbx-danger`), o cartão **treme**
+   (shake curto) e o disco vira **"✕"** em vez do "V". Mensagem real do MP (já temos `readMpError`).
+   Botão **"Tentar outro cartão"** — **não volta pro zero**, fica no cartão preenchido (continuidade,
+   F4). Nunca trava num erro seco.
+
+**Reaproveitar (o "perdido por aí" que o dono mandou achar — elevar e combinar, NÃO recriar):**
+- **`@keyframes hbx-spark-draw`** (`kit.css:316`) — desenha o traço do **"V"** (stroke-dashoffset 96→0).
+- **`@keyframes trial-glow`** (`screens.css:949`) — o **respiro do halo**, recolorido pra `--hbx-success`
+  (aprovado) / `--hbx-danger` (recusado).
+- **`@keyframes bot-ring-expand` / `bot-ring-expand2`** (`screens.css:408/412`) — os **anéis expandindo**
+  atrás do cartão (vibe radar/connect).
+- **`@keyframes hbx-celebrate`** (`kit.css:410`) + **`.badge-win`** (`kit.css:140`) — o pop e o selo de êxito.
+- **O gesto `✓ Conectado`** do `whatsapp-connect-modal.tsx:292` (`badge-win`) — é o "efeito do QR" que o
+  dono lembrou; agora em **escala de tela**, com o cartão real no lugar do QR.
+
+**Disciplina:** novas classes `.hbx-approve…` / `.hbx-mockcard--hero` em `kit.css`/`screens.css`; cor só
+por token (`--hbx-success`/`--hbx-danger`), **zero hex/inline** na TSX (check-pele). Respeitar
+`prefers-reduced-motion`: sem trigger, corta a animação e mostra direto o estado final (✓/✕ + cor).
+- **Checks:** `lint`+`build` (check-pele verde) + testar a cena nos 3 estados (paying/approved/declined)
+  em mock (o provider mock aprova; pra ver o vermelho, forçar erro) + zero-scroll + mobile.
 
 ### F8 — Verificação por telefone baseada em risco (PLANEJAR; gancho agora, regra depois)
 - **Conceito (como as grandes):** o telefone não é pedágio de entrada — é **desafio quando o risco

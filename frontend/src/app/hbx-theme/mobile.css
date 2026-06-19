@@ -58,7 +58,7 @@
     z-index: 55;
     border: none; padding: 0; margin: 0;
     cursor: pointer;
-    background: color-mix(in srgb, #000 46%, transparent);
+    background: var(--hbx-overlay);
     animation: hbx-bv-fade var(--motion-fast, 0.18s) var(--ease-out-quint, ease);
   }
 
@@ -83,7 +83,7 @@
   .topbar .btn-ghost[aria-label="Escolher pele"] { display: none; }
 
   /* --- Reserva espaço da barra de abas no conteúdo --- */
-  .app-page { padding-bottom: 64px; }
+  .app-page { padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px) + 4px); }
 
   /* --- Barra de abas inferior --- */
   .mobile-tab-bar {
@@ -91,11 +91,11 @@
     position: fixed;
     bottom: 0; left: 0; right: 0;
     z-index: 50;
-    height: 60px;
+    height: calc(60px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
     align-items: stretch;
     border-top: 1px solid var(--border-hairline);
     background: var(--hbx-nav-surface);
-    /* Garante que a barra fique sobre o conteúdo */
     box-shadow: var(--shadow-lg);
   }
 
@@ -367,13 +367,6 @@
     grid-template-columns: 1fr !important;
   }
 
-  /* Gráfico de barras (.bars): rola horizontalmente em vez de cortar */
-  .bars {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    padding-bottom: 6px;
-  }
-
   /* Atividade recente: lista sem corte */
   .activity .it { min-height: 44px; }
 
@@ -559,8 +552,8 @@
     transform: scale(1.25);
   }
 
-  /* Col-cards: sem overflow horizontal */
-  .col-cards { overflow: hidden; }
+  /* Col-cards: sem overflow horizontal; vertical livre p/ dropdown de mover */
+  .col-cards { overflow-x: hidden; }
 }
 
 /* Desktop: esconde os elementos exclusivos do mobile kanban */
@@ -719,6 +712,14 @@
     border-top: 1px solid var(--border-hairline);
     flex: 0 0 auto;
   }
+
+  /* Classes utilitárias do render mobile do bot (sem visual inline em TSX) */
+  .bot-badge--warn { color: var(--hbx-warning); }
+  .bot-mobile-msg  { align-self: center; font-size: 0.7rem; font-weight: 700; }
+  .bot-mobile-msg--ok  { color: var(--hbx-brand-strong); }
+  .bot-mobile-msg--err { color: var(--hbx-danger); }
+  /* Ícone de bloco: cor dinâmica via --bot-nc injetado como CSS custom property */
+  .bot-block-icon { background: var(--bot-nc, var(--hbx-brand)); }
 }
 
 /* Oculta elementos exclusivos do mobile no desktop */
@@ -727,13 +728,6 @@
 .bot-block-list   { display: none; }
 .bot-mobile-actions { display: none; }
 
-/* Classes utilitárias do render mobile do bot (sem visual inline em TSX) */
-.bot-badge--warn { color: var(--hbx-warning); }
-.bot-mobile-msg  { align-self: center; font-size: 0.7rem; font-weight: 700; }
-.bot-mobile-msg--ok  { color: var(--hbx-brand-strong); }
-.bot-mobile-msg--err { color: var(--hbx-danger); }
-/* Ícone de bloco do bot: cor via CSS custom property --bot-nc */
-.bot-block-icon { background: var(--bot-nc, var(--hbx-brand)); }
 
 /* ============================================================
    === RELATÓRIOS ===
@@ -828,4 +822,139 @@
 
   /* ExtraSeatsCard: 1 coluna */
   .extra-seats-card { flex-direction: column; }
+}
+
+/* ============================================================
+   === LANDING / PLANOS / REGISTRO (casca pública) ===
+   ≤ 860px — nav da cena vira pill no rodapé; planos/registro
+   empilha verticalmente; form card desfixado (100% largura).
+
+   O PROBLEMA: .scene-planos.is-register usa grid de 1276px
+   (96px 340px 360px 0px 480px) — o form transborda e fica
+   inacessível. No mobile: flex-column, scroll vertical.
+   ============================================================ */
+@media (max-width: 860px) {
+
+  /* --- Brand: mais compacta --- */
+  .site-brand { font-size: 1.6rem; }
+
+  /* --- Nav da cena: pill centralizado no rodapé (substitui bottom-left fixo) --- */
+  .scene-nav {
+    left: 8px;
+    right: 8px;
+    bottom: env(safe-area-inset-bottom, 8px);
+    justify-content: center;
+    gap: 2px;
+    background: var(--hbx-surface);
+    border: 1px solid var(--border-hairline);
+    border-radius: 999px;
+    padding: 4px 8px;
+    box-shadow: var(--shadow-md);
+  }
+  .scene-nav__item { font-size: 0.74rem; padding: 5px 9px; }
+  .scene-nav__item.site-enter { padding: 5px 11px; }
+
+  /* --- Scene body: espaço para o nav pill --- */
+  .scene-body { padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px)); }
+
+  /* --- Scene center (esteira/módulos/planos-lista): remove -1cm e laterais estreitam --- */
+  .scene-center {
+    transform: none;
+    padding-left: 16px;
+    padding-right: 16px;
+    min-height: unset;
+    padding-bottom: max(80px, calc(60px + env(safe-area-inset-bottom, 0px)));
+  }
+
+  /* --- Scene hero (início): margens ajustadas --- */
+  .scene-hero {
+    padding-left: 20px;
+    padding-right: 20px;
+    padding-bottom: max(80px, calc(60px + env(safe-area-inset-bottom, 0px)));
+  }
+
+  /* --- Next button (avanço de seção): menor no celular --- */
+  .scene-next:not(.scene-next--back) { width: 80px; height: 80px; }
+  .scene-next:not(.scene-next--back) .site-ic { width: 40px; height: 40px; }
+
+  /* --- Esteira: 2 colunas (560px → 1 col já cobre screens.css) --- */
+  .site-esteira { grid-template-columns: 1fr 1fr; }
+  .site-esteira::before { display: none; }
+
+  /* --- PLANOS — estado de REGISTRO: coluna única scrollável ---
+     Desfaz o grid horizontal de 1276px; .site-plan-register é
+     display:contents, então filhos viram flex items diretos. */
+  .scene-planos:is(.is-register, .is-detailReturning, .is-detail2Returning, .is-returning) {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center;
+    gap: 14px;
+    min-height: unset !important;
+    padding-left: 16px;
+    padding-right: 16px;
+    padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* Botão VOLTAR: pequeno, fica primeiro na coluna via order:-1 */
+  .scene-next--back {
+    order: -1;
+    grid-column: auto !important;
+    grid-row: auto !important;
+    width: 52px !important;
+    height: 52px !important;
+    border-radius: 16px !important;
+    margin: 0 !important;
+    align-self: flex-start !important;
+  }
+  .scene-next--back .site-ic { width: 28px !important; height: 28px !important; }
+  .scene-planos.has-intruder2 .scene-next--back { width: 52px !important; height: 52px !important; }
+  .scene-planos.has-intruder2 .scene-next--back .site-ic { width: 28px !important; height: 28px !important; }
+
+  /* Cards de plano no estado de registro: coluna única */
+  .scene-planos:is(.is-register, .is-detailReturning, .is-detail2Returning, .is-returning) .site-plans {
+    grid-column: auto !important;
+    grid-row: auto !important;
+    grid-template-columns: 1fr !important;
+    width: 100% !important;
+    max-width: 420px;
+    margin-top: 0 !important;
+    align-self: auto !important;
+    align-items: stretch !important;
+  }
+
+  /* Intruder (detalhe do plano escolhido): full-width */
+  .hbx-scene .site-plan-intruder {
+    grid-column: auto !important;
+    grid-row: auto !important;
+    width: 100% !important;
+    max-width: 420px;
+    margin-left: 0 !important;
+    transform-origin: center;
+  }
+  .hbx-scene .site-plan-intruder--second { grid-column: auto !important; }
+
+  /* Form wrapper: full-width, desfaz grid-column/row e animação de largura fixa */
+  .site-plan-register .reg-form {
+    grid-column: auto !important;
+    grid-row: auto !important;
+    width: 100% !important;
+    max-width: 420px;
+    place-items: unset;
+  }
+  /* Card do form: desfaz o width:480px fixo que causa o corte horizontal */
+  .site-plan-register .reg-form .card,
+  .scene-planos.has-intruder .site-plan-register .reg-form .card {
+    width: 100% !important;
+  }
+
+  /* Texto longo (termos, aviso) dentro do card: quebra corretamente */
+  .hbx-scene .card p, .hbx-scene .card .alt { overflow-wrap: break-word; word-break: break-word; }
+
+  /* Trust badges do form (grid 3 colunas): 1 coluna no celular */
+  .hbx-scene .card [style*="grid-template-columns: 1fr 1fr 1fr"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Planos em lista normal: 2 colunas a 860px (560px já vai pra 1 col via screens.css) */
+  .site-plans { grid-template-columns: 1fr 1fr; }
 }

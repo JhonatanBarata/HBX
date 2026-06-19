@@ -320,6 +320,9 @@ export function AtendimentoClient() {
   const draftRef = useRef<HTMLInputElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const atBottomRef = useRef(true);
+  // Anti-spam do refresh de foto on-demand: ids já tentados nesta sessão (não
+  // re-busca no motor a cada clique; force=true ignora este guard).
+  const avatarTriedRef = useRef<Set<string>>(new Set());
   const router = useRouter();
 
   // conexão WhatsApp (R2.9): chip de status + modal QR/start/disconnect
@@ -595,6 +598,17 @@ export function AtendimentoClient() {
     return () => { alive = false; clearInterval(timer); };
   }, [selId, loadThread, loadCard, sseOn]);
 
+  // A LISTA também precisa de rede de segurança. O SSE pode morrer calado atrás do
+  // proxy (res.ok resolve mas nada flui → sseOn fica "true" mentindo): aí a thread
+  // segue viva (poll 8s acima) mas a lista CONGELAVA em mensagens antigas — não
+  // reordenava nem atualizava o preview. Poll leve garante que a ordem/preview
+  // acompanhem a última mensagem mesmo sem SSE. (O backend já ordena por
+  // MAX(timestamp) e o setConvs reconcilia por key, então não pisca.)
+  useEffect(() => {
+    const timer = setInterval(() => { loadConvs(); }, 10000);
+    return () => clearInterval(timer);
+  }, [loadConvs]);
+
   // presença (online / digitando… / gravando…) — poll leve enquanto aberta.
   // Sem reset síncrono aqui: ao trocar de conversa, openConv() já zera; e com
   // selId nulo a presença não é renderizada (convo é null).
@@ -619,7 +633,8 @@ export function AtendimentoClient() {
   // auto-scroll só quando o usuário já está no fim (não atrapalha paginar p/ cima)
   useEffect(() => {
     if (atBottomRef.current && endRef.current) {
-      endRef.current.scrollTop = endRef.current.scrollHeight;
+      const el = endRef.current;
+      requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
     }
   }, [thread]);
 
@@ -656,19 +671,25 @@ export function AtendimentoClient() {
   // troca de conversa (handler de clique — reset de UI fica fora de efeito)
   function openConv(id: string) {
     setMobileThread(true); // celular: tocar numa conversa abre a thread (mesmo a já selecionada)
-    if (id === selId) return;
-    setSelId(id);
-    setReplyTo(null);
-    setReactFor(null);
-    setPresence(null);
-    setEmojiOpen(false);
-    setQuickOpen(false);
-    setCard(null);
-    setCtxTab(0);
-    setAcoesOpen(false);
-    setMoverOpen(false);
-    setTarefaOpen(false);
-    setAcaoMsg(null);
+    if (id !== selId) {
+      setSelId(id);
+      setReplyTo(null);
+      setReactFor(null);
+      setPresence(null);
+      setEmojiOpen(false);
+      setQuickOpen(false);
+      setCard(null);
+      setCtxTab(0);
+      setAcoesOpen(false);
+      setMoverOpen(false);
+      setTarefaOpen(false);
+      setAcaoMsg(null);
+    }
+    // Foto on-demand: se a conversa abriu sem foto, busca sozinho (best-effort,
+    // sem await travando a UI). Patch in-place no estado — não pisca.
+    const target = convs.find(c => c.id === id);
+    if (target && !convAvatar(target)) void refreshAvatar(id);
+    requestAnimationFrame(() => draftRef.current?.focus());
   }
 
   // troca de fila (?queue=): recarrega a lista pelo backend
@@ -702,6 +723,7 @@ export function AtendimentoClient() {
       setReplyTo(null);
       atBottomRef.current = true;
       await loadThread(selId);
+      void loadConvs(); // sobe a conversa e atualiza o preview na hora (sem esperar SSE)
     } catch (err) {
       setSendError(err instanceof Error ? err.message : "Não foi possível enviar a mensagem.");
     } finally {
@@ -741,6 +763,7 @@ export function AtendimentoClient() {
       setReplyTo(null);
       atBottomRef.current = true;
       await loadThread(selId);
+      void loadConvs(); // mesma razão do send(): conversa sobe e preview atualiza já
     } catch (err) {
       setSendError(err instanceof Error ? err.message : "Não foi possível enviar o anexo.");
     } finally {
@@ -815,6 +838,31 @@ export function AtendimentoClient() {
       await apiFetch(`/inbox/conversations/${encodeURIComponent(selId)}/messages/${m.id}/retry`, { method: "POST" });
       await loadThread(selId);
     } catch { /* segue */ }
+  }
+
+  // Foto on-demand (sem piscar): busca a foto SÓ desta conversa e faz patch
+  // pontual no estado `convs`. Como `convo`, o <Av> do cabeçalho e o painel
+  // direito derivam de convAvatar(convo), tudo atualiza in-place — nada de
+  // loadConvs()/reload (piscaria a tela). force=true ignora o guard anti-spam
+  // (clicar na foto força nova busca). Motor sem foto → avatarUrl null = ok
+  // (fica nas iniciais, estado válido).
+  async function refreshAvatar(convId: string, force = false) {
+    if (!convId) return;
+    if (!force) {
+      if (avatarTriedRef.current.has(convId)) return;
+      avatarTriedRef.current.add(convId);
+    }
+    try {
+      const res = await apiFetch<{ avatarUrl: string | null }>(
+        `/inbox/conversations/${encodeURIComponent(convId)}/avatar/refresh`,
+        { method: "POST", body: JSON.stringify({}) },
+      );
+      const url = res?.avatarUrl;
+      if (url) {
+        setConvs(prev => prev.map(c =>
+          c.id === convId ? { ...c, customer: { ...(c.customer ?? { name: null, phone: null, email: null }), avatarUrl: url } } : c));
+      }
+    } catch { /* best-effort: segue com as iniciais */ }
   }
 
   function insertText(text: string) {
@@ -1171,7 +1219,14 @@ export function AtendimentoClient() {
                   <button className="chat-back" aria-label="Voltar para conversas" onClick={() => setMobileThread(false)}>
                     <I d={["M15 6l-6 6 6 6"]} size={20} />
                   </button>
-                  <Av name={convo ? convName(convo) : "—"} src={convAvatar(convo)} online={Boolean(presence?.online) && Boolean(convo)} size={36} />
+                  {/* Clicar na foto força nova busca (pedido do dono: "ao clicar na foto faça outro"). */}
+                  <span
+                    onClick={() => { if (convo && selId) void refreshAvatar(selId, true); }}
+                    title={convo ? "Atualizar foto" : undefined}
+                    style={{ display: "inline-flex", cursor: convo ? "pointer" : "default" }}
+                  >
+                    <Av name={convo ? convName(convo) : "—"} src={convAvatar(convo)} online={Boolean(presence?.online) && Boolean(convo)} size={36} />
+                  </span>
                   <div style={{ display: "grid", gap: 2 }}>
                     <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <strong>{convo ? convName(convo) : "Selecione uma conversa"}</strong>

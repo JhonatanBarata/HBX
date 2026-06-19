@@ -791,7 +791,7 @@ function sleep(ms) {
 
 async function collectBackendFactoryStatuses(scope) {
   const results = await Promise.all(environmentsForScope(scope).map((environment) => (
-    callBackendForEnvironment(environment, scope, 'GET', '/modules/master/webscraping/factory-status')
+    callBackendForEnvironment(environment, scope, 'GET', '/modules/owner/radar/factory-status')
   )));
   return {
     results,
@@ -1014,7 +1014,7 @@ async function coordinateBothBeforeRun(reason) {
   }
 
   const environment = chooseCoordinationAdvanceEnvironment(before.coordination);
-  const advance = await callBackendForEnvironment(environment, 'both', 'POST', '/modules/master/webscraping/factory/force-next');
+  const advance = await callBackendForEnvironment(environment, 'both', 'POST', '/modules/owner/radar/factory/force-next');
   const actions = [{
     type: 'force-next',
     environment,
@@ -2022,7 +2022,7 @@ app.post('/api/opscontrol/turbo', async (req, res) => {
     const result = await runScopedBackendAction(
       scope,
       'POST',
-      '/modules/master/webscraping/turbo-noturno/force-now',
+      '/modules/owner/radar/turbo-noturno/force-now',
       () => buildTurboPayload(channelFilterPayload),
       { coordinateBoth: true, reason: 'turbo' },
     );
@@ -2047,7 +2047,7 @@ app.post('/api/opscontrol/force-filter', async (req, res) => {
     const result = await runScopedBackendAction(
       scope,
       'POST',
-      '/modules/master/webscraping/turbo-noturno/force-now',
+      '/modules/owner/radar/turbo-noturno/force-now',
       () => buildTurboPayload({
         requiredChannels: [requiredChannel],
         channelMatchMode: 'all_required',
@@ -2079,7 +2079,7 @@ app.post('/api/opscontrol/cancel', async (req, res) => {
     const result = await runScopedBackendAction(
       scope,
       'POST',
-      '/modules/master/webscraping/elastic/cancel-forced',
+      '/modules/owner/radar/elastic/cancel-forced',
       () => payload,
     );
     res.json({

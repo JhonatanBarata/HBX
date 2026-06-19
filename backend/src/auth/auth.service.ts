@@ -159,30 +159,30 @@ export class AuthService implements OnModuleInit {
     acceptedTerms?: boolean | null;
   }) {
     const contactName = this.normalizeText(data.trialContactName);
+    // Telefone e CPF SAÍRAM do cadastro (ordem do dono 19/06: paridade com o
+    // Google + "o HBX pede telefone depois"). São OPCIONAIS aqui — o anti-abuso
+    // de trial por telefone/CPF roda quando o dado de fato chega: na confirmação
+    // por WhatsApp (F6) e/ou no checkout (F7), onde o trial nasce. O cartão
+    // obrigatório (regra "sem cartão, sem app") segue como trava primária.
     const contactPhone = this.normalizeBrazilPhone(data.trialContactPhone);
     const taxDocument = this.normalizeDigits(data.trialTaxDocument).slice(0, 11);
     if (!contactName || contactName.length < 3) {
       throw new BadRequestException({
         code: 'TRIAL_CONTACT_NAME_REQUIRED',
-        message: 'Informe seu nome completo para iniciar o trial.',
+        message: 'Informe seu nome para continuar.',
       });
     }
-    if (!contactPhone || contactPhone.length < 10) {
-      throw new BadRequestException({
-        code: 'TRIAL_CONTACT_PHONE_REQUIRED',
-        message: 'Informe um telefone de contato válido para iniciar o trial.',
-      });
-    }
-    if (!this.isValidCpf(taxDocument)) {
+    // CPF só é validado SE foi informado — o cadastro não exige mais.
+    if (taxDocument && !this.isValidCpf(taxDocument)) {
       throw new BadRequestException({
         code: 'TRIAL_TAX_DOCUMENT_INVALID',
-        message: 'Informe um CPF válido para iniciar o trial.',
+        message: 'CPF inválido. Confira o número informado.',
       });
     }
     if (data.acceptedTerms !== true) {
       throw new BadRequestException({
         code: 'TRIAL_TERMS_REQUIRED',
-        message: 'Aceite os termos do trial para continuar.',
+        message: 'Aceite os termos para continuar.',
       });
     }
     return { contactName, contactPhone, taxDocument };
@@ -1536,11 +1536,15 @@ export class AuthService implements OnModuleInit {
             where: { id: existingCompany.id },
             data: {
               primaryContactName: signupTrialProfile.contactName,
-              contactPhone: signupTrialProfile.contactPhone,
+              contactPhone: signupTrialProfile.contactPhone || null,
               taxDocument: signupTrialProfile.taxDocument || null,
             },
           });
-          await this.reserveSignupTrialPhoneTx(tx, existingCompany.id, signupTrialProfile, selectedPlanKey, user.id);
+          // Reserva anti-abuso de trial só quando há telefone (saiu do cadastro
+          // — relocado pro checkout/F6). Sem telefone, nada a reservar aqui.
+          if (signupTrialProfile.contactPhone) {
+            await this.reserveSignupTrialPhoneTx(tx, existingCompany.id, signupTrialProfile, selectedPlanKey, user.id);
+          }
         }
         if (hasHbxSalesReferral) {
           await tx.company.update({
@@ -1616,7 +1620,9 @@ export class AuthService implements OnModuleInit {
           emailConfirmationExpiresAt: confirmationExpiresAt,
         },
       });
-      if (signupTrialProfile) {
+      // Reserva anti-abuso de trial só quando há telefone (saiu do cadastro —
+      // relocado pro checkout/F6). Sem telefone, nada a reservar aqui.
+      if (signupTrialProfile?.contactPhone) {
         await this.reserveSignupTrialPhoneTx(tx, company.id, signupTrialProfile, selectedPlanKey, user.id);
       }
 

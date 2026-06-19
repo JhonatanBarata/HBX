@@ -850,7 +850,7 @@ async function readLocalCardsForExport(maxLeads = 5000) {
   const limit = 500;
   for (let page = 1; page <= 12 && leads.length < maxLeads; page += 1) {
     // maxBytes alto: cada card é JSON gordo (80+ campos); o default de 200KB truncava e quebrava o parse.
-    const r = await backendRequest("GET", `/modules/master/webscraping/database-cards?limit=${limit}&page=${page}`, null, { timeoutMs: 30000, maxBytes: 16_000_000 });
+    const r = await backendRequest("GET", `/modules/owner/radar/database-cards?limit=${limit}&page=${page}`, null, { timeoutMs: 30000, maxBytes: 16_000_000 });
     if (!r.ok || !r.data) break;
     const items = Array.isArray(r.data.items) ? r.data.items : [];
     if (!items.length) break;
@@ -994,8 +994,8 @@ async function route(req, res) {
       }
     }
     const route = url.pathname.endsWith("/stop")
-      ? "/modules/master/webscraping/factory/stop"
-      : "/modules/master/webscraping/factory/resume-schedule";
+      ? "/modules/owner/radar/factory/stop"
+      : "/modules/owner/radar/factory/resume-schedule";
     const response = await backendRequest("POST", route, {});
     const backendMessage = Array.isArray(response.data?.message)
       ? response.data.message.join(" · ")
@@ -1064,7 +1064,7 @@ async function route(req, res) {
     let scanned = 0;
     const limit = 500;
     for (let page = 1; page <= 40 && junkIds.length < 20000; page += 1) {
-      const r = await backendRequest("GET", `/modules/master/webscraping/database-cards?limit=${limit}&page=${page}`, null, { timeoutMs: 30000, maxBytes: 16_000_000 });
+      const r = await backendRequest("GET", `/modules/owner/radar/database-cards?limit=${limit}&page=${page}`, null, { timeoutMs: 30000, maxBytes: 16_000_000 });
       if (!r.ok || !r.data) break;
       const items = Array.isArray(r.data.items) ? r.data.items : [];
       if (!items.length) break;
@@ -1091,7 +1091,7 @@ async function route(req, res) {
     const errors = [];
     for (let i = 0; i < junkIds.length; i += 2000) {
       const chunk = junkIds.slice(i, i + 2000);
-      const del = await backendRequest("DELETE", "/modules/master/webscraping/database-cards/batch", { leadIds: chunk }, { timeoutMs: 30000 });
+      const del = await backendRequest("DELETE", "/modules/owner/radar/database-cards/batch", { leadIds: chunk }, { timeoutMs: 30000 });
       if (del.ok) cleared += Number(del.data?.affected ?? chunk.length) || 0;
       else errors.push(del.error || del.data?.message || `http_${del.statusCode || "?"}`);
     }
@@ -1124,7 +1124,7 @@ async function route(req, res) {
     const errors = [];
     for (let i = 0; i < ids.length; i += 2000) {
       const chunk = ids.slice(i, i + 2000);
-      const del = await backendRequest("DELETE", "/modules/master/webscraping/database-cards/batch", { leadIds: chunk }, { timeoutMs: 30000 });
+      const del = await backendRequest("DELETE", "/modules/owner/radar/database-cards/batch", { leadIds: chunk }, { timeoutMs: 30000 });
       if (del.ok) cleared += Number(del.data?.affected ?? chunk.length) || 0;
       else errors.push(del.error || del.data?.message || `http_${del.statusCode || "?"}`);
     }
@@ -1370,6 +1370,191 @@ async function route(req, res) {
     const response = await opsRequest("GET", `/api/logs/${encodeURIComponent(name)}`);
     if (!response.configured) { sendJson(res, 200, { ok: false, reason: "ops_token_ausente", logs: "" }); return; }
     sendJson(res, response.ok ? 200 : 502, response.data || { ok: false, reason: response.reason, logs: "" });
+    return;
+  }
+
+  // ================================================================
+  // MOTOR RADAR — P2
+  // Proxy fino ao backend /modules/owner/radar/*.
+  // Degrada com aviso se sem token, nunca quebra.
+  // ================================================================
+
+  // --- Auditoria do banco de cards ---
+  if (req.method === "GET" && url.pathname === "/owner/radar/audit") {
+    if (!backendToken) { await refreshBackendToken().catch(() => null); }
+    const r = await backendRequest("GET", "/modules/owner/radar/database-audit");
+    if (!r.ok) {
+      sendJson(res, 200, { ok: false, configured: Boolean(backendToken), reason: r.error || `http_${r.statusCode || "?"}`, data: r.data });
+      return;
+    }
+    sendJson(res, 200, { ok: true, data: r.data });
+    return;
+  }
+
+  // --- Guia de cards: lista navegável ---
+  if (req.method === "GET" && url.pathname === "/owner/radar/cards") {
+    if (!backendToken) { await refreshBackendToken().catch(() => null); }
+    const limit = clampInt(url.searchParams.get("limit"), 50, 1, 200);
+    const page = clampInt(url.searchParams.get("page"), 1, 1, 10000);
+    const r = await backendRequest("GET", `/modules/owner/radar/database-cards?limit=${limit}&page=${page}`, null, { timeoutMs: 30000, maxBytes: 16_000_000 });
+    if (!r.ok) {
+      sendJson(res, 200, { ok: false, configured: Boolean(backendToken), reason: r.error || `http_${r.statusCode || "?"}` });
+      return;
+    }
+    sendJson(res, 200, { ok: true, data: r.data });
+    return;
+  }
+
+  // --- Controles por-motor: pausar/retomar/drenar/parar individual ---
+  const radarEngineMatch = url.pathname.match(/^\/owner\/radar\/engines\/([^/]+)\/(pause|resume|drain|stop)$/);
+  if (req.method === "POST" && radarEngineMatch) {
+    const engineId = radarEngineMatch[1];
+    const action = radarEngineMatch[2];
+    const body = await readBody(req);
+    if ((action === "stop" || action === "drain") && body.confirm !== true) {
+      sendError(res, 400, `Confirmacao obrigatoria para ${action} no motor ${engineId}.`);
+      return;
+    }
+    if (!backendToken) { await refreshBackendToken().catch(() => null); }
+    const r = await backendRequest("POST", `/modules/owner/radar/engines/${encodeURIComponent(engineId)}/${action}`, body);
+    sendJson(res, r.ok ? 200 : 502, { ok: r.ok, engineId, action, data: r.data, reason: r.error || r.data?.message });
+    return;
+  }
+
+  // --- Distribuição automática: ler/editar/rodar agora ---
+  if (req.method === "GET" && url.pathname === "/owner/radar/distribution") {
+    if (!backendToken) { await refreshBackendToken().catch(() => null); }
+    const r = await backendRequest("GET", "/modules/owner/radar/radar-auto-distribution");
+    sendJson(res, r.ok ? 200 : 502, { ok: r.ok, data: r.data, reason: r.error || r.data?.message });
+    return;
+  }
+
+  if (req.method === "PUT" && url.pathname === "/owner/radar/distribution") {
+    const body = await readBody(req);
+    if (!backendToken) { await refreshBackendToken().catch(() => null); }
+    const r = await backendRequest("PUT", "/modules/owner/radar/radar-auto-distribution", body);
+    sendJson(res, r.ok ? 200 : 502, { ok: r.ok, data: r.data, reason: r.error || r.data?.message });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/owner/radar/distribution/run") {
+    const body = await readBody(req);
+    if (!backendToken) { await refreshBackendToken().catch(() => null); }
+    const r = await backendRequest("POST", "/modules/owner/radar/radar-auto-distribution/run", body, { timeoutMs: 60000 });
+    sendJson(res, r.ok ? 200 : 502, { ok: r.ok, data: r.data, reason: r.error || r.data?.message });
+    return;
+  }
+
+  // --- Campanhas mass-data: ler / criar / pausar / retomar / cancelar ---
+  if (req.method === "GET" && url.pathname === "/owner/radar/mass-data") {
+    if (!backendToken) { await refreshBackendToken().catch(() => null); }
+    const r = await backendRequest("GET", "/modules/owner/radar/mass-data");
+    sendJson(res, r.ok ? 200 : 502, { ok: r.ok, data: r.data, reason: r.error || r.data?.message });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/owner/radar/mass-data") {
+    const body = await readBody(req);
+    if (!backendToken) { await refreshBackendToken().catch(() => null); }
+    const r = await backendRequest("POST", "/modules/owner/radar/mass-data", body, { timeoutMs: 30000 });
+    sendJson(res, r.ok ? 200 : 502, { ok: r.ok, data: r.data, reason: r.error || r.data?.message });
+    return;
+  }
+
+  const massCampaignMatch = url.pathname.match(/^\/owner\/radar\/mass-data\/([^/]+)\/(pause|resume|cancel)$/);
+  if (req.method === "POST" && massCampaignMatch) {
+    const campaignId = massCampaignMatch[1];
+    const action = massCampaignMatch[2];
+    const body = await readBody(req);
+    if (action === "cancel" && body.confirm !== true) {
+      sendError(res, 400, `Confirmacao obrigatoria para cancelar a campanha ${campaignId}.`);
+      return;
+    }
+    if (!backendToken) { await refreshBackendToken().catch(() => null); }
+    const r = await backendRequest("POST", `/modules/owner/radar/mass-data/${encodeURIComponent(campaignId)}/${action}`, body);
+    sendJson(res, r.ok ? 200 : 502, { ok: r.ok, campaignId, action, data: r.data, reason: r.error || r.data?.message });
+    return;
+  }
+
+  // ================================================================
+  // NIGHT FACTORY — P3
+  // Proxy ao backend /modules/owner/night-factory/*.
+  // ================================================================
+
+  if (req.method === "GET" && url.pathname === "/owner/night-factory/status") {
+    if (!backendToken) { await refreshBackendToken().catch(() => null); }
+    const r = await backendRequest("GET", "/modules/owner/night-factory/status");
+    sendJson(res, r.ok ? 200 : 502, { ok: r.ok, configured: Boolean(backendToken), data: r.data, reason: r.error || r.data?.message });
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/owner/night-factory/daily-report") {
+    if (!backendToken) { await refreshBackendToken().catch(() => null); }
+    const r = await backendRequest("GET", "/modules/owner/night-factory/daily-report");
+    sendJson(res, r.ok ? 200 : 502, { ok: r.ok, data: r.data, reason: r.error || r.data?.message });
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/owner/night-factory/top-opportunities") {
+    if (!backendToken) { await refreshBackendToken().catch(() => null); }
+    const r = await backendRequest("GET", "/modules/owner/night-factory/top-opportunities");
+    sendJson(res, r.ok ? 200 : 502, { ok: r.ok, data: r.data, reason: r.error || r.data?.message });
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/owner/night-factory/segments") {
+    if (!backendToken) { await refreshBackendToken().catch(() => null); }
+    const r = await backendRequest("GET", "/modules/owner/night-factory/segments");
+    sendJson(res, r.ok ? 200 : 502, { ok: r.ok, data: r.data, reason: r.error || r.data?.message });
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/owner/night-factory/cities") {
+    if (!backendToken) { await refreshBackendToken().catch(() => null); }
+    const r = await backendRequest("GET", "/modules/owner/night-factory/cities");
+    sendJson(res, r.ok ? 200 : 502, { ok: r.ok, data: r.data, reason: r.error || r.data?.message });
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/owner/night-factory/recovery-opportunities") {
+    if (!backendToken) { await refreshBackendToken().catch(() => null); }
+    const r = await backendRequest("GET", "/modules/owner/night-factory/recovery-opportunities");
+    sendJson(res, r.ok ? 200 : 502, { ok: r.ok, data: r.data, reason: r.error || r.data?.message });
+    return;
+  }
+
+  // Controles: rodar agora / pausar / retomar (destrutivos: pausar/parar exigem confirmação)
+  if (req.method === "POST" && url.pathname === "/owner/night-factory/run-now") {
+    const body = await readBody(req);
+    if (body.confirm !== true) {
+      sendError(res, 400, "Confirmacao obrigatoria para rodar a Night Factory agora.");
+      return;
+    }
+    if (!backendToken) { await refreshBackendToken().catch(() => null); }
+    const r = await backendRequest("POST", "/modules/owner/night-factory/run-now", {}, { timeoutMs: 60000 });
+    sendJson(res, r.ok ? 200 : 502, { ok: r.ok, data: r.data, reason: r.error || r.data?.message });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/owner/night-factory/pause") {
+    if (!backendToken) { await refreshBackendToken().catch(() => null); }
+    const r = await backendRequest("POST", "/modules/owner/night-factory/pause", {});
+    sendJson(res, r.ok ? 200 : 502, { ok: r.ok, data: r.data, reason: r.error || r.data?.message });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/owner/night-factory/resume") {
+    if (!backendToken) { await refreshBackendToken().catch(() => null); }
+    const r = await backendRequest("POST", "/modules/owner/night-factory/resume", {});
+    sendJson(res, r.ok ? 200 : 502, { ok: r.ok, data: r.data, reason: r.error || r.data?.message });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/owner/night-factory/config") {
+    const body = await readBody(req);
+    if (!backendToken) { await refreshBackendToken().catch(() => null); }
+    const r = await backendRequest("POST", "/modules/owner/night-factory/config", body);
+    sendJson(res, r.ok ? 200 : 502, { ok: r.ok, data: r.data, reason: r.error || r.data?.message });
     return;
   }
 

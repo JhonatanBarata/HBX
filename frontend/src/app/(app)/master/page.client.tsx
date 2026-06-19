@@ -17,8 +17,6 @@ import { JanelaEmails } from "./janela-emails";
 import { JanelaEmpresas } from "./janela-empresas";
 import { JanelaIntegracoes } from "./janela-integracoes";
 import { JanelaSelfCheckout } from "./janela-self-checkout";
-import { JanelaMotor } from "./janela-motor";
-import { JanelaNightFactory } from "./janela-night-factory";
 import { JanelaPagamentos } from "./janela-pagamentos";
 import { JanelaSistema } from "./janela-sistema";
 import { JanelaTickets } from "./janela-tickets";
@@ -103,10 +101,8 @@ const JANELAS = [
   { id: "empresas", label: "Empresas", icon: "users" },
   { id: "self-checkout", label: "Self-Checkout", icon: "money" },
   { id: "integracoes", label: "Integrações", icon: "config" },
-  { id: "motor", label: "Motor Radar", icon: "scrape" },
   { id: "emails", label: "E-mails", icon: "mail" },
   { id: "tickets", label: "Tickets", icon: "doc" },
-  { id: "night", label: "Night Factory", icon: "moon" },
   { id: "pagamentos", label: "Pagamentos", icon: "money" },
   { id: "sistema", label: "Sistema", icon: "mark" },
 ] as const;
@@ -122,8 +118,8 @@ export function MasterClient() {
   const [signingOut, setSigningOut] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
-  // Lista de empresas compartilhada entre janelas (Empresas, Integrações,
-  // Motor): uma chamada, recarregável após provisioning/edição.
+  // Lista de empresas compartilhada entre janelas (Empresas, Integrações):
+  // uma chamada, recarregável após provisioning/edição.
   const [companies, setCompanies] = useState<MasterCompany[] | null>(null);
   const [companiesError, setCompaniesError] = useState<string | null>(null);
 
@@ -340,10 +336,8 @@ export function MasterClient() {
           )}
           {janela === "self-checkout" && <JanelaSelfCheckout />}
           {janela === "integracoes" && <JanelaIntegracoes companies={companies} />}
-          {janela === "motor" && <JanelaMotor companies={companies} />}
           {janela === "emails" && <JanelaEmails />}
           {janela === "tickets" && <JanelaTickets />}
-          {janela === "night" && <JanelaNightFactory />}
           {janela === "pagamentos" && <JanelaPagamentos />}
           {janela === "sistema" && <JanelaSistema />}
         </div>

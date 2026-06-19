@@ -102,7 +102,7 @@ export const PLAN_STATIC: Record<string, PlanStaticCopy> = {
     tag: "Você pede, o Radar entrega. Cards crus pra você esquentar e prospectar.",
     feats: ["Telefone, cidade, segmento e site", "Redes sociais quando encontradas"],
     cta: "Escolher plano",
-    temp: "Lista Fria",
+    temp: "Lista Unitária",
     pitch: "Pare de garimpar empresa no Google. Você escolhe o filtro — cidade, segmento, raio — e o HBX localiza empresas no perfil e te entrega prontas pra abordar.",
     how: [
       "Você define o alvo: cidade, segmento e até onde quer alcançar",
@@ -130,7 +130,7 @@ export const PLAN_STATIC: Record<string, PlanStaticCopy> = {
     cta: "Testar 14 dias grátis",
     badge: "Mais escolhido",
     hot: true,
-    temp: "Lista Fria enriquecida",
+    temp: "Lista Enriquecida",
     pitch: "Tudo do List, mas o HBX vai além do telefone: enriquece cada empresa e lê a oportunidade pra você saber por quem começar.",
     how: [
       "O HBX acha a empresa e ainda cava redes, CNPJ, e-mail e site",
@@ -156,7 +156,7 @@ export const PLAN_STATIC: Record<string, PlanStaticCopy> = {
     tag: "Atendimento no painel e Bot IA prospectando por você.",
     feats: ["Tudo do Lead", "Atendimento interno pelo painel", "Bot IA + prospecção pós-resposta"],
     cta: "Escolher plano",
-    temp: "Lista Morna",
+    temp: "Operação no Painel",
     pitch: "Tudo do Lead, e o WhatsApp passa pra dentro do HBX. Em até 7 dias a gente configura um Bot IA pra você (com acesso remoto).",
     how: [
       "Você conecta seu chip e o HBX lê suas conversas recentes de clientes",
@@ -184,7 +184,7 @@ export const PLAN_STATIC: Record<string, PlanStaticCopy> = {
     feats: ["Recovery de inadimplentes", "Cobrança integrada ao seu ERP", "Implantação feita pela HBX"],
     cta: "Quero implantação",
     logos: true,
-    temp: "Lista Quente",
+    temp: "Sob Medida",
     pitch: "Pro cliente que quer do jeito dele. A HBX estuda a sua empresa, integra ao que você já usa e traz lead QUENTE: quem te procurou nas redes e deixou o telefone.",
     how: [
       "A gente estuda sua empresa: altos, baixos, público e perfil de quem você atende",

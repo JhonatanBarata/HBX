@@ -2848,31 +2848,6 @@ export class InboxService {
     }
   }
 
-  private async loadLiveConversationForCompany(
-    companyId: number,
-    conversationId: number,
-    opts?: {
-      limit?: number;
-    },
-  ) {
-    try {
-      const selector = await this.buildWebwhatsConversationSelector(companyId, conversationId);
-      const conversation = await this.webwhatsBridge.getLiveConversation(companyId, {
-        conversationId,
-        limit: opts?.limit,
-      }, selector);
-      if (!conversation) {
-        throw new NotFoundException('Conversation not found');
-      }
-      return conversation;
-    } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
-      throw this.mapInboxProviderReadError(error, 'Falha ao carregar conversa do WhatsApp.');
-    }
-  }
-
   private mapInboxProviderReadError(error: unknown, fallbackMessage: string) {
     if (error instanceof WebwhatsProviderError) {
       if (error.code === 'WEBWHATS_NOT_CONNECTED') {
@@ -2899,28 +2874,6 @@ export class InboxService {
     return error instanceof Error
       ? new BadRequestException(error.message || fallbackMessage)
       : new BadRequestException(fallbackMessage);
-  }
-
-  private async resolveLiveConversationActionTarget(
-    companyId: number,
-    conversationId: number,
-    messageId: number,
-  ) {
-    const liveConversation = await this.loadLiveConversationForCompany(companyId, conversationId, {
-      limit: 200,
-    });
-    const stateMetadata = this.getStateConversationMetadata(liveConversation.conversation.metadata);
-    const messages = this.buildLiveConversationMessages(liveConversation.messages, stateMetadata);
-    const target = messages.find((message) => Number(message.id) === Number(messageId));
-    if (!target) {
-      throw new NotFoundException('Message not found');
-    }
-
-    return {
-      liveConversation,
-      target,
-      rawPayload: this.parseConversationMetadata(target.rawPayload),
-    };
   }
 
   private async ensureConversation(companyId: number, id: number) {
@@ -6636,6 +6589,34 @@ export class InboxService {
     return this.getConversationByIdForCompany(companyId, conversation.id);
   }
 
+  async refreshConversationAvatar(user: any, conversationId: number) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const conversation = await this.ensureConversation(companyId, conversationId);
+    const metadata = this.parseConversationMetadata(conversation.metadata);
+    const remoteJid =
+      this.normalizeMessageMetadataText(metadata?.whatsappRemoteJid) ||
+      String(conversation.contact || '').trim();
+    if (!remoteJid) {
+      return { avatarUrl: null as string | null };
+    }
+
+    const avatarUrl = await this.webwhatsBridge.refreshConversationProfilePicture(companyId, remoteJid);
+    if (avatarUrl) {
+      const nextMetadata = {
+        ...metadata,
+        whatsappAvatarUrl: avatarUrl,
+      };
+      await this.prisma.companyConversation.update({
+        where: { id: conversation.id },
+        data: {
+          metadata: JSON.stringify(nextMetadata),
+        },
+      });
+    }
+
+    return { avatarUrl: avatarUrl || null };
+  }
+
   async reactToConversationMessage(
     user: any,
     conversationId: number,
@@ -6644,17 +6625,13 @@ export class InboxService {
   ) {
     const companyId = this.requireCompanyIdFromUser(user);
     const conversation = await this.ensureConversation(companyId, conversationId);
-    const { liveConversation, target: message, rawPayload } = await this.resolveLiveConversationActionTarget(
-      companyId,
-      conversation.id,
-      messageId,
-    );
+    const message = await this.ensureConversationMessage(companyId, conversation.id, messageId);
+    const rawPayload = this.parseConversationMetadata(message.rawPayload);
     const reaction = this.requireTrimmed(String(reactionRaw || ''), 'reaction');
     const remoteJid =
       this.normalizeMessageMetadataText(rawPayload?.key?.remoteJid) ||
-      this.normalizeMessageMetadataText(this.parseConversationMetadata(liveConversation.conversation.metadata)?.whatsappRemoteJid) ||
-      this.normalizeMessageMetadataText(liveConversation.remoteJid) ||
-      String(liveConversation.contact || conversation.contact || '');
+      this.normalizeMessageMetadataText(this.parseConversationMetadata(conversation.metadata)?.whatsappRemoteJid) ||
+      String(conversation.contact || '');
     const providerKeyId =
       this.normalizeMessageMetadataText(rawPayload?.key?.id) ||
       this.extractWebwhatsRawMessageIdFromProviderMessageId(message.providerMessageId);

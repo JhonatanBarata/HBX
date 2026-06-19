@@ -197,6 +197,11 @@ export class InboxController {
     return this.inboxService.markConversationAsRead(req.user, id);
   }
 
+  @Post('conversations/:id/avatar/refresh')
+  refreshConversationAvatar(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
+    return this.inboxService.refreshConversationAvatar(req.user, id);
+  }
+
   @Patch('conversations/bulk-bot')
   bulkSetBot(@Req() req: any, @Body() dto: BulkSetBotDto) {
     return this.inboxService.bulkSetBotActive(req.user, dto);

@@ -29,57 +29,69 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     const user: any = await this.usersService.findById(payload.sub);
     if (!user) throw new UnauthorizedException('Usuário inválido');
 
-    if (
-      user.isActive === false ||
-      user.currentSessionId !== sessionId ||
-      Number(user.sessionVersion || 0) !== sessionVersion
-    ) {
+    if (user.isActive === false) {
       throw new UnauthorizedException('Sessão revogada');
     }
 
-    const session = await this.prisma.authSession.findUnique({
-      where: { id: sessionId },
-      select: {
-        id: true,
-        userId: true,
-        lastSeenAt: true,
-        expiresAt: true,
-        revokedAt: true,
-      },
-    });
+    // Trava de sessão-única + ciclo de vida da AuthSession rodam SÓ em produção.
+    // No localhost (dev) ficam desligadas de propósito: o release.js/deploy
+    // abortam se o VPS não tiver NODE_ENV=production, então este atalho jamais
+    // vale lá. Sem isso, o respawn do ts-node-dev (system_master_bootstrap), o
+    // ops-control e uma 2ª aba relogavam como master e o poll de 60s derrubava o
+    // dono do /master (revokedReason=replaced_by_login). Em dev o JWT (1 dia)
+    // basta; o logout continua funcionando porque o cliente limpa o token.
+    if (process.env.NODE_ENV === 'production') {
+      if (
+        user.currentSessionId !== sessionId ||
+        Number(user.sessionVersion || 0) !== sessionVersion
+      ) {
+        throw new UnauthorizedException('Sessão revogada');
+      }
 
-    const now = new Date();
-    if (!session || session.userId !== user.id || session.revokedAt) {
-      throw new UnauthorizedException('Sessão revogada');
-    }
-
-    if (session.expiresAt.getTime() <= now.getTime()) {
-      await this.prisma.$transaction([
-        this.prisma.authSession.updateMany({
-          where: { id: sessionId, revokedAt: null },
-          data: { revokedAt: now, revokedReason: 'expired' },
-        }),
-        this.prisma.user.updateMany({
-          where: { id: user.id, currentSessionId: sessionId },
-          data: { currentSessionId: null },
-        }),
-      ]);
-      throw new UnauthorizedException('Sessão expirada');
-    }
-
-    const refreshThrottleMs = Number(process.env.AUTH_SESSION_REFRESH_THROTTLE_MS || '60000');
-    if (session.lastSeenAt.getTime() <= now.getTime() - refreshThrottleMs) {
-      await this.prisma.authSession.updateMany({
-        where: {
-          id: sessionId,
-          revokedAt: null,
-          expiresAt: { gt: now },
-        },
-        data: {
-          lastSeenAt: now,
-          expiresAt: new Date(now.getTime() + 15 * 60 * 1000),
+      const session = await this.prisma.authSession.findUnique({
+        where: { id: sessionId },
+        select: {
+          id: true,
+          userId: true,
+          lastSeenAt: true,
+          expiresAt: true,
+          revokedAt: true,
         },
       });
+
+      const now = new Date();
+      if (!session || session.userId !== user.id || session.revokedAt) {
+        throw new UnauthorizedException('Sessão revogada');
+      }
+
+      if (session.expiresAt.getTime() <= now.getTime()) {
+        await this.prisma.$transaction([
+          this.prisma.authSession.updateMany({
+            where: { id: sessionId, revokedAt: null },
+            data: { revokedAt: now, revokedReason: 'expired' },
+          }),
+          this.prisma.user.updateMany({
+            where: { id: user.id, currentSessionId: sessionId },
+            data: { currentSessionId: null },
+          }),
+        ]);
+        throw new UnauthorizedException('Sessão expirada');
+      }
+
+      const refreshThrottleMs = Number(process.env.AUTH_SESSION_REFRESH_THROTTLE_MS || '60000');
+      if (session.lastSeenAt.getTime() <= now.getTime() - refreshThrottleMs) {
+        await this.prisma.authSession.updateMany({
+          where: {
+            id: sessionId,
+            revokedAt: null,
+            expiresAt: { gt: now },
+          },
+          data: {
+            lastSeenAt: now,
+            expiresAt: new Date(now.getTime() + 15 * 60 * 1000),
+          },
+        });
+      }
     }
 
     user.sessionId = sessionId;

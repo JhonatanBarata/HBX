@@ -11,7 +11,7 @@ test('master elastic and engine lifecycle routes stay behind MasterGuard', () =>
   const guards = Reflect.getMetadata(GUARDS_METADATA, MasterWebscrapingController) || [];
   const prototype = MasterWebscrapingController.prototype;
 
-  assert.equal(controllerPath, 'modules/master/webscraping');
+  assert.equal(controllerPath, 'modules/owner/radar');
   assert.equal(guards.includes(JwtAuthGuard), true);
   assert.equal(guards.includes(MasterGuard), true);
   assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.getElasticStatus), 'elastic/status');
@@ -19,7 +19,6 @@ test('master elastic and engine lifecycle routes stay behind MasterGuard', () =>
   assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.cancelForcedFactory), 'elastic/cancel-forced');
   assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.drainMasterEngine), 'engines/:id/drain');
   assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.stopMasterEngineContainer), 'engines/:id/stop-container');
-  assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.getMasterEnrichmentCostSummary), 'enrichment-cost/summary');
 });
 
 test('lead harvest official routes stay under webscraping guards', () => {

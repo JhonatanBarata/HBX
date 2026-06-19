@@ -635,177 +635,6 @@ export class WebwhatsBridgeService {
     return this.enrichLiveChatsWithPresence(company.id, sortedSnapshots, sessionTenantKey);
   }
 
-  async getLiveConversation(
-    companyId: number,
-    input: {
-      conversationId: number;
-      limit?: number;
-    },
-    selector?: WebwhatsSessionSelector,
-  ): Promise<WebwhatsLiveConversationSnapshot | null> {
-    const company = await this.requireConnectedCompany(companyId, selector);
-    const sessionTenantKey = company.session.tenantKey;
-    const conversation = await this.prisma.companyConversation.findFirst({
-      where: {
-        id: Number(input.conversationId || 0),
-        companyId,
-        channel: 'whatsapp',
-        whatsappConnectionSessionId: company.session.id,
-      },
-      select: {
-        id: true,
-        contact: true,
-        metadata: true,
-        currentFlow: true,
-        currentStep: true,
-        flowResult: true,
-        botActive: true,
-        humanAssigned: true,
-        assignedUserId: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    });
-    if (!conversation) {
-      return null;
-    }
-
-    const metadata = this.parseMetadata(conversation.metadata);
-    let remoteJid =
-      this.normalizeOptionalString(metadata.whatsappRemoteJid)
-      || this.normalizeRemoteJid(String(conversation.contact || ''));
-    let remoteJidAlt = this.normalizeOptionalString(metadata.whatsappRemoteJidAlt) || null;
-
-    const [contacts, chats] = await Promise.all([
-      this.getCachedContacts(company.id, sessionTenantKey),
-      this.fetchChats(company.id, 120, sessionTenantKey),
-    ]);
-    const contactsByJid = this.indexContactsByJid(contacts);
-    const conversationKeys = Array.from(
-      new Set(
-        [remoteJid, remoteJidAlt, this.normalizeRemoteJid(String(conversation.contact || ''))]
-          .map((value) => this.normalizeOptionalString(value))
-          .filter(Boolean),
-      ),
-    ) as string[];
-    const matchingChat = chats.find((chat) => {
-      const chatRemoteJid = this.normalizeOptionalString(chat?.remoteJid);
-      const chatRemoteJidAlt = this.getChatRemoteJidAlt(chat);
-      return [chatRemoteJid, chatRemoteJidAlt].some(
-        (value) => value && conversationKeys.includes(value),
-      );
-    }) || null;
-
-    if (matchingChat) {
-      remoteJid = this.normalizeOptionalString(matchingChat.remoteJid) || remoteJid;
-      remoteJidAlt = this.getChatRemoteJidAlt(matchingChat) || remoteJidAlt;
-    }
-
-    const syncableRemoteJids = Array.from(
-      new Set([remoteJid, remoteJidAlt].map((value) => this.normalizeOptionalString(value)).filter(Boolean)),
-    ).filter((value) => this.isSyncableChat(value)) as string[];
-    if (!syncableRemoteJids.length) {
-      return null;
-    }
-
-    const [messageGroups, profilePicture] = await Promise.all([
-      Promise.all(
-        [
-          ...syncableRemoteJids.map((jid) => ({ jid, matchRemoteJidAlt: false })),
-          ...syncableRemoteJids
-            .filter((jid) => jid.endsWith('@s.whatsapp.net'))
-            .map((jid) => ({ jid, matchRemoteJidAlt: true })),
-        ].map(({ jid, matchRemoteJidAlt }) =>
-          this.fetchMessagesWindow(company.id, jid, {
-            limit: input.limit ?? 120,
-            matchRemoteJidAlt,
-          }, sessionTenantKey),
-        ),
-      ),
-      this.fetchProfilePicture(company.id, syncableRemoteJids[0], sessionTenantKey),
-    ]);
-    const messagesByKey = new Map<string, WebwhatsFetchedMessage>();
-    for (const message of messageGroups.flatMap((group) => group.records)) {
-      const key = this.normalizeOptionalString(message?.key?.id || message?.id || message?.messageTimestamp);
-      if (!key) continue;
-      messagesByKey.set(key, message);
-    }
-    const orderedMessages = Array.from(messagesByKey.values())
-      .sort((left, right) => {
-        const leftTime = this.resolveMessageDate(left?.messageTimestamp)?.getTime() || 0;
-        const rightTime = this.resolveMessageDate(right?.messageTimestamp)?.getTime() || 0;
-        return leftTime - rightTime;
-      });
-
-    if (!matchingChat && orderedMessages.length === 0) {
-      return null;
-    }
-
-    const contact = this.resolvePreferredConversationContact(remoteJidAlt, remoteJid, conversation.contact);
-    const conversationState = matchingChat
-      ? await this.upsertConversationStateFromChat(
-          company.id,
-          company.session,
-          matchingChat,
-          contactsByJid.get(remoteJid || '') || null,
-          remoteJidAlt ? contactsByJid.get(remoteJidAlt) || null : null,
-        )
-      : await this.ensureConversationState(company.id, {
-          session: company.session,
-          remoteJid: remoteJid || syncableRemoteJids[0],
-          remoteJidAlt,
-          preferredContact: contact,
-        });
-    const displayNames = this.resolveChatDisplayNames(
-      matchingChat || ({ remoteJid } as WebwhatsChatSummary),
-      contactsByJid.get(remoteJid || '') || null,
-      remoteJidAlt ? contactsByJid.get(remoteJidAlt) || null : null,
-    );
-    const lastMessage = orderedMessages[orderedMessages.length - 1] || matchingChat?.lastMessage || null;
-    const lastMessageAt =
-      this.resolveMessageDate(matchingChat?.lastMessage?.messageTimestamp || matchingChat?.updatedAt)
-      || this.resolveMessageDate(lastMessage?.messageTimestamp)
-      || null;
-
-    const snapshot: WebwhatsLiveConversationSnapshot = {
-      conversation: conversationState || {
-        id: conversation.id,
-        contact,
-        metadata: conversation.metadata,
-        currentFlow: conversation.currentFlow,
-        currentStep: conversation.currentStep,
-        flowResult: conversation.flowResult,
-        botActive: conversation.botActive,
-        humanAssigned: conversation.humanAssigned,
-        assignedUserId: conversation.assignedUserId,
-        createdAt: conversation.createdAt,
-        updatedAt: conversation.updatedAt,
-      },
-      remoteJid: remoteJid || syncableRemoteJids[0],
-      remoteJidAlt,
-      contact,
-      displayName: displayNames.displayName,
-      agendaDisplayName: displayNames.agendaDisplayName,
-      profileDisplayName: displayNames.profileDisplayName,
-      avatarUrl:
-        this.normalizeOptionalString(matchingChat?.profilePicUrl)
-        || this.normalizeOptionalString(profilePicture?.profilePictureUrl)
-        || this.normalizeOptionalString(contactsByJid.get(remoteJid || '')?.profilePicUrl)
-        || null,
-      unreadCount: Math.max(0, Number(matchingChat?.unreadCount || 0)),
-      archived: matchingChat ? this.resolveChatArchivedFlag(matchingChat) : null,
-      windowActive:
-        matchingChat?.windowActive === undefined || matchingChat?.windowActive === null
-          ? null
-          : Boolean(matchingChat.windowActive),
-      lastMessageAt,
-      lastMessage,
-      messages: orderedMessages,
-    };
-
-    return this.enrichLiveChatWithPresence(company.id, snapshot, sessionTenantKey);
-  }
-
   async listContacts(
     companyId: number,
     opts?: { force?: boolean; failOnError?: boolean },
@@ -2898,6 +2727,21 @@ export class WebwhatsBridgeService {
     });
   }
 
+  async refreshConversationProfilePicture(
+    companyId: number,
+    remoteJid: string,
+    tenantKeyHint?: string,
+  ): Promise<string | null> {
+    const normalizedRemoteJid = this.normalizeOptionalString(remoteJid);
+    if (!normalizedRemoteJid) return null;
+    try {
+      const result = await this.fetchProfilePicture(companyId, normalizedRemoteJid, tenantKeyHint);
+      return this.normalizeOptionalString(result?.profilePictureUrl) || null;
+    } catch {
+      return null;
+    }
+  }
+
   private getChatRemoteJidAlt(chat: WebwhatsChatSummary) {
     const remoteJid = this.normalizeOptionalString(chat?.remoteJid);
     const remoteJidAlt = this.normalizeOptionalString(
@@ -3416,75 +3260,6 @@ export class WebwhatsBridgeService {
       remoteJid,
       remoteJidAlt,
     };
-  }
-
-  private async ensureConversationState(
-    companyId: number,
-    input: {
-      session: WebwhatsConnectionSessionContext;
-      remoteJid: string;
-      remoteJidAlt?: string | null;
-      preferredContact: string;
-    },
-  ) {
-    const existing = await this.findConversation(
-      companyId,
-      input.session.id,
-      input.remoteJid,
-      input.remoteJidAlt || null,
-      input.preferredContact,
-    );
-    const contact = this.resolveStateContact(
-      input.preferredContact,
-      existing?.contact,
-      input.remoteJid,
-      input.remoteJidAlt || null,
-    );
-    const metadata = this.buildConversationStateMetadata(
-      this.parseMetadata(existing?.metadata),
-      input.remoteJid,
-      input.remoteJidAlt || null,
-    );
-    metadata.whatsappConnectionSessionId = input.session.id;
-    metadata.sourcePhoneNormalized = input.session.phoneNormalized;
-    metadata.sourceTenantKey = input.session.tenantKey;
-    const serializedMetadata = JSON.stringify(metadata);
-    if (existing) {
-      if (String(existing.contact || '') === contact && String(existing.metadata || '') === serializedMetadata) {
-        return existing;
-      }
-      return this.prisma.companyConversation.update({
-        where: { id: existing.id },
-        data: {
-          contact,
-          whatsappConnectionSessionId: input.session.id,
-          sourcePhoneNormalized: input.session.phoneNormalized,
-          sourceTenantKey: input.session.tenantKey,
-          metadata: serializedMetadata,
-        },
-        select: {
-          id: true,
-          contact: true,
-          metadata: true,
-          currentFlow: true,
-          currentStep: true,
-          flowResult: true,
-          botActive: true,
-          humanAssigned: true,
-          assignedUserId: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      });
-    }
-
-    return this.createConversationStateWithRetry(companyId, {
-      contact,
-      session: input.session,
-      metadata: serializedMetadata,
-      remoteJid: input.remoteJid,
-      remoteJidAlt: input.remoteJidAlt || null,
-    });
   }
 
   private async createConversationStateWithRetry(

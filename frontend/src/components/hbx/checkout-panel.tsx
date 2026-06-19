@@ -23,6 +23,19 @@ const fmtExp = (v: string) => {
   return d.length >= 3 ? `${d.slice(0, 2)}/${d.slice(2)}` : d;
 };
 
+// Bandeira pelo BIN (mesma heurística do gateway): Visa (4), Mastercard (51–55
+// ou 2221–2720), Amex (34/37), Elo (prefixos comuns BR), senão genérico.
+function detectBrand(raw: string): string {
+  const n = onlyDigits(raw);
+  if (!n) return "";
+  if (/^4/.test(n)) return "VISA";
+  if (/^3[47]/.test(n)) return "AMEX";
+  if (/^(5[1-5]|2(2[2-9]|[3-6]\d|7[01]|720))/.test(n)) return "MASTERCARD";
+  // Elo — alguns prefixos mais comuns no Brasil
+  if (/^(4011|4312|4389|4514|4576|5041|5066|5067|509|6277|6362|6363|650|6516|6550)/.test(n)) return "ELO";
+  return "CARTÃO";
+}
+
 // O Mercado Pago rejeita a tokenização com um objeto/array de causas (não um Error).
 // Mostramos a causa real em vez de engolir num "tente de novo" genérico.
 function readMpError(err: unknown): string {
@@ -40,15 +53,17 @@ function readMpError(err: unknown): string {
 type PayConfig = { mode?: "mock" | "live"; publicKey?: string | null };
 
 export function CheckoutPanel({
-  planKey, phone, email, taxDoc, name, trialEndsAt, onSuccess,
+  planKey, phone = "", email, name, trialEndsAt, onSuccess, demoOutcome,
 }: {
   planKey: string;
-  phone: string;
+  phone?: string;
   email: string;
-  taxDoc: string;
   name: string;
   trialEndsAt?: string | null;
   onSuccess: () => void;
+  // dev-only: a prévia /dev/checkout força a fase (aprovado/recusado) sem tocar
+  // na rede, pra mostrar o efeito. O funil real nunca passa isto.
+  demoOutcome?: "approved" | "declined";
 }) {
   const [livePlans, setLivePlans] = useState<PublicPlan[]>(FALLBACK_PLANS);
   const plan = livePlans.find((p) => p.key === planKey) ?? getPlanFallback(planKey);
@@ -57,8 +72,16 @@ export function CheckoutPanel({
   const [cycle, setCycle] = useState<"MONTHLY" | "ANNUAL">("MONTHLY");
   const [cfg, setCfg] = useState<PayConfig | null>(null);
   const [card, setCard] = useState({ number: "", holder: "", exp: "", cvv: "" });
+  // CPF/CNPJ do pagador é pedido AQUI (ordem do dono 19/06: saiu do cadastro,
+  // entra na tela do cartão). Alimenta a identificação na tokenização do MP.
+  const [doc, setDoc] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Fases do "momento da aprovação" (ordem do dono 19/06): o cartão mock é o
+  // ator — flutua processando, vira herói no verde, treme no vermelho.
+  const [phase, setPhase] = useState<"idle" | "paying" | "approved" | "declined">("idle");
+  const [cvvFocus, setCvvFocus] = useState(false); // vira o cartão pra mostrar o CVV
+  const brand = useMemo(() => detectBrand(card.number), [card.number]);
 
   useEffect(() => {
     fetchPublicPlans().then(setLivePlans);
@@ -90,6 +113,17 @@ export function CheckoutPanel({
     if (busy) return;
     setBusy(true);
     setError(null);
+    setCvvFocus(false);
+    setPhase("paying");
+    if (demoOutcome) {
+      // Prévia /dev/checkout: força o desfecho, sem rede.
+      window.setTimeout(() => {
+        setBusy(false);
+        if (demoOutcome === "declined") setError("Pagamento recusado (simulação) — confira os dados do cartão.");
+        setPhase(demoOutcome);
+      }, 900);
+      return;
+    }
     try {
       // Em mock o backend aprova sem SDK. Em live, tokenizamos o cartão no navegador
       // via SDK do Mercado Pago — só o token vai pro backend, nunca o número do cartão.
@@ -99,7 +133,7 @@ export function CheckoutPanel({
         const MP = (window as unknown as { MercadoPago?: new (k: string) => { createCardToken: (d: Record<string, string>) => Promise<{ id?: string }> } }).MercadoPago;
         if (!MP) throw new Error("Pagamento seguro ainda carregando. Aguarde um instante e tente de novo.");
         const [mm, yy] = card.exp.split("/").map(s => s.trim());
-        const docDigits = taxDoc.replace(/\D/g, "");
+        const docDigits = doc.replace(/\D/g, "");
         const token = await new MP(cfg.publicKey).createCardToken({
           cardNumber: card.number.replace(/\D/g, ""),
           cardholderName: card.holder,
@@ -122,18 +156,41 @@ export function CheckoutPanel({
           cardTokenId,
           contactPhone: phone,
           contactName: name,
-          taxDocument: taxDoc,
+          taxDocument: doc,
           payerEmail: email,
           acceptedTerms: true,
         }),
       });
-      onSuccess();
+      // APROVADO: o cartão vira herói (verde + ✓) e SÓ depois de ~1,2s o funil
+      // avança. Em prefers-reduced-motion mostramos o estado final e seguimos rápido.
+      setPhase("approved");
+      const reduce = typeof window !== "undefined"
+        && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+      window.setTimeout(onSuccess, reduce ? 300 : 1200);
     } catch (err) {
       console.error("[checkout] falha ao ativar assinatura:", err);
       setError(readMpError(err));
       setBusy(false);
+      setPhase("declined");
     }
   }
+
+  // Espelhos do cartão (placeholders quando vazio).
+  const showNumber = card.number || "•••• •••• •••• ••••";
+  const showName = card.holder ? card.holder.toUpperCase() : "SEU NOME";
+  const showExp = card.exp || "MM/AA";
+  const showCvv = card.cvv || "•••";
+
+  const resolving = phase === "paying";
+  const approved = phase === "approved";
+  const declined = phase === "declined";
+  const inPhase = resolving || approved || declined;
+  const stageCls = [
+    "hbx-checkout-stage",
+    resolving ? "is-resolving is-busy" : "",
+    approved ? "is-approved is-busy" : "",
+    declined ? "is-declined is-busy" : "",
+  ].filter(Boolean).join(" ");
 
   return (
     <form className="card reg-checkout" onSubmit={pay}>
@@ -150,36 +207,132 @@ export function CheckoutPanel({
           Não cobramos nada por {plan.trialDays} dias.{trialDate ? ` Sua 1ª cobrança é só em ${trialDate}.` : ""} Cancele quando quiser.
         </div>
       )}
-      <div className="f">
-        <label htmlFor="cc">Número do cartão</label>
-        <input id="cc" className="field-dark" inputMode="numeric" placeholder="0000 0000 0000 0000" required maxLength={23}
-          value={card.number} onChange={e => setCard(c => ({ ...c, number: fmtCardNumber(e.target.value) }))} />
-      </div>
-      <div className="f">
-        <label htmlFor="cn">Nome impresso no cartão</label>
-        <input id="cn" className="field-dark" placeholder="Como está no cartão" required
-          value={card.holder} onChange={e => setCard(c => ({ ...c, holder: e.target.value }))} />
-      </div>
-      <div className="reg-checkout__row">
-        <div className="f">
-          <label htmlFor="ce">Validade</label>
-          <input id="ce" className="field-dark" inputMode="numeric" placeholder="MM/AA" required maxLength={5}
-            value={card.exp} onChange={e => setCard(c => ({ ...c, exp: fmtExp(e.target.value) }))} />
+      <div className={stageCls}>
+        {/* anel girando ao redor do cartão enquanto processa */}
+        {resolving && <span className="hbx-approve-ring" aria-hidden="true" />}
+        {/* WASH que respira + anéis na aprovação / recusa */}
+        {(approved || declined) && (
+          <span className={`hbx-approve-wash is-on ${approved ? "ok" : "bad"}`} aria-hidden="true" />
+        )}
+        {approved && (
+          <>
+            <span className="hbx-approve-pulse" aria-hidden="true" />
+            <span className="hbx-approve-pulse d2" aria-hidden="true" />
+          </>
+        )}
+
+        {/* O cartão MOCK — ator central. Vira ao focar o CVV. */}
+        <div
+          className={`hbx-mockcard ${cvvFocus ? "is-flipped" : ""}`}
+          role="img"
+          aria-label={`Cartão ${brand || "de crédito"} terminando em ${onlyDigits(card.number).slice(-4) || "••••"}`}
+        >
+          {/* FRENTE */}
+          <div className="hbx-mockcard__face hbx-mockcard__front">
+            <div className="hbx-mockcard__top">
+              <span className="hbx-mockcard__chip" aria-hidden="true" />
+              <span className="hbx-mockcard__brand">{brand}</span>
+            </div>
+            <div className={`hbx-mockcard__number ${card.number ? "" : "is-empty"}`}>{showNumber}</div>
+            <div className="hbx-mockcard__foot">
+              <div className="hbx-mockcard__field hbx-mockcard__name">
+                <span className="hbx-mockcard__cap">Titular</span>
+                <span className={`hbx-mockcard__val ${card.holder ? "" : "is-empty"}`}>{showName}</span>
+              </div>
+              <div className="hbx-mockcard__field">
+                <span className="hbx-mockcard__cap">Validade</span>
+                <span className={`hbx-mockcard__val ${card.exp ? "" : "is-empty"}`}>{showExp}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* VERSO: tarja + CVV (visível quando o cartão vira) */}
+          <div className="hbx-mockcard__face hbx-mockcard__back" aria-hidden="true">
+            <span className="hbx-mockcard__stripe" />
+            <div className="hbx-mockcard__cvvbox">
+              <span className="hbx-mockcard__cvvcap">CVV</span>
+              <span className="hbx-mockcard__cvv">{showCvv}</span>
+            </div>
+          </div>
         </div>
-        <div className="f">
-          <label htmlFor="cv">CVV</label>
-          <input id="cv" className="field-dark" inputMode="numeric" placeholder="000" required maxLength={4}
-            value={card.cvv} onChange={e => setCard(c => ({ ...c, cvv: onlyDigits(e.target.value).slice(0, 4) }))} />
+
+        {/* Selo da aprovação/recusa: disco com "V" que se desenha ou "✕" */}
+        {approved && (
+          <div className="hbx-approve-seal" role="status">
+            <span className="hbx-approve-disc ok">
+              <svg viewBox="0 0 48 48" aria-hidden="true">
+                <path className="hbx-approve-check" d="M13 25 L21 33 L36 15" />
+              </svg>
+            </span>
+            <span className="hbx-approve-label ok">Aprovado ✓</span>
+          </div>
+        )}
+        {declined && (
+          <div className="hbx-approve-seal" role="status">
+            <span className="hbx-approve-disc bad">
+              <svg viewBox="0 0 48 48" aria-hidden="true">
+                <path className="hbx-approve-cross" d="M16 16 L32 32" />
+                <path className="hbx-approve-cross x2" d="M32 16 L16 32" />
+              </svg>
+            </span>
+            <span className="hbx-approve-label bad">Recusado</span>
+          </div>
+        )}
+
+        {/* Campos do form — recolhem/desbotam durante as fases */}
+        <div className="hbx-checkout-fields">
+          <div className="f">
+            <label htmlFor="payer-doc">CPF ou CNPJ do pagador</label>
+            <input id="payer-doc" className="field-dark" inputMode="numeric" placeholder="Somente números" required maxLength={14}
+              value={doc} onChange={e => setDoc(onlyDigits(e.target.value).slice(0, 14))} />
+          </div>
+          <div className="f">
+            <label htmlFor="cc">Número do cartão</label>
+            <input id="cc" className="field-dark" inputMode="numeric" placeholder="0000 0000 0000 0000" required maxLength={23}
+              value={card.number} onChange={e => setCard(c => ({ ...c, number: fmtCardNumber(e.target.value) }))} />
+          </div>
+          <div className="f">
+            <label htmlFor="cn">Nome impresso no cartão</label>
+            <input id="cn" className="field-dark" placeholder="Como está no cartão" required
+              value={card.holder} onChange={e => setCard(c => ({ ...c, holder: e.target.value }))} />
+          </div>
+          <div className="reg-checkout__row">
+            <div className="f">
+              <label htmlFor="ce">Validade</label>
+              <input id="ce" className="field-dark" inputMode="numeric" placeholder="MM/AA" required maxLength={5}
+                value={card.exp} onChange={e => setCard(c => ({ ...c, exp: fmtExp(e.target.value) }))} />
+            </div>
+            <div className="f">
+              <label htmlFor="cv">CVV</label>
+              <input id="cv" className="field-dark" inputMode="numeric" placeholder="000" required maxLength={4}
+                value={card.cvv}
+                onFocus={() => setCvvFocus(true)}
+                onBlur={() => setCvvFocus(false)}
+                onChange={e => setCard(c => ({ ...c, cvv: onlyDigits(e.target.value).slice(0, 4) }))} />
+            </div>
+          </div>
         </div>
       </div>
-      {cfg?.mode === "mock" && (
+
+      {cfg?.mode === "mock" && !inPhase && (
         <p className="reg-checkout__note">Ambiente de teste — pagamento simulado, nenhum cartão real é cobrado.</p>
       )}
-      {error && <div className="reg-checkout__err">{error}</div>}
-      <button className="btn-teal" type="submit" disabled={busy}>
-        {busy ? "Processando…" : isTrial ? "Começar trial sem cobrança" : `Pagar ${formatBRL(total)}`}
-      </button>
-      <p className="reg-checkout__safe">Pagamento seguro · seu cartão é protegido pelo gateway e nunca fica com a HBX.</p>
+      {error && (declined || phase === "idle") && <div className="reg-checkout__err">{error}</div>}
+
+      {declined ? (
+        <div className="hbx-decline-foot">
+          <button type="button" className="btn-teal" onClick={() => { setError(null); setPhase("idle"); }}>
+            Tentar outro cartão
+          </button>
+        </div>
+      ) : (
+        <button className="btn-teal" type="submit" disabled={busy}>
+          {resolving ? "Processando…" : approved ? "Aprovado ✓" : isTrial ? "Começar trial sem cobrança" : `Pagar ${formatBRL(total)}`}
+        </button>
+      )}
+      {!inPhase && (
+        <p className="reg-checkout__safe">Pagamento seguro · seu cartão é protegido pelo gateway e nunca fica com a HBX.</p>
+      )}
     </form>
   );
 }

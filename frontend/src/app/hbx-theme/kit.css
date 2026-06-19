@@ -443,3 +443,229 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 @media (prefers-reduced-motion: no-preference) {
   .nav-item[data-tut="nav-bot"]:not(.active) { animation: bot-lurk 180s 50s linear infinite; }
 }
+
+/* ============================================================
+   CHECKOUT — cartão MOCK que espelha o que o usuário digita +
+   o MOMENTO DA APROVAÇÃO (ordem do dono 19/06). Estrutura e
+   animação aqui; TODA pintura via token. O cartão é o ator que
+   flutua, vira herói (verde ✓) ou treme (vermelho ✕).
+   ============================================================ */
+
+/* --- Palco: envolve o cartão e os campos; vira "teatro" nas fases --- */
+.hbx-checkout-stage { position: relative; display: grid; gap: 12px; }
+.hbx-checkout-stage.is-busy { isolation: isolate; }
+
+/* O cartão visual: rotator 3D com FRENTE e VERSO (vira no foco do CVV). */
+.hbx-mockcard {
+  position: relative;
+  width: 100%;
+  max-width: 340px;
+  margin: 0 auto;
+  aspect-ratio: 1.586 / 1;          /* proporção ISO de cartão real */
+  transform-style: preserve-3d;
+  transition: transform .5s cubic-bezier(.22,1,.36,1);
+}
+.hbx-mockcard.is-flipped { transform: rotateY(180deg); }
+
+/* Faces compartilham forma; cada uma esconde o próprio verso. */
+.hbx-mockcard__face {
+  position: absolute; inset: 0;
+  border-radius: var(--radius-lg, 16px);
+  color: var(--text-strong);
+  border: 1px solid color-mix(in srgb, var(--hbx-brand) 30%, var(--border-hairline));
+  box-shadow: var(--shadow-md), inset 0 1px 0 color-mix(in srgb, #fff 12%, transparent);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  overflow: hidden;
+}
+/* FRENTE: glow/gradiente = color-mix de token, nunca hex. */
+.hbx-mockcard__front {
+  padding: 16px 18px;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  background:
+    radial-gradient(120% 140% at 85% -10%, color-mix(in srgb, var(--hbx-brand) 26%, transparent), transparent 60%),
+    linear-gradient(140deg, var(--hbx-surface-soft), var(--hbx-surface));
+}
+/* brilho diagonal sutil que cruza o cartão */
+.hbx-mockcard__front::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: linear-gradient(115deg, transparent 38%, color-mix(in srgb, #fff 10%, transparent) 50%, transparent 62%);
+  pointer-events: none;
+}
+.hbx-mockcard__top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+/* Chip */
+.hbx-mockcard__chip {
+  width: 38px; height: 28px;
+  border-radius: 6px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--hbx-brand) 55%, var(--hbx-surface)), color-mix(in srgb, var(--hbx-brand-strong) 70%, var(--hbx-surface)));
+  border: 1px solid color-mix(in srgb, var(--hbx-brand-strong) 40%, transparent);
+  position: relative;
+}
+.hbx-mockcard__chip::before {
+  content: "";
+  position: absolute; inset: 5px 8px;
+  border: 1px solid color-mix(in srgb, var(--hbx-surface) 60%, transparent);
+  border-radius: 2px;
+}
+.hbx-mockcard__brand {
+  font-family: var(--font-display);
+  font-size: 0.82rem; font-weight: 800; letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--hbx-brand-strong);
+  min-height: 1em;
+}
+.hbx-mockcard__number {
+  font-family: var(--font-mono);
+  font-size: 1.06rem; font-weight: 600; letter-spacing: 0.12em;
+  color: var(--text-strong);
+  white-space: nowrap;
+  align-self: center;
+}
+.hbx-mockcard__number.is-empty { color: var(--text-muted); }
+.hbx-mockcard__foot { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.hbx-mockcard__field { display: grid; gap: 2px; min-width: 0; }
+.hbx-mockcard__cap { font-size: 0.52rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); }
+.hbx-mockcard__val {
+  font-family: var(--font-mono); font-size: 0.78rem; font-weight: 700;
+  text-transform: uppercase; color: var(--text-body);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.hbx-mockcard__val.is-empty { color: var(--text-muted); font-weight: 600; }
+.hbx-mockcard__name { max-width: 62%; }
+
+/* --- VERSO (tarja + CVV): pré-rotacionado, vira pra frente quando o cartão gira --- */
+.hbx-mockcard__back {
+  padding: 18px 0 16px;
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  gap: 12px;
+  background: linear-gradient(140deg, var(--hbx-surface), var(--hbx-surface-soft));
+  transform: rotateY(180deg);
+}
+.hbx-mockcard__stripe { height: 34px; background: color-mix(in srgb, var(--text-strong) 78%, transparent); }
+.hbx-mockcard__cvvbox { display: grid; gap: 3px; padding: 0 18px; justify-items: end; }
+.hbx-mockcard__cvvcap { font-size: 0.52rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); }
+.hbx-mockcard__cvv {
+  min-width: 64px; padding: 5px 10px; text-align: right;
+  font-family: var(--font-mono); font-size: 0.86rem; font-weight: 700; letter-spacing: 0.18em;
+  color: var(--text-strong);
+  background: #fff;
+  border-radius: var(--radius-xs);
+}
+
+/* --- Fases do palco (paying / approved / declined) --- */
+/* Campos RECOLHEM (altura→0) e desbotam — o cartão fica como ator central e os
+   overlays (anel/selo/wash) alinham sobre ele. */
+.hbx-checkout-fields { display: grid; gap: 12px; max-height: 480px; transition: opacity .3s ease, transform .35s cubic-bezier(.22,1,.36,1), filter .3s ease, max-height .4s cubic-bezier(.22,1,.36,1), margin .3s ease; }
+.hbx-checkout-stage.is-busy .hbx-checkout-fields { opacity: 0; transform: translateY(8px) scale(.98); filter: blur(1px); pointer-events: none; max-height: 0; margin-top: -12px; overflow: hidden; }
+
+/* O cartão centraliza e FLUTUA; anel gira em volta enquanto paga. */
+.hbx-checkout-stage.is-resolving .hbx-mockcard { animation: hbx-card-float 2.4s ease-in-out infinite; }
+@keyframes hbx-card-float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+
+/* anel de processamento girando em volta do cartão */
+.hbx-approve-ring {
+  position: absolute; left: 50%; top: 0; transform: translateX(-50%);
+  width: 100%; max-width: 340px; aspect-ratio: 1.586 / 1;
+  border-radius: var(--radius-lg, 16px);
+  pointer-events: none;
+}
+.hbx-approve-ring::before {
+  content: ""; position: absolute; inset: -7px;
+  border-radius: inherit;
+  border: 2px solid transparent;
+  border-top-color: var(--hbx-brand);
+  border-right-color: color-mix(in srgb, var(--hbx-brand) 45%, transparent);
+  animation: hbx-ring-spin 1s linear infinite;
+}
+@keyframes hbx-ring-spin { to { transform: rotate(360deg); } }
+
+/* WASH atrás do cartão que RESPIRA + anéis expandindo */
+.hbx-approve-wash {
+  position: absolute; left: 50%; top: 50%;
+  width: 360px; height: 360px;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  pointer-events: none; z-index: -1;
+  opacity: 0;
+}
+.hbx-approve-wash.is-on { opacity: 1; }
+.hbx-approve-wash.ok { background: radial-gradient(circle, color-mix(in srgb, var(--hbx-success) 30%, transparent), transparent 62%); animation: hbx-wash-breathe 1.6s ease-in-out infinite; }
+.hbx-approve-wash.bad { background: radial-gradient(circle, color-mix(in srgb, var(--hbx-danger) 30%, transparent), transparent 62%); animation: hbx-wash-breathe 1.6s ease-in-out infinite; }
+@keyframes hbx-wash-breathe { 0%,100% { transform: translate(-50%,-50%) scale(.9); opacity: .55; } 50% { transform: translate(-50%,-50%) scale(1.05); opacity: 1; } }
+
+/* anéis que expandem a partir do cartão (só na aprovação) */
+.hbx-approve-pulse {
+  position: absolute; left: 50%; top: 50%;
+  width: 200px; height: 200px; transform: translate(-50%,-50%);
+  border-radius: 999px;
+  border: 2px solid color-mix(in srgb, var(--hbx-success) 55%, transparent);
+  pointer-events: none; z-index: -1;
+  animation: hbx-approve-pulse 1.6s ease-out infinite;
+}
+.hbx-approve-pulse.d2 { animation-delay: .5s; }
+@keyframes hbx-approve-pulse { from { transform: translate(-50%,-50%) scale(.4); opacity: .8; } to { transform: translate(-50%,-50%) scale(1.6); opacity: 0; } }
+
+/* o cartão sobe como herói na aprovação (transform no rotator, glow na face) */
+.hbx-checkout-stage.is-approved .hbx-mockcard { animation: hbx-card-hero .7s cubic-bezier(.22,1,.36,1) forwards; }
+.hbx-checkout-stage.is-approved .hbx-mockcard__front { box-shadow: var(--shadow-lg), 0 0 0 1px color-mix(in srgb, var(--hbx-success) 55%, transparent); }
+@keyframes hbx-card-hero { from { transform: translateY(0) scale(1); } to { transform: translateY(-10px) scale(1.03); } }
+
+/* o cartão treme curto na recusa (transform no rotator, glow na face) */
+.hbx-checkout-stage.is-declined .hbx-mockcard { animation: hbx-card-shake .5s ease both; }
+.hbx-checkout-stage.is-declined .hbx-mockcard__front { box-shadow: var(--shadow-lg), 0 0 0 1px color-mix(in srgb, var(--hbx-danger) 55%, transparent); }
+@keyframes hbx-card-shake { 0%,100% { transform: translateX(0); } 15% { transform: translateX(-9px); } 30% { transform: translateX(8px); } 45% { transform: translateX(-6px); } 60% { transform: translateX(5px); } 75% { transform: translateX(-3px); } }
+
+/* --- Disco + selo (V que se desenha / ✕) sobre o cartão --- */
+.hbx-approve-seal {
+  position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  display: grid; place-items: center; gap: 8px;
+  pointer-events: none;
+  text-align: center;
+}
+.hbx-approve-disc {
+  width: 72px; height: 72px; border-radius: 999px;
+  display: grid; place-items: center;
+  border: 2px solid;
+  background: var(--hbx-surface);
+  box-shadow: var(--shadow-md);
+  animation: hbx-celebrate .5s cubic-bezier(.22,1,.36,1) both;
+}
+.hbx-approve-disc.ok { border-color: var(--hbx-success); color: var(--hbx-success); }
+.hbx-approve-disc.bad { border-color: var(--hbx-danger); color: var(--hbx-danger); }
+.hbx-approve-disc svg { width: 40px; height: 40px; display: block; }
+/* o "V" se desenha sozinho via stroke-dashoffset */
+.hbx-approve-check { fill: none; stroke: currentColor; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 44; animation: hbx-spark-draw .55s .15s ease-out both; }
+.hbx-approve-cross { fill: none; stroke: currentColor; stroke-width: 4; stroke-linecap: round; stroke-dasharray: 28; animation: hbx-spark-draw .4s ease-out both; }
+.hbx-approve-cross.x2 { animation-delay: .18s; }
+.hbx-approve-label {
+  font-family: var(--font-display); font-weight: 800; font-size: 0.96rem;
+  padding: 4px 14px; border-radius: 999px;
+  background: var(--hbx-surface);
+  box-shadow: var(--shadow-sm);
+  animation: hbx-celebrate .6s .1s cubic-bezier(.22,1,.36,1) both;
+}
+.hbx-approve-label.ok { color: var(--hbx-success); }
+.hbx-approve-label.bad { color: var(--hbx-danger); }
+
+/* mensagem de recusa + botão de retry, sob o palco */
+.hbx-decline-foot { display: grid; gap: 10px; justify-items: center; text-align: center; animation: hbx-celebrate .5s .2s ease both; }
+
+/* Acessibilidade: sem movimento → mostra direto o estado final (✓/✕ + cor) */
+@media (prefers-reduced-motion: reduce) {
+  .hbx-mockcard,
+  .hbx-checkout-stage.is-resolving .hbx-mockcard,
+  .hbx-checkout-stage.is-approved .hbx-mockcard,
+  .hbx-checkout-stage.is-declined .hbx-mockcard { animation: none; transition: none; }
+  .hbx-approve-ring::before,
+  .hbx-approve-wash.ok, .hbx-approve-wash.bad,
+  .hbx-approve-pulse { animation: none; }
+  .hbx-approve-pulse { display: none; }
+  .hbx-approve-disc, .hbx-approve-label, .hbx-decline-foot { animation: none; }
+  .hbx-approve-check, .hbx-approve-cross { animation: none; stroke-dashoffset: 0; }
+  .hbx-mockcard.is-flipped { transform: none; }
+  .hbx-checkout-stage.is-resolving .hbx-checkout-fields { transition: none; }
+}

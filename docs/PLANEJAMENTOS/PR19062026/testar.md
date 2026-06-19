@@ -9,6 +9,11 @@
 - Fotos de perfil dos contatos devem aparecer após o connect sem refresh; sem foto = avatar de inicial (fallback), nunca quebrado (bug #2 — foto só busca no sync e o motor esquenta depois).
 - Envio: se um chip recebe mas NÃO envia (OUTBOUND vira FAILED) e outro chip envia normal → é estrangulamento/ban do chip (motor), NÃO trava nossa. Critério: o `lastError` do FAILED vem do webhook de entrega, não de regra interna.
 
+## Atendimento — reação + foto on-demand (19/06)
+- Reagir a uma mensagem (clicar no emoji rápido) **não dá 404**; a reação registra e aparece. Mensagem sem chave válida → erro claro (BadRequest "sem chave válida pra reagir"), nunca 404. (Raiz: a reação resolvia por ID sintético do motor; agora resolve pelo ID do banco igual ao retry.)
+- Abrir um chat cujo contato veio sem foto (ex.: "Abner primo") → a foto carrega **sozinha**, in-place, **sem recarregar a página e sem piscar** a tela. Clicar na foto do cabeçalho força nova busca. Motor sem foto = iniciais (fallback), nunca quebrado. (Endpoint `POST /inbox/conversations/:id/avatar/refresh → { avatarUrl }`; front faz patch só daquela conversa, sem `loadConvs()`.)
+- A LISTA de conversas deve **ir reordenando conforme a última mensagem** (a conversa com msg nova sobe pro topo e o preview/hora atualizam) sem travar em mensagens antigas — mesmo em produção atrás do proxy onde o SSE pode morrer calado. Critério: receber/enviar uma msg → em até ~10s a conversa sobe e o preview muda, sem hard refresh. Enviar do próprio atendente atualiza na hora. (Fix: poll de fallback de `loadConvs` 10s + `loadConvs` após enviar; backend já ordena por `MAX(timestamp)`.)
+
 ## Mobile (refatoração 19/06)
 - `npx playwright test --project=mobile-chromium mobile-no-overflow` PASSA: nenhuma rota principal tem corte horizontal em 397px (`/login`, `/dashboard`, `/leads`, `/vendas`, `/atendimento`, `/bot`, `/relatorios`, `/configuracoes`).
 - Desktop INTOCADO: `npm run build` verde e nenhuma regra de layout fora de `@media` (mobile.css não pode mudar 1px do desktop).

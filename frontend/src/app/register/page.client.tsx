@@ -34,14 +34,6 @@ type SignupResponse = {
   trialEndsAt?: string | null;
 };
 
-function formatWhatsapp(value: string) {
-  const digits = value.replace(/\D/g, "").slice(0, 11);
-  if (digits.length <= 2) return digits ? `(${digits}` : "";
-  if (digits.length <= 6) return `(${digits.slice(0, 2)})${digits.slice(2)}`;
-  if (digits.length <= 10) return `(${digits.slice(0, 2)})${digits.slice(2, 6)}-${digits.slice(6)}`;
-  return `(${digits.slice(0, 2)})${digits.slice(2, 7)}-${digits.slice(7)}`;
-}
-
 const PLANOS_VALIDOS = new Set(Object.keys(PLAN_STATIC));
 
 type RegisterPanelProps = {
@@ -54,8 +46,6 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
   const [empresa, setEmpresa] = useState("");
   const [email, setEmail] = useState("");
   const [nome, setNome] = useState("");
-  const [whats, setWhats] = useState("");
-  const [doc, setDoc] = useState("");
   const [senha, setSenha] = useState("");
   const [confirma, setConfirma] = useState("");
   const [verSenha, setVerSenha] = useState(false);
@@ -63,6 +53,7 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<SignupResponse | null>(null);
   const [resendMsg, setResendMsg] = useState<string | null>(null);
+  const [resendCooldown, setResendCooldown] = useState(0);
   const googleBtnRef = useRef<HTMLDivElement>(null);
 
   const selectedPlan = selectedPlanKey && PLANOS_VALIDOS.has(selectedPlanKey) ? selectedPlanKey : "hbx_padrao";
@@ -75,7 +66,11 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
   // checkout_token = sessão de escopo restrito gerada no signup (produção).
   // access_token = sessão completa (mock/local que auto-confirma o e-mail).
   // Qualquer um dos dois habilita o CheckoutPanel na mesma cena.
-  const showCheckout = Boolean(done?.access_token || done?.checkout_token) && needsCheckout;
+  // Cartão SÓ depois de confirmar (ordem do dono 19/06: confirmar antes de
+  // cobrar). checkout_token (produção, e-mail ainda não confirmado) NÃO abre o
+  // checkout — cai na tela "aguardando confirmação". Só access_token (sessão
+  // plena = e-mail confirmado / mock auto-confirmado) libera o pagamento.
+  const showCheckout = Boolean(done?.access_token) && needsCheckout;
 
   const handleGoogleCredential = useCallback(async (response: { credential: string }) => {
     if (busy) return;
@@ -127,9 +122,9 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
     setBusy(true);
     setError(null);
     try {
-      // Entrada trial-first (ordem do dono 12/06/2026): plano Lead com 14
-      // dias grátis já ativando na confirmação do e-mail — o telefone é
-      // obrigatório no backend para liberar o trial.
+      // Cadastro enxuto (ordem do dono 19/06): paridade com o Google — só
+      // e-mail/nome/senha (+empresa). Telefone e CPF saíram daqui: telefone vem
+      // depois (confirmação por WhatsApp/F6), CPF no checkout (F7).
       const res = await apiFetch<SignupResponse>("/auth/signup", {
         method: "POST",
         body: JSON.stringify({
@@ -141,17 +136,16 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
           selectedPlanKey: selectedPlan,
           trialModuleSelection: "vendas",
           trialContactName: nome,
-          trialContactPhone: whats,
-          trialTaxDocument: doc,
         }),
       });
       // Sessão na mão: dev/mock devolve access_token (e-mail auto-confirmado);
       // produção devolve checkout_token (sessão restrita a /financeiro).
       // Em ambos os casos, o CheckoutPanel pode chamar a API autenticado.
+      // Só a sessão plena (access_token = e-mail confirmado / mock auto-confirmado)
+      // autentica o funil. O checkout_token (produção, pré-confirmação) fica em
+      // `done` mas NÃO loga ninguém — o cartão espera a confirmação (F3).
       if (res?.access_token && selectedPlan !== "hbx_melhor") {
         setToken(res.access_token);
-      } else if (res?.checkout_token && selectedPlan !== "hbx_melhor") {
-        setToken(res.checkout_token);
       }
       setDone(res || { ok: true });
     } catch (err) {
@@ -175,6 +169,7 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
   }
 
   async function reenviar() {
+    if (resendCooldown > 0) return;
     setResendMsg(null);
     try {
       await apiFetch("/auth/resend-confirmation", {
@@ -182,10 +177,18 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
         body: JSON.stringify({ email: done?.email || email }),
       });
       setResendMsg("✓ Novo link enviado — verifique sua caixa de entrada.");
+      setResendCooldown(60);
     } catch (err) {
       setResendMsg(err instanceof Error ? err.message : "Não foi possível reenviar.");
     }
   }
+
+  // Cooldown do reenvio: contagem regressiva pra não martelar o e-mail (F5).
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const t = window.setTimeout(() => setResendCooldown((s) => s - 1), 1000);
+    return () => window.clearTimeout(t);
+  }, [resendCooldown]);
 
   const eyeBtn = (on: boolean, toggle: () => void) => (
     <button type="button" onClick={toggle} aria-label={on ? "Ocultar senha" : "Mostrar senha"}
@@ -198,30 +201,16 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
     <main className={"reg-form" + (embedded ? " reg-form--embedded" : "")}>
       {done ? (
         showCheckout ? (
-          <>
-            {done.checkout_token && !done.access_token && (
-              <div className="ok show" style={{ marginBottom: 8 }}>
-                Confirmação enviada para {done.email || email}. Finalize o pagamento agora — você confirma depois.
-                {done.previewUrl && (
-                  <a className="link" href={done.previewUrl} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 6, fontSize: "0.72rem" }}>
-                    Ver e-mail (teste) ↗
-                  </a>
-                )}
-              </div>
-            )}
-            <CheckoutPanel
-              planKey={selectedPlan}
-              phone={whats}
-              email={email}
-              taxDoc={doc}
-              name={nome}
-              trialEndsAt={done.trialEndsAt}
-              onSuccess={() => router.replace(done.next || "/dashboard")}
-            />
-          </>
+          <CheckoutPanel
+            planKey={selectedPlan}
+            email={email}
+            name={nome}
+            trialEndsAt={done.trialEndsAt}
+            onSuccess={() => router.replace(done.next || "/dashboard")}
+          />
         ) : (
         <div className="card">
-          <h2>{done.access_token ? "Tudo pronto ✓" : selectedPlan === "hbx_melhor" ? "Recebido ✓" : "Conta criada ✓"}</h2>
+          <h2>{done.access_token ? "Tudo pronto ✓" : selectedPlan === "hbx_melhor" ? "Recebido ✓" : `HBX ${copy.accent} — Aguardando confirmação`}</h2>
           <p className="sub">
             {done.access_token
               ? copy.doneSub
@@ -244,8 +233,8 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
             </button>
           ) : (
             <React.Fragment>
-              <button className="btn-ghost" type="button" onClick={reenviar} style={{ minHeight: 40, fontSize: "0.78rem" }}>
-                Reenviar confirmação
+              <button className="btn-ghost" type="button" onClick={reenviar} disabled={resendCooldown > 0} style={{ minHeight: 40, fontSize: "0.78rem" }}>
+                {resendCooldown > 0 ? `Reenviar confirmação em ${resendCooldown}s` : "Reenviar confirmação"}
               </button>
               <Link href="/login" className="btn-teal" style={{ minHeight: 44, fontSize: "0.84rem", textDecoration: "none" }}>
                 Ir para o login
@@ -278,16 +267,6 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
             <label htmlFor="nm">Como deseja ser chamado?</label>
             <input id="nm" className="field-dark" placeholder="Nome que aparecerá no atendimento" required maxLength={120}
               value={nome} onChange={e => setNome(e.target.value)} />
-          </div>
-          <div className="f">
-            <label htmlFor="wa">WhatsApp</label>
-            <input id="wa" className="field-dark" type="tel" placeholder="(11)99999-9999" required maxLength={14} autoComplete="tel"
-              value={whats} onChange={e => setWhats(formatWhatsapp(e.target.value))} />
-          </div>
-          <div className="f">
-            <label htmlFor="doc">CPF ou CNPJ</label>
-            <input id="doc" className="field-dark" placeholder={isTrial ? "Ativa o teste grátis — sem cobrança" : "CPF ou CNPJ"} required maxLength={20}
-              value={doc} onChange={e => setDoc(e.target.value)} />
           </div>
           <div className="f">
             <label htmlFor="pw">Senha</label>

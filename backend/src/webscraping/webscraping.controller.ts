@@ -1243,13 +1243,12 @@ export class WebscrapingController {
   }
 }
 
-@Controller('modules/master/webscraping')
+@Controller('modules/owner/radar')
 @UseGuards(JwtAuthGuard, MasterGuard)
 export class MasterWebscrapingController {
   constructor(
     private readonly webscrapingService: WebscrapingService,
     private readonly hbxEnginePool: HbxEnginePoolService,
-    private readonly enrichmentCostService: EnrichmentCostService,
   ) {}
 
   @Get('engines/status')
@@ -1265,15 +1264,6 @@ export class MasterWebscrapingController {
   @Get('database-cards')
   getDatabaseCards(@Req() req: any, @Query() query: MasterDatabaseCardsQueryDto) {
     return this.webscrapingService.listMasterDatabaseCards(req.user, query || {});
-  }
-
-  @Get('enrichment-cost/summary')
-  getMasterEnrichmentCostSummary(
-    @Query('companyId') companyId: string,
-    @Query('days') days?: string,
-    @Query('planKey') planKey?: string,
-  ) {
-    return this.enrichmentCostService.getCompanyCostSummary(companyId, { days, planKey });
   }
 
   @Delete('database-cards/batch')

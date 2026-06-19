@@ -206,7 +206,6 @@ function createService(overrides?: Partial<Record<string, any>>) {
       displayName: null,
     }),
     listLiveChats: async () => [buildLiveConversationSnapshot()],
-    getLiveConversation: async () => buildLiveConversationSnapshot(),
     isDispatchAvailable: () => true,
     ...(overrides?.webwhatsBridge || {}),
   } as any;
@@ -959,6 +958,232 @@ test('retryConversationMessage reopens failed outbound in the dispatch queue', a
   assert.equal(auditCalls.length, 1);
   assert.equal(auditCalls[0].event, 'manual_outbound_retry_queued');
   assert.equal((auditCalls[0].metadata as any).outboundMessageId, 777);
+});
+
+test('reactToConversationMessage resolves by DB id and sends provider key from rawPayload.key.id', async () => {
+  const reactionCalls: Array<Record<string, any>> = [];
+  const messageQueries: Array<Record<string, any>> = [];
+  const { service } = createService({
+    prisma: {
+      companyMessage: {
+        // Resolve a mensagem pelo ID REAL do banco (ex.: 1079), igual ao retry.
+        findFirst: async (input: Record<string, any>) => {
+          messageQueries.push(input);
+          return {
+            id: 1079,
+            companyId: 7,
+            conversationId: 42,
+            direction: 'INBOUND',
+            messageType: 'text',
+            body: 'Oi',
+            senderType: 'client',
+            providerMessageId: 'webwhats:company-7:RAWFALLBACK',
+            variablesJson: null,
+            rawPayload: JSON.stringify({
+              key: {
+                id: 'WHATSAPP_KEY_ID_ABC',
+                remoteJid: '5519998877766@s.whatsapp.net',
+                fromMe: false,
+              },
+            }),
+            timestamp: new Date('2026-06-19T10:00:00.000Z'),
+          };
+        },
+      },
+    },
+    webwhatsBridge: {
+      sendReaction: async (companyId: number, payload: Record<string, any>) => {
+        reactionCalls.push({ companyId, payload });
+        return undefined;
+      },
+    },
+  });
+  (service as any).getConversationByIdForCompany = async () => ({ id: '42', messages: [] });
+
+  const result = await service.reactToConversationMessage({ companyId: 7 }, 42, 1079, '👍');
+
+  assert.equal(result.id, '42');
+  // Procurou a mensagem pelo ID do banco (não por hash sintético).
+  assert.equal(messageQueries.length, 1);
+  assert.equal(messageQueries[0].where.id, 1079);
+  assert.equal(messageQueries[0].where.companyId, 7);
+  assert.equal(messageQueries[0].where.conversationId, 42);
+  // Enviou a reação com o providerKeyId extraído de rawPayload.key.id.
+  assert.equal(reactionCalls.length, 1);
+  assert.equal(reactionCalls[0].companyId, 7);
+  assert.equal(reactionCalls[0].payload.messageId, 'WHATSAPP_KEY_ID_ABC');
+  assert.equal(reactionCalls[0].payload.remoteJid, '5519998877766@s.whatsapp.net');
+  assert.equal(reactionCalls[0].payload.reaction, '👍');
+  assert.equal(reactionCalls[0].payload.fromMe, false);
+  assert.equal(reactionCalls[0].payload.conversationId, 42);
+});
+
+test('reactToConversationMessage falls back to metadata whatsappRemoteJid when rawPayload lacks remoteJid', async () => {
+  const reactionCalls: Array<Record<string, any>> = [];
+  const { service } = createService({
+    prisma: {
+      companyConversation: {
+        findFirst: async ({ where }: any) => ({
+          id: 42,
+          companyId: 7,
+          channel: 'whatsapp',
+          whatsappConnectionSessionId: 'session-7',
+          contact: '+5519998877766',
+          metadata: JSON.stringify({ whatsappRemoteJid: '5519990001111@s.whatsapp.net' }),
+          createdAt: new Date('2026-03-18T10:00:00.000Z'),
+          updatedAt: new Date('2026-03-18T10:01:00.000Z'),
+          messages: [],
+          ...(where?.select ? {} : {}),
+        }),
+      },
+      companyMessage: {
+        findFirst: async () => ({
+          id: 1080,
+          companyId: 7,
+          conversationId: 42,
+          direction: 'OUTBOUND',
+          messageType: 'text',
+          body: 'Resposta',
+          senderType: 'human',
+          providerMessageId: null,
+          variablesJson: null,
+          // rawPayload tem key.id mas SEM remoteJid → cai na metadata da conversa.
+          rawPayload: JSON.stringify({ key: { id: 'KEY_NO_JID' } }),
+          timestamp: new Date('2026-06-19T10:05:00.000Z'),
+        }),
+      },
+    },
+    webwhatsBridge: {
+      sendReaction: async (companyId: number, payload: Record<string, any>) => {
+        reactionCalls.push({ companyId, payload });
+        return undefined;
+      },
+    },
+  });
+  (service as any).getConversationByIdForCompany = async () => ({ id: '42', messages: [] });
+
+  await service.reactToConversationMessage({ companyId: 7 }, 42, 1080, '❤️');
+
+  assert.equal(reactionCalls.length, 1);
+  assert.equal(reactionCalls[0].payload.remoteJid, '5519990001111@s.whatsapp.net');
+  assert.equal(reactionCalls[0].payload.messageId, 'KEY_NO_JID');
+  // direction OUTBOUND e key.fromMe ausente → fromMe derivado da direção.
+  assert.equal(reactionCalls[0].payload.fromMe, true);
+});
+
+test('reactToConversationMessage throws BadRequest (not 404) when message has no valid key', async () => {
+  const reactionCalls: Array<Record<string, any>> = [];
+  const { service } = createService({
+    prisma: {
+      companyMessage: {
+        // Mensagem existe no banco, mas sem key.id e sem providerMessageId.
+        findFirst: async () => ({
+          id: 1081,
+          companyId: 7,
+          conversationId: 42,
+          direction: 'INBOUND',
+          messageType: 'text',
+          body: 'Sem chave',
+          senderType: 'client',
+          providerMessageId: null,
+          variablesJson: null,
+          rawPayload: null,
+          timestamp: new Date('2026-06-19T10:10:00.000Z'),
+        }),
+      },
+    },
+    webwhatsBridge: {
+      sendReaction: async (companyId: number, payload: Record<string, any>) => {
+        reactionCalls.push({ companyId, payload });
+        return undefined;
+      },
+    },
+  });
+  (service as any).getConversationByIdForCompany = async () => ({ id: '42', messages: [] });
+
+  await assert.rejects(
+    () => service.reactToConversationMessage({ companyId: 7 }, 42, 1081, '👍'),
+    /chave valida para reagir/,
+  );
+  // Nunca chamou o motor (guard antes do envio) e não foi 404.
+  assert.equal(reactionCalls.length, 0);
+});
+
+test('refreshConversationAvatar persists motor photo into metadata.whatsappAvatarUrl', async () => {
+  const conversationUpdates: Array<Record<string, any>> = [];
+  const bridgeCalls: Array<Record<string, any>> = [];
+  const { service } = createService({
+    prisma: {
+      companyConversation: {
+        findFirst: async () => ({
+          id: 42,
+          companyId: 7,
+          channel: 'whatsapp',
+          whatsappConnectionSessionId: 'session-7',
+          contact: '+5519998877766',
+          metadata: JSON.stringify({ whatsappRemoteJid: '5519998877766@s.whatsapp.net', cliente: 'Carlos' }),
+          createdAt: new Date('2026-03-18T10:00:00.000Z'),
+          updatedAt: new Date('2026-03-18T10:01:00.000Z'),
+          messages: [],
+        }),
+        update: async (input: Record<string, any>) => {
+          conversationUpdates.push(input);
+          return { id: input.where.id, ...input.data };
+        },
+      },
+    },
+    webwhatsBridge: {
+      refreshConversationProfilePicture: async (companyId: number, remoteJid: string) => {
+        bridgeCalls.push({ companyId, remoteJid });
+        return 'https://motor.example/avatar/abner.jpg';
+      },
+    },
+  });
+
+  const result = await service.refreshConversationAvatar({ companyId: 7 }, 42);
+
+  assert.deepEqual(result, { avatarUrl: 'https://motor.example/avatar/abner.jpg' });
+  assert.equal(bridgeCalls.length, 1);
+  assert.equal(bridgeCalls[0].remoteJid, '5519998877766@s.whatsapp.net');
+  assert.equal(conversationUpdates.length, 1);
+  const persisted = JSON.parse(conversationUpdates[0].data.metadata);
+  assert.equal(persisted.whatsappAvatarUrl, 'https://motor.example/avatar/abner.jpg');
+  // Preserva metadata existente.
+  assert.equal(persisted.cliente, 'Carlos');
+});
+
+test('refreshConversationAvatar returns null without persisting when motor has no photo', async () => {
+  const conversationUpdates: Array<Record<string, any>> = [];
+  const { service } = createService({
+    prisma: {
+      companyConversation: {
+        findFirst: async () => ({
+          id: 42,
+          companyId: 7,
+          channel: 'whatsapp',
+          whatsappConnectionSessionId: 'session-7',
+          contact: '+5519998877766',
+          metadata: JSON.stringify({ whatsappRemoteJid: '5519998877766@s.whatsapp.net' }),
+          createdAt: new Date('2026-03-18T10:00:00.000Z'),
+          updatedAt: new Date('2026-03-18T10:01:00.000Z'),
+          messages: [],
+        }),
+        update: async (input: Record<string, any>) => {
+          conversationUpdates.push(input);
+          return { id: input.where.id, ...input.data };
+        },
+      },
+    },
+    webwhatsBridge: {
+      refreshConversationProfilePicture: async () => null,
+    },
+  });
+
+  const result = await service.refreshConversationAvatar({ companyId: 7 }, 42);
+
+  assert.deepEqual(result, { avatarUrl: null });
+  // Sem foto = não escreve metadata (fallback de iniciais é estado válido).
+  assert.equal(conversationUpdates.length, 0);
 });
 
 test('sendMessage clears pending Vendas agenda draft after queueing manual outbound', async () => {

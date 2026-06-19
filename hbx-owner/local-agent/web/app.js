@@ -797,6 +797,261 @@ async function renderInfra() {
 const infraDetails = $("#infra-details");
 if (infraDetails) infraDetails.addEventListener("toggle", () => { if (infraDetails.open) renderInfra(); });
 
+/* ---------- Motor Radar — P2 ---------- */
+
+async function renderRadarAudit() {
+  const pill = $("#radar-audit-pill");
+  const errBox = $("#radar-audit-error");
+  if (pill) { pill.textContent = "lendo…"; pill.className = "pill pill-muted"; }
+  if (errBox) errBox.style.display = "none";
+  try {
+    const r = await api("GET", "/owner/radar/audit");
+    const d = r.data || {};
+    const setVal = (id, val) => { const e = $(id); if (e) e.textContent = val != null ? Number(val).toLocaleString("pt-BR") : "—"; };
+    setVal("#rad-total",    d.total        ?? d.totalCards     ?? null);
+    setVal("#rad-today",    d.today        ?? d.deltaToday     ?? null);
+    setVal("#rad-10min",    d.last10min    ?? d.recent10min    ?? null);
+    setVal("#rad-sent",     d.sentToSales  ?? d.distributed    ?? null);
+    setVal("#rad-negative", d.negativated  ?? d.negative       ?? null);
+    const eng = d.enginesOnline ?? (d.engines && d.engines.running) ?? null;
+    setVal("#rad-engines-online", eng);
+    if (pill) { pill.textContent = r.ok ? "auditoria ok" : "sem dados"; pill.className = r.ok ? "pill pill-ok" : "pill pill-muted"; }
+  } catch (err) {
+    if (pill) { pill.textContent = "erro"; pill.className = "pill pill-bad"; }
+    if (errBox) { errBox.textContent = `Auditoria: ${err.message}`; errBox.style.display = ""; }
+  }
+}
+
+async function radarEngineAction(action) {
+  const id = ($("#radar-engine-id").value || "").trim();
+  const fb = $("#radar-engine-feedback");
+  if (!id) { fb.textContent = "informe o ID do motor."; fb.className = "delta"; return; }
+  const minutes = Number($("#radar-engine-minutes").value) || 30;
+  const destructive = action === "stop" || action === "drain";
+  if (destructive && !confirm(`${action === "stop" ? "Parar" : "Drenar"} o motor "${id}"?`)) return;
+  fb.textContent = `${action}…`; fb.className = "delta";
+  try {
+    const body = action === "pause" ? { minutes } : (action === "drain" ? { confirm: true } : (action === "stop" ? { confirm: true } : {}));
+    const r = await api("POST", `/owner/radar/engines/${encodeURIComponent(id)}/${action}`, body);
+    if (r.ok) { fb.textContent = `motor ${id}: ${action} ok`; fb.className = "delta up"; pushFeed(`Motor ${id}: ${action}.`, "info"); }
+    else { fb.textContent = `${action}: ${r.reason || r.data?.message || "falhou"}`; }
+  } catch (err) { fb.textContent = err.message; }
+}
+
+if ($("#btn-radar-engine-pause"))  $("#btn-radar-engine-pause").addEventListener("click",  () => radarEngineAction("pause"));
+if ($("#btn-radar-engine-resume")) $("#btn-radar-engine-resume").addEventListener("click", () => radarEngineAction("resume"));
+if ($("#btn-radar-engine-drain"))  $("#btn-radar-engine-drain").addEventListener("click",  () => radarEngineAction("drain"));
+if ($("#btn-radar-engine-stop"))   $("#btn-radar-engine-stop").addEventListener("click",   () => radarEngineAction("stop"));
+
+async function loadRadarCards() {
+  const limit = Number($("#radar-cards-limit").value) || 20;
+  const page  = Number($("#radar-cards-page").value)  || 1;
+  const fb = $("#radar-cards-feedback");
+  const body = $("#radar-cards-body");
+  fb.textContent = "carregando…"; fb.className = "delta";
+  try {
+    const r = await api("GET", `/owner/radar/cards?limit=${limit}&page=${page}`);
+    const items = r.data?.items || [];
+    const total = r.data?.total ?? items.length;
+    fb.textContent = `${items.length} de ${total} cards (pág. ${page})`;
+    if (!items.length) { body.innerHTML = `<p class="delta">Nenhum card nesta página.</p>`; return; }
+    let html = `<table class="infra-table"><thead><tr><th>#</th><th>Nome</th><th>Telefone</th><th>Cidade</th><th>Segmento</th><th>Score</th></tr></thead><tbody>`;
+    const start = (page - 1) * limit + 1;
+    items.forEach((c, i) => {
+      html += `<tr><td>${start + i}</td><td>${esc(c.name || c.companyName || "—")}</td><td>${esc(c.phone || c.phoneDigits || "—")}</td><td>${esc(c.city || "—")}</td><td>${esc(c.segment || "—")}</td><td>${esc(c.opportunityScore != null ? c.opportunityScore : "—")}</td></tr>`;
+    });
+    html += `</tbody></table>`;
+    body.innerHTML = html;
+  } catch (err) { fb.textContent = err.message; body.innerHTML = ""; }
+}
+
+if ($("#btn-radar-cards-load")) $("#btn-radar-cards-load").addEventListener("click", loadRadarCards);
+
+async function loadRadarDistribution() {
+  const fb = $("#radar-dist-feedback");
+  const pre = $("#radar-dist-body");
+  fb.textContent = "lendo…"; fb.className = "delta";
+  try {
+    const r = await api("GET", "/owner/radar/distribution");
+    pre.textContent = JSON.stringify(r.data, null, 2);
+    pre.style.display = "";
+    fb.textContent = r.ok ? "configuração carregada" : (r.reason || "sem dados"); fb.className = r.ok ? "delta up" : "delta";
+  } catch (err) { fb.textContent = err.message; }
+}
+
+async function runRadarDistribution() {
+  const fb = $("#radar-dist-feedback");
+  if (!confirm("Rodar a distribuição automática de cards agora?")) return;
+  fb.textContent = "rodando…"; fb.className = "delta";
+  try {
+    const r = await api("POST", "/owner/radar/distribution/run", {});
+    fb.textContent = r.ok ? "distribuição concluída ✓" : (r.reason || r.data?.message || "falhou");
+    fb.className = r.ok ? "delta up" : "delta";
+    if (r.ok) pushFeed("Distribuição automática de cards rodou agora.", "ok");
+  } catch (err) { fb.textContent = err.message; }
+}
+
+if ($("#btn-radar-dist-load")) $("#btn-radar-dist-load").addEventListener("click", loadRadarDistribution);
+if ($("#btn-radar-dist-run"))  $("#btn-radar-dist-run").addEventListener("click",  runRadarDistribution);
+
+async function loadRadarCampaigns() {
+  const fb = $("#radar-campaign-feedback");
+  const body = $("#radar-campaigns-body");
+  fb.textContent = "carregando…"; fb.className = "delta";
+  try {
+    const r = await api("GET", "/owner/radar/mass-data");
+    const campaigns = Array.isArray(r.data) ? r.data : (r.data?.items || r.data?.campaigns || []);
+    fb.textContent = `${campaigns.length} campanha(s)`;
+    if (!campaigns.length) { body.innerHTML = `<p class="delta">Nenhuma campanha encontrada.</p>`; return; }
+    let html = `<table class="infra-table"><thead><tr><th>ID</th><th>Status</th><th>Segmento</th><th>Cards</th><th>Ações</th></tr></thead><tbody>`;
+    for (const c of campaigns) {
+      const id = c.id || c.campaignId || "?";
+      const st = c.status || c.state || "?";
+      const stCls = ["active","running","processing"].includes(String(st).toLowerCase()) ? "pill-ok" : "pill-muted";
+      html += `<tr>
+        <td style="font-family:monospace;font-size:11px;">${esc(id)}</td>
+        <td><span class="pill ${stCls}" style="font-size:11px;">${esc(st)}</span></td>
+        <td>${esc(c.segment || "—")}</td>
+        <td>${esc(c.total ?? c.count ?? "—")}</td>
+        <td>
+          <button class="btn btn-sm btn-amber" data-campaign-action="pause" data-campaign-id="${esc(id)}">⏸</button>
+          <button class="btn btn-sm btn-green" data-campaign-action="resume" data-campaign-id="${esc(id)}">▶</button>
+          <button class="btn btn-sm btn-red" data-campaign-action="cancel" data-campaign-id="${esc(id)}">✕</button>
+        </td>
+      </tr>`;
+    }
+    html += `</tbody></table>`;
+    body.innerHTML = html;
+    body.querySelectorAll("[data-campaign-action]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const action = btn.dataset.campaignAction;
+        const cid = btn.dataset.campaignId;
+        const fb2 = $("#radar-campaign-feedback");
+        if (action === "cancel" && !confirm(`Cancelar a campanha ${cid}?`)) return;
+        fb2.textContent = `${action} campanha ${cid}…`; fb2.className = "delta";
+        try {
+          const r = await api("POST", `/owner/radar/mass-data/${encodeURIComponent(cid)}/${action}`, action === "cancel" ? { confirm: true } : {});
+          fb2.textContent = r.ok ? `${action} ok` : (r.reason || r.data?.message || "falhou");
+          fb2.className = r.ok ? "delta up" : "delta";
+          if (r.ok) pushFeed(`Campanha ${cid}: ${action}.`, "info");
+          await loadRadarCampaigns();
+        } catch (err) { fb2.textContent = err.message; }
+      });
+    });
+  } catch (err) { fb.textContent = err.message; body.innerHTML = ""; }
+}
+
+if ($("#btn-radar-campaigns-load")) $("#btn-radar-campaigns-load").addEventListener("click", loadRadarCampaigns);
+if ($("#btn-radar-refresh"))        $("#btn-radar-refresh").addEventListener("click", renderRadarAudit);
+
+const radarDetailsEl = $("#radar-details");
+if (radarDetailsEl) {
+  if (radarDetailsEl.open) renderRadarAudit();
+  radarDetailsEl.addEventListener("toggle", () => { if (radarDetailsEl.open) renderRadarAudit(); });
+}
+
+/* ---------- Night Factory — P3 ---------- */
+
+async function renderNightFactoryStatus() {
+  const pill = $("#nf-status-pill");
+  if (pill) { pill.textContent = "lendo…"; pill.className = "pill pill-muted"; }
+  try {
+    const r = await api("GET", "/owner/night-factory/status");
+    const d = r.data || {};
+    const stateEl = $("#nf-state");
+    const runningEl = $("#nf-running");
+    const lastRunEl = $("#nf-last-run");
+    const detailEl = $("#nf-status-detail");
+    const state = d.status || d.state || (r.ok ? "ok" : "—");
+    if (stateEl) stateEl.textContent = state;
+    if (runningEl) runningEl.textContent = d.isRunning != null ? (d.isRunning ? "sim" : "não") : "—";
+    if (lastRunEl) {
+      const ts = d.lastRunAt || d.lastRun || d.startedAt;
+      lastRunEl.textContent = ts ? new Date(ts).toLocaleString("pt-BR") : "—";
+    }
+    if (detailEl) detailEl.textContent = d.message || d.detail || "";
+    if (pill) {
+      const isActive = ["running","active","processing"].includes(String(state).toLowerCase());
+      pill.textContent = state; pill.className = "pill " + (isActive ? "pill-ok" : "pill-muted");
+    }
+    // Pre-preenche config se vier no status
+    const cfg = d.config || d.configuration || {};
+    if (cfg.window && $("#nf-window")) $("#nf-window").value = cfg.window;
+    if (cfg.maxConcurrency && $("#nf-max-concurrency")) $("#nf-max-concurrency").value = cfg.maxConcurrency;
+    if (cfg.maxLeadsPerNight && $("#nf-max-leads")) $("#nf-max-leads").value = cfg.maxLeadsPerNight;
+    if (cfg.allowRecoveryRevival != null && $("#nf-allow-recovery")) $("#nf-allow-recovery").checked = Boolean(cfg.allowRecoveryRevival);
+  } catch (err) {
+    if (pill) { pill.textContent = "erro"; pill.className = "pill pill-bad"; }
+  }
+}
+
+async function nfControl(action) {
+  const fb = $("#nf-control-feedback");
+  if (action === "run-now" && !confirm("Rodar a Night Factory agora?")) return;
+  fb.textContent = `${action}…`; fb.className = "delta";
+  try {
+    const body = action === "run-now" ? { confirm: true } : {};
+    const r = await api("POST", `/owner/night-factory/${action}`, body);
+    if (r.ok) {
+      fb.textContent = `${action}: ok`; fb.className = "delta up";
+      pushFeed(`Night Factory: ${action}.`, "info");
+      renderNightFactoryStatus();
+    } else {
+      fb.textContent = r.reason || r.data?.message || "falhou";
+    }
+  } catch (err) { fb.textContent = err.message; }
+}
+
+if ($("#btn-nf-run-now")) $("#btn-nf-run-now").addEventListener("click", () => nfControl("run-now"));
+if ($("#btn-nf-pause"))   $("#btn-nf-pause").addEventListener("click",   () => nfControl("pause"));
+if ($("#btn-nf-resume"))  $("#btn-nf-resume").addEventListener("click",  () => nfControl("resume"));
+
+async function saveNightFactoryConfig() {
+  const fb = $("#nf-config-feedback");
+  const window_ = ($("#nf-window").value || "").trim() || undefined;
+  const maxConcurrency = Number($("#nf-max-concurrency").value) || undefined;
+  const maxLeadsPerNight = Number($("#nf-max-leads").value) || undefined;
+  const allowRecoveryRevival = $("#nf-allow-recovery").checked;
+  const body = {};
+  if (window_) body.window = window_;
+  if (maxConcurrency) body.maxConcurrency = maxConcurrency;
+  if (maxLeadsPerNight) body.maxLeadsPerNight = maxLeadsPerNight;
+  body.allowRecoveryRevival = allowRecoveryRevival;
+  fb.textContent = "salvando…"; fb.className = "delta";
+  try {
+    const r = await api("POST", "/owner/night-factory/config", body);
+    fb.textContent = r.ok ? "configuração salva ✓" : (r.reason || r.data?.message || "falhou");
+    fb.className = r.ok ? "delta up" : "delta";
+    if (r.ok) pushFeed("Night Factory config salva.", "ok");
+  } catch (err) { fb.textContent = err.message; }
+}
+
+if ($("#btn-nf-save-config")) $("#btn-nf-save-config").addEventListener("click", saveNightFactoryConfig);
+if ($("#btn-nf-refresh"))     $("#btn-nf-refresh").addEventListener("click", renderNightFactoryStatus);
+
+async function loadNightFactoryData(endpoint, label) {
+  const pre = $("#nf-report-body");
+  const fb = $("#nf-config-feedback");
+  if (pre) { pre.textContent = "carregando…"; pre.style.display = ""; }
+  try {
+    const r = await api("GET", `/owner/night-factory/${endpoint}`);
+    if (pre) pre.textContent = JSON.stringify(r.data, null, 2);
+    if (fb) { fb.textContent = `${label} carregado`; fb.className = "delta up"; }
+  } catch (err) {
+    if (pre) pre.textContent = `Erro: ${err.message}`;
+    if (fb)  { fb.textContent = err.message; fb.className = "delta"; }
+  }
+}
+
+if ($("#btn-nf-report"))   $("#btn-nf-report").addEventListener("click",   () => loadNightFactoryData("daily-report",           "Relatório diário"));
+if ($("#btn-nf-top"))      $("#btn-nf-top").addEventListener("click",       () => loadNightFactoryData("top-opportunities",      "Top oportunidades"));
+if ($("#btn-nf-segments")) $("#btn-nf-segments").addEventListener("click",  () => loadNightFactoryData("segments",               "Segmentos"));
+if ($("#btn-nf-cities"))   $("#btn-nf-cities").addEventListener("click",    () => loadNightFactoryData("cities",                 "Cidades"));
+if ($("#btn-nf-recovery")) $("#btn-nf-recovery").addEventListener("click",  () => loadNightFactoryData("recovery-opportunities", "Recovery"));
+
+const nfDetailsEl = $("#nf-details");
+if (nfDetailsEl) nfDetailsEl.addEventListener("toggle", () => { if (nfDetailsEl.open) renderNightFactoryStatus(); });
+
 /* ---------- Boot ---------- */
 fillUfSelects();
 pingStatus();

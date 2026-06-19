@@ -20,7 +20,7 @@ import { SceneMenu } from "@/components/hbx/hbx-scene";
 import { apiFetch, setToken, type ApiError } from "@/lib/api";
 
 type LoginResponse = { access_token?: string; next?: string; requiresCheckout?: boolean };
-type LoginErrorPayload = { code?: string; message?: string; forceAvailable?: boolean; activeSession?: { lastSeenAt?: string | null; userAgent?: string | null } };
+type LoginErrorPayload = { code?: string; message?: string; forceAvailable?: boolean; email?: string | null; needsEmailConfirmation?: boolean; activeSession?: { lastSeenAt?: string | null; userAgent?: string | null } };
 
 type SideIconName = "headset" | "recovery" | "website" | "shield" | "building" | "pulse";
 const SIDE_ICON: Record<SideIconName, string[]> = {
@@ -62,6 +62,8 @@ export function LoginClient() {
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [confirmPending, setConfirmPending] = useState<string | null>(null);
+  const [confirmMsg, setConfirmMsg] = useState<string | null>(null);
   const [plain, setPlain] = useState(false);
   const googleBtnRef = useRef<HTMLDivElement>(null);
   const loginInFlightRef = useRef(false);
@@ -164,12 +166,31 @@ export function LoginClient() {
       if (payload?.code === "SESSION_ALREADY_ACTIVE" && payload?.forceAvailable) {
         setConflict(true);
         setError(payload?.message || "Já existe uma sessão ativa para este usuário.");
+      } else if (payload?.code === "EMAIL_CONFIRMATION_REQUIRED" || payload?.needsEmailConfirmation) {
+        // Login não é mais beco (F4): cadastro não confirmado vira "continue seu
+        // cadastro" — reenvio + volta pro funil, em vez da string morta (anexo2).
+        setConflict(false);
+        setError(null);
+        setConfirmPending(payload?.email || email);
       } else {
         setConflict(false);
         setError(err instanceof Error ? err.message : "Não foi possível entrar. Tente novamente.");
       }
       loginInFlightRef.current = false;
       setBusy(false);
+    }
+  }
+
+  async function reenviarConfirmacao() {
+    setConfirmMsg(null);
+    try {
+      await apiFetch("/auth/resend-confirmation", {
+        method: "POST",
+        body: JSON.stringify({ email: confirmPending }),
+      });
+      setConfirmMsg("✓ Novo link enviado — confirme pelo seu e-mail e volte para entrar.");
+    } catch (err) {
+      setConfirmMsg(err instanceof Error ? err.message : "Não foi possível reenviar agora.");
     }
   }
 
@@ -242,6 +263,16 @@ export function LoginClient() {
             {notice && !error && !ok && (<div className="ok show warn">{notice}</div>)}
             <div className={"ok" + (ok ? " show" : "")} id="ok">✓ Autenticado — redirecionando para o Dashboard…</div>
             {error && (<div className={"ok show " + (conflict ? "warn" : "bad")}>{error}</div>)}
+            {confirmPending && (
+              <div className="ok show warn" style={{ display: "grid", gap: 8, textAlign: "left" }}>
+                <span>Falta confirmar seu e-mail (<b>{confirmPending}</b>) pra entrar. Já enviamos um link — confirme e volte aqui.</span>
+                {confirmMsg && <span>{confirmMsg}</span>}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  <button type="button" className="btn-ghost" onClick={reenviarConfirmacao} style={{ minHeight: 38, fontSize: "0.74rem" }}>Reenviar confirmação</button>
+                  <Link href="/?ver=planos" className="btn-ghost" style={{ minHeight: 38, fontSize: "0.74rem", textDecoration: "none", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>Continuar cadastro</Link>
+                </div>
+              </div>
+            )}
             {conflict && (
               <button className="btn-ghost" type="button" disabled={busy} style={{ minHeight: 40, fontSize: "0.78rem" }} onClick={() => doLogin(true)}>
                 Conectar aqui mesmo (encerra a sessão ativa)
