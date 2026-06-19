@@ -178,6 +178,41 @@ Algoritmo do wipe (por empresa, e variante global pra dev):
 3. **Instância de automação:** confirmar que `company-2`/Hbxsystem é a do bot (mantém
    `company-{id}`) e não humano legado a migrar.
 
+## 9) ROADMAP 10/10 (aprovado pelo dono 18/06 — 4 trilhas)
+
+> Estado hoje ~7/10 (single-user feliz funciona; falta confiança). Ordem: confiança PRIMEIRO,
+> depois os saltos. IA: "deixar pronto, SEM gastar" — scaffold + feature-flag OFF; zero chamada
+> Claude até o dono ligar a flag.
+
+### Trilha 1 — Fundação de confiança (FAZER PRIMEIRO)
+- **[FEITO 19/06] Status honesto, fonte única:** `getCompanyStatus` com `userId` não consulta
+  motor quando sessão é `disconnected`/`offline` — a sessão DB é a fonte de verdade. Pill:
+  Conectado / Reconectando / Caiu (reescaneie). Testes: 3 novos em `whatsapp-modal.service.test.ts`.
+- **[FEITO 19/06] Ticks reais + reenviar:** `Checks` já renderiza ✓ SENT → ✓✓ DELIVERED → ✓✓
+  azul READ; `retry` button aparece no FAILED e chama `POST /inbox/conversations/:id/messages/:mid/retry`.
+  SSE publica `kind:'status'` → `bump()` recarrega a thread. 7 testes novos em
+  `webwhats-bridge.service.test.ts` provam o mapeamento de status.
+- **[FEITO 19/06] Aviso de estrangulamento:** banner `.throttle-warn` no Atendimento quando
+  ≥3 OUTBOUND FAILED nas últimas 10 mensagens visíveis da thread. Classe central em `kit.css`.
+- **[FOLLOW-UP — NÃO IMPLEMENTADO] Reconexão auto-curável:** quando `status=reconnecting` persiste
+  por mais que X minutos sem `open`, o backend poderia tentar `restart` automaticamente e mostrar
+  um badge "reconectando…" persistente no pill. Deixado para sprint posterior — requer debounce
+  cuidadoso para não criar loop de restarts e interação com lifecycle P3 (Trilha arquitetura).
+
+### Trilha 2 — Co-piloto de IA lead-aware (DEIXAR PRONTO, SEM GASTAR)
+- Seam `whatsapp-copilot.service.ts` (`suggestReply`/`summarize`/`detectIntent`) atrás de flag
+  `WHATSAPP_AI_COPILOT_ENABLED=false`. Prompt = conversa + dossiê do lead (Radar). **NENHUMA
+  chamada Claude até a flag ligar.**
+- Front: botões "Sugerir resposta"/"Resumir" no painel da conversa, escondidos/stub com a flag OFF.
+
+### Trilha 3 — Cola do funil automática
+- Inbound de lead do Radar → gruda no card do lead (match por telefone); desfecho da conversa
+  move a etapa. Loop Radar→Vendas→WhatsApp→Retorno visível.
+
+### Trilha 4 — Cockpit multi-vendedor (= Fase B turbinada)
+- Admin vê saúde de conexão de TODOS os vendedores + carga + tempo de resposta; roteia lead.
+  Depende da Fundação (status honesto) + Fase B.
+
 ## 8) Âncoras (símbolo — linha muda, símbolo não)
 
 - `whatsapp-modal.service.ts`: `startCompanySession`, `createProviderInstance`,

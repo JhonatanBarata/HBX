@@ -37,6 +37,8 @@ type Props = {
 
 export function PlanCard({ planKey, live, className, as = "div", onClick, disabled, ariaLabel, cta }: Props) {
   const s = PLAN_STATIC[planKey] ?? PLAN_STATIC.hbx_lite;
+  // Self-Checkout (F2): plano pausado pelo master → card embaçado e inclicável.
+  const paused = Boolean(live.paused);
   const trialText = live.trialDays > 0 ? `${live.trialDays} dias grátis` : undefined;
   const price = live.monthlyPrice !== null ? formatBRL(live.monthlyPrice) : null;
   const discountMonths = Math.floor(12 * (live.annualDiscountPercent / 100));
@@ -46,6 +48,7 @@ export function PlanCard({ planKey, live, className, as = "div", onClick, disabl
 
   const inner = (
     <>
+      {paused && <span className="site-plan2__paused">Indisponível no momento</span>}
       {s.badge && <span className="site-plan2__badge">{s.badge}</span>}
       {!live.contactOnly && <span className="site-plan2__annual">{discountMonths} meses grátis no anual</span>}
       <span className="site-plan2__ic"><Ic paths={s.ic} /></span>
@@ -68,10 +71,11 @@ export function PlanCard({ planKey, live, className, as = "div", onClick, disabl
     </>
   );
 
-  const cls = "site-plan2" + (className ? " " + className : "");
+  const cls = "site-plan2" + (paused ? " is-paused" : "") + (className ? " " + className : "");
   if (as === "button") {
     return (
-      <button type="button" className={cls} onClick={onClick} disabled={disabled} aria-label={ariaLabel}>
+      <button type="button" className={cls} onClick={onClick} disabled={disabled || paused}
+        aria-disabled={paused || undefined} aria-label={ariaLabel}>
         {inner}
       </button>
     );

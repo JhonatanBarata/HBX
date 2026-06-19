@@ -1,23 +1,12 @@
 # HBX — Roteador de regras
 
 Leia este arquivo primeiro. Depois leia APENAS o arquivo de domínio relevante ao que vai alterar.
-
-## REGRA ZERO — SIGA O QUE O DONO FALAR
-
-Ordem do dono executa-se literalmente, sem reinterpretar nem "melhorar". Mas literal
-não é burro: pense a **feature inteira** — o backend e a tela que ele serve nascem
-juntos, nunca um sem o outro. Proponha, traga ideia, seja criativo no COMO; não vire
-executor de checklist.
-
 ## Frontend — 5 Leis do Design System (MÉTODO, não freio)
-
 Todo visual nasce em token/classe central (`frontend/src/app/hbx-theme/`); nada de cor,
 borda, sombra, fonte ou radius solto em tela; tema só troca tokens; `check-pele.mjs`
 reprova hex/inline no lint. Detalhe e exceções: [docs/Rules/FRONTEND.md](docs/Rules/FRONTEND.md).
 **Refatorar aparência/peles está AUTORIZADO — não usar as Leis pra recusar trabalho de aparência.**
-
 ## Mapa de domínios → `docs/Rules/`
-
 | Vai alterar | Leia |
 |---|---|
 | Backend, NestJS, Prisma, endpoints, regras de negócio | [docs/Rules/BACKEND.md](docs/Rules/BACKEND.md) |
@@ -34,14 +23,6 @@ Não fazer nada abaixo sem ordem explícita do dono na tarefa atual:
 - Preço, plano, paywall, cobrança, checkout, webhook de pagamento, dado de produção.
 - Reescrita de auth/autorização, secrets, env de produção, rotação de credencial.
 - Migration destrutiva ou operação destrutiva de dados.
-- Deploy, publish, release ou restart de produção.
-- Refactor amplo fora do escopo pedido.
-
-## Produto
-
-`Radar → Vendas → WhatsApp → Retorno`
-
-Mantenha mudanças alinhadas a esse fluxo. Resultado negativo do Radar nunca é descartado casualmente.
 
 ## Sem legado (ordem do dono 17/06)
 
@@ -67,10 +48,7 @@ Planos (PR) vivem em `docs/PLANEJAMENTOS/`. Sempre existe **UMA** pasta de dia a
 2. **Ler a pasta toda.** Deletar o que já estiver concluído.
 3. **Nunca criar `.md` de algo que já existe — injetar no plano existente** e juntar
    o que for do mesmo assunto. Um plano por assunto, não um por edição.
-
-A fila de edições pequenas de backend (`PLAN…001.md`) é o único doc persistente:
-**migra junto** a cada virada de dia e só esvazia quando os itens são aplicados.
-
+Após limpar a pasta (deletar concluídos), deve sobrar apenas **`testar.md`** — lista dos
+testes que precisam passar antes de subir qualquer branch. Nunca deletar esse arquivo.
 ## Webwhats
-
 `Webwhats/` é projeto separado. Leia `Webwhats/AGENTS.md` antes de tocar em qualquer arquivo lá.

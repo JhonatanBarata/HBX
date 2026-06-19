@@ -33,7 +33,7 @@ import { useTabIndex } from "@/lib/use-tab-param";
 import {
   fetchWhatsAppModalStatus,
 } from "@/lib/whatsapp-connection-flow";
-import { whatsappModalStatusLabel } from "@/lib/whatsapp-center";
+import { whatsappPillLabel, whatsappPillVariant } from "@/lib/whatsapp-center";
 
 type MsgMeta = {
   normalizedMessageType?: string | null;
@@ -1002,6 +1002,16 @@ export function AtendimentoClient() {
     return { m, day, showDay: Boolean(day) && day !== prevDay };
   });
 
+  // Aviso de estrangulamento (Trilha 1, Item 3): detecta rajada de FALHAs outbound
+  // recentes — linked-device sendo limitado pelo WhatsApp. Critério simples: >=3
+  // mensagens outbound FAILED nas últimas 5 mensagens visíveis da thread.
+  // Derivado puro (sem estado extra): recalcula em cada render a partir da thread carregada.
+  const recentOutboundFailed = visibleThread
+    .slice(-10)
+    .filter(m => m.direction === "outbound" && (m.status || "").toUpperCase() === "FAILED")
+    .length;
+  const showThrottleWarning = recentOutboundFailed >= 3;
+
   function presenceNode() {
     const phone = phoneFromContact(convo?.customer?.phone) || phoneFromContact(convo?.contact) || "—";
     if (!presence) return <small>{phone}</small>;
@@ -1097,10 +1107,10 @@ export function AtendimentoClient() {
                     </button>
                   </div>
                   <div className="row">
-                    <button className={"tag" + (waStatus === "connected" ? " teal" : waStatus === "error" ? " red" : " warn")}
+                    <button className={"tag" + whatsappPillVariant(waStatus)}
                       style={{ cursor: "pointer" }}
                       onClick={() => setWaModalOpen(true)} title="Conexão WhatsApp">
-                      ● WhatsApp: {waStatus ? whatsappModalStatusLabel(waStatus) : "verificar"}
+                      ● WhatsApp: {whatsappPillLabel(waStatus)}
                     </button>
                   </div>
                 </div>
@@ -1233,6 +1243,11 @@ export function AtendimentoClient() {
                     <span className="day">Sem mensagens nesta conversa</span>
                   )}
                 </div>
+                {showThrottleWarning && (
+                  <div className="throttle-warn" role="alert">
+                    ⚠ WhatsApp limitou este número — aguarde alguns minutos antes de enviar.
+                  </div>
+                )}
                 <div className="composer">
                   {sendError && (
                     <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--hbx-danger)" }}>{sendError}</div>

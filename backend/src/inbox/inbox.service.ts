@@ -347,50 +347,6 @@ export class InboxService {
     req.on('error', cleanup);
   }
 
-  private async syncPersistedInboxIndex(
-    companyId: number,
-    opts?: {
-      take?: string | number | null;
-    },
-    selector?: WebwhatsSessionSelector,
-  ) {
-    try {
-      const requestedTake = Number(opts?.take);
-      const limit =
-        Number.isFinite(requestedTake) && requestedTake > 0
-          ? Math.max(50, Math.min(Math.floor(requestedTake), 120))
-          : 120;
-      await this.webwhatsBridge.syncRecentChats(companyId, {
-        limit,
-        failOnError: false,
-      }, selector);
-      return null;
-    } catch (error: any) {
-      const message = String(error?.message || error || 'Falha ao sincronizar indice do WhatsApp.');
-      this.logger.warn(
-        `Inbox syncPersistedInboxIndex falhou company=${companyId}: ${message}`,
-      );
-      return message;
-    }
-  }
-
-  private triggerBackgroundInboxIndexSync(
-    companyId: number,
-    opts?: { take?: string | number | null },
-    selector?: WebwhatsSessionSelector,
-  ) {
-    // POR USUÁRIO: throttle por sessão (selector) — o sync de um vendedor não trava o do outro.
-    const scopeKey = selector?.sessionId || (selector?.userId ? `user-${selector.userId}` : 'company');
-    const key = `index:${companyId}:${scopeKey}`;
-    const lastRunAt = Number(this.backgroundInboxSyncAt.get(key) || 0);
-    if (Date.now() - lastRunAt < 30000) return;
-    this.backgroundInboxSyncAt.set(key, Date.now());
-    void this.syncPersistedInboxIndex(companyId, opts, selector).catch((error: any) => {
-      const message = String(error?.message || error || 'Falha ao atualizar indice da Inbox em background.');
-      this.logger.warn(`Inbox background index sync falhou company=${companyId}: ${message}`);
-    });
-  }
-
   private async syncPersistedInboxConversation(companyId: number, conversationId: number) {
     try {
       const selector = await this.buildWebwhatsConversationSelector(companyId, conversationId);
@@ -683,101 +639,6 @@ export class InboxService {
     };
   }
 
-  private async buildWhatsappSessionCleanupState(companyId: number, scope: InboxWhatsappSessionScope) {
-    if (!scope.currentSessionId) {
-      return {
-        required: false,
-        currentSessionId: null,
-        oldSessionCount: 0,
-        oldConversationCount: 0,
-        oldMessageCount: 0,
-        latestOldSession: null,
-      };
-    }
-    const currentSessionId = String(scope.currentSessionId);
-    // (1) Sessões SEPARADAS do número anterior (caso pós-fix: número novo = sessão nova).
-    const oldSessions = await this.prisma.whatsAppConnectionSession.findMany({
-      where: {
-        companyId,
-        provider: 'webwhats',
-        // 'archived' = o dono já decidiu MANTER esse histórico → não reabre o popup.
-        status: { not: 'archived' },
-        NOT: { id: currentSessionId },
-      },
-      orderBy: [{ connectedAt: 'desc' }, { createdAt: 'desc' }],
-      select: {
-        id: true,
-        phoneNormalized: true,
-        displayPhone: true,
-        status: true,
-        connectedAt: true,
-        disconnectedAt: true,
-        createdAt: true,
-      },
-    });
-    const oldSessionIds = oldSessions.map((session) => String(session.id));
-    const [separateConversationCount, separateMessageCount] = oldSessionIds.length
-      ? await Promise.all([
-          this.prisma.companyConversation.count({
-            where: { companyId, whatsappConnectionSessionId: { in: oldSessionIds } },
-          }),
-          this.prisma.companyMessage.count({
-            where: { companyId, whatsappConnectionSessionId: { in: oldSessionIds } },
-          }),
-        ])
-      : [0, 0];
-
-    // (2) CONTAMINAÇÃO dentro da sessão atual (caso legado: o relabel pré-fix mesclou os
-    // chats do número anterior na sessão de agora). Detecta pela origem real da conversa.
-    const foreignConversations = await this.resolveForeignSessionConversations(
-      companyId,
-      currentSessionId,
-      scope.currentSession || {},
-    );
-    const foreignConversationIds = foreignConversations.map((conversation) => conversation.id);
-    const foreignMessageCount = foreignConversationIds.length
-      ? await this.prisma.companyMessage.count({
-          where: { companyId, conversationId: { in: foreignConversationIds } },
-        })
-      : 0;
-
-    const oldConversationCount = separateConversationCount + foreignConversations.length;
-    const oldMessageCount = separateMessageCount + foreignMessageCount;
-
-    const latestSeparate = oldSessions[0] || null;
-    const predominantForeignPhone = foreignConversations.find((conversation) => conversation.sourcePhoneNormalized)?.sourcePhoneNormalized || null;
-    const latestOldSession = latestSeparate
-      ? {
-          id: String(latestSeparate.id),
-          phoneNormalized: latestSeparate.phoneNormalized || null,
-          displayPhone: latestSeparate.displayPhone || null,
-          status: latestSeparate.status || null,
-          connectedAt: latestSeparate.connectedAt || null,
-          disconnectedAt: latestSeparate.disconnectedAt || null,
-          createdAt: latestSeparate.createdAt || null,
-        }
-      : predominantForeignPhone
-        ? {
-            id: '',
-            phoneNormalized: predominantForeignPhone,
-            displayPhone: predominantForeignPhone,
-            status: 'relabeled',
-            connectedAt: null,
-            disconnectedAt: null,
-            createdAt: null,
-          }
-        : null;
-
-    return {
-      required: oldConversationCount > 0 || oldMessageCount > 0,
-      currentSessionId,
-      oldSessionCount: oldSessions.length,
-      oldConversationCount,
-      oldMessageCount,
-      latestOldSession,
-    };
-  }
-
   async getWhatsappSessionDiagnostics(user: any) {
     const companyId = this.requireCompanyIdFromUser(user);
     const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId, { aggregate: this.isAggregateUser(user) });
@@ -791,7 +652,6 @@ export class InboxService {
     return {
       providerWarning,
       whatsappSession: this.buildWhatsappSessionMetadata(sessionScope),
-      whatsappSessionCleanup: await this.buildWhatsappSessionCleanupState(companyId, sessionScope),
     };
   }
 
@@ -833,34 +693,6 @@ export class InboxService {
       contacts: Array.from(contacts).filter(Boolean),
       metadataTokens: Array.from(metadataTokens).filter(Boolean),
     };
-  }
-
-  private async findCurrentSessionConversationForMerge(
-    client: any,
-    companyId: number,
-    currentSessionId: string,
-    staleConversation: any,
-  ) {
-    const aliases = this.buildWhatsappSessionConversationAliases(staleConversation);
-    const phoneSuffixes = aliases.contacts
-      .map((contact) => contact.replace(/\D/g, ''))
-      .filter((digits) => digits.length >= 10);
-    const or: any[] = [
-      ...aliases.contacts.map((contact) => ({ contact })),
-      ...phoneSuffixes.map((digits) => ({ contact: { endsWith: digits } })),
-      ...aliases.metadataTokens.map((token) => ({ metadata: { contains: token } })),
-    ];
-    if (!or.length) return null;
-    return client.companyConversation.findFirst({
-      where: {
-        companyId,
-        channel: 'whatsapp',
-        whatsappConnectionSessionId: currentSessionId,
-        OR: or,
-      },
-      orderBy: [{ lastMessageAt: 'desc' }, { updatedAt: 'desc' }],
-      select: { id: true },
-    });
   }
 
   private getNestedMetadataRecord(value: unknown): Record<string, any> | null {
@@ -3712,25 +3544,10 @@ export class InboxService {
           message: 'Atendimento indisponível sem WhatsApp/celular vinculado.',
         },
         whatsappSession: this.buildWhatsappSessionMetadata(sessionScope),
-        whatsappSessionCleanup: await this.buildWhatsappSessionCleanupState(companyId, sessionScope),
         bootstrapMode,
         hasMoreConversations: false,
         nextSkip: null,
       };
-    }
-    if (sessionScope.mode === 'current') {
-      this.triggerBackgroundInboxIndexSync(
-        companyId,
-        { take },
-        sessionScope.currentSessionId ? { sessionId: sessionScope.currentSessionId } : undefined,
-      );
-    } else if (sessionScope.mode === 'company' && sessionScope.sessionIds?.length) {
-      // ADMIN (visão agregada): dispara sync em background para cada sessão ativa.
-      // Sem isto o inbox do admin fica vazio até que algum vendedor faça um bootstrap
-      // individual e dispare o sync de sua sessão.
-      for (const sessionId of sessionScope.sessionIds) {
-        this.triggerBackgroundInboxIndexSync(companyId, { take }, { sessionId });
-      }
     }
     const loadTake = Math.min(requestedTake + 1, 200);
     const loadedConversations = await this.listPersistedConversationSummariesForCompany(companyId, {
@@ -3757,7 +3574,6 @@ export class InboxService {
       selectedConversationId: firstConversationId ? String(firstConversationId) : null,
       providerWarning: null,
       whatsappSession: this.buildWhatsappSessionMetadata(sessionScope),
-      whatsappSessionCleanup: await this.buildWhatsappSessionCleanupState(companyId, sessionScope),
       bootstrapMode,
       hasMoreConversations,
       nextSkip: hasMoreConversations ? conversations.length : null,
@@ -4079,13 +3895,6 @@ export class InboxService {
     ) {
       throw new ServiceUnavailableException(
         'WhatsApp consta como conectado, mas a sessão operacional do Atendimento não foi criada. Revalide a conexão.',
-      );
-    }
-    if (sessionScope.mode === 'current') {
-      this.triggerBackgroundInboxIndexSync(
-        companyId,
-        { take: options?.take },
-        sessionScope.currentSessionId ? { sessionId: sessionScope.currentSessionId } : undefined,
       );
     }
     return this.listPersistedConversationSummariesForCompany(companyId, {
@@ -6156,482 +5965,23 @@ export class InboxService {
     );
   }
 
-  private buildWhatsappResetPhoneVariants(...values: unknown[]) {
-    const variants = new Set<string>();
-    for (const value of values) {
-      const digits = this.normalizeConnectionPhone(value);
-      if (!digits) continue;
-      variants.add(digits);
-      variants.add(`+${digits}`);
-      if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) {
-        const withoutCountry = digits.slice(2);
-        variants.add(withoutCountry);
-        variants.add(`+${withoutCountry}`);
-      } else if (!digits.startsWith('55') && (digits.length === 10 || digits.length === 11)) {
-        variants.add(`55${digits}`);
-        variants.add(`+55${digits}`);
-      }
-    }
-    return Array.from(variants);
+  // cleanupOldWhatsappSessions removida (store-on-arrival — não há mais supressão/floor).
+
+  // @deprecated removida; mantida como stub para evitar erro em call-sites legados até limpeza.
+  // cleanupOldWhatsappSessions removida (store-on-arrival — sem supressão/floor/merge).
+  async cleanupOldWhatsappSessions(_user: any, _modeRaw?: string | null): Promise<never> {
+    throw new Error('cleanupOldWhatsappSessions foi removida. Use wipeAllWhatsAppData para resetar.');
   }
 
-  // Telefones que o dono já mandou MANTER (popup → "Manter") dentro da sessão atual,
-  // para a detecção de contaminação não reabrir o popup toda hora.
-  private resolveAcknowledgedForeignPhones(metadataJson: unknown): string[] {
-    const meta = this.parseConversationMetadata((metadataJson ?? null) as string | null);
-    const raw = Array.isArray(meta?.acknowledgedForeignPhones) ? meta.acknowledgedForeignPhones : [];
-    return raw.map((value: any) => String(value || '').replace(/\D+/g, '')).filter(Boolean);
-  }
-
-  // Conversas LEGADAS de um número anterior que ficaram CARIMBADAS na sessão atual por
-  // causa do bug de relabel (pré-fix sessão-por-número). Sinal: a conversa nasceu sob
-  // OUTRO número — `sourcePhoneNormalized` != telefone da sessão atual. Esse campo é
-  // gravado no create e nunca sobrescrito, então marca a origem real do chip.
-  private async resolveForeignSessionConversations(
-    companyId: number,
-    currentSessionId: string,
-    currentSession: any,
-  ): Promise<Array<{ id: number; sourcePhoneNormalized: string | null; lastMessageAt: Date | null }>> {
-    const exclude = new Set(
-      this.buildWhatsappResetPhoneVariants(currentSession?.phoneNormalized, currentSession?.displayPhone).filter(Boolean),
-    );
-    for (const phone of this.resolveAcknowledgedForeignPhones(currentSession?.metadataJson)) exclude.add(phone);
-    const excludeList = Array.from(exclude);
-    // Sessão atual sem telefone resolvido = não dá pra distinguir origem → não acusa nada.
-    if (!this.normalizeConnectionPhone(currentSession?.phoneNormalized)) return [];
-    const rows = await this.prisma.companyConversation.findMany({
-      where: {
-        companyId,
-        channel: 'whatsapp',
-        whatsappConnectionSessionId: currentSessionId,
-        sourcePhoneNormalized: { not: null },
-        ...(excludeList.length ? { NOT: [{ sourcePhoneNormalized: { in: excludeList } }] } : {}),
-      },
-      select: { id: true, sourcePhoneNormalized: true, lastMessageAt: true },
-      orderBy: [{ lastMessageAt: 'desc' }],
-    });
-    return rows.map((row) => ({
-      id: Number(row.id),
-      sourcePhoneNormalized: row.sourcePhoneNormalized || null,
-      lastMessageAt: row.lastMessageAt || null,
-    }));
-  }
-
-  async cleanupOldWhatsappSessions(user: any, modeRaw?: string | null) {
-    this.assertAdministrativeAction(user);
-    const companyId = this.requireCompanyIdFromUser(user);
-    const mode = String(modeRaw || '').trim().toLowerCase();
-    if (!['merge', 'discard', 'keep'].includes(mode)) {
-      throw new BadRequestException('Informe se deseja manter, mesclar ou descartar sessões antigas.');
-    }
-    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId);
-    this.assertInboxWhatsappAccessible(sessionScope);
-    if (!sessionScope.currentSessionId) {
-      throw new BadRequestException('Sessão atual do WhatsApp não encontrada.');
-    }
-    const currentSessionId = String(sessionScope.currentSessionId);
-    const oldSessions = await this.prisma.whatsAppConnectionSession.findMany({
-      where: {
-        companyId,
-        provider: 'webwhats',
-        NOT: { id: currentSessionId },
-      },
-      orderBy: [{ connectedAt: 'desc' }, { createdAt: 'desc' }],
-      select: { id: true, phoneNormalized: true, displayPhone: true, metadataJson: true },
-    });
-    const oldSessionIds = oldSessions.map((session) => String(session.id));
-
-    // MANTER (popup): o dono escolheu guardar o histórico do número anterior. NÃO apaga
-    // nada, NÃO toca no motor Webwhats. Dois casos:
-    //  - sessões SEPARADAS → arquiva (fora do inbox atual por construção);
-    //  - CONTAMINAÇÃO na sessão atual (relabel legado) → registra os telefones de origem
-    //    como "acknowledged" pra o popup parar de perguntar (as conversas continuam ali).
-    if (mode === 'keep') {
-      if (oldSessionIds.length) {
-        await this.prisma.whatsAppConnectionSession.updateMany({
-          where: { companyId, id: { in: oldSessionIds }, status: { not: 'archived' } },
-          data: { status: 'archived' },
-        });
-      }
-      const foreignConversations = await this.resolveForeignSessionConversations(
-        companyId,
-        currentSessionId,
-        sessionScope.currentSession || {},
-      );
-      const foreignPhones = Array.from(
-        new Set(foreignConversations.map((conversation) => conversation.sourcePhoneNormalized).filter(Boolean) as string[]),
-      );
-      if (foreignPhones.length) {
-        const meta = this.parseConversationMetadata((sessionScope.currentSession as any)?.metadataJson);
-        const prevAck = this.resolveAcknowledgedForeignPhones((sessionScope.currentSession as any)?.metadataJson);
-        const nextAck = Array.from(new Set([...prevAck, ...foreignPhones]));
-        await this.prisma.whatsAppConnectionSession.update({
-          where: { id: currentSessionId },
-          data: { metadataJson: JSON.stringify({ ...meta, acknowledgedForeignPhones: nextAck }) },
-        });
-      }
-      await this.logInboxEvent({
-        companyId,
-        event: 'whatsapp_old_sessions_kept',
-        message: 'Histórico do número anterior mantido (arquivado/reconhecido, fora do inbox atual).',
-        result: 'keep',
-        extra: { currentSessionId, keptSessionIds: oldSessionIds, acknowledgedForeignPhones: foreignPhones },
-      });
-      return {
-        success: true,
-        mode,
-        merged: 0,
-        deletedConversations: 0,
-        deletedMessages: 0,
-        deletedSessions: 0,
-        message: oldSessionIds.length || foreignPhones.length
-          ? 'Histórico do número anterior mantido.'
-          : 'Nenhum histórico anterior para manter.',
-      };
-    }
-
-    if (!oldSessionIds.length && mode === 'merge') {
-      return {
-        success: true,
-        mode,
-        merged: 0,
-        deletedConversations: 0,
-        deletedMessages: 0,
-        deletedSessions: 0,
-        message: 'Nenhuma sessão antiga encontrada.',
-      };
-    }
-
-    const oldConversations = await this.prisma.companyConversation.findMany({
-      where: {
-        companyId,
-        channel: 'whatsapp',
-        whatsappConnectionSessionId: { in: oldSessionIds },
-      },
-      orderBy: [{ lastMessageAt: 'desc' }, { updatedAt: 'desc' }],
-      select: {
-        id: true,
-        contact: true,
-        metadata: true,
-        whatsappConnectionSessionId: true,
-        lastMessageAt: true,
-        lastInteractionAt: true,
-      },
-    });
-    const recoverableSessionIds = mode === 'merge' ? oldSessionIds.slice(0, 1) : [];
-    const discardSessionIds = mode === 'merge' ? oldSessionIds.slice(1) : oldSessionIds;
-    // NÃO inclui a sessão ATUAL: discard agora apaga SÓ o número ANTERIOR (o chip novo
-    // fica intacto). Incluir a atual apagaria/floorearia o histórico do número novo.
-    const discardCacheSessionIds = discardSessionIds;
-    const currentSession = sessionScope.currentSession || {};
-    // Variantes do número ATUAL nunca entram no purge (blinda o chip novo, mesmo se
-    // algum dado coincidir de telefone).
-    const currentPhoneVariants = new Set(
-      this.buildWhatsappResetPhoneVariants(currentSession.phoneNormalized, currentSession.displayPhone),
-    );
-    // Contaminação legada: conversas do número anterior CARIMBADAS na sessão atual pelo
-    // relabel pré-fix. Some os telefones de origem delas no purge (a query de discard já
-    // casa por `sourcePhoneNormalized`), sempre excluindo o número ATUAL.
-    const foreignConversations =
-      mode === 'discard'
-        ? await this.resolveForeignSessionConversations(companyId, currentSessionId, currentSession)
-        : [];
-    const foreignPhones = Array.from(
-      new Set(foreignConversations.map((conversation) => conversation.sourcePhoneNormalized).filter(Boolean) as string[]),
-    );
-    const resetPhoneCandidates =
-      mode === 'discard'
-        ? this.buildWhatsappResetPhoneVariants(
-            ...(oldSessions.flatMap((session) => [session.phoneNormalized, session.displayPhone])),
-            ...foreignPhones,
-          ).filter((candidate) => !currentPhoneVariants.has(candidate))
-        : [];
-    const recoverableConversations = oldConversations.filter((conversation) =>
-      recoverableSessionIds.includes(String(conversation.whatsappConnectionSessionId || '')),
-    );
-    const discardConversations = oldConversations.filter((conversation) =>
-      discardSessionIds.includes(String(conversation.whatsappConnectionSessionId || '')),
-    );
-
-    let merged = 0;
-    let deletedConversations = 0;
-    let deletedMessages = 0;
-    let deletedAtendimentoCustomers = 0;
-    let deletedVendasLeads = 0;
-    let resetCustomerProfiles = 0;
-    let deletedCustomerProfiles = 0;
-    const resetAt = new Date();
-    const discardedForSuppression: Array<{
-      contact: string | null;
-      metadata: unknown;
-      sourcePhoneNormalized: string | null;
-    }> = [];
-
-    await this.prisma.$transaction(async (tx) => {
-      if (mode === 'merge') {
-        for (const stale of recoverableConversations) {
-          const target = await this.findCurrentSessionConversationForMerge(tx, companyId, currentSessionId, stale);
-          if (target?.id && Number(target.id) !== Number(stale.id)) {
-            const messages = await tx.companyMessage.findMany({
-              where: { companyId, conversationId: stale.id },
-              select: { id: true },
-              orderBy: [{ id: 'asc' }],
-            });
-            for (const message of messages) {
-              await tx.companyMessage.update({
-                where: { id: message.id },
-                data: {
-                  conversationId: Number(target.id),
-                  whatsappConnectionSessionId: currentSessionId,
-                },
-              });
-              merged += 1;
-            }
-            await tx.atendimentoAppointment.updateMany({
-              where: { companyId, conversationId: stale.id },
-              data: { conversationId: Number(target.id) },
-            });
-            await tx.companyConversation.delete({ where: { id: stale.id } });
-            deletedConversations += 1;
-            continue;
-          }
-
-          await tx.companyConversation.update({
-            where: { id: stale.id },
-            data: {
-              whatsappConnectionSessionId: currentSessionId,
-              metadata: JSON.stringify({
-                ...this.parseConversationMetadata(stale.metadata),
-                whatsappSessionMergedFrom: stale.whatsappConnectionSessionId || null,
-                whatsappSessionMergedAt: new Date().toISOString(),
-              }),
-            },
-          });
-          await tx.companyMessage.updateMany({
-            where: { companyId, conversationId: stale.id },
-            data: { whatsappConnectionSessionId: currentSessionId },
-          });
-          merged += 1;
-        }
-      }
-
-      const conversationsToDiscard =
-        mode === 'merge'
-          ? discardConversations
-          : await tx.companyConversation.findMany({
-              where: {
-                companyId,
-                channel: 'whatsapp',
-                OR: [
-                  ...(discardCacheSessionIds.length
-                    ? [{ whatsappConnectionSessionId: { in: discardCacheSessionIds } }]
-                    : []),
-                  ...(resetPhoneCandidates.length
-                    ? [
-                        { contact: { in: resetPhoneCandidates } },
-                        { sourcePhoneNormalized: { in: resetPhoneCandidates } },
-                      ]
-                    : []),
-                ],
-              },
-              select: {
-                id: true,
-                whatsappConnectionSessionId: true,
-                contact: true,
-                metadata: true,
-                sourcePhoneNormalized: true,
-              },
-            });
-      // Guarda os contatos descartados pra registrar a SUPRESSÃO de reimportação
-      // depois do commit (ver recordDiscardedConversationSuppressions).
-      discardedForSuppression.push(
-        ...conversationsToDiscard.map((conversation: any) => ({
-          contact: conversation.contact ?? null,
-          metadata: conversation.metadata ?? null,
-          sourcePhoneNormalized: conversation.sourcePhoneNormalized ?? null,
-        })),
-      );
-      const sessionIdsToDiscard = discardCacheSessionIds;
-      if (sessionIdsToDiscard.length || conversationsToDiscard.length || resetPhoneCandidates.length) {
-        const messages = await tx.companyMessage.findMany({
-          where: {
-            companyId,
-            OR: [
-              ...(sessionIdsToDiscard.length ? [{ whatsappConnectionSessionId: { in: sessionIdsToDiscard } }] : []),
-              ...(conversationsToDiscard.length
-                ? [{ conversationId: { in: conversationsToDiscard.map((conversation) => Number(conversation.id)) } }]
-                : []),
-              ...(resetPhoneCandidates.length
-                ? [
-                    { contactId: { in: resetPhoneCandidates } },
-                    { sourcePhoneNormalized: { in: resetPhoneCandidates } },
-                  ]
-                : []),
-            ],
-          },
-          select: { id: true },
-          orderBy: [{ id: 'asc' }],
-        });
-        for (const message of messages) {
-          await tx.companyMessage.delete({ where: { id: message.id } });
-          deletedMessages += 1;
-        }
-        await tx.atendimentoAppointment.updateMany({
-          where: { companyId, conversationId: { in: conversationsToDiscard.map((conversation) => Number(conversation.id)) } },
-          data: { conversationId: null },
-        });
-        for (const conversation of conversationsToDiscard) {
-          await tx.companyConversation.delete({ where: { id: conversation.id } });
-          deletedConversations += 1;
-        }
-      }
-
-      if (mode === 'discard' && resetPhoneCandidates.length) {
-        const atendimentoDeleted = await tx.atendimentoCustomer.deleteMany({
-          where: { companyId, phoneNormalized: { in: resetPhoneCandidates } },
-        });
-        deletedAtendimentoCustomers = atendimentoDeleted.count;
-
-        const vendasDeleted = await tx.vendasLead.deleteMany({
-          where: {
-            companyId,
-            OR: [
-              { phoneNormalized: { in: resetPhoneCandidates } },
-              { phone: { in: resetPhoneCandidates } },
-            ],
-          },
-        });
-        deletedVendasLeads = vendasDeleted.count;
-
-        const profileReset = await tx.customerProfile.updateMany({
-          where: { companyId, phoneNormalized: { in: resetPhoneCandidates } },
-          data: {
-            botOff: false,
-            botOffReason: null,
-            botOffAt: null,
-            notes: null,
-            firstInboundAt: null,
-            lastInboundAt: null,
-          },
-        });
-        resetCustomerProfiles = profileReset.count;
-
-        const profileDeleted = await tx.customerProfile.deleteMany({
-          where: {
-            companyId,
-            phoneNormalized: { in: resetPhoneCandidates },
-            atendimentoCustomers: { none: {} },
-            hbxRecoveryCustomers: { none: {} },
-            debtCases: { none: {} },
-            vendasLeads: { none: {} },
-          },
-        });
-        deletedCustomerProfiles = profileDeleted.count;
-      }
-
-      await tx.companyMessage.updateMany({
-        where: { companyId, whatsappConnectionSessionId: { in: oldSessionIds } },
-        data: { whatsappConnectionSessionId: null },
-      });
-      await tx.whatsAppConnectionSession.deleteMany({
-        where: {
-          companyId,
-          id: { in: oldSessionIds },
-        },
-      });
-      // Floor de re-sync SÓ no merge (mesmo chip dobrando histórico na sessão atual:
-      // o ingestor ignora o que o WhatsApp re-sincroniza < floor). No DISCARD apagamos
-      // o número ANTERIOR (chip OUTRO) → NÃO floor a sessão atual, senão suprimiríamos
-      // o histórico legítimo do número NOVO.
-      if (mode === 'merge') {
-        const currentSessionRow = await tx.whatsAppConnectionSession.findFirst({
-          where: { companyId, id: currentSessionId },
-          select: { metadataJson: true },
-        });
-        const currentSessionMetadata = this.parseConversationMetadata(currentSessionRow?.metadataJson);
-        await tx.whatsAppConnectionSession.update({
-          where: { id: currentSessionId },
-          data: {
-            metadataJson: JSON.stringify({
-              ...currentSessionMetadata,
-              inboxResetAt: resetAt.toISOString(),
-              webwhatsResetAt: resetAt.toISOString(),
-              popup2CleanupMode: mode,
-              popup2CleanupAt: resetAt.toISOString(),
-            }),
-          },
-        });
-      }
-    });
-
-    // Bloqueia a REIMPORTAÇÃO do número anterior: o espelhamento lê o audit
-    // (event=conversation_backend_deleted) e suprime chats apagados cujo registro é
-    // mais novo que a última mensagem. Sem isto o "apagar" não segurava e o número
-    // anterior reaparecia no próximo mirror (bug "não limpa"). Só o passado — se o
-    // número NOVO falar com o mesmo contato depois, a mensagem nova reabre a conversa.
-    if (mode !== 'keep' && discardedForSuppression.length) {
-      await this.recordDiscardedConversationSuppressions(companyId, currentSessionId, discardedForSuppression);
-    }
-
-    await this.logInboxEvent({
-      companyId,
-      event: 'whatsapp_old_sessions_cleaned',
-      message: mode === 'merge'
-        ? 'Sessões antigas do WhatsApp foram mescladas na sessão atual e removidas.'
-        : 'Sessões antigas do WhatsApp foram descartadas do HBX.',
-      result: mode,
-      extra: {
-        currentSessionId,
-        oldSessionIds,
-        recoverableSessionIds,
-        discardSessionIds,
-        discardCacheSessionIds,
-        resetPhoneCandidates,
-        merged,
-        deletedConversations,
-        deletedMessages,
-        deletedAtendimentoCustomers,
-        deletedVendasLeads,
-        resetCustomerProfiles,
-        deletedCustomerProfiles,
-      },
-    });
-
-    return {
-      success: true,
-      mode,
-      merged,
-      deletedConversations,
-      deletedMessages,
-      deletedSessions: oldSessionIds.length,
-      deletedAtendimentoCustomers,
-      deletedVendasLeads,
-      resetCustomerProfiles,
-      deletedCustomerProfiles,
-      message: mode === 'merge'
-        ? 'Última sessão antiga mesclada na sessão atual. Demais sessões antigas descartadas.'
-        : 'Histórico do número anterior removido. O número conectado agora segue intacto.',
-    };
-  }
-
-  // Apaga TODAS as mensagens e conversas WhatsApp da company e recria a instância vazia.
-  // O dono re-escaneia o QR para reconectar limpo.
+  // Apaga TODAS as mensagens e conversas WhatsApp da company no banco.
+  // Apaga TODAS as instâncias da company no motor (sem supressão/floor).
+  // Desconecta a sessão. O dono re-escaneia o QR para reconectar limpo.
   async wipeAllWhatsAppData(user: any) {
     this.assertAdministrativeAction(user);
     const companyId = this.requireCompanyIdFromUser(user);
 
-    // Sessão atual: marca a supressão como "deste número" (bloqueia reimport do antigo).
-    const company = await this.prisma.company.findUnique({
-      where: { id: companyId },
-      select: { currentWhatsappConnectionSessionId: true },
-    });
-    const currentSessionId = company?.currentWhatsappConnectionSessionId
-      ? String(company.currentWhatsappConnectionSessionId)
-      : 'wipe-all';
-
     let deletedMessages = 0;
     let deletedConversations = 0;
-    let suppressionEntries: Array<{ contact: string | null; metadata: unknown; sourcePhoneNormalized: string | null }> = [];
 
     await this.prisma.$transaction(async (tx) => {
       // Nulifica referência antes de apagar conversas (FK nullable sem onDelete).
@@ -6640,20 +5990,11 @@ export class InboxService {
         data: { conversationId: null },
       });
 
-      const convs = await tx.companyConversation.findMany({
+      const convIds = await tx.companyConversation.findMany({
         where: { companyId, channel: 'whatsapp' },
-        select: { id: true, contact: true, metadata: true, sourcePhoneNormalized: true },
+        select: { id: true },
       });
-      const ids = convs.map((c) => c.id);
-      // Guarda contato/metadata/sourcePhone ANTES de apagar — vira a supressão que
-      // segura o reimport. sourcePhoneNormalized é o número do vendedor (sessão de
-      // origem): com ele, o bridge pode diferenciar supressões de números distintos e
-      // não bloquear o nº novo de reimportar seus próprios clientes.
-      suppressionEntries = convs.map((c) => ({
-        contact: c.contact ?? null,
-        metadata: c.metadata ?? null,
-        sourcePhoneNormalized: (c as any).sourcePhoneNormalized ?? null,
-      }));
+      const ids = convIds.map((c: any) => c.id);
 
       if (ids.length) {
         const msgResult = await tx.companyMessage.deleteMany({
@@ -6668,25 +6009,17 @@ export class InboxService {
       }
     });
 
-    // BLOCO 2 — trava de reimportação: grava supressão de TUDO que foi apagado, pra o bootstrap
-    // (isLocallyDeletedChatSuppressed) nunca reimportar o que já existia. Só bloqueia o passado;
-    // mensagem nova depois do wipe entra normal.
-    if (suppressionEntries.length) {
-      await this.recordDiscardedConversationSuppressions(companyId, currentSessionId, suppressionEntries);
-    }
-
-    // BLOCO 1 — arrancar o câncer no MOTOR: apaga a instância company-{id} no webwhats. Sem isso o
-    // motor mantém os chats e eles ressuscitam no próximo sync. (Dono escolheu desconectar + QR.)
+    // Apaga TODAS as instâncias da company no motor (company-{id} e company-{id}-user-*).
     const motorWipe = await this.webwhatsBridge.wipeMotorInstance(companyId).catch((error) => {
-      this.logger.warn(`wipe-all: falha ao apagar instância no motor: ${String((error as any)?.message || error)}`);
+      this.logger.warn(`wipe-all: falha ao apagar instâncias no motor: ${String((error as any)?.message || error)}`);
       return { loggedOut: false, deleted: false, recreated: false };
     });
 
-    // A conexão morreu junto com a instância → reflete desconectado (usuário re-escaneia o QR).
-    const wipedAt = new Date();
+    // Reflete desconectado (usuário re-escaneia o QR).
+    const disconnectedAt = new Date();
     await this.prisma.whatsAppConnectionSession.updateMany({
       where: { companyId, provider: 'webwhats', status: 'active' },
-      data: { status: 'disconnected', disconnectedAt: wipedAt, wipedAt },
+      data: { status: 'disconnected', disconnectedAt },
     });
     await this.prisma.company.update({
       where: { id: companyId },
@@ -6702,65 +6035,19 @@ export class InboxService {
     await this.logInboxEvent({
       companyId,
       event: 'whatsapp_data_wiped',
-      message: `[WIPE] WhatsApp apagado de vez: ${deletedMessages} msgs, ${deletedConversations} conversas, supressões=${suppressionEntries.length}, motor(logout=${motorWipe.loggedOut},delete=${motorWipe.deleted},recreated=${motorWipe.recreated}). Reconecte pelo QR.`,
+      message: `[WIPE] WhatsApp apagado: ${deletedMessages} msgs, ${deletedConversations} conversas. Motor: logout=${motorWipe.loggedOut} delete=${motorWipe.deleted}. Reconecte pelo QR.`,
       result: 'wipe_all',
-      extra: { deletedMessages, deletedConversations, suppressions: suppressionEntries.length, motorWipe },
+      extra: { deletedMessages, deletedConversations, motorWipe },
     });
 
     return {
       success: true,
       deletedMessages,
       deletedConversations,
-      suppressed: suppressionEntries.length,
       motorWiped: motorWipe.deleted,
       requiresReconnect: true,
     };
   }
-
-  // Registra no audit (scope inbox / event conversation_backend_deleted) cada contato
-  // 1:1 descartado, no formato que o bridge usa pra suprimir reimportação
-  // (isLocallyDeletedChatSuppressed): o metadata em JSON precisa CONTER os tokens
-  // (telefone/remoteJid) que a checagem procura via `contains`.
-  private async recordDiscardedConversationSuppressions(
-    companyId: number,
-    currentSessionId: string,
-    entries: Array<{ contact: string | null; metadata: unknown; sourcePhoneNormalized: string | null }>,
-  ) {
-    const discardedAt = new Date().toISOString();
-    const seen = new Set<string>();
-    for (const entry of entries) {
-      const metadata = this.parseConversationMetadata(entry.metadata as any);
-      const remoteJid = this.normalizeMessageMetadataText(metadata.whatsappRemoteJid) || null;
-      const remoteJidAlt = this.normalizeMessageMetadataText(metadata.whatsappRemoteJidAlt) || null;
-      const contact = entry.contact ? String(entry.contact).trim() : null;
-      const sourcePhone = entry.sourcePhoneNormalized ? String(entry.sourcePhoneNormalized).trim() : null;
-      const phoneDigits = String(contact || sourcePhone || remoteJid || '').replace(/\D/g, '');
-      if (!contact && !remoteJid && !sourcePhone && !phoneDigits) continue;
-      // Grupos nunca entram (inbox 1:1) — e a supressão do bridge já os ignora.
-      if (String(remoteJid || contact || '').toLowerCase().includes('@g.us')) continue;
-      const dedupeKey = `${phoneDigits}|${remoteJid || ''}|${contact || ''}`;
-      if (seen.has(dedupeKey)) continue;
-      seen.add(dedupeKey);
-      await this.whatsappAudit.log({
-        companyId,
-        scope: 'inbox',
-        event: 'conversation_backend_deleted',
-        message: 'Conversa do número anterior descartada — bloqueada para reimportação.',
-        metadata: {
-          reason: 'old_session_discard',
-          currentSessionId,
-          discardedAt,
-          contact,
-          remoteJid,
-          remoteJidAlt,
-          sourcePhoneNormalized: sourcePhone,
-          phoneDigits: phoneDigits || null,
-          ...(phoneDigits.startsWith('55') ? { phoneDigitsLocal: phoneDigits.slice(2) } : {}),
-        },
-      });
-    }
-  }
-
   async purgeConversationFromTrash(user: any, conversationId: number) {
     this.assertAdministrativeAction(user);
     throw new BadRequestException('Exclusao permanente removida do HBX. Excluídos não existe mais como fila operacional.');

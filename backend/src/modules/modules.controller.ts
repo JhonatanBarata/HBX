@@ -73,10 +73,7 @@ class UpdateMasterBillingPolicyDto {
   @IsNumber({ maxDecimalPlaces: 2 })
   annualPlanDiscountPercent?: number;
 
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 2 })
-  extraSeatMonthlyAmount?: number;
+  // Assento extra saiu da política global — agora é por-plano no catálogo (Self-Checkout).
 
   @IsOptional()
   @Type(() => Boolean)
@@ -185,13 +182,13 @@ class SetSuspensionDto {
 
 class SetCompanyPlanDto {
   @IsString()
-  @IsIn([COMMERCIAL_PLAN_KEYS.LITE, COMMERCIAL_PLAN_KEYS.PADRAO, COMMERCIAL_PLAN_KEYS.MELHOR])
+  @IsIn([COMMERCIAL_PLAN_KEYS.LITE, COMMERCIAL_PLAN_KEYS.PADRAO, COMMERCIAL_PLAN_KEYS.PRO, COMMERCIAL_PLAN_KEYS.MELHOR])
   planKey!: string;
 }
 
 class GrantPlanTasteDto {
   @IsString()
-  @IsIn([COMMERCIAL_PLAN_KEYS.LITE, COMMERCIAL_PLAN_KEYS.PADRAO, COMMERCIAL_PLAN_KEYS.MELHOR])
+  @IsIn([COMMERCIAL_PLAN_KEYS.LITE, COMMERCIAL_PLAN_KEYS.PADRAO, COMMERCIAL_PLAN_KEYS.PRO, COMMERCIAL_PLAN_KEYS.MELHOR])
   planKey!: string;
 
   @IsString()

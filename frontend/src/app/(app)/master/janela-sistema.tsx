@@ -18,14 +18,15 @@ import React, { useCallback, useEffect, useState } from "react";
 
 import { apiFetch } from "@/lib/api";
 import { useTabIndex } from "@/lib/use-tab-param";
-import { PlanosEditor } from "@/components/hbx/planos-editor";
 import { MetaWhatsAppEditor } from "@/components/hbx/meta-whatsapp-editor";
 import { MetaTemplatesEditor } from "@/components/hbx/meta-templates-editor";
 
 import { MasterWhatsappChip } from "./master-whatsapp-chip";
 import { fmtDataHora } from "./page.client";
 
-const SUBTABS = ["Módulos", "Política comercial", "Credenciais", "Exclusões", "Reclamações", "Planos", "WhatsApp (Meta)"];
+// "Planos" e "Política comercial" saíram daqui (18-19/06): viraram a janela
+// Self-Checkout (sem duplicar editor de plano/preço/desconto).
+const SUBTABS = ["Módulos", "Credenciais", "Exclusões", "Reclamações", "WhatsApp (Meta)"];
 
 type SystemModule = {
   id: number;
@@ -115,9 +116,6 @@ export function JanelaSistema() {
 
   // política + credenciais
   const [integ, setInteg] = useState<GlobalIntegrations>(null);
-  const [polForm, setPolForm] = useState({ annual: "", extraSeat: "", refActive: false, refPercent: "", refMode: "ONCE" });
-  const [polBusy, setPolBusy] = useState(false);
-  const [polMsg, setPolMsg] = useState<string | null>(null);
   const [waLib, setWaLib] = useState<CredWa[] | null>(null);
   const [mpLib, setMpLib] = useState<CredMp[] | null>(null);
   const [credBusy, setCredBusy] = useState(false);
@@ -145,13 +143,6 @@ export function JanelaSistema() {
     return apiFetch<GlobalIntegrations>("/modules/master/global-integrations")
       .then(res => {
         setInteg(res);
-        setPolForm({
-          annual: res?.annualPlanDiscountPercent != null ? String(res.annualPlanDiscountPercent) : "",
-          extraSeat: res?.extraSeatMonthlyAmount != null ? String(res.extraSeatMonthlyAmount) : "",
-          refActive: Boolean(res?.referralDiscountActive),
-          refPercent: res?.referralDiscountPercent != null ? String(res.referralDiscountPercent) : "",
-          refMode: String(res?.referralDiscountMode || "ONCE"),
-        });
         setWaLib((res?.whatsappLibrary || []).map(c => ({ ...c, accessToken: "" })));
         setMpLib((res?.mercadoPagoLibrary || []).map(c => ({ ...c, accessToken: "" })));
       })
@@ -177,8 +168,8 @@ export function JanelaSistema() {
   }, []);
 
   useEffect(() => { carregarModulos(); carregarInteg(); }, [carregarModulos, carregarInteg]);
-  useEffect(() => { if (sub === 3 && excl === null) carregarExclusoes(); }, [sub, excl, carregarExclusoes]);
-  useEffect(() => { if (sub === 4 && complaints === null) carregarComplaints(compStatus); }, [sub, complaints, compStatus, carregarComplaints]);
+  useEffect(() => { if (sub === 2 && excl === null) carregarExclusoes(); }, [sub, excl, carregarExclusoes]);
+  useEffect(() => { if (sub === 3 && complaints === null) carregarComplaints(compStatus); }, [sub, complaints, compStatus, carregarComplaints]);
 
   function modValor(m: SystemModule) {
     return modEdit[m.key] ?? {
@@ -226,26 +217,6 @@ export function JanelaSistema() {
       setModMsg(err instanceof Error ? err.message : "Falha ao alternar o padrão.");
     } finally {
       setModBusy(null);
-    }
-  }
-
-  async function salvarPolitica(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (polBusy) return;
-    setPolBusy(true);
-    setPolMsg(null);
-    try {
-      const body: Record<string, unknown> = { referralDiscountActive: polForm.refActive, referralDiscountMode: polForm.refMode };
-      if (polForm.annual !== "") body.annualPlanDiscountPercent = Number(String(polForm.annual).replace(",", ".")) || 0;
-      if (polForm.extraSeat !== "") body.extraSeatMonthlyAmount = Number(String(polForm.extraSeat).replace(",", ".")) || 0;
-      if (polForm.refPercent !== "") body.referralDiscountPercent = Number(String(polForm.refPercent).replace(",", ".")) || 0;
-      await apiFetch("/modules/master/billing-policy", { method: "PUT", body: JSON.stringify(body) });
-      setPolMsg("✓ Política comercial atualizada.");
-      await carregarInteg();
-    } catch (err) {
-      setPolMsg(err instanceof Error ? err.message : "Falha ao salvar a política.");
-    } finally {
-      setPolBusy(false);
     }
   }
 
@@ -399,50 +370,6 @@ export function JanelaSistema() {
       )}
 
       {sub === 1 && (
-        <section className="panel" style={{ maxWidth: 640 }}>
-          <div className="panel-head"><h2>Política comercial global</h2></div>
-          <form onSubmit={salvarPolitica} style={{ padding: "12px 16px 16px", display: "grid", gap: 12 }}>
-            {polMsg && <div style={{ fontSize: "0.72rem", fontWeight: 700, color: polMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)" }}>{polMsg}</div>}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Desconto do plano anual (%)</label>
-                <input className="field-dark" inputMode="decimal" value={polForm.annual}
-                  onChange={e => setPolForm(f => ({ ...f, annual: e.target.value }))} />
-              </div>
-              <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Assento extra (R$/mês)</label>
-                <input className="field-dark" inputMode="decimal" value={polForm.extraSeat}
-                  onChange={e => setPolForm(f => ({ ...f, extraSeat: e.target.value }))} />
-              </div>
-            </div>
-            <div style={{ borderTop: "1px solid var(--border-hairline)", paddingTop: 10, display: "grid", gap: 10 }}>
-              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.74rem", fontWeight: 600 }}>
-                <input type="checkbox" checked={polForm.refActive} onChange={e => setPolForm(f => ({ ...f, refActive: e.target.checked }))} />
-                Desconto por indicação ativo
-              </label>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <div style={{ display: "grid", gap: 6 }}>
-                  <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Desconto da indicação (%)</label>
-                  <input className="field-dark" inputMode="decimal" value={polForm.refPercent}
-                    onChange={e => setPolForm(f => ({ ...f, refPercent: e.target.value }))} />
-                </div>
-                <div style={{ display: "grid", gap: 6 }}>
-                  <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Modo</label>
-                  <select className="field-dark" value={polForm.refMode} onChange={e => setPolForm(f => ({ ...f, refMode: e.target.value }))}>
-                    <option value="ONCE">Uma vez</option>
-                    <option value="RECURRING">Recorrente</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-            <button className="btn-teal" type="submit" disabled={polBusy} style={{ minHeight: 42 }}>
-              {polBusy ? "Salvando…" : "Salvar política"}
-            </button>
-          </form>
-        </section>
-      )}
-
-      {sub === 2 && (
         <React.Fragment>
         <section className="panel">
           <div className="panel-head">
@@ -511,7 +438,7 @@ export function JanelaSistema() {
         </React.Fragment>
       )}
 
-      {sub === 3 && (
+      {sub === 2 && (
         <React.Fragment>
           {exclMsg && <div style={{ fontSize: "0.72rem", fontWeight: 700, color: exclMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)" }}>{exclMsg}</div>}
           <section className="panel">
@@ -585,7 +512,7 @@ export function JanelaSistema() {
         </React.Fragment>
       )}
 
-      {sub === 4 && (
+      {sub === 3 && (
         <section className="panel">
           <div className="panel-head">
             <h2>Reclamações de cards (Vendas)</h2>
@@ -654,9 +581,7 @@ export function JanelaSistema() {
         </section>
       )}
 
-      {sub === 5 && <PlanosEditor />}
-
-      {sub === 6 && (<><MetaWhatsAppEditor /><MetaTemplatesEditor /></>)}
+      {sub === 4 && (<><MetaWhatsAppEditor /><MetaTemplatesEditor /></>)}
 
     </React.Fragment>
   );

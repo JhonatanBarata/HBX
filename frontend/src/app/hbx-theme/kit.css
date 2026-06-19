@@ -237,6 +237,10 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 /* ---------- Chat — fidelidade WhatsApp (leitura, mídia, áudio, citação,
    reações, presença). Estrutura aqui; pintura sempre via token. ---------- */
 
+/* Aviso de estrangulamento (Trilha 1 — Item 3): banner discreto entre o feed e
+   o composer quando o WhatsApp limita o linked-device (rajada de FAILED). */
+.throttle-warn { padding: 7px 16px; font-size: 0.72rem; font-weight: 600; color: var(--hbx-danger); background: var(--hbx-danger-soft); border-top: 1px solid var(--border-hairline); }
+
 /* Aviso de leitura: ✓ enviado / ✓✓ entregue (neutro) · ✓✓ lido (acento) ·
    falhou (perigo) + reenviar. */
 .bubble .tm .ck { color: var(--text-muted); }

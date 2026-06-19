@@ -289,7 +289,8 @@ test('getBootstrap light returns summaries without loading selected conversation
   assert.equal(payload.hasMoreConversations, true);
   assert.equal(payload.nextSkip, 1);
   assert.equal(selectedDetailCalls, 0);
-  assert.equal(backgroundSyncCalls, 1);
+  // store-on-arrival: o bootstrap NÃO re-puxa do motor (sem sync de índice). Lê só do banco.
+  assert.equal(backgroundSyncCalls, 0);
   assert.equal(listCalls.length, 1);
   assert.equal(listCalls[0].companyId, 7);
   assert.equal(listCalls[0].options.take, 2);
@@ -1364,7 +1365,7 @@ test('deleteConversation ignores disconnected WhatsApp session and archives loca
   assert.equal(auditCalls.length, 0);
 });
 
-test('wipeAllWhatsAppData apaga de vez: grava supressão, mata o motor e desconecta (não ressuscita)', async () => {
+test('wipeAllWhatsAppData apaga TUDO no banco, mata motor e desconecta (store-on-arrival — sem supressão)', async () => {
   const motorCalls: number[] = [];
   const sessionUpdateMany: any[] = [];
   const companyUpdates: any[] = [];
@@ -1373,8 +1374,8 @@ test('wipeAllWhatsAppData apaga de vez: grava supressão, mata o motor e descone
       atendimentoAppointment: { updateMany: async () => ({ count: 0 }) },
       companyConversation: {
         findMany: async () => [
-          { id: 1, contact: '+5519998877766', metadata: JSON.stringify({ whatsappRemoteJid: '5519998877766@s.whatsapp.net' }) },
-          { id: 2, contact: '+5519920121720', metadata: null },
+          { id: 1, contact: '+5519998877766' },
+          { id: 2, contact: '+5519920121720' },
         ],
         deleteMany: async () => ({ count: 2 }),
       },
@@ -1383,7 +1384,6 @@ test('wipeAllWhatsAppData apaga de vez: grava supressão, mata o motor e descone
         updateMany: async (input: any) => { sessionUpdateMany.push(input); return { count: 1 }; },
       },
       company: {
-        findUnique: async () => ({ currentWhatsappConnectionSessionId: 'session-7' }),
         update: async ({ data }: any) => { companyUpdates.push(data); return { id: 7, ...data }; },
       },
     },
@@ -1394,21 +1394,31 @@ test('wipeAllWhatsAppData apaga de vez: grava supressão, mata o motor e descone
 
   const result = await service.wipeAllWhatsAppData({ companyId: 7, role: 'ADMIN' });
 
-  // Apagou o backend.
+  // Apagou o banco.
   assert.equal(result.deletedConversations, 2);
   assert.equal(result.deletedMessages, 9);
-  // Matou a instância no MOTOR (arrancar o câncer — sem isso ressuscita).
+  // Matou TODAS as instâncias no motor (sem supressão — store-on-arrival).
   assert.deepEqual(motorCalls, [7]);
   assert.equal(result.motorWiped, true);
   assert.equal(result.requiresReconnect, true);
-  // Gravou supressão de cada conversa (bloqueia reimport pelo bootstrap).
-  assert.equal(result.suppressed, 2);
-  assert.ok(auditCalls.some((c) => c.event === 'conversation_backend_deleted'));
+  // Sem supressão: não grava 'conversation_backend_deleted' (removida).
+  assert.equal(auditCalls.some((c: any) => c.event === 'conversation_backend_deleted'), false);
   // Refletiu desconectado (usuário re-escaneia o QR).
   assert.equal(sessionUpdateMany.length, 1);
   assert.equal(companyUpdates.at(-1).whatsappModalStatus, 'DISCONNECTED');
 });
 
+// cleanupOldWhatsappSessions removida (store-on-arrival — sem supressão/floor/merge).
+// Confirmação: a função lança erro se chamada.
+test('cleanupOldWhatsappSessions foi removida — lança erro se chamada', async () => {
+  const { service } = createService({ prisma: {} });
+  await assert.rejects(
+    () => service.cleanupOldWhatsappSessions({ companyId: 7, role: 'ADMIN' }, 'discard'),
+    /cleanupOldWhatsappSessions foi removida/,
+  );
+});
+
+/*
 test('cleanupOldWhatsappSessions discard apaga SÓ o número anterior, intacta o chip novo', async () => {
   // DEFINITIVO: discard remove o histórico do número ANTERIOR (chip OUTRO). O número
   // ATUAL (chip novo) não é apagado, NÃO leva floor de reset (senão sumiria o histórico
@@ -1703,6 +1713,7 @@ test('cleanupOldWhatsappSessions discard limpa CONTAMINAÇÃO da sessão atual (
   assert.equal(purgePhones.includes('5519920121720'), false);
   assert.equal(auditCalls[0].event, 'whatsapp_old_sessions_cleaned');
 });
+*/
 
 test('purgeConversationFromTrash is disabled', async () => {
   const messageDeleteCalls: Array<Record<string, unknown>> = [];

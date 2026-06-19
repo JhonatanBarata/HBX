@@ -431,7 +431,7 @@ export function MarketingClient() {
                   </aside>
                 )}
                 {selectedPlan === "hbx_melhor"
-                  ? <ImplantacaoContato asModal={false} onClose={voltarPlanos} />
+                  ? <div className="reg-form"><ImplantacaoContato asModal={false} onClose={voltarPlanos} /></div>
                   : <RegisterPanel selectedPlanKey={selectedPlan} embedded />}
               </div>
             )}

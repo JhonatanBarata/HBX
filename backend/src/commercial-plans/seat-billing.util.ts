@@ -30,6 +30,28 @@ export type SeatBillingSnapshot = {
   billedImmediately: false;
 };
 
+// F6 — cobrança imediata do assento extra. Quando o admin compra "+N acessos" no
+// meio do ciclo, cobra-se AGORA só os dias que faltam do mês corrente
+// (`extraSeatMonthly × N × diasRestantes/diasDoMês`); o valor cheio entra no
+// recorrente do próximo mês (já tratado pelo seat snapshot). PURA e testável.
+export function computeImmediateExtraSeatCharge(input: {
+  seats: number;
+  extraSeatMonthly: number;
+  now?: Date;
+}): { seats: number; extraSeatMonthly: number; remainingDays: number; daysInMonth: number; chargeNow: number } {
+  const seats = Math.max(0, Math.trunc(Number(input.seats || 0) || 0));
+  const extraSeatMonthly = toCommercialCurrency(input.extraSeatMonthly);
+  const now = input.now instanceof Date ? input.now : new Date();
+  const periodStart = startOfBillingMonth(now);
+  const periodEnd = startOfNextBillingMonth(now);
+  const daysInMonth = Math.max(1, Math.round((periodEnd.getTime() - periodStart.getTime()) / DAY_MS));
+  // Dias restantes contando hoje (inclusivo) — "cobra os dias que faltam".
+  const remainingDays = Math.max(0, Math.min(daysInMonth, Math.ceil((periodEnd.getTime() - now.getTime()) / DAY_MS)));
+  const ratio = daysInMonth > 0 ? remainingDays / daysInMonth : 0;
+  const chargeNow = toCommercialCurrency(extraSeatMonthly * seats * ratio);
+  return { seats, extraSeatMonthly, remainingDays, daysInMonth, chargeNow };
+}
+
 export function startOfBillingMonth(date = new Date()) {
   return new Date(date.getFullYear(), date.getMonth(), 1);
 }

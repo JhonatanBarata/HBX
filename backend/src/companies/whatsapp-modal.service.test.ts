@@ -897,6 +897,162 @@ test('live health nao preserva reconectando quando provider confirma desconectad
   assert.equal(updates[updates.length - 1].currentWhatsappConnectionSessionId, null);
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// STATUS HONESTO (Trilha 1 — Fundação de confiança)
+// Prova: getCompanyStatus com userId NÃO retorna 'connected' quando a sessão
+// do usuário está disconnected — mesmo que company.whatsappModalStatus ainda
+// esteja CONNECTED (persistSnapshot com userId não atualiza esse campo).
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('getCompanyStatus com userId retorna disconnected quando sessao esta disconnected (nao confia em whatsappModalStatus)', async () => {
+  // Cenário real: persistSnapshot com userId não sobrescreve whatsappModalStatus.
+  // O campo da empresa ainda diz CONNECTED, mas a sessão do user virou disconnected.
+  // O motor nunca deve ser consultado — a sessão é a fonte de verdade.
+  const motorCalls: string[] = [];
+  const company = createCompany({
+    whatsappModalStatus: 'CONNECTED',         // campo legado — ainda diz conectado
+    whatsappModalPhone: '5519999999999',
+    whatsappModalConnectedAt: new Date(),
+    whatsappModalUpdatedAt: new Date(),
+    currentWhatsappConnectionSessionId: null, // limpo pelo disconnect
+  });
+  const session = {
+    id: 'session-user-36',
+    companyId: 7,
+    provider: 'webwhats',
+    tenantKey: 'company-7-user-36',
+    status: 'disconnected',                  // sessão do vendedor: já desconectada
+    displayPhone: '+5519999999999',
+    connectedAt: new Date(Date.now() - 60000),
+    updatedAt: new Date(),
+  };
+  const prisma = createPrisma(company);
+  prisma.whatsAppConnectionSession.findFirst = async ({ where }: any) => {
+    if (where?.tenantKey === 'company-7-user-36') return session;
+    return null;
+  };
+  const service = new WhatsAppModalService(prisma) as any;
+  service.readConfig = () => ({
+    enabled: true,
+    configured: true,
+    available: true,
+    internalUrl: 'http://provider.local',
+    apiKey: 'secret',
+    timeoutMs: 1000,
+    missingConfigKeys: [],
+    setupHint: null,
+  });
+  service.requestProvider = async ({ path }: any) => {
+    motorCalls.push(String(path));
+    // Motor reporta instância ainda existe e conectada (delete falhou silenciosamente)
+    return { instance: { state: 'open', number: '5519999999999' } };
+  };
+
+  const response = await service.getCompanyStatus(7, 36 /* userId */);
+
+  assert.notEqual(response.status, 'connected', 'pill NAO pode dizer connected quando sessao esta disconnected');
+  assert.ok(
+    response.status === 'disconnected' || response.status === 'offline',
+    `status deve ser disconnected ou offline, got: ${response.status}`,
+  );
+  assert.equal(motorCalls.length, 0, 'motor NAO deve ser consultado quando sessao esta disconnected');
+});
+
+test('getCompanyStatus com userId retorna offline quando nao ha sessao para o usuario', async () => {
+  const motorCalls: string[] = [];
+  const company = createCompany({
+    whatsappModalStatus: 'CONNECTED', // estado da empresa ignorado para o user
+    whatsappModalPhone: '5519999999999',
+    whatsappModalConnectedAt: new Date(),
+    whatsappModalUpdatedAt: new Date(),
+    currentWhatsappConnectionSessionId: 'session-outro-user',
+  });
+  const prisma = createPrisma(company);
+  // Nenhuma sessão para user-99
+  prisma.whatsAppConnectionSession.findFirst = async () => null;
+  const service = new WhatsAppModalService(prisma) as any;
+  service.readConfig = () => ({
+    enabled: true,
+    configured: true,
+    available: true,
+    internalUrl: 'http://provider.local',
+    apiKey: 'secret',
+    timeoutMs: 1000,
+    missingConfigKeys: [],
+    setupHint: null,
+  });
+  service.requestProvider = async ({ path }: any) => {
+    motorCalls.push(String(path));
+    return { instance: { state: 'open', number: '5519999999999' } };
+  };
+
+  const response = await service.getCompanyStatus(7, 99 /* userId sem sessão */);
+
+  assert.notEqual(response.status, 'connected', 'sem sessao propria, usuario NAO e conectado');
+  assert.ok(
+    response.status === 'offline' || response.status === 'disconnected',
+    `status deve ser offline, got: ${response.status}`,
+  );
+  assert.equal(motorCalls.length, 0, 'motor NAO consultado para usuario sem sessao');
+});
+
+test('getCompanyStatus com userId consulta o motor quando sessao esta active (nao retorna offline sem verificar)', async () => {
+  // Caminho feliz: sessão ativa → motor DEVE ser consultado (ao contrário do
+  // caso disconnected/offline, onde a consulta ao motor é suprimida).
+  const motorCalls: string[] = [];
+  const company = createCompany({
+    whatsappModalStatus: 'CONNECTED',
+    whatsappModalPhone: '5519999999999',
+    whatsappModalConnectedAt: new Date(),
+    whatsappModalUpdatedAt: new Date(),
+    currentWhatsappConnectionSessionId: 'session-user-36',
+  });
+  const session = {
+    id: 'session-user-36',
+    companyId: 7,
+    provider: 'webwhats',
+    tenantKey: 'company-7-user-36',
+    phoneNormalized: '5519999999999',
+    displayPhone: '+5519999999999',
+    status: 'active',
+    connectedAt: new Date(),
+    updatedAt: new Date(),
+  };
+  const { prisma } = createSessionPrisma(company, [session]);
+  prisma.whatsAppConnectionSession.findFirst = async ({ where }: any) => {
+    if (where?.tenantKey === 'company-7-user-36') return session;
+    return null;
+  };
+  const service = new WhatsAppModalService(prisma) as any;
+  service.readConfig = () => ({
+    enabled: true,
+    configured: true,
+    available: true,
+    internalUrl: 'http://provider.local',
+    apiKey: 'secret',
+    timeoutMs: 1000,
+    missingConfigKeys: [],
+    setupHint: null,
+  });
+  service.requestProvider = async ({ path }: any) => {
+    motorCalls.push(String(path));
+    if (String(path).includes('connectionState')) {
+      return { instance: { state: 'open', number: '5519999999999' } };
+    }
+    return { ok: true };
+  };
+
+  const response = await service.getCompanyStatus(7, 36);
+
+  // O motor deve ter sido consultado (sessão ativa = não pulamos a verificação live)
+  assert.ok(motorCalls.some(p => p.includes('connectionState')), 'motor deve ser consultado quando sessao ativa');
+  // O status retornado não pode ser o campo legado "CONNECTED" sem verificação —
+  // pode ser connected (motor confirmou) ou reconnecting (motor inacessível), mas nunca
+  // offline/disconnected sem justificativa real.
+  assert.notEqual(response.status, 'offline', 'sessao active nao e offline sem razao');
+  assert.notEqual(response.status, 'disconnected', 'sessao active nao e disconnected sem razao');
+});
+
 // FIX: sessão com wipedAt setado → ao reconciliar connected com phone → wipedAt deve ser null.
 // Causa: inbox vazio com sessão conectada. Prova ao vivo 18/06: limpando wipedAt na mão a
 // conversa real apareceu (0→1). Repro: trocar de número reusa sessão com wipedAt de contexto

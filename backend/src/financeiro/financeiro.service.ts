@@ -25,10 +25,13 @@ import {
   COMMERCIAL_PRICING,
   classifyPlanChange,
   computeCommercialPlanCycleAmount,
+  getCommercialAnnualDiscountPercent,
+  getCommercialPlanExtraUserMonthlyPrice,
   getCommercialPlanMonthlyPrice,
   getCommercialPlanTitle,
   getCommercialPlanTrialDays,
   isCommercialEntitlementActive,
+  isCommercialPlanPaused,
   normalizeCommercialPlanKey as normalizeCatalogCommercialPlanKey,
   type ActiveCommercialPlanKey,
 } from '../commercial-plans/commercial-plan-catalog';
@@ -37,8 +40,9 @@ import {
   remainingDays as prorationRemainingDays,
 } from '../commercial-plans/plan-proration.util';
 import {
+  canBillExtraSeatsForPlan,
   computeCompanySeatBillingSnapshot,
-  resolveExtraSeatMonthlyAmount,
+  computeImmediateExtraSeatCharge,
 } from '../commercial-plans/seat-billing.util';
 import { resolveCompanyAccessState } from '../modules/company-access-state';
 import { MailService } from '../mail/mail.service';
@@ -647,16 +651,14 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private resolveExtraSeatMonthlyAmount(pricingPolicy: any) {
-    return this.normalizeCurrencyAmount(resolveExtraSeatMonthlyAmount(pricingPolicy?.extraSeatMonthlyAmount));
-  }
-
-  private async buildSeatBillingSnapshot(company: any, billingCycle: string, pricingPolicy: any) {
+  private async buildSeatBillingSnapshot(company: any, billingCycle: string, _pricingPolicy?: any) {
     const planKey = normalizeCatalogCommercialPlanKey(company?.selectedPlanKey);
     return computeCompanySeatBillingSnapshot(this.prisma, {
       companyId: Number(company?.id || 0),
       planKey,
-      extraSeatMonthlyAmount: this.resolveExtraSeatMonthlyAmount(pricingPolicy),
+      // Fonte ÚNICA do valor do assento extra: o catálogo por-plano (overlay do
+      // Self-Checkout), não mais a policy global.
+      extraSeatMonthlyAmount: getCommercialPlanExtraUserMonthlyPrice(planKey),
     });
   }
 
@@ -884,9 +886,9 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     const commercialPlan = this.resolveCommercialMonthlyValue(company);
     const monthlyValue = commercialPlan?.monthlyValue ?? 0;
     const billingCycle = this.normalizeBillingCycle(company?.billingCycle);
-    const annualPlanDiscountPercent = commercialPlan
-      ? COMMERCIAL_PRICING.annualDiscountPercent
-      : Math.max(0, this.normalizeCurrencyAmount(pricingPolicy?.annualPlanDiscountPercent || 0));
+    // Desconto anual: fonte ÚNICA no catálogo (global, editável na Política comercial
+    // do Self-Checkout). Não há mais ramo paralelo da policy.
+    const annualPlanDiscountPercent = getCommercialAnnualDiscountPercent();
     const manualDiscountPercent = Math.max(0, this.normalizeCurrencyAmount(company?.manualDiscountPercent || 0));
     const referral = this.buildReferralSnapshot(company, pricingPolicy);
     const freeMonths = Math.max(0, Math.trunc(Number(company?.freeMonths || 0) || 0));
@@ -3603,6 +3605,13 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
         message: 'Implantação é montada com a HBX, não pela troca automática. Use o contato.',
       });
     }
+    // Self-Checkout (F2): plano pausado pelo master não aceita troca/contratação.
+    if (isCommercialPlanPaused(targetPlanKey)) {
+      throw new BadRequestException({
+        code: 'PLAN_PAUSED',
+        message: 'Este plano está temporariamente indisponível. Tente novamente mais tarde.',
+      });
+    }
     const currentPlanKey = company.selectedPlanKey
       ? normalizeCatalogCommercialPlanKey(company.selectedPlanKey)
       : null;
@@ -3844,6 +3853,119 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       effectiveAt: company.subscriptionCurrentPeriodEnd instanceof Date ? company.subscriptionCurrentPeriodEnd.toISOString() : null,
       preview: input.preview,
       overview: await this.getOverviewForUser(input.user),
+    };
+  }
+
+  // F6 — compra de bloco de assentos extras pelo ADMIN. paga-primeiro: a capacidade
+  // (seatCap) só sobe com a cobrança proporcional CONFIRMADA. O valor cheio entra no
+  // recorrente do próximo mês sozinho (o seat snapshot conta o usuário ativo no novo
+  // ciclo). Mesmo gate do upgrade: live com cobrança > 0 depende de validação na VPS;
+  // mock roda ponta a ponta. Gerente (ADMIN sem billing) é barrado por
+  // assertCanManageBilling — cobrança nunca cruza com quem só preenche cadastro.
+  async purchaseExtraSeats(
+    user: any,
+    dto: { seats?: number; cardTokenId?: string; dryRun?: boolean },
+  ) {
+    const context = this.resolveUserContext(user);
+    this.assertCanManageBilling(context);
+    await ensureMasterBillingRuntimeSchema(this.prisma);
+
+    const seats = Math.max(0, Math.trunc(Number(dto?.seats || 0) || 0));
+    if (seats <= 0) throw new BadRequestException('Informe quantos assentos extras comprar.');
+    if (seats > 50) throw new BadRequestException('Máximo de 50 assentos por compra.');
+
+    const company = await this.prisma.company.findUnique({ where: { id: context.companyId } });
+    if (!company) throw new BadRequestException('Empresa nao encontrada.');
+
+    const planKey = normalizeCatalogCommercialPlanKey(company.selectedPlanKey);
+    if (!canBillExtraSeatsForPlan(planKey)) {
+      throw new BadRequestException({
+        code: 'PLAN_NO_EXTRA_SEATS',
+        message: 'Seu plano não trabalha com assentos extras. Faça upgrade para liberar mais acessos.',
+      });
+    }
+
+    const now = new Date();
+    // Valor do assento extra vem do catálogo — reflete o que o master editou no
+    // Self-Checkout (F2) para este plano.
+    const extraSeatMonthly = this.normalizeCurrencyAmount(getCommercialPlanExtraUserMonthlyPrice(planKey));
+    const immediate = computeImmediateExtraSeatCharge({ seats, extraSeatMonthly, now });
+    const currentSeatCap = Math.max(0, Number(company.seatCap || 0) || 0);
+    const newSeatCap = currentSeatCap + seats;
+    const nextCycleFullAmount = this.normalizeCurrencyAmount(extraSeatMonthly * seats);
+    const access = resolveCompanyAccessState(company);
+    const isPaying = access.state === 'paying';
+
+    const preview = {
+      seats,
+      extraSeatMonthly,
+      remainingDays: immediate.remainingDays,
+      daysInMonth: immediate.daysInMonth,
+      chargeNow: immediate.chargeNow,
+      nextCycleFullAmount,
+      currentSeatCap,
+      newSeatCap,
+      isPaying,
+    };
+
+    if (dto?.dryRun) return { ok: true, dryRun: true, preview };
+
+    // paga-primeiro: sem assinatura ativa não há cartão recorrente — assina antes.
+    if (!isPaying) {
+      return {
+        ok: false,
+        code: 'NEEDS_CHECKOUT',
+        preview,
+        message: 'Ative sua assinatura antes de comprar assentos extras.',
+      };
+    }
+
+    const subscription = await this.findCurrentCompanySubscription(context.companyId);
+    const mockMode = this.isMockPaymentsProvider();
+
+    // LIVE: a cobrança avulsa no cartão real (Mercado Pago) ainda precisa ser validada
+    // na VPS — mesmo gate do upgrade. Regra de Ouro / paga-primeiro: NÃO sobe a
+    // capacidade sem pagamento confirmado. Devolve código sinalizado, sem mexer em nada.
+    if (!mockMode && immediate.chargeNow > 0) {
+      return {
+        ok: false,
+        code: 'LIVE_SEAT_CHARGE_TODO',
+        preview,
+        message: 'A cobrança proporcional no cartão (Mercado Pago real) ainda precisa ser validada na VPS com credenciais de teste.',
+      };
+    }
+
+    // 1) Cobra a proporcional AGORA (mock — só libera com pagamento ok).
+    if (mockMode && immediate.chargeNow > 0) {
+      await this.recordProrationCharge({
+        context,
+        billingCycle: this.normalizeBillingCycle(company.billingCycle),
+        amount: immediate.chargeNow,
+        planTitle: getCommercialPlanTitle(planKey),
+        entryType: 'EXTRA_SEAT_PRORATION_MOCK',
+        observation: `Cobrança proporcional de ${seats} assento(s) extra (mock) — ${immediate.remainingDays} dia(s) restantes do mês.`,
+        metadata: { seats, extraSeatMonthly, chargeNow: immediate.chargeNow, newSeatCap, source: 'extra_seat_purchase' },
+      });
+    }
+
+    // 2) LIVE best-effort: registra a intenção de subir o recorrente no próximo ciclo.
+    //    (O valor full por assento já é recomputado pelo seat snapshot na renovação.)
+    if (!mockMode && subscription?.providerPreapprovalId) {
+      this.logger.log(`extra_seat_purchase company=${context.companyId} seats=${seats} newSeatCap=${newSeatCap} (recorrente full no próximo ciclo via seat snapshot)`);
+    }
+
+    // 3) Sobe a capacidade paga (seatCap). Admin distribui o acesso depois.
+    await this.prisma.company.update({
+      where: { id: context.companyId },
+      data: { seatCap: newSeatCap },
+    });
+
+    return {
+      ok: true,
+      charged: this.normalizeCurrencyAmount(immediate.chargeNow),
+      newSeatCap,
+      preview,
+      overview: await this.getOverviewForUser(user),
     };
   }
 

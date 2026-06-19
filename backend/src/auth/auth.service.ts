@@ -317,6 +317,7 @@ export class AuthService implements OnModuleInit {
     const normalized = String(value || '').trim().toLowerCase();
     if (normalized === COMMERCIAL_PLAN_KEYS.LITE) return COMMERCIAL_PLAN_KEYS.LITE;
     if (normalized === COMMERCIAL_PLAN_KEYS.PADRAO) return COMMERCIAL_PLAN_KEYS.PADRAO;
+    if (normalized === COMMERCIAL_PLAN_KEYS.PRO) return COMMERCIAL_PLAN_KEYS.PRO;
     if (normalized === COMMERCIAL_PLAN_KEYS.MELHOR) return COMMERCIAL_PLAN_KEYS.MELHOR;
     return COMMERCIAL_PLAN_KEYS.LITE;
   }

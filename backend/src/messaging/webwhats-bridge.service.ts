@@ -68,7 +68,6 @@ type WebwhatsConnectionSessionContext = {
   phoneNormalized: string | null;
   displayPhone: string | null;
   metadataJson?: string | null;
-  wipedAt?: Date | null;
 };
 
 // POR USUÁRIO (18/06): quem está agindo. A ponte resolve a SESSÃO (e o tenantKey do motor) a
@@ -280,17 +279,9 @@ export class WebwhatsBridgeService {
         this.getCachedContacts(companyId, session.tenantKey),
       ]);
       const contactsByJid = this.indexContactsByJid(contacts);
-      const inboxResetFloor = this.resolveSessionInboxResetFloor(session);
-      const wipedAt = session.wipedAt ? new Date(session.wipedAt) : null;
       let synced = 0;
       for (const chat of chats) {
         if (!this.isSyncableChat(chat?.remoteJid)) continue;
-        const chatAt = this.resolveMessageDate(chat?.lastMessage?.messageTimestamp || chat?.updatedAt);
-        if (inboxResetFloor) {
-          if (!chatAt || chatAt.getTime() < inboxResetFloor.getTime()) continue;
-        }
-        // Bloco 2: nada anterior ao wipe reimporta — evita a ressurreição pós-apagar-tudo.
-        if (wipedAt && chatAt && chatAt.getTime() < wipedAt.getTime()) continue;
         const remoteJidAlt = this.getChatRemoteJidAlt(chat);
         const conversation = await this.upsertConversationFromChat(
           companyId,
@@ -483,20 +474,7 @@ export class WebwhatsBridgeService {
         if (!key) continue;
         messageByKey.set(key, message);
       }
-      const syncFloor = this.resolveLatestSyncFloor([
-        this.resolveSessionInboxResetFloor(session),
-        this.resolveConversationInboxSyncFloor(metadata),
-        this.resolveProspectionSyncFloor(metadata),
-      ]);
-      if (syncFloor) {
-        await this.pruneWebwhatsMessagesBeforeSyncFloor(companyId, conversation.id, syncFloor);
-      }
       const orderedMessages = Array.from(messageByKey.values())
-        .filter((message) => {
-          if (!syncFloor) return true;
-          const messageAt = this.resolveMessageDate(message?.messageTimestamp);
-          return Boolean(messageAt && messageAt.getTime() >= syncFloor.getTime());
-        })
         .sort((left, right) => {
           const leftTime = this.resolveMessageDate(left?.messageTimestamp)?.getTime() || 0;
           const rightTime = this.resolveMessageDate(right?.messageTimestamp)?.getTime() || 0;
@@ -603,15 +581,10 @@ export class WebwhatsBridgeService {
     const chats = chatList.records;
     const contactsByJid = this.indexContactsByJid(contacts);
     const snapshots: WebwhatsLiveChatSnapshot[] = [];
-    const inboxResetFloor = this.resolveSessionInboxResetFloor(company.session);
 
     for (const chat of chats) {
       const remoteJid = this.normalizeOptionalString(chat?.remoteJid);
       if (!this.isSyncableChat(remoteJid)) continue;
-      if (inboxResetFloor) {
-        const chatAt = this.resolveMessageDate(chat?.lastMessage?.messageTimestamp || chat?.updatedAt);
-        if (!chatAt || chatAt.getTime() < inboxResetFloor.getTime()) continue;
-      }
       const remoteJidAlt = this.getChatRemoteJidAlt(chat);
       const state = await this.upsertConversationStateFromChat(
         company.id,
@@ -757,13 +730,7 @@ export class WebwhatsBridgeService {
       if (!key) continue;
       messagesByKey.set(key, message);
     }
-    const inboxResetFloor = this.resolveSessionInboxResetFloor(company.session);
     const orderedMessages = Array.from(messagesByKey.values())
-      .filter((message) => {
-        if (!inboxResetFloor) return true;
-        const messageAt = this.resolveMessageDate(message?.messageTimestamp);
-        return Boolean(messageAt && messageAt.getTime() >= inboxResetFloor.getTime());
-      })
       .sort((left, right) => {
         const leftTime = this.resolveMessageDate(left?.messageTimestamp)?.getTime() || 0;
         const rightTime = this.resolveMessageDate(right?.messageTimestamp)?.getTime() || 0;
@@ -771,9 +738,6 @@ export class WebwhatsBridgeService {
       });
 
     if (!matchingChat && orderedMessages.length === 0) {
-      return null;
-    }
-    if (inboxResetFloor && orderedMessages.length === 0) {
       return null;
     }
 
@@ -797,7 +761,7 @@ export class WebwhatsBridgeService {
       contactsByJid.get(remoteJid || '') || null,
       remoteJidAlt ? contactsByJid.get(remoteJidAlt) || null : null,
     );
-    const lastMessage = orderedMessages[orderedMessages.length - 1] || (!inboxResetFloor ? matchingChat?.lastMessage : null) || null;
+    const lastMessage = orderedMessages[orderedMessages.length - 1] || matchingChat?.lastMessage || null;
     const lastMessageAt =
       this.resolveMessageDate(matchingChat?.lastMessage?.messageTimestamp || matchingChat?.updatedAt)
       || this.resolveMessageDate(lastMessage?.messageTimestamp)
@@ -981,7 +945,6 @@ export class WebwhatsBridgeService {
     phoneNormalized: true,
     displayPhone: true,
     metadataJson: true,
-    wipedAt: true,
   } as const;
 
   private toWebwhatsSessionContext(
@@ -991,7 +954,6 @@ export class WebwhatsBridgeService {
       phoneNormalized: string | null;
       displayPhone: string | null;
       metadataJson: string | null;
-      wipedAt: Date | null;
     },
     fallbackTenantKey: string,
   ): WebwhatsConnectionSessionContext {
@@ -1001,7 +963,6 @@ export class WebwhatsBridgeService {
       phoneNormalized: this.normalizeConnectionPhone(row.phoneNormalized),
       displayPhone: this.normalizeOptionalString(row.displayPhone),
       metadataJson: this.normalizeOptionalString(row.metadataJson),
-      wipedAt: row.wipedAt ?? null,
     };
   }
 
@@ -1067,7 +1028,6 @@ export class WebwhatsBridgeService {
             phoneNormalized: true,
             displayPhone: true,
             metadataJson: true,
-            wipedAt: true,
             status: true,
           },
         },
@@ -1521,82 +1481,58 @@ export class WebwhatsBridgeService {
     });
   }
 
-  // Apaga a instância company-{id} no MOTOR e a recria vazia aguardando QR.
-  // Sem recriar, o motor mantém a instância em memória órfã (sem linha no DB) → P2025 loop.
+  // Apaga TODAS as instâncias da company no MOTOR (company-{id} e company-{id}-user-*).
+  // Store-on-arrival: não recria — o próximo connect cria instância nova limpa.
   public async wipeMotorInstance(companyId: number): Promise<{ loggedOut: boolean; deleted: boolean; recreated: boolean }> {
     const config = this.readConfig();
     if (!config.available) return { loggedOut: false, deleted: false, recreated: false };
-    const tenantKey = await this.resolveMotorTenantKey(companyId);
+    const prefix = this.buildTenantKey(companyId); // company-{id}
     let loggedOut = false;
     let deleted = false;
-    let recreated = false;
+
+    // Lista todas as instâncias do motor e filtra as desta company.
+    let instanceNames: string[] = [];
     try {
-      await this.request<any>({
-        method: 'DELETE',
-        path: `/instance/logout/${encodeURIComponent(tenantKey)}`,
-        purpose: 'logout da instancia (apagar tudo)',
+      const all = await this.request<any[]>({
+        method: 'GET',
+        path: '/instance/fetchInstances',
+        purpose: 'listar instancias para wipe',
+        treatNotFoundAsNull: true,
       });
-      loggedOut = true;
+      instanceNames = (Array.isArray(all) ? all : [])
+        .map((inst: any) => this.normalizeOptionalString(inst?.instance?.instanceName || inst?.instanceName))
+        .filter((name): name is string => Boolean(name) && (name === prefix || name.startsWith(`${prefix}-`)));
     } catch (error) {
-      this.logger.warn(`wipe motor: logout falhou para ${tenantKey}: ${String((error as any)?.message || error)}`);
+      this.logger.warn(`wipe motor: falha ao listar instâncias para company=${companyId}: ${String((error as any)?.message || error)}`);
+      // Fallback: tenta apagar a instância conhecida pela sessão ativa ou pela chave legada.
+      instanceNames = [await this.resolveMotorTenantKey(companyId)];
     }
-    try {
-      await this.request<any>({
-        method: 'DELETE',
-        path: `/instance/delete/${encodeURIComponent(tenantKey)}`,
-        purpose: 'delete da instancia (apagar tudo)',
-      });
-      deleted = true;
-    } catch (error) {
-      this.logger.warn(`wipe motor: delete falhou para ${tenantKey}: ${String((error as any)?.message || error)}`);
-    }
-    // Recria instância vazia — sem isso o motor a mantém em memória órfã e o
-    // próximo reconnect bate no "já existe" e segue conectando numa instância sem
-    // linha no banco → P2025 em loop.
-    try {
-      await this.request<any>({
-        method: 'POST',
-        path: '/instance/create',
-        purpose: 'recriar instancia vazia pos-wipe',
-        data: { instanceName: tenantKey, qrcode: true, integration: 'WHATSAPP-BAILEYS' },
-      });
-      recreated = true;
-    } catch (error) {
-      this.logger.warn(`wipe motor: recriar instancia falhou para ${tenantKey}: ${String((error as any)?.message || error)}`);
-    }
-    if (recreated) {
-      const webhookUrl = this.buildWipeWebhookUrl();
-      if (webhookUrl) {
-        try {
-          await this.request<any>({
-            method: 'POST',
-            path: `/webhook/set/${encodeURIComponent(tenantKey)}`,
-            purpose: 'webhook pos-wipe',
-            data: {
-              webhook: {
-                enabled: true,
-                url: webhookUrl,
-                events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'MESSAGES_DELETE', 'SEND_MESSAGE', 'CONNECTION_UPDATE', 'LOGOUT_INSTANCE'],
-                byEvents: false,
-                base64: false,
-              },
-            },
-          });
-        } catch (error) {
-          this.logger.warn(`wipe motor: webhook config falhou para ${tenantKey}: ${String((error as any)?.message || error)}`);
-        }
+
+    for (const name of instanceNames) {
+      try {
+        await this.request<any>({
+          method: 'DELETE',
+          path: `/instance/logout/${encodeURIComponent(name)}`,
+          purpose: 'logout da instancia (wipe)',
+        });
+        loggedOut = true;
+      } catch (error) {
+        this.logger.warn(`wipe motor: logout falhou para ${name}: ${String((error as any)?.message || error)}`);
+      }
+      try {
+        await this.request<any>({
+          method: 'DELETE',
+          path: `/instance/delete/${encodeURIComponent(name)}`,
+          purpose: 'delete da instancia (wipe)',
+        });
+        deleted = true;
+      } catch (error) {
+        this.logger.warn(`wipe motor: delete falhou para ${name}: ${String((error as any)?.message || error)}`);
       }
     }
-    this.logger.warn(`wipe motor company=${companyId}: logout=${loggedOut} delete=${deleted} recreated=${recreated}`);
-    return { loggedOut, deleted, recreated };
-  }
 
-  private buildWipeWebhookUrl() {
-    const base = this.normalizeOptionalString(process.env.PUBLIC_API_BASE_URL)
-      || this.normalizeOptionalString(process.env.API_PUBLIC_URL)
-      || this.normalizeOptionalString(process.env.BACKEND_PUBLIC_URL);
-    if (!base) return this.normalizeOptionalString(process.env.WHATSAPP_MODAL_WEBHOOK_URL || process.env.WEBWHATS_WEBHOOK_URL);
-    return `${base.replace(/\/+$/, '')}/webhooks/webwhats/events`;
+    this.logger.warn(`wipe motor company=${companyId}: instances=${instanceNames.join(',') || '(nenhuma)'} logout=${loggedOut} delete=${deleted}`);
+    return { loggedOut, deleted, recreated: false };
   }
 
   private readConfig(): WebwhatsConfig {
@@ -3304,9 +3240,6 @@ export class WebwhatsBridgeService {
     const lastMessageAt =
       this.resolveMessageDate(chat?.lastMessage?.messageTimestamp || chat?.updatedAt)
       || null;
-    if (await this.isLocallyDeletedChatSuppressed(companyId, remoteJid, remoteJidAlt, preferredContact, lastMessageAt, session.phoneNormalized)) {
-      return null;
-    }
     const existing = await this.findConversation(companyId, session.id, remoteJid, remoteJidAlt, preferredContact);
     const contact = this.resolveStateContact(preferredContact, existing?.contact, remoteJid, remoteJidAlt);
     const displayNames = this.resolveChatDisplayNames(chat, primaryContact || null, alternateContact || null);
@@ -3687,67 +3620,6 @@ export class WebwhatsBridgeService {
       data: {
         lastMessageAt: timestamp,
         lastInteractionAt: timestamp,
-      },
-    });
-  }
-
-  private readMetadataRecord(value: unknown) {
-    if (value && typeof value === 'object' && !Array.isArray(value)) {
-      return value as Record<string, any>;
-    }
-    return this.parseMetadata(String(value || ''));
-  }
-
-  private resolveProspectionSyncFloor(metadata: Record<string, any>) {
-    const automation = this.readMetadataRecord(metadata?.vendasAutomation);
-    const prospeccao = this.readMetadataRecord(metadata?.vendasProspeccao);
-    const hasProspectionContext = Boolean(
-      automation?.jobId ||
-      automation?.campaignId ||
-      prospeccao?.firstOutboundAt ||
-      prospeccao?.stage,
-    );
-    if (!hasProspectionContext) return null;
-    const raw = prospeccao?.firstOutboundAt || automation?.firstOutboundAt;
-    const parsed = raw ? new Date(String(raw)) : null;
-    return parsed && Number.isFinite(parsed.getTime()) ? parsed : null;
-  }
-
-  private resolveSessionInboxResetFloor(session: WebwhatsConnectionSessionContext | null | undefined) {
-    const metadata = this.parseMetadata(session?.metadataJson);
-    const raw = metadata?.inboxResetAt || metadata?.inboxMirrorResetAt || metadata?.webwhatsResetAt;
-    const parsed = raw ? new Date(String(raw)) : null;
-    return parsed && Number.isFinite(parsed.getTime()) ? parsed : null;
-  }
-
-  private resolveConversationInboxSyncFloor(metadata: Record<string, any>) {
-    const raw =
-      metadata?.inboxHistoryResetAt ||
-      metadata?.inboxMirrorResetAt ||
-      metadata?.inboxResetAt ||
-      metadata?.webwhatsResetAt;
-    const parsed = raw ? new Date(String(raw)) : null;
-    return parsed && Number.isFinite(parsed.getTime()) ? parsed : null;
-  }
-
-  private resolveLatestSyncFloor(floors: Array<Date | null | undefined>) {
-    return floors
-      .filter((floor): floor is Date => Boolean(floor && Number.isFinite(floor.getTime())))
-      .sort((left, right) => right.getTime() - left.getTime())[0] || null;
-  }
-
-  private async pruneWebwhatsMessagesBeforeSyncFloor(
-    companyId: number,
-    conversationId: number,
-    floor: Date | null,
-  ) {
-    if (!floor) return;
-    await this.prisma.companyMessage.deleteMany({
-      where: {
-        companyId,
-        conversationId,
-        sourceModule: 'webwhats_sync',
-        timestamp: { lt: floor },
       },
     });
   }
@@ -4331,64 +4203,6 @@ export class WebwhatsBridgeService {
 
   private isPhoneRemoteJid(remoteJidRaw: string | null | undefined) {
     return Boolean(this.extractRemoteJidPhoneDigits(remoteJidRaw));
-  }
-
-  private buildSuppressionLookupTokens(...values: Array<string | null | undefined>) {
-    const tokens = new Set<string>();
-    for (const value of values) {
-      const normalized = this.normalizeOptionalString(value);
-      if (!normalized) continue;
-      tokens.add(normalized);
-      const digits = normalized.includes('@')
-        ? String(normalized.split('@')[0] || '').replace(/\D/g, '')
-        : String(normalized).replace(/\D/g, '');
-      if (digits.length >= 10) {
-        tokens.add(digits);
-        if (digits.startsWith('55')) tokens.add(digits.slice(2));
-      }
-    }
-    return Array.from(tokens).filter((token) => token.length >= 10 || token.includes('@'));
-  }
-
-  private async isLocallyDeletedChatSuppressed(
-    companyId: number,
-    remoteJid: string | null,
-    remoteJidAlt: string | null,
-    preferredContact: string | null,
-    lastMessageAt: Date | null,
-    // Número da sessão de sync atual (vendedor). Supressões de OUTROS números não
-    // bloqueiam esta sessão: o cliente X foi apagado pelo nº A, mas o nº B pode
-    // reimportá-lo normalmente (são chips distintos, a supressão é por número de origem).
-    sessionPhoneNormalized?: string | null,
-  ) {
-    if (this.isGroupRemoteJid(remoteJid) || this.isGroupRemoteJid(remoteJidAlt)) return false;
-    const tokens = this.buildSuppressionLookupTokens(remoteJid, remoteJidAlt, preferredContact);
-    if (!tokens.length) return false;
-    if (!(this.prisma as any).whatsAppAuditLog?.findFirst) return false;
-    const log = await this.prisma.whatsAppAuditLog.findFirst({
-      where: {
-        companyId,
-        scope: 'inbox',
-        event: 'conversation_backend_deleted',
-        OR: tokens.map((token) => ({ metadata: { contains: token } })),
-      },
-      orderBy: { createdAt: 'desc' },
-      select: { createdAt: true, metadata: true },
-    });
-    if (!log) return false;
-    // Se a sessão atual tem número conhecido, verificar se a supressão foi gerada por
-    // esse mesmo número. Supressão de número DIFERENTE não bloqueia esta sessão:
-    // o cliente do nº A foi descartado, mas o nº B deve reimportá-lo normalmente.
-    if (sessionPhoneNormalized) {
-      const logMeta = this.parseMetadata(log.metadata as string | null);
-      const logSourcePhone = this.normalizeOptionalString(logMeta?.sourcePhoneNormalized);
-      if (logSourcePhone && logSourcePhone !== sessionPhoneNormalized) {
-        // Supressão veio de outro número → não suprimir para esta sessão.
-        return false;
-      }
-    }
-    if (!lastMessageAt) return true;
-    return log.createdAt.getTime() >= lastMessageAt.getTime();
   }
 
   private isGroupRemoteJid(remoteJidRaw: string | null | undefined) {

@@ -1427,13 +1427,10 @@ test('WebwhatsBridgeService reuses prospection stub without session before creat
   );
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// BUG "conectado mas inbox vazio": supressão cross-session
-// Ao trocar de número (A→B), a supressão do nº A bloqueava sync do nº B porque
-// os contatos são os mesmos clientes. A correção: supressão de sourcePhone != do
-// número atual é ignorada.
-// ─────────────────────────────────────────────────────────────────────────────
+// isLocallyDeletedChatSuppressed foi removida (store-on-arrival — sem supressão).
+// Os 4 testes abaixo foram excluídos junto com o método privado.
 
+/*
 test('isLocallyDeletedChatSuppressed NÃO suprime quando sourcePhoneNormalized do log é diferente do número da sessão atual', async () => {
   // Cenário: log gravado pelo nº A (5519997024884), sessão atual é nº B (5519920121720).
   // O cliente +5511943171224 foi suprimido pelo nº A — mas o nº B pode reimportá-lo.
@@ -1561,4 +1558,53 @@ test('isLocallyDeletedChatSuppressed: log sem sourcePhoneNormalized mantém comp
     lastMessageAfter, '5519920121720',
   );
   assert.equal(suppressedAfter, false, 'Log legado sem sourcePhone: não suprime quando msg nova');
+});
+*/
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAPEAMENTO DE TICKS (Trilha 1 — Item 2)
+// Prova: normalizeStoredStatus mapeia corretamente DELIVERY_ACK→DELIVERED,
+// READ→READ, ERROR/FAILED→FAILED; outbound sem update = SENT.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('normalizeStoredStatus mapeia DELIVERY_ACK → DELIVERED', () => {
+  const svc = createBareWebwhatsBridgeService();
+  const msg = { status: 'DELIVERY_ACK', MessageUpdate: [] };
+  assert.equal(svc.normalizeStoredStatus(msg, 'OUTBOUND'), 'DELIVERED');
+});
+
+test('normalizeStoredStatus mapeia READ → READ', () => {
+  const svc = createBareWebwhatsBridgeService();
+  const msg = { status: 'READ', MessageUpdate: [] };
+  assert.equal(svc.normalizeStoredStatus(msg, 'OUTBOUND'), 'READ');
+});
+
+test('normalizeStoredStatus mapeia ERROR → FAILED', () => {
+  const svc = createBareWebwhatsBridgeService();
+  const msg = { status: 'ERROR', MessageUpdate: [] };
+  assert.equal(svc.normalizeStoredStatus(msg, 'OUTBOUND'), 'FAILED');
+});
+
+test('normalizeStoredStatus mapeia FAILED → FAILED', () => {
+  const svc = createBareWebwhatsBridgeService();
+  const msg = { status: 'FAILED', MessageUpdate: [] };
+  assert.equal(svc.normalizeStoredStatus(msg, 'OUTBOUND'), 'FAILED');
+});
+
+test('normalizeStoredStatus outbound sem update = SENT', () => {
+  const svc = createBareWebwhatsBridgeService();
+  const msg = { status: 'PENDING', MessageUpdate: [] };
+  assert.equal(svc.normalizeStoredStatus(msg, 'OUTBOUND'), 'SENT');
+});
+
+test('normalizeStoredStatus inbound sem status = RECEIVED', () => {
+  const svc = createBareWebwhatsBridgeService();
+  const msg = { status: null, MessageUpdate: [] };
+  assert.equal(svc.normalizeStoredStatus(msg, 'INBOUND'), 'RECEIVED');
+});
+
+test('normalizeStoredStatus prefere READ sobre DELIVERY_ACK quando ambos em MessageUpdate', () => {
+  const svc = createBareWebwhatsBridgeService();
+  const msg = { status: 'DELIVERY_ACK', MessageUpdate: [{ status: 'READ' }] };
+  assert.equal(svc.normalizeStoredStatus(msg, 'OUTBOUND'), 'READ');
 });

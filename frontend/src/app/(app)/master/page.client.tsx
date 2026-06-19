@@ -16,6 +16,7 @@ import { useTabParam } from "@/lib/use-tab-param";
 import { JanelaEmails } from "./janela-emails";
 import { JanelaEmpresas } from "./janela-empresas";
 import { JanelaIntegracoes } from "./janela-integracoes";
+import { JanelaSelfCheckout } from "./janela-self-checkout";
 import { JanelaMotor } from "./janela-motor";
 import { JanelaNightFactory } from "./janela-night-factory";
 import { JanelaPagamentos } from "./janela-pagamentos";
@@ -100,6 +101,7 @@ export function fmtDataHora(iso?: string | null) {
 
 const JANELAS = [
   { id: "empresas", label: "Empresas", icon: "users" },
+  { id: "self-checkout", label: "Self-Checkout", icon: "money" },
   { id: "integracoes", label: "Integrações", icon: "config" },
   { id: "motor", label: "Motor Radar", icon: "scrape" },
   { id: "emails", label: "E-mails", icon: "mail" },
@@ -336,6 +338,7 @@ export function MasterClient() {
           {janela === "empresas" && (
             <JanelaEmpresas companies={companies} error={companiesError} reload={reloadCompanies} assumirContexto={assumirContexto} />
           )}
+          {janela === "self-checkout" && <JanelaSelfCheckout />}
           {janela === "integracoes" && <JanelaIntegracoes companies={companies} />}
           {janela === "motor" && <JanelaMotor companies={companies} />}
           {janela === "emails" && <JanelaEmails />}

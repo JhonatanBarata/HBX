@@ -30,6 +30,7 @@ import { ImplantacaoContato } from "@/components/hbx/implantacao-contato";
 import { NovoAcessoModal } from "@/components/hbx/novo-acesso-modal";
 import { TrocarPlanoModal, type TrocarPlanoDirection } from "@/components/hbx/trocar-plano-modal";
 import { SubscribeCardModal } from "@/components/hbx/subscribe-card-modal";
+import { ExtraSeatsCard } from "@/components/hbx/extra-seats-card";
 import { PlanCard } from "@/components/hbx/plan-card";
 import { Av, ConfirmDialog, I, ICONS } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
@@ -518,6 +519,10 @@ export function ConfiguracoesClient() {
                     )}
                     {current?.assistedSetup?.message && (
                       <p style={{ margin: 0, fontSize: "0.7rem", lineHeight: 1.5, color: "var(--hbx-warning)" }}>{current.assistedSetup.message}</p>
+                    )}
+                    {/* F6 — assento extra: só admin pagante, e plano que trabalha com extra (List não). */}
+                    {canSelectPlan && current?.accessState === "paying" && current?.planKey !== "hbx_lite" && (
+                      <ExtraSeatsCard onDone={recarregarPlano} />
                     )}
                   </div>
                 </section>

@@ -66,6 +66,13 @@ export class FinanceiroController {
     return this.financeiroService.changeSubscriptionCardForUser(req.user, dto);
   }
 
+  // F6 — compra de bloco de assentos extras (ADMIN). dryRun=true só devolve o preview
+  // (cobrança proporcional dos dias restantes + valor cheio do próximo mês).
+  @Post('subscription/extra-seats')
+  purchaseExtraSeats(@Req() req: any, @Body() dto: { seats?: number; cardTokenId?: string; dryRun?: boolean }) {
+    return this.financeiroService.purchaseExtraSeats(req.user, dto || {});
+  }
+
   @Get('subscription/status')
   getSubscriptionStatus(@Req() req: any) {
     return this.financeiroService.getSubscriptionStatusForUser(req.user);
