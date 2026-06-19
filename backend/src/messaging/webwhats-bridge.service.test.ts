@@ -1427,13 +1427,10 @@ test('WebwhatsBridgeService reuses prospection stub without session before creat
   );
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// BUG "conectado mas inbox vazio": supressão cross-session
-// Ao trocar de número (A→B), a supressão do nº A bloqueava sync do nº B porque
-// os contatos são os mesmos clientes. A correção: supressão de sourcePhone != do
-// número atual é ignorada.
-// ─────────────────────────────────────────────────────────────────────────────
+// isLocallyDeletedChatSuppressed foi removida (store-on-arrival — sem supressão).
+// Os 4 testes abaixo foram excluídos junto com o método privado.
 
+/*
 test('isLocallyDeletedChatSuppressed NÃO suprime quando sourcePhoneNormalized do log é diferente do número da sessão atual', async () => {
   // Cenário: log gravado pelo nº A (5519997024884), sessão atual é nº B (5519920121720).
   // O cliente +5511943171224 foi suprimido pelo nº A — mas o nº B pode reimportá-lo.
@@ -1562,3 +1559,4 @@ test('isLocallyDeletedChatSuppressed: log sem sourcePhoneNormalized mantém comp
   );
   assert.equal(suppressedAfter, false, 'Log legado sem sourcePhone: não suprime quando msg nova');
 });
+*/

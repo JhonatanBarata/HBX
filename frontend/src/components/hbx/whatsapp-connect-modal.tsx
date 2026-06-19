@@ -3,25 +3,23 @@
 // Modal de conexão WhatsApp (R2.9 — entra junto com a tela de Atendimento).
 // Usa o fluxo canônico de src/lib/whatsapp-connection-flow.ts:
 // status → start (gera QR) → leitura → connected → bootstrap (espelha
-// conversas/contatos) → LEI: pergunta limpar ou aproveitar → onConnected().
+// conversas/contatos) → onConnected().
 //
-// LEI DA RECONEXÃO: toda conexão bem-sucedida verifica histórico de outro número.
-// Se houver, mostra o diálogo DENTRO do modal (não na página de fundo) antes de
-// disparar onConnected(). NUNCA limpa automaticamente.
+// Store-on-arrival: sem LEI de reconexão / sem cleanup popup / sem supressão.
+// Webhooks gravam no banco; inbox lê do banco. Wipe = DELETE real no banco
+// + apaga instâncias do motor + desconecta sessão.
 //
 // BOTÃO DEBUG "Limpar dados": apaga TODAS as mensagens/conversas da company,
-// mantendo sessão ativa e dados de audit. Chama /inbox/whatsapp-sessions/wipe-all.
+// desconecta sessão e apaga instâncias do motor. Chama /inbox/whatsapp-sessions/wipe-all.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { I, ICONS } from "@/components/hbx/shell";
 import {
   bootstrapWhatsAppAfterConnect,
-  cleanupWhatsAppSessions,
   disconnectWhatsAppModalSession,
   fetchWhatsAppModalQr,
   fetchWhatsAppModalStatus,
-  fetchWhatsAppSessionDiagnostics,
   requestWhatsAppPairingCode,
   restartWhatsAppModalSession,
   startWhatsAppModalSession,
@@ -75,10 +73,6 @@ export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnecte
   const [pairing, setPairing] = useState<WhatsAppPairingCodePayload | null>(null);
   const bootstrappedKey = useRef<string | null>(null);
 
-  // LEI DA RECONEXÃO — estado do diálogo inline
-  const [cleanupNeeded, setCleanupNeeded] = useState<{ conversations: number; oldPhone: string | null } | null>(null);
-  const [cleanupBusy, setCleanupBusy] = useState(false);
-
   // DEBUG — confirmação antes de limpar tudo
   const [confirmWipe, setConfirmWipe] = useState(false);
   const [wipeBusy, setWipeBusy] = useState(false);
@@ -119,20 +113,7 @@ export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnecte
             if (!alive) return;
             if (boot) {
               setBootstrapMsg(`✓ Conectado — ${boot.syncedConversations} conversas e ${boot.syncedContacts} contatos espelhados.`);
-
-              // LEI DA RECONEXÃO: verifica histórico de outro número.
-              // Mostra diálogo AQUI dentro; só dispara onConnected() após a decisão.
-              const diag = await fetchWhatsAppSessionDiagnostics().catch(() => null);
-              const cleanup = diag?.whatsappSessionCleanup;
-              if (cleanup?.required && (cleanup.oldConversationCount > 0 || cleanup.oldMessageCount > 0)) {
-                setCleanupNeeded({
-                  conversations: cleanup.oldConversationCount,
-                  oldPhone: cleanup.latestOldSession?.displayPhone || cleanup.latestOldSession?.phoneNormalized || null,
-                });
-                // onConnected() só dispara depois que o usuário escolher (ver runCleanup).
-              } else {
-                onConnected?.();
-              }
+              onConnected?.();
             }
           } catch (err) {
             if (alive) setBootstrapMsg(err instanceof Error ? err.message : "Conectado, mas o espelhamento falhou.");
@@ -177,7 +158,6 @@ export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnecte
       const res = await disconnectWhatsAppModalSession();
       setPayload(res);
       bootstrappedKey.current = null;
-      setCleanupNeeded(null);
       onDisconnected?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Operação falhou.");
@@ -204,20 +184,6 @@ export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnecte
       setError(err instanceof Error ? err.message : "Falha ao gerar o código de pareamento.");
     } finally {
       setBusy(false);
-    }
-  }
-
-  // LEI DA RECONEXÃO — aplica a decisão do usuário sobre o número anterior
-  async function runCleanup(mode: "keep" | "discard") {
-    setCleanupBusy(true);
-    try {
-      await cleanupWhatsAppSessions(mode);
-    } catch {
-      // Erro silencioso: a sessão já está conectada; o cleanup é best-effort.
-    } finally {
-      setCleanupBusy(false);
-      setCleanupNeeded(null);
-      onConnected?.();
     }
   }
 
@@ -265,7 +231,7 @@ export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnecte
         {error && (
           <p style={{ margin: 0, fontSize: "0.74rem", fontWeight: 700, color: "var(--hbx-danger)" }}>{error}</p>
         )}
-        {bootstrapMsg && !cleanupNeeded && (
+        {bootstrapMsg && (
           <p style={{ margin: 0, fontSize: "0.74rem", fontWeight: 700, color: bootstrapMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{bootstrapMsg}</p>
         )}
 
@@ -309,26 +275,7 @@ export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnecte
           </div>
         )}
 
-        {/* LEI DA RECONEXÃO — diálogo inline, exige decisão antes de continuar */}
-        {cleanupNeeded && (
-          <div style={{ display: "grid", gap: 10, padding: 14, borderRadius: "var(--radius-md)", border: "1px solid var(--border-strong)", background: "var(--hbx-surface-soft)" }}>
-            <p style={{ margin: 0, fontSize: "0.8rem", fontWeight: 700 }}>Histórico de outro número detectado</p>
-            <p style={{ margin: 0, fontSize: "0.74rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
-              Encontramos <strong>{cleanupNeeded.conversations}</strong> conversa(s) do número anterior
-              {cleanupNeeded.oldPhone ? ` (${cleanupNeeded.oldPhone})` : ""}. O que deseja fazer?
-            </p>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              <button className="btn-teal" disabled={cleanupBusy} onClick={() => runCleanup("keep")}>
-                {cleanupBusy ? "Aplicando…" : "Aproveitar"}
-              </button>
-              <button className="btn-ghost danger" disabled={cleanupBusy} onClick={() => runCleanup("discard")}>
-                {cleanupBusy ? "Limpando…" : "Limpar anterior"}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {connected && !cleanupNeeded && (
+        {connected && (
           <>
             <span className="badge-win">✓ WhatsApp conectado — pronto para receber e responder aqui</span>
             <div className="kv">
@@ -355,7 +302,7 @@ export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnecte
             {canRestart && (
               <button className="btn-ghost" disabled={busy} onClick={() => run(restartWhatsAppModalSession)}>Reiniciar sessão</button>
             )}
-            {connected && !cleanupNeeded && (
+            {connected && (
               confirmDisconnect ? (
                 <button className="btn-ghost danger" disabled={busy}
                   onClick={() => { setConfirmDisconnect(false); disconnectAndNotify(); }}>
@@ -368,7 +315,7 @@ export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnecte
           </div>
 
           {/* DEBUG — visível apenas quando conectado */}
-          {connected && !cleanupNeeded && (
+          {connected && (
             <div style={{ marginTop: 4, paddingTop: 10, borderTop: "1px dashed var(--border-strong)", display: "grid", gap: 6 }}>
               <span style={{ fontSize: "0.65rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-muted)" }}>debug</span>
               {wipeMsg && (

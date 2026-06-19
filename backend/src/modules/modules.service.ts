@@ -3688,7 +3688,7 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
   // plano que não têm post-it.
   private normalizePlanKeyForConfig(raw: string): ActiveCommercialPlanKey {
     const v = String(raw || '').trim().toLowerCase();
-    const valid: string[] = [COMMERCIAL_PLAN_KEYS.LITE, COMMERCIAL_PLAN_KEYS.PADRAO, COMMERCIAL_PLAN_KEYS.MELHOR];
+    const valid: string[] = [COMMERCIAL_PLAN_KEYS.LITE, COMMERCIAL_PLAN_KEYS.PADRAO, COMMERCIAL_PLAN_KEYS.PRO, COMMERCIAL_PLAN_KEYS.MELHOR];
     if (valid.includes(v)) return v as ActiveCommercialPlanKey;
     throw new BadRequestException('Plano invalido');
   }

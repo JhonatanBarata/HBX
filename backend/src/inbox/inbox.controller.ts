@@ -67,14 +67,6 @@ export class InboxController {
     return this.inboxService.bootstrapFullMirrorBackground(req.user, take);
   }
 
-  @Post('whatsapp-sessions/cleanup')
-  cleanupWhatsappSessions(
-    @Req() req: any,
-    @Body() dto: { mode?: 'merge' | 'discard' | string },
-  ) {
-    return this.inboxService.cleanupOldWhatsappSessions(req.user, dto?.mode);
-  }
-
   @Post('whatsapp-sessions/wipe-all')
   wipeAllWhatsAppData(@Req() req: any) {
     return this.inboxService.wipeAllWhatsAppData(req.user);

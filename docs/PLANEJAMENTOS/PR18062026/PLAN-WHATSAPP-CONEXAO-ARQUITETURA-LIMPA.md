@@ -178,6 +178,35 @@ Algoritmo do wipe (por empresa, e variante global pra dev):
 3. **Instância de automação:** confirmar que `company-2`/Hbxsystem é a do bot (mantém
    `company-{id}`) e não humano legado a migrar.
 
+## 9) ROADMAP 10/10 (aprovado pelo dono 18/06 — 4 trilhas)
+
+> Estado hoje ~7/10 (single-user feliz funciona; falta confiança). Ordem: confiança PRIMEIRO,
+> depois os saltos. IA: "deixar pronto, SEM gastar" — scaffold + feature-flag OFF; zero chamada
+> Claude até o dono ligar a flag.
+
+### Trilha 1 — Fundação de confiança (FAZER PRIMEIRO)
+- **Status honesto, fonte única:** matar o `whatsappModalStatus` divergente (P2). Selo lê estado
+  vivo (sessão `active` + `connectionState` do motor): Conectado / Reconectando / Caiu (reescaneie).
+- **Ticks reais + reenviar:** ✓ enviado → ✓✓ entregue → lido; **✗ FAILED com botão reenviar**
+  (usa `applyProviderDeliveryStatus`+keyId já corrigido — falta validar AO VIVO).
+- **Aviso de estrangulamento:** detectar rajada de `status:ERROR` (linked-device limitado pelo
+  WhatsApp) → banner "número limitado, aguarde" em vez de falhar calado.
+- **Reconexão auto-curável** com status visível (sem o churn silencioso).
+
+### Trilha 2 — Co-piloto de IA lead-aware (DEIXAR PRONTO, SEM GASTAR)
+- Seam `whatsapp-copilot.service.ts` (`suggestReply`/`summarize`/`detectIntent`) atrás de flag
+  `WHATSAPP_AI_COPILOT_ENABLED=false`. Prompt = conversa + dossiê do lead (Radar). **NENHUMA
+  chamada Claude até a flag ligar.**
+- Front: botões "Sugerir resposta"/"Resumir" no painel da conversa, escondidos/stub com a flag OFF.
+
+### Trilha 3 — Cola do funil automática
+- Inbound de lead do Radar → gruda no card do lead (match por telefone); desfecho da conversa
+  move a etapa. Loop Radar→Vendas→WhatsApp→Retorno visível.
+
+### Trilha 4 — Cockpit multi-vendedor (= Fase B turbinada)
+- Admin vê saúde de conexão de TODOS os vendedores + carga + tempo de resposta; roteia lead.
+  Depende da Fundação (status honesto) + Fase B.
+
 ## 8) Âncoras (símbolo — linha muda, símbolo não)
 
 - `whatsapp-modal.service.ts`: `startCompanySession`, `createProviderInstance`,
