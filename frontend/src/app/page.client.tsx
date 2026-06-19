@@ -144,6 +144,25 @@ export function MarketingClient() {
         // Login saiu da casca (16/06): /?ver=entrar legado redireciona pro /login
         // (lá o aviso de sessão expirada/empresa removida já é tratado).
         if (ver === "entrar") { router.replace("/login"); return; }
+        // F4 (19/06): RETOMADA. ?resume=1 + dica guardada → pula direto pra
+        // tela do plano/cadastro onde a pessoa parou, sem reanimar a escolha.
+        // A VERDADE do passo (aguardando × confirmado) o RegisterPanel resolve
+        // no backend (/auth/onboarding/resume); aqui só posicionamos a cena.
+        if (params.get("resume") === "1") {
+          let storedPoll: string | null = null;
+          let storedPlan: string | null = null;
+          try {
+            storedPoll = sessionStorage.getItem("hbx:onboarding-poll");
+            storedPlan = sessionStorage.getItem("hbx:onboarding-plan");
+          } catch { /* sem storage */ }
+          if (storedPoll) {
+            setView("planos");
+            setSelectedPlan(storedPlan && storedPlan in PLAN_STATIC ? storedPlan : "hbx_padrao");
+            setIntruderVisible(true);
+            setPlanMode("register");
+            return;
+          }
+        }
         // Documento legal por deep-link/rota: abre o pop-up sobre a home.
         if (ver === "politicas" || ver === "termos") { setLegal(ver); return; }
         // /register consolidado (16/06): a rota /register e os links de contratação

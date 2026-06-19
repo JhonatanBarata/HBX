@@ -1,6 +1,6 @@
 import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { ConfirmEmailDto, EmailConfirmationStatusDto, GoogleOAuthDto, LoginDto, RecoverPasswordDto, ResendConfirmationDto, ResetPasswordDto, SignupDto } from './dto/auth.dto';
+import { ConfirmEmailDto, EmailConfirmationStatusDto, GoogleOAuthDto, LoginDto, OnboardingResumeDto, RecoverPasswordDto, ResendConfirmationDto, ResetPasswordDto, SignupDto } from './dto/auth.dto';
 import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
@@ -33,6 +33,14 @@ export class AuthController {
   @Throttle({ default: { limit: 3, ttl: 60 } })
   resendConfirmation(@Body() dto: ResendConfirmationDto) {
     return this.authService.resendEmailConfirmation(dto.email);
+  }
+
+  // F4 (19/06): retomada do funil — devolve em que passo a pessoa parou
+  // (awaiting_email | awaiting_payment | done) pra renderizar aquele passo.
+  @Post('onboarding/resume')
+  @Throttle({ default: { limit: 20, ttl: 60 } })
+  resumeOnboarding(@Body() dto: OnboardingResumeDto) {
+    return this.authService.resolveOnboardingResume(dto.pollToken);
   }
 
   @Post('login')

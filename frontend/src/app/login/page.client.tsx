@@ -20,7 +20,8 @@ import { SceneMenu } from "@/components/hbx/hbx-scene";
 import { apiFetch, setToken, type ApiError } from "@/lib/api";
 
 type LoginResponse = { access_token?: string; next?: string; requiresCheckout?: boolean };
-type LoginErrorPayload = { code?: string; message?: string; forceAvailable?: boolean; email?: string | null; needsEmailConfirmation?: boolean; activeSession?: { lastSeenAt?: string | null; userAgent?: string | null } };
+type LoginResume = { step?: string; planKey?: string | null; email?: string | null; resendAvailableAt?: string | null };
+type LoginErrorPayload = { code?: string; message?: string; forceAvailable?: boolean; email?: string | null; needsEmailConfirmation?: boolean; activeSession?: { lastSeenAt?: string | null; userAgent?: string | null }; next?: string; resume?: LoginResume; confirmationPollToken?: string | null };
 
 type SideIconName = "headset" | "recovery" | "website" | "shield" | "building" | "pulse";
 const SIDE_ICON: Record<SideIconName, string[]> = {
@@ -64,6 +65,8 @@ export function LoginClient() {
   const [notice, setNotice] = useState<string | null>(null);
   const [confirmPending, setConfirmPending] = useState<string | null>(null);
   const [confirmMsg, setConfirmMsg] = useState<string | null>(null);
+  // F4 (19/06): destino de RETOMADA devolvido pelo backend (/?ver=planos&resume=1).
+  const [resumeHref, setResumeHref] = useState<string>("/?ver=planos&resume=1");
   const [plain, setPlain] = useState(false);
   const googleBtnRef = useRef<HTMLDivElement>(null);
   const loginInFlightRef = useRef(false);
@@ -168,10 +171,20 @@ export function LoginClient() {
         setError(payload?.message || "Já existe uma sessão ativa para este usuário.");
       } else if (payload?.code === "EMAIL_CONFIRMATION_REQUIRED" || payload?.needsEmailConfirmation) {
         // Login não é mais beco (F4): cadastro não confirmado vira "continue seu
-        // cadastro" — reenvio + volta pro funil, em vez da string morta (anexo2).
+        // cadastro" — reenvio + volta pro funil NO PASSO EXATO, em vez da string
+        // morta (anexo2). O token/plano vêm no payload (só após a senha provar
+        // posse) → guardamos a dica pra retomada reidratar a tela de espera.
         setConflict(false);
         setError(null);
         setConfirmPending(payload?.email || email);
+        if (payload?.next) setResumeHref(payload.next);
+        if (payload?.confirmationPollToken) {
+          try {
+            sessionStorage.setItem("hbx:onboarding-poll", payload.confirmationPollToken);
+            sessionStorage.setItem("hbx:onboarding-plan", payload.resume?.planKey || "hbx_padrao");
+            sessionStorage.setItem("hbx:onboarding-email", String(payload.resume?.email || payload.email || email || ""));
+          } catch { /* sem storage */ }
+        }
       } else {
         setConflict(false);
         setError(err instanceof Error ? err.message : "Não foi possível entrar. Tente novamente.");
@@ -269,7 +282,7 @@ export function LoginClient() {
                 {confirmMsg && <span>{confirmMsg}</span>}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                   <button type="button" className="btn-ghost" onClick={reenviarConfirmacao} style={{ minHeight: 38, fontSize: "0.74rem" }}>Reenviar confirmação</button>
-                  <Link href="/?ver=planos" className="btn-ghost" style={{ minHeight: 38, fontSize: "0.74rem", textDecoration: "none", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>Continuar cadastro</Link>
+                  <Link href={resumeHref} className="btn-ghost" style={{ minHeight: 38, fontSize: "0.74rem", textDecoration: "none", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>Continuar cadastro</Link>
                 </div>
               </div>
             )}

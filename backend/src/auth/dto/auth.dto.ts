@@ -94,6 +94,13 @@ export class EmailConfirmationStatusDto {
   pollToken: string;
 }
 
+// F4 (19/06): retomada do funil. Mesmo token de acompanhamento do cadastro
+// (sessão restrita) — prova posse sem expor sessão plena.
+export class OnboardingResumeDto {
+  @IsNotEmpty()
+  pollToken: string;
+}
+
 export class ResendConfirmationDto {
   @IsEmail()
   email: string;

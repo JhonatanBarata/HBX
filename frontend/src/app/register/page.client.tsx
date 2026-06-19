@@ -32,9 +32,24 @@ type SignupResponse = {
   checkout_token?: string | null;
   next?: string | null;
   trialEndsAt?: string | null;
+  // F4 (19/06): token de acompanhamento — habilita a RETOMADA do funil no reload.
+  confirmationPollToken?: string | null;
 };
 
 const PLANOS_VALIDOS = new Set(Object.keys(PLAN_STATIC));
+
+// F4 (19/06): continuidade do funil. A VERDADE do passo é o backend (resume);
+// o sessionStorage é só uma DICA pra reidratar rápido (fail-safe se sumir).
+const ONBOARDING_POLL_KEY = "hbx:onboarding-poll";
+const ONBOARDING_PLAN_KEY = "hbx:onboarding-plan";
+const ONBOARDING_EMAIL_KEY = "hbx:onboarding-email";
+function clearOnboardingHint() {
+  try {
+    sessionStorage.removeItem(ONBOARDING_POLL_KEY);
+    sessionStorage.removeItem(ONBOARDING_PLAN_KEY);
+    sessionStorage.removeItem(ONBOARDING_EMAIL_KEY);
+  } catch { /* sem storage */ }
+}
 
 type RegisterPanelProps = {
   selectedPlanKey?: string | null;
@@ -72,6 +87,55 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
   // plena = e-mail confirmado / mock auto-confirmado) libera o pagamento.
   const showCheckout = Boolean(done?.access_token) && needsCheckout;
 
+  // Guarda a dica de retomada (token + plano + e-mail) só quando o cadastro
+  // ficou PENDENTE (sem sessão plena). Sessão plena já limpa a dica.
+  function persistOnboardingHint(res: SignupResponse | null) {
+    if (!res?.confirmationPollToken || res?.access_token) return;
+    try {
+      sessionStorage.setItem(ONBOARDING_POLL_KEY, res.confirmationPollToken);
+      sessionStorage.setItem(ONBOARDING_PLAN_KEY, selectedPlan);
+      sessionStorage.setItem(ONBOARDING_EMAIL_KEY, String(res.email || email || ""));
+    } catch { /* sem storage */ }
+  }
+
+  // F4 (19/06): RETOMADA. Reload/relogin com ?resume=1 + token guardado → o
+  // backend diz em que passo a pessoa está e reidratamos a cena (sem perder o
+  // lugar). awaiting_email → tela de espera; confirmado → entra pelo login.
+  useEffect(() => {
+    if (done) return;
+    let poll: string | null = null;
+    try { poll = sessionStorage.getItem(ONBOARDING_POLL_KEY); } catch { /* sem storage */ }
+    const wantsResume = new URLSearchParams(window.location.search).get("resume") === "1";
+    if (!poll || !wantsResume) return;
+    let alive = true;
+    apiFetch<{ step?: string; email?: string | null; resendAvailableAt?: string | null }>(
+      "/auth/onboarding/resume",
+      { method: "POST", body: JSON.stringify({ pollToken: poll }) },
+    )
+      .then((r) => {
+        if (!alive || !r) return;
+        if (r.step === "awaiting_email") {
+          setDone({
+            ok: true,
+            pendingEmailConfirmation: true,
+            email: r.email || null,
+            message: `Reabrimos seu cadastro — confirme o e-mail enviado para ${r.email || "seu endereço"} pra continuar.`,
+          });
+          if (r.resendAvailableAt) {
+            const ms = new Date(r.resendAvailableAt).getTime() - Date.now();
+            if (ms > 0) setResendCooldown(Math.ceil(ms / 1000));
+          }
+        } else {
+          // awaiting_payment | done: identidade confirmada → cobrança mora no app
+          // (gate do logado, F8). Entra pelo login.
+          clearOnboardingHint();
+          router.replace("/login");
+        }
+      })
+      .catch(() => { /* token expirado/inválido: segue o form normal */ });
+    return () => { alive = false; };
+  }, [done, router]);
+
   const handleGoogleCredential = useCallback(async (response: { credential: string }) => {
     if (busy) return;
     setBusy(true);
@@ -81,8 +145,9 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
         method: "POST",
         body: JSON.stringify({ idToken: response.credential, selectedPlanKey: selectedPlan }),
       });
-      if (res?.access_token) setToken(res.access_token);
+      if (res?.access_token) { setToken(res.access_token); clearOnboardingHint(); }
       else if (res?.checkout_token) setToken(res.checkout_token);
+      persistOnboardingHint(res);
       setDone(res || { ok: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível entrar com Google. Tente novamente.");
@@ -146,7 +211,9 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
       // `done` mas NÃO loga ninguém — o cartão espera a confirmação (F3).
       if (res?.access_token && selectedPlan !== "hbx_melhor") {
         setToken(res.access_token);
+        clearOnboardingHint();
       }
+      persistOnboardingHint(res);
       setDone(res || { ok: true });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Não foi possível criar a conta. Tente novamente.";
@@ -165,6 +232,7 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
   function entrarAgora() {
     if (!done?.access_token) return;
     setToken(done.access_token);
+    clearOnboardingHint();
     router.replace(done.next || "/dashboard");
   }
 

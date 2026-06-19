@@ -566,3 +566,119 @@ test('plano sem trial (List) confirma e segue direto para o checkout', async () 
   assert.equal(companyUpdates.length, 1);
   assert.equal(companyUpdates[0].status, 'pending_checkout');
 });
+
+// ── F4 (19/06): máquina de estados do onboarding — resume server-side ────────
+function buildAuthServiceForResume(userSnapshot: any) {
+  const prisma = {
+    user: { findUnique: async () => userSnapshot },
+  };
+  const jwtService = {
+    verify: () => ({ sub: userSnapshot?.id ?? 1, purpose: 'email_confirmation_poll' }),
+    sign: () => 'signed',
+  };
+  return new AuthService({} as any, jwtService as any, prisma as any, {} as any, {} as any, {} as any);
+}
+
+test('resume: e-mail não confirmado → awaiting_email + resendAvailableAt (cooldown 60s)', async () => {
+  const sentAt = new Date('2026-06-19T10:00:00.000Z');
+  const service = buildAuthServiceForResume({
+    id: 5,
+    email: 'aguardando@cliente.test',
+    emailConfirmedAt: null,
+    emailConfirmationSentAt: sentAt,
+    company: { companyKind: 'tenant', status: 'pending_checkout', isActive: false, selectedPlanKey: 'hbx_padrao' },
+  });
+
+  const r = await service.resolveOnboardingResume('poll-token');
+
+  assert.equal(r.step, 'awaiting_email');
+  assert.equal(r.planKey, 'hbx_padrao');
+  assert.equal(r.email, 'aguardando@cliente.test');
+  assert.equal(r.resendAvailableAt, new Date(sentAt.getTime() + 60_000).toISOString());
+});
+
+test('resume: confirmado + pending_checkout → awaiting_payment (sem cooldown)', async () => {
+  const service = buildAuthServiceForResume({
+    id: 6,
+    email: 'pagar@cliente.test',
+    emailConfirmedAt: new Date(),
+    emailConfirmationSentAt: null,
+    company: { companyKind: 'tenant', status: 'pending_checkout', isActive: false, selectedPlanKey: 'hbx_padrao' },
+  });
+
+  const r = await service.resolveOnboardingResume('poll-token');
+
+  assert.equal(r.step, 'awaiting_payment');
+  assert.equal(r.resendAvailableAt, null);
+});
+
+test('resume: confirmado + trial vigente → done', async () => {
+  const service = buildAuthServiceForResume({
+    id: 7,
+    email: 'dentro@cliente.test',
+    emailConfirmedAt: new Date(),
+    emailConfirmationSentAt: null,
+    company: { companyKind: 'tenant', status: 'trial', isActive: true, trialEndsAt: inDays(10), selectedPlanKey: 'hbx_padrao' },
+  });
+
+  const r = await service.resolveOnboardingResume('poll-token');
+
+  assert.equal(r.step, 'done');
+});
+
+// ── F4 (19/06): login deixou de ser beco ─────────────────────────────────────
+function buildAuthServiceForUnconfirmedLogin(passwordHash: string) {
+  const usersService = {
+    findByLoginIdentifier: async () => ({
+      id: 9,
+      username: 'dono',
+      email: 'dono@cliente.test',
+      password: passwordHash,
+      role: 'ADMIN',
+      isSystemMaster: false,
+      isActive: true,
+      companyId: 77,
+      emailConfirmedAt: null,
+      emailConfirmationToken: 'hash-vivo',
+      emailConfirmationSentAt: new Date(),
+      company: { companyKind: 'tenant', status: 'pending_checkout', isActive: false, selectedPlanKey: 'hbx_padrao' },
+    }),
+  };
+  const jwtService = { sign: () => 'signed', verify: () => ({}) };
+  return new AuthService(usersService as any, jwtService as any, {} as any, {} as any, {} as any, {} as any);
+}
+
+test('login no-beco: e-mail pendente + senha CORRETA → resume pro funil (next + step)', async () => {
+  const passwordHash = await bcrypt.hash('Segredo123!', 4);
+  const service = buildAuthServiceForUnconfirmedLogin(passwordHash);
+
+  await assert.rejects(
+    () => service.loginWithUsername('dono@cliente.test', 'Segredo123!'),
+    (err: any) => {
+      const body = err.getResponse();
+      assert.equal(body.code, 'EMAIL_CONFIRMATION_REQUIRED');
+      assert.equal(body.next, '/?ver=planos&resume=1');
+      assert.equal(body.resume?.step, 'awaiting_email');
+      assert.equal(body.resume?.planKey, 'hbx_padrao');
+      assert.ok(body.confirmationPollToken);
+      return true;
+    },
+  );
+});
+
+test('login no-beco: e-mail pendente + senha ERRADA → genérico (anti-enumeração, sem next/resume)', async () => {
+  const passwordHash = await bcrypt.hash('Segredo123!', 4);
+  const service = buildAuthServiceForUnconfirmedLogin(passwordHash);
+
+  await assert.rejects(
+    () => service.loginWithUsername('dono@cliente.test', 'senha-errada'),
+    (err: any) => {
+      const body = err.getResponse();
+      assert.equal(body.code, 'EMAIL_CONFIRMATION_REQUIRED');
+      assert.equal(body.next, undefined);
+      assert.equal(body.resume, undefined);
+      assert.equal(body.confirmationPollToken, undefined);
+      return true;
+    },
+  );
+});

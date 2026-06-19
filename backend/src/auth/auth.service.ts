@@ -410,6 +410,24 @@ export class AuthService implements OnModuleInit {
     return crypto.randomBytes(32).toString('base64url');
   }
 
+  // Gera/renova o token de confirmação de e-mail de um usuário e devolve o
+  // rawToken pra dispatch. Fonte única usada pelo reenvio e pelo re-cadastro
+  // (F4) — nada de duplicar a renovação de token em dois lugares.
+  private async refreshEmailConfirmationToken(userId: number): Promise<string> {
+    const rawToken = this.createEmailConfirmationToken();
+    const tokenHash = this.sha256(rawToken);
+    const confirmationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        emailConfirmationToken: tokenHash,
+        emailConfirmationSentAt: new Date(),
+        emailConfirmationExpiresAt: confirmationExpiresAt,
+      },
+    });
+    return rawToken;
+  }
+
   private preCheckoutNextPath(_reason: 'pending_checkout' | 'trial_expired' | 'payment_failed' = 'pending_checkout') {
     // F8 (19/06): rota /pre-checkout era alias redirect-only para /dashboard.
     // Aponta direto: o bloqueio-gate captura o pending_checkout em /dashboard.
@@ -419,6 +437,46 @@ export class AuthService implements OnModuleInit {
 
   private pendingCheckoutNextPath() {
     return this.preCheckoutNextPath('pending_checkout');
+  }
+
+  // ── Máquina de estados do onboarding (F4 19/06 — fonte ÚNICA) ─────────────
+  // O passo NÃO é coluna nova: deriva de emailConfirmedAt (fato do usuário) +
+  // company.status (via resolveCompanyAccessState). Todas as superfícies
+  // (funil, login, re-cadastro, reload) leem ESTE derivador — nunca recalculam.
+  private deriveOnboardingStep(input: {
+    emailConfirmedAt?: Date | null;
+    company?: any | null;
+  }): 'awaiting_email' | 'awaiting_payment' | 'done' {
+    if (!input.emailConfirmedAt) return 'awaiting_email';
+    const access = resolveCompanyAccessState(input.company);
+    if (access.canUse && access.state !== 'platform_infra') return 'done';
+    return 'awaiting_payment';
+  }
+
+  // Cooldown do reenvio (60s): o front mostra a contagem, mas a VERDADE do
+  // "próximo permitido em" vem daqui (sobrevive a reload/relogin).
+  private static readonly EMAIL_RESEND_COOLDOWN_MS = 60_000;
+  private resendAvailableAtFrom(sentAt?: Date | null): string | null {
+    if (!sentAt) return null;
+    return new Date(sentAt.getTime() + AuthService.EMAIL_RESEND_COOLDOWN_MS).toISOString();
+  }
+
+  // Resume payload comum (funil + login bloqueado): onde a pessoa parou.
+  private buildOnboardingResume(input: {
+    email?: string | null;
+    emailConfirmedAt?: Date | null;
+    emailConfirmationSentAt?: Date | null;
+    company?: any | null;
+  }) {
+    const step = this.deriveOnboardingStep(input);
+    return {
+      step,
+      planKey: input.company?.selectedPlanKey || null,
+      email: input.email || null,
+      resendAvailableAt: step === 'awaiting_email'
+        ? this.resendAvailableAtFrom(input.emailConfirmationSentAt)
+        : null,
+    };
   }
 
   private assertOperationalWorkspaceCompany(company?: any | null) {
@@ -1173,11 +1231,30 @@ export class AuthService implements OnModuleInit {
     // confirmacao) — nao um estado da empresa (PR-002 C.1).
     const requiresEmailConfirmation = Boolean(user?.emailConfirmationToken) && !user?.emailConfirmedAt;
     if (!Boolean(user?.isSystemMaster) && requiresEmailConfirmation && !this.isLocalMockSignupFlow()) {
+      // F4 (19/06): login deixou de ser beco. A confirmação pendente é fato do
+      // usuário — em vez de pintar string morta, devolvemos um destino de
+      // RETOMADA pro funil (/?ver=planos&resume=1), no passo exato. Anti-
+      // enumeração: o detalhe do passo (plano, token de retomada) só sai DEPOIS
+      // de a senha provar posse; quem não prova recebe mensagem genérica.
+      const ownsAccount = typeof user.password === 'string'
+        && user.password.length > 0
+        && (await bcrypt.compare(pass, user.password));
+      if (ownsAccount) {
+        throw new UnauthorizedException({
+          code: 'EMAIL_CONFIRMATION_REQUIRED',
+          needsEmailConfirmation: true,
+          email: user.email || null,
+          message: 'Confirme seu cadastro para continuar.',
+          next: '/?ver=planos&resume=1',
+          resume: this.buildOnboardingResume(user),
+          confirmationPollToken: this.buildEmailConfirmationPollToken(user.id),
+        });
+      }
       throw new UnauthorizedException({
         code: 'EMAIL_CONFIRMATION_REQUIRED',
         needsEmailConfirmation: true,
         email: user.email || null,
-        message: 'Confirme seu e-mail antes de entrar.',
+        message: 'Confirme seu cadastro para continuar.',
       });
     }
 
@@ -1466,11 +1543,26 @@ export class AuthService implements OnModuleInit {
       throw new ConflictException('Identificador já cadastrado. Caso seja sua conta, use a recuperação de senha.');
     }
 
-    const existingEmail = await this.usersService.findByEmail(email);
-    if (existingEmail) throw new ConflictException('Já existe uma conta com este E‑mail. Caso seja sua, use a recuperação de senha.');
-
     const password = String(data.password || '');
     assertPasswordPolicy(password);
+
+    const existingEmail = await this.usersService.findByEmail(email);
+    if (existingEmail) {
+      // F4 (19/06): re-cadastro do mesmo e-mail deixou de ser beco. Se a conta
+      // existe, está com confirmação PENDENTE e a senha informada PROVA posse
+      // → renova o link e devolve a tela de espera (continuidade). Sem prova de
+      // senha (ou já confirmada) → mensagem genérica (anti-enumeração / sem
+      // takeover; quem confirmou usa o login/recuperação).
+      const stillPending = !(existingEmail as any).emailConfirmedAt && Boolean((existingEmail as any).emailConfirmationToken);
+      const ownsAccount = stillPending
+        && typeof (existingEmail as any).password === 'string'
+        && (existingEmail as any).password.length > 0
+        && (await bcrypt.compare(password, (existingEmail as any).password));
+      if (ownsAccount) {
+        return this.resumePendingEmailConfirmation((existingEmail as any).id);
+      }
+      throw new ConflictException('Já existe uma conta com este E‑mail. Caso seja sua, use a recuperação de senha.');
+    }
 
     const normalizedCompanyName = String(data.companyName || '').trim();
     const normalizedName = String(data.name || '').trim();
@@ -1648,28 +1740,10 @@ export class AuthService implements OnModuleInit {
       rawToken,
     });
 
-    // Cria sessão de checkout antes de devolver o pending_email_confirmation.
-    // Permite que o front mostre o CheckoutPanel na mesma cena sem parede de e-mail.
-    // A empresa fica em pending_checkout — sem acesso a módulos até o checkout.
-    let checkoutToken: string | null = null;
-    if (selectedPlanKey !== 'hbx_melhor') {
-      try {
-        const checkoutSession = await this.login(
-          {
-            id: (created as any).user?.id,
-            email,
-            companyId: created.companyId,
-            role: (created as any).user?.role || 'ADMIN',
-            isSystemMaster: false,
-          },
-          { companyId: created.companyId },
-        );
-        checkoutToken = checkoutSession?.access_token || null;
-      } catch {
-        // Não bloqueia o cadastro se a sessão de checkout falhar
-      }
-    }
-
+    // F3/F4 (19/06): o signup NÃO emite mais checkout_token. Ordem certa do
+    // funil = confirma a identidade ANTES de pedir cartão. A sessão restrita de
+    // checkout nasce na CONFIRMAÇÃO (confirmEmail / confirmação-WhatsApp), nunca
+    // no cadastro. Pré-confirmação o funil cai na tela "aguardando confirmação".
     return this.buildPendingEmailConfirmationResponse({
       userId: Number((created as any).user?.id || 0),
       email,
@@ -1688,7 +1762,7 @@ export class AuthService implements OnModuleInit {
       deliveryFailed: delivery.failed,
       deliveryErrorCode: delivery.errorCode,
       deliveryErrorMessage: delivery.errorMessage,
-      checkoutToken,
+      checkoutToken: null,
     });
   }
 
@@ -1871,6 +1945,99 @@ export class AuthService implements OnModuleInit {
     };
   }
 
+  // RESUME do onboarding (F4 19/06) — continuidade do funil.
+  // Identifica a pessoa pelo token de acompanhamento já emitido no cadastro/
+  // reenvio (sessão restrita): prova posse sem expor sessão plena. Sem token
+  // válido → erro genérico (anti-enumeração: nunca revela passo/plano só pelo
+  // e-mail). Devolve ONDE a pessoa parou pro funil renderizar aquele passo.
+  async resolveOnboardingResume(pollToken: string) {
+    const userId = this.verifyEmailConfirmationPollToken(pollToken);
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        emailConfirmedAt: true,
+        emailConfirmationSentAt: true,
+        company: {
+          select: {
+            companyKind: true,
+            status: true,
+            isActive: true,
+            selectedPlanKey: true,
+            trialEndsAt: true,
+            billingGraceEndsAt: true,
+            courtesyEndsAt: true,
+            courtesyReason: true,
+          },
+        },
+      },
+    });
+    if (!user) {
+      throw new BadRequestException({
+        code: 'ONBOARDING_RESUME_INVALID',
+        message: 'Não foi possível retomar o cadastro. Recomece pelo início.',
+      });
+    }
+    return { ok: true, ...this.buildOnboardingResume(user) };
+  }
+
+  // Re-cadastro do mesmo e-mail com confirmação pendente (F4): em vez de
+  // ConflictException seca, renova o link e devolve a tela de espera (resume).
+  // O caller (signup) só chega aqui DEPOIS de a senha provar posse.
+  private async resumePendingEmailConfirmation(userId: number) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        name: true,
+        username: true,
+        email: true,
+        company: {
+          select: {
+            name: true,
+            entityType: true,
+            trialModuleSelection: true,
+            selectedPlanKey: true,
+            acquisitionSource: true,
+          },
+        },
+      },
+    });
+    if (!user) {
+      throw new ConflictException('Já existe uma conta com este E‑mail. Caso seja sua, use a recuperação de senha.');
+    }
+    const email = String(user.email || '').trim().toLowerCase();
+    const rawToken = await this.refreshEmailConfirmationToken(user.id);
+    const delivery = await this.dispatchEmailConfirmation({
+      email,
+      username: user.name || user.username || email,
+      companyName: user.company?.name || user.username || email,
+      rawToken,
+    });
+    const selectedPlanKey = this.normalizePublicSelectedPlanKey(user.company?.selectedPlanKey as any);
+    return this.buildPendingEmailConfirmationResponse({
+      userId: user.id,
+      email,
+      username: user.username || email,
+      companyName: user.company?.name || email,
+      entityType: (user.company?.entityType as 'PF' | 'PJ' | null) ?? null,
+      trialModuleSelection: (user.company?.trialModuleSelection as 'vendas' | null) ?? null,
+      selectedPlanKey,
+      acquisitionSource: user.company?.acquisitionSource || null,
+      warnings: [],
+      message: delivery.failed
+        ? this.resendConfirmationDeliveryFailureMessage()
+        : 'Reenviamos o link de confirmação. Continue de onde parou.',
+      previewUrl: delivery.previewUrl,
+      confirmUrl: delivery.confirmUrl,
+      deliveryFailed: delivery.failed,
+      deliveryErrorCode: delivery.errorCode,
+      deliveryErrorMessage: delivery.errorMessage,
+      checkoutToken: null,
+    });
+  }
+
   async resendEmailConfirmation(email: string) {
     const normalizedEmail = String(email || '').trim().toLowerCase();
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -1914,18 +2081,7 @@ export class AuthService implements OnModuleInit {
       };
     }
 
-    const rawToken = this.createEmailConfirmationToken();
-    const tokenHash = this.sha256(rawToken);
-    const confirmationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: {
-        emailConfirmationToken: tokenHash,
-        emailConfirmationSentAt: new Date(),
-        emailConfirmationExpiresAt: confirmationExpiresAt,
-      },
-    });
+    const rawToken = await this.refreshEmailConfirmationToken(user.id);
 
     const delivery = await this.dispatchEmailConfirmation({
       email: normalizedEmail,
