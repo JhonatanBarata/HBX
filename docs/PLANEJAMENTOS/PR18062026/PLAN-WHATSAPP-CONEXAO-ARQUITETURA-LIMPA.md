@@ -185,13 +185,19 @@ Algoritmo do wipe (por empresa, e variante global pra dev):
 > Claude até o dono ligar a flag.
 
 ### Trilha 1 — Fundação de confiança (FAZER PRIMEIRO)
-- **Status honesto, fonte única:** matar o `whatsappModalStatus` divergente (P2). Selo lê estado
-  vivo (sessão `active` + `connectionState` do motor): Conectado / Reconectando / Caiu (reescaneie).
-- **Ticks reais + reenviar:** ✓ enviado → ✓✓ entregue → lido; **✗ FAILED com botão reenviar**
-  (usa `applyProviderDeliveryStatus`+keyId já corrigido — falta validar AO VIVO).
-- **Aviso de estrangulamento:** detectar rajada de `status:ERROR` (linked-device limitado pelo
-  WhatsApp) → banner "número limitado, aguarde" em vez de falhar calado.
-- **Reconexão auto-curável** com status visível (sem o churn silencioso).
+- **[FEITO 19/06] Status honesto, fonte única:** `getCompanyStatus` com `userId` não consulta
+  motor quando sessão é `disconnected`/`offline` — a sessão DB é a fonte de verdade. Pill:
+  Conectado / Reconectando / Caiu (reescaneie). Testes: 3 novos em `whatsapp-modal.service.test.ts`.
+- **[FEITO 19/06] Ticks reais + reenviar:** `Checks` já renderiza ✓ SENT → ✓✓ DELIVERED → ✓✓
+  azul READ; `retry` button aparece no FAILED e chama `POST /inbox/conversations/:id/messages/:mid/retry`.
+  SSE publica `kind:'status'` → `bump()` recarrega a thread. 7 testes novos em
+  `webwhats-bridge.service.test.ts` provam o mapeamento de status.
+- **[FEITO 19/06] Aviso de estrangulamento:** banner `.throttle-warn` no Atendimento quando
+  ≥3 OUTBOUND FAILED nas últimas 10 mensagens visíveis da thread. Classe central em `kit.css`.
+- **[FOLLOW-UP — NÃO IMPLEMENTADO] Reconexão auto-curável:** quando `status=reconnecting` persiste
+  por mais que X minutos sem `open`, o backend poderia tentar `restart` automaticamente e mostrar
+  um badge "reconectando…" persistente no pill. Deixado para sprint posterior — requer debounce
+  cuidadoso para não criar loop de restarts e interação com lifecycle P3 (Trilha arquitetura).
 
 ### Trilha 2 — Co-piloto de IA lead-aware (DEIXAR PRONTO, SEM GASTAR)
 - Seam `whatsapp-copilot.service.ts` (`suggestReply`/`summarize`/`detectIntent`) atrás de flag

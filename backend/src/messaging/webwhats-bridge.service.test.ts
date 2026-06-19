@@ -1560,3 +1560,51 @@ test('isLocallyDeletedChatSuppressed: log sem sourcePhoneNormalized mantém comp
   assert.equal(suppressedAfter, false, 'Log legado sem sourcePhone: não suprime quando msg nova');
 });
 */
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAPEAMENTO DE TICKS (Trilha 1 — Item 2)
+// Prova: normalizeStoredStatus mapeia corretamente DELIVERY_ACK→DELIVERED,
+// READ→READ, ERROR/FAILED→FAILED; outbound sem update = SENT.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('normalizeStoredStatus mapeia DELIVERY_ACK → DELIVERED', () => {
+  const svc = createBareWebwhatsBridgeService();
+  const msg = { status: 'DELIVERY_ACK', MessageUpdate: [] };
+  assert.equal(svc.normalizeStoredStatus(msg, 'OUTBOUND'), 'DELIVERED');
+});
+
+test('normalizeStoredStatus mapeia READ → READ', () => {
+  const svc = createBareWebwhatsBridgeService();
+  const msg = { status: 'READ', MessageUpdate: [] };
+  assert.equal(svc.normalizeStoredStatus(msg, 'OUTBOUND'), 'READ');
+});
+
+test('normalizeStoredStatus mapeia ERROR → FAILED', () => {
+  const svc = createBareWebwhatsBridgeService();
+  const msg = { status: 'ERROR', MessageUpdate: [] };
+  assert.equal(svc.normalizeStoredStatus(msg, 'OUTBOUND'), 'FAILED');
+});
+
+test('normalizeStoredStatus mapeia FAILED → FAILED', () => {
+  const svc = createBareWebwhatsBridgeService();
+  const msg = { status: 'FAILED', MessageUpdate: [] };
+  assert.equal(svc.normalizeStoredStatus(msg, 'OUTBOUND'), 'FAILED');
+});
+
+test('normalizeStoredStatus outbound sem update = SENT', () => {
+  const svc = createBareWebwhatsBridgeService();
+  const msg = { status: 'PENDING', MessageUpdate: [] };
+  assert.equal(svc.normalizeStoredStatus(msg, 'OUTBOUND'), 'SENT');
+});
+
+test('normalizeStoredStatus inbound sem status = RECEIVED', () => {
+  const svc = createBareWebwhatsBridgeService();
+  const msg = { status: null, MessageUpdate: [] };
+  assert.equal(svc.normalizeStoredStatus(msg, 'INBOUND'), 'RECEIVED');
+});
+
+test('normalizeStoredStatus prefere READ sobre DELIVERY_ACK quando ambos em MessageUpdate', () => {
+  const svc = createBareWebwhatsBridgeService();
+  const msg = { status: 'DELIVERY_ACK', MessageUpdate: [{ status: 'READ' }] };
+  assert.equal(svc.normalizeStoredStatus(msg, 'OUTBOUND'), 'READ');
+});

@@ -554,6 +554,19 @@ export class WhatsAppModalService {
       return availabilityResponse;
     }
 
+    // STATUS HONESTO (Trilha 1 — Fundação de confiança):
+    // Quando há userId, a FONTE DE VERDADE é a sessão `WhatsAppConnectionSession` do
+    // usuário (lida por `buildUserStoredSnapshot`). Se a sessão já diz disconnected/offline,
+    // NÃO consultamos o motor — evitamos que uma instância zumbi (delete falhou no motor)
+    // ou o campo legado `company.whatsappModalStatus` (que persistSnapshot com userId
+    // NÃO atualiza) reporte "Conectado" para um número já desconectado pelo vendedor.
+    if (userId && (storedSnapshot.status === 'disconnected' || storedSnapshot.status === 'offline')) {
+      return this.buildResponse(baseCompany, storedSnapshot, {
+        success: true,
+        providerHealth: 'healthy',
+      });
+    }
+
     try {
       const snapshot = await this.fetchLiveSnapshot(company, { includeQr: false }, userId);
       return this.buildResponse(baseCompany, snapshot, {

@@ -103,10 +103,31 @@ export function whatsappModalStatusLabel(value?: string | null) {
   if (normalized === "starting") return "Iniciando";
   if (normalized === "waiting_qr") return "Aguardando QR";
   if (normalized === "connected") return "Conectado";
-  if (normalized === "reconnecting") return "Aguardando reconexao";
+  if (normalized === "reconnecting") return "Reconectando";
   if (normalized === "disconnected") return "Desconectado";
   if (normalized === "error") return "Erro";
   return "Offline";
+}
+
+// Rótulo curto para o pill do inbox:
+//   Conectado → sessão viva
+//   Reconectando → motor indisponível mas sessão era ativa (grace)
+//   Caiu (reescaneie) → sessão encerrada / erro / não iniciado
+export function whatsappPillLabel(status?: string | null): string {
+  const s = String(status || "").trim().toLowerCase();
+  if (s === "connected") return "Conectado";
+  if (s === "reconnecting") return "Reconectando";
+  if (s === "disconnected" || s === "error" || s === "offline") return "Caiu (reescaneie)";
+  if (s === "starting" || s === "waiting_qr") return "Iniciando";
+  return "Verificar";
+}
+
+// Variante de classe de tag conforme status: teal=ok, warn=transitório, red=caído
+export function whatsappPillVariant(status?: string | null): string {
+  const s = String(status || "").trim().toLowerCase();
+  if (s === "connected") return " teal";
+  if (s === "reconnecting" || s === "starting" || s === "waiting_qr") return " warn";
+  return " red";
 }
 
 export function formatWhatsAppDateTime(value?: string | null) {
