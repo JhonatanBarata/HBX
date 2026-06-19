@@ -73,10 +73,7 @@ class UpdateMasterBillingPolicyDto {
   @IsNumber({ maxDecimalPlaces: 2 })
   annualPlanDiscountPercent?: number;
 
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 2 })
-  extraSeatMonthlyAmount?: number;
+  // Assento extra saiu da política global — agora é por-plano no catálogo (Self-Checkout).
 
   @IsOptional()
   @Type(() => Boolean)

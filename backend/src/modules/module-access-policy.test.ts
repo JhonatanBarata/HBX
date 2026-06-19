@@ -65,7 +65,7 @@ test('active/PAID releases modules by selected plan', () => {
 test('commercial plan catalog keeps new HBX names and premium entitlements', () => {
   assert.equal(getCommercialPlanTitle(COMMERCIAL_PLAN_KEYS.LITE), 'HBX List');
   assert.equal(getCommercialPlanTitle(COMMERCIAL_PLAN_KEYS.PADRAO), 'HBX Lead Plus');
-  assert.equal(getCommercialPlanTitle(COMMERCIAL_PLAN_KEYS.MELHOR), 'HBX Full — Bot e IA');
+  assert.equal(getCommercialPlanTitle(COMMERCIAL_PLAN_KEYS.MELHOR), 'Implantação');
 
   assert.equal(COMMERCIAL_PLAN_ENTITLEMENT_KEYS[COMMERCIAL_PLAN_KEYS.LITE].includes(COMMERCIAL_ENTITLEMENT_KEYS.NIGHT_FACTORY), false);
   assert.equal(COMMERCIAL_PLAN_ENTITLEMENT_KEYS[COMMERCIAL_PLAN_KEYS.PADRAO].includes(COMMERCIAL_ENTITLEMENT_KEYS.NIGHT_FACTORY), true);

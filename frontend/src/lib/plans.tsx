@@ -22,6 +22,8 @@ export type PublicPlan = {
   badge: string | null;
   recommended: boolean;
   features: string[];
+  // Self-Checkout (F2): master pausou o plano → card embaçado/inclicável.
+  paused?: boolean;
 };
 
 export const FALLBACK_PLANS: PublicPlan[] = [

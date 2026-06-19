@@ -34,13 +34,18 @@ import {
   COMMERCIAL_PLAN_MODULE_KEYS,
   COMMERCIAL_PLAN_QUOTAS,
   COMMERCIAL_PLAN_TRIAL_DAYS,
+  applyCommercialAnnualDiscountOverride,
+  applyCommercialCatalogOverrides,
   buildCommercialPlansCatalog,
+  getCommercialAnnualDiscountPercent,
+  getCommercialPlanExtraUserMonthlyPrice,
+  getCommercialPlanIncludedUsers,
   getCommercialPlanMonthlyPrice,
   getCommercialPlanTitle,
   normalizeCommercialPlanKey,
   type ActiveCommercialPlanKey,
+  type CommercialPlanOverride,
 } from '../commercial-plans/commercial-plan-catalog';
-import { resolveExtraSeatMonthlyAmount } from '../commercial-plans/seat-billing.util';
 import { ensureVendasComplaintsRuntimeSchema } from '../vendas/vendas-complaints-runtime';
 import {
   buildModuleCapabilityKey,
@@ -365,20 +370,19 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     return 0;
   }
 
-  private resolveExtraSeatMonthlyAmount(pricingPolicy: any) {
-    return this.normalizeCurrencyAmount(resolveExtraSeatMonthlyAmount(pricingPolicy?.extraSeatMonthlyAmount));
-  }
-
-  private buildSeatBillingSnapshot(company: any, billingCycle: string, pricingPolicy?: any) {
+  private buildSeatBillingSnapshot(company: any, billingCycle: string, _pricingPolicy?: any) {
     const activeUsers = Array.isArray(company?.users)
       ? company.users.filter((user: any) => {
           const role = String(user?.role || '').trim().toUpperCase();
           return Boolean(user?.isActive) && !user?.deactivatedAt && !Boolean(user?.isSystemMaster) && (role === 'USER' || role === 'ADMIN');
         }).length
       : 0;
-    const includedActiveUsers = 2;
+    // Assentos inclusos e valor do extra vêm do CATÁLOGO por-plano (fonte única,
+    // overlay do Self-Checkout). Antes: incluído fixo em 2 e extra da policy global.
+    const planKey = normalizeCommercialPlanKey(company?.selectedPlanKey);
+    const includedActiveUsers = getCommercialPlanIncludedUsers(planKey);
     const extraActiveUsers = Math.max(0, activeUsers - includedActiveUsers);
-    const extraSeatMonthlyAmount = this.resolveExtraSeatMonthlyAmount(pricingPolicy);
+    const extraSeatMonthlyAmount = this.normalizeCurrencyAmount(getCommercialPlanExtraUserMonthlyPrice(planKey));
     const cycleMultiplier = billingCycle === 'ANNUAL' ? 12 : 1;
     const extraSeatCycleAmount = this.normalizeCurrencyAmount(
       extraActiveUsers * extraSeatMonthlyAmount * cycleMultiplier,
@@ -431,7 +435,8 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
   private buildCompanyFinanceSnapshot(company: any, companyLedgerRows: BillingLedgerEntryRow[], pricingPolicy?: any) {
     const monthlyValue = this.resolveCompanyMonthlyValue(company);
     const billingCycle = this.normalizeBillingCycle(company?.billingCycle);
-    const annualPlanDiscountPercent = this.normalizePercentValue(pricingPolicy?.annualPlanDiscountPercent || 0);
+    // Desconto anual: fonte ÚNICA no catálogo (global). O master enxerga o efetivo.
+    const annualPlanDiscountPercent = this.normalizePercentValue(getCommercialAnnualDiscountPercent());
     const manualDiscountPercent = this.normalizePercentValue(company?.manualDiscountPercent || 0);
     const referral = this.buildReferralSnapshot(company, pricingPolicy);
     const freeMonths = Math.max(0, Math.trunc(Number(company?.freeMonths || 0) || 0));
@@ -1159,10 +1164,8 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
       input?.referralDiscountActive !== undefined
         ? Boolean(input.referralDiscountActive)
         : Boolean((current as any)?.referralDiscountActive);
-    const extraSeatMonthlyAmount =
-      input?.extraSeatMonthlyAmount !== undefined
-        ? this.normalizeCurrencyAmount(input.extraSeatMonthlyAmount)
-        : this.normalizeCurrencyAmount((current as any)?.extraSeatMonthlyAmount || 0);
+    // Assento extra NÃO é mais política global: vive por-plano no catálogo (Acentos do
+    // Self-Checkout). A coluna fica órfã no DB (sem migration destrutiva); não a tocamos.
     const referralDiscountPercent =
       input?.referralDiscountPercent !== undefined
         ? this.normalizePercentValue(input.referralDiscountPercent)
@@ -1178,12 +1181,14 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
       where: { key: current.key },
       data: {
         annualPlanDiscountPercent,
-        extraSeatMonthlyAmount,
         referralDiscountActive,
         referralDiscountPercent,
         referralDiscountMode,
       },
     });
+
+    // Desconto anual reflete na vitrine/billing na hora (fonte única no catálogo).
+    await this.refreshCommercialCatalogOverlay().catch(() => undefined);
 
     await this.masterContextService.registerSupportAction({
       masterUserId,
@@ -1191,7 +1196,6 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
       action: 'MASTER_BILLING_POLICY_UPDATED',
       metadata: {
         annualPlanDiscountPercent,
-        extraSeatMonthlyAmount,
         referralDiscountActive,
         referralDiscountPercent,
         referralDiscountMode,
@@ -1523,6 +1527,12 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     await this.ensureDatabaseAutomation();
     await this.syncCompanyModulesForAllCompanies();
     await this.ensureTrialBundleForAllCompanies();
+    // Self-Checkout (F2): hidrata o overlay editável do catálogo a partir do DB
+    // para que preço/assentos/trial/nome/pausa editados pelo master reflitam nos
+    // getters síncronos (vitrine pública + billing). Falha aqui não derruba o boot.
+    await this.refreshCommercialCatalogOverlay().catch((err) =>
+      this.logger.warn(`Falha ao hidratar overlay do catálogo: ${err instanceof Error ? err.message : err}`),
+    );
     // Sweep de degustação: reverte taste expirados a cada 30 min.
     this.tasteSweepHandle = setInterval(() => { void this.runTasteSweep(); }, 30 * 60 * 1000);
     setTimeout(() => { void this.runTasteSweep(); }, 8000);
@@ -3772,7 +3782,18 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
       try { storedInfo = JSON.parse(cfg.planInfoJson); } catch { storedInfo = null; }
     }
     const planInfo = this.mergePlanInfo(this.resolvePlanInfoBase(planKey), storedInfo);
-    return { planKey, items, total: items.length, planInfo };
+    // Self-Checkout (F2): nome/observação/pausa vivem no mesmo planInfoJson.
+    const meta = (storedInfo && typeof storedInfo === 'object' && !Array.isArray(storedInfo))
+      ? (storedInfo as Record<string, unknown>) : {};
+    const catalogEntry = buildCommercialPlansCatalog({ includeHidden: true }).find((p) => p.key === planKey);
+    const planMeta = {
+      title: typeof meta.title === 'string' && meta.title.trim() ? meta.title : getCommercialPlanTitle(planKey),
+      observation: typeof meta.observation === 'string'
+        ? meta.observation
+        : ((catalogEntry as { observation?: string } | undefined)?.observation ?? ''),
+      status: meta.status === 'paused' ? 'paused' : 'available',
+    };
+    return { planKey, items, total: items.length, planInfo, planMeta };
   }
 
   async setPlanModulesForMaster(
@@ -3794,9 +3815,16 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
       if (assignable.has(key)) molho[key] = Boolean(v);
     }
     const data: { modulesJson: string; planInfoJson?: string } = { modulesJson: JSON.stringify(molho) };
-    let savedInfo: Record<string, number> | null = null;
+    let savedInfo: Record<string, unknown> | null = null;
     if (input?.planInfo && typeof input.planInfo === 'object') {
-      savedInfo = this.mergePlanInfo(this.resolvePlanInfoBase(planKey), input.planInfo);
+      const numeric = this.mergePlanInfo(this.resolvePlanInfoBase(planKey), input.planInfo);
+      savedInfo = { ...numeric };
+      const pi = input.planInfo as Record<string, unknown>;
+      // Self-Checkout (F2): nome/observação/pausa convivem com os numéricos no
+      // mesmo planInfoJson — sem tabela nova.
+      if (typeof pi.title === 'string' && pi.title.trim()) savedInfo.title = pi.title.trim();
+      if (typeof pi.observation === 'string') savedInfo.observation = pi.observation;
+      if (pi.status === 'paused' || pi.status === 'available') savedInfo.status = pi.status;
       data.planInfoJson = JSON.stringify(savedInfo);
     }
     await this.prisma.planModuleConfig.upsert({
@@ -3804,7 +3832,48 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
       update: data,
       create: { planKey, ...data },
     });
+    // Reflete imediatamente na vitrine pública e no billing (escada front ↔ backend).
+    await this.refreshCommercialCatalogOverlay();
     return { ok: true, planKey, modules: molho, ...(savedInfo ? { planInfo: savedInfo } : {}) };
+  }
+
+  // Self-Checkout (F2): lê PlanModuleConfig.planInfoJson de todos os planos e
+  // empurra para o overlay do catálogo. Idempotente; roda no boot e após editar.
+  async refreshCommercialCatalogOverlay() {
+    let rows: Array<{ planKey: string; planInfoJson: string | null }> = [];
+    try {
+      rows = await this.prisma.planModuleConfig.findMany({ select: { planKey: true, planInfoJson: true } });
+    } catch {
+      rows = [];
+    }
+    const entries = rows.map((row) => {
+      let parsed: Record<string, unknown> | null = null;
+      if (row.planInfoJson) {
+        try {
+          const j = JSON.parse(row.planInfoJson);
+          parsed = j && typeof j === 'object' && !Array.isArray(j) ? j : null;
+        } catch { parsed = null; }
+      }
+      const override: CommercialPlanOverride = {};
+      if (parsed) {
+        if (typeof parsed.title === 'string') override.title = parsed.title;
+        if (typeof parsed.observation === 'string') override.observation = parsed.observation;
+        if (parsed.status === 'paused' || parsed.status === 'available') override.status = parsed.status;
+        if (parsed.monthlyPrice != null) override.monthlyPrice = Number(parsed.monthlyPrice);
+        if (parsed.includedUsers != null) override.includedUsers = Number(parsed.includedUsers);
+        if (parsed.extraUserMonthly != null) override.extraUserMonthly = Number(parsed.extraUserMonthly);
+        if (parsed.trialDays != null) override.trialDays = Number(parsed.trialDays);
+      }
+      return { planKey: row.planKey, override };
+    });
+    applyCommercialCatalogOverrides(entries);
+    // Desconto anual global (Política comercial) → overlay do catálogo (fonte única).
+    try {
+      const cfg = await getMasterGlobalIntegrationConfig(this.prisma);
+      applyCommercialAnnualDiscountOverride((cfg as any)?.annualPlanDiscountPercent);
+    } catch {
+      applyCommercialAnnualDiscountOverride(null);
+    }
   }
 
   async setCompanyModuleByMaster(masterUserId: number, companyId: number, moduleKey: string, enabled: boolean) {

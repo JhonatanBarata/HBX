@@ -54,6 +54,77 @@ export const COMMERCIAL_PRICING = {
   annualDiscountPercent: 20,
 } as const;
 
+// ── Self-Checkout (F2): overlay editável do catálogo ─────────────────────────
+// O catálogo nasce em CÓDIGO (base abaixo). O master edita por plano em
+// PlanModuleConfig.planInfoJson; o backend carrega esses overrides para CÁ no
+// boot e a cada edição (modules.service.refreshCommercialCatalogOverlay). Os
+// getters síncronos consultam o overlay PRIMEIRO e caem na base se não houver
+// override — fonte ÚNICA, empresa só aponta plano+ciclo. Sem overlay carregado
+// (boot incompleto) os getters seguem na base: nunca vaza preço errado.
+export type CommercialPlanOverride = {
+  title?: string;
+  observation?: string;
+  status?: 'available' | 'paused';
+  monthlyPrice?: number;
+  includedUsers?: number;
+  extraUserMonthly?: number;
+  trialDays?: number;
+};
+
+const COMMERCIAL_CATALOG_OVERRIDES = new Map<ActiveCommercialPlanKey, CommercialPlanOverride>();
+
+export function applyCommercialCatalogOverrides(
+  entries: Array<{ planKey: unknown; override: CommercialPlanOverride | null | undefined }>,
+) {
+  COMMERCIAL_CATALOG_OVERRIDES.clear();
+  for (const entry of entries || []) {
+    const ov = entry?.override;
+    if (!ov || typeof ov !== 'object') continue;
+    const key = normalizeCommercialPlanKey(entry?.planKey);
+    const clean: CommercialPlanOverride = {};
+    if (typeof ov.title === 'string' && ov.title.trim()) clean.title = ov.title.trim();
+    if (typeof ov.observation === 'string') clean.observation = ov.observation;
+    if (ov.status === 'paused' || ov.status === 'available') clean.status = ov.status;
+    if (ov.monthlyPrice != null && Number.isFinite(Number(ov.monthlyPrice))) clean.monthlyPrice = toCommercialCurrency(ov.monthlyPrice);
+    if (ov.includedUsers != null && Number.isFinite(Number(ov.includedUsers))) clean.includedUsers = Math.max(0, Math.trunc(Number(ov.includedUsers)));
+    if (ov.extraUserMonthly != null && Number.isFinite(Number(ov.extraUserMonthly))) clean.extraUserMonthly = toCommercialCurrency(ov.extraUserMonthly);
+    if (ov.trialDays != null && Number.isFinite(Number(ov.trialDays))) clean.trialDays = Math.max(0, Math.trunc(Number(ov.trialDays)));
+    COMMERCIAL_CATALOG_OVERRIDES.set(key, clean);
+  }
+}
+
+// Desconto do plano anual: GLOBAL e fonte ÚNICA aqui. O master edita na Política
+// comercial (Self-Checkout); o valor persistido alimenta este override no boot/edição.
+// 0/ausente → cai no default do catálogo (não vira "sem desconto" por engano).
+let COMMERCIAL_ANNUAL_DISCOUNT_OVERRIDE: number | null = null;
+
+export function applyCommercialAnnualDiscountOverride(percent: unknown) {
+  const n = Number(percent);
+  COMMERCIAL_ANNUAL_DISCOUNT_OVERRIDE = Number.isFinite(n) && n > 0 ? n : null;
+}
+
+export function getCommercialAnnualDiscountPercent(): number {
+  return COMMERCIAL_ANNUAL_DISCOUNT_OVERRIDE != null
+    ? COMMERCIAL_ANNUAL_DISCOUNT_OVERRIDE
+    : COMMERCIAL_PRICING.annualDiscountPercent;
+}
+
+export function clearCommercialCatalogOverrides() {
+  COMMERCIAL_CATALOG_OVERRIDES.clear();
+  COMMERCIAL_ANNUAL_DISCOUNT_OVERRIDE = null;
+}
+
+export function getCommercialCatalogOverride(planKey: unknown): CommercialPlanOverride | null {
+  return COMMERCIAL_CATALOG_OVERRIDES.get(normalizeCommercialPlanKey(planKey)) || null;
+}
+
+// Plano pausado (Self-Checkout): card embaçado/inclicável na vitrine e checkout
+// barrado. Implantação (contactOnly) nunca passa pelo self-checkout, então pausa
+// nela é inócua, mas o estado é respeitado igual.
+export function isCommercialPlanPaused(planKey: unknown): boolean {
+  return getCommercialCatalogOverride(planKey)?.status === 'paused';
+}
+
 export const COMMERCIAL_PLAN_QUOTAS: Record<ActiveCommercialPlanKey, {
   googleSearchesPerDay: number;
   cardsPerMonth: number;
@@ -116,6 +187,8 @@ export const COMMERCIAL_PLAN_TRIAL_DAYS: Record<ActiveCommercialPlanKey, number>
 
 export function getCommercialPlanTrialDays(planKey: unknown) {
   const normalized = normalizeCommercialPlanKey(planKey);
+  const override = getCommercialCatalogOverride(normalized);
+  if (override && override.trialDays != null) return override.trialDays;
   return COMMERCIAL_PLAN_TRIAL_DAYS[normalized] ?? 0;
 }
 
@@ -137,11 +210,17 @@ export const COMMERCIAL_PLAN_EXTRA_USER_MONTHLY: Record<ActiveCommercialPlanKey,
 
 export function getCommercialPlanIncludedUsers(planKey: unknown) {
   const normalized = normalizeCommercialPlanKey(planKey);
+  const override = getCommercialCatalogOverride(normalized);
+  if (override && override.includedUsers != null) return override.includedUsers;
   return COMMERCIAL_PLAN_INCLUDED_USERS[normalized] ?? 1;
 }
 
 export function getCommercialPlanExtraUserMonthlyPrice(planKey: unknown) {
   const normalized = normalizeCommercialPlanKey(planKey);
+  const override = getCommercialCatalogOverride(normalized);
+  // Sem assento padrão (<=0) não existe assento extra (regra do dono).
+  if (getCommercialPlanIncludedUsers(normalized) <= 0) return 0;
+  if (override && override.extraUserMonthly != null) return override.extraUserMonthly;
   return COMMERCIAL_PLAN_EXTRA_USER_MONTHLY[normalized] ?? 0;
 }
 
@@ -248,6 +327,8 @@ export function resolveCommercialPlanKeyForCapabilities(input: {
 
 export function getCommercialPlanMonthlyPrice(planKey: unknown) {
   const normalized = normalizeCommercialPlanKey(planKey);
+  const override = getCommercialCatalogOverride(normalized);
+  if (override && override.monthlyPrice != null) return override.monthlyPrice;
   if (normalized === COMMERCIAL_PLAN_KEYS.LITE) return COMMERCIAL_PRICING.liteMonthly;
   if (normalized === COMMERCIAL_PLAN_KEYS.PRO) return COMMERCIAL_PRICING.proMonthly;
   if (normalized === COMMERCIAL_PLAN_KEYS.MELHOR) return COMMERCIAL_PRICING.melhorMonthly;
@@ -256,6 +337,8 @@ export function getCommercialPlanMonthlyPrice(planKey: unknown) {
 
 export function getCommercialPlanTitle(planKey: unknown) {
   const normalized = normalizeCommercialPlanKey(planKey);
+  const override = getCommercialCatalogOverride(normalized);
+  if (override && override.title) return override.title;
   if (normalized === COMMERCIAL_PLAN_KEYS.LITE) return 'HBX List';
   if (normalized === COMMERCIAL_PLAN_KEYS.PRO) return 'HBX Pro';
   if (normalized === COMMERCIAL_PLAN_KEYS.MELHOR) return 'Implantação';
@@ -336,7 +419,7 @@ export function computeCommercialPlanCycleAmount(planKey: unknown, billingCycleR
   const billingCycle = String(billingCycleRaw || '').trim().toUpperCase() === 'ANNUAL' ? 'ANNUAL' : 'MONTHLY';
   if (billingCycle !== 'ANNUAL') return toCommercialCurrency(monthly);
   const annualFull = monthly * 12;
-  return toCommercialCurrency(annualFull * (1 - COMMERCIAL_PRICING.annualDiscountPercent / 100));
+  return toCommercialCurrency(annualFull * (1 - getCommercialAnnualDiscountPercent() / 100));
 }
 
 export function buildCommercialPlansCatalog(options: { includeHidden?: boolean } = {}) {
@@ -477,5 +560,24 @@ export function buildCommercialPlansCatalog(options: { includeHidden?: boolean }
     },
   ];
 
-  return options.includeHidden ? catalog : catalog.filter((plan) => !plan.hidden);
+  // Self-Checkout (F2): aplica o overlay editável do master sobre a base de código.
+  // `observation` nasce com a descrição existente do plano ("já injeta tudo que
+  // existe") e vira editável; `status` carrega a pausa.
+  const withOverrides = catalog.map((plan) => {
+    const override = getCommercialCatalogOverride(plan.key);
+    return {
+      ...plan,
+      title: override?.title ?? plan.title,
+      monthlyPrice: override?.monthlyPrice ?? plan.monthlyPrice,
+      // Desconto anual é GLOBAL (fonte única) — reflete o efetivo, não o literal do plano.
+      annualDiscountPercent: getCommercialAnnualDiscountPercent(),
+      includedUsers: override?.includedUsers ?? plan.includedUsers,
+      extraUserMonthlyPrice: override?.extraUserMonthly ?? plan.extraUserMonthlyPrice,
+      trialDays: override?.trialDays ?? plan.trialDays,
+      status: override?.status === 'paused' ? 'paused' : plan.status,
+      observation: override?.observation ?? plan.description,
+    };
+  });
+
+  return options.includeHidden ? withOverrides : withOverrides.filter((plan) => !plan.hidden);
 }

@@ -19,8 +19,10 @@ import {
   PENDING_COMMERCIAL_ENTITLEMENT_STATUS,
   buildCommercialPlansCatalog,
   classifyPlanChange,
+  getCommercialAnnualDiscountPercent,
   getCommercialPlanMonthlyPrice,
   isCommercialEntitlementActive,
+  isCommercialPlanPaused,
   normalizeCommercialPlanKey,
   resolveCommercialPlanKeyForCapabilities,
   toCommercialCurrency,
@@ -158,7 +160,7 @@ export class CommercialPlansService {
     const extraUsersMonthlyAmount = canBillExtraUsers ? seats.extraSeatCycleAmount : 0;
     const monthlyTotal = toCommercialCurrency(baseMonthly + extraUsersMonthlyAmount);
     const baseCycleAmount = billingCycle === 'ANNUAL'
-      ? toCommercialCurrency(baseMonthly * 12 * (1 - COMMERCIAL_PRICING.annualDiscountPercent / 100))
+      ? toCommercialCurrency(baseMonthly * 12 * (1 - getCommercialAnnualDiscountPercent() / 100))
       : baseMonthly;
     const cycleAmount = toCommercialCurrency(baseCycleAmount + extraUsersMonthlyAmount);
 
@@ -694,6 +696,13 @@ export class CommercialPlansService {
       throw new BadRequestException({
         code: 'CONTACT_ONLY_PLAN',
         message: 'Implantação exige contato com a HBX. Use a tela de seleção de contato.',
+      });
+    }
+    // Self-Checkout (F2): plano pausado pelo master não pode ser contratado.
+    if (isCommercialPlanPaused(normalizedPlanKey)) {
+      throw new BadRequestException({
+        code: 'PLAN_PAUSED',
+        message: 'Este plano está temporariamente indisponível. Tente novamente mais tarde.',
       });
     }
     // Sempre false aqui: MELHOR foi barrado acima. Mantido para o branch de

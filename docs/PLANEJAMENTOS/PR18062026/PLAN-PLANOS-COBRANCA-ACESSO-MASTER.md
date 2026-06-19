@@ -75,7 +75,18 @@
   refletir em `modules.service` e na lista de módulos do MasterEd.
 - **Checks:** `cd backend && npm run prisma:validate && npm run build`; `cd frontend && npm run lint && npm run build`.
 
-### F2 — Catálogo editável (Self-Checkout)  ◀ TRILHA BACKEND PRÓPRIA + TESTE
+### F2 — Catálogo editável (Self-Checkout)  ✅ FEITO 19/06 (orquestrador Opus)
+
+> **Entregue:** overlay editável em `commercial-plan-catalog.ts` (getters + catálogo
+> leem override; fallback seguro na base) hidratado de `PlanModuleConfig.planInfoJson`
+> no boot e a cada PUT (`modules.service.refreshCommercialCatalogOverlay`). Novos campos
+> nome/observação/**status (paused)** no mesmo JSON. Vitrine pública (`/?ver=planos`)
+> embaça/inclica card pausado (`plan-card.tsx` + `.site-plan2.is-paused`); checkout
+> barra plano pausado (`commercial-plans.service.selectPlanForUser`). UI nova **janela
+> Self-Checkout** (4 guias: Planos/Preços e ciclo/Módulos/Acentos) — `PlanosEditor`
+> legado do Sistema removido (sem duplicar). Teste novo no catálogo (overlay reflete +
+> pausa + fallback). 4 checks verdes. **Aberto:** aplicar limites de quota (régua) segue
+> fora deste plano (comentário em `modules.service.resolvePlanInfoBase` mantém).
 - **Escopo:** master edita por plano — nome, observação, **ativo/pausado**, preço, ciclo,
   módulos inclusos, assentos. Reflete no app e na página pública (`?ver=planos`).
 - **Arquitetura limpa:** tabela DB sobrepondo o catálogo (seed = valores de hoje), **fonte
@@ -110,12 +121,40 @@
   contate suporte (clique aqui)" + **dispara WhatsApp pro master** (quem pediu + telefone/empresa).
   (Master já tem chip de WhatsApp.) Quebrar em sub-itens.
 
-### F6 — Cobrança de assento extra  ◀ TRILHA BACKEND PRÓPRIA + TESTE (POR ÚLTIMO)
-- Implementa decisão 3+4: cartão on-file (MP recorrente), recálculo da assinatura, **cobrança
-  proporcional avulsa na hora**, idempotência, **paga-primeiro** (reprovou → não libera).
-- "+N acessos" = bloco pago; gerente preenche depois. Remover pessoa libera o assento pra
-  reuso dentro do cap; recorrente só cai se admin remover **capacidade**.
-- **Risco máximo:** provedor de pagamento. Confirmar cartão on-file no MP antes.
+### F6 — Cobrança de assento extra  ✅ NÚCLEO FEITO 19/06 (orquestrador Opus)
+
+> **Entregue:** `computeImmediateExtraSeatCharge` (puro+teste) = `extraSeatMonthly × N ×
+> diasRestantes/diasDoMês` — valor do assento vem do catálogo (reflete F2). Serviço
+> `financeiro.purchaseExtraSeats` espelha o upgrade: **admin-gated** (`assertCanManageBilling`
+> → gerente sem billing barrado), **paga-primeiro** (seatCap só sobe com cobrança ok),
+> dry-run preview, **mock roda ponta a ponta** (cobra proporcional + sobe `seatCap`),
+> **live com cobrança>0 → `LIVE_SEAT_CHARGE_TODO`** sem mexer em nada (mesmo gate do
+> upgrade). Endpoint `POST /financeiro/subscription/extra-seats`. UI **"+N acessos"**
+> (`extra-seats-card.tsx`) na Config → Plano e cobrança (admin pagante, plano ≠ List).
+> "Valor cheio no próximo mês" já vem do seat snapshot recorrente.
+- **Aberto (mesmo da troca de plano):** validar a cobrança avulsa LIVE no Mercado Pago na
+  VPS com credenciais de teste + bump do `updatePreapproval`. Idempotência da cobrança
+  avulsa entra junto nessa validação. **Risco máximo:** provedor de pagamento.
+- "+N acessos" = bloco pago (capacidade); gerente preenche depois. Remover pessoa libera o
+  assento pra reuso dentro do cap; recorrente só cai se admin remover **capacidade**.
+
+### F2.1 — Política comercial dentro do Self-Checkout + fim de cruzamentos  ✅ FEITO 19/06
+
+> Ordem do dono 19/06: "injete a política comercial no self-checkout, não deixe repetir
+> regra". **Fonte única** estabelecida em 3 eixos que cruzavam:
+> - **Desconto anual:** era hardcoded 20 no catálogo E um campo paralelo `annualPlanDiscountPercent`
+>   na policy (mostrava 0, ignorado p/ planos comerciais — enganoso). Agora: catálogo é
+>   autoridade (`getCommercialAnnualDiscountPercent`, default 20), alimentado pela policy via
+>   overlay; aplicado em catálogo/financeiro/modules/commercial-plans/serialize. GET devolve o
+>   **efetivo** (não 0). UI migrou p/ guia **Política** do Self-Checkout.
+> - **Assento extra:** era por-plano (catálogo) E global (policy). Agora **só por-plano**
+>   (`getCommercialPlanExtraUserMonthlyPrice`, overlay) em todos os snapshots; knob global da
+>   policy removido (coluna órfã, sem migration destrutiva).
+> - **Assentos inclusos:** `modules.service.buildSeatBillingSnapshot` usava `2` hardcoded →
+>   agora `getCommercialPlanIncludedUsers(planKey)`.
+> - "Política comercial" saiu do Sistema (subtabs renumeradas); `PlanosEditor` já tinha saído.
+> - Teste novo (anual fonte única) + corrigido teste stale de título (`module-access-policy`:
+>   'HBX Full — Bot e IA' → 'Implantação'). 40 testes verdes; back+front build; catraca 510/516.
 
 ### F7 — Faxina / sem legado
 - Varredura de vestígios; o kill do `Plan` legado já cai em F2. Passo final + contínuo.

@@ -972,6 +972,33 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .site-plan2__cta.is-muted { cursor: default; opacity: 0.7; font-family: var(--font-body); font-weight: 600; font-size: 0.82rem; }
 .site-plan2__cta.is-muted:hover { border-color: color-mix(in srgb, var(--text-body) 24%, transparent); transform: none; }
 .site-plan2__cta:disabled { opacity: 0.55; cursor: default; transform: none; }
+/* Self-Checkout (F2): plano pausado pelo master — card embaçado e inclicável,
+   com o selo "Indisponível" nítido por cima. */
+.site-plan2.is-paused { pointer-events: none; cursor: not-allowed; }
+.site-plan2.is-paused > :not(.site-plan2__paused) { filter: grayscale(0.8) blur(1.5px); opacity: 0.5; }
+.site-plan2__paused { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 3; padding: 7px 16px; border-radius: 999px; font-family: var(--font-mono); font-size: 0.66rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-body); background-color: color-mix(in srgb, var(--text-body) 12%, var(--hbx-background)); border: 1px solid var(--border-hairline); white-space: nowrap; }
+
+/* Self-Checkout (master, F2): layout utilitário — sem visual solto em tela (Lei 5). */
+.sc-intro { padding: 10px 16px 0; }
+.sc-note { font-size: 0.7rem; color: var(--text-muted); line-height: 1.5; }
+.sc-msg { margin-top: 8px; font-size: 0.72rem; font-weight: 700; line-height: 1.5; }
+.sc-msg.is-ok { color: var(--hbx-brand-strong); }
+.sc-msg.is-warn { color: var(--hbx-warning); }
+.sc-tabs { padding: 8px 16px 0; }
+.sc-body { padding: 14px 16px 18px; display: grid; gap: 14px; max-width: 560px; }
+.sc-field { display: grid; gap: 6px; }
+.sc-field--sep { border-top: 1px solid var(--border-hairline); padding-top: 12px; }
+.sc-hint { font-size: 0.66rem; color: var(--text-muted); line-height: 1.5; }
+.sc-hint.is-warn { color: var(--hbx-warning); }
+.sc-check { display: flex; align-items: center; gap: 8px; font-size: 0.76rem; font-weight: 600; }
+.sc-loading { font-size: 0.74rem; color: var(--text-muted); }
+.sc-quotas { border-top: 1px solid var(--border-hairline); padding-top: 12px; display: grid; gap: 10px; }
+.sc-textarea { resize: vertical; font-family: var(--font-body); }
+.sc-mod-btn { min-height: 26px; font-size: 0.62rem; padding: 0 10px; }
+.sc-mod-btn.is-on { border-color: var(--hbx-brand); color: var(--hbx-brand-strong); }
+.sc-anual-val { color: var(--text-body); }
+.sc-seats-row { display: flex; align-items: center; gap: 8px; }
+.sc-seats-n { min-width: 36px; text-align: center; font-weight: 700; font-size: 0.92rem; font-family: var(--font-mono); }
 @media (max-width: 1100px) { .plan-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 640px) { .plan-grid { grid-template-columns: 1fr; } }
 .site-trust { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px 22px; margin-top: 22px; width: min(1240px, 100%); }
@@ -993,6 +1020,8 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .site-plan-register .reg-form { grid-column: 5; grid-row: 4; place-items: stretch; animation: site-write-in 1.5s var(--ease-out-quint) both; position: relative; z-index: 20; }
 .site-plan-register .reg-form .card { position: relative; z-index: 20; }
 .hbx-scene .site-plan-intruder { grid-column: 3; grid-row: 4; width: 100%; align-self: stretch; justify-self: stretch; animation: site-detail-from-register 0.8s var(--ease-out-quint) both; display: grid; align-content: start; gap: 16px; text-align: left; transform-origin: right center; position: relative; z-index: 4; }
+/* col4=0px gera gap duplo (44px) à direita do intruder vs 22px à esquerda — equilibra visualmente */
+.scene-planos.has-intruder:not(.has-intruder2) .site-plan-intruder { margin-left: 22px; width: calc(100% - 22px); }
 .hbx-scene .site-plan-intruder--second { grid-column: 4; }
 .site-plan-intruder__safe { align-self: end; margin-top: auto !important; font-weight: 700; text-align: center; }
 .site-plan-intruder__body { display: grid; gap: 14px; opacity: 0; animation: site-write-in 0.6s var(--ease-out-quint) 1.4s both; }
@@ -1084,6 +1113,50 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 }
 @media (prefers-reduced-motion: reduce) {
   .site-station { animation: none !important; }
+}
+
+/* ── Compact-height: zero scroll em desktops 768-900 px de altura (100% zoom)
+   Reduz padding, gap e botão ">" da .scene-center sem deformar o layout.
+   Não afeta max-width mobile (tratado nos blocos acima). ── */
+@media (max-height: 900px) {
+  .scene-center {
+    padding-top: clamp(44px, 6vh, 80px);
+    padding-bottom: clamp(20px, 3vh, 44px);
+    gap: 8px;
+  }
+  .scene-center .site-sub    { margin-top: 10px; }
+  .scene-center .site-integra { margin-top: 8px; }
+  .scene-center .site-metrics { margin-top: 10px; }
+  .scene-next { width: 80px; height: 80px; margin-top: 14px; }
+  .scene-next .site-ic { width: 40px; height: 40px; }
+  .scene-next__hint { font-size: 0.55rem; }
+  .site-integra { gap: 8px; }
+  .site-integra .site-station { padding: 10px 12px; gap: 4px; }
+  /* intruders (detalhe do plano) e form: todos rolam internamente, página não rola */
+  .site-plan-intruder {
+    max-height: calc(100dvh - 110px);
+    overflow-y: auto;
+  }
+  .site-plan-register .reg-form .card {
+    max-height: calc(100dvh - 47px);
+    overflow-y: auto;
+    padding: 18px 22px;
+    gap: 10px;
+  }
+  /* campos do form de cadastro: mais compactos sem comprimir o input */
+  .site-plan-register .reg-form .card .f {
+    gap: 3px;
+  }
+  /* bv-card (Implantação) dentro do reg-form: cabe na coluna e rola internamente */
+  .site-plan-register .reg-form .bv-card {
+    width: 100%;
+    max-height: calc(100dvh - 110px);
+    overflow-y: auto;
+  }
+  /* rows 1-3 invisíveis geram 3 × row-gap implícitos — zeramos no estado is-register */
+  .scene-planos:is(.is-register, .is-detailReturning, .is-detail2Returning, .is-returning, .is-restoring) {
+    row-gap: 0;
+  }
 }
 
 /* ============================================================

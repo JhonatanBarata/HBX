@@ -5,7 +5,18 @@ import {
   COMMERCIAL_PLAN_KEYS,
   COMMERCIAL_PRICING,
   applyCommissionCap,
+  applyCommercialAnnualDiscountOverride,
+  applyCommercialCatalogOverrides,
   buildCommercialPlansCatalog,
+  clearCommercialCatalogOverrides,
+  computeCommercialPlanCycleAmount,
+  getCommercialAnnualDiscountPercent,
+  getCommercialPlanExtraUserMonthlyPrice,
+  getCommercialPlanIncludedUsers,
+  getCommercialPlanMonthlyPrice,
+  getCommercialPlanTitle,
+  getCommercialPlanTrialDays,
+  isCommercialPlanPaused,
 } from './commercial-plan-catalog';
 
 test('HBX commercial catalog exposes package prices and quotas', () => {
@@ -68,6 +79,81 @@ test('HBX commercial catalog exposes package prices and quotas', () => {
   assert.equal(melhor?.quotas?.googleSearchesPerDay, 6);
   assert.equal(melhor?.quotas?.cardsPerMonth, 5000);
   assert.equal(melhor?.quotas?.dailyCardSafetyLimit, 250);
+});
+
+test('Self-Checkout (F2): overlay editável reflete nos getters e na vitrine', () => {
+  try {
+    // Base intacta antes de qualquer override.
+    assert.equal(getCommercialPlanMonthlyPrice(COMMERCIAL_PLAN_KEYS.PADRAO), 99.00);
+    assert.equal(isCommercialPlanPaused(COMMERCIAL_PLAN_KEYS.PADRAO), false);
+
+    applyCommercialCatalogOverrides([
+      {
+        planKey: COMMERCIAL_PLAN_KEYS.PADRAO,
+        override: {
+          title: 'HBX Lead Turbo',
+          observation: 'Promo de junho',
+          monthlyPrice: 129.9,
+          includedUsers: 4,
+          extraUserMonthly: 19.9,
+          trialDays: 7,
+        },
+      },
+      { planKey: COMMERCIAL_PLAN_KEYS.LITE, override: { status: 'paused' } },
+    ]);
+
+    // Getters síncronos (billing/vitrine) leem o override.
+    assert.equal(getCommercialPlanMonthlyPrice(COMMERCIAL_PLAN_KEYS.PADRAO), 129.9);
+    assert.equal(getCommercialPlanTitle(COMMERCIAL_PLAN_KEYS.PADRAO), 'HBX Lead Turbo');
+    assert.equal(getCommercialPlanIncludedUsers(COMMERCIAL_PLAN_KEYS.PADRAO), 4);
+    assert.equal(getCommercialPlanExtraUserMonthlyPrice(COMMERCIAL_PLAN_KEYS.PADRAO), 19.9);
+    assert.equal(getCommercialPlanTrialDays(COMMERCIAL_PLAN_KEYS.PADRAO), 7);
+
+    // buildCommercialPlansCatalog reflete título, preço, observação e pausa.
+    const fullCatalog = buildCommercialPlansCatalog({ includeHidden: true });
+    const padrao = fullCatalog.find((plan) => plan.key === COMMERCIAL_PLAN_KEYS.PADRAO);
+    assert.equal(padrao?.title, 'HBX Lead Turbo');
+    assert.equal(padrao?.monthlyPrice, 129.9);
+    assert.equal((padrao as { observation?: string })?.observation, 'Promo de junho');
+    assert.equal(padrao?.includedUsers, 4);
+
+    const lite = fullCatalog.find((plan) => plan.key === COMMERCIAL_PLAN_KEYS.LITE);
+    assert.equal(lite?.status, 'paused');
+    assert.equal(isCommercialPlanPaused(COMMERCIAL_PLAN_KEYS.LITE), true);
+    // Plano sem override mantém a base.
+    assert.equal(getCommercialPlanMonthlyPrice(COMMERCIAL_PLAN_KEYS.PRO), 249.00);
+
+    // Limpar volta tudo à base de código (fallback seguro).
+    clearCommercialCatalogOverrides();
+    assert.equal(getCommercialPlanMonthlyPrice(COMMERCIAL_PLAN_KEYS.PADRAO), 99.00);
+    assert.equal(getCommercialPlanTitle(COMMERCIAL_PLAN_KEYS.PADRAO), 'HBX Lead Plus');
+    assert.equal(isCommercialPlanPaused(COMMERCIAL_PLAN_KEYS.LITE), false);
+  } finally {
+    clearCommercialCatalogOverrides();
+  }
+});
+
+test('Política comercial (F2): desconto anual é fonte única (override global + default)', () => {
+  try {
+    // Default = catálogo (20%); anual de 99/mês → 99×12×0,8 = 950,40.
+    assert.equal(getCommercialAnnualDiscountPercent(), 20);
+    assert.equal(computeCommercialPlanCycleAmount(COMMERCIAL_PLAN_KEYS.PADRAO, 'ANNUAL'), 950.4);
+
+    // Master muda para 30% → reflete no cálculo e no catálogo público.
+    applyCommercialAnnualDiscountOverride(30);
+    assert.equal(getCommercialAnnualDiscountPercent(), 30);
+    assert.equal(computeCommercialPlanCycleAmount(COMMERCIAL_PLAN_KEYS.PADRAO, 'ANNUAL'), 831.6);
+    const padrao = buildCommercialPlansCatalog({ includeHidden: true }).find(p => p.key === COMMERCIAL_PLAN_KEYS.PADRAO);
+    assert.equal(padrao?.annualDiscountPercent, 30);
+
+    // 0/ausente cai no default (não vira "sem desconto" por engano).
+    applyCommercialAnnualDiscountOverride(0);
+    assert.equal(getCommercialAnnualDiscountPercent(), 20);
+    applyCommercialAnnualDiscountOverride(null);
+    assert.equal(getCommercialAnnualDiscountPercent(), 20);
+  } finally {
+    clearCommercialCatalogOverrides();
+  }
 });
 
 test('applyCommissionCap limita a comissão por fechamento ao teto do vendedor', () => {

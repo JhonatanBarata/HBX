@@ -26,9 +26,12 @@ export class CommercialPlansPublicController {
         annualDiscountPercent: plan.annualDiscountPercent,
         cardsPerMonth: plan.quotas?.cardsPerMonth ?? 0,
         headline: plan.headline,
-        description: plan.description,
+        // observation: texto editável no Self-Checkout (nasce da descrição do plano).
+        description: (plan as { observation?: string }).observation ?? plan.description,
         badge: plan.badge,
         recommended: plan.recommended,
+        // status: 'paused' → a vitrine embaça o card e bloqueia o clique (F2).
+        paused: (plan as { status?: string }).status === 'paused',
         features: plan.features,
       }));
     return { plans };

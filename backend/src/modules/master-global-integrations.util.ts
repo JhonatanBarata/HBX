@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
-import { resolveExtraSeatMonthlyAmount } from '../commercial-plans/seat-billing.util';
+import { COMMERCIAL_PRICING } from '../commercial-plans/commercial-plan-catalog';
 import { ensureMasterBillingRuntimeSchema } from './master-runtime';
 
 export const MASTER_GLOBAL_INTEGRATIONS_KEY = 'default';
@@ -210,8 +210,10 @@ export function serializeMasterGlobalIntegrationConfig(config: any) {
     whatsappConfigured: normalized.whatsappLibrary.some(
       (entry) => Boolean(normalize(entry.accessToken) && normalize(entry.phoneNumberId)),
     ),
-    annualPlanDiscountPercent: Number(config?.annualPlanDiscountPercent || 0) || 0,
-    extraSeatMonthlyAmount: resolveExtraSeatMonthlyAmount(config?.extraSeatMonthlyAmount),
+    // Desconto anual EFETIVO: 0/ausente mostra o default do catálogo (não engana com 0%).
+    annualPlanDiscountPercent: Number(config?.annualPlanDiscountPercent) > 0
+      ? Number(config.annualPlanDiscountPercent)
+      : COMMERCIAL_PRICING.annualDiscountPercent,
     referralDiscountActive: Boolean(config?.referralDiscountActive),
     referralDiscountPercent: Number(config?.referralDiscountPercent || 0) || 0,
     referralDiscountMode:

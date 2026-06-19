@@ -62,6 +62,45 @@
 - Webfonts via `<link>` no `src/app/layout.tsx` (nunca `@import` em CSS — o
   bundler descarta em silêncio).
 
+## Layout — Zero scroll em desktop (100% zoom)
+
+Toda tela de marketing (landing, esteira, módulos, planos) e toda tela do app
+**deve caber na viewport sem rolar verticalmente** em desktop 100% de zoom.
+Viewport alvo: ≥ 768 px de altura (resolução 1366×768 em tela cheia é o mínimo
+comum de laptop).
+
+### Como verificar antes de entregar
+
+```js
+// no console do navegador — retorna true se não precisa rolar
+document.documentElement.scrollHeight <= window.innerHeight
+// ou para a .scene-center da landing:
+document.querySelector('.scene-center').offsetHeight <= window.innerHeight
+```
+
+### Onde e como corrigir overflow
+
+O ajuste nunca mexe no visual macro: não "amassa" card, não troca cópia, não
+remove elemento. A técnica é **compactar espaçamento** proporcionalmente à
+altura da viewport com `@media (max-height: …)` + `clamp(vh, vh, px)`:
+
+- **Arquivo:** `frontend/src/app/hbx-theme/screens.css`
+- **Bloco existente:** `@media (max-height: 900px)` (perto do fim do arquivo)
+  que já cuida da casca de marketing (`.scene-center`, `.scene-next`,
+  `.site-integra`). Adicione aí se a tela usa essa casca.
+- **Novas telas do app:** mesma lógica — `max-height` reduz padding/gap do
+  container principal, nunca o conteúdo em si.
+
+### Ordens
+
+1. Novo componente ou tela adicionado → testar scroll no Chrome 100% zoom antes
+   de marcar como feito.
+2. Overflow detectado → corrigir via `@media (max-height: 900px)` em
+   `screens.css`, **não** via `overflow-y: auto` no container da tela (isso
+   esconde o problema em vez de resolver).
+3. Reduzir na ordem: primeiro padding/gap da view, depois tamanho de botão de
+   navegação, por último font-size (só se realmente necessário).
+
 ## Dados e API
 
 - Client único: `src/lib/api.ts` (`apiFetch`, token em localStorage, proxy
