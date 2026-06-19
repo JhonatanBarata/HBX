@@ -44,6 +44,7 @@ import {
   computeCompanySeatBillingSnapshot,
   computeImmediateExtraSeatCharge,
 } from '../commercial-plans/seat-billing.util';
+import { reserveTrialUsageTx } from '../commercial-plans/trial-usage';
 import { resolveCompanyAccessState } from '../modules/company-access-state';
 import { MailService } from '../mail/mail.service';
 import { HbxCommissionSyncService } from '../commissions/hbx-commission-sync.service';
@@ -3199,6 +3200,27 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       await this.prisma.company.update({
         where: { id: context.companyId },
         data: companyContactData,
+      });
+    }
+
+    // F4/F7 (19/06): anti-abuso de trial RELIGADO no nascimento do trial.
+    // Telefone e CPF saíram do cadastro e chegam AQUI (checkout) — um telefone/
+    // CPF não reusa o trial grátis. Fonte única em commercial-plans/trial-usage.
+    // Só p/ planos COM trial; mesma empresa = idempotente (retry ok); reuso
+    // cross-empresa viva → 409 (TRIAL_PHONE/TAX_DOCUMENT_ALREADY_USED). Roda
+    // ANTES do provider (mock e live) pra falhar cedo, sem deixar assinatura órfã.
+    const planHasTrialWindow = Math.max(0, Math.trunc(Number(plan.trialDays) || 0)) > 0;
+    if (planHasTrialWindow && paymentProfile?.contactPhone) {
+      await reserveTrialUsageTx(this.prisma, {
+        companyId: context.companyId,
+        phoneNormalized: paymentProfile.contactPhone,
+        taxDocumentNormalized: paymentProfile.taxDocument || null,
+        contactName: paymentProfile.contactName,
+        selectedPlanKey: plan.planKey,
+        selectedByUserId: context.userId,
+        source: 'checkout_trial',
+        mode: 'activate',
+        firstTrialStartsAt: new Date(),
       });
     }
 

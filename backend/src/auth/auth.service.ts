@@ -28,6 +28,7 @@ import {
   type ActiveCommercialPlanKey,
   type CommercialPlanKey,
 } from '../commercial-plans/commercial-plan-catalog';
+import * as TrialUsage from '../commercial-plans/trial-usage';
 import { HbxCommissionSyncService } from '../commissions/hbx-commission-sync.service';
 import { isPlatformInfraCompany } from '../common/company-kind';
 import { resolveCompanyAccessState } from '../modules/company-access-state';
@@ -188,59 +189,24 @@ export class AuthService implements OnModuleInit {
     return { contactName, contactPhone, taxDocument };
   }
 
+  // Anti-abuso de trial = FONTE ÚNICA em commercial-plans/trial-usage.ts (F4
+  // 19/06): a mesma regra roda no signup E no checkout (subscription/create),
+  // onde o trial nasce. Estes wrappers preservam a assinatura usada no signup.
   private async ensureTrialPhoneAvailableTx(
     tx: any,
     companyId: number,
     phoneNormalized: string,
     mode: 'reserve' | 'activate',
   ) {
-    const existingPhoneTrial = await tx.trialPhoneUsage.findUnique({
-      where: { phoneNormalized },
-    });
-    if (!existingPhoneTrial) return null;
-    if (!existingPhoneTrial.companyId || Number(existingPhoneTrial.companyId) === Number(companyId)) {
-      return existingPhoneTrial;
-    }
-
-    const trialCompany = await tx.company.findUnique({
-      where: { id: Number(existingPhoneTrial.companyId) },
-      select: { id: true },
-    });
-    if (!trialCompany) return existingPhoneTrial;
-
-    throw new ConflictException({
-      code: 'TRIAL_PHONE_ALREADY_USED',
-      message: mode === 'activate'
-        ? 'Este telefone já utilizou o trial HBX. Escolha um plano pago para continuar.'
-        : 'Este telefone já utilizou o trial HBX. Use outro telefone ou escolha um plano pago para continuar.',
-    });
+    return TrialUsage.ensureTrialPhoneAvailableTx(tx, companyId, phoneNormalized, mode);
   }
 
-  // Anti-abuso de trial por CPF (15/06): mesmo critério do telefone — bloqueia se o CPF
-  // pertence a OUTRA empresa viva. Conta apagada (companyId SetNull) libera sozinho.
   private async ensureTrialDocumentAvailableTx(
     tx: any,
     companyId: number,
     taxDocumentNormalized: string | null,
   ) {
-    if (!taxDocumentNormalized) return;
-    const existing = await tx.trialPhoneUsage.findFirst({
-      where: {
-        taxDocumentNormalized,
-        AND: [{ companyId: { not: null } }, { companyId: { not: Number(companyId) } }],
-      },
-      select: { companyId: true },
-    });
-    if (!existing?.companyId) return;
-    const trialCompany = await tx.company.findUnique({
-      where: { id: Number(existing.companyId) },
-      select: { id: true },
-    });
-    if (!trialCompany) return;
-    throw new ConflictException({
-      code: 'TRIAL_TAX_DOCUMENT_ALREADY_USED',
-      message: 'Este CPF já utilizou o trial HBX. Use outro CPF ou escolha um plano pago para continuar.',
-    });
+    return TrialUsage.ensureTrialDocumentAvailableTx(tx, companyId, taxDocumentNormalized);
   }
 
   private async reserveSignupTrialPhoneTx(
@@ -250,35 +216,14 @@ export class AuthService implements OnModuleInit {
     selectedPlanKey: ActiveCommercialPlanKey,
     selectedByUserId?: number | null,
   ) {
-    const now = new Date();
-    const existing = await this.ensureTrialPhoneAvailableTx(tx, companyId, profile.contactPhone, 'reserve');
-    await this.ensureTrialDocumentAvailableTx(tx, companyId, profile.taxDocument || null);
-    const data = {
+    return TrialUsage.reserveTrialUsageTx(tx, {
       companyId,
+      phoneNormalized: profile.contactPhone,
       taxDocumentNormalized: profile.taxDocument || null,
-      firstTrialStartsAt: null,
-      firstTrialEndsAt: null,
+      contactName: profile.contactName,
+      selectedPlanKey,
+      selectedByUserId,
       source: 'signup_pending',
-      metadataJson: JSON.stringify({
-        acceptedTerms: true,
-        acceptedTermsAt: now.toISOString(),
-        contactName: profile.contactName,
-        taxDocumentProvided: Boolean(profile.taxDocument),
-        selectedPlanKey,
-        selectedByUserId: Number(selectedByUserId || 0) || null,
-      }),
-    };
-    if (existing) {
-      return tx.trialPhoneUsage.update({
-        where: { id: existing.id },
-        data,
-      });
-    }
-    return tx.trialPhoneUsage.create({
-      data: {
-        phoneNormalized: profile.contactPhone,
-        ...data,
-      },
     });
   }
 
