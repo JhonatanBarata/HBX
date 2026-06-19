@@ -29,6 +29,7 @@ import {
   type CommercialPlanKey,
 } from '../commercial-plans/commercial-plan-catalog';
 import * as TrialUsage from '../commercial-plans/trial-usage';
+import { evaluateSignupRisk } from './signup-risk';
 import { HbxCommissionSyncService } from '../commissions/hbx-commission-sync.service';
 import { isPlatformInfraCompany } from '../common/company-kind';
 import { resolveCompanyAccessState } from '../modules/company-access-state';
@@ -1470,7 +1471,7 @@ export class AuthService implements OnModuleInit {
     username?: string;
     email: string;
     password: string;
-  }) {
+  }, opts?: { ip?: string | null; userAgent?: string | null }) {
     const email = String(data.email || '').trim().toLowerCase();
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!email || !emailRegex.test(email)) throw new BadRequestException('E‑mail inválido. Informe um endereço de e‑mail válido para recuperação.');
@@ -1685,11 +1686,16 @@ export class AuthService implements OnModuleInit {
       rawToken,
     });
 
+    // F8 (19/06): gancho de verificação por risco (default DESLIGADO). Só desafia
+    // por telefone quando um sinal acende (e-mail descartável hoje; IP/fingerprint
+    // depois). Sem flag → never fires; resposta inalterada.
+    const riskDecision = evaluateSignupRisk({ email, ip: opts?.ip, userAgent: opts?.userAgent });
+
     // F3/F4 (19/06): o signup NÃO emite mais checkout_token. Ordem certa do
     // funil = confirma a identidade ANTES de pedir cartão. A sessão restrita de
     // checkout nasce na CONFIRMAÇÃO (confirmEmail / confirmação-WhatsApp), nunca
     // no cadastro. Pré-confirmação o funil cai na tela "aguardando confirmação".
-    return this.buildPendingEmailConfirmationResponse({
+    const pendingResponse = this.buildPendingEmailConfirmationResponse({
       userId: Number((created as any).user?.id || 0),
       email,
       username,
@@ -1709,6 +1715,9 @@ export class AuthService implements OnModuleInit {
       deliveryErrorMessage: delivery.errorMessage,
       checkoutToken: null,
     });
+    return riskDecision.requiresPhoneChallenge
+      ? { ...pendingResponse, riskChallenge: riskDecision }
+      : pendingResponse;
   }
 
   async confirmEmail(token: string, opts?: { userAgent?: string; ip?: string }) {

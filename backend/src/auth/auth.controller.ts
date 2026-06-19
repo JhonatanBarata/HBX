@@ -10,8 +10,11 @@ export class AuthController {
 
   @Post('signup')
   @Throttle({ default: { limit: 5, ttl: 60 } })
-  signup(@Body() dto: SignupDto) {
-    return this.authService.signup(dto);
+  signup(@Body() dto: SignupDto, @Req() req: any) {
+    return this.authService.signup(dto, {
+      userAgent: req?.headers?.['user-agent'],
+      ip: req?.ip || req?.headers?.['x-forwarded-for'] || req?.socket?.remoteAddress,
+    });
   }
 
   @Post('confirm-email')
